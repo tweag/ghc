@@ -6,7 +6,8 @@
 \begin{code}
 
 module ErrUtils (
-        Message, mkLocMessage, printError, pprMessageBag, pprErrMsgBag,
+        Message, mkLocMessage, printError, pprMessageBag, pprErrMsgBag, 
+        pprLocErrMsgBag,
         Severity(..),
 
         ErrMsg, WarnMsg,
@@ -149,6 +150,15 @@ pprErrMsgBag bag
   = [ let style = mkErrStyle unqual
       in withPprStyle style (d $$ e)
     | ErrMsg { errMsgShortDoc  = d,
+               errMsgExtraInfo = e,
+               errMsgContext   = unqual } <- sortMsgBag bag ]
+
+pprLocErrMsgBag :: Bag ErrMsg -> [SDoc]
+pprLocErrMsgBag bag
+  = [ let style = mkErrStyle unqual
+      in withPprStyle style (hang (ppr s) 4 (d $$ e))
+    | ErrMsg { errMsgSpans     = s:_,
+               errMsgShortDoc  = d,
                errMsgExtraInfo = e,
                errMsgContext   = unqual } <- sortMsgBag bag ]
 

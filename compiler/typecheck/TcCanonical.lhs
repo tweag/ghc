@@ -799,6 +799,11 @@ canEq d fl eqv ty1@(TyVarTy {}) ty2
 canEq d fl eqv ty1 ty2@(TyVarTy {})
   = canEqLeaf d fl eqv ty1 ty2
 
+-- See Note [Naked given applications]
+canEq d fl eqv ty1 ty2
+  | Just ty1' <- tcView ty1 = canEq d fl eqv ty1' ty2
+  | Just ty2' <- tcView ty2 = canEq d fl eqv ty1  ty2'
+
 canEq d fl eqv ty1@(TyConApp fn tys) ty2 
   | isSynFamilyTyCon fn, length tys == tyConArity fn
   = canEqLeaf d fl eqv ty1 ty2
@@ -835,16 +840,42 @@ canEq d fl eqv (TyConApp tc1 tys1) (TyConApp tc2 tys2)
 
 -- See Note [Equality between type applications]
 --     Note [Care with type applications] in TcUnify
+canEq d fl eqv (AppTy s1 t1) ty2
+  | Just (s2,t2) <- tcSplitAppTy_maybe ty2
+  = canEqAppTy d fl eqv s1 t1 s2 t2
+
+canEq d fl eqv ty1 (AppTy s2 t2)
+  | Just (s1,t1) <- tcSplitAppTy_maybe ty1
+  = canEqAppTy d fl eqv s1 t1 s2 t2
+
 canEq d fl eqv ty1 ty2
-  | Nothing <- tcView ty1  -- Naked applications ONLY
-  , Nothing <- tcView ty2  -- See Note [Naked given applications]
-  , Just (s1,t1) <- tcSplitAppTy_maybe ty1
+  | Just (s1,t1) <- tcSplitAppTy_maybe ty1
   , Just (s2,t2) <- tcSplitAppTy_maybe ty2
+  = canEqAppTy d fl eqv s1 t1 s2 t2
+
+canEq d fl eqv s1@(ForAllTy {}) s2@(ForAllTy {})
+ | tcIsForAllTy s1, tcIsForAllTy s2, 
+   Wanted {} <- fl 
+ = canEqFailure d fl eqv
+ | otherwise
+ = do { traceTcS "Ommitting decomposition of given polytype equality" (pprEq s1 s2)
+      ; return Stop }
+
+-- Finally expand any type synonym applications.
+canEq d fl eqv ty1 ty2 | Just ty1' <- tcView ty1 = canEq d fl eqv ty1' ty2
+canEq d fl eqv ty1 ty2 | Just ty2' <- tcView ty2 = canEq d fl eqv ty1 ty2'
+canEq d fl eqv _ _                               = canEqFailure d fl eqv
+
+-- Type application
+canEqAppTy :: SubGoalDepth 
+           -> CtFlavor -> EqVar -> Type -> Type -> Type -> Type
+           -> TcS StopOrContinue
+canEqAppTy d fl eqv s1 t1 s2 t2
   = ASSERT( not (isKind t1) && not (isKind t2) )
     if isGivenOrSolved fl then 
-        do { traceTcS "canEq/(app case)" $
+        do { traceTcS "canEq (app case)" $
                 text "Ommitting decomposition of given equality between: " 
-                    <+> ppr ty1 <+> text "and" <+> ppr ty2
+                    <+> ppr (AppTy s1 t1) <+> text "and" <+> ppr (AppTy s2 t2)
                    -- We cannot decompose given applications
                    -- because we no longer have 'left' and 'right'
            ; return Stop }
@@ -859,20 +890,6 @@ canEq d fl eqv ty1 ty2
                      ; return () }
            
            ; canEqEvVarsCreated d [fl,fl] [evc1,evc2] [s1,t1] [s2,t2] }
-
-
-canEq d fl eqv s1@(ForAllTy {}) s2@(ForAllTy {})
- | tcIsForAllTy s1, tcIsForAllTy s2, 
-   Wanted {} <- fl 
- = canEqFailure d fl eqv
- | otherwise
- = do { traceTcS "Ommitting decomposition of given polytype equality" (pprEq s1 s2)
-      ; return Stop }
-
--- Finally expand any type synonym applications.
-canEq d fl eqv ty1 ty2 | Just ty1' <- tcView ty1 = canEq d fl eqv ty1' ty2
-canEq d fl eqv ty1 ty2 | Just ty2' <- tcView ty2 = canEq d fl eqv ty1 ty2'
-canEq d fl eqv _ _                               = canEqFailure d fl eqv
 
 canEqFailure :: SubGoalDepth 
              -> CtFlavor -> EvVar -> TcS StopOrContinue

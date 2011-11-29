@@ -639,13 +639,19 @@ addReportAt loc msg extra_info
          (warns, errs) <- readTcRef errs_var ;
          writeTcRef errs_var (warns `snocBag` warn, errs) }
 
-addLongErrAt :: SrcSpan -> Message -> Message -> TcRn ()
-addLongErrAt loc msg extra
+mkLongErrAt :: SrcSpan -> Message -> Message -> TcRn ErrMsg
+mkLongErrAt loc msg extra
   = do { traceTc "Adding error:" (mkLocMessage loc (msg $$ extra)) ;
-         errs_var <- getErrsVar ;
          rdr_env <- getGlobalRdrEnv ;
          dflags <- getDOpts ;
-         let { err = mkLongErrMsg loc (mkPrintUnqualified dflags rdr_env) msg extra } ;
+         return $ mkLongErrMsg loc (mkPrintUnqualified dflags rdr_env) msg extra }
+
+addLongErrAt :: SrcSpan -> Message -> Message -> TcRn ()
+addLongErrAt loc msg extra = mkLongErrAt loc msg extra >>= reportError
+
+reportError :: ErrMsg -> TcRn ()
+reportError err
+  = do { errs_var <- getErrsVar ;
          (warns, errs) <- readTcRef errs_var ;
          writeTcRef errs_var (warns, errs `snocBag` err) }
 
@@ -771,9 +777,9 @@ checkNoErrs main
         }
 
 ifErrsM :: TcRn r -> TcRn r -> TcRn r
---      ifErrsM bale_out main
+--      ifErrsM bale_out normal
 -- does 'bale_out' if there are errors in errors collection
--- otherwise does 'main'
+-- otherwise does 'normal'
 ifErrsM bale_out normal
  = do { errs_var <- getErrsVar ;
         msgs <- readTcRef errs_var ;
@@ -852,6 +858,14 @@ addErrTcM (tidy_env, err_msg)
   = do { ctxt <- getErrCtxt ;
          loc  <- getSrcSpanM ;
          add_err_tcm tidy_env err_msg loc ctxt }
+
+-- Return the error message, instead of reporting it straight away
+mkErrTcM :: (TidyEnv, Message) -> TcM ErrMsg
+mkErrTcM (tidy_env, err_msg)
+  = do { ctxt <- getErrCtxt ;
+         loc  <- getSrcSpanM ;
+         err_info <- mkErrInfo tidy_env ctxt ;
+         mkLongErrAt loc err_msg err_info }
 \end{code}
 
 The failWith functions add an error message and cause failure

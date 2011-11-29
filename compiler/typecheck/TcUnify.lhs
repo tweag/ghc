@@ -646,7 +646,10 @@ unifySigmaTy origin ty1 ty2
        ; (ev_binds, co) <- checkConstraints skol_info skol_tvs [] $
                            uType origin phi1 phi2
 
-       ; return (foldr mkTcForAllCo (TcLetCo ev_binds co) skol_tvs) }
+       ; return (foldr mkTcForAllCo (TcLetCo ev_binds co) skol_tvs) } }
+  where
+    defer_or_continue True  _ = uType_defer origin ty1 ty2
+    defer_or_continue False m = m
 \end{code}
 
 Note [Care with type applications]

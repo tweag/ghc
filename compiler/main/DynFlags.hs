@@ -345,6 +345,7 @@ data WarningFlag =
    | Opt_WarnAlternativeLayoutRuleTransitional
    | Opt_WarnUnsafe
    | Opt_WarnSafe
+   | Opt_WarnTypeErrors
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -1781,7 +1782,8 @@ fWarningFlags = [
   ( "warn-wrong-do-bind",               Opt_WarnWrongDoBind, nop ),
   ( "warn-alternative-layout-rule-transitional", Opt_WarnAlternativeLayoutRuleTransitional, nop ),
   ( "warn-unsafe",                      Opt_WarnUnsafe, setWarnUnsafe ),
-  ( "warn-safe",                        Opt_WarnSafe, setWarnSafe ) ]
+  ( "warn-safe",                        Opt_WarnSafe, setWarnSafe ),
+  ( "warn-type-errors",                 Opt_WarnTypeErrors, nop ) ]
 
 -- | These @-f\<blah\>@ flags can all be reversed with @-fno-\<blah\>@
 fFlags :: [FlagSpec DynFlag]
