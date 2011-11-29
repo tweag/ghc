@@ -31,7 +31,7 @@ module TcUnify (
   matchExpectedFunTys,
   matchExpectedFunKind,
   wrapFunResCoercion,
-  failWithMisMatch,
+  wrapEqCtxt,
 
   --------------------------------
   -- Errors
@@ -147,11 +147,6 @@ matchExpectedFunTys herald arity orig_ty
       | not (isPredTy arg_ty)
       = do { (co, tys, ty_r) <- go (n_req-1) res_ty
            ; return (mkTcFunCo (mkTcReflCo arg_ty) co, arg_ty:tys, ty_r) }
-
-    go _ (TyConApp tc _)	      -- A common case
-      | not (isSynFamilyTyCon tc)
-      = do { (env,msg) <- mk_ctxt emptyTidyEnv
-           ; failWithTcM (env,msg) }
 
     go n_req ty@(TyVarTy tv)
       | ASSERT( isTcTyVar tv) isMetaTyVar tv
@@ -572,9 +567,6 @@ uType_np origin orig_ty1 orig_ty2
             else traceTc "u_tys yields coercion:" (ppr co)
        ; return co }
   where
-    bale_out :: [EqOrigin] -> TcM a
-    bale_out origin = failWithMisMatch origin
-
     go :: TcType -> TcType -> TcM TcCoercion
 	-- The arguments to 'go' are always semantically identical 
 	-- to orig_ty{1,2} except for looking through type synonyms
@@ -612,8 +604,9 @@ uType_np origin orig_ty1 orig_ty2
       | isSynFamilyTyCon tc2 = uType_defer origin ty1 ty2   
 
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
-      | tc1 == tc2	   -- See Note [TyCon app]
-      = do { cos <- uList origin uType tys1 tys2
+      -- See Note [Mismatched type lists and application decomposition]
+      | tc1 == tc2, length tys1 == length tys2
+      = do { cos <- zipWithM (uType origin) tys1 tys2
            ; return $ mkTcTyConAppCo tc1 cos }
      
 	-- See Note [Care with type applications]
@@ -634,14 +627,15 @@ uType_np origin orig_ty1 orig_ty2
       = unifySigmaTy origin ty1 ty2
 
         -- Anything else fails
-    go _ _ = bale_out origin
+    go ty1 ty2 = uType_defer origin ty1 ty2 -- failWithMisMatch origin
 
 unifySigmaTy :: [EqOrigin] -> TcType -> TcType -> TcM TcCoercion
 unifySigmaTy origin ty1 ty2
   = do { let (tvs1, body1) = tcSplitForAllTys ty1
              (tvs2, body2) = tcSplitForAllTys ty2
-       ; unless (equalLength tvs1 tvs2) (failWithMisMatch origin)
-       ; skol_tvs <- tcInstSkolTyVars tvs1
+
+       ; defer_or_continue (not (equalLength tvs1 tvs2)) $ do {
+         skol_tvs <- tcInstSkolTyVars tvs1
                   -- Get location from monad, not from tvs1
        ; let tys      = mkTyVarTys skol_tvs
              in_scope = mkInScopeSet (mkVarSet skol_tvs)
@@ -653,21 +647,6 @@ unifySigmaTy origin ty1 ty2
                            uType origin phi1 phi2
 
        ; return (foldr mkTcForAllCo (TcLetCo ev_binds co) skol_tvs) }
-
----------------
-uList :: [EqOrigin] 
-      -> ([EqOrigin] -> a -> a -> TcM b)
-      -> [a] -> [a] -> TcM [b]
--- Unify corresponding elements of two lists of types, which
--- should be of equal length.  We charge down the list explicitly so that
--- we can complain if their lengths differ.
-uList _       _     []         []        = return []
-uList origin unify (ty1:tys1) (ty2:tys2) = do { x  <- unify origin ty1 ty2;
-                                              ; xs <- uList origin unify tys1 tys2
-                                              ; return (x:xs) }
-uList origin _ _ _ = failWithMisMatch origin
-       -- See Note [Mismatched type lists and application decomposition]
-
 \end{code}
 
 Note [Care with type applications]
@@ -686,16 +665,6 @@ and not
      "Can't unify ((->) Bool) with IO"
 That is why we use the "_np" variant of uType, which does not alter the error
 message.
-
-Note [TyCon app]
-~~~~~~~~~~~~~~~~
-When we find two TyConApps, the argument lists are guaranteed equal
-length.  Reason: intially the kinds of the two types to be unified is
-the same. The only way it can become not the same is when unifying two
-AppTys (f1 a1)~(f2 a2).  In that case there can't be a TyConApp in
-the f1,f2 (because it'd absorb the app).  If we unify f1~f2 first,
-which we do, that ensures that f1,f2 have the same kind; and that
-means a1,a2 have the same kind.  And now the argument repeats.
 
 Note [Mismatched type lists and application decomposition]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1041,29 +1010,6 @@ wrapEqCtxt :: [EqOrigin] -> TcM a -> TcM a
 -- comes from the outermost item
 wrapEqCtxt []    thing_inside = thing_inside
 wrapEqCtxt items thing_inside = addErrCtxtM (unifyCtxt (last items)) thing_inside
-
----------------
-failWithMisMatch :: [EqOrigin] -> TcM a
--- Generate the message when two types fail to match,
--- going to some trouble to make it helpful.
--- We take the failing types from the top of the origin stack
--- rather than reporting the particular ones we are looking 
--- at right now
-failWithMisMatch (item:origin)
-  = wrapEqCtxt origin $
-    do	{ ty_act <- zonkTcType (uo_actual item)
-        ; ty_exp <- zonkTcType (uo_expected item)
-        ; env0 <- tcInitTidyEnv
-        ; let (env1, pp_exp) = tidyOpenType env0 ty_exp
-              (env2, pp_act) = tidyOpenType env1 ty_act
-        ; failWithTcM (env2, misMatchMsg pp_act pp_exp) }
-failWithMisMatch [] 
-  = panic "failWithMisMatch"
-
-misMatchMsg :: TcType -> TcType -> SDoc
-misMatchMsg ty_act ty_exp
-  = sep [ ptext (sLit "Couldn't match expected type") <+> quotes (ppr ty_exp)
-        , nest 12 $   ptext (sLit "with actual type") <+> quotes (ppr ty_act)]
 \end{code}
 
 

@@ -10,6 +10,7 @@ module TcErrors(
        reportUnsolved,
        warnDefaulting,
        unifyCtxt,
+       misMatchMsg,
 
        flattenForAllErrorTcS,
        solverDepthErrorTcS
@@ -464,9 +465,10 @@ addExtraInfo ctxt ty1 ty2
     extra1 = typeExtraInfoMsg (cec_encl ctxt) ty1
     extra2 = typeExtraInfoMsg (cec_encl ctxt) ty2
 
-misMatchMsg :: TcType -> TcType -> SDoc	   -- Types are already tidy
-misMatchMsg ty1 ty2 = sep [ ptext (sLit "Couldn't match type") <+> quotes (ppr ty1)
-	                  , nest 15 $ ptext (sLit "with") <+> quotes (ppr ty2)]
+misMatchMsg :: TcType -> TcType -> SDoc
+misMatchMsg ty_act ty_exp
+  = sep [ ptext (sLit "Couldn't match expected type") <+> quotes (ppr ty_exp)
+        , nest 12 $   ptext (sLit "with actual type") <+> quotes (ppr ty_act)]
 
 kindErrorMsg :: TcType -> TcType -> SDoc   -- Types are already tidy
 kindErrorMsg ty1 ty2

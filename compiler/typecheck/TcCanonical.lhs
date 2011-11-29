@@ -808,12 +808,16 @@ canEq d fl eqv ty1 ty2@(TyConApp fn tys)
 
 canEq d fl eqv (TyConApp tc1 tys1) (TyConApp tc2 tys2)
   | isDecomposableTyCon tc1 && isDecomposableTyCon tc2
-  , tc1 == tc2
-  , length tys1 == length tys2
   = -- Generate equalities for each of the corresponding arguments
-    do { let (kis1,  tys1') = span isKind tys1
+    if (tc1 /= tc2)
+    -- Fail straight away for better error messages
+    then canEqFailure d fl eqv
+    else ASSERT2 ( length tys1 == length tys2, ppr (tc1, tys1, tc2, tys2) )
+         -- Different number of arguments would have already raised a kind error
+         do {
+         let (kis1,  tys1') = span isKind tys1
              (_kis2, tys2') = span isKind tys2
-       ; let kicos = map mkTcReflCo kis1
+             kicos          = map mkTcReflCo kis1
 
        ; argeqvs <- zipWithM (newEqVar fl) tys1' tys2'
        ; fls <- case fl of 
