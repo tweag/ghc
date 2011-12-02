@@ -1760,8 +1760,9 @@ data NameCache
                 -- ^ Supply of uniques
                 nsNames :: OrigNameCache,
                 -- ^ Ensures that one original name gets one unique
-                nsIPs   :: OrigIParamCache
+                nsIPs   :: OrigIParamCache,
                 -- ^ Ensures that one implicit parameter name gets one unique
+                nsHoles :: OrigHoleCache
    }
 
 -- | Per-module cache of original 'OccName's given 'Name's
@@ -1769,6 +1770,8 @@ type OrigNameCache   = ModuleEnv (OccEnv Name)
 
 -- | Module-local cache of implicit parameter 'OccName's given 'Name's
 type OrigIParamCache = Map FastString (IPName Name)
+
+type OrigHoleCache = Map FastString Name
 \end{code}
 
 

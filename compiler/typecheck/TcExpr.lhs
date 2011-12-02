@@ -193,6 +193,7 @@ tcExpr (HsIPVar ip) res_ty
 		-- be a tau-type.)
 	; ip_ty <- newFlexiTyVarTy argTypeKind	-- argTypeKind: it can't be an unboxed tuple
 	; ip_var <- emitWanted origin (mkIPPred ip ip_ty)
+  ; liftIO $ putStrLn ("tcExpr.HsIPVar: " ++ (showSDoc $ (ppr res_ty) <+> (ppr ip_ty) <+> (ppr ip_var) <+> (ppr (mkIPPred ip ip_ty))))
 	; tcWrapResult (HsIPVar (IPName ip_var)) ip_ty res_ty }
 
 tcExpr (HsLam match) res_ty
@@ -221,21 +222,24 @@ tcExpr (HsType ty) _
 	-- so it's not enabled yet.
 	-- Can't eliminate it altogether from the parser, because the
 	-- same parser parses *patterns*.
-tcExpr (HsHole s) res_ty
-  = do { liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ res_ty)) ;
-         printTy res_ty ;
-         (g, l) <- getEnvs ;
-         holes <- readTcRef $ tcl_holes l ;
-         writeTcRef (tcl_holes l) (Map.insert s (res_ty, tcl_lie l) holes) ;
-         return (HsHole s) }
-       where printTy (TyVarTy ty) = case tcTyVarDetails ty of
-                                          (MetaTv _ io) -> do meta <- readTcRef io ;
-                                                              liftIO $ putStrLn ("tcExpr.HsHole @(" ++ (showSDoc $ ppr s) ++ "): " ++ (showSDoc $ ppr meta))
-                                          x -> liftIO $ putStrLn ("tcExpr.HsHole: No idea how to handle " ++ (showSDoc $ ppr x))
-             printTy (ForAllTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
-             printTy (AppTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: AppTy")
-             printTy (TyConApp t tys) = liftIO $ putStrLn ("tcExpr.HsHole: TyConApp " ++ (showSDoc $ ppr t) ++ " " ++ (showSDoc $ ppr tys))
-             printTy t = liftIO $ putStrLn ("tcExpr.HsHole: something else: " ++ (showSDoc $ ppr t))
+tcExpr (HsHole name) res_ty
+  = do { liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ res_ty))
+       ; let origin = OccurrenceOf name
+       --; (g, l) <- getEnvs
+       --; holes <- readTcRef $ tcl_holes l
+       ; ty <- newFlexiTyVarTy liftedTypeKind
+       ; var <- emitWanted origin (mkHolePred name ty)
+       ; liftIO $ putStrLn ("tcExpr.HsHole: Creating new ty for hole: " ++ (showSDoc $ ppr ty))
+       --; writeTcRef (tcl_holes l) (Map.insert name (ty, tcl_lie l) holes)
+       ; tcWrapResult (HsHole var) ty res_ty }
+       --where printTy (TyVarTy ty) = case tcTyVarDetails ty of
+       --                                   (MetaTv _ io) -> do meta <- readTcRef io ;
+       --                                                       liftIO $ putStrLn ("tcExpr.HsHole " ++ (showSDoc $ ppr name) ++ ": " ++ (showSDoc $ ppr meta))
+       --                                   x -> liftIO $ putStrLn ("tcExpr.HsHole: No idea how to handle " ++ (showSDoc $ ppr x))
+       --      printTy (ForAllTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
+       --      printTy (AppTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: AppTy")
+       --      printTy (TyConApp t tys) = liftIO $ putStrLn ("tcExpr.HsHole: TyConApp " ++ (showSDoc $ ppr t) ++ " " ++ (showSDoc $ ppr tys))
+       --      printTy t = liftIO $ putStrLn ("tcExpr.HsHole: something else: " ++ (showSDoc $ ppr t))
 \end{code}
 
 

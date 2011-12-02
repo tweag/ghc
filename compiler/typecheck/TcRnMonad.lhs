@@ -448,7 +448,7 @@ traceOptIf flag doc = ifDOptM flag $
 
 traceOptTcRn :: DynFlag -> SDoc -> TcRn ()
 -- Output the message, with current location if opt_PprStyle_Debug
-traceOptTcRn flag doc = ifDOptM flag $ do
+traceOptTcRn flag doc = do
                         { loc  <- getSrcSpanM
                         ; let real_doc
                                 | opt_PprStyle_Debug = mkLocMessage SevInfo loc doc

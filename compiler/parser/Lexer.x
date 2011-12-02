@@ -105,7 +105,7 @@ $large     = [$asclarge $unilarge]
 
 $unismall  = \x02 -- Trick Alex into handling Unicode. See alexGetChar.
 $ascsmall  = [a-z]
-$small     = [$ascsmall $unismall \_]
+$small     = [$ascsmall $unismall]
 
 $unigraphic = \x06 -- Trick Alex into handling Unicode. See alexGetChar.
 $graphic   = [$small $large $symbol $digit $special $unigraphic \:\"\']
@@ -338,6 +338,10 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
          { token ITcubxparen }
 }
 
+<0> {
+  \_ @varid { skip_one_varid IThole }
+}
+
 <0,option_prags> {
   \(                                    { special IToparen }
   \)                                    { special ITcparen }
@@ -525,6 +529,8 @@ data Token
   | ITdoubleunderscore
   | ITbackquote
   | ITsimpleQuote               --  '
+  | IToparenunderscore
+  | ITcparenunderscore
 
   | ITvarid   FastString        -- identifiers
   | ITconid   FastString
@@ -538,6 +544,7 @@ data Token
   | ITprefixqconsym (FastString,FastString)
 
   | ITdupipvarid   FastString   -- GHC extension: implicit param: ?x
+  | IThole         FastString 
 
   | ITchar       Char
   | ITstring     FastString
@@ -598,7 +605,6 @@ reservedWordsFM :: UniqFM (Token, Int)
 reservedWordsFM = listToUFM $
     map (\(x, y, z) -> (mkFastString x, (y, z)))
         [( "_",              ITunderscore,    0 ),
-         ( "__",          ITdoubleunderscore, 0 ),
          ( "as",             ITas,            0 ),
          ( "case",           ITcase,          0 ),
          ( "class",          ITclass,         0 ),

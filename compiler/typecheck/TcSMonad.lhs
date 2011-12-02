@@ -415,6 +415,7 @@ data InertSet
 
        , inert_irreds       :: Cts  -- Irreducible predicates
        , inert_frozen       :: Cts  -- All non-canonicals are kept here (as frozen errors)
+       , inert_holes        :: CCanMap Name
        }
 
 
@@ -453,6 +454,7 @@ instance Outputable InertSet where
                 , vcat (map ppr (Bag.bagToList $ cCanMapToBag (inert_dicts is)))
                 , vcat (map ppr (Bag.bagToList $ cCanMapToBag (inert_ips is))) 
                 , vcat (map ppr (Bag.bagToList $ ctTypeMapCts (inert_funeqs is)))
+                , vcat (map ppr (Bag.bagToList $ cCanMapToBag (inert_holes is))) 
                 , text "Frozen errors =" <+> -- Clearly print frozen errors
                     braces (vcat (map ppr (Bag.bagToList $ inert_frozen is)))
                 , text "Warning: Not displaying cached (solved) constraints"
@@ -466,6 +468,7 @@ emptyInert = IS { inert_eqs     = emptyVarEnv
                 , inert_dicts   = emptyCCanMap
                 , inert_ips     = emptyCCanMap
                 , inert_funeqs  = emptyTM
+                , inert_holes   = emptyCCanMap
                 }
 
 
@@ -504,9 +507,11 @@ updInertSet is item
         upd_funeqs Nothing = Just item
         upd_funeqs (Just _alredy_there) = panic "updInertSet: item already there!"
     in is { inert_funeqs = alterTM pty upd_funeqs (inert_funeqs is) }
-     
+  
+  | Just x <- isCHoleCan_Maybe item
+  = is { inert_holes = updCCanMap (x,item) (inert_holes is) }
   | otherwise 
-  = is { inert_frozen = inert_frozen is `Bag.snocBag` item }
+  = trace "updInertSet" $ is { inert_frozen = inert_frozen is `Bag.snocBag` item }
 
 updInertSetTcS :: AtomicInert -> TcS ()
 -- Add a new item in the inerts of the monad
@@ -596,6 +601,9 @@ extractRelevantInerts wi
         extract_inert_relevants (CIrredEvCan { }) is = 
             let cts = inert_irreds is 
             in (cts, is { inert_irreds = emptyCts })
+        extract_inert_relevants (CHoleCan { cc_hole_nm = nm }) is =
+            let (cts, holes_map) = getRelevantCts nm (inert_holes is) 
+            in (cts, is { inert_holes = holes_map })
         extract_inert_relevants _ is = (emptyCts,is)
 \end{code}
 
@@ -786,8 +794,9 @@ runTcS context untouch is wl tcs
        ; res <- unTcS tcs env
 	     -- Perform the type unifications required
        ; ty_binds <- TcM.readTcRef ty_binds_var
-       ; liftIO $ putStrLn "runTcS"
+       ; liftIO $ putStrLn ("Unification: " ++ (showSDoc $ ppr $varEnvElts ty_binds))
        ; mapM_ do_unification (varEnvElts ty_binds)
+       ; liftIO $ putStrLn "Finished unification"
 
        ; when debugIsOn $ do {
              count <- TcM.readTcRef step_count
@@ -984,6 +993,7 @@ setWantedTyBind tv ty
   = do { ref <- getTcSTyBinds
        ; wrapTcS $ 
          do { ty_binds <- TcM.readTcRef ref
+            ; liftIO $ putStrLn ("setWantedTyBind: " ++ (showSDoc $ (ppr tv <+> ppr ty <+> ppr ty_binds)))
             ; when debugIsOn $
                   TcM.checkErr (not (tv `elemVarEnv` ty_binds)) $
                   vcat [ text "TERRIBLE ERROR: double set of meta type variable"

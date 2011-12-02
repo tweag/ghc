@@ -208,6 +208,7 @@ canEvVar ev pred_classifier d fl
       IPPred nm ty      -> canIP    d fl ev nm ty
       IrredPred ev_ty   -> canIrred d fl ev ev_ty
       TuplePred tys     -> canTuple d fl ev tys
+      HolePred name ty  -> canHole  d fl ev name ty
   where emit_superclasses ct@(CDictCan {cc_id = v_new
                                        , cc_tyargs = xis_new, cc_class = cls })
             -- Add superclasses of this one here, See Note [Adding superclasses]. 
@@ -300,7 +301,7 @@ canIP d fl v nm ty
   =    -- Note [Canonical implicit parameter constraints] explains why it's 
        -- possible in principle to not flatten, but since flattening applies 
        -- the inert substitution we choose to flatten anyway.
-    do { (xi,co) <- flatten d fl (mkIPPred nm ty)
+    do { (xi,co) <- trace "canIP" $ flatten d fl (mkIPPred nm ty)
        ; let no_flattening = isTcReflCo co 
        ; if no_flattening then
             let IPPred _ xi_in = classifyPredType xi 
@@ -333,6 +334,22 @@ constraint between the types.  (On the other hand, the types in two
 class constraints for the same class MAY be equal, so they need to be
 flattened in the first place to facilitate comparing them.)
 \begin{code}
+
+canHole :: SubGoalDepth -- Depth 
+      -> CtFlavor -> EvVar 
+      -> Name -> Type -> TcS StopOrContinue
+canHole d fl v nm ty
+  = do { (xi,co) <- trace "canHole" $ flatten d fl (mkHolePred nm ty)
+       ; let no_flattening = isTcReflCo co
+       ; if no_flattening then
+            let HolePred _ xi_in = classifyPredType xi
+            in continueWith $ CHoleCan { cc_id = v, cc_flavor = fl
+                                       , cc_hole_nm = nm, cc_hole_ty = xi_in
+                                       , cc_depth = d
+                                       }
+         else
+            error "false"
+       }
 
 -- Class Canonicalization
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -505,7 +522,7 @@ canIrred :: SubGoalDepth -- Depth
 canIrred d fl v ty 
   = do { traceTcS "can_pred" (text "IrredPred = " <+> ppr ty) 
        ; (xi,co) <- flatten d fl ty -- co :: xi ~ ty
-       ; let no_flattening = xi `eqType` ty 
+       ; let no_flattening = trace ("canIrred: " ++ (showSDoc $ ppr xi <+> ppr ty <+> ppr (xi `eqType` ty))) $ xi `eqType` ty 
                              -- In this particular case it is not safe to 
                              -- say 'isTcReflCo' because the new constraint may
                              -- be reducible!

@@ -228,10 +228,10 @@ tcRnModule hsc_env hsc_src save_rn_syntax
 	holes <- readTcRef $ tcl_holes l ;
 	lie <- readTcRef $ tcl_lie l ;
 	liftIO $ putStrLn ("tcRnModule0: " ++ (showSDoc $ ppr $ lie)) ;
-	zonked_holes <- mapM (\(s, (ty, wcs)) -> liftM (\t -> (s, split t)) $ inferHole ty wcs s)
-				$ Map.toList holes ;
+	infered_holes <- inferHoles $ Map.toList holes ;
+	splitted_holes <- mapM (\(s, ty) -> liftM (\t -> (s, split t)) $ zonkTcType ty) infered_holes ;
 	let {
-		(env, tys) = foldr tidy (emptyTidyEnv, []) zonked_holes
+		(env, tys) = foldr tidy (emptyTidyEnv, []) splitted_holes
             } ;
 	liftIO $ putStrLn ("tcRnModule: " ++ (showSDoc $ ppr $ tys)) ;
 	liftIO $ putStrLn ("tcRnModule2: " ++ (showSDoc $ ppr env)) ;
@@ -241,19 +241,23 @@ tcRnModule hsc_env hsc_src save_rn_syntax
     	return tcg_env
     }}}}
     where tidy (s, ty) (env, tys) = let (env', ty') = tidyOpenType env ty in (env', (s, ty') : tys)
+    	  split :: Type -> Type
     	  split t = let (_, ctxt, ty') = tcSplitSigmaTy $ tidyTopType t in mkPhiTy ctxt ty'
-    	  inferHole :: Type -> TcRef WantedConstraints -> SrcSpan -> TcM Type
-    	  inferHole ty wcs s = do {
-	    	  						lie <- readTcRef wcs ;
-							    	uniq <- newUnique ;
-						    	    let { fresh_it  = itName uniq s } ;
+    	  inferHoles :: [(Name, (Type, TcRef WantedConstraints))] -> TcM [(Name, Type)]
+    	  inferHoles hwcs = do {
+    	  							let {
+    	  									wcs = map (snd.snd) hwcs ;
+											holes = map (\(name, (ty, wc)) -> (name, ty)) hwcs
+
+    	  						        } ;
+	    	  						lies <- liftM unionsWC $ mapM readTcRef wcs ;
 						    	  	((qtvs, dicts, _, _), lie_top) <- captureConstraints $ simplifyInfer
+																				    	  	True
 																				    	  	False
-																				    	  	False {- No MR for now -}
-								                                             	    		[(fresh_it, ty)]
-								                                                 			lie ;
-						            zonkTcType $ mkForAllTys qtvs $ mkPiTypes dicts ty
-							    	}
+								                                             	    		holes
+								                                                 			lies ;
+						            return $ map (\(name, ty) -> (name, mkForAllTys qtvs $ mkPiTypes dicts ty)) holes
+							   }
 
 
 implicitPreludeWarn :: SDoc
@@ -1460,7 +1464,7 @@ tcRnExpr hsc_env ictxt rdr_expr
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer True {- Free vars are closed -}
                                                     False {- No MR for now -}
-                                                    ([(fresh_it, res_ty)] ++ (map (\(s,(ty,_)) -> (undefined, ty)) $ Map.toList holes)) -- mkInternalName undefined (mkOccName Name.varName "__") s
+                                                    ([(fresh_it, res_ty)] ++ (map (\(name,(ty,_)) -> (name, ty)) $ Map.toList holes))
                                                     lie  ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
 

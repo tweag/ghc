@@ -294,6 +294,7 @@ reportFlatErrs ctxt cts
           ClassPred {}  -> go cts (ct:dicts) ips irreds
           IPPred {}     -> go cts dicts (ct:ips) irreds
           IrredPred {}  -> go cts dicts ips (ct:irreds)
+          HolePred {}   -> trace ("reportFlatErrs: " ++ (showSDoc $ ppr ct)) $ go cts dicts ips irreds
           _             -> panic "mkFlat"
     -- TuplePreds should have been expanded away by the constraint
     -- simplifier, so they shouldn't show up at this point

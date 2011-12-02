@@ -34,7 +34,7 @@ import HsSyn
 import TcRnMonad
 import TcEnv		( thRnBrack )
 import RnEnv
-import RnTypes		( rnHsTypeFVs, rnSplice, rnIPName, checkTH,
+import RnTypes		( rnHsTypeFVs, rnSplice, rnIPName, rnHoleName, checkTH,
 			  mkOpFormRn, mkOpAppRn, mkNegAppRn, checkSectionPrec)
 import RnPat
 import DynFlags
@@ -294,8 +294,10 @@ rnExpr (PArrSeq _ seq)
   = rnArithSeq seq	 `thenM` \ (new_seq, fvs) ->
     return (PArrSeq noPostTcExpr new_seq, fvs)
 
-rnExpr (HsHole s)
-  = return (HsHole s, emptyFVs)
+rnExpr (HsHole name)
+  = do { name' <- rnHoleName name
+       ; return (HsHole name', emptyFVs)
+       }
 \end{code}
 
 These three are pattern syntax appearing in expressions.

@@ -1449,7 +1449,7 @@ aexp2   :: { LHsExpr RdrName }
         | '[' list ']'                  { LL (unLoc $2) }
         | '[:' parr ':]'                { LL (unLoc $2) }
         | '_'                           { L1 EWildPat }
-        | '__'                          { L1 (HsHole $ getLoc $1) }
+        | '__'                          { L1 (HsHole $! unLoc $1) }
         
         -- Template Haskell Extension
         | TH_ID_SPLICE          { L1 $ HsSpliceE (mkHsSplice 

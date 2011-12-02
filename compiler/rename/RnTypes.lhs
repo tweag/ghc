@@ -16,7 +16,7 @@ module RnTypes (
 	rnHsType, rnLHsType, rnLHsTypes, rnContext,
         rnHsKind, rnLHsKind, rnLHsMaybeKind,
 	rnHsSigType, rnLHsInstType, rnHsTypeFVs, rnConDeclFields,
-        rnIPName,
+        rnIPName, rnHoleName,
 
 	-- Precence related stuff
 	mkOpAppRn, mkNegAppRn, mkOpFormRn, mkConOpPatRn,
@@ -41,7 +41,7 @@ import RnHsSyn		( extractHsTyNames, extractHsTyVarBndrNames_s )
 import RnHsDoc          ( rnLHsDoc, rnMbLHsDoc )
 import RnEnv
 import TcRnMonad
-import IfaceEnv         ( newIPName )
+import IfaceEnv         ( newIPName, newHoleName )
 import RdrName
 import PrelNames
 import TysPrim          ( funTyConName )
@@ -342,6 +342,11 @@ rnContext' doc ctxt = mapM (rnLHsType doc) ctxt
 
 rnIPName :: IPName RdrName -> RnM (IPName Name)
 rnIPName n = newIPName (occNameFS (rdrNameOcc (ipNameName n)))
+\end{code}
+
+\begin{code}
+rnHoleName :: RdrName -> RnM Name
+rnHoleName n = newHoleName (occNameFS (rdrNameOcc n))
 \end{code}
 
 

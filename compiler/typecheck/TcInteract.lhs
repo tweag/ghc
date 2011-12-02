@@ -56,6 +56,9 @@ import Pair ( pSnd )
 import UniqFM
 import FastString ( sLit ) 
 import DynFlags
+
+import Control.Monad
+import Type
 \end{code}
 **********************************************************************
 *                                                                    * 
@@ -415,6 +418,7 @@ kick_out_rewritable ct (IS { inert_eqs    = eqmap
                            , inert_funeqs = funeqmap
                            , inert_irreds = irreds
                            , inert_frozen = frozen
+                           , inert_holes  = holemap
                            } )
   = ((kicked_out, eqmap), remaining)
   where
@@ -430,12 +434,14 @@ kick_out_rewritable ct (IS { inert_eqs    = eqmap
                    , inert_funeqs = feqs_in
                    , inert_irreds = irs_in
                    , inert_frozen = fro_in 
+                   , inert_holes = holes_in
                    }
 
     fl = cc_flavor ct
     tv = cc_tyvar ct
                                
     (ips_out,   ips_in)     = partitionCCanMap rewritable ipmap
+    (holes_out, holes_in)   = partitionCCanMap rewritable holemap
 
     (feqs_out,  feqs_in)    = partitionCtTypeMap rewritable funeqmap
     (dicts_out, dicts_in)   = partitionCCanMap rewritable dictmap
@@ -496,9 +502,9 @@ trySpontaneousSolve :: WorkItem -> TcS SPSolveResult
 trySpontaneousSolve workItem@(CTyEqCan { cc_id = eqv, cc_flavor = gw
                                        , cc_tyvar = tv1, cc_rhs = xi, cc_depth = d })
   | isGivenOrSolved gw
-  = return SPCantSolve
+  = trace "trySpontaneousSolve1" $ return SPCantSolve
   | Just tv2 <- tcGetTyVar_maybe xi
-  = do { tch1 <- isTouchableMetaTyVar tv1
+  = trace "trySpontaneousSolve2" $ do { tch1 <- isTouchableMetaTyVar tv1
        ; tch2 <- isTouchableMetaTyVar tv2
        ; case (tch1, tch2) of
            (True,  True)  -> trySpontaneousEqTwoWay d eqv gw tv1 tv2
@@ -506,7 +512,7 @@ trySpontaneousSolve workItem@(CTyEqCan { cc_id = eqv, cc_flavor = gw
            (False, True)  -> trySpontaneousEqOneWay d eqv gw tv2 (mkTyVarTy tv1)
 	   _ -> return SPCantSolve }
   | otherwise
-  = do { tch1 <- isTouchableMetaTyVar tv1
+  = trace "trySpontaneousSolve3" $ do { tch1 <- isTouchableMetaTyVar tv1
        ; if tch1 then trySpontaneousEqOneWay d eqv gw tv1 xi
                  else do { traceTcS "Untouchable LHS, can't spontaneously solve workitem:" $
                            ppr workItem 
@@ -516,7 +522,7 @@ trySpontaneousSolve workItem@(CTyEqCan { cc_id = eqv, cc_flavor = gw
   -- No need for 
   --      trySpontaneousSolve (CFunEqCan ...) = ...
   -- See Note [No touchables as FunEq RHS] in TcSMonad
-trySpontaneousSolve _ = return SPCantSolve
+trySpontaneousSolve w = trace ("trySpontaneousSolve4: " ++ (showSDoc $ ppr w)) $ return SPCantSolve
 
 ----------------
 trySpontaneousEqOneWay :: SubGoalDepth 
@@ -524,7 +530,7 @@ trySpontaneousEqOneWay :: SubGoalDepth
 -- tv is a MetaTyVar, not untouchable
 trySpontaneousEqOneWay d eqv gw tv xi
   | not (isSigTyVar tv) || isTyVarTy xi
-  = solveWithIdentity d eqv gw tv xi
+  = trace "trySpontaneousEqOneWay" $ solveWithIdentity d eqv gw tv xi
   | otherwise -- Still can't solve, sig tyvar and non-variable rhs
   = return SPCantSolve
 
@@ -536,8 +542,8 @@ trySpontaneousEqTwoWay :: SubGoalDepth
 trySpontaneousEqTwoWay d eqv gw tv1 tv2
   = do { let k1_sub_k2 = k1 `isSubKind` k2
        ; if k1_sub_k2 && nicer_to_update_tv2
-         then solveWithIdentity d eqv gw tv2 (mkTyVarTy tv1)
-         else solveWithIdentity d eqv gw tv1 (mkTyVarTy tv2) }
+         then trace "trySpontaneousEqTwoWay1" $ solveWithIdentity d eqv gw tv2 (mkTyVarTy tv1)
+         else trace "trySpontaneousEqTwoWay2" $ solveWithIdentity d eqv gw tv1 (mkTyVarTy tv2) }
   where
     k1 = tyVarKind tv1
     k2 = tyVarKind tv2
@@ -633,8 +639,8 @@ solveWithIdentity d eqv wd tv xi
                              text "Left  Kind is     : " <+> ppr (typeKind (mkTyVarTy tv)),
                              text "Right Kind is     : " <+> ppr (typeKind xi)
                             ]
-
-       ; setWantedTyBind tv xi
+       
+       ; trace ("solveWithIdentity: " ++ (showSDoc $ ppr eqv <+> ppr wd <+> pprEq (mkTyVarTy tv) xi)) $ setWantedTyBind tv xi
        ; let refl_xi = mkTcReflCo xi
 
        ; let solved_fl = mkSolvedFlavor wd UnkSkol (EvCoercion refl_xi) 
@@ -687,6 +693,12 @@ data InteractResult
     | IRInertConsumed    { ir_fire :: String } 
     | IRKeepGoing        { ir_fire :: String }
 
+
+instance Outputable InteractResult where
+  ppr (IRWorkItemConsumed str) = ptext (sLit "IRWorkItemConsumed ") <+> text str
+  ppr (IRInertConsumed str) = ptext (sLit "IRInertConsumed ") <+> text str
+  ppr (IRKeepGoing str) = ptext (sLit "IRKeepGoing ") <+> text str
+
 irWorkItemConsumed :: String -> TcS InteractResult
 irWorkItemConsumed str = return (IRWorkItemConsumed str) 
 
@@ -704,21 +716,23 @@ interactWithInertsStage :: WorkItem -> TcS StopOrContinue
 -- react with anything at this stage. 
 interactWithInertsStage wi 
   = do { ctxt <- getTcSContext
-       ; if simplEqsOnly ctxt then 
+       ; trace ("interactWithInertsStage: " ++ (show $ simplEqsOnly ctxt)) $ if simplEqsOnly ctxt then 
              return (ContinueWith wi)
          else 
-             extractRelevantInerts wi >>= 
-               foldlBagM interact_next (ContinueWith wi) }
+             do { relevant <- extractRelevantInerts wi
+                ; trace ("Relevant: " ++ (showSDoc $ ppr relevant)) $ foldlBagM interact_next (ContinueWith wi) relevant
+                }
+       }
 
   where interact_next Stop atomic_inert 
-          = updInertSetTcS atomic_inert >> return Stop
+          = trace "interact_next Stop" $ updInertSetTcS atomic_inert >> return Stop
         interact_next (ContinueWith wi) atomic_inert 
           = do { ir <- doInteractWithInert atomic_inert wi
                ; let mk_msg rule keep_doc 
                        = text rule <+> keep_doc
       	                 <+> vcat [ ptext (sLit "Inert =") <+> ppr atomic_inert
       	                          , ptext (sLit "Work =")  <+> ppr wi ]
-               ; case ir of 
+               ; case trace ("interact_next ContinueWith: " ++ (showSDoc $ ppr ir)) $ ir of 
                    IRWorkItemConsumed { ir_fire = rule } 
                        -> do { bumpStepCountTcS
                              ; traceFireTcS (cc_depth wi) 
@@ -852,7 +866,26 @@ doInteractWithInert (CFunEqCan { cc_id = eqv1, cc_flavor = fl1, cc_fun = tc1
   where
     lhss_match = tc1 == tc2 && eqTypes args1 args2 
 
+doInteractWithInert (CHoleCan id1 fl1 nm1 ty1 d1) workitem@(CHoleCan id2 fl2 nm2 ty2 d2)
+  | nm1 == nm2 && ty1 `eqType` ty2
+  = solveOneFromTheOther "Hole/Hole" (EvId id1,fl1) workitem
 
+  | nm1 == nm2
+  = do { let flav = Wanted (combineCtLoc fl1 fl2)
+       ; eqv <- newEqVar flav ty2 ty1
+       ; when (isNewEvVar eqv) $
+              (let ct = CNonCanonical { cc_id     = evc_the_evvar eqv 
+                                      , cc_flavor = flav
+                                      , cc_depth  = d2 }
+              in updWorkListTcS (extendWorkListEq ct))
+       ; case fl1 of
+          Given {} -> pprPanic "Unexpected given Hole" (ppr workitem)
+          Derived {} -> pprPanic "Unexpected derived Hole" (ppr workitem)
+          Wanted {} ->
+              do { _ <- setEvBind id2
+                        (mkEvCast id1 (mkTcSymCo (mkTcTyConAppCo (holeTyCon nm1) [mkTcCoVarCo (evc_the_evvar eqv)]))) fl2
+                 ; irWorkItemConsumed "Hole/Hole (solved by rewriting)" }
+       }
 doInteractWithInert _ _ = irKeepGoing "NOP"
 
 

@@ -85,6 +85,7 @@ emitWanteds origin theta = mapM (emitWanted origin) theta
 emitWanted :: CtOrigin -> TcPredType -> TcM EvVar
 emitWanted origin pred = do { loc <- getCtLoc origin
                             ; ev  <- newWantedEvVar pred
+                            ; liftIO $ putStrLn ("emitWanted: " ++ (showSDoc $ ppr ev))
                             ; emitFlat (mkNonCanonical ev (Wanted loc))
                             ; return ev }
 
@@ -529,6 +530,7 @@ tyVarsOfCt (CDictCan { cc_tyargs = tys }) 	        = tyVarsOfTypes tys
 tyVarsOfCt (CIPCan { cc_ip_ty = ty })                   = tyVarsOfType ty
 tyVarsOfCt (CIrredEvCan { cc_ty = ty })                 = tyVarsOfType ty
 tyVarsOfCt (CNonCanonical { cc_id = ev })               = tyVarsOfEvVar ev
+tyVarsOfCt (CHoleCan { cc_hole_ty = ty })               = tyVarsOfType ty
 
 tyVarsOfCDict :: Ct -> TcTyVarSet 
 tyVarsOfCDict (CDictCan { cc_tyargs = tys }) = tyVarsOfTypes tys

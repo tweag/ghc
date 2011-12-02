@@ -206,7 +206,7 @@ dsLExpr :: LHsExpr Id -> DsM CoreExpr
 
 dsLExpr (L loc e) = putSrcSpanDs loc $ do {
                         desugared <- dsExpr e ;
-                        trace ("dsExpr: " ++ (showSDoc $ ppr desugared))
+                        --trace ("dsExpr: " ++ (showSDoc $ ppr desugared))
                         return desugared
                         }
 

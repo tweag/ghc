@@ -54,13 +54,14 @@ module TcRnTypes(
         Xi, Ct(..), Cts, emptyCts, andCts, andManyCts, 
         singleCt, extendCts, isEmptyCts, isCTyEqCan, 
         isCDictCan_Maybe, isCIPCan_Maybe, isCFunEqCan_Maybe,
+        isCHoleCan_Maybe,
         isCIrredEvCan, isCNonCanonical, isWantedCt, isDerivedCt, 
         isGivenCt_maybe, isGivenOrSolvedCt,
         ctWantedLoc,
         SubGoalDepth, mkNonCanonical, ctPred, 
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
-        andWC, addFlats, addImplics, mkFlatWC,
+        andWC, unionsWC, addFlats, addImplics, mkFlatWC,
 
         Implication(..),
         CtLoc(..), ctLocSpan, ctLocOrigin, setCtLocOrigin,
@@ -446,7 +447,7 @@ data TcLclEnv		-- Changes as we move inside an expression
 	tcl_untch :: Unique,	    -- Any TcMetaTyVar with 
 		     		    --     unique >= tcl_untch is touchable
 		     		    --     unique <  tcl_untch is untouchable
-	tcl_holes :: TcRef (Map.Map SrcSpan (Type, TcRef WantedConstraints))
+	tcl_holes :: TcRef (Map.Map Name (Type, TcRef WantedConstraints))
     }
 
 type TcTypeEnv = NameEnv TcTyThing
@@ -908,6 +909,14 @@ data Ct
       cc_depth  :: SubGoalDepth
     }
 
+  | CHoleCan {
+      cc_id       :: EvVar,
+      cc_flavor   :: CtFlavor,
+      cc_hole_nm  :: Name,
+      cc_hole_ty  :: TcTauType, -- Not a Xi! See same not as above
+      cc_depth    :: SubGoalDepth        -- See Note [WorkList]
+    }
+
 \end{code}
 
 \begin{code}
@@ -925,6 +934,8 @@ ctPred (CFunEqCan { cc_fun = fn, cc_tyargs = xis1, cc_rhs = xi2 })
 ctPred (CIPCan { cc_ip_nm = nm, cc_ip_ty = xi }) 
   = mkIPPred nm xi
 ctPred (CIrredEvCan { cc_ty = xi }) = xi
+ctPred (CHoleCan { cc_hole_nm = nm, cc_hole_ty = xi})
+  = mkHolePred nm xi
 \end{code}
 
 
@@ -977,6 +988,10 @@ isCFunEqCan_Maybe _ = Nothing
 isCNonCanonical :: Ct -> Bool
 isCNonCanonical (CNonCanonical {}) = True 
 isCNonCanonical _ = False 
+
+isCHoleCan_Maybe :: Ct -> Maybe Name
+isCHoleCan_Maybe (CHoleCan { cc_hole_nm = nm }) = Just nm
+isCHoleCan_Maybe _ = Nothing
 \end{code}
 
 \begin{code}
@@ -992,6 +1007,7 @@ instance Outputable Ct where
                            CDictCan {}      -> "CDictCan"
                            CIPCan {}        -> "CIPCan"
                            CIrredEvCan {}   -> "CIrredEvCan"
+                           CHoleCan {}		-> "CHoleCan"
 \end{code}
 
 \begin{code}
@@ -1057,6 +1073,9 @@ andWC (WC { wc_flat = f1, wc_impl = i1, wc_insol = n1 })
   = WC { wc_flat  = f1 `unionBags` f2
        , wc_impl  = i1 `unionBags` i2
        , wc_insol = n1 `unionBags` n2 }
+
+unionsWC :: [WantedConstraints] -> WantedConstraints
+unionsWC = foldr andWC emptyWC
 
 addFlats :: WantedConstraints -> Bag Ct -> WantedConstraints
 addFlats wc cts

@@ -169,6 +169,7 @@ predTypeOccName :: PredType -> OccName
 predTypeOccName ty = case classifyPredType ty of
     ClassPred cls _ -> mkDictOcc (getOccName cls)
     IPPred ip _     -> mkVarOccFS (ipFastString ip)
+    HolePred name _ -> nameOccName name
     EqPred _ _      -> mkVarOccFS (fsLit "cobox")
     TuplePred _     -> mkVarOccFS (fsLit "tup")
     IrredPred _     -> mkVarOccFS (fsLit "irred")
@@ -1414,6 +1415,7 @@ growPredTyVars pred tvs = go (classifyPredType pred)
     go (EqPred ty1 ty2)  = grow (tyVarsOfType ty1 `unionVarSet` tyVarsOfType ty2)
     go (TuplePred ts)    = unionVarSets (map (go . classifyPredType) ts)
     go (IrredPred ty)    = grow (tyVarsOfType ty)
+    go (HolePred _ ty)   = tyVarsOfType ty
 \end{code}
     
 Note [Implicit parameters and ambiguity] 
