@@ -215,6 +215,8 @@ tcExpr (HsType ty) _
 	-- so it's not enabled yet.
 	-- Can't eliminate it altogether from the parser, because the
 	-- same parser parses *patterns*.
+tcExpr HsHole _
+  = return HsHole
 \end{code}
 
 

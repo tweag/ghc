@@ -524,6 +524,7 @@ data Token
   | ITsemi
   | ITcomma
   | ITunderscore
+  | ITdoubleunderscore
   | ITbackquote
   | ITsimpleQuote               --  '
 
@@ -599,6 +600,7 @@ reservedWordsFM :: UniqFM (Token, Int)
 reservedWordsFM = listToUFM $
     map (\(x, y, z) -> (mkFastString x, (y, z)))
         [( "_",              ITunderscore,    0 ),
+         ( "__",          ITdoubleunderscore, 0 ),
          ( "as",             ITas,            0 ),
          ( "case",           ITcase,          0 ),
          ( "class",          ITclass,         0 ),

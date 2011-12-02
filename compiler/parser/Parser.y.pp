@@ -207,6 +207,7 @@ incorrect.
 
 %token
  '_'            { L _ ITunderscore }            -- Haskell keywords
+ '__'           { L _ ITdoubleunderscore }
  'as'           { L _ ITas }
  'case'         { L _ ITcase }          
  'class'        { L _ ITclass } 
@@ -1458,6 +1459,7 @@ aexp2   :: { LHsExpr RdrName }
         | '[' list ']'                  { LL (unLoc $2) }
         | '[:' parr ':]'                { LL (unLoc $2) }
         | '_'                           { L1 EWildPat }
+        | '__'                          { L1 HsHole }
         
         -- Template Haskell Extension
         | TH_ID_SPLICE          { L1 $ HsSpliceE (mkHsSplice 
