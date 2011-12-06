@@ -22,7 +22,9 @@ module TyCon(
 	SynTyConRhs(..),
 
 	-- ** Coercion axiom constructors
-        CoAxiom(..), coAxiomName, coAxiomArity,
+        CoAxiom(..), mkCoAxiom,
+        coAxiomName, coAxiomArity, coAxiomTyVars,
+        coAxiomLHS, coAxiomRHS,
 
         -- ** Constructing TyCons
 	mkAlgTyCon,
@@ -71,7 +73,7 @@ module TyCon(
 	tyConArity,
         tyConParent,
 	tyConTuple_maybe, tyConClass_maybe, tyConIP_maybe,
-	tyConFamInst_maybe, tyConFamilyCoercion_maybe,tyConFamInstSig_maybe,
+	tyConFamInst_maybe, tyConFamInstSig_maybe, tyConFamilyCoercion_maybe,
         synTyConDefn, synTyConRhs, synTyConType,
         tyConExtName,           -- External name for foreign types
 	algTyConRhs,
@@ -570,7 +572,7 @@ data TyConParent
         Class		-- The class in whose declaration the family is declared
 			-- See Note [Associated families and their parent class]
 
-  -- | Type constructors representing an instance of a type family. Parameters:
+  -- | Type constructors representing an instance of a *data* family. Parameters:
   --
   --  1) The type family in question
   --
@@ -581,11 +583,16 @@ data TyConParent
   --  3) A 'CoTyCon' identifying the representation
   --  type with the type instance family
   | FamInstTyCon	  -- See Note [Data type families]
-    			  -- and Note [Type synonym families]
+        CoAxiom   -- The coercion constructor,
+                  -- always of kind   T ty1 ty2 ~ R:T a b c
+                  -- where T is the family TyCon, 
+                  -- and R:T is the representation TyCon (ie this one)
+                  -- and a,b,c are the tyConTyVars of this TyCon
+
+          -- Cached fields of the CoAxiom
 	TyCon   -- The family TyCon
 	[Type]	-- Argument types (mentions the tyConTyVars of this TyCon)
 		-- Match in length the tyConTyVars of the family TyCon
-        CoAxiom   -- The coercion constructor
 
 	-- E.g.  data intance T [a] = ...
 	-- gives a representation tycon:
@@ -598,15 +605,15 @@ instance Outputable TyConParent where
     ppr (ClassTyCon cls)        = text "Class parent" <+> ppr cls
     ppr (IPTyCon n)             = text "IP parent" <+> ppr n
     ppr (AssocFamilyTyCon cls)  = text "Class parent (assoc. family)" <+> ppr cls
-    ppr (FamInstTyCon tc tys _) = text "Family parent (family instance)" <+> ppr tc <+> sep (map ppr tys)
+    ppr (FamInstTyCon _ tc tys) = text "Family parent (family instance)" <+> ppr tc <+> sep (map ppr tys)
 
 -- | Checks the invariants of a 'TyConParent' given the appropriate type class name, if any
 okParent :: Name -> TyConParent -> Bool
-okParent _       NoParentTyCon                    = True
-okParent tc_name (AssocFamilyTyCon cls)           = tc_name `elem` map tyConName (classATs cls)
-okParent tc_name (ClassTyCon cls)                 = tc_name == tyConName (classTyCon cls)
-okParent tc_name (IPTyCon ip)                     = tc_name == ipTyConName ip
-okParent _       (FamInstTyCon fam_tc tys _co_tc) = tyConArity fam_tc == length tys
+okParent _       NoParentTyCon               = True
+okParent tc_name (AssocFamilyTyCon cls)      = tc_name `elem` map tyConName (classATs cls)
+okParent tc_name (ClassTyCon cls)            = tc_name == tyConName (classTyCon cls)
+okParent tc_name (IPTyCon ip)                = tc_name == ipTyConName ip
+okParent _       (FamInstTyCon _ fam_tc tys) = tyConArity fam_tc == length tys
 
 isNoParent :: TyConParent -> Bool
 isNoParent NoParentTyCon = True
@@ -758,19 +765,29 @@ so the coercion tycon CoT must have
 -- | A 'CoAxiom' is a \"coercion constructor\", i.e. a named equality axiom.
 data CoAxiom
   = CoAxiom                   -- type equality axiom.
-    { co_ax_unique :: Unique   -- unique identifier
-    , co_ax_name   :: Name     -- name for pretty-printing
-    , co_ax_tvs    :: [TyVar]  -- bound type variables 
-    , co_ax_lhs    :: Type     -- left-hand side of the equality
-    , co_ax_rhs    :: Type     -- right-hand side of the equality
+    { co_ax_unique :: Unique      -- unique identifier
+    , co_ax_name   :: Name        -- name for pretty-printing
+    , co_ax_tvs    :: [TyVar]     -- bound type variables 
+    , co_ax_lhs    :: Type        -- left-hand side of the equality
+    , co_ax_rhs    :: Type        -- right-hand side of the equality
     }
   deriving Typeable
+
+mkCoAxiom :: Unique -> Name -> [TyVar] -> Type -> Type -> CoAxiom
+mkCoAxiom u n tvs lhs rhs = CoAxiom u n tvs lhs rhs
 
 coAxiomArity :: CoAxiom -> Arity
 coAxiomArity ax = length (co_ax_tvs ax)
 
 coAxiomName :: CoAxiom -> Name
 coAxiomName = co_ax_name
+
+coAxiomTyVars :: CoAxiom -> [TyVar]
+coAxiomTyVars = co_ax_tvs
+
+coAxiomLHS, coAxiomRHS :: CoAxiom -> Type
+coAxiomLHS = co_ax_lhs
+coAxiomRHS = co_ax_rhs
 \end{code}
 
 
@@ -1465,15 +1482,15 @@ isFamInstTyCon tc = case tyConParent tc of
 tyConFamInstSig_maybe :: TyCon -> Maybe (TyCon, [Type], CoAxiom)
 tyConFamInstSig_maybe tc
   = case tyConParent tc of
-      FamInstTyCon f ts co_tc -> Just (f, ts, co_tc)
-      _                       -> Nothing
+      FamInstTyCon ax f ts -> Just (f, ts, ax)
+      _                    -> Nothing
 
 -- | If this 'TyCon' is that of a family instance, return the family in question
 -- and the instance types. Otherwise, return @Nothing@
 tyConFamInst_maybe :: TyCon -> Maybe (TyCon, [Type])
 tyConFamInst_maybe tc
   = case tyConParent tc of
-      FamInstTyCon f ts _ -> Just (f, ts)
+      FamInstTyCon _ f ts -> Just (f, ts)
       _                   -> Nothing
 
 -- | If this 'TyCon' is that of a family instance, return a 'TyCon' which represents 
@@ -1482,7 +1499,7 @@ tyConFamInst_maybe tc
 tyConFamilyCoercion_maybe :: TyCon -> Maybe CoAxiom
 tyConFamilyCoercion_maybe tc
   = case tyConParent tc of
-      FamInstTyCon _ _ co -> Just co
+      FamInstTyCon co _ _ -> Just co
       _                   -> Nothing
 \end{code}
 

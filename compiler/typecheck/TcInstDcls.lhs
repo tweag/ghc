@@ -38,6 +38,7 @@ import MkCore     ( nO_METHOD_BINDING_ERROR_ID )
 import Type
 import TcEvidence
 import TyCon
+import Coercion   ( mkTypeFamInstCo, mkDataFamInstCo, coAxiomSplitLHS )
 import DataCon
 import Class
 import Var
@@ -47,6 +48,7 @@ import Pair
 import CoreUnfold ( mkDFunUnfolding )
 import CoreSyn    ( Expr(Var), CoreExpr, varToCoreExpr )
 import PrelNames  ( typeableClassNames )
+import HscTypes   ( tyThingTyCon )
 
 import Bag
 import BasicTypes
@@ -376,15 +378,13 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
                               filter (isFamInstDecl . unLoc) tycl_decls
        ; local_info_tycons <- mapAndRecoverM tcLocalInstDecl1  inst_decls
 
-       ; let { (local_info,
-                at_tycons_s)   = unzip local_info_tycons
-             ; at_idx_tycons   = concat at_tycons_s ++ idx_tycons
-             ; at_things       = map ATyCon at_idx_tycons }
+       ; let { (local_info, at_tycons_s) = unzip local_info_tycons
+             ; at_idx_tycons = concat at_tycons_s ++ idx_tycons }
 
                 -- (2) Add the tycons of indexed types and their implicit
                 --     tythings to the global environment
-       ; tcExtendGlobalEnvImplicit at_things $ do
-       { tcg_env <- tcAddImplicits at_things
+       ; tcExtendGlobalEnvImplicit at_idx_tycons $ do
+       { tcg_env <- tcAddImplicits at_idx_tycons
        ; setGblEnv tcg_env $
 
 
@@ -432,14 +432,14 @@ addInsts :: [InstInfo Name] -> TcM a -> TcM a
 addInsts infos thing_inside
   = tcExtendLocalInstEnv (map iSpec infos) thing_inside
 
-addFamInsts :: [TyCon] -> TcM a -> TcM a
-addFamInsts tycons thing_inside
-  = tcExtendLocalFamInstEnv (map mkLocalFamInst tycons) thing_inside
+addFamInsts :: [TyThing] -> TcM a -> TcM a
+addFamInsts idx_things thing_inside
+  = tcExtendLocalFamInstEnv (map mkLocalFamInst idx_things) thing_inside
 \end{code}
 
 \begin{code}
 tcLocalInstDecl1 :: LInstDecl Name
-                 -> TcM (InstInfo Name, [TyCon])
+                 -> TcM (InstInfo Name, [FamilyRep])
         -- A source-file instance declaration
         -- Type-check all the stuff before the "where"
         --
@@ -475,11 +475,10 @@ tcLocalInstDecl1 (L loc (InstDecl poly_ty binds uprags ats))
                           tvs' = varSetElems (tyVarsOfType rhs')
                           pat_tys' = substTys mini_env_subst pat_tys
                           rhs' = substTy mini_env_subst rhs
-                      rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
-                      buildSynTyCon rep_tc_name tvs'
-                                    (SynonymTyCon rhs')
-                                    (mkArrowKinds (map tyVarKind tvs') (typeKind rhs'))
-                                    NoParentTyCon (Just (fam_tc, pat_tys'))
+                      rep_tc_name <- newFamInstAxiomName
+                                       (noLoc (tyConName fam_tc)) pat_tys'
+                      buildTypeInstAxiom rep_tc_name tvs' rhs'
+                        (fam_tc, pat_tys')
                     return (Nothing, defs')
         ; missing_at_stuff <- mapM check_at_instance (classATItems clas)
         
@@ -497,7 +496,8 @@ tcLocalInstDecl1 (L loc (InstDecl poly_ty binds uprags ats))
               ispec 	= mkLocalInstance dfun overlap_flag
               inst_info = InstInfo { iSpec  = ispec, iBinds = VanillaInst binds uprags False }
 
-        ; return (inst_info, idx_tycons0 ++ concat idx_tycons1) }
+        ; return ( inst_info
+                 , idx_tycons0 ++ map ACoAxiom (concat idx_tycons1)) }
 \end{code}
 
 
@@ -513,13 +513,17 @@ lot of kinding and type checking code with ordinary algebraic data types (and
 GADTs).
 
 \begin{code}
-tcTopFamInstDecl :: LTyClDecl Name -> TcM TyCon
+type FamilyRep = TyThing
+-- INVARIANT: We only use ATyCon (for data families)
+-- and ACoAxiom (for type families)
+
+tcTopFamInstDecl :: LTyClDecl Name -> TcM FamilyRep
 tcTopFamInstDecl (L loc decl)
   = setSrcSpan loc      $
     tcAddDeclCtxt decl  $
     tcFamInstDecl TopLevel decl
 
-tcFamInstDecl :: TopLevelFlag -> TyClDecl Name -> TcM TyCon
+tcFamInstDecl :: TopLevelFlag -> TyClDecl Name -> TcM FamilyRep
 tcFamInstDecl top_lvl decl
   = do { -- type family instances require -XTypeFamilies
          -- and can't (currently) be in an hs-boot file
@@ -539,13 +543,16 @@ tcFamInstDecl top_lvl decl
 
          -- Now check the type/data instance itself
          -- This is where type and data decls are treated separately
-       ; tc <- tcFamInstDecl1 fam_tc decl
-       ; checkValidTyCon tc     -- Remember to check validity;
-                                -- no recursion to worry about here
+       ; tc_fam_rep <- tcFamInstDecl1 fam_tc decl
+         -- Remember to check validity; no recursion to worry about here
+       ; when (isATyCon tc_fam_rep) $
+         checkValidTyCon (tyThingTyCon tc_fam_rep)
 
-       ; return tc }
+       ; return tc_fam_rep }
+  where isATyCon (ATyCon _) = True
+        isATyCon _          = False
 
-tcFamInstDecl1 :: TyCon -> TyClDecl Name -> TcM TyCon
+tcFamInstDecl1 :: TyCon -> TyClDecl Name -> TcM FamilyRep
 
   -- "type instance"
 tcFamInstDecl1 fam_tc (decl@TySynonym {})
@@ -556,17 +563,16 @@ tcFamInstDecl1 fam_tc (decl@TySynonym {})
        ; checkValidFamInst t_typats t_rhs
 
          -- (3) construct representation tycon
-       ; rep_tc_name <- newFamInstTyConName (tcdLName decl) t_typats
-       ; buildSynTyCon rep_tc_name t_tvs
-                       (SynonymTyCon t_rhs)
-                       (typeKind t_rhs)
-                       NoParentTyCon (Just (fam_tc, t_typats))
+       ; rep_tc_name <- newFamInstAxiomName (tcdLName decl) t_typats
+
+       ; return $ ACoAxiom $ 
+           mkTypeFamInstCo rep_tc_name t_tvs fam_tc t_typats t_rhs
        }
 
   -- "newtype instance" and "data instance"
 tcFamInstDecl1 fam_tc (decl@TyData { tcdND = new_or_data, tcdCtxt = ctxt
                                    , tcdTyVars = tvs, tcdTyPats = Just pats
-                                  , tcdCons = cons})
+                                   , tcdCons = cons})
   = do { -- Check that the family declaration is for the right kind
          checkTc (isFamilyTyCon fam_tc) (notFamily fam_tc)
        ; checkTc (isAlgTyCon fam_tc) (wrongKindOfFamily fam_tc)
@@ -589,7 +595,7 @@ tcFamInstDecl1 fam_tc (decl@TyData { tcdND = new_or_data, tcdCtxt = ctxt
          -- Construct representation tycon
        ; rep_tc_name <- newFamInstTyConName (tcdLName decl) pats'
        ; let ex_ok = True       -- Existentials ok for type families!
-       ; fixM (\ rep_tycon -> do
+       ; fmap ATyCon $ fixM (\ rep_tycon -> do
              { let orig_res_ty = mkTyConApp fam_tc pats'
              ; data_cons <- tcConDecls new_or_data ex_ok rep_tycon
                                        (tvs', orig_res_ty) cons
@@ -598,8 +604,10 @@ tcFamInstDecl1 fam_tc (decl@TyData { tcdND = new_or_data, tcdCtxt = ctxt
                    DataType -> return (mkDataTyConRhs data_cons)
                    NewType  -> ASSERT( not (null data_cons) )
                                mkNewTyConRhs rep_tc_name rep_tycon (head data_cons)
+             ; axiom_name <- newImplicitBinder rep_tc_name mkInstTyCoOcc
+             ; let ax = mkDataFamInstCo axiom_name tvs' fam_tc pats' rep_tycon
              ; buildAlgTyCon rep_tc_name tvs' stupid_theta tc_rhs Recursive
-                             h98_syntax NoParentTyCon (Just (fam_tc, pats'))
+                             h98_syntax NoParentTyCon (Just ax)
                  -- We always assume that indexed types are recursive.  Why?
                  -- (1) Due to their open nature, we can never be sure that a
                  -- further instance might not introduce a new recursive
@@ -619,21 +627,28 @@ tcFamInstDecl1 _ d = pprPanic "tcFamInstDecl1" (ppr d)
 tcAssocDecl :: Class           -- ^ Class of associated type
             -> VarEnv Type     -- ^ Instantiation of class TyVars
             -> LTyClDecl Name  -- ^ RHS
-            -> TcM TyCon
+            -> TcM FamilyRep
 tcAssocDecl clas mini_env (L loc decl)
   = setSrcSpan loc      $
     tcAddDeclCtxt decl  $
-    do { at_tc <- tcFamInstDecl NotTopLevel decl
-       ; let Just (fam_tc, at_tys) = tyConFamInst_maybe at_tc
-  
+    do { at_fam_rep <- tcFamInstDecl NotTopLevel decl
+       ; let splitTy =
+               case at_fam_rep of
+                 ATyCon tycon   -> tyConFamInst_maybe tycon
+                 ACoAxiom axiom -> Just (coAxiomSplitLHS axiom)
+                 _              -> pprPanic "tcAssocDecl" (ppr at_fam_rep)
+       ; case splitTy of 
+           Nothing               -> pprPanic "tcAssocDecl" (ppr at_fam_rep)
+           Just (fam_tc, at_tys) -> do {
+
        -- Check that the associated type comes from this class
-       ; checkTc (Just clas == tyConAssoc_maybe fam_tc)
-                 (badATErr (className clas) (tyConName at_tc))
+         checkTc (Just clas == tyConAssoc_maybe fam_tc)
+                 (badATErr (className clas) (tyConName fam_tc))
 
        -- See Note [Checking consistent instantiation] in TcTyClsDecls
        ; zipWithM_ check_arg (tyConTyVars fam_tc) at_tys
 
-       ; return at_tc }
+       ; return at_fam_rep } }
   where
     check_arg fam_tc_tv at_ty
       | Just inst_ty <- lookupVarEnv mini_env fam_tc_tv

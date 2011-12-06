@@ -236,7 +236,7 @@ loadInterface doc_str mod from
         --
         -- The main thing is to add the ModIface to the PIT, but
         -- we also take the
-        --      IfaceDecls, IfaceInst, IfaceFamInst, IfaceRules, IfaceVectInfo
+        --      IfaceDecls, IfaceClsInst, IfaceFamInst, IfaceRules, IfaceVectInfo
         -- out of the ModIface and put them into the big EPS pools
 
         -- NB: *first* we do loadDecl, so that the provenance of all the locally-defined

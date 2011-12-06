@@ -18,6 +18,7 @@ import BuildTyCl
 import DataCon
 import TyCon
 import Type
+import Coercion ( mkDataFamInstCo )
 import Name
 import Util
 import MonadUtils
@@ -32,6 +33,7 @@ buildPDataTyCon orig_tc vect_tc repr
  do name' <- mkLocalisedName mkPDataTyConOcc orig_name
     rhs   <- buildPDataTyConRhs orig_name vect_tc repr_tc repr
     pdata <- builtin pdataTyCon
+    axiom_name <- error "JPM" -- I don't know how to make names in the VM monad
 
     liftDs $ buildAlgTyCon name'
                            tyvars
@@ -40,7 +42,8 @@ buildPDataTyCon orig_tc vect_tc repr
                            rec_flag    -- FIXME: is this ok?
                            False       -- not GADT syntax
                            NoParentTyCon
-                           (Just $ mk_fam_inst pdata vect_tc)
+                           (Just (mkDataFamInstCo axiom_name tyvars pdata
+                                   [mkTyConTy orig_tc] vect_tc))
  where
     orig_name = tyConName orig_tc
     tyvars    = tyConTyVars vect_tc
@@ -79,7 +82,7 @@ buildPDatasTyCon orig_tc vect_tc repr
  = fixV $ \repr_tc ->
  do name'       <- mkLocalisedName mkPDatasTyConOcc orig_name
     rhs         <- buildPDatasTyConRhs orig_name vect_tc repr_tc repr
-    pdatas      <- builtin pdatasTyCon
+    _pdatas     <- builtin pdatasTyCon
 
     liftDs $ buildAlgTyCon name'
                            tyvars
@@ -88,7 +91,7 @@ buildPDatasTyCon orig_tc vect_tc repr
                            rec_flag    -- FIXME: is this ok?
                            False       -- not GADT syntax
                            NoParentTyCon
-                           (Just $ mk_fam_inst pdatas vect_tc)
+                           (error "JPM") -- I don't know how to make names in the VM monad
  where
     orig_name = tyConName   orig_tc
     tyvars    = tyConTyVars vect_tc
@@ -145,7 +148,8 @@ mkSumTys repr_selX_ty mkTc repr
 
     comp_ty r = mkTc (compOrigType r)
 
-
+{-
 mk_fam_inst :: TyCon -> TyCon -> (TyCon, [Type])
 mk_fam_inst fam_tc arg_tc
   = (fam_tc, [mkTyConApp arg_tc . mkTyVarTys $ tyConTyVars arg_tc])
+-}

@@ -24,13 +24,16 @@ module Coercion (
         isReflCo_maybe,
         mkCoercionType,
 
+        -- ** Functions over coercion axioms
+        coAxiomTypeFamTyCon, coAxiomDataFamTyCon, coAxiomSplitLHS,
+
 	-- ** Constructing coercions
         mkReflCo, mkCoVarCo, 
         mkAxInstCo, mkPiCo, mkPiCos,
         mkSymCo, mkTransCo, mkNthCo,
 	mkInstCo, mkAppCo, mkTyConAppCo, mkFunCo,
         mkForAllCo, mkUnsafeCo,
-        mkNewTypeCo, mkFamInstCo,
+        mkNewTypeCo, mkDataFamInstCo, mkTypeFamInstCo,
 
         -- ** Decomposition
         splitNewTypeRepCo_maybe, instNewTyCon_maybe, decomposeCo,
@@ -82,7 +85,7 @@ import TyCon
 import Var
 import VarEnv
 import VarSet
-import Maybes	( orElse )
+import Maybes   ( orElse )
 import Name	( Name, NamedThing(..), nameUnique )
 import OccName 	( parenSymOcc )
 import Util
@@ -275,6 +278,41 @@ may turn into
        C (Nth 0 g) ....
 Now (Nth 0 g) will optimise to Refl, but perhaps not instantly.
 
+
+%************************************************************************
+%*                                                                      *
+\subsection{Coercion axioms}
+%*                                                                      *
+%************************************************************************
+These functions are not in TyCon because they need knowledge about
+the type representation (from TypeRep)
+
+\begin{code}
+-- If this axiom is of the form `F a ~ b`, and `F` is a type family, 
+-- return the TyCon representing `F`
+coAxiomTypeFamTyCon :: CoAxiom -> Maybe TyCon
+coAxiomTypeFamTyCon ax = case coAxiomSplitLHS ax of
+                           (tc,_) -> if isSynFamilyTyCon tc
+                                     then Just tc
+                                     else Nothing
+
+-- If this axiom is of the form `D a ~ C`, and `C` is a data instance
+-- constructor, return the TyCon representing `C`
+-- Note that the TyCon for `C` will have a TyConParent with the TyCon for `D`
+coAxiomDataFamTyCon :: CoAxiom -> Maybe TyCon
+coAxiomDataFamTyCon ax = case coAxiomSplitLHS ax of 
+                           (tc,_) -> if isDataFamilyTyCon tc
+                                     then tyConAppTyCon_maybe (coAxiomRHS ax)
+                                     else Nothing
+
+-- If `ax :: F a ~ b`, and `F` is a family instance, returns (F, [a])
+coAxiomSplitLHS :: CoAxiom -> (TyCon, [Type])
+coAxiomSplitLHS ax
+  = case splitTyConApp_maybe (coAxiomLHS ax) of
+      (Just (tc,tys)) -> -- ASSERT2 ( isFamilyTyCon tc, ppr tc )
+                         (tc,tys)
+      Nothing         -> pprPanic "coAxiomSplitLHS" (ppr ax)
+\end{code}
 
 %************************************************************************
 %*									*
@@ -617,22 +655,39 @@ mkNewTypeCo name tycon tvs rhs_ty
             , co_ax_lhs    = mkTyConApp tycon (mkTyVarTys tvs)
             , co_ax_rhs    = rhs_ty }
 
--- | Create a coercion identifying a @data@, @newtype@ or @type@ representation type
--- and its family instance.  It has the form @Co tvs :: F ts ~ R tvs@, where @Co@ is 
--- the coercion constructor built here, @F@ the family tycon and @R@ the (derived)
--- representation tycon.
-mkFamInstCo :: Name	-- ^ Unique name for the coercion tycon
-		  -> [TyVar]	-- ^ Type parameters of the coercion (@tvs@)
-		  -> TyCon	-- ^ Family tycon (@F@)
-		  -> [Type]	-- ^ Type instance (@ts@)
-		  -> TyCon	-- ^ Representation tycon (@R@)
-		  -> CoAxiom	-- ^ Coercion constructor (@Co@)
-mkFamInstCo name tvs family inst_tys rep_tycon
+-- | Create a coercion identifying a @data@ or @newtype@ representation type
+-- and its family instance.  It has the form @Co tvs :: F ts ~ R tvs@,
+-- where @Co@ is the coercion constructor built here, @F@ the family tycon
+-- and @R@ the (derived) representation tycon.
+mkDataFamInstCo :: Name         -- ^ Unique name for the coercion tycon
+                -> [TyVar]      -- ^ Type parameters of the coercion (@tvs@)
+                -> TyCon        -- ^ Family tycon (@F@)
+                -> [Type]       -- ^ Type instance (@ts@)
+                -> TyCon        -- ^ Representation tycon (@R@)
+                -> CoAxiom      -- ^ Coercion constructor (@Co@)
+mkDataFamInstCo name tvs family inst_tys rep_tycon
   = CoAxiom { co_ax_unique = nameUnique name
             , co_ax_name   = name
             , co_ax_tvs    = tvs
             , co_ax_lhs    = mkTyConApp family inst_tys 
             , co_ax_rhs    = mkTyConApp rep_tycon (mkTyVarTys tvs) }
+
+-- | Create a coercion identifying a @type@ family instance.
+-- It has the form @Co tvs :: F ts ~ R@, where @Co@ is 
+-- the coercion constructor built here, @F@ the family tycon and @R@ the
+-- right-hand side of the type family instance.
+mkTypeFamInstCo :: Name       -- ^ Unique name for the coercion tycon
+                -> [TyVar]    -- ^ Type parameters of the coercion (@tvs@)
+                -> TyCon      -- ^ Family tycon (@F@)
+                -> [Type]     -- ^ Type instance (@ts@)
+                -> Type       -- ^ Representation tycon (@R@)
+                -> CoAxiom    -- ^ Coercion constructor (@Co@)
+mkTypeFamInstCo name tvs family inst_tys rep_ty
+  = CoAxiom { co_ax_unique = nameUnique name
+            , co_ax_name   = name
+            , co_ax_tvs    = tvs
+            , co_ax_lhs    = mkTyConApp family inst_tys 
+            , co_ax_rhs    = rep_ty }
 
 mkPiCos :: [Var] -> Coercion -> Coercion
 mkPiCos vs co = foldr mkPiCo co vs

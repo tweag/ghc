@@ -12,13 +12,13 @@
 -- for details
 
 module BuildTyCl (
-	buildSynTyCon, 
+        buildSynTyCon, buildTypeInstAxiom,
         buildAlgTyCon, 
         buildDataCon,
         buildPromotedDataTyCon,
         TcMethInfo, buildClass,
-	distinctAbstractTyConRhs, totallyAbstractTyConRhs,
-	mkNewTyConRhs, mkDataTyConRhs, 
+        distinctAbstractTyConRhs, totallyAbstractTyConRhs,
+        mkNewTyConRhs, mkDataTyConRhs, 
         newImplicitBinder
     ) where
 
@@ -49,20 +49,19 @@ import Unique           ( getUnique )
 ------------------------------------------------------
 buildSynTyCon :: Name -> [TyVar] 
               -> SynTyConRhs
-	      -> Kind			-- ^ Kind of the RHS
-	      -> TyConParent
-	      -> Maybe (TyCon, [Type])    -- ^ family instance if applicable
+              -> Kind                   -- ^ Kind of the RHS
+              -> TyConParent
               -> TcRnIf m n TyCon
-buildSynTyCon tc_name tvs rhs rhs_kind parent mb_family 
-  | Just fam_inst_info <- mb_family
-  = ASSERT( isNoParent parent )
-    fixM $ \ tycon_rec -> do 
-    { fam_parent <- mkFamInstParentInfo tc_name tvs fam_inst_info tycon_rec 
-    ; return (mkSynTyCon tc_name kind tvs rhs fam_parent) }
-
-  | otherwise
+buildSynTyCon tc_name tvs rhs rhs_kind parent 
   = return (mkSynTyCon tc_name kind tvs rhs parent)
   where kind = mkPiKinds tvs rhs_kind
+
+buildTypeInstAxiom :: Name -> [TyVar] 
+                   -> Type              -- ^ RHS
+                   -> (TyCon, [Type])   -- ^ family instance
+                   -> TcRnIf m n CoAxiom
+buildTypeInstAxiom tc_name tvs rhs (family, instTys) 
+  = return (mkTypeFamInstCo tc_name tvs family instTys rhs)
 
 ------------------------------------------------------
 buildAlgTyCon :: Name -> [TyVar]        -- ^ Kind variables adn type variables
@@ -71,17 +70,17 @@ buildAlgTyCon :: Name -> [TyVar]        -- ^ Kind variables adn type variables
 	      -> RecFlag
 	      -> Bool			-- ^ True <=> was declared in GADT syntax
               -> TyConParent
-	      -> Maybe (TyCon, [Type])  -- ^ family instance if applicable
+	      -> Maybe CoAxiom          -- ^ family instance if applicable
 	      -> TcRnIf m n TyCon
 
 buildAlgTyCon tc_name ktvs stupid_theta rhs is_rec gadt_syn
-	      parent mb_family
-  | Just fam_inst_info <- mb_family
+	      parent mb_axiom
+  | Just co_ax <- mb_axiom
   = -- We need to tie a knot as the coercion of a data instance depends
      -- on the instance representation tycon and vice versa.
     ASSERT( isNoParent parent )
     fixM $ \ tycon_rec -> do 
-    { fam_parent <- mkFamInstParentInfo tc_name ktvs fam_inst_info tycon_rec
+    { fam_parent <- mkFamInstParentInfo tc_name ktvs co_ax tycon_rec
     ; return (mkAlgTyCon tc_name kind ktvs stupid_theta rhs
 		         fam_parent is_rec gadt_syn) }
 
@@ -101,16 +100,14 @@ buildAlgTyCon tc_name ktvs stupid_theta rhs is_rec gadt_syn
 -- (2) produce a `TyConParent' value containing the parent and coercion
 --     information.
 --
-mkFamInstParentInfo :: Name -> [TyVar] 
-             	    -> (TyCon, [Type]) 
-             	    -> TyCon 
-             	    -> TcRnIf m n TyConParent
-mkFamInstParentInfo tc_name tvs (family, instTys) rep_tycon
+mkFamInstParentInfo :: Name -> [TyVar]
+                    -> CoAxiom
+                    -> TyCon
+                    -> TcRnIf m n TyConParent
+mkFamInstParentInfo tc_name _tvs axiom _rep_tycon
   = do { -- Create the coercion
-       ; co_tycon_name <- newImplicitBinder tc_name mkInstTyCoOcc
-       ; let co_tycon = mkFamInstCo co_tycon_name tvs
-                                    family instTys rep_tycon
-       ; return $ FamInstTyCon family instTys co_tycon }
+       ; let (family, instTys) = coAxiomSplitLHS axiom
+       ; return $ FamInstTyCon axiom family instTys }
     
 ------------------------------------------------------
 distinctAbstractTyConRhs, totallyAbstractTyConRhs :: AlgTyConRhs

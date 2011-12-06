@@ -371,7 +371,7 @@ sequentially starting at 0.
 
 So we can make a Unique using
 	mkUnique ns key  :: Unique
-where 'ns' is a Char reprsenting the name space.  This in turn makes it
+where 'ns' is a Char representing the name space.  This in turn makes it
 easy to build an OccEnv.
 
 \begin{code}

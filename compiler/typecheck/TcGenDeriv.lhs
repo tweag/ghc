@@ -90,7 +90,7 @@ data DerivStuff     -- Please add this auxiliary stuff
 
   -- Generics
   | DerivTyCon TyCon      -- New data types
-  | DerivFamInst TyCon    -- New type family instances
+  | DerivFamInst CoAxiom  -- New type family instances
 
   -- New top-level auxiliary bindings 
   | DerivHsBind (LHsBind RdrName, LSig RdrName) -- Also used for SYB
@@ -1794,7 +1794,7 @@ type SeparateBagsDerivStuff = -- AuxBinds and SYB bindings
                               ( Bag (LHsBind RdrName, LSig RdrName)
                                 -- Extra bindings (used by Generic only)
                               , Bag TyCon -- Extra top-level datatypes
-                              , Bag TyCon -- Extra family instances
+                              , Bag CoAxiom -- Extra family instances
                               , Bag (InstInfo RdrName)) -- Extra instances
 
 genAuxBinds :: SrcSpan -> BagDerivStuff -> SeparateBagsDerivStuff

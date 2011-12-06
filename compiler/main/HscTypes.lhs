@@ -132,6 +132,7 @@ import Var
 import Id
 import IdInfo           ( IdDetails(..) )
 import Type
+--import Coercion         ( coAxiomDataFamTyCon, coAxiomTypeFamTyCon )
 
 import Annotations
 import Class
@@ -693,7 +694,7 @@ data ModIface
                 -- 'HomeModInfo', but that leads to more plumbing.
 
                 -- Instance declarations and rules
-        mi_insts       :: [IfaceInst],     -- ^ Sorted class instance
+        mi_insts       :: [IfaceClsInst],     -- ^ Sorted class instance
         mi_fam_insts   :: [IfaceFamInst],  -- ^ Sorted family instances
         mi_rules       :: [IfaceRule],     -- ^ Sorted rules
         mi_orphan_hash :: !Fingerprint,    -- ^ Hash for orphan rules and class
@@ -1182,7 +1183,7 @@ mkPrintUnqualified dflags env = (qual_name, qual_mod)
 implicitTyThings :: TyThing -> [TyThing]
 implicitTyThings (AnId _)       = []
 implicitTyThings (ACoAxiom _cc) = []
-implicitTyThings (ATyCon tc)    = implicitTyConThings tc
+implicitTyThings (ATyCon tc)    = implicitTyConThings (ATyCon tc)
 implicitTyThings (ADataCon dc)  = map AnId (dataConImplicitIds dc)
     -- For data cons add the worker and (possibly) wrapper
 
@@ -1197,13 +1198,14 @@ implicitClassThings cl
     -- superclass and operation selectors
     map AnId (classAllSelIds cl)
 
-implicitTyConThings :: TyCon -> [TyThing]
-implicitTyConThings tc
+implicitTyConThings :: TyThing -> [TyThing]
+implicitTyConThings (ATyCon tc)
   = class_stuff ++
       -- fields (names of selectors)
-      -- (possibly) implicit coercion and family coercion
-      --   depending on whether it's a newtype or a family instance or both
+
+      -- (possibly) implicit newtype coercion
     implicitCoTyCon tc ++
+
       -- for each data constructor in order,
       --   the contructor, worker, and (possibly) wrapper
     concatMap (extras_plus . ADataCon) (tyConDataCons tc)
@@ -1214,6 +1216,8 @@ implicitTyConThings tc
         Nothing -> []
         Just cl -> implicitClassThings cl
 
+implicitTyConThings _ = []
+
 -- add a thing and recursive call
 extras_plus :: TyThing -> [TyThing]
 extras_plus thing = thing : implicitTyThings thing
@@ -1222,10 +1226,15 @@ extras_plus thing = thing : implicitTyThings thing
 -- add the implicit coercion tycon
 implicitCoTyCon :: TyCon -> [TyThing]
 implicitCoTyCon tc
-  = map ACoAxiom . catMaybes $ [-- Just if newtype, Nothing if not
-                              newTyConCo_maybe tc,
-                              -- Just if family instance, Nothing if not
-                              tyConFamilyCoercion_maybe tc]
+  = map ACoAxiom . catMaybes $ [ -- Just if newtype, Nothing if not
+                                 newTyConCo_maybe tc
+                                 -- Just if family instance, Nothing if not
+                               {- , tyConFamilyCoercion_maybe tc -} ]
+
+
+-- Add the implicit coercion axiom for indexed data types
+implicitCoFamInst :: FamInst -> TyThing
+implicitCoFamInst = ACoAxiom . famInstAxiom
 
 -- | Returns @True@ if there should be no interface-file declaration
 -- for this thing on its own: either it is built-in, or it is part
@@ -1235,7 +1244,7 @@ isImplicitTyThing :: TyThing -> Bool
 isImplicitTyThing (ADataCon {}) = True
 isImplicitTyThing (AnId id)     = isImplicitId id
 isImplicitTyThing (ATyCon tc)   = isImplicitTyCon tc
-isImplicitTyThing (ACoAxiom {}) = True
+isImplicitTyThing (ACoAxiom _)  = False -- JPM even for newtypes!
 
 -- | tyThingParent_maybe x returns (Just p)
 -- when pprTyThingInContext sould print a declaration for p
@@ -1321,13 +1330,14 @@ mkTypeEnvWithImplicits things =
   mkTypeEnv (concatMap implicitTyThings things)
 
 typeEnvFromEntities :: [Id] -> [TyCon] -> [FamInst] -> TypeEnv
-typeEnvFromEntities ids tcs faminsts =
+typeEnvFromEntities ids tcs famInsts =
   mkTypeEnv (   map AnId ids
-             ++ map ATyCon all_tcs
+             ++ all_tcs
              ++ concatMap implicitTyConThings all_tcs
+             ++ map implicitCoFamInst famInsts
             )
  where
-  all_tcs = tcs ++ map famInstTyCon faminsts
+  all_tcs = map ATyCon (tcs ++ famInstsTyCons famInsts)
 
 lookupTypeEnv = lookupNameEnv
 

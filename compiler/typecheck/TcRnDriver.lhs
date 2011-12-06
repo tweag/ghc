@@ -1756,7 +1756,7 @@ ppr_tycons fam_insts type_env
          , text "COERCION AXIOMS" 
          ,   nest 2 (vcat (map pprCoAxiom (typeEnvCoAxioms type_env))) ]
   where
-    fi_tycons = map famInstTyCon fam_insts
+    fi_tycons = famInstsTyCons fam_insts
     tycons = [tycon | tycon <- typeEnvTyCons type_env, want_tycon tycon]
     want_tycon tycon | opt_PprStyle_Debug = True
 	             | otherwise	  = not (isImplicitTyCon tycon) &&

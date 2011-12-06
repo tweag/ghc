@@ -1209,7 +1209,8 @@ isTouchableMetaTyVar tv
 
 isTouchableMetaTyVar_InRange :: TcsUntouchables -> TcTyVar -> Bool 
 isTouchableMetaTyVar_InRange (untch,untch_tcs) tv 
-  = case tcTyVarDetails tv of 
+  = ASSERT2 ( isTcTyVar tv, ppr tv )
+    case tcTyVarDetails tv of 
       MetaTv TcsTv _ -> not (tv `elemVarSet` untch_tcs)
                         -- See Note [Touchable meta type variables] 
       MetaTv {}      -> inTouchableRange untch tv 
@@ -1481,7 +1482,7 @@ matchClass clas tys
 	}
         }
 
-matchFam :: TyCon -> [Type] -> TcS (Maybe (TyCon, [Type]))
+matchFam :: TyCon -> [Type] -> TcS (Maybe (FamInst, [Type]))
 matchFam tycon args = wrapTcS $ tcLookupFamInst tycon args
 \end{code}
 
