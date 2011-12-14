@@ -661,7 +661,7 @@ so if one type is an App the other one jolly well better be too
 
 Note [Unifying AppTy]
 ~~~~~~~~~~~~~~~~~~~~~
-Considerm unifying  (m Int) ~ (IO Int) where m is a unification variable 
+Consider unifying  (m Int) ~ (IO Int) where m is a unification variable 
 that is now bound to (say) (Bool ->).  Then we want to report 
      "Can't unify (Bool -> Int) with (IO Int)
 and not 
