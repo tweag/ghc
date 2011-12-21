@@ -223,12 +223,12 @@ tcExpr (HsType ty) _
 tcExpr HsHole res_ty
   = do { liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ res_ty)) ;
          printTy res_ty ;
+         (g, l) <- getEnvs ;
+         holes <- readTcRef $ tcl_holes l ;
+         writeTcRef (tcl_holes l) (res_ty : holes) ;
          return HsHole }
        where printTy (TyVarTy ty) = let (MetaTv _ io) = tcTyVarDetails ty in 
-                                        do (g, l) <- getEnvs ;
-                                           holes <- readTcRef $ tcl_holes l ;
-                                           writeTcRef (tcl_holes l) (ty : holes) ;
-                                           meta <- readTcRef io
+                                        do meta <- readTcRef io
                                            liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ meta))
              printTy (ForAllTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
              printTy (PredTy _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
