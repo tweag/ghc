@@ -66,6 +66,7 @@ import FastString
 import Control.Monad
 
 import TypeRep
+import qualified Data.Map as Map
 \end{code}
 
 %************************************************************************
@@ -220,16 +221,16 @@ tcExpr (HsType ty) _
 	-- so it's not enabled yet.
 	-- Can't eliminate it altogether from the parser, because the
 	-- same parser parses *patterns*.
-tcExpr HsHole res_ty
+tcExpr (HsHole s) res_ty
   = do { liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ res_ty)) ;
          printTy res_ty ;
          (g, l) <- getEnvs ;
          holes <- readTcRef $ tcl_holes l ;
-         writeTcRef (tcl_holes l) (res_ty : holes) ;
-         return HsHole }
+         writeTcRef (tcl_holes l) (Map.insert s res_ty holes) ;
+         return (HsHole s) }
        where printTy (TyVarTy ty) = let (MetaTv _ io) = tcTyVarDetails ty in 
                                         do meta <- readTcRef io
-                                           liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ meta))
+                                           liftIO $ putStrLn ("tcExpr.HsHole @(" ++ (showSDoc $ ppr s) ++ "): " ++ (showSDoc $ ppr meta))
              printTy (ForAllTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
              printTy (PredTy _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
              printTy (AppTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: AppTy")

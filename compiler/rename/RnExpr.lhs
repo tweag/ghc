@@ -294,8 +294,8 @@ rnExpr (PArrSeq _ seq)
   = rnArithSeq seq	 `thenM` \ (new_seq, fvs) ->
     return (PArrSeq noPostTcExpr new_seq, fvs)
 
-rnExpr HsHole
-  = return (HsHole, emptyFVs)
+rnExpr (HsHole s)
+  = return (HsHole s, emptyFVs)
 \end{code}
 
 These three are pattern syntax appearing in expressions.

@@ -109,6 +109,7 @@ import Control.Monad
 
 import System.IO
 import TypeRep
+import qualified Data.Map as Map
 
 #include "HsVersions.h"
 \end{code}
@@ -1428,12 +1429,12 @@ tcRnExpr hsc_env ictxt rdr_expr
                                                     lie  ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
 
-    (g, l) <- getEnvs ;
+    (_, l) <- getEnvs ;
     holes <- readTcRef $ tcl_holes l ;
-    liftIO $ putStrLn ("tcRnExpr1.5: " ++ (showSDoc $ ppr $ holes)) ;
-    zonked_holes <- zonkTcTypes $ map (\ty -> mkPiTypes dicts ty) $ holes ;
-    liftIO $ putStrLn ("tcRnExpr2: " ++ (showSDoc $ ppr $ map (tidyType emptyTidyEnv) zonked_holes)) ;
-    liftIO $ putStrLn ("tcRnExpr3: " ++ (showSDoc $ ppr $ dicts)) ;
+    zonked_holes <- mapM (\(s, ty) -> liftM (\t -> (s, tidyType emptyTidyEnv t)) $ zonkTcType ty)
+    				$ Map.toList $ Map.map (\ty -> mkPiTypes dicts ty) $ holes ;
+    liftIO $ putStrLn ("tcRnExpr2: " ++ (showSDoc $ ppr $ zonked_holes)) ;
+
     let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     zonkTcType all_expr_ty
     }
