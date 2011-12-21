@@ -64,6 +64,8 @@ import ErrUtils
 import Outputable
 import FastString
 import Control.Monad
+
+import TypeRep
 \end{code}
 
 %************************************************************************
@@ -91,6 +93,8 @@ tcPolyExprNC expr res_ty
   = do { traceTc "tcPolyExprNC" (ppr res_ty)
        ; (gen_fn, expr') <- tcGen GenSigCtxt res_ty $ \ _ rho ->
 			    tcMonoExprNC expr rho
+       ; sk <- deeplySkolemise res_ty
+       ; liftIO $ putStrLn ("tcPolyExpr: " ++ (showSDoc $ ppr $ sk))
        ; return (mkLHsWrap gen_fn expr') }
 
 ---------------
@@ -125,6 +129,7 @@ tcInferRho expr = addErrCtxt (exprCtxt expr) (tcInferRhoNC expr)
 tcInferRhoNC (L loc expr)
   = setSrcSpan loc $
     do { (expr', rho) <- tcInfExpr expr
+       ; liftIO $ putStrLn $ ("tcInferRhoNC: " ++ (showSDoc $ ppr $ rho))
        ; return (L loc expr', rho) }
 
 tcInfExpr :: HsExpr Name -> TcM (HsExpr TcId, TcRhoType)
@@ -215,8 +220,21 @@ tcExpr (HsType ty) _
 	-- so it's not enabled yet.
 	-- Can't eliminate it altogether from the parser, because the
 	-- same parser parses *patterns*.
-tcExpr HsHole _
-  = return HsHole
+tcExpr HsHole res_ty
+  = do { liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ res_ty)) ;
+         (g, l) <- getEnvs ;
+         holes <- readTcRef $ tcl_holes l ;
+         writeTcRef (tcl_holes l) (res_ty : holes) ;
+         printTy res_ty ;
+         return HsHole }
+       where printTy (TyVarTy ty) = let (MetaTv _ io) = tcTyVarDetails ty in 
+                                        do meta <- readTcRef io
+                                           liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ meta))
+             printTy (ForAllTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
+             printTy (PredTy _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
+             printTy (AppTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: AppTy")
+             printTy (TyConApp t tys) = liftIO $ putStrLn ("tcExpr.HsHole: TyConApp " ++ (showSDoc $ ppr t) ++ " " ++ (showSDoc $ ppr tys))
+             printTy t = liftIO $ putStrLn ("tcExpr.HsHole: something else: " ++ (showSDoc $ ppr t))
 \end{code}
 
 
@@ -311,6 +329,7 @@ tcExpr (OpApp arg1 op fix arg2) res_ty
        ; (co_fn, arg_tys, op_res_ty) <- unifyOpFunTysWrap op 2 op_ty
        ; co_res <- unifyType op_res_ty res_ty
        ; [arg1', arg2'] <- tcArgs op [arg1, arg2] arg_tys
+       ; liftIO $ putStrLn ("tcExpr.OpApp: " ++ (showSDoc $ ppr arg2'))
        ; return $ mkHsWrapCo co_res $
          OpApp arg1' (mkLHsWrapCo co_fn op') fix arg2' }
 
@@ -842,13 +861,13 @@ tcApp fun args res_ty
 	    -- Extract its argument types
 	; (co_fun, expected_arg_tys, actual_res_ty)
 	      <- matchExpectedFunTys (mk_app_msg fun) (length args) fun_tau
-
+  ; liftIO $ putStrLn ("tcApp: " ++ (showSDoc $ ppr expected_arg_tys))
 	-- Typecheck the result, thereby propagating 
         -- info (if any) from result into the argument types
         -- Both actual_res_ty and res_ty are deeply skolemised
         ; co_res <- addErrCtxtM (funResCtxt fun actual_res_ty res_ty) $
                     unifyType actual_res_ty res_ty
-
+  
 	-- Typecheck the arguments
 	; args1 <- tcArgs fun args expected_arg_tys
 
@@ -885,6 +904,7 @@ tcInferFun :: LHsExpr Name -> TcM (LHsExpr TcId, TcRhoType)
 -- Infer and instantiate the type of a function
 tcInferFun (L loc (HsVar name)) 
   = do { (fun, ty) <- setSrcSpan loc (tcInferId name)
+       ; liftIO $ putStrLn ("tcInferFun: " ++ (showSDoc $ ppr $ ty))
        	       -- Don't wrap a context around a plain Id
        ; return (L loc fun, ty) }
 

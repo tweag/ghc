@@ -86,6 +86,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
         infer_var    <- newIORef True ;
         lie_var      <- newIORef emptyWC ;
         dfun_n_var   <- newIORef emptyOccSet ;
+        holes_var    <- newIORef [] ;
         type_env_var <- case hsc_type_env_var hsc_env of {
                            Just (_mod, te_var) -> return te_var ;
                            Nothing             -> newIORef emptyNameEnv } ;
@@ -150,6 +151,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcl_tyvars     = tvs_var,
                 tcl_lie        = lie_var,
                 tcl_meta       = meta_var,
+<<<<<<< HEAD
                 tcl_untch      = initTyVarUnique
              } ;
         } ;
@@ -160,6 +162,19 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                         ; case r of
                           Right res -> return (Just res)
                           Left _    -> return Nothing } ;
+=======
+		tcl_untch      = initTyVarUnique,
+		tcl_holes      = holes_var
+	     } ;
+	} ;
+   
+	-- OK, here's the business end!
+	maybe_res <- initTcRnIf 'a' hsc_env gbl_env lcl_env $
+		     do { r <- tryM do_this
+			; case r of
+			  Right res -> return (Just res)
+			  Left _    -> return Nothing } ;
+>>>>>>> 43e18c1... Added a field to the local environment to store the TyVars of holes.
 
         -- Check for unsolved constraints
         lie <- readIORef lie_var ;
@@ -1178,11 +1193,19 @@ initIfaceTc :: ModIface
 -- Used when type-checking checking an up-to-date interface file
 -- No type envt from the current module, but we do know the module dependencies
 initIfaceTc iface do_this
+<<<<<<< HEAD
  = do   { tc_env_var <- newTcRef emptyTypeEnv
         ; let { gbl_env = IfGblEnv { if_rec_types = Just (mod, readTcRef tc_env_var) } ;
               ; if_lenv = mkIfLclEnv mod doc
            }
         ; setEnvs (gbl_env, if_lenv) (do_this tc_env_var)
+=======
+ = do	{ liftIO $ putStrLn "initIfaceTc" ; tc_env_var <- newTcRef emptyTypeEnv
+	; let { gbl_env = IfGblEnv { if_rec_types = Just (mod, readTcRef tc_env_var) } ;
+	      ; if_lenv = mkIfLclEnv mod doc
+	   }
+	; setEnvs (gbl_env, if_lenv) (do_this tc_env_var)
+>>>>>>> 43e18c1... Added a field to the local environment to store the TyVars of holes.
     }
   where
     mod = mi_module iface

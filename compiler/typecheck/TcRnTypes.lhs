@@ -121,6 +121,7 @@ import FastString
 
 import Data.Set (Set)
 
+import UniqSet
 \end{code}
 
 
@@ -436,9 +437,10 @@ data TcLclEnv		-- Changes as we move inside an expression
 	-- TcMetaTyVars have 
 	tcl_meta  :: TcRef Unique,  -- The next free unique for TcMetaTyVars
 		     		    -- Guaranteed to be allocated linearly
-	tcl_untch :: Unique	    -- Any TcMetaTyVar with 
+	tcl_untch :: Unique,	    -- Any TcMetaTyVar with 
 		     		    --     unique >= tcl_untch is touchable
 		     		    --     unique <  tcl_untch is untouchable
+	tcl_holes :: TcRef [Type]
     }
 
 type TcTypeEnv = NameEnv TcTyThing

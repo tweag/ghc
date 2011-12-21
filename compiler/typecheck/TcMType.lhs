@@ -314,7 +314,7 @@ newMetaTyVar meta_info kind
                         TauTv -> fsLit "t"
                         TcsTv -> fsLit "u"
                         SigTv -> fsLit "a"
-	; return (mkTcTyVar name kind (MetaTv meta_info ref)) }
+	; liftIO $ putStrLn ("newMetaTyVar: " ++ (showSDoc $ ppr name)) ; return (mkTcTyVar name kind (MetaTv meta_info ref)) }
 
 mkTcTyVarName :: Unique -> FastString -> Name
 -- Make sure that fresh TcTyVar names finish with a digit
@@ -351,7 +351,7 @@ writeMetaTyVar :: TcTyVar -> TcType -> TcM ()
 
 writeMetaTyVar tyvar ty
   | not debugIsOn 
-  = writeMetaTyVarRef tyvar (metaTvRef tyvar) ty
+  = do { liftIO $ putStrLn ("writeMetaTyVar: " ++ (showSDoc $ ppr tyvar) ++ " is now " ++ (showSDoc $ ppr ty)) ; writeMetaTyVarRef tyvar (metaTvRef tyvar) ty }
 
 -- Everything from here on only happens if DEBUG is on
   | not (isTcTyVar tyvar)
@@ -359,7 +359,7 @@ writeMetaTyVar tyvar ty
     return ()
 
   | MetaTv _ ref <- tcTyVarDetails tyvar
-  = writeMetaTyVarRef tyvar ref ty
+  = do { liftIO $ putStrLn ("writeMetaTyVar2: " ++ (showSDoc $ ppr tyvar) ++ " is now " ++ (showSDoc $ ppr ty)) ; writeMetaTyVarRef tyvar ref ty }
 
   | otherwise
   = WARN( True, text "Writing to non-meta tyvar" <+> ppr tyvar )
@@ -371,7 +371,7 @@ writeMetaTyVarRef :: TcTyVar -> TcRef MetaDetails -> TcType -> TcM ()
 -- the ref cell must be for the same tyvar
 writeMetaTyVarRef tyvar ref ty
   | not debugIsOn 
-  = do { traceTc "writeMetaTyVar" (ppr tyvar <+> text ":=" <+> ppr ty)
+  = do { liftIO $ putStrLn ("writeMetaTyVarRef: " ++ (showSDoc $ ppr tyvar) ++ " is now " ++ (showSDoc $ ppr ty)) ; traceTc "writeMetaTyVar" (ppr tyvar <+> text ":=" <+> ppr ty)
        ; writeMutVar ref (Indirect ty) }
 
 -- Everything from here on only happens if DEBUG is on
