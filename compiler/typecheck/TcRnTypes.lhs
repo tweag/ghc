@@ -440,7 +440,7 @@ data TcLclEnv		-- Changes as we move inside an expression
 	tcl_untch :: Unique,	    -- Any TcMetaTyVar with 
 		     		    --     unique >= tcl_untch is touchable
 		     		    --     unique <  tcl_untch is untouchable
-	tcl_holes :: TcRef [Type]
+	tcl_holes :: TcRef [TyVar]
     }
 
 type TcTypeEnv = NameEnv TcTyThing

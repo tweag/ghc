@@ -222,13 +222,13 @@ tcExpr (HsType ty) _
 	-- same parser parses *patterns*.
 tcExpr HsHole res_ty
   = do { liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ res_ty)) ;
-         (g, l) <- getEnvs ;
-         holes <- readTcRef $ tcl_holes l ;
-         writeTcRef (tcl_holes l) (res_ty : holes) ;
          printTy res_ty ;
          return HsHole }
        where printTy (TyVarTy ty) = let (MetaTv _ io) = tcTyVarDetails ty in 
-                                        do meta <- readTcRef io
+                                        do (g, l) <- getEnvs ;
+                                           holes <- readTcRef $ tcl_holes l ;
+                                           writeTcRef (tcl_holes l) (ty : holes) ;
+                                           meta <- readTcRef io
                                            liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ meta))
              printTy (ForAllTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
              printTy (PredTy _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
