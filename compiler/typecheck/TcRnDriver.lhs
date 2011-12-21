@@ -1431,7 +1431,7 @@ tcRnExpr hsc_env ictxt rdr_expr
     (g, l) <- getEnvs ;
     holes <- readTcRef $ tcl_holes l ;
     liftIO $ putStrLn ("tcRnExpr1.5: " ++ (showSDoc $ ppr $ holes)) ;
-    zonked_holes <- zonkTcTypes $ map (\ty -> mkForAllTys qtvs (mkPiTypes dicts ty)) $ holes ;
+    zonked_holes <- zonkTcTypes $ map (\ty -> mkPiTypes dicts ty) $ holes ;
     liftIO $ putStrLn ("tcRnExpr2: " ++ (showSDoc $ ppr $ map (tidyType emptyTidyEnv) zonked_holes)) ;
     liftIO $ putStrLn ("tcRnExpr3: " ++ (showSDoc $ ppr $ dicts)) ;
     let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
