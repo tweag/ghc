@@ -707,12 +707,6 @@ simplifyCheck ctxt wanteds
        ; reportUnsolved runtimeCoercionErrors unsolved }
        
        ; return evBinds }
-{-
-reportOrDefer :: Bool -> WantedConstraints -> TcS ()
-reportOrDefer runtimeCoercionErrors unsolved
-  = do { reportUnsolved runtimeCoercionErrors unsolved
-       ; unless runtimeCoercionErrors $ wrapErrTcS failM }
--}
 \end{code}
 
 Note [Deferring coercion errors to runtime]

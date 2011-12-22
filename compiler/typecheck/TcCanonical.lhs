@@ -771,26 +771,6 @@ canEq _d fl eqv ty1 ty2
               do { _ <- setEqBind eqv (mkTcReflCo ty1) fl; return () }
        ; return Stop }
 
--- Split up an equality between function types into two equalities.
-canEq d fl eqv (FunTy s1 t1) (FunTy s2 t2)
-  = do { argeqv <- newEqVar fl s1 s2
-       ; reseqv <- newEqVar fl t1 t2
-       ; let argeqv_v = evc_the_evvar argeqv
-             reseqv_v = evc_the_evvar reseqv
-       ; (fl1,fl2) <- case fl of
-           Wanted {} ->
-               do { _ <- setEqBind eqv (mkTcFunCo (mkTcCoVarCo argeqv_v) (mkTcCoVarCo reseqv_v)) fl
-                  ; return (fl,fl) }
-           Given {} ->
-               do { fl1 <- setEqBind argeqv_v (mkTcNthCo 0 (mkTcCoVarCo eqv)) fl
-                  ; fl2 <- setEqBind reseqv_v (mkTcNthCo 1 (mkTcCoVarCo eqv)) fl 
-                  ; return (fl1,fl2)
-                  }
-           Derived {} ->
-               return (fl,fl)
-
-       ; canEqEvVarsCreated d [fl2,fl1] [reseqv,argeqv] [t1,s1] [t2,s2] }
-
 -- If one side is a variable, orient and flatten,
 -- WITHOUT expanding type synonyms, so that we tend to 
 -- substitute a ~ Age rather than a ~ Int when @type Age = Int@
@@ -811,8 +791,10 @@ canEq d fl eqv ty1 ty2@(TyConApp fn tys)
   | isSynFamilyTyCon fn, length tys == tyConArity fn
   = canEqLeaf d fl eqv ty1 ty2
 
-canEq d fl eqv (TyConApp tc1 tys1) (TyConApp tc2 tys2)
-  | isDecomposableTyCon tc1 && isDecomposableTyCon tc2
+canEq d fl eqv ty1 ty2
+  | Just (tc1,tys1) <- tcSplitTyConApp_maybe ty1
+  , Just (tc2,tys2) <- tcSplitTyConApp_maybe ty2
+  , isDecomposableTyCon tc1 && isDecomposableTyCon tc2
   = -- Generate equalities for each of the corresponding arguments
     if (tc1 /= tc2)
     -- Fail straight away for better error messages
@@ -840,15 +822,8 @@ canEq d fl eqv (TyConApp tc1 tys1) (TyConApp tc2 tys2)
 
 -- See Note [Equality between type applications]
 --     Note [Care with type applications] in TcUnify
-canEq d fl eqv (AppTy s1 t1) ty2
-  | Just (s2,t2) <- tcSplitAppTy_maybe ty2
-  = canEqAppTy d fl eqv s1 t1 s2 t2
-
-canEq d fl eqv ty1 (AppTy s2 t2)
-  | Just (s1,t1) <- tcSplitAppTy_maybe ty1
-  = canEqAppTy d fl eqv s1 t1 s2 t2
-
-canEq d fl eqv ty1 ty2
+canEq d fl eqv ty1 ty2    -- e.g.  F a b ~ Maybe c
+                          -- where F has arity 1
   | Just (s1,t1) <- tcSplitAppTy_maybe ty1
   , Just (s2,t2) <- tcSplitAppTy_maybe ty2
   = canEqAppTy d fl eqv s1 t1 s2 t2
@@ -861,9 +836,6 @@ canEq d fl eqv s1@(ForAllTy {}) s2@(ForAllTy {})
  = do { traceTcS "Ommitting decomposition of given polytype equality" (pprEq s1 s2)
       ; return Stop }
 
--- Finally expand any type synonym applications.
-canEq d fl eqv ty1 ty2 | Just ty1' <- tcView ty1 = canEq d fl eqv ty1' ty2
-canEq d fl eqv ty1 ty2 | Just ty2' <- tcView ty2 = canEq d fl eqv ty1 ty2'
 canEq d fl eqv _ _                               = canEqFailure d fl eqv
 
 -- Type application
