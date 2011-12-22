@@ -214,7 +214,9 @@ deferCt ct errs
   = -- Only set the evidence binder for Wanteds
     case ct_flavor of
       Wanted loc -> do {
-         warnTcS loc True (text "Deferring error" $$ errorMsg)
+         --warnTcS loc True (text "Deferring error" $$ errorMsg)
+         wrapWarnTcS $ setSrcSpan (ctLocSpan loc) $ 
+         addWarnTc (text "Deferring error" $$ errorMsg)
        ; setEvBind ct_id (EvDelayedError ct_type errorFS) ct_flavor }
       _          -> return ct_flavor
   where ct_id     = cc_id ct
