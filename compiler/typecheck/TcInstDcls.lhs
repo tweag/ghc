@@ -38,7 +38,6 @@ import MkCore     ( nO_METHOD_BINDING_ERROR_ID )
 import Type
 import TcEvidence
 import TyCon
-import Coercion   ( mkTypeFamInstCo, mkDataFamInstCo, coAxiomSplitLHS )
 import DataCon
 import Class
 import Var
@@ -48,7 +47,6 @@ import Pair
 import CoreUnfold ( mkDFunUnfolding )
 import CoreSyn    ( Expr(Var), CoreExpr, varToCoreExpr )
 import PrelNames  ( typeableClassNames )
-import HscTypes   ( tyThingTyCon )
 
 import Bag
 import BasicTypes
@@ -369,38 +367,30 @@ tcInstDecls1    -- Deal with both source-code and imported instance decls
 
 tcInstDecls1 tycl_decls inst_decls deriv_decls 
   = checkNoErrs $
-    do {        -- Stop if addInstInfos etc discovers any errors
-                -- (they recover, so that we get more than one error each
-                -- round)
+    do {    -- Stop if addInstInfos etc discovers any errors
+            -- (they recover, so that we get more than one error each
+            -- round)
 
-                -- (1) Do class and family instance declarations
-       ; idx_tycons        <- mapAndRecoverM tcTopFamInstDecl $
-                              filter (isFamInstDecl . unLoc) tycl_decls
-       ; local_info_tycons <- mapAndRecoverM tcLocalInstDecl1  inst_decls
+            -- (1) Do class and family instance declarations
+       ; fam_insts       <- mapAndRecoverM tcTopFamInstDecl $
+                            filter (isFamInstDecl . unLoc) tycl_decls
+       ; inst_decl_stuff <- mapAndRecoverM tcLocalInstDecl1  inst_decls
 
-       ; let { (local_info, at_tycons_s) = unzip local_info_tycons
-             ; at_idx_tycons = concat at_tycons_s ++ idx_tycons }
+       ; let { (local_info, at_fam_insts_s) = unzip inst_decl_stuff
+             ; all_fam_insts = concat at_fam_insts_s ++ fam_insts }
 
-                -- (2) Add the tycons of indexed types and their implicit
-                --     tythings to the global environment
-       ; tcExtendGlobalEnvImplicit at_idx_tycons $ do
-       { tcg_env <- tcAddImplicits at_idx_tycons
-       ; setGblEnv tcg_env $
+            -- (2) Next, construct the instance environment so far, consisting of
+            --   (a) local instance decls
+            --   (b) local family instance decls
+       ; addClsInsts local_info      $
+         addFamInsts all_fam_insts   $ do
 
-
-                -- Next, construct the instance environment so far, consisting
-                -- of
-                --   (a) local instance decls
-                --   (b) local family instance decls
-         addInsts local_info         $
-         addFamInsts at_idx_tycons   $ do {
-
-                -- (3) Compute instances from "deriving" clauses;
-                -- This stuff computes a context for the derived instance
-                -- decl, so it needs to know about all the instances possible
-                -- NB: class instance declarations can contain derivings as
-                --     part of associated data type declarations
-         failIfErrsM    -- If the addInsts stuff gave any errors, don't
+            -- (3) Compute instances from "deriving" clauses;
+            -- This stuff computes a context for the derived instance
+            -- decl, so it needs to know about all the instances possible
+            -- NB: class instance declarations can contain derivings as
+            --     part of associated data type declarations
+       { failIfErrsM    -- If the addInsts stuff gave any errors, don't
                         -- try the deriving stuff, because that may give
                         -- more errors still
 
@@ -422,24 +412,33 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
        ; return ( gbl_env
                 , (bagToList deriv_inst_info) ++ local_info
                 , deriv_binds)
-    }}}
+    }}
   where
     typInstCheck ty = is_cls (iSpec ty) `elem` typeableClassNames
     typInstErr = ptext $ sLit $ "Can't create hand written instances of Typeable in Safe"
                               ++ " Haskell! Can only derive them"
 
-addInsts :: [InstInfo Name] -> TcM a -> TcM a
-addInsts infos thing_inside
+addClsInsts :: [InstInfo Name] -> TcM a -> TcM a
+addClsInsts infos thing_inside
   = tcExtendLocalInstEnv (map iSpec infos) thing_inside
 
-addFamInsts :: [TyThing] -> TcM a -> TcM a
-addFamInsts idx_things thing_inside
-  = tcExtendLocalFamInstEnv (map mkLocalFamInst idx_things) thing_inside
+addFamInsts :: [FamInst] -> TcM a -> TcM a
+-- Extend (a) the family instance envt
+--        (b) the type envt with stuff from data type decls
+addFamInsts fam_insts thing_inside
+  = tcExtendLocalFamInstEnv fam_insts $ 
+    tcExtendGlobalEnvImplicit things  $ 
+    do { tcg_env <- tcAddImplicits things
+       ; setGblEnv tcg_env thing_inside }
+  where
+    axioms = map famInstAxiom fam_insts
+    tycons = famInstsRepTyCons fam_insts
+    things = map ATyCon tycons ++ map ACoAxiom axioms 
 \end{code}
 
 \begin{code}
 tcLocalInstDecl1 :: LInstDecl Name
-                 -> TcM (InstInfo Name, [FamilyRep])
+                 -> TcM (InstInfo Name, [FamInst])
         -- A source-file instance declaration
         -- Type-check all the stuff before the "where"
         --
@@ -457,8 +456,8 @@ tcLocalInstDecl1 (L loc (InstDecl poly_ty binds uprags ats))
 
         -- Next, process any associated types.
         ; traceTc "tcLocalInstDecl" (ppr poly_ty)
-        ; idx_tycons0 <- tcExtendTyVarEnv tyvars $
-                         mapAndRecoverM (tcAssocDecl clas mini_env) ats
+        ; fam_insts0 <- tcExtendTyVarEnv tyvars $
+                        mapAndRecoverM (tcAssocDecl clas mini_env) ats
 
         -- Check for missing associated types and build them
         -- from their defaults (if available)
@@ -470,19 +469,18 @@ tcLocalInstDecl1 (L loc (InstDecl poly_ty binds uprags ats))
                 | null defs                                  = return (Just (tyConName fam_tc), [])
                  -- No user instance, have defaults ==> instatiate them
                 | otherwise = do
-                    defs' <- forM defs $ \(ATD tvs pat_tys rhs _loc) -> do
+                    fam_insts <- forM defs $ \(ATD tvs pat_tys rhs _loc) -> do
                       let mini_env_subst = mkTvSubst (mkInScopeSet (mkVarSet tvs)) mini_env
                           tvs' = varSetElems (tyVarsOfType rhs')
                           pat_tys' = substTys mini_env_subst pat_tys
                           rhs' = substTy mini_env_subst rhs
                       rep_tc_name <- newFamInstAxiomName
                                        (noLoc (tyConName fam_tc)) pat_tys'
-                      buildTypeInstAxiom rep_tc_name tvs' rhs'
-                        (fam_tc, pat_tys')
-                    return (Nothing, defs')
+                      return (mkSynFamInst rep_tc_name tvs' fam_tc pat_tys' rhs')
+                    return (Nothing, fam_insts)
         ; missing_at_stuff <- mapM check_at_instance (classATItems clas)
         
-        ; let (omitted, idx_tycons1) = unzip missing_at_stuff
+        ; let (omitted, fam_insts1) = unzip missing_at_stuff
         ; warn <- woptM Opt_WarnMissingMethods
         ; mapM_ (warnTc warn . omittedATWarn) (catMaybes omitted)
 
@@ -496,10 +494,8 @@ tcLocalInstDecl1 (L loc (InstDecl poly_ty binds uprags ats))
               ispec 	= mkLocalInstance dfun overlap_flag
               inst_info = InstInfo { iSpec  = ispec, iBinds = VanillaInst binds uprags False }
 
-        ; return ( inst_info
-                 , idx_tycons0 ++ map ACoAxiom (concat idx_tycons1)) }
+        ; return ( inst_info, fam_insts0 ++ concat fam_insts1) }
 \end{code}
-
 
 %************************************************************************
 %*                                                                      *
@@ -513,19 +509,15 @@ lot of kinding and type checking code with ordinary algebraic data types (and
 GADTs).
 
 \begin{code}
-type FamilyRep = TyThing
--- INVARIANT: We only use ATyCon (for data families)
--- and ACoAxiom (for type families)
-
-tcTopFamInstDecl :: LTyClDecl Name -> TcM FamilyRep
+tcTopFamInstDecl :: LTyClDecl Name -> TcM FamInst
 tcTopFamInstDecl (L loc decl)
   = setSrcSpan loc      $
     tcAddDeclCtxt decl  $
     tcFamInstDecl TopLevel decl
 
-tcFamInstDecl :: TopLevelFlag -> TyClDecl Name -> TcM FamilyRep
+tcFamInstDecl :: TopLevelFlag -> TyClDecl Name -> TcM FamInst
 tcFamInstDecl top_lvl decl
-  = do { -- type family instances require -XTypeFamilies
+  = do { -- Type family instances require -XTypeFamilies
          -- and can't (currently) be in an hs-boot file
        ; traceTc "tcFamInstDecl" (ppr decl)
        ; let fam_tc_lname = tcdLName decl
@@ -543,16 +535,9 @@ tcFamInstDecl top_lvl decl
 
          -- Now check the type/data instance itself
          -- This is where type and data decls are treated separately
-       ; tc_fam_rep <- tcFamInstDecl1 fam_tc decl
-         -- Remember to check validity; no recursion to worry about here
-       ; when (isATyCon tc_fam_rep) $
-         checkValidTyCon (tyThingTyCon tc_fam_rep)
+       ; tcFamInstDecl1 fam_tc decl }
 
-       ; return tc_fam_rep }
-  where isATyCon (ATyCon _) = True
-        isATyCon _          = False
-
-tcFamInstDecl1 :: TyCon -> TyClDecl Name -> TcM FamilyRep
+tcFamInstDecl1 :: TyCon -> TyClDecl Name -> TcM FamInst
 
   -- "type instance"
 tcFamInstDecl1 fam_tc (decl@TySynonym {})
@@ -565,9 +550,7 @@ tcFamInstDecl1 fam_tc (decl@TySynonym {})
          -- (3) construct representation tycon
        ; rep_tc_name <- newFamInstAxiomName (tcdLName decl) t_typats
 
-       ; return $ ACoAxiom $ 
-           mkTypeFamInstCo rep_tc_name t_tvs fam_tc t_typats t_rhs
-       }
+       ; return (mkSynFamInst rep_tc_name t_tvs fam_tc t_typats t_rhs) }
 
   -- "newtype instance" and "data instance"
 tcFamInstDecl1 fam_tc (decl@TyData { tcdND = new_or_data, tcdCtxt = ctxt
@@ -594,29 +577,33 @@ tcFamInstDecl1 fam_tc (decl@TyData { tcdND = new_or_data, tcdCtxt = ctxt
 
          -- Construct representation tycon
        ; rep_tc_name <- newFamInstTyConName (tcdLName decl) pats'
+       ; axiom_name  <- newImplicitBinder rep_tc_name mkInstTyCoOcc
        ; let ex_ok = True       -- Existentials ok for type families!
-       ; fmap ATyCon $ fixM (\ rep_tycon -> do
-             { let orig_res_ty = mkTyConApp fam_tc pats'
-             ; data_cons <- tcConDecls new_or_data ex_ok rep_tycon
+             orig_res_ty = mkTyConApp fam_tc pats'
+
+       ; (rep_tc, fam_inst) <- fixM $ \ ~(rec_rep_tc, _) ->
+           do { data_cons <- tcConDecls new_or_data ex_ok rec_rep_tc
                                        (tvs', orig_res_ty) cons
-             ; tc_rhs <-
-                 case new_or_data of
-                   DataType -> return (mkDataTyConRhs data_cons)
-                   NewType  -> ASSERT( not (null data_cons) )
-                               mkNewTyConRhs rep_tc_name rep_tycon (head data_cons)
-             ; axiom_name <- newImplicitBinder rep_tc_name mkInstTyCoOcc
-             ; let ax = mkDataFamInstCo axiom_name tvs' fam_tc pats' rep_tycon
-             ; buildAlgTyCon rep_tc_name tvs' stupid_theta tc_rhs Recursive
-                             h98_syntax NoParentTyCon (Just ax)
+              ; tc_rhs <- case new_or_data of
+                     DataType -> return (mkDataTyConRhs data_cons)
+                     NewType  -> ASSERT( not (null data_cons) )
+                                 mkNewTyConRhs rep_tc_name rec_rep_tc (head data_cons)
+              ; let fam_inst = mkDataFamInst axiom_name tvs' fam_tc pats' rep_tc
+                    parent   = FamInstTyCon (famInstAxiom fam_inst) fam_tc pats'
+                    rep_tc   = buildAlgTyCon rep_tc_name tvs' stupid_theta tc_rhs 
+                                             Recursive h98_syntax parent
                  -- We always assume that indexed types are recursive.  Why?
                  -- (1) Due to their open nature, we can never be sure that a
                  -- further instance might not introduce a new recursive
                  -- dependency.  (2) They are always valid loop breakers as
                  -- they involve a coercion.
-             })
-       } }
+              ; return (rep_tc, fam_inst) }
+
+         -- Remember to check validity; no recursion to worry about here
+       ; checkValidTyCon rep_tc
+       ; return fam_inst } }
     where
-         h98_syntax = case cons of      -- All constructors have same shape
+       h98_syntax = case cons of      -- All constructors have same shape
                         L _ (ConDecl { con_res = ResTyGADT _ }) : _ -> False
                         _ -> True
 
@@ -627,33 +614,28 @@ tcFamInstDecl1 _ d = pprPanic "tcFamInstDecl1" (ppr d)
 tcAssocDecl :: Class           -- ^ Class of associated type
             -> VarEnv Type     -- ^ Instantiation of class TyVars
             -> LTyClDecl Name  -- ^ RHS
-            -> TcM FamilyRep
+            -> TcM FamInst
 tcAssocDecl clas mini_env (L loc decl)
   = setSrcSpan loc      $
     tcAddDeclCtxt decl  $
-    do { at_fam_rep <- tcFamInstDecl NotTopLevel decl
-       ; let splitTy =
-               case at_fam_rep of
-                 ATyCon tycon   -> tyConFamInst_maybe tycon
-                 ACoAxiom axiom -> Just (coAxiomSplitLHS axiom)
-                 _              -> pprPanic "tcAssocDecl" (ppr at_fam_rep)
-       ; case splitTy of 
-           Nothing               -> pprPanic "tcAssocDecl" (ppr at_fam_rep)
-           Just (fam_tc, at_tys) -> do {
+    do { fam_inst <- tcFamInstDecl NotTopLevel decl
+       ; let (fam_tc, at_tys) = famInstLHS fam_inst
 
        -- Check that the associated type comes from this class
-         checkTc (Just clas == tyConAssoc_maybe fam_tc)
+       ; checkTc (Just clas == tyConAssoc_maybe fam_tc)
                  (badATErr (className clas) (tyConName fam_tc))
 
        -- See Note [Checking consistent instantiation] in TcTyClsDecls
        ; zipWithM_ check_arg (tyConTyVars fam_tc) at_tys
 
-       ; return at_fam_rep } }
+       ; return fam_inst }
   where
     check_arg fam_tc_tv at_ty
       | Just inst_ty <- lookupVarEnv mini_env fam_tc_tv
       = checkTc (inst_ty `eqType` at_ty) 
                 (wrongATArgErr at_ty inst_ty)
+                -- No need to instantiate here, becuase the axiom
+                -- uses the same type variables as the assocated class
       | otherwise
       = return ()   -- Allow non-type-variable instantiation
                     -- See Note [Associated type instances]

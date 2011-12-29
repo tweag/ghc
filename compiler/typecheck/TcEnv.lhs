@@ -183,7 +183,7 @@ tcLookupLocatedTyCon = addLocM tcLookupTyCon
 -- Find the instance that exactly matches a type class application.  The class arguments must be precisely
 -- the same as in the instance declaration (modulo renaming).
 --
-tcLookupInstance :: Class -> [Type] -> TcM Instance
+tcLookupInstance :: Class -> [Type] -> TcM ClsInst
 tcLookupInstance cls tys
   = do { instEnv <- tcGetInstEnvs
        ; case lookupUniqueInstEnv instEnv cls tys of
@@ -617,7 +617,7 @@ as well as explicit user written ones.
 \begin{code}
 data InstInfo a
   = InstInfo {
-      iSpec   :: Instance,        -- Includes the dfun id.  Its forall'd type
+      iSpec   :: ClsInst,        -- Includes the dfun id.  Its forall'd type
       iBinds  :: InstBindings a   -- variables scope over the stuff in InstBindings!
     }
 

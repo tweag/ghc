@@ -229,17 +229,15 @@ vectTypeEnv tycons vectTypeDecls vectClassDecls
            -- Build 'PRepr' and 'PData' instance type constructors and family instances for all
            -- type constructors with vectorised representations.
        ; reprs      <- mapM tyConRepr vect_tcs
-       ; repr_tcs   <- zipWith3M buildPReprTyCon  orig_tcs vect_tcs reprs
-       ; pdata_tcs  <- zipWith3M buildPDataTyCon  orig_tcs vect_tcs reprs
-       ; pdatas_tcs <- zipWith3M buildPDatasTyCon orig_tcs vect_tcs reprs
+       ; repr_fis   <- zipWith3M buildPReprTyCon  orig_tcs vect_tcs reprs
+       ; pdata_fis  <- zipWith3M buildPDataTyCon  orig_tcs vect_tcs reprs
+       ; pdatas_fis <- zipWith3M buildPDatasTyCon orig_tcs vect_tcs reprs
 
-       ; let inst_axioms = repr_tcs ++ catMaybes (map tyConFamilyCoercion_maybe
-                                                      (pdata_tcs ++ pdatas_tcs))
-             fam_insts   = -- We expect all tcs to be family instances
-                           ASSERT ( length inst_axioms == 
-                                        length repr_tcs 
-                                      + length (pdata_tcs ++ pdatas_tcs) )
-                           map mkLocalFamInst (map ACoAxiom inst_axioms)
+       ; let fam_insts  = repr_fis ++ pdata_fis ++ pdatas_fis
+             repr_axs   = map famInstAxiom repr_fis
+             pdata_tcs  = famInstsRepTyCons pdata_fis
+             pdatas_tcs = famInstsRepTyCons pdatas_fis
+             
        ; updGEnv $ extendFamEnv fam_insts
 
            -- Generate workers for the vectorised data constructors, dfuns for the 'PA' instances of
@@ -267,7 +265,7 @@ vectTypeEnv tycons vectTypeDecls vectClassDecls
               ; dfuns <- sequence $
                            zipWith4 buildTyConPADict
                                     vect_tcs
-                                    repr_tcs
+                                    repr_axs
                                     pdata_tcs
                                     pdatas_tcs
 

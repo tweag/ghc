@@ -32,7 +32,7 @@ import BasicTypes
 import Inst
 import TcBinds
 import FamInst          ( tcLookupFamInst )
-import FamInstEnv       ( famInstAxiom, famInstTyCon_maybe )
+import FamInstEnv       ( famInstAxiom, dataFamInstRepTyCon )
 import TcEnv
 import TcArrows
 import TcMatches
@@ -1164,8 +1164,8 @@ tcTagToEnum loc fun_name arg res_ty
                    -> return ( mkTcSymCo (mkTcAxInstCo co_tc rep_args)
                              , rep_tc, rep_args )
                  where
-                   co_tc       = famInstAxiom rep_fam
-                   Just rep_tc = famInstTyCon_maybe rep_fam }
+                   co_tc  = famInstAxiom rep_fam
+                   rep_tc = dataFamInstRepTyCon rep_fam }
 
 tagToEnumError :: TcType -> SDoc -> SDoc
 tagToEnumError ty what

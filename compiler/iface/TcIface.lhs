@@ -439,15 +439,27 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
                           ifAxiom = mb_axiom_name })
   = bindIfaceTyVars_AT tv_bndrs $ \ tyvars -> do
     { tc_name <- lookupIfaceTop occ_name
-    ; tycon <- fixM ( \ tycon -> do
+    ; tycon <- fixM $ \ tycon -> do
             { stupid_theta <- tcIfaceCtxt ctxt
-            ; mb_axiom <- fmapMaybeM tcIfaceCoAxiom mb_axiom_name
+            ; parent' <- tc_parent tyvars mb_axiom_name
             ; cons <- tcIfaceDataCons tc_name tycon tyvars rdr_cons
-            ; buildAlgTyCon tc_name tyvars stupid_theta cons is_rec
-                            gadt_syn parent mb_axiom
-            })
+            ; return (buildAlgTyCon tc_name tyvars stupid_theta 
+                                    cons is_rec gadt_syn parent') }
     ; traceIf (text "tcIfaceDecl4" <+> ppr tycon)
     ; return (ATyCon tycon) }
+  where
+    tc_parent :: [TyVar] -> Maybe Name -> IfL TyConParent
+    tc_parent _ Nothing = return parent
+    tc_parent tyvars (Just ax_name)
+      = ASSERT( isNoParent parent )
+        do { ax <- tcIfaceCoAxiom ax_name
+           ; let (fam_tc, fam_tys) = coAxiomSplitLHS ax
+                 subst = zipTopTvSubst (coAxiomTyVars ax) (mkTyVarTys tyvars)
+                            -- The subst matches the tyvar of the TyCon
+                            -- with those from the CoAxiom.  They aren't
+                            -- necessarily the same, since the two may be
+                            -- gotten from separate interface-file declarations
+           ; return (FamInstTyCon ax fam_tc (substTys subst fam_tys)) }
 
 tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs, 
                                   ifSynRhs = mb_rhs_ty,
@@ -491,13 +503,9 @@ tc_iface_decl _parent ignore_prags
           ; return (op_name, dm, op_ty) }
 
    tc_at cls (IfaceAT tc_decl defs_decls)
-     = do tc <- tc_iface_tc_decl (AssocFamilyTyCon cls) tc_decl
+     = do ATyCon tc <- tc_iface_decl (AssocFamilyTyCon cls) ignore_prags tc_decl
           defs <- mapM tc_iface_at_def defs_decls
           return (tc, defs)
-
-   tc_iface_tc_decl parent decl = do
-       ATyCon tc <- tc_iface_decl parent ignore_prags decl
-       return tc
 
    tc_iface_at_def (IfaceATD tvs pat_tys ty) =
        bindIfaceTyVars_AT tvs $
@@ -520,19 +528,10 @@ tc_iface_decl _ _ (IfaceAxiom {ifName = tc_occ, ifTyVars = tv_bndrs,
   = bindIfaceTyVars tv_bndrs $ \ tvs -> do
     { tc_name <- lookupIfaceTop tc_occ
     ; tc_lhs  <- tcIfaceType lhs
-    ; tc_rhs  <- case rhs of
-                   Left  tc -> do tc' <- tcIfaceTyCon tc
-                                  return (mkTyConApp tc' (mkTyVarTys tvs))
-                   Right ty -> tcIfaceType ty
+    ; tc_rhs  <- tcIfaceType rhs
     ; let axiom = mkCoAxiom (nameUnique tc_name) tc_name tvs tc_lhs tc_rhs
     ; return (ACoAxiom axiom) }
-{-
-tcFamInst :: Maybe (IfaceTyCon, [IfaceType]) -> IfL (Maybe (TyCon, [Type]))
-tcFamInst Nothing           = return Nothing
-tcFamInst (Just (fam, tys)) = do { famTyCon <- tcIfaceTyCon fam
-                                 ; insttys <- mapM tcIfaceType tys
-                                 ; return $ Just (famTyCon, insttys) }
--}
+
 tcIfaceDataCons :: Name -> TyCon -> [TyVar] -> IfaceConDecls -> IfL AlgTyConRhs
 tcIfaceDataCons tycon_name tycon _ if_cons
   = case if_cons of
@@ -613,7 +612,7 @@ look at it.
 %************************************************************************
 
 \begin{code}
-tcIfaceInst :: IfaceClsInst -> IfL Instance
+tcIfaceInst :: IfaceClsInst -> IfL ClsInst
 tcIfaceInst (IfaceClsInst { ifDFun = dfun_occ, ifOFlag = oflag,
                               ifInstCls = cls, ifInstTys = mb_tcs })
   = do { dfun    <- forkM (ptext (sLit "Dict fun") <+> ppr dfun_occ) $

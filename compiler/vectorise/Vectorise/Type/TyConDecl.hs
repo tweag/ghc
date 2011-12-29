@@ -98,7 +98,7 @@ vectTyConDecl tycon
              gadt_flag = isGadtSyntaxTyCon tycon
 
            -- build the vectorised type constructor
-       ; liftDs $ buildAlgTyCon 
+       ; return $ buildAlgTyCon 
                     name'                   -- new name
                     (tyConTyVars tycon)     -- keep original type vars
                     []                      -- no stupid theta
@@ -106,7 +106,6 @@ vectTyConDecl tycon
                     rec_flag                -- whether recursive
                     gadt_flag               -- whether in GADT syntax
                     NoParentTyCon           
-                    Nothing                 -- not a family instance
        }
 
   -- some other crazy thing that we don't handle

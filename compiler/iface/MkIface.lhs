@@ -68,7 +68,7 @@ import CoreFVs
 import Class
 import Kind
 import TyCon
-import Coercion         ( coAxiomSplitLHS, coAxiomDataFamTyCon )
+import Coercion         ( coAxiomSplitLHS )
 import DataCon
 import Type
 import TcType
@@ -791,9 +791,8 @@ declExtras fix_fn rule_env inst_env fi_env decl
                         (lookupOccEnvL rule_env n)
       IfaceData{ifCons=cons} -> 
                      IfaceDataExtras (fix_fn n)
-                        -- JPM or should we use ifFamInstFam?
                         (map ifFamInstAxiom (lookupOccEnvL fi_env n) ++
-                         map ifDFun (lookupOccEnvL inst_env n))
+                         map ifDFun         (lookupOccEnvL inst_env n))
                         (map (id_extras . ifConOcc) (visibleIfConDecls cons))
       IfaceClass{ifSigs=sigs, ifATs=ats} -> 
                      IfaceClassExtras (fix_fn n)
@@ -803,8 +802,7 @@ declExtras fix_fn rule_env inst_env fi_env decl
                            -- as well as instances of the class (Trac #5147)
                         [id_extras op | IfaceClassOp op _ _ <- sigs]
       IfaceSyn{} -> IfaceSynExtras (fix_fn n) 
-                      -- JPM same as above
-                      (map ifFamInstAxiom (lookupOccEnvL fi_env n))
+                        (map ifFamInstAxiom (lookupOccEnvL fi_env n))
       _other -> IfaceOtherDeclExtras
   where
         n = ifName decl
@@ -842,7 +840,7 @@ oldMD5 dflags bh = do
         return $! readHexFingerprint hash_str
 -}
 
-instOrphWarn :: PrintUnqualified -> Instance -> WarnMsg
+instOrphWarn :: PrintUnqualified -> ClsInst -> WarnMsg
 instOrphWarn unqual inst
   = mkWarnMsg (getSrcSpan inst) unqual $
     hang (ptext (sLit "Warning: orphan instance:")) 2 (pprInstanceHdr inst)
@@ -1484,9 +1482,7 @@ tyThingToIfaceDecl (ACoAxiom ax)
    name = getOccName ax
    tv_bndrs = toIfaceTvBndrs (coAxiomTyVars ax)
    lhs = toIfaceType (coAxiomLHS ax)
-   rhs = case coAxiomDataFamTyCon ax of
-           Just tc -> Left (toIfaceTyCon tc)
-           Nothing -> Right (toIfaceType (coAxiomRHS ax))
+   rhs = toIfaceType (coAxiomRHS ax)
 
 tyThingToIfaceDecl (ADataCon dc)
  = pprPanic "toIfaceDecl" (ppr dc)      -- Should be trimmed out earlier
@@ -1537,8 +1533,8 @@ getFS :: NamedThing a => a -> FastString
 getFS x = occNameFS (getOccName x)
 
 --------------------------
-instanceToIfaceInst :: Instance -> IfaceClsInst
-instanceToIfaceInst (Instance { is_dfun = dfun_id, is_flag = oflag,
+instanceToIfaceInst :: ClsInst -> IfaceClsInst
+instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
                                 is_cls = cls_name, is_tcs = mb_tcs })
   = ASSERT( cls_name == className cls )
     IfaceClsInst { ifDFun    = dfun_name,

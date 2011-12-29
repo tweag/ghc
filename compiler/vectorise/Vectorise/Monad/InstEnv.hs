@@ -14,7 +14,6 @@ import Class
 import Type
 import TyCon
 import Outputable
-import Maybes ( expectJust )
 
 
 #include "HsVersions.h"
@@ -58,8 +57,7 @@ lookupFamInst tycon tys
   = ASSERT( isFamilyTyCon tycon )
     do { instEnv <- readGEnv global_fam_inst_env
        ; case lookupFamInstEnv instEnv tycon tys of
-           [(fam_inst, rep_tys)] -> return ( expectJust "lookupFamInst"
-                                               (famInstTyCon_maybe fam_inst)
+           [(fam_inst, rep_tys)] -> return ( dataFamInstRepTyCon fam_inst
                                            , rep_tys)
            _other                -> 
              cantVectorise "VectMonad.lookupFamInst: not found: " 

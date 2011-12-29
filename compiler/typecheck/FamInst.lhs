@@ -191,8 +191,7 @@ tcLookupDataFamInst tycon tys
     do { maybeFamInst <- tcLookupFamInst tycon tys
        ; case maybeFamInst of
            Nothing             -> famInstNotFound tycon tys
-           Just (famInst, tys) -> let tycon' = expectJust "tcLookupDataFamInst" $
-                                               famInstTyCon_maybe famInst
+           Just (famInst, tys) -> let tycon' = dataFamInstRepTyCon famInst
                                   in return (tycon', tys) }
 
 famInstNotFound :: TyCon -> [Type] -> TcM a

@@ -18,7 +18,7 @@ import BuildTyCl
 import DataCon
 import TyCon
 import Type
-import Coercion ( mkDataFamInstCo )
+import FamInstEnv
 import Name
 import Util
 import MonadUtils
@@ -27,28 +27,35 @@ import Control.Monad
 
 -- buildPDataTyCon ------------------------------------------------------------
 -- | Build the PData instance tycon for a given type constructor.
-buildPDataTyCon :: TyCon -> TyCon -> SumRepr -> VM TyCon
+buildPDataTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInst
 buildPDataTyCon orig_tc vect_tc repr 
- = fixV $ \repr_tc ->
- do name' <- mkLocalisedName mkPDataTyConOcc orig_name
-    rhs   <- buildPDataTyConRhs orig_name vect_tc repr_tc repr
-    pdata <- builtin pdataTyCon
-    axiom_name <- error "JPM" -- I don't know how to make names in the VM monad
+ = fixV $ \fam_inst ->
+   do let repr_tc = dataFamInstRepTyCon fam_inst
+      name' <- mkLocalisedName mkPDataTyConOcc orig_name
+      rhs   <- buildPDataTyConRhs orig_name vect_tc repr_tc repr
+      pdata <- builtin pdataTyCon
+      buildDataFamInst name' pdata vect_tc rhs
+ where
+    orig_name = tyConName orig_tc
 
-    liftDs $ buildAlgTyCon name'
+buildDataFamInst :: Name -> TyCon -> TyCon -> AlgTyConRhs -> VM FamInst
+buildDataFamInst name' fam_tc vect_tc rhs
+ = do { axiom_name <- mkDerivedName mkInstTyCoOcc name'
+
+      ; let fam_inst = mkDataFamInst axiom_name tyvars fam_tc pat_tys rep_tc
+            ax       = famInstAxiom fam_inst
+            pat_tys  = [mkTyConApp vect_tc (mkTyVarTys tyvars)]
+            rep_tc   = buildAlgTyCon name'
                            tyvars
                            []          -- no stupid theta
                            rhs
                            rec_flag    -- FIXME: is this ok?
                            False       -- not GADT syntax
-                           NoParentTyCon
-                           (Just (mkDataFamInstCo axiom_name tyvars pdata
-                                   [mkTyConTy orig_tc] vect_tc))
+                           (FamInstTyCon ax fam_tc pat_tys)
+      ; return fam_inst }
  where
-    orig_name = tyConName orig_tc
     tyvars    = tyConTyVars vect_tc
     rec_flag  = boolToRecFlag (isRecursiveTyCon vect_tc)
-
 
 buildPDataTyConRhs :: Name -> TyCon -> TyCon -> SumRepr -> VM AlgTyConRhs
 buildPDataTyConRhs orig_name vect_tc repr_tc repr
@@ -77,26 +84,16 @@ buildPDataDataCon orig_name vect_tc repr_tc repr
 
 -- buildPDatasTyCon -----------------------------------------------------------
 -- | Build the PDatas instance tycon for a given type constructor.
-buildPDatasTyCon :: TyCon -> TyCon -> SumRepr -> VM TyCon
+buildPDatasTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInst
 buildPDatasTyCon orig_tc vect_tc repr 
- = fixV $ \repr_tc ->
- do name'       <- mkLocalisedName mkPDatasTyConOcc orig_name
-    rhs         <- buildPDatasTyConRhs orig_name vect_tc repr_tc repr
-    _pdatas     <- builtin pdatasTyCon
-
-    liftDs $ buildAlgTyCon name'
-                           tyvars
-                           []          -- no stupid theta
-                           rhs
-                           rec_flag    -- FIXME: is this ok?
-                           False       -- not GADT syntax
-                           NoParentTyCon
-                           (error "JPM") -- I don't know how to make names in the VM monad
+ = fixV $ \fam_inst ->
+   do let repr_tc = dataFamInstRepTyCon fam_inst
+      name'       <- mkLocalisedName mkPDatasTyConOcc orig_name
+      rhs         <- buildPDatasTyConRhs orig_name vect_tc repr_tc repr
+      pdatas     <- builtin pdatasTyCon
+      buildDataFamInst name' pdatas vect_tc rhs
  where
-    orig_name = tyConName   orig_tc
-    tyvars    = tyConTyVars vect_tc
-    rec_flag  = boolToRecFlag (isRecursiveTyCon vect_tc)
-
+    orig_name = tyConName orig_tc
 
 buildPDatasTyConRhs :: Name -> TyCon -> TyCon -> SumRepr -> VM AlgTyConRhs
 buildPDatasTyConRhs orig_name vect_tc repr_tc repr

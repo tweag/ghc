@@ -24,7 +24,7 @@ import TcType
 import TcGenDeriv
 import DataCon
 import TyCon
-import Coercion         ( mkTypeFamInstCo )
+import FamInstEnv       ( FamInst, mkSynFamInst )
 import Module           ( Module, moduleName, moduleNameString )
 import IfaceEnv         ( newGlobalBinder )
 import Name      hiding ( varName )
@@ -71,7 +71,7 @@ gen_Generic_binds tc mod = do
                    `consBag` ((mapBag DerivTyCon (metaTyCons2TyCons metaTyCons))
                    `unionBags` metaInsts)) }
 
-genGenericRepExtras :: TyCon -> Module -> TcM (MetaTyCons, CoAxiom)
+genGenericRepExtras :: TyCon -> Module -> TcM (MetaTyCons, FamInst)
 genGenericRepExtras tc mod =
   do  uniqS <- newUniqueSupply
       let
@@ -100,15 +100,14 @@ genGenericRepExtras tc mod =
         
         mkTyCon name = ASSERT( isExternalName name )
                        buildAlgTyCon name [] [] distinctAbstractTyConRhs
-                           NonRecursive False NoParentTyCon Nothing
+                                          NonRecursive False NoParentTyCon
 
-      metaDTyCon  <- mkTyCon d_name
-      metaCTyCons <- sequence [ mkTyCon c_name | c_name <- c_names ]
-      metaSTyCons <- mapM sequence 
-                       [ [ mkTyCon s_name 
-                         | s_name <- s_namesC ] | s_namesC <- s_names ]
+      let metaDTyCon  = mkTyCon d_name
+          metaCTyCons = map mkTyCon c_names
+          metaSTyCons =  [ [ mkTyCon s_name | s_name <- s_namesC ] 
+                         | s_namesC <- s_names ]
 
-      let metaDts = MetaTyCons metaDTyCon metaCTyCons metaSTyCons
+          metaDts = MetaTyCons metaDTyCon metaCTyCons metaSTyCons
   
       rep0_tycon <- tc_mkRepTyCon tc metaDts mod
       
@@ -258,7 +257,7 @@ mkBindsRep tycon =
 tc_mkRepTyCon :: TyCon            -- The type to generate representation for
                -> MetaTyCons      -- Metadata datatypes to refer to
                -> Module          -- Used as the location of the new RepTy
-               -> TcM CoAxiom     -- Generated representation0 coercion
+               -> TcM FamInst     -- Generated representation0 coercion
 tc_mkRepTyCon tycon metaDts mod = 
 -- Consider the example input tycon `D`, where data D a b = D_ a
   do { -- `rep0` = GHC.Generics.Rep (type family)
@@ -276,8 +275,7 @@ tc_mkRepTyCon tycon metaDts mod =
 
            -- `appT` = D a b
            appT = [mkTyConApp tycon (mkTyVarTys tyvars)]
-
-     ; return $ mkTypeFamInstCo rep_name tyvars rep0 appT rep0Ty
+     ; return $ mkSynFamInst rep_name tyvars rep0 appT rep0Ty
      }
 
 

@@ -119,7 +119,7 @@ import HsSyn
 import RdrName
 import Avail
 import Module
-import InstEnv          ( InstEnv, Instance )
+import InstEnv          ( InstEnv, ClsInst )
 import FamInstEnv
 import Rules            ( RuleBase )
 import CoreSyn          ( CoreProgram )
@@ -132,7 +132,6 @@ import Var
 import Id
 import IdInfo           ( IdDetails(..) )
 import Type
---import Coercion         ( coAxiomDataFamTyCon, coAxiomTypeFamTyCon )
 
 import Annotations
 import Class
@@ -468,7 +467,7 @@ lookupIfaceByModule dflags hpt pit mod
 -- modules imported by this one, directly or indirectly, and are in the Home
 -- Package Table.  This ensures that we don't see instances from modules @--make@
 -- compiled before this one, but which are not below this one.
-hptInstances :: HscEnv -> (ModuleName -> Bool) -> ([Instance], [FamInst])
+hptInstances :: HscEnv -> (ModuleName -> Bool) -> ([ClsInst], [FamInst])
 hptInstances hsc_env want_this_module
   = let (insts, famInsts) = unzip $ flip hptAllThings hsc_env $ \mod_info -> do
                 guard (want_this_module (moduleName (mi_module (hm_iface mod_info))))
@@ -772,7 +771,7 @@ data ModDetails
         -- The next two fields are created by the typechecker
         md_exports   :: [AvailInfo],
         md_types     :: !TypeEnv,       -- ^ Local type environment for this particular module
-        md_insts     :: ![Instance],    -- ^ 'DFunId's for the instances in this module
+        md_insts     :: ![ClsInst],    -- ^ 'DFunId's for the instances in this module
         md_fam_insts :: ![FamInst],
         md_rules     :: ![CoreRule],    -- ^ Domain may include 'Id's from other modules
         md_anns      :: ![Annotation],  -- ^ Annotations present in this module: currently
@@ -818,7 +817,7 @@ data ModGuts
                                          -- ToDo: I'm unconvinced this is actually used anywhere
         mg_tcs       :: ![TyCon],        -- ^ TyCons declared in this module
                                          -- (includes TyCons for classes)
-        mg_insts     :: ![Instance],     -- ^ Class instances declared in this module
+        mg_insts     :: ![ClsInst],     -- ^ Class instances declared in this module
         mg_fam_insts :: ![FamInst],      -- ^ Family instances declared in this module
         mg_rules     :: ![CoreRule],     -- ^ Before the core pipeline starts, contains
                                          -- See Note [Overall plumbing for rules] in Rules.lhs
@@ -938,7 +937,7 @@ data InteractiveContext
              -- ^ Variables defined automatically by the system (e.g.
              -- record field selectors).  See Notes [ic_sys_vars]
 
-         ic_instances  :: ([Instance], [FamInst]),
+         ic_instances  :: ([ClsInst], [FamInst]),
              -- ^ All instances and family instances created during
              -- this session.  These are grabbed en masse after each
              -- update to be sure that proper overlapping is retained.
@@ -1183,7 +1182,7 @@ mkPrintUnqualified dflags env = (qual_name, qual_mod)
 implicitTyThings :: TyThing -> [TyThing]
 implicitTyThings (AnId _)       = []
 implicitTyThings (ACoAxiom _cc) = []
-implicitTyThings (ATyCon tc)    = implicitTyConThings (ATyCon tc)
+implicitTyThings (ATyCon tc)    = implicitTyConThings tc
 implicitTyThings (ADataCon dc)  = map AnId (dataConImplicitIds dc)
     -- For data cons add the worker and (possibly) wrapper
 
@@ -1198,8 +1197,8 @@ implicitClassThings cl
     -- superclass and operation selectors
     map AnId (classAllSelIds cl)
 
-implicitTyConThings :: TyThing -> [TyThing]
-implicitTyConThings (ATyCon tc)
+implicitTyConThings :: TyCon -> [TyThing]
+implicitTyConThings tc
   = class_stuff ++
       -- fields (names of selectors)
 
@@ -1216,8 +1215,6 @@ implicitTyConThings (ATyCon tc)
         Nothing -> []
         Just cl -> implicitClassThings cl
 
-implicitTyConThings _ = []
-
 -- add a thing and recursive call
 extras_plus :: TyThing -> [TyThing]
 extras_plus thing = thing : implicitTyThings thing
@@ -1230,11 +1227,6 @@ implicitCoTyCon tc
                                  newTyConCo_maybe tc
                                  -- Just if family instance, Nothing if not
                                {- , tyConFamilyCoercion_maybe tc -} ]
-
-
--- Add the implicit coercion axiom for indexed data types
-implicitCoFamInst :: FamInst -> TyThing
-implicitCoFamInst = ACoAxiom . famInstAxiom
 
 -- | Returns @True@ if there should be no interface-file declaration
 -- for this thing on its own: either it is built-in, or it is part
@@ -1332,12 +1324,12 @@ mkTypeEnvWithImplicits things =
 typeEnvFromEntities :: [Id] -> [TyCon] -> [FamInst] -> TypeEnv
 typeEnvFromEntities ids tcs famInsts =
   mkTypeEnv (   map AnId ids
-             ++ all_tcs
+             ++ map ATyCon all_tcs
              ++ concatMap implicitTyConThings all_tcs
-             ++ map implicitCoFamInst famInsts
+             ++ map (ACoAxiom . famInstAxiom) famInsts
             )
  where
-  all_tcs = map ATyCon (tcs ++ famInstsTyCons famInsts)
+  all_tcs = tcs ++ famInstsRepTyCons famInsts
 
 lookupTypeEnv = lookupNameEnv
 

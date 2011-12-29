@@ -14,9 +14,10 @@ FamInstEnv: Type checked family instance declarations
 
 module FamInstEnv (
 	FamInst(..), FamFlavor(..), famInstAxiom, famInstTyVars,
-        famInstsTyCons, famInstTyCon_maybe,
+        famInstsRepTyCons, famInstRepTyCon_maybe, dataFamInstRepTyCon, 
+        famInstLHS,
 	pprFamInst, pprFamInstHdr, pprFamInsts, 
-	mkLocalFamInst, mkImportedFamInst,
+	mkLocalFamInst, mkSynFamInst, mkDataFamInst, mkImportedFamInst,
 
 	FamInstEnvs, FamInstEnv, emptyFamInstEnv, emptyFamInstEnvs, 
 	extendFamInstEnv, overwriteFamInstEnv, extendFamInstEnvList, 
@@ -52,49 +53,76 @@ import FastString
 %*									*
 %************************************************************************
 
+Note [FamInsts and CoAxioms]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+* CoAxioms and FamInsts are just like
+  DFunIds  and ClsInsts
+
+* A CoAxiom is a System-FC thing: it can relate any two types
+
+* A FamInst is a Haskell source-language thing, corresponding
+  to a type/data family instance declaration.  
+    - The FamInst contains a CoAxiom, which is the evidence
+      for the instance
+
+    - The LHS of the CoAxiom is always of form F ty1 .. tyn
+      where F is a type family
+
+
 \begin{code}
-data FamInst 
-  = FamInst { fi_fam   :: Name		-- Family name
-		-- INVARIANT: fi_fam = case tyConFamInst_maybe fi_tycon of
-		--			   Just (tc, tys) -> tc
+data FamInst  -- See Note [FamInsts and CoAxioms]
+  = FamInst { fi_axiom  :: CoAxiom      -- The new coercion axiom introduced
+                                        -- by this family instance
+            , fi_flavor :: FamFlavor
+
+            -- Everything below here is a redundant, 
+            -- cached version of the two things above
+            , fi_fam   :: Name		-- Family name
+		-- INVARIANT: fi_fam = name of fi_fam_tc
 
 		-- Used for "rough matching"; same idea as for class instances
+                -- See Note [Rough-match field] in InstEnv
 	    , fi_tcs   :: [Maybe Name]	-- Top of type args
 		-- INVARIANT: fi_tcs = roughMatchTcs fi_tys
 
 		-- Used for "proper matching"; ditto
-	    , fi_tvs   :: TyVarSet	-- Template tyvars for full match
-	    , fi_tys   :: [Type]	-- Full arg types
-		-- INVARIANT: fi_tvs = tyConTyVars fi_tycon
-		--	      fi_tys = case tyConFamInst_maybe fi_tycon of
-		--			   Just (_, tys) -> tys
-
-            , fi_flavor :: FamFlavor
-
-            , fi_axiom  :: CoAxiom      -- The new coercion axiom introduced
-                                        -- by this family instance
+	    , fi_tvs    :: TyVarSet	-- Template tyvars for full match
+            , fi_fam_tc :: TyCon        -- Family tycon
+	    , fi_tys    :: [Type]	--   and its arg types
+		-- INVARIANT: fi_tvs = coAxiomTyVars fi_axiom
+		--	      (fi_fam_tc, fi_tys) = coAxiomSplitLHS fi_axiom
             }
 
-data FamFlavor =
-        -- A synonym family
-          SynFamilyInst
+data FamFlavor 
+  = SynFamilyInst         -- A synonym family
+  | DataFamilyInst TyCon  -- A data family, with its representation TyCon
+\end{code}
 
-        -- A data family, with its TyCon
-        | DataFamilyInst TyCon
 
+\begin{code}
 -- Obtain the axiom of a family instance
 famInstAxiom :: FamInst -> CoAxiom
 famInstAxiom = fi_axiom
 
--- Return the TyCons introduced by the family instances, if any
-famInstsTyCons :: [FamInst] -> [TyCon]
-famInstsTyCons = catMaybes . map famInstTyCon_maybe
+famInstLHS :: FamInst -> (TyCon, [Type])
+famInstLHS (FamInst { fi_fam_tc = tc, fi_tys = tys }) = (tc, tys)
+
+-- Return the representation TyCons introduced by data family instances, if any
+famInstsRepTyCons :: [FamInst] -> [TyCon]
+famInstsRepTyCons fis = [tc | FamInst { fi_flavor = DataFamilyInst tc } <- fis]
 
 -- Extracts the TyCon for this *data* (or newtype) instance
-famInstTyCon_maybe :: FamInst -> Maybe TyCon
-famInstTyCon_maybe fi = case fi_flavor fi of
-                          SynFamilyInst        -> Nothing
-                          DataFamilyInst tycon -> Just tycon
+famInstRepTyCon_maybe :: FamInst -> Maybe TyCon
+famInstRepTyCon_maybe fi 
+  = case fi_flavor fi of
+       DataFamilyInst tycon -> Just tycon
+       SynFamilyInst        -> Nothing
+
+dataFamInstRepTyCon :: FamInst -> TyCon
+dataFamInstRepTyCon fi 
+  = case fi_flavor fi of
+       DataFamilyInst tycon -> tycon
+       SynFamilyInst        -> pprPanic "dataFamInstRepTyCon" (ppr fi)
 
 famInstTyVars :: FamInst -> TyVarSet
 famInstTyVars = fi_tvs
@@ -140,38 +168,70 @@ pprFamInstHdr (FamInst {fi_axiom = axiom, fi_flavor = flavor})
 pprFamInsts :: [FamInst] -> SDoc
 pprFamInsts finsts = vcat (map pprFamInst finsts)
 
--- Make a family instance representation from an indexed thing. The thing can
--- be either ACoAxiom, from a type family instance, or ATyCon, from a data
--- family instance.
+-- | Create a coercion identifying a @type@ family instance.
+-- It has the form @Co tvs :: F ts ~ R@, where @Co@ is 
+-- the coercion constructor built here, @F@ the family tycon and @R@ the
+-- right-hand side of the type family instance.
+mkSynFamInst :: Name       -- ^ Unique name for the coercion tycon
+             -> [TyVar]    -- ^ Type parameters of the coercion (@tvs@)
+             -> TyCon      -- ^ Family tycon (@F@)
+             -> [Type]     -- ^ Type instance (@ts@)
+             -> Type       -- ^ Representation tycon (@R@)
+             -> FamInst
+mkSynFamInst name tvs fam_tc inst_tys rep_ty
+  = FamInst { fi_fam    = tyConName fam_tc,
+              fi_fam_tc = fam_tc,
+              fi_tcs    = roughMatchTcs inst_tys,
+              fi_tvs    = mkVarSet tvs,
+              fi_tys    = inst_tys,
+              fi_flavor = SynFamilyInst,
+              fi_axiom  = axiom }
+  where
+    axiom = CoAxiom { co_ax_unique = nameUnique name
+                    , co_ax_name   = name
+                    , co_ax_tvs    = tvs
+                    , co_ax_lhs    = mkTyConApp fam_tc inst_tys 
+                    , co_ax_rhs    = rep_ty }
+
+-- | Create a coercion identifying a @data@ or @newtype@ representation type
+-- and its family instance.  It has the form @Co tvs :: F ts ~ R tvs@,
+-- where @Co@ is the coercion constructor built here, @F@ the family tycon
+-- and @R@ the (derived) representation tycon.
+mkDataFamInst :: Name         -- ^ Unique name for the coercion tycon
+              -> [TyVar]      -- ^ Type parameters of the coercion (@tvs@)
+              -> TyCon        -- ^ Family tycon (@F@)
+              -> [Type]       -- ^ Type instance (@ts@)
+              -> TyCon        -- ^ Representation tycon (@R@)
+              -> FamInst
+mkDataFamInst name tvs fam_tc inst_tys rep_tc
+  = FamInst { fi_fam    = tyConName fam_tc,
+              fi_fam_tc = fam_tc,
+              fi_tcs    = roughMatchTcs inst_tys,
+              fi_tvs    = mkVarSet tvs,
+              fi_tys    = inst_tys,
+              fi_flavor = DataFamilyInst rep_tc,
+              fi_axiom  = axiom }
+  where
+    axiom = CoAxiom { co_ax_unique = nameUnique name
+                    , co_ax_name   = name
+                    , co_ax_tvs    = tvs
+                    , co_ax_lhs    = mkTyConApp fam_tc inst_tys 
+                    , co_ax_rhs    = mkTyConApp rep_tc (mkTyVarTys tvs) }
+
+-- Make a family instance representation from an indexed thing. 
 -- This is used for local instances, where we can safely pull on the thing.
-mkLocalFamInst :: TyThing       -- Indexed thing
-               -> FamInst       -- Resulting family instance
-mkLocalFamInst (ACoAxiom axiom)
-  = ASSERT2 ( isSynTyCon tycon, ppr tycon )
-    FamInst {
-          fi_fam    = tyConName tycon,
+mkLocalFamInst :: CoAxiom -> FamFlavor -> FamInst
+mkLocalFamInst axiom flavour
+  = FamInst {
+          fi_fam    = tyConName fam_tc,
+          fi_fam_tc = fam_tc,
           fi_tcs    = roughMatchTcs tys,
-          fi_tvs    = mkVarSet . coAxiomTyVars $ axiom,
+          fi_tvs    = mkVarSet (coAxiomTyVars axiom),
           fi_tys    = tys,
-          fi_flavor = SynFamilyInst,
+          fi_flavor = flavour,
           fi_axiom  = axiom }
-  where (tycon, tys) = coAxiomSplitLHS axiom
-
-mkLocalFamInst (ATyCon tycon)
-  = ASSERT2 ( isAlgTyCon tycon, ppr tycon )
-    case tyConFamInst_maybe tycon of
-      Nothing         -> panic "FamInstEnv.mkLocalFamInst 2"
-      Just (fam, tys) ->
-        FamInst {
-          fi_fam    = tyConName fam,
-          fi_tcs    = roughMatchTcs tys,
-          fi_tvs    = mkVarSet . tyConTyVars $ tycon,
-          fi_tys    = tys,
-          fi_flavor = DataFamilyInst tycon,
-          fi_axiom  = expectJust "FamInstEnv.mkLocalFamInst 3" $
-                      tyConFamilyCoercion_maybe tycon }
-
-mkLocalFamInst _ = panic "FamInstEnv.mkLocalFamInst 4" 
+  where 
+     (fam_tc, tys) = coAxiomSplitLHS axiom
 
 -- Make a family instance representation from the information found in an
 -- interface file.  In particular, we get the rough match info from the iface
@@ -184,12 +244,14 @@ mkImportedFamInst :: Name               -- Name of the family
 mkImportedFamInst fam mb_tcs flavor axiom
   = FamInst {
       fi_fam    = fam,
+      fi_fam_tc = fam_tc,
       fi_tcs    = mb_tcs,
       fi_tvs    = mkVarSet . coAxiomTyVars $ axiom,
-      fi_tys    = snd (coAxiomSplitLHS axiom),
+      fi_tys    = tys,
       fi_axiom  = axiom,
-      fi_flavor = flavor
-    }
+      fi_flavor = flavor }
+  where 
+     (fam_tc, tys) = coAxiomSplitLHS axiom
 \end{code}
 
 
@@ -381,7 +443,6 @@ lookupFamInstEnvConflicts envs fam_inst skol_tvs
       where
         old_axiom = famInstAxiom old_fam_inst
         old_tvs   = coAxiomTyVars old_axiom
-        -- JPM not sure I understand this
         old_rhs   = substTyWith old_tvs
                       (substTyVars subst old_tvs)  (coAxiomRHS old_axiom)
         new_rhs   = substTyWith (coAxiomTyVars inst_axiom)

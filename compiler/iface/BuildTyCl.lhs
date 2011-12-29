@@ -12,7 +12,7 @@
 -- for details
 
 module BuildTyCl (
-        buildSynTyCon, buildTypeInstAxiom,
+        buildSynTyCon,
         buildAlgTyCon, 
         buildDataCon,
         buildPromotedDataTyCon,
@@ -56,59 +56,21 @@ buildSynTyCon tc_name tvs rhs rhs_kind parent
   = return (mkSynTyCon tc_name kind tvs rhs parent)
   where kind = mkPiKinds tvs rhs_kind
 
-buildTypeInstAxiom :: Name -> [TyVar] 
-                   -> Type              -- ^ RHS
-                   -> (TyCon, [Type])   -- ^ family instance
-                   -> TcRnIf m n CoAxiom
-buildTypeInstAxiom tc_name tvs rhs (family, instTys) 
-  = return (mkTypeFamInstCo tc_name tvs family instTys rhs)
-
 ------------------------------------------------------
-buildAlgTyCon :: Name -> [TyVar]        -- ^ Kind variables adn type variables
-	      -> ThetaType		-- ^ Stupid theta
+buildAlgTyCon :: Name 
+              -> [TyVar]               -- ^ Kind variables and type variables
+	      -> ThetaType	       -- ^ Stupid theta
 	      -> AlgTyConRhs
 	      -> RecFlag
-	      -> Bool			-- ^ True <=> was declared in GADT syntax
+	      -> Bool		       -- ^ True <=> was declared in GADT syntax
               -> TyConParent
-	      -> Maybe CoAxiom          -- ^ family instance if applicable
-	      -> TcRnIf m n TyCon
+	      -> TyCon
 
-buildAlgTyCon tc_name ktvs stupid_theta rhs is_rec gadt_syn
-	      parent mb_axiom
-  | Just co_ax <- mb_axiom
-  = -- We need to tie a knot as the coercion of a data instance depends
-     -- on the instance representation tycon and vice versa.
-    ASSERT( isNoParent parent )
-    fixM $ \ tycon_rec -> do 
-    { fam_parent <- mkFamInstParentInfo tc_name ktvs co_ax tycon_rec
-    ; return (mkAlgTyCon tc_name kind ktvs stupid_theta rhs
-		         fam_parent is_rec gadt_syn) }
+buildAlgTyCon tc_name ktvs stupid_theta rhs is_rec gadt_syn parent
+  = mkAlgTyCon tc_name kind ktvs stupid_theta rhs parent is_rec gadt_syn
+  where 
+    kind = mkPiKinds ktvs liftedTypeKind
 
-  | otherwise
-  = return (mkAlgTyCon tc_name kind ktvs stupid_theta rhs
-	               parent is_rec gadt_syn)
-  where kind = mkPiKinds ktvs liftedTypeKind
-
--- | If a family tycon with instance types is given, the current tycon is an
--- instance of that family and we need to
---
--- (1) create a coercion that identifies the family instance type and the
---     representation type from Step (1); ie, it is of the form 
---	   `Co tvs :: F ts ~ R tvs', where `Co' is the name of the coercion,
---	   `F' the family tycon and `R' the (derived) representation tycon,
---	   and
--- (2) produce a `TyConParent' value containing the parent and coercion
---     information.
---
-mkFamInstParentInfo :: Name -> [TyVar]
-                    -> CoAxiom
-                    -> TyCon
-                    -> TcRnIf m n TyConParent
-mkFamInstParentInfo tc_name _tvs axiom _rep_tycon
-  = do { -- Create the coercion
-       ; let (family, instTys) = coAxiomSplitLHS axiom
-       ; return $ FamInstTyCon axiom family instTys }
-    
 ------------------------------------------------------
 distinctAbstractTyConRhs, totallyAbstractTyConRhs :: AlgTyConRhs
 distinctAbstractTyConRhs = AbstractTyCon True

@@ -98,8 +98,7 @@ data IfaceDecl
   | IfaceAxiom { ifName   :: OccName       -- Axiom name
                , ifTyVars :: [IfaceTvBndr] -- Axiom tyvars
                , ifLHS    :: IfaceType     -- Axiom LHS
-               , ifRHS    :: Either IfaceTyCon IfaceType }
-                 -- Either a data family TyCon, or a type family RHS
+               , ifRHS    :: IfaceType }   -- and RHS
 
   | IfaceForeign { ifName :: OccName,           -- Needs expanding when we move
                                                 -- beyond .NET
@@ -148,7 +147,7 @@ data IfaceConDecl
 
 data IfaceClsInst
   = IfaceClsInst { ifInstCls  :: IfExtName,                -- See comments with
-                   ifInstTys  :: [Maybe IfaceTyCon],       -- the defn of Instance
+                   ifInstTys  :: [Maybe IfaceTyCon],       -- the defn of ClsInst
                    ifDFun     :: IfExtName,                -- The dfun
                    ifOFlag    :: OverlapFlag,              -- Overlap flag
                    ifInstOrph :: Maybe OccName }           -- See Note [Orphans]
@@ -459,11 +458,7 @@ pprIfaceDecl (IfaceClass {ifCtxt = context, ifName = clas, ifTyVars = tyvars,
 pprIfaceDecl (IfaceAxiom {ifName = name, ifTyVars = tyvars,
                           ifLHS = lhs, ifRHS = rhs})
   = hang (ptext (sLit "axiom") <+> ppr name <+> ppr tyvars)
-       2 (dcolon <+> ppr lhs <+> text "~#" <+> pp_rhs)
-  where
-    pp_rhs = case rhs of 
-               Left  tc  -> ppr tc <+> ppr tyvars
-               Right rhs -> ppr rhs
+       2 (dcolon <+> ppr lhs <+> text "~#" <+> ppr rhs)
 
 pprRec :: RecFlag -> SDoc
 pprRec isrec = ptext (sLit "RecFlag") <+> ppr isrec
@@ -723,7 +718,7 @@ freeNamesIfDecl d@IfaceClass{} =
 freeNamesIfDecl d@IfaceAxiom{} =
   freeNamesIfTvBndrs (ifTyVars d) &&&
   freeNamesIfType (ifLHS d) &&&
-  either freeNamesIfTc freeNamesIfType (ifRHS d)
+  freeNamesIfType (ifRHS d)
 
 freeNamesIfIdDetails :: IfaceIdDetails -> NameSet
 freeNamesIfIdDetails (IfRecSelId tc _) = freeNamesIfTc tc
