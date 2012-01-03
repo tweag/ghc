@@ -228,7 +228,7 @@ mkDataConIds wrap_name wkr_name data_con
   = DCIds Nothing nt_work_id                 
 
   | any isBanged all_strict_marks      -- Algebraic, needs wrapper
-    || not (null eq_spec)              -- NB: LoadIface.ifaceDeclSubBndrs
+    || not (null eq_spec)              -- NB: LoadIface.ifaceDeclImplicitBndrs
     || isFamInstTyCon tycon            --     depends on this test
   = DCIds (Just alg_wrap_id) wrk_id
 

@@ -23,7 +23,7 @@ module IfaceSyn (
         IfaceClsInst(..), IfaceFamInst(..), IfaceTickish(..),
 
         -- Misc
-        ifaceDeclSubBndrs, visibleIfConDecls,
+        ifaceDeclImplicitBndrs, visibleIfConDecls,
 
         -- Free Names
         freeNamesIfDecl, freeNamesIfRule, freeNamesIfFamInst,
@@ -374,20 +374,21 @@ See [http://hackage.haskell.org/trac/ghc/wiki/Commentary/Compiler/RecompilationA
 -- -----------------------------------------------------------------------------
 -- Utils on IfaceSyn
 
-ifaceDeclSubBndrs :: IfaceDecl -> [OccName]
+ifaceDeclImplicitBndrs :: IfaceDecl -> [OccName]
 --  *Excludes* the 'main' name, but *includes* the implicitly-bound names
 -- Deeply revolting, because it has to predict what gets bound,
 -- especially the question of whether there's a wrapper for a datacon
+-- See Note [Implicit TyThings] in HscTypes
 
 -- N.B. the set of names returned here *must* match the set of
 -- TyThings returned by HscTypes.implicitTyThings, in the sense that
 -- TyThing.getOccName should define a bijection between the two lists.
 -- This invariant is used in LoadIface.loadDecl (see note [Tricky iface loop])
 -- The order of the list does not matter.
-ifaceDeclSubBndrs IfaceData {ifCons = IfAbstractTyCon {}}  = []
+ifaceDeclImplicitBndrs IfaceData {ifCons = IfAbstractTyCon {}}  = []
 
 -- Newtype
-ifaceDeclSubBndrs (IfaceData {ifName = tc_occ,
+ifaceDeclImplicitBndrs (IfaceData {ifName = tc_occ,
                               ifCons = IfNewTyCon (
                                         IfCon { ifConOcc = con_occ })})
   =   -- implicit newtype coercion
@@ -396,7 +397,7 @@ ifaceDeclSubBndrs (IfaceData {ifName = tc_occ,
     [con_occ, mkDataConWorkerOcc con_occ]
 
 
-ifaceDeclSubBndrs (IfaceData {ifName = _tc_occ,
+ifaceDeclImplicitBndrs (IfaceData {ifName = _tc_occ,
                               ifCons = IfDataTyCon cons })
   = -- for each data constructor in order,
     --    data constructor, worker, and (possibly) wrapper
@@ -412,7 +413,7 @@ ifaceDeclSubBndrs (IfaceData {ifName = _tc_occ,
           has_wrapper = ifConWrapper con_decl     -- This is the reason for
                                                   -- having the ifConWrapper field!
 
-ifaceDeclSubBndrs (IfaceClass {ifCtxt = sc_ctxt, ifName = cls_tc_occ,
+ifaceDeclImplicitBndrs (IfaceClass {ifCtxt = sc_ctxt, ifName = cls_tc_occ,
                                ifSigs = sigs, ifATs = ats })
   = --   (possibly) newtype coercion
     co_occs ++
@@ -435,7 +436,7 @@ ifaceDeclSubBndrs (IfaceClass {ifCtxt = sc_ctxt, ifName = cls_tc_occ,
     dc_occ = mkClassDataConOcc cls_tc_occ
     is_newtype = n_sigs + n_ctxt == 1 -- Sigh
 
-ifaceDeclSubBndrs _ = []
+ifaceDeclImplicitBndrs _ = []
 
 ----------------------------- Printing IfaceDecl ------------------------------
 

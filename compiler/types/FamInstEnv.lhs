@@ -17,7 +17,7 @@ module FamInstEnv (
         famInstsRepTyCons, famInstRepTyCon_maybe, dataFamInstRepTyCon, 
         famInstLHS,
 	pprFamInst, pprFamInstHdr, pprFamInsts, 
-	mkLocalFamInst, mkSynFamInst, mkDataFamInst, mkImportedFamInst,
+	mkSynFamInst, mkDataFamInst, mkImportedFamInst,
 
 	FamInstEnvs, FamInstEnv, emptyFamInstEnv, emptyFamInstEnvs, 
 	extendFamInstEnv, overwriteFamInstEnv, extendFamInstEnvList, 
@@ -139,10 +139,11 @@ instance Outputable FamInst where
 pprFamInst :: FamInst -> SDoc
 pprFamInst famInst
   = hang (pprFamInstHdr famInst)
-       2 (vcat [ ifPprDebug (ptext (sLit "Coercion axiom:") <+> pp_ax)
+       2 (vcat [ ifPprDebug (ptext (sLit "Coercion axiom:") <+> ppr ax)
+               , ifPprDebug (ptext (sLit "RHS:") <+> ppr (coAxiomRHS ax))
                , ptext (sLit "--") <+> pprDefinedAt (getName famInst)])
   where
-    pp_ax = ppr (fi_axiom famInst)
+    ax = fi_axiom famInst
 
 pprFamInstHdr :: FamInst -> SDoc
 pprFamInstHdr (FamInst {fi_axiom = axiom, fi_flavor = flavor})
@@ -159,11 +160,11 @@ pprFamInstHdr (FamInst {fi_axiom = axiom, fi_flavor = flavor})
     pprHead = pprTypeApp fam_tc tys
     pprTyConSort = case flavor of
                      SynFamilyInst        -> ptext (sLit "type")
-                     DataFamilyInst tycon -> case () of
-                         _ | isDataTyCon     tycon -> ptext (sLit "data")
-                         _ | isNewTyCon      tycon -> ptext (sLit "newtype")
-                         _ | isAbstractTyCon tycon -> ptext (sLit "data")
-                         _ | otherwise             -> panic "pprTyConSort"
+                     DataFamilyInst tycon
+                       | isDataTyCon     tycon -> ptext (sLit "data")
+                       | isNewTyCon      tycon -> ptext (sLit "newtype")
+                       | isAbstractTyCon tycon -> ptext (sLit "data")
+                       | otherwise             -> ptext (sLit "WEIRD") <+> ppr tycon
 
 pprFamInsts :: [FamInst] -> SDoc
 pprFamInsts finsts = vcat (map pprFamInst finsts)
@@ -187,11 +188,12 @@ mkSynFamInst name tvs fam_tc inst_tys rep_ty
               fi_flavor = SynFamilyInst,
               fi_axiom  = axiom }
   where
-    axiom = CoAxiom { co_ax_unique = nameUnique name
-                    , co_ax_name   = name
-                    , co_ax_tvs    = tvs
-                    , co_ax_lhs    = mkTyConApp fam_tc inst_tys 
-                    , co_ax_rhs    = rep_ty }
+    axiom = CoAxiom { co_ax_unique   = nameUnique name
+                    , co_ax_name     = name
+                    , co_ax_implicit = False
+                    , co_ax_tvs      = tvs
+                    , co_ax_lhs      = mkTyConApp fam_tc inst_tys 
+                    , co_ax_rhs      = rep_ty }
 
 -- | Create a coercion identifying a @data@ or @newtype@ representation type
 -- and its family instance.  It has the form @Co tvs :: F ts ~ R tvs@,
@@ -212,36 +214,21 @@ mkDataFamInst name tvs fam_tc inst_tys rep_tc
               fi_flavor = DataFamilyInst rep_tc,
               fi_axiom  = axiom }
   where
-    axiom = CoAxiom { co_ax_unique = nameUnique name
-                    , co_ax_name   = name
-                    , co_ax_tvs    = tvs
-                    , co_ax_lhs    = mkTyConApp fam_tc inst_tys 
-                    , co_ax_rhs    = mkTyConApp rep_tc (mkTyVarTys tvs) }
-
--- Make a family instance representation from an indexed thing. 
--- This is used for local instances, where we can safely pull on the thing.
-mkLocalFamInst :: CoAxiom -> FamFlavor -> FamInst
-mkLocalFamInst axiom flavour
-  = FamInst {
-          fi_fam    = tyConName fam_tc,
-          fi_fam_tc = fam_tc,
-          fi_tcs    = roughMatchTcs tys,
-          fi_tvs    = mkVarSet (coAxiomTyVars axiom),
-          fi_tys    = tys,
-          fi_flavor = flavour,
-          fi_axiom  = axiom }
-  where 
-     (fam_tc, tys) = coAxiomSplitLHS axiom
+    axiom = CoAxiom { co_ax_unique   = nameUnique name
+                    , co_ax_name     = name
+                    , co_ax_implicit = False
+                    , co_ax_tvs      = tvs
+                    , co_ax_lhs      = mkTyConApp fam_tc inst_tys 
+                    , co_ax_rhs      = mkTyConApp rep_tc (mkTyVarTys tvs) }
 
 -- Make a family instance representation from the information found in an
 -- interface file.  In particular, we get the rough match info from the iface
 -- (instead of computing it here).
 mkImportedFamInst :: Name               -- Name of the family
                   -> [Maybe Name]       -- Rough match info
-                  -> FamFlavor          -- Family flavor
                   -> CoAxiom            -- Axiom introduced
                   -> FamInst            -- Resulting family instance
-mkImportedFamInst fam mb_tcs flavor axiom
+mkImportedFamInst fam mb_tcs axiom
   = FamInst {
       fi_fam    = fam,
       fi_fam_tc = fam_tc,
@@ -252,7 +239,17 @@ mkImportedFamInst fam mb_tcs flavor axiom
       fi_flavor = flavor }
   where 
      (fam_tc, tys) = coAxiomSplitLHS axiom
+
+         -- Derive the flavor for an imported FamInst rather disgustingly
+         -- Maybe we should store it in the IfaceFamInst?
+     flavor = case splitTyConApp_maybe (coAxiomRHS axiom) of
+                Just (tc, _)
+                  | Just ax' <- tyConFamilyCoercion_maybe tc
+                  , ax' == axiom
+                  -> DataFamilyInst tc
+                _ -> SynFamilyInst
 \end{code}
+
 
 
 %************************************************************************
@@ -421,9 +418,9 @@ lookupFamInstEnvConflicts envs fam_inst skol_tvs
   = lookup_fam_inst_env my_unify False envs fam tys1
   where
     inst_axiom = famInstAxiom fam_inst
-    (fam, tys) = coAxiomSplitLHS inst_axiom
-    skol_tys = mkTyVarTys skol_tvs
-    tys1     = substTys (zipTopTvSubst (coAxiomTyVars inst_axiom) skol_tys) tys
+    (fam, tys) = famInstLHS fam_inst
+    skol_tys   = mkTyVarTys skol_tvs
+    tys1       = substTys (zipTopTvSubst (coAxiomTyVars inst_axiom) skol_tys) tys
         -- In example above,   fam tys' = F [b]   
 
     my_unify old_fam_inst tpl_tvs tpl_tys match_tys
@@ -443,10 +440,8 @@ lookupFamInstEnvConflicts envs fam_inst skol_tvs
       where
         old_axiom = famInstAxiom old_fam_inst
         old_tvs   = coAxiomTyVars old_axiom
-        old_rhs   = substTyWith old_tvs
-                      (substTyVars subst old_tvs)  (coAxiomRHS old_axiom)
-        new_rhs   = substTyWith (coAxiomTyVars inst_axiom)
-                      (substTyVars subst skol_tvs) (coAxiomRHS inst_axiom)
+        old_rhs   = mkAxInstRHS old_axiom  (substTyVars subst old_tvs)
+        new_rhs   = mkAxInstRHS inst_axiom (substTyVars subst skol_tvs)
 
 -- This variant is called when we want to check if the conflict is only in the
 -- home environment (see FamInst.addLocalFamInst)
@@ -642,13 +637,9 @@ normaliseTcApp env tc tys
   , tyConArity tc <= length tys	   -- Unsaturated data families are possible
   , [(fam_inst, inst_tys)] <- lookupFamInstEnv env tc ntys 
   = let    -- A matching family instance exists
-        coAxiom         = famInstAxiom fam_inst
-        co              = mkAxInstCo coAxiom inst_tys
-        rhs             = case fi_flavor fam_inst of
-                            DataFamilyInst tycon -> mkTyConApp tycon inst_tys
-                            SynFamilyInst        ->
-                              substTyWith (coAxiomTyVars coAxiom) inst_tys
-                                (coAxiomRHS coAxiom)
+        ax              = famInstAxiom fam_inst
+        co              = mkAxInstCo  ax inst_tys
+        rhs             = mkAxInstRHS ax inst_tys
 	first_coi       = mkTransCo tycon_coi co
 	(rest_coi,nty)  = normaliseType env rhs
 	fix_coi         = mkTransCo first_coi rest_coi

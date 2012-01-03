@@ -21,10 +21,10 @@ import VarSet
 import Type
 import Unify
 import FamInstEnv
+import Coercion( mkAxInstRHS )
 
 import Id 
 import Var
-import VarEnv ( ) -- unitVarEnv, mkInScopeSet
 
 import TcType
 
@@ -1512,13 +1512,8 @@ doTopReact _inerts workItem@(CFunEqCan { cc_id = eqv, cc_flavor = fl
            Nothing -> return NoTopInt 
            Just (famInst, rep_tys)
              -> do { let coe_ax = famInstAxiom famInst
-                         rhs_ty = substTyWith (coAxiomTyVars coe_ax) rep_tys
-                                    (coAxiomRHS coe_ax)
-			    -- Eagerly expand away the type synonym on the
-			    -- RHS of a type function, so that it never
-			    -- appears in an error message
-                            -- See Note [Type synonym families] in TyCon
-                         coe = mkTcAxInstCo coe_ax rep_tys 
+                         rhs_ty = mkAxInstRHS coe_ax rep_tys
+                         coe    = mkTcAxInstCo coe_ax rep_tys 
                    ; case fl of
                        Wanted {} -> do { evc <- newEqVar fl rhs_ty xi -- Wanted version
                                        ; let eqv' = evc_the_evvar evc

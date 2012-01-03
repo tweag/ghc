@@ -29,7 +29,8 @@ module Coercion (
 
 	-- ** Constructing coercions
         mkReflCo, mkCoVarCo, 
-        mkAxInstCo, mkPiCo, mkPiCos,
+        mkAxInstCo, mkAxInstRHS,
+        mkPiCo, mkPiCos,
         mkSymCo, mkTransCo, mkNthCo,
 	mkInstCo, mkAppCo, mkTyConAppCo, mkFunCo,
         mkForAllCo, mkUnsafeCo,
@@ -531,6 +532,8 @@ mkReflCo :: Type -> Coercion
 mkReflCo = Refl
 
 mkAxInstCo :: CoAxiom -> [Type] -> Coercion
+-- mkAxInstCo can legitimately be called over-staturated; 
+-- i.e. with more type arguments than the coercion requires
 mkAxInstCo ax tys
   | arity == n_tys = AxiomInstCo ax rtys
   | otherwise      = ASSERT( arity < n_tys )
@@ -540,6 +543,19 @@ mkAxInstCo ax tys
     n_tys = length tys
     arity = coAxiomArity ax
     rtys  = map Refl tys
+
+mkAxInstRHS :: CoAxiom -> [Type] -> Type
+-- Instantiate the axiom with specified types,
+-- returning the instantiated RHS
+-- A companion to mkAxInstCo: 
+--    mkAxInstRhs ax tys = snd (coercionKind (mkAxInstCo ax tys))
+mkAxInstRHS ax tys
+  = ASSERT( tvs `equalLength` tys1 ) 
+    mkAppTys rhs' tys2
+  where
+    tvs          = coAxiomTyVars ax
+    (tys1, tys2) = splitAtList tvs tys
+    rhs'         = substTyWith tvs tys1 (coAxiomRHS ax)
 
 -- | Apply a 'Coercion' to another 'Coercion'.
 mkAppCo :: Coercion -> Coercion -> Coercion
@@ -631,11 +647,12 @@ mkUnsafeCo ty1 ty2 = UnsafeCo ty1 ty2
 --   the free variables a subset of those 'TyVar's.
 mkNewTypeCo :: Name -> TyCon -> [TyVar] -> Type -> CoAxiom
 mkNewTypeCo name tycon tvs rhs_ty
-  = CoAxiom { co_ax_unique = nameUnique name
-            , co_ax_name   = name
-            , co_ax_tvs    = tvs
-            , co_ax_lhs    = mkTyConApp tycon (mkTyVarTys tvs)
-            , co_ax_rhs    = rhs_ty }
+  = CoAxiom { co_ax_unique   = nameUnique name
+            , co_ax_name     = name
+            , co_ax_implicit = True  -- See Note [Implicit axioms] in TyCon
+            , co_ax_tvs      = tvs
+            , co_ax_lhs      = mkTyConApp tycon (mkTyVarTys tvs)
+            , co_ax_rhs      = rhs_ty }
 
 mkPiCos :: [Var] -> Coercion -> Coercion
 mkPiCos vs co = foldr mkPiCo co vs

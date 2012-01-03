@@ -1163,9 +1163,33 @@ mkPrintUnqualified dflags env = (qual_name, qual_mod)
 
 %************************************************************************
 %*                                                                      *
-                TyThing
+                Implicit TyThings
 %*                                                                      *
 %************************************************************************
+
+Note [Implicit TyThings]
+~~~~~~~~~~~~~~~~~~~~~~~~
+  DEFINITION: An "implicit" TyThing is one that does not have its own
+  IfaceDecl in an interface file.  Instead, its binding in the type
+  environment is created as part of typechecking the IfaceDecl for
+  some other thing.
+
+Examples:
+  * All DataCons are implicit, because they are generated from the
+    IfaceDecl for the data/newtype.  Ditto class methods.
+
+  * Record selectors are *not* implicit, because they get their own
+    free-standing IfaceDecl.
+
+  * Associated data/type families are implicit because they are
+    included in the IfaceDecl of the parent class.  (NB: the
+    IfaceClass decl happens to use IfaceDecl recursively for the
+    associated types, but that's irrelevant here.)
+
+  * Dictionary function Ids are not implict.
+
+  * Axioms for newtypes are implicit (same as above), but axioms
+    for data/type family instances are *not* implicit (like DFunIds).
 
 \begin{code}
 -- | Determine the 'TyThing's brought into scope by another 'TyThing'
@@ -1175,7 +1199,7 @@ mkPrintUnqualified dflags env = (qual_name, qual_mod)
 -- scope, just for a start!
 
 -- N.B. the set of TyThings returned here *must* match the set of
--- names returned by LoadIface.ifaceDeclSubBndrs, in the sense that
+-- names returned by LoadIface.ifaceDeclImplicitBndrs, in the sense that
 -- TyThing.getOccName should define a bijection between the two lists.
 -- This invariant is used in LoadIface.loadDecl (see note [Tricky iface loop])
 -- The order of the list does not matter.
@@ -1219,14 +1243,11 @@ implicitTyConThings tc
 extras_plus :: TyThing -> [TyThing]
 extras_plus thing = thing : implicitTyThings thing
 
--- For newtypes and indexed data types (and both),
--- add the implicit coercion tycon
+-- For newtypes (only) add the implicit coercion tycon
 implicitCoTyCon :: TyCon -> [TyThing]
 implicitCoTyCon tc
-  = map ACoAxiom . catMaybes $ [ -- Just if newtype, Nothing if not
-                                 newTyConCo_maybe tc
-                                 -- Just if family instance, Nothing if not
-                               {- , tyConFamilyCoercion_maybe tc -} ]
+  | Just co <- newTyConCo_maybe tc = [ACoAxiom co]
+  | otherwise                      = []
 
 -- | Returns @True@ if there should be no interface-file declaration
 -- for this thing on its own: either it is built-in, or it is part
@@ -1236,7 +1257,7 @@ isImplicitTyThing :: TyThing -> Bool
 isImplicitTyThing (ADataCon {}) = True
 isImplicitTyThing (AnId id)     = isImplicitId id
 isImplicitTyThing (ATyCon tc)   = isImplicitTyCon tc
-isImplicitTyThing (ACoAxiom _)  = False -- JPM even for newtypes!
+isImplicitTyThing (ACoAxiom ax) = isImplicitCoAxiom ax
 
 -- | tyThingParent_maybe x returns (Just p)
 -- when pprTyThingInContext sould print a declaration for p
@@ -1434,7 +1455,7 @@ mkIfaceHashCache pairs
   = \occ -> lookupOccEnv env occ
   where
     env = foldr add_decl emptyOccEnv pairs
-    add_decl (v,d) env0 = foldr add_imp env1 (ifaceDeclSubBndrs d)
+    add_decl (v,d) env0 = foldr add_imp env1 (ifaceDeclImplicitBndrs d)
       where
           decl_name = ifName d
           env1 = extendOccEnv env0 decl_name (decl_name, v)

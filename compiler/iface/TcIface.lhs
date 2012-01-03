@@ -529,7 +529,12 @@ tc_iface_decl _ _ (IfaceAxiom {ifName = tc_occ, ifTyVars = tv_bndrs,
     { tc_name <- lookupIfaceTop tc_occ
     ; tc_lhs  <- tcIfaceType lhs
     ; tc_rhs  <- tcIfaceType rhs
-    ; let axiom = mkCoAxiom (nameUnique tc_name) tc_name tvs tc_lhs tc_rhs
+    ; let axiom = CoAxiom { co_ax_unique   = nameUnique tc_name
+                          , co_ax_name     = tc_name
+                          , co_ax_implicit = False
+                          , co_ax_tvs      = tvs
+                          , co_ax_lhs      = tc_lhs
+                          , co_ax_rhs      = tc_rhs }
     ; return (ACoAxiom axiom) }
 
 tcIfaceDataCons :: Name -> TyCon -> [TyVar] -> IfaceConDecls -> IfL AlgTyConRhs
@@ -624,14 +629,9 @@ tcIfaceFamInst :: IfaceFamInst -> IfL FamInst
 tcIfaceFamInst (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcs
                              , ifFamInstAxiom = axiom_name } )
     = do axiom' <- forkM (ptext (sLit "Axiom") <+> ppr axiom_name) $
-                     tcIfaceCoAxiom axiom_name
-         -- Derive the flavor from splitting the axiom
-         let flavor = case coAxiomSplitLHS axiom' of
-                        (tc,_) | isDataFamilyTyCon tc -> DataFamilyInst tc
-                               | otherwise            -> ASSERT( isSynFamilyTyCon tc )
-                                                         SynFamilyInst
-             mb_tcs' = map (fmap ifaceTyConName) mb_tcs
-         return (mkImportedFamInst fam mb_tcs' flavor axiom')
+                   tcIfaceCoAxiom axiom_name
+         let mb_tcs' = map (fmap ifaceTyConName) mb_tcs
+         return (mkImportedFamInst fam mb_tcs' axiom')
 \end{code}
 
 
