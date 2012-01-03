@@ -46,6 +46,11 @@ struct Capability_ {
     // catching unsafe call-ins.
     rtsBool in_haskell;
 
+    // Has there been any activity on this Capability since the last GC?
+    nat idle;
+
+    rtsBool disabled;
+
     // The run queue.  The Task owning this Capability has exclusive
     // access to its run queue, so can wake up threads without
     // taking a lock, and the common path through the scheduler is
@@ -193,6 +198,8 @@ INLINE_HEADER void releaseCapability_ (Capability* cap STG_UNUSED,
 
 // declared in includes/rts/Threads.h:
 // extern nat n_capabilities;
+
+extern nat enabled_capabilities;
 
 // Array of all the capabilities
 //

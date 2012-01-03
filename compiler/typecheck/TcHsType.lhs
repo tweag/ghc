@@ -349,14 +349,10 @@ kc_hs_type (HsParTy ty) exp_kind = do
    ty' <- kc_lhs_type ty exp_kind
    return (HsParTy ty')
 
-kc_hs_type (HsTyVar name) exp_kind
-  -- Special case for the unit tycon so it benefits from kind overloading
-  | name == tyConName unitTyCon
-  = kc_hs_type (HsTupleTy HsBoxedOrConstraintTuple []) exp_kind
-  | otherwise = do 
-      (ty, k) <- kcTyVar name
-      checkExpectedKind ty k exp_kind
-      return ty
+kc_hs_type (HsTyVar name) exp_kind = do
+   (ty, k) <- kcTyVar name
+   checkExpectedKind ty k exp_kind
+   return ty
 
 kc_hs_type (HsListTy ty) exp_kind = do
     ty' <- kcLiftedType ty
@@ -1113,8 +1109,7 @@ tcPatSig ctxt sig res_ty
 	-- that should be brought into scope
 
 	; if null sig_tvs then do {
-		-- The type signature binds no type variables, 
-		-- and hence is rigid, so use it to zap the res_ty
+		-- Just do the subsumption check and return
                   wrap <- tcSubType PatSigOrigin ctxt res_ty sig_ty
 		; return (sig_ty, [], wrap)
         } else do {

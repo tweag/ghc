@@ -29,6 +29,7 @@ module DynFlags (
         xopt_set,
         xopt_unset,
         DynFlags(..),
+        HasDynFlags(..),
         RtsOptsEnabled(..),
         HscTarget(..), isObjectTarget, defaultObjectTarget,
         GhcMode(..), isOneShot,
@@ -402,7 +403,8 @@ data ExtensionFlag
    | Opt_RebindableSyntax
    | Opt_ConstraintKinds
    | Opt_PolyKinds                -- Kind polymorphism
-
+   | Opt_InstanceSigs
+ 
    | Opt_StandaloneDeriving
    | Opt_DeriveDataTypeable
    | Opt_DeriveFunctor
@@ -562,11 +564,12 @@ data DynFlags = DynFlags {
   language              :: Maybe Language,
   -- | Safe Haskell mode
   safeHaskell           :: SafeHaskellMode,
-  -- We store the location of where template haskell and newtype deriving were
-  -- turned on so we can produce accurate error messages when Safe Haskell turns
-  -- them off.
+  -- We store the location of where some extension and flags were turned on so
+  -- we can produce accurate error messages when Safe Haskell fails due to
+  -- them.
   thOnLoc               :: SrcSpan,
   newDerivOnLoc         :: SrcSpan,
+  pkgTrustOnLoc         :: SrcSpan,
   warnSafeOnLoc         :: SrcSpan,
   warnUnsafeOnLoc       :: SrcSpan,
   -- Don't change this without updating extensionFlags:
@@ -583,6 +586,9 @@ data DynFlags = DynFlags {
   -- | what kind of {-# SCC #-} to add automatically
   profAuto              :: ProfAuto
  }
+
+class HasDynFlags m where
+    getDynFlags :: m DynFlags
 
 data ProfAuto
   = NoProfAuto         -- ^ no SCC annotations added
@@ -906,6 +912,7 @@ defaultDynFlags mySettings =
         safeHaskell = Sf_SafeInfered,
         thOnLoc = noSrcSpan,
         newDerivOnLoc = noSrcSpan,
+        pkgTrustOnLoc = noSrcSpan,
         warnSafeOnLoc = noSrcSpan,
         warnUnsafeOnLoc = noSrcSpan,
         extensions = [],
@@ -1301,18 +1308,27 @@ parseDynamicFlags dflags0 args cmdline = do
   when (not (null errs)) $ ghcError $ errorsToGhcException errs
 
   -- check for disabled flags in safe haskell
-  let (dflags2, sh_warns) = safeFlagCheck dflags1
+  let (dflags2, sh_warns) = safeFlagCheck cmdline dflags1
 
   return (dflags2, leftover, sh_warns ++ warns)
 
 -- | Check (and potentially disable) any extensions that aren't allowed
 -- in safe mode.
-safeFlagCheck :: DynFlags -> (DynFlags, [Located String])
-safeFlagCheck dflags | not (safeLanguageOn dflags || safeInferOn dflags)
-                     = (dflags, [])
-safeFlagCheck dflags =
+safeFlagCheck :: Bool -> DynFlags -> (DynFlags, [Located String])
+safeFlagCheck _  dflags | not (safeLanguageOn dflags || safeInferOn dflags)
+                        = (dflags, [])
+
+safeFlagCheck cmdl dflags =
     case safeLanguageOn dflags of
         True -> (dflags', warns)
+
+        -- throw error if -fpackage-trust by itself with no safe haskell flag
+        False | not cmdl && safeInferOn dflags && packageTrustOn dflags
+              -> (dopt_unset dflags' Opt_PackageTrust,
+                  [L (pkgTrustOnLoc dflags') $
+                      "Warning: -fpackage-trust ignored;" ++
+                      " must be specified with a Safe Haskell flag"]
+                  )
 
         False | null warns && safeInfOk
               -> (dflags', [])
@@ -1659,7 +1675,7 @@ dynamic_flags = [
   , Flag "fno-glasgow-exts" (NoArg (disableGlasgowExts >> deprecate "Use individual extensions instead"))
 
         ------ Safe Haskell flags -------------------------------------------
-  , Flag "fpackage-trust"   (NoArg (setDynFlag Opt_PackageTrust))
+  , Flag "fpackage-trust"   (NoArg setPackageTrust)
   , Flag "fno-safe-infer"   (NoArg (setSafeHaskell Sf_None))
  ]
  ++ map (mkFlag turnOn  "f"    setDynFlag  ) fFlags
@@ -1934,6 +1950,7 @@ xFlags = [
   ( "RebindableSyntax",                 Opt_RebindableSyntax, nop ),
   ( "ConstraintKinds",                  Opt_ConstraintKinds, nop ),
   ( "PolyKinds",                        Opt_PolyKinds, nop ),
+  ( "InstanceSigs",                     Opt_InstanceSigs, nop ),
   ( "MonoPatBinds",                     Opt_MonoPatBinds,
     \ turn_on -> when turn_on $ deprecate "Experimental feature now removed; has no effect" ),
   ( "ExplicitForAll",                   Opt_ExplicitForAll, nop ),
@@ -2170,6 +2187,12 @@ setWarnSafe False = return ()
 setWarnUnsafe :: Bool -> DynP ()
 setWarnUnsafe True  = getCurLoc >>= \l -> upd (\d -> d { warnUnsafeOnLoc = l })
 setWarnUnsafe False = return ()
+
+setPackageTrust :: DynP ()
+setPackageTrust = do
+    setDynFlag Opt_PackageTrust
+    l <- getCurLoc
+    upd $ \d -> d { pkgTrustOnLoc = l }
 
 setGenDeriving :: Bool -> DynP ()
 setGenDeriving True  = getCurLoc >>= \l -> upd (\d -> d { newDerivOnLoc = l })

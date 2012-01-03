@@ -262,8 +262,9 @@ mkIface_ hsc_env maybe_old_fingerprint
                 ; iface_insts = map instanceToIfaceInst insts
                 ; iface_fam_insts = map famInstToIfaceFamInst fam_insts
                 ; iface_vect_info = flattenVectInfo vect_info
-                -- Check if we are in Safe Inference mode but we failed to pass
-                -- the muster
+
+                -- Check if we are in Safe Inference mode 
+                -- but we failed to pass the muster
                 ; safeMode    = if safeInferOn dflags && not safeInf
                                     then Sf_None
                                     else safeHaskell dflags
@@ -453,7 +454,7 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
        parent_map :: OccEnv OccName
        parent_map = foldr extend emptyOccEnv new_decls
           where extend d env = 
-                  extendOccEnvList env [ (b,n) | b <- ifaceDeclSubBndrs d ]
+                  extendOccEnvList env [ (b,n) | b <- ifaceDeclImplicitBndrs d ]
                   where n = ifName d
 
         -- strongly-connected groups of declarations, in dependency order
@@ -530,7 +531,7 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
                        -> IO (OccEnv (OccName,Fingerprint))
        extend_hash_env env0 (hash,d) = do
           let
-            sub_bndrs = ifaceDeclSubBndrs d
+            sub_bndrs = ifaceDeclImplicitBndrs d
             fp_sub_bndr occ = computeFingerprint putNameLiterally (hash,occ)
           --
           sub_fps <- mapM fp_sub_bndr sub_bndrs
@@ -1555,6 +1556,8 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
                 -- Slightly awkward: we need the Class to get the fundeps
     (tvs, fds) = classTvsFds cls
     arg_names = [filterNameSet is_local (orphNamesOfType ty) | ty <- tys]
+
+    -- See Note [When exactly is an instance decl an orphan?] in IfaceSyn
     orph | is_local cls_name = Just (nameOccName cls_name)
          | all isJust mb_ns  = ASSERT( not (null mb_ns) ) head mb_ns
          | otherwise         = Nothing

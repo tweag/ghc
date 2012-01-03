@@ -52,6 +52,7 @@ import ListSetOps       ( findDupsEq )
 import Digraph		( SCC, flattenSCC, stronglyConnCompFromEdgedVertices )
 
 import Control.Monad
+import Data.List( partition )
 import Maybes( orElse )
 import Data.Maybe( isNothing )
 \end{code}
@@ -427,6 +428,16 @@ rnSrcInstDecl (InstDecl inst_ty mbinds uprags ats)
 	-- Used for both source and interface file decls
   = do { inst_ty' <- rnLHsInstType (text "In an instance declaration") inst_ty
        ; let Just (inst_tyvars, _, L _ cls,_) = splitLHsInstDeclTy_maybe inst_ty'
+             (spec_inst_prags, other_sigs) = partition isSpecInstLSig uprags
+
+       -- Rename the associated types, and type signatures
+       -- Both need to have the instance type variables in scope
+       ; ((ats', other_sigs'), more_fvs) 
+             <- extendTyVarEnvFVRn (map hsLTyVarName inst_tyvars) $
+                do { (ats', at_fvs) <- rnATInsts cls ats
+                   ; other_sigs'    <- renameSigs (InstDeclCtxt cls) other_sigs
+                   ; return ( (ats', other_sigs')
+                            , at_fvs `plusFV` hsSigsFVs other_sigs') }
 
 	-- Rename the bindings
 	-- The typechecker (not the renamer) checks that all 
@@ -434,29 +445,24 @@ rnSrcInstDecl (InstDecl inst_ty mbinds uprags ats)
 	-- (Slightly strangely) when scoped type variables are on, the 
         -- forall-d tyvars scope over the method bindings too
        ; (mbinds', meth_fvs) <- extendTyVarEnvForMethodBinds inst_tyvars $
-                                rnMethodBinds cls (\_ -> [])	-- No scoped tyvars
+                                rnMethodBinds cls (mkSigTvFn other_sigs')
 					          mbinds    
 
-       -- Rename the associated types
-       -- NB: We allow duplicate associated-type decls; 
-       --     See Note [Associated type instances] in TcInstDcls
-       ; (ats', at_fvs) <- extendTyVarEnvFVRn (map hsLTyVarName inst_tyvars) $
-                           rnATInsts cls ats
-
-	-- Rename the prags and signatures.
-	-- Note that the type variables are not in scope here,
+	-- Rename the SPECIALISE instance pramas
+	-- Annoyingly the type variables are not in scope here,
 	-- so that	instance Eq a => Eq (T a) where
 	--			{-# SPECIALISE instance Eq a => Eq (T [a]) #-}
-	-- works OK. 
+	-- works OK. That's why we did the partition game above
 	--
 	-- But the (unqualified) method names are in scope
-       ; let binders = collectHsBindsBinders mbinds'
-       ; uprags' <- bindLocalNames binders $
-	            renameSigs (InstDeclCtxt cls) uprags
+--       ; let binders = collectHsBindsBinders mbinds'
+       ; spec_inst_prags' <- -- bindLocalNames binders $
+	                     renameSigs (InstDeclCtxt cls) spec_inst_prags
 
+       ; let uprags' = spec_inst_prags' ++ other_sigs'
        ; return (InstDecl inst_ty' mbinds' uprags' ats',
-	         meth_fvs `plusFV` at_fvs
-                          `plusFV` hsSigsFVs uprags'
+	         meth_fvs `plusFV` more_fvs
+                          `plusFV` hsSigsFVs spec_inst_prags'
 		      	  `plusFV` extractHsTyNames inst_ty') }
              -- We return the renamed associated data type declarations so
              -- that they can be entered into the list of type declarations
@@ -474,6 +480,8 @@ Renaming of the associated types in instances.
 
 \begin{code}
 rnATInsts :: Name -> [LTyClDecl RdrName] -> RnM ([LTyClDecl Name], FreeVars)
+       -- NB: We allow duplicate associated-type decls; 
+       --     See Note [Associated type instances] in TcInstDcls
 rnATInsts cls atDecls = rnList rnATInst atDecls
   where
     rnATInst tydecl@TyData     {} = rnTyClDecl (Just cls) tydecl
@@ -1047,9 +1055,9 @@ rnConDecls condecls
 
 rnConDecl :: ConDecl RdrName -> RnM (ConDecl Name)
 rnConDecl decl@(ConDecl { con_name = name, con_qvars = tvs
-                   	       , con_cxt = cxt, con_details = details
-                   	       , con_res = res_ty, con_doc = mb_doc
-                   	       , con_old_rec = old_rec, con_explicit = expl })
+                   	, con_cxt = cxt, con_details = details
+                   	, con_res = res_ty, con_doc = mb_doc
+                   	, con_old_rec = old_rec, con_explicit = expl })
   = do	{ addLocM checkConName name
     	; when old_rec (addWarn (deprecRecSyntax decl))
 	; new_name <- lookupLocatedTopBndrRn name
@@ -1076,35 +1084,43 @@ rnConDecl decl@(ConDecl { con_name = name, con_qvars = tvs
         ; bindTyVarsRn doc new_tvs $ \new_tyvars -> do
 	{ new_context <- rnContext doc cxt
 	; new_details <- rnConDeclDetails doc details
-        ; (new_details', new_res_ty)  <- rnConResult doc new_details res_ty
+        ; (new_details', new_res_ty)  <- rnConResult doc (unLoc new_name) new_details res_ty
         ; return (decl { con_name = new_name, con_qvars = new_tyvars, con_cxt = new_context 
                        , con_details = new_details', con_res = new_res_ty, con_doc = mb_doc' }) }}
  where
     doc = ConDeclCtx name
     get_rdr_tvs tys  = extractHsRhoRdrTyVars cxt (noLoc (HsTupleTy HsBoxedTuple tys))
 
-rnConResult :: HsDocContext
+rnConResult :: HsDocContext -> Name
             -> HsConDetails (LHsType Name) [ConDeclField Name]
             -> ResType RdrName
             -> RnM (HsConDetails (LHsType Name) [ConDeclField Name],
                     ResType Name)
-rnConResult _ details ResTyH98 = return (details, ResTyH98)
-rnConResult doc details (ResTyGADT ty)
+rnConResult _   _   details ResTyH98 = return (details, ResTyH98)
+rnConResult doc con details (ResTyGADT ty)
   = do { ty' <- rnLHsType doc ty
        ; let (arg_tys, res_ty) = splitHsFunType ty'
           	-- We can finally split it up, 
 		-- now the renamer has dealt with fixities
 	        -- See Note [Sorting out the result type] in RdrHsSyn
 
-             details' = case details of
-       	     	           RecCon {}    -> details
-			   PrefixCon {} -> PrefixCon arg_tys
-			   InfixCon {}  -> pprPanic "rnConResult" (ppr ty)
-			  -- See Note [Sorting out the result type] in RdrHsSyn
-		
-       ; when (not (null arg_tys) && case details of { RecCon {} -> True; _ -> False })
-              (addErr (badRecResTy (docOfHsDocContext doc)))
-       ; return (details', ResTyGADT res_ty) }
+       ; case details of
+	   InfixCon {}  -> pprPanic "rnConResult" (ppr ty)
+	   -- See Note [Sorting out the result type] in RdrHsSyn
+
+       	   RecCon {}    -> do { unless (null arg_tys) 
+                                       (addErr (badRecResTy (docOfHsDocContext doc)))
+                              ; return (details, ResTyGADT res_ty) }
+
+	   PrefixCon {} | isSymOcc (getOccName con)  -- See Note [Infix GADT cons]
+                        , [ty1,ty2] <- arg_tys
+                        -> do { fix_env <- getFixityEnv
+                              ; return (if   con `elemNameEnv` fix_env 
+                                        then InfixCon ty1 ty2
+                                        else PrefixCon arg_tys
+                                       , ResTyGADT res_ty) }
+                        | otherwise
+                        -> return (PrefixCon arg_tys, ResTyGADT res_ty) }
 
 rnConDeclDetails :: HsDocContext
                  -> HsConDetails (LHsType RdrName) [ConDeclField RdrName]
@@ -1153,6 +1169,18 @@ badDataCon name
    = hsep [ptext (sLit "Illegal data constructor name"), quotes (ppr name)]
 \end{code}
 
+Note [Infix GADT constructors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We do not currently have syntax to declare an infix constructor in GADT syntax,
+but it makes a (small) difference to the Show instance.  So as a slightly
+ad-hoc solution, we regard a GADT data constructor as infix if
+  a) it is an operator symbol
+  b) it has two arguments
+  c) there is a fixity declaration for it
+For example:
+   infix 6 (:--:) 
+   data T a where
+     (:--:) :: t1 -> t2 -> T Int
 
 %*********************************************************
 %*							*

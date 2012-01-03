@@ -793,6 +793,28 @@ for a non-overloaded function.
 @tcMonoBinds@ deals with a perhaps-recursive group of HsBinds.
 The signatures have been dealt with already.
 
+Note [Pattern bindings]
+~~~~~~~~~~~~~~~~~~~~~~~
+The rule for typing pattern bindings is this:
+
+    ..sigs..
+    p = e
+
+where 'p' binds v1..vn, and 'e' may mention v1..vn, 
+typechecks exactly like
+
+    ..sigs..
+    x = e       -- Inferred type
+    v1 = case x of p -> v1
+    ..
+    vn = case x of p -> vn
+
+Note that  
+    (f :: forall a. a -> a) = id
+should not typecheck because
+       case id of { (f :: forall a. a->a) -> f }
+will not typecheck.
+
 \begin{code}
 tcMonoBinds :: TcSigFun -> LetBndrSpec 
             -> RecFlag  -- Whether the binding is recursive for typechecking purposes
@@ -1197,11 +1219,10 @@ mkSigFun sigs = lookupNameEnv env
 
 \begin{code}
 tcTySig :: LSig Name -> TcM [TcId]
-tcTySig (L span (TypeSig names ty))
-  = setSrcSpan span $ mapM f names
-  where
-    f (L _ name) = do  { sigma_ty <- tcHsSigType (FunSigCtxt name) ty
-                       ; return (mkLocalId name sigma_ty) }
+tcTySig (L span (TypeSig names@(L _ name1 : _) ty))
+  = setSrcSpan span $ 
+    do { sigma_ty <- tcHsSigType (FunSigCtxt name1) ty
+       ; return [ mkLocalId name sigma_ty | L _ name <- names ] }
 tcTySig (L _ (IdSig id))
   = return [id]
 tcTySig s = pprPanic "tcTySig" (ppr s)
