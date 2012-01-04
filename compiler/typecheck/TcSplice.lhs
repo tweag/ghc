@@ -369,14 +369,15 @@ tc_bracket :: ThStage -> HsBracket Name -> TcM TcType
 tc_bracket outer_stage br@(VarBr _ name)     -- Note [Quoting names]
   = do  { thing <- tcLookup name
         ; case thing of
-            AGlobal _ -> return ()
+            AGlobal {} -> return ()
+            ATyVar {}  -> return ()
             ATcId { tct_level = bind_lvl, tct_id = id }
                 | thTopLevelId id       -- C.f TcExpr.checkCrossStageLifting
                 -> keepAliveTc id
                 | otherwise
                 -> do { checkTc (thLevel outer_stage + 1 == bind_lvl)
                                 (quotedNameStageErr br) }
-            _ -> pprPanic "th_bracket" (ppr name)
+            _ -> pprPanic "th_bracket" (ppr name $$ ppr thing)
 
         ; tcMetaTy nameTyConName        -- Result type is Var (not Q-monadic)
         }
@@ -1267,7 +1268,7 @@ reifyClass cls
                           ; return (TH.SigD (reifyName op) ty) }
 
 ------------------------------
-reifyClassInstance :: Instance -> TcM TH.Dec
+reifyClassInstance :: ClsInst -> TcM TH.Dec
 reifyClassInstance i
   = do { cxt <- reifyCxt theta
        ; thtypes <- reifyTypes types
@@ -1279,21 +1280,22 @@ reifyClassInstance i
 ------------------------------
 reifyFamilyInstance :: FamInst -> TcM TH.Dec
 reifyFamilyInstance fi
-  | isSynTyCon rep_tc
-  = do { th_tys <- reifyTypes (fi_tys fi)
-       ; rhs_ty <- reifyType (synTyConType rep_tc)
-       ; return (TH.TySynInstD fam th_tys rhs_ty) }
+  = case fi_flavor fi of
+      SynFamilyInst ->
+        do { th_tys <- reifyTypes (fi_tys fi)
+           ; rhs_ty <- reifyType (coAxiomRHS rep_ax)
+           ; return (TH.TySynInstD fam th_tys rhs_ty) }
 
-  | otherwise
-  = do { let tvs = tyConTyVars rep_tc
-             fam = reifyName (fi_fam fi)
-       ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
-       ; th_tys <- reifyTypes (fi_tys fi)
-       ; return (if isNewTyCon rep_tc
-                 then TH.NewtypeInstD [] fam th_tys (head cons) []
-                 else TH.DataInstD    [] fam th_tys cons        []) }
+      DataFamilyInst rep_tc ->
+        do { let tvs = tyConTyVars rep_tc
+                 fam = reifyName (fi_fam fi)
+           ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
+           ; th_tys <- reifyTypes (fi_tys fi)
+           ; return (if isNewTyCon rep_tc
+                     then TH.NewtypeInstD [] fam th_tys (head cons) []
+                     else TH.DataInstD    [] fam th_tys cons        []) }
   where
-    rep_tc = fi_tycon fi
+    rep_ax = fi_axiom fi
     fam = reifyName (fi_fam fi)
 
 ------------------------------
