@@ -228,9 +228,10 @@ tcExpr (HsHole s) res_ty
          holes <- readTcRef $ tcl_holes l ;
          writeTcRef (tcl_holes l) (Map.insert s res_ty holes) ;
          return (HsHole s) }
-       where printTy (TyVarTy ty) = let (MetaTv _ io) = tcTyVarDetails ty in 
-                                        do meta <- readTcRef io
-                                           liftIO $ putStrLn ("tcExpr.HsHole @(" ++ (showSDoc $ ppr s) ++ "): " ++ (showSDoc $ ppr meta))
+       where printTy (TyVarTy ty) = case tcTyVarDetails ty of
+                                          (MetaTv _ io) -> do meta <- readTcRef io ;
+                                                              liftIO $ putStrLn ("tcExpr.HsHole @(" ++ (showSDoc $ ppr s) ++ "): " ++ (showSDoc $ ppr meta))
+                                          x -> liftIO $ putStrLn ("tcExpr.HsHole: No idea how to handle " ++ (showSDoc $ ppr x))
              printTy (ForAllTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
              printTy (PredTy _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
              printTy (AppTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: AppTy")

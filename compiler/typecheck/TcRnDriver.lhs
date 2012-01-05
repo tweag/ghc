@@ -222,6 +222,13 @@ tcRnModule hsc_env hsc_src save_rn_syntax
 
                 -- Dump output and return
 	tcDump tcg_env ;
+
+	(_, l) <- getEnvs ;
+    holes <- readTcRef $ tcl_holes l ;
+    zonked_holes <- mapM (\(s, ty) -> liftM (\t -> (s, tidyType emptyTidyEnv t)) $ zonkTcType ty)
+    				$ Map.toList holes ;
+    liftIO $ putStrLn ("tcRnModule: " ++ (showSDoc $ ppr $ zonked_holes)) ;
+
 	return tcg_env
     }}}}
 
@@ -1429,14 +1436,16 @@ tcRnExpr hsc_env ictxt rdr_expr
                                                     lie  ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
 
+
+    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
+    result <- zonkTcType all_expr_ty ;
     (_, l) <- getEnvs ;
     holes <- readTcRef $ tcl_holes l ;
     zonked_holes <- mapM (\(s, ty) -> liftM (\t -> (s, tidyType emptyTidyEnv t)) $ zonkTcType ty)
     				$ Map.toList $ Map.map (\ty -> mkPiTypes dicts ty) $ holes ;
     liftIO $ putStrLn ("tcRnExpr2: " ++ (showSDoc $ ppr $ zonked_holes)) ;
 
-    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
-    zonkTcType all_expr_ty
+    return result
     }
 
 --------------------------

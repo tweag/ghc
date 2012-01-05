@@ -862,6 +862,7 @@ runTcS context untouch is wl tcs
        ; res <- unTcS tcs env
 	     -- Perform the type unifications required
        ; ty_binds <- TcM.readTcRef ty_binds_var
+       ; liftIO $ putStrLn "runTcS"
        ; mapM_ do_unification (varEnvElts ty_binds)
 
        ; when debugIsOn $ do {

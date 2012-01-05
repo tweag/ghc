@@ -204,7 +204,11 @@ scrungleMatch var scrut body
 \begin{code}
 dsLExpr :: LHsExpr Id -> DsM CoreExpr
 
-dsLExpr (L loc e) = putSrcSpanDs loc $ dsExpr e
+dsLExpr (L loc e) = putSrcSpanDs loc $ do {
+                        desugared <- dsExpr e ;
+                        trace ("dsExpr: " ++ (showSDoc $ ppr desugared))
+                        return desugared
+                        }
 
 dsExpr :: HsExpr Id -> DsM CoreExpr
 dsExpr (HsPar e)              = dsLExpr e
