@@ -225,13 +225,18 @@ tcRnModule hsc_env hsc_src save_rn_syntax
 	tcDump tcg_env ;
 
 	(_, l) <- getEnvs ;
-    holes <- readTcRef $ tcl_holes l ;
-    zonked_holes <- mapM (\(s, ty) -> liftM (\t -> (s, {-tidyType emptyTidyEnv-} t)) $ zonkTcType ty)
-    				$ Map.toList holes ;
-    liftIO $ putStrLn ("tcRnModule: " ++ (showSDoc $ ppr $ zonked_holes)) ;
+	holes <- readTcRef $ tcl_holes l ;
+	zonked_holes <- mapM (\(s, ty) -> liftM (\t -> (s, t)) $ zonkTcType ty)
+				$ Map.toList holes ;
+	let {
+		(env, tys) = foldr tidy (emptyTidyEnv, []) zonked_holes
+            } ;
+	liftIO $ putStrLn ("tcRnModule: " ++ (showSDoc $ ppr $ tys)) ;
+	liftIO $ putStrLn ("tcRnModule2: " ++ (showSDoc $ ppr env)) ;
 
-	return tcg_env
+    	return tcg_env
     }}}}
+    where tidy (s, ty) (env, tys) = let (env', ty') = tidyOpenType env ty in (env', (s, ty') : tys)
 
 
 implicitPreludeWarn :: SDoc
@@ -1447,6 +1452,7 @@ tcRnExpr hsc_env ictxt rdr_expr
     				$ Map.toList $ Map.map (\ty -> mkPiTypes dicts ty) $ holes ;
     let { (env, tys) = foldr tidy (emptyTidyEnv, []) zonked_holes } ;
     liftIO $ putStrLn ("tcRnExpr2: " ++ (showSDoc $ ppr $ tys)) ;
+    liftIO $ putStrLn ("tcRnExpr3: " ++ (showSDoc $ ppr env)) ;
 
     return result
     }
