@@ -535,7 +535,7 @@ uType_defer (item : origin) ty1 ty2
   = wrapEqCtxt origin $
     do { eqv <- newEq ty1 ty2
        ; loc <- getCtLoc (TypeEqOrigin item)
-       ; emitFlat (mkEvVarX eqv loc)
+       ; emitFlat (mkNonCanonical eqv (Wanted loc))
 
        -- Error trace only
        -- NB. do *not* call mkErrInfo unless tracing is on, because
@@ -575,8 +575,16 @@ uType_np origin orig_ty1 orig_ty2
 	-- Note that we pass in *original* (before synonym expansion), 
         -- so that type variables tend to get filled in with 
         -- the most informative version of the type
-    go (TyVarTy tyvar1) ty2 = uVar origin NotSwapped tyvar1 ty2
-    go ty1 (TyVarTy tyvar2) = uVar origin IsSwapped  tyvar2 ty1
+    go (TyVarTy tv1) ty2 
+      = do { lookup_res <- lookupTcTyVar tv1
+           ; case lookup_res of
+               Filled ty1   -> go ty1 ty2
+               Unfilled ds1 -> uUnfilledVar origin NotSwapped tv1 ds1 ty2 }
+    go ty1 (TyVarTy tv2) 
+      = do { lookup_res <- lookupTcTyVar tv2
+           ; case lookup_res of
+               Filled ty2   -> go ty1 ty2
+               Unfilled ds2 -> uUnfilledVar origin IsSwapped tv2 ds2 ty1 }
 
         -- See Note [Expanding synonyms during unification]
 	--
@@ -610,17 +618,20 @@ uType_np origin orig_ty1 orig_ty2
            ; return $ mkTcTyConAppCo tc1 cos }
      
 	-- See Note [Care with type applications]
-    go (AppTy s1 t1) ty2
-      | Just (s2,t2) <- tcSplitAppTy_maybe ty2
-      = do { co_s <- uType_np origin s1 s2  -- See Note [Unifying AppTy]
-           ; co_t <- uType origin t1 t2        
-           ; return $ mkTcAppCo co_s co_t }
+        -- Do not decompose FunTy against App; 
+        -- it's often a type error, so leave it for the constraint solver
+    go (AppTy s1 t1) (AppTy s2 t2)
+      = go_app s1 t1 s2 t2
 
-    go ty1 (AppTy s2 t2)
-      | Just (s1,t1) <- tcSplitAppTy_maybe ty1
-      = do { co_s <- uType_np origin s1 s2
-           ; co_t <- uType origin t1 t2
-           ; return $ mkTcAppCo co_s co_t }
+    go (AppTy s1 t1) (TyConApp tc2 ts2)
+      | Just (ts2', t2') <- snocView ts2
+      = ASSERT( isDecomposableTyCon tc2 ) 
+        go_app s1 t1 (TyConApp tc2 ts2') t2'
+
+    go (TyConApp tc1 ts1) (AppTy s2 t2) 
+      | Just (ts1', t1') <- snocView ts1
+      = ASSERT( isDecomposableTyCon tc1 ) 
+        go_app (TyConApp tc1 ts1') t1' s2 t2 
 
     go ty1 ty2
       | tcIsForAllTy ty1 || tcIsForAllTy ty2 
@@ -628,6 +639,12 @@ uType_np origin orig_ty1 orig_ty2
 
         -- Anything else fails
     go ty1 ty2 = uType_defer origin ty1 ty2 -- failWithMisMatch origin
+
+    ------------------
+    go_app s1 t1 s2 t2
+      = do { co_s <- uType_np origin s1 s2  -- See Note [Unifying AppTy]
+           ; co_t <- uType origin t1 t2        
+           ; return $ mkTcAppCo co_s co_t }
 
 unifySigmaTy :: [EqOrigin] -> TcType -> TcType -> TcM TcCoercion
 unifySigmaTy origin ty1 ty2
@@ -737,20 +754,6 @@ of the substitution; rather, notice that @uVar@ (defined below) nips
 back into @uTys@ if it turns out that the variable is already bound.
 
 \begin{code}
-uVar :: [EqOrigin] -> SwapFlag -> TcTyVar -> TcTauType -> TcM TcCoercion
-uVar origin swapped tv1 ty2
-  = do  { traceTc "uVar" (vcat [ ppr origin
-                                , ppr swapped
-                                , ppr tv1 <+> dcolon <+> ppr (tyVarKind tv1)
-                       		, nest 2 (ptext (sLit " ~ "))
-                       		, ppr ty2 <+> dcolon <+> ppr (typeKind ty2)])
-        ; details <- lookupTcTyVar tv1
-        ; case details of
-            Filled ty1  -> unSwap swapped (uType_np origin) ty1 ty2
-            Unfilled details1 -> uUnfilledVar origin swapped tv1 details1 ty2
-        }
-
-----------------
 uUnfilledVar :: [EqOrigin]
              -> SwapFlag
              -> TcTyVar -> TcTyVarDetails       -- Tyvar 1
@@ -895,15 +898,11 @@ checkTauTvUpdate tv ty
 
 Note [Avoid deferring]
 ~~~~~~~~~~~~~~~~~~~~~~
-We try to avoid creating deferred constraints for two reasons.  
-  * First, efficiency.  
-  * Second, currently we can only defer some constraints 
-    under a forall.  See unifySigmaTy.
-So expanding synonyms here is a good thing to do.  Example (Trac #4917)
+We try to avoid creating deferred constraints only for efficiency.
+Example (Trac #4917)
        a ~ Const a b
 where type Const a b = a.  We can solve this immediately, even when
-'a' is a skolem, just by expanding the synonym; and we should do so
- in case this unification happens inside unifySigmaTy (sigh).
+'a' is a skolem, just by expanding the synonym.
 
 Note [Type synonyms and the occur check]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

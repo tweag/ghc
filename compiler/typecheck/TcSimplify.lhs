@@ -36,7 +36,7 @@ import PrelInfo
 import PrelNames
 import Class		( classKey )
 import BasicTypes       ( RuleName )
-import Control.Monad    ( when, unless )
+import Control.Monad    ( when )
 import Outputable
 import FastString
 import TrieMap
@@ -111,9 +111,9 @@ simplifyDeriv orig pred tvs theta
        ; wanted <- newFlatWanteds orig (substTheta skol_subst theta)
 
        ; traceTc "simplifyDeriv" (ppr tvs $$ ppr theta $$ ppr wanted)
-       ; fmap fst $
-         runTcS (SimplInfer doc) NoUntouchables emptyInert emptyWorkList $ do {
-         residual_wanted <- solveWanteds $ mkFlatWC wanted
+       ; (residual_wanted, _ev_binds1)
+             <- runTcS (SimplInfer doc) NoUntouchables emptyInert emptyWorkList $
+                solveWanteds $ mkFlatWC wanted
 
        ; let (good, bad) = partitionBagWith get_good (wc_flat residual_wanted)
                          -- See Note [Exotic derived instance contexts]
@@ -124,14 +124,10 @@ simplifyDeriv orig pred tvs theta
 
        -- We never want to defer these errors because they are errors in the
        -- compiler! Hence the `False` below
-       ; reportUnsolved False (residual_wanted { wc_flat = bad })
-{-
-       ; if isEmptyVarEnv errEnv
-         then return ()
-         else mapM_ reportError errMsgs
--}
+       ; _ev_binds2 <- reportUnsolved False (residual_wanted { wc_flat = bad })
+
        ; let min_theta = mkMinimalBySCs (bagToList good)
-       ; return (substTheta subst_skol min_theta) } }
+       ; return (substTheta subst_skol min_theta) }
 \end{code}
 
 Note [Overlap and deriving]
@@ -282,7 +278,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
              , ptext (sLit "surely_fref =") <+> ppr surely_free
              ]
 
-       ; emitWantedCts surely_free
+       ; emitFlats surely_free
        ; traceTc "sinf"  $ vcat
              [ ptext (sLit "perhaps_bound =") <+> ppr perhaps_bound
              , ptext (sLit "surely_free   =") <+> ppr surely_free
@@ -292,37 +288,34 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
             -- Now simplify the possibly-bound constraints
        ; let ctxt = SimplInfer (ppr (map fst name_taus))
        ; (simpl_results, tc_binds)
-           <- runTcS ctxt NoUntouchables emptyInert emptyWorkList $ do {
-         simpl_results <- simplifyWithApprox
-                            (zonked_wanteds { wc_flat = perhaps_bound })
+             <- runTcS ctxt NoUntouchables emptyInert emptyWorkList $ 
+                simplifyWithApprox (zonked_wanteds { wc_flat = perhaps_bound })
 
-            -- Fail fast if there is an insoluble constraint
+            -- Fail fast if there is an insoluble constraint,
             -- unless we are deferring errors to runtime
-       ; when (insolubleWC simpl_results) $ do {
-         reportUnsolved runtimeCoercionErrors simpl_results 
-       ; unless runtimeCoercionErrors $ wrapErrTcS failM }
-         
-       ; return simpl_results }
+       ; when (not runtimeCoercionErrors && insolubleWC simpl_results) $ 
+         do { _ev_binds <- reportUnsolved False simpl_results 
+            ; failM }
 
             -- Step 3 
             -- Split again simplified_perhaps_bound, because some unifications 
             -- may have happened, and emit the free constraints. 
        ; gbl_tvs        <- tcGetGlobalTyVars
        ; zonked_tau_tvs <- zonkTcTyVarsAndFV zonked_tau_tvs
-       ; zonked_simples <- zonkCts (wc_flat simpl_results)
+       ; zonked_flats <- zonkCts (wc_flat simpl_results)
        ; let init_tvs 	     = zonked_tau_tvs `minusVarSet` gbl_tvs
-             poly_qtvs       = growWantedEVs gbl_tvs zonked_simples init_tvs
-	     (pbound, pfree) = partitionBag (quantifyMe poly_qtvs) zonked_simples
+             poly_qtvs       = growWantedEVs gbl_tvs zonked_flats init_tvs
+	     (pbound, pfree) = partitionBag (quantifyMe poly_qtvs) zonked_flats
 
 	     -- Monomorphism restriction
              mr_qtvs  	     = init_tvs `minusVarSet` constrained_tvs
-             constrained_tvs = tyVarsOfCts zonked_simples
+             constrained_tvs = tyVarsOfCts zonked_flats
 	     mr_bites        = apply_mr && not (isEmptyBag pbound)
 
              (qtvs, (bound, free))
-                | mr_bites  = (mr_qtvs,   (emptyBag, zonked_simples))
+                | mr_bites  = (mr_qtvs,   (emptyBag, zonked_flats))
                 | otherwise = (poly_qtvs, (pbound,   pfree))
-       ; emitWantedCts free
+       ; emitFlats free
 
        ; if isEmptyVarSet qtvs && isEmptyBag bound
          then ASSERT( isEmptyBag (wc_insol simpl_results) )
@@ -363,7 +356,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
              vcat [ ptext (sLit "implic =") <+> ppr implic
                        -- ic_skols, ic_given give rest of result
                   , ptext (sLit "qtvs =") <+> ppr qtvs_to_return
-                  , ptext (sLit "spb =") <+> ppr zonked_simples
+                  , ptext (sLit "spb =") <+> ppr zonked_flats
                   , ptext (sLit "bound =") <+> ppr bound ]
 
 
@@ -692,21 +685,22 @@ simplifyCheck :: SimplContext
 --
 -- Fails if can't solve something in the input wanteds
 simplifyCheck ctxt wanteds
-  = do { runtimeCoercionErrors <- woptM Opt_WarnTypeErrors
-       ; wanteds <- zonkWC wanteds
+  = do { wanteds <- zonkWC wanteds
 
        ; traceTc "simplifyCheck {" (vcat
              [ ptext (sLit "wanted =") <+> ppr wanteds ])
 
-       ; (_, evBinds)
-           <- runTcS ctxt NoUntouchables emptyInert emptyWorkList $ do {
+       ; (unsolved, eb1)
+           <- runTcS ctxt NoUntouchables emptyInert emptyWorkList $ 
+              solveWanteds wanteds
 
-         unsolved <- solveWanteds wanteds
-       ; traceTcS "simplifyCheck }" $ ptext (sLit "unsolved =") <+> ppr unsolved
+       ; traceTc "simplifyCheck }" $ ptext (sLit "unsolved =") <+> ppr unsolved
+
        -- See Note [Deferring coercion errors to runtime]
-       ; reportUnsolved runtimeCoercionErrors unsolved }
+       ; runtimeCoercionErrors <- woptM Opt_WarnTypeErrors
+       ; eb2 <- reportUnsolved runtimeCoercionErrors unsolved 
        
-       ; return evBinds }
+       ; return (eb1 `unionBags` eb2) }
 \end{code}
 
 Note [Deferring coercion errors to runtime]

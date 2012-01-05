@@ -736,7 +736,7 @@ flatten d ctxt ty@(ForAllTy {})
 -- We allow for-alls when, but only when, no type function
 -- applications inside the forall involve the bound type variables.
   = do { let (tvs, rho) = splitForAllTys ty
-       ; when (under_families tvs rho) $ flattenForAllErrorTcS ctxt ty
+       ; when (under_families tvs rho) $ wrapErrTcS $ flattenForAllErrorTcS ctxt ty
        ; (rho', co) <- flatten d ctxt rho
        ; return (mkForAllTys tvs rho', foldr mkTcForAllCo co tvs) }
 
@@ -843,12 +843,10 @@ canEq d fl eqv ty1 ty2
   , Just (tc2,tys2) <- tcSplitTyConApp_maybe ty2
   , isDecomposableTyCon tc1 && isDecomposableTyCon tc2
   = -- Generate equalities for each of the corresponding arguments
-    if (tc1 /= tc2)
+    if (tc1 /= tc2 || length tys1 /= length tys2)
     -- Fail straight away for better error messages
     then canEqFailure d fl eqv
-    else ASSERT2 ( length tys1 == length tys2, ppr (tc1, tys1, tc2, tys2) )
-         -- Different number of arguments would have already raised a kind error
-         do {
+    else do {
          let (kis1,  tys1') = span isKind tys1
              (_kis2, tys2') = span isKind tys2
              kicos          = map mkTcReflCo kis1
@@ -912,8 +910,27 @@ canEqAppTy d fl eqv s1 t1 s2 t2
 
 canEqFailure :: SubGoalDepth 
              -> CtFlavor -> EvVar -> TcS StopOrContinue
-canEqFailure d fl eqv = do { emitFrozenError fl eqv d; return Stop }
+canEqFailure d fl eqv 
+  = do { when (isWanted fl) (delCachedEvVar eqv fl) 
+          -- See Note [Combining insoluble constraints]
+       ; emitFrozenError fl eqv d
+       ; return Stop }
 \end{code}
+
+Note [Combining insoluble constraints]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+As this point we have an insoluble constraint, like Int~Bool.
+
+ * If it is Wanted, delete it from the cache, so that subsequent
+   Int~Bool constraints give rise to separate error messages
+
+ * But if it is Derived, DO NOT delete from cache.  A class constraint
+   may get kicked out of the inert set, and then have its functional
+   dependency Derived constraints generated a second time. In that
+   case we don't want to get two (or more) error messages by
+   generating two (or more) insoluble fundep constraints from the same
+   class constraint.
+   
 
 Note [Naked given applications]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

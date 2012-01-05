@@ -891,7 +891,7 @@ failWithMisMatch (item:origin)
         ; env0 <- tcInitTidyEnv
         ; let (env1, pp_exp) = tidyOpenType env0 ty_exp
               (env2, pp_act) = tidyOpenType env1 ty_act
-        ; failWithTcM (env2, misMatchMsg pp_act pp_exp) }
+        ; failWithTcM (env2, misMatchMsg True pp_exp pp_act) }
 failWithMisMatch [] 
   = panic "failWithMisMatch"
 \end{code}

@@ -651,6 +651,9 @@ mkLongErrAt loc msg extra
 addLongErrAt :: SrcSpan -> Message -> Message -> TcRn ()
 addLongErrAt loc msg extra = mkLongErrAt loc msg extra >>= reportError
 
+reportErrors :: [ErrMsg] -> TcM ()
+reportErrors = mapM_ reportError
+
 reportError :: ErrMsg -> TcRn ()
 reportError err
   = do { errs_var <- getErrsVar ;
@@ -990,6 +993,11 @@ addTcEvBind (EvBindsVar ev_ref _) var t
   = do { bnds <- readTcRef ev_ref
        ; writeTcRef ev_ref (extendEvBinds bnds var t) }
 
+getTcEvBinds :: EvBindsVar -> TcM (Bag EvBind)
+getTcEvBinds (EvBindsVar ev_ref _) 
+  = do { bnds <- readTcRef ev_ref
+       ; return (evBindMapBinds bnds) }
+
 chooseUniqueOccTc :: (OccSet -> OccName) -> TcM OccName
 chooseUniqueOccTc fn =
   do { env <- getGblEnv
@@ -1010,24 +1018,15 @@ emitConstraints ct
   = do { lie_var <- getConstraintVar ;
          updTcRef lie_var (`andWC` ct) }
 
-emitFlat :: WantedEvVar -> TcM ()
+emitFlat :: Ct -> TcM ()
 emitFlat ct
   = do { lie_var <- getConstraintVar ;
          updTcRef lie_var (`addFlats` unitBag ct) }
 
-emitFlats :: Bag WantedEvVar -> TcM ()
-emitFlats ct
+emitFlats :: Cts -> TcM ()
+emitFlats cts
   = do { lie_var <- getConstraintVar ;
-         updTcRef lie_var (`addFlats` ct) }
-
-emitWantedCts :: Cts -> TcM () 
--- Precondition: all wanted
-emitWantedCts = mapBagM_ emit_wanted_ct
-  where emit_wanted_ct ct 
-          | v <- cc_id ct 
-          , Wanted loc <- cc_flavor ct 
-          = emitFlat (EvVarX v loc)
-          | otherwise = panic "emitWantedCts: can't emit non-wanted!"
+         updTcRef lie_var (`addFlats` cts) }
 
 emitImplication :: Implication -> TcM ()
 emitImplication ct

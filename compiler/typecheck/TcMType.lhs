@@ -66,9 +66,8 @@ module TcMType (
   zonkTcType, zonkTcTypes, zonkTcThetaType,
 
   zonkTcKind, defaultKindVarToStar, zonkCt, zonkCts,
-  zonkImplication, zonkEvVar, zonkWantedEvVar,
+  zonkImplication, zonkEvVar, zonkWC, 
 
-  zonkWC, zonkWantedEvVars,
   zonkTcTypeAndSubst,
   tcGetGlobalTyVars, 
 
@@ -694,12 +693,6 @@ zonkCt ct
                        , cc_depth = cc_depth ct } }
 zonkCts :: Cts -> TcM Cts
 zonkCts = mapBagM zonkCt
-
-zonkWantedEvVars :: Bag WantedEvVar -> TcM (Bag WantedEvVar)
-zonkWantedEvVars = mapBagM zonkWantedEvVar
-
-zonkWantedEvVar :: WantedEvVar -> TcM WantedEvVar
-zonkWantedEvVar (EvVarX v l) = do { v' <- zonkEvVar v; return (EvVarX v' l) }
 
 zonkFlavor :: CtFlavor -> TcM CtFlavor
 zonkFlavor (Given loc gk) = do { loc' <- zonkGivenLoc loc; return (Given loc' gk) }
