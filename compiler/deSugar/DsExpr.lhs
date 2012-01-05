@@ -229,6 +229,9 @@ dsExpr (HsLam a_Match)
 
 dsExpr (HsApp fun arg)
   = mkCoreAppDs <$> dsLExpr fun <*>  dsLExpr arg
+
+dsExpr (HsHole src)
+  = return (Hole src)
 \end{code}
 
 Note [Desugaring vars]

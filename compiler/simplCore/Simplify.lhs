@@ -918,6 +918,7 @@ simplExprF1 env (Type ty)      cont = ASSERT( contIsRhsOrArg cont )
                                       rebuild env (Type (substTy env ty)) cont
 simplExprF1 env (App fun arg)  cont = simplExprF env fun $
                                       ApplyTo NoDup arg env cont
+simplExprF1 env (Hole src)     cont = rebuild env (Hole src) cont
 
 simplExprF1 env expr@(Lam {}) cont
   = simplLam env zapped_bndrs body cont
