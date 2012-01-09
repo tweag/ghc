@@ -1122,7 +1122,7 @@ data Implication
 	  -- However, we don't zonk ic_env when zonking the Implication
 	  -- Instead we do that when generating a skolem-escape error message
 
-      ic_skols  :: TcTyVarSet,   -- Introduced skolems 
+      ic_skols  :: [TcTyVar],    -- Introduced skolems 
       		   	         -- See Note [Skolems in an implication]
 
       ic_given  :: [EvVar],      -- Given evidence variables
@@ -1400,7 +1400,8 @@ data SkolemInfo
   | BracketSkol         -- Template Haskell bracket
 
   | UnifyForAllSkol     -- We are unifying two for-all types
-       TcType
+       [TcTyVar]        -- The instantiated skolem variables
+       TcType           -- The instantiated type *inside* the forall
 
   | UnkSkol             -- Unhelpful info (until I improve it)
 
@@ -1430,7 +1431,7 @@ pprSkolInfo (PatSkol dc mc)  = sep [ ptext (sLit "a pattern with constructor")
 pprSkolInfo (InferSkol ids) = sep [ ptext (sLit "the inferred type of")
                                   , vcat [ ppr name <+> dcolon <+> ppr ty
                                          | (name,ty) <- ids ]]
-pprSkolInfo (UnifyForAllSkol ty) = ptext (sLit "the type") <+> ppr ty
+pprSkolInfo (UnifyForAllSkol tvs ty) = ptext (sLit "the type") <+> ppr (mkForAllTys tvs ty)
 
 -- UnkSkol
 -- For type variables the others are dealt with by pprSkolTvBinding.  

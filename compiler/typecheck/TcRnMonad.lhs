@@ -946,8 +946,8 @@ add_err_tcm tidy_env err_msg loc ctxt
 mkErrInfo :: TidyEnv -> [ErrCtxt] -> TcM SDoc
 -- Tidy the error info, trimming excessive contexts
 mkErrInfo env ctxts
- | opt_PprStyle_Debug     -- In -dppr-debug style the output
- = return empty           -- just becomes too voluminous
+--  | opt_PprStyle_Debug     -- In -dppr-debug style the output
+--  = return empty           -- just becomes too voluminous
  | otherwise
  = go 0 env ctxts
  where

@@ -548,7 +548,7 @@ tyVarsOfWC (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
 
 tyVarsOfImplication :: Implication -> TyVarSet
 tyVarsOfImplication (Implic { ic_skols = skols, ic_wanted = wanted })
-  = tyVarsOfWC wanted `minusVarSet` skols
+  = tyVarsOfWC wanted `delVarSetList` skols
 
 tyVarsOfEvVar :: EvVar -> TyVarSet
 tyVarsOfEvVar ev = tyVarsOfType $ evVarPred ev
@@ -581,6 +581,14 @@ tidyGivenLoc env (CtLoc skol span ctxt) = CtLoc (tidySkolemInfo env skol) span c
 tidySkolemInfo :: TidyEnv -> SkolemInfo -> SkolemInfo
 tidySkolemInfo env (SigSkol cx ty) = SigSkol cx (tidyType env ty)
 tidySkolemInfo env (InferSkol ids) = InferSkol (mapSnd (tidyType env) ids)
+tidySkolemInfo env (UnifyForAllSkol skol_tvs ty) 
+  = UnifyForAllSkol (map tidy_tv skol_tvs) (tidyType env ty)
+  where
+    tidy_tv tv = case getTyVar_maybe ty' of
+                   Just tv' -> tv'
+                   Nothing  -> pprPanic "ticySkolemInfo" (ppr tv <+> ppr ty')
+               where
+                 ty' = tidyTyVarOcc env tv
 tidySkolemInfo _   info            = info
 
 ---------------- Substitution -------------------------
@@ -608,12 +616,12 @@ substImplication subst implic@(Implic { ic_skols = tvs
                                       , ic_given = given
                                       , ic_wanted = wanted
                                       , ic_loc = loc })
-  = implic { ic_skols  = mkVarSet tvs'
+  = implic { ic_skols  = tvs'
            , ic_given  = map (substEvVar subst1) given
            , ic_wanted = substWC subst1 wanted
            , ic_loc    = substGivenLoc subst1 loc }
   where
-   (subst1, tvs') = mapAccumL substTyVarBndr subst (varSetElems tvs)
+   (subst1, tvs') = mapAccumL substTyVarBndr subst tvs
 
 substEvVar :: TvSubst -> EvVar -> EvVar
 substEvVar subst var = setVarType var (substTy subst (varType var))

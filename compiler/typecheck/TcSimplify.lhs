@@ -345,7 +345,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        ; gloc <- getCtLoc skol_info
        ; let implic = Implic { ic_untch    = NoUntouchables
                              , ic_env      = lcl_env
-                             , ic_skols    = mkVarSet qtvs_to_return
+                             , ic_skols    = qtvs_to_return
                              , ic_given    = minimal_bound_ev_vars
                              , ic_wanted   = simpl_results { wc_flat = bound }
                              , ic_insol    = False
@@ -414,7 +414,7 @@ approximateImplications impls
     float_implic skols imp
       = (unitBag (imp { ic_wanted = wanted' }), floats)
       where
-        (wanted', floats) = float_wc (skols `unionVarSet` ic_skols imp) (ic_wanted imp)
+        (wanted', floats) = float_wc (skols `extendVarSetList` ic_skols imp) (ic_wanted imp)
 
     float_wc skols wc@(WC { wc_flat = flat, wc_impl = implic })
       = (wc { wc_flat = flat', wc_impl = implic' }, floats1 `unionBags` floats2)
@@ -453,7 +453,7 @@ growImplics gbl_tvs implics tvs
   = foldrBag grow_implic tvs implics
   where
     grow_implic implic tvs
-      = grow tvs `minusVarSet` ic_skols implic
+      = grow tvs `delVarSetList` ic_skols implic
       where
         grow = growWC gbl_tvs (ic_wanted implic) .
                growPreds gbl_tvs evVarPred (listToBag (ic_given implic))
@@ -619,7 +619,7 @@ simplifyRule name tv_bndrs lhs_wanted rhs_wanted
        ; ev_binds_var <- newTcEvBinds
        ; emitImplication $ Implic { ic_untch  = untch
                                   , ic_env    = emptyNameEnv
-                                  , ic_skols  = mkVarSet tv_bndrs
+                                  , ic_skols  = tv_bndrs
                                   , ic_given  = lhs_dicts
                                   , ic_wanted = lhs_results { wc_flat = eqs }
                                   , ic_insol  = insolubleWC lhs_results
@@ -648,7 +648,7 @@ simplifyRule name tv_bndrs lhs_wanted rhs_wanted
                , wc_impl = unitBag $
                     Implic { ic_untch   = NoUntouchables
                             , ic_env    = emptyNameEnv
-                            , ic_skols  = mkVarSet tv_bndrs
+                            , ic_skols  = tv_bndrs
                             , ic_given  = lhs_dicts
                             , ic_wanted = rhs_wanted
                             , ic_insol  = insolubleWC rhs_wanted
@@ -921,7 +921,7 @@ solveImplication tcs_untouchables
     -- and we are back to the original inerts
 
 
-floatEqualities :: TcTyVarSet -> [EvVar] -> Cts -> (Cts, Cts)
+floatEqualities :: [TcTyVar] -> [EvVar] -> Cts -> (Cts, Cts)
 -- Post: The returned FlavoredEvVar's are only Wanted or Derived
 -- and come from the input wanted ev vars or deriveds 
 floatEqualities skols can_given wantders
@@ -929,11 +929,12 @@ floatEqualities skols can_given wantders
           -- Note [Float Equalities out of Implications]
   | otherwise = partitionBag is_floatable wantders
   
-  where is_floatable :: Ct -> Bool
+  where skol_set = mkVarSet skols
+        is_floatable :: Ct -> Bool
         is_floatable ct
           | ct_predty <- ctPred ct
           , isEqPred ct_predty
-          = skols `disjointVarSet` tvs_under_fsks ct_predty
+          = skol_set `disjointVarSet` tvs_under_fsks ct_predty
         is_floatable _ct = False
 
         tvs_under_fsks :: Type -> TyVarSet

@@ -444,7 +444,7 @@ newImplication skol_info skol_tvs given thing_inside
        ; loc <- getCtLoc skol_info
        ; emitImplication $ Implic { ic_untch = untch
              		     	  , ic_env = lcl_env
-             		     	  , ic_skols = mkVarSet skol_tvs
+             		     	  , ic_skols = skol_tvs
                              	  , ic_given = given
                                   , ic_wanted = wanted
                                   , ic_insol  = insolubleWC wanted
@@ -658,7 +658,7 @@ unifySigmaTy origin ty1 ty2
              in_scope = mkInScopeSet (mkVarSet skol_tvs)
              phi1     = Type.substTy (mkTvSubst in_scope (zipTyEnv tvs1 tys)) body1
              phi2     = Type.substTy (mkTvSubst in_scope (zipTyEnv tvs2 tys)) body2
-	     skol_info = UnifyForAllSkol ty1
+	     skol_info = UnifyForAllSkol skol_tvs phi1
 
        ; (ev_binds, co) <- checkConstraints skol_info skol_tvs [] $
                            uType origin phi1 phi2
