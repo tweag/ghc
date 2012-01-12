@@ -226,7 +226,7 @@ tcExpr (HsHole s) res_ty
          printTy res_ty ;
          (g, l) <- getEnvs ;
          holes <- readTcRef $ tcl_holes l ;
-         writeTcRef (tcl_holes l) (Map.insert s res_ty holes) ;
+         writeTcRef (tcl_holes l) (Map.insert s (res_ty, tcl_lie l) holes) ;
          return (HsHole s) }
        where printTy (TyVarTy ty) = case tcTyVarDetails ty of
                                           (MetaTv _ io) -> do meta <- readTcRef io ;

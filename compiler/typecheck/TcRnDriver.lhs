@@ -226,17 +226,32 @@ tcRnModule hsc_env hsc_src save_rn_syntax
 
 	(_, l) <- getEnvs ;
 	holes <- readTcRef $ tcl_holes l ;
-	zonked_holes <- mapM (\(s, ty) -> liftM (\t -> (s, t)) $ zonkTcType ty)
+	lie <- readTcRef $ tcl_lie l ;
+	liftIO $ putStrLn ("tcRnModule0: " ++ (showSDoc $ ppr $ lie)) ;
+	zonked_holes <- mapM (\(s, (ty, wcs)) -> liftM (\t -> (s, split t)) $ inferHole ty wcs)
 				$ Map.toList holes ;
 	let {
 		(env, tys) = foldr tidy (emptyTidyEnv, []) zonked_holes
             } ;
 	liftIO $ putStrLn ("tcRnModule: " ++ (showSDoc $ ppr $ tys)) ;
 	liftIO $ putStrLn ("tcRnModule2: " ++ (showSDoc $ ppr env)) ;
+	lie' <- readTcRef $ tcl_lie l ;
+	liftIO $ putStrLn ("tcRnModule0: " ++ (showSDoc $ ppr $ lie')) ;
 
     	return tcg_env
     }}}}
     where tidy (s, ty) (env, tys) = let (env', ty') = tidyOpenType env ty in (env', (s, ty') : tys)
+    	  split t = let (_, ctxt, ty') = tcSplitSigmaTy $ tidyTopType t in mkPhiTy ctxt ty'
+    	  inferHole :: Type -> TcRef WantedConstraints -> TcM Type
+    	  inferHole ty wcs = do {
+    	  						lie <- readTcRef wcs ;
+						    	uniq <- newUnique ;
+					    	    let { fresh_it  = itName uniq } ;
+					    	  	((qtvs, dicts, _), lie_top) <- captureConstraints $ simplifyInfer TopLevel False {- No MR for now -}
+					                                             	    		[(fresh_it, ty)]
+					                                                 			lie ;
+					            zonkTcType $ mkForAllTys qtvs $ mkPiTypes dicts ty
+						    	}
 
 
 implicitPreludeWarn :: SDoc
@@ -452,6 +467,8 @@ tcRnSrcDecls boot_iface decls
 	new_ev_binds <- {-# SCC "simplifyTop" #-}
                         simplifyTop lie ;
         traceTc "Tc9" empty ;
+
+        liftIO $ putStrLn ("tcRnSrcDecls: " ++ (showSDoc $ ppr lie)) ;
 
 	failIfErrsM ;	-- Don't zonk if there have been errors
 			-- It's a waste of time; and we may get debug warnings
@@ -1449,10 +1466,10 @@ tcRnExpr hsc_env ictxt rdr_expr
     (_, l) <- getEnvs ;
     holes <- readTcRef $ tcl_holes l ;
     zonked_holes <- mapM (\(s, ty) -> liftM (\t -> (s, t)) $ zonkTcType ty)
-				$ Map.toList $ Map.map (\ty -> mkForAllTys qtvs $ mkPiTypes dicts ty) $ holes ;
+				$ Map.toList $ Map.map (\(ty, _) -> mkForAllTys qtvs $ mkPiTypes dicts ty) $ holes ;
     let { (env, tys) = foldr tidy (emptyTidyEnv, []) zonked_holes } ;
     liftIO $ putStrLn ("tcRnExpr2: " ++ (showSDoc $ ppr $ map (\(s, t) -> (s, split t)) tys)) ;
-    liftIO $ putStrLn ("tcRnExpr3: " ++ (showSDoc $ ppr env)) ;
+    liftIO $ putStrLn ("tcRnExpr3: " ++ (showSDoc $ ppr dicts)) ;
 
     return $ snd $ tidyOpenType env result
     }
