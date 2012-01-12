@@ -228,7 +228,7 @@ tcRnModule hsc_env hsc_src save_rn_syntax
 	holes <- readTcRef $ tcl_holes l ;
 	lie <- readTcRef $ tcl_lie l ;
 	liftIO $ putStrLn ("tcRnModule0: " ++ (showSDoc $ ppr $ lie)) ;
-	zonked_holes <- mapM (\(s, (ty, wcs)) -> liftM (\t -> (s, split t)) $ inferHole ty wcs)
+	zonked_holes <- mapM (\(s, (ty, wcs)) -> liftM (\t -> (s, split t)) $ inferHole ty wcs s)
 				$ Map.toList holes ;
 	let {
 		(env, tys) = foldr tidy (emptyTidyEnv, []) zonked_holes
@@ -242,16 +242,18 @@ tcRnModule hsc_env hsc_src save_rn_syntax
     }}}}
     where tidy (s, ty) (env, tys) = let (env', ty') = tidyOpenType env ty in (env', (s, ty') : tys)
     	  split t = let (_, ctxt, ty') = tcSplitSigmaTy $ tidyTopType t in mkPhiTy ctxt ty'
-    	  inferHole :: Type -> TcRef WantedConstraints -> TcM Type
-    	  inferHole ty wcs = do {
-    	  						lie <- readTcRef wcs ;
-						    	uniq <- newUnique ;
-					    	    let { fresh_it  = itName uniq } ;
-					    	  	((qtvs, dicts, _), lie_top) <- captureConstraints $ simplifyInfer TopLevel False {- No MR for now -}
-					                                             	    		[(fresh_it, ty)]
-					                                                 			lie ;
-					            zonkTcType $ mkForAllTys qtvs $ mkPiTypes dicts ty
-						    	}
+    	  inferHole :: Type -> TcRef WantedConstraints -> SrcSpan -> TcM Type
+    	  inferHole ty wcs s = do {
+	    	  						lie <- readTcRef wcs ;
+							    	uniq <- newUnique ;
+						    	    let { fresh_it  = itName uniq s } ;
+						    	  	((qtvs, dicts, _, _), lie_top) <- captureConstraints $ simplifyInfer
+																				    	  	False
+																				    	  	False {- No MR for now -}
+								                                             	    		[(fresh_it, ty)]
+								                                                 			lie ;
+						            zonkTcType $ mkForAllTys qtvs $ mkPiTypes dicts ty
+							    	}
 
 
 implicitPreludeWarn :: SDoc

@@ -233,7 +233,6 @@ tcExpr (HsHole s) res_ty
                                                               liftIO $ putStrLn ("tcExpr.HsHole @(" ++ (showSDoc $ ppr s) ++ "): " ++ (showSDoc $ ppr meta))
                                           x -> liftIO $ putStrLn ("tcExpr.HsHole: No idea how to handle " ++ (showSDoc $ ppr x))
              printTy (ForAllTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
-             printTy (PredTy _) = liftIO $ putStrLn ("tcExpr.HsHole: ForAllTy")
              printTy (AppTy _ _) = liftIO $ putStrLn ("tcExpr.HsHole: AppTy")
              printTy (TyConApp t tys) = liftIO $ putStrLn ("tcExpr.HsHole: TyConApp " ++ (showSDoc $ ppr t) ++ " " ++ (showSDoc $ ppr tys))
              printTy t = liftIO $ putStrLn ("tcExpr.HsHole: something else: " ++ (showSDoc $ ppr t))
