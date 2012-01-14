@@ -1356,6 +1356,7 @@ deAnnotate' (AnnLit  lit)         = Lit lit
 deAnnotate' (AnnLam  binder body) = Lam binder (deAnnotate body)
 deAnnotate' (AnnApp  fun arg)     = App (deAnnotate fun) (deAnnotate arg)
 deAnnotate' (AnnCast e (_,co))    = Cast (deAnnotate e) co
+deAnnotate' (AnnTick tick body)   = Tick tick (deAnnotate body)
 deAnnotate' (AnnHole src)         = Hole src
 
 deAnnotate' (AnnLet bind body)
