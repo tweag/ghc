@@ -331,7 +331,7 @@ tcDeriving tycl_decls inst_decls deriv_decls
         ; (inst_info, rn_binds, rn_dus) <-
             renameDeriv is_boot (inst_infos ++ (bagToList extraInstances)) binds
 
-	; dflags <- getDOpts
+	; dflags <- getDynFlags
 	; liftIO (dumpIfSet_dyn dflags Opt_D_dump_deriv "Derived instances"
 	         (ddump_deriving inst_info rn_binds newTyCons famInsts))
 
@@ -617,7 +617,7 @@ mkEqnHelp orig tvs cls cls_tys tc_app mtheta
 
      mk_alg_eqn tycon tc_args
       | className cls `elem` typeableClassNames
-      = do { dflags <- getDOpts
+      = do { dflags <- getDynFlags
            ; case checkTypeableConditions (dflags, tycon) of
                Just err -> bale_out err
                Nothing  -> mk_typeable_eqn orig tvs cls tycon tc_args mtheta }
@@ -641,7 +641,7 @@ mkEqnHelp orig tvs cls cls_tys tc_app mtheta
       	   ; unless (isNothing mtheta || not hidden_data_cons)
       	   	    (bale_out (derivingHiddenErr tycon))
 
-      	   ; dflags <- getDOpts
+      	   ; dflags <- getDynFlags
       	   ; if isDataTyCon rep_tc then
       	   	mkDataTypeEqn orig dflags tvs cls cls_tys
       	   		      tycon tc_args rep_tc rep_tc_args mtheta
@@ -1516,25 +1516,25 @@ genDerivStuff loc fix_env clas name tycon
 %************************************************************************
 
 \begin{code}
-derivingKindErr :: TyCon -> Class -> [Type] -> Kind -> Message
+derivingKindErr :: TyCon -> Class -> [Type] -> Kind -> MsgDoc
 derivingKindErr tc cls cls_tys cls_kind
   = hang (ptext (sLit "Cannot derive well-kinded instance of form")
 		<+> quotes (pprClassPred cls cls_tys <+> parens (ppr tc <+> ptext (sLit "..."))))
        2 (ptext (sLit "Class") <+> quotes (ppr cls)
 	    <+> ptext (sLit "expects an argument of kind") <+> quotes (pprKind cls_kind))
 
-derivingEtaErr :: Class -> [Type] -> Type -> Message
+derivingEtaErr :: Class -> [Type] -> Type -> MsgDoc
 derivingEtaErr cls cls_tys inst_ty
   = sep [ptext (sLit "Cannot eta-reduce to an instance of form"),
 	 nest 2 (ptext (sLit "instance (...) =>")
 		<+> pprClassPred cls (cls_tys ++ [inst_ty]))]
 
-typeFamilyPapErr :: TyCon -> Class -> [Type] -> Type -> Message
+typeFamilyPapErr :: TyCon -> Class -> [Type] -> Type -> MsgDoc
 typeFamilyPapErr tc cls cls_tys inst_ty
   = hang (ptext (sLit "Derived instance") <+> quotes (pprClassPred cls (cls_tys ++ [inst_ty])))
        2 (ptext (sLit "requires illegal partial application of data type family") <+> ppr tc)
 
-derivingThingErr :: Bool -> Class -> [Type] -> Type -> Message -> Message
+derivingThingErr :: Bool -> Class -> [Type] -> Type -> MsgDoc -> MsgDoc
 derivingThingErr newtype_deriving clas tys ty why
   = sep [(hang (ptext (sLit "Can't make a derived instance of"))
 	     2 (quotes (ppr pred))
@@ -1554,7 +1554,7 @@ standaloneCtxt :: LHsType Name -> SDoc
 standaloneCtxt ty = hang (ptext (sLit "In the stand-alone deriving instance for"))
 		       2 (quotes (ppr ty))
 
-derivInstCtxt :: PredType -> Message
+derivInstCtxt :: PredType -> MsgDoc
 derivInstCtxt pred
   = ptext (sLit "When deriving the instance for") <+> parens (ppr pred)
 \end{code}

@@ -221,7 +221,7 @@ simplTopBinds env0 binds0
                 -- It's rather as if the top-level binders were imported.
 		-- See note [Glomming] in OccurAnal.
         ; env1 <- simplRecBndrs env0 (bindersOfBinds binds0)
-        ; dflags <- getDOptsSmpl
+        ; dflags <- getDynFlags
         ; let dump_flag = dopt Opt_D_verbose_core2core dflags
         ; env2 <- simpl_binds dump_flag env1 binds0
         ; freeTick SimplifierDone
@@ -977,11 +977,6 @@ simplType env ty
 ---------------------------------
 simplCoercionF :: SimplEnv -> InCoercion -> SimplCont
                -> SimplM (SimplEnv, OutExpr)
--- We are simplifying a term of form (Coercion co)
--- Simplify the InCoercion, and then try to combine with the 
--- context, to implememt the rule
---     (Coercion co) |> g
---  =  Coercion (syn (nth 0 g) ; co ; nth 1 g) 
 simplCoercionF env co cont 
   = do { co' <- simplCoercion env co
        ; rebuild env (Coercion co') cont }
@@ -1165,7 +1160,7 @@ rebuild env expr cont
   = case cont of
       Stop {}                      -> return (env, expr)
       CoerceIt co cont             -> rebuild env (mkCast expr co) cont 
-                                         -- NB: mkCast implements the (Coercion co |> g) optimisation
+                                   -- NB: mkCast implements the (Coercion co |> g) optimisation
       Select _ bndr alts se cont   -> rebuildCase (se `setFloats` env) expr bndr alts cont
       StrictArg info _ cont        -> rebuildCall env (info `addArgTo` expr) cont
       StrictBind b bs body se cont -> do { env' <- simplNonRecX (se `setFloats` env) b expr
@@ -1389,7 +1384,7 @@ simplIdF env var cont
 completeCall :: SimplEnv -> Id -> SimplCont -> SimplM (SimplEnv, OutExpr)
 completeCall env var cont
   = do  {   ------------- Try inlining ----------------
-          dflags <- getDOptsSmpl
+          dflags <- getDynFlags
         ; let  (lone_variable, arg_infos, call_cont) = contArgs cont
                 -- The args are OutExprs, obtained by *lazily* substituting
                 -- in the args found in cont.  These args are only examined
@@ -1565,7 +1560,7 @@ tryRules env rules fn args call_cont
            Just (rule, rule_rhs) ->
 
              do { checkedTick (RuleFired (ru_name rule))
-                ; dflags <- getDOptsSmpl
+                ; dflags <- getDynFlags
                 ; trace_dump dflags rule rule_rhs $
                   return (Just (ruleArity rule, rule_rhs)) }}}
   where
@@ -1767,7 +1762,7 @@ rebuildCase env scrut case_bndr [(_, bndrs, rhs)] cont
  | all isDeadBinder bndrs       -- bndrs are [InId]
 
  , if isUnLiftedType (idType case_bndr)
-   then ok_for_spec         -- Satisfy the let-binding invariant
+   then elim_unlifted        -- Satisfy the let-binding invariant
    else elim_lifted
   = do  { -- pprTrace "case elim" (vcat [ppr case_bndr, ppr (exprIsHNF scrut),
           --                            ppr strict_case_bndr, ppr (scrut_is_var scrut),
@@ -1786,6 +1781,14 @@ rebuildCase env scrut case_bndr [(_, bndrs, rhs)] cont
 
      || (is_plain_seq && ok_for_spec)
               -- Note: not the same as exprIsHNF
+
+    elim_unlifted 
+      | is_plain_seq = exprOkForSideEffects scrut
+            -- The entire case is dead, so we can drop it,
+            -- _unless_ the scrutinee has side effects
+      | otherwise    = exprOkForSpeculation scrut
+            -- The case-binder is alive, but we may be able
+            -- turn the case into a let, if the expression is ok-for-spec
 
     ok_for_spec      = exprOkForSpeculation scrut
     is_plain_seq     = isDeadBinder case_bndr	-- Evaluation *only* for effect
@@ -1833,7 +1836,7 @@ reallyRebuildCase env scrut case_bndr alts cont
 	-- Check for empty alternatives
 	; if null alts' then missingAlt env case_bndr alts cont
 	  else do
-        { dflags <- getDOptsSmpl
+        { dflags <- getDynFlags
         ; case_expr <- mkCase dflags scrut' case_bndr' alts'
 
 	-- Notice that rebuild gets the in-scope set from env', not alt_env

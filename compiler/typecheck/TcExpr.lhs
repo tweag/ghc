@@ -347,7 +347,7 @@ tcExpr (SectionR op arg2) res_ty
 
 tcExpr (SectionL arg1 op) res_ty
   = do { (op', op_ty) <- tcInferFun op
-       ; dflags <- getDOpts	    -- Note [Left sections]
+       ; dflags <- getDynFlags	    -- Note [Left sections]
        ; let n_reqd_args | xopt Opt_PostfixOperators dflags = 1
                          | otherwise                        = 2
 
@@ -1418,7 +1418,7 @@ funAppCtxt fun arg arg_no
        2 (quotes (ppr arg))
 
 funResCtxt :: LHsExpr Name -> TcType -> TcType 
-           -> TidyEnv -> TcM (TidyEnv, Message)
+           -> TidyEnv -> TcM (TidyEnv, MsgDoc)
 -- When we have a mis-match in the return type of a function
 -- try to give a helpful message about too many/few arguments
 funResCtxt fun fun_res_ty res_ty env0

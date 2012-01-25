@@ -66,9 +66,8 @@ module TcMType (
   zonkTcType, zonkTcTypes, zonkTcThetaType,
 
   zonkTcKind, defaultKindVarToStar, zonkCt, zonkCts,
-  zonkImplication, zonkEvVar, zonkWantedEvVar,
+  zonkImplication, zonkEvVar, zonkWC, 
 
-  zonkWC, zonkWantedEvVars,
   zonkTcTypeAndSubst,
   tcGetGlobalTyVars, 
 
@@ -695,12 +694,6 @@ zonkCt ct
 zonkCts :: Cts -> TcM Cts
 zonkCts = mapBagM zonkCt
 
-zonkWantedEvVars :: Bag WantedEvVar -> TcM (Bag WantedEvVar)
-zonkWantedEvVars = mapBagM zonkWantedEvVar
-
-zonkWantedEvVar :: WantedEvVar -> TcM WantedEvVar
-zonkWantedEvVar (EvVarX v l) = do { v' <- zonkEvVar v; return (EvVarX v' l) }
-
 zonkFlavor :: CtFlavor -> TcM CtFlavor
 zonkFlavor (Given loc gk) = do { loc' <- zonkGivenLoc loc; return (Given loc' gk) }
 zonkFlavor fl             = return fl
@@ -1187,7 +1180,7 @@ check_valid_theta :: UserTypeCtxt -> [PredType] -> TcM ()
 check_valid_theta _ []
   = return ()
 check_valid_theta ctxt theta = do
-    dflags <- getDOpts
+    dflags <- getDynFlags
     warnTc (notNull dups) (dupPredWarn dups)
     mapM_ (check_pred_ty dflags ctxt) theta
   where
@@ -1494,7 +1487,7 @@ We can also have instances for functions: @instance Foo (a -> b) ...@.
 \begin{code}
 checkValidInstHead :: UserTypeCtxt -> Class -> [Type] -> TcM ()
 checkValidInstHead ctxt clas tys
-  = do { dflags <- getDOpts
+  = do { dflags <- getDynFlags
 
            -- Check language restrictions; 
            -- but not for SPECIALISE isntance pragmas
@@ -1625,7 +1618,7 @@ The underlying idea is that
 
 
 \begin{code}
-checkInstTermination :: [TcType] -> ThetaType -> [Message]
+checkInstTermination :: [TcType] -> ThetaType -> [MsgDoc]
 checkInstTermination tys theta
   = mapCatMaybes check theta
   where
@@ -1682,7 +1675,7 @@ checkValidFamInst typats rhs
 --
 checkFamInstRhs :: [Type]                  -- lhs
              	-> [(TyCon, [Type])]       -- type family instances
-             	-> [Message]
+             	-> [MsgDoc]
 checkFamInstRhs lhsTys famInsts
   = mapCatMaybes check famInsts
   where

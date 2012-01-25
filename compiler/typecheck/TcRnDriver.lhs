@@ -196,7 +196,7 @@ tcRnModule hsc_env hsc_src save_rn_syntax
 		-- Process the export list
         traceRn (text "rn4a: before exports");
 	tcg_env <- rnExports (isJust maybe_mod) export_ies tcg_env ;
-	traceRn (text "rn4b: after exportss") ;
+	traceRn (text "rn4b: after exports") ;
 
                 -- Check that main is exported (must be after rnExports)
         checkMainExported tcg_env ;
@@ -1019,7 +1019,7 @@ checkMain :: TcM TcGblEnv
 -- If we are in module Main, check that 'main' is defined.
 checkMain 
   = do { tcg_env   <- getGblEnv ;
-	 dflags    <- getDOpts ;
+	 dflags    <- getDynFlags ;
 	 check_main dflags tcg_env
     }
 
@@ -1101,7 +1101,7 @@ getMainFun dflags = case (mainFunIs dflags) of
 
 checkMainExported :: TcGblEnv -> TcM ()
 checkMainExported tcg_env = do
-  dflags    <- getDOpts
+  dflags    <- getDynFlags
   case tcg_main tcg_env of
     Nothing -> return () -- not the main module
     Just main_name -> do
@@ -1726,7 +1726,7 @@ rnDump doc = do { dumpOptTcRn Opt_D_dump_rn (mkDumpDoc "Renamer" doc) }
 
 tcDump :: TcGblEnv -> TcRn ()
 tcDump env
- = do { dflags <- getDOpts ;
+ = do { dflags <- getDynFlags ;
 
 	-- Dump short output if -ddump-types or -ddump-tc
 	when (dopt Opt_D_dump_types dflags || dopt Opt_D_dump_tc dflags)
@@ -1743,7 +1743,7 @@ tcDump env
 
 tcCoreDump :: ModGuts -> TcM ()
 tcCoreDump mod_guts
- = do { dflags <- getDOpts ;
+ = do { dflags <- getDynFlags ;
 	when (dopt Opt_D_dump_types dflags || dopt Opt_D_dump_tc dflags)
  	     (dumpTcRn (pprModGuts mod_guts)) ;
 
