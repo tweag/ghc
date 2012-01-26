@@ -1453,20 +1453,21 @@ tcRnExpr hsc_env ictxt rdr_expr
     uniq <- newUnique ;
     let { fresh_it  = itName uniq (getLoc rdr_expr) } ;
     ((_tc_expr, res_ty), lie)	<- captureConstraints (tcInferRho rn_expr) ;
+    
+    (_, l) <- getEnvs ;
+    holes <- readTcRef $ tcl_holes l ;
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $ 
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer True {- Free vars are closed -}
                                                     False {- No MR for now -}
-                                                    [(fresh_it, res_ty)]
+                                                    ([(fresh_it, res_ty)] ++ (map (\(s,(ty,_)) -> (undefined, ty)) $ Map.toList holes)) -- mkInternalName undefined (mkOccName Name.varName "__") s
                                                     lie  ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
 
 
     let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     result <- zonkTcType all_expr_ty ;
-    
-    (_, l) <- getEnvs ;
-    holes <- readTcRef $ tcl_holes l ;
+
     zonked_holes <- mapM (\(s, ty) -> liftM (\t -> (s, t)) $ zonkTcType ty)
 				$ Map.toList $ Map.map (\(ty, _) -> mkForAllTys qtvs $ mkPiTypes dicts ty) $ holes ;
     let { (env, tys) = foldr tidy (emptyTidyEnv, []) zonked_holes } ;
