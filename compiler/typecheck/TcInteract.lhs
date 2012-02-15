@@ -425,7 +425,7 @@ kick_out_rewritable ct (IS { inert_eqs    = eqmap
     kicked_out = WorkList { wl_eqs    = []
                           , wl_funeqs = bagToList feqs_out
                           , wl_rest   = bagToList (fro_out `andCts` dicts_out 
-                                          `andCts` ips_out `andCts` irs_out) }
+                                          `andCts` ips_out `andCts` irs_out `andCts` holes_out) }
   
     remaining = IS { inert_eqs = emptyVarEnv
                    , inert_eq_tvs = inscope -- keep the same, safe and cheap

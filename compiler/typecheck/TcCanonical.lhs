@@ -194,6 +194,11 @@ canonicalize (CIrredEvCan { cc_id = ev, cc_flavor = fl
                           , cc_depth = d
                           , cc_ty = xi })
   = canIrred d fl ev xi
+canonicalize (CHoleCan { cc_id = ev, cc_depth = d
+                       , cc_flavor = fl
+                       , cc_hole_nm = nm
+                       , cc_hole_ty = xi })
+  = canHole d fl ev nm xi
 
 
 canEvVar :: EvVar -> PredTree 

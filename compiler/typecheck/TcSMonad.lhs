@@ -329,6 +329,9 @@ data CCanMap a = CCanMap { cts_given   :: UniqFM Cts
                          , cts_wanted  :: UniqFM Cts } 
                                           -- Invariant: all Wanted
 
+instance Outputable (CCanMap a) where
+  ppr (CCanMap given derived wanted) = ptext (sLit "CCanMap") <+> (ppr given) <+> (ppr derived) <+> (ppr wanted)
+
 cCanMapToBag :: CCanMap a -> Cts 
 cCanMapToBag cmap = foldUFM unionBags rest_wder (cts_given cmap)
   where rest_wder = foldUFM unionBags rest_der  (cts_wanted cmap) 
