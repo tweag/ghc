@@ -472,6 +472,7 @@ quantifyMe :: TyVarSet      -- Quantifying over these
 	   -> Bool	    -- True <=> quantify over this wanted
 quantifyMe qtvs ct
   | isIPPred pred = True  -- Note [Inheriting implicit parameters]
+  | isHolePred pred = True
   | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
   where
     pred = ctPred ct

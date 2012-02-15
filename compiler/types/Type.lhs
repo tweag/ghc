@@ -50,7 +50,7 @@ module Type (
 	isDictLikeTy,
         mkEqPred, mkClassPred,
 	mkIPPred, mkHolePred,
-        noParenPred, isClassPred, isEqPred, isIPPred,
+        noParenPred, isClassPred, isEqPred, isIPPred, isHolePred,
         mkPrimEqType,
 
         -- Deconstructing predicate types
