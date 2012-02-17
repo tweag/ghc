@@ -77,7 +77,6 @@ import Data.List
 
 Note [Grouping of type and class declarations]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 tcTyAndClassDecls is called on a list of `TyClGroup`s. Each group is a strongly
 connected component of mutually dependent types and classes. We kind check and
 type check each group separately to enhance kind polymorphism. Take the
@@ -276,7 +275,7 @@ kcTyClGroup decls
         ; setLclEnv tcl_env $  do
 
 	   -- Step 3: kind-check the synonyms
-        { mapM_ (wrapLocM kcTyClDecl) non_syn_decls
+        { mapM_ kcLTyClDecl non_syn_decls
 
 	     -- Step 4: generalisation
 	     -- Kind checking done for this group
@@ -304,28 +303,23 @@ getInitialKinds :: LTyClDecl Name -> TcM [(Name, TcTyThing)]
 --                       of the definition (and probably including
 --                       kind unification variables)
 --      Example: data T a b = ...
---      return (T, kv1 -> kv2 -> *)
+--      return (T, kv1 -> kv2 -> kv3)
 --
 -- ALSO for each datacon, return (dc, ANothing)
 --      See Note [ANothing] in TcRnTypes
 
 getInitialKinds (L _ decl)
-  = do 	{ arg_kinds <- mapM (mk_arg_kind . unLoc) (tyClDeclTyVars decl)
-	; res_kind  <- mk_res_kind decl
+  = do 	{ arg_kinds <- mapM (\_ -> newMetaKindVar) (tyClDeclTyVars decl)
+	; res_kind  <- newMetaKindVar
+            -- Warning: you might be tempted to return * for data decls
+	    -- but on GADT-style declarations we allow a kind signature
+	    --	 data T :: *->* where { ... }
+            -- with *no tyClDeclTyVars*
+
         ; let main_pair = (tcdName decl, AThing (mkArrowKinds arg_kinds res_kind))
 	; inner_pairs <- get_inner_kinds decl
 	; return (main_pair : inner_pairs) }
   where
-    mk_arg_kind (UserTyVar _ _)        = newMetaKindVar
-    mk_arg_kind (KindedTyVar _ kind _) = scDsLHsKind kind
-
-    mk_res_kind (TyFamily { tcdKind    = Just kind }) = scDsLHsKind kind
-    mk_res_kind (TyData   { tcdKindSig = Just kind }) = scDsLHsKind kind
-	-- On GADT-style declarations we allow a kind signature
-	--	data T :: *->* where { ... }
-    mk_res_kind (ClassDecl {}) = return constraintKind
-    mk_res_kind _              = return liftedTypeKind
-
     get_inner_kinds :: TyClDecl Name -> TcM [(Name,TcTyThing)]
     get_inner_kinds (TyData { tcdCons = cons })
        = return [ (unLoc (con_name con), ANothing) | L _ con <- cons ]
@@ -333,15 +327,6 @@ getInitialKinds (L _ decl)
        = concatMapM getInitialKinds ats
     get_inner_kinds _
        = return []
-
-kcLookupKind :: Located Name -> TcM Kind
-kcLookupKind nm = do
-    tc_ty_thing <- tcLookupLocated nm
-    case tc_ty_thing of
-        AThing k            -> return k
-        AGlobal (ATyCon tc) -> return (tyConKind tc)
-        _                   -> pprPanic "kcLookupKind" (ppr tc_ty_thing)
-
 
 ----------------
 kcSynDecls :: [SCC (LTyClDecl Name)] -> TcM (TcLclEnv)	-- Kind bindings
@@ -359,74 +344,61 @@ kcSynDecl1 (CyclicSCC decls)       = do { recSynErr decls; failM }
 				     -- of out-of-scope tycons
 
 kcSynDecl :: TyClDecl Name -> TcM (Name, TcKind)
-kcSynDecl decl	      -- Vanilla type synonyoms only, not family instances
+kcSynDecl decl@(TySynonym { tcdTyVars = hs_tvs, tcdLName = L _ name
+                          , tcdSynRhs = rhs })
+  -- Vanilla type synonyoms only, not family instances
   = tcAddDeclCtxt decl $
-    kcHsTyVars (tcdTyVars decl) $ \ k_tvs ->
-    do { traceTc "kcd1" (ppr (unLoc (tcdLName decl)) <+> brackets (ppr (tcdTyVars decl))
-			<+> brackets (ppr k_tvs))
-       ; (_, rhs_kind) <- kcLHsType (tcdSynRhs decl)
-       ; traceTc "kcd2" (ppr (tcdName decl))
+    kcHsTyVarBndrs (tcdTyVars decl) $ \ k_tvs ->
+    do { traceTc "kcd1" (ppr name <+> brackets (ppr hs_tvs)
+			 <+> brackets (ppr k_tvs))
+       ; (_, rhs_kind) <- kcLHsType rhs
+       ; traceTc "kcd2" (ppr name)
        ; let tc_kind = foldr (mkArrowKind . hsTyVarKind . unLoc) rhs_kind k_tvs
-       ; return (tcdName decl, tc_kind) }
+       ; return (name, tc_kind) }
+kcSynDecl decl = pprPanic "kcSynDecl" (ppr decl)
 
 ------------------------------------------------------------------------
+kcLTyClDecl :: LTyClDecl Name -> TcM ()
+kcLTyClDecl (L loc decl)
+  = setSrcSpan loc $ tcAddDeclCtxt decl $ kcTyClDecl decl
+
 kcTyClDecl :: TyClDecl Name -> TcM ()
 -- This function is used solely for its side effect on kind variables
 
-kcTyClDecl (ForeignType {})   
-  = return ()
-kcTyClDecl decl@(TyFamily {}) 
-  = kcFamilyDecl [] decl      -- the empty list signals a toplevel decl
-
-kcTyClDecl decl@(TyData {})
+kcTyClDecl decl@(TyData { tcdLName = L _ name, tcdTyVars = hs_tvs })
   = ASSERT2( not . isFamInstDecl $ decl, ppr decl )   -- must not be a family instance
-    kcTyClDeclBody decl	$ \_ -> kcDataDecl decl
+    kcTyClTyVars name hs_tvs $ \ res_k -> kcDataDecl decl res_k
 
-kcTyClDecl decl@(ClassDecl {tcdCtxt = ctxt, tcdSigs = sigs, tcdATs = ats})
-  = kcTyClDeclBody decl	$ \ tvs' ->
+kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
+                       , tcdCtxt = ctxt, tcdSigs = sigs, tcdATs = ats})
+  = kcTyClTyVars name hs_tvs $ \ res_k -> 
     do	{ discardResult (kcHsContext ctxt)
-	; mapM_ (wrapLocM (kcFamilyDecl tvs')) ats
-	; mapM_ (wrapLocM kc_sig) sigs }
+        ; _ <- unifyKind res_k constraintKind
+	; mapM_ (wrapLocM kcFamilyDecl) ats
+	; mapM_ (wrapLocM kc_sig)       sigs }
   where
     kc_sig (TypeSig _ op_ty)    = discardResult (kcHsLiftedSigType op_ty)
     kc_sig (GenericSig _ op_ty) = discardResult (kcHsLiftedSigType op_ty)
     kc_sig _                    = return ()
 
-kcTyClDecl (TySynonym {})     -- Type synonyms are never passed to kcTyClDecl
-  = panic "kcTyClDecl TySynonym"
+kcTyClDecl (ForeignType {})   = return ()
+kcTyClDecl decl@(TyFamily {}) = kcFamilyDecl decl
 
---------------------
-kcTyClDeclBody :: TyClDecl Name
-	       -> ([LHsTyVarBndr Name] -> TcM a)
-	       -> TcM a
--- getInitialKind has made a suitably-shaped kind for the type or class
--- Unpack it, and attribute those kinds to the type variables
--- Extend the env with bindings for the tyvars, taken from
--- the kind of the tycon/class.  Give it to the thing inside, and 
--- check the result kind matches
-kcTyClDeclBody decl thing_inside
-  = tcAddDeclCtxt decl		$
-    do 	{ tc_kind <- kcLookupKind (tcdLName decl)
-	; let (kinds, _) = splitKindFunTys tc_kind
-	      hs_tvs 	 = tcdTyVars decl
-	      kinded_tvs = ASSERT( length kinds >= length hs_tvs )
-			   zipWith add_kind hs_tvs kinds
-	; tcExtendKindEnvTvs kinded_tvs thing_inside }
-  where
-    add_kind (L loc (UserTyVar n _))       k = L loc (UserTyVar n k)
-    add_kind (L loc (KindedTyVar n hsk _)) k = L loc (KindedTyVar n hsk k)
+kcTyClDecl (TySynonym {})          -- Type synonyms are never passed to kcTyClDecl
+  = panic "kcTyClDecl TySynonym"   -- See Note [Kind checking for type and class decls]
 
 -------------------
 -- Kind check a data declaration, assuming that we already extended the
 -- kind environment with the type variables of the left-hand side (these
 -- kinded type variables are also passed as the second parameter).
 --
-kcDataDecl :: TyClDecl Name -> TcM ()
-kcDataDecl (TyData {tcdND = new_or_data, tcdCtxt = ctxt, tcdCons = cons})
-  = do	{ _ <- kcHsContext ctxt
-	; _ <- mapM (wrapLocM (kcConDecl new_or_data)) cons
-	; return () }
-kcDataDecl d = pprPanic "kcDataDecl" (ppr d)
+kcDataDecl :: TyClDecl Name -> Kind -> TcM ()
+kcDataDecl (TyData { tcdND = new_or_data, tcdCtxt = ctxt
+                   , tcdCons = cons, tcdKindSig = mb_kind }) res_k
+  = do	{ discardResult (kcHsContext ctxt)
+	; mapM_ (wrapLocM (kcConDecl new_or_data)) cons 
+        ; kcResultKind mb_kind res_k }
+kcDataDecl d _ = pprPanic "kcDataDecl" (ppr d)
 
 -------------------
 kcConDecl :: NewOrData -> ConDecl Name -> TcM (ConDecl Name)
@@ -434,7 +406,7 @@ kcConDecl :: NewOrData -> ConDecl Name -> TcM (ConDecl Name)
 kcConDecl new_or_data con_decl@(ConDecl { con_name = name, con_qvars = ex_tvs
                             , con_cxt = ex_ctxt, con_details = details, con_res = res })
   = addErrCtxt (dataConCtxt name) $
-    kcHsTyVars ex_tvs $ \ex_tvs' ->
+    kcHsTyVarBndrs ex_tvs $ \ex_tvs' ->
     do { ex_ctxt' <- kcHsContext ex_ctxt
        ; details' <- kc_con_details details
        ; res'     <- case res of
@@ -467,32 +439,23 @@ kcConDecl new_or_data con_decl@(ConDecl { con_name = name, con_qvars = ex_tvs
 -------------------
 -- Kind check a family declaration or type family default declaration.
 --
-kcFamilyDecl :: [LHsTyVarBndr Name]  -- tyvars of enclosing class decl if any
-             -> TyClDecl Name -> TcM ()
-kcFamilyDecl classTvs decl@(TyFamily {tcdKind = kind})
-  = kcTyClDeclBody decl $ \tvs' ->
-    do { mapM_ unifyClassParmKinds tvs'
-       ; discardResult (scDsLHsMaybeKind kind) }
-  where
-    unifyClassParmKinds (L _ tv) 
-      | (n,k) <- hsTyVarNameKind tv
-      , Just classParmKind <- lookup n classTyKinds 
-      = traceTc "kcFam" (ppr k $$ ppr classParmKind $$ ppr classTyKinds)
-        >>
-        let ctxt = ptext (    sLit "When kind checking family declaration")
-                          <+> ppr (tcdLName decl)
-        in addErrCtxt ctxt $ unifyKind k classParmKind >> return ()
-      | otherwise = return ()
-    classTyKinds = [hsTyVarNameKind tv | L _ tv <- classTvs]
+kcFamilyDecl :: TyClDecl Name -> TcM ()
+kcFamilyDecl (TyFamily { tcdLName = L _ name, tcdTyVars = hs_tvs
+                       , tcdKindSig = mb_kind})
+  = kcTyClTyVars name hs_tvs $ \res_k -> kcResultKind mb_kind res_k
 
-kcFamilyDecl _ (TySynonym {}) = return ()
+kcFamilyDecl (TySynonym {}) = return ()
    -- We don't have to do anything here for type family defaults:
    -- tcClassATs will use tcAssocDecl to check them
-kcFamilyDecl _ d = pprPanic "kcFamilyDecl" (ppr d)
+kcFamilyDecl d = pprPanic "kcFamilyDecl" (ppr d)
 
--------------------
-discardResult :: TcM a -> TcM ()
-discardResult a = a >> return ()
+------------------
+kcResultKind :: Maybe (LHsKind Name) -> Kind -> TcM ()
+kcResultKind Nothing res_k
+  = discardResult (unifyKind res_k liftedTypeKind)
+kcResultKind (Just k) res_k
+  = do { k' <- tcLHsKind k
+       ; discardResult (unifyKind k' res_k) }
 \end{code}
 
 
@@ -783,7 +746,7 @@ tcFamTyPats :: TyCon
 -- (and, if C is poly-kinded, so will its kind parameter).
 
 tcFamTyPats fam_tc tyvars pats kind_checker thing_inside
-  = kcHsTyVars tyvars $ \tvs ->
+  = kcHsTyVarBndrs tyvars $ \tvs ->
     do { let (fam_kvs, body) = splitForAllTys (tyConKind fam_tc)
 
          -- A family instance must have exactly the same number of type

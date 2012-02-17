@@ -18,18 +18,18 @@ module TcHsType (
 	UserTypeCtxt(..), 
 
 		-- Kind checking
-	kcHsTyVars, kcHsSigType, kcHsLiftedSigType, 
+	kcHsTyVarBndrs, kcHsSigType, kcHsLiftedSigType, 
 	kcLHsType, kcCheckLHsType, kcHsContext, kcApps,
         kindGeneralizeKind, kindGeneralizeKinds,
 
 		-- Sort checking
-	scDsLHsKind, scDsLHsMaybeKind,
+	tcLHsKind, 
 
                 -- Typechecking kinded types
 	tcHsType, tcCheckHsType,
         tcHsKindedContext, tcHsKindedType, tcHsBangType,
 	tcTyVarBndrs, tcTyVarBndrsKindGen, dsHsType,
-	tcDataKindSig, tcTyClTyVars,
+	tcDataKindSig, kcTyClTyVars, tcTyClTyVars,
 
         ExpKind(..), ekConstraint, expArgKind, checkExpectedKind,
 
@@ -44,7 +44,6 @@ import {-# SOURCE #-}	TcSplice( kcSpliceType )
 #endif
 
 import HsSyn
-import RnHsSyn
 import TcRnMonad
 import RnEnv   ( dataKindsErr )
 import TcHsSyn ( mkZonkTcTyVar )
@@ -64,7 +63,6 @@ import TysPrim ( liftedTypeKindTyConName, constraintKindTyConName )
 import Class
 import RdrName ( rdrNameSpace, nameRdrName )
 import Name
-import NameSet
 import TysWiredIn
 import BasicTypes
 import SrcLoc
@@ -73,7 +71,7 @@ import Util
 import UniqSupply
 import Outputable
 import FastString
-import Control.Monad ( unless )
+import Control.Monad ( unless, when, zipWithM )
 \end{code}
 
 
@@ -212,7 +210,7 @@ tcHsQuantifiedType :: [LHsTyVarBndr Name] -> LHsType Name -> TcM ([TyVar], Type)
 -- Behave very like type-checking (HsForAllTy sig_tvs hs_ty),
 -- except that we want to keep the tvs separate
 tcHsQuantifiedType tv_names hs_ty
-  = kcHsTyVars tv_names $ \ tv_names' ->
+  = kcHsTyVarBndrs tv_names $ \ tv_names' ->
     do	{ kc_ty <- kcHsSigType hs_ty
     	; tcTyVarBndrs tv_names' $ \ tvs ->
     do	{ ty <- dsHsType kc_ty
@@ -232,7 +230,7 @@ tc_hs_deriv tv_names1 (HsForAllTy _ tv_names2 (L _ []) (L _ ty))
 
 tc_hs_deriv tv_names ty
   | Just (cls_name, hs_tys) <- splitHsClassTy_maybe ty
-  = kcHsTyVars tv_names                 $ \ tv_names' ->
+  = kcHsTyVarBndrs tv_names                 $ \ tv_names' ->
     do  { cls_kind <- kcClass cls_name
         ; (tys, _res_kind) <- kcApps cls_name cls_kind hs_tys
         ; tcTyVarBndrsKindGen tv_names'        $ \ tyvars ->
@@ -364,7 +362,7 @@ kc_hs_type (HsPArrTy ty) exp_kind = do
     return (HsPArrTy ty')
 
 kc_hs_type (HsKindSig ty sig_k) exp_kind = do
-    sig_k' <- scDsLHsKind sig_k
+    sig_k' <- tcLHsKind sig_k
     ty' <- kc_lhs_type ty
              (EK sig_k' (ptext (sLit "An enclosing kind signature specified")))
     checkExpectedKind ty sig_k' exp_kind
@@ -462,7 +460,7 @@ kc_hs_type (HsCoreTy ty) exp_kind = do
     return (HsCoreTy ty)
 
 kc_hs_type (HsForAllTy exp tv_names context ty) exp_kind
-  = kcHsTyVars tv_names         $ \ tv_names' ->
+  = kcHsTyVarBndrs tv_names         $ \ tv_names' ->
     do	{ ctxt' <- kcHsContext context
 	; ty'   <- kc_lhs_type ty exp_kind
 	     -- The body of a forall is usually a type, but in principle
@@ -842,15 +840,15 @@ then we'd also need
                           since we only have BOX for a super kind)
 
 \begin{code}
-kcHsTyVars :: [LHsTyVarBndr Name] 
-	   -> ([LHsTyVarBndr Name] -> TcM r) 	-- These binders are kind-annotated
-						-- They scope over the thing inside
+kcHsTyVarBndrs :: [LHsTyVarBndr Name] 
+	       -> ([LHsTyVarBndr Name] -> TcM r) -- These binders are kind-annotated
+						 -- They scope over the thing inside
 	   -> TcM r
-kcHsTyVars tvs thing_inside
-  = do { kinded_tvs <- mapM (wrapLocM kcHsTyVar) tvs
+kcHsTyVarBndrs tvs thing_inside
+  = do { kinded_tvs <- mapM (wrapLocM kcHsTyVarBndr) tvs
        ; tcExtendKindEnvTvs kinded_tvs thing_inside }
 
-kcHsTyVar :: HsTyVarBndr Name -> TcM (HsTyVarBndr Name)
+kcHsTyVarBndr :: HsTyVarBndr Name -> TcM (HsTyVarBndr Name)
 -- Return a *kind-annotated* binder, whose PostTcKind is
 -- initialised with a kind variable.
 -- Typically the Kind inside the KindedTyVar will be a tyvar with a mutable kind 
@@ -862,17 +860,19 @@ kcHsTyVar :: HsTyVarBndr Name -> TcM (HsTyVarBndr Name)
 --   instance C (a,b) where
 --     type F (a,b) c = ...
 -- Here a,b will be in scope when processing the associated type instance for F.
-kcHsTyVar tyvar = do in_scope <- getInLocalScope
-                     if in_scope (hsTyVarName tyvar)
-                      then do inscope_tyvar <- tcLookupTyVar (hsTyVarName tyvar)
-                              return (UserTyVar (tyVarName inscope_tyvar)
-                                (tyVarKind inscope_tyvar)) 
-                       else kcHsTyVar' tyvar
-    where
-        kcHsTyVar' (UserTyVar name _)        = UserTyVar name <$> newMetaKindVar
-        kcHsTyVar' (KindedTyVar name kind _) = do
-          kind' <- scDsLHsKind kind
-          return (KindedTyVar name kind kind')
+kcHsTyVarBndr tyvar 
+  = do { in_scope <- getInLocalScope
+       ; if in_scope (hsTyVarName tyvar)
+         then do inscope_tyvar <- tcLookupTyVar (hsTyVarName tyvar)
+                 return (UserTyVar (tyVarName inscope_tyvar)
+                                   (tyVarKind inscope_tyvar)) 
+         else kcHsTyVar' tyvar }
+  where
+    kcHsTyVar' (UserTyVar name _)        
+      = UserTyVar name <$> newMetaKindVar
+    kcHsTyVar' (KindedTyVar name bsig@(HsBSig kind _) _) 
+      = do { kind' <- tcLHsKind kind
+           ; return (KindedTyVar name bsig kind') }
 
 ------------------
 tcTyVarBndrs :: [LHsTyVarBndr Name] -- Kind-annotated binders, which need kind-zonking
@@ -921,12 +921,65 @@ look through unification variables!
 Hence using zonked_kinds when forming 'tyvars'.
 
 \begin{code}
+--------------------
+kcTyClTyVars :: Name -> [LHsTyVarBndr Name]
+             -> (Kind -> TcM a)
+	     -> TcM a
+-- getInitialKind has made a suitably-shaped kind for the type or class
+-- Unpack it, and attribute those kinds to the type variables
+-- Extend the env with bindings for the tyvars, taken from
+-- the kind of the tycon/class.  Give it to the thing inside, and 
+-- check the result kind matches
+kcLookupKind :: Name -> TcM Kind
+kcLookupKind nm 
+  = do { tc_ty_thing <- tcLookup nm
+       ; case tc_ty_thing of
+           AThing k            -> return k
+           AGlobal (ATyCon tc) -> return (tyConKind tc)
+           _                   -> pprPanic "kcLookupKind" (ppr tc_ty_thing) }
+
+kcTyClTyVars name hs_tvs thing_inside
+  = do 	{ tc_kind <- kcLookupKind name
+	; let (arg_ks, res_k) = splitKindFunTys tc_kind
+              new_kv_names = [ kv | L _ (KindedTyVar _ (HsBSig _ kvs) _) <- hs_tvs
+                                  , kv <- kvs ]
+        ; kvs <- mapM newKindSigVar new_kv_names
+        ; tcExtendTyVarEnv kvs $ do
+        { name_ks <- ASSERT( length arg_ks == length hs_tvs )
+                           -- getInitialKinds used the tcdTyVars
+                     zipWithM kc_tv hs_tvs arg_ks
+        ; tcExtendKindEnv name_ks (thing_inside res_k) } }
+  where
+    kc_tv :: LHsTyVarBndr Name -> Kind -> TcM (Name, Kind)
+    kc_tv (L _ (UserTyVar n _)) exp_k 
+      = do { check_in_scope n exp_k
+           ; return (n, exp_k) }
+    kc_tv (L _ (KindedTyVar n (HsBSig hs_k _) _)) exp_k
+      = do { k <- tcLHsKind hs_k
+           ; _ <- unifyKind k exp_k
+           ; check_in_scope n exp_k
+           ; return (n, k) }
+
+    check_in_scope :: Name -> Kind -> TcM ()
+    -- In an associated type decl, the type variable may already 
+    -- be in scope; in that case we want to make sure it matches
+    -- any signature etc here
+    check_in_scope n exp_k
+      = do { mb_thing <- tcLookupLcl_maybe n
+           ; case mb_thing of
+               Nothing         -> return ()
+               Just (AThing k) -> discardResult (unifyKind k exp_k)
+               Just thing      -> pprPanic "check_in_scope" (ppr thing) }
+
+-----------------------
 tcTyClTyVars :: Name -> [LHsTyVarBndr Name]	-- LHS of the type or class decl
              -> ([TyVar] -> Kind -> TcM a) -> TcM a
 -- (tcTyClTyVars T [a,b] thing_inside) 
 --   where T : forall k1 k2 (a:k1 -> *) (b:k1). k2 -> *
 --   calls thing_inside with arguments
---      [k1,k2,a,b] (k2 -> *)  
+--      [k1,k2,a,b] (k2 -> *)
+--   having also extended the type environment with bindings 
+--   for k1,k2,a,b
 --
 -- No need to freshen the k's because they are just skolem 
 -- constants here, and we are at top level anyway.
@@ -1076,32 +1129,25 @@ Historical note:
 
 \begin{code}
 tcHsPatSigType :: UserTypeCtxt
-	       -> LHsType Name 		-- The type signature
-	       -> TcM ([TyVar], 	-- Newly in-scope type variables
-			Type)		-- The signature
+	       -> HsBndrSig (LHsType Name)  -- The type signature
+	       -> TcM ([TyVar], 	    -- Newly in-scope type variables
+			Type)		    -- The signature
 -- Used for type-checking type signatures in
 -- (a) patterns 	  e.g  f (x::Int) = e
 -- (b) result signatures  e.g. g x :: Int = e
 -- (c) RULE forall bndrs  e.g. forall (x::Int). f x = x
 
-tcHsPatSigType ctxt hs_ty 
+tcHsPatSigType ctxt (HsBSig hs_ty sig_tvs)
   = addErrCtxt (pprHsSigCtxt ctxt hs_ty) $
-    do	{ 	-- Find the type variables that are mentioned in the type
-		-- but not already in scope.  These are the ones that
-		-- should be bound by the pattern signature
- 	  in_scope <- getInLocalScope
-	; let span = getLoc hs_ty
-	      sig_tvs = userHsTyVarBndrs $ map (L span) $ 
-			filterOut in_scope $
-                        nameSetToList (extractHsTyVars hs_ty)
+    do	{ let span     = getLoc hs_ty
+	      sig_ltvs = userHsTyVarBndrs $ map (L span) sig_tvs 
 
-	; (tyvars, sig_ty) <- tcHsQuantifiedType sig_tvs hs_ty
+	; (tyvars, sig_ty) <- tcHsQuantifiedType sig_ltvs hs_ty
 	; checkValidType ctxt sig_ty 
-	; return (tyvars, sig_ty)
-      }
+	; return (tyvars, sig_ty) }
 
 tcPatSig :: UserTypeCtxt
-	 -> LHsType Name
+	 -> HsBndrSig (LHsType Name)
 	 -> TcSigmaType
 	 -> TcM (TcType,	    -- The type to use for "inside" the signature
 		 [(Name, TcTyVar)], -- The new bit of type environment, binding
@@ -1118,17 +1164,16 @@ tcPatSig ctxt sig res_ty
 		-- Just do the subsumption check and return
                   wrap <- tcSubType PatSigOrigin ctxt res_ty sig_ty
 		; return (sig_ty, [], wrap)
-        } else do {
+        } else do
 		-- Type signature binds at least one scoped type variable
 	
 		-- A pattern binding cannot bind scoped type variables
-		-- The renamer fails with a name-out-of-scope error 
-		-- if a pattern binding tries to bind a type variable,
-		-- So we just have an ASSERT here
-	; let in_pat_bind = case ctxt of
+                -- It is more convenient to make the test here
+                -- than in the renamer
+	{ let in_pat_bind = case ctxt of
 				BindPatSigCtxt -> True
 				_              -> False
-	; ASSERT( not in_pat_bind || null sig_tvs ) return ()
+	; when in_pat_bind (addErr (patBindSigErr sig_tvs))
 
 		-- Check that all newly-in-scope tyvars are in fact
 		-- constrained by the pattern.  This catches tiresome
@@ -1168,6 +1213,12 @@ tcPatSig ctxt sig res_ty
 		-- as some other in-scope type variable
 	where
 	  dups = [n' | (n',tv') <- in_scope, tv' == tv]
+
+patBindSigErr :: [TyVar] -> SDoc
+patBindSigErr sig_tvs 
+  = hang (ptext (sLit "You cannot bind scoped type variable") <> plural sig_tvs
+          <+> pprQuotedList sig_tvs)
+       2 (ptext (sLit "in a pattern binding signature"))
 \end{code}
 
 
@@ -1279,65 +1330,60 @@ checkExpectedKind ty act_kind ek@(EK exp_kind ek_ctxt) = do
 %*                                                                      *
 %************************************************************************
 
-scDsLHsKind converts a user-written kind to an internal, sort-checked kind.
+tcLHsKind converts a user-written kind to an internal, sort-checked kind.
 It does sort checking and desugaring at the same time, in one single pass.
 It fails when the kinds are not well-formed (eg. data A :: * Int), or if there
 are non-promotable or non-fully applied kinds.
 
 \begin{code}
-scDsLHsKind :: LHsKind Name -> TcM Kind
-scDsLHsKind k = addErrCtxt (ptext (sLit "In the kind") <+> quotes (ppr k)) $
-                  sc_ds_lhs_kind k
+tcLHsKind :: LHsKind Name -> TcM Kind
+tcLHsKind k = addErrCtxt (ptext (sLit "In the kind") <+> quotes (ppr k)) $
+              tc_lhs_kind k
 
-scDsLHsMaybeKind :: Maybe (LHsKind Name) -> TcM (Maybe Kind)
-scDsLHsMaybeKind Nothing  = return Nothing
-scDsLHsMaybeKind (Just k) = do k' <- scDsLHsKind k
-                               return (Just k')
-
-sc_ds_lhs_kind :: LHsKind Name -> TcM Kind
-sc_ds_lhs_kind (L span ki) = setSrcSpan span (sc_ds_hs_kind ki)
+tc_lhs_kind :: LHsKind Name -> TcM Kind
+tc_lhs_kind (L span ki) = setSrcSpan span (tc_hs_kind ki)
 
 -- The main worker
-sc_ds_hs_kind :: HsKind Name -> TcM Kind
-sc_ds_hs_kind k@(HsTyVar _)   = sc_ds_app k []
-sc_ds_hs_kind k@(HsAppTy _ _) = sc_ds_app k []
+tc_hs_kind :: HsKind Name -> TcM Kind
+tc_hs_kind k@(HsTyVar _)   = tc_app k []
+tc_hs_kind k@(HsAppTy _ _) = tc_app k []
 
-sc_ds_hs_kind (HsParTy ki) = sc_ds_lhs_kind ki
+tc_hs_kind (HsParTy ki) = tc_lhs_kind ki
 
-sc_ds_hs_kind (HsFunTy ki1 ki2) =
-  do kappa_ki1 <- sc_ds_lhs_kind ki1
-     kappa_ki2 <- sc_ds_lhs_kind ki2
+tc_hs_kind (HsFunTy ki1 ki2) =
+  do kappa_ki1 <- tc_lhs_kind ki1
+     kappa_ki2 <- tc_lhs_kind ki2
      return (mkArrowKind kappa_ki1 kappa_ki2)
 
-sc_ds_hs_kind (HsListTy ki) =
-  do kappa <- sc_ds_lhs_kind ki
+tc_hs_kind (HsListTy ki) =
+  do kappa <- tc_lhs_kind ki
      checkWiredInTyCon listTyCon
      return $ mkPromotedListTy kappa
 
-sc_ds_hs_kind (HsTupleTy _ kis) =
-  do kappas <- mapM sc_ds_lhs_kind kis
+tc_hs_kind (HsTupleTy _ kis) =
+  do kappas <- mapM tc_lhs_kind kis
      checkWiredInTyCon tycon
      return $ mkTyConApp tycon kappas
   where 
      tycon = promotedTupleTyCon BoxedTuple (length kis)
 
 -- Argument not kind-shaped
-sc_ds_hs_kind k = panic ("sc_ds_hs_kind: " ++ showPpr k)
+tc_hs_kind k = panic ("tc_hs_kind: " ++ showPpr k)
 
 -- Special case for kind application
-sc_ds_app :: HsKind Name -> [LHsKind Name] -> TcM Kind
-sc_ds_app (HsAppTy ki1 ki2) kis = sc_ds_app (unLoc ki1) (ki2:kis)
-sc_ds_app (HsTyVar tc)      kis =
-  do arg_kis <- mapM sc_ds_lhs_kind kis
-     sc_ds_var_app tc arg_kis
-sc_ds_app ki                _   = failWithTc (quotes (ppr ki) <+> 
+tc_app :: HsKind Name -> [LHsKind Name] -> TcM Kind
+tc_app (HsAppTy ki1 ki2) kis = tc_app (unLoc ki1) (ki2:kis)
+tc_app (HsTyVar tc)      kis =
+  do arg_kis <- mapM tc_lhs_kind kis
+     tc_var_app tc arg_kis
+tc_app ki                _   = failWithTc (quotes (ppr ki) <+> 
                                     ptext (sLit "is not a kind constructor"))
 
 -- IA0_TODO: With explicit kind polymorphism I might need to add ATyVar
-sc_ds_var_app :: Name -> [Kind] -> TcM Kind
+tc_var_app :: Name -> [Kind] -> TcM Kind
 -- Special case for * and Constraint kinds
 -- They are kinds already, so we don't need to promote them
-sc_ds_var_app name arg_kis
+tc_var_app name arg_kis
   |  name == liftedTypeKindTyConName
   || name == constraintKindTyConName
   = do { unless (null arg_kis)
@@ -1345,10 +1391,10 @@ sc_ds_var_app name arg_kis
        ; thing <- tcLookup name
        ; case thing of
            AGlobal (ATyCon tc) -> return (mkTyConApp tc [])
-           _                   -> panic "sc_ds_var_app 1" }
+           _                   -> panic "tc_var_app 1" }
 
 -- General case
-sc_ds_var_app name arg_kis = do
+tc_var_app name arg_kis = do
   (_errs, mb_thing) <- tryTc (tcLookup name)
   case mb_thing of
     Just (AGlobal (ATyCon tc))
@@ -1360,6 +1406,9 @@ sc_ds_var_app name arg_kis = do
           return (mkTyConApp (buildPromotedTyCon tc) arg_kis)
         Just _  -> err tc "is not fully applied"
         Nothing -> err tc "is not promotable"
+
+    -- A lexically scoped kind varaible
+    Just (ATyVar _ kind_var) -> return (mkAppTys (mkTyVarTy kind_var) arg_kis)
 
     -- It is in scope, but not what we expected
     Just thing -> wrongThingErr "promoted type" thing name

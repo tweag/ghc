@@ -14,7 +14,9 @@
 module RnEnv ( 
 	newTopSrcBinder, 
 	lookupLocatedTopBndrRn, lookupTopBndrRn,
-	lookupLocatedOccRn, lookupOccRn, lookupLocalOccRn_maybe, lookupPromotedOccRn,
+	lookupLocatedOccRn, lookupOccRn, 
+        lookupLocalOccRn_maybe, 
+        lookupTypeOccRn, lookupKindOccRn, 
         lookupGlobalOccRn, lookupGlobalOccRn_maybe,
 
 	HsSigCtxt(..), lookupLocalDataTcNames, lookupSigOccRn,
@@ -31,7 +33,6 @@ module RnEnv (
 	MiniFixityEnv, emptyFsEnv, extendFsEnv, lookupFsEnv,
 	addLocalFixities,
 	bindLocatedLocalsFV, bindLocatedLocalsRn,
-	bindSigTyVarsFV, bindPatSigTyVars, bindPatSigTyVarsFV,
 	extendTyVarEnvFVRn,
 
 	checkDupRdrNames, checkDupAndShadowedRdrNames,
@@ -40,7 +41,6 @@ module RnEnv (
 	warnUnusedMatches,
 	warnUnusedTopBinds, warnUnusedLocalBinds,
 	dataTcOccs, unknownNameErr, kindSigErr, dataKindsErr, perhapsForallMsg,
-
         HsDocContext(..), docOfHsDocContext
     ) where
 
@@ -49,7 +49,6 @@ module RnEnv (
 import LoadIface	( loadInterfaceForName, loadSrcInterface )
 import IfaceEnv
 import HsSyn
-import RdrHsSyn		( extractHsTyRdrTyVars )
 import RdrName
 import HscTypes
 import TcEnv		( tcLookupDataCon, tcLookupField, isBrackStage )
@@ -72,7 +71,6 @@ import ListSetOps	( removeDups )
 import DynFlags
 import FastString
 import Control.Monad
-import Data.List
 import qualified Data.Set as Set
 \end{code}
 
@@ -452,10 +450,18 @@ lookupOccRn rdr_name = do
   opt_name <- lookupOccRn_maybe rdr_name
   maybe (unboundName WL_Any rdr_name) return opt_name
 
+lookupKindOccRn :: RdrName -> RnM Name
+-- Looking up a name occurring in a kind
+lookupKindOccRn rdr_name
+  = do { mb_name <- lookupOccRn_maybe rdr_name
+       ; case mb_name of
+           Just name -> return name
+           Nothing -> unboundName WL_Any rdr_name  }
+
 -- lookupPromotedOccRn looks up an optionally promoted RdrName.
-lookupPromotedOccRn :: RdrName -> RnM Name
+lookupTypeOccRn :: RdrName -> RnM Name
 -- see Note [Demotion] 
-lookupPromotedOccRn rdr_name 
+lookupTypeOccRn rdr_name 
   = do { mb_name <- lookupOccRn_maybe rdr_name 
        ; case mb_name of {
              Just name -> return name ;
@@ -1018,42 +1024,6 @@ bindLocatedLocalsFV rdr_names enclosed_scope
     return (thing, delFVs names fvs)
 
 -------------------------------------
-bindPatSigTyVars :: [LHsType RdrName] -> ([Name] -> RnM a) -> RnM a
-  -- Find the type variables in the pattern type 
-  -- signatures that must be brought into scope
-bindPatSigTyVars tys thing_inside
-  = do 	{ scoped_tyvars <- xoptM Opt_ScopedTypeVariables
-	; if not scoped_tyvars then 
-		thing_inside []
-	  else 
-    do 	{ name_env <- getLocalRdrEnv
-	; let locd_tvs  = [ tv | ty <- tys
-			       , tv <- extractHsTyRdrTyVars ty
-			       , not (unLoc tv `elemLocalRdrEnv` name_env) ]
-	      nubbed_tvs = nubBy eqLocated locd_tvs
-		-- The 'nub' is important.  For example:
-		--	f (x :: t) (y :: t) = ....
-		-- We don't want to complain about binding t twice!
-
-	; bindLocatedLocalsRn nubbed_tvs thing_inside }}
-
-bindPatSigTyVarsFV :: [LHsType RdrName]
-		   -> RnM (a, FreeVars)
-	  	   -> RnM (a, FreeVars)
-bindPatSigTyVarsFV tys thing_inside
-  = bindPatSigTyVars tys	$ \ tvs ->
-    thing_inside		`thenM` \ (result,fvs) ->
-    return (result, fvs `delListFromNameSet` tvs)
-
-bindSigTyVarsFV :: [Name]
-		-> RnM (a, FreeVars)
-	  	-> RnM (a, FreeVars)
-bindSigTyVarsFV tvs thing_inside
-  = do	{ scoped_tyvars <- xoptM Opt_ScopedTypeVariables
-	; if not scoped_tyvars then 
-		thing_inside 
-	  else
-		bindLocalNamesFV tvs thing_inside }
 
 extendTyVarEnvFVRn :: [Name] -> RnM (a, FreeVars) -> RnM (a, FreeVars)
 	-- This function is used only in rnSourceDecl on InstDecl
@@ -1148,24 +1118,19 @@ unboundName wl rdr = unboundNameX wl rdr empty
 unboundNameX :: WhereLooking -> RdrName -> SDoc -> RnM Name
 unboundNameX where_look rdr_name extra
   = do  { show_helpful_errors <- doptM Opt_HelpfulErrors
-        ; let err = unknownNameErr rdr_name $$ extra
+        ; let what = pprNonVarNameSpace (occNameSpace (rdrNameOcc rdr_name))
+              err = unknownNameErr what rdr_name $$ extra
         ; if not show_helpful_errors
           then addErr err
           else do { suggestions <- unknownNameSuggestErr where_look rdr_name
                   ; addErr (err $$ suggestions) }
 
-        ; env <- getGlobalRdrEnv;
-	; traceRn (vcat [unknownNameErr rdr_name, 
-			 ptext (sLit "Global envt is:"),
-			 nest 3 (pprGlobalRdrEnv env)])
-
         ; return (mkUnboundName rdr_name) }
 
-unknownNameErr :: RdrName -> SDoc
-unknownNameErr rdr_name
+unknownNameErr :: SDoc -> RdrName -> SDoc
+unknownNameErr what rdr_name
   = vcat [ hang (ptext (sLit "Not in scope:")) 
-	      2 (pprNonVarNameSpace (occNameSpace (rdrNameOcc rdr_name))
-			  <+> quotes (ppr rdr_name))
+	      2 (what <+> quotes (ppr rdr_name))
 	 , extra ]
   where
     extra | rdr_name == forall_tv_RDR = perhapsForallMsg

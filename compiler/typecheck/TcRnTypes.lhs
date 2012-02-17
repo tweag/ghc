@@ -569,8 +569,8 @@ data TcTyThing
 	tct_closed :: TopLevelFlag,   -- See Note [Bindings with closed types]
 	tct_level  :: ThLevel }
 
-  | ATyVar  Name TcTyVar	-- The type to which the lexically scoped type vaiable
-				-- is currently refined. We only need the Name
+  | ATyVar  Name TcTyVar	-- The type variable to which the lexically scoped type 
+				-- variable is bound. We only need the Name
 				-- for error-message purposes; it is the corresponding
 				-- Name in the domain of the envt
 

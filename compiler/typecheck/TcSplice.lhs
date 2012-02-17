@@ -560,7 +560,7 @@ kcTopSpliceType expr
         -- otherwise the type checker just gives more spurious errors
         ; addErrCtxt (spliceResultDoc expr) $ do 
         { let doc = SpliceTypeCtx hs_ty2
-        ; hs_ty3 <- checkNoErrs (rnLHsType doc hs_ty2)
+        ; (hs_ty3, _fvs) <- checkNoErrs (rnLHsType doc hs_ty2)
         ; (ty4, kind) <- kcLHsType hs_ty3
         ; return (unLoc ty4, kind) }}
 \end{code}
@@ -1005,7 +1005,7 @@ reifyInstances th_nm th_tys
                              <+> int tc_arity <> rparen))
            ; loc <- getSrcSpanM
            ; rdr_tys <- mapM (cvt loc) th_tys    -- Convert to HsType RdrName
-           ; rn_tys  <- rnLHsTypes doc rdr_tys   -- Rename  to HsType Name
+           ; (rn_tys, _fvs)  <- rnLHsTypes doc rdr_tys   -- Rename  to HsType Name
            ; (tys, _res_k) <- kcApps tc (tyConKind tc) rn_tys
            ; mapM dsHsType tys }
 

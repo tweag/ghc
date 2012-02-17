@@ -24,7 +24,7 @@ module TcMType (
   newFlexiTyVar,
   newFlexiTyVarTy,		-- Kind -> TcM TcType
   newFlexiTyVarTys,		-- Int -> Kind -> TcM [TcType]
-  newMetaKindVar, newMetaKindVars,
+  newMetaKindVar, newMetaKindVars, newKindSigVar,
   mkTcTyVarName,
 
   newMetaTyVar, readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
@@ -116,12 +116,17 @@ import Data.List        ( (\\), partition, mapAccumL )
 
 \begin{code}
 newMetaKindVar :: TcM TcKind
-newMetaKindVar = do	{ uniq <- newUnique
-		; ref <- newMutVar Flexi
-		; return (mkTyVarTy (mkMetaKindVar uniq ref)) }
+newMetaKindVar = do { uniq <- newUnique
+		    ; ref <- newMutVar Flexi
+		    ; return (mkTyVarTy (mkMetaKindVar uniq ref)) }
 
 newMetaKindVars :: Int -> TcM [TcKind]
 newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
+
+newKindSigVar :: Name -> TcM KindVar
+-- Use the specified name; don't clone it
+newKindSigVar n = do { ref <- newMutVar Flexi
+                     ; return (mkTcTyVar n superKind (MetaTv SigTv ref)) }
 \end{code}
 
 

@@ -82,6 +82,65 @@ type-checking the LHS of course requires that the binder is in scope.
 At the top-level the LIE is sure to contain nothing but constant
 dictionaries, which we resolve at the module level.
 
+Note [Polymorphic recursion]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The game plan for polymorphic recursion in the code above is 
+
+        * Bind any variable for which we have a type signature
+          to an Id with a polymorphic type.  Then when type-checking 
+          the RHSs we'll make a full polymorphic call.
+
+This fine, but if you aren't a bit careful you end up with a horrendous
+amount of partial application and (worse) a huge space leak. For example:
+
+        f :: Eq a => [a] -> [a]
+        f xs = ...f...
+
+If we don't take care, after typechecking we get
+
+        f = /\a -> \d::Eq a -> let f' = f a d
+                               in
+                               \ys:[a] -> ...f'...
+
+Notice the the stupid construction of (f a d), which is of course
+identical to the function we're executing.  In this case, the
+polymorphic recursion isn't being used (but that's a very common case).
+This can lead to a massive space leak, from the following top-level defn
+(post-typechecking)
+
+        ff :: [Int] -> [Int]
+        ff = f Int dEqInt
+
+Now (f dEqInt) evaluates to a lambda that has f' as a free variable; but
+f' is another thunk which evaluates to the same thing... and you end
+up with a chain of identical values all hung onto by the CAF ff.
+
+        ff = f Int dEqInt
+
+           = let f' = f Int dEqInt in \ys. ...f'...
+
+           = let f' = let f' = f Int dEqInt in \ys. ...f'...
+                      in \ys. ...f'...
+
+Etc.
+
+NOTE: a bit of arity anaysis would push the (f a d) inside the (\ys...),
+which would make the space leak go away in this case
+
+Solution: when typechecking the RHSs we always have in hand the
+*monomorphic* Ids for each binding.  So we just need to make sure that
+if (Method f a d) shows up in the constraints emerging from (...f...)
+we just use the monomorphic Id.  We achieve this by adding monomorphic Ids
+to the "givens" when simplifying constraints.  That's what the "lies_avail"
+is doing.
+
+Then we get
+
+        f = /\a -> \d::Eq a -> letrec
+                                 fm = \ys:[a] -> ...fm...
+                               in
+                               fm
+
 \begin{code}
 tcTopBinds :: HsValBinds Name -> TcM (TcGblEnv, TcLclEnv)
 -- The TcGblEnv contains the new tcg_binds and tcg_spects
@@ -390,16 +449,17 @@ tcPolyCheck :: TcSigInfo -> PragFun
 -- There is just one binding, 
 --   it binds a single variable,
 --   it has a signature,
-tcPolyCheck sig@(TcSigInfo { sig_id = poly_id, sig_tvs = tvs, sig_scoped = scoped
+tcPolyCheck sig@(TcSigInfo { sig_id = poly_id, sig_tvs = tvs_w_scoped 
                            , sig_theta = theta, sig_tau = tau })
     prag_fn rec_tc bind_list
   = do { loc <- getSrcSpanM
        ; ev_vars <- newEvVars theta
        ; let skol_info = SigSkol (FunSigCtxt (idName poly_id)) (mkPhiTy theta tau)
              prag_sigs = prag_fn (idName poly_id)
+             tvs = map snd tvs_w_scoped
        ; (ev_binds, (binds', [mono_info])) 
             <- checkConstraints skol_info tvs ev_vars $
-               tcExtendTyVarEnv2 (scoped `zip` tvs)   $
+               tcExtendTyVarEnv2 [(n,tv) | (Just n, tv) <- tvs_w_scoped] $
                tcMonoBinds (\_ -> Just sig) LetLclBndr rec_tc bind_list
 
        ; spec_prags <- tcSpecPrags poly_id prag_sigs
@@ -945,161 +1005,6 @@ getMonoBindInfo tc_binds
 \end{code}
 
 
-%************************************************************************
-%*                                                                      *
-                Generalisation
-%*                                                                      *
-%************************************************************************
-
-unifyCtxts checks that all the signature contexts are the same
-The type signatures on a mutually-recursive group of definitions
-must all have the same context (or none).
-
-The trick here is that all the signatures should have the same
-context, and we want to share type variables for that context, so that
-all the right hand sides agree a common vocabulary for their type
-constraints
-
-We unify them because, with polymorphic recursion, their types
-might not otherwise be related.  This is a rather subtle issue.
-
-\begin{code}
-{-
-unifyCtxts :: [TcSigInfo] -> TcM ()
--- Post-condition: the returned Insts are full zonked
-unifyCtxts [] = return ()
-unifyCtxts (sig1 : sigs)
-  = do  { traceTc "unifyCtxts" (ppr (sig1 : sigs))
-        ; mapM_ unify_ctxt sigs }
-  where
-    theta1 = sig_theta sig1
-    unify_ctxt :: TcSigInfo -> TcM ()
-    unify_ctxt sig@(TcSigInfo { sig_theta = theta })
-        = setSrcSpan (sig_loc sig)                      $
-          addErrCtxt (sigContextsCtxt sig1 sig)         $
-          do { mk_cos <- unifyTheta theta1 theta
-             ; -- Check whether all coercions are identity coercions
-               -- That can happen if we have, say
-               --         f :: C [a]   => ...
-               --         g :: C (F a) => ...
-               -- where F is a type function and (F a ~ [a])
-               -- Then unification might succeed with a coercion.  But it's much
-               -- much simpler to require that such signatures have identical contexts
-               checkTc (isReflMkCos mk_cos)
-                       (ptext (sLit "Mutually dependent functions have syntactically distinct contexts"))
-             }
-
------------------------------------------------
-sigContextsCtxt :: TcSigInfo -> TcSigInfo -> SDoc
-sigContextsCtxt sig1 sig2
-  = vcat [ptext (sLit "When matching the contexts of the signatures for"), 
-          nest 2 (vcat [ppr id1 <+> dcolon <+> ppr (idType id1),
-                        ppr id2 <+> dcolon <+> ppr (idType id2)]),
-          ptext (sLit "The signature contexts in a mutually recursive group should all be identical")]
-  where
-    id1 = sig_id sig1
-    id2 = sig_id sig2
--}
-\end{code}
-
-
-@getTyVarsToGen@ decides what type variables to generalise over.
-
-For a "restricted group" -- see the monomorphism restriction
-for a definition -- we bind no dictionaries, and
-remove from tyvars_to_gen any constrained type variables
-
-*Don't* simplify dicts at this point, because we aren't going
-to generalise over these dicts.  By the time we do simplify them
-we may well know more.  For example (this actually came up)
-        f :: Array Int Int
-        f x = array ... xs where xs = [1,2,3,4,5]
-We don't want to generate lots of (fromInt Int 1), (fromInt Int 2)
-stuff.  If we simplify only at the f-binding (not the xs-binding)
-we'll know that the literals are all Ints, and we can just produce
-Int literals!
-
-Find all the type variables involved in overloading, the
-"constrained_tyvars".  These are the ones we *aren't* going to
-generalise.  We must be careful about doing this:
-
- (a) If we fail to generalise a tyvar which is not actually
-        constrained, then it will never, ever get bound, and lands
-        up printed out in interface files!  Notorious example:
-                instance Eq a => Eq (Foo a b) where ..
-        Here, b is not constrained, even though it looks as if it is.
-        Another, more common, example is when there's a Method inst in
-        the LIE, whose type might very well involve non-overloaded
-        type variables.
-  [NOTE: Jan 2001: I don't understand the problem here so I'm doing 
-        the simple thing instead]
-
- (b) On the other hand, we mustn't generalise tyvars which are constrained,
-        because we are going to pass on out the unmodified LIE, with those
-        tyvars in it.  They won't be in scope if we've generalised them.
-
-So we are careful, and do a complete simplification just to find the
-constrained tyvars. We don't use any of the results, except to
-find which tyvars are constrained.
-
-Note [Polymorphic recursion]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The game plan for polymorphic recursion in the code above is 
-
-        * Bind any variable for which we have a type signature
-          to an Id with a polymorphic type.  Then when type-checking 
-          the RHSs we'll make a full polymorphic call.
-
-This fine, but if you aren't a bit careful you end up with a horrendous
-amount of partial application and (worse) a huge space leak. For example:
-
-        f :: Eq a => [a] -> [a]
-        f xs = ...f...
-
-If we don't take care, after typechecking we get
-
-        f = /\a -> \d::Eq a -> let f' = f a d
-                               in
-                               \ys:[a] -> ...f'...
-
-Notice the the stupid construction of (f a d), which is of course
-identical to the function we're executing.  In this case, the
-polymorphic recursion isn't being used (but that's a very common case).
-This can lead to a massive space leak, from the following top-level defn
-(post-typechecking)
-
-        ff :: [Int] -> [Int]
-        ff = f Int dEqInt
-
-Now (f dEqInt) evaluates to a lambda that has f' as a free variable; but
-f' is another thunk which evaluates to the same thing... and you end
-up with a chain of identical values all hung onto by the CAF ff.
-
-        ff = f Int dEqInt
-
-           = let f' = f Int dEqInt in \ys. ...f'...
-
-           = let f' = let f' = f Int dEqInt in \ys. ...f'...
-                      in \ys. ...f'...
-
-Etc.
-
-NOTE: a bit of arity anaysis would push the (f a d) inside the (\ys...),
-which would make the space leak go away in this case
-
-Solution: when typechecking the RHSs we always have in hand the
-*monomorphic* Ids for each binding.  So we just need to make sure that
-if (Method f a d) shows up in the constraints emerging from (...f...)
-we just use the monomorphic Id.  We achieve this by adding monomorphic Ids
-to the "givens" when simplifying constraints.  That's what the "lies_avail"
-is doing.
-
-Then we get
-
-        f = /\a -> \d::Eq a -> letrec
-                                 fm = \ys:[a] -> ...fm...
-                               in
-                               fm
 
 %************************************************************************
 %*                                                                      *
@@ -1141,7 +1046,6 @@ However, we do *not* support this
     not stand for a completely rigid variable.
 
     Currently, we simply make Opt_ScopedTypeVariables imply Opt_RelaxedPolyRec
-
 
 Note [More instantiated than scoped]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1198,7 +1102,7 @@ type SigFun = Name -> Maybe ([Name], SrcSpan)
          -- Maps a let-binder to the list of
          -- type variables brought into scope
          -- by its type signature, plus location
-         -- Nothing => no type signature
+         -- Nothing <=> no type signature
 
 mkSigFun :: [LSig Name] -> SigFun
 -- Search for a particular type signature
@@ -1247,14 +1151,31 @@ tcInstSig sig_fn use_skols name
   | Just (scoped_tvs, loc) <- sig_fn name
   = do  { poly_id <- tcLookupId name    -- Cannot fail; the poly ids are put into 
                                         -- scope when starting the binding group
-        ; let poly_ty = idType poly_id
-        ; (tvs, theta, tau) <- if use_skols
-                               then tcInstType tcInstSkolTyVars poly_ty
-                               else tcInstType tcInstSigTyVars  poly_ty
-        ; let sig = TcSigInfo { sig_id = poly_id
-                              , sig_scoped = scoped_tvs
-                              , sig_tvs = tvs, sig_theta = theta, sig_tau = tau
-                              , sig_loc = loc }
+        ; let (tvs, rho) = tcSplitForAllTys (idType poly_id)
+        ; inst_tvs <-if use_skols
+                     then tcInstSkolTyVars tvs
+                     else tcInstSigTyVars  tvs
+        ; let  tenv = zipTopTvSubst tvs (mkTyVarTys inst_tvs)
+                         -- Either the tyvars are freshly made, by inst_tyvars,
+                         -- or any nested foralls have different binders.
+                         -- Either way, zipTopTvSubst is ok
+               (theta, tau) = tcSplitPhiTy (substTy tenv rho)
+
+                 -- Here we rely on the fact that the forall'd tyvars 
+                 -- in the poly_id have the same Names as the ones 
+                 -- returned by sig_fun; both come directly from the
+                 -- HsForAllTy in the signature
+               scoped_set = mkNameSet scoped_tvs
+               mk_tv_w_scope tv inst_tv 
+                  | tv_name `elemNameSet` scoped_set = (Just tv_name, inst_tv)
+                  | otherwise                        = (Nothing,      inst_tv)
+                  where
+                    tv_name = tyVarName tv
+
+               sig = TcSigInfo { sig_id = poly_id
+                               , sig_tvs = zipWith mk_tv_w_scope tvs inst_tvs
+                               , sig_theta = theta, sig_tau = tau
+                               , sig_loc = loc }
         ; return (Just (name, sig)) } 
   | otherwise
   = return Nothing

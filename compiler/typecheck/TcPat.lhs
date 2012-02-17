@@ -138,12 +138,11 @@ data TcSigInfo
   = TcSigInfo {
         sig_id     :: TcId,         --  *Polymorphic* binder for this value...
 
-        sig_scoped :: [Name],	    -- Scoped type variables
-		-- 1-1 correspondence with a prefix of sig_tvs
-		-- However, may be fewer than sig_tvs; 
-		-- see Note [More instantiated than scoped]
-        sig_tvs    :: [TcTyVar],    -- Instantiated type variables
-                                    -- See Note [Instantiate sig]
+        sig_tvs    :: [(Maybe Name, TcTyVar)],    
+                           -- Instantiated type and kind variables
+                           -- Just n <=> this skolem is lexically in scope with name n
+                     	   -- See Note [More instantiated than scoped] in TcBinds
+                           -- See Note [Instantiate sig]
 
         sig_theta  :: TcThetaType,  -- Instantiated theta
 

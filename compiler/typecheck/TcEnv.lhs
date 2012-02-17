@@ -25,8 +25,8 @@ module TcEnv(
         tcExtendGhciEnv, tcExtendLetEnv,
         tcExtendIdEnv, tcExtendIdEnv1, tcExtendIdEnv2, 
         tcLookup, tcLookupLocated, tcLookupLocalIds, 
-        tcLookupId, tcLookupTyVar, getScopedTyVarBinds,
-        getInLocalScope,
+        tcLookupId, tcLookupTyVar, tcLookupLcl_maybe, 
+        getScopedTyVarBinds, getInLocalScope,
         wrongThingErr, pprBinders,
 
         tcExtendRecEnv,         -- For knot-tying
@@ -276,6 +276,11 @@ tcExtendRecEnv gbl_stuff thing_inside
 tcLookupLocated :: Located Name -> TcM TcTyThing
 tcLookupLocated = addLocM tcLookup
 
+tcLookupLcl_maybe :: Name -> TcM (Maybe TcTyThing)
+tcLookupLcl_maybe name
+  = do { local_env <- getLclTypeEnv
+       ; return (lookupNameEnv local_env name) }
+
 tcLookup :: Name -> TcM TcTyThing
 tcLookup name = do
     local_env <- getLclTypeEnv
@@ -284,11 +289,11 @@ tcLookup name = do
         Nothing    -> AGlobal <$> tcLookupGlobal name
 
 tcLookupTyVar :: Name -> TcM TcTyVar
-tcLookupTyVar name = do
-    thing <- tcLookup name
-    case thing of
-        ATyVar _ tv -> return tv
-        _           -> pprPanic "tcLookupTyVar" (ppr name)
+tcLookupTyVar name
+  = do { thing <- tcLookup name
+       ; case thing of
+           ATyVar _ tv -> return tv
+           _           -> pprPanic "tcLookupTyVar" (ppr name) }
 
 tcLookupId :: Name -> TcM Id
 -- Used when we aren't interested in the binding level, nor refinement. 

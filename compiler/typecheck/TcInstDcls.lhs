@@ -567,7 +567,7 @@ tcFamInstDecl1 fam_tc (decl@TyData { tcdND = new_or_data, tcdCType = cType
        ; checkTc (isAlgTyCon fam_tc) (wrongKindOfFamily fam_tc)
 
          -- Kind check type patterns
-       ; tcFamTyPats fam_tc tvs pats (\_always_star -> kcDataDecl decl) $ 
+       ; tcFamTyPats fam_tc tvs pats (\kind -> kcDataDecl decl kind) $ 
            \tvs' pats' resultKind -> do
 
          -- Check that left-hand side contains no type family applications
