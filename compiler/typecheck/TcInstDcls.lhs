@@ -970,6 +970,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                   (spec_inst_prags, prag_fn)
                   op_items (VanillaInst binds sigs standalone_deriv)
   = do { mapM_ (checkInstSig clas inst_tys) sigs
+       ; traceTc "tcInstMeth" (ppr sigs $$ ppr binds)
        ; mapAndUnzipM tc_item op_items }
   where
     ----------------------
@@ -1085,8 +1086,10 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
     sig_fn = mkSigFun sigs
     mk_meth_sig_fn sel_name _meth_name 
        = case sig_fn sel_name of 
-            Nothing -> Just ([],loc)
-            Just r  -> Just r 
+            Nothing -> pprTrace "meth_sig_fn1" (ppr _meth_name $$ ppr sel_name) 
+                       Just ([],loc)
+            Just r  -> pprTrace "meth_sig_fn2" (ppr _meth_name $$ ppr sel_name $$ ppr r) 
+                       Just r 
         -- The orElse 'Just' says "yes, in effect there's always a type sig"
         -- But there are no scoped type variables from local_method_id
         -- Only the ones from the instance decl itself, which are already

@@ -1176,6 +1176,7 @@ tcInstSig sig_fn use_skols name
                                , sig_tvs = zipWith mk_tv_w_scope tvs inst_tvs
                                , sig_theta = theta, sig_tau = tau
                                , sig_loc = loc }
+        ; traceTc "tcInstSig" (ppr name $$ ppr scoped_tvs $$ ppr tvs)
         ; return (Just (name, sig)) } 
   | otherwise
   = return Nothing
