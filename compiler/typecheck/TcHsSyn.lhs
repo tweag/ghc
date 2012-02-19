@@ -292,14 +292,12 @@ zonkTyBndrsX :: ZonkEnv -> [TyVar] -> TcM (ZonkEnv, [TyVar])
 zonkTyBndrsX = mapAccumLM zonkTyBndrX 
 
 zonkTyBndrX :: ZonkEnv -> TyVar -> TcM (ZonkEnv, TyVar)
+-- This guarantees to return a TyVar (not a TcTyVar)
+-- then we add it to the envt, so all occurrences are replaced
 zonkTyBndrX env tv
-  = do { tv' <- zonkTyBndr env tv
-       ; return (extendTyZonkEnv1 env tv', tv') }
-
-zonkTyBndr :: ZonkEnv -> TyVar -> TcM TyVar
-zonkTyBndr env tv
   = do { ki <- zonkTcTypeToType env (tyVarKind tv)
-       ; return (setVarType tv ki) }
+       ; let tv' = mkTyVar (tyVarName tv) ki
+       ; return (extendTyZonkEnv1 env tv', tv') }
 \end{code}
 
 
@@ -1277,9 +1275,10 @@ zonkTcTypeToType :: ZonkEnv -> TcType -> TcM Type
 zonkTcTypeToType (ZonkEnv zonk_unbound_tyvar tv_env _id_env)
   = zonkType (mkZonkTcTyVar zonk_unbound_tyvar zonk_bound_tyvar)
   where
-    zonk_bound_tyvar tv = case lookupVarEnv tv_env tv of
-                            Nothing  -> mkTyVarTy tv
-                            Just tv' -> mkTyVarTy tv'
+    zonk_bound_tyvar tv    -- Look up in the env just as we do for Ids
+      = case lookupVarEnv tv_env tv of
+          Nothing  -> mkTyVarTy tv
+          Just tv' -> mkTyVarTy tv'
 
 zonkTcTypeToTypes :: ZonkEnv -> [TcType] -> TcM [Type]
 zonkTcTypeToTypes env tys = mapM (zonkTcTypeToType env) tys

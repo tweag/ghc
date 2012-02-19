@@ -39,13 +39,14 @@ import VarEnv
 import Bag
 import Maybes
 import ErrUtils         ( ErrMsg, makeIntoWarning, pprLocErrMsg )
+import SrcLoc           ( noSrcSpan )
 import Util
 import FastString
 import Outputable
 import DynFlags
 import Data.List        ( partition, mapAccumL )
 import Data.Either      ( partitionEithers )
--- import Control.Monad    ( when )
+
 \end{code}
 
 %************************************************************************
@@ -614,18 +615,21 @@ tyVarExtraInfoMsg implics ty
   , isTcTyVar tv, isSkolemTyVar tv
   , let pp_tv = quotes (ppr tv)
  = case tcTyVarDetails tv of
-    SkolemTv {}   -> pp_tv <+> ppr_skol (getSkolemInfo implics tv) (getSrcLoc tv)
+    SkolemTv {}   -> pp_tv <+> ppr_skol (getSkolemInfo implics tv)
     FlatSkol {}   -> pp_tv <+> ptext (sLit "is a flattening type variable")
     RuntimeUnk {} -> pp_tv <+> ptext (sLit "is an interactive-debugger skolem")
     MetaTv {}     -> empty
 
  | otherwise             -- Normal case
  = empty
-
  where
-   ppr_skol UnkSkol _   = ptext (sLit "is an unknown type variable")  -- Unhelpful
-   ppr_skol info    loc = sep [ptext (sLit "is a rigid type variable bound by"),
-                               sep [ppr info, ptext (sLit "at") <+> ppr loc]]
+   ppr_skol given_loc
+     = case skol_info of
+         UnkSkol -> ptext (sLit "is an unknown type variable")
+         _ -> sep [ ptext (sLit "is a rigid type variable bound by"),
+                    sep [ppr skol_info, ptext (sLit "at") <+> ppr (ctLocSpan given_loc)]]
+     where
+       skol_info = ctLocOrigin given_loc
  
 kindErrorMsg :: TcType -> TcType -> SDoc   -- Types are already tidy
 kindErrorMsg ty1 ty2
@@ -938,14 +942,15 @@ mkAmbigMsg ctxt cts
      			            -- if it is not already set!
              ]
 
-getSkolemInfo :: [Implication] -> TcTyVar -> SkolemInfo
+getSkolemInfo :: [Implication] -> TcTyVar -> GivenLoc
 -- Get the skolem info for a type variable 
 -- from the implication constraint that binds it
 getSkolemInfo [] tv
   = WARN( True, ptext (sLit "No skolem info:") <+> ppr tv )
-    UnkSkol
+    CtLoc UnkSkol noSrcSpan []
+
 getSkolemInfo (implic:implics) tv
-  | tv `elem` ic_skols implic = ctLocOrigin (ic_loc implic)
+  | tv `elem` ic_skols implic = ic_loc implic
   | otherwise                 = getSkolemInfo implics tv
 
 -----------------------

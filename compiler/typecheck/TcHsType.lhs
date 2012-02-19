@@ -840,12 +840,26 @@ then we'd also need
                           since we only have BOX for a super kind)
 
 \begin{code}
+bindScopedKindVars :: [LHsTyVarBndr Name] -> TcM a -> TcM a
+-- Given some tyvar binders like [a (b :: k -> *) (c :: k)]
+-- bind each scoped kind variable (k in this case) to a fresh
+-- kind skolem variable
+bindScopedKindVars hs_tvs thing_inside
+  = tcExtendTyVarEnv kvs thing_inside
+  where
+    new_kv_names = [ kv | L _ (KindedTyVar _ (HsBSig _ kvs) _) <- hs_tvs
+                        , kv <- kvs ]
+
+    kvs :: [KindVar]   -- All skolems
+    kvs = map mkKindSigVar new_kv_names
+
 kcHsTyVarBndrs :: [LHsTyVarBndr Name] 
 	       -> ([LHsTyVarBndr Name] -> TcM r) -- These binders are kind-annotated
 						 -- They scope over the thing inside
 	   -> TcM r
-kcHsTyVarBndrs tvs thing_inside
-  = do { kinded_tvs <- mapM (wrapLocM kcHsTyVarBndr) tvs
+kcHsTyVarBndrs hs_tvs thing_inside
+  = bindScopedKindVars hs_tvs $
+    do { kinded_tvs <- mapM (wrapLocM kcHsTyVarBndr) hs_tvs
        ; tcExtendKindEnvTvs kinded_tvs thing_inside }
 
 kcHsTyVarBndr :: HsTyVarBndr Name -> TcM (HsTyVarBndr Name)
@@ -939,16 +953,13 @@ kcLookupKind nm
            _                   -> pprPanic "kcLookupKind" (ppr tc_ty_thing) }
 
 kcTyClTyVars name hs_tvs thing_inside
-  = do 	{ tc_kind <- kcLookupKind name
-	; let (arg_ks, res_k) = splitKindFunTys tc_kind
-              new_kv_names = [ kv | L _ (KindedTyVar _ (HsBSig _ kvs) _) <- hs_tvs
-                                  , kv <- kvs ]
-        ; kvs <- mapM newKindSigVar new_kv_names
-        ; tcExtendTyVarEnv kvs $ do
-        { name_ks <- ASSERT( length arg_ks == length hs_tvs )
-                           -- getInitialKinds used the tcdTyVars
-                     zipWithM kc_tv hs_tvs arg_ks
-        ; tcExtendKindEnv name_ks (thing_inside res_k) } }
+  = bindScopedKindVars hs_tvs $
+    do 	{ tc_kind <- kcLookupKind name
+	; let (arg_ks, res_k) = splitKindFunTysN (length hs_tvs) tc_kind
+                     -- There should be enough arrows, because
+                     -- getInitialKinds used the tcdTyVars
+        ; name_ks <- zipWithM kc_tv hs_tvs arg_ks
+        ; tcExtendKindEnv name_ks (thing_inside res_k) }
   where
     kc_tv :: LHsTyVarBndr Name -> Kind -> TcM (Name, Kind)
     kc_tv (L _ (UserTyVar n _)) exp_k 
@@ -1379,7 +1390,6 @@ tc_app (HsTyVar tc)      kis =
 tc_app ki                _   = failWithTc (quotes (ppr ki) <+> 
                                     ptext (sLit "is not a kind constructor"))
 
--- IA0_TODO: With explicit kind polymorphism I might need to add ATyVar
 tc_var_app :: Name -> [Kind] -> TcM Kind
 -- Special case for * and Constraint kinds
 -- They are kinds already, so we don't need to promote them
@@ -1407,14 +1417,16 @@ tc_var_app name arg_kis = do
         Just _  -> err tc "is not fully applied"
         Nothing -> err tc "is not promotable"
 
-    -- A lexically scoped kind varaible
+    -- A lexically scoped kind variable
     Just (ATyVar _ kind_var) -> return (mkAppTys (mkTyVarTy kind_var) arg_kis)
 
     -- It is in scope, but not what we expected
     Just thing -> wrongThingErr "promoted type" thing name
 
     -- It is not in scope, but it passed the renamer: staging error
-    Nothing    -> ASSERT2 ( isTyConName name, ppr name )
+    Nothing    -> -- ASSERT2 ( isTyConName name, ppr name )
+              do  env <- getLclEnv
+                  traceTc "tc_var_app" (ppr name $$ ppr (tcl_env env))
                   failWithTc (ptext (sLit "Promoted kind") <+> 
                               quotes (ppr name) <+>
                               ptext (sLit "used in a mutually recursive group"))

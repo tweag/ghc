@@ -49,7 +49,7 @@ module RdrName (
 
 	-- * Local mapping of 'RdrName' to 'Name.Name'
 	LocalRdrEnv, emptyLocalRdrEnv, extendLocalRdrEnv, extendLocalRdrEnvList,
-	lookupLocalRdrEnv, lookupLocalRdrOcc, elemLocalRdrEnv,
+	delLocalRdrEnvList, lookupLocalRdrEnv, lookupLocalRdrOcc, elemLocalRdrEnv,
 
 	-- * Global mapping of 'RdrName' to 'GlobalRdrElt's
 	GlobalRdrEnv, emptyGlobalRdrEnv, mkGlobalRdrEnv, plusGlobalRdrEnv, 
@@ -341,6 +341,10 @@ extendLocalRdrEnv env name
 extendLocalRdrEnvList :: LocalRdrEnv -> [Name] -> LocalRdrEnv
 extendLocalRdrEnvList env names
   = extendOccEnvList env [(nameOccName n, n) | n <- names]
+
+delLocalRdrEnvList :: LocalRdrEnv -> [Name] -> LocalRdrEnv
+delLocalRdrEnvList env names 
+  = delListFromOccEnv env (map nameOccName names)
 
 lookupLocalRdrEnv :: LocalRdrEnv -> RdrName -> Maybe Name
 lookupLocalRdrEnv env (Unqual occ) = lookupOccEnv env occ

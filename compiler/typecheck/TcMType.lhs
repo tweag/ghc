@@ -24,7 +24,7 @@ module TcMType (
   newFlexiTyVar,
   newFlexiTyVarTy,		-- Kind -> TcM TcType
   newFlexiTyVarTys,		-- Int -> Kind -> TcM [TcType]
-  newMetaKindVar, newMetaKindVars, newKindSigVar,
+  newMetaKindVar, newMetaKindVars, mkKindSigVar,
   mkTcTyVarName,
 
   newMetaTyVar, readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
@@ -60,7 +60,7 @@ module TcMType (
   --------------------------------
   -- Zonking
   zonkType, zonkKind, zonkTcPredType, 
-  skolemiseUnboundMetaTyVar,
+  skolemiseSigTv, skolemiseUnboundMetaTyVar,
   zonkTcTyVar, zonkTcTyVars, zonkTcTyVarsAndFV, zonkSigTyVar,
   zonkQuantifiedTyVar, zonkQuantifiedTyVars,
   zonkTcType, zonkTcTypes, zonkTcThetaType,
@@ -123,10 +123,9 @@ newMetaKindVar = do { uniq <- newUnique
 newMetaKindVars :: Int -> TcM [TcKind]
 newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
 
-newKindSigVar :: Name -> TcM KindVar
+mkKindSigVar :: Name -> KindVar
 -- Use the specified name; don't clone it
-newKindSigVar n = do { ref <- newMutVar Flexi
-                     ; return (mkTcTyVar n superKind (MetaTv SigTv ref)) }
+mkKindSigVar n = mkTcTyVar n superKind (SkolemTv False)
 \end{code}
 
 
@@ -645,6 +644,17 @@ skolemiseUnboundMetaTyVar tv details
 
         ; writeMetaTyVar tv (mkTyVarTy final_tv)
         ; return final_tv }
+
+skolemiseSigTv :: TcTyVar -> TcM TcTyVar
+-- In TcBinds we create SigTvs for type signatures
+-- but for singleton groups we want them to really be skolems
+-- which do not unify with each other
+skolemiseSigTv tv  
+  = ASSERT2( isSigTyVar tv, ppr tv )
+    do { writeMetaTyVarRef tv (metaTvRef tv) (mkTyVarTy skol_tv)
+       ; return skol_tv }
+  where
+    skol_tv = setTcTyVarDetails tv (SkolemTv False)
 \end{code}
 
 \begin{code}

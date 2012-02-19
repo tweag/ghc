@@ -26,7 +26,7 @@ module RnTypes (
 	rnSplice, checkTH,
 
         -- Binding related stuff
-        bindSigTyVarsFV, bindHsTyVars, bindTyVarsRn, rnHsBndrSig
+        bindSigTyVarsFV, bindHsTyVars, bindTyClTyVars, rnHsBndrSig
   ) where
 
 import {-# SOURCE #-} RnExpr( rnLExpr )
@@ -330,6 +330,47 @@ bindSigTyVarsFV tvs thing_inside
 		bindLocalNamesFV tvs thing_inside }
 
 ---------------
+bindTyClTyVars 
+    :: HsDocContext 
+    -> Maybe (Name, [Name])      -- Parent class and its tyvars
+    -> [LHsTyVarBndr RdrName]
+    -> ([LHsTyVarBndr Name] -> RnM (a, FreeVars))
+    -> RnM (a, FreeVars)
+-- Used for tyvar binders in type/class declarations
+-- Just like bindHsTyVars, but deals with the case of associated
+-- types, where the type variables may be already in scope
+bindTyClTyVars doc mb_cls tyvars thing_inside
+  | Just (_, cls_tvs) <- mb_cls   -- Associated type family or type instance
+  = do { let tv_rdr_names = map hsLTyVarLocName tyvars
+       	     -- *All* the free vars of the family patterns
+
+       -- Check for duplicated bindings
+       -- This test is irrelevant for data/type *instances*, where the tyvars
+       -- are the free tyvars of the patterns, and hence have no duplicates
+       -- But it's needed for data/type *family* decls
+       ; checkDupRdrNames tv_rdr_names
+
+       -- Make the Names for the tyvars
+       ; rdr_env <- getLocalRdrEnv
+       ; let mk_tv_name :: Located RdrName -> RnM Name
+              -- Use the same Name as the parent class decl
+             mk_tv_name (L l tv_rdr)
+               = case lookupLocalRdrEnv rdr_env tv_rdr of 
+                    Just n  -> return n
+                    Nothing -> newLocalBndrRn (L l tv_rdr)
+       ; tv_ns <- mapM mk_tv_name tv_rdr_names
+
+       ; (thing, fvs) <- unbindLocalNames cls_tvs $
+                            -- See Note [Renaming associated types] 
+                         bindTyVarsRn doc tyvars tv_ns thing_inside
+
+       ; return (thing, fvs) }
+
+  | otherwise   -- Not associated, just fall through to bindHsTyVars
+  = bindHsTyVars doc tyvars thing_inside
+
+
+---------------
 bindHsTyVars :: HsDocContext -> [LHsTyVarBndr RdrName]
 	      -> ([LHsTyVarBndr Name] -> RnM (a, FreeVars))
 	      -> RnM (a, FreeVars)
@@ -345,7 +386,8 @@ bindTyVarsRn :: HsDocContext -> [LHsTyVarBndr RdrName] -> [Name]
 	     -> ([LHsTyVarBndr Name] -> RnM (a, FreeVars))
 	     -> RnM (a, FreeVars)
 -- Rename the HsTyVarBndrs, giving them the specified names
--- and bringing into scope and kind variables bound in their
+-- *and* bringing into scope the kind variables bound in 
+-- any kind signatures
 
 bindTyVarsRn doc tv_bndrs names thing_inside
   = go tv_bndrs names $ \ tv_bndrs' -> 
@@ -413,8 +455,32 @@ badSigErr is_type doc ty
          | otherwise = ptext (sLit "kind")
     flag | is_type   = ptext (sLit "XScopedTypeVariable")
          | otherwise = ptext (sLit "XKindSignatures")
-
 \end{code}
+
+Note [Renaming associated types] 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Check that the RHS of the decl mentions only type variables
+bound on the LHS.  For example, this is not ok
+   class C a b where
+      type F a x :: *
+   instance C (p,q) r where
+      type F (p,q) x = (x, r)	-- BAD: mentions 'r'
+c.f. Trac #5515
+
+What makes it tricky is that the *kind* variable from the class *are*
+in scope (Trac #5862):
+    class Category (x :: k -> k -> *) where
+      type Ob x :: k -> Constraint
+      id :: Ob x a => x a a
+      (.) :: (Ob x a, Ob x b, Ob x c) => x b c -> x a b -> x a c 
+Here 'k' is in scope in the kind signature even though it's not 
+explicitly mentioned on the LHS of the type Ob declaration.
+
+We could force you to mention k explicitly, thus
+    class Category (x :: k -> k -> *) where
+      type Ob (x :: k -> k -> *) :: k -> Constraint
+but it seems tiresome to do so.
+
 
 %*********************************************************
 %*							*

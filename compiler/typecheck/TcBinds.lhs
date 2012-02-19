@@ -6,9 +6,10 @@
 
 \begin{code}
 module TcBinds ( tcLocalBinds, tcTopBinds, tcRecSelBinds,
-                 tcHsBootSigs, tcPolyBinds,
+                 tcHsBootSigs, tcPolyBinds, tcPolyCheck,
                  PragFun, tcSpecPrags, tcVectDecls, mkPragFun, 
-                 TcSigInfo(..), SigFun, mkSigFun,
+                 TcSigInfo(..), TcSigFun, 
+                 instTcTySig, instTcTySigFromId,
                  badBootDeclErr ) where
 
 import {-# SOURCE #-} TcMatches ( tcGRHSsPat, tcMatchesFun )
@@ -250,16 +251,9 @@ tcValBinds :: TopLevelFlag
 
 tcValBinds top_lvl binds sigs thing_inside
   = do  {       -- Typecheck the signature
-        ; let { prag_fn = mkPragFun sigs (foldr (unionBags . snd) emptyBag binds)
-              ; ty_sigs = filter isTypeLSig sigs
-              ; sig_fn  = mkSigFun ty_sigs }
+          (poly_ids, sig_fn) <- tcTySigs sigs
 
-        ; poly_ids <- concat <$> checkNoErrs (mapAndRecoverM tcTySig ty_sigs)
-                -- No recovery from bad signatures, because the type sigs
-                -- may bind type variables, so proceeding without them
-                -- can lead to a cascade of errors
-                -- ToDo: this means we fall over immediately if any type sig
-                -- is wrong, which is over-conservative, see Trac bug #745
+        ; let prag_fn = mkPragFun sigs (foldr (unionBags . snd) emptyBag binds)
 
                 -- Extend the envt right away with all 
                 -- the Ids declared with type signatures
@@ -270,7 +264,7 @@ tcValBinds top_lvl binds sigs thing_inside
         ; return (binds', thing) }
 
 ------------------------
-tcBindGroups :: TopLevelFlag -> SigFun -> PragFun
+tcBindGroups :: TopLevelFlag -> TcSigFun -> PragFun
              -> [(RecFlag, LHsBinds Name)] -> TcM thing
              -> TcM ([(RecFlag, LHsBinds TcId)], thing)
 -- Typecheck a whole lot of value bindings,
@@ -291,7 +285,7 @@ tcBindGroups top_lvl sig_fn prag_fn (group : groups) thing_inside
 
 ------------------------
 tc_group :: forall thing. 
-            TopLevelFlag -> SigFun -> PragFun
+            TopLevelFlag -> TcSigFun -> PragFun
          -> (RecFlag, LHsBinds Name) -> TcM thing
          -> TcM ([(RecFlag, LHsBinds TcId)], thing)
 
@@ -335,7 +329,7 @@ tc_group top_lvl sig_fn prag_fn (Recursive, binds) thing_inside
     tc_sub_group = tcPolyBinds top_lvl sig_fn prag_fn Recursive
 
 ------------------------
-mkEdges :: SigFun -> LHsBinds Name
+mkEdges :: TcSigFun -> LHsBinds Name
         -> [(LHsBind Name, BKey, [BKey])]
 
 type BKey  = Int -- Just number off the bindings
@@ -362,7 +356,7 @@ bindersOfHsBind (AbsBinds {})                = panic "bindersOfHsBind AbsBinds"
 bindersOfHsBind (VarBind {})                 = panic "bindersOfHsBind VarBind"
 
 ------------------------
-tcPolyBinds :: TopLevelFlag -> SigFun -> PragFun
+tcPolyBinds :: TopLevelFlag -> TcSigFun -> PragFun
             -> RecFlag       -- Whether the group is really recursive
             -> RecFlag       -- Whether it's recursive after breaking
                              -- dependencies based on type signatures
@@ -387,18 +381,18 @@ tcPolyBinds top_lvl sig_fn prag_fn rec_group rec_tc bind_list
     { traceTc "------------------------------------------------" empty
     ; traceTc "Bindings for" (ppr binder_names)
 
-    -- Instantiate the polytypes of any binders that have signatures
-    -- (as determined by sig_fn), returning a TcSigInfo for each
-    ; tc_sig_fn <- tcInstSigs sig_fn binder_names
+--    -- Instantiate the polytypes of any binders that have signatures
+--    -- (as determined by sig_fn), returning a TcSigInfo for each
+--    ; tc_sig_fn <- tcInstSigs sig_fn binder_names
 
     ; dflags   <- getDynFlags
     ; type_env <- getLclTypeEnv
     ; let plan = decideGeneralisationPlan dflags type_env 
-                         binder_names bind_list tc_sig_fn
+                         binder_names bind_list sig_fn
     ; traceTc "Generalisation plan" (ppr plan)
     ; result@(_, poly_ids, _) <- case plan of
-         NoGen          -> tcPolyNoGen tc_sig_fn prag_fn rec_tc bind_list
-         InferGen mn cl -> tcPolyInfer mn cl tc_sig_fn prag_fn rec_tc bind_list
+         NoGen          -> tcPolyNoGen sig_fn prag_fn rec_tc bind_list
+         InferGen mn cl -> tcPolyInfer mn cl sig_fn prag_fn rec_tc bind_list
          CheckGen sig   -> tcPolyCheck sig prag_fn rec_tc bind_list
 
         -- Check whether strict bindings are ok
@@ -450,15 +444,15 @@ tcPolyCheck :: TcSigInfo -> PragFun
 --   it binds a single variable,
 --   it has a signature,
 tcPolyCheck sig@(TcSigInfo { sig_id = poly_id, sig_tvs = tvs_w_scoped 
-                           , sig_theta = theta, sig_tau = tau })
+                           , sig_theta = theta, sig_tau = tau, sig_loc = loc })
     prag_fn rec_tc bind_list
-  = do { loc <- getSrcSpanM
-       ; ev_vars <- newEvVars theta
+  = do { ev_vars <- newEvVars theta
        ; let skol_info = SigSkol (FunSigCtxt (idName poly_id)) (mkPhiTy theta tau)
              prag_sigs = prag_fn (idName poly_id)
-             tvs = map snd tvs_w_scoped
+       ; tvs <- mapM (skolemiseSigTv . snd) tvs_w_scoped
        ; (ev_binds, (binds', [mono_info])) 
-            <- checkConstraints skol_info tvs ev_vars $
+            <- setSrcSpan loc $  
+               checkConstraints skol_info tvs ev_vars $
                tcExtendTyVarEnv2 [(n,tv) | (Just n, tv) <- tvs_w_scoped] $
                tcMonoBinds (\_ -> Just sig) LetLclBndr rec_tc bind_list
 
@@ -807,7 +801,7 @@ scalarTyConMustBeNullary = ptext (sLit "VECTORISE SCALAR type constructor must b
 -- If typechecking the binds fails, then return with each
 -- signature-less binder given type (forall a.a), to minimise 
 -- subsequent error messages
-recoveryCode :: [Name] -> SigFun -> TcM (LHsBinds TcId, [Id], TopLevelFlag)
+recoveryCode :: [Name] -> TcSigFun -> TcM (LHsBinds TcId, [Id], TopLevelFlag)
 recoveryCode binder_names sig_fn
   = do  { traceTc "tcBindsWithSigs: error recovery" (ppr binder_names)
         ; poly_ids <- mapM mk_dummy binder_names
@@ -1098,88 +1092,56 @@ For example:
 it's all cool; each signature has distinct type variables from the renamer.)
 
 \begin{code}
-type SigFun = Name -> Maybe ([Name], SrcSpan)
-         -- Maps a let-binder to the list of
-         -- type variables brought into scope
-         -- by its type signature, plus location
-         -- Nothing <=> no type signature
+tcTySigs :: [LSig Name] -> TcM ([TcId], TcSigFun)
+tcTySigs hs_sigs
+  = do { ty_sigs <- concat <$> checkNoErrs (mapAndRecoverM tcTySig hs_sigs)
+                -- No recovery from bad signatures, because the type sigs
+                -- may bind type variables, so proceeding without them
+                -- can lead to a cascade of errors
+                -- ToDo: this means we fall over immediately if any type sig
+                -- is wrong, which is over-conservative, see Trac bug #745
+       ; let env = mkNameEnv [(idName (sig_id sig), sig) | sig <- ty_sigs]
+       ; return (map sig_id ty_sigs, lookupNameEnv env) }
 
-mkSigFun :: [LSig Name] -> SigFun
--- Search for a particular type signature
--- Precondition: the sigs are all type sigs
--- Precondition: no duplicates
-mkSigFun sigs = lookupNameEnv env
+tcTySig :: LSig Name -> TcM [TcSigInfo]
+tcTySig (L loc (IdSig id))
+  = do { sig <- instTcTySigFromId loc id
+       ; return [sig] }
+tcTySig (L loc (TypeSig names@(L _ name1 : _) hs_ty))
+  = setSrcSpan loc $ 
+    do { sigma_ty <- tcHsSigType (FunSigCtxt name1) hs_ty
+       ; mapM (instTcTySig hs_ty sigma_ty) (map unLoc names) }
+tcTySig _ = return []
+
+instTcTySigFromId :: SrcSpan -> Id -> TcM TcSigInfo
+instTcTySigFromId loc id
+  = do { (tvs, theta, tau) <- tcInstType tcInstSigTyVars (idType id)
+       ; return (TcSigInfo { sig_id = id, sig_loc = loc
+                           , sig_tvs = [(Nothing, tv) | tv <- tvs]
+                           , sig_theta = theta, sig_tau = tau }) }
+
+instTcTySig :: LHsType Name -> TcType    -- HsType and corresponding TcType
+            -> Name -> TcM TcSigInfo
+instTcTySig hs_ty@(L loc _) sigma_ty name
+  = do { (inst_tvs, theta, tau) <- tcInstType tcInstSigTyVars sigma_ty
+       ; return (TcSigInfo { sig_id = poly_id, sig_loc = loc
+                           , sig_tvs = zipEqual "instTcTySig" scoped_tvs inst_tvs
+                           , sig_theta = theta, sig_tau = tau }) }
   where
-    env = mkNameEnv (concatMap mk_pair sigs)
-    mk_pair (L loc (IdSig id))              = [(idName id, ([], loc))]
-    mk_pair (L loc (TypeSig lnames lhs_ty)) = map f lnames
-      where
-        f (L _ name) = (name, (hsExplicitTvs lhs_ty, loc))
-    mk_pair _                               = []
-        -- The scoped names are the ones explicitly mentioned
-        -- in the HsForAll.  (There may be more in sigma_ty, because
-        -- of nested type synonyms.  See Note [More instantiated than scoped].)
-        -- See Note [Only scoped tyvars are in the TyVarEnv]
-\end{code}
+    poly_id      = mkLocalId name sigma_ty
 
-\begin{code}
-tcTySig :: LSig Name -> TcM [TcId]
-tcTySig (L span (TypeSig names@(L _ name1 : _) ty))
-  = setSrcSpan span $ 
-    do { sigma_ty <- tcHsSigType (FunSigCtxt name1) ty
-       ; return [ mkLocalId name sigma_ty | L _ name <- names ] }
-tcTySig (L _ (IdSig id))
-  = return [id]
-tcTySig s = pprPanic "tcTySig" (ppr s)
+    scoped_names = hsExplicitTvs hs_ty
+    (sig_tvs,_)  = tcSplitForAllTys sigma_ty
 
--------------------
-tcInstSigs :: SigFun -> [Name] -> TcM TcSigFun
-tcInstSigs sig_fn bndrs
-  = do { prs <- mapMaybeM (tcInstSig sig_fn use_skols) bndrs
-       ; return (lookupNameEnv (mkNameEnv prs)) }
-  where
-    use_skols = isSingleton bndrs       -- See Note [Signature skolems]
+    scoped_tvs :: [Maybe Name]
+    scoped_tvs = mk_scoped scoped_names sig_tvs
 
-tcInstSig :: SigFun -> Bool -> Name -> TcM (Maybe (Name, TcSigInfo))
--- For use_skols :: Bool see Note [Signature skolems]
---
--- We must instantiate with fresh uniques, 
--- (see Note [Instantiate sig with fresh variables])
--- although we keep the same print-name.
-
-tcInstSig sig_fn use_skols name
-  | Just (scoped_tvs, loc) <- sig_fn name
-  = do  { poly_id <- tcLookupId name    -- Cannot fail; the poly ids are put into 
-                                        -- scope when starting the binding group
-        ; let (tvs, rho) = tcSplitForAllTys (idType poly_id)
-        ; inst_tvs <-if use_skols
-                     then tcInstSkolTyVars tvs
-                     else tcInstSigTyVars  tvs
-        ; let  tenv = zipTopTvSubst tvs (mkTyVarTys inst_tvs)
-                         -- Either the tyvars are freshly made, by inst_tyvars,
-                         -- or any nested foralls have different binders.
-                         -- Either way, zipTopTvSubst is ok
-               (theta, tau) = tcSplitPhiTy (substTy tenv rho)
-
-                 -- Here we rely on the fact that the forall'd tyvars 
-                 -- in the poly_id have the same Names as the ones 
-                 -- returned by sig_fun; both come directly from the
-                 -- HsForAllTy in the signature
-               scoped_set = mkNameSet scoped_tvs
-               mk_tv_w_scope tv inst_tv 
-                  | tv_name `elemNameSet` scoped_set = (Just tv_name, inst_tv)
-                  | otherwise                        = (Nothing,      inst_tv)
-                  where
-                    tv_name = tyVarName tv
-
-               sig = TcSigInfo { sig_id = poly_id
-                               , sig_tvs = zipWith mk_tv_w_scope tvs inst_tvs
-                               , sig_theta = theta, sig_tau = tau
-                               , sig_loc = loc }
-        ; traceTc "tcInstSig" (ppr name $$ ppr scoped_tvs $$ ppr tvs)
-        ; return (Just (name, sig)) } 
-  | otherwise
-  = return Nothing
+    mk_scoped :: [Name] -> [TyVar] -> [Maybe Name]
+    mk_scoped []     tvs      = [Nothing | _ <- tvs]
+    mk_scoped (n:ns) (tv:tvs) 
+           | n == tyVarName tv = Just n  : mk_scoped ns     tvs
+           | otherwise         = Nothing : mk_scoped (n:ns) tvs
+    mk_scoped (n:ns) [] = pprPanic "mk_scoped" (ppr name $$ ppr (n:ns) $$ ppr hs_ty $$ ppr sigma_ty)
 
 -------------------------------
 data GeneralisationPlan 
@@ -1190,7 +1152,8 @@ data GeneralisationPlan
        Bool             --   True <=> bindings mention only variables with closed types
                         --            See Note [Bindings with closed types] in TcRnTypes
 
-  | CheckGen TcSigInfo  -- Explicit generalisation; there is an AbsBinds
+  | CheckGen TcSigInfo  -- One binding with a signature
+                        -- Explicit generalisation; there is an AbsBinds
 
 -- A consequence of the no-AbsBinds choice (NoGen) is that there is
 -- no "polymorphic Id" and "monmomorphic Id"; there is just the one

@@ -543,7 +543,9 @@ tcTyClDecl1 _parent _calc_isrec
             (TySynonym {tcdLName = L _ tc_name, tcdCType = cType, tcdTyVars = tvs, tcdSynRhs = rhs_ty})
   = ASSERT( isNoParent _parent )
     tcTyClTyVars tc_name tvs $ \ tvs' kind -> do
-    { rhs_ty' <- tcCheckHsType rhs_ty kind
+    { env <- getLclEnv
+    ; traceTc "tc-syn" (ppr tc_name $$ ppr (tcl_env env))
+    ; rhs_ty' <- tcCheckHsType rhs_ty kind
     ; tycon <- buildSynTyCon tc_name tvs' cType (SynonymTyCon rhs_ty')
                  kind NoParentTyCon
     ; return [ATyCon tycon] }
@@ -607,8 +609,6 @@ tcTyClDecl1 _parent calc_isrec
 		    tc_isrec = calc_isrec tycon_name
 
             ; at_stuff <- tcClassATs class_name (AssocFamilyTyCon clas) ats at_defs
-            -- NB: 'ats' only contains "type family" and "data family" declarations
-            -- and 'at_defs' only contains associated-type defaults
 
             ; buildClass False {- Must include unfoldings for selectors -}
 			 class_name tvs' ctxt' fds' at_stuff

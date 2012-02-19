@@ -22,7 +22,8 @@ module RnEnv (
 	HsSigCtxt(..), lookupLocalDataTcNames, lookupSigOccRn,
 
 	lookupFixityRn, lookupTyFixityRn, 
-	lookupInstDeclBndr, lookupSubBndrOcc, greRdrName,
+	lookupInstDeclBndr, lookupSubBndrOcc, lookupTcdName,
+        greRdrName,
         lookupSubBndrGREs, lookupConstructorFields,
 	lookupSyntaxName, lookupSyntaxTable, lookupIfThenElse,
 	lookupGreRn, lookupGreLocalRn, lookupGreRn_maybe,
@@ -30,6 +31,7 @@ module RnEnv (
 
 	newLocalBndrRn, newLocalBndrsRn,
 	bindLocalName, bindLocalNames, bindLocalNamesFV, 
+        unbindLocalNames,
 	MiniFixityEnv, emptyFsEnv, extendFsEnv, lookupFsEnv,
 	addLocalFixities,
 	bindLocatedLocalsFV, bindLocatedLocalsRn,
@@ -68,6 +70,7 @@ import Outputable
 import Util
 import Maybes
 import ListSetOps	( removeDups )
+import Unique( getUnique )
 import DynFlags
 import FastString
 import Control.Monad
@@ -269,6 +272,25 @@ lookupInstDeclBndr cls what rdr
   where
     doc = what <+> ptext (sLit "of class") <+> quotes (ppr cls)
 
+
+-----------------------------------------------
+lookupTcdName :: Maybe Name -> TyClDecl RdrName -> RnM (Located Name)
+-- Used for TyData and TySynonym only, 
+-- both ordinary ones and family instances
+-- See Note [Family instance binders]
+lookupTcdName mb_cls tc_decl
+  | not (isFamInstDecl tc_decl)   -- The normal case
+  = ASSERT2( isNothing mb_cls, ppr tc_rdr )     -- Parser prevents this
+    lookupLocatedTopBndrRn tc_rdr
+
+  | Just cls <- mb_cls      -- Associated type; c.f RnBinds.rnMethodBind
+  = wrapLocM (lookupInstDeclBndr cls (ptext (sLit "associated type"))) tc_rdr
+
+  | otherwise               -- Family instance; tc_rdr is an *occurrence*
+  = lookupLocatedOccRn tc_rdr 
+  where
+    tc_rdr = tcdLName tc_decl
+
 -----------------------------------------------
 lookupConstructorFields :: Name -> RnM [Name]
 -- Look up the fields of a given constructor
@@ -371,6 +393,40 @@ lookupSubBndrGREs env parent rdr_name
     parent_is p (GRE { gre_par = ParentIs p' }) = p == p'
     parent_is _ _                               = False
 \end{code}
+
+Note [Family instance binders]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider
+  data family F a
+  data instance F T = X1 | X2
+
+The 'data instance' decl has an *occurrence* of F (and T), and *binds*
+X1 and X2.  (This is unlike a normal data type declaration which would
+bind F too.)  So we want an AvailTC F [X1,X2].
+
+Now consider a similar pair:
+  class C a where
+    data G a
+  instance C S where
+    data G S = Y1 | Y2
+
+The 'data G S' *binds* Y1 and Y2, and has an *occurrence* of G.
+
+But there is a small complication: in an instance decl, we don't use
+qualified names on the LHS; instead we use the class to disambiguate.
+Thus:
+  module M where
+    import Blib( G )
+    class C a where
+      data G a
+    instance C S where
+      data G S = Y1 | Y2
+Even though there are two G's in scope (M.G and Blib.G), the occurence
+of 'G' in the 'instance C S' decl is unambiguous, becuase C has only
+one associated type called G. This is exactly what happens for methods,
+and it is only consistent to do the same thing for types. That's the
+role of the function lookupTcdName; the (Maybe Name) give the class of
+the encloseing instance decl, if any.
 
 Note [Looking up Exact RdrNames]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1007,6 +1063,12 @@ bindLocalName name enclosed_scope
        ; setLocalRdrEnv (extendLocalRdrEnv name_env name)
 		        enclosed_scope }
 
+unbindLocalNames :: [Name] -> RnM a -> RnM a
+unbindLocalNames names enclosed_scope
+  = do { name_env <- getLocalRdrEnv
+       ; setLocalRdrEnv (delLocalRdrEnvList name_env names)
+		        enclosed_scope }
+
 bindLocalNamesFV :: [Name] -> RnM (a, FreeVars) -> RnM (a, FreeVars)
 bindLocalNamesFV names enclosed_scope
   = do	{ (result, fvs) <- bindLocalNames names enclosed_scope
@@ -1120,10 +1182,12 @@ unboundNameX where_look rdr_name extra
   = do  { show_helpful_errors <- doptM Opt_HelpfulErrors
         ; let what = pprNonVarNameSpace (occNameSpace (rdrNameOcc rdr_name))
               err = unknownNameErr what rdr_name $$ extra
+        ; env <- getLocalRdrEnv
+        ; let extra = ppr (getUnique (rdrNameOcc rdr_name)) $$ ppr env
         ; if not show_helpful_errors
           then addErr err
           else do { suggestions <- unknownNameSuggestErr where_look rdr_name
-                  ; addErr (err $$ suggestions) }
+                  ; addErr (err $$ suggestions $$ extra) }
 
         ; return (mkUnboundName rdr_name) }
 
