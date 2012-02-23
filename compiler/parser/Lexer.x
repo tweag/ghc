@@ -529,8 +529,6 @@ data Token
   | ITdoubleunderscore
   | ITbackquote
   | ITsimpleQuote               --  '
-  | IToparenunderscore
-  | ITcparenunderscore
 
   | ITvarid   FastString        -- identifiers
   | ITconid   FastString

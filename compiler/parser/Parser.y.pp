@@ -207,7 +207,6 @@ incorrect.
 
 %token
  '_'            { L _ ITunderscore }            -- Haskell keywords
- '__'           { L _ ITdoubleunderscore }
  'as'           { L _ ITas }
  'case'         { L _ ITcase }          
  'class'        { L _ ITclass } 
@@ -324,6 +323,7 @@ incorrect.
  PREFIXQCONSYM  { L _ (ITprefixqconsym  _) }
 
  IPDUPVARID     { L _ (ITdupipvarid   _) }              -- GHC extension
+ HOLEVARID      { L _ (IThole     _) }
 
  CHAR           { L _ (ITchar     _) }
  STRING         { L _ (ITstring   _) }
@@ -1428,6 +1428,7 @@ aexp1   :: { LHsExpr RdrName }
 
 aexp2   :: { LHsExpr RdrName }
         : ipvar                         { L1 (HsIPVar $! unLoc $1) }
+        | hole                          { sL (getLoc $1) (HsHole  $! unLoc $1) }
         | qcname                        { L1 (HsVar   $! unLoc $1) }
         | literal                       { L1 (HsLit   $! unLoc $1) }
 -- This will enable overloaded strings permanently.  Normally the renamer turns HsString
@@ -1449,7 +1450,6 @@ aexp2   :: { LHsExpr RdrName }
         | '[' list ']'                  { LL (unLoc $2) }
         | '[:' parr ':]'                { LL (unLoc $2) }
         | '_'                           { L1 EWildPat }
-        | '__'                          { L1 (HsHole $! unLoc $1) }
         
         -- Template Haskell Extension
         | TH_ID_SPLICE          { L1 $ HsSpliceE (mkHsSplice 
@@ -1742,6 +1742,9 @@ dbind   : ipvar '=' exp                 { LL (IPBind (unLoc $1) $3) }
 
 ipvar   :: { Located (IPName RdrName) }
         : IPDUPVARID            { L1 (IPName (mkUnqual varName (getIPDUPVARID $1))) }
+
+hole    :: { Located RdrName }
+        : HOLEVARID             { sL (getLoc $1) (mkUnqual varName $ getHOLEVARID $1) }
 
 -----------------------------------------------------------------------------
 -- Warnings and deprecations
@@ -2062,6 +2065,7 @@ getQCONSYM      (L _ (ITqconsym  x)) = x
 getPREFIXQVARSYM (L _ (ITprefixqvarsym  x)) = x
 getPREFIXQCONSYM (L _ (ITprefixqconsym  x)) = x
 getIPDUPVARID   (L _ (ITdupipvarid   x)) = x
+getHOLEVARID    (L _ (IThole     x)) = x
 getCHAR         (L _ (ITchar     x)) = x
 getSTRING       (L _ (ITstring   x)) = x
 getINTEGER      (L _ (ITinteger  x)) = x
