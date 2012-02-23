@@ -520,6 +520,7 @@ hasEqualities givens = any (has_eq . evVarPred) givens
     has_eq' (ClassPred cls _tys) = any has_eq (classSCTheta cls)
     has_eq' (TuplePred ts)       = any has_eq ts
     has_eq' (IrredPred _)        = True -- Might have equalities in it after reduction?
+    has_eq' (HolePred {})        = False
 
 ---------------- Getting free tyvars -------------------------
 

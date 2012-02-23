@@ -565,6 +565,7 @@ extractUnsolved is@(IS {inert_eqs = eqs, inert_irreds = irreds})
                         , inert_irreds = solved_irreds
                         , inert_frozen = emptyCts
                         , inert_funeqs = solved_funeqs
+                        , inert_holes  = solved_holes
                         }
     in ((inert_frozen is, unsolved), is_solved)
 
@@ -578,8 +579,11 @@ extractUnsolved is@(IS {inert_eqs = eqs, inert_irreds = irreds})
 
         (unsolved_funeqs, solved_funeqs) = extractUnsolvedCtTypeMap (inert_funeqs is)
 
+        (unsolved_holes, solved_holes)   = extractUnsolvedCMap (inert_holes is)
+
         unsolved = unsolved_eqs `unionBags` unsolved_irreds `unionBags`
                    unsolved_ips `unionBags` unsolved_dicts `unionBags` unsolved_funeqs
+                   `unionBags` unsolved_holes
 
 extractUnsolvedCtTypeMap :: TypeMap Ct -> (Cts,TypeMap Ct)
 extractUnsolvedCtTypeMap

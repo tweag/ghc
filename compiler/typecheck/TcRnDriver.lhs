@@ -1457,31 +1457,42 @@ tcRnExpr hsc_env ictxt rdr_expr
     uniq <- newUnique ;
     let { fresh_it  = itName uniq (getLoc rdr_expr) } ;
     ((_tc_expr, res_ty), lie)	<- captureConstraints (tcInferRho rn_expr) ;
-    
-    (_, l) <- getEnvs ;
-    holes <- readTcRef $ tcl_holes l ;
+
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $ 
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer True {- Free vars are closed -}
                                                     False {- No MR for now -}
-                                                    ([(fresh_it, res_ty)] ++ (map (\(name,(ty,_)) -> (name, ty)) $ Map.toList holes))
+                                                    [(fresh_it, res_ty)]
                                                     lie  ;
+	let { (holes, dicts') = splitEvs dicts [] [] } ;
+
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
+    
+    liftIO $ putStrLn ("tcRnExpr: " ++ (showSDoc $ ppr lie_top)) ;
 
-
-    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
+    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts' res_ty) } ;
     result <- zonkTcType all_expr_ty ;
 
-    zonked_holes <- mapM (\(s, ty) -> liftM (\t -> (s, t)) $ zonkTcType ty)
-				$ Map.toList $ Map.map (\(ty, _) -> mkForAllTys qtvs $ mkPiTypes dicts ty) $ holes ;
-    let { (env, tys) = foldr tidy (emptyTidyEnv, []) zonked_holes } ;
-    liftIO $ putStrLn ("tcRnExpr2: " ++ (showSDoc $ ppr $ map (\(s, t) -> (s, split t)) tys)) ;
-    liftIO $ putStrLn ("tcRnExpr3: " ++ (showSDoc $ ppr dicts)) ;
+
+    zonked_holes <- mapM (\(nm, ty) -> liftM (\t -> (nm, t)) $ zonkTcType ty) $ map2 (\ty -> mkForAllTys qtvs $ mkPiTypes dicts' ty) $ map (splitHole . varType) $ holes ;
+
+    let { (env, tys) = (\(e, tys) -> (e, map2 split tys)) $ foldr tidy (emptyTidyEnv, []) zonked_holes } ;
+
+    liftIO $ putStrLn $ showSDoc ((ptext $ sLit "Found the following holes: ") $+$ (vcat $ map (\(nm, ty) -> ppr nm <> colon <+> ppr ty) tys));
 
     return $ snd $ tidyOpenType env result
     }
-    where tidy (s, ty) (env, tys) = let (env', ty') = tidyOpenType env ty in (env', (s, ty') : tys)
+    where tidy (nm, ty) (env, tys) = let (env', ty') = tidyOpenType env ty in (env', (nm, ty') : tys)
           split t = let (_, ctxt, ty') = tcSplitSigmaTy $ tidyTopType t in mkPhiTy ctxt ty'
+          splitEvs [] hls dcts = (hls, dcts)
+          splitEvs (evvar:xs) hls dcts = case classifyPredType $ varType evvar of
+								    		HolePred {} -> splitEvs xs (evvar:hls) dcts
+								    		_ -> splitEvs xs hls (evvar:dcts)
+          splitHole (TyConApp nm [ty]) = (nm, ty)
+
+          map2 :: (b -> c) -> [(a, b)] -> [(a, c)]
+          map2 _ [] = []
+          map2 f ((a, b):xs) = ((a, f b):(map2 f xs))
 
 --------------------------
 tcRnImportDecls :: HscEnv

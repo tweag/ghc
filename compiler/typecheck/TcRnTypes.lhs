@@ -54,7 +54,7 @@ module TcRnTypes(
         Xi, Ct(..), Cts, emptyCts, andCts, andManyCts, 
         singleCt, extendCts, isEmptyCts, isCTyEqCan, 
         isCDictCan_Maybe, isCIPCan_Maybe, isCFunEqCan_Maybe,
-        isCHoleCan_Maybe,
+        isCHoleCan_Maybe, isCHoleCan,
         isCIrredEvCan, isCNonCanonical, isWantedCt, isDerivedCt, 
         isGivenCt_maybe, isGivenOrSolvedCt,
         ctWantedLoc,
@@ -988,6 +988,10 @@ isCFunEqCan_Maybe _ = Nothing
 isCNonCanonical :: Ct -> Bool
 isCNonCanonical (CNonCanonical {}) = True 
 isCNonCanonical _ = False 
+
+isCHoleCan :: Ct -> Bool
+isCHoleCan (CHoleCan {}) = True
+isCHoleCan _ = False
 
 isCHoleCan_Maybe :: Ct -> Maybe Name
 isCHoleCan_Maybe (CHoleCan { cc_hole_nm = nm }) = Just nm
