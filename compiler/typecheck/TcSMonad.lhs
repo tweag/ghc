@@ -801,9 +801,9 @@ runTcS context untouch is wl tcs
        ; res <- unTcS tcs env
 	     -- Perform the type unifications required
        ; ty_binds <- TcM.readTcRef ty_binds_var
-       ; liftIO $ putStrLn ("Unification: " ++ (showSDoc $ ppr $varEnvElts ty_binds))
+       ; TcM.traceTc "Unification" (ppr $ varEnvElts ty_binds)
        ; mapM_ do_unification (varEnvElts ty_binds)
-       ; liftIO $ putStrLn "Finished unification"
+       ; TcM.traceTc "Finished unification" empty
 
        ; when debugIsOn $ do {
              count <- TcM.readTcRef step_count
@@ -1000,7 +1000,7 @@ setWantedTyBind tv ty
   = do { ref <- getTcSTyBinds
        ; wrapTcS $ 
          do { ty_binds <- TcM.readTcRef ref
-            ; liftIO $ putStrLn ("setWantedTyBind: " ++ (showSDoc $ (ppr tv <+> ppr ty <+> ppr ty_binds)))
+            ; TcM.traceTc "setWantedTyBind" (ppr tv <+> ppr ty <+> ppr ty_binds)
             ; when debugIsOn $
                   TcM.checkErr (not (tv `elemVarEnv` ty_binds)) $
                   vcat [ text "TERRIBLE ERROR: double set of meta type variable"

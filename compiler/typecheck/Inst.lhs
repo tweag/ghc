@@ -85,7 +85,7 @@ emitWanteds origin theta = mapM (emitWanted origin) theta
 emitWanted :: CtOrigin -> TcPredType -> TcM EvVar
 emitWanted origin pred = do { loc <- getCtLoc origin
                             ; ev  <- newWantedEvVar pred
-                            ; liftIO $ putStrLn ("emitWanted: " ++ (showSDoc $ ppr ev))
+                            ; traceTc "emitWanted" (ppr ev)
                             ; emitFlat (mkNonCanonical ev (Wanted loc))
                             ; return ev }
 

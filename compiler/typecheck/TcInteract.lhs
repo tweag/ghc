@@ -502,9 +502,10 @@ trySpontaneousSolve :: WorkItem -> TcS SPSolveResult
 trySpontaneousSolve workItem@(CTyEqCan { cc_id = eqv, cc_flavor = gw
                                        , cc_tyvar = tv1, cc_rhs = xi, cc_depth = d })
   | isGivenOrSolved gw
-  = trace "trySpontaneousSolve1" $ return SPCantSolve
+  = do { traceTcS "trySpontaneousSolve1" empty ; return SPCantSolve }
   | Just tv2 <- tcGetTyVar_maybe xi
-  = trace "trySpontaneousSolve2" $ do { tch1 <- isTouchableMetaTyVar tv1
+  = do { traceTcS "trySpontaneousSolve2" empty
+       ; tch1 <- isTouchableMetaTyVar tv1
        ; tch2 <- isTouchableMetaTyVar tv2
        ; case (tch1, tch2) of
            (True,  True)  -> trySpontaneousEqTwoWay d eqv gw tv1 tv2
@@ -512,7 +513,8 @@ trySpontaneousSolve workItem@(CTyEqCan { cc_id = eqv, cc_flavor = gw
            (False, True)  -> trySpontaneousEqOneWay d eqv gw tv2 (mkTyVarTy tv1)
 	   _ -> return SPCantSolve }
   | otherwise
-  = trace "trySpontaneousSolve3" $ do { tch1 <- isTouchableMetaTyVar tv1
+  = do { traceTcS "trySpontaneousSolve3" empty
+       ; tch1 <- isTouchableMetaTyVar tv1
        ; if tch1 then trySpontaneousEqOneWay d eqv gw tv1 xi
                  else do { traceTcS "Untouchable LHS, can't spontaneously solve workitem:" $
                            ppr workItem 
@@ -522,7 +524,7 @@ trySpontaneousSolve workItem@(CTyEqCan { cc_id = eqv, cc_flavor = gw
   -- No need for 
   --      trySpontaneousSolve (CFunEqCan ...) = ...
   -- See Note [No touchables as FunEq RHS] in TcSMonad
-trySpontaneousSolve w = trace ("trySpontaneousSolve4: " ++ (showSDoc $ ppr w)) $ return SPCantSolve
+trySpontaneousSolve w = do { traceTcS "trySpontaneousSolve4:" (ppr w) ; return SPCantSolve }
 
 ----------------
 trySpontaneousEqOneWay :: SubGoalDepth 
@@ -716,11 +718,13 @@ interactWithInertsStage :: WorkItem -> TcS StopOrContinue
 -- react with anything at this stage. 
 interactWithInertsStage wi 
   = do { ctxt <- getTcSContext
-       ; trace ("interactWithInertsStage: " ++ (show $ simplEqsOnly ctxt)) $ if simplEqsOnly ctxt then 
+       ; traceTcS "interactWithInertsStage" (ppr $ simplEqsOnly ctxt)
+       ; if simplEqsOnly ctxt then 
              return (ContinueWith wi)
          else 
              do { relevant <- extractRelevantInerts wi
-                ; trace ("Relevant: " ++ (showSDoc $ ppr relevant)) $ foldlBagM interact_next (ContinueWith wi) relevant
+                ; traceTcS "interactWithInertsStage: Relevant" (ppr relevant)
+                ; foldlBagM interact_next (ContinueWith wi) relevant
                 }
        }
 
@@ -732,7 +736,8 @@ interactWithInertsStage wi
                        = text rule <+> keep_doc
       	                 <+> vcat [ ptext (sLit "Inert =") <+> ppr atomic_inert
       	                          , ptext (sLit "Work =")  <+> ppr wi ]
-               ; case trace ("interact_next ContinueWith: " ++ (showSDoc $ ppr ir)) $ ir of 
+               ; traceTcS "interact_next ContinueWith" (ppr ir)
+               ; case ir of 
                    IRWorkItemConsumed { ir_fire = rule } 
                        -> do { bumpStepCountTcS
                              ; traceFireTcS (cc_depth wi) 

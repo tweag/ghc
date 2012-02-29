@@ -338,7 +338,7 @@ tcInfer tc_infer = do { ty  <- newFlexiTyVarTy openTypeKind
 tcWrapResult :: HsExpr TcId -> TcRhoType -> TcRhoType -> TcM (HsExpr TcId)
 tcWrapResult expr actual_ty res_ty
   = do { cow <- unifyType actual_ty res_ty
-       ; liftIO $ putStrLn ("tcWrapResult: " ++ (showSDoc $ ppr cow) ++ ", " ++ (show $ isTcReflCo cow) ++ ", " ++ (show $ isIdHsWrapper $ WpCast cow))
+       ; traceTc "tcWrapResult" (ppr cow)
        	        -- Both types are deeply skolemised
        ; return (mkHsWrapCo cow expr) }
 
@@ -981,7 +981,7 @@ lookupTcTyVar tyvar
 
 updateMeta :: TcTyVar -> TcRef MetaDetails -> TcType -> TcM TcCoercion
 updateMeta tv1 ref1 ty2
-  = do { liftIO $ putStrLn ("updateMeta")
+  = do { traceTc "updateMeta" (ppr tv1 <+> ppr ty2)
        ; writeMetaTyVarRef tv1 ref1 ty2
        ; return (mkTcReflCo ty2) }
 \end{code}

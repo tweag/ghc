@@ -474,7 +474,7 @@ tcRnSrcDecls boot_iface decls
                         simplifyTop lie ;
         traceTc "Tc9" empty ;
 
-        liftIO $ putStrLn ("tcRnSrcDecls: " ++ (showSDoc $ ppr lie)) ;
+        traceRn (text "tcRnSrcDecls:" <+> (ppr lie)) ;
 
 	failIfErrsM ;	-- Don't zonk if there have been errors
 			-- It's a waste of time; and we may get debug warnings
@@ -517,12 +517,14 @@ tc_rn_src_decls boot_details ds
  = {-# SCC "tc_rn_src_decls" #-}
    do { (first_group, group_tail) <- findSplice ds  ;
 		-- If ds is [] we get ([], Nothing)
-        
+
         -- The extra_deps are needed while renaming type and class declarations 
         -- See Note [Extra dependencies from .hs-boot files] in RnSource
 	let { extra_deps = map tyConName (typeEnvTyCons (md_types boot_details)) } ;
+
 	-- Deal with decls up to, but not including, the first splice
 	(tcg_env, rn_decls) <- rnTopSrcDecls extra_deps first_group ;
+    traceTc "tc_rn_src_decls" (ppr rn_decls) ;
 		-- rnTopSrcDecls fails if there are any errors
         
 	(tcg_env, tcl_env) <- setGblEnv tcg_env $ 

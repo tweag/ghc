@@ -704,10 +704,10 @@ zonkExpr env (HsWrap co_fn expr)
     zonkExpr env1 expr	`thenM` \ new_expr ->
     return (HsWrap new_co_fn new_expr)
 
-zonkExpr env (HsHole src)
+zonkExpr env h@(HsHole nm)
   = do {
-    liftIO $ putStrLn "zonkExpr.HsHole" ;
-    return (HsHole src)
+    traceTc "zonkExpr.HsHole" (ppr h);
+    return (HsHole nm)
     }
 
 zonkExpr _ expr = pprPanic "zonkExpr" (ppr expr)

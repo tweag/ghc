@@ -338,6 +338,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
             -- Step 5
             -- Minimize `bound' and emit an implication
        ; minimal_bound_ev_vars <- mapM TcMType.newEvVar minimal_flat_preds
+       ; traceTc "simplifyInfer.minimal_bound_ev_vars" (ppr minimal_bound_ev_vars)
        ; ev_binds_var <- newTcEvBinds
        ; mapBagM_ (\(EvBind evar etrm) -> addTcEvBind ev_binds_var evar etrm) 
            tc_binds
