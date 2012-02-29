@@ -61,7 +61,7 @@ module TcMType (
   -- Zonking
   zonkType, zonkKind, zonkTcPredType, 
   skolemiseSigTv, skolemiseUnboundMetaTyVar,
-  zonkTcTyVar, zonkTcTyVars, zonkTcTyVarsAndFV, zonkSigTyVar,
+  zonkTcTyVar, zonkTcTyVars, zonkTyVarsAndFV, zonkSigTyVar,
   zonkQuantifiedTyVar, zonkQuantifiedTyVars,
   zonkTcType, zonkTcTypes, zonkTcThetaType,
 
@@ -485,27 +485,30 @@ the environment.
 tcGetGlobalTyVars :: TcM TcTyVarSet
 tcGetGlobalTyVars
   = do { (TcLclEnv {tcl_tyvars = gtv_var}) <- getLclEnv
-       ; gbl_tvs <- readMutVar gtv_var
-       ; tys     <- mapM zonk_tv (varSetElems gbl_tvs)
-       ; let gbl_tvs' = tyVarsOfTypes tys
+       ; gbl_tvs  <- readMutVar gtv_var
+       ; gbl_tvs' <- zonkTyVarsAndFV gbl_tvs
        ; writeMutVar gtv_var gbl_tvs'
        ; return gbl_tvs' }
   where
-    zonk_tv tv | isTcTyVar tv = zonkTcTyVar tv
-               | otherwise    = return (mkTyVarTy tv)
-    -- Hackily, the global tyvars can contain non-TcTyVars
-    -- These are added (only) in TcHsType.tcTyClTyVars, but it seems
-    -- painful to make them into TcTyVars there
 \end{code}
 
 -----------------  Type variables
 
 \begin{code}
+zonkTyVar :: TyVar -> TcM TcType
+-- Works on TyVars and TcTyVars
+zonkTyVar tv | isTcTyVar tv = zonkTcTyVar tv
+             | otherwise    = return (mkTyVarTy tv)
+   -- Hackily, when typechecking type and class decls
+   -- we have TyVars in scopeadded (only) in 
+   -- TcHsType.tcTyClTyVars, but it seems
+   -- painful to make them into TcTyVars there
+
+zonkTyVarsAndFV :: TyVarSet -> TcM TyVarSet
+zonkTyVarsAndFV tyvars = tyVarsOfTypes <$> mapM zonkTyVar (varSetElems tyvars)
+
 zonkTcTyVars :: [TcTyVar] -> TcM [TcType]
 zonkTcTyVars tyvars = mapM zonkTcTyVar tyvars
-
-zonkTcTyVarsAndFV :: TcTyVarSet -> TcM TcTyVarSet
-zonkTcTyVarsAndFV tyvars = tyVarsOfTypes <$> mapM zonkTcTyVar (varSetElems tyvars)
 
 -----------------  Types
 zonkTcType :: TcType -> TcM TcType
@@ -1473,26 +1476,27 @@ We can also have instances for functions: @instance Foo (a -> b) ...@.
 
 \begin{code}
 checkValidInstHead :: UserTypeCtxt -> Class -> [Type] -> TcM ()
-checkValidInstHead ctxt clas tys
+checkValidInstHead ctxt clas cls_args
   = do { dflags <- getDynFlags
 
            -- Check language restrictions; 
            -- but not for SPECIALISE isntance pragmas
+       ; let ty_args = dropWhile isKind cls_args
        ; unless spec_inst_prag $
          do { checkTc (xopt Opt_TypeSynonymInstances dflags ||
-                       all tcInstHeadTyNotSynonym tys)
+                       all tcInstHeadTyNotSynonym ty_args)
                  (instTypeErr pp_pred head_type_synonym_msg)
             ; checkTc (xopt Opt_FlexibleInstances dflags ||
-                       all tcInstHeadTyAppAllTyVars tys)
+                       all tcInstHeadTyAppAllTyVars ty_args)
                  (instTypeErr pp_pred head_type_args_tyvars_msg)
             ; checkTc (xopt Opt_MultiParamTypeClasses dflags ||
-                       isSingleton (dropWhile isKind tys))  -- IA0_NOTE: only count type arguments
+                       isSingleton ty_args)  -- Only count type arguments
                  (instTypeErr pp_pred head_one_type_msg) }
 
          -- May not contain type family applications
-       ; mapM_ checkTyFamFreeness tys
+       ; mapM_ checkTyFamFreeness ty_args
 
-       ; mapM_ checkValidMonoType tys
+       ; mapM_ checkValidMonoType ty_args
 	-- For now, I only allow tau-types (not polytypes) in 
 	-- the head of an instance decl.  
 	-- 	E.g.  instance C (forall a. a->a) is rejected
@@ -1503,7 +1507,7 @@ checkValidInstHead ctxt clas tys
   where
     spec_inst_prag = case ctxt of { SpecInstCtxt -> True; _ -> False }
 
-    pp_pred = pprClassPred clas tys
+    pp_pred = pprClassPred clas cls_args
     head_type_synonym_msg = parens (
                 text "All instance types must be of the form (T t1 ... tn)" $$
                 text "where T is not a synonym." $$

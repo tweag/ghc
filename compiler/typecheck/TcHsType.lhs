@@ -20,10 +20,11 @@ module TcHsType (
                 -- Type checking type and class decls
 	kcTyClTyVars, tcTyClTyVars,
         tcHsConArgType, tcDataKindSig, 
+        tcClassSigType, 
 
 		-- Kind-checking types
                 -- No kind generalisation, no checkValidType
-	tcHsTyVarBndrs, tcHsTyVarBndrsGen,
+	tcHsTyVarBndrs, tcHsTyVarBndrsGen ,
         tcHsLiftedType, 
 	tcLHsType, tcCheckLHsType, 
         tcHsContext, tcInferApps, tcHsArgTys,
@@ -46,6 +47,7 @@ import TcHsSyn ( mkZonkTcTyVar )
 #endif
 
 import HsSyn
+import TcHsSyn ( zonkTcTypeToType, emptyZonkEnv )
 import TcRnMonad
 import RnEnv   ( dataKindsErr )
 import TcEvidence( HsWrapper )
@@ -251,6 +253,12 @@ tcHsVectInst ty
 	First a couple of simple wrappers for kcHsType
 
 \begin{code}
+tcClassSigType :: LHsType Name -> TcM Type
+tcClassSigType lhs_ty@(L _ hs_ty)
+  = addKcTypeCtxt lhs_ty $
+    do { ty <- tcCheckHsTypeAndGen hs_ty liftedTypeKind
+       ; zonkTcTypeToType emptyZonkEnv ty }
+
 tcHsConArgType :: NewOrData ->  LHsType Name -> TcM Type
 -- Permit a bang, but discard it
 tcHsConArgType NewType  bty = tcHsLiftedType bty
@@ -382,9 +390,9 @@ tc_hs_type hs_ty@(HsTupleTy HsBoxedOrConstraintTuple tys) exp_kind@(EK exp_k _ct
        ; tau_tys <- tcHsArgTys (ptext (sLit "a tuple")) tys (repeat k)
        ; k' <- zonkTcKind k
        ; if isConstraintKind k' then
-            finish_tuple HsConstraintTuple tau_tys
+            finish_tuple hs_ty HsConstraintTuple tau_tys exp_kind
          else if isLiftedTypeKind k' then
-            finish_tuple HsBoxedTuple tau_tys
+            finish_tuple hs_ty HsBoxedTuple tau_tys exp_kind
          else
             tc_tuple hs_ty HsBoxedTuple tys exp_kind }
          -- It's not clear what the kind is, so assume *, and
@@ -465,26 +473,23 @@ tc_tuple :: HsType Name -> HsTupleSort -> [LHsType Name] -> ExpKind -> TcM TcTyp
 -- Invariant: tup_sort is not HsBoxedOrConstraintTuple
 tc_tuple hs_ty tup_sort tys exp_kind
   = do { tau_tys <- tcHsArgTys cxt_doc tys (repeat arg_kind)
-       ; checkExpectedKind hs_ty out_kind exp_kind
-       ; finish_tuple tup_sort tau_tys }
+       ; finish_tuple hs_ty tup_sort tau_tys exp_kind }
   where
     arg_kind = case tup_sort of
                  HsBoxedTuple      -> liftedTypeKind
                  HsUnboxedTuple    -> argTypeKind
                  HsConstraintTuple -> constraintKind
                  _                 -> panic "tc_hs_type arg_kind"
-    out_kind = case tup_sort of
-                 HsUnboxedTuple    -> ubxTupleKind
-                 _                 -> arg_kind
     cxt_doc = case tup_sort of
                  HsBoxedTuple      -> ptext (sLit "a tuple")
                  HsUnboxedTuple    -> ptext (sLit "an unboxed tuple")
                  HsConstraintTuple -> ptext (sLit "a constraint tuple")
                  _                 -> panic "tc_hs_type tup_sort"
 
-finish_tuple :: HsTupleSort -> [TcType] -> TcM TcType
-finish_tuple tup_sort tau_tys
-  = do { checkWiredInTyCon tycon
+finish_tuple :: HsType Name -> HsTupleSort -> [TcType] -> ExpKind -> TcM TcType
+finish_tuple hs_ty tup_sort tau_tys exp_kind
+  = do { checkExpectedKind hs_ty res_kind exp_kind
+       ; checkWiredInTyCon tycon
        ; return (mkTyConApp tycon tau_tys) }
   where
     tycon = tupleTyCon con (length tau_tys)
@@ -494,6 +499,11 @@ finish_tuple tup_sort tau_tys
             HsConstraintTuple -> ConstraintTuple
             _                 -> panic "tc_hs_type HsTupleTy"
 
+    res_kind = case tup_sort of
+                 HsUnboxedTuple    -> ubxTupleKind
+                 HsBoxedTuple      -> liftedTypeKind
+                 HsConstraintTuple -> constraintKind
+                 _                 -> panic "tc_hs_type arg_kind"
 
 ---------------------------
 tcInferApps :: Outputable a
@@ -865,7 +875,7 @@ kindGeneralize :: TyVarSet -> TcM [KindVar]
 kindGeneralize tkvs
   = do { gbl_tvs  <- tcGetGlobalTyVars -- Already zonked
        ; tidy_env <- tcInitTidyEnv
-       ; tkvs     <- zonkTcTyVarsAndFV tkvs
+       ; tkvs     <- zonkTyVarsAndFV tkvs
        ; let kvs_to_quantify = varSetElems (tkvs `minusVarSet` gbl_tvs)
 
              (_, tidy_kvs_to_quantify) = tidyTyVarBndrs tidy_env kvs_to_quantify

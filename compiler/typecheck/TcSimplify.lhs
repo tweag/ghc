@@ -248,13 +248,14 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
 
   | otherwise
   = do { zonked_wanteds <- zonkWC wanteds
-       ; zonked_taus    <- zonkTcTypes (map snd name_taus)
        ; gbl_tvs        <- tcGetGlobalTyVars
+       ; zonked_tau_tvs <- zonkTyVarsAndFV (tyVarsOfTypes (map snd name_taus))
        ; runtimeCoercionErrors <- doptM Opt_DeferTypeErrors
 
        ; traceTc "simplifyInfer {"  $ vcat
              [ ptext (sLit "names =") <+> ppr (map fst name_taus)
-             , ptext (sLit "taus (zonked) =") <+> ppr zonked_taus
+             , ptext (sLit "taus =") <+> ppr (map snd name_taus)
+             , ptext (sLit "tau_tvs (zonked) =") <+> ppr zonked_tau_tvs
              , ptext (sLit "gbl_tvs =") <+> ppr gbl_tvs
              , ptext (sLit "closed =") <+> ppr _top_lvl
              , ptext (sLit "apply_mr =") <+> ppr apply_mr
@@ -266,8 +267,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
 	     -- Then split the constraints on the baisis of those tyvars
 	     -- to avoid unnecessarily simplifying a class constraint
 	     -- See Note [Avoid unecessary constraint simplification]
-       ; let zonked_tau_tvs = tyVarsOfTypes zonked_taus
-             proto_qtvs = growWanteds gbl_tvs zonked_wanteds $
+       ; let proto_qtvs = growWanteds gbl_tvs zonked_wanteds $
                           zonked_tau_tvs `minusVarSet` gbl_tvs
              (perhaps_bound, surely_free)
                         = partitionBag (quantifyMe proto_qtvs) (wc_flat zonked_wanteds)
@@ -301,7 +301,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
             -- Split again simplified_perhaps_bound, because some unifications 
             -- may have happened, and emit the free constraints. 
        ; gbl_tvs        <- tcGetGlobalTyVars
-       ; zonked_tau_tvs <- zonkTcTyVarsAndFV zonked_tau_tvs
+       ; zonked_tau_tvs <- zonkTyVarsAndFV zonked_tau_tvs
        ; zonked_flats <- zonkCts (wc_flat simpl_results)
        ; let init_tvs 	     = zonked_tau_tvs `minusVarSet` gbl_tvs
              poly_qtvs       = growWantedEVs gbl_tvs zonked_flats init_tvs

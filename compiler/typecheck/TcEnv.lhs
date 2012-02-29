@@ -459,7 +459,9 @@ tc_extend_local_env extra_env thing_inside
           NotTopLevel -> id_tvs
       where
         id_tvs = tyVarsOfType (idType id)
-    get_tvs (_, ATyVar _ tv) = unitVarSet tv        -- See Note [Global TyVars]
+    get_tvs (_, ATyVar _ tv)                 -- See Note [Global TyVars]
+      = tyVarsOfType (tyVarKind tv) `extendVarSet` tv 
+      
     get_tvs other = pprPanic "get_tvs" (ppr other)
         
         -- Note [Global TyVars]
@@ -469,6 +471,8 @@ tc_extend_local_env extra_env thing_inside
         -- Here, g mustn't be generalised.  This is also important during
         -- class and instance decls, when we mustn't generalise the class tyvars
         -- when typechecking the methods.
+        --
+        -- Nor must we generalise g over any kind variables free in r's kind
 
 tcExtendGlobalTyVars :: IORef VarSet -> VarSet -> TcM (IORef VarSet)
 tcExtendGlobalTyVars gtv_var extra_global_tvs

@@ -218,7 +218,7 @@ mkTySynonym :: SrcSpan
 mkTySynonym loc is_family lhs rhs
   = do { (tc, tparams) <- checkTyClHdr lhs
        ; (tyvars, typats) <- checkTParams is_family lhs tparams
-       ; return (L loc (TySynonym { tcdLName = tc, tcdCType = cType
+       ; return (L loc (TySynonym { tcdLName = tc
                                   , tcdTyVars = tyvars, tcdTyPats = typats
                                   , tcdSynRhs = rhs, tcdFVs = placeHolderNames })) }
 

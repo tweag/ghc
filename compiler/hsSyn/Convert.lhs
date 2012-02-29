@@ -161,7 +161,7 @@ cvtDec (PragmaD prag)
 cvtDec (TySynD tc tvs rhs)
   = do	{ (_, tc', tvs') <- cvt_tycl_hdr [] tc tvs
 	; rhs' <- cvtType rhs
-	; returnL $ TyClD (TySynonym { tcdLName = tc', tcdCType = Nothing
+	; returnL $ TyClD (TySynonym { tcdLName = tc' 
                                      , tcdTyVars = tvs', tcdTyPats = Nothing
                                      , tcdSynRhs = rhs', tcdFVs = placeHolderNames }) }
 
@@ -237,7 +237,7 @@ cvtDec (TySynInstD tc tys rhs)
   = do	{ (_, tc', tvs', tys') <- cvt_tyinst_hdr [] tc tys
 	; rhs' <- cvtType rhs
 	; returnL $ InstD $ FamInstDecl $ 
-                    TySynonym { tcdLName = tc', tcdCType = Nothing
+                    TySynonym { tcdLName = tc'
                               , tcdTyVars = tvs', tcdTyPats = tys'
                               , tcdSynRhs = rhs', tcdFVs = placeHolderNames } }
 

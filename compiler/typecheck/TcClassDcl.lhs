@@ -26,7 +26,6 @@ import HsSyn
 import TcEnv
 import TcPat( addInlinePrags )
 import TcEvidence( idHsWrapper )
-import TcHsSyn
 import TcBinds
 import TcUnify
 import TcHsType
@@ -122,8 +121,7 @@ tcClassSigs clas sigs def_methods
     dm_bind_names = [op | L _ (FunBind {fun_id = L _ op}) <- bagToList def_methods]
 
     tc_sig genop_env (op_names, op_hs_ty)
-      = do { op_ty <- tcHsLiftedType op_hs_ty	-- Class tyvars already in scope
-           ; op_ty <- zonkTcTypeToType emptyZonkEnv op_ty
+      = do { op_ty <- tcClassSigType op_hs_ty	-- Class tyvars already in scope
            ; return [ (op_name, f op_name, op_ty) | L _ op_name <- op_names ] }
            where
              f nm | nm `elemNameEnv` genop_env = GenericDM
@@ -131,8 +129,7 @@ tcClassSigs clas sigs def_methods
                   | otherwise                  = NoDM
 
     tc_gen_sig (op_names, gen_hs_ty)
-      = do { gen_op_ty <- tcHsLiftedType gen_hs_ty
-           ; gen_op_ty <- zonkTcTypeToType emptyZonkEnv gen_op_ty
+      = do { gen_op_ty <- tcClassSigType gen_hs_ty
            ; return [ (op_name, gen_op_ty) | L _ op_name <- op_names ] }
 \end{code}
 

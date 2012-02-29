@@ -95,7 +95,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
 
 	     -- Now figure out what to quantify over
 	     -- c.f. TcSimplify.simplifyInfer
-       ; zonked_forall_tvs <- zonkTcTyVarsAndFV forall_tvs
+       ; zonked_forall_tvs <- zonkTyVarsAndFV forall_tvs
        ; gbl_tvs           <- tcGetGlobalTyVars	     -- Already zonked
        ; let extra_bound_tvs = zonked_forall_tvs 	     
        	     		       `minusVarSet` gbl_tvs

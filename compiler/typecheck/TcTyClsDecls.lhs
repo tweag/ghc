@@ -517,14 +517,14 @@ tcTyClDecl1 parent _calc_isrec
 
   -- "type" synonym declaration
 tcTyClDecl1 _parent _calc_isrec
-            (TySynonym {tcdLName = L _ tc_name, tcdCType = cType, tcdTyVars = tvs, tcdSynRhs = hs_ty})
+            (TySynonym {tcdLName = L _ tc_name, tcdTyVars = tvs, tcdSynRhs = hs_ty})
   = ASSERT( isNoParent _parent )
     tcTyClTyVars tc_name tvs $ \ tvs' kind -> do
     { env <- getLclEnv
     ; traceTc "tc-syn" (ppr tc_name $$ ppr (tcl_env env))
     ; rhs_ty <- tcCheckLHsType hs_ty kind
     ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
-    ; tycon <- buildSynTyCon tc_name tvs' cType (SynonymTyCon rhs_ty)
+    ; tycon <- buildSynTyCon tc_name tvs' (SynonymTyCon rhs_ty)
                              kind NoParentTyCon
     ; return [ATyCon tycon] }
 
