@@ -7,7 +7,7 @@ TcSplice: Template Haskell splices
 
 
 \begin{code}
-module TcSplice( kcSpliceType, tcSpliceExpr, tcSpliceDecls, tcBracket,
+module TcSplice( tcSpliceType, tcSpliceExpr, tcSpliceDecls, tcBracket,
                  lookupThName_maybe,
                  runQuasiQuoteExpr, runQuasiQuotePat,
                  runQuasiQuoteDecl, runQuasiQuoteType,
@@ -286,7 +286,7 @@ The predicate we use is TcEnv.thTopLevelId.
 tcBracket     :: HsBracket Name -> TcRhoType -> TcM (LHsExpr TcId)
 tcSpliceDecls :: LHsExpr Name -> TcM [LHsDecl RdrName]
 tcSpliceExpr  :: HsSplice Name -> TcRhoType -> TcM (HsExpr TcId)
-kcSpliceType  :: HsSplice Name -> FreeVars -> TcM (HsType Name, TcKind)
+tcSpliceType  :: HsSplice Name -> FreeVars -> TcM TcKind
         -- None of these functions add constraints to the LIE
 
 lookupThName_maybe :: TH.Name -> TcM (Maybe Name)
@@ -302,7 +302,7 @@ runAnnotation     :: CoreAnnTarget -> LHsExpr Name -> TcM Annotation
 tcBracket     x _ = pprPanic "Cant do tcBracket without GHCi"     (ppr x)
 tcSpliceExpr  e   = pprPanic "Cant do tcSpliceExpr without GHCi"  (ppr e)
 tcSpliceDecls x   = pprPanic "Cant do tcSpliceDecls without GHCi" (ppr x)
-kcSpliceType  x fvs = pprPanic "Cant do kcSpliceType without GHCi"  (ppr x)
+tcSpliceType  x fvs = pprPanic "Cant do kcSpliceType without GHCi"  (ppr x)
 
 lookupThName_maybe n = pprPanic "Cant do lookupThName_maybe without GHCi" (ppr n)
 
@@ -517,12 +517,12 @@ tcTopSpliceExpr tc_action
 Very like splicing an expression, but we don't yet share code.
 
 \begin{code}
-kcSpliceType splice@(HsSplice name hs_expr) fvs
+tcSpliceType (HsSplice name hs_expr) _
   = setSrcSpan (getLoc hs_expr) $ do
     { stage <- getStage
     ; case stage of {
-        Splice -> kcTopSpliceType hs_expr ;
-        Comp   -> kcTopSpliceType hs_expr ;
+        Splice -> tcTopSpliceType hs_expr ;
+        Comp   -> tcTopSpliceType hs_expr ;
 
         Brack pop_level ps_var lie_var -> do
            -- See Note [How brackets and nested splices are handled]
@@ -540,13 +540,12 @@ kcSpliceType splice@(HsSplice name hs_expr) fvs
     -- Here (h 4) :: Q Type
     -- but $(h 4) :: a  i.e. any type, of any kind
 
-    ; kind <- newMetaKindVar
-    ; return (HsSpliceTy splice fvs kind, kind) 
+    ; newMetaKindVar
     }}}
 
-kcTopSpliceType :: LHsExpr Name -> TcM (HsType Name, TcKind)
+tcTopSpliceType :: LHsExpr Name -> TcM TcKind
 -- Note [How top-level splices are handled]
-kcTopSpliceType expr
+tcTopSpliceType expr
   = do  { meta_ty <- tcMetaTy typeQTyConName
 
         -- Typecheck the expression
@@ -561,8 +560,8 @@ kcTopSpliceType expr
         ; addErrCtxt (spliceResultDoc expr) $ do 
         { let doc = SpliceTypeCtx hs_ty2
         ; (hs_ty3, _fvs) <- checkNoErrs (rnLHsType doc hs_ty2)
-        ; (ty4, kind) <- tcLHsType hs_ty3
-        ; return (unLoc ty4, kind) }}
+        ; (_, kind) <- tcLHsType hs_ty3
+        ; return kind }}
 \end{code}
 
 %************************************************************************

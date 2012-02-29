@@ -48,7 +48,6 @@ import Id
 import MkCore		( rEC_SEL_ERROR_ID )
 import IdInfo
 import Var
-import VarEnv
 import VarSet
 import Name
 import NameSet
@@ -754,11 +753,8 @@ tcFamTyPats fam_tc tyvars arg_pats kind_checker thing_inside
        ; let (tv_kinds', fam_arg_kinds') = splitAtList tv_kinds kinds'
              tvs' = zipWith setTyVarKind tvs tv_kinds'
              tkvs = kvs ++ tvs'
-             subst = mkTvSubst (mkInScopeSet (mkVarSet tkvs))
-                               (mkVarEnv [(tv, mkTyVarTy tv) | tv <- tkvs])
-             res_kind' = substTy subst res_kind
-             typats'   = substTys subst typats
-
+       ; typats' <- zonkTcTypeToTypes emptyZonkEnv typats
+       ; res_kind' <- zonkTcTypeToType emptyZonkEnv res_kind
        ; thing_inside tkvs (fam_arg_kinds' ++ typats') res_kind' }
 \end{code}
 

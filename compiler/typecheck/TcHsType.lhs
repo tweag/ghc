@@ -22,10 +22,12 @@ module TcHsType (
         tcHsConArgType, tcDataKindSig, 
 
 		-- Kind-checking types
+                -- No kind generalisation, no checkValidType
 	tcHsTyVarBndrs, tcHsTyVarBndrsGen,
         tcHsLiftedType, 
 	tcLHsType, tcCheckLHsType, 
         tcHsContext, tcInferApps, tcHsArgTys,
+
         ExpKind(..), ekConstraint, expArgKind, checkExpectedKind,
         kindGeneralizeKind, kindGeneralizeKinds,
 
@@ -39,7 +41,8 @@ module TcHsType (
 #include "HsVersions.h"
 
 #ifdef GHCI 	/* Only if bootstrapped */
-import {-# SOURCE #-}	TcSplice( kcSpliceType )
+import {-# SOURCE #-}	TcSplice( tcSpliceType )
+import TcHsSyn ( mkZonkTcTyVar )
 #endif
 
 import HsSyn
@@ -161,16 +164,18 @@ tcHsSigType, tcHsSigTypeNC :: UserTypeCtxt -> LHsType Name -> TcM Type
   -- NB: it's important that the foralls that come from the top-level
   --	 HsForAllTy in hs_ty occur *first* in the returned type.
   --     See Note [Scoped] with TcSigInfo
-tcHsSigType ctxt hs_ty 
-  = addErrCtxt (pprHsSigCtxt ctxt hs_ty) $
+tcHsSigType ctxt hs_ty@(L loc _)
+  = setSrcSpan loc $
+    addErrCtxt (pprHsSigCtxt ctxt hs_ty) $
     tcHsSigTypeNC ctxt hs_ty
 
-tcHsSigTypeNC ctxt hs_ty
-  = do  { ty <- case expectedKindInCtxt ctxt of
-                  Nothing -> fmap fst (tc_infer_lhs_type hs_ty)
-                  Just k  -> tc_lhs_type hs_ty (EK k (ptext (sLit "Expected")))
+tcHsSigTypeNC ctxt (L _ hs_ty)
+  = do  { kind <- case expectedKindInCtxt ctxt of
+                    Nothing -> newMetaKindVar
+                    Just k  -> return k
           -- The kind is checked by checkValidType, and isn't necessarily
           -- of kind * in a Template Haskell quote eg [t| Maybe |]
+        ; ty <- tcCheckHsTypeAndGen hs_ty kind
 
           -- Zonk to expose kind information to checkValidType
         ; ty <- zonkTcType ty
@@ -180,11 +185,11 @@ tcHsSigTypeNC ctxt hs_ty
 -----------------
 tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyVar], ThetaType, Class, [Type])
 -- Typecheck an instance head.  We can't use 
--- tcHsSigType, because it's not a valid user type.
+ -- tcHsSigType, because it's not a valid user type.
 tcHsInstHead ctxt lhs_ty@(L loc hs_ty)
   = setSrcSpan loc   $	-- No need for an "In the type..." context
                         -- because that comes from the caller
-    do { ty <- tc_hs_type hs_ty ekConstraint
+    do { ty <- tcCheckHsTypeAndGen hs_ty constraintKind
        ; ty <- zonkTcType ty
        ; let (tvs, theta, tau) = tcSplitSigmaTy ty
        ; case getClassPredTys_maybe tau of
@@ -276,6 +281,16 @@ tcHsArgTys :: SDoc -> [LHsType Name] -> [Kind] -> TcM [TcType]
 tcHsArgTys what tys kinds
   = sequence [ tc_lhs_type ty (expArgKind what kind n)
              | (ty,kind,n) <- zip3 tys kinds [1..] ]
+
+---------------------------
+tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM Type
+-- Input type is HsType, not LhsType; the caller adds the context
+-- Typecheck a type signature, and kind-generalise it
+-- The result is not necessarily zonked, and has not been checked for validity
+tcCheckHsTypeAndGen hs_ty kind
+  = do { ty  <- tc_hs_type hs_ty (EK kind (ptext (sLit "Expected")))
+       ; kvs <- kindGeneralize (tyVarsOfType ty)
+       ; return (mkForAllTys kvs ty) }
 \end{code}
 
 Like tcExpr, tc_hs_type takes an expected kind which it unifies with
@@ -429,14 +444,14 @@ tc_hs_type (HsCoreTy ty) exp_kind
 
 #ifdef GHCI	/* Only if bootstrapped */
 -- This looks highly bogus to me
-tc_hs_type hs_ty@(HsSpliceTy sp fvs _) exp_kind = do
-  = do { (_, kind) <- kcSpliceType sp fvs
-       ; checkExpectedKind hs_ty k exp_kind
+tc_hs_type hs_ty@(HsSpliceTy sp fvs _) exp_kind 
+  = do { kind <- tcSpliceType sp fvs
+       ; checkExpectedKind hs_ty kind exp_kind
 
        ; kind' <- zonkType (mkZonkTcTyVar (\ _ -> return liftedTypeKind) mkTyVarTy) 
                            kind
                      -- See Note [Kind of a type splice]
-         newFlexiTyVarTy kind' }
+       ; newFlexiTyVarTy kind' }
 #else
 tc_hs_type ty@(HsSpliceTy {}) _exp_kind 
   = failWithTc (ptext (sLit "Unexpected type splice:") <+> ppr ty)
@@ -551,6 +566,10 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
              where
                ty = dataConUserType dc
                tc = buildPromotedDataCon dc
+
+           ANothing -> failWithTc (ptext (sLit "Promoted kind") <+> 
+                              quotes (ppr name) <+>
+                              ptext (sLit "used in a mutually recursive group"))
 
            _  -> wrongThingErr "type" thing name }
   where
@@ -822,33 +841,38 @@ kindGeneralizeKinds kinds
   = do { -- Quantify over kind variables free in
          -- the kinds, and *not* in the environment
        ; traceTc "kindGeneralizeKinds 1" (ppr kinds)
-       ; zonked_kinds <- mapM zonkTcKind kinds
-       ; gbl_tvs <- tcGetGlobalTyVars -- Already zonked
-       ; tidy_env <- tcInitTidyEnv
-       ; let kvs_to_quantify = varSetElems (tyVarsOfTypes zonked_kinds
-                                            `minusVarSet` gbl_tvs)
 
-             (_, tidy_kvs_to_quantify) = tidyTyVarBndrs tidy_env kvs_to_quantify
-                           -- We do not get a later chance to tidy!
-
-       ; kvs <- ASSERT2 (all isKindVar kvs_to_quantify, ppr kvs_to_quantify)
-                zonkQuantifiedTyVars tidy_kvs_to_quantify
+       ; kvs <- kindGeneralize (tyVarsOfTypes kinds)
 
          -- Zonk the kinds again, to pick up either the kind 
          -- variables we quantify over, or *, depending on whether
          -- zonkQuantifiedTyVars decided to generalise (which in
          -- turn depends on PolyKinds)
-       ; final_kinds <- mapM zonkTcKind zonked_kinds
+       ; final_kinds <- mapM zonkTcKind kinds
 
-       ; traceTc "kindGeneralizeKinds 2" (vcat [ ppr gbl_tvs, ppr kinds, ppr kvs_to_quantify
-                                        , ppr kvs, ppr final_kinds ])
+       ; traceTc "kindGeneralizeKinds 2" (vcat [ ppr kinds, ppr kvs, ppr final_kinds ])
        ; return (kvs, final_kinds) }
 
-kindGeneralizeKind :: TcKind -> TcM ( [KindVar]  -- these were flexi kind vars
-                                    , Kind )     -- this is the old kind where flexis got zonked
-kindGeneralizeKind kind = do
-  (kvs, [kind']) <- kindGeneralizeKinds [kind]
-  return (kvs, kind')
+
+kindGeneralizeKind :: TcKind -> TcM ([KindVar], Kind)    
+-- Unary version of kindGeneralizeKinds
+kindGeneralizeKind kind
+  = do { kvs   <- kindGeneralize (tyVarsOfType kind)
+       ; kind' <- zonkTcKind kind
+       ; return (kvs, kind') }
+
+kindGeneralize :: TyVarSet -> TcM [KindVar]
+kindGeneralize tkvs
+  = do { gbl_tvs  <- tcGetGlobalTyVars -- Already zonked
+       ; tidy_env <- tcInitTidyEnv
+       ; tkvs     <- zonkTcTyVarsAndFV tkvs
+       ; let kvs_to_quantify = varSetElems (tkvs `minusVarSet` gbl_tvs)
+
+             (_, tidy_kvs_to_quantify) = tidyTyVarBndrs tidy_env kvs_to_quantify
+                           -- We do not get a later chance to tidy!
+
+       ; ASSERT2 (all isKindVar kvs_to_quantify, ppr kvs_to_quantify $$ ppr tkvs)
+         zonkQuantifiedTyVars tidy_kvs_to_quantify }
 \end{code}
 
 Note [Kinds of quantified type variables]
@@ -1050,13 +1074,14 @@ tcHsPatSigType :: UserTypeCtxt
 
 tcHsPatSigType ctxt (HsBSig hs_ty sig_tvs)
   = addErrCtxt (pprHsSigCtxt ctxt hs_ty) $
-    do	{ let span     = getLoc hs_ty
-	      sig_ltvs = userHsTyVarBndrs $ map (L span) sig_tvs 
-
-	; (tyvars, sig_ty) <- tcHsQuantifiedType sig_ltvs hs_ty
+    do	{ let new_tv name = do { kind <- newMetaKindVar
+                               ; return (mkTyVar name kind) }
+        ; tvs <- mapM new_tv sig_tvs
+	; sig_ty <- tcExtendTyVarEnv tvs $
+                    tcHsLiftedType hs_ty
         ; sig_ty <- zonkTcType sig_ty
 	; checkValidType ctxt sig_ty 
-	; return (tyvars, sig_ty) }
+	; return (tvs, sig_ty) }
 
 tcPatSig :: UserTypeCtxt
 	 -> HsBndrSig (LHsType Name)

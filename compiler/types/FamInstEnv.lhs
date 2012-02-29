@@ -400,8 +400,7 @@ lookupFamInstEnvConflicts
 -- Precondition: the tycon is saturated (or over-saturated)
 
 lookupFamInstEnvConflicts envs fam_inst skol_tvs
-  = pprTrace "LFIC" (ppr fam $$ ppr tys $$ ppr tys1) $
-    lookup_fam_inst_env my_unify False envs fam tys1
+  = lookup_fam_inst_env my_unify False envs fam tys1
   where
     inst_axiom = famInstAxiom fam_inst
     (fam, tys) = famInstLHS fam_inst
@@ -519,8 +518,7 @@ lookup_fam_inst_env' match_fun one_sided ie fam tys
       = find rest
 
         -- Proper check
-      | Just subst <- pprTrace "match_fn" (ppr tpl_tys $$ ppr match_tys $$ ppr item) $
-                      match_fun item tpl_tvs tpl_tys match_tys
+      | Just subst <- match_fun item tpl_tvs tpl_tys match_tys
       = (item, add_extra_tys $ substTyVars subst (coAxiomTyVars axiom)) : find rest
 
         -- No match => try next

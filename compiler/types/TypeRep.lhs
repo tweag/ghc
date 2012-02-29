@@ -304,7 +304,7 @@ tyVarsOfType (TyConApp _ tys)    = tyVarsOfTypes tys
 tyVarsOfType (FunTy arg res)     = tyVarsOfType arg `unionVarSet` tyVarsOfType res
 tyVarsOfType (AppTy fun arg)     = tyVarsOfType fun `unionVarSet` tyVarsOfType arg
 tyVarsOfType (ForAllTy tyvar ty) = delVarSet (tyVarsOfType ty) tyvar
-                                   `unionVarSet` tyVarsOfType (tyvarKind tyvar)
+                                   `unionVarSet` tyVarsOfType (tyVarKind tyvar)
 
 tyVarsOfTypes :: [Type] -> TyVarSet
 tyVarsOfTypes tys = foldr (unionVarSet . tyVarsOfType) emptyVarSet tys

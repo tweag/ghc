@@ -401,7 +401,7 @@ in_subst _ []          = False
 in_subst n ((n',_):ns) = n==n' || in_subst n ns
 
 mkGadtCtxt :: [Name]		-- Tyvars of the data type
-           -> ResType Name
+           -> ResType (LHsType Name)
 	   -> DsM (HsContext Name, [(Name,Name)])
 -- Given a data type in GADT syntax, figure out the equality 
 -- context, so that we can represent it with an explicit 
