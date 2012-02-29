@@ -882,7 +882,7 @@ doInteractWithInert (CHoleCan id1 fl1 nm1 ty1 d1) workitem@(CHoleCan id2 fl2 nm2
                                       , cc_flavor = flav
                                       , cc_depth  = d2 }
               in updWorkListTcS (extendWorkListEq ct))
-       ; case fl1 of
+       ; case fl2 of
           Given {} -> pprPanic "Unexpected given Hole" (ppr workitem)
           Derived {} -> pprPanic "Unexpected derived Hole" (ppr workitem)
           Wanted {} ->
