@@ -169,7 +169,7 @@ predTypeOccName :: PredType -> OccName
 predTypeOccName ty = case classifyPredType ty of
     ClassPred cls _ -> mkDictOcc (getOccName cls)
     IPPred ip _     -> mkVarOccFS (ipFastString ip)
-    HolePred name _ -> nameOccName name
+    HolePred name _ -> mkVarOccFS (occNameFS $ nameOccName $ holeNameName name)
     EqPred _ _      -> mkVarOccFS (fsLit "cobox")
     TuplePred _     -> mkVarOccFS (fsLit "tup")
     IrredPred _     -> mkVarOccFS (fsLit "irred")

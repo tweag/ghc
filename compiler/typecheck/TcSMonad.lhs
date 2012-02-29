@@ -83,11 +83,12 @@ module TcSMonad (
     matchClass, matchFam, MatchInstResult (..), 
     checkWellStagedDFun, 
     warnTcS,
-    pprEq                                    -- Smaller utils, re-exported from TcM
+    pprEq,                                   -- Smaller utils, re-exported from TcM
                                              -- TODO (DV): these are only really used in the 
                                              -- instance matcher in TcSimplify. I am wondering
                                              -- if the whole instance matcher simply belongs
                                              -- here 
+    wrapTcS  
 ) where 
 
 #include "HsVersions.h"
@@ -418,7 +419,7 @@ data InertSet
 
        , inert_irreds       :: Cts  -- Irreducible predicates
        , inert_frozen       :: Cts  -- All non-canonicals are kept here (as frozen errors)
-       , inert_holes        :: CCanMap Name
+       , inert_holes        :: CCanMap (HoleName Name)
        }
 
 

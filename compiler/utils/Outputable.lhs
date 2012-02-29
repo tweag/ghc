@@ -283,7 +283,7 @@ getPprStyle df = SDoc $ \ctx -> runSDoc (df (sdocStyle ctx)) ctx
 \begin{code}
 qualName :: PprStyle -> QueryQualifyName
 qualName (PprUser (qual_name,_) _)  n = qual_name n
-qualName _other                     n = NameQual (moduleName (nameModule n))
+qualName _other                     n = NameQual (moduleName (nameModule n)) -- where
 
 qualModule :: PprStyle -> QueryQualifyModule
 qualModule (PprUser (_,qual_mod) _)  m = qual_mod m

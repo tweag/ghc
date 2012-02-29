@@ -158,7 +158,7 @@ import Name
 -- others
 import {-# SOURCE #-} IParam ( ipTyCon )
 import Unique		( Unique, hasKey )
-import BasicTypes	( IPName(..) )
+import BasicTypes	( IPName(..), HoleName(..), holeNameName )
 import Name		( Name )
 import NameSet
 import StaticFlags
@@ -859,11 +859,11 @@ mkIPPred ip ty = TyConApp (ipTyCon ip) [ty]
 \end{code}
 
 \begin{code}
-mkHolePred :: Name -> Type -> PredType
+mkHolePred :: HoleName Name -> Type -> PredType
 mkHolePred name ty = TyConApp (holeTyCon name) [ty]
 
-holeTyCon :: Name -> TyCon
-holeTyCon name = case wiredInNameTyThing_maybe name of
+holeTyCon :: HoleName Name -> TyCon
+holeTyCon name = case wiredInNameTyThing_maybe $ holeNameName name of
     Just (ATyCon tc) -> tc
     _                -> pprPanic "holeTyCon" (ppr name)
 \end{code}
@@ -923,7 +923,7 @@ data PredTree = ClassPred Class [Type]
               | IPPred (IPName Name) Type
               | TuplePred [PredType]
               | IrredPred PredType
-              | HolePred Name Type
+              | HolePred (HoleName Name) Type
 
 predTreePredType :: PredTree -> PredType
 predTreePredType (ClassPred clas tys) = mkClassPred clas tys

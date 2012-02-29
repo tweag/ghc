@@ -734,8 +734,8 @@ isMetaTyVar tv
 isAmbiguousTyVar tv 
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
-	MetaTv {}     -> True
-	RuntimeUnk {} -> True
+	MetaTv x y    -> trace ("isAmbiguousTyVar.MetaTv: " ++ (showSDoc $ ppr x)) True
+	RuntimeUnk {} -> trace ("isAmbiguousTyVar.RuntimeUnk: " ++ (showSDoc $ ppr tv)) True
 	_             -> False
 
 isMetaTyVarTy :: TcType -> Bool

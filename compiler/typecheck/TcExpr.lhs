@@ -221,15 +221,15 @@ tcExpr (HsType ty) _
 	-- Can't eliminate it altogether from the parser, because the
 	-- same parser parses *patterns*.
 tcExpr (HsHole name) res_ty
-  = do { liftIO $ putStrLn ("tcExpr.HsHole: " ++ (showSDoc $ ppr $ res_ty))
-       ; let origin = OccurrenceOf name
-       --; (g, l) <- getEnvs
-       --; holes <- readTcRef $ tcl_holes l
+  = do { traceTc "tcExpr.HsHole" (ppr $ res_ty)
+       ; let origin = OccurrenceOf $ holeNameName name
+       ; (g, l) <- getEnvs
+       ; holes <- readTcRef $ tcl_holes l
        ; ty <- newFlexiTyVarTy liftedTypeKind
        ; var <- emitWanted origin (mkHolePred name ty)
-       ; liftIO $ putStrLn ("tcExpr.HsHole: Creating new ty for hole: " ++ (showSDoc $ ppr ty))
-       --; writeTcRef (tcl_holes l) (Map.insert name (ty, tcl_lie l) holes)
-       ; tcWrapResult (HsHole var) ty res_ty }
+       ; traceTc "tcExpr.HsHole: Creating new ty for hole" (ppr ty)
+       ; writeTcRef (tcl_holes l) (Map.insert name (ty, tcl_lie l) holes)
+       ; tcWrapResult (HsHole $ HoleName var) ty res_ty }
        --where printTy (TyVarTy ty) = case tcTyVarDetails ty of
        --                                   (MetaTv _ io) -> do meta <- readTcRef io ;
        --                                                       liftIO $ putStrLn ("tcExpr.HsHole " ++ (showSDoc $ ppr name) ++ ": " ++ (showSDoc $ ppr meta))
@@ -270,6 +270,8 @@ rule just for saturated appliations of ($).
   * Decompose it; should be of form (arg2_ty -> res_ty), 
        where arg2_ty might be a polytype
   * Use arg2_ty to typecheck arg2
+
+-- $
 
 Note [Typing rule for seq]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

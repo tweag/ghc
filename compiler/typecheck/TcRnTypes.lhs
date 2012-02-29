@@ -447,7 +447,7 @@ data TcLclEnv		-- Changes as we move inside an expression
 	tcl_untch :: Unique,	    -- Any TcMetaTyVar with 
 		     		    --     unique >= tcl_untch is touchable
 		     		    --     unique <  tcl_untch is untouchable
-	tcl_holes :: TcRef (Map.Map Name (Type, TcRef WantedConstraints))
+	tcl_holes :: TcRef (Map.Map (HoleName Name) (Type, TcRef WantedConstraints))
     }
 
 type TcTypeEnv = NameEnv TcTyThing
@@ -912,7 +912,7 @@ data Ct
   | CHoleCan {
       cc_id       :: EvVar,
       cc_flavor   :: CtFlavor,
-      cc_hole_nm  :: Name,
+      cc_hole_nm  :: HoleName Name,
       cc_hole_ty  :: TcTauType, -- Not a Xi! See same not as above
       cc_depth    :: SubGoalDepth        -- See Note [WorkList]
     }
@@ -993,7 +993,7 @@ isCHoleCan :: Ct -> Bool
 isCHoleCan (CHoleCan {}) = True
 isCHoleCan _ = False
 
-isCHoleCan_Maybe :: Ct -> Maybe Name
+isCHoleCan_Maybe :: Ct -> Maybe (HoleName Name)
 isCHoleCan_Maybe (CHoleCan { cc_hole_nm = nm }) = Just nm
 isCHoleCan_Maybe _ = Nothing
 \end{code}

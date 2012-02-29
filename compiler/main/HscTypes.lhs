@@ -1771,7 +1771,7 @@ type OrigNameCache   = ModuleEnv (OccEnv Name)
 -- | Module-local cache of implicit parameter 'OccName's given 'Name's
 type OrigIParamCache = Map FastString (IPName Name)
 
-type OrigHoleCache = Map FastString Name
+type OrigHoleCache = Map FastString (HoleName Name)
 \end{code}
 
 

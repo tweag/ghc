@@ -563,7 +563,7 @@ data TyConParent
 	--	data R:TList a = ...
 	-- 	axiom co a :: T [a] ~ R:TList a
 	-- with R:TList's algTcParent = FamInstTyCon T [a] co
-  | HoleTyCon Name
+  | HoleTyCon (HoleName Name)
 
 instance Outputable TyConParent where
     ppr NoParentTyCon           = text "No parent"
@@ -579,7 +579,7 @@ okParent tc_name (AssocFamilyTyCon cls)      = tc_name `elem` map tyConName (cla
 okParent tc_name (ClassTyCon cls)            = tc_name == tyConName (classTyCon cls)
 okParent tc_name (IPTyCon ip)                = tc_name == ipTyConName ip
 okParent _       (FamInstTyCon _ fam_tc tys) = tyConArity fam_tc == length tys
-okParent tc_name (HoleTyCon hole)            = tc_name == hole
+okParent tc_name (HoleTyCon hole)            = tc_name == holeNameName hole
 
 isNoParent :: TyConParent -> Bool
 isNoParent NoParentTyCon = True
@@ -1435,7 +1435,7 @@ tyConIP_maybe :: TyCon -> Maybe (IPName Name)
 tyConIP_maybe (AlgTyCon {algTcParent = IPTyCon ip}) = Just ip
 tyConIP_maybe _                                     = Nothing
 
-tyConHole_maybe :: TyCon -> Maybe Name
+tyConHole_maybe :: TyCon -> Maybe (HoleName Name)
 tyConHole_maybe (AlgTyCon {algTcParent = HoleTyCon name}) = Just name
 tyConHole_maybe _                                     = Nothing
 

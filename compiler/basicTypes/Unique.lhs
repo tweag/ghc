@@ -181,6 +181,9 @@ instance Uniquable Int where
 
 instance Uniquable n => Uniquable (IPName n) where
   getUnique (IPName n) = getUnique n
+
+instance Uniquable n => Uniquable (HoleName n) where
+  getUnique (HoleName n) = getUnique n
 \end{code}
 
 

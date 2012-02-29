@@ -186,10 +186,10 @@ newIPName ip = updNameCache $ flip allocateIPName ip
 \end{code}
 
 \begin{code}
-newHoleName :: FastString -> TcRnIf m n Name
+newHoleName :: FastString -> TcRnIf m n (HoleName Name)
 newHoleName name = updNameCache $ \name_cache -> case Map.lookup name $ nsHoles name_cache of
-    Just name_hole -> trace ("Found it in the map: " ++ (showSDoc $ ppr $ nsHoles name_cache)) $ (name_cache, name_hole)
-    Nothing        -> trace "Didn't find it, making a new one" $ (new_ns, name_hole)
+    Just name_hole -> (name_cache, name_hole)
+    Nothing        -> (new_ns, name_hole)
       where
         (us_here, us') = splitUniqSupply (nsUniqs name_cache)
         new_holecache = Map.insert name name_hole $ nsHoles name_cache

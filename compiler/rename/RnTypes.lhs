@@ -51,7 +51,7 @@ import NameSet
 
 import Util		( filterOut )
 import BasicTypes	( IPName(..), ipNameName, compareFixity, funTyFixity, negateFixity, 
-			  Fixity(..), FixityDirection(..) )
+			  Fixity(..), FixityDirection(..), HoleName(..), holeNameName )
 import Outputable
 import FastString
 import Control.Monad	( unless, zipWithM )
@@ -345,8 +345,8 @@ rnIPName n = newIPName (occNameFS (rdrNameOcc (ipNameName n)))
 \end{code}
 
 \begin{code}
-rnHoleName :: RdrName -> RnM Name
-rnHoleName n = newHoleName (occNameFS (rdrNameOcc n))
+rnHoleName :: HoleName RdrName -> RnM (HoleName Name)
+rnHoleName n = newHoleName (occNameFS (rdrNameOcc (holeNameName n)))
 \end{code}
 
 

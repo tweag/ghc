@@ -290,7 +290,7 @@ data HsExpr id
 
   |  HsWrap     HsWrapper    -- TRANSLATION
                 (HsExpr id)
-  |  HsHole     id
+  |  HsHole     (HoleName id)
   deriving (Data, Typeable)
 
 -- HsTupArg is used for tuple sections

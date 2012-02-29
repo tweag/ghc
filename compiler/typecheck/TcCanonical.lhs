@@ -13,7 +13,7 @@ module TcCanonical(
 
 #include "HsVersions.h"
 
-import BasicTypes ( IPName )
+import BasicTypes ( IPName, HoleName )
 import TcErrors
 import TcRnTypes
 import TcType
@@ -35,6 +35,8 @@ import TrieMap
 import VarSet
 import TcSMonad
 import FastString
+
+import qualified TcMType
 
 import Data.Maybe ( isNothing )
 
@@ -342,9 +344,11 @@ flattened in the first place to facilitate comparing them.)
 
 canHole :: SubGoalDepth -- Depth 
       -> CtFlavor -> EvVar 
-      -> Name -> Type -> TcS StopOrContinue
+      -> HoleName Name -> Type -> TcS StopOrContinue
 canHole d fl v nm ty
-  = do { (xi,co) <- trace "canHole" $ flatten d fl (mkHolePred nm ty)
+  = do { zonked <- wrapTcS $ TcMType.zonkTcType ty
+       ; traceTcS "canHole" $ ppr ty <+> ppr zonked
+       ; (xi,co) <- flatten d fl (mkHolePred nm zonked)
        ; let no_flattening = isTcReflCo co
        ; if no_flattening then
             let HolePred _ xi_in = classifyPredType xi

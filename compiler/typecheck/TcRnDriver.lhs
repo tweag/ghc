@@ -132,7 +132,7 @@ tcRnModule :: HscEnv
 
 tcRnModule hsc_env hsc_src save_rn_syntax
    HsParsedModule {
-      hpm_module =
+      hpm_module = -- where
          (L loc (HsModule maybe_mod export_ies
 			  import_decls local_decls mod_deprec
                           maybe_doc_hdr)),
@@ -224,19 +224,19 @@ tcRnModule hsc_env hsc_src save_rn_syntax
                 -- Dump output and return
 	tcDump tcg_env ;
 
-	(_, l) <- getEnvs ;
-	holes <- readTcRef $ tcl_holes l ;
-	lie <- readTcRef $ tcl_lie l ;
-	liftIO $ putStrLn ("tcRnModule0: " ++ (showSDoc $ ppr $ lie)) ;
-	infered_holes <- inferHoles $ Map.toList holes ;
-	splitted_holes <- mapM (\(s, ty) -> liftM (\t -> (s, split t)) $ zonkTcType ty) infered_holes ;
-	let {
-		(env, tys) = foldr tidy (emptyTidyEnv, []) splitted_holes
-            } ;
-	liftIO $ putStrLn ("tcRnModule: " ++ (showSDoc $ ppr $ tys)) ;
-	liftIO $ putStrLn ("tcRnModule2: " ++ (showSDoc $ ppr env)) ;
-	lie' <- readTcRef $ tcl_lie l ;
-	liftIO $ putStrLn ("tcRnModule0: " ++ (showSDoc $ ppr $ lie')) ;
+	--(_, l) <- getEnvs ;
+	--holes <- readTcRef $ tcl_holes l ;
+	--lie <- readTcRef $ tcl_lie l ;
+	--traceRn (text "tcRnModule0:" <+> (ppr $ lie)) ;
+	--infered_holes <- inferHoles $ Map.toList holes ;
+	--splitted_holes <- mapM (\(s, ty) -> liftM (\t -> (s, split t)) $ zonkTcType ty) infered_holes ;
+	--let {
+	--	(env, tys) = foldr tidy (emptyTidyEnv, []) splitted_holes
+ --           } ;
+	--traceRn (text "tcRnModule1:" <+> (ppr $ tys)) ;
+	--traceRn (text "tcRnModule2:" <+> (ppr env)) ;
+	--lie' <- readTcRef $ tcl_lie l ;
+	--traceRn (text "tcRnModule3:" <+> (ppr $ lie')) ;
 
     	return tcg_env
     }}}}
@@ -295,7 +295,7 @@ tcRnImports hsc_env this_mod import_decls
 		-- get the instances from this module's hs-boot file
 	      ; want_instances :: ModuleName -> Bool
 	      ; want_instances mod = mod `elemUFM` dep_mods
-				   && mod /= moduleName this_mod
+				   && mod /= moduleName this_mod -- where
 	      ; (home_insts, home_fam_insts) = hptInstances hsc_env 
                                                             want_instances
 	      } ;
@@ -332,7 +332,7 @@ tcRnImports hsc_env this_mod import_decls
 
                 -- Check type-family consistency
 	; traceRn (text "rn1: checking family instance consistency")
-	; let { dir_imp_mods = moduleEnvKeys
+	; let { dir_imp_mods = moduleEnvKeys -- where
 			     . imp_mods 
 			     $ imports }
 	; checkFamInstConsistency (imp_finsts imports) dir_imp_mods ;
@@ -399,7 +399,7 @@ tcRnExtCore hsc_env (HsExtCore this_mod decls src_binds)
 	my_exports = map (Avail . idName) bndrs ;
 		-- ToDo: export the data types also?
 
-        mod_guts = ModGuts {    mg_module    = this_mod,
+        mod_guts = ModGuts {    mg_module    = this_mod, -- where
                                 mg_boot	     = False,
                                 mg_used_names = emptyNameSet, -- ToDo: compute usage
                                 mg_used_th   = False,
@@ -1460,41 +1460,58 @@ tcRnExpr hsc_env ictxt rdr_expr
     let { fresh_it  = itName uniq (getLoc rdr_expr) } ;
     ((_tc_expr, res_ty), lie)	<- captureConstraints (tcInferRho rn_expr) ;
 
+
+    (g, l) <- getEnvs ;
+    holes <- readTcRef $ tcl_holes l ;
+
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $ 
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer True {- Free vars are closed -}
                                                     False {- No MR for now -}
-                                                    [(fresh_it, res_ty)]
+                                                    ([(fresh_it, res_ty)]) -- ++ (map (\(nm,(ty,_)) -> (holeNameName nm, ty)) $ Map.toList holes))
                                                     lie  ;
 	let { (holes, dicts') = splitEvs dicts [] [] } ;
+    
+    traceRn (text "tcRnExpr1:" <+> (ppr holes <+> ppr dicts')) ;
 
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
     
-    liftIO $ putStrLn ("tcRnExpr: " ++ (showSDoc $ ppr lie_top)) ;
+    traceRn (text "tcRnExpr2:" <+> (ppr lie_top)) ;
 
     let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts' res_ty) } ;
     result <- zonkTcType all_expr_ty ;
 
 
-    zonked_holes <- mapM (\(nm, ty) -> liftM (\t -> (nm, t)) $ zonkTcType ty) $ map2 (\ty -> mkForAllTys qtvs $ mkPiTypes dicts' ty) $ map (splitHole . varType) $ holes ;
+    zonked_holes <- zonkHoles $ map (apsnd (mkForAllTys qtvs) . apsnd (mkPiTypes dicts') . unwrapHole . varType) $ holes ;
 
-    let { (env, tys) = (\(e, tys) -> (e, map2 split tys)) $ foldr tidy (emptyTidyEnv, []) zonked_holes } ;
+    let { (env, tidied_holes) = apsnd (map (apsnd split)) $ foldr tidy (emptyTidyEnv, []) zonked_holes } ;
 
-    liftIO $ putStrLn $ showSDoc ((ptext $ sLit "Found the following holes: ") $+$ (vcat $ map (\(nm, ty) -> ppr nm <> colon <+> ppr ty) tys));
+    liftIO $ putStrLn $ showSDoc ((ptext $ sLit "Found the following holes: ")
+                                $+$ (vcat $ map (\(nm, ty) -> text "_" <> ppr nm <+> colon <> colon <+> ppr ty) tidied_holes));
 
     return $ snd $ tidyOpenType env result
     }
-    where tidy (nm, ty) (env, tys) = let (env', ty') = tidyOpenType env ty in (env', (nm, ty') : tys)
-          split t = let (_, ctxt, ty') = tcSplitSigmaTy $ tidyTopType t in mkPhiTy ctxt ty'
+    where tidy (nm, ty) (env, tys) = let (env', ty') = tidyOpenType env ty
+                                     in (env', (nm, ty') : tys)
+
+          split t = let (_, ctxt, ty') = tcSplitSigmaTy $ tidyTopType t
+                    in mkPhiTy ctxt ty'
+
           splitEvs [] hls dcts = (hls, dcts)
           splitEvs (evvar:xs) hls dcts = case classifyPredType $ varType evvar of
 								    		HolePred {} -> splitEvs xs (evvar:hls) dcts
 								    		_ -> splitEvs xs hls (evvar:dcts)
-          splitHole (TyConApp nm [ty]) = (nm, ty)
+          -- unwrap what was wrapped in mkHolePred
+          unwrapHole (TyConApp nm [ty]) = (nm, ty)
 
-          map2 :: (b -> c) -> [(a, b)] -> [(a, c)]
-          map2 _ [] = []
-          map2 f ((a, b):xs) = ((a, f b):(map2 f xs))
+          -- zonk the holes, but keep the name
+          zonkHoles = mapM (\(nm, ty) -> liftM (\t -> (nm, t)) $ zonkTcType ty)
+
+          apsnd f (a, b) = (a, f b)
+
+          f (_, b) = let (Just (ATyCon tc)) = wiredInNameTyThing_maybe b
+                         (Just (_, ty, _)) = trace ("unwrapNewTyCon_maybe" ++ (showSDoc $ ppr tc)) $ unwrapNewTyCon_maybe tc
+          			 in (b, ty)
 
 --------------------------
 tcRnImportDecls :: HscEnv

@@ -40,6 +40,7 @@ module BasicTypes(
 	compareFixity,
 
 	IPName(..), ipNameName, mapIPName,
+  HoleName(..), holeNameName, mapHoleName,
 
 	RecFlag(..), isRec, isNonRec, boolToRecFlag,
 
@@ -189,6 +190,26 @@ mapIPName f (IPName n) = IPName (f n)
 
 instance Outputable name => Outputable (IPName name) where
     ppr (IPName n) = char '?' <> ppr n -- Ordinary implicit parameters
+
+
+newtype HoleName name = HoleName name -- _x
+  deriving( Eq, Data, Typeable )
+
+instance Ord a => Ord (HoleName a) where
+  compare (HoleName a) (HoleName b) = compare a b
+
+instance Functor HoleName where
+    fmap = mapHoleName
+
+holeNameName :: HoleName name -> name
+holeNameName (HoleName n) = n
+
+mapHoleName :: (a->b) -> HoleName a -> HoleName b
+mapHoleName f (HoleName n) = HoleName (f n)
+
+instance Outputable name => Outputable (HoleName name) where
+    ppr (HoleName n) = char '_' <> ppr n -- Ordinary holes
+
 \end{code}
 
 %************************************************************************

@@ -95,7 +95,7 @@ import TyCon
 import TypeRep
 import RdrName
 import Name
-import BasicTypes       ( TupleSort(..), tupleSortBoxity, IPName(..), Arity, RecFlag(..), Boxity(..), HsBang(..) )
+import BasicTypes       ( TupleSort(..), tupleSortBoxity, IPName(..), Arity, RecFlag(..), Boxity(..), HsBang(..), HoleName(..) )
 import Unique           ( incrUnique, mkTupleTyConUnique,
 			  mkTupleDataConUnique, mkPArrDataConUnique )
 import Data.Array
@@ -422,10 +422,10 @@ mkIPName ip tycon_u datacon_u dc_wrk_u co_ax_u = name_ip
 \begin{code}
 mkHoleName :: FastString
          -> Unique -> Unique -> Unique -> Unique
-         -> Name
+         -> HoleName Name
 mkHoleName ip tycon_u datacon_u dc_wrk_u co_ax_u = name_hole
   where
-    name_hole = tycon_name
+    name_hole = HoleName tycon_name
 
     tycon_name = mkPrimTyConName ip tycon_u tycon
     tycon      = mkAlgTyCon tycon_name

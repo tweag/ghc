@@ -47,6 +47,8 @@ import FastString
 
 import Control.Monad
 
+import qualified Data.Map as Map
+
 #include "HsVersions.h"
 \end{code}
 
@@ -433,7 +435,10 @@ tcPolyInfer mono closed tc_sig_fn prag_fn rec_tc bind_list
                 tcMonoBinds tc_sig_fn LetLclBndr rec_tc bind_list
 
        ; let name_taus = [(name, idType mono_id) | (name, _, mono_id) <- mono_infos]
-       ; (qtvs, givens, mr_bites, ev_binds) <- simplifyInfer closed mono name_taus wanted
+       ; (g, l) <- getEnvs
+       ; holes <- readTcRef $ tcl_holes l
+       ; traceTc "tcPolyInfer" (ppr $ map (\(nm,(ty,_)) -> (nm, ty)) $ Map.toList holes)
+       ; (qtvs, givens, mr_bites, ev_binds) <- simplifyInfer closed mono (name_taus ++ (map (\(nm,(ty,_)) -> (holeNameName nm, ty)) $ Map.toList holes)) wanted
 
        ; theta <- zonkTcThetaType (map evVarPred givens)
        ; exports <- checkNoErrs $ mapM (mkExport prag_fn qtvs theta) mono_infos
