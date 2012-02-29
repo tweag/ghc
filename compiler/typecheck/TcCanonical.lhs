@@ -304,6 +304,7 @@ constraint between the types.  (On the other hand, the types in two
 class constraints for the same class MAY be equal, so they need to be
 flattened in the first place to facilitate comparing them.)
 
+\begin{code}
 canHole :: SubGoalDepth -- Depth 
       -> CtFlavor -> EvVar 
       -> HoleName Name -> Type -> TcS StopOrContinue
@@ -321,6 +322,7 @@ canHole d fl v nm ty
          else
             error "false"
        }
+\end{code}
 
 %************************************************************************
 %*                                                                      *

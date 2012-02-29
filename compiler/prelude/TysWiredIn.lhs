@@ -96,7 +96,7 @@ import TyCon
 import TypeRep
 import RdrName
 import Name
-import BasicTypes       ( TupleSort(..), tupleSortBoxity, IPName(..), HoleName(..)
+import BasicTypes       ( TupleSort(..), tupleSortBoxity, IPName(..), HoleName(..),
                           Arity, RecFlag(..), Boxity(..), HsBang(..) )
 import ForeignCall
 import Unique           ( incrUnique, mkTupleTyConUnique,
@@ -438,6 +438,7 @@ mkHoleName ip tycon_u datacon_u dc_wrk_u co_ax_u = name_hole
     tycon      = mkAlgTyCon tycon_name
                    (liftedTypeKind `mkArrowKind` constraintKind)
                    [alphaTyVar]
+                   Nothing
                    []      -- No stupid theta
                    (NewTyCon { data_con    = datacon, 
                                nt_rhs      = mkTyVarTy alphaTyVar,
