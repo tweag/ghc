@@ -234,8 +234,8 @@ dsExpr (HsLam a_Match)
 dsExpr (HsApp fun arg)
   = mkCoreAppDs <$> dsLExpr fun <*>  dsLExpr arg
 
-dsExpr (HsHole src)
-  = undefined -- return (Hole src)
+dsExpr (HsHole nm)
+  = return $ Var $ holeNameName nm
 \end{code}
 
 Note [Desugaring vars]
