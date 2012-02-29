@@ -41,7 +41,7 @@ import TyCon
 import DataCon
 import PrelNames
 import TysWiredIn
-import TysPrim          ( superKindTyCon )
+import TysPrim          ( superKindTyConName )
 import BasicTypes       ( Arity, strongLoopBreaker )
 import Literal
 import qualified Var
@@ -463,7 +463,6 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
            ; return (FamInstTyCon ax fam_tc (substTys subst fam_tys)) }
 
 tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs, 
-                                  ifCType = cType,
                                   ifSynRhs = mb_rhs_ty,
                                   ifSynKind = kind })
    = bindIfaceTyVars_AT tv_bndrs $ \ tyvars -> do
@@ -471,7 +470,7 @@ tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs,
      ; rhs_kind <- tcIfaceType kind     -- Note [Synonym kind loop]
      ; rhs      <- forkM (mk_doc tc_name) $ 
                    tc_syn_rhs mb_rhs_ty
-     ; tycon    <- buildSynTyCon tc_name tyvars cType rhs rhs_kind parent
+     ; tycon    <- buildSynTyCon tc_name tyvars rhs rhs_kind parent
      ; return (ATyCon tycon) }
    where
      mk_doc n = ptext (sLit "Type syonym") <+> ppr n
@@ -1237,6 +1236,9 @@ tcIfaceGlobal :: Name -> IfL TyThing
 tcIfaceGlobal name
   | Just thing <- wiredInNameTyThing_maybe name
         -- Wired-in things include TyCons, DataCons, and Ids
+        -- Even though we are in an interface file, we want to make
+        -- sure the instances and RULES of this thing (particularly TyCon) are loaded 
+        -- Imagine: f :: Double -> Double
   = do { ifCheckWiredInThing thing; return thing }
   | otherwise
   = do  { env <- getGblEnv
@@ -1281,37 +1283,8 @@ tcIfaceGlobal name
 -- emasculated form (e.g. lacking data constructors).
 
 tcIfaceTyCon :: IfaceTyCon -> IfL TyCon
-tcIfaceTyCon IfaceIntTc         = tcWiredInTyCon intTyCon
-tcIfaceTyCon IfaceBoolTc        = tcWiredInTyCon boolTyCon
-tcIfaceTyCon IfaceCharTc        = tcWiredInTyCon charTyCon
-tcIfaceTyCon IfaceListTc        = tcWiredInTyCon listTyCon
-tcIfaceTyCon IfacePArrTc        = tcWiredInTyCon parrTyCon
-tcIfaceTyCon (IfaceTupTc bx ar) = tcWiredInTyCon (tupleTyCon bx ar)
-tcIfaceTyCon (IfaceIPTc n)      = do { n' <- newIPName n
-                                     ; tcWiredInTyCon (ipTyCon n') }
-tcIfaceTyCon (IfaceTc name)     = do { thing <- tcIfaceGlobal name
-                                     ; return (check_tc (tyThingTyCon thing)) }
-  where
-    check_tc tc
-     | debugIsOn = case toIfaceTyCon tc of
-                   IfaceTc _ -> tc
-                   _         -> pprTrace "check_tc" (ppr tc) tc
-     | otherwise = tc
--- we should be okay just returning Kind constructors without extra loading
-tcIfaceTyCon IfaceLiftedTypeKindTc   = return liftedTypeKindTyCon
-tcIfaceTyCon IfaceOpenTypeKindTc     = return openTypeKindTyCon
-tcIfaceTyCon IfaceUnliftedTypeKindTc = return unliftedTypeKindTyCon
-tcIfaceTyCon IfaceArgTypeKindTc      = return argTypeKindTyCon
-tcIfaceTyCon IfaceUbxTupleKindTc     = return ubxTupleKindTyCon
-tcIfaceTyCon IfaceConstraintKindTc   = return constraintKindTyCon
-tcIfaceTyCon IfaceSuperKindTc        = return superKindTyCon
-
--- Even though we are in an interface file, we want to make
--- sure the instances and RULES of this tycon are loaded 
--- Imagine: f :: Double -> Double
-tcWiredInTyCon :: TyCon -> IfL TyCon
-tcWiredInTyCon tc = do { ifCheckWiredInThing (ATyCon tc)
-                       ; return tc }
+tcIfaceTyCon (IfaceTc name) = do { thing <- tcIfaceGlobal name
+                                 ; return (tyThingTyCon thing) }
 
 tcIfaceCoAxiom :: Name -> IfL CoAxiom
 tcIfaceCoAxiom name = do { thing <- tcIfaceGlobal name
@@ -1383,7 +1356,7 @@ bindIfaceTyVars bndrs thing_inside
     (occs,kinds) = unzip bndrs
 
 isSuperIfaceKind :: IfaceKind -> Bool
-isSuperIfaceKind (IfaceTyConApp IfaceSuperKindTc []) = True
+isSuperIfaceKind (IfaceTyConApp (IfaceTc n) []) = n == superKindTyConName
 isSuperIfaceKind _ = False
 
 mk_iface_tyvar :: Name -> IfaceKind -> IfL TyVar

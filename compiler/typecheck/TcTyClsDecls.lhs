@@ -500,7 +500,7 @@ tcTyClDecl1 parent _calc_isrec
   = tcTyClTyVars tc_name tvs $ \ tvs' kind -> do
   { traceTc "type family:" (ppr tc_name)
   ; checkFamFlag tc_name
-  ; tycon <- buildSynTyCon tc_name tvs' Nothing SynFamilyTyCon kind parent
+  ; tycon <- buildSynTyCon tc_name tvs' SynFamilyTyCon kind parent
   ; return [ATyCon tycon] }
 
   -- "data family" declaration

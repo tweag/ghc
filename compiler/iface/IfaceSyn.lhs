@@ -80,7 +80,6 @@ data IfaceDecl
     }
 
   | IfaceSyn  { ifName    :: OccName,           -- Type constructor
-                ifCType   :: Maybe CType,       -- C type for CAPI FFI
                 ifTyVars  :: [IfaceTvBndr],     -- Type variables
                 ifSynKind :: IfaceKind,         -- Kind of the *rhs* (not of the tycon)
                 ifSynRhs  :: Maybe IfaceType    -- Just rhs for an ordinary synonyn
@@ -455,7 +454,8 @@ pprIfaceDecl (IfaceId {ifName = var, ifType = ty,
 pprIfaceDecl (IfaceForeign {ifName = tycon})
   = hsep [ptext (sLit "foreign import type dotnet"), ppr tycon]
 
-pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyVars = tyvars,
+pprIfaceDecl (IfaceSyn {ifName = tycon,
+                        ifTyVars = tyvars,
                         ifSynRhs = Just mono_ty})
   = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (vcat [equals <+> ppr mono_ty])
@@ -465,11 +465,12 @@ pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyVars = tyvars,
   = hang (ptext (sLit "type family") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (dcolon <+> ppr kind)
 
-pprIfaceDecl (IfaceData {ifName = tycon, ifCtxt = context,
+pprIfaceDecl (IfaceData {ifName = tycon, ifCType = cType,
+                         ifCtxt = context,
                          ifTyVars = tyvars, ifCons = condecls,
                          ifRec = isrec, ifAxiom = mbAxiom})
   = hang (pp_nd <+> pprIfaceDeclHead context tycon tyvars)
-       4 (vcat [pprRec isrec, pp_condecls tycon condecls,
+       4 (vcat [pprCType cType, pprRec isrec, pp_condecls tycon condecls,
                 pprAxiom mbAxiom])
   where
     pp_nd = case condecls of
@@ -490,6 +491,10 @@ pprIfaceDecl (IfaceAxiom {ifName = name, ifTyVars = tyvars,
                           ifLHS = lhs, ifRHS = rhs})
   = hang (ptext (sLit "axiom") <+> ppr name <+> ppr tyvars)
        2 (dcolon <+> ppr lhs <+> text "~#" <+> ppr rhs)
+
+pprCType :: Maybe CType -> SDoc
+pprCType Nothing = ptext (sLit "No C type associated")
+pprCType (Just cType) = ptext (sLit "C type:") <+> ppr cType
 
 pprRec :: RecFlag -> SDoc
 pprRec isrec = ptext (sLit "RecFlag") <+> ppr isrec
@@ -877,7 +882,6 @@ freeNamesIfExpr _ = emptyNameSet
 freeNamesIfTc :: IfaceTyCon -> NameSet
 freeNamesIfTc (IfaceTc tc) = unitNameSet tc
 -- ToDo: shouldn't we include IfaceIntTc & co.?
-freeNamesIfTc _ = emptyNameSet
 
 freeNamesIfCo :: IfaceCoCon -> NameSet
 freeNamesIfCo (IfaceCoAx tc) = unitNameSet tc

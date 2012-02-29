@@ -338,25 +338,27 @@ repInstD (L loc (ClsInstDecl ty binds _ ats))	-- Ignore user pragmas for now
    Just (tvs, cxt, cls, tys) = splitHsInstDeclTy_maybe (unLoc ty)
 
 repForD :: Located (ForeignDecl Name) -> DsM (SrcSpan, Core TH.DecQ)
-repForD (L loc (ForeignImport name typ _ (CImport cc s ch cis)))
+repForD (L loc (ForeignImport name typ _ (CImport cc s mch cis)))
  = do MkC name' <- lookupLOcc name
       MkC typ' <- repLTy typ
       MkC cc' <- repCCallConv cc
       MkC s' <- repSafety s
       cis' <- conv_cimportspec cis
-      MkC str <- coreStringLit $ static
-                              ++ unpackFS ch ++ " "
-                              ++ cis'
+      MkC str <- coreStringLit (static ++ chStr ++ cis')
       dec <- rep2 forImpDName [cc', s', str, name', typ']
       return (loc, dec)
  where
     conv_cimportspec (CLabel cls) = notHandled "Foreign label" (doubleQuotes (ppr cls))
     conv_cimportspec (CFunction DynamicTarget) = return "dynamic"
-    conv_cimportspec (CFunction (StaticTarget fs _)) = return (unpackFS fs)
+    conv_cimportspec (CFunction (StaticTarget fs _ True)) = return (unpackFS fs)
+    conv_cimportspec (CFunction (StaticTarget _  _ False)) = panic "conv_cimportspec: values not supported yet"
     conv_cimportspec CWrapper = return "wrapper"
     static = case cis of
-                 CFunction (StaticTarget _ _) -> "static "
+                 CFunction (StaticTarget _ _ _) -> "static "
                  _ -> ""
+    chStr = case mch of
+            Nothing -> ""
+            Just (Header h) -> unpackFS h ++ " "
 repForD decl = notHandled "Foreign declaration" (ppr decl)
 
 repCCallConv :: CCallConv -> DsM (Core TH.Callconv)
