@@ -11,7 +11,7 @@ import HscTypes         ( msHsFilePath )
 import Name             ( getOccString )
 --import ErrUtils         ( printBagOfErrors )
 import Panic            ( panic )
-import DynFlags         ( defaultLogAction )
+import DynFlags         ( defaultLogAction, defaultFlushOut )
 import Bag
 import Exception
 import FastString
@@ -102,7 +102,7 @@ main = do
                      then Just `liftM` openFile "TAGS" openFileMode
                      else return Nothing
 
-  GHC.defaultErrorHandler defaultLogAction $
+  GHC.defaultErrorHandler defaultLogAction defaultFlushOut $
     runGhc (Just ghc_topdir) $ do
       --liftIO $ print "starting up session"
       dflags <- getSessionDynFlags
@@ -253,7 +253,7 @@ boundValues mod group =
                        , bind <- bagToList binds
                        , x <- boundThings mod bind ]
                _other -> error "boundValues"
-      tys = [ n | ns <- map hsTyClDeclBinders (concat (hs_tyclds group))
+      tys = [ n | ns <- map hsLTyClDeclBinders (concat (hs_tyclds group))
                 , n <- map found ns ]
       fors = concat $ map forBound (hs_fords group)
              where forBound lford = case unLoc lford of

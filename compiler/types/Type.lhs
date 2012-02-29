@@ -63,6 +63,7 @@ module Type (
         funTyCon, holeTyCon,
 
         -- ** Predicates on types
+        isTypeVar, isKindVar,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isKindTy,
 
 	-- (Lifting and boxity)
@@ -79,7 +80,7 @@ module Type (
         -- ** Common Kinds and SuperKinds
         anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind,
         argTypeKind, ubxTupleKind, constraintKind,
-        tySuperKind, 
+        superKind, 
 
         -- ** Common Kind type constructors
         liftedTypeKindTyCon, openTypeKindTyCon, unliftedTypeKindTyCon,
@@ -89,7 +90,7 @@ module Type (
 	-- * Type free variables
 	tyVarsOfType, tyVarsOfTypes,
 	expandTypeSynonyms, 
-	typeSize, varSetElemsKvsFirst, sortQuantVars,
+	typeSize, varSetElemsKvsFirst, 
 
 	-- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, 
@@ -166,6 +167,7 @@ import Util
 import Outputable
 import FastString
 
+import Data.List        ( partition )
 import Maybes		( orElse )
 import Data.Maybe	( isJust )
 
@@ -690,8 +692,8 @@ mkPiKinds :: [TyVar] -> Kind -> Kind
 -- returns forall k1 k2. (k1 -> *) -> k2
 mkPiKinds [] res = res
 mkPiKinds (tv:tvs) res 
-  | isKiVar tv = ForAllTy tv          (mkPiKinds tvs res)
-  | otherwise  = FunTy (tyVarKind tv) (mkPiKinds tvs res)
+  | isKindVar tv = ForAllTy tv          (mkPiKinds tvs res)
+  | otherwise    = FunTy (tyVarKind tv) (mkPiKinds tvs res)
 
 mkPiType  :: Var -> Type -> Type
 -- ^ Makes a @(->)@ type or a forall type, depending
@@ -993,23 +995,10 @@ typeSize (TyConApp _ ts) = 1 + sum (map typeSize ts)
 
 varSetElemsKvsFirst :: VarSet -> [TyVar]
 -- {k1,a,k2,b} --> [k1,k2,a,b]
-varSetElemsKvsFirst set = uncurry (++) $ partitionKiTyVars (varSetElems set)
-
-sortQuantVars :: [Var] -> [Var]
--- Sort the variables so the true kind then type variables come first
-sortQuantVars = sortLe le
+varSetElemsKvsFirst set 
+  = kvs ++ tvs
   where
-    v1 `le` v2 = case (is_tv v1, is_tv v2) of
-                   (True, False)  -> True
-                   (False, True)  -> False
-                   (True, True)   ->
-                     case (is_kv v1, is_kv v2) of
-                       (True, False) -> True
-                       (False, True) -> False
-                       _             -> v1 <= v2  -- Same family
-                   (False, False) -> v1 <= v2
-    is_tv v = isTyVar v
-    is_kv v = isSuperKind (tyVarKind v)
+    (kvs, tvs) = partition isKindVar (varSetElems set)
 \end{code}
 
 
@@ -1562,7 +1551,7 @@ type SimpleKind = Kind
 typeKind :: Type -> Kind
 typeKind (TyConApp tc tys)
   | isPromotedTypeTyCon tc
-  = ASSERT( tyConArity tc == length tys ) tySuperKind
+  = ASSERT( tyConArity tc == length tys ) superKind
   | otherwise
   = kindAppResult (tyConKind tc) tys
 

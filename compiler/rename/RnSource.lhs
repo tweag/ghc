@@ -407,8 +407,8 @@ patchCImportSpec packageId spec
 patchCCallTarget :: PackageId -> CCallTarget -> CCallTarget
 patchCCallTarget packageId callTarget
  = case callTarget of
- 	StaticTarget label Nothing
-	 -> StaticTarget label (Just packageId)
+ 	StaticTarget label Nothing isFun
+	 -> StaticTarget label (Just packageId) isFun
 
 	_			-> callTarget	
 
@@ -424,7 +424,11 @@ patchCCallTarget packageId callTarget
 
 \begin{code}
 rnSrcInstDecl :: InstDecl RdrName -> RnM (InstDecl Name, FreeVars)
-rnSrcInstDecl (InstDecl inst_ty mbinds uprags ats)
+rnSrcInstDecl (FamInstDecl ty_decl)
+  = do { (ty_decl', fvs) <- rnTyClDecl Nothing ty_decl
+       ; return (FamInstDecl ty_decl', fvs) }
+
+rnSrcInstDecl (ClsInstDecl inst_ty mbinds uprags ats)
 	-- Used for both source and interface file decls
   = do { inst_ty' <- rnLHsInstType (text "In an instance declaration") inst_ty
        ; let Just (inst_tyvars, _, L _ cls,_) = splitLHsInstDeclTy_maybe inst_ty'
@@ -460,7 +464,7 @@ rnSrcInstDecl (InstDecl inst_ty mbinds uprags ats)
 	                     renameSigs (InstDeclCtxt cls) spec_inst_prags
 
        ; let uprags' = spec_inst_prags' ++ other_sigs'
-       ; return (InstDecl inst_ty' mbinds' uprags' ats',
+       ; return (ClsInstDecl inst_ty' mbinds' uprags' ats',
 	         meth_fvs `plusFV` more_fvs
                           `plusFV` hsSigsFVs spec_inst_prags'
 		      	  `plusFV` extractHsTyNames inst_ty') }
@@ -764,6 +768,7 @@ rnTyClDecls extra_deps tycl_ds
 
              all_fvs = foldr (plusFV . snd) emptyFVs ds_w_fvs'
 
+       ; traceRn (text "rnTycl"  <+> (ppr ds_w_fvs $$ ppr sccs))
        ; return (map flattenSCC sccs, all_fvs) }
 
 
@@ -794,7 +799,8 @@ rnTyClDecl mb_cls (TyFamily { tcdLName = tycon, tcdTyVars = tyvars
 
 -- "data", "newtype", "data instance, and "newtype instance" declarations
 -- both top level and (for an associated type) in an instance decl
-rnTyClDecl mb_cls tydecl@TyData {tcdND = new_or_data, tcdCtxt = context, 
+rnTyClDecl mb_cls tydecl@TyData {tcdND = new_or_data, tcdCType = cType,
+                                 tcdCtxt = context, 
 			   	 tcdLName = tycon, tcdTyVars = tyvars, 
 			   	 tcdTyPats = typats, tcdCons = condecls, 
 			   	 tcdKindSig = sig, tcdDerivs = derivs}
@@ -826,7 +832,8 @@ rnTyClDecl mb_cls tydecl@TyData {tcdND = new_or_data, tcdCtxt = context,
 		-- No need to check for duplicate constructor decls
 		-- since that is done by RnNames.extendGlobalRdrEnvRn
 
-	; return (TyData {tcdND = new_or_data, tcdCtxt = context', 
+	; return (TyData {tcdND = new_or_data, tcdCType = cType,
+               tcdCtxt = context', 
 			   tcdLName = tycon', tcdTyVars = tyvars', 
 			   tcdTyPats = typats', tcdKindSig = sig',
 			   tcdCons = condecls', tcdDerivs = derivs'}, 
@@ -844,14 +851,16 @@ rnTyClDecl mb_cls tydecl@TyData {tcdND = new_or_data, tcdCtxt = context,
 			     ; return (Just ds', extractHsTyNames_s ds') }
 
 -- "type" and "type instance" declarations
-rnTyClDecl mb_cls tydecl@(TySynonym { tcdTyVars = tyvars, tcdLName = name,
+rnTyClDecl mb_cls tydecl@(TySynonym { tcdTyVars = tyvars,
+                          tcdLName = name,
 		  	              tcdTyPats = typats, tcdSynRhs = ty})
   = bindQTvs syn_doc mb_cls tyvars $ \ tyvars' -> do
     {    	 -- Checks for distinct tyvars
       name' <- lookupTcdName mb_cls tydecl
     ; (typats',fvs1) <- rnTyPats syn_doc name' typats
     ; (ty', fvs2)    <- rnHsTypeFVs syn_doc ty
-    ; return (TySynonym { tcdLName = name', tcdTyVars = tyvars'
+    ; return (TySynonym { tcdLName = name'
+                , tcdTyVars = tyvars'
     			, tcdTyPats = typats', tcdSynRhs = ty'}
              , extractHsTyVarBndrNames_s tyvars' (fvs1 `plusFV` fvs2)) }
   where
@@ -995,12 +1004,16 @@ depAnalTyClDecls :: [(LTyClDecl Name, FreeVars)] -> [SCC (LTyClDecl Name)]
 depAnalTyClDecls ds_w_fvs
   = stronglyConnCompFromEdgedVertices edges
   where
-    edges = [ (d, tcdName (unLoc d), map get_assoc (nameSetToList fvs))
+    edges = [ (d, tcdName (unLoc d), map get_parent (nameSetToList fvs))
             | (d, fvs) <- ds_w_fvs ]
-    get_assoc n = lookupNameEnv assoc_env n `orElse` n
+
+    -- We also need to consider data constructor names since 
+    -- they may appear in types because of promotion.
+    get_parent n = lookupNameEnv assoc_env n `orElse` n
+
+    assoc_env :: NameEnv Name   -- Maps a data constructor back 
+                                -- to its parent type constructor
     assoc_env = mkNameEnv assoc_env_list
-    -- We also need to consider data constructor names since they may
-    -- appear in types because of promotion.
     assoc_env_list = do
       (L _ d, _) <- ds_w_fvs
       case d of
@@ -1210,7 +1223,7 @@ extendRecordFieldEnv tycl_decls inst_decls
     all_data_cons = [con | L _ (TyData { tcdCons = cons }) <- all_tycl_decls
     		         , L _ con <- cons ]
     all_tycl_decls = at_tycl_decls ++ concat tycl_decls
-    at_tycl_decls = instDeclATs inst_decls  -- Do not forget associated types!
+    at_tycl_decls = instDeclFamInsts inst_decls  -- Do not forget associated types!
 
     get_con (ConDecl { con_name = con, con_details = RecCon flds })
 	    (RecFields env fld_set)

@@ -101,13 +101,10 @@ tcTyAndClassDecls :: ModDetails
                   -> TcM TcGblEnv       -- Input env extended by types and classes
                                         -- and their implicit Ids,DataCons
 -- Fails if there are any errors
-tcTyAndClassDecls boot_details decls_s
-  = checkNoErrs $ do    -- The code recovers internally, but if anything gave rise to
+tcTyAndClassDecls boot_details tyclds_s
+  = checkNoErrs $       -- The code recovers internally, but if anything gave rise to
                         -- an error we'd better stop now, to avoid a cascade
-  { let tyclds_s = map (filterOut (isFamInstDecl . unLoc)) decls_s
-                   -- Remove family instance decls altogether
-                   -- They are dealt with by TcInstDcls
-  ; fold_env tyclds_s }  -- type check each group in dependency order folding the global env
+    fold_env tyclds_s   -- type check each group in dependency order folding the global env
   where
     fold_env :: [TyClGroup Name] -> TcM TcGblEnv
     fold_env [] = getGblEnv
@@ -284,7 +281,10 @@ kcTyClGroup decls
 	     -- Step 4: generalisation
 	     -- Kind checking done for this group
              -- Now we have to kind generalize the flexis
-        ; mapM generalise (tyClsBinders decls) }}}
+        ; res <- mapM generalise (tyClsBinders decls) 
+
+        ; traceTc "kcTyClGroup result" (ppr res)
+        ; return res }}}
 
   where
     generalise :: Name -> TcM (Name, Kind)
@@ -379,7 +379,7 @@ kcTyClDecl decl@(TyFamily {})
   = kcFamilyDecl [] decl      -- the empty list signals a toplevel decl
 
 kcTyClDecl decl@(TyData {})
-  = ASSERT( not . isFamInstDecl $ decl )   -- must not be a family instance
+  = ASSERT2( not . isFamInstDecl $ decl, ppr decl )   -- must not be a family instance
     kcTyClDeclBody decl	$ \_ -> kcDataDecl decl
 
 kcTyClDecl decl@(ClassDecl {tcdCtxt = ctxt, tcdSigs = sigs, tcdATs = ats})
@@ -477,7 +477,9 @@ kcFamilyDecl classTvs decl@(TyFamily {tcdKind = kind})
     unifyClassParmKinds (L _ tv) 
       | (n,k) <- hsTyVarNameKind tv
       , Just classParmKind <- lookup n classTyKinds 
-      = let ctxt = ptext (    sLit "When kind checking family declaration")
+      = traceTc "kcFam" (ppr k $$ ppr classParmKind $$ ppr classTyKinds)
+        >>
+        let ctxt = ptext (    sLit "When kind checking family declaration")
                           <+> ppr (tcdLName decl)
         in addErrCtxt ctxt $ unifyKind k classParmKind >> return ()
       | otherwise = return ()
@@ -569,7 +571,7 @@ tcTyClDecl1 parent _calc_isrec
   ; checkFamFlag tc_name
   ; extra_tvs <- tcDataKindSig kind
   ; let final_tvs = tvs' ++ extra_tvs    -- we may not need these
-        tycon = buildAlgTyCon tc_name final_tvs []
+        tycon = buildAlgTyCon tc_name final_tvs Nothing []
                               DataFamilyTyCon Recursive True parent
   ; return [ATyCon tycon] }
 
@@ -586,7 +588,8 @@ tcTyClDecl1 _parent _calc_isrec
   -- "newtype" and "data"
   -- NB: not used for newtype/data instances (whether associated or not)
 tcTyClDecl1 _parent calc_isrec
-              (TyData { tcdND = new_or_data, tcdCtxt = ctxt, tcdTyVars = tvs
+              (TyData { tcdND = new_or_data, tcdCType = cType
+                  , tcdCtxt = ctxt, tcdTyVars = tvs
 	              , tcdLName = L _ tc_name, tcdKindSig = mb_ksig, tcdCons = cons })
   = ASSERT( isNoParent _parent )
     let is_rec   = calc_isrec tc_name
@@ -616,7 +619,7 @@ tcTyClDecl1 _parent calc_isrec
 		   DataType -> return (mkDataTyConRhs data_cons)
 		   NewType  -> ASSERT( not (null data_cons) )
                                mkNewTyConRhs tc_name tycon (head data_cons)
-	; return (buildAlgTyCon tc_name final_tvs stupid_theta tc_rhs
+	; return (buildAlgTyCon tc_name final_tvs cType stupid_theta tc_rhs
 	                        is_rec (not h98_syntax) NoParentTyCon) }
   ; return [ATyCon tycon] }
 
@@ -633,7 +636,7 @@ tcTyClDecl1 _parent calc_isrec
           ; fds' <- mapM (addLocM tc_fundep) fundeps
           ; (sig_stuff, gen_dm_env) <- tcClassSigs class_name sigs meths
           ; return (tvs', ctxt', fds', sig_stuff, gen_dm_env) }
-  ; clas <- fixM $ \ clas -> do
+          ; clas <- fixM $ \ clas -> do
 	    { let 	-- This little knot is just so we can get
 			-- hold of the name of the class TyCon, which we
 			-- need to look up its recursiveness
@@ -712,7 +715,8 @@ tcClassATs class_name parent ats at_defs
 
     at_defs_map :: NameEnv [LTyClDecl Name]
     -- Maps an AT in 'ats' to a list of all its default defs in 'at_defs'
-    at_defs_map = foldr (\at_def nenv -> extendNameEnv_C (++) nenv (tcdName (unLoc at_def)) [at_def]) 
+    at_defs_map = foldr (\at_def nenv -> extendNameEnv_C (++) nenv 
+                                              (tcdName (unLoc at_def)) [at_def]) 
                         emptyNameEnv at_defs
 
     tc_at at = do { [ATyCon fam_tc] <- addLocM (tcTyClDecl1 parent
@@ -924,18 +928,15 @@ tcConDecl new_or_data existential_ok rep_tycon res_tmpl 	-- Data types
               , con_details = details, con_res = res_ty }
         <- kcConDecl new_or_data con
     ; addErrCtxt (dataConCtxt name) $
-    tcTyVarBndrsKindGen tvs $ \ tvs' -> do
+      tcTyVarBndrsKindGen tvs $ \ tvs' -> do
     { ctxt' <- tcHsKindedContext ctxt
     ; checkTc (existential_ok || conRepresentibleWithH98Syntax con)
 	      (badExistential name)
-    ; traceTc "tcConDecl 1" (ppr con)
     ; (univ_tvs, ex_tvs, eq_preds, res_ty') <- tcResultType res_tmpl tvs' res_ty
     ; let
 	tc_datacon is_infix field_lbls btys
 	  = do { (arg_tys, stricts) <- mapAndUnzipM tcConArg btys
-	       ; traceTc "tcConDecl 3" (ppr name)
-
-    	       ; buildDataCon (unLoc name) is_infix
+	       ; buildDataCon (unLoc name) is_infix
     		    stricts field_lbls
     		    univ_tvs ex_tvs eq_preds ctxt' arg_tys
 		    res_ty' rep_tycon }
@@ -1367,7 +1368,7 @@ checkValidClass cls
         ; mapM_ check_at_defs at_stuff	}
   where
     (tyvars, fundeps, theta, _, at_stuff, op_stuff) = classExtraBigSig cls
-    unary = isSingleton (snd (splitKiTyVars tyvars))  -- IA0_NOTE: only count type arguments
+    unary = count isTypeVar tyvars == 1   -- Ignore kind variables
 
     check_op constrained_class_methods (sel_id, dm) 
       = addErrCtxt (classOpCtxt sel_id tau) $ do

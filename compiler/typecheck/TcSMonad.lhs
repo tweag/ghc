@@ -143,7 +143,7 @@ import TrieMap
 
 \begin{code}
 compatKind :: Kind -> Kind -> Bool
-compatKind k1 k2 = k1 `isSubKind` k2 || k2 `isSubKind` k1 
+compatKind k1 k2 = k1 `tcIsSubKind` k2 || k2 `tcIsSubKind` k1 
 
 mkKindErrorCtxtTcS :: Type -> Kind 
                    -> Type -> Kind 
@@ -1238,6 +1238,10 @@ data EvVarCreated
   = EvVarCreated { evc_is_new    :: Bool    -- True iff the variable was just created
                  , evc_the_evvar :: EvVar } -- The actual evidence variable could be cached or new
 
+instance Outputable EvVarCreated where
+  ppr (EvVarCreated { evc_is_new = is_new, evc_the_evvar = ev })
+    = ppr ev <> parens (if is_new then ptext (sLit "new") else ptext (sLit "old"))
+  
 isNewEvVar :: EvVarCreated -> Bool
 isNewEvVar = evc_is_new
 
@@ -1366,9 +1370,10 @@ newGivenEqVar fl ty1 ty2 co
 
 newEqVar :: CtFlavor -> TcType -> TcType -> TcS EvVarCreated
 newEqVar fl ty1 ty2 
-  = newEvVar fl (mkEqPred (ty1,ty2))
-
-
+  = do { let pred = mkEqPred (ty1,ty2)
+       ; v <- newEvVar fl pred 
+       ; traceTcS "newEqVar" (ppr v <+> dcolon <+> ppr pred)
+       ; return v }
 \end{code} 
 
 
@@ -1437,6 +1442,4 @@ getCtCoercion ct
                 -- solved, so it is not safe to simply do a mkTcCoVarCo (cc_id ct)
                 -- Instead we use the most accurate type, given by ctPred c
   where maybe_given = isGiven_maybe (cc_flavor ct)
-
-
 \end{code}

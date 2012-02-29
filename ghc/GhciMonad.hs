@@ -9,7 +9,20 @@
 --
 -----------------------------------------------------------------------------
 
-module GhciMonad where
+module GhciMonad (
+        GHCi(..), startGHCi,
+        GHCiState(..), setGHCiState, getGHCiState, modifyGHCiState,
+        GHCiOption(..), isOptionSet, setOption, unsetOption,
+        Command,
+        BreakLocation(..),
+        TickArray,
+        setDynFlags,
+
+        runStmt, runDecls, resume, timeIt, recordBreak, revertCAFs,
+
+        printForUser, printForUserPartWay, prettyLocations,
+        initInterpBuffering, turnOffBuffering, flushInterpBuffers,
+    ) where
 
 #include "HsVersions.h"
 
@@ -17,7 +30,6 @@ import qualified GHC
 import GhcMonad         hiding (liftIO)
 import Outputable       hiding (printForUser, printForUserPartWay)
 import qualified Outputable
-import Panic            hiding (showException)
 import Util
 import DynFlags
 import HscTypes
@@ -157,9 +169,6 @@ instance Monad GHCi where
 instance Functor GHCi where
     fmap f m = m >>= return . f
 
-ghciHandleGhcException :: (GhcException -> GHCi a) -> GHCi a -> GHCi a
-ghciHandleGhcException = handleGhcException
-
 getGHCiState :: GHCi GHCiState
 getGHCiState   = GHCi $ \r -> liftIO $ readIORef r
 setGHCiState :: GHCiState -> GHCi ()
@@ -249,6 +258,7 @@ printForUserPartWay doc = do
   unqual <- GHC.getPrintUnqual
   liftIO $ Outputable.printForUserPartWay stdout opt_PprUserLength unqual doc
 
+-- | Run a single Haskell expression
 runStmt :: String -> GHC.SingleStep -> GHCi (Maybe GHC.RunResult)
 runStmt expr step = do
   st <- getGHCiState

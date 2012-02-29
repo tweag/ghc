@@ -46,7 +46,6 @@ import TcEvidence
 import TysPrim
 import TysWiredIn
 import Type
-import Kind
 import DataCon
 import Name
 import NameSet
@@ -1165,10 +1164,11 @@ zonkEvBind env (EvBind var term)
       -- Fast path for variable-variable bindings 
       -- NB: could be optimized further! (e.g. SymCo cv)
         | Just cv <- getTcCoVar_maybe co 
-        -> do { let cv' = zonkIdOcc env cv -- Just lazily look up
+        -> do { let cv'   = zonkIdOcc env cv -- Just lazily look up
                     term' = EvCoercion (TcCoVarCo cv')
                     var'  = setVarType var (varType cv')
               ; return (EvBind var' term') }
+
       -- Ugly safe and slow path
       _ -> do { var'  <- {-# SCC "zonkEvBndr" #-} zonkEvBndr env var
               ; term' <- zonkEvTerm env term 
@@ -1295,7 +1295,7 @@ zonkTvCollecting :: TcRef TyVarSet -> UnboundTyVarZonker
 -- Works on both types and kinds
 zonkTvCollecting unbound_tv_set tv
   = do { poly_kinds <- xoptM Opt_PolyKinds
-       ; if isKiVar tv && not poly_kinds then defaultKindVarToStar tv
+       ; if isKindVar tv && not poly_kinds then defaultKindVarToStar tv
          else do
        { tv' <- zonkQuantifiedTyVar tv
        ; tv_set <- readMutVar unbound_tv_set
@@ -1307,10 +1307,10 @@ zonkTypeZapping :: UnboundTyVarZonker
 -- It zaps unbound type variables to (), or some other arbitrary type
 -- Works on both types and kinds
 zonkTypeZapping tv
-  = do { let ty = if isKiVar tv
+  = do { let ty = if isKindVar tv
                   -- ty is actually a kind, zonk to AnyK
                   then anyKind
-                  else anyTypeOfKind (tyVarKind tv)
+                  else anyTypeOfKind (defaultKind (tyVarKind tv))
        ; writeMetaTyVar tv ty
        ; return ty }
 

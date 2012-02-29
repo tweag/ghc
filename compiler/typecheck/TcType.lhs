@@ -37,6 +37,7 @@ module TcType (
   isSigTyVar, isOverlappableTyVar,  isTyConableTyVar,
   isAmbiguousTyVar, metaTvRef, 
   isFlexi, isIndirect, isRuntimeUnkSkol,
+  isTypeVar, isKindVar,
 
   --------------------------------
   -- Builders
@@ -88,7 +89,7 @@ module TcType (
   tidyType,      tidyTypes,
   tidyOpenType,  tidyOpenTypes,
   tidyOpenKind,
-  tidyTyVarBndr, tidyFreeTyVars,
+  tidyTyVarBndr, tidyTyVarBndrs, tidyFreeTyVars,
   tidyOpenTyVar, tidyOpenTyVars,
   tidyTyVarOcc,
   tidyTopType,
@@ -118,7 +119,7 @@ module TcType (
   unliftedTypeKind, liftedTypeKind, argTypeKind,
   openTypeKind, constraintKind, mkArrowKind, mkArrowKinds, 
   isLiftedTypeKind, isUnliftedTypeKind, isSubOpenTypeKind, 
-  isSubArgTypeKind, isSubKind, splitKindFunTys, defaultKind,
+  isSubArgTypeKind, tcIsSubKind, splitKindFunTys, defaultKind,
   mkMetaKindVar,
 
   --------------------------------
@@ -400,7 +401,7 @@ mkKindName unique = mkSystemName unique kind_var_occ
 mkMetaKindVar :: Unique -> IORef MetaDetails -> MetaKindVar
 mkMetaKindVar u r
   = mkTcTyVar (mkKindName u)
-              tySuperKind  -- not sure this is right,
+              superKind     -- not sure this is right,
                             -- do we need kind vars for
                             -- coercions?
               (MetaTv TauTv r)
@@ -462,6 +463,9 @@ Tidying is here becuase it has a special case for FlatSkol
 -- an interface file.
 -- 
 -- It doesn't change the uniques at all, just the print names.
+tidyTyVarBndrs :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
+tidyTyVarBndrs env tvs = mapAccumL tidyTyVarBndr env tvs
+
 tidyTyVarBndr :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
 tidyTyVarBndr tidy_env@(occ_env, subst) tyvar
   = case tidyOccName occ_env occ1 of

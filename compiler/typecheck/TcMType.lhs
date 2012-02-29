@@ -60,7 +60,7 @@ module TcMType (
   --------------------------------
   -- Zonking
   zonkType, zonkKind, zonkTcPredType, 
-  zonkTcTypeCarefully, skolemiseUnboundMetaTyVar,
+  skolemiseUnboundMetaTyVar,
   zonkTcTyVar, zonkTcTyVars, zonkTcTyVarsAndFV, zonkSigTyVar,
   zonkQuantifiedTyVar, zonkQuantifiedTyVars,
   zonkTcType, zonkTcTypes, zonkTcThetaType,
@@ -70,8 +70,6 @@ module TcMType (
 
   zonkTcTypeAndSubst,
   tcGetGlobalTyVars, 
-
-  compatKindTcM, isSubKindTcM
   ) where
 
 #include "HsVersions.h"
@@ -391,7 +389,7 @@ writeMetaTyVarRef tyvar ref ty
        ; writeMutVar ref (Indirect ty) 
        ; when (   not (isPredTy tv_kind) 
                     -- Don't check kinds for updates to coercion variables
-               && not (zonked_ty_kind `isSubKind` zonked_tv_kind))
+               && not (zonked_ty_kind `tcIsSubKind` zonked_tv_kind))
        $ WARN( True, hang (text "Ill-kinded update to meta tyvar")
                         2 (    ppr tyvar <+> text "::" <+> ppr tv_kind 
                            <+> text ":=" 
@@ -421,22 +419,26 @@ newFlexiTyVarTy kind = do
 newFlexiTyVarTys :: Int -> Kind -> TcM [TcType]
 newFlexiTyVarTys n kind = mapM newFlexiTyVarTy (nOfThem n kind)
 
-tcInstTyVars :: [TyVar] -> TcM ([TcTyVar], [TcType], TvSubst)
+tcInstTyVars :: [TKVar] -> TcM ([TcTyVar], [TcType], TvSubst)
 -- Instantiate with META type variables
+-- Note that this works for a sequence of kind and type
+-- variables.  Eg    [ (k:BOX), (a:k->k) ]
+--             Gives [ (k7:BOX), (a8:k7->k7) ]
 tcInstTyVars tyvars = tcInstTyVarsX emptyTvSubst tyvars
     -- emptyTvSubst has an empty in-scope set, but that's fine here
     -- Since the tyvars are freshly made, they cannot possibly be
     -- captured by any existing for-alls.
 
-tcInstTyVarsX :: TvSubst -> [TyVar] -> TcM ([TcTyVar], [TcType], TvSubst)
+tcInstTyVarsX :: TvSubst -> [TKVar] -> TcM ([TcTyVar], [TcType], TvSubst)
+-- The "X" part is because of extending the substitution
 tcInstTyVarsX subst tyvars =
-  do { (subst', tyvars') <- mapAccumLM tcInstTyVar subst tyvars
+  do { (subst', tyvars') <- mapAccumLM tcInstTyVarX subst tyvars
      ; return (tyvars', mkTyVarTys tyvars', subst') }
 
-tcInstTyVar :: TvSubst -> TyVar -> TcM (TvSubst, TcTyVar)
+tcInstTyVarX :: TvSubst -> TKVar -> TcM (TvSubst, TcTyVar)
 -- Make a new unification variable tyvar whose Name and Kind come from
 -- an existing TyVar. We substitute kind variables in the kind.
-tcInstTyVar subst tyvar
+tcInstTyVarX subst tyvar
   = do  { uniq <- newMetaUnique
         ; ref <- newMutVar Flexi
         ; let name   = mkSystemName uniq (getOccName tyvar)
@@ -481,10 +483,17 @@ the environment.
 tcGetGlobalTyVars :: TcM TcTyVarSet
 tcGetGlobalTyVars
   = do { (TcLclEnv {tcl_tyvars = gtv_var}) <- getLclEnv
-       ; gbl_tvs  <- readMutVar gtv_var
-       ; gbl_tvs' <- zonkTcTyVarsAndFV gbl_tvs
+       ; gbl_tvs <- readMutVar gtv_var
+       ; tys     <- mapM zonk_tv (varSetElems gbl_tvs)
+       ; let gbl_tvs' = tyVarsOfTypes tys
        ; writeMutVar gtv_var gbl_tvs'
        ; return gbl_tvs' }
+  where
+    zonk_tv tv | isTcTyVar tv = zonkTcTyVar tv
+               | otherwise    = return (mkTyVarTy tv)
+    -- Hackily, the global tyvars can contain non-TcTyVars
+    -- These are added (only) in TcHsType.tcTyClTyVars, but it seems
+    -- painful to make them into TcTyVars there
 \end{code}
 
 -----------------  Type variables
@@ -497,29 +506,6 @@ zonkTcTyVarsAndFV :: TcTyVarSet -> TcM TcTyVarSet
 zonkTcTyVarsAndFV tyvars = tyVarsOfTypes <$> mapM zonkTcTyVar (varSetElems tyvars)
 
 -----------------  Types
-zonkTcTypeCarefully :: TcType -> TcM TcType
--- Do not zonk type variables free in the environment
-zonkTcTypeCarefully ty = zonkTcType ty   -- I think this function is out of date
-
-{-
-  = do { env_tvs <- tcGetGlobalTyVars
-       ; zonkType (zonk_tv env_tvs) ty }
-  where
-    zonk_tv env_tvs tv
-      | tv `elemVarSet` env_tvs 
-      = return (TyVarTy tv)
-      | otherwise
-      = ASSERT( isTcTyVar tv )
-    	case tcTyVarDetails tv of
-          SkolemTv {}   -> return (TyVarTy tv)
-          RuntimeUnk {} -> return (TyVarTy tv)
-          FlatSkol ty   -> zonkType (zonk_tv env_tvs) ty
-          MetaTv _ ref  -> do { cts <- readMutVar ref
-                              ; case cts of
-			           Flexi       -> return (TyVarTy tv)
-			           Indirect ty -> zonkType (zonk_tv env_tvs) ty }
--}
-
 zonkTcType :: TcType -> TcM TcType
 -- Simply look through all Flexis
 zonkTcType ty = zonkType zonkTcTyVar ty
@@ -581,15 +567,14 @@ zonkTcPredType = zonkTcType
 defaultKindVarToStar :: TcTyVar -> TcM Kind
 -- We have a meta-kind: unify it with '*'
 defaultKindVarToStar kv 
-  = do { ASSERT ( isKiVar kv && isMetaTyVar kv )
+  = do { ASSERT ( isKindVar kv && isMetaTyVar kv )
          writeMetaTyVar kv liftedTypeKind
        ; return liftedTypeKind }
 
-zonkQuantifiedTyVars :: TcTyVarSet -> TcM [TcTyVar]
--- Precondition: a kind variable occurs before a type
---               variable mentioning it in its kind
+zonkQuantifiedTyVars :: [TcTyVar] -> TcM [TcTyVar]
+-- A kind variable k may occur *after* a tyvar mentioning k in its kind
 zonkQuantifiedTyVars tyvars
-  = do { let (kvs, tvs) = partitionKiTyVars (varSetElems tyvars)
+  = do { let (kvs, tvs) = partition isKindVar tyvars
        ; poly_kinds <- xoptM Opt_PolyKinds
        ; if poly_kinds then
              mapM zonkQuantifiedTyVar (kvs ++ tvs)
@@ -838,19 +823,6 @@ zonkType zonk_tc_tyvar ty
 %************************************************************************
 
 \begin{code}
-compatKindTcM :: Kind -> Kind -> TcM Bool
-compatKindTcM k1 k2
-  = do { k1' <- zonkTcKind k1
-       ; k2' <- zonkTcKind k2
-       ; return $ k1' `isSubKind` k2' || k2' `isSubKind` k1' }
-
-isSubKindTcM :: Kind -> Kind -> TcM Bool
-isSubKindTcM k1 k2
-  = do { k1' <- zonkTcKind k1
-       ; k2' <- zonkTcKind k2
-       ; return $ k1' `isSubKind` k2' }
-
--------------
 zonkTcKind :: TcKind -> TcM TcKind
 zonkTcKind k = zonkTcType k
 \end{code}

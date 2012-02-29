@@ -542,7 +542,7 @@ trySpontaneousEqTwoWay :: SubGoalDepth
 -- Both tyvars are *touchable* MetaTyvars so there is only a chance for kind error here
 
 trySpontaneousEqTwoWay d eqv gw tv1 tv2
-  = do { let k1_sub_k2 = k1 `isSubKind` k2
+  = do { let k1_sub_k2 = k1 `tcIsSubKind` k2
        ; if k1_sub_k2 && nicer_to_update_tv2
          then trace "trySpontaneousEqTwoWay1" $ solveWithIdentity d eqv gw tv2 (mkTyVarTy tv1)
          else trace "trySpontaneousEqTwoWay2" $ solveWithIdentity d eqv gw tv1 (mkTyVarTy tv2) }
@@ -550,7 +550,6 @@ trySpontaneousEqTwoWay d eqv gw tv1 tv2
     k1 = tyVarKind tv1
     k2 = tyVarKind tv2
     nicer_to_update_tv2 = isSigTyVar tv1 || isSystemName (Var.varName tv2)
-
 \end{code}
 
 Note [Kind errors] 

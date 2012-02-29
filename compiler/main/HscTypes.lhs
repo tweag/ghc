@@ -931,7 +931,8 @@ data InteractiveContext
 
          ic_tythings   :: [TyThing],
              -- ^ TyThings defined by the user, in reverse order of
-             -- definition.
+             -- definition.  At a breakpoint, this list includes the
+             -- local variables in scope at that point
 
          ic_sys_vars   :: [Id],
              -- ^ Variables defined automatically by the system (e.g.
@@ -1040,7 +1041,7 @@ data InteractiveImport
       -- ^ Bring the exports of a particular module
       -- (filtered by an import decl) into scope
 
-  | IIModule Module
+  | IIModule ModuleName
       -- ^ Bring into scope the entire top-level envt of
       -- of this module, including the things imported
       -- into it.
@@ -1386,8 +1387,9 @@ lookupType dflags hpt pte name
        lookupNameEnv (md_types (hm_details hm)) name
   | otherwise
   = lookupNameEnv pte name
-  where mod = ASSERT( isExternalName name ) nameModule name
-        this_pkg = thisPackage dflags
+  where 
+    mod = ASSERT2( isExternalName name, ppr name ) nameModule name
+    this_pkg = thisPackage dflags
 
 -- | As 'lookupType', but with a marginally easier-to-use interface
 -- if you have a 'HscEnv'

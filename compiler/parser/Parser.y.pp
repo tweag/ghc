@@ -38,9 +38,7 @@ import TysWiredIn       ( unitTyCon, unitDataCon, tupleTyCon, tupleCon, nilDataC
                           unboxedUnitTyCon, unboxedUnitDataCon,
                           listTyCon_RDR, parrTyCon_RDR, consDataCon_RDR, eqTyCon_RDR )
 import Type             ( funTyCon )
-import ForeignCall      ( Safety(..), CExportSpec(..), CLabelString,
-                          CCallConv(..), CCallTarget(..), defaultCCallConv
-                        )
+import ForeignCall
 import OccName          ( varName, dataName, tcClsName, tvName )
 import DataCon          ( DataCon, dataConName )
 import SrcLoc
@@ -269,6 +267,7 @@ incorrect.
  '{-# VECTORISE'          { L _ ITvect_prag }
  '{-# VECTORISE_SCALAR'   { L _ ITvect_scalar_prag }
  '{-# NOVECTORISE'        { L _ ITnovect_prag }
+ '{-# CTYPE'              { L _ ITctype }
  '#-}'                                          { L _ ITclose_prag }
 
  '..'           { L _ ITdotdot }                        -- reserved symbols
@@ -568,10 +567,7 @@ topdecls :: { OrdList (LHsDecl RdrName) }
 topdecl :: { OrdList (LHsDecl RdrName) }
         : cl_decl                               { unitOL (L1 (TyClD (unLoc $1))) }
         | ty_decl                               { unitOL (L1 (TyClD (unLoc $1))) }
-        | 'instance' inst_type where_inst
-            { let (binds, sigs, ats, _) = cvBindsAndSigs (unLoc $3)
-              in 
-              unitOL (L (comb3 $1 $2 $3) (InstD (InstDecl $2 binds sigs ats)))}
+        | inst_decl                             { unitOL (L1 (InstD (unLoc $1))) }
         | stand_alone_deriving                  { unitOL (LL (DerivD (unLoc $1))) }
         | 'default' '(' comma_types0 ')'        { unitOL (LL $ DefD (DefaultDecl $3)) }
         | 'foreign' fdecl                       { unitOL (LL (unLoc $2)) }
@@ -630,25 +626,19 @@ ty_decl :: { LTyClDecl RdrName }
                 -- infix type constructors to be declared
                 {% mkTyFamily (comb3 $1 $3 $4) TypeFamily $3 (unLoc $4) }
 
-           -- type instance declarations
-        | 'type' 'instance' type '=' ctype
-                -- Note the use of type for the head; this allows
-                -- infix type constructors and type patterns
-                {% mkTySynonym (comb2 $1 $5) True $3 $5 }
-
           -- ordinary data type or newtype declaration
-        | data_or_newtype tycl_hdr constrs deriving
-                {% mkTyData (comb4 $1 $2 $3 $4) (unLoc $1) False $2 
-                            Nothing (reverse (unLoc $3)) (unLoc $4) }
+        | data_or_newtype capi_ctype tycl_hdr constrs deriving
+                {% mkTyData (comb4 $1 $3 $4 $5) (unLoc $1) False $2 $3 
+                            Nothing (reverse (unLoc $4)) (unLoc $5) }
                                    -- We need the location on tycl_hdr in case 
                                    -- constrs and deriving are both empty
 
           -- ordinary GADT declaration
-        | data_or_newtype tycl_hdr opt_kind_sig 
+        | data_or_newtype capi_ctype tycl_hdr opt_kind_sig 
                  gadt_constrlist
                  deriving
-                {% mkTyData (comb4 $1 $2 $4 $5) (unLoc $1) False $2 
-                            (unLoc $3) (unLoc $4) (unLoc $5) }
+                {% mkTyData (comb4 $1 $3 $5 $6) (unLoc $1) False $2 $3 
+                            (unLoc $4) (unLoc $5) (unLoc $6) }
                                    -- We need the location on tycl_hdr in case 
                                    -- constrs and deriving are both empty
 
@@ -656,18 +646,32 @@ ty_decl :: { LTyClDecl RdrName }
         | 'data' 'family' type opt_kind_sig
                 {% mkTyFamily (comb3 $1 $2 $4) DataFamily $3 (unLoc $4) }
 
+inst_decl :: { LInstDecl RdrName }
+        : 'instance' inst_type where_inst
+                 { let (binds, sigs, ats, _) = cvBindsAndSigs (unLoc $3)
+                   in L (comb3 $1 $2 $3) (ClsInstDecl $2 binds sigs ats) }
+
+           -- type instance declarations
+        | 'type' 'instance' type '=' ctype
+                -- Note the use of type for the head; this allows
+                -- infix type constructors and type patterns
+                {% do { L loc d <- mkTySynonym (comb2 $1 $5) True $3 $5
+                      ; return (L loc (FamInstDecl d)) } }
+
           -- data/newtype instance declaration
         | data_or_newtype 'instance' tycl_hdr constrs deriving
-                {% mkTyData (comb4 $1 $3 $4 $5) (unLoc $1) True $3
-                            Nothing (reverse (unLoc $4)) (unLoc $5) }
+                {% do { L loc d <- mkTyData (comb4 $1 $3 $4 $5) (unLoc $1) True Nothing $3
+                                      Nothing (reverse (unLoc $4)) (unLoc $5)
+                      ; return (L loc (FamInstDecl d)) } }
 
           -- GADT instance declaration
         | data_or_newtype 'instance' tycl_hdr opt_kind_sig 
                  gadt_constrlist
                  deriving
-                {% mkTyData (comb4 $1 $3 $5 $6) (unLoc $1) True $3
-                            (unLoc $4) (unLoc $5) (unLoc $6) }
-
+                {% do { L loc d <- mkTyData (comb4 $1 $3 $5 $6) (unLoc $1) True Nothing $3
+                                            (unLoc $4) (unLoc $5) (unLoc $6)
+                      ; return (L loc (FamInstDecl d)) } }
+        
 -- Associated type family declarations
 --
 -- * They have a different syntax than on the toplevel (no family special
@@ -681,7 +685,7 @@ at_decl_cls :: { LTyClDecl RdrName }
            -- type family declarations
         : 'type' type opt_kind_sig
                 -- Note the use of type for the head; this allows
-                -- infix type constructors to be declared
+                -- infix type constructors to be declared.
                 {% mkTyFamily (comb3 $1 $2 $3) TypeFamily $2 (unLoc $3) }
 
            -- default type instance
@@ -704,16 +708,16 @@ at_decl_inst :: { LTyClDecl RdrName }
                 {% mkTySynonym (comb2 $1 $4) True $2 $4 }
 
         -- data/newtype instance declaration
-        | data_or_newtype tycl_hdr constrs deriving
-                {% mkTyData (comb4 $1 $2 $3 $4) (unLoc $1) True $2 
-                            Nothing (reverse (unLoc $3)) (unLoc $4) }
+        | data_or_newtype capi_ctype tycl_hdr constrs deriving
+                {% mkTyData (comb4 $1 $3 $4 $5) (unLoc $1) True $2 $3 
+                            Nothing (reverse (unLoc $4)) (unLoc $5) }
 
         -- GADT instance declaration
-        | data_or_newtype tycl_hdr opt_kind_sig 
+        | data_or_newtype capi_ctype tycl_hdr opt_kind_sig 
                  gadt_constrlist
                  deriving
-                {% mkTyData (comb4 $1 $2 $4 $5) (unLoc $1) True $2 
-                            (unLoc $3) (unLoc $4) (unLoc $5) }
+                {% mkTyData (comb4 $1 $3 $5 $6) (unLoc $1) True $2 $3 
+                            (unLoc $4) (unLoc $5) (unLoc $6) }
 
 data_or_newtype :: { Located NewOrData }
         : 'data'        { L1 DataType }
@@ -733,6 +737,11 @@ opt_kind_sig :: { Located (Maybe (LHsKind RdrName)) }
 tycl_hdr :: { Located (Maybe (LHsContext RdrName), LHsType RdrName) }
         : context '=>' type             { LL (Just $1, $3) }
         | type                          { L1 (Nothing, $1) }
+
+capi_ctype :: { Maybe CType }
+capi_ctype : '{-# CTYPE' STRING STRING '#-}' { Just (CType (Just (Header (getSTRING $2))) (getSTRING $3)) }
+           | '{-# CTYPE'        STRING '#-}' { Just (CType Nothing                        (getSTRING $2)) }
+           |                                 { Nothing }
 
 -----------------------------------------------------------------------------
 -- Stand-alone deriving

@@ -50,11 +50,12 @@ module TysWiredIn (
         -- * List
 	listTyCon, nilDataCon, consDataCon,
 	listTyCon_RDR, consDataCon_RDR, listTyConName,
-	mkListTy,
+	mkListTy, mkPromotedListTy,
 
 	-- * Tuples
 	mkTupleTy, mkBoxedTupleTy,
-	tupleTyCon, tupleCon, 
+	tupleTyCon, promotedTupleTyCon,
+        tupleCon, 
 	unitTyCon, unitDataCon, unitDataConId, pairTyCon, 
 	unboxedUnitTyCon, unboxedUnitDataCon, 
         unboxedSingletonTyCon, unboxedSingletonDataCon,
@@ -89,13 +90,15 @@ import TysPrim
 import Coercion
 import Constants	( mAX_TUPLE_SIZE )
 import Module		( Module )
-import DataCon          ( DataCon, mkDataCon, dataConWorkId, dataConSourceArity )
+import DataCon
 import Var
 import TyCon
 import TypeRep
 import RdrName
 import Name
-import BasicTypes       ( TupleSort(..), tupleSortBoxity, IPName(..), Arity, RecFlag(..), Boxity(..), HsBang(..), HoleName(..) )
+import BasicTypes       ( TupleSort(..), tupleSortBoxity, IPName(..), HoleName(..)
+                          Arity, RecFlag(..), Boxity(..), HsBang(..) )
+import ForeignCall
 import Unique           ( incrUnique, mkTupleTyConUnique,
 			  mkTupleDataConUnique, mkPArrDataConUnique )
 import Data.Array
@@ -222,7 +225,6 @@ parrTyCon_RDR	= nameRdrName parrTyConName
 eqTyCon_RDR     = nameRdrName eqTyConName
 \end{code}
 
-
 %************************************************************************
 %*                                                                      *
 \subsection{mkWiredInTyCon}
@@ -230,18 +232,19 @@ eqTyCon_RDR     = nameRdrName eqTyConName
 %************************************************************************
 
 \begin{code}
-pcNonRecDataTyCon :: Name -> [TyVar] -> [DataCon] -> TyCon
+pcNonRecDataTyCon :: Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
 pcNonRecDataTyCon = pcTyCon False NonRecursive
-pcRecDataTyCon :: Name -> [TyVar] -> [DataCon] -> TyCon
+pcRecDataTyCon :: Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
 pcRecDataTyCon    = pcTyCon False Recursive
 
-pcTyCon :: Bool -> RecFlag -> Name -> [TyVar] -> [DataCon] -> TyCon
-pcTyCon is_enum is_rec name tyvars cons
+pcTyCon :: Bool -> RecFlag -> Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
+pcTyCon is_enum is_rec name cType tyvars cons
   = tycon
   where
     tycon = mkAlgTyCon name
 		(mkArrowKinds (map tyVarKind tyvars) liftedTypeKind)
                 tyvars
+                cType
                 []		-- No stupid theta
 		(DataTyCon cons is_enum)
 		NoParentTyCon
@@ -324,6 +327,9 @@ tupleTyCon BoxedTuple   i = fst (boxedTupleArr   ! i)
 tupleTyCon UnboxedTuple i = fst (unboxedTupleArr ! i)
 tupleTyCon ConstraintTuple    i = fst (factTupleArr    ! i)
 
+promotedTupleTyCon :: TupleSort -> Arity -> TyCon
+promotedTupleTyCon sort i = buildPromotedTyCon (tupleTyCon sort i)
+
 tupleCon :: TupleSort -> Arity -> DataCon
 tupleCon sort i | i > mAX_TUPLE_SIZE = snd (mk_tuple sort i)	-- Build one specially
 tupleCon BoxedTuple   i = snd (boxedTupleArr   ! i)
@@ -404,6 +410,7 @@ mkIPName ip tycon_u datacon_u dc_wrk_u co_ax_u = name_ip
     tycon      = mkAlgTyCon tycon_name
                    (liftedTypeKind `mkArrowKind` constraintKind)
                    [alphaTyVar]
+                   Nothing
                    []      -- No stupid theta
                    (NewTyCon { data_con    = datacon, 
                                nt_rhs      = mkTyVarTy alphaTyVar,
@@ -457,6 +464,7 @@ eqTyCon :: TyCon
 eqTyCon = mkAlgTyCon eqTyConName
             (ForAllTy kv $ mkArrowKinds [k, k] constraintKind)
             [kv, a, b]
+            Nothing
             []      -- No stupid theta
             (DataTyCon [eqBoxDataCon] False)
             NoParentTyCon
@@ -481,7 +489,8 @@ charTy :: Type
 charTy = mkTyConTy charTyCon
 
 charTyCon :: TyCon
-charTyCon   = pcNonRecDataTyCon charTyConName [] [charDataCon]
+charTyCon   = pcNonRecDataTyCon charTyConName (Just (CType Nothing (fsLit "HsChar")))
+                                [] [charDataCon]
 charDataCon :: DataCon
 charDataCon = pcDataCon charDataConName [] [charPrimTy] charTyCon
 
@@ -493,7 +502,7 @@ stringTy = mkListTy charTy -- convenience only
 integerTyCon :: TyCon
 integerTyCon = case cIntegerLibraryType of
                IntegerGMP ->
-                   pcNonRecDataTyCon integerRealTyConName []
+                   pcNonRecDataTyCon integerRealTyConName Nothing []
                                      [integerGmpSDataCon, integerGmpJDataCon]
                _ ->
                    panic "Evaluated integerTyCon, but not using IntegerGMP"
@@ -516,7 +525,7 @@ intTy :: Type
 intTy = mkTyConTy intTyCon 
 
 intTyCon :: TyCon
-intTyCon = pcNonRecDataTyCon intTyConName [] [intDataCon]
+intTyCon = pcNonRecDataTyCon intTyConName (Just (CType Nothing (fsLit "HsInt"))) [] [intDataCon]
 intDataCon :: DataCon
 intDataCon = pcDataCon intDataConName [] [intPrimTy] intTyCon
 \end{code}
@@ -526,7 +535,7 @@ wordTy :: Type
 wordTy = mkTyConTy wordTyCon 
 
 wordTyCon :: TyCon
-wordTyCon = pcNonRecDataTyCon wordTyConName [] [wordDataCon]
+wordTyCon = pcNonRecDataTyCon wordTyConName (Just (CType Nothing (fsLit "HsWord"))) [] [wordDataCon]
 wordDataCon :: DataCon
 wordDataCon = pcDataCon wordDataConName [] [wordPrimTy] wordTyCon
 \end{code}
@@ -536,7 +545,7 @@ floatTy :: Type
 floatTy	= mkTyConTy floatTyCon
 
 floatTyCon :: TyCon
-floatTyCon   = pcNonRecDataTyCon floatTyConName   [] [floatDataCon]
+floatTyCon   = pcNonRecDataTyCon floatTyConName   (Just (CType Nothing (fsLit "HsFloat"))) [] [floatDataCon]
 floatDataCon :: DataCon
 floatDataCon = pcDataCon         floatDataConName [] [floatPrimTy] floatTyCon
 \end{code}
@@ -546,7 +555,7 @@ doubleTy :: Type
 doubleTy = mkTyConTy doubleTyCon
 
 doubleTyCon :: TyCon
-doubleTyCon = pcNonRecDataTyCon doubleTyConName [] [doubleDataCon]
+doubleTyCon = pcNonRecDataTyCon doubleTyConName (Just (CType Nothing (fsLit "HsDouble"))) [] [doubleDataCon]
 
 doubleDataCon :: DataCon
 doubleDataCon = pcDataCon doubleDataConName [] [doublePrimTy] doubleTyCon
@@ -607,7 +616,8 @@ boolTy = mkTyConTy boolTyCon
 
 boolTyCon :: TyCon
 boolTyCon = pcTyCon True NonRecursive boolTyConName
-		    [] [falseDataCon, trueDataCon]
+                    (Just (CType Nothing (fsLit "HsBool")))
+                    [] [falseDataCon, trueDataCon]
 
 falseDataCon, trueDataCon :: DataCon
 falseDataCon = pcDataCon falseDataConName [] [] boolTyCon
@@ -618,7 +628,7 @@ falseDataConId = dataConWorkId falseDataCon
 trueDataConId  = dataConWorkId trueDataCon
 
 orderingTyCon :: TyCon
-orderingTyCon = pcTyCon True NonRecursive orderingTyConName
+orderingTyCon = pcTyCon True NonRecursive orderingTyConName Nothing
                         [] [ltDataCon, eqDataCon, gtDataCon]
 
 ltDataCon, eqDataCon, gtDataCon :: DataCon
@@ -652,7 +662,13 @@ mkListTy :: Type -> Type
 mkListTy ty = mkTyConApp listTyCon [ty]
 
 listTyCon :: TyCon
-listTyCon = pcRecDataTyCon listTyConName alpha_tyvar [nilDataCon, consDataCon]
+listTyCon = pcRecDataTyCon listTyConName Nothing alpha_tyvar [nilDataCon, consDataCon]
+
+mkPromotedListTy :: Type -> Type
+mkPromotedListTy ty = mkTyConApp promotedListTyCon [ty]
+
+promotedListTyCon :: TyCon
+promotedListTyCon = buildPromotedTyCon listTyCon
 
 nilDataCon :: DataCon
 nilDataCon  = pcDataCon nilDataConName alpha_tyvar [] listTyCon
@@ -748,7 +764,7 @@ mkPArrTy ty  = mkTyConApp parrTyCon [ty]
 --     @PrelPArr@.
 --
 parrTyCon :: TyCon
-parrTyCon  = pcNonRecDataTyCon parrTyConName alpha_tyvar [parrDataCon]
+parrTyCon  = pcNonRecDataTyCon parrTyConName Nothing alpha_tyvar [parrDataCon]
 
 parrDataCon :: DataCon
 parrDataCon  = pcDataCon 
