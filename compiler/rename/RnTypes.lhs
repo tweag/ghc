@@ -298,15 +298,6 @@ rnForAll :: HsDocContext -> HsExplicitFlag -> [LHsTyVarBndr RdrName]
 	 -> LHsContext RdrName -> LHsType RdrName 
          -> RnM (HsType Name, FreeVars)
 
-rnForAll doc _ [] (L _ []) (L _ ty) = rnHsType doc ty
-	-- One reason for this case is that a type like Int#
-	-- starts off as (HsForAllTy Nothing [] Int), in case
-	-- there is some quantification.  Now that we have quantified
-	-- and discovered there are no type variables, it's nicer to turn
-	-- it into plain Int.  If it were Int# instead of Int, we'd actually
-	-- get an error, because the body of a genuine for-all is
-	-- of kind *.
-
 rnForAll doc exp forall_tyvars ctxt ty
   = bindHsTyVars doc forall_tyvars $ \ new_tyvars ->
     do { (new_ctxt, fvs1) <- rnContext doc ctxt
@@ -314,6 +305,10 @@ rnForAll doc exp forall_tyvars ctxt ty
        ; return (HsForAllTy exp new_tyvars new_ctxt new_ty, fvs1 `plusFV` fvs2) }
 	-- Retain the same implicit/explicit flag as before
 	-- so that we can later print it correctly
+        -- 
+        -- And retain the HsForAll even if there the new_tyvars are empty
+        -- so that kind generalisation works!  
+        -- See Note [Body kind of a forall] in TcHsType
 
 ---------------
 bindSigTyVarsFV :: [Name]

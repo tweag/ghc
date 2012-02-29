@@ -392,6 +392,7 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
                         -- try the deriving stuff, because that may give
                         -- more errors still
 
+       ; traceTc "tcDeriving" empty
        ; (gbl_env, deriv_inst_info, deriv_binds)
               <- tcDeriving tycl_decls inst_decls deriv_decls
 
@@ -578,7 +579,7 @@ tcFamInstDecl1 fam_tc (decl@TyData { tcdND = new_or_data, tcdCType = cType
          -- Result kind must be '*' (otherwise, we have too few patterns)
        ; checkTc (isLiftedTypeKind resultKind) $ tooFewParmsErr (tyConArity fam_tc)
 
-       ; stupid_theta <- tcHsKindedContext =<< kcHsContext ctxt
+       ; stupid_theta <- tcHsContext ctxt
        ; dataDeclChecks (tcdName decl) new_or_data stupid_theta cons
 
          -- Construct representation tycon

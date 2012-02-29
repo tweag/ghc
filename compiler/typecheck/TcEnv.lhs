@@ -25,7 +25,8 @@ module TcEnv(
         tcExtendGhciEnv, tcExtendLetEnv,
         tcExtendIdEnv, tcExtendIdEnv1, tcExtendIdEnv2, 
         tcLookup, tcLookupLocated, tcLookupLocalIds, 
-        tcLookupId, tcLookupTyVar, tcLookupLcl_maybe, 
+        tcLookupId, tcLookupTyVar, 
+        tcLookupLcl_maybe, 
         getScopedTyVarBinds, getInLocalScope,
         wrongThingErr, pprBinders,
 
@@ -104,29 +105,27 @@ tcLookupGlobal :: Name -> TcM TyThing
 -- In GHCi, we may make command-line bindings (ghci> let x = True)
 -- that bind a GlobalId, but with an InternalName
 tcLookupGlobal name
-  = do  { env <- getGblEnv
-        
-                -- Try local envt
+  = do  {    -- Try local envt
+          env <- getGblEnv
         ; case lookupNameEnv (tcg_type_env env) name of { 
                 Just thing -> return thing ;
-                Nothing    -> do 
+                Nothing    ->
          
-                -- Try global envt
-        { hsc_env <- getTopEnv
-        ; mb_thing <- liftIO (lookupTypeHscEnv hsc_env name)
-        ; case mb_thing of  {
-            Just thing -> return thing ;
-            Nothing    -> do
-
                 -- Should it have been in the local envt?
-        { case nameModule_maybe name of
-                Nothing -> notFound name -- Internal names can happen in GHCi
+          case nameModule_maybe name of {
+                Nothing -> notFound name ; -- Internal names can happen in GHCi
 
                 Just mod | mod == tcg_mod env   -- Names from this module 
-                         -> notFound name -- should be in tcg_type_env
-                         | otherwise
-                         -> tcImportDecl name   -- Go find it in an interface
-        }}}}}
+                         -> notFound name       -- should be in tcg_type_env
+                         | otherwise -> do
+
+           -- Try home package table and external package table
+        { hsc_env <- getTopEnv
+        ; mb_thing <- liftIO (lookupTypeHscEnv hsc_env name)
+        ; case mb_thing of  
+            Just thing -> return thing 
+            Nothing    -> tcImportDecl name   -- Go find it in an interface
+        }}}}
 
 tcLookupField :: Name -> TcM Id         -- Returns the selector Id
 tcLookupField name 

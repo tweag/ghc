@@ -769,7 +769,7 @@ data ConDecl name
     , con_details   :: HsConDeclDetails name
         -- ^ The main payload
 
-    , con_res       :: ResType name
+    , con_res       :: ResType (LHsType name)
         -- ^ Result type of the constructor
 
     , con_doc       :: Maybe LHsDocString
@@ -789,16 +789,16 @@ hsConDeclArgTys (PrefixCon tys)    = tys
 hsConDeclArgTys (InfixCon ty1 ty2) = [ty1,ty2]
 hsConDeclArgTys (RecCon flds)      = map cd_fld_type flds
 
-data ResType name
+data ResType ty
    = ResTyH98           -- Constructor was declared using Haskell 98 syntax
-   | ResTyGADT (LHsType name)   -- Constructor was declared using GADT-style syntax,
-                                --      and here is its result type
+   | ResTyGADT ty       -- Constructor was declared using GADT-style syntax,
+                        --      and here is its result type
    deriving (Data, Typeable)
 
-instance OutputableBndr name => Outputable (ResType name) where
+instance Outputable ty => Outputable (ResType ty) where
          -- Debugging only
-   ppr ResTyH98 = ptext (sLit "ResTyH98")
-   ppr (ResTyGADT ty) = ptext (sLit "ResTyGADT") <+> pprParendHsType (unLoc ty)
+   ppr ResTyH98       = ptext (sLit "ResTyH98")
+   ppr (ResTyGADT ty) = ptext (sLit "ResTyGADT") <+> ppr ty
 \end{code}
 
 

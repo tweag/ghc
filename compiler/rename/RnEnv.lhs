@@ -70,7 +70,6 @@ import Outputable
 import Util
 import Maybes
 import ListSetOps	( removeDups )
-import Unique( getUnique )
 import DynFlags
 import FastString
 import Control.Monad
@@ -1182,12 +1181,10 @@ unboundNameX where_look rdr_name extra
   = do  { show_helpful_errors <- doptM Opt_HelpfulErrors
         ; let what = pprNonVarNameSpace (occNameSpace (rdrNameOcc rdr_name))
               err = unknownNameErr what rdr_name $$ extra
-        ; env <- getLocalRdrEnv
-        ; let extra = ppr (getUnique (rdrNameOcc rdr_name)) $$ ppr env
         ; if not show_helpful_errors
           then addErr err
           else do { suggestions <- unknownNameSuggestErr where_look rdr_name
-                  ; addErr (err $$ suggestions $$ extra) }
+                  ; addErr (err $$ suggestions) }
 
         ; return (mkUnboundName rdr_name) }
 

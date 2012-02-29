@@ -468,7 +468,8 @@ unifyList subst orig_xs orig_ys
   = go subst orig_xs orig_ys
   where
     go subst []     []     = return subst
-    go subst (x:xs) (y:ys) = do { subst' <- unify subst x y
+    go subst (x:xs) (y:ys) = do { subst' <- pprTrace "unify" (ppr x $$ ppr y) $
+                                            unify subst x y
 				; go subst' xs ys }
     go _ _ _ = failWith (lengthMisMatch orig_xs orig_ys)
 

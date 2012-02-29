@@ -27,17 +27,14 @@ module TcHsSyn (
 	TcId, TcIdSet, 
 
 	zonkTopDecls, zonkTopExpr, zonkTopLExpr, mkZonkTcTyVar,
-	zonkId, zonkTopBndrs
+	zonkId, zonkTopBndrs,
+        emptyZonkEnv, mkTyVarZonkEnv, zonkTcTypeToType, zonkTcTypeToTypes
   ) where
 
 #include "HsVersions.h"
 
--- friends:
-import HsSyn	-- oodles of it
-
--- others:
+import HsSyn
 import Id
-
 import TcRnMonad
 import PrelNames
 import TcType
@@ -223,6 +220,9 @@ extendIdZonkEnv1 (ZonkEnv zonk_ty ty_env id_env) id
 extendTyZonkEnv1 :: ZonkEnv -> TyVar -> ZonkEnv
 extendTyZonkEnv1 (ZonkEnv zonk_ty ty_env id_env) ty
   = ZonkEnv zonk_ty (extendVarEnv ty_env ty ty) id_env
+
+mkTyVarZonkEnv :: [TyVar] -> ZonkEnv
+mkTyVarZonkEnv tvs = ZonkEnv zonkTypeZapping (mkVarEnv [(tv,tv) | tv <- tvs]) emptyVarEnv
 
 setZonkType :: ZonkEnv -> UnboundTyVarZonker -> ZonkEnv
 setZonkType (ZonkEnv _ ty_env id_env) zonk_ty = ZonkEnv zonk_ty ty_env id_env

@@ -1055,9 +1055,9 @@ rnConDecl decl@(ConDecl { con_name = name, con_qvars = tvs
 
 rnConResult :: HsDocContext -> Name
             -> HsConDetails (LHsType Name) [ConDeclField Name]
-            -> ResType RdrName
+            -> ResType (LHsType RdrName)
             -> RnM (HsConDetails (LHsType Name) [ConDeclField Name],
-                    ResType Name, FreeVars)
+                    ResType (LHsType Name), FreeVars)
 rnConResult _   _   details ResTyH98 = return (details, ResTyH98, emptyFVs)
 rnConResult doc con details (ResTyGADT ty)
   = do { (ty', fvs) <- rnLHsType doc ty

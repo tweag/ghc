@@ -506,7 +506,7 @@ deriveTyData (L loc deriv_pred, L _ decl@(TyData { tcdLName = L _ tycon_name,
 	; tcExtendTyVarEnv tvs $	-- Deriving preds may (now) mention
 					-- the type variables for the type constructor
 
-    do	{ (deriv_tvs, cls, cls_tys) <- tcHsDeriv deriv_pred
+    do	{ (deriv_tvs, (cls, cls_tys)) <- tcHsDeriv deriv_pred
 		-- The "deriv_pred" is a LHsType to take account of the fact that for
 		-- newtype deriving we allow deriving (forall a. C [a]).
 

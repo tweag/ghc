@@ -561,7 +561,7 @@ kcTopSpliceType expr
         ; addErrCtxt (spliceResultDoc expr) $ do 
         { let doc = SpliceTypeCtx hs_ty2
         ; (hs_ty3, _fvs) <- checkNoErrs (rnLHsType doc hs_ty2)
-        ; (ty4, kind) <- kcLHsType hs_ty3
+        ; (ty4, kind) <- tcLHsType hs_ty3
         ; return (unLoc ty4, kind) }}
 \end{code}
 
@@ -1006,8 +1006,8 @@ reifyInstances th_nm th_tys
            ; loc <- getSrcSpanM
            ; rdr_tys <- mapM (cvt loc) th_tys    -- Convert to HsType RdrName
            ; (rn_tys, _fvs)  <- rnLHsTypes doc rdr_tys   -- Rename  to HsType Name
-           ; (tys, _res_k) <- kcApps tc (tyConKind tc) rn_tys
-           ; mapM dsHsType tys }
+           ; (tys, _res_k) <- tcInferApps tc (tyConKind tc) rn_tys
+           ; return tys }
 
     cvt :: SrcSpan -> TH.Type -> TcM (LHsType RdrName)
     cvt loc th_ty = case convertToHsType loc th_ty of

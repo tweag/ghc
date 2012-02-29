@@ -4,6 +4,16 @@
 %
 \section[TypeRep]{Type - friends' interface}
 
+Note [The Type-related module hierarchy]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  Class
+  TyCon    imports Class
+  TypeRep 
+  TysPrim  imports TypeRep ( including mkTyConTy )
+  Kind     imports TysPrim ( mainly for primitive kinds )
+  Type     imports Kind
+  Coercion imports Type
+
 \begin{code}
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
@@ -22,11 +32,11 @@ module TypeRep (
         PredType, ThetaType,      -- Synonyms
 
         -- Functions over types
-        mkTyConApp, mkTyConTy, mkTyVarTy, mkTyVarTys,
+        mkNakedTyConApp, mkTyConTy, mkTyVarTy, mkTyVarTys,
         isLiftedTypeKind, isSuperKind, isTypeVar, isKindVar,
         
         -- Pretty-printing
-	pprType, pprParendType, pprTypeApp,
+	pprType, pprParendType, pprTypeApp, pprTvBndr, 
 	pprTyThing, pprTyThingCategory, 
 	pprEqPred, pprTheta, pprForAll, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind,
@@ -244,19 +254,17 @@ mkTyVarTy  = TyVarTy
 mkTyVarTys :: [TyVar] -> [Type]
 mkTyVarTys = map mkTyVarTy -- a common use of mkTyVarTy
 
--- | A key function: builds a 'TyConApp' or 'FunTy' as apppropriate to its arguments.
--- Applies its arguments to the constructor from left to right
-mkTyConApp :: TyCon -> [Type] -> Type
-mkTyConApp tycon tys
-  | isFunTyCon tycon, [ty1,ty2] <- tys
-  = FunTy ty1 ty2
-
-  | otherwise
-  = TyConApp tycon tys
+mkNakedTyConApp :: TyCon -> [Type] -> Type
+-- Builds a TyConApp 
+--   * without being strict in TyCon,
+--   * the TyCon should never be FunTyCon
+-- Type.mkTyConApp is the usual one
+mkNakedTyConApp tc tys
+  = TyConApp (ASSERT( not (isFunTyCon tc) ) tc) tys
 
 -- | Create the plain type constructor type which has been applied to no type arguments at all.
 mkTyConTy :: TyCon -> Type
-mkTyConTy tycon = mkTyConApp tycon []
+mkTyConTy tycon = TyConApp tycon []
 \end{code}
 
 Some basic functions, put here to break loops eg with the pretty printer
@@ -296,6 +304,7 @@ tyVarsOfType (TyConApp _ tys)    = tyVarsOfTypes tys
 tyVarsOfType (FunTy arg res)     = tyVarsOfType arg `unionVarSet` tyVarsOfType res
 tyVarsOfType (AppTy fun arg)     = tyVarsOfType fun `unionVarSet` tyVarsOfType arg
 tyVarsOfType (ForAllTy tyvar ty) = delVarSet (tyVarsOfType ty) tyvar
+                                   `unionVarSet` tyVarsOfType (tyvarKind tyvar)
 
 tyVarsOfTypes :: [Type] -> TyVarSet
 tyVarsOfTypes tys = foldr (unionVarSet . tyVarsOfType) emptyVarSet tys
