@@ -161,7 +161,7 @@ matchExpectedFunTys herald arity orig_ty
     ------------
     defer n_req fun_ty 
       = addErrCtxtM mk_ctxt $
-        do { arg_tys <- newFlexiTyVarTys n_req argTypeKind
+        do { arg_tys <- newFlexiTyVarTys n_req openTypeKind
            ; res_ty  <- newFlexiTyVarTy openTypeKind
            ; co   <- unifyType fun_ty (mkFunTys arg_tys res_ty)
            ; return (co, arg_tys, res_ty) }
@@ -1053,8 +1053,7 @@ Unifying kinds is much, much simpler than unifying types.
 
 One small wrinkle is that as far as the user is concerned, types of kind
 Constraint should only be allowed to occur where we expect *exactly* that kind.
-We SHOULD NOT allow a type of kind fact to appear in a position expecting
-one of argTypeKind or openTypeKind.
+We SHOULD NOT allow a type of kind fact to appear in a position expecting an openTypeKind.
 
 The situation is different in the core of the compiler, where we are perfectly
 happy to have types of kind Constraint on either end of an arrow.

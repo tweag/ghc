@@ -188,7 +188,8 @@ cgLetNoEscapeBody :: Id		-- Name of the joint point
 		  -> Code
 
 cgLetNoEscapeBody bndr _ cc_slot all_args body = do
-  { (arg_regs, ptrs, nptrs, ret_slot) <- bindUnboxedTupleComponents all_args
+  { (arg_locs, arg_regs, ptrs, nptrs, ret_slot) <- bindUnboxedTupleComponents [(arg, idCgRep arg) | arg <- all_args]
+  ; bindArgsToRegOrStack arg_locs
 
      -- restore the saved cost centre.  BUT: we must not free the stack slot
      -- containing the cost centre, because it might be needed for a

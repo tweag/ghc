@@ -21,22 +21,20 @@ module TysPrim(
         tyVarList, alphaTyVars, betaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
 	alphaTy, betaTy, gammaTy, deltaTy,
 	openAlphaTy, openBetaTy, openAlphaTyVar, openBetaTyVar, openAlphaTyVars,
-        argAlphaTy, argAlphaTyVar, argAlphaTyVars, argBetaTy, argBetaTyVar,
         kKiVar,
 
         -- Kind constructors...
         superKindTyCon, superKind, anyKindTyCon,
-        liftedTypeKindTyCon, openTypeKindTyCon, unliftedTypeKindTyCon,
-        argTypeKindTyCon, ubxTupleKindTyCon, constraintKindTyCon,
+        liftedTypeKindTyCon, openTypeKindTyCon,
+        unliftedTypeKindTyCon, constraintKindTyCon,
 
         superKindTyConName, anyKindTyConName, liftedTypeKindTyConName,
         openTypeKindTyConName, unliftedTypeKindTyConName,
-        ubxTupleKindTyConName, argTypeKindTyConName,
         constraintKindTyConName,
 
         -- Kinds
-	anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind,
-        argTypeKind, ubxTupleKind, constraintKind,
+	anyKind, liftedTypeKind, unliftedTypeKind,
+        openTypeKind, constraintKind,
         mkArrowKind, mkArrowKinds,
 
         funTyCon, funTyConName,
@@ -136,8 +134,6 @@ primTyCons
     , liftedTypeKindTyCon
     , unliftedTypeKindTyCon
     , openTypeKindTyCon
-    , argTypeKindTyCon
-    , ubxTupleKindTyCon
     , constraintKindTyCon
     , superKindTyCon
     , anyKindTyCon
@@ -225,13 +221,6 @@ openAlphaTy, openBetaTy :: Type
 openAlphaTy = mkTyVarTy openAlphaTyVar
 openBetaTy  = mkTyVarTy openBetaTyVar
 
-argAlphaTyVars :: [TyVar]
-argAlphaTyVar, argBetaTyVar :: TyVar
-argAlphaTyVars@(argAlphaTyVar : argBetaTyVar : _) = tyVarList argTypeKind
-argAlphaTy, argBetaTy :: Type
-argAlphaTy = mkTyVarTy argAlphaTyVar
-argBetaTy  = mkTyVarTy argBetaTyVar
-
 kKiVar :: KindVar
 kKiVar = (tyVarList superKind) !! 10
 
@@ -264,11 +253,11 @@ funTyCon = mkFunTyCon funTyConName $
 -- (->) :: * -> * -> *
 -- but we should have (and want) the following typing rule for fully applied arrows
 --      Gamma |- tau   :: k1    k1 in {*, #}
---      Gamma |- sigma :: k2    k2 in {*, #, (#)}
+--      Gamma |- sigma :: k2    k2 in {*, #}
 --      -----------------------------------------
 --      Gamma |- tau -> sigma :: *
 -- Currently we have the following rule which achieves more or less the same effect
---      Gamma |- tau   :: ??
+--      Gamma |- tau   :: ?
 --      Gamma |- sigma :: ?
 --      --------------------------
 --      Gamma |- tau -> sigma :: *
@@ -304,12 +293,10 @@ So you can see it's convenient to have BOX:BOX
 -- | See "Type#kind_subtyping" for details of the distinction between the 'Kind' 'TyCon's
 superKindTyCon, anyKindTyCon, liftedTypeKindTyCon,
       openTypeKindTyCon, unliftedTypeKindTyCon,
-      ubxTupleKindTyCon, argTypeKindTyCon,
       constraintKindTyCon
    :: TyCon
 superKindTyConName, anyKindTyConName, liftedTypeKindTyConName,
       openTypeKindTyConName, unliftedTypeKindTyConName,
-      ubxTupleKindTyConName, argTypeKindTyConName,
       constraintKindTyConName
    :: Name
 
@@ -320,8 +307,6 @@ anyKindTyCon          = mkKindTyCon anyKindTyConName          superKind
 liftedTypeKindTyCon   = mkKindTyCon liftedTypeKindTyConName   superKind
 openTypeKindTyCon     = mkKindTyCon openTypeKindTyConName     superKind
 unliftedTypeKindTyCon = mkKindTyCon unliftedTypeKindTyConName superKind
-ubxTupleKindTyCon     = mkKindTyCon ubxTupleKindTyConName     superKind
-argTypeKindTyCon      = mkKindTyCon argTypeKindTyConName      superKind
 constraintKindTyCon   = mkKindTyCon constraintKindTyConName   superKind
 
 --------------------------
@@ -332,8 +317,6 @@ anyKindTyConName          = mkPrimTyConName (fsLit "AnyK") anyKindTyConKey anyKi
 liftedTypeKindTyConName   = mkPrimTyConName (fsLit "*") liftedTypeKindTyConKey liftedTypeKindTyCon
 openTypeKindTyConName     = mkPrimTyConName (fsLit "OpenKind") openTypeKindTyConKey openTypeKindTyCon
 unliftedTypeKindTyConName = mkPrimTyConName (fsLit "#") unliftedTypeKindTyConKey unliftedTypeKindTyCon
-ubxTupleKindTyConName     = mkPrimTyConName (fsLit "(#)") ubxTupleKindTyConKey ubxTupleKindTyCon
-argTypeKindTyConName      = mkPrimTyConName (fsLit "ArgKind") argTypeKindTyConKey argTypeKindTyCon
 constraintKindTyConName   = mkPrimTyConName (fsLit "Constraint") constraintKindTyConKey constraintKindTyCon
 
 mkPrimTyConName :: FastString -> Unique -> TyCon -> Name
@@ -352,16 +335,13 @@ kindTyConType kind = TyConApp kind []
 
 -- | See "Type#kind_subtyping" for details of the distinction between these 'Kind's
 anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, 
-  argTypeKind, ubxTupleKind, constraintKind,
-  superKind :: Kind
+  constraintKind, superKind :: Kind
 
 superKind        = kindTyConType superKindTyCon 
 anyKind          = kindTyConType anyKindTyCon  -- See Note [Any kinds]
 liftedTypeKind   = kindTyConType liftedTypeKindTyCon
 unliftedTypeKind = kindTyConType unliftedTypeKindTyCon
 openTypeKind     = kindTyConType openTypeKindTyCon
-argTypeKind      = kindTyConType argTypeKindTyCon
-ubxTupleKind     = kindTyConType ubxTupleKindTyCon
 constraintKind   = kindTyConType constraintKindTyCon
 
 -- | Given two kinds @k1@ and @k2@, creates the 'Kind' @k1 -> k2@
@@ -381,14 +361,14 @@ mkArrowKinds arg_kinds result_kind = foldr mkArrowKind result_kind arg_kinds
 
 \begin{code}
 -- only used herein
-pcPrimTyCon :: Name -> Int -> PrimRep -> TyCon
+pcPrimTyCon :: Name -> Int -> [PrimRep] -> TyCon
 pcPrimTyCon name arity rep
   = mkPrimTyCon name kind arity rep
   where
     kind        = mkArrowKinds (replicate arity liftedTypeKind) result_kind
     result_kind = unliftedTypeKind
 
-pcPrimTyCon0 :: Name -> PrimRep -> TyCon
+pcPrimTyCon0 :: Name -> [PrimRep] -> TyCon
 pcPrimTyCon0 name rep
   = mkPrimTyCon name result_kind 0 rep
   where
@@ -397,52 +377,52 @@ pcPrimTyCon0 name rep
 charPrimTy :: Type
 charPrimTy	= mkTyConTy charPrimTyCon
 charPrimTyCon :: TyCon
-charPrimTyCon	= pcPrimTyCon0 charPrimTyConName WordRep
+charPrimTyCon	= pcPrimTyCon0 charPrimTyConName [WordRep]
 
 intPrimTy :: Type
 intPrimTy	= mkTyConTy intPrimTyCon
 intPrimTyCon :: TyCon
-intPrimTyCon	= pcPrimTyCon0 intPrimTyConName IntRep
+intPrimTyCon	= pcPrimTyCon0 intPrimTyConName [IntRep]
 
 int32PrimTy :: Type
 int32PrimTy	= mkTyConTy int32PrimTyCon
 int32PrimTyCon :: TyCon
-int32PrimTyCon	= pcPrimTyCon0 int32PrimTyConName IntRep
+int32PrimTyCon	= pcPrimTyCon0 int32PrimTyConName [IntRep]
 
 int64PrimTy :: Type
 int64PrimTy	= mkTyConTy int64PrimTyCon
 int64PrimTyCon :: TyCon
-int64PrimTyCon	= pcPrimTyCon0 int64PrimTyConName Int64Rep
+int64PrimTyCon	= pcPrimTyCon0 int64PrimTyConName [Int64Rep]
 
 wordPrimTy :: Type
 wordPrimTy	= mkTyConTy wordPrimTyCon
 wordPrimTyCon :: TyCon
-wordPrimTyCon	= pcPrimTyCon0 wordPrimTyConName WordRep
+wordPrimTyCon	= pcPrimTyCon0 wordPrimTyConName [WordRep]
 
 word32PrimTy :: Type
 word32PrimTy	= mkTyConTy word32PrimTyCon
 word32PrimTyCon :: TyCon
-word32PrimTyCon	= pcPrimTyCon0 word32PrimTyConName WordRep
+word32PrimTyCon	= pcPrimTyCon0 word32PrimTyConName [WordRep]
 
 word64PrimTy :: Type
 word64PrimTy	= mkTyConTy word64PrimTyCon
 word64PrimTyCon :: TyCon
-word64PrimTyCon	= pcPrimTyCon0 word64PrimTyConName Word64Rep
+word64PrimTyCon	= pcPrimTyCon0 word64PrimTyConName [Word64Rep]
 
 addrPrimTy :: Type
 addrPrimTy	= mkTyConTy addrPrimTyCon
 addrPrimTyCon :: TyCon
-addrPrimTyCon	= pcPrimTyCon0 addrPrimTyConName AddrRep
+addrPrimTyCon	= pcPrimTyCon0 addrPrimTyConName [AddrRep]
 
 floatPrimTy	:: Type
 floatPrimTy	= mkTyConTy floatPrimTyCon
 floatPrimTyCon :: TyCon
-floatPrimTyCon	= pcPrimTyCon0 floatPrimTyConName FloatRep
+floatPrimTyCon	= pcPrimTyCon0 floatPrimTyConName [FloatRep]
 
 doublePrimTy :: Type
 doublePrimTy	= mkTyConTy doublePrimTyCon
 doublePrimTyCon	:: TyCon
-doublePrimTyCon	= pcPrimTyCon0 doublePrimTyConName DoubleRep
+doublePrimTyCon	= pcPrimTyCon0 doublePrimTyConName [DoubleRep]
 \end{code}
 
 
@@ -480,11 +460,11 @@ mkStatePrimTy :: Type -> Type
 mkStatePrimTy ty = mkNakedTyConApp statePrimTyCon [ty]
 
 statePrimTyCon :: TyCon   -- See Note [The State# TyCon]
-statePrimTyCon	 = pcPrimTyCon statePrimTyConName 1 VoidRep
+statePrimTyCon	 = pcPrimTyCon statePrimTyConName 1 []
 
 eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
-eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind 3 VoidRep
+eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind 3 []
   where kind = ForAllTy kv $ mkArrowKinds [k, k] unliftedTypeKind
         kv = kKiVar
         k = mkTyVarTy kv
@@ -496,7 +476,7 @@ RealWorld; it's only used in the type system, to parameterise State#.
 
 \begin{code}
 realWorldTyCon :: TyCon
-realWorldTyCon = mkLiftedPrimTyCon realWorldTyConName liftedTypeKind 0 PtrRep
+realWorldTyCon = mkLiftedPrimTyCon realWorldTyConName liftedTypeKind 0
 realWorldTy :: Type
 realWorldTy	     = mkTyConTy realWorldTyCon
 realWorldStatePrimTy :: Type
@@ -515,12 +495,12 @@ defined in \tr{TysWiredIn.lhs}, not here.
 \begin{code}
 arrayPrimTyCon, mutableArrayPrimTyCon, mutableByteArrayPrimTyCon,
     byteArrayPrimTyCon, arrayArrayPrimTyCon, mutableArrayArrayPrimTyCon :: TyCon
-arrayPrimTyCon             = pcPrimTyCon  arrayPrimTyConName             1 PtrRep
-mutableArrayPrimTyCon      = pcPrimTyCon  mutableArrayPrimTyConName      2 PtrRep
-mutableByteArrayPrimTyCon  = pcPrimTyCon  mutableByteArrayPrimTyConName  1 PtrRep
-byteArrayPrimTyCon         = pcPrimTyCon0 byteArrayPrimTyConName           PtrRep
-arrayArrayPrimTyCon        = pcPrimTyCon0 arrayArrayPrimTyConName          PtrRep
-mutableArrayArrayPrimTyCon = pcPrimTyCon  mutableArrayArrayPrimTyConName 1 PtrRep
+arrayPrimTyCon             = pcPrimTyCon  arrayPrimTyConName             1 [PtrRep]
+mutableArrayPrimTyCon      = pcPrimTyCon  mutableArrayPrimTyConName      2 [PtrRep]
+mutableByteArrayPrimTyCon  = pcPrimTyCon  mutableByteArrayPrimTyConName  1 [PtrRep]
+byteArrayPrimTyCon         = pcPrimTyCon0 byteArrayPrimTyConName           [PtrRep]
+arrayArrayPrimTyCon        = pcPrimTyCon0 arrayArrayPrimTyConName          [PtrRep]
+mutableArrayArrayPrimTyCon = pcPrimTyCon  mutableArrayArrayPrimTyConName 1 [PtrRep]
 
 mkArrayPrimTy :: Type -> Type
 mkArrayPrimTy elt    	    = mkNakedTyConApp arrayPrimTyCon [elt]
@@ -544,7 +524,7 @@ mkMutableArrayArrayPrimTy s = mkNakedTyConApp mutableArrayArrayPrimTyCon [s]
 
 \begin{code}
 mutVarPrimTyCon :: TyCon
-mutVarPrimTyCon = pcPrimTyCon mutVarPrimTyConName 2 PtrRep
+mutVarPrimTyCon = pcPrimTyCon mutVarPrimTyConName 2 [PtrRep]
 
 mkMutVarPrimTy :: Type -> Type -> Type
 mkMutVarPrimTy s elt 	    = mkNakedTyConApp mutVarPrimTyCon [s, elt]
@@ -558,7 +538,7 @@ mkMutVarPrimTy s elt 	    = mkNakedTyConApp mutVarPrimTyCon [s, elt]
 
 \begin{code}
 mVarPrimTyCon :: TyCon
-mVarPrimTyCon = pcPrimTyCon mVarPrimTyConName 2 PtrRep
+mVarPrimTyCon = pcPrimTyCon mVarPrimTyConName 2 [PtrRep]
 
 mkMVarPrimTy :: Type -> Type -> Type
 mkMVarPrimTy s elt 	    = mkNakedTyConApp mVarPrimTyCon [s, elt]
@@ -572,7 +552,7 @@ mkMVarPrimTy s elt 	    = mkNakedTyConApp mVarPrimTyCon [s, elt]
 
 \begin{code}
 tVarPrimTyCon :: TyCon
-tVarPrimTyCon = pcPrimTyCon tVarPrimTyConName 2 PtrRep
+tVarPrimTyCon = pcPrimTyCon tVarPrimTyConName 2 [PtrRep]
 
 mkTVarPrimTy :: Type -> Type -> Type
 mkTVarPrimTy s elt = mkNakedTyConApp tVarPrimTyCon [s, elt]
@@ -586,7 +566,7 @@ mkTVarPrimTy s elt = mkNakedTyConApp tVarPrimTyCon [s, elt]
 
 \begin{code}
 stablePtrPrimTyCon :: TyCon
-stablePtrPrimTyCon = pcPrimTyCon stablePtrPrimTyConName 1 AddrRep
+stablePtrPrimTyCon = pcPrimTyCon stablePtrPrimTyConName 1 [AddrRep]
 
 mkStablePtrPrimTy :: Type -> Type
 mkStablePtrPrimTy ty = mkNakedTyConApp stablePtrPrimTyCon [ty]
@@ -600,7 +580,7 @@ mkStablePtrPrimTy ty = mkNakedTyConApp stablePtrPrimTyCon [ty]
 
 \begin{code}
 stableNamePrimTyCon :: TyCon
-stableNamePrimTyCon = pcPrimTyCon stableNamePrimTyConName 1 PtrRep
+stableNamePrimTyCon = pcPrimTyCon stableNamePrimTyConName 1 [PtrRep]
 
 mkStableNamePrimTy :: Type -> Type
 mkStableNamePrimTy ty = mkNakedTyConApp stableNamePrimTyCon [ty]
@@ -616,7 +596,7 @@ mkStableNamePrimTy ty = mkNakedTyConApp stableNamePrimTyCon [ty]
 bcoPrimTy    :: Type
 bcoPrimTy    = mkTyConTy bcoPrimTyCon
 bcoPrimTyCon :: TyCon
-bcoPrimTyCon = pcPrimTyCon0 bcoPrimTyConName PtrRep
+bcoPrimTyCon = pcPrimTyCon0 bcoPrimTyConName [PtrRep]
 \end{code}
   
 %************************************************************************
@@ -627,7 +607,7 @@ bcoPrimTyCon = pcPrimTyCon0 bcoPrimTyConName PtrRep
 
 \begin{code}
 weakPrimTyCon :: TyCon
-weakPrimTyCon = pcPrimTyCon weakPrimTyConName 1 PtrRep
+weakPrimTyCon = pcPrimTyCon weakPrimTyConName 1 [PtrRep]
 
 mkWeakPrimTy :: Type -> Type
 mkWeakPrimTy v = mkNakedTyConApp weakPrimTyCon [v]
@@ -652,7 +632,7 @@ to the thread id internally.
 threadIdPrimTy :: Type
 threadIdPrimTy    = mkTyConTy threadIdPrimTyCon
 threadIdPrimTyCon :: TyCon
-threadIdPrimTyCon = pcPrimTyCon0 threadIdPrimTyConName PtrRep
+threadIdPrimTyCon = pcPrimTyCon0 threadIdPrimTyConName [PtrRep]
 \end{code}
 
 %************************************************************************
@@ -727,7 +707,7 @@ anyTy :: Type
 anyTy = mkTyConTy anyTyCon
 
 anyTyCon :: TyCon
-anyTyCon = mkLiftedPrimTyCon anyTyConName kind 1 PtrRep
+anyTyCon = mkLiftedPrimTyCon anyTyConName kind 1
   where kind = ForAllTy kKiVar (mkTyVarTy kKiVar)
 
 anyTypeOfKind :: Kind -> Type

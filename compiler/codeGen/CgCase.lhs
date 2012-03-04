@@ -42,10 +42,12 @@ import PrimOp
 import Type
 import TyCon
 import Util
+import UniqSupply
+import MonadUtils
 import Outputable
 import FastString
 
-import Control.Monad (when)
+import Control.Monad
 \end{code}
 
 \begin{code}
@@ -110,10 +112,10 @@ Special case #1: case of literal.
 \begin{code}
 cgCase (StgLit lit) _live_in_whole_case _live_in_alts bndr
        alt_type@(PrimAlt _) alts
-  = do  { tmp_reg <- bindNewToTemp bndr
+  = do  { [tmp_reg] <- bindNewToTemp bndr
         ; cm_lit <- cgLit lit
         ; stmtC (CmmAssign (CmmLocal tmp_reg) (CmmLit cm_lit))
-        ; cgPrimAlts NoGC alt_type (CmmLocal tmp_reg) alts }
+        ; cgPrimAlts NoGC alt_type [CmmLocal tmp_reg] alts }
 \end{code}
 
 Special case #2: scrutinising a primitive-typed variable.       No
@@ -124,15 +126,9 @@ allocating more heap than strictly necessary, but it will sometimes
 eliminate a heap check altogether.
 
 \begin{code}
-cgCase (StgApp _v []) _live_in_whole_case _live_in_alts bndr
-       (PrimAlt _) [(DEFAULT,bndrs,_,rhs)]
-  | isVoidArg (idCgRep bndr)
-  = ASSERT( null bndrs )
-    WARN( True, ptext (sLit "Case of void constant; missing optimisation somewhere") <+> ppr bndr)
-    cgExpr rhs
-
 cgCase (StgApp v []) _live_in_whole_case _live_in_alts bndr
-       alt_type@(PrimAlt _) alts
+       alt_type alts
+  | case alt_type of PrimAlt _ -> True; UbxTupAlt _ -> True; _ -> False
   -- Note [ticket #3132]: we might be looking at a case of a lifted Id
   -- that was cast to an unlifted type.  The Id will always be bottom,
   -- but we don't want the code generator to fall over here.  If we
@@ -140,7 +136,7 @@ cgCase (StgApp v []) _live_in_whole_case _live_in_alts bndr
   -- type-incorrect Cmm.  Hence we check that the types match, and if
   -- they don't we'll fall through and emit the usual enter/return
   -- code.  Test case: codeGen/should_compile/3132.hs
-  | isUnLiftedType (idType v)
+  , isUnLiftedType (idType v)
 
   -- However, we also want to allow an assignment to be generated
   -- in the case when the types are compatible, because this allows
@@ -151,19 +147,31 @@ cgCase (StgApp v []) _live_in_whole_case _live_in_alts bndr
   -- the HValue really is a MutVar#.  The types are compatible though,
   -- so we can just generate an assignment.
   || reps_compatible
-  =  do { when (not reps_compatible) $
+  =  WARN( null (idCgRep v), ptext (sLit "Case of void constant; missing optimisation somewhere") <+> ppr bndr)
+     do { when (not reps_compatible) $
             panic "cgCase: reps do not match, perhaps a dodgy unsafeCoerce?"
 
-          -- Careful! we can't just bind the default binder to the same thing
-          -- as the scrutinee, since it might be a stack location, and having
-          -- two bindings pointing at the same stack locn doesn't work (it
-          -- confuses nukeDeadBindings).  Hence, use a new temp.
-        ; v_info <- getCgIdInfo v
-        ; amode <- idInfoToAmode v_info
-        ; tmp_reg <- bindNewToTemp bndr
-        ; stmtC (CmmAssign (CmmLocal tmp_reg) amode)
+          -- TODO: could just bind the default binder to the same thing as the scrutinee,
+          -- rather than allocating these temporaries.
+          -- Having two Ids share locations doesn't confuse nukeDeadBindings any longer.
+        ; (tmp_regs, do_rhs) <- case alt_type of
+            PrimAlt _ -> do
+                tmp_regs <- bindNewToTemp bndr
+                return (tmp_regs, cgPrimAlts NoGC alt_type (map CmmLocal tmp_regs) alts)
+            UbxTupAlt _
+              | [(DEFAULT, [], _, rhs)]     <- alts -> do
+                tmp_regs <- bindNewToTemp bndr
+                return (tmp_regs, cgExpr rhs)
+              | [(DataAlt _, args, _, rhs)] <- alts -> do
+                tmp_regss <- mapM bindNewToTemp args
+                bindToRegs bndr (concat tmp_regss)
+                return (concat tmp_regss, cgExpr rhs)
+            _  -> panic "cgCase: weird UbxTupAlt?"
 
-        ; cgPrimAlts NoGC alt_type (CmmLocal tmp_reg) alts }
+        ; v_info <- getCgIdInfo v
+        ; amodes <- idInfoToAmodes v_info
+        ; forM_ (zipEqual "cgCase" tmp_regs amodes) $ \(tmp_reg, amode) -> stmtC (CmmAssign (CmmLocal tmp_reg) amode)
+        ; do_rhs }
   where
     reps_compatible = idCgRep v == idCgRep bndr
 \end{code}
@@ -211,13 +219,12 @@ cgCase (StgOpApp (StgFCallOp fcall _) args _)
   = ASSERT( isSingleton alts )
     do  --  *must* be an unboxed tuple alt.
         -- exactly like the cgInlinePrimOp case for unboxed tuple alts..
-        { res_tmps <- mapFCs bindNewToTemp non_void_res_ids
-        ; let res_hints = map (typeForeignHint.idType) non_void_res_ids
-        ; cgForeignCall (zipWith CmmHinted res_tmps res_hints) fcall args live_in_alts
+        { res_tmps <- concatMapM bindNewToTemp res_ids
+        ; let res_hints = concatMap (typeForeignHint.idType) res_ids
+        ; cgForeignCall (zipWithEqual "cgCase" CmmHinted res_tmps res_hints) fcall args live_in_alts
         ; cgExpr rhs }
   where
    (_, res_ids, _, rhs) = head alts
-   non_void_res_ids = filter (nonVoidArg . idCgRep) res_ids
 
    unsafe_foreign_call
          = case fcall of
@@ -232,7 +239,7 @@ we can reuse/trim the stack slot holding the variable (if it is in one).
 cgCase (StgApp fun args)
         _live_in_whole_case live_in_alts bndr alt_type alts
   = do  { fun_info <- getCgIdInfo fun
-        ; arg_amodes <- getArgAmodes args
+        ; arg_amodes <- mapM getArgAmodes args
 
         -- Nuking dead bindings *before* calculating the saves is the
         -- value-add here.  We might end up freeing up some slots currently
@@ -327,36 +334,28 @@ anywhere within the record).
 cgInlinePrimOp :: PrimOp -> [StgArg] -> Id -> AltType -> StgLiveVars
                -> [(AltCon, [Id], [Bool], StgExpr)]
                -> Code
-cgInlinePrimOp primop args bndr (PrimAlt _) live_in_alts alts
-  | isVoidArg (idCgRep bndr)
-  = ASSERT( con == DEFAULT && isSingleton alts && null bs )
-    do  {       -- VOID RESULT; just sequencing,
-                -- so get in there and do it
-                -- The bndr should not occur, so no need to bind it
-          cgPrimOp [] primop args live_in_alts
-        ; cgExpr rhs }
-  where
-    (con,bs,_,rhs) = head alts
-
 cgInlinePrimOp primop args bndr (PrimAlt tycon) live_in_alts alts
-  = do  {       -- PRIMITIVE ALTS, with non-void result
-          tmp_reg <- bindNewToTemp bndr
-        ; cgPrimOp [tmp_reg] primop args live_in_alts
-        ; cgPrimAlts NoGC (PrimAlt tycon) (CmmLocal tmp_reg) alts }
+  = do  {       -- PRIMITIVE ALTS, with void OR non-void result
+          tmp_regs <- bindNewToTemp bndr
+        ; cgPrimOp tmp_regs primop args live_in_alts
+        ; cgPrimAlts NoGC (PrimAlt tycon) (map CmmLocal tmp_regs) alts }
 
-cgInlinePrimOp primop args _ (UbxTupAlt _) live_in_alts alts
-  = ASSERT( isSingleton alts )
-    do  {       -- UNBOXED TUPLE ALTS
+cgInlinePrimOp primop args bndr (UbxTupAlt _) live_in_alts alts
+  = do  {       -- UNBOXED TUPLE ALTS
                 -- No heap check, no yield, just get in there and do it.
-                -- NB: the case binder isn't bound to anything;
-                --     it has a unboxed tuple type
 
-          res_tmps <- mapFCs bindNewToTemp non_void_res_ids
+        ; (res_tmps, rhs) <- case alts of
+            [(DEFAULT, [], _, rhs)] | Just (_, tys) <- splitTyConApp_maybe (idType bndr) -> do
+                us <- newUniqSupply
+                let res_tmps = zipWith LocalReg (uniqsFromSupply us) (concatMap (map (argMachRep . primRepToCgRep) . typePrimRep) tys)
+                return (res_tmps, rhs)
+            [(DataAlt _, res_ids, _, rhs)] -> do
+                res_tmps <- concatMapM bindNewToTemp res_ids
+                return (res_tmps, rhs)
+            _ -> panic "cgInlinePrimOp"
+        ; bindToRegs bndr res_tmps
         ; cgPrimOp res_tmps primop args live_in_alts
         ; cgExpr rhs }
-  where
-   (_, res_ids, _, rhs) = head alts
-   non_void_res_ids = filter (nonVoidArg . idCgRep) res_ids
 
 cgInlinePrimOp primop args bndr (AlgAlt tycon) live_in_alts alts
   = do  {       -- ENUMERATION TYPE RETURN
@@ -370,7 +369,7 @@ cgInlinePrimOp primop args bndr (AlgAlt tycon) live_in_alts alts
                 -- (avoiding it avoids the assignment)
                 -- The deadness info is set by StgVarInfo
         ; whenC (not (isDeadBinder bndr))
-                (do { tmp_reg <- bindNewToTemp bndr
+                (do { [tmp_reg] <- bindNewToTemp bndr
                     ; stmtC (CmmAssign
                              (CmmLocal tmp_reg)
                              (tagToClosure tycon tag_amode)) })
@@ -387,7 +386,7 @@ cgInlinePrimOp primop args bndr (AlgAlt tycon) live_in_alts alts
     do_enum_primop :: PrimOp -> FCode CmmExpr   -- Returns amode for result
     do_enum_primop TagToEnumOp  -- No code!
        | [arg] <- args = do
-         (_,e) <- getArgAmode arg
+         [(_,e)] <- getArgAmodes arg
          return e
     do_enum_primop primop
       = do tmp <- newTemp bWord
@@ -418,32 +417,34 @@ cgEvalAlts :: Maybe VirtualSpOffset     -- Offset of cost-centre to be restored,
                                 -- without risk of duplicating code
 
 cgEvalAlts cc_slot bndr alt_type@(PrimAlt tycon) alts
-  = do  { let   rep = tyConCgRep tycon
-                reg = dataReturnConvPrim rep    -- Bottom for voidRep
+  = do  { let   reps = tyConCgRep tycon
+                regs = map dataReturnConvPrim reps
 
         ; abs_c <- forkProc $ do
-                {       -- Bind the case binder, except if it's void
-                        -- (reg is bottom in that case)
-                  whenC (nonVoidArg rep) $
-                  bindNewToReg bndr reg (mkLFArgument bndr)
+                {       -- Bind the case binder
+                  bindNewToReg bndr (zipEqual "cgEvalAlts" regs (mkLFArgument (idType bndr)))
                 ; restoreCurrentCostCentre cc_slot True
-                ; cgPrimAlts GCMayHappen alt_type reg alts }
+                ; cgPrimAlts GCMayHappen alt_type regs alts }
 
         ; lbl <- emitReturnTarget (idName bndr) abs_c
         ; returnFC (CaseAlts lbl Nothing bndr) }
 
 cgEvalAlts cc_slot bndr (UbxTupAlt _) [(con,args,_,rhs)]
-  =     -- Unboxed tuple case
-        -- By now, the simplifier should have have turned it
-        -- into         case e of (# a,b #) -> e
-        -- There shouldn't be a
-        --              case e of DEFAULT -> e
-    ASSERT2( case con of { DataAlt _ -> True; _ -> False },
-             text "cgEvalAlts: dodgy case of unboxed tuple type" )
-    do  {       -- forkAbsC for the RHS, so that the envt is
+  = do  {       -- forkAbsC for the RHS, so that the envt is
                 -- not changed for the emitReturn call
           abs_c <- forkProc $ do
-                { (live_regs, ptrs, nptrs, _) <- bindUnboxedTupleComponents args
+                { (flat_arg_locs, live_regs, ptrs, nptrs) <- case con of
+                        DEFAULT
+                         | Just (_, tys) <- splitTyConApp_maybe (idType bndr)
+                         , [] <- args -> do
+                          (arg_locs, live_regs, ptrs, nptrs, _) <- bindUnboxedTupleComponents [((), typeCgRep ty) | ty <- tys]
+                          return (concatMap snd arg_locs, live_regs, ptrs, nptrs)
+                        DataAlt _ -> do
+                          (arg_locs, live_regs, ptrs, nptrs, _) <- bindUnboxedTupleComponents [(arg, idCgRep arg) | arg <- args]
+                          bindArgsToRegOrStack arg_locs
+                          return (concatMap snd arg_locs, live_regs, ptrs, nptrs)
+                        _ -> panic "cgEvalAlts"
+                ; bindArgsToRegOrStack [(bndr, flat_arg_locs)]
                         -- Restore the CC *after* binding the tuple components,
                         -- so that we get the stack offset of the saved CC right.
                 ; restoreCurrentCostCentre cc_slot True
@@ -457,7 +458,7 @@ cgEvalAlts cc_slot bndr (UbxTupAlt _) [(con,args,_,rhs)]
 cgEvalAlts cc_slot bndr alt_type alts
   =     -- Algebraic and polymorphic case
     do  {       -- Bind the default binder
-          bindNewToReg bndr nodeReg (mkLFArgument bndr)
+          bindNewToReg bndr [(nodeReg, only (mkLFArgument (idType bndr)))]
 
         -- Generate sequel info for use downstream
         -- At the moment, we only do it if the type is vector-returnable.
@@ -559,7 +560,7 @@ As usual, no binders in the alternatives are yet bound.
 \begin{code}
 cgPrimAlts :: GCFlag
            -> AltType   -- Always PrimAlt, but passed to maybeAltHeapCheck
-           -> CmmReg    -- Scrutinee
+           -> [CmmReg]  -- Scrutinee registers: either unary or nullary (if void)
            -> [StgAlt]  -- Alternatives
            -> Code
 -- NB: cgPrimAlts emits code that does the case analysis.
@@ -568,11 +569,14 @@ cgPrimAlts :: GCFlag
 -- different to cgAlgAlts
 --
 -- INVARIANT: the default binder is already bound
-cgPrimAlts gc_flag alt_type scrutinee alts
+cgPrimAlts gc_flag alt_type scrutinees alts
   = do  { tagged_absCs <- forkAlts (map (cgPrimAlt gc_flag alt_type) alts)
         ; let ((DEFAULT, deflt_absC) : others) = tagged_absCs   -- There is always a default
               alt_absCs = [(lit,rhs) | (LitAlt lit, rhs) <- others]
-        ; emitLitSwitch (CmmReg scrutinee) alt_absCs deflt_absC }
+        ; case scrutinees of
+            []      -> emitCgStmts deflt_absC
+            [scrut] -> emitLitSwitch (CmmReg scrut) alt_absCs deflt_absC
+            _       -> panic "cgPrimAlts: unboxed tuple scrutinee" }
 
 cgPrimAlt :: GCFlag
           -> AltType
@@ -621,21 +625,19 @@ saveVolatileVars :: StgLiveVars         -- Vars which should be made safe
                  -> FCode CmmStmts      -- Assignments to to the saves
 
 saveVolatileVars vars
-  = do  { stmts_s <- mapFCs save_it (varSetElems vars)
+  = do  { stmts_s <- concatMapM save_it (varSetElems vars)
         ; return (foldr plusStmts noStmts stmts_s) }
   where
     save_it var
-      = do { v <- getCAddrModeIfVolatile var
-           ; case v of
-                Nothing         -> return noStmts          -- Non-volatile
-                Just vol_amode  -> save_var var vol_amode  -- Aha! It's volatile
-        }
-
-    save_var var vol_amode
-      = do { slot <- allocPrimStack (idCgRep var)
-           ; rebindToStack var slot
-           ; sp_rel <- getSpRelOffset slot
-           ; returnFC (oneStmt (CmmStore sp_rel vol_amode)) }
+      = do { vol_amodes <- getVolatilesCAddrModes var -- If non-volatile, empty list
+           ; (stmts, slots) <- liftM unzip $ forM vol_amodes $ \mb_vol_amode -> case mb_vol_amode of
+                 Nothing -> return (noStmts, Nothing)
+                 Just (rep, vol_amode) -> do
+                   slot <- allocPrimStack rep
+                   sp_rel <- getSpRelOffset slot
+                   returnFC (oneStmt (CmmStore sp_rel vol_amode), Just slot)
+           ; rebindToStack var slots
+           ; return stmts }
 \end{code}
 
 ---------------------------------------------------------------------------

@@ -44,6 +44,8 @@ import CLabel
 import StgSyn
 import CostCentre
 import Id
+import Type             ( PrimRep )
+import Control.Arrow    ( second )
 import Control.Monad
 import Name
 import Module
@@ -53,7 +55,7 @@ import BasicTypes
 import Constants
 import Outputable
 import FastString
-import Maybes
+import MonadUtils       ( concatMapM )
 import DynFlags
 import StaticFlags
 
@@ -89,12 +91,8 @@ cgTopRhsClosure id ccs _ upd_flag srt args body = do
 
   	 -- BUILD THE OBJECT, AND GENERATE INFO TABLE (IF NECESSARY)
   ; emitDataLits closure_label closure_rep
-  ; let fv_details :: [(NonVoid Id, VirtualHpOffset)]
-	(_, _, fv_details) = mkVirtHeapOffsets (isLFThunk lf_info)
-				               (addIdReps [])
-  -- Don't drop the non-void args until the closure info has been made
   ; forkClosureBody (closureCodeBody True id closure_info ccs
-                                     (nonVoidIds args) (length args) body fv_details)
+                                     args body ([], []))
 
   ; returnFC cg_id_info }
 
@@ -162,14 +160,14 @@ cgRhs name (StgRhsCon cc con args)
   = buildDynCon name cc con args
 
 cgRhs name (StgRhsClosure cc bi fvs upd_flag srt args body)
-  = mkRhsClosure name cc bi (nonVoidIds fvs) upd_flag srt args body
+  = mkRhsClosure name cc bi fvs upd_flag srt args body
 
 ------------------------------------------------------------------------
 --		Non-constructor right hand sides
 ------------------------------------------------------------------------
 
 mkRhsClosure :: Id -> CostCentreStack -> StgBinderInfo
-	     -> [NonVoid Id]			-- Free vars
+	     -> [Id]			-- Free vars
 	     -> UpdateFlag -> SRT
 	     -> [Id]			        -- Args
 	     -> StgExpr
@@ -212,7 +210,7 @@ for semi-obvious reasons.
 
 ---------- Note [Selectors] ------------------
 mkRhsClosure	bndr cc bi
-		[NonVoid the_fv]   		-- Just one free var
+		[the_fv]   		-- Just one free var
 		upd_flag		-- Updatable thunk
 		_srt
 		[]			-- A thunk
@@ -221,9 +219,11 @@ mkRhsClosure	bndr cc bi
 		      (AlgAlt _)
 		      [(DataAlt _, params, _use_mask,
 			    (StgApp selectee [{-no args-}]))])
-  |  the_fv == scrutinee		-- Scrutinee is the only free variable
-  && maybeToBool maybe_offset		-- Selectee is a component of the tuple
-  && offset_into_int <= mAX_SPEC_SELECTEE_SIZE	-- Offset is small enough
+  | the_fv == scrutinee		                -- Scrutinee is the only free variable
+  , [_] <- idPrimRep selectee                   -- Selectee is unary (so guaranteed contiguous layout)
+  , Just the_offset <- maybe_offset		-- Selectee is a component of the tuple
+  , let offset_into_int = the_offset - fixedHdrSize
+  , offset_into_int <= mAX_SPEC_SELECTEE_SIZE	    -- Offset is small enough
   = -- NOT TRUE: ASSERT(is_single_constructor)
     -- The simplifier may have statically determined that the single alternative
     -- is the only possible case and eliminated the others, even if there are
@@ -232,15 +232,12 @@ mkRhsClosure	bndr cc bi
     -- will evaluate to.
     --
     -- srt is discarded; it must be empty
-    cgStdThunk bndr cc bi body lf_info [StgVarArg the_fv]
+    cgStdThunk bndr cc bi body (mkSelectorLFInfo bndr offset_into_int (isUpdatable upd_flag))
+                               [StgVarArg the_fv]
   where
-    lf_info 		  = mkSelectorLFInfo bndr offset_into_int
-				 (isUpdatable upd_flag)
-    (_, _, params_w_offsets) = mkVirtConstrOffsets (addIdReps params)
-			       -- Just want the layout
-    maybe_offset	  = assocMaybe params_w_offsets (NonVoid selectee)
-    Just the_offset 	  = maybe_offset
-    offset_into_int       = the_offset - fixedHdrSize
+    (_, _, params_w_offsets) = mkVirtConstrOffsets [(rep, param) | param <- params, rep <- idPrimRep param]
+			       -- Just want the offset of the first and only PrimRep belonging to this Id
+    maybe_offset	  = assocMaybe params_w_offsets selectee
 
 ---------- Note [Ap thunks] ------------------
 mkRhsClosure    bndr cc bi
@@ -251,7 +248,7 @@ mkRhsClosure    bndr cc bi
 		body@(StgApp fun_id args)
 
   | args `lengthIs` (arity-1)
- 	&& all (isGcPtrRep . idPrimRep . stripNV) fvs
+ 	&& all (\fv -> case idPrimRep fv of [rep] -> isGcPtrRep rep; _ -> False) fvs
  	&& isUpdatable upd_flag
  	&& arity <= mAX_SPEC_AP_SIZE
         && not opt_SccProfilingOn -- not when profiling: we don't want to
@@ -279,8 +276,8 @@ mkRhsClosure bndr cc _ fvs upd_flag srt args body
 	-- Node points to it...
 	; let
 		is_elem	     = isIn "cgRhsClosure"
-		bndr_is_a_fv = (NonVoid bndr) `is_elem` fvs
-		reduced_fvs | bndr_is_a_fv = fvs `minusList` [NonVoid bndr]
+		bndr_is_a_fv = bndr `is_elem` fvs
+		reduced_fvs | bndr_is_a_fv = filter (/= bndr) fvs
 			    | otherwise	   = fvs
 
 
@@ -288,12 +285,13 @@ mkRhsClosure bndr cc _ fvs upd_flag srt args body
 	; lf_info <- mkClosureLFInfo bndr NotTopLevel fvs upd_flag args
 	; mod_name <- getModuleName
 	; c_srt <- getSRTInfo srt
+        ; fvs_regss <- idsToRegs reduced_fvs
 	; let	name  = idName bndr
 		descr = closureDescription mod_name name
-		fv_details :: [(NonVoid Id, VirtualHpOffset)]
-		(tot_wds, ptr_wds, fv_details)
+		regs_offsets :: [(LocalReg, VirtualHpOffset)]
+		(tot_wds, ptr_wds, regs_offsets)
 		   = mkVirtHeapOffsets (isLFThunk lf_info)
-				       (addIdReps (map stripNV reduced_fvs))
+				       (concatMap snd fvs_regss)
 		closure_info = mkClosureInfo False	-- Not static
 					     bndr lf_info tot_wds ptr_wds
 					     c_srt descr
@@ -303,24 +301,24 @@ mkRhsClosure bndr cc _ fvs upd_flag srt args body
 		-- forkClosureBody: (a) ensure that bindings in here are not seen elsewhere
 		-- 		    (b) ignore Sequel from context; use empty Sequel
 		-- And compile the body
-		closureCodeBody False bndr closure_info cc (nonVoidIds args)
-                                (length args) body fv_details
+		closureCodeBody False bndr closure_info cc args body (map (second (map snd)) fvs_regss, regs_offsets)
 
 	-- BUILD THE OBJECT
 --      ; (use_cc, blame_cc) <- chooseDynCostCentres cc args body
         ; let use_cc = curCCS; blame_cc = curCCS
         ; emit (mkComment $ mkFastString "calling allocDynClosure")
-        ; let toVarArg (NonVoid a, off) = (NonVoid (StgVarArg a), off)
         ; let info_tbl = mkCmmInfo closure_info
-        ; (tmp, init) <- allocDynClosure info_tbl lf_info use_cc blame_cc
-                                         (map toVarArg fv_details)
+        ; fvs_exprs <- concatMapM (liftM idInfoToAmodes . getCgIdInfo) reduced_fvs
+        ; (tmp, init) <- allocDynClosureCmm info_tbl lf_info use_cc blame_cc
+                                            (zipWithEqual "mkRhsClosure" (\expr (_, offset) -> (expr, offset)) fvs_exprs regs_offsets)
 
 	-- RETURN
 	; regIdInfo bndr lf_info tmp init }
 
--- Use with care; if used inappropriately, it could break invariants.
-stripNV :: NonVoid a -> a
-stripNV (NonVoid a) = a
+idsToRegs :: [Id] -> FCode [(Id, [(PrimRep, LocalReg)])]
+idsToRegs ids = forM ids $ \id -> do
+    regs <- idToReg id
+    return (id, zipEqual "idsToRegs" (idPrimRep id) regs)
 
 -------------------------
 cgStdThunk
@@ -336,8 +334,9 @@ cgStdThunk bndr _cc _bndr_info _body lf_info payload
   = do	-- AHA!  A STANDARD-FORM THUNK
   {	-- LAY OUT THE OBJECT
     mod_name <- getModuleName
+  ; payload_reps <- concatMapM addArgReps payload
   ; let (tot_wds, ptr_wds, payload_w_offsets)
-	    = mkVirtHeapOffsets (isLFThunk lf_info) (addArgReps payload)
+	    = mkVirtHeapOffsets (isLFThunk lf_info) payload_reps
 
 	descr = closureDescription mod_name (idName bndr)
 	closure_info = mkClosureInfo False 	-- Not static
@@ -350,22 +349,22 @@ cgStdThunk bndr _cc _bndr_info _body lf_info payload
 
 	-- BUILD THE OBJECT
   ; let info_tbl = mkCmmInfo closure_info
-  ; (tmp, init) <- allocDynClosure info_tbl lf_info
-                                   use_cc blame_cc payload_w_offsets
+  ; (tmp, init) <- allocDynClosureCmm info_tbl lf_info
+                                      use_cc blame_cc payload_w_offsets
 
 	-- RETURN
   ; regIdInfo bndr lf_info tmp init }
 
 mkClosureLFInfo :: Id		-- The binder
 		-> TopLevelFlag	-- True of top level
-		-> [NonVoid Id]	-- Free vars
+		-> [Id]       	-- Free vars
 		-> UpdateFlag 	-- Update flag
 		-> [Id]         -- Args
 		-> FCode LambdaFormInfo
 mkClosureLFInfo bndr top fvs upd_flag args
-  | null args = return (mkLFThunk (idType bndr) top (map stripNV fvs) upd_flag)
+  | null args = return (mkLFThunk (idType bndr) top fvs upd_flag)
   | otherwise = do { arg_descr <- mkArgDescr (idName bndr) args
-		   ; return (mkLFReEntrant top (map stripNV fvs) args arg_descr) }
+		   ; return (mkLFReEntrant top fvs args arg_descr) }
 
 
 ------------------------------------------------------------------------
@@ -376,10 +375,9 @@ closureCodeBody :: Bool            -- whether this is a top-level binding
                 -> Id              -- the closure's name
 		-> ClosureInfo	   -- Lots of information about this closure
 		-> CostCentreStack -- Optional cost centre attached to closure
-	 	-> [NonVoid Id]    -- incoming args to the closure
-	 	-> Int             -- arity, including void args
+	 	-> [Id]            -- incoming args to the closure
 		-> StgExpr
-		-> [(NonVoid Id, VirtualHpOffset)] -- the closure's free vars
+		-> ([(Id, [LocalReg])], [(LocalReg, VirtualHpOffset)]) -- the closure's free vars
 		-> FCode ()
 
 {- There are two main cases for the code for closures.
@@ -395,15 +393,15 @@ closureCodeBody :: Bool            -- whether this is a top-level binding
   argSatisfactionCheck (by calling fetchAndReschedule).
   There info if Node points to closure is available. -- HWL -}
 
-closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
-  | length args == 0 -- No args i.e. thunk
+closureCodeBody top_lvl bndr cl_info cc args body fv_details
+  | null args -- No args i.e. thunk
   = emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl [] $
-      \(_, node, _) -> thunkCode cl_info fv_details cc node arity body
+      \(_, node, _) -> thunkCode cl_info fv_details cc node body
    where
      lf_info  = closureLFInfo cl_info
      info_tbl = mkCmmInfo cl_info
 
-closureCodeBody top_lvl bndr cl_info _cc args arity body fv_details
+closureCodeBody top_lvl bndr cl_info _cc args body (fv_regs, regs_offsets)
   = ASSERT( length args > 0 )
     do  { -- Allocate the global ticky counter,
           -- and establish the ticky-counter
@@ -411,7 +409,7 @@ closureCodeBody top_lvl bndr cl_info _cc args arity body fv_details
         ; dflags <- getDynFlags
         ; let platform = targetPlatform dflags
               ticky_ctr_lbl = closureRednCountsLabel platform cl_info
-        ; emitTickyCounter cl_info (map stripNV args)
+        ; emitTickyCounter cl_info args
         ; setTickyCtrLabel ticky_ctr_lbl $ do
 
         ; let
@@ -432,19 +430,16 @@ closureCodeBody top_lvl bndr cl_info _cc args arity body fv_details
                 ; granYield arg_regs node_points
 
                 -- Main payload
-                ; entryHeapCheck cl_info offset node' arity arg_regs $ do
-                { fv_bindings <- mapM bind_fv fv_details
+                ; entryHeapCheck cl_info offset node' False{- not  a thunk -} arg_regs $ do
+                { -- A function closure pointer may be tagged, so we
+                  -- must take it into account when accessing the free variables.
+                ; mapM_ (uncurry rebindToReg) fv_regs
                 -- Load free vars out of closure *after*
                 -- heap check, to reduce live vars over check
-                ; if node_points then load_fvs node lf_info fv_bindings
+                ; if node_points then load_fvs node lf_info regs_offsets
                                  else return ()
                 ; cgExpr body }}
   }
-
--- A function closure pointer may be tagged, so we
--- must take it into account when accessing the free variables.
-bind_fv :: (NonVoid Id, VirtualHpOffset) -> FCode (LocalReg, WordOff)
-bind_fv (id, off) = do { reg <- rebindToReg id; return (reg, off) }
 
 load_fvs :: LocalReg -> LambdaFormInfo -> [(LocalReg, WordOff)] -> FCode ()
 load_fvs node lf_info = mapCs (\ (reg, off) ->
@@ -479,9 +474,9 @@ mkSlowEntryCode cl_info arg_regs -- function closure is already in `Node'
   | otherwise = return ()
 
 -----------------------------------------
-thunkCode :: ClosureInfo -> [(NonVoid Id, VirtualHpOffset)] -> CostCentreStack
-          -> LocalReg -> Int -> StgExpr -> FCode ()
-thunkCode cl_info fv_details _cc node arity body
+thunkCode :: ClosureInfo -> ([(Id, [LocalReg])], [(LocalReg, VirtualHpOffset)]) -> CostCentreStack
+          -> LocalReg -> StgExpr -> FCode ()
+thunkCode cl_info (fv_regs, regs_offsets) _cc node body
   = do { let node_points = nodeMustPointToIt (closureLFInfo cl_info)
              node'       = if node_points then Just node else Nothing
         ; tickyEnterThunk cl_info
@@ -489,7 +484,7 @@ thunkCode cl_info fv_details _cc node arity body
         ; granThunk node_points
 
         -- Heap overflow check
-        ; entryHeapCheck cl_info 0 node' arity [] $ do
+        ; entryHeapCheck cl_info 0 node' True{- Is a thunk -} [] $ do
         { -- Overwrite with black hole if necessary
           -- but *after* the heap-overflow check
         ; whenC (blackHoleOnEntry cl_info && node_points)
@@ -503,8 +498,8 @@ thunkCode cl_info fv_details _cc node arity body
             -- subsumed by this enclosing cc
             do { enterCostCentreThunk (CmmReg nodeReg)
                ; let lf_info = closureLFInfo cl_info
-               ; fv_bindings <- mapM bind_fv fv_details
-               ; load_fvs node lf_info fv_bindings
+               ; mapM_ (uncurry rebindToReg) fv_regs
+               ; load_fvs node lf_info regs_offsets
                ; cgExpr body }}}
 
 

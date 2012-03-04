@@ -957,7 +957,7 @@ Note [seqId magic]
 
 a) Its second arg can have an unboxed type
       x `seq` (v +# w)
-   Hence its second type variable has ArgKind
+   Hence its second type variable has OpenKind
 
 b) Its fixity is set in LoadIface.ghcPrimIface
 

@@ -43,9 +43,11 @@ import StgSyn
 import PrimOp
 import Outputable
 import StaticFlags
+import Util
+import Maybes
+import MonadUtils
 
 import Control.Monad
-import Data.Maybe
 
 -----------------------------------------------------------------------------
 -- Tail Calls
@@ -78,11 +80,11 @@ cgTailCall fun args
 	; if isUnLiftedType (idType fun)
 	  then 	-- Primitive return
 		ASSERT( null args )
-	    do	{ fun_amode <- idInfoToAmode fun_info
-		; performPrimReturn (cgIdInfoArgRep fun_info) fun_amode } 
+	    do	{ fun_amodes <- idInfoToAmodes fun_info
+		; performPrimReturn (zipEqual "cgTail" (map cgIdElemInfoArgRep (cgIdInfoElems fun_info)) fun_amodes) } 
 
 	  else -- Normal case, fun is boxed
-	    do  { arg_amodes <- getArgAmodes args
+	    do  { arg_amodes <- mapM getArgAmodes args
 		; performTailCall fun_info arg_amodes noStmts }
 	}
 		
@@ -91,26 +93,28 @@ cgTailCall fun args
 -- The guts of a tail-call
 
 performTailCall 
-	:: CgIdInfo		-- The function
-	-> [(CgRep,CmmExpr)]	-- Args
-	-> CmmStmts		-- Pending simultaneous assignments
-				--  *** GUARANTEED to contain only stack assignments.
+	:: CgIdInfo		   -- The function
+	-> [[(CgRep,CmmExpr)]]     -- Args
+	-> CmmStmts		   -- Pending simultaneous assignments
+				   --  *** GUARANTEED to contain only stack assignments.
 	-> Code
 
 performTailCall fun_info arg_amodes pending_assts
-  | Just join_sp <- maybeLetNoEscape fun_info
+  | Just join_sp <- maybeLetNoEscape fun_elem_info
   = 	   -- A let-no-escape is slightly different, because we
 	   -- arrange the stack arguments into pointers and non-pointers
 	   -- to make the heap check easier.  The tail-call sequence
 	   -- is very similar to returning an unboxed tuple, so we
 	   -- share some code.
-     do	{ (final_sp, arg_assts, live) <- pushUnboxedTuple join_sp arg_amodes
+           --
+           -- NB: let-no-escapes calls are always saturated or better!
+     do	{ (final_sp, arg_assts, live) <- pushUnboxedTuple join_sp (concat arg_amodes)
 	; emitSimultaneously (pending_assts `plusStmts` arg_assts)
 	; let lbl = enterReturnPtLabel (idUnique (cgIdInfoId fun_info))
 	; doFinalJump final_sp True $ jumpToLbl lbl (Just live) }
 
   | otherwise
-  = do 	{ fun_amode <- idInfoToAmode fun_info
+  = do 	{ fun_amode <- idElemInfoToAmode fun_elem_info
 	; let assignSt  = CmmAssign nodeReg fun_amode
               node_asst = oneStmt assignSt
               node_live = Just [node]
@@ -160,7 +164,7 @@ performTailCall fun_info arg_amodes pending_assts
 		   { if (isKnownFun lf_info) 
 			then tickyKnownCallTooFewArgs
 			else tickyUnknownCall
-		   ; tickySlowCallPat (map fst arg_amodes) 
+		   ; tickySlowCallPat (concatMap (map fst) arg_amodes) 
 		   }
 
 		; let (apply_lbl, args, extra_args) 
@@ -173,24 +177,25 @@ performTailCall fun_info arg_amodes pending_assts
     
 	    -- A direct function call (possibly with some left-over arguments)
 	    DirectEntry lbl arity -> do
-		{ if arity == length arg_amodes
-			then tickyKnownCallExact
-			else do tickyKnownCallExtraArgs
-				tickySlowCallPat (map fst (drop arity arg_amodes))
+		{ if length arg_amodes == arity
+                   then tickyKnownCallExact
+                   else do tickyKnownCallExtraArgs
+			   tickySlowCallPat (concatMap (map fst) (drop arity arg_amodes))
 
  		; let
 		     -- The args beyond the arity go straight on the stack
 		     (arity_args, extra_args) = splitAt arity arg_amodes
      
-		; directCall sp lbl arity_args extra_args opt_node_live
+		; directCall sp lbl (concat arity_args) extra_args opt_node_live
 			(opt_node_asst `plusStmts` pending_assts)
 	        }
 	}
   where
     fun_id    = cgIdInfoId fun_info
     fun_name  = idName fun_id
-    lf_info   = cgIdInfoLF fun_info
-    fun_has_cafs = idCafInfo fun_id
+    fun_elem_info = cgIdInfoSingleElem ("performTailCall: " ++ showPpr fun_id) fun_info
+    lf_info       = cgIdElemInfoLF fun_elem_info
+    fun_has_cafs  = idCafInfo fun_id
     untag_node = CmmAssign nodeReg (cmmUntag (CmmReg nodeReg))
     -- Test if closure is a constructor
     maybeSwitchOnCons enterClosure eob
@@ -247,7 +252,7 @@ performTailCall fun_info arg_amodes pending_assts
 -}
 
 directCall :: VirtualSpOffset -> CLabel -> [(CgRep, CmmExpr)]
-           -> [(CgRep, CmmExpr)] -> Maybe [GlobalReg] -> CmmStmts
+           -> [[(CgRep, CmmExpr)]] -> Maybe [GlobalReg] -> CmmStmts
            -> Code
 directCall sp lbl args extra_args live_node assts = do
   let
@@ -302,22 +307,17 @@ performReturn finish_code
 
 -- ----------------------------------------------------------------------------
 -- Primitive Returns
--- Just load the return value into the right register, and return.
+-- Just load the return values into the right registers, and return.
 
-performPrimReturn :: CgRep -> CmmExpr -> Code
+performPrimReturn :: [(CgRep, CmmExpr)] -> Code
 
--- non-void return value
-performPrimReturn rep amode | not (isVoidArg rep)
-  = do { stmtC (CmmAssign ret_reg amode)
-       ; performReturn $ emitReturnInstr live_regs }
-  where
-    -- careful here as 'dataReturnConvPrim' will panic if given a Void rep
-    ret_reg@(CmmGlobal r) = dataReturnConvPrim rep
-    live_regs = Just [r]
-
--- void return value
-performPrimReturn _ _
-  = performReturn $ emitReturnInstr (Just [])
+-- works for both void, non-void and unboxed-tuple Id return values
+performPrimReturn rep_amodes
+  = do { live_regs <- forM rep_amodes $ \(rep, amode) -> do
+            let ret_reg@(CmmGlobal r) = dataReturnConvPrim rep
+            stmtC (CmmAssign ret_reg amode)
+            return r
+       ; performReturn $ emitReturnInstr (Just live_regs) }
 
 
 -- ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ tailCallPrim lbl args
  = do	{	-- We're going to perform a normal-looking tail call, 
 		-- except that *all* the arguments will be in registers.
 		-- Hence the ASSERT( null leftovers )
-	  arg_amodes <- getArgAmodes args
+	  arg_amodes <- concatMapM getArgAmodes args
 	; let (arg_regs, leftovers) = assignPrimOpCallRegs arg_amodes
               live_regs = Just $ map snd arg_regs
 	      jump_to_primop = jumpToLbl lbl live_regs

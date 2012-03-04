@@ -692,7 +692,7 @@ dataConSourceArity dc = length (dcOrigArgTys dc)
 -- | Gives the number of actual fields in the /representation/ of the 
 -- data constructor. This may be more than appear in the source code;
 -- the extra ones are the existentially quantified dictionaries
-dataConRepArity :: DataCon -> Int
+dataConRepArity :: DataCon -> Arity
 dataConRepArity (MkData {dcRepArgTys = arg_tys}) = length arg_tys
 
 -- | Return whether there are any argument types for this 'DataCon's original source type

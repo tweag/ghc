@@ -76,7 +76,7 @@ module Id (
 	setOneShotLambda, clearOneShotLambda,
 
 	-- ** Reading 'IdInfo' fields
-	idArity, 
+	idArity,
 	idDemandInfo, idDemandInfo_maybe,
 	idStrictness, idStrictness_maybe, 
 	idUnfolding, realIdUnfolding,
@@ -158,7 +158,7 @@ idUnique  = Var.varUnique
 idType   :: Id -> Kind
 idType    = Var.varType
 
-idPrimRep :: Id -> PrimRep
+idPrimRep :: Id -> [PrimRep]
 idPrimRep id = typePrimRep (idType id)
 
 setIdName :: Id -> Name -> Id

@@ -79,13 +79,11 @@ module Type (
         
         -- ** Common Kinds and SuperKinds
         anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind,
-        argTypeKind, ubxTupleKind, constraintKind,
-        superKind, 
+        constraintKind, superKind, 
 
         -- ** Common Kind type constructors
         liftedTypeKindTyCon, openTypeKindTyCon, unliftedTypeKindTyCon,
-        argTypeKindTyCon, ubxTupleKindTyCon, constraintKindTyCon,
-        anyKindTyCon,
+        constraintKindTyCon, anyKindTyCon,
 
 	-- * Type free variables
 	tyVarsOfType, tyVarsOfTypes,
@@ -661,13 +659,23 @@ carefullySplitNewType_maybe rec_nts tc tys
 
 -- | Discovers the primitive representation of a more abstract 'Type'
 -- Only applied to types of values
-typePrimRep :: Type -> PrimRep
+typePrimRep :: Type -> [PrimRep]
 typePrimRep ty = case repType ty of
-		   TyConApp tc _ -> tyConPrimRep tc
-		   FunTy _ _	 -> PtrRep
-		   AppTy _ _	 -> PtrRep	-- See Note [AppTy rep] 
-		   TyVarTy _	 -> PtrRep
+		   TyConApp tc tys
+                     | isUnboxedTupleTyCon tc -> concatMap typePrimRep tys
+                     | otherwise              -> tyConPrimRep tc
+		   FunTy _ _	 -> [PtrRep]
+		   AppTy _ _	 -> [PtrRep]	-- See Note [AppTy rep] 
+		   TyVarTy _	 -> [PtrRep]
 		   _             -> pprPanic "typePrimRep" (ppr ty)
+
+{-
+arityPrimArity :: Type -> Arity -> Maybe PrimArity
+arityPrimArity _  0 = Nothing
+arityPrimArity ty n = case splitFunTy_maybe (repType ty) of
+  Just (ty1, ty2) -> Just $ length (typePrimRep ty1) + (arityPrimArity ty2 (n - 1) `orElse` 0)
+  Nothing         -> pprPanic "arityPrimArity" (ppr n $$ ppr ty)
+-}
 \end{code}
 
 Note [AppTy rep]

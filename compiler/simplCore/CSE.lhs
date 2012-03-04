@@ -38,8 +38,7 @@ import CoreSubst
 import Var		( Var )
 import Id		( Id, idType, idInlineActivation, zapIdOccInfo )
 import CoreUtils	( mkAltExpr
-                        , exprIsTrivial, exprIsCheap )
-import DataCon		( isUnboxedTupleCon )
+                        , exprIsTrivial )
 import Type		( tyConAppArgs )
 import CoreSyn
 import Outputable
@@ -257,20 +256,6 @@ cseExpr env (Case scrut bndr ty alts) = Case scrut' bndr'' ty alts'
 					-- play safe here and bring them all to life
 
 cseAlts :: CSEnv -> OutExpr -> InBndr -> InBndr -> [InAlt] -> [OutAlt]
-
-cseAlts env scrut' bndr _bndr' [(DataAlt con, args, rhs)]
-  | isUnboxedTupleCon con
-	-- Unboxed tuples are special because the case binder isn't
-	-- a real value.  See Note [Unboxed tuple case binders]
-  = [(DataAlt con, args'', tryForCSE new_env rhs)]
-  where
-    (env', args') = addBinders env args
-    args'' = map zapIdOccInfo args'	-- They should all be ids
-	-- Same motivation for zapping as [Case binders 2] only this time
-	-- it's Note [Unboxed tuple case binders]
-    new_env | exprIsCheap scrut' = env'
-	    | otherwise 	 = extendCSEnv env' scrut' tup_value
-    tup_value = mkAltExpr (DataAlt con) args'' (tyConAppArgs (idType bndr))
 
 cseAlts env scrut' bndr bndr' alts
   = map cse_alt alts

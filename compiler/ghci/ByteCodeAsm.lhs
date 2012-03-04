@@ -441,21 +441,23 @@ mkBits dflags long_jumps findLabel st proto_insns
 isLarge :: Word -> Bool
 isLarge n = n > 65535
 
-push_alts :: CgRep -> Word16
-push_alts NonPtrArg = bci_PUSH_ALTS_N
-push_alts FloatArg  = bci_PUSH_ALTS_F
-push_alts DoubleArg = bci_PUSH_ALTS_D
-push_alts VoidArg   = bci_PUSH_ALTS_V
-push_alts LongArg   = bci_PUSH_ALTS_L
-push_alts PtrArg    = bci_PUSH_ALTS_P
+push_alts :: [CgRep] -> Word16
+push_alts [NonPtrArg] = bci_PUSH_ALTS_N
+push_alts [FloatArg]  = bci_PUSH_ALTS_F
+push_alts [DoubleArg] = bci_PUSH_ALTS_D
+push_alts [LongArg]   = bci_PUSH_ALTS_L
+push_alts [PtrArg]    = bci_PUSH_ALTS_P
+push_alts []          = bci_PUSH_ALTS_V
+push_alts _           = error "push_alts: no appropriate bci_PUSH_ALTS"
 
-return_ubx :: CgRep -> Word16
-return_ubx NonPtrArg = bci_RETURN_N
-return_ubx FloatArg  = bci_RETURN_F
-return_ubx DoubleArg = bci_RETURN_D
-return_ubx VoidArg   = bci_RETURN_V
-return_ubx LongArg   = bci_RETURN_L
-return_ubx PtrArg    = bci_RETURN_P
+return_ubx :: [CgRep] -> Word16
+return_ubx [NonPtrArg] = bci_RETURN_N
+return_ubx [FloatArg]  = bci_RETURN_F
+return_ubx [DoubleArg] = bci_RETURN_D
+return_ubx [LongArg]   = bci_RETURN_L
+return_ubx [PtrArg]    = bci_RETURN_P
+return_ubx []          = bci_RETURN_V
+return_ubx _           = error "return_ubx: no appropriate bci_RETURN"
 
 
 -- The size in 16-bit entities of an instruction.

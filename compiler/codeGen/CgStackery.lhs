@@ -119,14 +119,12 @@ mkVirtStkOffsets
 	  :: VirtualSpOffset 	-- Offset of the last allocated thing
 	  -> [(CgRep,a)]		-- things to make offsets for
 	  -> (VirtualSpOffset,		-- OUTPUTS: Topmost allocated word
-	      [(a, VirtualSpOffset)])	-- things with offsets (voids filtered out)
+	      [(a, VirtualSpOffset)])	-- things with offsets
 
 mkVirtStkOffsets init_Sp_offset things
     = loop init_Sp_offset [] (reverse things)
   where
     loop offset offs [] = (offset,offs)
-    loop offset offs ((VoidArg,_):things) = loop offset offs things
-	-- ignore Void arguments
     loop offset offs ((rep,t):things)
 	= loop thing_slot ((t,thing_slot):offs) things
 	where

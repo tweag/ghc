@@ -7,7 +7,8 @@
 -----------------------------------------------------------------------------
 
 module CgUtils (
-        addIdReps,
+        addIdReps, lookupArgLocs,
+        addIdReps', lookupArgLocs',
         cgLit,
         emitDataLits, mkDataLits,
         emitRODataLits, mkRODataLits,
@@ -80,8 +81,43 @@ import Data.Maybe
 --
 -------------------------------------------------------------------------
 
-addIdReps :: [Id] -> [(CgRep, Id)]
-addIdReps ids = [(idCgRep id, id) | id <- ids]
+-- FIXME: perhaps nicer to just use the primed versions everywhere?
+
+addIdReps :: [Id] -> [(CgRep, (Id, Int))]
+addIdReps ids = [(rep, (id, i))
+                | id <- ids
+                , (i, rep) <- [0..] `zip` idCgRep id]
+
+addIdReps' :: [[CgRep]] -> [(CgRep, (Int, Int))]
+addIdReps' repss = [(rep, (n, i))
+                   | (n, reps) <- [0..] `zip` repss
+                   , (i, rep)  <- [0..] `zip` reps]
+
+lookupArgLocs :: [((Id, Int), GlobalReg)]
+              -> [((Id, Int), VirtualSpOffset)]
+              -> [Id]
+              -> [(Id, [Either GlobalReg VirtualSpOffset])]
+lookupArgLocs reg_args stk_args args
+  = [(arg, [case lookup (arg, i) reg_args of
+              Just reg -> Left reg
+              Nothing -> case lookup (arg, i) stk_args of
+                Just off -> Right off
+                _ -> pprPanic "lookupArgLocs" (ppr (arg, i))
+           | (i, _rep) <- [0..] `zip` idCgRep arg])
+    | arg <- args]
+
+lookupArgLocs' :: [((Int, Int), GlobalReg)]
+               -> [((Int, Int), VirtualSpOffset)]
+               -> [(a, [CgRep])]
+               -> [(a, [Either GlobalReg VirtualSpOffset])]
+lookupArgLocs' reg_args stk_args repss
+  = [(x, [case lookup (n, i) reg_args of
+            Just reg -> Left reg
+            Nothing -> case lookup (n, i) stk_args of
+              Just off -> Right off
+              _ -> pprPanic "lookupArgLocs'" (ppr (n, i))
+         | (i, _rep) <- [0..] `zip` reps])
+    | (n, (x, reps)) <- [0..] `zip` repss]
 
 -------------------------------------------------------------------------
 --

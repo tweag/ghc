@@ -43,11 +43,9 @@ import SMRep
 
 import OldCmm
 import OldCmmUtils
-import Id
 import DataCon
 import TyCon
 import CostCentre
-import Util
 import Module
 import Constants
 import Outputable
@@ -158,8 +156,7 @@ mkVirtHeapOffsets
 -- First in list gets lowest offset, which is initial offset + 1.
 
 mkVirtHeapOffsets is_thunk things
-  = let non_void_things		      = filterOut (isVoidArg . fst) things
-	(ptrs, non_ptrs)    	      = separateByPtrFollowness non_void_things
+  = let (ptrs, non_ptrs)    	      = separateByPtrFollowness things
     	(wds_of_ptrs, ptrs_w_offsets) = mapAccumL computeOffset 0 ptrs
 	(tot_wds, non_ptrs_w_offsets) = mapAccumL computeOffset wds_of_ptrs non_ptrs
     in
@@ -374,17 +371,18 @@ altHeapCheck alt_type code
 	-- Enter R1 after the heap check; it's a pointer
  	
     gc_info (PrimAlt tc)
-      = case primRepToCgRep (tyConPrimRep tc) of
-	  VoidArg   -> (mkL "stg_gc_noregs", Just [])
-	  FloatArg  -> (mkL "stg_gc_f1", Just [FloatReg 1])
-	  DoubleArg -> (mkL "stg_gc_d1", Just [DoubleReg 1])
-	  LongArg   -> (mkL "stg_gc_l1", Just [LongReg 1])
+      = case map primRepToCgRep (tyConPrimRep tc) of
+	  []          -> (mkL "stg_gc_noregs", Just [])
+	  [FloatArg]  -> (mkL "stg_gc_f1", Just [FloatReg 1])
+	  [DoubleArg] -> (mkL "stg_gc_d1", Just [DoubleReg 1])
+	  [LongArg]   -> (mkL "stg_gc_l1", Just [LongReg 1])
 				-- R1 is boxed but unlifted: 
-	  PtrArg    -> (mkL "stg_gc_unpt_r1", Just [node])
+	  [PtrArg]    -> (mkL "stg_gc_unpt_r1", Just [node])
 				-- R1 is unboxed:
-	  NonPtrArg -> (mkL "stg_gc_unbx_r1", Just [node])
+	  [NonPtrArg] -> (mkL "stg_gc_unbx_r1", Just [node])
+          _           -> panic "altHeapCheck: n-ary type bound in PrimAlt"
 
-    gc_info (UbxTupAlt _) = panic "altHeapCheck"
+    gc_info (UbxTupAlt _) = panic "altHeapCheck: unboxed tuple"
 \end{code}
 
 
@@ -397,7 +395,7 @@ non-pointers, and pass the number of each to the heap check code.
 
 \begin{code}
 unbxTupleHeapCheck 
-	:: [(Id, GlobalReg)]	-- Live registers
+	:: [(CgRep, GlobalReg)]	-- Live registers
 	-> WordOff	-- no. of stack slots containing ptrs
 	-> WordOff	-- no. of stack slots containing nonptrs
 	-> CmmStmts	-- code to insert in the failure path

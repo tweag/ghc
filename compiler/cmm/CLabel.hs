@@ -305,8 +305,8 @@ data RtsLabelInfo
   = RtsSelectorInfoTable Bool{-updatable-} Int{-offset-}  -- ^ Selector thunks
   | RtsSelectorEntry     Bool{-updatable-} Int{-offset-}
 
-  | RtsApInfoTable       Bool{-updatable-} Int{-arity-}    -- ^ AP thunks
-  | RtsApEntry           Bool{-updatable-} Int{-arity-}
+  | RtsApInfoTable       Bool{-updatable-} Arity{-arity-}    -- ^ AP thunks
+  | RtsApEntry           Bool{-updatable-} Arity{-arity-}
 
   | RtsPrimOp PrimOp
   | RtsApFast     FastString    -- ^ _fast versions of generic apply
@@ -432,8 +432,8 @@ mkSelectorEntryLabel :: Bool -> Int -> CLabel
 mkSelectorInfoLabel  upd off    = RtsLabel (RtsSelectorInfoTable upd off)
 mkSelectorEntryLabel upd off    = RtsLabel (RtsSelectorEntry     upd off)
 
-mkApInfoTableLabel :: Bool -> Int -> CLabel
-mkApEntryLabel     :: Bool -> Int -> CLabel
+mkApInfoTableLabel :: Bool -> Arity -> CLabel
+mkApEntryLabel     :: Bool -> Arity -> CLabel
 mkApInfoTableLabel   upd off    = RtsLabel (RtsApInfoTable       upd off)
 mkApEntryLabel       upd off    = RtsLabel (RtsApEntry           upd off)
 

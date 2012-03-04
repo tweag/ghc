@@ -48,6 +48,7 @@ import Maybes
 import ListSetOps
 import BasicTypes
 import Util
+import MonadUtils
 import Outputable
 import StaticFlags
 \end{code}
@@ -83,7 +84,7 @@ cgExpr (StgApp fun args) = cgTailCall fun args
 
 \begin{code}
 cgExpr (StgConApp con args)
-  = do	{ amodes <- getArgAmodes args
+  = do	{ amodes <- concatMapM getArgAmodes args
 	; cgReturnDataCon con amodes }
 \end{code}
 
@@ -94,9 +95,9 @@ top of the stack.
 \begin{code}
 cgExpr (StgLit lit)
   = do  { cmm_lit <- cgLit lit
-	; performPrimReturn rep (CmmLit cmm_lit) }
+	; performPrimReturn [(rep, CmmLit cmm_lit)] }
   where
-    rep = (typeCgRep) (literalType lit)
+    [rep] = typeCgRep (literalType lit)
 \end{code}
 
 
@@ -122,16 +123,15 @@ cgExpr (StgOpApp (StgFCallOp fcall _) stg_args res_ty) = do
 	a return address right before doing the call, so the args
 	must be out of the way.
     -}
-    reps_n_amodes <- getArgAmodes stg_args
+    reps_n_amodes <- mapM getArgAmodes stg_args
     let 
 	-- Get the *non-void* args, and jiggle them with shimForeignCall
-	arg_exprs = [ (shimForeignCallArg stg_arg expr, stg_arg)
-		    | (stg_arg, (rep,expr)) <- stg_args `zip` reps_n_amodes, 
-		      nonVoidArg rep]
+	arg_exprs = [ expr
+		    | (stg_arg, rep_exprs) <- stg_args `zip` reps_n_amodes
+                    , expr <- shimForeignCallArg stg_arg (map snd rep_exprs) ]
 
-    arg_tmps <- sequence [ assignTemp arg
-                         | (arg, _) <- arg_exprs]
-    let	arg_hints = zipWith CmmHinted arg_tmps (map (typeForeignHint.stgArgType) stg_args)
+    arg_tmps <- mapM assignTemp arg_exprs
+    let	arg_hints = zipWith CmmHinted arg_tmps (concatMap (typeForeignHint.stgArgType) stg_args)
     {-
 	Now, allocate some result regs.
     -}
@@ -145,7 +145,7 @@ cgExpr (StgOpApp (StgFCallOp fcall _) stg_args res_ty) = do
 
 cgExpr (StgOpApp (StgPrimOp TagToEnumOp) [arg] res_ty) 
   = ASSERT(isEnumerationTyCon tycon)
-    do	{ (_rep,amode) <- getArgAmode arg
+    do	{ [(_rep,amode)] <- getArgAmodes arg
 	; amode' <- assignTemp amode	-- We're going to use it twice,
 					-- so save in a temp if non-trivial
 	; stmtC (CmmAssign nodeReg (tagToClosure tycon amode'))
@@ -170,15 +170,17 @@ cgExpr (StgOpApp (StgPrimOp primop) args res_ty)
   | primOpOutOfLine primop
 	= tailCallPrimOp primop args
 
-  | ReturnsPrim VoidRep <- result_info
+  | ReturnsPrim [] <- result_info
 	= do cgPrimOp [] primop args emptyVarSet
              -- ToDo: STG Live -- worried about this
 	     performReturn $ emitReturnInstr (Just [])
 
-  | ReturnsPrim rep <- result_info
-	= do res <- newTemp (typeCmmType res_ty)
-             cgPrimOp [res] primop args emptyVarSet
-	     performPrimReturn (primRepToCgRep rep) (CmmReg (CmmLocal res))
+  | ReturnsPrim reps <- result_info
+	= do ress <- mapM newTemp (typeCmmType res_ty)
+             cgPrimOp ress primop args emptyVarSet
+	     performPrimReturn $ zipWithEqual "cgExpr"
+                (\rep res -> (primRepToCgRep rep, CmmReg (CmmLocal res)))
+                reps ress
 
   | ReturnsAlg tycon <- result_info, isUnboxedTupleTyCon tycon
 	= do (reps, regs, _hints) <- newUnboxedTupleRegs res_ty
@@ -305,7 +307,7 @@ cgRhs :: Id -> StgRhs -> FCode (Id, CgIdInfo)
 	-- the Id is passed along so a binding can be set up
 
 cgRhs name (StgRhsCon maybe_cc con args)
-  = do	{ amodes <- getArgAmodes args
+  = do	{ amodes <- concatMapM getArgAmodes args
 	; idinfo <- buildDynCon name maybe_cc con amodes
 	; returnFC (name, idinfo) }
 
@@ -345,9 +347,10 @@ mkRhsClosure	bndr cc bi
 		      (AlgAlt _)
 		      [(DataAlt con, params, _use_mask,
 			    (StgApp selectee [{-no args-}]))])
-  |  the_fv == scrutinee		-- Scrutinee is the only free variable
-  && maybeToBool maybe_offset		-- Selectee is a component of the tuple
-  && offset_into_int <= mAX_SPEC_SELECTEE_SIZE	-- Offset is small enough
+  | the_fv == scrutinee		-- Scrutinee is the only free variable
+  , [_] <- idCgRep selectee     -- Selectee is unary (so guaranteed contiguous layout)
+  , maybeToBool maybe_offset		-- Selectee is a component of the tuple
+  , offset_into_int <= mAX_SPEC_SELECTEE_SIZE	-- Offset is small enough
   = -- NOT TRUE: ASSERT(is_single_constructor)
     -- The simplifier may have statically determined that the single alternative
     -- is the only possible case and eliminated the others, even if there are
@@ -360,7 +363,7 @@ mkRhsClosure	bndr cc bi
 				 (isUpdatable upd_flag)
     (_, params_w_offsets) = layOutDynConstr con (addIdReps params)
 			-- Just want the layout
-    maybe_offset	  = assocMaybe params_w_offsets selectee
+    maybe_offset	  = assocMaybe params_w_offsets (selectee, 0)
     Just the_offset 	  = maybe_offset
     offset_into_int       = the_offset - fixedHdrSize
 \end{code}
@@ -389,7 +392,8 @@ mkRhsClosure    bndr cc bi
 		body@(StgApp fun_id args)
 
   | args `lengthIs` (arity-1)
- 	&& all isFollowableArg (map idCgRep fvs) 
+ 	&& all (\fv -> case idCgRep fv of [rep] | isFollowableArg rep -> True; _ -> False)
+               fvs 
  	&& isUpdatable upd_flag
  	&& arity <= mAX_SPEC_AP_SIZE 
         && not opt_SccProfilingOn -- not when profiling: we don't want to
@@ -481,9 +485,9 @@ newUnboxedTupleRegs :: Type -> FCode ([CgRep], [LocalReg], [ForeignHint])
 newUnboxedTupleRegs res_ty =
    let
 	ty_args = tyConAppArgs (repType res_ty)
-	(reps,hints) = unzip [ (rep, typeForeignHint ty) | ty <- ty_args,
-					   	    let rep = typeCgRep ty,
-					 	    nonVoidArg rep ]
+	(reps,hints) = unzip [ res
+                             | ty <- ty_args
+                             , res <- zipEqual "newUnboxedTupleRegs" (typeCgRep ty) (typeForeignHint ty) ]
 	make_new_temp rep = newTemp (argMachRep rep)
    in do
    regs <- mapM make_new_temp reps

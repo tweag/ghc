@@ -21,9 +21,9 @@ module CgParallel(
 	doGranAllocate
   ) where
 
+import ClosureInfo (CgRep)
 import CgMonad
 import CgCallConv
-import Id
 import OldCmm
 import StaticFlags
 import Outputable
@@ -50,7 +50,7 @@ doGranAllocate _hp
 
 
 -------------------------
-granFetchAndReschedule :: [(Id,GlobalReg)]  -- Live registers
+granFetchAndReschedule :: [(CgRep,GlobalReg)]  -- Live registers
 		       -> Bool           	-- Node reqd?
 		       -> Code
 -- Emit code for simulating a fetch and then reschedule.
@@ -89,7 +89,7 @@ reschedule _liveness _node_reqd = panic "granReschedule"
 --        that they are not inlined (see @CgCases.lhs@). These alternatives will 
 --        be turned into separate functions.
 
-granYield :: [(Id,GlobalReg)]   -- Live registers
+granYield :: [(CgRep,GlobalReg)]   -- Live registers
           -> Bool               -- Node reqd?
           -> Code 
 

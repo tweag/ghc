@@ -1265,11 +1265,11 @@ in the cache!
 ------------------
 defaultTyVar :: TcsUntouchables -> TcTyVar -> TcS Cts
 -- defaultTyVar is used on any un-instantiated meta type variables to
--- default the kind of OpenKind and ArgKind etc to *.  This is important to
+-- default the kind of OpenKind etc to *.  This is important to
 -- ensure that instance declarations match.  For example consider
 --	instance Show (a->b)
 --	foo x = show (\_ -> True)
--- Then we'll get a constraint (Show (p ->q)) where p has kind ArgKind, 
+-- Then we'll get a constraint (Show (p ->q)) where p has kind OpenKind, 
 -- and that won't match the typeKind (*) in the instance decl.  
 -- See test tc217.
 --

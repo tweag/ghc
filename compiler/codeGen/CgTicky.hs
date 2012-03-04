@@ -34,7 +34,7 @@ module CgTicky (
 
 	tickyUpdateBhCaf,
 	tickyBlackHole,
-	tickyUnboxedTupleReturn, tickyVectoredReturn,
+	tickyUnboxedTupleReturn,
 	tickyReturnOldCon, tickyReturnNewCon,
 
 	tickyKnownCallTooFewArgs, tickyKnownCallExact, tickyKnownCallExtraArgs,
@@ -62,6 +62,7 @@ import FastString
 import Constants
 import Outputable
 import Module
+import Maybes
 
 -- Turgid imports for showTypeCategory
 import PrelNames
@@ -70,8 +71,6 @@ import Type
 import TyCon
 
 import DynFlags
-
-import Data.Maybe
 
 -----------------------------------------------------------------------------
 --
@@ -200,15 +199,10 @@ tickyReturnNewCon arity
   = ifTicky $ do { bumpTickyCounter (fsLit "RET_NEW_ctr")
 	         ; bumpHistogram    (fsLit "RET_NEW_hst") arity }
 
-tickyUnboxedTupleReturn :: Int -> Code
+tickyUnboxedTupleReturn :: Arity -> Code
 tickyUnboxedTupleReturn arity
   = ifTicky $ do { bumpTickyCounter (fsLit "RET_UNBOXED_TUP_ctr")
  	         ; bumpHistogram    (fsLit "RET_UNBOXED_TUP_hst") arity }
-
-tickyVectoredReturn :: Int -> Code
-tickyVectoredReturn family_size 
-  = ifTicky $ do { bumpTickyCounter (fsLit "VEC_RETURN_ctr")
-		 ; bumpHistogram    (fsLit "RET_VEC_RETURN_hst") family_size }
 
 -- -----------------------------------------------------------------------------
 -- Ticky calls

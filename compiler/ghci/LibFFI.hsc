@@ -36,8 +36,8 @@ type ForeignCallToken = C_ffi_cif
 
 prepForeignCall
     :: CCallConv
-    -> [PrimRep]                        -- arg types
-    -> PrimRep                          -- result type
+    -> [[PrimRep]]                      -- arg types
+    -> [PrimRep]                        -- result type
     -> IO (Ptr ForeignCallToken)        -- token for making calls
                                         -- (must be freed by caller)
 prepForeignCall cconv arg_types result_type
@@ -64,18 +64,18 @@ convToABI StdCallConv = fFI_STDCALL
 convToABI _           = fFI_DEFAULT_ABI
 
 -- c.f. DsForeign.primTyDescChar
-primRepToFFIType :: PrimRep -> Ptr C_ffi_type
+primRepToFFIType :: [PrimRep] -> Ptr C_ffi_type
 primRepToFFIType r
   = case r of
-     VoidRep     -> ffi_type_void
-     IntRep	 -> signed_word
-     WordRep     -> unsigned_word
-     Int64Rep    -> ffi_type_sint64
-     Word64Rep   -> ffi_type_uint64
-     AddrRep     -> ffi_type_pointer
-     FloatRep    -> ffi_type_float
-     DoubleRep   -> ffi_type_double
-     _           -> panic "primRepToFFIType"
+     [IntRep]	     -> signed_word
+     [WordRep]     -> unsigned_word
+     [Int64Rep]    -> ffi_type_sint64
+     [Word64Rep]   -> ffi_type_uint64
+     [AddrRep]     -> ffi_type_pointer
+     [FloatRep]    -> ffi_type_float
+     [DoubleRep]   -> ffi_type_double
+     []            -> ffi_type_void
+     _             -> panic "primRepToFFIType"
   where
     (signed_word, unsigned_word)
        | wORD_SIZE == 4  = (ffi_type_sint32, ffi_type_uint32)

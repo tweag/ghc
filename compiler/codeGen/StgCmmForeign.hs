@@ -21,7 +21,6 @@ import StgCmmProf
 import StgCmmEnv
 import StgCmmMonad
 import StgCmmUtils
-import StgCmmClosure
 
 import BlockId
 import Cmm
@@ -35,9 +34,9 @@ import SMRep
 import ForeignCall
 import Constants
 import StaticFlags
-import Maybes
 import Outputable
 import BasicTypes
+import MonadUtils ( concatMapM )
 
 import Control.Monad
 
@@ -278,20 +277,14 @@ currentNursery    = CmmGlobal CurrentNursery
 getFCallArgs :: [StgArg] -> FCode [(CmmExpr, ForeignHint)]
 -- (a) Drop void args
 -- (b) Add foreign-call shim code
--- It's (b) that makes this differ from getNonVoidArgAmodes
+-- It's (b) that makes this differ from getArgsAmodes
 
-getFCallArgs args
-  = do  { mb_cmms <- mapM get args
-        ; return (catMaybes mb_cmms) }
+getFCallArgs args = concatMapM get args
   where
-    get arg | isVoidRep arg_rep
-            = return Nothing
-            | otherwise
-            = do { cmm <- getArgAmode (NonVoid arg)
-                 ; return (Just (add_shim arg_ty cmm, hint)) }
+    get arg = do { cmm <- getArgAmodes arg
+                 ; return (map (add_shim arg_ty) cmm `zip` hint) }
             where
               arg_ty  = stgArgType arg
-              arg_rep = typePrimRep arg_ty
               hint    = typeForeignHint arg_ty
 
 add_shim :: Type -> CmmExpr -> CmmExpr

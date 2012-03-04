@@ -36,6 +36,7 @@ import Type	( Type, tyConAppTyCon )
 import TyCon
 import CLabel
 import CmmUtils
+import MonadUtils
 import PrimOp
 import SMRep
 import Constants
@@ -61,7 +62,7 @@ might be a Haskell closure pointer, we don't want to evaluate it. -}
 ----------------------------------
 cgOpApp :: StgOp	-- The op
 	-> [StgArg]	-- Arguments
-	-> Type		-- Result type (always an unboxed tuple)
+	-> Type		-- Result type
 	-> FCode ()
 
 -- Foreign calls 
@@ -79,7 +80,7 @@ cgOpApp (StgFCallOp fcall _) stg_args res_ty
 
 cgOpApp (StgPrimOp TagToEnumOp) [arg] res_ty 
   = ASSERT(isEnumerationTyCon tycon)
-    do	{ args' <- getNonVoidArgAmodes [arg]
+    do	{ args' <- getArgAmodes arg
         ; let amode = case args' of [amode] -> amode
                                     _ -> panic "TagToEnumOp had void arg"
 	; emitReturn [tagToClosure tycon amode] }
@@ -91,25 +92,16 @@ cgOpApp (StgPrimOp TagToEnumOp) [arg] res_ty
 	  -- That won't work.
 	tycon = tyConAppTyCon res_ty
 
-cgOpApp (StgPrimOp primop) args res_ty
+cgOpApp (StgPrimOp primop) args _res_ty
   | primOpOutOfLine primop
-  = do	{ cmm_args <- getNonVoidArgAmodes args
+  = do	{ cmm_args <- concatMapM getArgAmodes args
         ; let fun = CmmLit (CmmLabel (mkRtsPrimOpLabel primop))
         ; emitCall (PrimOpCall, PrimOpReturn) fun cmm_args }
 
-  | ReturnsPrim VoidRep <- result_info
-  = do cgPrimOp [] primop args 
-       emitReturn []
-
   | ReturnsPrim rep <- result_info
-  = do res <- newTemp (primRepCmmType rep)
-       cgPrimOp [res] primop args 
-       emitReturn [CmmReg (CmmLocal res)]
-
-  | ReturnsAlg tycon <- result_info, isUnboxedTupleTyCon tycon
-  = do (regs, _hints) <- newUnboxedTupleRegs res_ty
-       cgPrimOp regs primop args
-       emitReturn (map (CmmReg . CmmLocal) regs)
+  = do (res, _hints) <- newSequelRegs rep
+       cgPrimOp res primop args 
+       emitReturn (map (CmmReg . CmmLocal) res)
 
   | ReturnsAlg tycon <- result_info
   , isEnumerationTyCon tycon
@@ -124,7 +116,7 @@ cgOpApp (StgPrimOp primop) args res_ty
      result_info = getPrimOpResultInfo primop
 
 cgOpApp (StgPrimCallOp primcall) args _res_ty
-  = do	{ cmm_args <- getNonVoidArgAmodes args
+  = do	{ cmm_args <- concatMapM getArgAmodes args
         ; let fun = CmmLit (CmmLabel (mkPrimCallLabel primcall))
         ; emitCall (PrimOpCall, PrimOpReturn) fun cmm_args }
 
@@ -135,7 +127,7 @@ cgPrimOp   :: [LocalReg]	-- where to put the results
 	   -> FCode ()
 
 cgPrimOp results op args
-  = do arg_exprs <- getNonVoidArgAmodes args
+  = do arg_exprs <- concatMapM getArgAmodes args
        emitPrimOp results op arg_exprs
 
 

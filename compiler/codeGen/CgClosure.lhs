@@ -53,7 +53,10 @@ import StaticFlags
 import DynFlags
 import Outputable
 import FastString
+import MonadUtils
 
+import Control.Arrow (second)
+import Control.Monad
 import Data.List
 \end{code}
 
@@ -118,7 +121,7 @@ cgStdRhsClosure
 cgStdRhsClosure bndr _cc _bndr_info _fvs _args _body lf_info payload
   = do	-- AHA!  A STANDARD-FORM THUNK
   {	-- LAY OUT THE OBJECT
-    amodes <- getArgAmodes payload
+    amodes <- concatMapM getArgAmodes payload
   ; mod_name <- getModuleName
   ; let (tot_wds, ptr_wds, amodes_w_offsets) 
 	    = mkVirtHeapOffsets (isLFThunk lf_info) amodes
@@ -169,11 +172,20 @@ cgRhsClosure bndr cc bndr_info fvs upd_flag args body = do
   ; fv_infos <- mapFCs getCgIdInfo reduced_fvs
   ; srt_info <- getSRTInfo
   ; mod_name <- getModuleName
-  ; let	bind_details :: [(CgIdInfo, VirtualHpOffset)]
-	(tot_wds, ptr_wds, bind_details) 
-	   = mkVirtHeapOffsets (isLFThunk lf_info) (map add_rep fv_infos)
+  ; let	flat_bind_details :: [((Id, CgIdElemInfo), VirtualHpOffset)]
+	(tot_wds, ptr_wds, flat_bind_details) 
+	   = mkVirtHeapOffsets (isLFThunk lf_info)
+                               [(cgIdElemInfoArgRep elem_info,
+                                 (cgIdInfoId info, elem_info))
+                               | info <- fv_infos
+                               , elem_info <- cgIdInfoElems info]
 
-	add_rep info = (cgIdInfoArgRep info, info)
+        bind_details :: [(Id, [(VirtualHpOffset, CgIdElemInfo)])]
+        bind_details = [(info_id, [ (offset, elem_info)
+                                  | ((id, elem_info), offset) <- flat_bind_details
+                                  , id == info_id ])
+                       | info <- fv_infos
+                       , let info_id = cgIdInfoId info]
 
 	descr	     = closureDescription mod_name name
 	closure_info = mkClosureInfo False	-- Not static
@@ -187,25 +199,26 @@ cgRhsClosure bndr cc bndr_info fvs upd_flag args body = do
               -- A function closure pointer may be tagged, so we
               -- must take it into account when accessing the free variables.
               mbtag       = tagForArity (length args)
-              bind_fv (info, offset)
+              bind_fv (id, offset_infos)
                 | Just tag <- mbtag
-                = bindNewToUntagNode (cgIdInfoId info) offset (cgIdInfoLF info) tag
+                = bindNewToUntagNode id (map (second cgIdElemInfoLF) offset_infos) tag
                 | otherwise
-		= bindNewToNode (cgIdInfoId info) offset (cgIdInfoLF info)
+		= bindNewToNode id (map (second cgIdElemInfoLF) offset_infos)
 	; mapCs bind_fv bind_details
 
 	  	-- Bind the binder itself, if it is a free var
-	; whenC bndr_is_a_fv (bindNewToReg bndr nodeReg lf_info)
+	; whenC bndr_is_a_fv (bindNewToReg bndr [(nodeReg, lf_info)])
 	
 		-- Compile the body
 	; closureCodeBody bndr_info closure_info cc args body })
 
 	-- BUILD THE OBJECT
-  ; let
-	to_amode (info, offset) = do { amode <- idInfoToAmode info
-				     ; return (amode, offset) }
+  ; let -- info_offsets :: [(CgIdElemInfo, LambdaFormInfo)]
+	to_amode (_id, offset_infos) = forM offset_infos $ \(offset, info) -> do
+                amode <- idElemInfoToAmode info
+                return (amode, offset)
 --  ; (use_cc, blame_cc) <- chooseDynCostCentres cc args body
-  ; amodes_w_offsets <- mapFCs to_amode bind_details
+  ; amodes_w_offsets <- concatMapM to_amode bind_details
   ; heap_offset <- allocDynClosure closure_info curCCS curCCS amodes_w_offsets
 
 	-- RETURN
@@ -274,7 +287,8 @@ closureCodeBody _binder_info cl_info cc args body
   do { 	-- Get the current virtual Sp (it might not be zero, 
 	-- eg. if we're compiling a let-no-escape).
     vSp <- getVirtSp
-  ; let (reg_args, other_args) = assignCallRegs (addIdReps args)
+  ; let args_with_reps = addIdReps args
+        (reg_args, other_args) = assignCallRegs args_with_reps
 	(sp_top, stk_args)     = mkVirtStkOffsets vSp other_args
 
 	-- Allocate the global ticky counter
@@ -286,34 +300,35 @@ closureCodeBody _binder_info cl_info cc args body
   ; setTickyCtrLabel ticky_ctr_lbl $ do
 
     	-- Emit the slow-entry code
-  { reg_save_code <- mkSlowEntryCode cl_info reg_args
+  { reg_save_code <- mkSlowEntryCode cl_info [(idCgRep arg !! i , reg) | ((arg, i), reg) <- reg_args]
 
 	-- Emit the main entry code
   ; blks <- forkProc $
-	    mkFunEntryCode cl_info cc reg_args stk_args
+	    mkFunEntryCode cl_info cc (lookupArgLocs reg_args stk_args args)
 			   sp_top reg_save_code body
   ; emitClosureCodeAndInfoTable cl_info [] blks
   }}
 
 
-
 mkFunEntryCode :: ClosureInfo
 	       -> CostCentreStack
-	       -> [(Id,GlobalReg)] 	  -- Args in regs
-	       -> [(Id,VirtualSpOffset)]  -- Args on stack
+	       -> [(Id,[Either GlobalReg VirtualSpOffset])] -- Args in regs/stack
 	       -> VirtualSpOffset	  -- Last allocated word on stack
 	       -> CmmStmts 		  -- Register-save code in case of GC
 	       -> StgExpr
 	       -> Code
 -- The main entry code for the closure
-mkFunEntryCode cl_info cc reg_args stk_args sp_top reg_save_code body = do
+mkFunEntryCode cl_info cc args sp_top reg_save_code body = do
   { 	-- Bind args to regs/stack as appropriate,
 	-- and record expected position of sps
-  ; bindArgsToRegs  reg_args
-  ; bindArgsToStack stk_args
+  ; bindArgsToRegOrStack args
   ; setRealAndVirtualSp sp_top
 
         -- Do the business
+  ; let reg_args :: [(CgRep, GlobalReg)]
+        reg_args = [ (rep, reg)
+                   | (id, ei_reg_offs) <- args
+                   , (rep, Left reg) <- zipEqual "mkFunEntryCode" (idCgRep id) ei_reg_offs ]
   ; funWrapper cl_info reg_args reg_save_code $ do
 	{ tickyEnterFun cl_info
         ; enterCostCentreFun cc
@@ -337,7 +352,7 @@ The slow entry point is used in two places:
  (b) returning from a heap-check failure
 
 \begin{code}
-mkSlowEntryCode :: ClosureInfo -> [(Id,GlobalReg)] -> FCode CmmStmts
+mkSlowEntryCode :: ClosureInfo -> [(CgRep,GlobalReg)] -> FCode CmmStmts
 -- If this function doesn't have a specialised ArgDescr, we need
 -- to generate the function's arg bitmap, slow-entry code, and
 -- register-save code for the heap-check failure
@@ -357,7 +372,7 @@ mkSlowEntryCode cl_info reg_args
      save_stmts = oneStmt stk_adj_push `plusStmts`  mkStmts save_assts
 
      reps_w_regs :: [(CgRep,GlobalReg)]
-     reps_w_regs = [(idCgRep id, reg) | (id,reg) <- reverse reg_args]
+     reps_w_regs = reverse $ reg_args
      (final_stk_offset, stk_offsets)
 	= mapAccumL (\off (rep,_) -> (off + cgRepSizeW rep, off))
 		    0 reps_w_regs
@@ -407,10 +422,10 @@ thunkWrapper closure_info thunk_code = do
 		-- setupUpdate *encloses* the thunk_code
   }
 
-funWrapper :: ClosureInfo 	-- Closure whose code body this is
-	   -> [(Id,GlobalReg)] 	-- List of argument registers (if any)
-	   -> CmmStmts		-- reg saves for the heap check failure
-	   -> Code		-- Body of function being compiled
+funWrapper :: ClosureInfo 	  -- Closure whose code body this is
+	   -> [(CgRep,GlobalReg)] -- List of argument registers (if any)
+	   -> CmmStmts		  -- reg saves for the heap check failure
+	   -> Code		  -- Body of function being compiled
 	   -> Code
 funWrapper closure_info arg_regs reg_save_code fun_body = do
   { let node_points = nodeMustPointToIt (closureLFInfo closure_info)

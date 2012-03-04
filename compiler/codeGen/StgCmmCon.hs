@@ -41,7 +41,8 @@ import PrelInfo
 import Outputable
 import Platform
 import StaticFlags
-import Util             ( lengthIs )
+import MonadUtils
+import Util             ( lengthIs, zipEqual )
 
 import Control.Monad
 import Data.Char
@@ -65,6 +66,7 @@ cgTopRhsCon id con args
         ; ASSERT( args `lengthIs` dataConRepArity con ) return ()
 
         -- LAY IT OUT
+        ; args_reps <- concatMapM addArgReps args
         ; let
             name          = idName id
             caffy         = idCafInfo id -- any stgArgHasCafRefs args
@@ -72,7 +74,7 @@ cgTopRhsCon id con args
 
             (tot_wds, --  #ptr_wds + #nonptr_wds
              ptr_wds, --  #ptr_wds
-             nv_args_w_offsets) = mkVirtConstrOffsets (addArgReps args)
+             nv_args_w_offsets) = mkVirtConstrOffsets args_reps
 
             nonptr_wds = tot_wds - ptr_wds
 
@@ -81,14 +83,13 @@ cgTopRhsCon id con args
              -- needs to poke around inside it.
             info_tbl = mkDataConInfoTable con True ptr_wds nonptr_wds
 
-            get_lit (arg, _offset) = do { CmmLit lit <- getArgAmode arg
-                                        ; return lit }
-
-        ; payload <- mapM get_lit nv_args_w_offsets
+            payload = flip map nv_args_w_offsets $ \(cmm, _offset) -> case cmm of
+                        CmmLit lit -> lit
+                        _ -> panic "cgTopRhsCon"
                 -- NB1: nv_args_w_offsets is sorted into ptrs then non-ptrs
                 -- NB2: all the amodes should be Lits!
 
-        ; let closure_rep = mkStaticClosureFields
+            closure_rep = mkStaticClosureFields
                              info_tbl
                              dontCareCCS                -- Because it's static data
                              caffy                      -- Has CAF refs
@@ -204,13 +205,14 @@ buildDynCon' platform binder _cc con [arg]
 
 -------- buildDynCon': the general case -----------
 buildDynCon' _ binder ccs con args
-  = do  { let (tot_wds, ptr_wds, args_w_offsets)
-                = mkVirtConstrOffsets (addArgReps args)
+  = do  { args_reps <- concatMapM addArgReps args
+        ; let (tot_wds, ptr_wds, args_w_offsets)
+                = mkVirtConstrOffsets args_reps
                 -- No void args in args_w_offsets
               nonptr_wds = tot_wds - ptr_wds
               info_tbl = mkDataConInfoTable con False ptr_wds nonptr_wds
-        ; (tmp, init) <- allocDynClosure info_tbl lf_info
-                                         use_cc blame_cc args_w_offsets
+        ; (tmp, init) <- allocDynClosureCmm info_tbl lf_info
+                                            use_cc blame_cc args_w_offsets
         ; regIdInfo binder lf_info tmp init }
   where
     lf_info = mkConLFInfo con
@@ -233,18 +235,19 @@ bindConArgs :: AltCon -> LocalReg -> [Id] -> FCode [LocalReg]
 -- found a con
 bindConArgs (DataAlt con) base args
   = ASSERT(not (isUnboxedTupleCon con))
-    mapM bind_arg args_w_offsets
-  where
-    (_, _, args_w_offsets) = mkVirtConstrOffsets (addIdReps args)
-
-    tag = tagForCon con
-
+    do { args_regs <- mapM (\id -> liftM ((,) id) $ idToReg id) args
+       ; let (_, _, regs_w_offsets) = mkVirtConstrOffsets [it | (arg, regs) <- args_regs, it <- zipEqual "bindConArgs" (idPrimRep arg) regs]
+       ; mapM_ initialise_reg regs_w_offsets
           -- The binding below forces the masking out of the tag bits
           -- when accessing the constructor field.
-    bind_arg :: (NonVoid Id, VirtualHpOffset) -> FCode LocalReg
-    bind_arg (arg, offset)
-        = do { emit $ mkTaggedObjectLoad (idToReg arg) base offset tag
-             ; bindArgToReg arg }
+       ; mapM_ (uncurry bindArgToReg) args_regs
+       ; return (concatMap snd args_regs) }
+  where
+    tag = tagForCon con
+
+    initialise_reg :: (LocalReg, VirtualHpOffset) -> FCode ()
+    initialise_reg (reg, offset)
+        = emit $ mkTaggedObjectLoad reg base offset tag
 
 bindConArgs _other_con _base args
   = ASSERT( null args ) return []

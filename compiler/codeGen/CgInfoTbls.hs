@@ -42,6 +42,7 @@ import OldCmm
 import CLabel
 import Name
 import Unique
+import UniqSupply
 import StaticFlags
 
 import Constants
@@ -178,24 +179,27 @@ mkStackLayout = do
                     [(offset - frame_sp - retAddrSizeW, b)
                     | (offset, b) <- binds]
 
+  us <- newUniqSupply
   WARN( not (all (\bind -> fst bind >= 0) rel_binds),
-        pprPlatform platform binds $$ pprPlatform platform rel_binds $$
+        pprPlatform platform (map fst binds) $$ pprPlatform platform (map fst rel_binds) $$
         ppr frame_size $$ ppr real_sp $$ ppr frame_sp )
-    return $ stack_layout rel_binds frame_size
+    return $ stack_layout us rel_binds frame_size
 
-stack_layout :: [(VirtualSpOffset, CgIdInfo)]
+stack_layout :: UniqSupply
+             -> [(VirtualSpOffset, CgRep)]
              -> WordOff
              -> [Maybe LocalReg]
-stack_layout [] sizeW = replicate sizeW Nothing
-stack_layout ((off, bind):binds) sizeW | off == sizeW - 1 =
-  (Just stack_bind) : (stack_layout binds (sizeW - rep_size))
+stack_layout _ [] sizeW = replicate sizeW Nothing
+stack_layout us ((off, rep):binds) sizeW | off == sizeW - 1 =
+  (Just stack_bind) : (stack_layout us' binds (sizeW - rep_size))
   where
-    rep_size = cgRepSizeW (cgIdInfoArgRep bind)
+    rep_size = cgRepSizeW rep
     stack_bind = LocalReg unique machRep
-    unique = getUnique (cgIdInfoId bind)
-    machRep = argMachRep (cgIdInfoArgRep bind)
-stack_layout binds@(_:_) sizeW | otherwise =
-  Nothing : (stack_layout binds (sizeW - 1))
+    (unique, us') = takeUniqFromSupply us
+    machRep = argMachRep rep
+stack_layout us binds@(_:_) sizeW
+  | sizeW < 0 = panic "stack_layout: infinite loop?"
+  | otherwise = Nothing : (stack_layout us binds (sizeW - 1))
 
 {- Another way to write the function that might be less error prone (untested)
 stack_layout offsets sizeW = result

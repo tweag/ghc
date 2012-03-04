@@ -116,10 +116,10 @@ module TcType (
   --------------------------------
   -- Rexported from Kind
   Kind, typeKind,
-  unliftedTypeKind, liftedTypeKind, argTypeKind,
+  unliftedTypeKind, liftedTypeKind,
   openTypeKind, constraintKind, mkArrowKind, mkArrowKinds, 
   isLiftedTypeKind, isUnliftedTypeKind, isSubOpenTypeKind, 
-  isSubArgTypeKind, tcIsSubKind, splitKindFunTys, defaultKind,
+  tcIsSubKind, splitKindFunTys, defaultKind,
   mkMetaKindVar,
 
   --------------------------------
@@ -775,7 +775,7 @@ mkPhiTy theta ty = foldr mkFunTy ty theta
 
 mkTcEqPred :: TcType -> TcType -> Type
 -- During type checking we build equalities between 
--- type variables with OpenKind or ArgKind.  Ultimately
+-- type variables with OpenKind.  Ultimately
 -- they will all settle, but we want the equality predicate
 -- itself to have kind '*'.  I think.  
 --
@@ -1421,10 +1421,9 @@ marshalableTyCon :: DynFlags -> TyCon -> Bool
 marshalableTyCon dflags tc
   =  (xopt Opt_UnliftedFFITypes dflags 
       && isUnLiftedTyCon tc
-      && not (isUnboxedTupleTyCon tc)
       && case tyConPrimRep tc of	-- Note [Marshalling VoidRep]
-	   VoidRep -> False
-	   _       -> True)
+	   [_] -> True
+	   _   -> False)
   || boxedMarshalableTyCon tc
 
 boxedMarshalableTyCon :: TyCon -> Bool
@@ -1441,13 +1440,11 @@ boxedMarshalableTyCon tc
 			 ]
 
 legalFIPrimArgTyCon :: DynFlags -> TyCon -> Bool
--- Check args of 'foreign import prim', only allow simple unlifted types.
--- Strictly speaking it is unnecessary to ban unboxed tuples here since
--- currently they're of the wrong kind to use in function args anyway.
+-- Check arg types of 'foreign import prim'. Allow simple unlifted
+-- types and also unboxed tuple argument types '(# , , #) -> ...'
 legalFIPrimArgTyCon dflags tc
   = xopt Opt_UnliftedFFITypes dflags
     && isUnLiftedTyCon tc
-    && not (isUnboxedTupleTyCon tc)
 
 legalFIPrimResultTyCon :: DynFlags -> TyCon -> Bool
 -- Check result type of 'foreign import prim'. Allow simple unlifted
@@ -1455,17 +1452,4 @@ legalFIPrimResultTyCon :: DynFlags -> TyCon -> Bool
 legalFIPrimResultTyCon dflags tc
   = xopt Opt_UnliftedFFITypes dflags
     && isUnLiftedTyCon tc
-    && (isUnboxedTupleTyCon tc
-        || case tyConPrimRep tc of	-- Note [Marshalling VoidRep]
-	   VoidRep -> False
-	   _       -> True)
 \end{code}
-
-Note [Marshalling VoidRep]
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-We don't treat State# (whose PrimRep is VoidRep) as marshalable.
-In turn that means you can't write
-	foreign import foo :: Int -> State# RealWorld
-
-Reason: the back end falls over with panic "primRepHint:VoidRep";
-	and there is no compelling reason to permit it

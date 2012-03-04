@@ -253,7 +253,7 @@ cgDataCon data_con
   = do	{ let
             (tot_wds, --  #ptr_wds + #nonptr_wds
     	     ptr_wds, --  #ptr_wds
-    	     arg_things) = mkVirtConstrOffsets arg_reps
+    	     _) = mkVirtConstrOffsets arg_reps
 
             nonptr_wds   = tot_wds - ptr_wds
 
@@ -268,13 +268,13 @@ cgDataCon data_con
 	      = 	-- NB: We don't set CC when entering data (WDP 94/06)
  	        do { _ <- ticky_code
 		   ; ldvEnter (CmmReg nodeReg)
-		   ; tickyReturnOldCon (length arg_things)
+		   ; tickyReturnOldCon (length arg_reps)
 		   ; emitReturn [cmmOffsetB (CmmReg nodeReg)
 					    (tagForCon data_con)] }
                         -- The case continuation code expects a tagged pointer
 
-	    arg_reps :: [(PrimRep, Type)]
-	    arg_reps = [(typePrimRep ty, ty) | ty <- dataConRepArgTys data_con]
+	    arg_reps :: [(PrimRep, ())]
+	    arg_reps = [(rep, ()) | ty <- dataConRepArgTys data_con, rep <- typePrimRep ty]
 
 	    -- Dynamic closure code for non-nullary constructors only
 	; whenC (not (isNullaryRepDataCon data_con))

@@ -16,25 +16,23 @@
 module StgCmmEnv (
 	CgIdInfo,
 
-	cgIdInfoId, cgIdInfoLF,
+	cgIdInfoId, cgIdInfoElems, cgIdInfoSingleElem,
+        cgIdElemInfoLF,
 
 	litIdInfo, lneIdInfo, regIdInfo,
-	idInfoToAmode,
-
-        NonVoid(..), isVoidId, nonVoidIds,
+	idInfoToAmodes, idElemInfoToAmode,
 
 	addBindC, addBindsC,
 
 	bindArgsToRegs, bindToReg, rebindToReg,
 	bindArgToReg, idToReg,
-	getArgAmode, getNonVoidArgAmodes, 
+	addArgReps, getArgAmodes,
 	getCgIdInfo, 
 	maybeLetNoEscape, 
     ) where
 
 #include "HsVersions.h"
 
-import TyCon
 import StgCmmMonad
 import StgCmmUtils
 import StgCmmClosure
@@ -45,7 +43,9 @@ import BlockId
 import CmmExpr
 import CmmUtils
 import MkGraph (CmmAGraph, mkAssign, (<*>))
+import UniqSupply (uniqsFromSupply)
 import FastString
+import Type (PrimRep)
 import Id
 import VarEnv
 import Control.Monad
@@ -53,48 +53,43 @@ import Name
 import StgSyn
 import DynFlags
 import Outputable
-
--------------------------------------
---	Non-void types
--------------------------------------
--- We frequently need the invariant that an Id or a an argument
--- is of a non-void type. This type is a witness to the invariant.
-
-newtype NonVoid a = NonVoid a
-  deriving (Eq, Show)
-
-instance (Outputable a) => Outputable (NonVoid a) where
-  ppr (NonVoid a) = ppr a
-
-isVoidId :: Id -> Bool
-isVoidId = isVoidRep . idPrimRep
-
-nonVoidIds :: [Id] -> [NonVoid Id]
-nonVoidIds ids = [NonVoid id | id <- ids, not (isVoidRep (idPrimRep id))]
+import Util
 
 -------------------------------------
 --	Manipulating CgIdInfo
 -------------------------------------
 
+mkCgIdElemInfo :: LambdaFormInfo -> CmmExpr -> CgIdElemInfo
+mkCgIdElemInfo lf expr
+  = CgIdElemInfo { cg_lf = lf
+                 , cg_loc = CmmLoc expr, 
+	           cg_tag = lfDynTag lf }
+
 mkCgIdInfo :: Id -> LambdaFormInfo -> CmmExpr -> CgIdInfo
 mkCgIdInfo id lf expr
-  = CgIdInfo { cg_id = id, cg_lf = lf
-             , cg_loc = CmmLoc expr, 
-	       cg_tag = lfDynTag lf }
+  = CgIdInfo { cg_id = id
+             , cg_elems = [mkCgIdElemInfo lf expr]
+             }
 
+-- Used for building info for external names (which are always lifted)
+-- and closures/constructors (which are always represented as a single pointer)
 litIdInfo :: Id -> LambdaFormInfo -> CmmLit -> CgIdInfo
 litIdInfo id lf lit
-  = CgIdInfo { cg_id = id, cg_lf = lf
-             , cg_loc = CmmLoc (addDynTag (CmmLit lit) tag) 
-	     , cg_tag = tag }
+  = CgIdInfo { cg_id = id
+             , cg_elems = [CgIdElemInfo { cg_lf = lf
+                                        , cg_loc = CmmLoc (addDynTag (CmmLit lit) tag)
+                                        , cg_tag = tag }]
+             }
   where
     tag = lfDynTag lf
 
 lneIdInfo :: Id -> [LocalReg] -> CgIdInfo
 lneIdInfo id regs 
-  = CgIdInfo { cg_id = id, cg_lf = lf
-             , cg_loc = LneLoc blk_id regs
-	     , cg_tag = lfDynTag lf }
+  = CgIdInfo { cg_id    = id
+             , cg_elems = [CgIdElemInfo { cg_lf = lf
+                                        , cg_loc = LneLoc blk_id regs
+                                        , cg_tag = lfDynTag lf }]
+             }
   where
     lf     = mkLFLetNoEscape
     blk_id = mkBlockId (idUnique id)
@@ -105,18 +100,21 @@ lneIdInfo id regs
 -- a new register in order to keep single-assignment and help out the
 -- inliner. -- EZY
 regIdInfo :: Id -> LambdaFormInfo -> LocalReg -> CmmAGraph -> FCode (CgIdInfo, CmmAGraph)
-regIdInfo id lf_info reg init 
+regIdInfo id lf_info reg init
   = do { reg' <- newTemp (localRegType reg)
        ; let init' = init <*> mkAssign (CmmLocal reg') 
                                        (addDynTag (CmmReg (CmmLocal reg)) 
                                                   (lfDynTag lf_info))
        ; return (mkCgIdInfo id lf_info (CmmReg (CmmLocal reg')), init') }
 
-idInfoToAmode :: CgIdInfo -> CmmExpr
+idElemInfoToAmode :: CgIdElemInfo -> CmmExpr
 -- Returns a CmmExpr for the *tagged* pointer
-idInfoToAmode (CgIdInfo { cg_loc = CmmLoc e }) = e
-idInfoToAmode cg_info
-  = pprPanic "idInfoToAmode" (ppr (cg_id cg_info))	-- LneLoc
+idElemInfoToAmode (CgIdElemInfo { cg_loc = CmmLoc e }) = e
+idElemInfoToAmode _cg_info
+  = panic "idElemInfoToAmode: LneLoc"
+
+idInfoToAmodes :: CgIdInfo -> [CmmExpr]
+idInfoToAmodes = map idElemInfoToAmode . cg_elems
 
 addDynTag :: CmmExpr -> DynTag -> CmmExpr
 -- A tag adds a byte offset to the pointer
@@ -125,12 +123,21 @@ addDynTag expr tag = cmmOffsetB expr tag
 cgIdInfoId :: CgIdInfo -> Id
 cgIdInfoId = cg_id 
 
-cgIdInfoLF :: CgIdInfo -> LambdaFormInfo
-cgIdInfoLF = cg_lf
+cgIdInfoElems :: CgIdInfo -> [CgIdElemInfo]
+cgIdInfoElems = cg_elems
 
-maybeLetNoEscape :: CgIdInfo -> Maybe (BlockId, [LocalReg])
-maybeLetNoEscape (CgIdInfo { cg_loc = LneLoc blk_id args}) = Just (blk_id, args)
-maybeLetNoEscape _other   				   = Nothing
+-- Used for where the caller knows there will only be one alternative (commonly
+-- because it knows the info is for a thunk, closure or some data)
+cgIdInfoSingleElem :: CgIdInfo -> CgIdElemInfo
+cgIdInfoSingleElem (CgIdInfo { cg_elems = [elem_info] }) = elem_info
+cgIdInfoSingleElem _ = panic "cgIdInfoSingleElem"
+
+cgIdElemInfoLF :: CgIdElemInfo -> LambdaFormInfo
+cgIdElemInfoLF = cg_lf
+
+maybeLetNoEscape :: CgIdElemInfo -> Maybe (BlockId, [LocalReg])
+maybeLetNoEscape (CgIdElemInfo { cg_loc = LneLoc blk_id args}) = Just (blk_id, args)
+maybeLetNoEscape _other         			       = Nothing
 
 
 
@@ -140,6 +147,18 @@ maybeLetNoEscape _other   				   = Nothing
 -- There are three basic routines, for adding (addBindC), 
 -- modifying(modifyBindC) and looking up (getCgIdInfo) bindings.
 ---------------------------------------------------------
+
+-- Note [CgIdInfo knot]
+-- ~~~~~~~~~~~~~~~~~~~~
+--
+-- We can't be too strict in the CgIdInfo, because in e.g. letrecs the CgIdInfo
+-- is knot-tied. A loop I build in practice was
+--   cgExpr LetRec -> cgRhs StgRhsCon -> buildDynCon'
+-- from code like (let xs = (:) y xs in xs) because we fixpoint the CgIdInfo for
+-- xs and buildDynCon' is strict in the length of the CgIdElemInfo list.
+--
+-- To work around this we try to be yield the length of the CgIdInfo element list
+-- lazily by lazily zipping it with the idCgReps.
 
 addBindC :: Id -> CgIdInfo -> FCode ()
 addBindC name stuff_to_bind = do
@@ -154,9 +173,16 @@ addBindsC new_bindings = do
 			      new_bindings
 	setBinds new_binds
 
+-- See: Note [CgIdInfo knot]
+etaCgIdInfo :: Id -> CgIdInfo -> CgIdInfo
+etaCgIdInfo id ~(CgIdInfo { cg_id = lazy_id, cg_elems = elems })
+  = CgIdInfo { cg_id = lazy_id
+             , cg_elems = zipLazyWith (showPpr (id, idPrimRep id, length elems)) (\_ elem -> elem) (idPrimRep id) elems }
+
 getCgIdInfo :: Id -> FCode CgIdInfo
 getCgIdInfo id
-  = do	{ 	-- Try local bindings first
+  = liftM (etaCgIdInfo id) $
+    do	{ 	-- Try local bindings first
 	; local_binds  <- getBinds
 	; case lookupVarEnv local_binds id of {
 	    Just info -> return info ;
@@ -173,8 +199,11 @@ getCgIdInfo id
 	    name = idName id
 	in
 	if isExternalName name then do
-	    let ext_lbl = CmmLabel (mkClosureLabel name $ idCafInfo id)
-	    return (litIdInfo id (mkLFImported id) ext_lbl)
+	    { let ext_lbl = CmmLabel (mkClosureLabel name $ idCafInfo id)
+        ; return $ case mkLFImported id of
+              Just lf_info -> litIdInfo id lf_info ext_lbl
+              Nothing      -> CgIdInfo id [] }
+
 	else
 	-- Bug	
 	cgLookupPanic id
@@ -197,48 +226,41 @@ cgLookupPanic id
 
 
 --------------------
-getArgAmode :: NonVoid StgArg -> FCode CmmExpr
-getArgAmode (NonVoid (StgVarArg var))  =
-  do { info  <- getCgIdInfo var; return (idInfoToAmode info) }
-getArgAmode (NonVoid (StgLitArg lit))  = liftM CmmLit $ cgLit lit
-getArgAmode (NonVoid (StgTypeArg _))   = panic "getArgAmode: type arg"
+getArgAmodes :: StgArg -> FCode [CmmExpr]
+getArgAmodes (StgVarArg var)  =
+  do { info  <- getCgIdInfo var; return (idInfoToAmodes info) }
+getArgAmodes (StgLitArg lit)  = liftM (return . CmmLit) $ cgLit lit
+getArgAmodes (StgTypeArg _)   = return []
 
-getNonVoidArgAmodes :: [StgArg] -> FCode [CmmExpr]
--- NB: Filters out void args, 
---     so the result list may be shorter than the argument list
-getNonVoidArgAmodes [] = return []
-getNonVoidArgAmodes (arg:args)
-  | isVoidRep (argPrimRep arg) = getNonVoidArgAmodes args
-  | otherwise = do { amode  <- getArgAmode (NonVoid arg)
-	 	   ; amodes <- getNonVoidArgAmodes args
-	 	   ; return ( amode : amodes ) }
-
+addArgReps :: StgArg -> FCode [(PrimRep, CmmExpr)]
+addArgReps arg = do
+    exprs <- getArgAmodes arg
+    return (zipEqual "addArgReps" (argPrimRep arg) exprs)
 
 ------------------------------------------------------------------------
 --	Interface functions for binding and re-binding names
 ------------------------------------------------------------------------
 
-bindToReg :: NonVoid Id -> LambdaFormInfo -> FCode LocalReg
+bindToReg :: Id -> [(LocalReg, LambdaFormInfo)] -> FCode ()
 -- Bind an Id to a fresh LocalReg
-bindToReg nvid@(NonVoid id) lf_info
-  = do	{ let reg = idToReg nvid
-	; addBindC id (mkCgIdInfo id lf_info (CmmReg (CmmLocal reg)))
-	; return reg }
+bindToReg id regs_lf_infos
+  = do	{ addBindC id (CgIdInfo { cg_id = id
+                                , cg_elems = map (\(reg, lf_info) -> mkCgIdElemInfo lf_info (CmmReg (CmmLocal reg))) regs_lf_infos }) }
 
-rebindToReg :: NonVoid Id -> FCode LocalReg
+rebindToReg :: Id -> [LocalReg] -> FCode ()
 -- Like bindToReg, but the Id is already in scope, so 
 -- get its LF info from the envt
-rebindToReg nvid@(NonVoid id)
+rebindToReg id regs
   = do	{ info <- getCgIdInfo id
-	; bindToReg nvid (cgIdInfoLF info) }
+	; bindToReg id (zipEqual "rebindToReg" regs (map cgIdElemInfoLF (cg_elems info))) }
 
-bindArgToReg :: NonVoid Id -> FCode LocalReg
-bindArgToReg nvid@(NonVoid id) = bindToReg nvid (mkLFArgument id)
+bindArgToReg :: Id -> [LocalReg] -> FCode ()
+bindArgToReg id regs = bindToReg id (zipEqual "bindArgToReg" regs (mkLFArgument (idType id)))
 
-bindArgsToRegs :: [NonVoid Id] -> FCode [LocalReg]
-bindArgsToRegs args = mapM bindArgToReg args
+bindArgsToRegs :: [(Id, [LocalReg])] -> FCode ()
+bindArgsToRegs args = mapM_ (uncurry bindArgToReg) args
 
-idToReg :: NonVoid Id -> LocalReg
+idToReg :: Id -> FCode [LocalReg]
 -- Make a register from an Id, typically a function argument,
 -- free variable, or case binder
 --
@@ -246,8 +268,6 @@ idToReg :: NonVoid Id -> LocalReg
 --
 -- By now the Ids should be uniquely named; else one would worry
 -- about accidental collision 
-idToReg (NonVoid id) = LocalReg (idUnique id) 
-                        (case idPrimRep id of VoidRep -> pprPanic "idToReg" (ppr id)
-                                              _ -> primRepCmmType (idPrimRep id))
-
-
+idToReg id = do
+    us <- newUniqSupply
+    return $ zipWith LocalReg (idUnique id : uniqsFromSupply us) (map primRepCmmType (idPrimRep id))

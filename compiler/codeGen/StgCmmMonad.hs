@@ -47,7 +47,7 @@ module StgCmmMonad (
 	getState, setState, getInfoDown, getDynFlags, getThisPackage,
 
 	-- more localised access to monad state	
-	CgIdInfo(..), CgLoc(..),
+	CgIdInfo(..), CgIdElemInfo(..), CgLoc(..),
 	getBinds, setBinds, getStaticBinds,
 
 	-- out of general friendliness, we also export ...
@@ -178,11 +178,25 @@ data CgInfoDownwards	-- information only passed *downwards* by the monad
 type CgBindings = IdEnv CgIdInfo
 
 data CgIdInfo
-  = CgIdInfo	
-	{ cg_id :: Id	-- Id that this is the info for
-			-- Can differ from the Id at occurrence sites by 
-			-- virtue of being externalised, for splittable C
-	, cg_lf  :: LambdaFormInfo 
+  = CgIdInfo
+        { cg_id :: Id   -- Id that this is the info for
+                        -- Can differ from the Id at occurrence sites by 
+                        -- virtue of being externalised, for splittable C
+                        --
+                        -- This is only really meaningful for cases where the
+                        -- IdInfo is a singleton, because only top-level names
+                        -- get externalised and all top-level names are lifted.
+                        -- However, we keep it around even in the other cases
+                        -- as it is useful for debugging purposes.
+        , cg_elems :: [CgIdElemInfo] -- Info for each of the things the Id expands to during
+                                     -- code generation. Most Ids expand to a single thing,
+                                     -- but ones of void representation expand to nothing
+                                     -- and unboxed tuples expand to an arbitrary number.
+        }
+
+data CgIdElemInfo
+  = CgIdElemInfo
+	{ cg_lf  :: LambdaFormInfo 
 	, cg_loc :: CgLoc		     -- CmmExpr for the *tagged* value
         , cg_tag :: {-# UNPACK #-} !DynTag   -- Cache for (lfDynTag cg_lf)
         }
@@ -198,8 +212,12 @@ data CgLoc
 	-- and branch to the block id
 
 instance PlatformOutputable CgIdInfo where
-  pprPlatform platform (CgIdInfo { cg_id = id, cg_loc = loc })
-    = ppr id <+> ptext (sLit "-->") <+> pprPlatform platform loc
+  pprPlatform platform (CgIdInfo { cg_id = id, cg_elems = elems })
+    = ppr id <+> ptext (sLit "-->") <+> hsep (map (pprPlatform platform) elems)
+
+instance PlatformOutputable CgIdElemInfo where
+  pprPlatform platform (CgIdElemInfo { cg_loc = loc })
+    = pprPlatform platform loc
 
 instance PlatformOutputable CgLoc where
   pprPlatform platform (CmmLoc e)    = ptext (sLit "cmm") <+> pprPlatform platform e

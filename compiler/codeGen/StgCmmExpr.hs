@@ -45,8 +45,9 @@ import PrimOp
 import TyCon
 import Type
 import CostCentre	( CostCentreStack, currentCCS )
-import Control.Monad (when)
+import Control.Monad (when, zipWithM_)
 import Maybes
+import MonadUtils (concatMapM)
 import Util
 import FastString
 import Outputable
@@ -129,7 +130,7 @@ cgLetNoEscapeRhs
 
 cgLetNoEscapeRhs join_id local_cc bndr rhs =
   do { (info, rhs_body) <- getCodeR $ cgLetNoEscapeRhsBody local_cc bndr rhs 
-     ; let (bid, _) = expectJust "cgLetNoEscapeRhs" $ maybeLetNoEscape info
+     ; let (bid, _) = expectJust "cgLetNoEscapeRhs" $ maybeLetNoEscape (cgIdInfoSingleElem info)
      ; emit (outOfLine $ mkLabel bid <*> rhs_body <*> mkBranch join_id)
      ; return info
      }
@@ -140,7 +141,7 @@ cgLetNoEscapeRhsBody
     -> StgRhs
     -> FCode CgIdInfo
 cgLetNoEscapeRhsBody local_cc bndr (StgRhsClosure cc _bi _ _upd _ args body)
-  = cgLetNoEscapeClosure bndr local_cc cc (nonVoidIds args) body
+  = cgLetNoEscapeClosure bndr local_cc cc args body
 cgLetNoEscapeRhsBody local_cc bndr (StgRhsCon cc con args)
   = cgLetNoEscapeClosure bndr local_cc cc [] (StgConApp con args)
 	-- For a constructor RHS we want to generate a single chunk of 
@@ -153,19 +154,19 @@ cgLetNoEscapeClosure
 	:: Id			-- binder
 	-> Maybe LocalReg	-- Slot for saved current cost centre
 	-> CostCentreStack   	-- XXX: *** NOT USED *** why not?
-	-> [NonVoid Id]		-- Args (as in \ args -> body)
+	-> [Id]		-- Args (as in \ args -> body)
     	-> StgExpr		-- Body (as in above)
 	-> FCode CgIdInfo
 
-cgLetNoEscapeClosure bndr cc_slot _unused_cc args body
-  = do  { arg_regs <- forkProc $ do	
-		{ restoreCurrentCostCentre cc_slot
-		; arg_regs <- bindArgsToRegs args
-		; altHeapCheck arg_regs (cgExpr body)
-			-- Using altHeapCheck just reduces
-			-- instructions to save on stack
-		; return arg_regs }
-	; return $ lneIdInfo bndr arg_regs}
+cgLetNoEscapeClosure bndr cc_slot _unused_cc args body = forkProc $
+  do { restoreCurrentCostCentre cc_slot
+     ; arg_regss <- mapM idToReg args
+     ; bindArgsToRegs (zipEqual "cgLetNoEscapeClosure" args arg_regss)
+     ; let arg_regs = concat arg_regss
+     ; altHeapCheck arg_regs (cgExpr body)
+        -- Using altHeapCheck just reduces
+        -- instructions to save on stack
+     ; return (lneIdInfo bndr arg_regs) }
 
 
 ------------------------------------------------------------------------
@@ -319,16 +320,18 @@ cgCase (StgApp v []) bndr _ alt_type@(PrimAlt _) alts
     do { when (not reps_compatible) $
            panic "cgCase: reps do not match, perhaps a dodgy unsafeCoerce?"
        ; v_info <- getCgIdInfo v
-       ; emit (mkAssign (CmmLocal (idToReg (NonVoid bndr))) (idInfoToAmode v_info))
-       ; _ <- bindArgsToRegs [NonVoid bndr]
-       ; cgAlts NoGcInAlts (NonVoid bndr) alt_type alts }
+       ; regs <- idToReg bndr
+       ; zipWithM_ (\reg expr -> emit (mkAssign (CmmLocal reg) expr)) regs (idInfoToAmodes v_info)
+       ; bindArgToReg bndr regs
+       ; cgAlts NoGcInAlts regs bndr alt_type alts }
   where
     reps_compatible = idPrimRep v == idPrimRep bndr
 
 cgCase scrut@(StgApp v []) _ _ (PrimAlt _) _ 
   = -- fail at run-time, not compile-time
     do { mb_cc <- maybeSaveCostCentre True
-       ; withSequel (AssignTo [idToReg (NonVoid v)] False) (cgExpr scrut)
+       ; regs <- idToReg v
+       ; withSequel (AssignTo regs False) (cgExpr scrut)
        ; restoreCurrentCostCentre mb_cc
        ; emit $ mkComment $ mkFastString "should be unreachable code"
        ; emit $ withFreshLabel "l" (\l -> mkLabel l <*> mkBranch l)}
@@ -353,7 +356,8 @@ cgCase scrut bndr srt alt_type alts
   = -- the general case
     do { up_hp_usg <- getVirtHp        -- Upstream heap usage
        ; let ret_bndrs = chooseReturnBndrs bndr alt_type alts
-             alt_regs  = map idToReg ret_bndrs
+       ; alts_regss <- mapM idToReg ret_bndrs
+       ; let alt_regs = concat alts_regss
              simple_scrut = isSimpleScrut scrut alt_type
              gcInAlts | not simple_scrut = True
                       | isSingleton alts = False
@@ -366,8 +370,8 @@ cgCase scrut bndr srt alt_type alts
        ; restoreCurrentCostCentre mb_cc
 
   -- JD: We need Note: [Better Alt Heap Checks]
-       ; _ <- bindArgsToRegs ret_bndrs
-       ; cgAlts gc_plan (NonVoid bndr) alt_type alts }
+       ; bindArgsToRegs (zipEqual "cgCase" ret_bndrs alts_regss)
+       ; cgAlts gc_plan alt_regs bndr alt_type alts }
 
 -----------------
 maybeSaveCostCentre :: Bool -> FCode (Maybe LocalReg)
@@ -394,39 +398,40 @@ isSimpleOp (StgPrimOp op)      			       = not (primOpOutOfLine op)
 isSimpleOp (StgPrimCallOp _)                           = False
 
 -----------------
-chooseReturnBndrs :: Id -> AltType -> [StgAlt] -> [NonVoid Id]
+chooseReturnBndrs :: Id -> AltType -> [StgAlt] -> [Id]
 -- These are the binders of a case that are assigned
 -- by the evaluation of the scrutinee
--- Only non-void ones come back
 chooseReturnBndrs bndr (PrimAlt _) _alts
-  = nonVoidIds [bndr]
+  = [bndr]
 
 chooseReturnBndrs _bndr (UbxTupAlt _) [(_, ids, _, _)]
-  = nonVoidIds ids	-- 'bndr' is not assigned!
+  = ids	-- 'bndr' will be assigned by cgAlts
 
 chooseReturnBndrs bndr (AlgAlt _) _alts
-  = nonVoidIds [bndr]	-- Only 'bndr' is assigned
+  = [bndr]	-- Only 'bndr' is assigned
 
 chooseReturnBndrs bndr PolyAlt _alts
-  = nonVoidIds [bndr]	-- Only 'bndr' is assigned
+  = [bndr]	-- Only 'bndr' is assigned
 
 chooseReturnBndrs _ _ _ = panic "chooseReturnBndrs"
 	-- UbxTupALt has only one alternative
 
 -------------------------------------
-cgAlts :: GcPlan -> NonVoid Id -> AltType -> [StgAlt] -> FCode ()
+cgAlts :: GcPlan -> [LocalReg] -> Id -> AltType -> [StgAlt] -> FCode ()
 -- At this point the result of the case are in the binders
-cgAlts gc_plan _bndr PolyAlt [(_, _, _, rhs)]
+cgAlts gc_plan _alt_regs _bndr PolyAlt [(_, _, _, rhs)]
   = maybeAltHeapCheck gc_plan (cgExpr rhs)
   
-cgAlts gc_plan _bndr (UbxTupAlt _) [(_, _, _, rhs)]
-  = maybeAltHeapCheck gc_plan (cgExpr rhs)
-	-- Here bndrs are *already* in scope, so don't rebind them
+cgAlts gc_plan alt_regs bndr (UbxTupAlt _) [(_, _, _, rhs)]
+  = do { bindArgToReg bndr alt_regs
+       ; maybeAltHeapCheck gc_plan (cgExpr rhs) }
+	-- Here alt bndrs are *already* in scope, so don't rebind them,
+        -- but we do need to set up bndr to expand to the scrutinee result
 
-cgAlts gc_plan bndr (PrimAlt _) alts
-  = do	{ tagged_cmms <- cgAltRhss gc_plan bndr alts
+cgAlts gc_plan [alt_reg] _bndr (PrimAlt _) alts
+  = do	{ tagged_cmms <- cgAltRhss gc_plan alt_reg alts
 
-	; let bndr_reg = CmmLocal (idToReg bndr)
+	; let bndr_reg = CmmLocal alt_reg
 	      (DEFAULT,deflt) = head tagged_cmms
 		-- PrimAlts always have a DEFAULT case
 		-- and it always comes first
@@ -435,11 +440,11 @@ cgAlts gc_plan bndr (PrimAlt _) alts
 			     | (LitAlt lit, code) <- tagged_cmms]
 	; emit (mkCmmLitSwitch (CmmReg bndr_reg) tagged_cmms' deflt) }
 
-cgAlts gc_plan bndr (AlgAlt tycon) alts
-  = do	{ tagged_cmms <- cgAltRhss gc_plan bndr alts
+cgAlts gc_plan [alt_reg] _bndr (AlgAlt tycon) alts
+  = do	{ tagged_cmms <- cgAltRhss gc_plan alt_reg alts
 	
 	; let fam_sz   = tyConFamilySize tycon
-	      bndr_reg = CmmLocal (idToReg bndr)
+	      bndr_reg = CmmLocal alt_reg
 	      mb_deflt = case tagged_cmms of
 			   ((DEFAULT,rhs) : _) -> Just rhs
 			   _other	       -> Nothing
@@ -464,15 +469,14 @@ cgAlts gc_plan bndr (AlgAlt tycon) alts
 		 in
 		 emitSwitch tag_expr branches mb_deflt 0 (fam_sz - 1) }
 
-cgAlts _ _ _ _ = panic "cgAlts"
+cgAlts _ _ _ _ _ = panic "cgAlts"
 	-- UbxTupAlt and PolyAlt have only one alternative
 
 -------------------
-cgAltRhss :: GcPlan -> NonVoid Id -> [StgAlt] -> FCode [(AltCon, CmmAGraph)]
-cgAltRhss gc_plan bndr alts
+cgAltRhss :: GcPlan -> LocalReg -> [StgAlt] -> FCode [(AltCon, CmmAGraph)]
+cgAltRhss gc_plan base_reg alts
   = forkAlts (map cg_alt alts)
   where
-    base_reg = idToReg bndr
     cg_alt :: StgAlt -> FCode (AltCon, CmmAGraph)
     cg_alt (con, bndrs, _uses, rhs)
       = getCodeR		  $
@@ -492,7 +496,7 @@ maybeAltHeapCheck (GcInAlts regs _) code = altHeapCheck regs code
 cgConApp :: DataCon -> [StgArg] -> FCode ()
 cgConApp con stg_args
   | isUnboxedTupleCon con	-- Unboxed tuple: assign and return
-  = do { arg_exprs <- getNonVoidArgAmodes stg_args
+  = do { arg_exprs <- concatMapM getArgAmodes stg_args
        ; tickyUnboxedTupleReturn (length arg_exprs)
        ; emitReturn arg_exprs }
 
@@ -503,24 +507,32 @@ cgConApp con stg_args
 		-- is "con", which is a bit of a fudge, but it only affects profiling
 
         ; emit init
-	; emitReturn [idInfoToAmode idinfo] }
+	; emitReturn (idInfoToAmodes idinfo) }
 
 
 cgIdApp :: Id -> [StgArg] -> FCode ()
-cgIdApp fun_id [] | isVoidId fun_id = emitReturn []
 cgIdApp fun_id args
   = do 	{ fun_info <- getCgIdInfo fun_id
-        ; case maybeLetNoEscape fun_info of
-            Just (blk_id, lne_regs) -> cgLneJump blk_id lne_regs args
-            Nothing -> cgTailCall fun_id fun_info args }
+        ; case cg_elems fun_info of
+            -- If we mention an Id with a void representation, return nothing immediately
+            [] -> ASSERT( null args )
+                  emitReturn []
+            -- Similarly for unboxed tuples, return the components immediately
+            elem_infos | isUnboxedTupleType (idType fun_id) -> ASSERT( null args )
+                  emitReturn (map idElemInfoToAmode elem_infos)
+            -- For standard function application, just try let-no-escape and then tailcall
+            [fun_info] -> case maybeLetNoEscape fun_info of
+                            Just (blk_id, lne_regs) -> cgLneJump blk_id lne_regs args
+                            Nothing -> cgTailCall fun_id fun_info args
+            _ -> panic "cgIdApp" }
 
 cgLneJump :: BlockId -> [LocalReg] -> [StgArg] -> FCode ()
 cgLneJump blk_id lne_regs args	-- Join point; discard sequel
-  = do	{ cmm_args <- getNonVoidArgAmodes args
+  = do	{ cmm_args <- concatMapM getArgAmodes args
       	; emit (mkMultiAssign lne_regs cmm_args
 		<*> mkBranch blk_id) }
     
-cgTailCall :: Id -> CgIdInfo -> [StgArg] -> FCode ()
+cgTailCall :: Id -> CgIdElemInfo -> [StgArg] -> FCode ()
 cgTailCall fun_id fun_info args = do
     dflags <- getDynFlags
     case (getCallMethod dflags fun_name (idCafInfo fun_id) lf_info (length args)) of
@@ -555,10 +567,10 @@ cgTailCall fun_id fun_info args = do
 	JumpToIt {} -> panic "cgTailCall"	-- ???
 
   where
-    fun_name 	= idName            fun_id
-    fun         = idInfoToAmode     fun_info
-    lf_info     = cgIdInfoLF        fun_info
-    node_points = nodeMustPointToIt lf_info
+    fun_name 	  = idName            fun_id
+    fun           = idElemInfoToAmode fun_info
+    lf_info       = cgIdElemInfoLF    fun_info
+    node_points   = nodeMustPointToIt lf_info
 
 
 {- Note [case on Bool]

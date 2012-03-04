@@ -14,7 +14,7 @@ module Util (
 
         -- * General list processing
         zipEqual, zipWithEqual, zipWith3Equal, zipWith4Equal,
-        zipLazy, stretchZipWith,
+        zipLazy, zipLazyWith, stretchZipWith,
 
         unzipWith,
 
@@ -312,6 +312,16 @@ zipLazy []     _       = []
 -- so we write this instead:
 zipLazy (x:xs) zs = let y : ys = zs
                     in (x,y) : zipLazy xs ys
+
+{-# INLINE zipLazyWith #-}
+zipLazyWith :: String -> (a -> b -> c) -> [a] -> [b] -> [c]
+zipLazyWith msg f = go
+  where
+    -- Unfortunately, there is no way we can check for equal list lengths :(
+    go []     ~[] = []
+    go (x:xs) ys  = f x z : go xs zs
+      where (z, zs) = case ys of []     -> error $ "zipLazyWith: " ++ msg
+                                 (z:zs) -> (z, zs)
 \end{code}
 
 

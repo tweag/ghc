@@ -32,6 +32,7 @@ import Constants
 import Outputable
 import FastString
 import StaticFlags
+import MonadUtils
 
 import Control.Monad
 
@@ -45,9 +46,8 @@ cgPrimOp :: [CmmFormal]       -- where to put the results
          -> Code
 
 cgPrimOp results op args live
-  = do arg_exprs <- getArgAmodes args
-       let non_void_args = [ e | (r,e) <- arg_exprs, nonVoidArg r ]
-       emitPrimOp results op non_void_args live
+  = do arg_exprs <- concatMapM getArgAmodes args
+       emitPrimOp results op (map snd arg_exprs) live
 
 
 emitPrimOp :: [CmmFormal]       -- where to put the results

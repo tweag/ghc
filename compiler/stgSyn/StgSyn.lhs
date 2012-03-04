@@ -115,7 +115,7 @@ isDllConApp dflags con args
  | otherwise = False
   where
     is_dll_arg :: StgArg -> Bool
-    is_dll_arg (StgVarArg v) =  isAddrRep (typePrimRep (idType v))
+    is_dll_arg (StgVarArg v) =  any isAddrRep (typePrimRep (idType v))
                              && isDllName this_pkg (idName v)
     is_dll_arg _             = False
 

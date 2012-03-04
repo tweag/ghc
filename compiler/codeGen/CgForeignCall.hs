@@ -24,7 +24,6 @@ import CgMonad
 import CgUtils
 import Type
 import TysPrim
-import ClosureInfo( nonVoidArg )
 import CLabel
 import OldCmm
 import OldCmmUtils
@@ -36,6 +35,7 @@ import Outputable
 import Module
 import FastString
 import BasicTypes
+import Util
 
 import Control.Monad
 
@@ -50,15 +50,14 @@ cgForeignCall
         -> Code
 cgForeignCall results fcall stg_args live
   = do
-  reps_n_amodes <- getArgAmodes stg_args
+  reps_n_amodess <- mapM getArgAmodes stg_args
   let
-        -- Get the *non-void* args, and jiggle them with shimForeignCall
-        arg_exprs = [ shimForeignCallArg stg_arg expr
-                    | (stg_arg, (rep,expr)) <- stg_args `zip` reps_n_amodes,
-                       nonVoidArg rep]
-
-        arg_hints = zipWith CmmHinted
-                      arg_exprs (map (typeForeignHint.stgArgType) stg_args)
+        -- Get the args, and jiggle them with shimForeignCall
+        arg_hints = [ CmmHinted shimmed_expr hint
+                    | (stg_arg, reps_n_amodes) <- zipEqual "cgForeignCall" stg_args reps_n_amodess
+                    , let exprs = map snd reps_n_amodes
+                    , (shimmed_expr, hint) <- zipEqual "cgForeignCall" (shimForeignCallArg stg_arg exprs)
+                                                                       (typeForeignHint (stgArgType stg_arg)) ]
   -- in
   emitForeignCall results fcall arg_hints live
 
@@ -300,15 +299,14 @@ hpAlloc           = CmmGlobal HpAlloc
 -- value passed to the call.  For ByteArray#/Array# we pass the
 -- address of the actual array, not the address of the heap object.
 
-shimForeignCallArg :: StgArg -> CmmExpr -> CmmExpr
-shimForeignCallArg arg expr
+shimForeignCallArg :: StgArg -> [CmmExpr] -> [CmmExpr]
+shimForeignCallArg arg [expr]
   | tycon == arrayPrimTyCon || tycon == mutableArrayPrimTyCon
-        = cmmOffsetB expr arrPtrsHdrSize
+        = [cmmOffsetB expr arrPtrsHdrSize]
 
   | tycon == byteArrayPrimTyCon || tycon == mutableByteArrayPrimTyCon
-        = cmmOffsetB expr arrWordsHdrSize
-
-  | otherwise = expr
+        = [cmmOffsetB expr arrWordsHdrSize]
   where
         -- should be a tycon app, since this is a foreign call
         tycon = tyConAppTyCon (repType (stgArgType arg))
+shimForeignCallArg _ exprs = exprs

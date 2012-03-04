@@ -379,7 +379,7 @@ data TyCon
         tyConArity    :: Arity,         -- SLPJ Oct06: I'm not sure what the significance
                                         --             of the arity of a primtycon is!
 
-        primTyConRep  :: PrimRep,       -- ^ Many primitive tycons are unboxed, but some are
+        primTyConRep  :: [PrimRep],     -- ^ Many primitive tycons are unboxed, but some are
                                         --   boxed (represented by pointers). This 'PrimRep'
                                         --   holds that information.
                                         -- Only relevant if tc_kind = *
@@ -771,8 +771,7 @@ and clearly defined purpose:
 -- the code generator needs in order to pass arguments, return results,
 -- and store values of this type.
 data PrimRep
-  = VoidRep
-  | PtrRep
+  = PtrRep
   | IntRep              -- ^ Signed, word-sized value
   | WordRep             -- ^ Unsigned, word-sized value
   | Int64Rep            -- ^ Signed, 64 bit value (with 32-bit words only)
@@ -795,7 +794,6 @@ primRepSizeW FloatRep = 1    -- NB. might not take a full word
 primRepSizeW DoubleRep= dOUBLE_SIZE `quot` wORD_SIZE
 primRepSizeW AddrRep  = 1
 primRepSizeW PtrRep   = 1
-primRepSizeW VoidRep  = 0
 \end{code}
 
 %************************************************************************
@@ -897,28 +895,28 @@ mkForeignTyCon name ext_name kind arity
         tyConUnique  = nameUnique name,
         tc_kind    = kind,
         tyConArity   = arity,
-        primTyConRep = PtrRep, -- they all do
+        primTyConRep = [PtrRep], -- they all do
         isUnLifted   = False,
         tyConExtName = ext_name
     }
 
 
 -- | Create an unlifted primitive 'TyCon', such as @Int#@
-mkPrimTyCon :: Name  -> Kind -> Arity -> PrimRep -> TyCon
+mkPrimTyCon :: Name  -> Kind -> Arity -> [PrimRep] -> TyCon
 mkPrimTyCon name kind arity rep
   = mkPrimTyCon' name kind arity rep True
 
 -- | Kind constructors
 mkKindTyCon :: Name -> Kind -> TyCon
 mkKindTyCon name kind
-  = mkPrimTyCon' name kind 0 VoidRep True
+  = mkPrimTyCon' name kind 0 [] True
 
 -- | Create a lifted primitive 'TyCon' such as @RealWorld@
-mkLiftedPrimTyCon :: Name  -> Kind -> Arity -> PrimRep -> TyCon
-mkLiftedPrimTyCon name kind arity rep
-  = mkPrimTyCon' name kind arity rep False
+mkLiftedPrimTyCon :: Name  -> Kind -> Arity -> TyCon
+mkLiftedPrimTyCon name kind arity
+  = mkPrimTyCon' name kind arity [PtrRep] False
 
-mkPrimTyCon' :: Name  -> Kind -> Arity -> PrimRep -> Bool -> TyCon
+mkPrimTyCon' :: Name  -> Kind -> Arity -> [PrimRep] -> Bool -> TyCon
 mkPrimTyCon' name kind arity rep is_unlifted
   = PrimTyCon {
         tyConName    = name,
@@ -1338,9 +1336,9 @@ newTyConCo tc = case newTyConCo_maybe tc of
                  Nothing -> pprPanic "newTyConCo" (ppr tc)
 
 -- | Find the primitive representation of a 'TyCon'
-tyConPrimRep :: TyCon -> PrimRep
+tyConPrimRep :: TyCon -> [PrimRep]
 tyConPrimRep (PrimTyCon {primTyConRep = rep}) = rep
-tyConPrimRep tc = ASSERT(not (isUnboxedTupleTyCon tc)) PtrRep
+tyConPrimRep tc = ASSERT(not (isUnboxedTupleTyCon tc)) [PtrRep]
 \end{code}
 
 \begin{code}

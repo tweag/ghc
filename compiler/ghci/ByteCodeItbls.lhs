@@ -95,7 +95,7 @@ make_constr_itbls cons
 
         mk_itbl :: DataCon -> Int -> Ptr () -> IO (Name,ItblPtr)
         mk_itbl dcon conNo entry_addr = do
-           let rep_args = [ (typeCgRep arg,arg) | arg <- dataConRepArgTys dcon ]
+           let rep_args = [ (rep,arg) | arg <- dataConRepArgTys dcon, rep <- typeCgRep arg ]
                (tot_wds, ptr_wds, _) = mkVirtHeapOffsets False{-not a THUNK-} rep_args
 
                ptrs'  = ptr_wds

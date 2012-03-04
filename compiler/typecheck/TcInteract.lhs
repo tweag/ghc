@@ -546,6 +546,10 @@ trySpontaneousEqTwoWay d eqv gw tv1 tv2
 
 Note [Kind errors] 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+MCB: I removed ArgKind and came across this Note. I think this note is now useless,
+as it wasn't referenced by the code even before my changes, but I'm keeping it since
+I can't say definitively.
+
 Consider the wanted problem: 
       alpha ~ (# Int, Int #) 
 where alpha :: ArgKind and (# Int, Int #) :: (#). We can't spontaneously solve this constraint, 

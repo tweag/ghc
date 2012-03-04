@@ -47,6 +47,7 @@ import Config
 import Constants
 import OrdList
 import Pair
+import Util
 import Data.Maybe
 import Data.List
 \end{code}
@@ -171,7 +172,7 @@ fun_type_arg_stdcall_info StdCallConv ty
   = let
        (_tvs,sans_foralls)        = tcSplitForAllTys arg_ty
        (fe_arg_tys, _orig_res_ty) = tcSplitFunTys sans_foralls
-    in Just $ sum (map (widthInBytes . typeWidth . typeCmmType . getPrimTyOf) fe_arg_tys)
+    in Just $ sum (concatMap (map (widthInBytes . typeWidth) . typeCmmType . getPrimTyOf) fe_arg_tys)
 fun_type_arg_stdcall_info _other_conv _
   = Nothing
 \end{code}
@@ -503,15 +504,15 @@ mkFExportCBits dflags c_nm maybe_target arg_htys res_hty is_IO_res_ty cc
     )
  where
   -- list the arguments to the C function
-  arg_info :: [(SDoc,           -- arg name
-                SDoc,           -- C type
-                Type,           -- Haskell type
-                CmmType)]       -- the CmmType
+  arg_info :: [(SDoc,         -- arg name
+                SDoc,         -- C type
+                Type,         -- Haskell type
+                CmmType)]     -- the CmmType
   arg_info  = [ let stg_type = showStgType ty in
                 (arg_cname n stg_type,
                  stg_type,
                  ty,
-                 typeCmmType (getPrimTyOf ty))
+                 only (typeCmmType (getPrimTyOf ty)))
               | (ty,n) <- zip arg_htys [1::Int ..] ]
 
   arg_cname n stg_ty
@@ -538,7 +539,7 @@ mkFExportCBits dflags c_nm maybe_target arg_htys res_hty is_IO_res_ty cc
 
   stable_ptr_arg =
         (text "the_stableptr", text "StgStablePtr", undefined,
-         typeCmmType (mkStablePtrPrimTy alphaTy))
+         only (typeCmmType (mkStablePtrPrimTy alphaTy)))
 
   -- stuff to do with the return type of the C function
   res_hty_is_unit = res_hty `eqType` unitTy     -- Look through any newtypes
@@ -735,7 +736,7 @@ insertRetAddr _ _ args = args
 
 ret_addr_arg :: (SDoc, SDoc, Type, CmmType)
 ret_addr_arg = (text "original_return_addr", text "void*", undefined,
-                typeCmmType addrPrimTy)
+                primRepCmmType AddrRep)
 
 -- This function returns the primitive type associated with the boxed
 -- type argument to a foreign export (eg. Int ==> Int#).
@@ -762,14 +763,14 @@ primTyDescChar ty
  | ty `eqType` unitTy = 'v'
  | otherwise
  = case typePrimRep (getPrimTyOf ty) of
-     IntRep      -> signed_word
-     WordRep     -> unsigned_word
-     Int64Rep    -> 'L'
-     Word64Rep   -> 'l'
-     AddrRep     -> 'p'
-     FloatRep    -> 'f'
-     DoubleRep   -> 'd'
-     _           -> pprPanic "primTyDescChar" (ppr ty)
+     [IntRep]      -> signed_word
+     [WordRep]     -> unsigned_word
+     [Int64Rep]    -> 'L'
+     [Word64Rep]   -> 'l'
+     [AddrRep]     -> 'p'
+     [FloatRep]    -> 'f'
+     [DoubleRep]   -> 'd'
+     _             -> pprPanic "primTyDescChar" (ppr ty)
   where
     (signed_word, unsigned_word)
        | wORD_SIZE == 4  = ('W','w')

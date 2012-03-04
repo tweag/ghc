@@ -49,13 +49,14 @@ import CLabel
 import StgSyn
 import Id
 import Name
+import BasicTypes       ( Arity )
 import TyCon		( PrimRep(..) )
-import BasicTypes	( Arity )
 import DynFlags
 import StaticFlags
 
 import Constants
 import Util
+import Control.Monad
 import Data.List
 import Outputable
 import FastString	( mkFastString, FastString, fsLit )
@@ -133,76 +134,75 @@ directCall :: CLabel -> Arity -> [StgArg] -> FCode ()
 -- calls f(arg1, ..., argn), and applies the result to the remaining args
 -- The function f has arity n, and there are guaranteed at least n args
 -- Both arity and args include void args
+--
+-- NB: f is guaranteed to be a function, not a thunk
 directCall lbl arity stg_args 
-  = do	{ cmm_args <- getNonVoidArgAmodes stg_args
-	; direct_call "directCall" lbl arity cmm_args (argsReps stg_args) }
+  = do	{ cmm_args <- mapM addArgReps stg_args
+	; direct_call "directCall" lbl arity cmm_args }
 
 slowCall :: CmmExpr -> [StgArg] -> FCode ()
 -- (slowCall fun args) applies fun to args, returning the results to Sequel
 slowCall fun stg_args 
-  = do	{ cmm_args <- getNonVoidArgAmodes stg_args
-	; slow_call fun cmm_args (argsReps stg_args) }
+  = do	{ cmm_args <- mapM addArgReps stg_args
+	; slow_call fun cmm_args }
 
 --------------
-direct_call :: String -> CLabel -> Arity -> [CmmExpr] -> [ArgRep] -> FCode ()
--- NB1: (length args) may be less than (length reps), because
---     the args exclude the void ones
+direct_call :: String -> CLabel -> Arity -> [[(PrimRep, CmmExpr)]] -> FCode ()
 -- NB2: 'arity' refers to the *reps* 
-direct_call caller lbl arity args reps
-  | debugIsOn && arity > length reps	-- Too few args
+direct_call caller lbl arity arg_reps
+  | debugIsOn && arity > length arg_reps	-- Too few args
   = do -- Caller should ensure that there enough args!
        dflags <- getDynFlags
        let platform = targetPlatform dflags
        pprPanic "direct_call" (text caller <+> ppr arity
-                           <+> pprPlatform platform lbl <+> ppr (length reps)
-                           <+> pprPlatform platform args <+> ppr reps )
+                           <+> pprPlatform platform lbl <+> ppr (length arg_reps)
+                           <+> pprPlatform platform (map (map snd) arg_reps) <+> ppr (map (map fst) arg_reps) )
 
-  | null rest_reps     -- Precisely the right number of arguments
-  = emitCall (NativeDirectCall, NativeReturn) target args
+  | null rest_arg_reps     -- Precisely the right number of arguments
+  = emitCall (NativeDirectCall, NativeReturn) target (concatMap (map snd) arg_reps)
 
   | otherwise		-- Over-saturated call
-  = ASSERT( arity == length initial_reps )
+  = ASSERT( arity == length fast_arg_reps )
     do	{ pap_id <- newTemp gcWord
 	; withSequel (AssignTo [pap_id] True)
-		     (emitCall (NativeDirectCall, NativeReturn) target fast_args)
+		     (emitCall (NativeDirectCall, NativeReturn) target (concatMap (map snd) fast_arg_reps))
 	; slow_call (CmmReg (CmmLocal pap_id)) 
-		    rest_args rest_reps }
+		    rest_arg_reps }
   where
     target = CmmLit (CmmLabel lbl)
-    (initial_reps, rest_reps) = splitAt arity reps
-    arg_arity = count isNonV initial_reps
-    (fast_args, rest_args) = splitAt arg_arity args
+    (fast_arg_reps, rest_arg_reps) = splitAt arity arg_reps
 
 --------------
-slow_call :: CmmExpr -> [CmmExpr] -> [ArgRep] -> FCode ()
-slow_call fun args reps
+slow_call :: CmmExpr -> [[(PrimRep, CmmExpr)]] -> FCode ()
+slow_call fun arg_reps
   = do dflags <- getDynFlags
        let platform = targetPlatform dflags
-       call <- getCode $ direct_call "slow_call" (mkRtsApFastLabel rts_fun) arity args reps
+       call <- getCode $ direct_call "slow_call" (mkRtsApFastLabel rts_fun) arity arg_reps
        emit $ mkComment $ mkFastString ("slow_call for " ++ showSDoc (pprPlatform platform fun) ++
                                         " with pat " ++ showSDoc (ftext rts_fun))
        emit (mkAssign nodeReg fun <*> call)
   where
-    (rts_fun, arity) = slowCallPattern reps
+    (rts_fun, arity) = slowCallPattern (map (map (toArgRep . fst)) arg_reps)
 
 -- These cases were found to cover about 99% of all slow calls:
-slowCallPattern :: [ArgRep] -> (FastString, Arity)
+slowCallPattern :: [[ArgRep]] -> (FastString, Arity)
 -- Returns the generic apply function and arity
-slowCallPattern (P: P: P: P: P: P: _) = (fsLit "stg_ap_pppppp", 6)
-slowCallPattern (P: P: P: P: P: _)    = (fsLit "stg_ap_ppppp", 5)
-slowCallPattern (P: P: P: P: _)       = (fsLit "stg_ap_pppp", 4)
-slowCallPattern (P: P: P: V: _)       = (fsLit "stg_ap_pppv", 4)
-slowCallPattern (P: P: P: _)          = (fsLit "stg_ap_ppp", 3)
-slowCallPattern (P: P: V: _)          = (fsLit "stg_ap_ppv", 3)
-slowCallPattern (P: P: _)	      = (fsLit "stg_ap_pp", 2)
-slowCallPattern (P: V: _)	      = (fsLit "stg_ap_pv", 2)
-slowCallPattern (P: _)		      = (fsLit "stg_ap_p", 1)
-slowCallPattern (V: _)		      = (fsLit "stg_ap_v", 1)
-slowCallPattern (N: _)		      = (fsLit "stg_ap_n", 1)
-slowCallPattern (F: _)		      = (fsLit "stg_ap_f", 1)
-slowCallPattern (D: _)		      = (fsLit "stg_ap_d", 1)
-slowCallPattern (L: _)		      = (fsLit "stg_ap_l", 1)
-slowCallPattern []		      = (fsLit "stg_ap_0", 0)
+slowCallPattern ([P]: [P]: [P]: [P]: [P]: [P]: _)    = (fsLit "stg_ap_pppppp", 6)
+slowCallPattern ([P]: [P]: [P]: [P]: [P]: _)         = (fsLit "stg_ap_ppppp", 5)
+slowCallPattern ([P]: [P]: [P]: [P]: _)              = (fsLit "stg_ap_pppp", 4)
+slowCallPattern ([P]: [P]: [P]: []: _)               = (fsLit "stg_ap_pppv", 4)
+slowCallPattern ([P]: [P]: [P]: _)                   = (fsLit "stg_ap_ppp", 3)
+slowCallPattern ([P]: [P]: []: _)                    = (fsLit "stg_ap_ppv", 3)
+slowCallPattern ([P]: [P]: _)	                     = (fsLit "stg_ap_pp", 2)
+slowCallPattern ([P]: []: _)                         = (fsLit "stg_ap_pv", 2)
+slowCallPattern ([P]: _)		             = (fsLit "stg_ap_p", 1)
+slowCallPattern ([N]: _)		             = (fsLit "stg_ap_n", 1)
+slowCallPattern ([F]: _)		             = (fsLit "stg_ap_f", 1)
+slowCallPattern ([D]: _)		             = (fsLit "stg_ap_d", 1)
+slowCallPattern ([L]: _)		             = (fsLit "stg_ap_l", 1)
+slowCallPattern ([]: _)		                     = (fsLit "stg_ap_v", 1)
+slowCallPattern (rs: _)                              = (error "FIXME" rs, 1)
+slowCallPattern []                                   = (fsLit "stg_ap_0", 0)
 
 
 -------------------------------------------------------------------------
@@ -215,19 +215,16 @@ slowCallPattern []		      = (fsLit "stg_ap_0", 0)
 data ArgRep = P 	-- GC Ptr
 	  | N   -- One-word non-ptr
 	  | L	-- Two-word non-ptr (long)
-	  | V	-- Void
 	  | F	-- Float
 	  | D	-- Double
 instance Outputable ArgRep where
   ppr P = text "P"
   ppr N = text "N"
   ppr L = text "L"
-  ppr V = text "V"
   ppr F = text "F"
   ppr D = text "D"
 
 toArgRep :: PrimRep -> ArgRep
-toArgRep VoidRep   = V
 toArgRep PtrRep    = P
 toArgRep IntRep    = N
 toArgRep WordRep   = N
@@ -237,23 +234,15 @@ toArgRep Word64Rep = L
 toArgRep FloatRep  = F
 toArgRep DoubleRep = D
 
-isNonV :: ArgRep -> Bool
-isNonV V = False
-isNonV _ = True
-
-argsReps :: [StgArg] -> [ArgRep]
-argsReps = map (toArgRep . argPrimRep)
-
 argRepSizeW :: ArgRep -> WordOff		-- Size in words
 argRepSizeW N = 1
 argRepSizeW P = 1
 argRepSizeW F = 1
 argRepSizeW L = wORD64_SIZE `quot` wORD_SIZE
 argRepSizeW D = dOUBLE_SIZE `quot` wORD_SIZE
-argRepSizeW V = 0
 
-idArgRep :: Id -> ArgRep
-idArgRep = toArgRep . idPrimRep
+idArgRep :: Id -> [ArgRep]
+idArgRep = map toArgRep . idPrimRep
 
 -------------------------------------------------------------------------
 ----	Laying out objects on the heap and stack
@@ -275,7 +264,7 @@ mkVirtHeapOffsets
   -> [(PrimRep,a)]	-- Things to make offsets for
   -> (WordOff,		-- _Total_ number of words allocated
       WordOff,		-- Number of words allocated for *pointers*
-      [(NonVoid a, VirtualHpOffset)])
+      [(a, VirtualHpOffset)])
 
 -- Things with their offsets from start of object in order of
 -- increasing offset; BUT THIS MAY BE DIFFERENT TO INPUT ORDER
@@ -288,8 +277,7 @@ mkVirtHeapOffsets
 -- than the unboxed things
 
 mkVirtHeapOffsets is_thunk things
-  = let non_void_things		      = filterOut (isVoidRep . fst)  things
-	(ptrs, non_ptrs)    	      = partition (isGcPtrRep . fst) non_void_things
+  = let (ptrs, non_ptrs)    	      = partition (isGcPtrRep . fst) things
     	(wds_of_ptrs, ptrs_w_offsets) = mapAccumL computeOffset 0 ptrs
 	(tot_wds, non_ptrs_w_offsets) = mapAccumL computeOffset wds_of_ptrs non_ptrs
     in
@@ -300,9 +288,9 @@ mkVirtHeapOffsets is_thunk things
 
     computeOffset wds_so_far (rep, thing)
       = (wds_so_far + argRepSizeW (toArgRep rep), 
-	 (NonVoid thing, hdr_size + wds_so_far))
+	 (thing, hdr_size + wds_so_far))
 
-mkVirtConstrOffsets :: [(PrimRep,a)] -> (WordOff, WordOff, [(NonVoid a, VirtualHpOffset)])
+mkVirtConstrOffsets :: [(PrimRep,a)] -> (WordOff, WordOff, [(a, VirtualHpOffset)])
 -- Just like mkVirtHeapOffsets, but for constructors
 mkVirtConstrOffsets = mkVirtHeapOffsets False
 
@@ -329,7 +317,7 @@ mkArgDescr _nm args
 	Nothing      -> return (ArgGen arg_bits)
   where
     arg_bits = argBits arg_reps
-    arg_reps = filter isNonV (map idArgRep args)
+    arg_reps = concatMap idArgRep args
 	-- Getting rid of voids eases matching of standard patterns
 
 argBits :: [ArgRep] -> [Bool]	-- True for non-ptr, False for ptr
@@ -384,19 +372,20 @@ emitClosureProcAndInfoTable :: Bool                    -- top-level?
                             -> Id                      -- name of the closure
                             -> LambdaFormInfo
                             -> CmmInfoTable
-                            -> [NonVoid Id]            -- incoming arguments
+                            -> [Id]            -- incoming arguments
                             -> ((Int, LocalReg, [LocalReg]) -> FCode ()) -- function body
                             -> FCode ()
 emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl args body
- = do   {
+ = do   { [node] <- idToReg bndr
         -- Bind the binder itself, but only if it's not a top-level
         -- binding. We need non-top let-bindings to refer to the
         -- top-level binding, which this binding would incorrectly shadow.
-        ; node <- if top_lvl then return $ idToReg (NonVoid bndr)
-                  else bindToReg (NonVoid bndr) lf_info
+        ; unless top_lvl $ bindToReg bndr [(node, lf_info)]
         ; let node_points = nodeMustPointToIt lf_info
-        ; arg_regs <- bindArgsToRegs args
-        ; let args' = if node_points then (node : arg_regs) else arg_regs
+        ; args_regs <- mapM idToReg args
+        ; bindArgsToRegs (args `zip` args_regs)
+        ; let arg_regs = concat args_regs
+              args' = if node_points then (node : arg_regs) else arg_regs
               conv  = if nodeMustPointToIt lf_info then NativeNodeCall
                                                    else NativeDirectCall
               (offset, _) = mkCallEntry conv args'

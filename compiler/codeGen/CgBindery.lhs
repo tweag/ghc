@@ -7,14 +7,16 @@
 \begin{code}
 
 module CgBindery (
-        CgBindings, CgIdInfo,
+        CgBindings, CgIdInfo, CgIdElemInfo,
         StableLoc, VolatileLoc,
 
-        cgIdInfoId, cgIdInfoArgRep, cgIdInfoLF,
+        cgIdInfoId, cgIdInfoElems, cgIdElemInfoArgRep, cgIdElemInfoLF,
+        cgIdInfoSingleElem,
 
         stableIdInfo, heapIdInfo,
         taggedStableIdInfo, taggedHeapIdInfo,
-        letNoEscapeIdInfo, idInfoToAmode,
+        letNoEscapeIdInfo,
+        idInfoToAmodes, idElemInfoToAmode,
 
         addBindC, addBindsC,
 
@@ -23,14 +25,16 @@ module CgBindery (
         getLiveStackSlots,
         getLiveStackBindings,
 
-        bindArgsToStack,  rebindToStack,
-        bindNewToNode, bindNewToUntagNode, bindNewToReg, bindArgsToRegs,
-        bindNewToTemp,
-        getArgAmode, getArgAmodes, 
+        rebindToStack, bindArgsToRegOrStack,
+        bindNewToNode, bindNewToUntagNode, bindNewToReg,
+        bindNewToTemp, bindToRegs,
+        getArgAmodes,
         getCgIdInfo, 
-        getCAddrModeIfVolatile, getVolatileRegs,
+        getVolatilesCAddrModes, getVolatileRegs,
         maybeLetNoEscape, 
     ) where
+
+#include "HsVersions.h"
 
 import CgMonad
 import CgHeapery
@@ -55,6 +59,11 @@ import Unique
 import UniqSet
 import Outputable
 import FastString
+import Util
+import UniqSupply
+
+import Control.Monad
+import Data.List
 
 \end{code}
 
@@ -80,36 +89,32 @@ data CgIdInfo
         { cg_id :: Id   -- Id that this is the info for
                         -- Can differ from the Id at occurrence sites by 
                         -- virtue of being externalised, for splittable C
-        , cg_rep :: CgRep
+        , cg_elems :: [CgIdElemInfo]
+        }
+
+data CgIdElemInfo
+  = CgIdElemInfo
+        { cg_rep :: CgRep
         , cg_vol :: VolatileLoc
         , cg_stb :: StableLoc
         , cg_lf  :: LambdaFormInfo 
         , cg_tag :: {-# UNPACK #-} !Int  -- tag to be added in idInfoToAmode
          }
 
+-- Used only for Id with a guaranteed-unary CgRep
 mkCgIdInfo :: Id -> VolatileLoc -> StableLoc -> LambdaFormInfo -> CgIdInfo
 mkCgIdInfo id vol stb lf
-  = CgIdInfo { cg_id = id, cg_vol = vol, cg_stb = stb, 
-               cg_lf = lf, cg_rep = idCgRep id, cg_tag = tag }
+  = CgIdInfo { cg_id = id
+             , cg_elems = [mkCgIdElemInfo rep vol stb lf]
+             }
   where
-    tag
-      | Just con <- isDataConWorkId_maybe id,
-          {- Is this an identifier for a static constructor closure? -}
-        isNullaryRepDataCon con
-          {- If yes, is this a nullary constructor?
-             If yes, we assume that the constructor is evaluated and can
-             be tagged.
-           -}
-      = tagForCon con
+    rep = case idCgRep id of [rep] -> rep; _ -> panic "mkCgIdInfo"
 
-      | otherwise
-      = funTagLFInfo lf
-
-voidIdInfo :: Id -> CgIdInfo
-voidIdInfo id = CgIdInfo { cg_id = id, cg_vol = NoVolatileLoc
-                         , cg_stb = VoidLoc, cg_lf = mkLFArgument id
-                         , cg_rep = VoidArg, cg_tag = 0 }
-        -- Used just for VoidRep things
+mkCgIdElemInfo :: CgRep -> VolatileLoc -> StableLoc -> LambdaFormInfo -> CgIdElemInfo
+mkCgIdElemInfo rep vol stb lf
+  = CgIdElemInfo { cg_vol = vol, cg_stb = stb
+                 , cg_lf = lf, cg_rep = rep, cg_tag = funTagLFInfo lf }
+  where 
 
 data VolatileLoc        -- These locations die across a call
   = NoVolatileLoc
@@ -120,11 +125,13 @@ data VolatileLoc        -- These locations die across a call
                                    -- NB. Byte offset, because we subtract R1's
                                    -- tag from the offset.
 
-mkTaggedCgIdInfo :: Id -> VolatileLoc -> StableLoc -> LambdaFormInfo -> DataCon
-                 -> CgIdInfo
-mkTaggedCgIdInfo id vol stb lf con
-  = CgIdInfo { cg_id = id, cg_vol = vol, cg_stb = stb, 
-               cg_lf = lf, cg_rep = idCgRep id, cg_tag = tagForCon con }
+-- Used only for Id with a guaranteed-unary CgRep
+mkTaggedCgIdElemInfo :: Id -> VolatileLoc -> StableLoc -> LambdaFormInfo -> DataCon
+                     -> CgIdElemInfo
+mkTaggedCgIdElemInfo id vol stb lf con
+  = CgIdElemInfo { cg_rep = rep, cg_vol = vol, cg_stb = stb
+                 , cg_lf = lf, cg_tag = tagForCon con }
+  where rep = case idCgRep id of [rep] -> rep; _ -> panic "mkTaggedCgIdElemInfo"
 \end{code}
 
 @StableLoc@ encodes where an Id can be found, used by
@@ -142,14 +149,15 @@ data StableLoc
                                         -- (as opposed to the contents of the slot)
 
   | StableLoc   CmmExpr
-  | VoidLoc     -- Used only for VoidRep variables.  They never need to
-                -- be saved, so it makes sense to treat treat them as
-                -- having a stable location
 
 instance PlatformOutputable CgIdInfo where
-  pprPlatform platform (CgIdInfo id _ vol stb _ _)
+  pprPlatform platform (CgIdInfo id elems)
+    = ppr id <+> ptext (sLit "-->") <+> vcat (map (pprPlatform platform) elems)
+
+instance PlatformOutputable CgIdElemInfo where
+  pprPlatform platform (CgIdElemInfo _ vol stb _ _)
     -- TODO, pretty pring the tag info
-    = ppr id <+> ptext (sLit "-->") <+> vcat [ppr vol, pprPlatform platform stb]
+    = vcat [ppr vol, pprPlatform platform stb]
 
 instance Outputable VolatileLoc where
   ppr NoVolatileLoc = empty
@@ -159,7 +167,6 @@ instance Outputable VolatileLoc where
 
 instance PlatformOutputable StableLoc where
   pprPlatform _        NoStableLoc   = empty
-  pprPlatform _        VoidLoc       = ptext (sLit "void")
   pprPlatform _        (VirStkLoc v) = ptext (sLit "vs")    <+> ppr v
   pprPlatform _        (VirStkLNE v) = ptext (sLit "lne")   <+> ppr v
   pprPlatform platform (StableLoc a) = ptext (sLit "amode") <+> pprPlatform platform a
@@ -181,31 +188,33 @@ heapIdInfo id offset    lf_info = mkCgIdInfo id (VirHpLoc offset) NoStableLoc lf
 letNoEscapeIdInfo :: Id -> VirtualSpOffset -> LambdaFormInfo -> CgIdInfo
 letNoEscapeIdInfo id sp lf_info = mkCgIdInfo id NoVolatileLoc (VirStkLNE sp) lf_info
 
-stackIdInfo :: Id -> VirtualSpOffset -> LambdaFormInfo -> CgIdInfo
-stackIdInfo id sp       lf_info = mkCgIdInfo id NoVolatileLoc (VirStkLoc sp) lf_info
+stackIdElemInfo :: CgRep -> VirtualSpOffset -> LambdaFormInfo -> CgIdElemInfo
+stackIdElemInfo rep sp  lf_info = mkCgIdElemInfo rep NoVolatileLoc (VirStkLoc sp) lf_info
 
-nodeIdInfo :: Id -> Int -> LambdaFormInfo -> CgIdInfo
-nodeIdInfo id offset    lf_info = mkCgIdInfo id (VirNodeLoc (wORD_SIZE*offset)) NoStableLoc lf_info
+nodeIdElemInfo :: CgRep -> VirtualHpOffset -> LambdaFormInfo -> CgIdElemInfo
+nodeIdElemInfo rep offset lf_info = mkCgIdElemInfo rep (VirNodeLoc (wORD_SIZE*offset)) NoStableLoc lf_info
 
-regIdInfo :: Id -> CmmReg -> LambdaFormInfo -> CgIdInfo
-regIdInfo id reg        lf_info = mkCgIdInfo id (RegLoc reg) NoStableLoc lf_info
+untagNodeIdElemInfo :: CgRep -> VirtualHpOffset -> LambdaFormInfo -> Int -> CgIdElemInfo
+untagNodeIdElemInfo rep offset lf_info tag
+  = mkCgIdElemInfo rep (VirNodeLoc (wORD_SIZE*offset - tag)) NoStableLoc lf_info
+
+regIdElemInfo :: CgRep -> CmmReg -> LambdaFormInfo -> CgIdElemInfo
+regIdElemInfo rep reg lf_info = mkCgIdElemInfo rep (RegLoc reg) NoStableLoc lf_info
 
 taggedStableIdInfo :: Id -> CmmExpr -> LambdaFormInfo -> DataCon -> CgIdInfo
 taggedStableIdInfo id amode lf_info con
-  = mkTaggedCgIdInfo id NoVolatileLoc (StableLoc amode) lf_info con
+  = CgIdInfo id [mkTaggedCgIdElemInfo id NoVolatileLoc (StableLoc amode) lf_info con]
 
-taggedHeapIdInfo :: Id -> VirtualHpOffset -> LambdaFormInfo -> DataCon
-                 -> CgIdInfo
+taggedHeapIdInfo :: Id -> VirtualHpOffset -> LambdaFormInfo -> DataCon -> CgIdInfo
 taggedHeapIdInfo id offset lf_info con
-  = mkTaggedCgIdInfo id (VirHpLoc offset) NoStableLoc lf_info con
-
-untagNodeIdInfo :: Id -> Int -> LambdaFormInfo -> Int -> CgIdInfo
-untagNodeIdInfo id offset    lf_info tag
-  = mkCgIdInfo id (VirNodeLoc (wORD_SIZE*offset - tag)) NoStableLoc lf_info
+  = CgIdInfo id [mkTaggedCgIdElemInfo id (VirHpLoc offset) NoStableLoc lf_info con]
 
 
-idInfoToAmode :: CgIdInfo -> FCode CmmExpr
-idInfoToAmode info
+idInfoToAmodes :: CgIdInfo -> FCode [CmmExpr]
+idInfoToAmodes = mapM idElemInfoToAmode . cg_elems
+
+idElemInfoToAmode :: CgIdElemInfo -> FCode CmmExpr
+idElemInfoToAmode info
   = case cg_vol info of {
       RegLoc reg        -> returnFC (CmmReg reg) ;
       VirNodeLoc nd_off -> returnFC (CmmLoad (cmmOffsetB (CmmReg nodeReg) nd_off)
@@ -221,12 +230,7 @@ idInfoToAmode info
 
       VirStkLNE sp_off -> getSpRelOffset sp_off
 
-      VoidLoc -> return $ pprPanic "idInfoToAmode: void" (ppr (cg_id info))
-                -- We return a 'bottom' amode, rather than panicing now
-                -- In this way getArgAmode returns a pair of (VoidArg, bottom)
-                -- and that's exactly what we want
-
-      NoStableLoc -> pprPanic "idInfoToAmode: no loc" (ppr (cg_id info))
+      NoStableLoc -> panic "idInfoToAmode: no loc"
     }
   where
     mach_rep = argMachRep (cg_rep info)
@@ -239,15 +243,22 @@ idInfoToAmode info
 cgIdInfoId :: CgIdInfo -> Id
 cgIdInfoId = cg_id 
 
-cgIdInfoLF :: CgIdInfo -> LambdaFormInfo
-cgIdInfoLF = cg_lf
+cgIdInfoElems :: CgIdInfo -> [CgIdElemInfo]
+cgIdInfoElems = cg_elems
 
-cgIdInfoArgRep :: CgIdInfo -> CgRep
-cgIdInfoArgRep = cg_rep
+cgIdInfoSingleElem :: String -> CgIdInfo -> CgIdElemInfo
+cgIdInfoSingleElem _ (CgIdInfo { cg_elems = [elem] }) = elem
+cgIdInfoSingleElem msg _ = panic $ "cgIdInfoSingleElem: " ++ msg
 
-maybeLetNoEscape :: CgIdInfo -> Maybe VirtualSpOffset
-maybeLetNoEscape (CgIdInfo { cg_stb = VirStkLNE sp_off }) = Just sp_off
-maybeLetNoEscape _                                        = Nothing
+cgIdElemInfoLF :: CgIdElemInfo -> LambdaFormInfo
+cgIdElemInfoLF = cg_lf
+
+cgIdElemInfoArgRep :: CgIdElemInfo -> CgRep
+cgIdElemInfoArgRep = cg_rep
+
+maybeLetNoEscape :: CgIdElemInfo -> Maybe VirtualSpOffset
+maybeLetNoEscape (CgIdElemInfo { cg_stb = VirStkLNE sp_off }) = Just sp_off
+maybeLetNoEscape _                                            = Nothing
 \end{code}
 
 %************************************************************************
@@ -262,6 +273,17 @@ There are three basic routines, for adding (@addBindC@), modifying
 A @Id@ is bound to a @(VolatileLoc, StableLoc)@ triple.
 The name should not already be bound. (nice ASSERT, eh?)
 
+Note [CgIdInfo knot]
+~~~~~~~~~~~~~~~~~~~~
+
+We can't be too strict in the CgIdInfo, because in e.g. letrecs the CgIdInfo
+is knot-tied. A loop I build in practice was
+  cgExpr LetRec -> cgRhs StgRhsCon -> buildDynCon'
+from code like (let xs = (:) y xs in xs) because we fixpoint the CgIdInfo for
+xs and buildDynCon' is strict in the length of the CgIdElemInfo list.
+
+To work around this we try to be yield the length of the CgIdInfo element list
+lazily by lazily zipping it with the idCgReps.
 \begin{code}
 addBindC :: Id -> CgIdInfo -> Code
 addBindC name stuff_to_bind = do
@@ -281,9 +303,17 @@ modifyBindC name mangle_fn = do
         binds <- getBinds
         setBinds $ modifyVarEnv mangle_fn binds name
 
+-- See: Note [CgIdInfo knot]
+etaCgIdInfo :: Id -> CgIdInfo -> CgIdInfo
+etaCgIdInfo id ~(CgIdInfo { cg_id = lazy_id, cg_elems = elems })
+  = CgIdInfo { cg_id = lazy_id
+             , cg_elems = zipLazyWith (showPpr (id, idCgRep id, length elems)) (\_ elem -> elem) (idCgRep id) elems }
+
+-- Note eta-expansion of CgIdInfo: 
 getCgIdInfo :: Id -> FCode CgIdInfo
 getCgIdInfo id
-  = do  {       -- Try local bindings first
+  = liftM (etaCgIdInfo id) $
+    do  {       -- Try local bindings first
         ; local_binds  <- getBinds
         ; case lookupVarEnv local_binds id of {
             Just info -> return info ;
@@ -301,11 +331,9 @@ getCgIdInfo id
         in
         if isExternalName name then do
             let ext_lbl = CmmLit (CmmLabel (mkClosureLabel name $ idCafInfo id))
-            return (stableIdInfo id ext_lbl (mkLFImported id))
-        else
-        if isVoidArg (idCgRep id) then
-                -- Void things are never in the environment
-            return (voidIdInfo id)
+            return $ case mkLFImported id of
+                Nothing      -> CgIdInfo id []
+                Just lf_info -> stableIdInfo id ext_lbl lf_info
         else
         -- Bug  
         cgLookupPanic id
@@ -339,11 +367,17 @@ we don't leave any (NoVolatile, NoStable) binds around...
 \begin{code}
 nukeVolatileBinds :: CgBindings -> CgBindings
 nukeVolatileBinds binds
-  = mkVarEnv (foldr keep_if_stable [] (varEnvElts binds))
+  = mkVarEnv (foldr (\info acc -> case keep_if_stable (cg_elems info) of Just infos -> (cg_id info, info { cg_elems = infos }) : acc; Nothing -> acc) [] (varEnvElts binds))
   where
-    keep_if_stable (CgIdInfo { cg_stb = NoStableLoc }) acc = acc
-    keep_if_stable info acc
-      = (cg_id info, info { cg_vol = NoVolatileLoc }) : acc
+    has_no_stable_loc (CgIdElemInfo { cg_stb = NoStableLoc }) = True
+    has_no_stable_loc _                                       = False
+
+    keep_if_stable infos
+      | any has_no_stable_loc infos
+      = ASSERT(all has_no_stable_loc infos)
+        Nothing
+      | otherwise
+      = Just (map (\info -> info { cg_vol = NoVolatileLoc }) infos)
 \end{code}
 
 
@@ -354,14 +388,13 @@ nukeVolatileBinds binds
 %************************************************************************
 
 \begin{code}
-getCAddrModeIfVolatile :: Id -> FCode (Maybe CmmExpr)
-getCAddrModeIfVolatile id
+getVolatilesCAddrModes :: Id -> FCode [Maybe (CgRep, CmmExpr)]
+getVolatilesCAddrModes id
   = do  { info <- getCgIdInfo id
-        ; case cg_stb info of
-                NoStableLoc -> do -- Aha!  So it is volatile!
-                        amode <- idInfoToAmode info
-                        return $ Just amode
-                _ -> return Nothing }
+        ; forM (cg_elems info) $ \elem_info -> case cg_stb elem_info of
+                NoStableLoc -> liftM (\expr -> Just (cg_rep elem_info, expr))
+                                     (idElemInfoToAmode elem_info)
+                _           -> return Nothing }
 \end{code}
 
 @getVolatileRegs@ gets a set of live variables, and returns a list of
@@ -375,51 +408,39 @@ forget the volatile one.
 getVolatileRegs :: StgLiveVars -> FCode [GlobalReg]
 getVolatileRegs vars = do
   do    { stuff <- mapFCs snaffle_it (varSetElems vars)
-        ; returnFC $ catMaybes stuff }
+        ; returnFC $ concat stuff }
   where
     snaffle_it var = do
         { info <- getCgIdInfo var 
-        ; let
-                -- commoned-up code...
-             consider_reg reg
-                =       -- We assume that all regs can die across C calls
-                        -- We leave it to the save-macros to decide which
-                        -- regs *really* need to be saved.
-                  case cg_stb info of
-                        NoStableLoc     -> returnFC (Just reg) -- got one!
-                        _ -> do
-                                { -- has both volatile & stable locations;
-                                  -- force it to rely on the stable location
-                                  modifyBindC var nuke_vol_bind 
-                                ; return Nothing }
-
-        ; case cg_vol info of
-            RegLoc (CmmGlobal reg) -> consider_reg reg
-            VirNodeLoc _           -> consider_reg node
-            _                      -> returnFC Nothing  -- Local registers
+        ; let (vol_regs, elems') = unzip $ flip map (cg_elems info) $ \elem_info -> 
+                let    -- commoned-up code...
+                    consider_reg reg
+                       =       -- We assume that all regs can die across C calls
+                               -- We leave it to the save-macros to decide which
+                               -- regs *really* need to be saved.
+                         case cg_stb elem_info of
+                               NoStableLoc -> (Just reg, elem_info) -- got one!
+                                -- has both volatile & stable locations;
+                                -- force it to rely on the stable location
+                               _ -> (Nothing, elem_info { cg_vol = NoVolatileLoc })
+                in case cg_vol elem_info of
+                     RegLoc (CmmGlobal reg) -> consider_reg reg
+                     VirNodeLoc _           -> consider_reg node
+                     _                      -> (Nothing, elem_info)  -- Local registers
+        ; modifyBindC var (const info { cg_elems = elems' })
+        ; return (catMaybes vol_regs)
         }
 
-    nuke_vol_bind info = info { cg_vol = NoVolatileLoc }
-
-getArgAmode :: StgArg -> FCode (CgRep, CmmExpr)
-getArgAmode (StgVarArg var) 
+getArgAmodes :: StgArg -> FCode [(CgRep, CmmExpr)]
+getArgAmodes (StgVarArg var) 
   = do  { info <- getCgIdInfo var
-        ; amode <- idInfoToAmode info
-        ; return (cgIdInfoArgRep info, amode ) }
-
-getArgAmode (StgLitArg lit) 
+        ; forM (cg_elems info) $ \elem_info -> do
+                amode <- idElemInfoToAmode elem_info
+                return (cg_rep elem_info, amode) }
+getArgAmodes (StgLitArg lit) 
   = do  { cmm_lit <- cgLit lit
-        ; return (typeCgRep (literalType lit), CmmLit cmm_lit) }
-
-getArgAmode (StgTypeArg _) = panic "getArgAmode: type arg"
-
-getArgAmodes :: [StgArg] -> FCode [(CgRep, CmmExpr)]
-getArgAmodes [] = returnFC []
-getArgAmodes (atom:atoms)
-  | isStgTypeArg atom = getArgAmodes atoms
-  | otherwise         = do { amode  <- getArgAmode  atom 
-                           ; amodes <- getArgAmodes atoms
-                           ; return ( amode : amodes ) }
+        ; return $ zipEqual "getArgAmodes" (typeCgRep (literalType lit)) [CmmLit cmm_lit] }
+getArgAmodes (StgTypeArg _) = return []
 \end{code}
 
 %************************************************************************
@@ -429,50 +450,60 @@ getArgAmodes (atom:atoms)
 %************************************************************************
 
 \begin{code}
-bindArgsToStack :: [(Id, VirtualSpOffset)] -> Code
-bindArgsToStack args
-  = mapCs bind args
+bindArgsToRegOrStack :: [(Id, [Either GlobalReg VirtualSpOffset])] -> Code
+bindArgsToRegOrStack = mapCs bind
   where
-    bind(id, offset) = addBindC id (stackIdInfo id offset (mkLFArgument id))
+    bind (id, ei_reg_offs) = addBindC id $ CgIdInfo id $
+        zipWith3Equal "bindArgsToRegOrStack"
+                      (\rep lf_info ei_reg_off -> case ei_reg_off of
+                        Left reg  -> regIdElemInfo   rep (CmmGlobal reg) lf_info
+                        Right off -> stackIdElemInfo rep off             lf_info)
+                      (idCgRep id) (mkLFArgument (idType id)) ei_reg_offs
 
-bindArgsToRegs :: [(Id, GlobalReg)] -> Code
-bindArgsToRegs args
-  = mapCs bind args
-  where
-    bind (arg, reg) = bindNewToReg arg (CmmGlobal reg) (mkLFArgument arg)
+bindNewToNode :: Id -> [(VirtualHpOffset, LambdaFormInfo)] -> Code
+bindNewToNode id offset_lf_infos
+  = addBindC id (CgIdInfo id $ zipWithEqual "bindNewToNode" (\rep (offset, lf_info) -> nodeIdElemInfo rep offset lf_info) (idCgRep id) offset_lf_infos)
 
-bindNewToNode :: Id -> VirtualHpOffset -> LambdaFormInfo -> Code
-bindNewToNode id offset lf_info
-  = addBindC id (nodeIdInfo id offset lf_info)
+-- NB: the tag is for the *node*, not the thing we load from it, so it is shared amongst elements
+bindNewToUntagNode :: Id -> [(VirtualHpOffset, LambdaFormInfo)] -> Int -> Code
+bindNewToUntagNode id offset_lf_infos tag
+  = addBindC id (CgIdInfo id $ zipWithEqual "bindNewToUntagNode" (\rep (offset, lf_info) -> untagNodeIdElemInfo rep offset lf_info tag) (idCgRep id) offset_lf_infos)
 
-bindNewToUntagNode :: Id -> VirtualHpOffset -> LambdaFormInfo -> Int -> Code
-bindNewToUntagNode id offset lf_info tag
-  = addBindC id (untagNodeIdInfo id offset lf_info tag)
+idRegs :: Id -> FCode [LocalReg]
+idRegs id = do
+    us <- newUniqSupply
+    let cg_reps = idCgRep id
+        temp_regs = zipWith LocalReg (getUnique id : uniqsFromSupply us) (map argMachRep cg_reps)
+    return temp_regs
 
 -- Create a new temporary whose unique is that in the id,
 -- bind the id to it, and return the addressing mode for the
 -- temporary.
-bindNewToTemp :: Id -> FCode LocalReg
+bindNewToTemp :: Id -> FCode [LocalReg]
 bindNewToTemp id
-  = do  addBindC id (regIdInfo id (CmmLocal temp_reg) lf_info)
-        return temp_reg
-  where
-    uniq     = getUnique id
-    temp_reg = LocalReg uniq (argMachRep (idCgRep id))
-    lf_info  = mkLFArgument id  -- Always used of things we
-                                -- know nothing about
+  = do  temp_regs <- idRegs id
+        bindToRegs id temp_regs
+        return temp_regs
 
-bindNewToReg :: Id -> CmmReg -> LambdaFormInfo -> Code
-bindNewToReg name reg lf_info
-  = addBindC name info
+bindToRegs :: Id -> [LocalReg] -> FCode ()
+bindToRegs id temp_regs
+  = addBindC id $ CgIdInfo id $ zipWith3Equal "bindNewToTemp" (\rep temp_reg lf_info -> regIdElemInfo rep (CmmLocal temp_reg) lf_info) (idCgRep id) temp_regs lf_infos
   where
-    info = mkCgIdInfo name (RegLoc reg) NoStableLoc lf_info
+    lf_infos = mkLFArgument (idType id)  -- Always used of things we
+                                         -- know nothing about
 
-rebindToStack :: Id -> VirtualSpOffset -> Code
-rebindToStack name offset
+bindNewToReg :: Id -> [(CmmReg, LambdaFormInfo)] -> Code
+bindNewToReg name regs_lf_infos
+  = addBindC name (CgIdInfo name elem_infos)
+  where
+    elem_infos = zipWithEqual "bindNewToReg" (\rep (reg, lf_info) -> regIdElemInfo rep reg lf_info)
+                                             (idCgRep name) regs_lf_infos
+
+rebindToStack :: Id -> [Maybe VirtualSpOffset] -> Code
+rebindToStack name offsets
   = modifyBindC name replace_stable_fn
   where
-    replace_stable_fn info = info { cg_stb = VirStkLoc offset }
+    replace_stable_fn info = info { cg_elems = zipWithEqual "rebindToStack" (\elem_info mb_offset -> case mb_offset of Just offset -> elem_info { cg_stb = VirStkLoc offset }; Nothing -> elem_info) (cg_elems info) offsets }
 \end{code}
 
 %************************************************************************
@@ -503,7 +534,7 @@ nukeDeadBindings live_vars = do
         binds <- getBinds
         let (dead_stk_slots, bs') =
                 dead_slots live_vars 
-                        [] []
+                        [] [] []
                         [ (cg_id b, b) | b <- varEnvElts binds ]
         setBinds $ mkVarEnv bs'
         freeStackSlots dead_stk_slots
@@ -511,50 +542,56 @@ nukeDeadBindings live_vars = do
 
 Several boring auxiliary functions to do the dirty work.
 
+Note that some stack slots can be mentioned in *more than one* CgIdInfo.
+This commonly happens where the stack slots for the case binders of an
+unboxed tuple case are a subset of the stack slots for the unboxed tuple case binder.
+
 \begin{code}
 dead_slots :: StgLiveVars
            -> [(Id,CgIdInfo)]
+           -> [VirtualSpOffset]
            -> [VirtualSpOffset]
            -> [(Id,CgIdInfo)]
            -> ([VirtualSpOffset], [(Id,CgIdInfo)])
 
 -- dead_slots carries accumulating parameters for
---      filtered bindings, dead slots
-dead_slots _ fbs ds []
-  = (ds, reverse fbs) -- Finished; rm the dups, if any
+--      filtered bindings, possibly-dead slots, live slots
+dead_slots _ fbs ds ls []
+  = (ds \\ ls, reverse fbs) -- Finished; rm the dups, if any
 
-dead_slots live_vars fbs ds ((v,i):bs)
+dead_slots live_vars fbs ds ls ((v,i):bs)
   | v `elementOfUniqSet` live_vars
-    = dead_slots live_vars ((v,i):fbs) ds bs
+    = dead_slots live_vars ((v,i):fbs) ds (infoLiveSlots i ++ ls) bs
           -- Live, so don't record it in dead slots
           -- Instead keep it in the filtered bindings
 
   | otherwise
-    = case cg_stb i of
-        VirStkLoc offset
-         | size > 0
-         -> dead_slots live_vars fbs ([offset-size+1 .. offset] ++ ds) bs
+    = dead_slots live_vars fbs (infoLiveSlots i ++ ds) ls bs
 
-        _ -> dead_slots live_vars fbs ds bs
-  where
-    size :: WordOff
-    size = cgRepSizeW (cg_rep i)
+infoLiveSlots :: CgIdInfo -> [WordOff]
+infoLiveSlots i = [free | elem_i <- cg_elems i
+                        , VirStkLoc offset <- [cg_stb elem_i]
+                        , let size = cgRepSizeW (cg_rep elem_i) :: WordOff
+                        , size > 0
+                        , free <- [offset-size+1 .. offset]]
 
 getLiveStackSlots :: FCode [VirtualSpOffset]
 -- Return the offsets of slots in stack containig live pointers
 getLiveStackSlots 
   = do  { binds <- getBinds
-        ; return [off | CgIdInfo { cg_stb = VirStkLoc off, 
-                                   cg_rep = rep } <- varEnvElts binds, 
-                        isFollowableArg rep] }
+        ; return [off | info <- varEnvElts binds
+                      , CgIdElemInfo { cg_stb = VirStkLoc off
+                                     , cg_rep = rep } <- cg_elems info
+                      , isFollowableArg rep] }
 
-getLiveStackBindings :: FCode [(VirtualSpOffset, CgIdInfo)]
+getLiveStackBindings :: FCode [(VirtualSpOffset, CgRep)]
 getLiveStackBindings
   = do { binds <- getBinds
-       ; return [(off, bind) |
-                 bind <- varEnvElts binds,
-                 CgIdInfo { cg_stb = VirStkLoc off,
-                            cg_rep = rep} <- [bind],
+       ; return [(off, rep) |
+                 info <- varEnvElts binds,
+                 elem_info <- cg_elems info,
+                 CgIdElemInfo { cg_stb = VirStkLoc off,
+                                cg_rep = rep} <- [elem_info],
                  isFollowableArg rep] }
 \end{code}
 

@@ -61,10 +61,9 @@ module ClosureInfo (
 	staticClosureNeedsLink,
 
 	-- CgRep and its functions
-	CgRep(..), nonVoidArg,
+	CgRep(..),
 	argMachRep, primRepToCgRep, 
-	isFollowableArg, isVoidArg, 
-	isFloatingArg, is64BitArg,
+	isFollowableArg, isFloatingArg, is64BitArg,
 	separateByPtrFollowness,
 	cgRepSizeW, cgRepSizeB,
 	retAddrSizeW,
@@ -156,7 +155,7 @@ ClosureInfo contains a LambdaFormInfo.
 data LambdaFormInfo
   = LFReEntrant		-- Reentrant closure (a function)
 	TopLevelFlag	-- True if top level
-	!Int		-- Arity. Invariant: always > 0
+	!Arity	        -- Arity. INVARIANT: > 0
 	!Bool		-- True <=> no fvs
 	ArgDescr	-- Argument descriptor (should reall be in ClosureInfo)
 
@@ -180,7 +179,7 @@ data LambdaFormInfo
 
   | LFLetNoEscape	-- See LetNoEscape module for precise description of
 			-- these "lets".
-	!Int		-- arity;
+	!Arity	        -- arity;
 
   | LFBlackHole		-- Used for the closures allocated to hold the result
 			-- of a CAF.  We want the target of the update frame to
@@ -211,7 +210,7 @@ data StandardFormInfo
 	-- The code for the thunk just pushes x2..xn on the stack and enters x1.
 	-- There are a few of these (for 1 <= n <= MAX_SPEC_AP_SIZE) pre-compiled
 	-- in the RTS to save space.
-	Int		-- Arity, n
+	Arity	-- Arity, n
 \end{code}
 
 
@@ -228,14 +227,10 @@ arguments are used to decide which of the RTS's generic apply
 functions to call when applying an unknown function.
 
 It contains more information than the back-end data type MachRep,
-so one can easily convert from CgRep -> MachRep.  (Except that
-there's no MachRep for a VoidRep.)
+so one can easily convert from CgRep -> MachRep.
 
-It distinguishes 
-	pointers from non-pointers (we sort the pointers together
-	when building closures)
-
-	void from other types: a void argument is different from no argument
+It distinguishes pointers from non-pointers (we sort the pointers
+together when building closures)
 
 All 64-bit types map to the same CgRep, because they're passed in the
 same register, but a PtrArg is still different from an NonPtrArg
@@ -245,8 +240,7 @@ entry to the garbage collector.
 
 \begin{code}
 data CgRep 
-  = VoidArg 	-- Void
-  | PtrArg 	-- Word-sized heap pointer, followed
+  = PtrArg 	-- Word-sized heap pointer, followed
 		-- by the garbage collector
   | NonPtrArg 	-- Word-sized non-pointer
 		-- (including addresses not followed by GC)
@@ -256,7 +250,6 @@ data CgRep
   deriving Eq
 
 instance Outputable CgRep where
-    ppr VoidArg   = ptext (sLit "V_")
     ppr PtrArg    = ptext (sLit "P_")
     ppr NonPtrArg = ptext (sLit "I_")
     ppr LongArg   = ptext (sLit "L_")
@@ -269,10 +262,8 @@ argMachRep NonPtrArg = bWord
 argMachRep LongArg   = b64
 argMachRep FloatArg  = f32
 argMachRep DoubleArg = f64
-argMachRep VoidArg   = panic "argMachRep:VoidRep"
 
 primRepToCgRep :: PrimRep -> CgRep
-primRepToCgRep VoidRep    = VoidArg
 primRepToCgRep PtrRep     = PtrArg
 primRepToCgRep IntRep	  = NonPtrArg
 primRepToCgRep WordRep	  = NonPtrArg
@@ -282,14 +273,14 @@ primRepToCgRep AddrRep    = NonPtrArg
 primRepToCgRep FloatRep   = FloatArg
 primRepToCgRep DoubleRep  = DoubleArg
 
-idCgRep :: Id -> CgRep
+idCgRep :: Id -> [CgRep]
 idCgRep x = typeCgRep . idType $ x
 
-tyConCgRep :: TyCon -> CgRep
-tyConCgRep = primRepToCgRep . tyConPrimRep
+tyConCgRep :: TyCon -> [CgRep]
+tyConCgRep = map primRepToCgRep . tyConPrimRep
 
-typeCgRep :: Type -> CgRep
-typeCgRep = primRepToCgRep . typePrimRep 
+typeCgRep :: Type -> [CgRep]
+typeCgRep = map primRepToCgRep . typePrimRep 
 \end{code}
 
 Whether or not the thing is a pointer that the garbage-collector
@@ -304,14 +295,6 @@ computation of GC liveness info.
 isFollowableArg :: CgRep -> Bool  -- True <=> points to a heap object
 isFollowableArg PtrArg  = True
 isFollowableArg _       = False
-
-isVoidArg :: CgRep -> Bool
-isVoidArg VoidArg = True
-isVoidArg _       = False
-
-nonVoidArg :: CgRep -> Bool
-nonVoidArg VoidArg = False
-nonVoidArg _       = True
 
 -- isFloatingArg is used to distinguish @Double@ and @Float@ which
 -- cause inadvertent numeric conversions if you aren't jolly careful.
@@ -343,13 +326,11 @@ separateByPtrFollowness things
 cgRepSizeB :: CgRep -> ByteOff
 cgRepSizeB DoubleArg = dOUBLE_SIZE
 cgRepSizeB LongArg   = wORD64_SIZE
-cgRepSizeB VoidArg   = 0
 cgRepSizeB _         = wORD_SIZE
 
 cgRepSizeW :: CgRep -> ByteOff
 cgRepSizeW DoubleArg = dOUBLE_SIZE `quot` wORD_SIZE
 cgRepSizeW LongArg   = wORD64_SIZE `quot` wORD_SIZE
-cgRepSizeW VoidArg   = 0
 cgRepSizeW _         = 1
 
 retAddrSizeW :: WordOff
@@ -404,7 +385,7 @@ mkSelectorLFInfo id offset updatable
   = LFThunk NotTopLevel False updatable (SelectorThunk offset) 
 	(might_be_a_function (idType id))
 
-mkApLFInfo :: Id -> UpdateFlag -> Int -> LambdaFormInfo
+mkApLFInfo :: Id -> UpdateFlag -> Arity -> LambdaFormInfo
 mkApLFInfo id upd_flag arity
   = LFThunk NotTopLevel (arity == 0) (isUpdatable upd_flag) (ApThunk arity)
 	(might_be_a_function (idType id))
@@ -413,17 +394,36 @@ mkApLFInfo id upd_flag arity
 Miscellaneous LF-infos.
 
 \begin{code}
-mkLFArgument :: Id -> LambdaFormInfo
-mkLFArgument id = LFUnknown (might_be_a_function (idType id))
+mkLFArgument :: Type -> [LambdaFormInfo]
+mkLFArgument ty
+  | [] <- typePrimRep ty
+  = []
+  | Just (tc, tys) <- splitTyConApp_maybe ty
+  , isUnboxedTupleTyCon tc
+  = concatMap mkLFArgument tys
+  | otherwise
+  = [LFUnknown (might_be_a_function ty)]
 
 mkLFLetNoEscape :: Int -> LambdaFormInfo
 mkLFLetNoEscape = LFLetNoEscape
 
-mkLFImported :: Id -> LambdaFormInfo
+-- Returns Nothing if the imported Id has void representation
+mkLFImported :: Id -> Maybe LambdaFormInfo
 mkLFImported id
-  = case idArity id of
-      n | n > 0 -> LFReEntrant TopLevel n True (panic "arg_descr")  -- n > 0
-      _ -> mkLFArgument id -- Not sure of exact arity
+  | Just con <- isDataConWorkId_maybe id
+  , isNullaryRepDataCon con
+  = Just $ LFCon con   -- An imported nullary constructor
+                       -- We assume that the constructor is evaluated so that
+                       -- the id really does point directly to the constructor
+
+  | idArity id > 0
+  = Just $ LFReEntrant TopLevel (idArity id) True (panic "arg_descr")  -- n > 0
+
+  | otherwise
+  = case mkLFArgument (idType id) of
+      []   -> Nothing
+      [lf] -> Just lf -- Not sure of exact arity
+      _    -> pprPanic "mkLFImported: unboxed tuple import?" (ppr id)
 \end{code}
 
 \begin{code}
@@ -634,13 +634,13 @@ data CallMethod
 
   | DirectEntry 			-- Jump directly, with args in regs
 	CLabel 				--   The code label
-	Int 				--   Its arity
+	Arity 			        --   Its arity
 
 getCallMethod :: DynFlags
-              -> Name		-- Function being applied
-              -> CafInfo        -- Can it refer to CAF's?
-	      -> LambdaFormInfo	-- Its info
-	      -> Int		-- Number of available arguments
+              -> Name		 -- Function being applied
+              -> CafInfo         -- Can it refer to CAF's?
+	      -> LambdaFormInfo	 -- Its info
+	      -> Arity           -- Number of available arguments, Nothing if thunk use (i.e. no StgArgs at all, not even a void one)
 	      -> CallMethod
 
 getCallMethod _ _ _ lf_info _
@@ -651,10 +651,13 @@ getCallMethod _ _ _ lf_info _
     EnterIt
 
 getCallMethod _ name caf (LFReEntrant _ arity _ _) n_args
-  | n_args == 0    = ASSERT( arity /= 0 )
-		     ReturnIt	-- No args at all
-  | n_args < arity = SlowCall	-- Not enough args
-  | otherwise      = DirectEntry (enterIdLabel name caf) arity
+  | n_args == 0
+  = ASSERT( arity /= 0 )
+    ReturnIt   -- No args at all
+  | n_args < arity
+  = SlowCall   -- Not enough args
+  | otherwise
+  = DirectEntry (enterIdLabel name caf) arity
 
 getCallMethod _ _ _ (LFCon con) n_args
   | opt_SccProfilingOn     -- when profiling, we must always enter
@@ -695,7 +698,7 @@ getCallMethod _ _ _ (LFUnknown True) _
   = SlowCall -- Might be a function
 
 getCallMethod _ name _ (LFUnknown False) n_args
-  | n_args > 0 
+  | n_args > 0
   = WARN( True, ppr name <+> ppr n_args ) 
     SlowCall	-- Note [Unsafe coerce complications]
 
@@ -711,8 +714,10 @@ getCallMethod _ name _ (LFLetNoEscape 0) _
   = JumpToIt (enterReturnPtLabel (nameUnique name))
 
 getCallMethod _ name _ (LFLetNoEscape arity) n_args
-  | n_args == arity = DirectEntry (enterReturnPtLabel (nameUnique name)) arity
-  | otherwise = pprPanic "let-no-escape: " (ppr name <+> ppr arity)
+  | n_args == arity
+  = DirectEntry (enterReturnPtLabel (nameUnique name)) arity
+  | otherwise
+  = pprPanic "let-no-escape: " (ppr name <+> ppr arity)
 
 
 blackHoleOnEntry :: ClosureInfo -> Bool
@@ -911,11 +916,11 @@ isConstrClosure_maybe :: ClosureInfo -> Maybe DataCon
 isConstrClosure_maybe (ConInfo { closureCon = data_con }) = Just data_con
 isConstrClosure_maybe _ 				  = Nothing
 
-closureFunInfo :: ClosureInfo -> Maybe (Int, ArgDescr)
+closureFunInfo :: ClosureInfo -> Maybe (Arity, ArgDescr)
 closureFunInfo (ClosureInfo { closureLFInfo = lf_info }) = lfFunInfo lf_info
 closureFunInfo _ = Nothing
 
-lfFunInfo :: LambdaFormInfo ->  Maybe (Int, ArgDescr)
+lfFunInfo :: LambdaFormInfo ->  Maybe (Arity, ArgDescr)
 lfFunInfo (LFReEntrant _ arity _ arg_desc)  = Just (arity, arg_desc)
 lfFunInfo _                                 = Nothing
 
@@ -935,7 +940,7 @@ funTagLFInfo lf
   | otherwise
   = 0
 
-tagForArity :: Int -> Maybe Int
+tagForArity :: Arity -> Maybe Int
 tagForArity i | i <= mAX_PTR_TAG = Just i
               | otherwise        = Nothing
 

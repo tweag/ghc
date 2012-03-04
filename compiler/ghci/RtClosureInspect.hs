@@ -59,7 +59,6 @@ import PrelNames
 import TysWiredIn
 import DynFlags
 import Outputable as Ppr
-import FastString
 import Constants        ( wORD_SIZE )
 import GHC.Arr          ( Array(..) )
 import GHC.Exts
@@ -662,7 +661,7 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
         return $ fixFunDictionaries $ expandNewtypes term'
       else do
               (old_ty', rev_subst) <- instScheme quant_old_ty
-              my_ty <- newVar argTypeKind
+              my_ty <- newVar openTypeKind
               when (check1 quant_old_ty) (traceTR (text "check1 passed") >>
                                           addConstraint my_ty old_ty')
               term  <- go max_depth my_ty sigma_old_ty hval
@@ -682,7 +681,7 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
                       zterm' <- mapTermTypeM
                                  (\ty -> case tcSplitTyConApp_maybe ty of
                                            Just (tc, _:_) | tc /= funTyCon
-                                               -> newVar argTypeKind
+                                               -> newVar openTypeKind
                                            _   -> return ty)
                                  term
                       zonkTerm zterm'
@@ -759,31 +758,12 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
           Just dc -> do
             traceTR (text "Just" <+> ppr dc)
             subTtypes <- getDataConArgTys dc my_ty
-            let (subTtypesP, subTtypesNP) = partition isPtrType subTtypes
-            subTermsP <- sequence
-                  [ appArr (go (pred max_depth) ty ty) (ptrs clos) i
-                  | (i,ty) <- zip [0..] subTtypesP]
-            let unboxeds   = extractUnboxed subTtypesNP clos
-                subTermsNP = zipWith Prim subTtypesNP unboxeds
-                subTerms   = reOrderTerms subTermsP subTermsNP subTtypes
+            subTerms <- extractSubTerms (\ty -> go (pred max_depth) ty ty) clos subTtypes
             return (Term my_ty (Right dc) a subTerms)
 
 -- The otherwise case: can be a Thunk,AP,PAP,etc.
       tipe_clos ->
          return (Suspension tipe_clos my_ty a Nothing)
-
-  -- put together pointed and nonpointed subterms in the
-  --  correct order.
-  reOrderTerms _ _ [] = []
-  reOrderTerms pointed unpointed (ty:tys) 
-   | isPtrType ty = ASSERT2(not(null pointed)
-                            , ptext (sLit "reOrderTerms") $$ 
-                                        (ppr pointed $$ ppr unpointed))
-                    let (t:tt) = pointed in t : reOrderTerms tt unpointed tys
-   | otherwise    = ASSERT2(not(null unpointed)
-                           , ptext (sLit "reOrderTerms") $$ 
-                                       (ppr pointed $$ ppr unpointed))
-                    let (t:tt) = unpointed in t : reOrderTerms pointed tt tys
 
   -- insert NewtypeWraps around newtypes
   expandNewtypes = foldTerm idTermFold { fTerm = worker } where
@@ -802,6 +782,82 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
       worker ct ty hval n | isFunTy ty = Suspension ct (dictsView ty) hval n
                           | otherwise  = Suspension ct ty hval n
 
+extractSubTerms :: (Type -> HValue -> TcM Term)
+                -> Closure -> [Type] -> TcM [Term]
+extractSubTerms recurse clos = liftM thirdOf3 . go 0 (nonPtrs clos)
+  where
+    go ptr_i ws [] = return (ptr_i, ws, [])
+    go ptr_i ws (ty:tys)
+      | Just (ty, elem_tys) <- tcSplitTyConApp_maybe ty
+      , isUnboxedTupleTyCon ty
+      = do (ptr_i, ws, terms0) <- go ptr_i ws elem_tys
+           (ptr_i, ws, terms1) <- go ptr_i ws tys
+           return (ptr_i, ws, terms0 ++ terms1)
+      | otherwise
+      = case typePrimRep ty of
+          []       -> go ptr_i ws tys
+          [rep] -> do
+            (ptr_i, ws, term0)  <- go_rep ptr_i ws ty rep
+            (ptr_i, ws, terms1) <- go ptr_i ws tys
+            return (ptr_i, ws, term0:terms1)
+          reps -> do
+            (ptr_i, ws, terms0) <- go_type_unknown ptr_i ws reps
+            (ptr_i, ws, terms1) <- go ptr_i ws tys
+            return (ptr_i, ws, terms0 ++ terms1)
+
+    go_type_unknown ptr_i ws [] = return (ptr_i, ws, [])
+    go_type_unknown ptr_i ws (rep:reps) = do
+      tv <- newVar liftedTypeKind
+      (ptr_i, ws, term0)  <- go_rep ptr_i ws tv rep
+      (ptr_i, ws, terms1) <- go_type_unknown ptr_i ws reps
+      return (ptr_i, ws, term0 : terms1)
+
+    go_rep ptr_i ws ty rep = case rep of
+      PtrRep -> do
+        t <- appArr (recurse ty) (ptrs clos) ptr_i
+        return (ptr_i + 1, ws, t)
+      _ -> do
+        let (ws0, ws1) = splitAt (primRepSizeW rep) ws
+        return (ptr_i, ws1, Prim ty ws0)
+
+
+
+            {-
+            let (subTtypesP, subTtypesNP) = partition isPtrType subTtypes
+            subTermsP <- sequence
+                  [ appArr (go (pred max_depth) ty ty) (ptrs clos) i
+                  | (i,ty) <- zip [0..] subTtypesP]
+            let unboxeds   = extractUnboxed subTtypesNP clos
+                subTermsNP = zipWith Prim subTtypesNP unboxeds
+                subTerms   = reOrderTerms subTermsP subTermsNP subTtypes
+
+
+
+extractUnboxed  :: [Type] -> Closure -> [[Word]]
+extractUnboxed tt clos = go tt (nonPtrs clos)
+   where sizeofType t = primRepSizeW (typePrimRep t)
+         go [] _ = []
+         go (t:tt) xx 
+           | (x, rest) <- splitAt (sizeofType t) xx
+           = x : go tt rest
+
+
+
+
+  -- put together pointed and nonpointed subterms in the
+  --  correct order.
+  reOrderTerms _ _ [] = []
+  reOrderTerms pointed unpointed (ty:tys) 
+   | isPtrType ty = ASSERT2(not(null pointed)
+                            , ptext (sLit "reOrderTerms") $$ 
+                                        (ppr pointed $$ ppr unpointed))
+                    let (t:tt) = pointed in t : reOrderTerms tt unpointed tys
+   | otherwise    = ASSERT2(not(null unpointed)
+                           , ptext (sLit "reOrderTerms") $$ 
+                                       (ppr pointed $$ ppr unpointed))
+                    let (t:tt) = unpointed in t : reOrderTerms pointed tt tys
+            -}
+
 
 -- Fast, breadth-first Type reconstruction
 ------------------------------------------
@@ -814,7 +870,7 @@ cvReconstructType hsc_env max_depth old_ty hval = runTR_maybe hsc_env $ do
         then return old_ty
         else do
           (old_ty', rev_subst) <- instScheme sigma_old_ty
-          my_ty <- newVar argTypeKind
+          my_ty <- newVar openTypeKind
           when (check1 sigma_old_ty) (traceTR (text "check1 passed") >>
                                       addConstraint my_ty old_ty')
           search (isMonomorphic `fmap` zonkTcType my_ty)
@@ -870,10 +926,35 @@ cvReconstructType hsc_env max_depth old_ty hval = runTR_maybe hsc_env $ do
 
           Just dc -> do
             arg_tys <- getDataConArgTys dc my_ty
-	    traceTR (text "Constr2" <+> ppr dcname <+> ppr arg_tys)
+            (_, itys) <- findPtrTyss 0 arg_tys
+            traceTR (text "Constr2" <+> ppr dcname <+> ppr arg_tys)
             return $ [ appArr (\e-> (ty,e)) (ptrs clos) i
-                     | (i,ty) <- zip [0..] (filter isPtrType arg_tys)]
+                     | (i,ty) <- itys]
       _ -> return []
+
+findPtrTys :: Int  -- Current pointer index
+           -> Type -- Type
+           -> TR (Int, [(Int, Type)])
+findPtrTys i ty
+  | Just (tc, elem_tys) <- tcSplitTyConApp_maybe ty
+  , isUnboxedTupleTyCon tc
+  = findPtrTyss i elem_tys
+  
+  | otherwise
+  = case typePrimRep ty of
+      [rep] | rep == PtrRep -> return (i + 1, [(i, ty)])
+            | otherwise     -> return (i,     [])
+      reps  -> foldM (\(i, extras) rep -> if rep == PtrRep
+                                           then newVar liftedTypeKind >>= \tv -> return (i + 1, extras ++ [(i, tv)])
+                                           else return (i, extras))
+                     (i, []) reps
+
+findPtrTyss :: Int
+            -> [Type]
+            -> TR (Int, [(Int, Type)])
+findPtrTyss i tys = foldM step (i, []) tys
+  where step (i, discovered) elem_ty = findPtrTys i elem_ty >>= \(i, extras) -> return (i, discovered ++ extras)
+
 
 -- Compute the difference between a base type and the type found by RTTI
 -- improveType <base_type> <rtti_type>
@@ -908,11 +989,6 @@ getDataConArgTys dc con_app_ty
   where
     univ_tvs = dataConUnivTyVars dc
     ex_tvs   = dataConExTyVars dc
-
-isPtrType :: Type -> Bool
-isPtrType ty = case typePrimRep ty of
-                 PtrRep -> True
-                 _      -> False
 
 -- Soundness checks
 --------------------
@@ -1196,11 +1272,3 @@ amap' :: (t -> b) -> Array Int t -> [b]
 amap' f (Array i0 i _ arr#) = map g [0 .. i - i0]
     where g (I# i#) = case indexArray# arr# i# of
                           (# e #) -> f e
-
-extractUnboxed  :: [Type] -> Closure -> [[Word]]
-extractUnboxed tt clos = go tt (nonPtrs clos)
-   where sizeofType t = primRepSizeW (typePrimRep t)
-         go [] _ = []
-         go (t:tt) xx 
-           | (x, rest) <- splitAt (sizeofType t) xx
-           = x : go tt rest

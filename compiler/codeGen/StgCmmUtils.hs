@@ -20,7 +20,7 @@ module StgCmmUtils (
         emitRtsCall, emitRtsCallWithVols, emitRtsCallWithResult, emitRtsCallGen,
         assignTemp, newTemp, withTemp,
 
-	newUnboxedTupleRegs,
+	newUnboxedTupleRegs, newSequelRegs,
 
 	mkMultiAssign, mkCmmSwitch, mkCmmLitSwitch,
 	emitSwitch,
@@ -447,25 +447,28 @@ newTemp rep = do { uniq <- newUnique
 		 ; return (LocalReg uniq rep) }
 
 newUnboxedTupleRegs :: Type -> FCode ([LocalReg], [ForeignHint])
--- Choose suitable local regs to use for the components
--- of an unboxed tuple that we are about to return to 
--- the Sequel.  If the Sequel is a join point, using the
--- regs it wants will save later assignments.
 newUnboxedTupleRegs res_ty 
   = ASSERT( isUnboxedTupleType res_ty )
-    do	{ sequel <- getSequel
-	; regs <- choose_regs sequel
-	; ASSERT( regs `equalLength` reps )
-	  return (regs, map primRepForeignHint reps) }
+    newSequelRegs reps
   where
     ty_args = tyConAppArgs (repType res_ty)
     reps = [ rep
 	   | ty <- ty_args
-    	   , let rep = typePrimRep ty
-  	   , not (isVoidRep rep) ]
-    choose_regs (AssignTo regs _) = return regs
-    choose_regs _other		  = mapM (newTemp . primRepCmmType) reps
+    	   , rep <- typePrimRep ty ]
 
+newSequelRegs :: [PrimRep] -> FCode ([LocalReg], [ForeignHint])
+-- Choose suitable local regs to use for the components
+-- of e.g. an unboxed tuple that we are about to return to 
+-- the Sequel.  If the Sequel is a join point, using the
+-- regs it wants will save later assignments.
+newSequelRegs reps
+  = do  { sequel <- getSequel
+        ; regs <- choose_regs sequel
+        ; ASSERT( regs `equalLength` reps )
+          return (regs, map primRepForeignHint reps) }
+  where
+    choose_regs (AssignTo regs _) = return regs
+    choose_regs _other            = mapM (newTemp . primRepCmmType) reps
 
 
 -------------------------------------------------------------------------

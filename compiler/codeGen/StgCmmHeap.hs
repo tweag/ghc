@@ -15,13 +15,12 @@ module StgCmmHeap (
         mkVirtHeapOffsets, mkVirtConstrOffsets,
         mkStaticClosureFields, mkStaticClosure,
 
-        allocDynClosure, allocDynClosureCmm, emitSetDynHdr
+        allocDynClosureCmm, emitSetDynHdr
     ) where
 
 #include "HsVersions.h"
 
 import CmmType
-import StgSyn
 import CLabel
 import StgCmmLayout
 import StgCmmUtils
@@ -30,7 +29,6 @@ import StgCmmProf
 import StgCmmTicky
 import StgCmmGran
 import StgCmmClosure
-import StgCmmEnv
 
 import MkGraph
 
@@ -49,24 +47,12 @@ import DynFlags
 --              Initialise dynamic heap objects
 -----------------------------------------------------------
 
-allocDynClosure
-        :: CmmInfoTable
-        -> LambdaFormInfo
-        -> CmmExpr              -- Cost Centre to stick in the object
-        -> CmmExpr              -- Cost Centre to blame for this alloc
-                                -- (usually the same; sometimes "OVERHEAD")
-
-        -> [(NonVoid StgArg, VirtualHpOffset)]  -- Offsets from start of object
-                                                -- ie Info ptr has offset zero.
-                                                -- No void args in here
-        -> FCode (LocalReg, CmmAGraph)
-
 allocDynClosureCmm
         :: CmmInfoTable -> LambdaFormInfo -> CmmExpr -> CmmExpr
         -> [(CmmExpr, VirtualHpOffset)]
         -> FCode (LocalReg, CmmAGraph)
 
--- allocDynClosure allocates the thing in the heap,
+-- allocDynClosureCmm allocates the thing in the heap,
 -- and modifies the virtual Hp to account for this.
 -- The second return value is the graph that sets the value of the
 -- returned LocalReg, which should point to the closure after executing
@@ -74,7 +60,7 @@ allocDynClosureCmm
 
 -- Note [Return a LocalReg]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
--- allocDynClosure returns a LocalReg, not a (Hp+8) CmmExpr.
+-- allocDynClosureCmm returns a LocalReg, not a (Hp+8) CmmExpr.
 -- Reason:
 --      ...allocate object...
 --      obj = Hp + 8
@@ -82,13 +68,6 @@ allocDynClosureCmm
 --      ...here obj is still valid,
 --         but Hp+8 means something quite different...
 
-
-allocDynClosure info_tbl lf_info use_cc _blame_cc args_w_offsets
-  = do  { let (args, offsets) = unzip args_w_offsets
-        ; cmm_args <- mapM getArgAmode args     -- No void args
-        ; allocDynClosureCmm info_tbl lf_info
-                             use_cc _blame_cc (zip cmm_args offsets)
-        }
 
 allocDynClosureCmm info_tbl lf_info use_cc _blame_cc amodes_w_offsets
   = do  { virt_hp <- getVirtHp
@@ -322,17 +301,16 @@ These are used in the following circumstances
 entryHeapCheck :: ClosureInfo
                -> Int            -- Arg Offset
                -> Maybe LocalReg -- Function (closure environment)
-               -> Int            -- Arity -- not same as len args b/c of voids
+               -> Bool           -- Heap check for a *thunk*?
                -> [LocalReg]     -- Non-void args (empty for thunk)
                -> FCode ()
                -> FCode ()
 
-entryHeapCheck cl_info offset nodeSet arity args code
+entryHeapCheck cl_info offset nodeSet is_thunk args code
   = do dflags <- getDynFlags
 
        let platform = targetPlatform dflags
 
-           is_thunk = arity == 0
            is_fastf = case closureFunInfo cl_info of
                            Just (_, ArgGen _) -> False
                            _otherwise         -> True

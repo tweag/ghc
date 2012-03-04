@@ -36,7 +36,7 @@ module StgCmmTicky (
 
 	tickyUpdateBhCaf,
 	tickyBlackHole,
-	tickyUnboxedTupleReturn, tickyVectoredReturn,
+	tickyUnboxedTupleReturn,
 	tickyReturnOldCon, tickyReturnNewCon,
 
 	tickyKnownCallTooFewArgs, tickyKnownCallExact, tickyKnownCallExtraArgs,
@@ -67,6 +67,7 @@ import BasicTypes
 import FastString
 import Constants
 import Outputable
+import Maybes
 
 import DynFlags
 
@@ -75,8 +76,6 @@ import PrelNames
 import TcType
 import Type
 import TyCon
-
-import Data.Maybe
 
 -----------------------------------------------------------------------------
 --
@@ -205,15 +204,10 @@ tickyReturnNewCon arity
   = ifTicky $ do { bumpTickyCounter (fsLit "RET_NEW_ctr")
 	         ; bumpHistogram    (fsLit "RET_NEW_hst") arity }
 
-tickyUnboxedTupleReturn :: Int -> FCode ()
+tickyUnboxedTupleReturn :: Arity -> FCode ()
 tickyUnboxedTupleReturn arity
   = ifTicky $ do { bumpTickyCounter (fsLit "RET_UNBOXED_TUP_ctr")
  	         ; bumpHistogram    (fsLit "RET_UNBOXED_TUP_hst") arity }
-
-tickyVectoredReturn :: Int -> FCode ()
-tickyVectoredReturn family_size 
-  = ifTicky $ do { bumpTickyCounter (fsLit "VEC_RETURN_ctr")
-		 ; bumpHistogram    (fsLit "RET_VEC_RETURN_hst") family_size }
 
 -- -----------------------------------------------------------------------------
 -- Ticky calls
@@ -223,7 +217,7 @@ tickyDirectCall :: Arity -> [StgArg] -> FCode ()
 tickyDirectCall arity args
   | arity == length args = tickyKnownCallExact
   | otherwise = do tickyKnownCallExtraArgs
-		   tickySlowCallPat (map argPrimRep (drop arity args))
+		   tickySlowCallPat (concatMap argPrimRep (drop arity args))
 
 tickyKnownCallTooFewArgs :: FCode ()
 tickyKnownCallTooFewArgs = ifTicky $ bumpTickyCounter (fsLit "KNOWN_CALL_TOO_FEW_ARGS_ctr")
@@ -246,7 +240,7 @@ tickySlowCall lf_info args
   = do	{ if (isKnownFun lf_info) 
 		then tickyKnownCallTooFewArgs
 		else tickyUnknownCall
-	; tickySlowCallPat (map argPrimRep args) }
+	; tickySlowCallPat (concatMap argPrimRep args) }
 
 tickySlowCallPat :: [PrimRep] -> FCode ()
 tickySlowCallPat _args = return ()

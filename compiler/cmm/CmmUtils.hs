@@ -97,7 +97,6 @@ import Compiler.Hoopl hiding ( Unique )
 ---------------------------------------------------
 
 primRepCmmType :: PrimRep -> CmmType
-primRepCmmType VoidRep    = panic "primRepCmmType:VoidRep"
 primRepCmmType PtrRep     = gcWord
 primRepCmmType IntRep	  = bWord
 primRepCmmType WordRep	  = bWord
@@ -107,11 +106,10 @@ primRepCmmType AddrRep    = bWord
 primRepCmmType FloatRep   = f32
 primRepCmmType DoubleRep  = f64
 
-typeCmmType :: Type -> CmmType
-typeCmmType ty = primRepCmmType (typePrimRep ty)
+typeCmmType :: Type -> [CmmType]
+typeCmmType ty = map primRepCmmType (typePrimRep ty)
 
 primRepForeignHint :: PrimRep -> ForeignHint
-primRepForeignHint VoidRep	= panic "primRepForeignHint:VoidRep"
 primRepForeignHint PtrRep	= AddrHint
 primRepForeignHint IntRep	= SignedHint
 primRepForeignHint WordRep	= NoHint
@@ -121,8 +119,8 @@ primRepForeignHint AddrRep      = AddrHint -- NB! AddrHint, but NonPtrArg
 primRepForeignHint FloatRep	= NoHint
 primRepForeignHint DoubleRep	= NoHint
 
-typeForeignHint :: Type -> ForeignHint
-typeForeignHint = primRepForeignHint . typePrimRep
+typeForeignHint :: Type -> [ForeignHint]
+typeForeignHint = map primRepForeignHint . typePrimRep
 
 ---------------------------------------------------
 --
@@ -372,20 +370,19 @@ cmmConstrTag1 e = e `cmmAndWord` cmmTagMask
 --
 ---------------------------------------------
 
+-- Return value: True <=> Non Ptr
 mkLiveness :: [Maybe LocalReg] -> Liveness
 mkLiveness [] = []
-mkLiveness (reg:regs) 
-  = take sizeW bits ++ mkLiveness regs 
+mkLiveness (Nothing:regs)
+ = True:mkLiveness regs
+mkLiveness (Just r:regs) 
+  = replicate sizeW is_non_ptr ++ mkLiveness regs
   where
-    sizeW = case reg of
-              Nothing -> 1
-              Just r -> (widthInBytes (typeWidth (localRegType r)) + wORD_SIZE - 1)
-                        `quot` wORD_SIZE
+    ty = localRegType r
+    is_non_ptr = not $ isGcPtrType ty
+    sizeW = (widthInBytes (typeWidth ty) + wORD_SIZE - 1)
+                `quot` wORD_SIZE
                         -- number of words, rounded up
-    bits = repeat $ is_non_ptr reg -- True <=> Non Ptr
-
-    is_non_ptr Nothing    = True
-    is_non_ptr (Just reg) = not $ isGcPtrType (localRegType reg)
 
 
 -- ============================================== -

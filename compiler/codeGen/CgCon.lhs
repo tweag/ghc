@@ -41,7 +41,6 @@ import TyCon
 import DataCon
 import Id
 import IdInfo
-import Type
 import PrelInfo
 import Outputable
 import ListSetOps
@@ -51,6 +50,7 @@ import DynFlags
 import FastString
 import Platform
 import StaticFlags
+import MonadUtils
 
 import Control.Monad
 \end{code}
@@ -75,7 +75,7 @@ cgTopRhsCon id con args
         ; ASSERT( args `lengthIs` dataConRepArity con ) return ()
 
         -- LAY IT OUT
-        ; amodes <- getArgAmodes args
+        ; amodes <- concatMapM getArgAmodes args
 
         ; let
             platform = targetPlatform dflags
@@ -250,11 +250,13 @@ bindConArgs con args
        let
           -- The binding below forces the masking out of the tag bits
           -- when accessing the constructor field.
-          bind_arg (arg, offset) = bindNewToUntagNode arg offset (mkLFArgument arg) (tagForCon con)
           (_, args_w_offsets)    = layOutDynConstr con (addIdReps args)
         --
        ASSERT(not (isUnboxedTupleCon con)) return ()
-       mapCs bind_arg args_w_offsets
+       forM_ args $ \arg -> do
+         let offset_lf_infos = zipWith (\i lf_info -> (assoc "bindConArgs" args_w_offsets (arg, i), lf_info))
+                                       [0..] (mkLFArgument (idType arg))
+         bindNewToUntagNode arg offset_lf_infos (tagForCon con)
 \end{code}
 
 Unboxed tuples are handled slightly differently - the object is
@@ -262,20 +264,21 @@ returned in registers and on the stack instead of the heap.
 
 \begin{code}
 bindUnboxedTupleComponents
-        :: [Id]                         -- Args
-        -> FCode ([(Id,GlobalReg)],     -- Regs assigned
+        :: [(a, [CgRep])]               -- Arg reps
+        -> FCode ([(a, [Either GlobalReg VirtualSpOffset])], -- Argument locations
+                  [(CgRep,GlobalReg)],  -- Regs assigned
                   WordOff,              -- Number of pointer stack slots
                   WordOff,              -- Number of non-pointer stack slots
                   VirtualSpOffset)      -- Offset of return address slot
                                         -- (= realSP on entry)
 
-bindUnboxedTupleComponents args
+bindUnboxedTupleComponents repss
  =  do  {
           vsp <- getVirtSp
         ; rsp <- getRealSp
 
            -- Assign as many components as possible to registers
-        ; let (reg_args, stk_args) = assignReturnRegs (addIdReps args)
+        ; let (reg_args, stk_args) = assignReturnRegs $ addIdReps' (map snd repss)
 
                 -- Separate the rest of the args into pointers and non-pointers
               (ptr_args, nptr_args) = separateByPtrFollowness stk_args
@@ -299,11 +302,9 @@ bindUnboxedTupleComponents args
             -- (trimming back the virtual SP), but the real SP still points to that slot
         ; freeStackSlots [vsp+1,vsp+2 .. rsp]
 
-        ; bindArgsToRegs reg_args
-        ; bindArgsToStack ptr_offsets
-        ; bindArgsToStack nptr_offsets
+        ; let arg_locs = lookupArgLocs' reg_args (ptr_offsets ++ nptr_offsets) repss
 
-        ; returnFC (reg_args, ptrs, nptrs, rsp) }
+        ; returnFC (arg_locs, [((snd (repss !! n)) !! i, reg) | ((n, i), reg) <- reg_args], ptrs, nptrs, rsp) }
 \end{code}
 
 %************************************************************************
@@ -324,7 +325,8 @@ cgReturnDataCon con amodes
       -- for it to be marked as "used" for LDV profiling.
   | opt_SccProfilingOn    = build_it_then enter_it
   | otherwise
-  = ASSERT( amodes `lengthIs` dataConRepArity con )
+  = -- NB: this assert is not true because some elements may be void/unboxed tuples
+    -- ASSERT( length amodes == dataConArity con )
     do  { EndOfBlockInfo _ sequel <- getEndOfBlockInfo
         ; case sequel of
             CaseAlts _ (Just (alts, deflt_lbl)) bndr
@@ -369,7 +371,7 @@ cgReturnDataCon con amodes
                 -- out as '54' :-)
              tickyReturnNewCon (length amodes)
            ; idinfo <- buildDynCon (dataConWorkId con) currentCCS con amodes
-           ; amode <- idInfoToAmode idinfo
+           ; amode <- idElemInfoToAmode (cgIdInfoSingleElem "cgReturnDataCon" idinfo)
            ; checkedAbsC (CmmAssign nodeReg amode)
            ; performReturn return_code }
 \end{code}
@@ -466,8 +468,8 @@ cgDataCon data_con
                                 ; ldvEnter (CmmReg nodeReg)
                                 ; body_code }
 
-            arg_reps :: [(CgRep, Type)]
-            arg_reps = [(typeCgRep ty, ty) | ty <- dataConRepArgTys data_con]
+            arg_reps :: [(CgRep, ())]
+            arg_reps = [(rep, ()) | ty <- dataConRepArgTys data_con, rep <- typeCgRep ty]
 
             body_code = do {
                         -- NB: We don't set CC when entering data (WDP 94/06)

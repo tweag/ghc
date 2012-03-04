@@ -147,9 +147,7 @@ Note [The kind invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 The kinds
    #          UnliftedTypeKind
-   ArgKind    super-kind of *, #
-   (#)        UbxTupleKind
-   OpenKind   super-kind of ArgKind, ubxTupleKind
+   OpenKind   super-kind of *, #
 
 can never appear under an arrow or type constructor in a kind; they
 can only be at the top level of a kind.  It follows that primitive TyCons,
@@ -160,7 +158,7 @@ has a UnliftedTypeKind or ArgTypeKind underneath an arrow.
 
 Nor can we abstract over a type variable with any of these kinds.
 
-    k :: = kk | # | ArgKind | (#) | OpenKind 
+    k :: = kk | # | OpenKind 
     kk :: = * | kk -> kk | T kk1 ... kkn
 
 So a type variable can only be abstracted kk.

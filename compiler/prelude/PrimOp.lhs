@@ -28,9 +28,8 @@ import TysWiredIn
 import Demand
 import Var              ( TyVar )
 import OccName          ( OccName, pprOccName, mkVarOccFS )
-import TyCon            ( TyCon, isPrimTyCon, tyConPrimRep, PrimRep(..) )
-import Type             ( Type, mkForAllTys, mkFunTy, mkFunTys, tyConAppTyCon,
-                          typePrimRep )
+import TyCon            ( TyCon, isPrimTyCon, tyConPrimRep, PrimRep(..), isUnboxedTupleTyCon )
+import Type             ( Type, mkForAllTys, mkFunTy, mkFunTys, typePrimRep, splitTyConApp )
 import BasicTypes       ( Arity, TupleSort(..) )
 import ForeignCall      ( CLabelString )
 import Unique           ( Unique, mkPrimOpIdUnique )
@@ -513,7 +512,7 @@ primOpSig op
 
 \begin{code}
 data PrimOpResultInfo
-  = ReturnsPrim     PrimRep
+  = ReturnsPrim     [PrimRep]
   | ReturnsAlg      TyCon
 
 -- Some PrimOps need not return a manifest primitive or algebraic value
@@ -526,13 +525,15 @@ getPrimOpResultInfo op
       Dyadic  _ ty                        -> ReturnsPrim (typePrimRep ty)
       Monadic _ ty                        -> ReturnsPrim (typePrimRep ty)
       Compare _ _                         -> ReturnsAlg boolTyCon
-      GenPrimOp _ _ _ ty | isPrimTyCon tc -> ReturnsPrim (tyConPrimRep tc)
-                         | otherwise      -> ReturnsAlg tc
+      GenPrimOp _ _ _ ty
+        | isPrimTyCon tc         -> ReturnsPrim (tyConPrimRep tc)
+        | isUnboxedTupleTyCon tc -> ReturnsPrim (concatMap typePrimRep tys)
+        | otherwise              -> ReturnsAlg tc
                          where
-                           tc = tyConAppTyCon ty
+                           (tc, tys) = splitTyConApp ty
                         -- All primops return a tycon-app result
-                        -- The tycon can be an unboxed tuple, though, which
-                        -- gives rise to a ReturnAlg
+                        -- The tycon can be an unboxed tuple, though, in
+                        -- which case we just use ReturnsPrim
 \end{code}
 
 We do not currently make use of whether primops are commutable.

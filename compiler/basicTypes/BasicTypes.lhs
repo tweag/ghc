@@ -101,6 +101,11 @@ import Data.Function (on)
 %************************************************************************
 
 \begin{code}
+-- | The number of Haskell-level *value* arguments a function accepts.
+-- For example:
+--  (\x -> fib 100) has arity 1
+--  (/\a. \x -> fib 100) has arity 1
+--  (fib 100) has arity 0
 type Arity = Int
 \end{code}
 

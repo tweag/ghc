@@ -21,7 +21,7 @@ module StgCmmClosure (
         DynTag,  tagForCon, isSmallFamily,
 	ConTagZ, dataConTagZ,
 
-        isVoidRep, isGcPtrRep, addIdReps, addArgReps,
+        isGcPtrRep, addIdReps,
 	argPrimRep, 
 
         -- * LambdaFormInfo
@@ -97,18 +97,11 @@ import DynFlags
 
 -- Why are these here?
 
-addIdReps :: [Id] -> [(PrimRep, Id)]
+addIdReps :: [Id] -> [([PrimRep], Id)]
 addIdReps ids = [(idPrimRep id, id) | id <- ids]
 
-addArgReps :: [StgArg] -> [(PrimRep, StgArg)]
-addArgReps args = [(argPrimRep arg, arg) | arg <- args]
-
-argPrimRep :: StgArg -> PrimRep
+argPrimRep :: StgArg -> [PrimRep]
 argPrimRep arg = typePrimRep (stgArgType arg)
-
-isVoidRep :: PrimRep -> Bool
-isVoidRep VoidRep = True
-isVoidRep _other  = False
 
 isGcPtrRep :: PrimRep -> Bool
 isGcPtrRep PtrRep = True
@@ -127,7 +120,7 @@ isGcPtrRep _      = False
 data LambdaFormInfo
   = LFReEntrant		-- Reentrant closure (a function)
 	TopLevelFlag	-- True if top level
-	!Int		-- Arity. Invariant: always > 0
+	!Arity		-- Arity. INVARIANT: > 0
 	!Bool		-- True <=> no fvs
 	ArgDescr	-- Argument descriptor (should really be in ClosureInfo)
 
@@ -188,20 +181,20 @@ data StandardFormInfo
 	-- The code for the thunk just pushes x2..xn on the stack and enters x1.
 	-- There are a few of these (for 1 <= n <= MAX_SPEC_AP_SIZE) pre-compiled
 	-- in the RTS to save space.
-	Int		-- Arity, n
+	Arity		-- Arity, n
 
 
 ------------------------------------------------------
 --		Building LambdaFormInfo
 ------------------------------------------------------
 
-mkLFArgument :: Id -> LambdaFormInfo
-mkLFArgument id 
-  | isUnLiftedType ty  	   = LFUnLifted
-  | might_be_a_function ty = LFUnknown True
-  | otherwise 		   = LFUnknown False
-  where
-    ty = idType id
+mkLFArgument :: Type -> [LambdaFormInfo]
+mkLFArgument ty
+  | [] <- typePrimRep ty   = []
+  | Just (tc, tys) <- splitTyConApp_maybe ty
+  , isUnboxedTupleTyCon tc = concatMap mkLFArgument tys
+  | isUnLiftedType ty  	   = [LFUnLifted]
+  | otherwise 		   = [LFUnknown (might_be_a_function ty)]
 
 -------------
 mkLFLetNoEscape :: LambdaFormInfo
@@ -252,21 +245,24 @@ mkApLFInfo id upd_flag arity
 	(might_be_a_function (idType id))
 
 -------------
-mkLFImported :: Id -> LambdaFormInfo
+
+-- Returns Nothing info for an Id with Void representation
+mkLFImported :: Id -> Maybe LambdaFormInfo
 mkLFImported id
   | Just con <- isDataConWorkId_maybe id
   , isNullaryRepDataCon con
-  = LFCon con	-- An imported nullary constructor
+  = Just $ LFCon con	-- An imported nullary constructor
 		-- We assume that the constructor is evaluated so that
 		-- the id really does point directly to the constructor
 
-  | arity > 0
-  = LFReEntrant TopLevel arity True (panic "arg_descr")
+  | idArity id > 0
+  = Just $ LFReEntrant TopLevel (idArity id) True (panic "arg_descr")
 
   | otherwise
-  = mkLFArgument id -- Not sure of exact arity
-  where
-    arity = idArity id
+  = case mkLFArgument (idType id) of
+      []   -> Nothing
+      [lf] -> Just lf -- Not sure of exact arity
+      _    -> pprPanic "mkLFImported: unboxed-tuple import?" (ppr id)
 
 ------------
 mkLFBlackHole :: LambdaFormInfo
@@ -309,7 +305,7 @@ tagForCon con
     con_tag  = dataConTagZ con
     fam_size = tyConFamilySize (dataConTyCon con)
 
-tagForArity :: Int -> DynTag
+tagForArity :: Arity -> DynTag
 tagForArity arity | isSmallFamily arity = arity
                   | otherwise           = 0
 
@@ -458,13 +454,13 @@ data CallMethod
 
   | DirectEntry 	-- Jump directly, with args in regs
 	CLabel 		--   The code label
-	Int 		--   Its arity
+	Arity 	        --   Its arity
 
 getCallMethod :: DynFlags
-              -> Name           -- Function being applied
-              -> CafInfo        -- Can it refer to CAF's?
-	      -> LambdaFormInfo	-- Its info
-	      -> Int		-- Number of available arguments
+              -> Name            -- Function being applied
+              -> CafInfo         -- Can it refer to CAF's?
+	      -> LambdaFormInfo	 -- Its info
+	      -> Arity           -- Number of available arguments
 	      -> CallMethod
 
 getCallMethod _ _name _ lf_info _n_args
@@ -475,10 +471,12 @@ getCallMethod _ _name _ lf_info _n_args
     EnterIt
 
 getCallMethod _ name caf (LFReEntrant _ arity _ _) n_args
-  | n_args == 0    = ASSERT( arity /= 0 )
-		     ReturnIt	-- No args at all
-  | n_args < arity = SlowCall	-- Not enough args
-  | otherwise      = DirectEntry (enterIdLabel name caf) arity
+  | n_args == 0
+  = ReturnIt       -- No args at all
+  | n_args < arity
+  = SlowCall     -- Not enough args
+  | otherwise
+  = DirectEntry (enterIdLabel name caf) arity
 
 getCallMethod _ _name _ LFUnLifted n_args
   = ASSERT( n_args == 0 ) ReturnIt
@@ -513,8 +511,8 @@ getCallMethod dflags name caf (LFThunk _ _ updatable std_form_info is_fun) n_arg
 getCallMethod _ _name _ (LFUnknown True) _n_args
   = SlowCall -- might be a function
 
-getCallMethod _ name _ (LFUnknown False) n_args
-  = ASSERT2 ( n_args == 0, ppr name <+> ppr n_args ) 
+getCallMethod _ name _ (LFUnknown False) _n_args
+  = ASSERT2 ( _n_args == 0, ppr name <+> ppr _n_args ) 
     EnterIt -- Not a function
 
 getCallMethod _ _name _ LFBlackHole _n_args
@@ -744,10 +742,10 @@ closureReEntrant :: ClosureInfo -> Bool
 closureReEntrant (ClosureInfo { closureLFInfo = LFReEntrant _ _ _ _ }) = True
 closureReEntrant _ = False
 
-closureFunInfo :: ClosureInfo -> Maybe (Int, ArgDescr)
+closureFunInfo :: ClosureInfo -> Maybe (Arity, ArgDescr)
 closureFunInfo (ClosureInfo { closureLFInfo = lf_info }) = lfFunInfo lf_info
 
-lfFunInfo :: LambdaFormInfo ->  Maybe (Int, ArgDescr)
+lfFunInfo :: LambdaFormInfo ->  Maybe (Arity, ArgDescr)
 lfFunInfo (LFReEntrant _ arity _ arg_desc)  = Just (arity, arg_desc)
 lfFunInfo _                                 = Nothing
 

@@ -36,7 +36,7 @@ import CLabel
 
 import Constants
 import CgStackery
-import ClosureInfo( CgRep(..), nonVoidArg, idCgRep, cgRepSizeW, isFollowableArg )
+import ClosureInfo( CgRep(..), idCgRep, cgRepSizeW, isFollowableArg )
 import OldCmmUtils
 import Maybes
 import Id
@@ -45,7 +45,6 @@ import Util
 import StaticFlags
 import Module
 import FastString
-import Outputable
 import Data.Bits
 
 -------------------------------------------------------------------------
@@ -71,8 +70,7 @@ mkArgDescr _nm args
         Nothing      -> return (ArgGen arg_bits)
   where
     arg_bits = argBits arg_reps
-    arg_reps = filter nonVoidArg (map idCgRep args)
-        -- Getting rid of voids eases matching of standard patterns
+    arg_reps = concatMap idCgRep args
 
 argBits :: [CgRep] -> [Bool]    -- True for non-ptr, False for ptr
 argBits []              = []
@@ -118,7 +116,7 @@ stdPattern _ = Nothing
 -- GET_NON_PTRS(), GET_PTRS(), GET_LIVENESS().
 -------------------------------------------------------------------------
 
-mkRegLiveness :: [(Id, GlobalReg)] -> Int -> Int -> StgWord
+mkRegLiveness :: [(CgRep, GlobalReg)] -> Int -> Int -> StgWord
 mkRegLiveness regs ptrs nptrs
   = (fromIntegral nptrs `shiftL` 16) .|.
     (fromIntegral ptrs  `shiftL` 24) .|.
@@ -127,7 +125,7 @@ mkRegLiveness regs ptrs nptrs
     all_non_ptrs = 0xff
 
     reg_bits [] = 0
-    reg_bits ((id, VanillaReg i _) : regs) | isFollowableArg (idCgRep id)
+    reg_bits ((cgrep, VanillaReg i _) : regs) | isFollowableArg cgrep
         = (1 `shiftL` (i - 1)) .|. reg_bits regs
     reg_bits (_ : regs)
         = reg_bits regs
@@ -141,10 +139,10 @@ mkRegLiveness regs ptrs nptrs
 -- For a slow call, we must take a bunch of arguments and intersperse
 -- some stg_ap_<pattern>_ret_info return addresses.
 constructSlowCall
-        :: [(CgRep,CmmExpr)]
+        :: [[(CgRep,CmmExpr)]]
         -> (CLabel,             -- RTS entry point for call
            [(CgRep,CmmExpr)],   -- args to pass to the entry point
-           [(CgRep,CmmExpr)])   -- stuff to save on the stack
+           [[(CgRep,CmmExpr)]]) -- stuff to save on the stack
 
    -- don't forget the zero case
 constructSlowCall []
@@ -159,7 +157,7 @@ constructSlowCall amodes
 -- | 'slowArgs' takes a list of function arguments and prepares them for
 -- pushing on the stack for "extra" arguments to a function which requires
 -- fewer arguments than we currently have.
-slowArgs :: [(CgRep,CmmExpr)] -> [(CgRep,CmmExpr)]
+slowArgs :: [[(CgRep,CmmExpr)]] -> [(CgRep,CmmExpr)]
 slowArgs [] = []
 slowArgs amodes
   | opt_SccProfilingOn = save_cccs ++ this_pat ++ slowArgs rest
@@ -171,29 +169,30 @@ slowArgs amodes
     save_cccs  = [(NonPtrArg, mkLblExpr save_cccs_lbl), (NonPtrArg, curCCS)]
     save_cccs_lbl = mkCmmRetInfoLabel rtsPackageId (fsLit "stg_restore_cccs")
 
-matchSlowPattern :: [(CgRep,CmmExpr)]
-                 -> (FastString, [(CgRep,CmmExpr)], [(CgRep,CmmExpr)])
-matchSlowPattern amodes = (arg_pat, these, rest)
-  where (arg_pat, n)  = slowCallPattern (map fst amodes)
+matchSlowPattern :: [[(CgRep,CmmExpr)]]
+                 -> (FastString, [(CgRep,CmmExpr)], [[(CgRep,CmmExpr)]])
+matchSlowPattern amodes = (arg_pat, concat these, rest)
+  where (arg_pat, n)  = slowCallPattern (map (map fst) amodes)
         (these, rest) = splitAt n amodes
 
 -- These cases were found to cover about 99% of all slow calls:
-slowCallPattern :: [CgRep] -> (FastString, Int)
-slowCallPattern (PtrArg: PtrArg: PtrArg: PtrArg: PtrArg: PtrArg: _) = (fsLit "stg_ap_pppppp", 6)
-slowCallPattern (PtrArg: PtrArg: PtrArg: PtrArg: PtrArg: _)         = (fsLit "stg_ap_ppppp", 5)
-slowCallPattern (PtrArg: PtrArg: PtrArg: PtrArg: _)     = (fsLit "stg_ap_pppp", 4)
-slowCallPattern (PtrArg: PtrArg: PtrArg: VoidArg: _)    = (fsLit "stg_ap_pppv", 4)
-slowCallPattern (PtrArg: PtrArg: PtrArg: _)             = (fsLit "stg_ap_ppp", 3)
-slowCallPattern (PtrArg: PtrArg: VoidArg: _)            = (fsLit "stg_ap_ppv", 3)
-slowCallPattern (PtrArg: PtrArg: _)                     = (fsLit "stg_ap_pp", 2)
-slowCallPattern (PtrArg: VoidArg: _)                    = (fsLit "stg_ap_pv", 2)
-slowCallPattern (PtrArg: _)                             = (fsLit "stg_ap_p", 1)
-slowCallPattern (VoidArg: _)                            = (fsLit "stg_ap_v", 1)
-slowCallPattern (NonPtrArg: _)                          = (fsLit "stg_ap_n", 1)
-slowCallPattern (FloatArg: _)                           = (fsLit "stg_ap_f", 1)
-slowCallPattern (DoubleArg: _)                          = (fsLit "stg_ap_d", 1)
-slowCallPattern (LongArg: _)                            = (fsLit "stg_ap_l", 1)
-slowCallPattern _                                       = panic "CgStackery.slowCallPattern"
+slowCallPattern :: [[CgRep]] -> (FastString, Int)
+slowCallPattern ([PtrArg]: [PtrArg]: [PtrArg]: [PtrArg]: [PtrArg]: [PtrArg]: _) = (fsLit "stg_ap_pppppp", 6)
+slowCallPattern ([PtrArg]: [PtrArg]: [PtrArg]: [PtrArg]: [PtrArg]: _)           = (fsLit "stg_ap_ppppp", 5)
+slowCallPattern ([PtrArg]: [PtrArg]: [PtrArg]: [PtrArg]: _)                     = (fsLit "stg_ap_pppp", 4)
+slowCallPattern ([PtrArg]: [PtrArg]: [PtrArg]: []: _)                           = (fsLit "stg_ap_pppv", 4)
+slowCallPattern ([PtrArg]: [PtrArg]: [PtrArg]: _)                               = (fsLit "stg_ap_ppp", 3)
+slowCallPattern ([PtrArg]: [PtrArg]: []: _)                                     = (fsLit "stg_ap_ppv", 3)
+slowCallPattern ([PtrArg]: [PtrArg]: _)                                         = (fsLit "stg_ap_pp", 2)
+slowCallPattern ([PtrArg]: []: _)                                               = (fsLit "stg_ap_pv", 2)
+slowCallPattern ([PtrArg]: _)                                                   = (fsLit "stg_ap_p", 1)
+slowCallPattern ([NonPtrArg]: _)                                                = (fsLit "stg_ap_n", 1)
+slowCallPattern ([FloatArg]: _)                                                 = (fsLit "stg_ap_f", 1)
+slowCallPattern ([DoubleArg]: _)                                                = (fsLit "stg_ap_d", 1)
+slowCallPattern ([LongArg]: _)                                                  = (fsLit "stg_ap_l", 1)
+slowCallPattern ([]: _)                                                         = (fsLit "stg_ap_v", 1)
+slowCallPattern (rs: _)                                                         = (error "FIXME" rs, 1)
+slowCallPattern []                                                              = (fsLit "stg_ap_0", 0)
 
 -------------------------------------------------------------------------
 --
@@ -207,7 +206,6 @@ dataReturnConvPrim NonPtrArg = CmmGlobal (VanillaReg 1 VNonGcPtr)
 dataReturnConvPrim LongArg   = CmmGlobal (LongReg 1)
 dataReturnConvPrim FloatArg  = CmmGlobal (FloatReg 1)
 dataReturnConvPrim DoubleArg = CmmGlobal (DoubleReg 1)
-dataReturnConvPrim VoidArg   = panic "dataReturnConvPrim: void"
 
 
 -- getSequelAmode returns an amode which refers to an info table.  The info
@@ -281,14 +279,12 @@ assignReturnRegs args
  -- Also, the bytecode compiler assumes this when compiling
  -- case expressions and ccalls, so it only needs to know one set of
  -- return conventions.
- | [(rep,arg)] <- non_void_args, CmmGlobal r <- dataReturnConvPrim rep
+ | [(rep,arg)] <- args, CmmGlobal r <- dataReturnConvPrim rep
     = ([(arg, r)], [])
  | otherwise
     = assign_regs args (mkRegTbl [])
         -- For returning unboxed tuples etc,
-        -- we use all regs
- where
-       non_void_args = filter ((/= VoidArg).fst) args
+        -- we use all r
 
 assign_regs :: [(CgRep,a)]      -- Arg or result values to assign
             -> AvailRegs        -- Regs still avail: Vanilla, Float, Double, Longs
@@ -297,8 +293,6 @@ assign_regs args supply
   = go args [] supply
   where
     go [] acc _ = (acc, [])     -- Return the results reversed (doesn't matter)
-    go ((VoidArg,_) : args) acc supply  -- Skip void arguments; they aren't passed, and
-        = go args acc supply            -- there's nothing to bind them to
     go ((rep,arg) : args) acc supply
         = case assign_reg rep supply of
                 Just (reg, supply') -> go args ((arg,reg):acc) supply'
