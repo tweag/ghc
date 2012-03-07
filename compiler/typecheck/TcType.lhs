@@ -1421,9 +1421,7 @@ marshalableTyCon :: DynFlags -> TyCon -> Bool
 marshalableTyCon dflags tc
   =  (xopt Opt_UnliftedFFITypes dflags 
       && isUnLiftedTyCon tc
-      && case tyConPrimRep tc of	-- Note [Marshalling VoidRep]
-	   [_] -> True
-	   _   -> False)
+      && not (isUnboxedTupleTyCon tc))
   || boxedMarshalableTyCon tc
 
 boxedMarshalableTyCon :: TyCon -> Bool

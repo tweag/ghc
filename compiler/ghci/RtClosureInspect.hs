@@ -795,7 +795,20 @@ extractSubTerms recurse clos = liftM thirdOf3 . go 0 (nonPtrs clos)
            return (ptr_i, ws, terms0 ++ terms1)
       | otherwise
       = case typePrimRep ty of
-          []       -> go ptr_i ws tys
+          []       -> do
+            -- If we confirm that this is a type represented by void then
+            -- we can represent it as a nullary Prim in the output term.
+            -- This is necessary so that for a GADT like this:
+            --  data Foo a where FooCon :: Int -> Foo Int
+            --
+            -- The output Term looks like:
+            --  Term (Left Foo) [Prim [], Term (Left I#) [..]]
+            --
+            -- This is that when we drop the "theta" from the list of
+            -- terms when displaying the Foo, we drop the (Prim []) and NOT
+            -- the Term (Left I#). If you don't do this then print012 will fail.
+            (ptr_i, ws, terms) <- go ptr_i ws tys
+            return (ptr_i, ws, Prim ty [] : terms)
           [rep] -> do
             (ptr_i, ws, term0)  <- go_rep ptr_i ws ty rep
             (ptr_i, ws, terms1) <- go ptr_i ws tys
@@ -819,44 +832,6 @@ extractSubTerms recurse clos = liftM thirdOf3 . go 0 (nonPtrs clos)
       _ -> do
         let (ws0, ws1) = splitAt (primRepSizeW rep) ws
         return (ptr_i, ws1, Prim ty ws0)
-
-
-
-            {-
-            let (subTtypesP, subTtypesNP) = partition isPtrType subTtypes
-            subTermsP <- sequence
-                  [ appArr (go (pred max_depth) ty ty) (ptrs clos) i
-                  | (i,ty) <- zip [0..] subTtypesP]
-            let unboxeds   = extractUnboxed subTtypesNP clos
-                subTermsNP = zipWith Prim subTtypesNP unboxeds
-                subTerms   = reOrderTerms subTermsP subTermsNP subTtypes
-
-
-
-extractUnboxed  :: [Type] -> Closure -> [[Word]]
-extractUnboxed tt clos = go tt (nonPtrs clos)
-   where sizeofType t = primRepSizeW (typePrimRep t)
-         go [] _ = []
-         go (t:tt) xx 
-           | (x, rest) <- splitAt (sizeofType t) xx
-           = x : go tt rest
-
-
-
-
-  -- put together pointed and nonpointed subterms in the
-  --  correct order.
-  reOrderTerms _ _ [] = []
-  reOrderTerms pointed unpointed (ty:tys) 
-   | isPtrType ty = ASSERT2(not(null pointed)
-                            , ptext (sLit "reOrderTerms") $$ 
-                                        (ppr pointed $$ ppr unpointed))
-                    let (t:tt) = pointed in t : reOrderTerms tt unpointed tys
-   | otherwise    = ASSERT2(not(null unpointed)
-                           , ptext (sLit "reOrderTerms") $$ 
-                                       (ppr pointed $$ ppr unpointed))
-                    let (t:tt) = unpointed in t : reOrderTerms pointed tt tys
-            -}
 
 
 -- Fast, breadth-first Type reconstruction
