@@ -178,21 +178,14 @@ cgCase (StgApp v []) _live_in_whole_case _live_in_alts bndr
 
 Special case #2.5; seq#
 
-  case seq# a s of v
-    (# s', a' #) -> e
-
-  ==>
-
-  case a of v
-    (# s', a' #) -> e
-
   (taking advantage of the fact that the return convention for (# State#, a #)
   is the same as the return convention for just 'a')
 
 \begin{code}
 cgCase (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _)
-       live_in_whole_case live_in_alts bndr alt_type alts
-  = cgCase (StgApp a []) live_in_whole_case live_in_alts bndr alt_type alts
+       _live_in_whole_case live_in_alts bndr alt_type alts
+  = do { fun_info <- getCgIdInfo a
+       ; cgCaseOfApp fun_info [] live_in_alts bndr alt_type alts }
 \end{code}
 
 Special case #3: inline PrimOps and foreign calls.
@@ -240,25 +233,7 @@ cgCase (StgApp fun args)
         _live_in_whole_case live_in_alts bndr alt_type alts
   = do  { fun_info <- getCgIdInfo fun
         ; arg_amodes <- mapM getArgAmodes args
-
-        -- Nuking dead bindings *before* calculating the saves is the
-        -- value-add here.  We might end up freeing up some slots currently
-        -- occupied by variables only required for the call.
-        -- NOTE: we need to look up the variables used in the call before
-        -- doing this, because some of them may not be in the environment
-        -- afterward.
-        ; nukeDeadBindings live_in_alts
-        ; (save_assts, alts_eob_info, maybe_cc_slot)
-            <- saveVolatileVarsAndRegs live_in_alts
-
-        ; scrut_eob_info
-            <- forkEval alts_eob_info
-                        (allocStackTop retAddrSizeW >> nopC)
-                        (do { deAllocStackTop retAddrSizeW
-                            ; cgEvalAlts maybe_cc_slot bndr alt_type alts })
-
-        ; setEndOfBlockInfo scrut_eob_info
-                            (performTailCall fun_info arg_amodes save_assts) }
+        ; cgCaseOfApp fun_info arg_amodes live_in_alts bndr alt_type alts }
 \end{code}
 
 Note about return addresses: we *always* push a return address, even
@@ -296,6 +271,35 @@ cgCase expr live_in_whole_case live_in_alts bndr alt_type alts
 
         ; setEndOfBlockInfo scrut_eob_info (cgExpr expr)
     }
+\end{code}
+
+\begin{code}
+cgCaseOfApp :: CgIdInfo
+            -> [[(CgRep, CmmExpr)]]
+            -> StgLiveVars
+            -> Id
+            -> AltType
+            -> [StgAlt]
+            -> Code
+cgCaseOfApp fun_info arg_amodes live_in_alts bndr alt_type alts
+ = do { -- Nuking dead bindings *before* calculating the saves is the
+        -- value-add here.  We might end up freeing up some slots currently
+        -- occupied by variables only required for the call.
+        -- NOTE: we need to look up the variables used in the call before
+        -- doing this, because some of them may not be in the environment
+        -- afterward.
+        ; nukeDeadBindings live_in_alts
+        ; (save_assts, alts_eob_info, maybe_cc_slot)
+            <- saveVolatileVarsAndRegs live_in_alts
+
+        ; scrut_eob_info
+            <- forkEval alts_eob_info
+                        (allocStackTop retAddrSizeW >> nopC)
+                        (do { deAllocStackTop retAddrSizeW
+                            ; cgEvalAlts maybe_cc_slot bndr alt_type alts })
+
+        ; setEndOfBlockInfo scrut_eob_info
+                            (performTailCall fun_info arg_amodes save_assts) }
 \end{code}
 
 There's a lot of machinery going on behind the scenes to manage the
@@ -418,7 +422,9 @@ cgEvalAlts :: Maybe VirtualSpOffset     -- Offset of cost-centre to be restored,
 
 cgEvalAlts cc_slot bndr alt_type@(PrimAlt tycon) alts
   = do  { let   reps = tyConCgRep tycon
-                regs = map dataReturnConvPrim reps
+                regs = case reps of []    -> []
+                                    [rep] -> [dataReturnConvPrim rep]
+                                    _     -> panic "cgEvalAlts"
 
         ; abs_c <- forkProc $ do
                 {       -- Bind the case binder

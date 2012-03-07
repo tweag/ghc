@@ -312,12 +312,12 @@ performReturn finish_code
 performPrimReturn :: [(CgRep, CmmExpr)] -> Code
 
 -- works for both void, non-void and unboxed-tuple Id return values
-performPrimReturn rep_amodes
-  = do { live_regs <- forM rep_amodes $ \(rep, amode) -> do
-            let ret_reg@(CmmGlobal r) = dataReturnConvPrim rep
-            stmtC (CmmAssign ret_reg amode)
-            return r
-       ; performReturn $ emitReturnInstr (Just live_regs) }
+performPrimReturn [] = performReturn $ emitReturnInstr (Just [])
+performPrimReturn [(rep, amode)]
+  = do { let ret_reg@(CmmGlobal r) = dataReturnConvPrim rep
+       ; stmtC (CmmAssign ret_reg amode)
+       ; performReturn $ emitReturnInstr (Just [r]) }
+performPrimReturn rep_amodes = returnUnboxedTuple rep_amodes
 
 
 -- ---------------------------------------------------------------------------
