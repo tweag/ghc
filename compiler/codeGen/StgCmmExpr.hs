@@ -313,28 +313,26 @@ cgCase (OpApp ) bndr srt AlgAlt [(DataAlt flase, a2]
   -- code that enters the HValue, then we'll get a runtime panic, because
   -- the HValue really is a MutVar#.  The types are compatible though,
   -- so we can just generate an assignment.
-cgCase (StgApp v []) bndr _ alt_type@(PrimAlt _) alts
-  | isUnLiftedType (idType v)
-  || reps_compatible
-  = -- assignment suffices for unlifted types
-    do { when (not reps_compatible) $
-           panic "cgCase: reps do not match, perhaps a dodgy unsafeCoerce?"
-       ; v_info <- getCgIdInfo v
-       ; regs <- idToReg bndr
-       ; zipWithM_ (\reg expr -> emit (mkAssign (CmmLocal reg) expr)) regs (idInfoToAmodes v_info)
-       ; bindArgToReg bndr regs
-       ; cgAlts NoGcInAlts regs bndr alt_type alts }
+cgCase (StgApp v []) bndr _ alt_type alts
+  | case alt_type of PrimAlt _ -> True; UbxTupAlt _ -> True; _ -> False
+  = if isUnLiftedType (idType v) || reps_compatible
+    then -- assignment suffices for unlifted types
+     do { when (not reps_compatible) $
+            panic "cgCase: reps do not match, perhaps a dodgy unsafeCoerce?"
+        ; v_info <- getCgIdInfo v
+        ; regs <- idToReg bndr
+        ; zipWithM_ (\reg expr -> emit (mkAssign (CmmLocal reg) expr)) regs (idInfoToAmodes v_info)
+        ; bindArgToReg bndr regs
+        ; cgAlts NoGcInAlts regs bndr alt_type alts }
+    else -- fail at run-time, not compile-time
+     do { mb_cc <- maybeSaveCostCentre True
+        ; regs <- idToReg v
+        ; withSequel (AssignTo regs False) (cgExpr (StgApp v []))
+        ; restoreCurrentCostCentre mb_cc
+        ; emit $ mkComment $ mkFastString "should be unreachable code"
+        ; emit $ withFreshLabel "l" (\l -> mkLabel l <*> mkBranch l)}
   where
     reps_compatible = idPrimRep v == idPrimRep bndr
-
-cgCase scrut@(StgApp v []) _ _ (PrimAlt _) _ 
-  = -- fail at run-time, not compile-time
-    do { mb_cc <- maybeSaveCostCentre True
-       ; regs <- idToReg v
-       ; withSequel (AssignTo regs False) (cgExpr scrut)
-       ; restoreCurrentCostCentre mb_cc
-       ; emit $ mkComment $ mkFastString "should be unreachable code"
-       ; emit $ withFreshLabel "l" (\l -> mkLabel l <*> mkBranch l)}
 
 {-
 case seq# a s of v
@@ -348,17 +346,16 @@ case a of v
 (taking advantage of the fact that the return convention for (# State#, a #)
 is the same as the return convention for just 'a')
 -}
-cgCase (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _) bndr srt alt_type alts
-  = -- handle seq#, same return convention as vanilla 'a'.
-    cgCase (StgApp a []) bndr srt alt_type alts
-
 cgCase scrut bndr srt alt_type alts 
   = -- the general case
     do { up_hp_usg <- getVirtHp        -- Upstream heap usage
-       ; let ret_bndrs = chooseReturnBndrs bndr alt_type alts
+         -- handle seq#, same return convention as vanilla 'a'.
+       ; let scrut' = case scrut of (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _) -> StgApp a []
+                                    _ -> scrut
+             ret_bndrs = chooseReturnBndrs bndr alt_type alts
        ; alts_regss <- mapM idToReg ret_bndrs
        ; let alt_regs = concat alts_regss
-             simple_scrut = isSimpleScrut scrut alt_type
+             simple_scrut = isSimpleScrut scrut' alt_type
              gcInAlts | not simple_scrut = True
                       | isSingleton alts = False
                       | up_hp_usg > 0    = False
@@ -366,7 +363,7 @@ cgCase scrut bndr srt alt_type alts
              gc_plan = if gcInAlts then GcInAlts alt_regs srt else NoGcInAlts
 
        ; mb_cc <- maybeSaveCostCentre simple_scrut
-       ; withSequel (AssignTo alt_regs gcInAlts) (cgExpr scrut)
+       ; withSequel (AssignTo alt_regs gcInAlts) (cgExpr scrut')
        ; restoreCurrentCostCentre mb_cc
 
   -- JD: We need Note: [Better Alt Heap Checks]
@@ -386,10 +383,11 @@ isSimpleScrut :: StgExpr -> AltType -> Bool
 -- heap usage from alternatives into the stuff before the case
 -- NB: if you get this wrong, and claim that the expression doesn't allocate
 --     when it does, you'll deeply mess up allocation
-isSimpleScrut (StgOpApp op _ _) _          = isSimpleOp op
-isSimpleScrut (StgLit _)       _           = True	-- case 1# of { 0# -> ..; ... }
-isSimpleScrut (StgApp _ [])    (PrimAlt _) = True	-- case x# of { 0# -> ..; ... }
-isSimpleScrut _		       _           = False
+isSimpleScrut (StgOpApp op _ _) _            = isSimpleOp op
+isSimpleScrut (StgLit _)       _             = True	-- case 1# of { 0# -> ..; ... }
+isSimpleScrut (StgApp _ [])    (PrimAlt _)   = True	-- case x# of { 0# -> ..; ... }
+isSimpleScrut (StgApp _ [])    (UbxTupAlt _) = True -- case x of { (# a, b #) -> .. }
+isSimpleScrut _		             _             = False
 
 isSimpleOp :: StgOp -> Bool
 -- True iff the op cannot block or allocate
