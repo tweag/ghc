@@ -927,7 +927,7 @@ parseName str = withSession $ \hsc_env -> do
 exprType :: GhcMonad m => String -> m Type
 exprType expr = withSession $ \hsc_env -> do
    ty <- liftIO $ hscTcExpr hsc_env expr
-   return $ tidyType emptyTidyEnv ty
+   return {-$ tidyType emptyTidyEnv-} ty
 
 -- -----------------------------------------------------------------------------
 -- Getting the kind of a type

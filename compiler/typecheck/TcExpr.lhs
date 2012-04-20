@@ -63,6 +63,9 @@ import ErrUtils
 import Outputable
 import FastString
 import Control.Monad
+
+import TypeRep
+import qualified Data.Map as Map
 \end{code}
 
 %************************************************************************
@@ -90,6 +93,7 @@ tcPolyExprNC expr res_ty
   = do { traceTc "tcPolyExprNC" (ppr res_ty)
        ; (gen_fn, expr') <- tcGen GenSigCtxt res_ty $ \ _ rho ->
 			    tcMonoExprNC expr rho
+       ; sk <- deeplySkolemise res_ty
        ; return (mkLHsWrap gen_fn expr') }
 
 ---------------
@@ -214,6 +218,16 @@ tcExpr (HsType ty) _
 	-- so it's not enabled yet.
 	-- Can't eliminate it altogether from the parser, because the
 	-- same parser parses *patterns*.
+tcExpr (HsHole name) res_ty
+  = do { traceTc "tcExpr.HsHole" (ppr $ res_ty)
+       ; let origin = OccurrenceOf name
+       ; ty <- newFlexiTyVarTy liftedTypeKind
+       
+       -- Emit the constraint
+       ; var <- emitWanted origin (mkHolePred name ty)
+       ; traceTc "tcExpr.HsHole: Creating new ty for hole" (ppr ty)
+
+       ; tcWrapResult (HsHole var) ty res_ty }
 \end{code}
 
 

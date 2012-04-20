@@ -344,6 +344,10 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
          { token ITcubxparen }
 }
 
+<0> {
+  \_\? @varid { strtoken (IThole . mkFastString) }
+}
+
 <0,option_prags> {
   \(                                    { special IToparen }
   \)                                    { special ITcparen }
@@ -544,6 +548,7 @@ data Token
   | ITprefixqconsym (FastString,FastString)
 
   | ITdupipvarid   FastString   -- GHC extension: implicit param: ?x
+  | IThole         FastString
 
   | ITchar       Char
   | ITstring     FastString

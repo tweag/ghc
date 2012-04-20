@@ -285,6 +285,9 @@ data CCanMap a = CCanMap { cts_given   :: UniqFM Cts
                          , cts_wanted  :: UniqFM Cts } 
                                           -- Invariant: all Wanted
 
+instance Outputable (CCanMap a) where
+  ppr (CCanMap given derived wanted) = ptext (sLit "CCanMap") <+> (ppr given) <+> (ppr derived) <+> (ppr wanted)
+
 cCanMapToBag :: CCanMap a -> Cts 
 cCanMapToBag cmap = foldUFM unionBags rest_wder (cts_given cmap)
   where rest_wder = foldUFM unionBags rest_der  (cts_wanted cmap) 
@@ -355,7 +358,6 @@ extractUnsolvedCMap cmap =
   in (wntd `unionBags` derd, 
       cmap { cts_wanted = emptyUFM, cts_derived = emptyUFM })
 
-
 -- Maps from PredTypes to Constraints
 type CtTypeMap = TypeMap Ct
 newtype CtPredMap = 
@@ -421,6 +423,7 @@ data InertCans
               -- Family equations, index is the whole family head type.
        , inert_irreds :: Cts       
               -- Irreducible predicates
+       , inert_holes :: CCanMap Name
        }
     
                      
@@ -497,6 +500,7 @@ instance Outputable InertCans where
                  , vcat (map ppr (Bag.bagToList $ 
                                   ctTypeMapCts (unCtFamHeadMap $ inert_funeqs ics)))
                  , vcat (map ppr (Bag.bagToList $ inert_irreds ics))
+                 , vcat (map ppr (Bag.bagToList $ cCanMapToBag (inert_holes ics)))
                  ]
             
 instance Outputable InertSet where 
@@ -515,7 +519,8 @@ emptyInert
                          , inert_dicts  = emptyCCanMap
                          , inert_ips    = emptyCCanMap
                          , inert_funeqs = CtFamHeadMap emptyTM 
-                         , inert_irreds = emptyCts }
+                         , inert_irreds = emptyCts
+                         , inert_holes  = emptyCCanMap }
        , inert_frozen        = emptyCts
        , inert_flat_cache    = CtFamHeadMap emptyTM
        , inert_solved        = CtPredMap emptyTM 
@@ -563,6 +568,9 @@ updInertSet is item
 
           | Just x  <- isCIPCan_Maybe item      -- IP 
           = ics { inert_ips   = updCCanMap (x,item) (inert_ips ics) }  
+
+          | Just x <- isCHoleCan_Maybe item
+          = ics { inert_holes = updCCanMap (x,item) (inert_holes ics) }
             
           | isCIrredEvCan item                  -- Presently-irreducible evidence
           = ics { inert_irreds = inert_irreds ics `Bag.snocBag` item }
@@ -639,6 +647,7 @@ extractUnsolved (IS { inert_cans = IC { inert_eqs    = eqs
                                       , inert_ips    = ips
                                       , inert_funeqs = funeqs
                                       , inert_dicts  = dicts
+                                      , inert_holes  = holes
                                       }
                     , inert_frozen = frozen
                     , inert_solved = solved
@@ -651,7 +660,8 @@ extractUnsolved (IS { inert_cans = IC { inert_eqs    = eqs
                                           , inert_dicts  = solved_dicts
                                           , inert_ips    = solved_ips
                                           , inert_irreds = solved_irreds
-                                          , inert_funeqs = solved_funeqs }
+                                          , inert_funeqs = solved_funeqs
+                                          , inert_holes  = solved_holes }
                         , inert_frozen = emptyCts -- All out
                                          
                               -- At some point, I used to flush all the solved, in 
@@ -674,8 +684,11 @@ extractUnsolved (IS { inert_cans = IC { inert_eqs    = eqs
         (unsolved_funeqs, solved_funeqs) = 
           partCtFamHeadMap (not . isGivenOrSolved . cc_flavor) funeqs
 
+        (unsolved_holes, solved_holes)   = extractUnsolvedCMap holes
+
         unsolved = unsolved_eqs `unionBags` unsolved_irreds `unionBags`
                    unsolved_ips `unionBags` unsolved_dicts `unionBags` unsolved_funeqs
+                   `unionBags` unsolved_holes
 
 
 
@@ -707,6 +720,9 @@ extractRelevantInerts wi
         extract_ics_relevants (CIPCan { cc_ip_nm = nm } ) ics = 
             let (cts, ips_map) = getRelevantCts nm (inert_ips ics) 
             in (cts, ics { inert_ips = ips_map })
+        extract_ics_relevants (CHoleCan { cc_hole_nm = nm } ) ics = 
+            let (cts, holes_map) = getRelevantCts nm (inert_holes ics) 
+            in (cts, ics { inert_holes = holes_map })
         extract_ics_relevants (CIrredEvCan { }) ics = 
             let cts = inert_irreds ics 
             in (cts, ics { inert_irreds = emptyCts })

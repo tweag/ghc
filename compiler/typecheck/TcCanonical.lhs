@@ -206,7 +206,11 @@ canonicalize (CIrredEvCan { cc_flavor = fl
                           , cc_depth = d
                           , cc_ty = xi })
   = canIrred d fl xi
-
+canonicalize (CHoleCan { cc_id = ev, cc_depth = d
+                       , cc_flavor = fl
+                       , cc_hole_nm = nm
+                       , cc_hole_ty = xi })
+  = canHole d fl nm xi
 
 canEvVar :: SubGoalDepth 
          -> CtFlavor 
@@ -220,6 +224,7 @@ canEvVar d fl pred_classifier
       IPPred nm ty      -> canIP      d fl nm ty
       IrredPred ev_ty   -> canIrred   d fl ev_ty
       TuplePred tys     -> canTuple   d fl tys
+      HolePred name ty  -> canHole    d fl name ty
 \end{code}
 
 
@@ -279,6 +284,21 @@ same type, and at that point we can generate a flattened equality
 constraint between the types.  (On the other hand, the types in two
 class constraints for the same class MAY be equal, so they need to be
 flattened in the first place to facilitate comparing them.)
+
+\begin{code}
+canHole :: SubGoalDepth -- Depth 
+      -> CtFlavor
+      -> Name -> Type -> TcS StopOrContinue
+canHole d fl nm ty
+  = do { (xi,co) <- flatten d fl (mkHolePred nm ty)
+       ; mb <- rewriteCtFlavor fl xi co 
+       ; case mb of
+            Just new_fl -> let HolePred _ xi_in = classifyPredType xi
+                           in continueWith $ CHoleCan { cc_flavor = new_fl
+                                                      , cc_hole_nm = nm, cc_hole_ty = xi_in
+                                                      , cc_depth = d }
+            Nothing -> return Stop }
+\end{code}
 
 %************************************************************************
 %*                                                                      *

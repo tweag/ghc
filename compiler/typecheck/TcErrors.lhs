@@ -71,10 +71,10 @@ reportUnsolved runtimeCoercionErrors wanted
          wanted  <- zonkWC wanted
 
        ; env0 <- tcInitTidyEnv
-       ; defer <- if runtimeCoercionErrors 
-                  then do { ev <- newTcEvBinds
-                          ; return (Just ev) }
-                  else return Nothing
+       ; defer <- newTcEvBinds -- if runtimeCoercionErrors 
+                  -- then do { ev <- newTcEvBinds
+                  --        ; return (Just ev) }
+                  -- else return Nothing
 
        ; errs_so_far <- ifErrsM (return True) (return False)
        ; let tidy_env = tidyFreeTyVars env0 free_tvs
@@ -83,15 +83,13 @@ reportUnsolved runtimeCoercionErrors wanted
                             , cec_insol = errs_so_far
                             , cec_extra = empty
                             , cec_tidy  = tidy_env
-                            , cec_defer = defer }
+                            , cec_defer = Just defer }
 
        ; traceTc "reportUnsolved" (ppr free_tvs $$ ppr wanted)
 
        ; reportWanteds err_ctxt wanted
 
-       ; case defer of
-           Nothing -> return emptyBag
-           Just ev -> getTcEvBinds ev }
+       ; getTcEvBinds defer }
 
 --------------------------------------------
 --      Internal functions
@@ -144,16 +142,28 @@ reportWanteds ctxt (WC { wc_flat = flats, wc_insol = insols, wc_impl = implics }
 
 reportTidyWanteds :: ReportErrCtxt -> Bag Ct -> Bag Ct -> Bag Implication -> TcM ()
 reportTidyWanteds ctxt insols flats implics
-  | Just ev_binds_var <- cec_defer ctxt
-  = do { -- Defer errors to runtime
-         -- See Note [Deferring coercion errors to runtime] in TcSimplify
-         mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr) 
-                  (flats `unionBags` insols)
-       ; mapBagM_ (reportImplic ctxt) implics }
-
-  | otherwise
-  = do { reportInsolsAndFlats ctxt insols flats
-       ; mapBagM_ (reportImplic ctxt) implics }
+  = do {
+     ; let Just ev_binds_var = cec_defer ctxt
+     ; runtimeCoercionErrors <- doptM Opt_DeferTypeErrors
+     ; if runtimeCoercionErrors then 
+       do { -- Defer errors to runtime
+             -- See Note [Deferring coercion errors to runtime] in TcSimplify
+             mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr) 
+                      (flats `unionBags` insols)
+           ; mapBagM_ (reportImplic ctxt) implics
+          }
+       else 
+       do {
+            ; traceTc "reportTidyWanteds" (ppr (filterBag (isHole) (flats `unionBags` insols)))
+            ; mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr)
+                       (filterBag isHole (flats `unionBags` insols))
+            ; reportInsolsAndFlats ctxt (filterBag (not.isHole) insols) (filterBag (not.isHole) flats)
+            ; mapBagM_ (reportImplic ctxt) implics
+          }
+     }
+       where isHole ct = case classifyPredType (ctPred ct) of
+                            HolePred {} -> True
+                            _           -> False
              
 
 deferToRuntime :: EvBindsVar -> ReportErrCtxt -> (ReportErrCtxt -> Ct -> TcM ErrMsg) 
@@ -261,6 +271,7 @@ mkFlatErr ctxt ct   -- The constraint is always wanted
       IPPred {}     -> mkIPErr    ctxt [ct]
       IrredPred {}  -> mkIrredErr ctxt [ct]
       EqPred {}     -> mkEqErr1 ctxt ct
+      HolePred {}   -> mkHoleErr  ctxt [ct]
       TuplePred {}  -> panic "mkFlat"
       
 reportAmbigErrs :: ReportErrCtxt -> Reporter
@@ -278,22 +289,24 @@ reportFlatErrs :: ReportErrCtxt -> Reporter
 reportFlatErrs ctxt cts
   = tryReporters
       [ ("Equalities", is_equality, groupErrs (mkEqErr ctxt)) ]
-      (\cts -> do { let (dicts, ips, irreds) = go cts [] [] []
+      (\cts -> do { let (dicts, ips, irreds, holes) = go cts [] [] [] []
                   ; groupErrs (mkIPErr    ctxt) ips   
                   ; groupErrs (mkIrredErr ctxt) irreds
+                  ; groupErrs (mkHoleErr  ctxt) holes
                   ; groupErrs (mkDictErr  ctxt) dicts })
       cts
   where
     is_equality _ (EqPred {}) = True
     is_equality _ _           = False
 
-    go [] dicts ips irreds
-      = (dicts, ips, irreds)
-    go (ct:cts) dicts ips irreds
+    go [] dicts ips irreds holes
+      = (dicts, ips, irreds, holes)
+    go (ct:cts) dicts ips irreds holes
       = case classifyPredType (ctPred ct) of
-          ClassPred {}  -> go cts (ct:dicts) ips irreds
-          IPPred {}     -> go cts dicts (ct:ips) irreds
-          IrredPred {}  -> go cts dicts ips (ct:irreds)
+          ClassPred {}  -> go cts (ct:dicts) ips irreds holes
+          IPPred {}     -> go cts dicts (ct:ips) irreds holes
+          IrredPred {}  -> go cts dicts ips (ct:irreds) holes
+          HolePred {}   -> go cts dicts ips irreds (ct:holes)
           _             -> panic "mkFlat"
     -- TuplePreds should have been expanded away by the constraint
     -- simplifier, so they shouldn't show up at this point
@@ -384,6 +397,19 @@ mkIrredErr ctxt cts
     msg = couldNotDeduce givens (map ctPred cts, orig)
 \end{code}
 
+\begin{code}
+mkHoleErr :: ReportErrCtxt -> [Ct] -> TcM ErrMsg
+mkHoleErr ctxt cts
+  = mkErrorReport ctxt msg
+  where
+    (ct1:_) = cts
+    orig    = ctLocOrigin (ctWantedLoc ct1)
+    preds   = map ctPred cts
+    msg = foundAHole preds
+
+foundAHole :: ThetaType -> SDoc
+foundAHole [TyConApp nm [ty]] = (text "Found hole") <+> ppr nm <+> (text "with type") <+> ppr ty
+\end{code}
 
 %************************************************************************
 %*									*

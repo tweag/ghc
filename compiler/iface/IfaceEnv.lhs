@@ -12,7 +12,7 @@ module IfaceEnv (
 	newGlobalBinder, newImplicitBinder, 
 	lookupIfaceTop,
 	lookupOrig, lookupOrigNameCache, extendNameCache,
-	newIPName, newIfaceName, newIfaceNames,
+	newIPName, newHoleName, newIfaceName, newIfaceNames,
 	extendIfaceIdEnv, extendIfaceTyVarEnv, 
 	tcIfaceLclId, tcIfaceTyVar, lookupIfaceTyVar,
 
@@ -41,6 +41,10 @@ import FastString
 import UniqSupply
 import SrcLoc
 import BasicTypes
+
+import TysPrim
+import TysWiredIn
+import Coercion
 
 import Outputable
 import Exception     ( evaluate )
@@ -181,6 +185,23 @@ newIPName :: FastString -> TcRnIf m n (IPName Name)
 newIPName ip = updNameCache $ flip allocateIPName ip
 \end{code}
 
+\begin{code}
+newHoleName :: Maybe FastString -> TcRnIf m n Name
+newHoleName mname = updNameCache $ \name_cache ->
+    let tycon_u:datacon_u:dc_wrk_u:co_ax_u:_ = uniqsFromSupply us_here
+        (us_here, us') = splitUniqSupply (nsUniqs name_cache)
+    in case mname of
+      Nothing -> (name_cache { nsUniqs = us' }, mkHoleName (fsLit "_") tycon_u datacon_u dc_wrk_u co_ax_u)
+      Just name -> case Map.lookup name $ nsHoles name_cache of
+        Just name_hole -> (name_cache, name_hole)
+        Nothing        -> (new_ns, name_hole)
+        where
+          new_holecache   = Map.insert name name_hole $ nsHoles name_cache
+          new_ns          = name_cache { nsUniqs = us', nsHoles = new_holecache }
+          name_hole       = mkHoleName name tycon_u datacon_u dc_wrk_u co_ax_u
+
+\end{code}
+
 %************************************************************************
 %*									*
 		Name cache access
@@ -249,7 +270,8 @@ initNameCache :: UniqSupply -> [Name] -> NameCache
 initNameCache us names
   = NameCache { nsUniqs = us,
 		nsNames = initOrigNames names,
-                nsIPs   = Map.empty }
+                nsIPs   = Map.empty,
+                nsHoles = Map.empty }
 
 initOrigNames :: [Name] -> OrigNameCache
 initOrigNames names = foldl extendOrigNameCache emptyModuleEnv names

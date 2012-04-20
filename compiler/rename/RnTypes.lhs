@@ -12,11 +12,11 @@
 -- for details
 
 module RnTypes ( 
-	-- Type related stuff
-	rnHsType, rnLHsType, rnLHsTypes, rnContext,
+        -- Type related stuff
+        rnHsType, rnLHsType, rnLHsTypes, rnContext,
         rnHsKind, rnLHsKind, rnLHsMaybeKind,
-	rnHsSigType, rnLHsInstType, rnConDeclFields,
-        rnIPName,
+        rnHsSigType, rnLHsInstType, rnConDeclFields,
+        rnIPName, rnHoleName,
 
 	-- Precence related stuff
 	mkOpAppRn, mkNegAppRn, mkOpFormRn, mkConOpPatRn,
@@ -40,7 +40,7 @@ import RdrHsSyn		( extractHsTyRdrTyVars, extractHsTysRdrTyVars )
 import RnHsDoc          ( rnLHsDoc, rnMbLHsDoc )
 import RnEnv
 import TcRnMonad
-import IfaceEnv         ( newIPName )
+import IfaceEnv         ( newIPName, newHoleName )
 import RdrName
 import PrelNames
 import TysPrim          ( funTyConName )
@@ -478,6 +478,11 @@ rnContext doc (L loc cxt)
 
 rnIPName :: IPName RdrName -> RnM (IPName Name)
 rnIPName n = newIPName (occNameFS (rdrNameOcc (ipNameName n)))
+\end{code}
+
+\begin{code}
+rnHoleName :: Maybe RdrName -> RnM Name
+rnHoleName n = newHoleName $ fmap (occNameFS . rdrNameOcc) n
 \end{code}
 
 

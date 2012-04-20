@@ -518,6 +518,7 @@ hasEqualities givens = any (has_eq . evVarPred) givens
     has_eq' (ClassPred cls _tys) = any has_eq (classSCTheta cls)
     has_eq' (TuplePred ts)       = any has_eq ts
     has_eq' (IrredPred _)        = True -- Might have equalities in it after reduction?
+    has_eq' (HolePred {})        = False
 
 ---------------- Getting free tyvars -------------------------
 
@@ -528,6 +529,7 @@ tyVarsOfCt (CDictCan { cc_tyargs = tys }) 	        = tyVarsOfTypes tys
 tyVarsOfCt (CIPCan { cc_ip_ty = ty })                   = tyVarsOfType ty
 tyVarsOfCt (CIrredEvCan { cc_ty = ty })                 = tyVarsOfType ty
 tyVarsOfCt (CNonCanonical { cc_flavor = fl })           = tyVarsOfType (ctFlavPred fl)
+tyVarsOfCt (CHoleCan { cc_hole_ty = ty })               = tyVarsOfType ty
 
 tyVarsOfCDict :: Ct -> TcTyVarSet 
 tyVarsOfCDict (CDictCan { cc_tyargs = tys }) = tyVarsOfTypes tys

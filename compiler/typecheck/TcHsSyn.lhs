@@ -701,6 +701,12 @@ zonkExpr env (HsWrap co_fn expr)
     zonkExpr env1 expr	`thenM` \ new_expr ->
     return (HsWrap new_co_fn new_expr)
 
+zonkExpr env h@(HsHole nm)
+  = do {
+    traceTc "zonkExpr.HsHole" (ppr h);
+    return (HsHole nm)
+    }
+
 zonkExpr _ expr = pprPanic "zonkExpr" (ppr expr)
 
 zonkCmdTop :: ZonkEnv -> LHsCmdTop TcId -> TcM (LHsCmdTop Id)
@@ -1305,6 +1311,7 @@ zonkTypeZapping tv
                   -- ty is actually a kind, zonk to AnyK
                   then anyKind
                   else anyTypeOfKind (defaultKind (tyVarKind tv))
+       ; traceTc "zonkTypeZapping" (ppr tv)
        ; writeMetaTyVar tv ty
        ; return ty }
 

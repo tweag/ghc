@@ -53,9 +53,10 @@ module Type (
 	isDictLikeTy,
         mkNakedEqPred, mkEqPred, mkPrimEqPred,
         mkClassPred,
-	mkIPPred,
+        mkIPPred, mkHolePred,
         noParenPred, isClassPred, isEqPred, isIPPred,
-        
+        isHolePred,
+
         -- Deconstructing predicate types
         PredTree(..), predTreePredType, classifyPredType,
         getClassPredTys, getClassPredTys_maybe,
@@ -63,7 +64,7 @@ module Type (
         getIPPredTy_maybe,
 
 	-- ** Common type constructors
-        funTyCon,
+        funTyCon, holeTyCon,
 
         -- ** Predicates on types
         isTypeVar, isKindVar,
@@ -158,6 +159,7 @@ import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, mkBoxedTupleTy )
 import PrelNames	         ( eqTyConKey )
+import Name
 
 -- others
 import {-# SOURCE #-} IParam ( ipTyCon )
@@ -844,7 +846,7 @@ isPredTy ty
 isKindTy :: Type -> Bool
 isKindTy = isSuperKind . typeKind
 
-isClassPred, isEqPred, isIPPred :: PredType -> Bool
+isClassPred, isEqPred, isIPPred, isHolePred :: PredType -> Bool
 isClassPred ty = case tyConAppTyCon_maybe ty of
     Just tyCon | isClassTyCon tyCon -> True
     _                               -> False
@@ -854,6 +856,9 @@ isEqPred ty = case tyConAppTyCon_maybe ty of
 isIPPred ty = case tyConAppTyCon_maybe ty of
     Just tyCon | Just _ <- tyConIP_maybe tyCon -> True
     _                                          -> False
+isHolePred ty = case tyConAppTyCon_maybe ty of
+    Just tycon | Just _ <- tyConHole_maybe tycon -> True
+    _ -> False
 \end{code}
 
 Make PredTypes
@@ -888,6 +893,16 @@ mkPrimEqPred ty1  ty2
 \begin{code}
 mkIPPred :: IPName Name -> Type -> PredType
 mkIPPred ip ty = TyConApp (ipTyCon ip) [ty]
+\end{code}
+
+\begin{code}
+mkHolePred :: Name -> Type -> PredType
+mkHolePred name ty = TyConApp (holeTyCon name) [ty]
+
+holeTyCon :: Name -> TyCon
+holeTyCon name = case wiredInNameTyThing_maybe name of
+    Just (ATyCon tc) -> tc
+    _                -> pprPanic "holeTyCon" (ppr name)
 \end{code}
 
 --------------------- Dictionary types ---------------------------------
@@ -945,6 +960,7 @@ data PredTree = ClassPred Class [Type]
               | IPPred (IPName Name) Type
               | TuplePred [PredType]
               | IrredPred PredType
+              | HolePred Name Type
 
 predTreePredType :: PredTree -> PredType
 predTreePredType (ClassPred clas tys) = mkClassPred clas tys
@@ -965,6 +981,9 @@ classifyPredType ev_ty = case splitTyConApp_maybe ev_ty of
                    -> IPPred ip ty
     Just (tc, tys) | isTupleTyCon tc
                    -> TuplePred tys
+    Just (tc, tys) | Just name <- tyConHole_maybe tc
+                   , let [ty] = tys
+                   -> HolePred name ty
     _ -> IrredPred ev_ty
 \end{code}
 

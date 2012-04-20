@@ -73,7 +73,9 @@ module TysWiredIn (
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
 
         -- * Implicit parameter predicates
-        mkIPName
+        mkIPName,
+
+        mkHoleName
     ) where
 
 #include "HsVersions.h"
@@ -95,7 +97,7 @@ import TyCon
 import TypeRep
 import RdrName
 import Name
-import BasicTypes       ( TupleSort(..), tupleSortBoxity, IPName(..), 
+import BasicTypes       ( TupleSort(..), tupleSortBoxity, IPName(..),
                           Arity, RecFlag(..), Boxity(..), HsBang(..) )
 import ForeignCall
 import Unique           ( incrUnique, mkTupleTyConUnique,
@@ -419,6 +421,34 @@ mkIPName ip tycon_u datacon_u dc_wrk_u co_ax_u = name_ip
                                nt_etad_rhs = ([alphaTyVar], mkTyVarTy alphaTyVar),
                                nt_co       = mkNewTypeCo co_ax_name tycon [alphaTyVar] (mkTyVarTy alphaTyVar) })
                    (IPTyCon name_ip)
+                   NonRecursive
+                   False
+
+    datacon_name = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "IPBox") datacon_u datacon
+    datacon      = pcDataCon' datacon_name dc_wrk_u [alphaTyVar] [mkTyVarTy alphaTyVar] tycon
+
+    co_ax_name = mkPrimTyConName ip co_ax_u tycon
+\end{code}
+
+\begin{code}
+mkHoleName :: FastString
+         -> Unique -> Unique -> Unique -> Unique
+         -> Name
+mkHoleName ip tycon_u datacon_u dc_wrk_u co_ax_u = name_hole
+  where
+    name_hole = tycon_name
+
+    tycon_name = mkPrimTyConName ip tycon_u tycon
+    tycon      = mkAlgTyCon tycon_name
+                   (liftedTypeKind `mkArrowKind` constraintKind)
+                   [alphaTyVar]
+                   Nothing
+                   []      -- No stupid theta
+                   (NewTyCon { data_con    = datacon, 
+                               nt_rhs      = mkTyVarTy alphaTyVar,
+                               nt_etad_rhs = ([alphaTyVar], mkTyVarTy alphaTyVar),
+                               nt_co       = mkNewTypeCo co_ax_name tycon [alphaTyVar] (mkTyVarTy alphaTyVar) })
+                   (HoleTyCon name_hole)
                    NonRecursive
                    False
 

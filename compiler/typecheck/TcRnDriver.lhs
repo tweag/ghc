@@ -40,7 +40,7 @@ import FamInstEnv
 import TcAnnotations
 import TcBinds
 import HeaderInfo       ( mkPrelImports )
-import TcType   ( tidyTopType )
+import TcType	( tidyTopType, tidyType )
 import TcDefaults
 import TcEnv
 import TcRules
@@ -99,6 +99,11 @@ import Util
 import Bag
 
 import Control.Monad
+
+import System.IO
+import TypeRep
+import qualified Data.Map as Map
+import TcType
 
 #include "HsVersions.h"
 \end{code}
@@ -431,6 +436,8 @@ tcRnSrcDecls boot_iface decls
                         simplifyTop lie ;
         traceTc "Tc9" empty ;
 
+        traceRn (text "tcRnSrcDecls:" <+> (ppr lie)) ;
+
         failIfErrsM ;   -- Don't zonk if there have been errors
                         -- It's a waste of time; and we may get debug warnings
                         -- about strangely-typed TyCons!
@@ -462,6 +469,8 @@ tcRnSrcDecls boot_iface decls
 
         setGlobalTypeEnv tcg_env' final_type_env
    } }
+
+-- where
 
 tc_rn_src_decls :: ModDetails
                     -> [LHsDecl RdrName]
@@ -1431,18 +1440,59 @@ tcRnExpr hsc_env ictxt rdr_expr
         -- it might have a rank-2 type (e.g. :t runST)
     uniq <- newUnique ;
     let { fresh_it  = itName uniq (getLoc rdr_expr) } ;
-    ((_tc_expr, res_ty), lie)   <- captureConstraints (tcInferRho rn_expr) ;
-    ((qtvs, dicts, _, _), lie_top) <- captureConstraints $
+    ((_tc_expr, res_ty), lie)	<- captureConstraints (tcInferRho rn_expr) ;
+
+
+    (g, l) <- getEnvs ;
+
+    ((qtvs, dicts, _, _), lie_top) <- captureConstraints $ 
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer True {- Free vars are closed -}
                                                     False {- No MR for now -}
-                                                    [(fresh_it, res_ty)]
+                                                    ([(fresh_it, res_ty)]) -- ++ (map (\(nm,(ty,_)) -> (holeNameName nm, ty)) $ Map.toList holes))
                                                     lie  ;
-    _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
+	let { (holes, dicts') = splitEvs dicts [] [] } ;
+    
+    traceRn (text "tcRnExpr1:" <+> (ppr holes <+> ppr dicts')) ;
 
-    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
-    zonkTcType all_expr_ty
+    _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
+    
+    traceRn (text "tcRnExpr2:" <+> (ppr lie_top)) ;
+
+    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts' res_ty) } ;
+    result <- zonkTcType all_expr_ty ;
+
+
+    zonked_holes <- zonkHoles $ map (apsnd (mkForAllTys qtvs) . apsnd (mkPiTypes dicts') . unwrapHole . varType) $ holes ;
+
+    let { (env, tidied_holes) = apsnd (map (apsnd split)) $ foldr tidy (emptyTidyEnv, []) zonked_holes } ;
+
+    liftIO $ putStrLn $ showSDoc ((ptext $ sLit "Found the following holes: ")
+                                $+$ (vcat $ map (\(nm, ty) -> text "_?" <> ppr nm <+> colon <> colon <+> ppr ty) tidied_holes));
+
+    return $ snd $ tidyOpenType env result
     }
+    where tidy (nm, ty) (env, tys) = let (env', ty') = tidyOpenType env ty
+                                     in (env', (nm, ty') : tys)
+
+          split t = let (_, ctxt, ty') = tcSplitSigmaTy $ tidyTopType t
+                    in mkPhiTy ctxt ty'
+
+          splitEvs [] hls dcts = (hls, dcts)
+          splitEvs (evvar:xs) hls dcts = case classifyPredType $ varType evvar of
+								    		HolePred {} -> splitEvs xs (evvar:hls) dcts
+								    		_ -> splitEvs xs hls (evvar:dcts)
+          -- unwrap what was wrapped in mkHolePred
+          unwrapHole (TyConApp nm [ty]) = (nm, ty)
+
+          -- zonk the holes, but keep the name
+          zonkHoles = mapM (\(nm, ty) -> liftM (\t -> (nm, t)) $ zonkTcType ty)
+
+          apsnd f (a, b) = (a, f b)
+
+          f (_, b) = let (Just (ATyCon tc)) = wiredInNameTyThing_maybe b
+                         (Just (_, ty, _)) = trace ("unwrapNewTyCon_maybe" ++ (showSDoc $ ppr tc)) $ unwrapNewTyCon_maybe tc
+          			 in (b, ty)
 
 --------------------------
 tcRnImportDecls :: HscEnv

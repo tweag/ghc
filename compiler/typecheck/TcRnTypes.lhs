@@ -54,13 +54,14 @@ module TcRnTypes(
         Xi, Ct(..), Cts, emptyCts, andCts, andManyCts, 
         singleCt, extendCts, isEmptyCts, isCTyEqCan, isCFunEqCan,
         isCDictCan_Maybe, isCIPCan_Maybe, isCFunEqCan_Maybe,
+        isCHoleCan_Maybe, isCHoleCan,
         isCIrredEvCan, isCNonCanonical, isWantedCt, isDerivedCt, 
         isGivenCt, isGivenOrSolvedCt,
         ctWantedLoc,
         SubGoalDepth, mkNonCanonical, ctPred, ctFlavPred, ctId, ctFlavId,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
-        andWC, addFlats, addImplics, mkFlatWC,
+        andWC, unionsWC, addFlats, addImplics, mkFlatWC,
 
         Implication(..),
         CtLoc(..), ctLocSpan, ctLocOrigin, setCtLocOrigin,
@@ -122,6 +123,8 @@ import FastString
 
 import Data.Set (Set)
 
+import UniqSet
+import qualified Data.Map as Map
 \end{code}
 
 
@@ -901,6 +904,14 @@ data Ct
       cc_depth  :: SubGoalDepth
     }
 
+  | CHoleCan {
+      cc_id       :: EvVar,
+      cc_flavor   :: CtFlavor,
+      cc_hole_nm  :: Name,
+      cc_hole_ty  :: TcTauType, -- Not a Xi! See same not as above
+      cc_depth    :: SubGoalDepth        -- See Note [WorkList]
+    }
+
 \end{code}
 
 \begin{code}
@@ -918,12 +929,12 @@ ctPred (CFunEqCan { cc_fun = fn, cc_tyargs = xis1, cc_rhs = xi2 })
 ctPred (CIPCan { cc_ip_nm = nm, cc_ip_ty = xi }) 
   = mkIPPred nm xi
 ctPred (CIrredEvCan { cc_ty = xi }) = xi
-
+ctPred (CHoleCan { cc_hole_nm = nm, cc_hole_ty = xi})
+  = mkHolePred nm xi
 
 ctId :: Ct -> EvVar
 -- Precondition: not a derived!
 ctId ct = ctFlavId (cc_flavor ct)
-
 \end{code}
 
 
@@ -980,6 +991,14 @@ isCFunEqCan _ = False
 isCNonCanonical :: Ct -> Bool
 isCNonCanonical (CNonCanonical {}) = True 
 isCNonCanonical _ = False 
+
+isCHoleCan :: Ct -> Bool
+isCHoleCan (CHoleCan {}) = True
+isCHoleCan _ = False
+
+isCHoleCan_Maybe :: Ct -> Maybe Name
+isCHoleCan_Maybe (CHoleCan { cc_hole_nm = nm }) = Just nm
+isCHoleCan_Maybe _ = Nothing
 \end{code}
 
 \begin{code}
@@ -993,6 +1012,7 @@ instance Outputable Ct where
                            CDictCan {}      -> "CDictCan"
                            CIPCan {}        -> "CIPCan"
                            CIrredEvCan {}   -> "CIrredEvCan"
+                           CHoleCan {}		-> "CHoleCan"
 \end{code}
 
 \begin{code}
@@ -1058,6 +1078,9 @@ andWC (WC { wc_flat = f1, wc_impl = i1, wc_insol = n1 })
   = WC { wc_flat  = f1 `unionBags` f2
        , wc_impl  = i1 `unionBags` i2
        , wc_insol = n1 `unionBags` n2 }
+
+unionsWC :: [WantedConstraints] -> WantedConstraints
+unionsWC = foldr andWC emptyWC
 
 addFlats :: WantedConstraints -> Bag Ct -> WantedConstraints
 addFlats wc cts

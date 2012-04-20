@@ -34,7 +34,7 @@ import HsSyn
 import TcRnMonad
 import TcEnv		( thRnBrack )
 import RnEnv
-import RnTypes	
+import RnTypes
 import RnPat
 import DynFlags
 import BasicTypes	( FixityDirection(..) )
@@ -292,6 +292,11 @@ rnExpr (ArithSeq _ seq)
 rnExpr (PArrSeq _ seq)
   = rnArithSeq seq	 `thenM` \ (new_seq, fvs) ->
     return (PArrSeq noPostTcExpr new_seq, fvs)
+
+rnExpr (HsHole name)
+  = do { name' <- rnHoleName $ Just name
+       ; return (HsHole name', emptyFVs)
+       }
 \end{code}
 
 These three are pattern syntax appearing in expressions.
@@ -299,7 +304,10 @@ Since all the symbols are reservedops we can simply reject them.
 We return a (bogus) EWildPat in each case.
 
 \begin{code}
-rnExpr e@EWildPat      = patSynErr e
+rnExpr e@EWildPat      = do { name' <- rnHoleName Nothing
+                            ; return (HsHole name', emptyFVs)
+                            }
+-- rnExpr e@EWildPat      = patSynErr e
 rnExpr e@(EAsPat {})   = patSynErr e
 rnExpr e@(EViewPat {}) = patSynErr e
 rnExpr e@(ELazyPat {}) = patSynErr e

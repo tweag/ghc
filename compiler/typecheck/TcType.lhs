@@ -130,7 +130,7 @@ module TcType (
   mkTyVarTy, mkTyVarTys, mkTyConTy,
 
   isClassPred, isEqPred, isIPPred,
-  mkClassPred, mkIPPred,
+  mkClassPred, mkIPPred, isHolePred,
   isDictLikeTy,
   tcSplitDFunTy, tcSplitDFunHead, 
   mkEqPred, 
@@ -307,6 +307,12 @@ data TcTyVarDetails
           
   | MetaTv MetaInfo (IORef MetaDetails)
 
+instance Outputable TcTyVarDetails where
+  ppr (SkolemTv b)    = ptext (sLit "SkolemTv") <+> ppr b
+  ppr RuntimeUnk      = ptext (sLit "RuntimeUnk")
+  ppr (FlatSkol ty)   = ptext (sLit "FlatSkol") <+> ppr ty
+  ppr (MetaTv info _) = ptext (sLit "MetaTv") <+> ppr info
+
 vanillaSkolemTv, superSkolemTv :: TcTyVarDetails
 -- See Note [Binding when looking up instances] in InstEnv
 vanillaSkolemTv = SkolemTv False  -- Might be instantiated
@@ -340,6 +346,11 @@ data MetaInfo
 -------------------------------------
 -- UserTypeCtxt describes the origin of the polymorphic type
 -- in the places where we need to an expression has that type
+
+instance Outputable MetaInfo where
+  ppr TauTv = ptext (sLit "TauTv")
+  ppr SigTv = ptext (sLit "SigTv")
+  ppr TcsTv = ptext (sLit "TcsTv")
 
 data UserTypeCtxt
   = FunSigCtxt Name	-- Function type signature

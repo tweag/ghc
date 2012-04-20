@@ -294,6 +294,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
             -- unless we are deferring errors to runtime
        ; when (not runtimeCoercionErrors && insolubleWC simpl_results) $ 
          do { _ev_binds <- reportUnsolved False simpl_results 
+            ; traceTc "There is an insoluble constraint, failing already" empty
             ; failM }
 
             -- Step 3 
@@ -471,6 +472,7 @@ quantifyMe :: TyVarSet      -- Quantifying over these
 	   -> Bool	    -- True <=> quantify over this wanted
 quantifyMe qtvs ct
   | isIPPred pred = True  -- Note [Inheriting implicit parameters]
+  | isHolePred pred = True
   | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
   where
     pred = ctPred ct

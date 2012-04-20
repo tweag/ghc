@@ -322,6 +322,7 @@ incorrect.
  PREFIXQCONSYM  { L _ (ITprefixqconsym  _) }
 
  IPDUPVARID     { L _ (ITdupipvarid   _) }              -- GHC extension
+ HOLEVARID      { L _ (IThole     _) }
 
  CHAR           { L _ (ITchar     _) }
  STRING         { L _ (ITstring   _) }
@@ -1451,6 +1452,7 @@ aexp1   :: { LHsExpr RdrName }
 
 aexp2   :: { LHsExpr RdrName }
         : ipvar                         { L1 (HsIPVar $! unLoc $1) }
+        | hole                          { L1 (HsHole  $! unLoc $1) }
         | qcname                        { L1 (HsVar   $! unLoc $1) }
         | literal                       { L1 (HsLit   $! unLoc $1) }
 -- This will enable overloaded strings permanently.  Normally the renamer turns HsString
@@ -1764,6 +1766,9 @@ dbind   : ipvar '=' exp                 { LL (IPBind (unLoc $1) $3) }
 
 ipvar   :: { Located (IPName RdrName) }
         : IPDUPVARID            { L1 (IPName (mkUnqual varName (getIPDUPVARID $1))) }
+
+hole    :: { Located RdrName }
+        : HOLEVARID             { L1 (mkUnqual varName $ getHOLEVARID $1) }
 
 -----------------------------------------------------------------------------
 -- Warnings and deprecations
@@ -2082,6 +2087,7 @@ getQCONSYM      (L _ (ITqconsym  x)) = x
 getPREFIXQVARSYM (L _ (ITprefixqvarsym  x)) = x
 getPREFIXQCONSYM (L _ (ITprefixqconsym  x)) = x
 getIPDUPVARID   (L _ (ITdupipvarid   x)) = x
+getHOLEVARID    (L _ (IThole     x)) = x
 getCHAR         (L _ (ITchar     x)) = x
 getSTRING       (L _ (ITstring   x)) = x
 getINTEGER      (L _ (ITinteger  x)) = x

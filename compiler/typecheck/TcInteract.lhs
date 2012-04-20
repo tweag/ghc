@@ -59,6 +59,9 @@ import Pair ()
 import UniqFM
 import FastString ( sLit ) 
 import DynFlags
+
+import Control.Monad
+import Type
 \end{code}
 **********************************************************************
 *                                                                    * 
@@ -375,12 +378,13 @@ kick_out_rewritable ct is@(IS { inert_cans =
                                       , inert_dicts  = dictmap
                                       , inert_ips    = ipmap
                                       , inert_funeqs = funeqmap
-                                      , inert_irreds = irreds }
+                                      , inert_irreds = irreds
+                                      , inert_holes  = holemap }
                               , inert_frozen = frozen })
   = ((kicked_out,eqmap), remaining)
   where
     rest_out = fro_out `andCts` dicts_out 
-                   `andCts` ips_out `andCts` irs_out
+                   `andCts` ips_out `andCts` irs_out `andCts` holes_out
     kicked_out = WorkList { wl_eqs    = []
                           , wl_funeqs = bagToList feqs_out
                           , wl_rest   = bagToList rest_out }
@@ -391,7 +395,8 @@ kick_out_rewritable ct is@(IS { inert_cans =
                                      , inert_dicts = dicts_in
                                      , inert_ips = ips_in
                                      , inert_funeqs = feqs_in
-                                     , inert_irreds = irs_in }
+                                     , inert_irreds = irs_in
+                                     , inert_holes = holes_in }
                    , inert_frozen = fro_in } 
                 -- NB: Notice that don't rewrite 
                 -- inert_solved, inert_flat_cache and inert_solved_funeqs
@@ -401,6 +406,7 @@ kick_out_rewritable ct is@(IS { inert_cans =
     tv = cc_tyvar ct
                                
     (ips_out,   ips_in)     = partitionCCanMap rewritable ipmap
+    (holes_out, holes_in)   = partitionCCanMap rewritable holemap
 
     (feqs_out,  feqs_in)    = partCtFamHeadMap rewritable funeqmap
     (dicts_out, dicts_in)   = partitionCCanMap rewritable dictmap
@@ -657,6 +663,12 @@ data InteractResult
     | IRInertConsumed    { ir_fire :: String } 
     | IRKeepGoing        { ir_fire :: String }
 
+
+instance Outputable InteractResult where
+  ppr (IRWorkItemConsumed str) = ptext (sLit "IRWorkItemConsumed ") <+> text str
+  ppr (IRInertConsumed str) = ptext (sLit "IRInertConsumed ") <+> text str
+  ppr (IRKeepGoing str) = ptext (sLit "IRKeepGoing ") <+> text str
+
 irWorkItemConsumed :: String -> TcS InteractResult
 irWorkItemConsumed str = return (IRWorkItemConsumed str) 
 
@@ -684,7 +696,7 @@ interactWithInertsStage wi
               ; foldlBagM interact_next (ContinueWith wi) rels } }
 
   where interact_next Stop atomic_inert 
-          = updInertSetTcS atomic_inert >> return Stop
+          = trace "interact_next Stop" $ updInertSetTcS atomic_inert >> return Stop
         interact_next (ContinueWith wi) atomic_inert 
           = do { ir <- doInteractWithInert atomic_inert wi
                ; let mk_msg rule keep_doc 
@@ -836,6 +848,36 @@ doInteractWithInert (CIPCan { cc_flavor = ifl, cc_ip_nm = nm1, cc_ip_ty = ty1 })
           | Wanted wl _  <- ifl = wl
           | Derived wl _ <- ifl = wl
           | otherwise = panic "Solve IP: no WantedLoc!"
+
+doInteractWithInert (CHoleCan id1 fl1 nm1 ty1 d1) workitem@(CHoleCan id2 fl2 nm2 ty2 d2)
+  | nm1 == nm2 && isGivenOrSolved fl2 && isGivenOrSolved fl1
+  = irInertConsumed "Hole/Hole (override inert)"
+  | nm1 == nm2 && ty1 `eqType` ty2 
+  = solveOneFromTheOther "Hole/Hole" fl1 workitem
+
+  | nm1 == nm2
+  = do { mb_eqv <- newWantedEvVar (mkEqPred ty2 ty1)
+         -- co :: ty2 ~ ty1, see Note [Efficient orientation]
+       ; cv <- case mb_eqv of
+                 Fresh eqv  -> 
+                   do { updWorkListTcS $ extendWorkListEq $ 
+                        CNonCanonical { cc_flavor = Wanted new_wloc eqv
+                                      , cc_depth = cc_depth workitem }
+                      ; return eqv }
+                 Cached eqv -> return eqv
+       ; case fl2 of
+            Wanted  {} ->
+              let hole_co = mkTcTyConAppCo (holeTyCon nm1) [mkTcCoVarCo cv]
+              in do { setEvBind (ctId workitem) $
+                      mkEvCast (flav_evar fl1) (mkTcSymCo hole_co)
+                    ; irWorkItemConsumed "Hole/Hole (solved by rewriting)" }
+            _ -> pprPanic "Unexpected Hole constraint" (ppr workitem) }
+  where new_wloc
+          | Wanted wl _  <- fl2 = wl
+          | Derived wl _ <- fl2 = wl
+          | Wanted wl _  <- fl1 = wl
+          | Derived wl _ <- fl1 = wl
+          | otherwise = panic "Solve Hole: no WantedLoc!"
     
 
 doInteractWithInert ii@(CFunEqCan { cc_flavor = fl1, cc_fun = tc1
