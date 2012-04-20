@@ -26,7 +26,7 @@ import Id
 import Var
 
 import TcType
-import PrelNames (typeNatClassName, typeStringClassName)
+import PrelNames (singIClassName)
 
 import Class
 import TyCon
@@ -94,12 +94,21 @@ If in Step 1 no such element exists, we have exceeded our context-stack
 depth and will simply fail.
 \begin{code}
 
-solveInteractCts :: [Ct] -> TcS ()
+solveInteractCts :: [Ct] -> TcS (Bag Implication)
+-- Returns a bag of residual implications that have arisen while solving
+-- this particular worklist.
 solveInteractCts cts 
   = do { traceTcS "solveInteractCtS" (vcat [ text "cts =" <+> ppr cts ]) 
-       ; updWorkListTcS (appendWorkListCt cts) >> solveInteract }
+       ; updWorkListTcS (appendWorkListCt cts) >> solveInteract 
+       ; impls <- getTcSImplics
+       ; updTcSImplics (const emptyBag) -- Nullify residual implications
+       ; return impls }
 
-solveInteractGiven :: GivenLoc -> [EvVar] -> TcS () 
+solveInteractGiven :: GivenLoc -> [EvVar] -> TcS (Bag Implication)
+-- In principle the givens can kick out some wanteds from the inert
+-- resulting in solving some more wanted goals here which could emit
+-- implications. That's why I return a bag of implications. Not sure
+-- if this can happen in practice though.
 solveInteractGiven gloc evs
   = solveInteractCts (map mk_noncan evs)
   where mk_noncan ev = CNonCanonical { cc_flavor = Given gloc ev
@@ -227,12 +236,9 @@ lookupInInertsStage :: SimplifierStage
 lookupInInertsStage ct
   | isWantedCt ct
   = do { is <- getTcSInerts
-       ; ctxt <- getTcSContext
        ; case lookupInInerts is (ctPred ct) of
            Just ct_cached 
-             | (not $ isDerivedCt ct) && (not $ simplEqsOnly ctxt) 
-               -- Don't share if we are simplifying a RULE 
-               -- see Note [Simplifying RULE lhs constraints]
+             |  not (isDerivedCt ct)
              -> setEvBind (ctId ct) (EvId (ctId ct_cached)) >> 
                 return Stop
            _ -> continueWith ct }
@@ -685,15 +691,10 @@ interactWithInertsStage :: WorkItem -> TcS StopOrContinue
 -- Precondition: if the workitem is a CTyEqCan then it will not be able to 
 -- react with anything at this stage. 
 interactWithInertsStage wi 
-  = do { ctxt <- getTcSContext
-       ; if simplEqsOnly ctxt && not (isCFunEqCan wi) then 
-                    -- Why not just "simplEqsOnly"? See Note [SimplEqsOnly and InteractWithInerts]
-             return (ContinueWith wi)
-         else 
-           do { traceTcS "interactWithInerts" $ text "workitem = " <+> ppr wi
-              ; rels <- extractRelevantInerts wi 
-              ; traceTcS "relevant inerts are:" $ ppr rels
-              ; foldlBagM interact_next (ContinueWith wi) rels } }
+  = do { traceTcS "interactWithInerts" $ text "workitem = " <+> ppr wi
+       ; rels <- extractRelevantInerts wi 
+       ; traceTcS "relevant inerts are:" $ ppr rels
+       ; foldlBagM interact_next (ContinueWith wi) rels }
 
   where interact_next Stop atomic_inert 
           = trace "interact_next Stop" $ updInertSetTcS atomic_inert >> return Stop
@@ -721,33 +722,6 @@ interactWithInertsStage wi
                }
 
 \end{code}
-
-Note [SimplEqsOnly and InteractWithInerts]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-It may be possible when we are simplifying a RULE that we have two wanted constraints
-of the form: 
-  [W] c1 : F Int ~ Bool
-  [W] c2 : F Int ~ alpha
-
-When we simplify RULES we only do equality reactions (simplEqsOnly). So the question is:
-are we allowed to do type family interactions? We definitely do not want to apply top-level
-family and dictionary instances but what should we do with the constraint set above? 
-
-Suppose that c1 gets processed first and enters the inert. Remember that he will enter a 
-CtFamHead map with (F Int) as the index. Now c2 comes along, we can't add him to the inert
-set since it has exactly the same key, so we'd better react him with the inert c1. In fact 
-one might think that we should react him anyway to learn that (alpha ~ Bool). This is why
-we allow CFunEqCan's to perform reactions with the inerts. 
-
-If we don't allow this, we will try to add both elements to the inert set and will panic! 
-The relevant example that fails when we don't allow such family reactions is:
-
-        indexed_types/should_compile/T2291.hs
-
-NB: In previous versions of TcInteract the extra guard (not (isCFunEqCan wi)) was not there 
-but family reactions were actually happening earlier, during canonicalization. So the behaviour 
-has not changed -- previously this tricky point was completely lost and worked by accident.
 
 \begin{code}
 --------------------------------------------
@@ -1474,12 +1448,8 @@ topReactionsStage workItem
 tryTopReact :: WorkItem -> TcS StopOrContinue
 tryTopReact wi 
  = do { inerts <- getTcSInerts
-      ; ctxt   <- getTcSContext
-      ; if simplEqsOnly ctxt then 
-          return (ContinueWith wi) 
-        else 
-          do { tir <- doTopReact inerts wi
-             ; case tir of 
+      ; tir <- doTopReact inerts wi
+      ; case tir of 
                  NoTopInt 
                      -> return (ContinueWith wi)
                  SomeTopInt rule what_next 
@@ -1488,7 +1458,7 @@ tryTopReact wi
                              vcat [ ptext (sLit "Top react:") <+> text rule
                                   , text "WorkItem =" <+> ppr wi ]
                            ; return what_next }
-             } }
+      }
 
 data TopInteractResult 
  = NoTopInt
@@ -1656,9 +1626,9 @@ lkpFunEqCache fam_head
                                            , cc_fun = tc, cc_tyargs = xis
                                            , cc_rhs = xi}))
           = ASSERT (isSolved fl)
-            do { (xis_subst,cos) <- flattenMany d fl xis 
+            do { (xis_subst,cos) <- flattenMany d FMFullFlatten fl xis 
                                     -- cos :: xis_subst ~ xis 
-               ; (xi_subst,co) <- flatten d fl xi
+               ; (xi_subst,co) <- flatten d FMFullFlatten fl xi
                                     -- co :: xi_subst ~ xi
                ; let flat_fam_head = mkTyConApp tc xis_subst 
 
@@ -1907,11 +1877,11 @@ data LookupInstResult
 
 matchClassInst :: InertSet -> Class -> [Type] -> WantedLoc -> TcS LookupInstResult
 
-matchClassInst _ clas [ ty ] _
-  | className clas == typeNatClassName
+matchClassInst _ clas [ _, ty ] _
+  | className clas == singIClassName
   , Just n <- isNumLitTy ty = return $ GenInst [] $ EvLit $ EvNum n
 
-  | className clas == typeStringClassName
+  | className clas == singIClassName
   , Just s <- isStrLitTy ty = return $ GenInst [] $ EvLit $ EvStr s
 
 

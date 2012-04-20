@@ -8,13 +8,13 @@
 
 module TcCanonical(
     canonicalize, flatten, flattenMany, 
+    FlattenMode (..),
     StopOrContinue (..)
  ) where
 
 #include "HsVersions.h"
 
 import BasicTypes ( IPName )
-import TcErrors
 import TcRnTypes
 import TcType
 import Type
@@ -26,9 +26,8 @@ import TypeRep
 import Name ( Name )
 import Var
 import VarEnv
--- import Util( equalLength )
 import Outputable
-import Control.Monad    ( when, unless )
+import Control.Monad    ( when )
 import MonadUtils
 import Control.Applicative ( (<|>) )
 
@@ -36,6 +35,9 @@ import TrieMap
 import VarSet
 import TcSMonad
 import FastString
+
+import Util ( equalLength )
+
 
 import TysWiredIn ( eqTyCon )
 
@@ -263,7 +265,7 @@ canIP d fl nm ty
   =    -- Note [Canonical implicit parameter constraints] explains why it's 
        -- possible in principle to not flatten, but since flattening applies 
        -- the inert substitution we choose to flatten anyway.
-    do { (xi,co) <- flatten d fl (mkIPPred nm ty)
+    do { (xi,co) <- flatten d FMFullFlatten fl (mkIPPred nm ty)
        ; mb <- rewriteCtFlavor fl xi co 
        ; case mb of
             Just new_fl -> let IPPred _ xi_in = classifyPredType xi
@@ -324,7 +326,7 @@ canClassNC d fl cls tys
 
 canClass d fl cls tys
   = do { -- sctx <- getTcSContext
-       ; (xis, cos) <- flattenMany d fl tys
+       ; (xis, cos) <- flattenMany d FMFullFlatten fl tys
        ; let co = mkTcTyConAppCo (classTyCon cls) cos 
              xi = mkClassPred cls xis
              
@@ -343,9 +345,7 @@ emitSuperclasses ct@(CDictCan { cc_depth = d, cc_flavor = fl
                               , cc_tyargs = xis_new, cc_class = cls })
             -- Add superclasses of this one here, See Note [Adding superclasses]. 
             -- But only if we are not simplifying the LHS of a rule. 
- = do { sctxt <- getTcSContext
-      ; unless (simplEqsOnly sctxt) $ 
-               newSCWorkFromFlavored d fl cls xis_new
+ = do { newSCWorkFromFlavored d fl cls xis_new
       -- Arguably we should "seq" the coercions if they are derived, 
       -- as we do below for emit_kind_constraint, to allow errors in
       -- superclasses to be executed if deferred to runtime! 
@@ -478,7 +478,7 @@ canIrred :: SubGoalDepth -- Depth
 -- Precondition: ty not a tuple and no other evidence form
 canIrred d fl ty 
   = do { traceTcS "can_pred" (text "IrredPred = " <+> ppr ty) 
-       ; (xi,co) <- flatten d fl ty -- co :: xi ~ ty
+       ; (xi,co) <- flatten d FMFullFlatten fl ty -- co :: xi ~ ty
        ; let no_flattening = xi `eqType` ty 
                              -- In this particular case it is not safe to 
                              -- say 'isTcReflCo' because the new constraint may
@@ -505,7 +505,8 @@ Note [Flattening]
 ~~~~~~~~~~~~~~~~~~~~
   flatten ty  ==>   (xi, cc)
     where
-      xi has no type functions
+      xi has no type functions, unless they appear under ForAlls
+
       cc = Auxiliary given (equality) constraints constraining
            the fresh type variables in xi.  Evidence for these 
            is always the identity coercion, because internally the
@@ -542,17 +543,21 @@ unexpanded synonym.
 
 \begin{code}
 
+data FlattenMode = FMSubstOnly 
+                 | FMFullFlatten
+
 -- Flatten a bunch of types all at once.
 flattenMany :: SubGoalDepth -- Depth
+            -> FlattenMode
             -> CtFlavor -> [Type] -> TcS ([Xi], [TcCoercion])
 -- Coercions :: Xi ~ Type 
 -- Returns True iff (no flattening happened)
 -- NB: The EvVar inside the flavor is unused, we merely want Given/Solved/Derived/Wanted info
-flattenMany d ctxt tys 
+flattenMany d f ctxt tys 
   = -- pprTrace "flattenMany" empty $
     go tys 
   where go []       = return ([],[])
-        go (ty:tys) = do { (xi,co)    <- flatten d ctxt ty
+        go (ty:tys) = do { (xi,co)    <- flatten d f ctxt ty
                          ; (xis,cos)  <- go tys
                          ; return (xi:xis,co:cos) }
 
@@ -560,33 +565,34 @@ flattenMany d ctxt tys
 -- the new type-function-free type, and a collection of new equality
 -- constraints.  See Note [Flattening] for more detail.
 flatten :: SubGoalDepth -- Depth
+        -> FlattenMode 
         -> CtFlavor -> TcType -> TcS (Xi, TcCoercion)
 -- Postcondition: Coercion :: Xi ~ TcType
-flatten d ctxt ty 
+flatten d f ctxt ty 
   | Just ty' <- tcView ty
-  = do { (xi, co) <- flatten d ctxt ty'
+  = do { (xi, co) <- flatten d f ctxt ty'
        ; return (xi,co) } 
 
-flatten _ _ xi@(LitTy {}) = return (xi, mkTcReflCo xi)
+flatten _ _ _ xi@(LitTy {}) = return (xi, mkTcReflCo xi)
 
-flatten d ctxt (TyVarTy tv)
-  = flattenTyVar d ctxt tv
+flatten d f ctxt (TyVarTy tv)
+  = flattenTyVar d f ctxt tv
 
-flatten d ctxt (AppTy ty1 ty2)
-  = do { (xi1,co1) <- flatten d ctxt ty1
-       ; (xi2,co2) <- flatten d ctxt ty2
+flatten d f ctxt (AppTy ty1 ty2)
+  = do { (xi1,co1) <- flatten d f ctxt ty1
+       ; (xi2,co2) <- flatten d f ctxt ty2
        ; return (mkAppTy xi1 xi2, mkTcAppCo co1 co2) }
 
-flatten d ctxt (FunTy ty1 ty2)
-  = do { (xi1,co1) <- flatten d ctxt ty1
-       ; (xi2,co2) <- flatten d ctxt ty2
+flatten d f ctxt (FunTy ty1 ty2)
+  = do { (xi1,co1) <- flatten d f ctxt ty1
+       ; (xi2,co2) <- flatten d f ctxt ty2
        ; return (mkFunTy xi1 xi2, mkTcFunCo co1 co2) }
 
-flatten d fl (TyConApp tc tys)
+flatten d f fl (TyConApp tc tys)
   -- For a normal type constructor or data family application, we just
   -- recursively flatten the arguments.
   | not (isSynFamilyTyCon tc)
-    = do { (xis,cos) <- flattenMany d fl tys
+    = do { (xis,cos) <- flattenMany d f fl tys
          ; return (mkTyConApp tc xis, mkTcTyConAppCo tc cos) }
 
   -- Otherwise, it's a type function application, and we have to
@@ -594,7 +600,7 @@ flatten d fl (TyConApp tc tys)
   -- between the application and a newly generated flattening skolem variable.
   | otherwise
   = ASSERT( tyConArity tc <= length tys )	-- Type functions are saturated
-      do { (xis, cos) <- flattenMany d fl tys
+      do { (xis, cos) <- flattenMany d f fl tys
          ; let (xi_args, xi_rest)  = splitAt (tyConArity tc) xis
 	       	 -- The type function might be *over* saturated
 		 -- in which case the remaining arguments should
@@ -602,30 +608,34 @@ flatten d fl (TyConApp tc tys)
                fam_ty = mkTyConApp tc xi_args
                
          ; (ret_co, rhs_xi, ct) <-
-             do { flat_cache <- getFlatCache
-                ; case lookupTM fam_ty flat_cache of
-                    Just ct 
-                      | cc_flavor ct `canRewrite` fl 
-                        -> -- You may think that we can just return (cc_rhs ct) but not so. 
-                           --            return (mkTcCoVarCo (ctId ct), cc_rhs ct, []) 
-                           -- The cached constraint resides in the cache so we have to flatten 
-                           -- the rhs to make sure we have applied any inert substitution to it.
-                           -- Alternatively we could be applying the inert substitution to the 
-                           -- cache as well when we interact an equality with the inert. 
-                           -- The design choice is: do we keep the flat cache rewritten or not?
-                           -- For now I say we don't keep it fully rewritten.
-                          do { traceTcS "flatten/flat-cache hit" $ ppr ct
-                             ; let rhs_xi = cc_rhs ct
-                             ; (flat_rhs_xi,co) <- flatten (cc_depth ct) (cc_flavor ct) rhs_xi
-                             ; let final_co = mkTcCoVarCo (ctId ct) `mkTcTransCo` (mkTcSymCo co)
-                             ; return (final_co, flat_rhs_xi,[]) }
+             case f of 
+               FMSubstOnly -> 
+                 return (mkTcReflCo fam_ty, fam_ty, [])
+               FMFullFlatten -> 
+                 do { flat_cache <- getFlatCache
+                    ; case lookupTM fam_ty flat_cache of
+                        Just ct 
+                          | cc_flavor ct `canRewrite` fl 
+                          -> -- You may think that we can just return (cc_rhs ct) but not so. 
+                             --            return (mkTcCoVarCo (ctId ct), cc_rhs ct, []) 
+                             -- The cached constraint resides in the cache so we have to flatten 
+                             -- the rhs to make sure we have applied any inert substitution to it.
+                             -- Alternatively we could be applying the inert substitution to the 
+                             -- cache as well when we interact an equality with the inert. 
+                             -- The design choice is: do we keep the flat cache rewritten or not?
+                             -- For now I say we don't keep it fully rewritten.
+                            do { traceTcS "flatten/flat-cache hit" $ ppr ct
+                               ; let rhs_xi = cc_rhs ct
+                               ; (flat_rhs_xi,co) <- flatten (cc_depth ct) f (cc_flavor ct) rhs_xi
+                               ; let final_co = mkTcCoVarCo (ctId ct) `mkTcTransCo` (mkTcSymCo co)
+                               ; return (final_co, flat_rhs_xi,[]) }
                           
-                    _ | isGivenOrSolved fl -- Given or Solved: make new flatten skolem
-                        -> do { traceTcS "flatten/flat-cache miss" $ empty 
-                              ; rhs_xi_var <- newFlattenSkolemTy fam_ty
-                              ; mg <- newGivenEvVar (mkTcEqPred fam_ty rhs_xi_var) 
-                                                   (EvCoercion (mkTcReflCo fam_ty)) 
-                              ; case mg of 
+                        _ | isGivenOrSolved fl -- Given or Solved: make new flatten skolem
+                          -> do { traceTcS "flatten/flat-cache miss" $ empty 
+                                ; rhs_xi_var <- newFlattenSkolemTy fam_ty
+                                ; mg <- newGivenEvVar (mkTcEqPred fam_ty rhs_xi_var) 
+                                                      (EvCoercion (mkTcReflCo fam_ty)) 
+                                ; case mg of 
                                    Fresh eqv -> 
                                      do { let new_fl = Given (flav_gloc fl) eqv
                                               ct = CFunEqCan { cc_flavor = new_fl
@@ -637,11 +647,11 @@ flatten d fl (TyConApp tc tys)
                                         ; updFlatCache ct
                                         ; return (mkTcCoVarCo eqv, rhs_xi_var, [ct]) }
                                    Cached {} -> panic "flatten TyConApp, var must be fresh!" }
-                      | otherwise -- Wanted or Derived: make new unification variable
-                        -> do { traceTcS "flatten/flat-cache miss" $ empty 
-                              ; rhs_xi_var <- newFlexiTcSTy (typeKind fam_ty)
-                              ; mw <- newWantedEvVar (mkTcEqPred fam_ty rhs_xi_var)
-                              ; case mw of
+                         | otherwise -- Wanted or Derived: make new unification variable
+                         -> do { traceTcS "flatten/flat-cache miss" $ empty 
+                               ; rhs_xi_var <- newFlexiTcSTy (typeKind fam_ty)
+                               ; mw <- newWantedEvVar (mkTcEqPred fam_ty rhs_xi_var)
+                               ; case mw of
                                    Fresh eqv -> 
                                      do { let new_fl = Wanted (flav_wloc fl) eqv
                                               ct = CFunEqCan { cc_flavor = new_fl
@@ -653,7 +663,7 @@ flatten d fl (TyConApp tc tys)
                                         ; updFlatCache ct
                                         ; return (mkTcCoVarCo eqv, rhs_xi_var, [ct]) }
                                    Cached {} -> panic "flatten TyConApp, var must be fresh!" } 
-                }
+                    }
                   -- Emit the flat constraints
          ; updWorkListTcS $ appendWorkListEqs ct
          ; let (cos_args, cos_rest) = splitAt (tyConArity tc) cos
@@ -664,12 +674,16 @@ flatten d fl (TyConApp tc tys)
                   ) 
          }
 
-flatten d ctxt ty@(ForAllTy {})
+flatten d _f ctxt ty@(ForAllTy {})
 -- We allow for-alls when, but only when, no type function
 -- applications inside the forall involve the bound type variables.
   = do { let (tvs, rho) = splitForAllTys ty
+       ; (rho', co) <- flatten d FMSubstOnly ctxt rho
+       ; return (mkForAllTys tvs rho', foldr mkTcForAllCo co tvs) }
+                      {- DELETEME  
        ; when (under_families tvs rho) $ wrapErrTcS $ flattenForAllErrorTcS ctxt ty
-       ; (rho', co) <- flatten d ctxt rho
+       ; (rho', co) <- flatten d FMSubstOnly ctxt rho
+                       -- Only do substitutions, not flattening under ForAlls
        ; return (mkForAllTys tvs rho', foldr mkTcForAllCo co tvs) }
 
 -- DV: Simon and I have a better plan here related to #T5934 and that plan is to 
@@ -690,18 +704,22 @@ flatten d ctxt ty@(ForAllTy {})
                   go bound (FunTy arg res)  = go bound arg || go bound res
                   go bound (AppTy fun arg)  = go bound fun || go bound arg
                   go bound (ForAllTy tv ty) = go (bound `extendVarSet` tv) ty
+-}
+
 \end{code}
 
 \begin{code}
-flattenTyVar :: SubGoalDepth -> CtFlavor -> TcTyVar -> TcS (Xi, TcCoercion)
+flattenTyVar :: SubGoalDepth 
+             -> FlattenMode 
+             -> CtFlavor -> TcTyVar -> TcS (Xi, TcCoercion)
 -- "Flattening" a type variable means to apply the substitution to it
-flattenTyVar d ctxt tv
+flattenTyVar d f ctxt tv
   = do { ieqs <- getInertEqs
        ; let mco = tv_eq_subst (fst ieqs) tv  -- co : v ~ ty
        ; case mco of -- Done, but make sure the kind is zonked
            Nothing -> 
                do { let knd = tyVarKind tv
-                  ; (new_knd,_kind_co) <- flatten d ctxt knd
+                  ; (new_knd,_kind_co) <- flatten d f ctxt knd
                   ; let ty = mkTyVarTy (setVarType tv new_knd)
                   ; return (ty, mkTcReflCo ty) }
            -- NB recursive call. 
@@ -709,7 +727,7 @@ flattenTyVar d ctxt tv
            -- In fact, because of flavors, it couldn't possibly be idempotent,
            -- this is explained in Note [Non-idempotent inert substitution]
            Just (co,ty) -> 
-               do { (ty_final,co') <- flatten d ctxt ty
+               do { (ty_final,co') <- flatten d f ctxt ty
                   ; return (ty_final, co' `mkTcTransCo` mkTcSymCo co) } }  
   where tv_eq_subst subst tv
           | Just ct <- lookupVarEnv subst tv
@@ -840,13 +858,20 @@ canEq d fl ty1 ty2    -- e.g.  F a b ~ Maybe c
   = canEqAppTy d fl s1 t1 s2 t2
 
 canEq d fl s1@(ForAllTy {}) s2@(ForAllTy {})
- | tcIsForAllTy s1, tcIsForAllTy s2, 
-   Wanted {} <- fl 
- = canEqFailure d fl
+ | tcIsForAllTy s1, tcIsForAllTy s2
+ , Wanted loc orig_ev <- fl 
+ = do { let (tvs1,body1) = tcSplitForAllTys s1
+            (tvs2,body2) = tcSplitForAllTys s2
+      ; if not (equalLength tvs1 tvs2) then 
+          canEqFailure d fl
+        else
+          do { traceTcS "Creating implication for polytype equality" $ ppr fl
+             ; deferTcSForAllEq (loc,orig_ev) (tvs1,body1) (tvs2,body2) 
+             ; return Stop } }
  | otherwise
- = do { traceTcS "Ommitting decomposition of given polytype equality" (pprEq s1 s2)
+ = do { traceTcS "Ommitting decomposition of given polytype equality" $ 
+        pprEq s1 s2
       ; return Stop }
-
 canEq d fl _ _  = canEqFailure d fl
 
 ------------------------
@@ -899,7 +924,7 @@ emitKindConstraint ct
        | otherwise
        = ASSERT( isKind k1 && isKind k2 )
          do { kev <- 
-                 do { mw <- newWantedEvVar (mkNakedEqPred superKind k1 k2) 
+                 do { mw <- newWantedEvVar (mkEqPred k1 k2) 
                     ; case mw of
                          Cached x -> return x
                          Fresh x  -> addToWork (canEq d (kind_co_fl x) k1 k2) >> return x }
@@ -1188,8 +1213,8 @@ canEqLeafFunEqLeftRec d fl (fn,tys1) ty2  -- fl :: F tys1 ~ ty2
   = do { traceTcS "canEqLeafFunEqLeftRec" $ pprEq (mkTyConApp fn tys1) ty2
        ; (xis1,cos1) <- 
            {-# SCC "flattenMany" #-}
-           flattenMany d fl tys1 -- Flatten type function arguments
-                                 -- cos1 :: xis1 ~ tys1
+           flattenMany d FMFullFlatten fl tys1 -- Flatten type function arguments
+                                               -- cos1 :: xis1 ~ tys1
            
        ; let fam_head = mkTyConApp fn xis1
          -- Fancy higher-dimensional coercion between equalities!
@@ -1214,7 +1239,7 @@ canEqLeafFunEqLeft d fl (fn,xis1) s2
    do { traceTcS "canEqLeafFunEqLeft" $ pprEq (mkTyConApp fn xis1) s2
       ; (xi2,co2) <- 
           {-# SCC "flatten" #-} 
-          flatten d fl s2 -- co2 :: xi2 ~ s2
+          flatten d FMFullFlatten fl s2 -- co2 :: xi2 ~ s2
           
       ; let fam_head = mkTyConApp fn xis1
       -- Fancy coercion between equalities! But it should just work! 
@@ -1236,7 +1261,7 @@ canEqLeafTyVarLeftRec :: SubGoalDepth
                       -> TcTyVar -> TcType -> TcS StopOrContinue
 canEqLeafTyVarLeftRec d fl tv s2              -- fl :: tv ~ s2
   = do {  traceTcS "canEqLeafTyVarLeftRec" $ pprEq (mkTyVarTy tv) s2
-       ; (xi1,co1) <- flattenTyVar d fl tv -- co1 :: xi1 ~ tv        
+       ; (xi1,co1) <- flattenTyVar d FMFullFlatten fl tv -- co1 :: xi1 ~ tv
        ; let is_still_var = isJust (getTyVar_maybe xi1) 
        
        ; traceTcS "canEqLeafTyVarLeftRec2" $ empty 
@@ -1263,8 +1288,8 @@ canEqLeafTyVarLeft :: SubGoalDepth -- Depth
 canEqLeafTyVarLeft d fl tv s2       -- eqv : tv ~ s2
   = do { let tv_ty = mkTyVarTy tv
        ; traceTcS "canEqLeafTyVarLeft" (pprEq tv_ty s2)
-       ; (xi2, co2) <- flatten d fl s2   -- Flatten RHS   co : xi2 ~ s2
-                                                                 
+       ; (xi2, co2) <- flatten d FMFullFlatten fl s2 -- Flatten RHS co:xi2 ~ s2 
+                       
        ; traceTcS "canEqLeafTyVarLeft" (nest 2 (vcat [ text "tv  =" <+> ppr tv
                                                      , text "s2  =" <+> ppr s2
                                                      , text "xi2 =" <+> ppr xi2]))
