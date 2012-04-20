@@ -235,6 +235,8 @@ ppr_expr add_par (Let bind expr)
 ppr_expr add_par (Tick tickish expr)
   = add_par (sep [ppr tickish, pprCoreExpr expr])
 
+ppr_expr _ (Hole _) = text "__"
+
 pprCoreAlt :: OutputableBndr a => (AltCon, [a] , Expr a) -> SDoc
 pprCoreAlt (con, args, rhs) 
   = hang (ppr_case_pat con args <+> arrow) 2 (pprCoreExpr rhs)

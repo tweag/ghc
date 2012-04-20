@@ -1346,6 +1346,7 @@ exprSize (Cast e co)     = (seqCo co `seq` 1) + exprSize e
 exprSize (Tick n e)      = tickSize n + exprSize e
 exprSize (Type t)        = seqType t `seq` 1
 exprSize (Coercion co)   = seqCo co `seq` 1
+exprSize (Hole src)      = src `seq` 1
 
 tickSize :: Tickish Id -> Int
 tickSize (ProfNote cc _ _) = cc `seq` 1

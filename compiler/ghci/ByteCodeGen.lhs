@@ -505,6 +505,8 @@ schemeE d s p (AnnCase scrut _ _ [(DataAlt dc, [bind1], rhs)])
 schemeE d s p (AnnCase scrut bndr _ alts)
    = doCase d s p scrut bndr alts False{-not an unboxed tuple-}
 
+schemeE d s p e@(AnnHole src) = returnUnboxedAtom d s p e VoidArg
+
 schemeE _ _ _ expr
    = pprPanic "ByteCodeGen.schemeE: unhandled case"
                (pprCoreExpr (deAnnotate' expr))
@@ -1236,6 +1238,8 @@ pushAtom _ _ (AnnLit lit)
                 addr <- getMallocvilleAddr
                 -- Get the addr on the stack, untaggedly
                 return (unitOL (PUSH_UBX (Right addr) 1), 1)
+
+pushAtom _ _ (AnnHole src) = return (unitOL (PUSH_PRIMOP RaiseOp), 1)
 
 pushAtom _ _ expr
    = pprPanic "ByteCodeGen.pushAtom"
