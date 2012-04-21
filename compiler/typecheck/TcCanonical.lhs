@@ -292,7 +292,7 @@ canHole :: SubGoalDepth -- Depth
       -> CtFlavor
       -> Name -> Type -> TcS StopOrContinue
 canHole d fl nm ty
-  = do { (xi,co) <- flatten d fl (mkHolePred nm ty)
+  = do { (xi,co) <- flatten d FMFullFlatten fl (mkHolePred nm ty)
        ; mb <- rewriteCtFlavor fl xi co 
        ; case mb of
             Just new_fl -> let HolePred _ xi_in = classifyPredType xi
