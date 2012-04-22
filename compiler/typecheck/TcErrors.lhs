@@ -154,21 +154,23 @@ reportTidyWanteds ctxt insols flats implics
           }
        else 
        do {
-            ; traceTc "reportTidyWanteds" (ppr (filterBag (isHole) (flats `unionBags` insols)))
-            ; mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr)
-                       (filterBag isHole (flats `unionBags` insols))
-            ; reportInsolsAndFlats ctxt (filterBag (not.isHole) insols) (filterBag (not.isHole) flats)
+            ; traceTc "reportTidyWanteds" (ppr deferred)
+            ; mapBagM_ (deferToRuntime ev_binds_var ctxt (mkHoleDeferredError deferred))
+                       holes
+            ; reportInsolsAndFlats ctxt (filterBag (not.isDeferred) insols) (filterBag (not.isDeferred) flats)
             ; mapBagM_ (reportImplic ctxt) implics
           }
      }
-       where isHole ct = case classifyPredType (ctPred ct) of
+       where isDeferred ct = case classifyPredType (ctPred ct) of
+                            HolePred {}  -> True
+                            ClassPred {} -> any (`elemBag` holeTyVars) (varSetElems $ tyVarsOfCt ct)
+                            _            -> False
+             isHole ct = case classifyPredType (ctPred ct) of
                             HolePred {} -> True
-                            ClassPred nm ty -> any isHoleTyVar ty
                             _           -> False
-             isHoleTyVar (TyVarTy tv) = case tcTyVarDetails tv of
-                  MetaTv HoleTv _ -> True
-                  _ -> False
-             isHoleTyVar _ = False
+             holeTyVars = concatBag $ mapBag (listToBag . varSetElems . tyVarsOfCt) $ holes
+             deferred = filterBag isDeferred (flats `unionBags` insols)
+             holes = filterBag isHole (flats `unionBags` insols)
              
 
 deferToRuntime :: EvBindsVar -> ReportErrCtxt -> (ReportErrCtxt -> Ct -> TcM ErrMsg) 
@@ -403,6 +405,19 @@ mkIrredErr ctxt cts
 \end{code}
 
 \begin{code}
+mkHoleDeferredError :: Bag Ct -> ReportErrCtxt -> Ct -> TcM ErrMsg
+mkHoleDeferredError allcts ctxt ct = mkErrorReport ctxt msg
+  where
+    orig    = ctLocOrigin (ctWantedLoc ct)
+    (TyConApp nm [ty]) = ctPred ct
+    relevant = mapBag ctPred $ filterBag isRelevant allcts
+    isRelevant ct' = case classifyPredType (ctPred ct') of
+                      ClassPred {} -> any (`elem` (varSetElems $ tyVarsOfCt ct)) (varSetElems $ tyVarsOfCt ct')
+                      _ -> False
+    msg     = (text "Found hole") <+> ppr nm <+> text "with type" <+> addclasses
+    addclasses = if isEmptyBag relevant then ppr ty else ppr $ mkFunTys (bagToList relevant) ty
+
+
 mkHoleErr :: ReportErrCtxt -> [Ct] -> TcM ErrMsg
 mkHoleErr ctxt cts
   = mkErrorReport ctxt msg
