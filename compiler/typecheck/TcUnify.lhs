@@ -777,7 +777,8 @@ uUnfilledVar origin swapped tv1 details1 (TyVarTy tv2)
 uUnfilledVar origin swapped tv1 details1 non_var_ty2  -- ty2 is not a type variable
   = case details1 of
       MetaTv TauTv ref1 
-        -> do { mb_ty2' <- checkTauTvUpdate tv1 non_var_ty2
+        -> do { traceTc "uUnfilledVar" empty
+              ; mb_ty2' <- checkTauTvUpdate tv1 non_var_ty2
               ; case mb_ty2' of
                   Nothing   -> do { traceTc "Occ/kind defer" (ppr tv1); defer }
                   Just ty2' -> updateMeta tv1 ref1 ty2'
@@ -809,6 +810,7 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
        ; let ctxt = mkKindErrorCtxt ty1 ty2 k1 k2
        ; sub_kind <- addErrCtxtM ctxt $ unifyKind k1 k2
 
+       ; traceTc "uUnfilledVars" ( text "details1:" <+> ppr details1 <+> text "details2:" <+> ppr details2)
        ; case (sub_kind, details1, details2) of
            -- k1 < k2, so update tv2
            (LT, _, MetaTv _ ref2) -> updateMeta tv2 ref2 ty1
@@ -832,6 +834,8 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
     ty1      = mkTyVarTy tv1
     ty2      = mkTyVarTy tv2
 
+    nicer_to_update_tv1 _     HoleTv = True
+    nicer_to_update_tv1 HoleTv _     = False
     nicer_to_update_tv1 _     SigTv = True
     nicer_to_update_tv1 SigTv _     = False
     nicer_to_update_tv1 _         _ = isSystemName (Var.varName tv1)
@@ -984,7 +988,8 @@ lookupTcTyVar tyvar
 
 updateMeta :: TcTyVar -> TcRef MetaDetails -> TcType -> TcM TcCoercion
 updateMeta tv1 ref1 ty2
-  = do { writeMetaTyVarRef tv1 ref1 ty2
+  = do { traceTc "updateMeta" (ppr tv1 <+> ppr ty2)
+       ; writeMetaTyVarRef tv1 ref1 ty2
        ; return (mkTcReflCo ty2) }
 \end{code}
 

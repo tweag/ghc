@@ -163,7 +163,12 @@ reportTidyWanteds ctxt insols flats implics
      }
        where isHole ct = case classifyPredType (ctPred ct) of
                             HolePred {} -> True
+                            ClassPred nm ty -> any isHoleTyVar ty
                             _           -> False
+             isHoleTyVar (TyVarTy tv) = case tcTyVarDetails tv of
+                  MetaTv HoleTv _ -> True
+                  _ -> False
+             isHoleTyVar _ = False
              
 
 deferToRuntime :: EvBindsVar -> ReportErrCtxt -> (ReportErrCtxt -> Ct -> TcM ErrMsg) 

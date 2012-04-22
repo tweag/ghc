@@ -221,7 +221,8 @@ tcExpr (HsType ty) _
 tcExpr (HsHole name) res_ty
   = do { traceTc "tcExpr.HsHole" (ppr $ res_ty)
        ; let origin = OccurrenceOf name
-       ; ty <- newFlexiTyVarTy liftedTypeKind
+       ; tyvar <- newMetaTyVar HoleTv liftedTypeKind
+       ; let ty = TyVarTy tyvar
        
        -- Emit the constraint
        ; var <- emitWanted origin (mkHolePred name ty)

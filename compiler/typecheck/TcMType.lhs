@@ -317,6 +317,7 @@ newMetaTyVar meta_info kind
                         TauTv -> fsLit "t"
                         TcsTv -> fsLit "u"
                         SigTv -> fsLit "a"
+                        HoleTv -> fsLit "h"
 	; return (mkTcTyVar name kind (MetaTv meta_info ref)) }
 
 mkTcTyVarName :: Unique -> FastString -> Name

@@ -342,6 +342,7 @@ data MetaInfo
      		   -- Its particular property is that it is always "touchable"
 		   -- Nevertheless, the constraint solver has to try to guess
 		   -- what type to instantiate it to
+   | HoleTv
 
 -------------------------------------
 -- UserTypeCtxt describes the origin of the polymorphic type
@@ -351,6 +352,7 @@ instance Outputable MetaInfo where
   ppr TauTv = ptext (sLit "TauTv")
   ppr SigTv = ptext (sLit "SigTv")
   ppr TcsTv = ptext (sLit "TcsTv")
+  ppr HoleTv = ptext (sLit "HoleTv")
 
 data UserTypeCtxt
   = FunSigCtxt Name	-- Function type signature
@@ -426,6 +428,7 @@ pprTcTyVarDetails (FlatSkol {})    = ptext (sLit "fsk")
 pprTcTyVarDetails (MetaTv TauTv _) = ptext (sLit "tau")
 pprTcTyVarDetails (MetaTv TcsTv _) = ptext (sLit "tcs")
 pprTcTyVarDetails (MetaTv SigTv _) = ptext (sLit "sig")
+pprTcTyVarDetails (MetaTv HoleTv _) = ptext (sLit "hole")
 
 pprUserTypeCtxt :: UserTypeCtxt -> SDoc
 pprUserTypeCtxt (InfSigCtxt n)    = ptext (sLit "the inferred type for") <+> quotes (ppr n)
@@ -741,6 +744,7 @@ isMetaTyVar tv
 isAmbiguousTyVar tv 
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
+        MetaTv HoleTv _ -> False
 	MetaTv {}     -> True
 	RuntimeUnk {} -> True
 	_             -> False
