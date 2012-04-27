@@ -154,9 +154,11 @@ reportTidyWanteds ctxt insols flats implics
           }
        else 
        do {
-            ; traceTc "reportTidyWanteds" (ppr deferred)
+            ; traceTc "reportTidyWanteds" (ppr $ mapBag ic_given implics)
             ; mapBagM_ (deferToRuntime ev_binds_var ctxt (mkHoleDeferredError deferred))
                        holes
+            ; mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr)
+                       (filterBag (\x -> isDeferred x && (not $ isHole x)) (flats `unionBags` insols))
             ; reportInsolsAndFlats ctxt (filterBag (not.isDeferred) insols) (filterBag (not.isDeferred) flats)
             ; mapBagM_ (reportImplic ctxt) implics
           }
