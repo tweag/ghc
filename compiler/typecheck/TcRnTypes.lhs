@@ -61,7 +61,7 @@ module TcRnTypes(
         SubGoalDepth, mkNonCanonical, ctPred, ctFlavPred, ctId, ctFlavId,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
-        andWC, unionsWC, addFlats, addImplics, mkFlatWC,
+        andWC, unionsWC, addFlats, addImplics, mkFlatWC, addInsols,
 
         Implication(..),
         CtLoc(..), ctLocSpan, ctLocOrigin, setCtLocOrigin,
@@ -910,7 +910,7 @@ data Ct
     }
 
   | CHoleCan {
-      cc_id       :: EvVar,
+      -- cc_id       :: EvVar,
       cc_flavor   :: CtFlavor,
       cc_hole_nm  :: Name,
       cc_hole_ty  :: TcTauType, -- Not a Xi! See same not as above
@@ -934,8 +934,8 @@ ctPred (CFunEqCan { cc_fun = fn, cc_tyargs = xis1, cc_rhs = xi2 })
 ctPred (CIPCan { cc_ip_nm = nm, cc_ip_ty = xi }) 
   = mkIPPred nm xi
 ctPred (CIrredEvCan { cc_ty = xi }) = xi
-ctPred (CHoleCan { cc_hole_nm = nm, cc_hole_ty = xi})
-  = mkHolePred nm xi
+ctPred (CHoleCan { cc_flavor = fl, cc_hole_ty = xi })
+  = xi
 
 ctId :: Ct -> EvVar
 -- Precondition: not a derived!
@@ -1093,6 +1093,10 @@ addFlats wc cts
 
 addImplics :: WantedConstraints -> Bag Implication -> WantedConstraints
 addImplics wc implic = wc { wc_impl = wc_impl wc `unionBags` implic }
+
+addInsols :: WantedConstraints -> Bag Ct -> WantedConstraints
+addInsols wc cts
+  = wc { wc_insol = wc_insol wc `unionBags` cts }
 
 instance Outputable WantedConstraints where
   ppr (WC {wc_flat = f, wc_impl = i, wc_insol = n})
@@ -1531,6 +1535,7 @@ data CtOrigin
   | ProcOrigin		-- Arising from a proc expression
   | AnnOrigin           -- An annotation
   | FunDepOrigin
+  | HoleOrigin Name TcTypeEnv
 
 data EqOrigin 
   = UnifyOrigin 
@@ -1568,6 +1573,7 @@ pprO ProcOrigin	           = ptext (sLit "a proc expression")
 pprO (TypeEqOrigin eq)     = ptext (sLit "an equality") <+> ppr eq
 pprO AnnOrigin             = ptext (sLit "an annotation")
 pprO FunDepOrigin          = ptext (sLit "a functional dependency")
+pprO (HoleOrigin nm _)     = hsep [ptext (sLit "a use of the hole"), quotes (ppr nm)]
 
 instance Outputable EqOrigin where
   ppr (UnifyOrigin t1 t2) = ppr t1 <+> char '~' <+> ppr t2

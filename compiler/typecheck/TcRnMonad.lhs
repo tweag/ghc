@@ -1029,6 +1029,13 @@ emitImplications ct
   = do { lie_var <- getConstraintVar ;
          updTcRef lie_var (`addImplics` ct) }
 
+emitInsoluble :: Ct -> TcM ()
+emitInsoluble ct
+  = do { lie_var <- getConstraintVar ;
+         updTcRef lie_var (`addInsols` unitBag ct) ;
+         v <- readTcRef lie_var ;
+         traceTc "emitInsoluble" (ppr v) }
+
 captureConstraints :: TcM a -> TcM (a, WantedConstraints)
 -- (captureConstraints m) runs m, and returns the type constraints it generates
 captureConstraints thing_inside

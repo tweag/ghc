@@ -1453,8 +1453,6 @@ tcRnExpr hsc_env ictxt rdr_expr
                                                     lie  ;
 	let { (holes, dicts') = splitEvs dicts [] [] } ;
     
-    traceRn (text "tcRnExpr1:" <+> (ppr holes <+> ppr dicts')) ;
-
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
     
     traceRn (text "tcRnExpr2:" <+> (ppr lie_top)) ;
@@ -1480,7 +1478,7 @@ tcRnExpr hsc_env ictxt rdr_expr
 
           splitEvs [] hls dcts = (hls, dcts)
           splitEvs (evvar:xs) hls dcts = case classifyPredType $ varType evvar of
-								    		HolePred {} -> splitEvs xs (evvar:hls) dcts
+								    		--HolePred {} -> splitEvs xs (evvar:hls) dcts
 								    		_ -> splitEvs xs hls (evvar:dcts)
           -- unwrap what was wrapped in mkHolePred
           unwrapHole (TyConApp nm [ty]) = (nm, ty)

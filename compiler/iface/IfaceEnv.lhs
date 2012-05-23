@@ -186,19 +186,19 @@ newIPName ip = updNameCache $ flip allocateIPName ip
 \end{code}
 
 \begin{code}
-newHoleName :: Maybe FastString -> TcRnIf m n Name
-newHoleName mname = updNameCache $ \name_cache ->
-    let tycon_u:datacon_u:dc_wrk_u:co_ax_u:_ = uniqsFromSupply us_here
+newHoleName :: SrcSpan -> Maybe OccName -> TcRnIf m n Name
+newHoleName srcspan mname = updNameCache $ \name_cache ->
+    let uniq:_ = uniqsFromSupply us_here
         (us_here, us') = splitUniqSupply (nsUniqs name_cache)
     in case mname of
-      Nothing -> (name_cache { nsUniqs = us' }, mkHoleName (fsLit "_") tycon_u datacon_u dc_wrk_u co_ax_u)
-      Just name -> case Map.lookup name $ nsHoles name_cache of
+      Nothing -> (name_cache { nsUniqs = us' }, mkInternalName uniq (mkVarOcc "_") srcspan)
+      Just name -> case Map.lookup (occNameFS name) $ nsHoles name_cache of
         Just name_hole -> (name_cache, name_hole)
         Nothing        -> (new_ns, name_hole)
         where
-          new_holecache   = Map.insert name name_hole $ nsHoles name_cache
+          new_holecache   = Map.insert (occNameFS name) name_hole $ nsHoles name_cache
           new_ns          = name_cache { nsUniqs = us', nsHoles = new_holecache }
-          name_hole       = mkHoleName name tycon_u datacon_u dc_wrk_u co_ax_u
+          name_hole       = mkInternalName uniq name srcspan
 
 \end{code}
 

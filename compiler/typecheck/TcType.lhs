@@ -130,7 +130,7 @@ module TcType (
   mkTyVarTy, mkTyVarTys, mkTyConTy,
 
   isClassPred, isEqPred, isIPPred,
-  mkClassPred, mkIPPred, isHolePred,
+  mkClassPred, mkIPPred,
   isDictLikeTy,
   tcSplitDFunTy, tcSplitDFunHead, 
   mkEqPred, 

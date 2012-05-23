@@ -208,7 +208,7 @@ canonicalize (CIrredEvCan { cc_flavor = fl
                           , cc_depth = d
                           , cc_ty = xi })
   = canIrred d fl xi
-canonicalize (CHoleCan { cc_id = ev, cc_depth = d
+canonicalize (CHoleCan { cc_depth = d
                        , cc_flavor = fl
                        , cc_hole_nm = nm
                        , cc_hole_ty = xi })
@@ -226,7 +226,6 @@ canEvVar d fl pred_classifier
       IPPred nm ty      -> canIP      d fl nm ty
       IrredPred ev_ty   -> canIrred   d fl ev_ty
       TuplePred tys     -> canTuple   d fl tys
-      HolePred name ty  -> canHole    d fl name ty
 \end{code}
 
 
@@ -292,12 +291,11 @@ canHole :: SubGoalDepth -- Depth
       -> CtFlavor
       -> Name -> Type -> TcS StopOrContinue
 canHole d fl nm ty
-  = do { (xi,co) <- flatten d FMFullFlatten fl (mkHolePred nm ty)
+  = do { (xi,co) <- flatten d FMFullFlatten fl ty
        ; mb <- rewriteCtFlavor fl xi co 
        ; case mb of
-            Just new_fl -> let HolePred _ xi_in = classifyPredType xi
-                           in continueWith $ CHoleCan { cc_flavor = new_fl
-                                                      , cc_hole_nm = nm, cc_hole_ty = xi_in
+            Just new_fl -> continueWith $ CHoleCan { cc_flavor = new_fl
+                                                      , cc_hole_nm = nm, cc_hole_ty = xi
                                                       , cc_depth = d }
             Nothing -> return Stop }
 \end{code}

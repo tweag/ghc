@@ -489,8 +489,8 @@ rnIPName n = newIPName (occNameFS (rdrNameOcc (ipNameName n)))
 \end{code}
 
 \begin{code}
-rnHoleName :: Maybe RdrName -> RnM Name
-rnHoleName n = newHoleName $ fmap (occNameFS . rdrNameOcc) n
+rnHoleName :: SrcSpan -> Maybe RdrName -> RnM Name
+rnHoleName srcspan n = newHoleName srcspan (fmap rdrNameOcc n)
 \end{code}
 
 

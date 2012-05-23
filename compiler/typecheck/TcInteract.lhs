@@ -823,7 +823,7 @@ doInteractWithInert (CIPCan { cc_flavor = ifl, cc_ip_nm = nm1, cc_ip_ty = ty1 })
           | Derived wl _ <- ifl = wl
           | otherwise = panic "Solve IP: no WantedLoc!"
 
-doInteractWithInert (CHoleCan id1 fl1 nm1 ty1 d1) workitem@(CHoleCan id2 fl2 nm2 ty2 d2)
+doInteractWithInert (CHoleCan fl1 nm1 ty1 d1) workitem@(CHoleCan fl2 nm2 ty2 d2)
   | nm1 == nm2 && isGivenOrSolved fl2 && isGivenOrSolved fl1
   = irInertConsumed "Hole/Hole (override inert)"
   | nm1 == nm2 && ty1 `eqType` ty2 
@@ -841,7 +841,7 @@ doInteractWithInert (CHoleCan id1 fl1 nm1 ty1 d1) workitem@(CHoleCan id2 fl2 nm2
                  Cached eqv -> return eqv
        ; case fl2 of
             Wanted  {} ->
-              let hole_co = mkTcTyConAppCo (holeTyCon nm1) [mkTcCoVarCo cv]
+              let hole_co = mkTcCoVarCo cv
               in do { setEvBind (ctId workitem) $
                       mkEvCast (flav_evar fl1) (mkTcSymCo hole_co)
                     ; irWorkItemConsumed "Hole/Hole (solved by rewriting)" }

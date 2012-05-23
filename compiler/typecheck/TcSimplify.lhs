@@ -357,7 +357,10 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
                        -- ic_skols, ic_given give rest of result
                   , ptext (sLit "qtvs =") <+> ppr qtvs_to_return
                   , ptext (sLit "spb =") <+> ppr zonked_flats
-                  , ptext (sLit "bound =") <+> ppr bound ]
+                  , ptext (sLit "ctvs =") <+> ppr constrained_tvs
+                  , ptext (sLit "ptvs =") <+> ppr poly_qtvs
+                  , ptext (sLit "bound =") <+> ppr bound
+                  , ptext (sLit "simpl_results =") <+> ppr simpl_results ]
 
 
 
@@ -473,7 +476,6 @@ quantifyMe :: TyVarSet      -- Quantifying over these
 	   -> Bool	    -- True <=> quantify over this wanted
 quantifyMe qtvs ct
   | isIPPred pred = True  -- Note [Inheriting implicit parameters]
-  | isHolePred pred = True
   | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
   where
     pred = ctPred ct

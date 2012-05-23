@@ -518,7 +518,6 @@ hasEqualities givens = any (has_eq . evVarPred) givens
     has_eq' (ClassPred cls _tys) = any has_eq (classSCTheta cls)
     has_eq' (TuplePred ts)       = any has_eq ts
     has_eq' (IrredPred _)        = True -- Might have equalities in it after reduction?
-    has_eq' (HolePred {})        = False
 
 ---------------- Getting free tyvars -------------------------
 
@@ -565,8 +564,10 @@ tyVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
 tidyCt :: TidyEnv -> Ct -> Ct
 -- Also converts it to non-canonical
 tidyCt env ct 
-  = CNonCanonical { cc_flavor = tidy_flavor env (cc_flavor ct)
-                  , cc_depth  = cc_depth ct } 
+  = case ct of
+     CHoleCan {} -> ct
+     _ -> CNonCanonical { cc_flavor = tidy_flavor env (cc_flavor ct)
+                        , cc_depth  = cc_depth ct } 
   where tidy_flavor :: TidyEnv -> CtFlavor -> CtFlavor
         tidy_flavor env (Given { flav_gloc = gloc, flav_evar = evar })
           = Given { flav_gloc = tidyGivenLoc env gloc

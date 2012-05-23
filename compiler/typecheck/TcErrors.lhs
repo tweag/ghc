@@ -154,7 +154,7 @@ reportTidyWanteds ctxt insols flats implics
           }
        else 
        do {
-            ; traceTc "reportTidyWanteds" (ppr $ mapBag ic_given implics)
+            ; traceTc "reportTidyWanteds" (ppr $ flats `unionBags` insols)
             ; mapBagM_ (deferToRuntime ev_binds_var ctxt (mkHoleDeferredError deferred))
                        holes
             ; mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr)
@@ -163,12 +163,12 @@ reportTidyWanteds ctxt insols flats implics
             ; mapBagM_ (reportImplic ctxt) implics
           }
      }
-       where isDeferred ct = case classifyPredType (ctPred ct) of
-                            HolePred {}  -> True
-                            ClassPred {} -> any (`elemBag` holeTyVars) (varSetElems $ tyVarsOfCt ct)
+       where isDeferred ct = case ct of
+                            CHoleCan {}  -> True
+                            --CClass {} -> any (`elemBag` holeTyVars) (varSetElems $ tyVarsOfCt ct)
                             _            -> False
-             isHole ct = case classifyPredType (ctPred ct) of
-                            HolePred {} -> True
+             isHole ct = case ct of
+                            CHoleCan {} -> True
                             _           -> False
              holeTyVars = concatBag $ mapBag (listToBag . varSetElems . tyVarsOfCt) $ holes
              deferred = filterBag isDeferred (flats `unionBags` insols)
@@ -280,7 +280,6 @@ mkFlatErr ctxt ct   -- The constraint is always wanted
       IPPred {}     -> mkIPErr    ctxt [ct]
       IrredPred {}  -> mkIrredErr ctxt [ct]
       EqPred {}     -> mkEqErr1 ctxt ct
-      HolePred {}   -> mkHoleErr  ctxt [ct]
       TuplePred {}  -> panic "mkFlat"
       
 reportAmbigErrs :: ReportErrCtxt -> Reporter
@@ -298,24 +297,22 @@ reportFlatErrs :: ReportErrCtxt -> Reporter
 reportFlatErrs ctxt cts
   = tryReporters
       [ ("Equalities", is_equality, groupErrs (mkEqErr ctxt)) ]
-      (\cts -> do { let (dicts, ips, irreds, holes) = go cts [] [] [] []
+      (\cts -> do { let (dicts, ips, irreds) = go cts [] [] []
                   ; groupErrs (mkIPErr    ctxt) ips   
                   ; groupErrs (mkIrredErr ctxt) irreds
-                  ; groupErrs (mkHoleErr  ctxt) holes
                   ; groupErrs (mkDictErr  ctxt) dicts })
       cts
   where
     is_equality _ (EqPred {}) = True
     is_equality _ _           = False
 
-    go [] dicts ips irreds holes
-      = (dicts, ips, irreds, holes)
-    go (ct:cts) dicts ips irreds holes
+    go [] dicts ips irreds
+      = (dicts, ips, irreds)
+    go (ct:cts) dicts ips irreds
       = case classifyPredType (ctPred ct) of
-          ClassPred {}  -> go cts (ct:dicts) ips irreds holes
-          IPPred {}     -> go cts dicts (ct:ips) irreds holes
-          IrredPred {}  -> go cts dicts ips (ct:irreds) holes
-          HolePred {}   -> go cts dicts ips irreds (ct:holes)
+          ClassPred {}  -> go cts (ct:dicts) ips irreds
+          IPPred {}     -> go cts dicts (ct:ips) irreds
+          IrredPred {}  -> trace ("reportFlatErrs: " ++ (showSDoc $ ppr ct)) go cts dicts ips (ct:irreds)
           _             -> panic "mkFlat"
     -- TuplePreds should have been expanded away by the constraint
     -- simplifier, so they shouldn't show up at this point
@@ -408,29 +405,16 @@ mkIrredErr ctxt cts
 
 \begin{code}
 mkHoleDeferredError :: Bag Ct -> ReportErrCtxt -> Ct -> TcM ErrMsg
-mkHoleDeferredError allcts ctxt ct = mkErrorReport ctxt msg
+mkHoleDeferredError allcts ctxt ct@(CHoleCan { cc_hole_nm = nm }) = mkErrorReport ctxt msg
   where
-    orig    = ctLocOrigin (ctWantedLoc ct)
-    (TyConApp nm [ty]) = ctPred ct
+    orig@(HoleOrigin _ lenv)    = ctLocOrigin (ctWantedLoc ct)
+    ty = ctPred ct
     relevant = mapBag ctPred $ filterBag isRelevant allcts
     isRelevant ct' = case classifyPredType (ctPred ct') of
                       ClassPred {} -> any (`elem` (varSetElems $ tyVarsOfCt ct)) (varSetElems $ tyVarsOfCt ct')
                       _ -> False
-    msg     = (text "Found hole") <+> ppr nm <+> text "with type" <+> addclasses
+    msg     = addArising orig $ (text "Found hole") <+> ppr nm <+> text "with type" <+> addclasses $$ (text "In scope:" <+> ppr lenv)
     addclasses = if isEmptyBag relevant then ppr ty else ppr $ mkFunTys (bagToList relevant) ty
-
-
-mkHoleErr :: ReportErrCtxt -> [Ct] -> TcM ErrMsg
-mkHoleErr ctxt cts
-  = mkErrorReport ctxt msg
-  where
-    (ct1:_) = cts
-    orig    = ctLocOrigin (ctWantedLoc ct1)
-    preds   = map ctPred cts
-    msg = foundAHole preds
-
-foundAHole :: ThetaType -> SDoc
-foundAHole [TyConApp nm [ty]] = (text "Found hole") <+> ppr nm <+> (text "with type") <+> ppr ty
 \end{code}
 
 %************************************************************************

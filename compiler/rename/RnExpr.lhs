@@ -294,7 +294,8 @@ rnExpr (PArrSeq _ seq)
     return (PArrSeq noPostTcExpr new_seq, fvs)
 
 rnExpr (HsHole name)
-  = do { name' <- rnHoleName $ Just name
+  = do { srcspan <- getSrcSpanM
+       ; name' <- rnHoleName srcspan (Just name)
        ; return (HsHole name', emptyFVs)
        }
 \end{code}
@@ -304,7 +305,8 @@ Since all the symbols are reservedops we can simply reject them.
 We return a (bogus) EWildPat in each case.
 
 \begin{code}
-rnExpr e@EWildPat      = do { name' <- rnHoleName Nothing
+rnExpr e@EWildPat      = do { srcspan <- getSrcSpanM
+                            ; name' <- rnHoleName srcspan Nothing
                             ; return (HsHole name', emptyFVs)
                             }
 -- rnExpr e@EWildPat      = patSynErr e

@@ -65,7 +65,7 @@ module TyCon(
         tyConStupidTheta,
         tyConArity,
         tyConParent,
-        tyConTuple_maybe, tyConClass_maybe, tyConIP_maybe, tyConHole_maybe,
+        tyConTuple_maybe, tyConClass_maybe, tyConIP_maybe,
         tyConFamInst_maybe, tyConFamInstSig_maybe, tyConFamilyCoercion_maybe,
         synTyConDefn, synTyConRhs, synTyConType,
         tyConExtName,           -- External name for foreign types
@@ -551,7 +551,6 @@ data TyConParent
         --      data R:TList a = ...
         --      axiom co a :: T [a] ~ R:TList a
         -- with R:TList's algTcParent = FamInstTyCon T [a] co
-        | HoleTyCon Name
 
 instance Outputable TyConParent where
     ppr NoParentTyCon           = text "No parent"
@@ -567,7 +566,6 @@ okParent tc_name (AssocFamilyTyCon cls)      = tc_name `elem` map tyConName (cla
 okParent tc_name (ClassTyCon cls)            = tc_name == tyConName (classTyCon cls)
 okParent tc_name (IPTyCon ip)                = tc_name == ipTyConName ip
 okParent _       (FamInstTyCon _ fam_tc tys) = tyConArity fam_tc == length tys
-okParent tc_name (HoleTyCon hole)            = tc_name == hole
 
 isNoParent :: TyConParent -> Bool
 isNoParent NoParentTyCon = True
@@ -1411,10 +1409,6 @@ tyConTuple_maybe _                                    = Nothing
 tyConIP_maybe :: TyCon -> Maybe (IPName Name)
 tyConIP_maybe (AlgTyCon {algTcParent = IPTyCon ip}) = Just ip
 tyConIP_maybe _                                     = Nothing
-
-tyConHole_maybe :: TyCon -> Maybe Name
-tyConHole_maybe (AlgTyCon {algTcParent = HoleTyCon name}) = Just name
-tyConHole_maybe _                                     = Nothing
 
 ----------------------------------------------------------------------------
 tyConParent :: TyCon -> TyConParent
