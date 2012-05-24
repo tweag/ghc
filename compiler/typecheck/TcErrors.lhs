@@ -405,16 +405,15 @@ mkIrredErr ctxt cts
 
 \begin{code}
 mkHoleDeferredError :: Bag Ct -> ReportErrCtxt -> Ct -> TcM ErrMsg
-mkHoleDeferredError allcts ctxt ct@(CHoleCan { cc_hole_nm = nm }) = mkErrorReport ctxt msg
+mkHoleDeferredError allcts ctxt ct@(CHoleCan { cc_hole_nm = nm, cc_flavor = fl }) = mkErrorReport ctxt msg
   where
+    ty = ctFlavPred fl
     orig@(HoleOrigin _ lenv)    = ctLocOrigin (ctWantedLoc ct)
-    ty = ctPred ct
     relevant = mapBag ctPred $ filterBag isRelevant allcts
     isRelevant ct' = case classifyPredType (ctPred ct') of
                       ClassPred {} -> any (`elem` (varSetElems $ tyVarsOfCt ct)) (varSetElems $ tyVarsOfCt ct')
                       _ -> False
-    msg     = addArising orig $ (text "Found hole") <+> ppr nm <+> text "with type" <+> addclasses $$ (text "In scope:" <+> ppr lenv)
-    addclasses = if isEmptyBag relevant then ppr ty else ppr $ mkFunTys (bagToList relevant) ty
+    msg     = addArising orig $ (text "Found hole") <+> ppr nm <+> text "with type" <+> ppr ty $$ (text "In scope:" <+> ppr lenv)
 \end{code}
 
 %************************************************************************
