@@ -185,8 +185,16 @@ tcExpr (HsIPVar ip) res_ty
 		-- type variable as its type.  (Because res_ty may not
 		-- be a tau-type.)
 	; ip_ty <- newFlexiTyVarTy argTypeKind	-- argTypeKind: it can't be an unboxed tuple
-	; ip_var <- emitWanted origin (mkIPPred ip ip_ty)
-	; tcWrapResult (HsIPVar (IPName ip_var)) ip_ty res_ty }
+        -- XXX: Change HsIPVar to just keep the string around.
+        ; let param = mkStrLitTy $ occNameFS $ nameOccName $ ipNameName ip
+        ; ipClass <- tcLookupClass ipClassName
+        ; ipVal   <- tcLookupId ipClassOpName
+	; ip_var <- emitWanted origin (mkClassPred ipClass [param,ip_ty])
+        ; let expr = mkHsWrap (WpEvApp (EvId ip_var))
+                   $ mkHsWrap (WpTyApp ip_ty)
+                   $ mkHsWrap (WpTyApp param)
+                   $ HsVar ipVal
+	; tcWrapResult expr ip_ty res_ty }
 
 tcExpr (HsLam match) res_ty
   = do	{ (co_fn, match') <- tcMatchLambda match res_ty
