@@ -283,7 +283,7 @@ basicKnownKeyNames
         typeNatExpTyFamName,
 
         -- Implicit parameters
-        ipClassName, ipClassOpName,
+        ipClassName, ipUseName, ipDefName, ipNameTyConName, ipNameDataConName,
 
         -- Annotation type checking
         toAnnotationWrapperName
@@ -1076,11 +1076,14 @@ typeNatMulTyFamName = tcQual  gHC_TYPELITS (fsLit "*")   typeNatMulTyFamNameKey
 typeNatExpTyFamName = tcQual  gHC_TYPELITS (fsLit "^")   typeNatExpTyFamNameKey
 
 -- Implicit parameters
-ipClassName :: Name
-ipClassName = clsQual gHC_IP (fsLit "IP") ipClassNameKey
+ipClassName, ipUseName, ipDefName, ipNameDataConName :: Name
+ipClassName       = clsQual gHC_IP (fsLit "IP") ipClassNameKey
+ipUseName         = varQual gHC_IP (fsLit "ipUse") ipUseKey
+ipDefName         = varQual gHC_IP (fsLit "ipDef") ipDefKey
+ipNameTyConName   = tcQual  gHC_IP (fsLit "IPName") ipNameTyConKey
+ipNameDataConName = conName gHC_IP (fsLit "IPName") ipNameDataConKey
 
-ipClassOpName :: Name
-ipClassOpName = methName gHC_IP (fsLit "ipValue") ipClassOpKey
+
 
 
 -- dotnet interop
@@ -1398,6 +1401,9 @@ typeNatAddTyFamNameKey    = mkPreludeTyConUnique 162
 typeNatMulTyFamNameKey    = mkPreludeTyConUnique 163
 typeNatExpTyFamNameKey    = mkPreludeTyConUnique 164
 
+ipNameTyConKey :: Unique
+ipNameTyConKey = mkPreludeTyConUnique 165
+
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
 -----------------------------------------------------
@@ -1456,6 +1462,9 @@ gtDataConKey                            = mkPreludeDataConUnique 29
 integerGmpSDataConKey, integerGmpJDataConKey :: Unique
 integerGmpSDataConKey                   = mkPreludeDataConUnique 30
 integerGmpJDataConKey                   = mkPreludeDataConUnique 31
+
+ipNameDataConKey                       :: Unique
+ipNameDataConKey                        = mkPreludeDataConUnique 32
 \end{code}
 
 %************************************************************************
@@ -1679,9 +1688,9 @@ ghciStepIoMClassOpKey :: Unique
 ghciStepIoMClassOpKey = mkPreludeMiscIdUnique 197
 
 -- Implicit parameters
-ipClassOpKey :: Unique
-ipClassOpKey = mkPreludeMiscIdUnique 198
-
+ipUseKey, ipDefKey :: Unique
+ipUseKey = mkPreludeMiscIdUnique 198
+ipDefKey = mkPreludeMiscIdUnique 199
 
 
 ---------------- Template Haskell -------------------
