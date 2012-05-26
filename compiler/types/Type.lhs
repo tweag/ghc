@@ -157,7 +157,7 @@ import Class
 import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, mkBoxedTupleTy )
-import PrelNames	         ( eqTyConKey )
+import PrelNames	         ( eqTyConKey, ipClassName )
 
 -- others
 import {-# SOURCE #-} IParam ( ipTyCon )
@@ -851,9 +851,10 @@ isClassPred ty = case tyConAppTyCon_maybe ty of
 isEqPred ty = case tyConAppTyCon_maybe ty of
     Just tyCon -> tyCon `hasKey` eqTyConKey
     _          -> False
+
 isIPPred ty = case tyConAppTyCon_maybe ty of
-    Just tyCon | Just _ <- tyConIP_maybe tyCon -> True
-    _                                          -> False
+    Just tyCon -> tyConName tyCon == ipClassName
+    _          -> False
 \end{code}
 
 Make PredTypes
