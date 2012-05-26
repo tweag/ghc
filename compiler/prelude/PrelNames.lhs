@@ -283,7 +283,8 @@ basicKnownKeyNames
         typeNatExpTyFamName,
 
         -- Implicit parameters
-        ipClassName, ipUseName, ipDefName, ipNameTyConName, ipNameDataConName,
+        ipClassName, ipUseName, ipDefName,
+        ipNameTyConName, ipNameDataConName, ipValueTyConName,
 
         -- Annotation type checking
         toAnnotationWrapperName
@@ -1081,6 +1082,7 @@ ipClassName       = clsQual gHC_IP (fsLit "IP") ipClassNameKey
 ipUseName         = varQual gHC_IP (fsLit "ipUse") ipUseKey
 ipDefName         = varQual gHC_IP (fsLit "ipDef") ipDefKey
 ipNameTyConName   = tcQual  gHC_IP (fsLit "IPName") ipNameTyConKey
+ipValueTyConName  = tcQual  gHC_IP (fsLit "IPValue") ipValueTyConKey
 ipNameDataConName = conName gHC_IP (fsLit "IPName") ipNameDataConKey
 
 
@@ -1401,8 +1403,9 @@ typeNatAddTyFamNameKey    = mkPreludeTyConUnique 162
 typeNatMulTyFamNameKey    = mkPreludeTyConUnique 163
 typeNatExpTyFamNameKey    = mkPreludeTyConUnique 164
 
-ipNameTyConKey :: Unique
-ipNameTyConKey = mkPreludeTyConUnique 165
+ipNameTyConKey, ipValueTyConKey :: Unique
+ipNameTyConKey  = mkPreludeTyConUnique 165
+ipValueTyConKey = mkPreludeTyConUnique 166
 
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299

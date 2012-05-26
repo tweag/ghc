@@ -46,7 +46,7 @@ import BasicTypes
 import Outputable
 import FastString
 import Type(mkStrLitTy)
-import PrelNames(ipClassName)
+import PrelNames(ipClassName,ipValueTyConName)
 
 import Control.Monad
 
@@ -210,8 +210,9 @@ tcLocalBinds (HsValBinds (ValBindsIn {})) _ = panic "tcLocalBinds"
 
 tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
   = do  { ipClass <- tcLookupClass ipClassName
-        ; (given_ips, ip_binds') <- mapAndUnzipM
-                                    (wrapLocSndM (tc_ip_bind ipClass)) ip_binds
+        ; ipValue <- tcLookupTyCon ipValueTyConName
+        ; (given_ips, ip_binds') <-
+            mapAndUnzipM (wrapLocSndM (tc_ip_bind ipClass ipValue)) ip_binds
 
         -- If the binding binds ?x = E, we  must now 
         -- discharge any ?x constraints in expr_lie
@@ -226,13 +227,16 @@ tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
         -- I wonder if we should do these one at at time
         -- Consider     ?x = 4
         --              ?y = ?x + 1
-    tc_ip_bind ipClass (IPBind ip expr) 
+    tc_ip_bind ipClass ipVal (IPBind ip expr) 
        = do { ty <- newFlexiTyVarTy argTypeKind
-              -- XXX: Just switch to string in the bind
-            ; let param = mkStrLitTy $ occNameFS $ nameOccName $ ipNameName ip
-            ; ip_id <- newDict ipClass [ param, ty ]
-            ; expr' <- tcMonoExpr expr ty
+            ; let p = mkStrLitTy $ occNameFS $ nameOccName $ ipNameName ip
+            ; ip_id <- newDict ipClass [ p, ty ]
+            ; expr' <- tcMonoExpr (mkIPDef ip expr) (mkTyConApp ipVal [ p, ty ])
             ; return (ip_id, (IPBind (IPName ip_id) expr')) }
+
+
+
+
 \end{code}
 
 Note [Implicit parameter untouchables]

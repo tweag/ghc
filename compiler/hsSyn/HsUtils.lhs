@@ -31,6 +31,8 @@ module HsUtils(
   mkHsOpApp, mkHsDo, mkHsComp, mkHsWrapPat, mkHsWrapPatCo,
   mkLHsPar, 
 
+  mkIPUse, mkIPDef,
+
   nlHsTyApp, nlHsVar, nlHsLit, nlHsApp, nlHsApps, nlHsIntLit, nlHsVarApps, 
   nlHsDo, nlHsOpApp, nlHsLam, nlHsPar, nlHsIf, nlHsCase, nlList,
   mkLHsTupleExpr, mkLHsVarTuple, missingTupArg, 
@@ -95,6 +97,7 @@ import Util
 import Bag
 import Outputable
 import Data.Either
+import PrelNames(ipNameTyConName, ipNameDataConName, ipUseName, ipDefName)
 \end{code}
 
 
@@ -170,6 +173,27 @@ mkParPat :: LPat name -> LPat name
 mkParPat lp@(L loc p) | hsPatNeedsParens p = L loc (ParPat lp)
                       | otherwise          = lp
 
+
+
+------ Implicit parameters --------------------
+
+-- Construct `IPName :: IPName "x"`
+mkIPName :: IPName Name -> LHsExpr Name
+mkIPName x' = p $ ExprWithTySig (p $ HsVar ipNameDataConName) ty
+  where p   = L (nameSrcSpan x)
+        x   = ipNameName x'
+        ty  = mkHsAppTy (p $ HsTyVar ipNameTyConName)
+                        (p $ HsTyLit $ HsStrTy $ occNameFS $ occName x)
+
+-- Constructs `ipUse (IPName :: IPName "x")`
+mkIPUse :: IPName Name -> LHsExpr Name
+mkIPUse x = mkHsApp (L (getLoc n) $ HsVar ipUseName) n
+  where n = mkIPName x
+
+-- Constructs `ipDef (IPName :: IPName "x") e`
+mkIPDef :: IPName Name -> LHsExpr Name -> LHsExpr Name
+mkIPDef x e = mkHsApp (mkHsApp (L (getLoc n) $ HsVar ipDefName) n) e
+  where n = mkIPName x
 
 -------------------------------
 -- These are the bits of syntax that contain rebindable names
