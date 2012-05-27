@@ -26,7 +26,7 @@ module MkCore (
         FloatBind(..), wrapFloat,
 
         -- * Constructing/deconstructing implicit parameter boxes
-        mkIPUnbox, mkIPBox,
+        mkIPBox,
 
         -- * Constructing/deconstructing equality evidence boxes
         mkEqBox,
@@ -62,7 +62,7 @@ module MkCore (
 #include "HsVersions.h"
 
 import Id
-import Var      ( IpId, EvVar, setTyVarUnique )
+import Var      ( EvVar, setTyVarUnique )
 
 import CoreSyn
 import CoreUtils        ( exprType, needsCaseBinding, bindNonRec )
@@ -72,8 +72,7 @@ import HscTypes
 import TysWiredIn
 import PrelNames
 
-import IParam           ( ipCoAxiom )
-import TcType		( mkSigmaTy, evVarPred )
+import TcType		( mkSigmaTy )
 import Type
 import Coercion
 import TysPrim
@@ -308,18 +307,12 @@ mkStringExprFS str
 -- one method so the two use the same representaion, but it'd be
 -- nice to do this correctly.
 -- What is the appropriate coerciosn to use though?
-mkIPBox :: IPName IpId -> CoreExpr -> CoreExpr
+mkIPBox :: Id -> CoreExpr -> CoreExpr
 mkIPBox _ipx e = e {-`Cast` mkSymCo (mkAxInstCo (ipCoAxiom ip) [ty])
   where x = ipNameName ipx
         Just (ip, ty) = getIPPredTy_maybe (evVarPred x)
         -- NB: don't use the DataCon work id because we don't generate code for it
 -}
-
-mkIPUnbox :: IPName IpId -> CoreExpr
-mkIPUnbox ipx = Var x `Cast` mkAxInstCo (ipCoAxiom ip) [ty]
-  where x = ipNameName ipx
-        Just (ip, ty) = getIPPredTy_maybe (evVarPred x)
-
 \end{code}
 
 \begin{code}

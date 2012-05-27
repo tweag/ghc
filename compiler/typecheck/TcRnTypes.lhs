@@ -1401,7 +1401,7 @@ data SkolemInfo
 
   | ArrowSkol 	  	-- An arrow form (see TcArrows)
 
-  | IPSkol [IPName Name]  -- Binding site of an implicit parameter
+  | IPSkol [HsIPName]   -- Binding site of an implicit parameter
 
   | RuleSkol RuleName	-- The LHS of a RULE
 

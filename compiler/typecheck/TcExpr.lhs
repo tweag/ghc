@@ -179,7 +179,13 @@ tcExpr (NegApp expr neg_expr) res_ty
 	; return (NegApp expr' neg_expr') }
 
 -- We desugar ?x into: ipUse (IPName :: IPName "x")
-tcExpr (HsIPVar x) res_ty = tcExpr (unLoc $ mkIPUse x) res_ty
+tcExpr (HsIPVar x) res_ty = tcExpr (unLoc expr) res_ty
+  where
+  p        = L (getLoc x)
+  expr     = mkHsApp (p $ HsVar ipUseName) mkIPName
+  mkIPName = p $ ExprWithTySig (p $ HsVar ipNameDataConName) ty
+  ty       = mkHsAppTy (p $ HsTyVar ipNameTyConName)
+                       (p $ HsTyLit $ HsStrTy $ hsIPNameFS $ unLoc x)
 
 tcExpr (HsLam match) res_ty
   = do	{ (co_fn, match') <- tcMatchLambda match res_ty

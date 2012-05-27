@@ -1077,14 +1077,15 @@ typeNatMulTyFamName = tcQual  gHC_TYPELITS (fsLit "*")   typeNatMulTyFamNameKey
 typeNatExpTyFamName = tcQual  gHC_TYPELITS (fsLit "^")   typeNatExpTyFamNameKey
 
 -- Implicit parameters
-ipClassName, ipUseName, ipDefName, ipNameDataConName,
-  ipNameTyConName, ipValueTyConName :: Name
-ipClassName       = clsQual gHC_IP (fsLit "IP") ipClassNameKey
-ipUseName         = varQual gHC_IP (fsLit "ipUse") ipUseKey
-ipDefName         = varQual gHC_IP (fsLit "ipDef") ipDefKey
-ipNameTyConName   = tcQual  gHC_IP (fsLit "IPName") ipNameTyConKey
-ipValueTyConName  = tcQual  gHC_IP (fsLit "IPValue") ipValueTyConKey
-ipNameDataConName = conName gHC_IP (fsLit "IPName") ipNameDataConKey
+ipClassName, ipUseName, ipDefName,
+  ipNameTyConName, ipNameDataConName,
+  ipValueTyConName :: Name
+ipClassName         = clsQual gHC_IP (fsLit "IP")      ipClassNameKey
+ipUseName           = varQual gHC_IP (fsLit "ipUse")   ipUseKey
+ipDefName           = varQual gHC_IP (fsLit "ipDef")   ipDefKey
+ipNameTyConName     = tcQual  gHC_IP (fsLit "IPName")  ipNameTyConKey
+ipNameDataConName   = conName gHC_IP (fsLit "IPName")  ipNameDataConKey
+ipValueTyConName    = tcQual  gHC_IP (fsLit "IPValue") ipValueTyConKey
 
 
 
@@ -1467,7 +1468,7 @@ integerGmpSDataConKey, integerGmpJDataConKey :: Unique
 integerGmpSDataConKey                   = mkPreludeDataConUnique 30
 integerGmpJDataConKey                   = mkPreludeDataConUnique 31
 
-ipNameDataConKey                       :: Unique
+ipNameDataConKey :: Unique
 ipNameDataConKey                        = mkPreludeDataConUnique 32
 \end{code}
 

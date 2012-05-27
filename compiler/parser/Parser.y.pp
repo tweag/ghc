@@ -1451,7 +1451,7 @@ aexp1   :: { LHsExpr RdrName }
         | aexp2                 { $1 }
 
 aexp2   :: { LHsExpr RdrName }
-        : ipvar                         { L1 (HsIPVar $! unLoc $1) }
+        : ipvar                         { L1 (HsIPVar $! $1) }
         | qcname                        { L1 (HsVar   $! unLoc $1) }
         | literal                       { L1 (HsLit   $! unLoc $1) }
 -- This will enable overloaded strings permanently.  Normally the renamer turns HsString
@@ -1762,10 +1762,10 @@ dbinds  :: { Located [LIPBind RdrName] }
 --      | {- empty -}                   { [] }
 
 dbind   :: { LIPBind RdrName }
-dbind   : ipvar '=' exp                 { LL (IPBind (unLoc $1) $3) }
+dbind   : ipvar '=' exp                 { LL (IPBind (Left (unLoc $1)) $3) }
 
-ipvar   :: { Located (IPName RdrName) }
-        : IPDUPVARID            { L1 (IPName (mkUnqual varName (getIPDUPVARID $1))) }
+ipvar   :: { Located HsIPName }
+        : IPDUPVARID            { L1 (HsIPName (getIPDUPVARID $1)) }
 
 -----------------------------------------------------------------------------
 -- Warnings and deprecations

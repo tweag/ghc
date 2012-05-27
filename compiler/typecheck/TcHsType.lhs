@@ -422,7 +422,7 @@ tc_hs_type ipTy@(HsIParamTy n ty) exp_kind
             (EK liftedTypeKind (ptext (sLit "The type argument of the implicit parameter had")))
        ; checkExpectedKind ipTy constraintKind exp_kind
        ; ipClass <- tcLookupClass ipClassName
-       ; let n' = mkStrLitTy $ occNameFS $ nameOccName $ ipNameName n
+       ; let n' = mkStrLitTy $ hsIPNameFS n
        ; return (mkClassPred ipClass [n',ty'])
        }
 

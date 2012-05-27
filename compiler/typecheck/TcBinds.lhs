@@ -46,7 +46,7 @@ import BasicTypes
 import Outputable
 import FastString
 import Type(mkStrLitTy)
-import PrelNames(ipClassName,ipValueTyConName)
+import PrelNames(ipClassName,ipValueTyConName,ipDefName)
 
 import Control.Monad
 
@@ -222,17 +222,18 @@ tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
 
         ; return (HsIPBinds (IPBinds ip_binds' ev_binds), result) }
   where
-    ips = [ip | L _ (IPBind ip _) <- ip_binds]
+    ips = [ip | L _ (IPBind (Left ip) _) <- ip_binds]
 
         -- I wonder if we should do these one at at time
         -- Consider     ?x = 4
         --              ?y = ?x + 1
-    tc_ip_bind ipClass ipVal (IPBind ip expr) 
+    tc_ip_bind ipClass ipVal (IPBind ~(Left ip) expr)
        = do { ty <- newFlexiTyVarTy argTypeKind
-            ; let p = mkStrLitTy $ occNameFS $ nameOccName $ ipNameName ip
+            ; let p = mkStrLitTy $ hsIPNameFS ip
             ; ip_id <- newDict ipClass [ p, ty ]
-            ; expr' <- tcMonoExpr (mkIPDef ip expr) (mkTyConApp ipVal [ p, ty ])
-            ; return (ip_id, (IPBind (IPName ip_id) expr')) }
+            ; let e = mkHsApp (L (getLoc expr) $ HsVar ipDefName) expr
+            ; expr' <- tcMonoExpr e (mkTyConApp ipVal [ p, ty ])
+            ; return (ip_id, (IPBind (Right ip_id) expr')) }
 
 
 
