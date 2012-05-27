@@ -1091,9 +1091,6 @@ shallowPredTypePredTree ev_ty
       () | tc `hasKey` eqTyConKey
          , let [_, ty1, ty2] = tys
          -> EqPred ty1 ty2
-      () | Just ip <- tyConIP_maybe tc
-         , let [ty] = tys
-         -> IPPred ip ty
       () | isTupleTyCon tc
          -> TuplePred tys
       _ -> IrredPred ev_ty

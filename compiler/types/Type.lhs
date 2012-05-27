@@ -936,14 +936,12 @@ Decomposing PredType
 \begin{code}
 data PredTree = ClassPred Class [Type]
               | EqPred Type Type
-              | IPPred (IPName Name) Type
               | TuplePred [PredType]
               | IrredPred PredType
 
 predTreePredType :: PredTree -> PredType
 predTreePredType (ClassPred clas tys) = mkClassPred clas tys
 predTreePredType (EqPred ty1 ty2)     = mkEqPred ty1 ty2
-predTreePredType (IPPred ip ty)       = mkIPPred ip ty
 predTreePredType (TuplePred tys)      = mkBoxedTupleTy tys
 predTreePredType (IrredPred ty)       = ty
 
@@ -954,9 +952,6 @@ classifyPredType ev_ty = case splitTyConApp_maybe ev_ty of
     Just (tc, tys) | tc `hasKey` eqTyConKey
                    , let [_, ty1, ty2] = tys
                    -> EqPred ty1 ty2
-    Just (tc, tys) | Just ip <- tyConIP_maybe tc
-                   , let [ty] = tys
-                   -> IPPred ip ty
     Just (tc, tys) | isTupleTyCon tc
                    -> TuplePred tys
     _ -> IrredPred ev_ty

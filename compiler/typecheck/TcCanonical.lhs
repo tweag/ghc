@@ -213,7 +213,6 @@ canEvVar d fl pred_classifier
       ClassPred cls tys -> canClassNC d fl cls tys 
       EqPred ty1 ty2    -> canEqNC    d fl ty1 ty2 
       IrredPred ev_ty   -> canIrred   d fl ev_ty
-      IPPred _ _        -> panic "canEvVar: IPPed"
       TuplePred tys     -> canTuple   d fl tys
 \end{code}
 
@@ -397,7 +396,6 @@ is_improvement_pty ty = go (classifyPredType ty)
     go (EqPred {})         = True 
     go (ClassPred cls _tys) = not $ null fundeps
       where (_,fundeps) = classTvsFds cls
-    go (IPPred {})         = False
     go (TuplePred ts)      = any is_improvement_pty ts
     go (IrredPred {})      = True -- Might have equalities after reduction?
 \end{code}

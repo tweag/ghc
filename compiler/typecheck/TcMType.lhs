@@ -169,7 +169,6 @@ newDict cls tys
 predTypeOccName :: PredType -> OccName
 predTypeOccName ty = case classifyPredType ty of
     ClassPred cls _ -> mkDictOcc (getOccName cls)
-    IPPred ip _     -> mkVarOccFS (ipFastString ip)
     EqPred _ _      -> mkVarOccFS (fsLit "cobox")
     TuplePred _     -> mkVarOccFS (fsLit "tup")
     IrredPred _     -> mkVarOccFS (fsLit "irred")
@@ -1206,19 +1205,6 @@ check_pred_ty' dflags _ctxt (EqPred ty1 ty2)
        ; checkValidMonoType ty2
        }
 
-check_pred_ty' _ _ctxt (IPPred _ ty) = checkValidMonoType ty
-	-- Contrary to GHC 7.2 and below, we allow implicit parameters not only
-	-- in type signatures but also in instance decls, superclasses etc
-	-- The reason we didn't allow implicit params in instances is a bit
-	-- subtle:
-	-- If we allowed	instance (?x::Int, Eq a) => Foo [a] where ...
-	-- then when we saw (e :: (?x::Int) => t) it would be unclear how to 
-	-- discharge all the potential usas of the ?x in e.   For example, a
-	-- constraint Foo [Int] might come out of e,and applying the
-	-- instance decl would show up two uses of ?x.
-        --
-        -- Happily this is not an issue in the new constraint solver.
-
 check_pred_ty' dflags ctxt t@(TuplePred ts)
   = do { checkTc (xopt Opt_ConstraintKinds dflags)
                  (predTupleErr (predTreePredType t))
@@ -1396,32 +1382,11 @@ growPredTyVars pred tvs = go (classifyPredType pred)
     grow pred_tvs | pred_tvs `intersectsVarSet` tvs = pred_tvs
                   | otherwise                       = emptyVarSet
 
-    go (IPPred _ ty)     = tyVarsOfType ty -- See Note [Implicit parameters and ambiguity]
     go (ClassPred _ tys) = grow (tyVarsOfTypes tys)
     go (EqPred ty1 ty2)  = grow (tyVarsOfType ty1 `unionVarSet` tyVarsOfType ty2)
     go (TuplePred ts)    = unionVarSets (map (go . classifyPredType) ts)
     go (IrredPred ty)    = grow (tyVarsOfType ty)
 \end{code}
-    
-Note [Implicit parameters and ambiguity] 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Only a *class* predicate can give rise to ambiguity
-An *implicit parameter* cannot.  For example:
-	foo :: (?x :: [a]) => Int
-	foo = length ?x
-is fine.  The call site will suppply a particular 'x'
-
-Furthermore, the type variables fixed by an implicit parameter
-propagate to the others.  E.g.
-	foo :: (Show a, ?x::[a]) => Int
-	foo = show (?x++?x)
-The type of foo looks ambiguous.  But it isn't, because at a call site
-we might have
-	let ?x = 5::Int in foo
-and all is well.  In effect, implicit parameters are, well, parameters,
-so we can take their type variables into account as part of the
-"tau-tvs" stuff.  This is done in the function 'FunDeps.grow'.
-
 
 \begin{code}
 checkThetaCtxt :: UserTypeCtxt -> ThetaType -> SDoc
@@ -1762,7 +1727,6 @@ sizePred :: PredType -> Int
 sizePred ty = go (classifyPredType ty)
   where
     go (ClassPred _ tys') = sizeTypes tys'
-    go (IPPred {})        = 0
     go (EqPred {})        = 0
     go (TuplePred ts)     = sum (map (go . classifyPredType) ts)
     go (IrredPred ty)     = sizeType ty
