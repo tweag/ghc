@@ -46,6 +46,7 @@ import BasicTypes
 import Outputable
 import FastString
 import Type(mkStrLitTy)
+import Class(classTyCon)
 import PrelNames(ipClassName,ipValueTyConName,ipDefName)
 
 import Control.Monad
@@ -233,9 +234,15 @@ tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
             ; ip_id <- newDict ipClass [ p, ty ]
             ; let e = mkHsApp (L (getLoc expr) $ HsVar ipDefName) expr
             ; expr' <- tcMonoExpr e (mkTyConApp ipVal [ p, ty ])
-            ; return (ip_id, (IPBind (Right ip_id) expr')) }
+            ; let d = toDict ipClass p ty `fmap` expr'
+            ; return (ip_id, (IPBind (Right ip_id) d)) }
 
-
+    -- Coerces the definition into a dictionry for `IP`.
+    -- co : IPValue "x" t -> IP "x" t
+    toDict ipClass x ty =
+      case unwrapNewTyCon_maybe (classTyCon ipClass) of
+        Just (_,_,ax) -> HsWrap $ WpCast $ mkTcSymCo $ mkTcAxInstCo ax [x,ty]
+        Nothing       -> panic "The dictionary for `IP` is not a newtype?"
 
 
 \end{code}
