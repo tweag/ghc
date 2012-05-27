@@ -529,7 +529,6 @@ tyVarsOfCt :: Ct -> TcTyVarSet
 tyVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })    = extendVarSet (tyVarsOfType xi) tv
 tyVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_rhs = xi }) = tyVarsOfTypes (xi:tys)
 tyVarsOfCt (CDictCan { cc_tyargs = tys }) 	        = tyVarsOfTypes tys
-tyVarsOfCt (CIPCan { cc_ip_ty = ty })                   = tyVarsOfType ty
 tyVarsOfCt (CIrredEvCan { cc_ty = ty })                 = tyVarsOfType ty
 tyVarsOfCt (CNonCanonical { cc_ev = fl })           = tyVarsOfType (ctEvPred fl)
 

@@ -29,7 +29,6 @@ import PrelNames (singIClassName)
 import Class
 import TyCon
 import Name
-import IParam
 
 import FunDeps
 
@@ -761,46 +760,6 @@ doInteractWithInert (CIrredEvCan { cc_ev = ifl, cc_ty = ty1 })
            workItem@(CIrredEvCan { cc_ty = ty2 })
   | ty1 `eqType` ty2
   = solveOneFromTheOther "Irred/Irred" ifl workItem
-
--- Two implicit parameter constraints.  If the names are the same,
--- but their types are not, we generate a wanted type equality 
--- that equates the type (this is "improvement").  
--- However, we don't actually need the coercion evidence,
--- so we just generate a fresh coercion variable that isn't used anywhere.
-doInteractWithInert (CIPCan { cc_ev = ifl, cc_ip_nm = nm1, cc_ip_ty = ty1 }) 
-           workItem@(CIPCan { cc_ev = wfl, cc_ip_nm = nm2, cc_ip_ty = ty2 })
-  | nm1 == nm2 && isGiven wfl && isGiven ifl
-  = 	-- See Note [Overriding implicit parameters]
-        -- Dump the inert item, override totally with the new one
-	-- Do not require type equality
-	-- For example, given let ?x::Int = 3 in let ?x::Bool = True in ...
-	--              we must *override* the outer one with the inner one
-    irInertConsumed "IP/IP (override inert)"
-
-  | nm1 == nm2 && ty1 `eqType` ty2 
-  = solveOneFromTheOther "IP/IP" ifl workItem 
-
-  | nm1 == nm2
-  =  	-- See Note [When improvement happens]
-    do { mb_eqv <- newWantedEvVar new_wloc (mkEqPred ty2 ty1)
-         -- co :: ty2 ~ ty1, see Note [Efficient orientation]
-       ; cv <- case mb_eqv of
-                 Fresh eqv  -> 
-                   do { updWorkListTcS $ extendWorkListEq $ 
-                        CNonCanonical { cc_ev = eqv
-                                      , cc_depth = cc_depth workItem }
-                      ; return (ctEvTerm eqv) }
-                 Cached eqv -> return eqv
-       ; case wfl of
-            Wanted { ctev_evar = ev_id } ->
-              let ip_co = mkTcTyConAppCo (ipTyCon nm1) [evTermCoercion cv]
-              in do { setEvBind ev_id $
-                      mkEvCast (ctEvTerm ifl) (mkTcSymCo ip_co)
-                    ; irWorkItemConsumed "IP/IP (solved by rewriting)" }
-            _ -> pprPanic "Unexpected IP constraint" (ppr workItem) }
-  where 
-    new_wloc | isGiven wfl = getWantedLoc ifl
-             | otherwise   = getWantedLoc wfl
 
 doInteractWithInert ii@(CFunEqCan { cc_ev = fl1, cc_fun = tc1
                                   , cc_tyargs = args1, cc_rhs = xi1, cc_depth = d1 }) 

@@ -599,9 +599,6 @@ updInertSet is item
                 
             in ics { inert_eqs = eqs', inert_eq_tvs = inscope' }
 
-          | Just x  <- isCIPCan_Maybe item      -- IP 
-          = ics { inert_ips   = updCCanMap (x,item) (inert_ips ics) }  
-            
           | isCIrredEvCan item                  -- Presently-irreducible evidence
           = ics { inert_irreds = inert_irreds ics `Bag.snocBag` item }
 
@@ -756,9 +753,6 @@ extractRelevantInerts wi
                     Nothing -> (emptyCts, funeq_map)
                     Just ct -> (singleCt ct, new_funeq_map)
             in (cts, ics { inert_funeqs = FamHeadMap feqs_map })
-        extract_ics_relevants (CIPCan { cc_ip_nm = nm } ) ics = 
-            let (cts, ips_map) = getRelevantCts nm (inert_ips ics) 
-            in (cts, ics { inert_ips = ips_map })
         extract_ics_relevants (CIrredEvCan { }) ics = 
             let cts = inert_irreds ics 
             in (cts, ics { inert_irreds = emptyCts })
