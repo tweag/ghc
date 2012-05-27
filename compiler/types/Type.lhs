@@ -834,7 +834,7 @@ noParenPred :: PredType -> Bool
 --       C a => a -> a
 --       a~b => a -> b
 -- But   (?x::Int) => Int -> Int
-noParenPred p = isClassPred p || isEqPred p
+noParenPred p = not (isIPPred p) && isClassPred p || isEqPred p
 
 isPredTy :: Type -> Bool
 isPredTy ty
