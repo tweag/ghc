@@ -1077,7 +1077,8 @@ typeNatMulTyFamName = tcQual  gHC_TYPELITS (fsLit "*")   typeNatMulTyFamNameKey
 typeNatExpTyFamName = tcQual  gHC_TYPELITS (fsLit "^")   typeNatExpTyFamNameKey
 
 -- Implicit parameters
-ipClassName, ipUseName, ipDefName, ipNameDataConName :: Name
+ipClassName, ipUseName, ipDefName, ipNameDataConName,
+  ipNameTyConName, ipValueTyConName :: Name
 ipClassName       = clsQual gHC_IP (fsLit "IP") ipClassNameKey
 ipUseName         = varQual gHC_IP (fsLit "ipUse") ipUseKey
 ipDefName         = varQual gHC_IP (fsLit "ipDef") ipDefKey

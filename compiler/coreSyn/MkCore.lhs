@@ -309,7 +309,7 @@ mkStringExprFS str
 -- nice to do this correctly.
 -- What is the appropriate coerciosn to use though?
 mkIPBox :: IPName IpId -> CoreExpr -> CoreExpr
-mkIPBox ipx e = e {-`Cast` mkSymCo (mkAxInstCo (ipCoAxiom ip) [ty])
+mkIPBox _ipx e = e {-`Cast` mkSymCo (mkAxInstCo (ipCoAxiom ip) [ty])
   where x = ipNameName ipx
         Just (ip, ty) = getIPPredTy_maybe (evVarPred x)
         -- NB: don't use the DataCon work id because we don't generate code for it
