@@ -101,7 +101,6 @@ module TcSMonad (
 #include "HsVersions.h"
 
 import HscTypes
-import BasicTypes 
 
 import Inst
 import InstEnv 
@@ -430,10 +429,6 @@ data InertCans
               -- Dictionaries only, index is the class
               -- NB: index is /not/ the whole type because FD reactions 
               -- need to match the class but not necessarily the whole type.
-       , inert_ips :: CCanMap (IPName Name)
-              -- Implicit parameters, index is the name
-              -- NB: index is /not/ the whole type because IP reactions need 
-              -- to match the ip name but not necessarily the whole type.
        , inert_funeqs :: CtFamHeadMap
               -- Family equations, index is the whole family head type.
        , inert_irreds :: Cts       
@@ -532,7 +527,6 @@ data InertSet
 instance Outputable InertCans where 
   ppr ics = vcat [ vcat (map ppr (varEnvElts (inert_eqs ics)))
                  , vcat (map ppr (Bag.bagToList $ cCanMapToBag (inert_dicts ics)))
-                 , vcat (map ppr (Bag.bagToList $ cCanMapToBag (inert_ips ics))) 
                  , vcat (map ppr (Bag.bagToList $ 
                                   ctTypeMapCts (unFamHeadMap $ inert_funeqs ics)))
                  , vcat (map ppr (Bag.bagToList $ inert_irreds ics))
@@ -552,7 +546,6 @@ emptyInert
   = IS { inert_cans = IC { inert_eqs    = emptyVarEnv
                          , inert_eq_tvs = emptyInScopeSet
                          , inert_dicts  = emptyCCanMap
-                         , inert_ips    = emptyCCanMap
                          , inert_funeqs = FamHeadMap emptyTM 
                          , inert_irreds = emptyCts }
        , inert_frozen        = emptyCts
@@ -687,7 +680,6 @@ extractUnsolved :: InertSet -> ((Cts,Cts), InertSet)
 extractUnsolved (IS { inert_cans = IC { inert_eqs    = eqs
                                       , inert_eq_tvs = eq_tvs
                                       , inert_irreds = irreds
-                                      , inert_ips    = ips
                                       , inert_funeqs = funeqs
                                       , inert_dicts  = dicts
                                       }
@@ -700,7 +692,6 @@ extractUnsolved (IS { inert_cans = IC { inert_eqs    = eqs
   = let is_solved  = IS { inert_cans = IC { inert_eqs    = solved_eqs
                                           , inert_eq_tvs = eq_tvs
                                           , inert_dicts  = solved_dicts
-                                          , inert_ips    = solved_ips
                                           , inert_irreds = solved_irreds
                                           , inert_funeqs = solved_funeqs }
                         , inert_frozen = emptyCts -- All out
@@ -719,12 +710,11 @@ extractUnsolved (IS { inert_cans = IC { inert_eqs    = eqs
                        eqs `minusVarEnv` solved_eqs
 
         (unsolved_irreds, solved_irreds) = Bag.partitionBag (not.isGivenCt) irreds
-        (unsolved_ips, solved_ips)       = extractUnsolvedCMap ips
         (unsolved_dicts, solved_dicts)   = extractUnsolvedCMap dicts
         (unsolved_funeqs, solved_funeqs) = partCtFamHeadMap (not . isGivenCt) funeqs
 
         unsolved = unsolved_eqs `unionBags` unsolved_irreds `unionBags`
-                   unsolved_ips `unionBags` unsolved_dicts `unionBags` unsolved_funeqs
+                   unsolved_dicts `unionBags` unsolved_funeqs
 
 
 

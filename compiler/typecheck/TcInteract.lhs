@@ -376,14 +376,12 @@ kick_out_rewritable ct is@(IS { inert_cans =
                                    IC { inert_eqs    = eqmap
                                       , inert_eq_tvs = inscope
                                       , inert_dicts  = dictmap
-                                      , inert_ips    = ipmap
                                       , inert_funeqs = funeqmap
                                       , inert_irreds = irreds }
                               , inert_frozen = frozen })
   = ((kicked_out,eqmap), remaining)
   where
-    rest_out = fro_out `andCts` dicts_out 
-                   `andCts` ips_out `andCts` irs_out
+    rest_out = fro_out `andCts` dicts_out `andCts` irs_out
     kicked_out = WorkList { wl_eqs    = []
                           , wl_funeqs = bagToList feqs_out
                           , wl_rest   = bagToList rest_out }
@@ -392,7 +390,6 @@ kick_out_rewritable ct is@(IS { inert_cans =
                                      , inert_eq_tvs = inscope 
                                        -- keep the same, safe and cheap
                                      , inert_dicts = dicts_in
-                                     , inert_ips = ips_in
                                      , inert_funeqs = feqs_in
                                      , inert_irreds = irs_in }
                    , inert_frozen = fro_in } 
@@ -402,8 +399,6 @@ kick_out_rewritable ct is@(IS { inert_cans =
                 -- subsitution into account
     fl = cc_ev ct
     tv = cc_tyvar ct
-                               
-    (ips_out,   ips_in)     = partitionCCanMap rewritable ipmap
 
     (feqs_out,  feqs_in)    = partCtFamHeadMap rewritable funeqmap
     (dicts_out, dicts_in)   = partitionCCanMap rewritable dictmap
