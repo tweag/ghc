@@ -25,9 +25,6 @@ module MkCore (
         -- * Floats
         FloatBind(..), wrapFloat,
 
-        -- * Constructing/deconstructing implicit parameter boxes
-        mkIPBox,
-
         -- * Constructing/deconstructing equality evidence boxes
         mkEqBox,
         
@@ -298,21 +295,6 @@ mkStringExprFS str
   where
     chars = unpackFS str
     safeChar c = ord c >= 1 && ord c <= 0x7F
-\end{code}
-
-\begin{code}
-
--- XXX:  Here we should be casting the defintions of the implicit
--- parameter to a dictionary for the IP class.  The class has only
--- one method so the two use the same representaion, but it'd be
--- nice to do this correctly.
--- What is the appropriate coerciosn to use though?
-mkIPBox :: Id -> CoreExpr -> CoreExpr
-mkIPBox _ipx e = e {-`Cast` mkSymCo (mkAxInstCo (ipCoAxiom ip) [ty])
-  where x = ipNameName ipx
-        Just (ip, ty) = getIPPredTy_maybe (evVarPred x)
-        -- NB: don't use the DataCon work id because we don't generate code for it
--}
 \end{code}
 
 \begin{code}

@@ -33,7 +33,7 @@ module TcMType (
   --------------------------------
   -- Creating new evidence variables
   newEvVar, newEvVars,
-  newEq, newIP, newDict,
+  newEq, newDict,
 
   newWantedEvVar, newWantedEvVars,
   newTcEvBinds, addTcEvBind,
@@ -85,7 +85,6 @@ import Var
 -- others:
 import HsSyn		-- HsType
 import TcRnMonad        -- TcType, amongst others
-import IParam
 import Id
 import FunDeps
 import Name
@@ -95,7 +94,6 @@ import DynFlags
 import Util
 import Maybes
 import ListSetOps
-import BasicTypes
 import SrcLoc
 import Outputable
 import FastString
@@ -155,11 +153,6 @@ newEq :: TcType -> TcType -> TcM EvVar
 newEq ty1 ty2
   = do { name <- newName (mkVarOccFS (fsLit "cobox"))
        ; return (mkLocalId name (mkTcEqPred ty1 ty2)) }
-
-newIP :: IPName Name -> TcType -> TcM IpId
-newIP ip ty
-  = do 	{ name <- newName (mkVarOccFS (ipFastString ip))
-        ; return (mkLocalId name (mkIPPred ip ty)) }
 
 newDict :: Class -> [TcType] -> TcM DictId
 newDict cls tys 

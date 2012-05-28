@@ -87,7 +87,7 @@ dsIPBinds (IPBinds ip_binds ev_binds) body
   where
     ds_ip_bind (L _ (IPBind ~(Right n) e)) body
       = do e' <- dsLExpr e
-           return (Let (NonRec n (mkIPBox n e')) body)
+           return (Let (NonRec n e') body)
 
 -------------------------
 ds_val_bind :: (RecFlag, LHsBinds Id) -> CoreExpr -> DsM CoreExpr

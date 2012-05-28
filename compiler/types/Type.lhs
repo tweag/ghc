@@ -53,14 +53,12 @@ module Type (
 	isDictLikeTy,
         mkEqPred, mkPrimEqPred,
         mkClassPred,
-	mkIPPred,
         noParenPred, isClassPred, isEqPred, isIPPred,
         
         -- Deconstructing predicate types
         PredTree(..), predTreePredType, classifyPredType,
         getClassPredTys, getClassPredTys_maybe,
         getEqPredTys, getEqPredTys_maybe,
-        getIPPredTy_maybe,
 
 	-- ** Common type constructors
         funTyCon,
@@ -160,10 +158,7 @@ import {-# SOURCE #-} TysWiredIn ( eqTyCon, mkBoxedTupleTy )
 import PrelNames	         ( eqTyConKey, ipClassName )
 
 -- others
-import {-# SOURCE #-} IParam ( ipTyCon )
 import Unique		( Unique, hasKey )
-import BasicTypes	( IPName(..) )
-import Name		( Name )
 import NameSet
 import StaticFlags
 import Util
@@ -877,13 +872,6 @@ mkPrimEqPred ty1  ty2
     k = typeKind ty1
 \end{code}
 
---------------------- Implicit parameters ---------------------------------
-
-\begin{code}
-mkIPPred :: IPName Name -> Type -> PredType
-mkIPPred ip ty = TyConApp (ipTyCon ip) [ty]
-\end{code}
-
 --------------------- Dictionary types ---------------------------------
 \begin{code}
 mkClassPred :: Class -> [Type] -> PredType
@@ -980,11 +968,6 @@ getEqPredTys_maybe ty
   = case splitTyConApp_maybe ty of 
       Just (tc, [_, ty1, ty2]) | tc `hasKey` eqTyConKey -> Just (ty1, ty2)
       _ -> Nothing
-
-getIPPredTy_maybe :: PredType -> Maybe (IPName Name, Type)
-getIPPredTy_maybe ty = case splitTyConApp_maybe ty of 
-        Just (tc, [ty1]) | Just ip <- tyConIP_maybe tc -> Just (ip, ty1)
-        _ -> Nothing
 \end{code}
 
 %************************************************************************
