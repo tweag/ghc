@@ -101,7 +101,6 @@ module TcSMonad (
 #include "HsVersions.h"
 
 import HscTypes
-import BasicTypes 
 
 import Inst
 import InstEnv 
