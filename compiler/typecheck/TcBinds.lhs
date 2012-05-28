@@ -47,7 +47,7 @@ import Outputable
 import FastString
 import Type(mkStrLitTy)
 import Class(classTyCon)
-import PrelNames(ipClassName,ipValueTyConName,ipDefName)
+import PrelNames(ipClassName,ipValueTyConName)
 
 import Control.Monad
 
@@ -232,12 +232,18 @@ tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
        = do { ty <- newFlexiTyVarTy argTypeKind
             ; let p = mkStrLitTy $ hsIPNameFS ip
             ; ip_id <- newDict ipClass [ p, ty ]
-            ; let e = mkHsApp (L (getLoc expr) $ HsVar ipDefName) expr
-            ; expr' <- tcMonoExpr e (mkTyConApp ipVal [ p, ty ])
-            ; let d = toDict ipClass p ty `fmap` expr'
+            ; expr' <- tcMonoExpr expr ty
+            ; let d = (toDict ipClass p ty . toIPVal ipVal p ty) `fmap` expr'
             ; return (ip_id, (IPBind (Right ip_id) d)) }
 
-    -- Coerces the definition into a dictionry for `IP`.
+    -- Coerce the definition of the implcit parameter into an `IPValue`
+    -- co : t -> IPValue "x" t
+    toIPVal ipVal x ty =
+      case unwrapNewTyCon_maybe ipVal of
+        Just (_,_,ax) -> HsWrap $ WpCast $ mkTcSymCo $ mkTcAxInstCo ax [x,ty]
+        Nothing       -> panic "`IPValue` is not a newtype?"
+
+    -- Coerces an `IPValue` into a dictionry for `IP`.
     -- co : IPValue "x" t -> IP "x" t
     toDict ipClass x ty =
       case unwrapNewTyCon_maybe (classTyCon ipClass) of
