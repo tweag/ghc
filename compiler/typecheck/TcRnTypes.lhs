@@ -1454,7 +1454,7 @@ data CtOrigin
 
   | TypeEqOrigin EqOrigin
 
-  | IPOccOrigin  (IPName Name)	-- Occurrence of an implicit parameter
+  | IPOccOrigin  HsIPName 	-- Occurrence of an implicit parameter
 
   | LiteralOrigin (HsOverLit Name)	-- Occurrence of a literal
   | NegateOrigin			-- Occurrence of syntactic negation
