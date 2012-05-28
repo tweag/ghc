@@ -1342,7 +1342,7 @@ checkAmbiguity forall_tyvars theta tau_tyvars
     extended_tau_vars = growThetaTyVars theta tau_tyvars
 
 	-- See Note [Implicit parameters and ambiguity] in TcSimplify
-    is_ambig pred     = isClassPred  pred &&
+    is_ambig pred     = not (isIPPred pred) && isClassPred  pred &&
 			any ambig_var (varSetElems (tyVarsOfType pred))
 
     ambig_var ct_var  = (ct_var `elem` forall_tyvars) &&
@@ -1377,16 +1377,39 @@ growPredTyVars :: TcPredType
                -> TyVarSet	-- The set to extend
 	       -> TyVarSet	-- TyVars of the predicate if it intersects
 	       	  		-- the set, or is implicit parameter
-growPredTyVars pred tvs = go (classifyPredType pred)
+growPredTyVars pred tvs = goClass pred
   where
     grow pred_tvs | pred_tvs `intersectsVarSet` tvs = pred_tvs
                   | otherwise                       = emptyVarSet
+    -- See Note [Implicit parameter and ambiguity]
+    goClass p | isIPPred p = tyVarsOfType p
+    goClass p              = go (classifyPredType p)
 
     go (ClassPred _ tys) = grow (tyVarsOfTypes tys)
     go (EqPred ty1 ty2)  = grow (tyVarsOfType ty1 `unionVarSet` tyVarsOfType ty2)
-    go (TuplePred ts)    = unionVarSets (map (go . classifyPredType) ts)
+    go (TuplePred ts)    = unionVarSets (map goClass ts)
     go (IrredPred ty)    = grow (tyVarsOfType ty)
 \end{code}
+
+Note [Implicit parameters and ambiguity].
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Only a *class* predicate can give rise to ambiguity
+An *implicit parameter* cannot.  For example:
+        foo :: (?x :: [a]) => Int
+        foo = length ?x
+is fine.  The call site will suppply a particular 'x'
+
+Furthermore, the type variables fixed by an implicit parameter
+propagate to the others.  E.g.
+        foo :: (Show a, ?x::[a]) => Int
+        foo = show (?x++?x)
+The type of foo looks ambiguous.  But it isn't, because at a call site
+we might have
+        let ?x = 5::Int in foo
+and all is well.  In effect, implicit parameters are, well, parameters,
+so we can take their type variables into account as part of the
+"tau-tvs" stuff.  This is done in the function 'FunDeps.grow'.
+
 
 \begin{code}
 checkThetaCtxt :: UserTypeCtxt -> ThetaType -> SDoc
