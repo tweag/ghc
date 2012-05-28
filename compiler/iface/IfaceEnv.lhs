@@ -12,14 +12,14 @@ module IfaceEnv (
 	newGlobalBinder, newImplicitBinder, 
 	lookupIfaceTop,
 	lookupOrig, lookupOrigNameCache, extendNameCache,
-	newIPName, newIfaceName, newIfaceNames,
+	newIfaceName, newIfaceNames,
 	extendIfaceIdEnv, extendIfaceTyVarEnv, 
 	tcIfaceLclId, tcIfaceTyVar, lookupIfaceTyVar,
 
 	ifaceExportNames,
 
 	-- Name-cache stuff
-	allocateGlobalBinder, allocateIPName, initNameCache, updNameCache,
+	allocateGlobalBinder, initNameCache, updNameCache,
         getNameCache, mkNameCacheUpdater, NameCacheUpdater(..)
    ) where
 
@@ -40,7 +40,6 @@ import UniqFM
 import FastString
 import UniqSupply
 import SrcLoc
-import BasicTypes
 
 import Outputable
 import Exception     ( evaluate )
@@ -164,21 +163,6 @@ lookupOrig mod occ
                     new_cache = extendNameCache (nsNames name_cache) mod occ name
                   in (name_cache{ nsUniqs = us, nsNames = new_cache }, name)
     }}}
-
-allocateIPName :: NameCache -> FastString -> (NameCache, IPName Name)
-allocateIPName name_cache ip = case Map.lookup ip ipcache of
-    Just name_ip -> (name_cache, name_ip)
-    Nothing      -> (new_ns, name_ip)
-       where
-         (us_here, us') = splitUniqSupply (nsUniqs name_cache)
-         tycon_u:datacon_u:dc_wrk_u:co_ax_u:_ = uniqsFromSupply us_here
-         name_ip     = mkIPName ip tycon_u datacon_u dc_wrk_u co_ax_u
-         new_ipcache = Map.insert ip name_ip ipcache
-         new_ns      = name_cache {nsUniqs = us', nsIPs = new_ipcache}
-  where ipcache = nsIPs name_cache
-
-newIPName :: FastString -> TcRnIf m n (IPName Name)
-newIPName ip = updNameCache $ flip allocateIPName ip
 \end{code}
 
 %************************************************************************
