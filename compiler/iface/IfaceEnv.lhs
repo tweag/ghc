@@ -45,7 +45,6 @@ import Outputable
 import Exception     ( evaluate )
 
 import Data.IORef    ( atomicModifyIORef, readIORef )
-import qualified Data.Map as Map
 \end{code}
 
 
@@ -232,8 +231,7 @@ mkNameCacheUpdater = do
 initNameCache :: UniqSupply -> [Name] -> NameCache
 initNameCache us names
   = NameCache { nsUniqs = us,
-		nsNames = initOrigNames names,
-                nsIPs   = Map.empty }
+		nsNames = initOrigNames names }
 
 initOrigNames :: [Name] -> OrigNameCache
 initOrigNames names = foldl extendOrigNameCache emptyModuleEnv names
