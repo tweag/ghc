@@ -552,11 +552,6 @@ instance Outputable Type where
 instance Outputable TyLit where
    ppr = pprTyLit
 
-instance Outputable name => OutputableBndr (IPName name) where
-    pprBndr _ n   = ppr n	-- Simple for now
-    pprInfixOcc  n = ppr n 
-    pprPrefixOcc n = ppr n 
-
 ------------------
 	-- OK, here's the main printer
 
