@@ -24,7 +24,7 @@ import Coercion( mkAxInstRHS )
 
 import Var
 import TcType
-import PrelNames (singIClassName)
+import PrelNames (singIClassName,ipClassName)
 
 import Class
 import TyCon
@@ -628,6 +628,8 @@ solveWithIdentity d wd tv xi
 *                                                                               *
 *********************************************************************************
 
+Note [
+
 Note [The Solver Invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We always add Givens first.  So you might think that the solver has
@@ -715,8 +717,15 @@ interactWithInertsStage wi
 doInteractWithInert :: Ct -> Ct -> TcS InteractResult
 -- Identical class constraints.
 doInteractWithInert
-  inertItem@(CDictCan { cc_ev = fl1, cc_class = cls1, cc_tyargs = tys1 }) 
+  inertItem@(CDictCan { cc_ev = fl1, cc_class = cls1, cc_tyargs = tys1 })
    workItem@(CDictCan { cc_ev = fl2, cc_class = cls2, cc_tyargs = tys2 })
+
+  -- see Note [Shadowing of Implicit Parameters]
+  | isGiven fl1 && isGiven fl2 &&
+    tyConName (classTyCon cls1) == ipClassName &&
+    tyConName (classTyCon cls2) == ipClassName &&
+    eqType (head tys1) (head tys2) -- The IP class has arity 2, so this should be fine.
+  = irInertConsumed "IP Shadow"
 
   | cls1 == cls2  
   = do { let pty1 = mkClassPred cls1 tys1
@@ -827,6 +836,65 @@ doInteractWithInert ii@(CFunEqCan { cc_ev = fl1, cc_fun = tc1
 doInteractWithInert _ _ = irKeepGoing "NOP"
 
 \end{code}
+
+
+Note [Shadowing of Implicit Parameters]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Consider the following example:
+
+f :: (?x :: Char) => Char
+f = let ?x = 'a' in ?x
+
+The "let ?x = ..." generates an implication constraint of the form:
+
+?x :: Char => ?x :: Char
+
+Furthermore, the signature for `f` also generates an implication
+constraint, so we end up with the following nested implication:
+
+?x :: Char => (?x :: Char => ?x :: Char)
+
+Note that the wanted (?x :: Char) constraint may be solved in
+two incompatible ways:  either by using the parameter from the
+signature, or by using the local definition.  Our intention is
+that the local definition should "shadow" the parameter of the
+signature, and we implement this as follows: when we add a new
+given implicit parameter to the inert set, it replaces any existing
+givens for the same implicit parameter.
+
+This works for the normal cases but it has an odd side effect
+in some pathological programs like this:
+
+-- This is accepted, the second parameter shadows
+f1 :: (?x :: Int, ?x :: Char) => Char
+f1 = ?x
+
+-- This is rejected, the second parameter shadows
+f2 :: (?x :: Int, ?x :: Char) => Int
+f2 = ?x
+
+Both of these are actually wrong:  when we try to use either one,
+we'll get two incompatible wnated constraints (?x :: Int, ?x :: Char),
+which would lead to an error.
+
+I can think of two ways to fix this:
+
+  1. Simply disallow multiple constratits for the same implicit
+    parameter---this is never useful, and it can be detected completely
+    syntactically.
+
+  2. Move the shadowing machinery to the location where we nest
+     implications, and add some code here that will produce an
+     error if we get multiple givens for the same implicit parameter.
+
+
+
+
+
+
+
+
 
 Note [Cache-caused loops]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
