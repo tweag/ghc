@@ -283,8 +283,7 @@ basicKnownKeyNames
         typeNatExpTyFamName,
 
         -- Implicit parameters
-        ipClassName, ipUseName,
-        ipNameTyConName, ipNameDataConName, ipValueTyConName,
+        ipClassName,
 
         -- Annotation type checking
         toAnnotationWrapperName
@@ -1077,15 +1076,8 @@ typeNatMulTyFamName = tcQual  gHC_TYPELITS (fsLit "*")   typeNatMulTyFamNameKey
 typeNatExpTyFamName = tcQual  gHC_TYPELITS (fsLit "^")   typeNatExpTyFamNameKey
 
 -- Implicit parameters
-ipClassName, ipUseName,
-  ipNameTyConName, ipNameDataConName,
-  ipValueTyConName :: Name
+ipClassName :: Name
 ipClassName         = clsQual gHC_IP (fsLit "IP")      ipClassNameKey
-ipUseName           = varQual gHC_IP (fsLit "ipUse")   ipUseKey
-ipNameTyConName     = tcQual  gHC_IP (fsLit "IPName")  ipNameTyConKey
-ipNameDataConName   = conName gHC_IP (fsLit "IPName")  ipNameDataConKey
-ipValueTyConName    = tcQual  gHC_IP (fsLit "IPValue") ipValueTyConKey
-
 
 
 
@@ -1404,10 +1396,6 @@ typeNatAddTyFamNameKey    = mkPreludeTyConUnique 162
 typeNatMulTyFamNameKey    = mkPreludeTyConUnique 163
 typeNatExpTyFamNameKey    = mkPreludeTyConUnique 164
 
-ipNameTyConKey, ipValueTyConKey :: Unique
-ipNameTyConKey  = mkPreludeTyConUnique 165
-ipValueTyConKey = mkPreludeTyConUnique 166
-
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
 -----------------------------------------------------
@@ -1466,9 +1454,6 @@ gtDataConKey                            = mkPreludeDataConUnique 29
 integerGmpSDataConKey, integerGmpJDataConKey :: Unique
 integerGmpSDataConKey                   = mkPreludeDataConUnique 30
 integerGmpJDataConKey                   = mkPreludeDataConUnique 31
-
-ipNameDataConKey :: Unique
-ipNameDataConKey                        = mkPreludeDataConUnique 32
 \end{code}
 
 %************************************************************************
@@ -1690,10 +1675,6 @@ mzipIdKey       = mkPreludeMiscIdUnique 196
 -- GHCi
 ghciStepIoMClassOpKey :: Unique
 ghciStepIoMClassOpKey = mkPreludeMiscIdUnique 197
-
--- Implicit parameters
-ipUseKey :: Unique
-ipUseKey = mkPreludeMiscIdUnique 198
 
 
 ---------------- Template Haskell -------------------

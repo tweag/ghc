@@ -1451,7 +1451,7 @@ aexp1   :: { LHsExpr RdrName }
         | aexp2                 { $1 }
 
 aexp2   :: { LHsExpr RdrName }
-        : ipvar                         { L1 (HsIPVar $! $1) }
+        : ipvar                         { L1 (HsIPVar $! unLoc $1) }
         | qcname                        { L1 (HsVar   $! unLoc $1) }
         | literal                       { L1 (HsLit   $! unLoc $1) }
 -- This will enable overloaded strings permanently.  Normally the renamer turns HsString

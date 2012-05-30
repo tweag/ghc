@@ -47,7 +47,7 @@ import Outputable
 import FastString
 import Type(mkStrLitTy)
 import Class(classTyCon)
-import PrelNames(ipClassName,ipValueTyConName)
+import PrelNames(ipClassName)
 
 import Control.Monad
 
@@ -211,9 +211,8 @@ tcLocalBinds (HsValBinds (ValBindsIn {})) _ = panic "tcLocalBinds"
 
 tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
   = do  { ipClass <- tcLookupClass ipClassName
-        ; ipValue <- tcLookupTyCon ipValueTyConName
         ; (given_ips, ip_binds') <-
-            mapAndUnzipM (wrapLocSndM (tc_ip_bind ipClass ipValue)) ip_binds
+            mapAndUnzipM (wrapLocSndM (tc_ip_bind ipClass)) ip_binds
 
         -- If the binding binds ?x = E, we  must now 
         -- discharge any ?x constraints in expr_lie
@@ -228,23 +227,16 @@ tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
         -- I wonder if we should do these one at at time
         -- Consider     ?x = 4
         --              ?y = ?x + 1
-    tc_ip_bind ipClass ipVal (IPBind ~(Left ip) expr)
+    tc_ip_bind ipClass (IPBind ~(Left ip) expr)
        = do { ty <- newFlexiTyVarTy argTypeKind
             ; let p = mkStrLitTy $ hsIPNameFS ip
             ; ip_id <- newDict ipClass [ p, ty ]
             ; expr' <- tcMonoExpr expr ty
-            ; let d = (toDict ipClass p ty . toIPVal ipVal p ty) `fmap` expr'
+            ; let d = toDict ipClass p ty `fmap` expr'
             ; return (ip_id, (IPBind (Right ip_id) d)) }
 
-    -- Coerce the definition of the implcit parameter into an `IPValue`
-    -- co : t -> IPValue "x" t
-    toIPVal ipVal x ty =
-      case unwrapNewTyCon_maybe ipVal of
-        Just (_,_,ax) -> HsWrap $ WpCast $ mkTcSymCo $ mkTcAxInstCo ax [x,ty]
-        Nothing       -> panic "`IPValue` is not a newtype?"
-
-    -- Coerces an `IPValue` into a dictionry for `IP`.
-    -- co : IPValue "x" t -> IP "x" t
+    -- Coerces a `t` into a dictionry for `IP "x" t`.
+    -- co : t -> IP "x" t
     toDict ipClass x ty =
       case unwrapNewTyCon_maybe (classTyCon ipClass) of
         Just (_,_,ax) -> HsWrap $ WpCast $ mkTcSymCo $ mkTcAxInstCo ax [x,ty]

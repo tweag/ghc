@@ -63,7 +63,7 @@ import ErrUtils
 import Outputable
 import FastString
 import Control.Monad
-import Bag(mapBag)
+import Class(classTyCon)
 \end{code}
 
 %************************************************************************
@@ -179,23 +179,24 @@ tcExpr (NegApp expr neg_expr) res_ty
 	; expr' <- tcMonoExpr expr res_ty
 	; return (NegApp expr' neg_expr') }
 
--- We desugar ?x into: ipUse (IPName :: IPName "x")
 tcExpr (HsIPVar x) res_ty =
-  do (r,cs) <- captureConstraints $ tcExpr (unLoc expr) res_ty
+  do let origin = IPOccOrigin x
+     ipClass <- tcLookupClass ipClassName
+     {- Implicit parameters must have a *tau-type* not a.
+        type scheme.  We enforce this by creating a fresh
+        type variable as its type.  (Because res_ty may not
+        be a tau-type.) -}
+     ip_ty <- newFlexiTyVarTy argTypeKind
+     let ip_name = mkStrLitTy (hsIPNameFS x)
+     ip_var <- emitWanted origin (mkClassPred ipClass [ip_name, ip_ty])
+     tcWrapResult (fromDict ipClass ip_name ip_ty (HsVar ip_var)) ip_ty res_ty
 
-     -- There should be just a single flat wnated `IP` constaint.
-     emitConstraints $ cs { wc_flat = mapBag setOrigin (wc_flat cs) }
-     return r
   where
-  p        = L (getLoc x)
-  expr     = mkHsApp (p $ HsVar ipUseName) mkIPName
-  mkIPName = p $ ExprWithTySig (p $ HsVar ipNameDataConName) ty
-  ty       = mkHsAppTy (p $ HsTyVar ipNameTyConName)
-                       (p $ HsTyLit $ HsStrTy $ hsIPNameFS $ unLoc x)
-
-  origin         = IPOccOrigin (unLoc x)
-  updOriginEv ev = ev { ctev_wloc = ctev_wloc ev `setCtLocOrigin` origin }
-  setOrigin w    = w { cc_ev = updOriginEv (cc_ev w) }
+  -- Coerces a dictionry for `IP "x" t` into `t`.
+  fromDict ipClass x ty =
+    case unwrapNewTyCon_maybe (classTyCon ipClass) of
+      Just (_,_,ax) -> HsWrap $ WpCast $ mkTcAxInstCo ax [x,ty]
+      Nothing       -> panic "The dictionary for `IP` is not a newtype?"
 
 tcExpr (HsLam match) res_ty
   = do	{ (co_fn, match') <- tcMatchLambda match res_ty
