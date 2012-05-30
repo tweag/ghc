@@ -1735,10 +1735,13 @@ sizeTypes xs = sum (map sizeType tys)
 
 -- Size of a predicate
 --
--- We are considering whether *class* constraints terminate
--- Once we get into an implicit parameter or equality we
--- can't get back to a class constraint, so it's safe
--- to say "size 0".  See Trac #4200.
+-- We are considering whether class constraints terminate.
+-- Equality constraints and constraints for the implicit
+-- parameter class always termiante so it is safe to say "size 0".
+-- (Implicit parameter constraints always terminate because
+-- there are no instances for them---they are only solved by
+-- "local instances" in expressions).
+-- See Trac #4200.
 sizePred :: PredType -> Int
 sizePred ty = goClass ty
   where
