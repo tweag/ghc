@@ -73,7 +73,7 @@ module TcSMonad (
     CCanMap(..), CtTypeMap, CtFamHeadMap, CtPredMap,
     PredMap, FamHeadMap,
     partCtFamHeadMap, lookupFamHead,
-
+    filterSolved,
 
     instDFunType,                              -- Instantiation
     newFlexiTcSTy, instFlexiTcS,
@@ -398,6 +398,11 @@ partCtFamHeadMap f ctmap
                       = ty1 
                       | otherwise 
                       = panic "partCtFamHeadMap, encountered non equality!"
+
+filterSolved :: (CtEvidence -> Bool) -> PredMap CtEvidence -> PredMap CtEvidence
+filterSolved p (PredMap mp) = PredMap (foldTM upd mp emptyTM)
+  where upd a m = if p a then alterTM (ctEvPred a) (\_ -> Just a) m
+                         else m
 \end{code}
 
 %************************************************************************
