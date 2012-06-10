@@ -53,7 +53,7 @@ module Type (
 	isDictLikeTy,
         mkEqPred, mkPrimEqPred,
         mkClassPred,
-        noParenPred, isClassPred, isEqPred, isIPPred,
+        noParenPred, isClassPred, isEqPred, isIPPred, isIPPred_maybe,
         
         -- Deconstructing predicate types
         PredTree(..), predTreePredType, classifyPredType,
@@ -165,6 +165,7 @@ import FastString
 import Data.List        ( partition )
 import Maybes		( orElse )
 import Data.Maybe	( isJust )
+import Control.Monad    ( guard )
 
 infixr 3 `mkFunTy`	-- Associates to the right
 \end{code}
@@ -857,6 +858,13 @@ isEqPred ty = case tyConAppTyCon_maybe ty of
 isIPPred ty = case tyConAppTyCon_maybe ty of
     Just tyCon -> tyConName tyCon == ipClassName
     _          -> False
+
+isIPPred_maybe :: Type -> Maybe (FastString, Type)
+isIPPred_maybe ty =
+  do (tc,[t1,t2]) <- splitTyConApp_maybe ty
+     guard (tyConName tc == ipClassName)
+     x <- isStrLitTy t1
+     return (x,t2)
 \end{code}
 
 Make PredTypes
