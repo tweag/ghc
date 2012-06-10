@@ -40,6 +40,7 @@ import UniqFM
 import FastString
 import UniqSupply
 import SrcLoc
+import Util
 
 import Outputable
 import Exception     ( evaluate )

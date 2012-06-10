@@ -48,7 +48,7 @@ import Name
 import SrcLoc
 import NameSet
 
-import Util		( filterOut )
+import Util
 import BasicTypes	( compareFixity, funTyFixity, negateFixity, 
 			  Fixity(..), FixityDirection(..) )
 import Outputable
