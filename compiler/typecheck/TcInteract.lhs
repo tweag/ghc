@@ -24,7 +24,7 @@ import Coercion( mkAxInstRHS )
 
 import Var
 import TcType
-import PrelNames (singIClassName,ipClassName)
+import PrelNames (singIClassName)
 
 import Class
 import TyCon
@@ -274,9 +274,6 @@ Case 1: In Rewriting Equalities (function rewriteEqLHS)
     
 Case 2: Functional Dependencies 
     Again, we should prefer, if possible, the inert variables on the RHS
-
-Case 3: IP improvement work
-    We must always rewrite so that the inert type is on the right. 
 
 \begin{code}
 spontaneousSolveStage :: SimplifierStage 
@@ -720,13 +717,6 @@ doInteractWithInert :: Ct -> Ct -> TcS InteractResult
 doInteractWithInert
   inertItem@(CDictCan { cc_ev = fl1, cc_class = cls1, cc_tyargs = tys1 })
    workItem@(CDictCan { cc_ev = fl2, cc_class = cls2, cc_tyargs = tys2 })
-
-  -- see Note [Shadowing of Implicit Parameters]
-  | isGiven fl1 && isGiven fl2 &&
-    tyConName (classTyCon cls1) == ipClassName &&
-    tyConName (classTyCon cls2) == ipClassName &&
-    eqType (head tys1) (head tys2) -- The IP class has arity 2, so this should be fine.
-  = irInertConsumed "IP Shadow"
 
   | cls1 == cls2  
   = do { let pty1 = mkClassPred cls1 tys1
