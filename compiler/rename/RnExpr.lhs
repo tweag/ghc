@@ -305,9 +305,12 @@ Since all the symbols are reservedops we can simply reject them.
 We return a (bogus) EWildPat in each case.
 
 \begin{code}
-rnExpr e@EWildPat      = do { srcspan <- getSrcSpanM
-                            ; name' <- rnHoleName srcspan Nothing
-                            ; return (HsHole name', emptyFVs)
+rnExpr e@EWildPat      = do { holes <- xoptM Opt_Holes
+                            ; if holes then do { srcspan <- getSrcSpanM
+                                               ; name' <- rnHoleName srcspan Nothing
+                                               ; return (HsHole name', emptyFVs)
+                                               }
+                              else patSynErr e
                             }
 -- rnExpr e@EWildPat      = patSynErr e
 rnExpr e@(EAsPat {})   = patSynErr e
