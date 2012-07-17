@@ -219,14 +219,15 @@ tcExpr (HsType ty) _
 	-- Can't eliminate it altogether from the parser, because the
 	-- same parser parses *patterns*.
 tcExpr (HsHole name) res_ty
-  = do { traceTc "tcExpr.HsHole" (ppr res_ty)
-      ; let ev = mkLocalId name res_ty
+  = do { ty <- newFlexiTyVarTy liftedTypeKind
+      ; traceTc "tcExpr.HsHole" (ppr ty)
+      ; let ev = mkLocalId name ty
       ; lenv <- getLclTypeEnv
       ; let loc = HoleOrigin name lenv
-      ; let can = (CHoleCan (Wanted (CtLoc loc (nameSrcSpan name) []) ev) name res_ty 0)
+      ; let can = (CHoleCan (Wanted (CtLoc loc (nameSrcSpan name) []) ev) name ty 0)
       ; traceTc "tcExpr.HsHole emitting" (ppr can)
       ; emitInsoluble can
-      ; return (HsHole ev) }
+      ; tcWrapResult (HsHole ev) ty res_ty }
 \end{code}
 
 

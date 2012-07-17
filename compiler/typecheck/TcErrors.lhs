@@ -405,15 +405,39 @@ mkIrredErr ctxt cts
 
 \begin{code}
 mkHoleDeferredError :: Bag Ct -> ReportErrCtxt -> Ct -> TcM ErrMsg
-mkHoleDeferredError allcts ctxt ct@(CHoleCan { cc_hole_nm = nm, cc_flavor = fl }) = mkErrorReport ctxt msg
+mkHoleDeferredError allcts ctxt ct@(CHoleCan { cc_hole_nm = nm, cc_flavor = fl, cc_hole_ty = ty })
+  = do { traceTc "mkHoleDeferredError" (ppr $ tyVarsOfCt ct)
+       ; let env0 = cec_tidy ctxt
+       ; let vars = tyVarsOfCt ct
+       ; zonked_vars <- zonkTyVarsAndFV vars
+       --; let env1 = tidyFreeTyVars env0 zonked_vars
+       ; (env2, zonked_ty) <- zonkTidyTcType env0 ty
+       ; let (env3, tyvars) = tidyOpenTyVars env2 $ varSetElems zonked_vars
+       ; tyvars_msg <- mapM locMsg tyvars
+       ; let msg = addArising orig $ (text "Found hole") <+> ppr nm <+> text "with type" <+> pprType zonked_ty
+                                  $$ (text "In scope:" <+> ppr lenv)
+                                  $$ (text "Where:" <+> sep tyvars_msg)
+       ; mkErrorReport ctxt msg
+       }
   where
-    ty = ctFlavPred fl
     orig@(HoleOrigin _ lenv)    = ctLocOrigin (ctWantedLoc ct)
     relevant = mapBag ctPred $ filterBag isRelevant allcts
     isRelevant ct' = case classifyPredType (ctPred ct') of
                       ClassPred {} -> any (`elem` (varSetElems $ tyVarsOfCt ct)) (varSetElems $ tyVarsOfCt ct')
                       _ -> False
-    msg     = addArising orig $ (text "Found hole") <+> ppr nm <+> text "with type" <+> ppr ty $$ (text "In scope:" <+> ppr lenv)
+    locMsg tv = case tcTyVarDetails tv of
+                    SkolemTv {} -> return $ (quotes $ ppr tv) <+> ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
+                    MetaTv {} -> do { (Indirect ty) <- readMetaTyVar tv
+                                    ; return $ (quotes $ pprType ty) <+> ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
+                                    }
+                    det -> return $ ppr det
+    ppr_skol given_loc tv_loc
+     = case skol_info of
+         UnkSkol -> ptext (sLit "is an unknown type variable")
+         _ -> sep [ ptext (sLit "is a rigid type variable bound by"),
+                    sep [ppr skol_info, ptext (sLit "at") <+> ppr tv_loc]]
+     where
+       skol_info = ctLocOrigin given_loc
 \end{code}
 
 %************************************************************************
@@ -1026,6 +1050,7 @@ findGlobals ctxt tvs
   = do { lcl_ty_env <- case cec_encl ctxt of 
                         []    -> getLclTypeEnv
                         (i:_) -> return (ic_env i)
+       ; traceTc "findGlobals" (ppr lcl_ty_env)
        ; go (cec_tidy ctxt) [] (nameEnvElts lcl_ty_env) }
   where
     go tidy_env acc [] = return (ctxt { cec_tidy = tidy_env }, acc)

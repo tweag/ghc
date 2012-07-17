@@ -208,11 +208,11 @@ canonicalize (CIrredEvCan { cc_flavor = fl
                           , cc_depth = d
                           , cc_ty = xi })
   = canIrred d fl xi
-canonicalize (CHoleCan { cc_depth = d
+canonicalize c@(CHoleCan { cc_depth = d
                        , cc_flavor = fl
                        , cc_hole_nm = nm
                        , cc_hole_ty = xi })
-  = canHole d fl nm xi
+  = continueWith c -- canHole d fl nm xi
 
 canEvVar :: SubGoalDepth 
          -> CtFlavor 
