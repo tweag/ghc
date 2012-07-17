@@ -34,6 +34,7 @@ import HscTypes
 import BasicTypes hiding (SuccessFlag(..))
 import TcRnMonad
 
+import Constants
 import PrelNames
 import PrelInfo
 import MkId     ( seqId )
@@ -49,7 +50,7 @@ import Maybes
 import ErrUtils
 import Finder
 import UniqFM
-import StaticFlags
+import SrcLoc
 import Outputable
 import BinIface
 import Panic
@@ -63,7 +64,7 @@ import Control.Monad
 
 %************************************************************************
 %*                                                                      *
-        loadSrcInterface, loadOrphanModules, loadHomeInterface
+        loadSrcInterface, loadOrphanModules, loadInterfaceForName
 
                 These three are called from TcM-land    
 %*                                                                      *
@@ -161,8 +162,9 @@ loadUserInterface is_boot doc mod_name
 loadInterfaceWithException :: SDoc -> Module -> WhereFrom -> IfM lcl ModIface
 loadInterfaceWithException doc mod_name where_from
   = do  { mb_iface <- loadInterface doc mod_name where_from
+        ; dflags <- getDynFlags
         ; case mb_iface of 
-            Failed err      -> ghcError (ProgramError (showSDoc err))
+            Failed err      -> ghcError (ProgramError (showSDoc dflags err))
             Succeeded iface -> return iface }
 
 ------------------
@@ -643,7 +645,8 @@ showIface hsc_env filename = do
    -- non-profiled interfaces, for example.
    iface <- initTcRnIf 's' hsc_env () () $
        readBinIface IgnoreHiWay TraceBinIFaceReading filename
-   printDump (pprModIface iface)
+   let dflags = hsc_dflags hsc_env
+   log_action dflags dflags SevDump noSrcSpan defaultDumpStyle (pprModIface iface)
 \end{code}
 
 \begin{code}
@@ -655,7 +658,7 @@ pprModIface iface
                 <+> (if mi_orphan iface then ptext (sLit "[orphan module]") else empty)
                 <+> (if mi_finsts iface then ptext (sLit "[family instance module]") else empty)
                 <+> (if mi_hpc    iface then ptext (sLit "[hpc]") else empty)
-                <+> integer opt_HiVersion
+                <+> integer hiVersion
         , nest 2 (text "interface hash:" <+> ppr (mi_iface_hash iface))
         , nest 2 (text "ABI hash:" <+> ppr (mi_mod_hash iface))
         , nest 2 (text "export-list hash:" <+> ppr (mi_exp_hash iface))

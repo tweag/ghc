@@ -22,7 +22,6 @@ module TyCon(
         -- ** Constructing TyCons
         mkAlgTyCon,
         mkClassTyCon,
-        mkIParamTyCon,
         mkFunTyCon,
         mkPrimTyCon,
         mkKindTyCon,
@@ -65,13 +64,14 @@ module TyCon(
         tyConStupidTheta,
         tyConArity,
         tyConParent,
-        tyConTuple_maybe, tyConClass_maybe, tyConIP_maybe,
+        tyConTuple_maybe, tyConClass_maybe,
         tyConFamInst_maybe, tyConFamInstSig_maybe, tyConFamilyCoercion_maybe,
         synTyConDefn, synTyConRhs, synTyConType,
         tyConExtName,           -- External name for foreign types
         algTyConRhs,
         newTyConRhs, newTyConEtadRhs, unwrapNewTyCon_maybe,
         tupleTyConBoxity, tupleTyConSort, tupleTyConArity,
+        promotedDataCon, promotedTyCon,
 
         -- ** Manipulating TyCons
         tcExpandTyCon_maybe, coreExpandTyCon_maybe,
@@ -89,7 +89,6 @@ module TyCon(
 
 import {-# SOURCE #-} TypeRep ( Kind, Type, PredType )
 import {-# SOURCE #-} DataCon ( DataCon, isVanillaDataCon )
-import {-# SOURCE #-} IParam  ( ipTyConName )
 
 import Var
 import Class
@@ -154,8 +153,6 @@ See also Note [Wrappers for data instance tycons] in MkId.lhs
         data instance T Int = T1 | T2 Bool
 
   Here T is the "family TyCon".
-
-* Reply "yes" to isDataFamilyTyCon, and isFamilyTyCon
 
 * Reply "yes" to isDataFamilyTyCon, and isFamilyTyCon
 
@@ -514,10 +511,6 @@ data TyConParent
   | ClassTyCon
         Class           -- INVARIANT: the classTyCon of this Class is the current tycon
 
-  -- | Associated type of a implicit parameter.
-  | IPTyCon
-        (IPName Name)
-
   -- | An *associated* type of a class.
   | AssocFamilyTyCon
         Class           -- The class in whose declaration the family is declared
@@ -555,7 +548,6 @@ data TyConParent
 instance Outputable TyConParent where
     ppr NoParentTyCon           = text "No parent"
     ppr (ClassTyCon cls)        = text "Class parent" <+> ppr cls
-    ppr (IPTyCon n)             = text "IP parent" <+> ppr n
     ppr (AssocFamilyTyCon cls)  = text "Class parent (assoc. family)" <+> ppr cls
     ppr (FamInstTyCon _ tc tys) = text "Family parent (family instance)" <+> ppr tc <+> sep (map ppr tys)
 
@@ -564,7 +556,6 @@ okParent :: Name -> TyConParent -> Bool
 okParent _       NoParentTyCon               = True
 okParent tc_name (AssocFamilyTyCon cls)      = tc_name `elem` map tyConName (classATs cls)
 okParent tc_name (ClassTyCon cls)            = tc_name == tyConName (classTyCon cls)
-okParent tc_name (IPTyCon ip)                = tc_name == ipTyConName ip
 okParent _       (FamInstTyCon _ fam_tc tys) = tyConArity fam_tc == length tys
 
 isNoParent :: TyConParent -> Bool
@@ -859,11 +850,6 @@ mkClassTyCon :: Name -> Kind -> [TyVar] -> AlgTyConRhs -> Class -> RecFlag -> Ty
 mkClassTyCon name kind tyvars rhs clas is_rec =
   mkAlgTyCon name kind tyvars Nothing [] rhs (ClassTyCon clas) is_rec False
 
--- | Simpler specialization of 'mkAlgTyCon' for implicit paramaters
-mkIParamTyCon :: Name -> Kind -> TyVar -> AlgTyConRhs -> RecFlag -> TyCon
-mkIParamTyCon name kind tyvar rhs is_rec =
-  mkAlgTyCon name kind [tyvar] Nothing [] rhs NoParentTyCon is_rec False
-
 mkTupleTyCon :: Name
              -> Kind    -- ^ Kind of the resulting 'TyCon'
              -> Arity   -- ^ Arity of the tuple
@@ -1019,9 +1005,9 @@ isDataTyCon :: TyCon -> Bool
 --     get an info table.  The family declaration 'TyCon' does not
 isDataTyCon (AlgTyCon {algTcRhs = rhs})
   = case rhs of
-        DataFamilyTyCon {} -> False
         DataTyCon {}       -> True
         NewTyCon {}        -> False
+        DataFamilyTyCon {} -> False
         AbstractTyCon {}   -> False      -- We don't know, so return False
 isDataTyCon (TupleTyCon {tyConTupleSort = sort}) = isBoxed (tupleSortBoxity sort)
 isDataTyCon _ = False
@@ -1206,6 +1192,16 @@ isPromotedDataCon _                    = False
 isPromotedTyCon :: TyCon -> Bool
 isPromotedTyCon (PromotedTyCon {}) = True
 isPromotedTyCon _                  = False
+
+-- | Retrieves the promoted DataCon if this is a PromotedDataTyCon;
+-- Panics otherwise
+promotedDataCon :: TyCon -> DataCon
+promotedDataCon = dataCon
+
+-- | Retrieves the promoted TypeCon if this is a PromotedTypeTyCon;
+-- Panics otherwise
+promotedTyCon :: TyCon -> TyCon
+promotedTyCon = ty_con
 
 -- | Identifies implicit tycons that, in particular, do not go into interface
 -- files (because they are implicitly reconstructed when the interface is
@@ -1404,12 +1400,6 @@ tyConTuple_maybe :: TyCon -> Maybe TupleSort
 tyConTuple_maybe (TupleTyCon {tyConTupleSort = sort}) = Just sort
 tyConTuple_maybe _                                    = Nothing
 
--- | If this 'TyCon' is that for implicit parameter, return the IP it is for.
--- Otherwise returns @Nothing@
-tyConIP_maybe :: TyCon -> Maybe (IPName Name)
-tyConIP_maybe (AlgTyCon {algTcParent = IPTyCon ip}) = Just ip
-tyConIP_maybe _                                     = Nothing
-
 ----------------------------------------------------------------------------
 tyConParent :: TyCon -> TyConParent
 tyConParent (AlgTyCon {algTcParent = parent}) = parent
@@ -1482,9 +1472,10 @@ instance Outputable TyCon where
 
 pprPromotionQuote :: TyCon -> SDoc
 pprPromotionQuote (PromotedDataCon {}) = char '\''   -- Quote promoted DataCons in types
+pprPromotionQuote (PromotedTyCon {})   = ifPprDebug (char '\'') 
 pprPromotionQuote _                    = empty       -- However, we don't quote TyCons in kinds
                                                      -- e.g.   type family T a :: Bool -> *
-                                                     -- cf Trac #5952
+                                                     -- cf Trac #5952.  Except with -dppr-debug
 
 instance NamedThing TyCon where
     getName = tyConName

@@ -55,7 +55,7 @@ import FastString
 import Maybes           ( orElse )
 import Outputable
 
-import Control.Monad    ( unless )
+import Control.Monad    ( unless, liftM )
 import GHC.Exts
 import Data.Char
 import Control.Monad    ( mplus )
@@ -275,6 +275,7 @@ incorrect.
  '::'           { L _ ITdcolon }
  '='            { L _ ITequal }
  '\\'           { L _ ITlam }
+ 'lcase'        { L _ ITlcase }
  '|'            { L _ ITvbar }
  '<-'           { L _ ITlarrow }
  '->'           { L _ ITrarrow }
@@ -729,9 +730,9 @@ data_or_newtype :: { Located NewOrData }
         : 'data'        { L1 DataType }
         | 'newtype'     { L1 NewType }
 
-opt_kind_sig :: { Located (Maybe (HsBndrSig (LHsKind RdrName))) }
+opt_kind_sig :: { Located (Maybe (LHsKind RdrName)) }
         :                               { noLoc Nothing }
-        | '::' kind                     { LL (Just (mkHsBSig $2)) }
+        | '::' kind                     { LL (Just $2) }
 
 -- tycl_hdr parses the header of a class or data type decl,
 -- which takes the form
@@ -878,7 +879,7 @@ rule_var_list :: { [RuleBndr RdrName] }
 
 rule_var :: { RuleBndr RdrName }
         : varid                                 { RuleBndr $1 }
-        | '(' varid '::' ctype ')'              { RuleBndrSig $2 (mkHsBSig $4) }
+        | '(' varid '::' ctype ')'              { RuleBndrSig $2 (mkHsWithBndrs $4) }
 
 -----------------------------------------------------------------------------
 -- Warnings and deprecations (c.f. rules)
@@ -1114,7 +1115,7 @@ tv_bndrs :: { [LHsTyVarBndr RdrName] }
 
 tv_bndr :: { LHsTyVarBndr RdrName }
         : tyvar                         { L1 (UserTyVar (unLoc $1)) }
-        | '(' tyvar '::' kind ')'       { LL (KindedTyVar (unLoc $2) (mkHsBSig $4)) }
+        | '(' tyvar '::' kind ')'       { LL (KindedTyVar (unLoc $2) $4) }
 
 fds :: { Located [Located (FunDep RdrName)] }
         : {- empty -}                   { noLoc [] }
@@ -1389,9 +1390,13 @@ exp10 :: { LHsExpr RdrName }
                                                                 (unguardedGRHSs $6)
                                                             ]) }
         | 'let' binds 'in' exp                  { LL $ HsLet (unLoc $2) $4 }
+        | '\\' 'lcase' altslist
+            { LL $ HsLamCase placeHolderType (mkMatchGroup (unLoc $3)) }
         | 'if' exp optSemi 'then' exp optSemi 'else' exp
                                         {% checkDoAndIfThenElse $2 $3 $5 $6 $8 >>
                                            return (LL $ mkHsIf $2 $5 $8) }
+        | 'if' gdpats                   {% hintMultiWayIf (getLoc $1) >>
+                                           return (LL $ HsMultiIf placeHolderType (reverse $ unLoc $2)) }
         | 'case' exp 'of' altslist              { LL $ HsCase $2 (mkMatchGroup (unLoc $4)) }
         | '-' fexp                              { LL $ NegApp $2 noSyntaxExpr }
 
@@ -1584,7 +1589,8 @@ flattenedpquals :: { Located [LStmt RdrName] }
                     -- We just had one thing in our "parallel" list so 
                     -- we simply return that thing directly
                     
-                    qss -> L1 [L1 $ ParStmt [(qs, undefined) | qs <- qss] noSyntaxExpr noSyntaxExpr noSyntaxExpr]
+                    qss -> L1 [L1 $ ParStmt [ParStmtBlock qs undefined noSyntaxExpr | qs <- qss] 
+                                            noSyntaxExpr noSyntaxExpr]
                     -- We actually found some actual parallel lists so
                     -- we wrap them into as a ParStmt
                 }
@@ -1763,10 +1769,10 @@ dbinds  :: { Located [LIPBind RdrName] }
 --      | {- empty -}                   { [] }
 
 dbind   :: { LIPBind RdrName }
-dbind   : ipvar '=' exp                 { LL (IPBind (unLoc $1) $3) }
+dbind   : ipvar '=' exp                 { LL (IPBind (Left (unLoc $1)) $3) }
 
-ipvar   :: { Located (IPName RdrName) }
-        : IPDUPVARID            { L1 (IPName (mkUnqual varName (getIPDUPVARID $1))) }
+ipvar   :: { Located HsIPName }
+        : IPDUPVARID            { L1 (HsIPName (getIPDUPVARID $1)) }
 
 hole    :: { Located RdrName }
         : HOLEVARID             { L1 (mkUnqual varName $ getHOLEVARID $1) }
@@ -2143,4 +2149,11 @@ fileSrcSpan = do
   l <- getSrcLoc; 
   let loc = mkSrcLoc (srcLocFile l) 1 1;
   return (mkSrcSpan loc loc)
+
+-- Hint about the MultiWayIf extension
+hintMultiWayIf :: SrcSpan -> P ()
+hintMultiWayIf span = do
+  mwiEnabled <- liftM ((Opt_MultiWayIf `xopt`) . dflags) getPState
+  unless mwiEnabled $ parseErrorSDoc span $
+    text "Multi-way if-expressions need -XMultiWayIf turned on"
 }

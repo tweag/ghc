@@ -57,6 +57,7 @@ import Data.Word
 
 import BasicTypes
 import FastString
+import Util
 
 -- -----------------------------------------------------------------------------
 -- Top-level of the instruction selector
@@ -104,7 +105,6 @@ basicBlockCodeGen (BasicBlock id stmts) = do
           = (instrs, blocks, CmmData sec dat:statics)
         mkBlocks instr (instrs,blocks,statics)
           = (instr:instrs, blocks, statics)
-  -- in
   return (BasicBlock id top : other_blocks, statics)
 
 stmtsToInstrs :: [CmmStmt] -> NatM InstrBlock
@@ -284,7 +284,6 @@ assignMem_I64Code addrTree valueTree = do
                 -- Big-endian store
                 mov_hi = ST II32 rhi hi_addr
                 mov_lo = ST II32 rlo lo_addr
-        -- in
         return (vcode `appOL` addr_code `snocOL` mov_lo `snocOL` mov_hi)
 
 
@@ -297,7 +296,6 @@ assignReg_I64Code (CmmLocal (LocalReg u_dst _)) valueTree = do
          r_src_hi = getHiVRegFromLo r_src_lo
          mov_lo = MR r_dst_lo r_src_lo
          mov_hi = MR r_dst_hi r_src_hi
-   -- in
    return (
         vcode `snocOL` mov_lo `snocOL` mov_hi
      )
@@ -332,7 +330,6 @@ iselExpr64 (CmmLit (CmmInt i _)) = do
                 LIS rhi (ImmInt half3),
                 OR rlo rlo (RIImm $ ImmInt half2)
                 ]
-  -- in
   return (ChildCode64 code rlo)
 
 iselExpr64 (CmmMachOp (MO_Add _) [e1,e2]) = do
@@ -346,7 +343,6 @@ iselExpr64 (CmmMachOp (MO_Add _) [e1,e2]) = do
                 code2 `appOL`
                 toOL [ ADDC rlo r1lo r2lo,
                        ADDE rhi r1hi r2hi ]
-   -- in
    return (ChildCode64 code rlo)
 
 iselExpr64 (CmmMachOp (MO_UU_Conv W32 W64) [expr]) = do
@@ -357,8 +353,7 @@ iselExpr64 (CmmMachOp (MO_UU_Conv W32 W64) [expr]) = do
     return $ ChildCode64 (expr_code `snocOL` mov_lo `snocOL` mov_hi)
                          rlo
 iselExpr64 expr
-   = do dflags <- getDynFlags
-        pprPanic "iselExpr64(powerpc)" (pprExpr (targetPlatform dflags) expr)
+   = pprPanic "iselExpr64(powerpc)" (pprExpr expr)
 
 
 
@@ -574,7 +569,7 @@ getRegister' _ (CmmLit lit)
           ]
     in return (Any (cmmTypeSize rep) code)
 
-getRegister' dflags other = pprPanic "getRegister(ppc)" (pprExpr (targetPlatform dflags) other)
+getRegister' _ other = pprPanic "getRegister(ppc)" (pprExpr other)
 
     -- extend?Rep: wrap integer expression of type rep
     -- in a conversion to II32
@@ -1145,12 +1140,13 @@ genCCall' gcp target dest_regs argsAndHints
 
                     MO_PopCnt w  -> (fsLit $ popCntLabel w, False)
 
-                    MO_S_QuotRem {} -> unsupported
-                    MO_U_QuotRem {} -> unsupported
-                    MO_Add2 {}      -> unsupported
-                    MO_U_Mul2 {}    -> unsupported
-                    MO_WriteBarrier -> unsupported
-                    MO_Touch        -> unsupported
+                    MO_S_QuotRem {}  -> unsupported
+                    MO_U_QuotRem {}  -> unsupported
+                    MO_U_QuotRem2 {} -> unsupported
+                    MO_Add2 {}       -> unsupported
+                    MO_U_Mul2 {}     -> unsupported
+                    MO_WriteBarrier  -> unsupported
+                    MO_Touch         -> unsupported
                 unsupported = panic ("outOfLineCmmOp: " ++ show mop
                                   ++ " not supported")
 

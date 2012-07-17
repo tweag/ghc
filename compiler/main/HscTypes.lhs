@@ -44,6 +44,7 @@ module HscTypes (
         InteractiveContext(..), emptyInteractiveContext,
         icPrintUnqual, icInScopeTTs, icPlusGblRdrEnv,
         extendInteractiveContext, substInteractiveContext,
+        setInteractivePrintName,
         InteractiveImport(..),
         mkPrintUnqualified, pprModulePrefix,
 
@@ -73,7 +74,7 @@ module HscTypes (
         -- * Information on imports and exports
         WhetherHasOrphans, IsBootInterface, Usage(..),
         Dependencies(..), noDependencies,
-        NameCache(..), OrigNameCache, OrigIParamCache,
+        NameCache(..), OrigNameCache,
         IfaceExport,
 
         -- * Warnings
@@ -136,12 +137,11 @@ import Annotations
 import Class
 import TyCon
 import DataCon
-import PrelNames        ( gHC_PRIM )
+import PrelNames        ( gHC_PRIM, ioTyConName, printName )
 import Packages hiding  ( Version(..) )
 import DynFlags
 import DriverPhases
 import BasicTypes
-import OptimizationFuel ( OptFuelState )
 import IfaceSyn
 import CoreSyn          ( CoreRule, CoreVect )
 import Maybes
@@ -162,7 +162,6 @@ import Util
 import Control.Monad    ( mplus, guard, liftM, when )
 import Data.Array       ( Array, array )
 import Data.IORef
-import Data.Map         ( Map )
 import Data.Time
 import Data.Word
 import Data.Typeable    ( Typeable )
@@ -181,8 +180,8 @@ mkSrcErr = SourceError
 srcErrorMessages :: SourceError -> ErrorMessages
 srcErrorMessages (SourceError msgs) = msgs
 
-mkApiErr :: SDoc -> GhcApiError
-mkApiErr = GhcApiError
+mkApiErr :: DynFlags -> SDoc -> GhcApiError
+mkApiErr dflags msg = GhcApiError (showSDoc dflags msg)
 
 throwOneError :: MonadIO m => ErrMsg -> m ab
 throwOneError err = liftIO $ throwIO $ mkSrcErr $ unitBag err
@@ -221,11 +220,11 @@ handleSourceError handler act =
   gcatch act (\(e :: SourceError) -> handler e)
 
 -- | An error thrown if the GHC API is used in an incorrect fashion.
-newtype GhcApiError = GhcApiError SDoc
+newtype GhcApiError = GhcApiError String
   deriving Typeable
 
 instance Show GhcApiError where
-  show (GhcApiError msg) = showSDoc msg
+  show (GhcApiError msg) = msg
 
 instance Exception GhcApiError
 
@@ -235,7 +234,7 @@ printOrThrowWarnings :: DynFlags -> Bag WarnMsg -> IO ()
 printOrThrowWarnings dflags warns
   | dopt Opt_WarnIsError dflags
   = when (not (isEmptyBag warns)) $ do
-      throwIO $ mkSrcErr $ warns `snocBag` warnIsErrorMsg
+      throwIO $ mkSrcErr $ warns `snocBag` warnIsErrorMsg dflags
   | otherwise
   = printBagOfErrors dflags warns
 
@@ -244,7 +243,7 @@ handleFlagWarnings dflags warns
  = when (wopt Opt_WarnDeprecatedFlags dflags) $ do
         -- It would be nicer if warns :: [Located MsgDoc], but that
         -- has circular import problems.
-      let bag = listToBag [ mkPlainWarnMsg loc (text warn)
+      let bag = listToBag [ mkPlainWarnMsg dflags loc (text warn)
                           | L loc warn <- warns ]
 
       printOrThrowWarnings dflags bag
@@ -317,11 +316,6 @@ data HscEnv
         hsc_MLC  :: {-# UNPACK #-} !(IORef ModLocationCache),
                 -- ^ This caches the location of modules, so we don't have to
                 -- search the filesystem multiple times. See also 'hsc_FC'.
-
-        hsc_OptFuel :: OptFuelState,
-                -- ^ Settings to control the use of \"optimization fuel\":
-                -- by limiting the number of transformations,
-                -- we can use binary search to help find compiler bugs.
 
         hsc_type_env_var :: Maybe (Module, IORef TypeEnv)
                 -- ^ Used for one-shot compilation only, to initialise
@@ -910,6 +904,9 @@ data InteractiveContext
              -- ^ The 'DynFlags' used to evaluate interative expressions
              -- and statements.
 
+         ic_monad      :: Name,
+             -- ^ The monad that GHCi is executing in
+
          ic_imports    :: [InteractiveImport],
              -- ^ The GHCi context is extended with these imports
              --
@@ -938,6 +935,16 @@ data InteractiveContext
              -- That is, rather than re-check the overlapping each
              -- time we update the context, we just take the results
              -- from the instance code that already does that.
+
+         ic_fix_env :: FixityEnv,
+            -- ^ Fixities declared in let statements
+         
+         ic_int_print  :: Name,
+             -- ^ The function that is used for printing results
+             -- of expressions in ghci and -e mode.
+
+         ic_default :: Maybe [Type],
+             -- ^ The current default types, set by a 'default' declaration
 
 #ifdef GHCI
           ic_resume :: [Resume],
@@ -973,11 +980,17 @@ hscDeclsWithLocation) and save them in ic_sys_vars.
 emptyInteractiveContext :: DynFlags -> InteractiveContext
 emptyInteractiveContext dflags
   = InteractiveContext { ic_dflags     = dflags,
+                         -- IO monad by default
+                         ic_monad      = ioTyConName,
                          ic_imports    = [],
                          ic_rn_gbl_env = emptyGlobalRdrEnv,
                          ic_tythings   = [],
                          ic_sys_vars   = [],
                          ic_instances  = ([],[]),
+                         ic_fix_env    = emptyNameEnv,
+                         -- System.IO.print by default
+                         ic_int_print  = printName,
+                         ic_default    = Nothing,
 #ifdef GHCI
                          ic_resume     = [],
 #endif
@@ -1011,6 +1024,9 @@ extendInteractiveContext ictxt new_tythings
     shadowed _         = False
 
     new_names = [ nameOccName (getName id) | AnId id <- new_tythings ]
+
+setInteractivePrintName :: InteractiveContext -> Name -> InteractiveContext
+setInteractivePrintName ic n = ic{ic_int_print = n}
 
     -- ToDo: should not add Ids to the gbl env here
 
@@ -1082,7 +1098,7 @@ exposed (say P2), so we use M.T for that, and P1:M.T for the other one.
 This is handled by the qual_mod component of PrintUnqualified, inside
 the (ppr mod) of case (3), in Name.pprModulePrefix
 
-\begin{code}
+    \begin{code}
 -- | Creates some functions that work out the best ways to format
 -- names for the user according to a set of heuristics
 mkPrintUnqualified :: DynFlags -> GlobalRdrEnv -> PrintUnqualified
@@ -1754,20 +1770,12 @@ its binding site, we fix it up.
 data NameCache
  = NameCache {  nsUniqs :: UniqSupply,
                 -- ^ Supply of uniques
-                nsNames :: OrigNameCache,
+                nsNames :: OrigNameCache
                 -- ^ Ensures that one original name gets one unique
-                nsIPs   :: OrigIParamCache,
-                -- ^ Ensures that one implicit parameter name gets one unique
-                nsHoles :: OrigHoleCache
    }
 
 -- | Per-module cache of original 'OccName's given 'Name's
 type OrigNameCache   = ModuleEnv (OccEnv Name)
-
--- | Module-local cache of implicit parameter 'OccName's given 'Name's
-type OrigIParamCache = Map FastString (IPName Name)
-
-type OrigHoleCache = Map FastString Name
 \end{code}
 
 
@@ -1864,9 +1872,9 @@ instance Outputable ModSummary where
              char '}'
             ]
 
-showModMsg :: HscTarget -> Bool -> ModSummary -> String
-showModMsg target recomp mod_summary
-  = showSDoc $
+showModMsg :: DynFlags -> HscTarget -> Bool -> ModSummary -> String
+showModMsg dflags target recomp mod_summary
+  = showSDoc dflags $
         hsep [text (mod_str ++ replicate (max 0 (16 - length mod_str)) ' '),
               char '(', text (normalise $ msHsFilePath mod_summary) <> comma,
               case target of
@@ -1877,7 +1885,7 @@ showModMsg target recomp mod_summary
               char ')']
  where
     mod     = moduleName (ms_mod mod_summary)
-    mod_str = showSDoc (ppr mod) ++ hscSourceString (ms_hsc_src mod_summary)
+    mod_str = showPpr dflags mod ++ hscSourceString (ms_hsc_src mod_summary)
 \end{code}
 
 %************************************************************************
@@ -2053,26 +2061,26 @@ noIfaceTrustInfo = setSafeMode Sf_None
 trustInfoToNum :: IfaceTrustInfo -> Word8
 trustInfoToNum it
   = case getSafeMode it of
-            Sf_None        -> 0
-            Sf_Unsafe      -> 1
-            Sf_Trustworthy -> 2
-            Sf_Safe        -> 3
-            Sf_SafeInfered -> 4
+            Sf_None         -> 0
+            Sf_Unsafe       -> 1
+            Sf_Trustworthy  -> 2
+            Sf_Safe         -> 3
+            Sf_SafeInferred -> 4
 
 numToTrustInfo :: Word8 -> IfaceTrustInfo
 numToTrustInfo 0 = setSafeMode Sf_None
 numToTrustInfo 1 = setSafeMode Sf_Unsafe
 numToTrustInfo 2 = setSafeMode Sf_Trustworthy
 numToTrustInfo 3 = setSafeMode Sf_Safe
-numToTrustInfo 4 = setSafeMode Sf_SafeInfered
+numToTrustInfo 4 = setSafeMode Sf_SafeInferred
 numToTrustInfo n = error $ "numToTrustInfo: bad input number! (" ++ show n ++ ")"
 
 instance Outputable IfaceTrustInfo where
-    ppr (TrustInfo Sf_None)         = ptext $ sLit "none"
-    ppr (TrustInfo Sf_Unsafe)       = ptext $ sLit "unsafe"
-    ppr (TrustInfo Sf_Trustworthy)  = ptext $ sLit "trustworthy"
-    ppr (TrustInfo Sf_Safe)         = ptext $ sLit "safe"
-    ppr (TrustInfo Sf_SafeInfered)  = ptext $ sLit "safe-infered"
+    ppr (TrustInfo Sf_None)          = ptext $ sLit "none"
+    ppr (TrustInfo Sf_Unsafe)        = ptext $ sLit "unsafe"
+    ppr (TrustInfo Sf_Trustworthy)   = ptext $ sLit "trustworthy"
+    ppr (TrustInfo Sf_Safe)          = ptext $ sLit "safe"
+    ppr (TrustInfo Sf_SafeInferred)  = ptext $ sLit "safe-inferred"
 \end{code}
 
 %************************************************************************

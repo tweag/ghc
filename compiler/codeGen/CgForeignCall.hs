@@ -59,7 +59,6 @@ cgForeignCall results fcall stg_args live
 
         arg_hints = zipWith CmmHinted
                       arg_exprs (map (typeForeignHint.stgArgType) stg_args)
-  -- in
   emitForeignCall results fcall arg_hints live
 
 
@@ -311,4 +310,5 @@ shimForeignCallArg arg expr
   | otherwise = expr
   where
         -- should be a tycon app, since this is a foreign call
-        tycon = tyConAppTyCon (repType (stgArgType arg))
+        UnaryRep rep_ty = repType (stgArgType arg)
+        tycon           = tyConAppTyCon rep_ty

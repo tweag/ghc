@@ -14,7 +14,9 @@
 -- for details
 
 module StgCmmPrim (
-   cgOpApp
+   cgOpApp,
+   cgPrimOp -- internal(ish), used by cgCase to get code for a
+            -- comparison without also turning it into a Bool.
  ) where
 
 #include "HsVersions.h"
@@ -28,6 +30,8 @@ import StgCmmTicky
 import StgCmmHeap
 import StgCmmProf
 
+import DynFlags
+import Platform
 import BasicTypes
 import MkGraph
 import StgSyn
@@ -43,6 +47,9 @@ import Module
 import FastString
 import Outputable
 import StaticFlags
+import Util
+
+import Control.Monad (liftM)
 
 ------------------------------------------------------------------------
 --	Primitive operations and foreign calls
@@ -66,14 +73,9 @@ cgOpApp :: StgOp	-- The op
 
 -- Foreign calls 
 cgOpApp (StgFCallOp fcall _) stg_args res_ty 
-  = do	{ (res_regs, res_hints) <- newUnboxedTupleRegs res_ty
-	 	-- Choose result regs r1, r2
-		-- Note [Foreign call results]
-	; cgForeignCall res_regs res_hints fcall stg_args
-		-- r1, r2 = foo( x, y )
-	; emitReturn (map (CmmReg . CmmLocal) res_regs) }
-		-- return (r1, r2) 
-      
+  = cgForeignCall fcall stg_args res_ty
+      -- Note [Foreign call results]
+
 -- tagToEnum# is special: we need to pull the constructor 
 -- out of the table, and perform an appropriate return.
 
@@ -228,23 +230,23 @@ emitPrimOp [res] SparkOp [arg]
             [(tmp2,NoHint)]
             (CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageId (fsLit "newSpark"))))
             [(CmmReg (CmmGlobal BaseReg), AddrHint), ((CmmReg (CmmLocal tmp)), AddrHint)]
-        emit (mkAssign (CmmLocal res) (CmmReg (CmmLocal tmp)))
+        emitAssign (CmmLocal res) (CmmReg (CmmLocal tmp))
 
 emitPrimOp [res] GetCCSOfOp [arg]
-  = emit (mkAssign (CmmLocal res) val)
+  = emitAssign (CmmLocal res) val
   where
     val | opt_SccProfilingOn = costCentreFrom (cmmUntag arg)
         | otherwise          = CmmLit zeroCLit
 
 emitPrimOp [res] GetCurrentCCSOp [_dummy_arg]
-   = emit (mkAssign (CmmLocal res) curCCS)
+   = emitAssign (CmmLocal res) curCCS
 
 emitPrimOp [res] ReadMutVarOp [mutv]
-   = emit (mkAssign (CmmLocal res) (cmmLoadIndexW mutv fixedHdrSize gcWord))
+   = emitAssign (CmmLocal res) (cmmLoadIndexW mutv fixedHdrSize gcWord)
 
 emitPrimOp [] WriteMutVarOp [mutv,var]
    = do
-	emit (mkStore (cmmOffsetW mutv fixedHdrSize) var)
+        emitStore (cmmOffsetW mutv fixedHdrSize) var
 	emitCCall
 		[{-no results-}]
 		(CmmLit (CmmLabel mkDirty_MUT_VAR_Label))
@@ -268,32 +270,32 @@ emitPrimOp res@[] TouchOp args@[_arg]
 
 --  #define byteArrayContentszh(r,a) r = BYTE_ARR_CTS(a)
 emitPrimOp [res] ByteArrayContents_Char [arg]
-   = emit (mkAssign (CmmLocal res) (cmmOffsetB arg arrWordsHdrSize))
+   = emitAssign (CmmLocal res) (cmmOffsetB arg arrWordsHdrSize)
 
 --  #define stableNameToIntzh(r,s)   (r = ((StgStableName *)s)->sn)
 emitPrimOp [res] StableNameToIntOp [arg]
-   = emit (mkAssign (CmmLocal res) (cmmLoadIndexW arg fixedHdrSize bWord))
+   = emitAssign (CmmLocal res) (cmmLoadIndexW arg fixedHdrSize bWord)
 
 --  #define eqStableNamezh(r,sn1,sn2)					\
 --    (r = (((StgStableName *)sn1)->sn == ((StgStableName *)sn2)->sn))
 emitPrimOp [res] EqStableNameOp [arg1,arg2]
-   = emit (mkAssign (CmmLocal res) (CmmMachOp mo_wordEq [
+   = emitAssign (CmmLocal res) (CmmMachOp mo_wordEq [
 				cmmLoadIndexW arg1 fixedHdrSize bWord,
 				cmmLoadIndexW arg2 fixedHdrSize bWord
-			 ]))
+                         ])
 
 
 emitPrimOp [res] ReallyUnsafePtrEqualityOp [arg1,arg2]
-   = emit (mkAssign (CmmLocal res) (CmmMachOp mo_wordEq [arg1,arg2]))
+   = emitAssign (CmmLocal res) (CmmMachOp mo_wordEq [arg1,arg2])
 
 --  #define addrToHValuezh(r,a) r=(P_)a
 emitPrimOp [res] AddrToAnyOp [arg]
-   = emit (mkAssign (CmmLocal res) arg)
+   = emitAssign (CmmLocal res) arg
 
 --  #define dataToTagzh(r,a)  r=(GET_TAG(((StgClosure *)a)->header.info))
 --  Note: argument may be tagged!
 emitPrimOp [res] DataToTagOp [arg]
-   = emit (mkAssign (CmmLocal res) (getConstrTag (cmmUntag arg)))
+   = emitAssign (CmmLocal res) (getConstrTag (cmmUntag arg))
 
 {- Freezing arrays-of-ptrs requires changing an info table, for the
    benefit of the generational collector.  It needs to scavenge mutable
@@ -316,7 +318,7 @@ emitPrimOp [res] UnsafeFreezeArrayArrayOp [arg]
 
 --  #define unsafeFreezzeByteArrayzh(r,a)	r=(a)
 emitPrimOp [res] UnsafeFreezeByteArrayOp [arg]
-   = emit (mkAssign (CmmLocal res) arg)
+   = emitAssign (CmmLocal res) arg
 
 -- Copying pointer arrays
 
@@ -478,11 +480,13 @@ emitPrimOp res WriteByteArrayOp_Word16    args = doWriteByteArrayOp (Just mo_Wor
 emitPrimOp res WriteByteArrayOp_Word32    args = doWriteByteArrayOp (Just mo_WordTo32) res args
 emitPrimOp res WriteByteArrayOp_Word64    args = doWriteByteArrayOp Nothing res args
 
--- Copying byte arrays
+-- Copying and setting byte arrays
 emitPrimOp [] CopyByteArrayOp [src,src_off,dst,dst_off,n] =
     doCopyByteArrayOp src src_off dst dst_off n
 emitPrimOp [] CopyMutableByteArrayOp [src,src_off,dst,dst_off,n] =
     doCopyMutableByteArrayOp src src_off dst dst_off n
+emitPrimOp [] SetByteArrayOp [ba,off,len,c] =
+    doSetByteArrayOp ba off len c
 
 -- Population count
 emitPrimOp [res] PopCnt8Op [w] = emitPopCntCall res w W8
@@ -494,11 +498,11 @@ emitPrimOp [res] PopCntOp [w] = emitPopCntCall res w wordWidth
 -- The rest just translate straightforwardly
 emitPrimOp [res] op [arg]
    | nopOp op
-   = emit (mkAssign (CmmLocal res) arg)
+   = emitAssign (CmmLocal res) arg
 
    | Just (mop,rep) <- narrowOp op
-   = emit (mkAssign (CmmLocal res) $
-	   CmmMachOp (mop rep wordWidth) [CmmMachOp (mop wordWidth rep) [arg]])
+   = emitAssign (CmmLocal res) $
+           CmmMachOp (mop rep wordWidth) [CmmMachOp (mop wordWidth rep) [arg]]
 
 emitPrimOp r@[res] op args
    | Just prim <- callishOp op
@@ -508,9 +512,172 @@ emitPrimOp r@[res] op args
    = let stmt = mkAssign (CmmLocal res) (CmmMachOp mop args) in
      emit stmt
 
-emitPrimOp _ op _
- = pprPanic "emitPrimOp: can't translate PrimOp" (ppr op)
+emitPrimOp results op args
+   = do dflags <- getDynFlags
+        case callishPrimOpSupported dflags op of
+          Left op   -> emit $ mkUnsafeCall (PrimTarget op) results args
+          Right gen -> gen results args
 
+type GenericOp = [CmmFormal] -> [CmmActual] -> FCode ()
+
+callishPrimOpSupported :: DynFlags -> PrimOp -> Either CallishMachOp GenericOp
+callishPrimOpSupported dflags op
+  = case op of
+      IntQuotRemOp   | ncg && x86ish  -> Left (MO_S_QuotRem  wordWidth)
+                     | otherwise      -> Right genericIntQuotRemOp
+
+      WordQuotRemOp  | ncg && x86ish  -> Left (MO_U_QuotRem  wordWidth)
+                     | otherwise      -> Right genericWordQuotRemOp
+
+      WordQuotRem2Op | ncg && x86ish  -> Left (MO_U_QuotRem2 wordWidth)
+                     | otherwise      -> Right genericWordQuotRem2Op
+
+      WordAdd2Op     | ncg && x86ish  -> Left (MO_Add2       wordWidth)
+                     | otherwise      -> Right genericWordAdd2Op
+
+      WordMul2Op     | ncg && x86ish  -> Left (MO_U_Mul2     wordWidth)
+                     | otherwise      -> Right genericWordMul2Op
+
+      _ -> panic "emitPrimOp: can't translate PrimOp" (ppr op)
+ where
+  ncg = case hscTarget dflags of
+           HscAsm -> True
+           _      -> False
+
+  x86ish = case platformArch (targetPlatform dflags) of
+             ArchX86    -> True
+             ArchX86_64 -> True
+             _          -> False
+
+genericIntQuotRemOp :: GenericOp
+genericIntQuotRemOp [res_q, res_r] [arg_x, arg_y]
+   = emit $ mkAssign (CmmLocal res_q)
+              (CmmMachOp (MO_S_Quot wordWidth) [arg_x, arg_y]) <*>
+            mkAssign (CmmLocal res_r)
+              (CmmMachOp (MO_S_Rem  wordWidth) [arg_x, arg_y])
+genericIntQuotRemOp _ _ = panic "genericIntQuotRemOp"
+
+genericWordQuotRemOp :: GenericOp
+genericWordQuotRemOp [res_q, res_r] [arg_x, arg_y]
+    = emit $ mkAssign (CmmLocal res_q)
+               (CmmMachOp (MO_U_Quot wordWidth) [arg_x, arg_y]) <*>
+             mkAssign (CmmLocal res_r)
+               (CmmMachOp (MO_U_Rem  wordWidth) [arg_x, arg_y])
+genericWordQuotRemOp _ _ = panic "genericWordQuotRemOp"
+
+genericWordQuotRem2Op :: GenericOp
+genericWordQuotRem2Op [res_q, res_r] [arg_x_high, arg_x_low, arg_y]
+    = emit =<< f (widthInBits wordWidth) zero arg_x_high arg_x_low
+    where    ty = cmmExprType arg_x_high
+             shl   x i = CmmMachOp (MO_Shl   wordWidth) [x, i]
+             shr   x i = CmmMachOp (MO_U_Shr wordWidth) [x, i]
+             or    x y = CmmMachOp (MO_Or    wordWidth) [x, y]
+             ge    x y = CmmMachOp (MO_U_Ge  wordWidth) [x, y]
+             ne    x y = CmmMachOp (MO_Ne    wordWidth) [x, y]
+             minus x y = CmmMachOp (MO_Sub   wordWidth) [x, y]
+             times x y = CmmMachOp (MO_Mul   wordWidth) [x, y]
+             zero   = lit 0
+             one    = lit 1
+             negone = lit (fromIntegral (widthInBits wordWidth) - 1)
+             lit i = CmmLit (CmmInt i wordWidth)
+
+             f :: Int -> CmmExpr -> CmmExpr -> CmmExpr -> FCode CmmAGraph
+             f 0 acc high _ = return (mkAssign (CmmLocal res_q) acc <*>
+                                      mkAssign (CmmLocal res_r) high)
+             f i acc high low =
+                 do roverflowedBit <- newTemp ty
+                    rhigh'         <- newTemp ty
+                    rhigh''        <- newTemp ty
+                    rlow'          <- newTemp ty
+                    risge          <- newTemp ty
+                    racc'          <- newTemp ty
+                    let high'         = CmmReg (CmmLocal rhigh')
+                        isge          = CmmReg (CmmLocal risge)
+                        overflowedBit = CmmReg (CmmLocal roverflowedBit)
+                    let this = catAGraphs
+                               [mkAssign (CmmLocal roverflowedBit)
+                                          (shr high negone),
+                                mkAssign (CmmLocal rhigh')
+                                          (or (shl high one) (shr low negone)),
+                                mkAssign (CmmLocal rlow')
+                                          (shl low one),
+                                mkAssign (CmmLocal risge)
+                                          (or (overflowedBit `ne` zero)
+                                              (high' `ge` arg_y)),
+                                mkAssign (CmmLocal rhigh'')
+                                          (high' `minus` (arg_y `times` isge)),
+                                mkAssign (CmmLocal racc')
+                                          (or (shl acc one) isge)]
+                    rest <- f (i - 1) (CmmReg (CmmLocal racc'))
+                                      (CmmReg (CmmLocal rhigh''))
+                                      (CmmReg (CmmLocal rlow'))
+                    return (this <*> rest)
+genericWordQuotRem2Op _ _ = panic "genericWordQuotRem2Op"
+
+genericWordAdd2Op :: GenericOp
+genericWordAdd2Op [res_h, res_l] [arg_x, arg_y]
+  = do r1 <- newTemp (cmmExprType arg_x)
+       r2 <- newTemp (cmmExprType arg_x)
+       emit $ catAGraphs
+          [mkAssign (CmmLocal r1)
+               (add (bottomHalf arg_x) (bottomHalf arg_y)),
+           mkAssign (CmmLocal r2)
+               (add (topHalf (CmmReg (CmmLocal r1)))
+                    (add (topHalf arg_x) (topHalf arg_y))),
+           mkAssign (CmmLocal res_h)
+               (topHalf (CmmReg (CmmLocal r2))),
+           mkAssign (CmmLocal res_l)
+               (or (toTopHalf (CmmReg (CmmLocal r2)))
+                   (bottomHalf (CmmReg (CmmLocal r1))))]
+   where topHalf x = CmmMachOp (MO_U_Shr wordWidth) [x, hww]
+         toTopHalf x = CmmMachOp (MO_Shl wordWidth) [x, hww]
+         bottomHalf x = CmmMachOp (MO_And wordWidth) [x, hwm]
+         add x y = CmmMachOp (MO_Add wordWidth) [x, y]
+         or x y = CmmMachOp (MO_Or wordWidth) [x, y]
+         hww = CmmLit (CmmInt (fromIntegral (widthInBits halfWordWidth))
+                              wordWidth)
+         hwm = CmmLit (CmmInt halfWordMask wordWidth)
+genericWordAdd2Op _ _ = panic "genericWordAdd2Op"
+
+genericWordMul2Op :: GenericOp
+genericWordMul2Op [res_h, res_l] [arg_x, arg_y]
+ = do let t = cmmExprType arg_x
+      xlyl <- liftM CmmLocal $ newTemp t
+      xlyh <- liftM CmmLocal $ newTemp t
+      xhyl <- liftM CmmLocal $ newTemp t
+      r    <- liftM CmmLocal $ newTemp t
+      -- This generic implementation is very simple and slow. We might
+      -- well be able to do better, but for now this at least works.
+      emit $ catAGraphs
+             [mkAssign xlyl
+                  (mul (bottomHalf arg_x) (bottomHalf arg_y)),
+              mkAssign xlyh
+                  (mul (bottomHalf arg_x) (topHalf arg_y)),
+              mkAssign xhyl
+                  (mul (topHalf arg_x) (bottomHalf arg_y)),
+              mkAssign r
+                  (sum [topHalf    (CmmReg xlyl),
+                        bottomHalf (CmmReg xhyl),
+                        bottomHalf (CmmReg xlyh)]),
+              mkAssign (CmmLocal res_l)
+                  (or (bottomHalf (CmmReg xlyl))
+                      (toTopHalf (CmmReg r))),
+              mkAssign (CmmLocal res_h)
+                  (sum [mul (topHalf arg_x) (topHalf arg_y),
+                        topHalf (CmmReg xhyl),
+                        topHalf (CmmReg xlyh),
+                        topHalf (CmmReg r)])]
+   where topHalf x = CmmMachOp (MO_U_Shr wordWidth) [x, hww]
+         toTopHalf x = CmmMachOp (MO_Shl wordWidth) [x, hww]
+         bottomHalf x = CmmMachOp (MO_And wordWidth) [x, hwm]
+         add x y = CmmMachOp (MO_Add wordWidth) [x, y]
+         sum = foldl1 add
+         mul x y = CmmMachOp (MO_Mul wordWidth) [x, y]
+         or x y = CmmMachOp (MO_Or wordWidth) [x, y]
+         hww = CmmLit (CmmInt (fromIntegral (widthInBits halfWordWidth))
+                              wordWidth)
+         hwm = CmmLit (CmmInt halfWordMask wordWidth)
+genericWordMul2Op _ _ = panic "genericWordMul2Op"
 
 -- These PrimOps are NOPs in Cmm
 
@@ -743,15 +910,15 @@ loadArrPtrsSize addr = CmmLoad (cmmOffsetB addr off) bWord
 mkBasicIndexedRead :: ByteOff -> Maybe MachOp -> CmmType
 		   -> LocalReg -> CmmExpr -> CmmExpr -> FCode ()
 mkBasicIndexedRead off Nothing read_rep res base idx
-   = emit (mkAssign (CmmLocal res) (cmmLoadIndexOffExpr off read_rep base idx))
+   = emitAssign (CmmLocal res) (cmmLoadIndexOffExpr off read_rep base idx)
 mkBasicIndexedRead off (Just cast) read_rep res base idx
-   = emit (mkAssign (CmmLocal res) (CmmMachOp cast [
-				cmmLoadIndexOffExpr off read_rep base idx]))
+   = emitAssign (CmmLocal res) (CmmMachOp cast [
+                                cmmLoadIndexOffExpr off read_rep base idx])
 
 mkBasicIndexedWrite :: ByteOff -> Maybe MachOp
 		   -> CmmExpr -> CmmExpr -> CmmExpr -> FCode ()
 mkBasicIndexedWrite off Nothing base idx val
-   = emit (mkStore (cmmIndexOffExpr off (typeWidth (cmmExprType val)) base idx) val)
+   = emitStore (cmmIndexOffExpr off (typeWidth (cmmExprType val)) base idx) val
 mkBasicIndexedWrite off (Just cast) base idx val
    = mkBasicIndexedWrite off Nothing base idx (CmmMachOp cast [val])
 
@@ -802,7 +969,7 @@ doCopyMutableByteArrayOp = emitCopyByteArray copy
             getCode $ emitMemmoveCall dst_p src_p bytes (CmmLit (mkIntCLit 1)),
             getCode $ emitMemcpyCall  dst_p src_p bytes (CmmLit (mkIntCLit 1))
             ]
-        emit $ mkCmmIfThenElse (cmmEqWord src dst) moveCall cpyCall
+        emit =<< mkCmmIfThenElse (cmmEqWord src dst) moveCall cpyCall
 
 emitCopyByteArray :: (CmmExpr -> CmmExpr -> CmmExpr -> CmmExpr -> CmmExpr
                       -> FCode ())
@@ -812,6 +979,18 @@ emitCopyByteArray copy src src_off dst dst_off n = do
     dst_p <- assignTempE $ cmmOffsetExpr (cmmOffsetB dst arrWordsHdrSize) dst_off
     src_p <- assignTempE $ cmmOffsetExpr (cmmOffsetB src arrWordsHdrSize) src_off
     copy src dst dst_p src_p n
+
+-- ----------------------------------------------------------------------------
+-- Setting byte arrays
+
+-- | Takes a 'MutableByteArray#', an offset into the array, a length,
+-- and a byte, and sets each of the selected bytes in the array to the
+-- character.
+doSetByteArrayOp :: CmmExpr -> CmmExpr -> CmmExpr -> CmmExpr
+                 -> FCode ()
+doSetByteArrayOp ba off len c
+    = do p <- assignTempE $ cmmOffsetExpr (cmmOffsetB ba arrWordsHdrSize) off
+         emitMemsetCall p c len (CmmLit (mkIntCLit 1))
 
 -- ----------------------------------------------------------------------------
 -- Copying pointer arrays
@@ -860,7 +1039,7 @@ doCopyMutableArrayOp = emitCopyArray copy
             getCode $ emitMemmoveCall dst_p src_p bytes (CmmLit (mkIntCLit wORD_SIZE)),
             getCode $ emitMemcpyCall  dst_p src_p bytes (CmmLit (mkIntCLit wORD_SIZE))
             ]
-        emit $ mkCmmIfThenElse (cmmEqWord src dst) moveCall cpyCall
+        emit =<< mkCmmIfThenElse (cmmEqWord src dst) moveCall cpyCall
 
 emitCopyArray :: (CmmExpr -> CmmExpr -> CmmExpr -> CmmExpr -> CmmExpr
                   -> FCode ())

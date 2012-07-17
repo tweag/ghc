@@ -41,6 +41,10 @@ define distdir-way-opts # args: $1 = dir, $2 = distdir, $3 = way, $4 = stage
 #                                                          mk/build.mk
 #                                                          mk/validate.mk
 #   
+#  SRC_HC_WARNING_OPTS   source-tree-wide GHC warning      mk/config.mk.in
+#                        options                           mk/build.mk
+#                                                          mk/validate.mk
+#   
 #  EXTRA_HC_OPTS         for supplying extra options on    make EXTRA_HC_OPTS=...
 #                        the command line   
 #   
@@ -57,7 +61,7 @@ define distdir-way-opts # args: $1 = dir, $2 = distdir, $3 = way, $4 = stage
 #   
 #  $1_$2_EXTRA_HC_OPTS   GHC options for this dir/distdir  mk/build.mk
 #   
-#  $1_$2_HC_PKGCONF      -package-conf flag if necessary   rules/package-config.mk
+#  $1_$2_HC_PKGCONF      -package-db flag if necessary   rules/package-config.mk
 #   
 #  $1_$2_HS_SRC_DIRS     dirs relative to $1 containing    $1/$2/package-data.mk
 #                        source files   
@@ -102,6 +106,7 @@ $1_$2_$3_MOST_HC_OPTS = \
  $$($1_$2_EXTRA_HC_OPTS) \
  $$($1_$2_$3_HC_OPTS) \
  $$($$(basename $$<)_HC_OPTS) \
+ $$(SRC_HC_WARNING_OPTS) \
  $$(EXTRA_HC_OPTS)
 
 # NB. CONF_HC_OPTS_STAGE$4 has to be late enough to override $1_$2_HC_OPTS, so
@@ -151,7 +156,8 @@ $1_$2_DIST_CC_OPTS = \
  $$($1_$2_CC_OPTS) \
  $$($1_$2_CPP_OPTS) \
  $$($1_$2_CC_INC_FLAGS) \
- $$($1_$2_DEP_CC_OPTS)
+ $$($1_$2_DEP_CC_OPTS) \
+ $$(SRC_CC_WARNING_OPTS)
 
 ifneq ($$(strip $$($1_$2_DEP_LIB_DIRS_SINGLE_QUOTED)),)
 $1_$2_DIST_LD_LIB_DIRS := $$(subst $$(space)',$$(space)-L',$$(space)$$($1_$2_DEP_LIB_DIRS_SINGLE_QUOTED))
@@ -183,6 +189,8 @@ $1_$2_$3_ALL_HSC2HS_OPTS = \
  $$(SRC_HSC2HS_OPTS) \
  $$(WAY_$3_HSC2HS_OPTS) \
  --cflag=-D__GLASGOW_HASKELL__=$$(if $$(filter 0,$4),$$(GhcCanonVersion),$$(ProjectVersionInt)) \
+ --cflag=-D$$(HostArch_CPP)_HOST_ARCH=1 \
+ --cflag=-D$$(HostOS_CPP)_HOST_OS=1 \
  $$($1_$2_$3_HSC2HS_CC_OPTS) \
  $$($1_$2_$3_HSC2HS_LD_OPTS) \
  --cflag=-I$1/$2/build/autogen \

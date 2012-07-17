@@ -68,20 +68,19 @@ cgTopRhsClosure :: Id
 		-> CostCentreStack	-- Optional cost centre annotation
 		-> StgBinderInfo
 		-> UpdateFlag
-		-> SRT
-		-> [Id]		        -- Args
+                -> [Id]                 -- Args
 		-> StgExpr
 		-> FCode CgIdInfo
 
-cgTopRhsClosure id ccs _ upd_flag srt args body = do
+cgTopRhsClosure id ccs _ upd_flag args body = do
   {	-- LAY OUT THE OBJECT
     let name = idName id
-  ; lf_info  <- mkClosureLFInfo id TopLevel [] upd_flag args
-  ; srt_info <- getSRTInfo srt
+  ; lf_info <- mkClosureLFInfo id TopLevel [] upd_flag args
   ; mod_name <- getModuleName
-  ; let descr         = closureDescription mod_name name
-	closure_info  = mkClosureInfo True id lf_info 0 0 srt_info descr
-	closure_label = mkLocalClosureLabel name (idCafInfo id)
+  ; dflags   <- getDynFlags
+  ; let descr         = closureDescription dflags mod_name name
+        closure_info  = mkClosureInfo True id lf_info 0 0 descr
+        closure_label = mkLocalClosureLabel name (idCafInfo id)
     	cg_id_info    = litIdInfo id lf_info (CmmLabel closure_label)
         caffy         = idCafInfo id
         info_tbl      = mkCmmInfo closure_info -- XXX short-cut
@@ -109,7 +108,7 @@ cgBind (StgNonRec name rhs)
         ; emit (init <*> body) }
 
 cgBind (StgRec pairs)
-  = do	{ ((new_binds, inits), body) <- getCodeR $ fixC (\ new_binds_inits ->
+  = do  { ((new_binds, inits), body) <- getCodeR $ fixC (\ new_binds_inits ->
                do { addBindsC $ fst new_binds_inits -- avoid premature deconstruction
                   ; liftM unzip $ listFCs [ cgRhs b e | (b,e) <- pairs ] })
        ; addBindsC new_binds
@@ -161,8 +160,8 @@ cgRhs :: Id -> StgRhs -> FCode (CgIdInfo, CmmAGraph)
 cgRhs name (StgRhsCon cc con args)
   = buildDynCon name cc con args
 
-cgRhs name (StgRhsClosure cc bi fvs upd_flag srt args body)
-  = mkRhsClosure name cc bi (nonVoidIds fvs) upd_flag srt args body
+cgRhs name (StgRhsClosure cc bi fvs upd_flag _srt args body)
+  = mkRhsClosure name cc bi (nonVoidIds fvs) upd_flag args body
 
 ------------------------------------------------------------------------
 --		Non-constructor right hand sides
@@ -170,7 +169,7 @@ cgRhs name (StgRhsClosure cc bi fvs upd_flag srt args body)
 
 mkRhsClosure :: Id -> CostCentreStack -> StgBinderInfo
 	     -> [NonVoid Id]			-- Free vars
-	     -> UpdateFlag -> SRT
+             -> UpdateFlag
 	     -> [Id]			        -- Args
 	     -> StgExpr
 	     -> FCode (CgIdInfo, CmmAGraph)
@@ -214,8 +213,7 @@ for semi-obvious reasons.
 mkRhsClosure	bndr cc bi
 		[NonVoid the_fv]   		-- Just one free var
 		upd_flag		-- Updatable thunk
-		_srt
-		[]			-- A thunk
+                []                      -- A thunk
 		body@(StgCase (StgApp scrutinee [{-no args-}])
 		      _ _ _ _   -- ignore uniq, etc.
 		      (AlgAlt _)
@@ -246,8 +244,7 @@ mkRhsClosure	bndr cc bi
 mkRhsClosure    bndr cc bi
 		fvs
 		upd_flag
-		_srt
-		[]			-- No args; a thunk
+                []                      -- No args; a thunk
 		body@(StgApp fun_id args)
 
   | args `lengthIs` (arity-1)
@@ -268,7 +265,7 @@ mkRhsClosure    bndr cc bi
 	arity 	= length fvs
 
 ---------- Default case ------------------
-mkRhsClosure bndr cc _ fvs upd_flag srt args body
+mkRhsClosure bndr cc _ fvs upd_flag args body
   = do	{ 	-- LAY OUT THE OBJECT
 	-- If the binder is itself a free variable, then don't store
 	-- it in the closure.  Instead, just bind it to Node on entry.
@@ -287,16 +284,16 @@ mkRhsClosure bndr cc _ fvs upd_flag srt args body
 	-- MAKE CLOSURE INFO FOR THIS CLOSURE
 	; lf_info <- mkClosureLFInfo bndr NotTopLevel fvs upd_flag args
 	; mod_name <- getModuleName
-	; c_srt <- getSRTInfo srt
-	; let	name  = idName bndr
-		descr = closureDescription mod_name name
-		fv_details :: [(NonVoid Id, VirtualHpOffset)]
+        ; dflags <- getDynFlags
+        ; let   name  = idName bndr
+                descr = closureDescription dflags mod_name name
+                fv_details :: [(NonVoid Id, VirtualHpOffset)]
 		(tot_wds, ptr_wds, fv_details)
 		   = mkVirtHeapOffsets (isLFThunk lf_info)
 				       (addIdReps (map stripNV reduced_fvs))
 		closure_info = mkClosureInfo False	-- Not static
 					     bndr lf_info tot_wds ptr_wds
-					     c_srt descr
+                                             descr
 
 	-- BUILD ITS INFO TABLE AND CODE
 	; forkClosureBody $
@@ -336,14 +333,14 @@ cgStdThunk bndr _cc _bndr_info _body lf_info payload
   = do	-- AHA!  A STANDARD-FORM THUNK
   {	-- LAY OUT THE OBJECT
     mod_name <- getModuleName
+  ; dflags <- getDynFlags
   ; let (tot_wds, ptr_wds, payload_w_offsets)
 	    = mkVirtHeapOffsets (isLFThunk lf_info) (addArgReps payload)
 
-	descr = closureDescription mod_name (idName bndr)
+	descr = closureDescription dflags mod_name (idName bndr)
 	closure_info = mkClosureInfo False 	-- Not static
 				     bndr lf_info tot_wds ptr_wds
-				     NoC_SRT	-- No SRT for a std-form closure
-				     descr
+                                     descr
 
 --  ; (use_cc, blame_cc) <- chooseDynCostCentres cc [{- no args-}] body
   ; let use_cc = curCCS; blame_cc = curCCS
@@ -408,9 +405,7 @@ closureCodeBody top_lvl bndr cl_info _cc args arity body fv_details
     do  { -- Allocate the global ticky counter,
           -- and establish the ticky-counter
           -- label for this block
-        ; dflags <- getDynFlags
-        ; let platform = targetPlatform dflags
-              ticky_ctr_lbl = closureRednCountsLabel platform cl_info
+          let ticky_ctr_lbl = closureRednCountsLabel cl_info
         ; emitTickyCounter cl_info (map stripNV args)
         ; setTickyCtrLabel ticky_ctr_lbl $ do
 
@@ -467,10 +462,8 @@ mkSlowEntryCode :: ClosureInfo -> [LocalReg] -> FCode ()
 mkSlowEntryCode _ [] = panic "entering a closure with no arguments?"
 mkSlowEntryCode cl_info arg_regs -- function closure is already in `Node'
   | Just (_, ArgGen _) <- closureFunInfo cl_info
-  = do dflags <- getDynFlags
-       let platform = targetPlatform dflags
-           slow_lbl = closureSlowEntryLabel  platform cl_info
-           fast_lbl = closureLocalEntryLabel platform cl_info
+  = do let slow_lbl = closureSlowEntryLabel  cl_info
+           fast_lbl = closureLocalEntryLabel cl_info
            -- mkDirectJump does not clobber `Node' containing function closure
            jump = mkDirectJump (mkLblExpr fast_lbl)
                                (map (CmmReg . CmmLocal) arg_regs)
@@ -547,10 +540,10 @@ emitBlackHoleCode is_single_entry = do
 
   whenC eager_blackholing $ do
     tickyBlackHole (not is_single_entry)
-    emit (mkStore (cmmOffsetW (CmmReg nodeReg) fixedHdrSize)
-                  (CmmReg (CmmGlobal CurrentTSO)))
+    emitStore (cmmOffsetW (CmmReg nodeReg) fixedHdrSize)
+                  (CmmReg (CmmGlobal CurrentTSO))
     emitPrimCall [] MO_WriteBarrier []
-    emit (mkStore (CmmReg nodeReg) (CmmReg (CmmGlobal EagerBlackholeInfo)))
+    emitStore (CmmReg nodeReg) (CmmReg (CmmGlobal EagerBlackholeInfo))
 
 setupUpdate :: ClosureInfo -> LocalReg -> FCode () -> FCode ()
 	-- Nota Bene: this function does not change Node (even if it's a CAF),
@@ -565,12 +558,15 @@ setupUpdate closure_info node body
       then do tickyUpdateFrameOmitted; body
       else do
           tickyPushUpdateFrame
-          --dflags <- getDynFlags
-          let es = [CmmReg (CmmLocal node), mkLblExpr mkUpdInfoLabel]
-          --if not opt_SccProfilingOn && dopt Opt_EagerBlackHoling dflags
-          --  then pushUpdateFrame es body -- XXX black hole
-          --  else pushUpdateFrame es body
-          pushUpdateFrame es body
+          dflags <- getDynFlags
+          let
+              bh = blackHoleOnEntry closure_info &&
+                   not opt_SccProfilingOn && dopt Opt_EagerBlackHoling dflags
+
+              lbl | bh        = mkBHUpdInfoLabel
+                  | otherwise = mkUpdInfoLabel
+
+          pushUpdateFrame [CmmReg (CmmLocal node), mkLblExpr lbl] body
 
   | otherwise	-- A static closure
   = do 	{ tickyUpdateBhCaf closure_info
@@ -579,7 +575,7 @@ setupUpdate closure_info node body
 	  then do	-- Blackhole the (updatable) CAF:
                 { upd_closure <- link_caf True
 		; pushUpdateFrame [CmmReg (CmmLocal upd_closure),
-                                     mkLblExpr mkUpdInfoLabel] body } -- XXX black hole
+                                   mkLblExpr mkBHUpdInfoLabel] body }
 	  else do {tickyUpdateFrameOmitted; body}
     }
 
@@ -596,7 +592,7 @@ pushUpdateFrame es body
        offset <- foldM push updfr es
        withUpdFrameOff offset body
      where push off e =
-             do emit (mkStore (CmmStackSlot (CallArea Old) base) e)
+             do emitStore (CmmStackSlot Old base) e
                 return base
              where base = off + widthInBytes (cmmExprWidth e)
 
@@ -664,13 +660,14 @@ link_caf _is_upd = do
         -- node is live, so save it.
 
   -- see Note [atomic CAF entry] in rts/sm/Storage.c
-  ; emit $ mkCmmIfThen
-      (CmmMachOp mo_wordEq [ CmmReg (CmmLocal ret), CmmLit zeroCLit]) $
+  ; updfr  <- getUpdFrameOff
+  ; emit =<< mkCmmIfThen
+      (CmmMachOp mo_wordEq [ CmmReg (CmmLocal ret), CmmLit zeroCLit])
         -- re-enter R1.  Doing this directly is slightly dodgy; we're
         -- assuming lots of things, like the stack pointer hasn't
         -- moved since we entered the CAF.
-        let target = entryCode (closureInfoPtr (CmmReg nodeReg)) in
-        mkJump target [] 0
+       (let target = entryCode (closureInfoPtr (CmmReg nodeReg)) in
+        mkJump target [] updfr)
 
   ; return hp_rel }
 
@@ -682,13 +679,14 @@ link_caf _is_upd = do
 -- name of the data constructor itself.  Otherwise it is determined by
 -- @closureDescription@ from the let binding information.
 
-closureDescription :: Module		-- Module
+closureDescription :: DynFlags
+           -> Module		-- Module
 		   -> Name		-- Id of closure binding
 		   -> String
 	-- Not called for StgRhsCon which have global info tables built in
 	-- CgConTbls.lhs with a description generated from the data constructor
-closureDescription mod_name name
-  = showSDocDump (char '<' <>
+closureDescription dflags mod_name name
+  = showSDocDump dflags (char '<' <>
 		    (if isExternalName name
 		      then ppr name -- ppr will include the module name prefix
 		      else pprModule mod_name <> char '.' <> ppr name) <>

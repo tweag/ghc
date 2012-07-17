@@ -185,16 +185,16 @@ Library
         CmmOpt
         CmmParse
         CmmProcPoint
-        CmmSpillReload
         CmmRewriteAssignments
-        CmmStackLayout
+        CmmSink
         CmmType
         CmmUtils
+        CmmLayoutStack
         MkGraph
         OldCmm
+        OldCmmLint
         OldCmmUtils
         OldPprCmm
-        OptimizationFuel
         PprBase
         PprC
         PprCmm
@@ -360,6 +360,7 @@ Library
         SRT
         SimplStg
         StgStats
+        UnariseStg
         Rules
         SpecConstr
         Specialise
@@ -403,7 +404,6 @@ Library
         TcCanonical
         TcSMonad
         Class
-        IParam
         Coercion
         FamInstEnv
         FunDeps
@@ -440,6 +440,7 @@ Library
         Pretty
         Serialized
         State
+        Stream
         StringBuffer
         UniqFM
         UniqSet
@@ -473,6 +474,8 @@ Library
         Vectorise.Env
         Vectorise.Exp
         Vectorise
+        Hoopl.Dataflow
+        Hoopl
 
     Exposed-Modules:
             AsmCodeGen

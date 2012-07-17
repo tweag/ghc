@@ -326,8 +326,7 @@ link' dflags batch_attempt_linking hpt
                    return Succeeded
            else do
 
-        compilationProgressMsg dflags $ showSDoc $
-            (ptext (sLit "Linking") <+> text exe_file <+> text "...")
+        compilationProgressMsg dflags ("Linking " ++ exe_file ++ " ...")
 
         -- Don't showPass in Batch mode; doLink will do that for us.
         let link = case ghcLink dflags of
@@ -774,7 +773,7 @@ runPhase (Cpp sf) input_fn dflags0
        (dflags1, unhandled_flags, warns)
            <- io $ parseDynamicFilePragma dflags0 src_opts
        setDynFlags dflags1
-       io $ checkProcessArgsResult unhandled_flags
+       io $ checkProcessArgsResult dflags1 unhandled_flags
 
        if not (xopt Opt_Cpp dflags1) then do
            -- we have to be careful to emit warnings only once.
@@ -791,7 +790,7 @@ runPhase (Cpp sf) input_fn dflags0
             src_opts <- io $ getOptionsFromFile dflags0 output_fn
             (dflags2, unhandled_flags, warns)
                 <- io $ parseDynamicFilePragma dflags0 src_opts
-            io $ checkProcessArgsResult unhandled_flags
+            io $ checkProcessArgsResult dflags2 unhandled_flags
             unless (dopt Opt_Pp dflags2) $ io $ handleFlagWarnings dflags2 warns
             -- the HsPp pass below will emit warnings
 
@@ -826,7 +825,7 @@ runPhase (HsPp sf) input_fn dflags
             (dflags1, unhandled_flags, warns)
                 <- io $ parseDynamicFilePragma dflags src_opts
             setDynFlags dflags1
-            io $ checkProcessArgsResult unhandled_flags
+            io $ checkProcessArgsResult dflags1 unhandled_flags
             io $ handleFlagWarnings dflags1 warns
 
             return (Hsc sf, output_fn)
@@ -1372,7 +1371,8 @@ runPhase LlvmLlc input_fn dflags
                     SysTools.Option "-o", SysTools.FileOption "" output_fn]
                 ++ map SysTools.Option lc_opts
                 ++ [SysTools.Option tbaa]
-                ++ map SysTools.Option fpOpts)
+                ++ map SysTools.Option fpOpts
+                ++ map SysTools.Option abiOpts)
 
     return (next_phase, output_fn)
   where
@@ -1384,12 +1384,19 @@ runPhase LlvmLlc input_fn dflags
         -- while compiling GHC source code. It's probably due to fact that it
         -- does not enable VFP by default. Let's do this manually here
         fpOpts = case platformArch (targetPlatform dflags) of 
-                   ArchARM ARMv7 ext -> if (elem VFPv3 ext)
+                   ArchARM ARMv7 ext _ -> if (elem VFPv3 ext)
                                       then ["-mattr=+v7,+vfp3"]
                                       else if (elem VFPv3D16 ext)
                                            then ["-mattr=+v7,+vfp3,+d16"]
                                            else []
                    _                 -> []
+        -- On Ubuntu/Debian with ARM hard float ABI, LLVM's llc still
+        -- compiles into soft-float ABI. We need to explicitly set abi
+        -- to hard
+        abiOpts = case platformArch (targetPlatform dflags) of
+                    ArchARM ARMv7 _ HARD -> ["-float-abi=hard"]
+                    ArchARM ARMv7 _ _    -> []
+                    _                    -> []
 
 -----------------------------------------------------------------------------
 -- LlvmMangle phase
@@ -1485,10 +1492,11 @@ mkExtraObjToLinkIntoBinary dflags = do
                                         _ -> True
 
    when (dopt Opt_NoHsMain dflags && have_rts_opts_flags) $ do
-      hPutStrLn stderr $ "Warning: -rtsopts and -with-rtsopts have no effect with -no-hs-main.\n" ++
-                         "    Call hs_init_ghc() from your main() function to set these options."
+      log_action dflags dflags SevInfo noSrcSpan defaultUserStyle
+          (text "Warning: -rtsopts and -with-rtsopts have no effect with -no-hs-main." $$
+           text "    Call hs_init_ghc() from your main() function to set these options.")
 
-   mkExtraObj dflags "c" (showSDoc main)
+   mkExtraObj dflags "c" (showSDoc dflags main)
 
   where
     main
@@ -1519,7 +1527,7 @@ mkNoteObjsToLinkIntoBinary dflags dep_packages = do
    link_info <- getLinkInfo dflags dep_packages
 
    if (platformSupportsSavingLinkOpts (platformOS (targetPlatform dflags)))
-     then fmap (:[]) $ mkExtraObj dflags "s" (showSDoc (link_opts link_info))
+     then fmap (:[]) $ mkExtraObj dflags "s" (showSDoc dflags (link_opts link_info))
      else return []
 
   where
@@ -1538,8 +1546,8 @@ mkNoteObjsToLinkIntoBinary dflags dep_packages = do
 
             elfSectionNote :: String
             elfSectionNote = case platformArch (targetPlatform dflags) of
-                               ArchARM _ _ -> "%note"
-                               _           -> "@note"
+                               ArchARM _ _ _ -> "%note"
+                               _             -> "@note"
 
 -- The "link info" is a string representing the parameters of the
 -- link.  We save this information in the binary, and the next time we

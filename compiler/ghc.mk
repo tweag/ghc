@@ -27,8 +27,6 @@ endef
 # The 'echo' commands simply spit the values of various make variables
 # into Config.hs, whence they can be compiled and used by GHC itself
 
-compiler_CONFIG_HS = compiler/main/Config.hs
-
 # This is just to avoid generating a warning when generating deps
 # involving RtsFlags.h
 compiler_stage1_MKDEPENDC_OPTS = -DMAKING_GHC_BUILD_SYSTEM_DEPENDENCIES
@@ -312,6 +310,9 @@ ifeq "$(GhcWithInterpreter)" "YES"
 compiler_stage2_CONFIGURE_OPTS += --flags=ghci
 
 ifeq "$(BuildSharedLibs)" "YES"
+# There are too many symbols to make a Windows DLL for the ghc package,
+# so we don't build it the dyn way; see trac #5987
+ifneq "$(TargetOS_CPP)" "mingw32"
 compiler_stage2_CONFIGURE_OPTS += --enable-shared
 # If we are going to use dynamic libraries instead of .o files for ghci,
 # we will need to always retain CAFs in the compiler.
@@ -319,6 +320,7 @@ compiler_stage2_CONFIGURE_OPTS += --enable-shared
 # function which sets the keepCAFs flag for the RTS before any Haskell
 # code is run.
 compiler_stage2_CONFIGURE_OPTS += --flags=dynlibs
+endif
 endif
 
 ifeq "$(GhcEnableTablesNextToCode) $(GhcUnregisterised)" "YES NO"
@@ -353,7 +355,7 @@ ifeq "$(GhcProfiled)" "YES"
 # parts of the compiler of interest, and then add further cost centres
 # as necessary.  Turn on -auto-all for individual modules like this:
 
-compiler/main/DriverPipeline_HC_OPTS += -auto-all
+# compiler/main/DriverPipeline_HC_OPTS += -auto-all
 compiler/main/GhcMake_HC_OPTS        += -auto-all
 compiler/main/GHC_HC_OPTS            += -auto-all
 
@@ -425,6 +427,14 @@ compiler_stage1_SplitObjs = NO
 compiler_stage2_SplitObjs = NO
 compiler_stage3_SplitObjs = NO
 
+ifeq "$(TargetOS_CPP)" "mingw32"
+# There are too many symbols to make a Windows DLL for the ghc package,
+# so we don't build it the dyn way; see trac #5987
+compiler_stage1_EXCLUDED_WAYS := dyn
+compiler_stage2_EXCLUDED_WAYS := dyn
+compiler_stage3_EXCLUDED_WAYS := dyn
+endif
+
 # if stage is set to something other than "1" or "", disable stage 1
 ifneq "$(filter-out 1,$(stage))" ""
 compiler_stage1_NOT_NEEDED = YES
@@ -495,11 +505,11 @@ compiler/main/Constants_HC_OPTS  += -fforce-recomp
 # LibFFI.hs #includes ffi.h
 compiler/stage2/build/LibFFI.hs : $(libffi_HEADERS)
 # On Windows it seems we also need to link directly to libffi
-ifeq  "$(HOSTPLATFORM)" "i386-unknown-mingw32"
+ifeq "$(HostOS_CPP)" "mingw32"
 define windowsDynLinkToFfi
 # $1 = way
 ifneq "$$(findstring dyn, $1)" ""
-compiler_stage2_$1_ALL_HC_OPTS += -lffi-5
+compiler_stage2_$1_ALL_HC_OPTS += -l$$(LIBFFI_WINDOWS_LIB)
 endif
 endef
 $(foreach way,$(GhcLibWays),$(eval $(call windowsDynLinkToFfi,$(way))))

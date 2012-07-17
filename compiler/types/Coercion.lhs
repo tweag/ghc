@@ -30,7 +30,7 @@ module Coercion (
 	-- ** Constructing coercions
         mkReflCo, mkCoVarCo, 
         mkAxInstCo, mkAxInstRHS,
-        mkPiCo, mkPiCos,
+        mkPiCo, mkPiCos, mkCoCast,
         mkSymCo, mkTransCo, mkNthCo,
 	mkInstCo, mkAppCo, mkTyConAppCo, mkFunCo,
         mkForAllCo, mkUnsafeCo,
@@ -441,7 +441,8 @@ ppr_forall_co p ty
 \begin{code}
 pprCoAxiom :: CoAxiom -> SDoc
 pprCoAxiom ax
-  = sep [ ptext (sLit "axiom") <+> ppr ax <+> ppr (co_ax_tvs ax)
+  = sep [ ptext (sLit "axiom") <+> 
+            sep [ ppr ax, nest 2 (pprTvBndrs (co_ax_tvs ax)) ]
         , nest 2 (dcolon <+> pprEqPred (Pair (co_ax_lhs ax) (co_ax_rhs ax))) ]
 \end{code}
 
@@ -671,6 +672,18 @@ mkPiCos vs co = foldr mkPiCo co vs
 mkPiCo  :: Var -> Coercion -> Coercion
 mkPiCo v co | isTyVar v = mkForAllCo v co
             | otherwise = mkFunCo (mkReflCo (varType v)) co
+
+mkCoCast :: Coercion -> Coercion -> Coercion
+-- (mkCoCast (c :: s1 ~# t1) (g :: (s1 ~# t1) ~# (s2 ~# t2)
+mkCoCast c g
+  = mkSymCo g1 `mkTransCo` c `mkTransCo` g2
+  where
+       -- g  :: (s1 ~# s2) ~# (t1 ~#  t2)
+       -- g1 :: s1 ~# t1
+       -- g2 :: s2 ~# t2
+    [_reflk, g1, g2] = decomposeCo 3 g
+            -- Remember, (~#) :: forall k. k -> k -> *
+            -- so it takes *three* arguments, not two
 \end{code}
 
 %************************************************************************

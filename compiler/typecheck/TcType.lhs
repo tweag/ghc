@@ -66,7 +66,6 @@ module TcType (
   isTauTy, isTauTyCon, tcIsTyVarTy, tcIsForAllTy, 
   isSynFamilyTyConApp,
   isPredTy, isTyVarClassPred,
-  shallowPredTypePredTree,
   
   ---------------------------------
   -- Misc type manipulators
@@ -115,10 +114,10 @@ module TcType (
   --------------------------------
   -- Rexported from Kind
   Kind, typeKind,
-  unliftedTypeKind, liftedTypeKind, argTypeKind,
+  unliftedTypeKind, liftedTypeKind,
   openTypeKind, constraintKind, mkArrowKind, mkArrowKinds, 
   isLiftedTypeKind, isUnliftedTypeKind, isSubOpenTypeKind, 
-  isSubArgTypeKind, tcIsSubKind, splitKindFunTys, defaultKind,
+  tcIsSubKind, splitKindFunTys, defaultKind,
   mkMetaKindVar,
 
   --------------------------------
@@ -130,7 +129,7 @@ module TcType (
   mkTyVarTy, mkTyVarTys, mkTyConTy,
 
   isClassPred, isEqPred, isIPPred,
-  mkClassPred, mkIPPred,
+  mkClassPred,
   isDictLikeTy,
   tcSplitDFunTy, tcSplitDFunHead, 
   mkEqPred, 
@@ -152,7 +151,7 @@ module TcType (
   tyVarsOfType, tyVarsOfTypes,
   tcTyVarsOfType, tcTyVarsOfTypes,
 
-  pprKind, pprParendKind,
+  pprKind, pprParendKind, pprSigmaType,
   pprType, pprParendType, pprTypeApp, pprTyThingCategory,
   pprTheta, pprThetaArrowTy, pprClassPred
 
@@ -620,8 +619,8 @@ tidyCos env = map (tidyCo env)
 %************************************************************************
 
 \begin{code}
-
--- | Finds type family instances occuring in a type after expanding synonyms.
+-- | Finds outermost type-family applications occuring in a type,
+-- after expanding synonyms.
 tcTyFamInsts :: Type -> [(TyCon, [Type])]
 tcTyFamInsts ty 
   | Just exp_ty <- tcView ty    = tcTyFamInsts exp_ty
@@ -1090,27 +1089,6 @@ pickyEqType ty1 ty2
 Deconstructors and tests on predicate types
 
 \begin{code}
--- | Like 'classifyPredType' but doesn't look through type synonyms.
--- Used to check that programs only use "simple" contexts without any
--- synonyms in them.
-shallowPredTypePredTree :: PredType -> PredTree
-shallowPredTypePredTree ev_ty
-  | TyConApp tc tys <- ev_ty
-  = case () of
-      () | Just clas <- tyConClass_maybe tc
-         -> ClassPred clas tys
-      () | tc `hasKey` eqTyConKey
-         , let [_, ty1, ty2] = tys
-         -> EqPred ty1 ty2
-      () | Just ip <- tyConIP_maybe tc
-         , let [ty] = tys
-         -> IPPred ip ty
-      () | isTupleTyCon tc
-         -> TuplePred tys
-      _ -> IrredPred ev_ty
-  | otherwise
-  = IrredPred ev_ty
-
 isTyVarClassPred :: PredType -> Bool
 isTyVarClassPred ty = case getClassPredTys_maybe ty of
     Just (_, tys) -> all isTyVarTy tys
@@ -1139,7 +1117,7 @@ mkMinimalBySCs ptys = [ ploc |  ploc <- ptys
                              ,  ploc `not_in_preds` rec_scs ]
  where
    rec_scs = concatMap trans_super_classes ptys
-   not_in_preds p ps = null (filter (eqPred p) ps)
+   not_in_preds p ps = not (any (eqPred p) ps)
 
    trans_super_classes pred   -- Superclasses of pred, excluding pred itself
      = case classifyPredType pred of

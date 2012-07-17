@@ -69,6 +69,7 @@ import PrelNames
 import BasicTypes       hiding ( SuccessFlag(..) )
 import Util
 import Pair
+import DynFlags
 import Outputable
 import FastString
 import ListSetOps
@@ -503,13 +504,13 @@ mkDictSelId no_unf name clas
 				--   sel a b d = case x of { MkC _ (g:a~b) _ -> CO g }
 
 dictSelRule :: Int -> Arity 
-            -> IdUnfoldingFun -> [CoreExpr] -> Maybe CoreExpr
+            -> Id -> IdUnfoldingFun -> [CoreExpr] -> Maybe CoreExpr
 -- Tries to persuade the argument to look like a constructor
 -- application, using exprIsConApp_maybe, and then selects
 -- from it
 --       sel_i t1..tk (D t1..tk op1 ... opm) = opi
 --
-dictSelRule val_index n_ty_args id_unf args
+dictSelRule val_index n_ty_args _ id_unf args
   | (dict_arg : _) <- drop n_ty_args args
   , Just (_, _, con_args) <- exprIsConApp_maybe id_unf dict_arg
   = Just (con_args !! val_index)
@@ -761,14 +762,14 @@ mkPrimOpId prim_op
 -- details of the ccall, type and all.  This means that the interface 
 -- file reader can reconstruct a suitable Id
 
-mkFCallId :: Unique -> ForeignCall -> Type -> Id
-mkFCallId uniq fcall ty
+mkFCallId :: DynFlags -> Unique -> ForeignCall -> Type -> Id
+mkFCallId dflags uniq fcall ty
   = ASSERT( isEmptyVarSet (tyVarsOfType ty) )
     -- A CCallOpId should have no free type variables; 
     -- when doing substitutions won't substitute over it
     mkGlobalId (FCallId fcall) name ty info
   where
-    occ_str = showSDoc (braces (ppr fcall <+> ppr ty))
+    occ_str = showSDoc dflags (braces (ppr fcall <+> ppr ty))
     -- The "occurrence name" of a ccall is the full info about the
     -- ccall; it is encoded, but may have embedded spaces etc!
 
@@ -825,17 +826,29 @@ mkDictFunId :: Name      -- Name to use for the dict fun;
 -- Implements the DFun Superclass Invariant (see TcInstDcls)
 
 mkDictFunId dfun_name tvs theta clas tys
-  = mkExportedLocalVar (DFunId is_nt)
+  = mkExportedLocalVar (DFunId n_silent is_nt)
                        dfun_name
                        dfun_ty
                        vanillaIdInfo
   where
     is_nt = isNewTyCon (classTyCon clas)
-    dfun_ty = mkDictFunTy tvs theta clas tys
+    (n_silent, dfun_ty) = mkDictFunTy tvs theta clas tys
 
-mkDictFunTy :: [TyVar] -> ThetaType -> Class -> [Type] -> Type
+mkDictFunTy :: [TyVar] -> ThetaType -> Class -> [Type] -> (Int, Type)
 mkDictFunTy tvs theta clas tys
-  = mkSigmaTy tvs theta (mkClassPred clas tys)
+  = (length silent_theta, dfun_ty)
+  where
+    dfun_ty = mkSigmaTy tvs (silent_theta ++ theta) (mkClassPred clas tys)
+    silent_theta 
+      | null tvs, null theta 
+      = []
+      | otherwise
+      = filterOut discard $
+        substTheta (zipTopTvSubst (classTyVars clas) tys)
+                   (classSCTheta clas)
+                   -- See Note [Silent Superclass Arguments]
+    discard pred = any (`eqPred` pred) theta
+                 -- See the DFun Superclass Invariant in TcInstDcls
 \end{code}
 
 
@@ -920,12 +933,12 @@ seqId = pcMiscPrelId seqName ty info
                                 , ru_try   = match_seq_of_cast
                                 }
 
-match_seq_of_cast :: IdUnfoldingFun -> [CoreExpr] -> Maybe CoreExpr
+match_seq_of_cast :: Id -> IdUnfoldingFun -> [CoreExpr] -> Maybe CoreExpr
     -- See Note [Built-in RULES for seq]
-match_seq_of_cast _ [Type _, Type res_ty, Cast scrut co, expr]
+match_seq_of_cast _ _ [Type _, Type res_ty, Cast scrut co, expr]
   = Just (Var seqId `mkApps` [Type (pFst (coercionKind co)), Type res_ty,
                               scrut, expr])
-match_seq_of_cast _ _ = Nothing
+match_seq_of_cast _ _ _ = Nothing
 
 ------------------------------------------------
 lazyId :: Id	-- See Note [lazyId magic]

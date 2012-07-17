@@ -19,6 +19,8 @@ import CmmUtils
 import CLabel
 import SMRep
 import Bitmap
+import Stream (Stream)
+import qualified Stream
 
 import Maybes
 import Constants
@@ -27,6 +29,8 @@ import Platform
 import StaticFlags
 import UniqSupply
 import MonadUtils
+import Util
+
 import Data.Bits
 import Data.Word
 
@@ -38,10 +42,16 @@ mkEmptyContInfoTable info_lbl
                  , cit_prof = NoProfilingInfo
                  , cit_srt  = NoC_SRT }
 
-cmmToRawCmm :: Platform -> [Old.CmmGroup] -> IO [Old.RawCmmGroup]
+cmmToRawCmm :: Platform -> Stream IO Old.CmmGroup ()
+            -> IO (Stream IO Old.RawCmmGroup ())
 cmmToRawCmm platform cmms
   = do { uniqs <- mkSplitUniqSupply 'i'
-       ; return (initUs_ uniqs (mapM (concatMapM (mkInfoTable platform)) cmms)) }
+       ; let do_one uniqs cmm = do
+                case initUs uniqs $ concatMapM (mkInfoTable platform) cmm of
+                  (b,uniqs') -> return (uniqs',b)
+                  -- NB. strictness fixes a space leak.  DO NOT REMOVE.
+       ; return (Stream.mapAccumL do_one uniqs cmms >> return ())
+       }
 
 -- Make a concrete info table, represented as a list of CmmStatic
 -- (it can't be simply a list of Word, because the SRT field is
@@ -80,7 +90,7 @@ mkInfoTable :: Platform -> CmmDecl -> UniqSM [RawCmmDecl]
 mkInfoTable _ (CmmData sec dat) 
   = return [CmmData sec dat]
 
-mkInfoTable platform (CmmProc (CmmInfo _ _ info) entry_label blocks)
+mkInfoTable platform (CmmProc info entry_label blocks)
   | CmmNonInfoTable <- info   -- Code without an info table.  Easy.
   = return [CmmProc Nothing entry_label blocks]
                                
@@ -89,7 +99,8 @@ mkInfoTable platform (CmmProc (CmmInfo _ _ info) entry_label blocks)
        ; return (top_decls  ++
                  mkInfoTableAndCode info_lbl info_cts
                                     entry_label blocks) }
-  | otherwise = panic "mkInfoTable"  -- Patern match overlap check not clever enough
+  | otherwise = panic "mkInfoTable"
+                  -- Patern match overlap check not clever enough
 
 -----------------------------------------------------
 type InfoTableContents = ( [CmmLit]	     -- The standard part
@@ -166,7 +177,7 @@ mkInfoTableContents platform
                               , srt_lit, liveness_lit, slow_entry ]
            ; return (Nothing, Nothing, extra_bits, liveness_data) }
       where
-        slow_entry = CmmLabel (toSlowEntryLbl platform info_lbl)
+        slow_entry = CmmLabel (toSlowEntryLbl info_lbl)
         srt_lit = case srt_label of
                     []          -> mkIntCLit 0
                     (lit:_rest) -> ASSERT( null _rest ) lit

@@ -144,6 +144,7 @@ endif
 include rules/prof.mk
 include rules/trace.mk
 include rules/make-command.mk
+include rules/pretty_commands.mk
 
 # -----------------------------------------------------------------------------
 # Macros for standard targets
@@ -309,7 +310,7 @@ endif
 # They do not say "this package will be built"; see $(PACKAGES_xx) for that
 
 # Packages that are built but not installed
-PKGS_THAT_ARE_INTREE_ONLY := haskeline mtl terminfo utf8-string xhtml
+PKGS_THAT_ARE_INTREE_ONLY := haskeline transformers terminfo utf8-string xhtml
 
 PKGS_THAT_ARE_DPH := \
     dph/dph-base \
@@ -419,7 +420,7 @@ $(eval $(call addPackage,Cabal/Cabal))
 $(eval $(call addPackage,binary))
 $(eval $(call addPackage,bin-package-db))
 $(eval $(call addPackage,hoopl))
-$(eval $(call addPackage,mtl))
+$(eval $(call addPackage,transformers))
 $(eval $(call addPackage,utf8-string))
 $(eval $(call addPackage,xhtml))
 $(eval $(call addPackage,terminfo,($$(Windows),NO)))
@@ -525,6 +526,18 @@ libraries/base_dist-install_CONFIGURE_OPTS += --flags=integer-simple
 else
 $(error Unknown integer library: $(INTEGER_LIBRARY))
 endif
+endif
+
+# ----------------------------------------
+# Workarounds for problems building DLLs on Windows
+
+ifeq "$(TargetOS_CPP)" "mingw32"
+# We don't build the GHC package the dyn way on Windows, so
+# we can't build these packages the dyn way either. See trac #5987
+libraries/dph/dph-lifted-base_dist-install_EXCLUDED_WAYS := dyn
+libraries/dph/dph-lifted-boxed_dist-install_EXCLUDED_WAYS := dyn
+libraries/dph/dph-lifted-copy_dist-install_EXCLUDED_WAYS := dyn
+libraries/dph/dph-lifted-vseg_dist-install_EXCLUDED_WAYS := dyn
 endif
 
 # ----------------------------------------------
@@ -799,7 +812,8 @@ install_libs: $(INSTALL_LIBS)
 		    $(call INSTALL_DATA,$(INSTALL_OPTS),$$i,"$(DESTDIR)$(ghclibdir)"); \
 		    $(RANLIB) $(DESTDIR)$(ghclibdir)/`basename $$i` ;; \
 		  *.dll) \
-		    $(call INSTALL_DATA,-s $(INSTALL_OPTS),$$i,"$(DESTDIR)$(ghclibdir)") ;; \
+		    $(call INSTALL_PROGRAM,$(INSTALL_OPTS),$$i,"$(DESTDIR)$(ghclibdir)") ; \
+		    $(STRIP_CMD) "$(DESTDIR)$(ghclibdir)"/$$i ;; \
 		  *.so) \
 		    $(call INSTALL_SHLIB,$(INSTALL_OPTS),$$i,"$(DESTDIR)$(ghclibdir)") ;; \
 		  *.dylib) \
@@ -897,7 +911,7 @@ install_packages: rts/package.conf.install
 	$(call INSTALL_DIR,"$(DESTDIR)$(topdir)")
 	$(call removeTrees,"$(INSTALLED_PACKAGE_CONF)")
 	$(call INSTALL_DIR,"$(INSTALLED_PACKAGE_CONF)")
-	"$(INSTALLED_GHC_PKG_REAL)" --force --global-conf "$(INSTALLED_PACKAGE_CONF)" update rts/package.conf.install
+	"$(INSTALLED_GHC_PKG_REAL)" --force --global-package-db "$(INSTALLED_PACKAGE_CONF)" update rts/package.conf.install
 	$(foreach p, $(INSTALLED_PKG_DIRS),                           \
 	    $(call make-command,                                      \
                    CROSS_COMPILE="$(CrossCompilePrefix)"              \
@@ -1028,9 +1042,9 @@ ifeq "$(mingw32_TARGET_OS)" "1"
 endif
 
 ifeq "$(mingw32_TARGET_OS)" "1"
-DOCDIR_TO_PUBLISH = bindisttest/"install dir"/doc
+DOCDIR_TO_PUBLISH = $(BIN_DIST_INST_DIR)/doc
 else
-DOCDIR_TO_PUBLISH = bindisttest/"install dir"/share/doc/ghc
+DOCDIR_TO_PUBLISH = $(BIN_DIST_INST_DIR)/share/doc/ghc
 endif
 
 .PHONY: publish-docs
@@ -1234,7 +1248,7 @@ distclean : clean
 	$(call removeFiles,libraries/process/include/HsProcessConfig.h)
 	$(call removeFiles,libraries/unix/include/HsUnixConfig.h)
 	$(call removeFiles,libraries/old-time/include/HsTimeConfig.h)
-	$(call removeTrees,utils/ghc-pwd/dist)
+	$(call removeTrees,utils/ghc-pwd/dist-boot)
 	$(call removeTrees,inplace)
 	$(call removeTrees,$(patsubst %, libraries/%/autom4te.cache, $(PACKAGES_STAGE1) $(PACKAGES_STAGE2)))
 

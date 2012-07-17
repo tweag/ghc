@@ -496,22 +496,19 @@ allocNurseries (nat from, nat to)
     assignNurseriesToCapabilities(from, to);
 }
       
-lnat // words allocated
-clearNurseries (void)
+lnat
+clearNursery (Capability *cap)
 {
-    lnat allocated = 0;
-    nat i;
     bdescr *bd;
+    lnat allocated = 0;
 
-    for (i = 0; i < n_capabilities; i++) {
-        for (bd = nurseries[i].blocks; bd; bd = bd->link) {
-            allocated                       += (lnat)(bd->free - bd->start);
-            capabilities[i].total_allocated += (lnat)(bd->free - bd->start);
-            bd->free = bd->start;
-            ASSERT(bd->gen_no == 0);
-            ASSERT(bd->gen == g0);
-            IF_DEBUG(sanity,memset(bd->start, 0xaa, BLOCK_SIZE));
-        }
+    for (bd = nurseries[cap->no].blocks; bd; bd = bd->link) {
+        allocated            += (lnat)(bd->free - bd->start);
+        cap->total_allocated += (lnat)(bd->free - bd->start);
+        bd->free = bd->start;
+        ASSERT(bd->gen_no == 0);
+        ASSERT(bd->gen == g0);
+        IF_DEBUG(sanity,memset(bd->start, 0xaa, BLOCK_SIZE));
     }
 
     return allocated;
@@ -796,7 +793,7 @@ allocatePinned (Capability *cap, lnat n)
             if (bd->link != NULL) {
                 bd->link->u.back = cap->r.rCurrentNursery;
             }
-            cap->r.rNursery->n_blocks--;
+            cap->r.rNursery->n_blocks -= bd->blocks;
         }
 
         cap->pinned_object_block = bd;

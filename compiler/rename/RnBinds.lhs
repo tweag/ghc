@@ -25,7 +25,7 @@ module RnBinds (
 
    -- Other bindings
    rnMethodBinds, renameSigs, mkSigTvFn,
-   rnMatchGroup, rnGRHSs,
+   rnMatchGroup, rnGRHSs, rnGRHS,
    makeMiniFixityEnv, MiniFixityEnv,
    HsSigCtxt(..)
    ) where
@@ -35,7 +35,7 @@ import {-# SOURCE #-} RnExpr( rnLExpr, rnStmts )
 import HsSyn
 import TcRnMonad
 import TcEvidence     ( emptyTcEvBinds )
-import RnTypes        ( bindSigTyVarsFV, rnIPName, rnHsSigType, rnLHsType, checkPrecMatch )
+import RnTypes        ( bindSigTyVarsFV, rnHsSigType, rnLHsType, checkPrecMatch )
 import RnPat
 import RnEnv
 import DynFlags
@@ -170,13 +170,13 @@ rnTopBindsLHS :: MiniFixityEnv
 rnTopBindsLHS fix_env binds
   = rnValBindsLHS (topRecNameMaker fix_env) binds
 
-rnTopBindsRHS :: HsValBindsLR Name RdrName 
+rnTopBindsRHS :: NameSet -> HsValBindsLR Name RdrName 
               -> RnM (HsValBinds Name, DefUses)
-rnTopBindsRHS binds
+rnTopBindsRHS bound_names binds
   = do { is_boot <- tcIsHsBoot
        ; if is_boot 
          then rnTopBindsBoot binds
-         else rnValBindsRHS TopSigCtxt binds }
+         else rnValBindsRHS (TopSigCtxt bound_names False) binds }
 
 rnTopBindsBoot :: HsValBindsLR Name RdrName -> RnM (HsValBinds Name, DefUses)
 -- A hs-boot file has no bindings. 
@@ -220,10 +220,9 @@ rnIPBinds (IPBinds ip_binds _no_dict_binds) = do
     return (IPBinds ip_binds' emptyTcEvBinds, plusFVs fvs_s)
 
 rnIPBind :: IPBind RdrName -> RnM (IPBind Name, FreeVars)
-rnIPBind (IPBind n expr) = do
-    n' <- rnIPName n
+rnIPBind (IPBind ~(Left n) expr) = do
     (expr',fvExpr) <- rnLExpr expr
-    return (IPBind n' expr', fvExpr)
+    return (IPBind (Left n) expr', fvExpr)
 \end{code}
 
 
@@ -539,7 +538,7 @@ mkSigTvFn sigs
   = \n -> lookupNameEnv env n `orElse` []
   where
     env :: NameEnv [Name]
-    env = mkNameEnv [ (name, map hsLTyVarName ltvs)
+    env = mkNameEnv [ (name, hsLKiTyVarNames ltvs)  -- Kind variables and type variables
 		    | L _ (TypeSig names
 			           (L _ (HsForAllTy Explicit ltvs _ _))) <- sigs
                     , (L _ name) <- names]
@@ -696,8 +695,8 @@ renameSig _ (SpecInstSig ty)
 -- then the SPECIALISE pragma is ambiguous, unlike all other signatures
 renameSig ctxt sig@(SpecSig v ty inl)
   = do	{ new_v <- case ctxt of 
-                     TopSigCtxt -> lookupLocatedOccRn v
-                     _          -> lookupSigOccRn ctxt sig v
+                     TopSigCtxt {} -> lookupLocatedOccRn v
+                     _             -> lookupSigOccRn ctxt sig v
 	; (new_ty, fvs) <- rnHsSigType (quotes (ppr v)) ty
 	; return (SpecSig new_v new_ty inl, fvs) }
 
@@ -723,14 +722,14 @@ okHsSig ctxt (L _ sig)
      (FixSig {}, InstDeclCtxt {}) -> False
      (FixSig {}, _)               -> True
 
-     (IdSig {}, TopSigCtxt)      -> True
+     (IdSig {}, TopSigCtxt {})   -> True
      (IdSig {}, InstDeclCtxt {}) -> True
      (IdSig {}, _)               -> False
 
      (InlineSig {}, HsBootCtxt) -> False
      (InlineSig {}, _)          -> True
 
-     (SpecSig {}, TopSigCtxt)       -> True
+     (SpecSig {}, TopSigCtxt {})    -> True
      (SpecSig {}, LocalBindCtxt {}) -> True
      (SpecSig {}, InstDeclCtxt {})  -> True
      (SpecSig {}, _)                -> False

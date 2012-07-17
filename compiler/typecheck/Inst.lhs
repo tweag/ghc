@@ -83,10 +83,11 @@ emitWanteds :: CtOrigin -> TcThetaType -> TcM [EvVar]
 emitWanteds origin theta = mapM (emitWanted origin) theta
 
 emitWanted :: CtOrigin -> TcPredType -> TcM EvVar
-emitWanted origin pred = do { loc <- getCtLoc origin
-                            ; ev  <- newWantedEvVar pred
-                            ; emitFlat (mkNonCanonical (Wanted loc ev))
-                            ; return ev }
+emitWanted origin pred 
+  = do { loc <- getCtLoc origin
+       ; ev  <- newWantedEvVar pred
+       ; emitFlat (mkNonCanonical (Wanted { ctev_wloc = loc, ctev_pred = pred, ctev_evar = ev }))
+       ; return ev }
 
 newMethodFromName :: CtOrigin -> Name -> TcRhoType -> TcM (HsExpr TcId)
 -- Used when Name is the wired-in name for a wired-in class method,
@@ -474,25 +475,28 @@ traceDFuns ispecs
 
 funDepErr :: ClsInst -> [ClsInst] -> TcRn ()
 funDepErr ispec ispecs
-  = addDictLoc ispec $
-    addErr (hang (ptext (sLit "Functional dependencies conflict between instance declarations:"))
-	       2 (pprInstances (ispec:ispecs)))
+  = addClsInstsErr (ptext (sLit "Functional dependencies conflict between instance declarations:"))
+                    (ispec : ispecs)
+
 dupInstErr :: ClsInst -> ClsInst -> TcRn ()
 dupInstErr ispec dup_ispec
-  = addDictLoc ispec $
-    addErr (hang (ptext (sLit "Duplicate instance declarations:"))
-	       2 (pprInstances [ispec, dup_ispec]))
+  = addClsInstsErr (ptext (sLit "Duplicate instance declarations:"))
+	            [ispec, dup_ispec]
+
 overlappingInstErr :: ClsInst -> ClsInst -> TcRn ()
 overlappingInstErr ispec dup_ispec
-  = addDictLoc ispec $
-    addErr (hang (ptext (sLit "Overlapping instance declarations:"))
-	       2 (pprInstances [ispec, dup_ispec]))
+  = addClsInstsErr (ptext (sLit "Overlapping instance declarations:")) 
+                    [ispec, dup_ispec]
 
-addDictLoc :: ClsInst -> TcRn a -> TcRn a
-addDictLoc ispec thing_inside
-  = setSrcSpan (mkSrcSpan loc loc) thing_inside
-  where
-   loc = getSrcLoc ispec
+addClsInstsErr :: SDoc -> [ClsInst] -> TcRn ()
+addClsInstsErr herald ispecs
+  = setSrcSpan (getSrcSpan (head sorted)) $
+    addErr (hang herald 2 (pprInstances sorted))
+ where
+   sorted = sortWith getSrcLoc ispecs
+   -- The sortWith just arranges that instances are dislayed in order
+   -- of source location, which reduced wobbling in error messages,
+   -- and is better for users
 \end{code}
 
 %************************************************************************
@@ -512,22 +516,20 @@ hasEqualities :: [EvVar] -> Bool
 hasEqualities givens = any (has_eq . evVarPred) givens
   where
     has_eq = has_eq' . classifyPredType
-
+    
+    -- See Note [Float Equalities out of Implications] in TcSimplify
     has_eq' (EqPred {})          = True
-    has_eq' (IPPred {})          = False
     has_eq' (ClassPred cls _tys) = any has_eq (classSCTheta cls)
     has_eq' (TuplePred ts)       = any has_eq ts
     has_eq' (IrredPred _)        = True -- Might have equalities in it after reduction?
 
 ---------------- Getting free tyvars -------------------------
-
 tyVarsOfCt :: Ct -> TcTyVarSet
 tyVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })    = extendVarSet (tyVarsOfType xi) tv
 tyVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_rhs = xi }) = tyVarsOfTypes (xi:tys)
 tyVarsOfCt (CDictCan { cc_tyargs = tys }) 	        = tyVarsOfTypes tys
-tyVarsOfCt (CIPCan { cc_ip_ty = ty })                   = tyVarsOfType ty
 tyVarsOfCt (CIrredEvCan { cc_ty = ty })                 = tyVarsOfType ty
-tyVarsOfCt (CNonCanonical { cc_flavor = fl })           = tyVarsOfType (ctFlavPred fl)
+tyVarsOfCt (CNonCanonical { cc_ev = fl })           = tyVarsOfType (ctEvPred fl)
 tyVarsOfCt (CHoleCan { cc_hole_ty = ty })               = tyVarsOfType ty
 
 tyVarsOfCDict :: Ct -> TcTyVarSet 
@@ -562,26 +564,24 @@ tyVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
 ---------------- Tidying -------------------------
 
 tidyCt :: TidyEnv -> Ct -> Ct
+-- Used only in error reporting
 -- Also converts it to non-canonical
 tidyCt env ct 
   = case ct of
      CHoleCan {} -> ct
-     _ -> CNonCanonical { cc_flavor = tidy_flavor env (cc_flavor ct)
-                        , cc_depth  = cc_depth ct } 
-  where tidy_flavor :: TidyEnv -> CtFlavor -> CtFlavor
-        tidy_flavor env (Given { flav_gloc = gloc, flav_evar = evar })
-          = Given { flav_gloc = tidyGivenLoc env gloc
-                  , flav_evar = tidyEvVar env evar }
-        tidy_flavor env (Solved { flav_gloc = gloc
-                                , flav_evar = evar }) 
-          = Solved { flav_gloc  = tidyGivenLoc env gloc
-                   , flav_evar = tidyEvVar env evar }
-        tidy_flavor env (Wanted { flav_wloc = wloc
-                                , flav_evar = evar })
-          = Wanted { flav_wloc = wloc -- Interesting: no tidying needed?
-                   , flav_evar = tidyEvVar env evar }
-        tidy_flavor env (Derived { flav_wloc = wloc, flav_der_pty = pty })
-          = Derived { flav_wloc = wloc, flav_der_pty = tidyType env pty }
+     _ ->  CNonCanonical { cc_ev = tidy_flavor env (cc_ev ct)
+                         , cc_depth  = cc_depth ct } 
+  where 
+    tidy_flavor :: TidyEnv -> CtEvidence -> CtEvidence
+     -- NB: we do not tidy the ctev_evtm/var field because we don't 
+     --     show it in error messages
+    tidy_flavor env ctev@(Given { ctev_gloc = gloc, ctev_pred = pred })
+      = ctev { ctev_gloc = tidyGivenLoc env gloc
+             , ctev_pred = tidyType env pred }
+    tidy_flavor env ctev@(Wanted { ctev_pred = pred })
+      = ctev { ctev_pred = tidyType env pred }
+    tidy_flavor env ctev@(Derived { ctev_pred = pred })
+      = ctev { ctev_pred = tidyType env pred }
 
 tidyEvVar :: TidyEnv -> EvVar -> EvVar
 tidyEvVar env var = setVarType var (tidyType env (varType var))
@@ -604,6 +604,10 @@ tidySkolemInfo env (UnifyForAllSkol skol_tvs ty)
 tidySkolemInfo _   info            = info
 
 ---------------- Substitution -------------------------
+-- This is used only in TcSimpify, for substituations that are *also* 
+-- reflected in the unification variables.  So we don't substitute
+-- in the evidence.
+
 substCt :: TvSubst -> Ct -> Ct 
 -- Conservatively converts it to non-canonical:
 -- Postcondition: if the constraint does not get rewritten
@@ -611,9 +615,9 @@ substCt subst ct
   | pty <- ctPred ct
   , sty <- substTy subst pty 
   = if sty `eqType` pty then 
-        ct { cc_flavor = substFlavor subst (cc_flavor ct) }
+        ct { cc_ev = substFlavor subst (cc_ev ct) }
     else 
-        CNonCanonical { cc_flavor = substFlavor subst (cc_flavor ct)
+        CNonCanonical { cc_ev = substFlavor subst (cc_ev ct)
                       , cc_depth  = cc_depth ct }
 
 substWC :: TvSubst -> WantedConstraints -> WantedConstraints
@@ -637,21 +641,16 @@ substImplication subst implic@(Implic { ic_skols = tvs
 substEvVar :: TvSubst -> EvVar -> EvVar
 substEvVar subst var = setVarType var (substTy subst (varType var))
 
-substFlavor :: TvSubst -> CtFlavor -> CtFlavor
-substFlavor subst (Given { flav_gloc = gloc, flav_evar = evar })
-  = Given { flav_gloc = substGivenLoc subst gloc
-          , flav_evar = substEvVar subst evar }
-substFlavor subst (Solved { flav_gloc = gloc, flav_evar = evar })
-  = Solved { flav_gloc = substGivenLoc subst gloc
-           , flav_evar = substEvVar subst evar }
+substFlavor :: TvSubst -> CtEvidence -> CtEvidence
+substFlavor subst ctev@(Given { ctev_gloc = gloc, ctev_pred = pred })
+  = ctev { ctev_gloc = substGivenLoc subst gloc
+          , ctev_pred = substTy subst pred }
 
-substFlavor subst (Wanted { flav_wloc = wloc, flav_evar = evar })
-  = Wanted { flav_wloc  = wloc
-           , flav_evar = substEvVar subst evar }
+substFlavor subst ctev@(Wanted { ctev_pred = pred })
+  = ctev  { ctev_pred = substTy subst pred }
 
-substFlavor subst (Derived { flav_wloc = wloc, flav_der_pty = pty })
-  = Derived { flav_wloc = wloc
-            , flav_der_pty = substTy subst pty }
+substFlavor subst ctev@(Derived { ctev_pred = pty })
+  = ctev { ctev_pred = substTy subst pty }
 
 substGivenLoc :: TvSubst -> GivenLoc -> GivenLoc
 substGivenLoc subst (CtLoc skol span ctxt) 

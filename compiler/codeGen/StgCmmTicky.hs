@@ -97,10 +97,9 @@ emitTickyCounter cl_info args
   = ifTicky $
     do	{ dflags <- getDynFlags
         ; mod_name <- getModuleName
-        ; let platform = targetPlatform dflags
-              ticky_ctr_label = closureRednCountsLabel platform cl_info
+        ; let ticky_ctr_label = closureRednCountsLabel cl_info
               arg_descr = map (showTypeCategory . idType) args
-              fun_descr mod_name = ppr_for_ticky_name mod_name (closureName cl_info)
+              fun_descr mod_name = ppr_for_ticky_name dflags mod_name (closureName cl_info)
 	; fun_descr_lit <- newStringCLit (fun_descr mod_name)
 	; arg_descr_lit <- newStringCLit arg_descr
 	; emitDataLits ticky_ctr_label 	-- Must match layout of StgEntCounter
@@ -120,10 +119,10 @@ emitTickyCounter cl_info args
 -- When printing the name of a thing in a ticky file, we want to
 -- give the module name even for *local* things.   We print
 -- just "x (M)" rather that "M.x" to distinguish them from the global kind.
-ppr_for_ticky_name :: Module -> Name -> String
-ppr_for_ticky_name mod_name name
-  | isInternalName name = showSDocDebug (ppr name <+> (parens (ppr mod_name)))
-  | otherwise	        = showSDocDebug (ppr name)
+ppr_for_ticky_name :: DynFlags -> Module -> Name -> String
+ppr_for_ticky_name dflags mod_name name
+  | isInternalName name = showSDocDebug dflags (ppr name <+> (parens (ppr mod_name)))
+  | otherwise           = showSDocDebug dflags (ppr name)
 
 -- -----------------------------------------------------------------------------
 -- Ticky stack frames
@@ -181,7 +180,7 @@ registerTickyCtr :: CLabel -> FCode ()
 --	    ticky_entry_ctrs = & (f_ct);	/* mark it as "registered" */
 --	    f_ct.registeredp = 1 }
 registerTickyCtr ctr_lbl
-  = emit (mkCmmIfThen test (catAGraphs register_stmts))
+  = emit =<< mkCmmIfThen test (catAGraphs register_stmts)
   where
     -- krc: code generator doesn't handle Not, so we test for Eq 0 instead
     test = CmmMachOp (MO_Eq wordWidth)
@@ -197,7 +196,7 @@ registerTickyCtr ctr_lbl
 		   (CmmLit (mkIntCLit 1)) ]
     ticky_entry_ctrs = mkLblExpr (mkCmmDataLabel rtsPackageId (fsLit "ticky_entry_ctrs"))
 
-tickyReturnOldCon, tickyReturnNewCon :: Arity -> FCode ()
+tickyReturnOldCon, tickyReturnNewCon :: RepArity -> FCode ()
 tickyReturnOldCon arity 
   = ifTicky $ do { bumpTickyCounter (fsLit "RET_OLD_ctr")
 	         ; bumpHistogram    (fsLit "RET_OLD_hst") arity }
@@ -205,7 +204,7 @@ tickyReturnNewCon arity
   = ifTicky $ do { bumpTickyCounter (fsLit "RET_NEW_ctr")
 	         ; bumpHistogram    (fsLit "RET_NEW_hst") arity }
 
-tickyUnboxedTupleReturn :: Int -> FCode ()
+tickyUnboxedTupleReturn :: RepArity -> FCode ()
 tickyUnboxedTupleReturn arity
   = ifTicky $ do { bumpTickyCounter (fsLit "RET_UNBOXED_TUP_ctr")
  	         ; bumpHistogram    (fsLit "RET_UNBOXED_TUP_hst") arity }
@@ -219,7 +218,7 @@ tickyVectoredReturn family_size
 -- Ticky calls
 
 -- Ticks at a *call site*:
-tickyDirectCall :: Arity -> [StgArg] -> FCode ()
+tickyDirectCall :: RepArity -> [StgArg] -> FCode ()
 tickyDirectCall arity args
   | arity == length args = tickyKnownCallExact
   | otherwise = do tickyKnownCallExtraArgs
@@ -353,7 +352,7 @@ bumpHistogram _lbl _n
 bumpHistogramE :: LitString -> CmmExpr -> FCode ()
 bumpHistogramE lbl n 
   = do  t <- newTemp cLong
-	emit (mkAssign (CmmLocal t) n)
+        emitAssign (CmmLocal t) n
 	emit (mkCmmIfThen (CmmMachOp (MO_U_Le cLongWidth) [CmmReg (CmmLocal t), eight])
 	  		  (mkAssign (CmmLocal t) eight))
 	emit (addToMem cLong

@@ -66,6 +66,7 @@ import Control.Monad
 
 import TypeRep
 import qualified Data.Map as Map
+import Class(classTyCon)
 \end{code}
 
 %************************************************************************
@@ -182,19 +183,35 @@ tcExpr (NegApp expr neg_expr) res_ty
 	; expr' <- tcMonoExpr expr res_ty
 	; return (NegApp expr' neg_expr') }
 
-tcExpr (HsIPVar ip) res_ty
-  = do	{ let origin = IPOccOrigin ip
-	 	-- Implicit parameters must have a *tau-type* not a 
-		-- type scheme.  We enforce this by creating a fresh
-		-- type variable as its type.  (Because res_ty may not
-		-- be a tau-type.)
-	; ip_ty <- newFlexiTyVarTy argTypeKind	-- argTypeKind: it can't be an unboxed tuple
-	; ip_var <- emitWanted origin (mkIPPred ip ip_ty)
-	; tcWrapResult (HsIPVar (IPName ip_var)) ip_ty res_ty }
+tcExpr (HsIPVar x) res_ty
+  = do { let origin = IPOccOrigin x
+       ; ipClass <- tcLookupClass ipClassName
+           {- Implicit parameters must have a *tau-type* not a.
+              type scheme.  We enforce this by creating a fresh
+              type variable as its type.  (Because res_ty may not
+              be a tau-type.) -}
+       ; ip_ty <- newFlexiTyVarTy openTypeKind
+       ; let ip_name = mkStrLitTy (hsIPNameFS x)
+       ; ip_var <- emitWanted origin (mkClassPred ipClass [ip_name, ip_ty])
+       ; tcWrapResult (fromDict ipClass ip_name ip_ty (HsVar ip_var)) ip_ty res_ty }
+  where
+  -- Coerces a dictionry for `IP "x" t` into `t`.
+  fromDict ipClass x ty =
+    case unwrapNewTyCon_maybe (classTyCon ipClass) of
+      Just (_,_,ax) -> HsWrap $ WpCast $ mkTcAxInstCo ax [x,ty]
+      Nothing       -> panic "The dictionary for `IP` is not a newtype?"
 
 tcExpr (HsLam match) res_ty
   = do	{ (co_fn, match') <- tcMatchLambda match res_ty
 	; return (mkHsWrap co_fn (HsLam match')) }
+
+tcExpr e@(HsLamCase _ matches) res_ty
+  = do	{ (co_fn, [arg_ty], body_ty) <- matchExpectedFunTys msg 1 res_ty
+	; matches' <- tcMatchesCase match_ctxt arg_ty matches body_ty
+	; return $ mkHsWrapCo co_fn $ HsLamCase arg_ty matches' }
+  where msg = sep [ ptext (sLit "The function") <+> quotes (ppr e)
+                  , ptext (sLit "requires")]
+        match_ctxt = MC { mc_what = CaseAlt, mc_body = tcBody }
 
 tcExpr (ExprWithTySig expr sig_ty) res_ty
  = do { sig_tc_ty <- tcHsSigType ExprSigCtxt sig_ty
@@ -358,7 +375,7 @@ tcExpr (ExplicitTuple tup_args boxity) res_ty
   | otherwise
   = -- The tup_args are a mixture of Present and Missing (for tuple sections)
     do { let kind = case boxity of { Boxed   -> liftedTypeKind
-                                   ; Unboxed -> argTypeKind }
+                                   ; Unboxed -> openTypeKind }
              arity = length tup_args 
              tup_tc = tupleTyCon (boxityNormalTupleSort boxity) arity
 
@@ -441,6 +458,11 @@ tcExpr (HsIf (Just fun) pred b1 b2) res_ty   -- Note [Rebindable syntax for if]
        -- But it's a little awkward, so I'm leaving it alone for now
        -- and it maintains uniformity with other rebindable syntax
        ; return (HsIf (Just fun') pred' b1' b2') }
+
+tcExpr (HsMultiIf _ alts) res_ty
+  = do { alts' <- mapM (wrapLocM $ tcGRHS match_ctxt res_ty) alts
+       ; return $ HsMultiIf res_ty alts' }
+  where match_ctxt = MC { mc_what = IfAlt, mc_body = tcBody }
 
 tcExpr (HsDo do_or_lc stmts _) res_ty
   = tcDoStmts do_or_lc stmts res_ty

@@ -66,7 +66,7 @@ import Serialized
 import ErrUtils
 import SrcLoc
 import Outputable
-import Util             ( dropList )
+import Util
 import Data.List        ( mapAccumL )
 import Pair
 import Unique
@@ -470,11 +470,9 @@ tcTopSplice expr res_ty
        ; expr2 <- runMetaE zonked_q_expr
        ; showSplice "expression" expr (ppr expr2)
 
-        -- Rename it, but bale out if there are errors
-        -- otherwise the type checker just gives more spurious errors
        ; addErrCtxt (spliceResultDoc expr) $ do
-       { (exp3, _fvs) <- checkNoErrs (rnLExpr expr2)
-
+       { (exp3, _fvs) <- checkNoErrs $ rnLExpr expr2
+                         -- checkNoErrs: see Note [Renamer errors]
        ; exp4 <- tcMonoExpr exp3 res_ty
        ; return (unLoc exp4) } }
 
@@ -508,6 +506,13 @@ tcTopSpliceExpr tc_action
           -- Zonk it and tie the knot of dictionary bindings
        ; zonkTopLExpr (mkHsDictLet (EvBinds const_binds) expr') }
 \end{code}
+
+Note [Renamer errors]
+~~~~~~~~~~~~~~~~~~~~~
+It's important to wrap renamer calls in checkNoErrs, because the
+renamer does not fail for out of scope variables etc. Instead it
+returns a bogus term/type, so that it can report more than one error.
+We don't want the type checker to see these bogus unbound variables.
 
 
 %************************************************************************
@@ -559,11 +564,10 @@ tcTopSpliceType expr
         ; hs_ty2 <- runMetaT zonked_q_expr
         ; showSplice "type" expr (ppr hs_ty2)
   
-        -- Rename it, but bale out if there are errors
-        -- otherwise the type checker just gives more spurious errors
         ; addErrCtxt (spliceResultDoc expr) $ do 
         { let doc = SpliceTypeCtx hs_ty2
-        ; (hs_ty3, _fvs) <- checkNoErrs (rnLHsType doc hs_ty2)
+        ; (hs_ty3, _fvs) <- checkNoErrs $ rnLHsType doc hs_ty2
+                         -- checkNoErrs: see Note [Renamer errors]
         ; tcLHsType hs_ty3 }}
 \end{code}
 
@@ -997,7 +1001,7 @@ illegalBracket = ptext (sLit "Template Haskell brackets cannot be nested (withou
 \begin{code}
 reifyInstances :: TH.Name -> [TH.Type] -> TcM [TH.Dec]
 reifyInstances th_nm th_tys
-   = addErrCtxt (ptext (sLit "In reifyInstances")
+   = addErrCtxt (ptext (sLit "In the argument of reifyInstances:")
                  <+> ppr_th th_nm <+> sep (map ppr_th th_tys)) $
      do { thing <- getThing th_nm
         ; case thing of
@@ -1026,8 +1030,9 @@ reifyInstances th_nm th_tys
                              <+> int tc_arity <> rparen))
            ; loc <- getSrcSpanM
            ; rdr_tys <- mapM (cvt loc) th_tys    -- Convert to HsType RdrName
-           ; (rn_tys, _fvs)  <- rnLHsTypes doc rdr_tys   -- Rename  to HsType Name
-           ; (tys, _res_k) <- tcInferApps tc (tyConKind tc) rn_tys
+           ; (rn_tys, _fvs) <- checkNoErrs $ rnLHsTypes doc rdr_tys   -- Rename  to HsType Name
+                         -- checkNoErrs: see Note [Renamer errors]
+           ; (tys, _res_k)  <- tcInferApps tc (tyConKind tc) rn_tys
            ; return tys }
 
     cvt :: SrcSpan -> TH.Type -> TcM (LHsType RdrName)
@@ -1183,8 +1188,7 @@ reifyThing (ATyVar tv tv1)
        ; ty2 <- reifyType ty1
        ; return (TH.TyVarI (reifyName tv) ty2) }
 
-reifyThing (AThing {}) = panic "reifyThing AThing"
-reifyThing ANothing = panic "reifyThing ANothing"
+reifyThing thing = pprPanic "reifyThing" (pprTcTyThingCategory thing)
 
 ------------------------------
 reifyAxiom :: CoAxiom -> TcM TH.Info
@@ -1292,12 +1296,13 @@ reifyClass cls
 ------------------------------
 reifyClassInstance :: ClsInst -> TcM TH.Dec
 reifyClassInstance i
-  = do { cxt <- reifyCxt theta
+  = do { cxt <- reifyCxt (drop n_silent theta)
        ; thtypes <- reifyTypes types
        ; let head_ty = foldl TH.AppT (TH.ConT (reifyName cls)) thtypes
        ; return $ (TH.InstanceD cxt head_ty []) }
   where
      (_tvs, theta, cls, types) = instanceHead i
+     n_silent = dfunNSilent (instanceDFunId i)
 
 ------------------------------
 reifyFamilyInstance :: FamInst -> TcM TH.Dec
@@ -1353,10 +1358,27 @@ reifyKind  ki
   = do { let (kis, ki') = splitKindFunTys ki
        ; ki'_rep <- reifyNonArrowKind ki'
        ; kis_rep <- mapM reifyKind kis
-       ; return (foldr TH.ArrowK ki'_rep kis_rep) }
+       ; return (foldr (TH.AppT . TH.AppT TH.ArrowT) ki'_rep kis_rep) }
   where
-    reifyNonArrowKind k | isLiftedTypeKind k = return TH.StarK 
-                        | otherwise          = noTH (sLit "this kind") (ppr k)
+    reifyNonArrowKind k | isLiftedTypeKind k = return TH.StarT
+                        | isConstraintKind k = return TH.ConstraintT
+    reifyNonArrowKind (TyVarTy v)            = return (TH.VarT (reifyName v))
+    reifyNonArrowKind (ForAllTy _ k)         = reifyKind k
+    reifyNonArrowKind (TyConApp kc kis)      = reify_kc_app kc kis
+    reifyNonArrowKind (AppTy k1 k2)          = do { k1' <- reifyKind k1
+                                                  ; k2' <- reifyKind k2
+                                                  ; return (TH.AppT k1' k2')
+                                                  }
+    reifyNonArrowKind k                      = noTH (sLit "this kind") (ppr k)
+
+reify_kc_app :: TyCon -> [TypeRep.Kind] -> TcM TH.Kind
+reify_kc_app kc kis
+  = fmap (foldl TH.AppT r_kc) (mapM reifyKind kis)
+  where
+    r_kc | isPromotedTyCon kc &&
+           isTupleTyCon (promotedTyCon kc)  = TH.TupleT (tyConArity kc)
+         | kc `hasKey` listTyConKey         = TH.ListT
+         | otherwise                        = TH.ConT (reifyName kc)
 
 reifyCxt :: [PredType] -> TcM [TH.Pred]
 reifyCxt   = mapM reifyPred
@@ -1371,7 +1393,7 @@ reifyFamFlavour tc | isSynFamilyTyCon tc = TH.TypeFam
                    = panic "TcSplice.reifyFamFlavour: not a type family"
 
 reifyTyVars :: [TyVar] -> TcM [TH.TyVarBndr]
-reifyTyVars = mapM reifyTyVar
+reifyTyVars = mapM reifyTyVar . filter isTypeVar
   where
     reifyTyVar tv | isLiftedTypeKind kind = return (TH.PlainTV  name)
                   | otherwise             = do kind' <- reifyKind kind
@@ -1382,18 +1404,35 @@ reifyTyVars = mapM reifyTyVar
 
 reify_tc_app :: TyCon -> [TypeRep.Type] -> TcM TH.Type
 reify_tc_app tc tys
-  = do { tys' <- reifyTypes tys
+  = do { tys' <- reifyTypes (removeKinds (tyConKind tc) tys)
        ; return (foldl TH.AppT r_tc tys') }
   where
-    r_tc | isTupleTyCon tc          = TH.TupleT (tyConArity tc)
-         | tc `hasKey` listTyConKey = TH.ListT
-         | otherwise                = TH.ConT (reifyName tc)
+    arity = tyConArity tc
+    r_tc | isTupleTyCon tc            = if isPromotedDataCon tc
+                                          then TH.PromotedTupleT arity
+                                          else TH.TupleT arity
+         | tc `hasKey` listTyConKey   = TH.ListT
+         | tc `hasKey` nilDataConKey  = TH.PromotedNilT
+         | tc `hasKey` consDataConKey = TH.PromotedConsT
+         | otherwise                  = TH.ConT (reifyName tc)
+    removeKinds :: Kind -> [TypeRep.Type] -> [TypeRep.Type]
+    removeKinds (FunTy k1 k2) (h:t)
+      | isSuperKind k1          = removeKinds k2 t
+      | otherwise               = h : removeKinds k2 t
+    removeKinds (ForAllTy v k) (h:t)
+      | isSuperKind (varType v) = removeKinds k t
+      | otherwise               = h : removeKinds k t
+    removeKinds _ tys           = tys
 
 reifyPred :: TypeRep.PredType -> TcM TH.Pred
-reifyPred ty = case classifyPredType ty of
+reifyPred ty
+  -- We could reify the implicit paramter as a class but it seems
+  -- nicer to support them properly...
+  | isIPPred ty = noTH (sLit "implicit parameters") (ppr ty)
+  | otherwise
+   = case classifyPredType ty of
   ClassPred cls tys -> do { tys' <- reifyTypes tys 
                           ; return $ TH.ClassP (reifyName cls) tys' }
-  IPPred _ _        -> noTH (sLit "implicit parameters") (ppr ty)
   EqPred ty1 ty2    -> do { ty1' <- reifyType ty1
                           ; ty2' <- reifyType ty2
                           ; return $ TH.EqualP ty1' ty2'

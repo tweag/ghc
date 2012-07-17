@@ -44,7 +44,7 @@ import Digraph          ( SCC(..), stronglyConnCompFromEdgedVerticesR )
 import PrelNames        ( buildIdKey, foldrIdKey, runSTRepIdKey, augmentIdKey )
 import Unique
 import UniqFM
-import Util             ( mapAndUnzip, filterOut, fstOf3 )
+import Util
 import Bag
 import Outputable
 import FastString
@@ -1252,7 +1252,7 @@ occAnal env (Case scrut bndr ty alts)
   = case occ_anal_scrut scrut alts     of { (scrut_usage, scrut') ->
     case mapAndUnzip occ_anal_alt alts of { (alts_usage_s, alts')   ->
     let
-        alts_usage  = foldr1 combineAltsUsageDetails alts_usage_s
+        alts_usage  = foldr combineAltsUsageDetails emptyDetails alts_usage_s
         (alts_usage1, tagged_bndr) = tag_case_bndr alts_usage bndr
         total_usage = scrut_usage +++ alts_usage1
     in

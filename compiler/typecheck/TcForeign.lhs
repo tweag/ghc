@@ -48,6 +48,9 @@ import Platform
 import SrcLoc
 import Bag
 import FastString
+import Util
+
+import Control.Monad
 \end{code}
 
 \begin{code}
@@ -201,12 +204,14 @@ tcFImport d = pprPanic "tcFImport" (ppr d)
 \begin{code}
 tcCheckFIType :: Type -> [Type] -> Type -> ForeignImport -> TcM ForeignImport
 
-tcCheckFIType sig_ty arg_tys res_ty idecl@(CImport _ _ _ (CLabel _))
+tcCheckFIType sig_ty arg_tys res_ty (CImport cconv safety mh l@(CLabel _))
   = ASSERT( null arg_tys )
-    do { checkCg checkCOrAsmOrLlvmOrInterp
-       ; check (isFFILabelTy res_ty) (illegalForeignTyErr empty sig_ty)
-       ; return idecl }      -- NB check res_ty not sig_ty!
-                             --    In case sig_ty is (forall a. ForeignPtr a)
+    do checkCg checkCOrAsmOrLlvmOrInterp
+       -- NB check res_ty not sig_ty!
+       --    In case sig_ty is (forall a. ForeignPtr a)
+       check (isFFILabelTy res_ty) (illegalForeignTyErr empty sig_ty)
+       cconv' <- checkCConv cconv
+       return (CImport cconv' safety mh l)
 
 tcCheckFIType sig_ty arg_tys res_ty (CImport cconv safety mh CWrapper) = do
         -- Foreign wrapper (former f.e.d.)
@@ -454,7 +459,8 @@ checkCConv StdCallConv  = do dflags <- getDynFlags
                              if platformArch platform == ArchX86
                                  then return StdCallConv
                                  else do -- This is a warning, not an error. see #3336
-                                         addWarnTc (text "the 'stdcall' calling convention is unsupported on this platform," $$ text "treating as ccall")
+                                         when (wopt Opt_WarnUnsupportedCallingConventions dflags) $
+                                             addWarnTc (text "the 'stdcall' calling convention is unsupported on this platform," $$ text "treating as ccall")
                                          return CCallConv
 checkCConv PrimCallConv = do addErrTc (text "The `prim' calling convention can only be used with `foreign import'")
                              return PrimCallConv

@@ -6,38 +6,33 @@
 HsTypes: Abstract syntax: user-defined types
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
-
 {-# LANGUAGE DeriveDataTypeable #-}
 
 module HsTypes (
         HsType(..), LHsType, HsKind, LHsKind,
-        HsBndrSig(..), HsTyVarBndr(..), LHsTyVarBndr,
+        HsTyVarBndr(..), LHsTyVarBndr, 
+        LHsTyVarBndrs(..),
+        HsWithBndrs(..),
         HsTupleSort(..), HsExplicitFlag(..),
         HsContext, LHsContext,
         HsQuasiQuote(..),
         HsTyWrapper(..),
         HsTyLit(..),
+        HsIPName(..), hsIPNameFS,
 
         LBangType, BangType, HsBang(..), 
         getBangType, getBangStrictness, 
 
         ConDeclField(..), pprConDeclFields,
         
+        mkHsQTvs, hsQTvBndrs,
         mkExplicitHsForAllTy, mkImplicitHsForAllTy, hsExplicitTvs,
-        hsTyVarName, hsTyVarNames, 
+        hsTyVarName, mkHsWithBndrs, hsLKiTyVarNames,
         hsLTyVarName, hsLTyVarNames, hsLTyVarLocName, hsLTyVarLocNames,
-        splitHsInstDeclTy_maybe, splitLHsInstDeclTy_maybe,
-        splitHsForAllTy, splitLHsForAllTy,
+        splitLHsInstDeclTy_maybe,
         splitHsClassTy_maybe, splitLHsClassTy_maybe,
         splitHsFunType,
         splitHsAppTys, mkHsAppTys, mkHsOpTy,
-        placeHolderBndrs,
 
         -- Printing
         pprParendHsType, pprHsForAll, pprHsContext, ppr_hs_context,
@@ -49,6 +44,7 @@ import HsLit
 
 import NameSet( FreeVars )
 import Name( Name )
+import RdrName( RdrName )
 import Type
 import HsDoc
 import BasicTypes
@@ -112,6 +108,17 @@ getBangStrictness _                    = HsNoBang
 
 This is the syntax for types as seen in type signatures.
 
+Note [HsBSig binder lists]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider a binder (or pattern) decoarated with a type or kind, 
+   \ (x :: a -> a). blah
+   forall (a :: k -> *) (b :: k). blah
+Then we use a LHsBndrSig on the binder, so that the
+renamer can decorate it with the variables bound
+by the pattern ('a' in the first example, 'k' in the second),
+assuming that neither of them is in scope already
+See also Note [Kind and type-variable binders] in RnTypes
+
 \begin{code}
 type LHsContext name = Located (HsContext name)
 
@@ -123,29 +130,54 @@ type LHsKind name = Located (HsKind name)
 
 type LHsTyVarBndr name = Located (HsTyVarBndr name)
 
-data HsBndrSig sig 
-  = HsBSig 
-       sig                -- The signature; typically a type
-       ([Name], [Name])   -- The *binding* (kind, type) names of 
-                          -- this signature
-                          -- See Note [HsBSig binder lists]
-                          
+data LHsTyVarBndrs name 
+  = HsQTvs { hsq_kvs :: [Name]                  -- Kind variables
+           , hsq_tvs :: [LHsTyVarBndr name]     -- Type variables
+             -- See Note [HsForAllTy tyvar binders]
+    }
+  deriving( Data, Typeable )
+
+mkHsQTvs :: [LHsTyVarBndr RdrName] -> LHsTyVarBndrs RdrName
+-- Just at RdrName because in the Name variant we should know just
+-- what the kind-variable binders are; and we don't
+-- We put an empty list (rather than a panic) for the kind vars so 
+-- that the pretty printer works ok on them.
+mkHsQTvs tvs = HsQTvs { hsq_kvs = [], hsq_tvs = tvs }
+
+emptyHsQTvs :: LHsTyVarBndrs name   -- Use only when you know there are no kind binders
+emptyHsQTvs =  HsQTvs { hsq_kvs = [], hsq_tvs = [] }
+
+hsQTvBndrs :: LHsTyVarBndrs name -> [LHsTyVarBndr name]
+hsQTvBndrs = hsq_tvs
+
+data HsWithBndrs thing
+  = HsWB { hswb_cts :: thing           -- Main payload (type or list of types)
+         , hswb_kvs :: [Name]         -- Kind vars
+         , hswb_tvs :: [Name]        -- Type vars
+    }                  
   deriving (Data, Typeable)
 
--- Note [HsBSig binder lists]
--- ~~~~~~~~~~~~~~~~~~~~~~~~~~
--- Consider a binder (or pattern) decoarated with a type or kind, 
---    \ (x :: a -> a). blah
---    forall (a :: k -> *) (b :: k). blah
--- Then we use a LHsBndrSig on the binder, so that the
--- renamer can decorate it with the variables bound
--- by the pattern ('a' in the first example, 'k' in the second),
--- assuming that neither of them is in scope already
--- See also Note [Kind and type-variable binders] in RnTypes
+mkHsWithBndrs :: thing -> HsWithBndrs thing
+mkHsWithBndrs x = HsWB { hswb_cts = x, hswb_kvs = panic "mkHsTyWithBndrs:kvs"
+                                     , hswb_tvs = panic "mkHsTyWithBndrs:tvs" }
 
-placeHolderBndrs :: [Name]
--- Used for the NameSet in FunBind and PatBind prior to the renamer
-placeHolderBndrs = panic "placeHolderBndrs"
+
+-- | These names are used eary on to store the names of implicit
+-- parameters.  They completely disappear after type-checking.
+newtype HsIPName = HsIPName FastString-- ?x
+  deriving( Eq, Data, Typeable )
+
+hsIPNameFS :: HsIPName -> FastString
+hsIPNameFS (HsIPName n) = n
+
+instance Outputable HsIPName where
+    ppr (HsIPName n) = char '?' <> ftext n -- Ordinary implicit parameters
+
+instance OutputableBndr HsIPName where
+    pprBndr _ n   = ppr n         -- Simple for now
+    pprInfixOcc  n = ppr n
+    pprPrefixOcc n = ppr n
+
 
 data HsTyVarBndr name
   = UserTyVar           -- No explicit kinding
@@ -153,17 +185,18 @@ data HsTyVarBndr name
 
   | KindedTyVar
          name
-         (HsBndrSig (LHsKind name))   -- The user-supplied kind signature
+         (LHsKind name)   -- The user-supplied kind signature
       --  *** NOTA BENE *** A "monotype" in a pragma can have
       -- for-alls in it, (mostly to do with dictionaries).  These
       -- must be explicitly Kinded.
   deriving (Data, Typeable)
 
+
 data HsType name
   = HsForAllTy  HsExplicitFlag          -- Renamer leaves this flag unchanged, to record the way
                                         -- the user wrote it originally, so that the printer can
                                         -- print it as the user wrote it
-                [LHsTyVarBndr name]     -- See Note [HsForAllTy tyvar binders]
+                (LHsTyVarBndrs name) 
                 (LHsContext name)
                 (LHsType name)
 
@@ -189,7 +222,7 @@ data HsType name
         -- Parenthesis preserved for the precedence re-arrangement in RnTypes
         -- It's important that a * (b + c) doesn't get rearranged to (a*b) + c!
 
-  | HsIParamTy          (IPName name)    -- (?x :: ty)
+  | HsIParamTy          HsIPName         -- (?x :: ty)
                         (LHsType name)   -- Implicit parameters as they occur in contexts
 
   | HsEqTy              (LHsType name)   -- ty1 ~ ty2
@@ -252,11 +285,11 @@ After renaming
   * Implicit => the *type* variables free in the type
     Explicit => the variables the user wrote (renamed)
 
-Note that in neither case do we inclde the kind variables.
-In the explicit case, the [HsTyVarBndr] can bring kind variables
-into scope:    f :: forall (a::k->*) (b::k). a b -> Int
-but we do not record them explicitly, similar to the case
-for the type variables in a pattern type signature.
+The kind variables bound in the hsq_kvs field come both
+  a) from the kind signatures on the kind vars (eg k1)
+  b) from the scope of the forall (eg k2)
+Example:   f :: forall (a::k1) b. T a (b::k2)
+
 
 Note [Unit tuples]
 ~~~~~~~~~~~~~~~~~~
@@ -355,21 +388,21 @@ data ConDeclField name  -- Record fields have Haddoc docs on them
 --
 -- A valid type must have one for-all at the top of the type, or of the fn arg types
 
-mkImplicitHsForAllTy ::                        LHsContext name -> LHsType name -> HsType name
-mkExplicitHsForAllTy :: [LHsTyVarBndr name] -> LHsContext name -> LHsType name -> HsType name
-mkImplicitHsForAllTy     ctxt ty = mkHsForAllTy Implicit [] ctxt ty
+mkImplicitHsForAllTy ::                           LHsContext RdrName -> LHsType RdrName -> HsType RdrName
+mkExplicitHsForAllTy :: [LHsTyVarBndr RdrName] -> LHsContext RdrName -> LHsType RdrName -> HsType RdrName
+mkImplicitHsForAllTy     ctxt ty = mkHsForAllTy Implicit []  ctxt ty
 mkExplicitHsForAllTy tvs ctxt ty = mkHsForAllTy Explicit tvs ctxt ty
 
-mkHsForAllTy :: HsExplicitFlag -> [LHsTyVarBndr name] -> LHsContext name -> LHsType name -> HsType name
+mkHsForAllTy :: HsExplicitFlag -> [LHsTyVarBndr RdrName] -> LHsContext RdrName -> LHsType RdrName -> HsType RdrName
 -- Smart constructor for HsForAllTy
 mkHsForAllTy exp tvs (L _ []) ty = mk_forall_ty exp tvs ty
-mkHsForAllTy exp tvs ctxt ty = HsForAllTy exp tvs ctxt ty
+mkHsForAllTy exp tvs ctxt     ty = HsForAllTy exp (mkHsQTvs tvs) ctxt ty
 
 -- mk_forall_ty makes a pure for-all type (no context)
-mk_forall_ty :: HsExplicitFlag -> [LHsTyVarBndr name] -> LHsType name -> HsType name
-mk_forall_ty exp  tvs  (L _ (HsParTy ty))                   = mk_forall_ty exp tvs ty
-mk_forall_ty exp1 tvs1 (L _ (HsForAllTy exp2 tvs2 ctxt ty)) = mkHsForAllTy (exp1 `plus` exp2) (tvs1 ++ tvs2) ctxt ty
-mk_forall_ty exp  tvs  ty                                   = HsForAllTy exp tvs (noLoc []) ty
+mk_forall_ty :: HsExplicitFlag -> [LHsTyVarBndr RdrName] -> LHsType RdrName -> HsType RdrName
+mk_forall_ty exp  tvs  (L _ (HsParTy ty))                    = mk_forall_ty exp tvs ty
+mk_forall_ty exp1 tvs1 (L _ (HsForAllTy exp2 qtvs2 ctxt ty)) = mkHsForAllTy (exp1 `plus` exp2) (tvs1 ++ hsq_tvs qtvs2) ctxt ty
+mk_forall_ty exp  tvs  ty                                    = HsForAllTy exp (mkHsQTvs tvs) (noLoc []) ty
         -- Even if tvs is empty, we still make a HsForAll!
         -- In the Implicit case, this signals the place to do implicit quantification
         -- In the Explicit case, it prevents implicit quantification    
@@ -393,17 +426,20 @@ hsTyVarName (KindedTyVar n _) = n
 hsLTyVarName :: LHsTyVarBndr name -> name
 hsLTyVarName = hsTyVarName . unLoc
 
-hsTyVarNames :: [HsTyVarBndr name] -> [name]
-hsTyVarNames tvs = map hsTyVarName tvs
+hsLTyVarNames :: LHsTyVarBndrs name -> [name]
+-- Type variables only
+hsLTyVarNames qtvs = map hsLTyVarName (hsQTvBndrs qtvs)
 
-hsLTyVarNames :: [LHsTyVarBndr name] -> [name]
-hsLTyVarNames = map hsLTyVarName
+hsLKiTyVarNames :: LHsTyVarBndrs Name -> [Name]
+-- Kind and type variables
+hsLKiTyVarNames (HsQTvs { hsq_kvs = kvs, hsq_tvs = tvs })
+  = kvs ++ map hsLTyVarName tvs
 
 hsLTyVarLocName :: LHsTyVarBndr name -> Located name
 hsLTyVarLocName = fmap hsTyVarName
 
-hsLTyVarLocNames :: [LHsTyVarBndr name] -> [Located name]
-hsLTyVarLocNames = map hsLTyVarLocName
+hsLTyVarLocNames :: LHsTyVarBndrs name -> [Located name]
+hsLTyVarLocNames qtvs = map hsLTyVarLocName (hsQTvBndrs qtvs)
 \end{code}
 
 
@@ -421,31 +457,23 @@ mkHsAppTys fun_ty (arg_ty:arg_tys)
        -- Add noLocs for inner nodes of the application; 
        -- they are never used 
 
-splitHsInstDeclTy_maybe :: HsType name 
-                        -> Maybe ([LHsTyVarBndr name], HsContext name, name, [LHsType name])
-splitHsInstDeclTy_maybe ty
-  = fmap (\(tvs, cxt, L _ n, tys) -> (tvs, cxt, n, tys)) $ splitLHsInstDeclTy_maybe (noLoc ty)
-
 splitLHsInstDeclTy_maybe
     :: LHsType name 
-    -> Maybe ([LHsTyVarBndr name], HsContext name, Located name, [LHsType name])
+    -> Maybe (LHsTyVarBndrs name, HsContext name, Located name, [LHsType name])
         -- Split up an instance decl type, returning the pieces
 splitLHsInstDeclTy_maybe inst_ty = do
     let (tvs, cxt, ty) = splitLHsForAllTy inst_ty
     (cls, tys) <- splitLHsClassTy_maybe ty
     return (tvs, cxt, cls, tys)
 
-splitHsForAllTy :: HsType name -> ([LHsTyVarBndr name], HsContext name, HsType name)
-splitHsForAllTy ty = case splitLHsForAllTy (noLoc ty) of (tvs, cxt, L _ ty) -> (tvs, cxt, ty)
-
 splitLHsForAllTy
     :: LHsType name 
-    -> ([LHsTyVarBndr name], HsContext name, LHsType name)
+    -> (LHsTyVarBndrs name, HsContext name, LHsType name)
 splitLHsForAllTy poly_ty
   = case unLoc poly_ty of
         HsParTy ty              -> splitLHsForAllTy ty
         HsForAllTy _ tvs cxt ty -> (tvs, unLoc cxt, ty)
-        _                       -> ([], [], poly_ty)
+        _                       -> (emptyHsQTvs, [], poly_ty)
         -- The type vars should have been computed by now, even if they were implicit
 
 splitHsClassTy_maybe :: HsType name -> Maybe (name, [LHsType name])
@@ -494,22 +522,26 @@ instance (OutputableBndr name) => Outputable (HsType name) where
 instance Outputable HsTyLit where
     ppr = ppr_tylit
 
-instance (Outputable sig) => Outputable (HsBndrSig sig) where
-    ppr (HsBSig ty _) = ppr ty
+instance (OutputableBndr name) => Outputable (LHsTyVarBndrs name) where
+    ppr (HsQTvs { hsq_kvs = kvs, hsq_tvs = tvs }) 
+      = sep [ ifPprDebug $ braces (interppSP kvs), interppSP tvs ]
 
 instance (OutputableBndr name) => Outputable (HsTyVarBndr name) where
     ppr (UserTyVar name)        = ppr name
     ppr (KindedTyVar name kind) = parens $ hsep [ppr name, dcolon, ppr kind]
 
-pprHsForAll :: OutputableBndr name => HsExplicitFlag -> [LHsTyVarBndr name] ->  LHsContext name -> SDoc
-pprHsForAll exp tvs cxt 
+instance (Outputable thing) => Outputable (HsWithBndrs thing) where
+    ppr (HsWB { hswb_cts = ty }) = ppr ty
+
+pprHsForAll :: OutputableBndr name => HsExplicitFlag -> LHsTyVarBndrs name ->  LHsContext name -> SDoc
+pprHsForAll exp qtvs cxt 
   | show_forall = forall_part <+> pprHsContext (unLoc cxt)
   | otherwise   = pprHsContext (unLoc cxt)
   where
     show_forall =  opt_PprStyle_Debug
-                || (not (null tvs) && is_explicit)
+                || (not (null (hsQTvBndrs qtvs)) && is_explicit)
     is_explicit = case exp of {Explicit -> True; Implicit -> False}
-    forall_part = ptext (sLit "forall") <+> interppSP tvs <> dot
+    forall_part = ptext (sLit "forall") <+> ppr qtvs <> dot
 
 pprHsContext :: (OutputableBndr name) => HsContext name -> SDoc
 pprHsContext []         = empty

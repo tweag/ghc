@@ -22,18 +22,14 @@ import Unify
 import FamInstEnv
 import Coercion( mkAxInstRHS )
 
-import Id 
 import Var
-
 import TcType
 import PrelNames (singIClassName)
 
 import Class
 import TyCon
 import Name
-import IParam
 
-import TysWiredIn ( eqTyCon )
 import FunDeps
 
 import TcEvidence
@@ -48,7 +44,6 @@ import Maybes( orElse )
 import Bag
 
 import Control.Monad ( foldM )
-import TrieMap
 
 import VarEnv
 import qualified Data.Traversable as Traversable
@@ -62,6 +57,7 @@ import DynFlags
 
 import Control.Monad
 import Type
+import Util
 \end{code}
 **********************************************************************
 *                                                                    * 
@@ -111,8 +107,11 @@ solveInteractGiven :: GivenLoc -> [EvVar] -> TcS (Bag Implication)
 -- if this can happen in practice though.
 solveInteractGiven gloc evs
   = solveInteractCts (map mk_noncan evs)
-  where mk_noncan ev = CNonCanonical { cc_flavor = Given gloc ev
-                                     , cc_depth = 0 }
+  where 
+    mk_noncan ev = CNonCanonical { cc_ev = Given { ctev_gloc = gloc 
+                                                 , ctev_evtm = EvId ev
+                                                 , ctev_pred = evVarPred ev }
+                                 , cc_depth = 0 }
 
 -- The main solver loop implements Note [Basic Simplifier Plan]
 ---------------------------------------------------------------
@@ -234,13 +233,13 @@ thePipeline = [ ("lookup-in-inerts",        lookupInInertsStage)
 --------------------------------------------------------------------
 lookupInInertsStage :: SimplifierStage
 lookupInInertsStage ct
-  | isWantedCt ct
+  | Wanted { ctev_evar = ev_id, ctev_pred = pred } <- cc_ev ct
   = do { is <- getTcSInerts
-       ; case lookupInInerts is (ctPred ct) of
-           Just ct_cached 
-             |  not (isDerivedCt ct)
-             -> setEvBind (ctId ct) (EvId (ctId ct_cached)) >> 
-                return Stop
+       ; case lookupInInerts is pred of
+           Just ctev
+             |  not (isDerived ctev)
+             -> do { setEvBind ev_id (ctEvTerm ctev)
+                   ; return Stop }
            _ -> continueWith ct }
   | otherwise -- I could do something like that for givens 
               -- as well I suppose but it is not a big deal
@@ -251,7 +250,6 @@ lookupInInertsStage ct
 ----------------------------------------------------------
 canonicalizationStage :: SimplifierStage
 canonicalizationStage = TcCanonical.canonicalize 
-
 \end{code}
 
 *********************************************************************************
@@ -279,9 +277,6 @@ Case 1: In Rewriting Equalities (function rewriteEqLHS)
     
 Case 2: Functional Dependencies 
     Again, we should prefer, if possible, the inert variables on the RHS
-
-Case 3: IP improvement work
-    We must always rewrite so that the inert type is on the right. 
 
 \begin{code}
 spontaneousSolveStage :: SimplifierStage 
@@ -326,7 +321,7 @@ kickOutRewritableInerts ct
 
        ; new_ieqs <- {-# SCC "rewriteInertEqsFromInertEq" #-}
                      rewriteInertEqsFromInertEq (cc_tyvar ct,
-                                                 ct_coercion,cc_flavor ct) ieqs
+                                                 ct_coercion,cc_ev ct) ieqs
        ; let upd_eqs is = is { inert_cans = new_ics }
                         where ics     = inert_cans is
                               new_ics = ics { inert_eqs = new_ieqs }
@@ -341,7 +336,7 @@ kickOutRewritableInerts ct
        ; traceTcS "Kick out" (ppr ct $$ ppr wl)
        ; updWorkListTcS (unionWorkList wl) }
 
-rewriteInertEqsFromInertEq :: (TcTyVar, TcCoercion, CtFlavor) -- A new substitution
+rewriteInertEqsFromInertEq :: (TcTyVar, TcCoercion, CtEvidence) -- A new substitution
                            -> TyVarEnv Ct                     -- All the inert equalities
                            -> TcS (TyVarEnv Ct)               -- The new inert equalities
 rewriteInertEqsFromInertEq (subst_tv, _subst_co, subst_fl) ieqs
@@ -371,7 +366,7 @@ rewriteInertEqsFromInertEq (subst_tv, _subst_co, subst_fl) ieqs
          | otherwise -- Just keep it there
          = return (Just ct)
          where 
-           fl  = cc_flavor ct
+           fl  = cc_ev ct
 
 kick_out_rewritable :: Ct 
                     -> InertSet 
@@ -382,15 +377,13 @@ kick_out_rewritable ct is@(IS { inert_cans =
                                    IC { inert_eqs    = eqmap
                                       , inert_eq_tvs = inscope
                                       , inert_dicts  = dictmap
-                                      , inert_ips    = ipmap
                                       , inert_funeqs = funeqmap
                                       , inert_irreds = irreds
                                       , inert_holes  = holemap }
                               , inert_frozen = frozen })
   = ((kicked_out,eqmap), remaining)
   where
-    rest_out = fro_out `andCts` dicts_out 
-                   `andCts` ips_out `andCts` irs_out `andCts` holes_out
+    rest_out = fro_out `andCts` dicts_out `andCts` irs_out `andCts` holes_out
     kicked_out = WorkList { wl_eqs    = []
                           , wl_funeqs = bagToList feqs_out
                           , wl_rest   = bagToList rest_out }
@@ -399,7 +392,6 @@ kick_out_rewritable ct is@(IS { inert_cans =
                                      , inert_eq_tvs = inscope 
                                        -- keep the same, safe and cheap
                                      , inert_dicts = dicts_in
-                                     , inert_ips = ips_in
                                      , inert_funeqs = feqs_in
                                      , inert_irreds = irs_in
                                      , inert_holes = holes_in }
@@ -408,10 +400,9 @@ kick_out_rewritable ct is@(IS { inert_cans =
                 -- inert_solved, inert_flat_cache and inert_solved_funeqs
                 -- optimistically. But when we lookup we have to take the 
                 -- subsitution into account
-    fl = cc_flavor ct
+    fl = cc_ev ct
     tv = cc_tyvar ct
-                               
-    (ips_out,   ips_in)     = partitionCCanMap rewritable ipmap
+
     (holes_out, holes_in)   = partitionCCanMap rewritable holemap
 
     (feqs_out,  feqs_in)    = partCtFamHeadMap rewritable funeqmap
@@ -420,7 +411,7 @@ kick_out_rewritable ct is@(IS { inert_cans =
     (irs_out,   irs_in)   = partitionBag rewritable irreds
     (fro_out,   fro_in)   = partitionBag rewritable frozen
 
-    rewritable ct = (fl `canRewrite` cc_flavor ct)  &&
+    rewritable ct = (fl `canRewrite` cc_ev ct)  &&
                     (tv `elemVarSet` tyVarsOfCt ct) 
                     -- NB: tyVarsOfCt will return the type 
                     --     variables /and the kind variables/ that are 
@@ -469,9 +460,9 @@ data SPSolveResult = SPCantSolve
 -- touchable unification variable.
 --     	    See Note [Touchables and givens] 
 trySpontaneousSolve :: WorkItem -> TcS SPSolveResult
-trySpontaneousSolve workItem@(CTyEqCan { cc_flavor = gw
+trySpontaneousSolve workItem@(CTyEqCan { cc_ev = gw
                                        , cc_tyvar = tv1, cc_rhs = xi, cc_depth = d })
-  | isGivenOrSolved gw
+  | isGiven gw
   = return SPCantSolve
   | Just tv2 <- tcGetTyVar_maybe xi
   = do { tch1 <- isTouchableMetaTyVar tv1
@@ -496,7 +487,7 @@ trySpontaneousSolve _ = return SPCantSolve
 
 ----------------
 trySpontaneousEqOneWay :: SubGoalDepth 
-                       -> CtFlavor -> TcTyVar -> Xi -> TcS SPSolveResult
+                       -> CtEvidence -> TcTyVar -> Xi -> TcS SPSolveResult
 -- tv is a MetaTyVar, not untouchable
 trySpontaneousEqOneWay d gw tv xi
   | not (isSigTyVar tv) || isTyVarTy xi
@@ -506,7 +497,7 @@ trySpontaneousEqOneWay d gw tv xi
 
 ----------------
 trySpontaneousEqTwoWay :: SubGoalDepth 
-                       -> CtFlavor -> TcTyVar -> TcTyVar -> TcS SPSolveResult
+                       -> CtEvidence -> TcTyVar -> TcTyVar -> TcS SPSolveResult
 -- Both tyvars are *touchable* MetaTyvars so there is only a chance for kind error here
 
 trySpontaneousEqTwoWay d gw tv1 tv2
@@ -593,14 +584,19 @@ unification variables as RHS of type family equations: F xis ~ alpha.
 ----------------
 
 solveWithIdentity :: SubGoalDepth 
-                  -> CtFlavor -> TcTyVar -> Xi -> TcS SPSolveResult
+                  -> CtEvidence -> TcTyVar -> Xi -> TcS SPSolveResult
 -- Solve with the identity coercion 
 -- Precondition: kind(xi) is a sub-kind of kind(tv)
--- Precondition: CtFlavor is Wanted or Derived
+-- Precondition: CtEvidence is Wanted or Derived
 -- See [New Wanted Superclass Work] to see why solveWithIdentity 
 --     must work for Derived as well as Wanted
 -- Returns: workItem where 
 --        workItem = the new Given constraint
+--
+-- NB: No need for an occurs check here, because solveWithIdentity always 
+--     arises from a CTyEqCan, a *canonical* constraint.  Its invariants
+--     say that in (a ~ xi), the type variable a does not appear in xi.
+--     See TcRnTypes.Ct invariants.
 solveWithIdentity d wd tv xi 
   = do { let tv_ty = mkTyVarTy tv
        ; traceTcS "Sneaky unification:" $ 
@@ -615,17 +611,18 @@ solveWithIdentity d wd tv xi
                -- cf TcUnify.uUnboundKVar
 
        ; setWantedTyBind tv xi'
-       ; let refl_xi = mkTcReflCo xi'
+       ; let refl_evtm = EvCoercion (mkTcReflCo xi')
+             refl_pred = mkTcEqPred tv_ty xi'
 
        ; when (isWanted wd) $ 
-              setEvBind (flav_evar wd) (EvCoercion refl_xi)
+              setEvBind (ctev_evar wd) refl_evtm
 
-       ; ev_given <- newGivenEvVar (mkTcEqPred tv_ty xi') 
-                                   (EvCoercion refl_xi) >>= (return . mn_thing)
-       ; let given_fl = Given (mkGivenLoc (flav_wloc wd) UnkSkol) ev_given
+       ; let given_fl = Given { ctev_gloc = mkGivenLoc (ctev_wloc wd) UnkSkol
+                              , ctev_pred = refl_pred
+                              , ctev_evtm = refl_evtm }
              
        ; return $ 
-         SPSolved (CTyEqCan { cc_flavor = given_fl
+         SPSolved (CTyEqCan { cc_ev = given_fl
                             , cc_tyvar  = tv, cc_rhs = xi', cc_depth = d }) }
 \end{code}
 
@@ -635,6 +632,8 @@ solveWithIdentity d wd tv xi
                        The interact-with-inert Stage
 *                                                                               *
 *********************************************************************************
+
+Note [
 
 Note [The Solver Invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -662,7 +661,7 @@ or, equivalently,
    then there is no reaction
 
 \begin{code}
--- Interaction result of  WorkItem <~> AtomicInert
+-- Interaction result of  WorkItem <~> Ct
 
 data InteractResult 
     = IRWorkItemConsumed { ir_fire :: String } 
@@ -729,8 +728,8 @@ interactWithInertsStage wi
 doInteractWithInert :: Ct -> Ct -> TcS InteractResult
 -- Identical class constraints.
 doInteractWithInert
-  inertItem@(CDictCan { cc_flavor = fl1, cc_class = cls1, cc_tyargs = tys1 }) 
-   workItem@(CDictCan { cc_flavor = fl2, cc_class = cls2, cc_tyargs = tys2 })
+  inertItem@(CDictCan { cc_ev = fl1, cc_class = cls1, cc_tyargs = tys1 })
+   workItem@(CDictCan { cc_ev = fl2, cc_class = cls2, cc_tyargs = tys2 })
 
   | cls1 == cls2  
   = do { let pty1 = mkClassPred cls1 tys1
@@ -740,18 +739,16 @@ doInteractWithInert
 
        ; traceTcS "doInteractWithInert" (vcat [ text "inertItem = " <+> ppr inertItem
                                               , text "workItem  = " <+> ppr workItem ])
-
-       ; any_fundeps 
-           <- if isGivenOrSolved fl1 && isGivenOrSolved fl2 then return Nothing
-              -- NB: We don't create fds for given (and even solved), have not seen a useful
-              -- situation for these and even if we did we'd have to be very careful to only
-              -- create Derived's and not Wanteds. 
-
-              else do { let fd_eqns = improveFromAnother inert_pred_loc work_item_pred_loc
-                      ; wloc  <- get_workitem_wloc fl2 
-                      ; rewriteWithFunDeps fd_eqns tys2 wloc }
-                      -- See Note [Efficient Orientation], [When improvement happens]
-
+ 
+       ; let fd_eqns = improveFromAnother inert_pred_loc work_item_pred_loc
+       ; any_fundeps <- rewriteWithFunDeps fd_eqns tys2 fl2
+                -- We don't really rewrite tys2, see below _rewritten_tys2, so that's ok
+                -- NB: We do create FDs for given to report insoluble equations that arise
+                -- from pairs of Givens, and also because of floating when we approximate
+                -- implications. The relevant test is: typecheck/should_fail/FDsFromGivens.hs
+                -- Also see Note [When improvement happens]
+                -- 
+       
        ; case any_fundeps of
            -- No Functional Dependencies 
            Nothing             
@@ -759,69 +756,84 @@ doInteractWithInert
                | otherwise         -> irKeepGoing "NOP"
 
            -- Actual Functional Dependencies
-           Just (_rewritten_tys2,_cos2,fd_work)
+           Just (_rewritten_tys2, fd_work)
               -- Standard thing: create derived fds and keep on going. Importantly we don't
                -- throw workitem back in the worklist because this can cause loops. See #5236.
                -> do { emitFDWorkAsDerived fd_work (cc_depth workItem)
                      ; irKeepGoing "Cls/Cls (new fundeps)" } -- Just keep going without droping the inert 
        }
-  where get_workitem_wloc (Wanted wl _)  = return wl 
-        get_workitem_wloc (Derived wl _) = return wl
-        get_workitem_wloc _ = pprPanic "Unexpected given workitem!" $
-                              vcat [ text "Work item =" <+> ppr workItem
-                                   , text "Inert item=" <+> ppr inertItem]
-
+ 
 -- Two pieces of irreducible evidence: if their types are *exactly identical* 
 -- we can rewrite them. We can never improve using this: 
 -- if we want ty1 :: Constraint and have ty2 :: Constraint it clearly does not 
 -- mean that (ty1 ~ ty2)
-doInteractWithInert (CIrredEvCan { cc_flavor = ifl, cc_ty = ty1 })
+doInteractWithInert (CIrredEvCan { cc_ev = ifl, cc_ty = ty1 })
            workItem@(CIrredEvCan { cc_ty = ty2 })
   | ty1 `eqType` ty2
   = solveOneFromTheOther "Irred/Irred" ifl workItem
 
--- Two implicit parameter constraints.  If the names are the same,
--- but their types are not, we generate a wanted type equality 
--- that equates the type (this is "improvement").  
--- However, we don't actually need the coercion evidence,
--- so we just generate a fresh coercion variable that isn't used anywhere.
-doInteractWithInert (CIPCan { cc_flavor = ifl, cc_ip_nm = nm1, cc_ip_ty = ty1 }) 
-           workItem@(CIPCan { cc_flavor = wfl, cc_ip_nm = nm2, cc_ip_ty = ty2 })
-  | nm1 == nm2 && isGivenOrSolved wfl && isGivenOrSolved ifl
-  = 	-- See Note [Overriding implicit parameters]
-        -- Dump the inert item, override totally with the new one
-	-- Do not require type equality
-	-- For example, given let ?x::Int = 3 in let ?x::Bool = True in ...
-	--              we must *override* the outer one with the inner one
-    irInertConsumed "IP/IP (override inert)"
+doInteractWithInert ii@(CFunEqCan { cc_ev = fl1, cc_fun = tc1
+                                  , cc_tyargs = args1, cc_rhs = xi1, cc_depth = d1 }) 
+                    wi@(CFunEqCan { cc_ev = fl2, cc_fun = tc2
+                                  , cc_tyargs = args2, cc_rhs = xi2, cc_depth = d2 })
+{-  ToDo: Check with Dimitrios
+  | lhss_match  
+  , isSolved fl1 -- Inert is solved and we can simply ignore it
+                 -- when workitem is given/solved
+  , isGiven fl2
+  = irInertConsumed "FunEq/FunEq"
+  | lhss_match
+  , isSolved fl2 -- Workitem is solved and we can ignore it when
+                 -- the inert is given/solved
+  , isGiven fl1                 
+  = irWorkItemConsumed "FunEq/FunEq" 
+-}
 
-  | nm1 == nm2 && ty1 `eqType` ty2 
-  = solveOneFromTheOther "IP/IP" ifl workItem 
+  | fl1 `canSolve` fl2 && lhss_match
+  = do { traceTcS "interact with inerts: FunEq/FunEq" $ 
+         vcat [ text "workItem =" <+> ppr wi
+              , text "inertItem=" <+> ppr ii ]
 
-  | nm1 == nm2
-  =  	-- See Note [When improvement happens]
-    do { mb_eqv <- newWantedEvVar (mkEqPred ty2 ty1)
-         -- co :: ty2 ~ ty1, see Note [Efficient orientation]
-       ; cv <- case mb_eqv of
-                 Fresh eqv  -> 
-                   do { updWorkListTcS $ extendWorkListEq $ 
-                        CNonCanonical { cc_flavor = Wanted new_wloc eqv
-                                      , cc_depth = cc_depth workItem }
-                      ; return eqv }
-                 Cached eqv -> return eqv
-       ; case wfl of
-            Wanted  {} ->
-              let ip_co = mkTcTyConAppCo (ipTyCon nm1) [mkTcCoVarCo cv]
-              in do { setEvBind (ctId workItem) $
-                      mkEvCast (flav_evar ifl) (mkTcSymCo ip_co)
-                    ; irWorkItemConsumed "IP/IP (solved by rewriting)" }
-            _ -> pprPanic "Unexpected IP constraint" (ppr workItem) }
-  where new_wloc
-          | Wanted wl _  <- wfl = wl
-          | Derived wl _ <- wfl = wl
-          | Wanted wl _  <- ifl = wl
-          | Derived wl _ <- ifl = wl
-          | otherwise = panic "Solve IP: no WantedLoc!"
+       ; let xev = XEvTerm xcomp xdecomp
+             -- xcomp : [(xi2 ~ xi1)] -> (F args ~ xi2) 
+             xcomp [x] = EvCoercion (co1 `mkTcTransCo` mk_sym_co x)
+             xcomp _   = panic "No more goals!"
+             -- xdecomp : (F args ~ xi2) -> [(xi2 ~ xi1)]                 
+             xdecomp x = [EvCoercion (mk_sym_co x `mkTcTransCo` co1)]
+
+       ; ctevs <- xCtFlavor_cache False fl2 [mkTcEqPred xi2 xi1] xev
+                         -- Why not simply xCtFlavor? See Note [Cache-caused loops]
+                         -- Why not (mkTcEqPred xi1 xi2)? See Note [Efficient orientation]
+       ; add_to_work d2 ctevs 
+       ; irWorkItemConsumed "FunEq/FunEq" }
+
+  | fl2 `canSolve` fl1 && lhss_match
+  = do { traceTcS "interact with inerts: FunEq/FunEq" $ 
+         vcat [ text "workItem =" <+> ppr wi
+              , text "inertItem=" <+> ppr ii ]
+
+       ; let xev = XEvTerm xcomp xdecomp
+              -- xcomp : [(xi2 ~ xi1)] -> [(F args ~ xi1)]
+             xcomp [x] = EvCoercion (co2 `mkTcTransCo` evTermCoercion x)
+             xcomp _ = panic "No more goals!"
+             -- xdecomp : (F args ~ xi1) -> [(xi2 ~ xi1)]
+             xdecomp x = [EvCoercion (mkTcSymCo co2 `mkTcTransCo` evTermCoercion x)]
+
+       ; ctevs <- xCtFlavor_cache False fl1 [mkTcEqPred xi2 xi1] xev 
+                          -- Why not simply xCtFlavor? See Note [Cache-caused loops]
+                          -- Why not (mkTcEqPred xi1 xi2)? See Note [Efficient orientation]
+
+       ; add_to_work d1 ctevs 
+       ; irInertConsumed "FunEq/FunEq"}
+  where
+    add_to_work d [ctev] = updWorkListTcS $ extendWorkListEq $
+                           CNonCanonical {cc_ev = ctev, cc_depth = d}
+    add_to_work _ _ = return ()
+
+    lhss_match = tc1 == tc2 && eqTypes args1 args2 
+    co1 = evTermCoercion $ ctEvTerm fl1
+    co2 = evTermCoercion $ ctEvTerm fl2
+    mk_sym_co x = mkTcSymCo (evTermCoercion x)
 
 doInteractWithInert (CHoleCan fl1 nm1 ty1 d1) workitem@(CHoleCan fl2 nm2 ty2 d2)
   | nm1 == nm2 && isGivenOrSolved fl2 && isGivenOrSolved fl1
@@ -853,67 +865,68 @@ doInteractWithInert (CHoleCan fl1 nm1 ty1 d1) workitem@(CHoleCan fl2 nm2 ty2 d2)
           | Derived wl _ <- fl1 = wl
           | otherwise = panic "Solve Hole: no WantedLoc!"
     
-
-doInteractWithInert ii@(CFunEqCan { cc_flavor = fl1, cc_fun = tc1
-                                  , cc_tyargs = args1, cc_rhs = xi1, cc_depth = d1 }) 
-                    wi@(CFunEqCan { cc_flavor = fl2, cc_fun = tc2
-                                  , cc_tyargs = args2, cc_rhs = xi2, cc_depth = d2 })
-  | lhss_match  
-  , isSolved fl1 -- Inert is solved and we can simply ignore it
-                 -- when workitem is given/solved
-  , isGivenOrSolved fl2
-  = irInertConsumed "FunEq/FunEq"
-  | lhss_match
-  , isSolved fl2 -- Workitem is solved and we can ignore it when
-                 -- the inert is given/solved
-  , isGivenOrSolved fl1                 
-  = irWorkItemConsumed "FunEq/FunEq" 
-  | fl1 `canSolve` fl2 && lhss_match
-  = do { traceTcS "interact with inerts: FunEq/FunEq" $ 
-         vcat [ text "workItem =" <+> ppr wi
-              , text "inertItem=" <+> ppr ii ]
-
-       ; let xev = XEvTerm xcomp xdecomp
-             -- xcomp : [(xi2 ~ xi1)] -> (F args ~ xi2) 
-             xcomp [x] = EvCoercion (co1 `mkTcTransCo` mk_sym_co x)
-             xcomp _   = panic "No more goals!"
-             -- xdecomp : (F args ~ xi2) -> [(xi2 ~ xi1)]                 
-             xdecomp x = [EvCoercion (mk_sym_co x `mkTcTransCo` co1)]
-
-       ; xCtFlavor_cache False fl2 [mkTcEqPred xi2 xi1] xev $ what_next d2
-                         -- Why not simply xCtFlavor? See Note [Cache-caused loops]
-                         -- Why not (mkTcEqPred xi1 xi2)? See Note [Efficient orientation]
-       ; irWorkItemConsumed "FunEq/FunEq" }
-  | fl2 `canSolve` fl1 && lhss_match
-  = do { traceTcS "interact with inerts: FunEq/FunEq" $ 
-         vcat [ text "workItem =" <+> ppr wi
-              , text "inertItem=" <+> ppr ii ]
-
-       ; let xev = XEvTerm xcomp xdecomp
-              -- xcomp : [(xi2 ~ xi1)] -> [(F args ~ xi1)]
-             xcomp [x] = EvCoercion (co2 `mkTcTransCo` mkTcCoVarCo x)
-             xcomp _ = panic "No more goals!"
-             -- xdecomp : (F args ~ xi1) -> [(xi2 ~ xi1)]
-             xdecomp x = [EvCoercion (mkTcSymCo co2 `mkTcTransCo` mkTcCoVarCo x)]
-
-       ; xCtFlavor_cache False fl1 [mkTcEqPred xi2 xi1] xev $ what_next d1
-                          -- Why not simply xCtFlavor? See Note [Cache-caused loops]
-                          -- Why not (mkTcEqPred xi1 xi2)? See Note [Efficient orientation]
-
-       ; irInertConsumed "FunEq/FunEq"}
-  where
-    lhss_match = tc1 == tc2 && eqTypes args1 args2 
-    what_next d [new_fl] 
-      = updWorkListTcS $ 
-        extendWorkListEq (CNonCanonical {cc_flavor=new_fl,cc_depth = d})
-    what_next _ _ = return ()
-    co1 = mkTcCoVarCo $ flav_evar fl1
-    co2 = mkTcCoVarCo $ flav_evar fl2
-    mk_sym_co x = mkTcSymCo (mkTcCoVarCo x)
-    
 doInteractWithInert _ _ = irKeepGoing "NOP"
 
 \end{code}
+
+
+Note [Shadowing of Implicit Parameters]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Consider the following example:
+
+f :: (?x :: Char) => Char
+f = let ?x = 'a' in ?x
+
+The "let ?x = ..." generates an implication constraint of the form:
+
+?x :: Char => ?x :: Char
+
+Furthermore, the signature for `f` also generates an implication
+constraint, so we end up with the following nested implication:
+
+?x :: Char => (?x :: Char => ?x :: Char)
+
+Note that the wanted (?x :: Char) constraint may be solved in
+two incompatible ways:  either by using the parameter from the
+signature, or by using the local definition.  Our intention is
+that the local definition should "shadow" the parameter of the
+signature, and we implement this as follows: when we add a new
+given implicit parameter to the inert set, it replaces any existing
+givens for the same implicit parameter.
+
+This works for the normal cases but it has an odd side effect
+in some pathological programs like this:
+
+-- This is accepted, the second parameter shadows
+f1 :: (?x :: Int, ?x :: Char) => Char
+f1 = ?x
+
+-- This is rejected, the second parameter shadows
+f2 :: (?x :: Int, ?x :: Char) => Int
+f2 = ?x
+
+Both of these are actually wrong:  when we try to use either one,
+we'll get two incompatible wnated constraints (?x :: Int, ?x :: Char),
+which would lead to an error.
+
+I can think of two ways to fix this:
+
+  1. Simply disallow multiple constratits for the same implicit
+    parameter---this is never useful, and it can be detected completely
+    syntactically.
+
+  2. Move the shadowing machinery to the location where we nest
+     implications, and add some code here that will produce an
+     error if we get multiple givens for the same implicit parameter.
+
+
+
+
+
+
+
+
 
 Note [Cache-caused loops]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -949,7 +962,7 @@ solving.
 \begin{code}
 
 solveOneFromTheOther :: String    -- Info 
-                     -> CtFlavor  -- Inert 
+                     -> CtEvidence  -- Inert 
                      -> Ct        -- WorkItem 
                      -> TcS InteractResult
 -- Preconditions: 
@@ -964,22 +977,23 @@ solveOneFromTheOther info ifl workItem
 		  -- so it's safe to continue on from this point
   = irInertConsumed ("Solved[DI] " ++ info)
   
-  | isSolved ifl, isGivenOrSolved wfl
+{-  ToDo: Check with Dimitrios
+  | isSolved ifl, isGiven wfl
     -- Same if the inert is a GivenSolved -- just get rid of it
   = irInertConsumed ("Solved[SI] " ++ info)
+-}
 
   | otherwise
   = ASSERT( ifl `canSolve` wfl )
       -- Because of Note [The Solver Invariant], plus Derived dealt with
-    do { when (isWanted wfl) $ setEvBind wid (EvId iid)
+    do { case wfl of
+           Wanted { ctev_evar = ev_id } -> setEvBind ev_id (ctEvTerm ifl)
+           _                            -> return ()
            -- Overwrite the binding, if one exists
 	   -- If both are Given, we already have evidence; no need to duplicate
        ; irWorkItemConsumed ("Solved " ++ info) }
   where 
-     wfl = cc_flavor workItem
-     wid = ctId workItem
-     iid = flav_evar ifl
-
+     wfl = cc_ev workItem
 \end{code}
 
 Note [Superclasses and recursive dictionaries]
@@ -1348,38 +1362,40 @@ now!).
 \begin{code}
 rewriteWithFunDeps :: [Equation]
                    -> [Xi] 
-                   -> WantedLoc 
-                   -> TcS (Maybe ([Xi], [TcCoercion], [(EvVar,WantedLoc)])) 
+                   -> CtEvidence
+                   -> TcS (Maybe ([Xi], [CtEvidence])) 
                                            -- Not quite a WantedEvVar unfortunately
                                            -- Because our intention could be to make 
                                            -- it derived at the end of the day
 -- NB: The flavor of the returned EvVars will be decided by the caller
 -- Post: returns no trivial equalities (identities) and all EvVars returned are fresh
-rewriteWithFunDeps eqn_pred_locs xis wloc
+rewriteWithFunDeps eqn_pred_locs xis fl
  = do { fd_ev_poss <- mapM (instFunDepEqn wloc) eqn_pred_locs
-      ; let fd_ev_pos :: [(Int,(EqVar,WantedLoc))]
+      ; let fd_ev_pos :: [(Int,CtEvidence)]
             fd_ev_pos = concat fd_ev_poss
-            (rewritten_xis, cos) = unzip (rewriteDictParams fd_ev_pos xis)
+            rewritten_xis = rewriteDictParams fd_ev_pos xis
       ; if null fd_ev_pos then return Nothing
-        else return (Just (rewritten_xis, cos, map snd fd_ev_pos)) }
+        else return (Just (rewritten_xis, map snd fd_ev_pos)) }
+ where wloc | Given { ctev_gloc = gl } <- fl
+            = setCtLocOrigin gl FunDepOrigin
+            | otherwise
+            = ctev_wloc fl
 
-instFunDepEqn :: WantedLoc -> Equation -> TcS [(Int,(EvVar,WantedLoc))]
+instFunDepEqn :: WantedLoc -> Equation -> TcS [(Int,CtEvidence)]
 -- Post: Returns the position index as well as the corresponding FunDep equality
-instFunDepEqn wl (FDEqn { fd_qtvs = qtvs, fd_eqs = eqs
+instFunDepEqn wl (FDEqn { fd_qtvs = tvs, fd_eqs = eqs
                         , fd_pred1 = d1, fd_pred2 = d2 })
-  = do { let tvs = varSetElems qtvs
-       ; tvs' <- mapM instFlexiTcS tvs  -- IA0_TODO: we might need to do kind substitution
-       ; let subst = zipTopTvSubst tvs (mkTyVarTys tvs')
+  = do { (subst, _) <- instFlexiTcS tvs  -- Takes account of kind substitution
        ; foldM (do_one subst) [] eqs }
   where 
     do_one subst ievs (FDEq { fd_pos = i, fd_ty_left = ty1, fd_ty_right = ty2 })
        = let sty1 = Type.substTy subst ty1 
              sty2 = Type.substTy subst ty2 
          in if eqType sty1 sty2 then return ievs -- Return no trivial equalities
-            else do { mb_eqv <- newWantedEvVar (mkTcEqPred sty1 sty2)
+            else do { mb_eqv <- newDerived (push_ctx wl) (mkTcEqPred sty1 sty2)
                     ; case mb_eqv of
-                         Fresh eqv -> return $ (i,(eqv, push_ctx wl)):ievs
-                         Cached {} -> return ievs }
+                         Just ctev -> return $ (i,ctev):ievs
+                         Nothing   -> return ievs }
                            -- We are eventually going to emit FD work back in the work list so 
                            -- it is important that we only return the /freshly created/ and not 
                            -- some existing equality!
@@ -1399,34 +1415,30 @@ mkEqnMsg (pred1,from1) (pred2,from2) tidy_env
 			  nest 2 (sep [ppr tpred2 <> comma, nest 2 from2])]
 	; return (tidy_env, msg) }
 
-rewriteDictParams :: [(Int,(EqVar,WantedLoc))] -- A set of coercions : (pos, ty' ~ ty)
-                  -> [Type]                    -- A sequence of types: tys
-                  -> [(Type, TcCoercion)]      -- Returns: [(ty', co : ty' ~ ty)]
+rewriteDictParams :: [(Int,CtEvidence)] -- A set of coercions : (pos, ty' ~ ty)
+                  -> [Type]             -- A sequence of types: tys
+                  -> [Type]                   
 rewriteDictParams param_eqs tys
   = zipWith do_one tys [0..]
   where
-    do_one :: Type -> Int -> (Type, TcCoercion)
+    do_one :: Type -> Int -> Type
     do_one ty n = case lookup n param_eqs of
-                    Just wev -> (get_fst_ty wev, mkTcCoVarCo (fst wev))
-                    Nothing  -> (ty,             mkTcReflCo ty)	-- Identity
+                    Just wev -> get_fst_ty wev
+                    Nothing  -> ty
 
-    get_fst_ty (wev,_wloc) 
-      | Just (ty1, _) <- getEqPredTys_maybe (evVarPred wev )
+    get_fst_ty ctev
+      | Just (ty1, _) <- getEqPredTys_maybe (ctEvPred ctev)
       = ty1
       | otherwise 
       = panic "rewriteDictParams: non equality fundep!?"
 
         
-emitFDWorkAsDerived :: [(EvVar,WantedLoc)] 
+emitFDWorkAsDerived :: [CtEvidence]   -- All Derived
                     -> SubGoalDepth -> TcS () 
 emitFDWorkAsDerived evlocs d 
-  = updWorkListTcS $ appendWorkListEqs fd_cts
-  where fd_cts = map mk_fd_ct evlocs 
-        mk_fd_ct (v,wl) 
-          = CNonCanonical { cc_flavor = Derived wl (evVarPred v) 
-                          , cc_depth = d }
-
-
+  = updWorkListTcS $ appendWorkListEqs (map mk_fd_ct evlocs)
+  where 
+    mk_fd_ct der_ev = CNonCanonical { cc_ev = der_ev, cc_depth = d }
 \end{code}
 
 
@@ -1450,15 +1462,13 @@ tryTopReact wi
  = do { inerts <- getTcSInerts
       ; tir <- doTopReact inerts wi
       ; case tir of 
-                 NoTopInt 
-                     -> return (ContinueWith wi)
-                 SomeTopInt rule what_next 
-                     -> do { bumpStepCountTcS 
-                           ; traceFireTcS (cc_depth wi) $
-                             vcat [ ptext (sLit "Top react:") <+> text rule
-                                  , text "WorkItem =" <+> ppr wi ]
-                           ; return what_next }
-      }
+          NoTopInt -> return (ContinueWith wi)
+          SomeTopInt rule what_next 
+                   -> do { bumpStepCountTcS 
+                         ; traceFireTcS (cc_depth wi) $
+                           vcat [ ptext (sLit "Top react:") <+> text rule
+                                , text "WorkItem =" <+> ppr wi ]
+                         ; return what_next } }
 
 data TopInteractResult 
  = NoTopInt
@@ -1466,155 +1476,124 @@ data TopInteractResult
 
 
 doTopReact :: InertSet -> WorkItem -> TcS TopInteractResult
+-- The work item does not react with the inert set, so try interaction with top-level 
+-- instances. Note:
+--
+--   (a) The place to add superclasses in not here in doTopReact stage. 
+--       Instead superclasses are added in the worklist as part of the
+--       canonicalization process. See Note [Adding superclasses].
+--
+--   (b) See Note [Given constraint that matches an instance declaration] 
+--       for some design decisions for given dictionaries. 
 
--- The work item does not react with the inert set, so try interaction
--- with top-level instances 
--- NB: The place to add superclasses in *not*
--- in doTopReact stage. Instead superclasses are added in the worklist
--- as part of the canonicalisation process. See Note [Adding superclasses].
-
-
--- Given dictionary
--- See Note [Given constraint that matches an instance declaration]
-doTopReact _inerts (CDictCan { cc_flavor = Given {} })
-  = return NoTopInt -- NB: Superclasses already added since it's canonical
-
--- Derived dictionary: just look for functional dependencies
-doTopReact _inerts workItem@(CDictCan { cc_flavor = Derived loc _pty
-                                      , cc_class = cls, cc_tyargs = xis })
-  = do { instEnvs <- getInstEnvs
-       ; let fd_eqns = improveFromInstEnv instEnvs
-                           (mkClassPred cls xis, pprArisingAt loc)
-       ; m <- rewriteWithFunDeps fd_eqns xis loc
-       ; case m of
-           Nothing -> return NoTopInt
-           Just (xis',_,fd_work) ->
-               let workItem' = workItem { cc_tyargs = xis' }
-                   -- Deriveds are not supposed to have identity
-               in do { emitFDWorkAsDerived fd_work (cc_depth workItem)
-                     ; return $ 
-                       SomeTopInt { tir_rule  = "Derived Cls fundeps" 
-                                  , tir_new_item = ContinueWith workItem' } }
-       }
-
--- Wanted dictionary
-doTopReact inerts workItem@(CDictCan { cc_flavor = fl@(Wanted loc dict_id)
-                                     , cc_class = cls, cc_tyargs = xis
-                                     , cc_depth = depth })
-  -- See Note [MATCHING-SYNONYMS]
+doTopReact inerts workItem@(CDictCan { cc_ev = fl
+                                     , cc_class = cls, cc_tyargs = xis, cc_depth = depth })
   = do { traceTcS "doTopReact" (ppr workItem)
-       ; instEnvs <- getInstEnvs
-       ; let fd_eqns = improveFromInstEnv instEnvs 
-                            (mkClassPred cls xis, pprArisingAt loc)
-
-       ; any_fundeps <- rewriteWithFunDeps fd_eqns xis loc
-       ; case any_fundeps of
-           -- No Functional Dependencies
-           Nothing ->
-               do { lkup_inst_res  <- matchClassInst inerts cls xis loc
-                  ; case lkup_inst_res of
-                      GenInst wtvs ev_term
-                          -> let sfl = Solved (mkSolvedLoc loc UnkSkol) dict_id 
-                             in addToSolved (workItem { cc_flavor = sfl }) >> 
-                                doSolveFromInstance wtvs ev_term
-                      NoInstance
-                          -> return NoTopInt
-                  }
-           -- Actual Functional Dependencies
-           Just (_xis',_cos,fd_work) ->
+       ; instEnvs <- getInstEnvs 
+       ; let fd_eqns = improveFromInstEnv instEnvs (mkClassPred cls xis, arising_sdoc)
+             
+       ; m <- rewriteWithFunDeps fd_eqns xis fl
+       ; case m of
+           Just (_xis',fd_work) ->
                do { emitFDWorkAsDerived fd_work (cc_depth workItem)
                   ; return SomeTopInt { tir_rule = "Dict/Top (fundeps)"
-                                      , tir_new_item = ContinueWith workItem } } }
+                                      , tir_new_item = ContinueWith workItem } }
+           Nothing 
+             | isWanted fl 
+             -> do { lkup_inst_res  <- matchClassInst inerts cls xis (getWantedLoc fl)
+                   ; case lkup_inst_res of
+                       GenInst wtvs ev_term -> 
+                         addToSolved fl >> doSolveFromInstance wtvs ev_term
+                       NoInstance -> return NoTopInt }
+             | otherwise
+             -> return NoTopInt }
+   where 
+     arising_sdoc
+       | isGiven fl = pprArisingAt $ getGivenLoc fl
+       | otherwise  = pprArisingAt $ getWantedLoc fl
+     
+     dict_id = ctEvId fl
+     
+     doSolveFromInstance :: [CtEvidence] -> EvTerm -> TcS TopInteractResult
+      -- Precondition: evidence term matches the predicate workItem
+     doSolveFromInstance evs ev_term 
+        | null evs
+        = do { traceTcS "doTopReact/found nullary instance for" $
+               ppr dict_id
+             ; setEvBind dict_id ev_term
+             ; return $ 
+               SomeTopInt { tir_rule = "Dict/Top (solved, no new work)" 
+                          , tir_new_item = Stop } }
+        | otherwise 
+        = do { traceTcS "doTopReact/found non-nullary instance for" $ 
+               ppr dict_id
+             ; setEvBind dict_id ev_term
+             ; let mk_new_wanted ev
+                       = CNonCanonical { cc_ev   = ev
+                                       , cc_depth = depth + 1 }
+             ; updWorkListTcS (appendWorkListCt (map mk_new_wanted evs))
+             ; return $
+               SomeTopInt { tir_rule     = "Dict/Top (solved, more work)"
+                          , tir_new_item = Stop } }
 
-   where doSolveFromInstance :: [EvVar] -> EvTerm -> TcS TopInteractResult
-         -- Precondition: evidence term matches the predicate workItem
-         doSolveFromInstance evs ev_term 
-            | null evs
-            = do { traceTcS "doTopReact/found nullary instance for" $
-                   ppr dict_id
-                 ; setEvBind dict_id ev_term
-                 ; return $ 
-                   SomeTopInt { tir_rule = "Dict/Top (solved, no new work)" 
-                              , tir_new_item = Stop } }
-            | otherwise 
-            = do { traceTcS "doTopReact/found non-nullary instance for" $ 
-                   ppr dict_id
-                 ; setEvBind dict_id ev_term
-                 ; let mk_new_wanted ev
-                           = CNonCanonical { cc_flavor = fl { flav_evar = ev }
-                                           , cc_depth  = depth + 1 }
-                 ; updWorkListTcS (appendWorkListCt (map mk_new_wanted evs))
-                 ; return $
-                   SomeTopInt { tir_rule     = "Dict/Top (solved, more work)"
-                              , tir_new_item = Stop }
-                 }
-
--- Type functions
-doTopReact _inerts (CFunEqCan { cc_flavor = fl })
-  | isSolved fl
-  = return NoTopInt -- If Solved, no more interactions should happen
 
 -- Otherwise, it's a Given, Derived, or Wanted
-doTopReact _inerts workItem@(CFunEqCan { cc_flavor = fl, cc_depth = d
+doTopReact _inerts workItem@(CFunEqCan { cc_ev = fl, cc_depth = d
                                        , cc_fun = tc, cc_tyargs = args, cc_rhs = xi })
   = ASSERT (isSynFamilyTyCon tc) -- No associated data families have reached that far 
     do { match_res <- matchFam tc args   -- See Note [MATCHING-SYNONYMS]
        ; case match_res of
            Nothing -> return NoTopInt 
            Just (famInst, rep_tys)
-             -> do { mb_already_solved <- lkpFunEqCache (mkTyConApp tc args)
+             -> do { mb_already_solved <- lkpSolvedFunEqCache (mkTyConApp tc args)
                    ; traceTcS "doTopReact: Family instance matches" $ 
-                     vcat [ text "solved-fun-cache" <+> if isJust mb_already_solved then text "hit" else text "miss"
+                     vcat [ text "solved-fun-cache" <+> if isJust mb_already_solved 
+                                                        then text "hit" else text "miss"
                           , text "workItem =" <+> ppr workItem ]
                    ; let (coe,rhs_ty) 
-                           | Just cached_ct <- mb_already_solved
-                           = (mkTcCoVarCo (ctId cached_ct), 
-                                  cc_rhs cached_ct)
+                           | Just ctev <- mb_already_solved
+                           , not (isDerived ctev)
+                           = ASSERT( isEqPred (ctEvPred ctev) )
+                             (evTermCoercion (ctEvTerm ctev), snd (getEqPredTys (ctEvPred ctev)))
                            | otherwise 
                            = let coe_ax = famInstAxiom famInst
                              in (mkTcAxInstCo coe_ax rep_tys, 
                                               mkAxInstRHS coe_ax rep_tys)
                                 
-                         xdecomp x = [EvCoercion (mkTcSymCo coe `mkTcTransCo` mkTcCoVarCo x)]
-                         xcomp [x] = EvCoercion (coe `mkTcTransCo` mkTcCoVarCo x)
+                         xdecomp x = [EvCoercion (mkTcSymCo coe `mkTcTransCo` evTermCoercion x)]
+                         xcomp [x] = EvCoercion (coe `mkTcTransCo` evTermCoercion x)
                          xcomp _   = panic "No more goals!"
                          
                          xev = XEvTerm xcomp xdecomp
-                   ; xCtFlavor fl [mkTcEqPred rhs_ty xi] xev what_next } }
-    where what_next [ct_flav]
-            = do { updWorkListTcS $ 
-                   extendWorkListEq (CNonCanonical { cc_flavor = ct_flav
-                                                   , cc_depth  = d+1 })
-                 ; cache_in_solved fl
-                 ; return $ SomeTopInt { tir_rule = "Fun/Top"
-                                       , tir_new_item = Stop } }
-          what_next _ -- No subgoal (because it's cached)
-            = do { cache_in_solved fl
-                 ; return $ SomeTopInt { tir_rule = "Fun/Top"
-                                       , tir_new_item = Stop } }
+                   ; ctevs <- xCtFlavor fl [mkTcEqPred rhs_ty xi] xev
+                   ; case ctevs of
+                       [ctev] -> updWorkListTcS $ extendWorkListEq $
+                                 CNonCanonical { cc_ev = ctev
+                                               , cc_depth  = d+1 }
+                       ctevs -> -- No subgoal (because it's cached)
+                                ASSERT( null ctevs) return () 
 
-          cache_in_solved (Derived {})   = return ()
-          cache_in_solved (Wanted wl ev) = 
-            let sfl = Solved (mkSolvedLoc wl UnkSkol) ev  
-                solved = workItem { cc_flavor = sfl }
-            in updFunEqCache solved >> addToSolved solved
-          cache_in_solved fl =
-            let sfl = Solved (flav_gloc fl) (flav_evar fl)
-                solved = workItem { cc_flavor = sfl }
-            in updFunEqCache solved >> addToSolved solved
+                   ; unless (isDerived fl) $
+                     do { addSolvedFunEq fl
+                        ; addToSolved fl }
+                   ; return $ SomeTopInt { tir_rule = "Fun/Top"
+                                       , tir_new_item = Stop } } }
             
 -- Any other work item does not react with any top-level equations
 doTopReact _inerts _workItem = return NoTopInt 
 
 
-lkpFunEqCache :: TcType -> TcS (Maybe Ct)
-lkpFunEqCache fam_head 
+lkpSolvedFunEqCache :: TcType -> TcS (Maybe CtEvidence)
+lkpSolvedFunEqCache fam_head 
   = do { (_subst,_inscope) <- getInertEqs 
        ; fun_cache <- getTcSInerts >>= (return . inert_solved_funeqs)
        ; traceTcS "lkpFunEqCache" $ vcat [ text "fam_head    =" <+> ppr fam_head
-                                         , text "funeq cache =" <+> pprCtTypeMap (unCtFamHeadMap fun_cache) ]
-       ; rewrite_cached $ 
-         lookupTM fam_head (unCtFamHeadMap fun_cache) }
+                                         , text "funeq cache =" <+> ppr fun_cache ]
+       ; return (lookupFamHead fun_cache fam_head) }
+
+{-             ToDo; talk to Dimitrios.  I have no idea what is happening here
+
+       ; rewrite_cached (lookupFamHead fun_cache fam_head) }
 -- The two different calls do not seem to make a significant difference in 
 -- terms of hit/miss rate for many memory-critical/performance tests but the
 -- latter blows up the space on the heap somehow ... It maybe the niFixTvSubst.
@@ -1622,11 +1601,10 @@ lkpFunEqCache fam_head
 --       lookupTypeMap_mod subst cc_rhs fam_head (unCtFamHeadMap fun_cache) }
  
   where rewrite_cached Nothing = return Nothing
-        rewrite_cached (Just ct@(CFunEqCan { cc_flavor = fl, cc_depth = d
+        rewrite_cached (Just ct@(CFunEqCan { cc_ev = fl, cc_depth = d
                                            , cc_fun = tc, cc_tyargs = xis
                                            , cc_rhs = xi}))
-          = ASSERT (isSolved fl)
-            do { (xis_subst,cos) <- flattenMany d FMFullFlatten fl xis 
+          = do { (xis_subst,cos) <- flattenMany d FMFullFlatten fl xis 
                                     -- cos :: xis_subst ~ xis 
                ; (xi_subst,co) <- flatten d FMFullFlatten fl xi
                                     -- co :: xi_subst ~ xi
@@ -1650,27 +1628,14 @@ lkpFunEqCache fam_head
                       -> return Nothing -- Strange: cached?
                     Just fl' 
                       -> return $ 
-                         Just (CFunEqCan { cc_flavor = fl'
+                         Just (CFunEqCan { cc_ev = fl'
                                          , cc_depth = d
                                          , cc_fun = tc
                                          , cc_tyargs = xis_subst
                                          , cc_rhs = xi_subst }) }
         rewrite_cached (Just other_ct) 
           = pprPanic "lkpFunEqCache:not family equation!" $ ppr other_ct
-
-updFunEqCache :: Ct -> TcS ()
-updFunEqCache fun_eq@(CFunEqCan { cc_fun = tc, cc_tyargs = xis })
-  = modifyInertTcS $ \inert -> ((), upd_inert inert)
-  where upd_inert inert 
-          = let slvd = unCtFamHeadMap (inert_solved_funeqs inert)
-            in inert { inert_solved_funeqs =
-                          CtFamHeadMap (alterTM key upd_funeqs slvd) }       
-        upd_funeqs Nothing    = Just fun_eq
-        upd_funeqs (Just _ct) = Just fun_eq 
-             -- Or _ct? depends on which caches more steps of computation
-        key = mkTyConApp tc xis
-updFunEqCache other = pprPanic "updFunEqCache:Non family equation" $ ppr other
-
+-}
 \end{code}
 
 
@@ -1678,7 +1643,7 @@ Note [FunDep and implicit parameter reactions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Currently, our story of interacting two dictionaries (or a dictionary
 and top-level instances) for functional dependencies, and implicit
-paramters, is that we simply produce new wanted equalities.  So for example
+paramters, is that we simply produce new Derived equalities.  So for example
 
         class D a b | a -> b where ... 
     Inert: 
@@ -1687,16 +1652,20 @@ paramters, is that we simply produce new wanted equalities.  So for example
         d2 :w D Int alpha
 
     We generate the extra work item
-        cv :w alpha ~ Bool
-    where 'cv' is currently unused.  However, this new item reacts with d2,
+        cv :d alpha ~ Bool
+    where 'cv' is currently unused.  However, this new item can perhaps be 
+    spontaneously solved to become given and react with d2,
     discharging it in favour of a new constraint d2' thus:
         d2' :w D Int Bool
 	d2 := d2' |> D Int cv
     Now d2' can be discharged from d1
 
 We could be more aggressive and try to *immediately* solve the dictionary 
-using those extra equalities. With the same inert set and work item we
-might dischard d2 directly:
+using those extra equalities, but that requires those equalities to carry 
+evidence and derived do not carry evidence.
+
+If that were the case with the same inert set and work item we might dischard 
+d2 directly:
 
         cv :w alpha ~ Bool
         d2 := d1 |> D Int cv
@@ -1717,7 +1686,6 @@ Then it is solvable, but its very hard to detect this on the spot.
 It's exactly the same with implicit parameters, except that the
 "aggressive" approach would be much easier to implement.
 
-
 Note [When improvement happens]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We fire an improvement rule when
@@ -1725,15 +1693,11 @@ We fire an improvement rule when
   * Two constraints match (modulo the fundep)
       e.g. C t1 t2, C t1 t3    where C a b | a->b
     The two match because the first arg is identical
-
-  * At least one is not Given.  If they are both given, we don't fire
-    the reaction because we have no way of constructing evidence for a
-    new equality nor does it seem right to create a new wanted goal
-    (because the goal will most likely contain untouchables, which
-    can't be solved anyway)!
    
-Note that we *do* fire the improvement if one is Given and one is Derived.
-The latter can be a superclass of a wanted goal. Example (tcfail138)
+Note that we *do* fire the improvement if one is Given and one is Derived (e.g. a 
+superclass of a Wanted goal) or if both are Given.
+
+Example (tcfail138)
     class L a b | a -> b
     class (G a, L a b) => C a b
 
@@ -1748,6 +1712,9 @@ Use the instance decl to get
   Wanted: C a b'
 The (C a b') is inert, so we generate its Derived superclasses (L a b'),
 and now we need improvement between that derived superclass an the Given (L a b)
+
+Test typecheck/should_fail/FDsFromGivens also shows why it's a good idea to 
+emit Derived FDs for givens as well. 
 
 Note [Overriding implicit parameters]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1873,7 +1840,7 @@ NB: The desugarer needs be more clever to deal with equalities
 \begin{code}
 data LookupInstResult
   = NoInstance
-  | GenInst [EvVar] EvTerm 
+  | GenInst [CtEvidence] EvTerm 
 
 matchClassInst :: InertSet -> Class -> [Type] -> WantedLoc -> TcS LookupInstResult
 
@@ -1910,23 +1877,19 @@ matchClassInst inerts clas tys loc
             MatchInstSingle (dfun_id, mb_inst_tys) ->
               do { checkWellStagedDFun pred dfun_id loc
 
- 	-- It's possible that not all the tyvars are in
-	-- the substitution, tenv. For example:
-	--	instance C X a => D X where ...
-	-- (presumably there's a functional dependency in class C)
-	-- Hence mb_inst_tys :: Either TyVar TcType 
+                       -- mb_inst_tys :: Maybe TcType 
+                       -- See Note [DFunInstType: instantiating types] in InstEnv
 
-                 ; tys <- instDFunTypes mb_inst_tys
-                 ; let (theta, _) = tcSplitPhiTy (applyTys (idType dfun_id) tys)
+                 ; (tys, dfun_phi) <- instDFunType dfun_id mb_inst_tys
+                 ; let (theta, _) = tcSplitPhiTy dfun_phi
                  ; if null theta then
                        return (GenInst [] (EvDFunApp dfun_id tys []))
                    else do
-                     { evc_vars <- instDFunConstraints theta
-                     ; let ev_vars = map mn_thing evc_vars
-                           new_ev_vars = [mn_thing evc | evc <- evc_vars
-                                                       , isFresh evc ]
+                     { evc_vars <- instDFunConstraints loc theta
+                     ; let new_ev_vars = freshGoals evc_vars
                            -- new_ev_vars are only the real new variables that can be emitted 
-                     ; return $ GenInst new_ev_vars (EvDFunApp dfun_id tys ev_vars) } }
+                           dfun_app = EvDFunApp dfun_id tys (getEvTerms evc_vars)
+                     ; return $ GenInst new_ev_vars dfun_app } }
         }
    where 
      givens_for_this_clas :: Cts
@@ -1938,7 +1901,7 @@ matchClassInst inerts clas tys loc
      given_overlap untch = anyBag (matchable untch) givens_for_this_clas
 
      matchable untch (CDictCan { cc_class = clas_g, cc_tyargs = sys
-                               , cc_flavor = fl })
+                               , cc_ev = fl })
        | isGiven fl
        = ASSERT( clas_g == clas )
          case tcUnifyTys (\tv -> if isTouchableMetaTyVar_InRange untch tv && 

@@ -269,6 +269,7 @@ primtype Word#
 primop   WordAddOp   "plusWord#"   Dyadic   Word# -> Word# -> Word#
    with commutable = True
 
+-- Returns (# high, low #) (or equivalently, (# carry, low #))
 primop   WordAdd2Op  "plusWord2#"  GenPrimOp
    Word# -> Word# -> (# Word#, Word# #)
    with commutable = True
@@ -278,6 +279,7 @@ primop   WordSubOp   "minusWord#"   Dyadic   Word# -> Word# -> Word#
 primop   WordMulOp   "timesWord#"   Dyadic   Word# -> Word# -> Word#
    with commutable = True
 
+-- Returns (# high, low #)
 primop   WordMul2Op  "timesWord2#"   GenPrimOp
    Word# -> Word# -> (# Word#, Word# #)
    with commutable = True
@@ -290,6 +292,12 @@ primop   WordRemOp   "remWord#"   Dyadic   Word# -> Word# -> Word#
 
 primop   WordQuotRemOp "quotRemWord#" GenPrimOp
    Word# -> Word# -> (# Word#, Word# #)
+   with can_fail = True
+
+-- Takes high word of dividend, then low word of dividend, then divisor.
+-- Requires that high word is not divisible by divisor.
+primop   WordQuotRem2Op "quotRemWord2#" GenPrimOp
+   Word# -> Word# -> Word# -> (# Word#, Word# #)
    with can_fail = True
 
 primop   AndOp   "and#"   Dyadic   Word# -> Word# -> Word#
@@ -1044,6 +1052,14 @@ primop  CopyMutableByteArrayOp "copyMutableByteArray#" GenPrimOp
   MutableByteArray# s -> Int# -> MutableByteArray# s -> Int# -> Int# -> State# s -> State# s
   {Copy a range of the first MutableByteArray# to the specified region in the second MutableByteArray#.
    Both arrays must fully contain the specified ranges, but this is not checked.}
+  with
+  has_side_effects = True
+  code_size = { primOpCodeSizeForeignCall + 4 }
+  can_fail = True
+
+primop  SetByteArrayOp "setByteArray#" GenPrimOp
+  MutableByteArray# s -> Int# -> Int# -> Int# -> State# s -> State# s
+  {Set the range of the MutableByteArray# to the specified character.}
   with
   has_side_effects = True
   code_size = { primOpCodeSizeForeignCall + 4 }
@@ -1809,6 +1825,12 @@ primtype Weak# b
 
 primop  MkWeakOp "mkWeak#" GenPrimOp
    o -> b -> c -> State# RealWorld -> (# State# RealWorld, Weak# b #)
+   with
+   has_side_effects = True
+   out_of_line      = True
+
+primop  MkWeakNoFinalizerOp "mkWeakNoFinalizer#" GenPrimOp
+   o -> b -> State# RealWorld -> (# State# RealWorld, Weak# b #)
    with
    has_side_effects = True
    out_of_line      = True

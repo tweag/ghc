@@ -35,6 +35,8 @@ module IfaceSyn (
 #include "HsVersions.h"
 
 import IfaceType
+import CoreSyn( DFunArg, dfunArgExprs )
+import PprCore()            -- Printing DFunArgs
 import Demand
 import Annotations
 import Class
@@ -194,7 +196,7 @@ type IfaceAnnTarget = AnnTarget OccName
 data IfaceIdDetails
   = IfVanillaId
   | IfRecSelId IfaceTyCon Bool
-  | IfDFunId 
+  | IfDFunId Int          -- Number of silent args
 
 data IfaceIdInfo
   = NoInfo                      -- When writing interface file without -O
@@ -237,7 +239,7 @@ data IfaceUnfolding
   | IfLclWrapper Arity IfLclName  --     because the worker can simplify to a function in
                                   --     another module.
 
-  | IfDFunUnfold [IfaceExpr]
+  | IfDFunUnfold [DFunArg IfaceExpr]
 
 --------------------------------
 data IfaceExpr
@@ -249,6 +251,7 @@ data IfaceExpr
   | IfaceLam 	IfaceBndr IfaceExpr
   | IfaceApp 	IfaceExpr IfaceExpr
   | IfaceCase	IfaceExpr IfLclName [IfaceAlt]
+  | IfaceECase  IfaceExpr IfaceType     -- See Note [Empty case alternatives]
   | IfaceLet	IfaceBinding  IfaceExpr
   | IfaceCast   IfaceExpr IfaceCoercion
   | IfaceLit    Literal
@@ -278,6 +281,12 @@ data IfaceBinding
 -- See Note [IdInfo on nested let-bindings]
 data IfaceLetBndr = IfLetBndr IfLclName IfaceType IfaceIdInfo
 \end{code}
+
+Note [Empty case alternatives]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In IfaceSyn an IfaceCase does not record the types of the alternatives,
+unlike CorSyn Case.  But we need this type if the alternatives are empty.
+Hence IfaceECase.  See Note [Empty case alternatives] in CoreSyn.
 
 Note [Expose recursive functions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -621,6 +630,11 @@ pprIfaceExpr add_par i@(IfaceLam _ _)
     collect bs (IfaceLam b e) = collect (b:bs) e
     collect bs e              = (reverse bs, e)
 
+pprIfaceExpr add_par (IfaceECase scrut ty)
+  = add_par (sep [ ptext (sLit "case") <+> pprIfaceExpr noParens scrut 
+                 , ptext (sLit "ret_ty") <+> pprParendIfaceType ty
+                 , ptext (sLit "of {}") ])
+
 pprIfaceExpr add_par (IfaceCase scrut bndr [(con, bs, rhs)])
   = add_par (sep [ptext (sLit "case") 
 			<+> pprIfaceExpr noParens scrut <+> ptext (sLit "of") 
@@ -689,7 +703,7 @@ instance Outputable IfaceIdDetails where
   ppr IfVanillaId       = empty
   ppr (IfRecSelId tc b) = ptext (sLit "RecSel") <+> ppr tc
                           <+> if b then ptext (sLit "<naughty>") else empty
-  ppr IfDFunId          = ptext (sLit "DFunId")
+  ppr (IfDFunId ns)     = ptext (sLit "DFunId") <> brackets (int ns)
 
 instance Outputable IfaceIdInfo where
   ppr NoInfo       = empty
@@ -844,7 +858,7 @@ freeNamesIfUnfold (IfCompulsory e)       = freeNamesIfExpr e
 freeNamesIfUnfold (IfInlineRule _ _ _ e) = freeNamesIfExpr e
 freeNamesIfUnfold (IfExtWrapper _ v)     = unitNameSet v
 freeNamesIfUnfold (IfLclWrapper {})      = emptyNameSet
-freeNamesIfUnfold (IfDFunUnfold vs)      = fnList freeNamesIfExpr vs
+freeNamesIfUnfold (IfDFunUnfold vs)      = fnList freeNamesIfExpr (dfunArgExprs vs)
 
 freeNamesIfExpr :: IfaceExpr -> NameSet
 freeNamesIfExpr (IfaceExt v)      = unitNameSet v
@@ -856,7 +870,7 @@ freeNamesIfExpr (IfaceLam b body) = freeNamesIfBndr b &&& freeNamesIfExpr body
 freeNamesIfExpr (IfaceApp f a)    = freeNamesIfExpr f &&& freeNamesIfExpr a
 freeNamesIfExpr (IfaceCast e co)  = freeNamesIfExpr e &&& freeNamesIfType co
 freeNamesIfExpr (IfaceTick _ e)   = freeNamesIfExpr e
-
+freeNamesIfExpr (IfaceECase e ty) = freeNamesIfExpr e &&& freeNamesIfType ty
 freeNamesIfExpr (IfaceCase s _ alts)
   = freeNamesIfExpr s 
     &&& fnList fn_alt alts &&& fn_cons alts

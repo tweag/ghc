@@ -107,16 +107,30 @@ main = do args &lt;- getArgs
   <sect3 id="infelicities-exprs-pats">
       <title>Expressions and patterns</title>
 
-	<para>None known.</para>
+    <para>In its default mode, GHC makes some programs sligtly more defined 
+    than they should be. For example, consider
+    <programlisting>
+f :: [a] -> b -> b
+f [] = error "urk"
+f (x:xs) = \v -> v
+
+main = print (f [] `seq` True)
+    </programlisting>
+This should call <literal>error</literal> but actually prints <literal>True</literal>.
+Reason: GHC eta-expands <literal>f</literal> to
+    <programlisting>
+f :: [a] -> b -> b
+f []     v = error "urk"
+f (x:xs) v = v
+    </programlisting>
+This improves efficiency slightly but significantly for most programs, and
+is bad for only a few.  To suppress this bogus "optimisation" use <option>-fpedantic-bottoms</option>.
+</para>
+
     </sect3>
 
     <sect3 id="infelicities-decls">
       <title>Declarations and bindings</title>
-
-      <para>GHC's typechecker makes all pattern bindings monomorphic
-      by default; this behaviour can be disabled with
-      <option>-XNoMonoPatBinds</option>.  See <xref
-      linkend="options-language" />.</para>
 
       <para>In its default mode, GHC does not accept datatype contexts,
       as it has been decided to remove them from the next version of the
@@ -507,6 +521,36 @@ checking for duplicates.  The reason for this is efficiency, pure and simple.
         module from that package is used by the command-line
         expression.  This bug affects only the <option>--make</option> mode and
 	  GHCi.</para>
+      </listitem>
+
+
+      <listitem>
+        <para>On 32-bit x86 platforms when using the native code
+        generator, the
+        <option>-fexcess-precision</option><indexterm><primary><option>-fexcess-precision</option></primary></indexterm> option
+        is always on.  This means that floating-point calculations are
+        non-deterministic, because depending on how the program is
+        compiled (optimisation settings, for example), certain
+        calculations might be done at 80-bit precision instead of the
+        intended 32-bit or 64-bit precision.  Floating-point results
+        may differ when optimisation is turned on.  In the worst case,
+        referential transparency is violated, because for example
+        <literal>let x = E1 in E2</literal> can evaluate to a
+        different value than <literal>E2[E1/x]</literal>.</para>
+
+        <para>
+          One workaround is to use the
+          <option>-msse2</option><indexterm><primary><option>-msse2</option></primary></indexterm>
+          option (see <xref linkend="options-platform" />, which
+          generates code to use the SSE2 instruction set instead of
+          the x87 instruction set.  SSE2 code uses the correct
+          precision for all floating-point operations, and so gives
+          deterministic results.  However, note that this only works
+          with processors that support SSE2 (Intel Pentium 4 or AMD
+          Athlon 64 and later), which is why the option is not enabled
+          by default.  The libraries that come with GHC are probably
+          built without this option, unless you built GHC yourself.
+        </para>
       </listitem>
 
     </itemizedlist>

@@ -31,7 +31,6 @@ module TcUnify (
   matchExpectedFunTys,
   matchExpectedFunKind,
   wrapFunResCoercion,
-  wrapEqCtxt,
 
   --------------------------------
   -- Errors
@@ -43,7 +42,6 @@ module TcUnify (
 
 import HsSyn
 import TypeRep
-import TcErrors	( unifyCtxt )
 import TcMType
 import TcIface
 import TcRnMonad
@@ -161,7 +159,7 @@ matchExpectedFunTys herald arity orig_ty
     ------------
     defer n_req fun_ty 
       = addErrCtxtM mk_ctxt $
-        do { arg_tys <- newFlexiTyVarTys n_req argTypeKind
+        do { arg_tys <- newFlexiTyVarTys n_req openTypeKind
            ; res_ty  <- newFlexiTyVarTy openTypeKind
            ; co   <- unifyType fun_ty (mkFunTys arg_tys res_ty)
            ; return (co, arg_tys, res_ty) }
@@ -535,7 +533,9 @@ uType_defer items ty1 ty2
   = ASSERT( not (null items) )
     do { eqv <- newEq ty1 ty2
        ; loc <- getCtLoc (TypeEqOrigin (last items))
-       ; emitFlat $ mkNonCanonical (Wanted loc eqv)
+       ; let ctev = Wanted { ctev_wloc = loc, ctev_evar = eqv
+                           , ctev_pred = mkTcEqPred ty1 ty2 }
+       ; emitFlat $ mkNonCanonical ctev 
 
        -- Error trace only
        -- NB. do *not* call mkErrInfo unless tracing is on, because
@@ -1005,15 +1005,6 @@ we return a made-up TcTyVarDetails, but I think it works smoothly.
 pushOrigin :: TcType -> TcType -> [EqOrigin] -> [EqOrigin]
 pushOrigin ty_act ty_exp origin
   = UnifyOrigin { uo_actual = ty_act, uo_expected = ty_exp } : origin
-
----------------
-wrapEqCtxt :: [EqOrigin] -> TcM a -> TcM a
--- Build a suitable error context from the origin and do the thing inside
--- The "couldn't match" error comes from the innermost item on the stack,
--- and, if there is more than one item, the "Expected/inferred" part
--- comes from the outermost item
-wrapEqCtxt []    thing_inside = thing_inside
-wrapEqCtxt items thing_inside = addErrCtxtM (unifyCtxt (last items)) thing_inside
 \end{code}
 
 
@@ -1087,8 +1078,12 @@ unifyKind :: TcKind           -- k1 (actual)
           -> TcM Ordering     -- Returns the relation between the kinds
                               -- LT <=> k1 is a sub-kind of k2
 
-unifyKind (TyVarTy kv1) k2 = uKVar False kv1 k2
-unifyKind k1 (TyVarTy kv2) = uKVar True  kv2 k1
+-- unifyKind deals with the top-level sub-kinding story
+-- but recurses into the simpler unifyKindEq for any sub-terms
+-- The sub-kinding stuff only applies at top level
+
+unifyKind (TyVarTy kv1) k2 = uKVar False unifyKind EQ kv1 k2
+unifyKind k1 (TyVarTy kv2) = uKVar True  unifyKind EQ kv2 k1
 
 unifyKind k1 k2       -- See Note [Expanding synonyms during unification]
   | Just k1' <- tcView k1 = unifyKind k1' k2
@@ -1103,24 +1098,44 @@ unifyKind k1@(TyConApp kc1 []) k2@(TyConApp kc2 [])
 unifyKind k1 k2 = do { unifyKindEq k1 k2; return EQ }
   -- In all other cases, let unifyKindEq do the work
 
-uKVar :: Bool -> MetaKindVar -> TcKind -> TcM Ordering
-uKVar isFlipped kv1 k2
-  | isMetaTyVar kv1
+uKVar :: Bool -> (TcKind -> TcKind -> TcM a) -> a
+      -> MetaKindVar -> TcKind -> TcM a
+uKVar isFlipped unify_kind eq_res kv1 k2
+  | isTcTyVar kv1, isMetaTyVar kv1       -- See Note [Unifying kind variables]
   = do  { mb_k1 <- readMetaTyVar kv1
         ; case mb_k1 of
-            Flexi -> uUnboundKVar kv1 k2 >> return EQ
-            Indirect k1 -> unifyKind k1 k2 }
-  | TyVarTy kv2 <- k2, isMetaTyVar kv2
-  = uKVar (not isFlipped) kv2 (TyVarTy kv1)
-  | TyVarTy kv2 <- k2, kv1 == kv2 = return EQ
+            Flexi -> do { uUnboundKVar kv1 k2; return eq_res }
+            Indirect k1 -> if isFlipped then unify_kind k2 k1
+                                        else unify_kind k1 k2 }
+  | TyVarTy kv2 <- k2, kv1 == kv2 
+  = return eq_res
+
+  | TyVarTy kv2 <- k2, isTcTyVar kv2, isMetaTyVar kv2
+  = uKVar (not isFlipped) unify_kind eq_res kv2 (TyVarTy kv1)
+
   | otherwise = if isFlipped 
                 then unifyKindMisMatch k2 (TyVarTy kv1)
                 else unifyKindMisMatch (TyVarTy kv1) k2
 
+{- Note [Unifying kind variables]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Rather hackily, kind variables can be TyVars not just TcTyVars.
+Main reason is in 
+   data instance T (D (x :: k)) = ...con-decls...
+Here we bring into scope a kind variable 'k', and use it in the 
+con-decls.  BUT the con-decls will be finished and frozen, and
+are not amenable to subsequent substitution, so it makes sense
+to have the *final* kind-variable (a KindVar, not a TcKindVar) in 
+scope.  So at least during kind unification we can encounter a
+KindVar. 
+
+Hence the isTcTyVar tests before using isMetaTyVar.
+-}
+
 ---------------------------
 unifyKindEq :: TcKind -> TcKind -> TcM ()
-unifyKindEq (TyVarTy kv1) k2 = uKVarEq False kv1 k2
-unifyKindEq k1 (TyVarTy kv2) = uKVarEq True  kv2 k1
+unifyKindEq (TyVarTy kv1) k2 = uKVar False unifyKindEq () kv1 k2
+unifyKindEq k1 (TyVarTy kv2) = uKVar True  unifyKindEq () kv2 k1
 
 unifyKindEq (FunTy a1 r1) (FunTy a2 r2)
   = do { unifyKindEq a1 a2; unifyKindEq r1 r2 }
@@ -1135,27 +1150,10 @@ unifyKindEq (TyConApp kc1 k1s) (TyConApp kc2 k2s)
 unifyKindEq k1 k2 = unifyKindMisMatch k1 k2
 
 ----------------
--- For better error messages, we record whether we've flipped the kinds
--- during the process.
-uKVarEq :: Bool -> MetaKindVar -> TcKind -> TcM ()
-uKVarEq isFlipped kv1 k2
-  | isMetaTyVar kv1
-  = do  { mb_k1 <- readMetaTyVar kv1
-        ; case mb_k1 of
-            Flexi -> uUnboundKVar kv1 k2
-            Indirect k1 -> unifyKindEq k1 k2 }
-  | TyVarTy kv2 <- k2, isMetaTyVar kv2
-  = uKVarEq (not isFlipped) kv2 (TyVarTy kv1)
-  | TyVarTy kv2 <- k2, kv1 == kv2 = return ()
-  | otherwise = if isFlipped 
-                then unifyKindMisMatch k2 (TyVarTy kv1)
-                else unifyKindMisMatch (TyVarTy kv1) k2
-
-----------------
 uUnboundKVar :: MetaKindVar -> TcKind -> TcM ()
 uUnboundKVar kv1 k2@(TyVarTy kv2)
   | kv1 == kv2 = return ()
-  | isMetaTyVar kv2   -- Distinct kind variables
+  | isTcTyVar kv2, isMetaTyVar kv2   -- Distinct kind variables
   = do  { mb_k2 <- readMetaTyVar kv2
         ; case mb_k2 of
             Indirect k2 -> uUnboundKVar kv1 k2

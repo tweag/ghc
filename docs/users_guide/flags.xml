@@ -489,19 +489,13 @@
           <row>
             <entry><option>-ignore-dot-ghci</option></entry>
             <entry>Disable reading of <filename>.ghci</filename> files</entry>
-            <entry>static</entry>
+            <entry>dynamic</entry>
             <entry>-</entry>
           </row>
           <row>
             <entry><option>-ghci-script</option></entry>
             <entry>Read additional <filename>.ghci</filename> files</entry>
             <entry>dynamic</entry>
-            <entry>-</entry>
-          </row>
-          <row>
-            <entry><option>-read-dot-ghci</option></entry>
-            <entry>Enable reading of <filename>.ghci</filename> files</entry>
-            <entry>static</entry>
             <entry>-</entry>
           </row>
           <row>
@@ -538,6 +532,13 @@
             <entry><option>-fno-implicit-import-qualified</option></entry>
             <entry><link linkend="ghci-import-qualified">Turn off
                 implicit qualified import of everything in GHCi</link></entry>
+            <entry>dynamic</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-interactive-print</option></entry>
+            <entry><link linkend="ghci-interactive-print">Select the function
+                    to use for printing evaluated expressions in GHCi</link></entry>
             <entry>dynamic</entry>
             <entry>-</entry>
           </row>
@@ -594,14 +595,38 @@
             <entry>-</entry>
           </row>
           <row>
-            <entry><option>-package-conf</option> <replaceable>file</replaceable></entry>
-            <entry>Load more packages from <replaceable>file</replaceable></entry>
+            <entry><option>-package-db</option> <replaceable>file</replaceable></entry>
+            <entry>Add <replaceable>file</replaceable> to the package db stack.</entry>
             <entry>static</entry>
             <entry>-</entry>
           </row>
           <row>
-            <entry><option>-no-user-package-conf</option></entry>
-            <entry>Don't load the user's package config file.</entry>
+            <entry><option>-clear-package-db</option></entry>
+            <entry>Clear the package db stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-no-global-package-db</option></entry>
+            <entry>Remove the global package db from the stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-global-package-db</option></entry>
+            <entry>Add the global package db to the stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-no-user-package-db</option></entry>
+            <entry>Remove the user's package db from the stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-user-package-db</option></entry>
+            <entry>Add the user's package db to the stack.</entry>
             <entry>static</entry>
             <entry>-</entry>
           </row>
@@ -810,13 +835,14 @@
           </row>
           <row>
             <entry><option>-XDataKinds</option></entry>
-            <entry>Enable <link linkend="kind-polymorphism-and-promotion">datatype promotion</link>.</entry>
+            <entry>Enable <link linkend="promotion">datatype promotion</link>.</entry>
             <entry>dynamic</entry>
             <entry><option>-XNoDataKinds</option></entry>
           </row>
           <row>
             <entry><option>-XPolyKinds</option></entry>
-            <entry>Enable <link linkend="kind-polymorphism-and-promotion">kind polymorphism</link>.</entry>
+            <entry>Enable <link linkend="kind-polymorphism">kind polymorphism</link>.
+                   Implies <option>-XKindSignatures</option>.</entry>
             <entry>dynamic</entry>
             <entry><option>-XNoPolyKinds</option></entry>
           </row>
@@ -987,14 +1013,8 @@
             <entry><option>-XNoExplicitNamespaces</option></entry>
           </row>
           <row>
-            <entry><option>-XDoRec</option></entry>
-            <entry>Enable <link linkend="recursive-do-notation">recursive do notation</link>.</entry>
-            <entry>dynamic</entry>
-            <entry><option>-XNoDoRec</option></entry>
-          </row>
-          <row>
             <entry><option>-XRecursiveDo</option></entry>
-            <entry>Enable <link linkend="mdo-notation">recursive do (mdo) notation</link>. This is deprecated; please use <link linkend="recursive-do-notation">recursive do notation</link> instead.</entry>
+            <entry>Enable <link linkend="recursive-do-notation">recursive do (mdo) notation</link>.</entry>
             <entry>dynamic</entry>
             <entry><option>-XNoRecursiveDo</option></entry>
           </row>
@@ -1100,6 +1120,18 @@
             <entry>Enable <link linkend="package-imports">package-qualified imports</link>.</entry>
             <entry>dynamic</entry>
             <entry><option>-XNoPackageImports</option></entry>
+          </row>
+          <row>
+            <entry><option>-XLambdaCase</option></entry>
+            <entry>Enable <link linkend="lambda-case">lambda-case expressions</link>.</entry>
+            <entry>dynamic</entry>
+            <entry><option>-XNoLambdaCase</option></entry>
+          </row>
+          <row>
+            <entry><option>-XMultiWayIf</option></entry>
+            <entry>Enable <link linkend="multi-way-if">multi-way if-expressions</link>.</entry>
+            <entry>dynamic</entry>
+            <entry><option>-XNoMultiWayIf</option></entry>
           </row>
           <row>
             <entry><option>-XSafe</option></entry>
@@ -2693,19 +2725,19 @@
           <row>
             <entry><option>-dppr-user-length</option></entry>
             <entry>Set the depth for printing expressions in error msgs</entry>
-            <entry>static</entry>
+            <entry>dynamic</entry>
             <entry>-</entry>
           </row>
           <row>
             <entry><option>-dppr-colsNNN</option></entry>
             <entry>Set the width of debugging output. For example <option>-dppr-cols200</option></entry>
-            <entry>static</entry>
+            <entry>dynamic</entry>
             <entry>-</entry>
           </row>
           <row>
             <entry><option>-dppr-case-as-let</option></entry>
             <entry>Print single alternative case expressions as strict lets.</entry>
-            <entry>static</entry>
+            <entry>dynamic</entry>
             <entry>-</entry>
           </row>
           <row>

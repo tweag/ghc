@@ -59,6 +59,7 @@ import System.Directory
 import System.FilePath as FilePath
 import qualified System.FilePath.Posix as FilePath.Posix
 import Control.Monad
+import Data.Char (isSpace)
 import Data.List as List
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -152,10 +153,10 @@ getPackageDetails :: PackageState -> PackageId -> PackageConfig
 getPackageDetails ps pid = expectJust "getPackageDetails" (lookupPackage (pkgIdMap ps) pid)
 
 -- ----------------------------------------------------------------------------
--- Loading the package config files and building up the package state
+-- Loading the package db files and building up the package state
 
 -- | Call this after 'DynFlags.parseDynFlags'.  It reads the package
--- configuration files, and sets up various internal tables of package
+-- database files, and sets up various internal tables of package
 -- information, according to the package-related flags on the
 -- command-line (@-package@, @-hide-package@ etc.)
 --
@@ -184,46 +185,37 @@ initPackages dflags = do
 
 readPackageConfigs :: DynFlags -> IO [PackageConfig]
 readPackageConfigs dflags = do
-   e_pkg_path <- tryIO (getEnv "GHC_PACKAGE_PATH")
-   system_pkgconfs <- getSystemPackageConfigs dflags
+  let system_conf_refs = [UserPkgConf, GlobalPkgConf]
 
-   let pkgconfs = case e_pkg_path of
-                    Left _   -> system_pkgconfs
-                    Right path
-                     | last cs == "" -> init cs ++ system_pkgconfs
-                     | otherwise     -> cs
-                     where cs = parseSearchPath path
-                     -- if the path ends in a separator (eg. "/foo/bar:")
-                     -- the we tack on the system paths.
+  e_pkg_path <- tryIO (getEnv "GHC_PACKAGE_PATH")
+  let base_conf_refs = case e_pkg_path of
+        Left _ -> system_conf_refs
+        Right path
+         | null (last cs)
+         -> map PkgConfFile (init cs) ++ system_conf_refs
+         | otherwise
+         -> map PkgConfFile cs
+         where cs = parseSearchPath path
+         -- if the path ends in a separator (eg. "/foo/bar:")
+         -- then we tack on the system paths.
 
-   pkgs <- mapM (readPackageConfig dflags)
-                (pkgconfs ++ reverse (extraPkgConfs dflags))
-                -- later packages shadow earlier ones.  extraPkgConfs
-                -- is in the opposite order to the flags on the
-                -- command line.
+  let conf_refs = reverse (extraPkgConfs dflags base_conf_refs)
+  -- later packages shadow earlier ones.  extraPkgConfs
+  -- is in the opposite order to the flags on the
+  -- command line.
+  confs <- liftM catMaybes $ mapM (resolvePackageConfig dflags) conf_refs
 
-   return (concat pkgs)
+  liftM concat $ mapM (readPackageConfig dflags) confs
 
-
-getSystemPackageConfigs :: DynFlags -> IO [FilePath]
-getSystemPackageConfigs dflags = do
-   -- System one always comes first
-   let system_pkgconf = systemPackageConfig dflags
-
-   -- Read user's package conf (eg. ~/.ghc/i386-linux-6.3/package.conf)
-   -- unless the -no-user-package-conf flag was given.
-   user_pkgconf <- do
-      if not (dopt Opt_ReadUserPackageConf dflags) then return [] else do
-      appdir <- getAppUserDataDirectory "ghc"
-      let
-         dir = appdir </> (TARGET_ARCH ++ '-':TARGET_OS ++ '-':cProjectVersion)
-         pkgconf = dir </> "package.conf.d"
-      --
-      exist <- doesDirectoryExist pkgconf
-      if exist then return [pkgconf] else return []
-    `catchIO` (\_ -> return [])
-
-   return (system_pkgconf : user_pkgconf)
+resolvePackageConfig :: DynFlags -> PkgConfRef -> IO (Maybe FilePath)
+resolvePackageConfig dflags GlobalPkgConf = return $ Just (systemPackageConfig dflags)
+resolvePackageConfig _ UserPkgConf = handleIO (\_ -> return Nothing) $ do
+  appdir <- getAppUserDataDirectory "ghc"
+  let dir = appdir </> (TARGET_ARCH ++ '-':TARGET_OS ++ '-':cProjectVersion)
+      pkgconf = dir </> "package.conf.d"
+  exist <- doesDirectoryExist pkgconf
+  return $ if exist then Just pkgconf else Nothing
+resolvePackageConfig _ (PkgConfFile name) = return $ Just name
 
 readPackageConfig :: DynFlags -> FilePath -> IO [PackageConfig]
 readPackageConfig dflags conf_file = do
@@ -243,7 +235,11 @@ readPackageConfig dflags conf_file = do
                 "can't find a package database at " ++ conf_file
             debugTraceMsg dflags 2 (text "Using package config file:" <+> text conf_file)
             str <- readFile conf_file
-            return (map installedPackageInfoToPackageConfig $ read str)
+            case reads str of
+                [(configs, rest)]
+                    | all isSpace rest -> return (map installedPackageInfoToPackageConfig configs)
+                _ -> ghcError $ InstallationError $
+                        "invalid package database file " ++ conf_file
 
   let
       top_dir = topDir dflags
@@ -322,16 +318,17 @@ mungePackagePaths top_dir pkgroot pkg =
 -- (-package, -hide-package, -ignore-package).
 
 applyPackageFlag
-   :: UnusablePackages
+   :: DynFlags
+   -> UnusablePackages
    -> [PackageConfig]           -- Initial database
    -> PackageFlag               -- flag to apply
    -> IO [PackageConfig]        -- new database
 
-applyPackageFlag unusable pkgs flag =
+applyPackageFlag dflags unusable pkgs flag =
   case flag of
     ExposePackage str ->
        case selectPackages (matchingStr str) pkgs unusable of
-         Left ps         -> packageFlagErr flag ps
+         Left ps         -> packageFlagErr dflags flag ps
          Right (p:ps,qs) -> return (p':ps')
           where p' = p {exposed=True}
                 ps' = hideAll (pkgName (sourcePackageId p)) (ps++qs)
@@ -339,7 +336,7 @@ applyPackageFlag unusable pkgs flag =
 
     ExposePackageId str ->
        case selectPackages (matchingId str) pkgs unusable of
-         Left ps         -> packageFlagErr flag ps
+         Left ps         -> packageFlagErr dflags flag ps
          Right (p:ps,qs) -> return (p':ps')
           where p' = p {exposed=True}
                 ps' = hideAll (pkgName (sourcePackageId p)) (ps++qs)
@@ -347,7 +344,7 @@ applyPackageFlag unusable pkgs flag =
 
     HidePackage str ->
        case selectPackages (matchingStr str) pkgs unusable of
-         Left ps       -> packageFlagErr flag ps
+         Left ps       -> packageFlagErr dflags flag ps
          Right (ps,qs) -> return (map hide ps ++ qs)
           where hide p = p {exposed=False}
 
@@ -355,13 +352,13 @@ applyPackageFlag unusable pkgs flag =
     -- and leave others the same or set them untrusted
     TrustPackage str ->
        case selectPackages (matchingStr str) pkgs unusable of
-         Left ps       -> packageFlagErr flag ps
+         Left ps       -> packageFlagErr dflags flag ps
          Right (ps,qs) -> return (map trust ps ++ qs)
           where trust p = p {trusted=True}
 
     DistrustPackage str ->
        case selectPackages (matchingStr str) pkgs unusable of
-         Left ps       -> packageFlagErr flag ps
+         Left ps       -> packageFlagErr dflags flag ps
          Right (ps,qs) -> return (map distrust ps ++ qs)
           where distrust p = p {trusted=False}
 
@@ -406,19 +403,20 @@ sortByVersion = sortBy (flip (comparing (pkgVersion.sourcePackageId)))
 comparing :: Ord a => (t -> a) -> t -> t -> Ordering
 comparing f a b = f a `compare` f b
 
-packageFlagErr :: PackageFlag
+packageFlagErr :: DynFlags
+               -> PackageFlag
                -> [(PackageConfig, UnusablePackageReason)]
                -> IO a
 
 -- for missing DPH package we emit a more helpful error message, because
 -- this may be the result of using -fdph-par or -fdph-seq.
-packageFlagErr (ExposePackage pkg) [] | is_dph_package pkg
-  = ghcError (CmdLineError (showSDoc $ dph_err))
+packageFlagErr dflags (ExposePackage pkg) [] | is_dph_package pkg
+  = ghcError (CmdLineError (showSDoc dflags $ dph_err))
   where dph_err = text "the " <> text pkg <> text " package is not installed."
                   $$ text "To install it: \"cabal install dph\"."
         is_dph_package pkg = "dph" `isPrefixOf` pkg
 
-packageFlagErr flag reasons = ghcError (CmdLineError (showSDoc $ err))
+packageFlagErr dflags flag reasons = ghcError (CmdLineError (showSDoc dflags $ err))
   where err = text "cannot satisfy " <> ppr_flag <>
                 (if null reasons then empty else text ": ") $$
               nest 4 (ppr_reasons $$
@@ -758,7 +756,7 @@ mkPackageState dflags pkgs0 preload0 this_package = do
   -- Modify the package database according to the command-line flags
   -- (-package, -hide-package, -ignore-package, -hide-all-packages).
   --
-  pkgs1 <- foldM (applyPackageFlag unusable) pkgs0_unique other_flags
+  pkgs1 <- foldM (applyPackageFlag dflags unusable) pkgs0_unique other_flags
   let pkgs2 = filter (not . (`Map.member` unusable) . installedPackageId) pkgs1
 
   -- Here we build up a set of the packages mentioned in -package
@@ -769,7 +767,9 @@ mkPackageState dflags pkgs0 preload0 this_package = do
   --
   let preload1 = [ installedPackageId p | f <- flags, p <- get_exposed f ]
 
-      get_exposed (ExposePackage   s) = filter (matchingStr s) pkgs2
+      get_exposed (ExposePackage   s)
+         = take 1 $ sortByVersion (filter (matchingStr s) pkgs2)
+         --  -package P means "the latest version of P" (#7030)
       get_exposed (ExposePackageId s) = filter (matchingId  s) pkgs2
       get_exposed _                   = []
 
@@ -786,7 +786,7 @@ mkPackageState dflags pkgs0 preload0 this_package = do
 
       lookupIPID ipid@(InstalledPackageId str)
          | Just pid <- Map.lookup ipid ipid_map = return pid
-         | otherwise                            = missingPackageErr str
+         | otherwise                            = missingPackageErr dflags str
 
   preload2 <- mapM lookupIPID preload1
 
@@ -803,7 +803,7 @@ mkPackageState dflags pkgs0 preload0 this_package = do
                      $ (basicLinkedPackages ++ preload2)
 
   -- Close the preload packages with their dependencies
-  dep_preload <- closeDeps pkg_db ipid_map (zip preload3 (repeat Nothing))
+  dep_preload <- closeDeps dflags pkg_db ipid_map (zip preload3 (repeat Nothing))
   let new_dep_preload = filter (`notElem` preload0) dep_preload
 
   let pstate = PackageState{ preloadPackages     = dep_preload,
@@ -968,20 +968,23 @@ getPreloadPackagesAnd dflags pkgids =
       preload = preloadPackages state
       pairs = zip pkgids (repeat Nothing)
   in do
-  all_pkgs <- throwErr (foldM (add_package pkg_map ipid_map) preload pairs)
+  all_pkgs <- throwErr dflags (foldM (add_package pkg_map ipid_map) preload pairs)
   return (map (getPackageDetails state) all_pkgs)
 
 -- Takes a list of packages, and returns the list with dependencies included,
 -- in reverse dependency order (a package appears before those it depends on).
-closeDeps :: PackageConfigMap
+closeDeps :: DynFlags
+          -> PackageConfigMap
           -> Map InstalledPackageId PackageId
           -> [(PackageId, Maybe PackageId)]
           -> IO [PackageId]
-closeDeps pkg_map ipid_map ps = throwErr (closeDepsErr pkg_map ipid_map ps)
+closeDeps dflags pkg_map ipid_map ps
+    = throwErr dflags (closeDepsErr pkg_map ipid_map ps)
 
-throwErr :: MaybeErr MsgDoc a -> IO a
-throwErr m = case m of
-                Failed e    -> ghcError (CmdLineError (showSDoc e))
+throwErr :: DynFlags -> MaybeErr MsgDoc a -> IO a
+throwErr dflags m
+              = case m of
+                Failed e    -> ghcError (CmdLineError (showSDoc dflags e))
                 Succeeded r -> return r
 
 closeDepsErr :: PackageConfigMap
@@ -1013,8 +1016,9 @@ add_package pkg_db ipid_map ps (p, mb_parent)
               | otherwise
               = Failed (missingPackageMsg str <> missingDependencyMsg mb_parent)
 
-missingPackageErr :: String -> IO a
-missingPackageErr p = ghcError (CmdLineError (showSDoc (missingPackageMsg p)))
+missingPackageErr :: DynFlags -> String -> IO a
+missingPackageErr dflags p
+    = ghcError (CmdLineError (showSDoc dflags (missingPackageMsg p)))
 
 missingPackageMsg :: String -> SDoc
 missingPackageMsg p = ptext (sLit "unknown package:") <+> text p

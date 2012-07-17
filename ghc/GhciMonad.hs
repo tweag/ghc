@@ -37,7 +37,6 @@ import SrcLoc
 import Module
 import ObjLink
 import Linker
-import StaticFlags
 import qualified MonadUtils
 
 import Exception
@@ -53,7 +52,8 @@ import GHC.Exts
 
 import System.Console.Haskeline (CompletionFunc, InputT)
 import qualified System.Console.Haskeline as Haskeline
-import Control.Monad.Trans as Trans
+import Control.Monad.Trans.Class as Trans
+import Control.Monad.IO.Class as Trans
 
 -----------------------------------------------------------------------------
 -- GHCi monad
@@ -65,6 +65,7 @@ data GHCiState = GHCiState
         progname       :: String,
         args           :: [String],
         prompt         :: String,
+        def_prompt     :: String,
         editor         :: String,
         stop           :: String,
         options        :: [GHCiOption],
@@ -75,6 +76,8 @@ data GHCiState = GHCiState
                 -- tickarrays caches the TickArray for loaded modules,
                 -- so that we don't rebuild it each time the user sets
                 -- a breakpoint.
+        -- available ghci commands
+        ghci_commands  :: [Command],
         -- ":" at the GHCi prompt repeats the last command, so we
         -- remember is here:
         last_command   :: Maybe Command,
@@ -97,7 +100,11 @@ data GHCiState = GHCiState
              -- :load, :reload, and :add.  In between it may be modified
              -- by :module.
 
-        ghc_e :: Bool -- True if this is 'ghc -e' (or runghc)
+        ghc_e :: Bool, -- True if this is 'ghc -e' (or runghc)
+
+        -- help text to display to a user
+        short_help :: String,
+        long_help  :: String
      }
 
 type TickArray = Array Int [(BreakIndex,SrcSpan)]
@@ -216,18 +223,22 @@ instance ExceptionMonad GHCi where
 instance MonadIO GHCi where
   liftIO = MonadUtils.liftIO
 
+instance Haskeline.MonadException Ghc where
+  controlIO f = Ghc $ \s -> Haskeline.controlIO $ \(Haskeline.RunIO run) -> let
+                    run' = Haskeline.RunIO (fmap (Ghc . const) . run . flip unGhc s)
+                    in fmap (flip unGhc s) $ f run'
+
 instance Haskeline.MonadException GHCi where
-  catch = gcatch
-  block = gblock
-  unblock = gunblock
-  -- XXX when Haskeline's MonadException changes, we can drop our
-  -- deprecated block/unblock methods
+  controlIO f = GHCi $ \s -> Haskeline.controlIO $ \(Haskeline.RunIO run) -> let
+                    run' = Haskeline.RunIO (fmap (GHCi . const) . run . flip unGHCi s)
+                    in fmap (flip unGHCi s) $ f run'
 
 instance ExceptionMonad (InputT GHCi) where
   gcatch = Haskeline.catch
-  gmask f = Haskeline.block (f Haskeline.unblock) -- slightly wrong
-  gblock = Haskeline.block
-  gunblock = Haskeline.unblock
+  gmask f = Haskeline.liftIOOp gmask (f . Haskeline.liftIOOp_)
+
+  gblock = Haskeline.liftIOOp_ gblock
+  gunblock = Haskeline.liftIOOp_ gunblock
 
 isOptionSet :: GHCiOption -> GHCi Bool
 isOptionSet opt
@@ -247,12 +258,14 @@ unsetOption opt
 printForUser :: GhcMonad m => SDoc -> m ()
 printForUser doc = do
   unqual <- GHC.getPrintUnqual
-  MonadUtils.liftIO $ Outputable.printForUser stdout unqual doc
+  dflags <- getDynFlags
+  MonadUtils.liftIO $ Outputable.printForUser dflags stdout unqual doc
 
 printForUserPartWay :: SDoc -> GHCi ()
 printForUserPartWay doc = do
   unqual <- GHC.getPrintUnqual
-  liftIO $ Outputable.printForUserPartWay stdout opt_PprUserLength unqual doc
+  dflags <- getDynFlags
+  liftIO $ Outputable.printForUserPartWay dflags stdout (pprUserLength dflags) unqual doc
 
 -- | Run a single Haskell expression
 runStmt :: String -> GHC.SingleStep -> GHCi (Maybe GHC.RunResult)
@@ -299,18 +312,19 @@ timeIt action
                   a <- action
                   allocs2 <- liftIO $ getAllocations
                   time2   <- liftIO $ getCPUTime
-                  liftIO $ printTimes (fromIntegral (allocs2 - allocs1))
+                  dflags  <- getDynFlags
+                  liftIO $ printTimes dflags (fromIntegral (allocs2 - allocs1))
                                   (time2 - time1)
                   return a
 
 foreign import ccall unsafe "getAllocations" getAllocations :: IO Int64
         -- defined in ghc/rts/Stats.c
 
-printTimes :: Integer -> Integer -> IO ()
-printTimes allocs psecs
+printTimes :: DynFlags -> Integer -> Integer -> IO ()
+printTimes dflags allocs psecs
    = do let secs = (fromIntegral psecs / (10^(12::Integer))) :: Float
             secs_str = showFFloat (Just 2) secs
-        putStrLn (showSDoc (
+        putStrLn (showSDoc dflags (
                  parens (text (secs_str "") <+> text "secs" <> comma <+>
                          text (show allocs) <+> text "bytes")))
 

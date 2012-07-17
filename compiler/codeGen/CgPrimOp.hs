@@ -404,12 +404,14 @@ emitPrimOp res WriteByteArrayOp_Word16    args _ = doWriteByteArrayOp (Just mo_W
 emitPrimOp res WriteByteArrayOp_Word32    args _ = doWriteByteArrayOp (Just mo_WordTo32) b32  res args
 emitPrimOp res WriteByteArrayOp_Word64    args _ = doWriteByteArrayOp Nothing b64  res args
 
--- Copying byte arrays
+-- Copying and setting byte arrays
 
 emitPrimOp [] CopyByteArrayOp [src,src_off,dst,dst_off,n] live =
     doCopyByteArrayOp src src_off dst dst_off n live
 emitPrimOp [] CopyMutableByteArrayOp [src,src_off,dst,dst_off,n] live =
     doCopyMutableByteArrayOp src src_off dst dst_off n live
+emitPrimOp [] SetByteArrayOp [ba,off,len,c] live =
+    doSetByteArrayOp ba off len c live
 
 -- Population count
 emitPrimOp [res] PopCnt8Op [w] live = emitPopCntCall res w W8 live
@@ -468,6 +470,59 @@ emitPrimOp [res_q, res_r] WordQuotRemOp [arg_x, arg_y] _
                           CmmHinted arg_y NoHint]
                          CmmMayReturn
       in stmtC stmt
+emitPrimOp [res_q, res_r] WordQuotRem2Op [arg_x_high, arg_x_low, arg_y] _
+    = do let ty = cmmExprType arg_x_high
+             shl   x i = CmmMachOp (MO_Shl   wordWidth) [x, i]
+             shr   x i = CmmMachOp (MO_U_Shr wordWidth) [x, i]
+             or    x y = CmmMachOp (MO_Or    wordWidth) [x, y]
+             ge    x y = CmmMachOp (MO_U_Ge  wordWidth) [x, y]
+             ne    x y = CmmMachOp (MO_Ne    wordWidth) [x, y]
+             minus x y = CmmMachOp (MO_Sub   wordWidth) [x, y]
+             times x y = CmmMachOp (MO_Mul   wordWidth) [x, y]
+             zero   = lit 0
+             one    = lit 1
+             negone = lit (fromIntegral (widthInBits wordWidth) - 1)
+             lit i = CmmLit (CmmInt i wordWidth)
+             f :: Int -> CmmExpr -> CmmExpr -> CmmExpr -> FCode [CmmStmt]
+             f 0 acc high _ = return [CmmAssign (CmmLocal res_q) acc,
+                                      CmmAssign (CmmLocal res_r) high]
+             f i acc high low =
+                 do roverflowedBit <- newLocalReg ty
+                    rhigh'         <- newLocalReg ty
+                    rhigh''        <- newLocalReg ty
+                    rlow'          <- newLocalReg ty
+                    risge          <- newLocalReg ty
+                    racc'          <- newLocalReg ty
+                    let high'         = CmmReg (CmmLocal rhigh')
+                        isge          = CmmReg (CmmLocal risge)
+                        overflowedBit = CmmReg (CmmLocal roverflowedBit)
+                    let this = [CmmAssign (CmmLocal roverflowedBit)
+                                          (shr high negone),
+                                CmmAssign (CmmLocal rhigh')
+                                          (or (shl high one) (shr low negone)),
+                                CmmAssign (CmmLocal rlow')
+                                          (shl low one),
+                                CmmAssign (CmmLocal risge)
+                                          (or (overflowedBit `ne` zero)
+                                              (high' `ge` arg_y)),
+                                CmmAssign (CmmLocal rhigh'')
+                                          (high' `minus` (arg_y `times` isge)),
+                                CmmAssign (CmmLocal racc')
+                                          (or (shl acc one) isge)]
+                    rest <- f (i - 1) (CmmReg (CmmLocal racc'))
+                                      (CmmReg (CmmLocal rhigh''))
+                                      (CmmReg (CmmLocal rlow'))
+                    return (this ++ rest)
+         genericImpl <- f (widthInBits wordWidth) zero arg_x_high arg_x_low
+         let stmt = CmmCall (CmmPrim (MO_U_QuotRem2 wordWidth) (Just genericImpl))
+                            [CmmHinted res_q NoHint,
+                             CmmHinted res_r NoHint]
+                            [CmmHinted arg_x_high NoHint,
+                             CmmHinted arg_x_low NoHint,
+                             CmmHinted arg_y NoHint]
+                            CmmMayReturn
+         stmtC stmt
+
 emitPrimOp [res_h, res_l] WordAdd2Op [arg_x, arg_y] _
  = do r1 <- newLocalReg (cmmExprType arg_x)
       r2 <- newLocalReg (cmmExprType arg_x)
@@ -853,6 +908,18 @@ emitCopyByteArray copy src src_off dst dst_off n live = do
     dst_p <- assignTemp $ cmmOffsetExpr (cmmOffsetB dst arrWordsHdrSize) dst_off
     src_p <- assignTemp $ cmmOffsetExpr (cmmOffsetB src arrWordsHdrSize) src_off
     copy src dst dst_p src_p n live
+
+-- ----------------------------------------------------------------------------
+-- Setting byte arrays
+
+-- | Takes a 'MutableByteArray#', an offset into the array, a length,
+-- and a byte, and sets each of the selected bytes in the array to the
+-- character.
+doSetByteArrayOp :: CmmExpr -> CmmExpr -> CmmExpr -> CmmExpr
+                 -> StgLiveVars -> Code
+doSetByteArrayOp ba off len c live
+    = do p <- assignTemp $ cmmOffsetExpr (cmmOffsetB ba arrWordsHdrSize) off
+         emitMemsetCall p c len (CmmLit (mkIntCLit 1)) live
 
 -- ----------------------------------------------------------------------------
 -- Copying pointer arrays

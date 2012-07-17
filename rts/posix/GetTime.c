@@ -33,6 +33,21 @@
 // we'll implement getProcessCPUTime() and getProcessElapsedTime()
 // separately, using getrusage() and gettimeofday() respectively
 
+#ifdef darwin_HOST_OS
+static uint64_t timer_scaling_factor_numer = 0;
+static uint64_t timer_scaling_factor_denom = 0;
+#endif
+
+void initializeTimer()
+{
+#ifdef darwin_HOST_OS
+    mach_timebase_info_data_t info;
+    (void) mach_timebase_info(&info);
+    timer_scaling_factor_numer = (uint64_t)info.numer;
+    timer_scaling_factor_denom = (uint64_t)info.denom;
+#endif
+}
+
 Time getProcessCPUTime(void)
 {
 #if !defined(BE_CONSERVATIVE) && defined(HAVE_CLOCK_GETTIME) && defined (_SC_CPUTIME) && defined(CLOCK_PROCESS_CPUTIME_ID) && defined(HAVE_SYSCONF)
@@ -64,30 +79,29 @@ Time getProcessCPUTime(void)
     }
 }
 
-Time getProcessElapsedTime(void)
+StgWord64 getMonotonicNSec(void)
 {
 #ifdef HAVE_CLOCK_GETTIME
     struct timespec ts;
 
     clock_gettime(CLOCK_ID, &ts);
-    return SecondsToTime(ts.tv_sec) + NSToTime(ts.tv_nsec);
+    return (StgWord64)ts.tv_sec * 1000000000 +
+           (StgWord64)ts.tv_nsec;
 #elif defined(darwin_HOST_OS)
     uint64_t time = mach_absolute_time();
-    static double scaling_factor = 0.0;
-
-    if (scaling_factor == 0.0) {
-        mach_timebase_info_data_t info;
-        (void) mach_timebase_info(&info);
-        scaling_factor = (double)info.numer / (double)info.denom;
-    }
-
-    return (Time)((double)time * scaling_factor);
+    return (time * timer_scaling_factor_numer) / timer_scaling_factor_denom;
 #else
     struct timeval tv;
 
     gettimeofday(&tv, (struct timezone *) NULL);
-    return SecondsToTime(tv.tv_sec) + USToTime(tv.tv_usec);
+    return (StgWord64)tv.tv_sec * 1000000000 +
+           (StgWord64)tv.tv_usec * 1000;
 #endif
+}
+
+Time getProcessElapsedTime(void)
+{
+    return NSToTime(getMonotonicNSec());
 }
 
 void getProcessTimes(Time *user, Time *elapsed)

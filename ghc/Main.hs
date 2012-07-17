@@ -24,12 +24,13 @@ import HscMain          ( newHscEnv )
 import DriverPipeline   ( oneShot, compileFile )
 import DriverMkDepend   ( doMkDependHS )
 #ifdef GHCI
-import InteractiveUI    ( interactiveUI, ghciWelcomeMsg )
+import InteractiveUI    ( interactiveUI, ghciWelcomeMsg, defaultGhciSettings )
 #endif
 
 
 -- Various other random stuff that we need
 import Config
+import Constants
 import HscTypes
 import Packages         ( dumpPackages )
 import DriverPhases     ( Phase(..), isSourceFilename, anyHsc,
@@ -78,7 +79,8 @@ import Data.Maybe
 main :: IO ()
 main = do
    hSetBuffering stdout NoBuffering
-   GHC.defaultErrorHandler defaultLogAction defaultFlushOut $ do
+   hSetBuffering stderr NoBuffering
+   GHC.defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
     -- 1. extract the -B flag from the args
     argv0 <- getArgs
 
@@ -166,6 +168,8 @@ main' postLoadMode dflags0 args flagWarnings = do
         -- Leftover ones are presumably files
   (dflags2, fileish_args, dynamicFlagWarnings) <- GHC.parseDynamicFlags dflags1a args
 
+  GHC.prettyPrintGhcErrors dflags2 $ do
+
   let flagWarnings' = flagWarnings ++ dynamicFlagWarnings
 
   handleSourceError (\e -> do
@@ -213,16 +217,17 @@ main' postLoadMode dflags0 args flagWarnings = do
        DoMake                 -> doMake srcs
        DoMkDependHS           -> doMkDependHS (map fst srcs)
        StopBefore p           -> liftIO (oneShot hsc_env p srcs)
-       DoInteractive          -> interactiveUI srcs Nothing
-       DoEval exprs           -> interactiveUI srcs $ Just $ reverse exprs
+       DoInteractive          -> ghciUI srcs Nothing
+       DoEval exprs           -> ghciUI srcs $ Just $ reverse exprs
        DoAbiHash              -> abiHash srcs
 
   liftIO $ dumpFinalStats dflags3
 
+ghciUI :: [(FilePath, Maybe Phase)] -> Maybe [String] -> Ghc ()
 #ifndef GHCI
-interactiveUI :: b -> c -> Ghc ()
-interactiveUI _ _ =
-  ghcError (CmdLineError "not built for interactive use")
+ghciUI _ _ = ghcError (CmdLineError "not built for interactive use")
+#else
+ghciUI     = interactiveUI defaultGhciSettings
 #endif
 
 -- -----------------------------------------------------------------------------
@@ -767,7 +772,7 @@ abiHash strs = do
          r <- findImportedModule hsc_env modname Nothing
          case r of
            Found _ m -> return m
-           _error    -> ghcError $ CmdLineError $ showSDoc $
+           _error    -> ghcError $ CmdLineError $ showSDoc dflags $
                           cannotFindInterface dflags modname r
 
   mods <- mapM find_it (map fst strs)
@@ -776,13 +781,13 @@ abiHash strs = do
   ifaces <- initIfaceCheck hsc_env $ mapM get_iface mods
 
   bh <- openBinMem (3*1024) -- just less than a block
-  put_ bh opt_HiVersion
+  put_ bh hiVersion
     -- package hashes change when the compiler version changes (for now)
     -- see #5328
   mapM_ (put_ bh . mi_mod_hash) ifaces
   f <- fingerprintBinMem bh
 
-  putStrLn (showSDoc (ppr f))
+  putStrLn (showPpr dflags f)
 
 -- -----------------------------------------------------------------------------
 -- Util
