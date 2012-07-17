@@ -44,6 +44,7 @@ import FastString
 import Outputable
 import DynFlags
 import Data.List        ( partition, mapAccumL )
+import UniqFM
 \end{code}
 
 %************************************************************************
@@ -410,9 +411,9 @@ mkHoleDeferredError ctxt ct@(CHoleCan { cc_ev = fl, cc_hole_ty = ty })
        ; (env2, zonked_ty) <- zonkTidyTcType env0 ty
        ; let (env3, tyvars) = tidyOpenTyVars env2 $ varSetElems zonked_vars
        ; tyvars_msg <- mapM locMsg tyvars
-       ; let msg = addArising orig $ (text "Found hole _ with type") <+> pprType zonked_ty
-                                  $$ (text "In scope:" <+> ppr lenv)
+       ; let msg = addArising orig $ (text "Found hole" <+> quotes (text "_") <+> text "with type") <+> pprType zonked_ty
                                   $$ (if not $ null tyvars then text "Where:" <+> sep tyvars_msg else empty)
+                                  $$ (if not $ isNullUFM lenv then text "In scope:" <+> ppr lenv else empty)
        ; mkErrorReport ctxt msg
        }
   where
@@ -422,7 +423,7 @@ mkHoleDeferredError ctxt ct@(CHoleCan { cc_ev = fl, cc_hole_ty = ty })
                     MetaTv {} -> do { tyvar <- readMetaTyVar tv
                                     ; case tyvar of
                                         (Indirect ty) -> return $ (quotes $ pprType ty) <+> ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
-                                        Flexi -> return $ (quotes $ ppr tv) <+> text "is a free type variable."
+                                        Flexi -> return $ (quotes $ ppr tv) <+> text "is a free type variable"
                                     }
                     det -> return $ ppr det
     ppr_skol given_loc tv_loc

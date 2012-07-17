@@ -1556,7 +1556,7 @@ pprO ProcOrigin	           = ptext (sLit "a proc expression")
 pprO (TypeEqOrigin eq)     = ptext (sLit "an equality") <+> ppr eq
 pprO AnnOrigin             = ptext (sLit "an annotation")
 pprO FunDepOrigin          = ptext (sLit "a functional dependency")
-pprO (HoleOrigin _)     = hsep [ptext (sLit "a use of the hole \"_\"")]
+pprO (HoleOrigin _)     = hsep [ptext (sLit "a use of the hole") <+> quotes (ptext $ sLit "_")]
 
 instance Outputable EqOrigin where
   ppr (UnifyOrigin t1 t2) = ppr t1 <+> char '~' <+> ppr t2
