@@ -433,7 +433,7 @@ data InertCans
               -- Family equations, index is the whole family head type.
        , inert_irreds :: Cts       
               -- Irreducible predicates
-       , inert_holes :: CCanMap Name
+       , inert_holes :: Cts
        }
     
                      
@@ -531,7 +531,7 @@ instance Outputable InertCans where
                  , vcat (map ppr (Bag.bagToList $ 
                                   ctTypeMapCts (unFamHeadMap $ inert_funeqs ics)))
                  , vcat (map ppr (Bag.bagToList $ inert_irreds ics))
-                 , vcat (map ppr (Bag.bagToList $ cCanMapToBag (inert_holes ics)))
+                 , vcat (map ppr (Bag.bagToList $ inert_holes ics))
                  ]
             
 instance Outputable InertSet where 
@@ -548,9 +548,9 @@ emptyInert
   = IS { inert_cans = IC { inert_eqs    = emptyVarEnv
                          , inert_eq_tvs = emptyInScopeSet
                          , inert_dicts  = emptyCCanMap
-                         , inert_funeqs = CtFamHeadMap emptyTM 
+                         , inert_funeqs = FamHeadMap emptyTM 
                          , inert_irreds = emptyCts
-                         , inert_holes  = emptyCCanMap }
+                         , inert_holes  = emptyCts }
        , inert_frozen        = emptyCts
        , inert_flat_cache    = FamHeadMap emptyTM
        , inert_solved        = PredMap emptyTM 
@@ -595,8 +595,8 @@ updInertSet is item
                 
             in ics { inert_eqs = eqs', inert_eq_tvs = inscope' }
 
-          | Just x <- isCHoleCan_Maybe item
-          = ics { inert_holes = updCCanMap (x,item) (inert_holes ics) }
+          | isCHoleCan item
+          = ics { inert_holes = inert_holes ics `Bag.snocBag` item }
 
           | isCIrredEvCan item                  -- Presently-irreducible evidence
           = ics { inert_irreds = inert_irreds ics `Bag.snocBag` item }
@@ -701,7 +701,7 @@ extractUnsolved (IS { inert_cans = IC { inert_eqs    = eqs
                                           , inert_dicts  = solved_dicts
                                           , inert_irreds = solved_irreds
                                           , inert_funeqs = solved_funeqs
-                                          , inert_holes  = solved_holes }
+                                          , inert_holes  = emptyCts }
                         , inert_frozen = emptyCts -- All out
                                          
                               -- At some point, I used to flush all the solved, in 
@@ -721,10 +721,8 @@ extractUnsolved (IS { inert_cans = IC { inert_eqs    = eqs
         (unsolved_dicts, solved_dicts)   = extractUnsolvedCMap dicts
         (unsolved_funeqs, solved_funeqs) = partCtFamHeadMap (not . isGivenCt) funeqs
 
-        (unsolved_holes, solved_holes)   = extractUnsolvedCMap holes
-
         unsolved = unsolved_eqs `unionBags` unsolved_irreds `unionBags`
-                   unsolved_dicts `unionBags` unsolved_funeqs `unionBags` unsolved_holes
+                   unsolved_dicts `unionBags` unsolved_funeqs `unionBags` holes
 
 
 
@@ -753,9 +751,9 @@ extractRelevantInerts wi
                     Nothing -> (emptyCts, funeq_map)
                     Just ct -> (singleCt ct, new_funeq_map)
             in (cts, ics { inert_funeqs = FamHeadMap feqs_map })
-        extract_ics_relevants (CHoleCan { cc_hole_nm = nm } ) ics = 
-            let (cts, holes_map) = getRelevantCts nm (inert_holes ics) 
-            in (cts, ics { inert_holes = holes_map })
+        extract_ics_relevants (CHoleCan {}) ics = 
+            let cts = inert_holes ics
+            in (cts, ics { inert_holes = emptyCts })
         extract_ics_relevants (CIrredEvCan { }) ics = 
             let cts = inert_irreds ics 
             in (cts, ics { inert_irreds = emptyCts })

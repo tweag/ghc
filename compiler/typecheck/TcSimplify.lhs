@@ -385,7 +385,7 @@ simplifyInfer _top_lvl apply_mr name_taus (untch,wanteds)
 
               -- Step 6) Final candidates for quantification                
        ; let final_quant_candidates :: Bag PredType
-             final_quant_candidates = mapBag ctPred $ 
+             final_quant_candidates = mapBag ctPred $ filterBag (not.isCHoleCan) $
                                       keepWanted (wc_flat quant_candidates_transformed)
              -- NB: Already the fixpoint of any unifications that may have happened
                   
@@ -454,11 +454,9 @@ simplifyInfer _top_lvl apply_mr name_taus (untch,wanteds)
              vcat [ ptext (sLit "implic =") <+> ppr implic
                        -- ic_skols, ic_given give rest of result
                   , ptext (sLit "qtvs =") <+> ppr qtvs_to_return
-                  , ptext (sLit "spb =") <+> ppr zonked_flats
                   , ptext (sLit "ctvs =") <+> ppr constrained_tvs
                   , ptext (sLit "ptvs =") <+> ppr poly_qtvs
                   , ptext (sLit "bound =") <+> ppr bound
-                  , ptext (sLit "simpl_results =") <+> ppr simpl_results ]
                   , ptext (sLit "spb =") <+> ppr final_quant_candidates
                   , ptext (sLit "bound =") <+> ppr bound ]
 
@@ -557,12 +555,9 @@ quantifyMe :: TyVarSet      -- Quantifying over these
 	   -> a -> Bool	    -- True <=> quantify over this wanted
 quantifyMe qtvs toPred ct
   | isIPPred pred = True  -- Note [Inheriting implicit parameters]
-  | isHoleCt ct = False
   | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
   where
-    pred = ctPred ct
-    isHoleCt (CHoleCan {}) = True
-    isHoleCt _ = False
+    pred = toPred ct
 \end{code}
 
 Note [Avoid unecessary constraint simplification]

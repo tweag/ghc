@@ -403,7 +403,7 @@ kick_out_rewritable ct is@(IS { inert_cans =
     fl = cc_ev ct
     tv = cc_tyvar ct
 
-    (holes_out, holes_in)   = partitionCCanMap rewritable holemap
+    (holes_out, holes_in)   = partitionBag rewritable holemap
 
     (feqs_out,  feqs_in)    = partCtFamHeadMap rewritable funeqmap
     (dicts_out, dicts_in)   = partitionCCanMap rewritable dictmap
@@ -835,36 +835,6 @@ doInteractWithInert ii@(CFunEqCan { cc_ev = fl1, cc_fun = tc1
     co2 = evTermCoercion $ ctEvTerm fl2
     mk_sym_co x = mkTcSymCo (evTermCoercion x)
 
-doInteractWithInert (CHoleCan fl1 nm1 ty1 d1) workitem@(CHoleCan fl2 nm2 ty2 d2)
-  | nm1 == nm2 && isGivenOrSolved fl2 && isGivenOrSolved fl1
-  = irInertConsumed "Hole/Hole (override inert)"
-  | nm1 == nm2 && ty1 `eqType` ty2 
-  = solveOneFromTheOther "Hole/Hole" fl1 workitem
-
-  | nm1 == nm2
-  = do { mb_eqv <- newWantedEvVar (mkEqPred ty2 ty1)
-         -- co :: ty2 ~ ty1, see Note [Efficient orientation]
-       ; cv <- case mb_eqv of
-                 Fresh eqv  -> 
-                   do { updWorkListTcS $ extendWorkListEq $ 
-                        CNonCanonical { cc_flavor = Wanted new_wloc eqv
-                                      , cc_depth = cc_depth workitem }
-                      ; return eqv }
-                 Cached eqv -> return eqv
-       ; case fl2 of
-            Wanted  {} ->
-              let hole_co = mkTcCoVarCo cv
-              in do { setEvBind (ctId workitem) $
-                      mkEvCast (flav_evar fl1) (mkTcSymCo hole_co)
-                    ; irWorkItemConsumed "Hole/Hole (solved by rewriting)" }
-            _ -> pprPanic "Unexpected Hole constraint" (ppr workitem) }
-  where new_wloc
-          | Wanted wl _  <- fl2 = wl
-          | Derived wl _ <- fl2 = wl
-          | Wanted wl _  <- fl1 = wl
-          | Derived wl _ <- fl1 = wl
-          | otherwise = panic "Solve Hole: no WantedLoc!"
-    
 doInteractWithInert _ _ = irKeepGoing "NOP"
 
 \end{code}

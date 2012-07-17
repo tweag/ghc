@@ -56,7 +56,7 @@ module TcRnTypes(
         singleCt, extendCts, isEmptyCts, isCTyEqCan, isCFunEqCan,
         isCDictCan_Maybe, isCFunEqCan_Maybe,
         isCIrredEvCan, isCNonCanonical, isWantedCt, isDerivedCt, 
-        isGivenCt, 
+        isGivenCt, isCHoleCan,
         ctWantedLoc, ctEvidence,
         SubGoalDepth, mkNonCanonical, ctPred, ctEvPred, ctEvTerm, ctEvId,
 
@@ -908,9 +908,7 @@ data Ct
     }
 
   | CHoleCan {
-      -- cc_id       :: EvVar,
-      cc_flavor   :: CtFlavor,
-      cc_hole_nm  :: Name,
+      cc_ev       :: CtEvidence,
       cc_hole_ty  :: TcTauType, -- Not a Xi! See same not as above
       cc_depth    :: SubGoalDepth        -- See Note [WorkList]
     }
@@ -1001,9 +999,6 @@ isCHoleCan :: Ct -> Bool
 isCHoleCan (CHoleCan {}) = True
 isCHoleCan _ = False
 
-isCHoleCan_Maybe :: Ct -> Maybe Name
-isCHoleCan_Maybe (CHoleCan { cc_hole_nm = nm }) = Just nm
-isCHoleCan_Maybe _ = Nothing
 \end{code}
 
 \begin{code}
@@ -1523,7 +1518,7 @@ data CtOrigin
   | ProcOrigin		-- Arising from a proc expression
   | AnnOrigin           -- An annotation
   | FunDepOrigin
-  | HoleOrigin Name TcTypeEnv
+  | HoleOrigin TcTypeEnv
 
 data EqOrigin 
   = UnifyOrigin 
@@ -1561,7 +1556,7 @@ pprO ProcOrigin	           = ptext (sLit "a proc expression")
 pprO (TypeEqOrigin eq)     = ptext (sLit "an equality") <+> ppr eq
 pprO AnnOrigin             = ptext (sLit "an annotation")
 pprO FunDepOrigin          = ptext (sLit "a functional dependency")
-pprO (HoleOrigin nm _)     = hsep [ptext (sLit "a use of the hole"), quotes (ppr nm)]
+pprO (HoleOrigin _)     = hsep [ptext (sLit "a use of the hole \"_\"")]
 
 instance Outputable EqOrigin where
   ppr (UnifyOrigin t1 t2) = ppr t1 <+> char '~' <+> ppr t2

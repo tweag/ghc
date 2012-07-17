@@ -494,11 +494,6 @@ rnContext doc (L loc cxt)
        ; return (L loc cxt', fvs) }
 \end{code}
 
-\begin{code}
-rnHoleName :: SrcSpan -> Maybe RdrName -> RnM Name
-rnHoleName srcspan n = newHoleName srcspan (fmap rdrNameOcc n)
-\end{code}
-
 
 %************************************************************************
 %*									*

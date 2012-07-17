@@ -620,7 +620,7 @@ zonkCt :: Ct -> TcM Ct
 -- Zonking a Ct conservatively gives back a CNonCanonical
 zonkCt ct
   | isCHoleCan ct = do { fl' <- zonkCtEvidence (cc_ev ct)
-                       ; return $ ct { cc_flavor = fl' } }
+                       ; return $ ct { cc_ev = fl' } }
   | otherwise     = do { fl' <- zonkCtEvidence (cc_ev ct)
                        ; return $ 
                          CNonCanonical { cc_ev = fl'

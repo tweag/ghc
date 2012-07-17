@@ -158,23 +158,16 @@ reportTidyWanteds ctxt insols flats implics
        else 
        do {
             ; traceTc "reportTidyWanteds" (ppr $ flats `unionBags` insols)
-            ; mapBagM_ (deferToRuntime ev_binds_var ctxt (mkHoleDeferredError deferred))
+            ; mapBagM_ (deferToRuntime ev_binds_var ctxt mkHoleDeferredError)
                        holes
-            ; mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr)
-                       (filterBag (\x -> isDeferred x && (not $ isHole x)) (flats `unionBags` insols))
-            ; reportInsolsAndFlats ctxt (filterBag (not.isDeferred) insols) (filterBag (not.isDeferred) flats)
+            ; reportInsolsAndFlats ctxt (filterBag (not.isHole) insols) (filterBag (not.isHole) flats)
             ; mapBagM_ (reportImplic ctxt) implics
           }
      }
-       where isDeferred ct = case ct of
-                            CHoleCan {}  -> True
-                            --CClass {} -> any (`elemBag` holeTyVars) (varSetElems $ tyVarsOfCt ct)
-                            _            -> False
-             isHole ct = case ct of
+       where isHole ct = case ct of
                             CHoleCan {} -> True
                             _           -> False
              holeTyVars = concatBag $ mapBag (listToBag . varSetElems . tyVarsOfCt) $ holes
-             deferred = filterBag isDeferred (flats `unionBags` insols)
              holes = filterBag isHole (flats `unionBags` insols)
              
 
@@ -409,31 +402,27 @@ mkIrredErr ctxt cts
 \end{code}
 
 \begin{code}
-mkHoleDeferredError :: Bag Ct -> ReportErrCtxt -> Ct -> TcM ErrMsg
-mkHoleDeferredError allcts ctxt ct@(CHoleCan { cc_hole_nm = nm, cc_flavor = fl, cc_hole_ty = ty })
-  = do { traceTc "mkHoleDeferredError" (ppr $ tyVarsOfCt ct)
-       ; let env0 = cec_tidy ctxt
+mkHoleDeferredError :: ReportErrCtxt -> Ct -> TcM ErrMsg
+mkHoleDeferredError ctxt ct@(CHoleCan { cc_ev = fl, cc_hole_ty = ty })
+  = do { let env0 = cec_tidy ctxt
        ; let vars = tyVarsOfCt ct
        ; zonked_vars <- zonkTyVarsAndFV vars
-       --; let env1 = tidyFreeTyVars env0 zonked_vars
        ; (env2, zonked_ty) <- zonkTidyTcType env0 ty
        ; let (env3, tyvars) = tidyOpenTyVars env2 $ varSetElems zonked_vars
        ; tyvars_msg <- mapM locMsg tyvars
-       ; let msg = addArising orig $ (text "Found hole") <+> ppr nm <+> text "with type" <+> pprType zonked_ty
+       ; let msg = addArising orig $ (text "Found hole _ with type") <+> pprType zonked_ty
                                   $$ (text "In scope:" <+> ppr lenv)
-                                  $$ (text "Where:" <+> sep tyvars_msg)
+                                  $$ (if not $ null tyvars then text "Where:" <+> sep tyvars_msg else empty)
        ; mkErrorReport ctxt msg
        }
   where
-    orig@(HoleOrigin _ lenv)    = ctLocOrigin (ctWantedLoc ct)
-    relevant = mapBag ctPred $ filterBag isRelevant allcts
-    isRelevant ct' = case classifyPredType (ctPred ct') of
-                      ClassPred {} -> any (`elem` (varSetElems $ tyVarsOfCt ct)) (varSetElems $ tyVarsOfCt ct')
-                      _ -> False
+    orig@(HoleOrigin lenv) = ctLocOrigin (ctWantedLoc ct)
     locMsg tv = case tcTyVarDetails tv of
                     SkolemTv {} -> return $ (quotes $ ppr tv) <+> ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
-                    MetaTv {} -> do { (Indirect ty) <- readMetaTyVar tv
-                                    ; return $ (quotes $ pprType ty) <+> ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
+                    MetaTv {} -> do { tyvar <- readMetaTyVar tv
+                                    ; case tyvar of
+                                        (Indirect ty) -> return $ (quotes $ pprType ty) <+> ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
+                                        Flexi -> return $ (quotes $ ppr tv) <+> text "is a free type variable."
                                     }
                     det -> return $ ppr det
     ppr_skol given_loc tv_loc

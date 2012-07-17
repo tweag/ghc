@@ -300,11 +300,8 @@ rnExpr (PArrSeq _ seq)
   = rnArithSeq seq	 `thenM` \ (new_seq, fvs) ->
     return (PArrSeq noPostTcExpr new_seq, fvs)
 
-rnExpr (HsHole name)
-  = do { srcspan <- getSrcSpanM
-       ; name' <- rnHoleName srcspan (Just name)
-       ; return (HsHole name', emptyFVs)
-       }
+rnExpr HsHole
+  = return (HsHole, emptyFVs)
 \end{code}
 
 These three are pattern syntax appearing in expressions.
@@ -313,13 +310,9 @@ We return a (bogus) EWildPat in each case.
 
 \begin{code}
 rnExpr e@EWildPat      = do { holes <- xoptM Opt_Holes
-                            ; if holes then do { srcspan <- getSrcSpanM
-                                               ; name' <- rnHoleName srcspan Nothing
-                                               ; return (HsHole name', emptyFVs)
-                                               }
+                            ; if holes then return (HsHole, emptyFVs)
                               else patSynErr e
                             }
--- rnExpr e@EWildPat      = patSynErr e
 rnExpr e@(EAsPat {})   = patSynErr e
 rnExpr e@(EViewPat {}) = patSynErr e
 rnExpr e@(ELazyPat {}) = patSynErr e

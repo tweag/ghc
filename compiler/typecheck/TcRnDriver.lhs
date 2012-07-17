@@ -1543,42 +1543,11 @@ tcRnExpr hsc_env ictxt rdr_expr
 
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
     
-    traceRn (text "tcRnExpr2:" <+> (ppr lie_top)) ;
-
-    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts' res_ty) } ;
+    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     result <- zonkTcType all_expr_ty ;
 
-
-    zonked_holes <- zonkHoles $ map (apsnd (mkForAllTys qtvs) . apsnd (mkPiTypes dicts') . unwrapHole . varType) $ holes ;
-
-    let { (env, tidied_holes) = apsnd (map (apsnd split)) $ foldr tidy (emptyTidyEnv, []) zonked_holes } ;
-
-    liftIO $ putStrLn $ showSDoc ((ptext $ sLit "Found the following holes: ")
-                                $+$ (vcat $ map (\(nm, ty) -> text "_?" <> ppr nm <+> colon <> colon <+> ppr ty) tidied_holes));
-
-    return $ snd $ tidyOpenType env result
+    return $ snd $ tidyOpenType emptyTidyEnv result
     }
-    where tidy (nm, ty) (env, tys) = let (env', ty') = tidyOpenType env ty
-                                     in (env', (nm, ty') : tys)
-
-          split t = let (_, ctxt, ty') = tcSplitSigmaTy $ tidyTopType t
-                    in mkPhiTy ctxt ty'
-
-          splitEvs [] hls dcts = (hls, dcts)
-          splitEvs (evvar:xs) hls dcts = case classifyPredType $ varType evvar of
-								    		--HolePred {} -> splitEvs xs (evvar:hls) dcts
-								    		_ -> splitEvs xs hls (evvar:dcts)
-          -- unwrap what was wrapped in mkHolePred
-          unwrapHole (TyConApp nm [ty]) = (nm, ty)
-
-          -- zonk the holes, but keep the name
-          zonkHoles = mapM (\(nm, ty) -> liftM (\t -> (nm, t)) $ zonkTcType ty)
-
-          apsnd f (a, b) = (a, f b)
-
-          f (_, b) = let (Just (ATyCon tc)) = wiredInNameTyThing_maybe b
-                         (Just (_, ty, _)) = trace ("unwrapNewTyCon_maybe" ++ (showSDoc $ ppr tc)) $ unwrapNewTyCon_maybe tc
-          			 in (b, ty)
 
 --------------------------
 tcRnImportDecls :: HscEnv

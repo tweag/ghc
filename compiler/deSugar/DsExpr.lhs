@@ -217,8 +217,7 @@ dsExpr (HsLamCase arg matches@(MatchGroup _ rhs_ty))
 dsExpr (HsApp fun arg)
   = mkCoreAppDs <$> dsLExpr fun <*>  dsLExpr arg
 
-dsExpr (HsHole nm)
-  = return (Var nm)
+dsExpr HsHole = panic "dsExpr: HsHole"
 \end{code}
 
 Note [Desugaring vars]

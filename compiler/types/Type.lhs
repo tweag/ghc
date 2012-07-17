@@ -151,7 +151,6 @@ import Class
 import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, mkBoxedTupleTy )
-import Name
 import PrelNames	         ( eqTyConKey, ipClassName )
 
 -- others
