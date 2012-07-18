@@ -12,8 +12,8 @@
 -- for details
 
 module RnTypes ( 
-        -- Type related stuff
-        rnHsType, rnLHsType, rnLHsTypes, rnContext,
+	-- Type related stuff
+	rnHsType, rnLHsType, rnLHsTypes, rnContext,
         rnHsKind, rnLHsKind, rnLHsMaybeKind,
 	rnHsSigType, rnLHsInstType, rnConDeclFields,
         newTyVarNameRn,
