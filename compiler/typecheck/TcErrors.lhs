@@ -72,10 +72,7 @@ reportUnsolved runtimeCoercionErrors wanted
          wanted  <- zonkWC wanted
 
        ; env0 <- tcInitTidyEnv
-       ; defer <- newTcEvBinds -- if runtimeCoercionErrors 
-                  -- then do { ev <- newTcEvBinds
-                  --        ; return (Just ev) }
-                  -- else return Nothing
+       ; defer <- newTcEvBinds
 
        ; errs_so_far <- ifErrsM (return True) (return False)
        ; let tidy_env = tidyFreeTyVars env0 free_tvs
@@ -159,8 +156,7 @@ reportTidyWanteds ctxt insols flats implics
           }
        else 
        do {
-            ; traceTc "reportTidyWanteds" (ppr $ cec_tidy ctxt)
-            ; mapBagM_ (deferToRuntime ev_binds_var ctxt mkHoleDeferredError)
+              mapBagM_ (deferToRuntime ev_binds_var ctxt mkHoleDeferredError)
                        holes
             ; reportInsolsAndFlats ctxt (filterBag (not.isHole) insols) (filterBag (not.isHole) flats)
             ; mapBagM_ (reportImplic ctxt) implics
@@ -409,21 +405,21 @@ mkHoleDeferredError ctxt ct@(CHoleCan {})
        ; let vars = tyVarsOfCt ct
 
        ; zonked_vars <- zonkTyVarsAndFV vars
-       
+
        ; (env1, zonked_ty) <- zonkTidyTcType env0 (cc_hole_ty ct)
-       
+
        ; let (env2, tyvars) = tidyOpenTyVars env1 (varSetElems zonked_vars)
-       
+
        ; tyvars_msg <- mapM loc_msg tyvars
-       
+
        ; (env3, lenv_msg) <- ppr_localenv lenv env2
 
        ; traceTc "mkHoleDeferredError" (ppr env3)
-       
+
        ; let msg = (text "Found hole" <+> quotes (text "_") <+> text "with type") <+> pprType zonked_ty
                    $$ (if null tyvars_msg then empty else text "Where:" <+> vcat tyvars_msg)
                    $$ (if null lenv_msg then empty else text "In scope:" <+> vcat lenv_msg)
-       
+
        ; mkErrorReport ctxt msg
        }
   where
@@ -437,7 +433,7 @@ mkHoleDeferredError ctxt ct@(CHoleCan {})
                                     }
                     det -> return $ ppr det
                 where skol_msg = ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
-    
+
     ppr_skol given_loc tv_loc = case skol_info of
          UnkSkol -> ptext (sLit "is an unknown type variable")
          _ -> sep [ ptext (sLit "is a rigid type variable bound by"),
@@ -453,7 +449,7 @@ mkHoleDeferredError ctxt ct@(CHoleCan {})
                             where tidy_bind (tidyenv, docs) (nm, ty) = do { (newtidyenv, zonked_ty) <- zonkTidyTcType tidyenv ty
                                                                           ; return (newtidyenv, (nm, zonked_ty):docs)
                                                                           }
-    
+
     get_thing :: TcTyThing -> Maybe (Var, TcType)
     get_thing (ATcId thing_id NotTopLevel _) = Just (thing_id, varType thing_id)
     get_thing _ = Nothing
@@ -1064,7 +1060,6 @@ findGlobals ctxt tvs
   = do { lcl_ty_env <- case cec_encl ctxt of 
                         []    -> getLclTypeEnv
                         (i:_) -> return (ic_env i)
-       ; traceTc "findGlobals" (ppr lcl_ty_env)
        ; go (cec_tidy ctxt) [] (nameEnvElts lcl_ty_env) }
   where
     go tidy_env acc [] = return (ctxt { cec_tidy = tidy_env }, acc)

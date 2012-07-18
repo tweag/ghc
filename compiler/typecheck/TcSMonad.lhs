@@ -365,6 +365,7 @@ extractUnsolvedCMap cmap =
   in (wntd `unionBags` derd, 
       cmap { cts_wanted = emptyUFM, cts_derived = emptyUFM })
 
+
 -- Maps from PredTypes to Constraints
 type CtTypeMap    = TypeMap    Ct
 type CtPredMap    = PredMap    Ct
@@ -751,7 +752,7 @@ extractRelevantInerts wi
                     Nothing -> (emptyCts, funeq_map)
                     Just ct -> (singleCt ct, new_funeq_map)
             in (cts, ics { inert_funeqs = FamHeadMap feqs_map })
-        extract_ics_relevants (CHoleCan {}) ics = 
+        extract_ics_relevants (CHoleCan {}) ics =
             let cts = inert_holes ics
             in (cts, ics { inert_holes = emptyCts })
         extract_ics_relevants (CIrredEvCan { }) ics = 

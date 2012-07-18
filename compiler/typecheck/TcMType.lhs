@@ -622,7 +622,7 @@ zonkCt ct
   | isCHoleCan ct = do { fl' <- zonkCtEvidence (cc_ev ct)
                        ; return $ ct { cc_ev = fl' } }
   | otherwise     = do { fl' <- zonkCtEvidence (cc_ev ct)
-                       ; return $ 
+                       ; return $
                          CNonCanonical { cc_ev = fl'
                                        , cc_depth = cc_depth ct } }
 

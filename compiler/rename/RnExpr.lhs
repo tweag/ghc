@@ -310,8 +310,9 @@ We return a (bogus) EWildPat in each case.
 
 \begin{code}
 rnExpr e@EWildPat      = do { holes <- xoptM Opt_Holes
-                            ; if holes then return (HsHole, emptyFVs)
-                              else patSynErr e
+                            ; if holes
+                                then return (HsHole, emptyFVs)
+                                else patSynErr e
                             }
 rnExpr e@(EAsPat {})   = patSynErr e
 rnExpr e@(EViewPat {}) = patSynErr e

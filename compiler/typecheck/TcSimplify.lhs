@@ -454,9 +454,6 @@ simplifyInfer _top_lvl apply_mr name_taus (untch,wanteds)
              vcat [ ptext (sLit "implic =") <+> ppr implic
                        -- ic_skols, ic_given give rest of result
                   , ptext (sLit "qtvs =") <+> ppr qtvs_to_return
-                  , ptext (sLit "ctvs =") <+> ppr constrained_tvs
-                  , ptext (sLit "ptvs =") <+> ppr poly_qtvs
-                  , ptext (sLit "bound =") <+> ppr bound
                   , ptext (sLit "spb =") <+> ppr final_quant_candidates
                   , ptext (sLit "bound =") <+> ppr bound ]
 

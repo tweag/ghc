@@ -42,7 +42,7 @@ import FamInstEnv
 import TcAnnotations
 import TcBinds
 import HeaderInfo       ( mkPrelImports )
-import TcType	( tidyTopType, tidyType )
+import TcType	 ( tidyTopType )
 import TcDefaults
 import TcEnv
 import TcRules
@@ -102,11 +102,6 @@ import Util
 import Bag
 
 import Control.Monad
-
-import System.IO
-import TypeRep
-import qualified Data.Map as Map
-import TcType
 
 #include "HsVersions.h"
 \end{code}
@@ -438,8 +433,6 @@ tcRnSrcDecls boot_iface decls
                         simplifyTop lie ;
         traceTc "Tc9" empty ;
 
-        traceRn (text "tcRnSrcDecls:" <+> (ppr lie)) ;
-
         failIfErrsM ;   -- Don't zonk if there have been errors
                         -- It's a waste of time; and we may get debug warnings
                         -- about strangely-typed TyCons!
@@ -471,8 +464,6 @@ tcRnSrcDecls boot_iface decls
 
         setGlobalTypeEnv tcg_env' final_type_env
    } }
-
--- where
 
 tc_rn_src_decls :: ModDetails
                     -> [LHsDecl RdrName]
@@ -1531,7 +1522,6 @@ tcRnExpr hsc_env ictxt rdr_expr
         -- it might have a rank-2 type (e.g. :t runST)
     uniq <- newUnique ;
     let { fresh_it  = itName uniq (getLoc rdr_expr) } ;
-
     (((_tc_expr, res_ty), untch), lie) <- captureConstraints $ 
                                           captureUntouchables (tcInferRho rn_expr) ;
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $
@@ -1542,11 +1532,9 @@ tcRnExpr hsc_env ictxt rdr_expr
                                                     (untch,lie) ;
 
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
-    
-    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
-    result <- zonkTcType all_expr_ty ;
 
-    return $ snd $ tidyOpenType emptyTidyEnv result
+    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
+    zonkTcType all_expr_ty
     }
 
 --------------------------

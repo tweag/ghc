@@ -55,8 +55,6 @@ import UniqFM
 import FastString ( sLit ) 
 import DynFlags
 
-import Control.Monad
-import Type
 import Util
 \end{code}
 **********************************************************************
@@ -696,7 +694,7 @@ interactWithInertsStage wi
        ; foldlBagM interact_next (ContinueWith wi) rels }
 
   where interact_next Stop atomic_inert 
-          = trace "interact_next Stop" $ updInertSetTcS atomic_inert >> return Stop
+          = updInertSetTcS atomic_inert >> return Stop
         interact_next (ContinueWith wi) atomic_inert 
           = do { ir <- doInteractWithInert atomic_inert wi
                ; let mk_msg rule keep_doc 
@@ -834,7 +832,7 @@ doInteractWithInert ii@(CFunEqCan { cc_ev = fl1, cc_fun = tc1
     co1 = evTermCoercion $ ctEvTerm fl1
     co2 = evTermCoercion $ ctEvTerm fl2
     mk_sym_co x = mkTcSymCo (evTermCoercion x)
-
+ 
 doInteractWithInert _ _ = irKeepGoing "NOP"
 
 \end{code}

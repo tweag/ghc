@@ -64,8 +64,6 @@ import Outputable
 import FastString
 import Control.Monad
 
-import TypeRep
-import qualified Data.Map as Map
 import Class(classTyCon)
 \end{code}
 
@@ -94,7 +92,6 @@ tcPolyExprNC expr res_ty
   = do { traceTc "tcPolyExprNC" (ppr res_ty)
        ; (gen_fn, expr') <- tcGen GenSigCtxt res_ty $ \ _ rho ->
 			    tcMonoExprNC expr rho
-       ; sk <- deeplySkolemise res_ty
        ; return (mkLHsWrap gen_fn expr') }
 
 ---------------

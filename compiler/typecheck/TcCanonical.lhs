@@ -201,9 +201,7 @@ canonicalize (CIrredEvCan { cc_ev = fl
                           , cc_depth = d
                           , cc_ty = xi })
   = canIrred d fl xi
-canonicalize c@(CHoleCan { cc_depth = d
-                         , cc_ev = fl
-                         , cc_hole_ty = xi })
+canonicalize c@(CHoleCan {})
   = continueWith c
 
 canEvVar :: SubGoalDepth 
@@ -242,12 +240,12 @@ canTuple d fl tys
 
 
 \begin{code}
-canHole :: SubGoalDepth -- Depth 
+canHole :: SubGoalDepth -- Depth
       -> CtEvidence
       -> Type -> TcS StopOrContinue
 canHole d fl ty
   = do { (xi,co) <- flatten d FMFullFlatten fl ty
-       ; mb <- rewriteCtFlavor fl xi co 
+       ; mb <- rewriteCtFlavor fl xi co
        ; case mb of
             Just new_fl -> continueWith $ CHoleCan { cc_ev = new_fl
                                                    , cc_hole_ty = xi

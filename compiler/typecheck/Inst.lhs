@@ -568,9 +568,9 @@ tidyCt :: TidyEnv -> Ct -> Ct
 -- Also converts it to non-canonical
 tidyCt env ct 
   = case ct of
-     CHoleCan {} -> ct
-     _ ->  CNonCanonical { cc_ev = tidy_flavor env (cc_ev ct)
-                         , cc_depth  = cc_depth ct } 
+     CHoleCan {} -> ct { cc_ev = tidy_flavor env (cc_ev ct) }
+     _ -> CNonCanonical { cc_ev = tidy_flavor env (cc_ev ct)
+                        , cc_depth  = cc_depth ct }
   where 
     tidy_flavor :: TidyEnv -> CtEvidence -> CtEvidence
      -- NB: we do not tidy the ctev_evtm/var field because we don't 

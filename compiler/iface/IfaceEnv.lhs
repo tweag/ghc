@@ -42,10 +42,6 @@ import UniqSupply
 import SrcLoc
 import Util
 
-import TysPrim
-import TysWiredIn
-import Coercion
-
 import Outputable
 import Exception     ( evaluate )
 

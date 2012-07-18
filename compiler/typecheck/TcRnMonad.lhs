@@ -53,8 +53,6 @@ import Util
 import Data.IORef
 import qualified Data.Set as Set
 import Control.Monad
-
-import qualified Data.Map as Map
 \end{code}
 
 
@@ -88,7 +86,6 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
         infer_var    <- newIORef True ;
         lie_var      <- newIORef emptyWC ;
         dfun_n_var   <- newIORef emptyOccSet ;
-        holes_var    <- newIORef Map.empty ;
         type_env_var <- case hsc_type_env_var hsc_env of {
                            Just (_mod, te_var) -> return te_var ;
                            Nothing             -> newIORef emptyNameEnv } ;

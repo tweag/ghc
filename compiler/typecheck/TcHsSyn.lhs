@@ -1344,7 +1344,6 @@ zonkTypeZapping tv
                   -- ty is actually a kind, zonk to AnyK
                   then anyKind
                   else anyTypeOfKind (defaultKind (tyVarKind tv))
-       ; traceTc "zonkTypeZapping" (ppr tv)
        ; writeMetaTyVar tv ty
        ; return ty }
 

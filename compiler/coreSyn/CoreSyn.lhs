@@ -109,8 +109,6 @@ import Data.Data hiding (TyCon)
 import Data.Int
 import Data.Word
 
-import SrcLoc
-
 infixl 4 `mkApps`, `mkTyApps`, `mkVarApps`, `App`, `mkCoApps`
 -- Left associative, so that we can say (f `mkTyApps` xs `mkVarApps` ys)
 \end{code}
