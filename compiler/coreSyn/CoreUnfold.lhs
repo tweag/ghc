@@ -378,7 +378,6 @@ sizeExpr bOMB_OUT_SIZE top_args expr
     size_up (Lam b e) | isId b    = lamScrutDiscount (size_up e `addSizeN` 10)
 		      | otherwise = size_up e
 
-    size_up (Hole src) = sizeZero
     size_up (Let (NonRec binder rhs) body)
       = size_up rhs		`addSizeNSD`
 	size_up body		`addSizeN`

@@ -517,7 +517,6 @@ cpeRhsE env (Case scrut bndr ty alts)
        = do { (env2, bs') <- cpCloneBndrs env bs
             ; rhs' <- cpeBodyNF env2 rhs
             ; return (con, bs', rhs') }
-cpeRhsE _env expr@(Hole src) = return (emptyFloats, expr)
 
 cvtLitInteger :: Id -> Integer -> CoreExpr
 -- Here we convert a literal Integer to the low-level

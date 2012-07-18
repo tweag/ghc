@@ -1290,8 +1290,6 @@ occAnal env (Let bind body)
   where
     env_body = trimOccEnv env (bindersOf bind)
 
-occAnal _   expr@(Hole _) = (emptyDetails,     expr)
-
 occAnalArgs :: OccEnv -> [CoreExpr] -> (UsageDetails, [CoreExpr])
 occAnalArgs env args
   = case mapAndUnzip (occAnal arg_env) args of  { (arg_uds_s, args') ->

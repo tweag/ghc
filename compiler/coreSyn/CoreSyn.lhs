@@ -272,7 +272,6 @@ data Expr b
   | Tick  (Tickish Id) (Expr b)
   | Type  Type
   | Coercion Coercion
-  | Hole Id
   deriving (Data, Typeable)
 
 -- | Type synonym for expressions that occur in function argument positions.
@@ -1390,7 +1389,6 @@ data AnnExpr' bndr annot
   | AnnTick     (Tickish Id) (AnnExpr bndr annot)
   | AnnType	Type
   | AnnCoercion Coercion
-  | AnnHole Id
 
 -- | A clone of the 'Alt' type but allowing annotation at every tree node
 type AnnAlt bndr annot = (AltCon, [bndr], AnnExpr bndr annot)
@@ -1425,7 +1423,6 @@ deAnnotate' (AnnLam  binder body) = Lam binder (deAnnotate body)
 deAnnotate' (AnnApp  fun arg)     = App (deAnnotate fun) (deAnnotate arg)
 deAnnotate' (AnnCast e (_,co))    = Cast (deAnnotate e) co
 deAnnotate' (AnnTick tick body)   = Tick tick (deAnnotate body)
-deAnnotate' (AnnHole src)         = Hole src
 
 deAnnotate' (AnnLet bind body)
   = Let (deAnnBind bind) (deAnnotate body)
