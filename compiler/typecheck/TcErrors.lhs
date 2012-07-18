@@ -1,5 +1,5 @@
 \begin{code}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, Holes #-}
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
@@ -45,6 +45,7 @@ import Outputable
 import DynFlags
 import Data.List        ( partition, mapAccumL )
 import UniqFM
+import BasicTypes
 \end{code}
 
 %************************************************************************
@@ -158,7 +159,7 @@ reportTidyWanteds ctxt insols flats implics
           }
        else 
        do {
-            ; traceTc "reportTidyWanteds" (ppr $ flats `unionBags` insols)
+            ; traceTc "reportTidyWanteds" (ppr $ cec_tidy ctxt)
             ; mapBagM_ (deferToRuntime ev_binds_var ctxt mkHoleDeferredError)
                        holes
             ; reportInsolsAndFlats ctxt (filterBag (not.isHole) insols) (filterBag (not.isHole) flats)
@@ -168,7 +169,6 @@ reportTidyWanteds ctxt insols flats implics
        where isHole ct = case ct of
                             CHoleCan {} -> True
                             _           -> False
-             holeTyVars = concatBag $ mapBag (listToBag . varSetElems . tyVarsOfCt) $ holes
              holes = filterBag isHole (flats `unionBags` insols)
              
 
@@ -404,35 +404,64 @@ mkIrredErr ctxt cts
 
 \begin{code}
 mkHoleDeferredError :: ReportErrCtxt -> Ct -> TcM ErrMsg
-mkHoleDeferredError ctxt ct@(CHoleCan { cc_ev = fl, cc_hole_ty = ty })
+mkHoleDeferredError ctxt ct@(CHoleCan {})
   = do { let env0 = cec_tidy ctxt
        ; let vars = tyVarsOfCt ct
+
        ; zonked_vars <- zonkTyVarsAndFV vars
-       ; (env2, zonked_ty) <- zonkTidyTcType env0 ty
-       ; let (env3, tyvars) = tidyOpenTyVars env2 $ varSetElems zonked_vars
-       ; tyvars_msg <- mapM locMsg tyvars
-       ; let msg = addArising orig $ (text "Found hole" <+> quotes (text "_") <+> text "with type") <+> pprType zonked_ty
-                                  $$ (if not $ null tyvars then text "Where:" <+> sep tyvars_msg else empty)
-                                  $$ (if not $ isNullUFM lenv then text "In scope:" <+> ppr lenv else empty)
+       
+       ; (env1, zonked_ty) <- zonkTidyTcType env0 (cc_hole_ty ct)
+       
+       ; let (env2, tyvars) = tidyOpenTyVars env1 (varSetElems zonked_vars)
+       
+       ; tyvars_msg <- mapM loc_msg tyvars
+       
+       ; (env3, lenv_msg) <- ppr_localenv lenv env2
+
+       ; traceTc "mkHoleDeferredError" (ppr env3)
+       
+       ; let msg = (text "Found hole" <+> quotes (text "_") <+> text "with type") <+> pprType zonked_ty
+                   $$ (if null tyvars_msg then empty else text "Where:" <+> vcat tyvars_msg)
+                   $$ (if null lenv_msg then empty else text "In scope:" <+> vcat lenv_msg)
+       
        ; mkErrorReport ctxt msg
        }
   where
-    orig@(HoleOrigin lenv) = ctLocOrigin (ctWantedLoc ct)
-    locMsg tv = case tcTyVarDetails tv of
-                    SkolemTv {} -> return $ (quotes $ ppr tv) <+> ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
+    (HoleOrigin lenv) = ctLocOrigin (ctWantedLoc ct)
+    loc_msg tv = case tcTyVarDetails tv of
+                    SkolemTv {} -> return $ (quotes $ ppr tv) <+> skol_msg
                     MetaTv {} -> do { tyvar <- readMetaTyVar tv
-                                    ; case tyvar of
-                                        (Indirect ty) -> return $ (quotes $ pprType ty) <+> ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
-                                        Flexi -> return $ (quotes $ ppr tv) <+> text "is a free type variable"
+                                    ; return $ case tyvar of
+                                        (Indirect ty) -> (quotes $ pprType ty) <+> skol_msg
+                                        Flexi -> (quotes $ ppr tv) <+> text "is a free type variable"
                                     }
                     det -> return $ ppr det
-    ppr_skol given_loc tv_loc
-     = case skol_info of
+                where skol_msg = ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
+    
+    ppr_skol given_loc tv_loc = case skol_info of
          UnkSkol -> ptext (sLit "is an unknown type variable")
          _ -> sep [ ptext (sLit "is a rigid type variable bound by"),
                     sep [ppr skol_info, ptext (sLit "at") <+> ppr tv_loc]]
      where
        skol_info = ctLocOrigin given_loc
+
+    ppr_localenv :: TcTypeEnv -> TidyEnv -> TcM (TidyEnv, [SDoc])
+    ppr_localenv lenv tidyenv = do { let bound = catMaybes $ map (get_thing.snd) $ ufmToList lenv
+                                   ; (finalenv, zonked_bound) <- foldlM tidy_bind (tidyenv, []) bound
+                                   ; return (finalenv, map ppr_local_bind zonked_bound)
+                                   }
+                            where tidy_bind (tidyenv, docs) (nm, ty) = do { (newtidyenv, zonked_ty) <- zonkTidyTcType tidyenv ty
+                                                                          ; return (newtidyenv, (nm, zonked_ty):docs)
+                                                                          }
+    
+    get_thing :: TcTyThing -> Maybe (Var, TcType)
+    get_thing (ATcId thing_id NotTopLevel _) = Just (thing_id, varType thing_id)
+    get_thing _ = Nothing
+
+    ppr_local_bind :: (Var, Type) -> SDoc
+    ppr_local_bind (nm, ty) = ppr nm <+> dcolon <+> pprType ty
+
+mkHoleDeferredError _ ct = pprPanic "mkHoleDeferredError" (ppr ct)
 \end{code}
 
 %************************************************************************
