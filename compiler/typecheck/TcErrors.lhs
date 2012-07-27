@@ -156,10 +156,12 @@ reportTidyWanteds ctxt insols flats implics
           }
        else 
        do {
-              mapBagM_ (deferToRuntime ev_binds_var ctxt mkHoleDeferredError)
-                       holes
-            ; reportInsolsAndFlats ctxt (filterBag (not.isHole) insols) (filterBag (not.isHole) flats)
-            ; mapBagM_ (reportImplic ctxt) implics
+              zonked_tyvars <- mapBagM zonkTyVarsAndFV $ mapBag tyVarsOfCt holes
+            ; let new_env = foldrBag (\vars env -> let (env', _) = tidyOpenTyVars env (varSetElems vars) in env') (cec_tidy ctxt) zonked_tyvars
+            ; traceTc "reportTidyWanteds" (ppr new_env)
+            ; mapBagM_ (deferToRuntime ev_binds_var (ctxt { cec_tidy = new_env }) mkHoleDeferredError) holes
+            ; reportInsolsAndFlats (ctxt { cec_tidy = new_env }) (filterBag (not.isHole) insols) (filterBag (not.isHole) flats)
+            ; mapBagM_ (reportImplic (ctxt { cec_tidy = new_env })) implics
           }
      }
        where isHole ct = case ct of
@@ -451,7 +453,7 @@ mkHoleDeferredError ctxt ct@(CHoleCan {})
                                                                           }
 
     get_thing :: TcTyThing -> Maybe (Var, TcType)
-    get_thing (ATcId thing_id NotTopLevel _) = Just (thing_id, varType thing_id)
+    get_thing (ATcId thing_id _ _) = Just (thing_id, varType thing_id)
     get_thing _ = Nothing
 
     ppr_local_bind :: (Var, Type) -> SDoc
