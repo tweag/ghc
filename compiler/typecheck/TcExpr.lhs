@@ -63,7 +63,6 @@ import ErrUtils
 import Outputable
 import FastString
 import Control.Monad
-
 import Class(classTyCon)
 \end{code}
 
