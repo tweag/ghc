@@ -25,16 +25,20 @@
 #include "Rts.h"
 #include "Stable.h"
 #include "Capability.h"
+#include "SizeMacros.h"
 
 #include <stdio.h>
 
 #define str(a,b) #a "_" #b
 
+#ifndef OFFSET
 #define OFFSET(s_type, field) ((size_t)&(((s_type*)0)->field))
 #define FIELD_SIZE(s_type, field) ((size_t)sizeof(((s_type*)0)->field))
 #define TYPE_SIZE(type) (sizeof(type))
+#define TYPE_SIZE_IN_WORDS sizeofW
+#endif
 
-#pragma GCC poison sizeof
+#pragma GCC poison sizeof sizeofW
 
 #if defined(GEN_HASKELL)
 #define def_offset(str, offset)                          \
@@ -210,22 +214,21 @@
     printf("#endif\n\n");
 #endif
 
-#define FUN_OFFSET(sym) (OFFSET(Capability,f.sym) - OFFSET(Capability,r))
-
+#define FUN_OFFSET(sym) (OFFSET(Capability,f) + OFFSET(StgFunTable,sym) - OFFSET(Capability,r))
 
 int
 main(int argc, char *argv[])
 {
 #ifndef GEN_HASKELL
-    printf("/* This file is created automatically.  Do not edit by hand.*/\n\n");
+    printf("/* This file is created automatically by mkDerivedConstants.  Do not edit by hand.*/\n\n");
 
-    printf("#define STD_HDR_SIZE   %" FMT_SizeT "\n", (size_t)sizeofW(StgHeader) - sizeofW(StgProfHeader));
-    /* grrr.. PROFILING is on so we need to subtract sizeofW(StgProfHeader) */
-    printf("#define PROF_HDR_SIZE  %" FMT_SizeT "\n", (size_t)sizeofW(StgProfHeader));
+    /* grrr.. PROFILING is on so we need to subtract TYPE_SIZE_IN_WORDS(StgProfHeader) */
+    printf("#define STD_HDR_SIZE   %" FMT_SizeT "\n", (size_t)TYPE_SIZE_IN_WORDS(StgHeader) - (size_t)TYPE_SIZE_IN_WORDS(StgProfHeader));
+    printf("#define PROF_HDR_SIZE  %" FMT_SizeT "\n", (size_t)TYPE_SIZE_IN_WORDS(StgProfHeader));
 
     printf("#define BLOCK_SIZE   %u\n", BLOCK_SIZE);
     printf("#define MBLOCK_SIZE   %u\n", MBLOCK_SIZE);
-    printf("#define BLOCKS_PER_MBLOCK  %" FMT_SizeT "\n", (lnat)BLOCKS_PER_MBLOCK);
+    printf("#define BLOCKS_PER_MBLOCK  %" FMT_SizeT "\n", (size_t)BLOCKS_PER_MBLOCK);
     // could be derived, but better to save doing the calculation twice
 
     printf("\n\n");
@@ -290,8 +293,8 @@ main(int argc, char *argv[])
     struct_field(CostCentre, link);
 
     struct_field(StgHeader, info);
-    struct_field_("StgHeader_ccs",  StgHeader, prof.ccs);
-    struct_field_("StgHeader_ldvw", StgHeader, prof.hp.ldvw);
+    struct_field_("StgHeader_ccs",  StgHeader, prof_ccs);     // member prof.ccs, see SizeMacros.h
+    struct_field_("StgHeader_ldvw", StgHeader, prof_hp_ldvw); // member prof.hp.ldvw, see SizeMacros.h
 
     struct_size(StgSMPThunkHeader);
 
@@ -327,7 +330,7 @@ main(int argc, char *argv[])
     closure_field(StgTSO, flags);
     closure_field(StgTSO, dirty);
     closure_field(StgTSO, bq);
-    closure_field_("StgTSO_cccs", StgTSO, prof.cccs);
+    closure_field_("StgTSO_cccs", StgTSO, prof_cccs); // member prof.cccs, see SizeMacros.h
     closure_field(StgTSO, stackobj);
 
     closure_field(StgStack, sp);
@@ -437,29 +440,29 @@ main(int argc, char *argv[])
     closure_field(MessageBlackHole, bh);
 
     struct_field_("RtsFlags_ProfFlags_showCCSOnException",
-		  RTS_FLAGS, ProfFlags.showCCSOnException);
+		  RTS_FLAGS, ProfFlags_showCCSOnException); // member ProfFlags.showCCSOnException, see SizeMacros.h
     struct_field_("RtsFlags_DebugFlags_apply",
-		  RTS_FLAGS, DebugFlags.apply);
+		  RTS_FLAGS, DebugFlags_apply);             // member DebugFlags.apply, see SizeMacros.h
     struct_field_("RtsFlags_DebugFlags_sanity",
-		  RTS_FLAGS, DebugFlags.sanity);
+		  RTS_FLAGS, DebugFlags_sanity);            // member DebugFlags.sanity, see SizeMacros.h
     struct_field_("RtsFlags_DebugFlags_weak",
-		  RTS_FLAGS, DebugFlags.weak);
+		  RTS_FLAGS, DebugFlags_weak);              // member DebugFlags.weak, see SizeMacros.h
     struct_field_("RtsFlags_GcFlags_initialStkSize",
-		  RTS_FLAGS, GcFlags.initialStkSize);
+		  RTS_FLAGS, GcFlags_initialStkSize);       // member GcFlags.initialStkSize, see SizeMacros.h
     struct_field_("RtsFlags_MiscFlags_tickInterval",
-		  RTS_FLAGS, MiscFlags.tickInterval);
+		  RTS_FLAGS, MiscFlags_tickInterval);       // member MiscFlags.tickInterval, see SizeMacros.h
 
     struct_size(StgFunInfoExtraFwd);
     struct_field(StgFunInfoExtraFwd, slow_apply);
     struct_field(StgFunInfoExtraFwd, fun_type);
     struct_field(StgFunInfoExtraFwd, arity);
-    struct_field_("StgFunInfoExtraFwd_bitmap", StgFunInfoExtraFwd, b.bitmap);
+    struct_field_("StgFunInfoExtraFwd_bitmap", StgFunInfoExtraFwd, b_bitmap); // member b.bitmap, see SizeMacros.h
 
     struct_size(StgFunInfoExtraRev);
     struct_field(StgFunInfoExtraRev, slow_apply_offset);
     struct_field(StgFunInfoExtraRev, fun_type);
     struct_field(StgFunInfoExtraRev, arity);
-    struct_field_("StgFunInfoExtraRev_bitmap", StgFunInfoExtraRev, b.bitmap);
+    struct_field_("StgFunInfoExtraRev_bitmap", StgFunInfoExtraRev, b_bitmap); // member b.bitmap, see SizeMacros.h
 
     struct_field(StgLargeBitmap, size);
     field_offset(StgLargeBitmap, bitmap);

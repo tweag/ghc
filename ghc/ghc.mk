@@ -45,6 +45,9 @@ ghc_stage1_C_FILES_NODEPS = ghc/hschooks.c
 
 ghc_stage2_MKDEPENDC_OPTS = -DMAKING_GHC_BUILD_SYSTEM_DEPENDENCIES
 ghc_stage3_MKDEPENDC_OPTS = -DMAKING_GHC_BUILD_SYSTEM_DEPENDENCIES
+ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ghc_stage2_MKDEPENDC_OPTS += -DCOMPILING_GHC
+endif
 
 ifeq "$(GhcDebugged)" "YES"
 ghc_stage1_MORE_HC_OPTS += -debug
@@ -74,9 +77,14 @@ ghc_stage3_PROG = ghc-stage3$(exeext)
 ghc_stage1_SHELL_WRAPPER = YES
 ghc_stage2_SHELL_WRAPPER = YES
 ghc_stage3_SHELL_WRAPPER = YES
+ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ghc_stage1_SHELL_WRAPPER_NAME = ghc/ghc-cross.wrapper
+ghc_stage2_SHELL_WRAPPER_NAME = ghc/ghc-cross.wrapper
+else
 ghc_stage1_SHELL_WRAPPER_NAME = ghc/ghc.wrapper
 ghc_stage2_SHELL_WRAPPER_NAME = ghc/ghc.wrapper
 ghc_stage3_SHELL_WRAPPER_NAME = ghc/ghc.wrapper
+endif
 
 ghc_stage$(INSTALL_GHC_STAGE)_INSTALL_SHELL_WRAPPER = YES
 ghc_stage$(INSTALL_GHC_STAGE)_INSTALL_SHELL_WRAPPER_NAME = ghc-$(ProjectVersion)
@@ -91,6 +99,11 @@ endef
 ifneq "$(filter-out 1,$(stage))" ""
 ghc_stage1_NOT_NEEDED = YES
 endif
+
+ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ghc_stage2_NOT_NEEDED = YES
+ghc_stage3_NOT_NEEDED = YES
+else
 # if stage is set to something other than "2" or "", disable stage 2
 ifneq "$(filter-out 2,$(stage))" ""
 ghc_stage2_NOT_NEEDED = YES
@@ -103,6 +116,8 @@ endif
 ifneq "$(stage)" "3"
 ghc_stage3_NOT_NEEDED = YES
 endif
+endif
+
 $(eval $(call build-prog,ghc,stage1,0))
 $(eval $(call build-prog,ghc,stage2,1))
 $(eval $(call build-prog,ghc,stage3,2))

@@ -2,6 +2,7 @@ BEGIN {
   print "#define OFFSET(s_type, field) OFFSET_ ## s_type ## _ ## field"
   print "#define FIELD_SIZE(s_type, field) FIELD_SIZE_ ## s_type ## _ ## field"
   print "#define TYPE_SIZE(type) TYPE_SIZE_ ## type"
+  print "#define TYPE_SIZE_IN_WORDS(type) ((TYPE_SIZE(type) + SIZEOF_HSWORD - 1) / SIZEOF_HSWORD)"
   print ""
 }
 

@@ -2,7 +2,7 @@
 --
 -- Pretty-printing assembly language
 --
--- (c) The University of Glasgow 1993-2005
+-- (c) The University of Glasgow 1993-2012
 --
 -----------------------------------------------------------------------------
 
@@ -665,7 +665,12 @@ pprInstr (FETCHPC reg) = vcat [
         hcat [ ptext (sLit "1:\tmflr\t"), pprReg reg ]
     ]
 
+#if defined(THREADED_RTS)
 pprInstr LWSYNC = ptext (sLit "\tlwsync")
+#else
+-- we do not need memory barriers when we only use one processor
+pprInstr LWSYNC = ptext (sLit "\tnop")
+#endif
 
 -- pprInstr _ = panic "pprInstr (ppc)"
 

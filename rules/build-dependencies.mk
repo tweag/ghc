@@ -24,6 +24,9 @@ $1_$2_C_FILES_DEPS = $$(filter-out $$($1_$2_C_FILES_NODEPS),$$($1_$2_C_FILES))
 
 $1_$2_MKDEPENDHS_FLAGS = -dep-makefile $$($1_$2_depfile_haskell).tmp $$(foreach way,$$(filter-out v,$$($1_$2_WAYS)),-dep-suffix $$(way))
 $1_$2_MKDEPENDHS_FLAGS += -include-pkg-deps
+ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+$1_$2_MKDEPENDHS_FLAGS += -DCOMPILING_GHC
+endif
 
 ifneq "$$(NO_GENERATED_MAKEFILE_RULES)" "YES"
 

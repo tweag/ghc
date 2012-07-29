@@ -435,6 +435,17 @@ FIND_GCC([WhatGccIsCalled], [gcc], [gcc])
 CC="$WhatGccIsCalled"
 export CC
 
+if test x"$TargetPlatform" = x"$HostPlatform"; then
+  BOOTSTRAPPING_GHC_INFO_FIELD([CC_STAGE1],[C compiler command],['$(CC)'])
+else
+  if test x"$TargetCC" != x; then
+    BOOTSTRAPPING_GHC_INFO_FIELD([CC_STAGE1],[target C compiler command],[$TargetCC])
+  else
+    BOOTSTRAPPING_GHC_INFO_FIELD([CC_STAGE1],[target C compiler command],['$(CC)'])
+    TargetCC="$WhatGccIsCalled"
+  fi
+fi
+
 dnl ** Which ld to use?
 dnl --------------------------------------------------------------
 FP_ARG_WITH_PATH_GNU_PROG([LD], [ld], [ld])
@@ -544,19 +555,30 @@ dnl ** look to see if we have a C compiler using an llvm back end.
 dnl
 FP_CC_LLVM_BACKEND
 
+dnl ** figure out how to invoke cpp directly (gcc -E is no good)
+AC_PROG_CPP
+
 FP_PROG_LD_HashSize31
 FP_PROG_LD_ReduceMemoryOverheads
 
-FPTOOLS_SET_C_LD_FLAGS([target],[CFLAGS],[LDFLAGS],[IGNORE_LINKER_LD_FLAGS],[CPPFLAGS])
 FPTOOLS_SET_C_LD_FLAGS([build],[CONF_CC_OPTS_STAGE0],[CONF_GCC_LINKER_OPTS_STAGE0],[CONF_LD_LINKER_OPTS_STAGE0],[CONF_CPP_OPTS_STAGE0])
+if test x"$TargetPlatform" != x"$HostPlatform"; then
+  cross_compiling=yes
+  if test x"$TargetCC" != x; then
+  unset CFLAGS
+  CC="$TargetCC"
+  fi
+  FPTOOLS_SET_C_LD_FLAGS([target],[CFLAGS],[LDFLAGS],[IGNORE_LINKER_LD_FLAGS],[CPPFLAGS])
+  FPTOOLS_SET_C_LD_FLAGS([target],[CONF_CC_OPTS_STAGE1],[CONF_GCC_LINKER_OPTS_STAGE1],[CONF_LD_LINKER_OPTS_STAGE1],[CONF_CPP_OPTS_STAGE1])
+
+else
+FPTOOLS_SET_C_LD_FLAGS([target],[CFLAGS],[LDFLAGS],[IGNORE_LINKER_LD_FLAGS],[CPPFLAGS])
 FPTOOLS_SET_C_LD_FLAGS([target],[CONF_CC_OPTS_STAGE1],[CONF_GCC_LINKER_OPTS_STAGE1],[CONF_LD_LINKER_OPTS_STAGE1],[CONF_CPP_OPTS_STAGE1])
 # Stage 3 won't be supported by cross-compilation
 FPTOOLS_SET_C_LD_FLAGS([target],[CONF_CC_OPTS_STAGE2],[CONF_GCC_LINKER_OPTS_STAGE2],[CONF_LD_LINKER_OPTS_STAGE2],[CONF_CPP_OPTS_STAGE2])
+fi
 
 FP_GCC_EXTRA_FLAGS
-
-dnl ** figure out how to invoke cpp directly (gcc -E is no good)
-AC_PROG_CPP
 
 AC_SUBST(CONF_CC_OPTS_STAGE0)
 AC_SUBST(CONF_CC_OPTS_STAGE1)
@@ -652,6 +674,10 @@ if test "$BootingFromHc" = "NO"; then
 FPTOOLS_ALEX
 fi;
 
+dnl ** check for an AWK variant, it is needed by libffi
+dnl    and cross-compiling
+AC_PROG_AWK
+
 dnl --------------------------------------------------
 dnl ### program checking section ends here ###
 dnl --------------------------------------------------
@@ -697,6 +723,27 @@ AC_CHECK_SIZEOF(void *,             4)
 
 dnl for use in settings.in
 WordSize=$ac_cv_sizeof_void_p
+
+dnl check whether word sizes are commensurable
+case $HaskellTargetArch in
+ArchX86|ArchPPC|ArchSPARC|ArchARM)
+    ArchWordSize=4
+    ;;
+ArchX86_64|ArchPPC_64)
+    ArchWordSize=8
+    ;;
+*)
+    ArchWordSize=$WordSize
+    ;;
+esac
+if test "$ArchWordSize" != "$WordSize"; then
+echo "Target arch word size ($ArchWordSize) and"
+echo "target C compiler ($CC) word size ($WordSize) differ."
+echo " You can either specify a different target arch ('--target=<arch>')"
+echo " or another target C compiler ('--with-target-gcc=<compiler>')."
+exit 1
+fi
+
 AC_SUBST(WordSize)
 
 dnl ** what are alignment constraints on various types
@@ -752,6 +799,7 @@ dnl ** check for more functions
 dnl ** The following have been verified to be used in ghc/, but might be used somewhere else, too.
 AC_CHECK_FUNCS([getclock getrusage gettimeofday setitimer siginterrupt sysconf times ctime_r sched_setaffinity setlocale])
 
+dnl ** we assume HAVE_SETITIMER_VIRTUAL when cross-compiling, test otherwise
 if test "$cross_compiling" = "no" ; then
     AC_TRY_RUN([
     #include <sys/types.h>
@@ -764,6 +812,8 @@ if test "$cross_compiling" = "no" ; then
       return setitimer(ITIMER_VIRTUAL, &tval, (void*)0) != 0;
     }
     ],[AC_DEFINE([HAVE_SETITIMER_VIRTUAL], [1], [Define to 1 if setitimer accepts ITIMER_VIRTUAL, 0 else.])])
+else
+    AC_DEFINE([HAVE_SETITIMER_VIRTUAL], [1], [Define to 1 if setitimer accepts ITIMER_VIRTUAL, 0 else.])
 fi
 
 dnl ** On OS X 10.4 (at least), time.h doesn't declare ctime_r if
@@ -841,7 +891,13 @@ FP_VISIBILITY_HIDDEN
 dnl ** check for librt
 AC_CHECK_LIB(rt, clock_gettime)
 AC_CHECK_FUNCS(clock_gettime timer_create timer_settime)
+
+dnl ** we assume USE_TIMER_CREATE when cross-compiling, test otherwise
+if test x"$TargetPlatform" != x"$HostPlatform"; then
+AC_DEFINE([USE_TIMER_CREATE], 1,  [Define to 1 if we can use timer_create(CLOCK_PROCESS_CPUTIME_ID,...)])
+else
 FP_CHECK_TIMER_CREATE
+fi
 
 dnl ** check for Apple's "interesting" long double compatibility scheme
 AC_MSG_CHECKING(for printf\$LDBLStub)
@@ -952,7 +1008,16 @@ Configure completed successfully.
    Target platform       : $TargetPlatform
 "]
 
-if test "$BootingFromHc" = "YES"; then
+if test x"$TargetPlatform" != x"$HostPlatform"; then
+echo ["\
+   Building a cross-compiler.
+
+   Bootstrapping using   : $WithGhc
+      which is version   : $GhcVersion
+   Target C compiler     : $TargetCC
+          'nm' command   : $TargetNM
+"]
+elif test "$BootingFromHc" = "YES"; then
 echo ["\
    Bootstrapping from HC files.
 "]

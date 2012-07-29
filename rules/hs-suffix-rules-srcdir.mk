@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 #
-# (c) 2009 The University of Glasgow
+# (c) 2009-2012 The University of Glasgow
 #
 # This file is part of the GHC build system.
 #
@@ -34,11 +34,16 @@ $1/$2/build/%_hsc.c $1/$2/build/%_hsc.h $1/$2/build/%.hs : $1/$4/%.hsc $$(HSC2HS
 
 # Compiling Haskell source
 
+ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+--CROSS-OPTS-- = -DCOMPILING_GHC
+endif
+
+
 $1/$2/build/%.$$($3_osuf) : $1/$4/%.hs $$(LAX_DEPS_FOLLOW) $$($1_$2_HC_DEP) $$($1_$2_PKGDATA_DEP)
-	$$(call cmd,$1_$2_HC) $$($1_$2_$3_ALL_HC_OPTS) -c $$< -o $$@
+	$$(call cmd,$1_$2_HC) $(--CROSS-OPTS--) $$($1_$2_$3_ALL_HC_OPTS) -c $$< -o $$@
 
 $1/$2/build/%.$$($3_osuf) : $1/$4/%.lhs $$(LAX_DEPS_FOLLOW) $$($1_$2_HC_DEP) $$($1_$2_PKGDATA_DEP)
-	$$(call cmd,$1_$2_HC) $$($1_$2_$3_ALL_HC_OPTS) -c $$< -o $$@
+	$$(call cmd,$1_$2_HC) $(--CROSS-OPTS--) $$($1_$2_$3_ALL_HC_OPTS) -c $$< -o $$@
 
 $1/$2/build/%.$$($3_hcsuf) : $1/$4/%.hs $$(LAX_DEPS_FOLLOW) $$($1_$2_HC_DEP) $$($1_$2_PKGDATA_DEP)
 	$$(call cmd,$1_$2_HC) $$($1_$2_$3_ALL_HC_OPTS) -C $$< -o $$@

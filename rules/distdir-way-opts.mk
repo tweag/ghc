@@ -182,6 +182,10 @@ ifneq ($$(strip $$($1_$2_DIST_LD_OPTS)),)
 $1_$2_$3_HSC2HS_LD_OPTS:=$$(shell for i in $$($1_$2_DIST_LD_OPTS); do echo \'--lflag=$$$$i\'; done)
 endif
 
+ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+$1_$2_$3_HSC2HS_CC_OPTS += -DCOMPILING_GHC
+endif
+
 $1_$2_$3_ALL_HSC2HS_OPTS = \
  --cc=$$(WhatGccIsCalled) \
  --ld=$$(WhatGccIsCalled) \

@@ -42,6 +42,15 @@ ifeq "$(OSTYPE)" "cygwin"
 LIBFFI_PATH_MANGLE = PATH=$$(cygpath "$(TOP)")/libffi:$$PATH; export PATH;
 endif
 
+# libffi has a different nomenclature from ours
+# regarding 'host' (our target) and 'build' (also our build)
+ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+LIBFFI_PLATFORMS = --host=$(TARGETPLATFORM) --build=$(HOSTPLATFORM)
+else
+# XXX: --host=$(TARGETPLATFORM) also?
+LIBFFI_PLATFORMS = --host=$(HOSTPLATFORM) --build=$(BUILDPLATFORM)
+endif
+
 ifneq "$(BINDIST)" "YES"
 $(libffi_STAMP_CONFIGURE): $(TOUCH_DEP)
 	$(call removeFiles,$(libffi_STAMP_STATIC_CONFIGURE))
@@ -59,14 +68,14 @@ $(libffi_STAMP_CONFIGURE): $(TOUCH_DEP)
 # will use cygwin symbolic links which cannot be read by mingw gcc.
 	chmod +x libffi/ln
 
-	# We need to use -MMD rather than -MD, as otherwise we get paths
-	# like c:/... in the dependency files on Windows, and the extra
-	# colons break make
+# We need to use -MMD rather than -MD, as otherwise we get paths
+# like c:/... in the dependency files on Windows, and the extra
+# colons break make
 	mv libffi/build/Makefile.in libffi/build/Makefile.in.orig
 	sed "s/-MD/-MMD/" < libffi/build/Makefile.in.orig > libffi/build/Makefile.in
 
-	# Their cmd invocation only works on msys. On cygwin it starts
-	# a cmd interactive shell. The replacement works in both environments.
+# Their cmd invocation only works on msys. On cygwin it starts
+# a cmd interactive shell. The replacement works in both environments.
 	mv libffi/build/ltmain.sh libffi/build/ltmain.sh.orig
 	sed 's#cmd //c echo "\$$1"#cmd /c "echo $$1"#' < libffi/build/ltmain.sh.orig > libffi/build/ltmain.sh
 
@@ -89,10 +98,10 @@ $(libffi_STAMP_CONFIGURE): $(TOUCH_DEP)
 	          --libdir=$(TOP)/libffi/build/inst/lib \
 	          --enable-static=yes \
 	          --enable-shared=$(libffi_EnableShared) \
-	          --host=$(TargetPlatformFull)
+	          $(LIBFFI_PLATFORMS)
 
-	# wc on OS X has spaces in its output, which libffi's Makefile
-	# doesn't expect, so we tweak it to sed them out
+# wc on OS X has spaces in its output, which libffi's Makefile
+# doesn't expect, so we tweak it to sed them out
 	mv libffi/build/Makefile libffi/build/Makefile.orig
 	sed "s#wc -w#wc -w | sed 's/ //g'#" < libffi/build/Makefile.orig > libffi/build/Makefile
 

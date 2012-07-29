@@ -34,6 +34,13 @@ endif
 ifneq "$$($1_$2_INSTALL_INPLACE)" "NO"
 all_$1_$2 : $$(INPLACE_BIN)/$$($1_$2_PROG)
 
+ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+$1_$2_PGMGCC = $$(CC_STAGE1)
+else
+$1_$2_PGMGCC = $$(WhatGccIsCalled)
+endif
+
+
 $$(INPLACE_BIN)/$$($1_$2_PROG): WRAPPER=$$@
 $$(INPLACE_BIN)/$$($1_$2_PROG): $$($1_$2_INPLACE) $$($1_$2_SHELL_WRAPPER_NAME)
 	$$(call removeFiles,                             $$@)
@@ -42,7 +49,7 @@ $$(INPLACE_BIN)/$$($1_$2_PROG): $$($1_$2_INPLACE) $$($1_$2_SHELL_WRAPPER_NAME)
 	echo 'datadir="$$(TOP)/$$(INPLACE_LIB)"'       >> $$@
 	echo 'bindir="$$(TOP)/$$(INPLACE_BIN)"'        >> $$@
 	echo 'topdir="$$(TOP)/$$(INPLACE_TOPDIR)"'     >> $$@
-	echo 'pgmgcc="$$(WhatGccIsCalled)"'            >> $$@
+	echo 'pgmgcc="$$($1_$2_PGMGCC)"'               >> $$@
 	$$($1_$2_SHELL_WRAPPER_EXTRA)
 	$$($1_$2_INPLACE_SHELL_WRAPPER_EXTRA)
 	cat $$($1_$2_SHELL_WRAPPER_NAME)               >> $$@

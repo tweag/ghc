@@ -185,7 +185,7 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
 
     checkVendor() {
         case [$]1 in
-        dec|unknown|hp|apple|next|sun|sgi|ibm)
+        dec|unknown|hp|apple|next|sun|sgi|ibm|montavista)
             ;;
         *)
             echo "Unknown vendor [$]1"
@@ -2022,6 +2022,12 @@ AC_DEFUN([FIND_GCC],[
         FP_ARG_WITH_PATH_GNU_PROG([$1], [$2], [$3])
     fi
     AC_SUBST($1)
+    if test x"$TargetPlatform" != x"$HostPlatform"; then
+        FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL([TargetCC], [target-gcc])
+        export TargetCC
+        FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL([TargetNM], [target-nm])
+        export TargetNM
+    fi
 ])
 
 # LocalWords:  fi

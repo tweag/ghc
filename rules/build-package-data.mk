@@ -63,6 +63,13 @@ ifeq "$3" "0"
 $1_$2_CONFIGURE_OPTS += $$(BOOT_PKG_CONSTRAINTS)
 endif
 
+ifeq "$3" "1"
+ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+$1_$2_CONFIGURE_OPTS += --configure-option=--host=$(HOSTPLATFORM)
+$1_$2_CONFIGURE_OPTS += --configure-option=--target=$(TARGETPLATFORM)
+endif
+endif
+
 $1_$2_CONFIGURE_OPTS += --with-gcc="$$(CC_STAGE$3)"
 $1_$2_CONFIGURE_OPTS += --configure-option=--with-cc="$$(CC_STAGE$3)"
 $1_$2_CONFIGURE_OPTS += --with-ar="$$(AR_STAGE$3)"
