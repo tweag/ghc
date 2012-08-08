@@ -40,9 +40,6 @@ module StaticFlags (
 	opt_SuppressTypeSignatures,
         opt_SuppressVarKinds,
 
-	-- profiling opts
-	opt_SccProfilingOn,
-
         -- Hpc opts
 	opt_Hpc,
 
@@ -70,15 +67,12 @@ module StaticFlags (
 	opt_Fuel,
 
 	-- Related to linking
-	opt_PIC,
 	opt_Static,
 
 	-- misc opts
 	opt_ErrorSpans,
 	opt_HistorySize,
-        opt_Unregisterised,
 	v_Ld_inputs,
-	tablesNextToCode,
         opt_StubDeadValues,
         opt_Ticky,
 
@@ -91,7 +85,6 @@ module StaticFlags (
 
 #include "HsVersions.h"
 
-import Config
 import FastString
 import Util
 import Maybes		( firstJusts )
@@ -251,10 +244,6 @@ opt_Fuel                        = lookup_def_int "-dopt-fuel" maxBound
 opt_NoDebugOutput   :: Bool
 opt_NoDebugOutput               = lookUp  (fsLit "-dno-debug-output")
 
--- profiling opts
-opt_SccProfilingOn :: Bool
-opt_SccProfilingOn		= lookUp  (fsLit "-fscc-profiling")
-
 -- Hpc opts
 opt_Hpc :: Bool
 opt_Hpc				= lookUp (fsLit "-fhpc")
@@ -317,26 +306,8 @@ opt_UF_DearOp            = ( 40 :: Int)
 
 
 -- Related to linking
-opt_PIC :: Bool
-#if darwin_TARGET_OS && x86_64_TARGET_ARCH
-opt_PIC                         = True
-#elif darwin_TARGET_OS
-opt_PIC                         = lookUp (fsLit "-fPIC") || not opt_Static
-#else
-opt_PIC                         = lookUp (fsLit "-fPIC")
-#endif
 opt_Static :: Bool
 opt_Static			= lookUp  (fsLit "-static")
-opt_Unregisterised :: Bool
-opt_Unregisterised		= lookUp  (fsLit "-funregisterised")
-
--- Derived, not a real option.  Determines whether we will be compiling
--- info tables that reside just before the entry code, or with an
--- indirection to the entry code.  See TABLES_NEXT_TO_CODE in
--- includes/rts/storage/InfoTables.h.
-tablesNextToCode :: Bool
-tablesNextToCode 		= not opt_Unregisterised
-		 		  && cGhcEnableTablesNextToCode == "YES"
 
 -- Include full span info in error messages, instead of just the start position.
 opt_ErrorSpans :: Bool

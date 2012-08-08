@@ -30,13 +30,13 @@ module StgCmmMonad (
 	getCodeR, getCode, getHeapUsage,
 
         mkCmmIfThenElse, mkCmmIfThen, mkCmmIfGoto,
-        mkCall, mkCmmCall, mkSafeCall,
+        mkCall, mkCmmCall,
 
         forkClosureBody, forkStatics, forkAlts, forkProc, codeOnly,
 
 	ConTagZ,
 
-	Sequel(..),
+        Sequel(..), ReturnKind(..),
 	withSequel, getSequel,
 
 	setSRTLabel, getSRTLabel, 
@@ -66,6 +66,7 @@ module StgCmmMonad (
 import Cmm
 import StgCmmClosure
 import DynFlags
+import Hoopl
 import MkGraph
 import BlockId
 import CLabel
@@ -93,6 +94,9 @@ infixr 9 `thenFC`
 --------------------------------------------------------
 
 newtype FCode a = FCode (CgInfoDownwards -> CgState -> (a, CgState))
+
+instance Functor FCode where
+  fmap f (FCode g) = FCode $ \i s -> let (a,s') = g i s in (f a, s')
 
 instance Monad FCode where
 	(>>=) = thenFC
@@ -142,6 +146,13 @@ thenFC (FCode m) k = FCode (
 		in 
 			kcode info_down new_state
 	)
+    -- Note: this is a lazy monad.  We can't easily make it strict due
+    -- to the use of fixC for compiling recursive bindings (see Note
+    -- [cgBind rec]).  cgRhs returns a CgIdInfo which is fed back in
+    -- via the CgBindings, and making the monad strict means that we
+    -- can't look at the CgIdInfo too early.  Things seem to just
+    -- about work when the monad is lazy.  I hate this stuff --SDM
+
 
 listFCs :: [FCode a] -> FCode [a]
 listFCs = Prelude.sequence
@@ -221,13 +232,85 @@ data Sequel
   | AssignTo 
 	[LocalReg]	-- Put result(s) in these regs and fall through
 			-- 	NB: no void arguments here
-        Bool            -- Should we adjust the heap pointer back to recover
-                        -- space that's unused on this path?
-                        -- We need to do this only if the expression may
-                        -- allocate (e.g. it's a foreign call or allocating primOp)
-instance Show Sequel where
-  show (Return _) = "Sequel: Return"
-  show (AssignTo _ _) = "Sequel: Assign"
+                        --
+        Bool            -- Should we adjust the heap pointer back to
+                        -- recover space that's unused on this path?
+                        -- We need to do this only if the expression
+                        -- may allocate (e.g. it's a foreign call or
+                        -- allocating primOp)
+
+-- See Note [sharing continuations] below
+data ReturnKind
+  = AssignedDirectly
+  | ReturnedTo BlockId ByteOff
+
+-- Note [sharing continuations]
+--
+-- ReturnKind says how the expression being compiled returned its
+-- results: either by assigning directly to the registers specified
+-- by the Sequel, or by returning to a continuation that does the
+-- assignments.  The point of this is we might be able to re-use the
+-- continuation in a subsequent heap-check.  Consider:
+--
+--    case f x of z
+--      True  -> <True code>
+--      False -> <False code>
+--
+-- Naively we would generate
+--
+--    R2 = x   -- argument to f
+--    Sp[young(L1)] = L1
+--    call f returns to L1
+--  L1:
+--    z = R1
+--    if (z & 1) then Ltrue else Lfalse
+--  Ltrue:
+--    Hp = Hp + 24
+--    if (Hp > HpLim) then L4 else L7
+--  L4:
+--    HpAlloc = 24
+--    goto L5
+--  L5:
+--    R1 = z
+--    Sp[young(L6)] = L6
+--    call stg_gc_unpt_r1 returns to L6
+--  L6:
+--    z = R1
+--    goto L1
+--  L7:
+--    <True code>
+--  Lfalse:
+--    <False code>
+--
+-- We want the gc call in L4 to return to L1, and discard L6.  Note
+-- that not only can we share L1 and L6, but the assignment of the
+-- return address in L4 is unnecessary because the return address for
+-- L1 is already on the stack.  We used to catch the sharing of L1 and
+-- L6 in the common-block-eliminator, but not the unnecessary return
+-- address assignment.
+--
+-- Since this case is so common I decided to make it more explicit and
+-- robust by programming the sharing directly, rather than relying on
+-- the common-block elimiantor to catch it.  This makes
+-- common-block-elimianteion an optional optimisation, and furthermore
+-- generates less code in the first place that we have to subsequently
+-- clean up.
+--
+-- There are some rarer cases of common blocks that we don't catch
+-- this way, but that's ok.  Common-block-elimation is still available
+-- to catch them when optimisation is enabled.  Some examples are:
+--
+--   - when both the True and False branches do a heap check, we
+--     can share the heap-check failure code L4a and maybe L4
+--
+--   - in a case-of-case, there might be multiple continuations that
+--     we can common up.
+--
+-- It is always safe to use AssignedDirectly.  Expressions that jump
+-- to the continuation from multiple places (e.g. case expressions)
+-- fall back to AssignedDirectly.
+--
+
 
 initCgInfoDown :: DynFlags -> Module -> CgInfoDownwards
 initCgInfoDown dflags mod
@@ -409,7 +492,7 @@ getModuleName = do { info <- getInfoDown; return (cgd_mod info) }
 -- ----------------------------------------------------------------------------
 -- Get/set the end-of-block info
 
-withSequel :: Sequel -> FCode () -> FCode ()
+withSequel :: Sequel -> FCode a -> FCode a
 withSequel sequel code
   = do	{ info  <- getInfoDown
 	; withInfoDown code (info {cgd_sequel = sequel }) }
@@ -639,23 +722,31 @@ emitDecl decl
 emitOutOfLine :: BlockId -> CmmAGraph -> FCode ()
 emitOutOfLine l stmts = emitCgStmt (CgFork l stmts)
 
-emitProcWithConvention :: Convention -> CmmInfoTable -> CLabel -> [CmmFormal] ->
-                          CmmAGraph -> FCode ()
-emitProcWithConvention conv info lbl args blocks
-  = do  { us <- newUniqSupply
-        ; let (offset, entry) = mkCallEntry conv args
+emitProcWithConvention :: Convention -> Maybe CmmInfoTable -> CLabel
+                       -> [CmmFormal] -> CmmAGraph -> FCode ()
+emitProcWithConvention conv mb_info lbl args blocks
+  = do  { dflags <- getDynFlags
+        ; us <- newUniqSupply
+        ; let (offset, entry) = mkCallEntry dflags conv args
               blks = initUs_ us $ lgraphOfAGraph $ entry <*> blocks
         ; let sinfo = StackInfo {arg_space = offset, updfr_space = Just initUpdFrameOff}
-              proc_block = CmmProc (TopInfo {info_tbl=info, stack_info=sinfo}) lbl blks
+              tinfo = TopInfo {info_tbls = infos, stack_info=sinfo}
+              proc_block = CmmProc tinfo lbl blks
+
+              infos | Just info <- mb_info
+                    = mapSingleton (g_entry blks) info
+                    | otherwise
+                    = mapEmpty
+
         ; state <- getState
         ; setState $ state { cgs_tops = cgs_tops state `snocOL` proc_block } }
 
-emitProc :: CmmInfoTable -> CLabel -> [CmmFormal] -> CmmAGraph -> FCode ()
+emitProc :: Maybe CmmInfoTable -> CLabel -> [CmmFormal] -> CmmAGraph -> FCode ()
 emitProc = emitProcWithConvention NativeNodeCall
 
 emitSimpleProc :: CLabel -> CmmAGraph -> FCode ()
 emitSimpleProc lbl code = 
-  emitProc CmmNonInfoTable lbl [] code
+  emitProc Nothing lbl [] code
 
 getCmm :: FCode () -> FCode CmmGroup
 -- Get all the CmmTops (there should be no stmts)
@@ -693,10 +784,11 @@ mkCmmIfThen e tbranch = do
 mkCall :: CmmExpr -> (Convention, Convention) -> [CmmFormal] -> [CmmActual]
        -> UpdFrameOffset -> (ByteOff,[(CmmExpr,ByteOff)]) -> FCode CmmAGraph
 mkCall f (callConv, retConv) results actuals updfr_off extra_stack = do
+  dflags <- getDynFlags
   k <- newLabelC
   let area = Young k
-      (off, copyin) = copyInOflow retConv area results
-      copyout = mkCallReturnsTo f callConv actuals k off updfr_off extra_stack
+      (off, copyin) = copyInOflow dflags retConv area results
+      copyout = mkCallReturnsTo dflags f callConv actuals k off updfr_off extra_stack
   return (copyout <*> mkLabel k <*> copyin)
 
 mkCmmCall :: CmmExpr -> [CmmFormal] -> [CmmActual] -> UpdFrameOffset
@@ -704,22 +796,6 @@ mkCmmCall :: CmmExpr -> [CmmFormal] -> [CmmActual] -> UpdFrameOffset
 mkCmmCall f results actuals updfr_off
    = mkCall f (NativeDirectCall, NativeReturn) results actuals updfr_off (0,[])
 
-
-mkSafeCall :: ForeignTarget -> [CmmFormal] -> [CmmActual]
-           -> UpdFrameOffset -> Bool
-           -> FCode CmmAGraph
-mkSafeCall   t fs as upd i = do
-  k <- newLabelC
-  let (_off, copyout) = copyInOflow NativeReturn (Young k) fs
-    -- see Note [safe foreign call convention]
-  return
-     (    mkStore (CmmStackSlot (Young k) (widthInBytes wordWidth))
-                  (CmmLit (CmmBlock k))
-      <*> mkLast (CmmForeignCall { tgt=t, res=fs, args=as, succ=k
-                                 , updfr=upd, intrbl=i })
-      <*> mkLabel k
-      <*> copyout
-     )
 
 -- ----------------------------------------------------------------------------
 -- CgStmts

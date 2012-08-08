@@ -32,6 +32,7 @@
 -- A useful example pass over Cmm is in nativeGen/MachCodeGen.hs
 --
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module PprCmmDecl
     ( writeCmms, pprCmms, pprCmmGroup, pprSection, pprStatic
     )
@@ -113,8 +114,6 @@ pprTop (CmmData section ds) =
 -- Info tables.
 
 pprInfoTable :: CmmInfoTable -> SDoc
-pprInfoTable CmmNonInfoTable
-  = empty
 pprInfoTable (CmmInfoTable { cit_lbl = lbl, cit_rep = rep
                            , cit_prof = prof_info
                            , cit_srt = _srt })

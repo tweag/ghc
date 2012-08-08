@@ -21,12 +21,12 @@ import SMRep
 import Bitmap
 import Stream (Stream)
 import qualified Stream
+import Hoopl
 
 import Maybes
 import Constants
+import DynFlags
 import Panic
-import Platform
-import StaticFlags
 import UniqSupply
 import MonadUtils
 import Util
@@ -42,12 +42,12 @@ mkEmptyContInfoTable info_lbl
                  , cit_prof = NoProfilingInfo
                  , cit_srt  = NoC_SRT }
 
-cmmToRawCmm :: Platform -> Stream IO Old.CmmGroup ()
+cmmToRawCmm :: DynFlags -> Stream IO Old.CmmGroup ()
             -> IO (Stream IO Old.RawCmmGroup ())
-cmmToRawCmm platform cmms
+cmmToRawCmm dflags cmms
   = do { uniqs <- mkSplitUniqSupply 'i'
        ; let do_one uniqs cmm = do
-                case initUs uniqs $ concatMapM (mkInfoTable platform) cmm of
+                case initUs uniqs $ concatMapM (mkInfoTable dflags) cmm of
                   (b,uniqs') -> return (uniqs',b)
                   -- NB. strictness fixes a space leak.  DO NOT REMOVE.
        ; return (Stream.mapAccumL do_one uniqs cmms >> return ())
@@ -86,41 +86,87 @@ cmmToRawCmm platform cmms
 --
 --  * The SRT slot is only there if there is SRT info to record
 
-mkInfoTable :: Platform -> CmmDecl -> UniqSM [RawCmmDecl]
-mkInfoTable _ (CmmData sec dat) 
+mkInfoTable :: DynFlags -> CmmDecl -> UniqSM [RawCmmDecl]
+mkInfoTable _ (CmmData sec dat)
   = return [CmmData sec dat]
 
-mkInfoTable platform (CmmProc info entry_label blocks)
-  | CmmNonInfoTable <- info   -- Code without an info table.  Easy.
-  = return [CmmProc Nothing entry_label blocks]
-                               
-  | CmmInfoTable { cit_lbl = info_lbl } <- info
-  = do { (top_decls, info_cts) <- mkInfoTableContents platform info Nothing
-       ; return (top_decls  ++
-                 mkInfoTableAndCode info_lbl info_cts
-                                    entry_label blocks) }
-  | otherwise = panic "mkInfoTable"
-                  -- Patern match overlap check not clever enough
+mkInfoTable dflags proc@(CmmProc infos entry_lbl blocks)
+  --
+  -- in the non-tables-next-to-code case, procs can have at most a
+  -- single info table associated with the entry label of the proc.
+  --
+  | not (tablesNextToCode dflags)
+  = case topInfoTable proc of   --  must be at most one
+      -- no info table
+      Nothing ->
+         return [CmmProc mapEmpty entry_lbl blocks]
+
+      Just info@CmmInfoTable { cit_lbl = info_lbl } -> do
+        (top_decls, (std_info, extra_bits)) <-
+             mkInfoTableContents dflags info Nothing
+        let
+          rel_std_info   = map (makeRelativeRefTo dflags info_lbl) std_info
+          rel_extra_bits = map (makeRelativeRefTo dflags info_lbl) extra_bits
+        --
+        case blocks of
+          ListGraph [] ->
+              -- No code; only the info table is significant
+              -- Use a zero place-holder in place of the
+              -- entry-label in the info table
+              return (top_decls ++
+                      [mkRODataLits info_lbl (zeroCLit : rel_std_info ++
+                                                         rel_extra_bits)])
+          _nonempty ->
+             -- Separately emit info table (with the function entry
+             -- point as first entry) and the entry code
+             return (top_decls ++
+                     [CmmProc mapEmpty entry_lbl blocks,
+                      mkDataLits Data info_lbl
+                         (CmmLabel entry_lbl : rel_std_info ++ rel_extra_bits)])
+
+  --
+  -- With tables-next-to-code, we can have many info tables,
+  -- associated with some of the BlockIds of the proc.  For each info
+  -- table we need to turn it into CmmStatics, and collect any new
+  -- CmmDecls that arise from doing so.
+  --
+  | otherwise
+  = do
+    (top_declss, raw_infos) <- unzip `fmap` mapM do_one_info (mapToList infos)
+    return (concat top_declss ++
+            [CmmProc (mapFromList raw_infos) entry_lbl blocks])
+
+  where
+   do_one_info (lbl,itbl) = do
+     (top_decls, (std_info, extra_bits)) <-
+         mkInfoTableContents dflags itbl Nothing
+     let
+        info_lbl = cit_lbl itbl
+        rel_std_info   = map (makeRelativeRefTo dflags info_lbl) std_info
+        rel_extra_bits = map (makeRelativeRefTo dflags info_lbl) extra_bits
+     --
+     return (top_decls, (lbl, Statics info_lbl $ map CmmStaticLit $
+                              reverse rel_extra_bits ++ rel_std_info))
 
 -----------------------------------------------------
 type InfoTableContents = ( [CmmLit]	     -- The standard part
                          , [CmmLit] )	     -- The "extra bits"
 -- These Lits have *not* had mkRelativeTo applied to them
 
-mkInfoTableContents :: Platform
+mkInfoTableContents :: DynFlags
                     -> CmmInfoTable
                     -> Maybe StgHalfWord    -- Override default RTS type tag?
                     -> UniqSM ([RawCmmDecl],             -- Auxiliary top decls
                                InfoTableContents)	-- Info tbl + extra bits
 
-mkInfoTableContents platform
+mkInfoTableContents dflags
                     info@(CmmInfoTable { cit_lbl  = info_lbl
                                        , cit_rep  = smrep
                                        , cit_prof = prof
                                        , cit_srt = srt }) 
                     mb_rts_tag
   | RTSRep rts_tag rep <- smrep
-  = mkInfoTableContents platform info{cit_rep = rep} (Just rts_tag)
+  = mkInfoTableContents dflags info{cit_rep = rep} (Just rts_tag)
     -- Completely override the rts_tag that mkInfoTableContents would
     -- otherwise compute, with the rts_tag stored in the RTSRep
     -- (which in turn came from a handwritten .cmm file)
@@ -130,7 +176,7 @@ mkInfoTableContents platform
        ; let (srt_label, srt_bitmap) = mkSRTLit srt
        ; (liveness_lit, liveness_data) <- mkLivenessBits frame
        ; let
-             std_info = mkStdInfoTable prof_lits rts_tag srt_bitmap liveness_lit
+             std_info = mkStdInfoTable dflags prof_lits rts_tag srt_bitmap liveness_lit
              rts_tag | Just tag <- mb_rts_tag = tag
                      | null liveness_data     = rET_SMALL -- Fits in extra_bits
                      | otherwise              = rET_BIG   -- Does not; extra_bits is
@@ -143,7 +189,7 @@ mkInfoTableContents platform
        ; let (srt_label, srt_bitmap) = mkSRTLit srt
        ; (mb_srt_field, mb_layout, extra_bits, ct_data)
                                 <- mk_pieces closure_type srt_label
-       ; let std_info = mkStdInfoTable prof_lits
+       ; let std_info = mkStdInfoTable dflags prof_lits
                                        (mb_rts_tag   `orElse` rtsClosureType smrep)
                                        (mb_srt_field `orElse` srt_bitmap)
                                        (mb_layout    `orElse` layout)
@@ -207,36 +253,6 @@ mkSRTLit (C_SRT lbl off bitmap) = ([cmmLabelOffW lbl off], bitmap)
 --   * the code
 -- and lays them out in memory, producing a list of RawCmmDecl
 
--- The value of tablesNextToCode determines the relative positioning
--- of the extra bits and the standard info table, and whether the
--- former is reversed or not.  It also decides whether pointers in the
--- info table should be expressed as offsets relative to the info
--- pointer or not (see "Position Independent Code" below.
-
-mkInfoTableAndCode :: CLabel             -- Info table label
-                   -> InfoTableContents
-                   -> CLabel     	 -- Entry label
-                   -> ListGraph CmmStmt  -- Entry code
-                   -> [RawCmmDecl]
-mkInfoTableAndCode info_lbl (std_info, extra_bits) entry_lbl blocks
-  | tablesNextToCode 	-- Reverse the extra_bits; and emit the top-level proc
-  = [CmmProc (Just $ Statics info_lbl $ map CmmStaticLit $
-                     reverse rel_extra_bits ++ rel_std_info)
-             entry_lbl blocks]
-
-  | ListGraph [] <- blocks -- No code; only the info table is significant
-  =		-- Use a zero place-holder in place of the 
-		-- entry-label in the info table
-    [mkRODataLits info_lbl (zeroCLit : rel_std_info ++ rel_extra_bits)]
-
-  | otherwise	-- Separately emit info table (with the function entry 
-  =		-- point as first entry) and the entry code 
-    [CmmProc Nothing entry_lbl blocks,
-     mkDataLits Data info_lbl (CmmLabel entry_lbl : rel_std_info ++ rel_extra_bits)]
-  where
-    rel_std_info   = map (makeRelativeRefTo info_lbl) std_info
-    rel_extra_bits = map (makeRelativeRefTo info_lbl) extra_bits
-
 -------------------------------------------------------------------------
 --
 --	Position independent code
@@ -250,15 +266,15 @@ mkInfoTableAndCode info_lbl (std_info, extra_bits) entry_lbl blocks
 -- Note that this is done even when the -fPIC flag is not specified,
 -- as we want to keep binary compatibility between PIC and non-PIC.
 
-makeRelativeRefTo :: CLabel -> CmmLit -> CmmLit
+makeRelativeRefTo :: DynFlags -> CLabel -> CmmLit -> CmmLit
         
-makeRelativeRefTo info_lbl (CmmLabel lbl)
-  | tablesNextToCode
+makeRelativeRefTo dflags info_lbl (CmmLabel lbl)
+  | tablesNextToCode dflags
   = CmmLabelDiffOff lbl info_lbl 0
-makeRelativeRefTo info_lbl (CmmLabelOff lbl off)
-  | tablesNextToCode
+makeRelativeRefTo dflags info_lbl (CmmLabelOff lbl off)
+  | tablesNextToCode dflags
   = CmmLabelDiffOff lbl info_lbl off
-makeRelativeRefTo _ lit = lit
+makeRelativeRefTo _ _ lit = lit
 
 
 -------------------------------------------------------------------------
@@ -326,13 +342,14 @@ mkLivenessBits liveness
 -- so we can't use constant offsets from Constants
 
 mkStdInfoTable
-   :: (CmmLit,CmmLit)	-- Closure type descr and closure descr  (profiling)
+   :: DynFlags
+   -> (CmmLit,CmmLit)	-- Closure type descr and closure descr  (profiling)
    -> StgHalfWord	-- Closure RTS tag 
    -> StgHalfWord	-- SRT length
    -> CmmLit		-- layout field
    -> [CmmLit]
 
-mkStdInfoTable (type_descr, closure_descr) cl_type srt_len layout_lit
+mkStdInfoTable dflags (type_descr, closure_descr) cl_type srt_len layout_lit
  = 	-- Parallel revertible-black hole field
     prof_info
 	-- Ticky info (none at present)
@@ -341,8 +358,8 @@ mkStdInfoTable (type_descr, closure_descr) cl_type srt_len layout_lit
 
  where  
     prof_info 
-	| opt_SccProfilingOn = [type_descr, closure_descr]
-	| otherwise	     = []
+	| dopt Opt_SccProfilingOn dflags = [type_descr, closure_descr]
+	| otherwise = []
 
     type_lit = packHalfWordsCLit cl_type srt_len
 

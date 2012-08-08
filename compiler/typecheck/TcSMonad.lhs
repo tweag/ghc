@@ -66,8 +66,8 @@ module TcSMonad (
     InertSet(..), InertCans(..), 
     getInertEqs, getCtCoercion,
     emptyInert, getTcSInerts, lookupInInerts, 
-    extractUnsolved,
-    extractUnsolvedTcS, modifyInertTcS,
+    getInertUnsolved, getInertInsols, splitInertsForImplications,
+    modifyInertTcS,
     updInertSetTcS, partitionCCanMap, partitionEqMap,
     getRelevantCts, extractRelevantInerts,
     CCanMap(..), CtTypeMap, CtFamHeadMap, CtPredMap,
@@ -140,7 +140,7 @@ import Digraph
 import Maybes ( orElse, catMaybes )
 
 
-import Control.Monad( when, zipWithM )
+import Control.Monad( unless, when, zipWithM )
 import StaticFlags( opt_PprStyle_Debug )
 import Data.IORef
 import TrieMap
@@ -171,7 +171,6 @@ mkKindErrorCtxtTcS ty1 ki1 ty2 ki2
 
 Note [WorkList]
 ~~~~~~~~~~~~~~~
-
 A WorkList contains canonical and non-canonical items (of all flavors). 
 Notice that each Ct now has a simplification depth. We may 
 consider using this depth for prioritization as well in the future. 
@@ -365,6 +364,13 @@ extractUnsolvedCMap cmap =
   in (wntd `unionBags` derd, 
       cmap { cts_wanted = emptyUFM, cts_derived = emptyUFM })
 
+extractWantedCMap :: CCanMap a -> (Cts, CCanMap a)
+-- Gets the wanted /only/ constraints and returns a residual
+-- CCanMap with only givens or derived
+extractWantedCMap cmap =
+  let wntd = foldUFM unionBags emptyCts (cts_wanted cmap)
+  in (wntd, cmap { cts_wanted = emptyUFM })
+
 
 -- Maps from PredTypes to Constraints
 type CtTypeMap    = TypeMap    Ct
@@ -493,8 +499,10 @@ The reason for all this is simply to avoid re-solving goals we have solved alrea
 
 * A solved Given is just given
 
-* A solved Derived is possible; purpose is to avoid creating tons of identical
-  Derived goals.
+* A solved Derived in inert_solved is possible; purpose is to avoid
+  creating tons of identical Derived goals.
+
+  But there are no solved Deriveds in inert_solved_funeqs
 
 
 \begin{code}
@@ -513,7 +521,9 @@ data InertSet
               -- Key is by family head. We use this field during flattening only
               -- Not necessarily inert wrt top-level equations (or inert_cans)
 
-       , inert_solved_funeqs :: FamHeadMap CtEvidence  -- Of form co :: F xis ~ xi
+       , inert_solved_funeqs :: FamHeadMap CtEvidence  -- Of form co :: F xis ~ xi 
+                                                       -- No Deriveds 
+
        , inert_solved        :: PredMap    CtEvidence  -- All others
        	      -- These two fields constitute a cache of solved (only!) constraints
               -- See Note [Solved constraints]
@@ -664,66 +674,93 @@ modifyInertTcS upd
        ; return a }
 
 
-extractUnsolvedTcS :: TcS (Cts,Cts) 
--- Extracts frozen errors and remaining unsolved and sets the 
--- inert set to be the remaining! 
-extractUnsolvedTcS = modifyInertTcS extractUnsolved 
+splitInertsForImplications :: InertSet -> ([Ct],InertSet)
+-- Converts the Wanted of the original inert to Given and removes 
+-- all Wanted and Derived from the inerts.
+-- DV: Is the removal of Derived essential? 
+splitInertsForImplications is
+  = let (cts,is') = extractWanted is
+    in  (givens_from_unsolved cts,is')
+  where givens_from_unsolved = foldrBag get_unsolved []
+        get_unsolved cc rest_givens
+            | pushable_wanted cc
+            = let fl   = ctEvidence cc
+                  gfl  = Given { ctev_gloc = setCtLocOrigin (ctev_wloc fl) UnkSkol
+                               , ctev_evtm = EvId (ctev_evar fl)
+                               , ctev_pred = ctev_pred fl }
+                  this_given = cc { cc_ev = gfl }
+              in this_given : rest_givens
+            | otherwise = rest_givens 
 
-extractUnsolved :: InertSet -> ((Cts,Cts), InertSet)
--- Postcondition
--- -------------
--- When: 
---   ((frozen,cts),is_solved) <- extractUnsolved inert
--- Then: 
--- -----------------------------------------------------------------------------
---  cts       |  The unsolved (Derived or Wanted only) residual 
---            |  canonical constraints, that is, no CNonCanonicals.
--- -----------|-----------------------------------------------------------------
---  frozen    | The CNonCanonicals of the original inert (frozen errors), 
---            | of all flavors
--- -----------|-----------------------------------------------------------------
---  is_solved | Whatever remains from the inert after removing the previous two. 
--- -----------------------------------------------------------------------------
-extractUnsolved (IS { inert_cans = IC { inert_eqs    = eqs
-                                      , inert_eq_tvs = eq_tvs
-                                      , inert_irreds = irreds
-                                      , inert_funeqs = funeqs
-                                      , inert_dicts  = dicts
-                                      , inert_holes  = holes
-                                      }
-                    , inert_frozen = frozen
-                    , inert_solved = solved
-                    , inert_flat_cache = flat_cache 
-                    , inert_solved_funeqs = funeq_cache
-                    })
-  
-  = let is_solved  = IS { inert_cans = IC { inert_eqs    = solved_eqs
-                                          , inert_eq_tvs = eq_tvs
-                                          , inert_dicts  = solved_dicts
-                                          , inert_irreds = solved_irreds
-                                          , inert_funeqs = solved_funeqs
-                                          , inert_holes  = emptyCts }
-                        , inert_frozen = emptyCts -- All out
-                                         
-                              -- At some point, I used to flush all the solved, in 
-                              -- fear of evidence loops. But I think we are safe, 
-                              -- flushing is why T3064 had become slower
-                        , inert_solved        = solved      -- PredMap emptyTM
-                        , inert_flat_cache    = flat_cache  -- FamHeadMap emptyTM
-                        , inert_solved_funeqs = funeq_cache -- FamHeadMap emptyTM
-                        }
-    in ((frozen, unsolved), is_solved)
+        pushable_wanted :: Ct -> Bool 
+        pushable_wanted cc 
+         = isEqPred (ctPred cc) -- see Note [Preparing inert set for implications]
 
-  where solved_eqs = filterVarEnv_Directly (\_ ct -> isGivenCt ct) eqs
-        unsolved_eqs = foldVarEnv (\ct cts -> cts `extendCts` ct) emptyCts $
-                       eqs `minusVarEnv` solved_eqs
+        -- Returns Wanted constraints and a Derived/Given InertSet
+        extractWanted (IS { inert_cans = IC { inert_eqs    = eqs
+                                            , inert_eq_tvs = eq_tvs
+                                            , inert_irreds = irreds
+                                            , inert_funeqs = funeqs
+                                            , inert_dicts  = dicts
+                                            , inert_holes  = holes
+                                            }
+                          , inert_frozen = _frozen
+                          , inert_solved = solved
+                          , inert_flat_cache = flat_cache 
+                          , inert_solved_funeqs = funeq_cache
+                          })
+          
+          = let is_solved  = IS { inert_cans = IC { inert_eqs    = solved_eqs
+                                                  , inert_eq_tvs = eq_tvs
+                                                  , inert_dicts  = solved_dicts
+                                                  , inert_irreds = solved_irreds
+                                                  , inert_funeqs = solved_funeqs
+                                                  , inert_holes  = emptyCts }
+                                , inert_frozen = emptyCts -- All out
+                                                 
+                                      -- At some point, I used to flush all the solved, in 
+                                      -- fear of evidence loops. But I think we are safe, 
+                                      -- flushing is why T3064 had become slower
+                                , inert_solved        = solved      -- PredMap emptyTM
+                                , inert_flat_cache    = flat_cache  -- FamHeadMap emptyTM
+                                , inert_solved_funeqs = funeq_cache -- FamHeadMap emptyTM
+                                }
+            in (wanted, is_solved)
 
-        (unsolved_irreds, solved_irreds) = Bag.partitionBag (not.isGivenCt) irreds
-        (unsolved_dicts, solved_dicts)   = extractUnsolvedCMap dicts
-        (unsolved_funeqs, solved_funeqs) = partCtFamHeadMap (not . isGivenCt) funeqs
+          where gd_eqs = filterVarEnv_Directly (\_ ct -> not (isWantedCt ct)) eqs
+                wanted_eqs = foldVarEnv (\ct cts -> cts `extendCts` ct) emptyCts $ 
+                             eqs `minusVarEnv` gd_eqs
+                
+                (wanted_irreds, gd_irreds) = Bag.partitionBag isWantedCt irreds
+                (wanted_dicts,  gd_dicts)  = extractWantedCMap dicts
+                (wanted_funeqs, gd_funeqs) = partCtFamHeadMap isWantedCt funeqs
 
-        unsolved = unsolved_eqs `unionBags` unsolved_irreds `unionBags`
-                   unsolved_dicts `unionBags` unsolved_funeqs `unionBags` holes
+                -- Is this all necessary? 
+                solved_eqs        = filterVarEnv_Directly (\_ ct -> isGivenCt ct) gd_eqs 
+                solved_irreds     = Bag.filterBag isGivenCt gd_irreds
+                (_,solved_dicts)  = extractUnsolvedCMap gd_dicts
+                (_,solved_funeqs) = partCtFamHeadMap (not . isGivenCt) gd_funeqs
+
+                wanted = wanted_eqs `unionBags` wanted_irreds `unionBags`
+                         wanted_dicts `unionBags` wanted_funeqs `unionBags` holes
+
+
+getInertInsols :: InertSet -> Cts
+-- Insolubles only
+getInertInsols is = inert_frozen is
+
+getInertUnsolved :: InertSet -> Cts
+-- Unsolved Wanted or Derived only 
+getInertUnsolved (IS { inert_cans = icans }) 
+  = let unsolved_eqs = foldVarEnv add_if_not_given emptyCts (inert_eqs icans)
+        add_if_not_given ct cts
+            | isGivenCt ct = cts
+            | otherwise    = cts `extendCts` ct
+        (unsolved_irreds,_) = Bag.partitionBag (not . isGivenCt) (inert_irreds icans)
+        (unsolved_dicts,_)  = extractUnsolvedCMap (inert_dicts icans)
+        (unsolved_funeqs,_) = partCtFamHeadMap (not . isGivenCt) (inert_funeqs icans)
+    in unsolved_eqs `unionBags` unsolved_irreds `unionBags` 
+       unsolved_dicts `unionBags` unsolved_funeqs `unionBags` (inert_holes icans)
 
 
 
@@ -1102,11 +1139,16 @@ emitFrozenError :: CtEvidence -> SubGoalDepth -> TcS ()
 emitFrozenError fl depth 
   = do { traceTcS "Emit frozen error" (ppr (ctEvPred fl))
        ; inert_ref <- getTcSInertsRef 
-       ; inerts <- wrapTcS (TcM.readTcRef inert_ref)
-       ; let ct = CNonCanonical { cc_ev = fl
-                                , cc_depth = depth } 
-             inerts_new = inerts { inert_frozen = extendCts (inert_frozen inerts) ct } 
-       ; wrapTcS (TcM.writeTcRef inert_ref inerts_new) }
+       ; wrapTcS $ do
+       { inerts <- TcM.readTcRef inert_ref
+       ; let old_insols = inert_frozen inerts
+             ct = CNonCanonical { cc_ev = fl, cc_depth = depth } 
+             inerts_new = inerts { inert_frozen = extendCts old_insols ct } 
+             this_pred = ctEvPred fl
+             already_there = not (isWanted fl) && anyBag (eqType this_pred . ctPred) old_insols
+	     -- See Note [Do not add duplicate derived insolubles]
+       ; unless already_there $
+         TcM.writeTcRef inert_ref inerts_new } }
 
 instance HasDynFlags TcS where
     getDynFlags = wrapTcS getDynFlags
@@ -1163,52 +1205,8 @@ setWantedTyBind tv ty
 
 
 \end{code}
-Note [Optimizing Spontaneously Solved Coercions]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-
-Spontaneously solved coercions such as alpha := tau used to be bound as everything else
-in the evidence binds. Subsequently they were used for rewriting other wanted or solved
-goals. For instance: 
-
-WorkItem = [S] g1 : a ~ tau
-Inerts   = [S] g2 : b ~ [a]
-           [S] g3 : c ~ [(a,a)]
-
-Would result, eventually, after the workitem rewrites the inerts, in the
-following evidence bindings:
-
-        g1 = ReflCo tau
-        g2 = ReflCo [a]
-        g3 = ReflCo [(a,a)]
-        g2' = g2 ; [g1] 
-        g3' = g3 ; [(g1,g1)]
-
-This ia annoying because it puts way too much stress to the zonker and
-desugarer, since we /know/ at the generation time (spontaneously
-solving) that the evidence for a particular evidence variable is the
-identity.
-
-For this reason, our solution is to cache inside the GivenSolved
-flavor of a constraint the term which is actually solving this
-constraint. Whenever we perform a setEvBind, a new flavor is returned
-so that if it was a GivenSolved to start with, it remains a
-GivenSolved with a new evidence term inside. Then, when we use solved
-goals to rewrite other constraints we simply use whatever is in the
-GivenSolved flavor and not the constraint cc_id.
-
-In our particular case we'd get the following evidence bindings, eventually: 
-
-       g1 = ReflCo tau
-       g2 = ReflCo [a]
-       g3 = ReflCo [(a,a)]
-       g2'= ReflCo [a]
-       g3'= ReflCo [(a,a)]
-
-Since we use smart constructors to get rid of g;ReflCo t ~~> g etc.
 
 \begin{code}
-
-
 warnTcS :: CtLoc orig -> Bool -> SDoc -> TcS ()
 warnTcS loc warn_if doc 
   | warn_if   = wrapTcS $ TcM.setCtLoc loc $ TcM.addWarnTc doc
@@ -1264,6 +1262,52 @@ isTouchableMetaTyVar_InRange (untch,untch_tcs) tv
 
 \end{code}
 
+Note [Do not add duplicate derived insolubles]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In general we do want to add an insoluble (Int ~ Bool) even if there is one
+such there already, because they may come from distinct call sites.  But for
+*derived* insolubles, we only want to report each one once.  Why?
+
+(a) A constraint (C r s t) where r -> s, say, may generate the same fundep
+    equality many times, as the original constraint is sucessively rewritten.
+
+(b) Ditto the successive iterations of the main solver itself, as it traverses
+    the constraint tree. See example below.
+
+Also for *given* insolubles we may get repeated errors, as we
+repeatedly traverse the constraint tree.  These are relatively rare
+anyway, so removing duplicates seems ok.  (Alternatively we could take
+the SrcLoc into account.)
+
+Note that the test does not need to be particularly efficient because
+it is only used if the program has a type error anyway.
+
+Example of (b): assume a top-level class and instance declaration:
+
+  class D a b | a -> b 
+  instance D [a] [a] 
+
+Assume we have started with an implication:
+
+  forall c. Eq c => { wc_flat = D [c] c [W] }
+
+which we have simplified to:
+
+  forall c. Eq c => { wc_flat = D [c] c [W]
+                    , wc_insols = (c ~ [c]) [D] }
+
+For some reason, e.g. because we floated an equality somewhere else,
+we might try to re-solve this implication. If we do not do a
+keepWanted, then we will end up trying to solve the following
+constraints the second time:
+
+  (D [c] c) [W]
+  (c ~ [c]) [D]
+
+which will result in two Deriveds to end up in the insoluble set:
+
+  wc_flat   = D [c] c [W]
+  wc_insols = (c ~ [c]) [D], (c ~ [c]) [D]
 
 Note [Touchable meta type variables]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1572,7 +1616,7 @@ matchClass clas tys
             ([], _unifs, _)               -- Nothing matches  
                 -> do { traceTcS "matchClass not matching" $ 
                         vcat [ text "dict" <+> ppr pred
-                             , ppr instEnvs ]
+                             {- , ppr instEnvs -} ]
                         
                       ; return MatchInstNo  
                       } ;  
@@ -1660,25 +1704,6 @@ getCtCoercion :: EvBindMap -> Ct -> TcCoercion
 getCtCoercion _bs ct 
   = ASSERT( not (isDerivedCt ct) )
     evTermCoercion (ctEvTerm (ctEvidence ct))
-{-       ToDo: check with Dimitrios that we can dump this stuff
-         WARNING: if we *do* need this stuff, we need to think again about cyclic bindings.
-  = case lookupEvBind bs cc_id of
-        -- Given and bound to a coercion term
-      Just (EvBind _ (EvCoercion co)) -> co
-                -- NB: The constraint could have been rewritten due to spontaneous 
-                -- unifications but because we are optimizing away mkRefls the evidence
-                -- variable may still have type (alpha ~ [beta]). The constraint may 
-                -- however have a more accurate type (alpha ~ [Int]) (where beta ~ Int has
-                -- been previously solved by spontaneous unification). So if we are going 
-                -- to use the evidence variable for rewriting other constraints, we'd better 
-                -- make sure it's of the right type!
-                -- Always the ctPred type is more accurate, so we just pick that type
-
-      _ -> mkTcCoVarCo (setVarType cc_id (ctPred ct))
-      
-  where 
-    cc_id = ctId ct
--}
 \end{code}
 
 

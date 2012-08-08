@@ -17,7 +17,7 @@ module StgCmmUtils (
 	cgLit, mkSimpleLit,
 	emitDataLits, mkDataLits,
         emitRODataLits, mkRODataLits,
-        emitRtsCall, emitRtsCallWithVols, emitRtsCallWithResult, emitRtsCallGen,
+        emitRtsCall, emitRtsCallWithResult, emitRtsCallGen,
         assignTemp, newTemp,
 
 	newUnboxedTupleRegs,
@@ -50,13 +50,14 @@ module StgCmmUtils (
   ) where
 
 #include "HsVersions.h"
-#include "../includes/stg/MachRegs.h"
+#include "../includes/stg/HaskellMachRegs.h"
 
 import StgCmmMonad
 import StgCmmClosure
 import Cmm
 import BlockId
 import MkGraph
+import CallerSaves
 import CLabel
 import CmmUtils
 
@@ -90,7 +91,7 @@ import Data.Maybe
 -------------------------------------------------------------------------
 
 cgLit :: Literal -> FCode CmmLit
-cgLit (MachStr s) = newByteStringCLit (bytesFS s)
+cgLit (MachStr s) = newByteStringCLit (bytesFB s)
  -- not unpackFS; we want the UTF-8 byte stream.
 cgLit other_lit   = return (mkSimpleLit other_lit)
 
@@ -178,17 +179,12 @@ tagToClosure tycon tag
 -------------------------------------------------------------------------
 
 emitRtsCall :: PackageId -> FastString -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
-emitRtsCall pkg fun args safe = emitRtsCallGen [] pkg fun args Nothing safe
-   -- The 'Nothing' says "save all global registers"
-
-emitRtsCallWithVols :: PackageId -> FastString -> [(CmmExpr,ForeignHint)] -> [GlobalReg] -> Bool -> FCode ()
-emitRtsCallWithVols pkg fun args vols safe
-   = emitRtsCallGen [] pkg fun args (Just vols) safe
+emitRtsCall pkg fun args safe = emitRtsCallGen [] pkg fun args safe
 
 emitRtsCallWithResult :: LocalReg -> ForeignHint -> PackageId -> FastString
 	-> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
 emitRtsCallWithResult res hint pkg fun args safe
-   = emitRtsCallGen [(res,hint)] pkg fun args Nothing safe
+   = emitRtsCallGen [(res,hint)] pkg fun args safe
 
 -- Make a call to an RTS C procedure
 emitRtsCallGen
@@ -196,11 +192,12 @@ emitRtsCallGen
    -> PackageId
    -> FastString
    -> [(CmmExpr,ForeignHint)]
-   -> Maybe [GlobalReg]
    -> Bool -- True <=> CmmSafe call
    -> FCode ()
-emitRtsCallGen res pkg fun args _vols safe
-  = do { updfr_off <- getUpdFrameOff
+emitRtsCallGen res pkg fun args safe
+  = do { dflags <- getDynFlags
+       ; updfr_off <- getUpdFrameOff
+       ; let (caller_save, caller_load) = callerSaveVolatileRegs dflags
        ; emit caller_save
        ; call updfr_off
        ; emit caller_load }
@@ -213,7 +210,6 @@ emitRtsCallGen res pkg fun args _vols safe
                          (ForeignConvention CCallConv arg_hints res_hints)) res' args'
     (args', arg_hints) = unzip args
     (res',  res_hints) = unzip res
-    (caller_save, caller_load) = callerSaveVolatileRegs
     fun_expr = mkLblExpr (mkCmmCodeLabel pkg fun)
 
 
@@ -247,9 +243,11 @@ emitRtsCallGen res pkg fun args _vols safe
 -- cmm/CmmNode.hs.  Right now the workaround is to avoid inlining across
 -- unsafe foreign calls in rewriteAssignments, but this is strictly
 -- temporary.
-callerSaveVolatileRegs :: (CmmAGraph, CmmAGraph)
-callerSaveVolatileRegs = (caller_save, caller_load)
+callerSaveVolatileRegs :: DynFlags -> (CmmAGraph, CmmAGraph)
+callerSaveVolatileRegs dflags = (caller_save, caller_load)
   where
+    platform = targetPlatform dflags
+
     caller_save = catAGraphs (map callerSaveGlobalReg    regs_to_save)
     caller_load = catAGraphs (map callerRestoreGlobalReg regs_to_save)
 
@@ -257,7 +255,7 @@ callerSaveVolatileRegs = (caller_save, caller_load)
 		    {- ,SparkHd,SparkTl,SparkBase,SparkLim -}
 		  , BaseReg ]
 
-    regs_to_save = filter callerSaves system_regs
+    regs_to_save = filter (callerSaves platform) system_regs
 
     callerSaveGlobalReg reg
 	= mkStore (get_GlobalReg_addr reg) (CmmReg (CmmGlobal reg))
@@ -293,89 +291,6 @@ get_Regtable_addr_from_offset _rep offset =
 #else
   regTableOffset offset
 #endif
-
-
--- | Returns 'True' if this global register is stored in a caller-saves
--- machine register.
-
-callerSaves :: GlobalReg -> Bool
-
-#ifdef CALLER_SAVES_Base
-callerSaves BaseReg		= True
-#endif
-#ifdef CALLER_SAVES_R1
-callerSaves (VanillaReg 1 _)	= True
-#endif
-#ifdef CALLER_SAVES_R2
-callerSaves (VanillaReg 2 _)	= True
-#endif
-#ifdef CALLER_SAVES_R3
-callerSaves (VanillaReg 3 _)	= True
-#endif
-#ifdef CALLER_SAVES_R4
-callerSaves (VanillaReg 4 _)	= True
-#endif
-#ifdef CALLER_SAVES_R5
-callerSaves (VanillaReg 5 _)	= True
-#endif
-#ifdef CALLER_SAVES_R6
-callerSaves (VanillaReg 6 _)	= True
-#endif
-#ifdef CALLER_SAVES_R7
-callerSaves (VanillaReg 7 _)	= True
-#endif
-#ifdef CALLER_SAVES_R8
-callerSaves (VanillaReg 8 _)	= True
-#endif
-#ifdef CALLER_SAVES_R9
-callerSaves (VanillaReg 9 _)	= True
-#endif
-#ifdef CALLER_SAVES_R10
-callerSaves (VanillaReg 10 _)	= True
-#endif
-#ifdef CALLER_SAVES_F1
-callerSaves (FloatReg 1)	= True
-#endif
-#ifdef CALLER_SAVES_F2
-callerSaves (FloatReg 2)	= True
-#endif
-#ifdef CALLER_SAVES_F3
-callerSaves (FloatReg 3)	= True
-#endif
-#ifdef CALLER_SAVES_F4
-callerSaves (FloatReg 4)	= True
-#endif
-#ifdef CALLER_SAVES_D1
-callerSaves (DoubleReg 1)	= True
-#endif
-#ifdef CALLER_SAVES_D2
-callerSaves (DoubleReg 2)	= True
-#endif
-#ifdef CALLER_SAVES_L1
-callerSaves (LongReg 1)		= True
-#endif
-#ifdef CALLER_SAVES_Sp
-callerSaves Sp			= True
-#endif
-#ifdef CALLER_SAVES_SpLim
-callerSaves SpLim		= True
-#endif
-#ifdef CALLER_SAVES_Hp
-callerSaves Hp			= True
-#endif
-#ifdef CALLER_SAVES_HpLim
-callerSaves HpLim		= True
-#endif
-#ifdef CALLER_SAVES_CCCS
-callerSaves CCCS                = True
-#endif
-#ifdef CALLER_SAVES_CurrentTSO
-callerSaves CurrentTSO		= True
-#endif
-#ifdef CALLER_SAVES_CurrentNursery
-callerSaves CurrentNursery	= True
-#endif
-callerSaves _			= False
 
 
 -- -----------------------------------------------------------------------------
@@ -464,7 +379,7 @@ newUnboxedTupleRegs res_ty
     	   , let rep = typePrimRep ty
   	   , not (isVoidRep rep) ]
     choose_regs (AssignTo regs _) = return regs
-    choose_regs _other		  = mapM (newTemp . primRepCmmType) reps
+    choose_regs _other            = mapM (newTemp . primRepCmmType) reps
 
 
 

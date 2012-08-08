@@ -20,7 +20,7 @@ module Outputable (
         interppSP, interpp'SP, pprQuotedList, pprWithCommas, quotedListWithOr,
         empty, nest,
         char,
-        text, ftext, ptext,
+        text, ftext, ptext, ztext,
         int, intWithCommas, integer, float, double, rational,
         parens, cparen, brackets, braces, quotes, quote, 
         doubleQuotes, angleBrackets, paBrackets,
@@ -38,7 +38,6 @@ module Outputable (
         colBinder, bold, keyword,
 
         -- * Converting 'SDoc' into strings and outputing it
-        hPrintDump,
         printForC, printForAsm, printForUser, printForUserPartWay,
         pprCode, mkCodeStyle,
         showSDoc, showSDocOneLine,
@@ -48,7 +47,7 @@ module Outputable (
         renderWithStyle,
 
         pprInfixVar, pprPrefixVar,
-        pprHsChar, pprHsString, 
+        pprHsChar, pprHsString, pprHsBytes,
         pprFastFilePath,
 
         -- * Controlling the style in which output is printed
@@ -66,7 +65,7 @@ module Outputable (
 
         -- * Error handling and debugging utilities
         pprPanic, pprSorry, assertPprPanic, pprPanicFastInt, pprPgmError,
-        pprTrace, pprDefiniteTrace, warnPprTrace,
+        pprTrace, warnPprTrace,
         trace, pgmError, panic, sorry, panicFastInt, assertPanic,
         pprDebugAndThen,
     ) where
@@ -91,17 +90,12 @@ import qualified Data.IntMap as IM
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Word
-import System.IO        ( Handle, hFlush )
+import System.IO        ( Handle )
 import System.FilePath
+import Text.Printf
 
-
-#if __GLASGOW_HASKELL__ >= 701
+import GHC.Fingerprint
 import GHC.Show         ( showMultiLineString )
-#else
-showMultiLineString :: String -> [String]
--- Crude version
-showMultiLineString s = [ showList s "" ]
-#endif
 \end{code}
 
 
@@ -330,13 +324,6 @@ ifPprDebug d = SDoc $ \ctx ->
 \end{code}
 
 \begin{code}
-hPrintDump :: DynFlags -> Handle -> SDoc -> IO ()
-hPrintDump dflags h doc = do
-   Pretty.printDoc PageMode (pprCols dflags) h
-     (runSDoc better_doc (initSDocContext dflags defaultDumpStyle))
-   hFlush h
- where
-   better_doc = doc $$ blankLine
 
 printForUser :: DynFlags -> Handle -> PrintUnqualified -> SDoc -> IO ()
 printForUser dflags handle unqual doc
@@ -419,6 +406,7 @@ char     :: Char       -> SDoc
 text     :: String     -> SDoc
 ftext    :: FastString -> SDoc
 ptext    :: LitString  -> SDoc
+ztext    :: FastZString -> SDoc
 int      :: Int        -> SDoc
 integer  :: Integer    -> SDoc
 float    :: Float      -> SDoc
@@ -430,6 +418,7 @@ char c      = docToSDoc $ Pretty.char c
 text s      = docToSDoc $ Pretty.text s
 ftext s     = docToSDoc $ Pretty.ftext s
 ptext s     = docToSDoc $ Pretty.ptext s
+ztext s     = docToSDoc $ Pretty.ztext s
 int n       = docToSDoc $ Pretty.int n
 integer n   = docToSDoc $ Pretty.integer n
 float n     = docToSDoc $ Pretty.float n
@@ -610,24 +599,27 @@ class Outputable a where
 \end{code}
 
 \begin{code}
+instance Outputable Char where
+    ppr c = text [c]
+
 instance Outputable Bool where
     ppr True  = ptext (sLit "True")
     ppr False = ptext (sLit "False")
 
 instance Outputable Int where
-   ppr n = int n
+    ppr n = int n
 
 instance Outputable Word16 where
-   ppr n = integer $ fromIntegral n
+    ppr n = integer $ fromIntegral n
 
 instance Outputable Word32 where
-   ppr n = integer $ fromIntegral n
+    ppr n = integer $ fromIntegral n
 
 instance Outputable Word where
-   ppr n = integer $ fromIntegral n
+    ppr n = integer $ fromIntegral n
 
 instance Outputable () where
-   ppr _ = text "()"
+    ppr _ = text "()"
 
 instance (Outputable a) => Outputable [a] where
     ppr xs = brackets (fsep (punctuate comma (map ppr xs)))
@@ -639,12 +631,12 @@ instance (Outputable a, Outputable b) => Outputable (a, b) where
     ppr (x,y) = parens (sep [ppr x <> comma, ppr y])
 
 instance Outputable a => Outputable (Maybe a) where
-  ppr Nothing = ptext (sLit "Nothing")
-  ppr (Just x) = ptext (sLit "Just") <+> ppr x
+    ppr Nothing = ptext (sLit "Nothing")
+    ppr (Just x) = ptext (sLit "Just") <+> ppr x
 
 instance (Outputable a, Outputable b) => Outputable (Either a b) where
-  ppr (Left x)  = ptext (sLit "Left")  <+> ppr x
-  ppr (Right y) = ptext (sLit "Right") <+> ppr y
+    ppr (Left x)  = ptext (sLit "Left")  <+> ppr x
+    ppr (Right y) = ptext (sLit "Right") <+> ppr y
 
 -- ToDo: may not be used
 instance (Outputable a, Outputable b, Outputable c) => Outputable (a, b, c) where
@@ -699,6 +691,9 @@ instance (Outputable key, Outputable elt) => Outputable (M.Map key elt) where
     ppr m = ppr (M.toList m)
 instance (Outputable elt) => Outputable (IM.IntMap elt) where
     ppr m = ppr (IM.toList m)
+
+instance Outputable Fingerprint where
+    ppr (Fingerprint w1 w2) = text (printf "%016x%016x" w1 w2)
 \end{code}
 
 %************************************************************************
@@ -742,6 +737,16 @@ pprHsChar c | c > '\x10ffff' = char '\\' <> text (show (fromIntegral (ord c) :: 
 -- | Special combinator for showing string literals.
 pprHsString :: FastString -> SDoc
 pprHsString fs = vcat (map text (showMultiLineString (unpackFS fs)))
+
+-- | Special combinator for showing string literals.
+pprHsBytes :: FastBytes -> SDoc
+pprHsBytes fb = let escaped = concatMap escape $ bytesFB fb
+                in vcat (map text (showMultiLineString escaped)) <> char '#'
+    where escape :: Word8 -> String
+          escape w = let c = chr (fromIntegral w)
+                     in if isAscii c
+                        then [c]
+                        else '\\' : show w
 
 ---------------------
 -- Put a name in parens if it's an operator
@@ -910,10 +915,6 @@ pprTrace :: String -> SDoc -> a -> a
 pprTrace str doc x
    | opt_NoDebugOutput = x
    | otherwise         = pprDebugAndThen tracingDynFlags trace str doc x
-
-pprDefiniteTrace :: DynFlags -> String -> SDoc -> a -> a
--- ^ Same as pprTrace, but show even if -dno-debug-output is on
-pprDefiniteTrace dflags str doc x = pprDebugAndThen dflags trace str doc x
 
 pprPanicFastInt :: String -> SDoc -> FastInt
 -- ^ Specialization of pprPanic that can be safely used with 'FastInt'

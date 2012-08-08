@@ -6,6 +6,7 @@
 Type - public interface
 
 \begin{code}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
@@ -1143,7 +1144,7 @@ seqType (TyVarTy tv) 	  = tv `seq` ()
 seqType (AppTy t1 t2) 	  = seqType t1 `seq` seqType t2
 seqType (FunTy t1 t2) 	  = seqType t1 `seq` seqType t2
 seqType (TyConApp tc tys) = tc `seq` seqTypes tys
-seqType (ForAllTy tv ty)  = tv `seq` seqType ty
+seqType (ForAllTy tv ty)  = seqType (tyVarKind tv) `seq` seqType ty
 
 seqTypes :: [Type] -> ()
 seqTypes []       = ()

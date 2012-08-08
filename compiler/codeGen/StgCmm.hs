@@ -52,7 +52,7 @@ import OrdList
 import MkGraph
 
 import Data.IORef
-import Control.Monad (when)
+import Control.Monad (when,void)
 import Util
 
 codeGen :: DynFlags
@@ -224,15 +224,16 @@ cgDataCon :: DataCon -> FCode ()
 -- Generate the entry code, info tables, and (for niladic constructor)
 -- the static closure, for a constructor.
 cgDataCon data_con
-  = do	{ let
+  = do	{ dflags <- getDynFlags
+        ; let
             (tot_wds, --  #ptr_wds + #nonptr_wds
     	     ptr_wds, --  #ptr_wds
-    	     arg_things) = mkVirtConstrOffsets arg_reps
+    	     arg_things) = mkVirtConstrOffsets dflags arg_reps
 
             nonptr_wds   = tot_wds - ptr_wds
 
-            sta_info_tbl = mkDataConInfoTable data_con True  ptr_wds nonptr_wds
-            dyn_info_tbl = mkDataConInfoTable data_con False ptr_wds nonptr_wds
+            sta_info_tbl = mkDataConInfoTable dflags data_con True  ptr_wds nonptr_wds
+            dyn_info_tbl = mkDataConInfoTable dflags data_con False ptr_wds nonptr_wds
 
             emit_info info_tbl ticky_code
                 = emitClosureAndInfoTable info_tbl NativeDirectCall []
@@ -243,8 +244,9 @@ cgDataCon data_con
  	        do { _ <- ticky_code
 		   ; ldvEnter (CmmReg nodeReg)
 		   ; tickyReturnOldCon (length arg_things)
-		   ; emitReturn [cmmOffsetB (CmmReg nodeReg)
-					    (tagForCon data_con)] }
+                   ; void $ emitReturn [cmmOffsetB (CmmReg nodeReg)
+                                            (tagForCon data_con)]
+                   }
                         -- The case continuation code expects a tagged pointer
 
 	    arg_reps :: [(PrimRep, UnaryType)]

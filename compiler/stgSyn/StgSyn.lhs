@@ -60,7 +60,6 @@ import Packages    ( isDllName )
 import Platform
 import PprCore     ( {- instances -} )
 import PrimOp      ( PrimOp, PrimCall )
-import StaticFlags ( opt_SccProfilingOn )
 import TyCon       ( PrimRep(..) )
 import TyCon       ( TyCon )
 import Type        ( Type )
@@ -636,7 +635,7 @@ pprGenStgBinding :: (OutputableBndr bndr, Outputable bdee, Ord bdee)
 
 pprGenStgBinding (StgNonRec bndr rhs)
   = hang (hsep [pprBndr LetBind bndr, equals])
-        4 ((<>) (ppr rhs) semi)
+        4 (ppr rhs <> semi)
 
 pprGenStgBinding (StgRec pairs)
   = vcat $ ifPprDebug (ptext $ sLit "{- StgRec (begin) -}") :
@@ -644,7 +643,7 @@ pprGenStgBinding (StgRec pairs)
   where
     ppr_bind (bndr, expr)
       = hang (hsep [pprBndr LetBind bndr, equals])
-             4 ((<>) (ppr expr) semi)
+             4 (ppr expr <> semi)
 
 pprStgBinding :: StgBinding -> SDoc
 pprStgBinding  bind  = pprGenStgBinding bind
@@ -740,12 +739,12 @@ pprStgExpr (StgLet bind expr)
 pprStgExpr (StgLetNoEscape lvs_whole lvs_rhss bind expr)
   = sep [hang (ptext (sLit "let-no-escape {"))
                 2 (pprGenStgBinding bind),
-           hang ((<>) (ptext (sLit "} in "))
-                   (ifPprDebug (
+           hang (ptext (sLit "} in ") <>
+                   ifPprDebug (
                     nest 4 (
                       hcat [ptext  (sLit "-- lvs: ["), interppSP (uniqSetToList lvs_whole),
                              ptext (sLit "]; rhs lvs: ["), interppSP (uniqSetToList lvs_rhss),
-                             char ']']))))
+                             char ']'])))
                 2 (ppr expr)]
 
 pprStgExpr (StgSCC cc tick push expr)
@@ -810,7 +809,8 @@ pprStgRhs (StgRhsClosure cc bi [free_var] upd_flag srt [{-no args-}] (StgApp fun
 
 -- general case
 pprStgRhs (StgRhsClosure cc bi free_vars upd_flag srt args body)
-  = hang (hsep [if opt_SccProfilingOn then ppr cc else empty,
+  = sdocWithDynFlags $ \dflags ->
+    hang (hsep [if dopt Opt_SccProfilingOn dflags then ppr cc else empty,
                 pp_binder_info bi,
                 ifPprDebug (brackets (interppSP free_vars)),
                 char '\\' <> ppr upd_flag, pprMaybeSRT srt, brackets (interppSP args)])

@@ -76,7 +76,6 @@ import SMRep
 import Cmm
 
 import CLabel
-import StaticFlags
 import Id
 import IdInfo
 import DataCon
@@ -376,8 +375,8 @@ thunkClosureType _                   = Thunk
 
 -- Be sure to see the stg-details notes about these...
 
-nodeMustPointToIt :: LambdaFormInfo -> Bool
-nodeMustPointToIt (LFReEntrant top _ no_fvs _)
+nodeMustPointToIt :: DynFlags -> LambdaFormInfo -> Bool
+nodeMustPointToIt _ (LFReEntrant top _ no_fvs _)
   = not no_fvs ||   -- Certainly if it has fvs we need to point to it
     isNotTopLevel top
 		    -- If it is not top level we will point to it
@@ -389,7 +388,7 @@ nodeMustPointToIt (LFReEntrant top _ no_fvs _)
 		-- non-inherited function i.e. not top level
 		-- the  not top  case above ensures this is ok.
 
-nodeMustPointToIt (LFCon _) = True
+nodeMustPointToIt _ (LFCon _) = True
 
 	-- Strictly speaking, the above two don't need Node to point
 	-- to it if the arity = 0.  But this is a *really* unlikely
@@ -402,8 +401,8 @@ nodeMustPointToIt (LFCon _) = True
 	-- having Node point to the result of an update.  SLPJ
 	-- 27/11/92.
 
-nodeMustPointToIt (LFThunk _ no_fvs updatable NonStandardThunk _)
-  = updatable || not no_fvs || opt_SccProfilingOn
+nodeMustPointToIt dflags (LFThunk _ no_fvs updatable NonStandardThunk _)
+  = updatable || not no_fvs || dopt Opt_SccProfilingOn dflags
 	  -- For the non-updatable (single-entry case):
 	  --
 	  -- True if has fvs (in which case we need access to them, and we
@@ -411,13 +410,13 @@ nodeMustPointToIt (LFThunk _ no_fvs updatable NonStandardThunk _)
 	  -- or profiling (in which case we need to recover the cost centre
 	  --		 from inside it)
 
-nodeMustPointToIt (LFThunk {})	-- Node must point to a standard-form thunk
+nodeMustPointToIt _ (LFThunk {})	-- Node must point to a standard-form thunk
   = True 
 
-nodeMustPointToIt (LFUnknown _)   = True
-nodeMustPointToIt LFUnLifted      = False
-nodeMustPointToIt LFBlackHole     = True    -- BH entry may require Node to point
-nodeMustPointToIt LFLetNoEscape   = False 
+nodeMustPointToIt _ (LFUnknown _)   = True
+nodeMustPointToIt _ LFUnLifted      = False
+nodeMustPointToIt _ LFBlackHole     = True    -- BH entry may require Node to point
+nodeMustPointToIt _ LFLetNoEscape   = False 
 
 -----------------------------------------------------------------------------
 --		getCallMethod
@@ -475,17 +474,17 @@ getCallMethod :: DynFlags
 	      -> CallMethod
 
 getCallMethod dflags _name _ lf_info _n_args
-  | nodeMustPointToIt lf_info && dopt Opt_Parallel dflags
+  | nodeMustPointToIt dflags lf_info && dopt Opt_Parallel dflags
   =	-- If we're parallel, then we must always enter via node.  
 	-- The reason is that the closure may have been 	
 	-- fetched since we allocated it.
     EnterIt
 
-getCallMethod _ name caf (LFReEntrant _ arity _ _) n_args
+getCallMethod dflags name caf (LFReEntrant _ arity _ _) n_args
   | n_args == 0    = ASSERT( arity /= 0 )
 		     ReturnIt	-- No args at all
   | n_args < arity = SlowCall	-- Not enough args
-  | otherwise      = DirectEntry (enterIdLabel name caf) arity
+  | otherwise      = DirectEntry (enterIdLabel dflags name caf) arity
 
 getCallMethod _ _name _ LFUnLifted n_args
   = ASSERT( n_args == 0 ) ReturnIt
@@ -515,7 +514,7 @@ getCallMethod dflags name caf (LFThunk _ _ updatable std_form_info is_fun) n_arg
 
   | otherwise	-- Jump direct to code for single-entry thunks
   = ASSERT( n_args == 0 )
-    DirectEntry (thunkEntryLabel name caf std_form_info updatable) 0
+    DirectEntry (thunkEntryLabel dflags name caf std_form_info updatable) 0
 
 getCallMethod _ _name _ (LFUnknown True) _n_args
   = SlowCall -- might be a function
@@ -673,13 +672,14 @@ mkCmmInfo ClosureInfo {..}
 --	Building ClosureInfos
 --------------------------------------
 
-mkClosureInfo :: Bool		-- Is static
+mkClosureInfo :: DynFlags
+              -> Bool		-- Is static
 	      -> Id
 	      -> LambdaFormInfo 
 	      -> Int -> Int	-- Total and pointer words
               -> String         -- String descriptor
 	      -> ClosureInfo
-mkClosureInfo is_static id lf_info tot_wds ptr_wds val_descr
+mkClosureInfo dflags is_static id lf_info tot_wds ptr_wds val_descr
   = ClosureInfo { closureName      = name,
                   closureLFInfo    = lf_info,
                   closureInfoLabel = info_lbl,  -- These three fields are
@@ -687,8 +687,8 @@ mkClosureInfo is_static id lf_info tot_wds ptr_wds val_descr
                   closureProf      = prof }     -- (we don't have an SRT yet)
   where
     name       = idName id
-    sm_rep     = mkHeapRep is_static ptr_wds nonptr_wds (lfClosureType lf_info)
-    prof       = mkProfilingInfo id val_descr
+    sm_rep     = mkHeapRep dflags is_static ptr_wds nonptr_wds (lfClosureType lf_info)
+    prof       = mkProfilingInfo dflags id val_descr
     nonptr_wds = tot_wds - ptr_wds
 
     info_lbl = mkClosureInfoTableLabel id lf_info
@@ -778,10 +778,10 @@ closureRednCountsLabel = toRednCountsLbl . closureInfoLabel
 closureSlowEntryLabel :: ClosureInfo -> CLabel
 closureSlowEntryLabel = toSlowEntryLbl . closureInfoLabel
 
-closureLocalEntryLabel :: ClosureInfo -> CLabel
-closureLocalEntryLabel
-  | tablesNextToCode = toInfoLbl  . closureInfoLabel
-  | otherwise        = toEntryLbl . closureInfoLabel
+closureLocalEntryLabel :: DynFlags -> ClosureInfo -> CLabel
+closureLocalEntryLabel dflags
+  | tablesNextToCode dflags = toInfoLbl  . closureInfoLabel
+  | otherwise               = toEntryLbl . closureInfoLabel
 
 mkClosureInfoTableLabel :: Id -> LambdaFormInfo -> CLabel
 mkClosureInfoTableLabel id lf_info
@@ -812,30 +812,30 @@ mkClosureInfoTableLabel id lf_info
        -- invariants in CorePrep anything else gets eta expanded.
 
 
-thunkEntryLabel :: Name -> CafInfo -> StandardFormInfo -> Bool -> CLabel
+thunkEntryLabel :: DynFlags -> Name -> CafInfo -> StandardFormInfo -> Bool -> CLabel
 -- thunkEntryLabel is a local help function, not exported.  It's used from
 -- getCallMethod.
-thunkEntryLabel _thunk_id _ (ApThunk arity) upd_flag
-  = enterApLabel upd_flag arity
-thunkEntryLabel _thunk_id _ (SelectorThunk offset) upd_flag
-  = enterSelectorLabel upd_flag offset
-thunkEntryLabel thunk_id c _ _
-  = enterIdLabel thunk_id c
+thunkEntryLabel dflags _thunk_id _ (ApThunk arity) upd_flag
+  = enterApLabel dflags upd_flag arity
+thunkEntryLabel dflags _thunk_id _ (SelectorThunk offset) upd_flag
+  = enterSelectorLabel dflags upd_flag offset
+thunkEntryLabel dflags thunk_id c _ _
+  = enterIdLabel dflags thunk_id c
 
-enterApLabel :: Bool -> Arity -> CLabel
-enterApLabel is_updatable arity
-  | tablesNextToCode = mkApInfoTableLabel is_updatable arity
-  | otherwise        = mkApEntryLabel is_updatable arity
+enterApLabel :: DynFlags -> Bool -> Arity -> CLabel
+enterApLabel dflags is_updatable arity
+  | tablesNextToCode dflags = mkApInfoTableLabel is_updatable arity
+  | otherwise               = mkApEntryLabel is_updatable arity
 
-enterSelectorLabel :: Bool -> WordOff -> CLabel
-enterSelectorLabel upd_flag offset
-  | tablesNextToCode = mkSelectorInfoLabel upd_flag offset
-  | otherwise        = mkSelectorEntryLabel upd_flag offset
+enterSelectorLabel :: DynFlags -> Bool -> WordOff -> CLabel
+enterSelectorLabel dflags upd_flag offset
+  | tablesNextToCode dflags = mkSelectorInfoLabel upd_flag offset
+  | otherwise               = mkSelectorEntryLabel upd_flag offset
 
-enterIdLabel :: Name -> CafInfo -> CLabel
-enterIdLabel id c
-  | tablesNextToCode = mkInfoTableLabel id c
-  | otherwise        = mkEntryLabel id c
+enterIdLabel :: DynFlags -> Name -> CafInfo -> CLabel
+enterIdLabel dflags id c
+  | tablesNextToCode dflags = mkInfoTableLabel id c
+  | otherwise               = mkEntryLabel id c
 
 
 --------------------------------------
@@ -851,9 +851,9 @@ enterIdLabel id c
 -- The type is determined from the type information stored with the @Id@
 -- in the closure info using @closureTypeDescr@.
 
-mkProfilingInfo :: Id -> String -> ProfilingInfo
-mkProfilingInfo id val_descr
-  | not opt_SccProfilingOn = NoProfilingInfo
+mkProfilingInfo :: DynFlags -> Id -> String -> ProfilingInfo
+mkProfilingInfo dflags id val_descr
+  | not (dopt Opt_SccProfilingOn dflags) = NoProfilingInfo
   | otherwise = ProfilingInfo ty_descr_w8 val_descr_w8
   where
     ty_descr_w8  = stringToWord8s (getTyDescription (idType id))
@@ -884,8 +884,8 @@ getTyLitDescription l =
 --   CmmInfoTable-related things
 --------------------------------------
 
-mkDataConInfoTable :: DataCon -> Bool -> Int -> Int -> CmmInfoTable
-mkDataConInfoTable data_con is_static ptr_wds nonptr_wds
+mkDataConInfoTable :: DynFlags -> DataCon -> Bool -> Int -> Int -> CmmInfoTable
+mkDataConInfoTable dflags data_con is_static ptr_wds nonptr_wds
  = CmmInfoTable { cit_lbl  = info_lbl
                 , cit_rep  = sm_rep
                 , cit_prof = prof
@@ -896,13 +896,13 @@ mkDataConInfoTable data_con is_static ptr_wds nonptr_wds
    info_lbl | is_static = mkStaticInfoTableLabel name NoCafRefs
             | otherwise = mkConInfoTableLabel    name NoCafRefs
 
-   sm_rep = mkHeapRep is_static ptr_wds nonptr_wds cl_type
+   sm_rep = mkHeapRep dflags is_static ptr_wds nonptr_wds cl_type
 
    cl_type = Constr (fromIntegral (dataConTagZ data_con))
                    (dataConIdentity data_con)
 
-   prof | not opt_SccProfilingOn = NoProfilingInfo
-        | otherwise              = ProfilingInfo ty_descr val_descr
+   prof | not (dopt Opt_SccProfilingOn dflags) = NoProfilingInfo
+        | otherwise                            = ProfilingInfo ty_descr val_descr
 
    ty_descr  = stringToWord8s $ occNameString $ getOccName $ dataConTyCon data_con
    val_descr = stringToWord8s $ occNameString $ getOccName data_con
@@ -933,5 +933,3 @@ staticClosureNeedsLink :: Bool -> CmmInfoTable -> Bool
 staticClosureNeedsLink has_srt CmmInfoTable{ cit_rep = smrep }
   | isConRep smrep         = not (isStaticNoCafCon smrep)
   | otherwise              = has_srt -- needsSRT (cit_srt info_tbl)
-staticClosureNeedsLink _ _ = False
-

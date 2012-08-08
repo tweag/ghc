@@ -6,6 +6,7 @@
 ``Long-distance'' floating of bindings towards the top level.
 
 \begin{code}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
@@ -561,7 +562,7 @@ wrapTick t (FB tops defns)
     wrap_one (FloatLet bind)      = FloatLet (wrap_bind bind)
     wrap_one (FloatCase e b c bs) = FloatCase (maybe_tick e) b c bs
 
-    maybe_tick e | exprIsHNF e = e
+    maybe_tick e | exprIsHNF e = tickHNFArgs t e
                  | otherwise   = mkTick t e
       -- we don't need to wrap a tick around an HNF when we float it
       -- outside a tick: that is an invariant of the tick semantics

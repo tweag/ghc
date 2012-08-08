@@ -24,15 +24,27 @@ import Prelude hiding (succ, unzip, zip)
 --
 -----------------------------------------------------------------------------
 
-cmmCfgOpts :: CmmGraph -> CmmGraph
-cmmCfgOpts = removeUnreachableBlocks . blockConcat
+cmmCfgOpts :: Bool -> CmmGraph -> CmmGraph
+cmmCfgOpts split g = fst (blockConcat split g)
 
-cmmCfgOptsProc :: CmmDecl -> CmmDecl
-cmmCfgOptsProc = optProc cmmCfgOpts
+cmmCfgOptsProc :: Bool -> CmmDecl -> CmmDecl
+cmmCfgOptsProc split (CmmProc info lbl g) = CmmProc info' lbl g'
+    where (g', env) = blockConcat split g
+          info' = info{ info_tbls = new_info_tbls }
+          new_info_tbls = mapFromList (map upd_info (mapToList (info_tbls info)))
 
-optProc :: (g -> g) -> GenCmmDecl d h g -> GenCmmDecl d h g
-optProc opt (CmmProc info lbl g) = CmmProc info lbl (opt g)
-optProc _   top                  = top
+          -- If we changed any labels, then we have to update the info tables
+          -- too, except for the top-level info table because that might be
+          -- referred to by other procs.
+          upd_info (k,info)
+             | Just k' <- mapLookup k env
+             = (k', if k' == g_entry g'
+                       then info
+                       else info{ cit_lbl = infoTblLbl k' })
+             | otherwise
+             = (k,info)
+
+cmmCfgOptsProc _ top = top
 
 
 -----------------------------------------------------------------------------
@@ -41,7 +53,8 @@ optProc _   top                  = top
 --
 -----------------------------------------------------------------------------
 
--- This optimisation does two things:
+-- This optimisation does three things:
+--
 --   - If a block finishes with an unconditional branch, then we may
 --     be able to concatenate the block it points to and remove the
 --     branch.  We do this either if the destination block is small
@@ -51,7 +64,12 @@ optProc _   top                  = top
 --   - If a block finishes in a call whose continuation block is a
 --     goto, then we can shortcut the destination, making the
 --     continuation block the destination of the goto.
+--     (but see Note [shortcut call returns])
 --
+--   - removes any unreachable blocks from the graph.  This is a side
+--     effect of starting with a postorder DFS traversal of the graph
+--
+
 -- Both transformations are improved by working from the end of the
 -- graph towards the beginning, because we may be able to perform many
 -- shortcuts in one go.
@@ -77,9 +95,9 @@ optProc _   top                  = top
 -- which labels we have renamed and apply the mapping at the end
 -- with replaceLabels.
 
-blockConcat  :: CmmGraph -> CmmGraph
-blockConcat g@CmmGraph { g_entry = entry_id }
-  = replaceLabels shortcut_map $ ofBlockMap new_entry new_blocks
+blockConcat :: Bool -> CmmGraph -> (CmmGraph, BlockEnv BlockId)
+blockConcat splitting_procs g@CmmGraph { g_entry = entry_id }
+  = (replaceLabels shortcut_map $ ofBlockMap new_entry new_blocks, shortcut_map)
   where
      -- we might be able to shortcut the entry BlockId itself
      new_entry
@@ -90,9 +108,12 @@ blockConcat g@CmmGraph { g_entry = entry_id }
        = entry_id
 
      blocks = postorderDfs g
+     blockmap = foldr addBlock emptyBody blocks
+      -- the initial blockmap is constructed from the postorderDfs result,
+      -- so that we automatically throw away unreachable blocks.
 
      (new_blocks, shortcut_map) =
-           foldr maybe_concat (toBlockMap g, mapEmpty) blocks
+           foldr maybe_concat (blockmap, mapEmpty) blocks
 
      maybe_concat :: CmmBlock
                   -> (BlockEnv CmmBlock, BlockEnv BlockId)
@@ -106,7 +127,8 @@ blockConcat g@CmmGraph { g_entry = entry_id }
         -- calls: if we can shortcut the continuation label, then
         -- we must *also* remember to substitute for the label in the
         -- code, because we will push it somewhere.
-        | Just b'   <- callContinuation_maybe last
+        | splitting_procs -- Note [shortcut call returns]
+        , Just b'   <- callContinuation_maybe last
         , Just blk' <- mapLookup b' blocks
         , Just dest <- canShortcut blk'
         = (blocks, mapInsert b' dest shortcut_map)
@@ -164,6 +186,40 @@ okToDuplicate block
       -- Be careful: a CmmCall can be more than one instruction, it
       -- has a CmmExpr inside it.
       _otherwise -> False
+
+
+{-  Note [shortcut call returns]
+
+Consider this code that you might get from a recursive let-no-escape:
+
+      goto L1
+     L1:
+      if (Hp > HpLim) then L2 else L3
+     L2:
+      call stg_gc_noregs returns to L4
+     L4:
+      goto L1
+     L3:
+      ...
+      goto L1
+
+Then the control-flow optimiser shortcuts L4.  But that turns L1
+into the call-return proc point, and every iteration of the loop
+has to shuffle variables to and from the stack.  So we must *not*
+shortcut L4.
+
+Moreover not shortcutting call returns is probably fine.  If L4 can
+concat with its branch target then it will still do so.  And we
+save some compile time because we don't have to traverse all the
+code in replaceLabels.
+
+However, we probably do want to do this if we are splitting proc
+points, because L1 will be a proc-point anyway, so merging it with L4
+reduces the number of proc points.  Unfortunately recursive
+let-no-escapes won't generate very good code with proc-point splitting
+on - we should probably compile them to explicitly use the native
+calling convention instead.
+-}
 
 ------------------------------------------------------------------------
 -- Map over the CmmGraph, replacing each label with its mapping in the

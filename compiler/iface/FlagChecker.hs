@@ -14,7 +14,6 @@ import Module
 import Name
 import Fingerprint
 -- import Outputable
-import StaticFlags
 
 import qualified Data.IntSet as IntSet
 import System.FilePath (normalise)
@@ -25,7 +24,7 @@ import System.FilePath (normalise)
 fingerprintDynFlags :: DynFlags -> Module -> (BinHandle -> Name -> IO ())
                     -> IO Fingerprint
 
-fingerprintDynFlags DynFlags{..} this_mod nameio =
+fingerprintDynFlags dflags@DynFlags{..} this_mod nameio =
     let mainis   = if mainModIs == this_mod then Just mainFunIs else Nothing
                       -- see #5878
         -- pkgopts  = (thisPackage dflags, sort $ packageFlags dflags)
@@ -37,14 +36,14 @@ fingerprintDynFlags DynFlags{..} this_mod nameio =
                 IntSet.toList $ extensionFlags)
 
         -- -I, -D and -U flags affect CPP
-        cpp = (map normalise includePaths, sOpt_P settings)
+        cpp = (map normalise includePaths, opt_P dflags ++ picPOpts dflags)
             -- normalise: eliminate spurious differences due to "./foo" vs "foo"
 
         -- Note [path flags and recompilation]
         paths = [ hcSuf ]
 
         -- -fprof-auto etc.
-        prof = if opt_SccProfilingOn then fromEnum profAuto else 0
+        prof = if dopt Opt_SccProfilingOn dflags then fromEnum profAuto else 0
 
     in -- pprTrace "flags" (ppr (mainis, safeHs, lang, cpp, paths)) $
        computeFingerprint nameio (mainis, safeHs, lang, cpp, paths, prof)

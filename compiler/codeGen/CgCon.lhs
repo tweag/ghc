@@ -50,7 +50,6 @@ import Module
 import DynFlags
 import FastString
 import Platform
-import StaticFlags
 
 import Control.Monad
 \end{code}
@@ -82,8 +81,9 @@ cgTopRhsCon id con args
             lf_info       = mkConLFInfo con
             closure_label = mkClosureLabel name $ idCafInfo id
             caffy         = any stgArgHasCafRefs args
-            (closure_info, amodes_w_offsets) = layOutStaticConstr con amodes
+            (closure_info, amodes_w_offsets) = layOutStaticConstr dflags con amodes
             closure_rep = mkStaticClosureFields
+                             dflags
                              closure_info
                              dontCareCCS                -- Because it's static data
                              caffy                      -- Has CAF refs
@@ -119,9 +119,10 @@ buildDynCon :: Id                 -- Name of the thing to which this constr will
             -> FCode CgIdInfo     -- Return details about how to find it
 buildDynCon binder ccs con args
     = do dflags <- getDynFlags
-         buildDynCon' (targetPlatform dflags) binder ccs con args
+         buildDynCon' dflags (targetPlatform dflags) binder ccs con args
 
-buildDynCon' :: Platform
+buildDynCon' :: DynFlags
+             -> Platform
              -> Id
              -> CostCentreStack
              -> DataCon
@@ -148,7 +149,7 @@ which have exclusively size-zero (VoidRep) args, we generate no code
 at all.
 
 \begin{code}
-buildDynCon' _ binder _ con []
+buildDynCon' _ _ binder _ con []
   = returnFC (taggedStableIdInfo binder
                            (mkLblExpr (mkClosureLabel (dataConName con)
                                       (idCafInfo binder)))
@@ -183,26 +184,26 @@ because they don't support cross package data references well.
 \begin{code}
 
 
-buildDynCon' platform binder _ con [arg_amode]
+buildDynCon' dflags platform binder _ con [arg_amode]
   | maybeIntLikeCon con
-  , platformOS platform /= OSMinGW32 || not opt_PIC
+  , platformOS platform /= OSMinGW32 || not (dopt Opt_PIC dflags)
   , (_, CmmLit (CmmInt val _)) <- arg_amode
   , let val_int = (fromIntegral val) :: Int
   , val_int <= mAX_INTLIKE && val_int >= mIN_INTLIKE
   = do  { let intlike_lbl   = mkCmmGcPtrLabel rtsPackageId (fsLit "stg_INTLIKE_closure")
-              offsetW = (val_int - mIN_INTLIKE) * (fixedHdrSize + 1)
+              offsetW = (val_int - mIN_INTLIKE) * (fixedHdrSize dflags + 1)
                 -- INTLIKE closures consist of a header and one word payload
               intlike_amode = CmmLit (cmmLabelOffW intlike_lbl offsetW)
         ; returnFC (taggedStableIdInfo binder intlike_amode (mkConLFInfo con) con) }
 
-buildDynCon' platform binder _ con [arg_amode]
+buildDynCon' dflags platform binder _ con [arg_amode]
   | maybeCharLikeCon con
-  , platformOS platform /= OSMinGW32 || not opt_PIC
+  , platformOS platform /= OSMinGW32 || not (dopt Opt_PIC dflags)
   , (_, CmmLit (CmmInt val _)) <- arg_amode
   , let val_int = (fromIntegral val) :: Int
   , val_int <= mAX_CHARLIKE && val_int >= mIN_CHARLIKE
   = do  { let charlike_lbl   = mkCmmGcPtrLabel rtsPackageId (fsLit "stg_CHARLIKE_closure")
-              offsetW = (val_int - mIN_CHARLIKE) * (fixedHdrSize + 1)
+              offsetW = (val_int - mIN_CHARLIKE) * (fixedHdrSize dflags + 1)
                 -- CHARLIKE closures consist of a header and one word payload
               charlike_amode = CmmLit (cmmLabelOffW charlike_lbl offsetW)
         ; returnFC (taggedStableIdInfo binder charlike_amode (mkConLFInfo con) con) }
@@ -212,10 +213,10 @@ buildDynCon' platform binder _ con [arg_amode]
 Now the general case.
 
 \begin{code}
-buildDynCon' _ binder ccs con args
+buildDynCon' dflags _ binder ccs con args
   = do  {
         ; let
-            (closure_info, amodes_w_offsets) = layOutDynConstr con args
+            (closure_info, amodes_w_offsets) = layOutDynConstr dflags con args
 
         ; hp_off <- allocDynClosure closure_info use_cc blame_cc amodes_w_offsets
         ; returnFC (taggedHeapIdInfo binder hp_off lf_info con) }
@@ -245,12 +246,12 @@ found a $con$.
 \begin{code}
 bindConArgs :: DataCon -> [Id] -> Code
 bindConArgs con args
-  = do
+  = do dflags <- getDynFlags
        let
           -- The binding below forces the masking out of the tag bits
           -- when accessing the constructor field.
           bind_arg (arg, offset) = bindNewToUntagNode arg offset (mkLFArgument arg) (tagForCon con)
-          (_, args_w_offsets)    = layOutDynConstr con (addIdReps args)
+          (_, args_w_offsets)    = layOutDynConstr dflags con (addIdReps args)
         --
        ASSERT(not (isUnboxedTupleCon con)) return ()
        mapCs bind_arg args_w_offsets
@@ -270,11 +271,13 @@ bindUnboxedTupleComponents
 
 bindUnboxedTupleComponents args
  =  do  {
-          vsp <- getVirtSp
+          dflags <- getDynFlags
+
+        ; vsp <- getVirtSp
         ; rsp <- getRealSp
 
            -- Assign as many components as possible to registers
-        ; let (reg_args, stk_args) = assignReturnRegs (addIdReps args)
+        ; let (reg_args, stk_args) = assignReturnRegs dflags (addIdReps args)
 
                 -- Separate the rest of the args into pointers and non-pointers
               (ptr_args, nptr_args) = separateByPtrFollowness stk_args
@@ -317,14 +320,14 @@ sure the @amodes@ passed don't conflict with each other.
 \begin{code}
 cgReturnDataCon :: DataCon -> [(CgRep, CmmExpr)] -> Code
 
-cgReturnDataCon con amodes
-  | isUnboxedTupleCon con = returnUnboxedTuple amodes
-      -- when profiling we can't shortcut here, we have to enter the closure
-      -- for it to be marked as "used" for LDV profiling.
-  | opt_SccProfilingOn    = build_it_then enter_it
-  | otherwise
-  = ASSERT( amodes `lengthIs` dataConRepRepArity con )
-    do  { EndOfBlockInfo _ sequel <- getEndOfBlockInfo
+cgReturnDataCon con amodes = do
+  dflags <- getDynFlags
+  if isUnboxedTupleCon con then returnUnboxedTuple amodes
+  -- when profiling we can't shortcut here, we have to enter the closure
+  -- for it to be marked as "used" for LDV profiling.
+   else if dopt Opt_SccProfilingOn dflags then build_it_then (enter_it dflags)
+   else ASSERT( amodes `lengthIs` dataConRepRepArity con )
+     do { EndOfBlockInfo _ sequel <- getEndOfBlockInfo
         ; case sequel of
             CaseAlts _ (Just (alts, deflt_lbl)) bndr
               ->    -- Ho! We know the constructor so we can
@@ -351,8 +354,9 @@ cgReturnDataCon con amodes
         }
   where
     node_live   = Just [node]
-    enter_it    = stmtsC [ CmmAssign nodeReg (cmmUntag (CmmReg nodeReg)),
-                           CmmJump (entryCode $ closureInfoPtr $ CmmReg nodeReg)
+    enter_it dflags
+                = stmtsC [ CmmAssign nodeReg (cmmUntag (CmmReg nodeReg)),
+                           CmmJump (entryCode dflags $ closureInfoPtr $ CmmReg nodeReg)
                                    node_live
                          ]
     jump_to lbl = stmtC $ CmmJump (CmmLit lbl) node_live
@@ -444,7 +448,8 @@ static closure, for a constructor.
 \begin{code}
 cgDataCon :: DataCon -> Code
 cgDataCon data_con
-  = do  {     -- Don't need any dynamic closure code for zero-arity constructors
+  = do  { dflags <- getDynFlags
+        -- Don't need any dynamic closure code for zero-arity constructors
 
         ; let
             -- To allow the debuggers, interpreters, etc to cope with
@@ -452,10 +457,10 @@ cgDataCon data_con
             -- time), we take care that info-table contains the
             -- information we need.
             (static_cl_info, _) =
-                layOutStaticConstr data_con arg_reps
+                layOutStaticConstr dflags data_con arg_reps
 
             (dyn_cl_info, arg_things) =
-                layOutDynConstr    data_con arg_reps
+                layOutDynConstr    dflags data_con arg_reps
 
             emit_info cl_info ticky_code
                 = do { code_blks <- getCgStmts the_code
