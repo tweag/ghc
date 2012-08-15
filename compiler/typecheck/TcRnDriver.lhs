@@ -42,7 +42,7 @@ import FamInstEnv
 import TcAnnotations
 import TcBinds
 import HeaderInfo       ( mkPrelImports )
-import TcType	 ( tidyTopType )
+import TcType ( tidyTopType )
 import TcDefaults
 import TcEnv
 import TcRules
@@ -1377,8 +1377,8 @@ tcUserStmt (L loc (ExprStmt expr _ _ _))
                     do { _ <- checkNoErrs (tcGhciStmts [let_stmt])
                                 --- checkNoErrs defeats the error recovery of let-bindings
                        ; tcGhciStmts [let_stmt, print_it] } ]
-
         ; fix_env <- getFixityEnv
+        ; traceRn (text "tcRnStmt" <+> ppr (plan, fix_env))
         ; return (plan, fix_env) }
 
 tcUserStmt rdr_stmt@(L loc _)

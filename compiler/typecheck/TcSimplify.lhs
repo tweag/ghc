@@ -95,8 +95,7 @@ simplifyTop wanteds
           = do { eb1 <- TcRnMonad.getTcEvBinds ev_binds_var
                ; traceTc "reportUnsolved {" empty
                    -- See Note [Deferring coercion errors to runtime]
-               ; runtimeCoercionErrors <- doptM Opt_DeferTypeErrors
-               ; eb2 <- reportUnsolved runtimeCoercionErrors wc_residual
+               ; eb2 <- reportUnsolved wc_residual
                ; traceTc "reportUnsolved }" empty
                ; return (eb1 `unionBags` eb2) }
 \end{code}
@@ -213,7 +212,7 @@ simplifyDeriv orig pred tvs theta
 
        -- We never want to defer these errors because they are errors in the
        -- compiler! Hence the `False` below
-       ; _ev_binds2 <- reportUnsolved False (residual_wanted { wc_flat = bad })
+       ; _ev_binds2 <- reportUnsolved (residual_wanted { wc_flat = bad })
 
        ; let min_theta = mkMinimalBySCs (bagToList good)
        ; return (substTheta subst_skol min_theta) }
@@ -372,7 +371,7 @@ simplifyInfer _top_lvl apply_mr name_taus (untch,wanteds)
               -- Step 3) Fail fast if there is an insoluble constraint,
               -- unless we are deferring errors to runtime
        ; when (not runtimeCoercionErrors && insolubleWC wanted_transformed) $ 
-         do { _ev_binds <- reportUnsolved False wanted_transformed; failM }
+         do { _ev_binds <- reportUnsolved wanted_transformed; failM }
 
               -- Step 4) Candidates for quantification are an approximation of wanted_transformed
        ; let quant_candidates = approximateWC wanted_transformed               
@@ -707,8 +706,7 @@ simplifyCheck wanteds
 
        ; traceTc "reportUnsolved {" empty
        -- See Note [Deferring coercion errors to runtime]
-       ; runtimeCoercionErrors <- doptM Opt_DeferTypeErrors
-       ; eb2 <- reportUnsolved runtimeCoercionErrors unsolved 
+       ; eb2 <- reportUnsolved unsolved 
        ; traceTc "reportUnsolved }" empty
 
        ; return (eb1 `unionBags` eb2) }

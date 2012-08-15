@@ -238,21 +238,6 @@ canTuple d fl tys
     add_to_work fl = addToWork $ canEvVar d fl (classifyPredType (ctEvPred fl))
 \end{code}
 
-
-\begin{code}
-canHole :: SubGoalDepth -- Depth
-      -> CtEvidence
-      -> Type -> TcS StopOrContinue
-canHole d fl ty
-  = do { (xi,co) <- flatten d FMFullFlatten fl ty
-       ; mb <- rewriteCtFlavor fl xi co
-       ; case mb of
-            Just new_fl -> continueWith $ CHoleCan { cc_ev = new_fl
-                                                   , cc_hole_ty = xi
-                                                   , cc_depth = d }
-            Nothing -> return Stop }
-\end{code}
-
 %************************************************************************
 %*                                                                      *
 %*                      Class Canonicalization

@@ -123,8 +123,6 @@ import FastString
 import Util
 
 import Data.Set (Set)
-
-import UniqSet
 \end{code}
 
 

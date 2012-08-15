@@ -1,5 +1,5 @@
 \begin{code}
-{-# LANGUAGE ScopedTypeVariables, Holes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
@@ -45,7 +45,6 @@ import Outputable
 import DynFlags
 import Data.List        ( partition, mapAccumL )
 import UniqFM
-import BasicTypes
 \end{code}
 
 %************************************************************************
@@ -63,8 +62,8 @@ now?
 -- trigger; this is handy for -fwarn--type-errors
 type ErrEnv = VarEnv [ErrMsg]
 
-reportUnsolved :: Bool -> WantedConstraints -> TcM (Bag EvBind)
-reportUnsolved runtimeCoercionErrors wanted
+reportUnsolved :: WantedConstraints -> TcM (Bag EvBind)
+reportUnsolved wanted
   | isEmptyWC wanted
   = return emptyBag
   | otherwise
