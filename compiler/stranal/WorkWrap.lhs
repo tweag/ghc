@@ -21,12 +21,11 @@ import Var
 import Id
 import Type		( Type )
 import IdInfo
-import Demand
 import UniqSupply
 import BasicTypes
 import DynFlags
 import VarEnv		( isEmptyVarEnv )
-import Maybes		( orElse )
+import Demand
 import WwLib
 import Util
 import Outputable
@@ -258,7 +257,7 @@ tryWW dflags is_rec fn_id rhs
 	-- Furthermore, don't even expose strictness info
   = return [ (fn_id, rhs) ]
 
-  | is_thunk && worthSplittingThunk maybe_fn_dmd res_info
+  | is_thunk && worthSplittingThunk fn_dmd res_info
   	-- See Note [Thunk splitting]
   = ASSERT2( isNonRec is_rec, ppr new_fn_id )	-- The thunk must be non-recursive
     checkSize new_fn_id rhs $ 
@@ -273,12 +272,12 @@ tryWW dflags is_rec fn_id rhs
 
   where
     fn_info   	 = idInfo fn_id
-    maybe_fn_dmd = demandInfo fn_info
+    fn_dmd       = demandInfo fn_info
     inline_act   = inlinePragmaActivation (inlinePragInfo fn_info)
 
 	-- In practice it always will have a strictness 
 	-- signature, even if it's a uninformative one
-    strict_sig  = strictnessInfo fn_info `orElse` topSig
+    strict_sig  = strictnessInfo fn_info
     StrictSig (DmdType env wrap_dmds res_info) = strict_sig
 
 	-- new_fn_id has the DmdEnv zapped.  
@@ -376,8 +375,8 @@ splitFun dflags fn_id fn_info wrap_dmds res_info rhs
     		    -- The arity is set by the simplifier using exprEtaExpandArity
 		    -- So it may be more than the number of top-level-visible lambdas
 
-    work_res_info | isBotRes res_info = BotRes	-- Cpr stuff done by wrapper
-		  | otherwise	      = TopRes
+    work_res_info | isBotRes res_info = botRes	-- Cpr stuff done by wrapper
+		  | otherwise	      = topRes
 
     one_shots = get_one_shots rhs
 
@@ -462,22 +461,77 @@ worthSplittingFun ds res
   = any worth_it ds || returnsCPR res
 	-- worthSplitting returns False for an empty list of demands,
 	-- and hence do_strict_ww is False if arity is zero and there is no CPR
-  -- See Note [Worker-wrapper for bottoming functions]
   where
-    worth_it Abs	      = True	-- Absent arg
-    worth_it (Eval (Prod _)) = True	-- Product arg to evaluate
-    worth_it _    	      = False
+    -- See Note [Worker-wrapper for bottoming functions]
+    worth_it (JD {strd=HyperStr, absd=a})     = isUsed a  -- A Hyper-strict argument, safe to do W/W
+    -- See not [Worthy functions for Worker-Wrapper split]    
+    worth_it (JD {absd=Abs})                  = True      -- Absent arg
+    worth_it (JD {strd=SProd _})              = True      -- Product arg to evaluate
+    worth_it (JD {strd=Str, absd=UProd _})    = True      -- Strictly used product arg
+    worth_it (JD {strd=Str, absd=UHead})      = True 
+    worth_it _    	                      = False
 
-worthSplittingThunk :: Maybe Demand	-- Demand on the thunk
+worthSplittingThunk :: Demand	        -- Demand on the thunk
 		    -> DmdResult	-- CPR info for the thunk
 		    -> Bool
-worthSplittingThunk maybe_dmd res
-  = worth_it maybe_dmd || returnsCPR res
+worthSplittingThunk dmd res
+  = worth_it dmd || returnsCPR res
   where
 	-- Split if the thing is unpacked
-    worth_it (Just (Eval (Prod ds))) = not (all isAbsent ds)
-    worth_it _    	   	     = False
+    worth_it (JD {strd=SProd _, absd=a})   = someCompUsed a
+    worth_it (JD {strd=Str, absd=UProd _}) = True   
+        -- second component points out that at least some of     
+    worth_it _           	           = False
 \end{code}
+
+Note [Worthy functions for Worker-Wrapper split]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+For non-bottoming functions a worker-wrapper transformation takes into
+account several possibilities to decide if the function is worthy for
+splitting:
+
+1. The result is of product type and the function is strict in some
+(or even all) of its arguments. The check that the argument is used is
+more of sanity nature, since strictness implies usage. Example:
+
+f :: (Int, Int) -> Int
+f p = (case p of (a,b) -> a) + 1
+
+should be splitted to
+
+f :: (Int, Int) -> Int
+f p = case p of (a,b) -> $wf a
+
+$wf :: Int -> Int
+$wf a = a + 1
+
+2. Sometimes it also makes sense to perform a WW split if the
+strictness analysis cannot say for sure if the function is strict in
+components of its argument. Then we reason according to the inferred
+usage information: if the function uses its product argument's
+components, the WW split can be beneficial. Example:
+
+g :: Bool -> (Int, Int) -> Int
+g c p = case p of (a,b) -> 
+          if c then a else b
+
+The function g is strict in is argument p and lazy in its
+components. However, both components are used in the RHS. The idea is
+since some of the components (both in this case) are used in the
+right-hand side, the product must presumable be taken apart.
+
+Therefore, the WW transform splits the function g to
+
+g :: Bool -> (Int, Int) -> Int
+g c p = case p of (a,b) -> $wg c a b
+
+$wg :: Bool -> Int -> Int -> Int
+$wg c a b = if c then a else b
+
+3. If an argument is absent, it would be silly to pass it to a
+function, hence the worker with reduced arity is generated.
+
 
 Note [Worker-wrapper for bottoming functions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

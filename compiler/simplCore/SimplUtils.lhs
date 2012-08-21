@@ -368,13 +368,14 @@ interestingCallContext cont
 
 
 -------------------
-mkArgInfo :: Id
+mkArgInfo :: DynFlags 
+          -> Id
 	  -> [CoreRule]	-- Rules for function
 	  -> Int	-- Number of value args
 	  -> SimplCont	-- Context of the call
 	  -> ArgInfo
 
-mkArgInfo fun rules n_val_args call_cont
+mkArgInfo _flags fun rules n_val_args call_cont
   | n_val_args < idArity fun		-- Note [Unsaturated functions]
   = ArgInfo { ai_fun = fun, ai_args = [], ai_type = fun_ty
             , ai_rules = rules, ai_encl = False
@@ -1157,7 +1158,8 @@ tryEtaExpand env bndr rhs
 
     manifest_arity = manifestArity rhs
     old_arity  = idArity bndr
-    _dmd_arity = length $ fst $ splitStrictSig $ idStrictness bndr
+    _dmd_arity 
+      = length $ fst $ splitStrictSig $ idStrictness bndr
 
 findArity :: DynFlags -> Id -> CoreExpr -> Arity -> Arity
 -- This implements the fixpoint loop for arity analysis

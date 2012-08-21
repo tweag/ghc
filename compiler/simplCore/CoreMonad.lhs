@@ -288,6 +288,7 @@ coreDumpFlag (CoreDoRuleCheck {})    = Nothing
 coreDumpFlag CoreDoNothing           = Nothing
 coreDumpFlag (CoreDoPasses {})       = Nothing
 
+
 instance Outputable CoreToDo where
   ppr (CoreDoSimplify _ _)     = ptext (sLit "Simplifier")
   ppr (CoreDoPluginPass s _)   = ptext (sLit "Core plugin: ") <+> text s

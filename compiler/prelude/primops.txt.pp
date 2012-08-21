@@ -45,8 +45,7 @@ defaults
    can_fail         = False   -- See Note Note [PrimOp can_fail and has_side_effects] in PrimOp
    commutable       = False
    code_size        = { primOpCodeSizeDefault }
-   strictness       = { \ arity -> mkStrictSig (mkTopDmdType (replicate arity lazyDmd) TopRes) }
-
+   strictness       = { \ arity -> mkStrictSig (mkTopDmdType (replicate arity top) topRes) }
 
 -- Currently, documentation is produced using latex, so contents of
 -- description fields should be legal latex. Descriptions can contain
@@ -1505,7 +1504,7 @@ primop  CatchOp "catch#" GenPrimOp
 primop  RaiseOp "raise#" GenPrimOp
    a -> b
    with
-   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [lazyDmd] BotRes) }
+   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [top] botRes) }
       -- NB: result is bottom
    out_of_line = True
 
@@ -1522,7 +1521,7 @@ primop  RaiseOp "raise#" GenPrimOp
 primop  RaiseIOOp "raiseIO#" GenPrimOp
    a -> State# RealWorld -> (# State# RealWorld, b #)
    with
-   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [lazyDmd,lazyDmd] BotRes) }
+   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [top, top] botRes) }
    out_of_line = True
    has_side_effects = True
 
@@ -2003,7 +2002,8 @@ section "Tag to enum stuff"
 primop  DataToTagOp "dataToTag#" GenPrimOp
    a -> Int#
    with
-   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [seqDmd] TopRes) }
+   strictness  = { \ _arity -> mkStrictSig (mkTopDmdType [evalDmd] topRes) }
+
 	-- dataToTag# must have an evaluated argument
 
 primop  TagToEnumOp "tagToEnum#" GenPrimOp     

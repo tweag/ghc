@@ -149,6 +149,8 @@ primOpStrictness :: PrimOp -> Arity -> StrictSig
         -- The arity should be the arity of the primop; that's why
         -- this function isn't exported.
 #include "primop-strictness.hs-incl"
+
+
 \end{code}
 
 %************************************************************************

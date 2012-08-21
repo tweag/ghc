@@ -74,8 +74,9 @@ import Type
 import Coercion
 import TysPrim
 import DataCon          ( DataCon, dataConWorkId )
-import IdInfo		( vanillaIdInfo, setStrictnessInfo, setArityInfo )
-import Demand
+import IdInfo		( vanillaIdInfo, setStrictnessInfo, 
+                          setArityInfo )
+import Demand 
 import Name      hiding ( varName )
 import Outputable
 import FastString
@@ -732,7 +733,7 @@ pc_bottoming_Id :: Name -> Type -> Id
 pc_bottoming_Id name ty
  = mkVanillaGlobalWithInfo name ty bottoming_info
  where
-    bottoming_info = vanillaIdInfo `setStrictnessInfo` Just strict_sig
+    bottoming_info = vanillaIdInfo `setStrictnessInfo`    strict_sig
 				   `setArityInfo`         1
 			-- Make arity and strictness agree
 
@@ -745,7 +746,7 @@ pc_bottoming_Id name ty
         -- any pc_bottoming_Id will itself have CafRefs, which bloats
         -- SRTs.
 
-    strict_sig = mkStrictSig (mkTopDmdType [evalDmd] BotRes)
-        -- These "bottom" out, no matter what their arguments
+    strict_sig = mkStrictSig (mkTopDmdType [evalDmd] botRes)
+    -- These "bottom" out, no matter what their arguments
 \end{code}
 

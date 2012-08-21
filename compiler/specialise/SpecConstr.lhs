@@ -33,7 +33,7 @@ import CoreFVs 		( exprsFreeVars )
 import CoreMonad
 import Literal		( litIsLifted )
 import HscTypes         ( ModGuts(..) )
-import WwLib		( mkWorkerArgs )
+import WwLib            ( mkWorkerArgs )
 import DataCon
 import Coercion		hiding( substTy, substCo )
 import Rules
@@ -49,7 +49,6 @@ import DynFlags		( DynFlags(..) )
 import StaticFlags	( opt_PprStyle_Debug )
 import Maybes		( orElse, catMaybes, isJust, isNothing )
 import Demand
-import DmdAnal		( both )
 import Serialized       ( deserializeWithData )
 import Util
 import Pair
@@ -1400,9 +1399,11 @@ spec_one env fn arg_bndrs body (call_pat@(qvars, pats), rule_number)
 
 		-- And build the results
 	; let spec_id = mkLocalId spec_name (mkPiTypes spec_lam_args body_ty) 
-	      		     `setIdStrictness` spec_str    	-- See Note [Transfer strictness]
+	      		     -- See Note [Transfer strictness]
+	      		     `setIdStrictness` spec_str
 			     `setIdArity` count isId spec_lam_args
-	      spec_str   = calcSpecStrictness fn spec_lam_args pats
+              spec_str   = calcSpecStrictness fn spec_lam_args pats
+                -- Conditionally use result of new worker-wrapper transform
 	      (spec_lam_args, spec_call_args) = mkWorkerArgs qvars body_ty
 	      	-- Usual w/w hack to avoid generating 
 	      	-- a spec_rhs of unlifted type and no args
@@ -1418,25 +1419,28 @@ spec_one env fn arg_bndrs body (call_pat@(qvars, pats), rule_number)
 
 calcSpecStrictness :: Id 		     -- The original function
                    -> [Var] -> [CoreExpr]    -- Call pattern
-		   -> StrictSig              -- Strictness of specialised thing
+                   -> StrictSig              -- Strictness of specialised thing
 -- See Note [Transfer strictness]
 calcSpecStrictness fn qvars pats
-  = StrictSig (mkTopDmdType spec_dmds TopRes)
+  = StrictSig (mkTopDmdType spec_dmds topRes)
   where
-    spec_dmds = [ lookupVarEnv dmd_env qv `orElse` lazyDmd | qv <- qvars, isId qv ]
+    spec_dmds = [ lookupVarEnv dmd_env qv `orElse` top | qv <- qvars, isId qv ]
     StrictSig (DmdType _ dmds _) = idStrictness fn
 
     dmd_env = go emptyVarEnv dmds pats
 
+    go :: DmdEnv -> [Demand] -> [CoreExpr] -> DmdEnv
     go env ds (Type {} : pats) = go env ds pats
     go env ds (Coercion {} : pats) = go env ds pats
     go env (d:ds) (pat : pats) = go (go_one env d pat) ds pats
     go env _      _            = env
 
+    go_one :: DmdEnv -> Demand -> CoreExpr -> DmdEnv
     go_one env d   (Var v) = extendVarEnv_C both env v d
-    go_one env (Box d)   e = go_one env d e
-    go_one env (Eval (Prod ds)) e 
-    	   | (Var _, args) <- collectArgs e = go env ds args
+    go_one env d e 
+    	   | isProdDmd d
+           , ds <- splitProdDmd d
+           , (Var _, args) <- collectArgs e = go env ds args
     go_one env _         _ = env
 
 \end{code}
@@ -1791,4 +1795,5 @@ differ only in their type arguments!  Not only is it utterly useless,
 but it also means that (with polymorphic recursion) we can generate
 an infinite number of specialisations. Example is Data.Sequence.adjustTree, 
 I think.
+
 

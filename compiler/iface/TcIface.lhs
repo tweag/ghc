@@ -31,8 +31,8 @@ import CoreSyn
 import CoreUtils
 import CoreUnfold
 import CoreLint
-import WorkWrap
-import MkCore( castBottomExpr )
+import WorkWrap                     ( mkWrapper )
+import MkCore                       ( castBottomExpr )
 import Id
 import MkId
 import IdInfo
@@ -1183,7 +1183,7 @@ tcIdInfo ignore_prags name ty info
     tcPrag :: IdInfo -> IfaceInfoItem -> IfL IdInfo
     tcPrag info HsNoCafRefs        = return (info `setCafInfo`   NoCafRefs)
     tcPrag info (HsArity arity)    = return (info `setArityInfo` arity)
-    tcPrag info (HsStrictness str) = return (info `setStrictnessInfo` Just str)
+    tcPrag info (HsStrictness str) = return (info `setStrictnessInfo` str)
     tcPrag info (HsInline prag)    = return (info `setInlinePragInfo` prag)
 
         -- The next two are lazy, so they don't transitively suck stuff in
@@ -1203,12 +1203,11 @@ tcUnfolding name _ info (IfCoreUnfold stable if_expr)
                     Nothing   -> NoUnfolding
                     Just expr -> mkUnfolding unf_src
                                              True {- Top level -} 
-                                             is_bottoming expr) }
+                                             is_bottoming
+                                             expr) }
   where
      -- Strictness should occur before unfolding!
-    is_bottoming = case strictnessInfo info of
-                     Just sig -> isBottomingSig sig
-                     Nothing  -> False
+    is_bottoming = isBottomingSig $ strictnessInfo info              
 
 tcUnfolding name _ _ (IfCompulsory if_expr)
   = do  { mb_expr <- tcPragExpr name if_expr
@@ -1245,22 +1244,21 @@ tcIfaceWrapper name ty info arity get_worker
   = do  { mb_wkr_id <- forkM_maybe doc get_worker
         ; us <- newUniqueSupply
         ; dflags <- getDynFlags
+        ; let mk_wrapper = \dfs t -> mkWrapper dfs t nd_strict_sig
         ; return (case mb_wkr_id of
                      Nothing     -> noUnfolding
-                     Just wkr_id -> make_inline_rule dflags wkr_id us) }
+                     Just wkr_id -> make_inline_rule mk_wrapper dflags wkr_id us) }
   where
     doc = text "Worker for" <+> ppr name
 
-    make_inline_rule dflags wkr_id us 
+    make_inline_rule mk_wrapper dflags wkr_id us 
         = mkWwInlineRule wkr_id
-                         (initUs_ us (mkWrapper dflags ty strict_sig) wkr_id) 
+                         (initUs_ us (mk_wrapper dflags ty) wkr_id) 
                          arity
-
         -- Again we rely here on strictness info always appearing 
         -- before unfolding
-    strict_sig = case strictnessInfo info of
-                   Just sig -> sig
-                   Nothing  -> pprPanic "Worker info but no strictness for" (ppr name)
+    nd_strict_sig = strictnessInfo info
+
 \end{code}
 
 For unfoldings we try to do the job lazily, so that we never type check

@@ -251,11 +251,12 @@ mkDataConIds wrap_name wkr_name data_con
     wkr_arity = dataConRepArity data_con
     wkr_info  = noCafIdInfo
                 `setArityInfo`       wkr_arity
-                `setStrictnessInfo`  Just wkr_sig
+                `setStrictnessInfo`  wkr_sig
                 `setUnfoldingInfo`   evaldUnfolding  -- Record that it's evaluated,
                                                         -- even if arity = 0
 
-    wkr_sig = mkStrictSig (mkTopDmdType (replicate wkr_arity topDmd) cpr_info)
+    wkr_sig = mkStrictSig (mkTopDmdType (replicate wkr_arity top) cpr_info)
+
         --      Note [Data-con worker strictness]
         -- Notice that we do *not* say the worker is strict
         -- even if the data constructor is declared strict
@@ -274,10 +275,11 @@ mkDataConIds wrap_name wkr_name data_con
         -- not from the worker Id.
 
     cpr_info | isProductTyCon tycon && 
-               isDataTyCon tycon    &&
-               wkr_arity > 0        &&
-               wkr_arity <= mAX_CPR_SIZE        = retCPR
-             | otherwise                        = TopRes
+                  isDataTyCon tycon    &&
+                  wkr_arity > 0        &&
+                  wkr_arity <= mAX_CPR_SIZE        = cprRes
+                | otherwise                        = topRes
+
         -- RetCPR is only true for products that are real data types;
         -- that is, not unboxed tuples or [non-recursive] newtypes
 
@@ -315,17 +317,19 @@ mkDataConIds wrap_name wkr_name data_con
                         -- applications are treated as values
 		    `setInlinePragInfo`    alwaysInlinePragma
                     `setUnfoldingInfo`     wrap_unf
-                    `setStrictnessInfo` Just wrap_sig
+                    `setStrictnessInfo` wrap_sig
                         -- We need to get the CAF info right here because TidyPgm
                         -- does not tidy the IdInfo of implicit bindings (like the wrapper)
                         -- so it not make sure that the CAF info is sane
 
     all_strict_marks = dataConExStricts data_con ++ dataConStrictMarks data_con
+
     wrap_sig = mkStrictSig (mkTopDmdType wrap_arg_dmds cpr_info)
     wrap_stricts = dropList eq_spec all_strict_marks
     wrap_arg_dmds = map mk_dmd wrap_stricts
     mk_dmd str | isBanged str = evalDmd
-               | otherwise    = lazyDmd
+                  | otherwise    = top
+
         -- The Cpr info can be important inside INLINE rhss, where the
         -- wrapper constructor isn't inlined.
         -- And the argument strictness can be important too; we
@@ -446,10 +450,10 @@ mkDictSelId no_unf name clas
         -- to get (say)         C a -> (a -> a)
 
     base_info = noCafIdInfo
-                `setArityInfo`      1
-                `setStrictnessInfo` Just strict_sig
-                `setUnfoldingInfo`  (if no_unf then noUnfolding
-	                             else mkImplicitUnfolding rhs)
+                `setArityInfo`         1
+                `setStrictnessInfo`    strict_sig
+                `setUnfoldingInfo`     (if no_unf then noUnfolding
+	                                else mkImplicitUnfolding rhs)
 		   -- In module where class op is defined, we must add
 		   -- the unfolding, even though it'll never be inlined
 		   -- becuase we use that to generate a top-level binding
@@ -478,10 +482,12 @@ mkDictSelId no_unf name clas
         -- where the V depends on which item we are selecting
         -- It's worth giving one, so that absence info etc is generated
         -- even if the selector isn't inlined
-    strict_sig = mkStrictSig (mkTopDmdType [arg_dmd] TopRes)
+
+    strict_sig = mkStrictSig (mkTopDmdType [arg_dmd] topRes)
     arg_dmd | new_tycon = evalDmd
-            | otherwise = Eval (Prod [ if the_arg_id == id then evalDmd else Abs
-                                     | id <- arg_ids ])
+               | otherwise = mkProdDmd [ if the_arg_id == id then evalDmd else absDmd
+                                          | id <- arg_ids ]
+
 
     tycon      	   = classTyCon clas
     new_tycon  	   = isNewTyCon tycon
@@ -753,7 +759,7 @@ mkPrimOpId prim_op
     info = noCafIdInfo
            `setSpecInfo`          mkSpecInfo (maybeToList $ primOpRules name prim_op)
            `setArityInfo`         arity
-           `setStrictnessInfo` Just strict_sig
+           `setStrictnessInfo`    strict_sig
 
 -- For each ccall we manufacture a separate CCallOpId, giving it
 -- a fresh unique, a type that is correct for this particular ccall,
@@ -779,12 +785,12 @@ mkFCallId dflags uniq fcall ty
 
     info = noCafIdInfo
            `setArityInfo`         arity
-           `setStrictnessInfo` Just strict_sig
+           `setStrictnessInfo`    strict_sig
 
-    (_, tau)     = tcSplitForAllTys ty
-    (arg_tys, _) = tcSplitFunTys tau
-    arity        = length arg_tys
-    strict_sig   = mkStrictSig (mkTopDmdType (replicate arity evalDmd) TopRes)
+    (_, tau)        = tcSplitForAllTys ty
+    (arg_tys, _)    = tcSplitFunTys tau
+    arity           = length arg_tys
+    strict_sig      = mkStrictSig (mkTopDmdType (replicate arity evalDmd) topRes)
 \end{code}
 
 

@@ -23,7 +23,7 @@ import Id		( Id, idType, mkSysLocal, idDemandInfo, setIdDemandInfo,
 			)
 import IdInfo		( vanillaIdInfo )
 import DataCon
-import Demand		( Demand(..), DmdResult(..), Demands(..) ) 
+import Demand        
 import MkCore		( mkRuntimeErrorApp, aBSENT_ERROR_ID )
 import MkId		( realWorldPrimId, voidArgId, 
                           mkUnpackCase, mkProductBox )
@@ -341,6 +341,25 @@ mkWWstr dflags (arg : args) = do
     (args2, wrap_fn2, work_fn2) <- mkWWstr dflags args
     return (args1 ++ args2, wrap_fn1 . wrap_fn2, work_fn1 . work_fn2)
 
+\end{code}
+
+Note [Unpacking arguments with product and polymorphic demands]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The argument is unpacked in a case if it has a product type and has a
+strict and used demand put on it. I.e., arguments, with demands such
+as the following ones:
+
+<S,U(U, L)>
+<S(L,S),U>
+
+will be unpacked. Moreover, for argumentsm whose demand is <S,U> or
+<S,H>, we take an advantage of the polymorphic nature of S and U and
+replicate the enclosed demand correspondingly (see definition of
+replicateDmd).
+
+
+\begin{code}
 ----------------------
 -- mkWWstr_one wrap_arg = (work_args, wrap_fn, work_fn)
 --   *  wrap_fn assumes wrap_arg is in scope,
@@ -358,27 +377,12 @@ mkWWstr_one dflags arg
 	-- Absent case.  We can't always handle absence for arbitrary
         -- unlifted types, so we need to choose just the cases we can
 	-- (that's what mk_absent_let does)
-      Abs | Just work_fn <- mk_absent_let dflags arg
+      JD {absd=Abs} | Just work_fn <- mk_absent_let dflags arg
           -> return ([], nop_fn, work_fn)
-
-	-- Unpack case
-      Eval (Prod cs)
-	| Just (_arg_tycon, _tycon_arg_tys, data_con, inst_con_arg_tys) 
-		<- deepSplitProductType_maybe (idType arg)
-	-> do uniqs <- getUniquesM
-	      let
-	        unpk_args      = zipWith mk_ww_local uniqs inst_con_arg_tys
-	        unpk_args_w_ds = zipWithEqual "mkWWstr" set_worker_arg_info unpk_args cs
-	        unbox_fn       = mkUnpackCase (sanitiseCaseBndr arg) (Var arg) unpk_args data_con
-	        rebox_fn       = Let (NonRec arg con_app) 
-	        con_app        = mkProductBox unpk_args (idType arg)
-	      (worker_args, wrap_fn, work_fn) <- mkWWstr dflags unpk_args_w_ds
-	      return (worker_args, unbox_fn . wrap_fn, work_fn . rebox_fn) 
-	  		   -- Don't pass the arg, rebox instead
-
+      
 	-- `seq` demand; evaluate in wrapper in the hope
 	-- of dropping seqs in the worker
-      Eval (Poly Abs)
+      JD {strd=Str, absd=UHead}
 	-> let
 		arg_w_unf = arg `setIdUnfolding` evaldUnfolding
 		-- Tell the worker arg that it's sure to be evaluated
@@ -397,6 +401,26 @@ mkWWstr_one dflags arg
 		-- we end up evaluating the absent thunk.
 		-- But the Evald flag is pretty weird, and I worry that it might disappear
 		-- during simplification, so for now I've just nuked this whole case
+
+	-- Unpack case, 
+        -- see note [Unpacking arguments with product and polymorphic demands]
+      d | isStrictDmd d
+        , isProdDmd d || isPolyDmd d
+	, Just (_arg_tycon, _tycon_arg_tys, data_con, inst_con_arg_tys) 
+             <- deepSplitProductType_maybe (idType arg)
+        , cs <- if isProdDmd d then splitProdDmd d
+                  --  otherwise is polymorphic demand   
+                else replicateDmd (length inst_con_arg_tys) d 
+	-> do uniqs <- getUniquesM
+	      let
+	        unpk_args      = zipWith mk_ww_local uniqs inst_con_arg_tys
+	        unpk_args_w_ds = zipWithEqual "mkWWstr" set_worker_arg_info unpk_args cs
+	        unbox_fn       = mkUnpackCase (sanitiseCaseBndr arg) (Var arg) unpk_args data_con
+	        rebox_fn       = Let (NonRec arg con_app) 
+	        con_app        = mkProductBox unpk_args (idType arg)
+	      (worker_args, wrap_fn, work_fn) <- mkWWstr dflags unpk_args_w_ds
+	      return (worker_args, unbox_fn . wrap_fn, work_fn . rebox_fn) 
+	  		   -- Don't pass the arg, rebox instead
 			
 	-- Other cases
       _other_demand -> return ([arg], nop_fn, nop_fn)
@@ -439,7 +463,7 @@ mkWWcpr :: Type                              -- function body type
                    CoreExpr -> CoreExpr,	     -- New worker
 		   Type)			-- Type of worker's body 
 
-mkWWcpr body_ty RetCPR
+mkWWcpr body_ty (DR {res=TopRes,cpr=RetCPR})
     | not (isClosedAlgType body_ty)
     = WARN( True, 
             text "mkWWcpr: non-algebraic or open body type" <+> ppr body_ty )
