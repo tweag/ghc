@@ -23,16 +23,7 @@ The algorithm is roughly:
             we fill in its entry in this table with the current mapping.
 
      For each instruction:
-        (a) For each real register clobbered by this instruction:
-            If a temporary resides in it,
-                If the temporary is live after this instruction,
-                    Move the temporary to another (non-clobbered & free) reg,
-                    or spill it to memory.  Mark the temporary as residing
-                    in both memory and a register if it was spilled (it might
-                    need to be read by this instruction).
-            (ToDo: this is wrong for jump instructions?)
-
-        (b) For each temporary *read* by the instruction:
+        (a) For each temporary *read* by the instruction:
             If the temporary does not have a real register allocation:
                 - Allocate a real register from the free list.  If
                   the list is empty:
@@ -44,6 +35,26 @@ The algorithm is roughly:
                   generate an instruction to read the temp from its spill loc.
             (optimisation: if we can see that a real register is going to
             be used soon, then don't use it for allocation).
+
+        (b) For each real register clobbered by this instruction:
+            If a temporary resides in it,
+                If the temporary is live after this instruction,
+                    Move the temporary to another (non-clobbered & free) reg,
+                    or spill it to memory.  Mark the temporary as residing
+                    in both memory and a register if it was spilled (it might
+                    need to be read by this instruction).
+
+            (ToDo: this is wrong for jump instructions?)
+
+            We do this after step (a), because if we start with
+               movq v1, %rsi
+            which is an instruction that clobbers %rsi, if v1 currently resides
+            in %rsi we want to get
+               movq %rsi, %freereg
+               movq %rsi, %rsi     -- will disappear
+            instead of
+               movq %rsi, %freereg
+               movq %freereg, %rsi
 
         (c) Update the current assignment
 
@@ -119,7 +130,7 @@ import Data.Maybe
 import Data.List
 import Control.Monad
 
-#include "../includes/stg/MachRegs.h"
+#include "../includes/stg/HaskellMachRegs.h"
 
 
 -- -----------------------------------------------------------------------------
@@ -180,10 +191,10 @@ linearRegAlloc
 linearRegAlloc dflags first_id block_live sccs
  = let platform = targetPlatform dflags
    in case platformArch platform of
-      ArchX86       -> linearRegAlloc' platform (frInitFreeRegs :: X86.FreeRegs)   first_id block_live sccs
-      ArchX86_64    -> linearRegAlloc' platform (frInitFreeRegs :: X86.FreeRegs)   first_id block_live sccs
-      ArchSPARC     -> linearRegAlloc' platform (frInitFreeRegs :: SPARC.FreeRegs) first_id block_live sccs
-      ArchPPC       -> linearRegAlloc' platform (frInitFreeRegs :: PPC.FreeRegs)   first_id block_live sccs
+      ArchX86       -> linearRegAlloc' platform (frInitFreeRegs platform :: X86.FreeRegs)   first_id block_live sccs
+      ArchX86_64    -> linearRegAlloc' platform (frInitFreeRegs platform :: X86.FreeRegs)   first_id block_live sccs
+      ArchSPARC     -> linearRegAlloc' platform (frInitFreeRegs platform :: SPARC.FreeRegs) first_id block_live sccs
+      ArchPPC       -> linearRegAlloc' platform (frInitFreeRegs platform :: PPC.FreeRegs)   first_id block_live sccs
       ArchARM _ _ _ -> panic "linearRegAlloc ArchARM"
       ArchPPC_64    -> panic "linearRegAlloc ArchPPC_64"
       ArchUnknown   -> panic "linearRegAlloc ArchUnknown"
@@ -293,7 +304,7 @@ processBlock
         -> RegM freeRegs [NatBasicBlock instr]   -- ^ block with registers allocated
 
 processBlock platform block_live (BasicBlock id instrs)
- = do   initBlock id block_live
+ = do   initBlock platform id block_live
         (instrs', fixups)
                 <- linearRA platform block_live [] [] id instrs
         return  $ BasicBlock id instrs' : fixups
@@ -301,8 +312,9 @@ processBlock platform block_live (BasicBlock id instrs)
 
 -- | Load the freeregs and current reg assignment into the RegM state
 --      for the basic block with this BlockId.
-initBlock :: FR freeRegs => BlockId -> BlockMap RegSet -> RegM freeRegs ()
-initBlock id block_live
+initBlock :: FR freeRegs
+          => Platform -> BlockId -> BlockMap RegSet -> RegM freeRegs ()
+initBlock platform id block_live
  = do   block_assig     <- getBlockAssigR
         case mapLookup id block_assig of
                 -- no prior info about this block: we must consider
@@ -314,9 +326,9 @@ initBlock id block_live
                  -> do  -- pprTrace "initFreeRegs" (text $ show initFreeRegs) (return ())
                         case mapLookup id block_live of
                           Nothing ->
-                            setFreeRegsR    frInitFreeRegs
+                            setFreeRegsR    (frInitFreeRegs platform)
                           Just live ->
-                            setFreeRegsR $ foldr frAllocateReg frInitFreeRegs [ r | RegReal r <- uniqSetToList live ]
+                            setFreeRegsR $ foldr frAllocateReg (frInitFreeRegs platform) [ r | RegReal r <- uniqSetToList live ]
                         setAssigR       emptyRegMap
 
                 -- load info about register assignments leading into this block.
@@ -436,7 +448,7 @@ genRaInsn :: (FR freeRegs, Instruction instr, Outputable instr)
           -> RegM freeRegs ([instr], [NatBasicBlock instr])
 
 genRaInsn platform block_live new_instrs block_id instr r_dying w_dying =
-    case regUsageOfInstr instr              of { RU read written ->
+    case regUsageOfInstr platform instr of { RU read written ->
     do
     let real_written    = [ rr  | (RegReal     rr) <- written ]
     let virt_written    = [ vr  | (RegVirtual  vr) <- written ]
@@ -445,9 +457,6 @@ genRaInsn platform block_live new_instrs block_id instr r_dying w_dying =
     -- only read by this instr.  (the list is typically ~2 elements,
     -- so using nub isn't a problem).
     let virt_read       = nub [ vr      | (RegVirtual vr) <- read ]
-
-    -- (a) save any temporaries which will be clobbered by this instruction
-    clobber_saves       <- saveClobberedTemps platform real_written r_dying
 
     -- debugging
 {-    freeregs <- getFreeRegsR
@@ -463,9 +472,12 @@ genRaInsn platform block_live new_instrs block_id instr r_dying w_dying =
         $ do
 -}
 
-    -- (b), (c) allocate real regs for all regs read by this instruction.
+    -- (a), (b) allocate real regs for all regs read by this instruction.
     (r_spills, r_allocd) <-
         allocateRegsAndSpill platform True{-reading-} virt_read [] [] virt_read
+
+    -- (c) save any temporaries which will be clobbered by this instruction
+    clobber_saves <- saveClobberedTemps platform real_written r_dying
 
     -- (d) Update block map for new destinations
     -- NB. do this before removing dead regs from the assignment, because
@@ -559,13 +571,9 @@ releaseRegs regs = do
 --      for allocateRegs on the temps *written*,
 --        - clobbered regs are not allocatable.
 --
---      TODO:   instead of spilling, try to copy clobbered
---              temps to another register if possible.
---
-
 
 saveClobberedTemps
-        :: (Outputable instr, Instruction instr)
+        :: (Outputable instr, Instruction instr, FR freeRegs)
         => Platform
         -> [RealReg]            -- real registers clobbered by this instruction
         -> [Reg]                -- registers which are no longer live after this insn
@@ -589,19 +597,39 @@ saveClobberedTemps platform clobbered dying
         return instrs
 
    where
-        clobber assig instrs []
-                = return (instrs, assig)
+     clobber assig instrs []
+            = return (instrs, assig)
 
-        clobber assig instrs ((temp, reg) : rest)
-         = do
-                (spill, slot)   <- spillR platform (RegReal reg) temp
+     clobber assig instrs ((temp, reg) : rest)
+       = do
+            freeRegs <- getFreeRegsR
+            let regclass = targetClassOfRealReg platform reg
+                freeRegs_thisClass = frGetFreeRegs platform regclass freeRegs
 
-                -- record why this reg was spilled for profiling
-                recordSpill (SpillClobber temp)
+            case filter (`notElem` clobbered) freeRegs_thisClass of
 
-                let new_assign  = addToUFM assig temp (InBoth reg slot)
+              -- (1) we have a free reg of the right class that isn't
+              -- clobbered by this instruction; use it to save the
+              -- clobbered value.
+              (my_reg : _) -> do
+                  setFreeRegsR (frAllocateReg my_reg freeRegs)
 
-                clobber new_assign (spill : instrs) rest
+                  let new_assign = addToUFM assig temp (InReg my_reg)
+                  let instr = mkRegRegMoveInstr platform
+                                  (RegReal reg) (RegReal my_reg)
+
+                  clobber new_assign (instr : instrs) rest
+
+              -- (2) no free registers: spill the value
+              [] -> do
+                  (spill, slot)   <- spillR platform (RegReal reg) temp
+     
+                  -- record why this reg was spilled for profiling
+                  recordSpill (SpillClobber temp)
+     
+                  let new_assign  = addToUFM assig temp (InBoth reg slot)
+     
+                  clobber new_assign (spill : instrs) rest
 
 
 
@@ -717,7 +745,7 @@ allocRegsAndSpill_spill :: (FR freeRegs, Instruction instr, Outputable instr)
 allocRegsAndSpill_spill platform reading keep spills alloc r rs assig spill_loc
  = do
         freeRegs                <- getFreeRegsR
-        let freeRegs_thisClass  = frGetFreeRegs (classOfVirtualReg r) freeRegs
+        let freeRegs_thisClass  = frGetFreeRegs platform (classOfVirtualReg r) freeRegs
 
         case freeRegs_thisClass of
 
@@ -795,7 +823,7 @@ allocRegsAndSpill_spill platform reading keep spills alloc r rs assig spill_loc
                                 [ text "allocating vreg:  " <> text (show r)
                                 , text "assignment:       " <> text (show $ ufmToList assig)
                                 , text "freeRegs:         " <> text (show freeRegs)
-                                , text "initFreeRegs:     " <> text (show (frInitFreeRegs `asTypeOf` freeRegs)) ]
+                                , text "initFreeRegs:     " <> text (show (frInitFreeRegs platform `asTypeOf` freeRegs)) ]
 
                 result
 

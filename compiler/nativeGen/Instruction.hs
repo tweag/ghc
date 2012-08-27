@@ -39,13 +39,13 @@ noUsage  = RU [] []
 type NatCmm instr
         = GenCmmGroup
                 CmmStatics
-                (Maybe CmmStatics)
+                (BlockEnv CmmStatics)
                 (ListGraph instr)
 
 type NatCmmDecl statics instr
         = GenCmmDecl
                 statics
-                (Maybe CmmStatics)
+                (BlockEnv CmmStatics)
                 (ListGraph instr)
 
 
@@ -68,7 +68,8 @@ class   Instruction instr where
         --      allocation goes, are taken care of by the register allocator.
         --
         regUsageOfInstr
-                :: instr
+                :: Platform
+                -> instr
                 -> RegUsage
 
 

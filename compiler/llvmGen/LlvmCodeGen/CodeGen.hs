@@ -37,9 +37,10 @@ type LlvmStatements = OrdList LlvmStatement
 -- | Top-level of the LLVM proc Code generator
 --
 genLlvmProc :: LlvmEnv -> RawCmmDecl -> UniqSM (LlvmEnv, [LlvmCmmDecl])
-genLlvmProc env (CmmProc info lbl (ListGraph blocks)) = do
+genLlvmProc env proc0@(CmmProc _ lbl (ListGraph blocks)) = do
     (env', lmblocks, lmdata) <- basicBlocksCodeGen env blocks ([], [])
-    let proc = CmmProc info lbl (ListGraph lmblocks)
+    let info = topInfoTable proc0
+        proc = CmmProc info lbl (ListGraph lmblocks)
     return (env', proc:lmdata)
 
 genLlvmProc _ _ = panic "genLlvmProc: case that shouldn't reach here!"
@@ -54,10 +55,11 @@ basicBlocksCodeGen :: LlvmEnv
                    -> ( [LlvmBasicBlock] , [LlvmCmmDecl] )
                    -> UniqSM (LlvmEnv, [LlvmBasicBlock] , [LlvmCmmDecl] )
 basicBlocksCodeGen env ([]) (blocks, tops)
-  = do let (blocks', allocs) = mapAndUnzip dominateAllocs blocks
+  = do let platform = targetPlatform $ getDflags env
+       let (blocks', allocs) = mapAndUnzip dominateAllocs blocks
        let allocs' = concat allocs
        let ((BasicBlock id fstmts):rblks) = blocks'
-       let fblocks = (BasicBlock id $ funPrologue ++  allocs' ++ fstmts):rblks
+       let fblocks = (BasicBlock id $ funPrologue platform ++ allocs' ++ fstmts):rblks
        return (env, fblocks, tops)
 
 basicBlocksCodeGen env (block:blocks) (lblocks', ltops')
@@ -221,7 +223,7 @@ genCall env t@(CmmPrim op _) [] args' CmmMayReturn
     let arguments = argVars' ++ (alignVal:isVolVal)
         call = Expr $ Call StdCall fptr arguments []
         stmts = stmts1 `appOL` stmts2 `appOL` stmts3
-                `appOL` trashStmts `snocOL` call
+                `appOL` trashStmts (getDflags env) `snocOL` call
     return (env2, stmts, top1 ++ top2)
   
   where
@@ -296,7 +298,7 @@ genCall env target res args ret = do
                 | ret == CmmNeverReturns = unitOL $ Unreachable
                 | otherwise              = nilOL
 
-    let stmts = stmts1 `appOL` stmts2 `appOL` trashStmts
+    let stmts = stmts1 `appOL` stmts2 `appOL` trashStmts (getDflags env)
 
     -- make the actual call
     case retTy of
@@ -515,7 +517,7 @@ genJump env (CmmLit (CmmLabel lbl)) live = do
 
 -- Call to unknown function / address
 genJump env expr live = do
-    let fty = llvmFunTy
+    let fty = llvmFunTy (getDflags env)
     (env', vf, stmts, top) <- exprToVar env expr
 
     let cast = case getVarType vf of
@@ -1225,8 +1227,8 @@ genLit _ CmmHighStackMark
 --
 
 -- | Function prologue. Load STG arguments into variables for function.
-funPrologue :: [LlvmStatement]
-funPrologue = concat $ map getReg activeStgRegs
+funPrologue :: Platform -> [LlvmStatement]
+funPrologue platform = concat $ map getReg $ activeStgRegs platform
     where getReg rr =
             let reg   = lmGlobalRegVar rr
                 arg   = lmGlobalRegArg rr
@@ -1239,11 +1241,13 @@ funPrologue = concat $ map getReg activeStgRegs
 funEpilogue :: LlvmEnv -> Maybe [GlobalReg] -> UniqSM ([LlvmVar], LlvmStatements)
 
 -- Have information and liveness optimisation is enabled
-funEpilogue env (Just live) | dopt Opt_RegLiveness (getDflags env) = do
-    loads <- mapM loadExpr activeStgRegs
+funEpilogue env (Just live) | dopt Opt_RegLiveness dflags = do
+    loads <- mapM loadExpr (activeStgRegs platform)
     let (vars, stmts) = unzip loads
     return (vars, concatOL stmts)
   where
+    dflags = getDflags env
+    platform = targetPlatform dflags
     loadExpr r | r `elem` alwaysLive || r `elem` live = do
         let reg  = lmGlobalRegVar r
         (v,s) <- doExpr (pLower $ getVarType reg) $ Load reg
@@ -1253,11 +1257,13 @@ funEpilogue env (Just live) | dopt Opt_RegLiveness (getDflags env) = do
         return (LMLitVar $ LMUndefLit ty, unitOL Nop)
 
 -- don't do liveness optimisation
-funEpilogue _ _ = do
-    loads <- mapM loadExpr activeStgRegs
+funEpilogue env _ = do
+    loads <- mapM loadExpr (activeStgRegs platform)
     let (vars, stmts) = unzip loads
     return (vars, concatOL stmts)
   where
+    dflags = getDflags env
+    platform = targetPlatform dflags
     loadExpr r = do
         let reg  = lmGlobalRegVar r
         (v,s) <- doExpr (pLower $ getVarType reg) $ Load reg
@@ -1275,13 +1281,14 @@ funEpilogue _ _ = do
 -- before the call by assigning the 'undef' value to them. The ones we
 -- need are restored from the Cmm local var and the ones we don't need
 -- are fine to be trashed.
-trashStmts :: LlvmStatements
-trashStmts = concatOL $ map trashReg activeStgRegs
-    where trashReg r =
+trashStmts :: DynFlags -> LlvmStatements
+trashStmts dflags = concatOL $ map trashReg $ activeStgRegs platform
+    where platform = targetPlatform dflags
+          trashReg r =
             let reg   = lmGlobalRegVar r
                 ty    = (pLower . getVarType) reg
                 trash = unitOL $ Store (LMLitVar $ LMUndefLit ty) reg
-            in case callerSaves r of
+            in case callerSaves (targetPlatform dflags) r of
                       True  -> trash
                       False -> nilOL
 
@@ -1292,7 +1299,8 @@ trashStmts = concatOL $ map trashReg activeStgRegs
 -- with foreign functions.
 getHsFunc :: LlvmEnv -> CLabel -> UniqSM ExprData
 getHsFunc env lbl
-  = let fn = strCLabel_llvm env lbl
+  = let dflags = getDflags env
+        fn = strCLabel_llvm env lbl
         ty    = funLookup fn env
     in case ty of
         -- Function in module in right form
@@ -1304,8 +1312,8 @@ getHsFunc env lbl
         Just ty' -> do
             let fun = LMGlobalVar fn (pLift ty') ExternallyVisible
                             Nothing Nothing False
-            (v1, s1) <- doExpr (pLift llvmFunTy) $
-                            Cast LM_Bitcast fun (pLift llvmFunTy)
+            (v1, s1) <- doExpr (pLift (llvmFunTy dflags)) $
+                            Cast LM_Bitcast fun (pLift (llvmFunTy dflags))
             return (env, v1, unitOL s1, [])
 
         -- label not in module, create external reference

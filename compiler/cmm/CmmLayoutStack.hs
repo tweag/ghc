@@ -26,8 +26,6 @@ import Util
 import DynFlags
 import FastString
 import Outputable
-import Data.Map (Map)
-import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Control.Monad.Fix
 import Data.Array as Array
@@ -110,7 +108,13 @@ cmmLayoutStack dflags procpoints entry_args
                graph0@(CmmGraph { g_entry = entry })
   = do
     -- pprTrace "cmmLayoutStack" (ppr entry_args) $ return ()
-    (graph, liveness) <- removeDeadAssignments graph0
+
+    -- We need liveness info.  We could do removeDeadAssignments at
+    -- the same time, but it buys nothing over doing cmmSink later,
+    -- and costs a lot more than just cmmLiveness.
+    -- (graph, liveness) <- removeDeadAssignments graph0
+    let (graph, liveness) = (graph0, cmmLiveness graph0)
+
     -- pprTrace "liveness" (ppr liveness) $ return ()
     let blocks = postorderDfs graph
 
@@ -211,10 +215,28 @@ layout procpoints liveness entry entry_args final_stackmaps final_hwm blocks
 
            acc_stackmaps' = mapUnion acc_stackmaps out
 
-           hwm' = maximum (acc_hwm : (sp0 - sp_off) : map sm_sp (mapElems out))
+           -- If this block jumps to the GC, then we do not take its
+           -- stack usage into account for the high-water mark.
+           -- Otherwise, if the only stack usage is in the stack-check
+           -- failure block itself, we will do a redundant stack
+           -- check.  The stack has a buffer designed to accommodate
+           -- the largest amount of stack needed for calling the GC.
+           --
+           this_sp_hwm | isGcJump last0 = 0
+                       | otherwise      = sp0 - sp_off
+
+           hwm' = maximum (acc_hwm : this_sp_hwm : map sm_sp (mapElems out))
 
        go bs acc_stackmaps' hwm' (final_blocks ++ acc_blocks)
 
+
+-- -----------------------------------------------------------------------------
+
+-- Not foolproof, but GCFun is the culprit we most want to catch
+isGcJump :: CmmNode O C -> Bool
+isGcJump (CmmCall { cml_target = CmmReg (CmmGlobal l) })
+  = l == GCFun || l == GCEnter1
+isGcJump _something_else = False
 
 -- -----------------------------------------------------------------------------
 
@@ -325,9 +347,9 @@ handleLastNode procpoints liveness cont_info stackmaps
        return $ lastCall cont_lbl wORD_SIZE wORD_SIZE (sm_ret_off stack0)
             -- one word each for args and results: the return address
 
-    CmmBranch{..}     ->  handleProcPoints
-    CmmCondBranch{..} ->  handleProcPoints
-    CmmSwitch{..}     ->  handleProcPoints
+    CmmBranch{..}     ->  handleBranches
+    CmmCondBranch{..} ->  handleBranches
+    CmmSwitch{..}     ->  handleBranches
 
   where
      -- Calls and ForeignCalls are handled the same way:
@@ -365,13 +387,13 @@ handleLastNode procpoints liveness cont_info stackmaps
      -- proc point, we have to set up the stack to match what the proc
      -- point is expecting.
      --
-     handleProcPoints :: UniqSM ( [CmmNode O O]
+     handleBranches :: UniqSM ( [CmmNode O O]
                                 , ByteOff
                                 , CmmNode O C
                                 , [CmmBlock]
                                 , BlockEnv StackMap )
 
-     handleProcPoints
+     handleBranches
          -- Note [diamond proc point]
        | Just l <- futureContinuation middle
        , (nub $ filter (`setMember` procpoints) $ successors last) == [l]
@@ -387,52 +409,65 @@ handleLastNode procpoints liveness cont_info stackmaps
                 , out)
 
         | otherwise = do
-          pps <- mapM handleProcPoint (successors last)
+          pps <- mapM handleBranch (successors last)
           let lbl_map :: LabelMap Label
               lbl_map = mapFromList [ (l,tmp) | (l,tmp,_,_) <- pps ]
-              fix_lbl l = mapLookup l lbl_map `orElse` l
+              fix_lbl l = mapFindWithDefault l l lbl_map
           return ( []
                  , 0
                  , mapSuccessors fix_lbl last
                  , concat [ blk | (_,_,_,blk) <- pps ]
                  , mapFromList [ (l, sm) | (l,_,sm,_) <- pps ] )
 
-     -- For each proc point that is a successor of this block
-     --   (a) if the proc point already has a stackmap, we need to
-     --       shuffle the current stack to make it look the same.
-     --       We have to insert a new block to make this happen.
-     --   (b) otherwise, call "allocate live stack0" to make the
-     --       stack map for the proc point
-     handleProcPoint :: BlockId
-                     -> UniqSM (BlockId, BlockId, StackMap, [CmmBlock])
-     handleProcPoint l
-        | not (l `setMember` procpoints) = return (l, l, stack0, [])
-        | otherwise = do
-           tmp_lbl <- liftM mkBlockId $ getUniqueM
-           let
-               (stack2, assigs) =
-                  case mapLookup l stackmaps of
-                    Just pp_sm -> (pp_sm, fixupStack stack0 pp_sm)
-                    Nothing    ->
+     -- For each successor of this block
+     handleBranch :: BlockId -> UniqSM (BlockId, BlockId, StackMap, [CmmBlock])
+     handleBranch l
+        --   (a) if the successor already has a stackmap, we need to
+        --       shuffle the current stack to make it look the same.
+        --       We have to insert a new block to make this happen.
+        | Just stack2 <- mapLookup l stackmaps
+        = do
+             let assigs = fixupStack stack0 stack2
+             (tmp_lbl, block) <- makeFixupBlock sp0 l stack2 assigs
+             return (l, tmp_lbl, stack2, block)
+
+        --   (b) if the successor is a proc point, save everything
+        --       on the stack.
+        | l `setMember` procpoints
+        = do
+             let cont_args = mapFindWithDefault 0 l cont_info
+                 (stack2, assigs) =
                       --pprTrace "first visit to proc point"
                       --             (ppr l <+> ppr stack1) $
-                      (stack1, assigs)
-                      where
-                       cont_args = mapFindWithDefault 0 l cont_info
-                       (stack1, assigs) =
-                           setupStackFrame l liveness (sm_ret_off stack0)
+                      setupStackFrame l liveness (sm_ret_off stack0)
                                                        cont_args stack0
+             --
+             (tmp_lbl, block) <- makeFixupBlock sp0 l stack2 assigs
+             return (l, tmp_lbl, stack2, block)
 
-               sp_off = sp0 - sm_sp stack2
+        --   (c) otherwise, the current StackMap is the StackMap for
+        --       the continuation.  But we must remember to remove any
+        --       variables from the StackMap that are *not* live at
+        --       the destination, because this StackMap might be used
+        --       by fixupStack if this is a join point.
+        | otherwise = return (l, l, stack1, [])
+        where live = mapFindWithDefault (panic "handleBranch") l liveness
+              stack1 = stack0 { sm_regs = filterUFM is_live (sm_regs stack0) }
+              is_live (r,_) = r `elemRegSet` live
 
-               block = blockJoin (CmmEntry tmp_lbl)
-                                 (maybeAddSpAdj sp_off (blockFromList assigs))
-                                 (CmmBranch l)
-           --
-           return (l, tmp_lbl, stack2, [block])
+
+makeFixupBlock :: ByteOff -> Label -> StackMap -> [CmmNode O O] -> UniqSM (Label, [CmmBlock])
+makeFixupBlock sp0 l stack assigs
+  | null assigs && sp0 == sm_sp stack = return (l, [])
+  | otherwise = do
+    tmp_lbl <- liftM mkBlockId $ getUniqueM
+    let sp_off = sp0 - sm_sp stack
+        block = blockJoin (CmmEntry tmp_lbl)
+                          (maybeAddSpAdj sp_off (blockFromList assigs))
+                          (CmmBranch l)
+    return (tmp_lbl, [block])
 
 
-  
 -- Sp is currently pointing to current_sp,
 -- we want it to point to
 --    (sm_sp cont_stack - sm_args cont_stack + args)
@@ -448,12 +483,11 @@ spOffsetForCall current_sp cont_stack args
 fixupStack :: StackMap -> StackMap -> [CmmNode O O]
 fixupStack old_stack new_stack = concatMap move new_locs
  where
-     old_map :: Map LocalReg ByteOff
-     old_map  = Map.fromList (stackSlotRegs old_stack)
+     old_map  = sm_regs old_stack
      new_locs = stackSlotRegs new_stack
 
      move (r,n)
-       | Just m <- Map.lookup r old_map, n == m = []
+       | Just (_,m) <- lookupUFM old_map r, n == m = []
        | otherwise = [CmmStore (CmmStackSlot Old n)
                                (CmmReg (CmmLocal r))]
 
@@ -807,18 +841,17 @@ elimStackStores stackmap stackmaps area_off nodes
 
 
 setInfoTableStackMap :: BlockEnv StackMap -> CmmDecl -> CmmDecl
-setInfoTableStackMap stackmaps
-    (CmmProc top_info@TopInfo{..} l g@CmmGraph{g_entry = eid})
-  = CmmProc top_info{ info_tbl = fix_info info_tbl } l g
+setInfoTableStackMap stackmaps (CmmProc top_info@TopInfo{..} l g)
+  = CmmProc top_info{ info_tbls = mapMapWithKey fix_info info_tbls } l g
   where
-    fix_info info_tbl@CmmInfoTable{ cit_rep = StackRep _ } =
-       info_tbl { cit_rep = StackRep (get_liveness eid) }
-    fix_info other = other
+    fix_info lbl info_tbl@CmmInfoTable{ cit_rep = StackRep _ } =
+       info_tbl { cit_rep = StackRep (get_liveness lbl) }
+    fix_info _ other = other
 
     get_liveness :: BlockId -> Liveness
     get_liveness lbl
       = case mapLookup lbl stackmaps of
-          Nothing -> pprPanic "setInfoTableStackMap" (ppr lbl)
+          Nothing -> pprPanic "setInfoTableStackMap" (ppr lbl <+> ppr info_tbls)
           Just sm -> stackMapToLiveness sm
 
 setInfoTableStackMap _ d = d
@@ -861,7 +894,7 @@ live across the call.  Our job now is to expand the call so we get
  | BaseReg = resumeThread(token)
  | LOAD_THREAD_STATE()
  | R1 = r  -- copyOut
- | jump L1
+ | jump Sp[0]
  '-----------------------
  L1:
    r = R1 -- copyIn, inserted by mkSafeCall
@@ -879,7 +912,7 @@ lowerSafeForeignCall dflags block
     -- RTS-only objects and are not subject to garbage collection
     id <- newTemp bWord
     new_base <- newTemp (cmmRegType (CmmGlobal BaseReg))
-    let (caller_save, caller_load) = callerSaveVolatileRegs
+    let (caller_save, caller_load) = callerSaveVolatileRegs dflags
     load_tso <- newTemp gcWord
     load_stack <- newTemp gcWord
     let suspend = saveThreadState dflags <*>
@@ -892,15 +925,17 @@ lowerSafeForeignCall dflags block
                   mkAssign (CmmGlobal BaseReg) (CmmReg (CmmLocal new_base)) <*>
                   caller_load <*>
                   loadThreadState dflags load_tso load_stack
-        -- Note: The successor must be a procpoint, and we have already split,
-        --       so we use a jump, not a branch.
-        succLbl = CmmLit (CmmLabel (infoTblLbl succ))
 
-        (ret_args, regs, copyout) = copyOutOflow NativeReturn Jump (Young succ)
+        (ret_args, regs, copyout) = copyOutOflow dflags NativeReturn Jump (Young succ)
                                            (map (CmmReg . CmmLocal) res)
                                            updfr (0, [])
 
-        jump = CmmCall { cml_target    = succLbl
+        -- NB. after resumeThread returns, the top-of-stack probably contains
+        -- the stack frame for succ, but it might not: if the current thread
+        -- received an exception during the call, then the stack might be
+        -- different.  Hence we continue by jumping to the top stack frame,
+        -- not by jumping to succ.
+        jump = CmmCall { cml_target    = CmmLoad (CmmReg spReg) bWord
                        , cml_cont      = Just succ
                        , cml_args_regs = regs
                        , cml_args      = widthInBytes wordWidth

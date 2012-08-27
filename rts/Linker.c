@@ -28,6 +28,7 @@
 #include "Trace.h"
 #include "StgPrimFloat.h" // for __int_encodeFloat etc.
 #include "Stable.h"
+#include "Proftimer.h"
 
 #if !defined(mingw32_HOST_OS)
 #include "posix/Signals.h"
@@ -70,11 +71,12 @@
 #include <sys/wait.h>
 #endif
 
-#if !defined(powerpc_HOST_ARCH) && \
-    (   defined(linux_HOST_OS    ) || defined(freebsd_HOST_OS) || \
+#if (defined(powerpc_HOST_ARCH) && defined(linux_HOST_OS)) \
+ || (!defined(powerpc_HOST_ARCH) && \
+    (   defined(linux_HOST_OS)     || defined(freebsd_HOST_OS) || \
         defined(dragonfly_HOST_OS) || defined(netbsd_HOST_OS ) || \
         defined(openbsd_HOST_OS  ) || defined(darwin_HOST_OS ) || \
-        defined(kfreebsdgnu_HOST_OS) || defined(gnu_HOST_OS))
+        defined(kfreebsdgnu_HOST_OS) || defined(gnu_HOST_OS)))
 /* Don't use mmap on powerpc_HOST_ARCH as mmap doesn't support
  * reallocating but we need to allocate jump islands just after each
  * object images. Otherwise relative branches to jump islands can fail
@@ -88,6 +90,16 @@
 #include <unistd.h>
 #endif
 
+#endif
+
+
+/* PowerPC has relative branch instructions with only 24 bit displacements
+ * and therefore needs jump islands contiguous with each object code module.
+ */
+#if (defined(USE_MMAP) && defined(powerpc_HOST_ARCH) && defined(linux_HOST_OS))
+#define USE_CONTIGUOUS_MMAP 1
+#else
+#define USE_CONTIGUOUS_MMAP 0
 #endif
 
 #if defined(linux_HOST_OS) || defined(solaris2_HOST_OS) || defined(freebsd_HOST_OS) || defined(kfreebsdgnu_HOST_OS) || defined(dragonfly_HOST_OS) || defined(netbsd_HOST_OS) || defined(openbsd_HOST_OS) || defined(gnu_HOST_OS)
@@ -119,6 +131,10 @@
 
 #if defined(x86_64_HOST_ARCH) && defined(darwin_HOST_OS)
 #define ALWAYS_PIC
+#endif
+
+#if defined(dragonfly_HOST_OS)
+#include <sys/tls.h>
 #endif
 
 /* Hash table mapping symbol names to Symbol */
@@ -1287,6 +1303,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(getMonotonicNSec)                   \
       SymI_HasProto(lockFile)                           \
       SymI_HasProto(unlockFile)                         \
+      SymI_HasProto(startProfTimer)                     \
+      SymI_HasProto(stopProfTimer)                      \
       RTS_USER_SIGNALS_SYMBOLS                          \
       RTS_INTCHAR_SYMBOLS
 
@@ -2797,8 +2815,26 @@ static int ocAllocateSymbolExtras( ObjectCode* oc, int count, int first )
      */
     if( m > n ) // we need to allocate more pages
     {
-        oc->symbol_extras = mmapForLinker(sizeof(SymbolExtra) * count,
+        if (USE_CONTIGUOUS_MMAP)
+        {
+            /* Keep image and symbol_extras contiguous */
+            void *new = mmapForLinker(n + (sizeof(SymbolExtra) * count),
+                                  MAP_ANONYMOUS, -1);
+            if (new)
+            {
+                memcpy(new, oc->image, oc->fileSize);
+                munmap(oc->image, n);
+                oc->image = new;
+                oc->symbol_extras = (SymbolExtra *) (oc->image + n);
+            }
+            else
+                oc->symbol_extras = NULL;
+        }
+        else
+        {
+            oc->symbol_extras = mmapForLinker(sizeof(SymbolExtra) * count,
                                           MAP_ANONYMOUS, -1);
+        }
     }
     else
     {
@@ -3981,6 +4017,8 @@ ocResolve_PEi386 ( ObjectCode* oc )
 #  define ELF_TARGET_386    /* Used inside <elf.h> */
 #elif defined(x86_64_HOST_ARCH)
 #  define ELF_TARGET_X64_64
+#  define ELF_64BIT
+#elif defined(powerpc64_HOST_ARCH)
 #  define ELF_64BIT
 #endif
 
@@ -5173,6 +5211,27 @@ do_Elf_Rela_relocations ( ObjectCode* oc, char* ehdrC,
           *(Elf64_Word *)P = (Elf64_Word)off;
           break;
       }
+#if defined(dragonfly_HOST_OS)
+      case R_X86_64_GOTTPOFF:
+      {
+#if defined(ALWAYS_PIC)
+          barf("R_X86_64_GOTTPOFF relocation, but ALWAYS_PIC.");
+#else
+        /* determine the offset of S to the current thread's tls
+           area 
+           XXX: Move this to the beginning of function */
+          struct tls_info ti;
+          get_tls_area(0, &ti, sizeof(ti));
+          /* make entry in GOT that contains said offset */
+          StgInt64 gotEntry = (StgInt64) &makeSymbolExtra(oc, ELF_R_SYM(info), 
+                                         (S - (Elf64_Addr)(ti.base)))->addr;
+          *(Elf64_Word *)P = gotEntry + A - P;
+#endif
+          break;
+      }
+#endif
+
+
 
       case R_X86_64_PLT32:
       {
@@ -6118,8 +6177,13 @@ ocGetNames_MachO(ObjectCode* oc)
 
         if((sections[i].flags & SECTION_TYPE) == S_ZEROFILL)
         {
+#ifdef USE_MMAP
+            char * zeroFillArea = mmapForLinker(sections[i].size, MAP_ANONYMOUS, -1);
+            memset(zeroFillArea, 0, sections[i].size);
+#else
             char * zeroFillArea = stgCallocBytes(1,sections[i].size,
                                       "ocGetNames_MachO(common symbols)");
+#endif
             sections[i].offset = zeroFillArea - image;
         }
 

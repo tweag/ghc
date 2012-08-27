@@ -48,7 +48,6 @@ import {-# SOURCE #-}	TcSplice( tcSpliceType )
 import HsSyn
 import TcHsSyn ( zonkTcTypeToType, emptyZonkEnv )
 import TcRnMonad
-import RnEnv   ( dataKindsErr )
 import TcEvidence( HsWrapper )
 import TcEnv
 import TcMType
@@ -988,8 +987,10 @@ tcTyClTyVars :: Name -> LHsTyVarBndrs Name	-- LHS of the type or class decl
 --
 -- No need to freshen the k's because they are just skolem 
 -- constants here, and we are at top level anyway.
-tcTyClTyVars tycon (HsQTvs { hsq_kvs = kvs, hsq_tvs = hs_tvs }) thing_inside
-  = kcScopedKindVars kvs $
+tcTyClTyVars tycon (HsQTvs { hsq_kvs = hs_kvs, hsq_tvs = hs_tvs }) thing_inside
+  = kcScopedKindVars hs_kvs $ -- Bind scoped kind vars to fresh kind univ vars
+                              -- There may be fewer of these than the kvs of
+                              -- the type constructor, of course
     do { thing <- tcLookup tycon
        ; let { kind = case thing of
                         AThing kind -> kind
@@ -1436,6 +1437,11 @@ tc_kind_var_app name arg_kis
   where 
    tycon_err tc msg = failWithTc (quotes (ppr tc) <+> ptext (sLit "of kind")
                                   <+> quotes (ppr (tyConKind tc)) <+> ptext (sLit msg))
+
+dataKindsErr :: Name -> SDoc
+dataKindsErr name
+  = hang (ptext (sLit "Illegal kind:") <+> quotes (ppr name))
+       2 (ptext (sLit "Perhaps you intended to use -XDataKinds"))
 
 promotionErr :: Name -> PromotionErr -> TcM a
 promotionErr name err

@@ -33,7 +33,7 @@ import GHC ( LoadHowMuch(..), Target(..),  TargetId(..), InteractiveImport(..),
              TyThing(..), Phase, BreakIndex, Resume, SingleStep, Ghc,
              handleSourceError )
 import HsImpExp
-import HscTypes ( tyThingParent_maybe, handleFlagWarnings, getSafeMode, dep_pkgs, hsc_IC, 
+import HscTypes ( tyThingParent_maybe, handleFlagWarnings, getSafeMode, hsc_IC, 
                   setInteractivePrintName )
 import Module
 import Name
@@ -1487,48 +1487,34 @@ isSafeModule m = do
          (ghcError $ CmdLineError $ "can't load interface file for module: " ++
                                     (GHC.moduleNameString $ GHC.moduleName m))
 
-    let iface' = fromJust iface
+    (msafe, pkgs) <- GHC.moduleTrustReqs m
+    let trust  = showPpr dflags $ getSafeMode $ GHC.mi_trust $ fromJust iface
+        pkg    = if packageTrusted dflags m then "trusted" else "untrusted"
+        (good, bad) = tallyPkgs dflags pkgs
 
-        trust = showPpr dflags $ getSafeMode $ GHC.mi_trust iface'
-        pkgT  = packageTrusted dflags m
-        pkg   = if pkgT then "trusted" else "untrusted"
-        (good', bad') = tallyPkgs dflags $
-                            map fst $ filter snd $ dep_pkgs $ GHC.mi_deps iface'
-        (good, bad) = case GHC.mi_trust_pkg iface' of
-                          True | pkgT -> (modulePackageId m:good', bad')
-                          True        -> (good', modulePackageId m:bad')
-                          False       -> (good', bad')
-
+    -- print info to user...
     liftIO $ putStrLn $ "Trust type is (Module: " ++ trust ++ ", Package: " ++ pkg ++ ")"
-    liftIO $ putStrLn $ "Package Trust: "
-                            ++ (if packageTrustOn dflags then "On" else "Off")
-
-    when (packageTrustOn dflags && not (null good))
+    liftIO $ putStrLn $ "Package Trust: " ++ (if packageTrustOn dflags then "On" else "Off")
+    when (not $ null good)
          (liftIO $ putStrLn $ "Trusted package dependencies (trusted): " ++
                         (intercalate ", " $ map packageIdString good))
-
-    case goodTrust (getSafeMode $ GHC.mi_trust iface') of
-        True | (null bad || not (packageTrustOn dflags)) ->
-            liftIO $ putStrLn $ mname ++ " is trusted!"
-
-        True -> do
-            liftIO $ putStrLn $ "Trusted package dependencies (untrusted): "
-                        ++ (intercalate ", " $ map packageIdString bad)
+    case msafe && null bad of
+        True -> liftIO $ putStrLn $ mname ++ " is trusted!"
+        False -> do
+            when (not $ null bad)
+                 (liftIO $ putStrLn $ "Trusted package dependencies (untrusted): "
+                            ++ (intercalate ", " $ map packageIdString bad))
             liftIO $ putStrLn $ mname ++ " is NOT trusted!"
 
-        False -> liftIO $ putStrLn $ mname ++ " is NOT trusted!"
-
   where
-    goodTrust t = t `elem` [Sf_Safe, Sf_SafeInferred, Sf_Trustworthy]
-
     mname = GHC.moduleNameString $ GHC.moduleName m
 
     packageTrusted dflags md
         | thisPackage dflags == modulePackageId md = True
-        | otherwise = trusted $ getPackageDetails (pkgState dflags)
-                                                  (modulePackageId md)
+        | otherwise = trusted $ getPackageDetails (pkgState dflags) (modulePackageId md)
 
-    tallyPkgs dflags deps = partition part deps
+    tallyPkgs dflags deps | not (packageTrustOn dflags) = ([], [])
+                          | otherwise = partition part deps
         where state = pkgState dflags
               part pkg = trusted $ getPackageDetails state pkg
 
@@ -1761,11 +1747,7 @@ checkAdd ii = do
        m <- GHC.lookupModule modname pkgqual
        when safe $ do
            t <- GHC.isModuleTrusted m
-           when (not t) $
-                ghcError $ CmdLineError $
-                 "can't import " ++ moduleNameString modname
-                                 ++ " as it isn't trusted."
-
+           when (not t) $ ghcError $ ProgramError $ ""
 
 -- -----------------------------------------------------------------------------
 -- Update the GHC API's view of the context
@@ -2035,7 +2017,9 @@ newDynFlags interactive_only minus_opts = do
         -- the new packages.
         dflags2 <- getDynFlags
         when (packageFlags dflags2 /= packageFlags dflags0) $ do
-          liftIO $ hPutStrLn stderr "package flags have changed, resetting and loading new packages..."
+          when (verbosity dflags2 > 0) $
+            liftIO . putStrLn $
+              "package flags have changed, resetting and loading new packages..."
           GHC.setTargets []
           _ <- GHC.load LoadAllTargets
           liftIO $ linkPackages dflags2 new_pkgs

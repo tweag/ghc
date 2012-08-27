@@ -54,7 +54,6 @@ import Name
 import TyCon		( PrimRep(..) )
 import BasicTypes	( RepArity )
 import DynFlags
-import StaticFlags
 import Module
 
 import Constants
@@ -77,18 +76,19 @@ import FastString
 --
 -- >    p=x; q=y;
 --
-emitReturn :: [CmmExpr] -> FCode ()
+emitReturn :: [CmmExpr] -> FCode ReturnKind
 emitReturn results
-  = do { sequel    <- getSequel;
+  = do { dflags    <- getDynFlags
+       ; sequel    <- getSequel
        ; updfr_off <- getUpdFrameOff
-       ; emitComment $ mkFastString ("emitReturn: " ++ show sequel)
        ; case sequel of
            Return _ ->
              do { adjustHpBackwards
-                ; emit (mkReturnSimple results updfr_off) }
+                ; emit (mkReturnSimple dflags results updfr_off) }
            AssignTo regs adjust ->
              do { if adjust then adjustHpBackwards else return ()
                 ; emitMultiAssign  regs results }
+       ; return AssignedDirectly
        }
 
 
@@ -96,7 +96,7 @@ emitReturn results
 -- using the call/return convention @conv@, passing @args@, and
 -- returning the results to the current sequel.
 --
-emitCall :: (Convention, Convention) -> CmmExpr -> [CmmExpr] -> FCode ()
+emitCall :: (Convention, Convention) -> CmmExpr -> [CmmExpr] -> FCode ReturnKind
 emitCall convs fun args
   = emitCallWithExtraStack convs fun args noExtraStack
 
@@ -108,17 +108,24 @@ emitCall convs fun args
 --
 emitCallWithExtraStack
    :: (Convention, Convention) -> CmmExpr -> [CmmExpr]
-   -> (ByteOff, [(CmmExpr,ByteOff)]) -> FCode ()
-emitCallWithExtraStack convs@(callConv, _) fun args extra_stack
-  = do	{ adjustHpBackwards
+   -> (ByteOff, [(CmmExpr,ByteOff)]) -> FCode ReturnKind
+emitCallWithExtraStack (callConv, retConv) fun args extra_stack
+  = do	{ dflags <- getDynFlags
+        ; adjustHpBackwards
 	; sequel <- getSequel
 	; updfr_off <- getUpdFrameOff
-        ; emitComment $ mkFastString ("emitCallWithExtraStack: " ++ show sequel)
         ; case sequel of
-            Return _ ->
-              emit $ mkForeignJumpExtra callConv fun args updfr_off extra_stack
+            Return _ -> do
+              emit $ mkForeignJumpExtra dflags callConv fun args updfr_off extra_stack
+              return AssignedDirectly
             AssignTo res_regs _ -> do
-              emit =<< mkCall fun convs res_regs args updfr_off extra_stack
+              k <- newLabelC
+              let area = Young k
+                  (off, copyin) = copyInOflow dflags retConv area res_regs
+                  copyout = mkCallReturnsTo dflags fun callConv args k off updfr_off
+                                   extra_stack
+              emit (copyout <*> mkLabel k <*> copyin)
+              return (ReturnedTo k off)
       }
 
 
@@ -166,7 +173,7 @@ adjustHpBackwards
 --          call f() return to Nothing updfr_off: 32
 
 
-directCall :: Convention -> CLabel -> RepArity -> [StgArg] -> FCode ()
+directCall :: Convention -> CLabel -> RepArity -> [StgArg] -> FCode ReturnKind
 -- (directCall f n args)
 -- calls f(arg1, ..., argn), and applies the result to the remaining args
 -- The function f has arity n, and there are guaranteed at least n args
@@ -176,17 +183,18 @@ directCall conv lbl arity stg_args
         ; direct_call "directCall" conv lbl arity argreps }
 
 
-slowCall :: CmmExpr -> [StgArg] -> FCode ()
+slowCall :: CmmExpr -> [StgArg] -> FCode ReturnKind
 -- (slowCall fun args) applies fun to args, returning the results to Sequel
 slowCall fun stg_args 
   = do  { dflags <- getDynFlags
         ; argsreps <- getArgRepsAmodes stg_args
         ; let (rts_fun, arity) = slowCallPattern (map fst argsreps)
-        ; direct_call "slow_call" NativeNodeCall
+        ; r <- direct_call "slow_call" NativeNodeCall
                  (mkRtsApFastLabel rts_fun) arity ((P,Just fun):argsreps)
         ; emitComment $ mkFastString ("slow_call for " ++
                                       showSDoc dflags (ppr fun) ++
                                       " with pat " ++ unpackFS rts_fun)
+        ; return r
         }
 
 
@@ -194,7 +202,7 @@ slowCall fun stg_args
 direct_call :: String
             -> Convention     -- e.g. NativeNodeCall or NativeDirectCall
             -> CLabel -> RepArity
-            -> [(ArgRep,Maybe CmmExpr)] -> FCode ()
+            -> [(ArgRep,Maybe CmmExpr)] -> FCode ReturnKind
 direct_call caller call_conv lbl arity args
   | debugIsOn && real_arity > length args  -- Too few args
   = do -- Caller should ensure that there enough args!
@@ -531,7 +539,7 @@ emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl args body
         ; let args' = if node_points then (node : arg_regs) else arg_regs
               conv  = if nodeMustPointToIt dflags lf_info then NativeNodeCall
                                                           else NativeDirectCall
-              (offset, _) = mkCallEntry conv args'
+              (offset, _) = mkCallEntry dflags conv args'
         ; emitClosureAndInfoTable info_tbl conv args' $ body (offset, node, arg_regs)
         }
 
@@ -542,7 +550,7 @@ emitClosureAndInfoTable ::
 emitClosureAndInfoTable info_tbl conv args body
   = do { blks <- getCode body
        ; let entry_lbl = toEntryLbl (cit_lbl info_tbl)
-       ; emitProcWithConvention conv info_tbl entry_lbl args blks
+       ; emitProcWithConvention conv (Just info_tbl) entry_lbl args blks
        }
 
 -----------------------------------------------------------------------------
@@ -588,11 +596,12 @@ closureInfoPtr :: CmmExpr -> CmmExpr
 -- Takes a closure pointer and returns the info table pointer
 closureInfoPtr e = CmmLoad e bWord
 
-entryCode :: CmmExpr -> CmmExpr
+entryCode :: DynFlags -> CmmExpr -> CmmExpr
 -- Takes an info pointer (the first word of a closure)
 -- and returns its entry code
-entryCode e | tablesNextToCode = e
-	    | otherwise	       = CmmLoad e bWord
+entryCode dflags e
+ | tablesNextToCode dflags = e
+ | otherwise               = CmmLoad e bWord
 
 getConstrTag :: DynFlags -> CmmExpr -> CmmExpr
 -- Takes a closure pointer, and return the *zero-indexed*
@@ -617,8 +626,8 @@ infoTable :: DynFlags -> CmmExpr -> CmmExpr
 -- and returns a pointer to the first word of the standard-form
 -- info table, excluding the entry-code word (if present)
 infoTable dflags info_ptr
-  | tablesNextToCode = cmmOffsetB info_ptr (- stdInfoTableSizeB dflags)
-  | otherwise	     = cmmOffsetW info_ptr 1	-- Past the entry code pointer
+  | tablesNextToCode dflags = cmmOffsetB info_ptr (- stdInfoTableSizeB dflags)
+  | otherwise               = cmmOffsetW info_ptr 1 -- Past the entry code pointer
 
 infoTableConstrTag :: DynFlags -> CmmExpr -> CmmExpr
 -- Takes an info table pointer (from infoTable) and returns the constr tag
@@ -650,7 +659,7 @@ funInfoTable :: DynFlags -> CmmExpr -> CmmExpr
 -- and returns a pointer to the first word of the StgFunInfoExtra struct
 -- in the info table.
 funInfoTable dflags info_ptr
-  | tablesNextToCode
+  | tablesNextToCode dflags
   = cmmOffsetB info_ptr (- stdInfoTableSizeB dflags - sIZEOF_StgFunInfoExtraRev)
   | otherwise
   = cmmOffsetW info_ptr (1 + stdInfoTableSizeW dflags)

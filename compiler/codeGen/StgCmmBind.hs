@@ -6,17 +6,10 @@
 --
 -----------------------------------------------------------------------------
 
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
-
 module StgCmmBind (
-	cgTopRhsClosure,
-	cgBind,
-	emitBlackHoleCode,
+        cgTopRhsClosure,
+        cgBind,
+        emitBlackHoleCode,
         pushUpdateFrame
   ) where
 
@@ -36,7 +29,7 @@ import StgCmmClosure
 import StgCmmForeign    (emitPrimCall)
 
 import MkGraph
-import CoreSyn		( AltCon(..) )
+import CoreSyn          ( AltCon(..) )
 import SMRep
 import Cmm
 import CmmUtils
@@ -57,68 +50,80 @@ import Maybes
 import DynFlags
 
 ------------------------------------------------------------------------
---		Top-level bindings
+--              Top-level bindings
 ------------------------------------------------------------------------
 
 -- For closures bound at top level, allocate in static space.
 -- They should have no free variables.
 
 cgTopRhsClosure :: Id
-		-> CostCentreStack	-- Optional cost centre annotation
-		-> StgBinderInfo
-		-> UpdateFlag
+                -> CostCentreStack      -- Optional cost centre annotation
+                -> StgBinderInfo
+                -> UpdateFlag
                 -> [Id]                 -- Args
-		-> StgExpr
-		-> FCode CgIdInfo
+                -> StgExpr
+                -> FCode (CgIdInfo, FCode ())
 
-cgTopRhsClosure id ccs _ upd_flag args body = do
-  {	-- LAY OUT THE OBJECT
-    let name = idName id
-  ; lf_info <- mkClosureLFInfo id TopLevel [] upd_flag args
-  ; mod_name <- getModuleName
-  ; dflags   <- getDynFlags
-  ; let descr         = closureDescription dflags mod_name name
-        closure_info  = mkClosureInfo dflags True id lf_info 0 0 descr
-        closure_label = mkLocalClosureLabel name (idCafInfo id)
-    	cg_id_info    = litIdInfo id lf_info (CmmLabel closure_label)
-        caffy         = idCafInfo id
-        info_tbl      = mkCmmInfo closure_info -- XXX short-cut
-        closure_rep   = mkStaticClosureFields dflags info_tbl ccs caffy []
+cgTopRhsClosure id ccs _ upd_flag args body
+ = do { lf_info <- mkClosureLFInfo id TopLevel [] upd_flag args
+      ; let closure_label = mkLocalClosureLabel (idName id) (idCafInfo id)
+            cg_id_info = litIdInfo id lf_info (CmmLabel closure_label)
+      ; return (cg_id_info, gen_code lf_info closure_label)
+      }
+  where
+  gen_code lf_info closure_label
+   = do {     -- LAY OUT THE OBJECT
+          let name = idName id
+        ; mod_name <- getModuleName
+        ; dflags   <- getDynFlags
+        ; let descr         = closureDescription dflags mod_name name
+              closure_info  = mkClosureInfo dflags True id lf_info 0 0 descr
 
-  	 -- BUILD THE OBJECT, AND GENERATE INFO TABLE (IF NECESSARY)
-  ; emitDataLits closure_label closure_rep
-  ; let fv_details :: [(NonVoid Id, VirtualHpOffset)]
-	(_, _, fv_details) = mkVirtHeapOffsets dflags (isLFThunk lf_info)
-				               (addIdReps [])
-  -- Don't drop the non-void args until the closure info has been made
-  ; forkClosureBody (closureCodeBody True id closure_info ccs
-                                     (nonVoidIds args) (length args) body fv_details)
-
-  ; returnFC cg_id_info }
+              caffy         = idCafInfo id
+              info_tbl      = mkCmmInfo closure_info -- XXX short-cut
+              closure_rep   = mkStaticClosureFields dflags info_tbl ccs caffy []
+      
+                 -- BUILD THE OBJECT, AND GENERATE INFO TABLE (IF NECESSARY)
+        ; emitDataLits closure_label closure_rep
+        ; let fv_details :: [(NonVoid Id, VirtualHpOffset)]
+              (_, _, fv_details) = mkVirtHeapOffsets dflags (isLFThunk lf_info)
+                                               (addIdReps [])
+        -- Don't drop the non-void args until the closure info has been made
+        ; forkClosureBody (closureCodeBody True id closure_info ccs
+                                (nonVoidIds args) (length args) body fv_details)
+      
+        ; return () }
 
 ------------------------------------------------------------------------
---		Non-top-level bindings
+--              Non-top-level bindings
 ------------------------------------------------------------------------
 
 cgBind :: StgBinding -> FCode ()
 cgBind (StgNonRec name rhs)
-  = do	{ ((info, init), body) <- getCodeR $ cgRhs name rhs
+  = do  { (info, fcode) <- cgRhs name rhs
         ; addBindC (cg_id info) info
-        ; emit (init <*> body) }
+        ; init <- fcode
+        ; emit init
+        }
+        -- init cannot be used in body, so slightly better to sink it eagerly
 
 cgBind (StgRec pairs)
-  = do  { ((new_binds, inits), body) <- getCodeR $ fixC (\ new_binds_inits ->
-               do { addBindsC $ fst new_binds_inits -- avoid premature deconstruction
-                  ; liftM unzip $ listFCs [ cgRhs b e | (b,e) <- pairs ] })
-       ; addBindsC new_binds
-       ; emit (catAGraphs inits <*> body) }
+  = do  {  r <- sequence $ unzipWith cgRhs pairs
+        ;  let (id_infos, fcodes) = unzip r
+        ;  addBindsC id_infos
+        ;  (inits, body) <- getCodeR $ sequence fcodes
+        ;  emit (catAGraphs inits <*> body) }
 
-{- Recursive let-bindings are tricky.
+{- Note [cgBind rec]
+
+   Recursive let-bindings are tricky.
    Consider the following pseudocode:
+
      let x = \_ ->  ... y ...
          y = \_ ->  ... z ...
          z = \_ ->  ... x ...
      in ...
+
    For each binding, we need to allocate a closure, and each closure must
    capture the address of the other closures.
    We want to generate the following C-- code:
@@ -137,24 +142,40 @@ cgBind (StgRec pairs)
      ...
 
    For each closure, we must generate not only the code to allocate and
-   initialize the closure itself, but also some Initialization Code that
+   initialize the closure itself, but also some initialization Code that
    sets a variable holding the closure pointer.
-   The complication here is that we don't know the heap offsets a priori,
-   which has two consequences:
-     1. we need a fixpoint
-     2. we can't trivially separate the Initialization Code from the
-        code that compiles the right-hand-sides
 
-   Note: We don't need this complication with let-no-escapes, because
-   in that case, the names are bound to labels in the environment,
-   and we don't need to emit any code to witness that binding.
--}
+   We could generate a pair of the (init code, body code), but since
+   the bindings are recursive we also have to initialise the
+   environment with the CgIdInfo for all the bindings before compiling
+   anything.  So we do this in 3 stages:
 
---------------------
-cgRhs :: Id -> StgRhs -> FCode (CgIdInfo, CmmAGraph)
-   -- The Id is passed along so a binding can be set up
-   -- The returned values are the binding for the environment
-   -- and the Initialization Code that witnesses the binding
+     1. collect all the CgIdInfos and initialise the environment
+     2. compile each binding into (init, body) code
+     3. emit all the inits, and then all the bodies
+
+   We'd rather not have separate functions to do steps 1 and 2 for
+   each binding, since in pratice they share a lot of code.  So we
+   have just one function, cgRhs, that returns a pair of the CgIdInfo
+   for step 1, and a monadic computation to generate the code in step
+   2.
+
+   The alternative to separating things in this way is to use a
+   fixpoint.  That's what we used to do, but it introduces a
+   maintenance nightmare because there is a subtle dependency on not
+   being too strict everywhere.  Doing things this way means that the
+   FCode monad can be strict, for example.
+ -}
+
+cgRhs :: Id
+      -> StgRhs
+      -> FCode (
+                 CgIdInfo         -- The info for this binding
+               , FCode CmmAGraph  -- A computation which will generate the
+                                  -- code for the binding, and return an
+                                  -- assignent of the form "x = Hp - n"
+                                  -- (see above)
+               )
 
 cgRhs name (StgRhsCon cc con args)
   = buildDynCon name cc con args
@@ -164,19 +185,19 @@ cgRhs name (StgRhsClosure cc bi fvs upd_flag _srt args body)
        mkRhsClosure dflags name cc bi (nonVoidIds fvs) upd_flag args body
 
 ------------------------------------------------------------------------
---		Non-constructor right hand sides
+--              Non-constructor right hand sides
 ------------------------------------------------------------------------
 
 mkRhsClosure :: DynFlags -> Id -> CostCentreStack -> StgBinderInfo
-	     -> [NonVoid Id]			-- Free vars
+             -> [NonVoid Id]                    -- Free vars
              -> UpdateFlag
-	     -> [Id]			        -- Args
-	     -> StgExpr
-	     -> FCode (CgIdInfo, CmmAGraph)
+             -> [Id]                            -- Args
+             -> StgExpr
+             -> FCode (CgIdInfo, FCode CmmAGraph)
 
 {- mkRhsClosure looks for two special forms of the right-hand side:
-	a) selector thunks
-	b) AP thunks
+        a) selector thunks
+        b) AP thunks
 
 If neither happens, it just calls mkClosureLFInfo.  You might think
 that mkClosureLFInfo should do all this, but it seems wrong for the
@@ -189,14 +210,14 @@ but nothing deep.  We are looking for a closure of {\em exactly} the
 form:
 
 ...  = [the_fv] \ u [] ->
-	 case the_fv of
-	   con a_1 ... a_n -> a_i
+         case the_fv of
+           con a_1 ... a_n -> a_i
 
 Note [Ap thunks]
 ~~~~~~~~~~~~~~~~
 A more generic AP thunk of the form
 
-	x = [ x_1...x_n ] \.. [] -> x_1 ... x_n
+        x = [ x_1...x_n ] \.. [] -> x_1 ... x_n
 
 A set of these is compiled statically into the RTS, so we just use
 those.  We could extend the idea to thunks where some of the x_i are
@@ -210,18 +231,18 @@ for semi-obvious reasons.
 -}
 
 ---------- Note [Selectors] ------------------
-mkRhsClosure	dflags bndr cc bi
-		[NonVoid the_fv]   		-- Just one free var
-		upd_flag		-- Updatable thunk
+mkRhsClosure    dflags bndr _cc _bi
+                [NonVoid the_fv]                -- Just one free var
+                upd_flag                -- Updatable thunk
                 []                      -- A thunk
-		body@(StgCase (StgApp scrutinee [{-no args-}])
-		      _ _ _ _   -- ignore uniq, etc.
-		      (AlgAlt _)
-		      [(DataAlt _, params, _use_mask,
-			    (StgApp selectee [{-no args-}]))])
-  |  the_fv == scrutinee		-- Scrutinee is the only free variable
-  && maybeToBool maybe_offset		-- Selectee is a component of the tuple
-  && offset_into_int <= mAX_SPEC_SELECTEE_SIZE	-- Offset is small enough
+                (StgCase (StgApp scrutinee [{-no args-}])
+                      _ _ _ _   -- ignore uniq, etc.
+                      (AlgAlt _)
+                      [(DataAlt _, params, _use_mask,
+                            (StgApp selectee [{-no args-}]))])
+  |  the_fv == scrutinee                -- Scrutinee is the only free variable
+  && maybeToBool maybe_offset           -- Selectee is a component of the tuple
+  && offset_into_int <= mAX_SPEC_SELECTEE_SIZE  -- Offset is small enough
   = -- NOT TRUE: ASSERT(is_single_constructor)
     -- The simplifier may have statically determined that the single alternative
     -- is the only possible case and eliminated the others, even if there are
@@ -230,155 +251,165 @@ mkRhsClosure	dflags bndr cc bi
     -- will evaluate to.
     --
     -- srt is discarded; it must be empty
-    cgStdThunk bndr cc bi body lf_info [StgVarArg the_fv]
+    cgRhsStdThunk bndr lf_info [StgVarArg the_fv]
   where
-    lf_info 		  = mkSelectorLFInfo bndr offset_into_int
-				 (isUpdatable upd_flag)
+    lf_info               = mkSelectorLFInfo bndr offset_into_int
+                                 (isUpdatable upd_flag)
     (_, _, params_w_offsets) = mkVirtConstrOffsets dflags (addIdReps params)
-			       -- Just want the layout
-    maybe_offset	  = assocMaybe params_w_offsets (NonVoid selectee)
-    Just the_offset 	  = maybe_offset
+                               -- Just want the layout
+    maybe_offset          = assocMaybe params_w_offsets (NonVoid selectee)
+    Just the_offset       = maybe_offset
     offset_into_int       = the_offset - fixedHdrSize dflags
 
 ---------- Note [Ap thunks] ------------------
-mkRhsClosure    dflags bndr cc bi
-		fvs
-		upd_flag
+mkRhsClosure    dflags bndr _cc _bi
+                fvs
+                upd_flag
                 []                      -- No args; a thunk
-		body@(StgApp fun_id args)
+                (StgApp fun_id args)
 
   | args `lengthIs` (arity-1)
- 	&& all (isGcPtrRep . idPrimRep . stripNV) fvs
- 	&& isUpdatable upd_flag
- 	&& arity <= mAX_SPEC_AP_SIZE
+        && all (isGcPtrRep . idPrimRep . stripNV) fvs
+        && isUpdatable upd_flag
+        && arity <= mAX_SPEC_AP_SIZE
         && not (dopt Opt_SccProfilingOn dflags)
                                   -- not when profiling: we don't want to
                                   -- lose information about this particular
                                   -- thunk (e.g. its type) (#949)
 
                    -- Ha! an Ap thunk
-  = cgStdThunk bndr cc bi body lf_info payload
+  = cgRhsStdThunk bndr lf_info payload
+
   where
-	lf_info = mkApLFInfo bndr upd_flag arity
-	-- the payload has to be in the correct order, hence we can't
- 	-- just use the fvs.
-	payload = StgVarArg fun_id : args
-	arity 	= length fvs
+        lf_info = mkApLFInfo bndr upd_flag arity
+        -- the payload has to be in the correct order, hence we can't
+        -- just use the fvs.
+        payload = StgVarArg fun_id : args
+        arity   = length fvs
 
 ---------- Default case ------------------
 mkRhsClosure _ bndr cc _ fvs upd_flag args body
-  = do	{ 	-- LAY OUT THE OBJECT
-	-- If the binder is itself a free variable, then don't store
-	-- it in the closure.  Instead, just bind it to Node on entry.
-	-- NB we can be sure that Node will point to it, because we
-	-- haven't told mkClosureLFInfo about this; so if the binder
-	-- _was_ a free var of its RHS, mkClosureLFInfo thinks it *is*
-	-- stored in the closure itself, so it will make sure that
-	-- Node points to it...
-	; let
-		is_elem	     = isIn "cgRhsClosure"
-		bndr_is_a_fv = (NonVoid bndr) `is_elem` fvs
-		reduced_fvs | bndr_is_a_fv = fvs `minusList` [NonVoid bndr]
-			    | otherwise	   = fvs
+  = do  { lf_info <- mkClosureLFInfo bndr NotTopLevel fvs upd_flag args
+        ; (id_info, reg) <- rhsIdInfo bndr lf_info
+        ; return (id_info, gen_code lf_info reg) }
+ where
+ gen_code lf_info reg
+  = do  {       -- LAY OUT THE OBJECT
+        -- If the binder is itself a free variable, then don't store
+        -- it in the closure.  Instead, just bind it to Node on entry.
+        -- NB we can be sure that Node will point to it, because we
+        -- haven't told mkClosureLFInfo about this; so if the binder
+        -- _was_ a free var of its RHS, mkClosureLFInfo thinks it *is*
+        -- stored in the closure itself, so it will make sure that
+        -- Node points to it...
+        ; let
+                is_elem      = isIn "cgRhsClosure"
+                bndr_is_a_fv = (NonVoid bndr) `is_elem` fvs
+                reduced_fvs | bndr_is_a_fv = fvs `minusList` [NonVoid bndr]
+                            | otherwise    = fvs
 
 
-	-- MAKE CLOSURE INFO FOR THIS CLOSURE
-	; lf_info <- mkClosureLFInfo bndr NotTopLevel fvs upd_flag args
-	; mod_name <- getModuleName
+        -- MAKE CLOSURE INFO FOR THIS CLOSURE
+        ; mod_name <- getModuleName
         ; dflags <- getDynFlags
         ; let   name  = idName bndr
                 descr = closureDescription dflags mod_name name
                 fv_details :: [(NonVoid Id, VirtualHpOffset)]
-		(tot_wds, ptr_wds, fv_details)
-		   = mkVirtHeapOffsets dflags (isLFThunk lf_info)
-				       (addIdReps (map stripNV reduced_fvs))
-		closure_info = mkClosureInfo dflags False	-- Not static
-					     bndr lf_info tot_wds ptr_wds
+                (tot_wds, ptr_wds, fv_details)
+                   = mkVirtHeapOffsets dflags (isLFThunk lf_info)
+                                       (addIdReps (map stripNV reduced_fvs))
+                closure_info = mkClosureInfo dflags False       -- Not static
+                                             bndr lf_info tot_wds ptr_wds
                                              descr
 
-	-- BUILD ITS INFO TABLE AND CODE
-	; forkClosureBody $
-		-- forkClosureBody: (a) ensure that bindings in here are not seen elsewhere
-		-- 		    (b) ignore Sequel from context; use empty Sequel
-		-- And compile the body
-		closureCodeBody False bndr closure_info cc (nonVoidIds args)
+        -- BUILD ITS INFO TABLE AND CODE
+        ; forkClosureBody $
+                -- forkClosureBody: (a) ensure that bindings in here are not seen elsewhere
+                --                  (b) ignore Sequel from context; use empty Sequel
+                -- And compile the body
+                closureCodeBody False bndr closure_info cc (nonVoidIds args)
                                 (length args) body fv_details
 
-	-- BUILD THE OBJECT
+        -- BUILD THE OBJECT
 --      ; (use_cc, blame_cc) <- chooseDynCostCentres cc args body
         ; let use_cc = curCCS; blame_cc = curCCS
         ; emit (mkComment $ mkFastString "calling allocDynClosure")
         ; let toVarArg (NonVoid a, off) = (NonVoid (StgVarArg a), off)
         ; let info_tbl = mkCmmInfo closure_info
-        ; (tmp, init) <- allocDynClosure info_tbl lf_info use_cc blame_cc
+        ; hp_plus_n <- allocDynClosure info_tbl lf_info use_cc blame_cc
                                          (map toVarArg fv_details)
 
-	-- RETURN
-	; regIdInfo bndr lf_info tmp init }
+        -- RETURN
+        ; return (mkRhsInit reg lf_info hp_plus_n) }
+
 
 -- Use with care; if used inappropriately, it could break invariants.
 stripNV :: NonVoid a -> a
 stripNV (NonVoid a) = a
 
 -------------------------
-cgStdThunk
-	:: Id
-	-> CostCentreStack	-- Optional cost centre annotation
-	-> StgBinderInfo	-- XXX: not used??
-	-> StgExpr
-	-> LambdaFormInfo
-	-> [StgArg]			-- payload
-	-> FCode (CgIdInfo, CmmAGraph)
+cgRhsStdThunk
+        :: Id
+        -> LambdaFormInfo
+        -> [StgArg]             -- payload
+        -> FCode (CgIdInfo, FCode CmmAGraph)
 
-cgStdThunk bndr _cc _bndr_info _body lf_info payload
-  = do	-- AHA!  A STANDARD-FORM THUNK
-  {	-- LAY OUT THE OBJECT
+cgRhsStdThunk bndr lf_info payload
+ = do  { (id_info, reg) <- rhsIdInfo bndr lf_info
+       ; return (id_info, gen_code reg)
+       }
+ where
+ gen_code reg
+  = do  -- AHA!  A STANDARD-FORM THUNK
+  {     -- LAY OUT THE OBJECT
     mod_name <- getModuleName
   ; dflags <- getDynFlags
   ; let (tot_wds, ptr_wds, payload_w_offsets)
-	    = mkVirtHeapOffsets dflags (isLFThunk lf_info) (addArgReps payload)
+            = mkVirtHeapOffsets dflags (isLFThunk lf_info) (addArgReps payload)
 
-	descr = closureDescription dflags mod_name (idName bndr)
-	closure_info = mkClosureInfo dflags False 	-- Not static
-				     bndr lf_info tot_wds ptr_wds
+        descr = closureDescription dflags mod_name (idName bndr)
+        closure_info = mkClosureInfo dflags False       -- Not static
+                                     bndr lf_info tot_wds ptr_wds
                                      descr
 
 --  ; (use_cc, blame_cc) <- chooseDynCostCentres cc [{- no args-}] body
   ; let use_cc = curCCS; blame_cc = curCCS
 
-	-- BUILD THE OBJECT
+        -- BUILD THE OBJECT
   ; let info_tbl = mkCmmInfo closure_info
-  ; (tmp, init) <- allocDynClosure info_tbl lf_info
+  ; hp_plus_n <- allocDynClosure info_tbl lf_info
                                    use_cc blame_cc payload_w_offsets
 
-	-- RETURN
-  ; regIdInfo bndr lf_info tmp init }
+        -- RETURN
+  ; return (mkRhsInit reg lf_info hp_plus_n) }
 
-mkClosureLFInfo :: Id		-- The binder
-		-> TopLevelFlag	-- True of top level
-		-> [NonVoid Id]	-- Free vars
-		-> UpdateFlag 	-- Update flag
-		-> [Id]         -- Args
-		-> FCode LambdaFormInfo
+
+mkClosureLFInfo :: Id           -- The binder
+                -> TopLevelFlag -- True of top level
+                -> [NonVoid Id] -- Free vars
+                -> UpdateFlag   -- Update flag
+                -> [Id]         -- Args
+                -> FCode LambdaFormInfo
 mkClosureLFInfo bndr top fvs upd_flag args
   | null args = return (mkLFThunk (idType bndr) top (map stripNV fvs) upd_flag)
-  | otherwise = do { arg_descr <- mkArgDescr (idName bndr) args
-		   ; return (mkLFReEntrant top (map stripNV fvs) args arg_descr) }
+  | otherwise =
+      do { arg_descr <- mkArgDescr (idName bndr) args
+         ; return (mkLFReEntrant top (map stripNV fvs) args arg_descr) }
 
 
 ------------------------------------------------------------------------
---		The code for closures}
+--              The code for closures}
 ------------------------------------------------------------------------
 
 closureCodeBody :: Bool            -- whether this is a top-level binding
                 -> Id              -- the closure's name
-		-> ClosureInfo	   -- Lots of information about this closure
-		-> CostCentreStack -- Optional cost centre attached to closure
-	 	-> [NonVoid Id]    -- incoming args to the closure
-	 	-> Int             -- arity, including void args
-		-> StgExpr
-		-> [(NonVoid Id, VirtualHpOffset)] -- the closure's free vars
-		-> FCode ()
+                -> ClosureInfo     -- Lots of information about this closure
+                -> CostCentreStack -- Optional cost centre attached to closure
+                -> [NonVoid Id]    -- incoming args to the closure
+                -> Int             -- arity, including void args
+                -> StgExpr
+                -> [(NonVoid Id, VirtualHpOffset)] -- the closure's free vars
+                -> FCode ()
 
 {- There are two main cases for the code for closures.
 
@@ -393,16 +424,16 @@ closureCodeBody :: Bool            -- whether this is a top-level binding
   argSatisfactionCheck (by calling fetchAndReschedule).
   There info if Node points to closure is available. -- HWL -}
 
-closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
-  | length args == 0 -- No args i.e. thunk
+closureCodeBody top_lvl bndr cl_info cc _args arity body fv_details
+  | arity == 0 -- No args i.e. thunk
   = emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl [] $
       \(_, node, _) -> thunkCode cl_info fv_details cc node arity body
    where
      lf_info  = closureLFInfo cl_info
      info_tbl = mkCmmInfo cl_info
 
-closureCodeBody top_lvl bndr cl_info _cc args arity body fv_details
-  = ASSERT( length args > 0 )
+closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
+  = -- Note: args may be [], if all args are Void
     do  { -- Allocate the global ticky counter,
           -- and establish the ticky-counter
           -- label for this block
@@ -416,7 +447,7 @@ closureCodeBody top_lvl bndr cl_info _cc args arity body fv_details
 
         -- Emit the main entry code
         ; emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl args $
-            \(offset, node, arg_regs) -> do
+            \(_offset, node, arg_regs) -> do
                 -- Emit slow-entry code (for entering a closure through a PAP)
                 { mkSlowEntryCode cl_info arg_regs
 
@@ -425,17 +456,22 @@ closureCodeBody top_lvl bndr cl_info _cc args arity body fv_details
                       node_points = nodeMustPointToIt dflags lf_info
                       node' = if node_points then Just node else Nothing
                 ; tickyEnterFun cl_info
+                ; enterCostCentreFun cc
+                    (CmmMachOp mo_wordSub
+                         [ CmmReg nodeReg
+                         , CmmLit (mkIntCLit (funTag cl_info)) ])
                 ; whenC node_points (ldvEnterClosure cl_info)
                 ; granYield arg_regs node_points
 
                 -- Main payload
-                ; entryHeapCheck cl_info offset node' arity arg_regs $ do
+                ; entryHeapCheck cl_info node' arity arg_regs $ do
                 { fv_bindings <- mapM bind_fv fv_details
                 -- Load free vars out of closure *after*
                 -- heap check, to reduce live vars over check
                 ; if node_points then load_fvs node lf_info fv_bindings
                                  else return ()
-                ; cgExpr body }}
+                ; void $ cgExpr body
+                }}
   }
 
 -- A function closure pointer may be tagged, so we
@@ -444,7 +480,7 @@ bind_fv :: (NonVoid Id, VirtualHpOffset) -> FCode (LocalReg, WordOff)
 bind_fv (id, off) = do { reg <- rebindToReg id; return (reg, off) }
 
 load_fvs :: LocalReg -> LambdaFormInfo -> [(LocalReg, WordOff)] -> FCode ()
-load_fvs node lf_info = mapCs (\ (reg, off) ->
+load_fvs node lf_info = mapM_ (\ (reg, off) ->
       emit $ mkTaggedObjectLoad reg node off tag)
   where tag = lfDynTag lf_info
 
@@ -461,16 +497,17 @@ mkSlowEntryCode :: ClosureInfo -> [LocalReg] -> FCode ()
 -- If this function doesn't have a specialised ArgDescr, we need
 -- to generate the function's arg bitmap and slow-entry code.
 -- Here, we emit the slow-entry code.
-mkSlowEntryCode _ [] = panic "entering a closure with no arguments?"
 mkSlowEntryCode cl_info arg_regs -- function closure is already in `Node'
   | Just (_, ArgGen _) <- closureFunInfo cl_info
-  = do let slow_lbl = closureSlowEntryLabel  cl_info
-           fast_lbl = closureLocalEntryLabel cl_info
+  = do dflags <- getDynFlags
+       let slow_lbl = closureSlowEntryLabel  cl_info
+           fast_lbl = closureLocalEntryLabel dflags cl_info
            -- mkDirectJump does not clobber `Node' containing function closure
-           jump = mkDirectJump (mkLblExpr fast_lbl)
+           jump = mkDirectJump dflags
+                               (mkLblExpr fast_lbl)
                                (map (CmmReg . CmmLocal) arg_regs)
                                initUpdFrameOff
-       emitProcWithConvention Slow CmmNonInfoTable slow_lbl arg_regs jump
+       emitProcWithConvention Slow Nothing slow_lbl arg_regs jump
   | otherwise = return ()
 
 -----------------------------------------
@@ -485,7 +522,7 @@ thunkCode cl_info fv_details _cc node arity body
         ; granThunk node_points
 
         -- Heap overflow check
-        ; entryHeapCheck cl_info 0 node' arity [] $ do
+        ; entryHeapCheck cl_info node' arity [] $ do
         { -- Overwrite with black hole if necessary
           -- but *after* the heap-overflow check
         ; whenC (blackHoleOnEntry cl_info && node_points)
@@ -501,11 +538,11 @@ thunkCode cl_info fv_details _cc node arity body
                ; let lf_info = closureLFInfo cl_info
                ; fv_bindings <- mapM bind_fv fv_details
                ; load_fvs node lf_info fv_bindings
-               ; cgExpr body }}}
+               ; void $ cgExpr body }}}
 
 
 ------------------------------------------------------------------------
---		Update and black-hole wrappers
+--              Update and black-hole wrappers
 ------------------------------------------------------------------------
 
 blackHoleIt :: ClosureInfo -> FCode ()
@@ -549,9 +586,9 @@ emitBlackHoleCode is_single_entry = do
     emitStore (CmmReg nodeReg) (CmmReg (CmmGlobal EagerBlackholeInfo))
 
 setupUpdate :: ClosureInfo -> LocalReg -> FCode () -> FCode ()
-	-- Nota Bene: this function does not change Node (even if it's a CAF),
-	-- so that the cost centre in the original closure can still be
-	-- extracted by a subsequent enterCostCentre
+        -- Nota Bene: this function does not change Node (even if it's a CAF),
+        -- so that the cost centre in the original closure can still be
+        -- extracted by a subsequent enterCostCentre
 setupUpdate closure_info node body
   | closureReEntrant closure_info
   = body
@@ -570,17 +607,16 @@ setupUpdate closure_info node body
               lbl | bh        = mkBHUpdInfoLabel
                   | otherwise = mkUpdInfoLabel
 
-          pushUpdateFrame [CmmReg (CmmLocal node), mkLblExpr lbl] body
+          pushUpdateFrame lbl (CmmReg (CmmLocal node)) body
 
-  | otherwise	-- A static closure
-  = do 	{ tickyUpdateBhCaf closure_info
+  | otherwise   -- A static closure
+  = do  { tickyUpdateBhCaf closure_info
 
-	; if closureUpdReqd closure_info
-	  then do	-- Blackhole the (updatable) CAF:
-                { upd_closure <- link_caf True
-		; pushUpdateFrame [CmmReg (CmmLocal upd_closure),
-                                   mkLblExpr mkBHUpdInfoLabel] body }
-	  else do {tickyUpdateFrameOmitted; body}
+        ; if closureUpdReqd closure_info
+          then do       -- Blackhole the (updatable) CAF:
+                { upd_closure <- link_caf node True
+                ; pushUpdateFrame mkBHUpdInfoLabel upd_closure body }
+          else do {tickyUpdateFrameOmitted; body}
     }
 
 -----------------------------------------------------------------------------
@@ -589,16 +625,21 @@ setupUpdate closure_info node body
 -- Push the update frame on the stack in the Entry area,
 -- leaving room for the return address that is already
 -- at the old end of the area.
-pushUpdateFrame :: [CmmExpr] -> FCode () -> FCode ()
-pushUpdateFrame es body
-  = do -- [EZY] I'm not sure if we need to special-case for BH too
+--
+pushUpdateFrame :: CLabel -> CmmExpr -> FCode () -> FCode ()
+pushUpdateFrame lbl updatee body
+  = do
        updfr  <- getUpdFrameOff
-       offset <- foldM push updfr es
-       withUpdFrameOff offset body
-     where push off e =
-             do emitStore (CmmStackSlot Old base) e
-                return base
-             where base = off + widthInBytes (cmmExprWidth e)
+       dflags <- getDynFlags
+       let
+           hdr         = fixedHdrSize dflags * wORD_SIZE
+           frame       = updfr + hdr + sIZEOF_StgUpdateFrame_NoHdr
+           off_updatee = hdr + oFFSET_StgUpdateFrame_updatee
+       --
+       emitStore (CmmStackSlot Old frame) (mkLblExpr lbl)
+       emitStore (CmmStackSlot Old (frame - off_updatee)) updatee
+       initUpdFrameProf frame
+       withUpdFrameOff frame body
 
 -----------------------------------------------------------------------------
 -- Entering a CAF
@@ -633,35 +674,41 @@ pushUpdateFrame es body
 -- be closer together, and the compiler wouldn't need to know
 -- about off_indirectee etc.
 
-link_caf :: Bool                -- True <=> updatable, False <=> single-entry
-         -> FCode LocalReg      -- Returns amode for closure to be updated
+link_caf :: LocalReg           -- pointer to the closure
+         -> Bool               -- True <=> updatable, False <=> single-entry
+         -> FCode CmmExpr      -- Returns amode for closure to be updated
 -- To update a CAF we must allocate a black hole, link the CAF onto the
 -- CAF list, then update the CAF to point to the fresh black hole.
 -- This function returns the address of the black hole, so it can be
 -- updated with the new value when available.  The reason for all of this
 -- is that we only want to update dynamic heap objects, not static ones,
 -- so that generational GC is easier.
-link_caf _is_upd = do
+link_caf node _is_upd = do
   { dflags <- getDynFlags
     -- Alloc black hole specifying CC_HDR(Node) as the cost centre
-  ; let	use_cc   = costCentreFrom (CmmReg nodeReg)
+  ; let use_cc   = costCentreFrom (CmmReg nodeReg)
         blame_cc = use_cc
         tso      = CmmReg (CmmGlobal CurrentTSO)
 
-  ; (hp_rel, init) <- allocDynClosureCmm cafBlackHoleInfoTable mkLFBlackHole
+  ; hp_rel <- allocDynClosureCmm cafBlackHoleInfoTable mkLFBlackHole
                                          use_cc blame_cc [(tso,fixedHdrSize dflags)]
-  ; emit init
+        -- small optimisation: we duplicate the hp_rel expression in
+        -- both the newCAF call and the value returned below.
+        -- If we instead used allocDynClosureReg which assigns it to a reg,
+        -- then the reg is live across the newCAF call and gets spilled,
+        -- which is stupid.  Really we should have an optimisation pass to
+        -- fix this, but we don't yet. --SDM
 
-	-- Call the RTS function newCAF to add the CAF to the CafList
-	-- so that the garbage collector can find them
-	-- This must be done *before* the info table pointer is overwritten,
-	-- because the old info table ptr is needed for reversion
+        -- Call the RTS function newCAF to add the CAF to the CafList
+        -- so that the garbage collector can find them
+        -- This must be done *before* the info table pointer is overwritten,
+        -- because the old info table ptr is needed for reversion
   ; ret <- newTemp bWord
   ; emitRtsCallGen [(ret,NoHint)] rtsPackageId (fsLit "newCAF")
       [ (CmmReg (CmmGlobal BaseReg),  AddrHint),
-        (CmmReg nodeReg, AddrHint),
-        (CmmReg (CmmLocal hp_rel), AddrHint) ]
-      (Just [node]) False
+        (CmmReg (CmmLocal node), AddrHint),
+        (hp_rel, AddrHint) ]
+      False
         -- node is live, so save it.
 
   -- see Note [atomic CAF entry] in rts/sm/Storage.c
@@ -671,13 +718,13 @@ link_caf _is_upd = do
         -- re-enter R1.  Doing this directly is slightly dodgy; we're
         -- assuming lots of things, like the stack pointer hasn't
         -- moved since we entered the CAF.
-       (let target = entryCode (closureInfoPtr (CmmReg nodeReg)) in
-        mkJump target [] updfr)
+       (let target = entryCode dflags (closureInfoPtr (CmmReg (CmmLocal node))) in
+        mkJump dflags target [] updfr)
 
   ; return hp_rel }
 
 ------------------------------------------------------------------------
---		Profiling
+--              Profiling
 ------------------------------------------------------------------------
 
 -- For "global" data constructors the description is simply occurrence
@@ -685,16 +732,16 @@ link_caf _is_upd = do
 -- @closureDescription@ from the let binding information.
 
 closureDescription :: DynFlags
-           -> Module		-- Module
-		   -> Name		-- Id of closure binding
-		   -> String
-	-- Not called for StgRhsCon which have global info tables built in
-	-- CgConTbls.lhs with a description generated from the data constructor
+           -> Module            -- Module
+                   -> Name              -- Id of closure binding
+                   -> String
+        -- Not called for StgRhsCon which have global info tables built in
+        -- CgConTbls.lhs with a description generated from the data constructor
 closureDescription dflags mod_name name
   = showSDocDump dflags (char '<' <>
-		    (if isExternalName name
-		      then ppr name -- ppr will include the module name prefix
-		      else pprModule mod_name <> char '.' <> ppr name) <>
-		    char '>')
+                    (if isExternalName name
+                      then ppr name -- ppr will include the module name prefix
+                      else pprModule mod_name <> char '.' <> ppr name) <>
+                    char '>')
    -- showSDocDump, because we want to see the unique on the Name.
 

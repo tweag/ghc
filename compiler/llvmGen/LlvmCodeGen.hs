@@ -41,11 +41,11 @@ llvmCodeGen dflags h us cmms
         (cdata,env) = {-# SCC "llvm_split" #-}
                       foldr split ([], initLlvmEnv dflags) cmm
         split (CmmData s d' ) (d,e) = ((s,d'):d,e)
-        split (CmmProc i l _) (d,e) =
-            let lbl = strCLabel_llvm env $ case i of
+        split p@(CmmProc _ l _) (d,e) =
+            let lbl = strCLabel_llvm env $ case topInfoTable p of
                         Nothing                   -> l
                         Just (Statics info_lbl _) -> info_lbl
-                env' = funInsert lbl llvmFunTy e
+                env' = funInsert lbl (llvmFunTy dflags) e
             in (d,env')
     in do
         showPass dflags "LlVM CodeGen"
@@ -146,7 +146,7 @@ cmmLlvmGen :: DynFlags -> UniqSupply -> LlvmEnv -> RawCmmDecl
 cmmLlvmGen dflags us env cmm = do
     -- rewrite assignments to global regs
     let fixed_cmm = {-# SCC "llvm_fix_regs" #-}
-                    fixStgRegisters cmm
+                    fixStgRegisters (targetPlatform dflags) cmm
 
     dumpIfSet_dyn dflags Opt_D_dump_opt_cmm "Optimised Cmm"
         (pprCmmGroup [fixed_cmm])

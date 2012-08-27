@@ -65,7 +65,7 @@ module Outputable (
 
         -- * Error handling and debugging utilities
         pprPanic, pprSorry, assertPprPanic, pprPanicFastInt, pprPgmError,
-        pprTrace, pprDefiniteTrace, warnPprTrace,
+        pprTrace, warnPprTrace,
         trace, pgmError, panic, sorry, panicFastInt, assertPanic,
         pprDebugAndThen,
     ) where
@@ -92,7 +92,9 @@ import qualified Data.Set as Set
 import Data.Word
 import System.IO        ( Handle )
 import System.FilePath
+import Text.Printf
 
+import GHC.Fingerprint
 import GHC.Show         ( showMultiLineString )
 \end{code}
 
@@ -597,24 +599,27 @@ class Outputable a where
 \end{code}
 
 \begin{code}
+instance Outputable Char where
+    ppr c = text [c]
+
 instance Outputable Bool where
     ppr True  = ptext (sLit "True")
     ppr False = ptext (sLit "False")
 
 instance Outputable Int where
-   ppr n = int n
+    ppr n = int n
 
 instance Outputable Word16 where
-   ppr n = integer $ fromIntegral n
+    ppr n = integer $ fromIntegral n
 
 instance Outputable Word32 where
-   ppr n = integer $ fromIntegral n
+    ppr n = integer $ fromIntegral n
 
 instance Outputable Word where
-   ppr n = integer $ fromIntegral n
+    ppr n = integer $ fromIntegral n
 
 instance Outputable () where
-   ppr _ = text "()"
+    ppr _ = text "()"
 
 instance (Outputable a) => Outputable [a] where
     ppr xs = brackets (fsep (punctuate comma (map ppr xs)))
@@ -626,12 +631,12 @@ instance (Outputable a, Outputable b) => Outputable (a, b) where
     ppr (x,y) = parens (sep [ppr x <> comma, ppr y])
 
 instance Outputable a => Outputable (Maybe a) where
-  ppr Nothing = ptext (sLit "Nothing")
-  ppr (Just x) = ptext (sLit "Just") <+> ppr x
+    ppr Nothing = ptext (sLit "Nothing")
+    ppr (Just x) = ptext (sLit "Just") <+> ppr x
 
 instance (Outputable a, Outputable b) => Outputable (Either a b) where
-  ppr (Left x)  = ptext (sLit "Left")  <+> ppr x
-  ppr (Right y) = ptext (sLit "Right") <+> ppr y
+    ppr (Left x)  = ptext (sLit "Left")  <+> ppr x
+    ppr (Right y) = ptext (sLit "Right") <+> ppr y
 
 -- ToDo: may not be used
 instance (Outputable a, Outputable b, Outputable c) => Outputable (a, b, c) where
@@ -686,6 +691,9 @@ instance (Outputable key, Outputable elt) => Outputable (M.Map key elt) where
     ppr m = ppr (M.toList m)
 instance (Outputable elt) => Outputable (IM.IntMap elt) where
     ppr m = ppr (IM.toList m)
+
+instance Outputable Fingerprint where
+    ppr (Fingerprint w1 w2) = text (printf "%016x%016x" w1 w2)
 \end{code}
 
 %************************************************************************
@@ -907,10 +915,6 @@ pprTrace :: String -> SDoc -> a -> a
 pprTrace str doc x
    | opt_NoDebugOutput = x
    | otherwise         = pprDebugAndThen tracingDynFlags trace str doc x
-
-pprDefiniteTrace :: DynFlags -> String -> SDoc -> a -> a
--- ^ Same as pprTrace, but show even if -dno-debug-output is on
-pprDefiniteTrace dflags str doc x = pprDebugAndThen dflags trace str doc x
 
 pprPanicFastInt :: String -> SDoc -> FastInt
 -- ^ Specialization of pprPanic that can be safely used with 'FastInt'

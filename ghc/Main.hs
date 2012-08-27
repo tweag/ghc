@@ -558,12 +558,12 @@ mode_flags =
   ]
 
 setGenerateC :: String -> EwM ModeM ()
-setGenerateC f
-  | cGhcUnregisterised /= "YES" = do
-        addWarn ("Compiler not unregisterised, so ignoring " ++ f)
-  | otherwise = do
-        setMode (stopBeforeMode HCc) f
-        addFlag "-fvia-C" f
+setGenerateC f = do -- TODO: We used to warn and ignore when
+                    -- unregisterised, but we no longer know whether
+                    -- we are unregisterised at this point. Should
+                    -- we check later on?
+                    setMode (stopBeforeMode HCc) f
+                    addFlag "-fvia-C" f
 
 setMode :: Mode -> String -> EwM ModeM ()
 setMode newMode newFlag = liftEwM $ do
@@ -791,5 +791,10 @@ abiHash strs = do
 -- Util
 
 unknownFlagsErr :: [String] -> a
-unknownFlagsErr fs = ghcError (UsageError ("unrecognised flags: " ++ unwords fs))
-
+unknownFlagsErr fs = ghcError $ UsageError $ concatMap oneError fs
+  where
+    oneError f =
+        "unrecognised flag: " ++ f ++ "\n" ++
+        (case fuzzyMatch f (nub allFlags) of
+            [] -> ""
+            suggs -> "did you mean one of:\n" ++ unlines (map ("  " ++) suggs)) 

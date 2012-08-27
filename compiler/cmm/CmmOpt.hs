@@ -21,7 +21,7 @@ import OldPprCmm
 import CmmNode (wrapRecExp)
 import CmmUtils
 import DynFlags
-import StaticFlags
+import CLabel
 
 import UniqFM
 import Unique
@@ -604,6 +604,11 @@ cmmMachOpFoldM platform mop [x, (CmmLit (CmmInt n _))]
                 Just (cmmMachOpFold platform (MO_S_Shr rep) [x3, CmmLit (CmmInt p rep)])
         _ -> Nothing
 
+-- ToDo (#7116): optimise floating-point multiplication, e.g. x*2.0 -> x+x
+-- Unfortunately this needs a unique supply because x might not be a
+-- register.  See #2253 (program 6) for an example.
+
+
 -- Anything else is just too hard.
 
 cmmMachOpFoldM _ _ _ = Nothing
@@ -666,12 +671,13 @@ exactLog2 x_
   except factorial, but what the hell.
 -}
 
-cmmLoopifyForC :: RawCmmDecl -> RawCmmDecl
-cmmLoopifyForC p@(CmmProc Nothing _ _) = p  -- only if there's an info table, ignore case alts
-cmmLoopifyForC (CmmProc (Just info@(Statics info_lbl _)) entry_lbl
+cmmLoopifyForC :: DynFlags -> RawCmmDecl -> RawCmmDecl
+-- XXX: revisit if we actually want to do this
+-- cmmLoopifyForC p@(CmmProc Nothing _ _) = p  -- only if there's an info table, ignore case alts
+cmmLoopifyForC dflags (CmmProc infos entry_lbl
                  (ListGraph blocks@(BasicBlock top_id _ : _))) =
 --  pprTrace "jump_lbl" (ppr jump_lbl <+> ppr entry_lbl) $
-  CmmProc (Just info) entry_lbl (ListGraph blocks')
+  CmmProc infos entry_lbl (ListGraph blocks')
   where blocks' = [ BasicBlock id (map do_stmt stmts)
                   | BasicBlock id stmts <- blocks ]
 
@@ -679,10 +685,10 @@ cmmLoopifyForC (CmmProc (Just info@(Statics info_lbl _)) entry_lbl
                 = CmmBranch top_id
         do_stmt stmt = stmt
 
-        jump_lbl | tablesNextToCode = info_lbl
-                 | otherwise        = entry_lbl
+        jump_lbl | tablesNextToCode dflags = toInfoLbl entry_lbl
+                 | otherwise               = entry_lbl
 
-cmmLoopifyForC top = top
+cmmLoopifyForC _ top = top
 
 -- -----------------------------------------------------------------------------
 -- Utils

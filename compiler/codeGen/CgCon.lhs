@@ -271,11 +271,13 @@ bindUnboxedTupleComponents
 
 bindUnboxedTupleComponents args
  =  do  {
-          vsp <- getVirtSp
+          dflags <- getDynFlags
+
+        ; vsp <- getVirtSp
         ; rsp <- getRealSp
 
            -- Assign as many components as possible to registers
-        ; let (reg_args, stk_args) = assignReturnRegs (addIdReps args)
+        ; let (reg_args, stk_args) = assignReturnRegs dflags (addIdReps args)
 
                 -- Separate the rest of the args into pointers and non-pointers
               (ptr_args, nptr_args) = separateByPtrFollowness stk_args
@@ -323,7 +325,7 @@ cgReturnDataCon con amodes = do
   if isUnboxedTupleCon con then returnUnboxedTuple amodes
   -- when profiling we can't shortcut here, we have to enter the closure
   -- for it to be marked as "used" for LDV profiling.
-   else if dopt Opt_SccProfilingOn dflags then build_it_then enter_it
+   else if dopt Opt_SccProfilingOn dflags then build_it_then (enter_it dflags)
    else ASSERT( amodes `lengthIs` dataConRepRepArity con )
      do { EndOfBlockInfo _ sequel <- getEndOfBlockInfo
         ; case sequel of
@@ -352,8 +354,9 @@ cgReturnDataCon con amodes = do
         }
   where
     node_live   = Just [node]
-    enter_it    = stmtsC [ CmmAssign nodeReg (cmmUntag (CmmReg nodeReg)),
-                           CmmJump (entryCode $ closureInfoPtr $ CmmReg nodeReg)
+    enter_it dflags
+                = stmtsC [ CmmAssign nodeReg (cmmUntag (CmmReg nodeReg)),
+                           CmmJump (entryCode dflags $ closureInfoPtr $ CmmReg nodeReg)
                                    node_live
                          ]
     jump_to lbl = stmtC $ CmmJump (CmmLit lbl) node_live

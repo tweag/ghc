@@ -8,6 +8,7 @@ module MkGraph
 
   , stackStubExpr
   , mkNop, mkAssign, mkStore, mkUnsafeCall, mkFinalCall, mkCallReturnsTo
+  , mkJumpReturnsTo
   , mkJump, mkDirectJump, mkForeignJump, mkForeignJumpExtra, mkJumpGC
   , mkCbranch, mkSwitch
   , mkReturn, mkReturnSimple, mkComment, mkCallEntry, mkBranch
@@ -23,9 +24,9 @@ import CmmCallConv (assignArgumentsPos, ParamLocation(..))
 
 
 import Compiler.Hoopl hiding (Unique, (<*>), mkFirst, mkMiddle, mkLast, mkLabel, mkBranch, Shape(..))
+import DynFlags
 import FastString
 import ForeignCall
-import Outputable
 import Prelude hiding (succ)
 import SMRep (ByteOff)
 import UniqSupply
@@ -68,53 +69,65 @@ flattenCmmAGraph id stmts =
     CmmGraph { g_entry = id,
                g_graph = GMany NothingO body NothingO }
   where
-  (block, blocks) = flatten (fromOL stmts)
-  entry = blockJoinHead (CmmEntry id) block
-  body = foldr addBlock emptyBody (entry:blocks)
+  blocks = flatten1 (fromOL stmts) (blockJoinHead (CmmEntry id) emptyBlock) []
+  body = foldr addBlock emptyBody blocks
 
-  flatten :: [CgStmt] -> (Block CmmNode O C, [Block CmmNode C C])
-  flatten [] = panic "flatten []"
+  --
+  -- flatten: turn a list of CgStmt into a list of Blocks.  We know
+  -- that any code before the first label is unreachable, so just drop
+  -- it.
+  --
+  -- NB. avoid the quadratic-append trap by passing in the tail of the
+  -- list.  This is important for Very Long Functions (e.g. in T783).
+  --
+  flatten :: [CgStmt] -> [Block CmmNode C C] -> [Block CmmNode C C]
+  flatten [] blocks = blocks
 
-  -- A label at the end of a function or fork: this label must not be reachable,
-  -- but it might be referred to from another BB that also isn't reachable.
-  -- Eliminating these has to be done with a dead-code analysis.  For now,
-  -- we just make it into a well-formed block by adding a recursive jump.
-  flatten [CgLabel id]
-    = (goto_id, [blockJoinHead (CmmEntry id) goto_id] )
-    where goto_id = blockJoinTail emptyBlock (CmmBranch id)
+  flatten (CgLabel id : stmts) blocks
+    = flatten1 stmts block blocks
+    where !block = blockJoinHead (CmmEntry id) emptyBlock
 
-  -- A jump/branch: throw away all the code up to the next label, because
-  -- it is unreachable.  Be careful to keep forks that we find on the way.
-  flatten (CgLast stmt : stmts)
-    = case dropWhile isOrdinaryStmt stmts of
-        [] ->
-            ( sing, [] )
-        [CgLabel id] ->
-            ( sing, [blockJoin (CmmEntry id) emptyBlock (CmmBranch id)] )
-        (CgLabel id : stmts) ->
-            ( sing, blockJoinHead (CmmEntry id) block : blocks )
-            where (block,blocks) = flatten stmts
-        (CgFork fork_id stmts : ss) -> 
-            flatten (CgFork fork_id stmts : CgLast stmt : ss)
-        _ -> panic "MkGraph.flatten"
-    where
-      sing = blockJoinTail emptyBlock stmt
+  flatten (CgFork fork_id stmts : rest) blocks
+    = flatten1 (fromOL stmts) (blockJoinHead (CmmEntry fork_id) emptyBlock) $
+      flatten rest blocks
 
-  flatten (s:ss) = 
-        case s of
-          CgStmt stmt -> (blockCons stmt block, blocks)
-          CgLabel id  -> (blockJoinTail emptyBlock (CmmBranch id),
-                          blockJoinHead (CmmEntry id) block : blocks)
-          CgFork fork_id stmts -> 
-                (block, blockJoinHead (CmmEntry fork_id) fork_block : fork_blocks ++ blocks)
-                where (fork_block, fork_blocks) = flatten (fromOL stmts)
-          _ -> panic "MkGraph.flatten"
-    where (block,blocks) = flatten ss
+  flatten (CgLast _ : stmts) blocks = flatten stmts blocks
+  flatten (CgStmt _ : stmts) blocks = flatten stmts blocks
 
-isOrdinaryStmt :: CgStmt -> Bool
-isOrdinaryStmt (CgStmt _) = True
-isOrdinaryStmt (CgLast _) = True
-isOrdinaryStmt _          = False
+  --
+  -- flatten1: we have a partial block, collect statements until the
+  -- next last node to make a block, then call flatten to get the rest
+  -- of the blocks
+  --
+  flatten1 :: [CgStmt] -> Block CmmNode C O
+           -> [Block CmmNode C C] -> [Block CmmNode C C]
+
+  -- The current block falls through to the end of a function or fork:
+  -- this code should not be reachable, but it may be referenced by
+  -- other code that is not reachable.  We'll remove it later with
+  -- dead-code analysis, but for now we have to keep the graph
+  -- well-formed, so we terminate the block with a branch to the
+  -- beginning of the current block.
+  flatten1 [] block blocks
+    = blockJoinTail block (CmmBranch (entryLabel block)) : blocks
+
+  flatten1 (CgLast stmt : stmts) block blocks
+    = block' : flatten stmts blocks
+    where !block' = blockJoinTail block stmt
+
+  flatten1 (CgStmt stmt : stmts) block blocks
+    = flatten1 stmts block' blocks
+    where !block' = blockSnoc block stmt
+
+  flatten1 (CgFork fork_id stmts : rest) block blocks
+    = flatten1 (fromOL stmts) (blockJoinHead (CmmEntry fork_id) emptyBlock) $
+      flatten1 rest block blocks
+
+  -- a label here means that we should start a new block, and the
+  -- current block should fall through to the new block.
+  flatten1 (CgLabel id : stmts) block blocks
+    = blockJoinTail block (CmmBranch id) :
+      flatten1 stmts (blockJoinHead (CmmEntry id) emptyBlock) blocks
 
 
 
@@ -165,37 +178,42 @@ mkComment _   = nilOL
 
 ---------- Assignment and store
 mkAssign     :: CmmReg  -> CmmExpr -> CmmAGraph
+mkAssign l (CmmReg r) | l == r  = mkNop
 mkAssign l r  = mkMiddle $ CmmAssign l r
 
 mkStore      :: CmmExpr -> CmmExpr -> CmmAGraph
 mkStore  l r  = mkMiddle $ CmmStore  l r
 
 ---------- Control transfer
-mkJump          :: CmmExpr -> [CmmActual] -> UpdFrameOffset -> CmmAGraph
-mkJump e actuals updfr_off =
-  lastWithArgs Jump Old NativeNodeCall actuals updfr_off $
-    toCall e Nothing updfr_off 0
-
-mkDirectJump    :: CmmExpr -> [CmmActual] -> UpdFrameOffset -> CmmAGraph
-mkDirectJump e actuals updfr_off =
-  lastWithArgs Jump Old NativeDirectCall actuals updfr_off $
-    toCall e Nothing updfr_off 0
-
-mkJumpGC        :: CmmExpr -> [CmmActual] -> UpdFrameOffset -> CmmAGraph
-mkJumpGC e actuals updfr_off =
-  lastWithArgs Jump Old GC actuals updfr_off $
-    toCall e Nothing updfr_off 0
-
-mkForeignJump   :: Convention -> CmmExpr -> [CmmActual] -> UpdFrameOffset
+mkJump          :: DynFlags -> CmmExpr -> [CmmActual] -> UpdFrameOffset
                 -> CmmAGraph
-mkForeignJump conv e actuals updfr_off =
-  mkForeignJumpExtra conv e actuals updfr_off noExtraStack
+mkJump dflags e actuals updfr_off =
+  lastWithArgs dflags Jump Old NativeNodeCall actuals updfr_off $
+    toCall e Nothing updfr_off 0
 
-mkForeignJumpExtra :: Convention -> CmmExpr -> [CmmActual]
+mkDirectJump    :: DynFlags -> CmmExpr -> [CmmActual] -> UpdFrameOffset
+                -> CmmAGraph
+mkDirectJump dflags e actuals updfr_off =
+  lastWithArgs dflags Jump Old NativeDirectCall actuals updfr_off $
+    toCall e Nothing updfr_off 0
+
+mkJumpGC        :: DynFlags -> CmmExpr -> [CmmActual] -> UpdFrameOffset
+                -> CmmAGraph
+mkJumpGC dflags e actuals updfr_off =
+  lastWithArgs dflags Jump Old GC actuals updfr_off $
+    toCall e Nothing updfr_off 0
+
+mkForeignJump   :: DynFlags
+                -> Convention -> CmmExpr -> [CmmActual] -> UpdFrameOffset
+                -> CmmAGraph
+mkForeignJump dflags conv e actuals updfr_off =
+  mkForeignJumpExtra dflags conv e actuals updfr_off noExtraStack
+
+mkForeignJumpExtra :: DynFlags -> Convention -> CmmExpr -> [CmmActual]
                 -> UpdFrameOffset -> (ByteOff, [(CmmExpr, ByteOff)])
                 -> CmmAGraph
-mkForeignJumpExtra conv e actuals updfr_off extra_stack =
-  lastWithArgsAndExtraStack Jump Old conv actuals updfr_off extra_stack $
+mkForeignJumpExtra dflags conv e actuals updfr_off extra_stack =
+  lastWithArgsAndExtraStack dflags Jump Old conv actuals updfr_off extra_stack $
     toCall e Nothing updfr_off 0
 
 mkCbranch       :: CmmExpr -> BlockId -> BlockId -> CmmAGraph
@@ -204,34 +222,47 @@ mkCbranch pred ifso ifnot = mkLast (CmmCondBranch pred ifso ifnot)
 mkSwitch        :: CmmExpr -> [Maybe BlockId] -> CmmAGraph
 mkSwitch e tbl   = mkLast $ CmmSwitch e tbl
 
-mkReturn        :: CmmExpr -> [CmmActual] -> UpdFrameOffset -> CmmAGraph
-mkReturn e actuals updfr_off =
-  lastWithArgs Ret  Old NativeReturn actuals updfr_off $
+mkReturn        :: DynFlags -> CmmExpr -> [CmmActual] -> UpdFrameOffset
+                -> CmmAGraph
+mkReturn dflags e actuals updfr_off =
+  lastWithArgs dflags Ret  Old NativeReturn actuals updfr_off $
     toCall e Nothing updfr_off 0
 
-mkReturnSimple  :: [CmmActual] -> UpdFrameOffset -> CmmAGraph
-mkReturnSimple actuals updfr_off =
-  mkReturn e actuals updfr_off
+mkReturnSimple  :: DynFlags -> [CmmActual] -> UpdFrameOffset -> CmmAGraph
+mkReturnSimple dflags actuals updfr_off =
+  mkReturn dflags e actuals updfr_off
   where e = CmmLoad (CmmStackSlot Old updfr_off) gcWord
 
 mkBranch        :: BlockId -> CmmAGraph
 mkBranch bid     = mkLast (CmmBranch bid)
 
-mkFinalCall   :: CmmExpr -> CCallConv -> [CmmActual] -> UpdFrameOffset
+mkFinalCall   :: DynFlags
+              -> CmmExpr -> CCallConv -> [CmmActual] -> UpdFrameOffset
               -> CmmAGraph
-mkFinalCall f _ actuals updfr_off =
-  lastWithArgs Call Old NativeDirectCall actuals updfr_off $
+mkFinalCall dflags f _ actuals updfr_off =
+  lastWithArgs dflags Call Old NativeDirectCall actuals updfr_off $
     toCall f Nothing updfr_off 0
 
-mkCallReturnsTo :: CmmExpr -> Convention -> [CmmActual]
+mkCallReturnsTo :: DynFlags -> CmmExpr -> Convention -> [CmmActual]
                 -> BlockId
                 -> ByteOff
                 -> UpdFrameOffset
                 -> (ByteOff, [(CmmExpr,ByteOff)])
                 -> CmmAGraph
-mkCallReturnsTo f callConv actuals ret_lbl ret_off updfr_off extra_stack = do
-  lastWithArgsAndExtraStack Call (Young ret_lbl) callConv actuals
+mkCallReturnsTo dflags f callConv actuals ret_lbl ret_off updfr_off extra_stack = do
+  lastWithArgsAndExtraStack dflags Call (Young ret_lbl) callConv actuals
      updfr_off extra_stack $
+       toCall f (Just ret_lbl) updfr_off ret_off
+
+-- Like mkCallReturnsTo, but does not push the return address (it is assumed to be
+-- already on the stack).
+mkJumpReturnsTo :: DynFlags -> CmmExpr -> Convention -> [CmmActual]
+                -> BlockId
+                -> ByteOff
+                -> UpdFrameOffset
+                -> CmmAGraph
+mkJumpReturnsTo dflags f callConv actuals ret_lbl ret_off updfr_off  = do
+  lastWithArgs dflags JumpRet (Young ret_lbl) callConv actuals updfr_off $
        toCall f (Just ret_lbl) updfr_off ret_off
 
 mkUnsafeCall  :: ForeignTarget -> [CmmFormal] -> [CmmActual] -> CmmAGraph
@@ -257,25 +288,26 @@ stackStubExpr w = CmmLit (CmmInt 0 w)
 -- the variables in their spill slots.
 -- Therefore, for copying arguments and results, we provide different
 -- functions to pass the arguments in an overflow area and to pass them in spill slots.
-copyInOflow  :: Convention -> Area -> [CmmFormal] -> (Int, CmmAGraph)
+copyInOflow  :: DynFlags -> Convention -> Area -> [CmmFormal]
+             -> (Int, CmmAGraph)
 
-copyInOflow conv area formals = (offset, catAGraphs $ map mkMiddle nodes)
-  where (offset, nodes) = copyIn oneCopyOflowI conv area formals
+copyInOflow dflags conv area formals = (offset, catAGraphs $ map mkMiddle nodes)
+  where (offset, nodes) = copyIn dflags oneCopyOflowI conv area formals
 
 type SlotCopier = Area -> (LocalReg, ByteOff) -> (ByteOff, [CmmNode O O]) ->
                           (ByteOff, [CmmNode O O])
-type CopyIn  = SlotCopier -> Convention -> Area -> [CmmFormal] -> (ByteOff, [CmmNode O O])
+type CopyIn  = DynFlags -> SlotCopier -> Convention -> Area -> [CmmFormal] -> (ByteOff, [CmmNode O O])
 
 -- Return the number of bytes used for copying arguments, as well as the
 -- instructions to copy the arguments.
 copyIn :: CopyIn
-copyIn oflow conv area formals =
+copyIn dflags oflow conv area formals =
   foldr ci (init_offset, []) args'
   where ci (reg, RegisterParam r) (n, ms) =
           (n, CmmAssign (CmmLocal reg) (CmmReg $ CmmGlobal r) : ms)
         ci (r, StackParam off) (n, ms) = oflow area (r, off) (n, ms)
         init_offset = widthInBytes wordWidth -- infotable
-        args  = assignArgumentsPos conv localRegType formals
+        args  = assignArgumentsPos dflags conv localRegType formals
         args' = foldl adjust [] args
           where adjust rst (v, StackParam off) = (v, StackParam (off + init_offset)) : rst
                 adjust rst x@(_, RegisterParam _) = x : rst
@@ -289,9 +321,9 @@ oneCopyOflowI area (reg, off) (n, ms) =
 -- Factoring out the common parts of the copyout functions yielded something
 -- more complicated:
 
-data Transfer = Call | Jump | Ret deriving Eq
+data Transfer = Call | JumpRet | Jump | Ret deriving Eq
 
-copyOutOflow :: Convention -> Transfer -> Area -> [CmmActual]
+copyOutOflow :: DynFlags -> Convention -> Transfer -> Area -> [CmmActual]
              -> UpdFrameOffset
              -> (ByteOff, [(CmmExpr,ByteOff)]) -- extra stack stuff
              -> (Int, [GlobalReg], CmmAGraph)
@@ -305,7 +337,7 @@ copyOutOflow :: Convention -> Transfer -> Area -> [CmmActual]
 -- the info table for return and adjust the offsets of the other
 -- parameters.  If this is a call instruction, we adjust the offsets
 -- of the other parameters.
-copyOutOflow conv transfer area actuals updfr_off
+copyOutOflow dflags conv transfer area actuals updfr_off
   (extra_stack_off, extra_stack_stuff)
   = foldr co (init_offset, [], mkNop) (args' ++ stack_params)
   where 
@@ -321,16 +353,21 @@ copyOutOflow conv transfer area actuals updfr_off
       case area of
             Young id -> id `seq` -- Generate a store instruction for
                                  -- the return address if making a call
-                  if transfer == Call then
-                    ([(CmmLit (CmmBlock id), StackParam init_offset)],
-                     widthInBytes wordWidth)
-                  else ([], 0)
+                  case transfer of
+                     Call ->
+                       ([(CmmLit (CmmBlock id), StackParam init_offset)],
+                       widthInBytes wordWidth)
+                     JumpRet ->
+                       ([],
+                       widthInBytes wordWidth)
+                     _other ->
+                       ([], 0)
             Old -> ([], updfr_off)
 
     arg_offset = init_offset + extra_stack_off
 
     args :: [(CmmExpr, ParamLocation)]   -- The argument and where to put it
-    args = assignArgumentsPos conv cmmExprType actuals
+    args = assignArgumentsPos dflags conv cmmExprType actuals
 
     args' = foldl adjust setRA args
       where adjust rst   (v, StackParam off)  = (v, StackParam (off + arg_offset)) : rst
@@ -338,26 +375,27 @@ copyOutOflow conv transfer area actuals updfr_off
 
 
 
-mkCallEntry :: Convention -> [CmmFormal] -> (Int, CmmAGraph)
-mkCallEntry conv formals = copyInOflow conv Old formals
+mkCallEntry :: DynFlags -> Convention -> [CmmFormal] -> (Int, CmmAGraph)
+mkCallEntry dflags conv formals = copyInOflow dflags conv Old formals
 
-lastWithArgs :: Transfer -> Area -> Convention -> [CmmActual]
+lastWithArgs :: DynFlags -> Transfer -> Area -> Convention -> [CmmActual]
              -> UpdFrameOffset
              -> (ByteOff -> [GlobalReg] -> CmmAGraph)
              -> CmmAGraph
-lastWithArgs transfer area conv actuals updfr_off last =
-  lastWithArgsAndExtraStack transfer area conv actuals
+lastWithArgs dflags transfer area conv actuals updfr_off last =
+  lastWithArgsAndExtraStack dflags transfer area conv actuals
                             updfr_off noExtraStack last
 
-lastWithArgsAndExtraStack :: Transfer -> Area -> Convention -> [CmmActual]
+lastWithArgsAndExtraStack :: DynFlags
+             -> Transfer -> Area -> Convention -> [CmmActual]
              -> UpdFrameOffset -> (ByteOff, [(CmmExpr,ByteOff)])
              -> (ByteOff -> [GlobalReg] -> CmmAGraph)
              -> CmmAGraph
-lastWithArgsAndExtraStack transfer area conv actuals updfr_off
+lastWithArgsAndExtraStack dflags transfer area conv actuals updfr_off
                           extra_stack last =
   copies <*> last outArgs regs
  where
-  (outArgs, regs, copies) = copyOutOflow conv transfer area actuals
+  (outArgs, regs, copies) = copyOutOflow dflags conv transfer area actuals
                                updfr_off extra_stack
 
 

@@ -260,6 +260,29 @@ esac
 
 AC_SUBST(SOLARIS_BROKEN_SHLD)
 
+dnl ** Do an unregisterised build?
+dnl --------------------------------------------------------------
+case "$HostArch" in
+    i386|x86_64|powerpc|arm)
+        UnregisterisedDefault=NO
+        ;;
+    *)
+        UnregisterisedDefault=YES
+        ;;
+esac
+AC_ARG_ENABLE(unregisterised,
+[AC_HELP_STRING([--enable-unregisterised],
+[Build an unregisterised compiler (enabled by default on platforms without registerised support) [default="$UnregisterisedDefault"]])],
+[ if test x"$enableval" = x"yes"; then
+        Unregisterised=YES
+  else
+        Unregisterised=NO
+  fi
+],
+[Unregisterised="$UnregisterisedDefault"]
+)
+AC_SUBST(Unregisterised)
+
 AC_ARG_WITH(hc,
 [AC_HELP_STRING([--with-hc=ARG],
         [Use ARG as the path to the compiler for compiling ordinary
@@ -560,6 +583,10 @@ AC_PROG_CPP
 
 FP_PROG_LD_HashSize31
 FP_PROG_LD_ReduceMemoryOverheads
+FP_PROG_LD_IS_GNU
+FP_PROG_LD_BUILD_ID
+FP_PROG_LD_NO_COMPACT_UNWIND
+
 
 FPTOOLS_SET_C_LD_FLAGS([build],[CONF_CC_OPTS_STAGE0],[CONF_GCC_LINKER_OPTS_STAGE0],[CONF_LD_LINKER_OPTS_STAGE0],[CONF_CPP_OPTS_STAGE0])
 if test x"$TargetPlatform" != x"$HostPlatform"; then
@@ -879,12 +906,6 @@ FPTOOLS_FLOAT_WORD_ORDER_BIGENDIAN
 
 dnl ** check for leading underscores in symbol names
 FP_LEADING_UNDERSCORE
-
-dnl ** check for ld, whether it has an -x option, and if it is GNU ld
-FP_PROG_LD_X
-FP_PROG_LD_IS_GNU
-FP_PROG_LD_BUILD_ID
-FP_PROG_LD_NO_COMPACT_UNWIND
 
 FP_VISIBILITY_HIDDEN
 
