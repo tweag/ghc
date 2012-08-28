@@ -382,7 +382,7 @@ mkWWstr_one dflags arg
       
 	-- `seq` demand; evaluate in wrapper in the hope
 	-- of dropping seqs in the worker
-      JD {strd=Str, absd=UHead}
+      JD {strd=Str, absd=UHead _}
 	-> let
 		arg_w_unf = arg `setIdUnfolding` evaldUnfolding
 		-- Tell the worker arg that it's sure to be evaluated

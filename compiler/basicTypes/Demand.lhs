@@ -9,7 +9,7 @@
 module Demand (
         LatticeLike, top, bot, lub, both, pre,
         StrDmd(..), strBot, strTop, strStr, strProd, strCall,
-        AbsDmd(..), absBot, absTop, absProd,
+        AbsDmd(..), 
         Demand, JointDmd(..), mkJointDmd, mkProdDmd, 
         isTop, isBot, isAbs, absDmd,
 	DmdType(..), topDmdType, botDmdType, mkDmdType, mkTopDmdType, 
@@ -24,7 +24,7 @@ module Demand (
        
         seqStrDmd, seqStrDmdList, seqAbsDmd, seqAbsDmdList,
         seqDemand, seqDemandList, seqDmdType, seqStrictSig, 
-        evalDmd, vanillaCall, isStrictDmd, splitCallDmd, splitDmdTy,
+        evalDmd, onceEvalDmd, vanillaCall, isStrictDmd, splitCallDmd, splitDmdTy,
         someCompUsed, isUsed, isUsedDmd,
         defer, use, deferType, deferEnv, modifyEnv,
         isProdDmd, isPolyDmd, replicateDmd, splitProdDmd, peelCallDmd, mkCallDmd,
@@ -211,111 +211,185 @@ isPolyStrDmd _        = False
 \begin{code}
 
 data AbsDmd
-  = Abs                  -- Definitely unused
-  | Used                 -- May be used
-  | UCall AbsDmd         -- Call demand for absence
-  | UHead                -- U(A...A)
-  | UProd [AbsDmd]       -- Product [Invariant] not all components are absent
+  = Abs                       -- Definitely unused
+  | Used  Count               -- May be used
+  | UCall Count AbsDmd        -- Call demand for absence
+  | UHead Count               -- U(A...A)
+  | UProd Count [AbsDmd]      -- Product [Invariant] not all components are absent
   deriving ( Eq, Show )
 
+-- Absrtact counting of usages
+data Count = One | Many
+  deriving ( Eq, Show )     
 
 -- Pretty-printing
 instance Outputable AbsDmd where
-  ppr Abs         = char 'A'
-  ppr Used        = char 'U'
-  ppr (UCall a)   = char 'C' <> parens (ppr a)
-  ppr UHead       = char 'H'
-  ppr (UProd as)  = (char 'U') <> parens (hcat (map ppr as))
+  ppr Abs          = char 'A'
+  ppr (Used c)     = char 'U' <> ppr c
+  ppr (UCall c a)  = char 'C' <> ppr c <> parens (ppr a)
+  ppr (UHead c)    = char 'H' <> ppr c
+  ppr (UProd c as) = (char 'U') <> ppr c <> parens (hcat (map ppr as))
+
+instance Outputable Count where
+  ppr One  = char '1'
+  ppr Many = char '*'
 
 -- Well-formedness preserving constructors for the Absence domain
-absBot, absTop, absHead :: AbsDmd
-absBot     = Abs
-absHead    = UHead
-absTop     = Used
+usedOnce :: AbsDmd
+usedOnce = (Used One)
 
-absCall :: AbsDmd -> AbsDmd
-absCall Used = Used 
-absCall Abs  = Abs 
-absCall a    = UCall a
+absCall :: Count -> AbsDmd -> AbsDmd
+absCall _ Abs  = Abs 
+absCall Many a@(Used Many) = a
+absCall c a    = UCall c a
 
-absProd :: [AbsDmd] -> AbsDmd
-absProd ux 
---  | all (== Used) ux   = Used
-  | all (== Abs) ux    = UHead
-  | otherwise          = UProd ux
+absProd :: Count -> [AbsDmd] -> AbsDmd
+absProd c ux 
+  | all (== Abs) ux    = UHead c
+  | otherwise          = UProd c ux
+
+
+instance LatticeLike Count where
+  bot        = One
+  top        = Many
+  pre x y    = (x == y) || (y == top)
+
+  lub _ Many = Many
+  lub Many _ = Many
+  lub x _    = x 
+
+  both _ _   = Many 
 
 instance LatticeLike AbsDmd where
-  bot                            = absBot
-  top                            = absTop
+  bot                             = Abs
+  top                             = Used Many
  
-  pre Abs _                      = True
-  pre _ Used                     = True
-  pre UHead (UProd _)            = True
-  pre (UCall u1) (UCall u2)      = pre u1 u2
-  pre (UProd ux1) (UProd ux2)
-     | length ux1 == length ux2  = all (== True) $ zipWith pre ux1 ux2 
-  pre x y                        = x == y
+  pre Abs _                       = True
+  pre (Used c1) (Used c2)         = pre c1 c2
+  pre _ (Used _)                  = True
+  pre (UHead c1) (UHead c2)       = pre c1 c2
+  pre (UHead c1) (UProd c2 _)     = pre c1 c2
+  pre (UCall c1 u1) (UCall c2 u2) = (pre c1 c2) && (pre u1 u2)
+  pre (UProd c1 ux1) (UProd c2 ux2)
+     | length ux1 == length ux2   = (pre c1 c2) && 
+                                    (all (== True) $ zipWith pre ux1 ux2)
+  pre x y                         = x == y
 
-  lub x y | x == y               = x 
-  lub y x | x `pre` y            = lub x y
-  lub Abs a                      = a
-  lub _ Used                     = absTop
-  lub UHead u@(UProd _)          = u
-  lub (UProd ux1) (UProd ux2)
-     | length ux1 == length ux2  = absProd $ zipWith lub ux1 ux2
-  lub (UCall u1) (UCall u2)      = absCall (u1 `lub` u2)
-  lub _ _                        = absTop
+  lub x y | x == y                = x 
+  lub y x | x `pre` y             = lub x y
+  lub Abs a                       = a
+  lub (Used c1) (Used c2)         = Used $ lub c1 c2
+  lub a (Used c)                  = Used $ lub c (card a)
+  lub (UHead c1) (UHead c2)       = UHead $ lub c1 c2
+  lub (UHead c1) (UProd c2 ux)    = UProd (c1 `lub` c2) ux
+  lub (UProd c1 ux1) (UProd c2 ux2)
+     | length ux1 == length ux2   = absProd (c1 `lub` c2) $ zipWith lub ux1 ux2
+  lub (UCall c1 u1) (UCall c2 u2) = absCall (c1 `lub` c2) (u1 `lub` u2)
+  lub _ _                         = top
 
-  both                           = lub
+  -- `both` is different from `lub` in its treatment of counting if
+  -- `both` is computed for two used, the result always has
+  -- cardinality `Many` (except for the Call demand -- [TODO] explain).  
+  -- Also, `both` is not idempotent.
+
+  both y x | x /= y && x `pre` y   = both x y
+  both Abs a                       = a
+  both _ (Used _)                  = Used Many
+  both (UHead _) (UHead _)         = UHead Many
+  both (UHead _) (UProd _ ux)      = UProd Many ux
+  both (UProd _ ux1) (UProd _ ux2)
+     | length ux1 == length ux2    = absProd Many $ zipWith both ux1 ux2
+  -- is it correct? 
+  both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
+  both _ _                         = top
 
 -- utility functions
+card :: AbsDmd -> Count
+card Abs         = pprPanic "count for Abs is invoked" (ppr Abs)
+card (Used c)    = c
+card (UHead c)   = c
+card (UProd c _) = c
+card (UCall c _) = c
+
 seqAbsDmd :: AbsDmd -> ()
-seqAbsDmd (UProd ds) = seqAbsDmdList ds
-seqAbsDmd (UCall d)  = seqAbsDmd d
-seqAbsDmd _          = ()
+seqAbsDmd (Used c)     = c `seq` ()
+seqAbsDmd (UHead c)    = c `seq` ()
+seqAbsDmd (UProd c ds) = c `seq` seqAbsDmdList ds
+seqAbsDmd (UCall c d)  = c `seq` seqAbsDmd d
+seqAbsDmd _            = ()
 
 seqAbsDmdList :: [AbsDmd] -> ()
 seqAbsDmdList [] = ()
 seqAbsDmdList (d:ds) = seqAbsDmd d `seq` seqAbsDmdList ds
 
 -- Serialization
+instance Binary Count where
+    put_ bh One  = do putByte bh 0
+    put_ bh Many = do putByte bh 1
+    
+    get  bh = do h <- getByte bh
+                 case h of
+                   0 -> return One
+                   _ -> return Many   
+
 instance Binary AbsDmd where
-    put_ bh Abs         = do 
+    put_ bh Abs          = do 
             putByte bh 0
-    put_ bh Used        = do 
+    put_ bh (Used c)     = do 
             putByte bh 1
-    put_ bh UHead       = do 
+            put_ bh c
+    put_ bh (UHead c)    = do 
             putByte bh 2
-    put_ bh (UCall u)   = do
+            put_ bh c
+    put_ bh (UCall c u)  = do
             putByte bh 3
+            put_ bh c
             put_ bh u
-    put_ bh (UProd ux) = do
+    put_ bh (UProd c ux) = do
             putByte bh 4
+            put_ bh c
             put_ bh ux
 
     get  bh = do
             h <- getByte bh
             case h of 
-              0 -> return absBot       
-              1 -> return absTop
-              2 -> return absHead
-              3 -> do u  <- get bh
-                      return $ absCall u  
-              _ -> do ux <- get bh
-                      return $ absProd ux
+              0 -> return Abs       
+              1 -> do c  <- get bh
+                      return $ Used c
+              2 -> do c  <- get bh
+                      return $ UHead c
+              3 -> do c  <- get bh
+                      u  <- get bh
+                      return $ absCall c u  
+              _ -> do c  <- get bh
+                      ux <- get bh
+                      return $ absProd c ux
+
+    -- get  bh = do
+    --         h <- getByte bh
+    --         case h of 
+    --           0 -> return Abs       
+    --           1 -> return Used Many
+    --           2 -> return UHead Many
+    --           3 -> do u  <- get bh
+    --                   return $ absCall Many u  
+    --           _ -> do ux <- get bh
+    --                   return $ absProd Many ux
+
 
 -- Splitting polymorphic demands
 replicateAbsDmd :: Int -> AbsDmd -> [AbsDmd]
 replicateAbsDmd n Abs          = replicate n Abs
-replicateAbsDmd n Used         = replicate n Used
-replicateAbsDmd n UHead        = replicate n Abs
+-- TODO: is it correct?
+replicateAbsDmd n (Used c)     = replicate n (Used c)
+replicateAbsDmd n (UHead _)    = replicate n Abs
 replicateAbsDmd _ d            = pprPanic "replicateAbsDmd" (ppr d)          
 
 isPolyAbsDmd :: AbsDmd -> Bool
-isPolyAbsDmd Abs      = True
-isPolyAbsDmd Used     = True
-isPolyAbsDmd UHead    = True
-isPolyAbsDmd _        = False
+isPolyAbsDmd Abs         = True
+isPolyAbsDmd (Used _)    = True
+isPolyAbsDmd (UHead _)   = True
+isPolyAbsDmd _           = False
 
 \end{code}
   
@@ -338,15 +412,15 @@ instance Outputable JointDmd where
 mkJointDmd :: StrDmd -> AbsDmd -> JointDmd
 mkJointDmd s a 
  = case (s, a) of 
-     (HyperStr, UProd _) -> JD {strd = HyperStr, absd = Used}
-     _                   -> JD {strd = s, absd = a}
+     (HyperStr, UProd c _) -> JD {strd = HyperStr, absd = Used c}
+     _                     -> JD {strd = s, absd = a}
 
 mkProdDmd :: [JointDmd] -> JointDmd
 mkProdDmd dx 
   = mkJointDmd sp up 
   where
     sp = strProd $ map strd dx
-    up = absProd $ map absd dx   
+    up = absProd One $ map absd dx   
      
 instance LatticeLike JointDmd where
   bot                        = mkJointDmd bot bot
@@ -363,15 +437,15 @@ instance LatticeLike JointDmd where
        (JD {strd = s2, absd = a2}) = mkJointDmd (both s1 s2) $ both a1 a2            
 
 isTop :: JointDmd -> Bool
-isTop (JD {strd = Lazy, absd = Used}) = True
-isTop _                             = False 
+isTop (JD {strd = Lazy, absd = Used Many}) = True
+isTop _                                    = False 
 
 isBot :: JointDmd -> Bool
 isBot (JD {strd = HyperStr, absd = Abs}) = True
-isBot _                                = False 
+isBot _                                  = False 
   
 isAbs :: JointDmd -> Bool
-isAbs (JD {strd = Lazy, absd = Abs})  = True
+isAbs (JD {strd = Lazy, absd = Abs}) = True
 isAbs _                              = False 
 
 absDmd :: JointDmd
@@ -397,9 +471,9 @@ isStrictDmd :: Demand -> Bool
 isStrictDmd (JD {strd = x}) = x /= top
 
 isProdUsage :: Demand -> Bool
-isProdUsage (JD {absd = (UProd _)}) = True
-isProdUsage (JD {absd = Used})      = True
-isProdUsage _                       = False
+isProdUsage (JD {absd = (UProd _ _)}) = True
+isProdUsage (JD {absd = Used _})      = True
+isProdUsage _                         = False
 
 isUsedDmd :: Demand -> Bool
 isUsedDmd (JD {absd = x}) = x /= bot
@@ -408,12 +482,16 @@ isUsed :: AbsDmd -> Bool
 isUsed x = x /= bot
 
 someCompUsed :: AbsDmd -> Bool
-someCompUsed Used      = True
-someCompUsed (UProd _) = True
-someCompUsed _         = False
+someCompUsed (Used _)    = True
+someCompUsed (UProd _ _) = True
+someCompUsed _           = False
 
+-- Evaluation demands
 evalDmd :: JointDmd
-evalDmd = mkJointDmd strStr absTop
+evalDmd = mkJointDmd strStr top
+
+onceEvalDmd :: JointDmd
+onceEvalDmd = mkJointDmd strStr (Used One)
 
 defer :: Demand -> Demand
 defer (JD {absd = a}) = mkJointDmd top a 
@@ -439,22 +517,23 @@ should be: <L,C(U(AU))>m
 
 mkCallDmd :: JointDmd -> JointDmd
 mkCallDmd (JD {strd = d, absd = a}) 
-          = mkJointDmd (strCall d) (absCall a)
+          = mkJointDmd (strCall d) (absCall One a)
 
+-- TODO: think how to peel
 peelCallDmd :: JointDmd -> Maybe JointDmd
-peelCallDmd (JD {strd = SCall d, absd = UCall a}) = Just $ mkJointDmd d a
+peelCallDmd (JD {strd = SCall d, absd = UCall _ a}) = Just $ mkJointDmd d a
 -- Exploiting the fact that C(U) === U 
-peelCallDmd (JD {strd = SCall d, absd = Used})    = Just $ mkJointDmd d Used
-peelCallDmd _                                     = Nothing 
+peelCallDmd (JD {strd = SCall d, absd = Used _})    = Just $ mkJointDmd d top
+peelCallDmd _                                       = Nothing 
 
 
 splitCallDmd :: JointDmd -> (Int, JointDmd)
-splitCallDmd (JD {strd = SCall d, absd = UCall a}) 
+splitCallDmd (JD {strd = SCall d, absd = UCall _ a}) 
   = case splitCallDmd (mkJointDmd d a) of
       (n, r) -> (n + 1, r)
 -- Exploiting the fact that C(U) === U
-splitCallDmd (JD {strd = SCall d, absd = Used}) 
-  = case splitCallDmd (mkJointDmd d Used) of
+splitCallDmd (JD {strd = SCall d, absd = Used _}) 
+  = case splitCallDmd (mkJointDmd d top) of
       (n, r) -> (n + 1, r)
 splitCallDmd d	      = (0, d)
 
@@ -464,7 +543,7 @@ vanillaCall 0 = evalDmd
 vanillaCall n =
   -- generate S^n (S)  
   let strComp = (iterate strCall strStr) !! n
-      absComp = (iterate absCall absTop) !! n
+      absComp = (iterate (absCall Many) usedOnce) !! n
    in mkJointDmd strComp absComp
 
 \end{code}
@@ -493,22 +572,22 @@ replicateDmd n (JD {strd=x, absd=y}) = zipWith mkJointDmd (replicateStrDmd n x)
 
 -- Check whether is a product demand
 isProdDmd :: Demand -> Bool
-isProdDmd (JD {strd = SProd _, absd = UProd _}) = True
-isProdDmd (JD {strd = SProd _, absd = a})        = isPolyAbsDmd a
-isProdDmd (JD {strd = s, absd = UProd _})        = isPolyStrDmd s
-isProdDmd _                                      = False
+isProdDmd (JD {strd = SProd _, absd = UProd _ _})  = True
+isProdDmd (JD {strd = SProd _, absd = a})          = isPolyAbsDmd a
+isProdDmd (JD {strd = s, absd = UProd _ _})        = isPolyStrDmd s
+isProdDmd _                                        = False
 
 isPolyDmd :: Demand -> Bool
 isPolyDmd (JD {strd=a, absd=b}) = isPolyStrDmd a && isPolyAbsDmd b
 
 -- Split a product to parameteres
 splitProdDmd :: Demand -> [Demand]
-splitProdDmd JD {strd=SProd sx, absd=UProd ux}
+splitProdDmd JD {strd=SProd sx, absd=UProd _ ux}
   = ASSERT( sx `lengthIs` (length ux) ) zipWith mkJointDmd sx ux
 splitProdDmd JD {strd=SProd sx, absd=u} 
   | isPolyAbsDmd u  
   =  zipWith mkJointDmd sx (replicateAbsDmd (length sx) u)
-splitProdDmd (JD {strd=s, absd=UProd ux})
+splitProdDmd (JD {strd=s, absd=UProd _ ux})
   | isPolyStrDmd s  
   =  zipWith mkJointDmd (replicateStrDmd (length ux) s) ux
 splitProdDmd d = pprPanic "splitProdDmd" (ppr d)

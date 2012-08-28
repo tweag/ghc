@@ -96,7 +96,7 @@ dmdAnal _ dmd e | isAbs dmd
 
 dmdAnal env dmd e
   | not (isStrictDmd dmd)
-  = let (res_ty, e') = dmdAnal env evalDmd e
+  = let (res_ty, e') = dmdAnal env onceEvalDmd e
     in  -- compute as with a strict demand, return with a lazy demand
     (deferType res_ty, e')
 	-- It's important not to analyse e with a lazy demand because
@@ -158,7 +158,7 @@ dmdAnal env dmd (App fun arg)	-- Non-type arguments
 	(arg_ty, arg') 	  = dmdAnal env arg_dmd arg
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
     in
-    -- pprTrace "dmdAnal" (ppr arg $$ ppr fun_ty $$ ppr res_ty $$ ppr arg_ty) $
+    -- pprTrace "dmdAnal-App" (vcat [ppr res_ty, ppr arg_ty, ppr $ both res_ty arg_ty]) $
     (res_ty `both` arg_ty, App fun' arg')
 
 dmdAnal env dmd (Lam var body)
@@ -178,7 +178,7 @@ dmdAnal env dmd (Lam var body)
 
   | otherwise	-- Not enough demand on the lambda; but do the body
   = let		-- anyway to annotate it and gather free var info
-	(body_ty, body') = dmdAnal env evalDmd body
+	(body_ty, body') = dmdAnal env onceEvalDmd body
 	(lam_ty, var')   = annotateLamIdBndr env body_ty var
     in
     (deferType lam_ty, Lam var' body')
@@ -240,7 +240,7 @@ dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 dmdAnal env dmd (Case scrut case_bndr ty alts)
   = let
 	(alt_tys, alts')        = mapAndUnzip (dmdAnalAlt env dmd) alts
-	(scrut_ty, scrut')      = dmdAnal env evalDmd scrut
+	(scrut_ty, scrut')      = dmdAnal env onceEvalDmd scrut
 	(alt_ty, case_bndr')	= annotateBndr (foldr lub botDmdType alt_tys) case_bndr
         res_ty                  = alt_ty `both` scrut_ty
     in

@@ -467,8 +467,8 @@ worthSplittingFun ds res
     -- See not [Worthy functions for Worker-Wrapper split]    
     worth_it (JD {absd=Abs})                  = True      -- Absent arg
     worth_it (JD {strd=SProd _})              = True      -- Product arg to evaluate
-    worth_it (JD {strd=Str, absd=UProd _})    = True      -- Strictly used product arg
-    worth_it (JD {strd=Str, absd=UHead})      = True 
+    worth_it (JD {strd=Str, absd=UProd _ _})  = True      -- Strictly used product arg
+    worth_it (JD {strd=Str, absd=UHead _})    = True 
     worth_it _    	                      = False
 
 worthSplittingThunk :: Demand	        -- Demand on the thunk
@@ -479,7 +479,7 @@ worthSplittingThunk dmd res
   where
 	-- Split if the thing is unpacked
     worth_it (JD {strd=SProd _, absd=a})   = someCompUsed a
-    worth_it (JD {strd=Str, absd=UProd _}) = True   
+    worth_it (JD {strd=Str, absd=UProd _ _}) = True   
         -- second component points out that at least some of     
     worth_it _           	           = False
 \end{code}
