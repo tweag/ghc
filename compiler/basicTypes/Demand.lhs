@@ -232,7 +232,7 @@ instance Outputable AbsDmd where
 
 instance Outputable Count where
   ppr One  = char '1'
-  ppr Many = char '*'
+  ppr Many = text ""
 
 -- Well-formedness preserving constructors for the Absence domain
 usedOnce :: AbsDmd
