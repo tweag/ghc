@@ -429,7 +429,9 @@ $(eval $(call addPackage,xhtml))
 $(eval $(call addPackage,terminfo,($$(Windows),NO)))
 $(eval $(call addPackage,haskeline))
 
+ifneq "$(BuildingCrossCompiler)" "YES"
 $(eval $(call extra-packages))
+endif
 
 # -------------------------------------------
 # Dependencies between package-data.mk files
