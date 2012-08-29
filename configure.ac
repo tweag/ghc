@@ -459,12 +459,13 @@ CC="$WhatGccIsCalled"
 export CC
 
 if test x"$TargetPlatform" = x"$HostPlatform"; then
+  # query GHC for the C compiler
   BOOTSTRAPPING_GHC_INFO_FIELD([CC_STAGE1],[C compiler command],['$(CC)'])
 else
   if test x"$TargetCC" != x; then
-    BOOTSTRAPPING_GHC_INFO_FIELD([CC_STAGE1],[target C compiler command],[$TargetCC])
+    CC_STAGE1=$TargetCC
   else
-    BOOTSTRAPPING_GHC_INFO_FIELD([CC_STAGE1],[target C compiler command],['$(CC)'])
+    CC_STAGE1='$(CC)'
     TargetCC="$WhatGccIsCalled"
   fi
 fi
