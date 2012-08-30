@@ -179,7 +179,7 @@ nativeCodeGen dflags h us cmms
                          ,shortcutJump              = PPC.RegInfo.shortcutJump
                          ,pprNatCmmDecl              = PPC.Ppr.pprNatCmmDecl
                          ,maxSpillSlots             = PPC.Instr.maxSpillSlots
-                         ,allocatableRegs           = \_ -> PPC.Regs.allocatableRegs
+                         ,allocatableRegs           = PPC.Regs.allocatableRegs
                          ,ncg_x86fp_kludge          = id
                          ,ncgExpandTop              = id
                          ,ncgMakeFarBranches        = makeFarBranches
@@ -979,6 +979,12 @@ cmmExprNative referenceKind expr = do
         CmmMachOp mop args
            -> do args' <- mapM (cmmExprNative DataReference) args
                  return $ CmmMachOp mop args'
+
+        CmmLit (CmmBlock id)
+           -> cmmExprNative referenceKind (CmmLit (CmmLabel (infoTblLbl id)))
+           -- we must convert block Ids to CLabels here, because we
+           -- might have to do the PIC transformation.  Hence we must
+           -- not modify BlockIds beyond this point.
 
         CmmLit (CmmLabel lbl)
            -> do

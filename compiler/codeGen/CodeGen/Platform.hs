@@ -1,8 +1,12 @@
 
-module CodeGen.Platform (callerSaves, activeStgRegs, haveRegBase) where
+module CodeGen.Platform
+       (callerSaves, activeStgRegs, haveRegBase, globalRegMaybe, freeReg)
+       where
 
 import CmmExpr
+import FastBool
 import Platform
+import Reg
 
 import qualified CodeGen.Platform.ARM        as ARM
 import qualified CodeGen.Platform.PPC        as PPC
@@ -17,6 +21,8 @@ import qualified CodeGen.Platform.NoRegs     as NoRegs
 
 callerSaves :: Platform -> GlobalReg -> Bool
 callerSaves platform
+ | platformUnregisterised platform = NoRegs.callerSaves
+ | otherwise
  = case platformArch platform of
    ArchX86    -> X86.callerSaves
    ArchX86_64 -> X86_64.callerSaves
@@ -37,6 +43,8 @@ callerSaves platform
 -- possbily mapped to real registers.
 activeStgRegs :: Platform -> [GlobalReg]
 activeStgRegs platform
+ | platformUnregisterised platform = NoRegs.activeStgRegs
+ | otherwise
  = case platformArch platform of
    ArchX86    -> X86.activeStgRegs
    ArchX86_64 -> X86_64.activeStgRegs
@@ -52,6 +60,8 @@ activeStgRegs platform
 
 haveRegBase :: Platform -> Bool
 haveRegBase platform
+ | platformUnregisterised platform = NoRegs.haveRegBase
+ | otherwise
  = case platformArch platform of
    ArchX86    -> X86.haveRegBase
    ArchX86_64 -> X86_64.haveRegBase
@@ -64,4 +74,38 @@ haveRegBase platform
        _        -> PPC.haveRegBase
 
     | otherwise -> NoRegs.haveRegBase
+
+globalRegMaybe :: Platform -> GlobalReg -> Maybe RealReg
+globalRegMaybe platform
+ | platformUnregisterised platform = NoRegs.globalRegMaybe
+ | otherwise
+ = case platformArch platform of
+   ArchX86    -> X86.globalRegMaybe
+   ArchX86_64 -> X86_64.globalRegMaybe
+   ArchSPARC  -> SPARC.globalRegMaybe
+   ArchARM {} -> ARM.globalRegMaybe
+   arch
+    | arch `elem` [ArchPPC, ArchPPC_64] ->
+       case platformOS platform of
+       OSDarwin -> PPC_Darwin.globalRegMaybe
+       _        -> PPC.globalRegMaybe
+
+    | otherwise -> NoRegs.globalRegMaybe
+
+freeReg :: Platform -> RegNo -> FastBool
+freeReg platform
+ | platformUnregisterised platform = NoRegs.freeReg
+ | otherwise
+ = case platformArch platform of
+   ArchX86    -> X86.freeReg
+   ArchX86_64 -> X86_64.freeReg
+   ArchSPARC  -> SPARC.freeReg
+   ArchARM {} -> ARM.freeReg
+   arch
+    | arch `elem` [ArchPPC, ArchPPC_64] ->
+       case platformOS platform of
+       OSDarwin -> PPC_Darwin.freeReg
+       _        -> PPC.freeReg
+
+    | otherwise -> NoRegs.freeReg
 
