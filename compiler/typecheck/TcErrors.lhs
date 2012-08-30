@@ -503,7 +503,7 @@ mkHoleDeferredError ctxt ct@(CHoleCan {})
                                                                           }
 
     get_thing :: TcTyThing -> Maybe (Var, TcType)
-    get_thing (ATcId thing_id _ _) = Just (thing_id, varType thing_id)
+    get_thing (ATcId thing_id _ _) = if not (isExternalName (Var.varName thing_id)) then Just (thing_id, varType thing_id) else Nothing
     get_thing _ = Nothing
 
     ppr_local_bind :: (Var, Type) -> SDoc
