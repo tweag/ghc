@@ -390,7 +390,7 @@ simplifyInfer _top_lvl apply_mr name_taus (untch,wanteds)
 
               -- Step 6) Final candidates for quantification                
        ; let final_quant_candidates :: [PredType]
-             final_quant_candidates = map ctPred $ filter (not.isCHoleCan) $ bagToList
+             final_quant_candidates = map ctPred $ filter (not.isCHoleCan) $ bagToList $
                                       keepWanted (wc_flat quant_candidates_transformed)
              -- NB: Already the fixpoint of any unifications that may have happened
                   
