@@ -147,11 +147,12 @@ tcTyClGroup boot_details tyclds
            -- expects well-formed TyCons
        ; tcExtendGlobalEnv tyclss $ do
        { traceTc "Starting validity check" (ppr tyclss)
-       ; mapM_ (recoverM (return ()) . addLocM checkValidTyCl) 
+       ; checkNoErrs $
+         mapM_ (recoverM (return ()) . addLocM checkValidTyCl) 
                (flattenTyClDecls tyclds)
            -- We recover, which allows us to report multiple validity errors
-           -- even from successive groups.  But we stop after all groups are
-           -- processed if we find any errors.
+           -- but we then fail if any are wrong.  Lacking the checkNoErrs
+           -- we get Trac #7175
 
            -- Step 4: Add the implicit things;
            -- we want them in the environment because
@@ -568,11 +569,14 @@ tcTyClDecl1 _parent calc_isrec
 
           ; ctxt' <- tcHsContext ctxt
           ; ctxt' <- zonkTcTypeToTypes emptyZonkEnv ctxt'  
-                     -- Squeeze out any kind unification variables
-
+                  -- Squeeze out any kind unification variables
           ; fds'  <- mapM (addLocM tc_fundep) fundeps
           ; (sig_stuff, gen_dm_env) <- tcClassSigs class_name sigs meths
+          ; env <- getLclTypeEnv
+          ; traceTc "tcClassDecl" (ppr fundeps $$ ppr tvs' $$ ppr fds' $$  ppr env)
           ; return (tvs', ctxt', fds', sig_stuff, gen_dm_env) }
+
+
 
   ; clas <- fixM $ \ clas -> do
 	    { let 	-- This little knot is just so we can get
@@ -602,9 +606,17 @@ tcTyClDecl1 _parent calc_isrec
       --     tying the the type and class declaration type checking knot.
   }
   where
-    tc_fundep (tvs1, tvs2) = do { tvs1' <- mapM tcLookupTyVar tvs1 ;
-				; tvs2' <- mapM tcLookupTyVar tvs2 ;
+    tc_fundep (tvs1, tvs2) = do { tvs1' <- mapM tc_fd_tyvar tvs1 ;
+				; tvs2' <- mapM tc_fd_tyvar tvs2 ;
 				; return (tvs1', tvs2') }
+    tc_fd_tyvar name   -- Scoped kind variables are bound to unification variables
+                       -- which are now fixed, so we can zonk
+      = do { tv <- tcLookupTyVar name
+           ; ty <- zonkTyVarOcc emptyZonkEnv tv
+                  -- Squeeze out any kind unification variables
+           ; case getTyVar_maybe ty of
+               Just tv' -> return tv'
+               Nothing  -> pprPanic "tc_fd_tyvar" (ppr name $$ ppr tv $$ ppr ty) }
 
 tcTyClDecl1 _ _
   (ForeignType {tcdLName = L _ tc_name, tcdExtName = tc_ext_name})

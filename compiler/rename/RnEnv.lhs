@@ -34,7 +34,7 @@ module RnEnv (
         addFvRn, mapFvRn, mapMaybeFvRn, mapFvRnCPS,
         warnUnusedMatches,
         warnUnusedTopBinds, warnUnusedLocalBinds,
-        dataTcOccs, unknownNameErr, kindSigErr, dataKindsErr, perhapsForallMsg,
+        dataTcOccs, unknownNameErr, kindSigErr, perhapsForallMsg,
         HsDocContext(..), docOfHsDocContext
     ) where
 
@@ -1277,12 +1277,14 @@ checkDupRdrNames rdr_names_w_loc
 
 checkDupNames :: [Name] -> RnM ()
 -- Check for duplicated names in a binding group
-checkDupNames names
+checkDupNames names = check_dup_names (filterOut isSystemName names)
+                -- See Note [Binders in Template Haskell] in Convert
+
+check_dup_names :: [Name] -> RnM ()
+check_dup_names names
   = mapM_ (dupNamesErr nameSrcSpan) dups
   where
-    (_, dups) = removeDups (\n1 n2 -> nameOccName n1 `compare` nameOccName n2) $
-                filterOut isSystemName names
-                -- See Note [Binders in Template Haskell] in Convert
+    (_, dups) = removeDups (\n1 n2 -> nameOccName n1 `compare` nameOccName n2) names
 
 ---------------------
 checkShadowedRdrNames :: [Located RdrName] -> RnM ()
@@ -1294,10 +1296,12 @@ checkShadowedRdrNames loc_rdr_names
 
 checkDupAndShadowedNames :: (GlobalRdrEnv, LocalRdrEnv) -> [Name] -> RnM ()
 checkDupAndShadowedNames envs names
-  = do { checkDupNames names
+  = do { check_dup_names filtered_names
        ; checkShadowedOccs envs loc_occs }
   where
-    loc_occs = [(nameSrcSpan name, nameOccName name) | name <- names]
+    filtered_names = filterOut isSystemName names
+                -- See Note [Binders in Template Haskell] in Convert
+    loc_occs = [(nameSrcSpan name, nameOccName name) | name <- filtered_names]
 
 -------------------------------------
 checkShadowedOccs :: (GlobalRdrEnv, LocalRdrEnv) -> [(SrcSpan,OccName)] -> RnM ()
@@ -1597,11 +1601,14 @@ addUnusedWarning name span msg
 
 \begin{code}
 addNameClashErrRn :: RdrName -> [GlobalRdrElt] -> RnM ()
-addNameClashErrRn rdr_name names
+addNameClashErrRn rdr_name gres
+  | all isLocalGRE gres  -- If there are two or more *local* defns, we'll have reported
+  = return ()            -- that already, and we don't want an error cascade
+  | otherwise
   = addErr (vcat [ptext (sLit "Ambiguous occurrence") <+> quotes (ppr rdr_name),
                   ptext (sLit "It could refer to") <+> vcat (msg1 : msgs)])
   where
-    (np1:nps) = names
+    (np1:nps) = gres
     msg1 = ptext  (sLit "either") <+> mk_ref np1
     msgs = [ptext (sLit "    or") <+> mk_ref np | np <- nps]
     mk_ref gre = sep [quotes (ppr (gre_name gre)) <> comma, pprNameProvenance gre]
@@ -1641,12 +1648,6 @@ kindSigErr :: Outputable a => a -> SDoc
 kindSigErr thing
   = hang (ptext (sLit "Illegal kind signature for") <+> quotes (ppr thing))
        2 (ptext (sLit "Perhaps you intended to use -XKindSignatures"))
-
-dataKindsErr :: Outputable a => a -> SDoc
-dataKindsErr thing
-  = hang (ptext (sLit "Illegal kind:") <+> quotes (ppr thing))
-       2 (ptext (sLit "Perhaps you intended to use -XDataKinds"))
-
 
 badQualBndrErr :: RdrName -> SDoc
 badQualBndrErr rdr_name

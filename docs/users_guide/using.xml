@@ -1042,7 +1042,7 @@ test.hs:(5,4)-(6,7):
             At compile time you get a warning (instead of an error).  At 
             runtime, if you use a value that depends on a type error, you 
             get a runtime error; but you can run any type-correct parts of your code 
-            just fine.</para>
+            just fine.  See <xref linkend="defer-type-errors"/></para>
         </listitem>
       </varlistentry>
 
@@ -1164,10 +1164,19 @@ foreign import "&amp;f" f :: FunPtr t
         <listitem>
           <indexterm><primary><option>-fwarn-dodgy-imports</option></primary>
           </indexterm>
-          <para>Causes a warning to be emitted when a datatype
-      <literal>T</literal> is imported
-      with all constructors, i.e. <literal>T(..)</literal>, but has been
-      exported abstractly, i.e. <literal>T</literal>.</para>
+          <para>Causes a warning to be emitted in the following cases:</para>
+          <itemizedlist>
+            <listitem>
+              <para>When a datatype <literal>T</literal> is imported with all
+                constructors, i.e. <literal>T(..)</literal>, but has been
+                exported abstractly, i.e. <literal>T</literal>.
+              </para>
+            </listitem>
+            <listitem>
+              <para>When an <literal>import</literal> statement hides an
+                entity that is not exported.</para>
+            </listitem>
+          </itemizedlist>
         </listitem>
       </varlistentry>
 

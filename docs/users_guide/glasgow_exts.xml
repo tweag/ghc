@@ -6384,7 +6384,7 @@ The function <literal>f3</literal> has a rank-3 type;
 it has rank-2 types on the left of a function arrow.
 </para>
 <para>
-GHC has three flags to control higher-rank types:
+GHC has three flags to control higher-rank types.  (All three imply <option>-XExplicitForAll</option>, <xref linkend="explicit-foralls"/>.)
 <itemizedlist>
 <listitem><para>
  <option>-XPolymorphicComponents</option>: data constructors (only) can have polymorphic argument types.
@@ -6409,8 +6409,12 @@ field type signatures.</para> </listitem>
 </itemizedlist>
 </para></listitem>
 </itemizedlist>
+Either <option>-XRank2Types</option> or <option>-XRankNTypes</option> is also required for any 
+type with a <literal>forall</literal> or
+context to the right of an arrow (e.g. <literal>f :: Int -> forall a. a->a</literal>, or
+<literal>g :: Int -> Ord a => a -> a</literal>).  Such types are technically rank 1, but
+are clearly not Haskell-98, and an extra flag did not seem worth the bother.
 </para>
-
 
 <sect3 id="univ">
 <title>Examples
@@ -7040,6 +7044,94 @@ If you supply a type signature, then the flag has no effect.
 
 </sect1>
 <!-- ==================== End of type system extensions =================  -->
+
+<sect1 id="defer-type-errors">
+<title>Deferring type errors to runtime</title>
+  <para>
+    While developing, sometimes it is desirable to allow compilation to succeed
+    even if there are type errors in the code. Consider the following case:
+<programlisting>
+module Main where
+
+a :: Int
+a = 'a'
+
+main = print "b"
+</programlisting>
+    Even though <literal>a</literal> is ill-typed, it is not used in the end, so if
+    all that we're interested in is <literal>main</literal> it can be useful to be
+    able to ignore the problems in <literal>a</literal>.
+  </para>
+  <para>
+    For more motivation and details please refer to the <ulink
+      url="http://hackage.haskell.org/trac/ghc/wiki/DeferErrorsToRuntime">HaskellWiki</ulink>
+    page or the <ulink
+      url="http://research.microsoft.com/en-us/um/people/simonpj/papers/ext-f/">original
+      paper</ulink>.
+  </para>
+
+<sect2><title>Enabling deferring of type errors</title>
+  <para>
+    The flag <literal>-fdefer-type-errors</literal> controls whether type
+    errors are deferred to runtime. Type errors will still be emitted as
+    warnings, but will not prevent compilation.
+  </para>
+  <para>
+    At runtime, whenever a term containing a type error would need to be
+    evaluated, the error is converted into a runtime exception.
+    Note that type errors are deferred as much as possible during runtime, but
+    invalid coercions are never performed, even when they would ultimately
+    result in a value of the correct type. For example, given the following
+    code:
+<programlisting>
+x :: Int
+x = 0
+
+y :: Char
+y = x
+
+z :: Int
+z = y
+</programlisting>
+    evaluating <literal>x</literal> will result in a runtime type error.
+  </para>
+</sect2>
+<sect2><title>Deferred type errors in GHCi</title>
+  <para>
+    The flag <literal>-fdefer-type-errors</literal> works in GHCi as well, with
+    one exception: for "naked" expressions typed at the prompt, type
+    errors don't get delayed, so for example:
+<programlisting>
+Prelude> fst (True, 1 == 'a')
+
+&lt;interactive&gt;:2:12:
+    No instance for (Num Char) arising from the literal `1'
+    Possible fix: add an instance declaration for (Num Char)
+    In the first argument of `(==)', namely `1'
+    In the expression: 1 == 'a'
+    In the first argument of `fst', namely `(True, 1 == 'a')'
+</programlisting>
+Otherwise, in the common case of a simple type error such as 
+typing <literal>reverse True</literal> at the prompt, you would get a warning and then
+an immediately-following type error when the expression is evaluated.
+  </para>
+  <para>
+    This exception doesn't apply to statements, as the following example demonstrates:
+<programlisting>
+Prelude> let x = (True, 1 == 'a')
+
+&lt;interactive&gt;:3:16: Warning:
+    No instance for (Num Char) arising from the literal `1'
+    Possible fix: add an instance declaration for (Num Char)
+    In the first argument of `(==)', namely `1'
+    In the expression: 1 == 'a'
+    In the expression: (True, 1 == 'a')
+Prelude> fst x
+True
+</programlisting>
+  </para>
+</sect2>
+</sect1>
 
 <!-- ====================== TEMPLATE HASKELL =======================  -->
 

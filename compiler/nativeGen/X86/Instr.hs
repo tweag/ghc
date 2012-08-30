@@ -24,6 +24,7 @@ import Reg
 import TargetReg
 
 import BlockId
+import CodeGen.Platform
 import OldCmm
 import FastString
 import FastBool
@@ -320,8 +321,8 @@ data Operand
 
 
 
-x86_regUsageOfInstr :: Instr -> RegUsage
-x86_regUsageOfInstr instr
+x86_regUsageOfInstr :: Platform -> Instr -> RegUsage
+x86_regUsageOfInstr platform instr
  = case instr of
     MOV    _ src dst    -> usageRW src dst
     MOVZxL _ src dst    -> usageRW src dst
@@ -359,8 +360,8 @@ x86_regUsageOfInstr instr
     JXX_GBL _ _         -> mkRU [] []
     JMP     op regs     -> mkRUR (use_R op regs)
     JMP_TBL op _ _ _    -> mkRUR (use_R op [])
-    CALL (Left _)  params   -> mkRU params callClobberedRegs
-    CALL (Right reg) params -> mkRU (reg:params) callClobberedRegs
+    CALL (Left _)  params   -> mkRU params (callClobberedRegs platform)
+    CALL (Right reg) params -> mkRU (reg:params) (callClobberedRegs platform)
     CLTD   _            -> mkRU [eax] [edx]
     NOP                 -> mkRU [] []
 
@@ -449,16 +450,16 @@ x86_regUsageOfInstr instr
               use_index (EAIndex i _) tl = i : tl
 
     mkRUR src = src' `seq` RU src' []
-        where src' = filter interesting src
+        where src' = filter (interesting platform) src
 
     mkRU src dst = src' `seq` dst' `seq` RU src' dst'
-        where src' = filter interesting src
-              dst' = filter interesting dst
+        where src' = filter (interesting platform) src
+              dst' = filter (interesting platform) dst
 
-interesting :: Reg -> Bool
-interesting (RegVirtual _)              = True
-interesting (RegReal (RealRegSingle i)) = isFastTrue (freeReg i)
-interesting (RegReal (RealRegPair{}))   = panic "X86.interesting: no reg pairs on this arch"
+interesting :: Platform -> Reg -> Bool
+interesting _        (RegVirtual _)              = True
+interesting platform (RegReal (RealRegSingle i)) = isFastTrue (freeReg platform i)
+interesting _        (RegReal (RealRegPair{}))   = panic "X86.interesting: no reg pairs on this arch"
 
 
 
@@ -709,11 +710,10 @@ x86_mkRegRegMoveInstr
 
 x86_mkRegRegMoveInstr platform src dst
  = case targetClassOfReg platform src of
-#if   i386_TARGET_ARCH
-        RcInteger -> MOV II32 (OpReg src) (OpReg dst)
-#else
-        RcInteger -> MOV II64 (OpReg src) (OpReg dst)
-#endif
+        RcInteger -> case platformArch platform of
+                     ArchX86    -> MOV II32 (OpReg src) (OpReg dst)
+                     ArchX86_64 -> MOV II64 (OpReg src) (OpReg dst)
+                     _          -> panic "x86_mkRegRegMoveInstr: Bad arch"
         RcDouble    -> GMOV src dst
         RcDoubleSSE -> MOV FF64 (OpReg src) (OpReg dst)
         _     -> panic "X86.RegInfo.mkRegRegMoveInstr: no match"

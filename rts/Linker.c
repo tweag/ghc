@@ -28,6 +28,7 @@
 #include "Trace.h"
 #include "StgPrimFloat.h" // for __int_encodeFloat etc.
 #include "Stable.h"
+#include "Proftimer.h"
 
 #if !defined(mingw32_HOST_OS)
 #include "posix/Signals.h"
@@ -130,6 +131,10 @@
 
 #if defined(x86_64_HOST_ARCH) && defined(darwin_HOST_OS)
 #define ALWAYS_PIC
+#endif
+
+#if defined(dragonfly_HOST_OS)
+#include <sys/tls.h>
 #endif
 
 /* Hash table mapping symbol names to Symbol */
@@ -1298,8 +1303,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(getMonotonicNSec)                   \
       SymI_HasProto(lockFile)                           \
       SymI_HasProto(unlockFile)                         \
-      SymI_NeedsProto(startProfTimer)                   \
-      SymI_NeedsProto(stopProfTimer)                    \
+      SymI_HasProto(startProfTimer)                     \
+      SymI_HasProto(stopProfTimer)                      \
       RTS_USER_SIGNALS_SYMBOLS                          \
       RTS_INTCHAR_SYMBOLS
 
@@ -5206,6 +5211,27 @@ do_Elf_Rela_relocations ( ObjectCode* oc, char* ehdrC,
           *(Elf64_Word *)P = (Elf64_Word)off;
           break;
       }
+#if defined(dragonfly_HOST_OS)
+      case R_X86_64_GOTTPOFF:
+      {
+#if defined(ALWAYS_PIC)
+          barf("R_X86_64_GOTTPOFF relocation, but ALWAYS_PIC.");
+#else
+        /* determine the offset of S to the current thread's tls
+           area 
+           XXX: Move this to the beginning of function */
+          struct tls_info ti;
+          get_tls_area(0, &ti, sizeof(ti));
+          /* make entry in GOT that contains said offset */
+          StgInt64 gotEntry = (StgInt64) &makeSymbolExtra(oc, ELF_R_SYM(info), 
+                                         (S - (Elf64_Addr)(ti.base)))->addr;
+          *(Elf64_Word *)P = gotEntry + A - P;
+#endif
+          break;
+      }
+#endif
+
+
 
       case R_X86_64_PLT32:
       {
@@ -6151,8 +6177,13 @@ ocGetNames_MachO(ObjectCode* oc)
 
         if((sections[i].flags & SECTION_TYPE) == S_ZEROFILL)
         {
+#ifdef USE_MMAP
+            char * zeroFillArea = mmapForLinker(sections[i].size, MAP_ANONYMOUS, -1);
+            memset(zeroFillArea, 0, sections[i].size);
+#else
             char * zeroFillArea = stgCallocBytes(1,sections[i].size,
                                       "ocGetNames_MachO(common symbols)");
+#endif
             sections[i].offset = zeroFillArea - image;
         }
 

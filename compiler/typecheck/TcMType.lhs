@@ -55,7 +55,7 @@ module TcMType (
   checkValidInstHead, checkValidInstance, validDerivPred,
   checkInstTermination, checkValidFamInst, checkTyFamFreeness, 
   arityErr, 
-  growPredTyVars, growThetaTyVars, 
+  growThetaTyVars, quantifyPred,
 
   --------------------------------
   -- Zonking
@@ -1308,9 +1308,9 @@ Is every call to 'g' ambiguous?  After all, we might have
    intance C [a] where ...
 at the call site.  So maybe that type is ok!  Indeed even f's
 quintessentially ambiguous type might, just possibly be callable: 
-with -XUndecidableInstances we could have
+with -XFlexibleInstances we could have
   instance C a where ...
-and now a call could be legal after all!  (But only with  -XUndecidableInstances!)
+and now a call could be legal after all!  (But only with  -XFlexibleInstances!)
 
 What about things like this:
    class D a b | a -> b where ..
@@ -1336,7 +1336,7 @@ where
   * The constraints in 'Cambig' are all of form (C a b c) 
     where a,b,c are type variables
   * 'Cambig' is non-empty
-  * '-XUndecidableInstances' is not on.
+  * '-XFlexibleInstances' is not on.
 
 And that is what checkAmbiguity does.  See Trac #6134.
 
@@ -1378,8 +1378,8 @@ so we can take their type variables into account as part of the
 checkAmbiguity :: [TyVar] -> ThetaType -> TyVarSet -> TcM ()
 -- Note [The ambiguity check for type signatures]
 checkAmbiguity forall_tyvars theta tau_tyvars
-  = do { undecidable_instances <- xoptM Opt_UndecidableInstances
-       ; unless undecidable_instances $
+  = do { flexible_instances <- xoptM Opt_FlexibleInstances
+       ; unless flexible_instances $
          mapM_  ambigErr (filter is_ambig candidates) }
   where
 	-- See Note [Implicit parameters and ambiguity] in TcSimplify
@@ -1411,7 +1411,38 @@ Note [Growing the tau-tvs using constraints]
 E.g. tvs = {a}, preds = {H [a] b, K (b,Int) c, Eq e}
 Then grow precs tvs = {a,b,c}
 
+Note [Inheriting implicit parameters]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider this:
+
+	f x = (x::Int) + ?y
+
+where f is *not* a top-level binding.
+From the RHS of f we'll get the constraint (?y::Int).
+There are two types we might infer for f:
+
+	f :: Int -> Int
+
+(so we get ?y from the context of f's definition), or
+
+	f :: (?y::Int) => Int -> Int
+
+At first you might think the first was better, becuase then
+?y behaves like a free variable of the definition, rather than
+having to be passed at each call site.  But of course, the WHOLE
+IDEA is that ?y should be passed at each call site (that's what
+dynamic binding means) so we'd better infer the second.
+
+BOTTOM LINE: when *inferring types* you *must* quantify 
+over implicit parameters. See the predicate isFreeWhenInferring.
+
 \begin{code}
+quantifyPred :: TyVarSet      -- Quantifying over these
+	     -> PredType -> Bool	    -- True <=> quantify over this wanted
+quantifyPred qtvs pred
+  | isIPPred pred = True  -- Note [Inheriting implicit parameters]
+  | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
+
 growThetaTyVars :: TcThetaType -> TyVarSet -> TyVarSet
 -- See Note [Growing the tau-tvs using constraints]
 growThetaTyVars theta tvs
@@ -1425,6 +1456,7 @@ growPredTyVars :: TcPredType
                -> TyVarSet	-- The set to extend
 	       -> TyVarSet	-- TyVars of the predicate if it intersects the set, 
 growPredTyVars pred tvs 
+   | isIPPred pred                   = pred_tvs   -- Always quantify over implicit parameers
    | pred_tvs `intersectsVarSet` tvs = pred_tvs
    | otherwise                       = emptyVarSet
   where

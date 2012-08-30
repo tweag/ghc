@@ -42,26 +42,26 @@ import qualified SPARC.Instr
 import qualified X86.Instr
 
 class Show freeRegs => FR freeRegs where
-    frAllocateReg :: RealReg -> freeRegs -> freeRegs
-    frGetFreeRegs :: RegClass -> freeRegs -> [RealReg]
-    frInitFreeRegs :: freeRegs
-    frReleaseReg :: RealReg -> freeRegs -> freeRegs
+    frAllocateReg :: Platform -> RealReg -> freeRegs -> freeRegs
+    frGetFreeRegs :: Platform -> RegClass -> freeRegs -> [RealReg]
+    frInitFreeRegs :: Platform -> freeRegs
+    frReleaseReg :: Platform -> RealReg -> freeRegs -> freeRegs
 
 instance FR X86.FreeRegs where
-    frAllocateReg  = X86.allocateReg
+    frAllocateReg  = \_ -> X86.allocateReg
     frGetFreeRegs  = X86.getFreeRegs
     frInitFreeRegs = X86.initFreeRegs
-    frReleaseReg   = X86.releaseReg
+    frReleaseReg   = \_ -> X86.releaseReg
 
 instance FR PPC.FreeRegs where
-    frAllocateReg  = PPC.allocateReg
-    frGetFreeRegs  = PPC.getFreeRegs
+    frAllocateReg  = \_ -> PPC.allocateReg
+    frGetFreeRegs  = \_ -> PPC.getFreeRegs
     frInitFreeRegs = PPC.initFreeRegs
-    frReleaseReg   = PPC.releaseReg
+    frReleaseReg   = \_ -> PPC.releaseReg
 
 instance FR SPARC.FreeRegs where
     frAllocateReg  = SPARC.allocateReg
-    frGetFreeRegs  = SPARC.getFreeRegs
+    frGetFreeRegs  = \_ -> SPARC.getFreeRegs
     frInitFreeRegs = SPARC.initFreeRegs
     frReleaseReg   = SPARC.releaseReg
 
