@@ -79,7 +79,6 @@ ghc_stage2_SHELL_WRAPPER = YES
 ghc_stage3_SHELL_WRAPPER = YES
 ifeq "$(BuildingCrossCompiler)" "YES"
 ghc_stage1_SHELL_WRAPPER_NAME = ghc/ghc-cross.wrapper
-ghc_stage2_SHELL_WRAPPER_NAME = ghc/ghc-cross.wrapper
 else
 ghc_stage1_SHELL_WRAPPER_NAME = ghc/ghc.wrapper
 ghc_stage2_SHELL_WRAPPER_NAME = ghc/ghc.wrapper
