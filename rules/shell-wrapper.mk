@@ -36,8 +36,10 @@ all_$1_$2 : $$(INPLACE_BIN)/$$($1_$2_PROG)
 
 ifeq "$(BuildingCrossCompiler)" "YES"
 $1_$2_PGMGCC = $$(CC_STAGE1)
+$1_$2_INSTALL_CROSS_SHELL_WRAPPER_EXTRA = (echo 'pgmgcc="$$($1_$2_PGMGCC)"'; echo)
 else
 $1_$2_PGMGCC = $$(WhatGccIsCalled)
+$1_$2_INSTALL_CROSS_SHELL_WRAPPER_EXTRA = echo
 endif
 
 
@@ -83,6 +85,7 @@ install_$1_$2_wrapper:
 	echo 'topdir="$$(topdir)"'                               >> "$$(WRAPPER)"
 	$$($1_$2_SHELL_WRAPPER_EXTRA)
 	$$($1_$2_INSTALL_SHELL_WRAPPER_EXTRA)
+	$$($1_$2_INSTALL_CROSS_SHELL_WRAPPER_EXTRA)              >> "$$(WRAPPER)"
 	cat $$($1_$2_SHELL_WRAPPER_NAME)                         >> "$$(WRAPPER)"
 	$$(EXECUTABLE_FILE)                                         "$$(WRAPPER)"
 
