@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 #
-# (c) 2009 The University of Glasgow
+# (c) 2009-2012 The University of Glasgow
 #
 # This file is part of the GHC build system.
 #
@@ -34,7 +34,7 @@ endif
 ifneq "$$($1_$2_INSTALL_INPLACE)" "NO"
 all_$1_$2 : $$(INPLACE_BIN)/$$($1_$2_PROG)
 
-ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ifeq "$(BuildingCrossCompiler)" "YES"
 $1_$2_PGMGCC = $$(CC_STAGE1)
 else
 $1_$2_PGMGCC = $$(WhatGccIsCalled)

@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 #
-# (c) 2009 The University of Glasgow
+# (c) 2009-2012 The University of Glasgow
 #
 # This file is part of the GHC build system.
 #
@@ -182,7 +182,7 @@ ifneq ($$(strip $$($1_$2_DIST_LD_OPTS)),)
 $1_$2_$3_HSC2HS_LD_OPTS:=$$(shell for i in $$($1_$2_DIST_LD_OPTS); do echo \'--lflag=$$$$i\'; done)
 endif
 
-ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ifeq "$(BuildingCrossCompiler)" "YES"
 $1_$2_$3_HSC2HS_CC_OPTS += -DCOMPILING_GHC
 endif
 

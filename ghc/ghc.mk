@@ -45,7 +45,7 @@ ghc_stage1_C_FILES_NODEPS = ghc/hschooks.c
 
 ghc_stage2_MKDEPENDC_OPTS = -DMAKING_GHC_BUILD_SYSTEM_DEPENDENCIES
 ghc_stage3_MKDEPENDC_OPTS = -DMAKING_GHC_BUILD_SYSTEM_DEPENDENCIES
-ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ifeq "$(BuildingCrossCompiler)" "YES"
 ghc_stage2_MKDEPENDC_OPTS += -DCOMPILING_GHC
 endif
 
@@ -77,7 +77,7 @@ ghc_stage3_PROG = ghc-stage3$(exeext)
 ghc_stage1_SHELL_WRAPPER = YES
 ghc_stage2_SHELL_WRAPPER = YES
 ghc_stage3_SHELL_WRAPPER = YES
-ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ifeq "$(BuildingCrossCompiler)" "YES"
 ghc_stage1_SHELL_WRAPPER_NAME = ghc/ghc-cross.wrapper
 ghc_stage2_SHELL_WRAPPER_NAME = ghc/ghc-cross.wrapper
 else
@@ -100,7 +100,7 @@ ifneq "$(filter-out 1,$(stage))" ""
 ghc_stage1_NOT_NEEDED = YES
 endif
 
-ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ifeq "$(BuildingCrossCompiler)" "YES"
 ghc_stage2_NOT_NEEDED = YES
 ghc_stage3_NOT_NEEDED = YES
 else

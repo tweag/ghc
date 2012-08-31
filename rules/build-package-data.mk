@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 #
-# (c) 2009 The University of Glasgow
+# (c) 2009-2012 The University of Glasgow
 #
 # This file is part of the GHC build system.
 #
@@ -64,7 +64,7 @@ $1_$2_CONFIGURE_OPTS += $$(BOOT_PKG_CONSTRAINTS)
 endif
 
 ifeq "$3" "1"
-ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ifeq "$(BuildingCrossCompiler)" "YES"
 $1_$2_CONFIGURE_OPTS += --configure-option=--host=$(HOSTPLATFORM)
 $1_$2_CONFIGURE_OPTS += --configure-option=--target=$(TARGETPLATFORM)
 endif

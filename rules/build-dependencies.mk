@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 #
-# (c) 2009 The University of Glasgow
+# (c) 2009-2012 The University of Glasgow
 #
 # This file is part of the GHC build system.
 #
@@ -24,7 +24,7 @@ $1_$2_C_FILES_DEPS = $$(filter-out $$($1_$2_C_FILES_NODEPS),$$($1_$2_C_FILES))
 
 $1_$2_MKDEPENDHS_FLAGS = -dep-makefile $$($1_$2_depfile_haskell).tmp $$(foreach way,$$(filter-out v,$$($1_$2_WAYS)),-dep-suffix $$(way))
 $1_$2_MKDEPENDHS_FLAGS += -include-pkg-deps
-ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ifeq "$(BuildingCrossCompiler)" "YES"
 $1_$2_MKDEPENDHS_FLAGS += -DCOMPILING_GHC
 endif
 

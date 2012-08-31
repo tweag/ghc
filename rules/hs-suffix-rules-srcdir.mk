@@ -34,7 +34,7 @@ $1/$2/build/%_hsc.c $1/$2/build/%_hsc.h $1/$2/build/%.hs : $1/$4/%.hsc $$(HSC2HS
 
 # Compiling Haskell source
 
-ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ifeq "$(BuildingCrossCompiler)" "YES"
 --CROSS-OPTS-- = -DCOMPILING_GHC
 endif
 

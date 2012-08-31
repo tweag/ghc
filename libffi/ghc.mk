@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 #
-# (c) 2009 The University of Glasgow
+# (c) 2009-2012 The University of Glasgow
 #
 # This file is part of the GHC build system.
 #
@@ -44,7 +44,7 @@ endif
 
 # libffi has a different nomenclature from ours
 # regarding 'host' (our target) and 'build' (also our build)
-ifneq "$(TARGETPLATFORM)" "$(HOSTPLATFORM)"
+ifeq "$(BuildingCrossCompiler)" "YES"
 LIBFFI_PLATFORMS = --host=$(TARGETPLATFORM) --build=$(HOSTPLATFORM)
 else
 # XXX: --host=$(TARGETPLATFORM) also?
