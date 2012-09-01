@@ -25,11 +25,10 @@ module Inst (
        tcSyntaxName,
 
        -- Simple functions over evidence variables
-       hasEqualities, unitImplication,
+       hasEqualities, 
        
        tyVarsOfWC, tyVarsOfBag, 
-       tyVarsOfEvVar, tyVarsOfEvVars, tyVarsOfImplication,
-       tyVarsOfCt, tyVarsOfCts, tyVarsOfCDict, tyVarsOfCDicts,
+       tyVarsOfCt, tyVarsOfCts, 
 
        tidyEvVar, tidyCt, tidyGivenLoc,
 
@@ -86,7 +85,7 @@ emitWanted :: CtOrigin -> TcPredType -> TcM EvVar
 emitWanted origin pred 
   = do { loc <- getCtLoc origin
        ; ev  <- newWantedEvVar pred
-       ; emitFlat (mkNonCanonical (Wanted { ctev_wloc = loc, ctev_pred = pred, ctev_evar = ev }))
+       ; emitFlat (mkNonCanonical (CtWanted { ctev_wloc = loc, ctev_pred = pred, ctev_evar = ev }))
        ; return ev }
 
 newMethodFromName :: CtOrigin -> Name -> TcRhoType -> TcM (HsExpr TcId)
@@ -506,11 +505,6 @@ addClsInstsErr herald ispecs
 %************************************************************************
 
 \begin{code}
-unitImplication :: Implication -> Bag Implication
-unitImplication implic
-  | isEmptyWC (ic_wanted implic) = emptyBag
-  | otherwise                    = unitBag implic
-
 hasEqualities :: [EvVar] -> Bool
 -- Has a bunch of canonical constraints (all givens) got any equalities in it?
 hasEqualities givens = any (has_eq . evVarPred) givens
@@ -529,34 +523,25 @@ tyVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })    = extendVarSet (tyVarsOf
 tyVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_rhs = xi }) = tyVarsOfTypes (xi:tys)
 tyVarsOfCt (CDictCan { cc_tyargs = tys }) 	        = tyVarsOfTypes tys
 tyVarsOfCt (CIrredEvCan { cc_ty = ty })                 = tyVarsOfType ty
-tyVarsOfCt (CNonCanonical { cc_ev = fl })           = tyVarsOfType (ctEvPred fl)
 tyVarsOfCt (CHoleCan { cc_hole_ty = ty })               = tyVarsOfType ty
-
-tyVarsOfCDict :: Ct -> TcTyVarSet 
-tyVarsOfCDict (CDictCan { cc_tyargs = tys }) = tyVarsOfTypes tys
-tyVarsOfCDict _ct                            = emptyVarSet 
-
-tyVarsOfCDicts :: Cts -> TcTyVarSet 
-tyVarsOfCDicts = foldrBag (unionVarSet . tyVarsOfCDict) emptyVarSet
+tyVarsOfCt (CNonCanonical { cc_ev = fl })               = tyVarsOfType (ctEvPred fl)
 
 tyVarsOfCts :: Cts -> TcTyVarSet
 tyVarsOfCts = foldrBag (unionVarSet . tyVarsOfCt) emptyVarSet
 
 tyVarsOfWC :: WantedConstraints -> TyVarSet
+-- Only called on *zonked* things, hence no need to worry about flatten-skolems
 tyVarsOfWC (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
   = tyVarsOfCts flat `unionVarSet`
-    tyVarsOfBag tyVarsOfImplication implic `unionVarSet`
+    tyVarsOfBag tyVarsOfImplic implic `unionVarSet`
     tyVarsOfCts insol
 
-tyVarsOfImplication :: Implication -> TyVarSet
-tyVarsOfImplication (Implic { ic_skols = skols, ic_wanted = wanted })
-  = tyVarsOfWC wanted `delVarSetList` skols
-
-tyVarsOfEvVar :: EvVar -> TyVarSet
-tyVarsOfEvVar ev = tyVarsOfType $ evVarPred ev
-
-tyVarsOfEvVars :: [EvVar] -> TyVarSet
-tyVarsOfEvVars = foldr (unionVarSet . tyVarsOfEvVar) emptyVarSet
+tyVarsOfImplic :: Implication -> TyVarSet
+-- Only called on *zonked* things, hence no need to worry about flatten-skolems
+tyVarsOfImplic (Implic { ic_skols = skols, ic_fsks = fsks
+                             , ic_given = givens, ic_wanted = wanted })
+  = (tyVarsOfWC wanted `unionVarSet` tyVarsOfTypes (map evVarPred givens))
+    `delVarSetList` skols `delVarSetList` fsks
 
 tyVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
 tyVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
@@ -575,12 +560,12 @@ tidyCt env ct
     tidy_flavor :: TidyEnv -> CtEvidence -> CtEvidence
      -- NB: we do not tidy the ctev_evtm/var field because we don't 
      --     show it in error messages
-    tidy_flavor env ctev@(Given { ctev_gloc = gloc, ctev_pred = pred })
+    tidy_flavor env ctev@(CtGiven { ctev_gloc = gloc, ctev_pred = pred })
       = ctev { ctev_gloc = tidyGivenLoc env gloc
              , ctev_pred = tidyType env pred }
-    tidy_flavor env ctev@(Wanted { ctev_pred = pred })
+    tidy_flavor env ctev@(CtWanted { ctev_pred = pred })
       = ctev { ctev_pred = tidyType env pred }
-    tidy_flavor env ctev@(Derived { ctev_pred = pred })
+    tidy_flavor env ctev@(CtDerived { ctev_pred = pred })
       = ctev { ctev_pred = tidyType env pred }
 
 tidyEvVar :: TidyEnv -> EvVar -> EvVar
@@ -642,14 +627,14 @@ substEvVar :: TvSubst -> EvVar -> EvVar
 substEvVar subst var = setVarType var (substTy subst (varType var))
 
 substFlavor :: TvSubst -> CtEvidence -> CtEvidence
-substFlavor subst ctev@(Given { ctev_gloc = gloc, ctev_pred = pred })
+substFlavor subst ctev@(CtGiven { ctev_gloc = gloc, ctev_pred = pred })
   = ctev { ctev_gloc = substGivenLoc subst gloc
           , ctev_pred = substTy subst pred }
 
-substFlavor subst ctev@(Wanted { ctev_pred = pred })
+substFlavor subst ctev@(CtWanted { ctev_pred = pred })
   = ctev  { ctev_pred = substTy subst pred }
 
-substFlavor subst ctev@(Derived { ctev_pred = pty })
+substFlavor subst ctev@(CtDerived { ctev_pred = pty })
   = ctev { ctev_pred = substTy subst pty }
 
 substGivenLoc :: TvSubst -> GivenLoc -> GivenLoc

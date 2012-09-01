@@ -135,45 +135,36 @@ reportImplic ctxt implic@(Implic { ic_skols = tvs, ic_given = given
 
 reportWanteds :: ReportErrCtxt -> WantedConstraints -> TcM ()
 reportWanteds ctxt (WC { wc_flat = flats, wc_insol = insols, wc_impl = implics })
-  = reportTidyWanteds ctxt tidy_insols tidy_flats implics
+  = reportTidyWanteds ctxt tidy_all implics
   where
     env = cec_tidy ctxt
-    tidy_insols = mapBag (tidyCt env) insols
-    tidy_flats  = mapBag (tidyCt env) (keepWanted flats)
+    tidy_all = mapBag (tidyCt env) (insols `unionBags` flats)
+                  -- All the Derived ones have been filtered out alrady
+                  -- by the constraint solver. This is ok; we don't want
+                  -- to report unsolved Derived goals as error
                   -- See Note [Do not report derived but soluble errors]
 
-reportTidyWanteds :: ReportErrCtxt -> Bag Ct -> Bag Ct -> Bag Implication -> TcM ()
-reportTidyWanteds ctxt insols flats implics
-  = do {
-     ; let Just ev_binds_var = cec_defer ctxt
-     ; runtimeCoercionErrors <- doptM Opt_DeferTypeErrors
-     ; if runtimeCoercionErrors then 
-       do { -- Defer errors to runtime
-             -- See Note [Deferring coercion errors to runtime] in TcSimplify
-             mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr) 
-                      (flats `unionBags` insols)
-           ; mapBagM_ (reportImplic ctxt) implics
-          }
-       else 
-       do {
-              zonked_tyvars <- mapBagM zonkTyVarsAndFV $ mapBag tyVarsOfCt holes
-            ; let new_env = foldrBag (\vars env -> let (env', _) = tidyOpenTyVars env (varSetElems vars) in env') (cec_tidy ctxt) zonked_tyvars
-            ; traceTc "reportTidyWanteds" (ppr new_env)
-            ; mapBagM_ (deferToRuntime ev_binds_var (ctxt { cec_tidy = new_env }) mkHoleDeferredError) holes
-            ; reportInsolsAndFlats (ctxt { cec_tidy = new_env }) (filterBag (not.isHole) insols) (filterBag (not.isHole) flats)
-            ; mapBagM_ (reportImplic (ctxt { cec_tidy = new_env })) implics
-          }
-     }
-       where isHole ct = case ct of
-                            CHoleCan {} -> True
-                            _           -> False
-             holes = filterBag isHole (flats `unionBags` insols)
+reportTidyWanteds :: ReportErrCtxt -> Cts -> Bag Implication -> TcM ()
+reportTidyWanteds ctxt flats implics
+  | Just ev_binds_var <- cec_defer ctxt
+  = do { -- Defer errors to runtime
+         -- See Note [Deferring coercion errors to runtime] in TcSimplify
+         mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr) flats
+       ; mapBagM_ (reportImplic ctxt) implics }
+
+  | otherwise
+  = do { reportFlats ctxt others
+       ; mapBagM_ (deferToRuntime ev_binds_var mkHoleDeferredError) holes
+       ; mapBagM_ (reportImplic ctxt) implics }
+  where
+    (holes, others) = partitionBag isHoleCt flats
+      -- Thijs had something about extending the tidy-env, but I don't know why
              
 
 deferToRuntime :: EvBindsVar -> ReportErrCtxt -> (ReportErrCtxt -> Ct -> TcM ErrMsg) 
                -> Ct -> TcM ()
 deferToRuntime ev_binds_var ctxt mk_err_msg ct 
-  | Wanted { ctev_wloc = loc, ctev_pred = pred, ctev_evar = ev_id } <- cc_ev ct
+  | CtWanted { ctev_wloc = loc, ctev_pred = pred, ctev_evar = ev_id } <- cc_ev ct
   = do { err <- setCtLoc loc $
                 mk_err_msg ctxt ct
        ; dflags <- getDynFlags
@@ -190,8 +181,8 @@ deferToRuntime ev_binds_var ctxt mk_err_msg ct
   | otherwise   -- Do not set any evidence for Given/Derived
   = return ()   
 
-reportInsolsAndFlats :: ReportErrCtxt -> Cts -> Cts -> TcM ()
-reportInsolsAndFlats ctxt insols flats
+reportFlats :: ReportErrCtxt -> Cts -> TcM ()
+reportFlats ctxt flats    -- Here 'flats' includes insolble goals
   = tryReporters 
       [ -- First deal with things that are utterly wrong
         -- Like Int ~ Bool (incl nullary TyCons)
@@ -205,7 +196,7 @@ reportInsolsAndFlats ctxt insols flats
 
       , ("Unambiguous",          unambiguous,     reportFlatErrs ctxt) ]
       (reportAmbigErrs ctxt)
-      (bagToList (insols `unionBags` flats))
+      (bagToList flats)
   where
     utterly_wrong, skolem_eq, unambiguous :: Ct -> PredTree -> Bool
 
@@ -339,9 +330,9 @@ groupErrs mk_err (ct1 : rest)
    is_friend friend  = cc_ev friend `same_group` flavor
 
    same_group :: CtEvidence -> CtEvidence -> Bool
-   same_group (Given   {ctev_gloc = l1}) (Given   {ctev_gloc = l2}) = same_loc l1 l2
-   same_group (Wanted  {ctev_wloc = l1}) (Wanted  {ctev_wloc = l2}) = same_loc l1 l2
-   same_group (Derived {ctev_wloc = l1}) (Derived {ctev_wloc = l2}) = same_loc l1 l2
+   same_group (CtGiven   {ctev_gloc = l1}) (CtGiven   {ctev_gloc = l2}) = same_loc l1 l2
+   same_group (CtWanted  {ctev_wloc = l1}) (CtWanted  {ctev_wloc = l2}) = same_loc l1 l2
+   same_group (CtDerived {ctev_wloc = l1}) (CtDerived {ctev_wloc = l2}) = same_loc l1 l2
    same_group _ _ = False
 
    same_loc :: CtLoc o -> CtLoc o -> Bool
@@ -564,7 +555,7 @@ mkEqErr1 ctxt ct
 
     flav = cc_ev ct
 
-    inaccessible_msg (Given { ctev_gloc = loc }) 
+    inaccessible_msg (CtGiven { ctev_gloc = loc }) 
        = hang (ptext (sLit "Inaccessible code in"))
             2 (ppr (ctLocOrigin loc))
     -- If a Solved then we should not report inaccessible code
@@ -1156,14 +1147,13 @@ find_thing tidy_env ignore_it (ATyVar name tv)
 
 find_thing _ _ thing = pprPanic "find_thing" (ppr thing)
 
-warnDefaulting :: [Ct] -> Type -> TcM ()
+warnDefaulting :: Cts -> Type -> TcM ()
 warnDefaulting wanteds default_ty
   = do { warn_default <- woptM Opt_WarnTypeDefaults
        ; env0 <- tcInitTidyEnv
-       ; let wanted_bag = listToBag wanteds
-             tidy_env = tidyFreeTyVars env0 $
-                        tyVarsOfCts wanted_bag
-             tidy_wanteds = mapBag (tidyCt tidy_env) wanted_bag
+       ; let tidy_env = tidyFreeTyVars env0 $
+                        tyVarsOfCts wanteds
+             tidy_wanteds = mapBag (tidyCt tidy_env) wanteds
              (loc, ppr_wanteds) = pprWithArising (bagToList tidy_wanteds)
              warn_msg  = hang (ptext (sLit "Defaulting the following constraint(s) to type")
                                 <+> quotes (ppr default_ty))
@@ -1202,20 +1192,6 @@ solverDepthErrorTcS depth stack
     msg = vcat [ ptext (sLit "Context reduction stack overflow; size =") <+> int depth
                , ptext (sLit "Use -fcontext-stack=N to increase stack size to N") ]
 
-{- DV: Changing this because Derived's no longer have ids ... Kind of a corner case ...
-  = setCtFlavorLoc (cc_ev top_item) $
-    do { ev_vars <- mapM (zonkEvVar . cc_id) stack
-       ; env0 <- tcInitTidyEnv
-       ; let tidy_env = tidyFreeTyVars env0 (tyVarsOfEvVars ev_vars)
-             tidy_ev_vars = map (tidyEvVar tidy_env) ev_vars
-       ; failWithTcM (tidy_env, hang msg 2 (pprEvVars tidy_ev_vars)) }
-  where
-    top_item = head stack
-    msg = vcat [ ptext (sLit "Context reduction stack overflow; size =") <+> int depth
-               , ptext (sLit "Use -fcontext-stack=N to increase stack size to N") ]
--}
-
-
 flattenForAllErrorTcS :: CtEvidence -> TcType -> TcM a
 flattenForAllErrorTcS fl ty
   = setCtFlavorLoc fl $ 
@@ -1234,9 +1210,9 @@ flattenForAllErrorTcS fl ty
 
 \begin{code}
 setCtFlavorLoc :: CtEvidence -> TcM a -> TcM a
-setCtFlavorLoc (Wanted  { ctev_wloc = loc }) thing = setCtLoc loc thing
-setCtFlavorLoc (Derived { ctev_wloc = loc }) thing = setCtLoc loc thing
-setCtFlavorLoc (Given   { ctev_gloc = loc }) thing = setCtLoc loc thing
+setCtFlavorLoc (CtWanted  { ctev_wloc = loc }) thing = setCtLoc loc thing
+setCtFlavorLoc (CtDerived { ctev_wloc = loc }) thing = setCtLoc loc thing
+setCtFlavorLoc (CtGiven   { ctev_gloc = loc }) thing = setCtLoc loc thing
 \end{code}
 
 %************************************************************************

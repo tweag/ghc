@@ -28,6 +28,9 @@ module TcType (
   TcType, TcSigmaType, TcRhoType, TcTauType, TcPredType, TcThetaType, 
   TcTyVar, TcTyVarSet, TcKind, TcCoVar,
 
+  -- Untouchables
+  Untouchables(..), noUntouchables, pushUntouchables, isTouchable,
+
   --------------------------------
   -- MetaDetails
   UserTypeCtxt(..), pprUserTypeCtxt,
@@ -35,9 +38,11 @@ module TcType (
   MetaDetails(Flexi, Indirect), MetaInfo(..), 
   isImmutableTyVar, isSkolemTyVar, isMetaTyVar,  isMetaTyVarTy, isTyVarTy,
   isSigTyVar, isOverlappableTyVar,  isTyConableTyVar,
-  isAmbiguousTyVar, metaTvRef, 
+  isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
   isFlexi, isIndirect, isRuntimeUnkSkol,
-  isTypeVar, isKindVar,
+  isTypeVar, isKindVar, 
+  metaTyVarUntouchables, setMetaTyVarUntouchables, 
+  isTouchableMetaTyVar, isFloatedTouchableMetaTyVar,
 
   --------------------------------
   -- Builders
@@ -118,7 +123,6 @@ module TcType (
   openTypeKind, constraintKind, mkArrowKind, mkArrowKinds, 
   isLiftedTypeKind, isUnliftedTypeKind, isSubOpenTypeKind, 
   tcIsSubKind, splitKindFunTys, defaultKind,
-  mkMetaKindVar,
 
   --------------------------------
   -- Rexported from Type
@@ -304,7 +308,10 @@ data TcTyVarDetails
            -- to represent a flattening skolem variable alpha
            -- identified with type ty.
           
-  | MetaTv MetaInfo (IORef MetaDetails)
+  | MetaTv { mtv_info  :: MetaInfo
+           , mtv_ref   :: IORef MetaDetails
+           , mtv_untch :: Untouchables }  -- See Note [Untouchable type variables]
+
 
 instance Outputable TcTyVarDetails where
   ppr (SkolemTv b)    = ptext (sLit "SkolemTv") <+> ppr b
@@ -317,6 +324,60 @@ vanillaSkolemTv, superSkolemTv :: TcTyVarDetails
 vanillaSkolemTv = SkolemTv False  -- Might be instantiated
 superSkolemTv   = SkolemTv True   -- Treat this as a completely distinct type
 
+-------------------------
+newtype Untouchables = Untouchables Int
+
+noUntouchables :: Untouchables
+noUntouchables = Untouchables 0   -- 0 = outermost level
+
+pushUntouchables :: Unique -> Untouchables -> Untouchables 
+pushUntouchables _ (Untouchables us) = Untouchables (us+1)
+
+isFloatedTouchable :: Untouchables -> Untouchables -> Bool
+isFloatedTouchable (Untouchables ctxt_untch) (Untouchables tv_untch) 
+  = ctxt_untch < tv_untch
+
+isTouchable :: Untouchables -> Untouchables -> Bool
+isTouchable (Untouchables ctxt_untch) (Untouchables tv_untch) 
+  = ctxt_untch == tv_untch   -- NB: invariant ctxt_untch >= tv_untch
+                             --     So <= would be equivalent
+
+checkTouchableInvariant :: Untouchables -> Untouchables -> Bool
+checkTouchableInvariant (Untouchables ctxt_untch) (Untouchables tv_untch) 
+  = ctxt_untch >= tv_untch
+
+instance Outputable Untouchables where
+  ppr (Untouchables us) = ppr us
+
+{-   OLD
+newtype Untouchables = Untouchables [Unique]
+
+noUntouchables :: Untouchables
+noUntouchables = Untouchables []   -- 0 = outermost level
+
+pushUntouchables :: Unique -> Untouchables -> Untouchables 
+pushUntouchables u (Untouchables us) = Untouchables (u:us)
+
+isFloatedTouchable :: Untouchables -> Untouchables -> Bool
+isFloatedTouchable (Untouchables ctxt_untch) (Untouchables tv_untch) 
+  = case (ctxt_untch, tv_untch) of
+      (_,  [])     -> False
+      ([],  _)     -> True
+      (u:_, tv_u:tv_us) | u `elem` tv_us -> ASSERT2( u /= tv_u, ppr u <+> ppr tv_us ) True
+                        | otherwise      -> False
+
+isTouchable :: Untouchables -> Untouchables -> Bool
+isTouchable (Untouchables ctxt_untch) (Untouchables tv_untch) 
+  = case ctxt_untch of
+      []    -> True
+      (u:_) -> u `elem` tv_untch
+
+instance Outputable Untouchables where
+  ppr (Untouchables us) = pprWithCommas ppr us
+-}
+
+
+-----------------------------
 data MetaDetails
   = Flexi  -- Flexi type variables unify to become Indirects  
   | Indirect TcType
@@ -336,11 +397,6 @@ data MetaInfo
 		   --      see Note [Signature skolems]        
 		   --      The MetaDetails, if filled in, will 
 		   --      always be another SigTv or a SkolemTv
-
-   | TcsTv	   -- A MetaTv allocated by the constraint solver
-     		   -- Its particular property is that it is always "touchable"
-		   -- Nevertheless, the constraint solver has to try to guess
-		   -- what type to instantiate it to
 
 -------------------------------------
 -- UserTypeCtxt describes the origin of the polymorphic type
@@ -393,20 +449,6 @@ data UserTypeCtxt
 -- will become	type T = forall a. a->a
 --
 -- With gla-exts that's right, but for H98 we should complain. 
-
----------------------------------
--- Kind variables:
-\begin{code}
-mkKindName :: Unique -> Name
-mkKindName unique = mkSystemName unique kind_var_occ
-
-mkMetaKindVar :: Unique -> IORef MetaDetails -> MetaKindVar
-mkMetaKindVar u r
-  = mkTcTyVar (mkKindName u) superKind (MetaTv TauTv r)
-
-kind_var_occ :: OccName	-- Just one for all MetaKindVars
-			-- They may be jiggled by tidying
-kind_var_occ = mkOccName tvName "k"
 \end{code}
 
 %************************************************************************
@@ -422,9 +464,12 @@ pprTcTyVarDetails (SkolemTv True)  = ptext (sLit "ssk")
 pprTcTyVarDetails (SkolemTv False) = ptext (sLit "sk")
 pprTcTyVarDetails (RuntimeUnk {})  = ptext (sLit "rt")
 pprTcTyVarDetails (FlatSkol {})    = ptext (sLit "fsk")
-pprTcTyVarDetails (MetaTv TauTv _) = ptext (sLit "tau")
-pprTcTyVarDetails (MetaTv TcsTv _) = ptext (sLit "tcs")
-pprTcTyVarDetails (MetaTv SigTv _) = ptext (sLit "sig")
+pprTcTyVarDetails (MetaTv { mtv_info = info, mtv_untch = untch })
+  = pp_info <> brackets (ppr untch)
+  where
+    pp_info = case info of
+                TauTv -> ptext (sLit "tau")
+                SigTv -> ptext (sLit "sig")
 
 pprUserTypeCtxt :: UserTypeCtxt -> SDoc
 pprUserTypeCtxt (InfSigCtxt n)    = ptext (sLit "the inferred type for") <+> quotes (ppr n)
@@ -694,8 +739,24 @@ exactTyVarsOfTypes tys = foldr (unionVarSet . exactTyVarsOfType) emptyVarSet tys
 %************************************************************************
 
 \begin{code}
-isImmutableTyVar :: TyVar -> Bool
+isTouchableMetaTyVar :: Untouchables -> TcTyVar -> Bool
+isTouchableMetaTyVar ctxt_untch tv
+  = ASSERT2( isTcTyVar tv, ppr tv )
+    case tcTyVarDetails tv of 
+      MetaTv { mtv_untch = tv_untch } 
+        -> ASSERT2( checkTouchableInvariant ctxt_untch tv_untch, 
+                    ppr tv $$ ppr tv_untch $$ ppr ctxt_untch )
+           isTouchable ctxt_untch tv_untch
+      _ -> False
 
+isFloatedTouchableMetaTyVar :: Untouchables -> TcTyVar -> Bool
+isFloatedTouchableMetaTyVar ctxt_untch tv
+  = ASSERT2( isTcTyVar tv, ppr tv )
+    case tcTyVarDetails tv of 
+      MetaTv { mtv_untch = tv_untch } -> isFloatedTouchable ctxt_untch tv_untch
+      _ -> False
+
+isImmutableTyVar :: TyVar -> Bool
 isImmutableTyVar tv
   | isTcTyVar tv = isSkolemTyVar tv
   | otherwise    = True
@@ -709,8 +770,8 @@ isTyConableTyVar tv
 	-- not a SigTv
   = ASSERT( isTcTyVar tv) 
     case tcTyVarDetails tv of
-	MetaTv SigTv _ -> False
-	_              -> True
+	MetaTv { mtv_info = SigTv } -> False
+	_                           -> True
 	
 isSkolemTyVar tv 
   = ASSERT2( isTcTyVar tv, ppr tv )
@@ -748,19 +809,40 @@ isMetaTyVarTy :: TcType -> Bool
 isMetaTyVarTy (TyVarTy tv) = isMetaTyVar tv
 isMetaTyVarTy _            = False
 
+metaTyVarInfo :: TcTyVar -> MetaInfo
+metaTyVarInfo tv
+  = ASSERT( isTcTyVar tv )
+    case tcTyVarDetails tv of
+      MetaTv { mtv_info = info } -> info
+      _ -> pprPanic "metaTyVarInfo" (ppr tv)
+
+metaTyVarUntouchables :: TcTyVar -> Untouchables
+metaTyVarUntouchables tv
+  = ASSERT( isTcTyVar tv )
+    case tcTyVarDetails tv of
+      MetaTv { mtv_untch = untch } -> untch
+      _ -> pprPanic "metaTyVarUntouchables" (ppr tv)
+
+setMetaTyVarUntouchables :: TcTyVar -> Untouchables -> TcTyVar
+setMetaTyVarUntouchables tv untch
+  = ASSERT( isTcTyVar tv )
+    case tcTyVarDetails tv of
+      details@(MetaTv {}) -> setTcTyVarDetails tv (details { mtv_untch = untch })
+      _ -> pprPanic "metaTyVarUntouchables" (ppr tv)
+
 isSigTyVar :: Var -> Bool
 isSigTyVar tv 
   = ASSERT( isTcTyVar tv )
     case tcTyVarDetails tv of
-	MetaTv SigTv _ -> True
-	_              -> False
+	MetaTv { mtv_info = SigTv } -> True
+	_                           -> False
 
 metaTvRef :: TyVar -> IORef MetaDetails
 metaTvRef tv 
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
-	MetaTv _ ref -> ref
-	_          -> pprPanic "metaTvRef" (ppr tv)
+	MetaTv { mtv_ref = ref } -> ref
+	_ -> pprPanic "metaTvRef" (ppr tv)
 
 isFlexi, isIndirect :: MetaDetails -> Bool
 isFlexi Flexi = True
