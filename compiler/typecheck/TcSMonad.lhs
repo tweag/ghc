@@ -790,8 +790,8 @@ extractRelevantInerts wi
                     Just ct -> (singleCt ct, new_funeq_map)
             in (cts, ics { inert_funeqs = FamHeadMap feqs_map })
         extract_ics_relevants (CHoleCan {}) ics =
-            let cts = inert_holes ics
-            in (cts, ics { inert_holes = emptyCts })
+            = pprPanic "extractRelevantInerts" (ppr wi
+              -- Holes are put straight into inert_frozen, so never get here
         extract_ics_relevants (CIrredEvCan { }) ics = 
             let cts = inert_irreds ics 
             in (cts, ics { inert_irreds = emptyCts })
