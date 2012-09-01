@@ -159,19 +159,14 @@ tc_cmd env cmd@(HsArrApp fun arg _ ho_app lr) (cmd_stk, res_ty)
     do  { arg_ty <- newFlexiTyVarTy openTypeKind
 	; let fun_ty = mkCmdArrTy env (foldl mkPairTy arg_ty cmd_stk) res_ty
 
-	; fun' <- select_arrow_scope (tcMonoExpr fun fun_ty)
+	; fun' <- tcMonoExpr fun fun_ty
+                  -- No need for the escapeArrowScope stuff here
+                  -- See Note [Escaping the arrow scope] in TcRnTypes
 
 	; arg' <- tcMonoExpr arg arg_ty
 
 	; return (HsArrApp fun' arg' fun_ty ho_app lr) }
-  where
-	-- Before type-checking f, use the environment of the enclosing
-	-- proc for the (-<) case.  
-	-- Local bindings, inside the enclosing proc, are not in scope 
-	-- inside f.  In the higher-order case (-<<), they are.
-    select_arrow_scope tc = case ho_app of
-	HsHigherOrderApp -> tc
-	HsFirstOrderApp  -> escapeArrowScope tc
+
 
 -------------------------------------------
 -- 		Command application
@@ -258,7 +253,10 @@ tc_cmd env cmd@(HsArrForm expr fixity cmd_args) (cmd_stk, res_ty)
 
 		-- Check expr
         ; (inst_binds, expr') <- checkConstraints ArrowSkol [w_tv] [] $
-                                 escapeArrowScope (tcMonoExpr expr e_ty)
+                                 tcMonoExpr expr e_ty
+                                 -- No need for escapeArrowScope in the 
+                                 -- type checker.
+                                 -- Note [Escaping the arrow scope] in TcRnTypes
 
 		-- OK, now we are in a position to unscramble 
 		-- the s1..sm and check each cmd
