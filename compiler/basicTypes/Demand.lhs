@@ -29,6 +29,8 @@ module Demand (
         defer, use, deferType, deferEnv, modifyEnv,
         isProdDmd, isPolyDmd, replicateDmd, splitProdDmd, peelCallDmd, mkCallDmd,
         isProdUsage, 
+        -- cardinality stuff
+        markAsUsedType, isSingleShot
      ) where
 
 #include "HsVersions.h"
@@ -238,9 +240,14 @@ instance Outputable Count where
 usedOnce :: AbsDmd
 usedOnce = (Used One)
 
+isUsedOnce :: AbsDmd -> Bool
+isUsedOnce Abs           = True
+isUsedOnce a 
+         | One <- card a = True
+isUsedOnce _             = False
+
 absCall :: Count -> AbsDmd -> AbsDmd
 absCall _ Abs  = Abs 
-absCall Many a@(Used Many) = a
 absCall c a    = UCall c a
 
 absProd :: Count -> [AbsDmd] -> AbsDmd
@@ -300,7 +307,8 @@ instance LatticeLike AbsDmd where
   both (UProd _ ux1) (UProd _ ux2)
      | length ux1 == length ux2    = absProd Many $ zipWith both ux1 ux2
   -- is it correct? 
-  both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
+  -- both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
+  both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `both` u2)
   both _ _                         = top
 
 -- utility functions
@@ -310,6 +318,13 @@ card (Used c)    = c
 card (UHead c)   = c
 card (UProd c _) = c
 card (UCall c _) = c
+
+markAsUsed :: AbsDmd -> AbsDmd
+markAsUsed Abs         = Abs
+markAsUsed (Used _)    = Used Many
+markAsUsed (UHead _)   = UHead Many
+markAsUsed (UProd _ x) = UProd Many $ map markAsUsed x
+markAsUsed (UCall _ x) = UCall Many $ markAsUsed x
 
 seqAbsDmd :: AbsDmd -> ()
 seqAbsDmd (Used c)     = c `seq` ()
@@ -497,7 +512,7 @@ defer :: Demand -> Demand
 defer (JD {absd = a}) = mkJointDmd top a 
 
 use :: Demand -> Demand
-use (JD {strd = d}) = mkJointDmd d top
+use (JD {strd=d, absd=a}) = mkJointDmd d (markAsUsed a)
 
 \end{code}
 
@@ -517,7 +532,7 @@ should be: <L,C(U(AU))>m
 
 mkCallDmd :: JointDmd -> JointDmd
 mkCallDmd (JD {strd = d, absd = a}) 
-          = mkJointDmd (strCall d) (absCall One a)
+          = mkJointDmd (strCall d) (absCall Many a)
 
 -- TODO: think how to peel
 peelCallDmd :: JointDmd -> Maybe JointDmd
@@ -537,7 +552,9 @@ splitCallDmd (JD {strd = SCall d, absd = Used _})
       (n, r) -> (n + 1, r)
 splitCallDmd d	      = (0, d)
 
-
+isSingleShot :: JointDmd -> Bool
+isSingleShot (JD {absd=a}) = isUsedOnce a
+  
 vanillaCall :: Arity -> Demand
 vanillaCall 0 = evalDmd
 vanillaCall n =
@@ -883,6 +900,13 @@ deferType (DmdType fv _ _) = DmdType (deferEnv fv) [] top
 
 deferEnv :: DmdEnv -> DmdEnv
 deferEnv fv = mapVarEnv defer fv
+
+markAsUsedType :: DmdType -> DmdType
+markAsUsedType (DmdType fv _ _) = DmdType (markAsUsedEnv fv) [] top
+
+markAsUsedEnv :: DmdEnv -> DmdEnv
+markAsUsedEnv fv = mapVarEnv use fv
+
 
 modifyEnv :: Bool			-- No-op if False
 	  -> (Demand -> Demand)		-- The zapper

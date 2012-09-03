@@ -96,7 +96,7 @@ dmdAnal _ dmd e | isAbs dmd
 
 dmdAnal env dmd e
   | not (isStrictDmd dmd)
-  = let (res_ty, e') = dmdAnal env onceEvalDmd e
+  = let (res_ty, e') = dmdAnal env fake_dmd e
     in  -- compute as with a strict demand, return with a lazy demand
     (deferType res_ty, e')
 	-- It's important not to analyse e with a lazy demand because
@@ -112,6 +112,7 @@ dmdAnal env dmd e
 	-- c) The application rule wouldn't be right either
 	--    Evaluating (f x) in a L demand does *not* cause
 	--    evaluation of f in a C(L) demand!
+  where fake_dmd = mkJointDmd strStr $ absd dmd
 
 dmdAnal _ _ (Lit lit) = (topDmdType, Lit lit)
 dmdAnal _ _ (Type ty) = (topDmdType, Type ty)	-- Doesn't happen, in fact
@@ -155,10 +156,10 @@ dmdAnal sigs dmd (App fun (Coercion co))
 dmdAnal env dmd (App fun arg)	-- Non-type arguments
   = let				-- [Type arg handled above]
 	(fun_ty, fun') 	  = dmdAnal env (mkCallDmd dmd) fun
-	(arg_ty, arg') 	  = dmdAnal env arg_dmd arg
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
+	(arg_ty, arg') 	  = dmdAnal env arg_dmd arg
     in
-    -- pprTrace "dmdAnal-App" (vcat [ppr res_ty, ppr arg_ty, ppr $ both res_ty arg_ty]) $
+    -- pprTrace "dmdAnal-App" (vcat [ppr fun, ppr fun_ty]) $
     (res_ty `both` arg_ty, App fun' arg')
 
 dmdAnal env dmd (Lam var body)
@@ -353,7 +354,8 @@ dmdTransform env var dmd
 
 ------ 	DATA CONSTRUCTOR
   | isDataConWorkId var		-- Data constructor
-  = let 
+  = -- pprTrace "dmdTransform-Data" (vcat [ppr var, ppr env, ppr dmd]) $
+    let 
 	StrictSig dmd_ty    = idStrictness var	-- It must have a strictness sig
 	DmdType _ _ con_res = dmd_ty
 	arity		    = idArity var
@@ -375,7 +377,7 @@ dmdTransform env var dmd
                     then replicateDmd arity res_dmd
                     else splitProdDmd res_dmd
 	in
-	mkDmdType emptyDmdEnv arg_ds con_res
+	cardTransfrom $ mkDmdType emptyDmdEnv arg_ds con_res
 		-- Must remember whether it's a product, hence con_res, not TopRes
     else
 	topDmdType
@@ -383,30 +385,42 @@ dmdTransform env var dmd
 ------ 	IMPORTED FUNCTION
   | isGlobalId var,		-- Imported function
     let StrictSig dmd_ty = idStrictness var
-  = if dmdTypeDepth dmd_ty <= call_depth then	-- Saturated, so unleash the demand
-	dmd_ty
+  = -- pprTrace "dmdTransform-GlobalId" (vcat [ppr var, ppr env, ppr dmd]) $
+    if dmdTypeDepth dmd_ty <= call_depth then	-- Saturated, so unleash the demand
+	cardTransfrom dmd_ty
     else
 	topDmdType
 
 ------ 	LOCAL LET/REC BOUND THING
   | Just (StrictSig dmd_ty, top_lvl) <- lookupSigEnv env var
-  = let
+  = -- pprTrace "dmdTransform-Local" (vcat [ppr var, ppr env, ppr dmd]) $
+    let
 	fn_ty | dmdTypeDepth dmd_ty <= call_depth = dmd_ty 
 	      | otherwise   		          = deferType dmd_ty
 	-- NB: it's important to use deferType, and not just return topDmdType
 	-- Consider	let { f x y = p + x } in f 1
 	-- The application isn't saturated, but we must nevertheless propagate 
 	--	a lazy demand for p!  
+
+        -- Cardinality demand transfomer:
+        -- Single-used arguments and free variables  
+        -- are used once only if the result is used once        
+        final_ty = cardTransfrom fn_ty
     in
-    if isTopLevel top_lvl then fn_ty	-- Don't record top level things
-    else addVarDmd fn_ty var dmd
+    if isTopLevel top_lvl then final_ty	-- Don't record top level things
+    else addVarDmd final_ty var dmd
 
 ------ 	LOCAL NON-LET/REC BOUND THING
   | otherwise	 		-- Default case
-  = unitVarDmd var dmd
+  = -- pprTrace "dmdTransform-Other" (vcat [ppr var, ppr env, ppr dmd]) $
+    unitVarDmd var dmd
 
   where
     (call_depth, res_dmd) = splitCallDmd dmd
+    is_single_shot        = isSingleShot res_dmd
+    cardTransfrom d_ty    = if is_single_shot 
+                            then d_ty
+                            else markAsUsedType d_ty    
 
 \end{code}
 
@@ -490,7 +504,8 @@ dmdAnalRhs :: TopLevelFlag -> RecFlag
 -- Process the RHS of the binding, add the strictness signature
 -- to the Id, and augment the environment with the signature as well.
 dmdAnalRhs top_lvl rec_flag env (id, rhs)
- = (sigs', lazy_fv, (id', rhs'))
+ = -- pprTrace "dmdAnalRhs" (vcat [ppr id, ppr lazy_fv]) $
+   (sigs', lazy_fv, (id', rhs'))
  where
   arity		     = idArity id   -- The idArity should be up to date
 				    -- The simplifier was run just beforehand
@@ -637,11 +652,12 @@ mk_sig_ty thunk_cpr_ok rhs (DmdType fv dmds res)
   = (lazy_fv, mkStrictSig dmd_ty)
 	-- Re unused never_inline, see Note [NOINLINE and strictness]
   where
-    dmd_ty = mkDmdType strict_fv dmds res'
+    dmd_ty = mkDmdType unleashed_fv dmds res'
 
-    -- See Note [Lazy and strict free variables]
-    lazy_fv   = filterUFM (not . isStrictDmd) fv
-    strict_fv = filterUFM isStrictDmd         fv
+    -- See Note [Lazy and unleasheable free variables]
+    lazy_fv      = filterUFM (not . can_be_unleahsed) fv
+    unleashed_fv = filterUFM can_be_unleahsed         fv
+    can_be_unleahsed d = isStrictDmd d || isSingleShot d 
 
         -- final_dmds = setUnpackStrategy dmds
 	-- Set the unpacking strategy
@@ -776,10 +792,10 @@ strictness.  For example, if you have a function implemented by an
 error stub, but which has RULES, you may want it not to be eliminated
 in favour of error!
 
-Note [Lazy and strict free variables]
+Note [Lazy and unleasheable free variables]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-We put the strict FVs in the DmdType of the Id, so 
+We put the strict and once-used FVs in the DmdType of the Id, so 
 that at its call sites we unleash demands on its strict fvs.
 An example is 'roll' in imaginary/wheel-sieve2
 Something like this:
