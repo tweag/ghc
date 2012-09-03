@@ -19,10 +19,10 @@ module TcSMonad (
 
     updWorkListTcS, updWorkListTcS_return,
     
-    getTcSImplics, updTcSImplics, emitTcSImplication, 
+    updTcSImplics, 
 
     Ct(..), Xi, tyVarsOfCt, tyVarsOfCts, 
-    emitFrozenError,
+    emitInsoluble,
 
     isWanted, isDerived, 
     isGivenCt, isWantedCt, isDerivedCt, pprFlavorArising,
@@ -32,7 +32,7 @@ module TcSMonad (
 
     TcS, runTcS, runTcSWithEvBinds, failTcS, panicTcS, traceTcS, -- Basic functionality 
     traceFireTcS, bumpStepCountTcS, 
-    tryTcS, nestImplicTcS, recoverTcS,
+    tryTcS, nestTcS, nestImplicTcS, recoverTcS,
     wrapErrTcS, wrapWarnTcS,
 
     -- Getting and setting the flattening cache
@@ -816,8 +816,8 @@ extractRelevantInerts wi
             where
               fam_head = mkTyConApp (cc_fun ct) (cc_tyargs ct)
 
-        extract_ics_relevants (CHoleCan {}) ics =
-            = pprPanic "extractRelevantInerts" (ppr wi
+        extract_ics_relevants (CHoleCan {}) ics
+            = pprPanic "extractRelevantInerts" (ppr wi)
               -- Holes are put straight into inert_frozen, so never get here
 
         extract_ics_relevants (CIrredEvCan { }) ics = 
@@ -902,7 +902,6 @@ data TcSEnv
       tcs_ty_binds :: IORef (TyVarEnv (TcTyVar, TcType)),
           -- Global type bindings
                      
-      tcs_ic_depth   :: Int,       -- Implication nesting depth
       tcs_count      :: IORef Int, -- Global step count
 
       tcs_inerts   :: IORef InertSet, -- Current inert set
@@ -968,9 +967,7 @@ traceFireTcS depth doc
   = TcS $ \env -> 
     TcM.ifDOptM Opt_D_dump_cs_trace $ 
     do { n <- TcM.readTcRef (tcs_count env)
-       ; let msg = int n 
-                <> text (replicate (tcs_ic_depth env) '>')
-                <> brackets (int depth) <+> doc
+       ; let msg = int n <> brackets (int depth) <+> doc
        ; TcM.dumpTcRn msg }
 
 runTcS :: TcS a		       -- What to run
@@ -992,7 +989,6 @@ runTcSWithEvBinds ev_binds_var tcs
        ; let env = TcSEnv { tcs_ev_binds = ev_binds_var
                           , tcs_ty_binds = ty_binds_var
 			  , tcs_count    = step_count
-			  , tcs_ic_depth = 0
                           , tcs_inerts   = inert_var
                           , tcs_worklist    = panic "runTcS: worklist"
                           , tcs_implics     = panic "runTcS: implics" }
@@ -1041,13 +1037,11 @@ checkForCyclicBinds ev_binds
 nestImplicTcS :: EvBindsVar -> Untouchables -> InertSet -> TcS a -> TcS a 
 nestImplicTcS ref inner_untch inerts (TcS thing_inside) 
   = TcS $ \ TcSEnv { tcs_ty_binds = ty_binds
-                   , tcs_count = count
-                   , tcs_ic_depth = idepth } -> 
+                   , tcs_count = count } -> 
     do { new_inert_var <- TcM.newTcRef inerts
        ; let nest_env = TcSEnv { tcs_ev_binds    = ref
                                , tcs_ty_binds    = ty_binds
                                , tcs_count       = count
-                               , tcs_ic_depth    = idepth+1
                                , tcs_inerts      = new_inert_var
                                , tcs_worklist    = panic "nextImplicTcS: worklist"
                                , tcs_implics     = panic "nextImplicTcS: implics"
@@ -1069,23 +1063,35 @@ recoverTcS (TcS recovery_code) (TcS thing_inside)
   = TcS $ \ env ->
     TcM.recoverM (recovery_code env) (thing_inside env)
 
+nestTcS ::  TcS a -> TcS a 
+-- Use the current untouchables, augmenting the current
+-- evidence bindings, ty_binds, and solved caches
+-- But have no effect on the InertCans or insolubles
+nestTcS (TcS thing_inside) 
+  = TcS $ \ env@(TcSEnv { tcs_inerts = inerts_var }) ->
+    do { inerts <- TcM.readTcRef inerts_var
+       ; new_inert_var <- TcM.newTcRef inerts
+       ; let nest_env = env { tcs_inerts   = new_inert_var
+                            , tcs_worklist = panic "nextImplicTcS: worklist"
+                            , tcs_implics  = panic "nextImplicTcS: implics" }
+       ; thing_inside nest_env }
+
 tryTcS :: TcS a -> TcS a
 -- Like runTcS, but from within the TcS monad 
 -- Completely afresh inerts and worklist, be careful! 
 -- Moreover, we will simply throw away all the evidence generated. 
-tryTcS tcs
-  = TcS (\env -> 
-             do { wl_var <- TcM.newTcRef emptyWorkList
-                ; is_var <- TcM.newTcRef emptyInert
+tryTcS (TcS thing_inside)
+  = TcS $ \env -> 
+    do { is_var <- TcM.newTcRef emptyInert
+       ; ty_binds_var <- TcM.newTcRef emptyVarEnv
+       ; ev_binds_var <- TcM.newTcEvBinds
 
-                ; ty_binds_var <- TcM.newTcRef emptyVarEnv
-                ; ev_binds_var <- TcM.newTcEvBinds
-
-                ; let env1 = env { tcs_ev_binds = ev_binds_var
-                                 , tcs_ty_binds = ty_binds_var
-                                 , tcs_inerts   = is_var
-                                 , tcs_worklist = wl_var } 
-                ; unTcS tcs env1 })
+       ; let nest_env = env { tcs_ev_binds = ev_binds_var
+                            , tcs_ty_binds = ty_binds_var
+                            , tcs_inerts   = is_var
+                            , tcs_worklist = panic "nextImplicTcS: worklist"
+                            , tcs_implics  = panic "nextImplicTcS: implics" }
+       ; thing_inside nest_env }
 
 -- Getters and setters of TcEnv fields
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1098,13 +1104,6 @@ getTcSWorkListRef :: TcS (IORef WorkList)
 getTcSWorkListRef = TcS (return . tcs_worklist) 
 getTcSInerts :: TcS InertSet 
 getTcSInerts = getTcSInertsRef >>= wrapTcS . (TcM.readTcRef) 
-
-
-getTcSImplicsRef :: TcS (IORef (Bag Implication))
-getTcSImplicsRef = TcS (return . tcs_implics) 
-
-getTcSImplics :: TcS (Bag Implication)
-getTcSImplics = getTcSImplicsRef >>= wrapTcS . (TcM.readTcRef)
 
 updWorkListTcS :: (WorkList -> WorkList) -> TcS () 
 updWorkListTcS f 
@@ -1143,29 +1142,26 @@ withWorkList work_items (TcS thing_inside)
 updTcSImplics :: (Bag Implication -> Bag Implication) -> TcS ()
 updTcSImplics f 
  = do { impl_ref <- getTcSImplicsRef
-      ; implics <- wrapTcS (TcM.readTcRef impl_ref)
-      ; let new_implics = f implics
-      ; wrapTcS (TcM.writeTcRef impl_ref new_implics) }
+      ; wrapTcS $ do { implics <- TcM.readTcRef impl_ref
+                     ; TcM.writeTcRef impl_ref (f implics) } }
 
-emitTcSImplication :: Implication -> TcS ()
-emitTcSImplication imp = updTcSImplics (consBag imp)
-
-
-emitFrozenError :: CtEvidence -> SubGoalDepth -> TcS ()
+emitInsoluble :: Ct -> TcS ()
 -- Emits a non-canonical constraint that will stand for a frozen error in the inerts. 
-emitFrozenError fl depth 
-  = do { traceTcS "Emit frozen error" (ppr (ctEvPred fl))
+emitInsoluble ct
+  = do { traceTcS "Emit insoluble" (ppr ct)
        ; updInertTcS add_insol }
   where
     add_insol inerts@(IS { inert_insols = old_insols })
       | already_there = inerts
-      | otherwise     = inerts { inert_insols = extendCts old_insols insol_ct }
+      | otherwise     = inerts { inert_insols = extendCts old_insols ct }
       where
-        already_there = not (isWanted fl) && anyBag (eqType this_pred . ctPred) old_insols
+        already_there = not (isWantedCt ct) && anyBag (eqType this_pred . ctPred) old_insols
 	     -- See Note [Do not add duplicate derived insolubles]
 
-    insol_ct = CNonCanonical { cc_ev = fl, cc_depth = depth } 
-    this_pred = ctEvPred fl
+    this_pred = ctPred ct
+
+getTcSImplicsRef :: TcS (IORef (Bag Implication))
+getTcSImplicsRef = TcS (return . tcs_implics) 
 
 getTcEvBinds :: TcS EvBindsVar
 getTcEvBinds = TcS (return . tcs_ev_binds) 
@@ -1199,6 +1195,7 @@ setWantedTyBind tv ty
                   vcat [ text "TERRIBLE ERROR: double set of meta type variable"
                        , ppr tv <+> text ":=" <+> ppr ty
                        , text "Old value =" <+> ppr (lookupVarEnv_NF ty_binds tv)]
+            ; TcM.traceTc "setWantedTyBind" (ppr tv <+> text ":=" <+> ppr ty)
             ; TcM.writeTcRef ref (extendVarEnv ty_binds tv (tv,ty)) } }
 \end{code}
 

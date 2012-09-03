@@ -8,7 +8,7 @@
 -- for details
 
 module TcErrors( 
-       reportUnsolved, ErrEnv,
+       reportUnsolved, reportAllUnsolved,
        warnDefaulting,
 
        flattenForAllErrorTcS,
@@ -44,7 +44,6 @@ import FastString
 import Outputable
 import DynFlags
 import Data.List        ( partition, mapAccumL )
-import UniqFM
 \end{code}
 
 %************************************************************************
@@ -57,22 +56,68 @@ ToDo: for these error messages, should we note the location as coming
 from the insts, or just whatever seems to be around in the monad just
 now?
 
-\begin{code}
--- We keep an environment mapping coercion ids to the error messages they
--- trigger; this is handy for -fwarn--type-errors
-type ErrEnv = VarEnv [ErrMsg]
+Note [Deferring coercion errors to runtime]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+While developing, sometimes it is desirable to allow compilation to succeed even
+if there are type errors in the code. Consider the following case:
 
+  module Main where
+
+  a :: Int
+  a = 'a'
+
+  main = print "b"
+
+Even though `a` is ill-typed, it is not used in the end, so if all that we're
+interested in is `main` it is handy to be able to ignore the problems in `a`.
+
+Since we treat type equalities as evidence, this is relatively simple. Whenever
+we run into a type mismatch in TcUnify, we normally just emit an error. But it
+is always safe to defer the mismatch to the main constraint solver. If we do
+that, `a` will get transformed into
+
+  co :: Int ~ Char
+  co = ...
+
+  a :: Int
+  a = 'a' `cast` co
+
+The constraint solver would realize that `co` is an insoluble constraint, and
+emit an error with `reportUnsolved`. But we can also replace the right-hand side
+of `co` with `error "Deferred type error: Int ~ Char"`. This allows the program
+to compile, and it will run fine unless we evaluate `a`. This is what
+`deferErrorsToRuntime` does.
+
+It does this by keeping track of which errors correspond to which coercion
+in TcErrors. TcErrors.reportTidyWanteds does not print the errors
+and does not fail if -fwarn-type-errors is on, so that we can continue
+compilation. The errors are turned into warnings in `reportUnsolved`.
+
+\begin{code}
 reportUnsolved :: WantedConstraints -> TcM (Bag EvBind)
 reportUnsolved wanted
+  = do { binds_var <- newTcEvBinds
+       ; defer <- doptM Opt_DeferTypeErrors
+       ; report_unsolved (Just binds_var) defer wanted
+       ; getTcEvBinds binds_var }
+
+reportAllUnsolved :: WantedConstraints -> TcM ()
+-- Report all unsolved goals, even if -fdefer-type-errors is on
+-- See Note [Deferring coercion errors to runtime]
+reportAllUnsolved wanted 
+  = report_unsolved Nothing (panic "reportAllUnsolved") wanted
+
+report_unsolved :: Maybe EvBindsVar  -- cec_binds
+                -> Bool              -- cec_defer
+                -> WantedConstraints -> TcM ()
+report_unsolved mb_binds_var defer wanted
   | isEmptyWC wanted
-  = return emptyBag
+  = return ()
   | otherwise
   = do {   -- Zonk to un-flatten any flatten-skols
          wanted  <- zonkWC wanted
 
        ; env0 <- tcInitTidyEnv
-       ; defer <- newTcEvBinds
-
        ; errs_so_far <- ifErrsM (return True) (return False)
        ; let tidy_env = tidyFreeTyVars env0 free_tvs
              free_tvs = tyVarsOfWC wanted
@@ -83,14 +128,14 @@ reportUnsolved wanted
                                           -- to report
                             , cec_extra = empty
                             , cec_tidy  = tidy_env
-                            , cec_defer = Just defer }
+                            , cec_defer = defer
+                            , cec_binds = mb_binds_var }
 
        ; traceTc "reportUnsolved:" (vcat [ pprTvBndrs (varSetElems free_tvs)
                                          , ppr wanted ])
 
-       ; reportWanteds err_ctxt wanted
+       ; reportWanteds err_ctxt wanted }
 
-       ; getTcEvBinds defer }
 
 --------------------------------------------
 --      Internal functions
@@ -104,10 +149,14 @@ data ReportErrCtxt
           , cec_extra :: SDoc       -- Add this to each error message
           , cec_insol :: Bool       -- True <=> do not report errors involving 
                                     --          ambiguous errors
-          , cec_defer :: Maybe EvBindsVar 
-                         -- Nothinng <=> errors are, well, errors
-                         -- Just ev  <=> make errors into warnings, and emit evidence
-                         --              bindings into 'ev' for unsolved constraints
+
+          , cec_binds :: Maybe EvBindsVar 
+                         -- Nothinng <=> Report all errors, including holes; no bindings
+                         -- Just ev  <=> make some errors (depending on cec_defer)
+                         --              into warnings, and emit evidence bindings
+                         --              into 'ev' for unsolved constraints
+          , cec_defer :: Bool       -- True <=> -fdefer-type-errors
+                                    -- Irrelevant if cec_binds = Nothing
       }
 
 reportImplic :: ReportErrCtxt -> Implication -> TcM ()
@@ -129,40 +178,44 @@ reportImplic ctxt implic@(Implic { ic_skols = tvs, ic_given = given
                      , ic_loc   = tidyGivenLoc env1 loc }
     ctxt' = ctxt { cec_tidy  = env1
                  , cec_encl  = implic' : cec_encl ctxt
-                 , cec_defer = case cec_defer ctxt of
+                 , cec_binds = case cec_binds ctxt of
                                  Nothing -> Nothing
                                  Just {} -> Just evb }
 
 reportWanteds :: ReportErrCtxt -> WantedConstraints -> TcM ()
 reportWanteds ctxt (WC { wc_flat = flats, wc_insol = insols, wc_impl = implics })
-  = reportTidyWanteds ctxt tidy_all implics
+  = do { reportOrDefer ctxt tidy_cts
+       ; mapBagM_ (reportImplic ctxt) implics }
   where
     env = cec_tidy ctxt
-    tidy_all = mapBag (tidyCt env) (insols `unionBags` flats)
+    tidy_cts = mapBag (tidyCt env) (insols `unionBags` flats)
                   -- All the Derived ones have been filtered out alrady
                   -- by the constraint solver. This is ok; we don't want
                   -- to report unsolved Derived goals as error
                   -- See Note [Do not report derived but soluble errors]
 
-reportTidyWanteds :: ReportErrCtxt -> Cts -> Bag Implication -> TcM ()
-reportTidyWanteds ctxt flats implics
-  | Just ev_binds_var <- cec_defer ctxt
-  = do { -- Defer errors to runtime
-         -- See Note [Deferring coercion errors to runtime] in TcSimplify
-         mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr) flats
-       ; mapBagM_ (reportImplic ctxt) implics }
+reportOrDefer :: ReportErrCtxt -> Cts -> TcM ()
+reportOrDefer ctxt@(CEC { cec_binds = mb_binds_var
+                        , cec_defer = defer_errs }) cts
+  | Just ev_binds_var <- mb_binds_var
+  , defer_errs  -- -fdefer-type-errors: Defer all
+                -- See Note [Deferring coercion errors to runtime]
+  = mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr) cts
 
-  | otherwise
-  = do { reportFlats ctxt others
-       ; mapBagM_ (deferToRuntime ev_binds_var mkHoleDeferredError) holes
-       ; mapBagM_ (reportImplic ctxt) implics }
-  where
-    (holes, others) = partitionBag isHoleCt flats
+  | Just ev_binds_var <- mb_binds_var
+                -- No -fdefer-type-errors: Defer only holes
+                -- See Note [Deferring coercion errors to runtime]
+  = do { let (holes, non_holes) = partitionBag isHoleCt cts
+       ; reportFlats ctxt non_holes
+       ; mapBagM_ (deferToRuntime ev_binds_var ctxt mkFlatErr) holes }
       -- Thijs had something about extending the tidy-env, but I don't know why
-             
+
+  | otherwise   -- Defer nothing
+  = reportFlats ctxt cts
 
 deferToRuntime :: EvBindsVar -> ReportErrCtxt -> (ReportErrCtxt -> Ct -> TcM ErrMsg) 
                -> Ct -> TcM ()
+-- See Note [Deferring coercion errors to runtime]
 deferToRuntime ev_binds_var ctxt mk_err_msg ct 
   | CtWanted { ctev_wloc = loc, ctev_pred = pred, ctev_evar = ev_id } <- cc_ev ct
   = do { err <- setCtLoc loc $
@@ -188,6 +241,7 @@ reportFlats ctxt flats    -- Here 'flats' includes insolble goals
         -- Like Int ~ Bool (incl nullary TyCons)
         -- or  Int ~ t a   (AppTy on one side)
         ("Utterly wrong",  utterly_wrong,   groupErrs (mkEqErr ctxt))
+      , ("Holes",          is_hole,         mkReporter (mkHoleError ctxt))
 
         -- Report equalities of form (a~ty).  They are usually
         -- skolem-equalities, and they cause confusing knock-on 
@@ -202,6 +256,8 @@ reportFlats ctxt flats    -- Here 'flats' includes insolble goals
 
     utterly_wrong _ (EqPred ty1 ty2) = isRigid ty1 && isRigid ty2 
     utterly_wrong _ _ = False
+
+    is_hole ct _ = isHoleCt ct
 
     skolem_eq _ (EqPred ty1 ty2) = isRigidOrSkol ty1 && isRigidOrSkol ty2 
     skolem_eq _ _ = False
@@ -261,10 +317,12 @@ tryReporters reporters deflt cts
 mkFlatErr :: ReportErrCtxt -> Ct -> TcM ErrMsg
 -- Context is already set
 mkFlatErr ctxt ct   -- The constraint is always wanted
-  | isIPPred (ctPred ct) = mkIPErr    ctxt [ct]
+  | isHoleCt ct
+  = mkHoleError ctxt ct
   | otherwise
   = case classifyPredType (ctPred ct) of
-      ClassPred {}  -> mkDictErr  ctxt [ct]
+      ClassPred cls _ | isIPClass cls -> mkIPErr   ctxt [ct]
+                      | otherwise     -> mkDictErr ctxt [ct]
       IrredPred {}  -> mkIrredErr ctxt [ct]
       EqPred {}     -> mkEqErr1 ctxt ct
       TuplePred {}  -> panic "mkFlat"
@@ -442,8 +500,8 @@ mkIrredErr ctxt cts
 \end{code}
 
 \begin{code}
-mkHoleDeferredError :: ReportErrCtxt -> Ct -> TcM ErrMsg
-mkHoleDeferredError ctxt ct@(CHoleCan {})
+mkHoleError :: ReportErrCtxt -> Ct -> TcM ErrMsg
+mkHoleError ctxt ct@(CHoleCan {})
   = do { let env0 = cec_tidy ctxt
        ; let vars = tyVarsOfCt ct
 
@@ -457,7 +515,7 @@ mkHoleDeferredError ctxt ct@(CHoleCan {})
 
        ; (env3, lenv_msg) <- ppr_localenv lenv env2
 
-       ; traceTc "mkHoleDeferredError" (ppr env3)
+       ; traceTc "mkHoleError" (ppr env3)
 
        ; let msg = (text "Found hole" <+> quotes (text "_") <+> text "with type") <+> pprType zonked_ty
                    $$ (if null tyvars_msg then empty else text "Where:" <+> vcat tyvars_msg)
@@ -474,7 +532,7 @@ mkHoleDeferredError ctxt ct@(CHoleCan {})
                                         (Indirect ty) -> (quotes $ pprType ty) <+> skol_msg
                                         Flexi -> (quotes $ ppr tv) <+> text "is a free type variable"
                                     }
-                    det -> return $ ppr det
+                    det -> return $ pprTcTyVarDetails det
                 where skol_msg = ppr_skol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
 
     ppr_skol given_loc tv_loc = case skol_info of
@@ -485,7 +543,7 @@ mkHoleDeferredError ctxt ct@(CHoleCan {})
        skol_info = ctLocOrigin given_loc
 
     ppr_localenv :: TcTypeEnv -> TidyEnv -> TcM (TidyEnv, [SDoc])
-    ppr_localenv lenv tidyenv = do { let bound = catMaybes $ map (get_thing.snd) $ ufmToList lenv
+    ppr_localenv lenv tidyenv = do { let bound = catMaybes $ map get_thing $ nameEnvElts lenv
                                    ; (finalenv, zonked_bound) <- foldlM tidy_bind (tidyenv, []) bound
                                    ; return (finalenv, map ppr_local_bind zonked_bound)
                                    }
@@ -500,7 +558,7 @@ mkHoleDeferredError ctxt ct@(CHoleCan {})
     ppr_local_bind :: (Var, Type) -> SDoc
     ppr_local_bind (nm, ty) = ppr nm <+> dcolon <+> pprType ty
 
-mkHoleDeferredError _ ct = pprPanic "mkHoleDeferredError" (ppr ct)
+mkHoleError _ ct = pprPanic "mkHoleError" (ppr ct)
 \end{code}
 
 %************************************************************************

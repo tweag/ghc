@@ -53,7 +53,6 @@ import Unique( hasKey )
 import UniqFM
 import FastString ( sLit ) 
 import DynFlags
-
 import Util
 \end{code}
 **********************************************************************
@@ -614,11 +613,6 @@ data InteractResult
     | IRInertConsumed    { ir_fire :: String }    -- Inert item consumed, keep going with work item 
     | IRKeepGoing        { ir_fire :: String }    -- Inert item remains, keep going with work item
 
-instance Outputable InteractResult where
-  ppr (IRWorkItemConsumed str) = ptext (sLit "IRWorkItemConsumed ") <+> text str
-  ppr (IRInertConsumed str) = ptext (sLit "IRInertConsumed ") <+> text str
-  ppr (IRKeepGoing str) = ptext (sLit "IRKeepGoing ") <+> text str
-
 interactWithInertsStage :: WorkItem -> TcS StopOrContinue 
 -- Precondition: if the workitem is a CTyEqCan then it will not be able to 
 -- react with anything at this stage. 
@@ -762,6 +756,7 @@ doInteractWithInert ii@(CFunEqCan { cc_ev = ev1, cc_fun = tc1
     fl2 = ctEvFlavour ev2
     
 doInteractWithInert _ _ = return (IRKeepGoing "NOP")
+
 \end{code}
 
 

@@ -644,10 +644,10 @@ zonkWC (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
 zonkCt :: Ct -> TcM Ct 
 -- Zonking a Ct conservatively gives back a CNonCanonical
 zonkCt ct
-  | isCHoleCan ct = do { fl' <- zonkCtEvidence (cc_ev ct)
-                       ; return $ ct { cc_ev = fl' } }
-  | otherwise     = do { fl' <- zonkCtEvidence (cc_ev ct)
-                       ; return $
+  | isHoleCt ct = do { fl' <- zonkCtEvidence (cc_ev ct)
+                     ; return $ ct { cc_ev = fl' } }
+  | otherwise   = do { fl' <- zonkCtEvidence (cc_ev ct)
+                     ; return $
                          CNonCanonical { cc_ev = fl'
                                        , cc_depth = cc_depth ct } }
 

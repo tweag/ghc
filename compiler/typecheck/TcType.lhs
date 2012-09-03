@@ -312,13 +312,6 @@ data TcTyVarDetails
            , mtv_ref   :: IORef MetaDetails
            , mtv_untch :: Untouchables }  -- See Note [Untouchable type variables]
 
-
-instance Outputable TcTyVarDetails where
-  ppr (SkolemTv b)    = ptext (sLit "SkolemTv") <+> ppr b
-  ppr RuntimeUnk      = ptext (sLit "RuntimeUnk")
-  ppr (FlatSkol ty)   = ptext (sLit "FlatSkol") <+> ppr ty
-  ppr (MetaTv info _) = ptext (sLit "MetaTv") <+> ppr info
-
 vanillaSkolemTv, superSkolemTv :: TcTyVarDetails
 -- See Note [Binding when looking up instances] in InstEnv
 vanillaSkolemTv = SkolemTv False  -- Might be instantiated
@@ -402,11 +395,6 @@ data MetaInfo
 -- UserTypeCtxt describes the origin of the polymorphic type
 -- in the places where we need to an expression has that type
 
-instance Outputable MetaInfo where
-  ppr TauTv = ptext (sLit "TauTv")
-  ppr SigTv = ptext (sLit "SigTv")
-  ppr TcsTv = ptext (sLit "TcsTv")
-
 data UserTypeCtxt
   = FunSigCtxt Name	-- Function type signature
 			-- Also used for types in SPECIALISE pragmas
@@ -449,7 +437,6 @@ data UserTypeCtxt
 -- will become	type T = forall a. a->a
 --
 -- With gla-exts that's right, but for H98 we should complain. 
-\end{code}
 
 %************************************************************************
 %*									*

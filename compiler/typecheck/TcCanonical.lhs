@@ -195,8 +195,9 @@ canonicalize (CIrredEvCan { cc_ev = fl
                           , cc_depth = d
                           , cc_ty = xi })
   = canIrred d fl xi
-canonicalize c@(CHoleCan {})
-  = continueWith c
+canonicalize ct@(CHoleCan {})
+  = do { emitInsoluble ct
+       ; return Stop }
 
 canEvNC :: SubGoalDepth 
         -> CtEvidence 
@@ -818,7 +819,9 @@ canEqAppTy d fl s1 t1 s2 t2
        ; canEvVarsCreated d ctevs }
 
 canEqFailure :: SubGoalDepth -> CtEvidence -> TcS StopOrContinue
-canEqFailure d fl = do { emitFrozenError fl d; return Stop }
+canEqFailure d fl 
+  = do { emitInsoluble (CNonCanonical { cc_ev = fl, cc_depth = d }) 
+       ; return Stop }
 
 ------------------------
 emitKindConstraint :: Ct -> TcS StopOrContinue
