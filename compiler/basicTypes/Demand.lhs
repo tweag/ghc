@@ -306,9 +306,9 @@ instance LatticeLike AbsDmd where
   both (UHead _) (UProd _ ux)      = UProd Many ux
   both (UProd _ ux1) (UProd _ ux2)
      | length ux1 == length ux2    = absProd Many $ zipWith both ux1 ux2
-  -- is it correct? 
-  -- both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
-  both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `both` u2)
+  -- is it correct? -- explain! 
+  both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
+  --both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `both` u2)
   both _ _                         = top
 
 -- utility functions
@@ -532,7 +532,7 @@ should be: <L,C(U(AU))>m
 
 mkCallDmd :: JointDmd -> JointDmd
 mkCallDmd (JD {strd = d, absd = a}) 
-          = mkJointDmd (strCall d) (absCall Many a)
+          = mkJointDmd (strCall d) (absCall One a)
 
 -- TODO: think how to peel
 peelCallDmd :: JointDmd -> Maybe JointDmd
@@ -556,11 +556,13 @@ isSingleShot :: JointDmd -> Bool
 isSingleShot (JD {absd=a}) = isUsedOnce a
   
 vanillaCall :: Arity -> Demand
-vanillaCall 0 = evalDmd
+vanillaCall 0 = 
+      -- we have no ide how many times the result is going to be used
+      evalDmd
 vanillaCall n =
-  -- generate S^n (S)  
+  -- generate C^n (S)  
   let strComp = (iterate strCall strStr) !! n
-      absComp = (iterate (absCall Many) usedOnce) !! n
+      absComp = (iterate (absCall One) usedOnce) !! n
    in mkJointDmd strComp absComp
 
 \end{code}

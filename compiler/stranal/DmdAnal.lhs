@@ -393,7 +393,7 @@ dmdTransform env var dmd
 
 ------ 	LOCAL LET/REC BOUND THING
   | Just (StrictSig dmd_ty, top_lvl) <- lookupSigEnv env var
-  = -- pprTrace "dmdTransform-Local" (vcat [ppr var, ppr env, ppr dmd]) $
+  = pprTrace "dmdTransform-Local" (vcat [ppr var, ppr dmd, ppr dmd_ty]) $
     let
 	fn_ty | dmdTypeDepth dmd_ty <= call_depth = dmd_ty 
 	      | otherwise   		          = deferType dmd_ty
