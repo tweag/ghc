@@ -309,7 +309,7 @@ instance LatticeLike AbsDmd where
   -- is it correct? -- explain! 
   -- possibly, wrong...
   both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
-  -- both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `both` u2)
+  --both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `both` u2)
   both _ _                         = top
 
 -- utility functions
