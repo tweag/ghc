@@ -393,10 +393,10 @@ dmdTransform env var dmd
 
 ------ 	LOCAL LET/REC BOUND THING
   | Just (StrictSig dmd_ty, top_lvl) <- lookupSigEnv env var
-  = pprTrace "dmdTransform-Local" (vcat [ppr var, ppr dmd, ppr dmd_ty]) $
+  = -- pprTrace "dmdTransform-Local" (vcat [ppr var, ppr dmd, ppr dmd_ty]) $
     let
 	fn_ty | dmdTypeDepth dmd_ty <= call_depth = dmd_ty 
-	      | otherwise   		          = deferType dmd_ty
+	      | otherwise   		          = (deferType . markAsUsedType) dmd_ty
 	-- NB: it's important to use deferType, and not just return topDmdType
 	-- Consider	let { f x y = p + x } in f 1
 	-- The application isn't saturated, but we must nevertheless propagate 
@@ -509,6 +509,7 @@ dmdAnalRhs top_lvl rec_flag env (id, rhs)
  where
   arity		     = idArity id   -- The idArity should be up to date
 				    -- The simplifier was run just beforehand
+  
   (rhs_dmd_ty, rhs') = dmdAnal env (vanillaCall arity) rhs
   (lazy_fv, sig_ty)  = WARN( arity /= dmdTypeDepth rhs_dmd_ty && not (exprIsTrivial rhs), ppr id )
                        -- The RHS can be eta-reduced to just a variable, 

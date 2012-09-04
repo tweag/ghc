@@ -308,8 +308,8 @@ instance LatticeLike AbsDmd where
      | length ux1 == length ux2    = absProd Many $ zipWith both ux1 ux2
   -- is it correct? -- explain! 
   -- possibly, wrong...
-  --both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
-  both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `both` u2)
+  both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
+  -- both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `both` u2)
   both _ _                         = top
 
 -- utility functions
@@ -325,7 +325,7 @@ markAsUsed Abs         = Abs
 markAsUsed (Used _)    = Used Many
 markAsUsed (UHead _)   = UHead Many
 markAsUsed (UProd _ x) = UProd Many $ map markAsUsed x
-markAsUsed (UCall _ x) = UCall Many $ markAsUsed x
+markAsUsed (UCall _ x) = markAsUsed x
 
 seqAbsDmd :: AbsDmd -> ()
 seqAbsDmd (Used c)     = c `seq` ()
@@ -380,18 +380,6 @@ instance Binary AbsDmd where
               _ -> do c  <- get bh
                       ux <- get bh
                       return $ absProd c ux
-
-    -- get  bh = do
-    --         h <- getByte bh
-    --         case h of 
-    --           0 -> return Abs       
-    --           1 -> return Used Many
-    --           2 -> return UHead Many
-    --           3 -> do u  <- get bh
-    --                   return $ absCall Many u  
-    --           _ -> do ux <- get bh
-    --                   return $ absProd Many ux
-
 
 -- Splitting polymorphic demands
 replicateAbsDmd :: Int -> AbsDmd -> [AbsDmd]
@@ -533,7 +521,7 @@ should be: <L,C(U(AU))>m
 
 mkCallDmd :: JointDmd -> JointDmd
 mkCallDmd (JD {strd = d, absd = a}) 
-          = mkJointDmd (strCall d) (absCall Many a)
+          = mkJointDmd (strCall d) (absCall One a)
 
 -- TODO: think how to peel
 peelCallDmd :: JointDmd -> Maybe JointDmd
