@@ -9,7 +9,8 @@
 module TcSimplify( 
        simplifyInfer, simplifyAmbiguityCheck,
        simplifyDefault, simplifyDeriv, 
-       simplifyRule, simplifyTop, simplifyInteractive
+       simplifyRule, simplifyTop, simplifyInteractive,
+       solveWantedsTcM
   ) where
 
 #include "HsVersions.h"
@@ -53,8 +54,6 @@ import TrieMap () -- DV: for now
 
 
 \begin{code}
-
-
 simplifyTop :: WantedConstraints -> TcM (Bag EvBind)
 -- Simplify top-level constraints
 -- Usually these will be implications,
@@ -140,7 +139,7 @@ More details in Note [DefaultTyVar].
 simplifyAmbiguityCheck :: Name -> WantedConstraints -> TcM (Bag EvBind)
 simplifyAmbiguityCheck name wanteds
   = traceTc "simplifyAmbiguityCheck" (text "name =" <+> ppr name) >> 
-    simplifyTop wanteds  -- NB: must be simplifyTop not simplifyCheck, so that we
+    simplifyTop wanteds  -- NB: must be simplifyTop so that we
                          --     do ambiguity resolution.  
                          -- See Note [Impedence matching] in TcBinds.
  
@@ -156,7 +155,13 @@ simplifyDefault :: ThetaType	-- Wanted; has no type variables in it
 simplifyDefault theta
   = do { traceTc "simplifyInteractive" empty
        ; wanted <- newFlatWanteds DefaultOrigin theta
-       ; _ignored_ev_binds <- simplifyCheck (mkFlatWC wanted)
+       ; (unsolved, _binds) <- solveWantedsTcM (mkFlatWC wanted)
+
+       ; traceTc "reportUnsolved {" empty
+       -- See Note [Deferring coercion errors to runtime]
+       ; reportAllUnsolved unsolved 
+       ; traceTc "reportUnsolved }" empty
+
        ; return () }
 \end{code}
 
@@ -432,12 +437,9 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
 
             -- Step 7) Emit an implication
        ; minimal_bound_ev_vars <- mapM TcMType.newEvVar minimal_flat_preds
-       ; lcl_env <- getLclTypeEnv
        ; gloc <- getCtLoc skol_info
        ; untch <- TcRnMonad.getUntouchables
-       ; uniq  <- TcRnMonad.newUnique
-       ; let implic = Implic { ic_untch    = pushUntouchables uniq untch 
-                             , ic_env      = lcl_env
+       ; let implic = Implic { ic_untch    = pushUntouchables untch 
                              , ic_skols    = qtvs_to_return
                              , ic_fsks     = []  -- wanted_tansformed arose only from solveWanteds
                                                  -- hence no flatten-skolems (which come from givens)
@@ -457,7 +459,6 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
 
        ; return ( qtvs_to_return, minimal_bound_ev_vars
                 , mr_bites,  TcEvBinds ev_binds_var) } }
-    where 
 \end{code}
 
 
@@ -562,12 +563,9 @@ simplifyRule :: RuleName
              -> TcM ([EvVar], WantedConstraints)   -- LHS evidence varaibles
 -- See Note [Simplifying RULE constraints] in TcRule
 simplifyRule name lhs_wanted rhs_wanted
-  = do { zonked_all <- zonkWC (lhs_wanted `andWC` rhs_wanted)
-       ; let doc = ptext (sLit "LHS of rule") <+> doubleQuotes (ftext name)
-             
-             	 -- We allow ourselves to unify environment 
+  = do {      	 -- We allow ourselves to unify environment 
 		 -- variables: runTcS runs with NoUntouchables
-       ; (resid_wanted, _) <- solveWantedsTcM zonked_all
+         (resid_wanted, _) <- solveWantedsTcM (lhs_wanted `andWC` rhs_wanted)
 
        ; zonked_lhs <- zonkWC lhs_wanted
 
@@ -585,7 +583,7 @@ simplifyRule name lhs_wanted rhs_wanted
                = True
              
        ; traceTc "simplifyRule" $
-         vcat [ doc
+         vcat [ ptext (sLit "LHS of rule") <+> doubleQuotes (ftext name)
               , text "zonked_lhs" <+> ppr zonked_lhs 
               , text "q_cts"      <+> ppr q_cts ]
 
@@ -600,45 +598,55 @@ simplifyRule name lhs_wanted rhs_wanted
 *                                                                                 *
 ***********************************************************************************
 
-\begin{code}
-simplifyCheck :: WantedConstraints	-- Wanted
-              -> TcM (Bag EvBind)
--- Solve a single, top-level implication constraint
--- e.g. typically one created from a top-level type signature
--- 	    f :: forall a. [a] -> [a]
---          f x = rhs
--- We do this even if the function has no polymorphism:
---    	    g :: Int -> Int
+Note [Deferring coercion errors to runtime]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+While developing, sometimes it is desirable to allow compilation to succeed even
+if there are type errors in the code. Consider the following case:
 
---          g y = rhs
--- (whereas for *nested* bindings we would not create
---  an implication constraint for g at all.)
---
--- Fails if can't solve something in the input wanteds
-simplifyCheck wanteds
-  = do { wanteds <- zonkWC wanteds
+  module Main where
 
-       ; traceTc "simplifyCheck {" (vcat
-             [ ptext (sLit "wanted =") <+> ppr wanteds ])
+  a :: Int
+  a = 'a'
 
-       ; (unsolved, eb1) <- solveWantedsTcM wanteds
+  main = print "b"
 
-       ; traceTc "simplifyCheck }" $ ptext (sLit "unsolved =") <+> ppr unsolved
+Even though `a` is ill-typed, it is not used in the end, so if all that we're
+interested in is `main` it is handy to be able to ignore the problems in `a`.
 
-       ; traceTc "reportUnsolved {" empty
-       ; eb2 <- reportUnsolved unsolved 
-       ; traceTc "reportUnsolved }" empty
+Since we treat type equalities as evidence, this is relatively simple. Whenever
+we run into a type mismatch in TcUnify, we normally just emit an error. But it
+is always safe to defer the mismatch to the main constraint solver. If we do
+that, `a` will get transformed into
 
-       ; return (eb1 `unionBags` eb2) }
-\end{code}
+  co :: Int ~ Char
+  co = ...
 
+  a :: Int
+  a = 'a' `cast` co
+
+The constraint solver would realize that `co` is an insoluble constraint, and
+emit an error with `reportUnsolved`. But we can also replace the right-hand side
+of `co` with `error "Deferred type error: Int ~ Char"`. This allows the program
+to compile, and it will run fine unless we evaluate `a`. This is what
+`deferErrorsToRuntime` does.
+
+It does this by keeping track of which errors correspond to which coercion
+in TcErrors (with ErrEnv). TcErrors.reportTidyWanteds does not print the errors
+and does not fail if -fwarn-type-errors is on, so that we can continue
+compilation. The errors are turned into warnings in `reportUnsolved`.
 
 \begin{code}
 
 solveWantedsTcM :: WantedConstraints -> TcM (WantedConstraints, Bag EvBind)
+-- Zonk the input constraints, and simplify them
 -- Return the evidence binds in the BagEvBinds result
 -- Discards all Derived stuff in result
-solveWantedsTcM wanted = runTcS (solve_wanteds_and_drop wanted)
+solveWantedsTcM wanted 
+  = do { zonked_wanted <- zonkWC wanted
+       ; traceTc "solveWantedsTcM {" (ppr zonked_wanted)
+       ; (wanteds', binds) <- runTcS (solve_wanteds_and_drop zonked_wanted)
+       ; traceTc "solveWantedsTcM end }" (ppr wanteds') 
+       ; return (wanteds', binds) }
 
 solveWantedsWithEvBinds :: EvBindsVar -> WantedConstraints -> TcM WantedConstraints
 -- Side-effect the EvBindsVar argument to add new bindings from solving
@@ -1140,7 +1148,9 @@ in the cache!
 \begin{code}
 applyTyVarDefaulting :: WantedConstraints -> TcS ()
 applyTyVarDefaulting wc 
-  = do { let tvs = varSetElems (tyVarsOfWC wc) 
+  = do { let tvs = filter isMetaTyVar (varSetElems (tyVarsOfWC wc))
+                   -- We might have runtime-skolems in GHCi, and 
+                   -- we definitely don't want to try to assign to those!
        ; traceTcS "applyTyVarDefaulting {" (ppr tvs)
        ; mapM_ defaultTyVar tvs
        ; traceTcS "applyTyVarDefaulting end }" empty }
@@ -1207,6 +1217,8 @@ findDefaultableGroups (default_tys, (ovl_strings, extended_defaults)) wanteds
     find_unary cc 
         | Just (cls,[ty]) <- getClassPredTys_maybe (ctPred cc)
         , Just tv <- tcGetTyVar_maybe ty
+        , isMetaTyVar tv  -- We might have runtime-skolems in GHCi, and 
+                          -- we definitely don't want to try to assign to those!
         = Left (cc, cls, tv)
     find_unary cc = Right cc  -- Non unary or non dictionary 
 

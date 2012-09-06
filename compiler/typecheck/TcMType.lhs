@@ -668,9 +668,9 @@ zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
 
 zonkGivenLoc :: GivenLoc -> TcM GivenLoc
 -- GivenLocs may have unification variables inside them!
-zonkGivenLoc (CtLoc skol_info span ctxt)
+zonkGivenLoc (CtLoc skol_info lcl)
   = do { skol_info' <- zonkSkolemInfo skol_info
-       ; return (CtLoc skol_info' span ctxt) }
+       ; return (CtLoc skol_info' lcl) }
 
 zonkSkolemInfo :: SkolemInfo -> TcM SkolemInfo
 zonkSkolemInfo (SigSkol cx ty)  = do { ty' <- zonkTcType ty

@@ -234,10 +234,8 @@ tcExpr (HsType ty) _
 tcExpr HsHole res_ty
   = do { ty <- newFlexiTyVarTy liftedTypeKind
       ; traceTc "tcExpr.HsHole" (ppr ty)
-      ; lenv <- getLclTypeEnv
       ; ev <- mkSysLocalM (mkFastString "_") ty
-      ; let origin = HoleOrigin lenv
-      ; loc <- getCtLoc origin
+      ; loc <- getCtLoc HoleOrigin
       ; let can = CHoleCan { cc_ev = CtWanted loc ty ev, cc_hole_ty = ty, cc_depth = 0 }
       ; traceTc "tcExpr.HsHole emitting" (ppr can)
       ; emitInsoluble can

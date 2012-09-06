@@ -38,7 +38,7 @@ module TcRnTypes(
 	WhereFrom(..), mkModDeps,
 
 	-- Typechecker types
-	TcTypeEnv, TcTyThing(..), PromotionErr(..), 
+	TcTypeEnv, TcIdBinder(..), TcTyThing(..), PromotionErr(..), 
         pprTcTyThingCategory, pprPECategory,
 
 	-- Template Haskell
@@ -407,12 +407,11 @@ Why?  Because they are now Ids not TcIds.  This final GlobalEnv is
 data TcLclEnv		-- Changes as we move inside an expression
 			-- Discarded after typecheck/rename; not passed on to desugarer
   = TcLclEnv {
-	tcl_loc  :: SrcSpan,		-- Source span
-	tcl_ctxt :: [ErrCtxt],		-- Error context, innermost on top
-	tcl_errs :: TcRef Messages,	-- Place to accumulate errors
-
-	tcl_th_ctxt    :: ThStage,	      -- Template Haskell context
-	tcl_arrow_ctxt :: ArrowCtxt,	      -- Arrow-notation context
+	tcl_loc        :: SrcSpan,	   -- Source span
+	tcl_ctxt       :: [ErrCtxt],       -- Error context, innermost on top
+	tcl_untch      :: Untouchables,    -- Birthplace for new unification variables
+	tcl_th_ctxt    :: ThStage,	   -- Template Haskell context
+	tcl_arrow_ctxt :: ArrowCtxt,	   -- Arrow-notation context
 
 	tcl_rdr :: LocalRdrEnv,		-- Local name envt
 		-- Maintained during renaming, of course, but also during
@@ -426,8 +425,11 @@ data TcLclEnv		-- Changes as we move inside an expression
 		-- We still need the unsullied global name env so that
     		--   we can look up record field names
 
-	tcl_env  :: TcTypeEnv,    -- The local type environment: Ids and
-			          -- TyVars defined in this module
+	tcl_env  :: TcTypeEnv,    -- The local type environment:
+			          -- Ids and TyVars defined in this module
+
+        tcl_bndrs :: [TcIdBinder],   -- Stack of locally-bound Ids, innermost on top
+                                     -- Used only for error reporting
 
         tcl_tidy :: TidyEnv,      -- Used for tidying types; contains all
                                   -- in-scope type variables (but not term variables)
@@ -438,12 +440,12 @@ data TcLclEnv		-- Changes as we move inside an expression
 			-- in tcl_lenv. 
                         -- Why mutable? see notes with tcGetGlobalTyVars
 
-	tcl_lie   :: TcRef WantedConstraints,    -- Place to accumulate type constraints
-	tcl_untch :: Untouchables
+	tcl_lie  :: TcRef WantedConstraints,    -- Place to accumulate type constraints
+	tcl_errs :: TcRef Messages       	-- Place to accumulate errors
     }
 
 type TcTypeEnv = NameEnv TcTyThing
-
+data TcIdBinder = TcIdBndr TcId TopLevelFlag
 
 {- Note [Given Insts]
    ~~~~~~~~~~~~~~~~~~
@@ -1109,11 +1111,6 @@ data Implication
   = Implic {  
       ic_untch :: Untouchables, -- Untouchables: unification variables
                                 -- free in the environment
-      ic_env   :: TcTypeEnv,    -- The type environment
-                                -- Used only when generating error messages
-	  -- Generally, ic_untch is a superset of tvsof(ic_env)
-	  -- However, we don't zonk ic_env when zonking the Implication
-	  -- Instead we do that when generating a skolem-escape error message
 
       ic_skols  :: [TcTyVar],    -- Introduced skolems 
       		   	         -- See Note [Skolems in an implication]
@@ -1358,26 +1355,32 @@ dictionaries don't appear in the original source code.
 type will evolve...
 
 \begin{code}
-data CtLoc orig = CtLoc orig SrcSpan [ErrCtxt]
+data CtLoc orig = CtLoc orig TcLclEnv
+  -- The TcLclEnv includes particularly
+  --    source location:  tcl_loc   :: SrcSpan
+  --    context:          tcl_ctxt  :: [ErrCtxt]
+  --    binder stack:     tcl_bndrs :: [TcIdBinders]
 
-type WantedLoc = CtLoc CtOrigin      -- Instantiation for wanted constraints
-type GivenLoc  = CtLoc SkolemInfo    -- Instantiation for given constraints
+type WantedLoc = CtLoc CtOrigin    -- Instantiation for wanted constraints
+type GivenLoc  = CtLoc SkolemInfo  -- Instantiation for given constraints
 
 ctLocSpan :: CtLoc o -> SrcSpan
-ctLocSpan (CtLoc _ s _) = s
+ctLocSpan (CtLoc _ lcl) = tcl_loc lcl
 
 ctLocOrigin :: CtLoc o -> o
-ctLocOrigin (CtLoc o _ _) = o
+ctLocOrigin (CtLoc o _) = o
 
 setCtLocOrigin :: CtLoc o -> o' -> CtLoc o'
-setCtLocOrigin (CtLoc _ s c) o = CtLoc o s c
+setCtLocOrigin (CtLoc _ lcl) o = CtLoc o lcl
 
 pushErrCtxt :: orig -> ErrCtxt -> CtLoc orig -> CtLoc orig
-pushErrCtxt o err (CtLoc _ s errs) = CtLoc o s (err:errs)
+pushErrCtxt o err (CtLoc _ lcl) 
+  = CtLoc o (lcl { tcl_ctxt = err : tcl_ctxt lcl })
 
 pushErrCtxtSameOrigin :: ErrCtxt -> CtLoc orig -> CtLoc orig
 -- Just add information w/o updating the origin!
-pushErrCtxtSameOrigin err (CtLoc o s errs) = CtLoc o s (err:errs)
+pushErrCtxtSameOrigin err (CtLoc o lcl) 
+  = CtLoc o (lcl { tcl_ctxt = err : tcl_ctxt lcl })
 
 pprArising :: CtOrigin -> SDoc
 -- Used for the main, top-level error message
@@ -1387,8 +1390,8 @@ pprArising FunDepOrigin      = empty
 pprArising orig              = text "arising from" <+> ppr orig
 
 pprArisingAt :: Outputable o => CtLoc o -> SDoc
-pprArisingAt (CtLoc o s _) = sep [ text "arising from" <+> ppr o
-                                 , text "at" <+> ppr s]
+pprArisingAt (CtLoc o lcl) = sep [ text "arising from" <+> ppr o
+                                 , text "at" <+> ppr (tcl_loc lcl)]
 \end{code}
 
 %************************************************************************
@@ -1515,7 +1518,7 @@ data CtOrigin
   | ProcOrigin		-- Arising from a proc expression
   | AnnOrigin           -- An annotation
   | FunDepOrigin
-  | HoleOrigin TcTypeEnv
+  | HoleOrigin
 
 data EqOrigin 
   = UnifyOrigin 
@@ -1553,7 +1556,7 @@ pprO ProcOrigin	           = ptext (sLit "a proc expression")
 pprO (TypeEqOrigin eq)     = ptext (sLit "an equality") <+> ppr eq
 pprO AnnOrigin             = ptext (sLit "an annotation")
 pprO FunDepOrigin          = ptext (sLit "a functional dependency")
-pprO (HoleOrigin _)        = ptext (sLit "a use of the hole") <+> quotes (ptext $ sLit "_")
+pprO HoleOrigin            = ptext (sLit "a use of the hole") <+> quotes (ptext $ sLit "_")
 
 instance Outputable EqOrigin where
   ppr (UnifyOrigin t1 t2) = ppr t1 <+> char '~' <+> ppr t2

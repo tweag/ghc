@@ -356,14 +356,14 @@ tcSyntaxName orig ty (std_nm, user_nm_expr) = do
 
 syntaxNameCtxt :: HsExpr Name -> CtOrigin -> Type -> TidyEnv
                -> TcRn (TidyEnv, SDoc)
-syntaxNameCtxt name orig ty tidy_env = do
-    inst_loc <- getCtLoc orig
-    let
-	msg = vcat [ptext (sLit "When checking that") <+> quotes (ppr name) <+> 
-				ptext (sLit "(needed by a syntactic construct)"),
-		    nest 2 (ptext (sLit "has the required type:") <+> ppr (tidyType tidy_env ty)),
-		    nest 2 (pprArisingAt inst_loc)]
-    return (tidy_env, msg)
+syntaxNameCtxt name orig ty tidy_env
+  = do { inst_loc <- getCtLoc orig
+       ; let msg = vcat [ ptext (sLit "When checking that") <+> quotes (ppr name)
+			  <+> ptext (sLit "(needed by a syntactic construct)")
+		        , nest 2 (ptext (sLit "has the required type:")
+                                  <+> ppr (tidyType tidy_env ty))
+		        , nest 2 (pprArisingAt inst_loc) ]
+       ; return (tidy_env, msg) }
 \end{code}
 
 
@@ -572,8 +572,8 @@ tidyEvVar :: TidyEnv -> EvVar -> EvVar
 tidyEvVar env var = setVarType var (tidyType env (varType var))
 
 tidyGivenLoc :: TidyEnv -> GivenLoc -> GivenLoc
-tidyGivenLoc env (CtLoc skol span ctxt) 
-  = CtLoc (tidySkolemInfo env skol) span ctxt
+tidyGivenLoc env (CtLoc skol lcl) 
+  = CtLoc (tidySkolemInfo env skol) lcl
 
 tidySkolemInfo :: TidyEnv -> SkolemInfo -> SkolemInfo
 tidySkolemInfo env (SigSkol cx ty) = SigSkol cx (tidyType env ty)
@@ -638,8 +638,8 @@ substFlavor subst ctev@(CtDerived { ctev_pred = pty })
   = ctev { ctev_pred = substTy subst pty }
 
 substGivenLoc :: TvSubst -> GivenLoc -> GivenLoc
-substGivenLoc subst (CtLoc skol span ctxt) 
-  = CtLoc (substSkolemInfo subst skol) span ctxt
+substGivenLoc subst (CtLoc skol lcl) 
+  = CtLoc (substSkolemInfo subst skol) lcl
 
 substSkolemInfo :: TvSubst -> SkolemInfo -> SkolemInfo
 substSkolemInfo subst (SigSkol cx ty) = SigSkol cx (substTy subst ty)
