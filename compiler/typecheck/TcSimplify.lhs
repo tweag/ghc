@@ -830,6 +830,9 @@ floatEqualities skols can_given wanteds@(WC { wc_flat = flats })
          pred = ctPred ct
 
 promoteTyVars :: Cts -> TcS ()
+-- When we float a constraint out of an implication we
+-- must restore (MetaTvInv) in Note [Untouchable type variables]
+-- in TcType
 promoteTyVars cts
   = do { untch <- TcSMonad.getUntouchables
        ; mapM_ (promote_tv untch) (varSetElems (tyVarsOfCts cts)) }
@@ -923,10 +926,15 @@ Consequence: classes with functional dependencies don't matter (since there is
 no evidence for a fundep equality), but equality superclasses do matter (since 
 they carry evidence).
 
-Notice that, due to Note [Extra TcSTv Untouchables], the free unification variables 
-of an equality that is floated out of an implication become effectively untouchables
-for the leftover implication. This is absolutely necessary. Consider the following 
-example. We start with two implications and a class with a functional dependency. 
+Note [Promoting unification variables]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When we float an equality out of an implication we must "promote" free
+unification variables of the equality, in order to maintain Invariant
+(MetaTvInv) from Note [Untouchable type variables] in TcType.  for the
+leftover implication.
+
+This is absolutely necessary. Consider the following example. We start
+with two implications and a class with a functional dependency.
 
     class C x y | x -> y
     instance C [a] [a]
@@ -960,40 +968,6 @@ beta! Concrete example is in indexed_types/should_fail/ExtraTcsUntch.hs:
             g2 z = case z of TEx y -> (h [[undefined]], op x [y])
         in (g1 '3', g2 undefined)
 
-Note [Extra TcsTv untouchables]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Whenever we are solving a bunch of flat constraints, they may contain 
-the following sorts of 'touchable' unification variables:
-   
-   (i)   Born-touchables in that scope
- 
-   (ii)  Simplifier-generated unification variables, such as unification 
-         flatten variables
-
-   (iii) Touchables that have been floated out from some nested 
-         implications, see Note [Float Equalities out of Implications]. 
-
-Now, once we are done with solving these flats and have to move inwards to 
-the nested implications (perhaps for a second time), we must consider all the
-extra variables (categories (ii) and (iii) above) as untouchables for the 
-implication. Otherwise we have the danger or double unifications, as well
-as the danger of not ``seeing'' some unification. Example (from Trac #4494):
-
-   (F Int ~ uf)  /\  [untch=beta](forall a. C a => F Int ~ beta) 
-
-In this example, beta is touchable inside the implication. The 
-first solveInteract step leaves 'uf' ununified. Then we move inside 
-the implication where a new constraint
-       uf  ~  beta  
-emerges. We may spontaneously solve it to get uf := beta, so the whole
-implication disappears but when we pop out again we are left with (F
-Int ~ uf) which will be unified by our final solveCTyFunEqs stage and
-uf will get unified *once more* to (F Int).
-
-The solution is to record the unification variables of the flats, 
-and make them untouchables for the nested implication. In the 
-example above uf would become untouchable, so beta would be forced 
-to be unified as beta := uf.
 
 \begin{code}
 unFlattenWC :: WantedConstraints -> TcS WantedConstraints
