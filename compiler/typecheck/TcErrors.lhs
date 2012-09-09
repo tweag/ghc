@@ -109,14 +109,19 @@ reportAllUnsolved wanted
 report_unsolved :: Maybe EvBindsVar  -- cec_binds
                 -> Bool              -- cec_defer
                 -> WantedConstraints -> TcM ()
+-- Important precondition:
+-- WantedConstraints are fully zonked and unflattened, that is,
+-- zonkWC has already been applied to these constraints.
 report_unsolved mb_binds_var defer wanted
   | isEmptyWC wanted
   = return ()
   | otherwise
-  = do {   -- Zonk to un-flatten any flatten-skols
-         wanted  <- zonkWC wanted
+  = do { traceTc "reportUnsolved (before unflattening)" (ppr wanted)
 
        ; env0 <- tcInitTidyEnv
+                 
+            -- If we are deferring we are going to need /all/ evidence around,
+            -- including the evidence produced by unflattening (zonkWC)
        ; errs_so_far <- ifErrsM (return True) (return False)
        ; let tidy_env = tidyFreeTyVars env0 free_tvs
              free_tvs = tyVarsOfWC wanted
@@ -130,11 +135,11 @@ report_unsolved mb_binds_var defer wanted
                             , cec_defer = defer
                             , cec_binds = mb_binds_var }
 
-       ; traceTc "reportUnsolved:" (vcat [ pprTvBndrs (varSetElems free_tvs)
-                                         , ppr wanted ])
+       ; traceTc "reportUnsolved (after unflattening):" $ 
+         vcat [ pprTvBndrs (varSetElems free_tvs)
+              , ppr wanted ]
 
        ; reportWanteds err_ctxt wanted }
-
 
 --------------------------------------------
 --      Internal functions
@@ -379,7 +384,7 @@ mkGroupReporter mk_err ctxt (ct1 : rest)
    same_group _ _ = False
 
    same_loc :: CtLoc o -> CtLoc o -> Bool
-   same_loc (CtLoc _ lcl1) (CtLoc _ lcl2) = tcl_loc lcl1 == tcl_loc lcl2
+   same_loc l1 l2 = ctLocSpan l1 == ctLocSpan l2
 
 
 tryReporters :: [(String, Ct -> PredTree -> Bool, Reporter)] 
@@ -724,7 +729,7 @@ misMatchOrCND :: ReportErrCtxt -> Ct -> Bool -> TcType -> TcType -> SDoc
 misMatchOrCND ctxt ct oriented ty1 ty2
   | null givens || 
     (isRigid ty1 && isRigid ty2) || 
-    isGiven (cc_ev ct)
+    isGivenCt ct
        -- If the equality is unconditionally insoluble
        -- or there is no context, don't report the context
   = misMatchMsg oriented ty1 ty2
@@ -1084,8 +1089,8 @@ mkAmbigMsg ctxt cts
        ; return (ctxt, True, mk_msg dflags ambig_ids) }
   where
     ct1_bndrs = case cts of
-                  (ct1:_) -> case ctWantedLoc ct1 of
-                               CtLoc _ lcl_env -> tcl_bndrs lcl_env
+                  (ct1:_) -> ASSERT( not (isGivenCt ct1) )
+                             tcl_bndrs (ctLocEnv (ctWantedLoc ct1))
                   [] -> panic "mkAmbigMsg"
  
     ambig_tv_set = foldr (unionVarSet . filterVarSet isAmbiguousTyVar . tyVarsOfCt) 
@@ -1157,7 +1162,7 @@ relevantBindings ctxt ct
          else return (ctxt { cec_tidy = tidy_env'  
                            , cec_extra = doc $$ cec_extra ctxt }) }
   where
-    CtLoc _ lcl_env = ctWantedLoc ct
+    lcl_env = ctEvEnv (cc_ev ct)
     ct_tvs = tyVarsOfCt ct
 
     go :: TidyEnv -> (Int, TcTyVarSet)

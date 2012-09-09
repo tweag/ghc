@@ -56,13 +56,13 @@ module TcRnTypes(
         isGivenCt, isHoleCt,
         ctWantedLoc, ctEvidence,
         SubGoalDepth, mkNonCanonical, mkNonCanonicalCt,
-        ctPred, ctEvPred, ctEvTerm, ctEvId,
+        ctPred, ctEvPred, ctEvTerm, ctEvId, ctEvEnv,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
         andWC, unionsWC, addFlats, addImplics, mkFlatWC, addInsols,
 
         Implication(..),
-        CtLoc(..), ctLocSpan, ctLocOrigin, setCtLocOrigin,
+        CtLoc(..), ctLocSpan, ctLocEnv, ctLocOrigin, setCtLocOrigin,
 	CtOrigin(..), EqOrigin(..), 
         WantedLoc, GivenLoc, pushErrCtxt, 
         pushErrCtxtSameOrigin,
@@ -1276,6 +1276,11 @@ ctEvTerm (CtWanted  { ctev_evar = ev }) = EvId ev
 ctEvTerm ctev@(CtDerived {}) = pprPanic "ctEvTerm: derived constraint cannot have id" 
                                       (ppr ctev)
 
+ctEvEnv :: CtEvidence -> TcLclEnv
+ctEvEnv (CtWanted  { ctev_wloc = loc }) = ctLocEnv loc
+ctEvEnv (CtDerived { ctev_wloc = loc }) = ctLocEnv loc
+ctEvEnv (CtGiven   { ctev_gloc = loc }) = ctLocEnv loc
+
 ctEvId :: CtEvidence -> TcId
 ctEvId (CtWanted  { ctev_evar = ev }) = ev
 ctEvId ctev = pprPanic "ctEvId:" (ppr ctev)
@@ -1363,6 +1368,9 @@ data CtLoc orig = CtLoc orig TcLclEnv
 
 type WantedLoc = CtLoc CtOrigin    -- Instantiation for wanted constraints
 type GivenLoc  = CtLoc SkolemInfo  -- Instantiation for given constraints
+
+ctLocEnv :: CtLoc o -> TcLclEnv
+ctLocEnv (CtLoc _ lcl) = lcl
 
 ctLocSpan :: CtLoc o -> SrcSpan
 ctLocSpan (CtLoc _ lcl) = tcl_loc lcl

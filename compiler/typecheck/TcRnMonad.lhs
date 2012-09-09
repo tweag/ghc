@@ -823,6 +823,7 @@ setCtLoc :: CtLoc orig -> TcM a -> TcM a
 -- Set the SrcSpan and error context from the CtLoc
 setCtLoc (CtLoc _ lcl) thing_inside
   = updLclEnv (\env -> env { tcl_loc = tcl_loc lcl
+                           , tcl_bndrs = tcl_bndrs lcl
                            , tcl_ctxt = tcl_ctxt lcl }) 
               thing_inside
 \end{code}
