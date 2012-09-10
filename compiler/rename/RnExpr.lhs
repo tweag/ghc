@@ -309,7 +309,7 @@ Since all the symbols are reservedops we can simply reject them.
 We return a (bogus) EWildPat in each case.
 
 \begin{code}
-rnExpr e@EWildPat      = do { holes <- xoptM Opt_Holes
+rnExpr e@EWildPat      = do { holes <- xoptM Opt_TypeHoles
                             ; if holes
                                 then return (HsHole, emptyFVs)
                                 else patSynErr e

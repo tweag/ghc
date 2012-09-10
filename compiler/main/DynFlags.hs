@@ -2238,7 +2238,7 @@ xFlags = [
   ( "UndecidableInstances",             Opt_UndecidableInstances, nop ),
   ( "IncoherentInstances",              Opt_IncoherentInstances, nop ),
   ( "PackageImports",                   Opt_PackageImports, nop ),
-  ( "Holes",                            Opt_Holes, nop )
+  ( "TypeHoles",                        Opt_TypeHoles, nop )
   ]
 
 defaultFlags :: Platform -> [DynFlag]
