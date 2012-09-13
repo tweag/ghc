@@ -141,8 +141,13 @@ DerivedConstants.h :
 else
 
 includes_dist-derivedconstants_CC_OPTS = -Iincludes/dist-derivedconstants/build
+includes_dist-derivedconstants_C_SRCS = mkDerivedConstants.c
+includes_dist-derivedconstants_PROG   = mkDerivedConstants$(exeext)
 
 ifeq "$(BuildingCrossCompiler)-$(AlienScript)" "YES-"
+includes/dist-derivedconstants/build/Capability.cross.h \
+includes/dist-derivedconstants/build/Rts.cross.h: $(includes_H_CONFIG) $(includes_H_PLATFORM) $(includes_H_FILES) $$(rts_H_FILES)
+
 includes/dist-derivedconstants/build/Capability.cross.h: rts/Capability.h | $$(dir $$@)/.
 	$(CC_STAGE1) -E -DPROFILING -DTHREADED_RTS $(CONF_CPP_OPTS_STAGE1) $(rts_CC_OPTS) $< > $@
 includes/dist-derivedconstants/build/Rts.cross.h: includes/Rts.h | $$(dir $$@)/.
@@ -155,17 +160,7 @@ includes/dist-derivedconstants/build/mkDerivedConstants.cross.o: includes/dist-d
 includes/dist-derivedconstants/build/SizeMacros.h: includes/mkSizeMacros.cross.awk
 includes/dist-derivedconstants/build/SizeMacros.h: includes/dist-derivedconstants/build/mkDerivedConstants.cross.o | $$(dir $$@)/.
 	$(NM) $< | $(SORT) | awk -f includes/mkSizeMacros.cross.awk > $@
-
-includes_dist-derivedconstants_C_SRCS = mkDerivedConstants.c
 # XXX NM_STAGE1 AWK
-includes_dist-derivedconstants_PROG   = mkDerivedConstants$(exeext)
-
-includes/dist-derivedconstants/build/mkDerivedConstants$(exeext) : includes/dist-derivedconstants/build/SizeMacros.h
-includes/dist-derivedconstants/build/mkDerivedConstants$(exeext) : includes/mkDerivedConstants.c
-	$(CC_STAGE0) $(includes_dist-derivedconstants_CC_OPTS) $(CONF_CPP_OPTS_STAGE0) $(rts_CC_OPTS) $(includes_CC_OPTS) $< -o $@
-
-$(INPLACE_BIN)/mkDerivedConstants$(exeext) : includes/dist-derivedconstants/build/mkDerivedConstants$(exeext)
-	$(CP) $< $@
 else
 includes/dist-derivedconstants/build/SizeMacros.h : | $$(dir $$@)/.
 	@echo "#define OFFSET(s_type, field) ((size_t)&(((s_type*)0)->field))" > $@
@@ -184,14 +179,6 @@ includes/dist-derivedconstants/build/SizeMacros.h : | $$(dir $$@)/.
 	@echo "#define b_bitmap b.bitmap" >> $@
 	@echo >> $@
 
-includes_dist-derivedconstants_C_SRCS = mkDerivedConstants.c
-includes_dist-derivedconstants_PROG   = mkDerivedConstants$(exeext)
-
-$(eval $(call build-prog,includes,dist-derivedconstants,0))
-
-$(includes_dist-derivedconstants_depfile_c_asm) : $(includes_H_CONFIG) $(includes_H_PLATFORM) $(includes_H_FILES) $$(rts_H_FILES)
-includes/dist-derivedconstants/build/mkDerivedConstants.o : includes/dist-derivedconstants/build/SizeMacros.h $(includes_H_CONFIG) $(includes_H_PLATFORM)
-
 ifneq "$(AlienScript)" ""
 $(INPLACE_BIN)/mkDerivedConstants$(exeext): includes/$(includes_dist-derivedconstants_C_SRCS) | $$(dir $$@)/.
 	$(WhatGccIsCalled) -o $@ $< $(CFLAGS) $(includes_CC_OPTS)
@@ -199,6 +186,9 @@ endif
 endif
 
 ifneq "$(BINDIST)" "YES"
+$(includes_dist-derivedconstants_depfile_c_asm) : | includes/dist-derivedconstants/build/SizeMacros.h
+$(includes_dist-derivedconstants_depfile_c_asm) : $(includes_H_CONFIG) $(includes_H_PLATFORM) $(includes_H_FILES) $$(rts_H_FILES)
+$(eval $(call build-prog,includes,dist-derivedconstants,0))
 $(includes_DERIVEDCONSTANTS) : $(INPLACE_BIN)/mkDerivedConstants$(exeext) | $$(dir $$@)/.
 ifeq "$(AlienScript)" ""
 	./$< >$@
@@ -222,25 +212,14 @@ $(includes_GHCCONSTANTS) :
 
 else
 
+ifneq "$(BINDIST)" "YES"
 includes_dist-ghcconstants_CC_OPTS = -DGEN_HASKELL -Iincludes/dist-derivedconstants/build
-
-ifeq "$(BuildingCrossCompiler)-$(AlienScript)" "YES-"
-includes/dist-ghcconstants/build/mkDerivedConstants$(exeext) : includes/dist-derivedconstants/build/SizeMacros.h
-includes/dist-ghcconstants/build/mkDerivedConstants$(exeext) : includes/mkDerivedConstants.c | $$(dir $$@)/.
-	$(CC_STAGE0) $(includes_dist-ghcconstants_CC_OPTS) $(CONF_CPP_OPTS_STAGE0) $(rts_CC_OPTS) $(includes_CC_OPTS) $< -o $@
-$(INPLACE_BIN)/mkGHCConstants$(exeext) : includes/dist-ghcconstants/build/mkDerivedConstants$(exeext)
-	$(CP) $< $@
-else
 includes_dist-ghcconstants_PROG   = mkGHCConstants$(exeext)
 includes_dist-ghcconstants_C_SRCS = mkDerivedConstants.c
 
-$(eval $(call build-prog,includes,dist-ghcconstants,0))
-endif
-
-ifneq "$(BINDIST)" "YES"
+$(includes_dist-ghcconstants_depfile_c_asm) : | includes/dist-derivedconstants/build/SizeMacros.h
 $(includes_dist-ghcconstants_depfile_c_asm) : $(includes_H_CONFIG) $(includes_H_PLATFORM) $(includes_H_FILES) $$(rts_H_FILES)
-
-includes/dist-ghcconstants/build/mkDerivedConstants.o : includes/dist-derivedconstants/build/SizeMacros.h $(includes_H_CONFIG) $(includes_H_PLATFORM)
+$(eval $(call build-prog,includes,dist-ghcconstants,0))
 
 ifneq "$(AlienScript)" ""
 $(INPLACE_BIN)/mkGHCConstants$(exeext): includes/$(includes_dist-ghcconstants_C_SRCS) | $$(dir $$@)/.
@@ -254,7 +233,6 @@ else
 	$(AlienScript) run ./$< >$@
 endif
 endif
-
 
 endif
 
