@@ -34,6 +34,7 @@ module IfaceSyn (
 
 #include "HsVersions.h"
 
+import TyCon( SynTyConRhs(..) )
 import IfaceType
 import CoreSyn( DFunArg, dfunArgExprs )
 import PprCore()            -- Printing DFunArgs
@@ -84,9 +85,7 @@ data IfaceDecl
   | IfaceSyn  { ifName    :: OccName,           -- Type constructor
                 ifTyVars  :: [IfaceTvBndr],     -- Type variables
                 ifSynKind :: IfaceKind,         -- Kind of the *rhs* (not of the tycon)
-                ifSynRhs  :: Maybe IfaceType    -- Just rhs for an ordinary synonyn
-                                                -- Nothing for an type family declaration
-    }
+                ifSynRhs  :: SynTyConRhs IfaceType }
 
   | IfaceClass { ifCtxt    :: IfaceContext,     -- Context...
                  ifName    :: OccName,          -- Name of the class TyCon
@@ -465,12 +464,12 @@ pprIfaceDecl (IfaceForeign {ifName = tycon})
 
 pprIfaceDecl (IfaceSyn {ifName = tycon,
                         ifTyVars = tyvars,
-                        ifSynRhs = Just mono_ty})
+                        ifSynRhs = SynonymTyCon mono_ty})
   = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (vcat [equals <+> ppr mono_ty])
 
 pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyVars = tyvars,
-                        ifSynRhs = Nothing, ifSynKind = kind })
+                        ifSynRhs = SynFamilyTyCon {}, ifSynKind = kind })
   = hang (ptext (sLit "type family") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (dcolon <+> ppr kind)
 
@@ -775,9 +774,9 @@ freeNamesIfIdDetails (IfRecSelId tc _) = freeNamesIfTc tc
 freeNamesIfIdDetails _                 = emptyNameSet
 
 -- All other changes are handled via the version info on the tycon
-freeNamesIfSynRhs :: Maybe IfaceType -> NameSet
-freeNamesIfSynRhs (Just ty) = freeNamesIfType ty
-freeNamesIfSynRhs Nothing   = emptyNameSet
+freeNamesIfSynRhs :: SynTyConRhs IfaceType -> NameSet
+freeNamesIfSynRhs (SynonymTyCon ty) = freeNamesIfType ty
+freeNamesIfSynRhs _                 = emptyNameSet
 
 freeNamesIfContext :: IfaceContext -> NameSet
 freeNamesIfContext = fnList freeNamesIfType
