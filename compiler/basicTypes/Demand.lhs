@@ -546,8 +546,8 @@ isSingleUsed (JD {absd=a}) = isUsedOnce a
 -- see Note [Default semands for right-hand sides]  
 vanillaCall :: Arity -> Demand
 vanillaCall 0 = onceEvalDmd
+-- generate C^n (U)  
 vanillaCall n =
-  -- generate C^n (U)  
   let strComp = (iterate strCall strStr) !! n
       absComp = (iterate (absCall Many) usedMany) !! n
    in mkJointDmd strComp absComp

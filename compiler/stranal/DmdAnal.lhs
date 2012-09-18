@@ -170,7 +170,7 @@ dmdAnal env dmd (Lam var body)
     (body_ty, Lam var body')
 
   | Just (body_dmd, One) <- peelCallDmd dmd	
-  -- A call demand, also a single-shot lambda
+  -- A call demand, also a one-shot lambda
   = let	
 	env'		 = extendSigsWithLam env var
 	(body_ty, body') = dmdAnal env' body_dmd body
@@ -180,12 +180,12 @@ dmdAnal env dmd (Lam var body)
     (lam_ty, Lam armed_var body')
 
   | Just (body_dmd, Many) <- peelCallDmd dmd	
-  -- A call demand: good!
+  -- A call demand: good! (but not a one-shot lambda)
   = let	
 	env'		 = extendSigsWithLam env var
 	(body_ty, body') = dmdAnal env' body_dmd body
-        coarse_ty        = coarsenType body_ty
-	(lam_ty, var')   = annotateLamIdBndr env coarse_ty var
+        -- coarse_ty        = body_ty `both` body_ty
+	(lam_ty, var')   = annotateLamIdBndr env body_ty var
     in
     (lam_ty, Lam var' body')
 
@@ -195,10 +195,7 @@ dmdAnal env dmd (Lam var body)
 	(body_ty, body') = dmdAnal env evalDmd body
 	(lam_ty, var')   = annotateLamIdBndr env body_ty var
     in
-    (deferType lam_ty, Lam var' body')
-  where
-    coarsenType ty = ty `both` ty 
-     
+    (deferType lam_ty, Lam var' body')     
 
 dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
   -- Only one alternative with a product constructor
@@ -519,7 +516,7 @@ dmdAnalRhs top_lvl rec_flag env (id, rhs)
   (lazy_fv, sig_ty)  = WARN( arity /= dmdTypeDepth rhs_dmd_ty && not (exprIsTrivial rhs), ppr id )
                        -- The RHS can be eta-reduced to just a variable, 
                        -- in which case we should not complain. 
-		       mkSigTy top_lvl rec_flag env id rhs rhs_dmd_ty
+                       mkSigTy top_lvl rec_flag env id rhs rhs_dmd_ty
   id'		     = id `setIdStrictness` sig_ty
   sigs'		     = extendSigEnv top_lvl (sigEnv env) id sig_ty
 
