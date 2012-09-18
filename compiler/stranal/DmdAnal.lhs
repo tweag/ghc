@@ -17,7 +17,7 @@ module DmdAnal ( dmdAnalProgram,
 #include "HsVersions.h"
 
 import DynFlags		( DynFlags )
-import Demand	        -- All of it
+import Demand	        
 import Var		( isTyVar )
 import CoreSyn
 import Outputable
@@ -169,20 +169,36 @@ dmdAnal env dmd (Lam var body)
     in
     (body_ty, Lam var body')
 
-  | Just body_dmd <- peelCallDmd dmd	-- A call demand: good!
+  | Just (body_dmd, One) <- peelCallDmd dmd	
+  -- A call demand, also a single-shot lambda
   = let	
 	env'		 = extendSigsWithLam env var
 	(body_ty, body') = dmdAnal env' body_dmd body
 	(lam_ty, var')   = annotateLamIdBndr env body_ty var
+        armed_var        = setOneShotLambda var'
+    in
+    (lam_ty, Lam armed_var body')
+
+  | Just (body_dmd, Many) <- peelCallDmd dmd	
+  -- A call demand: good!
+  = let	
+	env'		 = extendSigsWithLam env var
+	(body_ty, body') = dmdAnal env' body_dmd body
+        coarse_ty        = coarsenType body_ty
+	(lam_ty, var')   = annotateLamIdBndr env coarse_ty var
     in
     (lam_ty, Lam var' body')
 
+
   | otherwise	-- Not enough demand on the lambda; but do the body
   = let		-- anyway to annotate it and gather free var info
-	(body_ty, body') = dmdAnal env onceEvalDmd body
+	(body_ty, body') = dmdAnal env evalDmd body
 	(lam_ty, var')   = annotateLamIdBndr env body_ty var
     in
     (deferType lam_ty, Lam var' body')
+  where
+    coarsenType ty = ty `both` ty 
+     
 
 dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
   -- Only one alternative with a product constructor
@@ -354,8 +370,7 @@ dmdTransform env var dmd
 
 ------ 	DATA CONSTRUCTOR
   | isDataConWorkId var		-- Data constructor
-  = -- pprTrace "dmdTransform-Data" (vcat [ppr var, ppr env, ppr dmd]) $
-    let 
+  = let 
 	StrictSig dmd_ty    = idStrictness var	-- It must have a strictness sig
 	DmdType _ _ con_res = dmd_ty
 	arity		    = idArity var
@@ -377,7 +392,7 @@ dmdTransform env var dmd
                     then replicateDmd arity res_dmd
                     else splitProdDmd res_dmd
 	in
-	cardTransfrom $ mkDmdType emptyDmdEnv arg_ds con_res
+	mkDmdType emptyDmdEnv arg_ds con_res
 		-- Must remember whether it's a product, hence con_res, not TopRes
     else
 	topDmdType
@@ -385,42 +400,32 @@ dmdTransform env var dmd
 ------ 	IMPORTED FUNCTION
   | isGlobalId var,		-- Imported function
     let StrictSig dmd_ty = idStrictness var
-  = -- pprTrace "dmdTransform-GlobalId" (vcat [ppr var, ppr env, ppr dmd]) $
-    if dmdTypeDepth dmd_ty <= call_depth then	-- Saturated, so unleash the demand
-	cardTransfrom dmd_ty
+  = if dmdTypeDepth dmd_ty <= call_depth then	-- Saturated, so unleash the demand
+	dmd_ty
     else
 	topDmdType
 
 ------ 	LOCAL LET/REC BOUND THING
   | Just (StrictSig dmd_ty, top_lvl) <- lookupSigEnv env var
-  = -- pprTrace "dmdTransform-Local" (vcat [ppr var, ppr dmd, ppr dmd_ty]) $
+  = -- pprTrace "dmdTransform-Local" (vcat [ppr var, ppr env, ppr dmd]) $
+
+    -- NB: it's important to use deferType, and not just return topDmdType
+    -- Consider	let { f x y = p + x } in f 1
+    -- The application isn't saturated, but we must nevertheless propagate 
+    --	a lazy demand for p!  
     let
 	fn_ty | dmdTypeDepth dmd_ty <= call_depth = dmd_ty 
-	      | otherwise   		          = (deferType . markAsUsedType) dmd_ty
-	-- NB: it's important to use deferType, and not just return topDmdType
-	-- Consider	let { f x y = p + x } in f 1
-	-- The application isn't saturated, but we must nevertheless propagate 
-	--	a lazy demand for p!  
-
-        -- Cardinality demand transfomer:
-        -- Single-used arguments and free variables  
-        -- are used once only if the result is used once        
-        final_ty = cardTransfrom fn_ty
-    in
-    if isTopLevel top_lvl then final_ty	-- Don't record top level things
-    else addVarDmd final_ty var dmd
+	      | otherwise   		          = deferType dmd_ty
+   in
+    if isTopLevel top_lvl then fn_ty	-- Don't record top level things
+    else addVarDmd fn_ty var dmd
 
 ------ 	LOCAL NON-LET/REC BOUND THING
   | otherwise	 		-- Default case
-  = -- pprTrace "dmdTransform-Other" (vcat [ppr var, ppr env, ppr dmd]) $
-    unitVarDmd var dmd
+  = unitVarDmd var dmd
 
   where
-    (call_depth, res_dmd) = splitCallDmd dmd
-    is_single_shot        = isSingleShot res_dmd
-    cardTransfrom d_ty    = if is_single_shot 
-                            then d_ty
-                            else markAsUsedType d_ty    
+    (call_depth, res_dmd)  = splitCallDmd dmd
 
 \end{code}
 
@@ -658,7 +663,7 @@ mk_sig_ty thunk_cpr_ok rhs (DmdType fv dmds res)
     -- See Note [Lazy and unleasheable free variables]
     lazy_fv      = filterUFM (not . can_be_unleahsed) fv
     unleashed_fv = filterUFM can_be_unleahsed         fv
-    can_be_unleahsed d = isStrictDmd d || isSingleShot d 
+    can_be_unleahsed d = isStrictDmd d || isSingleUsed d 
 
         -- final_dmds = setUnpackStrategy dmds
 	-- Set the unpacking strategy

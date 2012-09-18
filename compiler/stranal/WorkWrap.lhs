@@ -480,7 +480,7 @@ worthSplittingThunk dmd res
 	-- Split if the thing is unpacked
     worth_it (JD {strd=SProd _, absd=a})   = someCompUsed a
     worth_it (JD {strd=Str, absd=UProd _ _}) = True   
-        -- second component points out that at least some of     
+        -- second component points out that at least some of componens are used    
     worth_it _           	           = False
 \end{code}
 

@@ -9,7 +9,7 @@
 module Demand (
         LatticeLike, top, bot, lub, both, pre,
         StrDmd(..), strBot, strTop, strStr, strProd, strCall,
-        AbsDmd(..), 
+        AbsDmd(..), Count(..),
         Demand, JointDmd(..), mkJointDmd, mkProdDmd, 
         isTop, isBot, isAbs, absDmd,
 	DmdType(..), topDmdType, botDmdType, mkDmdType, mkTopDmdType, 
@@ -30,7 +30,7 @@ module Demand (
         isProdDmd, isPolyDmd, replicateDmd, splitProdDmd, peelCallDmd, mkCallDmd,
         isProdUsage, 
         -- cardinality stuff
-        markAsUsedType, isSingleShot
+        markAsUsedType, isSingleUsed
      ) where
 
 #include "HsVersions.h"
@@ -237,8 +237,8 @@ instance Outputable Count where
   ppr Many = text ""
 
 -- Well-formedness preserving constructors for the Absence domain
-usedOnce :: AbsDmd
-usedOnce = (Used One)
+usedMany :: AbsDmd
+usedMany = (Used Many)
 
 isUsedOnce :: AbsDmd -> Bool
 isUsedOnce Abs           = True
@@ -275,6 +275,8 @@ instance LatticeLike AbsDmd where
   pre (Used c1) (Used c2)         = pre c1 c2
   pre _ (Used _)                  = True
   pre (UHead c1) (UHead c2)       = pre c1 c2
+  pre (UHead c1) (UCall c2 _)     = pre c1 c2
+  -- for `seq`
   pre (UHead c1) (UProd c2 _)     = pre c1 c2
   pre (UCall c1 u1) (UCall c2 u2) = (pre c1 c2) && (pre u1 u2)
   pre (UProd c1 ux1) (UProd c2 ux2)
@@ -288,6 +290,7 @@ instance LatticeLike AbsDmd where
   lub (Used c1) (Used c2)         = Used $ lub c1 c2
   lub a (Used c)                  = Used $ lub c (card a)
   lub (UHead c1) (UHead c2)       = UHead $ lub c1 c2
+  lub (UHead c1) (UCall c2 u)     = UCall (lub c1 c2) u
   lub (UHead c1) (UProd c2 ux)    = UProd (c1 `lub` c2) ux
   lub (UProd c1 ux1) (UProd c2 ux2)
      | length ux1 == length ux2   = absProd (c1 `lub` c2) $ zipWith lub ux1 ux2
@@ -303,13 +306,11 @@ instance LatticeLike AbsDmd where
   both Abs a                       = a
   both _ (Used _)                  = Used Many
   both (UHead _) (UHead _)         = UHead Many
+  both (UHead _) (UCall _ u)       = UCall Many u
   both (UHead _) (UProd _ ux)      = UProd Many ux
   both (UProd _ ux1) (UProd _ ux2)
      | length ux1 == length ux2    = absProd Many $ zipWith both ux1 ux2
-  -- is it correct? -- explain! 
-  -- possibly, wrong...
   both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
-  --both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `both` u2)
   both _ _                         = top
 
 -- utility functions
@@ -384,8 +385,7 @@ instance Binary AbsDmd where
 -- Splitting polymorphic demands
 replicateAbsDmd :: Int -> AbsDmd -> [AbsDmd]
 replicateAbsDmd n Abs          = replicate n Abs
--- TODO: is it correct?
-replicateAbsDmd n (Used c)     = replicate n (Used c)
+replicateAbsDmd n (Used _)     = replicate n (Used Many)
 replicateAbsDmd n (UHead _)    = replicate n Abs
 replicateAbsDmd _ d            = pprPanic "replicateAbsDmd" (ppr d)          
 
@@ -523,11 +523,10 @@ mkCallDmd :: JointDmd -> JointDmd
 mkCallDmd (JD {strd = d, absd = a}) 
           = mkJointDmd (strCall d) (absCall One a)
 
--- TODO: think how to peel
-peelCallDmd :: JointDmd -> Maybe JointDmd
-peelCallDmd (JD {strd = SCall d, absd = UCall _ a}) = Just $ mkJointDmd d a
--- Exploiting the fact that C(U) === U 
-peelCallDmd (JD {strd = SCall d, absd = Used _})    = Just $ mkJointDmd d top
+-- Returns result demand + one-shotness of the call
+peelCallDmd :: JointDmd -> Maybe (JointDmd, Count)
+peelCallDmd (JD {strd = SCall d, absd = UCall c a}) = Just (mkJointDmd d a, c)
+peelCallDmd (JD {strd = SCall d, absd = Used _})    = Just (mkJointDmd d top, Many)
 peelCallDmd _                                       = Nothing 
 
 
@@ -541,18 +540,35 @@ splitCallDmd (JD {strd = SCall d, absd = Used _})
       (n, r) -> (n + 1, r)
 splitCallDmd d	      = (0, d)
 
-isSingleShot :: JointDmd -> Bool
-isSingleShot (JD {absd=a}) = isUsedOnce a
-  
+isSingleUsed :: JointDmd -> Bool
+isSingleUsed (JD {absd=a}) = isUsedOnce a
+
+-- see Note [Default semands for right-hand sides]  
 vanillaCall :: Arity -> Demand
 vanillaCall 0 = onceEvalDmd
 vanillaCall n =
-  -- generate C^n (S)  
+  -- generate C^n (U)  
   let strComp = (iterate strCall strStr) !! n
-      absComp = (iterate (absCall Many) usedOnce) !! n
+      absComp = (iterate (absCall Many) usedMany) !! n
    in mkJointDmd strComp absComp
 
 \end{code}
+
+Note [Default demands for right-hand sides]  
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When analysis a right-hand side of a let binding, we create a
+"default" demand using `vanillaCall`. It is owth mentioning that for
+*thunks* the demand, under which a RHS is analysed is (Used One),
+whereas for lambdas it is C(C...(U)...).
+
+This fenomenon is due to the special nature of thunks: they "merge"
+multiple usage demands into one. This also explains the fact that the
+demand transformer for thunks is triggered by a less-precise, mere U
+demand (not U1). This is not true for lambda, therefore to analyze
+them we create a conservative demand C(C...(U)...), where the number
+of call layers is equal to syntactic arity of the lambda.
+
 
 Note [Replicating polymorphic demands]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
