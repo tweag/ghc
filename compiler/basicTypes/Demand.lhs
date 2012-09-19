@@ -30,7 +30,7 @@ module Demand (
         isProdDmd, isPolyDmd, replicateDmd, splitProdDmd, peelCallDmd, mkCallDmd,
         isProdUsage, 
         -- cardinality stuff
-        markAsUsedType, isSingleUsed
+        markAsUsedType, isSingleUsed, isUsageCallDmd
      ) where
 
 #include "HsVersions.h"
@@ -528,11 +528,14 @@ mkCallDmd :: JointDmd -> JointDmd
 mkCallDmd (JD {strd = d, absd = a}) 
           = mkJointDmd (strCall d) (absCall One a)
 
+isUsageCallDmd :: JointDmd -> Bool
+isUsageCallDmd (JD {absd = UCall _ _}) = True
+isUsageCallDmd _                       = False
+
 -- Returns result demand + one-shotness of the call
 peelCallDmd :: JointDmd -> Maybe (JointDmd, Count)
 peelCallDmd (JD {strd = SCall d, absd = UCall c a})  = Just (mkJointDmd d a, c)
-peelCallDmd (JD {strd = Lazy, absd = UCall c a})     = Just (mkJointDmd Lazy a, c)
-peelCallDmd (JD {strd = HyperStr, absd = UCall c a}) = Just (mkJointDmd HyperStr a, c)
+peelCallDmd (JD {strd = Str, absd = UCall c a})      = Just (mkJointDmd Lazy a, c)
 peelCallDmd (JD {strd = SCall d, absd = Used _})     = Just (mkJointDmd d top, Many)
 peelCallDmd _                                        = Nothing 
 
