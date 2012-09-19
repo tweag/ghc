@@ -664,7 +664,7 @@ annotateLamIdBndr env (DmdType fv ds res) id
 mkSigTy :: TopLevelFlag -> RecFlag -> AnalEnv -> Id -> 
            CoreExpr -> DmdType -> (DmdEnv, StrictSig)
 mkSigTy top_lvl rec_flag env id rhs dmd_ty 
-  = mk_sig_ty thunk_cpr_ok rhs dmd_ty
+  = mk_sig_ty thunk_cpr_ok rec_flag rhs dmd_ty
   where
     id_dmd = idDemandInfo id
 
@@ -679,17 +679,22 @@ mkSigTy top_lvl rec_flag env id rhs dmd_ty
 	| isStrictDmd id_dmd       = True
 	| otherwise 		   = False	
 
-mk_sig_ty :: Bool -> CoreExpr -> DmdType -> (DmdEnv, StrictSig)
-mk_sig_ty thunk_cpr_ok rhs (DmdType fv dmds res) 
-  = (lazy_fv, mkStrictSig dmd_ty)
+mk_sig_ty :: Bool ->  RecFlag -> CoreExpr -> DmdType -> (DmdEnv, StrictSig)
+mk_sig_ty thunk_cpr_ok rec_flag rhs (DmdType fv dmds res) 
+  = (lazy_no_card, mkStrictSig dmd_ty)
 	-- Re unused never_inline, see Note [NOINLINE and strictness]
   where
     dmd_ty = mkDmdType unleashed_fv dmds res'
 
-    -- See Note [Lazy and unleasheable free variables]
     lazy_fv      = filterUFM (not . can_be_unleahsed) fv
     unleashed_fv = filterUFM can_be_unleahsed         fv
     can_be_unleahsed d = isStrictDmd d
+    
+    -- [TODO]: discuss if it is a good idea
+    -- A trade-off do not include lazy-single-used guys 
+    lazy_no_card = case rec_flag of 
+                     Recursive    -> markAsUsedEnv lazy_fv
+                     NonRecursive -> lazy_fv
 
         -- final_dmds = setUnpackStrategy dmds
 	-- Set the unpacking strategy

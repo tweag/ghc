@@ -30,7 +30,7 @@ module Demand (
         isProdDmd, isPolyDmd, replicateDmd, splitProdDmd, peelCallDmd, mkCallDmd,
         isProdUsage, 
         -- cardinality stuff
-        markAsUsedType, isSingleUsed, isUsageCallDmd
+        markAsUsedType, markAsUsedEnv, isSingleUsed, isUsageCallDmd
      ) where
 
 #include "HsVersions.h"
@@ -246,10 +246,12 @@ usedMany :: AbsDmd
 usedMany = (Used Many)
 
 isUsedOnce :: AbsDmd -> Bool
-isUsedOnce Abs           = True
-isUsedOnce a 
-         | One <- card a = True
-isUsedOnce _             = False
+isUsedOnce Abs            = True
+isUsedOnce (Used One)     = True 
+isUsedOnce (UHead One)    = True 
+isUsedOnce (UCall One _)  = True
+isUsedOnce (UProd One ux) = all isUsedOnce ux
+isUsedOnce _              = False
 
 absCall :: Count -> AbsDmd -> AbsDmd
 absCall _ Abs  = Abs 
@@ -331,7 +333,7 @@ markAsUsed Abs         = Abs
 markAsUsed (Used _)    = Used Many
 markAsUsed (UHead _)   = UHead Many
 markAsUsed (UProd _ x) = UProd Many $ map markAsUsed x
-markAsUsed (UCall _ x) = markAsUsed x
+markAsUsed (UCall _ x) = UCall Many $ markAsUsed x
 
 seqAbsDmd :: AbsDmd -> ()
 seqAbsDmd (Used c)     = c `seq` ()
@@ -538,7 +540,6 @@ peelCallDmd (JD {strd = SCall d, absd = UCall c a})  = Just (mkJointDmd d a, c)
 peelCallDmd (JD {strd = Str, absd = UCall c a})      = Just (mkJointDmd Lazy a, c)
 peelCallDmd (JD {strd = SCall d, absd = Used _})     = Just (mkJointDmd d top, Many)
 peelCallDmd _                                        = Nothing 
-
 
 splitCallDmd :: JointDmd -> (Int, JointDmd)
 splitCallDmd (JD {strd = SCall d, absd = UCall _ a}) 
