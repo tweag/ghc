@@ -159,7 +159,7 @@ dmdAnal env dmd (App fun arg)	-- Non-type arguments
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
 	(arg_ty, arg') 	  = dmdAnal env arg_dmd arg
     in
-    pprTrace "dmdAnal-App" (vcat [ppr fun, ppr fun_ty]) $
+    -- pprTrace "dmdAnal-App" (vcat [ppr fun, ppr fun_ty]) $
     (res_ty `both` arg_ty, App fun' arg')
 
 dmdAnal env dmd (Lam var body)
@@ -177,7 +177,7 @@ dmdAnal env dmd (Lam var body)
         armed_var        = setOneShotLambda var
 	(lam_ty, var')   = annotateLamIdBndr env body_ty armed_var
     in
-    pprTrace "dmdAnal-Lam-One" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
+    -- pprTrace "dmdAnal-Lam-One" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
     (lam_ty, Lam var' body')
 
   | Just (body_dmd, Many) <- peelCallDmd dmd	
@@ -187,7 +187,7 @@ dmdAnal env dmd (Lam var body)
 	(body_ty, body') = dmdAnal env' body_dmd body
 	(lam_ty, var')   = annotateLamIdBndr env body_ty var
     in
-    pprTrace "dmdAnal-Lam-Many" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
+    -- pprTrace "dmdAnal-Lam-Many" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
     (lam_ty, Lam var' body')
 
 
@@ -196,7 +196,7 @@ dmdAnal env dmd (Lam var body)
 	(body_ty, body') = dmdAnal env evalDmd body
 	(lam_ty, var')   = annotateLamIdBndr env body_ty var
     in
-    pprTrace "dmdAnal-Lam-Other" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
+    -- pprTrace "dmdAnal-Lam-Other" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
     (deferType lam_ty, Lam var' body')     
 
 dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
