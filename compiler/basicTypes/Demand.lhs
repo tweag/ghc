@@ -114,6 +114,11 @@ strProd sx
   | all (== Lazy) sx        = strStr
   | otherwise               = SProd sx
 
+isStrict :: StrDmd -> Bool
+isStrict (SCall s)   = isStrict s
+isStrict Lazy        = False
+isStrict _           = True
+
 -- Pretty-printing
 instance Outputable StrDmd where
   ppr HyperStr      = char 'B'
@@ -472,7 +477,7 @@ instance Binary JointDmd where
               return $ mkJointDmd x y
 
 isStrictDmd :: Demand -> Bool
-isStrictDmd (JD {strd = x}) = x /= top
+isStrictDmd (JD {strd = x}) = isStrict x
 
 isProdUsage :: Demand -> Bool
 isProdUsage (JD {absd = (UProd _ _)}) = True
@@ -527,7 +532,6 @@ mkCallDmd (JD {strd = d, absd = a})
 peelCallDmd :: JointDmd -> Maybe (JointDmd, Count)
 peelCallDmd (JD {strd = SCall d, absd = UCall c a})  = Just (mkJointDmd d a, c)
 peelCallDmd (JD {strd = Lazy, absd = UCall c a})     = Just (mkJointDmd Lazy a, c)
-peelCallDmd (JD {strd = Str, absd = UCall c a})      = Just (mkJointDmd Lazy a, c)
 peelCallDmd (JD {strd = HyperStr, absd = UCall c a}) = Just (mkJointDmd HyperStr a, c)
 peelCallDmd (JD {strd = SCall d, absd = Used _})     = Just (mkJointDmd d top, Many)
 peelCallDmd _                                        = Nothing 

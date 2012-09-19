@@ -94,6 +94,45 @@ dmdAnal _ dmd e | isAbs dmd
   -- top demand does not provide any way to infer something interesting 
   = (topDmdType, e)
 
+-- this case should go before analyzing with the lazy demand
+-- see Note [Analyzing with lazy demand and lambdas]
+dmdAnal env dmd (Lam var body)
+  | isTyVar var
+  = let   
+	(body_ty, body') = dmdAnal env dmd body
+    in
+    (body_ty, Lam var body')
+
+  | Just (body_dmd, One) <- peelCallDmd dmd	
+  -- A call demand, also a one-shot lambda
+  = let	
+        env'		 = extendSigsWithLam env var
+	(body_ty, body') = dmdAnal env' body_dmd body
+        armed_var        = setOneShotLambda var
+	(lam_ty, var')   = annotateLamIdBndr env body_ty armed_var
+    in
+    -- pprTrace "dmdAnal-Lam-One" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
+    (lam_ty, Lam var' body')
+
+  | Just (body_dmd, Many) <- peelCallDmd dmd	
+  -- A call demand: good! (but not a one-shot lambda)
+  = let	
+	env'		 = extendSigsWithLam env var
+	(body_ty, body') = dmdAnal env' body_dmd body
+	(lam_ty, var')   = annotateLamIdBndr env body_ty var
+    in
+    -- pprTrace "dmdAnal-Lam-Many" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
+    (lam_ty, Lam var' body')
+
+
+  | otherwise	-- Not enough demand on the lambda; but do the body
+  = let		-- anyway to annotate it and gather free var info
+	(body_ty, body') = dmdAnal env evalDmd body
+	(lam_ty, var')   = annotateLamIdBndr env body_ty var
+    in
+    -- pprTrace "dmdAnal-Lam-Other" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
+    (deferType lam_ty, Lam var' body')     
+
 dmdAnal env dmd e
   | not (isStrictDmd dmd)
   = let (res_ty, e') = dmdAnal env fake_dmd e
@@ -159,45 +198,7 @@ dmdAnal env dmd (App fun arg)	-- Non-type arguments
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
 	(arg_ty, arg') 	  = dmdAnal env arg_dmd arg
     in
-    -- pprTrace "dmdAnal-App" (vcat [ppr fun, ppr fun_ty]) $
     (res_ty `both` arg_ty, App fun' arg')
-
-dmdAnal env dmd (Lam var body)
-  | isTyVar var
-  = let   
-	(body_ty, body') = dmdAnal env dmd body
-    in
-    (body_ty, Lam var body')
-
-  | Just (body_dmd, One) <- peelCallDmd dmd	
-  -- A call demand, also a one-shot lambda
-  = let	
-        env'		 = extendSigsWithLam env var
-	(body_ty, body') = dmdAnal env' body_dmd body
-        armed_var        = setOneShotLambda var
-	(lam_ty, var')   = annotateLamIdBndr env body_ty armed_var
-    in
-    -- pprTrace "dmdAnal-Lam-One" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
-    (lam_ty, Lam var' body')
-
-  | Just (body_dmd, Many) <- peelCallDmd dmd	
-  -- A call demand: good! (but not a one-shot lambda)
-  = let	
-	env'		 = extendSigsWithLam env var
-	(body_ty, body') = dmdAnal env' body_dmd body
-	(lam_ty, var')   = annotateLamIdBndr env body_ty var
-    in
-    -- pprTrace "dmdAnal-Lam-Many" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
-    (lam_ty, Lam var' body')
-
-
-  | otherwise	-- Not enough demand on the lambda; but do the body
-  = let		-- anyway to annotate it and gather free var info
-	(body_ty, body') = dmdAnal env evalDmd body
-	(lam_ty, var')   = annotateLamIdBndr env body_ty var
-    in
-    -- pprTrace "dmdAnal-Lam-Other" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
-    (deferType lam_ty, Lam var' body')     
 
 dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
   -- Only one alternative with a product constructor
@@ -335,6 +336,43 @@ dmdAnalAlt env dmd (con,bndrs,rhs)
 		       idType (head bndrs) `eqType` realWorldStatePrimTy
     in	
     (final_alt_ty, (con, bndrs', rhs'))
+
+\end{code}
+
+Note [Analyzing with lazy demand and lambdas]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Because of some interferences between strictness and usage analyses,
+the clause responsible for analyzing lambdas goes before the
+administrative one, that creates a `fake` strict demand:
+
+dmdAnal env dmd e
+  | not (isStrictDmd dmd)
+  = let (res_ty, e') = dmdAnal env fake_dmd e
+    in  -- compute as with a strict demand, return with a lazy demand
+    (deferType res_ty, e')
+
+The motivation for this rearrangement follows from the fact that for
+strictness L = C(L) = C(C(L)). This polymothpic expansion is critical
+for cardinality analysis of the following example:
+
+build g = (g (:) [], g (:) [])
+
+h z = build (\x -> \y -> x (y ++ z))
+
+One can see that `build` assigns to `g` demand <L,
+C(C1(U))>. Therefore, when analyzing the lambda `(\x -> \y -> x (y ++
+z))`, we expect the lambda \y -> ... to be annotated as "one-shot"
+one. Therefore (\x -> \y -> x (y ++ z)) should be analyzed with a
+demand <C(C(..), C(C1(U))>. However, had we the clause above coming
+before analysis of lambda, the inner lambda (\y -> ...) would be
+analyzed with demand U, rather than C1(U), as the "fake" strict demand
+S cannot be polymorphically expanded for calls. 
+
+
+
+
+\begin{code}
 
 addDataConPatDmds :: AltCon -> [Var] -> DmdType -> DmdType
 -- See Note [Add demands for strict constructors]
