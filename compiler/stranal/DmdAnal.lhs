@@ -159,7 +159,7 @@ dmdAnal env dmd (App fun arg)	-- Non-type arguments
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
 	(arg_ty, arg') 	  = dmdAnal env arg_dmd arg
     in
-    -- pprTrace "dmdAnal-App" (vcat [ppr fun, ppr fun_ty]) $
+    pprTrace "dmdAnal-App" (vcat [ppr fun, ppr fun_ty]) $
     (res_ty `both` arg_ty, App fun' arg')
 
 dmdAnal env dmd (Lam var body)
@@ -172,21 +172,22 @@ dmdAnal env dmd (Lam var body)
   | Just (body_dmd, One) <- peelCallDmd dmd	
   -- A call demand, also a one-shot lambda
   = let	
-	env'		 = extendSigsWithLam env var
+        env'		 = extendSigsWithLam env var
 	(body_ty, body') = dmdAnal env' body_dmd body
-	(lam_ty, var')   = annotateLamIdBndr env body_ty var
-        armed_var        = setOneShotLambda var'
+        armed_var        = setOneShotLambda var
+	(lam_ty, var')   = annotateLamIdBndr env body_ty armed_var
     in
-    (lam_ty, Lam armed_var body')
+    pprTrace "dmdAnal-Lam-One" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
+    (lam_ty, Lam var' body')
 
   | Just (body_dmd, Many) <- peelCallDmd dmd	
   -- A call demand: good! (but not a one-shot lambda)
   = let	
 	env'		 = extendSigsWithLam env var
 	(body_ty, body') = dmdAnal env' body_dmd body
-        -- coarse_ty        = body_ty `both` body_ty
 	(lam_ty, var')   = annotateLamIdBndr env body_ty var
     in
+    pprTrace "dmdAnal-Lam-Many" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
     (lam_ty, Lam var' body')
 
 
@@ -195,6 +196,7 @@ dmdAnal env dmd (Lam var body)
 	(body_ty, body') = dmdAnal env evalDmd body
 	(lam_ty, var')   = annotateLamIdBndr env body_ty var
     in
+    pprTrace "dmdAnal-Lam-Other" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
     (deferType lam_ty, Lam var' body')     
 
 dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
@@ -660,7 +662,7 @@ mk_sig_ty thunk_cpr_ok rhs (DmdType fv dmds res)
     -- See Note [Lazy and unleasheable free variables]
     lazy_fv      = filterUFM (not . can_be_unleahsed) fv
     unleashed_fv = filterUFM can_be_unleahsed         fv
-    can_be_unleahsed d = isStrictDmd d || isSingleUsed d 
+    can_be_unleahsed d = isStrictDmd d
 
         -- final_dmds = setUnpackStrategy dmds
 	-- Set the unpacking strategy

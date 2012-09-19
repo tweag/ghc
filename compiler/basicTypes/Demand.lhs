@@ -525,9 +525,12 @@ mkCallDmd (JD {strd = d, absd = a})
 
 -- Returns result demand + one-shotness of the call
 peelCallDmd :: JointDmd -> Maybe (JointDmd, Count)
-peelCallDmd (JD {strd = SCall d, absd = UCall c a}) = Just (mkJointDmd d a, c)
-peelCallDmd (JD {strd = SCall d, absd = Used _})    = Just (mkJointDmd d top, Many)
-peelCallDmd _                                       = Nothing 
+peelCallDmd (JD {strd = SCall d, absd = UCall c a})  = Just (mkJointDmd d a, c)
+peelCallDmd (JD {strd = Lazy, absd = UCall c a})     = Just (mkJointDmd Lazy a, c)
+peelCallDmd (JD {strd = Str, absd = UCall c a})      = Just (mkJointDmd Lazy a, c)
+peelCallDmd (JD {strd = HyperStr, absd = UCall c a}) = Just (mkJointDmd HyperStr a, c)
+peelCallDmd (JD {strd = SCall d, absd = Used _})     = Just (mkJointDmd d top, Many)
+peelCallDmd _                                        = Nothing 
 
 
 splitCallDmd :: JointDmd -> (Int, JointDmd)
