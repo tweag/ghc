@@ -30,7 +30,7 @@ module Demand (
         isProdDmd, isPolyDmd, replicateDmd, splitProdDmd, peelCallDmd, mkCallDmd,
         isProdUsage, 
         -- cardinality stuff
-        markAsUsedType, markAsUsedEnv, isSingleUsed, isUsageCallDmd
+        markAsUsedType, markAsUsedEnv, isSingleUsed
      ) where
 
 #include "HsVersions.h"
@@ -113,11 +113,6 @@ strProd sx
   | any (== HyperStr) sx    = strBot
   | all (== Lazy) sx        = strStr
   | otherwise               = SProd sx
-
-isStrict :: StrDmd -> Bool
-isStrict (SCall s)   = isStrict s
-isStrict Lazy        = False
-isStrict _           = True
 
 -- Pretty-printing
 instance Outputable StrDmd where
@@ -241,10 +236,6 @@ instance Outputable Count where
   ppr One  = char '1'
   ppr Many = text ""
 
--- Well-formedness preserving constructors for the Absence domain
-usedMany :: AbsDmd
-usedMany = (Used Many)
-
 isUsedOnce :: AbsDmd -> Bool
 isUsedOnce Abs            = True
 isUsedOnce (Used One)     = True 
@@ -280,10 +271,9 @@ instance LatticeLike AbsDmd where
  
   pre Abs _                       = True
   pre (Used c1) (Used c2)         = pre c1 c2
-  pre _ (Used _)                  = True
+  pre u (Used c)                  = (card u) `pre` c
   pre (UHead c1) (UHead c2)       = pre c1 c2
   pre (UHead c1) (UCall c2 _)     = pre c1 c2
-  -- for `seq`
   pre (UHead c1) (UProd c2 _)     = pre c1 c2
   pre (UCall c1 u1) (UCall c2 u2) = (pre c1 c2) && (pre u1 u2)
   pre (UProd c1 ux1) (UProd c2 ux2)
@@ -304,10 +294,10 @@ instance LatticeLike AbsDmd where
   lub (UCall c1 u1) (UCall c2 u2) = absCall (c1 `lub` c2) (u1 `lub` u2)
   lub _ _                         = top
 
-  -- `both` is different from `lub` in its treatment of counting if
+  -- `both` is different from `lub` in its treatment of counting; if
   -- `both` is computed for two used, the result always has
   -- cardinality `Many` (except for the Call demand -- [TODO] explain).  
-  -- Also, `both` is not idempotent.
+  -- Also, `both` with anything but Abs is not idempotent.
 
   both y x | x /= y && x `pre` y   = both x y
   both Abs a                       = a
@@ -479,7 +469,7 @@ instance Binary JointDmd where
               return $ mkJointDmd x y
 
 isStrictDmd :: Demand -> Bool
-isStrictDmd (JD {strd = x}) = isStrict x
+isStrictDmd (JD {strd = x}) = x /= top
 
 isProdUsage :: Demand -> Bool
 isProdUsage (JD {absd = (UProd _ _)}) = True
@@ -530,10 +520,6 @@ mkCallDmd :: JointDmd -> JointDmd
 mkCallDmd (JD {strd = d, absd = a}) 
           = mkJointDmd (strCall d) (absCall One a)
 
-isUsageCallDmd :: JointDmd -> Bool
-isUsageCallDmd (JD {absd = UCall _ _}) = True
-isUsageCallDmd _                       = False
-
 -- Returns result demand + one-shotness of the call
 peelCallDmd :: JointDmd -> Maybe (JointDmd, Count)
 peelCallDmd (JD {strd = SCall d, absd = UCall c a})  = Just (mkJointDmd d a, c)
@@ -549,6 +535,10 @@ splitCallDmd (JD {strd = SCall d, absd = UCall _ a})
 splitCallDmd (JD {strd = SCall d, absd = Used _}) 
   = case splitCallDmd (mkJointDmd d top) of
       (n, r) -> (n + 1, r)
+-- Exploiting the fact that C(L) === S
+splitCallDmd (JD {strd = Str, absd = UCall _ a}) 
+  = case splitCallDmd (mkJointDmd top a) of
+      (n, r) -> (n + 1, r)
 splitCallDmd d	      = (0, d)
 
 isSingleUsed :: JointDmd -> Bool
@@ -560,7 +550,7 @@ vanillaCall 0 = onceEvalDmd
 -- generate C^n (U)  
 vanillaCall n =
   let strComp = (iterate strCall strStr) !! n
-      absComp = (iterate (absCall Many) usedMany) !! n
+      absComp = (iterate (absCall Many) top) !! n
    in mkJointDmd strComp absComp
 
 \end{code}

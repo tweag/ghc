@@ -157,7 +157,7 @@ dmdAnal env dmd (App fun arg)	-- Non-type arguments
   = let				-- [Type arg handled above]
 	(fun_ty, fun') 	  = dmdAnal env (mkCallDmd dmd) fun
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
-	(arg_ty, arg') 	  = dmdAnal env arg_dmd arg
+        (arg_ty, arg') 	  = dmdAnal env arg_dmd arg
     in
     (res_ty `both` arg_ty, App fun' arg')
 
@@ -168,25 +168,35 @@ dmdAnal env dmd (Lam var body)
     in
     (body_ty, Lam var body')
 
-  | Just (body_dmd, c) <- peelCallDmd dmd	
+  | Just (body_dmd, One) <- peelCallDmd dmd	
   -- A call demand, also a one-shot lambda
   -- see Note [Analyzing with lazy demand and lambdas]
   = let	
         env'		 = extendSigsWithLam env var
 	(body_ty, body') = dmdAnal env' body_dmd body
-        armed_var        = case c of Many -> var    
-                                     One  -> setOneShotLambda var                             
+        armed_var        = setOneShotLambda var                             
 	(lam_ty, var')   = annotateLamIdBndr env body_ty armed_var
     in
-    -- pprTrace "dmdAnal-Lam-Card" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
+    (lam_ty, Lam var' body')
+
+  | Just (body_dmd, Many) <- peelCallDmd dmd	
+  -- A call demand, also a one-shot lambda
+  -- see Note [Analyzing with lazy demand and lambdas]
+  = let	
+        env'		 = extendSigsWithLam env var
+	(body_ty, body') = dmdAnal env' body_dmd body
+        body_ty'         = body_ty `both` body_ty 
+	(lam_ty, var')   = annotateLamIdBndr env body_ty' var
+    in
     (lam_ty, Lam var' body')
   
   | otherwise	-- Not enough demand on the lambda; but do the body
   = let		-- anyway to annotate it and gather free var info
 	(body_ty, body') = dmdAnal env evalDmd body
-	(lam_ty, var')   = annotateLamIdBndr env body_ty var
+        -- Coarsen body type 
+        body_ty'         = body_ty `both` body_ty
+	(lam_ty, var')   = annotateLamIdBndr env body_ty' var
     in
-    -- pprTrace "dmdAnal-Lam-Other" (vcat [ppr var, ppr dmd, ppr lam_ty]) $
     (deferType lam_ty, Lam var' body')     
 
 dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
@@ -433,8 +443,7 @@ dmdTransform env var dmd
 
 ------ 	LOCAL LET/REC BOUND THING
   | Just (StrictSig dmd_ty, top_lvl) <- lookupSigEnv env var
-  = -- pprTrace "dmdTransform-Local" (vcat [ppr var, ppr env, ppr dmd]) $
-
+  = 
     -- NB: it's important to use deferType, and not just return topDmdType
     -- Consider	let { f x y = p + x } in f 1
     -- The application isn't saturated, but we must nevertheless propagate 
@@ -451,7 +460,7 @@ dmdTransform env var dmd
   = unitVarDmd var dmd
 
   where
-    (call_depth, res_dmd)  = splitCallDmd dmd
+    (call_depth, res_dmd) = splitCallDmd dmd
 
 \end{code}
 
@@ -535,8 +544,7 @@ dmdAnalRhs :: TopLevelFlag -> RecFlag
 -- Process the RHS of the binding, add the strictness signature
 -- to the Id, and augment the environment with the signature as well.
 dmdAnalRhs top_lvl rec_flag env (id, rhs)
- = -- pprTrace "dmdAnalRhs" (vcat [ppr id, ppr lazy_fv]) $
-   (sigs', lazy_fv, (id', rhs'))
+ = (sigs', lazy_fv, (id', rhs'))
  where
   arity		     = idArity id   -- The idArity should be up to date
 				    -- The simplifier was run just beforehand
@@ -657,10 +665,6 @@ annotateLamIdBndr env (DmdType fv ds res) id
 
     (fv', dmd) = removeFV fv id res
 
--- argDemand :: Demand -> Demand
--- argDemand d | isBot d  = absDmd
--- argDemand d	       = d
-
 mkSigTy :: TopLevelFlag -> RecFlag -> AnalEnv -> Id -> 
            CoreExpr -> DmdType -> (DmdEnv, StrictSig)
 mkSigTy top_lvl rec_flag env id rhs dmd_ty 
@@ -680,21 +684,18 @@ mkSigTy top_lvl rec_flag env id rhs dmd_ty
 	| otherwise 		   = False	
 
 mk_sig_ty :: Bool ->  RecFlag -> CoreExpr -> DmdType -> (DmdEnv, StrictSig)
-mk_sig_ty thunk_cpr_ok rec_flag rhs (DmdType fv dmds res) 
-  = (lazy_no_card, mkStrictSig dmd_ty)
+mk_sig_ty thunk_cpr_ok rec_flag rhs dt
+  = (lazy_fv, mkStrictSig dmd_ty)
 	-- Re unused never_inline, see Note [NOINLINE and strictness]
   where
-    dmd_ty = mkDmdType unleashed_fv dmds res'
+    dmd_ty = mkDmdType strict_fv dmds res'
+    lazy_fv   = filterUFM (not . isStrictDmd) fv
+    strict_fv = filterUFM isStrictDmd         fv
 
-    lazy_fv      = filterUFM (not . can_be_unleahsed) fv
-    unleashed_fv = filterUFM can_be_unleahsed         fv
-    can_be_unleahsed d = isStrictDmd d
-    
-    -- [TODO]: discuss if it is a good idea
-    -- A trade-off do not include lazy-single-used guys 
-    lazy_no_card = case rec_flag of 
-                     Recursive    -> markAsUsedEnv lazy_fv
-                     NonRecursive -> lazy_fv
+    -- crude coarsening for recursive bindings
+    DmdType fv dmds res = case rec_flag of 
+                            Recursive    -> dt `both` dt
+                            NonRecursive -> dt
 
         -- final_dmds = setUnpackStrategy dmds
 	-- Set the unpacking strategy
