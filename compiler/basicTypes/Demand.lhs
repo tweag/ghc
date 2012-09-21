@@ -24,13 +24,13 @@ module Demand (
        
         seqStrDmd, seqStrDmdList, seqAbsDmd, seqAbsDmdList,
         seqDemand, seqDemandList, seqDmdType, seqStrictSig, 
-        evalDmd, onceEvalDmd, vanillaCall, isStrictDmd, splitCallDmd, splitDmdTy,
+        evalDmd, onceEvalDmd, mkRhsDmd, isStrictDmd, splitCallDmd, splitDmdTy,
         someCompUsed, isUsed, isUsedDmd,
         defer, use, deferType, deferEnv, modifyEnv,
         isProdDmd, isPolyDmd, replicateDmd, splitProdDmd, peelCallDmd, mkCallDmd,
         isProdUsage, 
         -- cardinality stuff
-        markAsUsedType, markAsUsedEnv, isSingleUsed
+        markAsUsedType, markAsUsedEnv, isSingleUsed, allSingleCalls
      ) where
 
 #include "HsVersions.h"
@@ -541,16 +541,26 @@ splitCallDmd (JD {strd = Str, absd = UCall _ a})
       (n, r) -> (n + 1, r)
 splitCallDmd d	      = (0, d)
 
+allSingleCalls :: Int -> JointDmd -> Bool
+allSingleCalls n (JD {absd = a}) 
+  = traverse n a
+  where
+  traverse 0 _             = True
+  traverse n _ | n < 0     = pprPanic "allSingleCalls" (text $ show n)
+  traverse n (UCall One u) = traverse (n-1) u
+  traverse _ _             = False        
+
+
 isSingleUsed :: JointDmd -> Bool
 isSingleUsed (JD {absd=a}) = isUsedOnce a
 
 -- see Note [Default semands for right-hand sides]  
-vanillaCall :: Arity -> Demand
-vanillaCall 0 = onceEvalDmd
+mkRhsDmd :: Arity -> Demand
+mkRhsDmd 0 = onceEvalDmd
 -- generate C^n (U)  
-vanillaCall n =
+mkRhsDmd n =
   let strComp = (iterate strCall strStr) !! n
-      absComp = (iterate (absCall Many) top) !! n
+      absComp = (iterate (absCall One) top) !! n
    in mkJointDmd strComp absComp
 
 \end{code}
@@ -559,7 +569,7 @@ Note [Default demands for right-hand sides]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 When analysis a right-hand side of a let binding, we create a
-"default" demand using `vanillaCall`. It is owth mentioning that for
+"default" demand using `mkRhsDmd`. It is owth mentioning that for
 *thunks* the demand, under which a RHS is analysed is (Used One),
 whereas for lambdas it is C(C...(U)...).
 

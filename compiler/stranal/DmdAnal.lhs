@@ -79,6 +79,8 @@ dmdAnalTopBind sigs (Rec pairs)
 		-- We get two iterations automatically
 		-- c.f. the NonRec case above
 
+data RhsFlag = MayBeRhsLambda | MereExpr
+
 \end{code}
 
 %************************************************************************
@@ -88,15 +90,15 @@ dmdAnalTopBind sigs (Rec pairs)
 %************************************************************************
 
 \begin{code}
-dmdAnal :: AnalEnv -> Demand -> CoreExpr -> (DmdType, CoreExpr)
+dmdAnal :: RhsFlag -> AnalEnv -> Demand -> CoreExpr -> (DmdType, CoreExpr)
 
-dmdAnal _ dmd e | isAbs dmd
+dmdAnal _ _ dmd e | isAbs dmd
   -- top demand does not provide any way to infer something interesting 
   = (topDmdType, e)
 
-dmdAnal env dmd e
+dmdAnal rhs_flag env dmd e
   | not (isStrictDmd dmd)
-  = let (res_ty, e') = dmdAnal env fake_dmd e
+  = let (res_ty, e') = dmdAnal rhs_flag env fake_dmd e
     in  -- compute as with a strict demand, return with a lazy demand
     (deferType res_ty, e')
 	-- It's important not to analyse e with a lazy demand because
@@ -114,17 +116,17 @@ dmdAnal env dmd e
 	--    evaluation of f in a C(L) demand!
   where fake_dmd = mkJointDmd strStr $ absd dmd
 
-dmdAnal _ _ (Lit lit) = (topDmdType, Lit lit)
-dmdAnal _ _ (Type ty) = (topDmdType, Type ty)	-- Doesn't happen, in fact
-dmdAnal _ _ (Coercion co) = (topDmdType, Coercion co)
+dmdAnal _ _ _ (Lit lit) = (topDmdType, Lit lit)
+dmdAnal _ _ _ (Type ty) = (topDmdType, Type ty)	-- Doesn't happen, in fact
+dmdAnal _ _ _ (Coercion co) = (topDmdType, Coercion co)
 
-dmdAnal env dmd (Var var)
+dmdAnal _ env dmd (Var var)
   = (dmdTransform env var dmd, Var var)
 
-dmdAnal env dmd (Cast e co)
+dmdAnal _ env dmd (Cast e co)
   = (dmd_ty, Cast e' co)
   where
-    (dmd_ty, e') = dmdAnal env dmd' e
+    (dmd_ty, e') = dmdAnal MereExpr env dmd' e
     to_co        = pSnd (coercionKind co)
     dmd'
       | Just tc <- tyConAppTyCon_maybe to_co
@@ -136,35 +138,35 @@ dmdAnal env dmd (Cast e co)
 	-- inside recursive products -- we might not reach
 	-- a fixpoint.  So revert to a vanilla Eval demand
 
-dmdAnal env dmd (Tick t e)
+dmdAnal _ env dmd (Tick t e)
   = (dmd_ty, Tick t e')
   where
-    (dmd_ty, e') = dmdAnal env dmd e
+    (dmd_ty, e') = dmdAnal MereExpr env dmd e
 
-dmdAnal env dmd (App fun (Type ty))
+dmdAnal _ env dmd (App fun (Type ty))
   = (fun_ty, App fun' (Type ty))
   where
-    (fun_ty, fun') = dmdAnal env dmd fun
+    (fun_ty, fun') = dmdAnal MereExpr env dmd fun
 
-dmdAnal sigs dmd (App fun (Coercion co))
+dmdAnal _ sigs dmd (App fun (Coercion co))
   = (fun_ty, App fun' (Coercion co))
   where
-    (fun_ty, fun') = dmdAnal sigs dmd fun
+    (fun_ty, fun') = dmdAnal MereExpr sigs dmd fun
 
 -- Lots of the other code is there to make this
 -- beautiful, compositional, application rule :-)
-dmdAnal env dmd (App fun arg)	-- Non-type arguments
+dmdAnal _ env dmd (App fun arg)	-- Non-type arguments
   = let				-- [Type arg handled above]
-	(fun_ty, fun') 	  = dmdAnal env (mkCallDmd dmd) fun
+	(fun_ty, fun') 	  = dmdAnal MereExpr env (mkCallDmd dmd) fun
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
-        (arg_ty, arg') 	  = dmdAnal env arg_dmd arg
+        (arg_ty, arg') 	  = dmdAnal MereExpr env arg_dmd arg
     in
     (res_ty `both` arg_ty, App fun' arg')
 
-dmdAnal env dmd (Lam var body)
+dmdAnal rhs_flag env dmd (Lam var body)
   | isTyVar var
   = let   
-	(body_ty, body') = dmdAnal env dmd body
+	(body_ty, body') = dmdAnal rhs_flag env dmd body
     in
     (body_ty, Lam var body')
 
@@ -173,9 +175,11 @@ dmdAnal env dmd (Lam var body)
   -- see Note [Analyzing with lazy demand and lambdas]
   = let	
         env'		 = extendSigsWithLam env var
-	(body_ty, body') = dmdAnal env' body_dmd body
-        armed_var        = setOneShotLambda var                             
-	(lam_ty, var')   = annotateLamIdBndr env body_ty armed_var
+	(body_ty, body') = dmdAnal rhs_flag env' body_dmd body
+        armed_var        = case rhs_flag of 
+                             MereExpr       -> setOneShotLambda var  
+                             MayBeRhsLambda -> var
+	(lam_ty, var')   = annotateLamIdBndr rhs_flag env body_ty armed_var
     in
     (lam_ty, Lam var' body')
 
@@ -184,22 +188,22 @@ dmdAnal env dmd (Lam var body)
   -- see Note [Analyzing with lazy demand and lambdas]
   = let	
         env'		 = extendSigsWithLam env var
-	(body_ty, body') = dmdAnal env' body_dmd body
+	(body_ty, body') = dmdAnal MereExpr env' body_dmd body
         body_ty'         = body_ty `both` body_ty 
-	(lam_ty, var')   = annotateLamIdBndr env body_ty' var
+	(lam_ty, var')   = annotateLamIdBndr rhs_flag env body_ty' var
     in
     (lam_ty, Lam var' body')
   
   | otherwise	-- Not enough demand on the lambda; but do the body
   = let		-- anyway to annotate it and gather free var info
-	(body_ty, body') = dmdAnal env evalDmd body
+	(body_ty, body') = dmdAnal MereExpr env evalDmd body
         -- Coarsen body type 
         body_ty'         = body_ty `both` body_ty
-	(lam_ty, var')   = annotateLamIdBndr env body_ty' var
+	(lam_ty, var')   = annotateLamIdBndr rhs_flag env body_ty' var
     in
     (deferType lam_ty, Lam var' body')     
 
-dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
+dmdAnal _ env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
   -- Only one alternative with a product constructor
   | let tycon = dataConTyCon dc
   , isProductTyCon tycon
@@ -244,7 +248,7 @@ dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
         scrut_dmd 	   = alt_dmd `both`
 			     idDemandInfo case_bndr'
 
-	(scrut_ty, scrut') = dmdAnal env scrut_dmd scrut
+	(scrut_ty, scrut') = dmdAnal MereExpr env scrut_dmd scrut
         res_ty             = alt_ty1 `both` scrut_ty
     in
 --    pprTrace "dmdAnal:Case1" (vcat [ text "scrut" <+> ppr scrut
@@ -253,10 +257,10 @@ dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 --                                  , text "res_ty" <+> ppr res_ty ]) $
     (res_ty, Case scrut' case_bndr' ty [alt'])
 
-dmdAnal env dmd (Case scrut case_bndr ty alts)
+dmdAnal _ env dmd (Case scrut case_bndr ty alts)
   = let
 	(alt_tys, alts')        = mapAndUnzip (dmdAnalAlt env dmd) alts
-	(scrut_ty, scrut')      = dmdAnal env onceEvalDmd scrut
+	(scrut_ty, scrut')      = dmdAnal MereExpr env onceEvalDmd scrut
 	(alt_ty, case_bndr')	= annotateBndr (foldr lub botDmdType alt_tys) case_bndr
         res_ty                  = alt_ty `both` scrut_ty
     in
@@ -266,10 +270,10 @@ dmdAnal env dmd (Case scrut case_bndr ty alts)
 --                                   , text "res_ty" <+> ppr res_ty ]) $
     (res_ty, Case scrut' case_bndr' ty alts')
 
-dmdAnal env dmd (Let (NonRec id rhs) body)
+dmdAnal _ env dmd (Let (NonRec id rhs) body)
   = let
 	(sigs', lazy_fv, (id1, rhs')) = dmdAnalRhs NotTopLevel NonRecursive env (id, rhs)
-	(body_ty, body') 	      = dmdAnal (updSigEnv env sigs') dmd body
+	(body_ty, body') 	      = dmdAnal MereExpr (updSigEnv env sigs') dmd body
 	(body_ty1, id2)    	      = annotateBndr body_ty id1
 	body_ty2		      = addLazyFVs body_ty1 lazy_fv
     in
@@ -287,11 +291,11 @@ dmdAnal env dmd (Let (NonRec id rhs) body)
 	-- bother to re-analyse the RHS.
     (body_ty2, Let (NonRec id2 rhs') body')    
 
-dmdAnal env dmd (Let (Rec pairs) body)
+dmdAnal _ env dmd (Let (Rec pairs) body)
   = let
 	bndrs			 = map fst pairs
 	(sigs', lazy_fv, pairs') = dmdFix NotTopLevel env pairs
-	(body_ty, body')         = dmdAnal (updSigEnv env sigs') dmd body
+	(body_ty, body')         = dmdAnal MereExpr (updSigEnv env sigs') dmd body
 	body_ty1		 = addLazyFVs body_ty lazy_fv
     in
     sigs' `seq` body_ty `seq`
@@ -308,7 +312,7 @@ dmdAnal env dmd (Let (Rec pairs) body)
 dmdAnalAlt :: AnalEnv -> Demand -> Alt Var -> (DmdType, Alt Var)
 dmdAnalAlt env dmd (con,bndrs,rhs)
   = let 
-	(rhs_ty, rhs')   = dmdAnal env dmd rhs
+	(rhs_ty, rhs')   = dmdAnal MereExpr env dmd rhs
         rhs_ty'          = addDataConPatDmds con bndrs rhs_ty
 	(alt_ty, bndrs') = annotateBndrs rhs_ty' bndrs
 	final_alt_ty | io_hack_reqd = alt_ty `lub` topDmdType
@@ -437,7 +441,7 @@ dmdTransform env var dmd
   | isGlobalId var,		-- Imported function
     let StrictSig dmd_ty = idStrictness var
   = if dmdTypeDepth dmd_ty <= call_depth then	-- Saturated, so unleash the demand
-	dmd_ty
+	adjustCardinality dmd_ty
     else
 	topDmdType
 
@@ -449,8 +453,9 @@ dmdTransform env var dmd
     -- The application isn't saturated, but we must nevertheless propagate 
     --	a lazy demand for p!  
     let
-	fn_ty | dmdTypeDepth dmd_ty <= call_depth = dmd_ty 
-	      | otherwise   		          = deferType dmd_ty
+	sig_ty | dmdTypeDepth dmd_ty <= call_depth = dmd_ty 
+	       | otherwise   		           = deferType dmd_ty
+        fn_ty = adjustCardinality sig_ty      
    in
     if isTopLevel top_lvl then fn_ty	-- Don't record top level things
     else addVarDmd fn_ty var dmd
@@ -461,6 +466,9 @@ dmdTransform env var dmd
 
   where
     (call_depth, res_dmd) = splitCallDmd dmd
+    adjustCardinality dt  = if not_precise_call
+                            then markAsUsedType dt else dt
+    not_precise_call      = not $ allSingleCalls call_depth dmd
 
 \end{code}
 
@@ -549,7 +557,7 @@ dmdAnalRhs top_lvl rec_flag env (id, rhs)
   arity		     = idArity id   -- The idArity should be up to date
 				    -- The simplifier was run just beforehand
   
-  (rhs_dmd_ty, rhs') = dmdAnal env (vanillaCall arity) rhs
+  (rhs_dmd_ty, rhs') = dmdAnal MayBeRhsLambda env (mkRhsDmd arity) rhs
   (lazy_fv, sig_ty)  = WARN( arity /= dmdTypeDepth rhs_dmd_ty && not (exprIsTrivial rhs), ppr id )
                        -- The RHS can be eta-reduced to just a variable, 
                        -- in which case we should not complain. 
@@ -642,13 +650,14 @@ annotateBndr dmd_ty@(DmdType fv ds res) var
 annotateBndrs :: DmdType -> [Var] -> (DmdType, [Var])
 annotateBndrs = mapAccumR annotateBndr
 
-annotateLamIdBndr :: AnalEnv
+annotateLamIdBndr :: RhsFlag
+                  -> AnalEnv
                   -> DmdType 	-- Demand type of body
 		  -> Id 	-- Lambda binder
 		  -> (DmdType, 	-- Demand type of lambda
 		      Id)	-- and binder annotated with demand	
 
-annotateLamIdBndr env (DmdType fv ds res) id
+annotateLamIdBndr rhs_flag env (DmdType fv ds res) id
 -- For lambdas we add the demand to the argument demands
 -- Only called for Ids
   = ASSERT( isId id )
@@ -659,7 +668,7 @@ annotateLamIdBndr env (DmdType fv ds res) id
                  Nothing  -> main_ty
                  Just unf -> main_ty `both` unf_ty
                           where
-                             (unf_ty, _) = dmdAnal env dmd unf
+                             (unf_ty, _) = dmdAnal rhs_flag env dmd unf
     
     main_ty = DmdType fv' (dmd:ds) res
 
