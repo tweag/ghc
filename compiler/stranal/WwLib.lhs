@@ -132,13 +132,14 @@ mkWwBodies :: DynFlags
 
 mkWwBodies dflags fun_ty demands res_info one_shots
   = do	{ let arg_info = demands `zip` (one_shots ++ repeat False)
+              all_one_shots = all snd arg_info
 	; (wrap_args, wrap_fn_args, work_fn_args, res_ty) <- mkWWargs emptyTvSubst fun_ty arg_info
 	; (work_args, wrap_fn_str,  work_fn_str) <- mkWWstr dflags wrap_args
 
         -- Do CPR w/w.  See Note [Always do CPR w/w]
 	; (wrap_fn_cpr, work_fn_cpr,  cpr_res_ty) <- mkWWcpr res_ty res_info
 
-	; let (work_lam_args, work_call_args) = mkWorkerArgs work_args cpr_res_ty
+	; let (work_lam_args, work_call_args) = mkWorkerArgs work_args all_one_shots cpr_res_ty
 	; return ([idDemandInfo v | v <- work_call_args, isId v],
                   wrap_fn_args . wrap_fn_cpr . wrap_fn_str . applyToVars work_call_args . Var,
                   mkLams work_lam_args. work_fn_str . work_fn_cpr . work_fn_args) }
@@ -183,14 +184,19 @@ We use the state-token type which generates no code.
 
 \begin{code}
 mkWorkerArgs :: [Var]
+             -> Bool    -- Whether all arguments are one-shot
 	     -> Type	-- Type of body
 	     -> ([Var],	-- Lambda bound args
 		 [Var])	-- Args at call site
-mkWorkerArgs args res_ty
+mkWorkerArgs args all_one_shot res_ty
     | any isId args || not (isUnLiftedType res_ty)
     = (args, args)
     | otherwise	
-    = (args ++ [voidArgId], args ++ [realWorldPrimId])
+    = (args ++ [newArg], args ++ [realWorldPrimId])
+    where
+      newArg = if all_one_shot 
+               then setOneShotLambda voidArgId
+               else voidArgId     
 \end{code}
 
 
