@@ -358,7 +358,7 @@ and
 
 will be marked as "one-shot", whereas only the latter one is. A
 let-bound lambda can be, of course, invoked multiple times, and we
-cannot state it to be on-shot just looking at the definition
+cannot state it to be one-shot just looking at the definition
 site. Therefore, we pass an extra flag to the analysis:
 
 data RhsFlag = MayBeRhsLambda | MereExpr
