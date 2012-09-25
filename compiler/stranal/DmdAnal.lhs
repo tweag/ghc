@@ -345,9 +345,10 @@ Note [Analysing lambdas at right-hand side]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 It is safe to analyze a lambda-expression on a right-hand-side of a
-let-binding with a usage demand C1(C1...(U)), where the number of C1s
+let-binding with a usage demand C1(C1...(U1)), where the number of C1s
 is the same as "visible" arity of the right-hand side. However, this
-poses a problem when markin lambda s on-shot. Indeed, both these lambdas:
+poses a problem when marking lambda s on-shot. Indeed, both these
+lambdas:
 
 let g = \x -> x + 1 in ...
 
@@ -357,13 +358,13 @@ and
 
 will be marked as "one-shot", whereas only the latter one is. A
 let-bound lambda can be, of course, invoked multiple times, and we
-cannot state it to be on-shot just lookting at the definition
+cannot state it to be on-shot just looking at the definition
 site. Therefore, we pass an extra flag to the analysis:
 
 data RhsFlag = MayBeRhsLambda | MereExpr
 
-in order to ditinguish, if the currently analyzed expression is a
-(possibly nested) lambda, located *immediately* at RHS of som binding
+in order to distinguish, if the currently analyzed expression is a
+(possibly nested) lambda, located *immediately* at RHS of some binding
 (then the one-shot annotation is not assigned) or just an arbitrary
 lambda expression somewhere, e.g.
 
