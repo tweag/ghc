@@ -347,7 +347,7 @@ Note [Analysing lambdas at right-hand side]
 It is safe to analyze a lambda-expression on a right-hand-side of a
 let-binding with a usage demand C1(C1...(U1)), where the number of C1s
 is the same as "visible" arity of the right-hand side. However, this
-poses a problem when marking lambda s on-shot. Indeed, both these
+poses a problem when marking lambdas one-shot. Indeed, both these
 lambdas:
 
 let g = \x -> x + 1 in ...
