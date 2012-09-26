@@ -362,28 +362,35 @@ f1 y = let {-# NOINLINE h #-}
            h = y
        in  (h, h)
 
-We are interested in obtaining cardinality demand U1 on 'y', as it is
+We are interested in obtaining cardinality demand U1 on |y|, as it is
 used only in a thunk, and, therefore, is not going to be updated any
-more. Therefore, the demand on 'y', captured and unleashed by usage of
-'h' is U1. However, if we unleash this demand every time 'h' is used,
-and then sum up the effects, the ultimate demand on 'y' will be U1 +
+more. Therefore, the demand on |y|, captured and unleashed by usage of
+|h| is U1. However, if we unleash this demand every time |h| is used,
+and then sum up the effects, the ultimate demand on |y| will be U1 +
 U1 = U. In order to avoid it, we *first* collect the aggregate demand
-on 'h' in the body of let-expression, and only then apply the demand
+on |h| in the body of let-expression, and only then apply the demand
 transformer:
 
 transf[x](U) = {y |-> U1}
 
-so the resulting demand on 'y' is U1. 
+so the resulting demand on |y| is U1. 
 
 The situation is, however, different for strictness, where this
 aggregating approach exhibits worse results because of the nature of
-`both` operation for strictness. Consider the example:
+|both| operation for strictness. Consider the example:
 
-f y = let h x = y x
-       in case 
-        
+f y c = 
+  let h x = y |seq| x
+   in case of 
+        True  -> h True
+        False -> y
 
-
+It is clear that |f| is strict in |y|, however, the suggested analysis
+will infer from the body of |let| that |h| is used lazily (as it is
+used in one branch only), therefore lazy demand will be put on its
+free variable |y|. Conversely, if the demand on |h| is unleashed right
+on the spot, we will get the desired result, namely, that |f| is
+strict in |y|.
 
 Note [Analysing lambdas at right-hand side]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
