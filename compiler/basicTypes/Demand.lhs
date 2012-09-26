@@ -30,7 +30,8 @@ module Demand (
         isProdDmd, isPolyDmd, replicateDmd, splitProdDmd, peelCallDmd, mkCallDmd,
         isProdUsage, 
         -- cardinality stuff
-        markAsUsedType, markAsUsedEnv, isSingleUsed, allSingleCalls
+        markAsUsedType, markAsUsedEnv, isSingleUsed, 
+        allSingleCalls, trimFvUsageTy, mkThresholdDmd
      ) where
 
 #include "HsVersions.h"
@@ -563,6 +564,12 @@ mkRhsDmd n =
       absComp = (iterate (absCall One) top) !! n
    in mkJointDmd strComp absComp
 
+mkThresholdDmd :: Arity -> Demand
+mkThresholdDmd 0 = top
+mkThresholdDmd n =
+  let absComp = (iterate (absCall One) top) !! n
+   in mkJointDmd top absComp
+
 \end{code}
 
 Note [Default demands for right-hand sides]  
@@ -918,11 +925,16 @@ deferEnv :: DmdEnv -> DmdEnv
 deferEnv fv = mapVarEnv defer fv
 
 markAsUsedType :: DmdType -> DmdType
-markAsUsedType (DmdType fv _ _) = DmdType (markAsUsedEnv fv) [] top
+markAsUsedType (DmdType fv ds res_ty) = DmdType (markAsUsedEnv fv) (map use ds) res_ty
 
 markAsUsedEnv :: DmdEnv -> DmdEnv
 markAsUsedEnv fv = mapVarEnv use fv
 
+trimFvUsageTy :: DmdType -> DmdType
+trimFvUsageTy (DmdType fv ds res_ty) = DmdType (trimFvUsageEnv fv) ds res_ty
+
+trimFvUsageEnv :: DmdEnv -> DmdEnv
+trimFvUsageEnv = mapVarEnv (\(JD {strd = s}) -> mkJointDmd s bot)
 
 modifyEnv :: Bool			-- No-op if False
 	  -> (Demand -> Demand)		-- The zapper

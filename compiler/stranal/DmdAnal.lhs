@@ -208,11 +208,11 @@ dmdAnal _ env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
   , isProductTyCon tycon
   , not (isRecursiveTyCon tycon)
   = let
-	env_alt	              = extendAnalEnv NotTopLevel env case_bndr case_bndr_sig
-	(alt_ty, alt')	      = dmdAnalAlt env_alt dmd alt
-	(alt_ty1, case_bndr') = annotateBndr alt_ty case_bndr
-	(_, bndrs', _)	      = alt'
-	case_bndr_sig	      = cprSig
+	env_alt	                 = extendAnalEnv NotTopLevel env case_bndr case_bndr_sig
+	(alt_ty, alt')	         = dmdAnalAlt env_alt dmd alt
+	(alt_ty1, (case_bndr', _)) = annotateBndr alt_ty case_bndr
+	(_, bndrs', _)	         = alt'
+	case_bndr_sig	         = cprSig
 		-- Inside the alternative, the case binder has the CPR property.
 		-- Meaning that a case on it will successfully cancel.
 		-- Example:
@@ -260,7 +260,7 @@ dmdAnal _ env dmd (Case scrut case_bndr ty alts)
   = let
 	(alt_tys, alts')        = mapAndUnzip (dmdAnalAlt env dmd) alts
 	(scrut_ty, scrut')      = dmdAnal MereExpr env onceEvalDmd scrut
-	(alt_ty, case_bndr')	= annotateBndr (foldr lub botDmdType alt_tys) case_bndr
+	(alt_ty, (case_bndr', _)) = annotateBndr (foldr lub botDmdType alt_tys) case_bndr
         res_ty                  = alt_ty `both` scrut_ty
     in
 --    pprTrace "dmdAnal:Case2" (vcat [ text "scrut" <+> ppr scrut
@@ -273,8 +273,13 @@ dmdAnal _ env dmd (Let (NonRec id rhs) body)
   = let
 	(sigs', lazy_fv, (id1, rhs')) = dmdAnalRhs NotTopLevel NonRecursive env (id, rhs)
 	(body_ty, body') 	      = dmdAnal MereExpr (updSigEnv env sigs') dmd body
-	(body_ty1, id2)    	      = annotateBndr body_ty id1
-	body_ty2		      = addLazyFVs body_ty1 lazy_fv
+	(body_ty1, (id2, id_dmd))     = annotateBndr body_ty id1
+
+        -- Add lazy free variables
+	body_ty2		   = addLazyFVs body_ty1 lazy_fv
+        -- Add  cardinality demands 
+        unleashed_fv               = unleash_card_dmds (id, id_dmd)
+        body_ty3                   = addLazyFVs body_ty2 unleashed_fv                      
     in
 	-- If the actual demand is better than the vanilla call
 	-- demand, you might think that we might do better to re-analyse 
@@ -288,24 +293,28 @@ dmdAnal _ env dmd (Let (NonRec id rhs) body)
 	-- In practice, all the times the actual demand on id2 is more than
 	-- the vanilla call demand seem to be due to (b).  So we don't
 	-- bother to re-analyse the RHS.
-    (body_ty2, Let (NonRec id2 rhs') body')    
+    (body_ty3, Let (NonRec id2 rhs') body')                    
 
 dmdAnal _ env dmd (Let (Rec pairs) body)
   = let
 	bndrs			 = map fst pairs
 	(sigs', lazy_fv, pairs') = dmdFix NotTopLevel env pairs
 	(body_ty, body')         = dmdAnal MereExpr (updSigEnv env sigs') dmd body
-	body_ty1		 = addLazyFVs body_ty lazy_fv
+
+        -- Add lazy free variables
+	body_ty1		 = addLazyFVs body_ty lazy_fv 
     in
     sigs' `seq` body_ty `seq`
     let
-	(body_ty2, _) = annotateBndrs body_ty1 bndrs
+	(body_ty2, var_dmds) = annotateBndrs body_ty1 bndrs
 		-- Don't bother to add demand info to recursive
 		-- binders as annotateBndr does; 
 		-- being recursive, we can't treat them strictly.
 		-- But we do need to remove the binders from the result demand env
+        unleashed_envs       = map unleash_card_dmds var_dmds       
+        body_ty3             = foldl addLazyFVs body_ty2 unleashed_envs
     in
-    (body_ty2,  Let (Rec pairs') body')
+    (body_ty3,  Let (Rec pairs') body')
 
 
 dmdAnalAlt :: AnalEnv -> Demand -> Alt Var -> (DmdType, Alt Var)
@@ -313,7 +322,8 @@ dmdAnalAlt env dmd (con,bndrs,rhs)
   = let 
 	(rhs_ty, rhs')   = dmdAnal MereExpr env dmd rhs
         rhs_ty'          = addDataConPatDmds con bndrs rhs_ty
-	(alt_ty, bndrs') = annotateBndrs rhs_ty' bndrs
+	(alt_ty, pairs)  = annotateBndrs rhs_ty' bndrs
+        (bndrs', _)      = unzip pairs
 	final_alt_ty | io_hack_reqd = alt_ty `lub` topDmdType
 		     | otherwise    = alt_ty
 
@@ -340,6 +350,40 @@ dmdAnalAlt env dmd (con,bndrs,rhs)
     (final_alt_ty, (con, bndrs', rhs'))
 
 \end{code}
+
+Note [Aggregated demand for cardinality]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We use different strategies for strictness and usage/cardinality to
+"unleash" demands captured on free variables by bindings. Let us
+consider the example:
+
+f1 y = let {-# NOINLINE h #-}
+           h = y
+       in  (h, h)
+
+We are interested in obtaining cardinality demand U1 on 'y', as it is
+used only in a thunk, and, therefore, is not going to be updated any
+more. Therefore, the demand on 'y', captured and unleashed by usage of
+'h' is U1. However, if we unleash this demand every time 'h' is used,
+and then sum up the effects, the ultimate demand on 'y' will be U1 +
+U1 = U. In order to avoid it, we *first* collect the aggregate demand
+on 'h' in the body of let-expression, and only then apply the demand
+transformer:
+
+transf[x](U) = {y |-> U1}
+
+so the resulting demand on 'y' is U1. 
+
+The situation is, however, different for strictness, where this
+aggregating approach exhibits worse results because of the nature of
+`both` operation for strictness. Consider the example:
+
+f y = let h x = y x
+       in case 
+        
+
+
 
 Note [Analysing lambdas at right-hand side]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -483,12 +527,19 @@ dmdTransform env var dmd
     -- The application isn't saturated, but we must nevertheless propagate 
     --	a lazy demand for p!  
     let
-	sig_ty | dmdTypeDepth dmd_ty <= call_depth = dmd_ty 
-	       | otherwise   		           = deferType dmd_ty
-        fn_ty = adjustCardinality sig_ty      
+        threshold_call_depth                        = dmdTypeDepth dmd_ty
+	-- checking that demand depth is enough to unleash strictness
+        sig_ty | threshold_call_depth <= call_depth = dmd_ty 
+	       | otherwise   	    	            = deferType dmd_ty
+        -- checking that demand is all-single-called to unleash cardinality
+        fn_ty = adjustCardinality sig_ty
+        -- stripping of the usage environment (making all free vars absent)      
+        -- it is going to be restored when getting back to Let-case
+        -- See Note [Aggregated demand for cardinality]
+        trim_ty = trimFvUsageTy fn_ty
    in
-    if isTopLevel top_lvl then fn_ty	-- Don't record top level things
-    else addVarDmd fn_ty var dmd
+    if isTopLevel top_lvl then trim_ty	-- Don't record top level things
+    else addVarDmd trim_ty var dmd
 
 ------ 	LOCAL NON-LET/REC BOUND THING
   | otherwise	 		-- Default case
@@ -496,9 +547,11 @@ dmdTransform env var dmd
 
   where
     (call_depth, res_dmd) = splitCallDmd dmd
-    adjustCardinality dt  = if not_precise_call
+    adjustCardinality dt  = if not_precise_call dt
                             then markAsUsedType dt else dt
-    not_precise_call      = not $ allSingleCalls call_depth dmd
+    -- True is the demand is weaker than C1(C1(...)), where
+    -- the number of C1 is taken from the transformer threshold                        
+    not_precise_call dt   = not $ allSingleCalls (dmdTypeDepth dt) dmd
 
 \end{code}
 
@@ -666,18 +719,35 @@ possible to safely ignore non-mentioned variables (their joint demand
 is <L,A>).
 
 \begin{code}
-annotateBndr :: DmdType -> Var -> (DmdType, Var)
+
+-- Unleashing the usage demands on free variables of a binding
+-- basing on the demand from the body
+-- See Note [Aggregated demand for cardinality] 
+unleash_card_dmds :: (Var, Demand) -> DmdEnv
+unleash_card_dmds (id, id_dmd)
+  | isAbs id_dmd
+    -- do not unleash anything for absent demands
+    = emptyDmdEnv
+  | otherwise 
+    = let StrictSig (DmdType fv _ _) = idStrictness id
+          arity		           = idArity id
+          threshold_dmd              = mkThresholdDmd arity 
+          unleashed_fv               = if id_dmd `pre` threshold_dmd
+                                       then fv else markAsUsedEnv fv
+       in unleashed_fv
+
+annotateBndr :: DmdType -> Var -> (DmdType, (Var, Demand))
 -- The returned env has the var deleted
 -- The returned var is annotated with demand info
 -- according to the result demand of the provided demand type
 -- No effect on the argument demands
 annotateBndr dmd_ty@(DmdType fv ds res) var
-  | isTyVar var = (dmd_ty, var)
-  | otherwise   = (DmdType fv' ds res, setIdDemandInfo var dmd)
+  | isTyVar var = (dmd_ty, (var, dmd))
+  | otherwise   = (DmdType fv' ds res, (setIdDemandInfo var dmd, dmd))
   where
     (fv', dmd) = removeFV fv var res
 
-annotateBndrs :: DmdType -> [Var] -> (DmdType, [Var])
+annotateBndrs :: DmdType -> [Var] -> (DmdType, [(Var, Demand)])
 annotateBndrs = mapAccumR annotateBndr
 
 annotateLamIdBndr :: RhsFlag
