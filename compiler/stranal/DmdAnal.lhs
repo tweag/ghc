@@ -277,7 +277,7 @@ dmdAnal _ env dmd (Let (NonRec id rhs) body)
 
         -- Add lazy free variables
 	body_ty2		   = addLazyFVs body_ty1 lazy_fv
-        -- Add  cardinality demands 
+        -- Add unleashed cardinality demands 
         unleashed_fv               = unleash_card_dmds (id, id_dmd)
         body_ty3                   = addLazyFVs body_ty2 unleashed_fv                      
     in
@@ -730,6 +730,8 @@ is <L,A>).
 -- Unleashing the usage demands on free variables of a binding
 -- basing on the demand from the body
 -- See Note [Aggregated demand for cardinality] 
+
+-- Recursive bindings are automaticaly marked as used
 unleash_card_dmds :: (Var, Demand) -> DmdEnv
 unleash_card_dmds (id, id_dmd)
   | isAbs id_dmd
@@ -737,10 +739,14 @@ unleash_card_dmds (id, id_dmd)
     = emptyDmdEnv
   | otherwise 
     = let StrictSig (DmdType fv _ _) = idStrictness id
-          arity		           = idArity id
+          arity		             = idArity id
           threshold_dmd              = mkThresholdDmd arity 
+          -- we are dealing only with usage, therefore 
+          -- stricntess component in 'fv' should be set to L
+          lazified_fv                = deferEnv fv            
           unleashed_fv               = if id_dmd `pre` threshold_dmd
-                                       then fv else markAsUsedEnv fv
+                                       then lazified_fv
+                                       else markAsUsedEnv lazified_fv
        in unleashed_fv
 
 annotateBndr :: DmdType -> Var -> (DmdType, (Var, Demand))
