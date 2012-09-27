@@ -166,7 +166,7 @@ dmdAnal _ env dmd (App fun arg)	-- Non-type arguments
 
 dmdAnal rhs_flag env dmd (Lam var body)
   | isTyVar var
-  = let   
+  = let    
 	(body_ty, body') = dmdAnal rhs_flag env dmd body
     in
     (body_ty, Lam var body')
@@ -278,8 +278,8 @@ dmdAnal _ env dmd (Let (NonRec id rhs) body)
         -- Add lazy free variables
 	body_ty2		   = addLazyFVs body_ty1 lazy_fv
         -- Add unleashed cardinality demands 
-        unleashed_fv               = unleash_card_dmds (id, id_dmd)
-        body_ty3                   = addLazyFVs body_ty2 unleashed_fv                      
+        unleashed_fv               = unleash_card_dmds (id2, id_dmd)
+        body_ty3                   = addNewFVs body_ty2 unleashed_fv                      
     in
 	-- If the actual demand is better than the vanilla call
 	-- demand, you might think that we might do better to re-analyse 
@@ -312,7 +312,7 @@ dmdAnal _ env dmd (Let (Rec pairs) body)
 		-- being recursive, we can't treat them strictly.
 		-- But we do need to remove the binders from the result demand env
         unleashed_envs       = map unleash_card_dmds var_dmds       
-        body_ty3             = foldl addLazyFVs body_ty2 unleashed_envs
+        body_ty3             = foldl addNewFVs body_ty2 unleashed_envs
     in
     (body_ty3,  Let (Rec pairs') body')
 
@@ -554,11 +554,11 @@ dmdTransform env var dmd
 
   where
     (call_depth, res_dmd) = splitCallDmd dmd
-    adjustCardinality dt  = if not_precise_call dt
-                            then markAsUsedType dt else dt
+    adjustCardinality dt  = if precise_call dt
+                            then dt else markAsUsedType dt 
     -- True is the demand is weaker than C1(C1(...)), where
     -- the number of C1 is taken from the transformer threshold                        
-    not_precise_call dt   = not $ allSingleCalls (dmdTypeDepth dt) dmd
+    precise_call dt       = allSingleCalls (dmdTypeDepth dt) dmd
 
 \end{code}
 
@@ -672,6 +672,12 @@ addVarDmd :: DmdType -> Var -> Demand -> DmdType
 addVarDmd (DmdType fv ds res) var dmd
   = DmdType (extendVarEnv_C both fv var dmd) ds res
 
+addNewFVs :: DmdType -> DmdEnv -> DmdType
+addNewFVs (DmdType fv ds res) new_fvs
+  = DmdType both_fv ds res
+  where
+    both_fv = plusVarEnv_C both fv new_fvs
+
 addLazyFVs :: DmdType -> DmdEnv -> DmdType
 addLazyFVs (DmdType fv ds res) lazy_fvs
   = DmdType both_fv1 ds res
@@ -734,7 +740,7 @@ is <L,A>).
 -- Recursive bindings are automaticaly marked as used
 unleash_card_dmds :: (Var, Demand) -> DmdEnv
 unleash_card_dmds (id, id_dmd)
-  | isAbs id_dmd
+  | Abs <- absd id_dmd
     -- do not unleash anything for absent demands
     = emptyDmdEnv
   | otherwise 

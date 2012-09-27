@@ -934,7 +934,7 @@ trimFvUsageTy :: DmdType -> DmdType
 trimFvUsageTy (DmdType fv ds res_ty) = DmdType (trimFvUsageEnv fv) ds res_ty
 
 trimFvUsageEnv :: DmdEnv -> DmdEnv
-trimFvUsageEnv = mapVarEnv (\(JD {strd = s}) -> mkJointDmd s bot)
+trimFvUsageEnv = mapVarEnv (\(JD {strd = s}) -> mkJointDmd s Abs)
 
 modifyEnv :: Bool			-- No-op if False
 	  -> (Demand -> Demand)		-- The zapper
