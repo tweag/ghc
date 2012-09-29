@@ -457,7 +457,7 @@ build (\x y -> x () y) -- this lambda is one-shot
 
 Note [Annotatig lambdas at right-hand side]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Let us take a look at the following exmaple:
+Let us take a look at the following example:
 
 g f = let x = 100
           h = \y -> f x y
