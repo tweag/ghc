@@ -279,7 +279,12 @@ dmdAnal _ env dmd (Let (NonRec id rhs) body)
 	body_ty2		   = addLazyFVs body_ty1 lazy_fv
         -- Add unleashed cardinality demands 
         unleashed_fv               = unleash_card_dmds (id2, id_dmd)
-        body_ty3                   = addNewFVs body_ty2 unleashed_fv                      
+        body_ty3                   = addNewFVs body_ty2 unleashed_fv
+        
+        -- Annotate top-level lambdas at RHS basing on the aggregated demand info
+        -- See Note [Annotatig lambdas at right-hand side] 
+        usage_dmd                  = absd id_dmd
+        annotated_rhs              = annotate_rhs_lambdas usage_dmd rhs'    
     in
 	-- If the actual demand is better than the vanilla call
 	-- demand, you might think that we might do better to re-analyse 
@@ -293,7 +298,7 @@ dmdAnal _ env dmd (Let (NonRec id rhs) body)
 	-- In practice, all the times the actual demand on id2 is more than
 	-- the vanilla call demand seem to be due to (b).  So we don't
 	-- bother to re-analyse the RHS.
-    (body_ty3, Let (NonRec id2 rhs') body')                    
+    (body_ty3, Let (NonRec id2 annotated_rhs) body')                    
 
 dmdAnal _ env dmd (Let (Rec pairs) body)
   = let
@@ -313,6 +318,13 @@ dmdAnal _ env dmd (Let (Rec pairs) body)
 		-- But we do need to remove the binders from the result demand env
         unleashed_envs       = map unleash_card_dmds var_dmds       
         body_ty3             = foldl addNewFVs body_ty2 unleashed_envs
+
+        -- -- Annotate top-level lambdas at RHS basing on the aggregated demand info
+        -- -- See Note [Annotatig lambdas at right-hand side] 
+        -- (vars', bndrs')      = unzip pairs'
+        -- usage_dmds           = map (absd . snd) var_dmds
+        -- ann_bndrs            = zipWith annotate_rhs_lambdas usage_dmds bndrs'
+        -- ann_pairs            = zip vars' ann_bndrs 
     in
     (body_ty3,  Let (Rec pairs') body')
 
@@ -348,6 +360,27 @@ dmdAnalAlt env dmd (con,bndrs,rhs)
 		       idType (head bndrs) `eqType` realWorldStatePrimTy
     in	
     (final_alt_ty, (con, bndrs', rhs'))
+
+annotate_rhs_lambdas :: AbsDmd -> CoreExpr -> CoreExpr
+annotate_rhs_lambdas dmd lam@(Lam var body)
+  | isTyVar var
+  = let 
+        body' = annotate_rhs_lambdas dmd body
+     in (Lam var body')  
+
+  | UCall Many dmd' <- dmd
+  = let 
+        body' = annotate_rhs_lambdas dmd' body
+     in (Lam var body')
+
+  | UCall One dmd' <- dmd
+  = let 
+        var'  = setOneShotLambda var
+        body' = annotate_rhs_lambdas dmd' body
+     in (Lam var' body')
+  | otherwise
+  = lam
+annotate_rhs_lambdas _ e = e
 
 \end{code}
 
@@ -421,6 +454,23 @@ lambda expression somewhere, e.g.
 
 build g = g (:) []
 build (\x y -> x () y) -- this lambda is one-shot
+
+Note [Annotatig lambdas at right-hand side]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Let us take a look at the following exmaple:
+
+g f = let x = 100
+          h = \y -> f x y
+       in h 5
+
+One can see that |h| is called just once, therefore the RHS of h can
+be annotated as a one-shot lambda. This is done by the function
+annotate_rhs_lambdas *a posteriori*, i.e., basing on the aggregated
+usage demand on |h| from the boye of |let|-expression (which is C1(U))
+in this case. 
+
+In other words, for locally-bound lambdas we can infer
+one-shotness. 
 
 
 Note [Analyzing with lazy demand and lambdas]
@@ -740,20 +790,22 @@ is <L,A>).
 -- Recursive bindings are automaticaly marked as used
 unleash_card_dmds :: (Var, Demand) -> DmdEnv
 unleash_card_dmds (id, id_dmd)
-  | Abs <- absd id_dmd
+  | Abs <- usage_dmd
     -- do not unleash anything for absent demands
     = emptyDmdEnv
   | otherwise 
     = let StrictSig (DmdType fv _ _) = idStrictness id
           arity		             = idArity id
-          threshold_dmd              = mkThresholdDmd arity 
-          -- we are dealing only with usage, therefore 
+          threshold_dmd              = absd $ mkThresholdDmd arity 
+          -- we are dealing only with usage, therefore the
           -- stricntess component in 'fv' should be set to L
           lazified_fv                = deferEnv fv            
-          unleashed_fv               = if id_dmd `pre` threshold_dmd
+          unleashed_fv               = if usage_dmd `pre` threshold_dmd
                                        then lazified_fv
                                        else markAsUsedEnv lazified_fv
        in unleashed_fv
+  where
+    usage_dmd = absd id_dmd 
 
 annotateBndr :: DmdType -> Var -> (DmdType, (Var, Demand))
 -- The returned env has the var deleted
