@@ -466,7 +466,7 @@ g f = let x = 100
 One can see that |h| is called just once, therefore the RHS of h can
 be annotated as a one-shot lambda. This is done by the function
 annotate_rhs_lambdas *a posteriori*, i.e., basing on the aggregated
-usage demand on |h| from the boye of |let|-expression (which is C1(U))
+usage demand on |h| from the body of |let|-expression (which is C1(U))
 in this case. 
 
 In other words, for locally-bound lambdas we can infer
