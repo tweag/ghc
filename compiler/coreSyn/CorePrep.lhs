@@ -459,7 +459,7 @@ it seems good for CorePrep to be robust.
 --              CpeRhs: produces a result satisfying CpeRhs
 -- ---------------------------------------------------------------------------
 
-cpeRhsE :: DynFlags -> CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeRhs)
+cpeRhsE :: CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeRhs)
 -- If
 --      e  ===>  (bs, e')
 -- then
@@ -468,12 +468,12 @@ cpeRhsE :: DynFlags -> CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeRhs)
 -- For example
 --      f (g x)   ===>   ([v = g x], f v)
 
-cpeRhsE _ _env expr@(Type {})      = return (emptyFloats, expr)
-cpeRhsE _ _env expr@(Coercion {})  = return (emptyFloats, expr)
-cpeRhsE dflags env (Lit (LitInteger i _))
-    = cpeRhsE dflags env (cvtLitInteger (cpe_dynFlags env) (getMkIntegerId env) i)
-cpeRhsE _ _env expr@(Lit {})       = return (emptyFloats, expr)
-cpeRhsE dflags env expr@(Var {})   = cpeApp dflags env expr
+cpeRhsE _env expr@(Type {})      = return (emptyFloats, expr)
+cpeRhsE _env expr@(Coercion {})  = return (emptyFloats, expr)
+cpeRhsE env (Lit (LitInteger i _))
+    = cpeRhsE (cpe_dynFlags env) env (cvtLitInteger (cpe_dynFlags env) (getMkIntegerId env) i)
+cpeRhsE _env expr@(Lit {})       = return (emptyFloats, expr)
+cpeRhsE env expr@(Var {})   = cpeApp (cpe_dynFlags env) env expr
 
 cpeRhsE dflags env (Var f `App` _ `App` arg)
   | f `hasKey` lazyIdKey          -- Replace (lazy a) by a
