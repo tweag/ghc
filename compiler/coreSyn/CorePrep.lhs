@@ -164,8 +164,8 @@ corePrepPgm dflags hsc_env binds data_tycons = do
             -- so that they are suitably cloned and eta-expanded
 
         binds_out = initUs_ us $ do
-                      floats1 <- corePrepTopBinds dflags initialCorePrepEnv binds
-                      floats2 <- corePrepTopBinds dflags initialCorePrepEnv implicit_binds
+                      floats1 <- corePrepTopBinds initialCorePrepEnv binds
+                      floats2 <- corePrepTopBinds initialCorePrepEnv implicit_binds
                       return (deFloatTop (floats1 `appendFloats` floats2))
 
     endPass dflags CorePrep binds_out []
@@ -176,17 +176,17 @@ corePrepExpr dflags hsc_env expr = do
     showPass dflags "CorePrep"
     us <- mkSplitUniqSupply 's'
     initialCorePrepEnv <- mkInitialCorePrepEnv dflags hsc_env
-    let new_expr = initUs_ us (cpeBodyNF dflags initialCorePrepEnv expr)
+    let new_expr = initUs_ us (cpeBodyNF initialCorePrepEnv expr)
     dumpIfSet_dyn dflags Opt_D_dump_prep "CorePrep" (ppr new_expr)
     return new_expr
 
-corePrepTopBinds :: DynFlags -> CorePrepEnv -> [CoreBind] -> UniqSM Floats
+corePrepTopBinds :: CorePrepEnv -> [CoreBind] -> UniqSM Floats
 -- Note [Floating out of top level bindings]
-corePrepTopBinds dflags initialCorePrepEnv binds
+corePrepTopBinds initialCorePrepEnv binds
   = go initialCorePrepEnv binds
   where
     go _   []             = return emptyFloats
-    go env (bind : binds) = do (env', bind') <- cpeBind dflags TopLevel env bind
+    go env (bind : binds) = do (env', bind') <- cpeBind TopLevel env bind
                                binds' <- go env' binds
                                return (bind' `appendFloats` binds')
 
@@ -336,14 +336,13 @@ Into this one:
 %************************************************************************
 
 \begin{code}
-cpeBind :: DynFlags -> TopLevelFlag
-        -> CorePrepEnv -> CoreBind
+cpeBind :: TopLevelFlag -> CorePrepEnv -> CoreBind
         -> UniqSM (CorePrepEnv, Floats)
-cpeBind dflags top_lvl env (NonRec bndr rhs)
+cpeBind top_lvl env (NonRec bndr rhs)
   = do { (_, bndr1) <- cpCloneBndr env bndr
        ; let is_strict   = isStrictDmd (idDemandInfo bndr)
              is_unlifted = isUnLiftedType (idType bndr)
-       ; (floats, bndr2, rhs2) <- cpePair dflags top_lvl NonRecursive
+       ; (floats, bndr2, rhs2) <- cpePair top_lvl NonRecursive
                                           (is_strict || is_unlifted)
                                           env bndr1 rhs
        ; let new_float = mkFloat is_strict is_unlifted bndr2 rhs2
@@ -353,10 +352,10 @@ cpeBind dflags top_lvl env (NonRec bndr rhs)
        ; return (extendCorePrepEnv env bndr bndr2,
                  addFloat floats new_float) }
 
-cpeBind dflags top_lvl env (Rec pairs)
+cpeBind top_lvl env (Rec pairs)
   = do { let (bndrs,rhss) = unzip pairs
        ; (env', bndrs1) <- cpCloneBndrs env (map fst pairs)
-       ; stuff <- zipWithM (cpePair dflags top_lvl Recursive False env') bndrs1 rhss
+       ; stuff <- zipWithM (cpePair top_lvl Recursive False env') bndrs1 rhss
 
        ; let (floats_s, bndrs2, rhss2) = unzip3 stuff
              all_pairs = foldrOL add_float (bndrs2 `zip` rhss2)
@@ -371,12 +370,12 @@ cpeBind dflags top_lvl env (Rec pairs)
     add_float b                       _    = pprPanic "cpeBind" (ppr b)
 
 ---------------
-cpePair :: DynFlags -> TopLevelFlag -> RecFlag -> RhsDemand
+cpePair :: TopLevelFlag -> RecFlag -> RhsDemand
         -> CorePrepEnv -> Id -> CoreExpr
         -> UniqSM (Floats, Id, CpeRhs)
 -- Used for all bindings
-cpePair dflags top_lvl is_rec is_strict_or_unlifted env bndr rhs
-  = do { (floats1, rhs1) <- cpeRhsE dflags env rhs
+cpePair top_lvl is_rec is_strict_or_unlifted env bndr rhs
+  = do { (floats1, rhs1) <- cpeRhsE env rhs
 
        -- See if we are allowed to float this stuff out of the RHS
        ; (floats2, rhs2) <- float_from_rhs floats1 rhs1
@@ -471,26 +470,26 @@ cpeRhsE :: CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeRhs)
 cpeRhsE _env expr@(Type {})      = return (emptyFloats, expr)
 cpeRhsE _env expr@(Coercion {})  = return (emptyFloats, expr)
 cpeRhsE env (Lit (LitInteger i _))
-    = cpeRhsE (cpe_dynFlags env) env (cvtLitInteger (cpe_dynFlags env) (getMkIntegerId env) i)
+    = cpeRhsE env (cvtLitInteger (cpe_dynFlags env) (getMkIntegerId env) i)
 cpeRhsE _env expr@(Lit {})       = return (emptyFloats, expr)
-cpeRhsE env expr@(Var {})   = cpeApp (cpe_dynFlags env) env expr
+cpeRhsE env expr@(Var {})   = cpeApp env expr
 
-cpeRhsE dflags env (Var f `App` _ `App` arg)
+cpeRhsE env (Var f `App` _ `App` arg)
   | f `hasKey` lazyIdKey          -- Replace (lazy a) by a
-  = cpeRhsE dflags env arg               -- See Note [lazyId magic] in MkId
+  = cpeRhsE env arg               -- See Note [lazyId magic] in MkId
 
-cpeRhsE dflags env expr@(App {}) = cpeApp dflags env expr
+cpeRhsE env expr@(App {}) = cpeApp env expr
 
-cpeRhsE dflags env (Let bind expr)
-  = do { (env', new_binds) <- cpeBind dflags NotTopLevel env bind
-       ; (floats, body) <- cpeRhsE dflags env' expr
+cpeRhsE env (Let bind expr)
+  = do { (env', new_binds) <- cpeBind NotTopLevel env bind
+       ; (floats, body) <- cpeRhsE env' expr
        ; return (new_binds `appendFloats` floats, body) }
 
-cpeRhsE dflags env (Tick tickish expr)
+cpeRhsE env (Tick tickish expr)
   | ignoreTickish tickish
-  = cpeRhsE dflags env expr
+  = cpeRhsE env expr
   | otherwise         -- Just SCCs actually
-  = do { body <- cpeBodyNF dflags env expr
+  = do { body <- cpeBodyNF env expr
        ; return (emptyFloats, Tick tickish' body) }
   where
     tickish' | Breakpoint n fvs <- tickish
@@ -498,18 +497,18 @@ cpeRhsE dflags env (Tick tickish expr)
              | otherwise
              = tickish
 
-cpeRhsE dflags env (Cast expr co)
-   = do { (floats, expr') <- cpeRhsE dflags env expr
+cpeRhsE env (Cast expr co)
+   = do { (floats, expr') <- cpeRhsE env expr
         ; return (floats, Cast expr' co) }
 
-cpeRhsE dflags env expr@(Lam {})
+cpeRhsE env expr@(Lam {})
    = do { let (bndrs,body) = collectBinders expr
         ; (env', bndrs') <- cpCloneBndrs env bndrs
-        ; body' <- cpeBodyNF dflags env' body
+        ; body' <- cpeBodyNF env' body
         ; return (emptyFloats, mkLams bndrs' body') }
 
-cpeRhsE dflags env (Case scrut bndr ty alts)
-  = do { (floats, scrut') <- cpeBody dflags env scrut
+cpeRhsE env (Case scrut bndr ty alts)
+  = do { (floats, scrut') <- cpeBody env scrut
        ; let bndr1 = bndr `setIdUnfolding` evaldUnfolding
             -- Record that the case binder is evaluated in the alternatives
        ; (env', bndr2) <- cpCloneBndr env bndr1
@@ -518,7 +517,7 @@ cpeRhsE dflags env (Case scrut bndr ty alts)
   where
     sat_alt env (con, bs, rhs)
        = do { (env2, bs') <- cpCloneBndrs env bs
-            ; rhs' <- cpeBodyNF dflags env2 rhs
+            ; rhs' <- cpeBodyNF env2 rhs
             ; return (con, bs', rhs') }
 
 cvtLitInteger :: DynFlags -> Id -> Integer -> CoreExpr
@@ -548,15 +547,15 @@ cvtLitInteger dflags mk_integer i
 --              CpeBody: produces a result satisfying CpeBody
 -- ---------------------------------------------------------------------------
 
-cpeBodyNF :: DynFlags -> CorePrepEnv -> CoreExpr -> UniqSM CpeBody
-cpeBodyNF dflags env expr
-  = do { (floats, body) <- cpeBody dflags env expr
+cpeBodyNF :: CorePrepEnv -> CoreExpr -> UniqSM CpeBody
+cpeBodyNF env expr
+  = do { (floats, body) <- cpeBody env expr
        ; return (wrapBinds floats body) }
 
 --------
-cpeBody :: DynFlags -> CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeBody)
-cpeBody dflags env expr
-  = do { (floats1, rhs) <- cpeRhsE dflags env expr
+cpeBody :: CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeBody)
+cpeBody env expr
+  = do { (floats1, rhs) <- cpeRhsE env expr
        ; (floats2, body) <- rhsToBody rhs
        ; return (floats1 `appendFloats` floats2, body) }
 
@@ -601,9 +600,9 @@ rhsToBody expr = return (emptyFloats, expr)
 --              CpeApp: produces a result satisfying CpeApp
 -- ---------------------------------------------------------------------------
 
-cpeApp :: DynFlags -> CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeRhs)
+cpeApp :: CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeRhs)
 -- May return a CpeRhs because of saturating primops
-cpeApp dflags env expr
+cpeApp env expr
   = do { (app, (head,depth), _, floats, ss) <- collect_args expr 0
        ; MASSERT(null ss)       -- make sure we used all the strictness info
 
@@ -648,7 +647,7 @@ cpeApp dflags env expr
                                  splitFunTy_maybe fun_ty
               is_strict = isStrictDmd ss1
 
-           ; (fs, arg') <- cpeArg dflags env is_strict arg arg_ty
+           ; (fs, arg') <- cpeArg env is_strict arg arg_ty
            ; return (App fun' arg', hd, res_ty, fs `appendFloats` floats, ss_rest) }
 
     collect_args (Var v) depth
@@ -678,7 +677,7 @@ cpeApp dflags env expr
 
         -- N-variable fun, better let-bind it
     collect_args fun depth
-      = do { (fun_floats, fun') <- cpeArg dflags env True fun ty
+      = do { (fun_floats, fun') <- cpeArg env True fun ty
                           -- The True says that it's sure to be evaluated,
                           -- so we'll end up case-binding it
            ; return (fun', (fun', depth), ty, fun_floats, []) }
@@ -690,10 +689,10 @@ cpeApp dflags env expr
 -- ---------------------------------------------------------------------------
 
 -- This is where we arrange that a non-trivial argument is let-bound
-cpeArg :: DynFlags -> CorePrepEnv -> RhsDemand 
+cpeArg :: CorePrepEnv -> RhsDemand 
        -> CoreArg -> Type -> UniqSM (Floats, CpeTriv)
-cpeArg dflags env is_strict arg arg_ty
-  = do { (floats1, arg1) <- cpeRhsE dflags env arg     -- arg1 can be a lambda
+cpeArg env is_strict arg arg_ty
+  = do { (floats1, arg1) <- cpeRhsE env arg     -- arg1 can be a lambda
        ; (floats2, arg2) <- if want_float floats1 arg1
                             then return (floats1, arg1)
                             else do { body1 <- rhsToBodyNF arg1
