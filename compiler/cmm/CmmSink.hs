@@ -3,9 +3,10 @@ module CmmSink (
      cmmSink
   ) where
 
-import StgCmmUtils (callerSaves)
+import CodeGen.Platform (callerSaves)
 
 import Cmm
+import CmmOpt
 import BlockId
 import CmmLive
 import CmmUtils
@@ -13,8 +14,7 @@ import Hoopl
 
 import DynFlags
 import UniqFM
--- import PprCmm ()
--- import Outputable
+import PprCmm ()
 
 import Data.List (partition)
 import qualified Data.Set as Set
@@ -76,9 +76,11 @@ import qualified Data.Set as Set
 -- *but*, that will invalidate the liveness analysis, and we'll have
 -- to re-do it.
 
--- TODO: things that we aren't optimising very well yet.
+-- -----------------------------------------------------------------------------
+-- things that we aren't optimising very well yet.
 --
--- From GHC's FastString.hashStr:
+-- -----------
+-- (1) From GHC's FastString.hashStr:
 --
 --  s2ay:
 --      if ((_s2an::I64 == _s2ao::I64) >= 1) goto c2gn; else goto c2gp;
@@ -95,6 +97,26 @@ import qualified Data.Set as Set
 -- a nice loop, but we didn't eliminate the silly assignment at the end.
 -- See Note [dependent assignments], which would probably fix this.
 --
+-- -----------
+-- (2) From stg_atomically_frame in PrimOps.cmm
+--
+-- We have a diamond control flow:
+--
+--     x = ...
+--       |
+--      / \
+--     A   B
+--      \ /
+--       |
+--    use of x
+--
+-- Now x won't be sunk down to its use, because we won't push it into
+-- both branches of the conditional.  We certainly do have to check
+-- that we can sink it past all the code in both A and B, but having
+-- discovered that, we could sink it to its use.
+--
+
+-- -----------------------------------------------------------------------------
 
 type Assignment = (LocalReg, CmmExpr, AbsMem)
   -- Assignment caches AbsMem, an abstraction of the memory read by
@@ -130,7 +152,8 @@ cmmSink dflags graph = ofBlockList (g_entry graph) $ sink mapEmpty $ blocks
 
       -- Now sink and inline in this block
       (middle', assigs) = walk dflags ann_middles (mapFindWithDefault [] lbl sunk)
-      (final_last, assigs') = tryToInline dflags live last assigs
+      fold_last = constantFold dflags last
+      (final_last, assigs') = tryToInline dflags live fold_last assigs
 
       -- We cannot sink into join points (successors with more than
       -- one predecessor), so identify the join points and the set
@@ -155,7 +178,7 @@ cmmSink dflags graph = ofBlockList (g_entry graph) $ sink mapEmpty $ blocks
       drop_if a@(r,rhs,_) live_sets = (should_drop, live_sets')
           where
             should_drop =  conflicts dflags a final_last
-                        || {- not (isTiny rhs) && -} live_in_multi live_sets r
+                        || not (isTrivial rhs) && live_in_multi live_sets r
                         || r `Set.member` live_in_joins
 
             live_sets' | should_drop = live_sets
@@ -172,13 +195,22 @@ cmmSink dflags graph = ofBlockList (g_entry graph) $ sink mapEmpty $ blocks
                  mapFromList [ (l, filterAssignments dflags (getLive l) assigs'')
                              | l <- succs ]
 
-{-
--- tiny: an expression we don't mind duplicating
-isTiny :: CmmExpr -> Bool
-isTiny (CmmReg _) = True
-isTiny (CmmLit _) = True
-isTiny _other     = False
+{- TODO: enable this later, when we have some good tests in place to
+   measure the effect and tune it.
+
+-- small: an expression we don't mind duplicating
+isSmall :: CmmExpr -> Bool
+isSmall (CmmReg (CmmLocal _)) = True  -- not globals, we want to coalesce them instead
+isSmall (CmmLit _) = True
+isSmall (CmmMachOp (MO_Add _) [x,y]) = isTrivial x && isTrivial y
+isSmall (CmmRegOff (CmmLocal _) _) = True
+isSmall _ = False
 -}
+
+isTrivial :: CmmExpr -> Bool
+isTrivial (CmmReg (CmmLocal _)) = True
+-- isTrivial (CmmLit _) = True
+isTrivial _ = False
 
 --
 -- annotate each node with the set of registers live *after* the node
@@ -237,13 +269,24 @@ walk dflags nodes assigs = go nodes emptyBlock assigs
    go []               block as = (block, as)
    go ((live,node):ns) block as
     | shouldDiscard node live    = go ns block as
-    | Just a <- shouldSink node1 = go ns block (a : as1)
-    | otherwise                  = go ns block' as'
+    | Just a <- shouldSink dflags node2 = go ns block (a : as1)
+    | otherwise                         = go ns block' as'
     where
-      (node1, as1) = tryToInline dflags live node as
+      node1 = constantFold dflags node
 
-      (dropped, as') = dropAssignmentsSimple dflags (\a -> conflicts dflags a node1) as1
-      block' = foldl blockSnoc block dropped `blockSnoc` node1
+      (node2, as1) = tryToInline dflags live node1 as
+
+      (dropped, as') = dropAssignmentsSimple dflags
+                          (\a -> conflicts dflags a node2) as1
+
+      block' = foldl blockSnoc block dropped `blockSnoc` node2
+
+
+constantFold :: DynFlags -> CmmNode e x -> CmmNode e x
+constantFold dflags node = mapExpDeep f node
+  where f (CmmMachOp op args) = cmmMachOpFold dflags op args
+        f (CmmRegOff r 0) = CmmReg r
+        f e = e
 
 --
 -- Heuristic to decide whether to pick up and sink an assignment
@@ -251,10 +294,10 @@ walk dflags nodes assigs = go nodes emptyBlock assigs
 -- be profitable to sink assignments to global regs too, but the
 -- liveness analysis doesn't track those (yet) so we can't.
 --
-shouldSink :: CmmNode e x -> Maybe Assignment
-shouldSink (CmmAssign (CmmLocal r) e) | no_local_regs = Just (r, e, exprMem e)
+shouldSink :: DynFlags -> CmmNode e x -> Maybe Assignment
+shouldSink dflags (CmmAssign (CmmLocal r) e) | no_local_regs = Just (r, e, exprMem dflags e)
   where no_local_regs = True -- foldRegsUsed (\_ _ -> False) True e
-shouldSink _other = Nothing
+shouldSink _ _other = Nothing
 
 --
 -- discard dead assignments.  This doesn't do as good a job as
@@ -322,36 +365,38 @@ tryToInline dflags live node assigs = go usages node [] assigs
   go _usages node _skipped [] = (node, [])
 
   go usages node skipped (a@(l,rhs,_) : rest)
-   | can_inline              = inline_and_discard
-   | False {- isTiny rhs -}  = inline_and_keep
-     --  ^^ seems to make things slightly worse
+   | cannot_inline           = dont_inline
+   | occurs_once             = inline_and_discard
+   | isTrivial rhs           = inline_and_keep
+   | otherwise               = dont_inline
    where
-        inline_and_discard = go usages' node' skipped rest
+        inline_and_discard = go usages' inl_node skipped rest
+          where usages' = foldRegsUsed addUsage usages rhs
 
-        inline_and_keep = (node'', a : rest')
-          where (node'',rest') = go usages' node' (l:skipped) rest
+        dont_inline        = keep node  -- don't inline the assignment, keep it
+        inline_and_keep    = keep inl_node -- inline the assignment, keep it
 
-        can_inline =
-            not (l `elemRegSet` live)
-         && not (skipped `regsUsedIn` rhs)  -- Note [dependent assignments]
-         && okToInline dflags rhs node
-         && lookupUFM usages l == Just 1
+        keep node' = (final_node, a : rest')
+          where (final_node, rest') = go usages' node' (l:skipped) rest
+                usages' = foldRegsUsed (\m r -> addToUFM m r 2) usages rhs
+                -- we must not inline anything that is mentioned in the RHS
+                -- of a binding that we have already skipped, so we set the
+                -- usages of the regs on the RHS to 2.
 
-        usages' = foldRegsUsed addUsage usages rhs
+        cannot_inline = skipped `regsUsedIn` rhs -- Note [dependent assignments]
+                        || l `elem` skipped
+                        || not (okToInline dflags rhs node)
 
-        node' = mapExpDeep inline node
+        occurs_once = not (l `elemRegSet` live)
+                      && lookupUFM usages l == Just 1
+
+        inl_node = mapExpDeep inline node
            where inline (CmmReg    (CmmLocal l'))     | l == l' = rhs
                  inline (CmmRegOff (CmmLocal l') off) | l == l'
-                    = cmmOffset rhs off
+                    = cmmOffset dflags rhs off
+                    -- re-constant fold after inlining
+                 inline (CmmMachOp op args) = cmmMachOpFold dflags op args
                  inline other = other
-
-  go usages node skipped (assig@(l,rhs,_) : rest)
-    = (node', assig : rest')
-    where (node', rest') = go usages' node (l:skipped) rest
-          usages' = foldRegsUsed (\m r -> addToUFM m r 2) usages rhs
-          -- we must not inline anything that is mentioned in the RHS
-          -- of a binding that we have already skipped, so we set the
-          -- usages of the regs on the RHS to 2.
 
 -- Note [dependent assignments]
 --
@@ -371,6 +416,15 @@ tryToInline dflags live node assigs = go usages node [] assigs
 --
 -- For now we do nothing, because this would require putting
 -- everything inside UniqSM.
+--
+-- One more variant of this (#7366):
+--
+--   [ y = e, y = z ]
+--
+-- If we don't want to inline y = e, because y is used many times, we
+-- might still be tempted to inline y = z (because we always inline
+-- trivial rhs's).  But of course we can't, because y is equal to e,
+-- not z.
 
 addUsage :: UniqFM Int -> LocalReg -> UniqFM Int
 addUsage m r = addToUFM_C (+) m r 1
@@ -407,7 +461,8 @@ conflicts dflags (r, rhs, addr) node
   | foldRegsUsed (\b r' -> r == r' || b) False node               = True
 
   -- (2) a store to an address conflicts with a read of the same memory
-  | CmmStore addr' e <- node, memConflicts addr (loadAddr addr' (cmmExprWidth e)) = True
+  | CmmStore addr' e <- node
+  , memConflicts addr (loadAddr dflags addr' (cmmExprWidth dflags e)) = True
 
   -- (3) an assignment to Hp/Sp conflicts with a heap/stack read respectively
   | HeapMem    <- addr, CmmAssign (CmmGlobal Hp) _ <- node        = True
@@ -418,8 +473,8 @@ conflicts dflags (r, rhs, addr) node
   -- foreign call.  See Note [foreign calls clobber GlobalRegs].
   | CmmUnsafeForeignCall{} <- node, anyCallerSavesRegs dflags rhs = True
 
-  -- (5) foreign calls clobber memory, but not heap/stack memory
-  | CmmUnsafeForeignCall{} <- node, AnyMem <- addr                = True
+  -- (5) foreign calls clobber heap: see Note [foreign calls clobber heap]
+  | CmmUnsafeForeignCall{} <- node, memConflicts addr AnyMem      = True
 
   -- (6) native calls clobber any memory
   | CmmCall{} <- node, memConflicts addr AnyMem                   = True
@@ -456,6 +511,42 @@ data AbsMem
 -- Note that SpMem is invalidated if Sp is changed, but the definition
 -- of 'conflicts' above handles that.
 
+-- ToDo: this won't currently fix the following commonly occurring code:
+--    x1 = [R1 + 8]
+--    x2 = [R1 + 16]
+--    ..
+--    [Hp - 8] = x1
+--    [Hp - 16] = x2
+--    ..
+
+-- because [R1 + 8] and [Hp - 8] are both HeapMem.  We know that
+-- assignments to [Hp + n] do not conflict with any other heap memory,
+-- but this is tricky to nail down.  What if we had
+--
+--   x = Hp + n
+--   [x] = ...
+--
+--  the store to [x] should be "new heap", not "old heap".
+--  Furthermore, you could imagine that if we started inlining
+--  functions in Cmm then there might well be reads of heap memory
+--  that was written in the same basic block.  To take advantage of
+--  non-aliasing of heap memory we will have to be more clever.
+
+-- Note [foreign calls clobber]
+--
+-- It is tempting to say that foreign calls clobber only
+-- non-heap/stack memory, but unfortunately we break this invariant in
+-- the RTS.  For example, in stg_catch_retry_frame we call
+-- stmCommitNestedTransaction() which modifies the contents of the
+-- TRec it is passed (this actually caused incorrect code to be
+-- generated).
+--
+-- Since the invariant is true for the majority of foreign calls,
+-- perhaps we ought to have a special annotation for calls that can
+-- modify heap/stack memory.  For now we just use the conservative
+-- definition here.
+
+
 bothMems :: AbsMem -> AbsMem -> AbsMem
 bothMems NoMem    x         = x
 bothMems x        NoMem     = x
@@ -480,21 +571,22 @@ memConflicts (SpMem o1 w1) (SpMem o2 w2)
   | otherwise = o2 + w2 > o1
 memConflicts _         _         = True
 
-exprMem :: CmmExpr -> AbsMem
-exprMem (CmmLoad addr w)  = bothMems (loadAddr addr (typeWidth w)) (exprMem addr)
-exprMem (CmmMachOp _ es)  = foldr bothMems NoMem (map exprMem es)
-exprMem _                 = NoMem
+exprMem :: DynFlags -> CmmExpr -> AbsMem
+exprMem dflags (CmmLoad addr w)  = bothMems (loadAddr dflags addr (typeWidth w)) (exprMem dflags addr)
+exprMem dflags (CmmMachOp _ es)  = foldr bothMems NoMem (map (exprMem dflags) es)
+exprMem _      _                 = NoMem
 
-loadAddr :: CmmExpr -> Width -> AbsMem
-loadAddr e w =
+loadAddr :: DynFlags -> CmmExpr -> Width -> AbsMem
+loadAddr dflags e w =
   case e of
-   CmmReg r       -> regAddr r 0 w
-   CmmRegOff r i  -> regAddr r i w
+   CmmReg r       -> regAddr dflags r 0 w
+   CmmRegOff r i  -> regAddr dflags r i w
    _other | CmmGlobal Sp `regUsedIn` e -> StackMem
           | otherwise -> AnyMem
 
-regAddr :: CmmReg -> Int -> Width -> AbsMem
-regAddr (CmmGlobal Sp) i w = SpMem i (widthInBytes w)
-regAddr (CmmGlobal Hp) _ _ = HeapMem
-regAddr r _ _ | isGcPtrType (cmmRegType r) = HeapMem -- yay! GCPtr pays for itself
-regAddr _ _ _ = AnyMem
+regAddr :: DynFlags -> CmmReg -> Int -> Width -> AbsMem
+regAddr _      (CmmGlobal Sp) i w = SpMem i (widthInBytes w)
+regAddr _      (CmmGlobal Hp) _ _ = HeapMem
+regAddr _      (CmmGlobal CurrentTSO) _ _ = HeapMem -- important for PrimOps
+regAddr dflags r _ _ | isGcPtrType (cmmRegType dflags r) = HeapMem -- yay! GCPtr pays for itself
+regAddr _      _ _ _ = AnyMem

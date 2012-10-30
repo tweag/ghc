@@ -16,7 +16,7 @@ module OldCmm (
 
         GenBasicBlock(..), CmmBasicBlock, blockId, blockStmts, mapBlockStmts,
 
-        CmmStmt(..), CmmReturnInfo(..), CmmHinted(..),
+        CmmStmt(..), New.CmmReturnInfo(..), CmmHinted(..),
         HintedCmmFormal, HintedCmmActual,
 
         CmmSafety(..), CmmCallTarget(..),
@@ -24,7 +24,7 @@ module OldCmm (
 
         module CmmExpr,
 
-        Section(..), ProfilingInfo(..), C_SRT(..)
+        Section(..), ProfilingInfo(..), New.C_SRT(..)
     ) where
 
 #include "HsVersions.h"
@@ -35,7 +35,6 @@ import Cmm ( CmmInfoTable(..), GenCmmGroup, CmmStatics(..), GenCmmDecl(..),
              ProfilingInfo(..), ClosureTypeInfo(..) )
 
 import BlockId
-import ClosureInfo
 import CmmExpr
 import FastString
 import ForeignCall
@@ -120,11 +119,6 @@ cmmTopMapGraph :: (g -> g') -> GenCmmDecl d h g -> GenCmmDecl d h g'
 cmmTopMapGraph f (CmmProc h l g) = CmmProc h l (f g)
 cmmTopMapGraph _ (CmmData s ds)  = CmmData s ds
 
-data CmmReturnInfo
-  = CmmMayReturn
-  | CmmNeverReturns
-  deriving ( Eq )
-
 -----------------------------------------------------------------------------
 --              CmmStmt
 -- A "statement".  Note that all branches are explicit: there are no
@@ -145,7 +139,7 @@ data CmmStmt
       CmmCallTarget
       [HintedCmmFormal]            -- zero or more results
       [HintedCmmActual]            -- zero or more arguments
-      CmmReturnInfo
+      New.CmmReturnInfo
       -- Some care is necessary when handling the arguments of these, see
       -- [Register parameter passing] and the hack in cmm/CmmOpt.hs
 
@@ -189,7 +183,7 @@ type HintedCmmActual = CmmHinted CmmActual
 
 data CmmSafety
   = CmmUnsafe
-  | CmmSafe C_SRT
+  | CmmSafe New.C_SRT
   | CmmInterruptible
 
 -- | enable us to fold used registers over '[CmmActual]' and '[CmmFormal]'

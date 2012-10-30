@@ -18,6 +18,7 @@ where
 import Reg
 import RegClass
 
+import DynFlags
 import Panic
 import Platform
 
@@ -33,45 +34,52 @@ import Platform
 --	getFreeRegs cls f = filter ( (==cls) . regClass . RealReg ) f
 --	allocateReg f r = filter (/= r) f
 
-import qualified RegAlloc.Linear.PPC.FreeRegs   as PPC
-import qualified RegAlloc.Linear.SPARC.FreeRegs as SPARC
-import qualified RegAlloc.Linear.X86.FreeRegs   as X86
+import qualified RegAlloc.Linear.PPC.FreeRegs    as PPC
+import qualified RegAlloc.Linear.SPARC.FreeRegs  as SPARC
+import qualified RegAlloc.Linear.X86.FreeRegs    as X86
+import qualified RegAlloc.Linear.X86_64.FreeRegs as X86_64
 
 import qualified PPC.Instr
 import qualified SPARC.Instr
 import qualified X86.Instr
 
 class Show freeRegs => FR freeRegs where
-    frAllocateReg :: RealReg -> freeRegs -> freeRegs
+    frAllocateReg :: Platform -> RealReg -> freeRegs -> freeRegs
     frGetFreeRegs :: Platform -> RegClass -> freeRegs -> [RealReg]
     frInitFreeRegs :: Platform -> freeRegs
-    frReleaseReg :: RealReg -> freeRegs -> freeRegs
+    frReleaseReg :: Platform -> RealReg -> freeRegs -> freeRegs
 
 instance FR X86.FreeRegs where
-    frAllocateReg  = X86.allocateReg
+    frAllocateReg  = \_ -> X86.allocateReg
     frGetFreeRegs  = X86.getFreeRegs
     frInitFreeRegs = X86.initFreeRegs
-    frReleaseReg   = X86.releaseReg
+    frReleaseReg   = \_ -> X86.releaseReg
+
+instance FR X86_64.FreeRegs where
+    frAllocateReg  = \_ -> X86_64.allocateReg
+    frGetFreeRegs  = X86_64.getFreeRegs
+    frInitFreeRegs = X86_64.initFreeRegs
+    frReleaseReg   = \_ -> X86_64.releaseReg
 
 instance FR PPC.FreeRegs where
-    frAllocateReg  = PPC.allocateReg
+    frAllocateReg  = \_ -> PPC.allocateReg
     frGetFreeRegs  = \_ -> PPC.getFreeRegs
-    frInitFreeRegs = \_ -> PPC.initFreeRegs
-    frReleaseReg   = PPC.releaseReg
+    frInitFreeRegs = PPC.initFreeRegs
+    frReleaseReg   = \_ -> PPC.releaseReg
 
 instance FR SPARC.FreeRegs where
     frAllocateReg  = SPARC.allocateReg
     frGetFreeRegs  = \_ -> SPARC.getFreeRegs
-    frInitFreeRegs = \_ -> SPARC.initFreeRegs
+    frInitFreeRegs = SPARC.initFreeRegs
     frReleaseReg   = SPARC.releaseReg
 
-maxSpillSlots :: Platform -> Int
-maxSpillSlots platform
-              = case platformArch platform of
-                ArchX86       -> X86.Instr.maxSpillSlots True  -- 32bit
-                ArchX86_64    -> X86.Instr.maxSpillSlots False -- not 32bit
-                ArchPPC       -> PPC.Instr.maxSpillSlots
-                ArchSPARC     -> SPARC.Instr.maxSpillSlots
+maxSpillSlots :: DynFlags -> Int
+maxSpillSlots dflags
+              = case platformArch (targetPlatform dflags) of
+                ArchX86       -> X86.Instr.maxSpillSlots dflags
+                ArchX86_64    -> X86.Instr.maxSpillSlots dflags
+                ArchPPC       -> PPC.Instr.maxSpillSlots dflags
+                ArchSPARC     -> SPARC.Instr.maxSpillSlots dflags
                 ArchARM _ _ _ -> panic "maxSpillSlots ArchARM"
                 ArchPPC_64    -> panic "maxSpillSlots ArchPPC_64"
                 ArchUnknown   -> panic "maxSpillSlots ArchUnknown"

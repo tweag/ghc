@@ -37,6 +37,8 @@ module HscTypes (
 
         PackageInstEnv, PackageRuleBase,
 
+        mkSOName, soExt,
+
         -- * Annotations
         prepareAnnotations,
 
@@ -157,6 +159,7 @@ import Fingerprint
 import MonadUtils
 import Bag
 import ErrUtils
+import Platform
 import Util
 
 import Control.Monad    ( mplus, guard, liftM, when )
@@ -232,7 +235,7 @@ instance Exception GhcApiError
 -- -Werror is enabled, or print them out otherwise.
 printOrThrowWarnings :: DynFlags -> Bag WarnMsg -> IO ()
 printOrThrowWarnings dflags warns
-  | dopt Opt_WarnIsError dflags
+  | gopt Opt_WarnIsError dflags
   = when (not (isEmptyBag warns)) $ do
       throwIO $ mkSrcErr $ warns `snocBag` warnIsErrorMsg dflags
   | otherwise
@@ -744,6 +747,22 @@ emptyModIface mod
                mi_trust       = noIfaceTrustInfo,
                mi_trust_pkg   = False }
 
+
+-- | Constructs cache for the 'mi_hash_fn' field of a 'ModIface'
+mkIfaceHashCache :: [(Fingerprint,IfaceDecl)]
+                 -> (OccName -> Maybe (OccName, Fingerprint))
+mkIfaceHashCache pairs
+  = \occ -> lookupOccEnv env occ
+  where
+    env = foldr add_decl emptyOccEnv pairs
+    add_decl (v,d) env0 = foldr add env0 (ifaceDeclFingerprints v d)
+      where
+        add (occ,hash) env0 = extendOccEnv env0 occ (occ,hash)
+
+emptyIfaceHashCache :: OccName -> Maybe (OccName, Fingerprint)
+emptyIfaceHashCache _occ = Nothing
+
+
 -- | The 'ModDetails' is essentially a cache for information in the 'ModIface'
 -- for home modules only. Information relating to packages will be loaded into
 -- global environments in 'ExternalPackageState'.
@@ -1116,7 +1135,8 @@ mkPrintUnqualified dflags env = (qual_name, qual_mod)
                    then NameNotInScope1
                    else NameNotInScope2
 
-        | otherwise = panic "mkPrintUnqualified"
+        | otherwise = NameNotInScope1   -- Can happen if 'f' is bound twice in the module
+                                        -- Eg  f = True; g = 0; f = False
       where
         mod = nameModule name
         occ = nameOccName name
@@ -1459,24 +1479,6 @@ class Monad m => MonadThings m where
         lookupTyCon = liftM tyThingTyCon . lookupThing
 \end{code}
 
-\begin{code}
--- | Constructs cache for the 'mi_hash_fn' field of a 'ModIface'
-mkIfaceHashCache :: [(Fingerprint,IfaceDecl)]
-                 -> (OccName -> Maybe (OccName, Fingerprint))
-mkIfaceHashCache pairs
-  = \occ -> lookupOccEnv env occ
-  where
-    env = foldr add_decl emptyOccEnv pairs
-    add_decl (v,d) env0 = foldr add_imp env1 (ifaceDeclImplicitBndrs d)
-      where
-          decl_name = ifName d
-          env1 = extendOccEnv env0 decl_name (decl_name, v)
-          add_imp bndr env = extendOccEnv env bndr (decl_name, v)
-
-emptyIfaceHashCache :: OccName -> Maybe (OccName, Fingerprint)
-emptyIfaceHashCache _occ = Nothing
-\end{code}
-
 %************************************************************************
 %*                                                                      *
 \subsection{Auxiliary types}
@@ -1778,6 +1780,22 @@ data NameCache
 type OrigNameCache   = ModuleEnv (OccEnv Name)
 \end{code}
 
+
+\begin{code}
+mkSOName :: Platform -> FilePath -> FilePath
+mkSOName platform root
+    = case platformOS platform of
+      OSDarwin  -> ("lib" ++ root) <.> "dylib"
+      OSMinGW32 ->           root  <.> "dll"
+      _         -> ("lib" ++ root) <.> "so"
+
+soExt :: Platform -> FilePath
+soExt platform
+    = case platformOS platform of
+      OSDarwin  -> "dylib"
+      OSMinGW32 -> "dll"
+      _         -> "so"
+\end{code}
 
 
 %************************************************************************

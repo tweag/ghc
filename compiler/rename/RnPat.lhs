@@ -158,8 +158,8 @@ matchNameMaker ctxt = LamMk report_unused
     -- Do not report unused names in interactive contexts
     -- i.e. when you type 'x <- e' at the GHCi prompt
     report_unused = case ctxt of
-                      StmtCtxt GhciStmt -> False
-                      _                 -> True
+                      StmtCtxt GhciStmtCtxt -> False
+                      _                     -> True
 
 rnHsSigCps :: HsWithBndrs (LHsType RdrName) -> CpsRn (HsWithBndrs (LHsType Name))
 rnHsSigCps sig 
@@ -483,7 +483,7 @@ rnHsRecFields1 ctxt mk_arg (HsRecFields { rec_flds = flds, rec_dotdot = dotdot }
     rn_fld pun_ok parent (HsRecField { hsRecFieldId = fld
                        	      	     , hsRecFieldArg = arg
                        	      	     , hsRecPun = pun })
-      = do { fld'@(L loc fld_nm) <- wrapLocM (lookupSubBndrOcc parent doc) fld
+      = do { fld'@(L loc fld_nm) <- wrapLocM (lookupSubBndrOcc True parent doc) fld
            ; arg' <- if pun 
                      then do { checkErr pun_ok (badPun fld)
                              ; return (L loc (mk_arg (mkRdrUnqual (nameOccName fld_nm)))) }

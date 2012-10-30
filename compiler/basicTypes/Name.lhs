@@ -45,7 +45,7 @@ module Name (
 
 	-- ** Creating 'Name's
 	mkSystemName, mkSystemNameAt,
-        mkInternalName, mkDerivedInternalName, 
+        mkInternalName, mkClonedInternalName, mkDerivedInternalName, 
 	mkSystemVarName, mkSysTvName, 
         mkFCallName,
         mkExternalName, mkWiredInName,
@@ -88,7 +88,7 @@ import Unique
 import Util
 import Maybes
 import Binary
-import StaticFlags
+import DynFlags
 import FastTypes
 import FastString
 import Outputable
@@ -265,6 +265,11 @@ mkInternalName uniq occ loc = Name { n_uniq = getKeyFastInt uniq
 	--	  uniques if you get confused
         --      * for interface files we tidyCore first, which makes
         --        the OccNames distinct when they need to be
+
+mkClonedInternalName :: Unique -> Name -> Name
+mkClonedInternalName uniq (Name { n_occ = occ, n_loc = loc })
+  = Name { n_uniq = getKeyFastInt uniq, n_sort = Internal
+         , n_occ = occ, n_loc = loc }
 
 mkDerivedInternalName :: (OccName -> OccName) -> Unique -> Name -> Name
 mkDerivedInternalName derive_occ uniq (Name { n_occ = occ, n_loc = loc })
@@ -460,8 +465,10 @@ pprExternal sty uniq mod occ name is_wired is_builtin
   | BuiltInSyntax <- is_builtin = ppr_occ_name occ  -- Never qualify builtin syntax
   | otherwise                   = pprModulePrefix sty mod name <> ppr_occ_name occ
   where
-    pp_mod | opt_SuppressModulePrefixes = empty
-           | otherwise                  = ppr mod <> dot 
+    pp_mod = sdocWithDynFlags $ \dflags ->
+             if gopt Opt_SuppressModulePrefixes dflags
+             then empty
+             else ppr mod <> dot
 
 pprInternal :: PprStyle -> Unique -> OccName -> SDoc
 pprInternal sty uniq occ
@@ -488,11 +495,11 @@ pprSystem sty uniq occ
 pprModulePrefix :: PprStyle -> Module -> Name -> SDoc
 -- Print the "M." part of a name, based on whether it's in scope or not
 -- See Note [Printing original names] in HscTypes
-pprModulePrefix sty mod name
-  | opt_SuppressModulePrefixes = empty
-  
-  | otherwise
-  = case qualName sty name of              -- See Outputable.QualifyName:
+pprModulePrefix sty mod name = sdocWithDynFlags $ \dflags ->
+  if gopt Opt_SuppressModulePrefixes dflags
+  then empty
+  else
+    case qualName sty name of              -- See Outputable.QualifyName:
       NameQual modname -> ppr modname <> dot       -- Name is in scope       
       NameNotInScope1  -> ppr mod <> dot           -- Not in scope
       NameNotInScope2  -> ppr (modulePackageId mod) <> colon     -- Module not in
@@ -503,8 +510,10 @@ ppr_underscore_unique :: Unique -> SDoc
 -- Print an underscore separating the name from its unique
 -- But suppress it if we aren't printing the uniques anyway
 ppr_underscore_unique uniq
-  | opt_SuppressUniques = empty
-  | otherwise		= char '_' <> pprUnique uniq
+  = sdocWithDynFlags $ \dflags ->
+    if gopt Opt_SuppressUniques dflags
+    then empty
+    else char '_' <> pprUnique uniq
 
 ppr_occ_name :: OccName -> SDoc
 ppr_occ_name occ = ftext (occNameFS occ)

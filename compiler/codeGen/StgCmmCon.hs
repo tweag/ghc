@@ -31,7 +31,6 @@ import MkGraph
 import SMRep
 import CostCentre
 import Module
-import Constants
 import DataCon
 import DynFlags
 import FastString
@@ -56,13 +55,13 @@ cgTopRhsCon :: Id               -- Name of thing bound to this RHS
             -> [StgArg]         -- Args
             -> FCode (CgIdInfo, FCode ())
 cgTopRhsCon id con args
-  = return ( id_info, gen_code )
+  = do dflags <- getDynFlags
+       let id_info = litIdInfo dflags id (mkConLFInfo con) (CmmLabel closure_label)
+       return ( id_info, gen_code )
   where
    name          = idName id
    caffy         = idCafInfo id -- any stgArgHasCafRefs args
    closure_label = mkClosureLabel name caffy
-
-   id_info = litIdInfo id (mkConLFInfo con) (CmmLabel closure_label)
 
    gen_code =
      do { dflags <- getDynFlags
@@ -149,8 +148,8 @@ premature looking at the args will cause the compiler to black-hole!
 -- which have exclusively size-zero (VoidRep) args, we generate no code
 -- at all.
 
-buildDynCon' _ _ binder _cc con []
-  = return (litIdInfo binder (mkConLFInfo con)
+buildDynCon' dflags _ binder _cc con []
+  = return (litIdInfo dflags binder (mkConLFInfo con)
                 (CmmLabel (mkClosureLabel (dataConName con) (idCafInfo binder))),
             return mkNop)
 
@@ -182,30 +181,30 @@ because they don't support cross package data references well.
 
 buildDynCon' dflags platform binder _cc con [arg]
   | maybeIntLikeCon con
-  , platformOS platform /= OSMinGW32 || not (dopt Opt_PIC dflags)
+  , platformOS platform /= OSMinGW32 || not (gopt Opt_PIC dflags)
   , StgLitArg (MachInt val) <- arg
-  , val <= fromIntegral mAX_INTLIKE     -- Comparisons at type Integer!
-  , val >= fromIntegral mIN_INTLIKE     -- ...ditto...
-  = do  { let intlike_lbl   = mkCmmGcPtrLabel rtsPackageId (fsLit "stg_INTLIKE_closure")
+  , val <= fromIntegral (mAX_INTLIKE dflags) -- Comparisons at type Integer!
+  , val >= fromIntegral (mIN_INTLIKE dflags) -- ...ditto...
+  = do  { let intlike_lbl   = mkCmmClosureLabel rtsPackageId (fsLit "stg_INTLIKE")
               val_int = fromIntegral val :: Int
-              offsetW = (val_int - mIN_INTLIKE) * (fixedHdrSize dflags + 1)
+              offsetW = (val_int - mIN_INTLIKE dflags) * (fixedHdrSize dflags + 1)
                 -- INTLIKE closures consist of a header and one word payload
-              intlike_amode = cmmLabelOffW intlike_lbl offsetW
-        ; return ( litIdInfo binder (mkConLFInfo con) intlike_amode
+              intlike_amode = cmmLabelOffW dflags intlike_lbl offsetW
+        ; return ( litIdInfo dflags binder (mkConLFInfo con) intlike_amode
                  , return mkNop) }
 
 buildDynCon' dflags platform binder _cc con [arg]
   | maybeCharLikeCon con
-  , platformOS platform /= OSMinGW32 || not (dopt Opt_PIC dflags)
+  , platformOS platform /= OSMinGW32 || not (gopt Opt_PIC dflags)
   , StgLitArg (MachChar val) <- arg
   , let val_int = ord val :: Int
-  , val_int <= mAX_CHARLIKE
-  , val_int >= mIN_CHARLIKE
-  = do  { let charlike_lbl   = mkCmmGcPtrLabel rtsPackageId (fsLit "stg_CHARLIKE_closure")
-              offsetW = (val_int - mIN_CHARLIKE) * (fixedHdrSize dflags + 1)
+  , val_int <= mAX_CHARLIKE dflags
+  , val_int >= mIN_CHARLIKE dflags
+  = do  { let charlike_lbl   = mkCmmClosureLabel rtsPackageId (fsLit "stg_CHARLIKE")
+              offsetW = (val_int - mIN_CHARLIKE dflags) * (fixedHdrSize dflags + 1)
                 -- CHARLIKE closures consist of a header and one word payload
-              charlike_amode = cmmLabelOffW charlike_lbl offsetW
-        ; return ( litIdInfo binder (mkConLFInfo con) charlike_amode
+              charlike_amode = cmmLabelOffW dflags charlike_lbl offsetW
+        ; return ( litIdInfo dflags binder (mkConLFInfo con) charlike_amode
                  , return mkNop) }
 
 -------- buildDynCon': the general case -----------
@@ -225,7 +224,7 @@ buildDynCon' dflags _ binder ccs con args
                                 ptr_wds nonptr_wds
           ; hp_plus_n <- allocDynClosure info_tbl lf_info
                                           use_cc blame_cc args_w_offsets
-          ; return (mkRhsInit reg lf_info hp_plus_n) }
+          ; return (mkRhsInit dflags reg lf_info hp_plus_n) }
     where
       use_cc      -- cost-centre to stick in the object
         | isCurrentCCS ccs = curCCS
@@ -247,16 +246,15 @@ bindConArgs (DataAlt con) base args
   = ASSERT(not (isUnboxedTupleCon con))
     do dflags <- getDynFlags
        let (_, _, args_w_offsets) = mkVirtConstrOffsets dflags (addIdReps args)
-       mapM bind_arg args_w_offsets
-  where
-    tag = tagForCon con
+           tag = tagForCon dflags con
 
-          -- The binding below forces the masking out of the tag bits
-          -- when accessing the constructor field.
-    bind_arg :: (NonVoid Id, VirtualHpOffset) -> FCode LocalReg
-    bind_arg (arg, offset)
-        = do { emit $ mkTaggedObjectLoad (idToReg arg) base offset tag
-             ; bindArgToReg arg }
+           -- The binding below forces the masking out of the tag bits
+           -- when accessing the constructor field.
+           bind_arg :: (NonVoid Id, VirtualHpOffset) -> FCode LocalReg
+           bind_arg (arg, offset)
+               = do emit $ mkTaggedObjectLoad dflags (idToReg dflags arg) base offset tag
+                    bindArgToReg arg
+       mapM bind_arg args_w_offsets
 
 bindConArgs _other_con _base args
   = ASSERT( null args ) return []

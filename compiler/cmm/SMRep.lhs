@@ -5,13 +5,13 @@
 
 Storage manager representation of closures
 
-This is here, rather than in ClosureInfo, just to keep nhc happy.
-Other modules should access this info through ClosureInfo.
-
 \begin{code}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module SMRep (
         -- * Words and bytes
-        StgWord, StgHalfWord,
+        StgWord, fromStgWord, toStgWord,
+        StgHalfWord, fromStgHalfWord, toStgHalfWord,
         hALF_WORD_SIZE, hALF_WORD_SIZE_IN_BITS,
         WordOff, ByteOff,
         roundUpToWords,
@@ -27,6 +27,7 @@ module SMRep (
 
         -- ** Predicates
         isStaticRep, isConRep, isThunkRep, isFunRep, isStaticNoCafCon,
+        isStackRep,
 
         -- ** Size-related things
         heapClosureSize,
@@ -45,10 +46,11 @@ module SMRep (
 #include "../includes/MachDeps.h"
 
 import DynFlags
-import Constants
 import Outputable
+import Platform
 import FastString
 
+import Data.Array.Base
 import Data.Char( ord )
 import Data.Word
 import Data.Bits
@@ -65,30 +67,62 @@ import Data.Bits
 type WordOff = Int -- Word offset, or word count
 type ByteOff = Int -- Byte offset, or byte count
 
-roundUpToWords :: ByteOff -> ByteOff
-roundUpToWords n = (n + (wORD_SIZE - 1)) .&. (complement (wORD_SIZE - 1))
+roundUpToWords :: DynFlags -> ByteOff -> ByteOff
+roundUpToWords dflags n = (n + (wORD_SIZE dflags - 1)) .&. (complement (wORD_SIZE dflags - 1))
 \end{code}
 
 StgWord is a type representing an StgWord on the target platform.
 
 \begin{code}
-#if SIZEOF_HSWORD == 4
-type StgWord     = Word32
-type StgHalfWord = Word16
-hALF_WORD_SIZE :: ByteOff
-hALF_WORD_SIZE = 2
-hALF_WORD_SIZE_IN_BITS :: Int
-hALF_WORD_SIZE_IN_BITS = 16
-#elif SIZEOF_HSWORD == 8
-type StgWord     = Word64
-type StgHalfWord = Word32
-hALF_WORD_SIZE :: ByteOff
-hALF_WORD_SIZE = 4
-hALF_WORD_SIZE_IN_BITS :: Int
-hALF_WORD_SIZE_IN_BITS = 32
-#else
-#error unknown SIZEOF_HSWORD
+-- A Word64 is large enough to hold a Word for either a 32bit or 64bit platform
+newtype StgWord = StgWord Word64
+    deriving (Eq,
+#if __GLASGOW_HASKELL__ < 706
+              Num,
 #endif
+              Bits, IArray UArray)
+
+fromStgWord :: StgWord -> Integer
+fromStgWord (StgWord i) = toInteger i
+
+toStgWord :: DynFlags -> Integer -> StgWord
+toStgWord dflags i
+    = case platformWordSize (targetPlatform dflags) of
+      -- These conversions mean that things like toStgWord (-1)
+      -- do the right thing
+      4 -> StgWord (fromIntegral (fromInteger i :: Word32))
+      8 -> StgWord (fromInteger i :: Word64)
+      w -> panic ("toStgWord: Unknown platformWordSize: " ++ show w)
+
+instance Outputable StgWord where
+    ppr (StgWord i) = integer (toInteger i)
+
+--
+
+-- A Word32 is large enough to hold half a Word for either a 32bit or
+-- 64bit platform
+newtype StgHalfWord = StgHalfWord Word32
+    deriving Eq
+
+fromStgHalfWord :: StgHalfWord -> Integer
+fromStgHalfWord (StgHalfWord w) = toInteger w
+
+toStgHalfWord :: DynFlags -> Integer -> StgHalfWord
+toStgHalfWord dflags i
+    = case platformWordSize (targetPlatform dflags) of
+      -- These conversions mean that things like toStgHalfWord (-1)
+      -- do the right thing
+      4 -> StgHalfWord (fromIntegral (fromInteger i :: Word16))
+      8 -> StgHalfWord (fromInteger i :: Word32)
+      w -> panic ("toStgHalfWord: Unknown platformWordSize: " ++ show w)
+
+instance Outputable StgHalfWord where
+    ppr (StgHalfWord w) = integer (toInteger w)
+
+hALF_WORD_SIZE :: DynFlags -> ByteOff
+hALF_WORD_SIZE dflags = platformWordSize (targetPlatform dflags) `shiftR` 1
+hALF_WORD_SIZE_IN_BITS :: DynFlags -> Int
+hALF_WORD_SIZE_IN_BITS dflags = platformWordSize (targetPlatform dflags) `shiftL` 2
 \end{code}
 
 
@@ -112,7 +146,7 @@ data SMRep
         Liveness
 
   | RTSRep              -- The RTS needs to declare info tables with specific
-        StgHalfWord     -- type tags, so this form lets us override the default
+        Int             -- type tags, so this form lets us override the default
         SMRep           -- tag for an SMRep.
 
 -- | True <=> This is a static closure.  Affects how we garbage-collect it.
@@ -130,10 +164,10 @@ data ClosureTypeInfo
   | ThunkSelector SelectorOffset
   | BlackHole
 
-type ConstrTag         = StgHalfWord
+type ConstrTag         = Int
 type ConstrDescription = [Word8] -- result of dataConIdentity
-type FunArity          = StgHalfWord
-type SelectorOffset    = StgWord
+type FunArity          = Int
+type SelectorOffset    = Int
 
 -------------------------
 -- We represent liveness bitmaps as a Bitmap (whose internal
@@ -152,7 +186,7 @@ type Liveness = [Bool]   -- One Bool per word; True  <=> non-ptr or dead
 
 data ArgDescr
   = ArgSpec             -- Fits one of the standard patterns
-        !StgHalfWord    -- RTS type identifier ARG_P, ARG_N, ...
+        !Int            -- RTS type identifier ARG_P, ARG_N, ...
 
   | ArgGen              -- General case
         Liveness        -- Details about the arguments
@@ -176,7 +210,7 @@ mkHeapRep dflags is_static ptr_wds nonptr_wds cl_type_info
      hdr_size     = closureTypeHdrSize dflags cl_type_info
      payload_size = ptr_wds + nonptr_wds
 
-mkRTSRep :: StgHalfWord -> SMRep -> SMRep
+mkRTSRep :: Int -> SMRep -> SMRep
 mkRTSRep = RTSRep
 
 mkStackRep :: [Bool] -> SMRep
@@ -192,6 +226,11 @@ isStaticRep :: SMRep -> IsStatic
 isStaticRep (HeapRep is_static _ _ _) = is_static
 isStaticRep (StackRep {})             = False
 isStaticRep (RTSRep _ rep)            = isStaticRep rep
+
+isStackRep :: SMRep -> Bool
+isStackRep StackRep{}     = True
+isStackRep (RTSRep _ rep) = isStackRep rep
+isStackRep _              = False
 
 isConRep :: SMRep -> Bool
 isConRep (HeapRep _ _ _ Constr{}) = True
@@ -219,33 +258,33 @@ isStaticNoCafCon _                           = False
 
 -- | Size of a closure header (StgHeader in includes/rts/storage/Closures.h)
 fixedHdrSize :: DynFlags -> WordOff
-fixedHdrSize dflags = sTD_HDR_SIZE + profHdrSize dflags
+fixedHdrSize dflags = sTD_HDR_SIZE dflags + profHdrSize dflags
 
 -- | Size of the profiling part of a closure header
 -- (StgProfHeader in includes/rts/storage/Closures.h)
 profHdrSize  :: DynFlags -> WordOff
 profHdrSize dflags
- | dopt Opt_SccProfilingOn dflags = pROF_HDR_SIZE
+ | gopt Opt_SccProfilingOn dflags = pROF_HDR_SIZE dflags
  | otherwise                      = 0
 
 -- | The garbage collector requires that every closure is at least as
 --   big as this.
 minClosureSize :: DynFlags -> WordOff
-minClosureSize dflags = fixedHdrSize dflags + mIN_PAYLOAD_SIZE
+minClosureSize dflags = fixedHdrSize dflags + mIN_PAYLOAD_SIZE dflags
 
 arrWordsHdrSize :: DynFlags -> ByteOff
 arrWordsHdrSize dflags
- = fixedHdrSize dflags * wORD_SIZE + sIZEOF_StgArrWords_NoHdr
+ = fixedHdrSize dflags * wORD_SIZE dflags + sIZEOF_StgArrWords_NoHdr dflags
 
 arrPtrsHdrSize :: DynFlags -> ByteOff
 arrPtrsHdrSize dflags
- = fixedHdrSize dflags * wORD_SIZE + sIZEOF_StgMutArrPtrs_NoHdr
+ = fixedHdrSize dflags * wORD_SIZE dflags + sIZEOF_StgMutArrPtrs_NoHdr dflags
 
 -- Thunks have an extra header word on SMP, so the update doesn't
 -- splat the payload.
 thunkHdrSize :: DynFlags -> WordOff
 thunkHdrSize dflags = fixedHdrSize dflags + smp_hdr
-        where smp_hdr = sIZEOF_StgSMPThunkHeader `quot` wORD_SIZE
+        where smp_hdr = sIZEOF_StgSMPThunkHeader dflags `quot` wORD_SIZE dflags
 
 
 nonHdrSize :: SMRep -> WordOff
@@ -278,45 +317,47 @@ closureTypeHdrSize dflags ty = case ty of
 -- Defines CONSTR, CONSTR_1_0 etc
 
 -- | Derives the RTS closure type from an 'SMRep'
-rtsClosureType :: SMRep -> StgHalfWord
-rtsClosureType (RTSRep ty _)  = ty
+rtsClosureType :: SMRep -> Int
+rtsClosureType rep
+    = case rep of
+      RTSRep ty _ -> ty
 
-rtsClosureType (HeapRep False 1 0 Constr{}) = CONSTR_1_0
-rtsClosureType (HeapRep False 0 1 Constr{}) = CONSTR_0_1
-rtsClosureType (HeapRep False 2 0 Constr{}) = CONSTR_2_0
-rtsClosureType (HeapRep False 1 1 Constr{}) = CONSTR_1_1
-rtsClosureType (HeapRep False 0 2 Constr{}) = CONSTR_0_2
-rtsClosureType (HeapRep False _ _ Constr{}) = CONSTR
+      HeapRep False 1 0 Constr{} -> CONSTR_1_0
+      HeapRep False 0 1 Constr{} -> CONSTR_0_1
+      HeapRep False 2 0 Constr{} -> CONSTR_2_0
+      HeapRep False 1 1 Constr{} -> CONSTR_1_1
+      HeapRep False 0 2 Constr{} -> CONSTR_0_2
+      HeapRep False _ _ Constr{} -> CONSTR
 
-rtsClosureType (HeapRep False 1 0 Fun{}) = FUN_1_0
-rtsClosureType (HeapRep False 0 1 Fun{}) = FUN_0_1
-rtsClosureType (HeapRep False 2 0 Fun{}) = FUN_2_0
-rtsClosureType (HeapRep False 1 1 Fun{}) = FUN_1_1
-rtsClosureType (HeapRep False 0 2 Fun{}) = FUN_0_2
-rtsClosureType (HeapRep False _ _ Fun{}) = FUN
+      HeapRep False 1 0 Fun{} -> FUN_1_0
+      HeapRep False 0 1 Fun{} -> FUN_0_1
+      HeapRep False 2 0 Fun{} -> FUN_2_0
+      HeapRep False 1 1 Fun{} -> FUN_1_1
+      HeapRep False 0 2 Fun{} -> FUN_0_2
+      HeapRep False _ _ Fun{} -> FUN
 
-rtsClosureType (HeapRep False 1 0 Thunk{}) = THUNK_1_0
-rtsClosureType (HeapRep False 0 1 Thunk{}) = THUNK_0_1
-rtsClosureType (HeapRep False 2 0 Thunk{}) = THUNK_2_0
-rtsClosureType (HeapRep False 1 1 Thunk{}) = THUNK_1_1
-rtsClosureType (HeapRep False 0 2 Thunk{}) = THUNK_0_2
-rtsClosureType (HeapRep False _ _ Thunk{}) = THUNK
+      HeapRep False 1 0 Thunk{} -> THUNK_1_0
+      HeapRep False 0 1 Thunk{} -> THUNK_0_1
+      HeapRep False 2 0 Thunk{} -> THUNK_2_0
+      HeapRep False 1 1 Thunk{} -> THUNK_1_1
+      HeapRep False 0 2 Thunk{} -> THUNK_0_2
+      HeapRep False _ _ Thunk{} -> THUNK
 
-rtsClosureType (HeapRep False _ _ ThunkSelector{}) =  THUNK_SELECTOR
+      HeapRep False _ _ ThunkSelector{} ->  THUNK_SELECTOR
 
--- Approximation: we use the CONSTR_NOCAF_STATIC type for static constructors
--- that have no pointer words only.
-rtsClosureType (HeapRep True 0 _ Constr{}) = CONSTR_NOCAF_STATIC  -- See isStaticNoCafCon below
-rtsClosureType (HeapRep True _ _ Constr{}) = CONSTR_STATIC
-rtsClosureType (HeapRep True _ _ Fun{})    = FUN_STATIC
-rtsClosureType (HeapRep True _ _ Thunk{})  = THUNK_STATIC
+      -- Approximation: we use the CONSTR_NOCAF_STATIC type for static
+      -- constructors -- that have no pointer words only.
+      HeapRep True 0 _ Constr{} -> CONSTR_NOCAF_STATIC  -- See isStaticNoCafCon below
+      HeapRep True _ _ Constr{} -> CONSTR_STATIC
+      HeapRep True _ _ Fun{}    -> FUN_STATIC
+      HeapRep True _ _ Thunk{}  -> THUNK_STATIC
 
-rtsClosureType (HeapRep False _ _ BlackHole{}) =  BLACKHOLE
+      HeapRep False _ _ BlackHole{} -> BLACKHOLE
 
-rtsClosureType _ = panic "rtsClosureType"
+      _ -> panic "rtsClosureType"
 
 -- We export these ones
-rET_SMALL, rET_BIG, aRG_GEN, aRG_GEN_BIG :: StgHalfWord
+rET_SMALL, rET_BIG, aRG_GEN, aRG_GEN_BIG :: Int
 rET_SMALL   = RET_SMALL
 rET_BIG     = RET_BIG
 aRG_GEN     = ARG_GEN
@@ -361,22 +402,22 @@ instance Outputable SMRep where
    ppr (RTSRep ty rep) = ptext (sLit "tag:") <> ppr ty <+> ppr rep
 
 instance Outputable ArgDescr where
-  ppr (ArgSpec n) = ptext (sLit "ArgSpec") <+> integer (toInteger n)
+  ppr (ArgSpec n) = ptext (sLit "ArgSpec") <+> ppr n
   ppr (ArgGen ls) = ptext (sLit "ArgGen") <+> ppr ls
 
 pprTypeInfo :: ClosureTypeInfo -> SDoc
 pprTypeInfo (Constr tag descr)
   = ptext (sLit "Con") <+>
-    braces (sep [ ptext (sLit "tag:") <+> integer (toInteger tag)
+    braces (sep [ ptext (sLit "tag:") <+> ppr tag
                 , ptext (sLit "descr:") <> text (show descr) ])
 
 pprTypeInfo (Fun arity args)
   = ptext (sLit "Fun") <+>
-    braces (sep [ ptext (sLit "arity:") <+> integer (toInteger arity)
+    braces (sep [ ptext (sLit "arity:") <+> ppr arity
                 , ptext (sLit ("fun_type:")) <+> ppr args ])
 
 pprTypeInfo (ThunkSelector offset)
-  = ptext (sLit "ThunkSel") <+> integer (toInteger offset)
+  = ptext (sLit "ThunkSel") <+> ppr offset
 
 pprTypeInfo Thunk     = ptext (sLit "Thunk")
 pprTypeInfo BlackHole = ptext (sLit "BlackHole")

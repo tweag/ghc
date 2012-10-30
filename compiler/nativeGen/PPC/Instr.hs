@@ -33,8 +33,9 @@ import TargetReg
 import RegClass
 import Reg
 
-import Constants	(rESERVED_C_STACK_BYTES)
+import CodeGen.Platform
 import BlockId
+import DynFlags
 import OldCmm
 import FastString
 import CLabel
@@ -63,6 +64,8 @@ instance Instruction Instr where
         mkRegRegMoveInstr _     = ppc_mkRegRegMoveInstr
         takeRegRegMoveInstr     = ppc_takeRegRegMoveInstr
         mkJumpInstr             = ppc_mkJumpInstr
+        mkStackAllocInstr       = panic "no ppc_mkStackAllocInstr"
+        mkStackDeallocInstr     = panic "no ppc_mkStackDeallocInstr"
 
 
 -- -----------------------------------------------------------------------------
@@ -178,7 +181,7 @@ data Instr
 -- 	allocation goes, are taken care of by the register allocator.
 --
 ppc_regUsageOfInstr :: Platform -> Instr -> RegUsage
-ppc_regUsageOfInstr _ instr
+ppc_regUsageOfInstr platform instr
  = case instr of
     LD    _ reg addr  	-> usage (regAddr addr, [reg])
     LA    _ reg addr  	-> usage (regAddr addr, [reg])
@@ -193,8 +196,8 @@ ppc_regUsageOfInstr _ instr
     BCCFAR _ _		-> noUsage
     MTCTR reg		-> usage ([reg],[])
     BCTR  _ _		-> noUsage
-    BL    _ params	-> usage (params, callClobberedRegs)
-    BCTRL params	-> usage (params, callClobberedRegs)
+    BL    _ params	-> usage (params, callClobberedRegs platform)
+    BCTRL params	-> usage (params, callClobberedRegs platform)
     ADD	  reg1 reg2 ri  -> usage (reg2 : regRI ri, [reg1])
     ADDC  reg1 reg2 reg3-> usage ([reg2,reg3], [reg1])
     ADDE  reg1 reg2 reg3-> usage ([reg2,reg3], [reg1])
@@ -230,21 +233,21 @@ ppc_regUsageOfInstr _ instr
     FETCHPC reg         -> usage ([], [reg])
     _ 	    	    	-> noUsage
   where
-    usage (src, dst) = RU (filter interesting src)
-    	    	    	  (filter interesting dst)
+    usage (src, dst) = RU (filter (interesting platform) src)
+    	    	    	  (filter (interesting platform) dst)
     regAddr (AddrRegReg r1 r2) = [r1, r2]
     regAddr (AddrRegImm r1 _)  = [r1]
 
     regRI (RIReg r) = [r]
     regRI  _	= []
 
-interesting :: Reg -> Bool
-interesting (RegVirtual _) 		= True
-interesting (RegReal (RealRegSingle i))	
-	= isFastTrue (freeReg i)
+interesting :: Platform -> Reg -> Bool
+interesting _        (RegVirtual _)              = True
+interesting platform (RegReal (RealRegSingle i))
+    = isFastTrue (freeReg platform i)
 
-interesting (RegReal (RealRegPair{}))	
-	= panic "PPC.Instr.interesting: no reg pairs on this arch"
+interesting _        (RegReal (RealRegPair{}))
+    = panic "PPC.Instr.interesting: no reg pairs on this arch"
 
 
 
@@ -354,14 +357,15 @@ ppc_patchJumpInstr insn patchF
 
 -- | An instruction to spill a register into a spill slot.
 ppc_mkSpillInstr
-   :: Platform
+   :: DynFlags
    -> Reg       -- register to spill
    -> Int       -- current stack delta
    -> Int       -- spill slot to use
    -> Instr
 
-ppc_mkSpillInstr platform reg delta slot
-  = let	off     = spillSlotToOffset slot
+ppc_mkSpillInstr dflags reg delta slot
+  = let platform = targetPlatform dflags
+        off      = spillSlotToOffset dflags slot
     in
     let sz = case targetClassOfReg platform reg of
                 RcInteger -> II32
@@ -371,14 +375,15 @@ ppc_mkSpillInstr platform reg delta slot
 
 
 ppc_mkLoadInstr
-   :: Platform
+   :: DynFlags
    -> Reg       -- register to load
    -> Int       -- current stack delta
    -> Int       -- spill slot to use
    -> Instr
 
-ppc_mkLoadInstr platform reg delta slot
-  = let off     = spillSlotToOffset slot
+ppc_mkLoadInstr dflags reg delta slot
+  = let platform = targetPlatform dflags
+        off     = spillSlotToOffset dflags slot
     in
     let sz = case targetClassOfReg platform reg of
                 RcInteger -> II32
@@ -390,20 +395,21 @@ ppc_mkLoadInstr platform reg delta slot
 spillSlotSize :: Int
 spillSlotSize = 8
 
-maxSpillSlots :: Int
-maxSpillSlots = ((rESERVED_C_STACK_BYTES - 64) `div` spillSlotSize) - 1
+maxSpillSlots :: DynFlags -> Int
+maxSpillSlots dflags
+    = ((rESERVED_C_STACK_BYTES dflags - 64) `div` spillSlotSize) - 1
 
 -- convert a spill slot number to a *byte* offset, with no sign:
 -- decide on a per arch basis whether you are spilling above or below
 -- the C stack pointer.
-spillSlotToOffset :: Int -> Int
-spillSlotToOffset slot
-   | slot >= 0 && slot < maxSpillSlots
+spillSlotToOffset :: DynFlags -> Int -> Int
+spillSlotToOffset dflags slot
+   | slot >= 0 && slot < maxSpillSlots dflags
    = 64 + spillSlotSize * slot
    | otherwise
    = pprPanic "spillSlotToOffset:" 
               (   text "invalid spill location: " <> int slot
-	      $$  text "maxSpillSlots:          " <> int maxSpillSlots)
+	      $$  text "maxSpillSlots:          " <> int (maxSpillSlots dflags))
 
 
 --------------------------------------------------------------------------------

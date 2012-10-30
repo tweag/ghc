@@ -52,7 +52,7 @@ codeGen :: DynFlags
          -> Module
          -> [TyCon]
          -> CollectedCCs                -- (Local/global) cost-centres needing declaring/registering.
-         -> [(StgBinding,[(Id,[Id])])]  -- Bindings to convert, with SRTs
+         -> [StgBinding]                -- Bindings to convert
          -> HpcInfo
          -> Stream IO CmmGroup ()       -- Output as a stream, so codegen can
                                         -- be interleaved with output
@@ -114,8 +114,8 @@ This is so that we can write the top level processing in a compositional
 style, with the increasing static environment being plumbed as a state
 variable. -}
 
-cgTopBinding :: DynFlags -> (StgBinding,[(Id,[Id])]) -> FCode ()
-cgTopBinding dflags (StgNonRec id rhs, _srts)
+cgTopBinding :: DynFlags -> StgBinding -> FCode ()
+cgTopBinding dflags (StgNonRec id rhs)
   = do  { id' <- maybeExternaliseId dflags id
         ; (info, fcode) <- cgTopRhs id' rhs
         ; fcode
@@ -123,7 +123,7 @@ cgTopBinding dflags (StgNonRec id rhs, _srts)
                                      -- so we find it when we look up occurrences
         }
 
-cgTopBinding dflags (StgRec pairs, _srts)
+cgTopBinding dflags (StgRec pairs)
   = do  { let (bndrs, rhss) = unzip pairs
         ; bndrs' <- Prelude.mapM (maybeExternaliseId dflags) bndrs
         ; let pairs' = zip bndrs' rhss
@@ -143,7 +143,6 @@ cgTopRhs bndr (StgRhsCon _cc con args)
 
 cgTopRhs bndr (StgRhsClosure cc bi fvs upd_flag _srt args body)
   = ASSERT(null fvs)    -- There should be no free variables
-    setSRTLabel (mkSRTLabel (idName bndr) (idCafInfo bndr)) $
     forkStatics (cgTopRhsClosure bndr cc bi upd_flag args body)
 
 
@@ -206,9 +205,10 @@ mkModuleInit cost_centre_info this_mod hpc_info
 
 cgEnumerationTyCon :: TyCon -> FCode ()
 cgEnumerationTyCon tycon
-  = emitRODataLits (mkLocalClosureTableLabel (tyConName tycon) NoCafRefs)
+  = do dflags <- getDynFlags
+       emitRODataLits (mkLocalClosureTableLabel (tyConName tycon) NoCafRefs)
              [ CmmLabelOff (mkLocalClosureLabel (dataConName con) NoCafRefs)
-                           (tagForCon con)
+                           (tagForCon dflags con)
              | con <- tyConDataCons tycon]
 
 
@@ -236,8 +236,8 @@ cgDataCon data_con
                 do { _ <- ticky_code
                    ; ldvEnter (CmmReg nodeReg)
                    ; tickyReturnOldCon (length arg_things)
-                   ; void $ emitReturn [cmmOffsetB (CmmReg nodeReg)
-                                            (tagForCon data_con)]
+                   ; void $ emitReturn [cmmOffsetB dflags (CmmReg nodeReg)
+                                            (tagForCon dflags data_con)]
                    }
                         -- The case continuation code expects a tagged pointer
 
@@ -245,7 +245,7 @@ cgDataCon data_con
             arg_reps = [(typePrimRep rep_ty, rep_ty) | ty <- dataConRepArgTys data_con, rep_ty <- flattenRepType (repType ty)]
 
             -- Dynamic closure code for non-nullary constructors only
-        ; whenC (not (isNullaryRepDataCon data_con))
+        ; when (not (isNullaryRepDataCon data_con))
                 (emit_info dyn_info_tbl tickyEnterDynCon)
 
                 -- Dynamic-Closure first, to reduce forward references
@@ -262,7 +262,7 @@ cgDataCon data_con
 
 maybeExternaliseId :: DynFlags -> Id -> FCode Id
 maybeExternaliseId dflags id
-  | dopt Opt_SplitObjs dflags,  -- Externalise the name for -split-objs
+  | gopt Opt_SplitObjs dflags,  -- Externalise the name for -split-objs
     isInternalName name = do { mod <- getModuleName
                              ; returnFC (setIdName id (externalise mod)) }
   | otherwise           = returnFC id

@@ -33,7 +33,7 @@ import GHC ( LoadHowMuch(..), Target(..),  TargetId(..), InteractiveImport(..),
              TyThing(..), Phase, BreakIndex, Resume, SingleStep, Ghc,
              handleSourceError )
 import HsImpExp
-import HscTypes ( tyThingParent_maybe, handleFlagWarnings, getSafeMode, dep_pkgs, hsc_IC, 
+import HscTypes ( tyThingParent_maybe, handleFlagWarnings, getSafeMode, hsc_IC, 
                   setInteractivePrintName )
 import Module
 import Name
@@ -359,9 +359,13 @@ interactiveUI config srcs maybe_exprs = do
    initInterpBuffering
 
    -- The initial set of DynFlags used for interactive evaluation is the same
-   -- as the global DynFlags, plus -XExtendedDefaultRules
+   -- as the global DynFlags, plus -XExtendedDefaultRules and
+   -- -XNoMonomorphismRestriction.
    dflags <- getDynFlags
-   GHC.setInteractiveDynFlags (xopt_set dflags Opt_ExtendedDefaultRules)
+   let dflags' = (`xopt_set` Opt_ExtendedDefaultRules)
+               . (`xopt_unset` Opt_MonomorphismRestriction)
+               $ dflags
+   GHC.setInteractiveDynFlags dflags'
 
    liftIO $ when (isNothing maybe_exprs) $ do
         -- Only for GHCi (not runghc and ghc -e):
@@ -420,7 +424,7 @@ runGHCi :: [(FilePath, Maybe Phase)] -> Maybe [String] -> GHCi ()
 runGHCi paths maybe_exprs = do
   dflags <- getDynFlags
   let
-   read_dot_files = not (dopt Opt_IgnoreDotGhci dflags)
+   read_dot_files = not (gopt Opt_IgnoreDotGhci dflags)
 
    current_dir = return (Just ".ghci")
 
@@ -515,7 +519,7 @@ runGHCi paths maybe_exprs = do
 runGHCiInput :: InputT GHCi a -> GHCi a
 runGHCiInput f = do
     dflags <- getDynFlags
-    histFile <- if dopt Opt_GhciHistory dflags
+    histFile <- if gopt Opt_GhciHistory dflags
                 then liftIO $ withGhcAppData (\dir -> return (Just (dir </> "ghci_history")))
                                              (return Nothing)
                 else return Nothing
@@ -986,7 +990,7 @@ noArgs _ _  = liftIO $ putStrLn "This command takes no arguments"
 withSandboxOnly :: String -> GHCi () -> GHCi ()
 withSandboxOnly cmd this = do
    dflags <- getDynFlags
-   if not (dopt Opt_GhciSandbox dflags)
+   if not (gopt Opt_GhciSandbox dflags)
       then printForUser (text cmd <+>
                          ptext (sLit "is not supported with -fno-ghci-sandbox"))
       else this
@@ -1013,7 +1017,7 @@ info s  = handleSourceError GHC.printException $ do
 infoThing :: GHC.GhcMonad m => String -> m SDoc
 infoThing str = do
     dflags    <- getDynFlags
-    let pefas = dopt Opt_PrintExplicitForalls dflags
+    let pefas = gopt Opt_PrintExplicitForalls dflags
     names     <- GHC.parseName str
     mb_stuffs <- mapM GHC.getInfo names
     let filtered = filterOutChildren (\(t,_f,_i) -> t) (catMaybes mb_stuffs)
@@ -1403,7 +1407,7 @@ typeOfExpr str
   $ do
        ty <- GHC.exprType str
        dflags <- getDynFlags
-       let pefas = dopt Opt_PrintExplicitForalls dflags
+       let pefas = gopt Opt_PrintExplicitForalls dflags
        printForUser $ sep [text str, nest 2 (dcolon <+> pprTypeForUser pefas ty)]
 
 -----------------------------------------------------------------------------
@@ -1487,48 +1491,34 @@ isSafeModule m = do
          (ghcError $ CmdLineError $ "can't load interface file for module: " ++
                                     (GHC.moduleNameString $ GHC.moduleName m))
 
-    let iface' = fromJust iface
+    (msafe, pkgs) <- GHC.moduleTrustReqs m
+    let trust  = showPpr dflags $ getSafeMode $ GHC.mi_trust $ fromJust iface
+        pkg    = if packageTrusted dflags m then "trusted" else "untrusted"
+        (good, bad) = tallyPkgs dflags pkgs
 
-        trust = showPpr dflags $ getSafeMode $ GHC.mi_trust iface'
-        pkgT  = packageTrusted dflags m
-        pkg   = if pkgT then "trusted" else "untrusted"
-        (good', bad') = tallyPkgs dflags $
-                            map fst $ filter snd $ dep_pkgs $ GHC.mi_deps iface'
-        (good, bad) = case GHC.mi_trust_pkg iface' of
-                          True | pkgT -> (modulePackageId m:good', bad')
-                          True        -> (good', modulePackageId m:bad')
-                          False       -> (good', bad')
-
+    -- print info to user...
     liftIO $ putStrLn $ "Trust type is (Module: " ++ trust ++ ", Package: " ++ pkg ++ ")"
-    liftIO $ putStrLn $ "Package Trust: "
-                            ++ (if packageTrustOn dflags then "On" else "Off")
-
-    when (packageTrustOn dflags && not (null good))
+    liftIO $ putStrLn $ "Package Trust: " ++ (if packageTrustOn dflags then "On" else "Off")
+    when (not $ null good)
          (liftIO $ putStrLn $ "Trusted package dependencies (trusted): " ++
                         (intercalate ", " $ map packageIdString good))
-
-    case goodTrust (getSafeMode $ GHC.mi_trust iface') of
-        True | (null bad || not (packageTrustOn dflags)) ->
-            liftIO $ putStrLn $ mname ++ " is trusted!"
-
-        True -> do
-            liftIO $ putStrLn $ "Trusted package dependencies (untrusted): "
-                        ++ (intercalate ", " $ map packageIdString bad)
+    case msafe && null bad of
+        True -> liftIO $ putStrLn $ mname ++ " is trusted!"
+        False -> do
+            when (not $ null bad)
+                 (liftIO $ putStrLn $ "Trusted package dependencies (untrusted): "
+                            ++ (intercalate ", " $ map packageIdString bad))
             liftIO $ putStrLn $ mname ++ " is NOT trusted!"
 
-        False -> liftIO $ putStrLn $ mname ++ " is NOT trusted!"
-
   where
-    goodTrust t = t `elem` [Sf_Safe, Sf_SafeInferred, Sf_Trustworthy]
-
     mname = GHC.moduleNameString $ GHC.moduleName m
 
     packageTrusted dflags md
         | thisPackage dflags == modulePackageId md = True
-        | otherwise = trusted $ getPackageDetails (pkgState dflags)
-                                                  (modulePackageId md)
+        | otherwise = trusted $ getPackageDetails (pkgState dflags) (modulePackageId md)
 
-    tallyPkgs dflags deps = partition part deps
+    tallyPkgs dflags deps | not (packageTrustOn dflags) = ([], [])
+                          | otherwise = partition part deps
         where state = pkgState dflags
               part pkg = trusted $ getPackageDetails state pkg
 
@@ -1602,7 +1592,7 @@ browseModule bang modl exports_only = do
 
         rdr_env <- GHC.getGRE
 
-        let pefas              = dopt Opt_PrintExplicitForalls dflags
+        let pefas              = gopt Opt_PrintExplicitForalls dflags
             things | bang      = catMaybes mb_things
                    | otherwise = filtered_things
             pretty | bang      = pprTyThing
@@ -1761,11 +1751,7 @@ checkAdd ii = do
        m <- GHC.lookupModule modname pkgqual
        when safe $ do
            t <- GHC.isModuleTrusted m
-           when (not t) $
-                ghcError $ CmdLineError $
-                 "can't import " ++ moduleNameString modname
-                                 ++ " as it isn't trusted."
-
+           when (not t) $ ghcError $ ProgramError $ ""
 
 -- -----------------------------------------------------------------------------
 -- Update the GHC API's view of the context
@@ -1922,10 +1908,10 @@ showDynFlags show_all dflags = do
   showLanguages' show_all dflags
   putStrLn $ showSDoc dflags $
      text "GHCi-specific dynamic flag settings:" $$
-         nest 2 (vcat (map (setting dopt) ghciFlags))
+         nest 2 (vcat (map (setting gopt) ghciFlags))
   putStrLn $ showSDoc dflags $
      text "other dynamic, non-language, flag settings:" $$
-         nest 2 (vcat (map (setting dopt) others))
+         nest 2 (vcat (map (setting gopt) others))
   putStrLn $ showSDoc dflags $
      text "warning settings:" $$
          nest 2 (vcat (map (setting wopt) DynFlags.fWarningFlags))
@@ -2198,7 +2184,7 @@ showBindings = do
     makeDoc (AnId i) = pprTypeAndContents i
     makeDoc tt = do
         dflags    <- getDynFlags
-        let pefas = dopt Opt_PrintExplicitForalls dflags
+        let pefas = gopt Opt_PrintExplicitForalls dflags
         mb_stuff <- GHC.getInfo (getName tt)
         return $ maybe (text "") (pprTT pefas) mb_stuff
     pprTT :: PrintExplicitForalls -> (TyThing, Fixity, [GHC.ClsInst]) -> SDoc
@@ -2213,7 +2199,7 @@ showBindings = do
 
 printTyThing :: TyThing -> GHCi ()
 printTyThing tyth = do dflags <- getDynFlags
-                       let pefas = dopt Opt_PrintExplicitForalls dflags
+                       let pefas = gopt Opt_PrintExplicitForalls dflags
                        printForUser (pprTyThing pefas tyth)
 
 showBkptTable :: GHCi ()
@@ -2603,12 +2589,13 @@ breakSyntax = ghcError (CmdLineError "Syntax: :break [<mod>] <line> [<column>]")
 
 findBreakAndSet :: Module -> (TickArray -> Maybe (Int, SrcSpan)) -> GHCi ()
 findBreakAndSet md lookupTickTree = do
+   dflags <- getDynFlags
    tickArray <- getTickArray md
    (breakArray, _) <- getModBreak md
    case lookupTickTree tickArray of
       Nothing  -> liftIO $ putStrLn $ "No breakpoints found at that location."
       Just (tick, pan) -> do
-         success <- liftIO $ setBreakFlag True breakArray tick
+         success <- liftIO $ setBreakFlag dflags True breakArray tick
          if success
             then do
                (alreadySet, nm) <-
@@ -2891,8 +2878,9 @@ deleteBreak identity = do
 
 turnOffBreak :: BreakLocation -> GHCi Bool
 turnOffBreak loc = do
+  dflags <- getDynFlags
   (arr, _) <- getModBreak (breakModule loc)
-  liftIO $ setBreakFlag False arr (breakTick loc)
+  liftIO $ setBreakFlag dflags False arr (breakTick loc)
 
 getModBreak :: Module -> GHCi (GHC.BreakArray, Array Int SrcSpan)
 getModBreak m = do
@@ -2902,10 +2890,10 @@ getModBreak m = do
    let ticks      = GHC.modBreaks_locs  modBreaks
    return (arr, ticks)
 
-setBreakFlag :: Bool -> GHC.BreakArray -> Int -> IO Bool
-setBreakFlag toggle arr i
-   | toggle    = GHC.setBreakOn arr i
-   | otherwise = GHC.setBreakOff arr i
+setBreakFlag :: DynFlags -> Bool -> GHC.BreakArray -> Int -> IO Bool
+setBreakFlag dflags toggle arr i
+   | toggle    = GHC.setBreakOn  dflags arr i
+   | otherwise = GHC.setBreakOff dflags arr i
 
 
 -- ---------------------------------------------------------------------------

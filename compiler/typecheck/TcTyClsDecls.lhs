@@ -28,7 +28,6 @@ module TcTyClsDecls (
 import HsSyn
 import HscTypes
 import BuildTyCl
-import TcUnify
 import TcRnMonad
 import TcEnv
 import TcHsSyn
@@ -129,7 +128,7 @@ tcTyClGroup boot_details tyclds
 
                  -- Populate environment with knot-tied ATyCon for TyCons
                  -- NB: if the decls mention any ill-staged data cons
-                 -- (see Note [ARecDataCon: Recusion and promoting data constructors]
+                 -- (see Note [Recusion and promoting data constructors]
                  -- we will have failed already in kcTyClGroup, so no worries here
            ; tcExtendRecEnv (zipRecTyClss names_w_poly_kinds rec_tyclss) $
 
@@ -147,11 +146,12 @@ tcTyClGroup boot_details tyclds
            -- expects well-formed TyCons
        ; tcExtendGlobalEnv tyclss $ do
        { traceTc "Starting validity check" (ppr tyclss)
-       ; mapM_ (recoverM (return ()) . addLocM checkValidTyCl) 
+       ; checkNoErrs $
+         mapM_ (recoverM (return ()) . addLocM checkValidTyCl) 
                (flattenTyClDecls tyclds)
            -- We recover, which allows us to report multiple validity errors
-           -- even from successive groups.  But we stop after all groups are
-           -- processed if we find any errors.
+           -- but we then fail if any are wrong.  Lacking the checkNoErrs
+           -- we get Trac #7175
 
            -- Step 4: Add the implicit things;
            -- we want them in the environment because
@@ -324,8 +324,12 @@ getInitialKind :: TopLevelFlag -> TyClDecl Name -> TcM [(Name, TcTyThing)]
 --      Example: data T a b = ...
 --      return (T, kv1 -> kv2 -> kv3)
 --
--- ALSO for each datacon, return (dc, ARecDataCon)
--- Note [ARecDataCon: Recusion and promoting data constructors]
+-- This pass deals with (ie incorporates into the kind it produces)
+--   * The kind signatures on type-variable binders
+--   * The result kinds signature on a TyClDecl
+--
+-- ALSO for each datacon, return (dc, APromotionErr RecDataConPE)
+-- Note [ARecDataCon: Recursion and promoting data constructors]
 -- 
 -- No family instances are passed to getInitialKinds
 
@@ -361,14 +365,15 @@ getInitialKind top_lvl decl@(TyDecl { tcdLName = L _ name, tcdTyVars = ktvs, tcd
              kvs       = varSetElems (tyVarsOfType body_kind)
              main_pr   = (name, AThing (mkForAllTys kvs body_kind))
              inner_prs = [(unLoc (con_name con), APromotionErr RecDataConPE) | L _ con <- cons ]
-             -- See Note [ARecDataCon: Recusion and promoting data constructors]
+             -- See Note [Recusion and promoting data constructors]
        ; return (main_pr : inner_prs) }
  
   | TyData { td_cons = cons } <- defn
   = kcHsTyVarBndrs False ktvs $ \ arg_kinds -> 
     do { let main_pr   = (name, AThing (mkArrowKinds arg_kinds liftedTypeKind))
-             inner_prs = [(unLoc (con_name con), APromotionErr RecDataConPE) | L _ con <- cons ]
-             -- See Note [ARecDataCon: Recusion and promoting data constructors]
+             inner_prs = [ (unLoc (con_name con), APromotionErr RecDataConPE) 
+                         | L _ con <- cons ]
+             -- See Note [Recusion and promoting data constructors]
        ; return (main_pr : inner_prs) }
 
   | otherwise = pprPanic "getInitialKind" (ppr decl)
@@ -413,13 +418,18 @@ kcLTyClDecl (L loc decl)
 
 kcTyClDecl :: TyClDecl Name -> TcM ()
 -- This function is used solely for its side effect on kind variables
+-- NB kind signatures on the type variables and 
+--    result kind signature have aready been dealt with
+--    by getInitialKind, so we can ignore them here.
 
 kcTyClDecl decl@(TyDecl { tcdLName = L _ name, tcdTyVars = hs_tvs, tcdTyDefn = defn })
   | TyData { td_cons = cons, td_kindSig = Just _ } <- defn
-  = mapM_ (wrapLocM kcConDecl) cons  -- Ignore the td_ctxt; heavily deprecated and inconvenient
+  = mapM_ (wrapLocM kcConDecl) cons  
+    -- hs_tvs and td_kindSig already dealt with in getInitialKind
+    -- Ignore the td_ctxt; heavily deprecated and inconvenient
 
   | TyData { td_ctxt = ctxt, td_cons = cons } <- defn
-  = kcTyClTyVars name hs_tvs $ \ _res_k -> 
+  = kcTyClTyVars name hs_tvs $ 
     do	{ _ <- tcHsContext ctxt
         ; mapM_ (wrapLocM kcConDecl) cons }
 
@@ -427,7 +437,7 @@ kcTyClDecl decl@(TyDecl { tcdLName = L _ name, tcdTyVars = hs_tvs, tcdTyDefn = d
 
 kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
                        , tcdCtxt = ctxt, tcdSigs = sigs, tcdATs = ats})
-  = kcTyClTyVars name hs_tvs $ \ _res_k -> 
+  = kcTyClTyVars name hs_tvs $ 
     do	{ _ <- tcHsContext ctxt
 	; mapM_ (wrapLocM kcTyClDecl) ats
 	; mapM_ (wrapLocM kc_sig)     sigs }
@@ -436,8 +446,8 @@ kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
     kc_sig (GenericSig _ op_ty) = discardResult (tcHsLiftedType op_ty)
     kc_sig _                    = return ()
 
-kcTyClDecl (ForeignType {}) = return ()
 kcTyClDecl (TyFamily {})    = return ()
+kcTyClDecl (ForeignType {}) = return ()
 
 -------------------
 kcConDecl :: ConDecl Name -> TcM ()
@@ -451,8 +461,8 @@ kcConDecl (ConDecl { con_name = name, con_qvars = ex_tvs
        ; return () }
 \end{code}
 
-Note [ARecDataCon: Recusion and promoting data constructors]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [Recursion and promoting data constructors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We don't want to allow promotion in a strongly connected component
 when kind checking.
 
@@ -532,7 +542,8 @@ tcTyClDecl1 parent _calc_isrec
   = tcTyClTyVars tc_name tvs $ \ tvs' kind -> do
   { traceTc "type family:" (ppr tc_name)
   ; checkFamFlag tc_name
-  ; tycon <- buildSynTyCon tc_name tvs' SynFamilyTyCon kind parent
+  ; let syn_rhs = SynFamilyTyCon { synf_open = True, synf_injective = False }
+  ; tycon <- buildSynTyCon tc_name tvs' syn_rhs kind parent
   ; return [ATyCon tycon] }
 
   -- "data family" declaration
@@ -657,7 +668,7 @@ tcTyDefn calc_isrec tc_name tvs kind
            Nothing   -> return ()
            Just hs_k -> do { checkTc (kind_signatures) (badSigTyDecl tc_name)
                            ; tc_kind <- tcLHsKind hs_k
-                           ; _ <- unifyKind kind tc_kind
+                           ; checkKind kind tc_kind
                            ; return () }
 
        ; dataDeclChecks tc_name new_or_data stupid_theta cons
@@ -769,12 +780,12 @@ kcTyDefn (TySynonym { td_synRhs = rhs_ty }) res_k
 ------------------
 kcResultKind :: Maybe (LHsKind Name) -> Kind -> TcM ()
 kcResultKind Nothing res_k
-  = discardResult (unifyKind res_k liftedTypeKind)
+  = checkKind res_k liftedTypeKind
       --             type family F a 
       -- defaults to type family F a :: *
-kcResultKind (Just k ) res_k
+kcResultKind (Just k) res_k
   = do { k' <- tcLHsKind k
-       ; discardResult (unifyKind k' res_k) }
+       ; checkKind  k' res_k }
 
 -------------------------
 -- Kind check type patterns and kind annotate the embedded type variables.
@@ -1041,7 +1052,9 @@ tcConArg new_or_data bty
   = do  { traceTc "tcConArg 1" (ppr bty)
         ; arg_ty <- tcHsConArgType new_or_data bty
         ; traceTc "tcConArg 2" (ppr bty)
-        ; strict_mark <- chooseBoxingStrategy arg_ty (getBangStrictness bty)
+        ; dflags <- getDynFlags
+        ; let strict_mark = chooseBoxingStrategy dflags arg_ty (getBangStrictness bty)
+                            -- Must be computed lazily
 	; return (arg_ty, strict_mark) }
 
 tcConRes :: ResType (LHsType Name) -> TcM (ResType Type)
@@ -1177,28 +1190,29 @@ conRepresentibleWithH98Syntax
 --
 -- We have turned off unboxing of newtypes because coercions make unboxing 
 -- and reboxing more complicated
-chooseBoxingStrategy :: TcType -> HsBang -> TcM HsBang
-chooseBoxingStrategy arg_ty bang
-  = case bang of
-	HsNoBang -> return HsNoBang
-	HsStrict -> do { unbox_strict <- doptM Opt_UnboxStrictFields
-                       ; if unbox_strict then return (can_unbox HsStrict arg_ty)
-                                         else return HsStrict }
-	HsNoUnpack -> return HsStrict
-	HsUnpack -> do { omit_prags <- doptM Opt_OmitInterfacePragmas
-                       ; let bang = can_unbox HsUnpackFailed arg_ty
-                       ; if omit_prags && bang == HsUnpack
-                            then return HsStrict
-                            else return bang }
-            -- Do not respect UNPACK pragmas if OmitInterfacePragmas is on
-	    -- See Trac #5252: unpacking means we must not conceal the
-	    --                 representation of the argument type
-            -- However: even when OmitInterfacePragmas is on, we still want
-            -- to know if we have HsUnpackFailed, because we omit a
-            -- warning in that case (#3966)
-        HsUnpackFailed -> pprPanic "chooseBoxingStrategy" (ppr arg_ty)
-		       	  -- Source code never has shtes
+chooseBoxingStrategy :: DynFlags -> TcType -> HsBang -> HsBang
+chooseBoxingStrategy dflags arg_ty bang
+  = case initial_choice of
+      HsUnpack | gopt Opt_OmitInterfacePragmas dflags
+               -> HsStrict
+      _other   -> initial_choice
+       -- Do not respect UNPACK pragmas if OmitInterfacePragmas is on
+       -- See Trac #5252: unpacking means we must not conceal the
+       --                 representation of the argument type
+       -- However: even when OmitInterfacePragmas is on, we still want
+       -- to know if we have HsUnpackFailed, because we omit a
+       -- warning in that case (#3966)
   where
+    initial_choice = case bang of
+	               HsNoBang -> HsNoBang
+	               HsStrict | gopt Opt_UnboxStrictFields dflags
+                                -> can_unbox HsStrict arg_ty
+                                | otherwise -> HsStrict
+                       HsNoUnpack -> HsStrict
+	               HsUnpack   -> can_unbox HsUnpackFailed arg_ty
+                       HsUnpackFailed -> pprPanic "chooseBoxingStrategy" (ppr arg_ty)
+		                    	  -- Source code never has HsUnpackFailed
+
     can_unbox :: HsBang -> TcType -> HsBang
     -- Returns   HsUnpack  if we can unpack arg_ty
     -- 		 fail_bang if we know what arg_ty is but we can't unpack it
@@ -1302,8 +1316,8 @@ checkValidTyCon tc
   | Just cl <- tyConClass_maybe tc
   = checkValidClass cl
 
-  | isSynTyCon tc 
-  = case synTyConRhs tc of
+  | Just syn_rhs <- synTyConRhs_maybe tc 
+  = case syn_rhs of
       SynFamilyTyCon {} -> return ()
       SynonymTyCon ty   -> checkValidType syn_ctxt ty
 

@@ -837,6 +837,19 @@ lintCoercion the_co@(NthCo n co)
            _ -> failWithL (hang (ptext (sLit "Bad getNth:"))
                               2 (ppr the_co $$ ppr s $$ ppr t)) }
 
+lintCoercion the_co@(LRCo lr co)
+  = do { (_,s,t) <- lintCoercion co
+       ; case (splitAppTy_maybe s, splitAppTy_maybe t) of
+           (Just s_pr, Just t_pr) 
+             -> return (k, s_pick, t_pick)
+             where
+               s_pick = pickLR lr s_pr
+               t_pick = pickLR lr t_pr
+               k = typeKind s_pick
+
+           _ -> failWithL (hang (ptext (sLit "Bad LRCo:"))
+                              2 (ppr the_co $$ ppr s $$ ppr t)) }
+
 lintCoercion (InstCo co arg_ty)
   = do { (k,s,t)  <- lintCoercion co
        ; arg_kind <- lintType arg_ty
@@ -872,7 +885,8 @@ lintCoercion co@(AxiomInstCo (CoAxiom { co_ax_tvs = ktvs
            ; let ktv_kind = Type.substTy subst_l (tyVarKind ktv)
                   -- Using subst_l is ok, because subst_l and subst_r
                   -- must agree on kind equalities
-           ; unless (k `isSubKind` ktv_kind) (bad_ax (ptext (sLit "check_ki2")))
+           ; unless (k `isSubKind` ktv_kind) 
+                    (bad_ax (ptext (sLit "check_ki2") <+> vcat [ ppr co, ppr k, ppr ktv, ppr ktv_kind ] ))
            ; return (Type.extendTvSubst subst_l ktv t1, 
                      Type.extendTvSubst subst_r ktv t2) } 
 \end{code}

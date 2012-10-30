@@ -670,7 +670,6 @@ loop:
   case RET_BCO:
   case RET_SMALL:
   case RET_BIG:
-  case RET_DYN:
   case UPDATE_FRAME:
   case UNDERFLOW_FRAME:
   case STOP_FRAME:
@@ -794,11 +793,11 @@ unchain_thunk_selectors(StgSelector *p, StgClosure *val)
             // entered, and should result in a NonTermination exception.
             ((StgThunk *)p)->payload[0] = val;
             write_barrier();
-            SET_INFO(p, &stg_sel_0_upd_info);
+            SET_INFO((StgClosure *)p, &stg_sel_0_upd_info);
         } else {
             ((StgInd *)p)->indirectee = val;
             write_barrier();
-            SET_INFO(p, &stg_IND_info);
+            SET_INFO((StgClosure *)p, &stg_IND_info);
         }
 
         // For the purposes of LDV profiling, we have created an
@@ -875,7 +874,7 @@ selector_chain:
 
         // make sure someone else didn't get here first...
         if (IS_FORWARDING_PTR(info_ptr) || 
-            INFO_PTR_TO_STRUCT(info_ptr)->type != THUNK_SELECTOR) {
+            INFO_PTR_TO_STRUCT((StgInfoTable *)info_ptr)->type != THUNK_SELECTOR) {
             // v. tricky now.  The THUNK_SELECTOR has been evacuated
             // by another thread, and is now either a forwarding ptr or IND.
             // We need to extract ourselves from the current situation
@@ -885,7 +884,7 @@ selector_chain:
             //   - if evac, we need to call evacuate(), because we
             //     need the write-barrier stuff.
             //   - undo the chain we've built to point to p.
-            SET_INFO(p, (const StgInfoTable *)info_ptr);
+            SET_INFO((StgClosure *)p, (const StgInfoTable *)info_ptr);
             *q = (StgClosure *)p;
             if (evac) evacuate(q);
             unchain_thunk_selectors(prev_thunk_selector, (StgClosure *)p);
@@ -895,10 +894,10 @@ selector_chain:
 #else
     // Save the real info pointer (NOTE: not the same as get_itbl()).
     info_ptr = (StgWord)p->header.info;
-    SET_INFO(p,&stg_WHITEHOLE_info);
+    SET_INFO((StgClosure *)p,&stg_WHITEHOLE_info);
 #endif
 
-    field = INFO_PTR_TO_STRUCT(info_ptr)->layout.selector_offset;
+    field = INFO_PTR_TO_STRUCT((StgInfoTable *)info_ptr)->layout.selector_offset;
 
     // The selectee might be a constructor closure,
     // so we untag the pointer.
@@ -945,9 +944,9 @@ selector_loop:
 #ifdef PROFILING
               // For the purposes of LDV profiling, we have destroyed
               // the original selector thunk, p.
-              SET_INFO(p, (StgInfoTable *)info_ptr);
+              SET_INFO((StgClosure*)p, (StgInfoTable *)info_ptr);
               OVERWRITING_CLOSURE((StgClosure*)p);
-              SET_INFO(p, &stg_WHITEHOLE_info);
+              SET_INFO((StgClosure*)p, &stg_WHITEHOLE_info);
 #endif
 
               // the closure in val is now the "value" of the
@@ -959,7 +958,7 @@ selector_loop:
               info_ptr = (StgWord)UNTAG_CLOSURE(val)->header.info;
               if (!IS_FORWARDING_PTR(info_ptr))
               {
-                  info = INFO_PTR_TO_STRUCT(info_ptr);
+                  info = INFO_PTR_TO_STRUCT((StgInfoTable *)info_ptr);
                   switch (info->type) {
                   case IND:
                   case IND_PERM:
@@ -1073,7 +1072,7 @@ selector_loop:
 bale_out:
     // We didn't manage to evaluate this thunk; restore the old info
     // pointer.  But don't forget: we still need to evacuate the thunk itself.
-    SET_INFO(p, (const StgInfoTable *)info_ptr);
+    SET_INFO((StgClosure *)p, (const StgInfoTable *)info_ptr);
     // THREADED_RTS: we just unlocked the thunk, so another thread
     // might get in and update it.  copy() will lock it again and
     // check whether it was updated in the meantime.

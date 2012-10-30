@@ -23,6 +23,7 @@ import DynFlags
 import HsSyn		
 import TcHsSyn
 import TcEvidence
+import TcRnMonad
 import Check
 import CoreSyn
 import Literal
@@ -292,15 +293,16 @@ match [] ty eqns
 
 match vars@(v:_) ty eqns
   = ASSERT( not (null eqns ) )
-    do	{ 	-- Tidy the first pattern, generating
+    do	{ dflags <- getDynFlags
+      	; 	-- Tidy the first pattern, generating
 		-- auxiliary bindings if necessary
           (aux_binds, tidy_eqns) <- mapAndUnzipM (tidyEqnInfo v) eqns
 
 		-- Group the equations and match each group in turn
-        ; let grouped = groupEquations tidy_eqns
+        ; let grouped = groupEquations dflags tidy_eqns
 
          -- print the view patterns that are commoned up to help debug
-        ; ifDOptM Opt_D_dump_view_pattern_commoning (debug grouped)
+        ; whenDOptM Opt_D_dump_view_pattern_commoning (debug grouped)
 
 	; match_results <- mapM match_group grouped
 	; return (adjustMatchResult (foldr1 (.) aux_binds) $
@@ -663,9 +665,9 @@ Call @match@ with all of this information!
 \end{enumerate}
 
 \begin{code}
-matchWrapper :: HsMatchContext Name	-- For shadowing warning messages
-	     -> MatchGroup Id		-- Matches being desugared
-	     -> DsM ([Id], CoreExpr) 	-- Results
+matchWrapper :: HsMatchContext Name             -- For shadowing warning messages
+	     -> MatchGroup Id (LHsExpr Id)      -- Matches being desugared
+	     -> DsM ([Id], CoreExpr)            -- Results
 \end{code}
 
  There is one small problem with the Lambda Patterns, when somebody
@@ -787,13 +789,13 @@ data PatGroup
                         -- the LHsExpr is the expression e
            Type         -- the Type is the type of p (equivalently, the result type of e)
 
-groupEquations :: [EquationInfo] -> [[(PatGroup, EquationInfo)]]
+groupEquations :: DynFlags -> [EquationInfo] -> [[(PatGroup, EquationInfo)]]
 -- If the result is of form [g1, g2, g3], 
 -- (a) all the (pg,eq) pairs in g1 have the same pg
 -- (b) none of the gi are empty
 -- The ordering of equations is unchanged
-groupEquations eqns
-  = runs same_gp [(patGroup (firstPat eqn), eqn) | eqn <- eqns]
+groupEquations dflags eqns
+  = runs same_gp [(patGroup dflags (firstPat eqn), eqn) | eqn <- eqns]
   where
     same_gp :: (PatGroup,EquationInfo) -> (PatGroup,EquationInfo) -> Bool
     (pg1,_) `same_gp` (pg2,_) = pg1 `sameGroup` pg2
@@ -948,16 +950,16 @@ viewLExprEq (e1,_) (e2,_) = lexp e1 e2
     eq_co (TcTyConAppCo tc1 cos1) (TcTyConAppCo tc2 cos2) = tc1==tc2 && eq_list eq_co cos1 cos2
     eq_co _ _ = False
 
-patGroup :: Pat Id -> PatGroup
-patGroup (WildPat {})       	      = PgAny
-patGroup (BangPat {})       	      = PgBang  
-patGroup (ConPatOut { pat_con = dc }) = PgCon (unLoc dc)
-patGroup (LitPat lit)		      = PgLit (hsLitKey lit)
-patGroup (NPat olit mb_neg _)	      = PgN   (hsOverLitKey olit (isJust mb_neg))
-patGroup (NPlusKPat _ olit _ _)	      = PgNpK (hsOverLitKey olit False)
-patGroup (CoPat _ p _)		      = PgCo  (hsPatType p)	-- Type of innelexp pattern
-patGroup (ViewPat expr p _)               = PgView expr (hsPatType (unLoc p))
-patGroup pat = pprPanic "patGroup" (ppr pat)
+patGroup :: DynFlags -> Pat Id -> PatGroup
+patGroup _      (WildPat {})                 = PgAny
+patGroup _      (BangPat {})                 = PgBang
+patGroup _      (ConPatOut { pat_con = dc }) = PgCon (unLoc dc)
+patGroup dflags (LitPat lit)                 = PgLit (hsLitKey dflags lit)
+patGroup _      (NPat olit mb_neg _)         = PgN   (hsOverLitKey olit (isJust mb_neg))
+patGroup _      (NPlusKPat _ olit _ _)       = PgNpK (hsOverLitKey olit False)
+patGroup _      (CoPat _ p _)                = PgCo  (hsPatType p) -- Type of innelexp pattern
+patGroup _      (ViewPat expr p _)           = PgView expr (hsPatType (unLoc p))
+patGroup _      pat = pprPanic "patGroup" (ppr pat)
 \end{code}
 
 Note [Grouping overloaded literal patterns]

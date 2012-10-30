@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 #
-# (c) 2009 The University of Glasgow
+# (c) 2009-2012 The University of Glasgow
 #
 # This file is part of the GHC build system.
 #
@@ -96,7 +96,7 @@ utils/ghc-pkg_PACKAGE = ghc-pkg
 
 utils/ghc-pkg_$(GHC_PKG_DISTDIR)_PROG = ghc-pkg
 utils/ghc-pkg_$(GHC_PKG_DISTDIR)_SHELL_WRAPPER = YES
-utils/ghc-pkg_$(GHC_PKG_DISTDIR)_INSTALL_SHELL_WRAPPER = YES
+utils/ghc-pkg_$(GHC_PKG_DISTDIR)_INSTALL = YES
 utils/ghc-pkg_$(GHC_PKG_DISTDIR)_INSTALL_SHELL_WRAPPER_NAME = ghc-pkg-$(ProjectVersion)
 utils/ghc-pkg_$(GHC_PKG_DISTDIR)_INSTALL_INPLACE = NO
 
@@ -116,7 +116,7 @@ install: install_utils/ghc-pkg_link
 .PHONY: install_utils/ghc-pkg_link
 install_utils/ghc-pkg_link: 
 	$(call INSTALL_DIR,"$(DESTDIR)$(bindir)")
-	$(call removeFiles,"$(DESTDIR)$(bindir)/ghc-pkg")
+	$(call removeFiles,"$(DESTDIR)$(bindir)/$(CrossCompilePrefix)ghc-pkg")
 	$(LN_S) $(CrossCompilePrefix)ghc-pkg-$(ProjectVersion) "$(DESTDIR)$(bindir)/$(CrossCompilePrefix)ghc-pkg"
 endif
 

@@ -18,7 +18,7 @@ module RnEnv (
         lookupInstDeclBndr, lookupSubBndrOcc, lookupFamInstName,
         greRdrName,
         lookupSubBndrGREs, lookupConstructorFields,
-        lookupSyntaxName, lookupSyntaxTable, lookupIfThenElse,
+        lookupSyntaxName, lookupSyntaxNames, lookupIfThenElse,
         lookupGreRn, lookupGreLocalRn, lookupGreRn_maybe,
         getLookupOccRn, addUsedRdrNames,
 
@@ -290,7 +290,11 @@ lookupInstDeclBndr cls what rdr
                 -- In an instance decl you aren't allowed
                 -- to use a qualified name for the method
                 -- (Although it'd make perfect sense.)
-       ; lookupSubBndrOcc (ParentIs cls) doc rdr }
+       ; lookupSubBndrOcc False -- False => we don't give deprecated
+                                -- warnings when a deprecated class
+                                -- method is defined. We only warn
+                                -- when it's used
+                          (ParentIs cls) doc rdr }
   where
     doc = what <+> ptext (sLit "of class") <+> quotes (ppr cls)
 
@@ -337,11 +341,12 @@ lookupConstructorFields con_name
 -- unambiguous because there is only one field id 'fld' in scope.
 -- But currently it's rejected.
 
-lookupSubBndrOcc :: Parent  -- NoParent   => just look it up as usual
+lookupSubBndrOcc :: Bool
+                 -> Parent  -- NoParent   => just look it up as usual
                             -- ParentIs p => use p to disambiguate
                  -> SDoc -> RdrName
                  -> RnM Name
-lookupSubBndrOcc parent doc rdr_name
+lookupSubBndrOcc warnIfDeprec parent doc rdr_name
   | Just n <- isExact_maybe rdr_name   -- This happens in derived code
   = lookupExactOcc n
 
@@ -355,7 +360,7 @@ lookupSubBndrOcc parent doc rdr_name
                 -- NB: lookupGlobalRdrEnv, not lookupGRE_RdrName!
                 --     The latter does pickGREs, but we want to allow 'x'
                 --     even if only 'M.x' is in scope
-            [gre] -> do { addUsedRdrName gre (used_rdr_name gre)
+            [gre] -> do { addUsedRdrName warnIfDeprec gre (used_rdr_name gre)
                           -- Add a usage; this is an *occurrence* site
                         ; return (gre_name gre) }
             []    -> do { addErr (unknownSubordinateErr doc rdr_name)
@@ -614,7 +619,7 @@ lookupOccRn_maybe rdr_name
          -- imports. We can and should instead check the qualified import
          -- but at the moment this requires some refactoring so leave as a TODO
        ; dflags <- getDynFlags
-       ; let allow_qual = dopt Opt_ImplicitImportQualified dflags &&
+       ; let allow_qual = gopt Opt_ImplicitImportQualified dflags &&
                           not (safeDirectImpsReq dflags)
        ; is_ghci <- getIsGHCi
                -- This test is not expensive,
@@ -690,7 +695,7 @@ lookupGreRn_help rdr_name lookup
   = do  { env <- getGlobalRdrEnv
         ; case lookup env of
             []    -> return Nothing
-            [gre] -> do { addUsedRdrName gre rdr_name
+            [gre] -> do { addUsedRdrName True gre rdr_name
                         ; return (Just gre) }
             gres  -> do { addNameClashErrRn rdr_name gres
                         ; return (Just (head gres)) } }
@@ -719,13 +724,13 @@ Note [Handling of deprecations]
      - the things exported by a module export 'module M'
 
 \begin{code}
-addUsedRdrName :: GlobalRdrElt -> RdrName -> RnM ()
+addUsedRdrName :: Bool -> GlobalRdrElt -> RdrName -> RnM ()
 -- Record usage of imported RdrNames
-addUsedRdrName gre rdr
+addUsedRdrName warnIfDeprec gre rdr
   | isLocalGRE gre = return ()  -- No call to warnIfDeprecated
                                 -- See Note [Handling of deprecations]
   | otherwise      = do { env <- getGblEnv
-                        ; warnIfDeprecated gre
+                        ; when warnIfDeprec $ warnIfDeprecated gre
                         ; updMutVar (tcg_used_rdrnames env)
                                     (\s -> Set.insert rdr s) }
 
@@ -1174,27 +1179,23 @@ lookupIfThenElse
 lookupSyntaxName :: Name                                -- The standard name
                  -> RnM (SyntaxExpr Name, FreeVars)     -- Possibly a non-standard name
 lookupSyntaxName std_name
-  = xoptM Opt_RebindableSyntax          `thenM` \ rebindable_on ->
-    if not rebindable_on then normal_case
-    else
-        -- Get the similarly named thing from the local environment
-    lookupOccRn (mkRdrUnqual (nameOccName std_name)) `thenM` \ usr_name ->
-    return (HsVar usr_name, unitFV usr_name)
-  where
-    normal_case = return (HsVar std_name, emptyFVs)
+  = do { rebindable_on <- xoptM Opt_RebindableSyntax
+       ; if not rebindable_on then 
+           return (HsVar std_name, emptyFVs)
+         else
+            -- Get the similarly named thing from the local environment
+           do { usr_name <- lookupOccRn (mkRdrUnqual (nameOccName std_name))
+              ; return (HsVar usr_name, unitFV usr_name) } }
 
-lookupSyntaxTable :: [Name]                             -- Standard names
-                  -> RnM (SyntaxTable Name, FreeVars)   -- See comments with HsExpr.ReboundNames
-lookupSyntaxTable std_names
-  = xoptM Opt_RebindableSyntax          `thenM` \ rebindable_on ->
-    if not rebindable_on then normal_case
-    else
-        -- Get the similarly named thing from the local environment
-    mapM (lookupOccRn . mkRdrUnqual . nameOccName) std_names    `thenM` \ usr_names ->
-
-    return (std_names `zip` map HsVar usr_names, mkFVs usr_names)
-  where
-    normal_case = return (std_names `zip` map HsVar std_names, emptyFVs)
+lookupSyntaxNames :: [Name]                          -- Standard names
+                  -> RnM ([HsExpr Name], FreeVars)   -- See comments with HsExpr.ReboundNames
+lookupSyntaxNames std_names
+  = do { rebindable_on <- xoptM Opt_RebindableSyntax
+       ; if not rebindable_on then 
+             return (map HsVar std_names, emptyFVs)
+        else
+          do { usr_names <- mapM (lookupOccRn . mkRdrUnqual . nameOccName) std_names
+             ; return (map HsVar usr_names, mkFVs usr_names) } }
 \end{code}
 
 
@@ -1277,12 +1278,14 @@ checkDupRdrNames rdr_names_w_loc
 
 checkDupNames :: [Name] -> RnM ()
 -- Check for duplicated names in a binding group
-checkDupNames names
+checkDupNames names = check_dup_names (filterOut isSystemName names)
+                -- See Note [Binders in Template Haskell] in Convert
+
+check_dup_names :: [Name] -> RnM ()
+check_dup_names names
   = mapM_ (dupNamesErr nameSrcSpan) dups
   where
-    (_, dups) = removeDups (\n1 n2 -> nameOccName n1 `compare` nameOccName n2) $
-                filterOut isSystemName names
-                -- See Note [Binders in Template Haskell] in Convert
+    (_, dups) = removeDups (\n1 n2 -> nameOccName n1 `compare` nameOccName n2) names
 
 ---------------------
 checkShadowedRdrNames :: [Located RdrName] -> RnM ()
@@ -1294,15 +1297,17 @@ checkShadowedRdrNames loc_rdr_names
 
 checkDupAndShadowedNames :: (GlobalRdrEnv, LocalRdrEnv) -> [Name] -> RnM ()
 checkDupAndShadowedNames envs names
-  = do { checkDupNames names
+  = do { check_dup_names filtered_names
        ; checkShadowedOccs envs loc_occs }
   where
-    loc_occs = [(nameSrcSpan name, nameOccName name) | name <- names]
+    filtered_names = filterOut isSystemName names
+                -- See Note [Binders in Template Haskell] in Convert
+    loc_occs = [(nameSrcSpan name, nameOccName name) | name <- filtered_names]
 
 -------------------------------------
 checkShadowedOccs :: (GlobalRdrEnv, LocalRdrEnv) -> [(SrcSpan,OccName)] -> RnM ()
 checkShadowedOccs (global_env,local_env) loc_occs
-  = ifWOptM Opt_WarnNameShadowing $
+  = whenWOptM Opt_WarnNameShadowing $
     do  { traceRn (text "shadow" <+> ppr loc_occs)
         ; mapM_ check_shadow loc_occs }
   where
@@ -1354,7 +1359,7 @@ unboundName wl rdr = unboundNameX wl rdr empty
 
 unboundNameX :: WhereLooking -> RdrName -> SDoc -> RnM Name
 unboundNameX where_look rdr_name extra
-  = do  { show_helpful_errors <- doptM Opt_HelpfulErrors
+  = do  { show_helpful_errors <- goptM Opt_HelpfulErrors
         ; let what = pprNonVarNameSpace (occNameSpace (rdrNameOcc rdr_name))
               err = unknownNameErr what rdr_name $$ extra
         ; if not show_helpful_errors
@@ -1533,7 +1538,7 @@ mapFvRnCPS f (x:xs) cont = f x             $ \ x' ->
 \begin{code}
 warnUnusedTopBinds :: [GlobalRdrElt] -> RnM ()
 warnUnusedTopBinds gres
-    = ifWOptM Opt_WarnUnusedBinds
+    = whenWOptM Opt_WarnUnusedBinds
     $ do isBoot <- tcIsHsBoot
          let noParent gre = case gre_par gre of
                             NoParent -> True
@@ -1551,7 +1556,7 @@ warnUnusedMatches    = check_unused Opt_WarnUnusedMatches
 
 check_unused :: WarningFlag -> [Name] -> FreeVars -> RnM ()
 check_unused flag bound_names used_names
- = ifWOptM flag (warnUnusedLocals (filterOut (`elemNameSet` used_names) bound_names))
+ = whenWOptM flag (warnUnusedLocals (filterOut (`elemNameSet` used_names) bound_names))
 
 -------------------------
 --      Helpers
@@ -1597,11 +1602,14 @@ addUnusedWarning name span msg
 
 \begin{code}
 addNameClashErrRn :: RdrName -> [GlobalRdrElt] -> RnM ()
-addNameClashErrRn rdr_name names
+addNameClashErrRn rdr_name gres
+  | all isLocalGRE gres  -- If there are two or more *local* defns, we'll have reported
+  = return ()            -- that already, and we don't want an error cascade
+  | otherwise
   = addErr (vcat [ptext (sLit "Ambiguous occurrence") <+> quotes (ppr rdr_name),
                   ptext (sLit "It could refer to") <+> vcat (msg1 : msgs)])
   where
-    (np1:nps) = names
+    (np1:nps) = gres
     msg1 = ptext  (sLit "either") <+> mk_ref np1
     msgs = [ptext (sLit "    or") <+> mk_ref np | np <- nps]
     mk_ref gre = sep [quotes (ppr (gre_name gre)) <> comma, pprNameProvenance gre]

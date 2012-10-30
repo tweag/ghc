@@ -22,7 +22,7 @@ module GHC (
         needsTemplateHaskell,
 
         -- * Flags and settings
-        DynFlags(..), DynFlag(..), Severity(..), HscTarget(..), dopt,
+        DynFlags(..), GeneralFlag(..), Severity(..), HscTarget(..), gopt,
         GhcMode(..), GhcLink(..), defaultObjectTarget,
         parseDynamicFlags,
         getSessionDynFlags, setSessionDynFlags,
@@ -91,6 +91,7 @@ module GHC (
         findModule, lookupModule,
 #ifdef GHCI
         isModuleTrusted,
+        moduleTrustReqs,
         setContext, getContext, 
         getNamesInScope,
         getRdrNamesInScope,
@@ -158,7 +159,7 @@ module GHC (
         tyConTyVars, tyConDataCons, tyConArity,
         isClassTyCon, isSynTyCon, isNewTyCon, isPrimTyCon, isFunTyCon,
         isFamilyTyCon, tyConClass_maybe,
-        synTyConDefn, synTyConType, synTyConResKind,
+        synTyConRhs_maybe, synTyConDefn_maybe, synTyConResKind,
 
         -- ** Type variables
         TyVar,
@@ -523,7 +524,7 @@ getInteractiveDynFlags :: GhcMonad m => m DynFlags
 getInteractiveDynFlags = withSession $ \h -> return (ic_dflags (hsc_IC h))
 
 
-parseDynamicFlags :: Monad m =>
+parseDynamicFlags :: MonadIO m =>
                      DynFlags -> [Located String]
                   -> m (DynFlags, [Located String], [Located String])
 parseDynamicFlags = parseDynamicFlagsCmdLine
@@ -1259,7 +1260,7 @@ showRichTokenStream ts = go startLoc ts ""
                                        . (str ++)
                                        . go tokEnd ts
                  | otherwise -> ((replicate (tokLine - locLine) '\n') ++)
-                              . ((replicate tokCol ' ') ++)
+                               . ((replicate (tokCol - 1) ' ') ++)
                               . (str ++)
                               . go tokEnd ts
                   where (locLine, locCol) = (srcLocLine loc, srcLocCol loc)
@@ -1334,6 +1335,11 @@ lookupLoadedHomeModule mod_name = withSession $ \hsc_env ->
 isModuleTrusted :: GhcMonad m => Module -> m Bool
 isModuleTrusted m = withSession $ \hsc_env ->
     liftIO $ hscCheckSafe hsc_env m noSrcSpan
+
+-- | Return if a module is trusted and the pkgs it depends on to be trusted.
+moduleTrustReqs :: GhcMonad m => Module -> m (Bool, [PackageId])
+moduleTrustReqs m = withSession $ \hsc_env ->
+    liftIO $ hscGetSafe hsc_env m noSrcSpan
 
 -- | EXPERIMENTAL: DO NOT USE.
 -- 

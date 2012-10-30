@@ -183,7 +183,7 @@ rnImportDecl this_mod
         Just (False, _) -> return () -- Explicit import list
         _  | implicit   -> return () -- Do not bleat for implicit imports
            | qual_only  -> return ()
-           | otherwise  -> ifWOptM Opt_WarnMissingImportList $
+           | otherwise  -> whenWOptM Opt_WarnMissingImportList $
                            addWarn (missingImportListWarn imp_mod_name)
 
     iface <- loadSrcInterface doc imp_mod_name want_boot mb_pkg
@@ -314,7 +314,7 @@ rnImportDecl this_mod
                    }
 
     -- Complain if we import a deprecated module
-    ifWOptM Opt_WarnWarningsDeprecations (
+    whenWOptM Opt_WarnWarningsDeprecations (
        case warns of
           WarnAll txt -> addWarn $ moduleWarn imp_mod_name txt
           _           -> return ()
@@ -414,10 +414,11 @@ extendGlobalRdrEnvRn avails new_fixities
 
               rdr_env3 = foldl extendGlobalRdrEnv rdr_env2 gres
               fix_env' = foldl extend_fix_env     fix_env  gres
-              (rdr_env', dups) = findLocalDupsRdrEnv rdr_env3 new_occs
+              dups = findLocalDupsRdrEnv rdr_env3 new_occs
 
-              gbl_env' = gbl_env { tcg_rdr_env = rdr_env', tcg_fix_env = fix_env' }
+              gbl_env' = gbl_env { tcg_rdr_env = rdr_env3, tcg_fix_env = fix_env' }
 
+        ; traceRn (text "extendGlobalRdrEnvRn dups" <+> (ppr dups))
         ; mapM_ addDupDeclErr dups
 
         ; traceRn (text "extendGlobalRdrEnvRn" <+> (ppr new_fixities $$ ppr fix_env $$ ppr fix_env'))
@@ -629,7 +630,7 @@ filterImports iface decl_spec (Just (want_hiding, import_items))
     occ_env = mkOccEnv_C combine [ (nameOccName n, (n, a, Nothing))
                                  | a <- all_avails, n <- availNames a]
       where
-        -- we know that (1) there are at most entries for one name, (2) their
+        -- we know that (1) there are at most 2 entries for one name, (2) their
         -- first component is identical, (3) they are for tys/cls, and (4) one
         -- entry has the name in its parent position (the other doesn't)
         combine (name, AvailTC p1 subs1, Nothing)
@@ -643,24 +644,32 @@ filterImports iface decl_spec (Just (want_hiding, import_items))
     lookup_lie :: Bool -> LIE RdrName -> TcRn [(LIE Name, AvailInfo)]
     lookup_lie opt_typeFamilies (L loc ieRdr)
         = do
-             stuff <- setSrcSpan loc $
-                      case lookup_ie opt_typeFamilies ieRdr of
-                            Failed err  -> addErr err >> return []
-                            Succeeded a -> return a
-             checkDodgyImport stuff
+             (stuff, warns) <- setSrcSpan loc .
+                liftM (fromMaybe ([],[])) $
+                run_lookup (lookup_ie opt_typeFamilies ieRdr)
+             mapM_ emit_warning warns
              return [ (L loc ie, avail) | (ie,avail) <- stuff ]
         where
             -- Warn when importing T(..) if T was exported abstractly
-            checkDodgyImport stuff
-                | IEThingAll n <- ieRdr, (_, AvailTC _ [_]):_ <- stuff
-                = ifWOptM Opt_WarnDodgyImports (addWarn (dodgyImportWarn n))
-                    -- NB. use the RdrName for reporting the warning
-                | IEThingAll {} <- ieRdr
-                , not (is_qual decl_spec)
-                = ifWOptM Opt_WarnMissingImportList $
-                  addWarn (missingImportListItem ieRdr)
-            checkDodgyImport _
-                = return ()
+            emit_warning (DodgyImport n) = whenWOptM Opt_WarnDodgyImports $
+              addWarn (dodgyImportWarn n)
+            emit_warning MissingImportList = whenWOptM Opt_WarnMissingImportList $
+              addWarn (missingImportListItem ieRdr)
+            emit_warning BadImportW = whenWOptM Opt_WarnDodgyImports $
+              addWarn (lookup_err_msg BadImport)
+
+            run_lookup :: IELookupM a -> TcRn (Maybe a)
+            run_lookup m = case m of
+              Failed err -> addErr (lookup_err_msg err) >> return Nothing
+              Succeeded a -> return (Just a)
+
+            lookup_err_msg err = case err of
+              BadImport -> badImportItemErr iface decl_spec ieRdr all_avails
+              IllegalImport -> illegalImportItemErr
+              QualImportError rdr -> qualImportItemErr rdr
+              TypeItemError children -> typeItemErr
+                                        (head . filter isTyConName $ children)
+                                        (text "in import list")
 
         -- For each import item, we convert its RdrNames to Names,
         -- and at the same time construct an AvailInfo corresponding
@@ -672,78 +681,111 @@ filterImports iface decl_spec (Just (want_hiding, import_items))
         -- data constructors of an associated family, we need separate
         -- AvailInfos for the data constructors and the family (as they have
         -- different parents).  See the discussion at occ_env.
-    lookup_ie :: Bool -> IE RdrName -> MaybeErr MsgDoc [(IE Name,AvailInfo)]
-    lookup_ie opt_typeFamilies ie
-      = let bad_ie :: MaybeErr MsgDoc a
-            bad_ie = Failed (badImportItemErr iface decl_spec ie all_avails)
+    lookup_ie :: Bool -> IE RdrName -> IELookupM ([(IE Name, AvailInfo)], [IELookupWarning])
+    lookup_ie opt_typeFamilies ie = handle_bad_import $ do
+      let lookup_name rdr
+            | isQual rdr
+            = failLookupWith (QualImportError rdr)
+            | Just nm <- lookupOccEnv occ_env (rdrNameOcc rdr)
+            = return nm
+            | otherwise
+            = failLookupWith BadImport
+      case ie of
+        IEVar n -> do
+            (name, avail, _) <- lookup_name n
+            return ([(IEVar name, trimAvail avail name)], [])
 
-            lookup_name rdr
-              | isQual rdr = Failed (qualImportItemErr rdr)
-              | Just nm <- lookupOccEnv occ_env (rdrNameOcc rdr) = return nm
-              | otherwise                                        = bad_ie
-        in
-        case ie of
-         IEVar n -> do
-             (name, avail, _) <- lookup_name n
-             return [(IEVar name, trimAvail avail name)]
-
-         IEThingAll tc -> do
-             (name, avail@(AvailTC name2 subs), mb_parent) <- lookup_name tc
-             case mb_parent of
-               -- non-associated ty/cls
-               Nothing     -> return [(IEThingAll name, avail)]
-               -- associated ty
-               Just parent -> return [(IEThingAll name,
-                                       AvailTC name2 (subs \\ [name])),
-                                      (IEThingAll name, AvailTC parent [name])]
-
-         IEThingAbs tc
-             | want_hiding   -- hiding ( C )
-                        -- Here the 'C' can be a data constructor
-                        --  *or* a type/class, or even both
-             -> let tc_name = lookup_name tc
-                    dc_name = lookup_name (setRdrNameSpace tc srcDataName)
-                in
-                case catMaybeErr [ tc_name, dc_name ] of
-                  []    -> bad_ie
-                  names -> return [mkIEThingAbs name | name <- names]
-             | otherwise
-             -> do nameAvail <- lookup_name tc
-                   return [mkIEThingAbs nameAvail]
-
-         IEThingWith tc ns -> do
-            (name, AvailTC _ subnames, mb_parent) <- lookup_name tc
-            let
-              env         = mkOccEnv [(nameOccName s, s) | s <- subnames]
-              mb_children = map (lookupOccEnv env . rdrNameOcc) ns
-            children <- if any isNothing mb_children
-                        then bad_ie
-                        else return (catMaybes mb_children)
-            -- check for proper import of type families
-            when (not opt_typeFamilies && any isTyConName children) $
-              Failed (typeItemErr (head . filter isTyConName $ children)
-                                  (text "in import list"))
+        IEThingAll tc -> do
+            (name, avail@(AvailTC name2 subs), mb_parent) <- lookup_name tc
+            let warns
+                  | null (drop 1 subs)
+                  = [DodgyImport tc]
+                  | not (is_qual decl_spec)
+                  = [MissingImportList]
+                  | otherwise
+                  = []
             case mb_parent of
               -- non-associated ty/cls
-              Nothing     -> return [(IEThingWith name children,
-                                      AvailTC name (name:children))]
+              Nothing     -> return ([(IEThingAll name, avail)], warns)
               -- associated ty
-              Just parent -> return [(IEThingWith name children,
+              Just parent -> return ([(IEThingAll name,
+                                       AvailTC name2 (subs \\ [name])),
+                                      (IEThingAll name, AvailTC parent [name])],
+                                     warns)
+
+        IEThingAbs tc
+            | want_hiding   -- hiding ( C )
+                       -- Here the 'C' can be a data constructor
+                       --  *or* a type/class, or even both
+            -> let tc_name = lookup_name tc
+                   dc_name = lookup_name (setRdrNameSpace tc srcDataName)
+               in
+               case catIELookupM [ tc_name, dc_name ] of
+                 []    -> failLookupWith BadImport
+                 names -> return ([mkIEThingAbs name | name <- names], [])
+            | otherwise
+            -> do nameAvail <- lookup_name tc
+                  return ([mkIEThingAbs nameAvail], [])
+
+        IEThingWith tc ns -> do
+           (name, AvailTC _ subnames, mb_parent) <- lookup_name tc
+           let
+             env         = mkOccEnv [(nameOccName s, s) | s <- subnames]
+             mb_children = map (lookupOccEnv env . rdrNameOcc) ns
+           children <- if any isNothing mb_children
+                       then failLookupWith BadImport
+                       else return (catMaybes mb_children)
+           -- check for proper import of type families
+           when (not opt_typeFamilies && any isTyConName children) $
+             failLookupWith (TypeItemError children)
+           case mb_parent of
+             -- non-associated ty/cls
+             Nothing     -> return ([(IEThingWith name children,
+                                      AvailTC name (name:children))],
+                                    [])
+             -- associated ty
+             Just parent -> return ([(IEThingWith name children,
                                       AvailTC name children),
                                      (IEThingWith name children,
-                                      AvailTC parent [name])]
+                                      AvailTC parent [name])],
+                                    [])
 
-         _other -> Failed illegalImportItemErr
-         -- could be IEModuleContents, IEGroup, IEDoc, IEDocNamed
-         -- all errors.
+        _other -> failLookupWith IllegalImport
+        -- could be IEModuleContents, IEGroup, IEDoc, IEDocNamed
+        -- all errors.
 
       where
         mkIEThingAbs (n, av, Nothing    ) = (IEThingAbs n, trimAvail av n)
         mkIEThingAbs (n, _,  Just parent) = (IEThingAbs n, AvailTC parent [n])
 
+        handle_bad_import m = catchIELookup m $ \err -> case err of
+          BadImport | want_hiding -> return ([], [BadImportW])
+          _                       -> failLookupWith err
 
-catMaybeErr :: [MaybeErr err a] -> [a]
-catMaybeErr ms =  [ a | Succeeded a <- ms ]
+type IELookupM = MaybeErr IELookupError
+
+data IELookupWarning
+  = BadImportW
+  | MissingImportList
+  | DodgyImport RdrName
+  -- NB. use the RdrName for reporting a "dodgy" import
+
+data IELookupError
+  = QualImportError RdrName
+  | BadImport
+  | IllegalImport
+  | TypeItemError [Name]
+
+failLookupWith :: IELookupError -> IELookupM a
+failLookupWith err = Failed err
+
+catchIELookup :: IELookupM a -> (IELookupError -> IELookupM a) -> IELookupM a
+catchIELookup m h = case m of
+  Succeeded r -> return r
+  Failed err  -> h err
+
+catIELookupM :: [IELookupM a] -> [a]
+catIELookupM ms = [ a | Succeeded a <- ms ]
 \end{code}
 
 %************************************************************************
@@ -1265,10 +1307,10 @@ warnUnusedImportDecls gbl_env
 
        ; traceRn (vcat [ ptext (sLit "Uses:") <+> ppr (Set.elems uses)
                        , ptext (sLit "Import usage") <+> ppr usage])
-       ; ifWOptM Opt_WarnUnusedImports $
+       ; whenWOptM Opt_WarnUnusedImports $
          mapM_ warnUnusedImport usage
 
-       ; ifDOptM Opt_D_dump_minimal_imports $
+       ; whenGOptM Opt_D_dump_minimal_imports $
          printMinimalImports usage }
   where
     explicit_import (L _ decl) = unLoc (ideclName decl) /= pRELUDE_NAME

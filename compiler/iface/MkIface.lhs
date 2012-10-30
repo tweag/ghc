@@ -530,25 +530,12 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
        -- to assign fingerprints to all the OccNames that it binds, to
        -- use when referencing those OccNames in later declarations.
        --
-       -- We better give each name bound by the declaration a
-       -- different fingerprint!  So we calculate the fingerprint of
-       -- each binder by combining the fingerprint of the whole
-       -- declaration with the name of the binder. (#5614)
        extend_hash_env :: OccEnv (OccName,Fingerprint)
                        -> (Fingerprint,IfaceDecl)
                        -> IO (OccEnv (OccName,Fingerprint))
        extend_hash_env env0 (hash,d) = do
-          let
-            sub_bndrs = ifaceDeclImplicitBndrs d
-            fp_sub_bndr occ = computeFingerprint putNameLiterally (hash,occ)
-          --
-          sub_fps <- mapM fp_sub_bndr sub_bndrs
-          return (foldr (\(b,fp) env -> extendOccEnv env b (b,fp)) env1
-                        (zip sub_bndrs sub_fps))
-        where
-          decl_name = ifName d
-          item = (decl_name, hash)
-          env1 = extendOccEnv env0 decl_name item
+          return (foldr (\(b,fp) env -> extendOccEnv env b (b,fp)) env0
+                 (ifaceDeclFingerprints hash d))
 
    --
    (local_env, decls_w_hashes) <- 
@@ -1144,7 +1131,7 @@ check_old_iface hsc_env mod_summary src_modified maybe_iface
                      return $ Just iface
 
         src_changed
-            | dopt Opt_ForceRecomp (hsc_dflags hsc_env) = True
+            | gopt Opt_ForceRecomp (hsc_dflags hsc_env) = True
             | SourceModified <- src_modified = True
             | otherwise = False
     in do
@@ -1472,11 +1459,11 @@ tyConToIfaceDecl env tycon
   | Just clas <- tyConClass_maybe tycon
   = classToIfaceDecl env clas
 
-  | isSynTyCon tycon
+  | Just syn_rhs <- synTyConRhs_maybe tycon
   = IfaceSyn {  ifName    = getOccName tycon,
                 ifTyVars  = toIfaceTvBndrs tyvars,
-                ifSynRhs  = syn_rhs,
-                ifSynKind = syn_ki }
+                ifSynRhs  = to_ifsyn_rhs syn_rhs,
+                ifSynKind = tidyToIfaceType env1 (synTyConResKind tycon) }
 
   | isAlgTyCon tycon
   = IfaceData { ifName    = getOccName tycon,
@@ -1494,20 +1481,14 @@ tyConToIfaceDecl env tycon
 
   | otherwise = pprPanic "toIfaceDecl" (ppr tycon)
   where
-    (env1, tyvars) = tidyTyVarBndrs env (tyConTyVars tycon)
+    (env1, tyvars) = tidyTyClTyVarBndrs env (tyConTyVars tycon)
 
-    (syn_rhs, syn_ki) 
-       = case synTyConRhs tycon of
-            SynFamilyTyCon  ->
-               ( Nothing
-               , tidyToIfaceType env1 (synTyConResKind tycon) )
-            SynonymTyCon ty ->
-               ( Just (tidyToIfaceType env1 ty)
-               , tidyToIfaceType env1 (typeKind ty) )
+    to_ifsyn_rhs (SynFamilyTyCon a b) = SynFamilyTyCon a b
+    to_ifsyn_rhs (SynonymTyCon ty)    = SynonymTyCon (tidyToIfaceType env1 ty)
 
     ifaceConDecls (NewTyCon { data_con = con })     = IfNewTyCon  (ifaceConDecl con)
     ifaceConDecls (DataTyCon { data_cons = cons })  = IfDataTyCon (map ifaceConDecl cons)
-    ifaceConDecls DataFamilyTyCon {}                = IfDataFamTyCon
+    ifaceConDecls (DataFamilyTyCon {})              = IfDataFamTyCon
     ifaceConDecls (AbstractTyCon distinct)          = IfAbstractTyCon distinct
         -- The last case happens when a TyCon has been trimmed during tidying
         -- Furthermore, tyThingToIfaceDecl is also used
@@ -1782,10 +1763,9 @@ coreRuleToIfaceRule mod rule@(Rule { ru_name = name, ru_fn = fn,
         -- level.  Reason: so that when we read it back in we'll
         -- construct the same ru_rough field as we have right now;
         -- see tcIfaceRule
-    do_arg (Type ty) = IfaceType (toIfaceType (deNoteType ty))
-    do_arg (Coercion co) = IfaceType (coToIfaceType co)
-                           
-    do_arg arg       = toIfaceExpr arg
+    do_arg (Type ty)     = IfaceType (toIfaceType (deNoteType ty))
+    do_arg (Coercion co) = IfaceCo   (coToIfaceType co)
+    do_arg arg           = toIfaceExpr arg
 
         -- Compute orphanhood.  See Note [Orphans] in IfaceSyn
         -- A rule is an orphan only if none of the variables

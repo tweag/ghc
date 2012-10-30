@@ -1,5 +1,5 @@
 
--- | Free regs map for i386 and x86_64
+-- | Free regs map for i386
 module RegAlloc.Linear.X86.FreeRegs
 where
 
@@ -12,29 +12,25 @@ import Platform
 import Data.Word
 import Data.Bits
 
-type FreeRegs
-#ifdef i386_TARGET_ARCH
-        = Word32
-#else
-        = Word64
-#endif
+newtype FreeRegs = FreeRegs Word32
+    deriving Show
 
 noFreeRegs :: FreeRegs
-noFreeRegs = 0
+noFreeRegs = FreeRegs 0
 
 releaseReg :: RealReg -> FreeRegs -> FreeRegs
-releaseReg (RealRegSingle n) f
-        = f .|. (1 `shiftL` n)
+releaseReg (RealRegSingle n) (FreeRegs f)
+        = FreeRegs (f .|. (1 `shiftL` n))
 
 releaseReg _ _
-        = panic "RegAlloc.Linear.X86.FreeRegs.realeaseReg: no reg"
+        = panic "RegAlloc.Linear.X86.FreeRegs.releaseReg: no reg"
 
 initFreeRegs :: Platform -> FreeRegs
 initFreeRegs platform
         = foldr releaseReg noFreeRegs (allocatableRegs platform)
 
-getFreeRegs :: Platform -> RegClass -> FreeRegs -> [RealReg] -- lazilly
-getFreeRegs platform cls f = go f 0
+getFreeRegs :: Platform -> RegClass -> FreeRegs -> [RealReg] -- lazily
+getFreeRegs platform cls (FreeRegs f) = go f 0
 
   where go 0 _ = []
         go n m
@@ -47,10 +43,9 @@ getFreeRegs platform cls f = go f 0
         -- in order to find a floating-point one.
 
 allocateReg :: RealReg -> FreeRegs -> FreeRegs
-allocateReg (RealRegSingle r) f
-        = f .&. complement (1 `shiftL` r)
+allocateReg (RealRegSingle r) (FreeRegs f)
+        = FreeRegs (f .&. complement (1 `shiftL` r))
 
 allocateReg _ _
         = panic "RegAlloc.Linear.X86.FreeRegs.allocateReg: no reg"
-
 

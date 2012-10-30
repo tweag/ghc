@@ -183,7 +183,7 @@ loop:
 // A word-aligned memmove will be faster for small objects than libc's or gcc's.
 // Remember, the two regions *might* overlap, but: to <= from.
 STATIC_INLINE void
-move(StgPtr to, StgPtr from, nat size)
+move(StgPtr to, StgPtr from, W_ size)
 {
     for(; size > 0; --size) {
 	*to++ = *from++;
@@ -225,9 +225,9 @@ thread_static( StgClosure* p )
 }
 
 STATIC_INLINE void
-thread_large_bitmap( StgPtr p, StgLargeBitmap *large_bitmap, nat size )
+thread_large_bitmap( StgPtr p, StgLargeBitmap *large_bitmap, W_ size )
 {
-    nat i, b;
+    W_ i, b;
     StgWord bitmap;
 
     b = 0;
@@ -252,7 +252,7 @@ thread_arg_block (StgFunInfoTable *fun_info, StgClosure **args)
 {
     StgPtr p;
     StgWord bitmap;
-    nat size;
+    W_ size;
 
     p = (StgPtr)args;
     switch (fun_info->f.fun_type) {
@@ -287,7 +287,7 @@ thread_stack(StgPtr p, StgPtr stack_end)
 {
     const StgRetInfoTable* info;
     StgWord bitmap;
-    nat size;
+    W_ size;
     
     // highly similar to scavenge_stack, but we do pointer threading here.
     
@@ -301,37 +301,7 @@ thread_stack(StgPtr p, StgPtr stack_end)
 	
 	switch (info->i.type) {
 	    
-	    // Dynamic bitmap: the mask is stored on the stack 
-	case RET_DYN:
-	{
-	    StgWord dyn;
-	    dyn = ((StgRetDyn *)p)->liveness;
-
-	    // traverse the bitmap first
-	    bitmap = RET_DYN_LIVENESS(dyn);
-	    p      = (P_)&((StgRetDyn *)p)->payload[0];
-	    size   = RET_DYN_BITMAP_SIZE;
-	    while (size > 0) {
-		if ((bitmap & 1) == 0) {
-		    thread((StgClosure **)p);
-		}
-		p++;
-		bitmap = bitmap >> 1;
-		size--;
-	    }
-	    
-	    // skip over the non-ptr words
-	    p += RET_DYN_NONPTRS(dyn) + RET_DYN_NONPTR_REGS_SIZE;
-	    
-	    // follow the ptr words
-	    for (size = RET_DYN_PTRS(dyn); size > 0; size--) {
-		thread((StgClosure **)p);
-		p++;
-	    }
-	    continue;
-	}
-	    
-	    // small bitmap (<= 32 entries, or 64 on a 64-bit machine) 
+            // small bitmap (<= 32 entries, or 64 on a 64-bit machine)
         case CATCH_RETRY_FRAME:
         case CATCH_STM_FRAME:
         case ATOMICALLY_FRAME:
@@ -382,7 +352,7 @@ thread_stack(StgPtr p, StgPtr stack_end)
 	    StgRetFun *ret_fun = (StgRetFun *)p;
 	    StgFunInfoTable *fun_info;
 	    
-	    fun_info = FUN_INFO_PTR_TO_STRUCT(UNTAG_CLOSURE((StgClosure *)
+	    fun_info = FUN_INFO_PTR_TO_STRUCT((StgInfoTable *)UNTAG_CLOSURE((StgClosure *)
                            get_threaded_info((StgPtr)ret_fun->fun)));
 	         // *before* threading it!
 	    thread(&ret_fun->fun);
@@ -404,7 +374,7 @@ thread_PAP_payload (StgClosure *fun, StgClosure **payload, StgWord size)
     StgWord bitmap;
     StgFunInfoTable *fun_info;
 
-    fun_info = FUN_INFO_PTR_TO_STRUCT(UNTAG_CLOSURE((StgClosure *)
+    fun_info = FUN_INFO_PTR_TO_STRUCT((StgInfoTable *)UNTAG_CLOSURE((StgClosure *)
                         get_threaded_info((StgPtr)fun)));
     ASSERT(fun_info->i.type != PAP);
 
@@ -818,7 +788,7 @@ update_fwd_compact( bdescr *blocks )
             // that if (p&BLOCK_MASK) >= (free&BLOCK_MASK), then we
             // definitely have enough room.  Also see bug #1147.
             iptr = get_threaded_info(p);
-	    info = INFO_PTR_TO_STRUCT(UNTAG_CLOSURE((StgClosure *)iptr));
+	    info = INFO_PTR_TO_STRUCT((StgInfoTable *)UNTAG_CLOSURE((StgClosure *)iptr));
 
 	    q = p;
 
@@ -846,7 +816,7 @@ update_fwd_compact( bdescr *blocks )
     }
 }
 
-static nat
+static W_
 update_bkwd_compact( generation *gen )
 {
     StgPtr p, free;
@@ -855,7 +825,7 @@ update_bkwd_compact( generation *gen )
 #endif
     bdescr *bd, *free_bd;
     StgInfoTable *info;
-    nat size, free_blocks;
+    W_ size, free_blocks;
     StgWord iptr;
 
     bd = free_bd = gen->old_blocks;
@@ -937,7 +907,7 @@ update_bkwd_compact( generation *gen )
 void
 compact(StgClosure *static_objects)
 {
-    nat n, g, blocks;
+    W_ n, g, blocks;
     generation *gen;
 
     // 1. thread the roots
