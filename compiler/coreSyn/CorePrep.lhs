@@ -470,7 +470,7 @@ cpeRhsE :: DynFlags -> CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeRhs)
 
 cpeRhsE _ _env expr@(Type {})      = return (emptyFloats, expr)
 cpeRhsE _ _env expr@(Coercion {})  = return (emptyFloats, expr)
-cpeRhsE env (Lit (LitInteger i _))
+cpeRhsE dflags env (Lit (LitInteger i _))
     = cpeRhsE dflags env (cvtLitInteger (cpe_dynFlags env) (getMkIntegerId env) i)
 cpeRhsE _ _env expr@(Lit {})       = return (emptyFloats, expr)
 cpeRhsE dflags env expr@(Var {})   = cpeApp dflags env expr
