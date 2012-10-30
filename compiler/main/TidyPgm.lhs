@@ -307,8 +307,8 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
                               })
 
   = do  { let { dflags     = hsc_dflags hsc_env
-              ; omit_prags = dopt Opt_OmitInterfacePragmas dflags
-              ; expose_all = dopt Opt_ExposeAllUnfoldings  dflags
+              ; omit_prags = gopt Opt_OmitInterfacePragmas dflags
+              ; expose_all = gopt Opt_ExposeAllUnfoldings  dflags
               ; th         = xopt Opt_TemplateHaskell      dflags
               ; data_kinds = xopt Opt_DataKinds            dflags
               ; no_trim_types = th || data_kinds
@@ -1048,37 +1048,40 @@ tidyTopBinds hsc_env unfold_env init_occ_env binds
                     $ initTcForLookup hsc_env (tcLookupGlobal mkIntegerName)
        return $ tidy mkIntegerId init_env binds
   where
+    dflags = hsc_dflags hsc_env
+
     init_env = (init_occ_env, emptyVarEnv)
 
-    this_pkg = thisPackage (hsc_dflags hsc_env)
+    this_pkg = thisPackage dflags
 
     tidy _           env []     = (env, [])
-    tidy mkIntegerId env (b:bs) = let (env1, b')  = tidyTopBind this_pkg mkIntegerId unfold_env env b
+    tidy mkIntegerId env (b:bs) = let (env1, b')  = tidyTopBind dflags this_pkg mkIntegerId unfold_env env b
                                       (env2, bs') = tidy mkIntegerId env1 bs
                                   in
                                       (env2, b':bs')
 
 ------------------------
-tidyTopBind  :: PackageId
+tidyTopBind  :: DynFlags
+             -> PackageId
              -> Id
              -> UnfoldEnv
              -> TidyEnv
              -> CoreBind
              -> (TidyEnv, CoreBind)
 
-tidyTopBind this_pkg mkIntegerId unfold_env (occ_env,subst1) (NonRec bndr rhs)
+tidyTopBind dflags this_pkg mkIntegerId unfold_env (occ_env,subst1) (NonRec bndr rhs)
   = (tidy_env2,  NonRec bndr' rhs')
   where
     Just (name',show_unfold) = lookupVarEnv unfold_env bndr
-    caf_info      = hasCafRefs this_pkg (mkIntegerId, subst1) (idArity bndr) rhs
-    (bndr', rhs') = tidyTopPair show_unfold tidy_env2 caf_info name' (bndr, rhs)
+    caf_info      = hasCafRefs dflags this_pkg (mkIntegerId, subst1) (idArity bndr) rhs
+    (bndr', rhs') = tidyTopPair dflags show_unfold tidy_env2 caf_info name' (bndr, rhs)
     subst2        = extendVarEnv subst1 bndr bndr'
     tidy_env2     = (occ_env, subst2)
 
-tidyTopBind this_pkg mkIntegerId unfold_env (occ_env,subst1) (Rec prs)
+tidyTopBind dflags this_pkg mkIntegerId unfold_env (occ_env,subst1) (Rec prs)
   = (tidy_env2, Rec prs')
   where
-    prs' = [ tidyTopPair show_unfold tidy_env2 caf_info name' (id,rhs)
+    prs' = [ tidyTopPair dflags show_unfold tidy_env2 caf_info name' (id,rhs)
            | (id,rhs) <- prs,
              let (name',show_unfold) =
                     expectJust "tidyTopBind" $ lookupVarEnv unfold_env id
@@ -1092,12 +1095,13 @@ tidyTopBind this_pkg mkIntegerId unfold_env (occ_env,subst1) (Rec prs)
         -- the CafInfo for a recursive group says whether *any* rhs in
         -- the group may refer indirectly to a CAF (because then, they all do).
     caf_info
-        | or [ mayHaveCafRefs (hasCafRefs this_pkg (mkIntegerId, subst1) (idArity bndr) rhs)
+        | or [ mayHaveCafRefs (hasCafRefs dflags this_pkg (mkIntegerId, subst1) (idArity bndr) rhs)
              | (bndr,rhs) <- prs ] = MayHaveCafRefs
         | otherwise                = NoCafRefs
 
 -----------------------------------------------------------
-tidyTopPair :: Bool  -- show unfolding
+tidyTopPair :: DynFlags
+            -> Bool  -- show unfolding
             -> TidyEnv  -- The TidyEnv is used to tidy the IdInfo
                         -- It is knot-tied: don't look at it!
             -> CafInfo
@@ -1110,14 +1114,14 @@ tidyTopPair :: Bool  -- show unfolding
         -- group, a variable late in the group might be mentioned
         -- in the IdInfo of one early in the group
 
-tidyTopPair show_unfold rhs_tidy_env caf_info name' (bndr, rhs)
+tidyTopPair dflags show_unfold rhs_tidy_env caf_info name' (bndr, rhs)
   = (bndr1, rhs1)
   where
     bndr1    = mkGlobalId details name' ty' idinfo'
     details  = idDetails bndr   -- Preserve the IdDetails
     ty'      = tidyTopType (idType bndr)
     rhs1     = tidyExpr rhs_tidy_env rhs
-    idinfo'  = tidyTopIdInfo rhs_tidy_env name' rhs rhs1 (idInfo bndr)
+    idinfo'  = tidyTopIdInfo dflags rhs_tidy_env name' rhs rhs1 (idInfo bndr)
                              show_unfold caf_info
 
 -- tidyTopIdInfo creates the final IdInfo for top-level
@@ -1132,9 +1136,9 @@ tidyTopPair show_unfold rhs_tidy_env caf_info name' (bndr, rhs)
 --      occurrences of the binders in RHSs, and hence to occurrences in
 --      unfoldings, which are inside Ids imported by GHCi. Ditto RULES.
 --      CoreToStg makes use of this when constructing SRTs.
-tidyTopIdInfo :: TidyEnv -> Name -> CoreExpr -> CoreExpr
+tidyTopIdInfo :: DynFlags -> TidyEnv -> Name -> CoreExpr -> CoreExpr
               -> IdInfo -> Bool -> CafInfo -> IdInfo
-tidyTopIdInfo rhs_tidy_env name orig_rhs tidy_rhs idinfo show_unfold caf_info
+tidyTopIdInfo dflags rhs_tidy_env name orig_rhs tidy_rhs idinfo show_unfold caf_info
   | not is_external     -- For internal Ids (not externally visible)
   = vanillaIdInfo       -- we only need enough info for code generation
                         -- Arity and strictness info are enough;
@@ -1179,7 +1183,7 @@ tidyTopIdInfo rhs_tidy_env name orig_rhs tidy_rhs idinfo show_unfold caf_info
     unf_info = unfoldingInfo idinfo
     unfold_info | show_unfold = tidyUnfolding rhs_tidy_env unf_info unf_from_rhs
                 | otherwise   = noUnfolding
-    unf_from_rhs = mkTopUnfolding is_bot tidy_rhs
+    unf_from_rhs = mkTopUnfolding dflags is_bot tidy_rhs
     is_bot = isBottomingSig final_sig
     -- NB: do *not* expose the worker if show_unfold is off,
     --     because that means this thing is a loop breaker or
@@ -1227,14 +1231,15 @@ it as a CAF.  In these cases however, we would need to use an additional
 CAF list to keep track of non-collectable CAFs.
 
 \begin{code}
-hasCafRefs  :: PackageId -> (Id, VarEnv Var) -> Arity -> CoreExpr -> CafInfo
-hasCafRefs this_pkg p arity expr
+hasCafRefs :: DynFlags -> PackageId -> (Id, VarEnv Var) -> Arity -> CoreExpr
+           -> CafInfo
+hasCafRefs dflags this_pkg p arity expr
   | is_caf || mentions_cafs = MayHaveCafRefs
   | otherwise               = NoCafRefs
  where
-  mentions_cafs = isFastTrue (cafRefsE p expr)
-  is_dynamic_name = isDllName this_pkg
-  is_caf = not (arity > 0 || rhsIsStatic is_dynamic_name expr)
+  mentions_cafs = isFastTrue (cafRefsE dflags p expr)
+  is_dynamic_name = isDllName dflags this_pkg
+  is_caf = not (arity > 0 || rhsIsStatic (targetPlatform dflags) is_dynamic_name expr)
 
   -- NB. we pass in the arity of the expression, which is expected
   -- to be calculated by exprArity.  This is because exprArity
@@ -1242,28 +1247,28 @@ hasCafRefs this_pkg p arity expr
   -- CorePrep later on, and we don't want to duplicate that
   -- knowledge in rhsIsStatic below.
 
-cafRefsE :: (Id, VarEnv Id) -> Expr a -> FastBool
-cafRefsE p (Var id)            = cafRefsV p id
-cafRefsE p (Lit lit)           = cafRefsL p lit
-cafRefsE p (App f a)           = fastOr (cafRefsE p f) (cafRefsE p) a
-cafRefsE p (Lam _ e)           = cafRefsE p e
-cafRefsE p (Let b e)           = fastOr (cafRefsEs p (rhssOfBind b)) (cafRefsE p) e
-cafRefsE p (Case e _bndr _ alts) = fastOr (cafRefsE p e) (cafRefsEs p) (rhssOfAlts alts)
-cafRefsE p (Tick _n e)         = cafRefsE p e
-cafRefsE p (Cast e _co)        = cafRefsE p e
-cafRefsE _ (Type _)            = fastBool False
-cafRefsE _ (Coercion _)        = fastBool False
+cafRefsE :: DynFlags -> (Id, VarEnv Id) -> Expr a -> FastBool
+cafRefsE _      p (Var id)            = cafRefsV p id
+cafRefsE dflags p (Lit lit)           = cafRefsL dflags p lit
+cafRefsE dflags p (App f a)           = fastOr (cafRefsE dflags p f) (cafRefsE dflags p) a
+cafRefsE dflags p (Lam _ e)           = cafRefsE dflags p e
+cafRefsE dflags p (Let b e)           = fastOr (cafRefsEs dflags p (rhssOfBind b)) (cafRefsE dflags p) e
+cafRefsE dflags p (Case e _bndr _ alts) = fastOr (cafRefsE dflags p e) (cafRefsEs dflags p) (rhssOfAlts alts)
+cafRefsE dflags p (Tick _n e)         = cafRefsE dflags p e
+cafRefsE dflags p (Cast e _co)        = cafRefsE dflags p e
+cafRefsE _      _ (Type _)            = fastBool False
+cafRefsE _      _ (Coercion _)        = fastBool False
 
-cafRefsEs :: (Id, VarEnv Id) -> [Expr a] -> FastBool
-cafRefsEs _ []    = fastBool False
-cafRefsEs p (e:es) = fastOr (cafRefsE p e) (cafRefsEs p) es
+cafRefsEs :: DynFlags -> (Id, VarEnv Id) -> [Expr a] -> FastBool
+cafRefsEs _      _ []     = fastBool False
+cafRefsEs dflags p (e:es) = fastOr (cafRefsE dflags p e) (cafRefsEs dflags p) es
 
-cafRefsL :: (Id, VarEnv Id) -> Literal -> FastBool
+cafRefsL :: DynFlags -> (Id, VarEnv Id) -> Literal -> FastBool
 -- Don't forget that mk_integer id might have Caf refs!
 -- We first need to convert the Integer into its final form, to
 -- see whether mkInteger is used.
-cafRefsL p@(mk_integer, _) (LitInteger i _) = cafRefsE p (cvtLitInteger mk_integer i)
-cafRefsL _ _                         = fastBool False
+cafRefsL dflags p@(mk_integer, _) (LitInteger i _) = cafRefsE dflags p (cvtLitInteger dflags mk_integer i)
+cafRefsL _      _ _                         = fastBool False
 
 cafRefsV :: (Id, VarEnv Id) -> Id -> FastBool
 cafRefsV (_, p) id

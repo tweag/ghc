@@ -291,12 +291,12 @@ simplRecOrTopPair :: SimplEnv
                   -> SimplM SimplEnv    -- Returns an env that includes the binding
 
 simplRecOrTopPair env top_lvl is_rec old_bndr new_bndr rhs
-  | preInlineUnconditionally env top_lvl old_bndr rhs   -- Check for unconditional inline
-  = do  { tick (PreInlineUnconditionally old_bndr)
-        ; return (extendIdSubst env old_bndr (mkContEx env rhs)) }
-
-  | otherwise
-  = simplLazyBind env top_lvl is_rec old_bndr new_bndr rhs env
+  = do dflags <- getDynFlags
+       -- Check for unconditional inline
+       if preInlineUnconditionally dflags env top_lvl old_bndr rhs
+           then do tick (PreInlineUnconditionally old_bndr)
+                   return (extendIdSubst env old_bndr (mkContEx env rhs))
+           else simplLazyBind env top_lvl is_rec old_bndr new_bndr rhs env
 \end{code}
 
 
@@ -654,7 +654,8 @@ completeBind env top_lvl old_bndr new_bndr new_rhs
         -- Simplify the unfolding
       ; new_unfolding <- simplUnfolding env top_lvl old_bndr final_rhs old_unf
 
-      ; if postInlineUnconditionally env top_lvl new_bndr occ_info
+      ; dflags <- getDynFlags
+      ; if postInlineUnconditionally dflags env top_lvl new_bndr occ_info
                                      final_rhs new_unfolding
 
                         -- Inline and discard the binding
@@ -748,7 +749,8 @@ simplUnfolding env top_lvl id _
            _other              -- Happens for INLINABLE things
               -> let bottoming = isBottomingId id
                  in bottoming `seq` -- See Note [Force bottoming field]
-                    return (mkUnfolding src' is_top_lvl bottoming expr')
+                    do dflags <- getDynFlags
+                       return (mkUnfolding dflags src' is_top_lvl bottoming expr')
                 -- If the guidance is UnfIfGoodArgs, this is an INLINABLE
                 -- unfolding, and we need to make sure the guidance is kept up
                 -- to date with respect to any changes in the unfolding.
@@ -761,7 +763,8 @@ simplUnfolding env top_lvl id _
 simplUnfolding _ top_lvl id new_rhs _
   = let bottoming = isBottomingId id
     in bottoming `seq`  -- See Note [Force bottoming field]
-       return (mkUnfolding InlineRhs (isTopLevel top_lvl) bottoming new_rhs)
+       do dflags <- getDynFlags
+          return (mkUnfolding dflags InlineRhs (isTopLevel top_lvl) bottoming new_rhs)
           -- We make an  unfolding *even for loop-breakers*.
           -- Reason: (a) It might be useful to know that they are WHNF
           --         (b) In TidyPgm we currently assume that, if we want to
@@ -1331,21 +1334,24 @@ simplNonRecE env bndr (Type ty_arg, rhs_se) (bndrs, body) cont
         ; simplLam (extendTvSubst env bndr ty_arg') bndrs body cont }
 
 simplNonRecE env bndr (rhs, rhs_se) (bndrs, body) cont
-  | preInlineUnconditionally env NotTopLevel bndr rhs
-  = do  { tick (PreInlineUnconditionally bndr)
-        ; -- pprTrace "preInlineUncond" (ppr bndr <+> ppr rhs) $
-          simplLam (extendIdSubst env bndr (mkContEx rhs_se rhs)) bndrs body cont }
+  = do dflags <- getDynFlags
+       case () of
+         _
+          | preInlineUnconditionally dflags env NotTopLevel bndr rhs ->
+            do  { tick (PreInlineUnconditionally bndr)
+                ; -- pprTrace "preInlineUncond" (ppr bndr <+> ppr rhs) $
+                  simplLam (extendIdSubst env bndr (mkContEx rhs_se rhs)) bndrs body cont }
 
-  | isStrictId bndr              -- Includes coercions
-  = do  { simplExprF (rhs_se `setFloats` env) rhs
-                     (StrictBind bndr bndrs body env cont) }
+          | isStrictId bndr ->           -- Includes coercions
+            do  { simplExprF (rhs_se `setFloats` env) rhs
+                             (StrictBind bndr bndrs body env cont) }
 
-  | otherwise
-  = ASSERT( not (isTyVar bndr) )
-    do  { (env1, bndr1) <- simplNonRecBndr env bndr
-        ; let (env2, bndr2) = addBndrRules env1 bndr bndr1
-        ; env3 <- simplLazyBind env2 NotTopLevel NonRecursive bndr bndr2 rhs rhs_se
-        ; simplLam env3 bndrs body cont }
+          | otherwise ->
+            ASSERT( not (isTyVar bndr) )
+            do  { (env1, bndr1) <- simplNonRecBndr env bndr
+                ; let (env2, bndr2) = addBndrRules env1 bndr bndr1
+                ; env3 <- simplLazyBind env2 NotTopLevel NonRecursive bndr bndr2 rhs rhs_se
+                ; simplLam env3 bndrs body cont }
 \end{code}
 
 %************************************************************************
@@ -1554,7 +1560,8 @@ tryRules env rules fn args call_cont
   | null rules
   = return Nothing
   | otherwise
-  = do { case lookupRule (activeRule env) (getUnfoldingInRuleMatch env)
+  = do { dflags <- getDynFlags
+       ; case lookupRule dflags (activeRule env) (getUnfoldingInRuleMatch env)
                          (getInScope env) fn args rules of {
            Nothing               -> return Nothing ;   -- No rule matches
            Just (rule, rule_rhs) ->
@@ -1579,7 +1586,7 @@ tryRules env rules fn args call_cont
       | otherwise
       = return ()
 
-    log_rule dflags dflag hdr details = liftIO . dumpSDoc dflags dflag "" $
+    log_rule dflags flag hdr details = liftIO . dumpSDoc dflags flag "" $
       sep [text hdr, nest 4 details]
 
 \end{code}
@@ -1791,7 +1798,7 @@ rebuildCase _flags env scrut case_bndr [(_, bndrs, rhs)] cont
           --                            ppr scrut]) $
           tick (CaseElim case_bndr)
         ; env' <- simplNonRecX env case_bndr scrut
-          -- If case_bndr is deads, simplNonRecX will discard
+          -- If case_bndr is dead, simplNonRecX will discard
         ; simplExprF env' rhs cont }
   where
     elim_lifted   -- See Note [Case elimination: lifted case]
@@ -2009,23 +2016,26 @@ simplAlt env scrut imposs_deflt_cons case_bndr' cont' (DEFAULT, bndrs, rhs)
 
 simplAlt env scrut _ case_bndr' cont' (LitAlt lit, bndrs, rhs)
   = ASSERT( null bndrs )
-    do  { let env' = addBinderUnfolding env scrut case_bndr'
-                                        (mkSimpleUnfolding (Lit lit))
+    do  { dflags <- getDynFlags
+        ; let env' = addBinderUnfolding env scrut case_bndr'
+                                        (mkSimpleUnfolding dflags (Lit lit))
         ; rhs' <- simplExprC env' rhs cont'
         ; return (LitAlt lit, [], rhs') }
 
 simplAlt env scrut _ case_bndr' cont' (DataAlt con, vs, rhs)
-  = do  {       -- Deal with the pattern-bound variables
+  = do  { dflags <- getDynFlags
+
+                -- Deal with the pattern-bound variables
                 -- Mark the ones that are in ! positions in the
                 -- data constructor as certainly-evaluated.
                 -- NB: simplLamBinders preserves this eval info
-          let vs_with_evals = add_evals (dataConRepStrictness con)
+        ; let vs_with_evals = add_evals (dataConRepStrictness con)
         ; (env', vs') <- simplLamBndrs env vs_with_evals
 
                 -- Bind the case-binder to (con args)
         ; let inst_tys' = tyConAppArgs (idType case_bndr')
               con_args  = map Type inst_tys' ++ varsToCoreExprs vs'
-              unf       = mkSimpleUnfolding (mkConApp con con_args)
+              unf       = mkSimpleUnfolding dflags (mkConApp con con_args)
               env''     = addBinderUnfolding env' scrut case_bndr' unf
 
         ; rhs' <- simplExprC env'' rhs cont'
@@ -2339,11 +2349,12 @@ mkDupableAlts env case_bndr' the_alts
 
 mkDupableAlt :: SimplEnv -> OutId -> (AltCon, [CoreBndr], CoreExpr)
               -> SimplM (SimplEnv, (AltCon, [CoreBndr], CoreExpr))
-mkDupableAlt env case_bndr (con, bndrs', rhs')
-  | exprIsDupable rhs'  -- Note [Small alternative rhs]
-  = return (env, (con, bndrs', rhs'))
-  | otherwise
-  = do  { let rhs_ty'  = exprType rhs'
+mkDupableAlt env case_bndr (con, bndrs', rhs') = do
+  dflags <- getDynFlags
+  if exprIsDupable dflags rhs'  -- Note [Small alternative rhs]
+   then return (env, (con, bndrs', rhs'))
+   else
+    do  { let rhs_ty'  = exprType rhs'
               scrut_ty = idType case_bndr
               case_bndr_w_unf
                 = case con of

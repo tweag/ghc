@@ -26,8 +26,13 @@ GhcStage2HcOpts += -O -fwarn-tabs -dcore-lint
 # running of the tests, and faster building of the utils to be installed
 
 GhcLibHcOpts    += -O -dcore-lint
+
+# We define DefaultFastGhcLibWays in this style so that the value is
+# correct even if the user alters DYNAMIC_BY_DEFAULT
+DefaultFastGhcLibWays = $(if $(filter $(DYNAMIC_BY_DEFAULT),YES),dyn,v)
+
 ifeq "$(ValidateSpeed)" "FAST"
-GhcLibWays     := v
+GhcLibWays     = $(DefaultFastGhcLibWays)
 else
 GhcLibWays     := $(filter v dyn,$(GhcLibWays))
 endif
@@ -70,6 +75,12 @@ libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-pointless-pragmas
 
 # bytestring has identities at the moment
 libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-identities
+
+# bytestring uses bitSize at the moment
+libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-deprecations
+
+# containers uses bitSize at the moment
+libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-deprecations
 
 # Temporarily turn off unused-do-bind warnings for the time package
 libraries/time_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-do-bind 

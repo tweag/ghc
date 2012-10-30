@@ -93,9 +93,10 @@ pprStmt stmt = case stmt of
     CmmAssign reg expr -> ppr reg <+> equals <+> ppr expr <> semi
 
     -- rep[lv] = expr;
-    CmmStore lv expr -> rep <> brackets(ppr lv) <+> equals <+> ppr expr <> semi
-        where
-          rep = ppr ( cmmExprType expr )
+    CmmStore lv expr ->
+        sdocWithDynFlags $ \dflags ->
+        let rep = ppr ( cmmExprType dflags expr )
+        in rep <> brackets(ppr lv) <+> equals <+> ppr expr <> semi
 
     -- call "ccall" foo(x, y)[r1, r2];
     -- ToDo ppr volatile
@@ -110,12 +111,8 @@ pprStmt stmt = case stmt of
           pp_lhs | null results = empty
                  | otherwise    = commafy (map ppr_ar results) <+> equals
                 -- Don't print the hints on a native C-- call
-          ppr_ar (CmmHinted ar k) = case cconv of
-                            CmmCallConv -> ppr ar
-                            _           -> ppr (ar,k)
-          pp_conv = case cconv of
-                      CmmCallConv -> empty
-                      _           -> ptext (sLit("foreign")) <+> doubleQuotes (ppr cconv)
+          ppr_ar (CmmHinted ar k) = ppr (ar,k)
+          pp_conv = ptext (sLit("foreign")) <+> doubleQuotes (ppr cconv)
 
     -- Call a CallishMachOp, like sin or cos that might be implemented as a library call.
     CmmCall (CmmPrim op _) results args ret ->

@@ -5,8 +5,6 @@
 -- (c) The University of Glasgow 2004
 --
 -----------------------------------------------------------------------------
-{-# OPTIONS -Wall -fno-warn-name-shadowing #-}
-
 module RegAlloc.Liveness (
         RegSet,
         RegMap, emptyRegMap,
@@ -39,6 +37,7 @@ import OldCmm hiding (RegSet)
 import OldPprCmm()
 
 import Digraph
+import DynFlags
 import Outputable
 import Platform
 import Unique
@@ -137,6 +136,11 @@ instance Instruction instr => Instruction (InstrSR instr) where
 
         mkJumpInstr target      = map Instr (mkJumpInstr target)
 
+        mkStackAllocInstr platform amount =
+             Instr (mkStackAllocInstr platform amount)
+
+        mkStackDeallocInstr platform amount =
+             Instr (mkStackDeallocInstr platform amount)
 
 
 -- | An instruction with liveness information.
@@ -461,11 +465,11 @@ slurpReloadCoalesce live
 -- | Strip away liveness information, yielding NatCmmDecl
 stripLive
         :: (Outputable statics, Outputable instr, Instruction instr)
-        => Platform
+        => DynFlags
         -> LiveCmmDecl statics instr
         -> NatCmmDecl statics instr
 
-stripLive platform live
+stripLive dflags live
         = stripCmm live
 
  where  stripCmm :: (Outputable statics, Outputable instr, Instruction instr)
@@ -481,7 +485,7 @@ stripLive platform live
                                 = partition ((== first_id) . blockId) final_blocks
 
            in   CmmProc info label
-                          (ListGraph $ map (stripLiveBlock platform) $ first' : rest')
+                          (ListGraph $ map (stripLiveBlock dflags) $ first' : rest')
 
         -- procs used for stg_split_markers don't contain any blocks, and have no first_id.
         stripCmm (CmmProc (LiveInfo info Nothing _ _) label [])
@@ -496,11 +500,11 @@ stripLive platform live
 
 stripLiveBlock
         :: Instruction instr
-        => Platform
+        => DynFlags
         -> LiveBasicBlock instr
         -> NatBasicBlock instr
 
-stripLiveBlock platform (BasicBlock i lis)
+stripLiveBlock dflags (BasicBlock i lis)
  =      BasicBlock i instrs'
 
  where  (instrs', _)
@@ -511,11 +515,11 @@ stripLiveBlock platform (BasicBlock i lis)
 
         spillNat acc (LiveInstr (SPILL reg slot) _ : instrs)
          = do   delta   <- get
-                spillNat (mkSpillInstr platform reg delta slot : acc) instrs
+                spillNat (mkSpillInstr dflags reg delta slot : acc) instrs
 
         spillNat acc (LiveInstr (RELOAD slot reg) _ : instrs)
          = do   delta   <- get
-                spillNat (mkLoadInstr platform reg delta slot : acc) instrs
+                spillNat (mkLoadInstr dflags reg delta slot : acc) instrs
 
         spillNat acc (LiveInstr (Instr instr) _ : instrs)
          | Just i <- takeDeltaInstr instr

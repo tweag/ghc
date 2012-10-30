@@ -61,6 +61,7 @@ module HscMain
     , hscTcRcLookupName
     , hscTcRnGetInfo
     , hscCheckSafe
+    , hscGetSafe
 #ifdef GHCI
     , hscIsGHCiMonad
     , hscGetModuleInterface
@@ -74,6 +75,7 @@ module HscMain
     ) where
 
 #ifdef GHCI
+import Id
 import ByteCodeGen      ( byteCodeGen, coreExprToBCOs )
 import Linker
 import CoreTidy         ( tidyExpr )
@@ -89,7 +91,6 @@ import Panic
 import GHC.Exts
 #endif
 
-import Id
 import Module
 import Packages
 import RdrName
@@ -118,7 +119,6 @@ import ProfInit
 import TyCon
 import Name
 import SimplStg         ( stg2stg )
-import CodeGen          ( codeGen )
 import qualified OldCmm as Old
 import qualified Cmm as New
 import CmmParse         ( parseCmmFile )
@@ -135,7 +135,6 @@ import Fingerprint      ( Fingerprint )
 
 import DynFlags
 import ErrUtils
-import UniqSupply       ( mkSplitUniqSupply )
 
 import Outputable
 import HscStats         ( ppSourceStats )
@@ -143,7 +142,7 @@ import HscTypes
 import MkExternalCore   ( emitExternalCore )
 import FastString
 import UniqFM           ( emptyUFM )
-import UniqSupply       ( initUs_ )
+import UniqSupply
 import Bag
 import Exception
 import qualified Stream
@@ -1023,6 +1022,21 @@ hscCheckSafe hsc_env m l = runHsc hsc_env $ do
     errs <- getWarnings
     return $ isEmptyBag errs
 
+-- | Return if a module is trusted and the pkgs it depends on to be trusted.
+hscGetSafe :: HscEnv -> Module -> SrcSpan -> IO (Bool, [PackageId])
+hscGetSafe hsc_env m l = runHsc hsc_env $ do
+    dflags       <- getDynFlags
+    (self, pkgs) <- hscCheckSafe' dflags m l
+    good         <- isEmptyBag `fmap` getWarnings
+    clearWarnings -- don't want them printed...
+    let pkgs' | Just p <- self = p:pkgs
+              | otherwise      = pkgs
+    return (good, pkgs')
+ 
+-- | Is a module trusted? If not, throw or log errors depending on the type.
+-- Return (regardless of trusted or not) if the trust type requires the modules
+-- own package be trusted and a list of other packages required to be trusted
+-- (these later ones haven't been checked) but the own package trust has been.
 hscCheckSafe' :: DynFlags -> Module -> SrcSpan -> Hsc (Maybe PackageId, [PackageId])
 hscCheckSafe' dflags m l = do
     (tw, pkgs) <- isModSafe m l
@@ -1031,10 +1045,6 @@ hscCheckSafe' dflags m l = do
         True | isHomePkg m -> return (Nothing, pkgs)
              | otherwise   -> return (Just $ modulePackageId m, pkgs)
   where
-    -- Is a module trusted? If not, throw or log errors depending on the type.
-    -- Return (regardless of trusted or not) if the trust type requires the
-    -- modules own package be trusted and a list of other packages required to
-    -- be trusted (these later ones haven't been checked)
     isModSafe :: Module -> SrcSpan -> Hsc (Bool, [PackageId])
     isModSafe m l = do
         iface <- lookup' m
@@ -1045,7 +1055,7 @@ hscCheckSafe' dflags m l = do
                            <> text ", to check that it can be safely imported"
 
             -- got iface, check trust
-            Just iface' -> do
+            Just iface' ->
                 let trust = getSafeMode $ mi_trust iface'
                     trust_own_pkg = mi_trust_pkg iface'
                     -- check module is trusted
@@ -1054,15 +1064,17 @@ hscCheckSafe' dflags m l = do
                     safeP = packageTrusted trust trust_own_pkg m
                     -- pkg trust reqs
                     pkgRs = map fst $ filter snd $ dep_pkgs $ mi_deps iface'
-                case (safeM, safeP) of
                     -- General errors we throw but Safe errors we log
-                    (True, True ) -> return (trust == Sf_Trustworthy, pkgRs)
-                    (True, False) -> liftIO . throwIO $ pkgTrustErr
-                    (False, _   ) -> logWarnings modTrustErr >>
-                                     return (trust == Sf_Trustworthy, pkgRs)
+                    errs = case (safeM, safeP) of
+                        (True, True ) -> emptyBag
+                        (True, False) -> pkgTrustErr
+                        (False, _   ) -> modTrustErr
+                in do
+                    logWarnings errs
+                    return (trust == Sf_Trustworthy, pkgRs)
 
                 where
-                    pkgTrustErr = mkSrcErr $ unitBag $ mkPlainErrMsg dflags l $
+                    pkgTrustErr = unitBag $ mkPlainErrMsg dflags l $
                         sep [ ppr (moduleName m)
                                 <> text ": Can't be safely imported!"
                             , text "The package (" <> ppr (modulePackageId m)
@@ -1078,6 +1090,8 @@ hscCheckSafe' dflags m l = do
     -- trustworthy modules, modules in the home package are trusted but
     -- otherwise we check the package trust flag.
     packageTrusted :: SafeHaskellMode -> Bool -> Module -> Bool
+    packageTrusted Sf_None             _ _ = False -- shouldn't hit these cases
+    packageTrusted Sf_Unsafe           _ _ = False -- prefer for completeness.
     packageTrusted _ _ _
         | not (packageTrustOn dflags)      = True
     packageTrusted Sf_Safe         False _ = True
@@ -1269,16 +1283,10 @@ hscGenHardCode cgguts mod_summary = do
 
         ------------------  Code generation ------------------
 
-        cmms <- if dopt Opt_TryNewCodeGen dflags
-                    then {-# SCC "NewCodeGen" #-}
+        cmms <- {-# SCC "NewCodeGen" #-}
                          tryNewCodeGen hsc_env this_mod data_tycons
                              cost_centre_info
                              stg_binds hpc_info
-                    else {-# SCC "CodeGen" #-}
-                         return (codeGen dflags this_mod data_tycons
-                               cost_centre_info
-                               stg_binds hpc_info)
-
 
         ------------------  Code output -----------------------
         rawcmms0 <- {-# SCC "cmmToRawCmm" #-}
@@ -1341,7 +1349,11 @@ hscCompileCmmFile hsc_env filename = runHsc hsc_env $ do
     let dflags = hsc_dflags hsc_env
     cmm <- ioMsgMaybe $ parseCmmFile dflags filename
     liftIO $ do
-        rawCmms <- cmmToRawCmm dflags (Stream.yield cmm)
+        us <- mkSplitUniqSupply 'S'
+        let initTopSRT = initUs_ us emptySRT
+        dumpIfSet_dyn dflags Opt_D_dump_cmmz "Parsed Cmm" (ppr cmm)
+        (_, cmmgroup) <- cmmPipeline hsc_env initTopSRT cmm
+        rawCmms <- cmmToRawCmm dflags (Stream.yield (cmmOfZgraph cmmgroup))
         _ <- codeOutput dflags no_mod no_loc NoStubs [] rawCmms
         return ()
   where
@@ -1354,7 +1366,7 @@ hscCompileCmmFile hsc_env filename = runHsc hsc_env $ do
 
 tryNewCodeGen   :: HscEnv -> Module -> [TyCon]
                 -> CollectedCCs
-                -> [(StgBinding,[(Id,[Id])])]
+                -> [StgBinding]
                 -> HpcInfo
                 -> IO (Stream IO Old.CmmGroup ())
          -- Note we produce a 'Stream' of CmmGroups, so that the
@@ -1383,15 +1395,33 @@ tryNewCodeGen hsc_env this_mod data_tycons
     -- We are building a single SRT for the entire module, so
     -- we must thread it through all the procedures as we cps-convert them.
     us <- mkSplitUniqSupply 'S'
-    let initTopSRT = initUs_ us emptySRT
 
-    let run_pipeline topSRT cmmgroup = do
-           (topSRT, cmmgroup) <- cmmPipeline hsc_env topSRT cmmgroup
-           return (topSRT,cmmOfZgraph cmmgroup)
+    -- When splitting, we generate one SRT per split chunk, otherwise
+    -- we generate one SRT for the whole module.
+    let
+     pipeline_stream
+      | gopt Opt_SplitObjs dflags
+        = {-# SCC "cmmPipeline" #-}
+          let run_pipeline us cmmgroup = do
+                let (topSRT', us') = initUs us emptySRT
+                (topSRT, cmmgroup) <- cmmPipeline hsc_env topSRT' cmmgroup
+                let srt | isEmptySRT topSRT = []
+                        | otherwise         = srtToData topSRT
+                return (us',cmmOfZgraph (srt ++ cmmgroup))
 
-    let pipeline_stream = {-# SCC "cmmPipeline" #-} do
-          topSRT <- Stream.mapAccumL run_pipeline initTopSRT ppr_stream1
-          Stream.yield (cmmOfZgraph (srtToData topSRT))
+          in do _ <- Stream.mapAccumL run_pipeline us ppr_stream1
+                return ()
+
+      | otherwise
+        = {-# SCC "cmmPipeline" #-}
+          let initTopSRT = initUs_ us emptySRT in
+  
+          let run_pipeline topSRT cmmgroup = do
+                (topSRT, cmmgroup) <- cmmPipeline hsc_env topSRT cmmgroup
+                return (topSRT,cmmOfZgraph cmmgroup)
+  
+          in do topSRT <- Stream.mapAccumL run_pipeline initTopSRT ppr_stream1
+                Stream.yield (cmmOfZgraph (srtToData topSRT))
 
     let
         dump2 a = do dumpIfSet_dyn dflags Opt_D_dump_cmmz "Output Cmm" $ ppr a
@@ -1404,7 +1434,7 @@ tryNewCodeGen hsc_env this_mod data_tycons
 
 
 myCoreToStg :: DynFlags -> Module -> CoreProgram
-            -> IO ( [(StgBinding,[(Id,[Id])])] -- output program
+            -> IO ( [StgBinding] -- output program
                   , CollectedCCs) -- cost centre info (declared and used)
 myCoreToStg dflags this_mod prepd_binds = do
     stg_binds
@@ -1585,7 +1615,7 @@ hscTcExpr hsc_env0 expr = runInteractiveHsc hsc_env0 $ do
     hsc_env <- getHscEnv
     maybe_stmt <- hscParseStmt expr
     case maybe_stmt of
-        Just (L _ (ExprStmt expr _ _ _)) ->
+        Just (L _ (BodyStmt expr _ _ _)) ->
             ioMsgMaybe $ tcRnExpr hsc_env (hsc_IC hsc_env) expr
         _ ->
             throwErrors $ unitBag $ mkPlainErrMsg (hsc_dflags hsc_env) noSrcSpan
@@ -1602,11 +1632,11 @@ hscKcType hsc_env0 normalise str = runInteractiveHsc hsc_env0 $ do
     ty <- hscParseType str
     ioMsgMaybe $ tcRnType hsc_env (hsc_IC hsc_env) normalise ty
 
-hscParseStmt :: String -> Hsc (Maybe (LStmt RdrName))
+hscParseStmt :: String -> Hsc (Maybe (GhciLStmt RdrName))
 hscParseStmt = hscParseThing parseStmt
 
 hscParseStmtWithLocation :: String -> Int -> String
-                         -> Hsc (Maybe (LStmt RdrName))
+                         -> Hsc (Maybe (GhciLStmt RdrName))
 hscParseStmtWithLocation source linenumber stmt =
     hscParseThingWithLocation source linenumber parseStmt stmt
 
@@ -1703,7 +1733,7 @@ hscCompileCoreExpr hsc_env srcspan ds_expr
 
     | otherwise = do
         let dflags = hsc_dflags hsc_env
-        let lint_on = dopt Opt_DoCoreLinting dflags
+        let lint_on = gopt Opt_DoCoreLinting dflags
 
         {- Simplify it -}
         simpl_expr <- simplifyExpr dflags ds_expr

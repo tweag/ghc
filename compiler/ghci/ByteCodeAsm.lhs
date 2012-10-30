@@ -27,10 +27,9 @@ import NameSet
 import Literal
 import TyCon
 import PrimOp
-import Constants
 import FastString
+import StgCmmLayout     ( ArgRep(..) )
 import SMRep
-import ClosureInfo -- CgRep stuff
 import DynFlags
 import Outputable
 import Platform
@@ -133,7 +132,7 @@ assembleBCO dflags (ProtoBCO nm instrs bitmap bsize arity _origin _malloced) = d
       -- Remember that the first insn starts at offset
       --     sizeOf Word / sizeOf Word16
       -- since offset 0 (eventually) will hold the total # of insns.
-      initial_offset = largeArg16s
+      initial_offset = largeArg16s dflags
 
       -- Jump instructions are variable-sized, there are long and short variants
       -- depending on the magnitude of the offset.  However, we can't tell what
@@ -143,9 +142,9 @@ assembleBCO dflags (ProtoBCO nm instrs bitmap bsize arity _origin _malloced) = d
       -- and if the final size is indeed small enough for short jumps, we are
       -- done.  Otherwise, we repeat the calculation, and we force all jumps in
       -- this BCO to be long.
-      (n_insns0, lbl_map0) = inspectAsm False initial_offset asm
+      (n_insns0, lbl_map0) = inspectAsm dflags False initial_offset asm
       ((n_insns, lbl_map), long_jumps)
-        | isLarge n_insns0 = (inspectAsm True initial_offset asm, True)
+        | isLarge n_insns0 = (inspectAsm dflags True initial_offset asm, True)
         | otherwise = ((n_insns0, lbl_map0), False)
 
       env :: Word16 -> Word
@@ -154,9 +153,9 @@ assembleBCO dflags (ProtoBCO nm instrs bitmap bsize arity _origin _malloced) = d
         (Map.lookup lbl lbl_map)
 
   -- pass 2: run assembler and generate instructions, literals and pointers
-  let initial_insns = addListToSS emptySS $ largeArg n_insns
+  let initial_insns = addListToSS emptySS $ largeArg dflags n_insns
   let initial_state = (initial_insns, emptySS, emptySS)
-  (final_insns, final_lits, final_ptrs) <- execState initial_state $ runAsm long_jumps env asm
+  (final_insns, final_lits, final_ptrs) <- execState initial_state $ runAsm dflags long_jumps env asm
 
   -- precomputed size should be equal to final size
   ASSERT (n_insns == sizeSS final_insns) return ()
@@ -167,7 +166,7 @@ assembleBCO dflags (ProtoBCO nm instrs bitmap bsize arity _origin _malloced) = d
       insns_arr = listArray (0, n_insns - 1) asm_insns
       !insns_barr = barr insns_arr
 
-      bitmap_arr = mkBitmapArray bsize bitmap
+      bitmap_arr = mkBitmapArray dflags bsize bitmap
       !bitmap_barr = barr bitmap_arr
 
       ul_bco = UnlinkedBCO nm arity insns_barr bitmap_barr final_lits final_ptrs
@@ -179,9 +178,9 @@ assembleBCO dflags (ProtoBCO nm instrs bitmap bsize arity _origin _malloced) = d
 
   return ul_bco
 
-mkBitmapArray :: Word16 -> [StgWord] -> UArray Int StgWord
-mkBitmapArray bsize bitmap
-  = listArray (0, length bitmap) (fromIntegral bsize : bitmap)
+mkBitmapArray :: DynFlags -> Word16 -> [StgWord] -> UArray Int StgWord
+mkBitmapArray dflags bsize bitmap
+  = listArray (0, length bitmap) (toStgWord dflags (toInteger bsize) : bitmap)
 
 -- instrs nonptrs ptrs
 type AsmState = (SizedSeq Word16,
@@ -250,8 +249,8 @@ largeOp long_jumps op = case op of
   Op w      -> isLarge w
   LabelOp _ -> long_jumps
 
-runAsm :: Bool -> LabelEnv -> Assembler a -> State AsmState IO a
-runAsm long_jumps e = go
+runAsm :: DynFlags -> Bool -> LabelEnv -> Assembler a -> State AsmState IO a
+runAsm dflags long_jumps e = go
   where
     go (NullAsm x) = return x
     go (AllocPtr p_io k) = do
@@ -273,9 +272,9 @@ runAsm long_jumps e = go
             | otherwise = w
           words = concatMap expand ops
           expand (SmallOp w) = [w]
-          expand (LargeOp w) = largeArg w
+          expand (LargeOp w) = largeArg dflags w
           expand (LabelOp w) = expand (Op (e w))
-          expand (Op w) = if largeOps then largeArg w else [fromIntegral w]
+          expand (Op w) = if largeOps then largeArg dflags w else [fromIntegral w]
       State $ \(st_i0,st_l0,st_p0) -> do
         let st_i1 = addListToSS st_i0 (opcode : words)
         return ((st_i1,st_l0,st_p0), ())
@@ -290,8 +289,8 @@ data InspectState = InspectState
   , lblEnv :: LabelEnvMap
   }
 
-inspectAsm :: Bool -> Word -> Assembler a -> (Word, LabelEnvMap)
-inspectAsm long_jumps initial_offset
+inspectAsm :: DynFlags -> Bool -> Word -> Assembler a -> (Word, LabelEnvMap)
+inspectAsm dflags long_jumps initial_offset
   = go (InspectState initial_offset 0 0 Map.empty)
   where
     go s (NullAsm _) = (instrCount s, lblEnv s)
@@ -307,9 +306,9 @@ inspectAsm long_jumps initial_offset
         size = sum (map count ops) + 1
         largeOps = any (largeOp long_jumps) ops
         count (SmallOp _) = 1
-        count (LargeOp _) = largeArg16s
+        count (LargeOp _) = largeArg16s dflags
         count (LabelOp _) = count (Op 0)
-        count (Op _) = if largeOps then largeArg16s else 1
+        count (Op _) = if largeOps then largeArg16s dflags else 1
 
 -- Bring in all the bci_ bytecode constants.
 #include "rts/Bytecodes.h"
@@ -317,21 +316,21 @@ inspectAsm long_jumps initial_offset
 largeArgInstr :: Word16 -> Word16
 largeArgInstr bci = bci_FLAG_LARGE_ARGS .|. bci
 
-largeArg :: Word -> [Word16]
-largeArg w
- | wORD_SIZE_IN_BITS == 64
+largeArg :: DynFlags -> Word -> [Word16]
+largeArg dflags w
+ | wORD_SIZE_IN_BITS dflags == 64
            = [fromIntegral (w `shiftR` 48),
               fromIntegral (w `shiftR` 32),
               fromIntegral (w `shiftR` 16),
               fromIntegral w]
- | wORD_SIZE_IN_BITS == 32
+ | wORD_SIZE_IN_BITS dflags == 32
            = [fromIntegral (w `shiftR` 16),
               fromIntegral w]
  | otherwise = error "wORD_SIZE_IN_BITS not 32 or 64?"
 
-largeArg16s :: Word
-largeArg16s | wORD_SIZE_IN_BITS == 64  = 4
-            | otherwise                = 2
+largeArg16s :: DynFlags -> Word
+largeArg16s dflags | wORD_SIZE_IN_BITS dflags == 64 = 4
+                   | otherwise                      = 2
 
 assembleI :: DynFlags
           -> BCInstr
@@ -432,39 +431,39 @@ assembleI dflags i = case i of
     litlabel fs = lit [BCONPtrLbl fs]
     addr = words . mkLitPtr
     float = words . mkLitF
-    double = words . mkLitD
+    double = words . mkLitD dflags
     int = words . mkLitI
-    int64 = words . mkLitI64
+    int64 = words . mkLitI64 dflags
     words ws = lit (map BCONPtrWord ws)
     word w = words [w]
 
 isLarge :: Word -> Bool
 isLarge n = n > 65535
 
-push_alts :: CgRep -> Word16
-push_alts NonPtrArg = bci_PUSH_ALTS_N
-push_alts FloatArg  = bci_PUSH_ALTS_F
-push_alts DoubleArg = bci_PUSH_ALTS_D
-push_alts VoidArg   = bci_PUSH_ALTS_V
-push_alts LongArg   = bci_PUSH_ALTS_L
-push_alts PtrArg    = bci_PUSH_ALTS_P
+push_alts :: ArgRep -> Word16
+push_alts V = bci_PUSH_ALTS_V
+push_alts P = bci_PUSH_ALTS_P
+push_alts N = bci_PUSH_ALTS_N
+push_alts L = bci_PUSH_ALTS_L
+push_alts F = bci_PUSH_ALTS_F
+push_alts D = bci_PUSH_ALTS_D
 
-return_ubx :: CgRep -> Word16
-return_ubx NonPtrArg = bci_RETURN_N
-return_ubx FloatArg  = bci_RETURN_F
-return_ubx DoubleArg = bci_RETURN_D
-return_ubx VoidArg   = bci_RETURN_V
-return_ubx LongArg   = bci_RETURN_L
-return_ubx PtrArg    = bci_RETURN_P
+return_ubx :: ArgRep -> Word16
+return_ubx V = bci_RETURN_V
+return_ubx P = bci_RETURN_P
+return_ubx N = bci_RETURN_N
+return_ubx L = bci_RETURN_L
+return_ubx F = bci_RETURN_F
+return_ubx D = bci_RETURN_D
 
 -- Make lists of host-sized words for literals, so that when the
 -- words are placed in memory at increasing addresses, the
 -- bit pattern is correct for the host's word size and endianness.
-mkLitI   :: Int    -> [Word]
-mkLitF   :: Float  -> [Word]
-mkLitD   :: Double -> [Word]
-mkLitPtr :: Ptr () -> [Word]
-mkLitI64 :: Int64  -> [Word]
+mkLitI   ::             Int    -> [Word]
+mkLitF   ::             Float  -> [Word]
+mkLitD   :: DynFlags -> Double -> [Word]
+mkLitPtr ::             Ptr () -> [Word]
+mkLitI64 :: DynFlags -> Int64  -> [Word]
 
 mkLitF f
    = runST (do
@@ -475,8 +474,8 @@ mkLitF f
         return [w0 :: Word]
      )
 
-mkLitD d
-   | wORD_SIZE == 4
+mkLitD dflags d
+   | wORD_SIZE dflags == 4
    = runST (do
         arr <- newArray_ ((0::Int),1)
         writeArray arr 0 d
@@ -485,7 +484,7 @@ mkLitD d
         w1 <- readArray d_arr 1
         return [w0 :: Word, w1]
      )
-   | wORD_SIZE == 8
+   | wORD_SIZE dflags == 8
    = runST (do
         arr <- newArray_ ((0::Int),0)
         writeArray arr 0 d
@@ -496,8 +495,8 @@ mkLitD d
    | otherwise
    = panic "mkLitD: Bad wORD_SIZE"
 
-mkLitI64 ii
-   | wORD_SIZE == 4
+mkLitI64 dflags ii
+   | wORD_SIZE dflags == 4
    = runST (do
         arr <- newArray_ ((0::Int),1)
         writeArray arr 0 ii
@@ -506,7 +505,7 @@ mkLitI64 ii
         w1 <- readArray d_arr 1
         return [w0 :: Word,w1]
      )
-   | wORD_SIZE == 8
+   | wORD_SIZE dflags == 8
    = runST (do
         arr <- newArray_ ((0::Int),0)
         writeArray arr 0 ii

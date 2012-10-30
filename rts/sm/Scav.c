@@ -98,7 +98,7 @@ scavengeTSO (StgTSO *tso)
 
 static StgPtr scavenge_mut_arr_ptrs (StgMutArrPtrs *a)
 {
-    lnat m;
+    W_ m;
     rtsBool any_failed;
     StgPtr p, q;
 
@@ -140,7 +140,7 @@ static StgPtr scavenge_mut_arr_ptrs (StgMutArrPtrs *a)
 // scavenge only the marked areas of a MUT_ARR_PTRS
 static StgPtr scavenge_mut_arr_ptrs_marked (StgMutArrPtrs *a)
 {
-    lnat m;
+    W_ m;
     StgPtr p, q;
     rtsBool any_failed;
 
@@ -322,8 +322,8 @@ scavenge_srt (StgClosure **srt, nat srt_bitmap)
 	  // 
 	  // If the SRT entry hasn't got bit 0 set, the SRT entry points to a
 	  // closure that's fixed at link-time, and no extra magic is required.
-	  if ( (lnat)(*srt) & 0x1 ) {
-	      evacuate( (StgClosure**) ((lnat) (*srt) & ~0x1));
+	  if ( (W_)(*srt) & 0x1 ) {
+	      evacuate( (StgClosure**) ((W_) (*srt) & ~0x1));
 	  } else {
 	      evacuate(p);
 	  }
@@ -1683,32 +1683,6 @@ scavenge_stack(StgPtr p, StgPtr stack_end)
 	p += size;
 	// and don't forget to follow the SRT 
 	goto follow_srt;
-    }
-
-      // Dynamic bitmap: the mask is stored on the stack, and
-      // there are a number of non-pointers followed by a number
-      // of pointers above the bitmapped area.  (see StgMacros.h,
-      // HEAP_CHK_GEN).
-    case RET_DYN:
-    {
-	StgWord dyn;
-	dyn = ((StgRetDyn *)p)->liveness;
-
-	// traverse the bitmap first
-	bitmap = RET_DYN_LIVENESS(dyn);
-	p      = (P_)&((StgRetDyn *)p)->payload[0];
-	size   = RET_DYN_BITMAP_SIZE;
-	p = scavenge_small_bitmap(p, size, bitmap);
-
-	// skip over the non-ptr words
-	p += RET_DYN_NONPTRS(dyn) + RET_DYN_NONPTR_REGS_SIZE;
-	
-	// follow the ptr words
-	for (size = RET_DYN_PTRS(dyn); size > 0; size--) {
-	    evacuate((StgClosure **)p);
-	    p++;
-	}
-	continue;
     }
 
     case RET_FUN:

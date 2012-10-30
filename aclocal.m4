@@ -226,7 +226,10 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         haiku)
             test -z "[$]2" || eval "[$]2=OSHaiku"
             ;;
-        dragonfly|osf1|osf3|hpux|linuxaout|freebsd2|cygwin32|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|aix)
+        osf3)
+            test -z "[$]2" || eval "[$]2=OSOsf3"
+            ;;
+        dragonfly|osf1|hpux|linuxaout|freebsd2|cygwin32|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|aix)
             test -z "[$]2" || eval "[$]2=OSUnknown"
             ;;
         *)
@@ -1791,7 +1794,7 @@ AC_MSG_NOTICE(Building in-tree ghc-pwd)
 ])
 
 AC_DEFUN([FP_BINDIST_GHC_PWD],[
-    GHC_PWD=utils/ghc-pwd/dist-install/build/tmp/ghc-pwd
+    GHC_PWD=utils/ghc-pwd/dist-install/build/tmp/ghc-pwd-bindist
 ])
 
 AC_DEFUN([FP_FIND_ROOT],[

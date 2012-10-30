@@ -16,14 +16,14 @@ module TcEvidence (
 
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, 
 
-  EvTerm(..), mkEvCast, evVarsOfTerm, mkEvKindCast,
+  EvTerm(..), mkEvCast, evVarsOfTerm, 
   EvLit(..), evTermCoercion,
 
   -- TcCoercion
-  TcCoercion(..), 
+  TcCoercion(..), LeftOrRight(..), pickLR,
   mkTcReflCo, mkTcTyConAppCo, mkTcAppCo, mkTcAppCos, mkTcFunCo,
   mkTcAxInstCo, mkTcForAllCo, mkTcForAllCos, 
-  mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcInstCos,
+  mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcInstCos,
   tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo, 
   isTcReflCo, isTcReflCo_maybe, getTcCoVar_maybe,
   liftTcCoSubstWith
@@ -32,11 +32,11 @@ module TcEvidence (
 #include "HsVersions.h"
 
 import Var
-
+import Coercion( LeftOrRight(..), pickLR )
 import PprCore ()   -- Instance OutputableBndr TyVar
 import TypeRep  -- Knows type representation
 import TcType
-import Type( tyConAppArgN, getEqPredTys_maybe, tyConAppTyCon_maybe, getEqPredTys )
+import Type( tyConAppArgN, tyConAppTyCon_maybe, getEqPredTys )
 import TysPrim( funTyCon )
 import TyCon
 import PrelNames
@@ -102,6 +102,7 @@ data TcCoercion
   | TcSymCo TcCoercion
   | TcTransCo TcCoercion TcCoercion
   | TcNthCo Int TcCoercion
+  | TcLRCo LeftOrRight TcCoercion
   | TcCastCo TcCoercion TcCoercion     -- co1 |> co2
   | TcLetCo TcEvBinds TcCoercion
   deriving (Data.Data, Data.Typeable)
@@ -114,7 +115,7 @@ isEqVar v = case tyConAppTyCon_maybe (varType v) of
 
 isTcReflCo_maybe :: TcCoercion -> Maybe TcType
 isTcReflCo_maybe (TcRefl ty) = Just ty
-isTcReflCo_maybe _             = Nothing
+isTcReflCo_maybe _           = Nothing
 
 isTcReflCo :: TcCoercion -> Bool
 isTcReflCo (TcRefl {}) = True
@@ -167,6 +168,10 @@ mkTcNthCo :: Int -> TcCoercion -> TcCoercion
 mkTcNthCo n (TcRefl ty) = TcRefl (tyConAppArgN n ty)
 mkTcNthCo n co          = TcNthCo n co
 
+mkTcLRCo :: LeftOrRight -> TcCoercion -> TcCoercion
+mkTcLRCo lr (TcRefl ty) = TcRefl (pickLR lr (tcSplitAppTy ty))
+mkTcLRCo lr co          = TcLRCo lr co
+
 mkTcAppCos :: TcCoercion -> [TcCoercion] -> TcCoercion
 mkTcAppCos co1 tys = foldl mkTcAppCo co1 tys
 
@@ -185,13 +190,12 @@ mkTcInstCos co tys          = foldl TcInstCo co tys
 
 mkTcCoVarCo :: EqVar -> TcCoercion
 -- ipv :: s ~ t  (the boxed equality type)
-mkTcCoVarCo ipv
-  | ty1 `eqType` ty2 = TcRefl ty1
-  | otherwise        = TcCoVarCo ipv
-  where
-    (ty1, ty2) = case getEqPredTys_maybe (varType ipv) of
-        Nothing  -> pprPanic "mkCoVarLCo" (ppr ipv)
-        Just tys -> tys
+mkTcCoVarCo ipv = TcCoVarCo ipv
+  -- Previously I checked for (ty ~ ty) and generated Refl,
+  -- but in fact ipv may not even (visibly) have a (t1 ~ t2) type, because
+  -- the constraint solver does not substitute in the types of
+  -- evidence variables as it goes.  In any case, the optimisation
+  -- will be done in the later zonking phase
 \end{code}
 
 \begin{code}
@@ -212,6 +216,7 @@ tcCoercionKind co = go co
     go (TcSymCo co)           = swap (go co)
     go (TcTransCo co1 co2)    = Pair (pFst (go co1)) (pSnd (go co2))
     go (TcNthCo d co)         = tyConAppArgN d <$> go co
+    go (TcLRCo lr co)         = (pickLR lr . tcSplitAppTy) <$> go co
 
     -- c.f. Coercion.coercionKind
     go_inst (TcInstCo co ty) tys = go_inst co (ty:tys)
@@ -240,16 +245,15 @@ coVarsOfTcCo tc_co
     go (TcSymCo co)              = go co
     go (TcTransCo co1 co2)       = go co1 `unionVarSet` go co2
     go (TcNthCo _ co)            = go co
+    go (TcLRCo  _ co)            = go co
     go (TcLetCo (EvBinds bs) co) = foldrBag (unionVarSet . go_bind) (go co) bs
                                    `minusVarSet` get_bndrs bs
     go (TcLetCo {}) = emptyVarSet    -- Harumph. This does legitimately happen in the call
                                      -- to evVarsOfTerm in the DEBUG check of setEvBind
 
-    -- We expect only coercion bindings
+    -- We expect only coercion bindings, so use evTermCoercion 
     go_bind :: EvBind -> VarSet
-    go_bind (EvBind _ (EvCoercion co)) = go co
-    go_bind (EvBind _ (EvId v))        = unitVarSet v
-    go_bind other = pprPanic "coVarsOfTcCo:Bind" (ppr other)
+    go_bind (EvBind _ tm) = go (evTermCoercion tm)
 
     get_bndrs :: Bag EvBind -> VarSet
     get_bndrs = foldrBag (\ (EvBind b _) bs -> extendVarSet bs b) emptyVarSet 
@@ -309,6 +313,7 @@ ppr_co p (TcTransCo co1 co2) = maybeParen p FunPrec $
                                <+> ppr_co FunPrec co2
 ppr_co p (TcSymCo co)         = pprPrefixApp p (ptext (sLit "Sym")) [pprParendTcCo co]
 ppr_co p (TcNthCo n co)       = pprPrefixApp p (ptext (sLit "Nth:") <+> int n) [pprParendTcCo co]
+ppr_co p (TcLRCo lr co)       = pprPrefixApp p (ppr lr) [pprParendTcCo co]
 
 ppr_fun_co :: Prec -> TcCoercion -> SDoc
 ppr_fun_co p co = pprArrowChain p (split co)
@@ -478,8 +483,6 @@ data EvTerm
                                  -- dictionaries, even though the former have no
                                  -- selector Id.  We count up from _0_
 
-  | EvKindCast EvTerm TcCoercion  -- See Note [EvKindCast]
-
   | EvLit EvLit                  -- Dictionary for class "SingI" for type lits.
                                  -- Note [EvLit]
 
@@ -493,41 +496,29 @@ data EvLit
 
 \end{code}
 
-Note [Coecion evidence terms]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Notice that a coercion variable (v :: t1 ~ t2) can be represented as an EvTerm
-in two different ways:
-   EvId v
-   EvCoercion (TcCoVarCo v)
-
-An alternative would be 
-
-* To establish the invariant that coercions are represented only 
-   by EvCoercion
-
-* To maintain the invariant by smart constructors.  Eg
-     mkEvCast (EvCoercion c1) c2 = EvCoercion (TcCastCo c1 c2)
-     mkEvCast t c = EvCast t c
+Note [Coercion evidence terms]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A "coercion evidence term" takes one of these forms
+   co_tm ::= EvId v           where v :: t1 ~ t2
+           | EvCoercion co
+           | EvCast co_tm co
 
 We do quite often need to get a TcCoercion from an EvTerm; see
-'evTermCoercion'.  Notice that as well as EvId and EvCoercion it may see
-an EvCast.
+'evTermCoercion'.
 
-I don't think it matters much... but maybe we'll find a good reason to
-do one or the other.
-
-Note [EvKindCast] 
-~~~~~~~~~~~~~~~~~ 
-EvKindCast g kco is produced when we have a constraint (g : s1 ~ s2) 
-but the kinds of s1 and s2 (k1 and k2 respectively) don't match but 
-are rather equal by a coercion. You may think that this coercion will
-always turn out to be ReflCo, so why is this needed? Because sometimes
-we will want to defer kind errors until the runtime and in these cases
-that coercion will be an 'error' term, which we want to evaluate rather
-than silently forget about!
-
-The relevant (and only) place where such a coercion is produced in 
-the simplifier is in TcCanonical.emitKindConstraint.
+INVARIANT: The evidence for any constraint with type (t1~t2) is 
+a coercion evidence term.  Consider for example
+    [G] d :: F Int a
+If we have
+    ax7 a :: F Int a ~ (a ~ Bool)
+then we do NOT generate the constraint
+    [G} (d |> ax7 a) :: a ~ Bool
+because that does not satisfy the invariant (d is not a coercion variable).  
+Instead we make a binding
+    g1 :: a~Bool = g |> ax7 a
+and the constraint
+    [G] g1 :: a~Bool
+See Trac [7238] and Note [Bind new Givens immediately] in TcSMonad
 
 Note [EvBinds/EvTerm]
 ~~~~~~~~~~~~~~~~~~~~~
@@ -590,11 +581,6 @@ mkEvCast ev lco
   | isTcReflCo lco = ev
   | otherwise      = EvCast ev lco
 
-mkEvKindCast :: EvTerm -> TcCoercion -> EvTerm
-mkEvKindCast ev lco
-  | isTcReflCo lco = ev
-  | otherwise      = EvKindCast ev lco
-
 emptyTcEvBinds :: TcEvBinds
 emptyTcEvBinds = EvBinds emptyBag
 
@@ -620,7 +606,6 @@ evVarsOfTerm (EvSuperClass v _)   = evVarsOfTerm v
 evVarsOfTerm (EvCast tm co)       = evVarsOfTerm tm `unionVarSet` coVarsOfTcCo co
 evVarsOfTerm (EvTupleMk evs)      = evVarsOfTerms evs
 evVarsOfTerm (EvDelayedError _ _) = emptyVarSet
-evVarsOfTerm (EvKindCast v co)    = coVarsOfTcCo co `unionVarSet` evVarsOfTerm v
 evVarsOfTerm (EvLit _)            = emptyVarSet
 
 evVarsOfTerms :: [EvTerm] -> VarSet
@@ -678,7 +663,6 @@ instance Outputable EvBind where
 instance Outputable EvTerm where
   ppr (EvId v)           = ppr v
   ppr (EvCast v co)      = ppr v <+> (ptext (sLit "`cast`")) <+> pprParendTcCo co
-  ppr (EvKindCast v co)  = ppr v <+> (ptext (sLit "`kind-cast`")) <+> pprParendTcCo co
   ppr (EvCoercion co)    = ptext (sLit "CO") <+> ppr co
   ppr (EvTupleSel v n)   = ptext (sLit "tupsel") <> parens (ppr (v,n))
   ppr (EvTupleMk vs)     = ptext (sLit "tupmk") <+> ppr vs

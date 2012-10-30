@@ -54,6 +54,7 @@ $(GHC_CABAL_DIR)_USES_CABAL                   = YES
 $(GHC_CABAL_DIR)_PACKAGE                      = ghc-cabal
 $(GHC_CABAL_DIR)_dist-install_PROG            = ghc-cabal$(exeext)
 $(GHC_CABAL_DIR)_dist-install_INSTALL_INPLACE = NO
+$(GHC_CABAL_DIR)_dist-install_WANT_BINDIST_WRAPPER = YES
 $(GHC_CABAL_DIR)_dist-install_MODULES         = Main
 
 $(eval $(call build-prog,utils/ghc-cabal,dist-install,1))

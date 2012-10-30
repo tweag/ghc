@@ -256,7 +256,7 @@ typecheckIface iface
                 -- information that we shouldn't.  From a versioning point of view
                 -- It's not actually *wrong* to do so, but in fact GHCi is unable 
                 -- to handle unboxed tuples, so it must not see unfoldings.
-          ignore_prags <- doptM Opt_IgnoreInterfacePragmas
+          ignore_prags <- goptM Opt_IgnoreInterfacePragmas
 
                 -- Typecheck the decls.  This is done lazily, so that the knot-tying
                 -- within this single module work out right.  In the If monad there is
@@ -474,9 +474,9 @@ tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs,
      ; return (ATyCon tycon) }
    where
      mk_doc n = ptext (sLit "Type syonym") <+> ppr n
-     tc_syn_rhs Nothing   = return SynFamilyTyCon
-     tc_syn_rhs (Just ty) = do { rhs_ty <- tcIfaceType ty
-                               ; return (SynonymTyCon rhs_ty) }
+     tc_syn_rhs (SynFamilyTyCon a b) = return (SynFamilyTyCon a b)
+     tc_syn_rhs (SynonymTyCon ty)    = do { rhs_ty <- tcIfaceType ty
+                                          ; return (SynonymTyCon rhs_ty) }
 
 tc_iface_decl _parent ignore_prags
             (IfaceClass {ifCtxt = rdr_ctxt, ifName = tc_occ,
@@ -570,20 +570,17 @@ tcIfaceDataCons tycon_name tycon _ if_cons
      = bindIfaceTyVars univ_tvs $ \ univ_tyvars -> do
        bindIfaceTyVars ex_tvs    $ \ ex_tyvars -> do
         { name  <- lookupIfaceTop occ
-        ; eq_spec <- tcIfaceEqSpec spec
-        ; theta <- tcIfaceCtxt ctxt     -- Laziness seems not worth the bother here
-                -- At one stage I thought that this context checking *had*
-                -- to be lazy, because of possible mutual recursion between the
-                -- type and the classe: 
-                -- E.g. 
-                --      class Real a where { toRat :: a -> Ratio Integer }
-                --      data (Real a) => Ratio a = ...
-                -- But now I think that the laziness in checking class ops breaks 
-                -- the loop, so no laziness needed
 
-        -- Read the argument types, but lazily to avoid faulting in
-        -- the component types unless they are really needed
-        ; arg_tys <- forkM (mk_doc name) (mapM tcIfaceType args)
+        -- Read the context and argument types, but lazily for two reasons
+        -- (a) to avoid looking tugging on a recursive use of 
+        --     the type itself, which is knot-tied
+        -- (b) to avoid faulting in the component types unless 
+        --     they are really needed
+        ; ~(eq_spec, theta, arg_tys) <- forkM (mk_doc name) $
+             do { eq_spec <- tcIfaceEqSpec spec
+                ; theta   <- tcIfaceCtxt ctxt
+                ; arg_tys <- mapM tcIfaceType args
+                ; return (eq_spec, theta, arg_tys) }
         ; lbl_names <- mapM lookupIfaceTop field_lbls
 
         -- Remember, tycon is the representation tycon
@@ -962,6 +959,7 @@ tcIfaceCoApp IfaceSymCo       [t]     = SymCo        <$> tcIfaceCo t
 tcIfaceCoApp IfaceTransCo     [t1,t2] = TransCo      <$> tcIfaceCo t1 <*> tcIfaceCo t2
 tcIfaceCoApp IfaceInstCo      [t1,t2] = InstCo       <$> tcIfaceCo t1 <*> tcIfaceType t2
 tcIfaceCoApp (IfaceNthCo d)   [t]     = NthCo d      <$> tcIfaceCo t
+tcIfaceCoApp (IfaceLRCo lr)   [t]     = LRCo lr      <$> tcIfaceCo t
 tcIfaceCoApp cc ts = pprPanic "toIfaceCoApp" (ppr cc <+> ppr ts)
 
 tcIfaceCoVar :: FastString -> IfL CoVar
@@ -1197,11 +1195,12 @@ tcIdInfo ignore_prags name ty info
 \begin{code}
 tcUnfolding :: Name -> Type -> IdInfo -> IfaceUnfolding -> IfL Unfolding
 tcUnfolding name _ info (IfCoreUnfold stable if_expr)
-  = do  { mb_expr <- tcPragExpr name if_expr
+  = do  { dflags <- getDynFlags
+        ; mb_expr <- tcPragExpr name if_expr
         ; let unf_src = if stable then InlineStable else InlineRhs
         ; return (case mb_expr of
                     Nothing   -> NoUnfolding
-                    Just expr -> mkUnfolding unf_src
+                    Just expr -> mkUnfolding dflags unf_src
                                              True {- Top level -} 
                                              is_bottoming
                                              expr) }
@@ -1271,7 +1270,7 @@ tcPragExpr name expr
     core_expr' <- tcIfaceExpr expr
 
                 -- Check for type consistency in the unfolding
-    ifDOptM Opt_DoCoreLinting $ do
+    whenGOptM Opt_DoCoreLinting $ do
         in_scope <- get_in_scope
         case lintUnfolding noSrcLoc in_scope core_expr' of
           Nothing       -> return ()
@@ -1363,7 +1362,7 @@ tcIfaceTyCon (IfaceTc name)
        ; case thing of    -- A "type constructor" can be a promoted data constructor
                           --           c.f. Trac #5881
            ATyCon   tc -> return tc
-           ADataCon dc -> return (buildPromotedDataCon dc)
+           ADataCon dc -> return (promoteDataCon dc)
            _ -> pprPanic "tcIfaceTyCon" (ppr name $$ ppr thing) }
 
 tcIfaceKindCon :: IfaceTyCon -> IfL TyCon
@@ -1373,7 +1372,7 @@ tcIfaceKindCon (IfaceTc name)
                           --           c.f. Trac #5881
            ATyCon tc 
              | isSuperKind (tyConKind tc) -> return tc   -- Mainly just '*' or 'AnyK'
-             | otherwise                  -> return (buildPromotedTyCon tc)
+             | otherwise                  -> return (promoteTyCon tc)
 
            _ -> pprPanic "tcIfaceKindCon" (ppr name $$ ppr thing) }
 

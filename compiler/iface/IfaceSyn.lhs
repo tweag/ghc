@@ -24,6 +24,7 @@ module IfaceSyn (
 
         -- Misc
         ifaceDeclImplicitBndrs, visibleIfConDecls,
+        ifaceDeclFingerprints,
 
         -- Free Names
         freeNamesIfDecl, freeNamesIfRule, freeNamesIfFamInst,
@@ -34,6 +35,7 @@ module IfaceSyn (
 
 #include "HsVersions.h"
 
+import TyCon( SynTyConRhs(..) )
 import IfaceType
 import CoreSyn( DFunArg, dfunArgExprs )
 import PprCore()            -- Printing DFunArgs
@@ -51,6 +53,10 @@ import Outputable
 import FastString
 import Module
 import TysWiredIn ( eqTyConName )
+import Fingerprint
+import Binary
+
+import System.IO.Unsafe
 
 infixl 3 &&&
 \end{code}
@@ -84,9 +90,7 @@ data IfaceDecl
   | IfaceSyn  { ifName    :: OccName,           -- Type constructor
                 ifTyVars  :: [IfaceTvBndr],     -- Type variables
                 ifSynKind :: IfaceKind,         -- Kind of the *rhs* (not of the tycon)
-                ifSynRhs  :: Maybe IfaceType    -- Just rhs for an ordinary synonyn
-                                                -- Nothing for an type family declaration
-    }
+                ifSynRhs  :: SynTyConRhs IfaceType }
 
   | IfaceClass { ifCtxt    :: IfaceContext,     -- Context...
                  ifName    :: OccName,          -- Name of the class TyCon
@@ -448,6 +452,23 @@ ifaceDeclImplicitBndrs (IfaceClass {ifCtxt = sc_ctxt, ifName = cls_tc_occ,
 
 ifaceDeclImplicitBndrs _ = []
 
+-- -----------------------------------------------------------------------------
+-- The fingerprints of an IfaceDecl
+
+       -- We better give each name bound by the declaration a
+       -- different fingerprint!  So we calculate the fingerprint of
+       -- each binder by combining the fingerprint of the whole
+       -- declaration with the name of the binder. (#5614, #7215)
+ifaceDeclFingerprints :: Fingerprint -> IfaceDecl -> [(OccName,Fingerprint)]
+ifaceDeclFingerprints hash decl
+  = (ifName decl, hash) :
+    [ (occ, computeFingerprint' (hash,occ))
+    | occ <- ifaceDeclImplicitBndrs decl ]
+  where
+     computeFingerprint' =
+       unsafeDupablePerformIO
+        . computeFingerprint (panic "ifaceDeclFingerprints")
+
 ----------------------------- Printing IfaceDecl ------------------------------
 
 instance Outputable IfaceDecl where
@@ -465,12 +486,12 @@ pprIfaceDecl (IfaceForeign {ifName = tycon})
 
 pprIfaceDecl (IfaceSyn {ifName = tycon,
                         ifTyVars = tyvars,
-                        ifSynRhs = Just mono_ty})
+                        ifSynRhs = SynonymTyCon mono_ty})
   = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (vcat [equals <+> ppr mono_ty])
 
 pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyVars = tyvars,
-                        ifSynRhs = Nothing, ifSynKind = kind })
+                        ifSynRhs = SynFamilyTyCon {}, ifSynKind = kind })
   = hang (ptext (sLit "type family") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (dcolon <+> ppr kind)
 
@@ -775,9 +796,9 @@ freeNamesIfIdDetails (IfRecSelId tc _) = freeNamesIfTc tc
 freeNamesIfIdDetails _                 = emptyNameSet
 
 -- All other changes are handled via the version info on the tycon
-freeNamesIfSynRhs :: Maybe IfaceType -> NameSet
-freeNamesIfSynRhs (Just ty) = freeNamesIfType ty
-freeNamesIfSynRhs Nothing   = emptyNameSet
+freeNamesIfSynRhs :: SynTyConRhs IfaceType -> NameSet
+freeNamesIfSynRhs (SynonymTyCon ty) = freeNamesIfType ty
+freeNamesIfSynRhs _                 = emptyNameSet
 
 freeNamesIfContext :: IfaceContext -> NameSet
 freeNamesIfContext = fnList freeNamesIfType

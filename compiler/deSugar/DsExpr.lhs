@@ -40,7 +40,6 @@ import CoreFVs
 import MkCore
 
 import DynFlags
-import StaticFlags
 import CostCentre
 import Id
 import VarSet
@@ -216,6 +215,8 @@ dsExpr (HsLamCase arg matches@(MatchGroup _ rhs_ty))
 
 dsExpr (HsApp fun arg)
   = mkCoreAppDs <$> dsLExpr fun <*>  dsLExpr arg
+
+dsExpr HsHole = panic "dsExpr: HsHole"
 \end{code}
 
 Note [Desugaring vars]
@@ -296,7 +297,7 @@ dsExpr (ExplicitTuple tup_args boxity)
 
 dsExpr (HsSCC cc expr@(L loc _)) = do
     mod_name <- getModuleDs
-    count <- doptM Opt_ProfCountEntries
+    count <- goptM Opt_ProfCountEntries
     uniq <- newUnique
     Tick (ProfNote (mkUserCC cc mod_name loc uniq) count True) <$> dsLExpr expr
 
@@ -322,12 +323,12 @@ dsExpr (HsLet binds body) = do
 -- We need the `ListComp' form to use `deListComp' (rather than the "do" form)
 -- because the interpretation of `stmts' depends on what sort of thing it is.
 --
-dsExpr (HsDo ListComp  stmts res_ty) = dsListComp stmts res_ty
-dsExpr (HsDo PArrComp  stmts _)      = dsPArrComp (map unLoc stmts)
-dsExpr (HsDo DoExpr    stmts _)      = dsDo stmts 
-dsExpr (HsDo GhciStmt  stmts _)      = dsDo stmts 
-dsExpr (HsDo MDoExpr   stmts _)      = dsDo stmts 
-dsExpr (HsDo MonadComp stmts _)      = dsMonadComp stmts
+dsExpr (HsDo ListComp     stmts res_ty) = dsListComp stmts res_ty
+dsExpr (HsDo PArrComp     stmts _)      = dsPArrComp (map unLoc stmts)
+dsExpr (HsDo DoExpr       stmts _)      = dsDo stmts 
+dsExpr (HsDo GhciStmtCtxt stmts _)      = dsDo stmts 
+dsExpr (HsDo MDoExpr      stmts _)      = dsDo stmts 
+dsExpr (HsDo MonadComp    stmts _)      = dsMonadComp stmts
 
 dsExpr (HsIf mb_fun guard_expr then_expr else_expr)
   = do { pred <- dsLExpr guard_expr
@@ -686,8 +687,8 @@ dsExplicitList elt_ty xs
   = do { dflags <- getDynFlags
        ; xs' <- mapM dsLExpr xs
        ; let (dynamic_prefix, static_suffix) = spanTail is_static xs'
-       ; if opt_SimpleListLiterals                      -- -fsimple-list-literals
-         || not (dopt Opt_EnableRewriteRules dflags)    -- Rewrite rules off
+       ; if gopt Opt_SimpleListLiterals dflags        -- -fsimple-list-literals
+         || not (gopt Opt_EnableRewriteRules dflags)  -- Rewrite rules off
                 -- Don't generate a build if there are no rules to eliminate it!
                 -- See Note [Desugaring RULE left hand sides] in Desugar
          || null dynamic_prefix   -- Avoid build (\c n. foldr c n xs)!
@@ -717,7 +718,7 @@ handled in DsListComp).  Basically does the translation given in the
 Haskell 98 report:
 
 \begin{code}
-dsDo :: [LStmt Id] -> DsM CoreExpr
+dsDo :: [ExprLStmt Id] -> DsM CoreExpr
 dsDo stmts
   = goL stmts
   where
@@ -728,7 +729,7 @@ dsDo stmts
       = ASSERT( null stmts ) dsLExpr body
         -- The 'return' op isn't used for 'do' expressions
 
-    go _ (ExprStmt rhs then_expr _ _) stmts
+    go _ (BodyStmt rhs then_expr _ _) stmts
       = do { rhs2 <- dsLExpr rhs
            ; warnDiscardedDoBindings rhs (exprType rhs2) 
            ; then_expr2 <- dsExpr then_expr

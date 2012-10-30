@@ -39,8 +39,6 @@ module DsUtils (
 
         mkSelectorBinds,
 
-        dsSyntaxTable, lookupEvidence,
-
 	selectSimpleMatchVarL, selectMatchVars, selectMatchVar,
         mkOptTickBox, mkBinaryTickBox
     ) where
@@ -48,7 +46,6 @@ module DsUtils (
 #include "HsVersions.h"
 
 import {-# SOURCE #-}	Match ( matchSimply )
-import {-# SOURCE #-}	DsExpr( dsExpr )
 
 import HsSyn
 import TcHsSyn
@@ -60,7 +57,6 @@ import CoreUtils
 import MkCore
 import MkId
 import Id
-import Name
 import Literal
 import TyCon
 import DataCon
@@ -75,43 +71,12 @@ import PrelNames
 import Outputable
 import SrcLoc
 import Util
-import ListSetOps
 import DynFlags
 import FastString
 
 import Control.Monad    ( zipWithM )
 \end{code}
 
-
-%************************************************************************
-%*									*
-		Rebindable syntax
-%*									*
-%************************************************************************
-
-\begin{code}
-dsSyntaxTable :: SyntaxTable Id 
-	       -> DsM ([CoreBind], 	-- Auxiliary bindings
-		       [(Name,Id)])	-- Maps the standard name to its value
-
-dsSyntaxTable rebound_ids = do
-    (binds_s, prs) <- mapAndUnzipM mk_bind rebound_ids
-    return (concat binds_s, prs)
-  where
-        -- The cheapo special case can happen when we 
-        -- make an intermediate HsDo when desugaring a RecStmt
-    mk_bind (std_name, HsVar id) = return ([], (std_name, id))
-    mk_bind (std_name, expr) = do
-           rhs <- dsExpr expr
-           id <- newSysLocalDs (exprType rhs)
-           return ([NonRec id rhs], (std_name, id))
-
-lookupEvidence :: [(Name, Id)] -> Name -> Id
-lookupEvidence prs std_name
-  = assocDefault (mk_panic std_name) prs std_name
-  where
-    mk_panic std_name = pprPanic "dsSyntaxTable" (ptext (sLit "Not found:") <+> ppr std_name)
-\end{code}
 
 %************************************************************************
 %*									*
@@ -308,11 +273,12 @@ mkCoPrimCaseMatchResult var ty match_alts
 
 
 mkCoAlgCaseMatchResult 
-  :: Id					   -- Scrutinee
+  :: DynFlags
+  -> Id					   -- Scrutinee
   -> Type                                  -- Type of exp
   -> [(DataCon, [CoreBndr], MatchResult)]  -- Alternatives (bndrs *include* tyvars, dicts)
   -> MatchResult
-mkCoAlgCaseMatchResult var ty match_alts 
+mkCoAlgCaseMatchResult dflags var ty match_alts 
   | isNewTyCon tycon		-- Newtype case; use a let
   = ASSERT( null (tail match_alts) && null (tail arg_ids1) )
     mkCoLetMatchResult (NonRec arg_id1 newtype_rhs) match_result1
@@ -423,7 +389,7 @@ mkCoAlgCaseMatchResult var ty match_alts
 	    lit   = MachInt $ toInteger (dataConSourceArity con)
 	    binds = [NonRec arg (indexExpr i) | (i, arg) <- zip [1..] args]
 	    --
-	    indexExpr i = mkApps (Var indexP) [Type elemTy, Var var, mkIntExpr i]
+	    indexExpr i = mkApps (Var indexP) [Type elemTy, Var var, mkIntExpr dflags i]
 \end{code}
 
 %************************************************************************

@@ -2,20 +2,18 @@ module DebuggerUtils (
        dataConInfoPtrToName,
   ) where
 
+import StgCmmLayout ( stdInfoTableSizeB )
 import ByteCodeItbls
 import DynFlags
 import FastString
 import TcRnTypes
 import TcRnMonad
 import IfaceEnv
-import CgInfoTbls
-import SMRep
 import Module
 import OccName
 import Name
 import Outputable
-import Constants
-import MonadUtils ()
+import Platform
 import Util
 
 import Data.Char
@@ -95,8 +93,17 @@ dataConInfoPtrToName x = do
    getConDescAddress :: DynFlags -> Ptr StgInfoTable -> IO (Ptr Word8)
    getConDescAddress dflags ptr
     | ghciTablesNextToCode = do
-       offsetToString <- peek $ ptr `plusPtr` (- wORD_SIZE)
-       return $ (ptr `plusPtr` stdInfoTableSizeB dflags) `plusPtr` (fromIntegral (offsetToString :: StgWord))
+       let ptr' = ptr `plusPtr` (- wORD_SIZE dflags)
+       -- offsetToString is really an StgWord, but we have to jump
+       -- through some hoops due to the way that our StgWord Haskell
+       -- type is the same on 32 and 64bit platforms
+       offsetToString <- case platformWordSize (targetPlatform dflags) of
+                         4 -> do w <- peek ptr'
+                                 return (fromIntegral (w :: Word32))
+                         8 -> do w <- peek ptr'
+                                 return (fromIntegral (w :: Word64))
+                         w -> panic ("getConDescAddress: Unknown platformWordSize: " ++ show w)
+       return $ (ptr `plusPtr` stdInfoTableSizeB dflags) `plusPtr` offsetToString
     | otherwise =
        peek $ intPtrToPtr $ ptrToIntPtr ptr + fromIntegral (stdInfoTableSizeB dflags)
    -- parsing names is a little bit fiddly because we have a string in the form: 

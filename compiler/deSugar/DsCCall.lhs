@@ -47,7 +47,6 @@ import BasicTypes
 import Literal
 import PrelNames
 import VarSet
-import Constants
 import DynFlags
 import Outputable
 import Util
@@ -150,11 +149,12 @@ unboxArg arg
   -- Booleans
   | Just tc <- tyConAppTyCon_maybe arg_ty, 
     tc `hasKey` boolTyConKey
-  = do prim_arg <- newSysLocalDs intPrimTy
+  = do dflags <- getDynFlags
+       prim_arg <- newSysLocalDs intPrimTy
        return (Var prim_arg,
               \ body -> Case (mkWildCase arg arg_ty intPrimTy
-                                       [(DataAlt falseDataCon,[],mkIntLit 0),
-                                        (DataAlt trueDataCon, [],mkIntLit 1)])
+                                       [(DataAlt falseDataCon,[],mkIntLit dflags 0),
+                                        (DataAlt trueDataCon, [],mkIntLit dflags 1)])
                                         -- In increasing tag order!
                              prim_arg
                              (exprType body) 
@@ -336,11 +336,13 @@ resultWrapper result_ty
 
   -- Base case 3: the boolean type
   | Just (tc,_) <- maybe_tc_app, tc `hasKey` boolTyConKey
-  = return
+  = do
+    dflags <- getDynFlags
+    return
      (Just intPrimTy, \e -> mkWildCase e intPrimTy
                                    boolTy
-                                   [(DEFAULT             ,[],Var trueDataConId ),
-                                    (LitAlt (mkMachInt 0),[],Var falseDataConId)])
+                                   [(DEFAULT                    ,[],Var trueDataConId ),
+                                    (LitAlt (mkMachInt dflags 0),[],Var falseDataConId)])
 
   -- Recursive newtypes
   | Just (rep_ty, co) <- splitNewTypeRepCo_maybe result_ty
@@ -357,9 +359,10 @@ resultWrapper result_ty
   -- This includes types like Ptr and ForeignPtr
   | Just (tycon, tycon_arg_tys, data_con, data_con_arg_tys) <- splitProductType_maybe result_ty,
     dataConSourceArity data_con == 1
-  = do let
+  = do dflags <- getDynFlags
+       let
            (unwrapped_res_ty : _) = data_con_arg_tys
-           narrow_wrapper         = maybeNarrow tycon
+           narrow_wrapper         = maybeNarrow dflags tycon
        (maybe_ty, wrapper) <- resultWrapper unwrapped_res_ty
        return
          (maybe_ty, \e -> mkApps (Var (dataConWrapId data_con)) 
@@ -375,16 +378,16 @@ resultWrapper result_ty
 -- standard appears to say that this is the responsibility of the
 -- caller, not the callee.
 
-maybeNarrow :: TyCon -> (CoreExpr -> CoreExpr)
-maybeNarrow tycon
+maybeNarrow :: DynFlags -> TyCon -> (CoreExpr -> CoreExpr)
+maybeNarrow dflags tycon
   | tycon `hasKey` int8TyConKey   = \e -> App (Var (mkPrimOpId Narrow8IntOp)) e
   | tycon `hasKey` int16TyConKey  = \e -> App (Var (mkPrimOpId Narrow16IntOp)) e
   | tycon `hasKey` int32TyConKey
-	 && wORD_SIZE > 4         = \e -> App (Var (mkPrimOpId Narrow32IntOp)) e
+	 && wORD_SIZE dflags > 4         = \e -> App (Var (mkPrimOpId Narrow32IntOp)) e
 
   | tycon `hasKey` word8TyConKey  = \e -> App (Var (mkPrimOpId Narrow8WordOp)) e
   | tycon `hasKey` word16TyConKey = \e -> App (Var (mkPrimOpId Narrow16WordOp)) e
   | tycon `hasKey` word32TyConKey
-	 && wORD_SIZE > 4         = \e -> App (Var (mkPrimOpId Narrow32WordOp)) e
+	 && wORD_SIZE dflags > 4         = \e -> App (Var (mkPrimOpId Narrow32WordOp)) e
   | otherwise			  = id
 \end{code}

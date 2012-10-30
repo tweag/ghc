@@ -28,6 +28,9 @@ module TcType (
   TcType, TcSigmaType, TcRhoType, TcTauType, TcPredType, TcThetaType, 
   TcTyVar, TcTyVarSet, TcKind, TcCoVar,
 
+  -- Untouchables
+  Untouchables(..), noUntouchables, pushUntouchables, isTouchable,
+
   --------------------------------
   -- MetaDetails
   UserTypeCtxt(..), pprUserTypeCtxt,
@@ -35,9 +38,11 @@ module TcType (
   MetaDetails(Flexi, Indirect), MetaInfo(..), 
   isImmutableTyVar, isSkolemTyVar, isMetaTyVar,  isMetaTyVarTy, isTyVarTy,
   isSigTyVar, isOverlappableTyVar,  isTyConableTyVar,
-  isAmbiguousTyVar, metaTvRef, 
+  isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
   isFlexi, isIndirect, isRuntimeUnkSkol,
-  isTypeVar, isKindVar,
+  isTypeVar, isKindVar, 
+  metaTyVarUntouchables, setMetaTyVarUntouchables, 
+  isTouchableMetaTyVar, isFloatedTouchableMetaTyVar,
 
   --------------------------------
   -- Builders
@@ -59,7 +64,7 @@ module TcType (
   -- Predicates. 
   -- Again, newtypes are opaque
   eqType, eqTypes, eqPred, cmpType, cmpTypes, cmpPred, eqTypeX,
-  pickyEqType, eqKind, 
+  pickyEqType, eqKind,
   isSigmaTy, isOverloadedTy,
   isDoubleTy, isFloatTy, isIntTy, isWordTy, isStringTy,
   isIntegerTy, isBoolTy, isUnitTy, isCharTy,
@@ -69,7 +74,7 @@ module TcType (
   
   ---------------------------------
   -- Misc type manipulators
-  deNoteType,
+  deNoteType, occurCheckExpand,
   orphNamesOfType, orphNamesOfDFunHead, orphNamesOfCo,
   getDFunTyKey,
   evVarPred_maybe, evVarPred,
@@ -118,7 +123,6 @@ module TcType (
   openTypeKind, constraintKind, mkArrowKind, mkArrowKinds, 
   isLiftedTypeKind, isUnliftedTypeKind, isSubOpenTypeKind, 
   tcIsSubKind, splitKindFunTys, defaultKind,
-  mkMetaKindVar,
 
   --------------------------------
   -- Rexported from Type
@@ -304,13 +308,16 @@ data TcTyVarDetails
            -- to represent a flattening skolem variable alpha
            -- identified with type ty.
           
-  | MetaTv MetaInfo (IORef MetaDetails)
+  | MetaTv { mtv_info  :: MetaInfo
+           , mtv_ref   :: IORef MetaDetails
+           , mtv_untch :: Untouchables }  -- See Note [Untouchable type variables]
 
 vanillaSkolemTv, superSkolemTv :: TcTyVarDetails
 -- See Note [Binding when looking up instances] in InstEnv
 vanillaSkolemTv = SkolemTv False  -- Might be instantiated
 superSkolemTv   = SkolemTv True   -- Treat this as a completely distinct type
 
+-----------------------------
 data MetaDetails
   = Flexi  -- Flexi type variables unify to become Indirects  
   | Indirect TcType
@@ -330,11 +337,6 @@ data MetaInfo
 		   --      see Note [Signature skolems]        
 		   --      The MetaDetails, if filled in, will 
 		   --      always be another SigTv or a SkolemTv
-
-   | TcsTv	   -- A MetaTv allocated by the constraint solver
-     		   -- Its particular property is that it is always "touchable"
-		   -- Nevertheless, the constraint solver has to try to guess
-		   -- what type to instantiate it to
 
 -------------------------------------
 -- UserTypeCtxt describes the origin of the polymorphic type
@@ -383,20 +385,91 @@ data UserTypeCtxt
 --
 -- With gla-exts that's right, but for H98 we should complain. 
 
----------------------------------
--- Kind variables:
+
+%************************************************************************
+%*									*
+		Untoucable type variables
+%*									*
+%************************************************************************
+
+Note [Untouchable type variables]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+* Each unification variable (MetaTv) 
+  and each Implication
+  has a level number (of type Untouchables)
+ 
+* INVARIANTS.  In a tree of Implications, 
+
+    (ImplicInv) The level number of an Implication is 
+                STRICTLY GREATER THAN that of its parent
+
+    (MetaTvInv) The level number of a unification variable is 
+                LESS THAN OR EQUAL TO that of its parent 
+                implication
+
+* A unification variable is *touchable* if its level number
+  is EQUAL TO that of its immediate parent implication.
+
+Note [Skolem escape prevention]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We only unify touchable unification variables.  Because of
+(MetaTvInv), there can be no occurrences of he variable further out,
+so the unification can't cause the kolems to escape. Example:
+     data T = forall a. MkT a (a->Int)
+     f x (MkT v f) = length [v,x]
+We decide (x::alpha), and generate an implication like
+      [1]forall a. (a ~ alpha[0])
+But we must not unify alpha:=a, because the skolem would escape.
+
+For the cases where we DO want to unify, we rely on floating the
+equality.   Example (with same T)
+     g x (MkT v f) = x && True
+We decide (x::alpha), and generate an implication like
+      [1]forall a. (Bool ~ alpha[0])
+We do NOT unify directly, bur rather float out (if the constraint
+does not memtion 'a') to get
+      (Bool ~ alpha[0]) /\ [1]forall a.()
+and NOW we can unify alpha.
+
+The same idea of only unifying touchables solves another problem.
+Suppose we had
+   (F Int ~ uf[0])  /\  [1](forall a. C a => F Int ~ beta[1]) 
+In this example, beta is touchable inside the implication. The 
+first solveInteract step leaves 'uf' un-unified. Then we move inside 
+the implication where a new constraint
+       uf  ~  beta  
+emerges. If we (wrongly) spontaneously solved it to get uf := beta, 
+the whole implication disappears but when we pop out again we are left with 
+(F Int ~ uf) which will be unified by our final solveCTyFunEqs stage and
+uf will get unified *once more* to (F Int).
+
 \begin{code}
-mkKindName :: Unique -> Name
-mkKindName unique = mkSystemName unique kind_var_occ
+newtype Untouchables = Untouchables Int
 
-mkMetaKindVar :: Unique -> IORef MetaDetails -> MetaKindVar
-mkMetaKindVar u r
-  = mkTcTyVar (mkKindName u) superKind (MetaTv TauTv r)
+noUntouchables :: Untouchables
+noUntouchables = Untouchables 0   -- 0 = outermost level
 
-kind_var_occ :: OccName	-- Just one for all MetaKindVars
-			-- They may be jiggled by tidying
-kind_var_occ = mkOccName tvName "k"
+pushUntouchables :: Untouchables -> Untouchables 
+pushUntouchables (Untouchables us) = Untouchables (us+1)
+
+isFloatedTouchable :: Untouchables -> Untouchables -> Bool
+isFloatedTouchable (Untouchables ctxt_untch) (Untouchables tv_untch) 
+  = ctxt_untch < tv_untch
+
+isTouchable :: Untouchables -> Untouchables -> Bool
+isTouchable (Untouchables ctxt_untch) (Untouchables tv_untch) 
+  = ctxt_untch == tv_untch   -- NB: invariant ctxt_untch >= tv_untch
+                             --     So <= would be equivalent
+
+checkTouchableInvariant :: Untouchables -> Untouchables -> Bool
+-- Checks (MetaTvInv) from Note [Untouchable type variables]
+checkTouchableInvariant (Untouchables ctxt_untch) (Untouchables tv_untch) 
+  = ctxt_untch >= tv_untch
+
+instance Outputable Untouchables where
+  ppr (Untouchables us) = ppr us
 \end{code}
+
 
 %************************************************************************
 %*									*
@@ -411,9 +484,12 @@ pprTcTyVarDetails (SkolemTv True)  = ptext (sLit "ssk")
 pprTcTyVarDetails (SkolemTv False) = ptext (sLit "sk")
 pprTcTyVarDetails (RuntimeUnk {})  = ptext (sLit "rt")
 pprTcTyVarDetails (FlatSkol {})    = ptext (sLit "fsk")
-pprTcTyVarDetails (MetaTv TauTv _) = ptext (sLit "tau")
-pprTcTyVarDetails (MetaTv TcsTv _) = ptext (sLit "tcs")
-pprTcTyVarDetails (MetaTv SigTv _) = ptext (sLit "sig")
+pprTcTyVarDetails (MetaTv { mtv_info = info, mtv_untch = untch })
+  = pp_info <> brackets (ppr untch)
+  where
+    pp_info = case info of
+                TauTv -> ptext (sLit "tau")
+                SigTv -> ptext (sLit "sig")
 
 pprUserTypeCtxt :: UserTypeCtxt -> SDoc
 pprUserTypeCtxt (InfSigCtxt n)    = ptext (sLit "the inferred type for") <+> quotes (ppr n)
@@ -478,25 +554,9 @@ tidyFreeTyVars :: TidyEnv -> TyVarSet -> TidyEnv
 -- ^ Add the free 'TyVar's to the env in tidy form,
 -- so that we can tidy the type they are free in
 tidyFreeTyVars (full_occ_env, var_env) tyvars 
-  = fst (tidyOpenTyVars (trimmed_occ_env, var_env) tv_list)
+  = fst (tidyOpenTyVars (full_occ_env, var_env) (varSetElems tyvars))
 
-  where
-    tv_list = varSetElems tyvars
-    
-    trimmed_occ_env = foldr mk_occ_env emptyOccEnv tv_list
-      -- The idea here is that we restrict the new TidyEnv to the 
-      -- _free_ vars of the type, so that we don't gratuitously rename
-      -- the _bound_ variables of the type
-
-    mk_occ_env :: TyVar -> TidyOccEnv -> TidyOccEnv
-    mk_occ_env tv env 
-       = case lookupOccEnv full_occ_env occ of
-            Just n  -> extendOccEnv env occ n
-            Nothing -> env
-       where
-         occ = getOccName tv
-
----------------
+        ---------------
 tidyOpenTyVars :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
 tidyOpenTyVars env tyvars = mapAccumL tidyOpenTyVar env tyvars
 
@@ -511,20 +571,11 @@ tidyOpenTyVar env@(_, subst) tyvar
 	Nothing	    -> tidyTyVarBndr env tyvar	-- Treat it as a binder
 
 ---------------
-tidyTyVarOcc :: TidyEnv -> TyVar -> Type
-tidyTyVarOcc env@(_, subst) tv
+tidyTyVarOcc :: TidyEnv -> TyVar -> TyVar
+tidyTyVarOcc (_, subst) tv
   = case lookupVarEnv subst tv of
-	Nothing  -> expand tv
-	Just tv' -> expand tv'
-  where
-    -- Expand FlatSkols, the skolems introduced by flattening process
-    -- We don't want to show them in type error messages
-    expand tv | isTcTyVar tv
-              , FlatSkol ty <- tcTyVarDetails tv
-              = WARN( True, text "I DON'T THINK THIS SHOULD EVER HAPPEN" <+> ppr tv <+> ppr ty )
-                tidyType env ty
-              | otherwise
-              = TyVarTy tv
+	Nothing  -> tv
+	Just tv' -> tv'
 
 ---------------
 tidyTypes :: TidyEnv -> [Type] -> [Type]
@@ -533,7 +584,7 @@ tidyTypes env tys = map (tidyType env) tys
 ---------------
 tidyType :: TidyEnv -> Type -> Type
 tidyType _   (LitTy n)            = LitTy n
-tidyType env (TyVarTy tv)	  = tidyTyVarOcc env tv
+tidyType env (TyVarTy tv)	  = TyVarTy (tidyTyVarOcc env tv)
 tidyType env (TyConApp tycon tys) = let args = tidyTypes env tys
  		                    in args `seqList` TyConApp tycon args
 tidyType env (AppTy fun arg)	  = (AppTy $! (tidyType env fun)) $! (tidyType env arg)
@@ -547,9 +598,13 @@ tidyType env (ForAllTy tv ty)	  = ForAllTy tvp $! (tidyType envp ty)
 -- and then uses 'tidyType' to work over the type itself
 tidyOpenType :: TidyEnv -> Type -> (TidyEnv, Type)
 tidyOpenType env ty
-  = (env', tidyType env' ty)
+  = (env', tidyType (trimmed_occ_env, var_env) ty)
   where
-    env' = tidyFreeTyVars env (tyVarsOfType ty)
+    (env'@(_, var_env), tvs') = tidyOpenTyVars env (varSetElems (tyVarsOfType ty))
+    trimmed_occ_env = initTidyOccEnv (map getOccName tvs')
+      -- The idea here was that we restrict the new TidyEnv to the 
+      -- _free_ vars of the type, so that we don't gratuitously rename
+      -- the _bound_ variables of the type.
 
 ---------------
 tidyOpenTypes :: TidyEnv -> [Type] -> (TidyEnv, [Type])
@@ -595,6 +650,7 @@ tidyCo env@(_, subst) co
     go (SymCo co)            = SymCo $! go co
     go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
     go (NthCo d co)          = NthCo d $! go co
+    go (LRCo lr co)          = LRCo lr $! go co
     go (InstCo co ty)        = (InstCo $! go co) $! tidyType env ty
 
 tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
@@ -683,8 +739,24 @@ exactTyVarsOfTypes tys = foldr (unionVarSet . exactTyVarsOfType) emptyVarSet tys
 %************************************************************************
 
 \begin{code}
-isImmutableTyVar :: TyVar -> Bool
+isTouchableMetaTyVar :: Untouchables -> TcTyVar -> Bool
+isTouchableMetaTyVar ctxt_untch tv
+  = ASSERT2( isTcTyVar tv, ppr tv )
+    case tcTyVarDetails tv of 
+      MetaTv { mtv_untch = tv_untch } 
+        -> ASSERT2( checkTouchableInvariant ctxt_untch tv_untch, 
+                    ppr tv $$ ppr tv_untch $$ ppr ctxt_untch )
+           isTouchable ctxt_untch tv_untch
+      _ -> False
 
+isFloatedTouchableMetaTyVar :: Untouchables -> TcTyVar -> Bool
+isFloatedTouchableMetaTyVar ctxt_untch tv
+  = ASSERT2( isTcTyVar tv, ppr tv )
+    case tcTyVarDetails tv of 
+      MetaTv { mtv_untch = tv_untch } -> isFloatedTouchable ctxt_untch tv_untch
+      _ -> False
+
+isImmutableTyVar :: TyVar -> Bool
 isImmutableTyVar tv
   | isTcTyVar tv = isSkolemTyVar tv
   | otherwise    = True
@@ -698,8 +770,8 @@ isTyConableTyVar tv
 	-- not a SigTv
   = ASSERT( isTcTyVar tv) 
     case tcTyVarDetails tv of
-	MetaTv SigTv _ -> False
-	_              -> True
+	MetaTv { mtv_info = SigTv } -> False
+	_                           -> True
 	
 isSkolemTyVar tv 
   = ASSERT2( isTcTyVar tv, ppr tv )
@@ -737,19 +809,40 @@ isMetaTyVarTy :: TcType -> Bool
 isMetaTyVarTy (TyVarTy tv) = isMetaTyVar tv
 isMetaTyVarTy _            = False
 
+metaTyVarInfo :: TcTyVar -> MetaInfo
+metaTyVarInfo tv
+  = ASSERT( isTcTyVar tv )
+    case tcTyVarDetails tv of
+      MetaTv { mtv_info = info } -> info
+      _ -> pprPanic "metaTyVarInfo" (ppr tv)
+
+metaTyVarUntouchables :: TcTyVar -> Untouchables
+metaTyVarUntouchables tv
+  = ASSERT( isTcTyVar tv )
+    case tcTyVarDetails tv of
+      MetaTv { mtv_untch = untch } -> untch
+      _ -> pprPanic "metaTyVarUntouchables" (ppr tv)
+
+setMetaTyVarUntouchables :: TcTyVar -> Untouchables -> TcTyVar
+setMetaTyVarUntouchables tv untch
+  = ASSERT( isTcTyVar tv )
+    case tcTyVarDetails tv of
+      details@(MetaTv {}) -> setTcTyVarDetails tv (details { mtv_untch = untch })
+      _ -> pprPanic "metaTyVarUntouchables" (ppr tv)
+
 isSigTyVar :: Var -> Bool
 isSigTyVar tv 
   = ASSERT( isTcTyVar tv )
     case tcTyVarDetails tv of
-	MetaTv SigTv _ -> True
-	_              -> False
+	MetaTv { mtv_info = SigTv } -> True
+	_                           -> False
 
 metaTvRef :: TyVar -> IORef MetaDetails
 metaTvRef tv 
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
-	MetaTv _ ref -> ref
-	_          -> pprPanic "metaTvRef" (ppr tv)
+	MetaTv { mtv_ref = ref } -> ref
+	_ -> pprPanic "metaTvRef" (ppr tv)
 
 isFlexi, isIndirect :: MetaDetails -> Bool
 isFlexi Flexi = True
@@ -811,8 +904,8 @@ isTauTy _    		  = False
 isTauTyCon :: TyCon -> Bool
 -- Returns False for type synonyms whose expansion is a polytype
 isTauTyCon tc 
-  | isClosedSynTyCon tc = isTauTy (snd (synTyConDefn tc))
-  | otherwise           = True
+  | Just (_, rhs) <- synTyConDefn_maybe tc = isTauTy rhs
+  | otherwise                              = True
 
 ---------------
 getDFunTyKey :: Type -> OccName -- Get some string from a type, to be used to
@@ -1069,6 +1162,84 @@ pickyEqType ty1 ty2
     gos _ _ _ = False
 \end{code}
 
+Note [Occurs check expansion]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+@occurCheckExpand tv xi@ expands synonyms in xi just enough to get rid
+of occurrences of tv outside type function arguments, if that is
+possible; otherwise, it returns Nothing.
+
+For example, suppose we have
+  type F a b = [a]
+Then
+  occurCheckExpand b (F Int b) = Just [Int]
+but
+  occurCheckExpand a (F a Int) = Nothing
+
+We don't promise to do the absolute minimum amount of expanding
+necessary, but we try not to do expansions we don't need to.  We
+prefer doing inner expansions first.  For example,
+  type F a b = (a, Int, a, [a])
+  type G b   = Char
+We have
+  occurCheckExpand b (F (G b)) = F Char
+even though we could also expand F to get rid of b.
+
+See also Note [Type synonyms and canonicalization] in TcCanonical
+
+\begin{code}
+occurCheckExpand :: TcTyVar -> Type -> Maybe Type
+-- See Note [Occurs check expansion]
+-- Check whether the given variable occurs in the given type.  We may
+-- have needed to do some type synonym unfolding in order to get rid
+-- of the variable, so we also return the unfolded version of the
+-- type, which is guaranteed to be syntactically free of the given
+-- type variable.  If the type is already syntactically free of the
+-- variable, then the same type is returned.
+
+occurCheckExpand tv ty
+  | not (tv `elemVarSet` tyVarsOfType ty) = Just ty
+  | otherwise                             = go ty
+  where
+    go t@(TyVarTy tv') | tv == tv' = Nothing
+                       | otherwise = Just t
+    go ty@(LitTy {}) = return ty
+    go (AppTy ty1 ty2) = do { ty1' <- go ty1
+           		    ; ty2' <- go ty2  
+           		    ; return (mkAppTy ty1' ty2') }
+    -- mkAppTy <$> go ty1 <*> go ty2
+    go (FunTy ty1 ty2) = do { ty1' <- go ty1 
+           		    ; ty2' <- go ty2 
+           		    ; return (mkFunTy ty1' ty2') } 
+    -- mkFunTy <$> go ty1 <*> go ty2
+    go ty@(ForAllTy {})
+       | tv `elemVarSet` tyVarsOfTypes tvs_knds = Nothing
+           -- Can't expand away the kinds unless we create 
+           -- fresh variables which we don't want to do at this point.
+       | otherwise = do { rho' <- go rho
+                        ; return (mkForAllTys tvs rho') }
+       where
+         (tvs,rho) = splitForAllTys ty
+         tvs_knds  = map tyVarKind tvs 
+
+    -- For a type constructor application, first try expanding away the
+    -- offending variable from the arguments.  If that doesn't work, next
+    -- see if the type constructor is a type synonym, and if so, expand
+    -- it and try again.
+    go ty@(TyConApp tc tys)
+{-
+      | isSynFamilyTyCon tc    -- It's ok for tv to occur under a type family application
+       = return ty             -- Eg.  (a ~ F a) is not an occur-check error
+                               -- NB This case can't occur during canonicalisation,
+                               --    because the arg is a Xi-type, but can occur in the
+                               --    call from TcErrors
+      | otherwise
+-}
+      = do { tys <- mapM go tys; return (mkTyConApp tc tys) }
+        `firstJust` -- First try to eliminate the tyvar from the args
+        do { ty <- tcView ty; go ty }
+                    -- Failing that, try to expand a synonym
+\end{code}
+
 %************************************************************************
 %*									*
 \subsection{Predicate types}
@@ -1270,6 +1441,7 @@ orphNamesOfCo (UnsafeCo ty1 ty2)    = orphNamesOfType ty1 `unionNameSets` orphNa
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
 orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co
+orphNamesOfCo (LRCo  _ co)          = orphNamesOfCo co
 orphNamesOfCo (InstCo co ty)        = orphNamesOfCo co `unionNameSets` orphNamesOfType ty
 
 orphNamesOfCos :: [Coercion] -> NameSet

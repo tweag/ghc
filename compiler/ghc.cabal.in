@@ -49,7 +49,7 @@ Library
     Exposed: False
 
     Build-Depends: base       >= 4   && < 5,
-                   directory  >= 1   && < 1.2,
+                   directory  >= 1   && < 1.3,
                    process    >= 1   && < 1.2,
                    bytestring >= 0.9 && < 0.11,
                    time                 < 1.5,
@@ -208,25 +208,6 @@ Library
         CodeGen.Platform.SPARC
         CodeGen.Platform.X86
         CodeGen.Platform.X86_64
-        CgBindery
-        CgCallConv
-        CgCase
-        CgClosure
-        CgCon
-        CgExpr
-        CgExtCode
-        CgForeignCall
-        CgHeapery
-        CgHpc
-        CgInfoTbls
-        CgLetNoEscape
-        CgMonad
-        CgParallel
-        CgPrimOp
-        CgProf
-        CgStackery
-        CgTailCall
-        CgTicky
         CgUtils
         StgCmm
         StgCmmBind
@@ -244,8 +225,7 @@ Library
         StgCmmProf
         StgCmmTicky
         StgCmmUtils
-        ClosureInfo
-        CodeGen
+        StgCmmExtCode
         SMRep
         CoreArity
         CoreFVs
@@ -364,7 +344,6 @@ Library
         SimplMonad
         SimplUtils
         Simplify
-        SRT
         SimplStg
         StgStats
         UnariseStg
@@ -484,6 +463,9 @@ Library
         Hoopl.Dataflow
         Hoopl
 
+--        CgInfoTbls used in ghci/DebuggerUtils
+--        CgHeapery  mkVirtHeapOffsets used in ghci
+
     Exposed-Modules:
             AsmCodeGen
             TargetReg
@@ -509,7 +491,6 @@ Library
             PPC.CodeGen
             SPARC.Base
             SPARC.Regs
-            SPARC.RegPlate
             SPARC.Imm
             SPARC.AddrMode
             SPARC.Cond
@@ -543,6 +524,7 @@ Library
             RegAlloc.Linear.StackMap
             RegAlloc.Linear.Base
             RegAlloc.Linear.X86.FreeRegs
+            RegAlloc.Linear.X86_64.FreeRegs
             RegAlloc.Linear.PPC.FreeRegs
             RegAlloc.Linear.SPARC.FreeRegs
 

@@ -44,7 +44,7 @@ import System.IO
 
 emitExternalCore :: DynFlags -> CgGuts -> IO ()
 emitExternalCore dflags cg_guts
- | dopt Opt_EmitExternalCore dflags
+ | gopt Opt_EmitExternalCore dflags
  = (do handle <- openFile corename WriteMode
        hPutStrLn handle (show (mkExternalCore dflags cg_guts))
        hClose handle)
@@ -229,7 +229,8 @@ make_lit dflags l =
     MachWord64 i -> C.Lint i t
     MachFloat r -> C.Lrational r t
     MachDouble r -> C.Lrational r t
-    _ -> error "MkExternalCore died: make_lit"
+    LitInteger i _ -> C.Lint i t
+    _ -> pprPanic "MkExternalCore died: make_lit" (ppr l)
   where 
     t = make_ty dflags (literalType l)
 
@@ -325,7 +326,12 @@ make_co dflags (UnsafeCo t1 t2)      = C.UnsafeCoercion (make_ty dflags t1) (mak
 make_co dflags (SymCo co)            = C.SymCoercion (make_co dflags co)
 make_co dflags (TransCo c1 c2)       = C.TransCoercion (make_co dflags c1) (make_co dflags c2)
 make_co dflags (NthCo d co)          = C.NthCoercion d (make_co dflags co)
+make_co dflags (LRCo lr co)          = C.LRCoercion (make_lr lr) (make_co dflags co)
 make_co dflags (InstCo co ty)        = C.InstCoercion (make_co dflags co) (make_ty dflags ty)
+
+make_lr :: LeftOrRight -> C.LeftOrRight
+make_lr CLeft  = C.CLeft
+make_lr CRight = C.CRight
 
 -- Used for both tycon app coercions and axiom instantiations.
 make_conAppCo :: DynFlags -> C.Qual C.Tcon -> [Coercion] -> C.Ty

@@ -27,6 +27,9 @@ TOP		= @hardtop@
 
 include $(TOP)/mk/project.mk
 
+# By default, be verbose
+V = 1
+
 ################################################################################
 #
 #		Global configuration options
@@ -128,6 +131,22 @@ endif
 
 PlatformSupportsSharedLibs = $(if $(filter $(TARGETPLATFORM),\
 	$(SharedLibsPlatformList)),YES,NO)
+
+SharedLibsByDefaultPlatformList =               \
+                         x86_64-unknown-linux   \
+                         x86_64-apple-darwin
+
+# DYANMIC_BY_DEFAULT says whether this compiler will default to
+# building dynamic executables, i.e. -dynamic is on.  We do this for
+# certain platforms because it lets us use the system dynamic linker
+# instead of our own linker for GHCi.
+#
+# We do not enable this for an unregisterised build.  It is currently
+# unknown whether shared libraries (should) work when unregisterised.
+#
+DYNAMIC_BY_DEFAULT = $(strip $(if $(filter YES,$(GhcUnregisterised)),NO,\
+			  $(if $(filter $(TARGETPLATFORM),\
+				$(SharedLibsByDefaultPlatformList)),YES,NO)))
 
 # Build a compiler that will build *unregisterised* libraries and
 # binaries by default.  Unregisterised code is supposed to compile and
@@ -261,7 +280,7 @@ endif
 # (see GhcWithSMP).
 GhcRTSWays += thr thr_debug thr_l
 GhcRTSWays += $(if $(findstring p, $(GhcLibWays)),thr_p,)
-GhcRTSWays += $(if $(findstring dyn, $(GhcLibWays)),dyn debug_dyn thr_dyn thr_debug_dyn,)
+GhcRTSWays += $(if $(findstring dyn, $(GhcLibWays)),dyn debug_dyn thr_dyn thr_debug_dyn l_dyn thr_l_dyn,)
 
 # We can only build GHCi threaded if we have a threaded RTS:
 GhcThreaded = $(if $(findstring thr,$(GhcRTSWays)),YES,NO)
@@ -524,16 +543,6 @@ ifneq "$(findstring $(GhcMinVersion), 0 1 2 3 4 5 6 7 8 9)" ""
 GhcCanonVersion = $(GhcMajVersion)0$(GhcMinVersion)
 else
 GhcCanonVersion = $(GhcMajVersion)$(GhcMinVersion)
-endif
-
-# Work around #5453, which causes the stage1 compiler to segfault when
-# built with 7.2.1.
-ifeq "$(GhcVersion)" "7.2.1"
-CONF_HC_OPTS_STAGE0 += -fno-full-laziness
-compiler/cmm/Bitmap_HC_OPTS += -ffull-laziness
-# urgh.  Compiling cmm/Bitmap.hs with -fno-full-laziness results in 
-#   "gmp: overflow in mpz type"
-# for some unknown reason, so turn full-laziness back on for this module.
 endif
 
 GHC_PACKAGE_DB_FLAG = @GHC_PACKAGE_DB_FLAG@

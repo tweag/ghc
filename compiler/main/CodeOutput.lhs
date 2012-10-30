@@ -56,13 +56,13 @@ codeOutput dflags this_mod location foreign_stubs pkg_deps cmm_stream
     do  {
         -- Lint each CmmGroup as it goes past
         ; let linted_cmm_stream =
-                 if dopt Opt_DoCmmLinting dflags
+                 if gopt Opt_DoCmmLinting dflags
                     then Stream.mapM do_lint cmm_stream
                     else cmm_stream
 
               do_lint cmm = do
                 { showPass dflags "CmmLint"
-                ; case cmmLint (targetPlatform dflags) cmm of
+                ; case cmmLint dflags cmm of
                         Just err -> do { log_action dflags dflags SevDump noSrcSpan defaultDumpStyle err
                                        ; ghcExit dflags 1
                                        }

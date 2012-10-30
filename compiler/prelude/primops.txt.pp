@@ -53,10 +53,8 @@ defaults
 
 #include "MachDeps.h"
 
--- We need platform defines (tests for mingw32 below).  However, we only
--- test the TARGET platform, which doesn't vary between stages, so the
--- stage1 platform defines are fine:
-#include "../stage1/ghc_boot_platform.h"
+-- We need platform defines (tests for mingw32 below).
+#include "ghc_boot_platform.h"
 
 section "The word size story."
 	{Haskell98 specifies that signed integers (type {\tt Int})
@@ -1891,7 +1889,7 @@ primop  MakeStableNameOp "makeStableName#" GenPrimOp
    out_of_line      = True
 
 primop  EqStableNameOp "eqStableName#" GenPrimOp
-   StableName# a -> StableName# a -> Int#
+   StableName# a -> StableName# b -> Int#
 
 primop  StableNameToIntOp "stableNameToInt#" GenPrimOp
    StableName# a -> Int#
@@ -2204,6 +2202,17 @@ primop  TraceEventOp "traceEvent#" GenPrimOp
    with
    has_side_effects = True
    out_of_line      = True
+
+primop  TraceMarkerOp "traceMarker#" GenPrimOp
+   Addr# -> State# s -> State# s
+   { Emits a marker event via the RTS tracing framework.  The contents
+     of the event is the zero-terminated byte string passed as the first
+     argument.  The event will be emitted either to the .eventlog file,
+     or to stderr, depending on the runtime RTS flags. }
+   with
+   has_side_effects = True
+   out_of_line      = True
+
 
 ------------------------------------------------------------------------
 ---                                                                  ---
