@@ -187,9 +187,9 @@ dmdAnal dflags rhs_flag env dmd (Lam var body)
   | Just (body_dmd, Many) <- peelCallDmd dmd	
   = let	
         env'		 = extendSigsWithLam env var
-	(body_ty, body') = dmdAnal MereExpr env' body_dmd body
+	(body_ty, body') = dmdAnal dflags MereExpr env' body_dmd body
         body_ty'         = body_ty `both` body_ty 
-	(lam_ty, var')   = annotateLamIdBndr rhs_flag env body_ty' var
+	(lam_ty, var')   = annotateLamIdBndr dflags rhs_flag env body_ty' var
     in
     (lam_ty, Lam var' body')
   
@@ -848,7 +848,7 @@ annotateLamIdBndr dflags rhs_flag env (DmdType fv ds res) id
 
 mkSigTy :: DynFlags -> TopLevelFlag -> RecFlag -> AnalEnv -> Id -> 
            CoreExpr -> DmdType -> (DmdEnv, StrictSig)
-mkSigTy top_lvl rec_flag env id rhs dmd_ty 
+mkSigTy dflags top_lvl rec_flag env id rhs dmd_ty 
   = mk_sig_ty dflags thunk_cpr_ok rec_flag rhs dmd_ty
   where
     id_dmd = idDemandInfo id
