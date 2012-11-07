@@ -209,6 +209,14 @@ interfere with the absence analysis, basing on which results these
 never-used arguments are eliminated in the worker. The additional
 argument `all_one_shot` of `mkWorkerArgs` is to prevent this.
 
+An example for this phenomenon is a `treejoin` program from the
+`nofib` suite, which features the following joint points:
+
+$j_s1l1 =
+  \ _ ->
+     case GHC.Prim.<=# 56320 y_aOy of _ {
+        GHC.Types.False -> $j_s1kP GHC.Prim.realWorld#;
+        GHC.Types.True ->  ... }
 
 %************************************************************************
 %*									*
