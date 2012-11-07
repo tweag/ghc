@@ -194,10 +194,20 @@ mkWorkerArgs args all_one_shot res_ty
     | otherwise	
     = (args ++ [newArg], args ++ [realWorldPrimId])
     where
+      -- see Note [All One-Shot Arguments of a Worker]
       newArg = if all_one_shot 
                then setOneShotLambda voidArgId
                else voidArgId     
 \end{code}
+
+Note [All One-Shot Arguments of a Worker]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Sometimes, derived joint-points are just lambda-lifted thunks, whose
+only argument is of the unit type and is never used. This might
+interfere with the absence analysis, basing on which results these
+never-used arguments are eliminated in the worker. The additional
+argument `all_one_shot` of `mkWorkerArgs` is to prevent this.
 
 
 %************************************************************************
