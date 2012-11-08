@@ -243,7 +243,8 @@ dmdAnal dflags _ env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 	-- The insight is, of course, that a demand on y is a demand on the
 	-- scrutinee, so we need to `both` it with the scrut demand
 
-	alt_dmd 	   = mkProdDmd [idDemandInfo b | b <- bndrs', isId b]
+	alt_dmd 	   = mkProdDmd One [idDemandInfo b | b <- bndrs', isId b]
+                             -- the scrutinee is used just once
         scrut_dmd 	   = alt_dmd `both`
 			     idDemandInfo case_bndr'
 
@@ -561,7 +562,7 @@ dmdTransform env var dmd
            -- Invariant: res_dmd does not have call demand as its component
 	   arg_ds = if isPolyDmd res_dmd
                     then replicateDmd arity res_dmd
-                    else splitProdDmd res_dmd
+                    else snd $ splitProdDmd res_dmd
 	in
 	mkDmdType emptyDmdEnv arg_ds con_res
 		-- Must remember whether it's a product, hence con_res, not TopRes

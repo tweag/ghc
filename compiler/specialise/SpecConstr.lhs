@@ -1439,7 +1439,7 @@ calcSpecStrictness fn qvars pats
     go_one env d   (Var v) = extendVarEnv_C both env v d
     go_one env d e 
     	   | isProdDmd d
-           , ds <- splitProdDmd d
+           , (_, ds) <- splitProdDmd d
            , (Var _, args) <- collectArgs e = go env ds args
     go_one env _         _ = env
 

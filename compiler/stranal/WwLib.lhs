@@ -432,7 +432,7 @@ mkWWstr_one dflags arg
         , isProdDmd d || isPolyDmd d
 	, Just (_arg_tycon, _tycon_arg_tys, data_con, inst_con_arg_tys) 
              <- deepSplitProductType_maybe (idType arg)
-        , cs <- if isProdDmd d then splitProdDmd d
+        , cs <- if isProdDmd d then snd $ splitProdDmd d
                   --  otherwise is polymorphic demand   
                 else replicateDmd (length inst_con_arg_tys) d 
 	-> do uniqs <- getUniquesM

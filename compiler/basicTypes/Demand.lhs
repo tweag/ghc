@@ -242,7 +242,7 @@ isUsedOnce Abs            = True
 isUsedOnce (Used One)     = True 
 isUsedOnce (UHead One)    = True 
 isUsedOnce (UCall One _)  = True
-isUsedOnce (UProd One ux) = all isUsedOnce ux
+isUsedOnce (UProd One ux) = True
 isUsedOnce _              = False
 
 absCall :: Count -> AbsDmd -> AbsDmd
@@ -417,12 +417,12 @@ mkJointDmd s a
      (HyperStr, UProd c _) -> JD {strd = HyperStr, absd = Used c}
      _                     -> JD {strd = s, absd = a}
 
-mkProdDmd :: [JointDmd] -> JointDmd
-mkProdDmd dx 
+mkProdDmd :: Count -> [JointDmd] -> JointDmd
+mkProdDmd c dx 
   = mkJointDmd sp up 
   where
     sp = strProd $ map strd dx
-    up = absProd One $ map absd dx   
+    up = absProd c $ map absd dx   
      
 instance LatticeLike JointDmd where
   bot                        = mkJointDmd bot bot
@@ -621,15 +621,15 @@ isPolyDmd :: Demand -> Bool
 isPolyDmd (JD {strd=a, absd=b}) = isPolyStrDmd a && isPolyAbsDmd b
 
 -- Split a product to parameteres
-splitProdDmd :: Demand -> [Demand]
-splitProdDmd JD {strd=SProd sx, absd=UProd _ ux}
-  = ASSERT( sx `lengthIs` (length ux) ) zipWith mkJointDmd sx ux
+splitProdDmd :: Demand -> (Count, [Demand])
+splitProdDmd JD {strd=SProd sx, absd=UProd c ux}
+  = ASSERT( sx `lengthIs` (length ux) ) (c, zipWith mkJointDmd sx ux)
 splitProdDmd JD {strd=SProd sx, absd=u} 
   | isPolyAbsDmd u  
-  =  zipWith mkJointDmd sx (replicateAbsDmd (length sx) u)
-splitProdDmd (JD {strd=s, absd=UProd _ ux})
+  =  (card u, zipWith mkJointDmd sx (replicateAbsDmd (length sx) u))
+splitProdDmd (JD {strd=s, absd=UProd c ux})
   | isPolyStrDmd s  
-  =  zipWith mkJointDmd (replicateStrDmd (length ux) s) ux
+  =  (c, zipWith mkJointDmd (replicateStrDmd (length ux) s) ux)
 splitProdDmd d = pprPanic "splitProdDmd" (ppr d)
 
 \end{code}
