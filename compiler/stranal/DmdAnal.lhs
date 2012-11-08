@@ -630,18 +630,19 @@ mkSigTy dflags top_lvl rec_flag env id rhs dmd_ty
 
 mk_sig_ty :: DynFlags -> Bool -> RecFlag -> CoreExpr
           -> DmdType -> (DmdEnv, StrictSig)
-mk_sig_ty _dflags thunk_cpr_ok _rec_flag rhs (DmdType fv dmds res) 
+mk_sig_ty dflags thunk_cpr_ok _rec_flag rhs (DmdType fv dmds res) 
   = (lazy_fv, mkStrictSig dmd_ty)
 	-- Re unused never_inline, see Note [NOINLINE and strictness]
   where
-    dmd_ty = mkDmdType strict_fv dmds res'
+    dmd_ty = mkDmdType strict_fv final_dmds res'
 
     -- See Note [Lazy and strict free variables]
     lazy_fv   = filterUFM (not . isStrictDmd) fv
     strict_fv = filterUFM isStrictDmd         fv
 
-        -- final_dmds = setUnpackStrategy dmds
-	-- Set the unpacking strategy
+    -- Set the unpacking strategy
+    final_dmds = setUnpackStrategy dflags dmds
+
 
     ignore_cpr_info = not (exprIsHNF rhs || thunk_cpr_ok)
     res' = if returnsCPR res && ignore_cpr_info 
@@ -654,33 +655,36 @@ or whether we'll just remember its strictness.  If unpacking would give
 rise to a *lot* of worker args, we may decide not to unpack after all.
 
 \begin{code}
--- setUnpackStrategy :: DynFlags -> [Demand] -> [Demand]
--- setUnpackStrategy dflags ds
---   = snd (go (maxWorkerArgs dflags - nonAbsentArgs ds) ds)
---   where
---     go :: Int 			-- Max number of args available for sub-components of [Demand]
---        -> [Demand]
---        -> (Int, [Demand])	-- Args remaining after subcomponents of [Demand] are unpacked
+setUnpackStrategy :: DynFlags -> [Demand] -> [Demand]
+setUnpackStrategy dflags ds
+  = snd (go (maxWorkerArgs dflags - nonAbsentArgs ds) ds)
+  where
+    go :: Int 			-- Max number of args available for sub-components of [Demand]
+       -> [Demand]
+       -> (Int, [Demand])	-- Args remaining after subcomponents of [Demand] are unpacked
 
---     go n (Eval (Prod cs) : ds) 
--- 	| n' >= 0   = Eval (Prod cs') `cons` go n'' ds
---         | otherwise = Box (Eval (Prod cs)) `cons` go n ds
--- 	where
--- 	  (n'',cs') = go n' cs
--- 	  n' = n + 1 - non_abs_args
--- 		-- Add one to the budget 'cos we drop the top-level arg
--- 	  non_abs_args = nonAbsentArgs cs
--- 		-- Delete # of non-absent args to which we'll now be committed
+    go n (d:ds)   
+        | isProdDmd d && isStrictDmd d
+        = if n' >= 0 
+          then (mkProdDmd cs') `cons` go n'' ds
+          else d `cons` go n ds
+	where
+          cs = splitProdDmd d
+	  (n'',cs') = go n' cs
+	  n' = n + 1 - non_abs_args
+		-- Add one to the budget 'cos we drop the top-level arg
+	  non_abs_args = nonAbsentArgs cs
+		-- Delete # of non-absent args to which we'll now be committed
 				
---     go n (d:ds) = d `cons` go n ds
---     go n []     = (n,[])
+    go n (d:ds) = d `cons` go n ds
+    go n []     = (n,[])
 
---     cons d (n,ds) = (n, d:ds)
+    cons d (n,ds) = (n, d:ds)
 
--- nonAbsentArgs :: [Demand] -> Int
--- nonAbsentArgs []	       = 0
--- nonAbsentArgs (d : ds) | isAbs = nonAbsentArgs ds
--- nonAbsentArgs (_   : ds)       = 1 + nonAbsentArgs ds
+nonAbsentArgs :: [Demand] -> Int
+nonAbsentArgs []	         = 0
+nonAbsentArgs (d : ds) | isAbs d = nonAbsentArgs ds
+nonAbsentArgs (_   : ds)         = 1 + nonAbsentArgs ds
 \end{code}
 
 Note [CPR for thunks]
