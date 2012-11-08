@@ -242,7 +242,7 @@ isUsedOnce Abs            = True
 isUsedOnce (Used One)     = True 
 isUsedOnce (UHead One)    = True 
 isUsedOnce (UCall One _)  = True
-isUsedOnce (UProd One ux) = True
+isUsedOnce (UProd One _)  = True
 isUsedOnce _              = False
 
 absCall :: Count -> AbsDmd -> AbsDmd
