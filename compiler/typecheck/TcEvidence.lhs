@@ -22,7 +22,7 @@ module TcEvidence (
   -- TcCoercion
   TcCoercion(..), LeftOrRight(..), pickLR,
   mkTcReflCo, mkTcTyConAppCo, mkTcAppCo, mkTcAppCos, mkTcFunCo,
-  mkTcAxInstCo, mkTcSingletonAxInstCo, mkTcForAllCo, mkTcForAllCos, 
+  mkTcAxInstCo, mkTcUnbranchedAxInstCo, mkTcForAllCo, mkTcForAllCos, 
   mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcInstCos,
   tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo, 
   isTcReflCo, isTcReflCo_maybe, getTcCoVar_maybe,
@@ -152,8 +152,8 @@ mkTcAxInstCo ax ind tys
     arity = coAxiomArity ax ind
     ax_br = toBranchedAxiom ax
 
-mkTcSingletonAxInstCo :: CoAxiom Unbranched -> [TcType] -> TcCoercion
-mkTcSingletonAxInstCo ax tys
+mkTcUnbranchedAxInstCo :: CoAxiom Unbranched -> [TcType] -> TcCoercion
+mkTcUnbranchedAxInstCo ax tys
   = mkTcAxInstCo ax 0 tys
 
 mkTcAppCo :: TcCoercion -> TcCoercion -> TcCoercion

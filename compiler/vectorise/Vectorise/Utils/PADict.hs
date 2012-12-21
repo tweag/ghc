@@ -140,12 +140,12 @@ prDictOfPReprInst ty
 prDictOfPReprInstTyCon :: Type -> CoAxiom Unbranched -> [Type] -> VM CoreExpr
 prDictOfPReprInstTyCon _ty prepr_ax prepr_args
   = do
-      let rhs = mkSingletonAxInstRHS prepr_ax prepr_args
+      let rhs = mkUnbranchedAxInstRHS prepr_ax prepr_args
       dict <- prDictOfReprType' rhs
       pr_co <- mkBuiltinCo prTyCon
       let co = mkAppCo pr_co
              $ mkSymCo
-             $ mkSingletonAxInstCo prepr_ax prepr_args
+             $ mkUnbranchedAxInstCo prepr_ax prepr_args
       return $ mkCast dict co
 
 -- |Get the PR dictionary for a type. The argument must be a representation

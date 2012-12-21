@@ -50,9 +50,32 @@ import qualified Data.Data as Data
 Note [Coercion axiom branches]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In order to allow type family instance groups, an axiom needs to contain an
-ordered list of alternatives, called branches. The kind of the coercion is
-chosen based on which branch contains patterns that match the type variables
-the axiom is instantiated with. The first such match is chosen.
+ordered list of alternatives, called branches. The kind of the coercion built
+from an axiom is determined by which index is used when building the coercion
+from the axiom.
+
+For example, consider the axiom derived from the following declaration:
+
+type instance where
+  F [Int] = Bool
+  F [a]   = Double
+  F (a b) = Char
+
+This will give rise to this axiom:
+
+axF :: {                                           F [Int] ~ Bool
+       ; forall (a :: *).                          F [a]   ~ Double
+       ; forall (k :: BOX) (a :: k -> *) (b :: k). F (a b) ~ Char
+       }
+
+The axiom is used with the AxiomInstCo constructor of Coercion. If we wish
+to have a coercion showing that F (Maybe Int) ~ Char, it will look like
+
+axF[2] <*> <Maybe> <Int> :: F (Maybe Int) ~ Char
+-- or, written using concrete-ish syntax --
+AxiomInstCo axF 2 [Refl *, Refl Maybe, Refl Int]
+
+Note that the index is 0-based.
 
 For type-checking, it is also necessary to check that no previous pattern
 can unify with the supplied arguments. After all, it is possible that some
@@ -61,14 +84,25 @@ cause an earlier match among the branches. We wish to prohibit this behavior,
 so the type checker rules out the choice of a branch where a previous branch
 can unify. See also [Instance checking within groups] in FamInstEnv.hs.
 
-Note [Singleton axioms]
+For example, the following is malformed, where 'a' is a lambda-bound type
+variable:
+
+axF[2] <*> <a> <Bool> :: F (a Bool) ~ Char
+
+Why? Because a might be instantiated with [], meaning that branch 1 should
+apply, not branch 2. This is a vital consistency check; without it, we could
+derive Int ~ Bool, and that is a Bad Thing.
+
+Note [Branched axioms]
 ~~~~~~~~~~~~~~~~~~~~~~~
-Although a CoAxiom has the capacity to store many branches, in many cases,
-we want only one. Furthermore, these so-called singleton axioms are used
-in a variety of places throughout GHC, and it would difficult to generalize
-all of that code to deal with branched axioms, especially when the code can
-be sure of the fact that an axiom is indeed a singleton. At the same time,
-it seems dangerous to assume singlehood in various places through GHC.
+Although a CoAxiom has the capacity to store many branches, in certain cases,
+we want only one. These cases are in data/newtype family instances, newtype
+coercions, and type family instances declared with "type instance ...", not
+"type instance where". Furthermore, these unbranched axioms are used in a
+variety of places throughout GHC, and it would difficult to generalize all of
+that code to deal with branched axioms, especially when the code can be sure
+of the fact that an axiom is indeed a singleton. At the same time, it seems
+dangerous to assume singlehood in various places through GHC.
 
 The solution to this is to label a CoAxiom (and FamInst) with a phantom
 type variable declaring whether it is known to be a singleton or not. The

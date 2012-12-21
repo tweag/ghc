@@ -26,8 +26,8 @@ module MkId (
 
         mkReboxingAlt, wrapNewTypeBody, unwrapNewTypeBody,
         wrapFamInstBody, unwrapFamInstScrut,
-        wrapTypeFamInstBody, wrapTypeSingleFamInstBody, unwrapTypeFamInstScrut,
-        unwrapTypeSingleFamInstScrut,
+        wrapTypeFamInstBody, wrapTypeUnbranchedFamInstBody, unwrapTypeFamInstScrut,
+        unwrapTypeUnbranchedFamInstScrut,
         mkUnpackCase, mkProductBox,
 
         -- And some particular Ids; see below for why they are wired in
@@ -692,7 +692,7 @@ wrapNewTypeBody tycon args result_expr
     wrapFamInstBody tycon args $
     mkCast result_expr (mkSymCo co)
   where
-    co = mkSingletonAxInstCo (newTyConCo tycon) args
+    co = mkUnbranchedAxInstCo (newTyConCo tycon) args
 
 -- When unwrapping, we do *not* apply any family coercion, because this will
 -- be done via a CoPat by the type checker.  We have to do it this way as
@@ -702,7 +702,7 @@ wrapNewTypeBody tycon args result_expr
 unwrapNewTypeBody :: TyCon -> [Type] -> CoreExpr -> CoreExpr
 unwrapNewTypeBody tycon args result_expr
   = ASSERT( isNewTyCon tycon )
-    mkCast result_expr (mkSingletonAxInstCo (newTyConCo tycon) args)
+    mkCast result_expr (mkUnbranchedAxInstCo (newTyConCo tycon) args)
 
 -- If the type constructor is a representation type of a data instance, wrap
 -- the expression into a cast adjusting the expression type, which is an
@@ -712,7 +712,7 @@ unwrapNewTypeBody tycon args result_expr
 wrapFamInstBody :: TyCon -> [Type] -> CoreExpr -> CoreExpr
 wrapFamInstBody tycon args body
   | Just co_con <- tyConFamilyCoercion_maybe tycon
-  = mkCast body (mkSymCo (mkSingletonAxInstCo co_con args))
+  = mkCast body (mkSymCo (mkUnbranchedAxInstCo co_con args))
   | otherwise
   = body
 
@@ -722,14 +722,14 @@ wrapTypeFamInstBody :: CoAxiom br -> Int -> [Type] -> CoreExpr -> CoreExpr
 wrapTypeFamInstBody axiom ind args body
   = mkCast body (mkSymCo (mkAxInstCo axiom ind args))
 
-wrapTypeSingleFamInstBody :: CoAxiom Unbranched -> [Type] -> CoreExpr -> CoreExpr
-wrapTypeSingleFamInstBody axiom
+wrapTypeUnbranchedFamInstBody :: CoAxiom Unbranched -> [Type] -> CoreExpr -> CoreExpr
+wrapTypeUnbranchedFamInstBody axiom
   = wrapTypeFamInstBody axiom 0
 
 unwrapFamInstScrut :: TyCon -> [Type] -> CoreExpr -> CoreExpr
 unwrapFamInstScrut tycon args scrut
   | Just co_con <- tyConFamilyCoercion_maybe tycon
-  = mkCast scrut (mkSingletonAxInstCo co_con args) -- data instances only
+  = mkCast scrut (mkUnbranchedAxInstCo co_con args) -- data instances only
   | otherwise
   = scrut
 
@@ -737,8 +737,8 @@ unwrapTypeFamInstScrut :: CoAxiom br -> Int -> [Type] -> CoreExpr -> CoreExpr
 unwrapTypeFamInstScrut axiom ind args scrut
   = mkCast scrut (mkAxInstCo axiom ind args)
 
-unwrapTypeSingleFamInstScrut :: CoAxiom Unbranched -> [Type] -> CoreExpr -> CoreExpr
-unwrapTypeSingleFamInstScrut axiom
+unwrapTypeUnbranchedFamInstScrut :: CoAxiom Unbranched -> [Type] -> CoreExpr -> CoreExpr
+unwrapTypeUnbranchedFamInstScrut axiom
   = unwrapTypeFamInstScrut axiom 0
 \end{code}
 

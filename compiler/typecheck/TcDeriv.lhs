@@ -1528,10 +1528,10 @@ genInst standalone_deriv oflag comauxs
 
     inst_spec = mkInstance oflag theta spec
     co1 = case tyConFamilyCoercion_maybe rep_tycon of
-              Just co_con -> mkTcSingletonAxInstCo co_con rep_tc_args
+              Just co_con -> mkTcUnbranchedAxInstCo co_con rep_tc_args
               Nothing     -> id_co
               -- Not a family => rep_tycon = main tycon
-    co2 = mkTcSingletonAxInstCo (newTyConCo rep_tycon) rep_tc_args
+    co2 = mkTcUnbranchedAxInstCo (newTyConCo rep_tycon) rep_tc_args
     co  = mkTcForAllCos tvs (co1 `mkTcTransCo` co2)
     id_co = mkTcReflCo (mkTyConApp rep_tycon rep_tc_args)
 

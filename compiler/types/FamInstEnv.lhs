@@ -76,8 +76,12 @@ Note [FamInsts and CoAxioms]
       F ty1 .. tyn where F is a type family
 
 * A FamInstBranch corresponds to a CoAxBranch -- it represents
-  one alternative in a family instance group. It is needed solely
-  to keep Haskell-like things separate from FC-like things.
+  one alternative in a family instance group. We could theoretically
+  not have FamInstBranches and just use the CoAxBranches within
+  the CoAxiom stored in the FamInst, but for one problem: we want to
+  cache the "rough match" top-level tycon names for quick matching.
+  This data is not stored in a CoAxBranch, so we use FamInstBranches
+  instead.
 
 Note [FamInst locations]
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -90,12 +94,22 @@ branch from the name of the CoAxiom. In other cases, we need an explicit
 SrcSpan to correctly store the location of the equation giving rise to
 the FamInstBranch.
 
+Note [fi_group field]
+~~~~~~~~~~~~~~~~~~~~~
+A FamInst stores whether or not it was declared with "type instance where"
+for two reasons: 1. for accurate pretty-printing; and 2. because confluent
+overlap is disallowed between branches declared in groups. Note that this
+"group-ness" is properly associated with the FamInst, which thinks about
+overlap, and not in the CoAxiom, which blindly assumes that it is part of
+a consistent axiom set.
+
 \begin{code}
-data FamInst br -- See Note [FamInsts and CoAxioms], Note [Singleton axioms] in CoAxiom.lhs
+data FamInst br -- See Note [FamInsts and CoAxioms], Note [Branched axioms] in CoAxiom.lhs
   = FamInst { fi_axiom    :: CoAxiom br      -- The new coercion axiom introduced
                                              -- by this family instance
             , fi_flavor   :: FamFlavor
             , fi_group    :: Bool            -- True <=> declared with "type instance where"
+                                             -- See Note [fi_group field]
 
             -- Everything below here is a redundant,
             -- cached version of the two things above
@@ -299,7 +313,7 @@ mkSingleSynFamInst :: Name        -- ^ Unique name for the coercion tycon
                    -> [Type]      -- ^ Type instance (@ts@)
                    -> Type        -- ^ right-hand side
                    -> FamInst Unbranched
--- See note [Singleton axioms] in CoAxiom.lhs
+-- See note [Branched axioms] in CoAxiom.lhs
 mkSingleSynFamInst name tvs fam_tc inst_tys rep_ty
   = FamInst { fi_fam      = tyConName fam_tc
             , fi_flavor   = SynFamilyInst
@@ -938,7 +952,7 @@ topNormaliseType env ty
         | isNewTyCon tc         -- Expand newtypes
         = if tc `elem` rec_nts  -- See Note [Expanding newtypes] in Type.lhs
           then Nothing
-          else let nt_co = mkSingletonAxInstCo (newTyConCo tc) tys
+          else let nt_co = mkUnbranchedAxInstCo (newTyConCo tc) tys
                in add_co nt_co rec_nts' nt_rhs
 
         | isFamilyTyCon tc              -- Expand open tycons

@@ -194,7 +194,7 @@ tcExpr (HsIPVar x) res_ty
   -- Coerces a dictionry for `IP "x" t` into `t`.
   fromDict ipClass x ty =
     case unwrapNewTyCon_maybe (classTyCon ipClass) of
-      Just (_,_,ax) -> HsWrap $ WpCast $ mkTcSingletonAxInstCo ax [x,ty]
+      Just (_,_,ax) -> HsWrap $ WpCast $ mkTcUnbranchedAxInstCo ax [x,ty]
       Nothing       -> panic "The dictionary for `IP` is not a newtype?"
 
 tcExpr (HsLam match) res_ty
@@ -714,7 +714,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 
 	-- Step 7: make a cast for the scrutinee, in the case that it's from a type family
 	; let scrut_co | Just co_con <- tyConFamilyCoercion_maybe tycon 
-		       = WpCast (mkTcSingletonAxInstCo co_con scrut_inst_tys)
+		       = WpCast (mkTcUnbranchedAxInstCo co_con scrut_inst_tys)
 		       | otherwise
 		       = idHsWrapper
 	-- Phew!
