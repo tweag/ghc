@@ -658,16 +658,15 @@ tcDataFamInstDecl fam_tc
        ; checkTc (isLiftedTypeKind res_kind) $ tooFewParmsErr (tyConArity fam_tc)
 
        ; stupid_theta <- tcHsContext ctxt
-       ; dataDeclChecks (tyConName fam_tc) new_or_data stupid_theta cons
+       ; h98_syntax <- dataDeclChecks (tyConName fam_tc) new_or_data stupid_theta cons
 
          -- Construct representation tycon
        ; rep_tc_name <- newFamInstTyConName fam_tc_name pats'
        ; axiom_name  <- newImplicitBinder rep_tc_name mkInstTyCoOcc
-       ; let ex_ok = True       -- Existentials ok for type families!
-             orig_res_ty = mkTyConApp fam_tc pats'
+       ; let orig_res_ty = mkTyConApp fam_tc pats'
 
        ; (rep_tc, fam_inst) <- fixM $ \ ~(rec_rep_tc, _) ->
-           do { data_cons <- tcConDecls new_or_data ex_ok rec_rep_tc
+           do { data_cons <- tcConDecls new_or_data rec_rep_tc
                                        (tvs', orig_res_ty) cons
               ; tc_rhs <- case new_or_data of
                      DataType -> return (mkDataTyConRhs data_cons)
@@ -687,10 +686,6 @@ tcDataFamInstDecl fam_tc
          -- Remember to check validity; no recursion to worry about here
        ; checkValidTyCon rep_tc
        ; return fam_inst } }
-    where
-       h98_syntax = case cons of      -- All constructors have same shape
-                        L _ (ConDecl { con_res = ResTyGADT _ }) : _ -> False
-                        _ -> True
 
 
 ----------------
@@ -1181,7 +1176,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
       where
         error_rhs dflags = L inst_loc $ HsApp error_fun (error_msg dflags)
         error_fun    = L inst_loc $ wrapId (WpTyApp meth_tau) nO_METHOD_BINDING_ERROR_ID
-        error_msg dflags = L inst_loc (HsLit (HsStringPrim (unsafeMkFastBytesString (error_string dflags))))
+        error_msg dflags = L inst_loc (HsLit (HsStringPrim (unsafeMkByteString (error_string dflags))))
         meth_tau     = funResultTy (applyTys (idType sel_id) inst_tys)
         error_string dflags = showSDoc dflags (hcat [ppr inst_loc, text "|", ppr sel_id ])
         lam_wrapper  = mkWpTyLams tyvars <.> mkWpLams dfun_ev_vars

@@ -387,11 +387,10 @@ mkIface_ hsc_env maybe_old_fingerprint
        } 
 
 -----------------------------
-writeIfaceFile :: DynFlags -> ModLocation -> ModIface -> IO ()
-writeIfaceFile dflags location new_iface
+writeIfaceFile :: DynFlags -> FilePath -> ModIface -> IO ()
+writeIfaceFile dflags hi_file_path new_iface
     = do createDirectoryIfMissing True (takeDirectory hi_file_path)
          writeBinIface dflags hi_file_path new_iface
-    where hi_file_path = ml_hi_file location
 
 
 -- -----------------------------------------------------------------------------
@@ -1513,7 +1512,7 @@ tyConToIfaceDecl env tycon
                     ifConArgTys  = map (tidyToIfaceType env2) arg_tys,
                     ifConFields  = map getOccName 
                                        (dataConFieldLabels data_con),
-                    ifConStricts = dataConStrictMarks data_con }
+                    ifConStricts = dataConRepBangs data_con }
         where
           (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _) = dataConFullSig data_con
 

@@ -501,9 +501,30 @@ runPipeline
   -> Maybe ModLocation          -- ^ A ModLocation, if this is a Haskell module
   -> Maybe FilePath             -- ^ stub object, if we have one
   -> IO (DynFlags, FilePath)     -- ^ (final flags, output filename)
-
 runPipeline stop_phase hsc_env0 (input_fn, mb_phase)
-            mb_basename output maybe_loc maybe_stub_o
+             mb_basename output maybe_loc maybe_stub_o
+    = do r <- runPipeline' stop_phase hsc_env0 (input_fn, mb_phase)
+                           mb_basename output maybe_loc maybe_stub_o
+         let dflags = extractDynFlags hsc_env0
+         whenCannotGenerateDynamicToo dflags $ do
+             let dflags' = doDynamicToo dflags
+             hsc_env1 <- newHscEnv dflags'
+             _ <- runPipeline' stop_phase hsc_env1 (input_fn, mb_phase)
+                               mb_basename output maybe_loc maybe_stub_o
+             return ()
+         return r
+
+runPipeline'
+  :: Phase                      -- ^ When to stop
+  -> HscEnv                     -- ^ Compilation environment
+  -> (FilePath,Maybe Phase)     -- ^ Input filename (and maybe -x suffix)
+  -> Maybe FilePath             -- ^ original basename (if different from ^^^)
+  -> PipelineOutput             -- ^ Output filename
+  -> Maybe ModLocation          -- ^ A ModLocation, if this is a Haskell module
+  -> Maybe FilePath             -- ^ stub object, if we have one
+  -> IO (DynFlags, FilePath)     -- ^ (final flags, output filename)
+runPipeline' stop_phase hsc_env0 (input_fn, mb_phase)
+             mb_basename output maybe_loc maybe_stub_o
   = do
   let dflags0 = hsc_dflags hsc_env0
       (input_basename, suffix) = splitExtension input_fn
@@ -1117,7 +1138,8 @@ runPhase cc_phase input_fn dflags
         -- (e.g., -mcpu=ultrasparc) as GCC picks the "best" -mcpu flag
         -- regardless of the ordering.
         --
-        -- This is a temporary hack.
+        -- This is a temporary hack. See #2872, commit
+        -- 5bd3072ac30216a505151601884ac88bf404c9f2
                        ++ (if platformArch platform == ArchSPARC
                            then ["-mcpu=v9"]
                            else [])
@@ -1203,7 +1225,8 @@ runPhase As input_fn dflags
         -- might be a hierarchical module.
         liftIO $ createDirectoryIfMissing True (takeDirectory output_fn)
 
-        liftIO $ as_prog dflags
+        let runAssembler inputFilename outputFilename
+                = liftIO $ as_prog dflags
                        (map SysTools.Option as_opts
                        ++ [ SysTools.Option ("-I" ++ p) | p <- cmdline_include_paths ]
 
@@ -1218,11 +1241,17 @@ runPhase As input_fn dflags
                            then [SysTools.Option "-mcpu=v9"]
                            else [])
 
-                       ++ [ SysTools.Option "-c"
-                          , SysTools.FileOption "" input_fn
+                       ++ [ SysTools.Option "-x", SysTools.Option "assembler-with-cpp"
+                          , SysTools.Option "-c"
+                          , SysTools.FileOption "" inputFilename
                           , SysTools.Option "-o"
-                          , SysTools.FileOption "" output_fn
+                          , SysTools.FileOption "" outputFilename
                           ])
+
+        runAssembler input_fn output_fn
+        whenGeneratingDynamicToo dflags $
+            runAssembler (input_fn ++ "-dyn")
+                         (replaceExtension output_fn (dynObjectSuf dflags))
 
         return (next_phase, output_fn)
 
