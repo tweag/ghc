@@ -48,7 +48,8 @@ import TysPrim
 import TysWiredIn
 import PrelRules
 import Type
-import Coercion	        ( mkReflCo, mkAxInstCo, mkSymCo, coercionKind, mkUnsafeCo )
+import Coercion	        ( mkReflCo, mkAxInstCo, mkSymCo, coercionKind, mkUnsafeCo,
+                          mkUnbranchedAxInstCo )
 import TcType
 import MkCore
 import CoreUtils	( exprType, mkCast )
@@ -649,7 +650,7 @@ dataConArgUnpack arg_ty
     unbox_tc_app tc tc_args con
       | isNewTyCon tc
       , let rep_ty = newTyConInstRhs tc tc_args
-            co     = mkAxInstCo (newTyConCo tc) tc_args  -- arg_ty ~ rep_ty
+            co     = mkUnbranchedAxInstCo (newTyConCo tc) tc_args  -- arg_ty ~ rep_ty
       , (yes, rep_tys, unbox_rep, box_rep) <- dataConArgUnpack rep_ty
       = ( yes, rep_tys
         , \ arg_id ->
@@ -663,7 +664,7 @@ dataConArgUnpack arg_ty
                        UnitBox -> do { rep_id <- newLocal (substTy subst rep_ty)
                                      ; return ([rep_id], Var rep_id) }
                        Boxer boxer -> boxer subst
-             ; let sco = mkAxInstCo (newTyConCo tc) (substTys subst tc_args)
+             ; let sco = mkUnbranchedAxInstCo (newTyConCo tc) (substTys subst tc_args)
              ; return (rep_ids, rep_expr `Cast` mkSymCo sco) } )
         
       | otherwise
