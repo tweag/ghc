@@ -40,9 +40,6 @@ dnl ** which are needed by FP_SETUP_PROJECT_VERSION
 dnl ** Find find command (for Win32's benefit)
 FP_PROG_FIND
 
-dnl ** Find sort command (for the benefit of Win32 environs)
-FP_PROG_SORT
-
 dnl ----------------------------------------------------------
 FP_SETUP_PROJECT_VERSION
 
@@ -89,7 +86,6 @@ AC_ARG_WITH([ghc],
   fi
   WithGhc="$GHC"])
 
-
 dnl ** Tell the make system which OS we are using
 dnl $OSTYPE is set by the operating system to "msys" or "cygwin" or something 
 AC_SUBST(OSTYPE)
@@ -131,12 +127,12 @@ if test "$WithGhc" != ""; then
   GhcMinVersion2=`echo "$GhcMinVersion" | sed 's/^\\(.\\)$/0\\1/'`
   GhcCanonVersion="$GhcMajVersion$GhcMinVersion2"
 
-  BOOTSTRAPPING_GHC_INFO_FIELD([OS_STAGE0],[target os],['unkown'])
-  BOOTSTRAPPING_GHC_INFO_FIELD([CC_STAGE0],[C compiler command],['$(CC)'])
+  BOOTSTRAPPING_GHC_INFO_FIELD([OS_STAGE0],[target os])
+  BOOTSTRAPPING_GHC_INFO_FIELD([CC_STAGE0],[C compiler command])
   if test "x$OS_STAGE0" != "xOSDarwin"; then
-    BOOTSTRAPPING_GHC_INFO_FIELD([AR_STAGE0],[ar command],['$(AR)'])
-    BOOTSTRAPPING_GHC_INFO_FIELD([AR_OPTS_STAGE0],[ar flags],['$(AR_OPTS)'])
-    BOOTSTRAPPING_GHC_INFO_FIELD([ArSupportsAtFile_STAGE0],[ar supports at file],['$(ArSupportsAtFile)'])
+    BOOTSTRAPPING_GHC_INFO_FIELD([AR_STAGE0],[ar command])
+    BOOTSTRAPPING_GHC_INFO_FIELD([AR_OPTS_STAGE0],[ar flags])
+    BOOTSTRAPPING_GHC_INFO_FIELD([ArSupportsAtFile_STAGE0],[ar supports at file])
   else
     AR_STAGE0='$(AR)'
     AR_OPTS_STAGE0='$(AR_OPTS)'
@@ -188,9 +184,6 @@ AC_SUBST([WithGhc])
 
 dnl ** Without optimization some INLINE trickery fails for GHCi
 SRC_CC_OPTS="-O"
-
-FP_ICONV
-FP_GMP
 
 dnl--------------------------------------------------------------------
 dnl * Choose host(/target/build) platform
@@ -376,6 +369,65 @@ then
     fi
 fi
 
+# system libffi
+
+AC_ARG_WITH([system-libffi],
+[AC_HELP_STRING([--with-system-libffi],
+  [Use system provided libffi for RTS [default=no]])
+])
+
+AS_IF([test "x$with_system_libffi" = "xyes"],
+  [UseSystemLibFFI="YES"], [UseSystemLibFFI="NO"]
+)
+
+
+AC_SUBST(UseSystemLibFFI)
+
+AC_ARG_WITH([ffi-includes],
+[AC_HELP_STRING([--with-ffi-includes=ARG]
+  [Find includes for libffi in ARG [default=system default]])
+],
+[
+ if test "x$UseSystemLibFFI" != "xYES"; then
+    AC_MSG_WARN([--with-ffi-includes will be ignored, --with-system-libffi not set])
+ else
+    FFIIncludeDir="$withval"
+    LIBFFI_CFLAGS="-I $withval" 
+ fi
+])
+
+AC_SUBST(FFIIncludeDir)
+
+AC_ARG_WITH([ffi-libraries],
+[AC_HELP_STRING([--with-ffi-libraries=ARG]
+  [Find libffi in ARG [default=system default]])
+],
+[
+ if test "x$UseSystemLibFFI" != "xYES"; then
+    AC_MSG_WARN([--with-ffi-libraries will be ignored, --with-system-libffi not set])
+ else
+    FFILibDir="$withval" LIBFFI_LDFLAGS="-L$withval"
+ fi
+])
+
+AC_SUBST(FFILibDir)
+
+AS_IF([test "$UseSystemLibFFI" = "YES"], [
+ CFLAGS2="$CFLAGS"
+ CFLAGS="$LIBFFI_CFLAGS $CFLAGS"
+ LDFLAGS2="$LDFLAGS"
+ LDFLAGS="$LIBFFI_LDFLAGS $LDFLAGS"
+ AC_CHECK_LIB(ffi, ffi_call,
+  [AC_CHECK_HEADERS([ffi.h], [break], [])
+   AC_DEFINE([HAVE_LIBFFI], [1], [Define to 1 if you have libffi.])],
+  [AC_MSG_ERROR([Cannot find system libffi])])
+ CFLAGS="$CFLAGS2"
+ LDFLAGS="$LDFLAGS2"
+])
+
+FP_ICONV
+FP_GMP
+
 XCODE_VERSION()
 
 SplitObjsBroken=NO
@@ -550,12 +602,6 @@ cygwin32|mingw32)
     fi
     ;;
 esac
-
-dnl ** does #! path/to/perl work? (sometimes it's too long...)
-FPTOOLS_SHEBANG_PERL
-
-dnl ** check for Python
-AC_PATH_PROG(PythonCmd,python)
 
 dnl ** look for GCC and find out which version
 dnl     Figure out which C compiler to use.  Gcc is preferred.
@@ -779,20 +825,6 @@ dnl ** check for more functions
 dnl ** The following have been verified to be used in ghc/, but might be used somewhere else, too.
 AC_CHECK_FUNCS([getclock getrusage gettimeofday setitimer siginterrupt sysconf times ctime_r sched_setaffinity setlocale])
 
-if test "$cross_compiling" = "no" ; then
-    AC_TRY_RUN([
-    #include <sys/types.h>
-    #include <sys/time.h>
-    int main(void) {
-      struct itimerval tval;
-      tval.it_value.tv_sec = 1;
-      tval.it_value.tv_usec = 0;
-      tval.it_interval = tval.it_value;
-      return setitimer(ITIMER_VIRTUAL, &tval, (void*)0) != 0;
-    }
-    ],[AC_DEFINE([HAVE_SETITIMER_VIRTUAL], [1], [Define to 1 if setitimer accepts ITIMER_VIRTUAL, 0 else.])])
-fi
-
 dnl ** On OS X 10.4 (at least), time.h doesn't declare ctime_r if
 dnl ** _POSIX_C_SOURCE is defined
 AC_CHECK_DECLS([ctime_r], , ,
@@ -861,7 +893,7 @@ FP_VISIBILITY_HIDDEN
 
 dnl ** check for librt
 AC_CHECK_LIB(rt, clock_gettime)
-AC_CHECK_FUNCS(clock_gettime timer_create timer_settime)
+AC_CHECK_FUNCS(clock_gettime timer_settime)
 FP_CHECK_TIMER_CREATE
 
 dnl ** check for Apple's "interesting" long double compatibility scheme
@@ -994,7 +1026,6 @@ echo ["\
    ld       : $LdCmd
    Happy    : $HappyCmd ($HappyVersion)
    Alex     : $AlexCmd ($AlexVersion)
-   Python   : $PythonCmd
    Perl     : $PerlCmd
    dblatex  : $DblatexCmd
    xsltproc : $XsltprocCmd"]

@@ -511,6 +511,12 @@
             <entry><option>-fno-break-on-error</option></entry>
           </row>
           <row>
+            <entry><option>-fghci-hist-size=<replaceable>n</replaceable></option></entry>
+            <entry><link linkend="ghci-debugger">Set the number of entries GHCi keeps for <literal>:history</literal></link></entry>
+            <entry>dynamic</entry>
+            <entry><option>(default is 50)</option></entry>
+          </row>
+          <row>
             <entry><option>-fprint-evld-with-show</option></entry>
             <entry><link linkend="breakpoints">Enable usage of Show instances in <literal>:print</literal></link></entry>
             <entry>dynamic</entry>
@@ -783,12 +789,6 @@
             <entry><option>-XTraditionalRecordSyntax</option></entry>
           </row>
           <row>
-            <entry><option>-XNoMonoPatBinds</option></entry>
-            <entry>Make <link linkend="monomorphism">pattern bindings polymorphic</link></entry>
-            <entry>dynamic</entry>
-            <entry><option>-XMonoPatBinds</option></entry>
-          </row>
-          <row>
             <entry><option>-XRelaxedPolyRec</option></entry>
             <entry>Relaxed checking for <link linkend="typing-binds">mutually-recursive polymorphic functions</link></entry>
             <entry>dynamic</entry>
@@ -856,6 +856,7 @@
           <row>
             <entry><option>-XMonoLocalBinds</option></entry>
             <entry>Enable <link linkend="mono-local-binds">do not generalise local bindings</link>.
+              Implied by <option>-XTypeFamilies</option> and <option>-XGADTs</option>.
             </entry>
             <entry>dynamic</entry>
             <entry><option>-XNoMonoLocalBinds</option></entry>
@@ -1155,6 +1156,12 @@
             <entry>dynamic</entry>
             <entry><option>-</option></entry>
           </row>
+          <row>
+            <entry><option>-XTypeHoles</option></entry>
+            <entry>Enable <link linkend="type-holes">holes</link> in expressions.</entry>
+            <entry>dynamic</entry>
+            <entry><option>-</option></entry>
+          </row>
         </tbody>
       </tgroup>
     </informaltable>
@@ -1226,6 +1233,13 @@
             <entry>warn about uses of commandline flags that are deprecated</entry>
             <entry>dynamic</entry>
             <entry><option>-fno-warn-deprecated-flags</option></entry>
+          </row>
+
+          <row>
+            <entry><option>-fwarn-duplicate-constraints</option></entry>
+            <entry>warn when a constraint appears duplicated in a type signature</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-warn-duplicate-constraints</option></entry>
           </row>
 
           <row>
@@ -1725,6 +1739,14 @@
             <entry>Flatten strict constructor fields</entry>
             <entry>dynamic</entry>
             <entry><option>-fno-unbox-strict-fields</option></entry>
+          </row>
+
+          <row>
+            <entry><option>-funbox-small-strict-fields</option></entry>
+            <entry>Flatten strict constructor fields with a
+              pointer-sized representation</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-unbox-small-strict-fields</option></entry>
           </row>
 
           <row>

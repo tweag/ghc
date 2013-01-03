@@ -46,6 +46,7 @@ defaults
    commutable       = False
    code_size        = { primOpCodeSizeDefault }
    strictness       = { \ arity -> mkStrictSig (mkTopDmdType (replicate arity top) topRes) }
+   fixity           = Nothing
 
 -- Currently, documentation is produced using latex, so contents of
 -- description fields should be legal latex. Descriptions can contain
@@ -165,13 +166,16 @@ primtype Int#
 primop   IntAddOp    "+#"    Dyadic
    Int# -> Int# -> Int#
    with commutable = True
+        fixity = infixl 6
 
 primop   IntSubOp    "-#"    Dyadic   Int# -> Int# -> Int#
+   with fixity = infixl 6
 
 primop   IntMulOp    "*#" 
    Dyadic   Int# -> Int# -> Int#
    {Low word of signed integer multiply.}
    with commutable = True
+        fixity = infixl 7
 
 primop   IntMulMayOfloOp  "mulIntMayOflo#" 
    Dyadic   Int# -> Int# -> Int#
@@ -224,18 +228,26 @@ primop   IntSubCOp   "subIntC#"    GenPrimOp   Int# -> Int# -> (# Int#, Int# #)
    with code_size = 2
 
 primop   IntGtOp  ">#"   Compare   Int# -> Int# -> Bool
+   with fixity = infix 4
+
 primop   IntGeOp  ">=#"   Compare   Int# -> Int# -> Bool
+   with fixity = infix 4
 
 primop   IntEqOp  "==#"   Compare
    Int# -> Int# -> Bool
    with commutable = True
+        fixity = infix 4
 
 primop   IntNeOp  "/=#"   Compare
    Int# -> Int# -> Bool
    with commutable = True
+        fixity = infix 4
 
 primop   IntLtOp  "<#"   Compare   Int# -> Int# -> Bool
+   with fixity = infix 4
+
 primop   IntLeOp  "<=#"   Compare   Int# -> Int# -> Bool
+   with fixity = infix 4
 
 primop   ChrOp   "chr#"   GenPrimOp   Int# -> Char#
    with code_size = 0
@@ -245,6 +257,9 @@ primop   Int2WordOp "int2Word#" GenPrimOp Int# -> Word#
 
 primop   Int2FloatOp   "int2Float#"      GenPrimOp  Int# -> Float#
 primop   Int2DoubleOp   "int2Double#"          GenPrimOp  Int# -> Double#
+
+primop   Word2FloatOp   "word2Float#"      GenPrimOp  Word# -> Float#
+primop   Word2DoubleOp   "word2Double#"          GenPrimOp  Word# -> Double#
 
 primop   ISllOp   "uncheckedIShiftL#" GenPrimOp  Int# -> Int# -> Int#
 	 {Shift left.  Result undefined if shift amount is not
@@ -400,32 +415,44 @@ section "Double#"
 primtype Double#
 
 primop   DoubleGtOp ">##"   Compare   Double# -> Double# -> Bool
+   with fixity = infix 4
+
 primop   DoubleGeOp ">=##"   Compare   Double# -> Double# -> Bool
+   with fixity = infix 4
 
 primop DoubleEqOp "==##"   Compare
    Double# -> Double# -> Bool
    with commutable = True
+        fixity = infix 4
 
 primop DoubleNeOp "/=##"   Compare
    Double# -> Double# -> Bool
    with commutable = True
+        fixity = infix 4
 
 primop   DoubleLtOp "<##"   Compare   Double# -> Double# -> Bool
+   with fixity = infix 4
+
 primop   DoubleLeOp "<=##"   Compare   Double# -> Double# -> Bool
+   with fixity = infix 4
 
 primop   DoubleAddOp   "+##"   Dyadic
    Double# -> Double# -> Double#
    with commutable = True
+        fixity = infixl 6
 
 primop   DoubleSubOp   "-##"   Dyadic   Double# -> Double# -> Double#
+   with fixity = infixl 6
 
 primop   DoubleMulOp   "*##"   Dyadic
    Double# -> Double# -> Double#
    with commutable = True
+        fixity = infixl 7
 
 primop   DoubleDivOp   "/##"   Dyadic
    Double# -> Double# -> Double#
    with can_fail = True
+        fixity = infixl 7
 
 primop   DoubleNegOp   "negateDouble#"  Monadic   Double# -> Double#
 
@@ -2067,46 +2094,6 @@ pseudoop   "seq"
    a -> b -> b
    { Evaluates its first argument to head normal form, and then returns its second
 	argument as the result. }
-
-pseudoop   "inline"
-   a -> a
-   { The call {\tt (inline f)} arranges that f is inlined, regardless of its size.
-	More precisely, the call {\tt (inline f)} rewrites to the right-hand side of
-	{\tt f}'s definition. This allows the programmer to control inlining from a
-	particular call site rather than the definition site of the function (c.f.
-	{\tt INLINE} pragmas in User's Guide, Section 7.10.3, "INLINE and NOINLINE
-	pragmas").
-
-	This inlining occurs regardless of the argument to the call or the size of
-	{\tt f}'s definition; it is unconditional. The main caveat is that {\tt f}'s
-	definition must be visible to the compiler. That is, {\tt f} must be
-	{\tt let}-bound in the current scope. If no inlining takes place, the
-	{\tt inline} function expands to the identity function in Phase zero; so its
-	use imposes no overhead.
-
-	It is good practice to mark the function with an INLINABLE pragma at
-        its definition, (a) so that GHC guarantees to expose its unfolding regardless
-        of size, and (b) so that you have control over exactly what is inlined. }
-
-pseudoop   "lazy"
-   a -> a
-   { The {\tt lazy} function restrains strictness analysis a little. The call
-	{\tt (lazy e)} means the same as {\tt e}, but {\tt lazy} has a magical
-	property so far as strictness analysis is concerned: it is lazy in its first
-	argument, even though its semantics is strict. After strictness analysis has
-	run, calls to {\tt lazy} are inlined to be the identity function.
-
-	This behaviour is occasionally useful when controlling evaluation order.
-	Notably, {\tt lazy} is used in the library definition of {\tt Control.Parallel.par}:
-
-	{\tt par :: a -> b -> b}
-
-	{\tt par x y = case (par\# x) of \_ -> lazy y}
-
-	If {\tt lazy} were not lazy, {\tt par} would look strict in {\tt y} which
-	would defeat the whole purpose of {\tt par}.
-
-	Like {\tt seq}, the argument of {\tt lazy} can have an unboxed type. }
 
 primtype Any k
 	{ The type constructor {\tt Any} is type to which you can unsafely coerce any

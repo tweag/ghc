@@ -35,7 +35,7 @@ import PprBase
 import BlockId
 import BasicTypes       (Alignment)
 import DynFlags
-import OldCmm
+import Cmm              hiding (topInfoTable)
 import CLabel
 import Unique           ( pprUnique, Uniquable(..) )
 import Platform
@@ -53,7 +53,7 @@ pprNatCmmDecl :: NatCmmDecl (Alignment, CmmStatics) Instr -> SDoc
 pprNatCmmDecl (CmmData section dats) =
   pprSectionHeader section $$ pprDatas dats
 
-pprNatCmmDecl proc@(CmmProc top_info lbl (ListGraph blocks)) =
+pprNatCmmDecl proc@(CmmProc top_info lbl _ (ListGraph blocks)) =
   case topInfoTable proc of
     Nothing ->
        case blocks of

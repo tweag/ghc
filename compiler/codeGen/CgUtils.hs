@@ -6,12 +6,15 @@
 --
 -----------------------------------------------------------------------------
 
+{-# LANGUAGE GADTs #-}
 module CgUtils ( fixStgRegisters ) where
 
 #include "HsVersions.h"
 
 import CodeGen.Platform
-import OldCmm
+import Cmm
+import Hoopl
+import CmmUtils
 import CLabel
 import DynFlags
 import Outputable
@@ -36,10 +39,16 @@ baseRegOffset dflags (FloatReg  1)       = oFFSET_StgRegTable_rF1 dflags
 baseRegOffset dflags (FloatReg  2)       = oFFSET_StgRegTable_rF2 dflags
 baseRegOffset dflags (FloatReg  3)       = oFFSET_StgRegTable_rF3 dflags
 baseRegOffset dflags (FloatReg  4)       = oFFSET_StgRegTable_rF4 dflags
-baseRegOffset _      (FloatReg  n)       = panic ("Registers above F4 are not supported (tried to use F" ++ show n ++ ")")
+baseRegOffset dflags (FloatReg  5)       = oFFSET_StgRegTable_rF5 dflags
+baseRegOffset dflags (FloatReg  6)       = oFFSET_StgRegTable_rF6 dflags
+baseRegOffset _      (FloatReg  n)       = panic ("Registers above F6 are not supported (tried to use F" ++ show n ++ ")")
 baseRegOffset dflags (DoubleReg 1)       = oFFSET_StgRegTable_rD1 dflags
 baseRegOffset dflags (DoubleReg 2)       = oFFSET_StgRegTable_rD2 dflags
-baseRegOffset _      (DoubleReg n)       = panic ("Registers above D2 are not supported (tried to use D" ++ show n ++ ")")
+baseRegOffset dflags (DoubleReg 3)       = oFFSET_StgRegTable_rD3 dflags
+baseRegOffset dflags (DoubleReg 4)       = oFFSET_StgRegTable_rD4 dflags
+baseRegOffset dflags (DoubleReg 5)       = oFFSET_StgRegTable_rD5 dflags
+baseRegOffset dflags (DoubleReg 6)       = oFFSET_StgRegTable_rD6 dflags
+baseRegOffset _      (DoubleReg n)       = panic ("Registers above D6 are not supported (tried to use D" ++ show n ++ ")")
 baseRegOffset dflags Sp                  = oFFSET_StgRegTable_rSp dflags
 baseRegOffset dflags SpLim               = oFFSET_StgRegTable_rSpLim dflags
 baseRegOffset dflags (LongReg 1)         = oFFSET_StgRegTable_rL1 dflags
@@ -90,59 +99,28 @@ get_Regtable_addr_from_offset dflags _ offset =
 fixStgRegisters :: DynFlags -> RawCmmDecl -> RawCmmDecl
 fixStgRegisters _ top@(CmmData _ _) = top
 
-fixStgRegisters dflags (CmmProc info lbl (ListGraph blocks)) =
-  let blocks' = map (fixStgRegBlock dflags) blocks
-  in CmmProc info lbl $ ListGraph blocks'
+fixStgRegisters dflags (CmmProc info lbl live graph) =
+  let graph' = modifyGraph (mapGraphBlocks (fixStgRegBlock dflags)) graph
+  in CmmProc info lbl live graph'
 
-fixStgRegBlock :: DynFlags -> CmmBasicBlock -> CmmBasicBlock
-fixStgRegBlock dflags (BasicBlock id stmts) =
-  let stmts' = map (fixStgRegStmt dflags) stmts
-  in BasicBlock id stmts'
+fixStgRegBlock :: DynFlags -> Block CmmNode e x -> Block CmmNode e x
+fixStgRegBlock dflags block = mapBlock (fixStgRegStmt dflags) block
 
-fixStgRegStmt :: DynFlags -> CmmStmt -> CmmStmt
-fixStgRegStmt dflags stmt
-  = case stmt of
+fixStgRegStmt :: DynFlags -> CmmNode e x -> CmmNode e x
+fixStgRegStmt dflags stmt = fixAssign $ mapExpDeep fixExpr stmt
+  where
+    platform = targetPlatform dflags
+
+    fixAssign stmt =
+      case stmt of
         CmmAssign (CmmGlobal reg) src ->
-            let src' = fixStgRegExpr dflags src
-                baseAddr = get_GlobalReg_addr dflags reg
-            in case reg `elem` activeStgRegs platform of
-                True  -> CmmAssign (CmmGlobal reg) src'
-                False -> CmmStore baseAddr src'
+            let baseAddr = get_GlobalReg_addr dflags reg
+            in case reg `elem` activeStgRegs (targetPlatform dflags) of
+                True  -> CmmAssign (CmmGlobal reg) src
+                False -> CmmStore baseAddr src
+        other_stmt -> other_stmt
 
-        CmmAssign reg src ->
-            let src' = fixStgRegExpr dflags src
-            in CmmAssign reg src'
-
-        CmmStore addr src -> CmmStore (fixStgRegExpr dflags addr) (fixStgRegExpr dflags src)
-
-        CmmCall target regs args returns ->
-            let target' = case target of
-                    CmmCallee e conv -> CmmCallee (fixStgRegExpr dflags e) conv
-                    CmmPrim op mStmts ->
-                        CmmPrim op (fmap (map (fixStgRegStmt dflags)) mStmts)
-                args' = map (\(CmmHinted arg hint) ->
-                                (CmmHinted (fixStgRegExpr dflags arg) hint)) args
-            in CmmCall target' regs args' returns
-
-        CmmCondBranch test dest -> CmmCondBranch (fixStgRegExpr dflags test) dest
-
-        CmmSwitch expr ids -> CmmSwitch (fixStgRegExpr dflags expr) ids
-
-        CmmJump addr live -> CmmJump (fixStgRegExpr dflags addr) live
-
-        -- CmmNop, CmmComment, CmmBranch, CmmReturn
-        _other -> stmt
-    where platform = targetPlatform dflags
-
-
-fixStgRegExpr :: DynFlags -> CmmExpr -> CmmExpr
-fixStgRegExpr dflags expr
-  = case expr of
-        CmmLoad addr ty -> CmmLoad (fixStgRegExpr dflags addr) ty
-
-        CmmMachOp mop args -> CmmMachOp mop args'
-            where args' = map (fixStgRegExpr dflags) args
-
+    fixExpr expr = case expr of
         CmmReg (CmmGlobal reg) ->
             -- Replace register leaves with appropriate StixTrees for
             -- the given target.  MagicIds which map to a reg on this
@@ -155,9 +133,8 @@ fixStgRegExpr dflags expr
                 False ->
                     let baseAddr = get_GlobalReg_addr dflags reg
                     in case reg of
-                        BaseReg -> fixStgRegExpr dflags baseAddr
-                        _other  -> fixStgRegExpr dflags
-                                    (CmmLoad baseAddr (globalRegType dflags reg))
+                        BaseReg -> baseAddr
+                        _other  -> CmmLoad baseAddr (globalRegType dflags reg)
 
         CmmRegOff (CmmGlobal reg) offset ->
             -- RegOf leaves are just a shorthand form. If the reg maps
@@ -165,12 +142,10 @@ fixStgRegExpr dflags expr
             -- expand it and defer to the above code.
             case reg `elem` activeStgRegs platform of
                 True  -> expr
-                False -> fixStgRegExpr dflags (CmmMachOp (MO_Add (wordWidth dflags)) [
-                                    CmmReg (CmmGlobal reg),
+                False -> CmmMachOp (MO_Add (wordWidth dflags)) [
+                                    fixExpr (CmmReg (CmmGlobal reg)),
                                     CmmLit (CmmInt (fromIntegral offset)
-                                                (wordWidth dflags))])
+                                                   (wordWidth dflags))]
 
-        -- CmmLit, CmmReg (CmmLocal), CmmStackSlot
-        _other -> expr
-    where platform = targetPlatform dflags
+        other_expr -> other_expr
 

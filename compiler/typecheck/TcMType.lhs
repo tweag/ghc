@@ -24,6 +24,7 @@ module TcMType (
   newFlexiTyVar,
   newFlexiTyVarTy,		-- Kind -> TcM TcType
   newFlexiTyVarTys,		-- Int -> Kind -> TcM [TcType]
+  newPolyFlexiTyVarTy,
   newMetaKindVar, newMetaKindVars, mkKindSigVar,
   mkTcTyVarName, cloneMetaTyVar, 
 
@@ -51,9 +52,9 @@ module TcMType (
   -- Checking type validity
   Rank, UserTypeCtxt(..), checkValidType, checkValidMonoType,
   expectedKindInCtxt, 
-  checkValidTheta, 
+  checkValidTheta, checkValidFamPats,
   checkValidInstHead, checkValidInstance, validDerivPred,
-  checkInstTermination, checkValidFamInst, checkTyFamFreeness, 
+  checkInstTermination, checkValidTyFamInst, checkTyFamFreeness, 
   arityErr, 
   growThetaTyVars, quantifyPred,
 
@@ -318,8 +319,9 @@ newMetaTyVar meta_info kind
   = do	{ uniq <- newUnique
         ; let name = mkTcTyVarName uniq s
               s = case meta_info of
-                        TauTv -> fsLit "t"
-                        SigTv -> fsLit "a"
+                        PolyTv -> fsLit "s"
+                        TauTv  -> fsLit "t"
+                        SigTv  -> fsLit "a"
         ; details <- newMetaDetails meta_info
 	; return (mkTcTyVar name kind details) }
 
@@ -438,6 +440,10 @@ newFlexiTyVarTy kind = do
 newFlexiTyVarTys :: Int -> Kind -> TcM [TcType]
 newFlexiTyVarTys n kind = mapM newFlexiTyVarTy (nOfThem n kind)
 
+newPolyFlexiTyVarTy :: TcM TcType
+newPolyFlexiTyVarTy = do { tv <- newMetaTyVar PolyTv liftedTypeKind
+                         ; return (TyVarTy tv) }
+
 tcInstTyVars :: [TKVar] -> TcM ([TcTyVar], [TcType], TvSubst)
 -- Instantiate with META type variables
 -- Note that this works for a sequence of kind and type
@@ -536,21 +542,23 @@ zonkQuantifiedTyVars :: [TcTyVar] -> TcM [TcTyVar]
 -- A kind variable k may occur *after* a tyvar mentioning k in its kind
 zonkQuantifiedTyVars tyvars
   = do { let (kvs, tvs) = partition isKindVar tyvars
-       ; poly_kinds <- xoptM Opt_PolyKinds
-       ; if poly_kinds then
-             mapM zonkQuantifiedTyVar (kvs ++ tvs)
-           -- Because of the order, any kind variables
-           -- mentioned in the kinds of the type variables refer to
-           -- the now-quantified versions
-         else
+             (meta_kvs, skolem_kvs) = partition isMetaTyVar kvs
+
              -- In the non-PolyKinds case, default the kind variables
              -- to *, and zonk the tyvars as usual.  Notice that this
              -- may make zonkQuantifiedTyVars return a shorter list
              -- than it was passed, but that's ok
-             do { let (meta_kvs, skolem_kvs) = partition isMetaTyVar kvs
-                ; WARN ( not (null skolem_kvs), ppr skolem_kvs )
-                  mapM_ defaultKindVarToStar meta_kvs
-                ; mapM zonkQuantifiedTyVar (skolem_kvs ++ tvs) } }
+       ; poly_kinds <- xoptM Opt_PolyKinds
+       ; qkvs <- if poly_kinds 
+                 then return kvs
+                 else WARN ( not (null skolem_kvs), ppr skolem_kvs )
+                      do { mapM_ defaultKindVarToStar meta_kvs
+                         ; return skolem_kvs }  -- Should be empty
+
+       ; mapM zonkQuantifiedTyVar (qkvs ++ tvs) }
+           -- Because of the order, any kind variables
+           -- mentioned in the kinds of the type variables refer to
+           -- the now-quantified versions
 
 zonkQuantifiedTyVar :: TcTyVar -> TcM TcTyVar
 -- The quantified type variables often include meta type variables
@@ -1260,10 +1268,11 @@ checkValidTheta ctxt theta
 check_valid_theta :: UserTypeCtxt -> [PredType] -> TcM ()
 check_valid_theta _ []
   = return ()
-check_valid_theta ctxt theta = do
-    dflags <- getDynFlags
-    warnTc (notNull dups) (dupPredWarn dups)
-    mapM_ (check_pred_ty dflags ctxt) theta
+check_valid_theta ctxt theta
+  = do { dflags <- getDynFlags
+       ; warnTc (wopt Opt_WarnDuplicateConstraints dflags &&
+                 notNull dups) (dupPredWarn dups)
+       ; mapM_ (check_pred_ty dflags ctxt) theta }
   where
     (_,dups) = removeDups cmpPred theta
 
@@ -1803,7 +1812,7 @@ predUndecErr pred msg = sep [msg,
 
 nomoreMsg :: [TcTyVar] -> SDoc
 nomoreMsg tvs 
-  = sep [ ptext (sLit "Variable") <+> plural tvs <+> quotes (pprWithCommas ppr tvs) 
+  = sep [ ptext (sLit "Variable") <> plural tvs <+> quotes (pprWithCommas ppr tvs) 
         , (if isSingleton tvs then ptext (sLit "occurs")
                                   else ptext (sLit "occur"))
           <+> ptext (sLit "more often than in the instance head") ]
@@ -1824,13 +1833,11 @@ undecidableMsg = ptext (sLit "Use -XUndecidableInstances to permit this")
 -- Check that a "type instance" is well-formed (which includes decidability
 -- unless -XUndecidableInstances is given).
 --
-checkValidFamInst :: [Type] -> Type -> TcM ()
-checkValidFamInst typats rhs
-  = do { -- left-hand side contains no type family applications
-         -- (vanilla synonyms are fine, though)
-       ; mapM_ checkTyFamFreeness typats
+checkValidTyFamInst :: TyCon -> [TyVar] -> [Type] -> Type -> TcM ()
+checkValidTyFamInst fam_tc tvs typats rhs
+  = do { checkValidFamPats fam_tc tvs typats
 
-         -- the right-hand side is a tau type
+         -- The right-hand side is a tau type
        ; checkValidMonoType rhs
 
          -- we have a decidable instance unless otherwise permitted
@@ -1868,12 +1875,25 @@ checkFamInstRhs lhsTys famInsts
              -- excessive occurrences of *type* variables.
              -- e.g. type instance Demote {T k} a = T (Demote {k} (Any {k}))
 
+checkValidFamPats :: TyCon -> [TyVar] -> [Type] -> TcM ()
+-- Patterns in a 'type instance' or 'data instance' decl should
+-- a) contain no type family applications
+--    (vanilla synonyms are fine, though)
+-- b) properly bind all their free type variables
+--    e.g. we disallow (Trac #7536)
+--         type T a = Int
+--         type instance F (T a) = a
+checkValidFamPats fam_tc tvs ty_pats
+  = do { mapM_ checkTyFamFreeness ty_pats
+       ; let unbound_tvs = filterOut (`elemVarSet` exactTyVarsOfTypes ty_pats) tvs
+       ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
+
 -- Ensure that no type family instances occur in a type.
 --
 checkTyFamFreeness :: Type -> TcM ()
 checkTyFamFreeness ty
   = checkTc (isTyFamFree ty) $
-      tyFamInstIllegalErr ty
+    tyFamInstIllegalErr ty
 
 -- Check that a type does not contain any type family applications.
 --
@@ -1893,6 +1913,13 @@ famInstUndecErr ty msg
   = sep [msg, 
          nest 2 (ptext (sLit "in the type family application:") <+> 
                  pprType ty)]
+
+famPatErr :: TyCon -> [TyVar] -> [Type] -> SDoc
+famPatErr fam_tc tvs pats
+  = hang (ptext (sLit "Family instance purports to bind type variable") <> plural tvs
+          <+> pprQuotedList tvs)
+       2 (hang (ptext (sLit "but the real LHS (expanding synonyms) is:"))
+             2 (pprTypeApp fam_tc (map expandTypeSynonyms pats) <+> ptext (sLit "= ...")))
 
 nestedMsg, smallerAppMsg :: SDoc
 nestedMsg     = ptext (sLit "Nested type family application")

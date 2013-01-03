@@ -36,7 +36,6 @@ import Util
 import Maybes		( orElse )
 import TysWiredIn	( unboxedPairDataCon )
 import TysPrim		( realWorldStatePrimTy )
-
 \end{code}
 
 %************************************************************************

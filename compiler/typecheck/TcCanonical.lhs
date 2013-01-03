@@ -199,10 +199,10 @@ canEvNC :: CtLoc -> CtEvidence -> TcS StopOrContinue
 -- Called only for non-canonical EvVars 
 canEvNC d ev 
   = case classifyPredType (ctEvPred ev) of
-      ClassPred cls tys -> canClassNC d ev cls tys 
-      EqPred ty1 ty2    -> canEqNC    d ev ty1 ty2 
-      TuplePred tys     -> canTuple   d ev tys
-      IrredPred {}      -> canIrred   d ev 
+      ClassPred cls tys -> traceTcS "canEvNC:cls" (ppr cls <+> ppr tys) >> canClassNC d ev cls tys 
+      EqPred ty1 ty2    -> traceTcS "canEvNC:eq" (ppr ty1 $$ ppr ty2)   >> canEqNC    d ev ty1 ty2 
+      TuplePred tys     -> traceTcS "canEvNC:tup" (ppr tys)             >> canTuple   d ev tys
+      IrredPred {}      -> traceTcS "canEvNC:irred" (ppr (ctEvPred ev)) >> canIrred   d ev 
 \end{code}
 
 
@@ -249,6 +249,8 @@ canClass d ev cls tys
        ; let co = mkTcTyConAppCo (classTyCon cls) cos 
              xi = mkClassPred cls xis
        ; mb <- rewriteCtFlavor ev xi co
+       ; traceTcS "canClass" (vcat [ ppr ev <+> ppr cls <+> ppr tys 
+                                   , ppr xi, ppr mb ])
        ; case mb of
            Nothing -> return Stop
            Just new_ev -> continueWith $ 
@@ -1150,17 +1152,12 @@ canEqLeafTyVarEq loc ev tv s2              -- ev :: tv ~ s2
                       setEvBind (ctev_evar ev) (mkEvCast (EvCoercion (mkTcReflCo xi1)) co)
                     ; return Stop } ;
 
-           (Just tv1', _) ->
+           (Just tv1', _) -> do
 
          -- LHS rewrote to a type variable, RHS to something else
-         case occurCheckExpand tv1' xi2 of
-           Nothing ->  -- Occurs check error
-                       do { mb <- rewriteCtFlavor ev (mkTcEqPred xi1 xi2) co
-                          ; case mb of
-                              Nothing     -> return Stop
-                              Just new_ev -> canEqFailure loc new_ev xi1 xi2 }
-
-           Just xi2' -> -- No occurs check, so we can continue; but make sure
+       { dflags <- getDynFlags
+       ; case occurCheckExpand dflags tv1' xi2 of
+           OC_OK xi2' -> -- No occurs check, so we can continue; but make sure
                         -- that the new goal has enough type synonyms expanded by 
                         -- by the occurCheckExpand
                         do { mb <- rewriteCtFlavor ev (mkTcEqPred xi1 xi2') co
@@ -1169,7 +1166,13 @@ canEqLeafTyVarEq loc ev tv s2              -- ev :: tv ~ s2
                                Just new_ev -> continueWith $
                                               CTyEqCan { cc_ev = new_ev, cc_loc = loc
                                                        , cc_tyvar  = tv1', cc_rhs = xi2' } }
-    } }
+           _bad ->  -- Occurs check error
+                       do { mb <- rewriteCtFlavor ev (mkTcEqPred xi1 xi2) co
+                          ; case mb of
+                              Nothing     -> return Stop
+                              Just new_ev -> canEqFailure loc new_ev xi1 xi2 }
+
+    } } }
 
 mkHdEqPred :: Type -> TcCoercion -> TcCoercion -> TcCoercion
 -- Make a higher-dimensional equality

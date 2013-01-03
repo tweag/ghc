@@ -1,5 +1,5 @@
 %
-% (c) The University of Glasgow 2006
+% (c) The University of Glasgow 2006-2012
 % (c) The GRASP Project, Glasgow University, 1992-1998
 %
 
@@ -84,6 +84,8 @@ import Platform
 import Pretty           ( Doc, Mode(..) )
 import Panic
 
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.Char
 import qualified Data.Map as M
 import qualified Data.IntMap as IM
@@ -739,8 +741,8 @@ pprHsString :: FastString -> SDoc
 pprHsString fs = vcat (map text (showMultiLineString (unpackFS fs)))
 
 -- | Special combinator for showing string literals.
-pprHsBytes :: FastBytes -> SDoc
-pprHsBytes fb = let escaped = concatMap escape $ bytesFB fb
+pprHsBytes :: ByteString -> SDoc
+pprHsBytes bs = let escaped = concatMap escape $ BS.unpack bs
                 in vcat (map text (showMultiLineString escaped)) <> char '#'
     where escape :: Word8 -> String
           escape w = let c = chr (fromIntegral w)
@@ -779,15 +781,15 @@ pprWithCommas :: (a -> SDoc) -- ^ The pretty printing function to use
                              -- comma-separated and finally packed into a paragraph.
 pprWithCommas pp xs = fsep (punctuate comma (map pp xs))
 
--- | Returns the seperated concatenation of the pretty printed things.
+-- | Returns the separated concatenation of the pretty printed things.
 interppSP  :: Outputable a => [a] -> SDoc
 interppSP  xs = sep (map ppr xs)
 
--- | Returns the comma-seperated concatenation of the pretty printed things.
+-- | Returns the comma-separated concatenation of the pretty printed things.
 interpp'SP :: Outputable a => [a] -> SDoc
 interpp'SP xs = sep (punctuate comma (map ppr xs))
 
--- | Returns the comma-seperated concatenation of the quoted pretty printed things.
+-- | Returns the comma-separated concatenation of the quoted pretty printed things.
 --
 -- > [x,y,z]  ==>  `x', `y', `z'
 pprQuotedList :: Outputable a => [a] -> SDoc

@@ -5,6 +5,8 @@ use Cwd;
 
 $| = 1; # autoflush stdout after each print, to avoid output after die
 
+my $initial_working_directory;
+
 my $defaultrepo;
 my @packages;
 my $verbose = 2;
@@ -117,6 +119,16 @@ sub parsePackages {
     }
 }
 
+sub tryReadFile {
+    my $filename = shift;
+    my @lines;
+
+    open (FH, $filename) or return "";
+    @lines = <FH>;
+    close FH;
+    return join('', @lines);
+}
+
 sub message {
     if ($verbose >= 2) {
         print "@_\n";
@@ -133,13 +145,11 @@ sub gitNewWorkdir {
     my $dir = shift;
     my $target = shift;
     my $target_dir = "$target/$dir";
-    my $pwd;
 
     if ($dir eq '.') {
         message "== running git-new-workdir . $target_dir @_";
     } else {
         message "== $dir: running git-new-workdir . $target_dir @_";
-        $pwd = getcwd();
         chdir($dir);
     }
 
@@ -148,20 +158,18 @@ sub gitNewWorkdir {
         or die "git-new-workdir failed: $?";
 
     if ($dir ne '.') {
-        chdir($pwd);
+        chdir($initial_working_directory);
     }
 }
 
 sub scm {
     my $dir = shift;
     my $scm = shift;
-    my $pwd;
 
     if ($dir eq '.') {
         message "== running $scm @_";
     } else {
         message "== $dir: running $scm @_";
-        $pwd = getcwd();
         chdir($dir);
     }
 
@@ -170,7 +178,7 @@ sub scm {
         or die "$scm failed: $?";
 
     if ($dir ne '.') {
-        chdir($pwd);
+        chdir($initial_working_directory);
     }
 }
 
@@ -186,9 +194,7 @@ sub scmall {
     my $subcommand;
 
     my $path;
-    my $wd_before = getcwd;
 
-    my $pwd;
     my @args;
 
     my $started;
@@ -289,7 +295,9 @@ sub scmall {
         # Construct the path for this package in the repo we pulled from
         $path = "$repo_base/$remotepath";
 
-        if ($command =~ /^(?:g|ge|get)$/) {
+        if ($command eq "get") {
+            next if $remotepath eq "-"; # "git submodule init/update" will get this later
+
             # Skip any repositories we have not included the tag for
             if (not defined($tags{$tag})) {
                 $tags{$tag} = 0;
@@ -343,7 +351,7 @@ sub scmall {
         }
 
         # Work out the arguments we should give to the SCM
-        if ($command =~ /^(?:w|wh|wha|what|whats|whatsn|whatsne|whatsnew|status)$/) {
+        if ($command eq "status") {
             if ($scm eq "darcs") {
                 $command = "whatsnew";
             }
@@ -358,21 +366,34 @@ sub scmall {
             $ignore_failure = 1;
             scm ($localpath, $scm, $command, @args);
         }
-        elsif ($command =~ /^commit$/) {
+        elsif ($command eq "commit") {
             # git fails if there is nothing to commit, so ignore failures
             $ignore_failure = 1;
             scm ($localpath, $scm, "commit", @args);
         }
-        elsif ($command =~ /^(?:pus|push)$/) {
+        elsif ($command eq "push") {
             scm ($localpath, $scm, "push", @args);
         }
-        elsif ($command =~ /^(?:pul|pull)$/) {
-            scm ($localpath, $scm, "pull", @args);
+        elsif ($command eq "pull") {
+            my $realcmd;
+            my @realargs;
+            if ($remotepath eq "-") {
+                # Only fetch for the submodules. "git submodule update"
+                # will take care of making us point to the right commit.
+                $realcmd = "fetch";
+                # we like "sync-all pull --rebase" to work:
+                @realargs = grep(!/--rebase/,@args);
+            }
+            else {
+                $realcmd = "pull";
+                @realargs = @args;
+            }
+            scm ($localpath, $scm, $realcmd, @realargs);
         }
-        elsif ($command =~ /^(?:new-workdir)$/) {
+        elsif ($command eq "new-workdir") {
             gitNewWorkdir ($localpath, @args);
         }
-        elsif ($command =~ /^(?:s|se|sen|send)$/) {
+        elsif ($command eq "send") {
             if ($scm eq "darcs") {
                 $command = "send";
             }
@@ -384,17 +405,17 @@ sub scmall {
             }
             scm ($localpath, $scm, $command, @args);
         }
-        elsif ($command =~ /^fetch$/) {
+        elsif ($command eq "fetch") {
             scm ($localpath, $scm, "fetch", @args);
         }
-        elsif ($command =~ /^new$/) {
+        elsif ($command eq "new") {
             my @scm_args = ("log", "$branch_name..");
             scm ($localpath, $scm, @scm_args, @args);
         }
-        elsif ($command =~ /^log$/) {
+        elsif ($command eq "log") {
             scm ($localpath, $scm, "log", @args);
         }
-        elsif ($command =~ /^remote$/) {
+        elsif ($command eq "remote") {
             my @scm_args;
             $ignore_failure = 1;
             if ($subcommand eq 'add') {
@@ -408,51 +429,51 @@ sub scmall {
             }
             scm ($localpath, $scm, @scm_args, @args);
         }
-        elsif ($command =~ /^checkout$/) {
+        elsif ($command eq "checkout") {
             # Not all repos are necessarily branched, so ignore failure
             $ignore_failure = 1;
             scm ($localpath, $scm, "checkout", @args)
                 unless $scm eq "darcs";
         }
-        elsif ($command =~ /^grep$/) {
+        elsif ($command eq "grep") {
             # Hack around 'git grep' failing if there are no matches
             $ignore_failure = 1;
             scm ($localpath, $scm, "grep", @args)
                 unless $scm eq "darcs";
         }
-        elsif ($command =~ /^diff$/) {
+        elsif ($command eq "diff") {
             scm ($localpath, $scm, "diff", @args)
                 unless $scm eq "darcs";
         }
-        elsif ($command =~ /^clean$/) {
+        elsif ($command eq "clean") {
             scm ($localpath, $scm, "clean", @args)
                 unless $scm eq "darcs";
         }
-        elsif ($command =~ /^reset$/) {
+        elsif ($command eq "reset") {
             scm ($localpath, $scm, "reset", @args)
                 unless $scm eq "darcs";
         }
-        elsif ($command =~ /^branch$/) {
+        elsif ($command eq "branch") {
             scm ($localpath, $scm, "branch", @args)
                 unless $scm eq "darcs";
         }
-        elsif ($command =~ /^config$/) {
+        elsif ($command eq "config") {
             scm ($localpath, $scm, "config", @args)
                 unless $scm eq "darcs";
         }
-        elsif ($command =~ /^repack$/) {
+        elsif ($command eq "repack") {
             scm ($localpath, $scm, "repack", @args)
                 if $scm eq "git"
         }
-        elsif ($command =~ /^format-patch$/) {
+        elsif ($command eq "format-patch") {
             scm ($localpath, $scm, "format-patch", @args)
                 if $scm eq "git"
         }
-        elsif ($command =~ /^gc$/) {
+        elsif ($command eq "gc") {
             scm ($localpath, $scm, "gc", @args)
                 unless $scm eq "darcs";
         }
-        elsif ($command =~ /^tag$/) {
+        elsif ($command eq "tag") {
             scm ($localpath, $scm, "tag", @args);
         }
         else {
@@ -730,13 +751,57 @@ sub main {
     }
     else {
         # Give the command and rest of the arguments to the main loop
-        scmall @_;
+        # We normalise command names here to avoid duplicating the
+        # abbreviations that we allow.
+        my $command = shift;
+
+        if ($command =~ /^(?:g|ge|get)$/) {
+            $command = "get";
+        }
+        elsif ($command =~ /^(?:pus|push)$/) {
+            $command = "push";
+        }
+        elsif ($command =~ /^(?:pul|pull)$/) {
+            $command = "pull";
+        }
+        elsif ($command =~ /^(?:s|se|sen|send)$/) {
+            $command = "send";
+        }
+        elsif ($command =~ /^(?:w|wh|wha|what|whats|whatsn|whatsne|whatsnew|status)$/) {
+            $command = "status";
+        }
+
+        scmall ($command, @_);
+
+        my @submodule_args = grep(/^-q/,@_);
+
+        if ($command eq "get") {
+            &scm(".", "git", "submodule", "init", @submodule_args);
+        }
+        if ($command eq "pull") {
+            my $gitConfig = &tryReadFile(".git/config");
+            if ($gitConfig !~ /submodule/) {
+                &scm(".", "git", "submodule", "init", @submodule_args);
+            }
+        }
+        if ($command eq "get" or $command eq "pull") {
+            my $gitConfig = &tryReadFile(".git/config");
+            if ($gitConfig !~ /submodule/) {
+                &scm(".", "git", "submodule", "init", @submodule_args);
+            }
+            &scm(".", "git", "submodule", "update", @submodule_args);
+        }
     }
+}
+
+BEGIN {
+    $initial_working_directory = getcwd();
 }
 
 END {
     my $ec = $?;
-    my $pwd = getcwd();
+
+    chdir($initial_working_directory);
 
     message "== Checking for old haddock repo";
     if (-d "utils/haddock/.git") {
@@ -753,7 +818,7 @@ Please remove it (e.g. "rm -r utils/haddock"), and then run
 ============================
 EOF
         }
-        chdir($pwd);
+        chdir($initial_working_directory);
     }
 
     message "== Checking for old binary repo";
@@ -771,7 +836,7 @@ Please remove it (e.g. "rm -r libraries/binary"), and then run
 ============================
 EOF
         }
-        chdir($pwd);
+        chdir($initial_working_directory);
     }
 
     message "== Checking for old mtl repo";
@@ -789,7 +854,7 @@ Please remove it (e.g. "rm -r libraries/mtl"), and then run
 ============================
 EOF
         }
-        chdir($pwd);
+        chdir($initial_working_directory);
     }
 
     message "== Checking for old Cabal repo";
@@ -807,7 +872,21 @@ Please remove it (e.g. "rm -r libraries/Cabal"), and then run
 ============================
 EOF
         }
-        chdir($pwd);
+        chdir($initial_working_directory);
+    }
+
+    message "== Checking for old time from tarball";
+    if (! -e "libraries/time/.git") {
+            print <<EOF;
+============================
+ATTENTION!
+
+You have an old time package in your GHC tree!
+
+Please remove it (e.g. "rm -r libraries/time"), and then run
+"./sync-all get" to get the new repository.
+============================
+EOF
     }
 
     $? = $ec;

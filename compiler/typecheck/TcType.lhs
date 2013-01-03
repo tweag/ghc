@@ -74,8 +74,9 @@ module TcType (
   
   ---------------------------------
   -- Misc type manipulators
-  deNoteType, occurCheckExpand,
+  deNoteType, occurCheckExpand, OccCheckResult(..),
   orphNamesOfType, orphNamesOfDFunHead, orphNamesOfCo,
+  orphNamesOfCoCon,
   getDFunTyKey,
   evVarPred_maybe, evVarPred,
 
@@ -173,6 +174,7 @@ import VarSet
 import Coercion
 import Type
 import TyCon
+import CoAxiom
 
 -- others:
 import DynFlags
@@ -331,6 +333,8 @@ data MetaInfo
      		   -- A TauTv is always filled in with a tau-type, which
 		   -- never contains any ForAlls 
 
+   | PolyTv        -- Like TauTv, but can unify with a sigma-type
+
    | SigTv 	   -- A variant of TauTv, except that it should not be
 		   -- unified with a type, only with a type variable
 		   -- SigTvs are only distinguished to improve error messages
@@ -445,6 +449,7 @@ uf will get unified *once more* to (F Int).
 
 \begin{code}
 newtype Untouchables = Untouchables Int
+  -- See Note [Untouchable type variables] for what this Int is
 
 noUntouchables :: Untouchables
 noUntouchables = Untouchables 0   -- 0 = outermost level
@@ -488,8 +493,9 @@ pprTcTyVarDetails (MetaTv { mtv_info = info, mtv_untch = untch })
   = pp_info <> brackets (ppr untch)
   where
     pp_info = case info of
-                TauTv -> ptext (sLit "tau")
-                SigTv -> ptext (sLit "sig")
+                PolyTv -> ptext (sLit "poly")
+                TauTv  -> ptext (sLit "tau")
+                SigTv  -> ptext (sLit "sig")
 
 pprUserTypeCtxt :: UserTypeCtxt -> SDoc
 pprUserTypeCtxt (InfSigCtxt n)    = ptext (sLit "the inferred type for") <+> quotes (ppr n)
@@ -644,8 +650,8 @@ tidyCo env@(_, subst) co
     go (CoVarCo cv)          = case lookupVarEnv subst cv of
                                  Nothing  -> CoVarCo cv
                                  Just cv' -> CoVarCo cv'
-    go (AxiomInstCo con cos) = let args = tidyCos env cos
-                               in  args `seqList` AxiomInstCo con args
+    go (AxiomInstCo con ind cos) = let args = tidyCos env cos
+                               in  args `seqList` AxiomInstCo con ind args
     go (UnsafeCo ty1 ty2)    = (UnsafeCo $! tidyType env ty1) $! tidyType env ty2
     go (SymCo co)            = SymCo $! go co
     go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
@@ -896,10 +902,11 @@ mkTcEqPred ty1 ty2
 isTauTy :: Type -> Bool
 isTauTy ty | Just ty' <- tcView ty = isTauTy ty'
 isTauTy (TyVarTy _)	  = True
+isTauTy (LitTy {})        = True
 isTauTy (TyConApp tc tys) = all isTauTy tys && isTauTyCon tc
 isTauTy (AppTy a b)	  = isTauTy a && isTauTy b
 isTauTy (FunTy a b)	  = isTauTy a && isTauTy b
-isTauTy _    		  = False
+isTauTy (ForAllTy {})     = False
 
 isTauTyCon :: TyCon -> Bool
 -- Returns False for type synonyms whose expansion is a polytype
@@ -1089,23 +1096,20 @@ tcIsTyVarTy :: Type -> Bool
 tcIsTyVarTy ty = maybeToBool (tcGetTyVar_maybe ty)
 
 -----------------------
-tcSplitDFunTy :: Type -> ([TyVar], Int, Class, [Type])
+tcSplitDFunTy :: Type -> ([TyVar], [Type], Class, [Type])
 -- Split the type of a dictionary function
 -- We don't use tcSplitSigmaTy,  because a DFun may (with NDP)
 -- have non-Pred arguments, such as
 --     df :: forall m. (forall b. Eq b => Eq (m b)) -> C m
+-- 
+-- Also NB splitFunTys, not tcSplitFunTys; 
+-- the latter  specifically stops at PredTy arguments, 
+-- and we don't want to do that here
 tcSplitDFunTy ty 
-  = case tcSplitForAllTys ty   of { (tvs, rho)  ->
-    case split_dfun_args 0 rho of { (n_theta, tau) ->
-    case tcSplitDFunHead tau   of { (clas, tys) ->
-    (tvs, n_theta, clas, tys) }}}
-  where
-    -- Count the context of the dfun.  This can be a mix of
-    -- coercion and class constraints; or (in the general NDP case)
-    -- some other function argument
-    split_dfun_args n ty | Just ty' <- tcView ty = split_dfun_args n ty'
-    split_dfun_args n (FunTy _ ty)     = split_dfun_args (n+1) ty
-    split_dfun_args n ty               = (n, ty)
+  = case tcSplitForAllTys ty   of { (tvs, rho)   ->
+    case splitFunTys rho       of { (theta, tau) ->  
+    case tcSplitDFunHead tau   of { (clas, tys)  ->
+    (tvs, theta, clas, tys) }}}
 
 tcSplitDFunHead :: Type -> (Class, [Type])
 tcSplitDFunHead = getClassPredTys
@@ -1187,57 +1191,98 @@ even though we could also expand F to get rid of b.
 See also Note [Type synonyms and canonicalization] in TcCanonical
 
 \begin{code}
-occurCheckExpand :: TcTyVar -> Type -> Maybe Type
--- See Note [Occurs check expansion]
--- Check whether the given variable occurs in the given type.  We may
--- have needed to do some type synonym unfolding in order to get rid
--- of the variable, so we also return the unfolded version of the
--- type, which is guaranteed to be syntactically free of the given
--- type variable.  If the type is already syntactically free of the
--- variable, then the same type is returned.
+data OccCheckResult a
+  = OC_OK a
+  | OC_Forall 
+  | OC_NonTyVar
+  | OC_Occurs
 
-occurCheckExpand tv ty
-  | not (tv `elemVarSet` tyVarsOfType ty) = Just ty
-  | otherwise                             = go ty
+instance Monad OccCheckResult where
+  return x = OC_OK x
+  OC_OK x     >>= k = k x
+  OC_Forall   >>= _ = OC_Forall
+  OC_NonTyVar >>= _ = OC_NonTyVar
+  OC_Occurs   >>= _ = OC_Occurs
+  
+occurCheckExpand :: DynFlags -> TcTyVar -> Type -> OccCheckResult Type
+-- See Note [Occurs check expansion]
+-- Check whether 
+--   a) the given variable occurs in the given type.  
+--   b) there is a forall in the type (unless we have -XImpredicativeTypes
+--                                     or it's a PolyTv
+--   c) if it's a SigTv, ty should be a tyvar
+--
+-- We may have needed to do some type synonym unfolding in order to
+-- get rid of the variable (or forall), so we also return the unfolded
+-- version of the type, which is guaranteed to be syntactically free 
+-- of the given type variable.  If the type is already syntactically 
+-- free of the variable, then the same type is returned.
+
+occurCheckExpand dflags tv ty
+  | MetaTv { mtv_info = SigTv } <- details
+                  = go_sig_tv ty
+  | fast_check ty = return ty
+  | otherwise     = go ty
   where
-    go t@(TyVarTy tv') | tv == tv' = Nothing
-                       | otherwise = Just t
+    details = ASSERT2( isTcTyVar tv, ppr tv ) tcTyVarDetails tv
+
+    impredicative 
+      = case details of
+          MetaTv { mtv_info = PolyTv } -> True
+          MetaTv { mtv_info = SigTv }  -> False
+          MetaTv { mtv_info = TauTv }  -> xopt Opt_ImpredicativeTypes dflags
+                                       || isOpenTypeKind (tyVarKind tv)
+                                          -- Note [OpenTypeKind accepts foralls]
+                                          -- in TcUnify
+          _other                       -> True
+          -- We can have non-meta tyvars in given constraints
+
+    -- Check 'ty' is a tyvar, or can be expanded into one
+    go_sig_tv ty@(TyVarTy {})            = OC_OK ty
+    go_sig_tv ty | Just ty' <- tcView ty = go_sig_tv ty'
+    go_sig_tv _                          = OC_NonTyVar
+
+    -- True => fine
+    fast_check (LitTy {})        = True
+    fast_check (TyVarTy tv')     = tv /= tv'
+    fast_check (TyConApp _ tys)  = all fast_check tys
+    fast_check (FunTy arg res)   = fast_check arg && fast_check res
+    fast_check (AppTy fun arg)   = fast_check fun && fast_check arg
+    fast_check (ForAllTy tv' ty) = impredicative 
+                                && fast_check (tyVarKind tv')
+                                && (tv == tv' || fast_check ty)
+
+    go t@(TyVarTy tv') | tv == tv' = OC_Occurs
+                       | otherwise = return t
     go ty@(LitTy {}) = return ty
     go (AppTy ty1 ty2) = do { ty1' <- go ty1
            		    ; ty2' <- go ty2  
            		    ; return (mkAppTy ty1' ty2') }
-    -- mkAppTy <$> go ty1 <*> go ty2
     go (FunTy ty1 ty2) = do { ty1' <- go ty1 
            		    ; ty2' <- go ty2 
            		    ; return (mkFunTy ty1' ty2') } 
-    -- mkFunTy <$> go ty1 <*> go ty2
-    go ty@(ForAllTy {})
-       | tv `elemVarSet` tyVarsOfTypes tvs_knds = Nothing
+    go ty@(ForAllTy tv' body_ty)
+       | not impredicative                = OC_Forall
+       | not (fast_check (tyVarKind tv')) = OC_Occurs
            -- Can't expand away the kinds unless we create 
            -- fresh variables which we don't want to do at this point.
-       | otherwise = do { rho' <- go rho
-                        ; return (mkForAllTys tvs rho') }
-       where
-         (tvs,rho) = splitForAllTys ty
-         tvs_knds  = map tyVarKind tvs 
+           -- In principle fast_check might fail because of a for-all
+           -- but we don't yet have poly-kinded tyvars so I'm not
+           -- going to worry about that now
+       | tv == tv' = return ty
+       | otherwise = do { body' <- go body_ty
+                        ; return (ForAllTy tv' body') }
 
     -- For a type constructor application, first try expanding away the
     -- offending variable from the arguments.  If that doesn't work, next
     -- see if the type constructor is a type synonym, and if so, expand
     -- it and try again.
     go ty@(TyConApp tc tys)
-{-
-      | isSynFamilyTyCon tc    -- It's ok for tv to occur under a type family application
-       = return ty             -- Eg.  (a ~ F a) is not an occur-check error
-                               -- NB This case can't occur during canonicalisation,
-                               --    because the arg is a Xi-type, but can occur in the
-                               --    call from TcErrors
-      | otherwise
--}
-      = do { tys <- mapM go tys; return (mkTyConApp tc tys) }
-        `firstJust` -- First try to eliminate the tyvar from the args
-        do { ty <- tcView ty; go ty }
-                    -- Failing that, try to expand a synonym
+      = case do { tys <- mapM go tys; return (mkTyConApp tc tys) } of
+          OC_OK ty -> return ty  -- First try to eliminate the tyvar from the args
+          bad | Just ty' <- tcView ty -> go ty'
+              | otherwise             -> bad
+                      -- Failing that, try to expand a synonym
 \end{code}
 
 %************************************************************************
@@ -1416,8 +1461,11 @@ orphNamesOfType (FunTy arg res)	    = orphNamesOfType arg `unionNameSets` orphNa
 orphNamesOfType (AppTy fun arg)	    = orphNamesOfType fun `unionNameSets` orphNamesOfType arg
 orphNamesOfType (ForAllTy _ ty)	    = orphNamesOfType ty
 
+orphNamesOfThings :: (a -> NameSet) -> [a] -> NameSet
+orphNamesOfThings f = foldr (unionNameSets . f) emptyNameSet
+
 orphNamesOfTypes :: [Type] -> NameSet
-orphNamesOfTypes tys = foldr (unionNameSets . orphNamesOfType) emptyNameSet tys
+orphNamesOfTypes = orphNamesOfThings orphNamesOfType
 
 orphNamesOfDFunHead :: Type -> NameSet
 -- Find the free type constructors and classes 
@@ -1436,7 +1484,7 @@ orphNamesOfCo (TyConAppCo tc cos)   = unitNameSet (getName tc) `unionNameSets` o
 orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
 orphNamesOfCo (ForAllCo _ co)       = orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
-orphNamesOfCo (AxiomInstCo con cos) = orphNamesOfCoCon con `unionNameSets` orphNamesOfCos cos
+orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSets` orphNamesOfCos cos
 orphNamesOfCo (UnsafeCo ty1 ty2)    = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
@@ -1445,11 +1493,18 @@ orphNamesOfCo (LRCo  _ co)          = orphNamesOfCo co
 orphNamesOfCo (InstCo co ty)        = orphNamesOfCo co `unionNameSets` orphNamesOfType ty
 
 orphNamesOfCos :: [Coercion] -> NameSet
-orphNamesOfCos = foldr (unionNameSets . orphNamesOfCo) emptyNameSet
+orphNamesOfCos = orphNamesOfThings orphNamesOfCo
 
-orphNamesOfCoCon :: CoAxiom -> NameSet
-orphNamesOfCoCon (CoAxiom { co_ax_lhs = ty1, co_ax_rhs = ty2 })
-  = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
+orphNamesOfCoCon :: CoAxiom br -> NameSet
+orphNamesOfCoCon (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
+  = orphNamesOfTyCon tc `unionNameSets` orphNamesOfCoAxBranches branches
+
+orphNamesOfCoAxBranches :: BranchList CoAxBranch br -> NameSet
+orphNamesOfCoAxBranches = brListFoldr (unionNameSets . orphNamesOfCoAxBranch) emptyNameSet
+
+orphNamesOfCoAxBranch :: CoAxBranch -> NameSet
+orphNamesOfCoAxBranch (CoAxBranch { cab_lhs = lhs, cab_rhs = rhs })
+  = orphNamesOfTypes lhs `unionNameSets` orphNamesOfType rhs
 \end{code}
 
 

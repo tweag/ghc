@@ -1,6 +1,6 @@
 /* -----------------------------------------------------------------------------
  *
- * (c) The GHC Team, 2000-2004
+ * (c) The GHC Team, 2000-2012
  *
  * RTS Object Linker
  *
@@ -1085,6 +1085,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_deRefWeakzh)                                    \
       SymI_HasProto(stg_deRefStablePtrzh)                               \
       SymI_HasProto(dirty_MUT_VAR)                                      \
+      SymI_HasProto(dirty_TVAR)                                         \
       SymI_HasProto(stg_forkzh)                                         \
       SymI_HasProto(stg_forkOnzh)                                       \
       SymI_HasProto(forkProcess)                                        \
@@ -1219,6 +1220,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(startTimer)                                         \
       SymI_HasProto(stg_MVAR_CLEAN_info)                                \
       SymI_HasProto(stg_MVAR_DIRTY_info)                                \
+      SymI_HasProto(stg_TVAR_CLEAN_info)                                \
+      SymI_HasProto(stg_TVAR_DIRTY_info)                                \
       SymI_HasProto(stg_IND_STATIC_info)                                \
       SymI_HasProto(stg_ARR_WORDS_info)                                 \
       SymI_HasProto(stg_MUT_ARR_PTRS_DIRTY_info)                        \
@@ -1307,6 +1310,7 @@ typedef struct _RtsSymbolVal {
       SymI_NeedsProto(rts_stop_on_exception)                            \
       SymI_HasProto(stopTimer)                                          \
       SymI_HasProto(n_capabilities)                                     \
+      SymI_HasProto(enabled_capabilities)                               \
       SymI_HasProto(stg_traceCcszh)                                     \
       SymI_HasProto(stg_traceEventzh)                                   \
       SymI_HasProto(stg_traceMarkerzh)                                  \
@@ -1472,7 +1476,7 @@ initLinker( void )
     IF_DEBUG(linker, debugBelch("initLinker: start\n"));
 
     /* Make initLinker idempotent, so we can call it
-       before evey relevant operation; that means we
+       before every relevant operation; that means we
        don't need to initialise the linker separately */
     if (linker_init_done == 1) {
         IF_DEBUG(linker, debugBelch("initLinker: idempotent return\n"));

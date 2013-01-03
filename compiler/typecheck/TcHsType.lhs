@@ -67,14 +67,14 @@ import NameEnv
 import TysWiredIn
 import BasicTypes
 import SrcLoc
-import DynFlags ( ExtensionFlag( Opt_DataKinds ) )
+import ErrUtils ( isEmptyMessages )
+import DynFlags ( ExtensionFlag( Opt_DataKinds ), getDynFlags )
 import Unique
 import UniqSupply
 import Outputable
 import FastString
 import Util
 
-import Data.Maybe
 import Control.Monad ( unless, when, zipWithM )
 import PrelNames( ipClassName, funTyConKey )
 \end{code}
@@ -404,15 +404,26 @@ tc_hs_type hs_ty@(HsTupleTy HsBoxedOrConstraintTuple tys) exp_kind@(EK exp_k _ct
   | isLiftedTypeKind exp_k = tc_tuple hs_ty HsBoxedTuple      tys exp_kind
   | otherwise
   = do { k <- newMetaKindVar
-       ; tau_tys <- tc_hs_arg_tys (ptext (sLit "a tuple")) tys (repeat k)
-       ; k' <- zonkTcKind k
-       ; if isConstraintKind k' then
-            finish_tuple hs_ty HsConstraintTuple tau_tys exp_kind
-         else if isLiftedTypeKind k' then
-            finish_tuple hs_ty HsBoxedTuple tau_tys exp_kind
-         else
-            tc_tuple hs_ty HsBoxedTuple tys exp_kind }
-         -- It's not clear what the kind is, so assume *, and
+       ; (msgs, mb_tau_tys) <- tryTc (tc_hs_arg_tys (ptext (sLit "a tuple")) tys (repeat k))
+       ; k <- zonkTcKind k
+           -- Do the experiment inside a 'tryTc' because errors can be
+           -- confusing.  Eg Trac #7410 (Either Int, Int), we do not want to get
+           -- an error saying "the second argument of a tuple should have kind *->*"
+
+       ; case mb_tau_tys of
+           Just tau_tys 
+             | not (isEmptyMessages msgs) -> try_again k
+             | isConstraintKind k         -> go_for HsConstraintTuple tau_tys
+             | isLiftedTypeKind k         -> go_for HsBoxedTuple      tau_tys
+             | otherwise                  -> try_again k
+           Nothing                        -> try_again k }
+   where
+     go_for sort tau_tys = finish_tuple hs_ty sort tau_tys exp_kind
+
+     try_again k
+       | isConstraintKind k = tc_tuple hs_ty HsConstraintTuple tys exp_kind
+       | otherwise          = tc_tuple hs_ty HsBoxedTuple      tys exp_kind
+         -- It's not clear what the kind is, so make best guess and
          -- check the arguments again to give good error messages
          -- in eg. `(Maybe, Maybe)`
 
@@ -493,12 +504,15 @@ tc_hs_type ty@(HsSpliceTy {}) _exp_kind
 tc_hs_type (HsWrapTy {}) _exp_kind 
   = panic "tc_hs_type HsWrapTy"  -- We kind checked something twice
 
-tc_hs_type hs_ty@(HsTyLit tl) exp_kind = do
-  let (ty,k) = case tl of
-                 HsNumTy n -> (mkNumLitTy n, typeNatKind)
-                 HsStrTy s -> (mkStrLitTy s,  typeStringKind)
-  checkExpectedKind hs_ty k exp_kind
-  return ty
+tc_hs_type hs_ty@(HsTyLit (HsNumTy n)) exp_kind 
+  = do { checkExpectedKind hs_ty typeNatKind exp_kind
+       ; checkWiredInTyCon typeNatKindCon
+       ; return (mkNumLitTy n) }
+
+tc_hs_type hs_ty@(HsTyLit (HsStrTy s)) exp_kind 
+  = do { checkExpectedKind hs_ty typeStringKind exp_kind
+       ; checkWiredInTyCon typeStringKindCon
+       ; return (mkStrLitTy s) }
 
 ---------------------------
 tc_tuple :: HsType Name -> HsTupleSort -> [LHsType Name] -> ExpKind -> TcM TcType
@@ -608,7 +622,9 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
 
            AGlobal (ADataCon dc)
              | Just tc <- promoteDataCon_maybe dc
-             -> inst_tycon (mkTyConApp tc) (tyConKind tc)
+             -> do { data_kinds <- xoptM Opt_DataKinds
+                   ; unless data_kinds $ promotionErr name NoDataKinds
+                   ; inst_tycon (mkTyConApp tc) (tyConKind tc) }
              | otherwise -> failWithTc (quotes (ppr dc) <+> ptext (sLit "of type")
                             <+> quotes (ppr (dataConUserType dc)) <+> ptext (sLit "is not promotable"))
 
@@ -1229,7 +1245,8 @@ Here
 
  * Then unificaiton makes a_sig := a_sk
 
-That's why we must make a_sig a SigTv, not a SkolemTv, so that it can unify to a_sk.
+That's why we must make a_sig a MetaTv (albeit a SigTv), 
+not a SkolemTv, so that it can unify to a_sk.
 
 For RULE binders, though, things are a bit different (yuk).  
   RULE "foo" forall (x::a) (y::[a]).  f x y = ...
@@ -1340,6 +1357,7 @@ checkExpectedKind ty act_kind (EK exp_kind ek_ctxt)
       ; act_kind <- zonkTcKind act_kind
       ; traceTc "checkExpectedKind" (ppr ty $$ ppr act_kind $$ ppr exp_kind)
       ; env0 <- tcInitTidyEnv
+      ; dflags <- getDynFlags
       ; let (exp_as, _) = splitKindFunTys exp_kind
             (act_as, _) = splitKindFunTys act_kind
             n_exp_as  = length exp_as
@@ -1351,11 +1369,15 @@ checkExpectedKind ty act_kind (EK exp_kind ek_ctxt)
 
             occurs_check 
                | Just act_tv <- tcGetTyVar_maybe act_kind
-               = isNothing (occurCheckExpand act_tv exp_kind)
+               = check_occ act_tv exp_kind
                | Just exp_tv <- tcGetTyVar_maybe exp_kind
-               = isNothing (occurCheckExpand exp_tv act_kind)
+               = check_occ exp_tv act_kind
                | otherwise 
                = False
+
+            check_occ tv k = case occurCheckExpand dflags tv k of
+                                OC_Occurs -> True
+                                _bad      -> False
 
             err | isLiftedTypeKind exp_kind && isUnliftedTypeKind act_kind
                 = ptext (sLit "Expecting a lifted type, but") <+> quotes (ppr ty)
@@ -1511,6 +1533,7 @@ promotionErr name err
   where
     reason = case err of
                FamDataConPE -> ptext (sLit "it comes from a data family instance")
+               NoDataKinds  -> ptext (sLit "Perhaps you intended to use -XDataKinds")
                _ -> ptext (sLit "it is defined and used in the same recursive group")
 \end{code}
 

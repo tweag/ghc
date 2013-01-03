@@ -52,24 +52,13 @@ endif
 $1_$2_$3_NON_HS_OBJS = $$($1_$2_$3_CMM_OBJS) $$($1_$2_$3_C_OBJS)  $$($1_$2_$3_S_OBJS) $$($1_$2_EXTRA_OBJS)
 $1_$2_$3_ALL_OBJS = $$($1_$2_$3_HS_OBJS) $$($1_$2_$3_NON_HS_OBJS)
 
-# The quadrupled $'s here are because the _v_LIB variables aren't
-# necessarily set when this part of the makefile is read.
-# These deps aren't technically necessary in themselves, but they
-# turn the dependencies of programs on libraries into transitive
-# dependencies.
-ifeq "$4" "0"
-$$($1_$2_$3_LIB) : $$(foreach dep,$$($1_$2_DEP_NAMES),$$$$(libraries/$$(dep)_dist-boot_v_LIB))
-else
-$$($1_$2_$3_LIB) : $$(foreach dep,$$($1_$2_DEP_NAMES),$$$$(libraries/$$(dep)_dist-install_v_LIB))
-endif
-
 ifeq "$3" "dyn"
 
 # Link a dynamic library
 # On windows we have to supply the extra libs this one links to when building it.
 ifeq "$$(HostOS_CPP)" "mingw32"
 $$($1_$2_$3_LIB) : $$($1_$2_$3_ALL_OBJS) $$(ALL_RTS_LIBS) $$($1_$2_$3_DEPS_LIBS)
-	$$(call cmd,$1_$2_HC) $$($1_$2_$3_ALL_HC_OPTS) $$($1_$2_$3_ALL_OBJS) \
+	$$(call cmd,$1_$2_HC) $$($1_$2_$3_ALL_HC_OPTS) $$($1_$2_$3_GHC_LD_OPTS) $$($1_$2_$3_ALL_OBJS) \
          -shared -dynamic -dynload deploy \
 	 $$(addprefix -l,$$($1_$2_EXTRA_LIBRARIES)) \
          -no-auto-link-packages \
@@ -79,7 +68,7 @@ $$($1_$2_$3_LIB) : $$($1_$2_$3_ALL_OBJS) $$(ALL_RTS_LIBS) $$($1_$2_$3_DEPS_LIBS)
 
 else
 $$($1_$2_$3_LIB) : $$($1_$2_$3_ALL_OBJS) $$(ALL_RTS_LIBS) $$($1_$2_$3_DEPS_LIBS)
-	$$(call cmd,$1_$2_HC) $$($1_$2_$3_ALL_HC_OPTS) $$($1_$2_$3_ALL_OBJS) \
+	$$(call cmd,$1_$2_HC) $$($1_$2_$3_ALL_HC_OPTS) $$($1_$2_$3_GHC_LD_OPTS) $$($1_$2_$3_ALL_OBJS) \
          -shared -dynamic -dynload deploy \
 	 $$(addprefix -l,$$($1_$2_EXTRA_LIBRARIES)) $$(addprefix -L,$$($1_$2_EXTRA_LIBDIRS)) \
          -no-auto-link-packages \

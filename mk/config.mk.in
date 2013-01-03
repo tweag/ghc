@@ -132,21 +132,25 @@ endif
 PlatformSupportsSharedLibs = $(if $(filter $(TARGETPLATFORM),\
 	$(SharedLibsPlatformList)),YES,NO)
 
-SharedLibsByDefaultPlatformList =               \
-                         x86_64-unknown-linux   \
-                         x86_64-apple-darwin
-
-# DYANMIC_BY_DEFAULT says whether this compiler will default to
+# DYNAMIC_BY_DEFAULT says whether this compiler will default to
 # building dynamic executables, i.e. -dynamic is on.  We do this for
-# certain platforms because it lets us use the system dynamic linker
+# most platforms because it lets us use the system dynamic linker
 # instead of our own linker for GHCi.
 #
-# We do not enable this for an unregisterised build.  It is currently
-# unknown whether shared libraries (should) work when unregisterised.
+# Currently this isn't possible on Windows, and we have not yet enabled
+# it on i386 while we consider the performance implications.
 #
-DYNAMIC_BY_DEFAULT = $(strip $(if $(filter YES,$(GhcUnregisterised)),NO,\
-			  $(if $(filter $(TARGETPLATFORM),\
-				$(SharedLibsByDefaultPlatformList)),YES,NO)))
+ifeq "$(TargetOS_CPP)" "mingw32"
+DYNAMIC_BY_DEFAULT = NO
+else ifeq "$(TargetArch_CPP)" "i386"
+DYNAMIC_BY_DEFAULT = NO
+else
+DYNAMIC_BY_DEFAULT = YES
+endif
+
+# For now, we unconditionally disable dynamic-by-default, as the
+# cabal-install's that are in the wild don't handle it properly.
+DYNAMIC_BY_DEFAULT = NO
 
 # Build a compiler that will build *unregisterised* libraries and
 # binaries by default.  Unregisterised code is supposed to compile and
@@ -190,7 +194,7 @@ ArchSupportsGHCi=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(Targe
 ifeq "$(OsSupportsGHCi)$(ArchSupportsGHCi)" "YESYES"
 GhcWithInterpreter=YES
 else 
-GhcWithInterpreter=NO
+GhcWithInterpreter=$(if $(findstring YES,$(DYNAMIC_BY_DEFAULT)),YES,NO)
 endif
 
 # GhcEnableTablesNextToCode tells us whether the target architecture
@@ -360,9 +364,11 @@ LAX_DEPENDENCIES = NO
 # ----------------------------------------------------------------------------
 # Options for GHC's RTS
 
-# For an optimised RTS (you probably don't want to change these; we build
-# a debugging RTS by default now.  Use -debug to get it).
-GhcRtsHcOpts=-optc-O2
+# Build an optimised RTS.  Remember that we need to turn on
+# optimisation both for C code (-optc-O2) and .cmm code (-O2).  For
+# the debugging RTS flavour, rts/ghc.mk overrides these to turn off
+# optimisation.
+GhcRtsHcOpts=-optc-O2 -O2
 GhcRtsCcOpts=-fomit-frame-pointer
 
 # Include the front panel code?  Needs GTK+.
@@ -373,6 +379,13 @@ GhcRtsWithFrontPanel = NO
 GhcRtsWithPapi = NO
 PapiLibDir=
 PapiIncludeDir=
+
+# Configuration for libffi
+UseSystemLibFFI=@UseSystemLibFFI@
+# Flags to go into package.conf for rts
+FFILibDir=@FFILibDir@
+FFIIncludeDir=@FFIIncludeDir@
+
 
 ################################################################################
 #
@@ -686,7 +699,6 @@ CTAGS 			= $(ETAGS)
 #
 RAWCPP_FLAGS            = -undef -traditional
 FIND			= @FindCmd@
-SORT		        = @SortCmd@
 
 #
 # Sigh - the autoconf macro for INSTALL will subst a relative path to the fallback
@@ -703,7 +715,6 @@ LN_S			= @LN_S@
 MV			= mv
 NROFF			= nroff
 PERL 			= @PerlCmd@
-PYTHON			= @PythonCmd@
 PIC			= pic
 RANLIB			= @RANLIB@
 SED			= @SedCmd@

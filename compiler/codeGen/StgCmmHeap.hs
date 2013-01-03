@@ -41,12 +41,10 @@ import SMRep
 import Cmm
 import CmmUtils
 import CostCentre
-import Outputable
 import IdInfo( CafInfo(..), mayHaveCafRefs )
 import Module
 import DynFlags
 import FastString( mkFastString, fsLit )
-import Util
 
 import Control.Monad (when)
 import Data.Maybe (isJust)
@@ -182,8 +180,8 @@ mkStaticClosureFields dflags info_tbl ccs caf_refs payload
     is_caf = isThunkRep (cit_rep info_tbl)
 
     padding
-        | not is_caf = []
-        | otherwise  = ASSERT(null payload) [mkIntCLit dflags 0]
+        | is_caf && null payload = [mkIntCLit dflags 0]
+        | otherwise = []
 
     static_link_field
         | is_caf || staticClosureNeedsLink (mayHaveCafRefs caf_refs) info_tbl
@@ -366,21 +364,17 @@ entryHeapCheck' is_fastf node arity args code
 
               Function (fast): call (NativeNode) stg_gc_fun(fun, args)
 
-              Function (slow): R1 = fun
-                               call (slow) stg_gc_fun(args)
-               XXX: this is a bit naughty, we should really pass R1 as an
-               argument and use a special calling convention.
+              Function (slow): call (slow) stg_gc_fun(fun, args)
            -}
            gc_call upd
                | is_thunk
-                 = mkJump dflags stg_gc_enter1 [node] upd
+                 = mkJump dflags NativeNodeCall stg_gc_enter1 [node] upd
 
                | is_fastf
-                 = mkJump dflags stg_gc_fun (node : args') upd
+                 = mkJump dflags NativeNodeCall stg_gc_fun (node : args') upd
 
                | otherwise
-                 = mkAssign nodeReg node <*>
-                   mkForeignJump dflags Slow stg_gc_fun args' upd
+                 = mkJump dflags Slow stg_gc_fun (node : args') upd
 
        updfr_sz <- getUpdFrameOff
 
@@ -416,7 +410,7 @@ altOrNoEscapeHeapCheck checkYield regs code = do
       Nothing -> genericGC checkYield code
       Just gc -> do
         lret <- newLabelC
-        let (off, copyin) = copyInOflow dflags NativeReturn (Young lret) regs []
+        let (off, _, copyin) = copyInOflow dflags NativeReturn (Young lret) regs []
         lcont <- newLabelC
         emitOutOfLine lret (copyin <*> mkBranch lcont)
         emitLabel lcont

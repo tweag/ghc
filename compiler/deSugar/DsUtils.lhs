@@ -67,6 +67,7 @@ import TysWiredIn
 import BasicTypes
 import UniqSet
 import UniqSupply
+import Module
 import PrelNames
 import Outputable
 import SrcLoc
@@ -315,10 +316,14 @@ mkCoAlgCaseMatchResult dflags var ty match_alts
     mk_case fail = do alts <- mapM (mk_alt fail) sorted_alts
                       return (mkWildCase (Var var) (idType var) ty (mk_default fail ++ alts))
 
-    mk_alt fail (con, args, MatchResult _ body_fn) = do
-          body <- body_fn fail
-          us <- newUniqueSupply
-          return (mkReboxingAlt (uniqsFromSupply us) con args body)
+    mk_alt fail (con, args, MatchResult _ body_fn)
+      = do { body <- body_fn fail
+           ; case dataConBoxer con of {
+                Nothing -> return (DataAlt con, args, body) ;
+                Just (DCB boxer) -> 
+        do { us <- newUniqueSupply
+           ; let (rep_ids, binds) = initUs_ us (boxer ty_args args)
+           ; return (DataAlt con, rep_ids, mkLets binds body) } } }
 
     mk_default fail | exhaustive_case = []
 		    | otherwise       = [(DEFAULT, [], fail)]
@@ -759,7 +764,7 @@ mkOptTickBox (Just tickish) e = Tick tickish e
 mkBinaryTickBox :: Int -> Int -> CoreExpr -> DsM CoreExpr
 mkBinaryTickBox ixT ixF e = do
        uq <- newUnique 	
-       this_mod <- getModuleDs
+       this_mod <- getModule
        let bndr1 = mkSysLocal (fsLit "t1") uq boolTy
        let
            falseBox = Tick (HpcTick this_mod ixF) (Var falseDataConId)

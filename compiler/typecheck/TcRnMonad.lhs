@@ -306,6 +306,15 @@ getGhcMode = do { env <- getTopEnv; return (ghcMode (hsc_dflags env)) }
 \end{code}
 
 \begin{code}
+withDoDynamicToo :: TcRnIf gbl lcl a -> TcRnIf gbl lcl a
+withDoDynamicToo m = do env <- getEnv
+                        let dflags = extractDynFlags env
+                            dflags' = doDynamicToo dflags
+                            env' = replaceDynFlags env dflags'
+                        setEnv env' m
+\end{code}
+
+\begin{code}
 getEpsVar :: TcRnIf gbl lcl (TcRef ExternalPackageState)
 getEpsVar = do { env <- getTopEnv; return (hsc_EPS env) }
 
@@ -480,9 +489,6 @@ dumpOptTcRn flag doc = whenDOptM flag (dumpTcRn doc)
 %************************************************************************
 
 \begin{code}
-getModule :: TcRn Module
-getModule = do { env <- getGblEnv; return (tcg_mod env) }
-
 setModule :: Module -> TcRn a -> TcRn a
 setModule mod thing_inside = updGblEnv (\env -> env { tcg_mod = mod }) thing_inside
 
