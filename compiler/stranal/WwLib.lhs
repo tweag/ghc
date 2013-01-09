@@ -11,7 +11,7 @@
 --     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
 
-module WwLib ( mkWwBodies, mkWWstr, mkWorkerArgs ) where
+module WwLib ( mkWwBodies, mkWWstr, mkWorkerArgs, deepSplitProductType_maybe ) where
 
 #include "HsVersions.h"
 
@@ -36,7 +36,7 @@ import Literal		( absentLiteralOf )
 import TyCon
 import UniqSupply
 import Unique
-import Util		( zipWithEqual )
+import Util
 import Outputable
 import DynFlags
 import FastString
@@ -370,7 +370,6 @@ mkWWstr dflags (arg : args) = do
 
 Note [Unpacking arguments with product and polymorphic demands]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 The argument is unpacked in a case if it has a product type and has a
 strict and used demand put on it. I.e., arguments, with demands such
 as the following ones:
@@ -378,7 +377,7 @@ as the following ones:
 <S,U(U, L)>
 <S(L,S),U>
 
-will be unpacked. Moreover, for argumentsm whose demand is <S,U> or
+will be unpacked. Moreover, for arguments whose demand is <S,U> or
 <S,H>, we take an advantage of the polymorphic nature of S and U and
 replicate the enclosed demand correspondingly (see definition of
 replicateDmd).
@@ -430,12 +429,9 @@ mkWWstr_one dflags arg
 	-- Unpack case, 
         -- see note [Unpacking arguments with product and polymorphic demands]
       d | isStrictDmd d
-        , isProdDmd d || isPolyDmd d
 	, Just (_arg_tycon, _tycon_arg_tys, data_con, inst_con_arg_tys) 
              <- deepSplitProductType_maybe (idType arg)
-        , cs <- if isProdDmd d then splitProdDmd d
-                  --  otherwise is polymorphic demand   
-                else replicateDmd (length inst_con_arg_tys) d 
+        , let cs = splitProdDmd (length inst_con_arg_tys) d
 	-> do uniqs <- getUniquesM
 	      let
 	        unpk_args      = zipWith mk_ww_local uniqs inst_con_arg_tys

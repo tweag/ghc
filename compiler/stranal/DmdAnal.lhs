@@ -15,6 +15,7 @@ module DmdAnal ( dmdAnalProgram ) where
 
 import Var		( isTyVar )
 import DynFlags
+import WwLib            ( deepSplitProductType_maybe )
 import Demand	-- All of it
 import CoreSyn
 import Outputable
@@ -22,8 +23,7 @@ import VarEnv
 import BasicTypes	
 import FastString
 import Data.List
-import DataCon		( dataConTyCon, dataConRepStrictness, 
-                          deepSplitProductType_maybe )
+import DataCon		( dataConTyCon, dataConRepStrictness, isMarkedStrict )
 import Id
 import CoreUtils	( exprIsHNF, exprIsTrivial )
 import PprCore	
@@ -88,11 +88,9 @@ dmdAnalTopBind dflags sigs (Rec pairs)
 \begin{code}
 dmdAnal :: DynFlags -> AnalEnv -> Demand -> CoreExpr -> (DmdType, CoreExpr)
 
-dmdAnal _ _ dmd e | isAbs dmd
-  -- top demand does not provide any way to infer something interesting 
-  = (topDmdType, e)
-
-dmdAnal dflags env dmd e
+dmdAnal dflags env dmd e 
+  | isBot dmd  = (botDmdType, e)
+  | isAbs dmd  = (topDmdType, e)
   | not (isStrictDmd dmd)
   = let (res_ty, e') = dmdAnal dflags env evalDmd e
     in  -- compute as with a strict demand, return with a lazy demand
@@ -151,12 +149,19 @@ dmdAnal dflags sigs dmd (App fun (Coercion co))
 -- Lots of the other code is there to make this
 -- beautiful, compositional, application rule :-)
 dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
-  = let				-- [Type arg handled above]
+  = let	     		                -- [Type arg handled above]
 	(fun_ty, fun') 	  = dmdAnal dflags env (mkCallDmd dmd) fun
 	(arg_ty, arg') 	  = dmdAnal dflags env arg_dmd arg
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
     in
-    -- pprTrace "dmdAnal" (ppr arg $$ ppr fun_ty $$ ppr res_ty $$ ppr arg_ty) $
+    pprTrace "dmdAnal:app" (vcat
+         [ text "dmd =" <+> ppr dmd
+         , text "expr =" <+> ppr (App fun arg)
+         , text "fun dmd_ty =" <+> ppr fun_ty
+         , text "arg dmd =" <+> ppr arg_dmd
+         , text "arg dmd_ty =" <+> ppr arg_ty
+         , text "res dmd_ty =" <+> ppr res_ty
+         , text "overall res dmd_ty =" <+> ppr (res_ty `both` arg_ty) ])
     (res_ty `both` arg_ty, App fun' arg')
 
 dmdAnal dflags env dmd (Lam var body)
@@ -230,13 +235,17 @@ dmdAnal dflags env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
         res_ty             = alt_ty1 `both` scrut_ty
     in
 --    pprTrace "dmdAnal:Case1" (vcat [ text "scrut" <+> ppr scrut
---                                  , text "scrut_ty" <+> ppr scrut_ty
---                                  , text "alt_ty" <+> ppr alt_ty1
---                                  , text "res_ty" <+> ppr res_ty ]) $
+--                                   , text "dmd" <+> ppr dmd
+--                                   , text "alt_dmd" <+> ppr alt_dmd
+--                                   , text "case_bndr_dmd" <+> ppr (idDemandInfo case_bndr')
+--                                   , text "scrut_dmd" <+> ppr scrut_dmd
+--                                   , text "scrut_ty" <+> ppr scrut_ty
+--                                   , text "alt_ty" <+> ppr alt_ty1
+--                                   , text "res_ty" <+> ppr res_ty ]) $
     (res_ty, Case scrut' case_bndr' ty [alt'])
 
 dmdAnal dflags env dmd (Case scrut case_bndr ty alts)
-  = let
+  = let      -- Case expression with multiple alternatives
 	(alt_tys, alts')        = mapAndUnzip (dmdAnalAlt dflags env dmd) alts
 	(scrut_ty, scrut')      = dmdAnal dflags env evalDmd scrut
 	(alt_ty, case_bndr')	= annotateBndr (foldr lub botDmdType alt_tys) case_bndr
@@ -348,64 +357,21 @@ dmdTransform :: AnalEnv		-- The strictness environment
 	-- this function plus demand on its free variables
 
 dmdTransform env var dmd
+  | isDataConWorkId var		                 -- Data constructor
+  = dmdTransformDataConSig 
+       (idArity var) (idStrictness var) dmd
 
------- 	DATA CONSTRUCTOR
-  | isDataConWorkId var		-- Data constructor
-  = let 
-	StrictSig dmd_ty    = idStrictness var	-- It must have a strictness sig
-	DmdType _ _ con_res = dmd_ty
-	arity		    = idArity var
-    in
-    if arity == call_depth then		-- Saturated, so unleash the demand
-	let 
-           -- Important!  If we Keep the constructor application, then
-	   -- we need the demands the constructor places (always lazy)
-	   -- If not, we don't need to.  For example:
-	   --	f p@(x,y) = (p,y)	-- S(AL)
-	   --	g a b     = f (a,b)
-	   -- It's vital that we don't calculate Absent for a!
+  | isGlobalId var	                         -- Imported function
+  = dmdTransformSig (idStrictness var) dmd
 
-	   -- ds can be empty, when we are just seq'ing the thing
-	   -- If so we must make up a suitable bunch of demands
-
-           -- Invariant: res_dmd does not have call demand as its component
-	   arg_ds = if isPolyDmd res_dmd
-                    then replicateDmd arity res_dmd
-                    else splitProdDmd res_dmd
-	in
-	mkDmdType emptyDmdEnv arg_ds con_res
-		-- Must remember whether it's a product, hence con_res, not TopRes
-    else
-	topDmdType
-
------- 	IMPORTED FUNCTION
-  | isGlobalId var,		-- Imported function
-    let StrictSig dmd_ty = idStrictness var
-  = if dmdTypeDepth dmd_ty <= call_depth then	-- Saturated, so unleash the demand
-	dmd_ty
-    else
-	topDmdType
-
------- 	LOCAL LET/REC BOUND THING
-  | Just (StrictSig dmd_ty, top_lvl) <- lookupSigEnv env var
-  = let
-	fn_ty | dmdTypeDepth dmd_ty <= call_depth = dmd_ty 
-	      | otherwise   		          = deferType dmd_ty
-	-- NB: it's important to use deferType, and not just return topDmdType
-	-- Consider	let { f x y = p + x } in f 1
-	-- The application isn't saturated, but we must nevertheless propagate 
-	--	a lazy demand for p!  
-    in
-    if isTopLevel top_lvl then fn_ty	-- Don't record top level things
+  | Just (sig, top_lvl) <- lookupSigEnv env var  -- Local letrec bound thing
+  , let fn_ty = dmdTransformSig sig dmd
+  = if isTopLevel top_lvl           
+    then fn_ty	-- Don't record top level things
     else addVarDmd fn_ty var dmd
 
------- 	LOCAL NON-LET/REC BOUND THING
-  | otherwise	 		-- Default case
+  | otherwise	 		                 -- Local non-letrec-bound thing
   = unitVarDmd var dmd
-
-  where
-    (call_depth, res_dmd) = splitCallDmd dmd
-
 \end{code}
 
 %************************************************************************
@@ -435,7 +401,7 @@ dmdFix dflags top_lvl env orig_pairs
 	 -> [(Id,CoreExpr)] 		
 	 -> (SigEnv, DmdEnv, [(Id,CoreExpr)])
     loop n env pairs
-      = -- pprTrace "dmd loop" (ppr n <+> ppr bndrs $$ ppr env) $
+      = pprTrace "dmd loop" (ppr n <+> ppr bndrs $$ ppr env) $
         loop' n env pairs
 
     loop' n env pairs
@@ -551,7 +517,8 @@ addLazyFVs (DmdType fv ds res) lazy_fvs
 
 
 removeFV :: DmdEnv -> Var -> DmdResult -> (DmdEnv, Demand)
-removeFV fv id res = (fv', dmd)
+removeFV fv id res = -- pprTrace "rfv" (ppr id <+> ppr dmd $$ ppr fv)
+                     (fv', dmd)
 		where
 		  fv' = fv `delVarEnv` id
 		  dmd = lookupVarEnv fv id `orElse` deflt
@@ -629,7 +596,7 @@ mkSigTy dflags top_lvl rec_flag env id rhs dmd_ty
 
 mk_sig_ty :: DynFlags -> Bool -> RecFlag -> CoreExpr
           -> DmdType -> (DmdEnv, StrictSig)
-mk_sig_ty dflags thunk_cpr_ok _rec_flag rhs (DmdType fv dmds res) 
+mk_sig_ty _dflags thunk_cpr_ok _rec_flag rhs (DmdType fv dmds res) 
   = (lazy_fv, mkStrictSig dmd_ty)
 	-- Re unused never_inline, see Note [NOINLINE and strictness]
   where
@@ -640,7 +607,7 @@ mk_sig_ty dflags thunk_cpr_ok _rec_flag rhs (DmdType fv dmds res)
     strict_fv = filterUFM isStrictDmd         fv
 
     -- Set the unpacking strategy
-    final_dmds = setUnpackStrategy dflags dmds
+    final_dmds = dmds -- setUnpackStrategy dflags dmds
 
 
     ignore_cpr_info = not (exprIsHNF rhs || thunk_cpr_ok)
@@ -653,7 +620,7 @@ The unpack strategy determines whether we'll *really* unpack the argument,
 or whether we'll just remember its strictness.  If unpacking would give
 rise to a *lot* of worker args, we may decide not to unpack after all.
 
-\begin{code}
+
 setUnpackStrategy :: DynFlags -> [Demand] -> [Demand]
 setUnpackStrategy dflags ds
   = snd (go (maxWorkerArgs dflags - nonAbsentArgs ds) ds)
@@ -663,17 +630,16 @@ setUnpackStrategy dflags ds
        -> (Int, [Demand])	-- Args remaining after subcomponents of [Demand] are unpacked
 
     go n (d:ds)   
-        | isProdDmd d && isStrictDmd d
+        | isStrictDmd d
+        , Just cs <- splitProdDmd_maybe d
+        , let (n'',cs') = go n' cs
+	      n' = n + 1 - non_abs_args
+		-- Add one to the budget 'cos we drop the top-level arg
+	      non_abs_args = nonAbsentArgs cs
+		-- Delete # of non-absent args to which we'll now be committed
         = if n' >= 0 
           then (mkProdDmd cs') `cons` go n'' ds
           else d `cons` go n ds
-	where
-          cs = splitProdDmd d
-	  (n'',cs') = go n' cs
-	  n' = n + 1 - non_abs_args
-		-- Add one to the budget 'cos we drop the top-level arg
-	  non_abs_args = nonAbsentArgs cs
-		-- Delete # of non-absent args to which we'll now be committed
 				
     go n (d:ds) = d `cons` go n ds
     go n []     = (n,[])
@@ -684,7 +650,7 @@ nonAbsentArgs :: [Demand] -> Int
 nonAbsentArgs []	         = 0
 nonAbsentArgs (d : ds) | isAbs d = nonAbsentArgs ds
 nonAbsentArgs (_   : ds)         = 1 + nonAbsentArgs ds
-\end{code}
+
 
 Note [CPR for thunks]
 ~~~~~~~~~~~~~~~~~~~~~
@@ -916,17 +882,17 @@ nonVirgin sigs = AE { ae_sigs = sigs, ae_virgin = False }
 extendSigsWithLam :: AnalEnv -> Id -> AnalEnv
 -- Extend the AnalEnv when we meet a lambda binder
 extendSigsWithLam env id
-  | ae_virgin env        = extendAnalEnv NotTopLevel env id cprSig
-       -- See Note [Optimistic CPR in the "virgin" case]
+  | ae_virgin env   -- See Note [Optimistic CPR in the "virgin" case]
+  = extendAnalEnv NotTopLevel env id cprSig
+
   | isStrictDmd dmd_info
-  , Just (_tycon, _, _, _) <- deepSplitProductType_maybe $ idType id
-  -- , isProductTyCon _tycon  
-  , isProdUsage dmd_info = extendAnalEnv NotTopLevel env id cprSig
+  , Just {} <- deepSplitProductType_maybe $ idType id
+  = extendAnalEnv NotTopLevel env id cprSig
        -- See Note [Initial CPR for strict binders]
-  | otherwise            = env
+
+  | otherwise = env
   where
     dmd_info = idDemandInfo id
-
 \end{code}
 
 Note [Initial CPR for strict binders]

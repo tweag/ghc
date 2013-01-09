@@ -42,7 +42,6 @@ import DynFlags         ( DynFlags(..) )
 import StaticFlags      ( opt_PprStyle_Debug )
 import Maybes           ( orElse, catMaybes, isJust, isNothing )
 import Demand
-import DmdAnal          ( both )
 import Serialized       ( deserializeWithData )
 import Util
 import Pair
@@ -1436,8 +1435,7 @@ calcSpecStrictness fn qvars pats
     go_one :: DmdEnv -> Demand -> CoreExpr -> DmdEnv
     go_one env d   (Var v) = extendVarEnv_C both env v d
     go_one env d e 
-    	   | isProdDmd d
-           , ds <- splitProdDmd d
+           | Just ds <- splitProdDmd_maybe d
            , (Var _, args) <- collectArgs e = go env ds args
     go_one env _         _ = env
 \end{code}
