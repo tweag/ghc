@@ -1845,7 +1845,7 @@ rebuildCase _flags env scrut case_bndr alts@[(_, bndrs, rhs)] cont
            Just (n_args, res) -> simplExprF (zapSubstEnv env)
                                             (mkApps res (drop n_args out_args))
                                             cont
-	   Nothing -> reallyRebuildCase _flags env scrut case_bndr alts cont }
+           Nothing -> reallyRebuildCase _flags env scrut case_bndr alts cont }
 
 rebuildCase _flags env scrut case_bndr alts cont
   = reallyRebuildCase _flags env scrut case_bndr alts cont

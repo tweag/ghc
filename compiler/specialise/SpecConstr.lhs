@@ -1375,37 +1375,36 @@ spec_one :: ScEnv
 spec_one env fn arg_bndrs body (call_pat@(qvars, pats), rule_number)
   = do  { spec_uniq <- getUniqueUs
         ; let spec_env = extendScSubstList (extendScInScope env qvars)
-				           (arg_bndrs `zip` pats)
-	      fn_name    = idName fn
-	      fn_loc     = nameSrcSpan fn_name
+                                           (arg_bndrs `zip` pats)
+              fn_name    = idName fn
+              fn_loc     = nameSrcSpan fn_name
               fn_occ     = nameOccName fn_name
               spec_occ   = mkSpecOcc fn_occ
-	      dflags     = sc_dflags env
               -- We use fn_occ rather than fn in the rule_name string
               -- as we don't want the uniq to end up in the rule, and
               -- hence in the ABI, as that can cause spurious ABI
               -- changes (#4012).
               rule_name  = mkFastString ("SC:" ++ occNameString fn_occ ++ show rule_number)
-	      spec_name  = mkInternalName spec_uniq spec_occ fn_loc
---	; pprTrace "{spec_one" (ppr (sc_count env) <+> ppr fn <+> ppr pats <+> text "-->" <+> ppr spec_name) $ 
---	  return ()
+              spec_name  = mkInternalName spec_uniq spec_occ fn_loc
+--      ; pprTrace "{spec_one" (ppr (sc_count env) <+> ppr fn <+> ppr pats <+> text "-->" <+> ppr spec_name) $ 
+--        return ()
 
-	-- Specialise the body
-	; (spec_usg, spec_body) <- scExpr spec_env body
+        -- Specialise the body
+        ; (spec_usg, spec_body) <- scExpr spec_env body
 
---	; pprTrace "done spec_one}" (ppr fn) $ 
---	  return ()
+--      ; pprTrace "done spec_one}" (ppr fn) $ 
+--        return ()
 
-		-- And build the results
-	; let spec_id = mkLocalId spec_name (mkPiTypes spec_lam_args body_ty) 
-	      		     -- See Note [Transfer strictness]
-	      		     `setIdStrictness` spec_str
-			     `setIdArity` count isId spec_lam_args
+                -- And build the results
+        ; let spec_id = mkLocalId spec_name (mkPiTypes spec_lam_args body_ty) 
+                             -- See Note [Transfer strictness]
+                             `setIdStrictness` spec_str
+                             `setIdArity` count isId spec_lam_args
               spec_str   = calcSpecStrictness fn spec_lam_args pats
                 -- Conditionally use result of new worker-wrapper transform
-	      (spec_lam_args, spec_call_args) = mkWorkerArgs qvars False body_ty
-	      	-- Usual w/w hack to avoid generating 
-	      	-- a spec_rhs of unlifted type and no args
+              (spec_lam_args, spec_call_args) = mkWorkerArgs qvars False body_ty
+                -- Usual w/w hack to avoid generating 
+                -- a spec_rhs of unlifted type and no args
 
               spec_rhs   = mkLams spec_lam_args spec_body
               body_ty    = exprType spec_body

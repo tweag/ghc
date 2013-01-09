@@ -464,7 +464,7 @@ worthSplittingFun ds res
   where
     -- See Note [Worker-wrapper for bottoming functions]
     worth_it (JD {strd=HyperStr, absd=a})     = isUsed a  -- A Hyper-strict argument, safe to do W/W
-    -- See not [Worthy functions for Worker-Wrapper split]    
+    -- See Note [Worthy functions for Worker-Wrapper split]    
     worth_it (JD {absd=Abs})                  = True      -- Absent arg
     worth_it (JD {strd=SProd _})              = True      -- Product arg to evaluate
     worth_it (JD {strd=Str, absd=UProd _})    = True      -- Strictly used product arg
@@ -486,7 +486,6 @@ worthSplittingThunk dmd res
 
 Note [Worthy functions for Worker-Wrapper split]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-
 For non-bottoming functions a worker-wrapper transformation takes into
 account several possibilities to decide if the function is worthy for
 splitting:

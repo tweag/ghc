@@ -24,29 +24,29 @@
 
 module Id (
         -- * The main types
-	Var, Id, isId,
+        Var, Id, isId,
 
-	-- ** Simple construction
-	mkGlobalId, mkVanillaGlobal, mkVanillaGlobalWithInfo,
-	mkLocalId, mkLocalIdWithInfo, mkExportedLocalId,
-	mkSysLocal, mkSysLocalM, mkUserLocal, mkUserLocalM,
-	mkTemplateLocals, mkTemplateLocalsNum, mkTemplateLocal,
-	mkWorkerId, mkWiredInIdName,
+        -- ** Simple construction
+        mkGlobalId, mkVanillaGlobal, mkVanillaGlobalWithInfo,
+        mkLocalId, mkLocalIdWithInfo, mkExportedLocalId,
+        mkSysLocal, mkSysLocalM, mkUserLocal, mkUserLocalM,
+        mkTemplateLocals, mkTemplateLocalsNum, mkTemplateLocal,
+        mkWorkerId, mkWiredInIdName,
 
-	-- ** Taking an Id apart
-	idName, idType, idUnique, idInfo, idDetails, idRepArity,
-	recordSelectorFieldLabel,
+        -- ** Taking an Id apart
+        idName, idType, idUnique, idInfo, idDetails, idRepArity,
+        recordSelectorFieldLabel,
 
-	-- ** Modifying an Id
-	setIdName, setIdUnique, Id.setIdType, 
-	setIdExported, setIdNotExported, 
-	globaliseId, localiseId, 
-	setIdInfo, lazySetIdInfo, modifyIdInfo, maybeModifyIdInfo,
-	zapLamIdInfo, zapDemandIdInfo, zapFragileIdInfo, transferPolyIdInfo,
-	zapIdStrictness,
+        -- ** Modifying an Id
+        setIdName, setIdUnique, Id.setIdType, 
+        setIdExported, setIdNotExported, 
+        globaliseId, localiseId, 
+        setIdInfo, lazySetIdInfo, modifyIdInfo, maybeModifyIdInfo,
+        zapLamIdInfo, zapDemandIdInfo, zapFragileIdInfo, transferPolyIdInfo,
+        zapIdStrictness,
 
         -- ** Predicates on Ids
-	isImplicitId, isDeadBinder, 
+        isImplicitId, isDeadBinder, 
         isStrictId,
         isExportedId, isLocalId, isGlobalId,
         isRecordSelector, isNaughtyRecordSelector,
@@ -64,32 +64,32 @@ module Id (
         idInlinePragma, setInlinePragma, modifyInlinePragma,
         idInlineActivation, setInlineActivation, idRuleMatchInfo,
 
-	-- ** One-shot lambdas
-	isOneShotBndr, isOneShotLambda, isStateHackType,
-	setOneShotLambda, clearOneShotLambda,
+        -- ** One-shot lambdas
+        isOneShotBndr, isOneShotLambda, isStateHackType,
+        setOneShotLambda, clearOneShotLambda,
 
-	-- ** Reading 'IdInfo' fields
-	idArity, 
-	idUnfolding, realIdUnfolding,
-	idSpecialisation, idCoreRules, idHasRules,
-	idCafInfo,
-	idLBVarInfo,
-	idOccInfo,
+        -- ** Reading 'IdInfo' fields
+        idArity, 
+        idUnfolding, realIdUnfolding,
+        idSpecialisation, idCoreRules, idHasRules,
+        idCafInfo,
+        idLBVarInfo,
+        idOccInfo,
 
-	-- ** Writing 'IdInfo' fields
-	setIdUnfoldingLazily,
-	setIdUnfolding,
-	setIdArity,
+        -- ** Writing 'IdInfo' fields
+        setIdUnfoldingLazily,
+        setIdUnfolding,
+        setIdArity,
 
-	setIdSpecialisation,
-	setIdCafInfo,
-	setIdOccInfo, zapIdOccInfo,
+        setIdSpecialisation,
+        setIdCafInfo,
+        setIdOccInfo, zapIdOccInfo,
 
-	setIdDemandInfo, 
-	setIdStrictness, 
+        setIdDemandInfo, 
+        setIdStrictness, 
 
-	idDemandInfo, 
-	idStrictness,
+        idDemandInfo, 
+        idStrictness,
 
     ) where
 
@@ -126,18 +126,18 @@ import Util
 import StaticFlags
 
 -- infixl so you can say (id `set` a `set` b)
-infixl 	1 `setIdUnfoldingLazily`,
-	  `setIdUnfolding`,
-	  `setIdArity`,
-	  `setIdOccInfo`,
+infixl  1 `setIdUnfoldingLazily`,
+          `setIdUnfolding`,
+          `setIdArity`,
+          `setIdOccInfo`,
 
-	  `setIdSpecialisation`,
-	  `setInlinePragma`,
-	  `setInlineActivation`,
-	  `idCafInfo`,
+          `setIdSpecialisation`,
+          `setInlinePragma`,
+          `setInlineActivation`,
+          `idCafInfo`,
 
-	  `setIdDemandInfo`,
-	  `setIdStrictness`
+          `setIdDemandInfo`,
+          `setIdStrictness`
 \end{code}
 
 %************************************************************************
@@ -730,7 +730,7 @@ transferPolyIdInfo old_id abstract_wrt new_id
     new_strictness  = increaseStrictSigArity arity_increase old_strictness
 
     transfer new_info = new_info `setArityInfo` new_arity
- 			         `setInlinePragInfo` old_inline_prag
-				 `setOccInfo` old_occ_info
+                                 `setInlinePragInfo` old_inline_prag
+                                 `setOccInfo` old_occ_info
                                  `setStrictnessInfo` new_strictness
 \end{code}

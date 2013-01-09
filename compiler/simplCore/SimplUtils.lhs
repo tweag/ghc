@@ -362,13 +362,13 @@ interestingCallContext cont
 -------------------
 mkArgInfo :: DynFlags 
           -> Id
-	  -> [CoreRule]	-- Rules for function
-	  -> Int	-- Number of value args
-	  -> SimplCont	-- Context of the call
-	  -> ArgInfo
+          -> [CoreRule] -- Rules for function
+          -> Int        -- Number of value args
+          -> SimplCont  -- Context of the call
+          -> ArgInfo
 
 mkArgInfo _flags fun rules n_val_args call_cont
-  | n_val_args < idArity fun		-- Note [Unsaturated functions]
+  | n_val_args < idArity fun            -- Note [Unsaturated functions]
   = ArgInfo { ai_fun = fun, ai_args = [], ai_type = fun_ty
             , ai_rules = rules, ai_encl = False
             , ai_strs = vanilla_stricts
