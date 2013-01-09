@@ -320,8 +320,8 @@ mkDictSelId dflags no_unf name clas
 
     strict_sig = mkStrictSig (mkTopDmdType [arg_dmd] topRes)
     arg_dmd | new_tycon = evalDmd
-               | otherwise = mkProdDmd [ if the_arg_id == id then evalDmd else absDmd
-                                          | id <- arg_ids ]
+            | otherwise = mkProdDmd [ if the_arg_id == id then evalDmd else absDmd
+                                    | id <- arg_ids ]
 
 
     tycon      	   = classTyCon clas
@@ -385,7 +385,7 @@ mkDataConWorkId wkr_name data_con
     wkr_arity = dataConRepArity data_con
     wkr_info  = noCafIdInfo
                 `setArityInfo`       wkr_arity
-                `setStrictnessInfo`  Just wkr_sig
+                `setStrictnessInfo`  wkr_sig
                 `setUnfoldingInfo`   evaldUnfolding  -- Record that it's evaluated,
                                                      -- even if arity = 0
 
@@ -487,7 +487,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
                     	     -- applications are treated as values
 		    	 `setInlinePragInfo`    alwaysInlinePragma
                     	 `setUnfoldingInfo`     wrap_unf
-                    	 `setStrictnessInfo`    Just wrap_sig
+                    	 `setStrictnessInfo`    wrap_sig
                     	     -- We need to get the CAF info right here because TidyPgm
                     	     -- does not tidy the IdInfo of implicit bindings (like the wrapper)
                     	     -- so it not make sure that the CAF info is sane
