@@ -559,7 +559,8 @@ tc_iface_decl _ _ (IfaceAxiom {ifName = ax_occ, ifTyCon = tc, ifAxBranches = bra
           = bindIfaceTyVars tv_bndrs $ \ tvs -> do
             { tc_lhs <- mapM tcIfaceType lhs
             ; tc_rhs <- tcIfaceType rhs
-            ; let branch = CoAxBranch { cab_tvs = tvs
+            ; let branch = CoAxBranch { cab_loc = noSrcSpan
+                                      , cab_tvs = tvs
                                       , cab_lhs = tc_lhs
                                       , cab_rhs = tc_rhs }
             ; return branch }
@@ -653,8 +654,8 @@ look at it.
 tcIfaceInst :: IfaceClsInst -> IfL ClsInst
 tcIfaceInst (IfaceClsInst { ifDFun = dfun_occ, ifOFlag = oflag
                           , ifInstCls = cls, ifInstTys = mb_tcs })
-  = do { dfun    <- forkM (ptext (sLit "Dict fun") <+> ppr dfun_occ) $
-                     tcIfaceExtId dfun_occ
+  = do { dfun <- forkM (ptext (sLit "Dict fun") <+> ppr dfun_occ) $
+                 tcIfaceExtId dfun_occ
        ; let mb_tcs' = map (fmap ifaceTyConName) mb_tcs
        ; return (mkImportedInstance cls mb_tcs' dfun oflag) }
 

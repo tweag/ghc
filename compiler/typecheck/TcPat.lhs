@@ -31,6 +31,7 @@ import Var
 import Name
 import TcEnv
 import TcMType
+import TcValidity( arityErr )
 import TcType
 import TcUnify
 import TcHsType
@@ -350,7 +351,8 @@ tc_lpats :: PatEnv
        	 -> TcM a	
        	 -> TcM ([LPat TcId], a)
 tc_lpats penv pats tys thing_inside 
-  =  tcMultiple (\(p,t) -> tc_lpat p t) 
+  = ASSERT2( equalLength pats tys, ppr pats $$ ppr tys )
+    tcMultiple (\(p,t) -> tc_lpat p t) 
                 (zipEqual "tc_lpats" pats tys)
                 penv thing_inside 
 

@@ -755,8 +755,8 @@ pp_data_defn :: OutputableBndr name
                   -> HsDataDefn name
                   -> SDoc 
 pp_data_defn pp_hdr (HsDataDefn { dd_ND = new_or_data, dd_ctxt = L _ context
-                              , dd_kindSig = mb_sig 
-                              , dd_cons = condecls, dd_derivs = derivings })
+                                , dd_kindSig = mb_sig 
+                                , dd_cons = condecls, dd_derivs = derivings })
   | null condecls
   = ppr new_or_data <+> pp_hdr context <+> pp_sig
 
@@ -818,15 +818,17 @@ pprConDecl decl@(ConDecl { con_details = InfixCon ty1 ty2, con_res = ResTyGADT {
 
 %************************************************************************
 %*                                                                      *
-\subsection[InstDecl]{An instance declaration}
+                Instance declarations
 %*                                                                      *
 %************************************************************************
 
 \begin{code}
--- see note [Family instance equation groups]
+----------------- Type synonym family instances -------------
+
+-- See note [Family instance equation groups]
 type LTyFamInstEqn name = Located (TyFamInstEqn name)
 
--- | one equation in a family instance declaration
+-- | One equation in a family instance declaration
 data TyFamInstEqn name   
   = TyFamInstEqn
        { tfie_tycon :: Located name
@@ -839,12 +841,15 @@ data TyFamInstEqn name
 type LTyFamInstDecl name = Located (TyFamInstDecl name)
 data TyFamInstDecl name 
   = TyFamInstDecl
-       { tfid_eqns     :: [LTyFamInstEqn name] -- ^ list of (possibly-overlapping) eqns 
-       , tfid_group :: Bool                  -- was this declared with the "where" syntax?
-       , tfid_fvs      :: NameSet }          -- the group is type-checked as one,
-                                             -- so one NameSet will do
-               -- INVARIANT: tfid_group == False --> length tfid_eqns == 1
+       { tfid_eqns  :: [LTyFamInstEqn name] -- ^ list of (possibly-overlapping) eqns 
+       , tfid_group :: Bool                 -- Was this declared with the "where" syntax?
+       , tfid_fvs   :: NameSet }            -- The group is type-checked as one,
+                                            --   so one NameSet will do
+       -- INVARIANT: tfid_group == False --> length tfid_eqns == 1
   deriving( Typeable, Data )
+
+
+----------------- Data family instances -------------
 
 type LDataFamInstDecl name = Located (DataFamInstDecl name)
 data DataFamInstDecl name
@@ -857,15 +862,8 @@ data DataFamInstDecl name
        , dfid_fvs   :: NameSet }                    -- free vars for dependency analysis
   deriving( Typeable, Data )
 
-type LInstDecl name = Located (InstDecl name)
-data InstDecl name  -- Both class and family instances
-  = ClsInstD    
-      { cid_inst  :: ClsInstDecl name }
-  | DataFamInstD              -- data family instance
-      { dfid_inst :: DataFamInstDecl name }
-  | TyFamInstD              -- type family instance
-      { tfid_inst :: TyFamInstDecl name }
-  deriving (Data, Typeable)
+
+----------------- Class instances -------------
 
 type LClsInstDecl name = Located (ClsInstDecl name)
 data ClsInstDecl name
@@ -880,6 +878,18 @@ data ClsInstDecl name
       }
   deriving (Data, Typeable)
 
+
+----------------- Instances of all kinds -------------
+
+type LInstDecl name = Located (InstDecl name)
+data InstDecl name  -- Both class and family instances
+  = ClsInstD    
+      { cid_inst  :: ClsInstDecl name }
+  | DataFamInstD              -- data family instance
+      { dfid_inst :: DataFamInstDecl name }
+  | TyFamInstD              -- type family instance
+      { tfid_inst :: TyFamInstDecl name }
+  deriving (Data, Typeable)
 \end{code}
 
 Note [Family instance declaration binders]
@@ -911,12 +921,18 @@ It is not possible for this list to have 0 elements --
 
 \begin{code}
 instance (OutputableBndr name) => Outputable (TyFamInstDecl name) where
-  ppr (TyFamInstDecl { tfid_group = False, tfid_eqns = [lEqn] })
-    = let eqn = unLoc lEqn in
-        ptext (sLit "type instance") <+> (ppr eqn)
-  ppr (TyFamInstDecl { tfid_eqns = eqns })
-    = hang (ptext (sLit "type instance where"))
+  ppr = pprTyFamInstDecl TopLevel
+
+pprTyFamInstDecl :: OutputableBndr name => TopLevelFlag -> TyFamInstDecl name -> SDoc
+pprTyFamInstDecl top_lvl (TyFamInstDecl { tfid_group = False, tfid_eqns = [eqn] })
+   = ptext (sLit "type") <+> ppr_instance_keyword top_lvl <+> (ppr eqn)
+pprTyFamInstDecl top_lvl (TyFamInstDecl { tfid_eqns = eqns })
+   = hang (ptext (sLit "type") <+> ppr_instance_keyword top_lvl <+> ptext (sLit "where"))
         2 (vcat (map ppr eqns))
+
+ppr_instance_keyword :: TopLevelFlag -> SDoc
+ppr_instance_keyword TopLevel    = ptext (sLit "instance")
+ppr_instance_keyword NotTopLevel = empty
 
 instance (OutputableBndr name) => Outputable (TyFamInstEqn name) where
   ppr (TyFamInstEqn { tfie_tycon = tycon
@@ -925,10 +941,15 @@ instance (OutputableBndr name) => Outputable (TyFamInstEqn name) where
     = (pp_fam_inst_lhs tycon pats []) <+> equals <+> (ppr rhs)
 
 instance (OutputableBndr name) => Outputable (DataFamInstDecl name) where
-  ppr (DataFamInstDecl { dfid_tycon = tycon
-                       , dfid_pats  = pats
-                       , dfid_defn  = defn })
-    = pp_data_defn ((ptext (sLit "instance") <+>) . (pp_fam_inst_lhs tycon pats)) defn
+  ppr = pprDataFamInstDecl TopLevel
+
+pprDataFamInstDecl :: OutputableBndr name => TopLevelFlag -> DataFamInstDecl name -> SDoc
+pprDataFamInstDecl top_lvl (DataFamInstDecl { dfid_tycon = tycon
+                                            , dfid_pats  = pats  
+                                            , dfid_defn  = defn })
+  = pp_data_defn pp_hdr defn
+  where
+    pp_hdr ctxt = ppr_instance_keyword top_lvl <+> pp_fam_inst_lhs tycon pats ctxt
 
 pprDataFamInstFlavour :: DataFamInstDecl name -> SDoc
 pprDataFamInstFlavour (DataFamInstDecl { dfid_defn = (HsDataDefn { dd_ND = nd }) })
@@ -938,14 +959,15 @@ instance (OutputableBndr name) => Outputable (ClsInstDecl name) where
     ppr (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = binds
                      , cid_sigs = sigs, cid_tyfam_insts = ats
                      , cid_datafam_insts = adts })
-      | null sigs && null ats && isEmptyBag binds  -- No "where" part
+      | null sigs, null ats, null adts, isEmptyBag binds  -- No "where" part
       = top_matter
 
       | otherwise       -- Laid out
       = vcat [ top_matter <+> ptext (sLit "where")
-             , nest 2 $ pprDeclList (map ppr ats ++
-                                     map ppr adts ++
-                                     pprLHsBindsForUser binds sigs) ]
+             , nest 2 $ pprDeclList $
+               map (pprTyFamInstDecl NotTopLevel . unLoc)   ats ++
+               map (pprDataFamInstDecl NotTopLevel . unLoc) adts ++
+               pprLHsBindsForUser binds sigs ]
       where
         top_matter = ptext (sLit "instance") <+> ppr inst_ty
 

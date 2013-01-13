@@ -32,6 +32,7 @@ import HscTypes
 import BuildTyCl
 import TcRnMonad
 import TcEnv
+import TcValidity
 import TcHsSyn
 import TcBinds( tcRecSelBinds )
 import TcTyDecls
@@ -811,21 +812,22 @@ tcSynFamInstNames :: Located Name -> [Located Name] -> TcM ()
 tcSynFamInstNames (L _ first) names
   = do { let badNames = filter ((/= first) . unLoc) names
        ; mapM_ (failLocated (wrongNamesInInstGroup first)) badNames }
-    where failLocated :: (Name -> SDoc) -> Located Name -> TcM ()
-          failLocated msg_fun (L loc name)
-            = setSrcSpan loc $
-              failWithTc (msg_fun name)
+  where 
+    failLocated :: (Name -> SDoc) -> Located Name -> TcM ()
+    failLocated msg_fun (L loc name)
+      = setSrcSpan loc $
+        failWithTc (msg_fun name)
 
 tcTyFamInstEqn :: TyCon -> LTyFamInstEqn Name -> TcM ([TyVar], [Type], Type, SrcSpan)
 tcTyFamInstEqn fam_tc 
     (L loc (TyFamInstEqn { tfie_pats = pats, tfie_rhs = hs_ty }))
   = setSrcSpan loc $
-    do { tcFamTyPats fam_tc pats (discardResult . (tcCheckLHsType hs_ty)) $
+    tcFamTyPats fam_tc pats (discardResult . (tcCheckLHsType hs_ty)) $
        \tvs' pats' res_kind -> 
     do { rhs_ty <- tcCheckLHsType hs_ty res_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
        ; traceTc "tcSynFamInstEqn" (ppr fam_tc <+> (ppr tvs' $$ ppr pats' $$ ppr rhs_ty))
-       ; return (tvs', pats', rhs_ty, loc) } }
+       ; return (tvs', pats', rhs_ty, loc) }
 
 kcDataDefn :: HsDataDefn Name -> TcKind -> TcM ()
 -- Used for 'data instance' only
@@ -834,14 +836,6 @@ kcDataDefn (HsDataDefn { dd_ctxt = ctxt, dd_cons = cons, dd_kindSig = mb_kind })
   = do	{ _ <- tcHsContext ctxt
 	; mapM_ (wrapLocM kcConDecl) cons
         ; kcResultKind mb_kind res_k }
-
-{- TODO remove
-kcTyRhs :: HsType Name -> 
--- Used for 'data instance' and 'type instance' only
--- Ordinary 'data' and 'type' are handed by kcTyClDec and kcSynDecls resp
-kcTyDefn (TySynonym { td_synRhs = rhs_ty }) res_k
-  = discardResult (tcCheckLHsType rhs_ty res_k)
--}
 
 ------------------
 kcResultKind :: Maybe (LHsKind Name) -> Kind -> TcM ()
@@ -907,11 +901,11 @@ tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tva
                       ; tcHsArgTys (quotes (ppr fam_tc)) arg_pats arg_kinds }
        ; let all_args = fam_arg_kinds ++ typats
 
-            -- Find free variables (after zonking)
-       ; tkvs <- zonkTyVarsAndFV (tyVarsOfTypes all_args)
-
-            -- Turn them into skolems, so that we don't subsequently 
+            -- Find free variables (after zonking) and turn
+            -- them into skolems, so that we don't subsequently 
             -- replace a meta kind var with AnyK
+            -- Very like kindGeneralize
+       ; tkvs <- zonkTyVarsAndFV (tyVarsOfTypes all_args)
        ; qtkvs <- zonkQuantifiedTyVars (varSetElems tkvs)
 
             -- Zonk the patterns etc into the Type world
@@ -919,7 +913,7 @@ tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tva
        ; all_args'    <- zonkTcTypeToTypes ze all_args
        ; res_kind'    <- zonkTcTypeToType  ze res_kind
 
-       ; traceTc "tcFamPats" (pprTvBndrs qtkvs' $$ ppr all_args' $$ ppr res_kind')
+       ; traceTc "tcFamTyPats" (pprTvBndrs qtkvs' $$ ppr all_args' $$ ppr res_kind')
        ; tcExtendTyVarEnv qtkvs' $
          thing_inside qtkvs' all_args' res_kind' }
 \end{code}
@@ -1077,7 +1071,7 @@ tcConDecl new_or_data rep_tycon res_tmpl 	-- Data types
                 -- free kind variables of the type, for kindGeneralize to work on
 
              -- Generalise the kind variables (returning quantifed TcKindVars)
-             -- and quanify the type variables (substiting their kinds)
+             -- and quantify the type variables (substiting their kinds)
        ; kvs <- kindGeneralize (tyVarsOfType pretend_con_ty) (map getName tvs)
        ; tvs <- zonkQuantifiedTyVars tvs
 
@@ -1503,7 +1497,7 @@ checkValidClass cls
 		-- type variable.  What a mess!
 
     check_at_defs (fam_tc, defs)
-      = do { mapM_ (\(ATD _tvs pats rhs _loc) -> checkValidFamInst pats rhs) defs
+      = do { mapM_ (\(ATD tvs pats rhs _loc) -> checkValidTyFamInst fam_tc tvs pats rhs) defs
            ; tcAddDefaultAssocDeclCtxt (tyConName fam_tc) $ 
              mapM_ (check_loc_at_def fam_tc) defs }
 
