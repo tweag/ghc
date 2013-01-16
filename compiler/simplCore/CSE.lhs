@@ -242,12 +242,12 @@ cseExpr env (Case scrut bndr ty alts) = Case scrut' bndr'' ty alts'
 				   where
                                      alts' = cseAlts env2 scrut' bndr bndr'' alts
 				     (env1, bndr') = addBinder env bndr
-                                     (env2, scrut') = cseRhs env1 (bndr', scrut)
-                                        -- Note [CSE for case expressions]
 				     bndr'' = zapIdOccInfo bndr'
 					-- The swizzling from Note [Case binders 2] may
 					-- cause a dead case binder to be alive, so we
 					-- play safe here and bring them all to life
+                                     (env2, scrut') = cseRhs env1 (bndr'', scrut)
+                                        -- Note [CSE for case expressions]
 
 cseAlts :: CSEnv -> OutExpr -> InBndr -> InBndr -> [InAlt] -> [OutAlt]
 
