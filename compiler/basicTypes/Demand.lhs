@@ -621,18 +621,18 @@ resTypeArgDmd _              = top
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
             Whether a demand justifies a w/w split
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
 worthSplittingFun :: [Demand] -> DmdResult -> Bool
-		-- True <=> the wrapper would not be an identity function
+                -- True <=> the wrapper would not be an identity function
 worthSplittingFun ds res
   = any worth_it ds || returnsCPR res
-	-- worthSplitting returns False for an empty list of demands,
-	-- and hence do_strict_ww is False if arity is zero and there is no CPR
+        -- worthSplitting returns False for an empty list of demands,
+        -- and hence do_strict_ww is False if arity is zero and there is no CPR
   where
     -- See Note [Worker-wrapper for bottoming functions]
     worth_it (JD {strd=HyperStr, absd=a})     = isUsed a  -- A Hyper-strict argument, safe to do W/W
@@ -641,19 +641,19 @@ worthSplittingFun ds res
     worth_it (JD {strd=SProd _})              = True      -- Product arg to evaluate
     worth_it (JD {strd=Str, absd=UProd _})    = True      -- Strictly used product arg
     worth_it (JD {strd=Str, absd=UHead})      = True 
-    worth_it _    	                      = False
+    worth_it _                                = False
 
-worthSplittingThunk :: Demand	        -- Demand on the thunk
-		    -> DmdResult	-- CPR info for the thunk
-		    -> Bool
+worthSplittingThunk :: Demand           -- Demand on the thunk
+                    -> DmdResult        -- CPR info for the thunk
+                    -> Bool
 worthSplittingThunk dmd res
   = worth_it dmd || returnsCPR res
   where
-	-- Split if the thing is unpacked
+        -- Split if the thing is unpacked
     worth_it (JD {strd=SProd _, absd=a})   = someCompUsed a
     worth_it (JD {strd=Str, absd=UProd _}) = True   
         -- second component points out that at least some of     
-    worth_it _           	           = False
+    worth_it _                             = False
 \end{code}
 
 Note [Worthy functions for Worker-Wrapper split]
@@ -710,10 +710,10 @@ We used not to split if the result is bottom.
 [Justification:  there's no efficiency to be gained.]
 
 But it's sometimes bad not to make a wrapper.  Consider
-	fw = \x# -> let x = I# x# in case e of
-					p1 -> error_fn x
-					p2 -> error_fn x
-					p3 -> the real stuff
+        fw = \x# -> let x = I# x# in case e of
+                                        p1 -> error_fn x
+                                        p2 -> error_fn x
+                                        p3 -> the real stuff
 The re-boxing code won't go away unless error_fn gets a wrapper too.
 [We don't do reboxing now, but in general it's better to pass an
 unboxed thing to f, and have it reboxed in the error cases....]
