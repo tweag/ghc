@@ -8,14 +8,17 @@
 
 module Demand (
         LatticeLike, top, bot, lub, both, pre,
-        StrDmd(..), strBot, strTop, strStr, strProd, strCall,
-        AbsDmd(..), absBot, absTop, absProd,
-        Demand, JointDmd(..), mkJointDmd, mkProdDmd, 
-        isTop, isBot, isAbs, absDmd,
-        DmdType(..), topDmdType, botDmdType, mkDmdType, mkTopDmdType, 
-                dmdTypeDepth, 
+        StrDmd, strBot, strTop, strStr, strProd, strCall,
+        AbsDmd, absBot, absTop, absProd,
+        Demand, JointDmd, mkProdDmd, absDmd,
+        isTopDmd, isBotDmd, isAbsDmd, isSeqDmd, 
+
+        DmdType(..), dmdTypeDepth, 
+        topDmdType, botDmdType, mkDmdType, mkTopDmdType, 
+
         DmdEnv, emptyDmdEnv,
-        DmdResult(..), CPRResult(..), PureResult(..), 
+
+        DmdResult, CPRResult, PureResult, 
         isBotRes, isTopRes, resTypeArgDmd, 
         topRes, botRes, cprRes,
         appIsBottom, isBottomingSig, pprIfaceStrictSig, returnsCPR, 
@@ -27,8 +30,11 @@ module Demand (
         evalDmd, vanillaCall, isStrictDmd, splitCallDmd, splitDmdTy,
         someCompUsed, isUsed, isUsedDmd,
         defer, deferType, deferEnv, modifyEnv,
+
         isProdDmd, splitProdDmd, splitProdDmd_maybe, peelCallDmd, mkCallDmd,
-        dmdTransformSig, dmdTransformDataConSig
+        dmdTransformSig, dmdTransformDataConSig,
+
+        worthSplittingFun, worthSplittingThunk
      ) where
 
 #include "HsVersions.h"
@@ -41,14 +47,6 @@ import Util
 import BasicTypes
 import Binary
 import Maybes                    ( expectJust )
-
-{-! for StrDmd derive: Binary !-}
-{-! for AbsDmd derive: Binary !-}
-{-! for Demand derive: Binary !-}
-{-! for DmdResult derive: Binary !-}
-{-! for DmdType derive: Binary !-}
-{-! for StrictSig derive: Binary !-}
-
 \end{code}
 
 %************************************************************************
@@ -179,26 +177,6 @@ seqStrDmdList :: [StrDmd] -> ()
 seqStrDmdList [] = ()
 seqStrDmdList (d:ds) = seqStrDmd d `seq` seqStrDmdList ds
 
--- Serialization
-instance Binary StrDmd where
-  put_ bh HyperStr     = do putByte bh 0
-  put_ bh Lazy         = do putByte bh 1
-  put_ bh Str          = do putByte bh 2
-  put_ bh (SCall s)    = do putByte bh 3
-                            put_ bh s
-  put_ bh (SProd sx)   = do putByte bh 4
-                            put_ bh sx  
-  get bh = do 
-         h <- getByte bh
-         case h of
-           0 -> do return strBot
-           1 -> do return strTop
-           2 -> do return strStr
-           3 -> do s  <- get bh
-                   return $ strCall s
-           _ -> do sx <- get bh
-                   return $ strProd sx
-
 -- Splitting polymorphic demands
 splitStrProdDmd :: Int -> StrDmd -> [StrDmd]
 splitStrProdDmd n Lazy         = replicate n Lazy
@@ -226,7 +204,7 @@ would get
   StrDmd = Str  = SProd [Lazy, Lazy]
   AbsDmd = Used = UProd [Used, Used]
 But with the joint demand of <Str, Used> doesn't convey any clue
-that there is a product involved, and so the WorkWrap.worthSplittingFun
+that there is a product involved, and so the worthSplittingFun
 will not fire.  (We'd need to use the type as well to make it fire.)
 Moreover, consider
   g h p@(_,_) = h p
@@ -324,32 +302,6 @@ seqAbsDmdList :: [AbsDmd] -> ()
 seqAbsDmdList [] = ()
 seqAbsDmdList (d:ds) = seqAbsDmd d `seq` seqAbsDmdList ds
 
--- Serialization
-instance Binary AbsDmd where
-    put_ bh Abs         = do 
-            putByte bh 0
-    put_ bh Used        = do 
-            putByte bh 1
-    put_ bh UHead       = do 
-            putByte bh 2
-    put_ bh (UCall u)   = do
-            putByte bh 3
-            put_ bh u
-    put_ bh (UProd ux) = do
-            putByte bh 4
-            put_ bh ux
-
-    get  bh = do
-            h <- getByte bh
-            case h of 
-              0 -> return absBot       
-              1 -> return absTop
-              2 -> return absHead
-              3 -> do u  <- get bh
-                      return $ absCall u  
-              _ -> do ux <- get bh
-                      return $ absProd ux
-
 -- Splitting polymorphic demands
 splitAbsProdDmd :: Int -> AbsDmd -> [AbsDmd]
 splitAbsProdDmd n Abs        = replicate n Abs
@@ -405,17 +357,21 @@ instance LatticeLike JointDmd where
   both (JD {strd = s1, absd = a1}) 
        (JD {strd = s2, absd = a2}) = mkJointDmd (both s1 s2) $ both a1 a2            
 
-isTop :: JointDmd -> Bool
-isTop (JD {strd = Lazy, absd = Used}) = True
-isTop _                             = False 
+isTopDmd :: JointDmd -> Bool
+isTopDmd (JD {strd = Lazy, absd = Used}) = True
+isTopDmd _                               = False 
 
-isBot :: JointDmd -> Bool
-isBot (JD {strd = HyperStr, absd = Abs}) = True
-isBot _                                = False 
+isBotDmd :: JointDmd -> Bool
+isBotDmd (JD {strd = HyperStr, absd = Abs}) = True
+isBotDmd _                                  = False 
   
-isAbs :: JointDmd -> Bool
-isAbs (JD {absd = Abs})  = True   -- The strictness part can be HyperStr 
-isAbs _                  = False  -- for a bottom demand
+isAbsDmd :: JointDmd -> Bool
+isAbsDmd (JD {absd = Abs})  = True   -- The strictness part can be HyperStr 
+isAbsDmd _                  = False  -- for a bottom demand
+
+isSeqDmd :: JointDmd -> Bool
+isSeqDmd (JD {strd=Str, absd=UHead}) = True
+isSeqDmd _                           = False
 
 absDmd :: JointDmd
 absDmd = mkJointDmd top bot 
@@ -427,14 +383,6 @@ seqDemand (JD {strd = x, absd = y}) = x `seq` y `seq` ()
 seqDemandList :: [JointDmd] -> ()
 seqDemandList [] = ()
 seqDemandList (d:ds) = seqDemand d `seq` seqDemandList ds
-
--- Serialization
-instance Binary JointDmd where
-    put_ bh (JD {strd = x, absd = y}) = do put_ bh x; put_ bh y
-    get  bh = do 
-              x <- get bh
-              y <- get bh
-              return $ mkJointDmd x y
 
 isStrictDmd :: Demand -> Bool
 isStrictDmd (JD {strd = x}) = x /= top
@@ -585,16 +533,6 @@ instance LatticeLike PureResult where
      both x y | x == y = x 
      both _ _          = bot
 
-instance Binary PureResult where
-    put_ bh BotRes       = do putByte bh 0
-    put_ bh TopRes       = do putByte bh 1
-
-    get  bh = do
-            h <- getByte bh
-            case h of 
-              0 -> return bot       
-              _ -> return top
-
 
 ------------------------------------------------------------------------
 -- Constructed Product Result                                             
@@ -612,16 +550,6 @@ instance LatticeLike CPRResult where
      lub _ _           = top
      both x y | x == y = x 
      both _ _          = bot
-
-instance Binary CPRResult where
-    put_ bh RetCPR       = do putByte bh 0
-    put_ bh NoCPR        = do putByte bh 1
-
-    get  bh = do
-            h <- getByte bh
-            case h of 
-              0 -> return bot       
-              _ -> return top
 
 ------------------------------------------------------------------------
 -- Combined demand result                                             --
@@ -653,13 +581,6 @@ instance Outputable DmdResult where
   ppr (DR {res=TopRes, cpr=RetCPR}) = char 'm'   --    DDDr without ambiguity
   ppr (DR {res=BotRes}) = char 'b'   
   ppr _ = empty   -- Keep these distinct from Demand letters
-
-instance Binary DmdResult where
-    put_ bh (DR {res=x, cpr=y}) = do put_ bh x; put_ bh y
-    get  bh = do 
-              x <- get bh
-              y <- get bh
-              return $ mkDmdResult x y
 
 mkDmdResult :: PureResult -> CPRResult -> DmdResult
 mkDmdResult BotRes RetCPR = botRes
@@ -698,6 +619,105 @@ resTypeArgDmd :: DmdResult -> Demand
 resTypeArgDmd r | isBotRes r = bot
 resTypeArgDmd _              = top
 \end{code}
+
+%************************************************************************
+%*									*
+            Whether a demand justifies a w/w split
+%*									*
+%************************************************************************
+
+\begin{code}
+worthSplittingFun :: [Demand] -> DmdResult -> Bool
+		-- True <=> the wrapper would not be an identity function
+worthSplittingFun ds res
+  = any worth_it ds || returnsCPR res
+	-- worthSplitting returns False for an empty list of demands,
+	-- and hence do_strict_ww is False if arity is zero and there is no CPR
+  where
+    -- See Note [Worker-wrapper for bottoming functions]
+    worth_it (JD {strd=HyperStr, absd=a})     = isUsed a  -- A Hyper-strict argument, safe to do W/W
+    -- See Note [Worthy functions for Worker-Wrapper split]    
+    worth_it (JD {absd=Abs})                  = True      -- Absent arg
+    worth_it (JD {strd=SProd _})              = True      -- Product arg to evaluate
+    worth_it (JD {strd=Str, absd=UProd _})    = True      -- Strictly used product arg
+    worth_it (JD {strd=Str, absd=UHead})      = True 
+    worth_it _    	                      = False
+
+worthSplittingThunk :: Demand	        -- Demand on the thunk
+		    -> DmdResult	-- CPR info for the thunk
+		    -> Bool
+worthSplittingThunk dmd res
+  = worth_it dmd || returnsCPR res
+  where
+	-- Split if the thing is unpacked
+    worth_it (JD {strd=SProd _, absd=a})   = someCompUsed a
+    worth_it (JD {strd=Str, absd=UProd _}) = True   
+        -- second component points out that at least some of     
+    worth_it _           	           = False
+\end{code}
+
+Note [Worthy functions for Worker-Wrapper split]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+For non-bottoming functions a worker-wrapper transformation takes into
+account several possibilities to decide if the function is worthy for
+splitting:
+
+1. The result is of product type and the function is strict in some
+(or even all) of its arguments. The check that the argument is used is
+more of sanity nature, since strictness implies usage. Example:
+
+f :: (Int, Int) -> Int
+f p = (case p of (a,b) -> a) + 1
+
+should be splitted to
+
+f :: (Int, Int) -> Int
+f p = case p of (a,b) -> $wf a
+
+$wf :: Int -> Int
+$wf a = a + 1
+
+2. Sometimes it also makes sense to perform a WW split if the
+strictness analysis cannot say for sure if the function is strict in
+components of its argument. Then we reason according to the inferred
+usage information: if the function uses its product argument's
+components, the WW split can be beneficial. Example:
+
+g :: Bool -> (Int, Int) -> Int
+g c p = case p of (a,b) -> 
+          if c then a else b
+
+The function g is strict in is argument p and lazy in its
+components. However, both components are used in the RHS. The idea is
+since some of the components (both in this case) are used in the
+right-hand side, the product must presumable be taken apart.
+
+Therefore, the WW transform splits the function g to
+
+g :: Bool -> (Int, Int) -> Int
+g c p = case p of (a,b) -> $wg c a b
+
+$wg :: Bool -> Int -> Int -> Int
+$wg c a b = if c then a else b
+
+3. If an argument is absent, it would be silly to pass it to a
+function, hence the worker with reduced arity is generated.
+
+
+Note [Worker-wrapper for bottoming functions]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We used not to split if the result is bottom.
+[Justification:  there's no efficiency to be gained.]
+
+But it's sometimes bad not to make a wrapper.  Consider
+	fw = \x# -> let x = I# x# in case e of
+					p1 -> error_fn x
+					p2 -> error_fn x
+					p3 -> the real stuff
+The re-boxing code won't go away unless error_fn gets a wrapper too.
+[We don't do reboxing now, but in general it's better to pass an
+unboxed thing to f, and have it reboxed in the error cases....]
+
 
 %************************************************************************
 %*                                                                      *
@@ -809,16 +829,6 @@ instance Outputable DmdType where
       pp_elt (uniq, dmd) = ppr uniq <> text "->" <> ppr dmd
       fv_elts = ufmToList fv
 
-instance Binary DmdType where
-  -- Ignore DmdEnv when spitting out the DmdType
-  put_ bh (DmdType _ ds dr) 
-       = do put_ bh ds 
-            put_ bh dr
-  get bh 
-      = do ds <- get bh 
-           dr <- get bh 
-           return (DmdType emptyDmdEnv ds dr)
-
 emptyDmdEnv :: VarEnv Demand
 emptyDmdEnv = emptyVarEnv
 
@@ -876,7 +886,7 @@ modifyEnv need_to_modify zapper env1 env2 env
 
 %************************************************************************
 %*                                                                      *
-\subsection{Demand signature}
+                     Demand signatures
 %*                                                                      *
 %************************************************************************
 
@@ -940,14 +950,6 @@ topSig = StrictSig topDmdType
 botSig = StrictSig botDmdType
 cprSig = StrictSig cprDmdType
 
--- Serialization
-instance Binary StrictSig where
-    put_ bh (StrictSig aa) = do
-            put_ bh aa
-    get bh = do
-          aa <- get bh
-          return (StrictSig aa)
-        
 dmdTransformSig :: StrictSig -> Demand -> DmdType
 -- (dmdTransformSig fun_sig dmd) considers a call to a function whose
 -- signature is fun_sig, with demand dmd.  We return the demand
@@ -956,11 +958,11 @@ dmdTransformSig (StrictSig dmd_ty@(DmdType _ arg_ds _)) dmd
   = go arg_ds dmd
   where
     go [] dmd 
-      | isBot dmd = bot     -- Transform bottom demand to bottom type
-      | otherwise = dmd_ty  -- Saturated
-    go (_:as) dmd = case peelCallDmd dmd of
-                      Just dmd' -> go as dmd'
-                      Nothing   -> deferType dmd_ty
+      | isBotDmd dmd = bot     -- Transform bottom demand to bottom type
+      | otherwise    = dmd_ty  -- Saturated
+    go (_:as) dmd    = case peelCallDmd dmd of
+                        Just dmd' -> go as dmd'
+                        Nothing   -> deferType dmd_ty
         -- NB: it's important to use deferType, and not just return topDmdType
         -- Consider     let { f x y = p + x } in f 1
         -- The application isn't saturated, but we must nevertheless propagate 
@@ -1008,3 +1010,107 @@ pprIfaceStrictSig (StrictSig (DmdType _ dmds res))
   = hcat (map ppr dmds) <> ppr res
 \end{code}
 
+
+%************************************************************************
+%*                                                                      *
+                     Serialisation
+%*                                                                      *
+%************************************************************************
+
+
+\begin{code}
+instance Binary StrDmd where
+  put_ bh HyperStr     = do putByte bh 0
+  put_ bh Lazy         = do putByte bh 1
+  put_ bh Str          = do putByte bh 2
+  put_ bh (SCall s)    = do putByte bh 3
+                            put_ bh s
+  put_ bh (SProd sx)   = do putByte bh 4
+                            put_ bh sx  
+  get bh = do 
+         h <- getByte bh
+         case h of
+           0 -> do return strBot
+           1 -> do return strTop
+           2 -> do return strStr
+           3 -> do s  <- get bh
+                   return $ strCall s
+           _ -> do sx <- get bh
+                   return $ strProd sx
+
+instance Binary AbsDmd where
+    put_ bh Abs         = do 
+            putByte bh 0
+    put_ bh Used        = do 
+            putByte bh 1
+    put_ bh UHead       = do 
+            putByte bh 2
+    put_ bh (UCall u)   = do
+            putByte bh 3
+            put_ bh u
+    put_ bh (UProd ux) = do
+            putByte bh 4
+            put_ bh ux
+
+    get  bh = do
+            h <- getByte bh
+            case h of 
+              0 -> return absBot       
+              1 -> return absTop
+              2 -> return absHead
+              3 -> do u  <- get bh
+                      return $ absCall u  
+              _ -> do ux <- get bh
+                      return $ absProd ux
+
+instance Binary JointDmd where
+    put_ bh (JD {strd = x, absd = y}) = do put_ bh x; put_ bh y
+    get  bh = do 
+              x <- get bh
+              y <- get bh
+              return $ mkJointDmd x y
+
+instance Binary PureResult where
+    put_ bh BotRes       = do putByte bh 0
+    put_ bh TopRes       = do putByte bh 1
+
+    get  bh = do
+            h <- getByte bh
+            case h of 
+              0 -> return bot       
+              _ -> return top
+
+instance Binary StrictSig where
+    put_ bh (StrictSig aa) = do
+            put_ bh aa
+    get bh = do
+          aa <- get bh
+          return (StrictSig aa)
+
+instance Binary DmdType where
+  -- Ignore DmdEnv when spitting out the DmdType
+  put_ bh (DmdType _ ds dr) 
+       = do put_ bh ds 
+            put_ bh dr
+  get bh 
+      = do ds <- get bh 
+           dr <- get bh 
+           return (DmdType emptyDmdEnv ds dr)
+
+instance Binary CPRResult where
+    put_ bh RetCPR       = do putByte bh 0
+    put_ bh NoCPR        = do putByte bh 1
+
+    get  bh = do
+            h <- getByte bh
+            case h of 
+              0 -> return bot       
+              _ -> return top
+
+instance Binary DmdResult where
+    put_ bh (DR {res=x, cpr=y}) = do put_ bh x; put_ bh y
+    get  bh = do 
+              x <- get bh
+              y <- get bh
+              return $ mkDmdResult x y
+\end{code}

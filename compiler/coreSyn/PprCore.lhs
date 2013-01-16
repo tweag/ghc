@@ -340,7 +340,7 @@ pprIdBndrInfo info
     has_prag = not (isDefaultInlinePragma prag_info)
     has_occ  = not (isNoOcc occ_info)
 
-    has_dmd = not $ isTop dmd_info 
+    has_dmd = not $ isTopDmd dmd_info 
     has_lbv  = not (hasNoLBVarInfo lbv_info)
 
     doc = showAttributes

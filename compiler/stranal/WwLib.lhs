@@ -395,24 +395,19 @@ mkWWstr_one dflags arg
   | isTyVar arg
   = return ([arg],  nop_fn, nop_fn)
 
-  | otherwise
-  = case idDemandInfo arg of
-
-	-- Absent case.  We can't always handle absence for arbitrary
-        -- unlifted types, so we need to choose just the cases we can
-	-- (that's what mk_absent_let does)
-      JD {absd=Abs} | Just work_fn <- mk_absent_let dflags arg
-          -> return ([], nop_fn, work_fn)
+  | isAbsDmd dmd
+  , Just work_fn <- mk_absent_let dflags arg
+     -- Absent case.  We can't always handle absence for arbitrary
+     -- unlifted types, so we need to choose just the cases we can
+     --- (that's what mk_absent_let does)
+  = return ([], nop_fn, work_fn)
       
-	-- `seq` demand; evaluate in wrapper in the hope
-	-- of dropping seqs in the worker
-      JD {strd=Str, absd=UHead}
-	-> let
-		arg_w_unf = arg `setIdUnfolding` evaldUnfolding
-		-- Tell the worker arg that it's sure to be evaluated
-		-- so that internal seqs can be dropped
-	   in
-	   return ([arg_w_unf], mk_seq_case arg, nop_fn)
+  | isSeqDmd dmd  -- `seq` demand; evaluate in wrapper in the hope
+                  -- of dropping seqs in the worker
+  = let arg_w_unf = arg `setIdUnfolding` evaldUnfolding
+	  -- Tell the worker arg that it's sure to be evaluated
+          -- so that internal seqs can be dropped
+    in return ([arg_w_unf], mk_seq_case arg, nop_fn)
 	  	-- Pass the arg, anyway, even if it is in theory discarded
 		-- Consider
 		--	f x y = x `seq` y
@@ -426,27 +421,27 @@ mkWWstr_one dflags arg
 		-- But the Evald flag is pretty weird, and I worry that it might disappear
 		-- during simplification, so for now I've just nuked this whole case
 
-	-- Unpack case, 
+  	-- Unpack case, 
         -- see note [Unpacking arguments with product and polymorphic demands]
-      d | isStrictDmd d
-	, Just (_arg_tycon, _tycon_arg_tys, data_con, inst_con_arg_tys) 
+  | isStrictDmd dmd
+  , Just (_arg_tycon, _tycon_arg_tys, data_con, inst_con_arg_tys) 
              <- deepSplitProductType_maybe (idType arg)
-        , let cs = splitProdDmd (length inst_con_arg_tys) d
-	-> do uniqs <- getUniquesM
-	      let
+  =  do { uniqs <- getUniquesM
+	; let   cs             = splitProdDmd (length inst_con_arg_tys) dmd
 	        unpk_args      = zipWith mk_ww_local uniqs inst_con_arg_tys
 	        unpk_args_w_ds = zipWithEqual "mkWWstr" set_worker_arg_info unpk_args cs
 	        unbox_fn       = mkUnpackCase (sanitiseCaseBndr arg) (Var arg) unpk_args data_con
 	        rebox_fn       = Let (NonRec arg con_app) 
 	        con_app        = mkProductBox unpk_args (idType arg)
-	      (worker_args, wrap_fn, work_fn) <- mkWWstr dflags unpk_args_w_ds
-	      return (worker_args, unbox_fn . wrap_fn, work_fn . rebox_fn) 
+	 ; (worker_args, wrap_fn, work_fn) <- mkWWstr dflags unpk_args_w_ds
+	 ; return (worker_args, unbox_fn . wrap_fn, work_fn . rebox_fn) }
 	  		   -- Don't pass the arg, rebox instead
 			
-	-- Other cases
-      _other_demand -> return ([arg], nop_fn, nop_fn)
+  | otherwise	-- Other cases
+  = return ([arg], nop_fn, nop_fn)
 
   where
+    dmd = idDemandInfo arg
 	-- If the wrapper argument is a one-shot lambda, then
 	-- so should (all) the corresponding worker arguments be
 	-- This bites when we do w/w on a case join point
@@ -459,8 +454,6 @@ mkWWstr_one dflags arg
 nop_fn :: CoreExpr -> CoreExpr
 nop_fn body = body
 \end{code}
-
-
 
 \begin{code}
 mkUnpackCase ::  Id -> CoreExpr -> [Id] -> DataCon -> CoreExpr -> CoreExpr
@@ -540,7 +533,10 @@ mkWWcpr :: Type                              -- function body type
                    CoreExpr -> CoreExpr,	     -- New worker
 		   Type)			-- Type of worker's body 
 
-mkWWcpr body_ty (DR {res=TopRes,cpr=RetCPR})
+mkWWcpr body_ty res
+    | not (returnsCPR res) -- No CPR info
+    = return (id, id, body_ty)
+
     | not (isClosedAlgType body_ty)
     = WARN( True, 
             text "mkWWcpr: non-algebraic or open body type" <+> ppr body_ty )
@@ -580,9 +576,6 @@ mkWWcpr body_ty (DR {res=TopRes,cpr=RetCPR})
       (_arg_tycon, _tycon_arg_tys, data_con, con_arg_tys) = deepSplitProductType "mkWWcpr" body_ty
       n_con_args  = length con_arg_tys
       con_arg_ty1 = head con_arg_tys
-
-mkWWcpr body_ty _other		-- No CPR info
-    = return (id, id, body_ty)
 
 -- If the original function looked like
 --	f = \ x -> _scc_ "foo" E

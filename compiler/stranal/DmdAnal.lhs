@@ -137,8 +137,8 @@ simpleDmdAnal dflags env res_ty e
 
 dmdAnal :: DynFlags -> AnalEnv -> Demand -> CoreExpr -> (DmdType, CoreExpr)
 dmdAnal dflags env dmd e 
-  | isBot dmd  		  = simpleDmdAnal dflags env botDmdType e
-  | isAbs dmd  		  = simpleDmdAnal dflags env topDmdType e
+  | isBotDmd dmd  	  = simpleDmdAnal dflags env botDmdType e
+  | isAbsDmd dmd          = simpleDmdAnal dflags env topDmdType e
   | not (isStrictDmd dmd) = evalDmdAnal   dflags env            e
 
 dmdAnal _ _ _ (Lit lit)     = (topDmdType, Lit lit)
@@ -248,7 +248,7 @@ dmdAnal dflags env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 	--	x = (a, absent-error)
 	-- and that'll crash.
 	-- So at one stage I had:
-	--	dead_case_bndr		 = isAbs (idDemandInfo case_bndr')
+	--	dead_case_bndr		 = isAbsDmd (idDemandInfo case_bndr')
 	--	keepity | dead_case_bndr = Drop
 	--		| otherwise	 = Keep		
 	--
@@ -494,7 +494,7 @@ dmdAnalRhs dflags top_lvl rec_flag env (id, rhs)
   (lazy_fv, sig_ty)  = WARN( arity /= dmdTypeDepth rhs_dmd_ty && not (exprIsTrivial rhs), ppr id )
                        -- The RHS can be eta-reduced to just a variable, 
                        -- in which case we should not complain. 
-		       mkSigTy dflags top_lvl rec_flag env id rhs rhs_dmd_ty
+		       mkSigTy top_lvl rec_flag env id rhs rhs_dmd_ty
   id'		     = id `setIdStrictness` sig_ty
   sigs'		     = extendSigEnv top_lvl (sigEnv env) id sig_ty
 
@@ -608,81 +608,34 @@ annotateLamIdBndr dflags env (DmdType fv ds res) id
 
     (fv', dmd) = removeFV fv id res
 
-mkSigTy :: DynFlags -> TopLevelFlag -> RecFlag -> AnalEnv -> Id -> 
+mkSigTy :: TopLevelFlag -> RecFlag -> AnalEnv -> Id -> 
            CoreExpr -> DmdType -> (DmdEnv, StrictSig)
-mkSigTy dflags top_lvl rec_flag env id rhs dmd_ty 
-  = mk_sig_ty dflags thunk_cpr_ok rec_flag rhs dmd_ty
-  where
-    id_dmd = idDemandInfo id
-
-    -- is it okay or not to assign CPR 
-    -- (not okay in the first pass)
-    thunk_cpr_ok   -- See Note [CPR for thunks]
-        | isTopLevel top_lvl       = False	-- Top level things don't get
-						-- their demandInfo set at all
-	| isRec rec_flag	   = False	-- Ditto recursive things
-        | ae_virgin env            = True       -- Optimistic, first time round
-        -- See Note [Optimistic CPR in the "virgin" case]
-	| isStrictDmd id_dmd       = True
-	| otherwise 		   = False	
-
-mk_sig_ty :: DynFlags -> Bool -> RecFlag -> CoreExpr
-          -> DmdType -> (DmdEnv, StrictSig)
-mk_sig_ty _dflags thunk_cpr_ok _rec_flag rhs (DmdType fv dmds res) 
+mkSigTy top_lvl rec_flag env id rhs (DmdType fv dmds res)
   = (lazy_fv, mkStrictSig dmd_ty)
-	-- Re unused never_inline, see Note [NOINLINE and strictness]
+	-- See Note [NOINLINE and strictness]
   where
-    dmd_ty = mkDmdType strict_fv final_dmds res'
+    dmd_ty = mkDmdType strict_fv dmds res'
 
     -- See Note [Lazy and strict free variables]
     lazy_fv   = filterUFM (not . isStrictDmd) fv
     strict_fv = filterUFM isStrictDmd         fv
 
-    -- Set the unpacking strategy
-    final_dmds = dmds -- setUnpackStrategy dflags dmds
-
-
     ignore_cpr_info = not (exprIsHNF rhs || thunk_cpr_ok)
     res' = if returnsCPR res && ignore_cpr_info 
 	   then topRes
            else res 
+
+    -- Is it okay or not to assign CPR 
+    -- (not okay in the first pass)
+    thunk_cpr_ok   -- See Note [CPR for thunks]
+        | isTopLevel top_lvl       	= False	-- Top level things don't get
+				                -- their demandInfo set at all
+	| isRec rec_flag	   	= False	-- Ditto recursive things
+        | ae_virgin env            	= True  -- Optimistic, first time round
+        -- See Note [Optimistic CPR in the "virgin" case]
+	| isStrictDmd (idDemandInfo id) = True
+	| otherwise 		        = False	
 \end{code}
-
-The unpack strategy determines whether we'll *really* unpack the argument,
-or whether we'll just remember its strictness.  If unpacking would give
-rise to a *lot* of worker args, we may decide not to unpack after all.
-
-
-setUnpackStrategy :: DynFlags -> [Demand] -> [Demand]
-setUnpackStrategy dflags ds
-  = snd (go (maxWorkerArgs dflags - nonAbsentArgs ds) ds)
-  where
-    go :: Int 			-- Max number of args available for sub-components of [Demand]
-       -> [Demand]
-       -> (Int, [Demand])	-- Args remaining after subcomponents of [Demand] are unpacked
-
-    go n (d:ds)   
-        | isStrictDmd d
-        , Just cs <- splitProdDmd_maybe d
-        , let (n'',cs') = go n' cs
-	      n' = n + 1 - non_abs_args
-		-- Add one to the budget 'cos we drop the top-level arg
-	      non_abs_args = nonAbsentArgs cs
-		-- Delete # of non-absent args to which we'll now be committed
-        = if n' >= 0 
-          then (mkProdDmd cs') `cons` go n'' ds
-          else d `cons` go n ds
-				
-    go n (d:ds) = d `cons` go n ds
-    go n []     = (n,[])
-
-    cons d (n,ds) = (n, d:ds)
-
-nonAbsentArgs :: [Demand] -> Int
-nonAbsentArgs []	         = 0
-nonAbsentArgs (d : ds) | isAbs d = nonAbsentArgs ds
-nonAbsentArgs (_   : ds)         = 1 + nonAbsentArgs ds
-
 
 Note [CPR for thunks]
 ~~~~~~~~~~~~~~~~~~~~~
@@ -917,7 +870,7 @@ extendSigsWithLam env id
   | ae_virgin env   -- See Note [Optimistic CPR in the "virgin" case]
   = extendAnalEnv NotTopLevel env id cprSig
 
-  | isStrictDmd dmd_info
+  | isStrictDmd dmd_info  -- Might be bottom, first time round
   , Just {} <- deepSplitProductType_maybe $ idType id
   = extendAnalEnv NotTopLevel env id cprSig
        -- See Note [Initial CPR for strict binders]
