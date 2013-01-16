@@ -85,32 +85,64 @@ dmdAnalTopBind dflags sigs (Rec pairs)
 %*									*
 %************************************************************************
 
+Note [Ensure demand is strict]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+It's important not to analyse e with a lazy demand because
+a) When we encounter   case s of (a,b) -> 
+	we demand s with U(d1d2)... but if the overall demand is lazy
+	that is wrong, and we'd need to reduce the demand on s,
+	which is inconvenient
+b) More important, consider
+	f (let x = R in x+x), where f is lazy
+   We still want to mark x as demanded, because it will be when we
+   enter the let.  If we analyse f's arg with a Lazy demand, we'll
+   just mark x as Lazy
+c) The application rule wouldn't be right either
+   Evaluating (f x) in a L demand does *not* cause
+   evaluation of f in a C(L) demand!
+
+Note [Always analyse in virgin pass]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Tricky point: make sure that we analyse in the 'virgin' pass. Consider
+   rec { f acc x True  = f (...rec { g y = ...g... }...)
+         f acc x False = acc }
+In the virgin pass for 'f' we'll give 'f' a very strict (bottom) type.
+That might mean that we analyse the sub-expression containing the 
+E = "...rec g..." stuff in a bottom demand.  Suppose we *didn't analyse*
+E, but just retuned botType.  
+
+Then in the *next* (non-virgin) iteration for 'f', we might analyse E
+in a weaker demand, and that will trigger doing a fixpoint iteration
+for g.  But *because it's not the virgin pass* we won't start g's
+iteration at bottom.  Disaster.  (This happened in $sfibToList' of 
+nofib/spectral/fibheaps.)
+
+So in the virgin pass we make sure that we do analyse the expression
+at least once, to initialise its signatures.
+
 \begin{code}
+evalDmdAnal :: DynFlags -> AnalEnv -> CoreExpr -> (DmdType, CoreExpr)
+-- See Note [Ensure demand is strict]
+evalDmdAnal dflags env e
+  | (res_ty, e') <- dmdAnal dflags env evalDmd e
+  = (deferType res_ty, e')
+
+simpleDmdAnal :: DynFlags -> AnalEnv -> DmdType -> CoreExpr -> (DmdType, CoreExpr)
+simpleDmdAnal dflags env res_ty e
+  | ae_virgin env -- See Note [Always analyse in virgin pass]
+  , (_discarded_res_ty, e') <- dmdAnal dflags env evalDmd e
+  = (res_ty, e')
+  | otherwise
+  = (res_ty, e)
+
 dmdAnal :: DynFlags -> AnalEnv -> Demand -> CoreExpr -> (DmdType, CoreExpr)
-
 dmdAnal dflags env dmd e 
-  | isBot dmd  = (botDmdType, e)
-  | isAbs dmd  = (topDmdType, e)
-  | not (isStrictDmd dmd)
-  = let (res_ty, e') = dmdAnal dflags env evalDmd e
-    in  -- compute as with a strict demand, return with a lazy demand
-    (deferType res_ty, e')
-	-- It's important not to analyse e with a lazy demand because
-	-- a) When we encounter   case s of (a,b) -> 
-	--	we demand s with U(d1d2)... but if the overall demand is lazy
-	--	that is wrong, and we'd need to reduce the demand on s,
-	--	which is inconvenient
-	-- b) More important, consider
-	--	f (let x = R in x+x), where f is lazy
-	--    We still want to mark x as demanded, because it will be when we
-	--    enter the let.  If we analyse f's arg with a Lazy demand, we'll
-	--    just mark x as Lazy
-	-- c) The application rule wouldn't be right either
-	--    Evaluating (f x) in a L demand does *not* cause
-	--    evaluation of f in a C(L) demand!
+  | isBot dmd  		  = simpleDmdAnal dflags env botDmdType e
+  | isAbs dmd  		  = simpleDmdAnal dflags env topDmdType e
+  | not (isStrictDmd dmd) = evalDmdAnal   dflags env            e
 
-dmdAnal _ _ _ (Lit lit) = (topDmdType, Lit lit)
-dmdAnal _ _ _ (Type ty) = (topDmdType, Type ty)	-- Doesn't happen, in fact
+dmdAnal _ _ _ (Lit lit)     = (topDmdType, Lit lit)
+dmdAnal _ _ _ (Type ty)     = (topDmdType, Type ty)	-- Doesn't happen, in fact
 dmdAnal _ _ _ (Coercion co) = (topDmdType, Coercion co)
 
 dmdAnal _ env dmd (Var var)
@@ -154,14 +186,14 @@ dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
 	(arg_ty, arg') 	  = dmdAnal dflags env arg_dmd arg
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
     in
-    pprTrace "dmdAnal:app" (vcat
-         [ text "dmd =" <+> ppr dmd
-         , text "expr =" <+> ppr (App fun arg)
-         , text "fun dmd_ty =" <+> ppr fun_ty
-         , text "arg dmd =" <+> ppr arg_dmd
-         , text "arg dmd_ty =" <+> ppr arg_ty
-         , text "res dmd_ty =" <+> ppr res_ty
-         , text "overall res dmd_ty =" <+> ppr (res_ty `both` arg_ty) ])
+--    pprTrace "dmdAnal:app" (vcat
+--         [ text "dmd =" <+> ppr dmd
+--         , text "expr =" <+> ppr (App fun arg)
+--         , text "fun dmd_ty =" <+> ppr fun_ty
+--         , text "arg dmd =" <+> ppr arg_dmd
+--         , text "arg dmd_ty =" <+> ppr arg_ty
+--         , text "res dmd_ty =" <+> ppr res_ty
+--         , text "overall res dmd_ty =" <+> ppr (res_ty `both` arg_ty) ])
     (res_ty `both` arg_ty, App fun' arg')
 
 dmdAnal dflags env dmd (Lam var body)
@@ -401,7 +433,7 @@ dmdFix dflags top_lvl env orig_pairs
 	 -> [(Id,CoreExpr)] 		
 	 -> (SigEnv, DmdEnv, [(Id,CoreExpr)])
     loop n env pairs
-      = pprTrace "dmd loop" (ppr n <+> ppr bndrs $$ ppr env) $
+      = -- pprTrace "dmd loop" (ppr n <+> ppr bndrs $$ ppr env) $
         loop' n env pairs
 
     loop' n env pairs
