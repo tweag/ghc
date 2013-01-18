@@ -321,7 +321,7 @@ dmdAnal dflags _ env dmd (Let (NonRec id rhs) body)
         -- Add lazy free variables
 	body_ty2		   = addLazyFVs body_ty1 lazy_fv
         -- Add unleashed cardinality demands 
-        unleashed_fv               = unleashCardDmds (id2, id_dmd)
+        unleashed_fv               = unleashCardDmds_single (id2, id_dmd)
         body_ty3                   = addNewFVs body_ty2 unleashed_fv
         
         -- Annotate top-level lambdas at RHS basing on the aggregated demand info
@@ -359,7 +359,7 @@ dmdAnal dflags _ env dmd (Let (Rec pairs) body)
 		-- binders as annotateBndr does; 
 		-- being recursive, we can't treat them strictly.
 		-- But we do need to remove the binders from the result demand env
-        unleashed_envs       = map unleashCardDmds var_dmds       
+        unleashed_envs       = map unleashCardDmds_single var_dmds       
         body_ty3             = foldl addNewFVs body_ty2 unleashed_envs
 
         -- -- Annotate top-level lambdas at RHS basing on the aggregated demand info
@@ -408,8 +408,9 @@ dmdAnalAlt dflags env dmd (con,bndrs,rhs)
 -- basing on the demand from the body
 -- See Note [Aggregated demand for cardinality] 
 -- Recursive bindings are automaticaly marked as used
-unleashCardDmds :: (Var, Demand) -> DmdEnv
-unleashCardDmds (id, id_dmd)
+
+unleashCardDmds_single :: (Var, Demand) -> DmdEnv
+unleashCardDmds_single (id, id_dmd)
   | Abs <- usage_dmd
     -- do not unleash anything for absent demands
     = emptyDmdEnv
@@ -426,6 +427,27 @@ unleashCardDmds (id, id_dmd)
        in unleashed_fv
   where
     usage_dmd = absd id_dmd 
+
+-- unleashAllCardDmds :: (Var, Demand) -> DmdEnv
+-- unleashAllCardDmds =  unleashCardFix . unleashCardDmds_single
+
+-- unleashCardFix :: DmdEnv -> DmdEnv
+-- unleashCardFix env
+--   = let 
+--         pairs = varEnvElts env
+--         env'  = env `bothDmdEnv` unleashCardDmds_many pairs
+--      in if found_fixpoint env env'
+--         then env'
+--         else unleashCardFix env'
+--     where 
+--         found_fixpoint e1 e2 = all (same_in_env e1 e2) (map snd $ varEnvElts e2)   
+--         same_in_env e1 e2 id = lookupVarEnv_NF e1 id == lookupVarEnv_NF e2 id
+
+-- unleashCardDmds_many :: [(Var, Demand)] -> DmdEnv
+-- unleashCardDmds_many vds 
+--   = foldl bothDmdEnv emptyDmdEnv $
+--           (map unleashCardDmds_single vds)
+
 
 annotate_rhs_lambdas :: AbsDmd -> CoreExpr -> CoreExpr
 annotate_rhs_lambdas dmd lam@(Lam var body)
@@ -611,7 +633,7 @@ dmdTransform env var dmd
         -- See Note [Aggregated demand for cardinality]
         trim_ty = trimFvUsageTy fn_ty
   = if isTopLevel top_lvl           
-    then trim_ty   -- Don't record and trim top level things
+    then trim_ty   -- Don't record top level things
     else addVarDmd trim_ty var dmd
 
   | otherwise	 		                 -- Local non-letrec-bound thing

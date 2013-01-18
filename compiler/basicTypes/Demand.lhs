@@ -16,7 +16,7 @@ module Demand (
         lubDmd, bothDmd,
         isTopDmd, isBotDmd, isAbsDmd, isSeqDmd, 
 
-        DmdType(..), dmdTypeDepth, lubDmdType, bothDmdType,
+        DmdType(..), dmdTypeDepth, lubDmdType, bothDmdEnv, bothDmdType,
         topDmdType, botDmdType, mkDmdType, mkTopDmdType, 
 
         DmdEnv, emptyDmdEnv,
@@ -961,6 +961,8 @@ bothDmdType (DmdType fv1 ds1 r1) (DmdType fv2 _ r2)
     both_fv1 = modifyEnv (isBotRes r1) (`both` bot) fv2 fv1 both_fv
     both_fv2 = modifyEnv (isBotRes r2) (`both` bot) fv1 fv2 both_fv1
 
+bothDmdEnv :: DmdEnv -> DmdEnv -> DmdEnv
+bothDmdEnv = plusVarEnv_C both
 
 instance Outputable DmdType where
   ppr (DmdType fv ds res) 
