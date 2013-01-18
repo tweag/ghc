@@ -322,7 +322,9 @@ dmdAnal dflags _ env dmd (Let (NonRec id rhs) body)
 	body_ty2		   = addLazyFVs body_ty1 lazy_fv
         -- Add unleashed cardinality demands 
         unleashed_fv               = unleashCardDmds_single (id2, id_dmd)
-        body_ty3                   = addNewFVs body_ty2 unleashed_fv
+        body_ty3                   = -- pprTrace "dmdAnal:unleashed" 
+                                     --    (ppr id2 <+> ppr unleashed_fv) $
+                                     addNewFVs body_ty2 unleashed_fv
         
         -- Annotate top-level lambdas at RHS basing on the aggregated demand info
         -- See Note [Annotatig lambdas at right-hand side] 
@@ -434,13 +436,13 @@ unleashCardDmds_single (id, id_dmd)
 -- unleashCardFix :: DmdEnv -> DmdEnv
 -- unleashCardFix env
 --   = let 
---         pairs = varEnvElts env
+--         pairs = keyValuePairs env
 --         env'  = env `bothDmdEnv` unleashCardDmds_many pairs
 --      in if found_fixpoint env env'
 --         then env'
 --         else unleashCardFix env'
 --     where 
---         found_fixpoint e1 e2 = all (same_in_env e1 e2) (map snd $ varEnvElts e2)   
+--         found_fixpoint e1 e2 = all (same_in_env e1 e2) (map snd $ keyValuePairs e2)   
 --         same_in_env e1 e2 id = lookupVarEnv_NF e1 id == lookupVarEnv_NF e2 id
 
 -- unleashCardDmds_many :: [(Var, Demand)] -> DmdEnv
