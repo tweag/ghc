@@ -533,7 +533,6 @@ peelCallDmd (JD {strd = s, absd = u})
   where
     peel_s (SCall s) = Just s
     peel_s HyperStr  = Just HyperStr
-    peel_s Str       = Just Lazy
     peel_s _         = Nothing
 
     peel_u (UCall c u) = Just (u, c)
@@ -549,10 +548,6 @@ splitCallDmd (JD {strd = SCall d, absd = UCall _ a})
 -- Exploiting the fact that C(U) === U
 splitCallDmd (JD {strd = SCall d, absd = Used _}) 
   = case splitCallDmd (mkJointDmd d absTop) of
-      (n, r) -> (n + 1, r)
--- Exploiting the fact that C(L) === S
-splitCallDmd (JD {strd = Str, absd = UCall _ a}) 
-  = case splitCallDmd (mkJointDmd top a) of
       (n, r) -> (n + 1, r)
 splitCallDmd d        = (0, d)
 
