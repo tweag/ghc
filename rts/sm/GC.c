@@ -15,6 +15,19 @@
 #include "Rts.h"
 #include "HsFFI.h"
 
+#include "GC.h"
+#include "GCThread.h"
+#include "GCTDecl.h"            // NB. before RtsSignals.h which
+                                // clobbers REG_R1 on arm/Linux
+#include "Compact.h"
+#include "Evac.h"
+#include "Scav.h"
+#include "GCUtils.h"
+#include "MarkStack.h"
+#include "MarkWeak.h"
+#include "Sparks.h"
+#include "Sweep.h"
+
 #include "Storage.h"
 #include "RtsUtils.h"
 #include "Apply.h"
@@ -37,18 +50,6 @@
 #include "RaiseAsync.h"
 #include "Papi.h"
 #include "Stable.h"
-
-#include "GC.h"
-#include "GCThread.h"
-#include "GCTDecl.h"
-#include "Compact.h"
-#include "Evac.h"
-#include "Scav.h"
-#include "GCUtils.h"
-#include "MarkStack.h"
-#include "MarkWeak.h"
-#include "Sparks.h"
-#include "Sweep.h"
 
 #include <string.h> // for memset()
 #include <unistd.h>
@@ -109,6 +110,12 @@ static W_ g0_pcnt_kept = 30; // percentage of g0 live at last minor GC
 nat mutlist_MUTVARS,
     mutlist_MUTARRS,
     mutlist_MVARS,
+    mutlist_TVAR,
+    mutlist_TVAR_WATCH_QUEUE,
+    mutlist_TREC_CHUNK,
+    mutlist_TREC_HEADER,
+    mutlist_ATOMIC_INVARIANT,
+    mutlist_INVARIANT_CHECK_QUEUE,
     mutlist_OTHERS;
 #endif
 
@@ -218,6 +225,13 @@ GarbageCollect (nat collect_gen,
 #ifdef DEBUG
   mutlist_MUTVARS = 0;
   mutlist_MUTARRS = 0;
+  mutlist_MVARS = 0;
+  mutlist_TVAR = 0;
+  mutlist_TVAR_WATCH_QUEUE = 0;
+  mutlist_TREC_CHUNK = 0;
+  mutlist_TREC_HEADER = 0;
+  mutlist_ATOMIC_INVARIANT = 0;
+  mutlist_INVARIANT_CHECK_QUEUE = 0;
   mutlist_OTHERS = 0;
 #endif
 
@@ -404,7 +418,7 @@ GarbageCollect (nat collect_gen,
       break;
   }
 
-  if (n_gc_threads != 1) {
+  if (!DEBUG_IS_ON && n_gc_threads != 1) {
       gct->allocated = clearNursery(cap);
   }
 
@@ -499,9 +513,14 @@ GarbageCollect (nat collect_gen,
 	copied +=  mut_list_size;
 
 	debugTrace(DEBUG_gc,
-		   "mut_list_size: %lu (%d vars, %d arrays, %d MVARs, %d others)",
+		   "mut_list_size: %lu (%d vars, %d arrays, %d MVARs, %d TVARs, %d TVAR_WATCH_QUEUEs, %d TREC_CHUNKs, %d TREC_HEADERs, %d ATOMIC_INVARIANTs, %d INVARIANT_CHECK_QUEUEs, %d others)",
 		   (unsigned long)(mut_list_size * sizeof(W_)),
-		   mutlist_MUTVARS, mutlist_MUTARRS, mutlist_MVARS, mutlist_OTHERS);
+                   mutlist_MUTVARS, mutlist_MUTARRS, mutlist_MVARS,
+                   mutlist_TVAR, mutlist_TVAR_WATCH_QUEUE,
+                   mutlist_TREC_CHUNK, mutlist_TREC_HEADER,
+                   mutlist_ATOMIC_INVARIANT,
+                   mutlist_INVARIANT_CHECK_QUEUE,
+                   mutlist_OTHERS);
     }
 
     bdescr *next, *prev;
@@ -638,7 +657,7 @@ GarbageCollect (nat collect_gen,
   }
 
   // Reset the nursery: make the blocks empty
-  if (n_gc_threads == 1) {
+  if (DEBUG_IS_ON || n_gc_threads == 1) {
       for (n = 0; n < n_capabilities; n++) {
           allocated += clearNursery(&capabilities[n]);
       }
@@ -1074,7 +1093,9 @@ gcWorkerThread (Capability *cap)
 
     scavenge_until_all_done();
     
-    gct->allocated = clearNursery(cap);
+    if (!DEBUG_IS_ON) {
+        gct->allocated = clearNursery(cap);
+    }
 
 #ifdef THREADED_RTS
     // Now that the whole heap is marked, we discard any sparks that

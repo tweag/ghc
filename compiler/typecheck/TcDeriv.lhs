@@ -15,8 +15,10 @@ import DynFlags
 
 import TcRnMonad
 import FamInst
+import TcErrors( reportAllUnsolved )
+import TcValidity( validDerivPred )
 import TcEnv
-import TcTyClsDecls( tcFamTyPats, tcAddFamInstCtxt )
+import TcTyClsDecls( tcFamTyPats, tcAddDataFamInstCtxt )
 import TcClassDcl( tcAddDeclCtxt )      -- Small helper
 import TcGenDeriv                       -- Deriv stuff
 import TcGenGenerics
@@ -33,6 +35,7 @@ import RnEnv
 import RnSource   ( addTcgDUs )
 import HscTypes
 
+import Id( idType )
 import Class
 import Type
 import ErrUtils
@@ -43,6 +46,7 @@ import RdrName
 import Name
 import NameSet
 import TyCon
+import CoAxiom
 import TcType
 import Var
 import VarSet
@@ -322,7 +326,7 @@ tcDeriving tycl_decls inst_decls deriv_decls
         -- the stand-alone derived instances (@insts1@) are used when inferring
         -- the contexts for "deriving" clauses' instances (@infer_specs@)
         ; final_specs <- extendLocalInstEnv (map (iSpec . fst) insts1) $
-                           inferInstanceContexts overlap_flag infer_specs
+                         inferInstanceContexts overlap_flag infer_specs
 
         ; insts2 <- mapM (genInst False overlap_flag commonAuxs) final_specs
 
@@ -348,8 +352,8 @@ tcDeriving tycl_decls inst_decls deriv_decls
         ; return (addTcgDUs gbl_env rn_dus, inst_info, rn_binds) }
   where
     ddump_deriving :: Bag (InstInfo Name) -> HsValBinds Name
-                   -> Bag TyCon    -- ^ Empty data constructors
-                   -> Bag FamInst  -- ^ Rep type family instances
+                   -> Bag TyCon                 -- ^ Empty data constructors
+                   -> Bag (FamInst Unbranched)  -- ^ Rep type family instances
                    -> SDoc
     ddump_deriving inst_infos extra_binds repMetaTys repFamInsts
       =    hang (ptext (sLit "Derived instances:"))
@@ -363,6 +367,12 @@ tcDeriving tycl_decls inst_decls deriv_decls
 
     hangP s x = text "" $$ hang (ptext (sLit s)) 2 x
 
+-- Prints the representable type family instance
+pprRepTy :: FamInst Unbranched -> SDoc
+pprRepTy fi@(FamInst { fi_branches = FirstBranch (FamInstBranch { fib_lhs = lhs
+                                                                , fib_rhs = rhs }) })
+  = ptext (sLit "type") <+> ppr (mkTyConApp (famInstTyCon fi) lhs) <+>
+      equals <+> ppr rhs 
 
 
 -- As of 24 April 2012, this only shares MetaTyCons between derivations of
@@ -380,13 +390,6 @@ commonAuxiliaries = foldM snoc ([], emptyBag) where
            | otherwise = do (ca, new_stuff) <- m
                             return $ ((rep_tycon, ca) : cas, stuff `unionBags` new_stuff)
 
-
-
--- Prints the representable type family instance
-pprRepTy :: FamInst -> SDoc
-pprRepTy fi
-  = pprFamInstHdr fi <+> ptext (sLit "=") <+> ppr (coAxiomRHS (famInstAxiom fi))
-
 renameDeriv :: Bool
             -> [InstInfo RdrName]
             -> Bag (LHsBind RdrName, LSig RdrName)
@@ -400,7 +403,9 @@ renameDeriv is_boot inst_infos bagBinds
                  , emptyValBindsOut, usesOnly (plusFVs fvs)) }
 
   | otherwise
-  = discardWarnings $    -- Discard warnings about unused bindings etc
+  = discardWarnings $         -- Discard warnings about unused bindings etc
+    setXOptM Opt_EmptyCase $  -- Derived decls (for empty types) can have 
+                              --    case x of {}
     do  {
         -- Bring the extra deriving stuff into scope
         -- before renaming the instances themselves
@@ -426,12 +431,11 @@ renameDeriv is_boot inst_infos bagBinds
                 -- scope (yuk), and rename the method binds
            ASSERT( null sigs )
            bindLocalNames (map Var.varName tyvars) $
-           do { (rn_binds, fvs) <- rnMethodBinds clas_nm (\_ -> []) binds
+           do { (rn_binds, fvs) <- rnMethodBinds (is_cls_nm inst) (\_ -> []) binds
               ; let binds' = VanillaInst rn_binds [] standalone_deriv
               ; return (inst_info { iBinds = binds' }, fvs) }
         where
-          (tyvars,_, clas,_) = instanceHead inst
-          clas_nm            = className clas
+          (tyvars, _) = tcSplitForAllTys (idType (instanceDFunId inst))
 \end{code}
 
 Note [Newtype deriving and unused constructors]
@@ -487,8 +491,8 @@ makeDerivSpecs is_boot tycl_decls inst_decls deriv_decls
 
 ------------------------------------------------------------------
 deriveTyDecl :: LTyClDecl Name -> TcM [EarlyDerivSpec]
-deriveTyDecl (L _ decl@(TyDecl { tcdLName = L _ tc_name
-                               , tcdTyDefn = TyData { td_derivs = Just preds } }))
+deriveTyDecl (L _ decl@(DataDecl { tcdLName = L _ tc_name
+                                 , tcdDataDefn = HsDataDefn { dd_derivs = Just preds } }))
   = tcAddDeclCtxt decl $
     do { tc <- tcLookupTyCon tc_name
        ; let tvs = tyConTyVars tc
@@ -499,16 +503,17 @@ deriveTyDecl _ = return []
 
 ------------------------------------------------------------------
 deriveInstDecl :: LInstDecl Name -> TcM [EarlyDerivSpec]
-deriveInstDecl (L _ (FamInstD { lid_inst = fam_inst }))
+deriveInstDecl (L _ (TyFamInstD {})) = return []
+deriveInstDecl (L _ (DataFamInstD { dfid_inst = fam_inst }))
   = deriveFamInst fam_inst
-deriveInstDecl (L _ (ClsInstD { cid_fam_insts = fam_insts }))
+deriveInstDecl (L _ (ClsInstD { cid_inst = ClsInstDecl { cid_datafam_insts = fam_insts } }))
   = concatMapM (deriveFamInst . unLoc) fam_insts
 
 ------------------------------------------------------------------
-deriveFamInst :: FamInstDecl Name -> TcM [EarlyDerivSpec]
-deriveFamInst decl@(FamInstDecl { fid_tycon = L _ tc_name, fid_pats = pats
-                                , fid_defn = TyData { td_derivs = Just preds } })
-  = tcAddFamInstCtxt decl $
+deriveFamInst :: DataFamInstDecl Name -> TcM [EarlyDerivSpec]
+deriveFamInst decl@(DataFamInstDecl { dfid_tycon = L _ tc_name, dfid_pats = pats
+                                    , dfid_defn = HsDataDefn { dd_derivs = Just preds } })
+  = tcAddDataFamInstCtxt decl $
     do { fam_tc <- tcLookupTyCon tc_name
        ; tcFamTyPats fam_tc pats (\_ -> return ()) $ \ tvs' pats' _ ->
          mapM (deriveTyData tvs' fam_tc pats') preds }
@@ -754,7 +759,7 @@ mk_typeable_eqn orig tvs cls tycon tc_args mtheta
   | isNothing mtheta    -- deriving on a data type decl
   = do  { checkTc (cls `hasKey` typeableClassKey)
                   (ptext (sLit "Use deriving( Typeable ) on a data type declaration"))
-        ; real_cls <- tcLookupClass (typeableClassNames !! tyConArity tycon)
+        ; real_cls <- tcLookupClass (typeableClassNames `getNth` tyConArity tycon)
                       -- See Note [Getting base classes]
         ; mk_typeable_eqn orig tvs real_cls tycon [] (Just []) }
 
@@ -1377,8 +1382,7 @@ inferInstanceContexts oflag infer_specs
       | otherwise
       = do {      -- Extend the inst info from the explicit instance decls
                   -- with the current set of solutions, and simplify each RHS
-             let inst_specs = zipWithEqual "add_solns" (mkInstance oflag)
-                                           current_solns infer_specs
+             inst_specs <- zipWithM (mkInstance oflag) current_solns infer_specs
            ; new_solns <- checkNoErrs $
                           extendLocalInstEnv inst_specs $
                           mapM gen_soln infer_specs
@@ -1412,13 +1416,14 @@ inferInstanceContexts oflag infer_specs
         the_pred = mkClassPred clas inst_tys
 
 ------------------------------------------------------------------
-mkInstance :: OverlapFlag -> ThetaType -> DerivSpec -> ClsInst
+mkInstance :: OverlapFlag -> ThetaType -> DerivSpec -> TcM ClsInst
 mkInstance overlap_flag theta
-            (DS { ds_name = dfun_name
-                , ds_tvs = tyvars, ds_cls = clas, ds_tys = tys })
-  = mkLocalInstance dfun overlap_flag
+           (DS { ds_name = dfun_name
+               , ds_tvs = tvs, ds_cls = clas, ds_tys = tys })
+  = do { (subst, tvs') <- tcInstSkolTyVars tvs
+       ; return (mkLocalInstance dfun overlap_flag tvs' clas (substTys subst tys)) }
   where
-    dfun = mkDictFunId dfun_name tyvars theta clas tys
+    dfun = mkDictFunId dfun_name tvs theta clas tys
 
 
 extendLocalInstEnv :: [ClsInst] -> TcM a -> TcM a
@@ -1430,6 +1435,136 @@ extendLocalInstEnv dfuns thing_inside
              env'      = env { tcg_inst_env = inst_env' }
       ; setGblEnv env' thing_inside }
 \end{code}
+
+
+***********************************************************************************
+*                                                                                 * 
+*            Simplifyf derived constraints
+*                                                                                 *
+***********************************************************************************
+
+\begin{code}
+simplifyDeriv :: CtOrigin
+              -> PredType
+              -> [TyVar]        
+              -> ThetaType              -- Wanted
+              -> TcM ThetaType  -- Needed
+-- Given  instance (wanted) => C inst_ty 
+-- Simplify 'wanted' as much as possibles
+-- Fail if not possible
+simplifyDeriv orig pred tvs theta 
+  = do { (skol_subst, tvs_skols) <- tcInstSkolTyVars tvs -- Skolemize
+                -- The constraint solving machinery 
+                -- expects *TcTyVars* not TyVars.  
+                -- We use *non-overlappable* (vanilla) skolems
+                -- See Note [Overlap and deriving]
+
+       ; let subst_skol = zipTopTvSubst tvs_skols $ map mkTyVarTy tvs
+             skol_set   = mkVarSet tvs_skols
+             doc = ptext (sLit "deriving") <+> parens (ppr pred)
+
+       ; wanted <- newFlatWanteds orig (substTheta skol_subst theta)
+
+       ; traceTc "simplifyDeriv" $ 
+         vcat [ pprTvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
+       ; (residual_wanted, _ev_binds1)
+             <- solveWantedsTcM (mkFlatWC wanted)
+                -- Post: residual_wanted are already zonked
+
+       ; let (good, bad) = partitionBagWith get_good (wc_flat residual_wanted)
+                         -- See Note [Exotic derived instance contexts]
+             get_good :: Ct -> Either PredType Ct
+             get_good ct | validDerivPred skol_set p 
+                         , isWantedCt ct  = Left p 
+                         -- NB: residual_wanted may contain unsolved
+                         -- Derived and we stick them into the bad set
+                         -- so that reportUnsolved may decide what to do with them
+                         | otherwise = Right ct
+                         where p = ctPred ct
+
+       -- We never want to defer these errors because they are errors in the
+       -- compiler! Hence the `False` below
+       ; reportAllUnsolved (residual_wanted { wc_flat = bad })
+
+       ; let min_theta = mkMinimalBySCs (bagToList good)
+       ; return (substTheta subst_skol min_theta) }
+\end{code}
+
+Note [Overlap and deriving]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider some overlapping instances:
+  data Show a => Show [a] where ..
+  data Show [Char] where ...
+
+Now a data type with deriving:
+  data T a = MkT [a] deriving( Show )
+
+We want to get the derived instance
+  instance Show [a] => Show (T a) where...
+and NOT
+  instance Show a => Show (T a) where...
+so that the (Show (T Char)) instance does the Right Thing
+
+It's very like the situation when we're inferring the type
+of a function
+   f x = show [x]
+and we want to infer
+   f :: Show [a] => a -> String
+
+BOTTOM LINE: use vanilla, non-overlappable skolems when inferring
+             the context for the derived instance. 
+             Hence tcInstSkolTyVars not tcInstSuperSkolTyVars
+
+Note [Exotic derived instance contexts]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In a 'derived' instance declaration, we *infer* the context.  It's a
+bit unclear what rules we should apply for this; the Haskell report is
+silent.  Obviously, constraints like (Eq a) are fine, but what about
+        data T f a = MkT (f a) deriving( Eq )
+where we'd get an Eq (f a) constraint.  That's probably fine too.
+
+One could go further: consider
+        data T a b c = MkT (Foo a b c) deriving( Eq )
+        instance (C Int a, Eq b, Eq c) => Eq (Foo a b c)
+
+Notice that this instance (just) satisfies the Paterson termination 
+conditions.  Then we *could* derive an instance decl like this:
+
+        instance (C Int a, Eq b, Eq c) => Eq (T a b c) 
+even though there is no instance for (C Int a), because there just
+*might* be an instance for, say, (C Int Bool) at a site where we
+need the equality instance for T's.  
+
+However, this seems pretty exotic, and it's quite tricky to allow
+this, and yet give sensible error messages in the (much more common)
+case where we really want that instance decl for C.
+
+So for now we simply require that the derived instance context
+should have only type-variable constraints.
+
+Here is another example:
+        data Fix f = In (f (Fix f)) deriving( Eq )
+Here, if we are prepared to allow -XUndecidableInstances we
+could derive the instance
+        instance Eq (f (Fix f)) => Eq (Fix f)
+but this is so delicate that I don't think it should happen inside
+'deriving'. If you want this, write it yourself!
+
+NB: if you want to lift this condition, make sure you still meet the
+termination conditions!  If not, the deriving mechanism generates
+larger and larger constraints.  Example:
+  data Succ a = S a
+  data Seq a = Cons a (Seq (Succ a)) | Nil deriving Show
+
+Note the lack of a Show instance for Succ.  First we'll generate
+  instance (Show (Succ a), Show a) => Show (Seq a)
+and then
+  instance (Show (Succ (Succ a)), Show (Succ a), Show a) => Show (Seq a)
+and so on.  Instead we want to complain of no instance for (Show (Succ a)).
+
+The bottom line
+~~~~~~~~~~~~~~~
+Allow constraints which consist only of type variables, with no repeats.
 
 
 %************************************************************************
@@ -1511,26 +1646,26 @@ genInst standalone_deriv oflag comauxs
                  , ds_theta = theta, ds_newtype = is_newtype
                  , ds_name = name, ds_cls = clas })
   | is_newtype
-  = return (InstInfo { iSpec   = inst_spec
-                     , iBinds  = NewTypeDerived co rep_tycon }, emptyBag)
+  = do { inst_spec <- mkInstance oflag theta spec
+       ; return (InstInfo { iSpec   = inst_spec
+                          , iBinds  = NewTypeDerived co rep_tycon }, emptyBag) }
 
   | otherwise
   = do { fix_env <- getFixityEnv
        ; (meth_binds, deriv_stuff) <- genDerivStuff (getSrcSpan name)
                                         fix_env clas name rep_tycon
                                         (lookup rep_tycon comauxs)
+       ; inst_spec <- mkInstance oflag theta spec
        ; let inst_info = InstInfo { iSpec   = inst_spec
                                   , iBinds  = VanillaInst meth_binds []
                                                 standalone_deriv }
        ; return ( inst_info, deriv_stuff) }
   where
-
-    inst_spec = mkInstance oflag theta spec
     co1 = case tyConFamilyCoercion_maybe rep_tycon of
-              Just co_con -> mkTcAxInstCo co_con rep_tc_args
+              Just co_con -> mkTcUnbranchedAxInstCo co_con rep_tc_args
               Nothing     -> id_co
               -- Not a family => rep_tycon = main tycon
-    co2 = mkTcAxInstCo (newTyConCo rep_tycon) rep_tc_args
+    co2 = mkTcUnbranchedAxInstCo (newTyConCo rep_tycon) rep_tc_args
     co  = mkTcForAllCos tvs (co1 `mkTcTransCo` co2)
     id_co = mkTcReflCo (mkTyConApp rep_tycon rep_tc_args)
 

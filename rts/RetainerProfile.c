@@ -505,6 +505,7 @@ push( StgClosure *c, retainer c_child_r, StgClosure **first_child )
 	break;
 
 	// layout.payload.ptrs, no SRT
+    case TVAR:
     case CONSTR:
     case PRIM:
     case MUT_PRIM:
@@ -844,7 +845,8 @@ pop( StgClosure **c, StgClosure **cp, retainer *r )
 	    return;
 	}
 
-	case CONSTR:
+        case TVAR:
+        case CONSTR:
 	case PRIM:
 	case MUT_PRIM:
 	case BCO:
@@ -1009,12 +1011,11 @@ isRetainer( StgClosure *c )
     case MUT_PRIM:
     case MVAR_CLEAN:
     case MVAR_DIRTY:
+    case TVAR:
     case MUT_VAR_CLEAN:
     case MUT_VAR_DIRTY:
     case MUT_ARR_PTRS_CLEAN:
     case MUT_ARR_PTRS_DIRTY:
-    case MUT_ARR_PTRS_FROZEN:
-    case MUT_ARR_PTRS_FROZEN0:
 
 	// thunks are retainers.
     case THUNK:
@@ -1071,6 +1072,9 @@ isRetainer( StgClosure *c )
     case ARR_WORDS:
 	// STM
     case TREC_CHUNK:
+        // immutable arrays
+    case MUT_ARR_PTRS_FROZEN:
+    case MUT_ARR_PTRS_FROZEN0:
 	return rtsFalse;
 
 	//

@@ -50,7 +50,8 @@ module TcEnv(
 
         -- New Ids
         newLocalName, newDFunName, newFamInstTyConName, newFamInstAxiomName,
-        mkStableIdFromString, mkStableIdFromName
+        mkStableIdFromString, mkStableIdFromName,
+        mkWrapperName
   ) where
 
 #include "HsVersions.h"
@@ -71,6 +72,7 @@ import RdrName
 import InstEnv
 import DataCon
 import TyCon
+import CoAxiom
 import TypeRep
 import Class
 import Name
@@ -80,10 +82,14 @@ import HscTypes
 import DynFlags
 import SrcLoc
 import BasicTypes
+import Module
 import Outputable
+import Encoding
 import FastString
 import ListSetOps
 import Util
+import Data.IORef
+import Data.List
 \end{code}
 
 
@@ -167,7 +173,7 @@ tcLookupTyCon name = do
         ATyCon tc -> return tc
         _         -> wrongThingErr "type constructor" (AGlobal thing) name
 
-tcLookupAxiom :: Name -> TcM CoAxiom
+tcLookupAxiom :: Name -> TcM (CoAxiom Branched)
 tcLookupAxiom name = do
     thing <- tcLookupGlobal name
     case thing of
@@ -694,7 +700,7 @@ pprInstInfoDetails info
 
 simpleInstInfoClsTy :: InstInfo a -> (Class, Type)
 simpleInstInfoClsTy info = case instanceHead (iSpec info) of
-                           (_, _, cls, [ty]) -> (cls, ty)
+                           (_, cls, [ty]) -> (cls, ty)
                            _ -> panic "simpleInstInfoClsTy"
 
 simpleInstInfoTy :: InstInfo a -> Type
@@ -725,17 +731,21 @@ Make a name for the representation tycon of a family instance.  It's an
 newGlobalBinder.
 
 \begin{code}
-newFamInstTyConName, newFamInstAxiomName :: Located Name -> [Type] -> TcM Name
-newFamInstTyConName = mk_fam_inst_name id
+newFamInstTyConName :: Located Name -> [Type] -> TcM Name
+newFamInstTyConName (L loc name) tys = mk_fam_inst_name id loc name [tys]
+
+newFamInstAxiomName :: SrcSpan -> Name -> [[Type]] -> TcM Name
 newFamInstAxiomName = mk_fam_inst_name mkInstTyCoOcc
 
-mk_fam_inst_name :: (OccName -> OccName) -> Located Name -> [Type] -> TcM Name
-mk_fam_inst_name adaptOcc (L loc tc_name) tys
+mk_fam_inst_name :: (OccName -> OccName) -> SrcSpan -> Name -> [[Type]] -> TcM Name
+mk_fam_inst_name adaptOcc loc tc_name tyss
   = do  { mod   <- getModule
         ; let info_string = occNameString (getOccName tc_name) ++ 
-                            concatMap (occNameString.getDFunTyKey) tys
+                            intercalate "|" ty_strings
         ; occ   <- chooseUniqueOccTc (mkInstTyTcOcc info_string)
         ; newGlobalBinder mod (adaptOcc occ) loc }
+  where
+    ty_strings = map (concatMap (occNameString . getDFunTyKey)) tyss
 \end{code}
 
 Stable names used for foreign exports and annotations.
@@ -750,13 +760,41 @@ mkStableIdFromString :: String -> Type -> SrcSpan -> (OccName -> OccName) -> TcM
 mkStableIdFromString str sig_ty loc occ_wrapper = do
     uniq <- newUnique
     mod <- getModule
-    let occ = mkVarOcc (str ++ '_' : show uniq) :: OccName
+    name <- mkWrapperName "stable" str
+    let occ = mkVarOccFS name :: OccName
         gnm = mkExternalName uniq mod (occ_wrapper occ) loc :: Name
         id  = mkExportedLocalId gnm sig_ty :: Id
     return id
 
 mkStableIdFromName :: Name -> Type -> SrcSpan -> (OccName -> OccName) -> TcM TcId
 mkStableIdFromName nm = mkStableIdFromString (getOccString nm)
+\end{code}
+
+\begin{code}
+mkWrapperName :: (MonadIO m, HasDynFlags m, HasModule m)
+              => String -> String -> m FastString
+mkWrapperName what nameBase
+    = do dflags <- getDynFlags
+         thisMod <- getModule
+         let -- Note [Generating fresh names for ccall wrapper]
+             wrapperRef = nextWrapperNum dflags
+             pkg = packageIdString  (modulePackageId thisMod)
+             mod = moduleNameString (moduleName      thisMod)
+         wrapperNum <- liftIO $ readIORef wrapperRef
+         liftIO $ writeIORef wrapperRef (wrapperNum + 1)
+         let components = [what, show wrapperNum, pkg, mod, nameBase]
+         return $ mkFastString $ zEncodeString $ intercalate ":" components
+
+{-
+Note [Generating fresh names for FFI wrappers]
+
+We used to use a unique, rather than nextWrapperNum, to distinguish
+between FFI wrapper functions. However, the wrapper names that we
+generate are external names. This means that if a call to them ends up
+in an unfolding, then we can't alpha-rename them, and thus if the
+unique randomly changes from one compile to another then we get a
+spurious ABI change (#4012).
+-}
 \end{code}
 
 %************************************************************************

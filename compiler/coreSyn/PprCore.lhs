@@ -337,11 +337,10 @@ pprIdBndrInfo info
 
     lbv_info  = lbvarInfo info
 
-    has_prag = not (isDefaultInlinePragma prag_info)
-    has_occ  = not (isNoOcc occ_info)
-
-    has_dmd = not $ isTop dmd_info 
-    has_lbv  = not (hasNoLBVarInfo lbv_info)
+    has_prag  = not (isDefaultInlinePragma prag_info)
+    has_occ   = not (isNoOcc occ_info)
+    has_dmd   = not $ isTopDmd dmd_info 
+    has_lbv   = not (hasNoLBVarInfo lbv_info)
 
     doc = showAttributes
           [ (has_prag, ptext (sLit "InlPrag=") <> ppr prag_info)
@@ -367,7 +366,7 @@ ppIdInfo id info
     [ (True, pp_scope <> ppr (idDetails id))
     , (has_arity,      ptext (sLit "Arity=") <> int arity)
     , (has_caf_info,   ptext (sLit "Caf=") <> ppr caf_info)
-    , (True, ptext (sLit "Str=") <> pprStrictness str_info)
+    , (True,           ptext (sLit "Str=") <> pprStrictness str_info)
     , (has_unf,        ptext (sLit "Unf=") <> ppr unf_info)
     , (not (null rules), ptext (sLit "RULES:") <+> vcat (map pprRule rules))
     ]   -- Inline pragma, occ, demand, lbvar info

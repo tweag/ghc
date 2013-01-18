@@ -37,6 +37,7 @@ import CLabel
 import StgSyn
 import CostCentre
 import Id
+import IdInfo
 import Name
 import Module
 import ListSetOps
@@ -56,7 +57,8 @@ import Control.Monad
 -- For closures bound at top level, allocate in static space.
 -- They should have no free variables.
 
-cgTopRhsClosure :: Id
+cgTopRhsClosure :: RecFlag              -- member of a recursive group?
+                -> Id
                 -> CostCentreStack      -- Optional cost centre annotation
                 -> StgBinderInfo
                 -> UpdateFlag
@@ -64,19 +66,39 @@ cgTopRhsClosure :: Id
                 -> StgExpr
                 -> FCode (CgIdInfo, FCode ())
 
-cgTopRhsClosure id ccs _ upd_flag args body
+cgTopRhsClosure rec id ccs _ upd_flag args body
  = do { dflags <- getDynFlags
       ; lf_info <- mkClosureLFInfo id TopLevel [] upd_flag args
       ; let closure_label = mkLocalClosureLabel (idName id) (idCafInfo id)
             cg_id_info = litIdInfo dflags id lf_info (CmmLabel closure_label)
-      ; return (cg_id_info, gen_code lf_info closure_label)
+      ; return (cg_id_info, gen_code dflags lf_info closure_label)
       }
   where
-  gen_code lf_info closure_label
+  -- special case for a indirection (f = g).  We create an IND_STATIC
+  -- closure pointing directly to the indirectee.  This is exactly
+  -- what the CAF will eventually evaluate to anyway, we're just
+  -- shortcutting the whole process, and generating a lot less code
+  -- (#7308)
+  --
+  -- Note: we omit the optimisation when this binding is part of a
+  -- recursive group, because the optimisation would inhibit the black
+  -- hole detection from working in that case.  Test
+  -- concurrent/should_run/4030 fails, for instance.
+  --
+  gen_code dflags _ closure_label
+    | StgApp f [] <- body, null args, isNonRec rec
+    = do
+         cg_info <- getCgIdInfo f
+         let closure_rep   = mkStaticClosureFields dflags
+                                    indStaticInfoTable ccs MayHaveCafRefs
+                                    [unLit (idInfoToAmode cg_info)]
+         emitDataLits closure_label closure_rep
+         return ()
+
+  gen_code dflags lf_info closure_label
    = do {     -- LAY OUT THE OBJECT
           let name = idName id
         ; mod_name <- getModuleName
-        ; dflags   <- getDynFlags
         ; let descr         = closureDescription dflags mod_name name
               closure_info  = mkClosureInfo dflags True id lf_info 0 0 descr
 
@@ -94,6 +116,9 @@ cgTopRhsClosure id ccs _ upd_flag args body
                                 (nonVoidIds args) (length args) body fv_details)
       
         ; return () }
+
+  unLit (CmmLit l) = l
+  unLit _ = panic "unLit"
 
 ------------------------------------------------------------------------
 --              Non-top-level bindings
@@ -450,7 +475,7 @@ closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
         ; emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl args $
             \(_offset, node, arg_regs) -> do
                 -- Emit slow-entry code (for entering a closure through a PAP)
-                { mkSlowEntryCode cl_info arg_regs
+                { mkSlowEntryCode bndr cl_info arg_regs
 
                 ; dflags <- getDynFlags
                 ; let lf_info = closureLFInfo cl_info
@@ -494,21 +519,22 @@ load_fvs node lf_info = mapM_ (\ (reg, off) ->
 --
 -- The slow entry point is used for unknown calls: eg. stg_PAP_entry
 
-mkSlowEntryCode :: ClosureInfo -> [LocalReg] -> FCode ()
+mkSlowEntryCode :: Id -> ClosureInfo -> [LocalReg] -> FCode ()
 -- If this function doesn't have a specialised ArgDescr, we need
 -- to generate the function's arg bitmap and slow-entry code.
 -- Here, we emit the slow-entry code.
-mkSlowEntryCode cl_info arg_regs -- function closure is already in `Node'
+mkSlowEntryCode bndr cl_info arg_regs -- function closure is already in `Node'
   | Just (_, ArgGen _) <- closureFunInfo cl_info
   = do dflags <- getDynFlags
-       let slow_lbl = closureSlowEntryLabel  cl_info
+       let node = idToReg dflags (NonVoid bndr)
+           slow_lbl = closureSlowEntryLabel  cl_info
            fast_lbl = closureLocalEntryLabel dflags cl_info
            -- mkDirectJump does not clobber `Node' containing function closure
-           jump = mkDirectJump dflags
-                               (mkLblExpr fast_lbl)
-                               (map (CmmReg . CmmLocal) arg_regs)
-                               (initUpdFrameOff dflags)
-       emitProcWithConvention Slow Nothing slow_lbl arg_regs jump
+           jump = mkJump dflags NativeNodeCall
+                                (mkLblExpr fast_lbl)
+                                (map (CmmReg . CmmLocal) (node : arg_regs))
+                                (initUpdFrameOff dflags)
+       emitProcWithConvention Slow Nothing slow_lbl (node : arg_regs) jump
   | otherwise = return ()
 
 -----------------------------------------
@@ -718,17 +744,14 @@ link_caf node _is_upd = do
         (CmmReg (CmmLocal node), AddrHint),
         (hp_rel, AddrHint) ]
       False
-        -- node is live, so save it.
 
   -- see Note [atomic CAF entry] in rts/sm/Storage.c
   ; updfr  <- getUpdFrameOff
   ; emit =<< mkCmmIfThen
       (CmmMachOp (mo_wordEq dflags) [ CmmReg (CmmLocal ret), CmmLit (zeroCLit dflags)])
-        -- re-enter R1.  Doing this directly is slightly dodgy; we're
-        -- assuming lots of things, like the stack pointer hasn't
-        -- moved since we entered the CAF.
+        -- re-enter the CAF
        (let target = entryCode dflags (closureInfoPtr dflags (CmmReg (CmmLocal node))) in
-        mkJump dflags target [] updfr)
+        mkJump dflags NativeNodeCall target [] updfr)
 
   ; return hp_rel }
 

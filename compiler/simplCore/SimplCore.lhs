@@ -190,8 +190,8 @@ getCoreToDo dflags
                           -- Don't do case-of-case transformations.
                           -- This makes full laziness work better
 
-    -- plug in new demand analyser
-    new_demand_phases = (CoreDoPasses ([
+    -- New demand analyser
+    demand_analyser = (CoreDoPasses ([
                            CoreDoStrictness,
                            CoreDoWorkerWrapper,
                            simpl_phase 0 ["post-worker-wrapper"] max_iter
@@ -263,7 +263,7 @@ getCoreToDo dflags
                 -- Don't stop now!
         simpl_phase 0 ["main"] (max max_iter 3),
 
-        runWhen strictness new_demand_phases,
+        runWhen strictness demand_analyser,
 
         runWhen full_laziness $
            CoreDoFloatOutwards FloatOutSwitches {

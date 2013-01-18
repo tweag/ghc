@@ -289,7 +289,7 @@ vanillaIdInfo
 	    lbvarInfo		= NoLBVarInfo,
 	    inlinePragInfo 	= defaultInlinePragma,
 	    occInfo		= NoOccInfo,
-            demandInfo	        = top,
+            demandInfo	        = topDmd,
 	    strictnessInfo      = topSig
 	   }
 
@@ -517,7 +517,7 @@ zapLamInfo info@(IdInfo {occInfo = occ, demandInfo = demand})
   | is_safe_occ occ && is_safe_dmd demand
   = Nothing
   | otherwise
-  = Just (info {occInfo = safe_occ, demandInfo = top})
+  = Just (info {occInfo = safe_occ, demandInfo = topDmd})
   where
 	-- The "unsafe" occ info is the ones that say I'm not in a lambda
 	-- because that might not be true for an unsaturated lambda
@@ -534,7 +534,7 @@ zapLamInfo info@(IdInfo {occInfo = occ, demandInfo = demand})
 \begin{code}
 -- | Remove demand info on the 'IdInfo' if it is present, otherwise return @Nothing@
 zapDemandInfo :: IdInfo -> Maybe IdInfo
-zapDemandInfo info = Just (info {demandInfo = top})
+zapDemandInfo info = Just (info {demandInfo = topDmd})
 \end{code}
 
 \begin{code}

@@ -64,6 +64,7 @@ import Name
 import BasicTypes
 import TyCon
 import Class
+import CoAxiom
 
 -- others
 import PrelNames
@@ -87,6 +88,9 @@ import qualified Data.Data        as Data hiding ( TyCon )
 
 \begin{code}
 -- | The key representation of types within the compiler
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data Type
   = TyVarTy Var	-- ^ Vanilla type or kind variable (*never* a coercion variable)
 
@@ -304,7 +308,7 @@ isKindVar v = isTKVar v && isSuperKind (varType v)
 %*									*
 %************************************************************************
 
-\begin{code}  
+\begin{code}
 tyVarsOfType :: Type -> VarSet
 -- ^ NB: for type synonyms tyVarsOfType does /not/ expand the synonym
 -- tyVarsOfType returns only the free variables of a type
@@ -346,7 +350,7 @@ data TyThing
   = AnId     Id
   | ADataCon DataCon
   | ATyCon   TyCon       -- TyCons and classes; see Note [ATyCon for classes]
-  | ACoAxiom CoAxiom
+  | ACoAxiom (CoAxiom Branched)
   deriving (Eq, Ord)
 
 instance Outputable TyThing where 

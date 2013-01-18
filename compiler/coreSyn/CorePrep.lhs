@@ -471,8 +471,8 @@ cpeRhsE _env expr@(Type {})      = return (emptyFloats, expr)
 cpeRhsE _env expr@(Coercion {})  = return (emptyFloats, expr)
 cpeRhsE env (Lit (LitInteger i _))
     = cpeRhsE env (cvtLitInteger (cpe_dynFlags env) (getMkIntegerId env) i)
-cpeRhsE _env expr@(Lit {})       = return (emptyFloats, expr)
-cpeRhsE env expr@(Var {})   = cpeApp env expr
+cpeRhsE _env expr@(Lit {}) = return (emptyFloats, expr)
+cpeRhsE env expr@(Var {})  = cpeApp env expr
 
 cpeRhsE env (Var f `App` _ `App` arg)
   | f `hasKey` lazyIdKey          -- Replace (lazy a) by a
@@ -642,7 +642,7 @@ cpeApp env expr
            ; let
               (ss1, ss_rest)   = case ss of
                                    (ss1:ss_rest)             -> (ss1,     ss_rest)
-                                   []                        -> (top, [])
+                                   []                        -> (topDmd, [])
               (arg_ty, res_ty) = expectJust "cpeBody:collect_args" $
                                  splitFunTy_maybe fun_ty
               is_strict = isStrictDmd ss1

@@ -19,14 +19,16 @@ module TcInstDcls ( tcInstDecls1, tcInstDecls2 ) where
 
 import HsSyn
 import TcBinds
-import TcTyClsDecls( tcAddImplicits, tcAddFamInstCtxt, tcSynFamInstDecl, 
-                     wrongKindOfFamily, tcFamTyPats, kcTyDefn, dataDeclChecks,
+import TcTyClsDecls( tcAddImplicits, tcAddTyFamInstCtxt, tcAddDataFamInstCtxt,
+                     tcAddFamInstCtxt, tcSynFamInstDecl, 
+                     wrongKindOfFamily, tcFamTyPats, kcDataDefn, dataDeclChecks,
                      tcConDecls, checkValidTyCon, badATErr, wrongATArgErr )
 import TcClassDcl( tcClassDecl2, 
                    HsSigFun, lookupHsSig, mkHsSigFun, emptyHsSigs,
                    findMethodBind, instantiateMethod, tcInstanceMethodBody )
 import TcPat      ( addInlinePrags )
 import TcRnMonad
+import TcValidity
 import TcMType
 import TcType
 import BuildTyCl
@@ -43,6 +45,7 @@ import CoreSyn    ( DFunArg(..) )
 import Type
 import TcEvidence
 import TyCon
+import CoAxiom
 import DataCon
 import Class
 import Var
@@ -189,7 +192,7 @@ Instead we use a cunning trick.
    iff its argument satisfies exprIsConApp_maybe.  This is done in
    MkId mkDictSelId
 
- * We make 'df' CONLIKE, so that shared uses stil match; eg
+ * We make 'df' CONLIKE, so that shared uses still match; eg
       let d = df d1 d2
       in ...(op2 d)...(op1 d)...
 
@@ -246,7 +249,7 @@ careful when we have
       op = ...
 then we'll get an INLINE pragma on $cop_list but it's important that
 $cop_list only inlines when it's applied to *two* arguments (the
-dictionary and the list argument).  So we nust not eta-expand $df
+dictionary and the list argument).  So we must not eta-expand $df
 above.  We ensure that this doesn't happen by putting an INLINE
 pragma on the dfun itself; after all, it ends up being just a cast.
 
@@ -309,7 +312,7 @@ instance.
 
 Why is this justified?  Because we generate a (C [a]) constraint in
 a context in which 'a' cannot be instantiated to anything that matches
-other overlapping instances, or else we would not be excecuting this
+other overlapping instances, or else we would not be executing this
 version of op1 in the first place.
 
 It might even be a bit disguised:
@@ -323,7 +326,7 @@ It might even be a bit disguised:
 Precisely this is used in package 'regex-base', module Context.hs.
 See the overlapping instances for RegexContext, and the fact that they
 call 'nullFail' just like the example above.  The DoCon package also
-does the same thing; it shows up in module Fraction.hs
+does the same thing; it shows up in module Fraction.hs.
 
 Conclusion: when typechecking the methods in a C [a] instance, we want to
 treat the 'a' as an *existential* type variable, in the sense described
@@ -419,7 +422,7 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
                 , deriv_binds)
     }}
   where
-    typInstCheck ty = is_cls (iSpec ty) `elem` typeableClassNames
+    typInstCheck ty = is_cls_nm (iSpec ty) `elem` typeableClassNames
     typInstErr = ptext $ sLit $ "Can't create hand written instances of Typeable in Safe"
                               ++ " Haskell! Can only derive them"
 
@@ -427,12 +430,12 @@ addClsInsts :: [InstInfo Name] -> TcM a -> TcM a
 addClsInsts infos thing_inside
   = tcExtendLocalInstEnv (map iSpec infos) thing_inside
 
-addFamInsts :: [FamInst] -> TcM a -> TcM a
+addFamInsts :: [FamInst Branched] -> TcM a -> TcM a
 -- Extend (a) the family instance envt
 --        (b) the type envt with stuff from data type decls
 addFamInsts fam_insts thing_inside
   = tcExtendLocalFamInstEnv fam_insts $ 
-    tcExtendGlobalEnv things $
+    tcExtendGlobalEnv things  $ 
     do { traceTc "addFamInsts" (pprFamInsts fam_insts)
        ; tcg_env <- tcAddImplicits things
        ; setGblEnv tcg_env thing_inside }
@@ -461,21 +464,35 @@ the brutal solution will do.
 
 \begin{code}
 tcLocalInstDecl :: LInstDecl Name
-                -> TcM ([InstInfo Name], [FamInst])
+                -> TcM ([InstInfo Name], [FamInst Branched])
         -- A source-file instance declaration
         -- Type-check all the stuff before the "where"
         --
         -- We check for respectable instance type, and context
-tcLocalInstDecl (L loc (FamInstD { lid_inst = decl }))
+tcLocalInstDecl (L loc (TyFamInstD { tfid_inst = decl }))
   = setSrcSpan loc      $
-    tcAddFamInstCtxt decl  $
-    do { fam_inst <- tcFamInstDecl TopLevel decl
+    tcAddTyFamInstCtxt decl  $
+    do { fam_tc <- tcFamInstDeclCombined TopLevel (tyFamInstDeclLName decl)
+       ; fam_inst <- tcTyFamInstDecl Nothing fam_tc (L loc decl)
        ; return ([], [fam_inst]) }
 
-tcLocalInstDecl (L loc (ClsInstD { cid_poly_ty = poly_ty, cid_binds = binds
-                                 , cid_sigs = uprags, cid_fam_insts = ats }))
-  = setSrcSpan loc                      $
-    addErrCtxt (instDeclCtxt1 poly_ty)  $
+tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
+  = setSrcSpan loc      $
+    tcAddDataFamInstCtxt decl  $
+    do { fam_tc <- tcFamInstDeclCombined TopLevel (dfid_tycon decl)
+       ; fam_inst <- tcDataFamInstDecl Nothing fam_tc (L loc decl)
+       ; return ([], [toBranchedFamInst fam_inst]) }
+
+tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
+  = setSrcSpan loc $
+    do { (insts, fam_insts) <- tcClsInstDecl decl
+       ; return (insts, map toBranchedFamInst fam_insts) }
+
+tcClsInstDecl :: ClsInstDecl Name -> TcM ([InstInfo Name], [FamInst Unbranched])
+tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
+                           , cid_sigs = uprags, cid_tyfam_insts = ats
+                           , cid_datafam_insts = adts })
+  = addErrCtxt (instDeclCtxt1 poly_ty)  $
 
     do  { is_boot <- tcIsHsBoot
         ; checkTc (not is_boot || (isEmptyLHsBinds binds && null uprags))
@@ -487,17 +504,21 @@ tcLocalInstDecl (L loc (ClsInstD { cid_poly_ty = poly_ty, cid_binds = binds
                            
         -- Next, process any associated types.
         ; traceTc "tcLocalInstDecl" (ppr poly_ty)
-        ; fam_insts0 <- tcExtendTyVarEnv tyvars $
-                        mapAndRecoverM (tcAssocDecl clas mini_env) ats
+        ; tyfam_insts0 <- tcExtendTyVarEnv tyvars $
+                          mapAndRecoverM (tcAssocTyDecl clas mini_env) ats
+        ; datafam_insts <- tcExtendTyVarEnv tyvars $
+                           mapAndRecoverM (tcAssocDataDecl clas mini_env) adts
 
         -- Check for missing associated types and build them
         -- from their defaults (if available)
-        ; let defined_ats = mkNameSet $ map famInstDeclName ats
+        ; let defined_ats = mkNameSet $ map (tyFamInstDeclName . unLoc) ats
+              defined_adts = mkNameSet $ map (unLoc . dfid_tycon . unLoc) adts
 
-              mk_deflt_at_instances :: ClassATItem -> TcM [FamInst]
+              mk_deflt_at_instances :: ClassATItem -> TcM [FamInst Unbranched]
               mk_deflt_at_instances (fam_tc, defs)
                  -- User supplied instances ==> everything is OK
-                | tyConName fam_tc `elemNameSet` defined_ats 
+                | tyConName fam_tc `elemNameSet` defined_ats
+                   || tyConName fam_tc `elemNameSet` defined_adts
                 = return []
 
                  -- No defaults ==> generate a warning
@@ -517,9 +538,9 @@ tcLocalInstDecl (L loc (ClsInstD { cid_poly_ty = poly_ty, cid_binds = binds
                            tvs'     = varSetElems tv_set'
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
                      ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
-                       return (mkSynFamInst rep_tc_name tvs' fam_tc pat_tys' rhs') }
+                       mkFreshenedSynInst rep_tc_name tvs' fam_tc pat_tys' rhs' }
 
-        ; fam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
+        ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
         
         -- Finally, construct the Core representation of the instance.
         -- (This no longer includes the associated types.)
@@ -527,11 +548,14 @@ tcLocalInstDecl (L loc (ClsInstD { cid_poly_ty = poly_ty, cid_binds = binds
                 -- Dfun location is that of instance *header*
 
         ; overlap_flag <- getOverlapFlag
+        ; (subst, tyvars') <- tcInstSkolTyVars tyvars
         ; let dfun  	= mkDictFunId dfun_name tyvars theta clas inst_tys
-              ispec 	= mkLocalInstance dfun overlap_flag
+              ispec 	= mkLocalInstance dfun overlap_flag tyvars' clas (substTys subst inst_tys)
+                            -- Be sure to freshen those type variables, 
+                            -- so they are sure not to appear in any lookup
               inst_info = InstInfo { iSpec  = ispec, iBinds = VanillaInst binds uprags False }
 
-        ; return ( [inst_info], fam_insts0 ++ concat fam_insts1) }
+        ; return ( [inst_info], tyfam_insts0 ++ concat tyfam_insts1 ++ datafam_insts) }
 \end{code}
 
 %************************************************************************
@@ -545,13 +569,35 @@ class instance heads, but can contain data constructors and hence they share a
 lot of kinding and type checking code with ordinary algebraic data types (and
 GADTs).
 
+Note [Associated type consistency check]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+According to the invariant stated in FamInstEnv, all FamInsts are created
+with *fresh* variables. This is all well and good for matching instances --
+when we don't want a spurious variable collision -- but bad for type checking
+the instance declarations. Consider this example:
+
+  class Cls a where
+    type Typ a
+
+  instance Cls (Maybe b) where
+    type Typ (Maybe b) = Int
+
+When we're checking the class instance, we build the mini_env [a |-> Maybe b].
+Then, we wish to check that the pattern used in the type instance matches.
+If we build the FamInst for the associated type instance before doing this
+check, the check always fails. This is because the FamInst will be built with
+a *fresh* b, which won't be the same as the old, stale b.
+
+Bottom line: we must perform this check before creating the FamInst, even
+though it's a little awkward to do so. (The FamInst packages everything
+nicely, and we have to push around all pieces independently.)
+
 \begin{code}
-tcFamInstDecl :: TopLevelFlag -> FamInstDecl Name -> TcM FamInst
-tcFamInstDecl top_lvl decl
+tcFamInstDeclCombined :: TopLevelFlag -> Located Name -> TcM TyCon
+tcFamInstDeclCombined top_lvl fam_tc_lname
   = do { -- Type family instances require -XTypeFamilies
          -- and can't (currently) be in an hs-boot file
-       ; traceTc "tcFamInstDecl" (ppr decl)
-       ; let fam_tc_lname = fid_tycon decl
+       ; traceTc "tcFamInstDecl" (ppr fam_tc_lname)
        ; type_families <- xoptM Opt_TypeFamilies
        ; is_boot <- tcIsHsBoot   -- Are we compiling an hs-boot file?
        ; checkTc type_families $ badFamInstDecl fam_tc_lname
@@ -563,73 +609,112 @@ tcFamInstDecl top_lvl decl
        ; when (isTopLevel top_lvl && isTyConAssoc fam_tc)
               (addErr $ assocInClassErr fam_tc_lname)
 
-         -- Now check the type/data instance itself
-         -- This is where type and data decls are treated separately
-       ; tcFamInstDecl1 fam_tc decl }
+       ; return fam_tc }
 
-tcFamInstDecl1 :: TyCon -> FamInstDecl Name -> TcM FamInst
-
+tcTyFamInstDecl :: Maybe (Class, VarEnv Type) -- the class & mini_env if applicable
+                -> TyCon -> LTyFamInstDecl Name -> TcM (FamInst Branched)
   -- "type instance"
-tcFamInstDecl1 fam_tc decl@(FamInstDecl { fid_tycon = fam_tc_name
-                                        , fid_defn = TySynonym {} })
+tcTyFamInstDecl mb_clsinfo fam_tc (L loc decl@(TyFamInstDecl { tfid_group = group }))
   = do { -- (0) Check it's an open type family
          checkTc (isFamilyTyCon fam_tc) (notFamily fam_tc)
        ; checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
        ; checkTc (isOpenSynFamilyTyCon fam_tc)
                  (notOpenFamily fam_tc)
 
-         -- (1) do the work of verifying the synonym
-       ; (t_tvs, t_typats, t_rhs) <- tcSynFamInstDecl fam_tc decl
+         -- (1) do the work of verifying the synonym group
+       ; quads <- tcSynFamInstDecl fam_tc decl
 
-         -- (2) check the well-formedness of the instance
-       ; checkValidFamInst t_typats t_rhs
+         -- (2) create the branches
+       ; co_ax_branches <- mapM check_valid_mk_branch quads
 
-         -- (3) construct representation tycon
-       ; rep_tc_name <- newFamInstAxiomName fam_tc_name t_typats
+         -- (3) construct coercion tycon
+       ; rep_tc_name <- newFamInstAxiomName loc
+                                            (tyFamInstDeclName decl)
+                                            (get_typats quads)
 
-       ; return (mkSynFamInst rep_tc_name t_tvs fam_tc t_typats t_rhs) }
+         -- (4) check to see if earlier equations dominate a later one
+       ; foldlM_ check_inaccessible_branches [] co_ax_branches
 
+         -- now, build the FamInst
+       ; return $ mkSynFamInst rep_tc_name fam_tc group co_ax_branches }
+
+    where 
+      check_valid_mk_branch :: ([TyVar], [Type], Type, SrcSpan)
+                            -> TcM CoAxBranch
+      check_valid_mk_branch (t_tvs, t_typats, t_rhs, loc)
+        = setSrcSpan loc $
+          do { -- check the well-formedness of the instance
+               checkValidTyFamInst fam_tc t_tvs t_typats t_rhs
+
+               -- check that type patterns match the class instance head
+             ; tcAssocFamInst mb_clsinfo loc (ptext (sLit "type")) fam_tc t_typats
+
+               -- make fresh tyvars for axiom
+             ; (t_tvs', t_typats', t_rhs')
+                 <- freshenFamInstEqn t_tvs t_typats t_rhs
+
+             ; return $ mkCoAxBranch loc t_tvs' t_typats' t_rhs' }
+
+      check_inaccessible_branches :: [CoAxBranch]     -- previous
+                                  -> CoAxBranch       -- current
+                                  -> TcM [CoAxBranch] -- current : previous
+      check_inaccessible_branches prev_branches
+                                  cur_branch@(CoAxBranch { cab_lhs = tys })
+        = setSrcSpan (coAxBranchSpan cur_branch) $
+          do { when (tys `isDominatedBy` prev_branches) $
+                    addErrTc $ inaccessibleCoAxBranch fam_tc cur_branch
+             ; return $ cur_branch : prev_branches }
+
+      get_typats = map (\(_, tys, _, _) -> tys)
+
+tcDataFamInstDecl :: Maybe (Class, VarEnv Type)
+                  -> TyCon -> LDataFamInstDecl Name -> TcM (FamInst Unbranched)
   -- "newtype instance" and "data instance"
-tcFamInstDecl1 fam_tc 
-    (FamInstDecl { fid_pats = pats
-                 , fid_tycon = fam_tc_name
-                 , fid_defn = defn@TyData { td_ND = new_or_data, td_cType = cType
-                                          , td_ctxt = ctxt, td_cons = cons } })
+tcDataFamInstDecl mb_clsinfo fam_tc 
+    (L loc (DataFamInstDecl
+             { dfid_pats = pats
+             , dfid_tycon = fam_tc_name
+             , dfid_defn = defn@HsDataDefn { dd_ND = new_or_data, dd_cType = cType
+                                           , dd_ctxt = ctxt, dd_cons = cons } }))
   = do { -- Check that the family declaration is for the right kind
          checkTc (isFamilyTyCon fam_tc) (notFamily fam_tc)
        ; checkTc (isAlgTyCon fam_tc) (wrongKindOfFamily fam_tc)
 
          -- Kind check type patterns
-       ; tcFamTyPats fam_tc pats (kcTyDefn defn) $ 
+       ; tcFamTyPats fam_tc pats (kcDataDefn defn) $ 
            \tvs' pats' res_kind -> do
 
          -- Check that left-hand side contains no type family applications
          -- (vanilla synonyms are fine, though, and we checked for
          -- foralls earlier)
-       { mapM_ checkTyFamFreeness pats'
+       { checkValidFamPats fam_tc tvs' pats'
          
          -- Result kind must be '*' (otherwise, we have too few patterns)
        ; checkTc (isLiftedTypeKind res_kind) $ tooFewParmsErr (tyConArity fam_tc)
 
        ; stupid_theta <- tcHsContext ctxt
-       ; dataDeclChecks (tyConName fam_tc) new_or_data stupid_theta cons
+       ; h98_syntax <- dataDeclChecks (tyConName fam_tc) new_or_data stupid_theta cons
+         -- Check that type patterns match class instance head, if any
+       ; tcAssocFamInst mb_clsinfo loc (ppr new_or_data) fam_tc pats'
 
          -- Construct representation tycon
        ; rep_tc_name <- newFamInstTyConName fam_tc_name pats'
        ; axiom_name  <- newImplicitBinder rep_tc_name mkInstTyCoOcc
-       ; let ex_ok = True       -- Existentials ok for type families!
-             orig_res_ty = mkTyConApp fam_tc pats'
+       ; let orig_res_ty = mkTyConApp fam_tc pats'
 
        ; (rep_tc, fam_inst) <- fixM $ \ ~(rec_rep_tc, _) ->
-           do { data_cons <- tcConDecls new_or_data ex_ok rec_rep_tc
+           do { data_cons <- tcConDecls new_or_data rec_rep_tc
                                        (tvs', orig_res_ty) cons
               ; tc_rhs <- case new_or_data of
                      DataType -> return (mkDataTyConRhs data_cons)
                      NewType  -> ASSERT( not (null data_cons) )
                                  mkNewTyConRhs rep_tc_name rec_rep_tc (head data_cons)
-              ; let fam_inst = mkDataFamInst axiom_name tvs' fam_tc pats' rep_tc
-                    parent   = FamInstTyCon (famInstAxiom fam_inst) fam_tc pats'
-                    rep_tc   = buildAlgTyCon rep_tc_name tvs' cType stupid_theta tc_rhs 
+              -- freshen tyvars
+              ; (subst, tvs'') <- tcInstSkolTyVars tvs'
+              ; let pats''   = substTys subst pats'
+                    fam_inst = mkDataFamInst axiom_name tvs'' fam_tc pats'' rep_tc
+                    parent   = FamInstTyCon (famInstAxiom fam_inst) fam_tc pats''
+                    rep_tc   = buildAlgTyCon rep_tc_name tvs'' cType stupid_theta tc_rhs 
                                              Recursive h98_syntax parent
                  -- We always assume that indexed types are recursive.  Why?
                  -- (1) Due to their open nature, we can never be sure that a
@@ -641,31 +726,29 @@ tcFamInstDecl1 fam_tc
          -- Remember to check validity; no recursion to worry about here
        ; checkValidTyCon rep_tc
        ; return fam_inst } }
-    where
-       h98_syntax = case cons of      -- All constructors have same shape
-                        L _ (ConDecl { con_res = ResTyGADT _ }) : _ -> False
-                        _ -> True
 
 
 ----------------
-tcAssocDecl :: Class              -- ^ Class of associated type
-            -> VarEnv Type        -- ^ Instantiation of class TyVars
-            -> LFamInstDecl Name  -- ^ RHS
-            -> TcM FamInst
-tcAssocDecl clas mini_env (L loc decl)
-  = setSrcSpan loc      $
-    tcAddFamInstCtxt decl  $
-    do { fam_inst <- tcFamInstDecl NotTopLevel decl
-       ; let (fam_tc, at_tys) = famInstLHS fam_inst
-
+-- See Note [Associated type consistency check]
+tcAssocFamInst :: Maybe (Class
+               ,  VarEnv Type)       -- ^ Class of associated type
+                                     -- and instantiation of class TyVars
+               -> SrcSpan            -- ^ Of the family instance
+               -> SDoc               -- ^ "flavor" of the instance
+               -> TyCon              -- ^ Family tycon
+               -> [Type]             -- ^ Type patterns from instance
+               -> TcM ()
+tcAssocFamInst Nothing _ _ _ _ = return ()
+tcAssocFamInst (Just (clas, mini_env)) loc flav fam_tc at_tys
+  = setSrcSpan loc $
+    tcAddFamInstCtxt flav (tyConName fam_tc) $
+    do {
        -- Check that the associated type comes from this class
-       ; checkTc (Just clas == tyConAssoc_maybe fam_tc)
+         checkTc (Just clas == tyConAssoc_maybe fam_tc)
                  (badATErr (className clas) (tyConName fam_tc))
 
        -- See Note [Checking consistent instantiation] in TcTyClsDecls
-       ; zipWithM_ check_arg (tyConTyVars fam_tc) at_tys
-
-       ; return fam_inst }
+       ; zipWithM_ check_arg (tyConTyVars fam_tc) at_tys }
   where
     check_arg fam_tc_tv at_ty
       | Just inst_ty <- lookupVarEnv mini_env fam_tc_tv
@@ -676,6 +759,27 @@ tcAssocDecl clas mini_env (L loc decl)
       | otherwise
       = return ()   -- Allow non-type-variable instantiation
                     -- See Note [Associated type instances]
+
+tcAssocTyDecl :: Class                   -- Class of associated type
+              -> VarEnv Type             -- Instantiation of class TyVars
+              -> LTyFamInstDecl Name     
+              -> TcM (FamInst Unbranched)
+tcAssocTyDecl clas mini_env ldecl@(L loc decl)
+  = setSrcSpan loc $
+    tcAddTyFamInstCtxt decl $
+    do { fam_tc <- tcFamInstDeclCombined NotTopLevel (tyFamInstDeclLName decl)
+       ; fam_inst <- tcTyFamInstDecl (Just (clas, mini_env)) fam_tc ldecl
+       ; return $ toUnbranchedFamInst fam_inst }
+
+tcAssocDataDecl :: Class                 -- ^ Class of associated type
+                -> VarEnv Type           -- ^ Instantiation of class TyVars
+                -> LDataFamInstDecl Name -- ^ RHS
+                -> TcM (FamInst Unbranched)
+tcAssocDataDecl clas mini_env ldecl@(L loc decl)
+  = setSrcSpan loc $
+    tcAddDataFamInstCtxt decl $
+    do { fam_tc <- tcFamInstDeclCombined NotTopLevel (dfid_tycon decl)
+       ; tcDataFamInstDecl (Just (clas, mini_env)) fam_tc ldecl }
 \end{code}
 
 
@@ -879,16 +983,24 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
          do { sig_ty <- tcHsSigType (FunSigCtxt sel_name) hs_ty
             ; inst_sigs <- xoptM Opt_InstanceSigs
             ; if inst_sigs then 
-                checkTc (sig_ty `eqType` local_meth_ty)
-                        (badInstSigErr sel_name local_meth_ty)
+                unless (sig_ty `eqType` local_meth_ty)
+                       (badInstSigErr sel_name local_meth_ty)
               else
                 addErrTc (misplacedInstSig sel_name hs_ty)
             ; return sig_ty }
 
-badInstSigErr :: Name -> Type -> SDoc
+badInstSigErr :: Name -> Type -> TcM ()
 badInstSigErr meth ty
-  = hang (ptext (sLit "Method signature does not match class; it should be"))
-       2 (pprPrefixName meth <+> dcolon <+> ppr ty)
+  = do { env0 <- tcInitTidyEnv
+       ; let tidy_ty = tidyType env0 ty
+                 -- Tidy the type using the ambient TidyEnv, 
+                 -- to avoid apparent name capture (Trac #7475)
+                 --    class C a where { op :: a -> b }
+                 --    instance C (a->b) where
+                 --       op :: forall x. x
+                 --       op = ...blah...
+       ; addErrTc (hang (ptext (sLit "Method signature does not match class; it should be"))
+                      2 (pprPrefixName meth <+> dcolon <+> ppr tidy_ty)) }
 
 misplacedInstSig :: Name -> LHsType Name -> SDoc
 misplacedInstSig name hs_ty
@@ -1119,7 +1231,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
       where
         error_rhs dflags = L inst_loc $ HsApp error_fun (error_msg dflags)
         error_fun    = L inst_loc $ wrapId (WpTyApp meth_tau) nO_METHOD_BINDING_ERROR_ID
-        error_msg dflags = L inst_loc (HsLit (HsStringPrim (unsafeMkFastBytesString (error_string dflags))))
+        error_msg dflags = L inst_loc (HsLit (HsStringPrim (unsafeMkByteString (error_string dflags))))
         meth_tau     = funResultTy (applyTys (idType sel_id) inst_tys)
         error_string dflags = showSDoc dflags (hcat [ppr inst_loc, text "|", ppr sel_id ])
         lam_wrapper  = mkWpTyLams tyvars <.> mkWpLams dfun_ev_vars
@@ -1454,6 +1566,11 @@ badFamInstDecl tc_name
   = vcat [ ptext (sLit "Illegal family instance for") <+>
            quotes (ppr tc_name)
          , nest 2 (parens $ ptext (sLit "Use -XTypeFamilies to allow indexed type families")) ]
+
+inaccessibleCoAxBranch :: TyCon -> CoAxBranch -> SDoc
+inaccessibleCoAxBranch tc fi
+  = ptext (sLit "Inaccessible family instance equation:") $$
+      (pprCoAxBranch tc fi)
 
 notOpenFamily :: TyCon -> SDoc
 notOpenFamily tc

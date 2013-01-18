@@ -15,6 +15,7 @@ module DmdAnal ( dmdAnalProgram ) where
 
 import Var		( isTyVar )
 import DynFlags
+import WwLib            ( deepSplitProductType_maybe )
 import Demand	-- All of it
 import CoreSyn
 import Outputable
@@ -22,8 +23,7 @@ import VarEnv
 import BasicTypes	
 import FastString
 import Data.List
-import DataCon		( dataConTyCon, dataConRepStrictness, 
-                          deepSplitProductType_maybe )
+import DataCon		( dataConTyCon, dataConRepStrictness, isMarkedStrict )
 import Id
 import CoreUtils	( exprIsHNF, exprIsTrivial )
 import PprCore	
@@ -36,7 +36,6 @@ import Util
 import Maybes		( orElse )
 import TysWiredIn	( unboxedPairDataCon )
 import TysPrim		( realWorldStatePrimTy )
-
 \end{code}
 
 %************************************************************************
@@ -89,36 +88,67 @@ data RhsFlag = MayBeRhsLambda | MereExpr
 %*									*
 %************************************************************************
 
+Note [Ensure demand is strict]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+It's important not to analyse e with a lazy demand because
+a) When we encounter   case s of (a,b) -> 
+	we demand s with U(d1d2)... but if the overall demand is lazy
+	that is wrong, and we'd need to reduce the demand on s,
+	which is inconvenient
+b) More important, consider
+	f (let x = R in x+x), where f is lazy
+   We still want to mark x as demanded, because it will be when we
+   enter the let.  If we analyse f's arg with a Lazy demand, we'll
+   just mark x as Lazy
+c) The application rule wouldn't be right either
+   Evaluating (f x) in a L demand does *not* cause
+   evaluation of f in a C(L) demand!
+
+Note [Always analyse in virgin pass]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Tricky point: make sure that we analyse in the 'virgin' pass. Consider
+   rec { f acc x True  = f (...rec { g y = ...g... }...)
+         f acc x False = acc }
+In the virgin pass for 'f' we'll give 'f' a very strict (bottom) type.
+That might mean that we analyse the sub-expression containing the 
+E = "...rec g..." stuff in a bottom demand.  Suppose we *didn't analyse*
+E, but just retuned botType.  
+
+Then in the *next* (non-virgin) iteration for 'f', we might analyse E
+in a weaker demand, and that will trigger doing a fixpoint iteration
+for g.  But *because it's not the virgin pass* we won't start g's
+iteration at bottom.  Disaster.  (This happened in $sfibToList' of 
+nofib/spectral/fibheaps.)
+
+So in the virgin pass we make sure that we do analyse the expression
+at least once, to initialise its signatures.
+
 \begin{code}
+evalDmdAnal :: DynFlags -> RhsFlag -> AnalEnv 
+            -> CoreExpr -> (DmdType, CoreExpr)
+-- See Note [Ensure demand is strict]
+evalDmdAnal dflags rhs_flag env e
+  | (res_ty, e') <- dmdAnal dflags rhs_flag env evalDmd e
+  = (deferType res_ty, e')
+
+simpleDmdAnal :: DynFlags -> RhsFlag -> AnalEnv -> DmdType 
+              -> CoreExpr -> (DmdType, CoreExpr)
+simpleDmdAnal dflags rhs_flag env res_ty e
+  | ae_virgin env -- See Note [Always analyse in virgin pass]
+  , (_discarded_res_ty, e') <- dmdAnal dflags rhs_flag env evalDmd e
+  = (res_ty, e')
+  | otherwise
+  = (res_ty, e)
+
 dmdAnal :: DynFlags -> RhsFlag -> AnalEnv 
         -> Demand -> CoreExpr -> (DmdType, CoreExpr)
+dmdAnal dflags rhs_flag env dmd e 
+  | isBotDmd dmd  	  = simpleDmdAnal dflags rhs_flag env botDmdType e
+  | isAbsDmd dmd          = simpleDmdAnal dflags rhs_flag env topDmdType e
+  | not (isStrictDmd dmd) = evalDmdAnal   dflags rhs_flag env            e
 
-dmdAnal _ _ _ dmd e | isAbs dmd
-  -- top demand does not provide any way to infer something interesting 
-  = (topDmdType, e)
-
-dmdAnal dflags rhs_flag env dmd e
-  | not (isStrictDmd dmd)
-  = let (res_ty, e') = dmdAnal dflags rhs_flag env fake_dmd e
-    in  -- compute as with a strict demand, return with a lazy demand
-    (deferType res_ty, e')
-	-- It's important not to analyse e with a lazy demand because
-	-- a) When we encounter   case s of (a,b) -> 
-	--	we demand s with U(d1d2)... but if the overall demand is lazy
-	--	that is wrong, and we'd need to reduce the demand on s,
-	--	which is inconvenient
-	-- b) More important, consider
-	--	f (let x = R in x+x), where f is lazy
-	--    We still want to mark x as demanded, because it will be when we
-	--    enter the let.  If we analyse f's arg with a Lazy demand, we'll
-	--    just mark x as Lazy
-	-- c) The application rule wouldn't be right either
-	--    Evaluating (f x) in a L demand does *not* cause
-	--    evaluation of f in a C(L) demand!
-  where fake_dmd = mkJointDmd strStr $ absd dmd
-
-dmdAnal _ _ _ _ (Lit lit) = (topDmdType, Lit lit)
-dmdAnal _ _ _ _ (Type ty) = (topDmdType, Type ty)	-- Doesn't happen, in fact
+dmdAnal _ _ _ _ (Lit lit)     = (topDmdType, Lit lit)
+dmdAnal _ _ _ _ (Type ty)     = (topDmdType, Type ty)	-- Doesn't happen, in fact
 dmdAnal _ _ _ _ (Coercion co) = (topDmdType, Coercion co)
 
 dmdAnal _ _ env dmd (Var var)
@@ -159,10 +189,18 @@ dmdAnal dflags _ sigs dmd (App fun (Coercion co))
 dmdAnal dflags _ env dmd (App fun arg)	-- Non-type arguments
   = let				-- [Type arg handled above]
 	(fun_ty, fun') 	  = dmdAnal dflags MereExpr env (mkCallDmd dmd) fun
+	(arg_ty, arg') 	  = dmdAnal dflags MereExpr env arg_dmd arg
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
-        (arg_ty, arg') 	  = dmdAnal dflags MereExpr env arg_dmd arg
     in
-    (res_ty `both` arg_ty, App fun' arg')
+--    pprTrace "dmdAnal:app" (vcat
+--         [ text "dmd =" <+> ppr dmd
+--         , text "expr =" <+> ppr (App fun arg)
+--         , text "fun dmd_ty =" <+> ppr fun_ty
+--         , text "arg dmd =" <+> ppr arg_dmd
+--         , text "arg dmd_ty =" <+> ppr arg_ty
+--         , text "res dmd_ty =" <+> ppr res_ty
+--         , text "overall res dmd_ty =" <+> ppr (res_ty `bothDmdType` arg_ty) ])
+    (res_ty `bothDmdType` arg_ty, App fun' arg')
 
 dmdAnal dflags rhs_flag env dmd (Lam var body)
   | isTyVar var
@@ -188,7 +226,7 @@ dmdAnal dflags rhs_flag env dmd (Lam var body)
   = let	
         env'		 = extendSigsWithLam env var
 	(body_ty, body') = dmdAnal dflags MereExpr env' body_dmd body
-        body_ty'         = body_ty `both` body_ty 
+        body_ty'         = body_ty `bothDmdType` body_ty 
 	(lam_ty, var')   = annotateLamIdBndr dflags rhs_flag env body_ty' var
     in
     (lam_ty, Lam var' body')
@@ -197,7 +235,7 @@ dmdAnal dflags rhs_flag env dmd (Lam var body)
   = let		-- anyway to annotate it and gather free var info
 	(body_ty, body') = dmdAnal dflags MereExpr env evalDmd body
         -- Coarsen body type 
-        body_ty'         = body_ty `both` body_ty
+        body_ty'         = body_ty `bothDmdType` body_ty
 	(lam_ty, var')   = annotateLamIdBndr dflags rhs_flag env body_ty' var
     in
     (deferType lam_ty, Lam var' body')     
@@ -232,7 +270,7 @@ dmdAnal dflags _ env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 	--	x = (a, absent-error)
 	-- and that'll crash.
 	-- So at one stage I had:
-	--	dead_case_bndr		 = isAbs (idDemandInfo case_bndr')
+	--	dead_case_bndr		 = isAbsDmd (idDemandInfo case_bndr')
 	--	keepity | dead_case_bndr = Drop
 	--		| otherwise	 = Keep		
 	--
@@ -243,26 +281,30 @@ dmdAnal dflags _ env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 	-- The insight is, of course, that a demand on y is a demand on the
 	-- scrutinee, so we need to `both` it with the scrut demand
 
-	alt_dmd 	   = mkProdDmd One [idDemandInfo b | b <- bndrs', isId b]
+	alt_dmd 	   = mkProdDmd countOnce [idDemandInfo b | b <- bndrs', isId b]
                              -- the scrutinee is used just once
-        scrut_dmd 	   = alt_dmd `both`
+        scrut_dmd 	   = alt_dmd `bothDmd`
 			     idDemandInfo case_bndr'
 
 	(scrut_ty, scrut') = dmdAnal dflags MereExpr env scrut_dmd scrut
-        res_ty             = alt_ty1 `both` scrut_ty
+        res_ty             = alt_ty1 `bothDmdType` scrut_ty
     in
 --    pprTrace "dmdAnal:Case1" (vcat [ text "scrut" <+> ppr scrut
---                                  , text "scrut_ty" <+> ppr scrut_ty
---                                  , text "alt_ty" <+> ppr alt_ty1
---                                  , text "res_ty" <+> ppr res_ty ]) $
+--                                   , text "dmd" <+> ppr dmd
+--                                   , text "alt_dmd" <+> ppr alt_dmd
+--                                   , text "case_bndr_dmd" <+> ppr (idDemandInfo case_bndr')
+--                                   , text "scrut_dmd" <+> ppr scrut_dmd
+--                                   , text "scrut_ty" <+> ppr scrut_ty
+--                                   , text "alt_ty" <+> ppr alt_ty1
+--                                   , text "res_ty" <+> ppr res_ty ]) $
     (res_ty, Case scrut' case_bndr' ty [alt'])
 
 dmdAnal dflags _ env dmd (Case scrut case_bndr ty alts)
-  = let
+  = let      -- Case expression with multiple alternatives
 	(alt_tys, alts')          = mapAndUnzip (dmdAnalAlt dflags env dmd) alts
-	(scrut_ty, scrut')        = dmdAnal dflags MereExpr env onceEvalDmd scrut
-	(alt_ty, (case_bndr', _)) = annotateBndr (foldr lub botDmdType alt_tys) case_bndr
-        res_ty                  = alt_ty `both` scrut_ty
+	(scrut_ty, scrut')        = dmdAnal dflags MereExpr env evalDmd scrut
+	(alt_ty, (case_bndr', _)) = annotateBndr (foldr lubDmdType botDmdType alt_tys) case_bndr
+        res_ty                    = alt_ty `bothDmdType` scrut_ty
     in
 --    pprTrace "dmdAnal:Case2" (vcat [ text "scrut" <+> ppr scrut
 --                                   , text "scrut_ty" <+> ppr scrut_ty
@@ -279,7 +321,7 @@ dmdAnal dflags _ env dmd (Let (NonRec id rhs) body)
         -- Add lazy free variables
 	body_ty2		   = addLazyFVs body_ty1 lazy_fv
         -- Add unleashed cardinality demands 
-        unleashed_fv               = unleash_card_dmds (id2, id_dmd)
+        unleashed_fv               = unleashCardDmds (id2, id_dmd)
         body_ty3                   = addNewFVs body_ty2 unleashed_fv
         
         -- Annotate top-level lambdas at RHS basing on the aggregated demand info
@@ -317,7 +359,7 @@ dmdAnal dflags _ env dmd (Let (Rec pairs) body)
 		-- binders as annotateBndr does; 
 		-- being recursive, we can't treat them strictly.
 		-- But we do need to remove the binders from the result demand env
-        unleashed_envs       = map unleash_card_dmds var_dmds       
+        unleashed_envs       = map unleashCardDmds var_dmds       
         body_ty3             = foldl addNewFVs body_ty2 unleashed_envs
 
         -- -- Annotate top-level lambdas at RHS basing on the aggregated demand info
@@ -337,7 +379,7 @@ dmdAnalAlt dflags env dmd (con,bndrs,rhs)
         rhs_ty'          = addDataConPatDmds con bndrs rhs_ty
 	(alt_ty, pairs)  = annotateBndrs rhs_ty' bndrs
         (bndrs', _)      = unzip pairs
-	final_alt_ty | io_hack_reqd = alt_ty `lub` topDmdType
+	final_alt_ty | io_hack_reqd = alt_ty `lubDmdType` topDmdType
 		     | otherwise    = alt_ty
 
 	-- There's a hack here for I/O operations.  Consider
@@ -361,6 +403,29 @@ dmdAnalAlt dflags env dmd (con,bndrs,rhs)
 		       idType (head bndrs) `eqType` realWorldStatePrimTy
     in	
     (final_alt_ty, (con, bndrs', rhs'))
+
+-- Unleashing the usage demands on free variables of a binding
+-- basing on the demand from the body
+-- See Note [Aggregated demand for cardinality] 
+-- Recursive bindings are automaticaly marked as used
+unleashCardDmds :: (Var, Demand) -> DmdEnv
+unleashCardDmds (id, id_dmd)
+  | Abs <- usage_dmd
+    -- do not unleash anything for absent demands
+    = emptyDmdEnv
+  | otherwise 
+    = let StrictSig (DmdType fv _ _) = idStrictness id
+          arity		             = idArity id
+          threshold_dmd              = absd $ mkThresholdDmd arity 
+          -- we are dealing only with usage, therefore the
+          -- stricntess component in 'fv' should be set to L
+          lazified_fv                = deferEnv fv            
+          unleashed_fv               = if usage_dmd `preAbsDmd` threshold_dmd
+                                       then lazified_fv
+                                       else useEnv lazified_fv
+       in unleashed_fv
+  where
+    usage_dmd = absd id_dmd 
 
 annotate_rhs_lambdas :: AbsDmd -> CoreExpr -> CoreExpr
 annotate_rhs_lambdas dmd lam@(Lam var body)
@@ -490,22 +555,14 @@ h c z = build (\x ->
                     then \y -> x (y ++ z1)
                     else \y -> x (z1 ++ y))
 
-One can see that `build` assigns to `g` demand <L,
-C(C1(U))>. Therefore, when analyzing the lambda `(\x -> ...)`, we
+One can see that `build` assigns to `g` demand <L,C(C1(U))>. 
+Therefore, when analyzing the lambda `(\x -> ...)`, we
 expect each lambda \y -> ... to be annotated as "one-shot"
 one. Therefore (\x -> \y -> x (y ++ z)) should be analyzed with a
 demand <C(C(..), C(C1(U))>.
 
-This is achieved by ,first, converting the lazy demand L into the
-strict S by the second clause of the analysis:
-
-dmdAnal env dmd e
-  | not (isStrictDmd dmd)
-  = let (res_ty, e') = dmdAnal env fake_dmd e
-    in (deferType res_ty, e')
-  where fake_dmd = mkJointDmd strStr $ absd dmd
-
-and, second, expanding S into C(L).
+This is achieved by, first, converting the lazy demand L into the
+strict S by the second clause of the analysis.
 
 \begin{code}
 
@@ -539,78 +596,26 @@ dmdTransform :: AnalEnv		-- The strictness environment
 	-- this function plus demand on its free variables
 
 dmdTransform env var dmd
+  | isDataConWorkId var		                 -- Data constructor
+  = dmdTransformDataConSig 
+       (idArity var) (idStrictness var) dmd
 
------- 	DATA CONSTRUCTOR
-  | isDataConWorkId var		-- Data constructor
-  = let 
-	StrictSig dmd_ty    = idStrictness var	-- It must have a strictness sig
-	DmdType _ _ con_res = dmd_ty
-	arity		    = idArity var
-    in
-    if arity == call_depth then		-- Saturated, so unleash the demand
-	let 
-           -- Important!  If we Keep the constructor application, then
-	   -- we need the demands the constructor places (always lazy)
-	   -- If not, we don't need to.  For example:
-	   --	f p@(x,y) = (p,y)	-- S(AL)
-	   --	g a b     = f (a,b)
-	   -- It's vital that we don't calculate Absent for a!
+  | isGlobalId var	                         -- Imported function
+  = dmdTransformSig (idStrictness var) dmd
 
-	   -- ds can be empty, when we are just seq'ing the thing
-	   -- If so we must make up a suitable bunch of demands
-
-           -- Invariant: res_dmd does not have call demand as its component
-	   arg_ds = if isPolyDmd res_dmd
-                    then replicateDmd arity res_dmd
-                    else snd $ splitProdDmd res_dmd
-	in
-	mkDmdType emptyDmdEnv arg_ds con_res
-		-- Must remember whether it's a product, hence con_res, not TopRes
-    else
-	topDmdType
-
------- 	IMPORTED FUNCTION
-  | isGlobalId var,		-- Imported function
-    let StrictSig dmd_ty = idStrictness var
-  = if dmdTypeDepth dmd_ty <= call_depth then	-- Saturated, so unleash the demand
-	adjustCardinality dmd_ty
-    else
-	topDmdType
-
------- 	LOCAL LET/REC BOUND THING
-  | Just (StrictSig dmd_ty, top_lvl) <- lookupSigEnv env var
-  = 
-    -- NB: it's important to use deferType, and not just return topDmdType
-    -- Consider	let { f x y = p + x } in f 1
-    -- The application isn't saturated, but we must nevertheless propagate 
-    --	a lazy demand for p!  
-    let
-        threshold_call_depth                        = dmdTypeDepth dmd_ty
-	-- checking that demand depth is enough to unleash strictness
-        sig_ty | threshold_call_depth <= call_depth = dmd_ty 
-	       | otherwise   	    	            = deferType dmd_ty
-        -- checking that demand is all-single-called to unleash cardinality
-        fn_ty = adjustCardinality sig_ty
+  | Just (sig, top_lvl) <- lookupSigEnv env var  -- Local letrec bound thing
+  , let 
+        fn_ty = dmdTransformSig sig dmd
         -- stripping of the usage environment (making all free vars absent)      
         -- it is going to be restored when getting back to Let-case
         -- See Note [Aggregated demand for cardinality]
         trim_ty = trimFvUsageTy fn_ty
-   in
-    if isTopLevel top_lvl then trim_ty	-- Don't record top level things
+  = if isTopLevel top_lvl           
+    then trim_ty   -- Don't record and trim top level things
     else addVarDmd trim_ty var dmd
 
------- 	LOCAL NON-LET/REC BOUND THING
-  | otherwise	 		-- Default case
+  | otherwise	 		                 -- Local non-letrec-bound thing
   = unitVarDmd var dmd
-
-  where
-    (call_depth, res_dmd) = splitCallDmd dmd
-    adjustCardinality dt  = if precise_call dt
-                            then dt else markAsUsedType dt 
-    -- True is the demand is weaker than C1(C1(...)), where
-    -- the number of C1 is taken from the transformer threshold                        
-    precise_call dt       = allSingleCalls (dmdTypeDepth dt) dmd
-
 \end{code}
 
 %************************************************************************
@@ -679,7 +684,7 @@ dmdFix dflags top_lvl env orig_pairs
           = ((sigs', lazy_fv'), pair')
           where
 	    (sigs', lazy_fv1, pair') = dmdAnalRhs dflags top_lvl Recursive (updSigEnv env sigs) (id,rhs)
-	    lazy_fv'		     = plusVarEnv_C both lazy_fv lazy_fv1
+	    lazy_fv'		     = plusVarEnv_C bothDmd lazy_fv lazy_fv1
 	   
     same_sig sigs sigs' var = lookup sigs var == lookup sigs' var
     lookup sigs var = case lookupVarEnv sigs var of
@@ -698,11 +703,11 @@ dmdAnalRhs dflags top_lvl rec_flag env (id, rhs)
   arity		     = idArity id   -- The idArity should be up to date
 				    -- The simplifier was run just beforehand
 
-  (rhs_dmd_ty, rhs') = dmdAnal dflags MayBeRhsLambda env (mkRhsDmd arity) rhs
+  (rhs_dmd_ty, rhs') = dmdAnal dflags MayBeRhsLambda env (vanillaCall arity) rhs
   (lazy_fv, sig_ty)  = WARN( arity /= dmdTypeDepth rhs_dmd_ty && not (exprIsTrivial rhs), ppr id )
                        -- The RHS can be eta-reduced to just a variable, 
                        -- in which case we should not complain. 
-                       mkSigTy dflags top_lvl rec_flag env id rhs rhs_dmd_ty
+		       mkSigTy top_lvl rec_flag env id rhs rhs_dmd_ty
   id'		     = id `setIdStrictness` sig_ty
   sigs'		     = extendSigEnv top_lvl (sigEnv env) id sig_ty
 
@@ -717,28 +722,28 @@ dmdAnalRhs dflags top_lvl rec_flag env (id, rhs)
 \begin{code}
 unitVarDmd :: Var -> Demand -> DmdType
 unitVarDmd var dmd 
-  = DmdType (unitVarEnv var dmd) [] top
+  = DmdType (unitVarEnv var dmd) [] topRes
 
 addVarDmd :: DmdType -> Var -> Demand -> DmdType
 addVarDmd (DmdType fv ds res) var dmd
-  = DmdType (extendVarEnv_C both fv var dmd) ds res
+  = DmdType (extendVarEnv_C bothDmd fv var dmd) ds res
 
 addNewFVs :: DmdType -> DmdEnv -> DmdType
 addNewFVs (DmdType fv ds res) new_fvs
   = DmdType both_fv ds res
   where
-    both_fv = plusVarEnv_C both fv new_fvs
+    both_fv = plusVarEnv_C bothDmd fv new_fvs
 
 addLazyFVs :: DmdType -> DmdEnv -> DmdType
 addLazyFVs (DmdType fv ds res) lazy_fvs
   = DmdType both_fv1 ds res
   where
-    both_fv = plusVarEnv_C both fv lazy_fvs
-    both_fv1 = modifyEnv (isBotRes res) (`both` bot) lazy_fvs fv both_fv
+    both_fv = plusVarEnv_C bothDmd fv lazy_fvs
+    both_fv1 = modifyEnv (isBotRes res) (`bothDmd` botDmd) lazy_fvs fv both_fv
 	-- This modifyEnv is vital.  Consider
 	--	let f = \x -> (x,y)
 	--	in  error (f 3)
-	-- Here, y is treated as a lazy-fv of f, but we must `both` that L
+	-- Here, y is treated as a lazy-fv of f, but we must `bothDmd` that L
 	-- demand with the bottom coming up from 'error'
 	-- 
 	-- I got a loop in the fixpointer without this, due to an interaction
@@ -763,12 +768,13 @@ addLazyFVs (DmdType fv ds res) lazy_fvs
 
 
 removeFV :: DmdEnv -> Var -> DmdResult -> (DmdEnv, Demand)
-removeFV fv id res = (fv', dmd)
+removeFV fv id res = -- pprTrace "rfv" (ppr id <+> ppr dmd $$ ppr fv)
+                     (fv', dmd)
 		where
 		  fv' = fv `delVarEnv` id
 		  dmd = lookupVarEnv fv id `orElse` deflt
                   -- See note [Default demand for variables]
-	 	  deflt | isBotRes res = bot
+	 	  deflt | isBotRes res = botDmd
 		        | otherwise    = absDmd
 \end{code}
 
@@ -783,30 +789,6 @@ possible to safely ignore non-mentioned variables (their joint demand
 is <L,A>).
 
 \begin{code}
-
--- Unleashing the usage demands on free variables of a binding
--- basing on the demand from the body
--- See Note [Aggregated demand for cardinality] 
-
--- Recursive bindings are automaticaly marked as used
-unleash_card_dmds :: (Var, Demand) -> DmdEnv
-unleash_card_dmds (id, id_dmd)
-  | Abs <- usage_dmd
-    -- do not unleash anything for absent demands
-    = emptyDmdEnv
-  | otherwise 
-    = let StrictSig (DmdType fv _ _) = idStrictness id
-          arity		             = idArity id
-          threshold_dmd              = absd $ mkThresholdDmd arity 
-          -- we are dealing only with usage, therefore the
-          -- stricntess component in 'fv' should be set to L
-          lazified_fv                = deferEnv fv            
-          unleashed_fv               = if usage_dmd `pre` threshold_dmd
-                                       then lazified_fv
-                                       else markAsUsedEnv lazified_fv
-       in unleashed_fv
-  where
-    usage_dmd = absd id_dmd 
 
 annotateBndr :: DmdType -> Var -> (DmdType, (Var, Demand))
 -- The returned env has the var deleted
@@ -839,7 +821,7 @@ annotateLamIdBndr dflags rhs_flag env (DmdType fv ds res) id
       -- Watch out!  See note [Lambda-bound unfoldings]
     final_ty = case maybeUnfoldingTemplate (idUnfolding id) of
                  Nothing  -> main_ty
-                 Just unf -> main_ty `both` unf_ty
+                 Just unf -> main_ty `bothDmdType` unf_ty
                           where
                              (unf_ty, _) = dmdAnal dflags rhs_flag env dmd unf
     
@@ -847,83 +829,33 @@ annotateLamIdBndr dflags rhs_flag env (DmdType fv ds res) id
 
     (fv', dmd) = removeFV fv id res
 
-mkSigTy :: DynFlags -> TopLevelFlag -> RecFlag -> AnalEnv -> Id -> 
+mkSigTy :: TopLevelFlag -> RecFlag -> AnalEnv -> Id -> 
            CoreExpr -> DmdType -> (DmdEnv, StrictSig)
-mkSigTy dflags top_lvl rec_flag env id rhs dmd_ty 
-  = mk_sig_ty dflags thunk_cpr_ok rec_flag rhs dmd_ty
-  where
-    id_dmd = idDemandInfo id
-
-    -- is it okay or not to assign CPR 
-    -- (not okay in the first pass)
-    thunk_cpr_ok   -- See Note [CPR for thunks]
-        | isTopLevel top_lvl       = False	-- Top level things don't get
-						-- their demandInfo set at all
-	| isRec rec_flag	   = False	-- Ditto recursive things
-        | ae_virgin env            = True       -- Optimistic, first time round
-        -- See Note [Optimistic CPR in the "virgin" case]
-	| isStrictDmd id_dmd       = True
-	| otherwise 		   = False	
-
-mk_sig_ty :: DynFlags -> Bool ->  RecFlag -> CoreExpr 
-          -> DmdType -> (DmdEnv, StrictSig)
-mk_sig_ty dflags thunk_cpr_ok rec_flag rhs dt
+mkSigTy top_lvl rec_flag env id rhs (DmdType fv dmds res)
   = (lazy_fv, mkStrictSig dmd_ty)
-	-- Re unused never_inline, see Note [NOINLINE and strictness]
+	-- See Note [NOINLINE and strictness]
   where
-    dmd_ty = mkDmdType strict_fv final_dmds res'
+    dmd_ty = mkDmdType strict_fv dmds res'
+
+    -- See Note [Lazy and strict free variables]
     lazy_fv   = filterUFM (not . isStrictDmd) fv
     strict_fv = filterUFM isStrictDmd         fv
 
-    -- crude coarsening for recursive bindings
-    DmdType fv dmds res = case rec_flag of 
-                            Recursive    -> dt `both` dt
-                            NonRecursive -> dt
-
-    -- Set the unpacking strategy
-    final_dmds = setUnpackStrategy dflags dmds
-	
     ignore_cpr_info = not (exprIsHNF rhs || thunk_cpr_ok)
     res' = if returnsCPR res && ignore_cpr_info 
 	   then topRes
            else res 
-\end{code}
 
-The unpack strategy determines whether we'll *really* unpack the argument,
-or whether we'll just remember its strictness.  If unpacking would give
-rise to a *lot* of worker args, we may decide not to unpack after all.
-
-\begin{code}
-setUnpackStrategy :: DynFlags -> [Demand] -> [Demand]
-setUnpackStrategy dflags ds
-  = snd (go (maxWorkerArgs dflags - nonAbsentArgs ds) ds)
-  where
-    go :: Int 			-- Max number of args available for sub-components of [Demand]
-       -> [Demand]
-       -> (Int, [Demand])	-- Args remaining after subcomponents of [Demand] are unpacked
-
-    go n (d:ds)   
-        | isProdDmd d && isStrictDmd d
-        = if n' >= 0 
-          then (mkProdDmd c cs') `cons` go n'' ds
-          else d `cons` go n ds
-	where
-          (c, cs) = splitProdDmd d
-	  (n'',cs') = go n' cs
-	  n' = n + 1 - non_abs_args
-		-- Add one to the budget 'cos we drop the top-level arg
-	  non_abs_args = nonAbsentArgs cs
-		-- Delete # of non-absent args to which we'll now be committed
-				
-    go n (d:ds) = d `cons` go n ds
-    go n []     = (n,[])
-
-    cons d (n,ds) = (n, d:ds)
-
-nonAbsentArgs :: [Demand] -> Int
-nonAbsentArgs []	         = 0
-nonAbsentArgs (d : ds) | isAbs d = nonAbsentArgs ds
-nonAbsentArgs (_   : ds)         = 1 + nonAbsentArgs ds
+    -- Is it okay or not to assign CPR 
+    -- (not okay in the first pass)
+    thunk_cpr_ok   -- See Note [CPR for thunks]
+        | isTopLevel top_lvl       	= False	-- Top level things don't get
+				                -- their demandInfo set at all
+	| isRec rec_flag	   	= False	-- Ditto recursive things
+        | ae_virgin env            	= True  -- Optimistic, first time round
+        -- See Note [Optimistic CPR in the "virgin" case]
+	| isStrictDmd (idDemandInfo id) = True
+	| otherwise 		        = False	
 \end{code}
 
 Note [CPR for thunks]
@@ -1156,17 +1088,17 @@ nonVirgin sigs = AE { ae_sigs = sigs, ae_virgin = False }
 extendSigsWithLam :: AnalEnv -> Id -> AnalEnv
 -- Extend the AnalEnv when we meet a lambda binder
 extendSigsWithLam env id
-  | ae_virgin env        = extendAnalEnv NotTopLevel env id cprSig
-       -- See Note [Optimistic CPR in the "virgin" case]
-  | isStrictDmd dmd_info
-  , Just (_tycon, _, _, _) <- deepSplitProductType_maybe $ idType id
-  -- , isProductTyCon _tycon  
-  , isProdUsage dmd_info = extendAnalEnv NotTopLevel env id cprSig
+  | ae_virgin env   -- See Note [Optimistic CPR in the "virgin" case]
+  = extendAnalEnv NotTopLevel env id cprSig
+
+  | isStrictDmd dmd_info  -- Might be bottom, first time round
+  , Just {} <- deepSplitProductType_maybe $ idType id
+  = extendAnalEnv NotTopLevel env id cprSig
        -- See Note [Initial CPR for strict binders]
-  | otherwise            = env
+
+  | otherwise = env
   where
     dmd_info = idDemandInfo id
-
 \end{code}
 
 Note [Initial CPR for strict binders]

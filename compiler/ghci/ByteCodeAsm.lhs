@@ -129,10 +129,7 @@ assembleBCO dflags (ProtoBCO nm instrs bitmap bsize arity _origin _malloced) = d
   -- pass 1: collect up the offsets of the local labels.
   let asm = mapM_ (assembleI dflags) instrs
 
-      -- Remember that the first insn starts at offset
-      --     sizeOf Word / sizeOf Word16
-      -- since offset 0 (eventually) will hold the total # of insns.
-      initial_offset = largeArg16s dflags
+      initial_offset = 0
 
       -- Jump instructions are variable-sized, there are long and short variants
       -- depending on the magnitude of the offset.  However, we can't tell what
@@ -153,8 +150,7 @@ assembleBCO dflags (ProtoBCO nm instrs bitmap bsize arity _origin _malloced) = d
         (Map.lookup lbl lbl_map)
 
   -- pass 2: run assembler and generate instructions, literals and pointers
-  let initial_insns = addListToSS emptySS $ largeArg dflags n_insns
-  let initial_state = (initial_insns, emptySS, emptySS)
+  let initial_state = (emptySS, emptySS, emptySS)
   (final_insns, final_lits, final_ptrs) <- execState initial_state $ runAsm dflags long_jumps env asm
 
   -- precomputed size should be equal to final size
@@ -207,8 +203,8 @@ sizeSS (SizedSeq n _) = n
 data Operand
   = Op Word
   | SmallOp Word16
-  | LargeOp Word
   | LabelOp Word16
+-- (unused)  | LargeOp Word
 
 data Assembler a
   = AllocPtr (IO BCOPtr) (Word -> Assembler a)
@@ -244,10 +240,10 @@ type LabelEnv = Word16 -> Word
 
 largeOp :: Bool -> Operand -> Bool
 largeOp long_jumps op = case op of
-  LargeOp _ -> True
-  SmallOp _ -> False
-  Op w      -> isLarge w
-  LabelOp _ -> long_jumps
+   SmallOp _ -> False
+   Op w      -> isLarge w
+   LabelOp _ -> long_jumps
+-- LargeOp _ -> True
 
 runAsm :: DynFlags -> Bool -> LabelEnv -> Assembler a -> State AsmState IO a
 runAsm dflags long_jumps e = go
@@ -272,9 +268,9 @@ runAsm dflags long_jumps e = go
             | otherwise = w
           words = concatMap expand ops
           expand (SmallOp w) = [w]
-          expand (LargeOp w) = largeArg dflags w
           expand (LabelOp w) = expand (Op (e w))
           expand (Op w) = if largeOps then largeArg dflags w else [fromIntegral w]
+--        expand (LargeOp w) = largeArg dflags w
       State $ \(st_i0,st_l0,st_p0) -> do
         let st_i1 = addListToSS st_i0 (opcode : words)
         return ((st_i1,st_l0,st_p0), ())
@@ -306,9 +302,9 @@ inspectAsm dflags long_jumps initial_offset
         size = sum (map count ops) + 1
         largeOps = any (largeOp long_jumps) ops
         count (SmallOp _) = 1
-        count (LargeOp _) = largeArg16s dflags
         count (LabelOp _) = count (Op 0)
         count (Op _) = if largeOps then largeArg16s dflags else 1
+--      count (LargeOp _) = largeArg16s dflags
 
 -- Bring in all the bci_ bytecode constants.
 #include "rts/Bytecodes.h"

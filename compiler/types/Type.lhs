@@ -45,6 +45,8 @@ module Type (
 
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
+
+        coAxNthLHS,
 	
 	-- (Newtypes)
 	newTyConInstRhs, carefullySplitNewType_maybe,
@@ -58,7 +60,7 @@ module Type (
         isIPPred, isIPPred_maybe, isIPTyCon, isIPClass,
         
         -- Deconstructing predicate types
-        PredTree(..), predTreePredType, classifyPredType,
+        PredTree(..), classifyPredType,
         getClassPredTys, getClassPredTys_maybe,
         getEqPredTys, getEqPredTys_maybe,
 
@@ -152,8 +154,10 @@ import VarSet
 import Class
 import TyCon
 import TysPrim
-import {-# SOURCE #-} TysWiredIn ( eqTyCon, mkBoxedTupleTy )
-import PrelNames	         ( eqTyConKey, ipClassNameKey )
+import {-# SOURCE #-} TysWiredIn ( eqTyCon, typeNatKind, typeStringKind )
+import PrelNames ( eqTyConKey, ipClassNameKey, 
+                   constraintKindTyConKey, liftedTypeKindTyConKey )
+import CoAxiom
 
 -- others
 import Unique		( Unique, hasKey )
@@ -804,6 +808,8 @@ applyTys :: Type -> [KindOrType] -> Type
 -- This term should have type (Int -> Int), but notice that
 -- there are more type args than foralls in 'undefined's type.
 
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 applyTys ty args = applyTysD empty ty args
 
 applyTysD :: SDoc -> Type -> [Type] -> Type	-- Debug version
@@ -844,7 +850,7 @@ noParenPred p = not (isIPPred p) && isClassPred p || isEqPred p
 isPredTy :: Type -> Bool
 isPredTy ty
   | isSuperKind ty = False
-  | otherwise = typeKind ty `eqKind` constraintKind
+  | otherwise = isConstraintKind (typeKind ty)
 
 isKindTy :: Type -> Bool
 isKindTy = isSuperKind . typeKind
@@ -951,12 +957,6 @@ data PredTree = ClassPred Class [Type]
               | TuplePred [PredType]
               | IrredPred PredType
 
-predTreePredType :: PredTree -> PredType
-predTreePredType (ClassPred clas tys) = mkClassPred clas tys
-predTreePredType (EqPred ty1 ty2)     = mkEqPred ty1 ty2
-predTreePredType (TuplePred tys)      = mkBoxedTupleTy tys
-predTreePredType (IrredPred ty)       = ty
-
 classifyPredType :: PredType -> PredTree
 classifyPredType ev_ty = case splitTyConApp_maybe ev_ty of
     Just (tc, tys) | Just clas <- tyConClass_maybe tc
@@ -1037,10 +1037,18 @@ mkFamilyTyConApp :: TyCon -> [Type] -> Type
 -- > mkFamilyTyConApp :RTL Int  =  T (Maybe Int)
 mkFamilyTyConApp tc tys
   | Just (fam_tc, fam_tys) <- tyConFamInst_maybe tc
-  , let fam_subst = zipTopTvSubst (tyConTyVars tc) tys
+  , let tvs = tyConTyVars tc
+        fam_subst = ASSERT2( length tvs == length tys, ppr tc <+> ppr tys )
+                    zipTopTvSubst tvs tys
   = mkTyConApp fam_tc (substTys fam_subst fam_tys)
   | otherwise
   = mkTyConApp tc tys
+
+-- | Get the type on the LHS of a coercion induced by a type/data
+-- family instance.
+coAxNthLHS :: CoAxiom br -> Int -> Type
+coAxNthLHS ax ind =
+  mkTyConApp (coAxiomTyCon ax) (coAxBranchLHS (coAxiomNthBranch ax ind))
 
 -- | Pretty prints a 'TyCon', using the family instance in case of a
 -- representation tycon.  For example:
@@ -1232,7 +1240,7 @@ cmpTypeX env (ForAllTy tv1 t1)   (ForAllTy tv2 t2)   = cmpTypeX env (tyVarKind t
                                                        `thenCmp` cmpTypeX (rnBndr2 env tv1 tv2) t1 t2
 cmpTypeX env (AppTy s1 t1)       (AppTy s2 t2)       = cmpTypeX env s1 s2 `thenCmp` cmpTypeX env t1 t2
 cmpTypeX env (FunTy s1 t1)       (FunTy s2 t2)       = cmpTypeX env s1 s2 `thenCmp` cmpTypeX env t1 t2
-cmpTypeX env (TyConApp tc1 tys1) (TyConApp tc2 tys2) = (tc1 `compare` tc2) `thenCmp` cmpTypesX env tys1 tys2
+cmpTypeX env (TyConApp tc1 tys1) (TyConApp tc2 tys2) = (tc1 `cmpTc` tc2) `thenCmp` cmpTypesX env tys1 tys2
 cmpTypeX _   (LitTy l1)          (LitTy l2)          = compare l1 l2
 
     -- Deal with the rest: TyVarTy < AppTy < FunTy < LitTy < TyConApp < ForAllTy < PredTy
@@ -1264,6 +1272,17 @@ cmpTypesX _   []        []        = EQ
 cmpTypesX env (t1:tys1) (t2:tys2) = cmpTypeX env t1 t2 `thenCmp` cmpTypesX env tys1 tys2
 cmpTypesX _   []        _         = LT
 cmpTypesX _   _         []        = GT
+
+-------------
+cmpTc :: TyCon -> TyCon -> Ordering
+-- Here we treat * and Constraint as equal
+-- See Note [Kind Constraint and kind *] in Kinds.lhs
+cmpTc tc1 tc2 = nu1 `compare` nu2
+  where
+    u1  = tyConUnique tc1
+    nu1 = if u1==constraintKindTyConKey then liftedTypeKindTyConKey else u1
+    u2  = tyConUnique tc2
+    nu2 = if u2==constraintKindTyConKey then liftedTypeKindTyConKey else u2
 \end{code}
 
 Note [cmpTypeX]
@@ -1607,13 +1626,11 @@ typeKind _ty@(FunTy _arg res)
     where
       k = typeKind res
 
-
 typeLiteralKind :: TyLit -> Kind
 typeLiteralKind l =
   case l of
     NumTyLit _ -> typeNatKind
     StrTyLit _ -> typeStringKind
-
 \end{code}
 
 Kind inference

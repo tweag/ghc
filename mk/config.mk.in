@@ -132,21 +132,25 @@ endif
 PlatformSupportsSharedLibs = $(if $(filter $(TARGETPLATFORM),\
 	$(SharedLibsPlatformList)),YES,NO)
 
-SharedLibsByDefaultPlatformList =               \
-                         x86_64-unknown-linux   \
-                         x86_64-apple-darwin
-
-# DYANMIC_BY_DEFAULT says whether this compiler will default to
+# DYNAMIC_BY_DEFAULT says whether this compiler will default to
 # building dynamic executables, i.e. -dynamic is on.  We do this for
-# certain platforms because it lets us use the system dynamic linker
+# most platforms because it lets us use the system dynamic linker
 # instead of our own linker for GHCi.
 #
-# We do not enable this for an unregisterised build.  It is currently
-# unknown whether shared libraries (should) work when unregisterised.
+# Currently this isn't possible on Windows, and we have not yet enabled
+# it on i386 while we consider the performance implications.
 #
-DYNAMIC_BY_DEFAULT = $(strip $(if $(filter YES,$(GhcUnregisterised)),NO,\
-			  $(if $(filter $(TARGETPLATFORM),\
-				$(SharedLibsByDefaultPlatformList)),YES,NO)))
+ifeq "$(TargetOS_CPP)" "mingw32"
+DYNAMIC_BY_DEFAULT = NO
+else ifeq "$(TargetArch_CPP)" "i386"
+DYNAMIC_BY_DEFAULT = NO
+else
+DYNAMIC_BY_DEFAULT = YES
+endif
+
+# For now, we unconditionally disable dynamic-by-default, as the
+# cabal-install's that are in the wild don't handle it properly.
+DYNAMIC_BY_DEFAULT = NO
 
 # Build a compiler that will build *unregisterised* libraries and
 # binaries by default.  Unregisterised code is supposed to compile and
@@ -190,7 +194,7 @@ ArchSupportsGHCi=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(Targe
 ifeq "$(OsSupportsGHCi)$(ArchSupportsGHCi)" "YESYES"
 GhcWithInterpreter=YES
 else 
-GhcWithInterpreter=NO
+GhcWithInterpreter=$(if $(findstring YES,$(DYNAMIC_BY_DEFAULT)),YES,NO)
 endif
 
 # GhcEnableTablesNextToCode tells us whether the target architecture
@@ -228,6 +232,8 @@ include $(TOP)/mk/install.mk
 # When building bindists we set this to yes so that the binaries are as
 # portable as possible.
 BeConservative = NO
+
+ExtraMakefileSanityChecks = NO
 
 #
 # Building various ways?
@@ -360,9 +366,11 @@ LAX_DEPENDENCIES = NO
 # ----------------------------------------------------------------------------
 # Options for GHC's RTS
 
-# For an optimised RTS (you probably don't want to change these; we build
-# a debugging RTS by default now.  Use -debug to get it).
-GhcRtsHcOpts=-optc-O2
+# Build an optimised RTS.  Remember that we need to turn on
+# optimisation both for C code (-optc-O2) and .cmm code (-O2).  For
+# the debugging RTS flavour, rts/ghc.mk overrides these to turn off
+# optimisation.
+GhcRtsHcOpts=-optc-O2 -O2
 GhcRtsCcOpts=-fomit-frame-pointer
 
 # Include the front panel code?  Needs GTK+.
@@ -373,6 +381,13 @@ GhcRtsWithFrontPanel = NO
 GhcRtsWithPapi = NO
 PapiLibDir=
 PapiIncludeDir=
+
+# Configuration for libffi
+UseSystemLibFFI=@UseSystemLibFFI@
+# Flags to go into package.conf for rts
+FFILibDir=@FFILibDir@
+FFIIncludeDir=@FFIIncludeDir@
+
 
 ################################################################################
 #
@@ -567,32 +582,37 @@ endif
 TargetPlatformFull    = @TargetPlatformFull@
 GccLT34         = @GccLT34@
 GccLT46         = @GccLT46@
+
 CC              = $(WhatGccIsCalled)
 CC_STAGE0       = @CC_STAGE0@
 CC_STAGE1       = $(CC)
 CC_STAGE2       = $(CC)
 CC_STAGE3       = $(CC)
+
 AS              = $(WhatGccIsCalled)
 AS_STAGE0       = @CC_STAGE0@
 AS_STAGE1       = $(AS)
 AS_STAGE2       = $(AS)
 AS_STAGE3       = $(AS)
 
+# We don't have an LD_STAGE0.  CC_STAGE0 is determined by asking "ghc
+# --info", and it doesn't report an LD.
+LD_STAGE0       = error-no-ld-stage0
+LD_STAGE1       = $(LD)
+LD_STAGE2       = $(LD)
+LD_STAGE3       = $(LD)
+
 # Cross-compiling options
 #
-# The 'toolchain' case: Cross-compiler to run locally:
-BuildingCrossCompiler = @BuildingCrossCompiler@
-# The 'port' case: Porting to a foreign architecture:
-PortingCompiler       = @PortingCompiler@
-# BuildingCrossCompiler OR PortingCompiler
 CrossCompiling        = @CrossCompiling@
 
-# Install stage 2 by default, or stage 1 in the cross compiler case. Can be changed to 3
-ifeq "$(BuildingCrossCompiler)" "YES"
-INSTALL_GHC_STAGE=1
-else
-INSTALL_GHC_STAGE=2
-endif
+# Change this to YES if you're building a cross-compiler and don't
+# want to build stage 2.
+Stage1Only = NO
+
+# Install stage 2 by default, or stage 1 in the cross compiler
+# case. Can be changed to 3
+INSTALL_GHC_STAGE= $(if $(filter YES,$(Stage1Only)),1,2)
 
 # C compiler and linker flags from configure (e.g. -m<blah> to select
 # correct C compiler backend). The stage number is the stage of GHC
@@ -686,7 +706,6 @@ CTAGS 			= $(ETAGS)
 #
 RAWCPP_FLAGS            = -undef -traditional
 FIND			= @FindCmd@
-SORT		        = @SortCmd@
 
 #
 # Sigh - the autoconf macro for INSTALL will subst a relative path to the fallback
@@ -703,7 +722,6 @@ LN_S			= @LN_S@
 MV			= mv
 NROFF			= nroff
 PERL 			= @PerlCmd@
-PYTHON			= @PythonCmd@
 PIC			= pic
 RANLIB			= @RANLIB@
 SED			= @SedCmd@
@@ -804,6 +822,8 @@ BUILD_DOCBOOK_HTML       = @BUILD_DOCBOOK_HTML@
 BUILD_DOCBOOK_PS         = @BUILD_DOCBOOK_PS@
 BUILD_DOCBOOK_PDF        = @BUILD_DOCBOOK_PDF@
 DBLATEX                  = @DblatexCmd@
+# filename.as.url=0 is needed with dblatex 0.3.4 (#7486)
+DBLATEX_OPTS             = -P 'filename.as.url=0'
 XSLTPROC                 = @XsltprocCmd@
 XMLLINT                  = @XmllintCmd@
 HAVE_DOCBOOK_XSL	 = @HAVE_DOCBOOK_XSL@

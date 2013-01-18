@@ -28,7 +28,7 @@ module RnTypes (
         -- Binding related stuff
         bindSigTyVarsFV, bindHsTyVars, rnHsBndrSig,
         extractHsTyRdrTyVars, extractHsTysRdrTyVars,
-        extractRdrKindSigVars, extractTyDefnKindVars, filterInScope
+        extractRdrKindSigVars, extractDataDefnKindVars, filterInScope
   ) where
 
 import {-# SOURCE #-} RnExpr( rnLExpr )
@@ -370,9 +370,17 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
                                  , kv <- kvs ]
              all_kvs = filterOut (`elemLocalRdrEnv` rdr_env) $
                        nub (kv_bndrs ++ kvs_from_tv_bndrs)
+             overlap_kvs = [ kv | kv <- all_kvs, any ((==) kv . hsLTyVarName) tvs ]
+                -- These variables appear both as kind and type variables
+                -- in the same declaration; eg  type family  T (x :: *) (y :: x)
+                -- We disallow this: too confusing!
+
        ; poly_kind <- xoptM Opt_PolyKinds
        ; unless (poly_kind || null all_kvs) 
                 (addErr (badKindBndrs doc all_kvs))
+       ; unless (null overlap_kvs) 
+                (addErr (overlappingKindVars doc overlap_kvs))
+
        ; loc <- getSrcSpanM
        ; kv_names <- mapM (newLocalBndrRn . L loc) all_kvs
        ; bindLocalNamesFV kv_names $ 
@@ -427,6 +435,13 @@ rnHsBndrSig doc (HsWB { hswb_cts = ty@(L loc _) }) thing_inside
     do { (ty', fvs1) <- rnLHsType doc ty
        ; (res, fvs2) <- thing_inside (HsWB { hswb_cts = ty', hswb_kvs = kv_names, hswb_tvs = tv_names })
        ; return (res, fvs1 `plusFV` fvs2) } }
+
+overlappingKindVars :: HsDocContext -> [RdrName] -> SDoc
+overlappingKindVars doc kvs
+  = vcat [ ptext (sLit "Kind variable") <> plural kvs <+> 
+           ptext (sLit "also used as type variable") <> plural kvs 
+           <> colon <+> pprQuotedList kvs
+         , docOfHsDocContext doc ]
 
 badKindBndrs :: HsDocContext -> [RdrName] -> SDoc
 badKindBndrs doc kvs
@@ -704,7 +719,7 @@ checkPrecMatch :: Name -> MatchGroup Name body -> RnM ()
   --   eg  a `op` b `C` c = ...
   -- See comments with rnExpr (OpApp ...) about "deriving"
 
-checkPrecMatch op (MatchGroup ms _)	
+checkPrecMatch op (MG { mg_alts = ms })	
   = mapM_ check ms			 	
   where
     check (L _ (Match (L l1 p1 : L l2 p2 :_) _ _))
@@ -943,14 +958,12 @@ extractRdrKindSigVars :: Maybe (LHsKind RdrName) -> [RdrName]
 extractRdrKindSigVars Nothing = []
 extractRdrKindSigVars (Just k) = nub (fst (extract_lkind k ([],[])))
 
-extractTyDefnKindVars :: HsTyDefn RdrName -> [RdrName]
+extractDataDefnKindVars :: HsDataDefn RdrName -> [RdrName]
 -- Get the scoped kind variables mentioned free in the constructor decls
 -- Eg    data T a = T1 (S (a :: k) | forall (b::k). T2 (S b)
 -- Here k should scope over the whole definition
-extractTyDefnKindVars (TySynonym { td_synRhs = ty}) 
-  = fst (extractHsTyRdrTyVars ty)
-extractTyDefnKindVars (TyData { td_ctxt = ctxt, td_kindSig = ksig
-                              , td_cons = cons, td_derivs = derivs })
+extractDataDefnKindVars (HsDataDefn { dd_ctxt = ctxt, dd_kindSig = ksig
+                                    , dd_cons = cons, dd_derivs = derivs })
   = fst $ extract_lctxt ctxt $
           extract_mb extract_lkind ksig $
           extract_mb extract_ltys derivs $

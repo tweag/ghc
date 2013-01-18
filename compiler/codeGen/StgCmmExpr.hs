@@ -685,8 +685,8 @@ emitEnter fun = do
       -- test, just generating an enter.
       Return _ -> do
         { let entry = entryCode dflags $ closureInfoPtr dflags $ CmmReg nodeReg
-        ; emit $ mkForeignJump dflags NativeNodeCall entry
-                    [cmmUntag dflags fun] updfr_off
+        ; emit $ mkJump dflags NativeNodeCall entry
+                        [cmmUntag dflags fun] updfr_off
         ; return AssignedDirectly
         }
 
@@ -717,7 +717,7 @@ emitEnter fun = do
       --
       AssignTo res_regs _ -> do
        { lret <- newLabelC
-       ; let (off, copyin) = copyInOflow dflags NativeReturn (Young lret) res_regs []
+       ; let (off, _, copyin) = copyInOflow dflags NativeReturn (Young lret) res_regs []
        ; lcall <- newLabelC
        ; updfr_off <- getUpdFrameOff
        ; let area = Young lret

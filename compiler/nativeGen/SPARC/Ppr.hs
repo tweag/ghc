@@ -35,8 +35,8 @@ import Reg
 import Size
 import PprBase
 
-import OldCmm
-import OldPprCmm()
+import Cmm hiding (topInfoTable)
+import PprCmm()
 import CLabel
 import BlockId
 
@@ -53,7 +53,7 @@ pprNatCmmDecl :: NatCmmDecl CmmStatics Instr -> SDoc
 pprNatCmmDecl (CmmData section dats) =
   pprSectionHeader section $$ pprDatas dats
 
-pprNatCmmDecl proc@(CmmProc top_info lbl (ListGraph blocks)) =
+pprNatCmmDecl proc@(CmmProc top_info lbl _ (ListGraph blocks)) =
   case topInfoTable proc of
     Nothing ->
        case blocks of

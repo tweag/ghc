@@ -28,6 +28,16 @@ ifneq "$(BINDIST)" "YES"
 compiler/stage1/package-data.mk : compiler/stage1/build/Config.hs
 compiler/stage2/package-data.mk : compiler/stage2/build/Config.hs
 compiler/stage3/package-data.mk : compiler/stage3/build/Config.hs
+
+compiler/stage1/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
+compiler/stage2/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
+compiler/stage3/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
+compiler/stage1/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
+compiler/stage2/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
+compiler/stage3/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
+compiler/stage1/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_WRAPPERS)
+compiler/stage2/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_WRAPPERS)
+compiler/stage3/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_WRAPPERS)
 endif
 
 compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
@@ -120,63 +130,12 @@ endif
 
 PLATFORM_H = ghc_boot_platform.h
 
-ifeq "$(BuildingCrossCompiler)" "YES"
-compiler/stage1/$(PLATFORM_H) : compiler/stage2/$(PLATFORM_H)
-	cp $< $@
-else
 compiler/stage1/$(PLATFORM_H) : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	$(call removeFiles,$@)
 	@echo "Creating $@..."
 	@echo "#ifndef __PLATFORM_H__"                           >> $@
 	@echo "#define __PLATFORM_H__"                           >> $@
 	@echo                                                    >> $@
-	@echo "#define BuildPlatform_NAME  \"$(BUILDPLATFORM)\"" >> $@
-	@echo "#define HostPlatform_NAME   \"$(BUILDPLATFORM)\"" >> $@
-	@echo "#define TargetPlatform_NAME \"$(HOSTPLATFORM)\""  >> $@
-	@echo                                                    >> $@
-	@echo "#define $(BuildPlatform_CPP)_BUILD 1"             >> $@
-	@echo "#define $(BuildPlatform_CPP)_HOST 1"              >> $@
-	@echo "#define $(HostPlatform_CPP)_TARGET 1"             >> $@
-	@echo                                                    >> $@
-	@echo "#define $(BuildArch_CPP)_BUILD_ARCH 1"            >> $@
-	@echo "#define $(BuildArch_CPP)_HOST_ARCH 1"             >> $@
-	@echo "#define $(HostArch_CPP)_TARGET_ARCH 1"            >> $@
-	@echo "#define BUILD_ARCH \"$(BuildArch_CPP)\""          >> $@
-	@echo "#define HOST_ARCH \"$(BuildArch_CPP)\""           >> $@
-	@echo "#define TARGET_ARCH \"$(HostArch_CPP)\""          >> $@
-	@echo                                                    >> $@
-	@echo "#define $(BuildOS_CPP)_BUILD_OS 1"                >> $@
-	@echo "#define $(BuildOS_CPP)_HOST_OS 1"                 >> $@
-	@echo "#define $(HostOS_CPP)_TARGET_OS 1"                >> $@
-	@echo "#define BUILD_OS \"$(BuildOS_CPP)\""              >> $@
-	@echo "#define HOST_OS \"$(BuildOS_CPP)\""               >> $@
-	@echo "#define TARGET_OS \"$(HostOS_CPP)\""              >> $@
-ifeq "$(HostOS_CPP)" "irix"
-	@echo "#ifndef $(IRIX_MAJOR)_TARGET_OS"                  >> $@
-	@echo "#define $(IRIX_MAJOR)_TARGET_OS 1"                >> $@
-	@echo "#endif"                                           >> $@
-endif
-	@echo                                                    >> $@
-	@echo "#define $(BuildVendor_CPP)_BUILD_VENDOR 1"        >> $@
-	@echo "#define $(BuildVendor_CPP)_HOST_VENDOR 1"         >> $@
-	@echo "#define $(HostVendor_CPP)_TARGET_VENDOR 1"        >> $@
-	@echo "#define BUILD_VENDOR \"$(BuildVendor_CPP)\""      >> $@
-	@echo "#define HOST_VENDOR \"$(BuildVendor_CPP)\""       >> $@
-	@echo "#define TARGET_VENDOR \"$(HostVendor_CPP)\""      >> $@
-	@echo                                                    >> $@
-	@echo "#endif /* __PLATFORM_H__ */"                      >> $@
-	@echo "Done."
-endif
-
-# For stage2 and above, the BUILD platform is the HOST of stage1, and
-# the HOST platform is the TARGET of stage1.  The TARGET remains the same
-# (stage1 is the cross-compiler, not stage2).
-compiler/stage2/$(PLATFORM_H) : mk/config.mk mk/project.mk | $$(dir $$@)/.
-	$(call removeFiles,$@)
-	@echo "Creating $@..."
-	@echo "#ifndef __PLATFORM_H__"                            >> $@
-	@echo "#define __PLATFORM_H__"                            >> $@
-	@echo                                                     >> $@
 	@echo "#define BuildPlatform_NAME  \"$(BUILDPLATFORM)\""  >> $@
 	@echo "#define HostPlatform_NAME   \"$(HOSTPLATFORM)\""   >> $@
 	@echo "#define TargetPlatform_NAME \"$(TARGETPLATFORM)\"" >> $@
@@ -188,14 +147,14 @@ compiler/stage2/$(PLATFORM_H) : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo "#define $(BuildArch_CPP)_BUILD_ARCH 1"             >> $@
 	@echo "#define $(HostArch_CPP)_HOST_ARCH 1"               >> $@
 	@echo "#define $(TargetArch_CPP)_TARGET_ARCH 1"           >> $@
-	@echo "#define BUILD_ARCH \"$(HostArch_CPP)\""            >> $@
+	@echo "#define BUILD_ARCH \"$(BuildArch_CPP)\""           >> $@
 	@echo "#define HOST_ARCH \"$(HostArch_CPP)\""             >> $@
 	@echo "#define TARGET_ARCH \"$(TargetArch_CPP)\""         >> $@
 	@echo                                                     >> $@
-	@echo "#define $(HostOS_CPP)_BUILD_OS 1"                  >> $@
+	@echo "#define $(BuildOS_CPP)_BUILD_OS 1"                 >> $@
 	@echo "#define $(HostOS_CPP)_HOST_OS 1"                   >> $@
 	@echo "#define $(TargetOS_CPP)_TARGET_OS 1"               >> $@
-	@echo "#define BUILD_OS \"$(HostOS_CPP)\""                >> $@
+	@echo "#define BUILD_OS \"$(BuildOS_CPP)\""               >> $@
 	@echo "#define HOST_OS \"$(HostOS_CPP)\""                 >> $@
 	@echo "#define TARGET_OS \"$(TargetOS_CPP)\""             >> $@
 ifeq "$(TargetOS_CPP)" "irix"
@@ -209,6 +168,52 @@ endif
 	@echo "#define $(TargetVendor_CPP)_TARGET_VENDOR  1"      >> $@
 	@echo "#define BUILD_VENDOR \"$(BuildVendor_CPP)\""       >> $@
 	@echo "#define HOST_VENDOR \"$(HostVendor_CPP)\""         >> $@
+	@echo "#define TARGET_VENDOR \"$(TargetVendor_CPP)\""     >> $@
+	@echo                                                     >> $@
+	@echo "#endif /* __PLATFORM_H__ */"                       >> $@
+	@echo "Done."
+
+# For stage2 and above, the BUILD platform is the HOST of stage1, and
+# the HOST platform is the TARGET of stage1.  The TARGET remains the same
+# (stage1 is the cross-compiler, not stage2).
+compiler/stage2/$(PLATFORM_H) : mk/config.mk mk/project.mk | $$(dir $$@)/.
+	$(call removeFiles,$@)
+	@echo "Creating $@..."
+	@echo "#ifndef __PLATFORM_H__"                            >> $@
+	@echo "#define __PLATFORM_H__"                            >> $@
+	@echo                                                     >> $@
+	@echo "#define BuildPlatform_NAME  \"$(HOSTPLATFORM)\""   >> $@
+	@echo "#define HostPlatform_NAME   \"$(TARGETPLATFORM)\"" >> $@
+	@echo "#define TargetPlatform_NAME \"$(TARGETPLATFORM)\"" >> $@
+	@echo                                                     >> $@
+	@echo "#define $(HostPlatform_CPP)_BUILD 1"               >> $@
+	@echo "#define $(TargetPlatform_CPP)_HOST 1"              >> $@
+	@echo "#define $(TargetPlatform_CPP)_TARGET 1"            >> $@
+	@echo                                                     >> $@
+	@echo "#define $(HostArch_CPP)_BUILD_ARCH 1"              >> $@
+	@echo "#define $(TargetArch_CPP)_HOST_ARCH 1"             >> $@
+	@echo "#define $(TargetArch_CPP)_TARGET_ARCH 1"           >> $@
+	@echo "#define BUILD_ARCH \"$(HostArch_CPP)\""            >> $@
+	@echo "#define HOST_ARCH \"$(TargetArch_CPP)\""           >> $@
+	@echo "#define TARGET_ARCH \"$(TargetArch_CPP)\""         >> $@
+	@echo                                                     >> $@
+	@echo "#define $(HostOS_CPP)_BUILD_OS 1"                  >> $@
+	@echo "#define $(TargetOS_CPP)_HOST_OS 1"                 >> $@
+	@echo "#define $(TargetOS_CPP)_TARGET_OS 1"               >> $@
+	@echo "#define BUILD_OS \"$(HostOS_CPP)\""                >> $@
+	@echo "#define HOST_OS \"$(TargetOS_CPP)\""               >> $@
+	@echo "#define TARGET_OS \"$(TargetOS_CPP)\""             >> $@
+ifeq "$(TargetOS_CPP)" "irix"
+	@echo "#ifndef $(IRIX_MAJOR)_TARGET_OS"                   >> $@
+	@echo "#define $(IRIX_MAJOR)_TARGET_OS 1"                 >> $@
+	@echo "#endif"                                            >> $@
+endif
+	@echo                                                     >> $@
+	@echo "#define $(HostVendor_CPP)_BUILD_VENDOR 1"          >> $@
+	@echo "#define $(TargetVendor_CPP)_HOST_VENDOR 1"         >> $@
+	@echo "#define $(TargetVendor_CPP)_TARGET_VENDOR  1"      >> $@
+	@echo "#define BUILD_VENDOR \"$(HostVendor_CPP)\""        >> $@
+	@echo "#define HOST_VENDOR \"$(TargetVendor_CPP)\""       >> $@
 	@echo "#define TARGET_VENDOR \"$(TargetVendor_CPP)\""     >> $@
 	@echo                                                     >> $@
 	@echo "#endif /* __PLATFORM_H__ */"                       >> $@
@@ -230,6 +235,7 @@ PRIMOP_BITS_NAMES = primop-data-decl.hs-incl        \
                     primop-code-size.hs-incl        \
                     primop-can-fail.hs-incl         \
                     primop-strictness.hs-incl       \
+                    primop-fixity.hs-incl       \
                     primop-primop-info.hs-incl
 
 PRIMOP_BITS_STAGE1 = $(addprefix compiler/stage1/build/,$(PRIMOP_BITS_NAMES))
@@ -266,6 +272,8 @@ compiler/stage$1/build/primop-can-fail.hs-incl: compiler/stage$1/build/primops.t
 	"$$(GENPRIMOP_INPLACE)" --can-fail           < $$< > $$@
 compiler/stage$1/build/primop-strictness.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
 	"$$(GENPRIMOP_INPLACE)" --strictness         < $$< > $$@
+compiler/stage$1/build/primop-fixity.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
+	"$$(GENPRIMOP_INPLACE)" --fixity             < $$< > $$@
 compiler/stage$1/build/primop-primop-info.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
 	"$$(GENPRIMOP_INPLACE)" --primop-primop-info < $$< > $$@
 
@@ -301,12 +309,6 @@ ifeq "$(BuildSharedLibs)" "YES"
 # so we don't build it the dyn way; see trac #5987
 ifneq "$(TargetOS_CPP)" "mingw32"
 compiler_stage2_CONFIGURE_OPTS += --enable-shared
-# If we are going to use dynamic libraries instead of .o files for ghci,
-# we will need to always retain CAFs in the compiler.
-# ghci/keepCAFsForGHCi contains a GNU C __attribute__((constructor))
-# function which sets the keepCAFs flag for the RTS before any Haskell
-# code is run.
-compiler_stage2_CONFIGURE_OPTS += --flags=dynlibs
 endif
 endif
 
@@ -438,6 +440,20 @@ $(eval $(call build-package,compiler,stage1,0))
 $(eval $(call build-package,compiler,stage2,1))
 $(eval $(call build-package,compiler,stage3,2))
 
+# We only want to turn keepCAFs on if we will be loading dynamic
+# Haskell libraries with GHCi. We therefore filter the object file
+# out for non-dynamic ways.
+define keepCAFsForGHCiDynOnly
+# $1 = stage
+# $2 = way
+ifeq "$$(findstring dyn, $1)" ""
+compiler_stage$1_$2_C_OBJS := $$(filter-out %/keepCAFsForGHCi.o,$$(compiler_stage$1_$2_C_OBJS))
+endif
+endef
+$(foreach w,$(compiler_stage1_WAYS),$(eval $(call keepCAFsForGHCiDynOnly,1,$w)))
+$(foreach w,$(compiler_stage2_WAYS),$(eval $(call keepCAFsForGHCiDynOnly,2,$w)))
+$(foreach w,$(compiler_stage3_WAYS),$(eval $(call keepCAFsForGHCiDynOnly,3,$w)))
+
 # after build-package, because that adds --enable-library-for-ghci
 # to compiler_stage*_CONFIGURE_OPTS:
 # We don't build the GHCi library for the ghc package. We can load it
@@ -487,7 +503,10 @@ $(foreach way,$$(compiler_stage3_WAYS),\
 compiler/prelude/PrimOp_HC_OPTS  += -fforce-recomp
 
 # LibFFI.hs #includes ffi.h
+ifneq "$(UseSystemLibFFI)" "YES"
 compiler/stage2/build/LibFFI.hs : $(libffi_HEADERS)
+endif
+
 # On Windows it seems we also need to link directly to libffi
 ifeq "$(HostOS_CPP)" "mingw32"
 define windowsDynLinkToFfi

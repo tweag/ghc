@@ -1,5 +1,7 @@
 -- CmmNode type for representation using Hoopl graphs.
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
@@ -10,13 +12,16 @@
 
 module CmmNode (
      CmmNode(..), CmmFormal, CmmActual,
-     UpdFrameOffset, Convention(..), ForeignConvention(..), ForeignTarget(..),
+     UpdFrameOffset, Convention(..),
+     ForeignConvention(..), ForeignTarget(..), foreignTargetHints,
      CmmReturnInfo(..),
      mapExp, mapExpDeep, wrapRecExp, foldExp, foldExpDeep, wrapRecExpf,
      mapExpM, mapExpDeepM, wrapRecExpM, mapSuccessors
   ) where
 
+import CodeGen.Platform
 import CmmExpr
+import DynFlags
 import FastString
 import ForeignCall
 import SMRep
@@ -277,11 +282,22 @@ data ForeignTarget        -- The target of a foreign call
         CallishMachOp            -- Which one
   deriving Eq
 
+foreignTargetHints :: ForeignTarget -> ([ForeignHint], [ForeignHint])
+foreignTargetHints target
+  = ( res_hints ++ repeat NoHint
+    , arg_hints ++ repeat NoHint )
+  where
+    (res_hints, arg_hints) =
+       case target of
+          PrimTarget op -> callishMachOpHints op
+          ForeignTarget _ (ForeignConvention _ arg_hints res_hints _) ->
+             (res_hints, arg_hints)
+
 --------------------------------------------------
 -- Instances of register and slot users / definers
 
-instance UserOfLocalRegs (CmmNode e x) where
-  foldRegsUsed f z n = case n of
+instance UserOfRegs LocalReg (CmmNode e x) where
+  foldRegsUsed dflags f z n = case n of
     CmmAssign _ expr -> fold f z expr
     CmmStore addr rval -> fold f (fold f z addr) rval
     CmmUnsafeForeignCall t _ args -> fold f (fold f z t) args
@@ -291,24 +307,58 @@ instance UserOfLocalRegs (CmmNode e x) where
     CmmForeignCall {tgt=tgt, args=args} -> fold f (fold f z tgt) args
     _ -> z
     where fold :: forall a b.
-                       UserOfLocalRegs a =>
+                       UserOfRegs LocalReg a =>
                        (b -> LocalReg -> b) -> b -> a -> b
-          fold f z n = foldRegsUsed f z n
+          fold f z n = foldRegsUsed dflags f z n
 
-instance UserOfLocalRegs ForeignTarget where
-  foldRegsUsed _f z (PrimTarget _)      = z
-  foldRegsUsed f  z (ForeignTarget e _) = foldRegsUsed f z e
+instance UserOfRegs GlobalReg (CmmNode e x) where
+  foldRegsUsed dflags f z n = case n of
+    CmmAssign _ expr -> fold f z expr
+    CmmStore addr rval -> fold f (fold f z addr) rval
+    CmmUnsafeForeignCall t _ args -> fold f (fold f z t) args
+    CmmCondBranch expr _ _ -> fold f z expr
+    CmmSwitch expr _ -> fold f z expr
+    CmmCall {cml_target=tgt, cml_args_regs=args} -> fold f (fold f z args) tgt
+    CmmForeignCall {tgt=tgt, args=args} -> fold f (fold f z tgt) args
+    _ -> z
+    where fold :: forall a b.
+                       UserOfRegs GlobalReg a =>
+                       (b -> GlobalReg -> b) -> b -> a -> b
+          fold f z n = foldRegsUsed dflags f z n
 
-instance DefinerOfLocalRegs (CmmNode e x) where
-  foldRegsDefd f z n = case n of
+instance UserOfRegs r CmmExpr => UserOfRegs r ForeignTarget where
+  foldRegsUsed _      _ z (PrimTarget _)      = z
+  foldRegsUsed dflags f z (ForeignTarget e _) = foldRegsUsed dflags f z e
+
+instance DefinerOfRegs LocalReg (CmmNode e x) where
+  foldRegsDefd dflags f z n = case n of
     CmmAssign lhs _ -> fold f z lhs
     CmmUnsafeForeignCall _ fs _ -> fold f z fs
     CmmForeignCall {res=res} -> fold f z res
     _ -> z
     where fold :: forall a b.
-                   DefinerOfLocalRegs a =>
+                   DefinerOfRegs LocalReg a =>
                    (b -> LocalReg -> b) -> b -> a -> b
-          fold f z n = foldRegsDefd f z n
+          fold f z n = foldRegsDefd dflags f z n
+
+instance DefinerOfRegs GlobalReg (CmmNode e x) where
+  foldRegsDefd dflags f z n = case n of
+    CmmAssign lhs _ -> fold f z lhs
+    CmmUnsafeForeignCall tgt _ _  -> fold f z (foreignTargetRegs tgt)
+    CmmCall {} -> fold f z activeRegs
+    CmmForeignCall {tgt=tgt} -> fold f z (foreignTargetRegs tgt)
+    _ -> z
+    where fold :: forall a b.
+                   DefinerOfRegs GlobalReg a =>
+                   (b -> GlobalReg -> b) -> b -> a -> b
+          fold f z n = foldRegsDefd dflags f z n
+
+          platform = targetPlatform dflags
+          activeRegs = activeStgRegs platform
+          activeCallerSavesRegs = filter (callerSaves platform) activeRegs
+
+          foreignTargetRegs (ForeignTarget _ (ForeignConvention _ _ _ CmmNeverReturns)) = []
+          foreignTargetRegs _ = activeCallerSavesRegs
 
 
 -----------------------------------

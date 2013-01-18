@@ -32,7 +32,7 @@ import BasicTypes
 import Inst
 import TcBinds
 import FamInst          ( tcLookupFamInst )
-import FamInstEnv       ( famInstAxiom, dataFamInstRepTyCon )
+import FamInstEnv       ( famInstAxiom, dataFamInstRepTyCon, FamInstMatch(..) )
 import TcEnv
 import TcArrows
 import TcMatches
@@ -194,7 +194,7 @@ tcExpr (HsIPVar x) res_ty
   -- Coerces a dictionry for `IP "x" t` into `t`.
   fromDict ipClass x ty =
     case unwrapNewTyCon_maybe (classTyCon ipClass) of
-      Just (_,_,ax) -> HsWrap $ WpCast $ mkTcAxInstCo ax [x,ty]
+      Just (_,_,ax) -> HsWrap $ WpCast $ mkTcUnbranchedAxInstCo ax [x,ty]
       Nothing       -> panic "The dictionary for `IP` is not a newtype?"
 
 tcExpr (HsLam match) res_ty
@@ -318,10 +318,13 @@ tcExpr (OpApp arg1 op fix arg2) res_ty
 
        -- Make sure that the argument and result types have kind '*'
        -- Eg we do not want to allow  (D#  $  4.0#)   Trac #5570
-       -- ($) :: forall ab. (a->b) -> a -> b
-       ; a_ty <- newFlexiTyVarTy liftedTypeKind
-       ; b_ty <- newFlexiTyVarTy liftedTypeKind
+       --    (which gives a seg fault)
+       -- We do this by unifying with a MetaTv; but of course
+       -- it must allow foralls in the type it unifies with (hence PolyTv)!
 
+       -- ($) :: forall ab. (a->b) -> a -> b
+       ; a_ty <- newPolyFlexiTyVarTy
+       ; b_ty <- newPolyFlexiTyVarTy
        ; arg2' <- tcArg op (arg2, arg2_ty, 2)
 
        ; co_res <- unifyType b_ty res_ty        -- b ~ res
@@ -711,7 +714,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 
 	-- Step 7: make a cast for the scrutinee, in the case that it's from a type family
 	; let scrut_co | Just co_con <- tyConFamilyCoercion_maybe tycon 
-		       = WpCast (mkTcAxInstCo co_con scrut_inst_tys)
+		       = WpCast (mkTcUnbranchedAxInstCo co_con scrut_inst_tys)
 		       | otherwise
 		       = idHsWrapper
 	-- Phew!
@@ -1206,8 +1209,10 @@ tcTagToEnum loc fun_name arg res_ty
       = do { mb_fam <- tcLookupFamInst tc tc_args
            ; case mb_fam of 
 	       Nothing -> failWithTc (tagToEnumError ty doc3)
-               Just (rep_fam, rep_args) 
-                   -> return ( mkTcSymCo (mkTcAxInstCo co_tc rep_args)
+               Just (FamInstMatch { fim_instance = rep_fam
+                                  , fim_index    = index
+                                  , fim_tys      = rep_args })
+                   -> return ( mkTcSymCo (mkTcAxInstCo co_tc index rep_args)
                              , rep_tc, rep_args )
                  where
                    co_tc  = famInstAxiom rep_fam

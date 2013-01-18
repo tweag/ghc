@@ -40,6 +40,7 @@ import DynFlags
 import BasicTypes	( FixityDirection(..) )
 import PrelNames
 
+import Module
 import Name
 import NameSet
 import RdrName
@@ -524,7 +525,7 @@ methodNamesCmd (HsCmdCase _ matches)
 
 ---------------------------------------------------
 methodNamesMatch :: MatchGroup Name (LHsCmd Name) -> FreeVars
-methodNamesMatch (MatchGroup ms _)
+methodNamesMatch (MG { mg_alts = ms })
   = plusFVs (map do_one ms)
  where 
     do_one (L _ (Match _ _ grhss)) = methodNamesGRHSs grhss
@@ -1189,7 +1190,7 @@ segsToStmts empty_rec_stmt ((defs, uses, fwds, ss) : segs) fvs_later
 \begin{code}
 srcSpanPrimLit :: DynFlags -> SrcSpan -> HsExpr Name
 srcSpanPrimLit dflags span
-    = HsLit (HsStringPrim (unsafeMkFastBytesString (showSDocOneLine dflags (ppr span))))
+    = HsLit (HsStringPrim (unsafeMkByteString (showSDocOneLine dflags (ppr span))))
 
 mkAssertErrorExpr :: RnM (HsExpr Name)
 -- Return an expression for (assertError "Foo.hs:27")

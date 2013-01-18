@@ -335,13 +335,17 @@ kickOutRewritable new_flav new_tv
                     --     constraints that mention type variables whose
                     --     kinds could contain this variable!
 
-    kick_out_eq inert_ct = kick_out_ct inert_ct && 
-                           not (ctFlavour inert_ct `canRewrite` new_flav)
-               -- If also the inert can rewrite the subst then there is no danger of 
-               -- occurs check errors sor keep it there. No need to rewrite the inert equality
-               -- (as we did in the past) because of point (8) of 
-               -- See Note [Detailed InertCans Invariants] 
-               -- and Note [Delicate equality kick-out]
+    kick_out_eq (CTyEqCan { cc_tyvar = tv, cc_rhs = rhs, cc_ev = ev })
+      =  (new_flav `canRewrite` inert_flav)  -- See Note [Delicate equality kick-out]
+      && (new_tv `elemVarSet` kind_vars ||              -- (1)
+          (not (inert_flav `canRewrite` new_flav) &&    -- (2)
+           new_tv `elemVarSet` (extendVarSet (tyVarsOfType rhs) tv)))
+      where
+        inert_flav = ctEvFlavour ev
+        kind_vars = tyVarsOfType (tyVarKind tv) `unionVarSet`
+                    tyVarsOfType (typeKind rhs)
+
+    kick_out_eq other_ct = pprPanic "kick_out_eq" (ppr other_ct)
 \end{code}
 
 Note [Kick out insolubles]
@@ -355,27 +359,34 @@ outer type constructors match.
 
 Note [Delicate equality kick-out]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-Delicate:
-When kicking out rewritable constraints, it would be safe to simply
-kick out all rewritable equalities, but instead we only kick out those
-that, when rewritten, may result in occur-check errors. Example:
+When adding an equality (a ~ xi), we kick out an inert type-variable 
+equality (b ~ phi) in two cases
 
-          WorkItem =   [G] a ~ b
-          Inerts   = { [W] b ~ [a] }
-Now at this point the work item cannot be further rewritten by the
-inert (due to the weaker inert flavor). Instead the workitem can 
-rewrite the inert leading to potential occur check errors. So we must
-kick the inert out. On the other hand, if the inert flavor was as 
-powerful or more powerful than the workitem flavor, the work-item could 
-not have reached this stage (because it would have already been 
-rewritten by the inert).
+(1) If the new tyvar can rewrite the kind LHS or RHS of the inert
+    equality.  Example:
+    Work item: [W] k ~ *
+    Inert:     [W] (a:k) ~ ty        
+               [W] (b:*) ~ c :: k
+    We must kick out those blocked inerts so that we rewrite them
+    and can subsequently unify.
 
-The coclusion is: we kick out the 'dangerous' equalities that may
-require recanonicalization (occurs checks) and the rest we keep 
-there in the inerts without further checks.
+(2) If the new tyvar can 
+          Work item:  [G] a ~ b
+          Inert:      [W] b ~ [a]
+    Now at this point the work item cannot be further rewritten by the
+    inert (due to the weaker inert flavor). But we can't add the work item
+    as-is because the inert set would then have a cyclic substitution, 
+    when rewriting a wanted type mentioning 'a'. So we must kick the inert out. 
 
-In the past we used to rewrite-on-the-spot those equalities that we keep in,
-but this is no longer necessary see Note [Non-idempotent inert substitution].
+    We have to do this only if the inert *cannot* rewrite the work item;
+    it it can, then the work item will have been fully rewritten by the 
+    inert during canonicalisation.  So for example:
+         Work item: [W] a ~ Int
+         Inert:     [W] b ~ [a]
+    No need to kick out the inert, beause the inert substitution is not
+    necessarily idemopotent.  See Note [Non-idempotent inert substitution].
+
+See also point (8) of Note [Detailed InertCans Invariants] 
 
 \begin{code}
 data SPSolveResult = SPCantSolve
@@ -1469,15 +1480,17 @@ doTopReactFunEq _ct fl fun_tc args xi loc
     do { match_res <- matchFam fun_tc args   -- See Note [MATCHING-SYNONYMS]
        ; case match_res of {
            Nothing -> return NoTopInt ;
-           Just (famInst, rep_tys) -> 
+           Just (FamInstMatch { fim_instance = famInst
+                              , fim_index    = index
+                              , fim_tys      = rep_tys }) -> 
 
     -- Found a top-level instance
     do {    -- Add it to the solved goals
          unless (isDerived fl) (addSolvedFunEq fam_ty fl xi)
 
        ; let coe_ax = famInstAxiom famInst 
-       ; succeed_with "Fun/Top" (mkTcAxInstCo coe_ax rep_tys)
-                      (mkAxInstRHS coe_ax rep_tys) } } } } }
+       ; succeed_with "Fun/Top" (mkTcAxInstCo coe_ax index rep_tys)
+                      (mkAxInstRHS coe_ax index rep_tys) } } } } }
   where
     fam_ty = mkTyConApp fun_tc args
 
@@ -1706,13 +1719,46 @@ data LookupInstResult
 
 matchClassInst :: InertSet -> Class -> [Type] -> CtLoc -> TcS LookupInstResult
 
-matchClassInst _ clas [ _, ty ] _
+matchClassInst _ clas [ k, ty ] _
   | className clas == singIClassName
-  , Just n <- isNumLitTy ty = return $ GenInst [] $ EvLit $ EvNum n
+  , Just n <- isNumLitTy ty = makeDict (EvNum n)
 
   | className clas == singIClassName
-  , Just s <- isStrLitTy ty = return $ GenInst [] $ EvLit $ EvStr s
+  , Just s <- isStrLitTy ty = makeDict (EvStr s)
 
+  where
+  {- This adds a coercion that will convert the literal into a dictionary
+     of the appropriate type.  See Note [SingI and EvLit] in TcEvidence.
+     The coercion happens in 3 steps:
+
+     evLit    -> Sing_k_n   -- literal to representation of data family
+     Sing_k_n -> Sing k n   -- representation of data family to data family
+     Sing k n -> SingI k n   -- data family to class dictionary.
+  -}
+  makeDict evLit =
+    case unwrapNewTyCon_maybe (classTyCon clas) of
+      Just (_,dictRep, axDict)
+        | Just tcSing <- tyConAppTyCon_maybe dictRep ->
+           do mbInst <- matchFam tcSing [k,ty]
+              case mbInst of
+                Just FamInstMatch
+                  { fim_instance = FamInst { fi_axiom  = axDataFam
+                                           , fi_flavor = DataFamilyInst tcon
+                                           }
+                  , fim_index = ix, fim_tys = tys
+                  } | Just (_,_,axSing) <- unwrapNewTyCon_maybe tcon ->
+
+                  do let co1 = mkTcSymCo $ mkTcUnbranchedAxInstCo axSing tys
+                         co2 = mkTcSymCo $ mkTcAxInstCo axDataFam ix tys
+                         co3 = mkTcSymCo $ mkTcUnbranchedAxInstCo axDict [k,ty]
+                     return $ GenInst [] $ EvCast (EvLit evLit) $
+                        mkTcTransCo co1 $ mkTcTransCo co2 co3
+
+                _ -> unexpected
+
+      _ -> unexpected
+
+  unexpected = panicTcS (text "Unexpected evidence for SingI")
 
 matchClassInst inerts clas tys loc
    = do { dflags <- getDynFlags

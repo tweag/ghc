@@ -49,6 +49,7 @@ import Util
 
 import Control.Monad
 import Data.Bits as Bits
+import qualified Data.ByteString as BS
 import Data.Int
 import Data.Ratio
 import Data.Word
@@ -141,28 +142,28 @@ primOpRules nm Int2WordOp     = mkPrimOpRule nm 1 [ liftLitDynFlags int2WordLit
                                                   , inversePrimOp Word2IntOp ]
 primOpRules nm Narrow8IntOp   = mkPrimOpRule nm 1 [ liftLit narrow8IntLit
                                                   , subsumedByPrimOp Narrow8IntOp
-                                                  , subsumedByPrimOp Narrow16IntOp
-                                                  , subsumedByPrimOp Narrow32IntOp ]
+                                                  , Narrow8IntOp `subsumesPrimOp` Narrow16IntOp
+                                                  , Narrow8IntOp `subsumesPrimOp` Narrow32IntOp ]
 primOpRules nm Narrow16IntOp  = mkPrimOpRule nm 1 [ liftLit narrow16IntLit
-                                                  , Narrow16IntOp `subsumesPrimOp` Narrow8IntOp
+                                                  , subsumedByPrimOp Narrow8IntOp
                                                   , subsumedByPrimOp Narrow16IntOp
-                                                  , subsumedByPrimOp Narrow32IntOp ]
+                                                  , Narrow16IntOp `subsumesPrimOp` Narrow32IntOp ]
 primOpRules nm Narrow32IntOp  = mkPrimOpRule nm 1 [ liftLit narrow32IntLit
-                                                  , Narrow32IntOp `subsumesPrimOp` Narrow8IntOp
-                                                  , Narrow32IntOp `subsumesPrimOp` Narrow16IntOp
+                                                  , subsumedByPrimOp Narrow8IntOp
+                                                  , subsumedByPrimOp Narrow16IntOp
                                                   , subsumedByPrimOp Narrow32IntOp
                                                   , removeOp32 ]
 primOpRules nm Narrow8WordOp  = mkPrimOpRule nm 1 [ liftLit narrow8WordLit
                                                   , subsumedByPrimOp Narrow8WordOp
-                                                  , subsumedByPrimOp Narrow16WordOp
-                                                  , subsumedByPrimOp Narrow32WordOp ]
+                                                  , Narrow8WordOp `subsumesPrimOp` Narrow16WordOp
+                                                  , Narrow8WordOp `subsumesPrimOp` Narrow32WordOp ]
 primOpRules nm Narrow16WordOp = mkPrimOpRule nm 1 [ liftLit narrow16WordLit
-                                                  , Narrow16WordOp `subsumesPrimOp` Narrow8WordOp
+                                                  , subsumedByPrimOp Narrow8WordOp
                                                   , subsumedByPrimOp Narrow16WordOp
-                                                  , subsumedByPrimOp Narrow32WordOp ]
+                                                  , Narrow16WordOp `subsumesPrimOp` Narrow32WordOp ]
 primOpRules nm Narrow32WordOp = mkPrimOpRule nm 1 [ liftLit narrow32WordLit
-                                                  , Narrow32WordOp `subsumesPrimOp` Narrow8WordOp
-                                                  , Narrow32WordOp `subsumesPrimOp` Narrow16WordOp
+                                                  , subsumedByPrimOp Narrow8WordOp
+                                                  , subsumedByPrimOp Narrow16WordOp
                                                   , subsumedByPrimOp Narrow32WordOp
                                                   , removeOp32 ]
 primOpRules nm OrdOp          = mkPrimOpRule nm 1 [ liftLit char2IntLit
@@ -932,7 +933,7 @@ match_append_lit _ [Type ty1,
     c1 `cheapEqExpr` c2
   = ASSERT( ty1 `eqType` ty2 )
     Just (Var unpk `App` Type ty1
-                   `App` Lit (MachStr (s1 `appendFB` s2))
+                   `App` Lit (MachStr (s1 `BS.append` s2))
                    `App` c1
                    `App` n)
 

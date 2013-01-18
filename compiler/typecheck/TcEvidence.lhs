@@ -10,19 +10,17 @@ module TcEvidence (
   (<.>), mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams, mkWpLams, mkWpLet, 
   idHsWrapper, isIdHsWrapper, pprHsWrapper,
 
-  -- Evidence bindin
+  -- Evidence bindings
   TcEvBinds(..), EvBindsVar(..), 
   EvBindMap(..), emptyEvBindMap, extendEvBinds, lookupEvBind, evBindMapBinds,
-
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, 
-
   EvTerm(..), mkEvCast, evVarsOfTerm, 
   EvLit(..), evTermCoercion,
 
   -- TcCoercion
   TcCoercion(..), LeftOrRight(..), pickLR,
   mkTcReflCo, mkTcTyConAppCo, mkTcAppCo, mkTcAppCos, mkTcFunCo,
-  mkTcAxInstCo, mkTcForAllCo, mkTcForAllCos, 
+  mkTcAxInstCo, mkTcUnbranchedAxInstCo, mkTcForAllCo, mkTcForAllCos, 
   mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcInstCos,
   tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo, 
   isTcReflCo, isTcReflCo_maybe, getTcCoVar_maybe,
@@ -36,9 +34,10 @@ import Coercion( LeftOrRight(..), pickLR )
 import PprCore ()   -- Instance OutputableBndr TyVar
 import TypeRep  -- Knows type representation
 import TcType
-import Type( tyConAppArgN, tyConAppTyCon_maybe, getEqPredTys )
+import Type( tyConAppArgN, tyConAppTyCon_maybe, getEqPredTys, coAxNthLHS )
 import TysPrim( funTyCon )
 import TyCon
+import CoAxiom
 import PrelNames
 import VarEnv
 import VarSet
@@ -98,7 +97,8 @@ data TcCoercion
   | TcForAllCo TyVar TcCoercion 
   | TcInstCo TcCoercion TcType
   | TcCoVarCo EqVar
-  | TcAxiomInstCo CoAxiom [TcType]
+  | TcAxiomInstCo (CoAxiom Branched) Int [TcType] -- Int specifies branch number
+                                                  -- See [CoAxiom Index] in Coercion.lhs
   | TcSymCo TcCoercion
   | TcTransCo TcCoercion TcCoercion
   | TcNthCo Int TcCoercion
@@ -139,15 +139,20 @@ mkTcTyConAppCo tc cos   -- No need to expand type synonyms
 
   | otherwise = TcTyConAppCo tc cos
 
-mkTcAxInstCo :: CoAxiom -> [TcType] -> TcCoercion
-mkTcAxInstCo ax tys
-  | arity == n_tys = TcAxiomInstCo ax tys
+mkTcAxInstCo :: CoAxiom br -> Int -> [TcType] -> TcCoercion
+mkTcAxInstCo ax ind tys
+  | arity == n_tys = TcAxiomInstCo ax_br ind tys
   | otherwise      = ASSERT( arity < n_tys )
-                     foldl TcAppCo (TcAxiomInstCo ax (take arity tys))
+                     foldl TcAppCo (TcAxiomInstCo ax_br ind (take arity tys))
                                    (map TcRefl (drop arity tys))
   where
     n_tys = length tys
-    arity = coAxiomArity ax
+    arity = coAxiomArity ax ind
+    ax_br = toBranchedAxiom ax
+
+mkTcUnbranchedAxInstCo :: CoAxiom Unbranched -> [TcType] -> TcCoercion
+mkTcUnbranchedAxInstCo ax tys
+  = mkTcAxInstCo ax 0 tys
 
 mkTcAppCo :: TcCoercion -> TcCoercion -> TcCoercion
 -- No need to deal with TyConApp on the left; see Note [TcCoercions]
@@ -211,8 +216,11 @@ tcCoercionKind co = go co
     go (TcForAllCo tv co)     = mkForAllTy tv <$> go co
     go (TcInstCo co ty)       = go_inst co [ty]
     go (TcCoVarCo cv)         = eqVarKind cv
-    go (TcAxiomInstCo ax tys) = Pair (substTyWith (co_ax_tvs ax) tys (co_ax_lhs ax)) 
-                                     (substTyWith (co_ax_tvs ax) tys (co_ax_rhs ax))
+    go (TcAxiomInstCo ax ind tys)
+      = let branch = coAxiomNthBranch ax ind
+            tvs    = coAxBranchTyVars branch
+        in Pair (substTyWith tvs tys (coAxNthLHS ax ind)) 
+                (substTyWith tvs tys (coAxBranchRHS branch))
     go (TcSymCo co)           = swap (go co)
     go (TcTransCo co1 co2)    = Pair (pFst (go co1)) (pSnd (go co2))
     go (TcNthCo d co)         = tyConAppArgN d <$> go co
@@ -305,7 +313,9 @@ ppr_co p (TcInstCo co ty)        = maybeParen p TyConPrec $
                                    pprParendTcCo co <> ptext (sLit "@") <> pprType ty
                      
 ppr_co _ (TcCoVarCo cv)          = parenSymOcc (getOccName cv) (ppr cv)
-ppr_co p (TcAxiomInstCo con cos) = pprTypeNameApp p ppr_type (getName con) cos
+
+ppr_co p (TcAxiomInstCo con ind cos)
+  = pprPrefixApp p (ppr (getName con) <> brackets (ppr ind)) (map (ppr_type TyConPrec) cos)
 
 ppr_co p (TcTransCo co1 co2) = maybeParen p FunPrec $
                                ppr_co FunPrec co1
@@ -484,7 +494,7 @@ data EvTerm
                                  -- selector Id.  We count up from _0_
 
   | EvLit EvLit                  -- Dictionary for class "SingI" for type lits.
-                                 -- Note [EvLit]
+                                 -- Note [SingI and EvLit]
 
   deriving( Data.Data, Data.Typeable)
 
@@ -538,27 +548,26 @@ Conclusion: a new wanted coercion variable should be made mutable.
  from super classes will be "given" and hence rigid]
 
 
-Note [EvLit]
-~~~~~~~~~~~~
+Note [SingI and EvLit]
+~~~~~~~~~~~~~~~~~~~~~~
 A part of the type-level literals implementation is the class "SingI",
 which provides a "smart" constructor for defining singleton values.
+Here is the key stuff from GHC.TypeLits
 
-newtype Sing n = Sing (SingRep n)
+  class SingI n where
+    sing :: Sing n
 
-class SingI n where
-  sing :: Sing n
-
-type family SingRep a
-type instance SingRep (a :: Nat)    = Integer
-type instance SingRep (a :: Symbol) = String
+  data family Sing (n::k)
+  newtype instance Sing (n :: Nat)    = SNat Integer
+  newtype instance Sing (s :: Symbol) = SSym String
 
 Conceptually, this class has infinitely many instances:
 
-instance Sing 0       where sing = Sing 0
-instance Sing 1       where sing = Sing 1
-instance Sing 2       where sing = Sing 2
-instance Sing "hello" where sing = Sing "hello"
-...
+  instance Sing 0       where sing = SNat 0
+  instance Sing 1       where sing = SNat 1
+  instance Sing 2       where sing = SNat 2
+  instance Sing "hello" where sing = SSym "hello"
+  ...
 
 In practice, we solve "SingI" predicates in the type-checker because we can't
 have infinately many instances.  The evidence (aka "dictionary")

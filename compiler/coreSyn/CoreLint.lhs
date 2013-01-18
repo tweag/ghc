@@ -43,6 +43,7 @@ import Kind
 import Type
 import TypeRep
 import TyCon
+import CoAxiom
 import BasicTypes
 import StaticFlags
 import ListSetOps
@@ -50,10 +51,23 @@ import PrelNames
 import Outputable
 import FastString
 import Util
+import OptCoercion ( checkAxInstCo )
 import Control.Monad
 import MonadUtils
 import Data.Maybe
 \end{code}
+
+Note [GHC Formalism]
+~~~~~~~~~~~~~~~~~~~~
+This file implements the type-checking algorithm for System FC, the "official"
+name of the Core language. Type safety of FC is heart of the claim that
+executables produced by GHC do not have segmentation faults. Thus, it is
+useful to be able to reason about System FC independently of reading the code.
+To this purpose, there is a document ghc.pdf built in docs/core-spec that
+contains a formalism of the types and functions dealt with here. If you change
+just about anything in this file or you change other types/functions throughout
+the Core language (all signposted to this note), you should update that
+formalism. See docs/core-spec/README for more info about how to do so.
 
 %************************************************************************
 %*									*
@@ -109,6 +123,8 @@ find an occurence of an Id, we fetch it from the in-scope set.
 \begin{code}
 lintCoreBindings :: CoreProgram -> (Bag MsgDoc, Bag MsgDoc)
 --   Returns (warnings, errors)
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintCoreBindings binds
   = initL $ 
     addLoc TopLevelBindings $
@@ -135,6 +151,8 @@ lintCoreBindings binds
                   = compare (m1, nameOccName n1) (m2, nameOccName n2)
                   | otherwise = LT
 
+    -- If you edit this function, you may need to update the GHC formalism
+    -- See Note [GHC Formalism]
     lint_bind (Rec prs)		= mapM_ (lintSingleBinding TopLevel Recursive) prs
     lint_bind (NonRec bndr rhs) = lintSingleBinding TopLevel NonRecursive (bndr,rhs)
 \end{code}
@@ -173,6 +191,8 @@ Check a core binding, returning the list of variables bound.
 
 \begin{code}
 lintSingleBinding :: TopLevelFlag -> RecFlag -> (Id, CoreExpr) -> LintM ()
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
   = addLoc (RhsOf binder) $
          -- Check the rhs 
@@ -213,6 +233,9 @@ lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
     binder_ty                  = idType binder
     dmdTy                      = idStrictness binder
     bndr_vars                  = varSetElems (idFreeVars binder)
+
+    -- If you edit this function, you may need to update the GHC formalism
+    -- See Note [GHC Formalism]
     lintBinder var | isId var  = lintIdBndr var $ \_ -> (return ())
 	           | otherwise = return ()
 \end{code}
@@ -250,6 +273,8 @@ lintCoreExpr :: CoreExpr -> LintM OutType
 --
 -- The returned "type" can be a kind, if the expression is (Type ty)
 
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintCoreExpr (Var var)
   = do	{ checkL (not (var == oneTupleDataConId))
 		 (ptext (sLit "Illegal one-tuple"))
@@ -355,14 +380,16 @@ lintCoreExpr e@(Case scrut var alt_ty alts) =
           ; checkCaseAlts e scrut_ty alts
           ; return alt_ty } }
 
+-- This case can't happen; linting types in expressions gets routed through
+-- lintCoreArgs
 lintCoreExpr (Type ty)
-  = do { ty' <- lintInTy ty
-       ; return (typeKind ty') }
+  = pprPanic "lintCoreExpr" (ppr ty)
 
 lintCoreExpr (Coercion co)
   = do { co' <- lintInCo co
        ; let Pair ty1 ty2 = coercionKind co'
        ; return (mkCoercionType ty1 ty2) }
+
 \end{code}
 
 Note [Kind instantiation in coercions]
@@ -383,7 +410,6 @@ instantiations between kind coercions and type coercions. We lint the
 kind coercions and produce the following substitution which is to be
 applied in the type variables:
   k_ag   ~~>   * -> *
-
 
 %************************************************************************
 %*									*
@@ -409,6 +435,8 @@ lintAltBinders :: OutType     -- Scrutinee type
 	       -> OutType     -- Constructor type
                -> [OutVar]    -- Binders
                -> LintM ()
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintAltBinders scrut_ty con_ty [] 
   = checkTys con_ty scrut_ty (mkBadPatMsg con_ty scrut_ty) 
 lintAltBinders scrut_ty con_ty (bndr:bndrs)
@@ -446,6 +474,9 @@ lintValApp arg fun_ty arg_ty
 \begin{code}
 checkTyKind :: OutTyVar -> OutType -> LintM ()
 -- Both args have had substitution applied
+
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 checkTyKind tyvar arg_ty
   | isSuperKind tyvar_kind  -- kind forall
   = lintKind arg_ty
@@ -519,7 +550,8 @@ lintCoreAlt :: OutType 		-- Type of scrutinee
             -> OutType          -- Type of the alternative
 	    -> CoreAlt
 	    -> LintM ()
-
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintCoreAlt _ alt_ty (DEFAULT, args, rhs) =
   do { checkL (null args) (mkDefaultArgsMsg args)
      ; checkAltExpr rhs alt_ty }
@@ -571,6 +603,8 @@ lintBinders (var:vars) linterF = lintBinder var $ \var' ->
 				 lintBinders vars $ \ vars' ->
 				 linterF (var':vars')
 
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintBinder :: Var -> (Var -> LintM a) -> LintM a
 lintBinder var linterF
   | isId var  = lintIdBndr var linterF
@@ -637,6 +671,9 @@ lintTyBndrKind tv = lintKind (tyVarKind tv)
 -------------------
 lintType :: OutType -> LintM LintedKind
 -- The returned Kind has itself been linted
+
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintType (TyVarTy tv)
   = do { checkTyCoVarInScope tv
        ; return (tyVarKind tv) }
@@ -672,6 +709,8 @@ lintType ty@(LitTy l) = lintTyLit l >> return (typeKind ty)
 
 \begin{code}
 lintKind :: OutKind -> LintM ()
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintKind k = do { sk <- lintType k 
                 ; unless (isSuperKind sk) 
                          (addErrL (hang (ptext (sLit "Ill-kinded kind:") <+> ppr k)
@@ -681,6 +720,8 @@ lintKind k = do { sk <- lintType k
 
 \begin{code}
 lintArrow :: SDoc -> LintedKind -> LintedKind -> LintM LintedKind
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintArrow what k1 k2   -- Eg lintArrow "type or kind `blah'" k1 k2
                        -- or lintarrow "coercion `blah'" k1 k2
   | isSuperKind k1 
@@ -717,6 +758,9 @@ lint_app :: SDoc -> LintedKind -> [(LintedType,LintedKind)] -> LintM Kind
 --    We have an application (f arg_ty1 .. arg_tyn),
 --    where f :: fun_kind
 -- Takes care of linting the OutTypes
+
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lint_app doc kfn kas
     = foldlM go_app kfn kas
   where
@@ -759,6 +803,9 @@ lintCoercion :: OutCoercion -> LintM (LintedKind, LintedType, LintedType)
 -- Check the kind of a coercion term, returning the kind
 -- Post-condition: the returned OutTypes are lint-free
 --                 and have the same kind as each other
+
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 lintCoercion (Refl ty)
   = do { k <- lintType ty
        ; return (k, ty, ty) }
@@ -830,8 +877,8 @@ lintCoercion the_co@(NthCo n co)
              , n < length tys_s
              -> return (ks, ts, tt)
              where
-               ts = tys_s !! n
-               tt = tys_t !! n
+               ts = getNth tys_s n
+               tt = getNth tys_t n
                ks = typeKind ts
 
            _ -> failWithL (hang (ptext (sLit "Bad getNth:"))
@@ -862,20 +909,25 @@ lintCoercion (InstCo co arg_ty)
             -> failWithL (ptext (sLit "Kind mis-match in inst coercion"))
 	  _ -> failWithL (ptext (sLit "Bad argument of inst")) }
 
-lintCoercion co@(AxiomInstCo (CoAxiom { co_ax_tvs = ktvs
-                                      , co_ax_lhs = lhs
-                                      , co_ax_rhs = rhs })
-                             cos)
-  = do {  -- See Note [Kind instantiation in coercions]
-         unless (equalLength ktvs cos) (bad_ax (ptext (sLit "lengths")))
+lintCoercion co@(AxiomInstCo con ind cos)
+  = do { unless (0 <= ind && ind < brListLength (coAxiomBranches con))
+                (bad_ax (ptext (sLit "index out of range")))
+         -- See Note [Kind instantiation in coercions]
+       ; let CoAxBranch { cab_tvs = ktvs
+                        , cab_lhs = lhs
+                        , cab_rhs = rhs } = coAxiomNthBranch con ind
+       ; unless (equalLength ktvs cos) (bad_ax (ptext (sLit "lengths")))
        ; in_scope <- getInScope
        ; let empty_subst = mkTvSubst in_scope emptyTvSubstEnv
        ; (subst_l, subst_r) <- foldlM check_ki 
                                       (empty_subst, empty_subst) 
                                       (ktvs `zip` cos)
-       ; let lhs' = Type.substTy subst_l lhs
+       ; let lhs' = Type.substTys subst_l lhs
              rhs' = Type.substTy subst_r rhs
-       ; return (typeKind lhs', lhs', rhs') }
+       ; case checkAxInstCo co of
+           Just bad_index -> bad_ax $ ptext (sLit "inconsistent with") <+> (ppr bad_index)
+           Nothing -> return ()
+       ; return (typeKind rhs', mkTyConApp (coAxiomTyCon con) lhs', rhs') }
   where
     bad_ax what = addErrL (hang (ptext (sLit "Bad axiom application") <+> parens what)
                         2 (ppr co))
@@ -898,6 +950,9 @@ lintCoercion co@(AxiomInstCo (CoAxiom { co_ax_tvs = ktvs
 %************************************************************************
 
 \begin{code}
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism]
 newtype LintM a = 
    LintM { unLintM :: 
             [LintLocInfo] ->         -- Locations

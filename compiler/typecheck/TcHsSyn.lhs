@@ -498,10 +498,11 @@ zonkLTcSpecPrags env ps
 zonkMatchGroup :: ZonkEnv 
                -> (ZonkEnv -> Located (body TcId) -> TcM (Located (body Id)))
                -> MatchGroup TcId (Located (body TcId)) -> TcM (MatchGroup Id (Located (body Id)))
-zonkMatchGroup env zBody (MatchGroup ms ty) 
+zonkMatchGroup env zBody (MG { mg_alts = ms, mg_arg_tys = arg_tys, mg_res_ty = res_ty }) 
   = do	{ ms' <- mapM (zonkMatch env zBody) ms
-	; ty' <- zonkTcTypeToType env ty
-	; return (MatchGroup ms' ty') }
+	; arg_tys' <- zonkTcTypeToTypes env arg_tys
+	; res_ty'  <- zonkTcTypeToType env res_ty
+	; return (MG { mg_alts = ms', mg_arg_tys = arg_tys', mg_res_ty = res_ty' }) }
 
 zonkMatch :: ZonkEnv 
           -> (ZonkEnv -> Located (body TcId) -> TcM (Located (body Id)))
@@ -1390,7 +1391,8 @@ zonkTcLCoToLCo env co
     go (TcRefl ty)            = do { ty' <- zonkTcTypeToType env ty
                                    ; return (TcRefl ty') }
     go (TcTyConAppCo tc cos)  = do { cos' <- mapM go cos; return (mkTcTyConAppCo tc cos') }
-    go (TcAxiomInstCo ax tys) = do { tys' <- zonkTcTypeToTypes env tys; return (TcAxiomInstCo ax tys') }
+    go (TcAxiomInstCo ax ind tys)
+                              = do { tys' <- zonkTcTypeToTypes env tys; return (TcAxiomInstCo ax ind tys') }
     go (TcAppCo co1 co2)      = do { co1' <- go co1; co2' <- go co2
                                    ; return (mkTcAppCo co1' co2') }
     go (TcCastCo co1 co2)     = do { co1' <- go co1; co2' <- go co2
