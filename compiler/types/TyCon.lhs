@@ -39,9 +39,11 @@ module TyCon(
         isForeignTyCon, 
         isPromotedDataCon, isPromotedTyCon,
         isPromotedDataCon_maybe, isPromotedTyCon_maybe,
+        promotableTyCon_maybe, promoteTyCon,
 
         isInjectiveTyCon,
-        isDataTyCon, isProductTyCon, isEnumerationTyCon,
+        isDataTyCon, isProductTyCon, isDataProductTyCon_maybe,
+        isEnumerationTyCon,
         isNewTyCon, isAbstractTyCon,
         isFamilyTyCon, isSynFamilyTyCon, isDataFamilyTyCon,
         isUnLiftedTyCon,
@@ -333,10 +335,12 @@ data TyCon
         algTcRec :: RecFlag,      -- ^ Tells us whether the data type is part
                                   -- of a mutually-recursive group or not
 
-        algTcParent :: TyConParent      -- ^ Gives the class or family declaration 'TyCon'
+        algTcParent :: TyConParent,     -- ^ Gives the class or family declaration 'TyCon'
                                         -- for derived 'TyCon's representing class
                                         -- or family instances, respectively.
                                         -- See also 'synTcParent'
+        
+        tcPromoted :: Maybe TyCon    -- ^ Promoted TyCon, if any
     }
 
   -- | Represents the infinite family of tuple type constructors,
@@ -348,7 +352,8 @@ data TyCon
         tyConArity     :: Arity,
         tyConTupleSort :: TupleSort,
         tyConTyVars    :: [TyVar],
-        dataCon        :: DataCon -- ^ Corresponding tuple data constructor
+        dataCon        :: DataCon, -- ^ Corresponding tuple data constructor
+        tcPromoted     :: Maybe TyCon    -- Nothing for unboxed tuples
     }
 
   -- | Represents type synonyms
@@ -837,8 +842,9 @@ mkAlgTyCon :: Name
            -> TyConParent
            -> RecFlag           -- ^ Is the 'TyCon' recursive?
            -> Bool              -- ^ Was the 'TyCon' declared with GADT syntax?
+           -> Maybe TyCon       -- ^ Promoted version
            -> TyCon
-mkAlgTyCon name kind tyvars cType stupid rhs parent is_rec gadt_syn
+mkAlgTyCon name kind tyvars cType stupid rhs parent is_rec gadt_syn prom_tc
   = AlgTyCon {
         tyConName        = name,
         tyConUnique      = nameUnique name,
@@ -850,22 +856,26 @@ mkAlgTyCon name kind tyvars cType stupid rhs parent is_rec gadt_syn
         algTcRhs         = rhs,
         algTcParent      = ASSERT2( okParent name parent, ppr name $$ ppr parent ) parent,
         algTcRec         = is_rec,
-        algTcGadtSyntax  = gadt_syn
+        algTcGadtSyntax  = gadt_syn,
+        tcPromoted       = prom_tc
     }
 
 -- | Simpler specialization of 'mkAlgTyCon' for classes
 mkClassTyCon :: Name -> Kind -> [TyVar] -> AlgTyConRhs -> Class -> RecFlag -> TyCon
-mkClassTyCon name kind tyvars rhs clas is_rec =
-  mkAlgTyCon name kind tyvars Nothing [] rhs (ClassTyCon clas) is_rec False
+mkClassTyCon name kind tyvars rhs clas is_rec
+  = mkAlgTyCon name kind tyvars Nothing [] rhs (ClassTyCon clas) 
+               is_rec False 
+               Nothing    -- Class TyCons are not pormoted
 
 mkTupleTyCon :: Name
              -> Kind    -- ^ Kind of the resulting 'TyCon'
              -> Arity   -- ^ Arity of the tuple
              -> [TyVar] -- ^ 'TyVar's scoped over: see 'tyConTyVars'
              -> DataCon
-             -> TupleSort  -- ^ Whether the tuple is boxed or unboxed
+             -> TupleSort    -- ^ Whether the tuple is boxed or unboxed
+             -> Maybe TyCon  -- ^ Promoted version
              -> TyCon
-mkTupleTyCon name kind arity tyvars con sort
+mkTupleTyCon name kind arity tyvars con sort prom_tc
   = TupleTyCon {
         tyConUnique = nameUnique name,
         tyConName = name,
@@ -873,7 +883,8 @@ mkTupleTyCon name kind arity tyvars con sort
         tyConArity = arity,
         tyConTupleSort = sort,
         tyConTyVars = tyvars,
-        dataCon = con
+        dataCon = con,
+        tcPromoted = prom_tc
     }
 
 -- ^ Foreign-imported (.NET) type constructors are represented
@@ -1058,14 +1069,8 @@ unwrapNewTyCon_maybe (AlgTyCon { tyConTyVars = tvs,
 unwrapNewTyCon_maybe _     = Nothing
 
 isProductTyCon :: TyCon -> Bool
--- | A /product/ 'TyCon' must both:
---
--- 1. Have /one/ constructor
---
--- 2. /Not/ be existential
---
--- However other than this there are few restrictions: they may be @data@ or @newtype@
--- 'TyCon's of any boxity and may even be recursive.
+-- True of datatypes or newtypes that have
+--   one, vanilla, data constructor
 isProductTyCon tc@(AlgTyCon {}) = case algTcRhs tc of
                                     DataTyCon{ data_cons = [data_con] }
                                                 -> isVanillaDataCon data_con
@@ -1073,6 +1078,18 @@ isProductTyCon tc@(AlgTyCon {}) = case algTcRhs tc of
                                     _           -> False
 isProductTyCon (TupleTyCon {})  = True
 isProductTyCon _                = False
+
+
+isDataProductTyCon_maybe :: TyCon -> Maybe DataCon
+-- True of datatypes (not newtypes) with 
+--   one, vanilla, data constructor
+isDataProductTyCon_maybe (AlgTyCon { algTcRhs = DataTyCon { data_cons = cons } })
+  | [con] <- cons         -- Singleton
+  , isVanillaDataCon con  -- Vanilla
+  = Just con
+isDataProductTyCon_maybe (TupleTyCon { dataCon = con })
+  = Just con
+isDataProductTyCon_maybe _ = Nothing
 
 -- | Is this a 'TyCon' representing a type synonym (@type@)?
 isSynTyCon :: TyCon -> Bool
@@ -1185,6 +1202,16 @@ tupleTyConArity tc = tyConArity tc
 isRecursiveTyCon :: TyCon -> Bool
 isRecursiveTyCon (AlgTyCon {algTcRec = Recursive}) = True
 isRecursiveTyCon _                                 = False
+
+promotableTyCon_maybe :: TyCon -> Maybe TyCon
+promotableTyCon_maybe (AlgTyCon { tcPromoted = prom })   = prom
+promotableTyCon_maybe (TupleTyCon { tcPromoted = prom }) = prom
+promotableTyCon_maybe _                                  = Nothing
+
+promoteTyCon :: TyCon -> TyCon
+promoteTyCon tc = case promotableTyCon_maybe tc of
+                    Just prom_tc -> prom_tc
+                    Nothing      -> pprPanic "promoteTyCon" (ppr tc)
 
 -- | Is this the 'TyCon' of a foreign-imported type constructor?
 isForeignTyCon :: TyCon -> Bool

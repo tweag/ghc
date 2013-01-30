@@ -1678,15 +1678,23 @@ not want to transform to
    in blah
 because that builds an unnecessary thunk.
 
-We used also to do case elimination if
-        (c) the scrutinee is a variable and 'x' is used strictly
-But that changes
+Note [Case binder next]
+~~~~~~~~~~~~~~~~~~~~~~~
+If we have 
+   case e of f { _ -> f e1 e2 }
+then we can safely do CaseElim.   The main criterion is that the
+case-binder is evaluated *next*.  Previously we just asked that
+the case-binder is used strictly; but that can change
     case x of { _ -> error "bad" }
     --> error "bad"
 which is very puzzling if 'x' is later bound to (error "good").
 Where the order of evaluation is specified (via seq or case)
-we should respect it.  See also
-Note [Empty case alternatives] in CoreSyn.
+we should respect it.  
+See also Note [Empty case alternatives] in CoreSyn.
+
+So instead we use case_bndr_evald_next to see when f is the *next*
+thing to be eval'd.  This came up when fixing Trac #7542.
+See also Note [Eta reduction of an eval'd function] in CoreUtils.
 
   For reference, the old code was an extra disjunct in elim_lifted
        || (strict_case_bndr && scrut_is_var scrut)
@@ -1695,6 +1703,8 @@ Note [Empty case alternatives] in CoreSyn.
       scrut_is_var (Var _)    = True
       scrut_is_var _          = False
 
+      -- True if evaluation of the case_bndr is the next
+      -- thing to be eval'd.  Then dropping the case
 
 Note [Case elimination: unlifted case]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1820,12 +1830,13 @@ rebuildCase _flags env scrut case_bndr [(_, bndrs, rhs)] cont
       = exprIsHNF scrut
      || (is_plain_seq && ok_for_spec)
               -- Note: not the same as exprIsHNF
+     || case_bndr_evald_next rhs
 
     elim_unlifted
       | is_plain_seq = exprOkForSideEffects scrut
             -- The entire case is dead, so we can drop it,
             -- _unless_ the scrutinee has side effects
-      | otherwise    = exprOkForSpeculation scrut
+      | otherwise    = ok_for_spec
             -- The case-binder is alive, but we may be able
             -- turn the case into a let, if the expression is ok-for-spec
             -- See Note [Case elimination: unlifted case]
@@ -1833,6 +1844,15 @@ rebuildCase _flags env scrut case_bndr [(_, bndrs, rhs)] cont
     ok_for_spec      = exprOkForSpeculation scrut
     is_plain_seq     = isDeadBinder case_bndr -- Evaluation *only* for effect
 
+    case_bndr_evald_next :: CoreExpr -> Bool
+      -- See Note [Case binder next]
+    case_bndr_evald_next (Var v)         = v == case_bndr
+    case_bndr_evald_next (Cast e _)      = case_bndr_evald_next e
+    case_bndr_evald_next (App e _)       = case_bndr_evald_next e
+    case_bndr_evald_next (Case e _ _ _)  = case_bndr_evald_next e
+    case_bndr_evald_next _               = False
+      -- Could add a case for Let,
+      -- but I'm worried it could become expensive
 
 --------------------------------------------------
 --      3. Try seq rules; see Note [User-defined RULES for seq] in MkId
@@ -2040,7 +2060,7 @@ simplAlt env scrut' _ case_bndr' cont' (DataAlt con, vs, rhs)
                 -- Bind the case-binder to (con args)
         ; let inst_tys' = tyConAppArgs (idType case_bndr')
               con_app :: OutExpr
-              con_app   = mkConApp con (map Type inst_tys' ++ varsToCoreExprs vs')
+              con_app   = mkConApp2 con inst_tys' vs'
 
         ; env'' <- addAltUnfoldings env' scrut' case_bndr' con_app
         ; rhs' <- simplExprC env'' rhs cont'
@@ -2387,8 +2407,7 @@ mkDupableAlt env case_bndr (con, bndrs', rhs') = do
                           where
                                  -- See Note [Case binders and join points]
                              unf = mkInlineUnfolding Nothing rhs
-                             rhs = mkConApp dc (map Type (tyConAppArgs scrut_ty)
-                                                ++ varsToCoreExprs bndrs')
+                             rhs = mkConApp2 dc (tyConAppArgs scrut_ty) bndrs'
 
                       LitAlt {} -> WARN( True, ptext (sLit "mkDupableAlt")
                                                 <+> ppr case_bndr <+> ppr con )

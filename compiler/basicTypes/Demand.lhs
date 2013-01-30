@@ -11,7 +11,7 @@ module Demand (
         AbsDmd(..), absBot, absTop, absProd, absHead,
         Count(..), countOnce, countMany, -- cardinality
 
-        Demand, JointDmd, mkProdDmd, absd, preAbsDmd,
+        Demand, JointDmd, mkProdDmd, absd, preAbs,
         absDmd, topDmd, botDmd,
         lubDmd, bothDmd,
         isTopDmd, isBotDmd, isAbsDmd, isSeqDmd, 
@@ -21,11 +21,12 @@ module Demand (
 
         DmdEnv, emptyDmdEnv,
 
-        DmdResult, CPRResult, PureResult, 
+        DmdResult, CPRResult,
         isBotRes, isTopRes, resTypeArgDmd, 
-        topRes, botRes, cprRes,
-        appIsBottom, isBottomingSig, pprIfaceStrictSig, returnsCPR, 
-        StrictSig(..), mkStrictSig, topSig, botSig, cprSig,
+        topRes, botRes, cprProdRes, cprSumRes,
+        appIsBottom, isBottomingSig, pprIfaceStrictSig, 
+        returnsCPR, returnsCPRProd, returnsCPR_maybe,
+        StrictSig(..), mkStrictSig, topSig, botSig, cprProdSig,
         isTopSig, splitStrictSig, increaseStrictSigArity,
        
         seqStrDmd, seqStrDmdList, seqAbsDmd, seqAbsDmdList,
@@ -54,35 +55,8 @@ import UniqFM
 import Util
 import BasicTypes
 import Binary
-import Maybes                    ( expectJust )
+import Maybes                    ( isJust, expectJust )
 \end{code}
-
-%************************************************************************
-%*                                                                      *
-\subsection{Lattice-like structure for domains}
-%*                                                                      *
-%************************************************************************
-
-\begin{code}
-
-class LatticeLike a where
-  bot    :: a
-  top    :: a
-  pre    :: a -> a -> Bool
-  lub    :: a -> a -> a 
-  both   :: a -> a -> a
-
--- False < True
-instance LatticeLike Bool where
-  bot     = False
-  top     = True
--- x `pre` y <==> (x => y)
-  pre x y = (not x) || y  
-  lub     = (||)
-  both    = (&&)
-
-\end{code}
-
 
 %************************************************************************
 %*                                                                      *
@@ -90,8 +64,15 @@ instance LatticeLike Bool where
 %*                                                                      *
 %************************************************************************
 
-\begin{code}
+        Lazy
+         |
+        Str
+      /     \
+  SCall      SProd
+      \      /
+      HyperStr
 
+\begin{code}
 -- Vanilla strictness domain
 data StrDmd
   = HyperStr             -- Hyper-strict 
@@ -138,42 +119,43 @@ instance Outputable StrDmd where
   ppr Str           = char 'S'
   ppr (SProd sx)    = char 'S' <> parens (hcat (map ppr sx))
 
--- LatticeLike implementation for strictness demands
-instance LatticeLike StrDmd where
-  bot = HyperStr
-  top = Lazy
-  
-  pre _ Lazy                               = True
-  pre HyperStr _                           = True
-  pre (SCall s1) (SCall s2)                = pre s1 s2
-  pre (SCall _) Str                        = True
-  pre (SProd _) Str                        = True
-  pre (SProd sx1) (SProd sx2)    
-            | length sx1 == length sx2     = all (== True) $ zipWith pre sx1 sx2 
-  pre x y                                  = x == y
+lubStr :: StrDmd -> StrDmd -> StrDmd
+lubStr HyperStr s              = s
+lubStr (SCall s1) HyperStr     = SCall s1
+lubStr (SCall _)  Lazy         = Lazy
+lubStr (SCall _)  Str          = Str
+lubStr (SCall s1) (SCall s2)   = SCall (s1 `lubStr` s2)
+lubStr (SCall _)  (SProd _)    = Str
+lubStr (SProd _)  HyperStr     = HyperStr
+lubStr (SProd _)  Lazy         = Lazy
+lubStr (SProd _)  Str          = Str
+lubStr (SProd s1) (SProd s2)
+    | length s1 == length s2   = SProd (zipWith lubStr s1 s2)
+    | otherwise                = Str
+lubStr (SProd _) (SCall _)     = Str
+lubStr Str Lazy                = Lazy
+lubStr Str _                   = Str
+lubStr Lazy _                  = Lazy
 
-  lub x y | x == y                         = x 
-  lub y x | x `pre` y                      = lub x y
-  lub HyperStr s                           = s
-  lub _ Lazy                               = strTop
-  lub (SProd _) Str                        = strStr
-  lub (SProd sx1) (SProd sx2) 
-           | length sx1 == length sx2      = strProd $ zipWith lub sx1 sx2
-           | otherwise                     = strStr
-  lub (SCall s1) (SCall s2)                = strCall (s1 `lub` s2)
-  lub (SCall _)  Str                       = strStr
-  lub _ _                                  = strTop
+bothStr :: StrDmd -> StrDmd -> StrDmd
+bothStr HyperStr _             = HyperStr
+bothStr Lazy s                 = s
+bothStr Str Lazy               = Str
+bothStr Str s                  = s
+bothStr (SCall _)  HyperStr    = HyperStr
+bothStr (SCall s1) Lazy        = SCall s1
+bothStr (SCall s1) Str         = SCall s1
+bothStr (SCall s1) (SCall s2)  = SCall (s1 `bothStr` s2)
+bothStr (SCall _)  (SProd _)   = HyperStr  -- Weird
 
-  both x y | x == y                        = x 
-  both y x | x `pre` y                     = both x y
-  both HyperStr _                          = strBot
-  both s Lazy                              = s
-  both s@(SProd _) Str                     = s
-  both (SProd sx1) (SProd sx2) 
-           | length sx1 == length sx2      = strProd $ zipWith both sx1 sx2 
-  both (SCall s1) (SCall s2)               = strCall (s1 `both` s2)
-  both s@(SCall _)  Str                    = s
-  both _ _                                 = strBot
+bothStr (SProd _)  HyperStr    = HyperStr
+bothStr (SProd s1) Lazy        = SProd s1
+bothStr (SProd s1)  Str        = SProd s1
+bothStr (SProd s1) (SProd s2) 
+    | length s1 == length s2   = SProd (zipWith bothStr s1 s2)
+    | otherwise                = HyperStr  -- Weird
+bothStr (SProd _) (SCall _)    = HyperStr
+
 
 -- utility functions to deal with memory leaks
 seqStrDmd :: StrDmd -> ()
@@ -184,6 +166,10 @@ seqStrDmd _            = ()
 seqStrDmdList :: [StrDmd] -> ()
 seqStrDmdList [] = ()
 seqStrDmdList (d:ds) = seqStrDmd d `seq` seqStrDmdList ds
+
+isStrict :: StrDmd -> Bool
+isStrict Lazy = False
+isStrict _    = True
 
 -- Splitting polymorphic demands
 splitStrProdDmd :: Int -> StrDmd -> [StrDmd]
@@ -202,7 +188,7 @@ splitStrProdDmd n (SCall d)    = ASSERT( n == 1 ) [d]
 
 Note [Don't optimise UProd(Used) to Used]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-An AbsDmds
+These two AbsDmds:
    UProd [Used, Used]   and    Used
 are semantically equivalent, but we do not turn the former into
 the latter, for a regrettable-subtle reason.  Suppose we did.
@@ -220,8 +206,17 @@ This too would get <Str, Used>, but this time there really isn't any
 point in w/w since the components of the pair are not used at all.
 
 So the solution is: don't collapse UProd [Used,Used] to Used; intead
-leave it as-is.  
-    
+leave it as-is. In effect we are using the AbsDmd to do a little bit
+of boxity analysis.  Not very nice.
+
+
+      Used
+      /   \
+  UCall   UProd
+      \   /
+      UHead
+       |
+      Abs
 
 \begin{code}
 data AbsDmd
@@ -238,7 +233,7 @@ data AbsDmd
                          --             (in that case, use UHead)
 
   | UHead Count          -- May be used; but its sub-components are 
-                         -- definitely *not* used.  
+                         -- definitely *not* used.  Roughly U(AAA)
                          -- Eg the usage of x in x `seq` e
                          -- A polymorphic demand: used for values of all types,
                          --                       including a type variable
@@ -285,66 +280,81 @@ absProd c ux
   | all (== Abs) ux    = UHead c
   | otherwise          = UProd c ux
 
+lubCount :: Count -> Count -> Count
+lubCount _ Many = Many
+lubCount Many _ = Many
+lubCount x _    = x 
 
-instance LatticeLike Count where
-  bot        = One
-  top        = Many
-  pre x y    = (x == y) || (y == top)
+preCount :: Count -> Count -> Bool
+preCount x y    = (x == y) || (y == Many)
 
-  lub _ Many = Many
-  lub Many _ = Many
-  lub x _    = x 
+lubAbs :: AbsDmd -> AbsDmd -> AbsDmd
+lubAbs Abs x                       = x
+lubAbs (UHead c) Abs               = UHead c 
+lubAbs (UHead c1) (UHead c2)       = UHead $ lubCount c1 c2
+lubAbs (UHead c1) (UCall c2 u)     = UCall (lubCount c1 c2) u
+lubAbs (UHead c1) (UProd c2 ux)    = UProd (lubCount c1 c2) ux
+lubAbs (UHead c) x                 = Used $ lubCount c (card x)
+lubAbs (UCall c1 u1) Abs           = UCall c1 u1 
+lubAbs (UCall c1 u1) (UHead c2)    = UCall (lubCount c1 c2) u1 
+lubAbs (UCall c1 u1) (UCall c2 u2) = UCall (lubCount c1 c2) (u1 `lubAbs` u2)
+lubAbs (UCall c _) x               = Used $ lubCount c (card x)
+lubAbs (UProd c1 u1) Abs           = UProd c1 u1 
+lubAbs (UProd c1 u1) (UHead c2)    = UProd (lubCount c1 c2) u1 
+lubAbs (UProd c1 ux1) (UProd c2 ux2)
+     | length ux1 == length ux2    = UProd (lubCount c1 c2) $ zipWith lubAbs ux1 ux2
+     | otherwise                   = Used $ lubCount c1 c2
+-- Note [Don't optimise UProd(Used) to Used]
+lubAbs (UProd c1 ds) (Used c2)     = UProd (lubCount c1 c2) (map (`lubAbs` (Used Many)) ds)
+lubAbs (Used c) Abs                = Used c
+-- Note [Don't optimise UProd(Used) to Used]
+lubAbs (Used c1) (UProd c2 ds)     = UProd (lubCount c1 c2) (map (`lubAbs` (Used Many)) ds)
+lubAbs x y                         = Used $ lubCount (card x) (card y)
 
-  both _ _   = Many 
 
-instance LatticeLike AbsDmd where
-  bot                             = Abs
-  top                             = Used Many
- 
-  pre Abs _                       = True
-  pre (Used c1) (Used c2)         = pre c1 c2
-  pre u (Used c)                  = (card u) `pre` c
-  pre (UHead c1) (UHead c2)       = pre c1 c2
-  pre (UHead c1) (UCall c2 _)     = pre c1 c2
-  pre (UHead c1) (UProd c2 _)     = pre c1 c2
-  pre (UCall c1 u1) (UCall c2 u2) = (pre c1 c2) && (pre u1 u2)
-  pre (UProd c1 ux1) (UProd c2 ux2)
-     | length ux1 == length ux2   = (pre c1 c2) && 
-                                    (all (== True) $ zipWith pre ux1 ux2)
-  pre x y                         = x == y
+-- `both` is different from `lub` in its treatment of counting; if
+-- `both` is computed for two used, the result always has
+--  cardinality `Many` (except for the inner demands of UCall demand -- [TODO] explain).  
+--  Also,  x `bothAbs` x /= x (for anything but Abs).
+bothAbs :: AbsDmd -> AbsDmd -> AbsDmd
+bothAbs Abs x                       = x
+bothAbs (UHead c) Abs               = UHead c 
+bothAbs (UHead _) (UHead _)         = UHead Many
+bothAbs (UHead _) (UCall _  u)      = UCall Many u
+bothAbs (UHead _) (UProd _ ux)      = UProd Many ux
+bothAbs (UHead _) _                 = Used Many
+bothAbs (UCall c1 u1) Abs           = UCall c1 u1 
+bothAbs (UCall _ u1) (UHead _)      = UCall Many u1 
+-- Special treatment of inner demand for call demands: 
+-- use `lubAbs` instead of `bothAbs`
+bothAbs (UCall _ u1) (UCall _ u2)   = UCall Many (u1 `lubAbs` u2)
+bothAbs (UCall _ _) _               = Used Many
+bothAbs (UProd c1 u1) Abs           = UProd c1 u1 
+bothAbs (UProd _ u1) (UHead _)      = UProd Many u1 
+bothAbs (UProd _ ux1) (UProd _ ux2)
+      | length ux1 == length ux2    = UProd Many $ zipWith bothAbs ux1 ux2
+      | otherwise                   = Used Many
+-- Note [Don't optimise UProd(Used) to Used]
+bothAbs (UProd _ ds) (Used _)       = UProd Many (map (`bothAbs` (Used Many)) ds)
+bothAbs (Used c) Abs                = Used c
+-- Note [Don't optimise UProd(Used) to Used]
+bothAbs (Used _) (UProd _ ds)       = UProd Many (map (`bothAbs` (Used Many)) ds)
+bothAbs _ _                         = Used Many
 
-  lub x y | x == y                = x 
-  lub y x | x `pre` y             = lub x y
-  lub Abs a                       = a
-  lub (Used c1) (Used c2)         = Used $ lub c1 c2
-  lub a (Used c)                  = Used $ lub c (card a)
-  lub (UHead c1) (UHead c2)       = UHead $ lub c1 c2
-  lub (UHead c1) (UCall c2 u)     = UCall (lub c1 c2) u
-  lub (UHead c1) (UProd c2 ux)    = UProd (c1 `lub` c2) ux
-  lub (UProd c1 ux1) (UProd c2 ux2)
-     | length ux1 == length ux2   = absProd (c1 `lub` c2) $ zipWith lub ux1 ux2
-  lub (UCall c1 u1) (UCall c2 u2) = absCall (c1 `lub` c2) (u1 `lub` u2)
-  lub _ _                         = top
 
-  -- `both` is different from `lub` in its treatment of counting; if
-  -- `both` is computed for two used, the result always has
-  -- cardinality `Many` (except for the Call demand -- [TODO] explain).  
-  -- Also, `both` with anything but Abs is not idempotent.
+preAbs :: AbsDmd -> AbsDmd -> Bool
+preAbs Abs _                       = True
+preAbs (Used c1) (Used c2)         = preCount c1 c2
+preAbs u (Used c)                  = (card u) `preCount` c
+preAbs (UHead c1) (UHead c2)       = preCount c1 c2
+preAbs (UHead c1) (UCall c2 _)     = preCount c1 c2
+preAbs (UHead c1) (UProd c2 _)     = preCount c1 c2
+preAbs (UCall c1 u1) (UCall c2 u2) = (preCount c1 c2) && (preAbs u1 u2)
+preAbs (UProd c1 ux1) (UProd c2 ux2)
+     | length ux1 == length ux2    = (preCount c1 c2) && 
+                                     (all (== True) $ zipWith preAbs ux1 ux2)
+preAbs x y                         = x == y
 
-  both y x | x /= y && x `pre` y   = both x y
-  both Abs a                       = a
-  both _ (Used _)                  = Used Many
-  both (UHead _) (UHead _)         = UHead Many
-  both (UHead _) (UCall _ u)       = UCall Many u
-  both (UHead _) (UProd _ ux)      = UProd Many ux
-  both (UProd _ ux1) (UProd _ ux2)
-     | length ux1 == length ux2    = absProd Many $ zipWith both ux1 ux2
-  both (UCall _ u1) (UCall _ u2)   = absCall Many (u1 `lub` u2)
-  both _ _                         = top
-
--- utility functions
-preAbsDmd :: AbsDmd -> AbsDmd -> Bool
-preAbsDmd =  pre
 
 card :: AbsDmd -> Count
 card Abs         = pprPanic "count for Abs is invoked" (ppr Abs)
@@ -420,33 +430,22 @@ mkProdDmd c dx
     sp = strProd $ map strd dx
     up = absProd c $ map absd dx   
      
-instance LatticeLike JointDmd where
-  bot  = botDmd
-  top  = topDmd
-  pre  = preDmd
-  lub  = lubDmd
-  both = bothDmd
-
 absDmd :: JointDmd
-absDmd = mkJointDmd top bot 
+absDmd = mkJointDmd strTop absBot
 
 topDmd :: JointDmd
-topDmd = mkJointDmd top top
+topDmd = mkJointDmd strTop absTop
 
 botDmd :: JointDmd
-botDmd = mkJointDmd bot bot
-
-preDmd :: JointDmd -> JointDmd -> Bool
-preDmd (JD {strd = s1, absd = a1}) 
-       (JD {strd = s2, absd = a2})  = pre s1 s2 && pre a1 a2
+botDmd = mkJointDmd strBot absBot
 
 lubDmd :: JointDmd -> JointDmd -> JointDmd
 lubDmd (JD {strd = s1, absd = a1}) 
-       (JD {strd = s2, absd = a2}) = mkJointDmd (lub s1 s2) (lub a1 a2)
+       (JD {strd = s2, absd = a2}) = mkJointDmd (lubStr s1 s2) (lubAbs a1 a2)
 
 bothDmd :: JointDmd -> JointDmd -> JointDmd
 bothDmd (JD {strd = s1, absd = a1}) 
-        (JD {strd = s2, absd = a2}) = mkJointDmd (both s1 s2) (both a1 a2)
+        (JD {strd = s2, absd = a2}) = mkJointDmd (bothStr s1 s2) (bothAbs a1 a2)
 
 isTopDmd :: JointDmd -> Bool
 isTopDmd (JD {strd = Lazy, absd = Used Many}) = True
@@ -473,13 +472,13 @@ seqDemandList [] = ()
 seqDemandList (d:ds) = seqDemand d `seq` seqDemandList ds
 
 isStrictDmd :: Demand -> Bool
-isStrictDmd (JD {strd = x}) = x /= top
+isStrictDmd (JD {strd = x}) = isStrict x
 
 isUsedDmd :: Demand -> Bool
-isUsedDmd (JD {absd = x}) = x /= bot
+isUsedDmd (JD {absd = x}) = isUsed x
 
 isUsed :: AbsDmd -> Bool
-isUsed x = x /= bot
+isUsed x = x /= absBot
 
 someCompUsed :: AbsDmd -> Bool
 someCompUsed (Used _)    = True
@@ -494,7 +493,7 @@ onceEvalDmd :: JointDmd
 onceEvalDmd = mkJointDmd strStr (Used One)
 
 defer :: Demand -> Demand
-defer (JD {absd = a}) = mkJointDmd top a 
+defer (JD {absd = a}) = mkJointDmd strTop a 
 
 use :: Demand -> Demand
 use (JD {strd=d, absd=a}) = mkJointDmd d (markAsUsedDmd a)
@@ -503,7 +502,6 @@ use (JD {strd=d, absd=a}) = mkJointDmd d (markAsUsedDmd a)
 
 Note [Dealing with call demands]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 Call demands are constructed and deconstructed coherently for
 strictness and absence. For instance, the strictness signature for the
 following function
@@ -557,7 +555,7 @@ vanillaCall 0 = onceEvalDmd
 -- generate C^n (U)  
 vanillaCall n =
   let strComp = (iterate strCall strStr) !! n
-      absComp = (iterate (absCall One) top) !! n
+      absComp = (iterate (absCall One) absTop) !! n
    in mkJointDmd strComp absComp
 
 -- cardinality stuff
@@ -575,10 +573,10 @@ isSingleUsed (JD {absd=a}) = isUsedOnce a
 
 -- see Note [Threshold demands]  
 mkThresholdDmd :: Arity -> Demand
-mkThresholdDmd 0 = top
+mkThresholdDmd 0 = topDmd
 mkThresholdDmd n =
-  let absComp = (iterate (absCall One) top) !! n
-   in mkJointDmd top absComp
+  let absComp = (iterate (absCall One) absTop) !! n
+   in mkJointDmd Lazy absComp
 \end{code}
 
 Note [Default demands for right-hand sides]  
@@ -653,108 +651,91 @@ isProdDmd _                     = False
 %************************************************************************
 
 \begin{code}
-
-------------------------------------------------------------------------
--- Pure demand result                                             
-------------------------------------------------------------------------
-
-data PureResult = TopRes        -- Nothing known, assumed to be just lazy
-                | BotRes        -- Diverges or errors
-               deriving( Eq, Show )
-
-instance LatticeLike PureResult where
-     bot = BotRes
-     top = TopRes
-     pre x y = (x == y) || (y == top)
-     lub x y | x == y = x 
-     lub _ _          = top
-     both x y | x == y = x 
-     both _ _          = bot
-
 ------------------------------------------------------------------------
 -- Constructed Product Result                                             
 ------------------------------------------------------------------------
 
-data CPRResult = NoCPR
-               | RetCPR
+data CPRResult = NoCPR              -- Top of the lattice
+               | RetProd            -- Returns a constructor from a product type
+               | RetSum ConTag      -- Returns a constructor from a sum type with this tag
+               | BotCPR             -- Returns a constructor with any tag
+                                    -- Bottom of the domain
                deriving( Eq, Show )
 
-instance LatticeLike CPRResult where
-     bot = RetCPR
-     top = NoCPR
-     pre x y = (x == y) || (y == top)
-     lub x y | x == y  = x 
-     lub _ _           = top
-     both x y | x == y = x 
-     both _ _          = bot
+lubCPR :: CPRResult -> CPRResult -> CPRResult
+lubCPR BotCPR      r           = r
+lubCPR RetProd     BotCPR      = RetProd
+lubCPR (RetSum t)  BotCPR      = RetSum t
+lubCPR (RetSum t1) (RetSum t2) 
+  | t1 == t2                   = RetSum t1
+lubCPR RetProd     RetProd     = RetProd
+lubCPR _ _                     = NoCPR
+
+bothCPR :: CPRResult -> CPRResult -> CPRResult
+-- See Note [Asymmetry of 'both' for DmdType and DmdResult]
+bothCPR r _ = r
+
+instance Outputable DmdResult where
+  ppr RetProd    = char 'm' 
+  ppr (RetSum n) = char 'm' <> int n  
+  ppr BotCPR     = char 'b'   
+  ppr NoCPR      = empty   -- Keep these distinct from Demand letters
 
 ------------------------------------------------------------------------
 -- Combined demand result                                             --
 ------------------------------------------------------------------------
+type DmdResult = CPRResult
 
-data DmdResult = DR { res :: PureResult, cpr :: CPRResult }
-     deriving ( Eq )
+lubDmdResult :: DmdResult -> DmdResult -> DmdResult
+lubDmdResult = lubCPR
 
--- TODO rework DmdResult to make it more clear
-instance LatticeLike DmdResult where
-  bot                        = botRes
-  top                        = topRes
-
-  pre x _ | x == bot         = True
-  pre _ x | x == top         = True
-  pre (DR s1 a1) (DR s2 a2)  = (pre s1 s2) && (pre a1 a2)
-
-  lub  r r' | isBotRes r                   = r'
-  lub  r r' | isBotRes r'                  = r
-  lub  r r' 
-        | returnsCPR r && returnsCPR r'    = r
-  lub  _ _                                 = top
-
-  both _ r2 | isBotRes r2 = r2
-  both r1 _               = r1
-
--- Pretty-printing
-instance Outputable DmdResult where
-  ppr (DR {res=TopRes, cpr=RetCPR}) = char 'm'   --    DDDr without ambiguity
-  ppr (DR {res=BotRes}) = char 'b'   
-  ppr _ = empty   -- Keep these distinct from Demand letters
-
-mkDmdResult :: PureResult -> CPRResult -> DmdResult
-mkDmdResult BotRes RetCPR = botRes
-mkDmdResult x y = DR {res=x, cpr=y}
+bothDmdResult :: DmdResult -> DmdResult -> DmdResult
+bothDmdResult = bothCPR
 
 seqDmdResult :: DmdResult -> ()
-seqDmdResult (DR {res=x, cpr=y}) = x `seq` y `seq` ()
+seqDmdResult r = r `seq` ()
 
 -- [cprRes] lets us switch off CPR analysis
--- by making sure that everything uses TopRes instead of RetCPR
--- Assuming, of course, that they don't mention RetCPR by name.
--- They should onlyu use retCPR
-topRes, botRes, cprRes :: DmdResult
-topRes = mkDmdResult TopRes NoCPR
-botRes = mkDmdResult BotRes NoCPR
-cprRes | opt_CprOff = topRes
-       | otherwise  = mkDmdResult TopRes RetCPR
+-- by making sure that everything uses TopRes
+topRes, botRes :: DmdResult
+topRes = NoCPR
+botRes = BotCPR
+
+cprSumRes :: ConTag -> DmdResult
+cprSumRes tag | opt_CprOff = topRes
+              | otherwise  = RetSum tag
+cprProdRes :: DmdResult
+cprProdRes | opt_CprOff = topRes
+           | otherwise  = RetProd
+
 
 isTopRes :: DmdResult -> Bool
-isTopRes (DR {res=TopRes, cpr=NoCPR})  = True
-isTopRes _                  = False
+isTopRes NoCPR  = True
+isTopRes _      = False
 
 isBotRes :: DmdResult -> Bool
-isBotRes (DR {res=BotRes})      = True
-isBotRes _                  = False
+isBotRes BotCPR = True
+isBotRes _      = False
 
 returnsCPR :: DmdResult -> Bool
-returnsCPR (DR {res=TopRes, cpr=RetCPR}) = True
-returnsCPR _                  = False
+returnsCPR dr = isJust (returnsCPR_maybe dr)
+
+returnsCPRProd :: DmdResult -> Bool
+returnsCPRProd RetProd = True
+returnsCPRProd _       = False
+
+returnsCPR_maybe :: DmdResult -> Maybe ConTag
+returnsCPR_maybe (RetSum t) = Just t
+returnsCPR_maybe (RetProd)  = Just fIRST_TAG
+returnsCPR_maybe _          = Nothing
 
 resTypeArgDmd :: DmdResult -> Demand
 -- TopRes and BotRes are polymorphic, so that
 --      BotRes === Bot -> BotRes === ...
 --      TopRes === Top -> TopRes === ...
 -- This function makes that concrete
-resTypeArgDmd r | isBotRes r = bot
-resTypeArgDmd _              = top
+resTypeArgDmd r | isBotRes r = botDmd
+resTypeArgDmd _              = topDmd
 \end{code}
 
 %************************************************************************
@@ -771,10 +752,12 @@ worthSplittingFun ds res
         -- worthSplitting returns False for an empty list of demands,
         -- and hence do_strict_ww is False if arity is zero and there is no CPR
   where
-    -- See Note [Worker-wrapper for bottoming functions]
-    worth_it (JD {strd=HyperStr, absd=a})     = isUsed a  -- A Hyper-strict argument, safe to do W/W
-    -- See Note [Worthy functions for Worker-Wrapper split]    
     worth_it (JD {absd=Abs})                  = True      -- Absent arg
+
+    -- See Note [Worker-wrapper for bottoming functions]
+    worth_it (JD {strd=HyperStr, absd=UProd _ _}) = True
+
+    -- See Note [Worthy functions for Worker-Wrapper split]    
     worth_it (JD {strd=SProd _})              = True      -- Product arg to evaluate
     worth_it (JD {strd=Str, absd=UProd _ _})  = True      -- Strictly used product arg
     worth_it (JD {strd=Str, absd=UHead _})    = True 
@@ -855,6 +838,19 @@ The re-boxing code won't go away unless error_fn gets a wrapper too.
 [We don't do reboxing now, but in general it's better to pass an
 unboxed thing to f, and have it reboxed in the error cases....]
 
+However we *don't* want to do this when the argument is not actually
+taken apart in the function at all.  Otherwise we risk decomposing a
+masssive tuple which is barely used.  Example:
+
+        f :: ((Int,Int) -> String) -> (Int,Int) -> a
+        f g pr = error (g pr)
+
+        main = print (f fst (1, error "no"))
+          
+Here, f does not take 'pr' apart, and it's stupid to do so.
+Imagine that it had millions of fields. This actually happened
+in GHC itself where the tuple was DynFlags
+
 
 %************************************************************************
 %*                                                                      *
@@ -905,7 +901,14 @@ Note [Asymmetry of 'both' for DmdType and DmdResult]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 'both' for DmdTypes is *assymetrical*, because there is only one
 result!  For example, given (e1 e2), we get a DmdType dt1 for e1, use
-its arg demand to analyse e2 giving dt2, and then do (dt1 `both` dt2).
+its arg demand to analyse e2 giving dt2, and then do (dt1 `bothType` dt2).
+Similarly with 
+  case e of { p -> rhs }
+we get dt_scrut from the scrutinee and dt_rhs from the RHS, and then
+compute (dt_rhs `bothType` dt_scrut).
+
+We take the CPR info from FIRST argument, but combine both to get
+termination info.
 
 
 \begin{code}
@@ -915,25 +918,12 @@ instance Eq DmdType where
        (DmdType fv2 ds2 res2) =  ufmToList fv1 == ufmToList fv2
                               && ds1 == ds2 && res1 == res2
 
-instance LatticeLike DmdType where
-  bot  = botDmdType
-  top  = topDmdType
-  pre  = preDmdType
-  lub  = lubDmdType
-  both = bothDmdType
-
-preDmdType :: DmdType -> DmdType -> Bool
-preDmdType (DmdType _ ds1 res1) (DmdType _ ds2 res2)
-  =  (res1 `pre` res2)
-  && (length ds1 == length ds2)
-  && all (\(x, y) -> x `pre` y) (zip ds1 ds2)
-
 lubDmdType :: DmdType -> DmdType -> DmdType
 lubDmdType (DmdType fv1 ds1 r1) (DmdType fv2 ds2 r2)
-  = DmdType lub_fv2 (lub_ds ds1 ds2) (r1 `lub` r2)
+  = DmdType lub_fv2 (lub_ds ds1 ds2) (r1 `lubDmdResult` r2)
   where
-    absLub  = lub absDmd
-    lub_fv  = plusVarEnv_C lub fv1 fv2
+    absLub  = lubDmd absDmd
+    lub_fv  = plusVarEnv_C lubDmd fv1 fv2
     -- Consider (if x then y else []) with demand V
     -- Then the first branch gives {y->V} and the second
     -- *implicitly* has {y->A}.  So we must put {y->(V `lub` A)}
@@ -943,10 +933,10 @@ lubDmdType (DmdType fv1 ds1 r1) (DmdType fv2 ds2 r2)
       -- lub is the identity for Bot
 
       -- Extend the shorter argument list to match the longer
-    lub_ds (d1:ds1) (d2:ds2) = lub d1 d2 : lub_ds ds1 ds2
+    lub_ds (d1:ds1) (d2:ds2) = lubDmd d1 d2 : lub_ds ds1 ds2
     lub_ds []     []       = []
-    lub_ds ds1    []       = map (`lub` resTypeArgDmd r2) ds1
-    lub_ds []     ds2      = map (resTypeArgDmd r1 `lub`) ds2
+    lub_ds ds1    []       = map (`lubDmd` resTypeArgDmd r2) ds1
+    lub_ds []     ds2      = map (resTypeArgDmd r1 `lubDmd`) ds2
  
 bothDmdType :: DmdType -> DmdType -> DmdType
 bothDmdType (DmdType fv1 ds1 r1) (DmdType fv2 _ r2)
@@ -955,14 +945,14 @@ bothDmdType (DmdType fv1 ds1 r1) (DmdType fv2 _ r2)
     -- using its second arg just for its free-var info.
     -- NB: Don't forget about r2!  It might be BotRes, which is
     -- a bottom demand on all the in-scope variables.
-  = DmdType both_fv2 ds1 (r1 `both` r2)
+  = DmdType both_fv2 ds1 (r1 `bothDmdResult` r2)
   where
-    both_fv  = plusVarEnv_C both fv1 fv2
-    both_fv1 = modifyEnv (isBotRes r1) (`both` bot) fv2 fv1 both_fv
-    both_fv2 = modifyEnv (isBotRes r2) (`both` bot) fv1 fv2 both_fv1
+    both_fv  = plusVarEnv_C bothDmd fv1 fv2
+    both_fv1 = modifyEnv (isBotRes r1) (`bothDmd` botDmd) fv2 fv1 both_fv
+    both_fv2 = modifyEnv (isBotRes r2) (`bothDmd` botDmd) fv1 fv2 both_fv1
 
 bothDmdEnv :: DmdEnv -> DmdEnv -> DmdEnv
-bothDmdEnv = plusVarEnv_C both
+bothDmdEnv = plusVarEnv_C bothDmd
 
 instance Outputable DmdType where
   ppr (DmdType fv ds res) 
@@ -977,10 +967,12 @@ instance Outputable DmdType where
 emptyDmdEnv :: VarEnv Demand
 emptyDmdEnv = emptyVarEnv
 
-topDmdType, botDmdType, cprDmdType :: DmdType
+topDmdType, botDmdType :: DmdType
 topDmdType = DmdType emptyDmdEnv [] topRes
 botDmdType = DmdType emptyDmdEnv [] botRes
-cprDmdType = DmdType emptyDmdEnv [] cprRes
+
+cprProdDmdType :: DmdType
+cprProdDmdType = DmdType emptyDmdEnv [] cprProdRes
 
 isTopDmdType :: DmdType -> Bool
 isTopDmdType (DmdType env [] res)
@@ -1008,7 +1000,7 @@ splitDmdTy (DmdType fv (dmd:dmds) res_ty) = (dmd, DmdType fv dmds res_ty)
 splitDmdTy ty@(DmdType _ [] res_ty)       = (resTypeArgDmd res_ty, ty)
 
 deferType :: DmdType -> DmdType
-deferType (DmdType fv _ _) = DmdType (deferEnv fv) [] top
+deferType (DmdType fv _ _) = DmdType (deferEnv fv) [] topRes
 
 deferEnv :: DmdEnv -> DmdEnv
 deferEnv fv = mapVarEnv defer fv
@@ -1095,7 +1087,7 @@ splitStrictSig (StrictSig (DmdType _ dmds res)) = (dmds, res)
 increaseStrictSigArity :: Int -> StrictSig -> StrictSig
 -- Add extra arguments to a strictness signature
 increaseStrictSigArity arity_increase (StrictSig (DmdType env dmds res))
-  = StrictSig (DmdType env (replicate arity_increase top ++ dmds) res)
+  = StrictSig (DmdType env (replicate arity_increase topDmd ++ dmds) res)
 
 isTopSig :: StrictSig -> Bool
 isTopSig (StrictSig ty) = isTopDmdType ty
@@ -1103,10 +1095,12 @@ isTopSig (StrictSig ty) = isTopDmdType ty
 isBottomingSig :: StrictSig -> Bool
 isBottomingSig (StrictSig (DmdType _ _ res)) = isBotRes res
 
-topSig, botSig, cprSig:: StrictSig
+topSig, botSig :: StrictSig
 topSig = StrictSig topDmdType
 botSig = StrictSig botDmdType
-cprSig = StrictSig cprDmdType
+
+cprProdSig :: StrictSig
+cprProdSig = StrictSig cprProdDmdType
 
 dmdTransformSig :: StrictSig -> Demand -> DmdType
 -- (dmdTransformSig fun_sig dmd) considers a call to a function whose
@@ -1116,8 +1110,8 @@ dmdTransformSig (StrictSig dmd_ty@(DmdType _ arg_ds _)) dmd
   = go arg_ds dmd
   where
     go [] dmd 
-      | isBotDmd dmd = bot     -- Transform bottom demand to bottom type
-      | otherwise    = adjustCardinality dmd_ty  -- Saturated
+      | isBotDmd dmd = botDmdType -- Transform bottom demand to bottom type
+      | otherwise    = adjustCardinality dmd_ty     -- Saturated
     go (_:as) dmd    = case peelCallDmd dmd of
                         Just (dmd', _) -> go as dmd'
                         Nothing        -> (useType . deferType) dmd_ty
@@ -1251,16 +1245,6 @@ instance Binary JointDmd where
               y <- get bh
               return $ mkJointDmd x y
 
-instance Binary PureResult where
-    put_ bh BotRes       = do putByte bh 0
-    put_ bh TopRes       = do putByte bh 1
-
-    get  bh = do
-            h <- getByte bh
-            case h of 
-              0 -> return bot       
-              _ -> return top
-
 instance Binary StrictSig where
     put_ bh (StrictSig aa) = do
             put_ bh aa
@@ -1279,19 +1263,16 @@ instance Binary DmdType where
            return (DmdType emptyDmdEnv ds dr)
 
 instance Binary CPRResult where
-    put_ bh RetCPR       = do putByte bh 0
-    put_ bh NoCPR        = do putByte bh 1
+    put_ bh (RetSum n)   = do { putByte bh 0; put_ bh n }
+    put_ bh RetProd      = putByte bh 1
+    put_ bh NoCPR        = putByte bh 2
+    put_ bh BotCPR       = putByte bh 3
 
     get  bh = do
             h <- getByte bh
             case h of 
-              0 -> return bot       
-              _ -> return top
-
-instance Binary DmdResult where
-    put_ bh (DR {res=x, cpr=y}) = do put_ bh x; put_ bh y
-    get  bh = do 
-              x <- get bh
-              y <- get bh
-              return $ mkDmdResult x y
+              0 -> do { n <- get bh; return (RetSum n) }
+              1 -> return RetProd
+              2 -> return NoCPR
+              _ -> return BotCPR
 \end{code}

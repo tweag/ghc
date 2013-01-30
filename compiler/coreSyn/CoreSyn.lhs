@@ -31,7 +31,7 @@ module CoreSyn (
 	mkFloatLit, mkFloatLitFloat,
 	mkDoubleLit, mkDoubleLitDouble,
 	
-	mkConApp, mkTyBind, mkCoBind,
+	mkConApp, mkConApp2, mkTyBind, mkCoBind,
 	varToCoreExpr, varsToCoreExprs,
 
         isId, cmpAltCon, cmpAlt, ltAlt,
@@ -1133,6 +1133,11 @@ mkCoApps  f args = foldl (\ e a -> App e (Coercion a)) f args
 mkVarApps f vars = foldl (\ e a -> App e (varToCoreExpr a)) f vars
 mkConApp con args = mkApps (Var (dataConWorkId con)) args
 
+mkConApp2 :: DataCon -> [Type] -> [Var] -> Expr b
+mkConApp2 con tys arg_ids = Var (dataConWorkId con) 
+                            `mkApps` map Type tys
+                            `mkApps` map varToCoreExpr arg_ids
+
 
 -- | Create a machine integer literal expression of type @Int#@ from an @Integer@.
 -- If you want an expression of type @Int@ use 'MkCore.mkIntExpr'
@@ -1324,8 +1329,9 @@ isRuntimeVar = isId
 isRuntimeArg :: CoreExpr -> Bool
 isRuntimeArg = isValArg
 
--- | Returns @False@ iff the expression is a 'Type' or 'Coercion'
--- expression at its top level
+-- | Returns @True@ for value arguments, false for type args
+-- NB: coercions are value arguments (zero width, to be sure,
+-- like State#, but still value args).
 isValArg :: Expr b -> Bool
 isValArg e = not (isTypeArg e)
 

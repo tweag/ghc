@@ -245,8 +245,14 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         osf3)
             test -z "[$]2" || eval "[$]2=OSOsf3"
             ;;
+        nto-qnx)
+            test -z "[$]2" || eval "[$]2=OSQNXNTO"
+            ;;
         dragonfly|osf1|hpux|linuxaout|freebsd2|cygwin32|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|aix)
             test -z "[$]2" || eval "[$]2=OSUnknown"
+            ;;
+        linux-android)
+            test -z "[$]2" || eval "[$]2=OSAndroid"
             ;;
         *)
             echo "Unknown OS '[$]1'"
@@ -361,11 +367,23 @@ AC_DEFUN([GET_ARM_ISA],
                      #endif]
                 )],
                 [AC_DEFINE(arm_HOST_ARCH_PRE_ARMv7, 1, [ARM pre v7])
-                 changequote(, )dnl
                  ARM_ISA=ARMv6
-                 ARM_ISA_EXT="[]"
-                 changequote([, ])dnl
-                ],
+                 AC_COMPILE_IFELSE([
+                        AC_LANG_PROGRAM(
+                                [],
+                                [#if defined(__VFP_FP__)
+                                     return 0;
+                                #else
+                                     no vfp
+                                #endif]
+                        )],
+                        [changequote(, )dnl
+                         ARM_ISA_EXT="[VFPv2]"
+                         changequote([, ])dnl],
+                        [changequote(, )dnl
+                         ARM_ISA_EXT="[]"
+                         changequote([, ])dnl]
+                )],
                 [changequote(, )dnl
                  ARM_ISA=ARMv7
                  ARM_ISA_EXT="[VFPv3,NEON]"
@@ -1818,6 +1836,9 @@ AC_DEFUN([GHC_CONVERT_VENDOR],[
 # converts os from gnu to ghc naming, and assigns the result to $target_var
 AC_DEFUN([GHC_CONVERT_OS],[
 case "$1" in
+  linux-android*)
+    $2="linux-android"
+    ;;
   linux-*|linux)
     $2="linux"
     ;;
@@ -1829,6 +1850,9 @@ case "$1" in
             #      i686-gentoo-freebsd8
             #      i686-gentoo-freebsd8.2
     $2="freebsd"
+    ;;
+  nto-qnx*)
+    $2="nto-qnx"
     ;;
   *)
     echo "Unknown OS $1"
