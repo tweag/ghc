@@ -54,6 +54,7 @@ data OptKind m                             -- Suppose the flag is -f
     | PrefixPred    (String -> Bool) (String -> EwM m ())
     | AnySuffixPred (String -> Bool) (String -> EwM m ())
     | VersionSuffix (Int -> Int -> EwM m ())
+    | OptVersionSuffix (Int -> Int -> EwM m ())
       -- -f or -f=maj.min; pass major and minor version to fn
 
 
@@ -205,6 +206,13 @@ processOneArg opt_kind rest arg args
                           Just maj <- parseInt maj_s -> Right (f maj 0, args)
                         | otherwise -> Left ("malformed version argument in " ++ dash_arg)
 
+        OptVersionSuffix f | [maj_s, min_s] <- split '.' rest_no_eq,
+                             Just maj <- parseInt maj_s,
+                             Just min <- parseInt min_s -> Right (f maj min, args)
+                           | [maj_s] <- split '.' rest_no_eq,
+                             Just maj <- parseInt maj_s -> Right (f maj 0, args)
+                           | otherwise -> Right (f 1 0, args)
+
 
 findArg :: [Flag m] -> String -> Maybe (String, OptKind m)
 findArg spec arg =
@@ -219,19 +227,20 @@ findArg spec arg =
         (one:_) -> Just one
 
 arg_ok :: OptKind t -> [Char] -> String -> Bool
-arg_ok (NoArg           _)  rest _   = null rest
-arg_ok (HasArg          _)  _    _   = True
-arg_ok (SepArg          _)  rest _   = null rest
-arg_ok (Prefix          _)  rest _   = notNull rest
-arg_ok (PrefixPred p    _)  rest _   = notNull rest && p (dropEq rest)
-arg_ok (OptIntSuffix    _)  _    _   = True
-arg_ok (IntSuffix       _)  _    _   = True
-arg_ok (FloatSuffix     _)  _    _   = True
-arg_ok (OptPrefix       _)  _    _   = True
-arg_ok (PassFlag        _)  rest _   = null rest
-arg_ok (AnySuffix       _)  _    _   = True
-arg_ok (AnySuffixPred p _)  _    arg = p arg
-arg_ok (VersionSuffix   _)  _    _   = True
+arg_ok (NoArg            _)  rest _   = null rest
+arg_ok (HasArg           _)  _    _   = True
+arg_ok (SepArg           _)  rest _   = null rest
+arg_ok (Prefix           _)  rest _   = notNull rest
+arg_ok (PrefixPred p     _)  rest _   = notNull rest && p (dropEq rest)
+arg_ok (OptIntSuffix     _)  _    _   = True
+arg_ok (IntSuffix        _)  _    _   = True
+arg_ok (FloatSuffix      _)  _    _   = True
+arg_ok (OptPrefix        _)  _    _   = True
+arg_ok (PassFlag         _)  rest _   = null rest
+arg_ok (AnySuffix        _)  _    _   = True
+arg_ok (AnySuffixPred p  _)  _    arg = p arg
+arg_ok (VersionSuffix    _)  _    _   = True
+arg_ok (OptVersionSuffix _)  _    _   = True
 
 -- | Parse an Int
 --
