@@ -174,6 +174,13 @@
 #define REG_XMM5    xmm5
 #define REG_XMM6    xmm6
 
+#define REG_YMM1    ymm1
+#define REG_YMM2    ymm2
+#define REG_YMM3    ymm3
+#define REG_YMM4    ymm4
+#define REG_YMM5    ymm5
+#define REG_YMM6    ymm6
+
 #if !defined(mingw32_HOST_OS)
 #define CALLER_SAVES_R3
 #define CALLER_SAVES_R4
@@ -206,6 +213,15 @@
 #define CALLER_SAVES_XMM5
 #if !defined(mingw32_HOST_OS)
 #define CALLER_SAVES_XMM6
+#endif
+
+#define CALLER_SAVES_YMM1
+#define CALLER_SAVES_YMM2
+#define CALLER_SAVES_YMM3
+#define CALLER_SAVES_YMM4
+#define CALLER_SAVES_YMM5
+#if !defined(mingw32_HOST_OS)
+#define CALLER_SAVES_YMM6
 #endif
 
 #define MAX_REAL_VANILLA_REG 6
