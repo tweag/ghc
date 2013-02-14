@@ -250,7 +250,7 @@ dsProcExpr
 	:: LPat Id
 	-> LHsCmdTop Id
 	-> DsM CoreExpr
-dsProcExpr pat (L _ (HsCmdTop cmd [] cmd_ty ids)) = do
+dsProcExpr pat (L _ (HsCmdTop cmd _unitTy cmd_ty ids)) = do
     (meth_binds, meth_ids) <- mkCmdEnv ids
     let locals = mkVarSet (collectPatBinders pat)
     (core_cmd, _free_vars, env_ids) <- dsfixCmd meth_ids locals [] cmd_ty cmd
@@ -263,7 +263,6 @@ dsProcExpr pat (L _ (HsCmdTop cmd [] cmd_ty ids)) = do
                     (Lam var match_code)
                     core_cmd
     return (mkLets meth_binds proc_code)
-dsProcExpr _ c = pprPanic "dsProcExpr" (ppr c)
 \end{code}
 
 Translation of command judgements of the form
@@ -591,7 +590,8 @@ dsTrimCmdArg
 	-> LHsCmdTop Id		-- command argument to desugar
 	-> DsM (CoreExpr,	-- desugared expression
 		IdSet)		-- subset of local vars that occur free
-dsTrimCmdArg local_vars env_ids (L _ (HsCmdTop cmd stack cmd_ty ids)) = do
+dsTrimCmdArg local_vars env_ids (L _ (HsCmdTop cmd _stack cmd_ty ids)) = do
+    let stack = pprTrace "BOGUS STACK" (ppr cmd) []
     (meth_binds, meth_ids) <- mkCmdEnv ids
     (core_cmd, free_vars, env_ids') <- dsfixCmd meth_ids local_vars stack cmd_ty cmd
     stack_ids <- mapM newSysLocalDs stack
