@@ -2338,7 +2338,7 @@ primop  WriteOffAddrOp_FloatAsFloatX4 "writeFloatOffAddrAsFloatX4#" GenPrimOp
         llvm_only = True
 
 ------------------------------------------------------------------------
-section "Double SIMD Vectors" 
+section "Double SIMD Vectors, width 2" 
 	{Operations on SIMD vectors of 2 double-precision (64-bit)
          floating-point numbers.}
 ------------------------------------------------------------------------
@@ -2450,6 +2450,123 @@ primop ReadOffAddrOp_DoubleAsDoubleX2 "readDoubleOffAddrAsDoubleX2#" GenPrimOp
 
 primop  WriteOffAddrOp_DoubleAsDoubleX2 "writeDoubleOffAddrAsDoubleX2#" GenPrimOp
    Addr# -> Int# -> DoubleX2# -> State# s -> State# s
+   with has_side_effects = True
+        can_fail = True
+        llvm_only = True
+
+------------------------------------------------------------------------
+section "Double SIMD Vectors, width 4" 
+	{Operations on SIMD vectors of 4 double-precision (64-bit)
+         floating-point numbers.}
+------------------------------------------------------------------------
+
+primtype DoubleX4#
+   with llvm_only = True
+
+primop DoubleToDoubleX4Op "doubleToDoubleX4#" GenPrimOp     
+   Double# -> DoubleX4#
+   with llvm_only = True
+
+primop DoubleX4InsertOp "insertDoubleX4#" GenPrimOp     
+   DoubleX4# -> Double# -> Int# -> DoubleX4#
+   with can_fail = True
+        llvm_only = True
+
+primop DoubleX4PackOp "packDoubleX4#" GenPrimOp         
+   Double# -> Double# -> Double# -> Double# -> DoubleX4#
+   with llvm_only = True
+
+primop DoubleX4UnpackOp "unpackDoubleX4#" GenPrimOp         
+   DoubleX4# -> (# Double#, Double#, Double#, Double# #)
+   with llvm_only = True
+
+primop DoubleX4AddOp "plusDoubleX4#" Dyadic            
+   DoubleX4# -> DoubleX4# -> DoubleX4#
+   with commutable = True
+        llvm_only = True
+
+primop DoubleX4SubOp "minusDoubleX4#" Dyadic
+  DoubleX4# -> DoubleX4# -> DoubleX4#
+   with llvm_only = True
+
+primop DoubleX4MulOp "timesDoubleX4#" Dyadic    
+   DoubleX4# -> DoubleX4# -> DoubleX4#
+   with commutable = True
+        llvm_only = True
+
+primop DoubleX4DivOp "divideDoubleX4#" Dyadic  
+   DoubleX4# -> DoubleX4# -> DoubleX4#
+   with can_fail = True
+        llvm_only = True
+
+primop DoubleX4NegOp "negateDoubleX4#" Monadic
+   DoubleX4# -> DoubleX4#
+   with llvm_only = True
+
+primop IndexByteArrayOp_DoubleX4 "indexDoubleX4Array#" GenPrimOp
+   ByteArray# -> Int# -> DoubleX4#
+   with can_fail = True
+        llvm_only = True
+
+primop ReadByteArrayOp_DoubleX4 "readDoubleX4Array#" GenPrimOp
+   MutableByteArray# s -> Int# -> State# s -> (# State# s, DoubleX4# #)
+   with has_side_effects = True
+        can_fail = True
+        llvm_only = True
+
+primop WriteByteArrayOp_DoubleX4 "writeDoubleX4Array#" GenPrimOp
+   MutableByteArray# s -> Int# -> DoubleX4# -> State# s -> State# s
+   with has_side_effects = True
+        can_fail = True
+        llvm_only = True
+
+primop IndexOffAddrOp_DoubleX4 "indexDoubleX4OffAddr#" GenPrimOp
+   Addr# -> Int# -> DoubleX4#
+   with can_fail = True
+        llvm_only = True
+
+primop ReadOffAddrOp_DoubleX4 "readDoubleX4OffAddr#" GenPrimOp
+   Addr# -> Int# -> State# s -> (# State# s, DoubleX4# #)
+   with has_side_effects = True
+        can_fail = True
+        llvm_only = True
+
+primop  WriteOffAddrOp_DoubleX4 "writeDoubleX4OffAddr#" GenPrimOp
+   Addr# -> Int# -> DoubleX4# -> State# s -> State# s
+   with has_side_effects = True
+        can_fail = True
+        llvm_only = True
+
+primop IndexByteArrayOp_DoubleAsDoubleX4 "indexDoubleArrayAsDoubleX4#" GenPrimOp
+   ByteArray# -> Int# -> DoubleX4#
+   with can_fail = True
+        llvm_only = True
+
+primop ReadByteArrayOp_DoubleAsDoubleX4 "readDoubleArrayAsDoubleX4#" GenPrimOp
+   MutableByteArray# s -> Int# -> State# s -> (# State# s, DoubleX4# #)
+   with has_side_effects = True
+        can_fail = True
+        llvm_only = True
+
+primop WriteByteArrayOp_DoubleAsDoubleX4 "writeDoubleArrayAsDoubleX4#" GenPrimOp
+   MutableByteArray# s -> Int# -> DoubleX4# -> State# s -> State# s
+   with has_side_effects = True
+        can_fail = True
+        llvm_only = True
+
+primop IndexOffAddrOp_DoubleAsDoubleX4 "indexDoubleOffAddrAsDoubleX4#" GenPrimOp
+   Addr# -> Int# -> DoubleX4#
+   with can_fail = True
+        llvm_only = True
+
+primop ReadOffAddrOp_DoubleAsDoubleX4 "readDoubleOffAddrAsDoubleX4#" GenPrimOp
+   Addr# -> Int# -> State# s -> (# State# s, DoubleX4# #)
+   with has_side_effects = True
+        can_fail = True
+        llvm_only = True
+
+primop  WriteOffAddrOp_DoubleAsDoubleX4 "writeDoubleOffAddrAsDoubleX4#" GenPrimOp
+   Addr# -> Int# -> DoubleX4# -> State# s -> State# s
    with has_side_effects = True
         can_fail = True
         llvm_only = True
