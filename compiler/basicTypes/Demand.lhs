@@ -242,7 +242,7 @@ data AbsDmd
                          -- Top of the lattice
   deriving ( Eq, Show )
 
--- Absrtact counting of usages
+-- Absratct counting of usages
 data Count = One | Many
   deriving ( Eq, Show )     
 
@@ -549,7 +549,7 @@ splitCallDmd (JD {strd = SCall d, absd = Used _})
       (n, r) -> (n + 1, r)
 splitCallDmd d        = (0, d)
 
--- see Note [Default semands for right-hand sides]  
+-- see Note [Default demands for right-hand sides]  
 vanillaCall :: Arity -> Demand
 vanillaCall 0 = onceEvalDmd
 -- generate C^n (U)  
@@ -581,13 +581,12 @@ mkThresholdDmd n =
 
 Note [Default demands for right-hand sides]  
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 When analysis a right-hand side of a let binding, we create a
-"default" demand using `vanillaCall`. It is owth mentioning that for
+"default" demand using `vanillaCall`. It is worth mentioning that for
 *thunks* the demand, under which a RHS is analysed is (Used One),
 whereas for lambdas it is C(C...(U)...).
 
-This fenomenon is due to the special nature of thunks: they "merge"
+This phenomenon is due to the special nature of thunks: they "merge"
 multiple usage demands into one. This also explains the fact that the
 demand transformer for thunks is triggered by a less-precise, mere U
 demand (not U1). This is not true for lambda, therefore to analyze
@@ -596,14 +595,12 @@ of call layers is equal to syntactic arity of the lambda.
 
 Note [Threshold demands]
 ~~~~~~~~~~~~~~~~~~~~~~~~
-
 Threshold usage demand is generated to figure out if
 cardinality-instrumented demands of a binding's free variables should
 be unleashed. See also [Aggregated demand for cardinality].
 
 Note [Replicating polymorphic demands]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 Some demands can be considered as polymorphic. Generally, it is
 applicable to such beasts as tops, bottoms as well as Head-Used adn
 Head-stricts demands. For instance,
@@ -755,13 +752,13 @@ worthSplittingFun ds res
     worth_it (JD {absd=Abs})                  = True      -- Absent arg
 
     -- See Note [Worker-wrapper for bottoming functions]
-    worth_it (JD {strd=HyperStr, absd=UProd _ _}) = True
+    worth_it (JD {strd=HyperStr, absd=UProd {}}) = True
 
     -- See Note [Worthy functions for Worker-Wrapper split]    
-    worth_it (JD {strd=SProd _})              = True      -- Product arg to evaluate
-    worth_it (JD {strd=Str, absd=UProd _ _})  = True      -- Strictly used product arg
-    worth_it (JD {strd=Str, absd=UHead _})    = True 
-    worth_it _                                = False
+    worth_it (JD {strd=SProd {}})             = True      -- Product arg to evaluate
+    worth_it (JD {strd=Str, absd=UProd {}})  = True      -- Strictly used product arg
+    worth_it (JD {strd=Str, absd=UHead {}})  = True 
+    worth_it _                               = False
 
 worthSplittingThunk :: Demand           -- Demand on the thunk
                     -> DmdResult        -- CPR info for the thunk
@@ -770,10 +767,10 @@ worthSplittingThunk dmd res
   = worth_it dmd || returnsCPR res
   where
         -- Split if the thing is unpacked
-    worth_it (JD {strd=SProd _, absd=a})     = someCompUsed a
-    worth_it (JD {strd=Str, absd=UProd _ _}) = True   
+    worth_it (JD {strd=SProd {}, absd=a})   = someCompUsed a
+    worth_it (JD {strd=Str, absd=UProd {}}) = True   
         -- second component points out that at least some of     
-    worth_it _                               = False
+    worth_it _                              = False
 \end{code}
 
 Note [Worthy functions for Worker-Wrapper split]

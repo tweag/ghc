@@ -327,7 +327,7 @@ dmdAnal dflags _ env dmd (Let (NonRec id rhs) body)
                                      addNewFVs body_ty2 unleashed_fv
         
         -- Annotate top-level lambdas at RHS basing on the aggregated demand info
-        -- See Note [Annotatig lambdas at right-hand side] 
+        -- See Note [Annotating lambdas at right-hand side] 
         usage_dmd                  = absd id_dmd
         annotated_rhs              = annotate_rhs_lambdas usage_dmd rhs'    
     in
@@ -476,7 +476,6 @@ annotate_rhs_lambdas _ e = e
 
 Note [Aggregated demand for cardinality]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 We use different strategies for strictness and usage/cardinality to
 "unleash" demands captured on free variables by bindings. Let us
 consider the example:
@@ -517,7 +516,6 @@ strict in |y|.
 
 Note [Analysing lambdas at right-hand side]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 It is safe to analyze a lambda-expression on a right-hand-side of a
 let-binding with a usage demand C1(C1...(U1)), where the number of C1s
 is the same as "visible" arity of the right-hand side. However, this
@@ -545,7 +543,7 @@ lambda expression somewhere, e.g.
 build g = g (:) []
 build (\x y -> x () y) -- this lambda is one-shot
 
-Note [Annotatig lambdas at right-hand side]
+Note [Annotating lambdas at right-hand side]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Let us take a look at the following example:
 
@@ -562,12 +560,10 @@ in this case.
 In other words, for locally-bound lambdas we can infer
 one-shotness. 
 
-
 Note [Analyzing with lazy demand and lambdas]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The insigt for analyzing lambdas follows from the fact that for
-strictness S = C(L). This polymothpic expansion is critical for
+The insight for analyzing lambdas follows from the fact that for
+strictness S = C(L). This polymorphic expansion is critical for
 cardinality analysis of the following example:
 
 {-# NOINLINE build #-}

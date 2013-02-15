@@ -85,11 +85,11 @@ module Id (
         setIdCafInfo,
         setIdOccInfo, zapIdOccInfo,
 
-	setIdDemandInfo, 
-	setIdStrictness, 
+        setIdDemandInfo, 
+        setIdStrictness, 
 
-	idDemandInfo, 
-	idStrictness,
+        idDemandInfo, 
+        idStrictness,
 
     ) where
 

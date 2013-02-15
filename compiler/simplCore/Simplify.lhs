@@ -1166,9 +1166,7 @@ rebuild env expr cont
       Stop {}                       -> return (env, expr)
       CoerceIt co cont              -> rebuild env (mkCast expr co) cont
                                     -- NB: mkCast implements the (Coercion co |> g) optimisation
-      Select _ bndr alts se cont    -> do {
-                                         flags <- getDynFlags
-                                       ; rebuildCase flags (se `setFloats` env) expr bndr alts cont }
+      Select _ bndr alts se cont    -> rebuildCase (se `setFloats` env) expr bndr alts cont
       StrictArg info _ cont         -> rebuildCall env (info `addArgTo` expr) cont
       StrictBind b bs body se cont  -> do { env' <- simplNonRecX (se `setFloats` env) b expr
                                           ; simplLam env' bs body cont }
@@ -1416,7 +1414,7 @@ completeCall env var cont
             ; Nothing -> do               -- No inlining!
 
         { rule_base <- getSimplRules
-        ; let info = mkArgInfo dflags var (getRules rule_base var) n_val_args call_cont
+        ; let info = mkArgInfo var (getRules rule_base var) n_val_args call_cont
         ; rebuildCall env info cont
     }}}
   where
@@ -1767,8 +1765,7 @@ I don't really know how to improve this situation.
 --      Eliminate the case if possible
 
 rebuildCase, reallyRebuildCase
-   :: DynFlags 
-   -> SimplEnv
+   :: SimplEnv
    -> OutExpr          -- Scrutinee
    -> InId             -- Case binder
    -> [InAlt]          -- Alternatives (inceasing order)
@@ -1779,7 +1776,7 @@ rebuildCase, reallyRebuildCase
 --      1. Eliminate the case if there's a known constructor
 --------------------------------------------------
 
-rebuildCase _flags env scrut case_bndr alts cont
+rebuildCase env scrut case_bndr alts cont
   | Lit lit <- scrut    -- No need for same treatment as constructors
                         -- because literals are inlined more vigorously
   , not (litIsLifted lit)
@@ -1808,7 +1805,7 @@ rebuildCase _flags env scrut case_bndr alts cont
 --      2. Eliminate the case if scrutinee is evaluated
 --------------------------------------------------
 
-rebuildCase _flags env scrut case_bndr [(_, bndrs, rhs)] cont
+rebuildCase env scrut case_bndr [(_, bndrs, rhs)] cont
   -- See if we can get rid of the case altogether
   -- See Note [Case elimination]
   -- mkCase made sure that if all the alternatives are equal,
@@ -1858,7 +1855,7 @@ rebuildCase _flags env scrut case_bndr [(_, bndrs, rhs)] cont
 --      3. Try seq rules; see Note [User-defined RULES for seq] in MkId
 --------------------------------------------------
 
-rebuildCase _flags env scrut case_bndr alts@[(_, bndrs, rhs)] cont
+rebuildCase env scrut case_bndr alts@[(_, bndrs, rhs)] cont
   | all isDeadBinder (case_bndr : bndrs)  -- So this is just 'seq'
   = do { let rhs' = substExpr (text "rebuild-case") env rhs
              out_args = [Type (substTy env (idType case_bndr)),
@@ -1871,16 +1868,16 @@ rebuildCase _flags env scrut case_bndr alts@[(_, bndrs, rhs)] cont
            Just (n_args, res) -> simplExprF (zapSubstEnv env)
                                             (mkApps res (drop n_args out_args))
                                             cont
-	   Nothing -> reallyRebuildCase _flags env scrut case_bndr alts cont }
+           Nothing -> reallyRebuildCase env scrut case_bndr alts cont }
 
-rebuildCase _flags env scrut case_bndr alts cont
-  = reallyRebuildCase _flags env scrut case_bndr alts cont
+rebuildCase env scrut case_bndr alts cont
+  = reallyRebuildCase env scrut case_bndr alts cont
 
 --------------------------------------------------
 --      3. Catch-all case
 --------------------------------------------------
 
-reallyRebuildCase _flags env scrut case_bndr alts cont
+reallyRebuildCase env scrut case_bndr alts cont
   = do  {       -- Prepare the continuation;
                 -- The new subst_env is in place
           (env', dup_cont, nodup_cont) <- prepareCaseCont env alts cont
