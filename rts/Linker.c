@@ -881,6 +881,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_ap_f_ret)                       \
       SymI_HasProto(stg_ap_d_ret)                       \
       SymI_HasProto(stg_ap_l_ret)                       \
+      SymI_HasProto(stg_ap_v16_ret)                     \
       SymI_HasProto(stg_ap_n_ret)                       \
       SymI_HasProto(stg_ap_p_ret)                       \
       SymI_HasProto(stg_ap_pv_ret)                      \
@@ -1097,6 +1098,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(getOrSetGHCConcWindowsProddingStore)                \
       SymI_HasProto(getOrSetSystemEventThreadEventManagerStore)         \
       SymI_HasProto(getOrSetSystemEventThreadIOManagerThreadStore)      \
+      SymI_HasProto(getOrSetSystemTimerThreadEventManagerStore)         \
+      SymI_HasProto(getOrSetSystemTimerThreadIOManagerThreadStore)      \
       SymI_HasProto(getGCStats)                                         \
       SymI_HasProto(getGCStatsEnabled)                                  \
       SymI_HasProto(genSymZh)                                           \
@@ -1109,7 +1112,10 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(hs_set_argv)                                        \
       SymI_HasProto(hs_add_root)                                        \
       SymI_HasProto(hs_perform_gc)                                      \
+      SymI_HasProto(hs_lock_stable_tables)                              \
+      SymI_HasProto(hs_unlock_stable_tables)                            \
       SymI_HasProto(hs_free_stable_ptr)                                 \
+      SymI_HasProto(hs_free_stable_ptr_unsafe)                          \
       SymI_HasProto(hs_free_fun_ptr)                                    \
       SymI_HasProto(hs_hpc_rootModule)                                  \
       SymI_HasProto(hs_hpc_module)                                      \
@@ -1210,6 +1216,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(startupHaskell)                                     \
       SymI_HasProto(shutdownHaskell)                                    \
       SymI_HasProto(shutdownHaskellAndExit)                             \
+      SymI_HasProto(stable_name_table)                                  \
       SymI_HasProto(stable_ptr_table)                                   \
       SymI_HasProto(stackOverflow)                                      \
       SymI_HasProto(stg_CAF_BLACKHOLE_info)                             \
@@ -1232,6 +1239,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_ap_f_info)                                      \
       SymI_HasProto(stg_ap_d_info)                                      \
       SymI_HasProto(stg_ap_l_info)                                      \
+      SymI_HasProto(stg_ap_v16_info)                                    \
       SymI_HasProto(stg_ap_n_info)                                      \
       SymI_HasProto(stg_ap_p_info)                                      \
       SymI_HasProto(stg_ap_pv_info)                                     \
@@ -1247,6 +1255,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_ap_f_fast)                                      \
       SymI_HasProto(stg_ap_d_fast)                                      \
       SymI_HasProto(stg_ap_l_fast)                                      \
+      SymI_HasProto(stg_ap_v16_fast)                                    \
       SymI_HasProto(stg_ap_n_fast)                                      \
       SymI_HasProto(stg_ap_p_fast)                                      \
       SymI_HasProto(stg_ap_pv_fast)                                     \
@@ -4108,7 +4117,7 @@ ocResolve_PEi386 ( ObjectCode* oc )
 #    define R_X86_64_PC64 24
 #  endif
 
-/* 
+/*
  * Workaround for libc implementations (e.g. eglibc) with incomplete
  * relocation lists
  */
@@ -4987,7 +4996,7 @@ do_Elf_Rel_relocations ( ObjectCode* oc, char* ehdrC,
                   | (offset & 0x01fe);
             break;
          }
-         
+
          case R_ARM_THM_JUMP11:
          {
             StgWord16 *word = (StgWord16 *)P;

@@ -307,6 +307,12 @@ wanteds = concat
           ,fieldOffset Both "StgRegTable" "rD4"
           ,fieldOffset Both "StgRegTable" "rD5"
           ,fieldOffset Both "StgRegTable" "rD6"
+          ,fieldOffset Both "StgRegTable" "rXMM1"
+          ,fieldOffset Both "StgRegTable" "rXMM2"
+          ,fieldOffset Both "StgRegTable" "rXMM3"
+          ,fieldOffset Both "StgRegTable" "rXMM4"
+          ,fieldOffset Both "StgRegTable" "rXMM5"
+          ,fieldOffset Both "StgRegTable" "rXMM6"
           ,fieldOffset Both "StgRegTable" "rL1"
           ,fieldOffset Both "StgRegTable" "rSp"
           ,fieldOffset Both "StgRegTable" "rSpLim"
@@ -529,6 +535,9 @@ wanteds = concat
           ,structSize  C "snEntry"
           ,structField C "snEntry" "sn_obj"
           ,structField C "snEntry" "addr"
+
+          ,structSize  C "spEntry"
+          ,structField C "spEntry" "addr"
 
            -- Note that this conditional part only affects the C headers.
            -- That's important, as it means we get the same PlatformConstants

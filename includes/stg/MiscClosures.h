@@ -223,6 +223,7 @@ RTS_RET(stg_ap_v);
 RTS_RET(stg_ap_f);
 RTS_RET(stg_ap_d);
 RTS_RET(stg_ap_l);
+RTS_RET(stg_ap_v16);
 RTS_RET(stg_ap_n);
 RTS_RET(stg_ap_p);
 RTS_RET(stg_ap_pv);
@@ -239,6 +240,7 @@ RTS_FUN_DECL(stg_ap_v_fast);
 RTS_FUN_DECL(stg_ap_f_fast);
 RTS_FUN_DECL(stg_ap_d_fast);
 RTS_FUN_DECL(stg_ap_l_fast);
+RTS_FUN_DECL(stg_ap_v16_fast);
 RTS_FUN_DECL(stg_ap_n_fast);
 RTS_FUN_DECL(stg_ap_p_fast);
 RTS_FUN_DECL(stg_ap_pv_fast);
@@ -470,7 +472,7 @@ extern StgWord RTS_VAR(atomic_modify_mutvar_mutex);
 extern StgWord RTS_VAR(RtsFlags); // bogus type
 
 // Stable.c
-extern StgWord RTS_VAR(stable_ptr_table);
+extern StgWord RTS_VAR(stable_name_table);
 
 // Profiling.c
 extern unsigned int RTS_VAR(era);

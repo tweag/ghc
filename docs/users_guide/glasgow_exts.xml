@@ -3379,19 +3379,17 @@ GHC extends this list with several more classes that may be automatically derive
 <literal>Typeable</literal>, and <literal>Data</literal>, defined in the library
 modules <literal>Data.Typeable</literal> and <literal>Data.Generics</literal> respectively.
 </para>
-<para>An instance of <literal>Typeable</literal> can only be derived if the
-data type has seven or fewer type parameters, all of kind <literal>*</literal>.
-The reason for this is that the <literal>Typeable</literal> class is derived using the scheme
-described in
-<ulink url="http://research.microsoft.com/%7Esimonpj/papers/hmap/gmap2.ps">
-Scrap More Boilerplate: Reflection, Zips, and Generalised Casts
-</ulink>.
-(Section 7.4 of the paper describes the multiple <literal>Typeable</literal> classes that
-are used, and only <literal>Typeable1</literal> up to
-<literal>Typeable7</literal> are provided in the library.)
-In other cases, there is nothing to stop the programmer writing a <literal>TypeableX</literal>
-class, whose kind suits that of the data type constructor, and
-then writing the data type instance by hand.
+<para>Since GHC 7.8.1, <literal>Typeable</literal> is kind-polymorphic (see
+<xref linkend="kind-polymorphism"/>) and can be derived for any datatype and
+type class. Instances for datatypes can be derived by attaching a 
+<literal>deriving Typeable</literal> clause to the datatype declaration, or by
+using standalone deriving (see <xref linkend="stand-alone-deriving"/>).
+Instances for type classes can only be derived using standalone deriving.
+See also <xref linkend="auto-derive-typeable"/>.
+</para>
+<para>
+Also since GHC 7.8.1, handwritten (ie. not derived) instances of
+<literal>Typeable</literal> are forbidden, and will be ignored with a warning.
 </para>
 </listitem>
 
@@ -3420,6 +3418,17 @@ defined in <literal>Data.Traversable</literal>.
 In each case the appropriate class must be in scope before it
 can be mentioned in the <literal>deriving</literal> clause.
 </para>
+</sect2>
+
+<sect2 id="auto-derive-typeable">
+<title>Automatically deriving <literal>Typeable</literal> instances</title>
+
+<para>
+The flag <option>-XAutoDeriveTypeable</option> triggers the generation
+of derived <literal>Typeable</literal> instances for every datatype and type
+class declaration in the module it is used.
+</para>
+
 </sect2>
 
 <sect2 id="newtype-deriving">
@@ -4645,6 +4654,189 @@ main = do
 Note that deriving <literal>Eq</literal> is necessary for the pattern matching
 to work since it gets translated into an equality comparison.
 </para>
+</sect2>
+
+<sect2 id="overloaded-lists">
+<title>Overloaded lists</title>
+
+<para> GHC supports <emphasis>overloading of the list notation</emphasis>.
+Let us recap the notation for
+constructing lists. In Haskell, the list notation can be be used in the
+following seven ways:
+
+<programlisting>
+[]          -- Empty list 
+[x]         -- x : []
+[x,y,z]     -- x : y : z : []
+[x .. ]     -- enumFrom x
+[x,y ..]    -- enumFromThen x y
+[x .. y]    -- enumFromTo x y
+[x,y .. z]  -- enumFromThenTo x y z
+</programlisting>
+
+When the <option>OverloadedLists</option> extension is turned on, the
+aforementioned seven notations are desugared as follows: </para>
+
+<programlisting>
+[]          -- fromListN 0 []
+[x]         -- fromListN 1 (x : [])
+[x,y,z]     -- fromListN 3 (x : y : z : [])
+[x .. ]     -- fromList (enumFrom x)
+[x,y ..]    -- fromList (enumFromThen x y)
+[x .. y]    -- fromList (enumFromTo x y)
+[x,y .. z]  -- fromList (enumFromThenTo x y z)
+</programlisting>
+
+<para> This extension allows programmers to use the list notation for
+construction of structures like: <literal>Set</literal>,
+<literal>Map</literal>, <literal>IntMap</literal>, <literal>Vector</literal>,
+<literal>Text</literal> and <literal>Array</literal>. The following code
+listing gives a few examples:</para>
+
+<programlisting>
+['0' .. '9']             :: Set Char
+[1 .. 10]                :: Vector Int
+[("default",0), (k1,v1)] :: Map String Int
+['a' .. 'z']             :: Text
+</programlisting>
+<para>
+List patterns are also overloaded. When the <option>OverloadedLists</option> 
+extension is turned on, these definitions are desugared as follows
+<programlisting>
+f [] = ...          -- f (toList -> []) = ...
+g [x,y,z] = ...     -- g (toList -> [x,y,z]) = ...
+</programlisting>
+(Here we are using view-pattern syntax for the translation, see <xref linkend="view-patterns"/>.)
+</para>
+
+<sect3>
+<title>The <literal>IsList</literal> class</title>
+
+<para>In the above desugarings, the functions <literal>toList</literal>,
+<literal>fromList</literal> and <literal>fromListN</literal> are all
+methods of 
+the <literal>IsList</literal> class, which is itself exported from
+the <literal>GHC.Exts</literal> module.
+The type class is defined as follows:</para>
+
+<programlisting>
+class IsList l where
+  type Item l
+
+  fromList :: [Item l] -> l
+  toList   :: l -> [Item l]
+
+  fromListN :: Int -> [Item l] -> l
+  fromListN _ = fromList
+</programlisting>
+
+<para>The <literal>FromList</literal> class and its methods are intended to be
+used in conjunction with the <option>OverloadedLists</option> extension. 
+<itemizedlist>
+<listitem> <para> The type function
+<literal>Item</literal> returns the type of items of the
+structure <literal>l</literal>.
+</para></listitem>
+<listitem><para> 
+The function <literal>fromList</literal> 
+constructs the structure <literal>l</literal> from the given list of
+<literal>Item l</literal>. 
+</para></listitem>
+<listitem><para> 
+The function <literal>fromListN</literal> takes the
+input list's length as a hint. Its behaviour should be equivalent to
+<literal>fromList</literal>. The hint can be used for more efficient
+construction of the structure <literal>l</literal> compared to
+<literal>fromList</literal>. If the given hint is not equal to the input
+list's length the behaviour of <literal>fromListN</literal> is not
+specified.
+</para></listitem>
+<listitem><para> 
+The function <literal>toList</literal> should be 
+the inverse of <literal>fromList</literal>.
+</para></listitem>
+</itemizedlist>
+</para>
+<para>It is perfectly fine to declare new instances
+of <literal>IsList</literal>, so that list notation becomes
+useful for completely new data types.
+Here are several example instances:
+<programlisting>
+instance FromList [a] where
+  type Item [a] = a
+  fromList = id
+  toList = id
+
+instance (Ord a) => FromList (Set a) where
+  type Item (Set a) = a
+  fromList = Set.fromList
+  toList = Set.toList
+
+instance (Ord k) => FromList (Map k v) where
+  type Item (Map k v) = (k,v)
+  fromList = Map.fromList 
+  toList = Map.toList
+
+instance FromList (IntMap v) where
+  type Item (IntMap v) = (Int,v)
+  fromList = IntMap.fromList 
+  toList = IntMap.toList
+
+instance FromList Text where
+  type Item Text = Char
+  fromList = Text.pack
+  toList = Text.unpack
+
+instance FromList (Vector a) where
+  type Item (Vector a) = a
+  fromList  = Vector.fromList
+  fromListN = Vector.fromListN
+  toList = Vector.toList
+</programlisting>
+</para>
+</sect3>
+
+<sect3>
+<title>Rebindable syntax</title>
+
+<para> When desugaring list notation with <option>-XOverloadedLists</option>
+GHC uses the <literal>fromList</literal> (etc) methods from module <literal>GHC.Exts</literal>.
+You do not need to import <literal>GHC.Exts</literal> for this to happen.
+</para>
+<para> However if you use <option>-XRebindableSyntax</option>, then 
+GHC instead uses whatever is in
+scope with the names of <literal>toList</literal>, <literal>fromList</literal> and
+<literal>fromListN</literal>. That is, these functions are rebindable;
+c.f. <xref linkend="rebindable-syntax"/>. </para>
+</sect3>
+
+<sect3>
+<title>Defaulting</title>
+
+<para>Currently, the <literal>IsList</literal> class is not accompanied with
+defaulting rules. Although feasible, not much thought has gone into how to
+specify the meaning of the default declarations like:</para>
+
+<programlisting>
+default ([a])
+</programlisting>
+</sect3>
+
+<sect3>
+<title>Speculation about the future</title>
+
+
+<para>The current implementation of the <option>OverloadedLists</option>
+extension can be improved by handling the lists that are only populated with
+literals in a special way. More specifically, the compiler could allocate such
+lists statically using a compact representation and allow
+<literal>IsList</literal> instances to take advantage of the compact
+representation. Equipped with this capability the
+<option>OverloadedLists</option> extension will be in a good position to
+subsume the <option>OverloadedStrings</option> extension (currently, as a
+special case, string literals benefit from statically allocated compact
+representation).</para>
+</sect3>
 </sect2>
 
 </sect1>

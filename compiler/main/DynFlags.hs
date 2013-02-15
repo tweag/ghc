@@ -11,6 +11,9 @@
 --
 -------------------------------------------------------------------------------
 
+{-# OPTIONS -fno-cse #-}
+-- -fno-cse is needed for GLOBAL_VAR's to behave properly
+
 module DynFlags (
         -- * Dynamic flags and associated configuration types
         DumpFlag(..),
@@ -129,6 +132,7 @@ module DynFlags (
 #include "HsVersions.h"
 
 import Platform
+import PlatformConstants
 import Module
 import PackageConfig
 import {-# SOURCE #-} PrelNames ( mAIN )
@@ -279,7 +283,7 @@ data GeneralFlag
    | Opt_DictsCheap
    | Opt_EnableRewriteRules             -- Apply rewrite rules during simplification
    | Opt_Vectorise
-   | Opt_AvoidVect
+   | Opt_VectorisationAvoidance
    | Opt_RegsGraph                      -- do graph coloring register allocation
    | Opt_RegsIterative                  -- do iterative coalescing graph coloring register allocation
    | Opt_PedanticBottoms                -- Be picky about how we treat bottom
@@ -424,6 +428,7 @@ data WarningFlag =
    | Opt_WarnUnsupportedCallingConventions
    | Opt_WarnUnsupportedLlvmVersion
    | Opt_WarnInlineRuleShadowing
+   | Opt_WarnTypeableInstances
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -475,6 +480,7 @@ data ExtensionFlag
    | Opt_BangPatterns
    | Opt_TypeFamilies
    | Opt_OverloadedStrings
+   | Opt_OverloadedLists
    | Opt_DisambiguateRecordFields
    | Opt_RecordWildCards
    | Opt_RecordPuns
@@ -491,6 +497,7 @@ data ExtensionFlag
  
    | Opt_StandaloneDeriving
    | Opt_DeriveDataTypeable
+   | Opt_AutoDeriveTypeable       -- Automatic derivation of Typeable
    | Opt_DeriveFunctor
    | Opt_DeriveTraversable
    | Opt_DeriveFoldable
@@ -1795,16 +1802,17 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
 
   let ((leftover, errs, warns), dflags1)
           = runCmdLine (processArgs activeFlags args') dflags0
-  when (not (null errs)) $ throwGhcException $ errorsToGhcException errs
+  when (not (null errs)) $ liftIO $
+      throwGhcExceptionIO $ errorsToGhcException errs
 
   -- check for disabled flags in safe haskell
   let (dflags2, sh_warns) = safeFlagCheck cmdline dflags1
       dflags3 = updateWays dflags2
       theWays = ways dflags3
 
-  unless (allowed_combination theWays) $
-      throwGhcException (CmdLineError ("combination not supported: "  ++
-                              intercalate "/" (map wayDesc theWays)))
+  unless (allowed_combination theWays) $ liftIO $
+      throwGhcExceptionIO (CmdLineError ("combination not supported: " ++
+                               intercalate "/" (map wayDesc theWays)))
 
   -- TODO: This is an ugly hack. Do something better.
   -- -fPIC affects the CMM code we generate, so if
@@ -1822,7 +1830,7 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
   when e.g. compiling a C file, only when compiling Haskell files.
   when doingDynamicToo $
       unless (isJust (outputFile dflags4) == isJust (dynOutputFile dflags4)) $
-          throwGhcException $ CmdLineError
+          liftIO $ throwGhcExceptionIO $ CmdLineError
               "With -dynamic-too, must give -dyno iff giving -o"
   -}
 
@@ -2395,7 +2403,8 @@ fWarningFlags = [
   ( "warn-pointless-pragmas",           Opt_WarnPointlessPragmas, nop ),
   ( "warn-unsupported-calling-conventions", Opt_WarnUnsupportedCallingConventions, nop ),
   ( "warn-inline-rule-shadowing",       Opt_WarnInlineRuleShadowing, nop ),
-  ( "warn-unsupported-llvm-version",    Opt_WarnUnsupportedLlvmVersion, nop ) ]
+  ( "warn-unsupported-llvm-version",    Opt_WarnUnsupportedLlvmVersion, nop ),
+  ( "warn-typeable-instances",          Opt_WarnTypeableInstances, nop ) ]
 
 -- | These @-\<blah\>@ flags can all be reversed with @-no-\<blah\>@
 negatableFlags :: [FlagSpec GeneralFlag]
@@ -2452,7 +2461,7 @@ fFlags = [
   ( "run-cps",                          Opt_RunCPS, nop ),
   ( "run-cpsz",                         Opt_RunCPSZ, nop ),
   ( "vectorise",                        Opt_Vectorise, nop ),
-  ( "avoid-vect",                       Opt_AvoidVect, nop ),
+  ( "vectorisation-avoidance",          Opt_VectorisationAvoidance, nop ),
   ( "regs-graph",                       Opt_RegsGraph, nop ),
   ( "regs-iterative",                   Opt_RegsIterative, nop ),
   ( "llvm-tbaa",                        Opt_LlvmTBAA, nop), -- hidden flag
@@ -2586,6 +2595,7 @@ xFlags = [
     deprecatedForExtension "NamedFieldPuns" ),
   ( "DisambiguateRecordFields",         Opt_DisambiguateRecordFields, nop ),
   ( "OverloadedStrings",                Opt_OverloadedStrings, nop ),
+  ( "OverloadedLists",                  Opt_OverloadedLists, nop),
   ( "GADTs",                            Opt_GADTs, nop ),
   ( "GADTSyntax",                       Opt_GADTSyntax, nop ),
   ( "ViewPatterns",                     Opt_ViewPatterns, nop ),
@@ -2626,6 +2636,7 @@ xFlags = [
   ( "UnboxedTuples",                    Opt_UnboxedTuples, nop ),
   ( "StandaloneDeriving",               Opt_StandaloneDeriving, nop ),
   ( "DeriveDataTypeable",               Opt_DeriveDataTypeable, nop ),
+  ( "AutoDeriveTypeable",               Opt_AutoDeriveTypeable, nop ),
   ( "DeriveFunctor",                    Opt_DeriveFunctor, nop ),
   ( "DeriveTraversable",                Opt_DeriveTraversable, nop ),
   ( "DeriveFoldable",                   Opt_DeriveFoldable, nop ),
@@ -2760,6 +2771,7 @@ optLevelFlags
                 -- we want to make sure that the bindings for data
                 -- constructors are eta-expanded.  This is probably
                 -- a good thing anyway, but it seems fragile.
+    , ([0,1,2], Opt_VectorisationAvoidance)
     ]
 
 -- -----------------------------------------------------------------------------
@@ -2782,7 +2794,9 @@ standardWarnings
         Opt_WarnUnsupportedCallingConventions,
         Opt_WarnUnsupportedLlvmVersion,
         Opt_WarnInlineRuleShadowing,
-        Opt_WarnDuplicateConstraints
+        Opt_WarnDuplicateConstraints,
+        Opt_WarnInlineRuleShadowing,
+        Opt_WarnTypeableInstances
       ]
 
 minusWOpts :: [WarningFlag]
@@ -3328,7 +3342,6 @@ compilerInfo dflags
        ("Global Package DB",           systemPackageConfig dflags)
       ]
 
-#include "../includes/dist-derivedconstants/header/GHCConstantsHaskellType.hs"
 #include "../includes/dist-derivedconstants/header/GHCConstantsHaskellWrappers.hs"
 
 bLOCK_SIZE_W :: DynFlags -> Int
