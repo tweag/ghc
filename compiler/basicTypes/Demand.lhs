@@ -555,7 +555,7 @@ vanillaCall 0 = onceEvalDmd
 -- generate C^n (U)  
 vanillaCall n =
   let strComp = (iterate strCall strStr) !! n
-      absComp = (iterate (absCall One) absTop) !! n
+      absComp = (iterate (absCall Many) absTop) !! n
    in mkJointDmd strComp absComp
 
 -- cardinality stuff
