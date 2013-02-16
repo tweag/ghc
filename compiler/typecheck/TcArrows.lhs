@@ -282,16 +282,16 @@ tc_cmd env (HsCmdDo stmts _) (cmd_stk, res_ty)
 -----------------------------------------------------------------
 --	Arrow ``forms''	      (| e c1 .. cn |)
 --
---	G      |-b1 c1 : g1 --> r1
+--	D; G |-a1 c1 : stk1 --> r1
 --	...
---	G      |-bn cn : gn --> rn
---	pop(G) |-   e : forall w. b1 (w,g1) r1
+--	D; G |-an cn : stkn --> rn
+--	D |-  e :: forall e. a1 (e, stk1) t1
 --                                ...
---                             -> bn (w,gn) rn
---                             -> a  (w, g) r
---	e \not\in (s, s1..sm, t, t1..tn)
+--                        -> an (e, stkn) tn
+--                        -> a  (e, stk) t
+--	e \not\in (stk, stk1, ..., stkm, t, t1, ..., tn)
 --	----------------------------------------------
---	G |-a  (| e c |)  :  g --> r
+--	D; G |-a  (| e c1 ... cn |)  :  stk --> t
 
 tc_cmd env cmd@(HsCmdArrForm expr fixity cmd_args) (cmd_stk, res_ty)	
   = addErrCtxt (cmdCtxt cmd)	$

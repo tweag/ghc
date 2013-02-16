@@ -246,6 +246,12 @@ Translation of arrow abstraction
 --
 --		where (xs) is the tuple of variables bound by p
 
+-- D; xs |-a c : () --> t'  	---> c'
+-- --------------------------
+-- D |- proc p -> c :: a t t'	---> premap (\ p -> ((xs),())) c'
+--
+--		where (xs) is the tuple of variables bound by p
+
 dsProcExpr
 	:: LPat Id
 	-> LHsCmdTop Id
@@ -265,9 +271,13 @@ dsProcExpr pat (L _ (HsCmdTop cmd _unitTy cmd_ty ids)) = do
     return (mkLets meth_binds proc_code)
 \end{code}
 
-Translation of command judgements of the form
+Translation of a command judgement of the form
 
-	A | xs |- c :: [ts] t
+	D; xs |-a c : stk --> t
+
+to an expression e such that
+
+	D |- e :: a (xs, stk) t
 
 \begin{code}
 dsLCmd :: DsCmdEnv -> IdSet -> [Type] -> Type -> LHsCmd Id -> [Id]
@@ -292,6 +302,13 @@ dsCmd   :: DsCmdEnv		-- arrow combinators
 --	A | xs |- f -< arg :: [ts] t'
 --
 --		---> premap (\ ((xs)*ts) -> (arg*ts)) f
+
+-- D |- fun :: a t1 t2
+-- D, xs |- arg :: t1
+-- -----------------------------
+-- D; xs |-a fun -< arg : stk --> t2
+--
+--		---> premap (\ ((xs), _stk) -> arg) fun
 
 dsCmd ids local_vars stack res_ty
         (HsCmdArrApp arrow arg arrow_ty HsFirstOrderApp _)
@@ -318,6 +335,13 @@ dsCmd ids local_vars stack res_ty
 --	A | xs |- f -<< arg :: [ts] t'
 --
 --		---> premap (\ ((xs)*ts) -> (f,(arg*ts))) app
+
+-- D, xs |- fun :: a t1 t2
+-- D, xs |- arg :: t1
+-- ------------------------------
+-- D; xs |-a fun -<< arg : stk --> t2
+--
+--		---> premap (\ ((xs), _stk) -> (fun, arg)) app
 
 dsCmd ids local_vars stack res_ty
         (HsCmdArrApp arrow arg arrow_ty HsHigherOrderApp _)
@@ -349,6 +373,13 @@ dsCmd ids local_vars stack res_ty
 --
 --		---> premap (\ ((xs)*ts) -> let z = e in (((ys),z)*ts)) c
 
+-- D; ys |-a cmd : (t,stk) --> t'
+-- D, xs |-  exp :: t
+-- ------------------------
+-- D; xs |-a cmd exp : stk --> t'
+--
+--		---> premap (\ ((xs),stk) -> ((ys),(e,stk))) cmd
+
 dsCmd ids local_vars stack res_ty (HsCmdApp cmd arg) env_ids = do
     core_arg <- dsLExpr arg
     let
@@ -378,6 +409,12 @@ dsCmd ids local_vars stack res_ty (HsCmdApp cmd arg) env_ids = do
 --	A | xs |- \ p1 ... pk -> c :: [t1:...:tk:ts] t'
 --
 --		---> premap (\ ((((xs), p1), ... pk)*ts) -> ((ys)*ts)) c
+
+-- D; ys |-a cmd : stk t'
+-- -----------------------------------------------
+-- D; xs |-a \ p1 ... pk -> cmd : (t1,...(tk,stk)...) t'
+--
+--		---> premap (\ ((xs), (p1, ... (pk,stk)...)) -> ((ys),stk)) cmd
 
 dsCmd ids local_vars stack res_ty
         (HsCmdLam (MG { mg_alts = [L _ (Match pats _ (GRHSs [L _ (GRHS [] body)] _ ))] }))
@@ -418,6 +455,16 @@ dsCmd ids local_vars stack res_ty (HsCmdPar cmd) env_ids
 --
 --		---> premap (\ ((xs)*ts) ->
 --			 if e then Left ((xs1)*ts) else Right ((xs2)*ts))
+--		       (c1 ||| c2)
+
+-- D, xs |- e :: Bool
+-- D; xs1 |-a c1 : stk --> t
+-- D; xs2 |-a c2 : stk --> t
+-- ----------------------------------------
+-- D; xs |-a if e then c1 else c2 : stk --> t
+--
+--		---> premap (\ ((xs),stk) ->
+--			 if e then Left ((xs1),stk) else Right ((xs2),stk))
 --		       (c1 ||| c2)
 
 dsCmd ids local_vars stack res_ty (HsCmdIf mb_fun cond then_cmd else_cmd)
@@ -540,6 +587,12 @@ dsCmd ids local_vars stack res_ty
 --
 --		---> premap (\ ((xs)*ts) -> let binds in ((ys)*ts)) c
 
+-- D; ys |-a cmd : stk --> t
+-- ----------------------------------
+-- D; xs |-a let binds in cmd : stk --> t
+--
+--		---> premap (\ ((xs),stk) -> let binds in ((ys),stk)) c
+
 dsCmd ids local_vars stack res_ty (HsCmdLet binds body) env_ids = do
     let
         defined_vars = mkVarSet (collectLocalBinders binds)
@@ -567,6 +620,11 @@ dsCmd ids local_vars [] res_ty (HsCmdDo stmts _) env_ids
 --	-----------------------------------
 --	A | xs |- (|e c1 ... cn|) :: [ts] t	---> e [t_xs] c1 ... cn
 
+-- D |- e :: forall e. a1 (e,stk1) t1 -> ... an (e,stkn) tn -> a (e,stk) t
+-- D; xs |- ci :: stki --> ti
+-- -----------------------------------
+-- D; xs |- (|e c1 ... cn|) :: stk --> t	---> e [t_xs] c1 ... cn
+
 dsCmd _ids local_vars _stack _res_ty (HsCmdArrForm op _ args) env_ids = do
     let env_ty = mkBigCoreVarTupTy env_ids
     core_op <- dsLExpr op
@@ -583,6 +641,10 @@ dsCmd _ _ _ _ _ c = pprPanic "dsCmd" (ppr c)
 --	A | ys |- c :: [ts] t	(ys <= xs)
 --	---------------------
 --	A | xs |- c :: [ts] t	---> premap_ts (\ (xs) -> (ys)) c
+
+-- D; ys |- c :: stk --> t	(ys <= xs)
+-- ---------------------
+-- D; xs |- c :: stk --> t	---> premap_ts (\ (xs) -> (ys)) c
 
 dsTrimCmdArg
 	:: IdSet		-- set of local vars available to this command
@@ -655,6 +717,12 @@ dsCmdDo :: DsCmdEnv		-- arrow combinators
 --	--------------------------
 --	A | xs |- do { c } :: [] t
 
+-- D; xs |-a c : () --> t
+-- --------------------------
+-- D; xs |-a do { c } : t
+--
+--		---> premap (\ (xs) -> ((xs), ())) c
+
 dsCmdDo _ _ _ [] _ = panic "dsCmdDo"
 
 dsCmdDo ids local_vars res_ty [L _ (LastStmt body _)] env_ids
@@ -703,6 +771,14 @@ dsCmdStmt
 --		---> premap (\ (xs) -> ((xs1),(xs')))
 --			(first c >>> arr snd) >>> ss
 
+-- D; xs1 |-a c : t
+-- D; xs' |-a do { ss } : () --> t'
+-- ------------------------------
+-- D; xs  |-a do { c; ss } : () --> t'
+--
+--		---> premap (\ ((xs)) -> (((xs1),()),(xs')))
+--			(first c >>> arr snd) >>> ss
+
 dsCmdStmt ids local_vars out_ids (BodyStmt cmd _ _ c_ty) env_ids = do
     (core_cmd, fv_cmd, env_ids1) <- dsfixCmd ids local_vars [] c_ty cmd
     core_mux <- matchEnvStack env_ids []
@@ -727,6 +803,14 @@ dsCmdStmt ids local_vars out_ids (BodyStmt cmd _ _ c_ty) env_ids = do
 --	A | xs |- do { p <- c; ss } :: [] t'
 --
 --		---> premap (\ (xs) -> ((xs1),(xs2)))
+--			(first c >>> arr (\ (p, (xs2)) -> (xs'))) >>> ss
+
+-- D; xs1 |-a c : t
+-- D; xs' |-a do { ss } : t'		xs2 = xs' - defs(p)
+-- -----------------------------------
+-- D; xs  |-a do { p <- c; ss } : t'
+--
+--		---> premap (\ (xs) -> (((xs1),()),(xs2)))
 --			(first c >>> arr (\ (p, (xs2)) -> (xs'))) >>> ss
 --
 -- It would be simpler and more consistent to do this using second,
@@ -781,6 +865,12 @@ dsCmdStmt ids local_vars out_ids (BindStmt pat cmd _ _) env_ids = do
 --
 --		---> arr (\ (xs) -> let binds in (xs')) >>> ss
 
+-- D; xs' |-a do { ss } : t
+-- --------------------------------------
+-- D; xs  |-a do { let binds; ss } : t
+--
+--		---> arr (\ (xs) -> let binds in (xs')) >>> ss
+
 dsCmdStmt ids local_vars out_ids (LetStmt binds) env_ids = do
     -- build a new environment using the let bindings
     core_binds <- dsLocalBinds binds (mkBigCoreVarTup out_ids)
@@ -796,6 +886,20 @@ dsCmdStmt ids local_vars out_ids (LetStmt binds) env_ids = do
 --	A | xs' |- do { ss' } :: [] t
 --	------------------------------------
 --	A | xs |- do { rec ss; ss' } :: [] t
+--
+--			xs1 = xs' /\ defs(ss)
+--			xs2 = xs' - defs(ss)
+--			ys1 = ys - defs(ss)
+--			ys2 = ys /\ defs(ss)
+--
+--		---> arr (\(xs) -> ((ys1),(xs2))) >>>
+--			first (loop (arr (\((ys1),~(ys2)) -> (ys)) >>> ss)) >>>
+--			arr (\((xs1),(xs2)) -> (xs')) >>> ss'
+
+-- D; ys  |-a do { ss; returnA -< ((xs1), (ys2)) } : ...
+-- D; xs' |-a do { ss' } : t
+-- ------------------------------------
+-- D; xs  |-a do { rec ss; ss' } : t
 --
 --			xs1 = xs' /\ defs(ss)
 --			xs2 = xs' - defs(ss)
