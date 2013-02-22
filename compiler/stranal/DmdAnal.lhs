@@ -183,9 +183,14 @@ dmdAnal dflags sigs dmd (App fun (Coercion co))
 -- beautiful, compositional, application rule :-)
 dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
   = let				-- [Type arg handled above]
-	(fun_ty, fun') 	  = dmdAnal dflags env (mkCallDmd dmd) fun
-	(arg_ty, arg') 	  = dmdAnal dflags env arg_dmd arg
+        call_dmd          = mkCallDmd dmd
+	(fun_ty, fun') 	  = dmdAnal dflags env call_dmd fun
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
+        (arg_ty, arg') 	  = dmdAnal dflags env arg_dmd arg
+
+	-- annotate components with single-shotness explicitly a-posteriori
+        arg''             = annotate_rhs_lambdas (absd arg_dmd) arg'
+        fun''             = annotate_rhs_lambdas (absd call_dmd) fun'
     in
 --    pprTrace "dmdAnal:app" (vcat
 --         [ text "dmd =" <+> ppr dmd
@@ -195,7 +200,7 @@ dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
 --         , text "arg dmd_ty =" <+> ppr arg_ty
 --         , text "res dmd_ty =" <+> ppr res_ty
 --         , text "overall res dmd_ty =" <+> ppr (res_ty `bothDmdType` arg_ty) ])
-    (res_ty `bothDmdType` arg_ty, App fun' arg')
+    (res_ty `bothDmdType` arg_ty, App fun'' arg'')
 
 dmdAnal dflags env dmd (Lam var body)
   | isTyVar var
@@ -210,8 +215,7 @@ dmdAnal dflags env dmd (Lam var body)
   = let	
         env'		 = extendSigsWithLam env var
 	(body_ty, body') = dmdAnal dflags env' body_dmd body
-        armed_var        = setOneShotLambda var 
-	(lam_ty, var')   = annotateLamIdBndr dflags env body_ty armed_var
+	(lam_ty, var')   = annotateLamIdBndr dflags env body_ty var
     in
     (lam_ty, Lam var' body')
 
