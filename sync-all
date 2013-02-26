@@ -162,6 +162,29 @@ sub gitNewWorkdir {
     }
 }
 
+sub configure_repository {
+    my $localpath = shift;
+    my $scm = shift;
+
+    if ($scm eq "git") {
+        &scm($localpath, $scm, "config", "--local", "core.ignorecase", "true");
+
+        chdir($localpath);
+        open my $git_autocrlf, '-|', 'git', 'config', '--get', 'core.autocrlf'
+            or die "Executing git config failed: $!";
+        my $autocrlf = <$git_autocrlf>;
+        $autocrlf = "" unless defined($autocrlf);
+        chomp $autocrlf;
+        close($git_autocrlf);
+        chdir($initial_working_directory);
+        if ($autocrlf eq "true") {
+            &scm($localpath, $scm,
+                 "config", "--local", "core.autocrlf", "false");
+            &scm($localpath, $scm, "reset", "--hard");
+        }
+    }
+}
+
 sub scm {
     my $dir = shift;
     my $scm = shift;
@@ -309,9 +332,7 @@ sub scmall {
             if (-d $localpath) {
                 warning("$localpath already present; omitting")
                     if $localpath ne ".";
-                if ($scm eq "git") {
-                    scm ($localpath, $scm, "config", "core.ignorecase", "true");
-                }
+                &configure_repository($localpath, $scm);
                 next;
             }
 
@@ -329,13 +350,13 @@ sub scmall {
                 my @argsWithBare = @args;
                 push @argsWithBare, $bare_flag if $bare_flag;
                 scm (".", $scm, "clone", $path, $localpath, @argsWithBare);
-                scm ($localpath, $scm, "config", "core.ignorecase", "true");
+                &configure_repository($localpath, $scm);
             }
             next;
         }
 
         my $darcs_repo_present = 1 if -d "$localpath/_darcs";
-        my $git_repo_present = 1 if -d "$localpath/.git" || ($bare_flag && -d "$localpath");
+        my $git_repo_present = 1 if -e "$localpath/.git" || ($bare_flag && -d "$localpath");
         if ($darcs_repo_present) {
             if ($git_repo_present) {
                 die "Found both _darcs and .git in $localpath";
@@ -371,8 +392,50 @@ sub scmall {
             $ignore_failure = 1;
             scm ($localpath, $scm, "commit", @args);
         }
+        elsif ($command eq "check_submodules") {
+            # If we have a submodule then check whether it is up-to-date
+            if ($remotepath eq "-") {
+                my %remote_heads;
+
+                message "== Checking sub-module $localpath";
+
+                chdir($localpath);
+
+                open my $lsremote, '-|', 'git', 'ls-remote', '--heads', '-q'
+                    or die "Executing ls-remote failed: $!";
+                while (<$lsremote>) {
+                    if (/^([0-9a-f]{40})\s*refs\/heads\//) {
+                        $remote_heads{$1} = 1;
+                    }
+                    else {
+                        die "Bad output from ls-remote: $_";
+                    }
+                }
+                close($lsremote);
+
+                open my $revparse, '-|', 'git', 'rev-parse', '--verify', 'HEAD'
+                    or die "Executing rev-parse failed: $!";
+                my $myhead;
+                $myhead = <$revparse>;
+                    # or die "Failed to read from rev-parse: $!";
+                chomp $myhead;
+                close($revparse);
+
+                if (not defined($remote_heads{$myhead})) {
+                    die "Sub module $localpath needs to be pushed; see http://hackage.haskell.org/trac/ghc/wiki/Repositories/Upstream";
+                }
+                
+                chdir($initial_working_directory);
+            }
+        }
         elsif ($command eq "push") {
-            scm ($localpath, $scm, "push", @args);
+            # We don't automatically push to the submodules. If you want
+            # to push to them then you need to use a special command, as
+            # described on
+            # http://hackage.haskell.org/trac/ghc/wiki/Repositories/Upstream
+            if ($remotepath ne "-") {
+                scm ($localpath, $scm, "push", @args);
+            }
         }
         elsif ($command eq "pull") {
             my $realcmd;
@@ -777,6 +840,10 @@ sub main {
             $command = "status";
         }
 
+        if ($command eq "push") {
+            scmall ("check_submodules", @_);
+        }
+
         scmall ($command, @_);
 
         my @submodule_args = grep(/^-q/,@_);
@@ -882,7 +949,7 @@ EOF
     }
 
     message "== Checking for old time from tarball";
-    if (! -e "libraries/time/.git") {
+    if (-d "libraries/time" and ! -e "libraries/time/.git") {
             print <<EOF;
 ============================
 ATTENTION!

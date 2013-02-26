@@ -28,7 +28,8 @@ import TcGenDeriv
 import DataCon
 import TyCon
 import CoAxiom
-import FamInstEnv       ( FamInst )
+import Coercion         ( mkSingleCoAxiom )
+import FamInstEnv       ( FamInst, FamFlavor(..) )
 import FamInst
 import Module           ( Module, moduleName, moduleNameString )
 import IfaceEnv         ( newGlobalBinder )
@@ -106,7 +107,10 @@ genGenericMetaTyCons tc mod =
         
         mkTyCon name = ASSERT( isExternalName name )
                        buildAlgTyCon name [] Nothing [] distinctAbstractTyConRhs
-                                          NonRecursive False NoParentTyCon
+                                          NonRecursive 
+                                          False          -- Not promotable
+                                          False          -- Not GADT syntax
+                                          NoParentTyCon
 
       let metaDTyCon  = mkTyCon d_name
           metaCTyCons = map mkTyCon c_names
@@ -416,7 +420,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
        -- Also consider `R:DInt`, where { data family D x y :: * -> *
        --                               ; data instance D Int a b = D_ a }
   do { -- `rep` = GHC.Generics.Rep or GHC.Generics.Rep1 (type family)
-       rep <- case gk of
+       fam_tc <- case gk of
          Gen0 -> tcLookupTyCon repTyConName
          Gen1 -> tcLookupTyCon rep1TyConName
 
@@ -429,6 +433,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
 
            tyvar_args = mkTyVarTys tyvars
 
+           appT :: [Type]
            appT = case tyConFamInst_maybe tycon of
                      -- `appT` = D Int a b (data families case)
                      Just (famtycon, apps) ->
@@ -449,8 +454,8 @@ tc_mkRepFamInsts gk tycon metaDts mod =
                    in newGlobalBinder mod (mkGen (nameOccName (tyConName tycon)))
                         (nameSrcSpan (tyConName tycon))
 
-     ; mkFreshenedSynInst rep_name tyvars rep appT repTy
-     }
+     ; let axiom = mkSingleCoAxiom rep_name tyvars fam_tc appT repTy
+     ; newFamInst SynFamilyInst False axiom  }
 
 --------------------------------------------------------------------------------
 -- Type representation
@@ -623,8 +628,10 @@ mkBindsMetaD fix_env tycon = (dtBinds, allConBinds, allSelBinds)
         mkBag l = foldr1 unionBags 
                     [ unitBag (L loc (mkFunBind (L loc name) matches)) 
                         | (name, matches) <- l ]
-        dtBinds       = mkBag [ (datatypeName_RDR, dtName_matches)
-                              , (moduleName_RDR, moduleName_matches)]
+        dtBinds       = mkBag ( [ (datatypeName_RDR, dtName_matches)
+                                , (moduleName_RDR, moduleName_matches)]
+                              ++ ifElseEmpty (isNewTyCon tycon)
+                                [ (isNewtypeName_RDR, isNewtype_matches) ] )
 
         allConBinds   = map conBinds datacons
         conBinds c    = mkBag ( [ (conName_RDR, conName_matches c)]
@@ -658,6 +665,7 @@ mkBindsMetaD fix_env tycon = (dtBinds, allConBinds, allSelBinds)
                            $ tyConName_user
         moduleName_matches = mkStringLHS . moduleNameString . moduleName 
                            . nameModule . tyConName $ tycon
+        isNewtype_matches  = [mkSimpleHsAlt nlWildPat (nlHsVar true_RDR)]
 
         conName_matches     c = mkStringLHS . occNameString . nameOccName
                               . dataConName $ c

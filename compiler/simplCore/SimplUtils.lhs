@@ -509,7 +509,7 @@ updModeForInlineRules inline_rule_act current_mode
                  , sm_inline = True
                  , sm_eta_expand = False }
                  -- For sm_rules, just inherit; sm_rules might be "off"
-                 -- becuase of -fno-enable-rewrite-rules
+                 -- because of -fno-enable-rewrite-rules
   where
     phaseFromActivation (ActiveAfter n) = Phase n
     phaseFromActivation _               = InitialPhase
@@ -933,7 +933,7 @@ postInlineUnconditionally dflags env top_lvl bndr occ_info rhs unfolding
   = case occ_info of
         -- The point of examining occ_info here is that for *non-values*
         -- that occur outside a lambda, the call-site inliner won't have
-        -- a chance (becuase it doesn't know that the thing
+        -- a chance (because it doesn't know that the thing
         -- only occurs once).   The pre-inliner won't have gotten
         -- it either, if the thing occurs in more than one branch
         -- So the main target is things like
@@ -1141,7 +1141,7 @@ tryEtaExpand env bndr rhs
       | sm_eta_expand (getMode env)      -- Provided eta-expansion is on
       , let new_arity = findArity dflags bndr rhs old_arity
       , new_arity > manifest_arity      -- And the curent manifest arity isn't enough
-                                        -- See Note [Eta expansion to manifes arity]
+                                        -- See Note [Eta expansion to manifest arity]
       = do { tick (EtaExpansion bndr)
            ; return (new_arity, etaExpand new_arity rhs) }
       | otherwise

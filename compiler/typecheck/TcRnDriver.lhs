@@ -25,7 +25,6 @@ module TcRnDriver (
 import {-# SOURCE #-} TcSplice ( tcSpliceDecls )
 #endif
 
-import TypeRep
 import DynFlags
 import StaticFlags
 import HsSyn
@@ -42,7 +41,6 @@ import FamInstEnv
 import TcAnnotations
 import TcBinds
 import HeaderInfo       ( mkPrelImports )
-import TcType   ( tidyTopType )
 import TcDefaults
 import TcEnv
 import TcRules
@@ -77,6 +75,7 @@ import Outputable
 import DataCon
 import Type
 import Class
+import CoAxiom  ( CoAxBranch(..) )
 import TcType   ( orphNamesOfDFunHead )
 import Inst     ( tcGetInstEnvs )
 import Data.List ( sortBy )
@@ -748,7 +747,8 @@ checkBootTyCon tc1 tc2
            eqListBy eqATDef def_ats1 def_ats2
 
        -- Ignore the location of the defaults
-       eqATDef (ATD tvs1 ty_pats1 ty1 _loc1) (ATD tvs2 ty_pats2 ty2 _loc2)
+       eqATDef (CoAxBranch { cab_tvs = tvs1, cab_lhs =  ty_pats1, cab_rhs = ty1 })
+               (CoAxBranch { cab_tvs = tvs2, cab_lhs =  ty_pats2, cab_rhs = ty2 })
          | Just env <- eqTyVarBndrs emptyRnEnv2 tvs1 tvs2
          = eqListBy (eqTypeX env) ty_pats1 ty_pats2 &&
            eqTypeX env ty1 ty2
@@ -1288,7 +1288,7 @@ The Ids bound by previous Stmts in GHCi are currently
      generator will consider the occurrences to be free rather than
      global.
 
- (b) They retain their Internal names becuase we don't have a suitable
+ (b) They retain their Internal names because we don't have a suitable
      Module to name them with. We could revisit this choice.
 
  (c) Their types are tidied. This is important, because :info may ask
@@ -1475,7 +1475,7 @@ tcGhciStmts stmts
                 -- get their *polymorphic* values.  (And we'd get ambiguity errs
                 -- if they were overloaded, since they aren't applied to anything.)
             ret_expr = nlHsApp (nlHsTyApp ret_id [ret_ty])
-                       (noLoc $ ExplicitList unitTy (map mk_item ids)) ;
+                       (noLoc $ ExplicitList unitTy Nothing (map mk_item ids)) ;
             mk_item id = nlHsApp (nlHsTyApp unsafeCoerceId [idType id, unitTy])
                                  (nlHsVar id) ;
             stmts = tc_stmts ++ [noLoc (mkLastStmt ret_expr)]
@@ -1513,7 +1513,7 @@ isGHCiMonad hsc_env ictxt ty
                 let name = gre_name n
                 ghciClass <- tcLookupClass ghciIoClassName 
                 userTyCon <- tcLookupTyCon name
-                let userTy = TyConApp userTyCon []
+                let userTy = mkTyConApp userTyCon []
                 _ <- tcLookupInstance ghciClass [userTy]
                 return name
 
@@ -1529,6 +1529,7 @@ tcRnExpr :: HscEnv
          -> InteractiveContext
          -> LHsExpr RdrName
          -> IO (Messages, Maybe Type)
+-- Type checks the expression and returns its most general type
 tcRnExpr hsc_env ictxt rdr_expr
   = initTcPrintErrors hsc_env iNTERACTIVE $
     setInteractiveContext hsc_env ictxt $ do {
@@ -1574,26 +1575,41 @@ tcRnType :: HscEnv
          -> IO (Messages, Maybe (Type, Kind))
 tcRnType hsc_env ictxt normalise rdr_type
   = initTcPrintErrors hsc_env iNTERACTIVE $
-    setInteractiveContext hsc_env ictxt $ do {
-
-    (rn_type, _fvs) <- rnLHsType GHCiCtx rdr_type ;
-    failIfErrsM ;
+    setInteractiveContext hsc_env ictxt $ 
+    setXOptM Opt_PolyKinds $   -- See Note [Kind-generalise in tcRnType]
+    do { (rn_type, _fvs) <- rnLHsType GHCiCtx rdr_type
+       ; failIfErrsM
 
         -- Now kind-check the type
         -- It can have any rank or kind
-    ty <- tcHsSigType GhciCtxt rn_type ;
+       ; ty <- tcHsSigType GhciCtxt rn_type ;
 
-    ty' <- if normalise
-           then do { fam_envs <- tcGetFamInstEnvs
-                   ; return (snd (normaliseType fam_envs ty)) }
-                   -- normaliseType returns a coercion
-                   -- which we discard
-           else return ty ;
+       ; ty' <- if normalise
+                then do { fam_envs <- tcGetFamInstEnvs
+                        ; return (snd (normaliseType fam_envs ty)) }
+                        -- normaliseType returns a coercion
+                        -- which we discard
+                else return ty ;
 
-    return (ty', typeKind ty)
-    }
-
+       ; return (ty', typeKind ty) }
 \end{code}
+
+Note [Kind-generalise in tcRnType]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We switch on PolyKinds when kind-checking a user type, so that we will
+kind-generalise the type.  This gives the right default behaviour at
+the GHCi prompt, where if you say ":k T", and T has a polymorphic
+kind, you'd like to see that polymorphism. Of course.  If T isn't
+kind-polymorphic you won't get anything unexpected, but the apparent
+*loss* of polymorphism, for types that you know are polymorphic, is
+quite surprising.  See Trac #7688 for a discussion.
+
+
+%************************************************************************
+%*                                                                      *
+                 tcRnDeclsi
+%*                                                                      *
+%************************************************************************
 
 tcRnDeclsi exists to allow class, data, and other declarations in GHCi.
 

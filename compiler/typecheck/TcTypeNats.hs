@@ -83,7 +83,7 @@ import qualified Data.Map as M
 {-
 -- Just fore debugging
 import Debug.Trace
-import StaticFlags( unsafeGlobalDynFlags )
+import DynFlags( unsafeGlobalDynFlags )
 import Outputable (showSDoc)
 
 pureTrace :: String -> a -> a
@@ -91,7 +91,7 @@ pureTrace x a = if True then trace x a else a
 
 ppsh :: SDoc -> String
 ppsh = showSDoc unsafeGlobalDynFlags
--}
+--}
 
 --------------------------------------------------------------------------------
 
@@ -309,12 +309,14 @@ solveLeq m ct =
 solveWanted :: [Ct] -> Ct -> Maybe EvTerm
 solveWanted asmps0 ct = msum [ solve ct
                              , solveLeq leq ct
-                             , fmap ev (find this (widenAsmps asmps))
+                             , fmap ev (find this $ dbg $ widenAsmps asmps)
                              ]
   where
   ev   = ctEvTerm . ctEvidence
   this = sameCt ct
   (leq,asmps) = makeLeqModel asmps0
+
+  dbg x = x -- pureTrace (unlines ("assumptions:" : map (ppsh . ppr) asmps ++ "-----\nwidened assumptions:" : map (ppsh . ppr) x)) x
 
 {- Try to reformulate the goal in terms of some simpler goals, using
 the given rule. The result indicates if we succeeded. -}
@@ -1109,7 +1111,9 @@ widenAsmps asmps = step given wanted
                   filter nonTrivial $
                   map (ruleResultToGiven (cc_loc c))
                       $ interactActiveRules leq active done
-        in step (c : done) (new ++ cs)
+        in -- pureTrace ("ACTIVE CANDIDATES: " ++ show (length active))
+         {-$ pureTrace (unlines $ "NEW FACTS: " : map (ppsh . ppr) new)
+         $ -} step (c : done) (new ++ cs)
 
   -- For the moment, widedning rules have no ordering side conditions.
   -- XXX: Actually, they do, the derived ordering rules have side conditions

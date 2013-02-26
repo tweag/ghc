@@ -48,9 +48,6 @@ module TcMType (
   tcSkolDFunType, tcSuperSkolTyVars,
 
   --------------------------------
-  growThetaTyVars, quantifyPred, 
-
-  --------------------------------
   -- Zonking
   zonkTcPredType, 
   skolemiseSigTv, skolemiseUnboundMetaTyVar,
@@ -550,9 +547,12 @@ defaultKindVarToStar kv
 
 zonkQuantifiedTyVars :: [TcTyVar] -> TcM [TcTyVar]
 -- A kind variable k may occur *after* a tyvar mentioning k in its kind
+-- Can be given a mixture of TcTyVars and TyVars, in the case of
+-- associated type declarations
 zonkQuantifiedTyVars tyvars
   = do { let (kvs, tvs) = partition isKindVar tyvars
-             (meta_kvs, skolem_kvs) = partition isMetaTyVar kvs
+             (meta_kvs, skolem_kvs) 
+                  = partition (\kv -> isTcTyVar kv && isMetaTyVar kv) kvs
 
              -- In the non-PolyKinds case, default the kind variables
              -- to *, and zonk the tyvars as usual.  Notice that this
@@ -565,10 +565,16 @@ zonkQuantifiedTyVars tyvars
                       do { mapM_ defaultKindVarToStar meta_kvs
                          ; return skolem_kvs }  -- Should be empty
 
-       ; mapM zonkQuantifiedTyVar (qkvs ++ tvs) }
+       ; mapM zonk_quant (qkvs ++ tvs) }
            -- Because of the order, any kind variables
            -- mentioned in the kinds of the type variables refer to
            -- the now-quantified versions
+  where
+    zonk_quant tkv
+      | isTcTyVar tkv = zonkQuantifiedTyVar tkv
+      | otherwise     = return tkv
+      -- For associated types, we have the class variables 
+      -- in scope, and they are TyVars not TcTyVars
 
 zonkQuantifiedTyVar :: TcTyVar -> TcM TcTyVar
 -- The quantified type variables often include meta type variables
@@ -941,58 +947,6 @@ zonkTcTyVar tv
 \begin{code}
 zonkTcKind :: TcKind -> TcM TcKind
 zonkTcKind k = zonkTcType k
-\end{code}
-			
-Note [Inheriting implicit parameters]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider this:
-
-	f x = (x::Int) + ?y
-
-where f is *not* a top-level binding.
-From the RHS of f we'll get the constraint (?y::Int).
-There are two types we might infer for f:
-
-	f :: Int -> Int
-
-(so we get ?y from the context of f's definition), or
-
-	f :: (?y::Int) => Int -> Int
-
-At first you might think the first was better, becuase then
-?y behaves like a free variable of the definition, rather than
-having to be passed at each call site.  But of course, the WHOLE
-IDEA is that ?y should be passed at each call site (that's what
-dynamic binding means) so we'd better infer the second.
-
-BOTTOM LINE: when *inferring types* you *must* quantify 
-over implicit parameters. See the predicate isFreeWhenInferring.
-
-\begin{code}
-quantifyPred :: TyVarSet      -- Quantifying over these
-	     -> PredType -> Bool	    -- True <=> quantify over this wanted
-quantifyPred qtvs pred
-  | isIPPred pred = True  -- Note [Inheriting implicit parameters]
-  | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
-
-growThetaTyVars :: TcThetaType -> TyVarSet -> TyVarSet
--- See Note [Growing the tau-tvs using constraints]
-growThetaTyVars theta tvs
-  | null theta = tvs
-  | otherwise  = fixVarSet mk_next tvs
-  where
-    mk_next tvs = foldr grow_one tvs theta
-    grow_one pred tvs = growPredTyVars pred tvs `unionVarSet` tvs
-
-growPredTyVars :: TcPredType
-               -> TyVarSet	-- The set to extend
-	       -> TyVarSet	-- TyVars of the predicate if it intersects the set, 
-growPredTyVars pred tvs 
-   | isIPPred pred                   = pred_tvs   -- Always quantify over implicit parameers
-   | pred_tvs `intersectsVarSet` tvs = pred_tvs
-   | otherwise                       = emptyVarSet
-  where
-    pred_tvs = tyVarsOfType pred
 \end{code}
     
 

@@ -525,7 +525,7 @@ There used to be a gruesome test for (hasNoBinding v) in the
 Var case:
         exprIsTrivial (Var v) | hasNoBinding v = idArity v == 0
 The idea here is that a constructor worker, like \$wJust, is
-really short for (\x -> \$wJust x), becuase \$wJust has no binding.
+really short for (\x -> \$wJust x), because \$wJust has no binding.
 So it should be treated like a lambda.  Ditto unsaturated primops.
 But now constructor workers are not "have-no-binding" Ids.  And
 completely un-applied primops and foreign-call Ids are sufficiently
@@ -1456,7 +1456,11 @@ exprStats (Cast e co)     = coStats co `plusCS` exprStats e
 exprStats (Tick _ e)      = exprStats e
 
 altStats :: CoreAlt -> CoreStats
-altStats (_, bs, r) = sumCS bndrStats bs `plusCS` exprStats r
+altStats (_, bs, r) = altBndrStats bs `plusCS` exprStats r
+
+altBndrStats :: [Var] -> CoreStats
+-- Charge one for the alternative, not for each binder
+altBndrStats vs = oneTM `plusCS` sumCS (tyStats . varType) vs
 
 tyStats :: Type -> CoreStats
 tyStats ty = zeroCS { cs_ty = typeSize ty }
@@ -1712,8 +1716,14 @@ tryEtaReduce bndrs body
 
     ---------------
     fun_arity fun             -- See Note [Arity care]
-       | isLocalId fun && isStrongLoopBreaker (idOccInfo fun) = 0
-       | otherwise = idArity fun
+       | isLocalId fun
+       , isStrongLoopBreaker (idOccInfo fun) = 0
+       | arity > 0                           = arity
+       | isEvaldUnfolding (idUnfolding fun)  = 1  
+            -- See Note [Eta reduction of an eval'd function]
+       | otherwise                           = 0
+       where
+         arity = idArity fun
 
     ---------------
     ok_lam v = isTyVar v || isEvVar v
@@ -1736,6 +1746,20 @@ tryEtaReduce bndrs body
        -- so we can have a simple-minded pattern match here
     ok_arg _ _ _ = Nothing
 \end{code}
+
+Note [Eta reduction of an eval'd function]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In Haskell is is not true that    f = \x. f x
+because f might be bottom, and 'seq' can distinguish them.
+
+But it *is* true that   f = f `seq` \x. f x 
+and we'd like to simplify the latter to the former.  This amounts
+to the rule that 
+  * when there is just *one* value argument,
+  * f is not bottom
+we can eta-reduce    \x. f x  ===>  f
+
+This turned up in Trac #7542.  
 
 
 %************************************************************************

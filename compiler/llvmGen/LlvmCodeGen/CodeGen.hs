@@ -31,8 +31,7 @@ import UniqSupply
 import Unique
 import Util
 
-import Data.List ( partition )
-
+import Data.List  ( partition )
 
 type LlvmStatements = OrdList LlvmStatement
 
@@ -41,7 +40,7 @@ type LlvmStatements = OrdList LlvmStatement
 --
 genLlvmProc :: LlvmEnv -> RawCmmDecl -> UniqSM (LlvmEnv, [LlvmCmmDecl])
 genLlvmProc env (CmmProc infos lbl live graph) = do
-    let blocks = toBlockListEntryFirst graph
+    let blocks = toBlockListEntryFirstFalseFallthrough graph
     (env', lmblocks, lmdata) <- basicBlocksCodeGen env live blocks ([], [])
     let info = mapLookup (g_entry graph) infos
         proc = CmmProc info lbl live (ListGraph lmblocks)
@@ -201,6 +200,25 @@ genCall env (PrimTarget (MO_UF_Conv w)) [dst] [e] = do
 genCall _ (PrimTarget (MO_UF_Conv _)) [_] args =
     panic $ "genCall: Too many arguments to MO_UF_Conv. " ++
     "Can only handle 1, given" ++ show (length args) ++ "."
+
+-- Handle prefetching data
+genCall env t@(PrimTarget MO_Prefetch_Data) [] args = do
+    let dflags = getDflags env
+        argTy = [i8Ptr, i32, i32, i32]
+        funTy = \name -> LMFunction $ LlvmFunctionDecl name ExternallyVisible
+                             CC_Ccc LMVoid FixedArgs (tysToParams argTy) Nothing
+
+    let (_, arg_hints) = foreignTargetHints t
+    let args_hints' = zip args arg_hints
+    (env1, argVars, stmts1, top1) <- arg_vars env args_hints' ([], nilOL, [])
+    (env2, fptr, stmts2, top2)    <- getFunPtr env1 funTy t
+    (argVars', stmts3)            <- castVars dflags $ zip argVars argTy
+
+    let arguments = argVars' ++ [mkIntLit i32 0, mkIntLit i32 3, mkIntLit i32 1]
+        call = Expr $ Call StdCall fptr arguments []
+        stmts = stmts1 `appOL` stmts2 `appOL` stmts3
+                `appOL` trashStmts (getDflags env) `snocOL` call
+    return (env2, stmts, top1 ++ top2)
 
 -- Handle popcnt function specifically since GHC only really has i32 and i64
 -- types and things like Word8 are backed by an i32 and just present a logical
@@ -471,6 +489,7 @@ castVar dflags v t
                       (vt, _) | isInt vt && isPointer t     -> LM_Inttoptr
                       (vt, _) | isPointer vt && isInt t     -> LM_Ptrtoint
                       (vt, _) | isPointer vt && isPointer t -> LM_Bitcast
+                      (vt, _) | isVector vt && isVector t   -> LM_Bitcast
 
                       (vt, _) -> panic $ "castVars: Can't cast this type ("
                                   ++ show vt ++ ") to (" ++ show t ++ ")"
@@ -520,6 +539,8 @@ cmmPrimOpFunctions env mop
     MO_Memset     -> fsLit $ "llvm.memset."  ++ intrinTy2
 
     (MO_PopCnt w) -> fsLit $ "llvm.ctpop."  ++ show (widthToLlvmInt w)
+
+    MO_Prefetch_Data -> fsLit "llvm.prefetch"
 
     MO_S_QuotRem {}  -> unsupported
     MO_U_QuotRem {}  -> unsupported
@@ -583,16 +604,21 @@ genAssign env reg val = do
     let stmts = stmts1 `appOL` stmts2
 
     let ty = (pLower . getVarType) vreg
-    case isPointer ty && getVarType vval == llvmWord dflags of
-         -- Some registers are pointer types, so need to cast value to pointer
-         True -> do
-             (v, s1) <- doExpr ty $ Cast LM_Inttoptr vval ty
-             let s2 = Store v vreg
-             return (env2, stmts `snocOL` s1 `snocOL` s2, top1 ++ top2)
+    case ty of
+      -- Some registers are pointer types, so need to cast value to pointer
+      LMPointer _ | getVarType vval == llvmWord dflags -> do
+          (v, s1) <- doExpr ty $ Cast LM_Inttoptr vval ty
+          let s2 = Store v vreg
+          return (env2, stmts `snocOL` s1 `snocOL` s2, top1 ++ top2)
 
-         False -> do
-             let s1 = Store vval vreg
-             return (env2, stmts `snocOL` s1, top1 ++ top2)
+      LMVector _ _ -> do
+          (v, s1) <- doExpr ty $ Cast LM_Bitcast vval ty
+          let s2 = Store v vreg
+          return (env2, stmts `snocOL` s1 `snocOL` s2, top1 ++ top2)
+
+      _ -> do
+          let s1 = Store vval vreg
+          return (env2, stmts `snocOL` s1, top1 ++ top2)
 
 
 -- | CmmStore operation
@@ -706,6 +732,7 @@ genCondBranch :: LlvmEnv -> CmmExpr -> BlockId -> BlockId -> UniqSM StmtData
 genCondBranch env cond idT idF = do
     let labelT = blockIdToLlvm idT
     let labelF = blockIdToLlvm idF
+    -- See Note [Literals and branch conditions].
     (env', vc, stmts, top) <- exprToVarOpt env i1Option cond
     if getVarType vc == i1
         then do
@@ -713,6 +740,57 @@ genCondBranch env cond idT idF = do
             return $ (env', stmts `snocOL` s1, top)
         else
             panic $ "genCondBranch: Cond expr not bool! (" ++ show vc ++ ")"
+
+{- Note [Literals and branch conditions]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+It is important that whenever we generate branch conditions for
+literals like '1', they are properly narrowed to an LLVM expression of
+type 'i1' (for bools.) Otherwise, nobody is happy. So when we convert
+a CmmExpr to an LLVM expression for a branch conditional, exprToVarOpt
+must be certain to return a properly narrowed type. genLit is
+responsible for this, in the case of literal integers.
+
+Often, we won't see direct statements like:
+
+    if(1) {
+      ...
+    } else {
+      ...
+    }
+
+at this point in the pipeline, because the Glorious Code Generator
+will do trivial branch elimination in the sinking pass (among others,)
+which will eliminate the expression entirely.
+
+However, it's certainly possible and reasonable for this to occur in
+hand-written C-- code. Consider something like:
+
+    #ifndef SOME_CONDITIONAL
+    #define CHECK_THING(x) 1
+    #else
+    #define CHECK_THING(x) some_operation((x))
+    #endif
+
+    f() {
+
+      if (CHECK_THING(xyz)) {
+        ...
+      } else {
+        ...
+      }
+
+    }
+
+In such an instance, CHECK_THING might result in an *expression* in
+one case, and a *literal* in the other, depending on what in
+particular was #define'd. So we must be sure to properly narrow the
+literal in this case to i1 as it won't be eliminated beforehand.
+
+For a real example of this, see ./rts/StgStdThunks.cmm
+
+-}
+
 
 
 -- | Switch branch
@@ -746,31 +824,30 @@ type ExprData = (LlvmEnv, LlvmVar, LlvmStatements, [LlvmCmmDecl])
 
 -- | Values which can be passed to 'exprToVar' to configure its
 -- behaviour in certain circumstances.
-data EOption = EOption {
-        -- | The expected LlvmType for the returned variable.
-        --
-        -- Currently just used for determining if a comparison should return
-        -- a boolean (i1) or a int (i32/i64).
-        eoExpectedType :: Maybe LlvmType
-  }
+--
+-- Currently just used for determining if a comparison should return
+-- a boolean (i1) or a word. See Note [Literals and branch conditions].
+newtype EOption = EOption { i1Expected :: Bool }
+-- XXX: EOption is an ugly and inefficient solution to this problem.
 
+-- | i1 type expected (condition scrutinee).
 i1Option :: EOption
-i1Option = EOption (Just i1)
+i1Option = EOption True
 
-wordOption :: DynFlags -> EOption
-wordOption dflags = EOption (Just (llvmWord dflags))
-
+-- | Word type expected (usual).
+wordOption :: EOption
+wordOption = EOption False
 
 -- | Convert a CmmExpr to a list of LlvmStatements with the result of the
 -- expression being stored in the returned LlvmVar.
 exprToVar :: LlvmEnv -> CmmExpr -> UniqSM ExprData
-exprToVar env = exprToVarOpt env (wordOption (getDflags env))
+exprToVar env = exprToVarOpt env wordOption
 
 exprToVarOpt :: LlvmEnv -> EOption -> CmmExpr -> UniqSM ExprData
 exprToVarOpt env opt e = case e of
 
     CmmLit lit
-        -> genLit env lit
+        -> genLit opt env lit
 
     CmmLoad e' ty
         -> genLoad env e' ty
@@ -829,6 +906,20 @@ genMachOp env _ op [x] = case op of
     MO_FF_Conv from to
         -> sameConv from (widthToLlvmFloat to) LM_Fptrunc LM_Fpext
 
+    MO_VS_Neg len w ->
+        let ty    = widthToLlvmInt w
+            vecty = LMVector len ty
+            all0  = LMIntLit (-0) ty
+            all0s = LMLitVar $ LMVectorLit (replicate len all0)
+        in negateVec vecty all0s LM_MO_Sub
+
+    MO_VF_Neg len w ->
+        let ty    = widthToLlvmFloat w
+            vecty = LMVector len ty
+            all0  = LMFloatLit (-0) ty
+            all0s = LMLitVar $ LMVectorLit (replicate len all0)
+        in negateVec vecty all0s LM_MO_FSub
+
     -- Handle unsupported cases explicitly so we get a warning
     -- of missing case when new MachOps added
     MO_Add _          -> panicOp
@@ -869,6 +960,24 @@ genMachOp env _ op [x] = case op of
     MO_Shl          _ -> panicOp
     MO_U_Shr        _ -> panicOp
     MO_S_Shr        _ -> panicOp
+ 
+    MO_V_Insert   _ _ -> panicOp
+    MO_V_Extract  _ _ -> panicOp
+  
+    MO_V_Add      _ _ -> panicOp
+    MO_V_Sub      _ _ -> panicOp
+    MO_V_Mul      _ _ -> panicOp
+
+    MO_VS_Quot    _ _ -> panicOp
+    MO_VS_Rem     _ _ -> panicOp
+ 
+    MO_VF_Insert  _ _ -> panicOp
+    MO_VF_Extract _ _ -> panicOp
+
+    MO_VF_Add     _ _ -> panicOp
+    MO_VF_Sub     _ _ -> panicOp
+    MO_VF_Mul     _ _ -> panicOp
+    MO_VF_Quot    _ _ -> panicOp
 
     where
         dflags = getDflags env
@@ -877,6 +986,12 @@ genMachOp env _ op [x] = case op of
             (env', vx, stmts, top) <- exprToVar env x
             (v1, s1) <- doExpr ty $ LlvmOp negOp v2 vx
             return (env', v1, stmts `snocOL` s1, top)
+
+        negateVec ty v2 negOp = do
+            (env', vx, stmts1, top) <- exprToVar env x
+            ([vx'], stmts2) <- castVars dflags [(vx, ty)]
+            (v1, s1) <- doExpr ty $ LlvmOp negOp v2 vx'
+            return (env', v1, stmts1 `appOL` stmts2 `snocOL` s1, top)
 
         fiConv ty convOp = do
             (env', vx, stmts, top) <- exprToVar env x
@@ -934,6 +1049,52 @@ genMachOp_fast env opt op r n e
 -- This handles all the cases not handle by the specialised genMachOp_fast.
 genMachOp_slow :: LlvmEnv -> EOption -> MachOp -> [CmmExpr] -> UniqSM ExprData
 
+-- Element extraction
+genMachOp_slow env _ (MO_V_Extract l w) [val, idx] = do
+    (env1, vval, stmts1, top1) <- exprToVar env  val
+    (env2, vidx, stmts2, top2) <- exprToVar env1 idx
+    ([vval'], stmts3)          <- castVars dflags [(vval, LMVector l ty)]
+    (v1, s1)                   <- doExpr ty $ Extract vval' vidx
+    return (env2, v1, stmts1 `appOL` stmts2 `appOL` stmts3 `snocOL` s1, top1 ++ top2)
+  where
+    dflags = getDflags env
+    ty = widthToLlvmInt w
+
+genMachOp_slow env _ (MO_VF_Extract l w) [val, idx] = do
+    (env1, vval, stmts1, top1) <- exprToVar env  val
+    (env2, vidx, stmts2, top2) <- exprToVar env1 idx
+    ([vval'], stmts3)          <- castVars dflags [(vval, LMVector l ty)]
+    (v1, s1)                   <- doExpr ty $ Extract vval' vidx
+    return (env2, v1, stmts1 `appOL` stmts2 `appOL` stmts3 `snocOL` s1, top1 ++ top2)
+  where
+    dflags = getDflags env
+    ty = widthToLlvmFloat w
+
+-- Element insertion
+genMachOp_slow env _ (MO_V_Insert l w) [val, elt, idx] = do
+    (env1, vval, stmts1, top1) <- exprToVar env  val
+    (env2, velt, stmts2, top2) <- exprToVar env1 elt
+    (env3, vidx, stmts3, top3) <- exprToVar env2 idx
+    ([vval'], stmts4)          <- castVars dflags [(vval, ty)]
+    (v1, s1)                   <- doExpr ty $ Insert vval' velt vidx
+    return (env3, v1, stmts1 `appOL` stmts2 `appOL` stmts3 `appOL` stmts4 `snocOL` s1,
+            top1 ++ top2 ++ top3)
+  where
+    dflags = getDflags env
+    ty = LMVector l (widthToLlvmInt w)
+
+genMachOp_slow env _ (MO_VF_Insert l w) [val, elt, idx] = do
+    (env1, vval, stmts1, top1) <- exprToVar env  val
+    (env2, velt, stmts2, top2) <- exprToVar env1 elt
+    (env3, vidx, stmts3, top3) <- exprToVar env2 idx
+    ([vval'], stmts4)          <- castVars dflags [(vval, ty)]
+    (v1, s1)                   <- doExpr ty $ Insert vval' velt vidx
+    return (env3, v1, stmts1 `appOL` stmts2 `appOL` stmts3 `appOL` stmts4 `snocOL` s1,
+            top1 ++ top2 ++ top3)
+  where
+    dflags = getDflags env
+    ty = LMVector l (widthToLlvmFloat w)
+    
 -- Binary MachOp
 genMachOp_slow env opt op [x, y] = case op of
 
@@ -983,6 +1144,18 @@ genMachOp_slow env opt op [x, y] = case op of
     MO_U_Shr _ -> genBinMach LM_MO_LShr
     MO_S_Shr _ -> genBinMach LM_MO_AShr
 
+    MO_V_Add l w   -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_Add
+    MO_V_Sub l w   -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_Sub
+    MO_V_Mul l w   -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_Mul
+
+    MO_VS_Quot l w -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_SDiv
+    MO_VS_Rem  l w -> genCastBinMach (LMVector l (widthToLlvmInt w)) LM_MO_SRem
+ 
+    MO_VF_Add  l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FAdd
+    MO_VF_Sub  l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FSub
+    MO_VF_Mul  l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FMul
+    MO_VF_Quot l w -> genCastBinMach (LMVector l (widthToLlvmFloat w)) LM_MO_FDiv
+
     MO_Not _       -> panicOp
     MO_S_Neg _     -> panicOp
     MO_F_Neg _     -> panicOp
@@ -992,6 +1165,16 @@ genMachOp_slow env opt op [x, y] = case op of
     MO_SS_Conv _ _ -> panicOp
     MO_UU_Conv _ _ -> panicOp
     MO_FF_Conv _ _ -> panicOp
+
+    MO_V_Insert  {} -> panicOp
+    MO_V_Extract {} -> panicOp
+
+    MO_VS_Neg {} -> panicOp
+
+    MO_VF_Insert  {} -> panicOp
+    MO_VF_Extract {} -> panicOp
+
+    MO_VF_Neg {} -> panicOp
 
     where
         dflags = getDflags env
@@ -1018,33 +1201,33 @@ genMachOp_slow env opt op [x, y] = case op of
                                     `snocOL` dy `snocOL` s1
                     return (env2, v1, allStmts, top1 ++ top2)
 
+        binCastLlvmOp ty binOp = do
+            (env1, vx, stmts1, top1) <- exprToVar env x
+            (env2, vy, stmts2, top2) <- exprToVar env1 y
+            ([vx', vy'], stmts3) <- castVars dflags [(vx, ty), (vy, ty)]
+            (v1, s1) <- doExpr ty $ binOp vx' vy'
+            return (env2, v1, stmts1 `appOL` stmts2 `appOL` stmts3 `snocOL` s1,
+                    top1 ++ top2)
+
         -- | Need to use EOption here as Cmm expects word size results from
         -- comparisons while LLVM return i1. Need to extend to llvmWord type
-        -- if expected
+        -- if expected. See Note [Literals and branch conditions].
         genBinComp opt cmp = do
-            ed@(env', v1, stmts, top) <- binLlvmOp (\_ -> i1) $ Compare cmp
-
+            ed@(env', v1, stmts, top) <- binLlvmOp (\_ -> i1) (Compare cmp)
             if getVarType v1 == i1
-                then
-                    case eoExpectedType opt of
-                         Nothing ->
-                             return ed
-
-                         Just t | t == i1 ->
-                                    return ed
-
-                                | isInt t -> do
-                                    (v2, s1) <- doExpr t $ Cast LM_Zext v1 t
-                                    return (env', v2, stmts `snocOL` s1, top)
-
-                                | otherwise ->
-                                    panic $ "genBinComp: Can't case i1 compare"
-                                        ++ "res to non int type " ++ show (t)
+                then case i1Expected opt of
+                    True  -> return ed
+                    False -> do
+                        let w_ = llvmWord dflags
+                        (v2, s1) <- doExpr w_ $ Cast LM_Zext v1 w_
+                        return (env', v2, stmts `snocOL` s1, top)
                 else
                     panic $ "genBinComp: Compare returned type other then i1! "
                         ++ (show $ getVarType v1)
 
         genBinMach op = binLlvmOp getVarType (LlvmOp op)
+
+        genCastBinMach ty op = binCastLlvmOp ty (LlvmOp op)
 
         -- | Detect if overflow will occur in signed multiply of the two
         -- CmmExpr's. This is the LLVM assembly equivalent of the NCG
@@ -1206,15 +1389,33 @@ allocReg _ = panic $ "allocReg: Global reg encountered! Global registers should"
 
 
 -- | Generate code for a literal
-genLit :: LlvmEnv -> CmmLit -> UniqSM ExprData
-genLit env (CmmInt i w)
-  = return (env, mkIntLit (LMInt $ widthInBits w) i, nilOL, [])
+genLit :: EOption -> LlvmEnv -> CmmLit -> UniqSM ExprData
+genLit opt env (CmmInt i w)
+  -- See Note [Literals and branch conditions].
+  = let width | i1Expected opt = i1
+              | otherwise      = LMInt (widthInBits w)
+        -- comm  = Comment [ fsLit $ "EOption: " ++ show opt
+        --                 , fsLit $ "Width  : " ++ show w
+        --                 , fsLit $ "Width' : " ++ show (widthInBits w)
+        --                 ]
+    in return (env, mkIntLit width i, nilOL, [])
 
-genLit env (CmmFloat r w)
+genLit _ env (CmmFloat r w)
   = return (env, LMLitVar $ LMFloatLit (fromRational r) (widthToLlvmFloat w),
               nilOL, [])
+ 
+genLit opt env (CmmVec ls)
+  = do llvmLits <- mapM toLlvmLit ls
+       return (env, LMLitVar $ LMVectorLit llvmLits, nilOL, [])
+  where
+    toLlvmLit :: CmmLit -> UniqSM LlvmLit
+    toLlvmLit lit = do
+        (_, llvmLitVar, _, _) <- genLit opt env lit
+        case llvmLitVar of
+          LMLitVar llvmLit -> return llvmLit
+          _ -> panic "genLit"
 
-genLit env cmm@(CmmLabel l)
+genLit _ env cmm@(CmmLabel l)
   = let dflags = getDflags env
         label = strCLabel_llvm env l
         ty = funLookup label env
@@ -1236,17 +1437,17 @@ genLit env cmm@(CmmLabel l)
                 (v1, s1) <- doExpr lmty $ Cast LM_Ptrtoint var (llvmWord dflags)
                 return (env, v1, unitOL s1, [])
 
-genLit env (CmmLabelOff label off) = do
+genLit opt env (CmmLabelOff label off) = do
     let dflags = getDflags env
-    (env', vlbl, stmts, stat) <- genLit env (CmmLabel label)
+    (env', vlbl, stmts, stat) <- genLit opt env (CmmLabel label)
     let voff = toIWord dflags off
     (v1, s1) <- doExpr (getVarType vlbl) $ LlvmOp LM_MO_Add vlbl voff
     return (env', v1, stmts `snocOL` s1, stat)
 
-genLit env (CmmLabelDiffOff l1 l2 off) = do
+genLit opt env (CmmLabelDiffOff l1 l2 off) = do
     let dflags = getDflags env
-    (env1, vl1, stmts1, stat1) <- genLit env (CmmLabel l1)
-    (env2, vl2, stmts2, stat2) <- genLit env1 (CmmLabel l2)
+    (env1, vl1, stmts1, stat1) <- genLit opt env (CmmLabel l1)
+    (env2, vl2, stmts2, stat2) <- genLit opt env1 (CmmLabel l2)
     let voff = toIWord dflags off
     let ty1 = getVarType vl1
     let ty2 = getVarType vl2
@@ -1262,10 +1463,10 @@ genLit env (CmmLabelDiffOff l1 l2 off) = do
         else
             panic "genLit: CmmLabelDiffOff encountered with different label ty!"
 
-genLit env (CmmBlock b)
-  = genLit env (CmmLabel $ infoTblLbl b)
+genLit opt env (CmmBlock b)
+  = genLit opt env (CmmLabel $ infoTblLbl b)
 
-genLit _ CmmHighStackMark
+genLit _ _ CmmHighStackMark
   = panic "genStaticLit - CmmHighStackMark unsupported!"
 
 
@@ -1303,10 +1504,11 @@ funEpilogue env live = do
     dflags = getDflags env
     platform = targetPlatform dflags
     isLive r = r `elem` alwaysLive || r `elem` live
-    isPassed r = not (isFloat r) || isLive r
-    isFloat (FloatReg _)  = True
-    isFloat (DoubleReg _) = True
-    isFloat _             = False
+    isPassed r = not (isSSE r) || isLive r
+    isSSE (FloatReg _)  = True
+    isSSE (DoubleReg _) = True
+    isSSE (XmmReg _)    = True
+    isSSE _             = False
     loadExpr r | isLive r = do
         let reg  = lmGlobalRegVar dflags r
         (v,s) <- doExpr (pLower $ getVarType reg) $ Load reg

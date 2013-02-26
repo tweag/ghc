@@ -956,8 +956,9 @@ test.hs:(5,4)-(6,7):
     <option>-fwarn-missing-methods</option>,
     <option>-fwarn-lazy-unlifted-bindings</option>,
     <option>-fwarn-wrong-do-bind</option>,
-    <option>-fwarn-unsupported-calling-conventions</option>, and
-    <option>-fwarn-dodgy-foreign-imports</option>.  The following
+    <option>-fwarn-unsupported-calling-conventions</option>,
+    <option>-fwarn-dodgy-foreign-imports</option>, and
+    <option>-fwarn-typeable-instances</option>.  The following
     flags are
     simple ways to select standard &ldquo;packages&rdquo; of warnings:
     </para>
@@ -1682,6 +1683,19 @@ f "2"    = 2
         </listitem>
       </varlistentry>
 
+      <varlistentry>
+        <term><option>-fwarn-typeable-instances</option>:</term>
+        <listitem>
+          <indexterm><primary><option>-fwarn-typeable-instances</option></primary></indexterm>
+          <indexterm><primary>typeable instances, warning</primary></indexterm>
+
+          <para>Report handwritten (ie. not derived) instances of the
+          <literal>Typeable</literal> class. These are ignore by the compiler;
+          only derived instances of <literal>Typeable</literal> are allowed.
+          </para>
+        </listitem>
+      </varlistentry>
+
     </variablelist>
 
     <para>If you're feeling really paranoid, the
@@ -2278,9 +2292,15 @@ last (x : xs) = last' x xs
             <indexterm><primary><option></option></primary></indexterm>
           </term>
           <listitem>
-            <para>Data Parallel Haskell.
-            </para>
-            TODO: Document optimisation
+            <para>Part of <link linkend="dph">Data Parallel Haskell
+            (DPH)</link>.</para>
+
+            <para><emphasis>Off by default.</emphasis> Enable the
+            <emphasis>vectorisation</emphasis> optimisation transformation. This
+            optimisation transforms the nested data parallelism code of programs
+            using DPH into flat data parallelism. Flat data parallel programs
+            should have better load balancing, enable SIMD parallelism and
+            friendlier cache behaviour.</para>
           </listitem>
         </varlistentry>
 
@@ -2290,9 +2310,19 @@ last (x : xs) = last' x xs
             <indexterm><primary><option></option></primary></indexterm>
           </term>
           <listitem>
-            <para>Data Parallel Haskell.
-            </para>
-            TODO: Document optimisation
+            <para>Part of <link linkend="dph">Data Parallel Haskell
+            (DPH)</link>.</para>
+
+            <para><emphasis>Off by default.</emphasis> Enable the
+            <emphasis>vectorisation</emphasis> avoidance optimisation. This
+            optimisation only works when used in combination with the
+            <option>-fvectorise</option> transformation.</para>
+
+            <para>While vectorisation of code using DPH is often a big win, it
+            can also produce worse results for some kinds of code. This
+            optimisation modifies the vectorisation transformation to try to
+            determine if a function would be better of unvectorised and if
+            so, do just that.</para>
           </listitem>
         </varlistentry>
 

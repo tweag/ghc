@@ -176,7 +176,6 @@ typedef struct gc_thread_ {
     // -------------------
     // stats
 
-    W_ allocated;          // result of clearNursery()
     W_ copied;
     W_ scanned;
     W_ any_work;
@@ -203,6 +202,10 @@ typedef struct gc_thread_ {
 extern nat n_gc_threads;
 
 extern gc_thread **gc_threads;
+
+#if defined(THREADED_RTS) && defined(llvm_CC_FLAVOR)
+extern ThreadLocalKey gctKey;
+#endif
 
 #include "EndPrivate.h"
 

@@ -131,9 +131,10 @@ exprBotStrictness_maybe :: CoreExpr -> Maybe (Arity, StrictSig)
 exprBotStrictness_maybe e
   = case getBotArity (arityType env e) of
 	Nothing -> Nothing
-	Just ar -> Just (ar, mkStrictSig (mkTopDmdType (replicate ar topDmd) BotRes))
+	Just ar -> Just (ar, sig ar)
   where
-    env = AE { ae_bndrs = [], ae_ped_bot = True, ae_cheap_fn = \ _ _ -> False }
+    env    = AE { ae_bndrs = [], ae_ped_bot = True, ae_cheap_fn = \ _ _ -> False }
+    sig ar = mkStrictSig (mkTopDmdType (replicate ar topDmd) botRes)
                   -- For this purpose we can be very simple
 \end{code}
 
@@ -201,7 +202,7 @@ slightly more complicated, does) turn into
 
    blah = op (\eta. ($dfList dCInt |> sym co) eta)
 
-and now it is *much* harder for the op/$dfList rule to fire, becuase
+and now it is *much* harder for the op/$dfList rule to fire, because
 exprIsConApp_maybe won't hold of the argument to op.  I considered
 trying to *make* it hold, but it's tricky and I gave up.
 
@@ -627,7 +628,8 @@ arityType env (Cast e co)
     --   Casts don't affect that part. Getting this wrong provoked #5475
 
 arityType _ (Var v)
-  | Just strict_sig <- idStrictness_maybe v
+  | strict_sig <- idStrictness v
+  , not $ isTopSig strict_sig
   , (ds, res) <- splitStrictSig strict_sig
   , let arity = length ds
   = if isBotRes res then ABot arity

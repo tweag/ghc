@@ -185,7 +185,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     initStorage();
 
     /* initialise the stable pointer table */
-    initStablePtrTable();
+    initStableTables();
 
     /* Add some GC roots for things in the base package that the RTS
      * knows about.  We don't know whether these turn out to be CAFs
@@ -207,6 +207,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
 
     getStablePtr((StgPtr)runSparks_closure);
     getStablePtr((StgPtr)ensureIOManagerIsRunning_closure);
+    getStablePtr((StgPtr)ioManagerCapabilitiesChanged_closure);
 #ifndef mingw32_HOST_OS
     getStablePtr((StgPtr)runHandlers_closure);
 #endif
@@ -377,7 +378,7 @@ hs_exit_(rtsBool wait_foreign)
     freeFileLocking();
 
     /* free the stable pointer table */
-    exitStablePtrTable();
+    exitStableTables();
 
 #if defined(DEBUG)
     /* free the thread label table */

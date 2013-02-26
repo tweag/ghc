@@ -7,7 +7,8 @@
 -- for details
 
 module TcSimplify( 
-       simplifyInfer, simplifyAmbiguityCheck,
+       simplifyInfer, quantifyPred,
+       simplifyAmbiguityCheck,
        simplifyDefault, 
        simplifyRule, simplifyTop, simplifyInteractive,
        solveWantedsTcM
@@ -23,6 +24,7 @@ import TcType
 import TcSMonad as TcS
 import TcInteract 
 import Inst
+import FunDeps  ( growThetaTyVars )
 import Type     ( classifyPredType, PredTree(..), getClassPredTys_maybe )
 import Class    ( Class )
 import Var
@@ -264,6 +266,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
                             meta_tvs   = filter isMetaTyVar (varSetElems (tyVarsOfCts quant_cand)) 
                       ; ((flats, _insols), _extra_binds) <- runTcS $ 
                         do { mapM_ (promoteAndDefaultTyVar untch gbl_tvs) meta_tvs
+                                 -- See Note [Promote _and_ default when inferring]
                            ; _implics <- solveInteract quant_cand
                            ; getInertUnsolved }
                       ; return (map ctPred $ filter isWantedCt (bagToList flats)) }
@@ -342,7 +345,38 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
 
        ; return ( qtvs_to_return, minimal_bound_ev_vars
                 , mr_bites,  TcEvBinds ev_binds_var) } }
+
+quantifyPred :: TyVarSet           -- Quantifying over these
+	     -> PredType -> Bool   -- True <=> quantify over this wanted
+quantifyPred qtvs pred
+  | isIPPred pred = True  -- Note [Inheriting implicit parameters]
+  | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
 \end{code}
+
+Note [Inheriting implicit parameters]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider this:
+
+	f x = (x::Int) + ?y
+
+where f is *not* a top-level binding.
+From the RHS of f we'll get the constraint (?y::Int).
+There are two types we might infer for f:
+
+	f :: Int -> Int
+
+(so we get ?y from the context of f's definition), or
+
+	f :: (?y::Int) => Int -> Int
+
+At first you might think the first was better, because then
+?y behaves like a free variable of the definition, rather than
+having to be passed at each call site.  But of course, the WHOLE
+IDEA is that ?y should be passed at each call site (that's what
+dynamic binding means) so we'd better infer the second.
+
+BOTTOM LINE: when *inferring types* you *must* quantify 
+over implicit parameters. See the predicate isFreeWhenInferring.
 
 Note [Quantification with errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -524,7 +558,7 @@ to compile, and it will run fine unless we evaluate `a`. This is what
 
 It does this by keeping track of which errors correspond to which coercion
 in TcErrors (with ErrEnv). TcErrors.reportTidyWanteds does not print the errors
-and does not fail if -fwarn-type-errors is on, so that we can continue
+and does not fail if -fdefer-type-errors is on, so that we can continue
 compilation. The errors are turned into warnings in `reportUnsolved`.
 
 Note [Zonk after solving]
@@ -877,6 +911,7 @@ have an instance (C ((x:*) -> Int)).  The instance doesn't match -- but it
 should!  If we don't solve the constraint, we'll stupidly quantify over 
 (C (a->Int)) and, worse, in doing so zonkQuantifiedTyVar will quantify over
 (b:*) instead of (a:OpenKind), which can lead to disaster; see Trac #7332.
+Trac #7641 is a simpler example.
 
 Note [Float Equalities out of Implications]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 

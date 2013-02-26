@@ -7,10 +7,11 @@
 module RnEnv (
         newTopSrcBinder,
         lookupLocatedTopBndrRn, lookupTopBndrRn,
-        lookupLocatedOccRn, lookupOccRn,
+        lookupLocatedOccRn, lookupOccRn, lookupOccRn_maybe,
         lookupLocalOccRn_maybe,
         lookupTypeOccRn, lookupKindOccRn,
         lookupGlobalOccRn, lookupGlobalOccRn_maybe,
+        reportUnboundName,
 
         HsSigCtxt(..), lookupLocalTcNames, lookupSigOccRn,
 
@@ -440,7 +441,7 @@ Thus:
     instance C S where
       data G S = Y1 | Y2
 Even though there are two G's in scope (M.G and Blib.G), the occurence
-of 'G' in the 'instance C S' decl is unambiguous, becuase C has only
+of 'G' in the 'instance C S' decl is unambiguous, because C has only
 one associated type called G. This is exactly what happens for methods,
 and it is only consistent to do the same thing for types. That's the
 role of the function lookupTcdName; the (Maybe Name) give the class of
@@ -543,9 +544,11 @@ lookupLocalOccRn_maybe rdr_name
 
 -- lookupOccRn looks up an occurrence of a RdrName
 lookupOccRn :: RdrName -> RnM Name
-lookupOccRn rdr_name = do
-  opt_name <- lookupOccRn_maybe rdr_name
-  maybe (unboundName WL_Any rdr_name) return opt_name
+lookupOccRn rdr_name 
+  = do { mb_name <- lookupOccRn_maybe rdr_name
+       ; case mb_name of
+           Just name -> return name 
+           Nothing   -> reportUnboundName rdr_name }
 
 lookupKindOccRn :: RdrName -> RnM Name
 -- Looking up a name occurring in a kind
@@ -553,7 +556,7 @@ lookupKindOccRn rdr_name
   = do { mb_name <- lookupOccRn_maybe rdr_name
        ; case mb_name of
            Just name -> return name
-           Nothing -> unboundName WL_Any rdr_name  }
+           Nothing   -> reportUnboundName rdr_name  }
 
 -- lookupPromotedOccRn looks up an optionally promoted RdrName.
 lookupTypeOccRn :: RdrName -> RnM Name
@@ -571,13 +574,13 @@ lookup_demoted rdr_name
   = do { data_kinds <- xoptM Opt_DataKinds
        ; mb_demoted_name <- lookupOccRn_maybe demoted_rdr
        ; case mb_demoted_name of
-           Nothing -> unboundName WL_Any rdr_name
+           Nothing -> reportUnboundName rdr_name
            Just demoted_name
              | data_kinds -> return demoted_name
              | otherwise  -> unboundNameX WL_Any rdr_name suggest_dk }
 
   | otherwise
-  = unboundName WL_Any rdr_name
+  = reportUnboundName rdr_name
 
   where
     suggest_dk = ptext (sLit "A data constructor of that name is in scope; did you mean -XDataKinds?")
@@ -1353,6 +1356,9 @@ checkShadowedOccs (global_env,local_env) loc_occs
 data WhereLooking = WL_Any        -- Any binding
                   | WL_Global     -- Any top-level binding (local or imported)
                   | WL_LocalTop   -- Any top-level binding in this module
+
+reportUnboundName :: RdrName -> RnM Name
+reportUnboundName rdr = unboundName WL_Any rdr
 
 unboundName :: WhereLooking -> RdrName -> RnM Name
 unboundName wl rdr = unboundNameX wl rdr empty

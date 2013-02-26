@@ -105,7 +105,7 @@ very straightforwardly:
      e.g for HsType, rename and kind-check
          for HsExpr, rename and type-check
 
-     (The last step is different for decls, becuase they can *only* be
+     (The last step is different for decls, because they can *only* be
       top-level: we return the result of step 2.)
 
 Note [How brackets and nested splices are handled]
@@ -669,7 +669,7 @@ defined in another module, because we are going to run it here.  It's
 a bit like a TH splice:
         $(p "stuff")
 
-However, you can do this in patterns as well as terms.  Becuase of this,
+However, you can do this in patterns as well as terms.  Because of this,
 the splice is run by the *renamer* rather than the type checker.
 
 %************************************************************************
@@ -1487,11 +1487,12 @@ reifyFixity name
       conv_dir BasicTypes.InfixN = TH.InfixN
 
 reifyStrict :: DataCon.HsBang -> TH.Strict
-reifyStrict HsNoBang        = TH.NotStrict
-reifyStrict (HsBang False)  = TH.Unpacked
-reifyStrict (HsBang True)   = TH.Unpacked
-reifyStrict HsStrict        = TH.IsStrict
-reifyStrict (HsUnpack {})   = TH.Unpacked
+reifyStrict HsNoBang                      = TH.NotStrict
+reifyStrict (HsUserBang _ False)          = TH.NotStrict
+reifyStrict (HsUserBang (Just True) True) = TH.Unpacked
+reifyStrict (HsUserBang _     True)       = TH.IsStrict
+reifyStrict HsStrict                      = TH.IsStrict
+reifyStrict (HsUnpack {})                 = TH.Unpacked
 
 ------------------------------
 noTH :: LitString -> SDoc -> TcM a

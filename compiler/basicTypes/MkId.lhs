@@ -230,7 +230,6 @@ Hence we translate to
         -- Coercion from family type to representation type
   Co7T a :: T [a] ~ :R7T a
 
-
 Note [Newtype datacons]
 ~~~~~~~~~~~~~~~~~~~~~~~
 The "data constructor" for a newtype should always be vanilla.  At one
@@ -286,13 +285,13 @@ mkDictSelId dflags no_unf name clas
         -- to get (say)         C a -> (a -> a)
 
     base_info = noCafIdInfo
-                `setArityInfo`      1
-                `setStrictnessInfo` Just strict_sig
-                `setUnfoldingInfo`  (if no_unf then noUnfolding
-	                             else mkImplicitUnfolding dflags rhs)
+                `setArityInfo`         1
+                `setStrictnessInfo`    strict_sig
+                `setUnfoldingInfo`     (if no_unf then noUnfolding
+	                                else mkImplicitUnfolding dflags rhs)
 		   -- In module where class op is defined, we must add
 		   -- the unfolding, even though it'll never be inlined
-		   -- becuase we use that to generate a top-level binding
+		   -- because we use that to generate a top-level binding
 		   -- for the ClassOp
 
     info | new_tycon = base_info `setInlinePragInfo` alwaysInlinePragma
@@ -318,10 +317,12 @@ mkDictSelId dflags no_unf name clas
         -- where the V depends on which item we are selecting
         -- It's worth giving one, so that absence info etc is generated
         -- even if the selector isn't inlined
-    strict_sig = mkStrictSig (mkTopDmdType [arg_dmd] TopRes)
+
+    strict_sig = mkStrictSig (mkTopDmdType [arg_dmd] topRes)
     arg_dmd | new_tycon = evalDmd
-            | otherwise = Eval (Prod [ if the_arg_id == id then evalDmd else Abs
-                                     | id <- arg_ids ])
+            | otherwise = mkProdDmd [ if the_arg_id == id then evalDmd else absDmd
+                                    | id <- arg_ids ]
+
 
     tycon      	   = classTyCon clas
     new_tycon  	   = isNewTyCon tycon
@@ -384,7 +385,7 @@ mkDataConWorkId wkr_name data_con
     wkr_arity = dataConRepArity data_con
     wkr_info  = noCafIdInfo
                 `setArityInfo`       wkr_arity
-                `setStrictnessInfo`  Just wkr_sig
+                `setStrictnessInfo`  wkr_sig
                 `setUnfoldingInfo`   evaldUnfolding  -- Record that it's evaluated,
                                                      -- even if arity = 0
 
@@ -424,16 +425,17 @@ mkDataConWorkId wkr_name data_con
 
 dataConCPR :: DataCon -> DmdResult
 dataConCPR con
-  | isProductTyCon tycon
-  , isDataTyCon tycon
+  | isDataTyCon tycon     -- Real data types only; that is, 
+                          -- not unboxed tuples or newtypes
+  , isVanillaDataCon con  -- No existentials 
   , wkr_arity > 0
   , wkr_arity <= mAX_CPR_SIZE
-  = retCPR
+  = if is_prod then cprProdRes 
+               else cprSumRes (dataConTag con)
   | otherwise
-  = TopRes
-        -- RetCPR is only true for products that are real data types;
-        -- that is, not unboxed tuples or [non-recursive] newtypes
+  = topRes
   where
+    is_prod = isProductTyCon tycon
     tycon = dataConTyCon con
     wkr_arity = dataConRepArity con
 
@@ -486,7 +488,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
                     	     -- applications are treated as values
 		    	 `setInlinePragInfo`    alwaysInlinePragma
                     	 `setUnfoldingInfo`     wrap_unf
-                    	 `setStrictnessInfo`    Just wrap_sig
+                    	 `setStrictnessInfo`    wrap_sig
                     	     -- We need to get the CAF info right here because TidyPgm
                     	     -- does not tidy the IdInfo of implicit bindings (like the wrapper)
                     	     -- so it not make sure that the CAF info is sane
@@ -494,7 +496,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
     	     wrap_sig = mkStrictSig (mkTopDmdType wrap_arg_dmds (dataConCPR data_con))
     	     wrap_arg_dmds = map mk_dmd (dropList eq_spec wrap_bangs)
     	     mk_dmd str | isBanged str = evalDmd
-    	                | otherwise    = lazyDmd
+    	                | otherwise    = topDmd
     	         -- The Cpr info can be important inside INLINE rhss, where the
     	         -- wrapper constructor isn't inlined.
     	         -- And the argument strictness can be important too; we
@@ -593,19 +595,24 @@ dataConArgRep
 dataConArgRep _ _ arg_ty HsNoBang
   = (HsNoBang, [(arg_ty, NotMarkedStrict)], (unitUnboxer, unitBoxer))
 
-dataConArgRep dflags fam_envs arg_ty (HsBang user_unpack_prag) 
+dataConArgRep _ _ arg_ty (HsUserBang _ False)  -- No '!'
+  = (HsNoBang, [(arg_ty, NotMarkedStrict)], (unitUnboxer, unitBoxer))
+
+dataConArgRep dflags fam_envs arg_ty 
+    (HsUserBang unpk_prag True)  -- {-# UNPACK #-} !
   | not (gopt Opt_OmitInterfacePragmas dflags) -- Don't unpack if -fomit-iface-pragmas
-          -- Don't unpack if we aren't optimising; 
-          -- rather arbitrarily, we use -fomit-iface-pragmas
-          -- as the indication
+          -- Don't unpack if we aren't optimising; rather arbitrarily, 
+          -- we use -fomit-iface-pragmas as the indication
   , let mb_co   = topNormaliseType fam_envs arg_ty
+                     -- Unwrap type families and newtypes
         arg_ty' = case mb_co of { Just (_,ty) -> ty; Nothing -> arg_ty }
   , isUnpackableType fam_envs arg_ty'
   , (rep_tys, wrappers) <- dataConArgUnpack arg_ty'
-  , user_unpack_prag
-    || gopt Opt_UnboxStrictFields dflags
-    || (gopt Opt_UnboxSmallStrictFields dflags 
-        && length rep_tys <= 1)  -- See Note [Unpack one-wide fields]
+  , case unpk_prag of
+      Nothing -> gopt Opt_UnboxStrictFields dflags
+              || (gopt Opt_UnboxSmallStrictFields dflags 
+                   && length rep_tys <= 1)  -- See Note [Unpack one-wide fields]
+      Just unpack_me -> unpack_me
   = case mb_co of
       Nothing          -> (HsUnpack Nothing,   rep_tys, wrappers)
       Just (co,rep_ty) -> (HsUnpack (Just co), rep_tys, wrapCo co rep_ty wrappers)
@@ -665,7 +672,10 @@ dataConArgUnpack
 
 dataConArgUnpack arg_ty
   | Just (tc, tc_args) <- splitTyConApp_maybe arg_ty
-  , Just con <- tyConSingleDataCon_maybe tc
+  , Just con <- tyConSingleAlgDataCon_maybe tc
+      -- NB: check for an *algebraic* data type
+      -- A recursive newtype might mean that 
+      -- 'arg_ty' is a newtype
   , let rep_tys = dataConInstArgTys con tc_args
   = ASSERT( isVanillaDataCon con )
     ( rep_tys `zip` dataConRepStrictness con
@@ -687,15 +697,19 @@ dataConArgUnpack arg_ty
 isUnpackableType :: FamInstEnvs -> Type -> Bool
 -- True if we can unpack the UNPACK fields of the constructor
 -- without involving the NameSet tycons
+-- See Note [Recursive unboxing]
+-- We look "deeply" inside rather than relying on the DataCons
+-- we encounter on the way, because otherwise we might well
+-- end up relying on ourselves!
 isUnpackableType fam_envs ty
   | Just (tc, _) <- splitTyConApp_maybe ty
-  , Just con <- tyConSingleDataCon_maybe tc
+  , Just con <- tyConSingleAlgDataCon_maybe tc
   , isVanillaDataCon con
   = ok_con_args (unitNameSet (getName tc)) con
   | otherwise
   = False
   where
-    ok_arg tcs (ty, bang) = no_unpack bang || ok_ty tcs norm_ty
+    ok_arg tcs (ty, bang) = not (attempt_unpack bang) || ok_ty tcs norm_ty
         where
           norm_ty = case topNormaliseType fam_envs ty of
                       Just (_, ty) -> ty
@@ -704,7 +718,7 @@ isUnpackableType fam_envs ty
       | Just (tc, _) <- splitTyConApp_maybe ty
       , let tc_name = getName tc
       =  not (tc_name `elemNameSet` tcs)
-      && case tyConSingleDataCon_maybe tc of
+      && case tyConSingleAlgDataCon_maybe tc of
             Just con | isVanillaDataCon con
                     -> ok_con_args (tcs `addOneToNameSet` getName tc) con
             _ -> True
@@ -713,10 +727,12 @@ isUnpackableType fam_envs ty
 
     ok_con_args tcs con
        = all (ok_arg tcs) (dataConOrigArgTys con `zip` dataConStrictMarks con)
+         -- NB: dataConStrictMarks gives the *user* request; 
+         -- We'd get a black hole if we used dataConRepBangs
 
-    no_unpack (HsBang True)   = False
-    no_unpack (HsUnpack {})   = False
-    no_unpack _               = True
+    attempt_unpack (HsUnpack {})              = True
+    attempt_unpack (HsUserBang (Just unpk) _) = unpk
+    attempt_unpack _                          = False
 \end{code}
 
 Note [Unpack one-wide fields]
@@ -877,10 +893,10 @@ mkPrimOpId prim_op
     id   = mkGlobalId (PrimOpId prim_op) name ty info
                 
     info = noCafIdInfo
-           `setSpecInfo`       mkSpecInfo (maybeToList $ primOpRules name prim_op)
-           `setArityInfo`      arity
-           `setStrictnessInfo` Just strict_sig
-           `setInlinePragInfo` neverInlinePragma
+           `setSpecInfo`          mkSpecInfo (maybeToList $ primOpRules name prim_op)
+           `setArityInfo`         arity
+           `setStrictnessInfo`    strict_sig
+           `setInlinePragInfo`    neverInlinePragma
                -- We give PrimOps a NOINLINE pragma so that we don't
                -- get silly warnings from Desugar.dsRule (the inline_shadows_rule 
                -- test) about a RULE conflicting with a possible inlining
@@ -910,12 +926,12 @@ mkFCallId dflags uniq fcall ty
 
     info = noCafIdInfo
            `setArityInfo`         arity
-           `setStrictnessInfo` Just strict_sig
+           `setStrictnessInfo`    strict_sig
 
-    (_, tau)     = tcSplitForAllTys ty
-    (arg_tys, _) = tcSplitFunTys tau
-    arity        = length arg_tys
-    strict_sig   = mkStrictSig (mkTopDmdType (replicate arity evalDmd) TopRes)
+    (_, tau)        = tcSplitForAllTys ty
+    (arg_tys, _)    = tcSplitFunTys tau
+    arity           = length arg_tys
+    strict_sig      = mkStrictSig (mkTopDmdType (replicate arity evalDmd) topRes)
 \end{code}
 
 

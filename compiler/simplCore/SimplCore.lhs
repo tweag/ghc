@@ -43,13 +43,14 @@ import LiberateCase     ( liberateCase )
 import SAT              ( doStaticArgs )
 import Specialise       ( specProgram)
 import SpecConstr       ( specConstrProgram)
-import DmdAnal          ( dmdAnalPgm )
+import DmdAnal       ( dmdAnalProgram )
 import WorkWrap         ( wwTopBinds )
 import Vectorise        ( vectorise )
 import FastString
 import SrcLoc
 import Util
 
+import Maybes
 import UniqSupply       ( UniqSupply, mkSplitUniqSupply, splitUniqSupply )
 import Outputable
 import Control.Monad
@@ -190,6 +191,13 @@ getCoreToDo dflags
                           -- Don't do case-of-case transformations.
                           -- This makes full laziness work better
 
+    -- New demand analyser
+    demand_analyser = (CoreDoPasses ([
+                           CoreDoStrictness,
+                           CoreDoWorkerWrapper,
+                           simpl_phase 0 ["post-worker-wrapper"] max_iter
+                           ]))
+
     core_todo =
      if opt_level == 0 then
        [ vectorisation
@@ -256,11 +264,7 @@ getCoreToDo dflags
                 -- Don't stop now!
         simpl_phase 0 ["main"] (max max_iter 3),
 
-        runWhen strictness (CoreDoPasses [
-                CoreDoStrictness,
-                CoreDoWorkerWrapper,
-                simpl_phase 0 ["post-worker-wrapper"] max_iter
-                ]),
+        runWhen strictness demand_analyser,
 
         runWhen full_laziness $
            CoreDoFloatOutwards FloatOutSwitches {
@@ -331,7 +335,8 @@ loadPlugin hsc_env mod_name
              dflags = hsc_dflags hsc_env
        ; mb_name <- lookupRdrNameInModule hsc_env mod_name plugin_rdr_name
        ; case mb_name of {
-            Nothing -> throwGhcException (CmdLineError $ showSDoc dflags $ hsep
+            Nothing ->
+                throwGhcExceptionIO (CmdLineError $ showSDoc dflags $ hsep
                           [ ptext (sLit "The module"), ppr mod_name
                           , ptext (sLit "did not export the plugin name")
                           , ppr plugin_rdr_name ]) ;
@@ -340,7 +345,8 @@ loadPlugin hsc_env mod_name
      do { plugin_tycon <- forceLoadTyCon hsc_env pluginTyConName
         ; mb_plugin <- getValueSafely hsc_env name (mkTyConTy plugin_tycon)
         ; case mb_plugin of
-            Nothing -> throwGhcException (CmdLineError $ showSDoc dflags $ hsep
+            Nothing ->
+                throwGhcExceptionIO (CmdLineError $ showSDoc dflags $ hsep
                           [ ptext (sLit "The value"), ppr name
                           , ptext (sLit "did not have the type")
                           , ppr pluginTyConName, ptext (sLit "as required")])
@@ -387,8 +393,8 @@ doCorePass _      (CoreDoFloatOutwards f)   = {-# SCC "FloatOutwards" #-}
 doCorePass _      CoreDoStaticArgs          = {-# SCC "StaticArgs" #-}
                                               doPassU doStaticArgs
 
-doCorePass _      CoreDoStrictness          = {-# SCC "Stranal" #-}
-                                              doPassDM dmdAnalPgm
+doCorePass _      CoreDoStrictness          = {-# SCC "NewStranal" #-}
+                                              doPassDM dmdAnalProgram
 
 doCorePass dflags CoreDoWorkerWrapper       = {-# SCC "WorkWrap" #-}
                                               doPassU (wwTopBinds dflags)
@@ -604,14 +610,29 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
       , sz == sz     -- Force it
       = do {
                 -- Occurrence analysis
-           let {   -- During the 'InitialPhase' (i.e., before vectorisation), we need to make sure
+           let {   -- Note [Vectorisation declarations and occurences]
+                   -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                   -- During the 'InitialPhase' (i.e., before vectorisation), we need to make sure
                    -- that the right-hand sides of vectorisation declarations are taken into
-                   -- account during occurence analysis.
-                 maybeVects   = case sm_phase mode of
-                                  InitialPhase -> mg_vect_decls guts
-                                  _            -> []
+                   -- account during occurrence analysis. After the 'InitialPhase', we need to ensure
+                   -- that the binders representing variable vectorisation declarations are kept alive.
+                   -- (In contrast to automatically vectorised variables, their unvectorised versions
+                   -- don't depend on them.)
+                 vectVars = mkVarSet $ 
+                              catMaybes [ fmap snd $ lookupVarEnv (vectInfoVar (mg_vect_info guts)) bndr 
+                                        | Vect bndr _ <- mg_vect_decls guts]
+                              ++
+                              catMaybes [ fmap snd $ lookupVarEnv (vectInfoVar (mg_vect_info guts)) bndr 
+                                        | bndr <- bindersOfBinds binds]
+                                        -- FIXME: This second comprehensions is only needed as long as we
+                                        --        have vectorised bindings where we get "Could NOT call
+                                        --        vectorised from original version".
+              ;  (maybeVects, maybeVectVars) 
+                   = case sm_phase mode of
+                       InitialPhase -> (mg_vect_decls guts, vectVars)
+                       _            -> ([], vectVars)
                ; tagged_binds = {-# SCC "OccAnal" #-}
-                     occurAnalysePgm this_mod active_rule rules maybeVects binds
+                     occurAnalysePgm this_mod active_rule rules maybeVects maybeVectVars binds
                } ;
            Err.dumpIfSet_dyn dflags Opt_D_dump_occur_anal "Occurrence analysis"
                      (pprCoreBindings tagged_binds);
@@ -852,7 +873,7 @@ makeIndEnv binds
 shortMeOut :: IndEnv -> Id -> Id -> Bool
 shortMeOut ind_env exported_id local_id
 -- The if-then-else stuff is just so I can get a pprTrace to see
--- how often I don't get shorting out becuase of IdInfo stuff
+-- how often I don't get shorting out because of IdInfo stuff
   = if isExportedId exported_id &&              -- Only if this is exported
 
        isLocalId local_id &&                    -- Only if this one is defined in this
@@ -896,7 +917,7 @@ transferIdInfo exported_id local_id
   = modifyIdInfo transfer exported_id
   where
     local_info = idInfo local_id
-    transfer exp_info = exp_info `setStrictnessInfo` strictnessInfo local_info
+    transfer exp_info = exp_info `setStrictnessInfo`    strictnessInfo local_info
                                  `setUnfoldingInfo`     unfoldingInfo local_info
                                  `setInlinePragInfo`    inlinePragInfo local_info
                                  `setSpecInfo`          addSpecInfo (specInfo exp_info) new_info

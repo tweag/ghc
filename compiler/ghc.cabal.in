@@ -289,9 +289,9 @@ Library
         InteractiveEval
         PackageConfig
         Packages
+        PlatformConstants
         PprTyThing
         StaticFlags
-        StaticFlagParser
         SysTools
         TidyPgm
         Ctype

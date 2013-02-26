@@ -109,7 +109,7 @@ namely:
 
 This is not (currently) where deep skolemisation occurs;
 matchExpectedFunTys does not skolmise nested foralls in the 
-expected type, becuase it expects that to have been done already
+expected type, because it expects that to have been done already
 
 
 \begin{code}
@@ -896,7 +896,7 @@ checkTauTvUpdate dflags tv ty
 
     defer_me :: TcType -> Bool
     -- Checks for (a) occurrence of tv
-    --            (b) type family applicatios
+    --            (b) type family applications
     -- See Note [Conservative unification check]
     defer_me (LitTy {})        = False
     defer_me (TyVarTy tv')     = tv == tv'

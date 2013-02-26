@@ -602,6 +602,22 @@ getRegister' dflags is32Bit (CmmMachOp mop [x]) = do -- unary MachOps
       MO_FS_Conv from to -> coerceFP2Int from to x
       MO_SF_Conv from to -> coerceInt2FP from to x
 
+      MO_V_Insert {}   -> needLlvm
+      MO_V_Extract {}  -> needLlvm
+      MO_V_Add {}      -> needLlvm
+      MO_V_Sub {}      -> needLlvm
+      MO_V_Mul {}      -> needLlvm
+      MO_VS_Quot {}    -> needLlvm
+      MO_VS_Rem {}     -> needLlvm
+      MO_VS_Neg {}     -> needLlvm
+      MO_VF_Insert {}  -> needLlvm
+      MO_VF_Extract {} -> needLlvm
+      MO_VF_Add {}     -> needLlvm
+      MO_VF_Sub {}     -> needLlvm
+      MO_VF_Mul {}     -> needLlvm
+      MO_VF_Quot {}    -> needLlvm
+      MO_VF_Neg {}     -> needLlvm
+
       _other -> pprPanic "getRegister" (pprMachOp mop)
    where
         triv_ucode :: (Size -> Operand -> Instr) -> Size -> NatM Register
@@ -694,6 +710,22 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
       MO_U_Shr rep -> shift_code rep SHR x y {-False-}
       MO_S_Shr rep -> shift_code rep SAR x y {-False-}
 
+      MO_V_Insert {}   -> needLlvm
+      MO_V_Extract {}  -> needLlvm
+      MO_V_Add {}      -> needLlvm
+      MO_V_Sub {}      -> needLlvm
+      MO_V_Mul {}      -> needLlvm
+      MO_VS_Quot {}    -> needLlvm
+      MO_VS_Rem {}     -> needLlvm
+      MO_VS_Neg {}     -> needLlvm
+      MO_VF_Insert {}  -> needLlvm
+      MO_VF_Extract {} -> needLlvm
+      MO_VF_Add {}     -> needLlvm
+      MO_VF_Sub {}     -> needLlvm
+      MO_VF_Mul {}     -> needLlvm
+      MO_VF_Quot {}    -> needLlvm
+      MO_VF_Neg {}     -> needLlvm
+
       _other -> pprPanic "getRegister(x86) - binary CmmMachOp (1)" (pprMachOp mop)
   where
     --------------------
@@ -749,7 +781,7 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
       * so we can either:
         - do y first, put its result in a fresh tmp, then copy it to %ecx later
         - do y second and put its result into %ecx.  x gets placed in a fresh
-          tmp.  This is likely to be better, becuase the reg alloc can
+          tmp.  This is likely to be better, because the reg alloc can
           eliminate this reg->reg move here (it won't eliminate the other one,
           because the move is into the fixed %ecx).
     -}
@@ -884,7 +916,9 @@ getRegister' dflags _ (CmmLit lit)
            code dst = unitOL (MOV size (OpImm imm) (OpReg dst))
        return (Any size code)
 
-getRegister' _ _ other = pprPanic "getRegister(x86)" (ppr other)
+getRegister' _ _ other
+    | isVecExpr other  = needLlvm
+    | otherwise        = pprPanic "getRegister(x86)" (ppr other)
 
 
 intLoadCode :: (Operand -> Operand -> Instr) -> CmmExpr
@@ -1623,6 +1657,8 @@ genCCall _ (PrimTarget MO_WriteBarrier) _ _ = return nilOL
 
 genCCall _ (PrimTarget MO_Touch) _ _ = return nilOL
 
+genCCall _ (PrimTarget MO_Prefetch_Data) _ _ = return nilOL
+
 genCCall is32Bit (PrimTarget (MO_PopCnt width)) dest_regs@[dst]
          args@[src] = do
     sse4_2 <- sse4_2Enabled
@@ -1784,6 +1820,8 @@ genCCall32' :: DynFlags
             -> NatM InstrBlock
 genCCall32' dflags target dest_regs args = do
         let
+            prom_args = map (maybePromoteCArg dflags W32) args
+
             -- Align stack to 16n for calls, assuming a starting stack
             -- alignment of 16n - word_size on procedure entry. Which we
             -- maintiain. See Note [rts/StgCRun.c : Stack Alignment on X86]
@@ -1795,7 +1833,7 @@ genCCall32' dflags target dest_regs args = do
         setDeltaNat (delta0 - arg_pad_size)
 
         use_sse2 <- sse2Enabled
-        push_codes <- mapM (push_arg use_sse2) (reverse args)
+        push_codes <- mapM (push_arg use_sse2) (reverse prom_args)
         delta <- getDeltaNat
         MASSERT (delta == delta0 - tot_arg_size)
 
@@ -2019,12 +2057,14 @@ genCCall64' :: DynFlags
             -> NatM InstrBlock
 genCCall64' dflags target dest_regs args = do
     -- load up the register arguments
+    let prom_args = map (maybePromoteCArg dflags W32) args
+
     (stack_args, int_regs_used, fp_regs_used, load_args_code)
          <-
         if platformOS platform == OSMinGW32
-        then load_args_win args [] [] (allArgRegs platform) nilOL
+        then load_args_win prom_args [] [] (allArgRegs platform) nilOL
         else do (stack_args, aregs, fregs, load_args_code)
-                    <- load_args args (allIntArgRegs platform) (allFPArgRegs platform) nilOL
+                    <- load_args prom_args (allIntArgRegs platform) (allFPArgRegs platform) nilOL
                 let fp_regs_used  = reverse (drop (length fregs) (reverse (allFPArgRegs platform)))
                     int_regs_used = reverse (drop (length aregs) (reverse (allIntArgRegs platform)))
                 return (stack_args, int_regs_used, fp_regs_used, load_args_code)
@@ -2195,9 +2235,6 @@ genCCall64' dflags target dest_regs args = do
              push_args rest code'
 
            | otherwise = do
-           -- we only ever generate word-sized function arguments.  Promotion
-           -- has already happened: our Int8# type is kept sign-extended
-           -- in an Int#, for example.
              ASSERT(width == W64) return ()
              (arg_op, arg_code) <- getOperand arg
              delta <- getDeltaNat
@@ -2216,6 +2253,13 @@ genCCall64' dflags target dest_regs args = do
              return $ toOL [
                          SUB II64 (OpImm (ImmInt (n * wORD_SIZE dflags))) (OpReg rsp),
                          DELTA (delta - n * arg_size)]
+
+maybePromoteCArg :: DynFlags -> Width -> CmmExpr -> CmmExpr
+maybePromoteCArg dflags wto arg
+ | wfrom < wto = CmmMachOp (MO_UU_Conv wfrom wto) [arg]
+ | otherwise   = arg
+ where
+   wfrom = cmmExprWidth dflags arg
 
 -- | We're willing to inline and unroll memcpy/memset calls that touch
 -- at most these many bytes.  This threshold is the same as the one
@@ -2292,6 +2336,7 @@ outOfLineCmmOp mop res args
               MO_U_Mul2 {}     -> unsupported
               MO_WriteBarrier  -> unsupported
               MO_Touch         -> unsupported
+              MO_Prefetch_Data -> unsupported
         unsupported = panic ("outOfLineCmmOp: " ++ show mop
                           ++ " not supported here")
 
@@ -2690,3 +2735,27 @@ sse2NegCode w x = do
         ]
   --
   return (Any sz code)
+
+isVecExpr :: CmmExpr -> Bool
+isVecExpr (CmmMachOp (MO_V_Insert {}) _)   = True
+isVecExpr (CmmMachOp (MO_V_Extract {}) _)  = True
+isVecExpr (CmmMachOp (MO_V_Add {}) _)      = True
+isVecExpr (CmmMachOp (MO_V_Sub {}) _)      = True
+isVecExpr (CmmMachOp (MO_V_Mul {}) _)      = True
+isVecExpr (CmmMachOp (MO_VS_Quot {}) _)    = True
+isVecExpr (CmmMachOp (MO_VS_Rem {}) _)     = True
+isVecExpr (CmmMachOp (MO_VS_Neg {}) _)     = True
+isVecExpr (CmmMachOp (MO_VF_Insert {}) _)  = True
+isVecExpr (CmmMachOp (MO_VF_Extract {}) _) = True
+isVecExpr (CmmMachOp (MO_VF_Add {}) _)     = True
+isVecExpr (CmmMachOp (MO_VF_Sub {}) _)     = True
+isVecExpr (CmmMachOp (MO_VF_Mul {}) _)     = True
+isVecExpr (CmmMachOp (MO_VF_Quot {}) _)    = True
+isVecExpr (CmmMachOp (MO_VF_Neg {}) _)     = True
+isVecExpr (CmmMachOp _ [e])                = isVecExpr e
+isVecExpr _                                = False
+
+needLlvm :: NatM a
+needLlvm =
+    sorry $ unlines ["The native code generator does not support vector"
+                    ,"instructions. Please use -fllvm."]

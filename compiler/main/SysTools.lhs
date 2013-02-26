@@ -284,10 +284,11 @@ initSysTools mbMinusB
                     ++ gcc_args
 
        -- Other things being equal, as and ld are simply gcc
+       gcc_link_args_str <- getSetting "C compiler link flags"
        let   as_prog  = gcc_prog
              as_args  = gcc_args
              ld_prog  = gcc_prog
-             ld_args  = gcc_args
+             ld_args  = gcc_args ++ map Option (words gcc_link_args_str)
 
        -- We just assume on command line
        lc_prog <- getSetting "LLVM llc command"
@@ -353,7 +354,7 @@ findTopDir Nothing
          maybe_exec_dir <- getBaseDir
          case maybe_exec_dir of
              -- "Just" on Windows, "Nothing" on unix
-             Nothing  -> throwGhcException (InstallationError "missing -B<dir> option")
+             Nothing  -> throwGhcExceptionIO (InstallationError "missing -B<dir> option")
              Just dir -> return dir
 \end{code}
 
@@ -527,13 +528,20 @@ runClang :: DynFlags -> [Option] -> IO ()
 runClang dflags args = do
   -- we simply assume its available on the PATH
   let clang = "clang"
+      -- be careful what options we call clang with
+      -- see #5903 and #7617 for bugs caused by this.
+      (_,args0) = pgm_a dflags
+      args1 = args0 ++ args
+  mb_env <- getGccEnv args1
   Exception.catch (do
-        runSomething dflags "Clang (Assembler)" clang args
+        runSomethingFiltered dflags id "Clang (Assembler)" clang args1 mb_env
     )
     (\(err :: SomeException) -> do
-        errorMsg dflags $ text $ "Error running clang! you need clang installed"
-                              ++ " to use the LLVM backend"
-        throw err
+        errorMsg dflags $
+            text ("Error running clang! you need clang installed to use the" ++
+                "LLVM backend") $+$
+            text "(or GHC tried to execute clang incorrectly)"
+        throwIO err
     )
 
 -- | Figure out which version of LLVM we are running this session
@@ -830,14 +838,14 @@ handleProc pgm phase_name proc = do
         -- the case of a missing program there will otherwise be no output
         -- at all.
        | n == 127  -> does_not_exist
-       | otherwise -> throwGhcException (PhaseFailed phase_name rc)
+       | otherwise -> throwGhcExceptionIO (PhaseFailed phase_name rc)
   where
     handler err =
        if IO.isDoesNotExistError err
           then does_not_exist
           else IO.ioError err
 
-    does_not_exist = throwGhcException (InstallationError ("could not execute: " ++ pgm))
+    does_not_exist = throwGhcExceptionIO (InstallationError ("could not execute: " ++ pgm))
 
 
 builderMainLoop :: DynFlags -> (String -> String) -> FilePath
@@ -969,7 +977,7 @@ traceCmd dflags phase_name cmd_line action
   where
     handle_exn _verb exn = do { debugTraceMsg dflags 2 (char '\n')
                               ; debugTraceMsg dflags 2 (ptext (sLit "Failed:") <+> text cmd_line <+> text (show exn))
-                              ; throwGhcException (PhaseFailed phase_name (ExitFailure 1)) }
+                              ; throwGhcExceptionIO (PhaseFailed phase_name (ExitFailure 1)) }
 \end{code}
 
 %************************************************************************

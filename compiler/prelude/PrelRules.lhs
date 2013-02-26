@@ -31,7 +31,7 @@ import PrimOp      ( PrimOp(..), tagToEnumKey )
 import TysWiredIn
 import TysPrim
 import TyCon       ( tyConDataCons_maybe, isEnumerationTyCon, isNewTyCon )
-import DataCon     ( dataConTag, dataConTyCon, dataConWorkId, fIRST_TAG )
+import DataCon     ( dataConTag, dataConTyCon, dataConWorkId )
 import CoreUtils   ( cheapEqExpr, exprIsHNF )
 import CoreUnfold  ( exprIsConApp_maybe )
 import Type
@@ -99,6 +99,15 @@ primOpRules nm IntRemOp    = mkPrimOpRule nm 2 [ nonZeroLit 1 >> binaryLit (intO
                                                     guard (l == onei dflags)
                                                     retLit zeroi
                                                , equalArgs >> retLit zeroi
+                                               , equalArgs >> retLit zeroi ]
+primOpRules nm AndIOp      = mkPrimOpRule nm 2 [ binaryLit (intOp2 (.&.))
+                                               , idempotent
+                                               , zeroElem zeroi ]
+primOpRules nm OrIOp       = mkPrimOpRule nm 2 [ binaryLit (intOp2 (.|.))
+                                               , idempotent
+                                               , identityDynFlags zeroi ]
+primOpRules nm XorIOp      = mkPrimOpRule nm 2 [ binaryLit (intOp2 xor)
+                                               , identityDynFlags zeroi
                                                , equalArgs >> retLit zeroi ]
 primOpRules nm IntNegOp    = mkPrimOpRule nm 1 [ unaryLit negOp
                                                , inversePrimOp IntNegOp ]

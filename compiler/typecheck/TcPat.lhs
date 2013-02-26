@@ -30,6 +30,7 @@ import Id
 import Var
 import Name
 import TcEnv
+--import TcExpr
 import TcMType
 import TcValidity( arityErr )
 import TcType
@@ -282,7 +283,7 @@ mkLocalBinder name ty
 Note [Polymorphism and pattern bindings]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 When is_mono holds we are not generalising
-But the signature can still be polymoprhic!
+But the signature can still be polymorphic!
      data T = MkT (forall a. a->a)
      x :: forall a. a->a
      MkT x = <rhs>
@@ -451,11 +452,20 @@ tc_pat penv (SigPatIn pat sig_ty) pat_ty thing_inside
 
 ------------------------
 -- Lists, tuples, arrays
-tc_pat penv (ListPat pats _) pat_ty thing_inside
-  = do	{ (coi, elt_ty) <- matchExpectedPatTy matchExpectedListTy pat_ty
+tc_pat penv (ListPat pats _ Nothing) pat_ty thing_inside
+  = do	{ (coi, elt_ty) <- matchExpectedPatTy matchExpectedListTy pat_ty      
         ; (pats', res) <- tcMultiple (\p -> tc_lpat p elt_ty)
 				     pats penv thing_inside
- 	; return (mkHsWrapPat coi (ListPat pats' elt_ty) pat_ty, res) 
+ 	; return (mkHsWrapPat coi (ListPat pats' elt_ty Nothing) pat_ty, res) 
+        }
+
+tc_pat penv (ListPat pats _ (Just (_,e))) pat_ty thing_inside
+  = do	{ list_pat_ty <- newFlexiTyVarTy liftedTypeKind
+        ; e' <- tcSyntaxOp ListOrigin e (mkFunTy pat_ty list_pat_ty)
+        ; (coi, elt_ty) <- matchExpectedPatTy matchExpectedListTy list_pat_ty
+        ; (pats', res) <- tcMultiple (\p -> tc_lpat p elt_ty)
+				     pats penv thing_inside
+ 	; return (mkHsWrapPat coi (ListPat pats' elt_ty (Just (pat_ty,e'))) list_pat_ty, res) 
         }
 
 tc_pat penv (PArrPat pats _) pat_ty thing_inside
@@ -891,7 +901,7 @@ Here the 'proc (y,z)' binding scopes over the arrow tails but not the
 arrow body (e.g 'term').  As things stand (bogusly) all the
 constraints from the proc body are gathered together, so constraints
 from 'term' will be seen by the tcPat for (y,z).  But we must *not*
-bind constraints from 'term' here, becuase the desugarer will not make
+bind constraints from 'term' here, because the desugarer will not make
 these bindings scope over 'term'.
 
 The Right Thing is not to confuse these constraints together. But for
@@ -923,7 +933,7 @@ generate the translated term
 	f = \x' :: (forall a. a->a).  let x = x' Int in x 3
 
 From a type-system point of view, this is perfectly fine, but it's *very* seldom useful.
-And it requires a significant amount of code to implement, becuase we need to decorate
+And it requires a significant amount of code to implement, because we need to decorate
 the translated pattern with coercion functions (generated from the subsumption check 
 by tcSub).  
 

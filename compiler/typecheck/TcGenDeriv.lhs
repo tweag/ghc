@@ -24,7 +24,7 @@ module TcGenDeriv (
         gen_Read_binds,
         gen_Show_binds,
         gen_Data_binds,
-        gen_Typeable_binds,
+        gen_old_Typeable_binds, gen_Typeable_binds,
         gen_Functor_binds,
         FFoldType(..), functorLikeTraverse,
         deepSubtypesContaining, foldDataConArgs,
@@ -101,105 +101,94 @@ data DerivStuff     -- Please add this auxiliary stuff
 %*                                                                      *
 %************************************************************************
 
-Here are the heuristics for the code we generate for @Eq@:
-\begin{itemize}
-\item
-  Let's assume we have a data type with some (possibly zero) nullary
-  data constructors and some ordinary, non-nullary ones (the rest,
-  also possibly zero of them).  Here's an example, with both \tr{N}ullary
-  and \tr{O}rdinary data cons.
-\begin{verbatim}
-data Foo ... = N1 | N2 ... | Nn | O1 a b | O2 Int | O3 Double b b | ...
-\end{verbatim}
+Here are the heuristics for the code we generate for @Eq@. Let's
+assume we have a data type with some (possibly zero) nullary data
+constructors and some ordinary, non-nullary ones (the rest, also
+possibly zero of them).  Here's an example, with both \tr{N}ullary and
+\tr{O}rdinary data cons.
 
-\item
-  For the ordinary constructors (if any), we emit clauses to do The
+  data Foo ... = N1 | N2 ... | Nn | O1 a b | O2 Int | O3 Double b b | ...
+
+* For the ordinary constructors (if any), we emit clauses to do The
   Usual Thing, e.g.,:
 
-\begin{verbatim}
-(==) (O1 a1 b1)    (O1 a2 b2)    = a1 == a2 && b1 == b2
-(==) (O2 a1)       (O2 a2)       = a1 == a2
-(==) (O3 a1 b1 c1) (O3 a2 b2 c2) = a1 == a2 && b1 == b2 && c1 == c2
-\end{verbatim}
+    (==) (O1 a1 b1)    (O1 a2 b2)    = a1 == a2 && b1 == b2
+    (==) (O2 a1)       (O2 a2)       = a1 == a2
+    (==) (O3 a1 b1 c1) (O3 a2 b2 c2) = a1 == a2 && b1 == b2 && c1 == c2
 
-  Note: if we're comparing unlifted things, e.g., if \tr{a1} and
-  \tr{a2} are \tr{Float#}s, then we have to generate
-\begin{verbatim}
-case (a1 `eqFloat#` a2) of
-  r -> r
-\end{verbatim}
+  Note: if we're comparing unlifted things, e.g., if 'a1' and
+  'a2' are Float#s, then we have to generate
+       case (a1 `eqFloat#` a2) of r -> r
   for that particular test.
 
-\item
-  If there are any nullary constructors, we emit a catch-all clause of
-  the form:
+* If there are a lot of (more than en) nullary constructors, we emit a
+  catch-all clause of the form:
 
-\begin{verbatim}
-(==) a b  = case (con2tag_Foo a) of { a# ->
-            case (con2tag_Foo b) of { b# ->
-            case (a# ==# b#)     of {
-              r -> r
-            }}}
-\end{verbatim}
+      (==) a b  = case (con2tag_Foo a) of { a# ->
+                  case (con2tag_Foo b) of { b# ->
+                  case (a# ==# b#)     of {
+                    r -> r }}}
 
-  If there aren't any nullary constructors, we emit a simpler
+  If con2tag gets inlined this leads to join point stuff, so
+  it's better to use regular pattern matching if there aren't too
+  many nullary constructors.  "Ten" is arbitrary, of course
+
+* If there aren't any nullary constructors, we emit a simpler
   catch-all:
-\begin{verbatim}
-(==) a b  = False
-\end{verbatim}
 
-\item
-  For the @(/=)@ method, we normally just use the default method.
+     (==) a b  = False
 
+* For the @(/=)@ method, we normally just use the default method.
   If the type is an enumeration type, we could/may/should? generate
   special code that calls @con2tag_Foo@, much like for @(==)@ shown
   above.
 
-\item
-  We thought about doing this: If we're also deriving @Ord@ for this
-  tycon, we generate:
-\begin{verbatim}
-instance ... Eq (Foo ...) where
-  (==) a b  = case (compare a b) of { _LT -> False; _EQ -> True ; _GT -> False}
-  (/=) a b  = case (compare a b) of { _LT -> True ; _EQ -> False; _GT -> True }
-\begin{verbatim}
-  However, that requires that \tr{Ord <whatever>} was put in the context
-  for the instance decl, which it probably wasn't, so the decls
-  produced don't get through the typechecker.
-\end{itemize}
-
+We thought about doing this: If we're also deriving 'Ord' for this
+tycon, we generate:
+  instance ... Eq (Foo ...) where
+    (==) a b  = case (compare a b) of { _LT -> False; _EQ -> True ; _GT -> False}
+    (/=) a b  = case (compare a b) of { _LT -> True ; _EQ -> False; _GT -> True }
+However, that requires that (Ord <whatever>) was put in the context
+for the instance decl, which it probably wasn't, so the decls
+produced don't get through the typechecker.
 
 \begin{code}
 gen_Eq_binds :: SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff)
 gen_Eq_binds loc tycon
   = (method_binds, aux_binds)
   where
-    (nullary_cons, non_nullary_cons)
-       | isNewTyCon tycon = ([], tyConDataCons tycon)
-       | otherwise        = partition isNullarySrcDataCon (tyConDataCons tycon)
+    all_cons = tyConDataCons tycon
+    (nullary_cons, non_nullary_cons) = partition isNullarySrcDataCon all_cons
 
-    no_nullary_cons = null nullary_cons
+    -- If there are ten or more (arbitrary number) nullary constructors,
+    -- use the con2tag stuff.  For small types it's better to use
+    -- ordinary pattern matching.
+    (tag_match_cons, pat_match_cons)
+       | nullary_cons `lengthExceeds` 10 = (nullary_cons, non_nullary_cons)
+       | otherwise                       = ([],           all_cons)
+
+    no_tag_match_cons = null tag_match_cons
 
     fall_through_eqn
-      | no_nullary_cons   -- All constructors have arguments
-      = case non_nullary_cons of
+      | no_tag_match_cons   -- All constructors have arguments
+      = case pat_match_cons of
           []  -> []   -- No constructors; no fall-though case
           [_] -> []   -- One constructor; no fall-though case
           _   ->      -- Two or more constructors; add fall-through of
                       --       (==) _ _ = False
                  [([nlWildPat, nlWildPat], false_Expr)]
 
-      | otherwise -- One or more nullary cons; add fall-through of
+      | otherwise -- One or more tag_match cons; add fall-through of
                   -- extract tags compare for equality
       = [([a_Pat, b_Pat],
          untag_Expr tycon [(a_RDR,ah_RDR), (b_RDR,bh_RDR)]
                     (genOpApp (nlHsVar ah_RDR) eqInt_RDR (nlHsVar bh_RDR)))]
 
-    aux_binds | no_nullary_cons = emptyBag
-              | otherwise       = unitBag $ DerivAuxBind $ DerivCon2Tag tycon
+    aux_binds | no_tag_match_cons = emptyBag
+              | otherwise         = unitBag $ DerivAuxBind $ DerivCon2Tag tycon
 
     method_binds = listToBag [eq_bind, ne_bind]
-    eq_bind = mk_FunBind loc eq_RDR (map pats_etc non_nullary_cons ++ fall_through_eqn)
+    eq_bind = mk_FunBind loc eq_RDR (map pats_etc pat_match_cons ++ fall_through_eqn)
     ne_bind = mk_easy_FunBind loc ne_RDR [a_Pat, b_Pat] (
                         nlHsApp (nlHsVar not_RDR) (nlHsPar (nlHsVarApps eq_RDR [a_RDR, b_RDR])))
 
@@ -500,7 +489,7 @@ unliftedCompare :: PrimOp -> PrimOp
 -- Return (if a < b then lt else if a == b then eq else gt)
 unliftedCompare lt_op eq_op a_expr b_expr lt eq gt
   = nlHsIf (genOpApp a_expr (primOpRdrName lt_op) b_expr) lt $
-                        -- Test (<) first, not (==), becuase the latter
+                        -- Test (<) first, not (==), because the latter
                         -- is true less often, so putting it first would
                         -- mean more tests (dynamically)
         nlHsIf (genOpApp a_expr (primOpRdrName eq_op) b_expr) eq gt
@@ -690,7 +679,7 @@ instance ... Ix (Foo ...) where
         map tag2con_Foo (enumFromTo (I# a#) (I# b#))
         }}
 
-    -- Generate code for unsafeIndex, becuase using index leads
+    -- Generate code for unsafeIndex, because using index leads
     -- to lots of redundant range tests
     unsafeIndex c@(a, b) d
       = case (con2tag_Foo d -# con2tag_Foo a) of
@@ -1178,7 +1167,67 @@ getPrecedence get_fixity nm
 
 %************************************************************************
 %*                                                                      *
-\subsection{Typeable}
+\subsection{Typeable (old)}
+%*                                                                      *
+%************************************************************************
+
+From the data type
+
+        data T a b = ....
+
+we generate
+
+        instance Typeable2 T where
+                typeOf2 _ = mkTyConApp (mkTyCon <hash-high> <hash-low>
+                                                <pkg> <module> "T") []
+
+We are passed the Typeable2 class as well as T
+
+\begin{code}
+gen_old_Typeable_binds :: DynFlags -> SrcSpan -> TyCon -> LHsBinds RdrName
+gen_old_Typeable_binds dflags loc tycon
+  = unitBag $
+        mk_easy_FunBind loc
+                (old_mk_typeOf_RDR tycon)   -- Name of appropriate type0f function
+                [nlWildPat]
+                (nlHsApps oldMkTyConApp_RDR [tycon_rep, nlList []])
+  where
+    tycon_name = tyConName tycon
+    modl       = nameModule tycon_name
+    pkg        = modulePackageId modl
+
+    modl_fs    = moduleNameFS (moduleName modl)
+    pkg_fs     = packageIdFS pkg
+    name_fs    = occNameFS (nameOccName tycon_name)
+
+    tycon_rep = nlHsApps oldMkTyCon_RDR
+                    (map nlHsLit [int64 high,
+                                  int64 low,
+                                  HsString pkg_fs,
+                                  HsString modl_fs,
+                                  HsString name_fs])
+
+    hashThis = unwords $ map unpackFS [pkg_fs, modl_fs, name_fs]
+    Fingerprint high low = fingerprintString hashThis
+
+    int64
+      | wORD_SIZE dflags == 4 = HsWord64Prim . fromIntegral
+      | otherwise             = HsWordPrim . fromIntegral
+
+
+old_mk_typeOf_RDR :: TyCon -> RdrName
+-- Use the arity of the TyCon to make the right typeOfn function
+old_mk_typeOf_RDR tycon = varQual_RDR oLDTYPEABLE_INTERNAL (mkFastString ("typeOf" ++ suffix))
+                where
+                  arity = tyConArity tycon
+                  suffix | arity == 0 = ""
+                         | otherwise  = show arity
+\end{code}
+
+
+%************************************************************************
+%*                                                                      *
+\subsection{Typeable (new)}
 %*                                                                      *
 %************************************************************************
 
@@ -1197,11 +1246,8 @@ We are passed the Typeable2 class as well as T
 \begin{code}
 gen_Typeable_binds :: DynFlags -> SrcSpan -> TyCon -> LHsBinds RdrName
 gen_Typeable_binds dflags loc tycon
-  = unitBag $
-        mk_easy_FunBind loc
-                (mk_typeOf_RDR tycon)   -- Name of appropriate type0f function
-                [nlWildPat]
-                (nlHsApps mkTyConApp_RDR [tycon_rep, nlList []])
+  = unitBag $ mk_easy_FunBind loc typeRep_RDR [nlWildPat]
+              (nlHsApps mkTyConApp_RDR [tycon_rep, nlList []])
   where
     tycon_name = tyConName tycon
     modl       = nameModule tycon_name
@@ -1224,15 +1270,6 @@ gen_Typeable_binds dflags loc tycon
     int64
       | wORD_SIZE dflags == 4 = HsWord64Prim . fromIntegral
       | otherwise             = HsWordPrim . fromIntegral
-
-
-mk_typeOf_RDR :: TyCon -> RdrName
--- Use the arity of the TyCon to make the right typeOfn function
-mk_typeOf_RDR tycon = varQual_RDR tYPEABLE_INTERNAL (mkFastString ("typeOf" ++ suffix))
-                where
-                  arity = tyConArity tycon
-                  suffix | arity == 0 = ""
-                         | otherwise  = show arity
 \end{code}
 
 

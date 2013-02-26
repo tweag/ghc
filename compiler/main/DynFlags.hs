@@ -11,6 +11,9 @@
 --
 -------------------------------------------------------------------------------
 
+{-# OPTIONS -fno-cse #-}
+-- -fno-cse is needed for GLOBAL_VAR's to behave properly
+
 module DynFlags (
         -- * Dynamic flags and associated configuration types
         DumpFlag(..),
@@ -119,6 +122,8 @@ module DynFlags (
         mAX_PTR_TAG,
         tARGET_MIN_INT, tARGET_MAX_INT, tARGET_MAX_WORD,
 
+        unsafeGlobalDynFlags, setUnsafeGlobalDynFlags,
+
         -- * SSE
         isSse2Enabled,
         isSse4_2Enabled,
@@ -127,6 +132,7 @@ module DynFlags (
 #include "HsVersions.h"
 
 import Platform
+import PlatformConstants
 import Module
 import PackageConfig
 import {-# SOURCE #-} PrelNames ( mAIN )
@@ -136,7 +142,6 @@ import Config
 import CmdLineParser
 import Constants
 import Panic
-import StaticFlags
 import Util
 import Maybes           ( orElse )
 import MonadUtils
@@ -149,9 +154,7 @@ import Foreign.C        ( CInt(..) )
 #endif
 import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessage )
 
-#ifdef GHCI
 import System.IO.Unsafe ( unsafePerformIO )
-#endif
 import Data.IORef
 import Control.Monad
 
@@ -166,9 +169,12 @@ import qualified Data.Set as Set
 import Data.Word
 import System.FilePath
 import System.IO
+import System.IO.Error
 
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
+
+import GHC.Foreign (withCString, peekCString)
 
 -- -----------------------------------------------------------------------------
 -- DynFlags
@@ -280,7 +286,7 @@ data GeneralFlag
    | Opt_DictsCheap
    | Opt_EnableRewriteRules             -- Apply rewrite rules during simplification
    | Opt_Vectorise
-   | Opt_AvoidVect
+   | Opt_VectorisationAvoidance
    | Opt_RegsGraph                      -- do graph coloring register allocation
    | Opt_RegsIterative                  -- do iterative coalescing graph coloring register allocation
    | Opt_PedanticBottoms                -- Be picky about how we treat bottom
@@ -322,8 +328,6 @@ data GeneralFlag
    | Opt_EmitExternalCore
    | Opt_SharedImplib
    | Opt_BuildingCabalPackage
-   | Opt_SSE2
-   | Opt_SSE4_2
    | Opt_IgnoreDotGhci
    | Opt_GhciSandbox
    | Opt_GhciHistory
@@ -425,7 +429,9 @@ data WarningFlag =
    | Opt_WarnSafe
    | Opt_WarnPointlessPragmas
    | Opt_WarnUnsupportedCallingConventions
+   | Opt_WarnUnsupportedLlvmVersion
    | Opt_WarnInlineRuleShadowing
+   | Opt_WarnTypeableInstances
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -477,6 +483,7 @@ data ExtensionFlag
    | Opt_BangPatterns
    | Opt_TypeFamilies
    | Opt_OverloadedStrings
+   | Opt_OverloadedLists
    | Opt_DisambiguateRecordFields
    | Opt_RecordWildCards
    | Opt_RecordPuns
@@ -493,6 +500,7 @@ data ExtensionFlag
  
    | Opt_StandaloneDeriving
    | Opt_DeriveDataTypeable
+   | Opt_AutoDeriveTypeable       -- Automatic derivation of Typeable
    | Opt_DeriveFunctor
    | Opt_DeriveTraversable
    | Opt_DeriveFoldable
@@ -703,6 +711,8 @@ data DynFlags = DynFlags {
   pprCols               :: Int,
   traceLevel            :: Int, -- Standard level is 1. Less verbose is 0.
 
+  useUnicodeQuotes      :: Bool,
+
   -- | what kind of {-# SCC #-} to add automatically
   profAuto              :: ProfAuto,
 
@@ -710,7 +720,10 @@ data DynFlags = DynFlags {
 
   llvmVersion           :: IORef Int,
 
-  nextWrapperNum        :: IORef Int
+  nextWrapperNum        :: IORef Int,
+
+  -- | Machine dependant flags (-m<blah> stuff)
+  sseVersion            :: Maybe (Int, Int)  -- (major, minor)
  }
 
 class HasDynFlags m where
@@ -1168,6 +1181,12 @@ initDynFlags dflags = do
  refGeneratedDumps <- newIORef Set.empty
  refLlvmVersion <- newIORef 28
  wrapperNum <- newIORef 0
+ canUseUnicodeQuotes <- do let enc = localeEncoding
+                               str = "‛’"
+                           (withCString enc str $ \cstr ->
+                                do str' <- peekCString enc cstr
+                                   return (str == str'))
+                               `catchIOError` \_ -> return False
  return dflags{
         canGenerateDynamicToo = refCanGenerateDynamicToo,
         filesToClean   = refFilesToClean,
@@ -1175,7 +1194,8 @@ initDynFlags dflags = do
         filesToNotIntermediateClean = refFilesToNotIntermediateClean,
         generatedDumps = refGeneratedDumps,
         llvmVersion    = refLlvmVersion,
-        nextWrapperNum = wrapperNum
+        nextWrapperNum = wrapperNum,
+        useUnicodeQuotes = canUseUnicodeQuotes
         }
 
 -- | The normal 'DynFlags'. Note that they is not suitable for use in this form
@@ -1300,11 +1320,13 @@ defaultDynFlags mySettings =
         flushErr = defaultFlushErr,
         pprUserLength = 5,
         pprCols = 100,
+        useUnicodeQuotes = False,
         traceLevel = 1,
         profAuto = NoProfAuto,
         llvmVersion = panic "defaultDynFlags: No llvmVersion",
         interactivePrint = Nothing,
-        nextWrapperNum = panic "defaultDynFlags: No nextWrapperNum"
+        nextWrapperNum = panic "defaultDynFlags: No nextWrapperNum",
+        sseVersion = Nothing
       }
 
 defaultWays :: Settings -> [Way]
@@ -1793,16 +1815,17 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
 
   let ((leftover, errs, warns), dflags1)
           = runCmdLine (processArgs activeFlags args') dflags0
-  when (not (null errs)) $ throwGhcException $ errorsToGhcException errs
+  when (not (null errs)) $ liftIO $
+      throwGhcExceptionIO $ errorsToGhcException errs
 
   -- check for disabled flags in safe haskell
   let (dflags2, sh_warns) = safeFlagCheck cmdline dflags1
       dflags3 = updateWays dflags2
       theWays = ways dflags3
 
-  unless (allowed_combination theWays) $
-      throwGhcException (CmdLineError ("combination not supported: "  ++
-                              intercalate "/" (map wayDesc theWays)))
+  unless (allowed_combination theWays) $ liftIO $
+      throwGhcExceptionIO (CmdLineError ("combination not supported: " ++
+                               intercalate "/" (map wayDesc theWays)))
 
   -- TODO: This is an ugly hack. Do something better.
   -- -fPIC affects the CMM code we generate, so if
@@ -1820,7 +1843,7 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
   when e.g. compiling a C file, only when compiling Haskell files.
   when doingDynamicToo $
       unless (isJust (outputFile dflags4) == isJust (dynOutputFile dflags4)) $
-          throwGhcException $ CmdLineError
+          liftIO $ throwGhcExceptionIO $ CmdLineError
               "With -dynamic-too, must give -dyno iff giving -o"
   -}
 
@@ -2180,13 +2203,7 @@ dynamic_flags = [
   , Flag "monly-2-regs" (NoArg (addWarn "The -monly-2-regs flag does nothing; it will be removed in a future GHC release"))
   , Flag "monly-3-regs" (NoArg (addWarn "The -monly-3-regs flag does nothing; it will be removed in a future GHC release"))
   , Flag "monly-4-regs" (NoArg (addWarn "The -monly-4-regs flag does nothing; it will be removed in a future GHC release"))
-  , Flag "msse2"        (NoArg (setGeneralFlag Opt_SSE2))
-  , Flag "msse4.2"      (NoArg (setGeneralFlag Opt_SSE4_2))
-    -- at some point we should probably have a single SSE flag that
-    -- contains the SSE version, instead of having a different flag
-    -- per version. That would make it easier to e.g. check if SSE2 is
-    -- enabled as you wouldn't have to check if either Opt_SSE2 or
-    -- Opt_SSE4_2 is set (as the latter implies the former).
+  , Flag "msse"         (versionSuffix (\maj min d -> d{ sseVersion = Just (maj, min) }))
 
      ------ Warning opts -------------------------------------------------
   , Flag "W"      (NoArg (mapM_ setWarningFlag minusWOpts))
@@ -2398,7 +2415,9 @@ fWarningFlags = [
   ( "warn-safe",                        Opt_WarnSafe, setWarnSafe ),
   ( "warn-pointless-pragmas",           Opt_WarnPointlessPragmas, nop ),
   ( "warn-unsupported-calling-conventions", Opt_WarnUnsupportedCallingConventions, nop ),
-  ( "warn-inline-rule-shadowing",       Opt_WarnInlineRuleShadowing, nop ) ]
+  ( "warn-inline-rule-shadowing",       Opt_WarnInlineRuleShadowing, nop ),
+  ( "warn-unsupported-llvm-version",    Opt_WarnUnsupportedLlvmVersion, nop ),
+  ( "warn-typeable-instances",          Opt_WarnTypeableInstances, nop ) ]
 
 -- | These @-\<blah\>@ flags can all be reversed with @-no-\<blah\>@
 negatableFlags :: [FlagSpec GeneralFlag]
@@ -2455,7 +2474,7 @@ fFlags = [
   ( "run-cps",                          Opt_RunCPS, nop ),
   ( "run-cpsz",                         Opt_RunCPSZ, nop ),
   ( "vectorise",                        Opt_Vectorise, nop ),
-  ( "avoid-vect",                       Opt_AvoidVect, nop ),
+  ( "vectorisation-avoidance",          Opt_VectorisationAvoidance, nop ),
   ( "regs-graph",                       Opt_RegsGraph, nop ),
   ( "regs-iterative",                   Opt_RegsIterative, nop ),
   ( "llvm-tbaa",                        Opt_LlvmTBAA, nop), -- hidden flag
@@ -2589,6 +2608,7 @@ xFlags = [
     deprecatedForExtension "NamedFieldPuns" ),
   ( "DisambiguateRecordFields",         Opt_DisambiguateRecordFields, nop ),
   ( "OverloadedStrings",                Opt_OverloadedStrings, nop ),
+  ( "OverloadedLists",                  Opt_OverloadedLists, nop),
   ( "GADTs",                            Opt_GADTs, nop ),
   ( "GADTSyntax",                       Opt_GADTSyntax, nop ),
   ( "ViewPatterns",                     Opt_ViewPatterns, nop ),
@@ -2629,6 +2649,7 @@ xFlags = [
   ( "UnboxedTuples",                    Opt_UnboxedTuples, nop ),
   ( "StandaloneDeriving",               Opt_StandaloneDeriving, nop ),
   ( "DeriveDataTypeable",               Opt_DeriveDataTypeable, nop ),
+  ( "AutoDeriveTypeable",               Opt_AutoDeriveTypeable, nop ),
   ( "DeriveFunctor",                    Opt_DeriveFunctor, nop ),
   ( "DeriveTraversable",                Opt_DeriveTraversable, nop ),
   ( "DeriveFoldable",                   Opt_DeriveFoldable, nop ),
@@ -2763,6 +2784,7 @@ optLevelFlags
                 -- we want to make sure that the bindings for data
                 -- constructors are eta-expanded.  This is probably
                 -- a good thing anyway, but it seems fragile.
+    , ([0,1,2], Opt_VectorisationAvoidance)
     ]
 
 -- -----------------------------------------------------------------------------
@@ -2783,8 +2805,11 @@ standardWarnings
         Opt_WarnAlternativeLayoutRuleTransitional,
         Opt_WarnPointlessPragmas,
         Opt_WarnUnsupportedCallingConventions,
+        Opt_WarnUnsupportedLlvmVersion,
         Opt_WarnInlineRuleShadowing,
-        Opt_WarnDuplicateConstraints
+        Opt_WarnDuplicateConstraints,
+        Opt_WarnInlineRuleShadowing,
+        Opt_WarnTypeableInstances
       ]
 
 minusWOpts :: [WarningFlag]
@@ -2940,6 +2965,9 @@ floatSuffix fn = FloatSuffix (\n -> upd (fn n))
 optIntSuffixM :: (Maybe Int -> DynFlags -> DynP DynFlags)
               -> OptKind (CmdLineP DynFlags)
 optIntSuffixM fn = OptIntSuffix (\mi -> updM (fn mi))
+
+versionSuffix :: (Int -> Int -> DynFlags -> DynFlags) -> OptKind (CmdLineP DynFlags)
+versionSuffix fn = VersionSuffix (\maj min -> upd (fn maj min))
 
 setDumpFlag :: DumpFlag -> OptKind (CmdLineP DynFlags)
 setDumpFlag dump_flag = NoArg (setDumpFlag' dump_flag)
@@ -3327,7 +3355,6 @@ compilerInfo dflags
        ("Global Package DB",           systemPackageConfig dflags)
       ]
 
-#include "../includes/dist-derivedconstants/header/GHCConstantsHaskellType.hs"
 #include "../includes/dist-derivedconstants/header/GHCConstantsHaskellWrappers.hs"
 
 bLOCK_SIZE_W :: DynFlags -> Int
@@ -3374,7 +3401,7 @@ makeDynFlagsConsistent dflags
       else let dflags' = dflags { hscTarget = HscLlvm }
                warn = "Compiler not unregisterised, so using LLVM rather than compiling via C"
            in loop dflags' warn
- | hscTarget dflags /= HscC &&
+ | hscTarget dflags /= HscC && hscTarget dflags /= HscLlvm &&
    platformUnregisterised (targetPlatform dflags)
     = loop (dflags { hscTarget = HscC })
            "Compiler unregisterised, so compiling via C"
@@ -3405,21 +3432,40 @@ makeDynFlagsConsistent dflags
           arch = platformArch platform
           os   = platformOS   platform
 
+--------------------------------------------------------------------------
+-- Do not use unsafeGlobalDynFlags!
+--
+-- unsafeGlobalDynFlags is a hack, necessary because we need to be able
+-- to show SDocs when tracing, but we don't always have DynFlags
+-- available.
+--
+-- Do not use it if you can help it. You may get the wrong value!
+
+GLOBAL_VAR(v_unsafeGlobalDynFlags, panic "v_unsafeGlobalDynFlags: not initialised", DynFlags)
+
+unsafeGlobalDynFlags :: DynFlags
+unsafeGlobalDynFlags = unsafePerformIO $ readIORef v_unsafeGlobalDynFlags
+
+setUnsafeGlobalDynFlags :: DynFlags -> IO ()
+setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
+
 -- -----------------------------------------------------------------------------
 -- SSE
 
+-- TODO: Instead of using a separate predicate (i.e. isSse2Enabled) to
+-- check if SSE is enabled, we might have x86-64 imply the -msse2
+-- flag.
+
 isSse2Enabled :: DynFlags -> Bool
-isSse2Enabled dflags = isSse4_2Enabled dflags || isSse2Enabled'
-  where
-    isSse2Enabled' = case platformArch (targetPlatform dflags) of
-        ArchX86_64 -> -- SSE2 is fixed on for x86_64.  It would be
-                      -- possible to make it optional, but we'd need to
-                      -- fix at least the foreign call code where the
-                      -- calling convention specifies the use of xmm regs,
-                      -- and possibly other places.
-                      True
-        ArchX86    -> gopt Opt_SSE2 dflags
-        _          -> False
+isSse2Enabled dflags = case platformArch (targetPlatform dflags) of
+    ArchX86_64 -> -- SSE2 is fixed on for x86_64.  It would be
+                  -- possible to make it optional, but we'd need to
+                  -- fix at least the foreign call code where the
+                  -- calling convention specifies the use of xmm regs,
+                  -- and possibly other places.
+                  True
+    ArchX86    -> sseVersion dflags >= Just (2,0)
+    _          -> False
 
 isSse4_2Enabled :: DynFlags -> Bool
-isSse4_2Enabled dflags = gopt Opt_SSE4_2 dflags
+isSse4_2Enabled dflags = sseVersion dflags >= Just (4,2)

@@ -15,7 +15,8 @@ module HsDecls (
   HsDecl(..), LHsDecl, HsDataDefn(..),
   -- ** Class or type declarations
   TyClDecl(..), LTyClDecl, TyClGroup,
-  isClassDecl, isDataDecl, isSynDecl, isFamilyDecl, tcdName,
+  isClassDecl, isDataDecl, isSynDecl, tcdName,
+  isFamilyDecl, isTypeFamilyDecl, isDataFamilyDecl,
   tyFamInstDeclName, tyFamInstDeclLName,
   countTyClDecls, pprTyClDeclFlavour,
   tyClDeclLName, tyClDeclTyVars,
@@ -476,7 +477,7 @@ data FamilyDecl name = FamilyDecl
 data FamilyFlavour
   = TypeFamily
   | DataFamily
-  deriving( Data, Typeable )
+  deriving( Data, Typeable, Eq )
 
 \end{code}
 
@@ -500,10 +501,20 @@ isClassDecl :: TyClDecl name -> Bool
 isClassDecl (ClassDecl {}) = True
 isClassDecl _              = False
 
--- | type family declaration
+-- | type/data family declaration
 isFamilyDecl :: TyClDecl name -> Bool
 isFamilyDecl (FamDecl {})  = True
 isFamilyDecl _other        = False
+
+-- | type family declaration
+isTypeFamilyDecl :: TyClDecl name -> Bool
+isTypeFamilyDecl (FamDecl d) = fdFlavour d == TypeFamily
+isTypeFamilyDecl _other      = False
+
+-- | data family declaration
+isDataFamilyDecl :: TyClDecl name -> Bool
+isDataFamilyDecl (FamDecl d) = fdFlavour d == DataFamily
+isDataFamilyDecl _other      = False
 \end{code}
 
 Dealing with names
@@ -634,7 +645,7 @@ pprTyClDeclFlavour (ForeignType {}) = ptext (sLit "foreign type")
 data HsDataDefn name   -- The payload of a data type defn
                        -- Used *both* for vanilla data declarations,
                        --       *and* for data family instances
-  = -- | Declares a data type or newtype, giving its construcors
+  = -- | Declares a data type or newtype, giving its constructors
     -- @
     --  data/newtype T a = <constrs>
     --  data/newtype instance T [a] = <constrs>
@@ -842,6 +853,7 @@ type LTyFamInstDecl name = Located (TyFamInstDecl name)
 data TyFamInstDecl name 
   = TyFamInstDecl
        { tfid_eqns  :: [LTyFamInstEqn name] -- ^ list of (possibly-overlapping) eqns 
+                                            -- Always non-empty
        , tfid_group :: Bool                 -- Was this declared with the "where" syntax?
        , tfid_fvs   :: NameSet }            -- The group is type-checked as one,
                                             --   so one NameSet will do
@@ -1210,7 +1222,7 @@ type LVectDecl name = Located (VectDecl name)
 data VectDecl name
   = HsVect
       (Located name)
-      (Maybe (LHsExpr name))    -- 'Nothing' => SCALAR declaration
+      (LHsExpr name)
   | HsNoVect
       (Located name)
   | HsVectTypeIn                -- pre type-checking
@@ -1225,9 +1237,9 @@ data VectDecl name
       (Located name)
   | HsVectClassOut              -- post type-checking
       Class
-  | HsVectInstIn                -- pre type-checking (always SCALAR)
+  | HsVectInstIn                -- pre type-checking (always SCALAR)  !!!FIXME: should be superfluous now
       (LHsType name)
-  | HsVectInstOut               -- post type-checking (always SCALAR)
+  | HsVectInstOut               -- post type-checking (always SCALAR) !!!FIXME: should be superfluous now
       ClsInst
   deriving (Data, Typeable)
 
@@ -1247,9 +1259,7 @@ lvectInstDecl (L _ (HsVectInstOut _)) = True
 lvectInstDecl _                       = False
 
 instance OutputableBndr name => Outputable (VectDecl name) where
-  ppr (HsVect v Nothing)
-    = sep [text "{-# VECTORISE SCALAR" <+> ppr v <+> text "#-}" ]
-  ppr (HsVect v (Just rhs))
+  ppr (HsVect v rhs)
     = sep [text "{-# VECTORISE" <+> ppr v,
            nest 4 $ 
              pprExpr (unLoc rhs) <+> text "#-}" ]

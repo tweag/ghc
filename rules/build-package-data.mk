@@ -70,11 +70,21 @@ ifneq "$$(GMP_LIB_DIRS)" ""
 $1_$2_CONFIGURE_OPTS += --configure-option=--with-gmp-libraries="$$(GMP_LIB_DIRS)"
 endif
 
+ifeq "$$(CrossCompiling)" "YES"
+$1_$2_CONFIGURE_OPTS += --configure-option=--host=$(TargetPlatformFull)
+endif
+
 ifeq "$3" "0"
 $1_$2_CONFIGURE_OPTS += $$(BOOT_PKG_CONSTRAINTS)
 endif
 
 $1_$2_CONFIGURE_OPTS += --with-gcc="$$(CC_STAGE$3)"
+
+ifneq "$3" "0"
+# There is no LD_STAGE0, Cabal will figure it out
+$1_$2_CONFIGURE_OPTS += --with-ld="$$(LD_STAGE$3)"
+endif
+
 $1_$2_CONFIGURE_OPTS += --configure-option=--with-cc="$$(CC_STAGE$3)"
 $1_$2_CONFIGURE_OPTS += --with-ar="$$(AR_STAGE$3)"
 $1_$2_CONFIGURE_OPTS += --with-ranlib="$$(RANLIB)"
@@ -90,7 +100,15 @@ $1/$2/build/autogen/cabal_macros.h : $1/$2/package-data.mk
 # for our build system, and registers the package for use in-place in
 # the build tree.
 $1/$2/package-data.mk : $$(GHC_CABAL_INPLACE) $$($1_$2_GHC_PKG_DEP) $1/$$($1_PACKAGE).cabal $$(wildcard $1/configure) $$(LAX_DEPS_FOLLOW) $$($1_$2_HC_CONFIG_DEP)
-	CROSS_COMPILE="$(CrossCompilePrefix)" "$$(GHC_CABAL_INPLACE)" configure --with-ghc="$$($1_$2_HC_CONFIG)" --with-ghc-pkg="$$($1_$2_GHC_PKG)" $$($1_CONFIGURE_OPTS) $$($1_$2_CONFIGURE_OPTS) -- $2 $1
+# Checking packages built with the bootstrapping compiler would
+# generally be a waste of time. Either we will rebuild them with
+# stage1/stage2, or we don't really care about them.
+ifneq "$3" "0"
+ifneq "$$($1_NO_CHECK)" "YES"
+	"$$(GHC_CABAL_INPLACE)" check $1
+endif
+endif
+	"$$(GHC_CABAL_INPLACE)" configure --with-ghc="$$($1_$2_HC_CONFIG)" --with-ghc-pkg="$$($1_$2_GHC_PKG)" $$($1_CONFIGURE_OPTS) $$($1_$2_CONFIGURE_OPTS) -- $2 $1
 ifeq "$$($1_$2_PROG)" ""
 ifneq "$$($1_$2_REGISTER_PACKAGE)" "NO"
 	$$(call cmd,$1_$2_GHC_PKG) update --force $$($1_$2_GHC_PKG_OPTS) $1/$2/inplace-pkg-config

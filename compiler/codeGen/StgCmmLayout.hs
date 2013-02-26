@@ -24,14 +24,6 @@ module StgCmmLayout (
 
 	mkVirtHeapOffsets, mkVirtConstrOffsets, getHpRelOffset, hpRel,
 
-	stdInfoTableSizeB,
-	entryCode, closureInfoPtr,
-	getConstrTag,
-        cmmGetClosureType,
-	infoTable, infoTableClosureType,
-	infoTablePtrs, infoTableNonPtrs,
-        funInfoTable,
-
         ArgRep(..), toArgRep, argRepSizeW
   ) where
 
@@ -49,11 +41,12 @@ import MkGraph
 import SMRep
 import Cmm
 import CmmUtils
+import CmmInfo
 import CLabel
 import StgSyn
 import Id
 import Name
-import TyCon		( PrimRep(..) )
+import TyCon		( PrimRep(..), primElemRepSizeB )
 import BasicTypes	( RepArity )
 import DynFlags
 import Module
@@ -324,6 +317,7 @@ slowCallPattern (N: _)		      = (fsLit "stg_ap_n", 1)
 slowCallPattern (F: _)		      = (fsLit "stg_ap_f", 1)
 slowCallPattern (D: _)		      = (fsLit "stg_ap_d", 1)
 slowCallPattern (L: _)		      = (fsLit "stg_ap_l", 1)
+slowCallPattern (V16: _)	      = (fsLit "stg_ap_v16", 1)
 slowCallPattern []		      = (fsLit "stg_ap_0", 0)
 
 
@@ -340,36 +334,42 @@ data ArgRep = P   -- GC Ptr
             | V   -- Void
             | F   -- Float
             | D   -- Double
+            | V16 -- 16-byte (128-bit) vectors of Float/Double/Int8/Word32/etc.
 instance Outputable ArgRep where
-  ppr P = text "P"
-  ppr N = text "N"
-  ppr L = text "L"
-  ppr V = text "V"
-  ppr F = text "F"
-  ppr D = text "D"
+  ppr P   = text "P"
+  ppr N   = text "N"
+  ppr L   = text "L"
+  ppr V   = text "V"
+  ppr F   = text "F"
+  ppr D   = text "D"
+  ppr V16 = text "V16"
 
 toArgRep :: PrimRep -> ArgRep
-toArgRep VoidRep   = V
-toArgRep PtrRep    = P
-toArgRep IntRep    = N
-toArgRep WordRep   = N
-toArgRep AddrRep   = N
-toArgRep Int64Rep  = L
-toArgRep Word64Rep = L
-toArgRep FloatRep  = F
-toArgRep DoubleRep = D
+toArgRep VoidRep           = V
+toArgRep PtrRep            = P
+toArgRep IntRep            = N
+toArgRep WordRep           = N
+toArgRep AddrRep           = N
+toArgRep Int64Rep          = L
+toArgRep Word64Rep         = L
+toArgRep FloatRep          = F
+toArgRep DoubleRep         = D
+toArgRep (VecRep len elem)
+    | len*primElemRepSizeB elem == 16 = V16
+    | otherwise                       = error "toArgRep: bad vector primrep"
 
 isNonV :: ArgRep -> Bool
 isNonV V = False
 isNonV _ = True
 
 argRepSizeW :: DynFlags -> ArgRep -> WordOff                -- Size in words
-argRepSizeW _      N = 1
-argRepSizeW _      P = 1
-argRepSizeW _      F = 1
-argRepSizeW dflags L = wORD64_SIZE        `quot` wORD_SIZE dflags
-argRepSizeW dflags D = dOUBLE_SIZE dflags `quot` wORD_SIZE dflags
-argRepSizeW _      V = 0
+argRepSizeW _      N   = 1
+argRepSizeW _      P   = 1
+argRepSizeW _      F   = 1
+argRepSizeW dflags L   = wORD64_SIZE        `quot` wORD_SIZE dflags
+argRepSizeW dflags D   = dOUBLE_SIZE dflags `quot` wORD_SIZE dflags
+argRepSizeW _      V   = 0
+argRepSizeW dflags V16 = 16                 `quot` wORD_SIZE dflags
 
 idArgRep :: Id -> ArgRep
 idArgRep = toArgRep . idPrimRep
@@ -463,12 +463,13 @@ argBits dflags (arg : args) = take (argRepSizeW dflags arg) (repeat True)
 stdPattern :: [ArgRep] -> Maybe Int
 stdPattern reps
   = case reps of
-	[]  -> Just ARG_NONE	-- just void args, probably
-	[N] -> Just ARG_N
-	[P] -> Just ARG_P
-	[F] -> Just ARG_F
-	[D] -> Just ARG_D
-	[L] -> Just ARG_L
+	[]    -> Just ARG_NONE	-- just void args, probably
+	[N]   -> Just ARG_N
+	[P]   -> Just ARG_P
+	[F]   -> Just ARG_F
+	[D]   -> Just ARG_D
+	[L]   -> Just ARG_L
+	[V16] -> Just ARG_V16
 
 	[N,N] -> Just ARG_NN
 	[N,P] -> Just ARG_NP
@@ -534,116 +535,3 @@ emitClosureAndInfoTable info_tbl conv args body
        ; let entry_lbl = toEntryLbl (cit_lbl info_tbl)
        ; emitProcWithConvention conv (Just info_tbl) entry_lbl args blks
        }
-
------------------------------------------------------------------------------
---
---	Info table offsets
---
------------------------------------------------------------------------------
-	
-stdInfoTableSizeW :: DynFlags -> WordOff
--- The size of a standard info table varies with profiling/ticky etc,
--- so we can't get it from Constants
--- It must vary in sync with mkStdInfoTable
-stdInfoTableSizeW dflags
-  = size_fixed + size_prof
-  where
-    size_fixed = 2	-- layout, type
-    size_prof | gopt Opt_SccProfilingOn dflags = 2
-	      | otherwise	   = 0
-
-stdInfoTableSizeB  :: DynFlags -> ByteOff
-stdInfoTableSizeB dflags = stdInfoTableSizeW dflags * wORD_SIZE dflags
-
-stdSrtBitmapOffset :: DynFlags -> ByteOff
--- Byte offset of the SRT bitmap half-word which is 
--- in the *higher-addressed* part of the type_lit
-stdSrtBitmapOffset dflags = stdInfoTableSizeB dflags - hALF_WORD_SIZE dflags
-
-stdClosureTypeOffset :: DynFlags -> ByteOff
--- Byte offset of the closure type half-word 
-stdClosureTypeOffset dflags = stdInfoTableSizeB dflags - wORD_SIZE dflags
-
-stdPtrsOffset, stdNonPtrsOffset :: DynFlags -> ByteOff
-stdPtrsOffset    dflags = stdInfoTableSizeB dflags - 2 * wORD_SIZE dflags
-stdNonPtrsOffset dflags = stdInfoTableSizeB dflags - 2 * wORD_SIZE dflags + hALF_WORD_SIZE dflags
-
--------------------------------------------------------------------------
---
---	Accessing fields of an info table
---
--------------------------------------------------------------------------
-
-closureInfoPtr :: DynFlags -> CmmExpr -> CmmExpr
--- Takes a closure pointer and returns the info table pointer
-closureInfoPtr dflags e = CmmLoad e (bWord dflags)
-
-entryCode :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info pointer (the first word of a closure)
--- and returns its entry code
-entryCode dflags e
- | tablesNextToCode dflags = e
- | otherwise               = CmmLoad e (bWord dflags)
-
-getConstrTag :: DynFlags -> CmmExpr -> CmmExpr
--- Takes a closure pointer, and return the *zero-indexed*
--- constructor tag obtained from the info table
--- This lives in the SRT field of the info table
--- (constructors don't need SRTs).
-getConstrTag dflags closure_ptr
-  = CmmMachOp (MO_UU_Conv (halfWordWidth dflags) (wordWidth dflags)) [infoTableConstrTag dflags info_table]
-  where
-    info_table = infoTable dflags (closureInfoPtr dflags closure_ptr)
-
-cmmGetClosureType :: DynFlags -> CmmExpr -> CmmExpr
--- Takes a closure pointer, and return the closure type
--- obtained from the info table
-cmmGetClosureType dflags closure_ptr
-  = CmmMachOp (MO_UU_Conv (halfWordWidth dflags) (wordWidth dflags)) [infoTableClosureType dflags info_table]
-  where
-    info_table = infoTable dflags (closureInfoPtr dflags closure_ptr)
-
-infoTable :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info pointer (the first word of a closure)
--- and returns a pointer to the first word of the standard-form
--- info table, excluding the entry-code word (if present)
-infoTable dflags info_ptr
-  | tablesNextToCode dflags = cmmOffsetB dflags info_ptr (- stdInfoTableSizeB dflags)
-  | otherwise               = cmmOffsetW dflags info_ptr 1 -- Past the entry code pointer
-
-infoTableConstrTag :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info table pointer (from infoTable) and returns the constr tag
--- field of the info table (same as the srt_bitmap field)
-infoTableConstrTag = infoTableSrtBitmap
-
-infoTableSrtBitmap :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info table pointer (from infoTable) and returns the srt_bitmap
--- field of the info table
-infoTableSrtBitmap dflags info_tbl
-  = CmmLoad (cmmOffsetB dflags info_tbl (stdSrtBitmapOffset dflags)) (bHalfWord dflags)
-
-infoTableClosureType :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info table pointer (from infoTable) and returns the closure type
--- field of the info table.
-infoTableClosureType dflags info_tbl
-  = CmmLoad (cmmOffsetB dflags info_tbl (stdClosureTypeOffset dflags)) (bHalfWord dflags)
-
-infoTablePtrs :: DynFlags -> CmmExpr -> CmmExpr
-infoTablePtrs dflags info_tbl
-  = CmmLoad (cmmOffsetB dflags info_tbl (stdPtrsOffset dflags)) (bHalfWord dflags)
-
-infoTableNonPtrs :: DynFlags -> CmmExpr -> CmmExpr
-infoTableNonPtrs dflags info_tbl
-  = CmmLoad (cmmOffsetB dflags info_tbl (stdNonPtrsOffset dflags)) (bHalfWord dflags)
-
-funInfoTable :: DynFlags -> CmmExpr -> CmmExpr
--- Takes the info pointer of a function,
--- and returns a pointer to the first word of the StgFunInfoExtra struct
--- in the info table.
-funInfoTable dflags info_ptr
-  | tablesNextToCode dflags
-  = cmmOffsetB dflags info_ptr (- stdInfoTableSizeB dflags - sIZEOF_StgFunInfoExtraRev dflags)
-  | otherwise
-  = cmmOffsetW dflags info_ptr (1 + stdInfoTableSizeW dflags)
-				-- Past the entry code pointer
-

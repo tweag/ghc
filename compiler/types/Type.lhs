@@ -50,7 +50,7 @@ module Type (
         coAxNthLHS,
 	
 	-- (Newtypes)
-	newTyConInstRhs, carefullySplitNewType_maybe,
+	newTyConInstRhs, 
 	
 	-- Pred types
         mkFamilyTyConApp,
@@ -142,7 +142,17 @@ module Type (
         CoAxiomRule, Eqn,
         co_axr_rule, co_axr_tylit_rule, co_axr_tynum2_rule,
         co_axr_inst, co_axr_asmps, co_axr_is_rule,
-        isImplicitCoAxiomRule
+        isImplicitCoAxiomRule,
+
+        -- * Tidying type related things up for printing
+        tidyType,      tidyTypes,
+        tidyOpenType,  tidyOpenTypes,
+        tidyOpenKind,
+        tidyTyVarBndr, tidyTyVarBndrs, tidyFreeTyVars,
+        tidyOpenTyVar, tidyOpenTyVars,
+        tidyTyVarOcc,
+        tidyTopType,
+        tidyKind
     ) where
 
 #include "HsVersions.h"
@@ -161,7 +171,7 @@ import VarSet
 import Class
 import TyCon
 import TysPrim
-import {-# SOURCE #-} TysWiredIn ( eqTyCon, typeNatKind, typeStringKind )
+import {-# SOURCE #-} TysWiredIn ( eqTyCon, typeNatKind, typeSymbolKind )
 import PrelNames ( eqTyConKey, ipClassNameKey, 
                    constraintKindTyConKey, liftedTypeKindTyConKey )
 import CoAxiom
@@ -417,18 +427,23 @@ splitAppTys ty = split ty ty []
 mkNumLitTy :: Integer -> Type
 mkNumLitTy n = LitTy (NumTyLit n)
 
+-- | Is this a numeric literal. We also look through type synonyms.
 isNumLitTy :: Type -> Maybe Integer
+isNumLitTy ty | Just ty1 <- tcView ty = isNumLitTy ty1
 isNumLitTy (LitTy (NumTyLit n)) = Just n
 isNumLitTy _                    = Nothing
 
 mkStrLitTy :: FastString -> Type
 mkStrLitTy s = LitTy (StrTyLit s)
 
+-- | Is this a symbol literal. We also look through type synonyms.
 isStrLitTy :: Type -> Maybe FastString
+isStrLitTy ty | Just ty1 <- tcView ty = isStrLitTy ty1
 isStrLitTy (LitTy (StrTyLit s)) = Just s
 isStrLitTy _                    = Nothing
 
 isTyLit :: Type -> Maybe TyLit
+isTyLit ty | Just ty1 <- tcView ty = isTyLit ty1
 isTyLit (LitTy x) = Just x
 isTyLit _         = Nothing
 
@@ -669,8 +684,13 @@ repType ty
 	= go rec_nts ty
 
     go rec_nts (TyConApp tc tys)	-- Expand newtypes
-      | Just (rec_nts', ty') <- carefullySplitNewType_maybe rec_nts tc tys
-      = go rec_nts' ty'
+      | isNewTyCon tc
+      , tys `lengthAtLeast` tyConArity tc
+      , let tc_name = tyConName tc
+            rec_nts' | isRecursiveTyCon tc = addOneToNameSet rec_nts tc_name
+	             | otherwise	   = rec_nts
+      , not (tc_name `elemNameSet` rec_nts)  -- See Note [Expanding newtypes]
+      = go rec_nts' (newTyConInstRhs tc tys)
 
       | isUnboxedTupleTyCon tc
       = if null tys
@@ -678,21 +698,6 @@ repType ty
          else UbxTupleRep (concatMap (flattenRepType . go rec_nts) tys)
 
     go _ ty = UnaryRep ty
-
-carefullySplitNewType_maybe :: NameSet -> TyCon -> [Type] -> Maybe (NameSet,Type)
--- Return the representation of a newtype, unless 
--- we've seen it already: see Note [Expanding newtypes]
--- Assumes the newtype is saturated
-carefullySplitNewType_maybe rec_nts tc tys
-  | isNewTyCon tc
-  , tys `lengthAtLeast` tyConArity tc
-  , not (tc_name `elemNameSet` rec_nts) = Just (rec_nts', newTyConInstRhs tc tys)
-  | otherwise	   	                = Nothing
-  where
-    tc_name = tyConName tc
-    rec_nts' | isRecursiveTyCon tc = addOneToNameSet rec_nts tc_name
-	     | otherwise	   = rec_nts
-
 
 -- ToDo: this could be moved to the code generator, using splitTyConApp instead
 -- of inspecting the type directly.
@@ -1642,7 +1647,7 @@ typeLiteralKind :: TyLit -> Kind
 typeLiteralKind l =
   case l of
     NumTyLit _ -> typeNatKind
-    StrTyLit _ -> typeStringKind
+    StrTyLit _ -> typeSymbolKind
 \end{code}
 
 Kind inference

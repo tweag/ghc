@@ -1,7 +1,6 @@
-
 # -----------------------------------------------------------------------------
 #
-# (c) 2009 The University of Glasgow
+# (c) 2009-2013 The University of Glasgow
 #
 # This file is part of the GHC build system.
 #
@@ -155,6 +154,7 @@ endif
 include rules/prof.mk
 include rules/trace.mk
 include rules/library-path.mk
+include rules/add-dependency.mk
 include rules/make-command.mk
 include rules/pretty_commands.mk
 
@@ -207,6 +207,7 @@ endif
 # -----------------------------------------------------------------------------
 # Compilation Flags
 
+include rules/distdir-opts.mk
 include rules/distdir-way-opts.mk
 
 # -----------------------------------------------------------------------------
@@ -227,7 +228,8 @@ include rules/cmm-objs.mk
 ifneq "$(CLEANING)" "YES"
 
 include rules/hs-suffix-rules-srcdir.mk
-include rules/hs-suffix-rules.mk
+include rules/hs-suffix-way-rules-srcdir.mk
+include rules/hs-suffix-way-rules.mk
 include rules/hi-rule.mk
 include rules/c-suffix-rules.mk
 include rules/cmm-suffix-rules.mk
@@ -338,8 +340,11 @@ PKGS_THAT_ARE_DPH := \
 # Packages that, if present, must be built by the stage2 compiler,
 # because they use TH and/or annotations, or depend on other stage2
 # packages:
-PKGS_THAT_BUILD_WITH_STAGE2 := \
-    $(PKGS_THAT_ARE_DPH) old-time haskell98 haskell2010
+PKGS_THAT_BUILD_WITH_STAGE2 := $(PKGS_THAT_ARE_DPH)
+ifeq "$(CrossCompiling)" "NO"
+# We cannot use the stage 2 compiler, it runs on $(TARGETPLATFORM)
+PKGS_THAT_BUILD_WITH_STAGE2 +=  old-time haskell98 haskell2010
+endif
 
 # Packages that we shouldn't build if we don't have TH (e.g. because
 # we're building a profiled compiler):
@@ -351,7 +356,10 @@ PKGS_THAT_USE_TH := $(PKGS_THAT_ARE_DPH)
 #
 # We assume that the stage0 compiler has a suitable bytestring package,
 # so we don't have to include it below.
-PKGS_THAT_BUILD_WITH_STAGE0 = Cabal/Cabal hpc binary bin-package-db hoopl transformers
+PKGS_THAT_BUILD_WITH_STAGE0 = Cabal/Cabal hpc bin-package-db hoopl transformers
+ifeq "$(Windows)" "NO"
+PKGS_THAT_BUILD_WITH_STAGE0 += terminfo
+endif
 
 # $(EXTRA_PACKAGES)  is another classification, of packages built but
 #                    not installed
@@ -397,7 +405,7 @@ endef
 define addPackage # args: $1 = package, $2 = condition
 ifneq "$(filter $1,$(PKGS_THAT_USE_TH)) $(GhcProfiled)" "$1 YES"
 ifeq "$(filter $1,$(PKGS_THAT_BUILD_WITH_STAGE2))" "$1"
-ifneq "$(BuildingCrossCompiler)" "YES"
+ifneq "$(CrossCompiling)" "YES"
 $(call addPackageGeneral,PACKAGES_STAGE2,$1,$2)
 endif
 else
@@ -460,7 +468,7 @@ $(eval $(call extra-packages))
 # parallelism, but we don't know the dependencies until we've
 # generated the package-data.mk files.
 define fixed_pkg_dep
-libraries/$1/$2/package-data.mk : $$(GHC_PKG_INPLACE) $$(fixed_pkg_prev)
+libraries/$1/$2/package-data.mk : $$(fixed_pkg_prev)
 fixed_pkg_prev:=libraries/$1/$2/package-data.mk
 endef
 
@@ -562,23 +570,6 @@ libraries/dph/dph-lifted-copy_dist-install_EXCLUDED_WAYS := dyn
 libraries/dph/dph-lifted-vseg_dist-install_EXCLUDED_WAYS := dyn
 endif
 
-# ----------------------------------------------
-# Checking packages with 'cabal check'
-
-ifeq "$(phase)" "final"
-ifeq "$(CHECK_PACKAGES)" "YES"
-all: check_packages
-endif
-endif
-
-# These packages don't pass the Cabal checks because hs-source-dirs
-# points outside the source directory. This isn't a real problem in
-# these cases, so we just skip checking them.
-# NB. these must come before we include the ghc.mk files below, because
-# they disable the relevant rules.
-# In compiler's case, include-dirs points outside of the source tree
-CHECKED_compiler = YES
-
 # -----------------------------------------------------------------------------
 # Include build instructions from all subdirs
 
@@ -608,7 +599,7 @@ BUILD_DIRS += \
    $(GHC_GENPRIMOP_DIR)
 endif
 
-ifeq "$(BuildingCrossCompiler)-$(phase)" "YES-final"
+ifeq "$(Stage1Only)-$(phase)" "YES-final"
 MAYBE_GHCI=
 else
 MAYBE_GHCI=driver/ghci
@@ -640,13 +631,11 @@ else ifneq "$(findstring clean,$(MAKECMDGOALS))" ""
 BUILD_DIRS += libraries/integer-gmp/gmp
 endif
 
-ifeq "$(BuildingCrossCompiler)-$(phase)" "YES-final"
-MAYBE_COMPILER=
+ifeq "$(CrossCompiling)-$(phase)" "YES-final"
 MAYBE_GHCTAGS=
 MAYBE_HPC=
 MAYBE_RUNGHC=
 else
-MAYBE_COMPILER=compiler
 MAYBE_GHCTAGS=utils/ghctags
 MAYBE_HPC=utils/hpc
 MAYBE_RUNGHC=utils/runghc
@@ -655,7 +644,7 @@ endif
 BUILD_DIRS += \
    utils/haddock \
    utils/haddock/doc \
-   $(MAYBE_COMPILER) \
+   compiler \
    $(GHC_HSC2HS_DIR) \
    $(GHC_PKG_DIR) \
    utils/deriveConstants \
@@ -668,7 +657,7 @@ BUILD_DIRS += \
    ghc
 
 ifneq "$(BINDIST)" "YES"
-ifneq "$(BuildingCrossCompiler)-$(phase)" "YES-final"
+ifneq "$(CrossCompiling)-$(phase)" "YES-final"
 BUILD_DIRS += \
    utils/mkUserGuidePart
 endif
@@ -725,7 +714,7 @@ $(foreach p,$(PACKAGES_STAGE0),$(eval libraries/$p_dist-boot_DO_HADDOCK = NO))
 # Build the Haddock contents and index
 ifeq "$(HADDOCK_DOCS)" "YES"
 libraries/dist-haddock/index.html: inplace/bin/haddock$(exeext) $(ALL_HADDOCK_FILES)
-	cd libraries && sh gen_contents_index --inplace
+	cd libraries && sh gen_contents_index --intree
 ifeq "$(phase)" "final"
 $(eval $(call all-target,library_doc_index,libraries/dist-haddock/index.html))
 endif
@@ -753,8 +742,8 @@ $(eval $(call clean-target,$(BOOTSTRAPPING_CONF),,$(BOOTSTRAPPING_CONF)))
 # lost).
 fixed_pkg_prev=
 $(foreach pkg,$(PACKAGES_STAGE0),$(eval $(call fixed_pkg_dep,$(pkg),dist-boot)))
-
-compiler/stage1/package-data.mk : $(fixed_pkg_prev)
+utils/ghc-pkg/dist/package-data.mk: $(fixed_pkg_prev)
+compiler/stage1/package-data.mk:    $(fixed_pkg_prev)
 endif
 
 ifneq "$(BINDIST)" "YES"
@@ -911,7 +900,7 @@ INSTALLED_GHC_PKG_REAL=$(DESTDIR)$(bindir)/ghc-pkg.exe
 endif
 
 INSTALLED_PKG_DIRS := $(addprefix libraries/,$(PACKAGES_STAGE1))
-ifeq "$(BuildingCrossCompiler)" "NO"
+ifeq "$(Stage1Only)" "NO"
 INSTALLED_PKG_DIRS := $(INSTALLED_PKG_DIRS) compiler
 endif
 INSTALLED_PKG_DIRS := $(INSTALLED_PKG_DIRS) $(addprefix libraries/,$(PACKAGES_STAGE2))
@@ -941,7 +930,6 @@ ifeq "$(DYNAMIC_BY_DEFAULT)" "YES"
 endif
 	$(foreach p, $(INSTALLED_PKG_DIRS),                           \
 	    $(call make-command,                                      \
-	           CROSS_COMPILE="$(CrossCompilePrefix)"              \
 	           "$(GHC_CABAL_INPLACE)" copy                        \
 	                                  "$(STRIP_CMD)"              \
 	                                  $p $(INSTALL_DISTDIR_$p)    \
@@ -952,7 +940,6 @@ endif
 	"$(INSTALLED_GHC_PKG_REAL)" --force --global-package-db "$(INSTALLED_PACKAGE_CONF)" update rts/package.conf.install
 	$(foreach p, $(INSTALLED_PKG_DIRS),                           \
 	    $(call make-command,                                      \
-	           CROSS_COMPILE="$(CrossCompilePrefix)"              \
 	           "$(GHC_CABAL_INPLACE)" register                    \
 	                                  "$(INSTALLED_GHC_REAL)"     \
 	                                  "$(INSTALLED_GHC_PKG_REAL)" \
@@ -1204,16 +1191,6 @@ publish-sdist :
 	$(call try10Times,$(PublishCp) $(SRC_DIST_TESTSUITE_TARBALL) $(PublishLocation)/dist)
 endif
 
-ifeq "$(BootingFromHc)" "YES"
-# In a normal build we use GHC to compile C files (see
-# rules/c-suffix-rules.mk), which passes a number of its own options
-# to the C compiler.  So when bootstrapping we have to provide these
-# flags explicitly to C compilations.
-SRC_CC_OPTS += -DNO_REGS -DUSE_MINIINTERPRETER
-SRC_CC_OPTS += -D__GLASGOW_HASKELL__=$(ProjectVersionInt)
-SRC_CC_OPTS += $(addprefix -I,$(GHC_INCLUDE_DIRS))
-endif
-
 # -----------------------------------------------------------------------------
 # sdisting libraries
 
@@ -1230,7 +1207,6 @@ sdist_%:
 
 CLEAN_FILES += libraries/bootstrapping.conf
 CLEAN_FILES += libraries/integer-gmp/cbits/GmpDerivedConstants.h
-CLEAN_FILES += libraries/integer-gmp/cbits/mkGmpDerivedConstants
 
 # These are no longer generated, but we still clean them for a while
 # as they may still be in old GHC trees:
@@ -1349,6 +1325,8 @@ endif
 # Numbered phase targets
 
 .PHONY: phase_0_builds
+phase_0_builds: $(utils/ghc-pkg_dist_depfile_haskell)
+phase_0_builds: $(utils/ghc-pkg_dist_depfile_c_asm)
 phase_0_builds: $(utils/hsc2hs_dist_depfile_haskell)
 phase_0_builds: $(utils/hsc2hs_dist_depfile_c_asm)
 phase_0_builds: $(utils/genprimopcode_dist_depfile_haskell)

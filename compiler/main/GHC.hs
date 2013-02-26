@@ -17,7 +17,6 @@ module GHC (
         runGhc, runGhcT, initGhcMonad,
         gcatch, gbracket, gfinally,
         printException,
-        printExceptionAndWarnings,
         handleSourceError,
         needsTemplateHaskell,
 
@@ -289,8 +288,7 @@ import DriverPhases     ( Phase(..), isHaskellSrcFilename )
 import Finder
 import HscTypes
 import DynFlags
-import StaticFlagParser
-import qualified StaticFlags
+import StaticFlags
 import SysTools
 import Annotations
 import Module
@@ -349,7 +347,7 @@ defaultErrorHandler fm (FlushOut flushOut) inner =
                      Just StackOverflow ->
                          fatalErrorMsg'' fm "stack overflow: use +RTS -K<size> to increase it"
                      _ -> case fromException exception of
-                          Just (ex :: ExitCode) -> throw ex
+                          Just (ex :: ExitCode) -> liftIO $ throwIO ex
                           _ ->
                               fatalErrorMsg'' fm
                                   (show (Panic (show exception)))
@@ -446,7 +444,7 @@ initGhcMonad mb_top_dir = do
   -- catch ^C
   liftIO $ installSignalHandlers
 
-  liftIO $ StaticFlags.initStaticOpts
+  liftIO $ initStaticOpts
 
   mySettings <- liftIO $ initSysTools mb_top_dir
   dflags <- liftIO $ initDynFlags (defaultDynFlags mySettings)
@@ -619,7 +617,7 @@ guessTarget str Nothing
            then return (target (TargetModule (mkModuleName file)))
            else do
         dflags <- getDynFlags
-        throwGhcException
+        liftIO $ throwGhcExceptionIO
                  (ProgramError (showSDoc dflags $
                  text "target" <+> quotes (text file) <+> 
                  text "is not a module name or a source file"))
@@ -749,10 +747,10 @@ getModSummary mod = do
    mg <- liftM hsc_mod_graph getSession
    case [ ms | ms <- mg, ms_mod_name ms == mod, not (isBootSummary ms) ] of
      [] -> do dflags <- getDynFlags
-              throw $ mkApiErr dflags (text "Module not part of module graph")
+              liftIO $ throwIO $ mkApiErr dflags (text "Module not part of module graph")
      [ms] -> return ms
      multiple -> do dflags <- getDynFlags
-                    throw $ mkApiErr dflags (text "getModSummary is ambiguous: " <+> ppr multiple)
+                    liftIO $ throwIO $ mkApiErr dflags (text "getModSummary is ambiguous: " <+> ppr multiple)
 
 -- | Parse a module.
 --
@@ -1214,7 +1212,7 @@ getModuleSourceAndFlags mod = do
   m <- getModSummary (moduleName mod)
   case ml_hs_file $ ms_location m of
     Nothing -> do dflags <- getDynFlags
-                  throw $ mkApiErr dflags (text "No source available for module " <+> ppr mod)
+                  liftIO $ throwIO $ mkApiErr dflags (text "No source available for module " <+> ppr mod)
     Just sourceFile -> do
         source <- liftIO $ hGetStringBuffer sourceFile
         return (sourceFile, source, ms_hspp_opts m)
@@ -1232,7 +1230,7 @@ getTokenStream mod = do
     POk _ ts  -> return ts
     PFailed span err ->
         do dflags <- getDynFlags
-           throw $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
+           liftIO $ throwIO $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
 
 -- | Give even more information on the source than 'getTokenStream'
 -- This function allows reconstructing the source completely with
@@ -1245,7 +1243,7 @@ getRichTokenStream mod = do
     POk _ ts -> return $ addSourceToTokens startLoc source ts
     PFailed span err ->
         do dflags <- getDynFlags
-           throw $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
+           liftIO $ throwIO $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
 
 -- | Given a source location and a StringBuffer corresponding to this
 -- location, return a rich token stream with the source associated to the
@@ -1324,7 +1322,7 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
              err -> noModError dflags noSrcSpan mod_name err
 
 modNotLoadedError :: DynFlags -> Module -> ModLocation -> IO a
-modNotLoadedError dflags m loc = throwGhcException $ CmdLineError $ showSDoc dflags $
+modNotLoadedError dflags m loc = throwGhcExceptionIO $ CmdLineError $ showSDoc dflags $
    text "module is not loaded:" <+> 
    quotes (ppr (moduleName m)) <+>
    parens (text (expectJust "modNotLoadedError" (ml_hs_file loc)))

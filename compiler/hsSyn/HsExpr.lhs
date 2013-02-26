@@ -21,6 +21,7 @@ import HsBinds
 import TcEvidence
 import CoreSyn
 import Var
+import RdrName
 import Name
 import BasicTypes
 import DataCon
@@ -178,8 +179,9 @@ data HsExpr id
                 [ExprLStmt id]       -- "do":one or more stmts
                 PostTcType           -- Type of the whole expression
 
-  | ExplicitList                -- syntactic list
-                PostTcType      -- Gives type of components of list
+  | ExplicitList                        -- syntactic list
+                PostTcType              -- Gives type of components of list
+                (Maybe (SyntaxExpr id)) -- For OverloadedLists, the fromListN witness
                 [LHsExpr id]
 
   | ExplicitPArr                -- syntactic parallel array: [:e1, ..., en:]
@@ -214,8 +216,9 @@ data HsExpr id
                 (LHsType Name)          -- Retain the signature for
                                         -- round-tripping purposes
 
-  | ArithSeq                            -- arithmetic sequence
+  | ArithSeq                            -- Arithmetic sequence
                 PostTcExpr
+                (Maybe (SyntaxExpr id))   -- For OverloadedLists, the fromList witness
                 (ArithSeqInfo id)
 
   | PArrSeq                             -- arith. sequence for parallel array
@@ -309,7 +312,7 @@ data HsExpr id
 
   |  HsWrap     HsWrapper    -- TRANSLATION
                 (HsExpr id)
-  |  HsHole
+  |  HsUnboundVar RdrName
   deriving (Data, Typeable)
 
 -- HsTupArg is used for tuple sections
@@ -499,7 +502,7 @@ ppr_expr (HsLet binds expr)
 
 ppr_expr (HsDo do_or_list_comp stmts _) = pprDo do_or_list_comp stmts
 
-ppr_expr (ExplicitList _ exprs)
+ppr_expr (ExplicitList _ _ exprs)
   = brackets (pprDeeperList fsep (punctuate comma (map ppr_lexpr exprs)))
 
 ppr_expr (ExplicitPArr _ exprs)
@@ -518,7 +521,7 @@ ppr_expr (ExprWithTySigOut expr sig)
   = hang (nest 2 (ppr_lexpr expr) <+> dcolon)
          4 (ppr sig)
 
-ppr_expr (ArithSeq _ info) = brackets (ppr info)
+ppr_expr (ArithSeq _ _ info) = brackets (ppr info)
 ppr_expr (PArrSeq  _ info) = paBrackets (ppr info)
 
 ppr_expr EWildPat       = char '_'
@@ -575,8 +578,8 @@ ppr_expr (HsArrForm (L _ (HsVar v)) (Just _) [arg1, arg2])
 ppr_expr (HsArrForm op _ args)
   = hang (ptext (sLit "(|") <+> ppr_lexpr op)
          4 (sep (map (pprCmdArg.unLoc) args) <+> ptext (sLit "|)"))
-ppr_expr HsHole
-  = ptext $ sLit "_"
+ppr_expr (HsUnboundVar nm)
+  = ppr nm
 
 \end{code}
 
@@ -612,7 +615,7 @@ hsExprNeedsParens (PArrSeq {})        = False
 hsExprNeedsParens (HsLit {})          = False
 hsExprNeedsParens (HsOverLit {})      = False
 hsExprNeedsParens (HsVar {})          = False
-hsExprNeedsParens (HsHole {})         = False
+hsExprNeedsParens (HsUnboundVar {})   = False
 hsExprNeedsParens (HsIPVar {})        = False
 hsExprNeedsParens (ExplicitTuple {})  = False
 hsExprNeedsParens (ExplicitList {})   = False
@@ -631,7 +634,7 @@ isAtomicHsExpr (HsVar {})     = True
 isAtomicHsExpr (HsLit {})     = True
 isAtomicHsExpr (HsOverLit {}) = True
 isAtomicHsExpr (HsIPVar {})   = True
-isAtomicHsExpr (HsHole {})    = True
+isAtomicHsExpr (HsUnboundVar {}) = True
 isAtomicHsExpr (HsWrap _ e)   = isAtomicHsExpr e
 isAtomicHsExpr (HsPar e)      = isAtomicHsExpr (unLoc e)
 isAtomicHsExpr _              = False
