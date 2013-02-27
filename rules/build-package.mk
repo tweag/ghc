@@ -75,6 +75,15 @@ else
 $1_$2_WAYS = $$(filter-out $$($1_$2_EXCLUDED_WAYS),$$(GhcLibWays))
 endif
 
+$1_$2_DYNAMIC_TOO = NO
+ifneq "$$(DYNAMIC_TOO)" "NO"
+ifneq "$$(filter v,$$($1_$2_WAYS))" ""
+ifneq "$$(filter dyn,$$($1_$2_WAYS))" ""
+$1_$2_DYNAMIC_TOO = YES
+endif
+endif
+endif
+
 # We must use a different dependency file if $(GhcLibWays) changes, so
 # encode the ways into the name of the file.
 $1_$2_WAYS_DASHED = $$(subst $$(space),,$$(patsubst %,-%,$$(strip $$($1_$2_WAYS))))
@@ -105,6 +114,7 @@ endif
 $(call hs-sources,$1,$2)
 $(call c-sources,$1,$2)
 $(call includes-sources,$1,$2)
+$(call distdir-opts,$1,$2,$3)
 
 $(call dependencies,$1,$2,$3)
 
@@ -123,26 +133,21 @@ $$(foreach way,$$($1_$2_WAYS),$$(eval \
 # If dyn libs are not being built then $$($1_$2_dyn_LIB) will just
 # expand to the empty string, and be ignored.
 $1_$2_PROGRAM_DEP_LIB = $$($1_$2_v_LIB) $$($1_$2_dyn_LIB)
+$$($1_PACKAGE)-$$($1_$2_VERSION)_$2_PROGRAM_DEP_LIB = $$($1_$2_PROGRAM_DEP_LIB)
 
 # C and S files are possibly built the "dyn" way.
 ifeq "$$(BuildSharedLibs)" "YES"
 $(call c-objs,$1,$2,dyn)
 $(call c-suffix-rules,$1,$2,dyn,YES)
 endif
+$$(foreach dir,$$($1_$2_HS_SRC_DIRS),\
+  $$(eval $$(call hs-suffix-rules-srcdir,$1,$2,$$(dir))))
 
 $(call all-target,$1,all_$1_$2)
 # This give us things like
 #     all_libraries: all_libraries/base_dist-install
 ifneq "$$($1_$2_GROUP)" ""
 all_$$($1_$2_GROUP): all_$1_$2
-endif
-
-ifneq "$$(CHECKED_$1)" "YES"
-CHECKED_$1 = YES
-check_packages: check_$1
-.PHONY: check_$1
-check_$1: $$(GHC_CABAL_INPLACE)
-	CROSS_COMPILE="$(CrossCompilePrefix)" $$(GHC_CABAL_INPLACE) check $1
 endif
 
 ifneq "$3" "0"

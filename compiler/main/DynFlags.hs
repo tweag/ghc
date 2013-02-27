@@ -169,9 +169,12 @@ import qualified Data.Set as Set
 import Data.Word
 import System.FilePath
 import System.IO
+import System.IO.Error
 
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
+
+import GHC.Foreign (withCString, peekCString)
 
 -- -----------------------------------------------------------------------------
 -- DynFlags
@@ -480,6 +483,7 @@ data ExtensionFlag
    | Opt_BangPatterns
    | Opt_TypeFamilies
    | Opt_OverloadedStrings
+   | Opt_OverloadedLists
    | Opt_DisambiguateRecordFields
    | Opt_RecordWildCards
    | Opt_RecordPuns
@@ -706,6 +710,8 @@ data DynFlags = DynFlags {
   pprUserLength         :: Int,
   pprCols               :: Int,
   traceLevel            :: Int, -- Standard level is 1. Less verbose is 0.
+
+  useUnicodeQuotes      :: Bool,
 
   -- | what kind of {-# SCC #-} to add automatically
   profAuto              :: ProfAuto,
@@ -1175,6 +1181,12 @@ initDynFlags dflags = do
  refGeneratedDumps <- newIORef Set.empty
  refLlvmVersion <- newIORef 28
  wrapperNum <- newIORef 0
+ canUseUnicodeQuotes <- do let enc = localeEncoding
+                               str = "‛’"
+                           (withCString enc str $ \cstr ->
+                                do str' <- peekCString enc cstr
+                                   return (str == str'))
+                               `catchIOError` \_ -> return False
  return dflags{
         canGenerateDynamicToo = refCanGenerateDynamicToo,
         filesToClean   = refFilesToClean,
@@ -1182,7 +1194,8 @@ initDynFlags dflags = do
         filesToNotIntermediateClean = refFilesToNotIntermediateClean,
         generatedDumps = refGeneratedDumps,
         llvmVersion    = refLlvmVersion,
-        nextWrapperNum = wrapperNum
+        nextWrapperNum = wrapperNum,
+        useUnicodeQuotes = canUseUnicodeQuotes
         }
 
 -- | The normal 'DynFlags'. Note that they is not suitable for use in this form
@@ -1307,6 +1320,7 @@ defaultDynFlags mySettings =
         flushErr = defaultFlushErr,
         pprUserLength = 5,
         pprCols = 100,
+        useUnicodeQuotes = False,
         traceLevel = 1,
         profAuto = NoProfAuto,
         llvmVersion = panic "defaultDynFlags: No llvmVersion",
@@ -2594,6 +2608,7 @@ xFlags = [
     deprecatedForExtension "NamedFieldPuns" ),
   ( "DisambiguateRecordFields",         Opt_DisambiguateRecordFields, nop ),
   ( "OverloadedStrings",                Opt_OverloadedStrings, nop ),
+  ( "OverloadedLists",                  Opt_OverloadedLists, nop),
   ( "GADTs",                            Opt_GADTs, nop ),
   ( "GADTSyntax",                       Opt_GADTSyntax, nop ),
   ( "ViewPatterns",                     Opt_ViewPatterns, nop ),

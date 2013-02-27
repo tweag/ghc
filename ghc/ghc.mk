@@ -31,6 +31,11 @@ ifeq "$(compiler_stage1_VERSION_MUNGED)" "YES"
 ghc_stage1_CONFIGURE_OPTS += --constraint "ghc == $(compiler_stage1_MUNGED_VERSION)"
 endif
 
+# This package doesn't pass the Cabal checks because data-dir
+# points outside the source directory. This isn't a real problem, so
+# we just skip the check.
+ghc_NO_CHECK = YES
+
 ghc_stage1_MORE_HC_OPTS = $(GhcStage1HcOpts)
 ghc_stage2_MORE_HC_OPTS = $(GhcStage2HcOpts)
 ghc_stage3_MORE_HC_OPTS = $(GhcStage3HcOpts)
@@ -156,11 +161,6 @@ $(GHC_STAGE2) : | $(TOUCHY)
 $(GHC_STAGE3) : | $(TOUCHY)
 endif
 
-ifeq "$(BootingFromHc)" "YES"
-$(GHC_STAGE2) : $(ALL_STAGE1_LIBS)
-ghc_stage2_OTHER_OBJS += $(compiler_stage2_v_LIB) $(ALL_STAGE1_LIBS) $(ALL_STAGE1_LIBS) $(ALL_STAGE1_LIBS) $(ALL_RTS_LIBS) $(libffi_STATIC_LIB)
-endif
-
 endif
 
 INSTALL_LIBS += settings
@@ -177,7 +177,7 @@ else
 install: install_ghc_post
 .PHONY: install_ghc_post
 install_ghc_post: install_bins
-	$(call removeFiles,$(DESTDIR)$(bindir)/ghc.exe)
+	$(call removeFiles,"$(DESTDIR)$(bindir)/ghc.exe")
 	"$(MV)" -f $(DESTDIR)$(bindir)/ghc-stage$(INSTALL_GHC_STAGE).exe $(DESTDIR)$(bindir)/$(CrossCompilePrefix)ghc.exe
 endif
 

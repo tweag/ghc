@@ -1,7 +1,6 @@
-
 # -----------------------------------------------------------------------------
 #
-# (c) 2009 The University of Glasgow
+# (c) 2009-2013 The University of Glasgow
 #
 # This file is part of the GHC build system.
 #
@@ -208,6 +207,7 @@ endif
 # -----------------------------------------------------------------------------
 # Compilation Flags
 
+include rules/distdir-opts.mk
 include rules/distdir-way-opts.mk
 
 # -----------------------------------------------------------------------------
@@ -228,7 +228,8 @@ include rules/cmm-objs.mk
 ifneq "$(CLEANING)" "YES"
 
 include rules/hs-suffix-rules-srcdir.mk
-include rules/hs-suffix-rules.mk
+include rules/hs-suffix-way-rules-srcdir.mk
+include rules/hs-suffix-way-rules.mk
 include rules/hi-rule.mk
 include rules/c-suffix-rules.mk
 include rules/cmm-suffix-rules.mk
@@ -324,7 +325,7 @@ endif
 # Properties of packages
 
 # These lists say "if this package is built, here's a property it has"
-# They do not say "this package will be built"; see $(PACKAGES_xx) for that
+# They do not say "this package will be built"; see $(PACKAGES_STAGExx) for that
 
 # Packages that are built but not installed
 PKGS_THAT_ARE_INTREE_ONLY := haskeline terminfo xhtml
@@ -355,7 +356,10 @@ PKGS_THAT_USE_TH := $(PKGS_THAT_ARE_DPH)
 #
 # We assume that the stage0 compiler has a suitable bytestring package,
 # so we don't have to include it below.
-PKGS_THAT_BUILD_WITH_STAGE0 = Cabal/Cabal hpc binary bin-package-db hoopl transformers
+PKGS_THAT_BUILD_WITH_STAGE0 = Cabal/Cabal hpc bin-package-db hoopl transformers
+ifeq "$(Windows)" "NO"
+PKGS_THAT_BUILD_WITH_STAGE0 += terminfo
+endif
 
 # $(EXTRA_PACKAGES)  is another classification, of packages built but
 #                    not installed
@@ -464,7 +468,7 @@ $(eval $(call extra-packages))
 # parallelism, but we don't know the dependencies until we've
 # generated the package-data.mk files.
 define fixed_pkg_dep
-libraries/$1/$2/package-data.mk : $$(GHC_PKG_INPLACE) $$(fixed_pkg_prev)
+libraries/$1/$2/package-data.mk : $$(fixed_pkg_prev)
 fixed_pkg_prev:=libraries/$1/$2/package-data.mk
 endef
 
@@ -565,23 +569,6 @@ libraries/dph/dph-lifted-boxed_dist-install_EXCLUDED_WAYS := dyn
 libraries/dph/dph-lifted-copy_dist-install_EXCLUDED_WAYS := dyn
 libraries/dph/dph-lifted-vseg_dist-install_EXCLUDED_WAYS := dyn
 endif
-
-# ----------------------------------------------
-# Checking packages with 'cabal check'
-
-ifeq "$(phase)" "final"
-ifeq "$(CHECK_PACKAGES)" "YES"
-all: check_packages
-endif
-endif
-
-# These packages don't pass the Cabal checks because hs-source-dirs
-# points outside the source directory. This isn't a real problem in
-# these cases, so we just skip checking them.
-# NB. these must come before we include the ghc.mk files below, because
-# they disable the relevant rules.
-# In compiler's case, include-dirs points outside of the source tree
-CHECKED_compiler = YES
 
 # -----------------------------------------------------------------------------
 # Include build instructions from all subdirs
@@ -755,8 +742,8 @@ $(eval $(call clean-target,$(BOOTSTRAPPING_CONF),,$(BOOTSTRAPPING_CONF)))
 # lost).
 fixed_pkg_prev=
 $(foreach pkg,$(PACKAGES_STAGE0),$(eval $(call fixed_pkg_dep,$(pkg),dist-boot)))
-
-compiler/stage1/package-data.mk : $(fixed_pkg_prev)
+utils/ghc-pkg/dist/package-data.mk: $(fixed_pkg_prev)
+compiler/stage1/package-data.mk:    $(fixed_pkg_prev)
 endif
 
 ifneq "$(BINDIST)" "YES"
@@ -943,7 +930,6 @@ ifeq "$(DYNAMIC_BY_DEFAULT)" "YES"
 endif
 	$(foreach p, $(INSTALLED_PKG_DIRS),                           \
 	    $(call make-command,                                      \
-	           CROSS_COMPILE="$(CrossCompilePrefix)"              \
 	           "$(GHC_CABAL_INPLACE)" copy                        \
 	                                  "$(STRIP_CMD)"              \
 	                                  $p $(INSTALL_DISTDIR_$p)    \
@@ -954,7 +940,6 @@ endif
 	"$(INSTALLED_GHC_PKG_REAL)" --force --global-package-db "$(INSTALLED_PACKAGE_CONF)" update rts/package.conf.install
 	$(foreach p, $(INSTALLED_PKG_DIRS),                           \
 	    $(call make-command,                                      \
-	           CROSS_COMPILE="$(CrossCompilePrefix)"              \
 	           "$(GHC_CABAL_INPLACE)" register                    \
 	                                  "$(INSTALLED_GHC_REAL)"     \
 	                                  "$(INSTALLED_GHC_PKG_REAL)" \
@@ -1206,16 +1191,6 @@ publish-sdist :
 	$(call try10Times,$(PublishCp) $(SRC_DIST_TESTSUITE_TARBALL) $(PublishLocation)/dist)
 endif
 
-ifeq "$(BootingFromHc)" "YES"
-# In a normal build we use GHC to compile C files (see
-# rules/c-suffix-rules.mk), which passes a number of its own options
-# to the C compiler.  So when bootstrapping we have to provide these
-# flags explicitly to C compilations.
-SRC_CC_OPTS += -DNO_REGS -DUSE_MINIINTERPRETER
-SRC_CC_OPTS += -D__GLASGOW_HASKELL__=$(ProjectVersionInt)
-SRC_CC_OPTS += $(addprefix -I,$(GHC_INCLUDE_DIRS))
-endif
-
 # -----------------------------------------------------------------------------
 # sdisting libraries
 
@@ -1350,6 +1325,8 @@ endif
 # Numbered phase targets
 
 .PHONY: phase_0_builds
+phase_0_builds: $(utils/ghc-pkg_dist_depfile_haskell)
+phase_0_builds: $(utils/ghc-pkg_dist_depfile_c_asm)
 phase_0_builds: $(utils/hsc2hs_dist_depfile_haskell)
 phase_0_builds: $(utils/hsc2hs_dist_depfile_c_asm)
 phase_0_builds: $(utils/genprimopcode_dist_depfile_haskell)

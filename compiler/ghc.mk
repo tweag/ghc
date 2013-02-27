@@ -24,14 +24,19 @@ compiler_stage3_MKDEPENDC_OPTS = -DMAKING_GHC_BUILD_SYSTEM_DEPENDENCIES
 
 compiler_stage1_C_FILES_NODEPS = compiler/parser/cutils.c
 
+# This package doesn't pass the Cabal checks because include-dirs
+# points outside the source directory. This isn't a real problem, so
+# we just skip the check.
+compiler_NO_CHECK = YES
+
 ifneq "$(BINDIST)" "YES"
 compiler/stage1/package-data.mk : compiler/stage1/build/Config.hs
 compiler/stage2/package-data.mk : compiler/stage2/build/Config.hs
 compiler/stage3/package-data.mk : compiler/stage3/build/Config.hs
 
-compiler/stage1/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
-compiler/stage2/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
-compiler/stage3/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
+compiler/stage1/build/PlatformConstants.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
+compiler/stage2/build/PlatformConstants.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
+compiler/stage3/build/PlatformConstants.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
 compiler/stage1/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
 compiler/stage2/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
 compiler/stage3/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
@@ -253,7 +258,6 @@ compiler/stage$1/build/Parser.y: compiler/parser/Parser.y.pp
 compiler/stage$1/build/primops.txt: compiler/prelude/primops.txt.pp compiler/stage$1/$$(PLATFORM_H)
 	$$(CPP) $$(RAWCPP_FLAGS) -P $$(compiler_CPP_OPTS) -Icompiler/stage$1 -x c $$< | grep -v '^#pragma GCC' > $$@
 
-ifneq "$$(BootingFromHc)" "YES"
 compiler/stage$1/build/primop-data-decl.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
 	"$$(GENPRIMOP_INPLACE)" --data-decl          < $$< > $$@
 compiler/stage$1/build/primop-tag.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
@@ -281,7 +285,6 @@ compiler/stage$1/build/primop-primop-info.hs-incl: compiler/stage$1/build/primop
 # can still generate them if we want them back
 compiler/stage$1/build/primop-usage.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
 	"$$(GENPRIMOP_INPLACE)" --usage              < $$< > $$@
-endif
 
 endef
 
@@ -490,11 +493,11 @@ $(compiler_stage1_depfile_haskell) : $(COMPILER_INCLUDES_DEPS) $(PRIMOP_BITS_STA
 $(compiler_stage2_depfile_haskell) : $(COMPILER_INCLUDES_DEPS) $(PRIMOP_BITS_STAGE2)
 $(compiler_stage3_depfile_haskell) : $(COMPILER_INCLUDES_DEPS) $(PRIMOP_BITS_STAGE3)
 
-$(foreach way,$$(compiler_stage1_WAYS),\
+$(foreach way,$(compiler_stage1_WAYS),\
       compiler/stage1/build/PrimOp.$($(way)_osuf)) : $(PRIMOP_BITS_STAGE1)
-$(foreach way,$$(compiler_stage2_WAYS),\
+$(foreach way,$(compiler_stage2_WAYS),\
       compiler/stage2/build/PrimOp.$($(way)_osuf)) : $(PRIMOP_BITS_STAGE2)
-$(foreach way,$$(compiler_stage3_WAYS),\
+$(foreach way,$(compiler_stage3_WAYS),\
       compiler/stage3/build/PrimOp.$($(way)_osuf)) : $(PRIMOP_BITS_STAGE3)
 
 

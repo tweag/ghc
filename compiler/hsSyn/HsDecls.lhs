@@ -4,7 +4,8 @@
 %
 
 \begin{code}
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, DeriveFunctor, DeriveFoldable,
+             DeriveTraversable #-}
 
 -- | Abstract syntax of global declarations.
 --
@@ -15,7 +16,8 @@ module HsDecls (
   HsDecl(..), LHsDecl, HsDataDefn(..),
   -- ** Class or type declarations
   TyClDecl(..), LTyClDecl, TyClGroup,
-  isClassDecl, isDataDecl, isSynDecl, isFamilyDecl, tcdName,
+  isClassDecl, isDataDecl, isSynDecl, tcdName,
+  isFamilyDecl, isTypeFamilyDecl, isDataFamilyDecl,
   tyFamInstDeclName, tyFamInstDeclLName,
   countTyClDecls, pprTyClDeclFlavour,
   tyClDeclLName, tyClDeclTyVars,
@@ -53,7 +55,7 @@ module HsDecls (
   WarnDecl(..),  LWarnDecl,
   -- ** Annotations
   AnnDecl(..), LAnnDecl, 
-  AnnProvenance(..), annProvenanceName_maybe, modifyAnnProvenanceNameM,
+  AnnProvenance(..), annProvenanceName_maybe,
 
   -- * Grouping
   HsGroup(..),  emptyRdrGroup, emptyRnGroup, appendGroups
@@ -83,8 +85,9 @@ import SrcLoc
 import FastString
 
 import Bag
-import Control.Monad    ( liftM )
 import Data.Data        hiding (TyCon)
+import Data.Foldable (Foldable)
+import Data.Traversable
 \end{code}
 
 %************************************************************************
@@ -476,7 +479,7 @@ data FamilyDecl name = FamilyDecl
 data FamilyFlavour
   = TypeFamily
   | DataFamily
-  deriving( Data, Typeable )
+  deriving( Data, Typeable, Eq )
 
 \end{code}
 
@@ -500,10 +503,20 @@ isClassDecl :: TyClDecl name -> Bool
 isClassDecl (ClassDecl {}) = True
 isClassDecl _              = False
 
--- | type family declaration
+-- | type/data family declaration
 isFamilyDecl :: TyClDecl name -> Bool
 isFamilyDecl (FamDecl {})  = True
 isFamilyDecl _other        = False
+
+-- | type family declaration
+isTypeFamilyDecl :: TyClDecl name -> Bool
+isTypeFamilyDecl (FamDecl d) = fdFlavour d == TypeFamily
+isTypeFamilyDecl _other      = False
+
+-- | data family declaration
+isDataFamilyDecl :: TyClDecl name -> Bool
+isDataFamilyDecl (FamDecl d) = fdFlavour d == DataFamily
+isDataFamilyDecl _other      = False
 \end{code}
 
 Dealing with names
@@ -1348,20 +1361,12 @@ instance (OutputableBndr name) => Outputable (AnnDecl name) where
 data AnnProvenance name = ValueAnnProvenance name
                         | TypeAnnProvenance name
                         | ModuleAnnProvenance
-  deriving (Data, Typeable)
+  deriving (Data, Typeable, Functor, Foldable, Traversable)
 
 annProvenanceName_maybe :: AnnProvenance name -> Maybe name
 annProvenanceName_maybe (ValueAnnProvenance name) = Just name
 annProvenanceName_maybe (TypeAnnProvenance name)  = Just name
 annProvenanceName_maybe ModuleAnnProvenance       = Nothing
-
--- TODO: Replace with Traversable instance when GHC bootstrap version rises high enough
-modifyAnnProvenanceNameM :: Monad m => (before -> m after) -> AnnProvenance before -> m (AnnProvenance after)
-modifyAnnProvenanceNameM fm prov =
-    case prov of
-            ValueAnnProvenance name -> liftM ValueAnnProvenance (fm name)
-            TypeAnnProvenance name -> liftM TypeAnnProvenance (fm name)
-            ModuleAnnProvenance -> return ModuleAnnProvenance
 
 pprAnnProvenance :: OutputableBndr name => AnnProvenance name -> SDoc
 pprAnnProvenance ModuleAnnProvenance       = ptext (sLit "ANN module")
