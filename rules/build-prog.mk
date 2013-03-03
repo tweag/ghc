@@ -54,7 +54,7 @@ ifeq "$$($1_USES_CABAL)" "YES"
 $1_$2_USES_CABAL = YES
 endif
 
-ifeq "$$(Windows)" "YES"
+ifeq "$$(Windows_Host)" "YES"
 $1_$2_WANT_INPLACE_WRAPPER = NO
 else ifneq "$$($1_$2_INSTALL_INPLACE)" "YES"
 $1_$2_WANT_INPLACE_WRAPPER = NO
@@ -66,7 +66,7 @@ else
 $1_$2_WANT_INPLACE_WRAPPER = NO
 endif
 
-ifeq "$$(Windows)" "YES"
+ifeq "$$(Windows_Host)" "YES"
 $1_$2_WANT_INSTALLED_WRAPPER = NO
 else ifneq "$$($1_$2_INSTALL)" "YES"
 $1_$2_WANT_INSTALLED_WRAPPER = NO
@@ -87,15 +87,21 @@ else
 $1_$2_INPLACE =
 endif
 else
+ifeq "$(findstring clean,$(MAKECMDGOALS))" ""
+ifneq "$$($$($1_$2_PROG)_INPLACE)" ""
+$$(error $$($1_$2_PROG)_INPLACE defined twice)
+endif
+endif
+ifeq "$$($1_$2_TOPDIR)" "YES"
+$$($1_$2_PROG)_INPLACE = $$(INPLACE_TOPDIR)/$$($1_$2_PROG)
+else
+$$($1_$2_PROG)_INPLACE = $$(INPLACE_BIN)/$$($1_$2_PROG)
+endif
 # Where do we install the inplace version?
 ifeq "$$($1_$2_WANT_INPLACE_WRAPPER)" "YES"
 $1_$2_INPLACE = $$(INPLACE_LIB)/bin/$$($1_$2_PROG)
 else
-ifeq "$$($1_$2_TOPDIR)" "YES"
-$1_$2_INPLACE = $$(INPLACE_TOPDIR)/$$($1_$2_PROG)
-else
-$1_$2_INPLACE = $$(INPLACE_BIN)/$$($1_$2_PROG)
-endif
+$1_$2_INPLACE = $$($$($1_$2_PROG)_INPLACE)
 endif
 endif
 

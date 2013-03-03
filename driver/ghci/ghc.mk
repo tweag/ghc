@@ -10,7 +10,8 @@
 #
 # -----------------------------------------------------------------------------
 
-ifneq "$(Windows)" "YES"
+ifeq "$(GhcWithInterpreter)" "YES"
+ifneq "$(Windows_Host)" "YES"
 
 install: install_driver_ghci
 
@@ -26,7 +27,7 @@ install_driver_ghci:
 	$(call removeFiles,"$(DESTDIR)$(bindir)/ghci")
 	$(LN_S) ghci-$(ProjectVersion) "$(DESTDIR)$(bindir)/ghci"
 
-else # Windows...
+else # Windows_Host...
 
 driver/ghci_dist_C_SRCS  = ghci.c ../utils/cwrapper.c ../utils/getLocation.c
 driver/ghci_dist_CC_OPTS += -I driver/utils
@@ -61,5 +62,6 @@ install_driver_ghcii:
 	cp $(GHCII_SCRIPT) $(GHCII_SCRIPT_VERSIONED)
 	$(EXECUTABLE_FILE) $(GHCII_SCRIPT_VERSIONED)
 
+endif
 endif
 

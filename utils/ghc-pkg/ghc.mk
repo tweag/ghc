@@ -47,7 +47,7 @@ utils/ghc-pkg_dist_INSTALL_INPLACE = YES
 
 $(eval $(call build-prog,utils/ghc-pkg,dist,0))
 
-$(GHC_PKG_INPLACE) : | $(INPLACE_PACKAGE_CONF)/.
+$(ghc-pkg_INPLACE) : | $(INPLACE_PACKAGE_CONF)/.
 
 utils/ghc-pkg/dist/package-data.mk: \
     utils/ghc-pkg/dist/build/Version.hs
@@ -75,7 +75,7 @@ endif
 # -----------------------------------------------------------------------------
 # Link ghc-pkg to ghc-pkg-$(ProjectVersion) when installing
 
-ifeq "$(Windows)" "NO"
+ifeq "$(Windows_Host)" "NO"
 install: install_utils/ghc-pkg_link
 
 .PHONY: install_utils/ghc-pkg_link

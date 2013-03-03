@@ -39,8 +39,8 @@ clean_$1 : clean_$1_$2
 # INPLACE_BIN etc. might be empty if we're cleaning
 ifeq "$(findstring clean,$(MAKECMDGOALS))" ""
 ifneq "$$(BINDIST)" "YES"
-$1/$2/$$($1_$2_PROG).prl: $1/$$($1_PERL_SRC) $$(UNLIT) | $$$$(dir $$$$@)/.
-	"$$(UNLIT)" $$(UNLIT_OPTS) $$< $$@
+$1/$2/$$($1_$2_PROG).prl: $1/$$($1_PERL_SRC) $$$$(unlit_INPLACE) | $$$$(dir $$$$@)/.
+	"$$(unlit_INPLACE)" $$(UNLIT_OPTS) $$< $$@
 endif
 
 $1/$2/$$($1_$2_PROG): $1/$2/$$($1_$2_PROG).prl
@@ -54,16 +54,6 @@ $$($1_$2_INPLACE): $1/$2/$$($1_$2_PROG) | $$$$(dir $$$$@)/.
 	"$$(CP)" $$< $$@
 	$$(EXECUTABLE_FILE) $$@
 
-ifneq "$$($1_$2_INSTALL_IN)" ""
-BINDIST_PERL_SOURCES += $1/$2/$$($1_$2_PROG).prl
-
-install: install_$1_$2
-
-.PHONY: install_$1_$2
-install_$1_$2: $1/$2/$$($1_$2_PROG)
-	$$(call INSTALL_DIR,"$$($1_$2_INSTALL_IN)")
-	$$(call INSTALL_SCRIPT,$$(INSTALL_OPTS),$$<,"$$($1_$2_INSTALL_IN)")
-endif
 endif
 
 $(call profEnd, build-perl($1,$2))

@@ -141,7 +141,7 @@ $(INPLACE_LIB)/platformConstants: $(includes_GHCCONSTANTS_HASKELL_VALUE)
 # The GHC programs need to depend on all the helper programs they might call,
 # and the settings files they use
 
-GHC_DEPENDENCIES += $(UNLIT)
+GHC_DEPENDENCIES += $$(unlit_INPLACE)
 GHC_DEPENDENCIES += $(INPLACE_LIB)/settings
 GHC_DEPENDENCIES += $(INPLACE_LIB)/platformConstants
 
@@ -155,7 +155,7 @@ $(GHC_STAGE2) : | $(SPLIT)
 $(GHC_STAGE3) : | $(SPLIT)
 endif
 
-ifeq "$(Windows)" "YES"
+ifeq "$(Windows_Host)" "YES"
 $(GHC_STAGE1) : | $(TOUCHY)
 $(GHC_STAGE2) : | $(TOUCHY)
 $(GHC_STAGE3) : | $(TOUCHY)
@@ -165,7 +165,7 @@ endif
 
 INSTALL_LIBS += settings
 
-ifeq "$(Windows)" "NO"
+ifeq "$(Windows_Host)" "NO"
 install: install_ghc_link
 .PHONY: install_ghc_link
 install_ghc_link: 

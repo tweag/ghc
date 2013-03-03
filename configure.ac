@@ -671,7 +671,14 @@ dnl    off_t, because it will affect the result of that test.
 AC_SYS_LARGEFILE
 
 dnl ** check for specific header (.h) files that we are interested in
-AC_CHECK_HEADERS([bfd.h ctype.h dirent.h dlfcn.h errno.h fcntl.h grp.h limits.h locale.h nlist.h pthread.h pwd.h signal.h sys/cpuset.h sys/mman.h sys/resource.h sys/select.h sys/time.h sys/timeb.h sys/timers.h sys/times.h sys/utsname.h sys/wait.h termios.h time.h utime.h windows.h winsock.h sched.h])
+AC_CHECK_HEADERS([bfd.h ctype.h dirent.h dlfcn.h errno.h fcntl.h grp.h limits.h locale.h nlist.h pthread.h pwd.h signal.h sys/param.h sys/mman.h sys/resource.h sys/select.h sys/time.h sys/timeb.h sys/timers.h sys/times.h sys/utsname.h sys/wait.h termios.h time.h utime.h windows.h winsock.h sched.h])
+
+dnl sys/cpuset.h needs sys/param.h to be included first on FreeBSD 9.1; #7708
+AC_CHECK_HEADERS([sys/cpuset.h], [], [],
+[[#if HAVE_SYS_PARAM_H
+# include <sys/param.h>
+#endif
+]])
 
 dnl ** check if it is safe to include both <time.h> and <sys/time.h>
 AC_HEADER_TIME
@@ -843,18 +850,6 @@ AC_TRY_LINK_FUNC(printf\$LDBLStub,
 dnl ** check for eventfd which is needed by the I/O manager
 AC_CHECK_HEADERS([sys/eventfd.h])
 AC_CHECK_FUNCS([eventfd])
-
-# test for GTK+
-AC_PATH_PROGS([GTK_CONFIG], [pkg-config])
-if test -n "$GTK_CONFIG"; then
-  if $GTK_CONFIG gtk+-2.0 --atleast-version=2.0; then
-    GTK_CONFIG="$GTK_CONFIG gtk+-2.0"
-  else
-    AC_MSG_WARN([GTK+ not usable, need at least version 2.0])
-    GTK_CONFIG=
-  fi
-fi
-AC_SUBST([GTK_CONFIG])
 
 # checking for PAPI
 AC_CHECK_LIB(papi, PAPI_library_init, HavePapiLib=YES, HavePapiLib=NO)
