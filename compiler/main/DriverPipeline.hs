@@ -108,7 +108,7 @@ compile = compile' (hscCompileNothing, hscCompileInteractive, hscCompileBatch)
 compile' :: 
            (Compiler (HscStatus, ModIface, ModDetails),
             Compiler (InteractiveStatus, ModIface, ModDetails),
-            Compiler (HscStatus, ModIface, ModDetails))
+            Compiler (FileOutputStatus, ModIface, ModDetails))
         -> HscEnv
         -> ModSummary      -- ^ summary for module being compiled
         -> Int             -- ^ module N ...
@@ -149,9 +149,8 @@ compile' (nothingCompiler, interactiveCompiler, batchCompiler)
    output_fn <- getOutputFilename next_phase
                         Temporary basename dflags next_phase (Just location)
 
-   let dflags' = dflags { hscTarget = hsc_lang,
-                                hscOutName = output_fn,
-                                extCoreName = basename ++ ".hcr" }
+   let dflags' = dflags { hscOutName = output_fn,
+                          extCoreName = basename ++ ".hcr" }
    let hsc_env' = hsc_env { hsc_dflags = dflags' }
 
    -- -fforce-recomp should also work with --make
@@ -441,6 +440,10 @@ compileFile hsc_env stop_phase (src, mb_phase) = do
         -- When linking, the -o argument refers to the linker's output.
         -- otherwise, we use it as the name for the pipeline's output.
         output
+         -- If we are dong -fno-code, then act as if the output is
+         -- 'Temporary'. This stops GHC trying to copy files to their
+         -- final location.
+         | HscNothing <- hscTarget dflags = Temporary
          | StopLn <- stop_phase, not (isNoLink ghc_link) = Persistent
                 -- -o foo applies to linker
          | Just o_file <- mb_o_file = SpecificFile o_file
@@ -482,6 +485,7 @@ data PipelineOutput
         -- eg. in "ghc -c Foo.hs" the output goes into ./Foo.o.
   | SpecificFile FilePath
         -- ^ The output must go into the specified file.
+    deriving Show
 
 -- | Run a compilation pipeline, consisting of multiple phases.
 --
@@ -529,6 +533,7 @@ runPipeline stop_phase hsc_env0 (input_fn, mb_phase)
 
              env = PipeEnv{ pe_isHaskellishFile = isHaskellishFile,
                             stop_phase,
+                            src_filename = input_fn,
                             src_basename = basename,
                             src_suffix = suffix',
                             output_spec = output }
@@ -547,8 +552,8 @@ runPipeline stop_phase hsc_env0 (input_fn, mb_phase)
                               ++ input_fn))
 
          debugTraceMsg dflags 4 (text "Running the pipeline")
-         r <- runPipeline' start_phase stop_phase hsc_env env input_fn
-                           output maybe_loc maybe_stub_o
+         r <- runPipeline' start_phase hsc_env env input_fn
+                           maybe_loc maybe_stub_o
 
          -- If we are compiling a Haskell module, and doing
          -- -dynamic-too, but couldn't do the -dynamic-too fast
@@ -563,52 +568,28 @@ runPipeline stop_phase hsc_env0 (input_fn, mb_phase)
                            SpecificFile fn -> SpecificFile (replaceExtension fn (objectSuf dflags'))
                            Persistent -> Persistent
                            Temporary -> Temporary
+                 env' = env { output_spec = output' }
              hsc_env' <- newHscEnv dflags'
-             _ <- runPipeline' start_phase stop_phase hsc_env' env input_fn
-                               output' maybe_loc maybe_stub_o
+             _ <- runPipeline' start_phase hsc_env' env' input_fn
+                               maybe_loc maybe_stub_o
              return ()
          return r
 
 runPipeline'
   :: Phase                      -- ^ When to start
-  -> Phase                      -- ^ When to stop
   -> HscEnv                     -- ^ Compilation environment
   -> PipeEnv
   -> FilePath                   -- ^ Input filename
-  -> PipelineOutput             -- ^ Output filename
   -> Maybe ModLocation          -- ^ A ModLocation, if this is a Haskell module
   -> Maybe FilePath             -- ^ stub object, if we have one
   -> IO (DynFlags, FilePath)    -- ^ (final flags, output filename)
-runPipeline' start_phase stop_phase hsc_env env input_fn
-             output maybe_loc maybe_stub_o
+runPipeline' start_phase hsc_env env input_fn
+             maybe_loc maybe_stub_o
   = do
-  -- this is a function which will be used to calculate output file names
-  -- as we go along (we partially apply it to some of its inputs here)
-  let get_output_fn = getOutputFilename stop_phase output (src_basename env)
-
   -- Execute the pipeline...
   let state = PipeState{ hsc_env, maybe_loc, maybe_stub_o = maybe_stub_o }
 
-  (state', output_fn) <- unP (pipeLoop start_phase input_fn) env state
-
-  let PipeState{ hsc_env=hsc_env', maybe_loc } = state'
-      dflags = hsc_dflags hsc_env'
-
-  -- Sometimes, a compilation phase doesn't actually generate any output
-  -- (eg. the CPP phase when -fcpp is not turned on).  If we end on this
-  -- stage, but we wanted to keep the output, then we have to explicitly
-  -- copy the file, remembering to prepend a {-# LINE #-} pragma so that
-  -- further compilation stages can tell what the original filename was.
-  case output of
-    Temporary ->
-        return (dflags, output_fn)
-    _ ->
-        do final_fn <- get_output_fn dflags stop_phase maybe_loc
-           when (final_fn /= output_fn) $ do
-              let msg = ("Copying `" ++ output_fn ++"' to `" ++ final_fn ++ "'")
-                  line_prag = Just ("{-# LINE 1 \"" ++ input_fn ++ "\" #-}\n")
-              copyWithHeader dflags msg line_prag output_fn final_fn
-           return (dflags, final_fn)
+  evalP (pipeLoop start_phase input_fn) env state
 
 -- -----------------------------------------------------------------------------
 -- The pipeline uses a monad to carry around various bits of information
@@ -617,6 +598,7 @@ runPipeline' start_phase stop_phase hsc_env env input_fn
 data PipeEnv = PipeEnv {
        pe_isHaskellishFile :: Bool,
        stop_phase   :: Phase,       -- ^ Stop just before this phase
+       src_filename :: String,      -- ^ basename of original input source
        src_basename :: String,      -- ^ basename of original input source
        src_suffix   :: String,      -- ^ its extension
        output_spec  :: PipelineOutput -- ^ says where to put the pipeline output
@@ -660,6 +642,9 @@ setStubO stub_o = P $ \_env state ->
 
 newtype CompPipeline a = P { unP :: PipeEnv -> PipeState -> IO (PipeState, a) }
 
+evalP :: CompPipeline a -> PipeEnv -> PipeState -> IO a
+evalP f env st = liftM snd $ unP f env st
+
 instance Monad CompPipeline where
   return a = P $ \_env state -> return (state, a)
   P m >>= k = P $ \env state -> do (state',a) <- m env state
@@ -680,22 +665,41 @@ phaseOutputFilename next_phase = do
 -- outer pipeline loop
 
 -- | pipeLoop runs phases until we reach the stop phase
-pipeLoop :: Phase -> FilePath -> CompPipeline FilePath
+pipeLoop :: Phase -> FilePath -> CompPipeline (DynFlags, FilePath)
 pipeLoop phase input_fn = do
-  PipeEnv{stop_phase} <- getPipeEnv
+  env <- getPipeEnv
   dflags <- getDynFlags
   let happensBefore' = happensBefore dflags
+      stopPhase = stop_phase env
   case () of
-   _ | phase `eqPhase` stop_phase            -- All done
-     -> return input_fn
+   _ | phase `eqPhase` stopPhase            -- All done
+     -> -- Sometimes, a compilation phase doesn't actually generate any output
+        -- (eg. the CPP phase when -fcpp is not turned on).  If we end on this
+        -- stage, but we wanted to keep the output, then we have to explicitly
+        -- copy the file, remembering to prepend a {-# LINE #-} pragma so that
+        -- further compilation stages can tell what the original filename was.
+        case output_spec env of
+        Temporary ->
+            return (dflags, input_fn)
+        output ->
+            do pst <- getPipeState
+               final_fn <- liftIO $ getOutputFilename
+                                        stopPhase output (src_basename env)
+                                        dflags stopPhase (maybe_loc pst)
+               when (final_fn /= input_fn) $ do
+                  let msg = ("Copying `" ++ input_fn ++"' to `" ++ final_fn ++ "'")
+                      line_prag = Just ("{-# LINE 1 \"" ++ src_filename env ++ "\" #-}\n")
+                  liftIO $ copyWithHeader dflags msg line_prag input_fn final_fn
+               return (dflags, final_fn)
 
-     | not (phase `happensBefore'` stop_phase)
+
+     | not (phase `happensBefore'` stopPhase)
         -- Something has gone wrong.  We'll try to cover all the cases when
         -- this could happen, so if we reach here it is a panic.
         -- eg. it might happen if the -C flag is used on a source file that
         -- has {-# OPTIONS -fasm #-}.
      -> panic ("pipeLoop: at phase " ++ show phase ++
-           " but I wanted to stop at phase " ++ show stop_phase)
+           " but I wanted to stop at phase " ++ show stopPhase)
 
      | otherwise
      -> do liftIO $ debugTraceMsg dflags 4
@@ -711,50 +715,47 @@ pipeLoop phase input_fn = do
 getOutputFilename
   :: Phase -> PipelineOutput -> String
   -> DynFlags -> Phase{-next phase-} -> Maybe ModLocation -> IO FilePath
-getOutputFilename stop_phase output basename
- = func
- where
-        func dflags next_phase maybe_location
-           | is_last_phase, Persistent <- output     = persistent_fn
-           | is_last_phase, SpecificFile f <- output = return f
-           | keep_this_output                        = persistent_fn
-           | otherwise                               = newTempName dflags suffix
-           where
-                hcsuf      = hcSuf dflags
-                odir       = objectDir dflags
-                osuf       = objectSuf dflags
-                keep_hc    = gopt Opt_KeepHcFiles dflags
-                keep_s     = gopt Opt_KeepSFiles dflags
-                keep_bc    = gopt Opt_KeepLlvmFiles dflags
+getOutputFilename stop_phase output basename dflags next_phase maybe_location
+ | is_last_phase, Persistent <- output     = persistent_fn
+ | is_last_phase, SpecificFile f <- output = return f
+ | keep_this_output                        = persistent_fn
+ | otherwise                               = newTempName dflags suffix
+    where
+          hcsuf      = hcSuf dflags
+          odir       = objectDir dflags
+          osuf       = objectSuf dflags
+          keep_hc    = gopt Opt_KeepHcFiles dflags
+          keep_s     = gopt Opt_KeepSFiles dflags
+          keep_bc    = gopt Opt_KeepLlvmFiles dflags
 
-                myPhaseInputExt HCc       = hcsuf
-                myPhaseInputExt MergeStub = osuf
-                myPhaseInputExt StopLn    = osuf
-                myPhaseInputExt other     = phaseInputExt other
+          myPhaseInputExt HCc       = hcsuf
+          myPhaseInputExt MergeStub = osuf
+          myPhaseInputExt StopLn    = osuf
+          myPhaseInputExt other     = phaseInputExt other
 
-                is_last_phase = next_phase `eqPhase` stop_phase
+          is_last_phase = next_phase `eqPhase` stop_phase
 
-                -- sometimes, we keep output from intermediate stages
-                keep_this_output =
-                     case next_phase of
-                             As      | keep_s     -> True
-                             LlvmOpt | keep_bc    -> True
-                             HCc     | keep_hc    -> True
-                             _other               -> False
+          -- sometimes, we keep output from intermediate stages
+          keep_this_output =
+               case next_phase of
+                       As      | keep_s     -> True
+                       LlvmOpt | keep_bc    -> True
+                       HCc     | keep_hc    -> True
+                       _other               -> False
 
-                suffix = myPhaseInputExt next_phase
+          suffix = myPhaseInputExt next_phase
 
-                -- persistent object files get put in odir
-                persistent_fn
-                   | StopLn <- next_phase = return odir_persistent
-                   | otherwise            = return persistent
+          -- persistent object files get put in odir
+          persistent_fn
+             | StopLn <- next_phase = return odir_persistent
+             | otherwise            = return persistent
 
-                persistent = basename <.> suffix
+          persistent = basename <.> suffix
 
-                odir_persistent
-                   | Just loc <- maybe_location = ml_obj_file loc
-                   | Just d <- odir = d </> persistent
-                   | otherwise      = persistent
+          odir_persistent
+             | Just loc <- maybe_location = ml_obj_file loc
+             | Just d <- odir = d </> persistent
+             | otherwise      = persistent
 
 
 -- -----------------------------------------------------------------------------
@@ -979,8 +980,7 @@ runPhase (Hsc src_flavour) input_fn dflags0
         let next_phase = hscPostBackendPhase dflags src_flavour hsc_lang
         output_fn  <- phaseOutputFilename next_phase
 
-        let dflags' = dflags { hscTarget = hsc_lang,
-                               hscOutName = output_fn,
+        let dflags' = dflags { hscOutName = output_fn,
                                extCoreName = basename ++ ".hcr" }
 
         setDynFlags dflags'
@@ -1015,7 +1015,7 @@ runPhase (Hsc src_flavour) input_fn dflags0
                     -- than the source file (else we wouldn't be in HscNoRecomp)
                     -- but we touch it anyway, to keep 'make' happy (we think).
                     return (StopLn, o_file)
-          (HscRecomp hasStub _)
+          (HscRecomp hasStub mOutputFilename)
               -> do case hasStub of
                       Nothing -> return ()
                       Just stub_c ->
@@ -1023,9 +1023,19 @@ runPhase (Hsc src_flavour) input_fn dflags0
                              setStubO stub_o
                     -- In the case of hs-boot files, generate a dummy .o-boot
                     -- stamp file for the benefit of Make
-                    when (isHsBoot src_flavour) $
-                        liftIO $ touchObjectFile dflags' o_file
-                    return (next_phase, output_fn)
+                    outputFilename <-
+                        case mOutputFilename of
+                        Just x -> return x
+                        Nothing ->
+                            if isHsBoot src_flavour
+                            then do liftIO $ touchObjectFile dflags' o_file
+                                    whenGeneratingDynamicToo dflags' $ do
+                                        let dyn_o_file = addBootSuffix (replaceExtension o_file (dynObjectSuf dflags'))
+                                        liftIO $ touchObjectFile dflags' dyn_o_file
+                                    return o_file
+                            else return $ panic "runPhase Hsc: No output filename"
+
+                    return (next_phase, outputFilename)
 
 -----------------------------------------------------------------------------
 -- Cmm phase
@@ -1046,8 +1056,7 @@ runPhase Cmm input_fn dflags
 
         output_fn <- phaseOutputFilename next_phase
 
-        let dflags' = dflags { hscTarget = hsc_lang,
-                               hscOutName = output_fn,
+        let dflags' = dflags { hscOutName = output_fn,
                                extCoreName = src_basename ++ ".hcr" }
 
         setDynFlags dflags'
@@ -1096,14 +1105,12 @@ runPhase cc_phase input_fn dflags
              else getPackageExtraCcOpts dflags pkgs
 
         framework_paths <-
-            case platformOS platform of
-            OSDarwin ->
-                do pkgFrameworkPaths <- liftIO $ getPackageFrameworkPath dflags pkgs
-                   let cmdlineFrameworkPaths = frameworkPaths dflags
-                   return $ map ("-F"++)
-                                (cmdlineFrameworkPaths ++ pkgFrameworkPaths)
-            _ ->
-                return []
+            if platformUsesFrameworks platform
+            then do pkgFrameworkPaths <- liftIO $ getPackageFrameworkPath dflags pkgs
+                    let cmdlineFrameworkPaths = frameworkPaths dflags
+                    return $ map ("-F"++)
+                                 (cmdlineFrameworkPaths ++ pkgFrameworkPaths)
+            else return []
 
         let split_objs = gopt Opt_SplitObjs dflags
             split_opt | hcc && split_objs = [ "-DUSE_SPLIT_MARKERS" ]
@@ -1275,8 +1282,15 @@ runPhase As input_fn dflags
                           , SysTools.FileOption "" outputFilename
                           ])
 
+        liftIO $ debugTraceMsg dflags 4 (text "Running the assembler")
         runAssembler input_fn output_fn
-        whenGeneratingDynamicToo dflags $
+        -- If we're compiling a Haskell module (isHaskellishFile), and
+        -- we're doing -dynamic-too, then we also need to assemble the
+        -- -dyn assembly file.
+        env <- getPipeEnv
+        when (pe_isHaskellishFile env) $ whenGeneratingDynamicToo dflags $ do
+            liftIO $ debugTraceMsg dflags 4
+                         (text "Running the assembler again for -dynamic-too")
             runAssembler (input_fn ++ "-dyn")
                          (replaceExtension output_fn (dynObjectSuf dflags))
 
@@ -1629,9 +1643,9 @@ mkNoteObjsToLinkIntoBinary dflags dep_packages = do
 getLinkInfo :: DynFlags -> [PackageId] -> IO String
 getLinkInfo dflags dep_packages = do
    package_link_opts <- getPackageLinkOpts dflags dep_packages
-   pkg_frameworks <- case platformOS (targetPlatform dflags) of
-                     OSDarwin -> getPackageFrameworks dflags dep_packages
-                     _        -> return []
+   pkg_frameworks <- if platformUsesFrameworks (targetPlatform dflags)
+                     then getPackageFrameworks dflags dep_packages
+                     else return []
    let extra_ld_inputs = ldInputs dflags
    let
       link_info = (package_link_opts,
@@ -1776,38 +1790,31 @@ linkBinary dflags o_files dep_packages = do
     pkg_link_opts <- getPackageLinkOpts dflags dep_packages
 
     pkg_framework_path_opts <-
-        case platformOS platform of
-        OSDarwin ->
-            do pkg_framework_paths <- getPackageFrameworkPath dflags dep_packages
-               return $ map ("-F" ++) pkg_framework_paths
-        _ ->
-            return []
+        if platformUsesFrameworks platform
+        then do pkg_framework_paths <- getPackageFrameworkPath dflags dep_packages
+                return $ map ("-F" ++) pkg_framework_paths
+        else return []
 
     framework_path_opts <-
-        case platformOS platform of
-        OSDarwin ->
-            do let framework_paths = frameworkPaths dflags
-               return $ map ("-F" ++) framework_paths
-        _ ->
-            return []
+        if platformUsesFrameworks platform
+        then do let framework_paths = frameworkPaths dflags
+                return $ map ("-F" ++) framework_paths
+        else return []
 
     pkg_framework_opts <-
-        case platformOS platform of
-        OSDarwin ->
-            do pkg_frameworks <- getPackageFrameworks dflags dep_packages
-               return $ concat [ ["-framework", fw] | fw <- pkg_frameworks ]
-        _ ->
-            return []
+        if platformUsesFrameworks platform
+        then do pkg_frameworks <- getPackageFrameworks dflags dep_packages
+                return $ concat [ ["-framework", fw] | fw <- pkg_frameworks ]
+        else return []
 
     framework_opts <-
-        case platformOS platform of
-        OSDarwin ->
-            do let frameworks = cmdlineFrameworks dflags
-               -- reverse because they're added in reverse order from
-               -- the cmd line:
-               return $ concat [ ["-framework", fw] | fw <- reverse frameworks ]
-        _ ->
-            return []
+        if platformUsesFrameworks platform
+        then do let frameworks = cmdlineFrameworks dflags
+                -- reverse because they're added in reverse order from
+                -- the cmd line:
+                return $ concat [ ["-framework", fw]
+                                | fw <- reverse frameworks ]
+        else return []
 
         -- probably _stub.o files
     let extra_ld_inputs = ldInputs dflags

@@ -48,7 +48,18 @@ endif
 #    Some packages are from the bootstrapping compiler, so are not
 #    within the build tree. On Windows this causes a problem as they look
 #    like bad rules, due to the two colons, so we filter them out.
-	grep -v ' : [a-zA-Z]:/' $$@.tmp > $$@
+	grep -v ' : [a-zA-Z]:/' $$@.tmp > $$@.tmp2
+	sed '/hs$$$$/ p                                      ; \
+	     /hs$$$$/ s/o /hi /g                             ; \
+	     /hs$$$$/ s/:/ : %hi: %o /                       ; \
+	     /hs$$$$/ s/^/$$$$(eval $$$$(call hi-rule,/      ; \
+	     /hs$$$$/ s/$$$$/))/                             ; \
+	     /hs-boot$$$$/ p                                 ; \
+	     /hs-boot$$$$/ s/o-boot /hi-boot /g              ; \
+	     /hs-boot$$$$/ s/:/ : %hi-boot: %o-boot /        ; \
+	     /hs-boot$$$$/ s/^/$$$$(eval $$$$(call hi-rule,/ ; \
+	     /hs-boot$$$$/ s/$$$$/))/'                         \
+	    $$@.tmp2 > $$@
 
 # Some of the C files (directly or indirectly) include the generated
 # includes files.
@@ -130,7 +141,7 @@ define addCFileDeps
 	$(foreach w,$5,sed -e 's|\\|/|g' -e 's| /$$| \\|' -e "1s|\.o|\.$($w_osuf)|" -e "1s|^|$(dir $4)|" -e "1s|$1/|$1/$2/build/|" -e "1s|$2/build/$2/build|$2/build|g" -e "s|$(TOP)/||g$(CASE_INSENSITIVE_SED)" $3.bit >> $3.tmp &&) true
 endef
 
-ifeq "$(Windows)" "YES"
+ifeq "$(Windows_Host)" "YES"
 CASE_INSENSITIVE_SED = i
 else
 CASE_INSENSITIVE_SED =

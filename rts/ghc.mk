@@ -57,8 +57,8 @@ endif
 
 rts_AUTO_APPLY_CMM = rts/dist/build/AutoApply.cmm
 
-$(rts_AUTO_APPLY_CMM): $(GENAPPLY_INPLACE)
-	"$(GENAPPLY_INPLACE)" >$@
+$(rts_AUTO_APPLY_CMM): $$(genapply_INPLACE)
+	"$(genapply_INPLACE)" >$@
 
 rts/dist/build/sm/Evac_thr.c : rts/sm/Evac.c | $$(dir $$@)/.
 	cp $< $@
@@ -73,8 +73,8 @@ rts_H_FILES += $(DTRACEPROBES_H)
 endif
 
 # collect the -l flags that we need to link the rts dyn lib.
-rts/libs.depend : $(GHC_PKG_INPLACE)
-	"$(GHC_PKG_INPLACE)" field rts extra-libraries \
+rts/libs.depend : $$(ghc-pkg_INPLACE)
+	"$(ghc-pkg_INPLACE)" field rts extra-libraries \
 	  | sed -e 's/^extra-libraries: //' -e 's/\([a-z0-9]*\)[ ]*/-l\1 /g' > $@
 
 
@@ -153,8 +153,6 @@ endif
 $(call distdir-way-opts,rts,dist,$1)
 $(call c-suffix-rules,rts,dist,$1,YES)
 $(call cmm-suffix-rules,rts,dist,$1)
-$(call hs-suffix-rules-srcdir,rts,dist,$1,.)
-# hs-suffix-rules-srcdir is needed when BootingFromHc to get the .hc rules
 
 rts_$1_LIB_NAME = libHSrts$$($1_libsuf)
 rts_$1_LIB = rts/dist/build/$$(rts_$1_LIB_NAME)
@@ -224,6 +222,8 @@ endef
 # And expand the above for each way:
 $(foreach way,$(rts_WAYS),$(eval $(call build-rts-way,$(way))))
 
+$(eval $(call distdir-opts,rts,dist))
+
 #-----------------------------------------------------------------------------
 # Flags for compiling every file
 
@@ -280,11 +280,6 @@ endif
 ifeq "$(UseLibFFIForAdjustors)" "YES"
 rts_CC_OPTS += -DUSE_LIBFFI_FOR_ADJUSTORS
 endif
-
-# Mac OS X: make sure we compile for the right OS version
-rts_CC_OPTS += $(MACOSX_DEPLOYMENT_CC_OPTS)
-rts_HC_OPTS += $(addprefix -optc, $(MACOSX_DEPLOYMENT_CC_OPTS))
-rts_LD_OPTS += $(addprefix -optl, $(MACOSX_DEPLOYMENT_LD_OPTS))
 
 # We *want* type-checking of hand-written cmm.
 rts_HC_OPTS += -dcmm-lint 
@@ -547,9 +542,7 @@ endif
 
 $(eval $(call manual-package-config,rts))
 
-ifneq "$(BootingFromHc)" "YES"
 rts/package.conf.inplace : $(includes_H_CONFIG) $(includes_H_PLATFORM)
-endif
 
 # -----------------------------------------------------------------------------
 # installing

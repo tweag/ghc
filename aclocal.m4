@@ -36,7 +36,7 @@ AC_DEFUN([FPTOOLS_SET_PLATFORM_VARS],
     else
         GHC_CONVERT_CPU([$build_cpu], [BuildArch])
         GHC_CONVERT_VENDOR([$build_vendor], [BuildVendor])
-        GHC_CONVERT_OS([$build_os], [BuildOS])
+        GHC_CONVERT_OS([$build_os], [$BuildArch], [BuildOS])
     fi
 
     if test "$host_alias" = ""
@@ -56,7 +56,7 @@ AC_DEFUN([FPTOOLS_SET_PLATFORM_VARS],
     else
         GHC_CONVERT_CPU([$host_cpu], [HostArch])
         GHC_CONVERT_VENDOR([$host_vendor], [HostVendor])
-        GHC_CONVERT_OS([$host_os], [HostOS])
+        GHC_CONVERT_OS([$host_os], [$HostArch], [HostOS])
     fi
 
     if test "$target_alias" = ""
@@ -65,7 +65,7 @@ AC_DEFUN([FPTOOLS_SET_PLATFORM_VARS],
         then
             GHC_CONVERT_CPU([$host_cpu], [TargetArch])
             GHC_CONVERT_VENDOR([$host_vendor], [TargetVendor])
-            GHC_CONVERT_OS([$host_os], [TargetOS])
+            GHC_CONVERT_OS([$host_os], [$TargetArch],[TargetOS])
         else
             if test "$bootstrap_target" != ""
             then
@@ -83,7 +83,7 @@ AC_DEFUN([FPTOOLS_SET_PLATFORM_VARS],
     else
         GHC_CONVERT_CPU([$target_cpu], [TargetArch])
         GHC_CONVERT_VENDOR([$target_vendor], [TargetVendor])
-        GHC_CONVERT_OS([$target_os], [TargetOS])
+        GHC_CONVERT_OS([$target_os], [$TargetArch], [TargetOS])
     fi
 
     windows=NO
@@ -215,6 +215,9 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         linux)
             test -z "[$]2" || eval "[$]2=OSLinux"
             ;;
+        ios)
+            test -z "[$]2" || eval "[$]2=OSiOS"
+            ;;
         darwin)
             test -z "[$]2" || eval "[$]2=OSDarwin"
             ;;
@@ -302,11 +305,11 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
          HaskellHaveGnuNonexecStack=False])
     CFLAGS="$CFLAGS2"
 
-    checkArch "$BuildArch" ""
+    checkArch "$BuildArch" "HaskellBuildArch"
     checkVendor "$BuildVendor"
     checkOS "$BuildOS" ""
 
-    checkArch "$HostArch" ""
+    checkArch "$HostArch" "HaskellHostArch"
     checkVendor "$HostVendor"
     checkOS "$HostOS" ""
 
@@ -458,10 +461,12 @@ AC_DEFUN([FP_SETTINGS],
           SettingsOptCommand="$OptCmd"
         fi
     fi
-    SettingsCCompilerFlags="$CONF_CC_OPTS_STAGE2 $CONF_GCC_LINKER_OPTS_STAGE2"
+    SettingsCCompilerFlags="$CONF_CC_OPTS_STAGE2"
+    SettingsCCompilerLinkFlags="$CONF_GCC_LINKER_OPTS_STAGE2"
     SettingsLdFlags="$CONF_LD_LINKER_OPTS_STAGE2"
     AC_SUBST(SettingsCCompilerCommand)
     AC_SUBST(SettingsCCompilerFlags)
+    AC_SUBST(SettingsCCompilerLinkFlags)
     AC_SUBST(SettingsLdCommand)
     AC_SUBST(SettingsLdFlags)
     AC_SUBST(SettingsArCommand)
@@ -772,6 +777,7 @@ x86_64-unknown-mingw32) fptools_cv_leading_underscore=no;;
 
     # HACK: Apple doesn't seem to provide nlist in the 64-bit-libraries
 x86_64-apple-darwin*) fptools_cv_leading_underscore=yes;;
+*-apple-ios) fptools_cv_leading_underscore=yes;;
 
 *) AC_RUN_IFELSE([AC_LANG_SOURCE([[#ifdef HAVE_NLIST_H
 #include <nlist.h>
@@ -1724,35 +1730,6 @@ AC_DEFUN([FP_GMP],
   AC_SUBST(GMP_LIB_DIRS)
 ])# FP_GMP
 
-# FP_CHECK_MACOSX_DEPLOYMENT_TARGET
-# ---------------------------------
-AC_DEFUN([FP_CHECK_MACOSX_DEPLOYMENT_TARGET],
-[
-if test "x$TargetOS_CPP-$TargetVendor_CPP" = "xdarwin-apple"; then
-  AC_MSG_CHECKING([Mac OS X deployment target])
-  case $FP_MACOSX_DEPLOYMENT_TARGET in
-    none)  ;;
-    10.4)  MACOSX_DEPLOYMENT_VERSION=10.4
-    	   MACOSX_DEPLOYMENT_SDK=/Developer/SDKs/MacOSX10.4u.sdk
-	   ;;
-    10.4u) MACOSX_DEPLOYMENT_VERSION=10.4
-    	   MACOSX_DEPLOYMENT_SDK=/Developer/SDKs/MacOSX10.4u.sdk
-	   ;;
-    *)     MACOSX_DEPLOYMENT_VERSION=$FP_MACOSX_DEPLOYMENT_TARGET
-    	   MACOSX_DEPLOYMENT_SDK=/Developer/SDKs/MacOSX${FP_MACOSX_DEPLOYMENT_TARGET}.sdk
-	   ;;
-  esac
-  if test "x$FP_MACOSX_DEPLOYMENT_TARGET" = "xnone"; then
-    AC_MSG_RESULT(none)
-  else
-    if test ! -d $MACOSX_DEPLOYMENT_SDK; then
-      AC_MSG_ERROR([Unknown deployment target $FP_MACOSX_DEPLOYMENT_TARGET])
-    fi
-    AC_MSG_RESULT([${MACOSX_DEPLOYMENT_VERSION} (${MACOSX_DEPLOYMENT_SDK})])
-  fi
-fi
-])
-
 # --------------------------------------------------------------
 # Calculate absolute path to build tree
 # --------------------------------------------------------------
@@ -1889,33 +1866,40 @@ AC_DEFUN([GHC_CONVERT_VENDOR],[
   esac
 ])
 
-# GHC_CONVERT_OS(os, target_var)
+# GHC_CONVERT_OS(os, converted_cpu, target_var)
 # --------------------------------
 # converts os from gnu to ghc naming, and assigns the result to $target_var
 AC_DEFUN([GHC_CONVERT_OS],[
-case "$1" in
-  linux-android*)
-    $2="linux-android"
-    ;;
-  linux-*|linux)
-    $2="linux"
-    ;;
-  # As far as I'm aware, none of these have relevant variants
-  freebsd|netbsd|openbsd|dragonfly|osf1|osf3|hpux|linuxaout|kfreebsdgnu|freebsd2|solaris2|cygwin32|mingw32|darwin|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|aix|haiku)
-    $2="$1"
-    ;;
-  freebsd*) # like i686-gentoo-freebsd7
-            #      i686-gentoo-freebsd8
-            #      i686-gentoo-freebsd8.2
-    $2="freebsd"
-    ;;
-  nto-qnx*)
-    $2="nto-qnx"
+case "$1-$2" in
+  darwin10-arm)
+    $3="ios"
     ;;
   *)
-    echo "Unknown OS $1"
-    exit 1
-    ;;
+    case "$1" in
+      linux-android*)
+        $3="linux-android"
+        ;;
+      linux-*|linux)
+        $3="linux"
+        ;;
+      # As far as I'm aware, none of these have relevant variants
+      freebsd|netbsd|openbsd|dragonfly|osf1|osf3|hpux|linuxaout|kfreebsdgnu|freebsd2|solaris2|cygwin32|mingw32|darwin|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|aix|haiku)
+        $3="$1"
+        ;;
+      freebsd*) # like i686-gentoo-freebsd7
+                #      i686-gentoo-freebsd8
+                #      i686-gentoo-freebsd8.2
+        $3="freebsd"
+        ;;
+      nto-qnx*)
+        $3="nto-qnx"
+        ;;
+      *)
+        echo "Unknown OS $1"
+        exit 1
+        ;;
+      esac
+      ;;
   esac
 ])
 
@@ -1982,8 +1966,17 @@ AC_DEFUN([XCODE_VERSION],[
 AC_DEFUN([FIND_LLVM_PROG],[
     FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL([$1], [$2], [$3])
     if test "$$1" == ""; then
-        GOOD_PATH=`echo $PATH | tr ':,;' '   '`
-        $1=`${FindCmd} ${GOOD_PATH} -type f -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
+        save_IFS=$IFS
+        IFS=":;"
+        for p in ${PATH}; do
+            if test -d "${p}"; then
+                $1=`${FindCmd} "${p}" -type f -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
+                if test -n "$1"; then
+                    break
+                fi
+            fi
+        done
+        IFS=$save_IFS
     fi
 ])
 

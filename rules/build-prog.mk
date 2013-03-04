@@ -15,7 +15,7 @@
 #
 # utils/genapply_MODULES = Main
 # utils/genapply_HC_OPTS = -package Cabal
-# utils/genapply_dist_PROG = genapply
+# utils/genapply_dist_PROGNAME = genapply
 #
 # $(eval $(call build-prog,utils/genapply,dist-install,1))
 
@@ -27,9 +27,13 @@ $(call profStart, build-prog($1,$2,$3))
 # $3 = GHC stage to use (0 == bootstrapping compiler)
 
 ifneq "$$(CLEANING)" "YES"
-ifeq "$$($1_$2_PROG)" ""
-$$(error $1_$2_PROG is not set)
+ifeq "$$($1_$2_PROGNAME)" ""
+$$(error $1_$2_PROGNAME is not set)
 endif
+ifneq "$$($1_$2_PROG)" ""
+$$(error $1_$2_PROG is set)
+endif
+$1_$2_PROG = $$($1_$2_PROGNAME)$$(exeext)
 endif
 
 ifeq "$$(findstring $3,0 1 2)" ""
@@ -54,7 +58,7 @@ ifeq "$$($1_USES_CABAL)" "YES"
 $1_$2_USES_CABAL = YES
 endif
 
-ifeq "$$(Windows)" "YES"
+ifeq "$$(Windows_Host)" "YES"
 $1_$2_WANT_INPLACE_WRAPPER = NO
 else ifneq "$$($1_$2_INSTALL_INPLACE)" "YES"
 $1_$2_WANT_INPLACE_WRAPPER = NO
@@ -66,7 +70,7 @@ else
 $1_$2_WANT_INPLACE_WRAPPER = NO
 endif
 
-ifeq "$$(Windows)" "YES"
+ifeq "$$(Windows_Host)" "YES"
 $1_$2_WANT_INSTALLED_WRAPPER = NO
 else ifneq "$$($1_$2_INSTALL)" "YES"
 $1_$2_WANT_INSTALLED_WRAPPER = NO
@@ -87,15 +91,21 @@ else
 $1_$2_INPLACE =
 endif
 else
+ifeq "$(findstring clean,$(MAKECMDGOALS))" ""
+ifneq "$$($$($1_$2_PROGNAME)_INPLACE)" ""
+$$(error $$($1_$2_PROGNAME)_INPLACE defined twice)
+endif
+endif
+ifeq "$$($1_$2_TOPDIR)" "YES"
+$$($1_$2_PROGNAME)_INPLACE = $$(INPLACE_TOPDIR)/$$($1_$2_PROG)
+else
+$$($1_$2_PROGNAME)_INPLACE = $$(INPLACE_BIN)/$$($1_$2_PROG)
+endif
 # Where do we install the inplace version?
 ifeq "$$($1_$2_WANT_INPLACE_WRAPPER)" "YES"
 $1_$2_INPLACE = $$(INPLACE_LIB)/bin/$$($1_$2_PROG)
 else
-ifeq "$$($1_$2_TOPDIR)" "YES"
-$1_$2_INPLACE = $$(INPLACE_TOPDIR)/$$($1_$2_PROG)
-else
-$1_$2_INPLACE = $$(INPLACE_BIN)/$$($1_$2_PROG)
-endif
+$1_$2_INPLACE = $$($$($1_$2_PROGNAME)_INPLACE)
 endif
 endif
 
@@ -135,11 +145,14 @@ endif
 
 $1_$2_WAYS = $$($1_$2_PROGRAM_WAY)
 
+$1_$2_DYNAMIC_TOO = NO
+
 $(call hs-sources,$1,$2)
 $(call c-sources,$1,$2)
 
 # --- IMPLICIT RULES
 
+$(call distdir-opts,$1,$2,,$3)
 $(call distdir-way-opts,$1,$2,$$($1_$2_PROGRAM_WAY),$3)
 
 ifeq "$3" "0"
@@ -154,15 +167,14 @@ $(call c-suffix-rules,$1,$2,$$($1_$2_PROGRAM_WAY),NO)
 endif
 endif
 
-$(call hs-suffix-rules,$1,$2,$$($1_$2_PROGRAM_WAY))
+$$(foreach dir,$$($1_$2_HS_SRC_DIRS),\
+  $$(eval $$(call hs-suffix-rules-srcdir,$1,$2,$$(dir))))
+$(call hs-suffix-way-rules,$1,$2,$$($1_$2_PROGRAM_WAY))
 
 $(call c-objs,$1,$2,$$($1_$2_PROGRAM_WAY))
 $(call hs-objs,$1,$2,$$($1_$2_PROGRAM_WAY))
 
 $1_$2_LINK_WITH_GCC = NO
-ifeq "$$(BootingFromHc)" "YES"
-$1_$2_LINK_WITH_GCC = YES
-endif
 
 ifeq "$$($1_$2_$$($1_$2_PROGRAM_WAY)_HS_OBJS)" ""
 # We don't want to link the GHC RTS into C-only programs. There's no
@@ -186,13 +198,13 @@ ifneq "$$(BINDIST)" "YES"
 # The quadrupled $'s here are because the _<way>_LIB variables aren't
 # necessarily set when this part of the makefile is read
 $1/$2/build/tmp/$$($1_$2_PROG) : \
-    $$(foreach dep,$$($1_$2_DEP_NAMES),\
-        $$(if $$(filter ghc,$$(dep)),\
+    $$(foreach dep,$$($1_$2_DEPS),\
+        $$(if $$(filter ghc%,$$(dep)),\
             $(if $(filter 0,$3),$$(compiler_stage1_PROGRAM_DEP_LIB),\
             $(if $(filter 1,$3),$$(compiler_stage2_PROGRAM_DEP_LIB),\
             $(if $(filter 2,$3),$$(compiler_stage2_PROGRAM_DEP_LIB),\
             $$(error Bad build stage)))),\
-        $$$$(libraries/$$(dep)_dist-$(if $(filter 0,$3),boot,install)_PROGRAM_DEP_LIB)))
+        $$$$($$(dep)_dist-$(if $(filter 0,$3),boot,install)_PROGRAM_DEP_LIB)))
 
 ifeq "$$($1_$2_LINK_WITH_GCC)" "NO"
 $1/$2/build/tmp/$$($1_$2_PROG) : $$($1_$2_$$($1_$2_PROGRAM_WAY)_HS_OBJS) $$($1_$2_$$($1_$2_PROGRAM_WAY)_C_OBJS) $$($1_$2_$$($1_$2_PROGRAM_WAY)_S_OBJS) $$($1_$2_OTHER_OBJS) | $$$$(dir $$$$@)/.

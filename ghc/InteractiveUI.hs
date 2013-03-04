@@ -81,7 +81,6 @@ import Exception hiding (catch)
 import Foreign.C
 import Foreign.Safe
 
-import System.Cmd
 import System.Directory
 import System.Environment
 import System.Exit ( exitWith, ExitCode(..) )
@@ -89,6 +88,7 @@ import System.FilePath
 import System.IO
 import System.IO.Error
 import System.IO.Unsafe ( unsafePerformIO )
+import System.Process
 import Text.Printf
 
 #ifndef mingw32_HOST_OS
@@ -2944,7 +2944,8 @@ showException se =
 -- may never be delivered.  Thanks to Marcin for pointing out the bug.
 
 ghciHandle :: ExceptionMonad m => (SomeException -> m a) -> m a -> m a
-ghciHandle h m = gcatch m $ \e -> gunblock (h e)
+ghciHandle h m = gmask $ \restore ->
+                 gcatch (restore m) $ \e -> restore (h e)
 
 ghciTry :: GHCi a -> GHCi (Either SomeException a)
 ghciTry (GHCi m) = GHCi $ \s -> gtry (m s)

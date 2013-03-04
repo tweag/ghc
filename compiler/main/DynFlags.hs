@@ -25,7 +25,7 @@ module DynFlags (
         FatalMessager, LogAction, FlushOut(..), FlushErr(..),
         ProfAuto(..),
         glasgowExtsFlags,
-        dopt,
+        dopt, dopt_set, dopt_unset,
         gopt, gopt_set, gopt_unset,
         wopt, wopt_set, wopt_unset,
         xopt, xopt_set, xopt_unset,
@@ -169,9 +169,12 @@ import qualified Data.Set as Set
 import Data.Word
 import System.FilePath
 import System.IO
+import System.IO.Error
 
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
+
+import GHC.Foreign (withCString, peekCString)
 
 -- -----------------------------------------------------------------------------
 -- DynFlags
@@ -708,6 +711,8 @@ data DynFlags = DynFlags {
   pprCols               :: Int,
   traceLevel            :: Int, -- Standard level is 1. Less verbose is 0.
 
+  useUnicodeQuotes      :: Bool,
+
   -- | what kind of {-# SCC #-} to add automatically
   profAuto              :: ProfAuto,
 
@@ -1176,6 +1181,12 @@ initDynFlags dflags = do
  refGeneratedDumps <- newIORef Set.empty
  refLlvmVersion <- newIORef 28
  wrapperNum <- newIORef 0
+ canUseUnicodeQuotes <- do let enc = localeEncoding
+                               str = "‛’"
+                           (withCString enc str $ \cstr ->
+                                do str' <- peekCString enc cstr
+                                   return (str == str'))
+                               `catchIOError` \_ -> return False
  return dflags{
         canGenerateDynamicToo = refCanGenerateDynamicToo,
         filesToClean   = refFilesToClean,
@@ -1183,7 +1194,8 @@ initDynFlags dflags = do
         filesToNotIntermediateClean = refFilesToNotIntermediateClean,
         generatedDumps = refGeneratedDumps,
         llvmVersion    = refLlvmVersion,
-        nextWrapperNum = wrapperNum
+        nextWrapperNum = wrapperNum,
+        useUnicodeQuotes = canUseUnicodeQuotes
         }
 
 -- | The normal 'DynFlags'. Note that they is not suitable for use in this form
@@ -1308,6 +1320,7 @@ defaultDynFlags mySettings =
         flushErr = defaultFlushErr,
         pprUserLength = 5,
         pprCols = 100,
+        useUnicodeQuotes = False,
         traceLevel = 1,
         profAuto = NoProfAuto,
         llvmVersion = panic "defaultDynFlags: No llvmVersion",
@@ -1463,6 +1476,10 @@ dopt f dflags = (fromEnum f `IntSet.member` dumpFlags dflags)
 -- | Set a 'DumpFlag'
 dopt_set :: DynFlags -> DumpFlag -> DynFlags
 dopt_set dfs f = dfs{ dumpFlags = IntSet.insert (fromEnum f) (dumpFlags dfs) }
+
+-- | Unset a 'DumpFlag'
+dopt_unset :: DynFlags -> DumpFlag -> DynFlags
+dopt_unset dfs f = dfs{ dumpFlags = IntSet.delete (fromEnum f) (dumpFlags dfs) }
 
 -- | Test whether a 'GeneralFlag' is set
 gopt :: GeneralFlag -> DynFlags -> Bool
