@@ -109,6 +109,36 @@ divide x y  = case divMod x y of
 -- | Natural numbers with a top infinity element. (No negative numbers!)
 data InfNat = Nat Integer | Infinity  deriving (Show,Eq,Ord)
 
+{- | @x + y = z@.  Compute lower bound for @z@ in terms of the lower bounds
+for @x@ and @ y@. -}
+addLower :: Integer -> Integer -> Integer
+addLower x y = x + y
+
+{- | @x + y = z@.  Compute upper bound for @z@ in terms of the upper bounds
+for @x@ and @ y@. -}
+addUpper :: InfNat -> InfNat -> InfNat
+addUpper (Nat x) (Nat y)  = Nat (x + y)
+addUpper _       _        = Infinity
+
+{- | @x * y = z@.  Compute lower bound for @z@ in terms of the lower bounds
+for @x@ and @ y@. -}
+mulLower :: Integer -> Integer -> Integer
+mulLower x y = x * y
+
+{- | @x * y = z@.  Compute upper bound for @z@ in terms of the upper bounds
+for @x@ and @ y@. -}
+mulUpper :: InfNat -> InfNat -> InfNat
+mulUpper (Nat x) (Nat y)  = Nat (x * y)
+mulUpper (Nat 0) _        = Nat 0
+mulUpper _       (Nat 0)  = Nat 0
+mulUpper _       _        = Infinity
+
+{- | @x ^ y = z@.  Compute lower bound for @z@ in terms of the lower bounds
+for @x@ and @ y@. -}
+expLower :: Integer -> Integer -> Integer
+expLower x y | x > 0 = x ^ y
+expLower x y         = 0
+
 {- | Consider @x + y = z@.  This function computes a lower bound for @x@,
 using the upper bound for @y@ and the lower bound for @z@. -}
 subLower :: Integer -> InfNat -> Integer
