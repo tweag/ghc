@@ -545,7 +545,6 @@ thunkCode cl_info fv_details _cc node arity body
   = do { dflags <- getDynFlags
        ; let node_points = nodeMustPointToIt dflags (closureLFInfo cl_info)
              node'       = if node_points then Just node else Nothing
-        ; tickyEnterThunk cl_info
         ; ldvEnterClosure cl_info -- NB: Node always points when profiling
         ; granThunk node_points
 
@@ -553,8 +552,9 @@ thunkCode cl_info fv_details _cc node arity body
         ; entryHeapCheck cl_info node' arity [] $ do
         { -- Overwrite with black hole if necessary
           -- but *after* the heap-overflow check
+        ; tickyEnterThunk cl_info
         ; when (blackHoleOnEntry cl_info && node_points)
-                (blackHoleIt cl_info node)
+                (blackHoleIt node)
 
           -- Push update frame
         ; setupUpdate cl_info node $
@@ -573,14 +573,14 @@ thunkCode cl_info fv_details _cc node arity body
 --              Update and black-hole wrappers
 ------------------------------------------------------------------------
 
-blackHoleIt :: ClosureInfo -> LocalReg -> FCode ()
+blackHoleIt :: LocalReg -> FCode ()
 -- Only called for closures with no args
 -- Node points to the closure
-blackHoleIt closure_info node
-  = emitBlackHoleCode (closureSingleEntry closure_info) (CmmReg (CmmLocal node))
+blackHoleIt node_reg
+  = emitBlackHoleCode (CmmReg (CmmLocal node_reg))
 
-emitBlackHoleCode :: Bool -> CmmExpr -> FCode ()
-emitBlackHoleCode is_single_entry node = do
+emitBlackHoleCode :: CmmExpr -> FCode ()
+emitBlackHoleCode node = do
   dflags <- getDynFlags
 
   -- Eager blackholing is normally disabled, but can be turned on with
@@ -608,7 +608,6 @@ emitBlackHoleCode is_single_entry node = do
              -- work with profiling.
 
   when eager_blackholing $ do
-    tickyBlackHole (not is_single_entry)
     emitStore (cmmOffsetW dflags node (fixedHdrSize dflags))
                   (CmmReg (CmmGlobal CurrentTSO))
     emitPrimCall [] MO_WriteBarrier []

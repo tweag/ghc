@@ -35,7 +35,6 @@ module StgCmmTicky (
 	tickyEnterThunk,
 
 	tickyUpdateBhCaf,
-	tickyBlackHole,
 	tickyUnboxedTupleReturn, tickyVectoredReturn,
 	tickyReturnOldCon, tickyReturnNewCon,
 
@@ -131,25 +130,23 @@ tickyUpdateFrameOmitted = ifTicky $ bumpTickyCounter (fsLit "UPDF_OMITTED_ctr")
 -- -----------------------------------------------------------------------------
 -- Ticky entries
 
-tickyEnterDynCon, tickyEnterDynThunk, tickyEnterStaticCon,
-    tickyEnterStaticThunk, tickyEnterViaNode :: FCode ()
+tickyEnterDynCon, tickyEnterStaticCon,
+    tickyEnterViaNode :: FCode ()
 tickyEnterDynCon      = ifTicky $ bumpTickyCounter (fsLit "ENT_DYN_CON_ctr")
-tickyEnterDynThunk    = ifTicky $ bumpTickyCounter (fsLit "ENT_DYN_THK_ctr")
 tickyEnterStaticCon   = ifTicky $ bumpTickyCounter (fsLit "ENT_STATIC_CON_ctr")
-tickyEnterStaticThunk = ifTicky $ bumpTickyCounter (fsLit "ENT_STATIC_THK_ctr")
 tickyEnterViaNode     = ifTicky $ bumpTickyCounter (fsLit "ENT_VIA_NODE_ctr")
 
 tickyEnterThunk :: ClosureInfo -> FCode ()
 tickyEnterThunk cl_info
-  | isStaticClosure cl_info = tickyEnterStaticThunk
-  | otherwise		    = tickyEnterDynThunk
-
-tickyBlackHole :: Bool{-updatable-} -> FCode ()
-tickyBlackHole updatable
   = ifTicky (bumpTickyCounter ctr)
   where
-    ctr | updatable = (fsLit "UPD_BH_SINGLE_ENTRY_ctr")
-	| otherwise = (fsLit "UPD_BH_UPDATABLE_ctr")
+    updatable = closureSingleEntry cl_info
+    static    = isStaticClosure cl_info
+
+    ctr | static    = if updatable then fsLit "ENT_STATIC_THK_SINGLE_ctr"
+                                   else fsLit "ENT_STATIC_THK_MANY_ctr"
+	| otherwise = if updatable then fsLit "ENT_DYN_THK_SINGLE_ctr"
+                                   else fsLit "ENT_DYN_THK_MANY_ctr"
 
 tickyUpdateBhCaf :: ClosureInfo -> FCode ()
 tickyUpdateBhCaf cl_info
