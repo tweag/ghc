@@ -194,10 +194,15 @@ dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
 	(fun_ty, fun') 	  = dmdAnal dflags env call_dmd fun
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
         (arg_ty, arg') 	  = dmdAnalStar dflags env arg_dmd arg
+        
+        -- coarsening cardinaliy for argument basing on arg_d,d
+        arg_ty'           = if isSingleUsed arg_dmd
+                            then arg_ty
+                            else useType arg_ty
 
 	-- annotate components with single-shotness explicitly a-posteriori
-        arg''             = annLamWithShotness (toCleanDmd arg_dmd) arg'
-        fun''             = annLamWithShotness call_dmd fun'
+        arg''             = annLamWithShotness arg_dmd arg'
+        fun''             = annLamWithShotness (mkOnceUsedDmd call_dmd) fun'
     in
 --    pprTrace "dmdAnal:app" (vcat
 --         [ text "dmd =" <+> ppr dmd
@@ -207,7 +212,7 @@ dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
 --         , text "arg dmd_ty =" <+> ppr arg_ty
 --         , text "res dmd_ty =" <+> ppr res_ty
 --         , text "overall res dmd_ty =" <+> ppr (res_ty `bothDmdType` arg_ty) ])
-    (res_ty `bothDmdType` arg_ty, App fun'' arg'')
+    (res_ty `bothDmdType` arg_ty', App fun'' arg'')
 
 dmdAnal dflags env dmd (Lam var body)
   | isTyVar var
@@ -330,7 +335,7 @@ dmdAnal dflags env dmd (Let (NonRec id rhs) body)
         
         -- Annotate top-level lambdas at RHS basing on the aggregated demand info
         -- See Note [Annotating lambdas at right-hand side] 
-        annotated_rhs                 = annLamWithShotness (toCleanDmd id_dmd) rhs'   
+        annotated_rhs                 = annLamWithShotness id_dmd rhs'   
     in
 	-- If the actual demand is better than the vanilla call
 	-- demand, you might think that we might do better to re-analyse 
@@ -375,8 +380,12 @@ dmdAnal dflags env dmd (Let (Rec pairs) body)
     in
     (body_ty2,  Let (Rec pairs') body')
 
-annLamWithShotness :: CleanDemand -> CoreExpr -> CoreExpr
-annLamWithShotness d e = annotate_lambda (getUsage d) e
+annLamWithShotness :: Demand -> CoreExpr -> CoreExpr
+annLamWithShotness d e
+  | isAbsDmd d 
+  = e 
+  | otherwise
+  = annotate_lambda (getUsage $ toCleanDmd d) e
   where
     annotate_lambda dmd lam@(Lam var body)
       | isTyVar var

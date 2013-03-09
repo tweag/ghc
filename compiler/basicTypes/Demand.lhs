@@ -39,8 +39,8 @@ module Demand (
         dmdTransformSig, dmdTransformDataConSig,
 
         -- cardinality unleashing stuff (perhaps, redundant)
-        -- use, useType, useEnv, trimFvUsageTy         
-        isSingleUsed, 
+        -- use, useEnv, trimFvUsageTy         
+        isSingleUsed, useType,
 
         worthSplittingFun, worthSplittingThunk
 
@@ -240,7 +240,7 @@ instance Outputable UseDmd where
   ppr Used           = char 'U'
   ppr (UCall c a)    = char 'C' <> ppr c <> parens (ppr a)
   ppr UHead          = char 'H'
-  ppr (UProd as)     = char 'U' <> parens (hcat (map ppr as))
+  ppr (UProd as)     = char 'U' <> parens (hcat (punctuate (char ',') (map ppr as)))
 
 instance Outputable Count where
   ppr One  = char '1'
@@ -543,9 +543,8 @@ peelCallDmd (CD {sd = s, ud = u})
     peel_s _           = (strStr, False)
 
     peel_u (UCall c u) = (Use c u, c)
-    peel_u Used        = (useTop, Many)
     peel_u UHead       = (Abs, One)
-    peel_u d@(UProd _) = pprPanic "attempt to peel a product usage demand" (ppr d)
+    peel_u _           = (useTop, Many)
 
 -- see Note [Default demands for right-hand sides]  
 vanillaCall :: Arity -> CleanDemand
@@ -1135,14 +1134,14 @@ dmdTransformDataConSig :: Arity -> StrictSig -> CleanDemand -> DmdType
 -- If the constructor is saturated, we feed the demand on 
 -- the result into the constructor arguments.
 dmdTransformDataConSig arity (StrictSig (DmdType _ _ con_res)) dmd
-  = go arity (sd dmd)
+  = go arity dmd
   where
-    go 0 _ = DmdType emptyDmdEnv (splitProdDmd arity dmd) con_res
+    go 0 dmd = DmdType emptyDmdEnv (splitProdDmd arity dmd) con_res
                 -- Must remember whether it's a product, hence con_res, not TopRes
-    go n d = case d of SCall d'       -> go (n-1) d'
-                       HyperStr       -> go (n-1) HyperStr                     
-                       _              -> topDmdType
-
+    go n dmd = case peelCallDmd dmd of
+                 (_,False,_)                -> topDmdType
+                 (dmd',_,_) | isAbsDmd dmd' -> topDmdType
+                 (dmd',_,_)                 -> go (n-1) (toCleanDmd dmd')
 \end{code}
 
 Note [Non-full application] 
