@@ -913,6 +913,10 @@ tryEtaReducePrep _ _ = Nothing
 %*                                                                      *
 %************************************************************************
 
+Note [Pin demand info on floats]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We pin demand info on floated lets so that we can see the one-shot thunks.
+
 \begin{code}
 data FloatingBind
   = FloatLet CoreBind    -- Rhs of bindings are CpeRhss
@@ -950,10 +954,13 @@ data OkToSpec
 mkFloat :: Demand -> Bool -> Id -> CpeRhs -> FloatingBind
 mkFloat dmd is_unlifted bndr rhs
   | use_case  = FloatCase bndr rhs (exprOkForSpeculation rhs)
-  | otherwise = FloatLet (NonRec (setIdDemandInfo bndr (defer dmd)) rhs)
+  | is_hnf    = FloatLet (NonRec bndr                       rhs)
+  | otherwise = FloatLet (NonRec (setIdDemandInfo bndr dmd) rhs)
+                   -- See Note [Pin demand info on floats]
   where
+    is_hnf    = exprIsHNF rhs
     is_strict = isStrictDmd dmd
-    use_case  = is_unlifted || is_strict && not (exprIsHNF rhs)
+    use_case  = is_unlifted || is_strict && not is_hnf
                 -- Don't make a case for a value binding,
                 -- even if it's strict.  Otherwise we get
                 --      case (\x -> e) of ...!

@@ -101,32 +101,8 @@ c) The application rule wouldn't be right either
    Evaluating (f x) in a L demand does *not* cause
    evaluation of f in a C(L) demand!
 
-Note [Always analyse in virgin pass]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Tricky point: make sure that we analyse in the 'virgin' pass. Consider
-   rec { f acc x True  = f (...rec { g y = ...g... }...)
-         f acc x False = acc }
-In the virgin pass for 'f' we'll give 'f' a very strict (bottom) type.
-That might mean that we analyse the sub-expression containing the 
-E = "...rec g..." stuff in a bottom demand.  Suppose we *didn't analyse*
-E, but just retuned botType.  
-
-Then in the *next* (non-virgin) iteration for 'f', we might analyse E
-in a weaker demand, and that will trigger doing a fixpoint iteration
-for g.  But *because it's not the virgin pass* we won't start g's
-iteration at bottom.  Disaster.  (This happened in $sfibToList' of 
-nofib/spectral/fibheaps.)
-
-So in the virgin pass we make sure that we do analyse the expression
-at least once, to initialise its signatures.
-
 \begin{code}
-evalDmdAnal :: DynFlags -> AnalEnv -> CoreExpr -> (DmdType, CoreExpr)
--- See Note [Ensure demand is strict]
-evalDmdAnal dflags env e
-  | (res_ty, e') <- dmdAnal dflags env cleanEvalDmd e
-  = (deferType res_ty, e')
-
+{-
 simpleDmdAnal :: DynFlags -> AnalEnv -> DmdType 
               -> CoreExpr -> (DmdType, CoreExpr)
 simpleDmdAnal dflags env res_ty e
@@ -135,19 +111,30 @@ simpleDmdAnal dflags env res_ty e
   = (res_ty, e')
   | otherwise
   = (res_ty, e)
+-}
+
+dmdAnalThunk :: DynFlags -> AnalEnv 
+           -> Demand 	-- This one takes a *Demand*
+           -> CoreExpr -> (DmdType, CoreExpr)
+dmdAnalThunk dflags env dmd e
+  | exprIsTrivial e = dmdAnalStar dflags env dmd e
+  | otherwise       = dmdAnalStar dflags env (oneifyDmd dmd) e
 
 -- Do not process absent demands
 -- Otherwise act like in a normal demand analysis
 -- See |-* relation in the companion paper
-dmdAnalStar :: DynFlags -> AnalEnv -> Demand -> CoreExpr -> (DmdType, CoreExpr)
-dmdAnalStar dflags env dmd e
-  | isAbsDmd dmd          = simpleDmdAnal dflags env topDmdType e
-  | isBotDmd dmd          = simpleDmdAnal dflags env botDmdType e
-  | not (isStrictDmd dmd) = evalDmdAnal   dflags env            e
-  | otherwise             = dmdAnal dflags env (toCleanDmd dmd) e
+dmdAnalStar :: DynFlags -> AnalEnv 
+            -> Demand 	-- This one takes a *Demand*
+            -> CoreExpr -> (DmdType, CoreExpr)
+dmdAnalStar dflags env dmd e = toCleanDmd (dmdAnal dflags env) dmd e
 
--- Main Demand Analsysi machinery
-dmdAnal :: DynFlags -> AnalEnv -> CleanDemand -> CoreExpr -> (DmdType, CoreExpr)
+-- Main Demand Analsysis machinery
+dmdAnal :: DynFlags -> AnalEnv 
+        -> CleanDemand 	       -- The main one takes a *CleanDemand*
+        -> CoreExpr -> (DmdType, CoreExpr)
+
+-- The CleanDemand is always strict and not absent
+--    See Note [Ensure demand is strict]
 
 dmdAnal _ _ _ (Lit lit)     = (topDmdType, Lit lit)
 dmdAnal _ _ _ (Type ty)     = (topDmdType, Type ty)	-- Doesn't happen, in fact
@@ -193,16 +180,7 @@ dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
         call_dmd          = mkCallDmd dmd
 	(fun_ty, fun') 	  = dmdAnal dflags env call_dmd fun
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
-        (arg_ty, arg') 	  = dmdAnalStar dflags env arg_dmd arg
-        
-        -- coarsening cardinaliy for argument basing on arg_d,d
-        arg_ty'           = if isSingleUsed arg_dmd
-                            then arg_ty
-                            else useType arg_ty
-
-	-- annotate components with single-shotness explicitly a-posteriori
-        arg''             = annLamWithShotness arg_dmd arg'
-        fun''             = annLamWithShotness (mkOnceUsedDmd call_dmd) fun'
+        (arg_ty, arg') 	  = dmdAnalThunk dflags env arg_dmd arg
     in
 --    pprTrace "dmdAnal:app" (vcat
 --         [ text "dmd =" <+> ppr dmd
@@ -212,7 +190,7 @@ dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
 --         , text "arg dmd_ty =" <+> ppr arg_ty
 --         , text "res dmd_ty =" <+> ppr res_ty
 --         , text "overall res dmd_ty =" <+> ppr (res_ty `bothDmdType` arg_ty) ])
-    (res_ty `bothDmdType` arg_ty', App fun'' arg'')
+    (res_ty `bothDmdType` arg_ty, App fun' arg')
 
 dmdAnal dflags env dmd (Lam var body)
   | isTyVar var
@@ -221,31 +199,17 @@ dmdAnal dflags env dmd (Lam var body)
     in
     (body_ty, Lam var body')
 
-  | otherwise -- see Note [Analyzing with lazy demand and lambdas]
-  = let (body_dmd, is_strict, c) = peelCallDmd dmd	
-        -- body_demand  - a demand to analyze the body
-        -- c            - shotness of the lambda
-        --                hence, cardinality of its free vars
-        -- is_strict    - if the call is strictly applied 
-        --                otherwise analyze the body and deref the type
-        env'		         = if is_strict
-                                   then extendSigsWithLam env var
-                                   else env
-	(body_ty, body')         = dmdAnalStar dflags env' body_dmd body
+  | otherwise
+  = let (body_dmd, defer_me, one_shot) = peelCallDmd dmd	
+          -- body_dmd  - a demand to analyze the body
+          -- one_shot  - one-shotness of the lambda
+          --             hence, cardinality of its free vars
 
-        -- Body type is adjusted basing on the call-cardinalit of the lambda
-        -- perhaps, we can do better here for the argument usage demand 
-        body_ty'                 = case c of One  -> body_ty
-                                             Many -> body_ty `bothDmdType` body_ty  
-                
-	(lam_ty, var')           = annotateLamIdBndr dflags env body_ty' var
-
-        -- !is_strict meant that we analysed the body with an "artificial"
-        -- strict demand to get strictness of its argument, 
-        -- so now we have to "defer" the type
-        final_lam_ty             = if is_strict then lam_ty else deferType lam_ty
+	env'		 = extendSigsWithLam env var
+	(body_ty, body') = dmdAnal dflags env' body_dmd body
+	(lam_ty, var')   = annotateLamIdBndr dflags env body_ty one_shot var
     in
-    (final_lam_ty, Lam var' body')
+    (deferAndUse defer_me one_shot lam_ty, Lam var' body')
 
 dmdAnal dflags env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
   -- Only one alternative with a product constructor
@@ -288,13 +252,13 @@ dmdAnal dflags env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 	-- The insight is, of course, that a demand on y is a demand on the
 	-- scrutinee, so we need to `both` it with the scrut demand
 
-	alt_dmd 	   = mkOnceUsedDmd $
-                             mkProdDmd [idDemandInfo b | b <- bndrs', isId b]
-                             -- the scrutinee is used just once
-        scrut_dmd 	   = alt_dmd `bothDmd`
-			     idDemandInfo case_bndr'
+        
+	scrut_dmds1 = [idDemandInfo b | b <- bndrs', isId b]
+        scrut_dmds = case splitProdDmd_maybe (idDemandInfo case_bndr') of
+                        Nothing -> scrut_dmds1
+                        Just ds -> zipWithEqual "scrut_dmds" bothDmd scrut_dmds1 ds
 
-	(scrut_ty, scrut') = dmdAnalStar dflags env scrut_dmd scrut
+	(scrut_ty, scrut') = dmdAnal dflags env (mkProdDmd scrut_dmds) scrut
         res_ty             = alt_ty1 `bothDmdType` scrut_ty
     in
 --    pprTrace "dmdAnal:Case1" (vcat [ text "scrut" <+> ppr scrut
@@ -382,31 +346,22 @@ dmdAnal dflags env dmd (Let (Rec pairs) body)
 
 annLamWithShotness :: Demand -> CoreExpr -> CoreExpr
 annLamWithShotness d e
-  | isAbsDmd d 
-  = e 
-  | otherwise
-  = annotate_lambda (getUsage $ toCleanDmd d) e
+  | Just u <- cleanUseDmd_maybe d
+  = go u e
+  | otherwise = e
   where
-    annotate_lambda dmd lam@(Lam var body)
-      | isTyVar var
-      = let 
-            body' = annotate_lambda dmd body
-         in (Lam var body')  
-
-      | UCall Many dmd' <- dmd
-      = let 
-            body' = annotate_lambda dmd' body
-         in (Lam var body')
-
-      | UCall One dmd' <- dmd
-      = let 
-            var'  = setOneShotLambda var
-            body' = annotate_lambda dmd' body
-         in (Lam var' body')
+    go u e
+      | Just (c, u') <- peelUseCall u
+      , Lam bndr body <- e
+      = if isTyVar bndr 
+        then Lam bndr                    (go u  body)
+        else Lam (setOneShotness c bndr) (go u' body)
       | otherwise
-      = lam
-    annotate_lambda _ e = e
+      = e
 
+setOneShotness :: Count -> Id -> Id
+setOneShotness One  bndr = setOneShotLambda bndr
+setOneShotness Many bndr = bndr
 
 dmdAnalAlt :: DynFlags -> AnalEnv -> CleanDemand -> Alt Var -> (DmdType, Alt Var)
 dmdAnalAlt dflags env dmd (con,bndrs,rhs)
@@ -543,32 +498,7 @@ in this case.
 In other words, for locally-bound lambdas we can infer
 one-shotness. 
 
-Note [Analyzing with lazy demand and lambdas]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The insight for analyzing lambdas follows from the fact that for
-strictness S = C(L). This polymorphic expansion is critical for
-cardinality analysis of the following example:
-
-{-# NOINLINE build #-}
-build g = (g (:) [], g (:) [])
-
-h c z = build (\x -> 
-                let z1 = z ++ z 
-                 in if c
-                    then \y -> x (y ++ z1)
-                    else \y -> x (z1 ++ y))
-
-One can see that `build` assigns to `g` demand <L,C(C1(U))>. 
-Therefore, when analyzing the lambda `(\x -> ...)`, we
-expect each lambda \y -> ... to be annotated as "one-shot"
-one. Therefore (\x -> \y -> x (y ++ z)) should be analyzed with a
-demand <C(C(..), C(C1(U))>.
-
-This is achieved by, first, converting the lazy demand L into the
-strict S by the second clause of the analysis.
-
 \begin{code}
-
 addDataConPatDmds :: AltCon -> [Var] -> DmdType -> DmdType
 -- See Note [Add demands for strict constructors]
 addDataConPatDmds DEFAULT    _ dmd_ty = dmd_ty
@@ -576,13 +506,44 @@ addDataConPatDmds (LitAlt _) _ dmd_ty = dmd_ty
 addDataConPatDmds (DataAlt con) bndrs dmd_ty
   = foldr add dmd_ty str_bndrs 
   where
-    add bndr dmd_ty = addVarDmd dmd_ty bndr absDmd
+    add bndr dmd_ty = addVarDmd dmd_ty bndr seqDmd
     str_bndrs = [ b | (b,s) <- zipEqual "addDataConPatBndrs"
                                    (filter isId bndrs)
                                    (dataConRepStrictness con)
                     , isMarkedStrict s ]
-
 \end{code}
+
+Note [Add demands for strict constructors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider this program (due to Roman):
+
+    data X a = X !a
+
+    foo :: X Int -> Int -> Int
+    foo (X a) n = go 0
+     where
+       go i | i < n     = a + go (i+1)
+            | otherwise = 0
+
+We want the worker for 'foo' too look like this:
+
+    $wfoo :: Int# -> Int# -> Int#
+
+with the first argument unboxed, so that it is not eval'd each time
+around the loop (which would otherwise happen, since 'foo' is not
+strict in 'a'.  It is sound for the wrapper to pass an unboxed arg
+because X is strict, so its argument must be evaluated.  And if we
+*don't* pass an unboxed argument, we can't even repair it by adding a
+`seq` thus:
+
+    foo (X a) n = a `seq` go 0
+
+because the seq is discarded (very early) since X is strict!
+
+There is the usual danger of reboxing, which as usual we ignore. But 
+if X is monomorphic, and has an UNPACK pragma, then this optimisation
+is even more important.  We don't want the wrapper to rebox an unboxed
+argument, and pass an Int to $wfoo!
 
 %************************************************************************
 %*									*
@@ -701,7 +662,8 @@ dmdAnalRhs :: DynFlags -> TopLevelFlag -> RecFlag
 -- Process the RHS of the binding, add the strictness signature
 -- to the Id, and augment the environment with the signature as well.
 dmdAnalRhs dflags top_lvl rec_flag env (id, rhs)
- = (sigs', lazy_fv, (id', rhs'))
+ = -- pprTrace "dmdAnalRhs" (vcat [ppr id, ppr arity, ppr sig_ty]) $
+   (sigs', lazy_fv, (id', rhs'))
  where
   arity		     = idArity id   -- The idArity should be up to date
 				    -- The simplifier was run just beforehand
@@ -810,15 +772,16 @@ annotateBndrs = mapAccumR annotateBndr
 annotateLamIdBndr :: DynFlags
                   -> AnalEnv
                   -> DmdType 	-- Demand type of body
+                  -> Count      -- One-shot-ness of the lambda
 		  -> Id 	-- Lambda binder
 		  -> (DmdType, 	-- Demand type of lambda
 		      Id)	-- and binder annotated with demand	
 
-annotateLamIdBndr dflags env (DmdType fv ds res) id
+annotateLamIdBndr dflags env (DmdType fv ds res) one_shot id
 -- For lambdas we add the demand to the argument demands
 -- Only called for Ids
   = ASSERT( isId id )
-    (final_ty, setIdDemandInfo id dmd)
+    (final_ty, setOneShotness one_shot (setIdDemandInfo id dmd))
   where
       -- Watch out!  See note [Lambda-bound unfoldings]
     final_ty = case maybeUnfoldingTemplate (idUnfolding id) of
