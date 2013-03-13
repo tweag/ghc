@@ -36,7 +36,7 @@ module Demand (
         evalDmd, cleanEvalDmd, vanillaCall, isStrictDmd, splitDmdTy,
         deferDmd, deferType, deferAndUse, deferEnv, modifyEnv,
 
-        splitProdDmd_maybe, peelCallDmd, mkCallDmd,
+        splitProdDmd, splitProdDmd_maybe, peelCallDmd, mkCallDmd,
         dmdTransformSig, dmdTransformDataConSig,
 
         -- cardinality unleashing stuff (perhaps, redundant)
@@ -67,7 +67,7 @@ import Maybes           ( isJust, expectJust )
 
         Lazy
          |
-        Str
+      HeadStr
       /     \
   SCall      SProd
       \      /
@@ -136,7 +136,7 @@ lubStr (SCall s1) HyperStr     = SCall s1
 lubStr (SCall _)  HeadStr      = HeadStr
 lubStr (SCall s1) (SCall s2)   = SCall (s1 `lubStr` s2)
 lubStr (SCall _)  (SProd _)    = HeadStr
-lubStr (SProd _)  HyperStr     = HyperStr
+lubStr (SProd sx) HyperStr     = SProd sx
 lubStr (SProd _)  HeadStr      = HeadStr
 lubStr (SProd s1) (SProd s2)
     | length s1 == length s2   = SProd (zipWith lubMaybeStr s1 s2)
@@ -520,6 +520,9 @@ should be: <L,C(U(AU))>m
 data CleanDemand = CD { sd :: StrDmd, ud :: UseDmd } 
   deriving ( Eq, Show )
 
+instance Outputable CleanDemand where
+  ppr (CD {sd = s, ud = a}) = angleBrackets (ppr s <> comma <> ppr a)
+
 mkCleanDmd :: StrDmd -> UseDmd -> CleanDemand
 mkCleanDmd s a = CD { sd = s, ud = a }
 
@@ -637,6 +640,16 @@ can be expanded to saturate a callee's arity.
 
 
 \begin{code}
+splitProdDmd :: Arity -> JointDmd -> [JointDmd]
+splitProdDmd n (JD {strd = s, absd = u})
+  = mkJointDmds (split_str s) (split_abs u)
+  where
+    split_str Lazy    = replicate n Lazy
+    split_str (Str s) = splitStrProdDmd n s
+
+    split_abs Abs       = replicate n Abs
+    split_abs (Use _ u) = splitUseProdDmd n u
+
 splitProdDmd_maybe :: JointDmd -> Maybe [JointDmd]
 -- Split a product into its components, iff there is any
 -- useful information to be extracted thereby
@@ -1180,10 +1193,6 @@ dmdTransformSig :: StrictSig -> CleanDemand -> DmdType
 -- that the function places on its context (eg its args)
 dmdTransformSig (StrictSig dmd_ty@(DmdType _ arg_ds _)) 
                 (CD { sd = str, ud = abs })
-  | HyperStr <- str
-  = botDmdType  -- Transform bottom demand to bottom type
-                -- Seems a bit ad hoc
-  | otherwise
   = dmd_ty2
   where
     dmd_ty1 | str_sat   = dmd_ty
@@ -1195,6 +1204,7 @@ dmdTransformSig (StrictSig dmd_ty@(DmdType _ arg_ds _))
     abs_sat = go_abs arg_ds abs
 
     go_str [] _              = True
+    go_str (_:_)  HyperStr   = True         -- HyperStr = Call(HyperStr)
     go_str (_:as) (SCall d') = go_str as d'
     go_str _      _          = False
 

@@ -251,14 +251,12 @@ dmdAnal dflags env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 	-- The above code would compute a Keep for x, since y is not Abs, which is silly
 	-- The insight is, of course, that a demand on y is a demand on the
 	-- scrutinee, so we need to `both` it with the scrut demand
-
         
 	scrut_dmds1 = [idDemandInfo b | b <- bndrs', isId b]
-        scrut_dmds = case splitProdDmd_maybe (idDemandInfo case_bndr') of
-                        Nothing -> scrut_dmds1
-                        Just ds -> zipWithEqual "scrut_dmds" bothDmd scrut_dmds1 ds
+        scrut_dmds2 = splitProdDmd (length scrut_dmds1) (idDemandInfo case_bndr')
+        scrut_dmd   = mkProdDmd (zipWithEqual "scrut_dmds" bothDmd scrut_dmds1 scrut_dmds2)
 
-	(scrut_ty, scrut') = dmdAnal dflags env (mkProdDmd scrut_dmds) scrut
+	(scrut_ty, scrut') = dmdAnal dflags env scrut_dmd scrut
         res_ty             = alt_ty1 `bothDmdType` scrut_ty
     in
 --    pprTrace "dmdAnal:Case1" (vcat [ text "scrut" <+> ppr scrut
@@ -565,7 +563,9 @@ dmdTransform env var dmd
        (idArity var) (idStrictness var) dmd
 
   | isGlobalId var	                         -- Imported function
-  = dmdTransformSig (idStrictness var) dmd
+  = let res = dmdTransformSig (idStrictness var) dmd in
+    -- pprTrace "dmdTransform" (vcat [ppr var, ppr dmd, ppr res]) 
+    res
 
   | Just (sig, top_lvl) <- lookupSigEnv env var  -- Local letrec bound thing
   , let 
@@ -781,6 +781,7 @@ annotateLamIdBndr dflags env (DmdType fv ds res) one_shot id
 -- For lambdas we add the demand to the argument demands
 -- Only called for Ids
   = ASSERT( isId id )
+    -- pprTrace "annLamBndr" (vcat [ppr id, ppr dmd_ty]) $
     (final_ty, setOneShotness one_shot (setIdDemandInfo id dmd))
   where
       -- Watch out!  See note [Lambda-bound unfoldings]
