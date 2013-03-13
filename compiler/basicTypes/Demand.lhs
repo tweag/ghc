@@ -486,6 +486,12 @@ seqDemandList (d:ds) = seqDemand d `seq` seqDemandList ds
 deferDmd :: JointDmd -> JointDmd
 deferDmd (JD {absd = a}) = mkJointDmd Lazy a 
 
+isStrictDmd :: Demand -> Bool
+-- See Note [Strict demands]
+isStrictDmd (JD {absd = Abs})  = False
+isStrictDmd (JD {strd = Lazy}) = False
+isStrictDmd _                  = True
+
 useDmd :: JointDmd -> JointDmd
 useDmd (JD {strd=d, absd=a}) = mkJointDmd d (markAsUsedDmd a)
 
@@ -502,6 +508,25 @@ cleanUseDmd_maybe _                        = Nothing
 
 This domain differst from JointDemand in the sence that pure absence
 is taken away, i.e., we deal *only* with non-absent demands.
+
+Note [Strict demands]
+~~~~~~~~~~~~~~~~~~~~~
+isStrictDmd returns true only of demands that are 
+   both strict
+   and  used
+In particular, it is False for <HyperStr, Abs>, which can and does
+arise in, say (Trac #7319)
+   f x = raise# <some exception>
+Then 'x' is not used, so f gets strictness <HyperStr,Abs> -> .
+Now the w/w generates
+   fx = let x <HyperStr,Abs> = absentError "unused"
+        in raise <some exception>
+At this point we really don't want to convert to
+   fx = case absentError "unused" of x -> raise <some exception>
+Since the program is going to diverge, this swaps one error for another,
+but it's really a bad idea to *ever* evaluate an absent argument.
+In Trac #7319 we get
+   T7319.exe: Oops!  Entered absent arg w_s1Hd{v} [lid] [base:GHC.Base.String{tc 36u}]
 
 Note [Dealing with call demands]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

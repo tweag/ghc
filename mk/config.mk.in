@@ -124,8 +124,7 @@ endif
 # cabal-install's that are in the wild don't handle it properly.
 DYNAMIC_BY_DEFAULT = NO
 
-# For now, we unconditionally disable building with -dynamic-too
-DYNAMIC_TOO = NO
+DYNAMIC_TOO = YES
 
 # Build a compiler that will build *unregisterised* libraries and
 # binaries by default.  Unregisterised code is supposed to compile and
@@ -226,10 +225,8 @@ INTEGER_LIBRARY=integer-gmp
 GhcLibWays = v
 
 # In addition to the normal sequential way, the default is to also build
-# profiled prelude libraries unless we are booting from .hc files
-ifneq "$(BootingFromHc)" "YES"
+# profiled prelude libraries
 GhcLibWays += p
-endif
 
 ifeq "$(PlatformSupportsSharedLibs)" "YES"
 GhcLibWays += dyn
@@ -253,9 +250,7 @@ BuildSharedLibs=$(strip $(if $(findstring dyn,$(GhcLibWays)),YES,NO))
 GhcRTSWays=l
 
 # Usually want the debug version
-ifeq "$(BootingFromHc)" "NO"
 GhcRTSWays += debug 
-endif
 
 # We always have the threaded versions, but note that SMP support may be disabled
 # (see GhcWithSMP).
@@ -281,10 +276,6 @@ GhcLibHcOpts=-O2
 #
 StripLibraries=NO
 
-# These are the URL patterns that Haddock uses to generate the "Source
-# File" links on each page.
-PackageSourceURL = http://darcs.haskell.org/packages/$(PACKAGE)/%{FILE}
-
 # ----------------------------------------------------------------------------
 # Object-file splitting
 #
@@ -302,7 +293,6 @@ SupportsSplitObjs := $(strip \
                     $(if $(and $(filter YES,$(ArchSupportsSplitObjs)),\
                                $(filter YES,$(OsSupportsSplitObjs)),\
                                $(filter NO,$(SplitObjsBroken)),\
-                               $(filter NO,$(BootingFromHc)),\
                                $(filter NO,$(GhcUnregisterised))),\
                           YES,NO))
 
@@ -424,15 +414,8 @@ WINDOWS_INSTALLER = $(WINDOWS_INSTALLER_BASE)$(exeext)
 #
 SRC_HC_OPTS += -H32m -O
 
-# These flags make flex 8-bit
-SRC_FLEX_OPTS	+= -8
-
-
 # -----------------------------------------------------------------------------
 # Names of programs in the GHC tree
-#
-#      xxx_PGM          the name of an executable, without the path
-#      xxx              the executable relative to the current dir
 
 MKDIRHIER           = $(INPLACE_BIN)/mkdirhier
 
@@ -596,14 +579,6 @@ DLLTOOL			= inplace/mingw/bin/dlltool.exe
 endif
 
 #-----------------------------------------------------------------------------
-# Flex (currently unused, could be moved to glafp-utils)
-
-# FLEX			= @LEX@
-# Don't bother with -lfl, we define our own yywrap()s anyway.
-# FLEX_LIB		= 
-#WAS:FLEX_LIB		= @LEXLIB@
-
-#-----------------------------------------------------------------------------
 # Other standard (ha!) Unix utilities
 
 AR			= @ArCmd@
@@ -632,7 +607,6 @@ CP			= cp
 # It's not easy to separate the CPP program from its flags, as
 # AC_PROG_CPP defines CPP as "/usr/bin/gcc -E"
 CPP			= @CPP@ @CPPFLAGS@
-CTAGS 			= $(ETAGS)
 #
 # RAWCPP_FLAGS are the flags to give to cpp (viz, gcc -E) to persuade it to
 # behave plausibly on Haskell sources.
@@ -758,14 +732,13 @@ ALEX			= @AlexCmd@
 ALEX_VERSION		= @AlexVersion@		
 Alex3			= @Alex3@
 #
-# Options to pass to Happy when we're going to compile the output with GHC
+# Options to pass to Alex when we're going to compile the output with GHC
 #
+SRC_ALEX_OPTS = -g
 ifeq "$(Alex3)" "YES"
-# We aren't using the Unicode support in Alex 3.0 yet, in fact we do our own
+# The compiler isn't using the Unicode support in Alex 3.0 yet, in fact we do our own
 # Unicode handling, so diable Alex's.
-SRC_ALEX_OPTS		= -g --latin1
-else
-SRC_ALEX_OPTS		= -g
+compiler_ALEX_OPTS = --latin1
 endif
 
 # Should we build haddock docs?
