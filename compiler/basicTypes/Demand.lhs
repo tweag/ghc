@@ -464,13 +464,6 @@ isAbsDmd :: JointDmd -> Bool
 isAbsDmd (JD {absd = Abs})  = True   -- The strictness part can be HyperStr 
 isAbsDmd _                  = False  -- for a bottom demand
 
-isStrictDmd :: JointDmd -> Bool
-isStrictDmd jd = not (isLazyDmd jd)
-
-isLazyDmd :: JointDmd -> Bool
-isLazyDmd (JD {strd = Lazy}) = True
-isLazyDmd _ = False
-
 isSeqDmd :: JointDmd -> Bool
 isSeqDmd (JD {strd=Str HeadStr, absd=Use _ UHead}) = True
 isSeqDmd _                                         = False
