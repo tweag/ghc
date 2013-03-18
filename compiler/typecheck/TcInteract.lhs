@@ -241,6 +241,7 @@ thePipeline = [ ("canonicalization",        TcCanonical.canonicalize)
 
 \begin{code}
 spontaneousSolveStage :: SimplifierStage 
+-- CTyEqCans are always consumed, returning Stop
 spontaneousSolveStage workItem
   = do { mb_solved <- trySpontaneousSolve workItem
        ; case mb_solved of

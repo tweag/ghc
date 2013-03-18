@@ -863,7 +863,7 @@ AC_SUBST(HappyVersion)
 
 dnl
 dnl Check for Alex and version.  If we're building GHC, then we need
-dnl at least Alex version 2.0.1.
+dnl at least Alex version 2.1.1.
 dnl
 AC_DEFUN([FPTOOLS_ALEX],
 [
@@ -879,12 +879,17 @@ else
 fi;
 changequote([, ])dnl
 ])
+FP_COMPARE_VERSIONS([$fptools_cv_alex_version],[-ge],[3.0],
+  [Alex3=YES],[Alex3=NO])
 if test ! -f compiler/cmm/CmmLex.hs || test ! -f compiler/parser/Lexer.hs
 then
     FP_COMPARE_VERSIONS([$fptools_cv_alex_version],[-lt],[2.1.0],
       [AC_MSG_ERROR([Alex version 2.1.0 or later is required to compile GHC.])])[]
-    FP_COMPARE_VERSIONS([$fptools_cv_alex_version],[-ge],[3.0],
-      [Alex3=YES],[Alex3=NO])
+fi
+if test ! -f utils/haddock/src/Haddock/Lex.hs
+then
+    FP_COMPARE_VERSIONS([$fptools_cv_alex_version],[-lt],[3.0],
+      [AC_MSG_ERROR([Alex version 3.0 or later is required to compile Haddock.])])[]
 fi
 AlexVersion=$fptools_cv_alex_version;
 AC_SUBST(AlexVersion)
@@ -1965,16 +1970,16 @@ AC_DEFUN([XCODE_VERSION],[
 #
 AC_DEFUN([FIND_LLVM_PROG],[
     FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL([$1], [$2], [$3])
-    if test "$$1" != ""; then
+    if test "$$1" == ""; then
         save_IFS=$IFS
         IFS=":;"
         for p in ${PATH}; do
-	    if test -d "${p}"; then
+            if test -d "${p}"; then
                 $1=`${FindCmd} "${p}" -type f -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
                 if test -n "$1"; then
                     break
                 fi
-	    fi
+            fi
         done
         IFS=$save_IFS
     fi

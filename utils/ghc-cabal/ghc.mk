@@ -14,7 +14,7 @@
 
 # Euch, hideous hack:
 # XXX This should be in a different Makefile
-CABAL_DOTTED_VERSION := $(shell grep "^Version:" libraries/Cabal/Cabal/Cabal.cabal | sed "s/^Version: //")
+CABAL_DOTTED_VERSION := $(shell grep "^version:" libraries/Cabal/Cabal/Cabal.cabal | sed "s/^version: //")
 CABAL_VERSION := $(subst .,$(comma),$(CABAL_DOTTED_VERSION))
 CABAL_CONSTRAINT := --constraint="Cabal == $(CABAL_DOTTED_VERSION)"
 
@@ -57,7 +57,7 @@ $(eval $(call all-target,utils/ghc-cabal,$(ghc-cabal_INPLACE)))
 
 utils/ghc-cabal_USES_CABAL                   = YES
 utils/ghc-cabal_PACKAGE                      = ghc-cabal
-utils/ghc-cabal_dist-install_PROG            = ghc-cabal$(exeext)
+utils/ghc-cabal_dist-install_PROGNAME        = ghc-cabal
 utils/ghc-cabal_dist-install_INSTALL_INPLACE = NO
 utils/ghc-cabal_dist-install_WANT_BINDIST_WRAPPER = YES
 utils/ghc-cabal_dist-install_MODULES         = Main
