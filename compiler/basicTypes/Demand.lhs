@@ -33,7 +33,8 @@ module Demand (
        
         seqDemand, seqDemandList, seqDmdType, seqStrictSig, 
 
-        evalDmd, cleanEvalDmd, vanillaCall, isStrictDmd, splitDmdTy,
+        evalDmd, cleanEvalDmd, vanillaCall, isStrictDmd, isWeakDmd,
+        splitDmdTy,
         deferDmd, deferType, deferAndUse, deferEnv, modifyEnv,
 
         splitProdDmd, splitProdDmd_maybe, peelCallDmd, mkCallDmd,
@@ -41,7 +42,7 @@ module Demand (
 
         -- cardinality unleashing stuff (perhaps, redundant)
         -- use, useEnv, trimFvUsageTy         
-        isSingleUsed, useType,
+        isSingleUsed, useType, useEnv,
 
         worthSplittingFun, worthSplittingThunk
 
@@ -110,9 +111,17 @@ strCall s        = SCall s
 
 strProd :: [MaybeStr] -> StrDmd
 strProd sx
-  | any (== Str HyperStr) sx = HyperStr
-  | all (== Lazy) sx         = HeadStr
-  | otherwise                = SProd sx
+  | any isHyperStr sx = HyperStr
+  | all isLazy     sx = HeadStr
+  | otherwise         = SProd sx
+
+isLazy :: MaybeStr -> Bool
+isLazy Lazy    = True
+isLazy (Str _) = False
+
+isHyperStr :: MaybeStr -> Bool
+isHyperStr (Str HyperStr) = True
+isHyperStr _              = False
 
 -- Pretty-printing
 instance Outputable StrDmd where
@@ -364,7 +373,6 @@ leave it as-is. In effect we are using the UseDmd to do a little bit
 of boxity analysis.  Not very nice.
 
 \begin{code}
-
 -- preMaybeUsed :: MaybeUsed -> MaybeUsed -> Bool
 -- preMaybeUsed Abs _                   = True
 -- preMaybeUsed (Use c1 u1) (Use c2 u2) = (preCount c1 c2) && (preUse u1 u2)
@@ -384,9 +392,23 @@ markAsUsedDmd Abs         = Abs
 markAsUsedDmd (Use _ a)   = Use Many (markUsed a)
 
 markUsed :: UseDmd -> UseDmd
-markUsed (UCall _ u)      = UCall Many (markUsed u)
+markUsed (UCall _ u)      = UCall Many u   -- No need to recurse here
 markUsed (UProd ux)       = UProd (map markAsUsedDmd ux)
 markUsed u                = u
+
+isUsedMU :: MaybeUsed -> Bool
+-- True <=> markAsUsedDmd d = d
+isUsedMU Abs          = True
+isUsedMU (Use One _)  = False
+isUsedMU (Use Many u) = isUsedU u
+
+isUsedU :: UseDmd -> Bool
+-- True <=> markUsed d = d
+isUsedU Used           = True
+isUsedU UHead          = True
+isUsedU (UProd us)     = all isUsedMU us
+isUsedU (UCall One _)  = False
+isUsedU (UCall Many _) = True  -- No need to recurse
 
 -- Squashing usage demand demands
 seqUseDmd :: UseDmd -> ()
@@ -453,8 +475,8 @@ bothDmd (JD {strd = s1, absd = a1})
         (JD {strd = s2, absd = a2}) = mkJointDmd (s1 `bothMaybeStr` s2) (a1 `bothMaybeUsed` a2)
 
 isTopDmd :: JointDmd -> Bool
-isTopDmd (JD {strd = Lazy, absd = (Use Many Used)}) = True
-isTopDmd _                                          = False 
+isTopDmd (JD {strd = Lazy, absd = Use Many Used}) = True
+isTopDmd _                                        = False 
 
 isBotDmd :: JointDmd -> Bool
 isBotDmd (JD {strd = Str HyperStr, absd = Abs}) = True
@@ -484,6 +506,9 @@ isStrictDmd :: Demand -> Bool
 isStrictDmd (JD {absd = Abs})  = False
 isStrictDmd (JD {strd = Lazy}) = False
 isStrictDmd _                  = True
+
+isWeakDmd :: Demand -> Bool
+isWeakDmd (JD {strd = s, absd = a}) = isLazy s && isUsedMU a
 
 useDmd :: JointDmd -> JointDmd
 useDmd (JD {strd=d, absd=a}) = mkJointDmd d (markAsUsedDmd a)
