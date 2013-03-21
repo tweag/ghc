@@ -249,11 +249,10 @@ dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 	-- The insight is, of course, that a demand on y is a demand on the
 	-- scrutinee, so we need to `both` it with the scrut demand
         
-	scrut_dmds1 = [idDemandInfo b | b <- bndrs', isId b]
-        scrut_dmds2 = splitProdDmd (length scrut_dmds1) (idDemandInfo case_bndr')
-        scrut_dmd   = mkProdDmd (zipWithEqual "scrut_dmds" bothDmd scrut_dmds1 scrut_dmds2)
+	scrut_dmd1 = mkProdDmd [idDemandInfo b | b <- bndrs', isId b]
+        scrut_dmd2 = strictenDmd (idDemandInfo case_bndr')
 
-	(scrut_ty, scrut') = dmdAnal env scrut_dmd scrut
+	(scrut_ty, scrut') = dmdAnal env (scrut_dmd1 `bothCleanDmd` scrut_dmd2) scrut
         res_ty             = alt_ty1 `bothDmdType` scrut_ty
     in
 --    pprTrace "dmdAnal:Case1" (vcat [ text "scrut" <+> ppr scrut
@@ -653,7 +652,7 @@ addLazyFVs dmd_ty lazy_fvs
 	-- demand with the bottom coming up from 'error'
 	-- 
 	-- I got a loop in the fixpointer without this, due to an interaction
-	-- with the lazy_fv filtering in mkSigTy.  Roughly, it was
+	-- with the lazy_fv filtering in dmdAnalRhs.  Roughly, it was
 	--	letrec f n x 
 	--	    = letrec g y = x `fatbar` 
 	--			   letrec h z = z + ...g...

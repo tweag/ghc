@@ -16,7 +16,7 @@ module Demand (
         absDmd, topDmd, botDmd, seqDmd,
         lubDmd, bothDmd,
         isTopDmd, isBotDmd, isAbsDmd, isSeqDmd, 
-        peelUseCall, cleanUseDmd_maybe,
+        peelUseCall, cleanUseDmd_maybe, strictenDmd, bothCleanDmd,
 
         DmdType(..), dmdTypeDepth, lubDmdType, bothDmdEnv, bothDmdType,
         topDmdType, botDmdType, mkDmdType, mkTopDmdType, 
@@ -305,11 +305,9 @@ lubUse (UProd ux) UHead            = UProd ux
 lubUse (UProd ux1) (UProd ux2)
      | length ux1 == length ux2    = UProd $ zipWith lubMaybeUsed ux1 ux2
      | otherwise                   = Used
--- Note [Don't optimise UProd(Used) to Used]
-lubUse (UProd ux) Used             = UProd (map (`lubMaybeUsed` useTop) ux)
--- Note [Don't optimise UProd(Used) to Used]
-lubUse Used (UProd ux)             = UProd (map (`lubMaybeUsed` useTop) ux)
-lubUse _ _                         = Used
+lubUse (UProd {}) (UCall {})       = Used
+lubUse (UProd {}) Used             = Used  -- Note [Used should win]
+lubUse Used _                      = Used  -- Note [Used should win]
 
 -- `both` is different from `lub` in its treatment of counting; if
 -- `both` is computed for two used, the result always has
@@ -333,16 +331,14 @@ bothUse (UCall c u) UHead           = UCall c u
 --    use `lubUse` instead of `bothUse`!
 bothUse (UCall _ u1) (UCall _ u2)   = UCall Many (u1 `lubUse` u2)
 
-bothUse (UCall _ _) _               = Used
+bothUse (UCall {}) _                = Used
 bothUse (UProd ux) UHead            = UProd ux 
 bothUse (UProd ux1) (UProd ux2)
       | length ux1 == length ux2    = UProd $ zipWith bothMaybeUsed ux1 ux2
       | otherwise                   = Used
--- Note [Don't optimise UProd(Used) to Used]
-bothUse (UProd ux) Used             = UProd (map (`bothMaybeUsed` useTop) ux)
--- Note [Don't optimise UProd(Used) to Used]
-bothUse Used (UProd ux)             = UProd (map (`bothMaybeUsed` useTop) ux)
-bothUse _ _                         = Used
+bothUse (UProd {}) (UCall {})       = Used
+bothUse (UProd {}) Used             = Used  -- Note [Used should win]
+bothUse Used _                      = Used  -- Note [Used should win]
 
 peelUseCall :: UseDmd -> Maybe (Count, UseDmd)
 peelUseCall (UCall c u)   = Just (c,u)
@@ -368,25 +364,22 @@ Moreover, consider
 This too would get <Str, Used>, but this time there really isn't any
 point in w/w since the components of the pair are not used at all.
 
-So the solution is: don't collapse UProd [Used,Used] to Used; intead
-leave it as-is. In effect we are using the UseDmd to do a little bit
-of boxity analysis.  Not very nice.
+So the solution is: don't aggressively collapse UProd [Used,Used] to
+Used; intead leave it as-is. In effect we are using the UseDmd to do a
+little bit of boxity analysis.  Not very nice.
+
+Note [Used should win]
+~~~~~~~~~~~~~~~~~~~~~~
+Both in lubUse and bothUse we want (Used `both` UProd us) to be Used.
+Why?  Because Used carries the implication the whole thing is used,
+box and all, so we don't want to w/w it.  If we use it both boxed and
+unboxed, then we are definitely using the box, and so we are quite 
+likely to pay a reboxing cost.  So we make Used win here.
+
+Example is in the Buffer argument of GHC.IO.Handle.Internals.writeCharBuffer
+
 
 \begin{code}
--- preMaybeUsed :: MaybeUsed -> MaybeUsed -> Bool
--- preMaybeUsed Abs _                   = True
--- preMaybeUsed (Use c1 u1) (Use c2 u2) = (preCount c1 c2) && (preUse u1 u2)
--- preMaybeUsed _ _                     = False
-
--- preUse :: UseDmd -> UseDmd -> Bool
--- preUse _ Used                      = True
--- preUse UHead (UCall _ _)           = True
--- preUse UHead (UProd _)             = True
--- preUse (UCall c1 u1) (UCall c2 u2) = (preCount c1 c2) && (preUse u1 u2)
--- preUse (UProd ux1) (UProd ux2)
---      | length ux1 == length ux2    = (all (== True) $ zipWith preMaybeUsed ux1 ux2)
--- preUse x y                         = x == y
-
 markAsUsedDmd :: MaybeUsed -> MaybeUsed
 markAsUsedDmd Abs         = Abs
 markAsUsedDmd (Use _ a)   = Use Many (markUsed a)
@@ -579,6 +572,10 @@ instance Outputable CleanDemand where
 
 mkCleanDmd :: StrDmd -> UseDmd -> CleanDemand
 mkCleanDmd s a = CD { sd = s, ud = a }
+
+bothCleanDmd :: CleanDemand -> CleanDemand -> CleanDemand
+bothCleanDmd (CD { sd = s1, ud = a1}) (CD { sd = s2, ud = a2}) 
+  = CD { sd = s1 `bothStr` s2, ud = a1 `bothUse` a2 }
 
 mkHeadStrict :: CleanDemand -> CleanDemand
 mkHeadStrict (CD { ud = a }) = mkCleanDmd HeadStr a
@@ -1113,6 +1110,15 @@ modifyEnv need_to_modify zapper env1 env2 env
     zap uniq env = addToUFM_Directly env uniq (zapper current_val)
                  where
                    current_val = expectJust "modifyEnv" (lookupUFM_Directly env uniq)
+
+strictenDmd :: JointDmd -> CleanDemand
+strictenDmd (JD {strd = s, absd = u})
+  = CD { sd = poke_s s, ud = poke_u u }
+  where
+    poke_s Lazy      = HeadStr
+    poke_s (Str s)   = s
+    poke_u Abs       = UHead
+    poke_u (Use _ u) = u
 
 toCleanDmd :: (CleanDemand -> e -> (DmdType, e))
            -> Demand
