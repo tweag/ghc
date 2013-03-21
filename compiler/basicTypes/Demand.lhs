@@ -33,8 +33,8 @@ module Demand (
        
         seqDemand, seqDemandList, seqDmdType, seqStrictSig, 
 
-        evalDmd, cleanEvalDmd, vanillaCall, isStrictDmd, isWeakDmd,
-        splitDmdTy,
+        evalDmd, cleanEvalDmd, vanillaCall, isStrictDmd, 
+        splitDmdTy, splitFVs,
         deferDmd, deferType, deferAndUse, deferEnv, modifyEnv,
 
         splitProdDmd, splitProdDmd_maybe, peelCallDmd, mkCallDmd,
@@ -516,6 +516,17 @@ useDmd (JD {strd=d, absd=a}) = mkJointDmd d (markAsUsedDmd a)
 cleanUseDmd_maybe :: JointDmd -> Maybe UseDmd
 cleanUseDmd_maybe (JD { absd = Use _ ud }) = Just ud
 cleanUseDmd_maybe _                        = Nothing
+
+splitFVs :: Bool   -- Thunk
+         -> DmdEnv -> (DmdEnv, DmdEnv)
+splitFVs is_thunk rhs_fvs
+  | is_thunk  = foldUFM_Directly add (emptyVarEnv, emptyVarEnv) rhs_fvs
+  | otherwise = partitionVarEnv isWeakDmd rhs_fvs
+  where
+    add uniq dmd@(JD { strd = s, absd = u }) (lazy_fv, sig_fv)
+      | Lazy <- s = (addToUFM_Directly lazy_fv uniq dmd, sig_fv)
+      | otherwise = ( addToUFM_Directly lazy_fv uniq (JD { strd = Lazy, absd = u })
+                    , addToUFM_Directly sig_fv  uniq (JD { strd = s,    absd = Abs }) )
 \end{code}
 
 %************************************************************************
