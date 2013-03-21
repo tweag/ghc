@@ -53,29 +53,27 @@ dmdAnalProgram dflags binds
     }
   where
     do_prog :: CoreProgram -> CoreProgram
-    do_prog binds = snd $ mapAccumL (dmdAnalTopBind dflags) emptySigEnv binds
+    do_prog binds = snd $ mapAccumL dmdAnalTopBind (emptyAnalEnv dflags) binds
 
 -- Analyse a (group of) top-level binding(s)
-dmdAnalTopBind :: DynFlags
-               -> SigEnv
+dmdAnalTopBind :: AnalEnv
 	       -> CoreBind 
-	       -> (SigEnv, CoreBind)
-dmdAnalTopBind dflags sigs (NonRec id rhs)
-  = (sigs2, NonRec id2 rhs2)
+	       -> (AnalEnv, CoreBind)
+dmdAnalTopBind sigs (NonRec id rhs)
+  = (extendAnalEnv TopLevel sigs id sig, NonRec id2 rhs2)
   where
-    (    _, _, (_,   rhs1)) = dmdAnalRhs dflags TopLevel Nothing (virgin sigs)    (id, rhs)
-    (sigs2, _, (id2, rhs2)) = dmdAnalRhs dflags TopLevel Nothing (nonVirgin sigs) (id, rhs1)
+    (  _, _, _,   rhs1) = dmdAnalRhs TopLevel Nothing sigs             id rhs
+    (sig, _, id2, rhs2) = dmdAnalRhs TopLevel Nothing (nonVirgin sigs) id rhs1
     	-- Do two passes to improve CPR information
     	-- See comments with ignore_cpr_info in mk_sig_ty
     	-- and with extendSigsWithLam
 
-dmdAnalTopBind dflags sigs (Rec pairs)
+dmdAnalTopBind sigs (Rec pairs)
   = (sigs', Rec pairs')
   where
-    (sigs', _, pairs')  = dmdFix dflags TopLevel (virgin sigs) pairs
+    (sigs', _, pairs')  = dmdFix TopLevel sigs pairs
 		-- We get two iterations automatically
 		-- c.f. the NonRec case above
-
 \end{code}
 
 %************************************************************************
@@ -104,48 +102,48 @@ c) The application rule wouldn't be right either
 {-
 simpleDmdAnal :: DynFlags -> AnalEnv -> DmdType 
               -> CoreExpr -> (DmdType, CoreExpr)
-simpleDmdAnal dflags env res_ty e
+simpleDmdAnal env res_ty e
   | ae_virgin env -- See Note [Always analyse in virgin pass]
-  , (_discarded_res_ty, e') <- dmdAnal dflags env cleanEvalDmd e
+  , (_discarded_res_ty, e') <- dmdAnal env cleanEvalDmd e
   = (res_ty, e')
   | otherwise
   = (res_ty, e)
 -}
 
-dmdAnalThunk :: DynFlags -> AnalEnv 
-           -> Demand 	-- This one takes a *Demand*
-           -> CoreExpr -> (DmdType, CoreExpr)
-dmdAnalThunk dflags env dmd e
-  | exprIsTrivial e = dmdAnalStar dflags env dmd e
-  | otherwise       = dmdAnalStar dflags env (oneifyDmd dmd) e
+dmdAnalThunk :: AnalEnv 
+             -> Demand 	-- This one takes a *Demand*
+             -> CoreExpr -> (DmdType, CoreExpr)
+dmdAnalThunk env dmd e
+  | exprIsTrivial e = dmdAnalStar env dmd e
+  | otherwise       = dmdAnalStar env (oneifyDmd dmd) e
 
 -- Do not process absent demands
 -- Otherwise act like in a normal demand analysis
 -- See |-* relation in the companion paper
-dmdAnalStar :: DynFlags -> AnalEnv 
+dmdAnalStar :: AnalEnv 
             -> Demand 	-- This one takes a *Demand*
             -> CoreExpr -> (DmdType, CoreExpr)
-dmdAnalStar dflags env dmd e = toCleanDmd (dmdAnal dflags env) dmd e
+dmdAnalStar env dmd e = toCleanDmd (dmdAnal env) dmd e
 
 -- Main Demand Analsysis machinery
-dmdAnal :: DynFlags -> AnalEnv 
+dmdAnal :: AnalEnv 
         -> CleanDemand 	       -- The main one takes a *CleanDemand*
         -> CoreExpr -> (DmdType, CoreExpr)
 
 -- The CleanDemand is always strict and not absent
 --    See Note [Ensure demand is strict]
 
-dmdAnal _ _ _ (Lit lit)     = (topDmdType, Lit lit)
-dmdAnal _ _ _ (Type ty)     = (topDmdType, Type ty)	-- Doesn't happen, in fact
-dmdAnal _ _ _ (Coercion co) = (topDmdType, Coercion co)
+dmdAnal _ _ (Lit lit)     = (topDmdType, Lit lit)
+dmdAnal _ _ (Type ty)     = (topDmdType, Type ty)	-- Doesn't happen, in fact
+dmdAnal _ _ (Coercion co) = (topDmdType, Coercion co)
 
-dmdAnal _ env dmd (Var var)
+dmdAnal env dmd (Var var)
   = (dmdTransform env var dmd, Var var)
 
-dmdAnal dflags env dmd (Cast e co)
+dmdAnal env dmd (Cast e co)
   = (dmd_ty, Cast e' co)
   where
-    (dmd_ty, e') = dmdAnal dflags env dmd' e
+    (dmd_ty, e') = dmdAnal env dmd' e
     to_co        = pSnd (coercionKind co)
     dmd'
       | Just tc <- tyConAppTyCon_maybe to_co
@@ -157,29 +155,29 @@ dmdAnal dflags env dmd (Cast e co)
 	-- inside recursive products -- we might not reach
 	-- a fixpoint.  So revert to a vanilla Eval demand
 
-dmdAnal dflags env dmd (Tick t e)
+dmdAnal env dmd (Tick t e)
   = (dmd_ty, Tick t e')
   where
-    (dmd_ty, e') = dmdAnal dflags env dmd e
+    (dmd_ty, e') = dmdAnal env dmd e
 
-dmdAnal dflags env dmd (App fun (Type ty))
+dmdAnal env dmd (App fun (Type ty))
   = (fun_ty, App fun' (Type ty))
   where
-    (fun_ty, fun') = dmdAnal dflags env dmd fun
+    (fun_ty, fun') = dmdAnal env dmd fun
 
-dmdAnal dflags sigs dmd (App fun (Coercion co))
+dmdAnal sigs dmd (App fun (Coercion co))
   = (fun_ty, App fun' (Coercion co))
   where
-    (fun_ty, fun') = dmdAnal dflags sigs dmd fun
+    (fun_ty, fun') = dmdAnal sigs dmd fun
 
 -- Lots of the other code is there to make this
 -- beautiful, compositional, application rule :-)
-dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
+dmdAnal env dmd (App fun arg)	-- Non-type arguments
   = let				-- [Type arg handled above]
         call_dmd          = mkCallDmd dmd
-	(fun_ty, fun') 	  = dmdAnal dflags env call_dmd fun
+	(fun_ty, fun') 	  = dmdAnal env call_dmd fun
 	(arg_dmd, res_ty) = splitDmdTy fun_ty
-        (arg_ty, arg') 	  = dmdAnalThunk dflags env arg_dmd arg
+        (arg_ty, arg') 	  = dmdAnalThunk env arg_dmd arg
     in
 --    pprTrace "dmdAnal:app" (vcat
 --         [ text "dmd =" <+> ppr dmd
@@ -191,10 +189,10 @@ dmdAnal dflags env dmd (App fun arg)	-- Non-type arguments
 --         , text "overall res dmd_ty =" <+> ppr (res_ty `bothDmdType` arg_ty) ])
     (res_ty `bothDmdType` arg_ty, App fun' arg')
 
-dmdAnal dflags env dmd (Lam var body)
+dmdAnal env dmd (Lam var body)
   | isTyVar var
   = let    
-	(body_ty, body') = dmdAnal dflags env dmd body
+	(body_ty, body') = dmdAnal env dmd body
     in
     (body_ty, Lam var body')
 
@@ -205,19 +203,19 @@ dmdAnal dflags env dmd (Lam var body)
           --             hence, cardinality of its free vars
 
 	env'		 = extendSigsWithLam env var
-	(body_ty, body') = dmdAnal dflags env' body_dmd body
-	(lam_ty, var')   = annotateLamIdBndr dflags env body_ty one_shot var
+	(body_ty, body') = dmdAnal env' body_dmd body
+	(lam_ty, var')   = annotateLamIdBndr env body_ty one_shot var
     in
     (deferAndUse defer_me one_shot lam_ty, Lam var' body')
 
-dmdAnal dflags env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
+dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
   -- Only one alternative with a product constructor
   | let tycon = dataConTyCon dc
   , isProductTyCon tycon 
   , not (isRecursiveTyCon tycon)
   = let
 	env_alt	              = extendAnalEnv NotTopLevel env case_bndr case_bndr_sig
-	(alt_ty, alt')	      = dmdAnalAlt dflags env_alt dmd alt
+	(alt_ty, alt')	      = dmdAnalAlt env_alt dmd alt
 	(alt_ty1, case_bndr') = annotateBndr alt_ty case_bndr
 	(_, bndrs', _)	      = alt'
 	case_bndr_sig	      = cprProdSig
@@ -255,7 +253,7 @@ dmdAnal dflags env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
         scrut_dmds2 = splitProdDmd (length scrut_dmds1) (idDemandInfo case_bndr')
         scrut_dmd   = mkProdDmd (zipWithEqual "scrut_dmds" bothDmd scrut_dmds1 scrut_dmds2)
 
-	(scrut_ty, scrut') = dmdAnal dflags env scrut_dmd scrut
+	(scrut_ty, scrut') = dmdAnal env scrut_dmd scrut
         res_ty             = alt_ty1 `bothDmdType` scrut_ty
     in
 --    pprTrace "dmdAnal:Case1" (vcat [ text "scrut" <+> ppr scrut
@@ -268,10 +266,10 @@ dmdAnal dflags env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
 --                                   , text "res_ty" <+> ppr res_ty ]) $
     (res_ty, Case scrut' case_bndr' ty [alt'])
 
-dmdAnal dflags env dmd (Case scrut case_bndr ty alts)
+dmdAnal env dmd (Case scrut case_bndr ty alts)
   = let      -- Case expression with multiple alternatives
-	(alt_tys, alts')     = mapAndUnzip (dmdAnalAlt dflags env dmd) alts
-	(scrut_ty, scrut')   = dmdAnal dflags env cleanEvalDmd scrut
+	(alt_tys, alts')     = mapAndUnzip (dmdAnalAlt env dmd) alts
+	(scrut_ty, scrut')   = dmdAnal env cleanEvalDmd scrut
 	(alt_ty, case_bndr') = annotateBndr (foldr lubDmdType botDmdType alt_tys) case_bndr
         res_ty               = alt_ty `bothDmdType` scrut_ty
     in
@@ -281,13 +279,13 @@ dmdAnal dflags env dmd (Case scrut case_bndr ty alts)
 --                                   , text "res_ty" <+> ppr res_ty ]) $
     (res_ty, Case scrut' case_bndr' ty alts')
 
-dmdAnal dflags env dmd (Let (NonRec id rhs) body)
+dmdAnal env dmd (Let (NonRec id rhs) body)
   = (body_ty2, Let (NonRec id2 annotated_rhs) body')                    
   where
-    (sigs', lazy_fv, (id1, rhs')) = dmdAnalRhs dflags NotTopLevel Nothing env (id, rhs)
-    (body_ty, body') 	          = dmdAnal dflags (updSigEnv env sigs') dmd body
-    (body_ty1, id2)               = annotateBndr body_ty id1
-    body_ty2		          = addLazyFVs body_ty1 lazy_fv
+    (sig, lazy_fv, id1, rhs') = dmdAnalRhs NotTopLevel Nothing env id rhs
+    (body_ty, body') 	      = dmdAnal (extendAnalEnv NotTopLevel env id sig) dmd body
+    (body_ty1, id2)           = annotateBndr body_ty id1
+    body_ty2		      = addLazyFVs body_ty1 lazy_fv
 
     -- Annotate top-level lambdas at RHS basing on the aggregated demand info
     -- See Note [Annotating lambdas at right-hand side] 
@@ -306,14 +304,14 @@ dmdAnal dflags env dmd (Let (NonRec id rhs) body)
 	-- the vanilla call demand seem to be due to (b).  So we don't
 	-- bother to re-analyse the RHS.
 
-dmdAnal dflags env dmd (Let (Rec pairs) body)
+dmdAnal env dmd (Let (Rec pairs) body)
   = let
-	(sigs', lazy_fv, pairs') = dmdFix dflags NotTopLevel env pairs
-	(body_ty, body')         = dmdAnal dflags (updSigEnv env sigs') dmd body
-        body_ty1                 = deleteFVs body_ty (map fst pairs)
-	body_ty2		 = addLazyFVs body_ty1 lazy_fv 
+	(env', lazy_fv, pairs') = dmdFix NotTopLevel env pairs
+	(body_ty, body')        = dmdAnal env' dmd body
+        body_ty1                = deleteFVs body_ty (map fst pairs)
+	body_ty2	        = addLazyFVs body_ty1 lazy_fv 
     in
-    sigs' `seq` body_ty2 `seq`
+    body_ty2 `seq`
     (body_ty2,  Let (Rec pairs') body')
 
 annLamWithShotness :: Demand -> CoreExpr -> CoreExpr
@@ -335,10 +333,10 @@ setOneShotness :: Count -> Id -> Id
 setOneShotness One  bndr = setOneShotLambda bndr
 setOneShotness Many bndr = bndr
 
-dmdAnalAlt :: DynFlags -> AnalEnv -> CleanDemand -> Alt Var -> (DmdType, Alt Var)
-dmdAnalAlt dflags env dmd (con,bndrs,rhs)
+dmdAnalAlt :: AnalEnv -> CleanDemand -> Alt Var -> (DmdType, Alt Var)
+dmdAnalAlt env dmd (con,bndrs,rhs)
   = let 
-	(rhs_ty, rhs')   = dmdAnal dflags env dmd rhs
+	(rhs_ty, rhs')   = dmdAnal env dmd rhs
         rhs_ty'          = addDataConPatDmds con bndrs rhs_ty
 	(alt_ty, bndrs') = annotateBndrs rhs_ty' bndrs
 	final_alt_ty | io_hack_reqd = alt_ty `lubDmdType` topDmdType
@@ -519,30 +517,31 @@ dmdTransform env var dmd
 \begin{code}
 
 -- Recursive bindings
-dmdFix :: DynFlags
-       -> TopLevelFlag
+dmdFix :: TopLevelFlag
        -> AnalEnv 		-- Does not include bindings for this binding
        -> [(Id,CoreExpr)]
-       -> (SigEnv, DmdEnv,
+       -> (AnalEnv, DmdEnv,
 	   [(Id,CoreExpr)])	-- Binders annotated with stricness info
 
-dmdFix dflags top_lvl env orig_pairs
-  = loop 1 initial_env orig_pairs
+dmdFix top_lvl env orig_pairs
+  = (updSigEnv env (sigEnv final_env), lazy_fv, pairs')
+     -- Return to original virgin state, keeping new signatures
   where
     bndrs        = map fst orig_pairs
     initial_env = addInitialSigs top_lvl env bndrs
+    (final_env, lazy_fv, pairs') = loop 1 initial_env orig_pairs
     
     loop :: Int
 	 -> AnalEnv			-- Already contains the current sigs
 	 -> [(Id,CoreExpr)] 		
-	 -> (SigEnv, DmdEnv, [(Id,CoreExpr)])
+	 -> (AnalEnv, DmdEnv, [(Id,CoreExpr)])
     loop n env pairs
       = -- pprTrace "dmd loop" (ppr n <+> ppr bndrs $$ ppr env) $
         loop' n env pairs
 
     loop' n env pairs
       | found_fixpoint
-      = (sigs', lazy_fv, pairs')
+      = (env', lazy_fv, pairs')
 		-- Note: return pairs', not pairs.   pairs' is the result of 
 		-- processing the RHSs with sigs (= sigs'), whereas pairs 
 		-- is the result of processing the RHSs with the *previous* 
@@ -550,11 +549,12 @@ dmdFix dflags top_lvl env orig_pairs
 
       | n >= 10  
       = pprTrace "dmdFix loop" (ppr n <+> (vcat 
-			[ text "Sigs:" <+> ppr [ (id,lookupVarEnv sigs id, lookupVarEnv sigs' id) 
+			[ text "Sigs:" <+> ppr [ (id,lookupVarEnv (sigEnv env) id, 
+                                                     lookupVarEnv (sigEnv env') id) 
                                                | (id,_) <- pairs],
 			  text "env:" <+> ppr env,
 			  text "binds:" <+> pprCoreBinding (Rec pairs)]))
-	(sigEnv env, lazy_fv, orig_pairs)	-- Safe output
+	(env, lazy_fv, orig_pairs)	-- Safe output
 		-- The lazy_fv part is really important!  orig_pairs has no strictness
 		-- info, including nothing about free vars.  But if we have
 		--	letrec f = ....y..... in ...f...
@@ -562,21 +562,21 @@ dmdFix dflags top_lvl env orig_pairs
 		-- otherwise y will get recorded as absent altogether
 
       | otherwise
-      = loop (n+1) (nonVirgin sigs') pairs'
+      = loop (n+1) (nonVirgin env') pairs'
       where
-        sigs = sigEnv env
-	found_fixpoint = all (same_sig sigs sigs') bndrs 
+	found_fixpoint = all (same_sig (sigEnv env) (sigEnv env')) bndrs 
 
-	((sigs',lazy_fv), pairs') = mapAccumL my_downRhs (sigs, emptyDmdEnv) pairs
+	((env',lazy_fv), pairs') = mapAccumL my_downRhs (env, emptyDmdEnv) pairs
 		-- mapAccumL: Use the new signature to do the next pair
 		-- The occurrence analyser has arranged them in a good order
 		-- so this can significantly reduce the number of iterations needed
 	
-        my_downRhs (sigs,lazy_fv) (id,rhs)
-          = ((sigs', lazy_fv'), pair')
+        my_downRhs (env, lazy_fv) (id,rhs)
+          = ((env', lazy_fv'), (id', rhs'))
           where
-	    (sigs', lazy_fv1, pair') = dmdAnalRhs dflags top_lvl (Just bndrs) (updSigEnv env sigs) (id,rhs)
-	    lazy_fv'		     = plusVarEnv_C bothDmd lazy_fv lazy_fv1
+	    (sig, lazy_fv1, id', rhs') = dmdAnalRhs top_lvl (Just bndrs) env id rhs
+	    lazy_fv'		       = plusVarEnv_C bothDmd lazy_fv lazy_fv1
+            env'                       = extendAnalEnv top_lvl env id sig
 	   
     same_sig sigs sigs' var = lookup sigs var == lookup sigs' var
     lookup sigs var = case lookupVarEnv sigs var of
@@ -584,22 +584,21 @@ dmdFix dflags top_lvl env orig_pairs
                         Nothing      -> pprPanic "dmdFix" (ppr var)
 
 -- Non-recursive bindings
-dmdAnalRhs :: DynFlags -> TopLevelFlag 
+dmdAnalRhs :: TopLevelFlag 
            -> Maybe [Id]   -- Just bs <=> recursive, Nothing <=> non-recursive
-	   -> AnalEnv -> (Id, CoreExpr)
-	   -> (SigEnv,  DmdEnv, (Id, CoreExpr))
+	   -> AnalEnv -> Id -> CoreExpr
+	   -> (StrictSig,  DmdEnv, Id, CoreExpr)
 -- Process the RHS of the binding, add the strictness signature
 -- to the Id, and augment the environment with the signature as well.
-dmdAnalRhs dflags top_lvl rec_flag env (id, rhs)
-  = (sigs', lazy_fv, (id', mkLams bndrs' body'))
+dmdAnalRhs top_lvl rec_flag env id rhs
+  = (sig_ty, lazy_fv, id', mkLams bndrs' body')
   where
     (bndrs, body)        = collectBinders rhs
     env_body             = foldl extendSigsWithLam env bndrs
-    (body_dmd_ty, body') = dmdAnal dflags env_body cleanEvalDmd body
-    (rhs_dmd_ty, bndrs') = annotateLamBndrs dflags env body_dmd_ty bndrs
+    (body_dmd_ty, body') = dmdAnal env_body cleanEvalDmd body
+    (rhs_dmd_ty, bndrs') = annotateLamBndrs env body_dmd_ty bndrs
     id'		         = id `setIdStrictness` sig_ty
     sig_ty               = mkStrictSig (mkDmdType sig_fv rhs_dmds rhs_res')
-    sigs'	         = extendSigEnv top_lvl (sigEnv env) id sig_ty
 	-- See Note [NOINLINE and strictness]
 
     DmdType rhs_fv rhs_dmds rhs_res = rhs_dmd_ty
@@ -706,22 +705,21 @@ annotateBndr dmd_ty@(DmdType fv ds res) var
 annotateBndrs :: DmdType -> [Var] -> (DmdType, [Var])
 annotateBndrs = mapAccumR annotateBndr
 
-annotateLamBndrs :: DynFlags -> AnalEnv -> DmdType -> [Var] -> (DmdType, [Var])
-annotateLamBndrs dflags env ty bndrs = mapAccumR annotate ty bndrs
+annotateLamBndrs :: AnalEnv -> DmdType -> [Var] -> (DmdType, [Var])
+annotateLamBndrs env ty bndrs = mapAccumR annotate ty bndrs
   where
     annotate dmd_ty bndr
-      | isId bndr = annotateLamIdBndr dflags env dmd_ty Many bndr
+      | isId bndr = annotateLamIdBndr env dmd_ty Many bndr
       | otherwise = (dmd_ty, bndr)
 
-annotateLamIdBndr :: DynFlags
-                  -> AnalEnv
+annotateLamIdBndr :: AnalEnv
                   -> DmdType 	-- Demand type of body
                   -> Count      -- One-shot-ness of the lambda
 		  -> Id 	-- Lambda binder
 		  -> (DmdType, 	-- Demand type of lambda
 		      Id)	-- and binder annotated with demand	
 
-annotateLamIdBndr dflags env (DmdType fv ds res) one_shot id
+annotateLamIdBndr env (DmdType fv ds res) one_shot id
 -- For lambdas we add the demand to the argument demands
 -- Only called for Ids
   = ASSERT( isId id )
@@ -733,7 +731,7 @@ annotateLamIdBndr dflags env (DmdType fv ds res) one_shot id
                  Nothing  -> main_ty
                  Just unf -> main_ty `bothDmdType` unf_ty
                           where
-                             (unf_ty, _) = dmdAnalStar dflags env dmd unf
+                             (unf_ty, _) = dmdAnalStar env dmd unf
     
     main_ty = DmdType fv' (dmd:ds) res
 
@@ -945,7 +943,8 @@ forget that fact, otherwise we might make 'x' absent when it isn't.
 
 \begin{code}
 data AnalEnv
-  = AE { ae_sigs   :: SigEnv
+  = AE { ae_dflags :: DynFlags
+       , ae_sigs   :: SigEnv
        , ae_virgin :: Bool }  -- True on first iteration only
 		              -- See Note [Initialising strictness]
 	-- We use the se_env to tell us whether to
@@ -962,6 +961,9 @@ instance Outputable AnalEnv where
     = ptext (sLit "AE") <+> braces (vcat
          [ ptext (sLit "ae_virgin =") <+> ppr virgin
          , ptext (sLit "ae_sigs =") <+> ppr env ])
+
+emptyAnalEnv :: DynFlags -> AnalEnv
+emptyAnalEnv dflags = AE { ae_dflags = dflags, ae_sigs = emptySigEnv, ae_virgin = True }
 
 emptySigEnv :: SigEnv
 emptySigEnv = emptyVarEnv
@@ -991,9 +993,8 @@ addInitialSigs top_lvl env@(AE { ae_sigs = sigs, ae_virgin = virgin }) ids
     init_sig | virgin    = \_ -> botSig
              | otherwise = idStrictness
 
-virgin, nonVirgin :: SigEnv -> AnalEnv
-virgin    sigs = AE { ae_sigs = sigs, ae_virgin = True }
-nonVirgin sigs = AE { ae_sigs = sigs, ae_virgin = False }
+nonVirgin :: AnalEnv -> AnalEnv
+nonVirgin env = env { ae_virgin = False }
 
 extendSigsWithLam :: AnalEnv -> Id -> AnalEnv
 -- Extend the AnalEnv when we meet a lambda binder
