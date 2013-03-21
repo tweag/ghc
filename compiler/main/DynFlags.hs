@@ -50,7 +50,8 @@ module DynFlags (
 
         printOutputForUser, printInfoForUser,
 
-        Way(..), mkBuildTag, wayRTSOnly,
+        Way(..), mkBuildTag, wayRTSOnly, updateWays,
+        wayGeneralFlags, wayUnsetGeneralFlags,
 
         -- ** Safe Haskell
         SafeHaskellMode(..),
@@ -73,6 +74,7 @@ module DynFlags (
         -- ** Manipulating DynFlags
         defaultDynFlags,                -- Settings -> DynFlags
         defaultWays,
+        interpWays,
         initDynFlags,                   -- DynFlags -> IO DynFlags
         defaultFatalMessager,
         defaultLogAction,
@@ -513,6 +515,7 @@ data ExtensionFlag
    | Opt_FlexibleInstances
    | Opt_ConstrainedClassMethods
    | Opt_MultiParamTypeClasses
+   | Opt_NullaryTypeClasses
    | Opt_FunctionalDependencies
    | Opt_UnicodeSyntax
    | Opt_ExistentialQuantification
@@ -755,6 +758,7 @@ data Settings = Settings {
   sSystemPackageConfig   :: FilePath,
   sLdSupportsCompactUnwind :: Bool,
   sLdSupportsBuildId       :: Bool,
+  sLdSupportsFilelist      :: Bool,
   sLdIsGnuLd               :: Bool,
   -- commands for particular phases
   sPgm_L                 :: String,
@@ -1052,25 +1056,23 @@ wayDesc WayNDP      = "Nested data parallelism"
 
 wayGeneralFlags :: Platform -> Way -> [GeneralFlag]
 wayGeneralFlags _ WayThreaded = []
-wayGeneralFlags _ WayDebug = []
-wayGeneralFlags platform WayDyn =
-        case platformOS platform of
-            -- On Windows, code that is to be linked into a dynamic
-            -- library must be compiled with -fPIC. Labels not in
-            -- the current package are assumed to be in a DLL
-            -- different from the current one.
-            OSMinGW32 -> [Opt_PIC]
-            OSDarwin  -> [Opt_PIC]
-            OSLinux   -> [Opt_PIC] -- This needs to be here for GHCi to work:
-                                   -- GHCi links objects into a .so before
-                                   -- loading the .so using the system linker.
-                                   -- Only PIC objects can be linked into a .so.
-            _         -> []
+wayGeneralFlags _ WayDebug    = []
+wayGeneralFlags _ WayDyn      = [Opt_PIC]
 wayGeneralFlags _ WayProf     = [Opt_SccProfilingOn]
 wayGeneralFlags _ WayEventLog = []
 wayGeneralFlags _ WayPar      = [Opt_Parallel]
 wayGeneralFlags _ WayGran     = [Opt_GranMacros]
 wayGeneralFlags _ WayNDP      = []
+
+wayUnsetGeneralFlags :: Platform -> Way -> [GeneralFlag]
+wayUnsetGeneralFlags _ WayThreaded = []
+wayUnsetGeneralFlags _ WayDebug    = []
+wayUnsetGeneralFlags _ WayDyn      = [Opt_Static]
+wayUnsetGeneralFlags _ WayProf     = []
+wayUnsetGeneralFlags _ WayEventLog = []
+wayUnsetGeneralFlags _ WayPar      = []
+wayUnsetGeneralFlags _ WayGran     = []
+wayUnsetGeneralFlags _ WayNDP      = []
 
 wayExtras :: Platform -> Way -> DynFlags -> DynFlags
 wayExtras _ WayThreaded dflags = dflags
@@ -1108,16 +1110,8 @@ wayOptl platform WayThreaded =
         OSOpenBSD  -> ["-pthread"]
         OSNetBSD   -> ["-pthread"]
         _          -> []
-wayOptl _ WayDebug = []
-wayOptl platform WayDyn =
-        case platformOS platform of
-        OSOpenBSD -> -- Without this, linking the shared libHSffi fails
-                     -- because it uses pthread mutexes.
-                     ["-optl-pthread"]
-        OSNetBSD -> -- Without this, linking the shared libHSffi fails
-                    -- because it uses pthread mutexes.
-                    ["-optl-pthread"]
-        _ -> []
+wayOptl _ WayDebug      = []
+wayOptl _ WayDyn        = []
 wayOptl _ WayProf       = []
 wayOptl _ WayEventLog   = []
 wayOptl _ WayPar        = ["-L${PVM_ROOT}/lib/${PVM_ARCH}",
@@ -1160,15 +1154,14 @@ generateDynamicTooConditional dflags canGen cannotGen notTryingToGen
       else notTryingToGen
 
 doDynamicToo :: DynFlags -> DynFlags
-doDynamicToo dflags0 = let dflags1 = unSetGeneralFlag' Opt_Static dflags0
-                           dflags2 = addWay' WayDyn dflags1
-                           dflags3 = dflags2 {
-                                         outputFile = dynOutputFile dflags2,
-                                         hiSuf = dynHiSuf dflags2,
-                                         objectSuf = dynObjectSuf dflags2
+doDynamicToo dflags0 = let dflags1 = addWay' WayDyn dflags0
+                           dflags2 = dflags1 {
+                                         outputFile = dynOutputFile dflags1,
+                                         hiSuf = dynHiSuf dflags1,
+                                         objectSuf = dynObjectSuf dflags1
                                      }
-                           dflags4 = updateWays dflags3
-                       in dflags4
+                           dflags3 = updateWays dflags2
+                       in dflags3
 
 -----------------------------------------------------------------------------
 
@@ -1334,6 +1327,11 @@ defaultWays :: Settings -> [Way]
 defaultWays settings = if pc_DYNAMIC_BY_DEFAULT (sPlatformConstants settings)
                        then [WayDyn]
                        else []
+
+interpWays :: [Way]
+interpWays = if cDYNAMIC_GHC_PROGRAMS
+             then [WayDyn]
+             else []
 
 --------------------------------------------------------------------------
 
@@ -1846,11 +1844,10 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
 updateWays :: DynFlags -> DynFlags
 updateWays dflags
     = let theWays = sort $ nub $ ways dflags
-          theBuildTag = mkBuildTag (filter (not . wayRTSOnly) theWays)
       in dflags {
              ways        = theWays,
-             buildTag    = theBuildTag,
-             rtsBuildTag = mkBuildTag theWays
+             buildTag    = mkBuildTag (filter (not . wayRTSOnly) theWays),
+             rtsBuildTag = mkBuildTag                            theWays
          }
 
 -- | Check (and potentially disable) any extensions that aren't allowed
@@ -1962,10 +1959,8 @@ dynamic_flags = [
     -- is required to get the RTS ticky support.
 
         ----- Linker --------------------------------------------------------
-  , Flag "static"         (NoArg (do setGeneralFlag Opt_Static
-                                     removeWay WayDyn))
-  , Flag "dynamic"        (NoArg (do unSetGeneralFlag Opt_Static
-                                     addWay WayDyn))
+  , Flag "static"         (NoArg (removeWay WayDyn))
+  , Flag "dynamic"        (NoArg (addWay WayDyn))
     -- ignored for compat w/ gcc:
   , Flag "rdynamic"       (NoArg (return ()))
   , Flag "relative-dynlib-paths"  (NoArg (setGeneralFlag Opt_RelativeDynlibPaths))
@@ -2650,6 +2645,7 @@ xFlags = [
   ( "FlexibleInstances",                Opt_FlexibleInstances, nop ),
   ( "ConstrainedClassMethods",          Opt_ConstrainedClassMethods, nop ),
   ( "MultiParamTypeClasses",            Opt_MultiParamTypeClasses, nop ),
+  ( "NullaryTypeClasses",               Opt_NullaryTypeClasses, nop ),
   ( "FunctionalDependencies",           Opt_FunctionalDependencies, nop ),
   ( "GeneralizedNewtypeDeriving",       Opt_GeneralizedNewtypeDeriving, setGenDeriving ),
   ( "OverlappingInstances",             Opt_OverlappingInstances, nop ),
@@ -2973,8 +2969,11 @@ addWay' :: Way -> DynFlags -> DynFlags
 addWay' w dflags0 = let platform = targetPlatform dflags0
                         dflags1 = dflags0 { ways = w : ways dflags0 }
                         dflags2 = wayExtras platform w dflags1
-                        dflags3 = foldr setGeneralFlag' dflags2 (wayGeneralFlags platform w)
-                    in dflags3
+                        dflags3 = foldr setGeneralFlag' dflags2
+                                        (wayGeneralFlags platform w)
+                        dflags4 = foldr unSetGeneralFlag' dflags3
+                                        (wayUnsetGeneralFlags platform w)
+                    in dflags4
 
 removeWay :: Way -> DynP ()
 removeWay w = do
@@ -2983,6 +2982,7 @@ removeWay w = do
   let platform = targetPlatform dfs
   -- XXX: wayExtras?
   mapM_ unSetGeneralFlag $ wayGeneralFlags platform w
+  mapM_ setGeneralFlag $ wayUnsetGeneralFlags platform w
   -- turn Opt_PIC back on if necessary for this platform:
   mapM_ setGeneralFlag $ default_PIC platform
 
@@ -3342,6 +3342,8 @@ compilerInfo dflags
        ("RTS ways",                    cGhcRTSWays),
        ("Dynamic by default",          if dYNAMIC_BY_DEFAULT dflags
                                        then "YES" else "NO"),
+       ("GHC Dynamic",                 if cDYNAMIC_GHC_PROGRAMS
+                                       then "YES" else "NO"),
        ("Leading underscore",          cLeadingUnderscore),
        ("Debug on",                    show debugIsOn),
        ("LibDir",                      topDir dflags),
@@ -3405,6 +3407,7 @@ makeDynFlagsConsistent dflags
         in loop dflags' warn
  | hscTarget dflags == HscLlvm &&
    not ((arch == ArchX86_64) && (os == OSLinux || os == OSDarwin)) &&
+   not ((isARM arch) && (os == OSLinux)) &&
    (not (gopt Opt_Static dflags) || gopt Opt_PIC dflags)
     = if cGhcWithNativeCodeGen == "YES"
       then let dflags' = dflags { hscTarget = HscAsm }

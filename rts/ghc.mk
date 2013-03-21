@@ -194,7 +194,7 @@ $$(rts_$1_LIB) : $$(rts_$1_OBJS) $$(ALL_RTS_DEF_LIBS) rts/libs.depend rts/dist/b
 else
 ifneq "$(UseSystemLibFFI)" "YES"
 LIBFFI_LIBS = -Lrts/dist/build -lffi 
-ifeq "$$(TargetOS_CPP)" "linux"
+ifeq "$$(TargetElf)" "YES"
 LIBFFI_LIBS += -optl-Wl,-rpath -optl-Wl,'$$$$ORIGIN'
 endif
 
@@ -329,8 +329,8 @@ rts/RtsUtils_CC_OPTS += -DTargetVendor=\"$(TargetVendor_CPP)\"
 rts/RtsUtils_CC_OPTS += -DGhcUnregisterised=\"$(GhcUnregisterised)\"
 rts/RtsUtils_CC_OPTS += -DGhcEnableTablesNextToCode=\"$(GhcEnableTablesNextToCode)\"
 
-ifeq "$(DYNAMIC_BY_DEFAULT)" "YES"
-rts/Linker_CC_OPTS += -DDYNAMIC_BY_DEFAULT
+ifeq "$(DYNAMIC_GHC_PROGRAMS)" "YES"
+rts/Linker_CC_OPTS += -DDYNAMIC_GHC_PROGRAMS
 endif
 
 # Compile various performance-critical pieces *without* -fPIC -dynamic
