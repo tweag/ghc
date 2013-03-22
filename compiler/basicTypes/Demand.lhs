@@ -105,12 +105,12 @@ strBot, strTop :: MaybeStr
 strBot = Str HyperStr
 strTop = Lazy
 
-strCall :: StrDmd -> StrDmd
-strCall HyperStr = HyperStr
-strCall s        = SCall s
+mkSCall :: StrDmd -> StrDmd
+mkSCall HyperStr = HyperStr
+mkSCall s        = SCall s
 
-strProd :: [MaybeStr] -> StrDmd
-strProd sx
+mkSProd :: [MaybeStr] -> StrDmd
+mkSProd sx
   | any isHyperStr sx = HyperStr
   | all isLazy     sx = HeadStr
   | otherwise         = SProd sx
@@ -148,7 +148,7 @@ lubStr (SCall _)  (SProd _)    = HeadStr
 lubStr (SProd sx) HyperStr     = SProd sx
 lubStr (SProd _)  HeadStr      = HeadStr
 lubStr (SProd s1) (SProd s2)
-    | length s1 == length s2   = SProd (zipWith lubMaybeStr s1 s2)
+    | length s1 == length s2   = mkSProd (zipWith lubMaybeStr s1 s2)
     | otherwise                = HeadStr
 lubStr (SProd _) (SCall _)     = HeadStr
 lubStr HeadStr   _             = HeadStr
@@ -169,7 +169,7 @@ bothStr (SCall _)  (SProd _)   = HyperStr  -- Weird
 bothStr (SProd _)  HyperStr    = HyperStr
 bothStr (SProd s1) HeadStr     = SProd s1
 bothStr (SProd s1) (SProd s2) 
-    | length s1 == length s2   = SProd (zipWith bothMaybeStr s1 s2)
+    | length s1 == length s2   = mkSProd (zipWith bothMaybeStr s1 s2)
     | otherwise                = HyperStr  -- Weird
 bothStr (SProd _) (SCall _)    = HyperStr
 
@@ -271,12 +271,12 @@ useBot, useTop :: MaybeUsed
 useBot     = Abs
 useTop     = Use Many Used
 
-useCall :: Count -> UseDmd -> UseDmd
---useCall c Used = Used c 
-useCall c a  = UCall c a
+mkUCall :: Count -> UseDmd -> UseDmd
+--mkUCall c Used = Used c 
+mkUCall c a  = UCall c a
 
-useProd :: [MaybeUsed] -> UseDmd
-useProd ux 
+mkUProd :: [MaybeUsed] -> UseDmd
+mkUProd ux 
   | all (== Abs) ux    = UHead
   | otherwise          = UProd ux
 
@@ -599,12 +599,12 @@ mkProdDmd :: [JointDmd] -> CleanDemand
 mkProdDmd dx 
   = mkCleanDmd sp up 
   where
-    sp = strProd $ map strd dx
-    up = useProd $ map absd dx   
+    sp = mkSProd $ map strd dx
+    up = mkUProd $ map absd dx   
 
 mkCallDmd :: CleanDemand -> CleanDemand
 mkCallDmd (CD {sd = d, ud = u}) 
-  = mkCleanDmd (strCall d) (useCall One u)
+  = mkCleanDmd (mkSCall d) (mkUCall One u)
 
 -- Returns result demand * strictness flag * one-shotness of the call 
 peelCallDmd :: CleanDemand 
@@ -634,8 +634,8 @@ peelCallDmd (CD {sd = s, ud = u})
 vanillaCall :: Arity -> CleanDemand
 vanillaCall 0 = cleanEvalDmd
 vanillaCall n =
-  let strComp = nTimes n strCall       HeadStr
-      absComp = nTimes n (useCall One) Used
+  let strComp = nTimes n mkSCall       HeadStr
+      absComp = nTimes n (mkUCall One) Used
    in mkCleanDmd strComp absComp
 
 cleanEvalDmd :: CleanDemand
@@ -652,7 +652,7 @@ isSingleUsed (JD {absd=a}) = is_used_once a
 -- mkThresholdDmd :: Arity -> JointDmd
 -- mkThresholdDmd 0 = topDmd
 -- mkThresholdDmd n =
---   let absComp = (iterate (useCall One) useTop) !! n
+--   let absComp = (iterate (mkUCall One) useTop) !! n
 --    in mkJointDmd Lazy absComp
 
 
@@ -1349,9 +1349,9 @@ instance Binary StrDmd where
            0 -> do return HyperStr
            1 -> do return HeadStr
            2 -> do s  <- get bh
-                   return $ strCall s
+                   return (SCall s)
            _ -> do sx <- get bh
-                   return $ strProd sx
+                   return (SProd sx)
 
 instance Binary MaybeStr where
     put_ bh Lazy         = do 
@@ -1412,9 +1412,9 @@ instance Binary UseDmd where
               1 -> return $ UHead
               2 -> do c <- get bh
                       u <- get bh
-                      return $ useCall c u  
+                      return (UCall c u)
               _ -> do ux <- get bh
-                      return $ useProd ux
+                      return (UProd ux)
 
 instance Binary JointDmd where
     put_ bh (JD {strd = x, absd = y}) = do put_ bh x; put_ bh y
