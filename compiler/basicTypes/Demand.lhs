@@ -38,7 +38,7 @@ module Demand (
         deferDmd, deferType, deferAndUse, deferEnv, modifyEnv,
 
         splitProdDmd, splitProdDmd_maybe, peelCallDmd, mkCallDmd,
-        dmdTransformSig, dmdTransformDataConSig,
+        dmdTransformSig, dmdTransformDataConSig, argOneShots,
 
         -- cardinality unleashing stuff (perhaps, redundant)
         -- use, useEnv, trimFvUsageTy         
@@ -1246,6 +1246,27 @@ botSig = StrictSig botDmdType
 
 cprProdSig :: StrictSig
 cprProdSig = StrictSig cprProdDmdType
+
+argOneShots :: StrictSig -> Arity -> [[Bool]]
+argOneShots (StrictSig (DmdType _ arg_ds _)) n_val_args
+  | arg_ds `lengthAtLeast` n_val_args
+  = go arg_ds
+  | otherwise
+  = []
+  where
+    go [] = []
+    go (JD { absd = usg } : arg_ds)
+      | Use _ arg_usg <- usg
+      = go_one_shots arg_usg `cons` go arg_ds
+      | otherwise
+      = [] `cons` go arg_ds
+    
+    cons [] [] = []
+    cons a  as = a:as
+
+    go_one_shots (UCall One  u) = True  : go_one_shots u
+    go_one_shots (UCall Many u) = False : go_one_shots u
+    go_one_shots _              = []
 
 dmdTransformSig :: StrictSig -> CleanDemand -> DmdType
 -- (dmdTransformSig fun_sig dmd) considers a call to a function whose

@@ -31,10 +31,9 @@ import Coercion
 import VarSet
 import VarEnv
 import Var
-
+import Demand           ( argOneShots )
 import Maybes           ( orElse )
 import Digraph          ( SCC(..), stronglyConnCompFromEdgedVerticesR )
-import PrelNames        ( buildIdKey, foldrIdKey, runSTRepIdKey, augmentIdKey )
 import Unique
 import UniqFM
 import Util
@@ -1225,24 +1224,13 @@ occAnal env expr@(Lam _ _)
         (final_usage, tagged_binders) = tagLamBinders body_usage binders'
                       -- Use binders' to put one-shot info on the lambdas
 
-        --      URGH!  Sept 99: we don't seem to be able to use binders' here, because
-        --      we get linear-typed things in the resulting program that we can't handle yet.
-        --      (e.g. PrelShow)  TODO
-
-        really_final_usage = if linear then
-                                final_usage
-                             else
-                                mapVarEnv markInsideLam final_usage
+        really_final_usage | linear    = final_usage
+                           | otherwise = mapVarEnv markInsideLam final_usage
     in
-    (really_final_usage,
-     mkLams tagged_binders body') }
+    (really_final_usage, mkLams tagged_binders body') }
   where
-    env_body        = vanillaCtxt env
-                        -- Body is (no longer) an RhsContext
-    (binders, body) = collectBinders expr
-    binders'        = oneShotGroup env binders
-    linear          = all is_one_shot binders'
-    is_one_shot b   = isId b && isOneShotBndr b
+    (binders, body)              = collectBinders expr
+    (env_body, binders', linear) = oneShotGroup env binders
 
 occAnal env (Case scrut bndr ty alts)
   = case occ_anal_scrut scrut alts     of { (scrut_usage, scrut') ->
@@ -1284,12 +1272,20 @@ occAnal env (Let bind body)
     case occAnalBind env env emptyVarEnv bind body_usage of { (final_usage, new_binds) ->
        (final_usage, mkLets new_binds body') }}
 
-occAnalArgs :: OccEnv -> [CoreExpr] -> (UsageDetails, [CoreExpr])
-occAnalArgs env args
-  = case mapAndUnzip (occAnal arg_env) args of  { (arg_uds_s, args') ->
-    (foldr (+++) emptyDetails arg_uds_s, args')}
-  where
-    arg_env = vanillaCtxt env
+occAnalArgs :: OccEnv -> [CoreExpr] -> [[Bool]] -> (UsageDetails, [CoreExpr])
+occAnalArgs _ [] _ 
+  = (emptyDetails, [])
+
+occAnalArgs env (arg:args) one_shots
+  | isTypeArg arg
+  = case occAnalArgs env args one_shots of { (uds, args') ->
+    (uds, arg:args') }
+
+  | otherwise
+  = case argCtxt env one_shots           of { (arg_env, one_shots') ->
+    case occAnal arg_env arg             of { (uds1, arg') ->
+    case occAnalArgs env args one_shots' of { (uds2, args') ->
+    (uds1 +++ uds2, arg':args') }}}
 \end{code}
 
 Applications are dealt with specially because we want
@@ -1326,26 +1322,20 @@ occAnalApp env (Var fun, args)
     in
     (fun_uds +++ final_args_uds, mkApps (Var fun) args') }
   where
-    fun_uniq = idUnique fun
     fun_uds  = mkOneOcc env fun (valArgCount args > 0)
     is_exp = isExpandableApp fun (valArgCount args)
            -- See Note [CONLIKE pragma] in BasicTypes
            -- The definition of is_exp should match that in
            -- Simplify.prepareRhs
 
-                -- Hack for build, fold, runST
-    args_stuff  | fun_uniq == buildIdKey    = appSpecial env 2 [True,True]  args
-                | fun_uniq == augmentIdKey  = appSpecial env 2 [True,True]  args
-                | fun_uniq == foldrIdKey    = appSpecial env 3 [False,True] args
-                | fun_uniq == runSTRepIdKey = appSpecial env 2 [True]       args
+    one_shots  = argOneShots (idStrictness fun) (valArgCount args)
+    args_stuff = occAnalArgs env args one_shots
+
                         -- (foldr k z xs) may call k many times, but it never
                         -- shares a partial application of k; hence [False,True]
                         -- This means we can optimise
                         --      foldr (\x -> let v = ...x... in \y -> ...v...) z xs
                         -- by floating in the v
-
-                | otherwise = occAnalArgs env args
-
 
 occAnalApp env (fun, args)
   = case occAnal (addAppCtxt env args) fun of   { (fun_uds, fun') ->
@@ -1356,11 +1346,8 @@ occAnalApp env (fun, args)
         -- thing much like a let.  We do this by pushing some True items
         -- onto the context stack.
 
-    case occAnalArgs env args of        { (args_uds, args') ->
-    let
-        final_uds = fun_uds +++ args_uds
-    in
-    (final_uds, mkApps fun' args') }}
+    case occAnalArgs env args [] of        { (args_uds, args') ->
+    (fun_uds +++ args_uds, mkApps fun' args') }}
 
 
 markManyIf :: Bool              -- If this is true
@@ -1368,27 +1355,6 @@ markManyIf :: Bool              -- If this is true
            -> UsageDetails
 markManyIf True  uds = mapVarEnv markMany uds
 markManyIf False uds = uds
-
-appSpecial :: OccEnv
-           -> Int -> CtxtTy     -- Argument number, and context to use for it
-           -> [CoreExpr]
-           -> (UsageDetails, [CoreExpr])
-appSpecial env n ctxt args
-  = go n args
-  where
-    arg_env = vanillaCtxt env
-
-    go _ [] = (emptyDetails, [])        -- Too few args
-
-    go 1 (arg:args)                     -- The magic arg
-      = case occAnal (setCtxtTy arg_env ctxt) arg of    { (arg_uds, arg') ->
-        case occAnalArgs env args of                    { (args_uds, args') ->
-        (arg_uds +++ args_uds, arg':args') }}
-
-    go n (arg:args)
-      = case occAnal arg_env arg of     { (arg_uds, arg') ->
-        case go (n-1) args of           { (args_uds, args') ->
-        (arg_uds +++ args_uds, arg':args') }}
 \end{code}
 
 
@@ -1492,31 +1458,46 @@ vanillaCtxt env = env { occ_encl = OccVanilla, occ_ctxt = [] }
 rhsCtxt :: OccEnv -> OccEnv
 rhsCtxt env = env { occ_encl = OccRhs, occ_ctxt = [] }
 
-setCtxtTy :: OccEnv -> CtxtTy -> OccEnv
-setCtxtTy env ctxt = env { occ_ctxt = ctxt }
+argCtxt :: OccEnv -> [[Bool]] -> (OccEnv, [[Bool]])
+argCtxt env [] 
+  = (env { occ_encl = OccVanilla, occ_ctxt = [] }, [])
+argCtxt env (one_shots:one_shots_s) 
+  = (env { occ_encl = OccVanilla, occ_ctxt = one_shots }, one_shots_s)
 
 isRhsEnv :: OccEnv -> Bool
 isRhsEnv (OccEnv { occ_encl = OccRhs })     = True
 isRhsEnv (OccEnv { occ_encl = OccVanilla }) = False
 
-oneShotGroup :: OccEnv -> [CoreBndr] -> [CoreBndr]
+oneShotGroup :: OccEnv -> [CoreBndr] 
+             -> ( OccEnv
+                , [CoreBndr]
+                , Bool )   -- True <=> all binders are one-shot
         -- The result binders have one-shot-ness set that they might not have had originally.
         -- This happens in (build (\cn -> e)).  Here the occurrence analyser
         -- linearity context knows that c,n are one-shot, and it records that fact in
         -- the binder. This is useful to guide subsequent float-in/float-out tranformations
 
-oneShotGroup (OccEnv { occ_ctxt = ctxt }) bndrs
-  = go ctxt bndrs []
+oneShotGroup env@(OccEnv { occ_ctxt = ctxt }) bndrs
+  = go ctxt bndrs [] True
   where
-    go _ [] rev_bndrs = reverse rev_bndrs
+    go ctxt [] rev_bndrs linear 
+      = ( env { occ_ctxt = ctxt, occ_encl = OccVanilla }
+        , reverse rev_bndrs
+        , linear )
 
-    go (lin_ctxt:ctxt) (bndr:bndrs) rev_bndrs
-        | isId bndr = go ctxt bndrs (bndr':rev_bndrs)
-        where
-          bndr' | lin_ctxt  = setOneShotLambda bndr
-                | otherwise = bndr
-
-    go ctxt (bndr:bndrs) rev_bndrs = go ctxt bndrs (bndr:rev_bndrs)
+    go ctxt (bndr:bndrs) rev_bndrs lin_acc
+      | isId bndr
+      = case ctxt of
+          []            -> go [] bndrs (bndr:rev_bndrs) (lin_acc && one_shot)
+          (linear : ctxt) 
+             | one_shot  -> go ctxt bndrs (bndr : rev_bndrs) lin_acc
+             | linear    -> go ctxt bndrs (bndr': rev_bndrs) lin_acc
+             | otherwise -> go ctxt bndrs (bndr : rev_bndrs) False
+      | otherwise
+      = go ctxt bndrs (bndr:rev_bndrs) lin_acc
+      where
+        one_shot = isOneShotBndr bndr
+        bndr'    = setOneShotLambda bndr
 
 addAppCtxt :: OccEnv -> [Arg CoreBndr] -> OccEnv
 addAppCtxt env@(OccEnv { occ_ctxt = ctxt }) args
