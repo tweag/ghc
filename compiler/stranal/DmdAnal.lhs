@@ -44,7 +44,6 @@ import TysPrim		( realWorldStatePrimTy )
 %************************************************************************
 
 \begin{code}
-
 dmdAnalProgram :: DynFlags -> CoreProgram -> IO CoreProgram
 dmdAnalProgram dflags binds
   = do {
@@ -99,17 +98,6 @@ c) The application rule wouldn't be right either
    evaluation of f in a C(L) demand!
 
 \begin{code}
-{-
-simpleDmdAnal :: DynFlags -> AnalEnv -> DmdType 
-              -> CoreExpr -> (DmdType, CoreExpr)
-simpleDmdAnal env res_ty e
-  | ae_virgin env -- See Note [Always analyse in virgin pass]
-  , (_discarded_res_ty, e') <- dmdAnal env cleanEvalDmd e
-  = (res_ty, e')
-  | otherwise
-  = (res_ty, e)
--}
-
 dmdAnalThunk :: AnalEnv 
              -> Demand 	-- This one takes a *Demand*
              -> CoreExpr -> (DmdType, CoreExpr)
@@ -493,12 +481,7 @@ dmdTransform env var dmd
     res
 
   | Just (sig, top_lvl) <- lookupSigEnv env var  -- Local letrec bound thing
-  , let 
-        fn_ty = dmdTransformSig sig dmd
-        -- stripping of the usage environment (making all free vars absent)      
-        -- it is going to be restored when getting back to Let-case
-        -- See Note [Aggregated demand for cardinality]
-        -- trim_ty = trimFvUsageTy fn_ty
+  , let fn_ty = dmdTransformSig sig dmd
   = if isTopLevel top_lvl           
     then fn_ty   -- Don't record top level things
     else addVarDmd fn_ty var (mkOnceUsedDmd dmd)
