@@ -1249,10 +1249,10 @@ cprProdSig = StrictSig cprProdDmdType
 
 argOneShots :: StrictSig -> Arity -> [[Bool]]
 argOneShots (StrictSig (DmdType _ arg_ds _)) n_val_args
-  | arg_ds `lengthAtLeast` n_val_args
-  = go arg_ds
+  | arg_ds `lengthExceeds` n_val_args
+  = []   -- Too few arguments
   | otherwise
-  = []
+  = go arg_ds
   where
     go [] = []
     go (JD { absd = usg } : arg_ds)
