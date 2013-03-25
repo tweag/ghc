@@ -33,7 +33,7 @@ module Demand (
        
         seqDemand, seqDemandList, seqDmdType, seqStrictSig, 
 
-        evalDmd, cleanEvalDmd, vanillaCall, isStrictDmd, 
+        evalDmd, cleanEvalDmd, cleanEvalProdDmd, isStrictDmd, 
         splitDmdTy, splitFVs,
         deferDmd, deferType, deferAndUse, deferEnv, modifyEnv,
 
@@ -237,12 +237,12 @@ data UseDmd
 -- Extended usage demand for absence and counting
 data MaybeUsed
   = Abs                  -- Definitely unused
-                         -- Bottom of the lattice with inlined UseDmd
+                         -- Bottom of the lattice
 
   | Use Count UseDmd     -- May be used with some cardinality 
   deriving ( Eq, Show )
 
--- Absratct counting of usages
+-- Abstract counting of usages
 data Count = One | Many
   deriving ( Eq, Show )     
 
@@ -285,19 +285,13 @@ lubCount _ Many = Many
 lubCount Many _ = Many
 lubCount x _    = x 
 
--- preCount :: Count -> Count -> Bool
--- preCount x y    = (x == y) || (y == Many)
-
 lubMaybeUsed :: MaybeUsed -> MaybeUsed -> MaybeUsed
 lubMaybeUsed Abs x                   = x
 lubMaybeUsed x Abs                   = x
 lubMaybeUsed (Use c1 a1) (Use c2 a2) = Use (lubCount c1 c2) (lubUse a1 a2)
 
 lubUse :: UseDmd -> UseDmd -> UseDmd
-lubUse UHead UHead                 = UHead
-lubUse UHead (UCall c u)           = UCall c u
-lubUse UHead (UProd ux)            = UProd ux
-lubUse UHead _                     = Used
+lubUse UHead       u               = u
 lubUse (UCall c u) UHead           = UCall c u
 lubUse (UCall c1 u1) (UCall c2 u2) = UCall (lubCount c1 c2) (lubUse u1 u2)
 lubUse (UCall _ _) _               = Used
@@ -306,7 +300,9 @@ lubUse (UProd ux1) (UProd ux2)
      | length ux1 == length ux2    = UProd $ zipWith lubMaybeUsed ux1 ux2
      | otherwise                   = Used
 lubUse (UProd {}) (UCall {})       = Used
-lubUse (UProd {}) Used             = Used  -- Note [Used should win]
+-- lubUse (UProd {}) Used             = Used
+lubUse (UProd ux) Used             = UProd (map (`lubMaybeUsed` useTop) ux)
+lubUse Used       (UProd ux)       = UProd (map (`lubMaybeUsed` useTop) ux)
 lubUse Used _                      = Used  -- Note [Used should win]
 
 -- `both` is different from `lub` in its treatment of counting; if
@@ -321,10 +317,7 @@ bothMaybeUsed (Use _ a1) (Use _ a2)   = Use Many (bothUse a1 a2)
 
 
 bothUse :: UseDmd -> UseDmd -> UseDmd
-bothUse UHead UHead                 = UHead
-bothUse UHead (UCall c u)           = UCall c u
-bothUse UHead (UProd ux)            = UProd ux
-bothUse UHead _                     = Used
+bothUse UHead       u               = u
 bothUse (UCall c u) UHead           = UCall c u
 
 -- Exciting special treatment of inner demand for call demands: 
@@ -337,7 +330,9 @@ bothUse (UProd ux1) (UProd ux2)
       | length ux1 == length ux2    = UProd $ zipWith bothMaybeUsed ux1 ux2
       | otherwise                   = Used
 bothUse (UProd {}) (UCall {})       = Used
-bothUse (UProd {}) Used             = Used  -- Note [Used should win]
+-- bothUse (UProd {}) Used             = Used  -- Note [Used should win]
+bothUse Used (UProd ux)             = UProd (map (`bothMaybeUsed` useTop) ux)
+bothUse (UProd ux) Used             = UProd (map (`bothMaybeUsed` useTop) ux)
 bothUse Used _                      = Used  -- Note [Used should win]
 
 peelUseCall :: UseDmd -> Maybe (Count, UseDmd)
