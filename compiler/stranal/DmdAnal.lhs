@@ -23,9 +23,9 @@ import VarEnv
 import BasicTypes	
 import FastString
 import Data.List
-import DataCon		( dataConTyCon, dataConRepStrictness, isMarkedStrict )
+import DataCon
 import Id
-import CoreUtils	( exprIsHNF, exprIsTrivial )
+import CoreUtils	( exprIsHNF, exprType, exprIsTrivial )
 import PprCore	
 import TyCon
 import Pair
@@ -594,15 +594,21 @@ dmdAnalRhs top_lvl rec_flag env id rhs
   where
     (bndrs, body)        = collectBinders rhs
     env_body             = foldl extendSigsWithLam env bndrs
-    (body_dmd_ty, body') = dmdAnal env_body cleanEvalDmd body
+    (body_dmd_ty, body') = dmdAnal env_body body_dmd body
     (rhs_dmd_ty, bndrs') = annotateLamBndrs env body_dmd_ty bndrs
     id'		         = id `setIdStrictness` sig_ty
     sig_ty               = mkStrictSig (mkDmdType sig_fv rhs_dmds rhs_res')
 	-- See Note [NOINLINE and strictness]
 
+    -- See Note [Product demands for function body]
+    body_dmd = case deepSplitProductType_maybe (exprType body) of
+                 Nothing            -> cleanEvalDmd
+                 Just (dc, _, _, _) -> cleanEvalProdDmd (dataConRepArity dc)
+
     DmdType rhs_fv rhs_dmds rhs_res = rhs_dmd_ty
 
     -- See Note [Lazy and unleashable free variables]
+    -- See Note [Aggregated demand for cardinality]
     rhs_fv1 = case rec_flag of
                 Just bs -> useEnv (delVarEnvList rhs_fv bs)
                 Nothing -> rhs_fv
@@ -625,6 +631,30 @@ dmdAnalRhs top_lvl rec_flag env id rhs
        || not (isStrictDmd (idDemandInfo id) || ae_virgin env)
           -- See Note [Optimistic CPR in the "virgin" case]
 \end{code}
+
+Note [Product demands for function body]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+This example comes from shootout/binary_trees:
+
+    Main.check' = \ b z ds. case z of z' { I# ip ->
+        			case ds_d13s of
+        			  Main.Nil -> z'
+        			  Main.Node s14k s14l s14m ->
+        			    Main.check' (not b)
+        			      (Main.check' b
+        			         (case b {
+        			            False -> I# (-# s14h s14k);
+        			            True  -> I# (+# s14h s14k)
+        			          })
+        			         s14l)
+        			     s14m   }   }   }
+
+Here we *really* want to unbox z, even though it appears to be used boxed in
+the Nil case.  Partly the Nil case is not a hot path.  But more specifically,
+the whole function gets the CPR property if we do. 
+
+So for the demand on the body of a RHS we use a product demand if it's
+a product type.
 
 %************************************************************************
 %*									*

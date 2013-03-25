@@ -630,16 +630,11 @@ peelCallDmd (CD {sd = s, ud = u})
        -- The last case includes UHead which seems a bit wrong
        -- because the body isn't used at all!
 
--- see Note [Default demands for right-hand sides]  
-vanillaCall :: Arity -> CleanDemand
-vanillaCall 0 = cleanEvalDmd
-vanillaCall n =
-  let strComp = nTimes n mkSCall       HeadStr
-      absComp = nTimes n (mkUCall One) Used
-   in mkCleanDmd strComp absComp
-
 cleanEvalDmd :: CleanDemand
 cleanEvalDmd = mkCleanDmd HeadStr Used
+
+cleanEvalProdDmd :: Arity -> CleanDemand
+cleanEvalProdDmd n = mkCleanDmd HeadStr (UProd (replicate n useTop))
 
 isSingleUsed :: JointDmd -> Bool
 isSingleUsed (JD {absd=a}) = is_used_once a
@@ -647,30 +642,7 @@ isSingleUsed (JD {absd=a}) = is_used_once a
     is_used_once Abs         = True
     is_used_once (Use One _) = True
     is_used_once _           = False
-
--- -- see Note [Threshold demands]  
--- mkThresholdDmd :: Arity -> JointDmd
--- mkThresholdDmd 0 = topDmd
--- mkThresholdDmd n =
---   let absComp = (iterate (mkUCall One) useTop) !! n
---    in mkJointDmd Lazy absComp
-
-
 \end{code}
-
-Note [Default demands for right-hand sides]  
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When analysis a right-hand side of a let binding, we create a
-"default" demand using `vanillaCall`. It is worth mentioning that for
-*thunks* the demand, under which a RHS is analysed is (Used One),
-whereas for lambdas it is C(C...(U)...).
-
-This phenomenon is due to the special nature of thunks: they "merge"
-multiple usage demands into one. This also explains the fact that the
-demand transformer for thunks is triggered by a less-precise, mere U
-demand (not U1). This is not true for lambda, therefore to analyze
-them we create a conservative demand C(C...(U)...), where the number
-of call layers is equal to syntactic arity of the lambda.
 
 Note [Threshold demands]
 ~~~~~~~~~~~~~~~~~~~~~~~~
