@@ -38,7 +38,7 @@ module Demand (
         deferDmd, deferType, deferAndUse, deferEnv, modifyEnv,
 
         splitProdDmd, splitProdDmd_maybe, peelCallDmd, mkCallDmd,
-        dmdTransformSig, dmdTransformDataConSig, argOneShots,
+        dmdTransformSig, dmdTransformDataConSig, argOneShots, argsOneShots,
 
         -- cardinality unleashing stuff (perhaps, redundant)
         -- use, useEnv, trimFvUsageTy         
@@ -372,6 +372,20 @@ unboxed, then we are definitely using the box, and so we are quite
 likely to pay a reboxing cost.  So we make Used win here.
 
 Example is in the Buffer argument of GHC.IO.Handle.Internals.writeCharBuffer
+
+Baseline: (A) Not making Used win (UProd wins)
+Compare with: (B) making Used win for lub and both
+
+            Min          -0.3%     -5.6%    -10.7%    -11.0%    -33.3%
+            Max          +0.3%    +45.6%    +11.5%    +11.5%     +6.9%
+ Geometric Mean          -0.0%     +0.5%     +0.3%     +0.2%     -0.8%
+
+Baseline: (B) Making Used win for both lub and both
+Compare with: (C) making Used win for both, but UProd win for lub
+
+            Min          -0.1%     -0.3%     -7.9%     -8.0%     -6.5%
+            Max          +0.1%     +1.0%    +21.0%    +21.0%     +0.5%
+ Geometric Mean          +0.0%     +0.0%     -0.0%     -0.1%     -0.1%
 
 
 \begin{code}
@@ -1214,26 +1228,28 @@ botSig = StrictSig botDmdType
 cprProdSig :: StrictSig
 cprProdSig = StrictSig cprProdDmdType
 
-argOneShots :: StrictSig -> Arity -> [[Bool]]
-argOneShots (StrictSig (DmdType _ arg_ds _)) n_val_args
+argsOneShots :: StrictSig -> Arity -> [[Bool]]
+argsOneShots (StrictSig (DmdType _ arg_ds _)) n_val_args
   | arg_ds `lengthExceeds` n_val_args
   = []   -- Too few arguments
   | otherwise
   = go arg_ds
   where
-    go [] = []
-    go (JD { absd = usg } : arg_ds)
-      | Use _ arg_usg <- usg
-      = go_one_shots arg_usg `cons` go arg_ds
-      | otherwise
-      = [] `cons` go arg_ds
+    go []               = []
+    go (arg_d : arg_ds) = argOneShots arg_d `cons` go arg_ds
     
     cons [] [] = []
     cons a  as = a:as
 
-    go_one_shots (UCall One  u) = True  : go_one_shots u
-    go_one_shots (UCall Many u) = False : go_one_shots u
-    go_one_shots _              = []
+argOneShots :: JointDmd -> [Bool]
+argOneShots (JD { absd = usg })
+  = case usg of
+      Use _ arg_usg -> go arg_usg
+      _             -> []
+  where
+    go (UCall One  u) = True  : go u
+    go (UCall Many u) = False : go u
+    go _              = []
 
 dmdTransformSig :: StrictSig -> CleanDemand -> DmdType
 -- (dmdTransformSig fun_sig dmd) considers a call to a function whose
