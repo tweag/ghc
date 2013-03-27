@@ -204,7 +204,7 @@ dmdAnal env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
   = let
 	env_alt	              = extendAnalEnv NotTopLevel env case_bndr case_bndr_sig
 	(alt_ty, alt')	      = dmdAnalAlt env_alt dmd alt
-	(alt_ty1, case_bndr') = annotateBndr alt_ty case_bndr
+	(alt_ty1, case_bndr') = annotateBndr env alt_ty case_bndr
 	(_, bndrs', _)	      = alt'
 	case_bndr_sig	      = cprProdSig
 		-- Inside the alternative, the case binder has the CPR property.
@@ -257,7 +257,7 @@ dmdAnal env dmd (Case scrut case_bndr ty alts)
   = let      -- Case expression with multiple alternatives
 	(alt_tys, alts')     = mapAndUnzip (dmdAnalAlt env dmd) alts
 	(scrut_ty, scrut')   = dmdAnal env cleanEvalDmd scrut
-	(alt_ty, case_bndr') = annotateBndr (foldr lubDmdType botDmdType alt_tys) case_bndr
+	(alt_ty, case_bndr') = annotateBndr env(foldr lubDmdType botDmdType alt_tys) case_bndr
         res_ty               = alt_ty `bothDmdType` scrut_ty
     in
 --    pprTrace "dmdAnal:Case2" (vcat [ text "scrut" <+> ppr scrut
@@ -271,7 +271,7 @@ dmdAnal env dmd (Let (NonRec id rhs) body)
   where
     (sig, lazy_fv, id1, rhs') = dmdAnalRhs NotTopLevel Nothing env id rhs
     (body_ty, body') 	      = dmdAnal (extendAnalEnv NotTopLevel env id sig) dmd body
-    (body_ty1, id2)           = annotateBndr body_ty id1
+    (body_ty1, id2)           = annotateBndr env body_ty id1
     body_ty2		      = addLazyFVs body_ty1 lazy_fv
 
     -- Annotate top-level lambdas at RHS basing on the aggregated demand info
@@ -325,7 +325,7 @@ dmdAnalAlt env dmd (con,bndrs,rhs)
   = let 
 	(rhs_ty, rhs')   = dmdAnal env dmd rhs
         rhs_ty'          = addDataConPatDmds con bndrs rhs_ty
-	(alt_ty, bndrs') = annotateBndrs rhs_ty' bndrs
+	(alt_ty, bndrs') = annotateBndrs env rhs_ty' bndrs
 	final_alt_ty | io_hack_reqd = alt_ty `lubDmdType` topDmdType
 		     | otherwise    = alt_ty
 
@@ -579,7 +579,7 @@ dmdAnalRhs top_lvl rec_flag env id rhs
     env_body             = foldl extendSigsWithLam env bndrs
     (body_dmd_ty, body') = dmdAnal env_body body_dmd body
     (rhs_dmd_ty, bndrs') = annotateLamBndrs env body_dmd_ty bndrs
-    id'		         = id `setIdStrictness` sig_ty
+    id'		         = set_idStrictness env id sig_ty
     sig_ty               = mkStrictSig (mkDmdType sig_fv rhs_dmds rhs_res')
 	-- See Note [NOINLINE and strictness]
 
@@ -703,19 +703,19 @@ possible to safely ignore non-mentioned variables (their joint demand
 is <L,A>).
 
 \begin{code}
-annotateBndr :: DmdType -> Var -> (DmdType, Var)
+annotateBndr :: AnalEnv -> DmdType -> Var -> (DmdType, Var)
 -- The returned env has the var deleted
 -- The returned var is annotated with demand info
 -- according to the result demand of the provided demand type
 -- No effect on the argument demands
-annotateBndr dmd_ty@(DmdType fv ds res) var
+annotateBndr env dmd_ty@(DmdType fv ds res) var
   | isTyVar var = (dmd_ty, var)
-  | otherwise   = (DmdType fv' ds res, setIdDemandInfo var dmd)
+  | otherwise   = (DmdType fv' ds res, set_idDemandInfo env var dmd)
   where
     (fv', dmd) = peelFV fv var res
 
-annotateBndrs :: DmdType -> [Var] -> (DmdType, [Var])
-annotateBndrs = mapAccumR annotateBndr
+annotateBndrs :: AnalEnv -> DmdType -> [Var] -> (DmdType, [Var])
+annotateBndrs env = mapAccumR (annotateBndr env)
 
 annotateLamBndrs :: AnalEnv -> DmdType -> [Var] -> (DmdType, [Var])
 annotateLamBndrs env ty bndrs = mapAccumR annotate ty bndrs
@@ -736,7 +736,7 @@ annotateLamIdBndr env (DmdType fv ds res) one_shot id
 -- Only called for Ids
   = ASSERT( isId id )
     -- pprTrace "annLamBndr" (vcat [ppr id, ppr dmd_ty]) $
-    (final_ty, setOneShotness one_shot (setIdDemandInfo id dmd))
+    (final_ty, setOneShotness one_shot (set_idDemandInfo env id dmd))
   where
       -- Watch out!  See note [Lambda-bound unfoldings]
     final_ty = case maybeUnfoldingTemplate (idUnfolding id) of
@@ -1020,6 +1020,14 @@ extendSigsWithLam env id
 
   | otherwise 
   = env
+
+set_idDemandInfo :: AnalEnv -> Id -> Demand -> Id
+set_idDemandInfo env id dmd 
+  = setIdDemandInfo id (zapDemand (ae_dflags env) dmd)
+
+set_idStrictness :: AnalEnv -> Id -> StrictSig -> Id
+set_idStrictness env id sig
+  = setIdStrictness id (zapStrictSig (ae_dflags env) sig)
 \end{code}
 
 Note [Initial CPR for strict binders]

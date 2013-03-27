@@ -40,9 +40,7 @@ module Demand (
         splitProdDmd, splitProdDmd_maybe, peelCallDmd, mkCallDmd,
         dmdTransformSig, dmdTransformDataConSig, argOneShots, argsOneShots,
 
-        -- cardinality unleashing stuff (perhaps, redundant)
-        -- use, useEnv, trimFvUsageTy         
-        isSingleUsed, useType, useEnv,
+        isSingleUsed, useType, useEnv, zapDemand, zapStrictSig,
 
         worthSplittingFun, worthSplittingThunk
 
@@ -51,6 +49,7 @@ module Demand (
 #include "HsVersions.h"
 
 import StaticFlags
+import DynFlags
 import Outputable
 import VarEnv
 import UniqFM
@@ -1315,7 +1314,6 @@ of arguments, says conservatively if the function is going to diverge
 or not.
 
 \begin{code}
-
 -- appIsBottom returns true if an application to n args would diverge
 appIsBottom :: StrictSig -> Int -> Bool
 appIsBottom (StrictSig (DmdType _ ds res)) n
@@ -1329,6 +1327,49 @@ seqStrictSig (StrictSig ty) = seqDmdType ty
 pprIfaceStrictSig :: StrictSig -> SDoc
 pprIfaceStrictSig (StrictSig (DmdType _ dmds res))
   = hcat (map ppr dmds) <> ppr res
+\end{code}
+
+Zap absence or one-shot information, under control of flags
+
+\begin{code}
+zapDemand :: DynFlags -> Demand -> Demand
+zapDemand dflags dmd 
+  | Just kfs <- killFlags dflags = zap_dmd kfs dmd
+  | otherwise                    = dmd
+
+zapStrictSig :: DynFlags -> StrictSig -> StrictSig
+zapStrictSig dflags sig@(StrictSig (DmdType env ds r)) 
+  | Just kfs <- killFlags dflags = StrictSig (DmdType env (map (zap_dmd kfs) ds) r)
+  | otherwise                    = sig
+
+type KillFlags = (Bool, Bool)
+
+killFlags :: DynFlags -> Maybe KillFlags
+killFlags dflags 
+  | not kill_abs && not kill_one_shot = Nothing
+  | otherwise                         = Just (kill_abs, kill_one_shot)
+  where
+    kill_abs      = gopt Opt_KillAbsence dflags
+    kill_one_shot = gopt Opt_KillOneShot dflags
+      
+zap_dmd :: KillFlags -> Demand -> Demand
+zap_dmd kfs (JD {strd = s, absd = u}) = JD {strd = s, absd = zap_musg kfs u}
+
+zap_musg :: KillFlags -> MaybeUsed -> MaybeUsed
+zap_musg (kill_abs, _) Abs 
+  | kill_abs  = useTop
+  | otherwise = Abs
+zap_musg kfs (Use c u) = Use (zap_count kfs c) (zap_usg kfs u)
+
+zap_count :: KillFlags -> Count -> Count
+zap_count (_, kill_one_shot) c
+  | kill_one_shot = Many
+  | otherwise     = c
+
+zap_usg :: KillFlags -> UseDmd -> UseDmd
+zap_usg kfs (UCall c u) = UCall (zap_count kfs c) (zap_usg kfs u)
+zap_usg kfs (UProd us)  = UProd (map (zap_musg kfs) us)
+zap_usg _   u           = u
 \end{code}
 
 
