@@ -1156,19 +1156,14 @@ instance Binary IfaceUnfolding where
         put_ bh b
         put_ bh c
         put_ bh d
-    put_ bh (IfLclWrapper a n) = do
+    put_ bh (IfWrapper e) = do
         putByte bh 2
-        put_ bh a
-        put_ bh n
-    put_ bh (IfExtWrapper a n) = do
-        putByte bh 3
-        put_ bh a
-        put_ bh n
+        put_ bh e
     put_ bh (IfDFunUnfold as) = do
-        putByte bh 4
+        putByte bh 3
         put_ bh as
     put_ bh (IfCompulsory e) = do
-        putByte bh 5
+        putByte bh 4
         put_ bh e
     get bh = do
         h <- getByte bh
@@ -1181,13 +1176,9 @@ instance Binary IfaceUnfolding where
                     c <- get bh
                     d <- get bh
                     return (IfInlineRule a b c d)
-            2 -> do a <- get bh
-                    n <- get bh
-                    return (IfLclWrapper a n)
-            3 -> do a <- get bh
-                    n <- get bh
-                    return (IfExtWrapper a n)
-            4 -> do as <- get bh
+            2 -> do e <- get bh
+                    return (IfWrapper e)
+            3 -> do as <- get bh
                     return (IfDFunUnfold as)
             _ -> do e <- get bh
                     return (IfCompulsory e)

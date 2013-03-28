@@ -251,9 +251,7 @@ data IfaceUnfolding
                  Bool           -- OK to inline even if context is boring
                  IfaceExpr
 
-  | IfExtWrapper Arity IfExtName  -- NB: sometimes we need a IfExtName (not just IfLclName)
-  | IfLclWrapper Arity IfLclName  --     because the worker can simplify to a function in
-                                  --     another module.
+  | IfWrapper IfaceExpr         -- cf TcIface's Note [wrappers in interface files]
 
   | IfDFunUnfold [DFunArg IfaceExpr]
 
@@ -765,10 +763,7 @@ instance Outputable IfaceUnfolding where
   ppr (IfInlineRule a uok bok e) = sep [ptext (sLit "InlineRule")
                                             <+> ppr (a,uok,bok),
                                         pprParendIfaceExpr e]
-  ppr (IfLclWrapper a wkr) = ptext (sLit "Worker(lcl):") <+> ppr wkr
-                             <+> parens (ptext (sLit "arity") <+> int a)
-  ppr (IfExtWrapper a wkr) = ptext (sLit "Worker(ext0:") <+> ppr wkr
-                             <+> parens (ptext (sLit "arity") <+> int a)
+  ppr (IfWrapper e) = ptext (sLit "Wrapper") <+> parens (ppr e)
   ppr (IfDFunUnfold ns)    = ptext (sLit "DFun:")
                              <+> brackets (pprWithCommas ppr ns)
 
@@ -897,8 +892,7 @@ freeNamesIfUnfold :: IfaceUnfolding -> NameSet
 freeNamesIfUnfold (IfCoreUnfold _ e)     = freeNamesIfExpr e
 freeNamesIfUnfold (IfCompulsory e)       = freeNamesIfExpr e
 freeNamesIfUnfold (IfInlineRule _ _ _ e) = freeNamesIfExpr e
-freeNamesIfUnfold (IfExtWrapper _ v)     = unitNameSet v
-freeNamesIfUnfold (IfLclWrapper {})      = emptyNameSet
+freeNamesIfUnfold (IfWrapper e)          = freeNamesIfExpr e
 freeNamesIfUnfold (IfDFunUnfold vs)      = fnList freeNamesIfExpr (dfunArgExprs vs)
 
 freeNamesIfExpr :: IfaceExpr -> NameSet

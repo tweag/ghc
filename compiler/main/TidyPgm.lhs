@@ -816,12 +816,7 @@ dffvLetBndr vanilla_unfold id
        = case src of
            InlineRhs | vanilla_unfold -> dffvExpr rhs
                      | otherwise      -> return ()
-           InlineWrapper v            -> insert v
            _                          -> dffvExpr rhs
-            -- For a wrapper, externalise the wrapper id rather than the
-            -- fvs of the rhs.  The two usually come down to the same thing
-            -- but I've seen cases where we had a wrapper id $w but a
-            -- rhs where $w had been inlined; see Trac #3922
 
     go_unf (DFunUnfolding _ _ args) = mapM_ dffvExpr (dfunArgExprs args)
     go_unf _ = return ()

@@ -106,9 +106,9 @@ mkDFunUnfolding dfun_ty ops
     dfun_nargs = length tvs + length theta
     data_con   = classDataCon cls
 
-mkWwInlineRule :: Id -> CoreExpr -> Arity -> Unfolding
-mkWwInlineRule id expr arity
-  = mkCoreUnfolding (InlineWrapper id) True
+mkWwInlineRule :: CoreExpr -> Arity -> Unfolding
+mkWwInlineRule expr arity
+  = mkCoreUnfolding InlineWrapper True
                    (simpleOptExpr expr) arity
                    (UnfWhen unSaturatedOk boringCxtNotOk)
 
