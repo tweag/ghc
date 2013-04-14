@@ -428,7 +428,7 @@ endef
 $(eval $(call foreachLibrary,addExtraPackage))
 endif
 
-# If we want to just install evreything, then we want all the packages
+# If we want to just install everything, then we want all the packages
 SUPERSIZE_INSTALL_PACKAGES := $(addprefix libraries/,$(PACKAGES_STAGE1))
 ifeq "$(Stage1Only)" "NO"
 SUPERSIZE_INSTALL_PACKAGES += compiler
@@ -485,6 +485,7 @@ utils/ghc-pwd/dist-install/package-data.mk: compiler/stage2/package-data.mk
 utils/ghc-cabal/dist-install/package-data.mk: compiler/stage2/package-data.mk
 
 utils/ghctags/dist-install/package-data.mk: compiler/stage2/package-data.mk
+utils/dll-split/dist-install/package-data.mk: compiler/stage2/package-data.mk
 utils/hpc/dist-install/package-data.mk: compiler/stage2/package-data.mk
 utils/ghc-pkg/dist-install/package-data.mk: compiler/stage2/package-data.mk
 utils/hsc2hs/dist-install/package-data.mk: compiler/stage2/package-data.mk
@@ -654,6 +655,7 @@ BUILD_DIRS += utils/ghc-pkg
 BUILD_DIRS += utils/deriveConstants
 BUILD_DIRS += utils/testremove
 BUILD_DIRS += $(MAYBE_GHCTAGS)
+BUILD_DIRS += utils/dll-split
 BUILD_DIRS += utils/ghc-pwd
 BUILD_DIRS += utils/ghc-cabal
 BUILD_DIRS += $(MAYBE_HPC)
@@ -722,7 +724,7 @@ endif
 ifneq "$(BINDIST)" "YES"
 # Make sure we have all the GHCi libs by the time we've built
 # ghc-stage2.  DPH includes a bit of Template Haskell which needs the
-# GHCI libs, and we don't have a better way to express that dependency.
+# GHCi libs, and we don't have a better way to express that dependency.
 #
 GHCI_LIBS = $(foreach lib,$(PACKAGES_STAGE1),$(libraries/$(lib)_dist-install_GHCI_LIB)) \
 	    $(compiler_stage2_GHCI_LIB)
@@ -886,7 +888,7 @@ install_packages: rts/package.conf.install
 	$(call INSTALL_DIR,"$(DESTDIR)$(topdir)/rts-1.0")
 	$(call installLibsTo, $(RTS_INSTALL_LIBS), "$(DESTDIR)$(topdir)/rts-1.0")
 	$(foreach p, $(INSTALL_DYNLIBS), \
-	    $(call installLibsTo, $(wildcard libraries/$p/dist-install/build/*.so libraries/$p/dist-install/build/*.dll libraries/$p/dist-install/build/*.dylib), "$(DESTDIR)$(topdir)/$p-$(libraries/$p_dist-install_VERSION)"))
+	    $(call installLibsTo, $(wildcard $p/dist-install/build/*.so $p/dist-install/build/*.dll $p/dist-install/build/*.dylib), "$(DESTDIR)$(topdir)/$($p_PACKAGE)-$($p_dist-install_VERSION)"))
 	$(foreach p, $(INSTALL_PACKAGES),                             \
 	    $(call make-command,                                      \
 	           "$(ghc-cabal_INPLACE)" copy                        \

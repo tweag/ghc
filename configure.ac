@@ -151,8 +151,9 @@ then
     fi
 fi
 
-GHC_PACKAGE_DB_FLAG=package-db
-FP_COMPARE_VERSIONS([$GhcVersion],[-lt],[7.5],GHC_PACKAGE_DB_FLAG=package-conf)
+FP_COMPARE_VERSIONS([$GhcVersion],[-lt],[7.5],
+                    GHC_PACKAGE_DB_FLAG=package-conf,
+                    GHC_PACKAGE_DB_FLAG=package-db)
 AC_SUBST(GHC_PACKAGE_DB_FLAG)
 
 # GHC is passed to Cabal, so we need a native path
@@ -557,6 +558,7 @@ FP_PROG_LD_ReduceMemoryOverheads
 FP_PROG_LD_IS_GNU
 FP_PROG_LD_BUILD_ID
 FP_PROG_LD_NO_COMPACT_UNWIND
+FP_PROG_LD_FILELIST
 
 
 FPTOOLS_SET_C_LD_FLAGS([target],[CFLAGS],[LDFLAGS],[IGNORE_LINKER_LD_FLAGS],[CPPFLAGS])

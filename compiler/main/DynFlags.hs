@@ -299,6 +299,7 @@ data GeneralFlag
    | Opt_CmmElimCommonBlocks
    | Opt_OmitYields
    | Opt_SimpleListLiterals
+   | Opt_FunToThunk               -- allow WwLib.mkWorkerArgs to remove all value lambdas
 
    -- Interface files
    | Opt_IgnoreInterfacePragmas
@@ -341,6 +342,9 @@ data GeneralFlag
    | Opt_PIC
    | Opt_SccProfilingOn
    | Opt_Ticky
+   | Opt_Ticky_Allocd
+   | Opt_Ticky_LNE
+   | Opt_Ticky_Dyn_Thunk
    | Opt_Static
    | Opt_RPath
    | Opt_RelativeDynlibPaths
@@ -569,6 +573,8 @@ data DynFlags = DynFlags {
   simplTickFactor       :: Int,         -- ^ Multiplier for simplifier ticks
   specConstrThreshold   :: Maybe Int,   -- ^ Threshold for SpecConstr
   specConstrCount       :: Maybe Int,   -- ^ Max number of specialisations for any one function
+  specConstrRecursive   :: Int,         -- ^ Max number of specialisations for recursive types
+                                        --   Not optional; otherwise ForceSpecConstr can diverge.
   liberateCaseThreshold :: Maybe Int,   -- ^ Threshold for LiberateCase
   floatLamArgs          :: Maybe Int,   -- ^ Arg count for lambda floating
                                         --   See CoreMonad.FloatOutSwitches
@@ -758,6 +764,7 @@ data Settings = Settings {
   sSystemPackageConfig   :: FilePath,
   sLdSupportsCompactUnwind :: Bool,
   sLdSupportsBuildId       :: Bool,
+  sLdSupportsFilelist      :: Bool,
   sLdIsGnuLd               :: Bool,
   -- commands for particular phases
   sPgm_L                 :: String,
@@ -1053,6 +1060,7 @@ wayDesc WayPar      = "Parallel"
 wayDesc WayGran     = "GranSim"
 wayDesc WayNDP      = "Nested data parallelism"
 
+-- Turn these flags on when enabling this way
 wayGeneralFlags :: Platform -> Way -> [GeneralFlag]
 wayGeneralFlags _ WayThreaded = []
 wayGeneralFlags _ WayDebug    = []
@@ -1063,10 +1071,15 @@ wayGeneralFlags _ WayPar      = [Opt_Parallel]
 wayGeneralFlags _ WayGran     = [Opt_GranMacros]
 wayGeneralFlags _ WayNDP      = []
 
+-- Turn these flags off when enabling this way
 wayUnsetGeneralFlags :: Platform -> Way -> [GeneralFlag]
 wayUnsetGeneralFlags _ WayThreaded = []
 wayUnsetGeneralFlags _ WayDebug    = []
-wayUnsetGeneralFlags _ WayDyn      = [Opt_Static]
+wayUnsetGeneralFlags _ WayDyn      = [-- There's no point splitting objects
+                                      -- when we're going to be dynamically
+                                      -- linking. Plus it breaks compilation
+                                      -- on OSX x86.
+                                      Opt_SplitObjs]
 wayUnsetGeneralFlags _ WayProf     = []
 wayUnsetGeneralFlags _ WayEventLog = []
 wayUnsetGeneralFlags _ WayPar      = []
@@ -1210,6 +1223,7 @@ defaultDynFlags mySettings =
         simplTickFactor         = 100,
         specConstrThreshold     = Just 2000,
         specConstrCount         = Just 3,
+        specConstrRecursive     = 3,
         liberateCaseThreshold   = Just 2000,
         floatLamArgs            = Just 0, -- Default: float only if no fvs
         historySize             = 20,
@@ -1843,7 +1857,10 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
 updateWays :: DynFlags -> DynFlags
 updateWays dflags
     = let theWays = sort $ nub $ ways dflags
-      in dflags {
+          f = if WayDyn `elem` theWays then unSetGeneralFlag'
+                                       else setGeneralFlag'
+      in f Opt_Static
+       $ dflags {
              ways        = theWays,
              buildTag    = mkBuildTag (filter (not . wayRTSOnly) theWays),
              rtsBuildTag = mkBuildTag                            theWays
@@ -1958,7 +1975,7 @@ dynamic_flags = [
     -- is required to get the RTS ticky support.
 
         ----- Linker --------------------------------------------------------
-  , Flag "static"         (NoArg (removeWay WayDyn))
+  , Flag "static"         (NoArg removeWayDyn)
   , Flag "dynamic"        (NoArg (addWay WayDyn))
     -- ignored for compat w/ gcc:
   , Flag "rdynamic"       (NoArg (return ()))
@@ -2073,6 +2090,9 @@ dynamic_flags = [
   , Flag "hpcdir"         (SepArg setOptHpcDir)
   , Flag "ghci-script"    (hasArg addGhciScript)
   , Flag "interactive-print" (hasArg setInteractivePrint)
+  , Flag "ticky-allocd"      (NoArg (setGeneralFlag Opt_Ticky_Allocd))
+  , Flag "ticky-LNE"         (NoArg (setGeneralFlag Opt_Ticky_LNE))
+  , Flag "ticky-dyn-thunk"   (NoArg (setGeneralFlag Opt_Ticky_Dyn_Thunk))
         ------- recompilation checker --------------------------------------
   , Flag "recomp"         (NoArg (do unSetGeneralFlag Opt_ForceRecomp
                                      deprecate "Use -fno-force-recomp instead"))
@@ -2217,6 +2237,7 @@ dynamic_flags = [
   , Flag "fno-spec-constr-threshold"   (noArg (\d -> d{ specConstrThreshold = Nothing }))
   , Flag "fspec-constr-count"          (intSuffix (\n d -> d{ specConstrCount = Just n }))
   , Flag "fno-spec-constr-count"       (noArg (\d -> d{ specConstrCount = Nothing }))
+  , Flag "fspec-constr-recursive"      (intSuffix (\n d -> d{ specConstrRecursive = n }))
   , Flag "fliberate-case-threshold"    (intSuffix (\n d -> d{ liberateCaseThreshold = Just n }))
   , Flag "fno-liberate-case-threshold" (noArg (\d -> d{ liberateCaseThreshold = Nothing }))
   , Flag "frule-check"                 (sepArg (\s d -> d{ ruleCheck = Just s }))
@@ -2467,6 +2488,7 @@ fFlags = [
   ( "cmm-elim-common-blocks",           Opt_CmmElimCommonBlocks, nop ),
   ( "omit-yields",                      Opt_OmitYields, nop ),
   ( "simple-list-literals",             Opt_SimpleListLiterals, nop ),
+  ( "fun-to-thunk",                     Opt_FunToThunk, nop ),
   ( "gen-manifest",                     Opt_GenManifest, nop ),
   ( "embed-manifest",                   Opt_EmbedManifest, nop ),
   ( "ext-core",                         Opt_EmitExternalCore, nop ),
@@ -2681,7 +2703,7 @@ defaultFlags settings
 
     ++ (if pc_DYNAMIC_BY_DEFAULT (sPlatformConstants settings)
         then wayGeneralFlags platform WayDyn
-        else [Opt_Static])
+        else [])
 
     where platform = sTargetPlatform settings
 
@@ -2974,16 +2996,8 @@ addWay' w dflags0 = let platform = targetPlatform dflags0
                                         (wayUnsetGeneralFlags platform w)
                     in dflags4
 
-removeWay :: Way -> DynP ()
-removeWay w = do
-  upd (\dfs -> dfs { ways = filter (w /=) (ways dfs) })
-  dfs <- liftEwM getCmdLineState
-  let platform = targetPlatform dfs
-  -- XXX: wayExtras?
-  mapM_ unSetGeneralFlag $ wayGeneralFlags platform w
-  mapM_ setGeneralFlag $ wayUnsetGeneralFlags platform w
-  -- turn Opt_PIC back on if necessary for this platform:
-  mapM_ setGeneralFlag $ default_PIC platform
+removeWayDyn :: DynP ()
+removeWayDyn = upd (\dfs -> dfs { ways = filter (WayDyn /=) (ways dfs) })
 
 --------------------------
 setGeneralFlag, unSetGeneralFlag :: GeneralFlag -> DynP ()
@@ -3406,6 +3420,7 @@ makeDynFlagsConsistent dflags
         in loop dflags' warn
  | hscTarget dflags == HscLlvm &&
    not ((arch == ArchX86_64) && (os == OSLinux || os == OSDarwin)) &&
+   not ((isARM arch) && (os == OSLinux)) &&
    (not (gopt Opt_Static dflags) || gopt Opt_PIC dflags)
     = if cGhcWithNativeCodeGen == "YES"
       then let dflags' = dflags { hscTarget = HscAsm }
