@@ -18,7 +18,8 @@ module DsMeta( dsBracket,
                liftName, liftStringName, expQTyConName, patQTyConName,
                decQTyConName, decsQTyConName, typeQTyConName,
                decTyConName, typeTyConName, mkNameG_dName, mkNameG_vName, mkNameG_tcName,
-               quoteExpName, quotePatName, quoteDecName, quoteTypeName
+               quoteExpName, quotePatName, quoteDecName, quoteTypeName,
+               tExpTyConName, tExpDataConName, unTypeName
                 ) where
 
 #include "HsVersions.h"
@@ -1959,6 +1960,7 @@ templateHaskellNames = [
     returnQName, bindQName, sequenceQName, newNameName, liftName,
     mkNameName, mkNameG_vName, mkNameG_dName, mkNameG_tcName, mkNameLName,
     liftStringName,
+    unTypeName,
 
     -- Lit
     charLName, stringLName, integerLName, intPrimLName, wordPrimLName,
@@ -2030,6 +2032,8 @@ templateHaskellNames = [
     conLikeDataConName, funLikeDataConName,
     -- Phases
     allPhasesDataConName, fromPhaseDataConName, beforePhaseDataConName,
+    -- TExp
+    tExpDataConName,
     -- RuleBndr
     ruleVarName, typedRuleVarName,
     -- FunDep
@@ -2047,6 +2051,7 @@ templateHaskellNames = [
     typeTyConName, tyVarBndrTyConName, matchTyConName, clauseTyConName,
     patQTyConName, fieldPatQTyConName, fieldExpQTyConName, funDepTyConName,
     predQTyConName, decsQTyConName, ruleBndrQTyConName, tySynEqnQTyConName,
+    tExpTyConName,
 
     -- Quasiquoting
     quoteDecName, quoteTypeName, quoteExpName, quotePatName]
@@ -2071,7 +2076,7 @@ qqFun  = mk_known_key_name OccName.varName  qqLib
 qTyConName, nameTyConName, fieldExpTyConName, patTyConName,
     fieldPatTyConName, expTyConName, decTyConName, typeTyConName,
     tyVarBndrTyConName, matchTyConName, clauseTyConName, funDepTyConName,
-    predTyConName :: Name
+    predTyConName, tExpTyConName :: Name
 qTyConName        = thTc (fsLit "Q")            qTyConKey
 nameTyConName     = thTc (fsLit "Name")         nameTyConKey
 fieldExpTyConName = thTc (fsLit "FieldExp")     fieldExpTyConKey
@@ -2085,10 +2090,11 @@ matchTyConName    = thTc (fsLit "Match")        matchTyConKey
 clauseTyConName   = thTc (fsLit "Clause")       clauseTyConKey
 funDepTyConName   = thTc (fsLit "FunDep")       funDepTyConKey
 predTyConName     = thTc (fsLit "Pred")         predTyConKey
+tExpTyConName     = thTc (fsLit "TExp")         tExpTyConKey
 
 returnQName, bindQName, sequenceQName, newNameName, liftName,
     mkNameName, mkNameG_vName, mkNameG_dName, mkNameG_tcName,
-    mkNameLName, liftStringName :: Name
+    mkNameLName, liftStringName, unTypeName :: Name
 returnQName    = thFun (fsLit "returnQ")   returnQIdKey
 bindQName      = thFun (fsLit "bindQ")     bindQIdKey
 sequenceQName  = thFun (fsLit "sequenceQ") sequenceQIdKey
@@ -2100,6 +2106,7 @@ mkNameG_vName  = thFun (fsLit "mkNameG_v")  mkNameG_vIdKey
 mkNameG_dName  = thFun (fsLit "mkNameG_d")  mkNameG_dIdKey
 mkNameG_tcName = thFun (fsLit "mkNameG_tc") mkNameG_tcIdKey
 mkNameLName    = thFun (fsLit "mkNameL")    mkNameLIdKey
+unTypeName     = thFun (fsLit "unType")     unTypeIdKey
 
 
 -------------------- TH.Lib -----------------------
@@ -2331,6 +2338,10 @@ allPhasesDataConName   = thCon (fsLit "AllPhases")   allPhasesDataConKey
 fromPhaseDataConName   = thCon (fsLit "FromPhase")   fromPhaseDataConKey
 beforePhaseDataConName = thCon (fsLit "BeforePhase") beforePhaseDataConKey
 
+-- newtype TExp a = ...
+tExpDataConName :: Name
+tExpDataConName = thCon (fsLit "TExp") tExpDataConKey
+
 -- data RuleBndr = ...
 ruleVarName, typedRuleVarName :: Name
 ruleVarName      = libFun (fsLit ("ruleVar"))      ruleVarIdKey
@@ -2387,7 +2398,8 @@ expTyConKey, matchTyConKey, clauseTyConKey, qTyConKey, expQTyConKey,
     decTyConKey, varStrictTypeQTyConKey, strictTypeQTyConKey,
     fieldExpTyConKey, fieldPatTyConKey, nameTyConKey, patQTyConKey,
     fieldPatQTyConKey, fieldExpQTyConKey, funDepTyConKey, predTyConKey,
-    predQTyConKey, decsQTyConKey, ruleBndrQTyConKey, tySynEqnQTyConKey :: Unique
+    predQTyConKey, decsQTyConKey, ruleBndrQTyConKey, tySynEqnQTyConKey,
+    tExpTyConKey :: Unique
 expTyConKey             = mkPreludeTyConUnique 200
 matchTyConKey           = mkPreludeTyConUnique 201
 clauseTyConKey          = mkPreludeTyConUnique 202
@@ -2417,13 +2429,14 @@ tyVarBndrTyConKey       = mkPreludeTyConUnique 225
 decsQTyConKey           = mkPreludeTyConUnique 226
 ruleBndrQTyConKey       = mkPreludeTyConUnique 227
 tySynEqnQTyConKey       = mkPreludeTyConUnique 228
+tExpTyConKey            = mkPreludeTyConUnique 229
 
 -- IdUniques available: 200-499
 -- If you want to change this, make sure you check in PrelNames
 
 returnQIdKey, bindQIdKey, sequenceQIdKey, liftIdKey, newNameIdKey,
     mkNameIdKey, mkNameG_vIdKey, mkNameG_dIdKey, mkNameG_tcIdKey,
-    mkNameLIdKey :: Unique
+    mkNameLIdKey, unTypeIdKey :: Unique
 returnQIdKey        = mkPreludeMiscIdUnique 200
 bindQIdKey          = mkPreludeMiscIdUnique 201
 sequenceQIdKey      = mkPreludeMiscIdUnique 202
@@ -2434,6 +2447,7 @@ mkNameG_vIdKey       = mkPreludeMiscIdUnique 206
 mkNameG_dIdKey       = mkPreludeMiscIdUnique 207
 mkNameG_tcIdKey      = mkPreludeMiscIdUnique 208
 mkNameLIdKey         = mkPreludeMiscIdUnique 209
+unTypeIdKey          = mkPreludeMiscIdUnique 210
 
 
 -- data Lit = ...
@@ -2666,6 +2680,10 @@ allPhasesDataConKey, fromPhaseDataConKey, beforePhaseDataConKey :: Unique
 allPhasesDataConKey   = mkPreludeDataConUnique 45
 fromPhaseDataConKey   = mkPreludeDataConUnique 46
 beforePhaseDataConKey = mkPreludeDataConUnique 47
+
+-- newtype TExp a = ...
+tExpDataConKey :: Unique
+tExpDataConKey = mkPreludeDataConUnique 48
 
 -- data FunDep = ...
 funDepIdKey :: Unique
