@@ -179,8 +179,8 @@ pprTyCon pefas ss tyCon
       SynFamilyTyCon {} -> pprTyConHdr pefas tyCon <+> dcolon <+> 
                            pprTypeForUser pefas (GHC.synTyConResKind tyCon)
       SynonymTyCon rhs_ty -> hang (pprTyConHdr pefas tyCon <+> equals) 
-                                2 (pprTypeForUser pefas rhs_ty)
-
+                                2 (ppr rhs_ty)   -- Don't suppress foralls on RHS type!
+                                                 -- e.g. type T = forall a. a->a
   | Just cls <- GHC.tyConClass_maybe tyCon
   = pprClass pefas ss cls
   | otherwise
@@ -230,7 +230,7 @@ pprDataConDecl pefas ss gadt_style dataCon
     user_ify bang                      = bang
 
     maybe_show_label (lbl,bty)
-	| showSub ss lbl = Just (ppr lbl <+> dcolon <+> pprBangTy bty)
+	| showSub ss lbl = Just (ppr_bndr lbl <+> dcolon <+> pprBangTy bty)
 	| otherwise      = Nothing
 
     ppr_fields [ty1, ty2]

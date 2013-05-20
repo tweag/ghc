@@ -134,6 +134,10 @@ DYNAMIC_TOO = YES
 ifeq "$(TargetOS_CPP)" "mingw32"
 # This doesn't work on Windows yet
 DYNAMIC_GHC_PROGRAMS = NO
+else ifeq "$(TargetOS_CPP)" "freebsd"
+# FreeBSD cannot do proper resolution for $ORIGIN (due to a bug in
+# rtld(1)), so disable it by default (see #7819).
+DYNAMIC_GHC_PROGRAMS = NO
 else
 DYNAMIC_GHC_PROGRAMS = YES
 endif
@@ -385,9 +389,6 @@ BIN_DIST_PREP_TAR_BZ2 = $(BIN_DIST_PREP_TAR).bz2
 BIN_DIST_TAR_BZ2      = $(BIN_DIST_NAME)-$(TARGETPLATFORM).tar.bz2
 BIN_DIST_LIST         = bindist-list
 
-WINDOWS_INSTALLER_BASE = ghc-$(ProjectVersion)-$(TargetArch_CPP)-windows
-WINDOWS_INSTALLER = $(WINDOWS_INSTALLER_BASE)$(exeext)
-
 # -----------------------------------------------------------------------------
 # Utilities programs: flags 
 
@@ -444,16 +445,10 @@ ifneq "$(wildcard $(GHC).exe)" ""
 GHC := $(GHC).exe
 endif
 
-# Sometimes we want to invoke ghc from the build tree in different
-# places (eg. it's handy to have a nofib & a ghc build in the same
-# tree).  We can refer to "this ghc" as $(GHC_INPLACE):
-
-GHC_INPLACE = $(GHC_STAGE1)
-
 GHC_STAGE0  = $(GHC)
-GHC_STAGE1  = $(INPLACE_BIN)/ghc-stage1$(exeext)
-GHC_STAGE2  = $(INPLACE_BIN)/ghc-stage2$(exeext)
-GHC_STAGE3  = $(INPLACE_BIN)/ghc-stage3$(exeext)
+GHC_STAGE1  = $(ghc-stage1_INPLACE)
+GHC_STAGE2  = $(ghc-stage2_INPLACE)
+GHC_STAGE3  = $(ghc-stage3_INPLACE)
 
 BOOTSTRAPPING_CONF = libraries/bootstrapping.conf
 
@@ -567,6 +562,9 @@ ifeq "$(CrossCompiling)" "YES"
 SRC_HSC2HS_OPTS_STAGE1 += --cross-compile
 SRC_HSC2HS_OPTS_STAGE2 += --cross-compile
 endif
+SRC_HSC2HS_OPTS_STAGE0 += --cflag=-D$(HostArch_CPP)_HOST_ARCH=1 --cflag=-D$(HostOS_CPP)_HOST_OS=1
+SRC_HSC2HS_OPTS_STAGE1 += --cflag=-D$(TargetArch_CPP)_HOST_ARCH=1 --cflag=-D$(TargetOS_CPP)_HOST_OS=1
+SRC_HSC2HS_OPTS_STAGE2 += --cflag=-D$(TargetArch_CPP)_HOST_ARCH=1 --cflag=-D$(TargetOS_CPP)_HOST_OS=1
 
 ifeq "$(TARGETPLATFORM)" "i386-unknown-mingw32"
 WINDRES = $(INPLACE_MINGW)/bin/windres
@@ -691,10 +689,6 @@ endif
 HSCOLOUR_CMD   = @HSCOLOUR@
 
 TIME_CMD       = @TimeCmd@
-
-# Set this if you want to use Inno Setup to build a Windows installer
-# when you make a bindist
-ISCC_CMD       =
 
 #-----------------------------------------------------------------------------
 # DocBook XML stuff

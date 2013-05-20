@@ -192,11 +192,23 @@ tcHsSigTypeNC ctxt (L loc hs_ty)
 -----------------
 tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyVar], ThetaType, Class, [Type])
 -- Like tcHsSigTypeNC, but for an instance head.
-tcHsInstHead ctxt lhs_ty@(L loc hs_ty)
+tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
   = setSrcSpan loc $    -- The "In the type..." context comes from the caller
-    do { ty <- tcCheckHsTypeAndGen hs_ty constraintKind
-       ; ty <- zonkTcType ty
-       ; checkValidInstance ctxt lhs_ty ty }
+    do { inst_ty <- tc_inst_head hs_ty
+       ; kvs     <- zonkTcTypeAndFV inst_ty
+       ; kvs     <- kindGeneralize kvs []
+       ; inst_ty <- zonkTcType (mkForAllTys kvs inst_ty)
+       ; checkValidInstance user_ctxt lhs_ty inst_ty }
+
+tc_inst_head :: HsType Name -> TcM TcType
+tc_inst_head (HsForAllTy _ hs_tvs hs_ctxt hs_ty)
+  = tcHsTyVarBndrs hs_tvs $ \ tvs -> 
+    do { ctxt <- tcHsContext hs_ctxt
+       ; ty   <- tc_lhs_type hs_ty ekConstraint    -- Body for forall has kind Constraint
+       ; return (mkSigmaTy tvs ctxt ty) }
+
+tc_inst_head hs_ty
+  = tc_hs_type hs_ty ekConstraint
 
 -----------------
 tcHsDeriv :: HsType Name -> TcM ([TyVar], Class, [Type])
@@ -293,7 +305,10 @@ tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM Type
 -- The result is not necessarily zonked, and has not been checked for validity
 tcCheckHsTypeAndGen hs_ty kind
   = do { ty  <- tc_hs_type hs_ty (EK kind expectedKindMsg)
-       ; kvs <- kindGeneralize (tyVarsOfType ty) []
+       ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
+       ; traceTc "tcCheckHsTypeAndGen" (ppr ty)
+       ; kvs <- zonkTcTypeAndFV ty 
+       ; kvs <- kindGeneralize kvs []
        ; return (mkForAllTys kvs ty) }
 \end{code}
 
@@ -372,16 +387,25 @@ tc_hs_type hs_ty@(HsAppTy ty1 ty2) exp_kind
        ; arg_tys' <- tcCheckApps hs_ty fun_ty fun_kind arg_tys exp_kind
        ; return (mkNakedAppTys fun_ty' arg_tys') }
          -- mkNakedAppTys: see Note [Zonking inside the knot]
+         -- This looks fragile; how do we *know* that fun_ty isn't 
+         -- a TyConApp, say (which is never supposed to appear in the
+         -- function position of an AppTy)?
   where
     (fun_ty, arg_tys) = splitHsAppTys ty1 [ty2]
 
 --------- Foralls
-tc_hs_type (HsForAllTy _ hs_tvs context ty) exp_kind
+tc_hs_type hs_ty@(HsForAllTy _ hs_tvs context ty) exp_kind
   = tcHsTyVarBndrs hs_tvs $ \ tvs' -> 
     -- Do not kind-generalise here!  See Note [Kind generalisation]
     do { ctxt' <- tcHsContext context
-       ; ty'   <- tc_lhs_type ty exp_kind
-           -- Why exp_kind?  See Note [Body kind of forall]
+       ; ty' <- if null (unLoc context) then  -- Plain forall, no context
+                   tc_lhs_type ty exp_kind    -- Why exp_kind?  See Note [Body kind of forall]
+                else     
+                   -- If there is a context, then this forall is really a
+                   -- _function_, so the kind of the result really is *
+                   -- The body kind (result of the function can be * or #, hence ekOpen
+                   do { checkExpectedKind hs_ty liftedTypeKind exp_kind
+                      ; tc_lhs_type ty ekOpen }
        ; return (mkSigmaTy tvs' ctxt' ty') }
 
 --------- Lists, arrays, and tuples
@@ -878,22 +902,25 @@ kcHsTyVarBndrs full_kind_sig (HsQTvs { hsq_kvs = kv_ns, hsq_tvs = hs_tvs }) thin
                Just thing       -> pprPanic "check_in_scope" (ppr thing)
            ; return (n, kind) }
 
-tcScopedKindVars :: [Name] -> TcM a -> TcM a
--- Given some tyvar binders like [a (b :: k -> *) (c :: k)]
--- bind each scoped kind variable (k in this case) to a fresh
--- kind skolem variable
-tcScopedKindVars kv_ns thing_inside 
-  = tcExtendTyVarEnv (map mkKindSigVar kv_ns) thing_inside
-
 tcHsTyVarBndrs :: LHsTyVarBndrs Name 
 	       -> ([TcTyVar] -> TcM r)
 	       -> TcM r
--- Bind the type variables to skolems, each with a meta-kind variable kind
-tcHsTyVarBndrs (HsQTvs { hsq_kvs = kvs, hsq_tvs = hs_tvs }) thing_inside
-  = tcScopedKindVars kvs $
-    do { tvs <- mapM tcHsTyVarBndr hs_tvs
-       ; traceTc "tcHsTyVarBndrs" (ppr hs_tvs $$ ppr tvs)
-       ; tcExtendTyVarEnv tvs (thing_inside tvs) }
+-- Bind the kind variables to fresh skolem variables
+-- and type variables to skolems, each with a meta-kind variable kind
+tcHsTyVarBndrs (HsQTvs { hsq_kvs = kv_ns, hsq_tvs = hs_tvs }) thing_inside
+  = do { let kvs = map mkKindSigVar kv_ns
+       ; tcExtendTyVarEnv kvs $ do 
+       { tvs <- mapM tcHsTyVarBndr hs_tvs
+       ; traceTc "tcHsTyVarBndrs {" (vcat [ text "Hs kind vars:" <+> ppr kv_ns
+                                        , text "Hs type vars:" <+> ppr hs_tvs
+                                        , text "Kind vars:" <+> ppr kvs
+                                        , text "Type vars:" <+> ppr tvs ])
+       ; res <- tcExtendTyVarEnv tvs (thing_inside (kvs ++ tvs))
+       ; traceTc "tcHsTyVarBndrs }" (vcat [ text "Hs kind vars:" <+> ppr kv_ns
+                                        , text "Hs type vars:" <+> ppr hs_tvs
+                                        , text "Kind vars:" <+> ppr kvs
+                                        , text "Type vars:" <+> ppr tvs ])
+       ; return res  } }
 
 tcHsTyVarBndr :: LHsTyVarBndr Name -> TcM TcTyVar
 -- Return a type variable 
@@ -1555,7 +1582,7 @@ pprHsSigCtxt ctxt hs_ty = sep [ ptext (sLit "In") <+> pprUserTypeCtxt ctxt <> co
     pp_sig (ForSigCtxt n)  = pp_n_colon n
     pp_sig _               = ppr (unLoc hs_ty)
 
-    pp_n_colon n = ppr n <+> dcolon <+> ppr (unLoc hs_ty)
+    pp_n_colon n = pprPrefixOcc n <+> dcolon <+> ppr (unLoc hs_ty)
 
 badPatSigTvs :: TcType -> [TyVar] -> SDoc
 badPatSigTvs sig_ty bad_tvs

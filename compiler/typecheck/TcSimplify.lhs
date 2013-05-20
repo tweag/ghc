@@ -137,7 +137,7 @@ go with option (i), implemented at SimplifyTop. Namely:
 Now, that has to do with class defaulting. However there exists type variable /kind/
 defaulting. Again this is done at the top-level and the plan is:
      - At the top-level, once you had a go at solving the constraint, do 
-       figure out /all/ the touchable unification variables of the wanted contraints.
+       figure out /all/ the touchable unification variables of the wanted constraints.
      - Apply defaulting to their kinds
 
 More details in Note [DefaultTyVar].
@@ -375,8 +375,10 @@ having to be passed at each call site.  But of course, the WHOLE
 IDEA is that ?y should be passed at each call site (that's what
 dynamic binding means) so we'd better infer the second.
 
-BOTTOM LINE: when *inferring types* you *must* quantify 
-over implicit parameters. See the predicate isFreeWhenInferring.
+BOTTOM LINE: when *inferring types* you must quantify over implicit
+parameters, *even if* they don't mention the bound type variables.
+Reason: because implicit parameters, uniquely, have local instance
+declarations. See the predicate quantifyPred.
 
 Note [Quantification with errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -454,7 +456,7 @@ situations like
 When inferring a type for 'g', we don't want to apply the
 instance decl, because then we can't satisfy (C t).  So we
 just notice that g isn't quantified over 't' and partition
-the contraints before simplifying.
+the constraints before simplifying.
 
 This only half-works, but then let-generalisation only half-works.
 
@@ -511,7 +513,8 @@ simplifyRule name lhs_wanted rhs_wanted
        ; traceTc "simplifyRule" $
          vcat [ ptext (sLit "LHS of rule") <+> doubleQuotes (ftext name)
               , text "zonked_lhs_flats" <+> ppr zonked_lhs_flats 
-              , text "q_cts"      <+> ppr q_cts ]
+              , text "q_cts"      <+> ppr q_cts
+              , text "non_q_cts"  <+> ppr non_q_cts ]
 
        ; return ( map (ctEvId . ctEvidence) (bagToList q_cts)
                 , lhs_wanted { wc_flat = non_q_cts }) }
@@ -972,7 +975,7 @@ skolem has escaped!
 But it's ok: when we float (Maybe beta[2] ~ gamma[1]), we promote beta[2]
 to beta[1], and that means the (a ~ beta[1]) will be stuck, as it should be.
 
-Previously we tried to "grow" the skol_set with the contraints, to get
+Previously we tried to "grow" the skol_set with the constraints, to get
 all the tyvars that could *conceivably* unify with the skolems, but that
 was far too conservative (Trac #7804). Example: this should be fine:
     f :: (forall a. a -> Proxy x -> Proxy (F x)) -> Int

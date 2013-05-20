@@ -36,7 +36,6 @@ import Name hiding (varName)
 import NameSet
 import NameEnv
 import Avail
-import PrelNames
 import IfaceEnv
 import TcEnv
 import TcRnMonad
@@ -328,7 +327,7 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
                 -- See Note [Which rules to expose]
 
         ; (tidy_env, tidy_binds)
-                 <- tidyTopBinds hsc_env unfold_env tidy_occ_env binds
+                 <- tidyTopBinds hsc_env mod unfold_env tidy_occ_env binds
 
         ; let { final_ids  = [ id | id <- bindersOfBinds tidy_binds,
                                     isExternalName (idName id)]
@@ -979,14 +978,14 @@ rules are externalised (see init_ext_ids in function
 --   * subst_env: A Var->Var mapping that substitutes the new Var for the old
 
 tidyTopBinds :: HscEnv
+             -> Module
              -> UnfoldEnv
              -> TidyOccEnv
              -> CoreProgram
              -> IO (TidyEnv, CoreProgram)
 
-tidyTopBinds hsc_env unfold_env init_occ_env binds
-  = do mkIntegerId <- liftM tyThingId
-                    $ initTcForLookup hsc_env (tcLookupGlobal mkIntegerName)
+tidyTopBinds hsc_env this_mod unfold_env init_occ_env binds
+  = do mkIntegerId <- lookupMkIntegerName dflags hsc_env
        return $ tidy mkIntegerId init_env binds
   where
     dflags = hsc_dflags hsc_env
@@ -996,7 +995,7 @@ tidyTopBinds hsc_env unfold_env init_occ_env binds
     this_pkg = thisPackage dflags
 
     tidy _           env []     = (env, [])
-    tidy mkIntegerId env (b:bs) = let (env1, b')  = tidyTopBind dflags this_pkg mkIntegerId unfold_env env b
+    tidy mkIntegerId env (b:bs) = let (env1, b')  = tidyTopBind dflags this_pkg this_mod mkIntegerId unfold_env env b
                                       (env2, bs') = tidy mkIntegerId env1 bs
                                   in
                                       (env2, b':bs')
@@ -1004,22 +1003,23 @@ tidyTopBinds hsc_env unfold_env init_occ_env binds
 ------------------------
 tidyTopBind  :: DynFlags
              -> PackageId
+             -> Module
              -> Id
              -> UnfoldEnv
              -> TidyEnv
              -> CoreBind
              -> (TidyEnv, CoreBind)
 
-tidyTopBind dflags this_pkg mkIntegerId unfold_env (occ_env,subst1) (NonRec bndr rhs)
+tidyTopBind dflags this_pkg this_mod mkIntegerId unfold_env (occ_env,subst1) (NonRec bndr rhs)
   = (tidy_env2,  NonRec bndr' rhs')
   where
     Just (name',show_unfold) = lookupVarEnv unfold_env bndr
-    caf_info      = hasCafRefs dflags this_pkg (mkIntegerId, subst1) (idArity bndr) rhs
+    caf_info      = hasCafRefs dflags this_pkg this_mod (mkIntegerId, subst1) (idArity bndr) rhs
     (bndr', rhs') = tidyTopPair dflags show_unfold tidy_env2 caf_info name' (bndr, rhs)
     subst2        = extendVarEnv subst1 bndr bndr'
     tidy_env2     = (occ_env, subst2)
 
-tidyTopBind dflags this_pkg mkIntegerId unfold_env (occ_env,subst1) (Rec prs)
+tidyTopBind dflags this_pkg this_mod mkIntegerId unfold_env (occ_env,subst1) (Rec prs)
   = (tidy_env2, Rec prs')
   where
     prs' = [ tidyTopPair dflags show_unfold tidy_env2 caf_info name' (id,rhs)
@@ -1036,7 +1036,7 @@ tidyTopBind dflags this_pkg mkIntegerId unfold_env (occ_env,subst1) (Rec prs)
         -- the CafInfo for a recursive group says whether *any* rhs in
         -- the group may refer indirectly to a CAF (because then, they all do).
     caf_info
-        | or [ mayHaveCafRefs (hasCafRefs dflags this_pkg (mkIntegerId, subst1) (idArity bndr) rhs)
+        | or [ mayHaveCafRefs (hasCafRefs dflags this_pkg this_mod (mkIntegerId, subst1) (idArity bndr) rhs)
              | (bndr,rhs) <- prs ] = MayHaveCafRefs
         | otherwise                = NoCafRefs
 
@@ -1172,14 +1172,28 @@ it as a CAF.  In these cases however, we would need to use an additional
 CAF list to keep track of non-collectable CAFs.
 
 \begin{code}
-hasCafRefs :: DynFlags -> PackageId -> (Id, VarEnv Var) -> Arity -> CoreExpr
+hasCafRefs :: DynFlags -> PackageId -> Module
+           -> (Id, VarEnv Var) -> Arity -> CoreExpr
            -> CafInfo
-hasCafRefs dflags this_pkg p arity expr
+hasCafRefs dflags this_pkg this_mod p arity expr
   | is_caf || mentions_cafs = MayHaveCafRefs
   | otherwise               = NoCafRefs
  where
   mentions_cafs = isFastTrue (cafRefsE dflags p expr)
-  is_dynamic_name = isDllName dflags this_pkg
+  is_dynamic_name n = if gopt Opt_BuildDynamicToo dflags
+                      then -- If we're building the dynamic way too,
+                           -- then we need to check whether it's a
+                           -- dynamic name there too. Note that this
+                           -- means that the vanila code is more
+                           -- pessimistic on Windows when -dynamic-too
+                           -- is used, but the alternative is that
+                           -- -dynamic-too is unusable on Windows
+                           -- as even the interfaces in the integer
+                           -- package don't match.
+                           is_dynamic_name' dflags n ||
+                           is_dynamic_name' (doDynamicToo dflags) n
+                      else is_dynamic_name' dflags n
+  is_dynamic_name' dflags' = isDllName dflags' this_pkg this_mod
   is_caf = not (arity > 0 || rhsIsStatic (targetPlatform dflags) is_dynamic_name expr)
 
   -- NB. we pass in the arity of the expression, which is expected

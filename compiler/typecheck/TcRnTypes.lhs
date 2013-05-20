@@ -970,12 +970,32 @@ ctPred :: Ct -> PredType
 ctPred ct = ctEvPred (cc_ev ct)
 
 dropDerivedWC :: WantedConstraints -> WantedConstraints
-dropDerivedWC wc@(WC { wc_flat = flats })
-  = wc { wc_flat = filterBag isWantedCt flats }
-    -- Don't filter the insolubles, because derived
-    -- insolubles should stay so that we report them.
+-- See Note [Insoluble derived constraints]
+dropDerivedWC wc@(WC { wc_flat = flats, wc_insol = insols })
+  = wc { wc_flat  = filterBag isWantedCt          flats
+       , wc_insol = filterBag (not . isDerivedCt) insols  }
+    -- Keep Givens from insols because they indicate unreachable code
     -- The implications are (recursively) already filtered
 \end{code}
+
+Note [Insoluble derived constraints]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In general we discard derived constraints at the end of constraint solving;
+see dropDerivedWC.  For example, 
+
+ * If we have an unsolved (Ord a), we don't want to complain about 
+   an unsolved (Eq a) as well.
+ * If we have kind-incompatible (a::* ~ Int#::#) equality, we 
+   don't want to complain about the kind error twice.  
+
+Arguably, for *some* derived constraints we might want to report errors. 
+Notably, functional dependencies.  If we have  
+    class C a b | a -> b
+and we have
+    [W] C a b, [W] C a c
+where a,b,c are all signature variables.  Then we could reasonably
+report an error unifying (b ~ c). But it's probably not worth it;
+after all, we also get an error because we can't discharge the constraint.
 
 
 %************************************************************************
@@ -1480,7 +1500,7 @@ pprSkolInfo :: SkolemInfo -> SDoc
 -- Complete the sentence "is a rigid type variable bound by..."
 pprSkolInfo (SigSkol (FunSigCtxt f) ty)
                             = hang (ptext (sLit "the type signature for"))
-                                 2 (ppr f <+> dcolon <+> ppr ty)
+                                 2 (pprPrefixOcc f <+> dcolon <+> ppr ty)
 pprSkolInfo (SigSkol cx ty) = hang (pprUserTypeCtxt cx <> colon)
                                  2 (ppr ty)
 pprSkolInfo (IPSkol ips)    = ptext (sLit "the implicit-parameter bindings for")

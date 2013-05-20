@@ -51,9 +51,9 @@ module TcMType (
   -- Zonking
   zonkTcPredType, 
   skolemiseSigTv, skolemiseUnboundMetaTyVar,
-  zonkTcTyVar, zonkTcTyVars, zonkTyVarsAndFV, 
+  zonkTcTyVar, zonkTcTyVars, zonkTyVarsAndFV, zonkTcTypeAndFV,
   zonkQuantifiedTyVar, zonkQuantifiedTyVars,
-  zonkTcType, zonkTcTypes, zonkTcThetaType,
+  zonkTcType, zonkTcTypes, zonkTcThetaType, 
 
   zonkTcKind, defaultKindVarToStar,
   zonkEvVar, zonkWC, zonkId, zonkCt, zonkCts, zonkSkolemInfo,
@@ -504,6 +504,15 @@ tcGetGlobalTyVars
 -----------------  Type variables
 
 \begin{code}
+zonkTcTypeAndFV :: TcType -> TcM TyVarSet
+-- Zonk a type and take its free variables
+-- With kind polymorphism it can be essential to zonk *first*
+-- so that we find the right set of free variables.  Eg
+--    forall k1. forall (a:k2). a
+-- where k2:=k1 is in the substitution.  We don't want
+-- k2 to look free in this type!
+zonkTcTypeAndFV ty = do { ty <- zonkTcType ty; return (tyVarsOfType ty) }
+
 zonkTyVar :: TyVar -> TcM TcType
 -- Works on TyVars and TcTyVars
 zonkTyVar tv | isTcTyVar tv = zonkTcTyVar tv
@@ -641,7 +650,7 @@ skolemiseSigTv tv
 \end{code}
 
 \begin{code}
-zonkImplication :: Implication -> TcM Implication
+zonkImplication :: Implication -> TcM (Bag Implication)
 zonkImplication implic@(Implic { ic_untch  = untch
                                , ic_binds  = binds_var
                                , ic_skols  = skols
@@ -653,11 +662,14 @@ zonkImplication implic@(Implic { ic_untch  = untch
        ; given'  <- mapM zonkEvVar given
        ; info'   <- zonkSkolemInfo info
        ; wanted' <- zonkWCRec binds_var untch wanted
-       ; return (implic { ic_skols = skols'
-                        , ic_given = given'
-                        , ic_fsks  = []  -- Zonking removes all FlatSkol tyvars
-                        , ic_wanted = wanted'
-                        , ic_info = info' }) }
+       ; if isEmptyWC wanted' 
+         then return emptyBag
+         else return $ unitBag $
+              implic { ic_fsks   = []  -- Zonking removes all FlatSkol tyvars
+                     , ic_skols  = skols'
+                     , ic_given  = given'
+                     , ic_wanted = wanted'
+                     , ic_info   = info' } }
 
 zonkEvVar :: EvVar -> TcM EvVar
 zonkEvVar var = do { ty' <- zonkTcType (varType var)
@@ -675,7 +687,7 @@ zonkWCRec :: EvBindsVar
           -> WantedConstraints -> TcM WantedConstraints
 zonkWCRec binds_var untch (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
   = do { flat'   <- zonkFlats binds_var untch flat
-       ; implic' <- mapBagM zonkImplication implic
+       ; implic' <- flatMapBagM zonkImplication implic
        ; insol'  <- zonkCts insol -- No need to do the more elaborate zonkFlats thing
        ; return (WC { wc_flat = flat', wc_impl = implic', wc_insol = insol' }) }
 
@@ -699,9 +711,9 @@ zonkFlats binds_var untch cts
       , Just tv <- getTyVar_maybe ty_rhs
       , ASSERT2( not (isFloatedTouchableMetaTyVar untch tv), ppr tv )
         isTouchableMetaTyVar untch tv
-      , typeKind ty_lhs `tcIsSubKind` tyVarKind tv
+      , not (isSigTyVar tv) || isTyVarTy ty_lhs     -- Never unify a SigTyVar with a non-tyvar
+      , typeKind ty_lhs `tcIsSubKind` tyVarKind tv  -- c.f. TcInteract.trySpontaneousEqOneWay
       , not (tv `elemVarSet` tyVarsOfType ty_lhs)
---       , Just ty_lhs' <- occurCheck tv ty_lhs
       = ASSERT2( isWantedCt orig_ct, ppr orig_ct )
         ASSERT2( case tcSplitTyConApp_maybe ty_lhs of { Just (tc,_) -> isSynFamilyTyCon tc; _ -> False }, ppr orig_ct )
         do { writeMetaTyVar tv ty_lhs
