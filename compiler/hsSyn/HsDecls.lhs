@@ -528,10 +528,7 @@ tyFamInstDeclName = unLoc . tyFamInstDeclLName
 
 tyFamInstDeclLName :: OutputableBndr name
                    => TyFamInstDecl name -> Located name
-tyFamInstDeclLName (TyFamInstSingle { tfid_eqn =
-                                      L _ (TyFamInstEqn { tfie_tycon = ln })})
-  = ln
-tyFamInstDeclLName (TyFamInstBranched { tfid_eqns =
+tyFamInstDeclLName (TyFamInstDecl { tfid_eqns =
                      (L _ (TyFamInstEqn { tfie_tycon = ln })) : _ })
   -- there may be more than one equation, but grab the name from the first
   = ln
@@ -854,25 +851,12 @@ data TyFamInstEqn name
        , tfie_rhs   :: LHsType name }         
   deriving( Typeable, Data )
 
-type LTyFamInstSpace name = Located (TyFamInstSpace name)
--- | The type space a branched instance lies in
-data TyFamInstSpace name
-  = TyFamInstSpace
-      { tfis_tycon :: Located name
-      , tfis_pats  :: HsWithBndrs [LHsType name]
-      }
-
 type LTyFamInstDecl name = Located (TyFamInstDecl name)
 data TyFamInstDecl name 
-  = TyFamInstSingle
-       { tfid_eqn   :: LTyFamInstEqn name
-       , tfid_fvs   :: NameSet
-       }
-  | TyFamInstBranched
-       { tfid_eqns  :: [LTyFamInstEqn name]    -- ^ list of (possibly-overlapping) eqns 
-                                               -- Always non-empty
-       , tfid_space :: Maybe LTyFamInstSpace  -- ^ The (optional) region of the type
-                                              -- space this group sits in.
+  = TyFamInstDecl
+       { tfid_eqns  :: [LTyFamInstEqn name] -- ^ list of (possibly-overlapping) eqns 
+                                            -- Always non-empty
+       , tfid_group :: Bool                 -- Was this declared with the "where" syntax?
        , tfid_fvs   :: NameSet }            -- The group is type-checked as one,
                                             --   so one NameSet will do
        -- INVARIANT: tfid_group == False --> length tfid_eqns == 1
@@ -943,24 +927,22 @@ tvs are fv(pat_tys), *including* ones that are already in scope
 
 Note [Family instance equation groups]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-A TyFamInstBranched contains a list of FamInstEqn's, one for each equation
-defined in the branched instance. It is not possible for this list to have 0
-elements -- 'type instance where' without anything else is not allowed.
+A TyFamInstDecl contains a list of FamInstEqn's, one for each
+equation defined in the instance group. For a standalone
+instance declaration, this list contains exactly one element.
+It is not possible for this list to have 0 elements --
+'type instance where' without anything else is not allowed.
 
 \begin{code}
 instance (OutputableBndr name) => Outputable (TyFamInstDecl name) where
   ppr = pprTyFamInstDecl TopLevel
 
 pprTyFamInstDecl :: OutputableBndr name => TopLevelFlag -> TyFamInstDecl name -> SDoc
-pprTyFamInstDecl top_lvl (TyFamInstSingle { tfid_eqn = eqn })
+pprTyFamInstDecl top_lvl (TyFamInstDecl { tfid_group = False, tfid_eqns = [eqn] })
    = ptext (sLit "type") <+> ppr_instance_keyword top_lvl <+> (ppr eqn)
-pprTyFamInstDecl top_lvl (TyFamInstBranched { tfid_eqns = eqns, tfid_space = space })
-   = hang (ptext (sLit "type") <+> ppr_instance_keyword top_lvl <+>
-           ppr_type_space space <+> ptext (sLit "where"))
+pprTyFamInstDecl top_lvl (TyFamInstDecl { tfid_eqns = eqns })
+   = hang (ptext (sLit "type") <+> ppr_instance_keyword top_lvl <+> ptext (sLit "where"))
         2 (vcat (map ppr eqns))
-   where
-     ppr_type_space Nothing  = empty
-     ppr_type_space (Just s) = ppr s
 
 ppr_instance_keyword :: TopLevelFlag -> SDoc
 ppr_instance_keyword TopLevel    = ptext (sLit "instance")
