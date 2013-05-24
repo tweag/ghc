@@ -45,13 +45,15 @@ import System.IO
 \begin{code}
 codeOutput :: DynFlags
            -> Module
+           -> FilePath
            -> ModLocation
            -> ForeignStubs
            -> [PackageId]
            -> Stream IO RawCmmGroup ()                       -- Compiled C--
-           -> IO (Bool{-stub_h_exists-}, Maybe FilePath{-stub_c_exists-})
+           -> IO (FilePath,
+                  (Bool{-stub_h_exists-}, Maybe FilePath{-stub_c_exists-}))
 
-codeOutput dflags this_mod location foreign_stubs pkg_deps cmm_stream
+codeOutput dflags this_mod filenm location foreign_stubs pkg_deps cmm_stream
   = 
     do  {
         -- Lint each CmmGroup as it goes past
@@ -71,16 +73,15 @@ codeOutput dflags this_mod location foreign_stubs pkg_deps cmm_stream
                 }
 
         ; showPass dflags "CodeOutput"
-        ; let filenm = hscOutName dflags 
         ; stubs_exist <- outputForeignStubs dflags this_mod location foreign_stubs
         ; case hscTarget dflags of {
-             HscInterpreted -> return ();
-             HscAsm         -> outputAsm dflags filenm linted_cmm_stream;
+             HscAsm         -> outputAsm dflags this_mod filenm linted_cmm_stream;
              HscC           -> outputC dflags filenm linted_cmm_stream pkg_deps;
              HscLlvm        -> outputLlvm dflags filenm linted_cmm_stream;
+             HscInterpreted -> panic "codeOutput: HscInterpreted";
              HscNothing     -> panic "codeOutput: HscNothing"
           }
-        ; return stubs_exist
+        ; return (filenm, stubs_exist)
         }
 
 doOutput :: String -> (Handle -> IO a) -> IO a
@@ -139,22 +140,16 @@ outputC dflags filenm cmm_stream packages
 %************************************************************************
 
 \begin{code}
-outputAsm :: DynFlags -> FilePath -> Stream IO RawCmmGroup () -> IO ()
-outputAsm dflags filenm cmm_stream
+outputAsm :: DynFlags -> Module -> FilePath -> Stream IO RawCmmGroup () -> IO ()
+outputAsm dflags this_mod filenm cmm_stream
  | cGhcWithNativeCodeGen == "YES"
   = do ncg_uniqs <- mkSplitUniqSupply 'n'
 
-       let filenmDyn = filenm ++ "-dyn"
-           withHandles f = doOutput filenm $ \h ->
-                           ifGeneratingDynamicToo dflags
-                               (doOutput filenmDyn $ \dynH ->
-                                   f [(h, dflags),
-                                      (dynH, doDynamicToo dflags)])
-                               (f [(h, dflags)])
+       debugTraceMsg dflags 4 (text "Outputing asm to" <+> text filenm)
 
-       _ <- {-# SCC "OutputAsm" #-} withHandles $
-           \hs -> {-# SCC "NativeCodeGen" #-}
-                 nativeCodeGen dflags hs ncg_uniqs cmm_stream
+       _ <- {-# SCC "OutputAsm" #-} doOutput filenm $
+           \h -> {-# SCC "NativeCodeGen" #-}
+                 nativeCodeGen dflags this_mod h ncg_uniqs cmm_stream
        return ()
 
  | otherwise

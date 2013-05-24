@@ -113,7 +113,7 @@ dsOverLit' dflags (OverLit { ol_val = val, ol_rebindable = rebindable
 Note [Literal short cut]
 ~~~~~~~~~~~~~~~~~~~~~~~~
 The type checker tries to do this short-cutting as early as possible, but 
-becuase of unification etc, more information is available to the desugarer.
+because of unification etc, more information is available to the desugarer.
 And where it's possible to generate the correct literal right away, it's
 much better do do so.
 
@@ -236,7 +236,7 @@ matchLiterals :: [Id]
 	      -> DsM MatchResult
 
 matchLiterals (var:vars) ty sub_groups
-  = ASSERT( all notNull sub_groups )
+  = ASSERT( notNull sub_groups && all notNull sub_groups )
     do	{	-- Deal with each group
 	; alts <- mapM match_group sub_groups
 

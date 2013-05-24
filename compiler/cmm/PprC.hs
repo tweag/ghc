@@ -189,7 +189,6 @@ pprStmt stmt =
           rep = cmmExprType dflags src
 
     CmmUnsafeForeignCall target@(ForeignTarget fn conv) results args ->
-        maybe_proto $$
         fnCall
         where
         (res_hints, arg_hints) = foreignTargetHints target
@@ -200,40 +199,29 @@ pprStmt stmt =
 
         cast_fn = parens (cCast (pprCFunType (char '*') cconv hresults hargs) fn)
 
-        real_fun_proto lbl = char ';' <>
-                        pprCFunType (ppr lbl) cconv hresults hargs <>
-                        noreturn_attr <> semi
-
-        noreturn_attr = case ret of
-                          CmmNeverReturns -> text "__attribute__ ((noreturn))"
-                          CmmMayReturn    -> empty
-
         -- See wiki:Commentary/Compiler/Backends/PprC#Prototypes
-        (maybe_proto, fnCall) =
+        fnCall =
             case fn of
               CmmLit (CmmLabel lbl)
                 | StdCallConv <- cconv ->
-                    let myCall = pprCall (ppr lbl) cconv hresults hargs
-                    in (real_fun_proto lbl, myCall)
+                    pprCall (ppr lbl) cconv hresults hargs
                         -- stdcall functions must be declared with
                         -- a function type, otherwise the C compiler
                         -- doesn't add the @n suffix to the label.  We
                         -- can't add the @n suffix ourselves, because
                         -- it isn't valid C.
                 | CmmNeverReturns <- ret ->
-                    let myCall = pprCall (ppr lbl) cconv hresults hargs
-                    in (real_fun_proto lbl, myCall)
+                    pprCall cast_fn cconv hresults hargs <> semi
                 | not (isMathFun lbl) ->
                     pprForeignCall (ppr lbl) cconv hresults hargs
               _ ->
-                   (empty {- no proto -},
-                    pprCall cast_fn cconv hresults hargs <> semi)
+                    pprCall cast_fn cconv hresults hargs <> semi
                         -- for a dynamic call, no declaration is necessary.
 
     CmmUnsafeForeignCall (PrimTarget MO_Touch) _results _args -> empty
 
     CmmUnsafeForeignCall target@(PrimTarget op) results args ->
-        proto $$ fn_call
+        fn_call
       where
         cconv = CCallConv
         fn = pprCallishMachOp_for_C op
@@ -242,15 +230,16 @@ pprStmt stmt =
         hresults = zip results res_hints
         hargs    = zip args arg_hints
 
-        (proto, fn_call)
+        fn_call
           -- The mem primops carry an extra alignment arg, must drop it.
           -- We could maybe emit an alignment directive using this info.
           -- We also need to cast mem primops to prevent conflicts with GCC
           -- builtins (see bug #5967).
           | op `elem` [MO_Memcpy, MO_Memset, MO_Memmove]
-          = pprForeignCall fn cconv hresults (init hargs)
+          = (ptext (sLit ";EF_(") <> fn <> char ')' <> semi) $$
+            pprForeignCall fn cconv hresults (init hargs)
           | otherwise
-          = (empty, pprCall fn cconv hresults hargs)
+          = pprCall fn cconv hresults hargs
 
     CmmBranch ident          -> pprBranch ident
     CmmCondBranch expr yes no -> pprCondBranch expr yes no
@@ -263,8 +252,8 @@ pprStmt stmt =
 type Hinted a = (a, ForeignHint)
 
 pprForeignCall :: SDoc -> CCallConv -> [Hinted CmmFormal] -> [Hinted CmmActual]
-               -> (SDoc, SDoc)
-pprForeignCall fn cconv results args = (proto, fn_call)
+               -> SDoc
+pprForeignCall fn cconv results args = fn_call
   where
     fn_call = braces (
                  pprCFunType (char '*' <> text "ghcFunPtr") cconv results args <> semi
@@ -272,7 +261,6 @@ pprForeignCall fn cconv results args = (proto, fn_call)
               $$ pprCall (text "ghcFunPtr") cconv results args <> semi
              )
     cast_fn = parens (parens (pprCFunType (char '*') cconv results args) <> fn)
-    proto = ptext (sLit ";EF_(") <> fn <> char ')' <> semi
 
 pprCFunType :: SDoc -> CCallConv -> [Hinted CmmFormal] -> [Hinted CmmActual] -> SDoc
 pprCFunType ppr_fn cconv ress args
@@ -358,10 +346,13 @@ pprExpr e = case e of
     CmmRegOff reg 0 -> pprCastReg reg
 
     CmmRegOff reg i
-        | i >  0    -> pprRegOff (char '+') i
-        | otherwise -> pprRegOff (char '-') (-i)
+        | i < 0 && negate_ok -> pprRegOff (char '-') (-i)
+        | otherwise          -> pprRegOff (char '+') i
       where
         pprRegOff op i' = pprCastReg reg <> op <> int i'
+        negate_ok = negate (fromIntegral i :: Integer) <
+                    fromIntegral (maxBound::Int)
+                     -- overflow is undefined; see #7620
 
     CmmMachOp mop args -> pprMachOpApp mop args
 
@@ -463,6 +454,8 @@ pprLit lit = case lit of
                   | otherwise             = text (show d)
                 -- these constants come from <math.h>
                 -- see #1861
+
+    CmmVec {} -> panic "PprC printing vector literal"
 
     CmmBlock bid       -> mkW_ <> pprCLabelAddr (infoTblLbl bid)
     CmmHighStackMark   -> panic "PprC printing high stack mark"
@@ -621,6 +614,71 @@ pprMachOp_for_C mop = case mop of
                                 (panic $ "PprC.pprMachOp_for_C: MO_U_MulMayOflo"
                                       ++ " should have been handled earlier!")
 
+        MO_V_Insert {}    -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_V_Insert")
+                                (panic $ "PprC.pprMachOp_for_C: MO_V_Insert"
+                                      ++ " should have been handled earlier!")
+        MO_V_Extract {}   -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_V_Extract")
+                                (panic $ "PprC.pprMachOp_for_C: MO_V_Extract"
+                                      ++ " should have been handled earlier!")
+
+        MO_V_Add {}       -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_V_Add")
+                                (panic $ "PprC.pprMachOp_for_C: MO_V_Add"
+                                      ++ " should have been handled earlier!")
+        MO_V_Sub {}       -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_V_Sub")
+                                (panic $ "PprC.pprMachOp_for_C: MO_V_Sub"
+                                      ++ " should have been handled earlier!")
+        MO_V_Mul {}       -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_V_Mul")
+                                (panic $ "PprC.pprMachOp_for_C: MO_V_Mul"
+                                      ++ " should have been handled earlier!")
+
+        MO_VS_Quot {}     -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VS_Quot")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VS_Quot"
+                                      ++ " should have been handled earlier!")
+        MO_VS_Rem {}      -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VS_Rem")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VS_Rem"
+                                      ++ " should have been handled earlier!")
+        MO_VS_Neg {}      -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VS_Neg")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VS_Neg"
+                                      ++ " should have been handled earlier!")
+
+        MO_VF_Insert {}   -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VF_Insert")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VF_Insert"
+                                      ++ " should have been handled earlier!")
+        MO_VF_Extract {}  -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VF_Extract")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VF_Extract"
+                                      ++ " should have been handled earlier!")
+
+        MO_VF_Add {}      -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VF_Add")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VF_Add"
+                                      ++ " should have been handled earlier!")
+        MO_VF_Sub {}      -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VF_Sub")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VF_Sub"
+                                      ++ " should have been handled earlier!")
+        MO_VF_Neg {}      -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VF_Neg")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VF_Neg"
+                                      ++ " should have been handled earlier!")
+        MO_VF_Mul {}      -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VF_Mul")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VF_Mul"
+                                      ++ " should have been handled earlier!")
+        MO_VF_Quot {}     -> pprTrace "offending mop:"
+                                (ptext $ sLit "MO_VF_Quot")
+                                (panic $ "PprC.pprMachOp_for_C: MO_VF_Quot"
+                                      ++ " should have been handled earlier!")
+
 signedOp :: MachOp -> Bool      -- Argument type(s) are signed ints
 signedOp (MO_S_Quot _)    = True
 signedOp (MO_S_Rem  _)    = True
@@ -689,6 +747,7 @@ pprCallishMachOp_for_C mop
         MO_Add2       {} -> unsupported
         MO_U_Mul2     {} -> unsupported
         MO_Touch         -> unsupported
+        MO_Prefetch_Data -> unsupported
     where unsupported = panic ("pprCallishMachOp_for_C: " ++ show mop
                             ++ " not supported!")
 

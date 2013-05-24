@@ -10,7 +10,10 @@ module Platform (
         ArmABI(..),
 
         target32Bit,
-        osElfTarget
+        isARM,
+        osElfTarget,
+        platformUsesFrameworks,
+        platformBinariesAreStaticLibs,
 )
 
 where
@@ -53,6 +56,9 @@ data Arch
         | ArchMipsel
         deriving (Read, Show, Eq)
 
+isARM :: Arch -> Bool
+isARM (ArchARM {}) = True
+isARM _ = False
 
 -- | Operating systems that the native code generator knows about.
 --      Having OSUnknown should produce a sensible default, but no promises.
@@ -60,6 +66,7 @@ data OS
         = OSUnknown
         | OSLinux
         | OSDarwin
+        | OSiOS
         | OSSolaris2
         | OSMinGW32
         | OSFreeBSD
@@ -69,6 +76,8 @@ data OS
         | OSKFreeBSD
         | OSHaiku
         | OSOsf3
+        | OSQNXNTO
+        | OSAndroid
         deriving (Read, Show, Eq)
 
 -- | ARM Instruction Set Architecture, Extensions and ABI
@@ -105,14 +114,32 @@ osElfTarget OSOpenBSD   = True
 osElfTarget OSNetBSD    = True
 osElfTarget OSSolaris2  = True
 osElfTarget OSDarwin    = False
+osElfTarget OSiOS       = False
 osElfTarget OSMinGW32   = False
 osElfTarget OSKFreeBSD  = True
 osElfTarget OSHaiku     = True
 osElfTarget OSOsf3      = False -- I don't know if this is right, but as
                                 -- per comment below it's safe
+osElfTarget OSQNXNTO    = False
+osElfTarget OSAndroid   = True
 osElfTarget OSUnknown   = False
  -- Defaulting to False is safe; it means don't rely on any
  -- ELF-specific functionality.  It is important to have a default for
  -- portability, otherwise we have to answer this question for every
  -- new platform we compile on (even unreg).
+
+osUsesFrameworks :: OS -> Bool
+osUsesFrameworks OSDarwin = True
+osUsesFrameworks OSiOS    = True
+osUsesFrameworks _        = False
+
+platformUsesFrameworks :: Platform -> Bool
+platformUsesFrameworks = osUsesFrameworks . platformOS
+
+osBinariesAreStaticLibs :: OS -> Bool
+osBinariesAreStaticLibs OSiOS = True
+osBinariesAreStaticLibs _     = False
+
+platformBinariesAreStaticLibs :: Platform -> Bool
+platformBinariesAreStaticLibs = osBinariesAreStaticLibs . platformOS
 

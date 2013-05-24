@@ -38,11 +38,14 @@ module InteractiveEval (
 
 #include "HsVersions.h"
 
+import InteractiveEvalTypes
+
 import GhcMonad
 import HscMain
 import HsSyn
 import HscTypes
 import InstEnv
+import FamInstEnv ( FamInst, Branched, orphNamesOfFamInst )
 import TyCon
 import Type     hiding( typeKind )
 import TcType           hiding( typeKind )
@@ -71,6 +74,7 @@ import Outputable
 import FastString
 import MonadUtils
 
+import System.Mem.Weak
 import System.Directory
 import Data.Dynamic
 import Data.Either
@@ -87,37 +91,6 @@ import System.IO.Unsafe
 -- -----------------------------------------------------------------------------
 -- running a statement interactively
 
-data RunResult
-  = RunOk [Name]                -- ^ names bound by this evaluation
-  | RunException SomeException  -- ^ statement raised an exception
-  | RunBreak ThreadId [Name] (Maybe BreakInfo)
-
-data Status
-   = Break Bool HValue BreakInfo ThreadId
-          -- ^ the computation hit a breakpoint (Bool <=> was an exception)
-   | Complete (Either SomeException [HValue])
-          -- ^ the computation completed with either an exception or a value
-
-data Resume
-   = Resume {
-       resumeStmt      :: String,       -- the original statement
-       resumeThreadId  :: ThreadId,     -- thread running the computation
-       resumeBreakMVar :: MVar (),
-       resumeStatMVar  :: MVar Status,
-       resumeBindings  :: ([TyThing], GlobalRdrEnv),
-       resumeFinalIds  :: [Id],         -- [Id] to bind on completion
-       resumeApStack   :: HValue,       -- The object from which we can get
-                                        -- value of the free variables.
-       resumeBreakInfo :: Maybe BreakInfo,
-                                        -- the breakpoint we stopped at
-                                        -- (Nothing <=> exception)
-       resumeSpan      :: SrcSpan,      -- just a cache, otherwise it's a pain
-                                        -- to fetch the ModDetails & ModBreaks
-                                        -- to get this.
-       resumeHistory   :: [History],
-       resumeHistoryIx :: Int           -- 0 <==> at the top of the history
-   }
-
 getResumeContext :: GhcMonad m => m [Resume]
 getResumeContext = withSession (return . ic_resume . hsc_IC)
 
@@ -129,13 +102,6 @@ data SingleStep
 isStep :: SingleStep -> Bool
 isStep RunToCompletion = False
 isStep _ = True
-
-data History
-   = History {
-        historyApStack   :: HValue,
-        historyBreakInfo :: BreakInfo,
-        historyEnclosingDecls :: [String]  -- declarations enclosing the breakpoint
-   }
 
 mkHistory :: HscEnv -> HValue -> BreakInfo -> History
 mkHistory hsc_env hval bi = let
@@ -415,9 +381,19 @@ sandboxIO dflags statusMVar thing =
 --  * clients of the GHC API can terminate a runStmt in progress
 --    without knowing the ThreadId of the sandbox thread (#1381)
 --
+-- NB. use a weak pointer to the thread, so that the thread can still
+-- be considered deadlocked by the RTS and sent a BlockedIndefinitely
+-- exception.  A symptom of getting this wrong is that conc033(ghci)
+-- will hang.
+--
 redirectInterrupts :: ThreadId -> IO a -> IO a
 redirectInterrupts target wait
-  = wait `catch` \e -> do throwTo target (e :: SomeException); wait
+  = do wtid <- mkWeakThreadId target
+       wait `catch` \e -> do
+          m <- deRefWeak wtid
+          case m of
+            Nothing -> wait
+            Just target -> do throwTo target (e :: SomeException); wait
 
 -- We want to turn ^C into a break when -fbreak-on-exception is on,
 -- but it's an async exception and we only break for sync exceptions.
@@ -488,7 +464,8 @@ resume canLogSpan step
        resume = ic_resume ic
 
    case resume of
-     [] -> throwGhcException (ProgramError "not stopped at a breakpoint")
+     [] -> liftIO $
+           throwGhcExceptionIO (ProgramError "not stopped at a breakpoint")
      (r:rs) -> do
         -- unbind the temporary locals by restoring the TypeEnv from
         -- before the breakpoint, and drop this Resume from the
@@ -546,16 +523,17 @@ moveHist :: GhcMonad m => (Int -> Int) -> m ([Name], Int, SrcSpan)
 moveHist fn = do
   hsc_env <- getSession
   case ic_resume (hsc_IC hsc_env) of
-     [] -> throwGhcException (ProgramError "not stopped at a breakpoint")
+     [] -> liftIO $
+           throwGhcExceptionIO (ProgramError "not stopped at a breakpoint")
      (r:rs) -> do
         let ix = resumeHistoryIx r
             history = resumeHistory r
             new_ix = fn ix
         --
-        when (new_ix > length history) $
-           throwGhcException (ProgramError "no more logged breakpoints")
-        when (new_ix < 0) $
-           throwGhcException (ProgramError "already at the beginning of the history")
+        when (new_ix > length history) $ liftIO $
+           throwGhcExceptionIO (ProgramError "no more logged breakpoints")
+        when (new_ix < 0) $ liftIO $
+           throwGhcExceptionIO (ProgramError "already at the beginning of the history")
 
         let
           update_ic apStack mb_info = do
@@ -837,7 +815,8 @@ setContext imports
        ; let dflags = hsc_dflags hsc_env
        ; all_env_err <- liftIO $ findGlobalRdrEnv hsc_env imports
        ; case all_env_err of
-           Left (mod, err) -> throwGhcException (formatError dflags mod err)
+           Left (mod, err) ->
+               liftIO $ throwGhcExceptionIO (formatError dflags mod err)
            Right all_env -> do {
        ; let old_ic        = hsc_IC hsc_env
              final_rdr_env = ic_tythings old_ic `icPlusGblRdrEnv` all_env
@@ -911,20 +890,25 @@ moduleIsInterpreted modl = withSession $ \h ->
 -- are in scope (qualified or otherwise).  Otherwise we list a whole lot too many!
 -- The exact choice of which ones to show, and which to hide, is a judgement call.
 --      (see Trac #1581)
-getInfo :: GhcMonad m => Bool -> Name -> m (Maybe (TyThing,Fixity,[ClsInst]))
+getInfo :: GhcMonad m => Bool -> Name -> m (Maybe (TyThing,Fixity,[ClsInst],[FamInst Branched]))
 getInfo allInfo name
   = withSession $ \hsc_env ->
     do mb_stuff <- liftIO $ hscTcRnGetInfo hsc_env name
        case mb_stuff of
          Nothing -> return Nothing
-         Just (thing, fixity, ispecs) -> do
+         Just (thing, fixity, cls_insts, fam_insts) -> do
            let rdr_env = ic_rn_gbl_env (hsc_IC hsc_env)
-           return (Just (thing, fixity, filter (plausible rdr_env) ispecs))
+
+           -- Filter the instances based on whether the constituent names of their
+           -- instance heads are all in scope.
+           let cls_insts' = filter (plausible rdr_env . orphNamesOfClsInst) cls_insts
+               fam_insts' = filter (plausible rdr_env . orphNamesOfFamInst) fam_insts
+           return (Just (thing, fixity, cls_insts', fam_insts'))
   where
-    plausible rdr_env ispec
+    plausible rdr_env names
           -- Dfun involving only names that are in ic_rn_glb_env
         = allInfo
-       || all ok (nameSetToList $ orphNamesOfType $ idType $ instanceDFunId ispec)
+       || all ok (nameSetToList names)
         where   -- A name is ok if it's in the rdr_env,
                 -- whether qualified or not
           ok n | n == name         = True       -- The one we looked for in the first place!
@@ -972,6 +956,7 @@ parseName str = withSession $ \hsc_env -> do
 -- Getting the type of an expression
 
 -- | Get the type of an expression
+-- Returns its most general type
 exprType :: GhcMonad m => String -> m Type
 exprType expr = withSession $ \hsc_env -> do
    ty <- liftIO $ hscTcExpr hsc_env expr

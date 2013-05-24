@@ -84,6 +84,7 @@ module TcSMonad (
     compatKind, mkKindErrorCtxtTcS,
 
     Untouchables, isTouchableMetaTyVarTcS, isFilledMetaTyVar_maybe,
+    zonkTyVarsAndFV,
 
     getDefaultInfo, getDynFlags,
 
@@ -134,7 +135,6 @@ import TcRnTypes
 import Unique 
 import UniqFM
 import Maybes ( orElse, catMaybes, firstJust )
-import StaticFlags( opt_NoFlatCache )
 
 import Control.Monad( unless, when, zipWithM )
 import Data.IORef
@@ -848,10 +848,13 @@ extractRelevantInerts :: Ct -> TcS Cts
 -- NB: This function contains logic specific to the constraint solver, maybe move there?
 extractRelevantInerts wi 
   = modifyInertTcS (extract_relevants wi)
-  where extract_relevants wi is 
+  where 
+        extract_relevants :: Ct -> InertSet -> (Cts,InertSet)
+        extract_relevants wi is 
           = let (cts,ics') = extract_ics_relevants wi (inert_cans is)
             in (cts, is { inert_cans = ics' }) 
             
+        extract_ics_relevants :: Ct -> InertCans -> (Cts, InertCans)
         extract_ics_relevants (CDictCan {cc_class = cl}) ics = 
             let (cts,dict_map) = getRelevantCts cl (inert_dicts ics) 
             in (cts, ics { inert_dicts = dict_map })
@@ -892,18 +895,19 @@ lookupFlatEqn fam_ty
 lookupInInerts :: TcPredType -> TcS (Maybe CtEvidence)
 -- Is this exact predicate type cached in the solved or canonicals of the InertSet
 lookupInInerts pty
-  = do { IS { inert_solved_dicts = solved, inert_cans = ics } <- getTcSInerts
-       ; case lookupSolvedDict solved pty of
+  = do { inerts <- getTcSInerts
+       ; case lookupSolvedDict inerts pty of
            Just ctev -> return (Just ctev)
-           Nothing   -> return (lookupInInertCans ics pty) }
+           Nothing   -> return (lookupInInertCans inerts pty) }
 
-lookupSolvedDict :: PredMap CtEvidence -> TcPredType -> Maybe CtEvidence
+lookupSolvedDict :: InertSet -> TcPredType -> Maybe CtEvidence
 -- Returns just if exactly this predicate type exists in the solved.
-lookupSolvedDict tm pty = lookupTM pty $ unPredMap tm
+lookupSolvedDict (IS { inert_solved_dicts = solved }) pty 
+  = lookupTM pty (unPredMap solved)
 
-lookupInInertCans :: InertCans -> TcPredType -> Maybe CtEvidence
+lookupInInertCans :: InertSet -> TcPredType -> Maybe CtEvidence
 -- Returns Just if exactly this pred type exists in the inert canonicals
-lookupInInertCans ics pty
+lookupInInertCans (IS { inert_cans = ics }) pty
   = case (classifyPredType pty) of
       ClassPred cls _ 
          -> lookupCCanMap cls (\ct -> ctEvPred ct `eqType` pty) (inert_dicts ics)
@@ -1156,6 +1160,7 @@ getTcSInertsRef = TcS (return . tcs_inerts)
 
 getTcSWorkListRef :: TcS (IORef WorkList) 
 getTcSWorkListRef = TcS (return . tcs_worklist) 
+
 getTcSInerts :: TcS InertSet 
 getTcSInerts = getTcSInertsRef >>= wrapTcS . (TcM.readTcRef) 
 
@@ -1205,14 +1210,13 @@ emitInsoluble ct
   = do { traceTcS "Emit insoluble" (ppr ct)
        ; updInertTcS add_insol }
   where
+    this_pred = ctPred ct
     add_insol is@(IS { inert_cans = ics@(IC { inert_insols = old_insols }) })
       | already_there = is
       | otherwise     = is { inert_cans = ics { inert_insols = extendCts old_insols ct } }
       where
         already_there = not (isWantedCt ct) && anyBag (eqType this_pred . ctPred) old_insols
 	     -- See Note [Do not add duplicate derived insolubles]
-
-    this_pred = ctPred ct
 
 getTcSImplicsRef :: TcS (IORef (Bag Implication))
 getTcSImplicsRef = TcS (return . tcs_implics) 
@@ -1303,12 +1307,17 @@ isFilledMetaTyVar_maybe tv
                   Indirect ty -> return (Just ty)
                   Flexi       -> return Nothing }
      _ -> return Nothing 
+
+zonkTyVarsAndFV :: TcTyVarSet -> TcS TcTyVarSet
+zonkTyVarsAndFV tvs = wrapTcS (TcM.zonkTyVarsAndFV tvs)
 \end{code}
 
 Note [Do not add duplicate derived insolubles]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-In general we *do* want to add an insoluble (Int ~ Bool) even if there is one
-such there already, because they may come from distinct call sites.  But for
+In general we *must* add an insoluble (Int ~ Bool) even if there is
+one such there already, because they may come from distinct call
+sites.  Not only do we want an error message for each, but with
+-fdefer-type-errors we must generate evidence for each.  But for
 *derived* insolubles, we only want to report each one once.  Why?
 
 (a) A constraint (C r s t) where r -> s, say, may generate the same fundep
@@ -1372,8 +1381,9 @@ newFlattenSkolem Given fam_ty
        ; let rhs_ty = mkTyVarTy tv
              ctev = CtGiven { ctev_pred = mkTcEqPred fam_ty rhs_ty
                             , ctev_evtm = EvCoercion (mkTcReflCo fam_ty) }
+       ; dflags <- getDynFlags
        ; updInertTcS $ \ is@(IS { inert_fsks = fsks }) -> 
-            extendFlatCache fam_ty ctev rhs_ty
+            extendFlatCache dflags fam_ty ctev rhs_ty
             is { inert_fsks       = tv : fsks }
 
        ; return (ctev, rhs_ty) }
@@ -1383,12 +1393,14 @@ newFlattenSkolem _ fam_ty  -- Wanted or Derived: make new unification variable
        ; ctev <- newWantedEvVarNC (mkTcEqPred fam_ty rhs_ty)
                                    -- NC (no-cache) version because we've already
                                    -- looked in the solved goals an inerts (lookupFlatEqn)
-       ; updInertTcS $ extendFlatCache fam_ty ctev rhs_ty
+       ; dflags <- getDynFlags
+       ; updInertTcS $ extendFlatCache dflags fam_ty ctev rhs_ty
        ; return (ctev, rhs_ty) }
 
-extendFlatCache :: TcType -> CtEvidence -> TcType -> InertSet -> InertSet
-extendFlatCache 
-  | opt_NoFlatCache
+extendFlatCache :: DynFlags -> TcType -> CtEvidence -> TcType
+                -> InertSet -> InertSet
+extendFlatCache dflags
+  | not (gopt Opt_FlatCache dflags)
   = \ _ _ _ is -> is
   | otherwise
   = \ fam_ty ctev rhs_ty is@(IS { inert_flat_cache = fc }) -> 

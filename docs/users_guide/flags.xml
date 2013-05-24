@@ -460,8 +460,9 @@
         <tbody>
           <row>
             <entry><option>-fforce-recomp</option></entry>
-            <entry>Turn off recompilation checking; implied by any
-              <option>-ddump-X</option> option</entry>
+            <entry>Turn off recompilation checking. This is implied by any
+              <option>-ddump-X</option> option when compiling a single
+              file (i.e. when using <literal>-c</literal>).</entry>
             <entry>dynamic</entry>
             <entry><option>-fno-force-recomp</option></entry>
           </row>
@@ -638,7 +639,7 @@
           </row>
           <row>
             <entry><option>-no-auto-link-packages</option></entry>
-            <entry>Don't automatically link in the haskell98 package.</entry>
+            <entry>Don't automatically link in the base and rts packages.</entry>
             <entry>dynamic</entry>
             <entry>-</entry>
           </row>
@@ -806,6 +807,13 @@
             </entry>
             <entry>dynamic</entry>
             <entry><option>-XNoOverloadedStrings</option></entry>
+          </row>
+          <row>
+            <entry><option>-XOverloadedLists</option></entry>
+            <entry>Enable <link linkend="overloaded-lists">overloaded lists</link>.
+            </entry>
+            <entry>dynamic</entry>
+            <entry><option>-XNoOverloadedLists</option></entry>
           </row>
           <row>
             <entry><option>-XGADTs</option></entry>
@@ -1060,6 +1068,13 @@
             <entry><option>-XNoDeriveDataTypeable</option></entry>
           </row>
           <row>
+            <entry><option>-XAutoDeriveTypeable</option></entry>
+            <entry>Automatically <link linkend="auto-derive-typeable">derive Typeable instances for every datatype and type class declaration</link>.
+            Implies <option>-XDeriveDataTypeable</option>.</entry>
+            <entry>dynamic</entry>
+            <entry><option>-XNoAutoDeriveTypeable</option></entry>
+          </row>
+          <row>
             <entry><option>-XDeriveGeneric</option></entry>
             <entry>Enable <link linkend="deriving-typeable">deriving for the Generic class</link>.</entry>
             <entry>dynamic</entry>
@@ -1107,6 +1122,12 @@
             <entry>Enable <link linkend="multi-param-type-classes">multi parameter type classes</link>.</entry>
             <entry>dynamic</entry>
             <entry><option>-XNoMultiParamTypeClasses</option></entry>
+          </row>
+          <row>
+            <entry><option>-XNullaryTypeClasses</option></entry>
+            <entry>Enable <link linkend="nullary-type-classes">nullary (no parameter) type classes</link>.</entry>
+            <entry>dynamic</entry>
+            <entry><option>-XNoNullaryTypeClasses</option></entry>
           </row>
           <row>
             <entry><option>-XFunctionalDependencies</option></entry>
@@ -1233,6 +1254,13 @@
             <entry>warn about uses of commandline flags that are deprecated</entry>
             <entry>dynamic</entry>
             <entry><option>-fno-warn-deprecated-flags</option></entry>
+          </row>
+
+          <row>
+            <entry><option>-fwarn-duplicate-constraints</option></entry>
+            <entry>warn when a constraint appears duplicated in a type signature</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-warn-duplicate-constraints</option></entry>
           </row>
 
           <row>
@@ -1439,6 +1467,14 @@
             <entry><option>-fno-warn-warnings-deprecations</option></entry>
           </row>
 
+          <row>
+            <entry><option>-fwarn-typeable-instances</option></entry>
+            <entry>warn if there are any handwritten <literal>Typeable</literal>
+                   instances (see <xref linkend="deriving-typeable"/>)</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-warn-typeable-instances</option></entry>
+          </row>
+
         </tbody>
       </tgroup>
     </informaltable>
@@ -1512,6 +1548,17 @@
             <entry>Make dictionaries strict</entry>
             <entry>static</entry>
             <entry><option>-fno-dicts-strict</option></entry>
+          </row>
+
+          <row>
+            <entry><option>-ffun-to-thunk</option></entry>
+            <entry>Worker-wrapper removes unused arguments; this flag
+            lets it thusly remove all value lambdas. Doing so creates
+            a thunk where it was previously a function closure, which
+            may save recomputation but also risks a space leak. Off by
+            default.</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-fun-to-thunk</option></entry>
           </row>
 
           <row>

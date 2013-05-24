@@ -14,11 +14,12 @@
 
 module DataCon (
         -- * Main data types
-	DataCon, DataConRep(..),
+	DataCon, DataConRep(..), HsBang(..), StrictnessMark(..),
 	ConTag,
 	
 	-- ** Type construction
 	mkDataCon, fIRST_TAG,
+        buildAlgTyCon, 
 	
 	-- ** Type deconstruction
 	dataConRepType, dataConSig, dataConFullSig,
@@ -39,13 +40,10 @@ module DataCon (
 	-- ** Predicates on DataCons
 	isNullarySrcDataCon, isNullaryRepDataCon, isTupleDataCon, isUnboxedTupleCon,
 	isVanillaDataCon, classDataCon, dataConCannotMatch,
-
-        -- * Splitting product types
-	splitProductType_maybe, splitProductType, 
+        isBanged, isMarkedStrict, eqHsBang,
 
         -- ** Promotion related functions
-        isPromotableTyCon, promoteTyCon, 
-        promoteDataCon, promoteDataCon_maybe
+        promoteKind, promoteDataCon, promoteDataCon_maybe
     ) where
 
 #include "HsVersions.h"
@@ -54,6 +52,8 @@ import {-# SOURCE #-} MkId( DataConBoxer )
 import Type
 import TypeRep( Type(..) )  -- Used in promoteType
 import PrelNames( liftedTypeKindTyConKey )
+import ForeignCall( CType )
+import Coercion
 import Kind
 import Unify
 import TyCon
@@ -71,6 +71,7 @@ import VarEnv
 
 import qualified Data.Data as Data
 import qualified Data.Typeable
+import Data.Maybe
 import Data.Char
 import Data.Word
 \end{code}
@@ -436,13 +437,29 @@ data DataConRep
 -- but that makes it less likely that rules will match
 -- when we bring bits of unfoldings together.)
 
+-------------------------
+-- HsBang describes what the *programmer* wrote
+-- This info is retained in the DataCon.dcStrictMarks field
+data HsBang 
+  = HsUserBang   -- The user's source-code request
+       (Maybe Bool)       -- Just True    {-# UNPACK #-}
+                          -- Just False   {-# NOUNPACK #-}
+                          -- Nothing      no pragma
+       Bool               -- True <=> '!' specified
 
--- | Type of the tags associated with each constructor possibility
-type ConTag = Int
+  | HsNoBang	          -- Lazy field
+                          -- HsUserBang Nothing False means the same as HsNoBang
 
-fIRST_TAG :: ConTag
--- ^ Tags are allocated from here for real constructors
-fIRST_TAG =  1
+  | HsUnpack              -- Definite commitment: this field is strict and unboxed
+       (Maybe Coercion)   --    co :: arg-ty ~ product-ty
+
+  | HsStrict              -- Definite commitment: this field is strict but not unboxed
+  deriving (Data.Data, Data.Typeable)
+
+-------------------------
+-- StrictnessMark is internal only, used to indicate strictness 
+-- of the DataCon *worker* fields
+data StrictnessMark = MarkedStrict | NotMarkedStrict	
 \end{code}
 
 Note [Data con representation]
@@ -468,7 +485,9 @@ Note [Bangs on data constructor arguments]
 Consider
   data T = MkT !Int {-# UNPACK #-} !Int Bool
 Its dcArgBangs field records the *users* specifications, in this case
-    [HsBang False, HsBang True, HsNoBang]
+    [ HsUserBang Nothing True
+    , HsUserBang (Just True) True
+    , HsNoBang]
 See the declaration of HsBang in BasicTypes
 
 The dcr_bangs field of the dcRep field records the *actual, decided*
@@ -510,11 +529,49 @@ instance NamedThing DataCon where
 instance Outputable DataCon where
     ppr con = ppr (dataConName con)
 
+instance OutputableBndr DataCon where
+    pprInfixOcc con = pprInfixName (dataConName con)
+    pprPrefixOcc con = pprPrefixName (dataConName con)
+
 instance Data.Data DataCon where
     -- don't traverse?
     toConstr _   = abstractConstr "DataCon"
     gunfold _ _  = error "gunfold"
     dataTypeOf _ = mkNoRepType "DataCon"
+
+instance Outputable HsBang where
+    ppr HsNoBang               = empty
+    ppr (HsUserBang prag bang) = pp_unpk prag <+> ppWhen bang (char '!')
+    ppr (HsUnpack Nothing)     = ptext (sLit "Unpk")
+    ppr (HsUnpack (Just co))   = ptext (sLit "Unpk") <> parens (ppr co)
+    ppr HsStrict               = ptext (sLit "SrictNotUnpacked")
+
+pp_unpk :: Maybe Bool -> SDoc
+pp_unpk Nothing      = empty
+pp_unpk (Just True)  = ptext (sLit "{-# UNPACK #-}")
+pp_unpk (Just False) = ptext (sLit "{-# NOUNPACK #-}")
+
+instance Outputable StrictnessMark where
+  ppr MarkedStrict     = ptext (sLit "!")
+  ppr NotMarkedStrict  = empty
+
+
+eqHsBang :: HsBang -> HsBang -> Bool
+eqHsBang HsNoBang             HsNoBang             = True
+eqHsBang HsStrict             HsStrict             = True
+eqHsBang (HsUserBang u1 b1)   (HsUserBang u2 b2)   = u1==u2 && b1==b2
+eqHsBang (HsUnpack Nothing)   (HsUnpack Nothing)   = True
+eqHsBang (HsUnpack (Just c1)) (HsUnpack (Just c2)) = eqType (coercionType c1) (coercionType c2)
+eqHsBang _ _ = False
+
+isBanged :: HsBang -> Bool
+isBanged HsNoBang                  = False
+isBanged (HsUserBang Nothing bang) = bang
+isBanged _                         = True
+
+isMarkedStrict :: StrictnessMark -> Bool
+isMarkedStrict NotMarkedStrict = False
+isMarkedStrict _               = True   -- All others are strict
 \end{code}
 
 
@@ -579,7 +636,6 @@ mkDataCon name declared_infix
                   dcRepArity = length rep_arg_tys,
                   dcPromoted = mb_promoted }
 
-	-- 
 	-- The 'arg_stricts' passed to mkDataCon are simply those for the
 	-- source-language arguments.  We add extra ones for the
 	-- dictionary arguments right here.
@@ -591,11 +647,9 @@ mkDataCon name declared_infix
 	     mkTyConApp rep_tycon (mkTyVarTys univ_tvs)
 
     mb_promoted   -- See Note [Promoted data constructors] in TyCon
-      | all (isLiftedTypeKind . tyVarKind) (univ_tvs ++ ex_tvs)
-                          -- No kind polymorphism, and all of kind *
-      , null eq_spec   -- No constraints
-      , null theta
-      , all isPromotableType orig_arg_tys
+      | isJust (promotableTyCon_maybe rep_tycon)
+          -- The TyCon is promotable only if all its datacons
+          -- are, so the promoteType for prom_kind should succeed
       = Just (mkPromotedDataCon con name (getUnique name) prom_kind arity)
       | otherwise 
       = Nothing          
@@ -935,51 +989,36 @@ dataConCannotMatch tys con
 
 %************************************************************************
 %*									*
-\subsection{Splitting products}
+              Building an algebraic data type
 %*									*
 %************************************************************************
 
 \begin{code}
--- | Extract the type constructor, type argument, data constructor and it's
--- /representation/ argument types from a type if it is a product type.
---
--- Precisely, we return @Just@ for any type that is all of:
---
---  * Concrete (i.e. constructors visible)
---
---  * Single-constructor
---
---  * Not existentially quantified
---
--- Whether the type is a @data@ type or a @newtype@
-splitProductType_maybe
-	:: Type 			-- ^ A product type, perhaps
-	-> Maybe (TyCon, 		-- The type constructor
-		  [Type],		-- Type args of the tycon
-		  DataCon,		-- The data constructor
-		  [Type])		-- Its /representation/ arg types
+buildAlgTyCon :: Name 
+              -> [TyVar]               -- ^ Kind variables and type variables
+	      -> Maybe CType
+	      -> ThetaType	       -- ^ Stupid theta
+	      -> AlgTyConRhs
+	      -> RecFlag
+	      -> Bool		       -- ^ True <=> this TyCon is promotable
+	      -> Bool		       -- ^ True <=> was declared in GADT syntax
+              -> TyConParent
+	      -> TyCon
 
-	-- Rejecing existentials is conservative.  Maybe some things
-	-- could be made to work with them, but I'm not going to sweat
-	-- it through till someone finds it's important.
+buildAlgTyCon tc_name ktvs cType stupid_theta rhs 
+              is_rec is_promotable gadt_syn parent
+  = tc
+  where 
+    kind = mkPiKinds ktvs liftedTypeKind
 
-splitProductType_maybe ty
-  = case splitTyConApp_maybe ty of
-	Just (tycon,ty_args)
-	   | isProductTyCon tycon  	-- Includes check for non-existential,
-					-- and for constructors visible
-	   -> Just (tycon, ty_args, data_con, dataConInstArgTys data_con ty_args)
-	   where
-	      data_con = ASSERT( not (null (tyConDataCons tycon)) ) 
-			 head (tyConDataCons tycon)
-	_other -> Nothing
+    -- tc and mb_promoted_tc are mutually recursive
+    tc = mkAlgTyCon tc_name kind ktvs cType stupid_theta 
+                    rhs parent is_rec gadt_syn 
+                    mb_promoted_tc
 
--- | As 'splitProductType_maybe', but panics if the 'Type' is not a product type
-splitProductType :: String -> Type -> (TyCon, [Type], DataCon, [Type])
-splitProductType str ty
-  = case splitProductType_maybe ty of
-	Just stuff -> stuff
-	Nothing    -> pprPanic (str ++ ": not a product") (pprType ty)
+    mb_promoted_tc
+      | is_promotable = Just (mkPromotedTyCon tc (promoteKind kind))
+      | otherwise     = Nothing
 \end{code}
 
 
@@ -991,7 +1030,6 @@ splitProductType str ty
 
 These two 'promoted..' functions are here because
  * They belong together
- * 'promoteTyCon'  is used by promoteType
  * 'prmoteDataCon' depends on DataCon stuff
 
 \begin{code}
@@ -1001,10 +1039,6 @@ promoteDataCon dc = pprPanic "promoteDataCon" (ppr dc)
 
 promoteDataCon_maybe :: DataCon -> Maybe TyCon
 promoteDataCon_maybe (MkData { dcPromoted = mb_tc }) = mb_tc
-
-promoteTyCon :: TyCon -> TyCon
-promoteTyCon tc
-  = mkPromotedTyCon tc (promoteKind (tyConKind tc))
 \end{code}
 
 Note [Promoting a Type to a Kind]
@@ -1025,24 +1059,6 @@ The transformation from type to kind is done by promoteType
           * -> ... -> * -> *
 
 \begin{code}
-isPromotableType :: Type -> Bool
-isPromotableType (TyConApp tc tys) 
-  | Just n <- isPromotableTyCon tc = tys `lengthIs` n && all isPromotableType tys
-isPromotableType (FunTy arg res)   = isPromotableType arg && isPromotableType res
-isPromotableType (TyVarTy {})      = True
-isPromotableType _                 = False
-
--- If tc's kind is [ *^n -> * ] returns [ Just n ], else returns [ Nothing ]
-isPromotableTyCon :: TyCon -> Maybe Int
-isPromotableTyCon tc
-  | isDataTyCon tc || isNewTyCon tc
-       -- Only *data* and *newtype* types can be promoted, 
-       -- not synonyms, not type/data families
-  , all isLiftedTypeKind (res:args) = Just $ length args
-  | otherwise                       = Nothing
-  where
-    (args, res) = splitKindFunTys (tyConKind tc)
-
 -- | Promotes a type to a kind. 
 -- Assumes the argument satisfies 'isPromotableType'
 promoteType :: Type -> Kind
@@ -1053,7 +1069,8 @@ promoteType ty
     kvs = [ mkKindVar (tyVarName tv) superKind | tv <- tvs ]
     env = zipVarEnv tvs kvs
 
-    go (TyConApp tc tys) = mkTyConApp (promoteTyCon tc) (map go tys)
+    go (TyConApp tc tys) | Just prom_tc <- promotableTyCon_maybe tc
+                         = mkTyConApp prom_tc (map go tys)
     go (FunTy arg res)   = mkArrowKind (go arg) (go res)
     go (TyVarTy tv)      | Just kv <- lookupVarEnv env tv 
                          = TyVarTy kv
