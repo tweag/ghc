@@ -118,10 +118,8 @@ StgWord8 *win32AllocStack(void)
 
 #ifdef darwin_HOST_OS
 #define STG_GLOBAL ".globl "
-#define STG_HIDDEN ".private_extern "
 #else
 #define STG_GLOBAL ".global "
-#define STG_HIDDEN ".hidden "
 #endif
 
 /*
@@ -166,9 +164,6 @@ StgRunIsImplementedInAssembler(void)
 {
     __asm__ volatile (
         STG_GLOBAL STG_RUN "\n"
-#if !defined(mingw32_HOST_OS)
-        STG_HIDDEN STG_RUN "\n"
-#endif
         STG_RUN ":\n\t"
 
         /*
@@ -241,13 +236,7 @@ StgRunIsImplementedInAssembler(void)
 
 #ifdef x86_64_HOST_ARCH
 
-#define STG_GLOBAL ".globl "
-
-#ifdef darwin_HOST_OS
-#define STG_HIDDEN ".private_extern "
-#else
-#define STG_HIDDEN ".hidden "
-#endif
+extern StgRegTable * StgRun(StgFunPtr f, StgRegTable *basereg);
 
 static void GNUC3_ATTRIBUTE(used)
 StgRunIsImplementedInAssembler(void)
@@ -256,10 +245,7 @@ StgRunIsImplementedInAssembler(void)
         /*
          * save callee-saves registers on behalf of the STG code.
          */
-        STG_GLOBAL STG_RUN "\n"
-#if !defined(mingw32_HOST_OS)
-        STG_HIDDEN STG_RUN "\n"
-#endif
+        ".globl " STG_RUN "\n"
         STG_RUN ":\n\t"
         "subq %1, %%rsp\n\t"
         "movq %%rsp, %%rax\n\t"
@@ -414,13 +400,7 @@ StgRun(StgFunPtr f, StgRegTable *basereg) {
 
 #ifdef powerpc_HOST_ARCH
 
-#define STG_GLOBAL ".globl "
-
-#ifdef darwin_HOST_OS
-#define STG_HIDDEN ".private_extern "
-#else
-#define STG_HIDDEN ".hidden "
-#endif
+extern StgRegTable * StgRun(StgFunPtr f, StgRegTable *basereg);
 
 #ifdef darwin_HOST_OS
 void StgRunIsImplementedInAssembler(void)
@@ -428,12 +408,11 @@ void StgRunIsImplementedInAssembler(void)
 #if HAVE_SUBSECTIONS_VIA_SYMBOLS
             // if the toolchain supports deadstripping, we have to
             // prevent it here (it tends to get confused here).
-        __asm__ volatile (".no_dead_strip _StgRunIsImplementedInAssembler\n");
+        __asm__ volatile (".no_dead_strip _StgRunIsImplementedInAssembler");
 #endif
         __asm__ volatile (
-                STG_GLOBAL STG_RUN "\n"
-                STG_HIDDEN STG_RUN "\n"
-                STG_RUN ":\n"
+                "\n.globl _StgRun\n"
+                "_StgRun:\n"
                 "\tmflr r0\n"
                 "\tbl saveFP # f14\n"
                 "\tstmw r13,-220(r1)\n"
@@ -467,7 +446,6 @@ StgRunIsImplementedInAssembler(void)
 {
         __asm__ volatile (
                 "\t.globl StgRun\n"
-                "\t.hidden StgRun\n"
                 "\t.type StgRun,@function\n"
                 "StgRun:\n"
                 "\tmflr 0\n"
@@ -540,6 +518,8 @@ StgRunIsImplementedInAssembler(void)
 #ifdef powerpc64_HOST_ARCH
 
 #ifdef linux_HOST_OS
+extern StgRegTable * StgRun(StgFunPtr f, StgRegTable *basereg);
+
 static void GNUC3_ATTRIBUTE(used)
 StgRunIsImplementedInAssembler(void)
 {
@@ -554,7 +534,6 @@ StgRunIsImplementedInAssembler(void)
                 ".section \".opd\",\"aw\"\n"
                 ".align 3\n"
                 ".globl StgRun\n"
-                ".hidden StgRun\n"
                 "StgRun:\n"
                 "\t.quad\t.StgRun,.TOC.@tocbase,0\n"
                 "\t.size StgRun,24\n"
@@ -686,7 +665,7 @@ StgRun(StgFunPtr f, StgRegTable *basereg) {
         /*
          * save callee-saves registers on behalf of the STG code.
          */
-        "stmfd sp!, {r4-r11, ip, lr}\n\t"
+        "stmfd sp!, {r4-r10, fp, ip, lr}\n\t"
 #if !defined(arm_HOST_ARCH_PRE_ARMv6)
         "vstmdb sp!, {d8-d11}\n\t"
 #endif
@@ -705,11 +684,9 @@ StgRun(StgFunPtr f, StgRegTable *basereg) {
          */
         "bx %1\n\t"
 
-        ".globl " STG_RETURN "\n\t"
+        ".global " STG_RETURN "\n\t"
         THUMB_FUNC
-#if !defined(ios_HOST_OS)
         ".type " STG_RETURN ", %%function\n"
-#endif
         STG_RETURN ":\n\t"
         /*
          * Free the space we allocated
@@ -725,7 +702,7 @@ StgRun(StgFunPtr f, StgRegTable *basereg) {
 #if !defined(arm_HOST_ARCH_PRE_ARMv6)
         "vldmia sp!, {d8-d11}\n\t"
 #endif
-        "ldmfd sp!, {r4-r11, ip, lr}\n\t"
+        "ldmfd sp!, {r4-r10, fp, ip, lr}\n\t"
       : "=r" (r)
       : "r" (f), "r" (basereg), "i" (RESERVED_C_STACK_BYTES)
 #if !defined(__thumb__)
@@ -741,7 +718,7 @@ StgRun(StgFunPtr f, StgRegTable *basereg) {
            includes/stg/MachRegs.h Please note that Haskell code is
            compiled by GHC/LLVM into ARM code (not Thumb!), at least
            as of February 2012 */
-      : "%r4", "%r5", "%r6", "%r8", "%r9", "%r10", "%11", "%ip", "%lr"
+      : "%r4", "%r5", "%r6", "%r8", "%r9", "%r10", "%fp", "%ip", "%lr"
 #endif
     );
     return r;

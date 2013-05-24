@@ -31,7 +31,7 @@ import PrimOp      ( PrimOp(..), tagToEnumKey )
 import TysWiredIn
 import TysPrim
 import TyCon       ( tyConDataCons_maybe, isEnumerationTyCon, isNewTyCon )
-import DataCon     ( dataConTag, dataConTyCon, dataConWorkId )
+import DataCon     ( dataConTag, dataConTyCon, dataConWorkId, fIRST_TAG )
 import CoreUtils   ( cheapEqExpr, exprIsHNF )
 import CoreUnfold  ( exprIsConApp_maybe )
 import Type
@@ -100,15 +100,6 @@ primOpRules nm IntRemOp    = mkPrimOpRule nm 2 [ nonZeroLit 1 >> binaryLit (intO
                                                     retLit zeroi
                                                , equalArgs >> retLit zeroi
                                                , equalArgs >> retLit zeroi ]
-primOpRules nm AndIOp      = mkPrimOpRule nm 2 [ binaryLit (intOp2 (.&.))
-                                               , idempotent
-                                               , zeroElem zeroi ]
-primOpRules nm OrIOp       = mkPrimOpRule nm 2 [ binaryLit (intOp2 (.|.))
-                                               , idempotent
-                                               , identityDynFlags zeroi ]
-primOpRules nm XorIOp      = mkPrimOpRule nm 2 [ binaryLit (intOp2 xor)
-                                               , identityDynFlags zeroi
-                                               , equalArgs >> retLit zeroi ]
 primOpRules nm IntNegOp    = mkPrimOpRule nm 1 [ unaryLit negOp
                                                , inversePrimOp IntNegOp ]
 primOpRules nm ISllOp      = mkPrimOpRule nm 2 [ binaryLit (intOp2 Bits.shiftL)
@@ -151,28 +142,28 @@ primOpRules nm Int2WordOp     = mkPrimOpRule nm 1 [ liftLitDynFlags int2WordLit
                                                   , inversePrimOp Word2IntOp ]
 primOpRules nm Narrow8IntOp   = mkPrimOpRule nm 1 [ liftLit narrow8IntLit
                                                   , subsumedByPrimOp Narrow8IntOp
-                                                  , Narrow8IntOp `subsumesPrimOp` Narrow16IntOp
-                                                  , Narrow8IntOp `subsumesPrimOp` Narrow32IntOp ]
+                                                  , subsumedByPrimOp Narrow16IntOp
+                                                  , subsumedByPrimOp Narrow32IntOp ]
 primOpRules nm Narrow16IntOp  = mkPrimOpRule nm 1 [ liftLit narrow16IntLit
-                                                  , subsumedByPrimOp Narrow8IntOp
+                                                  , Narrow16IntOp `subsumesPrimOp` Narrow8IntOp
                                                   , subsumedByPrimOp Narrow16IntOp
-                                                  , Narrow16IntOp `subsumesPrimOp` Narrow32IntOp ]
+                                                  , subsumedByPrimOp Narrow32IntOp ]
 primOpRules nm Narrow32IntOp  = mkPrimOpRule nm 1 [ liftLit narrow32IntLit
-                                                  , subsumedByPrimOp Narrow8IntOp
-                                                  , subsumedByPrimOp Narrow16IntOp
+                                                  , Narrow32IntOp `subsumesPrimOp` Narrow8IntOp
+                                                  , Narrow32IntOp `subsumesPrimOp` Narrow16IntOp
                                                   , subsumedByPrimOp Narrow32IntOp
                                                   , removeOp32 ]
 primOpRules nm Narrow8WordOp  = mkPrimOpRule nm 1 [ liftLit narrow8WordLit
                                                   , subsumedByPrimOp Narrow8WordOp
-                                                  , Narrow8WordOp `subsumesPrimOp` Narrow16WordOp
-                                                  , Narrow8WordOp `subsumesPrimOp` Narrow32WordOp ]
+                                                  , subsumedByPrimOp Narrow16WordOp
+                                                  , subsumedByPrimOp Narrow32WordOp ]
 primOpRules nm Narrow16WordOp = mkPrimOpRule nm 1 [ liftLit narrow16WordLit
-                                                  , subsumedByPrimOp Narrow8WordOp
+                                                  , Narrow16WordOp `subsumesPrimOp` Narrow8WordOp
                                                   , subsumedByPrimOp Narrow16WordOp
-                                                  , Narrow16WordOp `subsumesPrimOp` Narrow32WordOp ]
+                                                  , subsumedByPrimOp Narrow32WordOp ]
 primOpRules nm Narrow32WordOp = mkPrimOpRule nm 1 [ liftLit narrow32WordLit
-                                                  , subsumedByPrimOp Narrow8WordOp
-                                                  , subsumedByPrimOp Narrow16WordOp
+                                                  , Narrow32WordOp `subsumesPrimOp` Narrow8WordOp
+                                                  , Narrow32WordOp `subsumesPrimOp` Narrow16WordOp
                                                   , subsumedByPrimOp Narrow32WordOp
                                                   , removeOp32 ]
 primOpRules nm OrdOp          = mkPrimOpRule nm 1 [ liftLit char2IntLit

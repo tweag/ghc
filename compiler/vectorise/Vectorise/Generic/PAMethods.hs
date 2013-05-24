@@ -23,7 +23,6 @@ import Type
 import OccName
 import Coercion
 import MkId
-import FamInst
 
 import DynFlags
 import FastString
@@ -37,8 +36,7 @@ buildPReprTyCon orig_tc vect_tc repr
  = do name      <- mkLocalisedName mkPReprTyConOcc (tyConName orig_tc)
       rhs_ty    <- sumReprType repr
       prepr_tc  <- builtin preprTyCon
-      let axiom = mkSingleCoAxiom name tyvars prepr_tc instTys rhs_ty
-      liftDs $ newFamInst SynFamilyInst False axiom
+      return $ mkSingleSynFamInst name tyvars prepr_tc instTys rhs_ty
   where
     tyvars = tyConTyVars vect_tc
     instTys = [mkTyConApp vect_tc . mkTyVarTys $ tyConTyVars vect_tc]

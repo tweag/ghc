@@ -21,7 +21,6 @@ import HsBinds
 import TcEvidence
 import CoreSyn
 import Var
-import RdrName
 import Name
 import BasicTypes
 import DataCon
@@ -179,9 +178,8 @@ data HsExpr id
                 [ExprLStmt id]       -- "do":one or more stmts
                 PostTcType           -- Type of the whole expression
 
-  | ExplicitList                        -- syntactic list
-                PostTcType              -- Gives type of components of list
-                (Maybe (SyntaxExpr id)) -- For OverloadedLists, the fromListN witness
+  | ExplicitList                -- syntactic list
+                PostTcType      -- Gives type of components of list
                 [LHsExpr id]
 
   | ExplicitPArr                -- syntactic parallel array: [:e1, ..., en:]
@@ -216,9 +214,8 @@ data HsExpr id
                 (LHsType Name)          -- Retain the signature for
                                         -- round-tripping purposes
 
-  | ArithSeq                            -- Arithmetic sequence
+  | ArithSeq                            -- arithmetic sequence
                 PostTcExpr
-                (Maybe (SyntaxExpr id))   -- For OverloadedLists, the fromList witness
                 (ArithSeqInfo id)
 
   | PArrSeq                             -- arith. sequence for parallel array
@@ -312,7 +309,7 @@ data HsExpr id
 
   |  HsWrap     HsWrapper    -- TRANSLATION
                 (HsExpr id)
-  |  HsUnboundVar RdrName
+  |  HsHole
   deriving (Data, Typeable)
 
 -- HsTupArg is used for tuple sections
@@ -502,7 +499,7 @@ ppr_expr (HsLet binds expr)
 
 ppr_expr (HsDo do_or_list_comp stmts _) = pprDo do_or_list_comp stmts
 
-ppr_expr (ExplicitList _ _ exprs)
+ppr_expr (ExplicitList _ exprs)
   = brackets (pprDeeperList fsep (punctuate comma (map ppr_lexpr exprs)))
 
 ppr_expr (ExplicitPArr _ exprs)
@@ -521,7 +518,7 @@ ppr_expr (ExprWithTySigOut expr sig)
   = hang (nest 2 (ppr_lexpr expr) <+> dcolon)
          4 (ppr sig)
 
-ppr_expr (ArithSeq _ _ info) = brackets (ppr info)
+ppr_expr (ArithSeq _ info) = brackets (ppr info)
 ppr_expr (PArrSeq  _ info) = paBrackets (ppr info)
 
 ppr_expr EWildPat       = char '_'
@@ -578,8 +575,8 @@ ppr_expr (HsArrForm (L _ (HsVar v)) (Just _) [arg1, arg2])
 ppr_expr (HsArrForm op _ args)
   = hang (ptext (sLit "(|") <+> ppr_lexpr op)
          4 (sep (map (pprCmdArg.unLoc) args) <+> ptext (sLit "|)"))
-ppr_expr (HsUnboundVar nm)
-  = ppr nm
+ppr_expr HsHole
+  = ptext $ sLit "_"
 
 \end{code}
 
@@ -615,7 +612,7 @@ hsExprNeedsParens (PArrSeq {})        = False
 hsExprNeedsParens (HsLit {})          = False
 hsExprNeedsParens (HsOverLit {})      = False
 hsExprNeedsParens (HsVar {})          = False
-hsExprNeedsParens (HsUnboundVar {})   = False
+hsExprNeedsParens (HsHole {})         = False
 hsExprNeedsParens (HsIPVar {})        = False
 hsExprNeedsParens (ExplicitTuple {})  = False
 hsExprNeedsParens (ExplicitList {})   = False
@@ -634,7 +631,7 @@ isAtomicHsExpr (HsVar {})     = True
 isAtomicHsExpr (HsLit {})     = True
 isAtomicHsExpr (HsOverLit {}) = True
 isAtomicHsExpr (HsIPVar {})   = True
-isAtomicHsExpr (HsUnboundVar {}) = True
+isAtomicHsExpr (HsHole {})    = True
 isAtomicHsExpr (HsWrap _ e)   = isAtomicHsExpr e
 isAtomicHsExpr (HsPar e)      = isAtomicHsExpr (unLoc e)
 isAtomicHsExpr _              = False
@@ -689,12 +686,6 @@ data HsCmd id
 
   | HsCmdDo     [CmdLStmt id]
                 PostTcType                      -- Type of the whole expression
-
-  | HsCmdCast   TcCoercion     -- A simpler version of HsWrap in HsExpr
-                (HsCmd id)     -- If   cmd :: arg1 --> res
-                               --       co :: arg1 ~ arg2
-                               -- Then (HsCmdCast co cmd) :: arg2 --> res
-                
   deriving (Data, Typeable)
 
 data HsArrAppType = HsHigherOrderApp | HsFirstOrderApp
@@ -711,7 +702,7 @@ type LHsCmdTop id = Located (HsCmdTop id)
 
 data HsCmdTop id
   = HsCmdTop (LHsCmd id)
-             PostTcType          -- Nested tuple of inputs on the command's stack
+             [PostTcType]        -- types of inputs on the command's stack
              PostTcType          -- return type of the command
              (CmdSyntaxTable id) -- See Note [CmdSyntaxTable]
   deriving (Data, Typeable)
@@ -778,9 +769,8 @@ ppr_cmd (HsCmdLet binds cmd)
   = sep [hang (ptext (sLit "let")) 2 (pprBinds binds),
          hang (ptext (sLit "in"))  2 (ppr cmd)]
 
-ppr_cmd (HsCmdDo stmts _)  = pprDo ArrowExpr stmts
-ppr_cmd (HsCmdCast co cmd) = sep [ ppr_cmd cmd
-                                 , ptext (sLit "|>") <+> ppr co ]
+ppr_cmd (HsCmdDo stmts _) = pprDo ArrowExpr stmts
+
 
 ppr_cmd (HsCmdArrApp arrow arg _ HsFirstOrderApp True)
   = hsep [ppr_lexpr arrow, ptext (sLit "-<"), ppr_lexpr arg]
@@ -841,12 +831,11 @@ patterns in each equation.
 
 \begin{code}
 data MatchGroup id body
-  = MG { mg_alts    :: [LMatch id body]  -- The alternatives
-       , mg_arg_tys :: [PostTcType]      -- Types of the arguments, t1..tn
-       , mg_res_ty  :: PostTcType  }     -- Type of the result, tr 
-     -- The type is the type of the entire group
-     --      t1 -> ... -> tn -> tr
-     -- where there are n patterns
+  = MatchGroup
+        [LMatch id body] -- The alternatives
+        PostTcType       -- The type is the type of the entire group
+                         --      t1 -> ... -> tn -> tr
+                         -- where there are n patterns
   deriving (Data, Typeable)
 
 type LMatch id body = Located (Match id body)
@@ -860,14 +849,17 @@ data Match id body
   deriving (Data, Typeable)
 
 isEmptyMatchGroup :: MatchGroup id body -> Bool
-isEmptyMatchGroup (MG { mg_alts = ms }) = null ms
+isEmptyMatchGroup (MatchGroup ms _) = null ms
 
 matchGroupArity :: MatchGroup id body -> Arity
--- Precondition: MatchGroup is non-empty
--- This is called before type checking, when mg_arg_tys is not set
-matchGroupArity (MG { mg_alts = alts })
-  | (alt1:_) <- alts = length (hsLMatchPats alt1)
-  | otherwise        = panic "matchGroupArity"
+matchGroupArity (MatchGroup [] _)
+  = panic "matchGroupArity"     -- Precondition: MatchGroup is non-empty
+matchGroupArity (MatchGroup (match:matches) _)
+  = ASSERT( all ((== n_pats) . length . hsLMatchPats) matches )
+    -- Assertion just checks that all the matches have the same number of pats
+    n_pats
+  where
+    n_pats = length (hsLMatchPats match)
 
 hsLMatchPats :: LMatch id body -> [LPat id]
 hsLMatchPats (L _ (Match pats _ _)) = pats
@@ -892,7 +884,7 @@ We know the list must have at least one @Match@ in it.
 \begin{code}
 pprMatches :: (OutputableBndr idL, OutputableBndr idR, Outputable body)
            => HsMatchContext idL -> MatchGroup idR body -> SDoc
-pprMatches ctxt (MG { mg_alts = matches })
+pprMatches ctxt (MatchGroup matches _)
     = vcat (map (pprMatch ctxt) (map unLoc matches))
       -- Don't print the type; it's only a place-holder before typechecking
 
@@ -917,7 +909,7 @@ pprMatch ctxt (Match pats maybe_ty grhss)
     (herald, other_pats)
         = case ctxt of
             FunRhs fun is_infix
-                | not is_infix -> (pprPrefixOcc fun, pats)
+                | not is_infix -> (ppr fun, pats)
                         -- f x y z = e
                         -- Not pprBndr; the AbsBinds will
                         -- have printed the signature
@@ -928,7 +920,7 @@ pprMatch ctxt (Match pats maybe_ty grhss)
                 | otherwise -> (parens pp_infix, pats2)
                         -- (x &&& y) z = e
                 where
-                  pp_infix = pprParendLPat pat1 <+> pprInfixOcc fun <+> pprParendLPat pat2
+                  pp_infix = pprParendLPat pat1 <+> ppr fun <+> pprParendLPat pat2
 
             LambdaExpr -> (char '\\', pats)
 

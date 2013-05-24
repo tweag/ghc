@@ -246,7 +246,8 @@ loop:
         // the current thread, since in that case it will not be on
         // the run queue.
         if (owner->why_blocked == NotBlocked && owner->id != msg->tso->id) {
-            promoteInRunQueue(cap, owner);
+            removeFromRunQueue(cap, owner);
+            pushOnRunQueue(cap,owner);
         }
 
         // point to the BLOCKING_QUEUE from the BLACKHOLE
@@ -292,7 +293,8 @@ loop:
 
         // See above, #3838
         if (owner->why_blocked == NotBlocked && owner->id != msg->tso->id) {
-            promoteInRunQueue(cap, owner);
+            removeFromRunQueue(cap, owner);
+            pushOnRunQueue(cap,owner);
         }
 
         return 1; // blocked

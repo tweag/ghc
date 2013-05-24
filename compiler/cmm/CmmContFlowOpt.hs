@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs #-}
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
+{-# OPTIONS_GHC -fno-warn-warnings-deprecations -fno-warn-incomplete-patterns #-}
+
 module CmmContFlowOpt
     ( cmmCfgOpts
     , cmmCfgOptsProc

@@ -10,11 +10,11 @@
 #
 # -----------------------------------------------------------------------------
 
-ifeq "$(Windows_Host)" "YES"
+ifeq "$(Windows)" "YES"
 
 driver/ghc_dist_C_SRCS   = ghc.c ../utils/cwrapper.c ../utils/getLocation.c
 driver/ghc_dist_CC_OPTS += -I driver/utils
-driver/ghc_dist_PROGNAME = ghc-$(ProjectVersion)
+driver/ghc_dist_PROG     = ghc-$(ProjectVersion)
 driver/ghc_dist_INSTALL  = YES
 driver/ghc_dist_INSTALL_INPLACE = NO
 

@@ -229,10 +229,6 @@ void storageAddCapabilities (nat from, nat to)
         }
     }
 
-#if defined(THREADED_RTS) && defined(llvm_CC_FLAVOR)
-    newThreadLocalKey(&gctKey);
-#endif
-
     initGcThreads(from, to);
 }
 
@@ -240,8 +236,8 @@ void storageAddCapabilities (nat from, nat to)
 void
 exitStorage (void)
 {
-    updateNurseriesStats();
-    stat_exit();
+    W_ allocated = updateNurseriesStats();
+    stat_exit(allocated);
 }
 
 void
@@ -253,9 +249,6 @@ freeStorage (rtsBool free_heap)
     closeMutex(&sm_mutex);
 #endif
     stgFree(nurseries);
-#if defined(THREADED_RTS) && defined(llvm_CC_FLAVOR)
-    freeThreadLocalKey(&gctKey);
-#endif
     freeGcThreads();
 }
 
@@ -508,18 +501,22 @@ allocNurseries (nat from, nat to)
     assignNurseriesToCapabilities(from, to);
 }
       
-void
+W_
 clearNursery (Capability *cap)
 {
     bdescr *bd;
+    W_ allocated = 0;
 
     for (bd = nurseries[cap->no].blocks; bd; bd = bd->link) {
+        allocated            += (W_)(bd->free - bd->start);
         cap->total_allocated += (W_)(bd->free - bd->start);
         bd->free = bd->start;
         ASSERT(bd->gen_no == 0);
         ASSERT(bd->gen == g0);
         IF_DEBUG(sanity,memset(bd->start, 0xaa, BLOCK_SIZE));
     }
+
+    return allocated;
 }
 
 void
@@ -638,7 +635,7 @@ allocate (Capability *cap, W_ n)
     bdescr *bd;
     StgPtr p;
 
-    TICK_ALLOC_HEAP_NOCTR(WDS(n));
+    TICK_ALLOC_HEAP_NOCTR(n);
     CCS_ALLOC(cap->r.rCCCS,n);
     
     if (n >= LARGE_OBJECT_THRESHOLD/sizeof(W_)) {
@@ -753,7 +750,7 @@ allocatePinned (Capability *cap, W_ n)
         return p;
     }
 
-    TICK_ALLOC_HEAP_NOCTR(WDS(n));
+    TICK_ALLOC_HEAP_NOCTR(n);
     CCS_ALLOC(cap->r.rCCCS,n);
 
     bd = cap->pinned_object_block;
@@ -767,7 +764,6 @@ allocatePinned (Capability *cap, W_ n)
         // g0->large_objects.
         if (bd != NULL) {
             dbl_link_onto(bd, &cap->pinned_object_blocks);
-            // add it to the allocation stats when the block is full
             cap->total_allocated += bd->free - bd->start;
         }
 
@@ -924,19 +920,32 @@ dirty_MVAR(StgRegTable *reg, StgClosure *p)
  * updateNurseriesStats()
  *
  * Update the per-cap total_allocated numbers with an approximation of
- * the amount of memory used in each cap's nursery.
- *
+ * the amount of memory used in each cap's nursery. Also return the
+ * total across all caps.
+ * 
  * Since this update is also performed by clearNurseries() then we only
  * need this function for the final stats when the RTS is shutting down.
  * -------------------------------------------------------------------------- */
 
-void updateNurseriesStats (void)
+W_
+updateNurseriesStats (void)
 {
+    W_ allocated = 0;
     nat i;
 
     for (i = 0; i < n_capabilities; i++) {
-        capabilities[i].total_allocated += countOccupied(nurseries[i].blocks);
+        int cap_allocated = countOccupied(nurseries[i].blocks);
+        capabilities[i].total_allocated += cap_allocated;
+        allocated                       += cap_allocated;
     }
+
+    return allocated;
+}
+
+W_
+countLargeAllocated (void)
+{
+    return g0->n_new_large_words;
 }
 
 W_ countOccupied (bdescr *bd)

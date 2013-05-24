@@ -15,7 +15,7 @@ define haddock  # args: $1 = dir,  $2 = distdir
 $(call trace, haddock($1,$2))
 $(call profStart, haddock($1,$2))
 
-ifeq "$$($1_$2_DO_HADDOCK)" "YES"
+ifneq "$$($1_$2_DO_HADDOCK)" "NO"
 
 ifeq "$$($$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_FILE)" ""
 $$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_FILE = $1/$2/doc/html/$$($1_PACKAGE)/$$($1_PACKAGE).haddock
@@ -40,12 +40,9 @@ $1_$2_HADDOCK_FLAGS += --source-module=src/%{MODULE/./-}.html --source-entity=sr
 endif
 
 ifneq "$$(BINDIST)" "YES"
-# We need the quadruple dollars for the dependencies, as it isn't
-# guaranteed that we are processing the packages in dependency order,
-# so we don't want to expand it yet.
-$$($$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_FILE) : $$$$(haddock_INPLACE) $$$$(ghc-cabal_INPLACE) $$($1_$2_HS_SRCS) $$$$($$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_DEPS) | $$$$(dir $$$$@)/.
+$$($$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_FILE) : $$(INPLACE_BIN)/haddock$$(exeext) $$(GHC_CABAL_INPLACE) $$($1_$2_HS_SRCS) $$($$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_DEPS) | $$$$(dir $$$$@)/.
 ifeq "$$(HSCOLOUR_SRCS)" "YES"
-	"$$(ghc-cabal_INPLACE)" hscolour $1 $2
+	CROSS_COMPILE="$(CrossCompilePrefix)" "$$(GHC_CABAL_INPLACE)" hscolour $2 $1
 endif
 	"$$(TOP)/$$(INPLACE_BIN)/haddock" \
 	  --odir="$1/$2/doc/html/$$($1_PACKAGE)" \

@@ -9,9 +9,7 @@ some unnecessary loops in the module dependency graph.
 
 \begin{code}
 module Panic (
-     GhcException(..), showGhcException,
-     throwGhcException, throwGhcExceptionIO,
-     handleGhcException,
+     GhcException(..), showGhcException, throwGhcException, handleGhcException,
      progName,
      pgmError,
 
@@ -177,9 +175,6 @@ showGhcException exception
 
 throwGhcException :: GhcException -> a
 throwGhcException = Exception.throw
-
-throwGhcExceptionIO :: GhcException -> IO a
-throwGhcExceptionIO = Exception.throwIO
 
 handleGhcException :: ExceptionMonad m => (GhcException -> m a) -> m a -> m a
 handleGhcException = ghandle

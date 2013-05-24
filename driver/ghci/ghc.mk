@@ -10,8 +10,7 @@
 #
 # -----------------------------------------------------------------------------
 
-ifeq "$(GhcWithInterpreter)" "YES"
-ifneq "$(Windows_Host)" "YES"
+ifneq "$(Windows)" "YES"
 
 install: install_driver_ghci
 
@@ -27,18 +26,18 @@ install_driver_ghci:
 	$(call removeFiles,"$(DESTDIR)$(bindir)/ghci")
 	$(LN_S) ghci-$(ProjectVersion) "$(DESTDIR)$(bindir)/ghci"
 
-else # Windows_Host...
+else # Windows...
 
 driver/ghci_dist_C_SRCS  = ghci.c ../utils/cwrapper.c ../utils/getLocation.c
 driver/ghci_dist_CC_OPTS += -I driver/utils
-driver/ghci_dist_PROGNAME = ghci
+driver/ghci_dist_PROG    = ghci$(exeext)
 driver/ghci_dist_INSTALL = YES
 driver/ghci_dist_INSTALL_INPLACE = YES
 driver/ghci_dist_OTHER_OBJS = driver/ghci/ghci.res
 
 $(eval $(call build-prog,driver/ghci,dist,1))
 
-driver/ghci_dist_PROG_VER = ghci-$(ProjectVersion)$(exeext1)
+driver/ghci_dist_PROG_VER = ghci-$(ProjectVersion)$(exeext)
 
 INSTALL_BINS += driver/ghci/dist/build/tmp/$(driver/ghci_dist_PROG_VER)
 
@@ -55,13 +54,12 @@ install_driver_ghcii: GHCII_SCRIPT=$(DESTDIR)$(bindir)/ghcii.sh
 install_driver_ghcii: GHCII_SCRIPT_VERSIONED = $(DESTDIR)$(bindir)/ghcii-$(ProjectVersion).sh
 install_driver_ghcii:
 	$(call INSTALL_DIR,$(DESTDIR)$(bindir))
-	$(call removeFiles,"$(GHCII_SCRIPT)")
+	$(call removeFiles,$(GHCII_SCRIPT))
 	echo "#!$(SHELL)"                                  >> $(GHCII_SCRIPT)
 	echo 'exec "$$0"/../ghc --interactive $${1+"$$@"}' >> $(GHCII_SCRIPT)
 	$(EXECUTABLE_FILE) $(GHCII_SCRIPT)
 	cp $(GHCII_SCRIPT) $(GHCII_SCRIPT_VERSIONED)
 	$(EXECUTABLE_FILE) $(GHCII_SCRIPT_VERSIONED)
 
-endif
 endif
 

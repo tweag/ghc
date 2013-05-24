@@ -57,10 +57,8 @@
 #include <sched.h>
 #endif
 
-#if defined(HAVE_SYS_PARAM_H)
-#include <sys/param.h>
-#endif
 #if defined(HAVE_SYS_CPUSET_H)
+#include <sys/param.h>
 #include <sys/cpuset.h>
 #endif
 

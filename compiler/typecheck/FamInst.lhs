@@ -1,7 +1,6 @@
 The @FamInst@ type: family instance heads
 
 \begin{code}
-{-# LANGUAGE GADTs #-}
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
@@ -12,14 +11,11 @@ The @FamInst@ type: family instance heads
 module FamInst ( 
         checkFamInstConsistency, tcExtendLocalFamInstEnv,
 	tcLookupFamInst, tcLookupDataFamInst,
-        tcGetFamInstEnvs,
-        newFamInst
+        tcGetFamInstEnvs
     ) where
 
 import HscTypes
 import FamInstEnv
-import InstEnv( roughMatchTcs )
-import Coercion( pprCoAxBranchHdr )
 import LoadIface
 import TypeRep
 import TcRnMonad
@@ -33,54 +29,13 @@ import FastString
 import Util
 import Maybes
 import TcMType
-import TcType
-import Name
+import Type
+import VarSet (mkVarSet)
 import Control.Monad
 import Data.Map (Map)
 import qualified Data.Map as Map
 
 #include "HsVersions.h"
-\end{code}
-
-%************************************************************************
-%*									*
-                 Making a FamInst
-%*									*
-%************************************************************************
-
-\begin{code}
--- All type variables in a FamInst must be fresh. This function
--- creates the fresh variables and applies the necessary substitution
--- It is defined here to avoid a dependency from FamInstEnv on the monad
--- code.
-newFamInst :: FamFlavor -> Bool -> CoAxiom br -> TcRnIf gbl lcl(FamInst br)
--- Freshen the type variables of the FamInst branches
--- Called from the vectoriser monad too, hence the rather general type
-newFamInst flavor is_branched axiom@(CoAxiom { co_ax_tc       = fam_tc
-                                             , co_ax_branches = ax_branches })
-  = do { fam_branches <- go ax_branches
-       ; return (FamInst { fi_fam      = tyConName fam_tc
-                         , fi_flavor   = flavor
-                         , fi_branches = fam_branches
-                         , fi_branched = is_branched
-                         , fi_axiom    = axiom }) }
-  where
-    go :: BranchList CoAxBranch br -> TcRnIf gbl lcl (BranchList FamInstBranch br)
-    go (FirstBranch br) = do { br' <- go_branch br
-                             ; return (FirstBranch br') }
-    go (NextBranch br brs) = do { br' <- go_branch br
-                                ; brs' <- go brs
-                                ;return (NextBranch br' brs') }
-    go_branch :: CoAxBranch -> TcRnIf gbl lcl FamInstBranch 
-    go_branch (CoAxBranch { cab_tvs = tvs1
-                          , cab_lhs = lhs
-                          , cab_loc = loc
-                          , cab_rhs = rhs })
-       = do { (subst, tvs2) <- tcInstSkolTyVarsLoc loc tvs1
-            ; return (FamInstBranch { fib_tvs   = tvs2
-                                    , fib_lhs   = substTys subst lhs
-                                    , fib_rhs   = substTy  subst rhs
-                                    , fib_tcs   = roughMatchTcs lhs }) }
 \end{code}
 
 
@@ -310,20 +265,32 @@ addLocalFamInst (home_fie, my_fis) fam_inst
         -- my_fies is just the ones from this module
   = do { traceTc "addLocalFamInst" (ppr fam_inst)
 
+           -- We wish to extend the instance envt with completely
+           -- fresh template variables. Otherwise, there may be
+           -- problems when we try to unify the template variables
+           -- with type family applications.
+
+           -- See also addLocalInst in Inst.lhs
+       ; (axBranches', fiBranches')
+           <- zipWithAndUnzipM mk_skolem_tyvars (fromBranchList $ coAxiomBranches axiom)
+                                                (fromBranchList fiBranches)
+       ; let axiom' = axiom { co_ax_branches = toBranchList axBranches' }
+             fam_inst' = fam_inst { fi_axiom = axiom'
+                                  , fi_branches = toBranchList fiBranches' }
+
        ; isGHCi <- getIsGHCi
  
            -- In GHCi, we *override* any identical instances
            -- that are also defined in the interactive context
        ; let (home_fie', my_fis') 
-               | isGHCi    = ( deleteFromFamInstEnv home_fie fam_inst
-                             , filterOut (identicalFamInst fam_inst) my_fis)
+               | isGHCi    = ( deleteFromFamInstEnv home_fie fam_inst'
+                             , filterOut (identicalFamInst fam_inst') my_fis)
                | otherwise = (home_fie, my_fis)
 
            -- Load imported instances, so that we report
            -- overlaps correctly
        ; eps <- getEps
        ; let inst_envs  = (eps_fam_inst_env eps, home_fie')
-             fam_inst'  = toBranchedFamInst fam_inst
              home_fie'' = extendFamInstEnv home_fie fam_inst'
 
            -- Check for conflicting instance decls
@@ -332,6 +299,44 @@ addLocalFamInst (home_fie, my_fis) fam_inst
             return (home_fie'', fam_inst' : my_fis')
          else 
             return (home_fie,   my_fis) }
+
+  where
+    axiom = famInstAxiom fam_inst
+    fiBranches = famInstBranches fam_inst
+
+    zipWithAndUnzipM :: Monad m
+                     => (a -> b -> m (c, d))
+                     -> [a]
+                     -> [b]
+                     -> m ([c], [d])
+    zipWithAndUnzipM f as bs
+      = do { cds <- zipWithM f as bs
+           ; return $ unzip cds }
+
+    mk_skolem_tyvars :: CoAxBranch -> FamInstBranch
+                     -> TcM (CoAxBranch, FamInstBranch)
+    mk_skolem_tyvars axb fib
+      = do { (subst, skol_tvs) <- tcInstSkolTyVars (coAxBranchTyVars axb)
+           ; let axb' = coAxBranchSubst axb skol_tvs subst
+                 fib' = famInstBranchSubst fib skol_tvs subst
+           ; return (axb', fib') }
+
+    -- substitute the tyvars for a new set of tyvars
+    coAxBranchSubst :: CoAxBranch -> [TyVar] -> TvSubst -> CoAxBranch
+    coAxBranchSubst (CoAxBranch { cab_lhs = lhs
+                                , cab_rhs = rhs }) new_tvs subst
+      = CoAxBranch { cab_tvs = new_tvs
+                   , cab_lhs = substTys subst lhs
+                   , cab_rhs = substTy subst rhs }
+
+    -- substitute the current set of tyvars for another
+    famInstBranchSubst :: FamInstBranch -> [TyVar] -> TvSubst -> FamInstBranch
+    famInstBranchSubst fib@(FamInstBranch { fib_lhs = lhs
+                                          , fib_rhs = rhs }) new_tvs subst
+      = fib { fib_tvs = mkVarSet new_tvs
+            , fib_lhs = substTys subst lhs
+            , fib_rhs = substTy subst rhs }
+
 
 \end{code}
 
@@ -347,37 +352,37 @@ environments (one for the EPS and one for the HPT).
 \begin{code}
 checkForConflicts :: FamInstEnvs -> FamInst Branched -> TcM Bool
 checkForConflicts inst_envs fam_inst@(FamInst { fi_branches = branches
-                                              , fi_branched = branched })
-  = do { let conflicts = brListMap (lookupFamInstEnvConflicts inst_envs branched fam_tc) branches
+                                              , fi_group = group })
+  = do { let conflicts = brListMap (lookupFamInstEnvConflicts inst_envs group fam_tc) branches
              no_conflicts = all null conflicts
        ; traceTc "checkForConflicts" (ppr conflicts $$ ppr fam_inst $$ ppr inst_envs)
        ; unless no_conflicts $
-	   zipWithM_ (conflictInstErr fam_inst) (brListIndices branches) conflicts
+	   zipWithM_ (conflictInstErr fam_inst) (fromBranchList branches) conflicts
        ; return no_conflicts }
     where fam_tc = famInstTyCon fam_inst
 
-conflictInstErr :: FamInst Branched -> BranchIndex -> [FamInstMatch] -> TcRn ()
+conflictInstErr :: FamInst Branched -> FamInstBranch -> [FamInstMatch] -> TcRn ()
 conflictInstErr fam_inst branch conflictingMatch
   | (FamInstMatch { fim_instance = confInst
                   , fim_index = confIndex }) : _ <- conflictingMatch
   = addFamInstsErr (ptext (sLit "Conflicting family instance declarations:"))
                    [(fam_inst, branch),
-                    (confInst, confIndex) ]
-  | otherwise -- no conflict on this branch; see Trac #7560
-  = return ()
+                    (confInst, famInstNthBranch confInst confIndex)]
+  | otherwise
+  = pprPanic "conflictInstErr" (pprFamInstBranch (famInstTyCon fam_inst) branch)
 
-addFamInstsErr :: SDoc -> [(FamInst Branched, Int)] -> TcRn ()
+addFamInstsErr :: SDoc -> [(FamInst Branched, FamInstBranch)] -> TcRn ()
 addFamInstsErr herald insts
-  = ASSERT( not (null insts) )
-    setSrcSpan srcSpan $ addErr $
-    hang herald
-       2 (vcat [ pprCoAxBranchHdr (famInstAxiom fi) index 
-               | (fi,index) <- sorted ])
+  = setSrcSpan srcSpan $
+    addErr (hang herald 2 $ vcat (zipWith pprFamInstBranchHdr
+                                          sortedAxioms sortedBranches))
  where
-   getSpan   = getSrcLoc . famInstAxiom . fst
-   sorted    = sortWith getSpan insts
-   (fi1,ix1) = head sorted
-   srcSpan   = coAxBranchSpan (coAxiomNthBranch (famInstAxiom fi1) ix1)
+   getSpan = famInstBranchSpan . snd
+   sorted = sortWith getSpan insts
+   srcSpan = getSpan $ head sorted
+
+   sortedAxioms = map (famInstAxiom . fst) sorted
+   sortedBranches = map snd sorted
    -- The sortWith just arranges that instances are dislayed in order
    -- of source location, which reduced wobbling in error messages,
    -- and is better for users

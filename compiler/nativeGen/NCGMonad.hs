@@ -16,7 +16,6 @@ module NCGMonad (
         mapAccumLNat,
         setDeltaNat,
         getDeltaNat,
-        getThisModuleNat,
         getBlockIdNat,
         getNewLabelNat,
         getNewRegNat,
@@ -39,16 +38,14 @@ import CLabel           ( CLabel, mkAsmTempLabel )
 import UniqSupply
 import Unique           ( Unique )
 import DynFlags
-import Module
 
 data NatM_State
         = NatM_State {
-                natm_us          :: UniqSupply,
-                natm_delta       :: Int,
-                natm_imports     :: [(CLabel)],
-                natm_pic         :: Maybe Reg,
-                natm_dflags      :: DynFlags,
-                natm_this_module :: Module
+                natm_us      :: UniqSupply,
+                natm_delta   :: Int,
+                natm_imports :: [(CLabel)],
+                natm_pic     :: Maybe Reg,
+                natm_dflags  :: DynFlags
         }
 
 newtype NatM result = NatM (NatM_State -> (result, NatM_State))
@@ -56,9 +53,9 @@ newtype NatM result = NatM (NatM_State -> (result, NatM_State))
 unNat :: NatM a -> NatM_State -> (a, NatM_State)
 unNat (NatM a) = a
 
-mkNatM_State :: UniqSupply -> Int -> DynFlags -> Module -> NatM_State
-mkNatM_State us delta dflags this_mod
-        = NatM_State us delta [] Nothing dflags this_mod
+mkNatM_State :: UniqSupply -> Int -> DynFlags -> NatM_State
+mkNatM_State us delta dflags
+        = NatM_State us delta [] Nothing dflags
 
 initNat :: NatM_State -> NatM a -> (a, NatM_State)
 initNat init_st m
@@ -92,29 +89,30 @@ mapAccumLNat f b (x:xs)
        return (b__3, x__2:xs__2)
 
 getUniqueNat :: NatM Unique
-getUniqueNat = NatM $ \ st ->
-    case takeUniqFromSupply $ natm_us st of
-    (uniq, us') -> (uniq, st {natm_us = us'})
+getUniqueNat = NatM $ \ (NatM_State us delta imports pic dflags) ->
+    case takeUniqFromSupply us of
+         (uniq, us') -> (uniq, (NatM_State us' delta imports pic dflags))
 
 instance HasDynFlags NatM where
-    getDynFlags = NatM $ \ st -> (natm_dflags st, st)
+    getDynFlags = NatM $ \ (NatM_State us delta imports pic dflags) ->
+                             (dflags, (NatM_State us delta imports pic dflags))
 
 
 getDeltaNat :: NatM Int
-getDeltaNat = NatM $ \ st -> (natm_delta st, st)
+getDeltaNat
+        = NatM $ \ st -> (natm_delta st, st)
 
 
 setDeltaNat :: Int -> NatM ()
-setDeltaNat delta = NatM $ \ st -> ((), st {natm_delta = delta})
-
-
-getThisModuleNat :: NatM Module
-getThisModuleNat = NatM $ \ st -> (natm_this_module st, st)
+setDeltaNat delta
+        = NatM $ \ (NatM_State us _ imports pic dflags) ->
+                   ((), NatM_State us delta imports pic dflags)
 
 
 addImportNat :: CLabel -> NatM ()
 addImportNat imp
-        = NatM $ \ st -> ((), st {natm_imports = imp : natm_imports st})
+        = NatM $ \ (NatM_State us delta imports pic dflags) ->
+                   ((), NatM_State us delta (imp:imports) pic dflags)
 
 
 getBlockIdNat :: NatM BlockId

@@ -33,7 +33,6 @@ import SrcLoc
 import Outputable
 import FastString
 import TcType
-import ListSetOps( getNth )
 import Util
 \end{code}
 
@@ -588,7 +587,7 @@ dePArrComp (LetStmt ds : qs) pa cea = do
                                    [Type ty'cea, Type errTy, proj, cea])
 --
 -- The parser guarantees that parallel comprehensions can only appear as
--- singleton qualifier lists, which we already special case in the caller.
+-- singeltons qualifier lists, which we already special case in the caller.
 -- So, encountering one here is a bug.
 --
 dePArrComp (ParStmt {} : _) _ _ =
@@ -870,11 +869,11 @@ mkMcUnzipM _ fmap_op ys elt_tys
        ; tup_xs   <- newSysLocalDs tup_ty
 
        ; let mk_elt i = mkApps fmap_op'  -- fmap :: forall a b. (a -> b) -> n a -> n b
-                           [ Type tup_ty, Type (getNth elt_tys i)
+                           [ Type tup_ty, Type (elt_tys !! i)
                            , mk_sel i, Var ys]
 
              mk_sel n = Lam tup_xs $
-                        mkTupleSelector xs (getNth xs n) tup_xs (Var tup_xs)
+                        mkTupleSelector xs (xs !! n) tup_xs (Var tup_xs)
 
        ; return (mkBigCoreTup (map mk_elt [0..length elt_tys - 1])) }
 \end{code}

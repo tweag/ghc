@@ -17,6 +17,7 @@ module GHC (
         runGhc, runGhcT, initGhcMonad,
         gcatch, gbracket, gfinally,
         printException,
+        printExceptionAndWarnings,
         handleSourceError,
         needsTemplateHaskell,
 
@@ -182,8 +183,6 @@ module GHC (
         pprInstance, pprInstanceHdr,
         pprFamInst,
 
-        FamInst, Branched,
-
         -- ** Types and Kinds
         Type, splitForAllTys, funResultTy, 
         pprParendType, pprTypeApp, 
@@ -262,7 +261,7 @@ import InteractiveEval
 
 import HscMain
 import GhcMake
-import DriverPipeline   ( compileOne' )
+import DriverPipeline   ( compile' )
 import GhcMonad
 import TcRnMonad        ( finalSafeMode )
 import TcRnTypes
@@ -290,7 +289,8 @@ import DriverPhases     ( Phase(..), isHaskellSrcFilename )
 import Finder
 import HscTypes
 import DynFlags
-import StaticFlags
+import StaticFlagParser
+import qualified StaticFlags
 import SysTools
 import Annotations
 import Module
@@ -349,7 +349,7 @@ defaultErrorHandler fm (FlushOut flushOut) inner =
                      Just StackOverflow ->
                          fatalErrorMsg'' fm "stack overflow: use +RTS -K<size> to increase it"
                      _ -> case fromException exception of
-                          Just (ex :: ExitCode) -> liftIO $ throwIO ex
+                          Just (ex :: ExitCode) -> throw ex
                           _ ->
                               fatalErrorMsg'' fm
                                   (show (Panic (show exception)))
@@ -446,7 +446,7 @@ initGhcMonad mb_top_dir = do
   -- catch ^C
   liftIO $ installSignalHandlers
 
-  liftIO $ initStaticOpts
+  liftIO $ StaticFlags.initStaticOpts
 
   mySettings <- liftIO $ initSysTools mb_top_dir
   dflags <- liftIO $ initDynFlags (defaultDynFlags mySettings)
@@ -619,7 +619,7 @@ guessTarget str Nothing
            then return (target (TargetModule (mkModuleName file)))
            else do
         dflags <- getDynFlags
-        liftIO $ throwGhcExceptionIO
+        throwGhcException
                  (ProgramError (showSDoc dflags $
                  text "target" <+> quotes (text file) <+> 
                  text "is not a module name or a source file"))
@@ -749,10 +749,10 @@ getModSummary mod = do
    mg <- liftM hsc_mod_graph getSession
    case [ ms | ms <- mg, ms_mod_name ms == mod, not (isBootSummary ms) ] of
      [] -> do dflags <- getDynFlags
-              liftIO $ throwIO $ mkApiErr dflags (text "Module not part of module graph")
+              throw $ mkApiErr dflags (text "Module not part of module graph")
      [ms] -> return ms
      multiple -> do dflags <- getDynFlags
-                    liftIO $ throwIO $ mkApiErr dflags (text "getModSummary is ambiguous: " <+> ppr multiple)
+                    throw $ mkApiErr dflags (text "getModSummary is ambiguous: " <+> ppr multiple)
 
 -- | Parse a module.
 --
@@ -840,9 +840,11 @@ loadModule tcm = do
 
    -- compile doesn't change the session
    hsc_env <- getSession
-   mod_info <- liftIO $ compileOne' (Just tcg) Nothing
-                                    hsc_env ms 1 1 Nothing mb_linkable
-                                    source_modified
+   mod_info <- liftIO $ compile' (hscNothingBackendOnly     tcg,
+                                  hscInteractiveBackendOnly tcg,
+                                  hscBatchBackendOnly       tcg)
+                                  hsc_env ms 1 1 Nothing mb_linkable
+                                  source_modified
 
    modifySession $ \e -> e{ hsc_HPT = addToUFM (hsc_HPT e) mod mod_info }
    return tcm
@@ -892,10 +894,8 @@ compileToCoreSimplified = compileCore True
 -- The resulting .o, .hi, and executable files, if any, are stored in the
 -- current directory, and named according to the module name.
 -- This has only so far been tested with a single self-contained module.
-compileCoreToObj :: GhcMonad m
-                 => Bool -> CoreModule -> FilePath -> FilePath -> m ()
-compileCoreToObj simplify cm@(CoreModule{ cm_module = mName })
-                 output_fn extCore_filename = do
+compileCoreToObj :: GhcMonad m => Bool -> CoreModule -> m ()
+compileCoreToObj simplify cm@(CoreModule{ cm_module = mName }) = do
   dflags      <- getSessionDynFlags
   currentTime <- liftIO $ getCurrentTime
   cwd         <- liftIO $ getCurrentDirectory
@@ -921,7 +921,7 @@ compileCoreToObj simplify cm@(CoreModule{ cm_module = mName })
       }
 
   hsc_env <- getSession
-  liftIO $ hscCompileCore hsc_env simplify (cm_safe cm) modSum (cm_binds cm) output_fn extCore_filename
+  liftIO $ hscCompileCore hsc_env simplify (cm_safe cm) modSum (cm_binds cm)
 
 
 compileCore :: GhcMonad m => Bool -> FilePath -> m CoreModule
@@ -1214,7 +1214,7 @@ getModuleSourceAndFlags mod = do
   m <- getModSummary (moduleName mod)
   case ml_hs_file $ ms_location m of
     Nothing -> do dflags <- getDynFlags
-                  liftIO $ throwIO $ mkApiErr dflags (text "No source available for module " <+> ppr mod)
+                  throw $ mkApiErr dflags (text "No source available for module " <+> ppr mod)
     Just sourceFile -> do
         source <- liftIO $ hGetStringBuffer sourceFile
         return (sourceFile, source, ms_hspp_opts m)
@@ -1232,7 +1232,7 @@ getTokenStream mod = do
     POk _ ts  -> return ts
     PFailed span err ->
         do dflags <- getDynFlags
-           liftIO $ throwIO $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
+           throw $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
 
 -- | Give even more information on the source than 'getTokenStream'
 -- This function allows reconstructing the source completely with
@@ -1245,7 +1245,7 @@ getRichTokenStream mod = do
     POk _ ts -> return $ addSourceToTokens startLoc source ts
     PFailed span err ->
         do dflags <- getDynFlags
-           liftIO $ throwIO $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
+           throw $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
 
 -- | Given a source location and a StringBuffer corresponding to this
 -- location, return a rich token stream with the source associated to the
@@ -1324,7 +1324,7 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
              err -> noModError dflags noSrcSpan mod_name err
 
 modNotLoadedError :: DynFlags -> Module -> ModLocation -> IO a
-modNotLoadedError dflags m loc = throwGhcExceptionIO $ CmdLineError $ showSDoc dflags $
+modNotLoadedError dflags m loc = throwGhcException $ CmdLineError $ showSDoc dflags $
    text "module is not loaded:" <+> 
    quotes (ppr (moduleName m)) <+>
    parens (text (expectJust "modNotLoadedError" (ml_hs_file loc)))

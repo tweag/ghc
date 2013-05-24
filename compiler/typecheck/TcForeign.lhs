@@ -90,7 +90,8 @@ normaliseFfiType' env ty0 = go [] ty0
         = do { rdr_env <- getGlobalRdrEnv 
              ; case checkNewtypeFFI rdr_env rec_nts tc of
                  Nothing  -> children_only
-                 Just gre -> do { (co', ty', gres) <- go rec_nts' nt_rhs
+                 Just gre -> do { let nt_co = mkUnbranchedAxInstCo (newTyConCo tc) tys
+                                ; (co', ty', gres) <- go rec_nts' nt_rhs
                                 ; return (mkTransCo nt_co co', ty', gre `consBag` gres) } }
 
         | isFamilyTyCon tc              -- Expand open tycons
@@ -107,9 +108,7 @@ normaliseFfiType' env ty0 = go [] ty0
             = do xs <- mapM (go rec_nts) tys
                  let (cos, tys', gres) = unzip3 xs
                  return (mkTyConAppCo tc cos, mkTyConApp tc tys', unionManyBags gres)
-          nt_co  = mkUnbranchedAxInstCo (newTyConCo tc) tys
           nt_rhs = newTyConInstRhs tc tys
-
           rec_nts' | isRecursiveTyCon tc = tc:rec_nts
                    | otherwise           = rec_nts
 
@@ -256,7 +255,7 @@ tcCheckFIType sig_ty arg_tys res_ty idecl@(CImport cconv safety mh (CFunction ta
       dflags <- getDynFlags
       check (xopt Opt_GHCForeignImportPrim dflags)
             (text "Use -XGHCForeignImportPrim to allow `foreign import prim'.")
-      checkCg checkCOrAsmOrLlvmOrInterp
+      checkCg (checkCOrAsmOrLlvmOrDotNetOrInterp)
       checkCTarget target
       check (playSafe safety)
             (text "The safe/unsafe annotation should not be used with `foreign import prim'.")
@@ -265,7 +264,7 @@ tcCheckFIType sig_ty arg_tys res_ty idecl@(CImport cconv safety mh (CFunction ta
       checkForeignRes nonIOok checkSafe (isFFIPrimResultTy dflags) res_ty
       return idecl
   | otherwise = do              -- Normal foreign import
-      checkCg checkCOrAsmOrLlvmOrInterp
+      checkCg checkCOrAsmOrLlvmOrDotNetOrInterp
       cconv' <- checkCConv cconv
       checkCTarget target
       dflags <- getDynFlags
@@ -284,7 +283,7 @@ tcCheckFIType sig_ty arg_tys res_ty idecl@(CImport cconv safety mh (CFunction ta
 -- that the C identifier is valid for C
 checkCTarget :: CCallTarget -> TcM ()
 checkCTarget (StaticTarget str _ _) = do
-    checkCg checkCOrAsmOrLlvmOrInterp
+    checkCg checkCOrAsmOrLlvmOrDotNetOrInterp
     check (isCLabelString str) (badCName str)
 
 checkCTarget DynamicTarget = panic "checkCTarget DynamicTarget"
@@ -428,7 +427,7 @@ checkCOrAsmOrLlvm HscC    = Nothing
 checkCOrAsmOrLlvm HscAsm  = Nothing
 checkCOrAsmOrLlvm HscLlvm = Nothing
 checkCOrAsmOrLlvm _
-  = Just (text "requires unregisterised, llvm (-fllvm) or native code generation (-fasm)")
+  = Just (text "requires via-C, llvm (-fllvm) or native code generation (-fvia-C)")
 
 checkCOrAsmOrLlvmOrInterp :: HscTarget -> Maybe SDoc
 checkCOrAsmOrLlvmOrInterp HscC           = Nothing
@@ -436,7 +435,15 @@ checkCOrAsmOrLlvmOrInterp HscAsm         = Nothing
 checkCOrAsmOrLlvmOrInterp HscLlvm        = Nothing
 checkCOrAsmOrLlvmOrInterp HscInterpreted = Nothing
 checkCOrAsmOrLlvmOrInterp _
-  = Just (text "requires interpreted, unregisterised, llvm or native code generation")
+  = Just (text "requires interpreted, C, Llvm or native code generation")
+
+checkCOrAsmOrLlvmOrDotNetOrInterp :: HscTarget -> Maybe SDoc
+checkCOrAsmOrLlvmOrDotNetOrInterp HscC           = Nothing
+checkCOrAsmOrLlvmOrDotNetOrInterp HscAsm         = Nothing
+checkCOrAsmOrLlvmOrDotNetOrInterp HscLlvm        = Nothing
+checkCOrAsmOrLlvmOrDotNetOrInterp HscInterpreted = Nothing
+checkCOrAsmOrLlvmOrDotNetOrInterp _
+  = Just (text "requires interpreted, C, Llvm or native code generation")
 
 checkCg :: (HscTarget -> Maybe SDoc) -> TcM ()
 checkCg check = do

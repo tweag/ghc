@@ -70,8 +70,7 @@ aLL_DPH_PRIM_TYCONS = map tyConName [intPrimTyCon, {- floatPrimTyCon, -} doubleP
 --
 data Builtins 
         = Builtins 
-        { parrayTyCon          :: TyCon                     -- ^ PArray
-        , pdataTyCon           :: TyCon                     -- ^ PData
+        { pdataTyCon           :: TyCon                     -- ^ PData
         , pdatasTyCon          :: TyCon                     -- ^ PDatas
         , prClass              :: Class                     -- ^ PR
         , prTyCon              :: TyCon                     -- ^ PR

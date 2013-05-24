@@ -25,8 +25,6 @@ typedef enum {
     GHCConcWindowsProddingStore,
     SystemEventThreadEventManagerStore,
     SystemEventThreadIOManagerThreadStore,
-    SystemTimerThreadEventManagerStore,
-    SystemTimerThreadIOManagerThreadStore,
     MaxStoreKey
 } StoreKey;
 
@@ -115,16 +113,4 @@ StgStablePtr
 getOrSetSystemEventThreadIOManagerThreadStore(StgStablePtr ptr)
 {
     return getOrSetKey(SystemEventThreadIOManagerThreadStore,ptr);
-}
-
-StgStablePtr
-getOrSetSystemTimerThreadEventManagerStore(StgStablePtr ptr)
-{
-    return getOrSetKey(SystemTimerThreadEventManagerStore,ptr);
-}
-
-StgStablePtr
-getOrSetSystemTimerThreadIOManagerThreadStore(StgStablePtr ptr)
-{
-    return getOrSetKey(SystemTimerThreadIOManagerThreadStore,ptr);
 }

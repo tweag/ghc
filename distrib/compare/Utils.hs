@@ -5,21 +5,17 @@ import Data.Function
 import Data.List
 import System.Exit
 import System.IO
-import Text.Regex.PCRE
+import Text.Regex.Posix
 
 die :: Errors -> IO a
 die errs = do mapM_ (hPutStrLn stderr) errs
               exitFailure
-
-warn :: Errors -> IO ()
-warn warnings = mapM_ (hPutStrLn stderr) warnings
 
 dieOnErrors :: Either Errors a -> IO a
 dieOnErrors (Left errs) = die errs
 dieOnErrors (Right x) = return x
 
 type Errors = [String]
-type Warnings = [String]
 
 maybeRead :: Read a => String -> Maybe a
 maybeRead str = case reads str of

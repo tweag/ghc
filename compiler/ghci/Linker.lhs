@@ -172,7 +172,7 @@ getHValue hsc_env name = do
   pls <- modifyPLS $ \pls -> do
            if (isExternalName name) then do
              (pls', ok) <- linkDependencies hsc_env pls noSrcSpan [nameModule name]
-             if (failed ok) then throwGhcExceptionIO (ProgramError "")
+             if (failed ok) then throwGhcException (ProgramError "")
                             else return (pls', pls')
             else
              return (pls, pls)
@@ -291,23 +291,24 @@ reallyInitDynLinker dflags =
         ; pls <- linkPackages' dflags (preloadPackages (pkgState dflags)) pls0
 
           -- (c) Link libraries from the command-line
-        ; let cmdline_ld_inputs = ldInputs dflags
-        ; let minus_ls = [ lib | Option ('-':'l':lib) <- cmdline_ld_inputs ]
+        ; let optl = getOpts dflags opt_l
+        ; let minus_ls = [ lib | '-':'l':lib <- optl ]
         ; let lib_paths = libraryPaths dflags
         ; libspecs <- mapM (locateLib dflags False lib_paths) minus_ls
 
           -- (d) Link .o files from the command-line
-        ; classified_ld_inputs <- mapM (classifyLdInput dflags)
-                                    [ f | FileOption _ f <- cmdline_ld_inputs ]
+        ; let cmdline_ld_inputs = ldInputs dflags
+
+        ; classified_ld_inputs <- mapM (classifyLdInput dflags) cmdline_ld_inputs
 
           -- (e) Link any MacOS frameworks
         ; let platform = targetPlatform dflags
-        ; let framework_paths = if platformUsesFrameworks platform
-                                then frameworkPaths dflags
-                                else []
-        ; let frameworks = if platformUsesFrameworks platform
-                           then cmdlineFrameworks dflags
-                           else []
+        ; let framework_paths = case platformOS platform of
+                                OSDarwin -> frameworkPaths dflags
+                                _        -> []
+        ; let frameworks = case platformOS platform of
+                           OSDarwin -> cmdlineFrameworks dflags
+                           _        -> []
           -- Finally do (c),(d),(e)
         ; let cmdline_lib_specs = [ l | Just l <- classified_ld_inputs ]
                                ++ libspecs
@@ -320,7 +321,7 @@ reallyInitDynLinker dflags =
         ; ok <- resolveObjs
 
         ; if succeeded ok then maybePutStrLn dflags "done"
-          else throwGhcExceptionIO (ProgramError "linking extra libraries/objects failed")
+          else throwGhcException (ProgramError "linking extra libraries/objects failed")
 
         ; return pls
         }}
@@ -388,12 +389,13 @@ preloadLib dflags lib_paths framework_paths lib_spec
                       Just mm -> preloadFailed mm lib_paths lib_spec
 
           Framework framework ->
-              if platformUsesFrameworks (targetPlatform dflags)
-              then do maybe_errstr <- loadFramework framework_paths framework
-                      case maybe_errstr of
-                         Nothing -> maybePutStrLn dflags "done"
-                         Just mm -> preloadFailed mm framework_paths lib_spec
-              else panic "preloadLib Framework"
+              case platformOS (targetPlatform dflags) of
+              OSDarwin ->
+                do maybe_errstr <- loadFramework framework_paths framework
+                   case maybe_errstr of
+                      Nothing -> maybePutStrLn dflags "done"
+                      Just mm -> preloadFailed mm framework_paths lib_spec
+              _ -> panic "preloadLib Framework"
 
   where
     platform = targetPlatform dflags
@@ -401,7 +403,7 @@ preloadLib dflags lib_paths framework_paths lib_spec
     preloadFailed :: String -> [String] -> LibrarySpec -> IO ()
     preloadFailed sys_errmsg paths spec
        = do maybePutStr dflags "failed.\n"
-            throwGhcExceptionIO $
+            throwGhcException $
               CmdLineError (
                     "user specified .o/.so/.DLL could not be loaded ("
                     ++ sys_errmsg ++ ")\nWhilst trying to load:  "
@@ -413,14 +415,14 @@ preloadLib dflags lib_paths framework_paths lib_spec
     preload_static _paths name
        = do b <- doesFileExist name
             if not b then return False
-                     else do if cDYNAMIC_GHC_PROGRAMS
+                     else do if dYNAMIC_BY_DEFAULT dflags
                                  then dynLoadObjs dflags [name]
                                  else loadObj name
                              return True
     preload_static_archive _paths name
        = do b <- doesFileExist name
             if not b then return False
-                     else do if cDYNAMIC_GHC_PROGRAMS
+                     else do if dYNAMIC_BY_DEFAULT dflags
                                  then panic "Loading archives not supported"
                                  else loadArchive name
                              return True
@@ -453,7 +455,7 @@ linkExpr hsc_env span root_ul_bco
      -- Link the packages and modules required
    ; (pls, ok) <- linkDependencies hsc_env pls0 span needed_mods
    ; if failed ok then
-        throwGhcExceptionIO (ProgramError "")
+        throwGhcException (ProgramError "")
      else do {
 
      -- Link the expression itself
@@ -478,13 +480,16 @@ linkExpr hsc_env span root_ul_bco
         -- by default, so we can safely ignore them here.
 
 dieWith :: DynFlags -> SrcSpan -> MsgDoc -> IO a
-dieWith dflags span msg = throwGhcExceptionIO (ProgramError (showSDoc dflags (mkLocMessage SevFatal span msg)))
+dieWith dflags span msg = throwGhcException (ProgramError (showSDoc dflags (mkLocMessage SevFatal span msg)))
 
 
-checkNonStdWay :: DynFlags -> SrcSpan -> IO (Maybe FilePath)
-checkNonStdWay dflags srcspan =
-  if interpWays == haskellWays
-      then return Nothing
+checkNonStdWay :: DynFlags -> SrcSpan -> IO Bool
+checkNonStdWay dflags srcspan = do
+  let tag = buildTag dflags
+      dynamicByDefault = dYNAMIC_BY_DEFAULT dflags
+  if (null tag && not dynamicByDefault) ||
+     (tag == "dyn" && dynamicByDefault)
+      then return False
     -- see #3604: object files compiled for way "dyn" need to link to the
     -- dynamic packages, so we can't load them into a statically-linked GHCi.
     -- we have to treat "dyn" in the same way as "prof".
@@ -494,28 +499,23 @@ checkNonStdWay dflags srcspan =
     -- .o files or -dynamic .o files into GHCi (currently that's not possible
     -- because the dynamic objects contain refs to e.g. __stginit_base_Prelude_dyn
     -- whereas we have __stginit_base_Prelude_.
-      else if objectSuf dflags == normalObjectSuffix && not (null haskellWays)
+      else if (objectSuf dflags == normalObjectSuffix) && not (null tag)
       then failNonStd dflags srcspan
-      else return $ Just $ if cDYNAMIC_GHC_PROGRAMS
-                           then "dyn_o"
-                           else "o"
-    where haskellWays = filter (not . wayRTSOnly) (ways dflags)
+      else return True
 
 normalObjectSuffix :: String
 normalObjectSuffix = phaseInputExt StopLn
 
-failNonStd :: DynFlags -> SrcSpan -> IO (Maybe FilePath)
+failNonStd :: DynFlags -> SrcSpan -> IO Bool
 failNonStd dflags srcspan = dieWith dflags srcspan $
   ptext (sLit "Dynamic linking required, but this is a non-standard build (eg. prof).") $$
-  ptext (sLit "You need to build the program twice: once the") <+> ghciWay <+> ptext (sLit "way, and then") $$
+  ptext (sLit "You need to build the program twice: once the normal way, and then") $$
   ptext (sLit "in the desired way using -osuf to set the object file suffix.")
-    where ghciWay = if cDYNAMIC_GHC_PROGRAMS
-                    then ptext (sLit "dynamic")
-                    else ptext (sLit "normal")
+
 
 getLinkDeps :: HscEnv -> HomePackageTable
             -> PersistentLinkerState
-            -> Maybe FilePath                   -- replace object suffices?
+            -> Bool                             -- replace object suffices?
             -> SrcSpan                          -- for error messages
             -> [Module]                         -- If you need these
             -> IO ([Linkable], [PackageId])     -- ... then link these first
@@ -543,7 +543,7 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
         --     This will either be in the HPT or (in the case of one-shot
         --     compilation) we may need to use maybe_getFileLinkable
         let { osuf = objectSuf dflags } ;
-        lnks_needed <- mapM (get_linkable osuf) mods_needed ;
+        lnks_needed <- mapM (get_linkable osuf replace_osuf) mods_needed ;
 
         return (lnks_needed, pkgs_needed) }
   where
@@ -566,7 +566,7 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
           mb_iface <- initIfaceCheck hsc_env $
                         loadInterface msg mod (ImportByUser False)
           iface <- case mb_iface of
-                    Maybes.Failed err      -> throwGhcExceptionIO (ProgramError (showSDoc dflags err))
+                    Maybes.Failed err      -> throwGhcException (ProgramError (showSDoc dflags err))
                     Maybes.Succeeded iface -> return iface
 
           when (mi_boot iface) $ link_boot_mod_error mod
@@ -594,7 +594,7 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
 
 
     link_boot_mod_error mod =
-        throwGhcExceptionIO (ProgramError (showSDoc dflags (
+        throwGhcException (ProgramError (showSDoc dflags (
             text "module" <+> ppr mod <+>
             text "cannot be linked; it is only available as a boot module")))
 
@@ -608,7 +608,7 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
 
         -- This one is a build-system bug
 
-    get_linkable osuf mod_name      -- A home-package module
+    get_linkable osuf replace_osuf mod_name      -- A home-package module
         | Just mod_info <- lookupUFM hpt mod_name
         = adjust_linkable (Maybes.expectJust "getLinkDeps" (hm_linkable mod_info))
         | otherwise
@@ -628,26 +628,34 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
               }}
 
             adjust_linkable lnk
-                | Just new_osuf <- replace_osuf = do
-                        new_uls <- mapM (adjust_ul new_osuf)
-                                        (linkableUnlinked lnk)
+                | replace_osuf = do
+                        new_uls <- mapM adjust_ul (linkableUnlinked lnk)
                         return lnk{ linkableUnlinked=new_uls }
                 | otherwise =
                         return lnk
 
-            adjust_ul new_osuf (DotO file) = do
+            adjust_ul (DotO file) = do
                 MASSERT (osuf `isSuffixOf` file)
                 let file_base = reverse (drop (length osuf + 1) (reverse file))
-                    new_file = file_base <.> new_osuf
-                ok <- doesFileExist new_file
-                if (not ok)
-                   then dieWith dflags span $
-                          ptext (sLit "cannot find normal object file ")
-                                <> quotes (text new_file) $$ while_linking_expr
-                   else return (DotO new_file)
-            adjust_ul _ (DotA fp) = panic ("adjust_ul DotA " ++ show fp)
-            adjust_ul _ (DotDLL fp) = panic ("adjust_ul DotDLL " ++ show fp)
-            adjust_ul _ l@(BCOs {}) = return l
+                    dyn_file = file_base <.> "dyn_o"
+                    new_file = file_base <.> normalObjectSuffix
+                -- Note that even if dYNAMIC_BY_DEFAULT is on, we might
+                -- still have dynamic object files called .o, so we need
+                -- to try both filenames.
+                use_dyn <- if dYNAMIC_BY_DEFAULT dflags
+                           then do doesFileExist dyn_file
+                           else return False
+                if use_dyn
+                    then return (DotO dyn_file)
+                    else do ok <- doesFileExist new_file
+                            if (not ok)
+                               then dieWith dflags span $
+                                      ptext (sLit "cannot find normal object file ")
+                                            <> quotes (text new_file) $$ while_linking_expr
+                               else return (DotO new_file)
+            adjust_ul (DotA fp) = panic ("adjust_ul DotA " ++ show fp)
+            adjust_ul (DotDLL fp) = panic ("adjust_ul DotDLL " ++ show fp)
+            adjust_ul l@(BCOs {}) = return l
 \end{code}
 
 
@@ -669,7 +677,7 @@ linkDecls hsc_env span (ByteCode unlinkedBCOs itblEnv) = do
     -- Link the packages and modules required
     (pls, ok) <- linkDependencies hsc_env pls0 span needed_mods
     if failed ok
-      then throwGhcExceptionIO (ProgramError "")
+      then throwGhcException (ProgramError "")
       else do
 
     -- Link the expression itself
@@ -709,7 +717,7 @@ linkModule hsc_env mod = do
   initDynLinker (hsc_dflags hsc_env)
   modifyPLS_ $ \pls -> do
     (pls', ok) <- linkDependencies hsc_env pls noSrcSpan [mod]
-    if (failed ok) then throwGhcExceptionIO (ProgramError "could not link module")
+    if (failed ok) then throwGhcException (ProgramError "could not link module")
       else return pls'
 \end{code}
 
@@ -783,7 +791,7 @@ dynLinkObjs dflags pls objs = do
             unlinkeds                = concatMap linkableUnlinked new_objs
             wanted_objs              = map nameOfObject unlinkeds
 
-        if cDYNAMIC_GHC_PROGRAMS
+        if dYNAMIC_BY_DEFAULT dflags
             then do dynLoadObjs dflags wanted_objs
                     return (pls, Succeeded)
             else do mapM_ loadObj wanted_objs
@@ -1076,7 +1084,7 @@ linkPackages' dflags new_pks pls = do
              ; return (new_pkg : pkgs') }
 
         | otherwise
-        = throwGhcExceptionIO (CmdLineError ("unknown package: " ++ packageIdString new_pkg))
+        = throwGhcException (CmdLineError ("unknown package: " ++ packageIdString new_pkg))
 
 
 linkPackage :: DynFlags -> PackageConfig -> IO ()
@@ -1132,7 +1140,7 @@ linkPackage dflags pkg
         maybePutStr dflags "linking ... "
         ok <- resolveObjs
         if succeeded ok then maybePutStrLn dflags "done."
-              else throwGhcExceptionIO (InstallationError ("unable to load package `" ++ display (sourcePackageId pkg) ++ "'"))
+              else throwGhcException (InstallationError ("unable to load package `" ++ display (sourcePackageId pkg) ++ "'"))
 
 -- we have already searched the filesystem; the strings passed to load_dyn
 -- can be passed directly to loadDLL.  They are either fully-qualified
@@ -1143,14 +1151,14 @@ load_dyn :: FilePath -> IO ()
 load_dyn dll = do r <- loadDLL dll
                   case r of
                     Nothing  -> return ()
-                    Just err -> throwGhcExceptionIO (CmdLineError ("can't load .so/.DLL for: "
+                    Just err -> throwGhcException (CmdLineError ("can't load .so/.DLL for: "
                                                               ++ dll ++ " (" ++ err ++ ")" ))
 
 loadFrameworks :: Platform -> InstalledPackageInfo_ ModuleName -> IO ()
 loadFrameworks platform pkg
-    = if platformUsesFrameworks platform
-      then mapM_ load frameworks
-      else return ()
+    = case platformOS platform of
+      OSDarwin -> mapM_ load frameworks
+      _        -> return ()
   where
     fw_dirs    = Packages.frameworkDirs pkg
     frameworks = Packages.frameworks pkg
@@ -1158,7 +1166,7 @@ loadFrameworks platform pkg
     load fw = do  r <- loadFramework fw_dirs fw
                   case r of
                     Nothing  -> return ()
-                    Just err -> throwGhcExceptionIO (CmdLineError ("can't load framework: "
+                    Just err -> throwGhcException (CmdLineError ("can't load framework: "
                                                         ++ fw ++ " (" ++ err ++ ")" ))
 
 -- Try to find an object file for a given library in the given paths.
@@ -1178,7 +1186,7 @@ locateLib dflags is_hs dirs lib
     --
   = findDll `orElse` findArchive `orElse` tryGcc `orElse` assumeDll
 
-  | not cDYNAMIC_GHC_PROGRAMS
+  | not isDynamicGhcLib
     -- When the GHC package was not compiled as dynamic library
     -- (=DYNAMIC not set), we search for .o libraries or, if they
     -- don't exist, .a libraries.
@@ -1187,21 +1195,25 @@ locateLib dflags is_hs dirs lib
   | otherwise
     -- When the GHC package was compiled as dynamic library (=DYNAMIC set),
     -- we search for .so libraries first.
-  = findHSDll `orElse` findDynObject `orElse` assumeDll
+  = findHSDll `orElse` findDynObject `orElse` findDynArchive `orElse`
+                       findObject    `orElse` findArchive `orElse` assumeDll
    where
      mk_obj_path      dir = dir </> (lib <.> "o")
      mk_dyn_obj_path  dir = dir </> (lib <.> "dyn_o")
      mk_arch_path     dir = dir </> ("lib" ++ lib <.> "a")
+     mk_dyn_arch_path dir = dir </> ("lib" ++ lib <.> "dyn_a")
 
      hs_dyn_lib_name = lib ++ "-ghc" ++ cProjectVersion
-     mk_hs_dyn_lib_path dir = dir </> mkHsSOName platform hs_dyn_lib_name
+     mk_hs_dyn_lib_path dir = dir </> mkSOName platform hs_dyn_lib_name
 
      so_name = mkSOName platform lib
      mk_dyn_lib_path dir = dir </> so_name
 
      findObject     = liftM (fmap Object)  $ findFile mk_obj_path        dirs
-     findDynObject  = liftM (fmap Object)  $ findFile mk_dyn_obj_path    dirs
+     findDynObject  = do putStrLn "In findDynObject"
+                         liftM (fmap Object)  $ findFile mk_dyn_obj_path    dirs
      findArchive    = liftM (fmap Archive) $ findFile mk_arch_path       dirs
+     findDynArchive = liftM (fmap Archive) $ findFile mk_dyn_arch_path   dirs
      findHSDll      = liftM (fmap DLLPath) $ findFile mk_hs_dyn_lib_path dirs
      findDll        = liftM (fmap DLLPath) $ findFile mk_dyn_lib_path    dirs
      tryGcc         = liftM (fmap DLLPath) $ searchForLibUsingGcc dflags so_name dirs

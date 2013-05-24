@@ -186,7 +186,6 @@ import StgCmmBind       ( emitBlackHoleCode, emitUpdateFrame )
 import MkGraph
 import Cmm
 import CmmUtils
-import CmmInfo
 import BlockId
 import CmmLex
 import CLabel
@@ -288,7 +287,6 @@ import Data.Maybe
         'bits16'        { L _ (CmmT_bits16) }
         'bits32'        { L _ (CmmT_bits32) }
         'bits64'        { L _ (CmmT_bits64) }
-        'bits128'       { L _ (CmmT_bits128) }
         'float32'       { L _ (CmmT_float32) }
         'float64'       { L _ (CmmT_float64) }
         'gcptr'         { L _ (CmmT_gcptr) }
@@ -557,7 +555,7 @@ stmt    :: { CmmParse () }
         -- we tweak the syntax to avoid the conflict.  The later
         -- option is taken here because the other way would require
         -- multiple levels of expanding and get unwieldy.
-        | foreign_results 'foreign' STRING foreignLabel '(' cmm_hint_exprs0 ')' safety opt_never_returns ';'
+        | foreign_results 'foreign' STRING expr '(' cmm_hint_exprs0 ')' safety opt_never_returns ';'
                 {% foreignCall $3 $1 $4 $6 $8 $9 }
         | foreign_results 'prim' '%' NAME '(' exprs0 ')' ';'
                 {% primCall $1 $4 $6 }
@@ -587,9 +585,6 @@ stmt    :: { CmmParse () }
                 { cmmIfThenElse $2 $4 $6 }
         | 'push' '(' exprs0 ')' maybe_body
                 { pushStackFrame $3 $5 }
-
-foreignLabel     :: { CmmParse CmmExpr }
-        : NAME                          { return (CmmLit (CmmLabel (mkForeignLabel $1 Nothing ForeignLabelInThisPackage IsFunction))) }
 
 opt_never_returns :: { CmmReturnInfo }
         :                               { CmmMayReturn }
@@ -776,7 +771,6 @@ typenot8 :: { CmmType }
         : 'bits16'              { b16 }
         | 'bits32'              { b32 }
         | 'bits64'              { b64 }
-        | 'bits128'             { b128 }
         | 'float32'             { f32 }
         | 'float64'             { f64 }
         | 'gcptr'               {% do dflags <- getDynFlags; return $ gcWord dflags }

@@ -14,16 +14,21 @@ import TcType
 import Type
 import TypeRep
 import TyCon
+import Outputable
 import Control.Monad
 import Control.Applicative
 import Data.Maybe
 
-
--- |Vectorise a type constructor. Unless there is a vectorised version (stripped of embedded
--- parallel arrays), the vectorised version is the same as the original.
+-- | Vectorise a type constructor.
 --
 vectTyCon :: TyCon -> VM TyCon
-vectTyCon tc = maybe tc id <$> lookupTyCon tc
+vectTyCon tc
+  | isFunTyCon tc        = builtin closureTyCon
+  | isBoxedTupleTyCon tc = return tc
+  | isUnLiftedTyCon tc   = return tc
+  | otherwise            
+  = maybeCantVectoriseM "Tycon not vectorised: " (ppr tc)
+  $ lookupTyCon tc
 
 -- |Produce the vectorised and lifted versions of a type.
 --

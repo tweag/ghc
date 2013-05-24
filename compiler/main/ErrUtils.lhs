@@ -52,7 +52,6 @@ import Data.IORef
 import Data.Ord
 import Data.Time
 import Control.Monad
-import Control.Monad.IO.Class
 import System.IO
 
 -- -----------------------------------------------------------------------------
@@ -361,6 +360,6 @@ prettyPrintGhcErrors dflags
                       PprProgramError str doc ->
                           pprDebugAndThen dflags pgmError str doc
                       _ ->
-                          liftIO $ throwIO e
+                          throw e
 \end{code}
 

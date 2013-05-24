@@ -1,6 +1,5 @@
 module Vectorise.Monad.InstEnv 
-  ( existsInst
-  , lookupInst
+  ( lookupInst
   , lookupFamInst
   ) 
 where
@@ -21,14 +20,6 @@ import Util
 
 #include "HsVersions.h"
 
-
--- Check whether a unique class instance for a given class and type arguments exists.
---
-existsInst :: Class -> [Type] -> VM Bool
-existsInst cls tys
-  = do { instEnv <- readGEnv global_inst_env
-       ; return $ either (const False) (const True) (lookupUniqueInstEnv instEnv cls tys)
-       }
 
 -- Look up the dfun of a class instance.
 --
@@ -73,6 +64,6 @@ lookupFamInst tycon tys
            [match] -> return match
            _other                -> 
              do dflags <- getDynFlags
-                cantVectorise dflags "Vectorise.Monad.InstEnv.lookupFamInst: not found: "
+                cantVectorise dflags "VectMonad.lookupFamInst: not found: "
                            (ppr $ mkTyConApp tycon tys)
        }

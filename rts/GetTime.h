@@ -12,6 +12,7 @@
 #include "BeginPrivate.h"
 
 void initializeTimer       (void);
+StgWord64 getMonotonicNSec (void);
 
 Time getProcessCPUTime     (void);
 Time getThreadCPUTime      (void);

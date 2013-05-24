@@ -29,11 +29,11 @@ module StgCmmUtils (
         cmmOffsetW, cmmOffsetB,
         cmmOffsetLitW, cmmOffsetLitB,
         cmmLoadIndexW,
-        cmmConstrTag1,
+        cmmConstrTag, cmmConstrTag1,
 
-        cmmUntag, cmmIsTagged,
+        cmmUntag, cmmIsTagged, cmmGetTag,
 
-        addToMem, addToMemE, addToMemLblE, addToMemLbl,
+        addToMem, addToMemE, addToMemLbl,
         mkWordCLit,
         newStringCLit, newByteStringCLit,
         blankWord
@@ -118,9 +118,6 @@ mkSimpleLit _ other             = pprPanic "mkSimpleLit" (ppr other)
 addToMemLbl :: CmmType -> CLabel -> Int -> CmmAGraph
 addToMemLbl rep lbl n = addToMem rep (CmmLit (CmmLabel lbl)) n
 
-addToMemLblE :: CmmType -> CLabel -> CmmExpr -> CmmAGraph
-addToMemLblE rep lbl = addToMemE rep (CmmLit (CmmLabel lbl))
-
 addToMem :: CmmType     -- rep of the counter
          -> CmmExpr     -- Address
          -> Int         -- What to add (a word)
@@ -173,21 +170,22 @@ tagToClosure dflags tycon tag
 -------------------------------------------------------------------------
 
 emitRtsCall :: PackageId -> FastString -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
-emitRtsCall pkg fun args safe = emitRtsCallGen [] (mkCmmCodeLabel pkg fun) args safe
+emitRtsCall pkg fun args safe = emitRtsCallGen [] pkg fun args safe
 
 emitRtsCallWithResult :: LocalReg -> ForeignHint -> PackageId -> FastString
         -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
 emitRtsCallWithResult res hint pkg fun args safe
-   = emitRtsCallGen [(res,hint)] (mkCmmCodeLabel pkg fun) args safe
+   = emitRtsCallGen [(res,hint)] pkg fun args safe
 
 -- Make a call to an RTS C procedure
 emitRtsCallGen
    :: [(LocalReg,ForeignHint)]
-   -> CLabel
+   -> PackageId
+   -> FastString
    -> [(CmmExpr,ForeignHint)]
    -> Bool -- True <=> CmmSafe call
    -> FCode ()
-emitRtsCallGen res lbl args safe
+emitRtsCallGen res pkg fun args safe
   = do { dflags <- getDynFlags
        ; updfr_off <- getUpdFrameOff
        ; let (caller_save, caller_load) = callerSaveVolatileRegs dflags
@@ -203,7 +201,7 @@ emitRtsCallGen res lbl args safe
         emit $ mkUnsafeCall (ForeignTarget fun_expr conv) res' args'
     (args', arg_hints) = unzip args
     (res',  res_hints) = unzip res
-    fun_expr = mkLblExpr lbl
+    fun_expr = mkLblExpr (mkCmmCodeLabel pkg fun)
 
 
 -----------------------------------------------------------------------------

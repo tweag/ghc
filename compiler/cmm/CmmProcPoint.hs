@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs, DisambiguateRecordFields #-}
+{-# OPTIONS_GHC -fno-warn-warnings-deprecations #-}
 
 module CmmProcPoint
     ( ProcPointSet, Status(..)

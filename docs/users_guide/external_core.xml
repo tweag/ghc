@@ -27,7 +27,8 @@ I am unsure of the proper DocBook elements.
 
   <para>Andrew Tolmach, Tim Chevalier ({apt,tjc}@cs.pdx.edu) and The GHC Team</para>
 
-    <para>This chapter provides a precise definition for the GHC Core
+  <abstract>
+    <para>This document provides a precise definition for the GHC Core
     language, so that it can be used to communicate between GHC and new
     stand-alone compilation tools such as back-ends or
     optimizers.<footnote>
@@ -49,6 +50,8 @@ I am unsure of the proper DocBook elements.
   An executable typechecker and interpreter (in Haskell), which
   formally embody the static and dynamic semantics, are available
     separately.</para>
+
+  </abstract>
 
   <section id="introduction">
     <title>Introduction</title>

@@ -13,7 +13,9 @@
 #ifndef RTS_UTILS_H
 #define RTS_UTILS_H
 
-/* Alternate to raise(3) for threaded rts, for BSD-based OSes */
-int genericRaise(int sig);
+// Used in GHC (basicTypes/Unique.lhs, and Data.Unique in the base
+// package.
+HsInt genSymZh(void);
+HsInt resetGenSymZh(void);
 
 #endif /* RTS_UTILS_H */

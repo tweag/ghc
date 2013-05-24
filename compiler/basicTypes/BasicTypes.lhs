@@ -26,8 +26,6 @@ types that
 module BasicTypes(
 	Version, bumpVersion, initialVersion,
 
-        ConTag, fIRST_TAG,
-
 	Arity, RepArity,
 	
 	Alignment,
@@ -63,6 +61,9 @@ module BasicTypes(
 	InterestingCxt,
 
         EP(..),
+
+	HsBang(..), isBanged, 
+        StrictnessMark(..), isMarkedStrict,
 
 	DefMethSpec(..),
         SwapFlag(..), flipSwap, unSwap,
@@ -111,21 +112,6 @@ type Arity = Int
 --  \x -> fib x                has representation arity 1
 --  \(# x, y #) -> fib (x + y) has representation arity 2
 type RepArity = Int
-\end{code}
-
-%************************************************************************
-%*									*
-              Constructor tags
-%*									*
-%************************************************************************
-
-\begin{code}
--- | Type of the tags associated with each constructor possibility
-type ConTag = Int
-
-fIRST_TAG :: ConTag
--- ^ Tags are allocated from here for real constructors
-fIRST_TAG =  1
 \end{code}
 
 %************************************************************************
@@ -588,6 +574,54 @@ instance Outputable OccInfo where
 
 %************************************************************************
 %*									*
+		Strictness indication
+%*									*
+%************************************************************************
+
+The strictness annotations on types in data type declarations
+e.g. 	data T = MkT !Int !(Bool,Bool)
+
+\begin{code}
+-------------------------
+-- HsBang describes what the *programmer* wrote
+-- This info is retained in the DataCon.dcStrictMarks field
+data HsBang = HsNoBang	       -- Lazy field
+
+	    | HsBang Bool      -- Source-language '!' bang
+                               --  True <=> also an {-# UNPACK #-} pragma
+
+	    | HsUnpack	       -- Definite commitment: this field is strict and unboxed
+            | HsStrict         -- Definite commitment: this field is strict but not unboxed
+  deriving (Eq, Data, Typeable)
+
+instance Outputable HsBang where
+    ppr HsNoBang       = empty
+    ppr (HsBang True)  = ptext (sLit "{-# UNPACK #-} !")
+    ppr (HsBang False) = char '!'
+    ppr HsUnpack       = ptext (sLit "Unpacked")
+    ppr HsStrict       = ptext (sLit "SrictNotUnpacked")
+
+isBanged :: HsBang -> Bool
+isBanged HsNoBang = False
+isBanged _        = True
+
+-------------------------
+-- StrictnessMark is internal only, used to indicate strictness 
+-- of the DataCon *worker* fields
+data StrictnessMark = MarkedStrict | NotMarkedStrict	
+
+instance Outputable StrictnessMark where
+  ppr MarkedStrict     = ptext (sLit "!")
+  ppr NotMarkedStrict  = empty
+
+isMarkedStrict :: StrictnessMark -> Bool
+isMarkedStrict NotMarkedStrict = False
+isMarkedStrict _               = True   -- All others are strict
+\end{code}
+
+
+%************************************************************************
+%*									*
 		Default method specfication
 %*									*
 %************************************************************************
@@ -686,8 +720,7 @@ data InlineSpec   -- What the user's INLINE pragama looked like
   = Inline
   | Inlinable
   | NoInline
-  | EmptyInlineSpec  -- Used in a place-holder InlinePragma in SpecPrag or IdInfo,
-                     -- where there isn't any real inline pragma at all
+  | EmptyInlineSpec
   deriving( Eq, Data, Typeable, Show )
 	-- Show needed for Lexer.x
 \end{code}

@@ -78,7 +78,6 @@ import Maybes
 import ErrUtils
 import DynFlags
 import BasicTypes ( isAlwaysActive )
-import ListSetOps
 import Util
 import Pair
 import Outputable
@@ -436,7 +435,7 @@ substBind subst (Rec pairs) = (subst', Rec (bndrs' `zip` rhss'))
 
 \begin{code}
 -- | De-shadowing the program is sometimes a useful pre-pass. It can be done simply
--- by running over the bindings with an empty substitution, because substitution
+-- by running over the bindings with an empty substitution, becuase substitution
 -- returns a result that has no-shadowing guaranteed.
 --
 -- (Actually, within a single /type/ there might still be shadowing, because 
@@ -750,11 +749,12 @@ substVects subst = map (substVect subst)
 
 ------------------
 substVect :: Subst -> CoreVect -> CoreVect
-substVect subst  (Vect v rhs)        = Vect v (simpleOptExprWith subst rhs)
-substVect _subst vd@(NoVect _)       = vd
-substVect _subst vd@(VectType _ _ _) = vd
-substVect _subst vd@(VectClass _)    = vd
-substVect _subst vd@(VectInst _)     = vd
+substVect _subst (Vect   v Nothing)    = Vect v Nothing
+substVect subst  (Vect   v (Just rhs)) = Vect v (Just (simpleOptExprWith subst rhs))
+substVect _subst vd@(NoVect _)         = vd
+substVect _subst vd@(VectType _ _ _)   = vd
+substVect _subst vd@(VectClass _)      = vd
+substVect _subst vd@(VectInst _)       = vd
 
 ------------------
 substVarSet :: Subst -> VarSet -> VarSet
@@ -867,7 +867,7 @@ simpleOptExpr :: CoreExpr -> CoreExpr
 -- We also inline bindings that bind a Eq# box: see
 -- See Note [Optimise coercion boxes agressively].
 --
--- The result is NOT guaranteed occurence-analysed, because
+-- The result is NOT guaranteed occurence-analysed, becuase
 -- in  (let x = y in ....) we substitute for x; so y's occ-info
 -- may change radically
 
@@ -900,7 +900,7 @@ simpleOptPgm dflags this_mod binds rules vects
        ; return (reverse binds', substRulesForImportedIds subst' rules, substVects subst' vects) }
   where
     occ_anald_binds  = occurAnalysePgm this_mod (\_ -> False) {- No rules active -}
-                                       rules vects emptyVarEnv binds
+                                       rules vects binds
     (subst', binds') = foldl do_one (emptySubst, []) occ_anald_binds
                        
     do_one (subst, binds') bind 
@@ -919,8 +919,10 @@ type OutExpr = CoreExpr
 -- In these functions the substitution maps InVar -> OutExpr
 
 ----------------------
-simple_opt_expr :: Subst -> InExpr -> OutExpr
-simple_opt_expr subst expr
+simple_opt_expr, simple_opt_expr' :: Subst -> InExpr -> OutExpr
+simple_opt_expr s e = simple_opt_expr' s e
+
+simple_opt_expr' subst expr
   = go expr
   where
     go (Var v)          = lookupIdSubst (text "simpleOptExpr") subst v
@@ -1190,10 +1192,10 @@ exprIsConApp_maybe id_unf expr
         -- Look through dictionary functions; see Note [Unfolding DFuns]
         | DFunUnfolding dfun_nargs con ops <- unfolding
         , length args == dfun_nargs    -- See Note [DFun arity check]
-        , let (dfun_tvs, _theta, _cls, dfun_res_tys) = tcSplitDFunTy (idType fun)
+        , let (dfun_tvs, _n_theta, _cls, dfun_res_tys) = tcSplitDFunTy (idType fun)
               subst    = zipOpenTvSubst dfun_tvs (stripTypeArgs (takeList dfun_tvs args))
               mk_arg (DFunPolyArg e) = mkApps e args
-              mk_arg (DFunLamArg i)  = getNth args i
+              mk_arg (DFunLamArg i)  = args !! i
         = dealWithCoercion co (con, substTys subst dfun_res_tys, map mk_arg ops)
 
         -- Look through unfoldings, but only arity-zero one; 
@@ -1264,7 +1266,7 @@ dealWithCoercion co stuff@(dc, _dc_univ_args, dc_args)
 
         dump_doc = vcat [ppr dc,      ppr dc_univ_tyvars, ppr dc_ex_tyvars,
                          ppr arg_tys, ppr dc_args,        ppr _dc_univ_args,
-                         ppr ex_args, ppr val_args, ppr co, ppr _from_ty, ppr to_ty, ppr to_tc ]
+                         ppr ex_args, ppr val_args]
     in
     ASSERT2( eqType _from_ty (mkTyConApp to_tc _dc_univ_args), dump_doc )
     ASSERT2( all isTypeArg ex_args, dump_doc )

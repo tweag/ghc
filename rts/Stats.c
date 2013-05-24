@@ -335,38 +335,14 @@ stat_gcWorkerThreadDone (gc_thread *gct STG_UNUSED)
 }
 
 /* -----------------------------------------------------------------------------
- * Calculate the total allocated memory since the start of the
- * program.  Also emits events reporting the per-cap allocation
- * totals.
- * -------------------------------------------------------------------------- */
-
-static StgWord
-calcTotalAllocated(void)
-{
-    W_ tot_alloc = 0;
-    W_ n;
-    for (n = 0; n < n_capabilities; n++) {
-        tot_alloc += capabilities[n].total_allocated;
-        traceEventHeapAllocated(&capabilities[n],
-                                CAPSET_HEAP_DEFAULT,
-                                capabilities[n].total_allocated * sizeof(W_));
-    }
-
-    return tot_alloc;
-}
-
-/* -----------------------------------------------------------------------------
    Called at the end of each GC
    -------------------------------------------------------------------------- */
 
 void
 stat_endGC (Capability *cap, gc_thread *gct,
-            W_ live, W_ copied, W_ slop, nat gen,
+            W_ alloc, W_ live, W_ copied, W_ slop, nat gen,
             nat par_n_threads, W_ par_max_copied, W_ par_tot_copied)
 {
-    W_ tot_alloc;
-    W_ alloc;
-
     if (RtsFlags.GcFlags.giveStats != NO_GC_STATS ||
         RtsFlags.ProfFlags.doHeapProfile)
         // heap profiling needs GC_tot_time
@@ -404,17 +380,6 @@ stat_endGC (Capability *cap, gc_thread *gct,
         gc_elapsed = elapsed - gct->gc_start_elapsed;
         gc_cpu = cpu - gct->gc_start_cpu;
 
-        /* For the moment we calculate both per-HEC and total allocation.
-	 * There is thus redundancy here, but for the moment we will calculate
-	 * it both the old and new way and assert they're the same.
-	 * When we're sure it's working OK then we can simplify things.
-         */
-        tot_alloc = calcTotalAllocated();
-
-        // allocated since the last GC
-        alloc = tot_alloc - GC_tot_alloc;
-        GC_tot_alloc = tot_alloc;
-
         if (RtsFlags.GcFlags.giveStats == VERBOSE_GC_STATS) {
 	    W_ faults = getPageFaults();
 	    
@@ -441,10 +406,29 @@ stat_endGC (Capability *cap, gc_thread *gct,
         }
 
 	GC_tot_copied += (StgWord64) copied;
+	GC_tot_alloc  += (StgWord64) alloc;
         GC_par_max_copied += (StgWord64) par_max_copied;
         GC_par_tot_copied += (StgWord64) par_tot_copied;
 	GC_tot_cpu   += gc_cpu;
         
+        /* For the moment we calculate both per-HEC and total allocation.
+	 * There is thus redundancy here, but for the moment we will calculate
+	 * it both the old and new way and assert they're the same.
+	 * When we're sure it's working OK then we can simplify things.
+	 * TODO: simplify calcAllocated and clearNurseries so they don't have
+	 *       to calculate the total
+	 */
+        {
+            W_ tot_alloc = 0;
+            W_ n;
+            for (n = 0; n < n_capabilities; n++) {
+                tot_alloc += capabilities[n].total_allocated;
+                traceEventHeapAllocated(&capabilities[n],
+                                        CAPSET_HEAP_DEFAULT,
+                                        capabilities[n].total_allocated * sizeof(W_));
+            }
+            ASSERT(GC_tot_alloc == tot_alloc);
+        }
         traceEventHeapSize(cap,
 	                   CAPSET_HEAP_DEFAULT,
 			   mblocks_allocated * MBLOCK_SIZE_W * sizeof(W_));
@@ -603,9 +587,8 @@ StgInt TOTAL_CALLS=1;
 static inline Time get_init_cpu(void) { return end_init_cpu - start_init_cpu; }
 static inline Time get_init_elapsed(void) { return end_init_elapsed - start_init_elapsed; }
 
-
 void
-stat_exit (void)
+stat_exit(int alloc)
 {
     generation *gen;
     Time gc_cpu = 0;
@@ -616,8 +599,6 @@ stat_exit (void)
     Time mut_elapsed = 0;
     Time exit_cpu = 0;
     Time exit_elapsed = 0;
-    W_ tot_alloc;
-    W_ alloc;
 
     if (RtsFlags.GcFlags.giveStats != NO_GC_STATS) {
 
@@ -629,11 +610,13 @@ stat_exit (void)
 	getProcessTimes( &tot_cpu, &tot_elapsed );
 	tot_elapsed -= start_init_elapsed;
 
-        tot_alloc = calcTotalAllocated();
+	GC_tot_alloc += alloc;
 
-        // allocated since the last GC
-        alloc = tot_alloc - GC_tot_alloc;
-        GC_tot_alloc = tot_alloc;
+        for (i = 0; i < n_capabilities; i++) {
+            traceEventHeapAllocated(&capabilities[i],
+                                    CAPSET_HEAP_DEFAULT,
+                                    capabilities[i].total_allocated * sizeof(W_));
+        }
 
 	/* Count total garbage collections */
 	for (g = 0; g < RtsFlags.GcFlags.generations; g++)

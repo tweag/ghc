@@ -15,9 +15,6 @@
 -- more on System FC and how coercions fit into it.
 --
 module Coercion (
-        -- * CoAxioms
-        mkCoAxBranch, mkBranchedCoAxiom, mkSingleCoAxiom,
-
         -- * Main data type
         Coercion(..), Var, CoVar,
         LeftOrRight(..), pickLR,
@@ -30,7 +27,7 @@ module Coercion (
 
 	-- ** Constructing coercions
         mkReflCo, mkCoVarCo, 
-        mkAxInstCo, mkUnbranchedAxInstCo, mkAxInstLHS, mkAxInstRHS,
+        mkAxInstCo, mkUnbranchedAxInstCo, mkAxInstRHS,
         mkUnbranchedAxInstRHS,
         mkPiCo, mkPiCos, mkCoCast,
         mkSymCo, mkTransCo, mkNthCo, mkLRCo,
@@ -39,10 +36,9 @@ module Coercion (
         mkNewTypeCo, 
 
         -- ** Decomposition
-        splitNewTypeRepCo_maybe, instNewTyCon_maybe, 
-        topNormaliseNewType, topNormaliseNewTypeX,
+        splitNewTypeRepCo_maybe, instNewTyCon_maybe, decomposeCo,
+        getCoVar_maybe,
 
-        decomposeCo, getCoVar_maybe,
         splitTyConAppCo_maybe,
         splitAppCo_maybe,
         splitForAllCo_maybe,
@@ -73,11 +69,7 @@ module Coercion (
         seqCo,
         
         -- * Pretty-printing
-        pprCo, pprParendCo, 
-        pprCoAxiom, pprCoAxBranch, pprCoAxBranchHdr, 
-
-        -- * Tidying
-        tidyCo, tidyCos,
+        pprCo, pprParendCo, pprCoAxiom, 
 
         -- * Other
         applyCo
@@ -95,15 +87,13 @@ import Var
 import VarEnv
 import VarSet
 import Maybes   ( orElse )
-import Name	( Name, NamedThing(..), nameUnique, nameModule, getSrcSpan )
-import NameSet
+import Name	( Name, NamedThing(..), nameUnique )
 import OccName 	( parenSymOcc )
 import Util
 import BasicTypes
 import Outputable
 import Unique
 import Pair
-import SrcLoc
 import PrelNames	( funTyConKey, eqPrimTyConKey )
 import Control.Applicative
 import Data.Traversable (traverse, sequenceA)
@@ -112,58 +102,6 @@ import FastString
 
 import qualified Data.Data as Data hiding ( TyCon )
 \end{code}
-
-
-%************************************************************************
-%*                                                                      *
-           Constructing axioms
-    These functions are here because tidyType etc 
-    are not available in CoAxiom
-%*                                                                      *
-%************************************************************************
-
-Note [Tidy axioms when we build them]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We print out axioms and don't want to print stuff like
-    F k k a b = ...
-Instead we must tidy those kind variables.  See Trac #7524.
-
-
-\begin{code}
-mkCoAxBranch :: [TyVar] -- original, possibly stale, tyvars
-             -> [Type]  -- LHS patterns
-             -> Type    -- RHS
-             -> SrcSpan
-             -> CoAxBranch
-mkCoAxBranch tvs lhs rhs loc
-  = CoAxBranch { cab_tvs = tvs1
-               , cab_lhs = tidyTypes env lhs
-               , cab_rhs = tidyType  env rhs
-               , cab_loc = loc }
-  where
-    (env, tvs1) = tidyTyVarBndrs emptyTidyEnv tvs
-    -- See Note [Tidy axioms when we build them]
-  
-
-mkBranchedCoAxiom :: Name -> TyCon -> [CoAxBranch] -> CoAxiom Branched
-mkBranchedCoAxiom ax_name fam_tc branches
-  = CoAxiom { co_ax_unique   = nameUnique ax_name
-            , co_ax_name     = ax_name
-            , co_ax_tc       = fam_tc
-            , co_ax_implicit = False
-            , co_ax_branches = toBranchList branches }
-
-mkSingleCoAxiom :: Name -> [TyVar] -> TyCon -> [Type] -> Type -> CoAxiom Unbranched
-mkSingleCoAxiom ax_name tvs fam_tc lhs_tys rhs_ty
-  = CoAxiom { co_ax_unique   = nameUnique ax_name
-            , co_ax_name     = ax_name
-            , co_ax_tc       = fam_tc
-            , co_ax_implicit = False
-            , co_ax_branches = FirstBranch branch }
-  where
-    branch = mkCoAxBranch tvs lhs_tys rhs_ty (getSrcSpan ax_name)
-\end{code}
-
 
 %************************************************************************
 %*									*
@@ -204,13 +142,10 @@ data Coercion
 
   -- These are special
   | CoVarCo CoVar
-  | AxiomInstCo (CoAxiom Branched) BranchIndex [Coercion]
-     -- See also [CoAxiom index]
-     -- The coercion arguments always *precisely* saturate 
-     -- arity of (that branch of) the CoAxiom.  If there are
-     -- any left over, we use AppCo.  See 
+  | AxiomInstCo (CoAxiom Branched) Int [Coercion]
+     -- The coercion arguments always *precisely* saturate arity of CoAxiom.
      -- See [Coercion axioms applied to coercions]
-
+     -- See also [CoAxiom index]
   | UnsafeCo Type Type
   | SymCo Coercion
   | TransCo Coercion Coercion
@@ -450,40 +385,6 @@ coercionSize (InstCo co ty)      = 1 + coercionSize co + typeSize ty
 
 %************************************************************************
 %*									*
-                            Tidying coercions
-%*									*
-%************************************************************************
-
-\begin{code}
-tidyCo :: TidyEnv -> Coercion -> Coercion
-tidyCo env@(_, subst) co
-  = go co
-  where
-    go (Refl ty)             = Refl (tidyType env ty)
-    go (TyConAppCo tc cos)   = let args = map go cos
-                               in args `seqList` TyConAppCo tc args
-    go (AppCo co1 co2)       = (AppCo $! go co1) $! go co2
-    go (ForAllCo tv co)      = ForAllCo tvp $! (tidyCo envp co)
-                               where
-                                 (envp, tvp) = tidyTyVarBndr env tv
-    go (CoVarCo cv)          = case lookupVarEnv subst cv of
-                                 Nothing  -> CoVarCo cv
-                                 Just cv' -> CoVarCo cv'
-    go (AxiomInstCo con ind cos) = let args = tidyCos env cos
-                               in  args `seqList` AxiomInstCo con ind args
-    go (UnsafeCo ty1 ty2)    = (UnsafeCo $! tidyType env ty1) $! tidyType env ty2
-    go (SymCo co)            = SymCo $! go co
-    go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
-    go (NthCo d co)          = NthCo d $! go co
-    go (LRCo lr co)          = LRCo lr $! go co
-    go (InstCo co ty)        = (InstCo $! go co) $! tidyType env ty
-
-tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
-tidyCos env = map (tidyCo env)
-\end{code}
-
-%************************************************************************
-%*									*
                    Pretty-printing coercions
 %*                                                                      *
 %************************************************************************
@@ -514,8 +415,9 @@ ppr_co p (AppCo co1 co2)       = maybeParen p TyConPrec $
 ppr_co p co@(ForAllCo {})      = ppr_forall_co p co
 ppr_co _ (CoVarCo cv)          = parenSymOcc (getOccName cv) (ppr cv)
 ppr_co p (AxiomInstCo con index cos)
-  = pprPrefixApp p (ppr (getName con) <> brackets (ppr index))
-                   (map (ppr_co TyConPrec) cos)
+  = angleBrackets (pprPrefixApp p 
+                    (ppr (getName con) <> brackets (ppr index))
+                    (map (ppr_co TyConPrec) cos))
 
 ppr_co p co@(TransCo {}) = maybeParen p FunPrec $
                            case trans_co_list co [] of
@@ -565,25 +467,10 @@ pprCoAxiom ax@(CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
        2 (vcat (map (pprCoAxBranch tc) $ fromBranchList branches))
 
 pprCoAxBranch :: TyCon -> CoAxBranch -> SDoc
-pprCoAxBranch fam_tc (CoAxBranch { cab_tvs = tvs
-                                 , cab_lhs = lhs
-                                 , cab_rhs = rhs })
-  = hang (ifPprDebug (pprForAll tvs))
-       2 (hang (pprTypeApp fam_tc lhs) 2 (equals <+> (ppr rhs)))
+pprCoAxBranch tc (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs })
+  = ptext (sLit "forall") <+> pprTvBndrs tvs <> dot <+> 
+      pprEqPred (Pair (mkTyConApp tc lhs) rhs)
 
-pprCoAxBranchHdr :: CoAxiom br -> BranchIndex -> SDoc
-pprCoAxBranchHdr ax@(CoAxiom { co_ax_tc = fam_tc, co_ax_name = name }) index
-  | CoAxBranch { cab_lhs = tys, cab_loc = loc } <- coAxiomNthBranch ax index
-  = hang (pprTypeApp fam_tc tys)
-       2 (ptext (sLit "-- Defined") <+> ppr_loc loc)
-  where
-        ppr_loc loc
-          | isGoodSrcSpan loc
-          = ptext (sLit "at") <+> ppr (srcSpanStart loc)
-    
-          | otherwise
-          = ptext (sLit "in") <+>
-              quotes (ppr (nameModule name))
 \end{code}
 
 %************************************************************************
@@ -693,22 +580,19 @@ mkUnbranchedAxInstCo :: CoAxiom Unbranched -> [Type] -> Coercion
 mkUnbranchedAxInstCo ax tys
   = mkAxInstCo ax 0 tys
 
-mkAxInstLHS, mkAxInstRHS :: CoAxiom br -> BranchIndex -> [Type] -> Type
+mkAxInstRHS :: CoAxiom br -> Int -> [Type] -> Type
 -- Instantiate the axiom with specified types,
 -- returning the instantiated RHS
 -- A companion to mkAxInstCo: 
 --    mkAxInstRhs ax index tys = snd (coercionKind (mkAxInstCo ax index tys))
-mkAxInstLHS ax index tys
-  | CoAxBranch { cab_tvs = tvs, cab_lhs = lhs } <- coAxiomNthBranch ax index
-  , (tys1, tys2) <- splitAtList tvs tys
-  = ASSERT( tvs `equalLength` tys1 ) 
-    mkTyConApp (coAxiomTyCon ax) (substTysWith tvs tys1 lhs ++ tys2)
-
 mkAxInstRHS ax index tys
-  | CoAxBranch { cab_tvs = tvs, cab_rhs = rhs } <- coAxiomNthBranch ax index
-  , (tys1, tys2) <- splitAtList tvs tys
   = ASSERT( tvs `equalLength` tys1 ) 
-    mkAppTys (substTyWith tvs tys1 rhs) tys2
+    mkAppTys rhs' tys2
+  where
+    branch       = coAxiomNthBranch ax index
+    tvs          = coAxBranchTyVars branch
+    (tys1, tys2) = splitAtList tvs tys
+    rhs'         = substTyWith tvs tys1 (coAxBranchRHS branch)
 
 mkUnbranchedAxInstRHS :: CoAxiom Unbranched -> [Type] -> Type
 mkUnbranchedAxInstRHS ax = mkAxInstRHS ax 0
@@ -821,8 +705,7 @@ mkNewTypeCo name tycon tvs rhs_ty
             , co_ax_implicit = True  -- See Note [Implicit axioms] in TyCon
             , co_ax_tc       = tycon
             , co_ax_branches = FirstBranch branch }
-  where branch = CoAxBranch { cab_loc = getSrcSpan name
-                            , cab_tvs = tvs
+  where branch = CoAxBranch { cab_tvs = tvs
                             , cab_lhs = mkTyVarTys tvs
                             , cab_rhs = rhs_ty }
 
@@ -857,64 +740,34 @@ instNewTyCon_maybe :: TyCon -> [Type] -> Maybe (Type, Coercion)
 -- ^ If @co :: T ts ~ rep_ty@ then:
 --
 -- > instNewTyCon_maybe T ts = Just (rep_ty, co)
--- Checks for a newtype, and for being saturated
 instNewTyCon_maybe tc tys
-  | Just (tvs, ty, co_tc) <- unwrapNewTyCon_maybe tc  -- Check for newtype
-  , tys `lengthIs` tyConArity tc                      -- Check saturated
-  = Just (substTyWith tvs tys ty, mkUnbranchedAxInstCo co_tc tys)
+  | Just (tvs, ty, co_tc) <- unwrapNewTyCon_maybe tc
+  = ASSERT( tys `lengthIs` tyConArity tc )
+    Just (substTyWith tvs tys ty, mkUnbranchedAxInstCo co_tc tys)
   | otherwise
   = Nothing
 
+-- this is here to avoid module loops
 splitNewTypeRepCo_maybe :: Type -> Maybe (Type, Coercion)  
 -- ^ Sometimes we want to look through a @newtype@ and get its associated coercion.
 -- This function only strips *one layer* of @newtype@ off, so the caller will usually call
--- itself recursively. If
+-- itself recursively. Furthermore, this function should only be applied to types of kind @*@,
+-- hence the newtype is always saturated. If @co : ty ~ ty'@ then:
 --
 -- > splitNewTypeRepCo_maybe ty = Just (ty', co)
 --
--- then  @co : ty ~ ty'@.  The function returns @Nothing@ for non-@newtypes@, 
--- or unsaturated applications
+-- The function returns @Nothing@ for non-@newtypes@ or fully-transparent @newtype@s.
 splitNewTypeRepCo_maybe ty 
-  | Just ty' <- coreView ty 
-  = splitNewTypeRepCo_maybe ty'
+  | Just ty' <- coreView ty = splitNewTypeRepCo_maybe ty'
 splitNewTypeRepCo_maybe (TyConApp tc tys)
-  = instNewTyCon_maybe tc tys
+  | Just (ty', co) <- instNewTyCon_maybe tc tys
+  = case co of
+	Refl _ -> panic "splitNewTypeRepCo_maybe"
+			-- This case handled by coreView
+	_      -> Just (ty', co)
 splitNewTypeRepCo_maybe _
   = Nothing
 
-topNormaliseNewType :: Type -> Maybe (Type, Coercion)
-topNormaliseNewType ty
-  = case topNormaliseNewTypeX emptyNameSet ty of
-      Just (_, co, ty) -> Just (ty, co)
-      Nothing          -> Nothing
-
-topNormaliseNewTypeX :: NameSet -> Type -> Maybe (NameSet, Coercion, Type)
-topNormaliseNewTypeX rec_nts ty
-  | Just ty' <- coreView ty         -- Expand predicates and synonyms
-  = topNormaliseNewTypeX rec_nts ty'
-
-topNormaliseNewTypeX rec_nts (TyConApp tc tys)
-  | Just (rep_ty, co) <- instNewTyCon_maybe tc tys
-  , not (tc_name `elemNameSet` rec_nts)  -- See Note [Expanding newtypes] in Type
-  = case topNormaliseNewTypeX rec_nts' rep_ty of
-       Nothing                       -> Just (rec_nts', co,                 rep_ty)
-       Just (rec_nts', co', rep_ty') -> Just (rec_nts', co `mkTransCo` co', rep_ty')
-  where
-    tc_name = tyConName tc
-    rec_nts' | isRecursiveTyCon tc = addOneToNameSet rec_nts tc_name
-             | otherwise	   = rec_nts
-
-topNormaliseNewTypeX _ _ = Nothing
-\end{code}
-
-
-%************************************************************************
-%*									*
-                   Equality of coercions
-%*                                                                      *
-%************************************************************************
-
-\begin{code}
 -- | Determines syntactic equality of coercions
 coreEqCoercion :: Coercion -> Coercion -> Bool
 coreEqCoercion co1 co2 = coreEqCoercion2 rn_env co1 co2
@@ -1303,12 +1156,11 @@ coercionKind co = go co
     go (ForAllCo tv co)     = mkForAllTy tv <$> go co
     go (CoVarCo cv)         = toPair $ coVarKind cv
     go (AxiomInstCo ax ind cos)
-      | CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs } <- coAxiomNthBranch ax ind
-      , Pair tys1 tys2 <- sequenceA (map go cos)
-      = ASSERT( cos `equalLength` tvs )  -- Invariant of AxiomInstCo: cos should 
-                                         -- exactly saturate the axiom branch
-        Pair (substTyWith tvs tys1 (mkTyConApp (coAxiomTyCon ax) lhs))
-             (substTyWith tvs tys2 rhs)
+      = let branch         = coAxiomNthBranch ax ind
+            tvs            = coAxBranchTyVars branch
+            Pair tys1 tys2 = sequenceA $ map go cos 
+        in  Pair (substTyWith tvs tys1 (coAxNthLHS ax ind))
+                 (substTyWith tvs tys2 (coAxBranchRHS branch))
     go (UnsafeCo ty1 ty2)   = Pair ty1 ty2
     go (SymCo co)           = swap $ go co
     go (TransCo co1 co2)    = Pair (pFst $ go co1) (pSnd $ go co2)

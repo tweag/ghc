@@ -561,7 +561,7 @@ getRegister' _ (CmmLit (CmmInt i rep))
 getRegister' _ (CmmLit (CmmFloat f frep)) = do
     lbl <- getNewLabelNat
     dflags <- getDynFlags
-    dynRef <- cmmMakeDynamicReference dflags DataReference lbl
+    dynRef <- cmmMakeDynamicReference dflags addImportNat DataReference lbl
     Amode addr addr_code <- getAmode dynRef
     let size = floatSize frep
         code dst =
@@ -1107,7 +1107,7 @@ genCCall' dflags gcp target dest_regs args0
         outOfLineMachOp mop =
             do
                 dflags <- getDynFlags
-                mopExpr <- cmmMakeDynamicReference dflags CallReference $
+                mopExpr <- cmmMakeDynamicReference dflags addImportNat CallReference $
                               mkForeignLabel functionName Nothing ForeignLabelInThisPackage IsFunction
                 let mopLabelOrExpr = case mopExpr of
                         CmmLit (CmmLabel lbl) -> Left lbl
@@ -1164,7 +1164,6 @@ genCCall' dflags gcp target dest_regs args0
                     MO_U_Mul2 {}     -> unsupported
                     MO_WriteBarrier  -> unsupported
                     MO_Touch         -> unsupported
-                    MO_Prefetch_Data -> unsupported
                 unsupported = panic ("outOfLineCmmOp: " ++ show mop
                                   ++ " not supported")
 
@@ -1179,7 +1178,7 @@ genSwitch dflags expr ids
         tmp <- getNewRegNat II32
         lbl <- getNewLabelNat
         dflags <- getDynFlags
-        dynRef <- cmmMakeDynamicReference dflags DataReference lbl
+        dynRef <- cmmMakeDynamicReference dflags addImportNat DataReference lbl
         (tableReg,t_code) <- getSomeReg $ dynRef
         let code = e_code `appOL` t_code `appOL` toOL [
                             SLW tmp reg (RIImm (ImmInt 2)),
@@ -1382,7 +1381,7 @@ coerceInt2FP fromRep toRep x = do
     itmp <- getNewRegNat II32
     ftmp <- getNewRegNat FF64
     dflags <- getDynFlags
-    dynRef <- cmmMakeDynamicReference dflags DataReference lbl
+    dynRef <- cmmMakeDynamicReference dflags addImportNat DataReference lbl
     Amode addr addr_code <- getAmode dynRef
     let
         code' dst = code `appOL` maybe_exts `appOL` toOL [

@@ -61,7 +61,7 @@ module CLabel (
         mkCAFBlackHoleInfoTableLabel,
         mkCAFBlackHoleEntryLabel,
         mkRtsPrimOpLabel,
-        mkRtsSlowFastTickyCtrLabel,
+        mkRtsSlowTickyCtrLabel,
 
         mkSelectorInfoLabel,
         mkSelectorEntryLabel,
@@ -99,7 +99,7 @@ module CLabel (
         isCFunctionLabel, isGcPtrLabel, labelDynamic,
 
         -- * Conversions
-        toClosureLbl, toSlowEntryLbl, toEntryLbl, toInfoLbl, toRednCountsLbl, hasHaskellName,
+        toClosureLbl, toSlowEntryLbl, toEntryLbl, toInfoLbl, toRednCountsLbl,
 
         pprCLabel
     ) where
@@ -107,6 +107,7 @@ module CLabel (
 import IdInfo
 import BasicTypes
 import Packages
+import DataCon
 import Module
 import Name
 import Unique
@@ -313,7 +314,7 @@ data RtsLabelInfo
 
   | RtsPrimOp PrimOp
   | RtsApFast     FastString    -- ^ _fast versions of generic apply
-  | RtsSlowFastTickyCtr String
+  | RtsSlowTickyCtr String
 
   deriving (Eq, Ord)
   -- NOTE: Eq on LitString compares the pointer only, so this isn't
@@ -356,10 +357,9 @@ mkTopSRTLabel     :: Unique -> CLabel
 mkTopSRTLabel u = SRTLabel u
 
 mkSRTLabel        :: Name -> CafInfo -> CLabel
-mkRednCountsLabel :: Name -> CLabel
+mkRednCountsLabel :: Name -> CafInfo -> CLabel
 mkSRTLabel              name c  = IdLabel name  c SRT
-mkRednCountsLabel       name    =
-  IdLabel name NoCafRefs RednCounts  -- Note [ticky for LNE]
+mkRednCountsLabel       name c  = IdLabel name  c RednCounts
 
 -- These have local & (possibly) external variants:
 mkLocalClosureLabel      :: Name -> CafInfo -> CLabel
@@ -398,13 +398,13 @@ mkConEntryLabel name        c     = IdLabel name c ConEntry
 mkStaticConEntryLabel name  c     = IdLabel name c StaticConEntry
 
 -- Constructing Cmm Labels
-mkDirty_MUT_VAR_Label, mkSplitMarkerLabel, mkUpdInfoLabel,
+mkSplitMarkerLabel, mkDirty_MUT_VAR_Label, mkUpdInfoLabel,
     mkBHUpdInfoLabel, mkIndStaticInfoLabel, mkMainCapabilityLabel,
     mkMAP_FROZEN_infoLabel, mkMAP_DIRTY_infoLabel,
     mkEMPTY_MVAR_infoLabel, mkTopTickyCtrLabel,
     mkCAFBlackHoleInfoTableLabel, mkCAFBlackHoleEntryLabel :: CLabel
-mkDirty_MUT_VAR_Label           = mkForeignLabel (fsLit "dirty_MUT_VAR") Nothing ForeignLabelInExternalPackage IsFunction
 mkSplitMarkerLabel              = CmmLabel rtsPackageId (fsLit "__stg_split_marker")    CmmCode
+mkDirty_MUT_VAR_Label           = CmmLabel rtsPackageId (fsLit "dirty_MUT_VAR")         CmmCode
 mkUpdInfoLabel                  = CmmLabel rtsPackageId (fsLit "stg_upd_frame")         CmmInfo
 mkBHUpdInfoLabel                = CmmLabel rtsPackageId (fsLit "stg_bh_upd_frame" )     CmmInfo
 mkIndStaticInfoLabel            = CmmLabel rtsPackageId (fsLit "stg_IND_STATIC")        CmmInfo
@@ -504,8 +504,8 @@ mkCCSLabel          ccs         = CCS_Label ccs
 mkRtsApFastLabel :: FastString -> CLabel
 mkRtsApFastLabel str = RtsLabel (RtsApFast str)
 
-mkRtsSlowFastTickyCtrLabel :: String -> CLabel
-mkRtsSlowFastTickyCtrLabel pat = RtsLabel (RtsSlowFastTickyCtr pat)
+mkRtsSlowTickyCtrLabel :: String -> CLabel
+mkRtsSlowTickyCtrLabel pat = RtsLabel (RtsSlowTickyCtr pat)
 
 
 -- Constructing Code Coverage Labels
@@ -550,6 +550,10 @@ toSlowEntryLbl :: CLabel -> CLabel
 toSlowEntryLbl (IdLabel n c _) = IdLabel n c Slow
 toSlowEntryLbl l = pprPanic "toSlowEntryLbl" (ppr l)
 
+toRednCountsLbl :: CLabel -> CLabel
+toRednCountsLbl (IdLabel n c _) = IdLabel n c RednCounts
+toRednCountsLbl l = pprPanic "toRednCountsLbl" (ppr l)
+
 toEntryLbl :: CLabel -> CLabel
 toEntryLbl (IdLabel n c LocalInfoTable)  = IdLabel n c LocalEntry
 toEntryLbl (IdLabel n c ConInfoTable)    = IdLabel n c ConEntry
@@ -571,38 +575,12 @@ toInfoLbl (CmmLabel m str CmmEntry)    = CmmLabel m str CmmInfo
 toInfoLbl (CmmLabel m str CmmRet)      = CmmLabel m str CmmRetInfo
 toInfoLbl l = pprPanic "CLabel.toInfoLbl" (ppr l)
 
-toRednCountsLbl :: CLabel -> Maybe CLabel
-toRednCountsLbl = fmap mkRednCountsLabel . hasHaskellName
-
-hasHaskellName :: CLabel -> Maybe Name
-hasHaskellName (IdLabel n _ _) = Just n
-hasHaskellName _               = Nothing
-
 -- -----------------------------------------------------------------------------
--- Does a CLabel's referent itself refer to a CAF?
+-- Does a CLabel refer to a CAF?
 hasCAF :: CLabel -> Bool
-hasCAF (IdLabel _ _ RednCounts) = False -- Note [ticky for LNE]
 hasCAF (IdLabel _ MayHaveCafRefs _) = True
 hasCAF _                            = False
 
--- Note [ticky for LNE]
--- ~~~~~~~~~~~~~~~~~~~~~
-
--- Until 14 Feb 2013, every ticky counter was associated with a
--- closure. Thus, ticky labels used IdLabel. It is odd that
--- CmmBuildInfoTables.cafTransfers would consider such a ticky label
--- reason to add the name to the CAFEnv (and thus eventually the SRT),
--- but it was harmless because the ticky was only used if the closure
--- was also.
---
--- Since we now have ticky counters for LNEs, it is no longer the case
--- that every ticky counter has an actual closure. So I changed the
--- generation of ticky counters' CLabels to not result in their
--- associated id ending up in the SRT.
---
--- NB IdLabel is still appropriate for ticky ids (as opposed to
--- CmmLabel) because the LNE's counter is still related to an .hs Id,
--- that Id just isn't for a proper closure.
 
 -- -----------------------------------------------------------------------------
 -- Does a CLabel need declaring before use or not?
@@ -837,13 +815,13 @@ idInfoLabelType info =
 -- @labelDynamic@ returns @True@ if the label is located
 -- in a DLL, be it a data reference or not.
 
-labelDynamic :: DynFlags -> PackageId -> Module -> CLabel -> Bool
-labelDynamic dflags this_pkg this_mod lbl =
+labelDynamic :: DynFlags -> PackageId -> CLabel -> Bool
+labelDynamic dflags this_pkg lbl =
   case lbl of
    -- is the RTS in a DLL or not?
    RtsLabel _           -> not (gopt Opt_Static dflags) && (this_pkg /= rtsPackageId)
 
-   IdLabel n _ _        -> isDllName dflags this_pkg this_mod n
+   IdLabel n _ _        -> isDllName dflags this_pkg n
 
    -- When compiling in the "dyn" way, each package is to be linked into
    -- its own shared library.
@@ -1074,8 +1052,8 @@ pprCLbl (CmmLabel _ fs CmmClosure)
 pprCLbl (RtsLabel (RtsPrimOp primop))
   = ptext (sLit "stg_") <> ppr primop
 
-pprCLbl (RtsLabel (RtsSlowFastTickyCtr pat))
-  = ptext (sLit "SLOW_CALL_fast_") <> text pat <> ptext (sLit "_ctr")
+pprCLbl (RtsLabel (RtsSlowTickyCtr pat))
+  = ptext (sLit "SLOW_CALL_") <> text pat <> ptext (sLit "_ctr")
 
 pprCLbl (ForeignLabel str _ _ _)
   = ftext str

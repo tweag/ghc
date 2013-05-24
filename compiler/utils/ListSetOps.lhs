@@ -15,9 +15,6 @@ module ListSetOps (
         -- Duplicate handling
         hasNoDups, runs, removeDups, findDupsEq,
         equivClasses, equivClassesByUniq,
-
-        -- Indexing
-        getNth
    ) where
 
 #include "HsVersions.h"
@@ -30,21 +27,6 @@ import Util
 import Data.List
 \end{code}
 
----------
-#ifndef DEBUG
-getNth :: [a] -> Int -> a
-getNth xs n = xs !! n
-#else
-getNth :: Outputable a => [a] -> Int -> a
-getNth xs n = ASSERT2( xs `lengthAtLeast` n, ppr n $$ ppr xs )
-              xs !! n
-#endif
-----------
-\begin{code}
-getNth :: Outputable a => [a] -> Int -> a
-getNth xs n = ASSERT2( xs `lengthExceeds` n, ppr n $$ ppr xs )
-              xs !! n
-\end{code}
 
 %************************************************************************
 %*                                                                      *

@@ -8,7 +8,6 @@
 --
 -- ----------------------------------------------------------------------------
 
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Fingerprint (
         Fingerprint(..), fingerprint0,
         readHexFingerprint,

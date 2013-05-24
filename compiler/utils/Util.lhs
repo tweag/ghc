@@ -9,7 +9,7 @@
 module Util (
         -- * Flags dependent on the compiler build
         ghciSupported, debugIsOn, ncgDebugIsOn,
-        ghciTablesNextToCode,
+        ghciTablesNextToCode, isDynamicGhcLib,
         isWindowsHost, isDarwinHost,
 
         -- * General list processing
@@ -177,6 +177,13 @@ ghciTablesNextToCode :: Bool
 ghciTablesNextToCode = True
 #else
 ghciTablesNextToCode = False
+#endif
+
+isDynamicGhcLib :: Bool
+#ifdef DYNAMIC
+isDynamicGhcLib = True
+#else
+isDynamicGhcLib = False
 #endif
 
 isWindowsHost :: Bool

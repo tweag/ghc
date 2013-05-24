@@ -70,8 +70,7 @@ type UnresStatic = Either UnresLabel LlvmStatic
 
 -- | Translate a basic CmmType to an LlvmType.
 cmmToLlvmType :: CmmType -> LlvmType
-cmmToLlvmType ty | isVecType ty   = LMVector (vecLength ty) (cmmToLlvmType (vecElemType ty))
-                 | isFloatType ty = widthToLlvmFloat $ typeWidth ty
+cmmToLlvmType ty | isFloatType ty = widthToLlvmFloat $ typeWidth ty
                  | otherwise      = widthToLlvmInt   $ typeWidth ty
 
 -- | Translate a Cmm Float Width to a LlvmType.
@@ -131,12 +130,11 @@ llvmFunArgs :: DynFlags -> LiveGlobalRegs -> [LlvmVar]
 llvmFunArgs dflags live =
     map (lmGlobalRegArg dflags) (filter isPassed (activeStgRegs platform))
     where platform = targetPlatform dflags
-          isLive r = not (isSSE r) || r `elem` alwaysLive || r `elem` live
-          isPassed r = not (isSSE r) || isLive r
-          isSSE (FloatReg _)  = True
-          isSSE (DoubleReg _) = True
-          isSSE (XmmReg _)    = True
-          isSSE _             = False
+          isLive r = not (isFloat r) || r `elem` alwaysLive || r `elem` live
+          isPassed r = not (isFloat r) || isLive r
+          isFloat (FloatReg _)  = True
+          isFloat (DoubleReg _) = True
+          isFloat _             = False
 
 -- | Llvm standard fun attributes
 llvmStdFunAttrs :: [LlvmFuncAttr]
@@ -166,7 +164,7 @@ minSupportLlvmVersion :: LlvmVersion
 minSupportLlvmVersion = 28
 
 maxSupportLlvmVersion :: LlvmVersion
-maxSupportLlvmVersion = 33
+maxSupportLlvmVersion = 31
 
 -- ----------------------------------------------------------------------------
 -- * Environment Handling

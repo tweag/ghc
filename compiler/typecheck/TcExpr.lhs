@@ -15,8 +15,8 @@
 module TcExpr ( tcPolyExpr, tcPolyExprNC, tcMonoExpr, tcMonoExprNC, 
                 tcInferRho, tcInferRhoNC, 
                 tcSyntaxOp, tcCheckId,
-                addExprErrCtxt) where
-                
+                addExprErrCtxt ) where
+
 #include "HsVersions.h"
 
 #ifdef GHCI 	/* Only if bootstrapped */
@@ -43,7 +43,6 @@ import TcType
 import DsMonad hiding (Splice)
 import Id
 import DataCon
-import RdrName
 import Name
 import TyCon
 import Type
@@ -134,16 +133,6 @@ tcInfExpr (HsPar e) 	= do { (e', ty) <- tcInferRhoNC e
                              ; return (HsPar e', ty) }
 tcInfExpr (HsApp e1 e2) = tcInferApp e1 [e2]                                  
 tcInfExpr e             = tcInfer (tcExpr e)
-
-tcHole :: OccName -> TcRhoType -> TcM (HsExpr TcId)
-tcHole occ res_ty 
- = do { ty <- newFlexiTyVarTy liftedTypeKind
-      ; name <- newSysName occ
-      ; let ev = mkLocalId name ty
-      ; loc <- getCtLoc HoleOrigin
-      ; let can = CHoleCan { cc_ev = CtWanted ty ev, cc_loc = loc, cc_occ = occ }
-      ; emitInsoluble can
-      ; tcWrapResult (HsVar ev) ty res_ty }
 \end{code}
 
 
@@ -242,8 +231,15 @@ tcExpr (HsType ty) _
 	-- so it's not enabled yet.
 	-- Can't eliminate it altogether from the parser, because the
 	-- same parser parses *patterns*.
-tcExpr (HsUnboundVar v) res_ty
-  = tcHole (rdrNameOcc v) res_ty
+tcExpr HsHole res_ty
+  = do { ty <- newFlexiTyVarTy liftedTypeKind
+      ; traceTc "tcExpr.HsHole" (ppr ty)
+      ; ev <- mkSysLocalM (mkFastString "_") ty
+      ; loc <- getCtLoc HoleOrigin
+      ; let can = CHoleCan { cc_ev = CtWanted ty ev, cc_loc = loc }
+      ; traceTc "tcExpr.HsHole emitting" (ppr can)
+      ; emitInsoluble can
+      ; tcWrapResult (HsVar ev) ty res_ty }
 \end{code}
 
 
@@ -401,18 +397,12 @@ tcExpr (ExplicitTuple tup_args boxity) res_ty
        
        ; return $ mkHsWrapCo coi (ExplicitTuple tup_args1 boxity) }
 
-tcExpr (ExplicitList _ witness exprs) res_ty   
-  = case witness of
-      Nothing   -> do  { (coi, elt_ty) <- matchExpectedListTy res_ty
-                       ; exprs' <- mapM (tc_elt elt_ty) exprs                       
-                       ; return $ mkHsWrapCo coi (ExplicitList elt_ty Nothing exprs') }
-
-      Just fln -> do  { list_ty <- newFlexiTyVarTy liftedTypeKind
-                     ; fln' <- tcSyntaxOp ListOrigin fln (mkFunTys [intTy, list_ty] res_ty)
-                     ; (coi, elt_ty) <- matchExpectedListTy list_ty
-                     ; exprs' <- mapM (tc_elt elt_ty) exprs
-                     ; return $ mkHsWrapCo coi (ExplicitList elt_ty (Just fln') exprs') }
-     where tc_elt elt_ty expr = tcPolyExpr expr elt_ty          
+tcExpr (ExplicitList _ exprs) res_ty
+  = do 	{ (coi, elt_ty) <- matchExpectedListTy res_ty
+	; exprs' <- mapM (tc_elt elt_ty) exprs
+	; return $ mkHsWrapCo coi (ExplicitList elt_ty exprs') }
+  where
+    tc_elt elt_ty expr = tcPolyExpr expr elt_ty
 
 tcExpr (ExplicitPArr _ exprs) res_ty	-- maybe empty
   = do	{ (coi, elt_ty) <- matchExpectedPArrTy res_ty
@@ -542,7 +532,7 @@ handle the *non-updated* fields.  Consider:
 
 The result type should be (T a b' c)
 not (T a b c),   because 'b' *is not* mentioned in a non-updated field
-not (T a b' c'), because 'c' *is*     mentioned in a non-updated field
+not (T a b' c'), becuase 'c' *is*     mentioned in a non-updated field
 NB that it's not good enough to look at just one constructor; we must
 look at them all; cf Trac #3219
 
@@ -763,8 +753,40 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 %************************************************************************
 
 \begin{code}
-tcExpr (ArithSeq _ witness seq) res_ty
-  = tcArithSeq witness seq res_ty
+tcExpr (ArithSeq _ seq@(From expr)) res_ty
+  = do	{ (coi, elt_ty) <- matchExpectedListTy res_ty
+	; expr' <- tcPolyExpr expr elt_ty
+	; enum_from <- newMethodFromName (ArithSeqOrigin seq) 
+			      enumFromName elt_ty 
+	; return $ mkHsWrapCo coi (ArithSeq enum_from (From expr')) }
+
+tcExpr (ArithSeq _ seq@(FromThen expr1 expr2)) res_ty
+  = do	{ (coi, elt_ty) <- matchExpectedListTy res_ty
+	; expr1' <- tcPolyExpr expr1 elt_ty
+	; expr2' <- tcPolyExpr expr2 elt_ty
+	; enum_from_then <- newMethodFromName (ArithSeqOrigin seq) 
+			      enumFromThenName elt_ty 
+	; return $ mkHsWrapCo coi 
+                    (ArithSeq enum_from_then (FromThen expr1' expr2')) }
+
+tcExpr (ArithSeq _ seq@(FromTo expr1 expr2)) res_ty
+  = do	{ (coi, elt_ty) <- matchExpectedListTy res_ty
+	; expr1' <- tcPolyExpr expr1 elt_ty
+	; expr2' <- tcPolyExpr expr2 elt_ty
+	; enum_from_to <- newMethodFromName (ArithSeqOrigin seq) 
+		  	      enumFromToName elt_ty 
+	; return $ mkHsWrapCo coi 
+                     (ArithSeq enum_from_to (FromTo expr1' expr2')) }
+
+tcExpr (ArithSeq _ seq@(FromThenTo expr1 expr2 expr3)) res_ty
+  = do	{ (coi, elt_ty) <- matchExpectedListTy res_ty
+	; expr1' <- tcPolyExpr expr1 elt_ty
+	; expr2' <- tcPolyExpr expr2 elt_ty
+	; expr3' <- tcPolyExpr expr3 elt_ty
+	; eft <- newMethodFromName (ArithSeqOrigin seq) 
+		      enumFromThenToName elt_ty 
+	; return $ mkHsWrapCo coi 
+                     (ArithSeq eft (FromThenTo expr1' expr2' expr3')) }
 
 tcExpr (PArrSeq _ seq@(FromTo expr1 expr2)) res_ty
   = do	{ (coi, elt_ty) <- matchExpectedPArrTy res_ty
@@ -825,61 +847,6 @@ tcExpr other _ = pprPanic "tcMonoExpr" (ppr other)
 
 %************************************************************************
 %*									*
-		Arithmetic sequences [a..b] etc
-%*									*
-%************************************************************************
-
-\begin{code}
-tcArithSeq :: Maybe (SyntaxExpr Name) -> ArithSeqInfo Name -> TcRhoType
-           -> TcM (HsExpr TcId)
-
-tcArithSeq witness seq@(From expr) res_ty
-  = do { (coi, elt_ty, wit') <- arithSeqEltType witness res_ty
-       ; expr' <- tcPolyExpr expr elt_ty
-       ; enum_from <- newMethodFromName (ArithSeqOrigin seq) 
-			      enumFromName elt_ty 
-       ; return $ mkHsWrapCo coi (ArithSeq enum_from wit' (From expr')) }
-     
-tcArithSeq witness seq@(FromThen expr1 expr2) res_ty
-  = do { (coi, elt_ty, wit') <- arithSeqEltType witness res_ty
-       ; expr1' <- tcPolyExpr expr1 elt_ty
-       ; expr2' <- tcPolyExpr expr2 elt_ty
-       ; enum_from_then <- newMethodFromName (ArithSeqOrigin seq) 
-			      enumFromThenName elt_ty 
-       ; return $ mkHsWrapCo coi (ArithSeq enum_from_then wit' (FromThen expr1' expr2')) }
-     
-tcArithSeq witness seq@(FromTo expr1 expr2) res_ty
-  = do { (coi, elt_ty, wit') <- arithSeqEltType witness res_ty
-       ; expr1' <- tcPolyExpr expr1 elt_ty
-       ; expr2' <- tcPolyExpr expr2 elt_ty
-       ; enum_from_to <- newMethodFromName (ArithSeqOrigin seq) 
-			      enumFromToName elt_ty 
-       ; return $ mkHsWrapCo coi (ArithSeq enum_from_to wit' (FromTo expr1' expr2')) }
-
-tcArithSeq witness seq@(FromThenTo expr1 expr2 expr3) res_ty
-  = do { (coi, elt_ty, wit') <- arithSeqEltType witness res_ty
-        ; expr1' <- tcPolyExpr expr1 elt_ty
-        ; expr2' <- tcPolyExpr expr2 elt_ty
-        ; expr3' <- tcPolyExpr expr3 elt_ty
-        ; eft <- newMethodFromName (ArithSeqOrigin seq) 
-			      enumFromThenToName elt_ty
-        ; return $ mkHsWrapCo coi (ArithSeq eft wit' (FromThenTo expr1' expr2' expr3')) }
-
------------------
-arithSeqEltType :: Maybe (SyntaxExpr Name) -> TcRhoType 
-              -> TcM (TcCoercion, TcType, Maybe (SyntaxExpr Id))
-arithSeqEltType Nothing res_ty
-  = do { (coi, elt_ty) <- matchExpectedListTy res_ty
-       ; return (coi, elt_ty, Nothing) }
-arithSeqEltType (Just fl) res_ty
-  = do { list_ty <- newFlexiTyVarTy liftedTypeKind
-       ; fl' <- tcSyntaxOp ListOrigin fl (mkFunTy list_ty res_ty)
-       ; (coi, elt_ty) <- matchExpectedListTy list_ty
-       ; return (coi, elt_ty, Just fl') }
-\end{code}
-
-%************************************************************************
-%*									*
 		Applications
 %*									*
 %************************************************************************
@@ -914,7 +881,7 @@ tcApp fun args res_ty
 	-- Typecheck the result, thereby propagating 
         -- info (if any) from result into the argument types
         -- Both actual_res_ty and res_ty are deeply skolemised
-        ; co_res <- addErrCtxtM (funResCtxt True (unLoc fun) actual_res_ty res_ty) $
+        ; co_res <- addErrCtxtM (funResCtxt fun actual_res_ty res_ty) $
                     unifyType actual_res_ty res_ty
 
 	-- Typecheck the arguments
@@ -1043,10 +1010,8 @@ in the other order, the extra signature in f2 is reqd.
 
 \begin{code}
 tcCheckId :: Name -> TcRhoType -> TcM (HsExpr TcId)
-tcCheckId name res_ty 
-  = do { (expr, actual_res_ty) <- tcInferId name
-       ; addErrCtxtM (funResCtxt False (HsVar name) actual_res_ty res_ty) $
-         tcWrapResult expr actual_res_ty res_ty }
+tcCheckId name res_ty = do { (expr, rho) <- tcInferId name
+                           ; tcWrapResult expr rho res_ty }
 
 ------------------------
 tcInferId :: Name -> TcM (HsExpr TcId, TcRhoType)
@@ -1480,36 +1445,23 @@ funAppCtxt fun arg arg_no
 		    quotes (ppr fun) <> text ", namely"])
        2 (quotes (ppr arg))
 
-funResCtxt :: Bool  -- There is at least one argument
-           -> HsExpr Name -> TcType -> TcType 
+funResCtxt :: LHsExpr Name -> TcType -> TcType 
            -> TidyEnv -> TcM (TidyEnv, MsgDoc)
 -- When we have a mis-match in the return type of a function
 -- try to give a helpful message about too many/few arguments
---
--- Used for naked variables too; but with has_args = False 
-funResCtxt has_args fun fun_res_ty env_ty tidy_env
+funResCtxt fun fun_res_ty res_ty env0
   = do { fun_res' <- zonkTcType fun_res_ty
-       ; env'     <- zonkTcType env_ty
-       ; let (args_fun, res_fun) = tcSplitFunTys fun_res'
-             (args_env, res_env) = tcSplitFunTys env'
-             n_fun = length args_fun
-             n_env = length args_env
-             info  | n_fun == n_env = empty
-                   | n_fun > n_env
-                   , not_fun res_env = ptext (sLit "Probable cause:") <+> quotes (ppr fun)
-                                       <+> ptext (sLit "is applied to too few arguments")
-                   | has_args
-                   , not_fun res_fun = ptext (sLit "Possible cause:") <+> quotes (ppr fun)
-                                       <+> ptext (sLit "is applied to too many arguments")
-                   | otherwise       = empty  -- Never suggest that a naked variable is
-                                             -- applied to too many args!
-       ; return (tidy_env, info) }
-  where
-    not_fun ty   -- ty is definitely not an arrow type, 
-                 -- and cannot conceivably become one
-      = case tcSplitTyConApp_maybe ty of
-          Just (tc, _) -> isAlgTyCon tc
-          Nothing      -> False
+       ; res'     <- zonkTcType res_ty
+       ; let n_fun = length (fst (tcSplitFunTys fun_res'))
+             n_res = length (fst (tcSplitFunTys res'))
+             what  | n_fun > n_res = ptext (sLit "few")
+                   | otherwise     = ptext (sLit "many")
+             extra | n_fun == n_res = empty
+                   | otherwise = ptext (sLit "Probable cause:") <+> quotes (ppr fun)
+                                 <+> ptext (sLit "is applied to too") <+> what 
+                                 <+> ptext (sLit "arguments") 
+             msg = ptext (sLit "In the return type of a call of") <+> quotes (ppr fun)
+       ; return (env0, msg $$ extra) }
 
 badFieldTypes :: [(Name,TcType)] -> SDoc
 badFieldTypes prs

@@ -392,8 +392,3 @@ exitHashTable(void)
 {
     /* nothing to do */
 }
-
-int keyCountHashTable (HashTable *table)
-{
-    return table->kcount;
-}

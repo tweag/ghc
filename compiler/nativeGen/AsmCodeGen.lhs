@@ -27,6 +27,7 @@ import qualified SPARC.ShortcutJump
 import qualified SPARC.CodeGen.Expand
 
 import qualified PPC.CodeGen
+import qualified PPC.Cond
 import qualified PPC.Regs
 import qualified PPC.RegInfo
 import qualified PPC.Instr
@@ -146,19 +147,19 @@ data NcgImpl statics instr jumpDest = NcgImpl {
     allocatableRegs           :: [RealReg],
     ncg_x86fp_kludge          :: [NatCmmDecl statics instr] -> [NatCmmDecl statics instr],
     ncgExpandTop              :: [NatCmmDecl statics instr] -> [NatCmmDecl statics instr],
-    ncgAllocMoreStack         :: Int -> NatCmmDecl statics instr -> UniqSM (NatCmmDecl statics instr),
-    ncgMakeFarBranches        :: BlockEnv CmmStatics -> [NatBasicBlock instr] -> [NatBasicBlock instr]
+    ncgAllocMoreStack         :: Int -> NatCmmDecl statics instr -> NatCmmDecl statics instr,
+    ncgMakeFarBranches        :: [NatBasicBlock instr] -> [NatBasicBlock instr]
     }
 
 --------------------
-nativeCodeGen :: DynFlags -> Module -> Handle -> UniqSupply
+nativeCodeGen :: DynFlags -> [(Handle, DynFlags)] -> UniqSupply
               -> Stream IO RawCmmGroup ()
               -> IO UniqSupply
-nativeCodeGen dflags this_mod h us cmms
+nativeCodeGen dflags hds us cmms
  = let platform = targetPlatform dflags
        nCG' :: (Outputable statics, Outputable instr, Instruction instr)
             => NcgImpl statics instr jumpDest -> IO UniqSupply
-       nCG' ncgImpl = nativeCodeGen' dflags this_mod ncgImpl h us cmms
+       nCG' ncgImpl = nativeCodeGen' dflags ncgImpl hds us cmms
    in case platformArch platform of
       ArchX86     -> nCG' (x86NcgImpl    dflags)
       ArchX86_64  -> nCG' (x86_64NcgImpl dflags)
@@ -190,7 +191,7 @@ x86_64NcgImpl dflags
        ,ncg_x86fp_kludge          = id
        ,ncgAllocMoreStack         = X86.Instr.allocMoreStack platform
        ,ncgExpandTop              = id
-       ,ncgMakeFarBranches        = const id
+       ,ncgMakeFarBranches        = id
    }
     where platform = targetPlatform dflags
 
@@ -209,7 +210,7 @@ ppcNcgImpl dflags
        ,ncg_x86fp_kludge          = id
        ,ncgAllocMoreStack         = PPC.Instr.allocMoreStack platform
        ,ncgExpandTop              = id
-       ,ncgMakeFarBranches        = PPC.Instr.makeFarBranches
+       ,ncgMakeFarBranches        = makeFarBranches
    }
     where platform = targetPlatform dflags
 
@@ -228,7 +229,7 @@ sparcNcgImpl dflags
        ,ncg_x86fp_kludge          = id
        ,ncgAllocMoreStack         = noAllocMoreStack
        ,ncgExpandTop              = map SPARC.CodeGen.Expand.expandTop
-       ,ncgMakeFarBranches        = const id
+       ,ncgMakeFarBranches        = id
    }
 
 --
@@ -237,7 +238,7 @@ sparcNcgImpl dflags
 -- default to the panic below.  To support allocating extra stack on
 -- more platforms provide a definition of ncgAllocMoreStack.
 --
-noAllocMoreStack :: Int -> NatCmmDecl statics instr -> UniqSM (NatCmmDecl statics instr)
+noAllocMoreStack :: Int -> NatCmmDecl statics instr -> NatCmmDecl statics instr
 noAllocMoreStack amount _
   = panic $   "Register allocator: out of stack slots (need " ++ show amount ++ ")\n"
         ++  "   If you are trying to compile SHA1.hs from the crypto library then this\n"
@@ -247,6 +248,7 @@ noAllocMoreStack amount _
         ++  "   You can still file a bug report if you like.\n"
 
 
+type NativeGenState statics instr = (BufHandle, DynFlags, NativeGenAcc statics instr)
 type NativeGenAcc statics instr
         = ([[CLabel]],
            [([NatCmmDecl statics instr],
@@ -255,21 +257,22 @@ type NativeGenAcc statics instr
 
 nativeCodeGen' :: (Outputable statics, Outputable instr, Instruction instr)
                => DynFlags
-               -> Module
                -> NcgImpl statics instr jumpDest
-               -> Handle
+               -> [(Handle, DynFlags)]
                -> UniqSupply
                -> Stream IO RawCmmGroup ()
                -> IO UniqSupply
-nativeCodeGen' dflags this_mod ncgImpl h us cmms
+nativeCodeGen' dflags ncgImpl hds us cmms
  = do
         let split_cmms  = Stream.map add_split cmms
         -- BufHandle is a performance hack.  We could hide it inside
         -- Pretty if it weren't for the fact that we do lots of little
         -- printDocs here (in order to do codegen in constant space).
-        bufh <- newBufHandle h
-        (ngs, us') <- cmmNativeGenStream dflags this_mod ncgImpl bufh us split_cmms ([], [])
-        finishNativeGen dflags ncgImpl bufh ngs
+        let mkNgs (h, dflags) = do bufh <- newBufHandle h
+                                   return (bufh, dflags, ([], []))
+        ngss <- mapM mkNgs hds
+        (ngss', us') <- cmmNativeGenStream ncgImpl us split_cmms ngss
+        mapM_ (finishNativeGen ncgImpl) ngss'
 
         return us'
 
@@ -282,12 +285,10 @@ nativeCodeGen' dflags this_mod ncgImpl h us cmms
 
 
 finishNativeGen :: Instruction instr
-                => DynFlags
-                -> NcgImpl statics instr jumpDest
-                -> BufHandle
-                -> NativeGenAcc statics instr
+                => NcgImpl statics instr jumpDest
+                -> NativeGenState statics instr
                 -> IO ()
-finishNativeGen dflags ncgImpl bufh@(BufHandle _ _ h) (imports, prof)
+finishNativeGen ncgImpl (bufh@(BufHandle _ _ h), dflags, (imports, prof))
  = do
         bFlush bufh
 
@@ -335,44 +336,55 @@ finishNativeGen dflags ncgImpl bufh@(BufHandle _ _ h) (imports, prof)
                 $ makeImportsDoc dflags (concat imports)
 
 cmmNativeGenStream :: (Outputable statics, Outputable instr, Instruction instr)
-              => DynFlags
-              -> Module
-              -> NcgImpl statics instr jumpDest
-              -> BufHandle
+              => NcgImpl statics instr jumpDest
               -> UniqSupply
               -> Stream IO RawCmmGroup ()
-              -> NativeGenAcc statics instr
-              -> IO (NativeGenAcc statics instr, UniqSupply)
+              -> [NativeGenState statics instr]
+              -> IO ([NativeGenState statics instr], UniqSupply)
 
-cmmNativeGenStream dflags this_mod ncgImpl h us cmm_stream ngs@(impAcc, profAcc)
+cmmNativeGenStream ncgImpl us cmm_stream ngss
  = do r <- Stream.runStream cmm_stream
       case r of
           Left () ->
-              return ((reverse impAcc, reverse profAcc) , us)
+              return ([ (h, dflags, (reverse impAcc, reverse profAcc))
+                      | (h, dflags, (impAcc, profAcc)) <- ngss ]
+                     , us)
           Right (cmms, cmm_stream') -> do
-              (ngs',us') <- cmmNativeGens dflags this_mod ncgImpl h us cmms ngs 0
-              cmmNativeGenStream dflags this_mod ncgImpl h us' cmm_stream' ngs'
+              (ngss',us') <- cmmNativeGens ncgImpl us cmms ngss
+              cmmNativeGenStream ncgImpl us' cmm_stream' ngss'
 
 -- | Do native code generation on all these cmms.
 --
 cmmNativeGens :: (Outputable statics, Outputable instr, Instruction instr)
-              => DynFlags
-              -> Module
-              -> NcgImpl statics instr jumpDest
-              -> BufHandle
+              => NcgImpl statics instr jumpDest
               -> UniqSupply
               -> [RawCmmDecl]
-              -> NativeGenAcc statics instr
-              -> Int
-              -> IO (NativeGenAcc statics instr, UniqSupply)
+              -> [NativeGenState statics instr]
+              -> IO ([NativeGenState statics instr], UniqSupply)
 
-cmmNativeGens _ _ _ _ us [] ngs _
+cmmNativeGens _       us _    [] = return ([], us)
+cmmNativeGens ncgImpl us cmms (ngs : ngss)
+ = do (ngs', us') <- cmmNativeGens' ncgImpl us cmms ngs 0
+      (ngss', us'') <- cmmNativeGens ncgImpl us' cmms ngss
+      return (ngs' : ngss', us'')
+
+-- | Do native code generation on all these cmms.
+--
+cmmNativeGens' :: (Outputable statics, Outputable instr, Instruction instr)
+               => NcgImpl statics instr jumpDest
+               -> UniqSupply
+               -> [RawCmmDecl]
+               -> NativeGenState statics instr
+               -> Int
+               -> IO (NativeGenState statics instr, UniqSupply)
+
+cmmNativeGens' _ us [] ngs _
         = return (ngs, us)
 
-cmmNativeGens dflags this_mod ncgImpl h us (cmm : cmms) (impAcc, profAcc) count
+cmmNativeGens' ncgImpl us (cmm : cmms) (h, dflags, (impAcc, profAcc)) count
  = do
         (us', native, imports, colorStats, linearStats)
-                <- {-# SCC "cmmNativeGen" #-} cmmNativeGen dflags this_mod ncgImpl us cmm count
+                <- {-# SCC "cmmNativeGen" #-} cmmNativeGen dflags ncgImpl us cmm count
 
         {-# SCC "pprNativeCode" #-} Pretty.bufLeftRender h
                 $ withPprStyleDoc dflags (mkCodeStyle AsmStyle)
@@ -389,9 +401,10 @@ cmmNativeGens dflags this_mod ncgImpl h us (cmm : cmms) (impAcc, profAcc) count
         -- force evaluation all this stuff to avoid space leaks
         {-# SCC "seqString" #-} evaluate $ seqString (showSDoc dflags $ vcat $ map ppr imports)
 
-        cmmNativeGens dflags this_mod ncgImpl h
-            us' cmms ((imports : impAcc),
-                      ((lsPprNative, colorStats, linearStats) : profAcc))
+        cmmNativeGens' ncgImpl
+            us' cmms (h, dflags,
+                      ((imports : impAcc),
+                       ((lsPprNative, colorStats, linearStats) : profAcc)))
                      count'
 
  where  seqString []            = ()
@@ -404,7 +417,6 @@ cmmNativeGens dflags this_mod ncgImpl h us (cmm : cmms) (impAcc, profAcc) count
 cmmNativeGen
         :: (Outputable statics, Outputable instr, Instruction instr)
     => DynFlags
-    -> Module
     -> NcgImpl statics instr jumpDest
         -> UniqSupply
         -> RawCmmDecl                                   -- ^ the cmm to generate code for
@@ -415,7 +427,7 @@ cmmNativeGen
                 , Maybe [Color.RegAllocStats statics instr] -- stats for the coloring register allocator
                 , Maybe [Linear.RegAllocStats])             -- stats for the linear register allocators
 
-cmmNativeGen dflags this_mod ncgImpl us cmm count
+cmmNativeGen dflags ncgImpl us cmm count
  = do
         let platform = targetPlatform dflags
 
@@ -427,7 +439,7 @@ cmmNativeGen dflags this_mod ncgImpl us cmm count
         -- cmm to cmm optimisations
         let (opt_cmm, imports) =
                 {-# SCC "cmmToCmm" #-}
-                cmmToCmm dflags this_mod fixed_cmm
+                cmmToCmm dflags fixed_cmm
 
         dumpIfSet_dyn dflags
                 Opt_D_dump_opt_cmm "Optimised Cmm"
@@ -436,7 +448,7 @@ cmmNativeGen dflags this_mod ncgImpl us cmm count
         -- generate native code from cmm
         let ((native, lastMinuteImports), usGen) =
                 {-# SCC "genMachCode" #-}
-                initUs us $ genMachCode dflags this_mod (cmmTopCodeGen ncgImpl) opt_cmm
+                initUs us $ genMachCode dflags (cmmTopCodeGen ncgImpl) opt_cmm
 
         dumpIfSet_dyn dflags
                 Opt_D_dump_asm_native "Native code"
@@ -506,9 +518,9 @@ cmmNativeGen dflags this_mod ncgImpl us cmm count
                                Linear.regAlloc dflags proc
                        case maybe_more_stack of
                          Nothing -> return ( alloced, ra_stats )
-                         Just amount -> do
-                           alloced' <- ncgAllocMoreStack ncgImpl amount alloced
-                           return (alloced', ra_stats )
+                         Just amount ->
+                           return ( ncgAllocMoreStack ncgImpl amount alloced
+                                  , ra_stats )
 
                 let ((alloced, regAllocStats), usAlloc)
                         = {-# SCC "RegAlloc" #-}
@@ -650,7 +662,7 @@ sequenceTop
 
 sequenceTop _       top@(CmmData _ _) = top
 sequenceTop ncgImpl (CmmProc info lbl live (ListGraph blocks)) =
-  CmmProc info lbl live (ListGraph $ ncgMakeFarBranches ncgImpl info $ sequenceBlocks info blocks)
+  CmmProc info lbl live (ListGraph $ ncgMakeFarBranches ncgImpl $ sequenceBlocks info blocks)
 
 -- The algorithm is very simple (and stupid): we make a graph out of
 -- the blocks where there is an edge from one block to another iff the
@@ -720,6 +732,42 @@ reorder id accum (b@(block,id',out) : rest)
   | id == id'  = (True, (block,id,out) : reverse accum ++ rest)
   | otherwise  = reorder id (b:accum) rest
 
+
+-- -----------------------------------------------------------------------------
+-- Making far branches
+
+-- Conditional branches on PowerPC are limited to +-32KB; if our Procs get too
+-- big, we have to work around this limitation.
+
+makeFarBranches
+        :: [NatBasicBlock PPC.Instr.Instr]
+        -> [NatBasicBlock PPC.Instr.Instr]
+makeFarBranches blocks
+    | last blockAddresses < nearLimit = blocks
+    | otherwise = zipWith handleBlock blockAddresses blocks
+    where
+        blockAddresses = scanl (+) 0 $ map blockLen blocks
+        blockLen (BasicBlock _ instrs) = length instrs
+
+        handleBlock addr (BasicBlock id instrs)
+                = BasicBlock id (zipWith makeFar [addr..] instrs)
+
+        makeFar _ (PPC.Instr.BCC PPC.Cond.ALWAYS tgt) = PPC.Instr.BCC PPC.Cond.ALWAYS tgt
+        makeFar addr (PPC.Instr.BCC cond tgt)
+            | abs (addr - targetAddr) >= nearLimit
+            = PPC.Instr.BCCFAR cond tgt
+            | otherwise
+            = PPC.Instr.BCC cond tgt
+            where Just targetAddr = lookupUFM blockAddressMap tgt
+        makeFar _ other            = other
+
+        nearLimit = 7000 -- 8192 instructions are allowed; let's keep some
+                         -- distance, as we have a few pseudo-insns that are
+                         -- pretty-printed as multiple instructions,
+                         -- and it's just not worth the effort to calculate
+                         -- things exactly
+
+        blockAddressMap = listToUFM $ zip (map blockId blocks) blockAddresses
 
 -- -----------------------------------------------------------------------------
 -- Generate jump tables
@@ -820,16 +868,15 @@ apply_mapping ncgImpl ufm (CmmProc info lbl live (ListGraph blocks))
 
 genMachCode
         :: DynFlags
-        -> Module
         -> (RawCmmDecl -> NatM [NatCmmDecl statics instr])
         -> RawCmmDecl
         -> UniqSM
                 ( [NatCmmDecl statics instr]
                 , [CLabel])
 
-genMachCode dflags this_mod cmmTopCodeGen cmm_top
+genMachCode dflags cmmTopCodeGen cmm_top
   = do  { initial_us <- getUs
-        ; let initial_st           = mkNatM_State initial_us 0 dflags this_mod
+        ; let initial_st           = mkNatM_State initial_us 0 dflags
               (new_tops, final_st) = initNat initial_st (cmmTopCodeGen cmm_top)
               final_delta          = natm_delta final_st
               final_imports        = natm_imports final_st
@@ -863,36 +910,31 @@ Ideas for other things we could do (put these in Hoopl please!):
     temp assignments, and certain assigns to mem...)
 -}
 
-cmmToCmm :: DynFlags -> Module -> RawCmmDecl -> (RawCmmDecl, [CLabel])
-cmmToCmm _ _ top@(CmmData _ _) = (top, [])
-cmmToCmm dflags this_mod (CmmProc info lbl live graph)
-    = runCmmOpt dflags this_mod $
-      do blocks' <- mapM cmmBlockConFold (toBlockList graph)
-         return $ CmmProc info lbl live (ofBlockList (g_entry graph) blocks')
+cmmToCmm :: DynFlags -> RawCmmDecl -> (RawCmmDecl, [CLabel])
+cmmToCmm _ top@(CmmData _ _) = (top, [])
+cmmToCmm dflags (CmmProc info lbl live graph) = runCmmOpt dflags $ do
+  blocks' <- mapM cmmBlockConFold (toBlockList graph)
+  return $ CmmProc info lbl live (ofBlockList (g_entry graph) blocks')
 
-newtype CmmOptM a = CmmOptM (DynFlags -> Module -> [CLabel] -> (# a, [CLabel] #))
+newtype CmmOptM a = CmmOptM (([CLabel], DynFlags) -> (# a, [CLabel] #))
 
 instance Monad CmmOptM where
-  return x = CmmOptM $ \_ _ imports -> (# x, imports #)
+  return x = CmmOptM $ \(imports, _) -> (# x,imports #)
   (CmmOptM f) >>= g =
-    CmmOptM $ \dflags this_mod imports ->
-                case f dflags this_mod imports of
+    CmmOptM $ \(imports, dflags) ->
+                case f (imports, dflags) of
                   (# x, imports' #) ->
                     case g x of
-                      CmmOptM g' -> g' dflags this_mod imports'
-
-instance CmmMakeDynamicReferenceM CmmOptM where
-    addImport = addImportCmmOpt
-    getThisModule = CmmOptM $ \_ this_mod imports -> (# this_mod, imports #)
+                      CmmOptM g' -> g' (imports', dflags)
 
 addImportCmmOpt :: CLabel -> CmmOptM ()
-addImportCmmOpt lbl = CmmOptM $ \_ _ imports -> (# (), lbl:imports #)
+addImportCmmOpt lbl = CmmOptM $ \(imports, _dflags) -> (# (), lbl:imports #)
 
 instance HasDynFlags CmmOptM where
-    getDynFlags = CmmOptM $ \dflags _ imports -> (# dflags, imports #)
+    getDynFlags = CmmOptM $ \(imports, dflags) -> (# dflags, imports #)
 
-runCmmOpt :: DynFlags -> Module -> CmmOptM a -> (a, [CLabel])
-runCmmOpt dflags this_mod (CmmOptM f) = case f dflags this_mod [] of
+runCmmOpt :: DynFlags -> CmmOptM a -> (a, [CLabel])
+runCmmOpt dflags (CmmOptM f) = case f ([], dflags) of
                         (# result, imports #) -> (result, imports)
 
 cmmBlockConFold :: CmmBlock -> CmmOptM CmmBlock
@@ -996,10 +1038,10 @@ cmmExprNative referenceKind expr = do
 
         CmmLit (CmmLabel lbl)
            -> do
-                cmmMakeDynamicReference dflags referenceKind lbl
+                cmmMakeDynamicReference dflags addImportCmmOpt referenceKind lbl
         CmmLit (CmmLabelOff lbl off)
            -> do
-                 dynRef <- cmmMakeDynamicReference dflags referenceKind lbl
+                 dynRef <- cmmMakeDynamicReference dflags addImportCmmOpt referenceKind lbl
                  -- need to optimize here, since it's late
                  return $ cmmMachOpFold dflags (MO_Add (wordWidth dflags)) [
                      dynRef,

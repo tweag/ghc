@@ -472,13 +472,13 @@ releaseCapability_ (Capability* cap,
 
     // If the next thread on the run queue is a bound thread,
     // give this Capability to the appropriate Task.
-    if (!emptyRunQueue(cap) && peekRunQueue(cap)->bound) {
+    if (!emptyRunQueue(cap) && cap->run_queue_hd->bound) {
 	// Make sure we're not about to try to wake ourselves up
 	// ASSERT(task != cap->run_queue_hd->bound);
         // assertion is false: in schedule() we force a yield after
 	// ThreadBlocked, but the thread may be back on the run queue
 	// by now.
-	task = peekRunQueue(cap)->bound->task;
+	task = cap->run_queue_hd->bound->task;
 	giveCapabilityToTask(cap, task);
 	return;
     }

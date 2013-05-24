@@ -6,7 +6,6 @@ import Distribution.PackageDescription
 import Distribution.PackageDescription.Check hiding (doesFileExist)
 import Distribution.PackageDescription.Configuration
 import Distribution.PackageDescription.Parse
-import Distribution.System
 import Distribution.Simple
 import Distribution.Simple.Configure
 import Distribution.Simple.LocalBuildInfo
@@ -34,24 +33,26 @@ main :: IO ()
 main = do hSetBuffering stdout LineBuffering
           args <- getArgs
           case args of
-              "hscolour" : dir : distDir : args' ->
-                  runHsColour dir distDir args'
+              "hscolour" : distDir : dir : args' ->
+                  runHsColour distDir dir args'
               "check" : dir : [] ->
                   doCheck dir
-              "copy" : dir : distDir
-                     : strip : myDestDir : myPrefix : myLibdir : myDocdir
+              "copy" : strip : directory : distDir
+                     : myDestDir : myPrefix : myLibdir : myDocdir
                      : args' ->
-                  doCopy dir distDir
-                         strip myDestDir myPrefix myLibdir myDocdir
+                  doCopy strip directory distDir
+                         myDestDir myPrefix myLibdir myDocdir
                          args'
-              "register" : dir : distDir : ghc : ghcpkg : topdir
+              "register" : ghc : ghcpkg : topdir : directory : distDir
                          : myDestDir : myPrefix : myLibdir : myDocdir
                          : relocatableBuild : args' ->
-                  doRegister dir distDir ghc ghcpkg topdir
+                  doRegister ghc ghcpkg topdir directory distDir
                              myDestDir myPrefix myLibdir myDocdir
                              relocatableBuild args'
-              "configure" : dir : distDir : dll0Modules : config_args ->
-                  generate dir distDir dll0Modules config_args
+              "configure" : args' -> case break (== "--") args' of
+                   (config_args, "--" : distdir : directories) ->
+                       mapM_ (generate config_args distdir) directories
+                   _ -> die syntax_error
               "sdist" : dir : distDir : [] ->
                   doSdist dir distDir
               ["--version"] ->
@@ -122,7 +123,7 @@ doCheck directory
           isFailure _ = True
 
 runHsColour :: FilePath -> FilePath -> [String] -> IO ()
-runHsColour directory distdir args
+runHsColour distdir directory args
  = withCurrentDirectory directory
  $ defaultMainArgs ("hscolour" : "--builddir" : distdir : args)
 
@@ -130,9 +131,9 @@ doCopy :: FilePath -> FilePath
        -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath
        -> [String]
        -> IO ()
-doCopy directory distDir
-       strip myDestDir myPrefix myLibdir myDocdir
-       args
+doCopy strip directory distDir
+          myDestDir myPrefix myLibdir myDocdir
+          args
  = withCurrentDirectory directory $ do
      let copyArgs = ["copy", "--builddir", distDir]
                  ++ (if null myDestDir
@@ -180,7 +181,7 @@ doRegister :: FilePath -> FilePath -> FilePath -> FilePath
            -> FilePath -> FilePath -> FilePath -> FilePath -> FilePath
            -> String -> [String]
            -> IO ()
-doRegister directory distDir ghc ghcpkg topdir
+doRegister ghc ghcpkg topdir directory distDir
            myDestDir myPrefix myLibdir myDocdir
            relocatableBuildStr args
  = withCurrentDirectory directory $ do
@@ -217,17 +218,18 @@ doRegister directory distDir ghc ghcpkg topdir
             let Just ghcPkgProg = lookupProgram ghcPkgProgram' progs'
             instInfos <- dump verbosity ghcPkgProg GlobalPackageDB
             let installedPkgs' = PackageIndex.fromList instInfos
-            let updateComponentConfig (cn, clbi, deps)
-                    = (cn, updateComponentLocalBuildInfo clbi, deps)
-                updateComponentLocalBuildInfo clbi
-                    = clbi {
-                          componentPackageDeps =
-                              [ (fixupPackageId instInfos ipid, pid)
-                              | (ipid,pid) <- componentPackageDeps clbi ]
-                      }
-                ccs' = map updateComponentConfig (componentsConfigs lbi)
+            let mlc = libraryConfig lbi
+                mlc' = case mlc of
+                       Just lc ->
+                           let cipds = componentPackageDeps lc
+                               cipds' = [ (fixupPackageId instInfos ipid, pid)
+                                        | (ipid,pid) <- cipds ]
+                           in Just $ lc {
+                                         componentPackageDeps = cipds'
+                                     }
+                       Nothing -> Nothing
                 lbi' = lbi {
-                               componentsConfigs = ccs',
+                               libraryConfig = mlc',
                                installedPkgs = installedPkgs',
                                installDirTemplates = idts,
                                withPrograms = progs'
@@ -279,27 +281,8 @@ fixupPackageId ipinfos (InstalledPackageId ipi)
            f [] = error ("Installed package ID not registered: " ++ show ipi)
        in f ipinfos
 
--- On Windows we need to split the ghc package into 2 pieces, or the
--- DLL that it makes contains too many symbols (#5987). There are
--- therefore 2 libraries, not just the 1 that Cabal assumes.
-mangleLbi :: FilePath -> FilePath -> LocalBuildInfo -> LocalBuildInfo
-mangleLbi "compiler" "stage2" lbi
- | isWindows =
-    let ccs' = [ (cn, updateComponentLocalBuildInfo clbi, cns)
-               | (cn, clbi, cns) <- componentsConfigs lbi ]
-        updateComponentLocalBuildInfo clbi@(LibComponentLocalBuildInfo {})
-            = let cls' = concat [ [ LibraryName n, LibraryName (n ++ "-0") ]
-                                | LibraryName n <- componentLibraries clbi ]
-              in clbi { componentLibraries = cls' }
-        updateComponentLocalBuildInfo clbi = clbi
-    in lbi { componentsConfigs = ccs' }
-    where isWindows = case hostPlatform lbi of
-                      Platform _ Windows -> True
-                      _                  -> False
-mangleLbi _ _ lbi = lbi
-
-generate :: FilePath -> FilePath -> String -> [String] -> IO ()
-generate directory distdir dll0Modules config_args
+generate :: [String] -> FilePath -> FilePath -> IO ()
+generate config_args distdir directory
  = withCurrentDirectory directory
  $ do let verbosity = normal
       -- XXX We shouldn't just configure with the default flags
@@ -308,11 +291,8 @@ generate directory distdir dll0Modules config_args
       withArgs (["configure", "--distdir", distdir] ++ config_args)
                runDefaultMain
 
-      lbi0 <- getPersistBuildConfig distdir
-      let lbi = mangleLbi directory distdir lbi0
-          pd0 = localPkgDescr lbi
-
-      writePersistBuildConfig distdir lbi
+      lbi <- getPersistBuildConfig distdir
+      let pd0 = localPkgDescr lbi
 
       hooked_bi <-
            if (buildType pd0 == Just Configure) || (buildType pd0 == Just Custom)
@@ -330,17 +310,20 @@ generate directory distdir dll0Modules config_args
       writeAutogenFiles verbosity pd lbi
 
       -- generate inplace-pkg-config
-      withLibLBI pd lbi $ \lib clbi ->
-          do cwd <- getCurrentDirectory
-             let ipid = InstalledPackageId (display (packageId pd) ++ "-inplace")
-             let installedPkgInfo = inplaceInstalledPackageInfo cwd distdir
-                                        pd lib lbi clbi
-                 final_ipi = installedPkgInfo {
-                                 Installed.installedPackageId = ipid,
-                                 Installed.haddockHTMLs = []
-                             }
-                 content = Installed.showInstalledPackageInfo final_ipi ++ "\n"
-             writeFileAtomic (distdir </> "inplace-pkg-config") (BS.pack $ toUTF8 content)
+      case (library pd, libraryConfig lbi) of
+          (Nothing, Nothing) -> return ()
+          (Just lib, Just clbi) -> do
+              cwd <- getCurrentDirectory
+              let ipid = InstalledPackageId (display (packageId pd) ++ "-inplace")
+              let installedPkgInfo = inplaceInstalledPackageInfo cwd distdir
+                                         pd lib lbi clbi
+                  final_ipi = installedPkgInfo {
+                                  Installed.installedPackageId = ipid,
+                                  Installed.haddockHTMLs = []
+                              }
+                  content = Installed.showInstalledPackageInfo final_ipi ++ "\n"
+              writeFileAtomic (distdir </> "inplace-pkg-config") (BS.pack $ toUTF8 content)
+          _ -> error "Inconsistent lib components; can't happen?"
 
       let
           libBiModules lib = (libBuildInfo lib, libModules lib)
@@ -403,12 +386,9 @@ generate directory distdir dll0Modules config_args
       wrappedLibraryDirs <- wrap libraryDirs
 
       let variablePrefix = directory ++ '_':distdir
-          mods      = map display modules
-          otherMods = map display (otherModules bi)
-          allMods = mods ++ otherMods
       let xs = [variablePrefix ++ "_VERSION = " ++ display (pkgVersion (package pd)),
-                variablePrefix ++ "_MODULES = " ++ unwords mods,
-                variablePrefix ++ "_HIDDEN_MODULES = " ++ unwords otherMods,
+                variablePrefix ++ "_MODULES = " ++ unwords (map display modules),
+                variablePrefix ++ "_HIDDEN_MODULES = " ++ unwords (map display (otherModules bi)),
                 variablePrefix ++ "_SYNOPSIS =" ++ synopsis pd,
                 variablePrefix ++ "_HS_SRC_DIRS = " ++ unwords (hsSourceDirs bi),
                 variablePrefix ++ "_DEPS = " ++ unwords deps,
@@ -438,7 +418,6 @@ generate directory distdir dll0Modules config_args
                 variablePrefix ++ "_DEP_CC_OPTS = "                    ++ unwords (forDeps Installed.ccOptions),
                 variablePrefix ++ "_DEP_LIB_DIRS_SINGLE_QUOTED = "     ++ unwords wrappedLibraryDirs,
                 variablePrefix ++ "_DEP_LIB_DIRS_SEARCHPATH = "        ++ mkSearchPath libraryDirs,
-                variablePrefix ++ "_DEP_LIB_REL_DIRS = "               ++ unwords libraryRelDirs,
                 variablePrefix ++ "_DEP_LIB_REL_DIRS_SEARCHPATH = "    ++ mkSearchPath libraryRelDirs,
                 variablePrefix ++ "_DEP_EXTRA_LIBS = "                 ++ unwords (forDeps Installed.extraLibraries),
                 variablePrefix ++ "_DEP_LD_OPTS = "                    ++ unwords (forDeps Installed.ldOptions),
@@ -452,11 +431,6 @@ generate directory distdir dll0Modules config_args
       writeFile (distdir ++ "/haddock-prologue.txt") $
           if null (description pd) then synopsis pd
                                    else description pd
-      unless (null dll0Modules) $
-          do let dll0Mods = words dll0Modules
-                 dllMods = allMods \\ dll0Mods
-                 dllModSets = map unwords [dll0Mods, dllMods]
-             writeFile (distdir ++ "/dll-split") $ unlines dllModSets
   where
      escape = foldr (\c xs -> if c == '#' then '\\':'#':xs else c:xs) []
      wrap = mapM wrap1

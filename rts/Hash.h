@@ -19,8 +19,6 @@ void *      lookupHashTable ( HashTable *table, StgWord key );
 void        insertHashTable ( HashTable *table, StgWord key, void *data );
 void *      removeHashTable ( HashTable *table, StgWord key, void *data );
 
-int keyCountHashTable (HashTable *table);
-
 /* Hash table access where the keys are C strings (the strings are
  * assumed to be allocated by the caller, and mustn't be deallocated
  * until the corresponding hash table entry has been removed).
@@ -43,7 +41,7 @@ HashTable * allocHashTable_(HashFunction *hash, CompareFunction *compare);
 int hashWord(HashTable *table, StgWord key);
 int hashStr(HashTable *table, char *key);
 
-/* Freeing hash tables
+/* Freeing hash tables 
  */
 void freeHashTable ( HashTable *table, void (*freeDataFun)(void *) );
 
@@ -52,3 +50,4 @@ void exitHashTable ( void );
 #include "EndPrivate.h"
 
 #endif /* HASH_H */
+

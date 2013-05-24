@@ -90,10 +90,10 @@ data Foo = ...
 <programlisting>
 import GHC
 import GHC.Paths ( libdir )
-import DynFlags ( defaultLogAction )
+import DynFlags ( defaultDynFlags )
  
 main = 
-    defaultErrorHandler defaultLogAction $ do
+    defaultErrorHandler defaultDynFlags $ do
       runGhc (Just libdir) $ do
         dflags &lt;- getSessionDynFlags
         setSessionDynFlags dflags
@@ -226,13 +226,12 @@ install _ todo = do
   return (CoreDoPluginPass "Say name" pass : todo)
 
 pass :: ModGuts -> CoreM ModGuts
-pass = do dflags &lt;- getDynFlags
-          bindsOnlyPass (mapM (printBind dflags))
-  where printBind :: DynFlags -> CoreBind -> CoreM CoreBind
-        printBind dflags bndr@(NonRec b _) = do
-          putMsgS $ "Non-recursive binding named " ++ showSDoc dflags (ppr b)
+pass = bindsOnlyPass (mapM printBind)
+  where printBind :: CoreBind -> CoreM CoreBind
+        printBind bndr@(NonRec b _) = do
+          putMsgS $ "Non-recursive binding named " ++ showSDoc (ppr b)
           return bndr 
-        printBind _ bndr = return bndr
+        printBind bndr = return bndr
 </programlisting>
       </sect3>
 
@@ -247,8 +246,9 @@ pass = do dflags &lt;- getDynFlags
 {-# LANGUAGE DeriveDataTypeable #-}
 module SayAnnNames.Plugin (plugin, SomeAnn) where
 import GhcPlugins
-import Control.Monad (unless)
+import Control.Monad (when)
 import Data.Data
+import Data.Typeable
 
 data SomeAnn = SomeAnn deriving (Data, Typeable)
 
@@ -263,15 +263,13 @@ install _ todo = do
   return (CoreDoPluginPass "Say name" pass : todo)
 
 pass :: ModGuts -> CoreM ModGuts
-pass g = do
-          dflags &lt;- getDynFlags
-          mapM_ (printAnn dflags g) (mg_binds g) >> return g
-  where printAnn :: DynFlags -> ModGuts -> CoreBind -> CoreM CoreBind
-        printAnn dflags guts bndr@(NonRec b _) = do
+pass g = mapM_ (printAnn g) (mg_binds g) >> return g
+  where printAnn :: ModGuts -> CoreBind -> CoreM CoreBind
+        printAnn guts bndr@(NonRec b _) = do
           anns &lt;- annotationsOn guts b :: CoreM [SomeAnn]
-          unless (null anns) $ putMsgS $ "Annotated binding found: " ++  showSDoc dflags (ppr b)
+          when (not $ null anns) $ putMsgS $ "Annotated binding found: " ++  showSDoc (ppr b)
           return bndr
-        printAnn _ _ bndr = return bndr
+        printAnn _ bndr = return bndr
 
 annotationsOn :: Data a => ModGuts -> CoreBndr -> CoreM [a]
 annotationsOn guts bndr = do

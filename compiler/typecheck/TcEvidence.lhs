@@ -10,10 +10,12 @@ module TcEvidence (
   (<.>), mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams, mkWpLams, mkWpLet, 
   idHsWrapper, isIdHsWrapper, pprHsWrapper,
 
-  -- Evidence bindings
+  -- Evidence bindin
   TcEvBinds(..), EvBindsVar(..), 
   EvBindMap(..), emptyEvBindMap, extendEvBinds, lookupEvBind, evBindMapBinds,
+
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, 
+
   EvTerm(..), mkEvCast, evVarsOfTerm, 
   EvLit(..), evTermCoercion,
 
@@ -494,7 +496,7 @@ data EvTerm
                                  -- selector Id.  We count up from _0_
 
   | EvLit EvLit                  -- Dictionary for class "SingI" for type lits.
-                                 -- Note [SingI and EvLit]
+                                 -- Note [EvLit]
 
   deriving( Data.Data, Data.Typeable)
 
@@ -548,26 +550,27 @@ Conclusion: a new wanted coercion variable should be made mutable.
  from super classes will be "given" and hence rigid]
 
 
-Note [SingI and EvLit]
-~~~~~~~~~~~~~~~~~~~~~~
+Note [EvLit]
+~~~~~~~~~~~~
 A part of the type-level literals implementation is the class "SingI",
 which provides a "smart" constructor for defining singleton values.
-Here is the key stuff from GHC.TypeLits
 
-  class SingI n where
-    sing :: Sing n
+newtype Sing n = Sing (SingRep n)
 
-  data family Sing (n::k)
-  newtype instance Sing (n :: Nat)    = SNat Integer
-  newtype instance Sing (s :: Symbol) = SSym String
+class SingI n where
+  sing :: Sing n
+
+type family SingRep a
+type instance SingRep (a :: Nat)    = Integer
+type instance SingRep (a :: Symbol) = String
 
 Conceptually, this class has infinitely many instances:
 
-  instance Sing 0       where sing = SNat 0
-  instance Sing 1       where sing = SNat 1
-  instance Sing 2       where sing = SNat 2
-  instance Sing "hello" where sing = SSym "hello"
-  ...
+instance Sing 0       where sing = Sing 0
+instance Sing 1       where sing = Sing 1
+instance Sing 2       where sing = Sing 2
+instance Sing "hello" where sing = Sing "hello"
+...
 
 In practice, we solve "SingI" predicates in the type-checker because we can't
 have infinately many instances.  The evidence (aka "dictionary")

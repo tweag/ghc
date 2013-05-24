@@ -10,20 +10,20 @@
 -- and newtypes
 
 module CoAxiom (
-       Branched, Unbranched, BranchIndex, BranchList(..),
+       Branched, Unbranched, BranchList(..),
        toBranchList, fromBranchList,
        toBranchedList, toUnbranchedList,
        brListLength, brListNth, brListMap, brListFoldr,
-       brListZipWith, brListIndices,
+       brListZipWith,
 
-       CoAxiom(..), CoAxBranch(..), 
+       CoAxiom(..), CoAxBranch(..),
 
        toBranchedAxiom, toUnbranchedAxiom,
        coAxiomName, coAxiomArity, coAxiomBranches,
        coAxiomTyCon, isImplicitCoAxiom,
        coAxiomNthBranch, coAxiomSingleBranch_maybe,
        coAxiomSingleBranch, coAxBranchTyVars, coAxBranchLHS,
-       coAxBranchRHS, coAxBranchSpan
+       coAxBranchRHS
        ) where 
 
 import {-# SOURCE #-} TypeRep ( Type )
@@ -35,12 +35,17 @@ import Var
 import Util
 import BasicTypes
 import Data.Typeable ( Typeable )
-import SrcLoc
 import qualified Data.Data as Data
 
 #include "HsVersions.h"
 
 \end{code}
+
+%************************************************************************
+%*                                                                      *
+                    Coercion axioms
+%*                                                                      *
+%************************************************************************
 
 Note [Coercion axiom branches]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -77,7 +82,7 @@ can unify with the supplied arguments. After all, it is possible that some
 of the type arguments are lambda-bound type variables whose instantiation may
 cause an earlier match among the branches. We wish to prohibit this behavior,
 so the type checker rules out the choice of a branch where a previous branch
-can unify. See also [Branched instance checking] in FamInstEnv.hs.
+can unify. See also [Instance checking within groups] in FamInstEnv.hs.
 
 For example, the following is malformed, where 'a' is a lambda-bound type
 variable:
@@ -110,16 +115,7 @@ remain compilable with GHC 7.2.1. If you are revising this code and GHC no
 longer needs to remain compatible with GHC 7.2.x, then please update this
 code to use promoted types.
 
-
-%************************************************************************
-%*                                                                      *
-                    Branch lists
-%*                                                                      *
-%************************************************************************
-
 \begin{code}
-type BranchIndex = Int  -- The index of the branch in the list of branches
-                        -- Counting from zero
 
 -- the phantom type labels
 data Unbranched deriving Typeable
@@ -154,16 +150,8 @@ brListLength :: BranchList a br -> Int
 brListLength (FirstBranch _) = 1
 brListLength (NextBranch _ t) = 1 + brListLength t
 
--- Indices
-brListIndices :: BranchList a br -> [BranchIndex]
-brListIndices bs = go 0 bs 
- where
-   go :: BranchIndex -> BranchList a br -> [BranchIndex]
-   go n (NextBranch _ t) = n : go (n+1) t
-   go n (FirstBranch {}) = [n]
-
 -- lookup
-brListNth :: BranchList a br -> BranchIndex -> a
+brListNth :: BranchList a br -> Int -> a
 brListNth (FirstBranch b) 0 = b
 brListNth (NextBranch h _) 0 = h
 brListNth (NextBranch _ t) n = brListNth t (n-1)
@@ -189,15 +177,7 @@ brListZipWith f (NextBranch a ta) (NextBranch b tb) = f a b : brListZipWith f ta
 
 instance Outputable a => Outputable (BranchList a br) where
   ppr = ppr . fromBranchList
-\end{code}
 
-%************************************************************************
-%*                                                                      *
-                    Coercion axioms
-%*                                                                      *
-%************************************************************************
-
-\begin{code}
 -- | A 'CoAxiom' is a \"coercion constructor\", i.e. a named equality axiom.
 
 -- If you edit this type, you may need to update the GHC formalism
@@ -217,12 +197,9 @@ data CoAxiom br
 
 data CoAxBranch
   = CoAxBranch
-    { cab_loc      :: SrcSpan      -- Location of the defining equation
-                                   -- See Note [CoAxiom locations]
-    , cab_tvs      :: [TyVar]      -- Bound type variables; not necessarily fresh
-                                   -- See Note [CoAxBranch type variables]
-    , cab_lhs      :: [Type]       -- Type patterns to match against
-    , cab_rhs      :: Type         -- Right-hand side of the equality
+    { cab_tvs      :: [TyVar]      -- bound type variables
+    , cab_lhs      :: [Type]       -- type patterns to match against
+    , cab_rhs      :: Type         -- right-hand side of the equality
     }
   deriving Typeable
 
@@ -234,11 +211,12 @@ toUnbranchedAxiom :: CoAxiom br -> CoAxiom Unbranched
 toUnbranchedAxiom (CoAxiom unique name tc branches implicit)
   = CoAxiom unique name tc (toUnbranchedList branches) implicit
 
-coAxiomNthBranch :: CoAxiom br -> BranchIndex -> CoAxBranch
-coAxiomNthBranch (CoAxiom { co_ax_branches = bs }) index
-  = brListNth bs index
+coAxiomNthBranch :: CoAxiom br -> Int -> CoAxBranch
+coAxiomNthBranch ax index
+  = ASSERT( 0 <= index && index < (length $ fromBranchList (co_ax_branches ax)) )
+    (fromBranchList $ co_ax_branches ax) !! index
 
-coAxiomArity :: CoAxiom br -> BranchIndex -> Arity
+coAxiomArity :: CoAxiom br -> Int -> Arity
 coAxiomArity ax index
   = length $ cab_tvs $ coAxiomNthBranch ax index
 
@@ -270,49 +248,9 @@ coAxBranchLHS = cab_lhs
 coAxBranchRHS :: CoAxBranch -> Type
 coAxBranchRHS = cab_rhs
 
-coAxBranchSpan :: CoAxBranch -> SrcSpan
-coAxBranchSpan = cab_loc
-
 isImplicitCoAxiom :: CoAxiom br -> Bool
 isImplicitCoAxiom = co_ax_implicit
-
 \end{code}
-
-Note [CoAxBranch type variables]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-In the case of a CoAxBranch of an associated type-family instance, 
-we use the *same* type variables (where possible) as the
-enclosing class or instance.  Consider
-   class C a b where
-     type F x b 
-     type F [y] b = ...     -- Second param must be b
-
-   instance C Int [z] where
-     type F Int [z] = ...   -- Second param must be [z]
-
-In the CoAxBranch in the instance decl (F Int [z]) we use the
-same 'z', so that it's easy to check that that type is the same
-as that in the instance header.  
-
-Similarly in the CoAxBranch for the default decl for F in the
-class decl, we use the same 'b' to make the same check easy.
-
-So, unlike FamInsts, there is no expectation that the cab_tvs
-are fresh wrt each other, or any other CoAxBranch.
-
-Note [CoAxiom locations]
-~~~~~~~~~~~~~~~~~~~~~~~~
-The source location of a CoAxiom is stored in two places in the
-datatype tree. 
-  * The first is in the location info buried in the Name of the
-    CoAxiom. This span includes all of the branches of a branched
-    CoAxiom.
-  * The second is in the cab_loc fields of the CoAxBranches.  
-
-In the case of a single branch, we can extract the source location of
-the branch from the name of the CoAxiom. In other cases, we need an
-explicit SrcSpan to correctly store the location of the equation
-giving rise to the FamInstBranch.
 
 Note [Implicit axioms]
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -352,4 +290,3 @@ instance Typeable br => Data.Data (CoAxiom br) where
     gunfold _ _  = error "gunfold"
     dataTypeOf _ = mkNoRepType "CoAxiom"
 \end{code}
-

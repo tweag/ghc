@@ -172,7 +172,7 @@ loadInterfaceWithException doc mod_name where_from
   = do  { mb_iface <- loadInterface doc mod_name where_from
         ; dflags <- getDynFlags
         ; case mb_iface of 
-            Failed err      -> liftIO $ throwGhcExceptionIO (ProgramError (showSDoc dflags err))
+            Failed err      -> throwGhcException (ProgramError (showSDoc dflags err))
             Succeeded iface -> return iface }
 
 ------------------
@@ -547,7 +547,7 @@ findAndReadIface doc_str mod hi_boot_file
                                            (moduleName mod) err))
     where read_file file_path = do
               traceIf (ptext (sLit "readIFace") <+> text file_path)
-              read_result <- readIface mod file_path
+              read_result <- readIface mod file_path hi_boot_file
               case read_result of
                 Failed err -> return (Failed (badIfaceFile file_path err))
                 Succeeded iface 
@@ -560,8 +560,7 @@ findAndReadIface doc_str mod hi_boot_file
               dflags <- getDynFlags
               whenGeneratingDynamicToo dflags $ withDoDynamicToo $ do
                   let ref = canGenerateDynamicToo dflags
-                      dynFilePath = addBootSuffix_maybe hi_boot_file
-                                  $ replaceExtension filePath (dynHiSuf dflags)
+                      dynFilePath = replaceExtension filePath (dynHiSuf dflags)
                   r <- read_file dynFilePath
                   case r of
                       Succeeded (dynIface, _)
@@ -579,12 +578,12 @@ findAndReadIface doc_str mod hi_boot_file
 @readIface@ tries just the one file.
 
 \begin{code}
-readIface :: Module -> FilePath
+readIface :: Module -> FilePath -> IsBootInterface 
           -> TcRnIf gbl lcl (MaybeErr MsgDoc ModIface)
         -- Failed err    <=> file not found, or unreadable, or illegible
         -- Succeeded iface <=> successfully found and parsed 
 
-readIface wanted_mod file_path
+readIface wanted_mod file_path _
   = do  { res <- tryMostM $
                  readBinIface CheckHiWay QuietBinIFaceReading file_path
         ; case res of
@@ -791,18 +790,18 @@ pprFixities fixes = ptext (sLit "fixities") <+> pprWithCommas pprFix fixes
                     pprFix (occ,fix) = ppr fix <+> ppr occ 
 
 pprVectInfo :: IfaceVectInfo -> SDoc
-pprVectInfo (IfaceVectInfo { ifaceVectInfoVar            = vars
-                           , ifaceVectInfoTyCon          = tycons
-                           , ifaceVectInfoTyConReuse     = tyconsReuse
-                           , ifaceVectInfoParallelVars   = parallelVars
-                           , ifaceVectInfoParallelTyCons = parallelTyCons
+pprVectInfo (IfaceVectInfo { ifaceVectInfoVar          = vars
+                           , ifaceVectInfoTyCon        = tycons
+                           , ifaceVectInfoTyConReuse   = tyconsReuse
+                           , ifaceVectInfoScalarVars   = scalarVars
+                           , ifaceVectInfoScalarTyCons = scalarTyCons
                            }) = 
   vcat 
   [ ptext (sLit "vectorised variables:") <+> hsep (map ppr vars)
   , ptext (sLit "vectorised tycons:") <+> hsep (map ppr tycons)
   , ptext (sLit "vectorised reused tycons:") <+> hsep (map ppr tyconsReuse)
-  , ptext (sLit "parallel variables:") <+> hsep (map ppr parallelVars)
-  , ptext (sLit "parallel tycons:") <+> hsep (map ppr parallelTyCons)
+  , ptext (sLit "scalar variables:") <+> hsep (map ppr scalarVars)
+  , ptext (sLit "scalar tycons:") <+> hsep (map ppr scalarTyCons)
   ]
 
 pprTrustInfo :: IfaceTrustInfo -> SDoc

@@ -1,6 +1,6 @@
 /* -----------------------------------------------------------------------------
  *
- * (c) The University of Glasgow 2004-2013
+ * (c) The University of Glasgow 2004-2012
  *
  * This file is included at the top of all .cmm source files (and
  * *only* .cmm files).  It defines a collection of useful macros for
@@ -95,10 +95,9 @@
 #error Unknown long size
 #endif
 
-#define F_   float32
-#define D_   float64
-#define L_   bits64
-#define V16_ bits128
+#define F_ float32
+#define D_ float64
+#define L_ bits64
 
 #define SIZEOF_StgDouble 8
 #define SIZEOF_StgWord64 8
@@ -373,7 +372,6 @@
    CCCS_ALLOC(bytes);
 
 #define HEAP_CHECK(bytes,failure)                       \
-    TICK_BUMP(HEAP_CHK_ctr);				\
     Hp = Hp + (bytes);                                  \
     if (Hp > HpLim) { HpAlloc = (bytes); failure; }     \
     TICK_ALLOC_HEAP_NOCTR(bytes);
@@ -395,18 +393,16 @@
 /* CCS_ALLOC wants the size in words, because ccs->mem_alloc is in words */
 #define CCCS_ALLOC(__alloc) CCS_ALLOC(BYTES_TO_WDS(__alloc), CCCS)
 
-#define HP_CHK_GEN_TICKY(bytes)                 \
-   HP_CHK_GEN(bytes);                           \
-   TICK_ALLOC_HEAP_NOCTR(bytes);
+#define HP_CHK_GEN_TICKY(alloc)                 \
+   HP_CHK_GEN(alloc);                           \
+   TICK_ALLOC_HEAP_NOCTR(alloc);
 
 #define HP_CHK_P(bytes, fun, arg)               \
    HEAP_CHECK(bytes, GC_PRIM_P(fun,arg))
 
-// TODO I'm not seeing where ALLOC_P_TICKY is used; can it be removed?
-//         -NSF March 2013
-#define ALLOC_P_TICKY(bytes, fun, arg)		\
-   HP_CHK_P(bytes);				\
-   TICK_ALLOC_HEAP_NOCTR(bytes);
+#define ALLOC_P_TICKY(alloc, fun, arg)          \
+   HP_CHK_P(alloc);                             \
+   TICK_ALLOC_HEAP_NOCTR(alloc);
 
 #define CHECK_GC()                                                      \
   (bdescr_link(CurrentNursery) == NULL ||                               \
@@ -477,7 +473,6 @@
    }
 
 #define STK_CHK(n, fun)                         \
-    TICK_BUMP(STK_CHK_ctr); 			\
     if (Sp - (n) < SpLim) {                     \
         GC_PRIM(fun)                            \
     }
@@ -587,12 +582,6 @@
 #define OVERWRITING_CLOSURE(c) /* nothing */
 #endif
 
-#ifdef THREADED_RTS
-#define prim_write_barrier prim %write_barrier()
-#else
-#define prim_write_barrier /* nothing */
-#endif
-
 /* -----------------------------------------------------------------------------
    Ticky macros 
    -------------------------------------------------------------------------- */
@@ -614,7 +603,6 @@
 #define TICK_ENT_AP()  			TICK_BUMP(ENT_AP_ctr)
 #define TICK_ENT_AP_STACK()  		TICK_BUMP(ENT_AP_STACK_ctr)
 #define TICK_ENT_BH()  			TICK_BUMP(ENT_BH_ctr)
-#define TICK_ENT_LNE() 			TICK_BUMP(ENT_LNE_ctr)
 #define TICK_UNKNOWN_CALL()  		TICK_BUMP(UNKNOWN_CALL_ctr)
 #define TICK_UPDF_PUSHED()  		TICK_BUMP(UPDF_PUSHED_ctr)
 #define TICK_CATCHF_PUSHED()  		TICK_BUMP(CATCHF_PUSHED_ctr)
@@ -631,18 +619,14 @@
 #define TICK_SLOW_CALL_PAP_CORRECT()	TICK_BUMP(SLOW_CALL_PAP_CORRECT_ctr)
 #define TICK_SLOW_CALL_PAP_TOO_MANY()	TICK_BUMP(SLOW_CALL_PAP_TOO_MANY_ctr)
 
-#define TICK_SLOW_CALL_fast_v16()    	TICK_BUMP(SLOW_CALL_fast_v16_ctr)
-#define TICK_SLOW_CALL_fast_v()  	TICK_BUMP(SLOW_CALL_fast_v_ctr)
-#define TICK_SLOW_CALL_fast_p()  	TICK_BUMP(SLOW_CALL_fast_p_ctr)
-#define TICK_SLOW_CALL_fast_pv()  	TICK_BUMP(SLOW_CALL_fast_pv_ctr)
-#define TICK_SLOW_CALL_fast_pp()  	TICK_BUMP(SLOW_CALL_fast_pp_ctr)
-#define TICK_SLOW_CALL_fast_ppv()  	TICK_BUMP(SLOW_CALL_fast_ppv_ctr)
-#define TICK_SLOW_CALL_fast_ppp()  	TICK_BUMP(SLOW_CALL_fast_ppp_ctr)
-#define TICK_SLOW_CALL_fast_pppv()  	TICK_BUMP(SLOW_CALL_fast_pppv_ctr)
-#define TICK_SLOW_CALL_fast_pppp()  	TICK_BUMP(SLOW_CALL_fast_pppp_ctr)
-#define TICK_SLOW_CALL_fast_ppppp()  	TICK_BUMP(SLOW_CALL_fast_ppppp_ctr)
-#define TICK_SLOW_CALL_fast_pppppp()  	TICK_BUMP(SLOW_CALL_fast_pppppp_ctr)
-#define TICK_VERY_SLOW_CALL()  		TICK_BUMP(VERY_SLOW_CALL_ctr)
+#define TICK_SLOW_CALL_v()  		TICK_BUMP(SLOW_CALL_v_ctr)
+#define TICK_SLOW_CALL_p()  		TICK_BUMP(SLOW_CALL_p_ctr)
+#define TICK_SLOW_CALL_pv()  		TICK_BUMP(SLOW_CALL_pv_ctr)
+#define TICK_SLOW_CALL_pp()  		TICK_BUMP(SLOW_CALL_pp_ctr)
+#define TICK_SLOW_CALL_ppp()  		TICK_BUMP(SLOW_CALL_ppp_ctr)
+#define TICK_SLOW_CALL_pppp()  		TICK_BUMP(SLOW_CALL_pppp_ctr)
+#define TICK_SLOW_CALL_ppppp()  	TICK_BUMP(SLOW_CALL_ppppp_ctr)
+#define TICK_SLOW_CALL_pppppp()  	TICK_BUMP(SLOW_CALL_pppppp_ctr)
 
 /* NOTE: TICK_HISTO_BY and TICK_HISTO 
    currently have no effect.
@@ -681,9 +665,9 @@
   TICK_BUMP(UPD_CON_IN_NEW_ctr);		\
   TICK_HISTO(UPD_CON_IN_NEW,n)
 
-#define TICK_ALLOC_HEAP_NOCTR(bytes)		\
-    TICK_BUMP(ALLOC_RTS_ctr);			\
-    TICK_BUMP_BY(ALLOC_RTS_tot,bytes)
+#define TICK_ALLOC_HEAP_NOCTR(n)		\
+    TICK_BUMP(ALLOC_HEAP_ctr);			\
+    TICK_BUMP_BY(ALLOC_HEAP_tot,n)
 
 /* -----------------------------------------------------------------------------
    Saving and restoring STG registers
@@ -760,7 +744,6 @@
 
 #define NO_TREC                   stg_NO_TREC_closure
 #define END_TSO_QUEUE             stg_END_TSO_QUEUE_closure
-#define STM_AWOKEN                stg_STM_AWOKEN_closure
 #define END_INVARIANT_CHECK_QUEUE stg_END_INVARIANT_CHECK_QUEUE_closure
 
 #define recordMutableCap(p, gen)                                        \

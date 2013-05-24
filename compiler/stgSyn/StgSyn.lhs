@@ -103,24 +103,24 @@ data GenStgArg occ
 -- | Does this constructor application refer to
 -- anything in a different *Windows* DLL?
 -- If so, we can't allocate it statically
-isDllConApp :: DynFlags -> Module -> DataCon -> [StgArg] -> Bool
-isDllConApp dflags this_mod con args
+isDllConApp :: DynFlags -> DataCon -> [StgArg] -> Bool
+isDllConApp dflags con args
  | platformOS (targetPlatform dflags) == OSMinGW32
-    = isDllName dflags this_pkg this_mod (dataConName con) || any is_dll_arg args
+    = isDllName dflags this_pkg (dataConName con) || any is_dll_arg args
  | otherwise = False
   where
     -- NB: typePrimRep is legit because any free variables won't have
     -- unlifted type (there are no unlifted things at top level)
     is_dll_arg :: StgArg -> Bool
     is_dll_arg (StgVarArg v) =  isAddrRep (typePrimRep (idType v))
-                             && isDllName dflags this_pkg this_mod (idName v)
+                             && isDllName dflags this_pkg (idName v)
     is_dll_arg _             = False
 
     this_pkg = thisPackage dflags
 
--- True of machine addresses; these are the things that don't
+-- True of machine adddresses; these are the things that don't
 -- work across DLLs. The key point here is that VoidRep comes
--- out False, so that a top level nullary GADT constructor is
+-- out False, so that a top level nullary GADT construtor is
 -- False for isDllConApp
 --    data T a where
 --      T1 :: T Int
@@ -381,7 +381,7 @@ For @scc@ expressions we introduce a new STG construct.
 %*                                                                      *
 %************************************************************************
 
-Finally for @hpc@ expressions we introduce a new STG construct.
+Finally for @scc@ expressions we introduce a new STG construct.
 
 \begin{code}
   | StgTick

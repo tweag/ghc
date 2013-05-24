@@ -8,7 +8,7 @@
 module Main(main) where
 
 #include "../../includes/ghcconfig.h"
-#include "../../includes/stg/HaskellMachRegs.h"
+#include "../../includes/stg/RtsMachRegs.h"
 #include "../../includes/rts/Constants.h"
 
 -- Needed for TAG_BITS
@@ -26,32 +26,29 @@ import System.IO
 -- Argument kinds (rougly equivalent to PrimRep)
 
 data ArgRep 
-  = N   -- non-ptr
-  | P   -- ptr
-  | V   -- void
-  | F   -- float
-  | D   -- double
-  | L   -- long (64-bit)
-  | V16 -- 16-byte (128-bit) vectors
+  = N           -- non-ptr
+  | P           -- ptr
+  | V           -- void
+  | F           -- float
+  | D           -- double
+  | L           -- long (64-bit)
 
 -- size of a value in *words*
 argSize :: ArgRep -> Int
-argSize N   = 1
-argSize P   = 1
-argSize V   = 0
-argSize F   = 1
-argSize D   = (SIZEOF_DOUBLE `quot` SIZEOF_VOID_P :: Int)
-argSize L   = (8 `quot` SIZEOF_VOID_P :: Int)
-argSize V16 = (16 `quot` SIZEOF_VOID_P :: Int)
+argSize N = 1
+argSize P = 1
+argSize V = 0
+argSize F = 1
+argSize D = (SIZEOF_DOUBLE `quot` SIZEOF_VOID_P :: Int)
+argSize L = (8 `quot` SIZEOF_VOID_P :: Int)
 
-showArg :: ArgRep -> String
-showArg N   = "n"
-showArg P   = "p"
-showArg V   = "v"
-showArg F   = "f"
-showArg D   = "d"
-showArg L   = "l"
-showArg V16 = "v16"
+showArg :: ArgRep -> Char
+showArg N = 'n'
+showArg P = 'p'
+showArg V = 'v'
+showArg F = 'f'
+showArg D = 'd'
+showArg L = 'l'
 
 -- is a value a pointer?
 isPtr :: ArgRep -> Bool
@@ -177,7 +174,7 @@ mkBitmap args = foldr f 0 args
 -- when we start passing args to stg_ap_* in regs).
 
 mkApplyName args
-  = text "stg_ap_" <> text (concatMap showArg args)
+  = text "stg_ap_" <> text (map showArg args)
 
 mkApplyRetName args
   = mkApplyName args <> text "_ret"
@@ -499,12 +496,11 @@ formalParam arg n =
     text "arg" <> int n <> text ", "
 formalParamType arg = argRep arg
 
-argRep F   = text "F_"
-argRep D   = text "D_"
-argRep L   = text "L_"
-argRep P   = text "gcptr"
-argRep V16 = text "V16_"
-argRep _   = text "W_"
+argRep F = text "F_"
+argRep D = text "D_"
+argRep L = text "L_"
+argRep P = text "gcptr"
+argRep _ = text "W_"
 
 genApply regstatus args =
    let
@@ -762,7 +758,7 @@ genApplyFast regstatus args =
 -- void arguments.
 
 mkStackApplyEntryLabel:: [ArgRep] -> Doc
-mkStackApplyEntryLabel args = text "stg_ap_stk_" <> text (concatMap showArg args)
+mkStackApplyEntryLabel args = text "stg_ap_stk_" <> text (map showArg args)
 
 genStackApply :: RegStatus -> [ArgRep] -> Doc
 genStackApply regstatus args = 
@@ -787,7 +783,7 @@ genStackApply regstatus args =
 -- in HeapStackCheck.hc for more details.
 
 mkStackSaveEntryLabel :: [ArgRep] -> Doc
-mkStackSaveEntryLabel args = text "stg_stk_save_" <> text (concatMap showArg args)
+mkStackSaveEntryLabel args = text "stg_stk_save_" <> text (map showArg args)
 
 genStackSave :: RegStatus -> [ArgRep] -> Doc
 genStackSave regstatus args =
@@ -853,7 +849,6 @@ applyTypes = [
         [F],
         [D],
         [L],
-        [V16],
         [N],
         [P],
         [P,V],
@@ -870,10 +865,6 @@ applyTypes = [
 -- ToDo: the stack apply and stack save code doesn't make a distinction
 -- between N and P (they both live in the same register), only the bitmap
 -- changes, so we could share the apply/save code between lots of cases.
---
---  NOTE: other places to change if you change stackApplyTypes:
---       - includes/rts/storage/FunTypes.h
---       - compiler/codeGen/CgCallConv.lhs: stdPattern
 stackApplyTypes = [
         [],
         [N],
@@ -881,7 +872,6 @@ stackApplyTypes = [
         [F],
         [D],
         [L],
-        [V16],
         [N,N],
         [N,P],
         [P,N],

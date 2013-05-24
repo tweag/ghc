@@ -205,7 +205,11 @@ dsExpr (NegApp expr neg_expr)
 dsExpr (HsLam a_Match)
   = uncurry mkLams <$> matchWrapper LambdaExpr a_Match
 
-dsExpr (HsLamCase arg matches)
+dsExpr (HsLamCase arg matches@(MatchGroup _ rhs_ty))
+  | isEmptyMatchGroup matches   -- A Core 'case' is always non-empty
+  =                             -- So desugar empty HsLamCase to error call
+    mkErrorAppDs pAT_ERROR_ID (funResultTy rhs_ty) (ptext (sLit "\\case"))
+  | otherwise
   = do { arg_var <- newSysLocalDs arg
        ; ([discrim_var], matching_code) <- matchWrapper CaseAlt matches
        ; return $ Lam arg_var $ bindNonRec discrim_var (Var arg_var) matching_code }
@@ -213,7 +217,7 @@ dsExpr (HsLamCase arg matches)
 dsExpr (HsApp fun arg)
   = mkCoreAppDs <$> dsLExpr fun <*>  dsLExpr arg
 
-dsExpr (HsUnboundVar _) = panic "dsExpr: HsUnboundVar"
+dsExpr HsHole = panic "dsExpr: HsHole"
 \end{code}
 
 Note [Desugaring vars]
@@ -301,7 +305,12 @@ dsExpr (HsSCC cc expr@(L loc _)) = do
 dsExpr (HsCoreAnn _ expr)
   = dsLExpr expr
 
-dsExpr (HsCase discrim matches)
+dsExpr (HsCase discrim matches@(MatchGroup _ rhs_ty)) 
+  | isEmptyMatchGroup matches   -- A Core 'case' is always non-empty
+  =                             -- So desugar empty HsCase to error call
+    mkErrorAppDs pAT_ERROR_ID (funResultTy rhs_ty) (ptext (sLit "case"))
+
+  | otherwise
   = do { core_discrim <- dsLExpr discrim
        ; ([discrim_var], matching_code) <- matchWrapper CaseAlt matches
        ; return (bindNonRec discrim_var core_discrim matching_code) }
@@ -350,8 +359,8 @@ dsExpr (HsMultiIf res_ty alts)
 \underline{\bf Various data construction things}
 %              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 \begin{code}
-dsExpr (ExplicitList elt_ty wit xs) 
-  = dsExplicitList elt_ty wit xs
+dsExpr (ExplicitList elt_ty xs) 
+  = dsExplicitList elt_ty xs
 
 -- We desugar [:x1, ..., xn:] as
 --   singletonP x1 +:+ ... +:+ singletonP xn
@@ -368,13 +377,17 @@ dsExpr (ExplicitPArr ty xs) = do
     unary  fn x   = mkApps (Var fn) [Type ty, x]
     binary fn x y = mkApps (Var fn) [Type ty, x, y]
 
-dsExpr (ArithSeq expr witness seq)
-  = case witness of
-     Nothing -> dsArithSeq expr seq
-     Just fl -> do { 
-       ; fl' <- dsExpr fl
-       ; newArithSeq <- dsArithSeq expr seq
-       ; return (App fl' newArithSeq)}
+dsExpr (ArithSeq expr (From from))
+  = App <$> dsExpr expr <*> dsLExpr from
+
+dsExpr (ArithSeq expr (FromTo from to))
+  = mkApps <$> dsExpr expr <*> mapM dsLExpr [from, to]
+
+dsExpr (ArithSeq expr (FromThen from thn))
+  = mkApps <$> dsExpr expr <*> mapM dsLExpr [from, thn]
+
+dsExpr (ArithSeq expr (FromThenTo from thn to))
+  = mkApps <$> dsExpr expr <*> mapM dsLExpr [from, thn, to]
 
 dsExpr (PArrSeq expr (FromTo from to))
   = mkApps <$> dsExpr expr <*> mapM dsLExpr [from, to]
@@ -486,7 +499,7 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
         -- constructor aguments.
         ; alts <- mapM (mk_alt upd_fld_env) cons_to_upd
         ; ([discrim_var], matching_code) 
-                <- matchWrapper RecUpd (MG { mg_alts = alts, mg_arg_tys = [in_ty], mg_res_ty = out_ty })
+                <- matchWrapper RecUpd (MatchGroup alts in_out_ty)
 
         ; return (add_field_binds field_binds' $
                   bindNonRec discrim_var record_expr' matching_code) }
@@ -508,7 +521,7 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
         -- from instance type to family type
     tycon     = dataConTyCon (head cons_to_upd)
     in_ty     = mkTyConApp tycon in_inst_tys
-    out_ty    = mkFamilyTyConApp tycon out_inst_tys
+    in_out_ty = mkFunTy in_ty (mkFamilyTyConApp tycon out_inst_tys)
 
     mk_alt upd_fld_env con
       = do { let (univ_tvs, ex_tvs, eq_spec, 
@@ -669,9 +682,9 @@ makes all list literals be generated via the simple route.
 
 
 \begin{code}
-dsExplicitList :: PostTcType -> Maybe (SyntaxExpr Id) -> [LHsExpr Id] -> DsM CoreExpr
+dsExplicitList :: PostTcType -> [LHsExpr Id] -> DsM CoreExpr
 -- See Note [Desugaring explicit lists]
-dsExplicitList elt_ty Nothing xs
+dsExplicitList elt_ty xs
   = do { dflags <- getDynFlags
        ; xs' <- mapM dsLExpr xs
        ; let (dynamic_prefix, static_suffix) = spanTail is_static xs'
@@ -696,25 +709,9 @@ dsExplicitList elt_ty Nothing xs
            ; folded_suffix <- mkFoldrExpr elt_ty n_ty (Var c) (Var n) suffix'
            ; return (foldr (App . App (Var c)) folded_suffix prefix) }
 
-dsExplicitList elt_ty (Just fln) xs
-  = do { fln' <- dsExpr fln
-       ; list <- dsExplicitList elt_ty Nothing xs
-       ; dflags <- getDynFlags
-       ; return (App (App fln' (mkIntExprInt dflags (length xs))) list) }
-       
 spanTail :: (a -> Bool) -> [a] -> ([a], [a])
 spanTail f xs = (reverse rejected, reverse satisfying)
     where (satisfying, rejected) = span f $ reverse xs
-    
-dsArithSeq :: PostTcExpr -> (ArithSeqInfo Id) -> DsM CoreExpr
-dsArithSeq expr (From from)
-  = App <$> dsExpr expr <*> dsLExpr from
-dsArithSeq expr (FromTo from to)
-  = mkApps <$> dsExpr expr <*> mapM dsLExpr [from, to]
-dsArithSeq expr (FromThen from thn)
-  = mkApps <$> dsExpr expr <*> mapM dsLExpr [from, thn]
-dsArithSeq expr (FromThenTo from thn to)
-  = mkApps <$> dsExpr expr <*> mapM dsLExpr [from, thn, to]
 \end{code}
 
 Desugar 'do' and 'mdo' expressions (NOT list comprehensions, they're
@@ -773,8 +770,8 @@ dsDo stmts
         later_pats   = rec_tup_pats
         rets         = map noLoc rec_rets
         mfix_app     = nlHsApp (noLoc mfix_op) mfix_arg
-        mfix_arg     = noLoc $ HsLam (MG { mg_alts = [mkSimpleMatch [mfix_pat] body]
-                                         , mg_arg_tys = [tup_ty], mg_res_ty = body_ty })
+        mfix_arg     = noLoc $ HsLam (MatchGroup [mkSimpleMatch [mfix_pat] body]
+                                                 (mkFunTy tup_ty body_ty))
         mfix_pat     = noLoc $ LazyPat $ mkBigLHsPatTup rec_tup_pats
         body         = noLoc $ HsDo DoExpr (rec_stmts ++ [ret_stmt]) body_ty
         ret_app      = nlHsApp (noLoc return_op) (mkBigLHsTup rets)
@@ -832,7 +829,7 @@ conversionNames
   = [ toIntegerName, toRationalName
     , fromIntegralName, realToFracName ]
  -- We can't easily add fromIntegerName, fromRationalName,
- -- because they are generated by literals
+ -- becuase they are generated by literals
 \end{code}
 
 %************************************************************************

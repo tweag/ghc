@@ -35,7 +35,6 @@
 
 module PIC (
         cmmMakeDynamicReference,
-        CmmMakeDynamicReferenceM(..),
         ReferenceKind(..),
         needImportedSymbols,
         pprImportedSymbol,
@@ -70,7 +69,6 @@ import CLabel           ( mkForeignLabel )
 
 
 import BasicTypes
-import Module
 
 import Outputable
 
@@ -98,32 +96,26 @@ data ReferenceKind
         | JumpReference
         deriving(Eq)
 
-class Monad m => CmmMakeDynamicReferenceM m where
-    addImport :: CLabel -> m ()
-    getThisModule :: m Module
 
-instance CmmMakeDynamicReferenceM NatM where
-    addImport = addImportNat
-    getThisModule = getThisModuleNat
+cmmMakeDynamicReference, cmmMakeDynamicReference'
+  :: Monad m => DynFlags
+             -> (CLabel -> m ())  -- a monad & a function
+                                  -- used for recording imported symbols
+             -> ReferenceKind     -- whether this is the target of a jump
+             -> CLabel            -- the label
+             -> m CmmExpr
 
-cmmMakeDynamicReference
-  :: CmmMakeDynamicReferenceM m
-  => DynFlags
-  -> ReferenceKind     -- whether this is the target of a jump
-  -> CLabel            -- the label
-  -> m CmmExpr
+cmmMakeDynamicReference = cmmMakeDynamicReference'
 
-cmmMakeDynamicReference dflags referenceKind lbl
+cmmMakeDynamicReference' dflags addImport referenceKind lbl
   | Just _ <- dynamicLinkerLabelInfo lbl
   = return $ CmmLit $ CmmLabel lbl   -- already processed it, pass through
 
   | otherwise
-  = do this_mod <- getThisModule
-       case howToAccessLabel
+  = case howToAccessLabel
                 dflags
                 (platformArch $ targetPlatform dflags)
                 (platformOS   $ targetPlatform dflags)
-                this_mod
                 referenceKind lbl of
 
         AccessViaStub -> do
@@ -194,7 +186,7 @@ data LabelAccessStyle
         | AccessDirectly
 
 howToAccessLabel
-        :: DynFlags -> Arch -> OS -> Module -> ReferenceKind -> CLabel -> LabelAccessStyle
+        :: DynFlags -> Arch -> OS -> ReferenceKind -> CLabel -> LabelAccessStyle
 
 
 -- Windows
@@ -218,7 +210,7 @@ howToAccessLabel
 -- into the same .exe file. In this case we always access symbols directly,
 -- and never use __imp_SYMBOL.
 --
-howToAccessLabel dflags _ OSMinGW32 this_mod _ lbl
+howToAccessLabel dflags _ OSMinGW32 _ lbl
 
         -- Assume all symbols will be in the same PE, so just access them directly.
         | gopt Opt_Static dflags
@@ -226,7 +218,7 @@ howToAccessLabel dflags _ OSMinGW32 this_mod _ lbl
 
         -- If the target symbol is in another PE we need to access it via the
         --      appropriate __imp_SYMBOL pointer.
-        | labelDynamic dflags (thisPackage dflags) this_mod lbl
+        | labelDynamic dflags (thisPackage dflags) lbl
         = AccessViaSymbolPtr
 
         -- Target symbol is in the same PE as the caller, so just access it directly.
@@ -242,9 +234,9 @@ howToAccessLabel dflags _ OSMinGW32 this_mod _ lbl
 -- It is always possible to access something indirectly,
 -- even when it's not necessary.
 --
-howToAccessLabel dflags arch OSDarwin this_mod DataReference lbl
+howToAccessLabel dflags arch OSDarwin DataReference lbl
         -- data access to a dynamic library goes via a symbol pointer
-        | labelDynamic dflags (thisPackage dflags) this_mod lbl
+        | labelDynamic dflags (thisPackage dflags) lbl
         = AccessViaSymbolPtr
 
         -- when generating PIC code, all cross-module data references must
@@ -263,21 +255,21 @@ howToAccessLabel dflags arch OSDarwin this_mod DataReference lbl
         | otherwise
         = AccessDirectly
 
-howToAccessLabel dflags arch OSDarwin this_mod JumpReference lbl
+howToAccessLabel dflags arch OSDarwin JumpReference lbl
         -- dyld code stubs don't work for tailcalls because the
         -- stack alignment is only right for regular calls.
         -- Therefore, we have to go via a symbol pointer:
         | arch == ArchX86 || arch == ArchX86_64
-        , labelDynamic dflags (thisPackage dflags) this_mod lbl
+        , labelDynamic dflags (thisPackage dflags) lbl
         = AccessViaSymbolPtr
 
 
-howToAccessLabel dflags arch OSDarwin this_mod _ lbl
+howToAccessLabel dflags arch OSDarwin _ lbl
         -- Code stubs are the usual method of choice for imported code;
         -- not needed on x86_64 because Apple's new linker, ld64, generates
         -- them automatically.
         | arch /= ArchX86_64
-        , labelDynamic dflags (thisPackage dflags) this_mod lbl
+        , labelDynamic dflags (thisPackage dflags) lbl
         = AccessViaStub
 
         | otherwise
@@ -294,7 +286,7 @@ howToAccessLabel dflags arch OSDarwin this_mod _ lbl
 -- from position independent code. It is also required from the main program
 -- when dynamic libraries containing Haskell code are used.
 
-howToAccessLabel _ ArchPPC_64 os _ kind _
+howToAccessLabel _ ArchPPC_64 os kind _
         | osElfTarget os
         = if kind == DataReference
             -- ELF PPC64 (powerpc64-linux), AIX, MacOS 9, BeOS/PPC
@@ -302,7 +294,7 @@ howToAccessLabel _ ArchPPC_64 os _ kind _
             -- actually, .label instead of label
             else AccessDirectly
 
-howToAccessLabel dflags _ os _ _ _
+howToAccessLabel dflags _ os _ _
         -- no PIC -> the dynamic linker does everything for us;
         --           if we don't dynamically link to Haskell code,
         --           it actually manages to do so without messing thins up.
@@ -310,11 +302,11 @@ howToAccessLabel dflags _ os _ _ _
         , not (gopt Opt_PIC dflags) && gopt Opt_Static dflags
         = AccessDirectly
 
-howToAccessLabel dflags arch os this_mod DataReference lbl
+howToAccessLabel dflags arch os DataReference lbl
         | osElfTarget os
         = case () of
             -- A dynamic label needs to be accessed via a symbol pointer.
-          _ | labelDynamic dflags (thisPackage dflags) this_mod lbl
+          _ | labelDynamic dflags (thisPackage dflags) lbl
             -> AccessViaSymbolPtr
 
             -- For PowerPC32 -fPIC, we have to access even static data
@@ -340,24 +332,24 @@ howToAccessLabel dflags arch os this_mod DataReference lbl
         -- (AccessDirectly, because we get an implicit symbol stub)
         -- and calling functions from PIC code on non-i386 platforms (via a symbol stub)
 
-howToAccessLabel dflags arch os this_mod CallReference lbl
+howToAccessLabel dflags arch os CallReference lbl
         | osElfTarget os
-        , labelDynamic dflags (thisPackage dflags) this_mod lbl && not (gopt Opt_PIC dflags)
+        , labelDynamic dflags (thisPackage dflags) lbl && not (gopt Opt_PIC dflags)
         = AccessDirectly
 
         | osElfTarget os
         , arch /= ArchX86
-        , labelDynamic dflags (thisPackage dflags) this_mod lbl && gopt Opt_PIC dflags
+        , labelDynamic dflags (thisPackage dflags) lbl && gopt Opt_PIC dflags
         = AccessViaStub
 
-howToAccessLabel dflags _ os this_mod _ lbl
+howToAccessLabel dflags _ os _ lbl
         | osElfTarget os
-        = if labelDynamic dflags (thisPackage dflags) this_mod lbl
+        = if labelDynamic dflags (thisPackage dflags) lbl
             then AccessViaSymbolPtr
             else AccessDirectly
 
 -- all other platforms
-howToAccessLabel dflags _ _ _ _ _
+howToAccessLabel dflags _ _ _ _
         | not (gopt Opt_PIC dflags)
         = AccessDirectly
 
@@ -718,29 +710,22 @@ initializePicBase_ppc ArchPPC os picReg
                                 (PPC.ImmCLbl gotOffLabel)
                                 (PPC.ImmCLbl mkPicBaseLabel)
 
-            blocks' = case blocks of
-                       [] -> []
-                       (b:bs) -> fetchPC b : map maybeFetchPC bs
+            BasicBlock bID insns
+                        = head blocks
 
-            maybeFetchPC b@(BasicBlock bID _)
-              | bID `mapMember` info = fetchPC b
-              | otherwise            = b
+            b' = BasicBlock bID (PPC.FETCHPC picReg
+                               : PPC.LD PPC.archWordSize tmp
+                                    (PPC.AddrRegImm picReg offsetToOffset)
+                               : PPC.ADD picReg picReg (PPC.RIReg tmp)
+                               : insns)
 
-            fetchPC (BasicBlock bID insns) =
-              BasicBlock bID (PPC.FETCHPC picReg
-                              : PPC.LD PPC.archWordSize tmp
-                                   (PPC.AddrRegImm picReg offsetToOffset)
-                              : PPC.ADD picReg picReg (PPC.RIReg tmp)
-                              : insns)
-
-        return (CmmProc info lab live (ListGraph blocks') : gotOffset : statics)
-
+        return (CmmProc info lab live (ListGraph (b' : tail blocks)) : gotOffset : statics)
 
 initializePicBase_ppc ArchPPC OSDarwin picReg
-        (CmmProc info lab live (ListGraph (entry:blocks)) : statics) -- just one entry because of splitting
-        = return (CmmProc info lab live (ListGraph (b':blocks)) : statics)
+        (CmmProc info lab live (ListGraph blocks) : statics)
+        = return (CmmProc info lab live (ListGraph (b':tail blocks)) : statics)
 
-        where   BasicBlock bID insns = entry
+        where   BasicBlock bID insns = head blocks
                 b' = BasicBlock bID (PPC.FETCHPC picReg : insns)
 
 
@@ -779,11 +764,19 @@ initializePicBase_x86 ArchX86 os picReg
              BasicBlock bID (X86.FETCHGOT picReg : insns)
 
 initializePicBase_x86 ArchX86 OSDarwin picReg
-        (CmmProc info lab live (ListGraph (entry:blocks)) : statics)
-        = return (CmmProc info lab live (ListGraph (block':blocks)) : statics)
+        (CmmProc info lab live (ListGraph blocks) : statics)
+        = return (CmmProc info lab live (ListGraph blocks') : statics)
 
-    where BasicBlock bID insns = entry
-          block' = BasicBlock bID (X86.FETCHPC picReg : insns)
+    where blocks' = case blocks of
+                     [] -> []
+                     (b:bs) -> fetchPC b : map maybeFetchPC bs
+
+          maybeFetchPC b@(BasicBlock bID _)
+            | bID `mapMember` info = fetchPC b
+            | otherwise            = b
+
+          fetchPC (BasicBlock bID insns) =
+             BasicBlock bID (X86.FETCHPC picReg : insns)
 
 initializePicBase_x86 _ _ _ _
         = panic "initializePicBase_x86: not needed"

@@ -230,14 +230,14 @@ readPackageConfig dflags conf_file = do
        else do
             isfile <- doesFileExist conf_file
             when (not isfile) $
-              throwGhcExceptionIO $ InstallationError $
+              throwGhcException $ InstallationError $
                 "can't find a package database at " ++ conf_file
             debugTraceMsg dflags 2 (text "Using package config file:" <+> text conf_file)
             str <- readFile conf_file
             case reads str of
                 [(configs, rest)]
                     | all isSpace rest -> return (map installedPackageInfoToPackageConfig configs)
-                _ -> throwGhcExceptionIO $ InstallationError $
+                _ -> throwGhcException $ InstallationError $
                         "invalid package database file " ++ conf_file
 
   let
@@ -410,13 +410,12 @@ packageFlagErr :: DynFlags
 -- for missing DPH package we emit a more helpful error message, because
 -- this may be the result of using -fdph-par or -fdph-seq.
 packageFlagErr dflags (ExposePackage pkg) [] | is_dph_package pkg
-  = throwGhcExceptionIO (CmdLineError (showSDoc dflags $ dph_err))
+  = throwGhcException (CmdLineError (showSDoc dflags $ dph_err))
   where dph_err = text "the " <> text pkg <> text " package is not installed."
                   $$ text "To install it: \"cabal install dph\"."
         is_dph_package pkg = "dph" `isPrefixOf` pkg
 
-packageFlagErr dflags flag reasons
-  = throwGhcExceptionIO (CmdLineError (showSDoc dflags $ err))
+packageFlagErr dflags flag reasons = throwGhcException (CmdLineError (showSDoc dflags $ err))
   where err = text "cannot satisfy " <> ppr_flag <>
                 (if null reasons then empty else text ": ") $$
               nest 4 (ppr_reasons $$
@@ -896,16 +895,8 @@ packageHsLibs dflags p = map (mkDynName . addSuffix) (hsLibraries p)
         tag     = mkBuildTag (filter (not . wayRTSOnly) ways2)
         rts_tag = mkBuildTag ways2
 
-        mkDynName x
-         | gopt Opt_Static dflags       = x
-         | "HS" `isPrefixOf` x          = x ++ "-ghc" ++ cProjectVersion
-           -- For non-Haskell libraries, we use the name "Cfoo". The .a
-           -- file is libCfoo.a, and the .so is libfoo.so. That way the
-           -- linker knows what we mean for the vanilla (-lCfoo) and dyn
-           -- (-lfoo) ways. We therefore need to strip the 'C' off here.
-         | Just x' <- stripPrefix "C" x = x'
-         | otherwise
-            = panic ("Don't understand library name " ++ x)
+        mkDynName | gopt Opt_Static dflags = id
+                  | otherwise = (++ ("-ghc" ++ cProjectVersion))
 
         addSuffix rts@"HSrts"    = rts       ++ (expandTag rts_tag)
         addSuffix other_lib      = other_lib ++ (expandTag tag)
@@ -992,7 +983,7 @@ closeDeps dflags pkg_map ipid_map ps
 throwErr :: DynFlags -> MaybeErr MsgDoc a -> IO a
 throwErr dflags m
               = case m of
-                Failed e    -> throwGhcExceptionIO (CmdLineError (showSDoc dflags e))
+                Failed e    -> throwGhcException (CmdLineError (showSDoc dflags e))
                 Succeeded r -> return r
 
 closeDepsErr :: PackageConfigMap
@@ -1026,7 +1017,7 @@ add_package pkg_db ipid_map ps (p, mb_parent)
 
 missingPackageErr :: DynFlags -> String -> IO a
 missingPackageErr dflags p
-    = throwGhcExceptionIO (CmdLineError (showSDoc dflags (missingPackageMsg p)))
+    = throwGhcException (CmdLineError (showSDoc dflags (missingPackageMsg p)))
 
 missingPackageMsg :: String -> SDoc
 missingPackageMsg p = ptext (sLit "unknown package:") <+> text p
@@ -1039,24 +1030,13 @@ missingDependencyMsg (Just parent)
 -- -----------------------------------------------------------------------------
 
 -- | Will the 'Name' come from a dynamically linked library?
-isDllName :: DynFlags -> PackageId -> Module -> Name -> Bool
+isDllName :: DynFlags -> PackageId -> Name -> Bool
 -- Despite the "dll", I think this function just means that
 -- the synbol comes from another dynamically-linked package,
 -- and applies on all platforms, not just Windows
-isDllName dflags this_pkg this_mod name
+isDllName dflags this_pkg name
   | gopt Opt_Static dflags = False
-  | Just mod <- nameModule_maybe name
-    = if modulePackageId mod /= this_pkg
-      then True
-      else case dllSplit dflags of
-           Nothing -> False
-           Just ss ->
-               let findMod m = let modStr = moduleNameString (moduleName m)
-                               in case find (modStr `Set.member`) ss of
-                                  Just i -> i
-                                  Nothing -> panic ("Can't find " ++ modStr ++ "in DLL split")
-               in findMod mod /= findMod this_mod
-       
+  | Just mod <- nameModule_maybe name = modulePackageId mod /= this_pkg
   | otherwise = False  -- no, it is not even an external name
 
 -- -----------------------------------------------------------------------------

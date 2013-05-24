@@ -81,6 +81,7 @@ import Exception hiding (catch)
 import Foreign.C
 import Foreign.Safe
 
+import System.Cmd
 import System.Directory
 import System.Environment
 import System.Exit ( exitWith, ExitCode(..) )
@@ -88,7 +89,6 @@ import System.FilePath
 import System.IO
 import System.IO.Error
 import System.IO.Unsafe ( unsafePerformIO )
-import System.Process
 import Text.Printf
 
 #ifndef mingw32_HOST_OS
@@ -833,7 +833,7 @@ runStmt stmt step
 
 -- | Clean up the GHCi environment after a statement has run
 afterRunStmt :: (SrcSpan -> Bool) -> GHC.RunResult -> GHCi Bool
-afterRunStmt _ (GHC.RunException e) = liftIO $ Exception.throwIO e
+afterRunStmt _ (GHC.RunException e) = throw e
 afterRunStmt step_here run_result = do
   resumes <- GHC.getResumeContext
   case run_result of
@@ -1022,7 +1022,7 @@ infoThing allInfo str = do
     let pefas = gopt Opt_PrintExplicitForalls dflags
     names     <- GHC.parseName str
     mb_stuffs <- mapM (GHC.getInfo allInfo) names
-    let filtered = filterOutChildren (\(t,_f,_ci,_fi) -> t) (catMaybes mb_stuffs)
+    let filtered = filterOutChildren (\(t,_f,_i) -> t) (catMaybes mb_stuffs)
     return $ vcat (intersperse (text "") $ map (pprInfo pefas) filtered)
 
   -- Filter out names whose parent is also there Good
@@ -1037,13 +1037,11 @@ filterOutChildren get_thing xs
                      Just p  -> getName p `elemNameSet` all_names
                      Nothing -> False
 
-pprInfo :: PrintExplicitForalls
-        -> (TyThing, Fixity, [GHC.ClsInst], [GHC.FamInst GHC.Branched]) -> SDoc
-pprInfo pefas (thing, fixity, cls_insts, fam_insts)
+pprInfo :: PrintExplicitForalls -> (TyThing, Fixity, [GHC.ClsInst]) -> SDoc
+pprInfo pefas (thing, fixity, insts)
   =  pprTyThingInContextLoc pefas thing
   $$ show_fixity
-  $$ vcat (map GHC.pprInstance cls_insts)
-  $$ vcat (map GHC.pprFamInst  fam_insts)
+  $$ vcat (map GHC.pprInstance insts)
   where
     show_fixity
         | fixity == GHC.defaultFixity = empty
@@ -1422,9 +1420,7 @@ kindOfType norm str
   = handleSourceError GHC.printException
   $ do
        (ty, kind) <- GHC.typeKind norm str
-       dflags <- getDynFlags
-       let pefas = gopt Opt_PrintExplicitForalls dflags
-       printForUser $ vcat [ text str <+> dcolon <+> pprTypeForUser pefas kind
+       printForUser $ vcat [ text str <+> dcolon <+> ppr kind
                            , ppWhen norm $ equals <+> ppr ty ]
 
 
@@ -2193,10 +2189,8 @@ showBindings = do
         let pefas = gopt Opt_PrintExplicitForalls dflags
         mb_stuff <- GHC.getInfo False (getName tt)
         return $ maybe (text "") (pprTT pefas) mb_stuff
-
-    pprTT :: PrintExplicitForalls
-          -> (TyThing, Fixity, [GHC.ClsInst], [GHC.FamInst GHC.Branched]) -> SDoc
-    pprTT pefas (thing, fixity, _cls_insts, _fam_insts) =
+    pprTT :: PrintExplicitForalls -> (TyThing, Fixity, [GHC.ClsInst]) -> SDoc
+    pprTT pefas (thing, fixity, _insts) =
         pprTyThing pefas thing
         $$ show_fixity
       where
@@ -2947,10 +2941,8 @@ showException se =
 -- in an exception loop (eg. let a = error a in a) the ^C exception
 -- may never be delivered.  Thanks to Marcin for pointing out the bug.
 
-ghciHandle :: (HasDynFlags m, ExceptionMonad m) => (SomeException -> m a) -> m a -> m a
-ghciHandle h m = gmask $ \restore -> do
-                 dflags <- getDynFlags
-                 gcatch (restore (GHC.prettyPrintGhcErrors dflags m)) $ \e -> restore (h e)
+ghciHandle :: ExceptionMonad m => (SomeException -> m a) -> m a -> m a
+ghciHandle h m = gcatch m $ \e -> gunblock (h e)
 
 ghciTry :: GHCi a -> GHCi (Either SomeException a)
 ghciTry (GHCi m) = GHCi $ \s -> gtry (m s)

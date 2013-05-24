@@ -5,14 +5,14 @@ module CmmLayoutStack (
 
 import StgCmmUtils      ( callerSaveVolatileRegs ) -- XXX layering violation
 import StgCmmForeign    ( saveThreadState, loadThreadState ) -- XXX layering violation
+import StgCmmLayout     ( entryCode ) -- XXX layering violation
 
-import BasicTypes
 import Cmm
-import CmmInfo
 import BlockId
 import CLabel
 import CmmUtils
 import MkGraph
+import Module
 import ForeignCall
 import CmmLive
 import CmmProcPoint
@@ -965,7 +965,7 @@ lowerSafeForeignCall dflags block
 
 
 foreignLbl :: FastString -> CmmExpr
-foreignLbl name = CmmLit (CmmLabel (mkForeignLabel name Nothing ForeignLabelInExternalPackage IsFunction))
+foreignLbl name = CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageId name))
 
 newTemp :: CmmType -> UniqSM LocalReg
 newTemp rep = getUniqueM >>= \u -> return (LocalReg u rep)

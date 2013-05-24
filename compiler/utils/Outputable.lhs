@@ -71,13 +71,11 @@ module Outputable (
     ) where
 
 import {-# SOURCE #-}   DynFlags( DynFlags,
-                                  targetPlatform, pprUserLength, pprCols,
-                                  useUnicodeQuotes,
-                                  unsafeGlobalDynFlags )
+                                  targetPlatform, pprUserLength, pprCols )
 import {-# SOURCE #-}   Module( Module, ModuleName, moduleName )
 import {-# SOURCE #-}   Name( Name, nameModule )
-import {-# SOURCE #-}   StaticFlags( opt_PprStyle_Debug, opt_NoDebugOutput )
 
+import StaticFlags
 import FastString
 import FastTypes
 import qualified Pretty
@@ -261,9 +259,7 @@ pprDeeper d = SDoc $ \ctx -> case ctx of
 
 pprDeeperList :: ([SDoc] -> SDoc) -> [SDoc] -> SDoc
 -- Truncate a list that list that is longer than the current depth
-pprDeeperList f ds 
-  | null ds   = f []
-  | otherwise = SDoc work
+pprDeeperList f ds = SDoc work
  where
   work ctx@SDC{sdocStyle=PprUser q (PartWay n)}
    | n==0      = Pretty.text "..."
@@ -449,11 +445,7 @@ cparen b d     = SDoc $ Pretty.cparen b . runSDoc d
 -- 'quotes' encloses something in single quotes...
 -- but it omits them if the thing begins or ends in a single quote
 -- so that we don't get `foo''.  Instead we just have foo'.
-quotes d =
-      sdocWithDynFlags $ \dflags ->
-      if useUnicodeQuotes dflags
-      then char '‛' <> d <> char '’'
-      else SDoc $ \sty ->
+quotes d = SDoc $ \sty ->
            let pp_d = runSDoc d sty
                str  = show pp_d
            in case (str, snocView str) of
@@ -825,12 +817,9 @@ intWithCommas :: Integral a => a -> SDoc
 intWithCommas n
   | n < 0     = char '-' <> intWithCommas (-n)
   | q == 0    = int (fromIntegral r)
-  | otherwise = intWithCommas q <> comma <> zeroes <> int (fromIntegral r)
+  | otherwise = intWithCommas q <> comma <> int (fromIntegral r)
   where
     (q,r) = n `quotRem` 1000
-    zeroes | r >= 100  = empty
-           | r >= 10   = char '0'
-           | otherwise = ptext (sLit "00")
 
 -- | Converts an integer to a verbal index:
 --

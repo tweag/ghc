@@ -53,7 +53,6 @@ import Outputable
 import SrcLoc
 import FastString
 import Control.Monad
-import TysWiredIn       ( nilDataConName )
 \end{code}
 
 
@@ -109,18 +108,8 @@ finishHsVar name
 		; return (e, unitFV name) } }
 
 rnExpr (HsVar v)
-  = do { mb_name <- lookupOccRn_maybe v
-       ; case mb_name of {
-           Nothing -> do { opt_TypeHoles <- xoptM Opt_TypeHoles
-                         ; if opt_TypeHoles && startsWithUnderscore (rdrNameOcc v)
-                           then return (HsUnboundVar v, emptyFVs)
-                           else do { n <- reportUnboundName v; finishHsVar n } } ;
-           Just name 
-              | name == nilDataConName -- Treat [] as an ExplicitList, so that
-                                       -- OverloadedLists works correctly
-              -> rnExpr (ExplicitList placeHolderType Nothing [])
-              | otherwise 
-              -> finishHsVar name } }
+  = do name <- lookupOccRn v
+       finishHsVar name
 
 rnExpr (HsIPVar v)
   = return (HsIPVar v, emptyFVs)
@@ -254,15 +243,9 @@ rnExpr (HsDo do_or_lc stmts _)
   = do 	{ ((stmts', _), fvs) <- rnStmts do_or_lc rnLExpr stmts (\ _ -> return ((), emptyFVs))
 	; return ( HsDo do_or_lc stmts' placeHolderType, fvs ) }
 
-rnExpr (ExplicitList _ _  exps)
-  = do  { opt_OverloadedLists <- xoptM Opt_OverloadedLists
-        ; (exps', fvs) <- rnExprs exps
-        ; if opt_OverloadedLists 
-           then do {
-            ; (from_list_n_name, fvs') <- lookupSyntaxName fromListNName 
-            ; return (ExplicitList placeHolderType (Just from_list_n_name) exps', fvs `plusFV` fvs') }                                    
-           else
-            return  (ExplicitList placeHolderType Nothing exps', fvs) }
+rnExpr (ExplicitList _ exps)
+  = rnExprs exps		 	`thenM` \ (exps', fvs) ->
+    return  (ExplicitList placeHolderType exps', fvs)
 
 rnExpr (ExplicitPArr _ exps)
   = rnExprs exps		 	`thenM` \ (exps', fvs) ->
@@ -310,19 +293,16 @@ rnExpr (HsType a)
   = rnLHsType HsTypeCtx a	`thenM` \ (t, fvT) -> 
     return (HsType t, fvT)
 
-rnExpr (ArithSeq _ _ seq)
-  = do { opt_OverloadedLists <- xoptM Opt_OverloadedLists
-       ; (new_seq, fvs) <- rnArithSeq seq
-       ; if opt_OverloadedLists 
-           then do {
-            ; (from_list_name, fvs') <- lookupSyntaxName fromListName  
-            ; return (ArithSeq noPostTcExpr (Just from_list_name) new_seq, fvs `plusFV` fvs') }                                    
-           else
-            return (ArithSeq noPostTcExpr Nothing new_seq, fvs) }
+rnExpr (ArithSeq _ seq)
+  = rnArithSeq seq	 `thenM` \ (new_seq, fvs) ->
+    return (ArithSeq noPostTcExpr new_seq, fvs)
 
 rnExpr (PArrSeq _ seq)
   = rnArithSeq seq	 `thenM` \ (new_seq, fvs) ->
     return (PArrSeq noPostTcExpr new_seq, fvs)
+
+rnExpr HsHole
+  = return (HsHole, emptyFVs)
 \end{code}
 
 These three are pattern syntax appearing in expressions.
@@ -332,7 +312,7 @@ We return a (bogus) EWildPat in each case.
 \begin{code}
 rnExpr e@EWildPat      = do { holes <- xoptM Opt_TypeHoles
                             ; if holes
-                                then return (hsHoleExpr, emptyFVs)
+                                then return (HsHole, emptyFVs)
                                 else patSynErr e
                             }
 rnExpr e@(EAsPat {})   = patSynErr e
@@ -360,16 +340,13 @@ rnExpr e@(HsArrForm {}) = arrowFail e
 rnExpr other = pprPanic "rnExpr: unexpected expression" (ppr other)
 	-- HsWrap
 
-hsHoleExpr :: HsExpr Name
-hsHoleExpr = HsUnboundVar (mkRdrUnqual (mkVarOcc "_"))
-
 arrowFail :: HsExpr RdrName -> RnM (HsExpr Name, FreeVars)
 arrowFail e
   = do { addErr (vcat [ ptext (sLit "Arrow command found where an expression was expected:")
                       , nest 2 (ppr e) ])
          -- Return a place-holder hole, so that we can carry on
          -- to report other errors
-       ; return (hsHoleExpr, emptyFVs) }
+       ; return (HsHole, emptyFVs) }
 
 ----------------------
 -- See Note [Parsing sections] in Parser.y.pp
@@ -433,7 +410,7 @@ rnCmdTop = wrapLocFstM rnCmdTop'
 	-- Generate the rebindable syntax for the monad
         ; (cmd_names', cmd_fvs) <- lookupSyntaxNames cmd_names
 
-        ; return (HsCmdTop cmd' placeHolderType placeHolderType (cmd_names `zip` cmd_names'), 
+        ; return (HsCmdTop cmd' [] placeHolderType (cmd_names `zip` cmd_names'), 
 	          fvCmd `plusFV` cmd_fvs) }
 
 rnLCmd :: LHsCmd RdrName -> RnM (LHsCmd Name, FreeVars)
@@ -511,7 +488,6 @@ rnCmd (HsCmdDo stmts _)
   = do  { ((stmts', _), fvs) <- rnStmts ArrowExpr rnLCmd stmts (\ _ -> return ((), emptyFVs))
         ; return ( HsCmdDo stmts' placeHolderType, fvs ) }
 
-rnCmd cmd@(HsCmdCast {}) = pprPanic "rnCmd" (ppr cmd)
 
 ---------------------------------------------------
 type CmdNeeds = FreeVars	-- Only inhabitants are 
@@ -528,7 +504,6 @@ methodNamesCmd (HsCmdArrApp _arrow _arg _ HsFirstOrderApp _rtl)
 methodNamesCmd (HsCmdArrApp _arrow _arg _ HsHigherOrderApp _rtl)
   = unitFV appAName
 methodNamesCmd (HsCmdArrForm {}) = emptyFVs
-methodNamesCmd (HsCmdCast _ cmd) = methodNamesCmd cmd
 
 methodNamesCmd (HsCmdPar c) = methodNamesLCmd c
 
@@ -550,7 +525,7 @@ methodNamesCmd (HsCmdCase _ matches)
 
 ---------------------------------------------------
 methodNamesMatch :: MatchGroup Name (LHsCmd Name) -> FreeVars
-methodNamesMatch (MG { mg_alts = ms })
+methodNamesMatch (MatchGroup ms _)
   = plusFVs (map do_one ms)
  where 
     do_one (L _ (Match _ _ grhss)) = methodNamesGRHSs grhss
@@ -1075,7 +1050,7 @@ rn_rec_stmt _ all_bndrs (L loc (LetStmt (HsValBinds binds'))) _ = do
   return [(duDefs du_binds, allUses du_binds, 
 	   emptyNameSet, L loc (LetStmt (HsValBinds binds')))]
 
--- no RecStmt case because they get flattened above when doing the LHSes
+-- no RecStmt case becuase they get flattened above when doing the LHSes
 rn_rec_stmt _ _ stmt@(L _ (RecStmt {})) _
   = pprPanic "rn_rec_stmt: RecStmt" (ppr stmt)
 

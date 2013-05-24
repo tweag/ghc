@@ -48,6 +48,6 @@
 
 #endif
 
-#include "MachRegs.h"
+#include "stg/MachRegs.h"
 
 #endif /* RTSMACHREGS_H */

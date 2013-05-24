@@ -291,7 +291,7 @@ mkCoAlgCaseMatchResult dflags var ty match_alts
   = MatchResult fail_flag mk_case
   where
     tycon = dataConTyCon con1
-	-- [Interesting: because of GADTs, we can't rely on the type of 
+	-- [Interesting: becuase of GADTs, we can't rely on the type of 
 	--  the scrutinised Id to be sufficiently refined to have a TyCon in it]
 
 	-- Stuff for newtype
@@ -307,7 +307,7 @@ mkCoAlgCaseMatchResult dflags var ty match_alts
     match_results  = [match_result | (_,_,match_result) <- match_alts]
 
     fail_flag | exhaustive_case
-	      = foldr orFail CantFail [can_it_fail | MatchResult can_it_fail _ <- match_results]
+	      = foldr1 orFail [can_it_fail | MatchResult can_it_fail _ <- match_results]
 	      | otherwise
 	      = CanFail
 

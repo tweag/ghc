@@ -48,7 +48,7 @@ typedef union workData {
 	char *buf; 
     } ioData;
     struct { 
-	int   usecs;
+	int   msecs;
     } delayData;
     struct { 
 	DoProcProc proc;
@@ -88,7 +88,7 @@ extern void ShutdownIOManager  ( rtsBool wait_threads );
  * completion routine is supplied, which the worker thread
  * will invoke upon completion.
  */
-extern int AddDelayRequest ( unsigned int   usecs,
+extern int AddDelayRequest ( unsigned int   msecs,
 			     CompletionProc onCompletion);
 
 extern int AddIORequest ( int            fd,

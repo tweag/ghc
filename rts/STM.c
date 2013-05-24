@@ -380,20 +380,13 @@ static void unpark_tso(Capability *cap, StgTSO *tso) {
 
     // Unblocking a TSO from BlockedOnSTM is done under the TSO lock,
     // to avoid multiple CPUs unblocking the same TSO, and also to
-    // synchronise with throwTo(). The first time the TSO is unblocked
-    // we mark this fact by setting block_info.closure == STM_AWOKEN.
-    // This way we can avoid sending further wakeup messages in the
-    // future.
+    // synchronise with throwTo().
     lockTSO(tso);
-    if (tso->why_blocked == BlockedOnSTM &&
-        tso->block_info.closure == &stg_STM_AWOKEN_closure) {
-      TRACE("unpark_tso already woken up tso=%p", tso);
-    } else if (tso -> why_blocked == BlockedOnSTM) {
-      TRACE("unpark_tso on tso=%p", tso);
-      tso->block_info.closure = &stg_STM_AWOKEN_closure;
-      tryWakeupThread(cap,tso);
+    if (tso -> why_blocked == BlockedOnSTM) {
+	TRACE("unpark_tso on tso=%p", tso);
+        tryWakeupThread(cap,tso);
     } else {
-      TRACE("spurious unpark_tso on tso=%p", tso);
+	TRACE("spurious unpark_tso on tso=%p", tso);
     }
     unlockTSO(tso);
 }
@@ -905,12 +898,8 @@ static StgBool check_read_only(StgTRecHeader *trec STG_UNUSED) {
       s = e -> tvar;
       if (entry_is_read_only(e)) {
         TRACE("%p : check_read_only for TVar %p, saw %ld", trec, s, e -> num_updates);
-        
-        // Note we need both checks and in this order as the TVar could be
-        // locked by another transaction that is committing but has not yet
-        // incremented `num_updates` (See #7815).
-        if (s -> current_value != e -> expected_value ||
-            s -> num_updates != e -> num_updates) {
+        if (s -> num_updates != e -> num_updates) {
+          // ||s -> current_value != e -> expected_value) {
           TRACE("%p : mismatch", trec);
           result = FALSE;
           BREAK_FOR_EACH;

@@ -32,13 +32,11 @@
 # 	    exit 1; \
 # 	fi
 #
-# This version adds a useful sanity check, and is a good solution,
-# except that it means spawning a shell. This can be expensive,
-# especially on Windows where spawning a shell takes about 0.3s.
-# We'd like to avoid the shell if necessary.  This also hides the
-# message "nothing to be done for 'all'", since make thinks it has
-# actually done something. Therefore we only use this version
-# if ExtraMakefileSanityChecks is enabled.
+# This version adds a useful sanity check; but it is also expensive on
+# Windows where spawning a shell takes a while (about 0.3s).  We'd
+# like to avoid the shell if necessary.  This also hides the message
+# "nothing to be done for 'all'", since make thinks it has actually done
+# something.
 #
 # %.hi : %.o
 #
@@ -63,48 +61,12 @@
 # the ';' at the end signifies an "empty command" (see the GNU make
 # documentation).  An empty command is enough to get GNU make to think
 # it has updated %.hi, but without actually spawning a shell to do so.
-#
-# However, given that rule, make thinks that it can make .hi files
-# for any object file, even if the object file was created from e.g.
-# a C source file. We therefore also add a dependency on the .hs/.lhs
-# source file, which means we end up with rules like:
-#
-# a/%.hi : a/%.o b/%.hs ;
-#
-# But! If a file is not explicitly mentioned in a makefile, then if
-# make needs to build it using such a %-rule then it treats it as an
-# 'intermediate file', and deletes it when it is finished. Most .hi
-# files are mentioned in .depend* files, as some other module depends on
-# them, but there are some library modules that aren't imported by
-# anything in the tree.
-#
-# We could stop make from deleting the .hi files by declaring
-# ".SECONDARY:", but if we do that then make takes a pathologically long
-# time with our build system. So we now generate (by calling hi-rule
-# from .depend* files) rules that look like
-#
-# a/B.hi a/B.dyn_hi : %hi : %o x/B.hs
-#
-# Now all the .hi files are explicitly mentioned in the makefiles, so
-# make doesn't think they are merely intermediate files, and doesn't
-# delete them.
 
-ifeq "$(ExtraMakefileSanityChecks)" "NO"
+define hi-rule # $1 = way
 
-define hi-rule # $1 = rule header
-$1 ;
-endef
+%.$$($1_hisuf) : %.$$($1_osuf) ;
 
-else
-
-define hi-rule # $1 = rule header
-$1
-	@if [ ! -f $$@ ] ; then \
-	    echo "Panic! $$< exists, but $$@ does not."; \
-	    exit 1; \
-	fi
+%.$$($1_way_)hi-boot : %.$$($1_way_)o-boot ;
 
 endef
-
-endif
 

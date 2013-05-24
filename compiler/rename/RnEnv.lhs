@@ -7,11 +7,10 @@
 module RnEnv (
         newTopSrcBinder,
         lookupLocatedTopBndrRn, lookupTopBndrRn,
-        lookupLocatedOccRn, lookupOccRn, lookupOccRn_maybe,
+        lookupLocatedOccRn, lookupOccRn,
         lookupLocalOccRn_maybe,
         lookupTypeOccRn, lookupKindOccRn,
         lookupGlobalOccRn, lookupGlobalOccRn_maybe,
-        reportUnboundName,
 
         HsSigCtxt(..), lookupLocalTcNames, lookupSigOccRn,
 
@@ -70,6 +69,12 @@ import Control.Monad
 import Data.List
 import qualified Data.Set as Set
 import Constants        ( mAX_TUPLE_SIZE )
+\end{code}
+
+\begin{code}
+-- XXX
+thenM :: Monad a => a b -> (b -> a c) -> a c
+thenM = (>>=)
 \end{code}
 
 %*********************************************************
@@ -435,7 +440,7 @@ Thus:
     instance C S where
       data G S = Y1 | Y2
 Even though there are two G's in scope (M.G and Blib.G), the occurence
-of 'G' in the 'instance C S' decl is unambiguous, because C has only
+of 'G' in the 'instance C S' decl is unambiguous, becuase C has only
 one associated type called G. This is exactly what happens for methods,
 and it is only consistent to do the same thing for types. That's the
 role of the function lookupTcdName; the (Maybe Name) give the class of
@@ -524,8 +529,8 @@ we'll miss the fact that the qualified import is redundant.
 \begin{code}
 getLookupOccRn :: RnM (Name -> Maybe Name)
 getLookupOccRn
-  = do local_env <- getLocalRdrEnv
-       return (lookupLocalRdrOcc local_env . nameOccName)
+  = getLocalRdrEnv                      `thenM` \ local_env ->
+    return (lookupLocalRdrOcc local_env . nameOccName)
 
 lookupLocatedOccRn :: Located RdrName -> RnM (Located Name)
 lookupLocatedOccRn = wrapLocM lookupOccRn
@@ -538,11 +543,9 @@ lookupLocalOccRn_maybe rdr_name
 
 -- lookupOccRn looks up an occurrence of a RdrName
 lookupOccRn :: RdrName -> RnM Name
-lookupOccRn rdr_name 
-  = do { mb_name <- lookupOccRn_maybe rdr_name
-       ; case mb_name of
-           Just name -> return name 
-           Nothing   -> reportUnboundName rdr_name }
+lookupOccRn rdr_name = do
+  opt_name <- lookupOccRn_maybe rdr_name
+  maybe (unboundName WL_Any rdr_name) return opt_name
 
 lookupKindOccRn :: RdrName -> RnM Name
 -- Looking up a name occurring in a kind
@@ -550,7 +553,7 @@ lookupKindOccRn rdr_name
   = do { mb_name <- lookupOccRn_maybe rdr_name
        ; case mb_name of
            Just name -> return name
-           Nothing   -> reportUnboundName rdr_name  }
+           Nothing -> unboundName WL_Any rdr_name  }
 
 -- lookupPromotedOccRn looks up an optionally promoted RdrName.
 lookupTypeOccRn :: RdrName -> RnM Name
@@ -568,13 +571,13 @@ lookup_demoted rdr_name
   = do { data_kinds <- xoptM Opt_DataKinds
        ; mb_demoted_name <- lookupOccRn_maybe demoted_rdr
        ; case mb_demoted_name of
-           Nothing -> reportUnboundName rdr_name
+           Nothing -> unboundName WL_Any rdr_name
            Just demoted_name
              | data_kinds -> return demoted_name
              | otherwise  -> unboundNameX WL_Any rdr_name suggest_dk }
 
   | otherwise
-  = reportUnboundName rdr_name
+  = unboundName WL_Any rdr_name
 
   where
     suggest_dk = ptext (sLit "A data constructor of that name is in scope; did you mean -XDataKinds?")
@@ -808,15 +811,15 @@ lookupQualifiedName rdr_name
   | Just (mod,occ) <- isQual_maybe rdr_name
    -- Note: we want to behave as we would for a source file import here,
    -- and respect hiddenness of modules/packages, hence loadSrcInterface.
-   = do iface <- loadSrcInterface doc mod False Nothing
+   = loadSrcInterface doc mod False Nothing     `thenM` \ iface ->
 
-        case  [ name
-              | avail <- mi_exports iface,
-                name  <- availNames avail,
-                nameOccName name == occ ] of
-           (n:ns) -> ASSERT (null ns) return (Just n)
-           _ -> do { traceRn (text "lookupQualified" <+> ppr rdr_name)
-                   ; return Nothing }
+   case  [ name
+         | avail <- mi_exports iface,
+           name  <- availNames avail,
+           nameOccName name == occ ] of
+      (n:ns) -> ASSERT (null ns) return (Just n)
+      _ -> do { traceRn (text "lookupQualified" <+> ppr rdr_name)
+              ; return Nothing }
 
   | otherwise
   = pprPanic "RnEnv.lookupQualifiedName" (ppr rdr_name)
@@ -1083,9 +1086,9 @@ lookupFixity is a bit strange.
 
 \begin{code}
 lookupFixityRn :: Name -> RnM Fixity
-lookupFixityRn name = do
-  this_mod <- getModule
-  if nameIsLocalOrFrom this_mod name
+lookupFixityRn name
+  = getModule                           `thenM` \ this_mod ->
+    if nameIsLocalOrFrom this_mod name
     then do     -- It's defined in this module
       local_fix_env <- getFixityEnv
       traceRn (text "lookupFixityRn: looking up name in local environment:" <+>
@@ -1108,10 +1111,11 @@ lookupFixityRn name = do
       --
       -- loadInterfaceForName will find B.hi even if B is a hidden module,
       -- and that's what we want.
-        do iface <- loadInterfaceForName doc name
-           traceRn (text "lookupFixityRn: looking up name in iface cache and found:" <+>
-                    vcat [ppr name, ppr $ mi_fix_fn iface (nameOccName name)])
+        loadInterfaceForName doc name   `thenM` \ iface -> do {
+          traceRn (text "lookupFixityRn: looking up name in iface cache and found:" <+>
+                   vcat [ppr name, ppr $ mi_fix_fn iface (nameOccName name)]);
            return (mi_fix_fn iface (nameOccName name))
+                                                           }
   where
     doc = ptext (sLit "Checking fixity for") <+> ppr name
 
@@ -1255,8 +1259,8 @@ bindLocatedLocalsFV :: [Located RdrName]
                     -> ([Name] -> RnM (a,FreeVars)) -> RnM (a, FreeVars)
 bindLocatedLocalsFV rdr_names enclosed_scope
   = bindLocatedLocalsRn rdr_names       $ \ names ->
-    do (thing, fvs) <- enclosed_scope names
-       return (thing, delFVs names fvs)
+    enclosed_scope names                `thenM` \ (thing, fvs) ->
+    return (thing, delFVs names fvs)
 
 -------------------------------------
 
@@ -1349,9 +1353,6 @@ checkShadowedOccs (global_env,local_env) loc_occs
 data WhereLooking = WL_Any        -- Any binding
                   | WL_Global     -- Any top-level binding (local or imported)
                   | WL_LocalTop   -- Any top-level binding in this module
-
-reportUnboundName :: RdrName -> RnM Name
-reportUnboundName rdr = unboundName WL_Any rdr
 
 unboundName :: WhereLooking -> RdrName -> RnM Name
 unboundName wl rdr = unboundNameX wl rdr empty

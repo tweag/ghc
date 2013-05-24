@@ -30,10 +30,7 @@ import Data.Array
 --
 initBuiltins :: DsM Builtins
 initBuiltins
- = do {   -- 'PArray: representation type for parallel arrays
-      ; parrayTyCon <- externalTyCon (fsLit "PArray")
-      
-          -- 'PData': type family mapping array element types to array representation types
+ = do {   -- 'PData': type family mapping array element types to array representation types
           -- Not all backends use `PDatas`.
       ; pdataTyCon  <- externalTyCon (fsLit "PData")
       ; pdatasTyCon <- externalTyCon (fsLit "PDatas")
@@ -118,8 +115,7 @@ initBuiltins
       ; liftingContext  <- liftM (\u -> mkSysLocal (fsLit "lc") u intPrimTy) newUnique
 
       ; return $ Builtins 
-               { parrayTyCon          = parrayTyCon
-               , pdataTyCon           = pdataTyCon
+               { pdataTyCon           = pdataTyCon
                , pdatasTyCon          = pdatasTyCon
                , preprTyCon           = preprTyCon
                , prClass              = prClass

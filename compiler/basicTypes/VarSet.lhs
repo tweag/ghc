@@ -24,7 +24,7 @@ module VarSet (
 	isEmptyVarSet, delVarSet, delVarSetList, delVarSetByKey,
 	minusVarSet, foldVarSet, filterVarSet, fixVarSet,
 	lookupVarSet, mapVarSet, sizeVarSet, seqVarSet,
-	elemVarSetByKey, partitionVarSet
+	elemVarSetByKey
     ) where
 
 #include "HsVersions.h"
@@ -72,7 +72,6 @@ extendVarSet_C  :: (Var->Var->Var) -> VarSet -> Var -> VarSet
 delVarSetByKey	:: VarSet -> Unique -> VarSet
 elemVarSetByKey :: Unique -> VarSet -> Bool
 fixVarSet       :: (VarSet -> VarSet) -> VarSet -> VarSet
-partitionVarSet :: (Var -> Bool) -> VarSet -> (VarSet, VarSet)
 
 emptyVarSet	= emptyUniqSet
 unitVarSet	= unitUniqSet
@@ -103,7 +102,6 @@ filterVarSet	= filterUniqSet
 extendVarSet_C = addOneToUniqSet_C
 delVarSetByKey	= delOneFromUniqSet_Directly
 elemVarSetByKey	= elemUniqSet_Directly
-partitionVarSet = partitionUniqSet
 \end{code}
 
 \begin{code}

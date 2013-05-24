@@ -709,9 +709,9 @@ upsweep_mod hsc_env old_hpt (stable_obj, stable_bco) summary mod_index nmods
             prevailing_target = hscTarget (hsc_dflags hsc_env)
             local_target      = hscTarget dflags
 
-            -- If OPTIONS_GHC contains -fasm or -fllvm, be careful that
+            -- If OPTIONS_GHC contains -fasm or -fvia-C, be careful that
             -- we don't do anything dodgy: these should only work to change
-            -- from -fllvm to -fasm and vice-versa, otherwise we could
+            -- from -fvia-C to -fasm and vice-versa, otherwise we could 
             -- end up trying to link object code to byte code.
             target = if prevailing_target /= local_target
                         && (not (isObjectTarget prevailing_target)
@@ -742,14 +742,14 @@ upsweep_mod hsc_env old_hpt (stable_obj, stable_bco) summary mod_index nmods
 
             compile_it :: Maybe Linkable -> SourceModified -> IO HomeModInfo
             compile_it  mb_linkable src_modified =
-                  compileOne hsc_env summary' mod_index nmods
-                             mb_old_iface mb_linkable src_modified
+                  compile hsc_env summary' mod_index nmods 
+                          mb_old_iface mb_linkable src_modified
 
             compile_it_discard_iface :: Maybe Linkable -> SourceModified
                                      -> IO HomeModInfo
             compile_it_discard_iface mb_linkable  src_modified =
-                  compileOne hsc_env summary' mod_index nmods
-                             Nothing mb_linkable src_modified
+                  compile hsc_env summary' mod_index nmods
+                          Nothing mb_linkable src_modified
 
             -- With the HscNothing target we create empty linkables to avoid
             -- recompilation.  We have to detect these to recompile anyway if
@@ -1425,7 +1425,7 @@ preprocessFile hsc_env src_fn mb_phase (Just (buf, _time))
                 | otherwise                     = False
 
         when needs_preprocessing $
-           throwGhcExceptionIO (ProgramError "buffer needs preprocesing; interactive check disabled")
+           throwGhcException (ProgramError "buffer needs preprocesing; interactive check disabled")
 
         return (dflags', src_fn, buf)
 

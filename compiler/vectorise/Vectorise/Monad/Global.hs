@@ -5,17 +5,14 @@ module Vectorise.Monad.Global (
   setGEnv,
   updGEnv,
   
-  -- * Configuration
-  isVectAvoidanceAggressive,
-  
   -- * Vars
-  defGlobalVar, undefGlobalVar,
+  defGlobalVar,
   
   -- * Vectorisation declarations
-  lookupVectDecl, 
+  lookupVectDecl, noVectDecl, 
   
   -- * Scalars
-  globalParallelVars, globalParallelTyCons,
+  globalScalarVars, isGlobalScalarVar, globalScalarTyCons,
   
   -- * TyCons
   lookupTyCon,
@@ -69,16 +66,6 @@ updGEnv :: (GlobalEnv -> GlobalEnv) -> VM ()
 updGEnv f = VM $ \_ genv lenv -> return (Yes (f genv) lenv ())
 
 
--- Configuration --------------------------------------------------------------
-
--- |Should we avoid as much vectorisation as possible?
---
--- Set by '-f[no]-vectorisation-avoidance'
---
-isVectAvoidanceAggressive :: VM Bool
-isVectAvoidanceAggressive = readGEnv global_vect_avoid
-
-
 -- Vars -----------------------------------------------------------------------
 
 -- |Add a mapping between a global var and its vectorised version to the state.
@@ -106,54 +93,48 @@ defGlobalVar v v'
                       | otherwise
                       = ptext (sLit "in the current module")
 
--- |Remove the mapping of a variable in the vectorisation map.
---
-undefGlobalVar :: Var -> VM ()
-undefGlobalVar v
-  = do 
-    { traceVt "REMOVING global var mapping:" (ppr v)
-    ; updGEnv  $ \env -> env { global_vars = delVarEnv (global_vars env) v }
-    }
-
 
 -- Vectorisation declarations -------------------------------------------------
 
--- |Check whether a variable has a vectorisation declaration.
+-- |Check whether a variable has a (non-scalar) vectorisation declaration.
 --
--- The first component of the result indicates whether the variable has a 'NOVECTORISE' declaration.
--- The second component contains the given type and expression in case of a 'VECTORISE' declaration.
+lookupVectDecl :: Var -> VM (Maybe (Type, CoreExpr))
+lookupVectDecl var = readGEnv $ \env -> lookupVarEnv (global_vect_decls env) var
+
+-- |Check whether a variable has a 'NOVECTORISE' declaration.
 --
-lookupVectDecl :: Var -> VM (Bool, Maybe (Type, CoreExpr))
-lookupVectDecl var 
-  = readGEnv $ \env -> 
-      case lookupVarEnv (global_vect_decls env) var of
-        Nothing -> (False, Nothing)
-        Just Nothing  -> (True, Nothing)
-        Just vectDecl -> (False, vectDecl)
+noVectDecl :: Var -> VM Bool
+noVectDecl var = readGEnv $ \env -> elemVarSet var (global_novect_vars env)
 
 
--- Parallel entities -----------------------------------------------------------
+-- Scalars --------------------------------------------------------------------
 
--- |Get the set of global parallel variables.
+-- |Get the set of global scalar variables.
 --
-globalParallelVars :: VM VarSet
-globalParallelVars = readGEnv global_parallel_vars
+globalScalarVars :: VM VarSet
+globalScalarVars = readGEnv global_scalar_vars
 
--- |Get the set of all parallel type constructors (those that may embed parallelism) including both
--- both those parallel type constructors declared in an imported module and those declared in the
--- current module.
+-- |Check whether a given variable is in the set of global scalar variables.
 --
-globalParallelTyCons :: VM NameSet
-globalParallelTyCons = readGEnv global_parallel_tycons
+isGlobalScalarVar :: Var -> VM Bool
+isGlobalScalarVar var = readGEnv $ \env -> var `elemVarSet` global_scalar_vars env
+
+-- |Get the set of global scalar type constructors including both those scalar type constructors
+-- declared in an imported module and those declared in the current module.
+--
+globalScalarTyCons :: VM NameSet
+globalScalarTyCons = readGEnv global_scalar_tycons
 
 
 -- TyCons ---------------------------------------------------------------------
 
--- |Determine the vectorised version of a `TyCon`. The vectorisation map in the global environment
--- contains a vectorised version if the original `TyCon` embeds any parallel arrays.
+-- |Lookup the vectorised version of a `TyCon` from the global environment.
 --
 lookupTyCon :: TyCon -> VM (Maybe TyCon)
 lookupTyCon tc
+  | isUnLiftedTyCon tc || isTupleTyCon tc
+  = return (Just tc)
+  | otherwise 
   = readGEnv $ \env -> lookupNameEnv (global_tycons env) (tyConName tc)
 
 -- |Add a mapping between plain and vectorised `TyCon`s to the global environment.

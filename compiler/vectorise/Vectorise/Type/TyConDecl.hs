@@ -5,7 +5,6 @@ module Vectorise.Type.TyConDecl (
 
 import Vectorise.Type.Type
 import Vectorise.Monad
-import Vectorise.Env( GlobalEnv( global_fam_inst_env ) )
 import BuildTyCl
 import Class
 import Type
@@ -104,7 +103,6 @@ vectTyConDecl tycon name'
                     []                      -- no stupid theta
                     rhs'                    -- new constructor defs
                     rec_flag                -- whether recursive
-                    False                   -- Not promotable
                     gadt_flag               -- whether in GADT syntax
                     NoParentTyCon           
        }
@@ -171,8 +169,7 @@ vectDataCon dc
        ; tycon'  <- vectTyCon tycon
        ; arg_tys <- mapM vectType rep_arg_tys
        ; let ret_ty = mkFamilyTyConApp tycon' (mkTyVarTys univ_tvs)
-       ; fam_envs  <- readGEnv global_fam_inst_env
-       ; liftDs $ buildDataCon fam_envs
+       ; liftDs $ buildDataCon
                     name'
                     (dataConIsInfix dc)            -- infix if the original is
                     (dataConStrictMarks dc)        -- strictness as original constructor
