@@ -364,8 +364,8 @@ cvtConstr (ForallC tvs ctxt con)
 
 cvt_arg :: (TH.Strict, TH.Type) -> CvtM (LHsType RdrName)
 cvt_arg (NotStrict, ty) = cvtType ty
-cvt_arg (IsStrict,  ty) = do { ty' <- cvtType ty; returnL $ HsBangTy (HsBang False) ty' }
-cvt_arg (Unpacked,  ty) = do { ty' <- cvtType ty; returnL $ HsBangTy (HsBang True)  ty' }
+cvt_arg (IsStrict,  ty) = do { ty' <- cvtType ty; returnL $ HsBangTy (HsUserBang Nothing     True) ty' }
+cvt_arg (Unpacked,  ty) = do { ty' <- cvtType ty; returnL $ HsBangTy (HsUserBang (Just True) True) ty' }
 
 cvt_id_arg :: (TH.Name, TH.Strict, TH.Type) -> CvtM (ConDeclField RdrName)
 cvt_id_arg (i, str, ty)
@@ -524,9 +524,7 @@ cvtl e = wrapL (cvt e)
     cvt (AppE x y)     = do { x' <- cvtl x; y' <- cvtl y; return $ HsApp x' y' }
     cvt (LamE ps e)    = do { ps' <- cvtPats ps; e' <- cvtl e
                             ; return $ HsLam (mkMatchGroup [mkSimpleMatch ps' e']) }
-    cvt (LamCaseE ms)
-      | null ms        = failWith (ptext (sLit "Lambda-case expression with no alternatives"))
-      | otherwise      = do { ms' <- mapM cvtMatch ms
+    cvt (LamCaseE ms)  = do { ms' <- mapM cvtMatch ms
                             ; return $ HsLamCase placeHolderType
                                                  (mkMatchGroup ms')
                             }
@@ -543,17 +541,15 @@ cvtl e = wrapL (cvt e)
                             ; return $ HsMultiIf placeHolderType alts' }
     cvt (LetE ds e)    = do { ds' <- cvtLocalDecs (ptext (sLit "a let expression")) ds
                             ; e' <- cvtl e; return $ HsLet ds' e' }
-    cvt (CaseE e ms)
-       | null ms       = failWith (ptext (sLit "Case expression with no alternatives"))
-       | otherwise     = do { e' <- cvtl e; ms' <- mapM cvtMatch ms
+    cvt (CaseE e ms)   = do { e' <- cvtl e; ms' <- mapM cvtMatch ms
                             ; return $ HsCase e' (mkMatchGroup ms') }
     cvt (DoE ss)       = cvtHsDo DoExpr ss
     cvt (CompE ss)     = cvtHsDo ListComp ss
-    cvt (ArithSeqE dd) = do { dd' <- cvtDD dd; return $ ArithSeq noPostTcExpr dd' }
+    cvt (ArithSeqE dd) = do { dd' <- cvtDD dd; return $ ArithSeq noPostTcExpr Nothing dd' }
     cvt (ListE xs)
       | Just s <- allCharLs xs       = do { l' <- cvtLit (StringL s); return (HsLit l') }
              -- Note [Converting strings]
-      | otherwise                    = do { xs' <- mapM cvtl xs; return $ ExplicitList void xs' }
+      | otherwise                    = do { xs' <- mapM cvtl xs; return $ ExplicitList void Nothing xs' }
 
     -- Infix expressions
     cvt (InfixE (Just x) s (Just y)) = do { x' <- cvtl x; s' <- cvtl s; y' <- cvtl y
@@ -810,7 +806,7 @@ cvtp (TH.AsP s p)      = do { s' <- vNameL s; p' <- cvtPat p; return $ AsPat s' 
 cvtp TH.WildP          = return $ WildPat void
 cvtp (RecP c fs)       = do { c' <- cNameL c; fs' <- mapM cvtPatFld fs
                             ; return $ ConPatIn c' $ Hs.RecCon (HsRecFields fs' Nothing) }
-cvtp (ListP ps)        = do { ps' <- cvtPats ps; return $ ListPat ps' void }
+cvtp (ListP ps)        = do { ps' <- cvtPats ps; return $ ListPat ps' void Nothing }
 cvtp (SigP p t)        = do { p' <- cvtPat p; t' <- cvtType t
                             ; return $ SigPatIn p' (mkHsWithBndrs t') }
 cvtp (ViewP e p)       = do { e' <- cvtl e; p' <- cvtPat p; return $ ViewPat e' p' void }

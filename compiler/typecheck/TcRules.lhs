@@ -27,8 +27,6 @@ import TcEvidence( TcEvBinds(..) )
 import Type
 import Id
 import Name
-import Var
-import VarSet
 import SrcLoc
 import Outputable
 import FastString
@@ -121,10 +119,10 @@ revert to SimplCheck when going under an implication.
 * Step 2: Zonk the ORIGINAL lhs constraints, and partition them into
           the ones we will quantify over, and the others
 
-* Step 3: Decide on the type varialbes to quantify over
+* Step 3: Decide on the type variables to quantify over
 
 * Step 4: Simplify the LHS and RHS constraints separately, using the
-          quantified constraint sas givens
+          quantified constraints as givens
 
 
 \begin{code}
@@ -162,16 +160,12 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
 
        ; let tpl_ids    = lhs_evs ++ id_bndrs
              forall_tvs = tyVarsOfTypes (rule_ty : map idType tpl_ids)
-       ; zonked_forall_tvs <- zonkTyVarsAndFV forall_tvs
-       ; gbl_tvs           <- tcGetGlobalTyVars	     -- Already zonked
-       ; let tvs_to_quantify = varSetElems (zonked_forall_tvs `minusVarSet` gbl_tvs)
-       ; qkvs <- kindGeneralize (tyVarsOfTypes (map tyVarKind tvs_to_quantify))
-                                (map getName tvs_to_quantify)
-       ; qtvs <- zonkQuantifiedTyVars tvs_to_quantify
-       ; let qtkvs = qkvs ++ qtvs
+       ; gbls  <- tcGetGlobalTyVars   -- Even though top level, there might be top-level
+                                      -- monomorphic bindings from the MR; test tc111
+       ; qtkvs <- quantifyTyVars gbls forall_tvs
        ; traceTc "tcRule" (vcat [ doubleQuotes (ftext name)
                                 , ppr forall_tvs
-                                , ppr qtvs
+                                , ppr qtkvs
                                 , ppr rule_ty
                                 , vcat [ ppr id <+> dcolon <+> ppr (idType id) | id <- tpl_ids ] 
                   ])

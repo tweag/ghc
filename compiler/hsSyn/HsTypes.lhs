@@ -45,6 +45,7 @@ import HsLit
 import NameSet( FreeVars )
 import Name( Name )
 import RdrName( RdrName )
+import DataCon( HsBang(..) )
 import Type
 import HsDoc
 import BasicTypes
@@ -151,8 +152,8 @@ hsQTvBndrs :: LHsTyVarBndrs name -> [LHsTyVarBndr name]
 hsQTvBndrs = hsq_tvs
 
 data HsWithBndrs thing
-  = HsWB { hswb_cts :: thing           -- Main payload (type or list of types)
-         , hswb_kvs :: [Name]         -- Kind vars
+  = HsWB { hswb_cts :: thing         -- Main payload (type or list of types)
+         , hswb_kvs :: [Name]        -- Kind vars
          , hswb_tvs :: [Name]        -- Type vars
     }                  
   deriving (Data, Typeable)
@@ -279,7 +280,7 @@ Note [HsForAllTy tyvar binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 After parsing:
   * Implicit => empty
-    Explicit => the varibles the user wrote
+    Explicit => the variables the user wrote
 
 After renaming
   * Implicit => the *type* variables free in the type
@@ -446,6 +447,7 @@ hsLTyVarLocNames qtvs = map hsLTyVarLocName (hsQTvBndrs qtvs)
 \begin{code}
 splitHsAppTys :: LHsType n -> [LHsType n] -> (LHsType n, [LHsType n])
 splitHsAppTys (L _ (HsAppTy f a)) as = splitHsAppTys f (a:as)
+splitHsAppTys (L _ (HsParTy f))   as = splitHsAppTys f as
 splitHsAppTys f                   as = (f,as)
 
 mkHsAppTys :: OutputableBndr n => LHsType n -> [LHsType n] -> HsType n
@@ -613,7 +615,7 @@ ppr_mono_ty ctxt_prec (HsForAllTy exp tvs ctxt ty)
 ppr_mono_ty _    (HsBangTy b ty)     = ppr b <> ppr_mono_lty pREC_CON ty
 ppr_mono_ty _    (HsQuasiQuoteTy qq) = ppr qq
 ppr_mono_ty _    (HsRecTy flds)      = pprConDeclFields flds
-ppr_mono_ty _    (HsTyVar name)      = ppr name
+ppr_mono_ty _    (HsTyVar name)      = pprPrefixOcc name
 ppr_mono_ty prec (HsFunTy ty1 ty2)   = ppr_fun_ty prec ty1 ty2
 ppr_mono_ty _    (HsTupleTy con tys) = tupleParens std_con (interpp'SP tys)
   where std_con = case con of
@@ -651,9 +653,12 @@ ppr_mono_ty ctxt_prec (HsAppTy fun_ty arg_ty)
   = maybeParen ctxt_prec pREC_CON $
     hsep [ppr_mono_lty pREC_FUN fun_ty, ppr_mono_lty pREC_CON arg_ty]
 
-ppr_mono_ty ctxt_prec (HsOpTy ty1 (wrapper, op) ty2)
+ppr_mono_ty ctxt_prec (HsOpTy ty1 (_wrapper, L _ op) ty2)
   = maybeParen ctxt_prec pREC_OP $
-    ppr_mono_lty pREC_OP ty1 <+> ppr_mono_ty pREC_CON (HsWrapTy wrapper (HsTyVar (unLoc op))) <+> ppr_mono_lty pREC_OP ty2
+    sep [ ppr_mono_lty pREC_OP ty1
+        , sep [pprInfixOcc op, ppr_mono_lty pREC_OP ty2 ] ]
+    -- Don't print the wrapper (= kind applications)
+    -- c.f. HsWrapTy
 
 ppr_mono_ty _         (HsParTy ty)
   = parens (ppr_mono_lty pREC_TOP ty)

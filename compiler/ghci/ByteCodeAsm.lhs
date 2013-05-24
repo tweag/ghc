@@ -37,6 +37,8 @@ import Util
 
 import Control.Monad
 import Control.Monad.ST ( runST )
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.State.Strict
 
 import Data.Array.MArray
 import Data.Array.Unboxed ( listArray )
@@ -129,10 +131,7 @@ assembleBCO dflags (ProtoBCO nm instrs bitmap bsize arity _origin _malloced) = d
   -- pass 1: collect up the offsets of the local labels.
   let asm = mapM_ (assembleI dflags) instrs
 
-      -- Remember that the first insn starts at offset
-      --     sizeOf Word / sizeOf Word16
-      -- since offset 0 (eventually) will hold the total # of insns.
-      initial_offset = largeArg16s dflags
+      initial_offset = 0
 
       -- Jump instructions are variable-sized, there are long and short variants
       -- depending on the magnitude of the offset.  However, we can't tell what
@@ -153,9 +152,8 @@ assembleBCO dflags (ProtoBCO nm instrs bitmap bsize arity _origin _malloced) = d
         (Map.lookup lbl lbl_map)
 
   -- pass 2: run assembler and generate instructions, literals and pointers
-  let initial_insns = addListToSS emptySS $ largeArg dflags n_insns
-  let initial_state = (initial_insns, emptySS, emptySS)
-  (final_insns, final_lits, final_ptrs) <- execState initial_state $ runAsm dflags long_jumps env asm
+  let initial_state = (emptySS, emptySS, emptySS)
+  (final_insns, final_lits, final_ptrs) <- flip execStateT initial_state $ runAsm dflags long_jumps env asm
 
   -- precomputed size should be equal to final size
   ASSERT (n_insns == sizeSS final_insns) return ()
@@ -249,20 +247,20 @@ largeOp long_jumps op = case op of
    LabelOp _ -> long_jumps
 -- LargeOp _ -> True
 
-runAsm :: DynFlags -> Bool -> LabelEnv -> Assembler a -> State AsmState IO a
+runAsm :: DynFlags -> Bool -> LabelEnv -> Assembler a -> StateT AsmState IO a
 runAsm dflags long_jumps e = go
   where
     go (NullAsm x) = return x
     go (AllocPtr p_io k) = do
       p <- lift p_io
-      w <- State $ \(st_i0,st_l0,st_p0) -> do
+      w <- state $ \(st_i0,st_l0,st_p0) ->
         let st_p1 = addToSS st_p0 p
-        return ((st_i0,st_l0,st_p1), sizeSS st_p0)
+        in (sizeSS st_p0, (st_i0,st_l0,st_p1))
       go $ k w
     go (AllocLit lits k) = do
-      w <- State $ \(st_i0,st_l0,st_p0) -> do
+      w <- state $ \(st_i0,st_l0,st_p0) ->
         let st_l1 = addListToSS st_l0 lits
-        return ((st_i0,st_l1,st_p0), sizeSS st_l0)
+        in (sizeSS st_l0, (st_i0,st_l1,st_p0))
       go $ k w
     go (AllocLabel _ k) = go k
     go (Emit w ops k) = do
@@ -275,9 +273,9 @@ runAsm dflags long_jumps e = go
           expand (LabelOp w) = expand (Op (e w))
           expand (Op w) = if largeOps then largeArg dflags w else [fromIntegral w]
 --        expand (LargeOp w) = largeArg dflags w
-      State $ \(st_i0,st_l0,st_p0) -> do
+      state $ \(st_i0,st_l0,st_p0) ->
         let st_i1 = addListToSS st_i0 (opcode : words)
-        return ((st_i1,st_l0,st_p0), ())
+        in ((), (st_i1,st_l0,st_p0))
       go k
 
 type LabelEnvMap = Map Word16 Word
@@ -441,20 +439,22 @@ isLarge :: Word -> Bool
 isLarge n = n > 65535
 
 push_alts :: ArgRep -> Word16
-push_alts V = bci_PUSH_ALTS_V
-push_alts P = bci_PUSH_ALTS_P
-push_alts N = bci_PUSH_ALTS_N
-push_alts L = bci_PUSH_ALTS_L
-push_alts F = bci_PUSH_ALTS_F
-push_alts D = bci_PUSH_ALTS_D
+push_alts V   = bci_PUSH_ALTS_V
+push_alts P   = bci_PUSH_ALTS_P
+push_alts N   = bci_PUSH_ALTS_N
+push_alts L   = bci_PUSH_ALTS_L
+push_alts F   = bci_PUSH_ALTS_F
+push_alts D   = bci_PUSH_ALTS_D
+push_alts V16 = error "push_alts: vector"
 
 return_ubx :: ArgRep -> Word16
-return_ubx V = bci_RETURN_V
-return_ubx P = bci_RETURN_P
-return_ubx N = bci_RETURN_N
-return_ubx L = bci_RETURN_L
-return_ubx F = bci_RETURN_F
-return_ubx D = bci_RETURN_D
+return_ubx V   = bci_RETURN_V
+return_ubx P   = bci_RETURN_P
+return_ubx N   = bci_RETURN_N
+return_ubx L   = bci_RETURN_L
+return_ubx F   = bci_RETURN_F
+return_ubx D   = bci_RETURN_D
+return_ubx V16 = error "return_ubx: vector"
 
 -- Make lists of host-sized words for literals, so that when the
 -- words are placed in memory at increasing addresses, the

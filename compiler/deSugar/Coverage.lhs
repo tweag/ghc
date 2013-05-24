@@ -271,7 +271,7 @@ addTickLHsBind (L pos (funBind@(FunBind { fun_id = (L _ id)  }))) = do
   -- See Note [inline sccs]
   if inline && gopt Opt_SccProfilingOn dflags then return (L pos funBind) else do
 
-  (fvs, (MatchGroup matches' ty)) <-
+  (fvs, mg@(MG { mg_alts = matches' })) <-
         getFreeVars $
         addPathEntry name $
         addTickMatchGroup False (fun_matches funBind)
@@ -293,7 +293,7 @@ addTickLHsBind (L pos (funBind@(FunBind { fun_id = (L _ id)  }))) = do
              else
                 return Nothing
 
-  return $ L pos $ funBind { fun_matches = MatchGroup matches' ty
+  return $ L pos $ funBind { fun_matches = mg { mg_alts = matches' }
                            , fun_tick = tick }
 
    where
@@ -519,10 +519,14 @@ addTickHsExpr (HsDo cxt stmts srcloc)
         forQual = case cxt of
                     ListComp -> Just $ BinBox QualBinBox
                     _        -> Nothing
-addTickHsExpr (ExplicitList ty es) =
-        liftM2 ExplicitList
+addTickHsExpr (ExplicitList ty wit es) =
+        liftM3 ExplicitList
                 (return ty)
-                (mapM (addTickLHsExpr) es)
+                (addTickWit wit)
+                (mapM (addTickLHsExpr) es) 
+             where addTickWit Nothing = return Nothing
+                   addTickWit (Just fln) = do fln' <- addTickHsExpr fln
+                                              return (Just fln')
 addTickHsExpr (ExplicitPArr ty es) =
         liftM2 ExplicitPArr
                 (return ty)
@@ -543,10 +547,14 @@ addTickHsExpr (ExprWithTySigOut e ty) =
                 (addTickLHsExprNever e) -- No need to tick the inner expression
                                     -- for expressions with signatures
                 (return ty)
-addTickHsExpr (ArithSeq  ty arith_seq) =
-        liftM2 ArithSeq
+addTickHsExpr (ArithSeq  ty wit arith_seq) =
+        liftM3 ArithSeq
                 (return ty)
+                (addTickWit wit)
                 (addTickArithSeqInfo arith_seq)
+             where addTickWit Nothing = return Nothing
+                   addTickWit (Just fl) = do fl' <- addTickHsExpr fl
+                                             return (Just fl')
 addTickHsExpr (HsTickPragma _ (L pos e0)) = do
     e2 <- allocTickBox (ExpBox False) False False pos $
                 addTickHsExpr e0
@@ -576,7 +584,7 @@ addTickHsExpr (HsWrap w e) =
                 (addTickHsExpr e)       -- explicitly no tick on inside
 
 addTickHsExpr e@(HsType _) = return e
-addTickHsExpr HsHole = panic "addTickHsExpr.HsHole"
+addTickHsExpr (HsUnboundVar {}) = panic "addTickHsExpr.HsUnboundVar"
 
 -- Others dhould never happen in expression content.
 addTickHsExpr e  = pprPanic "addTickHsExpr" (ppr e)
@@ -586,10 +594,10 @@ addTickTupArg (Present e)  = do { e' <- addTickLHsExpr e; return (Present e') }
 addTickTupArg (Missing ty) = return (Missing ty)
 
 addTickMatchGroup :: Bool{-is lambda-} -> MatchGroup Id (LHsExpr Id) -> TM (MatchGroup Id (LHsExpr Id))
-addTickMatchGroup is_lam (MatchGroup matches ty) = do
+addTickMatchGroup is_lam mg@(MG { mg_alts = matches }) = do
   let isOneOfMany = matchesOneOfMany matches
   matches' <- mapM (liftL (addTickMatch isOneOfMany is_lam)) matches
-  return $ MatchGroup matches' ty
+  return $ mg { mg_alts = matches' }
 
 addTickMatch :: Bool -> Bool -> Match Id (LHsExpr Id) -> TM (Match Id (LHsExpr Id))
 addTickMatch isOneOfMany isLambda (Match pats opSig gRHSs) =
@@ -795,13 +803,16 @@ addTickHsCmd (HsCmdArrForm e fix cmdtop) =
                (return fix)
                (mapM (liftL (addTickHsCmdTop)) cmdtop)
 
+addTickHsCmd (HsCmdCast co cmd) 
+  = liftM2 HsCmdCast (return co) (addTickHsCmd cmd)
+
 -- Others should never happen in a command context.
 --addTickHsCmd e  = pprPanic "addTickHsCmd" (ppr e)
 
 addTickCmdMatchGroup :: MatchGroup Id (LHsCmd Id) -> TM (MatchGroup Id (LHsCmd Id))
-addTickCmdMatchGroup (MatchGroup matches ty) = do
+addTickCmdMatchGroup mg@(MG { mg_alts = matches }) = do
   matches' <- mapM (liftL addTickCmdMatch) matches
-  return $ MatchGroup matches' ty
+  return $ mg { mg_alts = matches' }
 
 addTickCmdMatch :: Match Id (LHsCmd Id) -> TM (Match Id (LHsCmd Id))
 addTickCmdMatch (Match pats opSig gRHSs) =

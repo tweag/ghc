@@ -109,7 +109,7 @@ namely:
 
 This is not (currently) where deep skolemisation occurs;
 matchExpectedFunTys does not skolmise nested foralls in the 
-expected type, becuase it expects that to have been done already
+expected type, because it expects that to have been done already
 
 
 \begin{code}
@@ -153,12 +153,15 @@ matchExpectedFunTys herald arity orig_ty
 	       Flexi        -> defer n_req ty }
 
        -- In all other cases we bale out into ordinary unification
-    go n_req ty = defer n_req ty
+       -- However unlike the meta-tyvar case, we are sure that the
+       -- number of arrows doesn't match up, so we can add a bit 
+       -- more context to the error message (cf Trac #7869)
+    go n_req ty = addErrCtxtM mk_ctxt $
+                  defer n_req ty
 
     ------------
     defer n_req fun_ty 
-      = addErrCtxtM mk_ctxt $
-        do { arg_tys <- newFlexiTyVarTys n_req openTypeKind
+      = do { arg_tys <- newFlexiTyVarTys n_req openTypeKind
                         -- See Note [Foralls to left of arrow]
            ; res_ty  <- newFlexiTyVarTy openTypeKind
            ; co   <- unifyType fun_ty (mkFunTys arg_tys res_ty)
@@ -896,7 +899,7 @@ checkTauTvUpdate dflags tv ty
 
     defer_me :: TcType -> Bool
     -- Checks for (a) occurrence of tv
-    --            (b) type family applicatios
+    --            (b) type family applications
     -- See Note [Conservative unification check]
     defer_me (LitTy {})        = False
     defer_me (TyVarTy tv')     = tv == tv'

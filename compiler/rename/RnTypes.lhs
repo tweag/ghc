@@ -360,7 +360,8 @@ bindHsTyVars :: HsDocContext
              -> (LHsTyVarBndrs Name -> RnM (b, FreeVars))
              -> RnM (b, FreeVars)
 -- (a) Bring kind variables into scope 
---     both (i) passed in (kv_bndrs) and (ii) mentioned in the kinds of tv_bndrs
+--     both (i)  passed in (kv_bndrs) 
+--     and  (ii) mentioned in the kinds of tv_bndrs
 -- (b) Bring type variables into scope
 bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
   = do { rdr_env <- getLocalRdrEnv
@@ -678,7 +679,7 @@ mkOpFormRn a1@(L loc (HsCmdTop (L _ (HsCmdArrForm op1 (Just fix1) [a11,a12])) _ 
   | associate_right
   = do new_c <- mkOpFormRn a12 op2 fix2 a2
        return (HsCmdArrForm op1 (Just fix1)
-	          [a11, L loc (HsCmdTop (L loc new_c) [] placeHolderType [])])
+	          [a11, L loc (HsCmdTop (L loc new_c) placeHolderType placeHolderType [])])
 	-- TODO: locs are wrong
   where
     (nofix_error, associate_right) = compareFixity fix1 fix2
@@ -719,7 +720,7 @@ checkPrecMatch :: Name -> MatchGroup Name body -> RnM ()
   --   eg  a `op` b `C` c = ...
   -- See comments with rnExpr (OpApp ...) about "deriving"
 
-checkPrecMatch op (MatchGroup ms _)	
+checkPrecMatch op (MG { mg_alts = ms })	
   = mapM_ check ms			 	
   where
     check (L _ (Match (L l1 p1 : L l2 p2 :_) _ _))
@@ -1023,19 +1024,17 @@ extract_lty (L _ ty) acc
 extract_hs_tv_bndrs :: LHsTyVarBndrs RdrName -> FreeKiTyVars
                     -> FreeKiTyVars -> FreeKiTyVars
 extract_hs_tv_bndrs (HsQTvs { hsq_tvs = tvs }) 
-                    acc@(acc_kvs, acc_tvs)   -- Note accumulator comes first
+                    (acc_kvs, acc_tvs)   -- Note accumulator comes first
                     (body_kvs, body_tvs)
   | null tvs
   = (body_kvs ++ acc_kvs, body_tvs ++ acc_tvs)
   | otherwise
-  = (outer_kvs ++ body_kvs,
-     outer_tvs ++ filterOut (`elem` local_tvs) body_tvs)
+  = (acc_kvs ++ filterOut (`elem` local_kvs) body_kvs,
+     acc_tvs ++ filterOut (`elem` local_tvs) body_tvs)
   where
     local_tvs = map hsLTyVarName tvs
-        -- Currently we don't have a syntax to explicitly bind 
-        -- kind variables, so these are all type variables
-
-    (outer_kvs, outer_tvs) = foldr extract_lkind acc [k | L _ (KindedTyVar _ k) <- tvs]
+    (_, local_kvs) = foldr extract_lty ([], []) [k | L _ (KindedTyVar _ k) <- tvs]
+       -- These kind variables are bound here if not bound further out
 
 extract_tv :: RdrName -> FreeKiTyVars -> FreeKiTyVars
 extract_tv tv acc

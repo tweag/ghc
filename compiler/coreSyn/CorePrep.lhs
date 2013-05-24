@@ -8,10 +8,13 @@ Core pass to saturate constructors and PrimOps
 {-# LANGUAGE BangPatterns #-}
 
 module CorePrep (
-      corePrepPgm, corePrepExpr, cvtLitInteger
+      corePrepPgm, corePrepExpr, cvtLitInteger,
+      lookupMkIntegerName,
   ) where
 
 #include "HsVersions.h"
+
+import OccurAnal
 
 import HscTypes
 import PrelNames
@@ -38,6 +41,7 @@ import TysWiredIn
 import DataCon
 import PrimOp
 import BasicTypes
+import Module
 import UniqSupply
 import Maybes
 import OrdList
@@ -270,7 +274,7 @@ partial applications. But it's easier to let them through.
 
 Note [Dead code in CorePrep]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Imagine that we got an input program like this:
+Imagine that we got an input program like this (see Trac #4962):
 
   f :: Show b => Int -> (Int, b -> Maybe Int -> Int)
   f x = (g True (Just x) + g () (Just x), g)
@@ -306,11 +310,12 @@ unreachable g$Bool and g$Unit functions.
 
 The way we fix this is to:
  * In cloneBndr, drop all unfoldings/rules
- * In deFloatTop, run a simple dead code analyser on each top-level RHS to drop
-   the dead local bindings. (we used to run the occurrence analyser to do
-   this job, but the occurrence analyser sometimes introduces new let
-   bindings for case binders, which lead to the bug in #5433, hence we
-   now have a special-purpose dead code analyser).
+
+ * In deFloatTop, run a simple dead code analyser on each top-level
+   RHS to drop the dead local bindings. For that call to OccAnal, we
+   disable the binder swap, else the occurrence analyser sometimes
+   introduces new let bindings for cased binders, which lead to the bug
+   in #5433.
 
 The reason we don't just OccAnal the whole output of CorePrep is that
 the tidier ensures that all top-level binders are GlobalIds, so they
@@ -336,8 +341,7 @@ Into this one:
 %************************************************************************
 
 \begin{code}
-cpeBind :: TopLevelFlag
-        -> CorePrepEnv -> CoreBind
+cpeBind :: TopLevelFlag -> CorePrepEnv -> CoreBind
         -> UniqSM (CorePrepEnv, Floats)
 cpeBind top_lvl env (NonRec bndr rhs)
   = do { (_, bndr1) <- cpCloneBndr env bndr
@@ -472,8 +476,8 @@ cpeRhsE _env expr@(Type {})      = return (emptyFloats, expr)
 cpeRhsE _env expr@(Coercion {})  = return (emptyFloats, expr)
 cpeRhsE env (Lit (LitInteger i _))
     = cpeRhsE env (cvtLitInteger (cpe_dynFlags env) (getMkIntegerId env) i)
-cpeRhsE _env expr@(Lit {})       = return (emptyFloats, expr)
-cpeRhsE env expr@(Var {})        = cpeApp env expr
+cpeRhsE _env expr@(Lit {}) = return (emptyFloats, expr)
+cpeRhsE env expr@(Var {})  = cpeApp env expr
 
 cpeRhsE env (Var f `App` _ `App` arg)
   | f `hasKey` lazyIdKey          -- Replace (lazy a) by a
@@ -642,12 +646,13 @@ cpeApp env expr
       = do { (fun',hd,fun_ty,floats,ss) <- collect_args fun (depth+1)
            ; let
               (ss1, ss_rest)   = case ss of
-                                   (ss1:ss_rest) -> (ss1,     ss_rest)
-                                   []            -> (lazyDmd, [])
+                                   (ss1:ss_rest)             -> (ss1,     ss_rest)
+                                   []                        -> (topDmd, [])
               (arg_ty, res_ty) = expectJust "cpeBody:collect_args" $
                                  splitFunTy_maybe fun_ty
+              is_strict = isStrictDmd ss1
 
-           ; (fs, arg') <- cpeArg env (isStrictDmd ss1) arg arg_ty
+           ; (fs, arg') <- cpeArg env is_strict arg arg_ty
            ; return (App fun' arg', hd, res_ty, fs `appendFloats` floats, ss_rest) }
 
     collect_args (Var v) depth
@@ -656,10 +661,10 @@ cpeApp env expr
            ; return (Var v2, (Var v2, depth), idType v2, emptyFloats, stricts) }
         where
           stricts = case idStrictness v of
-                        StrictSig (DmdType _ demands _)
-                            | listLengthCmp demands depth /= GT -> demands
+                            StrictSig (DmdType _ demands _)
+                              | listLengthCmp demands depth /= GT -> demands
                                     -- length demands <= depth
-                            | otherwise                         -> []
+                              | otherwise                         -> []
                 -- If depth < length demands, then we have too few args to
                 -- satisfy strictness  info so we have to  ignore all the
                 -- strictness info, e.g. + (error "urk")
@@ -689,8 +694,8 @@ cpeApp env expr
 -- ---------------------------------------------------------------------------
 
 -- This is where we arrange that a non-trivial argument is let-bound
-cpeArg :: CorePrepEnv -> RhsDemand -> CoreArg -> Type
-       -> UniqSM (Floats, CpeTriv)
+cpeArg :: CorePrepEnv -> RhsDemand 
+       -> CoreArg -> Type -> UniqSM (Floats, CpeTriv)
 cpeArg env is_strict arg arg_ty
   = do { (floats1, arg1) <- cpeRhsE env arg     -- arg1 can be a lambda
        ; (floats2, arg2) <- if want_float floats1 arg1
@@ -1014,64 +1019,11 @@ deFloatTop (Floats _ floats)
     get b            _  = pprPanic "corePrepPgm" (ppr b)
 
     -- See Note [Dead code in CorePrep]
-    occurAnalyseRHSs (NonRec x e) = NonRec x (fst (dropDeadCode e))
-    occurAnalyseRHSs (Rec xes)    = Rec [ (x, fst (dropDeadCode e))
-                                        | (x, e) <- xes]
+    occurAnalyseRHSs (NonRec x e) = NonRec x (occurAnalyseExpr_NoBinderSwap e)
+    occurAnalyseRHSs (Rec xes)    = Rec [(x, occurAnalyseExpr_NoBinderSwap e) | (x, e) <- xes]
 
 ---------------------------------------------------------------------------
--- Simple dead-code analyser, see Note [Dead code in CorePrep]
 
-dropDeadCode :: CoreExpr -> (CoreExpr, VarSet)
-dropDeadCode (Var v)
-  = (Var v, if isLocalId v then unitVarSet v else emptyVarSet)
-dropDeadCode (App fun arg)
-  = (App fun' arg', fun_fvs `unionVarSet` arg_fvs)
-  where !(fun', fun_fvs) = dropDeadCode fun
-        !(arg', arg_fvs) = dropDeadCode arg
-dropDeadCode (Lam v e)
-  = (Lam v e', delVarSet fvs v)
-  where !(e', fvs) = dropDeadCode e
-dropDeadCode (Let (NonRec v rhs) body)
-  | v `elemVarSet` body_fvs
-  = (Let (NonRec v rhs') body', rhs_fvs `unionVarSet` (body_fvs `delVarSet` v))
-  | otherwise
-  = (body', body_fvs) -- drop the dead let bind!
-  where !(body', body_fvs) = dropDeadCode body
-        !(rhs',  rhs_fvs)  = dropDeadCode rhs
-dropDeadCode (Let (Rec prs) body)
-  | any (`elemVarSet` all_fvs) bndrs
-    -- approximation: strictly speaking we should do SCC analysis here,
-    -- but for simplicity we just look to see whether any of the binders
-    -- is used and drop the entire group if all are unused.
-  = (Let (Rec (zip bndrs rhss')) body', all_fvs `delVarSetList` bndrs)
-  | otherwise
-  = (body', body_fvs) -- drop the dead let bind!
-  where !(body', body_fvs) = dropDeadCode body
-        !(bndrs, rhss)     = unzip prs
-        !(rhss', rhs_fvss) = unzip (map dropDeadCode rhss)
-        all_fvs            = unionVarSets (body_fvs : rhs_fvss)
-
-dropDeadCode (Case scrut bndr t alts)
-  = (Case scrut' bndr t alts', scrut_fvs `unionVarSet` alts_fvs)
-  where !(scrut', scrut_fvs) = dropDeadCode scrut
-        !(alts',  alts_fvs)  = dropDeadCodeAlts alts
-dropDeadCode (Cast e c)
-  = (Cast e' c, fvs)
-  where !(e', fvs) = dropDeadCode e
-dropDeadCode (Tick t e)
-  = (Tick t e', fvs')
-  where !(e', fvs) = dropDeadCode e
-        fvs' | Breakpoint _ xs <- t =  fvs `unionVarSet` mkVarSet xs
-             | otherwise            =  fvs
-dropDeadCode e = (e, emptyVarSet)  -- Lit, Type, Coercion
-
-dropDeadCodeAlts :: [CoreAlt] -> ([CoreAlt], VarSet)
-dropDeadCodeAlts alts = (alts', unionVarSets fvss)
-  where !(alts', fvss) = unzip (map do_alt alts)
-        do_alt (c, vs, e) = ((c,vs,e'), fvs `delVarSetList` vs)
-          where !(e', fvs) = dropDeadCode e
-
--------------------------------------------
 canFloatFromNoCaf :: Platform -> Floats -> CpeRhs -> Maybe (Floats, CpeRhs)
        -- Note [CafInfo and floating]
 canFloatFromNoCaf platform (Floats ok_to_spec fs) rhs
@@ -1157,10 +1109,18 @@ data CorePrepEnv = CPE {
                        cpe_mkIntegerId :: Id
                    }
 
+lookupMkIntegerName :: DynFlags -> HscEnv -> IO Id
+lookupMkIntegerName dflags hsc_env
+    = if thisPackage dflags == primPackageId
+      then return $ panic "Can't use Integer in ghc-prim"
+      else if thisPackage dflags == integerPackageId
+      then return $ panic "Can't use Integer in integer"
+      else liftM tyThingId
+         $ initTcForLookup hsc_env (tcLookupGlobal mkIntegerName)
+
 mkInitialCorePrepEnv :: DynFlags -> HscEnv -> IO CorePrepEnv
 mkInitialCorePrepEnv dflags hsc_env
-    = do mkIntegerId <- liftM tyThingId
-                      $ initTcForLookup hsc_env (tcLookupGlobal mkIntegerName)
+    = do mkIntegerId <- lookupMkIntegerName dflags hsc_env
          return $ CPE {
                       cpe_dynFlags = dflags,
                       cpe_env = emptyVarEnv,

@@ -16,12 +16,12 @@ hidden-modules:
 import-dirs:
 
 #ifdef INSTALLING
-library-dirs:		LIB_DIR"/rts-1.0" PAPI_LIB_DIR
+library-dirs:		LIB_DIR"/rts-1.0" PAPI_LIB_DIR FFI_LIB_DIR
 #else /* !INSTALLING */
-library-dirs:		TOP"/rts/dist/build" PAPI_LIB_DIR
+library-dirs:		TOP"/rts/dist/build" PAPI_LIB_DIR FFI_LIB_DIR
 #endif
 
-hs-libraries:   "HSrts"
+hs-libraries:   "HSrts" FFI_LIB
 
 extra-libraries:
 #ifdef HAVE_LIBM
@@ -40,6 +40,9 @@ extra-libraries:
 			      ,"wsock32"    /* for the linker */
 			      ,"gdi32"      /* for the linker */
 			      ,"winmm"      /* for the linker */
+#endif
+#ifdef freebsd_HOST_OS
+			      , "pthread" /* for pthread_getthreadid_np() */
 #endif
 #if defined(DEBUG) && defined(HAVE_LIBBFD)
 			      ,"bfd", "iberty"	/* for debugging */
@@ -101,6 +104,7 @@ ld-options:
          , "-u", "_base_GHCziTopHandler_runIO_closure"
          , "-u", "_base_GHCziTopHandler_runNonIO_closure"
 	 , "-u", "_base_GHCziConcziIO_ensureIOManagerIsRunning_closure"
+         , "-u", "_base_GHCziConcziIO_ioManagerCapabilitiesChanged_closure"
 	 , "-u", "_base_GHCziConcziSync_runSparks_closure"
 	 , "-u", "_base_GHCziConcziSignal_runHandlers_closure"
 #else
@@ -140,6 +144,7 @@ ld-options:
          , "-u", "base_GHCziTopHandler_runIO_closure"
          , "-u", "base_GHCziTopHandler_runNonIO_closure"
 	 , "-u", "base_GHCziConcziIO_ensureIOManagerIsRunning_closure"
+         , "-u", "base_GHCziConcziIO_ioManagerCapabilitiesChanged_closure"
 	 , "-u", "base_GHCziConcziSync_runSparks_closure"
 	 , "-u", "base_GHCziConcziSignal_runHandlers_closure"
 #endif

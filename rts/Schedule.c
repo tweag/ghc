@@ -133,7 +133,7 @@ static void scheduleYield (Capability **pcap, Task *task);
 #if defined(THREADED_RTS)
 static nat requestSync (Capability **pcap, Task *task, nat sync_type);
 static void acquireAllCapabilities(Capability *cap, Task *task);
-static void releaseAllCapabilities(Capability *cap, Task *task);
+static void releaseAllCapabilities(nat n, Capability *cap, Task *task);
 static void startWorkerTasks (nat from USED_IF_THREADS, nat to USED_IF_THREADS);
 #endif
 static void scheduleStartSignalHandlers (Capability *cap);
@@ -579,6 +579,13 @@ removeFromRunQueue (Capability *cap, StgTSO *tso)
     IF_DEBUG(sanity, checkRunQueue(cap));
 }
 
+void
+promoteInRunQueue (Capability *cap, StgTSO *tso)
+{
+    removeFromRunQueue(cap, tso);
+    pushOnRunQueue(cap, tso);
+}
+
 /* ----------------------------------------------------------------------------
  * Setting up the scheduler loop
  * ------------------------------------------------------------------------- */
@@ -635,8 +642,8 @@ shouldYieldCapability (Capability *cap, Task *task, rtsBool didGcLast)
     return ((pending_sync && !didGcLast) ||
             cap->returning_tasks_hd != NULL ||
             (!emptyRunQueue(cap) && (task->incall->tso == NULL
-                                     ? cap->run_queue_hd->bound != NULL
-                                     : cap->run_queue_hd->bound != task->incall)));
+                                     ? peekRunQueue(cap)->bound != NULL
+                                     : peekRunQueue(cap)->bound != task->incall)));
 }
 
 // This is the single place where a Task goes to sleep.  There are
@@ -700,10 +707,10 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 
     // Check whether we have more threads on our run queue, or sparks
     // in our pool, that we could hand to another Capability.
-    if (cap->run_queue_hd == END_TSO_QUEUE) {
+    if (emptyRunQueue(cap)) {
         if (sparkPoolSizeCap(cap) < 2) return;
     } else {
-        if (cap->run_queue_hd->_link == END_TSO_QUEUE &&
+        if (singletonRunQueue(cap) &&
             sparkPoolSizeCap(cap) < 1) return;
     }
 
@@ -743,7 +750,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 	debugTrace(DEBUG_sched, 
 		   "cap %d: %s and %d free capabilities, sharing...", 
 		   cap->no, 
-		   (!emptyRunQueue(cap) && cap->run_queue_hd->_link != END_TSO_QUEUE)?
+		   (!emptyRunQueue(cap) && !singletonRunQueue(cap))?
 		   "excess threads on run queue":"sparks to share (>=2)",
 		   n_free_caps);
 
@@ -1404,11 +1411,11 @@ static void acquireAllCapabilities(Capability *cap, Task *task)
     task->cap = cap;
 }
 
-static void releaseAllCapabilities(Capability *cap, Task *task)
+static void releaseAllCapabilities(nat n, Capability *cap, Task *task)
 {
     nat i;
 
-    for (i = 0; i < n_capabilities; i++) {
+    for (i = 0; i < n; i++) {
         if (cap->no != i) {
             task->cap = &capabilities[i];
             releaseCapability(&capabilities[i]);
@@ -1430,7 +1437,6 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
     rtsBool heap_census;
     nat collect_gen;
 #ifdef THREADED_RTS
-    rtsBool idle_cap[n_capabilities];
     rtsBool gc_type;
     nat i, sync;
     StgTSO *tso;
@@ -1491,6 +1497,13 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
             return;
         }
     } while (sync);
+
+    // don't declare this until after we have sync'd, because
+    // n_capabilities may change.
+    rtsBool idle_cap[n_capabilities];
+#ifdef DEBUG
+    unsigned int old_n_capabilities = n_capabilities;
+#endif
 
     interruptAllCapabilities();
 
@@ -1679,6 +1692,10 @@ delete_threads_and_gc:
     }
 
 #if defined(THREADED_RTS)
+
+    // If n_capabilities has changed during GC, we're in trouble.
+    ASSERT(n_capabilities == old_n_capabilities);
+
     if (gc_type == SYNC_GC_PAR)
     {
         releaseGCThreads(cap);
@@ -1725,7 +1742,7 @@ delete_threads_and_gc:
 #if defined(THREADED_RTS)
     if (gc_type == SYNC_GC_SEQ) {
         // release our stash of capabilities.
-        releaseAllCapabilities(cap, task);
+        releaseAllCapabilities(n_capabilities, cap, task);
     }
 #endif
 
@@ -1860,8 +1877,7 @@ forkProcess(HsStablePtr *entry
             // cleaned up later, but some of them may correspond to
             // bound threads for which the corresponding Task does not
             // exist.
-            cap->run_queue_hd = END_TSO_QUEUE;
-            cap->run_queue_tl = END_TSO_QUEUE;
+            truncateRunQueue(cap);
 
             // Any suspended C-calling Tasks are no more, their OS threads
             // don't exist now:
@@ -1951,6 +1967,7 @@ setNumCapabilities (nat new_n_capabilities USED_IF_THREADS)
     StgTSO* t;
     nat g, n;
     Capability *old_capabilities = NULL;
+    nat old_n_capabilities = n_capabilities;
 
     if (new_n_capabilities == enabled_capabilities) return;
 
@@ -2044,22 +2061,25 @@ setNumCapabilities (nat new_n_capabilities USED_IF_THREADS)
         }
     }
 
-    // We're done: release the original Capabilities
-    releaseAllCapabilities(cap,task);
-
-    // Start worker tasks on the new Capabilities
-    startWorkerTasks(n_capabilities, new_n_capabilities);
-
-    // finally, update n_capabilities
+    // update n_capabilities before things start running
     if (new_n_capabilities > n_capabilities) {
         n_capabilities = enabled_capabilities = new_n_capabilities;
     }
+
+    // Start worker tasks on the new Capabilities
+    startWorkerTasks(old_n_capabilities, new_n_capabilities);
+
+    // We're done: release the original Capabilities
+    releaseAllCapabilities(old_n_capabilities, cap,task);
 
     // We can't free the old array until now, because we access it
     // while updating pointers in updateCapabilityRefs().
     if (old_capabilities) {
         stgFree(old_capabilities);
     }
+
+    // Notify IO manager that the number of capabilities has changed.
+    rts_evalIO(&cap, ioManagerCapabilitiesChanged_closure, NULL);
 
     rts_unlock(cap);
 
@@ -2766,6 +2786,7 @@ findRetryFrameHelper (Capability *cap, StgTSO *tso)
     }
       
     case UNDERFLOW_FRAME:
+        tso->stackobj->sp = p;
         threadStackUnderflow(cap,tso);
         p = tso->stackobj->sp;
         continue;

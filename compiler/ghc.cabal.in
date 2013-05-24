@@ -52,7 +52,8 @@ Library
                    array      >= 0.1 && < 0.5,
                    filepath   >= 1   && < 1.4,
                    Cabal,
-                   hpc
+                   hpc,
+                   transformers
 
     if flag(stage1) && impl(ghc < 7.5)
         Build-Depends: old-time   >= 1   && < 1.2
@@ -67,7 +68,7 @@ Library
     if flag(ghci)
         Build-Depends: template-haskell
         CPP-Options: -DGHCI
-        Include-Dirs: ../rts/dist/build
+        Include-Dirs: ../rts/dist/build @FFIIncludeDir@
 
     Build-Depends: bin-package-db
     Build-Depends: hoopl
@@ -98,6 +99,7 @@ Library
 
     c-sources:
         ghci/keepCAFsForGHCi.c
+        cbits/genSym.c
 
     hs-source-dirs:
         basicTypes
@@ -208,6 +210,7 @@ Library
         StgCmmGran
         StgCmmHeap
         StgCmmHpc
+        StgCmmArgRep
         StgCmmLayout
         StgCmmMonad
         StgCmmPrim
@@ -286,11 +289,12 @@ Library
         HscStats
         HscTypes
         InteractiveEval
+        InteractiveEvalTypes
         PackageConfig
         Packages
+        PlatformConstants
         PprTyThing
         StaticFlags
-        StaticFlagParser
         SysTools
         TidyPgm
         Ctype
@@ -362,6 +366,7 @@ Library
         TcHsType
         TcInstDcls
         TcMType
+        TcValidity
         TcMatches
         TcPat
         TcRnDriver

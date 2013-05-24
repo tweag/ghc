@@ -23,21 +23,21 @@ import Name             ( mkSystemVarName, isExternalName )
 import Coercion hiding  ( substCo, substTy, substCoVar, extendTvSubst )
 import OptCoercion      ( optCoercion )
 import FamInstEnv       ( topNormaliseType )
-import DataCon          ( DataCon, dataConWorkId, dataConRepStrictness )
+import DataCon          ( DataCon, dataConWorkId, dataConRepStrictness, isMarkedStrict )
 import CoreMonad        ( Tick(..), SimplifierMode(..) )
 import CoreSyn
-import Demand           ( isStrictDmd, StrictSig(..), dmdTypeDepth )
+import Demand           ( StrictSig(..), dmdTypeDepth )
 import PprCore          ( pprParendExpr, pprCoreExpr )
 import CoreUnfold
 import CoreUtils
 import qualified CoreSubst
 import CoreArity
 import Rules            ( lookupRule, getRules )
-import BasicTypes       ( isMarkedStrict, Arity )
+import BasicTypes       ( Arity )
 import TysPrim          ( realWorldStatePrimTy )
 import BasicTypes       ( TopLevelFlag(..), isTopLevel, RecFlag(..) )
 import MonadUtils       ( foldlM, mapAccumLM, liftIO )
-import Maybes           ( orElse, isNothing )
+import Maybes           ( orElse )
 import Control.Monad
 import Data.List        ( mapAccumL )
 import Outputable
@@ -331,7 +331,7 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
                 not_lam (Lam _ _) = False
                 not_lam _         = True
                         -- Do not do the "abstract tyyvar" thing if there's
-                        -- a lambda inside, becuase it defeats eta-reduction
+                        -- a lambda inside, because it defeats eta-reduction
                         --    f = /\a. \x. g a x
                         -- should eta-reduce
 
@@ -454,7 +454,7 @@ prepareRhs top_lvl env id (Cast rhs co)    -- Note [Float coercions]
         ; return (env', Cast rhs' co) }
   where
     sanitised_info = vanillaIdInfo `setStrictnessInfo` strictnessInfo info
-                                   `setDemandInfo`     demandInfo info
+                                   `setDemandInfo` demandInfo info
     info = idInfo id
 
 prepareRhs top_lvl env0 _ rhs0
@@ -676,8 +676,7 @@ completeBind env top_lvl old_bndr new_bndr new_rhs
               -- than that of the strictness sig. This can happen: see Note [Arity decrease].
             info3 | isEvaldUnfolding new_unfolding
                     || (case strictnessInfo info2 of
-                          Just (StrictSig dmd_ty) -> new_arity < dmdTypeDepth dmd_ty
-                          Nothing                 -> False)
+                          StrictSig dmd_ty -> new_arity < dmdTypeDepth dmd_ty)
                   = zapDemandInfo info2 `orElse` info2
                   | otherwise
                   = info2
@@ -782,7 +781,7 @@ on to the old unfolding (which is part of the id).
 Note [Arity decrease]
 ~~~~~~~~~~~~~~~~~~~~~
 Generally speaking the arity of a binding should not decrease.  But it *can*
-legitimately happen becuase of RULES.  Eg
+legitimately happen because of RULES.  Eg
         f = g Int
 where g has arity 2, will have arity 2.  But if there's a rewrite rule
         g Int --> h
@@ -1666,11 +1665,9 @@ check that
         (a) 'e' is already evaluated (it may so if e is a variable)
             Specifically we check (exprIsHNF e)
 or
-        (b) the scrutinee is a variable and 'x' is used strictly
-or
-        (c) 'x' is not used at all and e is ok-for-speculation
+        (b) 'x' is not used at all and e is ok-for-speculation
 
-For the (c), consider
+For the (b), consider
    case (case a ># b of { True -> (p,q); False -> (q,p) }) of
      r -> blah
 The scrutinee is ok-for-speculation (it looks inside cases), but we do
@@ -1678,6 +1675,34 @@ not want to transform to
    let r = case a ># b of { True -> (p,q); False -> (q,p) }
    in blah
 because that builds an unnecessary thunk.
+
+Note [Case binder next]
+~~~~~~~~~~~~~~~~~~~~~~~
+If we have 
+   case e of f { _ -> f e1 e2 }
+then we can safely do CaseElim.   The main criterion is that the
+case-binder is evaluated *next*.  Previously we just asked that
+the case-binder is used strictly; but that can change
+    case x of { _ -> error "bad" }
+    --> error "bad"
+which is very puzzling if 'x' is later bound to (error "good").
+Where the order of evaluation is specified (via seq or case)
+we should respect it.  
+See also Note [Empty case alternatives] in CoreSyn.
+
+So instead we use case_bndr_evald_next to see when f is the *next*
+thing to be eval'd.  This came up when fixing Trac #7542.
+See also Note [Eta reduction of an eval'd function] in CoreUtils.
+
+  For reference, the old code was an extra disjunct in elim_lifted
+       || (strict_case_bndr && scrut_is_var scrut)
+      strict_case_bndr = isStrictDmd (idDemandInfo case_bndr)
+      scrut_is_var (Cast s _) = scrut_is_var s
+      scrut_is_var (Var _)    = True
+      scrut_is_var _          = False
+
+      -- True if evaluation of the case_bndr is the next
+      -- thing to be eval'd.  Then dropping the case
 
 Note [Case elimination: unlifted case]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1791,7 +1816,6 @@ rebuildCase env scrut case_bndr [(_, bndrs, rhs)] cont
    then elim_unlifted        -- Satisfy the let-binding invariant
    else elim_lifted
   = do  { -- pprTrace "case elim" (vcat [ppr case_bndr, ppr (exprIsHNF scrut),
-          --                            ppr strict_case_bndr, ppr (scrut_is_var scrut),
           --                            ppr ok_for_spec,
           --                            ppr scrut]) $
           tick (CaseElim case_bndr)
@@ -1801,30 +1825,31 @@ rebuildCase env scrut case_bndr [(_, bndrs, rhs)] cont
   where
     elim_lifted   -- See Note [Case elimination: lifted case]
       = exprIsHNF scrut
-     || (strict_case_bndr && scrut_is_var scrut)
-              -- The case binder is going to be evaluated later,
-              -- and the scrutinee is a simple variable
-
      || (is_plain_seq && ok_for_spec)
               -- Note: not the same as exprIsHNF
+     || case_bndr_evald_next rhs
 
     elim_unlifted
       | is_plain_seq = exprOkForSideEffects scrut
             -- The entire case is dead, so we can drop it,
             -- _unless_ the scrutinee has side effects
-      | otherwise    = exprOkForSpeculation scrut
+      | otherwise    = ok_for_spec
             -- The case-binder is alive, but we may be able
             -- turn the case into a let, if the expression is ok-for-spec
             -- See Note [Case elimination: unlifted case]
 
     ok_for_spec      = exprOkForSpeculation scrut
     is_plain_seq     = isDeadBinder case_bndr -- Evaluation *only* for effect
-    strict_case_bndr = isStrictDmd (idDemandInfo case_bndr)
 
-    scrut_is_var (Cast s _) = scrut_is_var s
-    scrut_is_var (Var _)    = True
-    scrut_is_var _          = False
-
+    case_bndr_evald_next :: CoreExpr -> Bool
+      -- See Note [Case binder next]
+    case_bndr_evald_next (Var v)         = v == case_bndr
+    case_bndr_evald_next (Cast e _)      = case_bndr_evald_next e
+    case_bndr_evald_next (App e _)       = case_bndr_evald_next e
+    case_bndr_evald_next (Case e _ _ _)  = case_bndr_evald_next e
+    case_bndr_evald_next _               = False
+      -- Could add a case for Let,
+      -- but I'm worried it could become expensive
 
 --------------------------------------------------
 --      3. Try seq rules; see Note [User-defined RULES for seq] in MkId
@@ -1880,8 +1905,8 @@ so there were additional complications if the scrutinee was a variable.
 Now the binder-swap stuff is done in the occurrence analyer; see
 OccurAnal Note [Binder swap].
 
-Note [zapOccInfo]
-~~~~~~~~~~~~~~~~~
+Note [knownCon occ info]
+~~~~~~~~~~~~~~~~~~~~~~~~
 If the case binder is not dead, then neither are the pattern bound
 variables:
         case <any> of x { (a,b) ->
@@ -1892,8 +1917,13 @@ The point is that we bring into the envt a binding
 after the outer case, and that makes (a,b) alive.  At least we do unless
 the case binder is guaranteed dead.
 
-In practice, the scrutinee is almost always a variable, so we pretty
-much always zap the OccInfo of the binders.  It doesn't matter much though.
+Note [Case alternative occ info]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When we are simply reconstructing a case (the common case), we always
+zap the occurrence info on the binders in the alternatives.  Even
+if the case binder is dead, the scrutinee is usually a variable, and *that*
+can bring the case-alternative binders back to life.  
+See Note [Add unfolding for scrutinee]
 
 Note [Improving seq]
 ~~~~~~~~~~~~~~~~~~~
@@ -1970,9 +2000,7 @@ simplAlts env scrut case_bndr alts cont'
           -- NB: it's possible that the returned in_alts is empty: this is handled
           -- by the caller (rebuildCase) in the missingAlt function
 
-        ; let mb_var_scrut = case scrut' of { Var v -> Just v; _ -> Nothing }
-        ; alts' <- mapM (simplAlt alt_env' mb_var_scrut
-                             imposs_deflt_cons case_bndr' cont') in_alts
+        ; alts' <- mapM (simplAlt alt_env' (Just scrut') imposs_deflt_cons case_bndr' cont') in_alts
         ; -- pprTrace "simplAlts" (ppr case_bndr $$ ppr alts_ty $$ ppr alts_ty' $$ ppr alts $$ ppr cont') $
           return (scrut', case_bndr', alts') }
 
@@ -1996,7 +2024,7 @@ improveSeq _ env scrut _ case_bndr1 _
 
 ------------------------------------
 simplAlt :: SimplEnv
-         -> Maybe OutId    -- Scrutinee
+         -> Maybe OutExpr  -- The scrutinee
          -> [AltCon]       -- These constructors can't be present when
                            -- matching the DEFAULT alternative
          -> OutId          -- The case binder
@@ -2004,26 +2032,22 @@ simplAlt :: SimplEnv
          -> InAlt
          -> SimplM OutAlt
 
-simplAlt env scrut imposs_deflt_cons case_bndr' cont' (DEFAULT, bndrs, rhs)
+simplAlt env _ imposs_deflt_cons case_bndr' cont' (DEFAULT, bndrs, rhs)
   = ASSERT( null bndrs )
-    do  { let env' = addBinderUnfolding env scrut case_bndr'
+    do  { let env' = addBinderUnfolding env case_bndr'
                                         (mkOtherCon imposs_deflt_cons)
                 -- Record the constructors that the case-binder *can't* be.
         ; rhs' <- simplExprC env' rhs cont'
         ; return (DEFAULT, [], rhs') }
 
-simplAlt env scrut _ case_bndr' cont' (LitAlt lit, bndrs, rhs)
+simplAlt env scrut' _ case_bndr' cont' (LitAlt lit, bndrs, rhs)
   = ASSERT( null bndrs )
-    do  { dflags <- getDynFlags
-        ; let env' = addBinderUnfolding env scrut case_bndr'
-                                        (mkSimpleUnfolding dflags (Lit lit))
+    do  { env' <- addAltUnfoldings env scrut' case_bndr' (Lit lit)
         ; rhs' <- simplExprC env' rhs cont'
         ; return (LitAlt lit, [], rhs') }
 
-simplAlt env scrut _ case_bndr' cont' (DataAlt con, vs, rhs)
-  = do  { dflags <- getDynFlags
-
-                -- Deal with the pattern-bound variables
+simplAlt env scrut' _ case_bndr' cont' (DataAlt con, vs, rhs)
+  = do  {       -- Deal with the pattern-bound variables
                 -- Mark the ones that are in ! positions in the
                 -- data constructor as certainly-evaluated.
                 -- NB: simplLamBinders preserves this eval info
@@ -2032,10 +2056,10 @@ simplAlt env scrut _ case_bndr' cont' (DataAlt con, vs, rhs)
 
                 -- Bind the case-binder to (con args)
         ; let inst_tys' = tyConAppArgs (idType case_bndr')
-              con_args  = map Type inst_tys' ++ varsToCoreExprs vs'
-              unf       = mkSimpleUnfolding dflags (mkConApp con con_args)
-              env''     = addBinderUnfolding env' scrut case_bndr' unf
+              con_app :: OutExpr
+              con_app   = mkConApp2 con inst_tys' vs'
 
+        ; env'' <- addAltUnfoldings env' scrut' case_bndr' con_app
         ; rhs' <- simplExprC env'' rhs cont'
         ; return (DataAlt con, vs', rhs') }
   where
@@ -2057,28 +2081,36 @@ simplAlt env scrut _ case_bndr' cont' (DataAlt con, vs, rhs)
             | isMarkedStrict str = evald_v  : go vs' strs
             | otherwise          = zapped_v : go vs' strs
             where
-              zapped_v = zapBndrOccInfo keep_occ_info v
+              zapped_v = zapIdOccInfo v   -- See Note [Case alternative occ info]
               evald_v  = zapped_v `setIdUnfolding` evaldUnfolding
           go _ _ = pprPanic "cat_evals" (ppr con $$ ppr vs $$ ppr the_strs)
 
-        -- See Note [zapOccInfo]
-        -- zap_occ_info: if the case binder is alive, then we add the unfolding
-        --      case_bndr = C vs
-        -- to the envt; so vs are now very much alive
-        -- Note [Aug06] I can't see why this actually matters, but it's neater
-        --        case e of t { (a,b) -> ...(case t of (p,q) -> p)... }
-        --   ==>  case e of t { (a,b) -> ...(a)... }
-        -- Look, Ma, a is alive now.
-    keep_occ_info = isDeadBinder case_bndr' && isNothing scrut
 
-addBinderUnfolding :: SimplEnv -> Maybe OutId -> Id -> Unfolding -> SimplEnv
-addBinderUnfolding env scrut bndr unf
-  = case scrut of
-       Just v -> modifyInScope env1 (v `setIdUnfolding` unf)
-       _      -> env1
-  where
-    env1 = modifyInScope env bndr_w_unf
-    bndr_w_unf = bndr `setIdUnfolding` unf
+addAltUnfoldings :: SimplEnv -> Maybe OutExpr -> OutId -> OutExpr -> SimplM SimplEnv
+addAltUnfoldings env scrut case_bndr con_app
+  = do { dflags <- getDynFlags
+       ; let con_app_unf = mkSimpleUnfolding dflags con_app
+             env1 = addBinderUnfolding env case_bndr con_app_unf
+
+             -- See Note [Add unfolding for scrutinee]
+             env2 = case scrut of
+                      Just (Var v)           -> addBinderUnfolding env1 v con_app_unf
+                      Just (Cast (Var v) co) -> addBinderUnfolding env1 v $
+                                                mkSimpleUnfolding dflags (Cast con_app (mkSymCo co))
+                      _                      -> env1
+              
+       ; traceSmpl "addAltUnf" (vcat [ppr case_bndr <+> ppr scrut, ppr con_app])
+       ; return env2 }
+
+addBinderUnfolding :: SimplEnv -> Id -> Unfolding -> SimplEnv
+addBinderUnfolding env bndr unf
+  | debugIsOn, Just tmpl <- maybeUnfoldingTemplate unf
+  = WARN( not (eqType (idType bndr) (exprType tmpl)), 
+          ppr bndr $$ ppr (idType bndr) $$ ppr tmpl $$ ppr (exprType tmpl) ) 
+    modifyInScope env (bndr `setIdUnfolding` unf)
+
+  | otherwise
+  = modifyInScope env (bndr `setIdUnfolding` unf)
 
 zapBndrOccInfo :: Bool -> Id -> Id
 -- Consider  case e of b { (a,b) -> ... }
@@ -2112,6 +2144,17 @@ simplifier sweep instead of two.
 
 Exactly the same issue arises in SpecConstr;
 see Note [Add scrutinee to ValueEnv too] in SpecConstr
+
+HOWEVER, given
+  case x of y { Just a -> r1; Nothing -> r2 }
+we do not want to add the unfolding x -> y to 'x', which might seem cool,
+since 'y' itself has different unfoldings in r1 and r2.  Reason: if we
+did that, we'd have to zap y's deadness info and that is a very useful
+piece of information.  
+
+So instead we add the unfolding x -> Just a, and x -> Nothing in the
+respective RHSs.
+
 
 %************************************************************************
 %*                                                                      *
@@ -2161,7 +2204,7 @@ knownCon env scrut dc dc_ty_args dc_args bndr bs rhs cont
              -- occur in the RHS; and simplNonRecX may therefore discard
              -- it via postInlineUnconditionally.
              -- Nevertheless we must keep it if the case-binder is alive,
-             -- because it may be used in the con_app.  See Note [zapOccInfo]
+             -- because it may be used in the con_app.  See Note [knownCon occ info]
            ; env'' <- simplNonRecX env' b' arg
            ; bind_args env'' bs' args }
 
@@ -2304,7 +2347,7 @@ mkDupableCont env (Select _ case_bndr alts se cont)
         ; (env', dup_cont, nodup_cont) <- prepareCaseCont env alts cont
                 -- NB: We call prepareCaseCont here.  If there is only one
                 -- alternative, then dup_cont may be big, but that's ok
-                -- becuase we push it into the single alternative, and then
+                -- because we push it into the single alternative, and then
                 -- use mkDupableAlt to turn that simplified alternative into
                 -- a join point if it's too big to duplicate.
                 -- And this is important: see Note [Fusing case continuations]
@@ -2361,8 +2404,7 @@ mkDupableAlt env case_bndr (con, bndrs', rhs') = do
                           where
                                  -- See Note [Case binders and join points]
                              unf = mkInlineUnfolding Nothing rhs
-                             rhs = mkConApp dc (map Type (tyConAppArgs scrut_ty)
-                                                ++ varsToCoreExprs bndrs')
+                             rhs = mkConApp2 dc (tyConAppArgs scrut_ty) bndrs'
 
                       LitAlt {} -> WARN( True, ptext (sLit "mkDupableAlt")
                                                 <+> ppr case_bndr <+> ppr con )

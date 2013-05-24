@@ -63,6 +63,7 @@ import FlagChecker
 import Id
 import IdInfo
 import Demand
+import Coercion( tidyCo )
 import Annotations
 import CoreSyn
 import CoreFVs
@@ -373,17 +374,17 @@ mkIface_ hsc_env maybe_old_fingerprint
 
      ifFamInstTcName = ifFamInstFam
 
-     flattenVectInfo (VectInfo { vectInfoVar          = vVar
-                               , vectInfoTyCon        = vTyCon
-                               , vectInfoScalarVars   = vScalarVars
-                               , vectInfoScalarTyCons = vScalarTyCons
+     flattenVectInfo (VectInfo { vectInfoVar            = vVar
+                               , vectInfoTyCon          = vTyCon
+                               , vectInfoParallelVars     = vParallelVars
+                               , vectInfoParallelTyCons = vParallelTyCons
                                }) = 
        IfaceVectInfo
-       { ifaceVectInfoVar          = [Var.varName v | (v, _  ) <- varEnvElts  vVar]
-       , ifaceVectInfoTyCon        = [tyConName t   | (t, t_v) <- nameEnvElts vTyCon, t /= t_v]
-       , ifaceVectInfoTyConReuse   = [tyConName t   | (t, t_v) <- nameEnvElts vTyCon, t == t_v]
-       , ifaceVectInfoScalarVars   = [Var.varName v | v <- varSetElems vScalarVars]
-       , ifaceVectInfoScalarTyCons = nameSetToList vScalarTyCons
+       { ifaceVectInfoVar            = [Var.varName v | (v, _  ) <- varEnvElts  vVar]
+       , ifaceVectInfoTyCon          = [tyConName t   | (t, t_v) <- nameEnvElts vTyCon, t /= t_v]
+       , ifaceVectInfoTyConReuse     = [tyConName t   | (t, t_v) <- nameEnvElts vTyCon, t == t_v]
+       , ifaceVectInfoParallelVars   = [Var.varName v | v <- varSetElems vParallelVars]
+       , ifaceVectInfoParallelTyCons = nameSetToList vParallelTyCons
        } 
 
 -----------------------------
@@ -828,7 +829,7 @@ oldMD5 dflags bh = do
   let cmd = "md5sum " ++ tmp ++ " >" ++ tmp2
   r <- system cmd
   case r of
-    ExitFailure _ -> throwGhcException (PhaseFailed cmd r)
+    ExitFailure _ -> throwGhcExceptionIO (PhaseFailed cmd r)
     ExitSuccess -> do
         hash_str <- readFile tmp2
         return $! readHexFingerprint hash_str
@@ -1120,7 +1121,7 @@ check_old_iface hsc_env mod_summary src_modified maybe_iface
 
         loadIface = do
              let iface_path = msHiFilePath mod_summary
-             read_result <- readIface (ms_mod mod_summary) iface_path False
+             read_result <- readIface (ms_mod mod_summary) iface_path
              case read_result of
                  Failed err -> do
                      traceIf (text "FYI: cannot read old interface file:" $$ nest 4 err)
@@ -1444,18 +1445,18 @@ coAxiomToIfaceDecl :: CoAxiom br -> IfaceDecl
 coAxiomToIfaceDecl ax@(CoAxiom { co_ax_tc = tycon, co_ax_branches = branches })
  = IfaceAxiom { ifName       = name
               , ifTyCon      = toIfaceTyCon tycon
-              , ifAxBranches = brListMap coAxBranchToIfaceBranch branches }
+              , ifAxBranches = brListMap (coAxBranchToIfaceBranch emptyTidyEnv) branches }
  where
    name = getOccName ax
 
 
-coAxBranchToIfaceBranch :: CoAxBranch -> IfaceAxBranch
-coAxBranchToIfaceBranch (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs })
+coAxBranchToIfaceBranch :: TidyEnv -> CoAxBranch -> IfaceAxBranch
+coAxBranchToIfaceBranch env0 (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs })
   = IfaceAxBranch { ifaxbTyVars = toIfaceTvBndrs tv_bndrs
-                  , ifaxbLHS    = map (tidyToIfaceType env) lhs
-                  , ifaxbRHS    = tidyToIfaceType env rhs }
+                  , ifaxbLHS    = map (tidyToIfaceType env1) lhs
+                  , ifaxbRHS    = tidyToIfaceType env1 rhs }
   where
-    (env, tv_bndrs) = tidyTyVarBndrs emptyTidyEnv tvs
+    (env1, tv_bndrs) = tidyTyVarBndrs env0 tvs
 
 -----------------
 tyConToIfaceDecl :: TidyEnv -> TyCon -> IfaceDecl
@@ -1479,6 +1480,7 @@ tyConToIfaceDecl env tycon
                 ifCons    = ifaceConDecls (algTyConRhs tycon),
                 ifRec     = boolToRecFlag (isRecursiveTyCon tycon),
                 ifGadtSyntax = isGadtSyntaxTyCon tycon,
+                ifPromotable = isJust (promotableTyCon_maybe tycon),
                 ifAxiom   = fmap coAxiomName (tyConFamilyCoercion_maybe tycon) }
 
   | isForeignTyCon tycon
@@ -1512,7 +1514,7 @@ tyConToIfaceDecl env tycon
                     ifConArgTys  = map (tidyToIfaceType env2) arg_tys,
                     ifConFields  = map getOccName 
                                        (dataConFieldLabels data_con),
-                    ifConStricts = dataConRepBangs data_con }
+                    ifConStricts = map (toIfaceBang env2) (dataConRepBangs data_con) }
         where
           (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _) = dataConFullSig data_con
 
@@ -1523,6 +1525,12 @@ tyConToIfaceDecl env tycon
           to_eq_spec spec = [ (getOccName (tidyTyVar env2 tv), tidyToIfaceType env2 ty) 
                             | (tv,ty) <- spec]
 
+toIfaceBang :: TidyEnv -> HsBang -> IfaceBang
+toIfaceBang _    HsNoBang            = IfNoBang
+toIfaceBang _   (HsUnpack Nothing)   = IfUnpack
+toIfaceBang env (HsUnpack (Just co)) = IfUnpackCo (coToIfaceType (tidyCo env co))
+toIfaceBang _   HsStrict             = IfStrict
+toIfaceBang _   (HsUserBang {})      = panic "toIfaceBang"
 
 classToIfaceDecl :: TidyEnv -> Class -> IfaceDecl
 classToIfaceDecl env clas
@@ -1542,14 +1550,7 @@ classToIfaceDecl env clas
     
     toIfaceAT :: ClassATItem -> IfaceAT
     toIfaceAT (tc, defs)
-      = IfaceAT (tyConToIfaceDecl env1 tc) (map to_if_at_def defs)
-      where
-        to_if_at_def (ATD tvs pat_tys ty _loc)
-          = IfaceATD (toIfaceTvBndrs tvs') 
-                     (map (tidyToIfaceType env2) pat_tys) 
-                     (tidyToIfaceType env2 ty)
-          where
-            (env2, tvs') = tidyTyClTyVarBndrs env1 tvs
+      = IfaceAT (tyConToIfaceDecl env1 tc) (map (coAxBranchToIfaceBranch env1) defs)
 
     toIfaceClassOp (sel_id, def_meth)
         = ASSERT(sel_tyvars == clas_tyvars)
@@ -1598,8 +1599,9 @@ getFS x = occNameFS (getOccName x)
 
 --------------------------
 instanceToIfaceInst :: ClsInst -> IfaceClsInst
-instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
-                                is_cls = cls_name, is_tcs = mb_tcs })
+instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag
+                             , is_cls_nm = cls_name, is_cls = cls
+                             , is_tys = tys, is_tcs = mb_tcs })
   = ASSERT( cls_name == className cls )
     IfaceClsInst { ifDFun    = dfun_name,
                 ifOFlag   = oflag,
@@ -1615,8 +1617,6 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
     is_local name = nameIsLocalOrFrom mod name
 
         -- Compute orphanhood.  See Note [Orphans] in IfaceSyn
-    (_, _, cls, tys) = tcSplitDFunTy (idType dfun_id)
-                -- Slightly awkward: we need the Class to get the fundeps
     (tvs, fds) = classTvsFds cls
     arg_names = [filterNameSet is_local (orphNamesOfType ty) | ty <- tys]
 
@@ -1640,14 +1640,14 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
 --------------------------
 famInstToIfaceFamInst :: FamInst br -> IfaceFamInst
 famInstToIfaceFamInst (FamInst { fi_axiom    = axiom,
-                                 fi_group    = group,
+                                 fi_branched = branched,
                                  fi_fam      = fam,
                                  fi_branches = branches })
-  = IfaceFamInst { ifFamInstAxiom = coAxiomName axiom
-                 , ifFamInstFam   = fam
-                 , ifFamInstGroup = group
-                 , ifFamInstTys   = map (map do_rough) roughs
-                 , ifFamInstOrph  = orph }
+  = IfaceFamInst { ifFamInstAxiom    = coAxiomName axiom
+                 , ifFamInstFam      = fam
+                 , ifFamInstBranched = branched
+                 , ifFamInstTys      = map (map do_rough) roughs
+                 , ifFamInstOrph     = orph }
   where
     roughs = brListMap famInstBranchRoughMatch branches
 
@@ -1690,7 +1690,7 @@ toIfaceIdDetails other                          = pprTrace "toIfaceIdDetails" (p
 
 toIfaceIdInfo :: IdInfo -> IfaceIdInfo
 toIfaceIdInfo id_info
-  = case catMaybes [arity_hsinfo, caf_hsinfo, strict_hsinfo, 
+  = case catMaybes [arity_hsinfo, caf_hsinfo, strict_hsinfo,
                     inline_hsinfo,  unfold_hsinfo] of
        []    -> NoInfo
        infos -> HasInfo infos
@@ -1710,9 +1710,9 @@ toIfaceIdInfo id_info
 
     ------------  Strictness  --------------
         -- No point in explicitly exporting TopSig
-    strict_hsinfo = case strictnessInfo id_info of
-                        Just sig | not (isTopSig sig) -> Just (HsStrictness sig)
-                        _other                        -> Nothing
+    sig_info = strictnessInfo id_info
+    strict_hsinfo | not (isTopSig sig_info) = Just (HsStrictness sig_info)
+                  | otherwise               = Nothing
 
     ------------  Unfolding  --------------
     unfold_hsinfo = toIfUnfolding loop_breaker (unfoldingInfo id_info) 

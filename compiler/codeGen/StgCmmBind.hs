@@ -32,6 +32,7 @@ import MkGraph
 import CoreSyn          ( AltCon(..) )
 import SMRep
 import Cmm
+import CmmInfo
 import CmmUtils
 import CLabel
 import StgSyn
@@ -203,8 +204,9 @@ cgRhs :: Id
                                   -- (see above)
                )
 
-cgRhs name (StgRhsCon cc con args)
-  = buildDynCon name cc con args
+cgRhs id (StgRhsCon cc con args)
+  = withNewTickyCounterThunk False (idName id) $ -- False for "not static"
+    buildDynCon id True cc con args
 
 cgRhs name (StgRhsClosure cc bi fvs upd_flag _srt args body)
   = do dflags <- getDynFlags
@@ -295,7 +297,7 @@ mkRhsClosure    dflags bndr _cc _bi
                 (StgApp fun_id args)
 
   | args `lengthIs` (arity-1)
-        && all (isGcPtrRep . idPrimRep . stripNV) fvs
+        && all (isGcPtrRep . idPrimRep . unsafe_stripNV) fvs
         && isUpdatable upd_flag
         && arity <= mAX_SPEC_AP_SIZE dflags
         && not (gopt Opt_SccProfilingOn dflags)
@@ -343,7 +345,7 @@ mkRhsClosure _ bndr cc _ fvs upd_flag args body
                 fv_details :: [(NonVoid Id, VirtualHpOffset)]
                 (tot_wds, ptr_wds, fv_details)
                    = mkVirtHeapOffsets dflags (isLFThunk lf_info)
-                                       (addIdReps (map stripNV reduced_fvs))
+                                       (addIdReps (map unsafe_stripNV reduced_fvs))
                 closure_info = mkClosureInfo dflags False       -- Not static
                                              bndr lf_info tot_wds ptr_wds
                                              descr
@@ -362,16 +364,11 @@ mkRhsClosure _ bndr cc _ fvs upd_flag args body
         ; emit (mkComment $ mkFastString "calling allocDynClosure")
         ; let toVarArg (NonVoid a, off) = (NonVoid (StgVarArg a), off)
         ; let info_tbl = mkCmmInfo closure_info
-        ; hp_plus_n <- allocDynClosure info_tbl lf_info use_cc blame_cc
+        ; hp_plus_n <- allocDynClosure (Just bndr) info_tbl lf_info use_cc blame_cc
                                          (map toVarArg fv_details)
 
         -- RETURN
         ; return (mkRhsInit dflags reg lf_info hp_plus_n) }
-
-
--- Use with care; if used inappropriately, it could break invariants.
-stripNV :: NonVoid a -> a
-stripNV (NonVoid a) = a
 
 -------------------------
 cgRhsStdThunk
@@ -385,8 +382,9 @@ cgRhsStdThunk bndr lf_info payload
        ; return (id_info, gen_code reg)
        }
  where
- gen_code reg
-  = do  -- AHA!  A STANDARD-FORM THUNK
+ gen_code reg  -- AHA!  A STANDARD-FORM THUNK
+  = withNewTickyCounterStdThunk False (idName bndr) $ -- False for "not static"
+    do
   {     -- LAY OUT THE OBJECT
     mod_name <- getModuleName
   ; dflags <- getDynFlags
@@ -401,9 +399,11 @@ cgRhsStdThunk bndr lf_info payload
 --  ; (use_cc, blame_cc) <- chooseDynCostCentres cc [{- no args-}] body
   ; let use_cc = curCCS; blame_cc = curCCS
 
+  ; tickyEnterStdThunk
+
         -- BUILD THE OBJECT
   ; let info_tbl = mkCmmInfo closure_info
-  ; hp_plus_n <- allocDynClosure info_tbl lf_info
+  ; hp_plus_n <- allocDynClosure (Just bndr) info_tbl lf_info
                                    use_cc blame_cc payload_w_offsets
 
         -- RETURN
@@ -417,10 +417,10 @@ mkClosureLFInfo :: Id           -- The binder
                 -> [Id]         -- Args
                 -> FCode LambdaFormInfo
 mkClosureLFInfo bndr top fvs upd_flag args
-  | null args = return (mkLFThunk (idType bndr) top (map stripNV fvs) upd_flag)
+  | null args = return (mkLFThunk (idType bndr) top (map unsafe_stripNV fvs) upd_flag)
   | otherwise =
       do { arg_descr <- mkArgDescr (idName bndr) args
-         ; return (mkLFReEntrant top (map stripNV fvs) args arg_descr) }
+         ; return (mkLFReEntrant top (map unsafe_stripNV fvs) args arg_descr) }
 
 
 ------------------------------------------------------------------------
@@ -452,7 +452,8 @@ closureCodeBody :: Bool            -- whether this is a top-level binding
 
 closureCodeBody top_lvl bndr cl_info cc _args arity body fv_details
   | arity == 0 -- No args i.e. thunk
-  = emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl [] $
+  = withNewTickyCounterThunk (isStaticClosure cl_info) (closureName cl_info) $
+    emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl [] $
       \(_, node, _) -> thunkCode cl_info fv_details cc node arity body
    where
      lf_info  = closureLFInfo cl_info
@@ -460,12 +461,7 @@ closureCodeBody top_lvl bndr cl_info cc _args arity body fv_details
 
 closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
   = -- Note: args may be [], if all args are Void
-    do  { -- Allocate the global ticky counter,
-          -- and establish the ticky-counter
-          -- label for this block
-          let ticky_ctr_lbl = closureRednCountsLabel cl_info
-        ; emitTickyCounter cl_info (map stripNV args)
-        ; setTickyCtrLabel ticky_ctr_lbl $ do
+    withNewTickyCounterFun (closureName cl_info) args $ do {
 
         ; let
              lf_info  = closureLFInfo cl_info
@@ -478,20 +474,20 @@ closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
                 { mkSlowEntryCode bndr cl_info arg_regs
 
                 ; dflags <- getDynFlags
-                ; let lf_info = closureLFInfo cl_info
-                      node_points = nodeMustPointToIt dflags lf_info
+                ; let node_points = nodeMustPointToIt dflags lf_info
                       node' = if node_points then Just node else Nothing
-                ; tickyEnterFun cl_info
-                ; enterCostCentreFun cc
-                    (CmmMachOp (mo_wordSub dflags)
-                         [ CmmReg nodeReg
-                         , mkIntExpr dflags (funTag dflags cl_info) ])
                 ; when node_points (ldvEnterClosure cl_info)
                 ; granYield arg_regs node_points
 
                 -- Main payload
                 ; entryHeapCheck cl_info node' arity arg_regs $ do
-                { fv_bindings <- mapM bind_fv fv_details
+                { -- ticky after heap check to avoid double counting
+                  tickyEnterFun cl_info
+                ; enterCostCentreFun cc
+                    (CmmMachOp (mo_wordSub dflags)
+                         [ CmmReg nodeReg
+                         , mkIntExpr dflags (funTag dflags cl_info) ])
+                ; fv_bindings <- mapM bind_fv fv_details
                 -- Load free vars out of closure *after*
                 -- heap check, to reduce live vars over check
                 ; when node_points $ load_fvs node lf_info fv_bindings
@@ -544,7 +540,6 @@ thunkCode cl_info fv_details _cc node arity body
   = do { dflags <- getDynFlags
        ; let node_points = nodeMustPointToIt dflags (closureLFInfo cl_info)
              node'       = if node_points then Just node else Nothing
-        ; tickyEnterThunk cl_info
         ; ldvEnterClosure cl_info -- NB: Node always points when profiling
         ; granThunk node_points
 
@@ -561,7 +556,8 @@ thunkCode cl_info fv_details _cc node arity body
             -- that cc of enclosing scope will be recorded
             -- in update frame CAF/DICT functions will be
             -- subsumed by this enclosing cc
-            do { enterCostCentreThunk (CmmReg nodeReg)
+            do { tickyEnterThunk
+               ; enterCostCentreThunk (CmmReg nodeReg)
                ; let lf_info = closureLFInfo cl_info
                ; fv_bindings <- mapM bind_fv fv_details
                ; load_fvs node lf_info fv_bindings
@@ -725,7 +721,7 @@ link_caf node _is_upd = do
         blame_cc = use_cc
         tso      = CmmReg (CmmGlobal CurrentTSO)
 
-  ; hp_rel <- allocDynClosureCmm cafBlackHoleInfoTable mkLFBlackHole
+  ; hp_rel <- allocDynClosureCmm Nothing cafBlackHoleInfoTable mkLFBlackHole
                                          use_cc blame_cc [(tso,fixedHdrSize dflags)]
         -- small optimisation: we duplicate the hp_rel expression in
         -- both the newCAF call and the value returned below.
@@ -739,7 +735,7 @@ link_caf node _is_upd = do
         -- This must be done *before* the info table pointer is overwritten,
         -- because the old info table ptr is needed for reversion
   ; ret <- newTemp (bWord dflags)
-  ; emitRtsCallGen [(ret,NoHint)] rtsPackageId (fsLit "newCAF")
+  ; emitRtsCallGen [(ret,NoHint)] (mkForeignLabel (fsLit "newCAF") Nothing ForeignLabelInExternalPackage IsFunction)
       [ (CmmReg (CmmGlobal BaseReg),  AddrHint),
         (CmmReg (CmmLocal node), AddrHint),
         (hp_rel, AddrHint) ]

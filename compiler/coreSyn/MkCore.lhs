@@ -53,7 +53,8 @@ module MkCore (
     	mkRuntimeErrorApp, mkImpossibleExpr, errorIds,
     	rEC_CON_ERROR_ID, iRREFUT_PAT_ERROR_ID, rUNTIME_ERROR_ID,
     	nON_EXHAUSTIVE_GUARDS_ERROR_ID, nO_METHOD_BINDING_ERROR_ID,
-    	pAT_ERROR_ID, eRROR_ID, rEC_SEL_ERROR_ID, aBSENT_ERROR_ID
+    	pAT_ERROR_ID, eRROR_ID, rEC_SEL_ERROR_ID, aBSENT_ERROR_ID,
+        uNDEFINED_ID, undefinedName
     ) where
 
 #include "HsVersions.h"
@@ -74,8 +75,9 @@ import Type
 import Coercion
 import TysPrim
 import DataCon          ( DataCon, dataConWorkId )
-import IdInfo		( vanillaIdInfo, setStrictnessInfo, setArityInfo )
-import Demand
+import IdInfo		( vanillaIdInfo, setStrictnessInfo, 
+                          setArityInfo )
+import Demand 
 import Name      hiding ( varName )
 import Outputable
 import FastString
@@ -658,6 +660,9 @@ errorIds
                   -- import its type from the interface file; we just get
                   -- the Id defined here.  Which has an 'open-tyvar' type.
 
+      uNDEFINED_ID,   -- Ditto for 'undefined'. The big deal is to give it
+                      -- an 'open-tyvar' type.
+
       rUNTIME_ERROR_ID,
       iRREFUT_PAT_ERROR_ID,
       nON_EXHAUSTIVE_GUARDS_ERROR_ID,
@@ -699,7 +704,7 @@ nON_EXHAUSTIVE_GUARDS_ERROR_ID  = mkRuntimeErrorId nonExhaustiveGuardsErrorName
 aBSENT_ERROR_ID                 = mkRuntimeErrorId absentErrorName
 
 mkRuntimeErrorId :: Name -> Id
-mkRuntimeErrorId name = pc_bottoming_Id name runtimeErrorTy
+mkRuntimeErrorId name = pc_bottoming_Id1 name runtimeErrorTy
 
 runtimeErrorTy :: Type
 -- The runtime error Ids take a UTF8-encoded string as argument
@@ -711,14 +716,32 @@ errorName :: Name
 errorName = mkWiredInIdName gHC_ERR (fsLit "error") errorIdKey eRROR_ID
 
 eRROR_ID :: Id
-eRROR_ID = pc_bottoming_Id errorName errorTy
+eRROR_ID = pc_bottoming_Id1 errorName errorTy
 
-errorTy  :: Type
+errorTy  :: Type   -- See Note [Error and friends have an "open-tyvar" forall]
 errorTy  = mkSigmaTy [openAlphaTyVar] [] (mkFunTys [mkListTy charTy] openAlphaTy)
-    -- Notice the openAlphaTyVar.  It says that "error" can be applied
-    -- to unboxed as well as boxed types.  This is OK because it never
-    -- returns, so the return type is irrelevant.
+
+undefinedName :: Name
+undefinedName = mkWiredInIdName gHC_ERR (fsLit "undefined") undefinedKey uNDEFINED_ID
+
+uNDEFINED_ID :: Id
+uNDEFINED_ID = pc_bottoming_Id0 undefinedName undefinedTy
+
+undefinedTy  :: Type   -- See Note [Error and friends have an "open-tyvar" forall]
+undefinedTy  = mkSigmaTy [openAlphaTyVar] [] openAlphaTy
 \end{code}
+
+Note [Error and friends have an "open-tyvar" forall]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+'error' and 'undefined' have types 
+        error     :: forall (a::OpenKind). String -> a
+        undefined :: forall (a::OpenKind). a
+Notice the 'OpenKind' (manifested as openAlphaTyVar in the code). This ensures that
+"error" can be instantiated at 
+  * unboxed as well as boxed types
+  * polymorphic types
+This is OK because it never returns, so the return type is irrelevant.
+See Note [OpenTypeKind accepts foralls] in TcUnify.
 
 
 %************************************************************************
@@ -728,12 +751,12 @@ errorTy  = mkSigmaTy [openAlphaTyVar] [] (mkFunTys [mkListTy charTy] openAlphaTy
 %************************************************************************
 
 \begin{code}
-pc_bottoming_Id :: Name -> Type -> Id
+pc_bottoming_Id1 :: Name -> Type -> Id
 -- Function of arity 1, which diverges after being given one argument
-pc_bottoming_Id name ty
+pc_bottoming_Id1 name ty
  = mkVanillaGlobalWithInfo name ty bottoming_info
  where
-    bottoming_info = vanillaIdInfo `setStrictnessInfo` Just strict_sig
+    bottoming_info = vanillaIdInfo `setStrictnessInfo`    strict_sig
 				   `setArityInfo`         1
 			-- Make arity and strictness agree
 
@@ -746,7 +769,15 @@ pc_bottoming_Id name ty
         -- any pc_bottoming_Id will itself have CafRefs, which bloats
         -- SRTs.
 
-    strict_sig = mkStrictSig (mkTopDmdType [evalDmd] BotRes)
-        -- These "bottom" out, no matter what their arguments
+    strict_sig = mkStrictSig (mkTopDmdType [evalDmd] botRes)
+    -- These "bottom" out, no matter what their arguments
+
+pc_bottoming_Id0 :: Name -> Type -> Id
+-- Same but arity zero
+pc_bottoming_Id0 name ty
+ = mkVanillaGlobalWithInfo name ty bottoming_info
+ where
+    bottoming_info = vanillaIdInfo `setStrictnessInfo` strict_sig
+    strict_sig = mkStrictSig (mkTopDmdType [] botRes)
 \end{code}
 

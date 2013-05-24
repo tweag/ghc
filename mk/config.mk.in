@@ -36,36 +36,8 @@ V = 1
 #
 ################################################################################
 
-# BootingFromHc - build GHC and the libraries from .hc files?
-# (unregisterised only)
-BootingFromHc = @BootingFromHc@
-
 NO_INCLUDE_DEPS = NO
 NO_INCLUDE_PKGDATA = NO
-
-# Should we build latex docs?
-LATEX_DOCS = NO
-
-# Mac OS X deployment target (to cross-compile for older OS versions)
-#
-MACOSX_DEPLOYMENT_VERSION = @MACOSX_DEPLOYMENT_VERSION@
-MACOSX_DEPLOYMENT_SDK = @MACOSX_DEPLOYMENT_SDK@
-
-ifneq "$(MACOSX_DEPLOYMENT_VERSION)" ""
-MACOSX_DEPLOYMENT_CC_OPTS = -mmacosx-version-min=$(MACOSX_DEPLOYMENT_VERSION) \
-			    -isysroot $(MACOSX_DEPLOYMENT_SDK) \
-			    --no-builtin-fprintf
-MACOSX_DEPLOYMENT_LD_OPTS = -mmacosx-version-min=$(MACOSX_DEPLOYMENT_VERSION) \
-			    -Wl,-syslibroot,$(MACOSX_DEPLOYMENT_SDK)
-# We don't extend SRC_CC_OPTS and friends here directly, as (a) they may get
-# overwritten in build.mk and (b) we must not use the deployment options in
-# stage 1 or we get a linker error if the bootstrap compiler is for a more 
-# recent OS version.
-#
-# We need --no-builtin-fprintf, as the use of the builtin function optimisation
-# for fprintf together with #include "PosixSource" in the RTS leads to the
-# use of fwrite$UNIX2003 (with GCC 4.0.1 on Mac OS X 10.5.2).
-endif
 
 ################################################################################
 #
@@ -116,21 +88,21 @@ GhcDynamic=NO
 # GhcProfiled=YES means compile a profiled stage-2 compiler
 GhcProfiled=NO
 
-# Do we support shared libs?
-SharedLibsPlatformList =                        \
-    i386-unknown-linux   x86_64-unknown-linux   \
-    i386-unknown-freebsd x86_64-unknown-freebsd \
-    i386-unknown-openbsd x86_64-unknown-openbsd \
-    i386-unknown-netbsd  x86_64-unknown-netbsd  \
-    i386-unknown-mingw32 x86_64-unknown-mingw32 \
-    i386-apple-darwin    x86_64-apple-darwin    powerpc-apple-darwin
+ifeq "$(findstring $(TargetOS_CPP),linux freebsd dragonfly openbsd netbsd solaris2 kfreebsdgnu haiku linux-android)" ""
+TargetElf = NO
+else
+TargetElf = YES
+endif
 
-ifeq "$(SOLARIS_BROKEN_SHLD)" "NO"
-SharedLibsPlatformList += i386-unknown-solaris2
+# Some platforms don't support shared libraries
+NoSharedLibsPlatformList =
+
+ifeq "$(SOLARIS_BROKEN_SHLD)" "YES"
+NoSharedLibsPlatformList += i386-unknown-solaris2
 endif
 
 PlatformSupportsSharedLibs = $(if $(filter $(TARGETPLATFORM),\
-	$(SharedLibsPlatformList)),YES,NO)
+    $(NoSharedLibsPlatformList)),NO,YES)
 
 # DYNAMIC_BY_DEFAULT says whether this compiler will default to
 # building dynamic executables, i.e. -dynamic is on.  We do this for
@@ -151,6 +123,24 @@ endif
 # For now, we unconditionally disable dynamic-by-default, as the
 # cabal-install's that are in the wild don't handle it properly.
 DYNAMIC_BY_DEFAULT = NO
+
+# If building both v and dyn ways, then use -dynamic-too to build them.
+# This makes the build faster.
+DYNAMIC_TOO = YES
+
+# Use the dynamic way when building programs in the GHC tree. In
+# particular, this means that GHCi will use DLLs rather than loading
+# object files directly.
+ifeq "$(TargetOS_CPP)" "mingw32"
+# This doesn't work on Windows yet
+DYNAMIC_GHC_PROGRAMS = NO
+else ifeq "$(TargetOS_CPP)" "freebsd"
+# FreeBSD cannot do proper resolution for $ORIGIN (due to a bug in
+# rtld(1)), so disable it by default (see #7819).
+DYNAMIC_GHC_PROGRAMS = NO
+else
+DYNAMIC_GHC_PROGRAMS = YES
+endif
 
 # Build a compiler that will build *unregisterised* libraries and
 # binaries by default.  Unregisterised code is supposed to compile and
@@ -194,7 +184,7 @@ ArchSupportsGHCi=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(Targe
 ifeq "$(OsSupportsGHCi)$(ArchSupportsGHCi)" "YESYES"
 GhcWithInterpreter=YES
 else 
-GhcWithInterpreter=$(if $(findstring YES,$(DYNAMIC_BY_DEFAULT)),YES,NO)
+GhcWithInterpreter=$(if $(findstring YES,$(DYNAMIC_GHC_PROGRAMS)),YES,NO)
 endif
 
 # GhcEnableTablesNextToCode tells us whether the target architecture
@@ -220,7 +210,7 @@ endif
 
 # On Windows we normally want to make a relocatable bindist, to we
 # ignore flags like libdir
-ifeq "$(Windows)" "YES"
+ifeq "$(Windows_Host)" "YES"
 RelocatableBuild = YES
 else
 RelocatableBuild = NO
@@ -233,11 +223,7 @@ include $(TOP)/mk/install.mk
 # portable as possible.
 BeConservative = NO
 
-#
-# Building various ways?
-# (right now, empty if not).
-BuildingParallel=$(subst mp,YES,$(filter mp,$(WAYS)))
-BuildingGranSim=$(subst mg,YES,$(filter mg,$(WAYS)))
+ExtraMakefileSanityChecks = NO
 
 #------------------------------------------------------------------------------
 # Options for Libraries
@@ -249,10 +235,8 @@ INTEGER_LIBRARY=integer-gmp
 GhcLibWays = v
 
 # In addition to the normal sequential way, the default is to also build
-# profiled prelude libraries unless we are booting from .hc files
-ifneq "$(BootingFromHc)" "YES"
+# profiled prelude libraries
 GhcLibWays += p
-endif
 
 ifeq "$(PlatformSupportsSharedLibs)" "YES"
 GhcLibWays += dyn
@@ -276,9 +260,7 @@ BuildSharedLibs=$(strip $(if $(findstring dyn,$(GhcLibWays)),YES,NO))
 GhcRTSWays=l
 
 # Usually want the debug version
-ifeq "$(BootingFromHc)" "NO"
 GhcRTSWays += debug 
-endif
 
 # We always have the threaded versions, but note that SMP support may be disabled
 # (see GhcWithSMP).
@@ -304,10 +286,6 @@ GhcLibHcOpts=-O2
 #
 StripLibraries=NO
 
-# These are the URL patterns that Haddock uses to generate the "Source
-# File" links on each page.
-PackageSourceURL = http://darcs.haskell.org/packages/$(PACKAGE)/%{FILE}
-
 # ----------------------------------------------------------------------------
 # Object-file splitting
 #
@@ -325,7 +303,6 @@ SupportsSplitObjs := $(strip \
                     $(if $(and $(filter YES,$(ArchSupportsSplitObjs)),\
                                $(filter YES,$(OsSupportsSplitObjs)),\
                                $(filter NO,$(SplitObjsBroken)),\
-                               $(filter NO,$(BootingFromHc)),\
                                $(filter NO,$(GhcUnregisterised))),\
                           YES,NO))
 
@@ -335,10 +312,7 @@ SplitObjs=$(SupportsSplitObjs)
 # ----------------------------------------------------------------------------
 # Package-related things
 
-# Extra packages to add to the build, in dependency order
-EXTRA_PACKAGES =
-
-# Whether to install $(EXTRA_PACKAGES)
+# Whether to install the extra packages
 InstallExtraPackages = NO
 
 # Run "ghc-pkg check" on each package
@@ -368,11 +342,8 @@ LAX_DEPENDENCIES = NO
 # optimisation both for C code (-optc-O2) and .cmm code (-O2).  For
 # the debugging RTS flavour, rts/ghc.mk overrides these to turn off
 # optimisation.
-GhcRtsHcOpts=-optc-O2 -O2
-GhcRtsCcOpts=-fomit-frame-pointer
-
-# Include the front panel code?  Needs GTK+.
-GhcRtsWithFrontPanel = NO
+GhcRtsHcOpts=-O2
+GhcRtsCcOpts=-O2 -fomit-frame-pointer
 
 # Include support for CPU performance counters via the PAPI library in the RTS?
 # (PAPI: http://icl.cs.utk.edu/papi/)
@@ -418,9 +389,6 @@ BIN_DIST_PREP_TAR_BZ2 = $(BIN_DIST_PREP_TAR).bz2
 BIN_DIST_TAR_BZ2      = $(BIN_DIST_NAME)-$(TARGETPLATFORM).tar.bz2
 BIN_DIST_LIST         = bindist-list
 
-WINDOWS_INSTALLER_BASE = ghc-$(ProjectVersion)-$(TargetArch_CPP)-windows
-WINDOWS_INSTALLER = $(WINDOWS_INSTALLER_BASE)$(exeext)
-
 # -----------------------------------------------------------------------------
 # Utilities programs: flags 
 
@@ -453,57 +421,10 @@ WINDOWS_INSTALLER = $(WINDOWS_INSTALLER_BASE)$(exeext)
 #
 SRC_HC_OPTS += -H32m -O
 
-# These flags make flex 8-bit
-SRC_FLEX_OPTS	+= -8
-
-# Flags for CPP when running GreenCard on .pgc files
-GC_CPP_OPTS += -P -E -x c -traditional -D__GLASGOW_HASKELL__
-
-
 # -----------------------------------------------------------------------------
 # Names of programs in the GHC tree
-#
-#      xxx_PGM          the name of an executable, without the path
-#      xxx              the executable relative to the current dir
 
-GHC_UNLIT_PGM           = unlit$(exeext)
-GHC_HP2PS_PGM           = hp2ps$(exeext)
-GHC_GHCTAGS_PGM         = ghctags$(exeext)
-GHC_HSC2HS_PGM          = hsc2hs$(exeext)
-GHC_TOUCHY_PGM          = touchy$(exeext)
-GHC_SPLIT_PGM           = ghc-split
-GHC_SYSMAN_PGM          = SysMan
-GHC_GENPRIMOP_PGM       = genprimopcode$(exeext)
-GHC_GENAPPLY_PGM        = genapply$(exeext)
-GHC_CABAL_PGM           = ghc-cabal$(exeext)
-GHC_PKG_PGM             = ghc-pkg$(exeext)
-GHC_LTX_PGM             = ltx$(exeext)
-GHC_MKDIRHIER_PGM       = mkdirhier
-GHC_LNDIR_PGM           = lndir
-
-ifeq "$(TARGETPLATFORM)" "i386-unknown-mingw32"
-GHC_CP			= "xcopy /y"
-GHC_PERL		= perl
-else
-GHC_CP			= $(CP)
-GHC_PERL		= $(PERL)
-endif
-
-HP2PS			= $(GHC_HP2PS_DIR)/$(GHC_HP2PS_PGM)
-SPLIT			= $(INPLACE_LIB)/$(GHC_SPLIT_PGM)
-SYSMAN 			= $(GHC_SYSMAN_DIR)/$(GHC_SYSMAN_PGM)
-LTX 			= $(GHC_LTX_DIR)/$(GHC_LTX_PGM)
-LNDIR			= $(GHC_LNDIR_DIR)/$(GHC_LNDIR_PGM)
-
-UNLIT			= $(INPLACE_LIB)/$(GHC_UNLIT_PGM)
-TOUCHY                  = $(INPLACE_LIB)/$(GHC_TOUCHY_PGM)
-MKDIRHIER		= $(INPLACE_BIN)/$(GHC_MKDIRHIER_PGM)
-GHC_CABAL_INPLACE	= $(INPLACE_BIN)/$(GHC_CABAL_PGM)
-GENAPPLY_INPLACE	= $(INPLACE_BIN)/$(GHC_GENAPPLY_PGM)
-GHC_PKG_INPLACE		= $(INPLACE_BIN)/$(GHC_PKG_PGM)
-GHCTAGS_INPLACE		= $(INPLACE_BIN)/$(GHC_GHCTAGS_PGM)
-HSC2HS_INPLACE		= $(INPLACE_BIN)/$(GHC_HSC2HS_PGM)
-GENPRIMOP_INPLACE	= $(INPLACE_BIN)/$(GHC_GENPRIMOP_PGM)
+MKDIRHIER           = $(INPLACE_BIN)/mkdirhier
 
 GENERATED_FILE  = chmod a-w
 EXECUTABLE_FILE = chmod +x
@@ -524,21 +445,10 @@ ifneq "$(wildcard $(GHC).exe)" ""
 GHC := $(GHC).exe
 endif
 
-# Sometimes we want to invoke ghc from the build tree in different
-# places (eg. it's handy to have a nofib & a ghc build in the same
-# tree).  We can refer to "this ghc" as $(GHC_INPLACE):
-
-GHC_INPLACE = $(GHC_STAGE1)
-
-GHC_STAGE0_ABS = $(GHC)
-GHC_STAGE1_ABS = $(TOP)/$(INPLACE_BIN)/ghc-stage1$(exeext)
-GHC_STAGE2_ABS = $(TOP)/$(INPLACE_BIN)/ghc-stage2$(exeext)
-GHC_STAGE3_ABS = $(TOP)/$(INPLACE_BIN)/ghc-stage3$(exeext)
-
 GHC_STAGE0  = $(GHC)
-GHC_STAGE1  = $(INPLACE_BIN)/ghc-stage1$(exeext)
-GHC_STAGE2  = $(INPLACE_BIN)/ghc-stage2$(exeext)
-GHC_STAGE3  = $(INPLACE_BIN)/ghc-stage3$(exeext)
+GHC_STAGE1  = $(ghc-stage1_INPLACE)
+GHC_STAGE2  = $(ghc-stage2_INPLACE)
+GHC_STAGE3  = $(ghc-stage3_INPLACE)
 
 BOOTSTRAPPING_CONF = libraries/bootstrapping.conf
 
@@ -569,7 +479,6 @@ GHC_PACKAGE_DB_FLAG = @GHC_PACKAGE_DB_FLAG@
 
 WhatGccIsCalled       = @WhatGccIsCalled@
 GccVersion            = @GccVersion@
-AlienScript           = @AlienScript@
 ifeq "$(phase)" "0"
 CrossCompilePrefix    =
 else
@@ -580,32 +489,37 @@ endif
 TargetPlatformFull    = @TargetPlatformFull@
 GccLT34         = @GccLT34@
 GccLT46         = @GccLT46@
+
 CC              = $(WhatGccIsCalled)
 CC_STAGE0       = @CC_STAGE0@
 CC_STAGE1       = $(CC)
 CC_STAGE2       = $(CC)
 CC_STAGE3       = $(CC)
+
 AS              = $(WhatGccIsCalled)
 AS_STAGE0       = @CC_STAGE0@
 AS_STAGE1       = $(AS)
 AS_STAGE2       = $(AS)
 AS_STAGE3       = $(AS)
 
+# We don't have an LD_STAGE0.  CC_STAGE0 is determined by asking "ghc
+# --info", and it doesn't report an LD.
+LD_STAGE0       = error-no-ld-stage0
+LD_STAGE1       = $(LD)
+LD_STAGE2       = $(LD)
+LD_STAGE3       = $(LD)
+
 # Cross-compiling options
 #
-# The 'toolchain' case: Cross-compiler to run locally:
-BuildingCrossCompiler = @BuildingCrossCompiler@
-# The 'port' case: Porting to a foreign architecture:
-PortingCompiler       = @PortingCompiler@
-# BuildingCrossCompiler OR PortingCompiler
 CrossCompiling        = @CrossCompiling@
 
-# Install stage 2 by default, or stage 1 in the cross compiler case. Can be changed to 3
-ifeq "$(BuildingCrossCompiler)" "YES"
-INSTALL_GHC_STAGE=1
-else
-INSTALL_GHC_STAGE=2
-endif
+# Change this to YES if you're building a cross-compiler and don't
+# want to build stage 2.
+Stage1Only = NO
+
+# Install stage 2 by default, or stage 1 in the cross compiler
+# case. Can be changed to 3
+INSTALL_GHC_STAGE= $(if $(filter YES,$(Stage1Only)),1,2)
 
 # C compiler and linker flags from configure (e.g. -m<blah> to select
 # correct C compiler backend). The stage number is the stage of GHC
@@ -630,14 +544,27 @@ endif
 # The .hsc files aren't currently safe for cross-compilation on Windows:
 #     libraries\haskeline\.\System\Console\Haskeline\Backend\Win32.hsc:160
 #     directive "let" is not safe for cross-compilation
-ifneq "$(Windows)" "YES"
+ifneq "$(Windows_Host)" "YES"
 SRC_HSC2HS_OPTS += --cross-safe
 endif
-SRC_HSC2HS_OPTS += $(addprefix --cflag=,$(filter-out -O,$(SRC_CC_OPTS) $(CONF_CC_OPTS_STAGE0)))
 SRC_HSC2HS_OPTS += $(foreach d,$(GMP_INCLUDE_DIRS),-I$(d))
+
+define set_stage_HSC2HS_OPTS
+# $1 = stage
+SRC_HSC2HS_OPTS_STAGE$1 += $$(addprefix --cflag=,$$(filter-out -O,$$(SRC_CC_OPTS) $$(CONF_CC_OPTS_STAGE$1)))
+SRC_HSC2HS_OPTS_STAGE$1 += $$(addprefix --cflag=,$$(CONF_CPP_OPTS_STAGE$1))
+SRC_HSC2HS_OPTS_STAGE$1 += $$(addprefix --lflag=,$$(CONF_GCC_LINKER_OPTS_STAGE$1))
+endef
+$(eval $(call set_stage_HSC2HS_OPTS,0))
+$(eval $(call set_stage_HSC2HS_OPTS,1))
+$(eval $(call set_stage_HSC2HS_OPTS,2))
 ifeq "$(CrossCompiling)" "YES"
-SRC_HSC2HS_OPTS += --cross-compile
+SRC_HSC2HS_OPTS_STAGE1 += --cross-compile
+SRC_HSC2HS_OPTS_STAGE2 += --cross-compile
 endif
+SRC_HSC2HS_OPTS_STAGE0 += --cflag=-D$(HostArch_CPP)_HOST_ARCH=1 --cflag=-D$(HostOS_CPP)_HOST_OS=1
+SRC_HSC2HS_OPTS_STAGE1 += --cflag=-D$(TargetArch_CPP)_HOST_ARCH=1 --cflag=-D$(TargetOS_CPP)_HOST_OS=1
+SRC_HSC2HS_OPTS_STAGE2 += --cflag=-D$(TargetArch_CPP)_HOST_ARCH=1 --cflag=-D$(TargetOS_CPP)_HOST_OS=1
 
 ifeq "$(TARGETPLATFORM)" "i386-unknown-mingw32"
 WINDRES = $(INPLACE_MINGW)/bin/windres
@@ -654,14 +581,6 @@ DLLTOOL			= inplace/mingw/bin/dlltool.exe
 else ifeq "$(TARGETPLATFORM)" "x86_64-unknown-mingw32"
 DLLTOOL			= inplace/mingw/bin/dlltool.exe
 endif
-
-#-----------------------------------------------------------------------------
-# Flex (currently unused, could be moved to glafp-utils)
-
-# FLEX			= @LEX@
-# Don't bother with -lfl, we define our own yywrap()s anyway.
-# FLEX_LIB		= 
-#WAS:FLEX_LIB		= @LEXLIB@
 
 #-----------------------------------------------------------------------------
 # Other standard (ha!) Unix utilities
@@ -692,7 +611,6 @@ CP			= cp
 # It's not easy to separate the CPP program from its flags, as
 # AC_PROG_CPP defines CPP as "/usr/bin/gcc -E"
 CPP			= @CPP@ @CPPFLAGS@
-CTAGS 			= $(ETAGS)
 #
 # RAWCPP_FLAGS are the flags to give to cpp (viz, gcc -E) to persuade it to
 # behave plausibly on Haskell sources.
@@ -708,17 +626,12 @@ FIND			= @FindCmd@
 INSTALL			= @INSTALL@
 INSTALL			:= $(subst .././install-sh,$(TOP)/install-sh,$(INSTALL))
 
-LATEX			= latex
-PDFLATEX                = pdflatex
-BIBTEX                  = bibtex
 LN_S			= @LN_S@
 MV			= mv
-NROFF			= nroff
 PERL 			= @PerlCmd@
 PIC			= pic
 RANLIB			= @RANLIB@
 SED			= @SedCmd@
-TR 			= tr
 SHELL			= /bin/sh
 
 HaveDtrace		= @HaveDtrace@
@@ -751,33 +664,9 @@ LdHasNoCompactUnwind	= @LdHasNoCompactUnwind@
 #     xargs: value for -s option should be < 28153
 # so we now use 20000 to be comfortably below this bound
 XARGS = xargs
-ifeq "$(Windows)" "YES"
+ifeq "$(Windows_Host)" "YES"
 XARGS_OPTS = -s 20000
 endif
-
-#
-# In emergency situations, REAL_SHELL is used to perform shell commands
-# from within the ghc driver script, by scribbling the command line to
-# a temp file and then having $(REAL_SHELL) execute it. 
-#
-# The reason for having to do this is that overly long command lines
-# cause unnecessary trouble with some shells (e.g., /bin/sh on Solaris
-# 2.5.1), which is why this backdoor is provided. The situation of overly
-# long command lines is either encountered while doing `make boot' in compiler/, 
-# or when linking the compiler binary (`hsc'). 
-#
-# We do not use SHELL to execute long commands, as `make' will more than likely
-# override whatever setting you have in your environment while executing. 
-
-# By default, REAL_SHELL is set equal to SHELL, which is not really a smart move
-# as it is SHELL that will show up the bogosity in the first place, but setting
-# it to anything else isn't really portable.
-#
-#  ====> If long command lines cause you trouble, invoke `ghc' (via `make' or otherwise)
-# with REAL_SHELL set to something else than /bin/sh, for instance, your favourite
-# command shell.
-#
-REAL_SHELL     = $(SHELL)
 
 ifeq "$(TARGETPLATFORM)" "x86_64-unknown-mingw32"
 STRIP_CMD      = $(TOP)/inplace/mingw/bin/strip.exe
@@ -789,7 +678,7 @@ TAR_CMD        = @TarCmd@
 BZIP2_CMD      = bzip2
 GZIP_CMD       = gzip
 
-ifeq "$(Windows)" "YES"
+ifeq "$(Windows_Host)" "YES"
 TOUCH_CMD      = $(utils/touchy_dist_INPLACE)
 TOUCH_DEP      = $(TOUCH_CMD)
 else
@@ -801,13 +690,6 @@ HSCOLOUR_CMD   = @HSCOLOUR@
 
 TIME_CMD       = @TimeCmd@
 
-# GTK+
-GTK_CONFIG_CMD = @GTK_CONFIG@
-
-# Set this if you want to use Inno Setup to build a Windows installer
-# when you make a bindist
-ISCC_CMD       =
-
 #-----------------------------------------------------------------------------
 # DocBook XML stuff
 
@@ -815,6 +697,8 @@ BUILD_DOCBOOK_HTML       = @BUILD_DOCBOOK_HTML@
 BUILD_DOCBOOK_PS         = @BUILD_DOCBOOK_PS@
 BUILD_DOCBOOK_PDF        = @BUILD_DOCBOOK_PDF@
 DBLATEX                  = @DblatexCmd@
+# filename.as.url=0 is needed with dblatex 0.3.4 (#7486)
+DBLATEX_OPTS             = -P 'filename.as.url=0'
 XSLTPROC                 = @XsltprocCmd@
 XMLLINT                  = @XmllintCmd@
 HAVE_DOCBOOK_XSL	 = @HAVE_DOCBOOK_XSL@
@@ -848,14 +732,13 @@ ALEX			= @AlexCmd@
 ALEX_VERSION		= @AlexVersion@		
 Alex3			= @Alex3@
 #
-# Options to pass to Happy when we're going to compile the output with GHC
+# Options to pass to Alex when we're going to compile the output with GHC
 #
+SRC_ALEX_OPTS = -g
 ifeq "$(Alex3)" "YES"
-# We aren't using the Unicode support in Alex 3.0 yet, in fact we do our own
+# The compiler isn't using the Unicode support in Alex 3.0 yet, in fact we do our own
 # Unicode handling, so diable Alex's.
-SRC_ALEX_OPTS		= -g --latin1
-else
-SRC_ALEX_OPTS		= -g
+compiler_ALEX_OPTS = --latin1
 endif
 
 # Should we build haddock docs?
