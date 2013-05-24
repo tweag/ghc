@@ -192,15 +192,26 @@ mkTyFamInst :: SrcSpan
             -> LTyFamInstEqn RdrName
             -> P (LTyFamInstDecl RdrName)
 mkTyFamInst loc eqn
-  = return (L loc (TyFamInstDecl { tfid_eqns  = [eqn]
-                                 , tfid_group = False
-                                 , tfid_fvs   = placeHolderNames }))
+  = return (L loc (TyFamInstSingle { tfid_eqn  = [eqn]
+                                   , tfid_fvs   = placeHolderNames }))
 
-mkTyFamInstGroup :: [LTyFamInstEqn RdrName]
-                 -> TyFamInstDecl RdrName
-mkTyFamInstGroup eqns = TyFamInstDecl { tfid_eqns  = eqns
-                                      , tfid_group = True
-                                      , tfid_fvs   = placeHolderNames }
+mkTyFamInstGroup :: SrcSpan
+                 -> Maybe (LHsType RdrName)
+                 -> [LTyFamInstEqn RdrName]
+                 -> P TyFamInstDecl RdrName
+mkTyFamInstGroup loc mspace eqns
+  = do { mspace' <- mkTyFamInstSpace mspace
+       ; return $ L loc (TyFamInstBranched { tfid_eqns  = eqns
+                                           , tfid_space = mspace'
+                                           , tfid_fvs   = placeHolderNames }) }
+
+mkTyFamInstSpace :: Maybe (LHsType RdrName)
+                 -> P (Maybe (LTyFamInstSpace RdrName))
+mkTyFamInstSpace Nothing = return Nothing
+mkTyFamInstSpace (Just ty)
+  = do { (tycon, pats) <- checkTyClHdr ty
+       ; return (TyFamInstSpace { tfis_tycon = tycon
+                                , tfis_pats  = mkHsWithBndrs pats }) }
 
 mkFamDecl :: SrcSpan
           -> FamilyFlavour
