@@ -109,6 +109,22 @@ confluent overlap. When two unbranched instances have overlapping left-hand
 sides, we check if the right-hand sides are coincident in the region of overlap.
 This check requires fib_rhs. See lookupFamInstEnvConflicts.
 
+Note [Instance type spaces]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A branched instance declaration may optionally include a type space -- that is,
+a space of types in which all branches sit. This type space is what is used during
+conflict checking. The type space *must* have a linear pattern. Having all
+(potentially non-linear) branches sit within one (linear) space is necessary to
+ensure consistency of the axiom set.
+
+If a type space is not included, it is assumed to be the trivial one -- that is,
+encompassing all possible applications of the type family.
+
+Unbranched instances cannot contain an explicit type space, because the type space
+is assumed to be identical to the left-hand side of the instance (which must be
+linear). It is therefore an invariant of FamInst that all unbranched instances
+have an appropriate type space included.
+
 \begin{code}
 data FamInst br -- See Note [FamInsts and CoAxioms], Note [Branched axioms] in CoAxiom
   = FamInst { fi_axiom    :: CoAxiom br      -- The new coercion axiom introduced
@@ -116,6 +132,9 @@ data FamInst br -- See Note [FamInsts and CoAxioms], Note [Branched axioms] in C
             , fi_flavor   :: FamFlavor
             , fi_branched :: Bool            -- True <=> declared with "type instance where"
                                              -- See Note [fi_branched field]
+            , fi_space    :: Maybe FamInstSpace
+                                             -- See Note [Instance type spaces]
+
 
             -- Everything below here is a redundant,
             -- cached version of the two things above,
@@ -126,6 +145,13 @@ data FamInst br -- See Note [FamInsts and CoAxioms], Note [Branched axioms] in C
             , fi_fam      :: Name            -- Family name
                 -- INVARIANT: fi_fam = name of fi_axiom.co_ax_tc
             }
+
+-- See Note [Instance type spaces]
+data FamInstSpace
+  = FamInstSpace { fis_tvs :: [TyVar]  -- tyvars used in...
+                 , fis_tys :: [Type]   -- ...these type patterns
+                 , fis_tcs :: [Maybe Name] -- rough match fields
+                 }
 
 data FamInstBranch
   = FamInstBranch
@@ -213,9 +239,14 @@ instance Outputable (FamInst br) where
 -- Prints the FamInst as a family instance declaration
 pprFamInst :: FamInst br -> SDoc
 pprFamInst (FamInst { fi_branches = brs, fi_flavor = SynFamilyInst
-                    , fi_branched = True, fi_axiom = axiom })
-  = hang (ptext (sLit "type instance where"))
+                    , fi_branched = True, fi_axiom = axiom
+                    , fi_space = space })
+  = hang (ptext (sLit "type instance") <+> ppr_space <+> ptext (sLit "where"))
        2 (vcat [pprCoAxBranchHdr axiom i | i <- brListIndices brs])
+  where ppr_space
+          | Nothing <- space      = empty
+          | Just (FamInstSpace { fis_tys = tys }) <- space
+          = pprTypeApp (coAxiomTyCon axiom) tys
 
 pprFamInst fi@(FamInst { fi_flavor = flavor
                        , fi_branched = False, fi_axiom = ax })
@@ -266,13 +297,15 @@ also.
 -- (instead of computing it here).
 mkImportedFamInst :: Name               -- Name of the family
                   -> Bool               -- is this a branched instance?
+                  -> Maybe FamInstSpace -- type space
                   -> [[Maybe Name]]     -- Rough match info, per branch
                   -> CoAxiom Branched   -- Axiom introduced
                   -> FamInst Branched   -- Resulting family instance
-mkImportedFamInst fam branched roughs axiom
+mkImportedFamInst fam branched space roughs axiom
   = FamInst {
       fi_fam      = fam,
       fi_axiom    = axiom,
+      fi_space    = space,
       fi_flavor   = flavor,
       fi_branched = branched,
       fi_branches = branches }
@@ -399,12 +432,16 @@ deleteFromFamInstEnv inst_env fam_inst@(FamInst {fi_fam = fam_nm})
 identicalFamInst :: FamInst br1 -> FamInst br2 -> Bool
 -- Same LHS, *and* the instance is defined in the same module
 -- Used for overriding in GHCi
-identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
+identicalFamInst (FamInst { fi_axiom = ax1, fi_space = sp1 })
+                 (FamInst { fi_axiom = ax2, fi_space = sp2 })
   =  nameModule (coAxiomName ax1) == nameModule (coAxiomName ax2)
-     && coAxiomTyCon ax1 == coAxiomTyCon ax2
+     && tc1 == tc2
      && brListLength brs1 == brListLength brs2
      && and (brListZipWith identical_ax_branch brs1 brs2)
-  where brs1 = coAxiomBranches ax1
+     && identical_space sp1 sp2
+  where tc1 = coAxiomTyCon ax1
+        tc2 = coAxiomTyCon ax2
+        brs1 = coAxiomBranches ax1
         brs2 = coAxiomBranches ax2
         identical_ax_branch br1 br2
           = length tvs1 == length tvs2
@@ -416,6 +453,17 @@ identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
             lhs1 = coAxBranchLHS br1
             lhs2 = coAxBranchLHS br2
             rn_env = rnBndrs2 (mkRnEnv2 emptyInScopeSet) tvs1 tvs2
+
+        identical_space Nothing Nothing = True
+        identical_space Nothing (Just sp) = identical_space (Just sp) Nothing
+        identical_space (Just (FamInstSpace { fis_tcs = tcs })) Nothing
+          = all isNothing tcs
+        identical_space (Just (FamInstSpace { fis_tvs = tvs1
+                                            , fis_tys = tys1 }))
+                        (Just (FamInstSpace { fis_tvs = tvs2
+                                            , fis_tys = tys2 }))
+          = eqTypesX rn_env tys1 tys2
+          where rn_env = rnBndrs2 (mkRnEnv2 emptyInScopeSet) tvs1 tvs2
                        
 \end{code}
 
@@ -458,12 +506,11 @@ Should that type-check? No. We need to allow for the possibility that 'a'
 might be Int and therefore 'F a' should be Bool. We can simplify 'F a' to Int
 only when we can be sure that 'a' is not Int.
 
-To achieve this, after finding a possible match within an instance, we have to
-go back to all previous FamInstBranchess and check that, under the
-substitution induced by the match, other branches are surely apart. (See
-[Apartness] in types/Unify.lhs.) This is similar to what happens with class
-instance selection, when we need to guarantee that there is only a match and
-no unifiers. The exact algorithm is different here because the the
+To achieve this, after we see that a branch does not match, we must check to
+see if it is *surely apart* from the target. (See [Apartness] in
+types/Unify.lhs.) This is similar to what happens with class instance
+selection, when we need to guarantee that there is only a match and no
+unifiers. The exact algorithm is different here because the the
 potentially-overlapping group is closed.
 
 As another example, consider this:
@@ -478,11 +525,6 @@ type family H y
 
 Now, we want to simplify (G (H Char)). We can't, because (H Char) might later
 simplify to be Int. So, (G (H Char)) is stuck, for now.
-
-ALTERNATE APPROACH: As we are processing the branches, we could check if a
-branch is not surely apart from an application but does not match that
-application. If this happens, there is no possible match and we can fail right
-away. This might be more efficient.
 
 Note [Early failure optimisation for branched instances]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -544,123 +586,147 @@ instance Outputable FamInstMatch where
     = ptext (sLit "match with") <+> parens (ppr inst)
         <> brackets (ppr ind) <+> ppr tys
 
-lookupFamInstEnv
-    :: FamInstEnvs
-    -> TyCon -> [Type]          -- What we are looking for
-    -> [FamInstMatch]           -- Successful matches
+data ContSearch = KeepSearching
+                | StopSearching
+
+lookupFamInstEnv :: FamInstEnvs
+                 -> TyCon -> [Type]          -- What we are looking for
+                 -> [FamInstMatch]           -- Successful matches
 -- Precondition: the tycon is saturated (or over-saturated)
+lookupFamInstEnv (pkg_ie, home_ie) fam_tc tys
+  = lookupFamInstEnv' pkg_ie  fam_tc tys ++
+    lookupFamInstEnv' home_ie fam_tc tys
 
-lookupFamInstEnv
-  = lookup_fam_inst_env match True
+lookupFamInstEnv' :: FamInstEnvs
+                  -> TyCon -> [Type]          -- What we are looking for
+                  -> [FamInstMatch]           -- Successful matches
+lookupFamInstEnv' ie fam tys
+  | isFamilyTyCon fam
+  , Just (FamIE insts) <- lookupUFM ie fam
+  = ASSERT2( n_tys >= arity, ppr fam <+> ppr tys ) 
+    if arity < n_tys then    -- Family type applications must be saturated
+                             -- See Note [Over-saturated matches]
+        map wrap_extra_tys (find (take arity tys) insts)
+    else
+        find tys insts    -- The common case
+
+  | otherwise = []
   where
-    match :: MatchFun
-    match seen (FamInstBranch { fib_tvs = tpl_tvs
-                              , fib_lhs = tpl_tys })
-          _ match_tys 
-      = ASSERT( tyVarsOfTypes match_tys `disjointVarSet` tpl_tv_set )
-                -- Unification will break badly if the variables overlap
-                -- They shouldn't because we allocate separate uniques for them
-        case tcMatchTys tpl_tv_set tpl_tys match_tys of
-          -- success
-          Just subst
-            | checkConflict seen match_tys
-            -> (Nothing, StopSearching) -- we found an incoherence, so stop searching
-            -- see Note [Early failure optimisation for branched instances]
+    arity = tyConArity fam
+    n_tys = length tys
+    extra_tys = drop arity tys
+    wrap_extra_tys fim@(FamInstMatch { fim_tys = match_tys })
+      = fim { fim_tys = match_tys ++ extra_tys }
 
-            | otherwise
-            -> (Just subst, KeepSearching)
+find :: [Type] -> [FamInst Branched] -> [FamInstMatch]
+find _ [] = []
+find match_tys (inst@(FamInst { fi_branches = branches
+                              , fi_branched = is_branched }) : rest)
+  = case findBranch [] (fromBranchList branches) 0 of
+      (Just match, StopSearching) -> [match]
+      (Just match, KeepSearching) -> match : find match_tys rest
+      (Nothing,    StopSearching) -> []
+      (Nothing,    KeepSearching) -> find match_tys rest
+  where
+    rough_tcs = roughMatchTcs match_tys
 
-          -- failure; instance not relevant
-          Nothing -> (Nothing, KeepSearching) 
-      where
-        tpl_tv_set = mkVarSet tpl_tvs
-
-    -- see Note [Branched instance checking]
-    checkConflict :: [FamInstBranch] -- the previous branches in the instance that matched
-                  -> [Type]          -- the types in the tyfam application we are matching
-                  -> Bool            -- is there a conflict?
-    checkConflict [] _ = False
-    checkConflict ((FamInstBranch { fib_lhs = tpl_tys }) : rest) match_tys
-          -- see Note [Confluence checking within branched instances]
-      | SurelyApart <- tcApartTys instanceBindFun tpl_tys match_tys
-      = checkConflict rest match_tys
+    findBranch :: [FamInstBranch]  -- still looking through these
+               -> BranchIndex      -- index of the first of the "still looking" list
+               -> (Maybe FamInstMatch, ContSearch)
+    findBranch [] _ = (Nothing, KeepSearching)
+    findBranch (branch@(FamInstBranch { fib_tvs = tvs
+                                      , fib_lhs = tpl_tys
+                                      , fib_tcs = mb_tcs }) : rest) ind
+      | instanceCantMatch rough_tcs mb_tcs
+      = findBranch rest (ind+1)
       | otherwise
-      = True
+      = ASSERT( tyVarsOfTypes match_tys `disjointVarSet` mkVarSet tpl_tvs )
+        case tcMatchTys tpl_tvs tpl_tys match_tys of
+          Just subst
+            -> let match = FamInstMatch { fim_instance = inst
+                                        , fim_index    = ind
+                                        , fim_tys      = substTyVars subst tvs } in
+               (Just match, KeepSearching)
 
-lookupFamInstEnvConflicts
-    :: FamInstEnvs
-    -> Bool             -- True <=> we are checking part of a group with other branches
-    -> TyCon            -- The TyCon of the family
-    -> FamInstBranch    -- the putative new instance branch
-    -> [FamInstMatch]   -- Conflicting branches
+          Nothing
+            -- See [Branched instance checking]
+            | SurelyApart <- tcApartTys instanceBindFun tpl_tys match_tys
+            -> findBranch rest (ind+1)
+            | otherwise
+            -- in this case, the branch did not match, but it's also not surely apart
+            -- we won't be able to make progress here, so give up
+            -- see Note [Early failure optimisation for branched instances]
+            -> (Nothing, StopSearching)
+
+      where tpl_tvs = mkVarSet tvs
+
 -- E.g. when we are about to add
 --    f : type instance F [a] = a->a
--- we do (lookupFamInstConflicts f [b])
+-- we do (lookupFamInstEnvConflicts f [b])
 -- to find conflicting matches
---
--- Precondition: the tycon is saturated (or over-saturated)
+lookupFamInstEnvConflicts :: FamInstEnvs
+                          -> FamInst br            -- the putative new instance
+                          -> [FamInst Branched]    -- Conflicting instances
+lookupFamInstEnvConflicts (pkg_ie, home_ie) fi
+  = lookupFamInstEnvConflicts' pkg_ie  fi ++
+    lookupFamInstEnvConflicts' home_ie fi
 
-lookupFamInstEnvConflicts envs grp tc
-                          (FamInstBranch { fib_lhs = tys, fib_rhs = rhs })
-  = lookup_fam_inst_env my_unify False envs tc tys
+lookupFamInstEnvConflicts' :: FamInstEnv
+                           -> FamInst br            -- the putative new instance
+                           -> [FamInst Branched]    -- Conflicting instances
+lookupFamInstEnvConflicts' ie fi@(FamInst { fi_space = mb_space })
+  | isFamilyTyCon fam
+  , Just (FamIE insts) <- lookupUFM ie fam
+  = case mb_space of
+      Nothing -> insts
+      Just (FamInstSpace { fis_tys = tys, fis_tcs = tcs }) ->
+        filter (conflictsWith tys tcs mb_rhs) insts
+  | otherwise = []
   where
-    my_unify :: MatchFun
-    my_unify _ (FamInstBranch { fib_tvs = tpl_tvs, fib_lhs = tpl_tys
-                              , fib_rhs = tpl_rhs }) old_grp match_tys
-       = ASSERT( tyVarsOfTypes tys `disjointVarSet` mkVarSet tpl_tvs )
+    fam = famInstTyCon fi
+    mb_rhs = if branched then Nothing
+                         else Just famInstBranchRHS $ famInstSingleBranch fi
+
+conflictsWith :: [Type]           -- type patterns of the new instance
+              -> [Maybe Name]     -- rough match tycons of the new instance
+              -> Maybe Type       -- if confluent overlap is possible, the rhs
+              -> FamInst Branched -- do we conflict with this instance?
+              -> Bool
+conflictsWith _ _ _ (FamInst { fi_space = Nothing })
+  = True -- if the space is Nothing, it conflicts with all other instances
+conflictsWith tys rough_tcs mb_rhs
+              fi@(FamInst { fi_branched = old_branched
+                          , fi_space = Just (FamInstSpace { fis_tys = space_tys
+                                                          , fis_tcs = space_tcs }) })
+  | instanceCantMatch rough_tcs old_tcs
+  = False -- no conflict here if the top-level structures don't match
+
+  | otherwise 
+  = ASSERT( tyVarsOfTypes tys `disjointVarSet` tyVarsOfTypes space_tys )
+    case tcUnifyTys instanceBindFun tys space_tys of
                 -- Unification will break badly if the variables overlap
                 -- They shouldn't because we allocate separate uniques for them
-         case tcUnifyTys instanceBindFun tpl_tys match_tys of
-              Just subst
-                |  isDataFamilyTyCon tc
-                || grp
-                || old_grp
-                || rhs_conflict tpl_rhs rhs subst
-                -> (Just subst, KeepSearching)
-                | otherwise -- confluent overlap
-                -> (Nothing, KeepSearching)
-              -- irrelevant instance
-              Nothing -> (Nothing, KeepSearching)
+      Just subst ->
+        isDataFamilyTyCon tc ||
+        old_branched ||
+        rhs_conflict mb_rhs (famInstBranchRHS $ famInstSingleBranch fi) subst
+          -- we don't need to check if the new instance is branched, because
+          -- if it is, mb_rhs will be Nothing, and rhs_conflict will return True
 
+      Nothing -> False -- no match
+
+  where
     -- checks whether two RHSs are distinct, under a unifying substitution
     -- Note [Family instance overlap conflicts]
-    rhs_conflict :: Type -> Type -> TvSubst -> Bool
-    rhs_conflict rhs1 rhs2 subst 
+    rhs_conflict :: Maybe Type -> Type -> TvSubst -> Bool
+    rhs_conflict Nothing _ _ = True -- the new instance does not participate in overlap
+    rhs_conflict (Just rhs1) rhs2 subst 
       = not (rhs1' `eqType` rhs2')
         where
           rhs1' = substTy subst rhs1
           rhs2' = substTy subst rhs2
 
--- This variant is called when we want to check if the conflict is only in the
--- home environment (see FamInst.addLocalFamInst)
-lookupFamInstEnvConflicts' :: FamInstEnv -> Bool -> TyCon 
-                           -> FamInstBranch -> [FamInstMatch]
-lookupFamInstEnvConflicts' env
-  = lookupFamInstEnvConflicts (emptyFamInstEnv, env)
 \end{code}
-
-Note [lookup_fam_inst_env' implementation]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-To reduce code duplication, both lookups during simplification and conflict
-checking are routed through lookup_fam_inst_env', which looks for a
-matching/unifying branch compared to some target. In the simplification
-case, the search is for a match for a target application; in the conflict-
-checking case, the search is for a unifier for a putative new instance branch.
-
-The two uses are differentiated by different MatchFuns, which look at a given
-branch to see if it is relevant and whether the search should continue. The
-the branch is relevant (i.e. matches or unifies), Just subst is
-returned; if the instance is not relevant, Nothing is returned. The MatchFun
-also indicates what the search algorithm should do next: it could
-KeepSearching or StopSearching.
-
-When to StopSearching? See Note [Early failure optimisation for branched instances]
-
-For class instances, these two variants of lookup are combined into one
-function (cf, @InstEnv@).  We don't do that for family instances as the
-results of matching and unification are used in two different contexts.
-Moreover, matching is the wildly more frequently used operation in the case of
-indexed synonyms and we don't want to slow that down by needless unification.
 
 Note [Family instance overlap conflicts]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -676,88 +742,6 @@ Note [Family instance overlap conflicts]
   These two overlap on (F Int Int) but then both RHSs are Int,
   so all is well. We require that they are syntactically equal;
   anything else would be difficult to test for at this stage.
-
-\begin{code}
-------------------------------------------------------------
-data ContSearch = KeepSearching
-                | StopSearching
-
--- Might be a one-way match or a unifier
-type MatchFun =  [FamInstBranch]     -- the previous branches in the instance
-              -> FamInstBranch       -- the individual branch to check
-              -> Bool                -- is this branch a part of a branched instance?
-              -> [Type]              -- the types to match against
-              -> (Maybe TvSubst, ContSearch)
-
-type OneSidedMatch = Bool     -- Are optimisations that are only valid for
-                              -- one sided matches allowed?
-
-lookup_fam_inst_env'          -- The worker, local to this module
-    :: MatchFun
-    -> OneSidedMatch
-    -> FamInstEnv
-    -> TyCon -> [Type]        -- What we are looking for
-    -> [FamInstMatch]
-lookup_fam_inst_env' match_fun _one_sided ie fam tys
-  | isFamilyTyCon fam
-  , Just (FamIE insts) <- lookupUFM ie fam
-  = ASSERT2( n_tys >= arity, ppr fam <+> ppr tys ) 
-    if arity < n_tys then    -- Family type applications must be saturated
-                             -- See Note [Over-saturated matches]
-        map wrap_extra_tys (find match_fun (take arity tys) insts)
-    else
-        find match_fun tys insts    -- The common case
-
-  | otherwise = []
-  where
-    arity = tyConArity fam
-    n_tys = length tys
-    extra_tys = drop arity tys
-    wrap_extra_tys fim@(FamInstMatch { fim_tys = match_tys })
-      = fim { fim_tys = match_tys ++ extra_tys }
-
-
-find :: MatchFun -> [Type] -> [FamInst Branched] -> [FamInstMatch]
-find _         _         [] = []
-find match_fun match_tys (inst@(FamInst { fi_branches = branches, fi_branched = is_branched }) : rest)
-  = case findBranch [] (fromBranchList branches) 0 of
-      (Just match, StopSearching) -> [match]
-      (Just match, KeepSearching) -> match : find match_fun match_tys rest
-      (Nothing,    StopSearching) -> []
-      (Nothing,    KeepSearching) -> find match_fun match_tys rest
-  where
-    rough_tcs = roughMatchTcs match_tys
-
-    findBranch :: [FamInstBranch]  -- the branches that have already been checked
-               -> [FamInstBranch]  -- still looking through these
-               -> BranchIndex      -- index of teh first of the "still looking" list
-               -> (Maybe FamInstMatch, ContSearch)
-    findBranch _ [] _ = (Nothing, KeepSearching)
-    findBranch seen (branch@(FamInstBranch { fib_tvs = tvs, fib_tcs = mb_tcs }) : rest) ind
-      | instanceCantMatch rough_tcs mb_tcs
-      = findBranch seen rest (ind+1) -- branch won't unify later; no need to add to 'seen'
-      | otherwise
-      = case match_fun seen branch is_branched match_tys of
-          (Nothing, KeepSearching) -> findBranch (branch : seen) rest (ind+1)
-          (Nothing, StopSearching) -> (Nothing, StopSearching)
-          (Just subst, cont)       -> (Just match, cont)
-              where 
-                match = FamInstMatch { fim_instance = inst
-                                     , fim_index    = ind
-                                     , fim_tys      = substTyVars subst tvs }
-
-lookup_fam_inst_env           -- The worker, local to this module
-    :: MatchFun
-    -> OneSidedMatch
-    -> FamInstEnvs
-    -> TyCon -> [Type]          -- What we are looking for
-    -> [FamInstMatch]           -- What was found
-
--- Precondition: the tycon is saturated (or over-saturated)
-lookup_fam_inst_env match_fun one_sided (pkg_ie, home_ie) fam tys = 
-    lookup_fam_inst_env' match_fun one_sided home_ie fam tys ++
-    lookup_fam_inst_env' match_fun one_sided pkg_ie  fam tys
-\end{code}
 
 Note [Over-saturated matches]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

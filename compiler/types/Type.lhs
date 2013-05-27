@@ -90,7 +90,7 @@ module Type (
         typeSize, varSetElemsKvsFirst,
 
         -- * Type comparison
-        eqType, eqTypeX, eqTypes, cmpType, cmpTypes,
+        eqType, eqTypeX, eqTypes, eqTypesX, cmpType, cmpTypes,
         eqPred, eqPredX, cmpPred, eqKind, eqTyVarBndrs,
 
         -- * Forcing evaluation of types
@@ -1203,6 +1203,9 @@ eqTypeX env t1 t2 = isEqual $ cmpTypeX env t1 t2
 
 eqTypes :: [Type] -> [Type] -> Bool
 eqTypes tys1 tys2 = isEqual $ cmpTypes tys1 tys2
+
+eqTypesX :: RnEnv2 -> [Type] -> [Type] -> Bool
+eqTypesX rn_env tys1 tys2 = and $ zipWith (eqTypeX rn_env) tys1 tys2
 
 eqPred :: PredType -> PredType -> Bool
 eqPred = eqType

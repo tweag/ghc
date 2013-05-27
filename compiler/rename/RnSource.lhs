@@ -562,7 +562,7 @@ rnTyFamInstDecl Nothing (TyFamInstBranched { tfid_eqns = eqns, tfid_space = mspa
   where rn_space Nothing = (Nothing, emptyFVs)
         rn_space (Just (TyFamInstSpace { tfis_tycon = tycon
                                        , tfis_pats  = pats }))
-          = do { (tycon', pats', fvs) <- rnFamInstLHS ??? Nothing tycon pats
+          = do { (tycon', pats', fvs) <- rnFamInstLHS (TySynCtx tycon) Nothing tycon pats
                ; return (TyFamInstSpace { tfis_tycon = tycon'
                                         , tfis_pats  = pats' }, fvs) }
 
