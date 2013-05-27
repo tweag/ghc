@@ -679,7 +679,7 @@ inst_decl :: { LInstDecl RdrName }
         | 'type' 'instance' maybe_type_space 'where' ty_fam_inst_eqn_list
                 {% do { L loc tfi <- mkTyFamInstGroup (comb2 $1 $5)
                                        (unLoc $3) (unLoc $5)
-                      ; return (L loc (TyFamInstD ( tfid_inst = tfi })) } }
+                      ; return (L loc (TyFamInstD { tfid_inst = tfi })) } }
 
           -- data/newtype instance declaration
         | data_or_newtype 'instance' tycl_hdr constrs deriving
