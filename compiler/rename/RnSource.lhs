@@ -499,11 +499,11 @@ rnFamInstLHS :: HsDocContext
              -> Maybe (Name, [Name])
              -> Located RdrName
              -> [LHsType RdrName]
-             -> RnM (???)
+             -> RnM (Located Name, HsWithBndrs [LHsType Name], FreeVars)
 rnFamInstLHS doc mb_cls tycon pats
-  = do { tycon'   <- lookupFamInstName (fmap fst mb_cls) tycon
+  = do { tycon' <- lookupFamInstName (fmap fst mb_cls) tycon
        ; let loc = case pats of
-                     []             -> pprPanic "rnFamInstDecl" (ppr tycon)
+                     []             -> pprPanic "rnFamInstLHS" (ppr tycon)
                      (L loc _ : []) -> loc
                      (L loc _ : ps) -> combineSrcSpans loc (getLoc (last ps))
              (kv_rdr_names, tv_rdr_names) = extractHsTysRdrTyVars pats
@@ -518,6 +518,10 @@ rnFamInstLHS doc mb_cls tycon pats
                          bindLocalNamesFV tv_names $ 
                          rnLHsTypes doc pats
 
+       ; return ( tycon'
+                , HsWB { hswb_cts = pats', hswb_kvs = kv_names, hswb_tvs = tv_names }
+                , fvs `addOneFV` unLoc tycon' )
+
 rnFamInstDecl :: HsDocContext
               -> Maybe (Name, [Name])
               -> Located RdrName
@@ -526,41 +530,20 @@ rnFamInstDecl :: HsDocContext
               -> (HsDocContext -> rhs -> RnM (rhs', FreeVars))
               -> RnM (Located Name, HsWithBndrs [LHsType Name], rhs', FreeVars)
 rnFamInstDecl doc mb_cls tycon pats payload rnPayload
-  = do { tycon'   <- lookupFamInstName (fmap fst mb_cls) tycon
-       ; let loc = case pats of
-                     []             -> pprPanic "rnFamInstDecl" (ppr tycon)
-                     (L loc _ : []) -> loc
-                     (L loc _ : ps) -> combineSrcSpans loc (getLoc (last ps))
-             (kv_rdr_names, tv_rdr_names) = extractHsTysRdrTyVars pats
+  = do { (tycon', pats', pats_fvs) <- rnFamInstLHS doc mb_cls tycon pats
+       ; let HsWB { hswb_kvs = kv_names, hswb_tvs = tv_names } = pats'
+       ; (payload', rhs_fvs)
+           <- bindLocalNamesFV kv_names $
+              bindLocalNamesFV tv_names $
+              do { (payload', rhs_fvs) <- rnPayload doc payload
+                 ; let bad_tvs = case mb_cls of
+                         Nothing          -> []
+                         Just (_,cls_tvs) -> filter is_bad cls_tvs
+                       is_bad tv = not (tv `elem` tv_names) && tv `elemNameSet` rhs_fvs
 
-
-       ; rdr_env  <- getLocalRdrEnv
-       ; kv_names <- mapM (newTyVarNameRn mb_cls rdr_env loc) kv_rdr_names
-       ; tv_names <- mapM (newTyVarNameRn mb_cls rdr_env loc) tv_rdr_names
-             -- All the free vars of the family patterns
-             -- with a sensible binding location
-       ; ((pats', payload'), fvs) 
-              <- bindLocalNamesFV kv_names $ 
-                 bindLocalNamesFV tv_names $ 
-                 do { (pats', pat_fvs) <- rnLHsTypes doc pats
-                    ; (payload', rhs_fvs) <- rnPayload doc payload
-
-                         -- See Note [Renaming associated types]
-                    ; let bad_tvs = case mb_cls of
-                                      Nothing          -> []
-                                      Just (_,cls_tvs) -> filter is_bad cls_tvs
-                          is_bad tv = not (tv `elem` tv_names) && tv `elemNameSet` rhs_fvs
-
-                    ; unless (null bad_tvs) (badAssocRhs bad_tvs)
-                    ; return ((pats', payload'), rhs_fvs `plusFV` pat_fvs) }
-                              
-
-       ; let all_fvs = fvs `addOneFV` unLoc tycon'
-       ; return (tycon',
-                 HsWB { hswb_cts = pats', hswb_kvs = kv_names, hswb_tvs = tv_names },
-                 payload',
-                 all_fvs) }
-             -- type instance => use, hence addOneFV
+                 ; unless (null bad_tvs) (badAssocRhs bad_tvs)
+                 ; return (payload', rhs_fvs) }
+       ; return (tycon', pats', payload', pats_fvs `plusFV` rhs_fvs) }
 
 rnTyFamInstDecl :: Maybe (Name, [Name])
                 -> TyFamInstDecl RdrName
@@ -576,11 +559,12 @@ rnTyFamInstDecl Nothing (TyFamInstBranched { tfid_eqns = eqns, tfid_space = mspa
        ; return (TyFamInstBranched { tfid_eqns  = eqns'
                                    , tfid_space = space'
                                    , tfid_fvs   = fvs }, fvs) }
-  where rn_space Nothing  = (Nothing, emptyFVs)
+  where rn_space Nothing = (Nothing, emptyFVs)
         rn_space (Just (TyFamInstSpace { tfis_tycon = tycon
                                        , tfis_pats  = pats }))
-          = do { tycon' <- lookupFamInstName Nothing tycon
-               ; let loc
+          = do { (tycon', pats', fvs) <- rnFamInstLHS ??? Nothing tycon pats
+               ; return (TyFamInstSpace { tfis_tycon = tycon'
+                                        , tfis_pats  = pats' }, fvs) }
 
 rnTyFamInstEqn :: Maybe (Name, [Name])
                -> TyFamInstEqn RdrName
