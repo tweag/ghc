@@ -559,7 +559,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
                      ; let axiom = mkSingleCoAxiom rep_tc_name tvs' fam_tc pat_tys' rhs'
                      ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
-                       newFamInst SynFamilyInst False {- group -} axiom }
+                       newFamInst SynFamilyInst Unbranched NoFamInstSpace axiom }
 
         ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
         
@@ -635,18 +635,18 @@ tcTyFamInstDecl mb_clsinfo (L loc decl)
                  (notOpenFamily fam_tc)
 
          -- (1) do the work of verifying the synonym group
-       ; (mb_space, co_ax_branches) <- tcSynFamInstDecl fam_tc decl
+       ; (space, co_ax_branches) <- tcSynFamInstDecl fam_tc decl
 
          -- (2) check for validity and inaccessibility
-       ; checkValidTypeSpace mb_space
-       ; foldlM_ (check_valid_branch fam_tc mb_space) [] co_ax_branches
+       ; checkValidTypeSpace space
+       ; foldlM_ (check_valid_branch fam_tc space) [] co_ax_branches
 
          -- (3) construct coercion axiom
        ; rep_tc_name <- newFamInstAxiomName loc
                                             (tyFamInstDeclName decl)
                                             (map cab_lhs co_ax_branches)
        ; let axiom = mkBranchedCoAxiom rep_tc_name fam_tc co_ax_branches
-       ; newFamInst SynFamilyInst branched axiom }
+       ; newFamInst SynFamilyInst branched space axiom }
     where
       eqn1
         | TyFamInstSingle { tfid_eqn = eqn } <- decl        = eqn
@@ -654,17 +654,17 @@ tcTyFamInstDecl mb_clsinfo (L loc decl)
       fam_lname = tfie_tycon (unLoc eqn1)
 
       branched
-        | TyFamInstSingle {} <- decl   = False
-        | TyFamInstBranched {} <- decl = True
+        | TyFamInstSingle {} <- decl   = Unbranched
+        | TyFamInstBranched {} <- decl = Branched
 
       check_valid_branch :: TyCon
-                         -> Maybe ([TKVar], Type) -- type space
+                         -> FamInstSpace
                          -> [CoAxBranch]     -- previous
                          -> CoAxBranch       -- current
                          -> TcM [CoAxBranch] -- current : previous
-      check_valid_branch fam_tc mb_space prev_branches cur_branch
+      check_valid_branch fam_tc space prev_branches cur_branch
         = do { -- Check the well-formedness of the instance
-               checkValidTyFamInst mb_clsinfo mb_space branched fam_tc cur_branch
+               checkValidTyFamInst mb_clsinfo space branched fam_tc cur_branch
 
                -- Check whether the branch is dominated by earlier
                -- ones and hence is inaccessible
@@ -733,7 +733,7 @@ tcDataFamInstDecl mb_clsinfo
                  -- further instance might not introduce a new recursive
                  -- dependency.  (2) They are always valid loop breakers as
                  -- they involve a coercion.
-              ; fam_inst <- newFamInst (DataFamilyInst rep_tc) False axiom
+              ; fam_inst <- newFamInst (DataFamilyInst rep_tc) Unbranched NoFamInstSpace axiom
               ; return (rep_tc, fam_inst) }
 
          -- Remember to check validity; no recursion to worry about here

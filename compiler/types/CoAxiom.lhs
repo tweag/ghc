@@ -10,7 +10,7 @@
 -- and newtypes
 
 module CoAxiom (
-       Branched, Unbranched, BranchIndex, BranchList(..),
+       Branched, Unbranched, BranchFlag(..), BranchIndex, BranchList(..),
        toBranchList, fromBranchList,
        toBranchedList, toUnbranchedList,
        brListLength, brListNth, brListMap, brListFoldr,
@@ -124,6 +124,12 @@ type BranchIndex = Int  -- The index of the branch in the list of branches
 -- the phantom type labels
 data Unbranched deriving Typeable
 data Branched deriving Typeable
+
+-- used instead of Bool flags throughout various code
+data BranchFlag = Branched | Unbranched
+isBranched :: BranchFlag -> Bool
+isBranched Branched   = True
+isBranched Unbranched = False
 
 data BranchList a br where
   FirstBranch :: a -> BranchList a br

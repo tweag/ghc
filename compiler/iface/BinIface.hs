@@ -1352,19 +1352,40 @@ instance Binary IfaceClsInst where
         return (IfaceClsInst cls tys dfun flag orph)
 
 instance Binary IfaceFamInst where
-    put_ bh (IfaceFamInst fam group tys name orph) = do
+    put_ bh (IfaceFamInst fam group space tys name orph) = do
         put_ bh fam
         put_ bh group
+        put_ bh space
         put_ bh tys
         put_ bh name
         put_ bh orph
     get bh = do
         fam      <- get bh
         group    <- get bh
+        space    <- get bh
         tys      <- get bh
         name     <- get bh
         orph     <- get bh
         return (IfaceFamInst fam group tys name orph)
+
+instance Binary IfaceFamInstSpace where
+    put_ bh IfaceNoFamInstSpace = putByte bh 0
+    put_ bh (IfaceFamInstSpace tvs tys rough) = do
+        putByte bh 1
+        put_ bh tvs
+        put_ bh tys
+        put_ bh rough
+
+    get bh = do
+        h <- getByte bh
+        case h of
+              0 -> return IfaceNoFamInstSpace
+              1 -> do
+                  tvs   <- get bh
+                  tys   <- get bh
+                  rough <- get bh
+                  return (IfaceFamInstSpace tvs tys rough)
+              _ -> panic ("get IfaceFamInstSpace " ++ show h)
 
 instance Binary OverlapFlag where
     put_ bh (NoOverlap  b) = putByte bh 0 >> put_ bh b

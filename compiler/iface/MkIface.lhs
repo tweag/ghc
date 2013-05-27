@@ -1641,11 +1641,13 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag
 famInstToIfaceFamInst :: FamInst br -> IfaceFamInst
 famInstToIfaceFamInst (FamInst { fi_axiom    = axiom,
                                  fi_branched = branched,
+                                 fi_space    = space,
                                  fi_fam      = fam,
                                  fi_branches = branches })
   = IfaceFamInst { ifFamInstAxiom    = coAxiomName axiom
                  , ifFamInstFam      = fam
                  , ifFamInstBranched = branched
+                 , ifFamInstSpace    = iface_space
                  , ifFamInstTys      = map (map do_rough) roughs
                  , ifFamInstOrph     = orph }
   where
@@ -1667,9 +1669,20 @@ famInstToIfaceFamInst (FamInst { fi_axiom    = axiom,
          | not (isEmptyNameSet lhs_names)
          = Just (nameOccName (head (nameSetToList lhs_names)))
 
-
          | otherwise
          = Nothing
+
+    iface_space
+      | NoFamInstSpace <- space
+      = IfaceNoFamInstSpace
+
+      | FamInstSpace { fis_tvs = tvs
+                     , fis_tys = tys
+                     , fis_tcs = tcs } <- space
+      = let (env, tv_bndrs) = tidyTyVarBndrs emptyTidyEnv tvs in
+        IfaceFamInstSpace { ifFamInstSpaceTvs = toIfaceTvBndrs tv_bndrs
+                          , ifFamInstSpaceTys = map (tidyToIfaceType env) tys
+                          , ifFamInstSpaceRoughMatch = map do_rough fis_tcs }
 
 --------------------------
 toIfaceLetBndr :: Id -> IfaceLetBndr

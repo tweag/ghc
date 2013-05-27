@@ -659,11 +659,22 @@ tcIfaceInst (IfaceClsInst { ifDFun = dfun_occ, ifOFlag = oflag
 
 tcIfaceFamInst :: IfaceFamInst -> IfL (FamInst Branched)
 tcIfaceFamInst (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcss
-                             , ifFamInstBranched = branched, ifFamInstAxiom = axiom_name } )
+                             , ifFamInstBranched = branched, ifFamInstAxiom = axiom_name
+                             , ifFamInstSpace = space } )
     = do { axiom' <- forkM (ptext (sLit "Axiom") <+> ppr axiom_name) $
                      tcIfaceCoAxiom axiom_name
+         ; space' <- tccIfaceFamInstSpace space
          ; let mb_tcss' = map (map (fmap ifaceTyConName)) mb_tcss
-         ; return (mkImportedFamInst fam branched mb_tcss' axiom') }
+         ; return (mkImportedFamInst fam branched space' mb_tcss' axiom') }
+
+tcIfaceFamInstSpace :: IfaceFamInstSpace -> IfL FamInstSpace
+tcIfaceFamInstSpace IfaceNoFamInstSpace = return NoFamInstSpace
+tcIfaceFamInstSpace (IfaceFamInstSpace { ifFamInstSpaceTvs = tvs
+                                       , ifFamInstSpaceTys = tys
+                                       , ifFamInstSpaceRoughMatch = tcs })
+  = bindIfaceTyVars tvs $ \tvs' -> do
+    { tys' <- mapM tcIfaceType tys
+    ; return $ mkImportedFamInstSpace tvs' tys' (map (fmap ifaceTyConName) tcs)
 \end{code}
 
 

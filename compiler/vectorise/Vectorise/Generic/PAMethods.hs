@@ -38,7 +38,7 @@ buildPReprTyCon orig_tc vect_tc repr
       rhs_ty    <- sumReprType repr
       prepr_tc  <- builtin preprTyCon
       let axiom = mkSingleCoAxiom name tyvars prepr_tc instTys rhs_ty
-      liftDs $ newFamInst SynFamilyInst False axiom
+      liftDs $ newFamInst SynFamilyInst Unbranched NoFamInstSpace axiom
   where
     tyvars = tyConTyVars vect_tc
     instTys = [mkTyConApp vect_tc . mkTyVarTys $ tyConTyVars vect_tc]
