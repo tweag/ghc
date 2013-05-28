@@ -5224,18 +5224,27 @@ type instance F (Maybe a) where                  -- OK!
   F (Maybe Int)  = Int
   F (Maybe Bool) = Bool
   F (Maybe a)    = String
-type instance where            -- WRONG: conflicts with earlier instances (see below)
+type instance where            -- WRONG: conflicts with earlier instances
   F Int = Float
   F a   = [a]
--- TODO (RAE): Finish writing.
-
 
 type family G a b :: * -> *
 type instance G Int            = (,)     -- WRONG: must be two type parameters
 type instance G Int Char Float = Double  -- WRONG: must be two type parameters
 type instance G x   x          = Maybe   -- WRONG: cannot repeat variable
 
-type instance G Int a
+type instance G Int a where   -- OK
+  G Int Bool   = Maybe
+  G Int Double = IO
+type instance G Bool a where  -- WRONG: G a b does not fit within G Bool a
+  G Bool Int = Maybe
+  G a    b   = (->) Int
+type instance G Double a where  -- OK: repeated variable OK in branched instance
+  G Double (x,x) = IO
+  G Double (x,y) = Maybe
+type instance G x x where     -- WRONG: cannot repeat variable in type space
+  G x x = Maybe
+
 </programlisting>
     </para>
     </sect3>

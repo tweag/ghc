@@ -49,6 +49,9 @@ module MkCore (
         mkNilExpr, mkConsExpr, mkListExpr, 
         mkFoldrExpr, mkBuildExpr,
 
+        -- * Constructing maybe expressions
+        mkNothingExpr, mkJustExpr, 
+
     	-- * Error Ids 
     	mkRuntimeErrorApp, mkImpossibleExpr, errorIds,
     	rEC_CON_ERROR_ID, iRREFUT_PAT_ERROR_ID, rUNTIME_ERROR_ID,
@@ -605,6 +608,22 @@ mkBuildExpr elt_ty mk_build_inside = do
       return (zipWith setTyVarUnique tyvar_tmpls uniqs)
 \end{code}
 
+%************************************************************************
+%*                                                                      *
+\subsection{Maybe expressions}
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+-- | Makes a Nothing of the specified type
+mkNothingExpr :: Type -> CoreExpr
+mkNothingExpr ty = mkConApp nothingDataCon [Type ty]
+
+-- | Makes a Just x of the specified type
+mkJustExpr :: Type -> CoreExpr -> CoreExpr
+mkJustExpr ty x = mkConApp justDataCon [Type ty, x]
+
+\end{code}
 
 %************************************************************************
 %*                                                                      *

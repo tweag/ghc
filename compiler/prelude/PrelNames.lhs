@@ -303,6 +303,9 @@ basicKnownKeyNames
         -- The Ordering type
         , orderingTyConName, ltDataConName, eqDataConName, gtDataConName
 
+        -- The Maybe type
+        , maybeTyConName, nothingDataConName, justDataConName
+
         -- The Either type
         , eitherTyConName, leftDataConName, rightDataConName
 
@@ -354,7 +357,8 @@ gHC_PRIM, gHC_TYPES, gHC_GENERICS,
     gHC_MAGIC,
     gHC_CLASSES, gHC_BASE, gHC_ENUM, gHC_GHCI, gHC_CSTRING,
     gHC_SHOW, gHC_READ, gHC_NUM, gHC_INTEGER_TYPE, gHC_LIST,
-    gHC_TUPLE, dATA_TUPLE, dATA_EITHER, dATA_STRING, dATA_FOLDABLE, dATA_TRAVERSABLE, dATA_MONOID,
+    gHC_TUPLE, dATA_TUPLE, dATA_EITHER, dATA_MAYBE, dATA_STRING,
+    dATA_FOLDABLE, dATA_TRAVERSABLE, dATA_MONOID,
     gHC_CONC, gHC_IO, gHC_IO_Exception,
     gHC_ST, gHC_ARR, gHC_STABLE, gHC_PTR, gHC_ERR, gHC_REAL,
     gHC_FLOAT, gHC_TOP_HANDLER, sYSTEM_IO, dYNAMIC,
@@ -380,6 +384,7 @@ gHC_LIST        = mkBaseModule (fsLit "GHC.List")
 gHC_TUPLE       = mkPrimModule (fsLit "GHC.Tuple")
 dATA_TUPLE      = mkBaseModule (fsLit "Data.Tuple")
 dATA_EITHER     = mkBaseModule (fsLit "Data.Either")
+dATA_MAYBE      = mkBaseModule (fsLit "Data.Maybe")
 dATA_STRING     = mkBaseModule (fsLit "Data.String")
 dATA_FOLDABLE   = mkBaseModule (fsLit "Data.Foldable")
 dATA_TRAVERSABLE= mkBaseModule (fsLit "Data.Traversable")
@@ -744,6 +749,11 @@ orderingTyConName = tcQual   gHC_TYPES (fsLit "Ordering") orderingTyConKey
 ltDataConName = conName gHC_TYPES (fsLit "LT") ltDataConKey
 eqDataConName = conName gHC_TYPES (fsLit "EQ") eqDataConKey
 gtDataConName = conName gHC_TYPES (fsLit "GT") gtDataConKey
+
+maybeTyConName, nothingDataConName, justDataConName :: Name
+maybeTyConName     = tcQual  dATA_MAYBE (fsLit "Maybe")   maybeTyConKey
+nothingDataConName = conName dATA_MAYBE (fsLit "Nothing") nothingDataConKey
+justDataConName    = conName dATA_MAYBE (fsLit "Just")    justDataConKey
 
 eitherTyConName, leftDataConName, rightDataConName :: Name
 eitherTyConName   = tcQual  dATA_EITHER (fsLit "Either") eitherTyConKey
@@ -1287,7 +1297,7 @@ addrPrimTyConKey, arrayPrimTyConKey, arrayArrayPrimTyConKey, boolTyConKey, byteA
     mutableArrayPrimTyConKey, mutableArrayArrayPrimTyConKey, mutableByteArrayPrimTyConKey,
     orderingTyConKey, mVarPrimTyConKey, ratioTyConKey, rationalTyConKey,
     realWorldTyConKey, stablePtrPrimTyConKey, stablePtrTyConKey,
-    anyTyConKey, eqTyConKey :: Unique
+    anyTyConKey, eqTyConKey, maybeTyConKey :: Unique
 addrPrimTyConKey                        = mkPreludeTyConUnique  1
 arrayPrimTyConKey                       = mkPreludeTyConUnique  3
 boolTyConKey                            = mkPreludeTyConUnique  4
@@ -1325,6 +1335,7 @@ anyTyConKey                             = mkPreludeTyConUnique 37
 eqTyConKey                              = mkPreludeTyConUnique 38
 arrayArrayPrimTyConKey                  = mkPreludeTyConUnique 39
 mutableArrayArrayPrimTyConKey           = mkPreludeTyConUnique 40
+maybeTyConKey                           = mkPreludeTyConUnique 41
 
 statePrimTyConKey, stableNamePrimTyConKey, stableNameTyConKey,
     mutVarPrimTyConKey, ioTyConKey,
@@ -1524,6 +1535,10 @@ gtDataConKey                            = mkPreludeDataConUnique 29
 integerGmpSDataConKey, integerGmpJDataConKey :: Unique
 integerGmpSDataConKey                   = mkPreludeDataConUnique 30
 integerGmpJDataConKey                   = mkPreludeDataConUnique 31
+
+nothingDataConKey, justDataConKey :: Unique
+nothingDataConKey                       = mkPreludeDataConUnique 32
+justDataConKey                          = mkPreludeDataConUnique 33
 \end{code}
 
 %************************************************************************

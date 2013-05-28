@@ -31,7 +31,7 @@ import FastString
 import Outputable
 
 import qualified Data.ByteString as BS
-import Control.Monad( unless )
+import Control.Monad( unless, ap )
 
 import Language.Haskell.TH as TH hiding (sigP)
 import Language.Haskell.TH.Syntax as TH
@@ -243,13 +243,27 @@ cvtDec (NewtypeInstD ctxt tc tys constr derivs)
            { dfid_inst = DataFamInstDecl { dfid_tycon = tc', dfid_pats = typats'
                                          , dfid_defn = defn, dfid_fvs = placeHolderNames } }}
 
-cvtDec (TySynInstD tc eqns)
+cvtDec (TySynInstD tc mtys eqns)
   = do  { tc' <- tconNameL tc
+        ; mtys' <- case mtys of
+                     Nothing  -> return Nothing
+                     Just tys -> return Just `ap` mapM cvtType tys
         ; eqns' <- mapM (cvtTySynEqn tc') eqns
-        ; returnL $ InstD $ TyFamInstD
-            { tfid_inst = TyFamInstDecl { tfid_eqns = eqns'
-                                        , tfid_group = (length eqns' /= 1)
-                                        , tfid_fvs = placeHolderNames } } }
+        ; returnL $ InstD $ TyFamInstD { tfid_inst =
+            case mtys' of
+              Nothing
+                | [eqn] <- eqns'
+                -> TyFamInstSingle { tfid_eqn = eqn, tfid_fvs = placeHolderNames }
+                | otherwise
+                -> TyFamInstBranched { tfid_eqns  = eqns'
+                                     , tfid_space = Nothing
+                                     , tfid_fvs   = placeHolderNames }
+
+              Just tys' -> TyFamInstBranched { tfid_eqns  = eqns'
+                                             , tfid_space = Just $ noLoc $ TyFamInstSpace
+                                                 { tfis_tycon = tc'
+                                                 , tfis_pats = mkHsWithBndrs tys' }
+                                             , tfid_fvs   = placeHolderNames } } }
 ----------------
 cvtTySynEqn :: Located RdrName -> TySynEqn -> CvtM (LTyFamInstEqn RdrName)
 cvtTySynEqn tc (TySynEqn lhs rhs)
