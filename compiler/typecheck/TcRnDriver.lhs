@@ -486,8 +486,6 @@ tc_rn_src_decls boot_details ds
         setEnvs (tcg_env, tcl_env) $
         case group_tail of {
            Nothing -> do { tcg_env <- checkMain ;       -- Check for `main'
-                           traceTc "returning from tc_rn_src_decls: " $
-                             ppr $ nameEnvElts $ tcg_type_env tcg_env ; -- RAE
                            return (tcg_env, tcl_env)
                       } ;
 
@@ -956,7 +954,6 @@ tcTopSrcDecls boot_details
                                  -- tcg_dus: see Note [Newtype constructor usage in foreign declarations]
 
         addUsedRdrNames fo_rdr_names ;
-        traceTc "Tc8: type_env: " (ppr $ nameEnvElts $ tcg_type_env tcg_env') ; -- RAE
         return (tcg_env', tcl_env)
     }}}}}}
   where
@@ -1654,12 +1651,7 @@ tcRnDeclsi hsc_env ictxt local_decls =
                              tcg_vects     = vects',
                              tcg_fords     = fords' }
 
-    tcg_env'' <- setGlobalTypeEnv tcg_env' final_type_env
-
-    traceTc "returning from tcRnDeclsi: " $ ppr $ nameEnvElts $ tcg_type_env tcg_env'' -- RAE
-
-    return tcg_env''
-
+    setGlobalTypeEnv tcg_env' final_type_env
 
 #endif /* GHCi */
 \end{code}
