@@ -29,7 +29,7 @@ import DataCon
 import TyCon
 import CoAxiom
 import Coercion         ( mkSingleCoAxiom )
-import FamInstEnv       ( FamInst, FamFlavor(..) )
+import FamInstEnv
 import FamInst
 import Module           ( Module, moduleName, moduleNameString )
 import IfaceEnv         ( newGlobalBinder )

@@ -13,18 +13,18 @@ module FamInst (
         checkFamInstConsistency, tcExtendLocalFamInstEnv,
 	tcLookupFamInst, tcLookupDataFamInst,
         tcGetFamInstEnvs,
-        newFamInst
+        newFamInst, mkFamInstSpace
     ) where
 
 import HscTypes
 import FamInstEnv
 import InstEnv( roughMatchTcs )
-import Coercion( pprCoAxBranchHdr )
 import LoadIface
 import TypeRep
 import TcRnMonad
 import TyCon
 import CoAxiom
+import Type
 import DynFlags
 import Module
 import Outputable
@@ -33,7 +33,7 @@ import FastString
 import Util
 import Maybes
 import TcMType
-import TcType
+import SrcLoc
 import Name
 import Control.Monad
 import Data.Map (Map)
@@ -75,7 +75,7 @@ newFamInst flavor is_branched space axiom@(CoAxiom { co_ax_tc       = fam_tc
                              ; return (FirstBranch br') }
     go (NextBranch br brs) = do { br' <- go_branch br
                                 ; brs' <- go brs
-                                ;return (NextBranch br' brs') }
+                                ; return (NextBranch br' brs') }
     go_branch :: CoAxBranch -> TcRnIf gbl lcl FamInstBranch 
     go_branch (CoAxBranch { cab_tvs = tvs1
                           , cab_lhs = lhs
@@ -89,10 +89,12 @@ newFamInst flavor is_branched space axiom@(CoAxiom { co_ax_tc       = fam_tc
 
     mk_space :: BranchList FamInstBranch br -> FamInstSpace
     mk_space fam_branches
-      | False <- is_branched
+      | Unbranched <- is_branched
       , FirstBranch (FamInstBranch { fib_tvs = tvs, fib_lhs = lhs, fib_tcs = tcs })
           <- fam_branches
-      = FamInstSpace { fis_tvs = tvs, fis_tys = lhs, fis_tcs = tcs }
+      , FirstBranch co_ax_branch <- ax_branches
+      = FamInstSpace { fis_tvs = tvs, fis_tys = lhs, fis_tcs = tcs
+                     , fis_loc = coAxBranchSpan co_ax_branch  }
 
       | otherwise
       = space
@@ -370,27 +372,24 @@ environments (one for the EPS and one for the HPT).
 
 \begin{code}
 checkForConflicts :: FamInstEnvs -> FamInst Branched -> TcM Bool
-checkForConflicts inst_envs fam_inst@(FamInst { fi_branches = branches })
+checkForConflicts inst_envs fam_inst
   = do { let conflicts = lookupFamInstEnvConflicts inst_envs fam_inst
-             no_conflicts = all null conflicts
+             no_conflicts = null conflicts
        ; traceTc "checkForConflicts" (ppr conflicts $$ ppr fam_inst $$ ppr inst_envs)
        ; unless no_conflicts $ conflictInstErr fam_inst conflicts
        ; return no_conflicts }
-    where fam_tc = famInstTyCon fam_inst
 
 conflictInstErr :: FamInst Branched -> [FamInst Branched] -> TcRn ()
 conflictInstErr fam_inst confInsts
   = addFamInstsErr (ptext (sLit "Conflicting family instance declarations:"))
                    (fam_inst : confInsts)
-  | otherwise -- no conflict on this branch; see Trac #7560
-  = return ()
 
 addFamInstsErr :: SDoc -> [FamInst Branched] -> TcRn ()
 addFamInstsErr herald insts
   = ASSERT( not (null insts) )
     setSrcSpan srcSpan $ addErr $
     hang herald
-       2 (vcat [ pprCoAxBranchHdr (famInstAxiom fi) index 
+       2 (vcat [ pprFamInst fi 
                | fi <- sorted ])
  where
    getSpan   = getSrcLoc . famInstAxiom

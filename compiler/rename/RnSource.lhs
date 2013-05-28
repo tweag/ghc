@@ -520,7 +520,7 @@ rnFamInstLHS doc mb_cls tycon pats
 
        ; return ( tycon'
                 , HsWB { hswb_cts = pats', hswb_kvs = kv_names, hswb_tvs = tv_names }
-                , fvs `addOneFV` unLoc tycon' )
+                , fvs `addOneFV` unLoc tycon' ) }
 
 rnFamInstDecl :: HsDocContext
               -> Maybe (Name, [Name])
@@ -548,23 +548,24 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
 rnTyFamInstDecl :: Maybe (Name, [Name])
                 -> TyFamInstDecl RdrName
                 -> RnM (TyFamInstDecl Name, FreeVars)
-rnTyFamInstDecl mb_cls (TyFamInstSingle { tfid_eqn = eqn })
-  = do { (eqn', fvs) <- rnTyFamInstEqn mb_cls) eqn
-       ; return (TyFamInstSingle { tfid_eqn = eqn'
-                                 , tfid_fvs = fvs }, fvs)
+rnTyFamInstDecl mb_cls (TyFamInstSingle { tfid_eqn = L loc eqn })
+  = do { (eqn', fvs) <- rnTyFamInstEqn mb_cls eqn
+       ; return (TyFamInstSingle { tfid_eqn = L loc eqn'
+                                 , tfid_fvs = fvs }, fvs) }
 rnTyFamInstDecl Nothing (TyFamInstBranched { tfid_eqns = eqns, tfid_space = mspace })
   = do { (eqns', fvs1) <- rnList (rnTyFamInstEqn Nothing) eqns
        ; (space', fvs2) <- rn_space mspace
-       ; let fvs = fvs1 `plusFVs` fvs2
+       ; let fvs = fvs1 `plusFV` fvs2
        ; return (TyFamInstBranched { tfid_eqns  = eqns'
                                    , tfid_space = space'
                                    , tfid_fvs   = fvs }, fvs) }
-  where rn_space Nothing = (Nothing, emptyFVs)
-        rn_space (Just (TyFamInstSpace { tfis_tycon = tycon
-                                       , tfis_pats  = pats }))
+  where rn_space Nothing = return (Nothing, emptyFVs)
+        rn_space (Just (L loc (TyFamInstSpace { tfis_tycon = tycon
+                                              , tfis_pats  = HsWB { hswb_cts = pats } })))
           = do { (tycon', pats', fvs) <- rnFamInstLHS (TySynCtx tycon) Nothing tycon pats
-               ; return (TyFamInstSpace { tfis_tycon = tycon'
-                                        , tfis_pats  = pats' }, fvs) }
+               ; return (Just $ L loc $ TyFamInstSpace { tfis_tycon = tycon'
+                                                       , tfis_pats  = pats' }, fvs) }
+rnTyFamInstDecl _ _ = panic "rnTyFamInstDecl" -- branched instance in a class
 
 rnTyFamInstEqn :: Maybe (Name, [Name])
                -> TyFamInstEqn RdrName

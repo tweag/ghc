@@ -663,7 +663,7 @@ tcIfaceFamInst (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcss
                              , ifFamInstSpace = space } )
     = do { axiom' <- forkM (ptext (sLit "Axiom") <+> ppr axiom_name) $
                      tcIfaceCoAxiom axiom_name
-         ; space' <- tccIfaceFamInstSpace space
+         ; space' <- tcIfaceFamInstSpace space
          ; let mb_tcss' = map (map (fmap ifaceTyConName)) mb_tcss
          ; return (mkImportedFamInst fam branched space' mb_tcss' axiom') }
 
@@ -674,7 +674,7 @@ tcIfaceFamInstSpace (IfaceFamInstSpace { ifFamInstSpaceTvs = tvs
                                        , ifFamInstSpaceRoughMatch = tcs })
   = bindIfaceTyVars tvs $ \tvs' -> do
     { tys' <- mapM tcIfaceType tys
-    ; return $ mkImportedFamInstSpace tvs' tys' (map (fmap ifaceTyConName) tcs)
+    ; return $ mkImportedFamInstSpace tvs' tys' (map (fmap ifaceTyConName) tcs) }
 \end{code}
 
 

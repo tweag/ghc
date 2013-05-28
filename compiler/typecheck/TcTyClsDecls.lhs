@@ -36,6 +36,7 @@ import TcHsType
 import TcMType
 import TcType
 import TysWiredIn( unitTy )
+import FamInstEnv
 import FamInst
 import Coercion( mkCoAxBranch )
 import Type
@@ -782,7 +783,7 @@ tcDefaultAssocDecl fam_tc (L loc decl)
     tcAddTyFamInstCtxt decl $
     do { traceTc "tcDefaultAssocDecl" (ppr decl)
        ; (_space, branches) <- tcSynFamInstDecl fam_tc decl
-       ; ASSERT( isNothing _space )
+       ; ASSERT( case _space of { NoFamInstSpace -> True ; _ -> False }  )
          return branches }
     -- We check for well-formedness and validity later, in checkValidClass
 
@@ -804,12 +805,12 @@ tcSynFamInstDecl fam_tc (TyFamInstBranched { tfid_eqns  = eqns
        ; checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
        ; space' <- check_space mspace
        ; eqns' <- mapM (tcTyFamInstEqn fam_tc) eqns
-       ; return (mspace', eqns') }
+       ; return (space', eqns') }
   where
     names = map (tfie_tycon . unLoc) eqns
     first = head names
 
-    check_space :: Maybe LTyFamInstSpace -> TcM FamInstSpace
+    check_space :: Maybe (LTyFamInstSpace Name) -> TcM FamInstSpace
     check_space Nothing = return NoFamInstSpace
     check_space (Just (L loc (TyFamInstSpace { tfis_tycon = tycon
                                              , tfis_pats  = pats })))
@@ -909,7 +910,7 @@ tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tva
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
        ; typats <- tcHsTyVarBndrs hs_tvs $ \ _ ->
-                   do { maybe_do kind_checker res_kind
+                   do { maybe_do mb_kind_checker res_kind
                       ; tcHsArgTys (quotes (ppr fam_tc)) arg_pats arg_kinds }
        ; let all_args = fam_arg_kinds ++ typats
 
@@ -1492,7 +1493,7 @@ checkValidClass cls
 
     check_at_defs (fam_tc, defs)
       = tcAddDefaultAssocDeclCtxt (tyConName fam_tc) $
-        mapM_ (checkValidTyFamInst mb_clsinfo Nothing fam_tc) defs
+        mapM_ (checkValidTyFamInst mb_clsinfo NoFamInstSpace Unbranched fam_tc) defs
 
     mb_clsinfo = Just (cls, mkVarEnv [ (tv, mkTyVarTy tv) | tv <- tyvars ])
 
@@ -1738,6 +1739,9 @@ tcAddTyFamInstCtxt decl
   | otherwise
   = tcAddFamInstCtxt (ptext (sLit "type instance group")) (tyFamInstDeclName decl)
 
+tcAddTyFamInstSpaceCtxt :: TcM a -> TcM a
+tcAddTyFamInstSpaceCtxt = addErrCtxt (ptext (sLit "In the type space declaration"))
+
 tcAddDataFamInstCtxt :: DataFamInstDecl Name -> TcM a -> TcM a
 tcAddDataFamInstCtxt decl
   = tcAddFamInstCtxt (pprDataFamInstFlavour decl <+> ptext (sLit "instance"))
@@ -1871,6 +1875,11 @@ wrongKindOfFamily family
     kindOfFamily | isSynTyCon family = ptext (sLit "type synonym")
                  | isAlgTyCon family = ptext (sLit "data type")
                  | otherwise = pprPanic "wrongKindOfFamily" (ppr family)
+
+badTypeSpace :: Located Name -> Located Name -> SDoc
+badTypeSpace (L _ tspace) (L _ inst)
+  = ptext (sLit "Type space declaration is for") <+> (ppr tspace) $$
+      ptext (sLit "but instance is for") <+> (ppr inst)
 
 wrongNamesInInstGroup :: Name -> Name -> SDoc
 wrongNamesInInstGroup first cur
