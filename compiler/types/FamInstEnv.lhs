@@ -52,7 +52,6 @@ import UniqFM
 import Outputable
 import Maybes
 import Util
-import SrcLoc
 import FastString
 \end{code}
 
@@ -195,21 +194,18 @@ famInstSingleBranch :: FamInst Unbranched -> FamInstBranch
 famInstSingleBranch (FamInst { fi_branches = FirstBranch branch }) = branch
 
 toBranchedFamInst :: FamInst br -> FamInst Branched
-toBranchedFamInst (FamInst ax flav grp space branches fam)
-  = FamInst (toBranchedAxiom ax) flav grp space (toBranchedList branches) fam
+toBranchedFamInst (FamInst ax flav grp branches fam)
+  = FamInst (toBranchedAxiom ax) flav grp (toBranchedList branches) fam
 
 toUnbranchedFamInst :: FamInst br -> FamInst Unbranched
-toUnbranchedFamInst (FamInst ax flav grp space branches fam)
-  = FamInst (toUnbranchedAxiom ax) flav grp space (toUnbranchedList branches) fam
+toUnbranchedFamInst (FamInst ax flav grp branches fam)
+  = FamInst (toUnbranchedAxiom ax) flav grp (toUnbranchedList branches) fam
 
 famInstBranches :: FamInst br -> BranchList FamInstBranch br
 famInstBranches = fi_branches
 
 famInstBranchLHS :: FamInstBranch -> [Type]
 famInstBranchLHS = fib_lhs
-
-famInstBranchRHS :: FamInstBranch -> Type
-famInstBranchRHS = fib_rhs
 
 famInstBranchRoughMatch :: FamInstBranch -> [Maybe Name]
 famInstBranchRoughMatch = fib_tcs
@@ -253,9 +249,8 @@ pprFamInst (FamInst { fi_branches = brs, fi_flavor = SynFamilyInst
   = hang (ptext (sLit "type instance") <+> ppr_space <+> ptext (sLit "where"))
        2 (vcat [pprCoAxBranchHdr axiom i | i <- brListIndices brs])
   where ppr_space
-          | NoFamInstSpace <- space = empty
-
-          | FamInstSpace { fis_tys = tys } <- space
+          | Nothing <- space      = empty
+          | Just (FamInstSpace { fis_tys = tys }) <- space
           = pprTypeApp (coAxiomTyCon axiom) tys
 
 pprFamInst fi@(FamInst { fi_flavor = flavor
@@ -474,14 +469,14 @@ identicalFamInst (FamInst { fi_axiom = ax1, fi_space = sp1 })
             lhs2 = coAxBranchLHS br2
             rn_env = rnBndrs2 (mkRnEnv2 emptyInScopeSet) tvs1 tvs2
 
-        identical_space NoFamInstSpace NoFamInstSpace = True
-        identical_space NoFamInstSpace sp = identical_space sp NoFamInstSpace
-        identical_space (FamInstSpace { fis_tcs = tcs }) NoFamInstSpace
+        identical_space Nothing Nothing = True
+        identical_space Nothing (Just sp) = identical_space (Just sp) Nothing
+        identical_space (Just (FamInstSpace { fis_tcs = tcs })) Nothing
           = all isNothing tcs
-        identical_space (FamInstSpace { fis_tvs = tvs1
-                                      , fis_tys = tys1 })
-                        (FamInstSpace { fis_tvs = tvs2
-                                      , fis_tys = tys2 })
+        identical_space (Just (FamInstSpace { fis_tvs = tvs1
+                                            , fis_tys = tys1 }))
+                        (Just (FamInstSpace { fis_tvs = tvs2
+                                            , fis_tys = tys2 }))
           = eqTypesX rn_env tys1 tys2
           where rn_env = rnBndrs2 (mkRnEnv2 emptyInScopeSet) tvs1 tvs2
                        
@@ -617,7 +612,7 @@ lookupFamInstEnv (pkg_ie, home_ie) fam_tc tys
   = lookupFamInstEnv' pkg_ie  fam_tc tys ++
     lookupFamInstEnv' home_ie fam_tc tys
 
-lookupFamInstEnv' :: FamInstEnv
+lookupFamInstEnv' :: FamInstEnvs
                   -> TyCon -> [Type]          -- What we are looking for
                   -> [FamInstMatch]           -- Successful matches
 lookupFamInstEnv' ie fam tys
@@ -641,7 +636,7 @@ lookupFamInstEnv' ie fam tys
 find :: [Type] -> [FamInst Branched] -> [FamInstMatch]
 find _ [] = []
 find match_tys (inst@(FamInst { fi_branches = branches }) : rest)
-  = case findBranch (fromBranchList branches) 0 of
+  = case findBranch [] (fromBranchList branches) 0 of
       (Just match, StopSearching) -> [match]
       (Just match, KeepSearching) -> match : find match_tys rest
       (Nothing,    StopSearching) -> []
@@ -659,7 +654,7 @@ find match_tys (inst@(FamInst { fi_branches = branches }) : rest)
       | instanceCantMatch rough_tcs mb_tcs
       = findBranch rest (ind+1)
       | otherwise
-      = ASSERT( tyVarsOfTypes match_tys `disjointVarSet` tpl_tvs )
+      = ASSERT( tyVarsOfTypes match_tys `disjointVarSet` mkVarSet tpl_tvs )
         case tcMatchTys tpl_tvs tpl_tys match_tys of
           Just subst
             -> let match = FamInstMatch { fim_instance = inst
@@ -693,33 +688,31 @@ lookupFamInstEnvConflicts (pkg_ie, home_ie) fi
 lookupFamInstEnvConflicts' :: FamInstEnv
                            -> FamInst br            -- the putative new instance
                            -> [FamInst Branched]    -- Conflicting instances
-lookupFamInstEnvConflicts' ie fi@(FamInst { fi_space = space, fi_branched = branched })
+lookupFamInstEnvConflicts' ie fi@(FamInst { fi_space = mb_space })
   | isFamilyTyCon fam
   , Just (FamIE insts) <- lookupUFM ie fam
-  = case space of
-      NoFamInstSpace -> insts
-      FamInstSpace { fis_tys = tys, fis_tcs = tcs } ->
+  = case mb_space of
+      Nothing -> insts
+      Just (FamInstSpace { fis_tys = tys, fis_tcs = tcs }) ->
         filter (conflictsWith tys tcs mb_rhs) insts
   | otherwise = []
   where
     fam = famInstTyCon fi
-    mb_rhs
-      | Branched <- branched = Nothing
-      | otherwise            = Just $ famInstBranchRHS $ famInstSingleBranch fi
+    mb_rhs = if branched then Nothing
+                         else Just famInstBranchRHS $ famInstSingleBranch fi
 
 conflictsWith :: [Type]           -- type patterns of the new instance
               -> [Maybe Name]     -- rough match tycons of the new instance
               -> Maybe Type       -- if confluent overlap is possible, the rhs
               -> FamInst Branched -- do we conflict with this instance?
               -> Bool
-conflictsWith _ _ _ (FamInst { fi_space = NoFamInstSpace })
+conflictsWith _ _ _ (FamInst { fi_space = Nothing })
   = True -- if the space is Nothing, it conflicts with all other instances
 conflictsWith tys rough_tcs mb_rhs
               fi@(FamInst { fi_branched = old_branched
-                          , fi_space = FamInstSpace { fis_tys = space_tys
-                                                    , fis_tcs = space_tcs }
-                          , fi_flavor = flavor })
-  | instanceCantMatch rough_tcs space_tcs
+                          , fi_space = Just (FamInstSpace { fis_tys = space_tys
+                                                          , fis_tcs = space_tcs }) })
+  | instanceCantMatch rough_tcs old_tcs
   = False -- no conflict here if the top-level structures don't match
 
   | otherwise 
@@ -728,19 +721,15 @@ conflictsWith tys rough_tcs mb_rhs
                 -- Unification will break badly if the variables overlap
                 -- They shouldn't because we allocate separate uniques for them
       Just subst ->
-        isDataFlavor ||
+        isDataFamilyTyCon tc ||
         isBranched old_branched ||
-        rhs_conflict mb_rhs (famInstBranchRHS $ famInstSingleBranch $ toUnbranchedFamInst fi)
-                     subst
+        rhs_conflict mb_rhs (famInstBranchRHS $ famInstSingleBranch fi) subst
           -- we don't need to check if the new instance is branched, because
           -- if it is, mb_rhs will be Nothing, and rhs_conflict will return True
 
       Nothing -> False -- no match
 
   where
-    isDataFlavor | DataFamilyInst {} <- flavor = True
-                 | otherwise                   = False
-
     -- checks whether two RHSs are distinct, under a unifying substitution
     -- Note [Family instance overlap conflicts]
     rhs_conflict :: Maybe Type -> Type -> TvSubst -> Bool
