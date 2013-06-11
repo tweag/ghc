@@ -495,29 +495,6 @@ rnClsInstDecl (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = mbinds
              --     strange, but should not matter (and it would be more work
              --     to remove the context).
 
-rnFamInstLHS :: HsDocContext
-             -> Maybe (Name, [Name])
-             -> Located RdrName
-             -> [LHsType RdrName]
-             -> RnM (???)
-rnFamInstLHS doc mb_cls tycon pats
-  = do { tycon'   <- lookupFamInstName (fmap fst mb_cls) tycon
-       ; let loc = case pats of
-                     []             -> pprPanic "rnFamInstDecl" (ppr tycon)
-                     (L loc _ : []) -> loc
-                     (L loc _ : ps) -> combineSrcSpans loc (getLoc (last ps))
-             (kv_rdr_names, tv_rdr_names) = extractHsTysRdrTyVars pats
-
-
-       ; rdr_env  <- getLocalRdrEnv
-       ; kv_names <- mapM (newTyVarNameRn mb_cls rdr_env loc) kv_rdr_names
-       ; tv_names <- mapM (newTyVarNameRn mb_cls rdr_env loc) tv_rdr_names
-             -- All the free vars of the family patterns
-             -- with a sensible binding location
-       ; (pats', fvs) <- bindLocalNamesFV kv_names $ 
-                         bindLocalNamesFV tv_names $ 
-                         rnLHsTypes doc pats
-
 rnFamInstDecl :: HsDocContext
               -> Maybe (Name, [Name])
               -> Located RdrName
@@ -565,22 +542,11 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
 rnTyFamInstDecl :: Maybe (Name, [Name])
                 -> TyFamInstDecl RdrName
                 -> RnM (TyFamInstDecl Name, FreeVars)
-rnTyFamInstDecl mb_cls (TyFamInstSingle { tfid_eqn = eqn })
-  = do { (eqn', fvs) <- rnTyFamInstEqn mb_cls) eqn
-       ; return (TyFamInstSingle { tfid_eqn = eqn'
-                                 , tfid_fvs = fvs }, fvs)
-rnTyFamInstDecl Nothing (TyFamInstBranched { tfid_eqns = eqns, tfid_space = mspace })
-  = do { (eqns', fvs1) <- rnList (rnTyFamInstEqn Nothing) eqns
-       ; (space', fvs2) <- rn_space mspace
-       ; let fvs = fvs1 `plusFVs` fvs2
-       ; return (TyFamInstBranched { tfid_eqns  = eqns'
-                                   , tfid_space = space'
-                                   , tfid_fvs   = fvs }, fvs) }
-  where rn_space Nothing  = (Nothing, emptyFVs)
-        rn_space (Just (TyFamInstSpace { tfis_tycon = tycon
-                                       , tfis_pats  = pats }))
-          = do { tycon' <- lookupFamInstName Nothing tycon
-               ; let loc
+rnTyFamInstDecl mb_cls (TyFamInstDecl { tfid_eqns = eqns, tfid_group = group })
+  = do { (eqns', fvs) <- rnList (rnTyFamInstEqn mb_cls) eqns
+       ; return (TyFamInstDecl { tfid_eqns = eqns'
+                               , tfid_group = group
+                               , tfid_fvs = fvs }, fvs) }
 
 rnTyFamInstEqn :: Maybe (Name, [Name])
                -> TyFamInstEqn RdrName
