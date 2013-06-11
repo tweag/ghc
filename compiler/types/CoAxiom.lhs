@@ -11,7 +11,6 @@
 
 module CoAxiom (
        Branched, Unbranched, BranchFlag(..), BranchIndex, BranchList(..),
-       isBranched,
        toBranchList, fromBranchList,
        toBranchedList, toUnbranchedList,
        brListLength, brListNth, brListMap, brListFoldr,
