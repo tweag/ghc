@@ -369,37 +369,12 @@ repClsInstD (ClsInstDecl { cid_poly_ty = ty, cid_binds = binds
    Just (tvs, cxt, cls, tys) = splitLHsInstDeclTy_maybe ty
 
 repTyFamInstD :: TyFamInstDecl Name -> DsM (Core TH.DecQ)
-repTyFamInstD decl
+repTyFamInstD decl@(TyFamInstDecl { tfid_eqns = eqns })
   = do { let tc_name = tyFamInstDeclLName decl
        ; tc <- lookupLOcc tc_name		-- See note [Binders and occurrences]  
        ; eqns1 <- mapM repTyFamEqn eqns
        ; eqns2 <- coreList tySynEqnQTyConName eqns1
-       ; mtys2 <- mtys1
-       ; typeq <- lookupType typeQTyConName
-       ; let list_typeq = mkListTy typeq
-             mtys3 = coreMaybe' list_typeq mtys2
-       ; repTySynInst tc mtys3 eqns2 }
-  where
-    eqns = case decl of
-             TyFamInstSingle { tfid_eqn = eqn }     -> [eqn]
-             TyFamInstBranched { tfid_eqns = eqns } -> eqns
-
-    mtys1 :: DsM (Maybe (Core [TH.TypeQ]))
-    mtys1 = case decl of
-              TyFamInstSingle {} -> return Nothing
-              TyFamInstBranched { tfid_space = Nothing } -> return Nothing
-              TyFamInstBranched { tfid_space = Just (L loc (
-                TyFamInstSpace { tfis_pats = HsWB { hswb_cts = tys
-                                                  , hswb_kvs = kv_names
-                                                  , hswb_tvs = tv_names } })) }
-                -> do { let hs_tvs = HsQTvs { hsq_kvs = kv_names
-                                            , hsq_tvs = userHsTyVarBndrs loc tv_names }
-                            rep_ty ty = addTyClTyVarBinds hs_tvs $ \_ ->
-                                          repLTy ty
-                      ; tys1 <- mapM rep_ty tys
-                      ; tys2 <- coreList typeQTyConName tys1
-                      ; return $ Just tys2 }
-                
+       ; repTySynInst tc eqns2 }
 
 repTyFamEqn :: LTyFamInstEqn Name -> DsM (Core TH.TySynEqnQ)
 repTyFamEqn (L loc (TyFamInstEqn { tfie_pats = HsWB { hswb_cts = tys
@@ -1720,10 +1695,9 @@ repFamilyKind :: Core TH.FamFlavour -> Core TH.Name -> Core [TH.TyVarBndr]
 repFamilyKind (MkC flav) (MkC nm) (MkC tvs) (MkC ki)
     = rep2 familyKindDName [flav, nm, tvs, ki]
 
-repTySynInst :: Core TH.Name -> Core (Maybe [TH.TypeQ])
-             -> Core [TH.TySynEqnQ] -> DsM (Core TH.DecQ)
-repTySynInst (MkC nm) (MkC mtys) (MkC eqns)
-  = rep2 tySynInstDName [nm, mtys, eqns]
+repTySynInst :: Core TH.Name -> Core [TH.TySynEqnQ] -> DsM (Core TH.DecQ)
+repTySynInst (MkC nm) (MkC eqns)
+  = rep2 tySynInstDName [nm, eqns]
 
 repTySynEqn :: Core [TH.TypeQ] -> Core TH.TypeQ -> DsM (Core TH.TySynEqnQ)
 repTySynEqn (MkC lhs) (MkC rhs)
@@ -1954,17 +1928,6 @@ nonEmptyCoreList xs@(MkC x:_) = MkC (mkListExpr (exprType x) (map unC xs))
 
 coreStringLit :: String -> DsM (Core String)
 coreStringLit s = do { z <- mkStringExpr s; return(MkC z) }
-
-_coreMaybe :: Name  -- Of the TyCon of the element type
-          -> Maybe (Core a) -> DsM (Core (Maybe a))
-_coreMaybe tc_name m
-  = do { elt_ty <- lookupType tc_name
-       ; return (coreMaybe' elt_ty m) }
-
-coreMaybe' :: Type    -- The element type
-           -> Maybe (Core a) -> Core (Maybe a)
-coreMaybe' elt_ty Nothing        = MkC (mkNothingExpr elt_ty)
-coreMaybe' elt_ty (Just (MkC x)) = MkC (mkJustExpr elt_ty x)
 
 ------------ Literals & Variables -------------------
 

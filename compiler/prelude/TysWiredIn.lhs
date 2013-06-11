@@ -45,10 +45,6 @@ module TysWiredIn (
         listTyCon_RDR, consDataCon_RDR, listTyConName,
         mkListTy, mkPromotedListTy,
 
-        -- * Maybe
-        maybeTyCon, nothingDataCon, justDataCon,
-        nothingDataConId, justDataConId,
-
         -- * Tuples
         mkTupleTy, mkBoxedTupleTy,
         tupleTyCon, tupleCon,
@@ -607,18 +603,6 @@ ltDataConId, eqDataConId, gtDataConId :: Id
 ltDataConId = dataConWorkId ltDataCon
 eqDataConId = dataConWorkId eqDataCon
 gtDataConId = dataConWorkId gtDataCon
-
-maybeTyCon :: TyCon
-maybeTyCon = pcTyCon True NonRecursive True maybeTyConName Nothing
-                     [alphaTyVar] [nothingDataCon, justDataCon]
-
-nothingDataCon, justDataCon :: DataCon
-nothingDataCon = pcDataCon nothingDataConName [alphaTyVar] []        maybeTyCon
-justDataCon    = pcDataCon justDataConName    [alphaTyVar] [alphaTy] maybeTyCon
-
-nothingDataConId, justDataConId :: Id
-nothingDataConId = dataConWorkId nothingDataCon
-justDataConId    = dataConWorkId justDataCon
 \end{code}
 
 %************************************************************************

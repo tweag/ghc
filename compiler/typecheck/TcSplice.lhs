@@ -1196,10 +1196,7 @@ reifyThing thing = pprPanic "reifyThing" (pprTcTyThingCategory thing)
 reifyAxiom :: CoAxiom br -> TcM TH.Info
 reifyAxiom (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
   = do { eqns <- sequence $ brListMap reifyAxBranch branches
-       ; return (TH.TyConI (TH.TySynInstD (reifyName tc) Nothing eqns)) }
--- There is no way to reconstruct a type instance space from an axiom, so
--- we don't try. This is wrong, but we'll wait for someone to shout, because
--- it's not at all easy to fix.
+       ; return (TH.TyConI (TH.TySynInstD (reifyName tc) eqns)) }
 
 reifyAxBranch :: CoAxBranch -> TcM TH.TySynEqn
 reifyAxBranch (CoAxBranch { cab_lhs = args, cab_rhs = rhs })
@@ -1314,16 +1311,13 @@ reifyClassInstance i
 reifyFamilyInstance :: FamInst br -> TcM TH.Dec
 reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
                                 , fi_branches = branches
-                                , fi_fam = fam
-                                , fi_space = space })
+                                , fi_fam = fam })
   = case flavor of
       SynFamilyInst ->
-        do { th_space <- reifyFamInstSpace space
-           ; th_eqns <- sequence $ brListMap reifyFamInstBranch branches
-           ; return (TH.TySynInstD (reifyName fam) th_space th_eqns) }
+        do { th_eqns <- sequence $ brListMap reifyFamInstBranch branches
+           ; return (TH.TySynInstD (reifyName fam) th_eqns) }
 
       DataFamilyInst rep_tc ->
-        ASSERT( case space of { NoFamInstSpace -> True ; _ -> False } )
         do { let tvs = tyConTyVars rep_tc
                  fam' = reifyName fam
                  lhs = famInstBranchLHS $ famInstSingleBranch (toUnbranchedFamInst fi)
@@ -1332,10 +1326,6 @@ reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
            ; return (if isNewTyCon rep_tc
                      then TH.NewtypeInstD [] fam' th_tys (head cons) []
                      else TH.DataInstD    [] fam' th_tys cons        []) }
-
-reifyFamInstSpace :: FamInstSpace -> TcM (Maybe [TH.Type])
-reifyFamInstSpace NoFamInstSpace = return Nothing
-reifyFamInstSpace (FamInstSpace { fis_tys = tys }) = Just <$> reifyTypes tys
 
 reifyFamInstBranch :: FamInstBranch -> TcM TH.TySynEqn
 reifyFamInstBranch (FamInstBranch { fib_lhs = lhs, fib_rhs = rhs })
