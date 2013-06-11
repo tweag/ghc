@@ -26,7 +26,6 @@ import PrelInfo   (wiredInThings, basicKnownKeyNames)
 import Id         (idName, isDataConWorkId_maybe)
 import CoreSyn    (DFunArg(..))
 import Coercion   (LeftOrRight(..))
-import CoAxiom    (BranchFlag(..))
 import TysWiredIn
 import IfaceEnv
 import HscTypes
@@ -1367,17 +1366,7 @@ instance Binary IfaceFamInst where
         tys      <- get bh
         name     <- get bh
         orph     <- get bh
-        return (IfaceFamInst fam group space tys name orph)
-
-instance Binary BranchFlag where
-    put_ bh Branched   = putByte bh 0
-    put_ bh Unbranched = putByte bh 1
-    get bh = do
-        b <- getByte bh
-        case b of
-            0 -> return Branched
-            1 -> return Unbranched
-            _ -> panic ("get BranchFlag " ++ show b)
+        return (IfaceFamInst fam group tys name orph)
 
 instance Binary IfaceFamInstSpace where
     put_ bh IfaceNoFamInstSpace = putByte bh 0

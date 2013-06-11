@@ -15,13 +15,10 @@ module FamInstEnv (
         famInstsRepTyCons, famInstNthBranch, famInstSingleBranch,
         famInstBranchLHS, famInstBranches, 
         toBranchedFamInst, toUnbranchedFamInst,
-        famInstTyCon, famInstRepTyCon_maybe, 
-        isFamInstSpace,
-        dataFamInstRepTyCon, 
+        famInstTyCon, famInstRepTyCon_maybe, dataFamInstRepTyCon, 
         pprFamInst, pprFamInsts, 
         pprFamFlavor, 
-
-        mkImportedFamInst, mkImportedFamInstSpace,
+        mkImportedFamInst, 
 
         FamInstEnv, FamInstEnvs,
         emptyFamInstEnvs, emptyFamInstEnv, famInstEnvElts, familyInstances,
@@ -255,10 +252,11 @@ pprFamInst (FamInst { fi_branches = brs, fi_flavor = SynFamilyInst
                     , fi_space = space })
   = hang (ptext (sLit "type instance") <+> ppr_space <+> ptext (sLit "where"))
        2 (vcat [pprCoAxBranchHdr axiom i | i <- brListIndices brs])
-  where ppr_space = case space of
-                      NoFamInstSpace -> empty
-                      FamInstSpace { fis_tys = tys } ->
-                        pprTypeApp (coAxiomTyCon axiom) tys
+  where ppr_space
+          | NoFamInstSpace <- space = empty
+
+          | FamInstSpace { fis_tys = tys } <- space
+          = pprTypeApp (coAxiomTyCon axiom) tys
 
 pprFamInst fi@(FamInst { fi_flavor = flavor
                        , fi_branched = Unbranched, fi_axiom = ax })
@@ -655,9 +653,9 @@ find match_tys (inst@(FamInst { fi_branches = branches }) : rest)
                -> BranchIndex      -- index of the first of the "still looking" list
                -> (Maybe FamInstMatch, ContSearch)
     findBranch [] _ = (Nothing, KeepSearching)
-    findBranch (FamInstBranch { fib_tvs = tvs
-                              , fib_lhs = tpl_tys
-                              , fib_tcs = mb_tcs } : rest) ind
+    findBranch (branch@(FamInstBranch { fib_tvs = tvs
+                                      , fib_lhs = tpl_tys
+                                      , fib_tcs = mb_tcs }) : rest) ind
       | instanceCantMatch rough_tcs mb_tcs
       = findBranch rest (ind+1)
       | otherwise
@@ -707,8 +705,7 @@ lookupFamInstEnvConflicts' ie fi@(FamInst { fi_space = space, fi_branched = bran
     fam = famInstTyCon fi
     mb_rhs
       | Branched <- branched = Nothing
-      | otherwise            = Just $ famInstBranchRHS $ 
-                                      famInstSingleBranch $ toUnbranchedFamInst fi
+      | otherwise            = Just $ famInstBranchRHS $ famInstSingleBranch fi
 
 conflictsWith :: [Type]           -- type patterns of the new instance
               -> [Maybe Name]     -- rough match tycons of the new instance

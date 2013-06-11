@@ -27,7 +27,7 @@ module HsDecls (
   InstDecl(..), LInstDecl, NewOrData(..), FamilyFlavour(..),
   TyFamInstDecl(..), LTyFamInstDecl, instDeclDataFamInsts,
   DataFamInstDecl(..), LDataFamInstDecl, pprDataFamInstFlavour,
-  TyFamInstEqn(..), LTyFamInstEqn, TyFamInstSpace(..), LTyFamInstSpace,
+  TyFamInstEqn(..), LTyFamInstEqn,
   LClsInstDecl, ClsInstDecl(..),
 
   -- ** Standalone deriving declarations
@@ -861,7 +861,6 @@ data TyFamInstSpace name
       { tfis_tycon :: Located name
       , tfis_pats  :: HsWithBndrs [LHsType name]
       }
-  deriving( Typeable, Data )
 
 type LTyFamInstDecl name = Located (TyFamInstDecl name)
 data TyFamInstDecl name 
@@ -872,8 +871,7 @@ data TyFamInstDecl name
   | TyFamInstBranched
        { tfid_eqns  :: [LTyFamInstEqn name]    -- ^ list of (possibly-overlapping) eqns 
                                                -- Always non-empty
-       , tfid_space :: Maybe (LTyFamInstSpace name)
-                                              -- ^ The (optional) region of the type
+       , tfid_space :: Maybe LTyFamInstSpace  -- ^ The (optional) region of the type
                                               -- space this group sits in.
        , tfid_fvs   :: NameSet }            -- The group is type-checked as one,
                                             --   so one NameSet will do
@@ -967,11 +965,6 @@ pprTyFamInstDecl top_lvl (TyFamInstBranched { tfid_eqns = eqns, tfid_space = spa
 ppr_instance_keyword :: TopLevelFlag -> SDoc
 ppr_instance_keyword TopLevel    = ptext (sLit "instance")
 ppr_instance_keyword NotTopLevel = empty
-
-instance (OutputableBndr name) => Outputable (TyFamInstSpace name) where
-  ppr (TyFamInstSpace { tfis_tycon = tycon
-                      , tfis_pats  = pats })
-    = pp_fam_inst_lhs tycon pats []
 
 instance (OutputableBndr name) => Outputable (TyFamInstEqn name) where
   ppr (TyFamInstEqn { tfie_tycon = tycon

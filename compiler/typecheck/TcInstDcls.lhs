@@ -638,7 +638,7 @@ tcTyFamInstDecl mb_clsinfo (L loc decl)
        ; (space, co_ax_branches) <- tcSynFamInstDecl fam_tc decl
 
          -- (2) check for validity and inaccessibility
-       ; checkValidTypeSpace fam_tc space
+       ; checkValidTypeSpace space
        ; foldlM_ (check_valid_branch fam_tc space) [] co_ax_branches
 
          -- (3) construct coercion axiom
@@ -648,12 +648,14 @@ tcTyFamInstDecl mb_clsinfo (L loc decl)
        ; let axiom = mkBranchedCoAxiom rep_tc_name fam_tc co_ax_branches
        ; newFamInst SynFamilyInst branched space axiom }
     where
-      (eqn1, branched)
-        = case decl of
-            TyFamInstSingle { tfid_eqn = eqn }        -> (eqn, Unbranched)
-            TyFamInstBranched { tfid_eqns = (eqn:_) } -> (eqn, Branched)
-            _                                         -> panic "tcTyfamInstDecl"
+      eqn1
+        | TyFamInstSingle { tfid_eqn = eqn } <- decl        = eqn
+        | TyFamInstBranched { tfid_eqns = (eqn:_) } <- decl = eqn
       fam_lname = tfie_tycon (unLoc eqn1)
+
+      branched
+        | TyFamInstSingle {} <- decl   = Unbranched
+        | TyFamInstBranched {} <- decl = Branched
 
       check_valid_branch :: TyCon
                          -> FamInstSpace

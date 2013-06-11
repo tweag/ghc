@@ -1673,15 +1673,16 @@ famInstToIfaceFamInst (FamInst { fi_axiom    = axiom,
          = Nothing
 
     iface_space
-      = case space of
-          NoFamInstSpace -> IfaceNoFamInstSpace
-          FamInstSpace { fis_tvs = tvs
-                       , fis_tys = tys
-                       , fis_tcs = tcs } ->
-            let (env, tv_bndrs) = tidyTyVarBndrs emptyTidyEnv tvs in
-            IfaceFamInstSpace { ifFamInstSpaceTvs = toIfaceTvBndrs tv_bndrs
-                              , ifFamInstSpaceTys = map (tidyToIfaceType env) tys
-                              , ifFamInstSpaceRoughMatch = map do_rough tcs }
+      | NoFamInstSpace <- space
+      = IfaceNoFamInstSpace
+
+      | FamInstSpace { fis_tvs = tvs
+                     , fis_tys = tys
+                     , fis_tcs = tcs } <- space
+      = let (env, tv_bndrs) = tidyTyVarBndrs emptyTidyEnv tvs in
+        IfaceFamInstSpace { ifFamInstSpaceTvs = toIfaceTvBndrs tv_bndrs
+                          , ifFamInstSpaceTys = map (tidyToIfaceType env) tys
+                          , ifFamInstSpaceRoughMatch = map do_rough fis_tcs }
 
 --------------------------
 toIfaceLetBndr :: Id -> IfaceLetBndr

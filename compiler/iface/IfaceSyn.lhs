@@ -20,7 +20,7 @@ module IfaceSyn (
         IfaceBinding(..), IfaceConAlt(..),
         IfaceIdInfo(..), IfaceIdDetails(..), IfaceUnfolding(..),
         IfaceInfoItem(..), IfaceRule(..), IfaceAnnotation(..), IfaceAnnTarget,
-        IfaceClsInst(..), IfaceFamInst(..), IfaceFamInstSpace(..), IfaceTickish(..), 
+        IfaceClsInst(..), IfaceFamInst(..), IfaceTickish(..), 
         IfaceBang(..), IfaceAxBranch(..),
 
         -- Misc
@@ -43,7 +43,6 @@ import PprCore()            -- Printing DFunArgs
 import Demand
 import Annotations
 import Class
-import CoAxiom ( BranchFlag(..) )
 import NameSet
 import Name
 import CostCentre
@@ -634,11 +633,11 @@ instance Outputable IfaceClsInst where
 
 instance Outputable IfaceFamInst where
   ppr (IfaceFamInst {ifFamInstFam = fam, ifFamInstTys = mb_tcss,
-                     ifFamInstAxiom = tycon_ax, ifFamInstSpace = space})
+                     ifFamInstAxiom = tycon_ax})
     = hang (ptext (sLit "family instance") <+>
             ppr fam <+> pprWithCommas (brackets . pprWithCommas ppr_rough) mb_tcss)
          2 ((equals <+> ppr tycon_ax) $$
-           ppr_space space)
+           ppr_space)
 
 ppr_rough :: Maybe IfaceTyCon -> SDoc
 ppr_rough Nothing   = dot

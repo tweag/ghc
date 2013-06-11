@@ -7,7 +7,7 @@
 module TcValidity (
   Rank, UserTypeCtxt(..), checkValidType, checkValidMonoType,
   expectedKindInCtxt, 
-  checkValidTheta, checkValidFamPats, checkValidTypeSpace,
+  checkValidTheta, checkValidFamPats,
   checkValidInstance, validDerivPred,
   checkInstTermination, checkValidTyFamInst, checkTyFamFreeness, 
   checkConsistentFamInst,
@@ -23,7 +23,7 @@ import TypeRep
 import TcType
 import TcMType
 import Type
-import Unify
+import Unify( tcMatchTyX )
 import Kind
 import CoAxiom
 import Class
@@ -33,8 +33,6 @@ import TyCon
 import HsSyn            -- HsType
 import TcRnMonad        -- TcType, amongst others
 import FunDeps
-import Var
-import FamInstEnv
 import Name
 import VarEnv
 import VarSet
@@ -1081,14 +1079,14 @@ wrongATArgErr ty instTy =
 --
 checkValidTyFamInst :: Maybe ( Class, VarEnv Type )
                     -> FamInstSpace
-                    -> BranchFlag
+                    -> Bool          -- is this part of a branched instance?
                     -> TyCon -> CoAxBranch -> TcM ()
 checkValidTyFamInst mb_clsinfo space branched fam_tc 
                     (CoAxBranch { cab_tvs = tvs, cab_lhs = typats
                                 , cab_rhs = rhs, cab_loc = loc })
-  = ASSERT( not (isFamInstSpace space && not (isBranched branched)) )
+  = ASSERT( not (isFamInstSpace space && not branched) )
     setSrcSpan loc $ 
-    do { checkValidFamPats (isBranched branched) fam_tc tvs typats
+    do { checkValidFamPats branched fam_tc tvs typats
 
          -- The right-hand side is a tau type
        ; checkValidMonoType rhs
@@ -1120,7 +1118,7 @@ checkPatsWithinTypeSpace :: FamInstSpace
 checkPatsWithinTypeSpace NoFamInstSpace _ _ = return ()
 checkPatsWithinTypeSpace (FamInstSpace { fis_tvs = space_tvs, fis_tys = space_tys })
                          fam_tc pats
-  = checkTc (isJust $ tcMatchTys (mkVarSet space_tvs) space_tys pats) $
+  = checkTc (isJust $ tcMatchTys space_tvs space_tys pats) $
       branchOutOfTypeSpace fam_tc space_tys pats
 
 -- Make sure that each type family application is 
