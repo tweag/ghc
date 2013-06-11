@@ -9,7 +9,6 @@ module FamInstEnv (
         Branched, Unbranched,
 
         FamInst(..), FamFlavor(..), FamInstBranch(..), 
-        FamInstSpace(..), BranchFlag(..),
 
         famInstAxiom, famInstBranchRoughMatch,
         famInstsRepTyCons, famInstNthBranch, famInstSingleBranch,
@@ -96,7 +95,7 @@ Note that this "branched-ness" is properly associated with the FamInst,
 which thinks about overlap, and not in the CoAxiom, which blindly
 assumes that it is part of a consistent axiom set.
 
-A "branched" instance with fi_branched=Branched can have just one branch, however.
+A "branched" instance with fi_branched=True can have just one branch, however.
 
 Note [Why we need fib_rhs]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -131,8 +130,10 @@ data FamInst br -- See Note [FamInsts and CoAxioms], Note [Branched axioms] in C
   = FamInst { fi_axiom    :: CoAxiom br      -- The new coercion axiom introduced
                                              -- by this family instance
             , fi_flavor   :: FamFlavor
-            , fi_branched :: BranchFlag      -- See Note [fi_branched field]
-            , fi_space    :: FamInstSpace    -- See Note [Instance type spaces]
+            , fi_branched :: Bool            -- True <=> declared with "type instance where"
+                                             -- See Note [fi_branched field]
+            , fi_space    :: Maybe FamInstSpace
+                                             -- See Note [Instance type spaces]
 
 
             -- Everything below here is a redundant,
@@ -147,11 +148,9 @@ data FamInst br -- See Note [FamInsts and CoAxioms], Note [Branched axioms] in C
 
 -- See Note [Instance type spaces]
 data FamInstSpace
-  = NoFamInstSpace
-  | FamInstSpace { fis_tvs :: [TyVar]  -- tyvars used in...
+  = FamInstSpace { fis_tvs :: [TyVar]  -- tyvars used in...
                  , fis_tys :: [Type]   -- ...these type patterns
                  , fis_tcs :: [Maybe Name] -- rough match fields
-                 , fis_loc :: SrcSpan
                  }
 
 data FamInstBranch
@@ -174,10 +173,6 @@ data FamFlavor
 
 
 \begin{code}
-isFamInstSpace :: FamInstSpace -> Bool
-isFamInstSpace (FamInstSpace {}) = True
-isFamInstSpace NoFamInstSpace    = False
-
 -- Obtain the axiom of a family instance
 famInstAxiom :: FamInst br -> CoAxiom br
 famInstAxiom = fi_axiom
@@ -244,7 +239,7 @@ instance Outputable (FamInst br) where
 -- Prints the FamInst as a family instance declaration
 pprFamInst :: FamInst br -> SDoc
 pprFamInst (FamInst { fi_branches = brs, fi_flavor = SynFamilyInst
-                    , fi_branched = Branched, fi_axiom = axiom
+                    , fi_branched = True, fi_axiom = axiom
                     , fi_space = space })
   = hang (ptext (sLit "type instance") <+> ppr_space <+> ptext (sLit "where"))
        2 (vcat [pprCoAxBranchHdr axiom i | i <- brListIndices brs])
@@ -254,7 +249,7 @@ pprFamInst (FamInst { fi_branches = brs, fi_flavor = SynFamilyInst
           = pprTypeApp (coAxiomTyCon axiom) tys
 
 pprFamInst fi@(FamInst { fi_flavor = flavor
-                       , fi_branched = Unbranched, fi_axiom = ax })
+                       , fi_branched = False, fi_axiom = ax })
   = pprFamFlavor flavor <+> pp_instance
     <+> pprCoAxBranchHdr ax 0
   where
@@ -301,8 +296,8 @@ also.
 -- interface file.  In particular, we get the rough match info from the iface
 -- (instead of computing it here).
 mkImportedFamInst :: Name               -- Name of the family
-                  -> BranchFlag
-                  -> FamInstSpace       -- type space
+                  -> Bool               -- is this a branched instance?
+                  -> Maybe FamInstSpace -- type space
                   -> [[Maybe Name]]     -- Rough match info, per branch
                   -> CoAxiom Branched   -- Axiom introduced
                   -> FamInst Branched   -- Resulting family instance
@@ -344,16 +339,6 @@ mkImportedFamInst fam branched space roughs axiom
 
        | otherwise
        = SynFamilyInst
-
-mkImportedFamInstSpace :: [TyVar]      -- quantified variables
-                       -> [Type]       -- patterns
-                       -> [Maybe Name] -- rough match fields
-                       -> FamInstSpace
-mkImportedFamInstSpace tvs tys tcs
-  = FamInstSpace { fis_tvs = tvs
-                 , fis_tys = tys
-                 , fis_tcs = tcs
-                 , fis_loc = noSrcSpan }
 \end{code}
 
 
@@ -635,7 +620,8 @@ lookupFamInstEnv' ie fam tys
 
 find :: [Type] -> [FamInst Branched] -> [FamInstMatch]
 find _ [] = []
-find match_tys (inst@(FamInst { fi_branches = branches }) : rest)
+find match_tys (inst@(FamInst { fi_branches = branches
+                              , fi_branched = is_branched }) : rest)
   = case findBranch [] (fromBranchList branches) 0 of
       (Just match, StopSearching) -> [match]
       (Just match, KeepSearching) -> match : find match_tys rest
@@ -722,7 +708,7 @@ conflictsWith tys rough_tcs mb_rhs
                 -- They shouldn't because we allocate separate uniques for them
       Just subst ->
         isDataFamilyTyCon tc ||
-        isBranched old_branched ||
+        old_branched ||
         rhs_conflict mb_rhs (famInstBranchRHS $ famInstSingleBranch fi) subst
           -- we don't need to check if the new instance is branched, because
           -- if it is, mb_rhs will be Nothing, and rhs_conflict will return True

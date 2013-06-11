@@ -781,43 +781,41 @@ tcDefaultAssocDecl fam_tc (L loc decl)
   = setSrcSpan loc $
     tcAddTyFamInstCtxt decl $
     do { traceTc "tcDefaultAssocDecl" (ppr decl)
-       ; (_space, branches) <- tcSynFamInstDecl fam_tc decl
-       ; ASSERT( isNothing _space )
-         return branches }
+       ; tcSynFamInstDecl fam_tc decl }
     -- We check for well-formedness and validity later, in checkValidClass
 
 -------------------------
 -- returns an optional type space specifier along with the branches
 tcSynFamInstDecl :: TyCon -> TyFamInstDecl Name
-                 -> TcM (FamInstSpace, [CoAxBranch])
+                 -> TcM (Maybe ([TKVar], Type), [CoAxBranch])
 -- Placed here because type family instances appear as
 -- default decls in class declarations
 tcSynFamInstDecl fam_tc (TyFamInstSingle { tfid_eqn = eqn })
   = do { checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
        ; eqn' <- tcTyFamInstEqn fam_tc eqn
-       ; return (NoFamInstSpace, [eqn']) }
+       ; return (Nothing, [eqn']) }
 tcSynFamInstDecl fam_tc (TyFamInstBranched { tfid_eqns  = eqns
                                            , tfid_space = mspace })
   -- we know the first equation matches the fam_tc because of the lookup logic
   -- now, just check that all other names match the first
   = do { tcSynFamInstNames first names
        ; checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
-       ; space' <- check_space mspace
+       ; mspace' <- check_space mspace
        ; eqns' <- mapM (tcTyFamInstEqn fam_tc) eqns
        ; return (mspace', eqns') }
   where
     names = map (tfie_tycon . unLoc) eqns
     first = head names
 
-    check_space :: Maybe LTyFamInstSpace -> TcM FamInstSpace
-    check_space Nothing = return NoFamInstSpace
+    check_space :: Maybe LTyFamInstSpace -> TcM (Maybe ([TKVar], Type))
+    check_space Nothing = return Nothing
     check_space (Just (L loc (TyFamInstSpace { tfis_tycon = tycon
                                              , tfis_pats  = pats })))
       = setSrcSpan loc $
         tcAddTyFamInstSpaceCtxt $
         do { checkTc (tycon == first) (badTypeSpace tycon first)
            ; tcFamTyPats fam_tc pats Nothing $
-               \tvs pats' _kind -> mkFamInstSpace loc tvs pats' }
+               \tvs pats' _kind -> Just (tvs, mkTyConApp fam_tc pats) }
 
 -- Checks to make sure that all the names in an instance group are the same
 tcSynFamInstNames :: Located Name -> [Located Name] -> TcM ()

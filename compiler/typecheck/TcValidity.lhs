@@ -1078,13 +1078,13 @@ wrongATArgErr ty instTy =
 -- unless -XUndecidableInstances is given).
 --
 checkValidTyFamInst :: Maybe ( Class, VarEnv Type )
-                    -> FamInstSpace
+                    -> Maybe ([TKVar], Type)   -- type space for branched instances
                     -> Bool          -- is this part of a branched instance?
                     -> TyCon -> CoAxBranch -> TcM ()
-checkValidTyFamInst mb_clsinfo space branched fam_tc 
+checkValidTyFamInst mb_clsinfo mb_space branched fam_tc 
                     (CoAxBranch { cab_tvs = tvs, cab_lhs = typats
                                 , cab_rhs = rhs, cab_loc = loc })
-  = ASSERT( not (isFamInstSpace space && not branched) )
+  = ASSERT( not (isJust mb_space && not branched) )
     setSrcSpan loc $ 
     do { checkValidFamPats branched fam_tc tvs typats
 
@@ -1100,26 +1100,26 @@ checkValidTyFamInst mb_clsinfo space branched fam_tc
        ; checkConsistentFamInst mb_clsinfo fam_tc tvs typats
 
          -- Check that branch fits within type space
-       ; checkPatsWithinTypeSpace space fam_tc typats }
+       ; checkPatsWithinTypeSpace mb_space fam_tc typats }
 
 -- checks to make sure that a declared type space has *linear* patterns
-checkValidTypeSpace :: TyCon -> FamInstSpace -> TcM ()
-checkValidTypeSpace _ NoFamInstSpace = return ()
-checkValidTypeSpace fam_tc (FamInstSpace { fis_tys = tys })
-  = checkTc (hasNoDups $ fvTypes tys) $
-      nonLinearTypeSpace fam_tc tys
+checkValidTypeSpace :: Maybe ([TyVar], Type) -> TcM ()
+checkValidTypeSpace Nothing = return ()
+checkValidTypeSpace (Just (_, ty))
+  = checkTc (hasNoDups $ fvType ty) $
+      nonLinearTypeSpace ty
 
 -- checks to make sure that patterns in a branched type family instance
 -- fit within the declared type space.
 -- i.e. type instance Foo [x] where { Foo Int = Bool } should fail
-checkPatsWithinTypeSpace :: FamInstSpace
+checkPatsWithinTypeSpace :: Maybe ([TyVar], Type)
                          -> TyCon -> [Type]
                          -> TcM ()
-checkPatsWithinTypeSpace NoFamInstSpace _ _ = return ()
-checkPatsWithinTypeSpace (FamInstSpace { fis_tvs = space_tvs, fis_tys = space_tys })
-                         fam_tc pats
-  = checkTc (isJust $ tcMatchTys space_tvs space_tys pats) $
-      branchOutOfTypeSpace fam_tc space_tys pats
+checkPatsWithinTypeSpace Nothing _ _ = return ()
+checkPatsWithinTypeSpace (Just (tvs, space)) fam_tc pats
+  = checkTc (isJust $ tcMatchTy tvs space lhs) $
+      branchOutOfTypeSpace space lhs
+  where lhs = mkTyConApp fam_tc pats
 
 -- Make sure that each type family application is 
 --   (1) strictly smaller than the lhs,
@@ -1205,15 +1205,15 @@ nonLinearPattern fam_tc ty_pats
   = hang (ptext (sLit "Repeated variable in standalone instance not allowed:"))
          2 (pprTypeApp fam_tc ty_pats)
 
-nonLinearTypeSpace :: TyCon -> [Type] -> SDoc
-nonLinearTypeSpace fam_tc tys
+nonLinearTypeSpace :: Type -> SDoc
+nonLinearTypeSpace ty
   = hang (ptext (sLit "Repeated variable in branched instance type region not allowed:"))
-       2 (pprTypeApp fam_tc tys)
+       2 (ppr ty)
 
-branchOutOfTypeSpace :: TyCon -> [Type] -> [Type] -> SDoc
-branchOutOfTypeSpace fam_tc space_tys lhs_tys
-  = ptext (sLit "The declared type space") <+> quotes (pprTypeApp fam_tc space_tys) <+>
-    ptext (sLit "does not include the type") <+> quotes (pprTypeApp fam_tc lhs_tys)
+branchOutOfTypeSpace :: Type -> Type -> SDoc
+branchOutOfTypeSpace space lhs
+  = ptext (sLit "The declared type space") <+> quotes (ppr space) <+>
+    ptext (sLit "does not include the type") <+> quotes (ppr lhs)
 
 nestedMsg, smallerAppMsg :: SDoc
 nestedMsg     = ptext (sLit "Nested type family application")

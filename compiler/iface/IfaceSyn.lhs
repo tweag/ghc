@@ -178,19 +178,11 @@ data IfaceClsInst
 -- a list of Maybe IfaceTyCon. So, we get [[Maybe IfaceTyCon]].
 data IfaceFamInst
   = IfaceFamInst { ifFamInstFam      :: IfExtName            -- Family name
-                 , ifFamInstBranched :: BranchFlag           -- Is this branched?
-                 , ifFamInstSpace    :: IfaceFamInstSpace
+                 , ifFamInstBranched :: Bool                 -- Is this branched?
                  , ifFamInstTys      :: [[Maybe IfaceTyCon]] -- See above
                  , ifFamInstAxiom    :: IfExtName            -- The axiom
                  , ifFamInstOrph     :: Maybe OccName        -- Just like IfaceClsInst
                  }
-
-data IfaceFamInstSpace
-  = IfaceNoFamInstSpace
-  | IfaceFamInstSpace { ifFamInstSpaceTvs :: [IfaceTvBndr]
-                      , ifFamInstSpaceTys :: [IfaceType]
-                      , ifFamInstSpaceRoughMatch :: [Maybe IfaceTyCon]
-                      }
 
 data IfaceRule
   = IfaceRule {
@@ -636,17 +628,11 @@ instance Outputable IfaceFamInst where
                      ifFamInstAxiom = tycon_ax})
     = hang (ptext (sLit "family instance") <+>
             ppr fam <+> pprWithCommas (brackets . pprWithCommas ppr_rough) mb_tcss)
-         2 ((equals <+> ppr tycon_ax) $$
-           ppr_space)
+         2 (equals <+> ppr tycon_ax)
 
 ppr_rough :: Maybe IfaceTyCon -> SDoc
 ppr_rough Nothing   = dot
 ppr_rough (Just tc) = ppr tc
-
-ppr_space :: IfaceFamInstSpace -> SDoc
-ppr_space IfaceNoFamInstSpace = empty
-ppr_space (IfaceFamInstSpace { ifFamInstSpaceTys = tys })
-  = parens (ptext (sLit "under these patterns:") <+> ppr tys)
 \end{code}
 
 
@@ -968,18 +954,9 @@ freeNamesIfRule (IfaceRule { ifRuleBndrs = bs, ifRuleHead = f
     
 freeNamesIfFamInst :: IfaceFamInst -> NameSet
 freeNamesIfFamInst (IfaceFamInst { ifFamInstFam = famName
-                                 , ifFamInstSpace = space
                                  , ifFamInstAxiom = axName })
   = unitNameSet famName &&&
-    freeNamesIfFamInstSpace space &&&
     unitNameSet axName
-
-freeNamesIfFamInstSpace :: IfaceFamInstSpace -> NameSet
-freeNamesIfFamInstSpace IfaceNoFamInstSpace = emptyNameSet
-freeNamesIfFamInstSpace (IfaceFamInstSpace { ifFamInstSpaceTvs = tvs
-                                           , ifFamInstSpaceTys = tys })
-  = fnList freeNamesIfTvBndr tvs &&&
-    fnList freeNamesIfType tys
 
 -- helpers
 (&&&) :: NameSet -> NameSet -> NameSet
