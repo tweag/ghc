@@ -785,37 +785,17 @@ tcDefaultAssocDecl fam_tc (L loc decl)
     -- We check for well-formedness and validity later, in checkValidClass
 
 -------------------------
--- returns an optional type space specifier along with the branches
-tcSynFamInstDecl :: TyCon -> TyFamInstDecl Name
-                 -> TcM (Maybe ([TKVar], Type), [CoAxBranch])
+tcSynFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM [CoAxBranch]
 -- Placed here because type family instances appear as
 -- default decls in class declarations
-tcSynFamInstDecl fam_tc (TyFamInstSingle { tfid_eqn = eqn })
-  = do { checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
-       ; eqn' <- tcTyFamInstEqn fam_tc eqn
-       ; return (Nothing, [eqn']) }
-tcSynFamInstDecl fam_tc (TyFamInstBranched { tfid_eqns  = eqns
-                                           , tfid_space = mspace })
+tcSynFamInstDecl fam_tc (TyFamInstDecl { tfid_eqns = eqns })
   -- we know the first equation matches the fam_tc because of the lookup logic
   -- now, just check that all other names match the first
-  = do { tcSynFamInstNames first names
+  = do { let names = map (tfie_tycon . unLoc) eqns
+             first = head names
+       ; tcSynFamInstNames first names
        ; checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
-       ; mspace' <- check_space mspace
-       ; eqns' <- mapM (tcTyFamInstEqn fam_tc) eqns
-       ; return (mspace', eqns') }
-  where
-    names = map (tfie_tycon . unLoc) eqns
-    first = head names
-
-    check_space :: Maybe LTyFamInstSpace -> TcM (Maybe ([TKVar], Type))
-    check_space Nothing = return Nothing
-    check_space (Just (L loc (TyFamInstSpace { tfis_tycon = tycon
-                                             , tfis_pats  = pats })))
-      = setSrcSpan loc $
-        tcAddTyFamInstSpaceCtxt $
-        do { checkTc (tycon == first) (badTypeSpace tycon first)
-           ; tcFamTyPats fam_tc pats Nothing $
-               \tvs pats' _kind -> Just (tvs, mkTyConApp fam_tc pats) }
+       ; mapM (tcTyFamInstEqn fam_tc) eqns }
 
 -- Checks to make sure that all the names in an instance group are the same
 tcSynFamInstNames :: Located Name -> [Located Name] -> TcM ()
@@ -832,7 +812,7 @@ tcTyFamInstEqn :: TyCon -> LTyFamInstEqn Name -> TcM CoAxBranch
 tcTyFamInstEqn fam_tc
     (L loc (TyFamInstEqn { tfie_pats = pats, tfie_rhs = hs_ty }))
   = setSrcSpan loc $
-    tcFamTyPats fam_tc pats (Just $ discardResult . (tcCheckLHsType hs_ty)) $
+    tcFamTyPats fam_tc pats (discardResult . (tcCheckLHsType hs_ty)) $
        \tvs' pats' res_kind ->
     do { rhs_ty <- tcCheckLHsType hs_ty res_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
@@ -868,8 +848,8 @@ kcResultKind (Just k) res_k
 -----------------
 tcFamTyPats :: TyCon
             -> HsWithBndrs [LHsType Name] -- Patterns
-            -> Maybe (TcKind -> TcM ())       -- Kind checker for RHS
-                                              -- result is ignored
+            -> (TcKind -> TcM ())       -- Kind checker for RHS
+                                        -- result is ignored
             -> ([TKVar] -> [TcType] -> Kind -> TcM a)
             -> TcM a
 -- Check the type patterns of a type or data family instance
@@ -884,7 +864,7 @@ tcFamTyPats :: TyCon
 -- (and, if C is poly-kinded, so will its kind parameter).
 
 tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tvars })
-            mb_kind_checker thing_inside
+            kind_checker thing_inside
   = do { -- A family instance must have exactly the same number of type
          -- parameters as the family declaration.  You can't write
          --     type family F a :: * -> *
@@ -907,7 +887,7 @@ tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tva
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
        ; typats <- tcHsTyVarBndrs hs_tvs $ \ _ ->
-                   do { maybe_do kind_checker res_kind
+                   do { kind_checker res_kind
                       ; tcHsArgTys (quotes (ppr fam_tc)) arg_pats arg_kinds }
        ; let all_args = fam_arg_kinds ++ typats
 
@@ -925,9 +905,6 @@ tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tva
        ; traceTc "tcFamTyPats" (pprTvBndrs qtkvs' $$ ppr all_args' $$ ppr res_kind')
        ; tcExtendTyVarEnv qtkvs' $
          thing_inside qtkvs' all_args' res_kind' }
-  where maybe_do :: Monad m => Maybe (a -> m ()) -> a -> m ()
-        maybe_do Nothing  _ = return ()
-        maybe_do (Just f) a = f a
 \end{code}
 
 Note [Quantifying over family patterns]
@@ -1490,7 +1467,7 @@ checkValidClass cls
 
     check_at_defs (fam_tc, defs)
       = tcAddDefaultAssocDeclCtxt (tyConName fam_tc) $
-        mapM_ (checkValidTyFamInst mb_clsinfo Nothing fam_tc) defs
+        mapM_ (checkValidTyFamInst mb_clsinfo fam_tc) defs
 
     mb_clsinfo = Just (cls, mkVarEnv [ (tv, mkTyVarTy tv) | tv <- tyvars ])
 

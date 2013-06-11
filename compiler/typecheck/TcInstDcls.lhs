@@ -623,10 +623,13 @@ tcFamInstDeclCombined mb_clsinfo fam_tc_lname
 tcTyFamInstDecl :: Maybe (Class, VarEnv Type) -- the class & mini_env if applicable
                 -> LTyFamInstDecl Name -> TcM (FamInst Branched)
   -- "type instance"
-tcTyFamInstDecl mb_clsinfo (L loc decl)
+tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_group = group
+                                                      , tfid_eqns = eqns }))
   = setSrcSpan loc           $
     tcAddTyFamInstCtxt decl  $
-    do { fam_tc <- tcFamInstDeclCombined mb_clsinfo fam_lname
+    do { let (eqn1:_) = eqns
+             fam_lname = tfie_tycon (unLoc eqn1)
+       ; fam_tc <- tcFamInstDeclCombined mb_clsinfo fam_lname
 
          -- (0) Check it's an open type family
        ; checkTc (isFamilyTyCon fam_tc) (notFamily fam_tc)
@@ -635,36 +638,25 @@ tcTyFamInstDecl mb_clsinfo (L loc decl)
                  (notOpenFamily fam_tc)
 
          -- (1) do the work of verifying the synonym group
-       ; (mb_space, co_ax_branches) <- tcSynFamInstDecl fam_tc decl
+       ; co_ax_branches <- tcSynFamInstDecl fam_tc decl
 
          -- (2) check for validity and inaccessibility
-       ; checkValidTypeSpace mb_space
-       ; foldlM_ (check_valid_branch fam_tc mb_space) [] co_ax_branches
+       ; foldlM_ (check_valid_branch fam_tc) [] co_ax_branches
 
          -- (3) construct coercion axiom
        ; rep_tc_name <- newFamInstAxiomName loc
                                             (tyFamInstDeclName decl)
                                             (map cab_lhs co_ax_branches)
        ; let axiom = mkBranchedCoAxiom rep_tc_name fam_tc co_ax_branches
-       ; newFamInst SynFamilyInst branched axiom }
-    where
-      eqn1
-        | TyFamInstSingle { tfid_eqn = eqn } <- decl        = eqn
-        | TyFamInstBranched { tfid_eqns = (eqn:_) } <- decl = eqn
-      fam_lname = tfie_tycon (unLoc eqn1)
-
-      branched
-        | TyFamInstSingle {} <- decl   = False
-        | TyFamInstBranched {} <- decl = True
-
+       ; newFamInst SynFamilyInst group axiom }
+    where 
       check_valid_branch :: TyCon
-                         -> Maybe ([TKVar], Type) -- type space
                          -> [CoAxBranch]     -- previous
                          -> CoAxBranch       -- current
                          -> TcM [CoAxBranch] -- current : previous
-      check_valid_branch fam_tc mb_space prev_branches cur_branch
+      check_valid_branch fam_tc prev_branches cur_branch
         = do { -- Check the well-formedness of the instance
-               checkValidTyFamInst mb_clsinfo mb_space branched fam_tc cur_branch
+               checkValidTyFamInst mb_clsinfo fam_tc cur_branch
 
                -- Check whether the branch is dominated by earlier
                -- ones and hence is inaccessible
@@ -692,13 +684,13 @@ tcDataFamInstDecl mb_clsinfo
        ; checkTc (isAlgTyCon fam_tc) (wrongKindOfFamily fam_tc)
 
          -- Kind check type patterns
-       ; tcFamTyPats fam_tc pats (Just $ kcDataDefn defn) $ 
+       ; tcFamTyPats fam_tc pats (kcDataDefn defn) $ 
            \tvs' pats' res_kind -> do
 
        { -- Check that left-hand side contains no type family applications
          -- (vanilla synonyms are fine, though, and we checked for
          --  foralls earlier)
-         checkValidFamPats False fam_tc tvs' pats'
+         checkValidFamPats fam_tc tvs' pats'
          -- Check that type patterns match class instance head, if any
        ; checkConsistentFamInst mb_clsinfo fam_tc tvs' pats'
          

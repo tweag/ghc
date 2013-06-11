@@ -53,19 +53,14 @@ import qualified Data.Map as Map
 -- creates the fresh variables and applies the necessary substitution
 -- It is defined here to avoid a dependency from FamInstEnv on the monad
 -- code.
-newFamInst :: FamFlavor
-           -> Bool                  -- is this a branched instance?
-           -> Maybe ([TyVar], Type) -- declared type space for branched instances
-           -> CoAxiom br
-           -> TcRnIf gbl lcl (FamInst br)
+newFamInst :: FamFlavor -> Bool -> CoAxiom br -> TcRnIf gbl lcl(FamInst br)
 -- Freshen the type variables of the FamInst branches
 -- Called from the vectoriser monad too, hence the rather general type
-newFamInst flavor is_branched mb_space axiom@(CoAxiom { co_ax_tc       = fam_tc
-                                                      , co_ax_branches = ax_branches })
+newFamInst flavor is_branched axiom@(CoAxiom { co_ax_tc       = fam_tc
+                                             , co_ax_branches = ax_branches })
   = do { fam_branches <- go ax_branches
        ; return (FamInst { fi_fam      = tyConName fam_tc
                          , fi_flavor   = flavor
-                         , fi_space    = space
                          , fi_branches = fam_branches
                          , fi_branched = is_branched
                          , fi_axiom    = axiom }) }
@@ -86,17 +81,6 @@ newFamInst flavor is_branched mb_space axiom@(CoAxiom { co_ax_tc       = fam_tc
                                     , fib_lhs   = substTys subst lhs
                                     , fib_rhs   = substTy  subst rhs
                                     , fib_tcs   = roughMatchTcs lhs }) }
-
-    space
-      | False <- is_branched
-      , FirstBranch (FamInstBranch { fib_tvs = tvs, fib_lhs = lhs, fib_tcs = tcs })
-          <- fam_branches
-      = Just (FamInstSpace { fis_tvs = tvs, fis_tys = lhs, fis_tcs = tcs })
-
-      | Nothing <- mb_space
-      = Nothing
-
-      | Just (tvs, 
 \end{code}
 
 

@@ -1078,15 +1078,12 @@ wrongATArgErr ty instTy =
 -- unless -XUndecidableInstances is given).
 --
 checkValidTyFamInst :: Maybe ( Class, VarEnv Type )
-                    -> Maybe ([TKVar], Type)   -- type space for branched instances
-                    -> Bool          -- is this part of a branched instance?
                     -> TyCon -> CoAxBranch -> TcM ()
-checkValidTyFamInst mb_clsinfo mb_space branched fam_tc 
+checkValidTyFamInst mb_clsinfo fam_tc 
                     (CoAxBranch { cab_tvs = tvs, cab_lhs = typats
                                 , cab_rhs = rhs, cab_loc = loc })
-  = ASSERT( not (isJust mb_space && not branched) )
-    setSrcSpan loc $ 
-    do { checkValidFamPats branched fam_tc tvs typats
+  = setSrcSpan loc $ 
+    do { checkValidFamPats fam_tc tvs typats
 
          -- The right-hand side is a tau type
        ; checkValidMonoType rhs
@@ -1097,29 +1094,7 @@ checkValidTyFamInst mb_clsinfo mb_space branched fam_tc
            mapM_ addErrTc (checkFamInstRhs typats (tcTyFamInsts rhs))
 
          -- Check that type patterns match the class instance head
-       ; checkConsistentFamInst mb_clsinfo fam_tc tvs typats
-
-         -- Check that branch fits within type space
-       ; checkPatsWithinTypeSpace mb_space fam_tc typats }
-
--- checks to make sure that a declared type space has *linear* patterns
-checkValidTypeSpace :: Maybe ([TyVar], Type) -> TcM ()
-checkValidTypeSpace Nothing = return ()
-checkValidTypeSpace (Just (_, ty))
-  = checkTc (hasNoDups $ fvType ty) $
-      nonLinearTypeSpace ty
-
--- checks to make sure that patterns in a branched type family instance
--- fit within the declared type space.
--- i.e. type instance Foo [x] where { Foo Int = Bool } should fail
-checkPatsWithinTypeSpace :: Maybe ([TyVar], Type)
-                         -> TyCon -> [Type]
-                         -> TcM ()
-checkPatsWithinTypeSpace Nothing _ _ = return ()
-checkPatsWithinTypeSpace (Just (tvs, space)) fam_tc pats
-  = checkTc (isJust $ tcMatchTy tvs space lhs) $
-      branchOutOfTypeSpace space lhs
-  where lhs = mkTyConApp fam_tc pats
+       ; checkConsistentFamInst mb_clsinfo fam_tc tvs typats }
 
 -- Make sure that each type family application is 
 --   (1) strictly smaller than the lhs,
@@ -1150,8 +1125,7 @@ checkFamInstRhs lhsTys famInsts
              -- excessive occurrences of *type* variables.
              -- e.g. type instance Demote {T k} a = T (Demote {k} (Any {k}))
 
-checkValidFamPats :: Bool -- allow non-linear patterns?
-                  -> TyCon -> [TyVar] -> [Type] -> TcM ()
+checkValidFamPats :: TyCon -> [TyVar] -> [Type] -> TcM ()
 -- Patterns in a 'type instance' or 'data instance' decl should
 -- a) contain no type family applications
 --    (vanilla synonyms are fine, though)
@@ -1159,13 +1133,10 @@ checkValidFamPats :: Bool -- allow non-linear patterns?
 --    e.g. we disallow (Trac #7536)
 --         type T a = Int
 --         type instance F (T a) = a
-checkValidFamPats allow_nonlinear fam_tc tvs ty_pats
+checkValidFamPats fam_tc tvs ty_pats
   = do { mapM_ checkTyFamFreeness ty_pats
        ; let unbound_tvs = filterOut (`elemVarSet` exactTyVarsOfTypes ty_pats) tvs
-       ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats)
-       ; unless allow_nonlinear $
-           checkTc (hasNoDups $ fvTypes ty_pats) (nonLinearPattern fam_tc ty_pats)
- }
+       ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
 
 -- Ensure that no type family instances occur in a type.
 --
@@ -1200,21 +1171,6 @@ famPatErr fam_tc tvs pats
        2 (hang (ptext (sLit "but the real LHS (expanding synonyms) is:"))
              2 (pprTypeApp fam_tc (map expandTypeSynonyms pats) <+> ptext (sLit "= ...")))
 
-nonLinearPattern :: TyCon -> [Type] -> SDoc
-nonLinearPattern fam_tc ty_pats
-  = hang (ptext (sLit "Repeated variable in standalone instance not allowed:"))
-         2 (pprTypeApp fam_tc ty_pats)
-
-nonLinearTypeSpace :: Type -> SDoc
-nonLinearTypeSpace ty
-  = hang (ptext (sLit "Repeated variable in branched instance type region not allowed:"))
-       2 (ppr ty)
-
-branchOutOfTypeSpace :: Type -> Type -> SDoc
-branchOutOfTypeSpace space lhs
-  = ptext (sLit "The declared type space") <+> quotes (ppr space) <+>
-    ptext (sLit "does not include the type") <+> quotes (ppr lhs)
-
 nestedMsg, smallerAppMsg :: SDoc
 nestedMsg     = ptext (sLit "Nested type family application")
 smallerAppMsg = ptext (sLit "Application is no smaller than the instance head")
@@ -1235,7 +1191,7 @@ fvType (TyConApp _ tys)    = fvTypes tys
 fvType (LitTy {})          = []
 fvType (FunTy arg res)     = fvType arg ++ fvType res
 fvType (AppTy fun arg)     = fvType fun ++ fvType arg
-fvType (ForAllTy tyvar ty) = fvType (tyVarKind tyvar) ++ filter (/= tyvar) (fvType ty)
+fvType (ForAllTy tyvar ty) = filter (/= tyvar) (fvType ty)
 
 fvTypes :: [Type] -> [TyVar]
 fvTypes tys                = concat (map fvType tys)
