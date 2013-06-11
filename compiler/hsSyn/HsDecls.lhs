@@ -877,6 +877,7 @@ data TyFamInstDecl name
                                               -- space this group sits in.
        , tfid_fvs   :: NameSet }            -- The group is type-checked as one,
                                             --   so one NameSet will do
+       -- INVARIANT: tfid_group == False --> length tfid_eqns == 1
   deriving( Typeable, Data )
 
 

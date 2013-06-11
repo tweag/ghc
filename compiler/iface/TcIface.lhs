@@ -663,8 +663,7 @@ tcIfaceFamInst (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcss
                              , ifFamInstSpace = space } )
     = do { axiom' <- forkM (ptext (sLit "Axiom") <+> ppr axiom_name) $
                      tcIfaceCoAxiom axiom_name
-         ; space' <- forkM (ptext (sLit "Type instance space") <+> ppr axiom_name) $
-                     tcIfaceFamInstSpace space
+         ; space' <- tcIfaceFamInstSpace space
          ; let mb_tcss' = map (map (fmap ifaceTyConName)) mb_tcss
          ; return (mkImportedFamInst fam branched space' mb_tcss' axiom') }
 

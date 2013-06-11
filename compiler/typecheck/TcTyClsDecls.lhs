@@ -1734,10 +1734,10 @@ tcAddDefaultAssocDeclCtxt name thing_inside
 
 tcAddTyFamInstCtxt :: TyFamInstDecl Name -> TcM a -> TcM a
 tcAddTyFamInstCtxt decl
-  | TyFamInstSingle {} <- decl
+  | [_] <- tfid_eqns decl
   = tcAddFamInstCtxt (ptext (sLit "type instance")) (tyFamInstDeclName decl)
   | otherwise
-  = tcAddFamInstCtxt (ptext (sLit "branched type instance")) (tyFamInstDeclName decl)
+  = tcAddFamInstCtxt (ptext (sLit "type instance group")) (tyFamInstDeclName decl)
 
 tcAddTyFamInstSpaceCtxt :: TcM a -> TcM a
 tcAddTyFamInstSpaceCtxt = addErrCtxt (ptext (sLit "In the type space declaration"))

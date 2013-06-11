@@ -4977,8 +4977,7 @@ data family Array :: * -> *
       that the keyword <literal>data</literal> or <literal>newtype</literal>
       is followed by <literal>instance</literal> and that some or all of the
       type arguments can be non-variable types, but may not contain forall
-      types, type synonym families, or repeated uses of the same variable.
-      However, data families are generally
+      types or type synonym families.  However, data families are generally
       allowed in type parameters, and type synonyms are allowed as long as
       they are fully applied and expand to a type that is itself admissible -
       exactly as this is required for occurrences of type synonyms in class
@@ -5134,9 +5133,8 @@ F Bool             -- WRONG: unsaturated application
       standard type synonym declarations. The only two differences are that
       the keyword <literal>type</literal> is followed by
       <literal>instance</literal> and that some or all of the type arguments
-      can be non-variable types, but may not contain forall types, type
-      synonym families, or repeated uses of the same variable.
-      However, data families are generally allowed, and type
+      can be non-variable types, but may not contain forall types or type
+      synonym families. However, data families are generally allowed, and type
       synonyms are allowed as long as they are fully applied and expand to a
       type that is admissible - these are the exact same requirements as for
       data instances. For example, the <literal>[e]</literal> instance for
@@ -5150,9 +5148,9 @@ type instance Elem [e] = e
       Branched instance declarations, on the other hand, allow many different
       left-hand-side type patterns. These patterns are tried in order, from
       top to bottom, when simplifying a type family application. A branched instance
-      declaration is introduced by <literal>type instance ... where</literal>. For example:
+      declaration is introduced by <literal>type instance where</literal>. For example:
 <programlisting>
-type instance F b where
+type instance where
   F Int  = Double
   F Bool = Char
   F a    = String
@@ -5168,32 +5166,6 @@ type instance F b where
       a programmer specifies just <literal>F a</literal> in their code, GHC will
       not be able to simplify the type. After all, <literal>a</literal> might later
       be instantiated with <literal>Int</literal>.
-    </para>
-
-    <para>
-      The pattern that appears in the header (<literal>F b</literal> in our
-      example) defines a <emphasis>type space</emphasis> into which all
-      branches must fit. During type instance conflict/overlap checking, this
-      type space is used to compare against other instances. A type space is a
-      type pattern like any other left-hand side of a type family instance.
-      GHC checks to make sure that the type space pattern matches all branch
-      patterns that apear below it. The variables used in the type space
-      declaration are scoped only over that declaration.
-    </para>
-   
-    <para>
-      If a type space is omitted on a branched instance declaration (i.e., the
-      branched instance begins with <literal>type instance where</literal>),
-      the type space is assumed to cover all possible patterns. In other
-      words, an omitted type space is equivalent to a type space where all the
-      patterns are just bare variables. This has the effect of creating a
-      <emphasis>closed</emphasis> type family, because any other instance would
-      necessarily conflict.
-    </para>
-
-    <para>
-      Left-hand sides in branched instances <emphasis>may</emphasis> contain
-      repeated use of the same variable. Type spaces may not.
     </para>
 
     <para>
@@ -5220,22 +5192,17 @@ type instance F String             = Char        -- OK!
 type instance F (F a)              = a           -- WRONG: type parameter mentions a type family
 type instance F (forall a. (a, b)) = b           -- WRONG: a forall type appears in a type parameter
 type instance F Float              = forall a.a  -- WRONG: right-hand side may not be a forall type
-type instance F (Maybe a) where                  -- OK!
+type instance where                              -- OK!
   F (Maybe Int)  = Int
   F (Maybe Bool) = Bool
   F (Maybe a)    = String
 type instance where            -- WRONG: conflicts with earlier instances (see below)
   F Int = Float
   F a   = [a]
--- TODO (RAE): Finish writing.
-
 
 type family G a b :: * -> *
 type instance G Int            = (,)     -- WRONG: must be two type parameters
 type instance G Int Char Float = Double  -- WRONG: must be two type parameters
-type instance G x   x          = Maybe   -- WRONG: cannot repeat variable
-
-type instance G Int a
 </programlisting>
     </para>
     </sect3>
