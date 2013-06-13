@@ -623,12 +623,10 @@ tcFamInstDeclCombined mb_clsinfo fam_tc_lname
 tcTyFamInstDecl :: Maybe (Class, VarEnv Type) -- the class & mini_env if applicable
                 -> LTyFamInstDecl Name -> TcM (FamInst Branched)
   -- "type instance"
-tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_group = group
-                                                      , tfid_eqns = eqns }))
+tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_eqns = eqns }))
   = setSrcSpan loc           $
     tcAddTyFamInstCtxt decl  $
-    do { let (eqn1:_) = eqns
-             fam_lname = tfie_tycon (unLoc eqn1)
+    do { let fam_lname = tfie_tycon (unLoc eqn)
        ; fam_tc <- tcFamInstDeclCombined mb_clsinfo fam_lname
 
          -- (0) Check it's an open type family
