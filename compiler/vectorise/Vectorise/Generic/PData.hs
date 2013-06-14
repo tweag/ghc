@@ -60,7 +60,7 @@ buildDataFamInst name' fam_tc vect_tc rhs
                            False       -- Not promotable
                            False       -- not GADT syntax
                            (FamInstTyCon ax fam_tc pat_tys)
-      ; liftDs $ newFamInst (DataFamilyInst rep_tc) False ax }
+      ; liftDs $ newFamInst (DataFamily rep_tc) (tyConName fam_tc) ax }
  where
     tyvars    = tyConTyVars vect_tc
     rec_flag  = boolToRecFlag (isRecursiveTyCon vect_tc)

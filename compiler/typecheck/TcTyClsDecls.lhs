@@ -159,7 +159,14 @@ tcTyClGroup boot_details tyclds
            -- we want them in the environment because
            -- they may be mentioned in interface files
        ; tcExtendGlobalValEnv (mkDefaultMethodIds tyclss) $
+         addFamInsts (get_fam_insts tyclss) $ -- RAE: Remove this hack
          tcAddImplicits tyclss } }
+  where --RAE remove all of this.
+    get_fam_insts :: [TyThing] -> [FamInst Branched]
+    get_fam_insts [] = []
+    get_fam_insts (ATyCon (SynTyCon { synTcRhs = ClosedSynFamilyTyCon inst }) : rest)
+      = inst : get_fam_insts rest
+    get_fam_insts (h : t) = get_fam_insts t
 
 tcAddImplicits :: [TyThing] -> TcM TcGblEnv
 tcAddImplicits tyclss
@@ -648,13 +655,52 @@ tcTyClDecl1 _ _
 \begin{code}
 tcFamDecl1 :: TyConParent -> FamilyDecl Name -> TcM [TyThing]
 tcFamDecl1 parent
-            (FamilyDecl {fdFlavour = TypeFamily, fdLName = L _ tc_name, fdTyVars = tvs})
+            (FamilyDecl {fdInfo = OpenTypeFamily, fdLName = L _ tc_name, fdTyVars = tvs})
   = tcTyClTyVars tc_name tvs $ \ tvs' kind -> do
-  { traceTc "type family:" (ppr tc_name)
+  { traceTc "open type family:" (ppr tc_name)
   ; checkFamFlag tc_name
-  ; let syn_rhs = SynFamilyTyCon { synf_open = True, synf_injective = False }
-  ; tycon <- buildSynTyCon tc_name tvs' syn_rhs kind parent
+  ; tycon <- buildSynTyCon tc_name tvs' OpenSynFamilyTyCon kind parent
   ; return [ATyCon tycon] }
+
+tcFamDecl1 parent
+            (FamilyDecl { fdInfo = ClosedTypeFamily eqns
+                        , fdLName = lname@(L _ tc_name), fdTyVars = tvs })
+-- Closed type families are a little tricky, because they contain the definition
+-- of both the type family and an instance.
+  = do { traceTc "closed type family:" (ppr tc_name)
+         -- the variables in the header have no scope:
+       ; (tvs', kind) <- tcTyClTyVars tc_name tvs $ \ tvs' kind ->
+                         return (tvs', kind)
+
+       ; checkFamFlag tc_name -- make sure we have -XTypeFamilies
+
+         -- check to make sure all the names used in the equations are
+         -- consistent
+       ; let names = map (tfie_tycon . unLoc) eqns
+       ; tcSynFamInstNames lname names
+
+         -- The CoAxiom refers to the TyCon, and vice versa. So, we need a
+         -- knot:
+       ; (fam_tc, axiom) <- fixM $ \(rec_fam_tc, _rec_axiom) -> do
+
+         -- process the equations, creating CoAxBranches
+         { branches <- mapM (tcTyFamInstEqn rec_fam_tc) eqns
+
+           -- create a CoAxiom, with the correct src location
+         ; loc <- getSrcSpanM
+         ; co_ax_name <- newFamInstAxiomName loc tc_name branches
+         ; let co_ax = mkBranchedCoAxiom co_ax_name rec_fam_tc branches
+
+           -- make the FamInst
+         ; fam_inst <- newFamInst ClosedTypeFamily tc_name co_ax
+
+           -- now, finally, build the TyCon
+         ; let syn_rhs = ClosedSynFamilyTyCon fam_inst
+         ; tycon <- buildSynTyCon tc_name tvs' syn_rhs kind parent }
+
+       ; return [ATyCon fam_tc, ACoAxiom axiom] }
+-- We check for instance validity later, when doing validity checking for
+-- the tycon
 
 tcFamDecl1 parent
            (FamilyDecl {fdFlavour = DataFamily, fdLName = L _ tc_name, fdTyVars = tvs})
@@ -785,17 +831,12 @@ tcDefaultAssocDecl fam_tc (L loc decl)
     -- We check for well-formedness and validity later, in checkValidClass
 
 -------------------------
-tcSynFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM [CoAxBranch]
+tcSynFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM CoAxBranch
 -- Placed here because type family instances appear as
 -- default decls in class declarations
-tcSynFamInstDecl fam_tc (TyFamInstDecl { tfid_eqns = eqns })
-  -- we know the first equation matches the fam_tc because of the lookup logic
-  -- now, just check that all other names match the first
-  = do { let names = map (tfie_tycon . unLoc) eqns
-             first = head names
-       ; tcSynFamInstNames first names
-       ; checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
-       ; mapM (tcTyFamInstEqn fam_tc) eqns }
+tcSynFamInstDecl fam_tc (TyFamInstDecl { tfid_eqn = eqn })
+  = do { checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
+       ; tcTyFamInstEqn fam_tc eqn }
 
 -- Checks to make sure that all the names in an instance group are the same
 tcSynFamInstNames :: Located Name -> [Located Name] -> TcM ()
@@ -1244,8 +1285,9 @@ checkValidTyCon tc
 
   | Just syn_rhs <- synTyConRhs_maybe tc
   = case syn_rhs of
-      SynFamilyTyCon {} -> return ()
-      SynonymTyCon ty   -> checkValidType syn_ctxt ty
+      ClosedSynFamilyTyCon inst -> checkValidClosedFamInst inst
+      OpenSynFamilyTyCon  -> return ()
+      SynonymTyCon ty     -> checkValidType syn_ctxt ty
 
   | otherwise
   = do { -- Check the context on the data decl
@@ -1308,6 +1350,25 @@ checkValidTyCon tc
                 ts2 = mkVarSet tvs2
                 fty2 = dataConFieldType con2 label
     check_fields [] = panic "checkValidTyCon/check_fields []"
+
+checkValidClosedFamInst :: FamInst Branched -> TcM ()
+checkValidClosedFamInst (FamInst { fi_axiom = axiom, fi_fam_tc = tc })
+ = tcAddClosedTypeFamilyDeclCtxt tc $
+   do { foldlM_ check_accessibility [] branches
+      ; void $ brListMapM (checkValidTyFamInst Nothing tc) branches }
+   where
+     branches = coAxBranches axiom
+
+     check_accessibility :: [CoAxBranch]       -- prev branches (in reverse order)
+                         -> CoAxBranch         -- cur branch
+                         -> TcM [CoAxBranch]   -- cur : prev
+               -- Check whether the branch is dominated by earlier
+               -- ones and hence is inaccessible
+     check_accessibility prev_branches cur_branch
+       = do { when (cur_branch `isDominatedBy` prev_branches) $
+              setSrcSpan (coAxBranchSpan cur_branch) $
+              addErrTc $ inaccessibleCoAxBranch fam_tc cur_branch
+            ; return (cur_branch : prev_branches) }
 
 checkFieldCompat :: Name -> DataCon -> DataCon -> TyVarSet
                  -> Type -> Type -> Type -> Type -> TcM ()

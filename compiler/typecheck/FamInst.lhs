@@ -53,16 +53,18 @@ import qualified Data.Map as Map
 -- creates the fresh variables and applies the necessary substitution
 -- It is defined here to avoid a dependency from FamInstEnv on the monad
 -- code.
-newFamInst :: FamFlavor -> Bool -> CoAxiom br -> TcRnIf gbl lcl(FamInst br)
+
+-- NB: Can't pull out the fam_tc's name because closed type families have
+-- their FamInsts created in a typechecking knot, and the tycon isn't ready
+-- yet. RAE: Is this logic accurate?
+newFamInst :: FamFlavor -> Name -> CoAxiom br -> TcRnIf gbl lcl (FamInst br)
 -- Freshen the type variables of the FamInst branches
 -- Called from the vectoriser monad too, hence the rather general type
-newFamInst flavor is_branched axiom@(CoAxiom { co_ax_tc       = fam_tc
-                                             , co_ax_branches = ax_branches })
+newFamInst flavor fam_tc_name axiom@(CoAxiom { co_ax_branches = ax_branches })
   = do { fam_branches <- go ax_branches
-       ; return (FamInst { fi_fam      = tyConName fam_tc
+       ; return (FamInst { fi_fam      = fam_tc_name
                          , fi_flavor   = flavor
                          , fi_branches = fam_branches
-                         , fi_branched = is_branched
                          , fi_axiom    = axiom }) }
   where
     go :: BranchList CoAxBranch br -> TcRnIf gbl lcl (BranchList FamInstBranch br)

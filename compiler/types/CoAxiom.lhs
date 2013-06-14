@@ -13,7 +13,7 @@ module CoAxiom (
        Branched, Unbranched, BranchIndex, BranchList(..),
        toBranchList, fromBranchList,
        toBranchedList, toUnbranchedList,
-       brListLength, brListNth, brListMap, brListFoldr,
+       brListLength, brListNth, brListMap, brListFoldr, brListMapM,
        brListZipWith, brListIndices,
 
        CoAxiom(..), CoAxBranch(..), 
@@ -177,6 +177,12 @@ brListMap f (NextBranch h t) = f h : (brListMap f t)
 brListFoldr :: (a -> b -> b) -> b -> BranchList a br -> b
 brListFoldr f x (FirstBranch b) = f b x
 brListFoldr f x (NextBranch h t) = f h (brListFoldr f x t)
+
+brListMapM :: Monad m => (a -> m b) -> BranchList a br -> m [b]
+brListMapM f (FirstBranch b) = f b >>= \fb -> return [fb]
+brListMapM f (NextBranch h t) = do { fh <- f h
+                                   ; ft <- brListMapM f t
+                                   ; return (fh : ft) }
 
 -- zipWith
 brListZipWith :: (a -> b -> c) -> BranchList a br1 -> BranchList b br2 -> [c]

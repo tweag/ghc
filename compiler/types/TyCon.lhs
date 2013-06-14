@@ -580,11 +580,12 @@ data SynTyConRhs ty
                       -- It acts as a template for the expansion when the 'TyCon'
                       -- is applied to some types.
 
-   -- | A type synonym family  e.g. @type family F x y :: * -> *@
-   | SynFamilyTyCon {
-        synf_open :: Bool,         -- See Note [Closed type families]
-        synf_injective :: Bool 
-     }
+   -- | An open type synonym family  e.g. @type family F x y :: * -> *@
+   | OpenSynFamilyTyCon 
+
+   -- | A closed type synonym family  e.g. @type family F x where { F Int = Bool }@
+   | ClosedSynFamilyTyCon
+       (FamInst Branched) -- RAE: Should we reuse this structure here?
 \end{code}
 
 Note [Closed type families]
@@ -592,8 +593,9 @@ Note [Closed type families]
 * In an open type family you can add new instances later.  This is the 
   usual case.  
 
-* In a closed type family you can only put instnaces where the family
-  is defined.  GHC doesn't support syntax for this yet.
+* In a closed type family you can only put equations where the family
+  is defined.
+
 
 Note [Promoted data constructors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

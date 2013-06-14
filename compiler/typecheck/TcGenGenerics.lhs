@@ -445,7 +445,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
                         (nameSrcSpan (tyConName tycon))
 
      ; let axiom = mkSingleCoAxiom rep_name tyvars fam_tc appT repTy
-     ; newFamInst SynFamilyInst False axiom  }
+     ; newFamInst SynFamilyInst False (tyConName fam_tc) axiom  }
 
 --------------------------------------------------------------------------------
 -- Type representation

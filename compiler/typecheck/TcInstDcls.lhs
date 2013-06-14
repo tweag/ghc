@@ -559,7 +559,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
                      ; let axiom = mkSingleCoAxiom rep_tc_name tvs' fam_tc pat_tys' rhs'
                      ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
-                       newFamInst SynFamilyInst False {- group -} axiom }
+                       newFamInst OpenTypeFamily (tyConName fam_tc) axiom }
 
         ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
         
@@ -636,33 +636,17 @@ tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_eqns = eqns }))
                  (notOpenFamily fam_tc)
 
          -- (1) do the work of verifying the synonym group
-       ; co_ax_branches <- tcSynFamInstDecl fam_tc decl
+       ; co_ax_branch <- tcSynFamInstDecl fam_tc decl
 
-         -- (2) check for validity and inaccessibility
-       ; foldlM_ (check_valid_branch fam_tc) [] co_ax_branches
+         -- (2) check for validity
+       ; checkValidTyFamInst mb_clsinfo fam_tc co_ax_branch
 
          -- (3) construct coercion axiom
        ; rep_tc_name <- newFamInstAxiomName loc
                                             (tyFamInstDeclName decl)
-                                            (map cab_lhs co_ax_branches)
+                                            [co_ax_branch]
        ; let axiom = mkBranchedCoAxiom rep_tc_name fam_tc co_ax_branches
-       ; newFamInst SynFamilyInst group axiom }
-    where 
-      check_valid_branch :: TyCon
-                         -> [CoAxBranch]     -- previous
-                         -> CoAxBranch       -- current
-                         -> TcM [CoAxBranch] -- current : previous
-      check_valid_branch fam_tc prev_branches cur_branch
-        = do { -- Check the well-formedness of the instance
-               checkValidTyFamInst mb_clsinfo fam_tc cur_branch
-
-               -- Check whether the branch is dominated by earlier
-               -- ones and hence is inaccessible
-             ; when (cur_branch `isDominatedBy` prev_branches) $
-               setSrcSpan (coAxBranchSpan cur_branch) $
-               addErrTc $ inaccessibleCoAxBranch fam_tc cur_branch
-
-             ; return $ cur_branch : prev_branches }
+       ; newFamInst OpenTypeFamily (tyConName fam_tc) axiom }
 
 tcDataFamInstDecl :: Maybe (Class, VarEnv Type)
                   -> LDataFamInstDecl Name -> TcM (FamInst Unbranched)
@@ -723,7 +707,7 @@ tcDataFamInstDecl mb_clsinfo
                  -- further instance might not introduce a new recursive
                  -- dependency.  (2) They are always valid loop breakers as
                  -- they involve a coercion.
-              ; fam_inst <- newFamInst (DataFamilyInst rep_tc) False axiom
+              ; fam_inst <- newFamInst (DataFamily rep_tc) (tyConName fam_tc) axiom
               ; return (rep_tc, fam_inst) }
 
          -- Remember to check validity; no recursion to worry about here
