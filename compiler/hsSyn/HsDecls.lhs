@@ -480,7 +480,7 @@ data FamilyInfo name
   = DataFamily
   | OpenTypeFamily
   | ClosedTypeFamily [LTyFamInstEqn name]
-  deriving( Data, Typeable, Eq )
+  deriving( Data, Typeable )
 
 \end{code}
 
@@ -611,9 +611,9 @@ instance (OutputableBndr name) => Outputable (FamilyDecl name) where
           (pp_where, pp_eqns) = case info of
             ClosedTypeFamily eqns -> ( ptext (sLit "where")
                                      , vcat $ map ppr eqns )
-            _                     -> (empty, emtpy)
+            _                     -> (empty, empty)
 
-pprFlavour :: FamilyInfo -> SDoc
+pprFlavour :: FamilyInfo name -> SDoc
 pprFlavour DataFamily            = ptext (sLit "data family")
 pprFlavour OpenTypeFamily        = ptext (sLit "type family")
 pprFlavour (ClosedTypeFamily {}) = ptext (sLit "type family")

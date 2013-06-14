@@ -88,6 +88,7 @@ module TyCon(
 
 import {-# SOURCE #-} TypeRep ( Kind, Type, PredType )
 import {-# SOURCE #-} DataCon ( DataCon, isVanillaDataCon )
+import {-# SOURCE #-} FamInstEnv ( FamInst ) -- RAE Remove!!
 
 import Var
 import Class
@@ -1151,19 +1152,21 @@ isEnumerationTyCon (AlgTyCon {algTcRhs = DataTyCon { is_enum = res }}) = res
 isEnumerationTyCon (TupleTyCon {tyConArity = arity}) = arity == 0
 isEnumerationTyCon _                                                   = False
 
--- | Is this a 'TyCon', synonym or otherwise, that may have further instances appear?
+-- | Is this a 'TyCon', synonym or otherwise, that defines a family?
 isFamilyTyCon :: TyCon -> Bool
-isFamilyTyCon (SynTyCon {synTcRhs = SynFamilyTyCon {}})  = True
-isFamilyTyCon (AlgTyCon {algTcRhs = DataFamilyTyCon {}}) = True
+isFamilyTyCon (SynTyCon {synTcRhs = OpenSynFamilyTyCon })      = True
+isFamilyTyCon (SynTyCon {synTcRhs = ClosedSynFamilyTyCon {} }) = True
+isFamilyTyCon (AlgTyCon {algTcRhs = DataFamilyTyCon {}})       = True
 isFamilyTyCon _ = False
 
 -- | Is this a synonym 'TyCon' that can have may have further instances appear?
 isSynFamilyTyCon :: TyCon -> Bool
-isSynFamilyTyCon (SynTyCon {synTcRhs = SynFamilyTyCon {}}) = True
+isSynFamilyTyCon (SynTyCon {synTcRhs = OpenSynFamilyTyCon {}})   = True
+isSynFamilyTyCon (SynTyCon {synTcRhs = ClosedSynFamilyTyCon {}}) = True
 isSynFamilyTyCon _ = False
 
 isOpenSynFamilyTyCon :: TyCon -> Bool
-isOpenSynFamilyTyCon (SynTyCon {synTcRhs = SynFamilyTyCon { synf_open = is_open } }) = is_open
+isOpenSynFamilyTyCon (SynTyCon {synTcRhs = OpenSynFamilyTyCon }) = True
 isOpenSynFamilyTyCon _ = False
 
 -- | Is this a synonym 'TyCon' that can have may have further instances appear?

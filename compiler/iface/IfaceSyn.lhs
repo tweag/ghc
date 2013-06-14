@@ -503,8 +503,13 @@ pprIfaceDecl (IfaceSyn {ifName = tycon,
        4 (vcat [equals <+> ppr mono_ty])
 
 pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyVars = tyvars,
-                        ifSynRhs = SynFamilyTyCon {}, ifSynKind = kind })
+                        ifSynRhs = OpenSynFamilyTyCon {}, ifSynKind = kind })
   = hang (ptext (sLit "type family") <+> pprIfaceDeclHead [] tycon tyvars)
+       4 (dcolon <+> ppr kind)
+
+pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyVars = tyvars,
+                        ifSynRhs = ClosedSynFamilyTyCon {}, ifSynKind = kind })
+  = hang (ptext (sLit "closed type family") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (dcolon <+> ppr kind)
 
 pprIfaceDecl (IfaceData {ifName = tycon, ifCType = cType,

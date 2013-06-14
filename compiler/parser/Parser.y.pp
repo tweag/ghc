@@ -711,7 +711,7 @@ ty_fam_inst_eqn :: { LTyFamInstEqn RdrName }
                 -- Note the use of type for the head; this allows
                 -- infix type constructors and type patterns
               {% do { eqn <- mkTyFamInstEqn $1 $3
-                    ; return (LL eqn) }
+                    ; return (LL eqn) } }
 
 -- Associated type family declarations
 --
