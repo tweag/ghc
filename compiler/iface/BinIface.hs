@@ -1324,17 +1324,18 @@ instance Binary IfaceAxBranch where
         a3 <- get bh
         return (IfaceAxBranch a1 a2 a3)
 
-instance Binary ty => Binary (SynTyConRhs ty) where
-    put_ bh (SynFamilyTyCon a b) = putByte bh 0 >> put_ bh a >> put_ bh b
-    put_ bh (SynonymTyCon ty)    = putByte bh 1 >> put_ bh ty
+instance Binary IfaceSynTyConRhs where
+    put_ bh IfaceOpenSynFamilyTyCon        = putByte bh 0
+    put_ bh (IfaceClosedSynFamilyTyCon ax) = putByte bh 1 >> put_ bh ax
+    put_ bh (IfaceSynonymTyCon ty)         = putByte bh 2 >> put_ bh ty
 
     get bh = do { h <- getByte bh
                 ; case h of
-                    0 -> do { a <- get bh
-                            ; b <- get bh
-                            ; return (SynFamilyTyCon a b) }
+                    0 -> do { return IfaceOpenSynFamilyTyCon }
+                    1 -> do { ax <- get bh
+                            ; return (IfaceClosedSynFamilyTyCon ax) }
                     _ -> do { ty <- get bh
-                            ; return (SynonymTyCon ty) } }
+                            ; return (IfaceSynonymTyCon ty) } }
 
 instance Binary IfaceClsInst where
     put_ bh (IfaceClsInst cls tys dfun flag orph) = do
@@ -1352,19 +1353,17 @@ instance Binary IfaceClsInst where
         return (IfaceClsInst cls tys dfun flag orph)
 
 instance Binary IfaceFamInst where
-    put_ bh (IfaceFamInst fam group tys name orph) = do
+    put_ bh (IfaceFamInst fam tys name orph) = do
         put_ bh fam
-        put_ bh group
         put_ bh tys
         put_ bh name
         put_ bh orph
     get bh = do
         fam      <- get bh
-        group    <- get bh
         tys      <- get bh
         name     <- get bh
         orph     <- get bh
-        return (IfaceFamInst fam group tys name orph)
+        return (IfaceFamInst fam tys name orph)
 
 instance Binary OverlapFlag where
     put_ bh (NoOverlap  b) = putByte bh 0 >> put_ bh b

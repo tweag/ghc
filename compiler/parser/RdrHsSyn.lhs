@@ -181,11 +181,11 @@ mkTySynonym loc lhs rhs
 mkTyFamInstEqn :: LHsType RdrName
                -> LHsType RdrName
                -> P (TyFamInstEqn RdrName)
-mkTyFamInstEqn loc lhs rhs
+mkTyFamInstEqn lhs rhs
   = do { (tc, tparams) <- checkTyClHdr lhs
-       ; return (L loc (TyFamInstEqn { tfie_tycon = tc
-                                     , tfie_pats  = mkHsWithBndrs tparams
-                                     , tfie_rhs   = rhs })) }
+       ; return (TyFamInstEqn { tfie_tycon = tc
+                              , tfie_pats  = mkHsWithBndrs tparams
+                              , tfie_rhs   = rhs }) }
 
 mkTyFamInst :: SrcSpan
             -> LTyFamInstEqn RdrName
@@ -195,7 +195,7 @@ mkTyFamInst loc eqn
                                  , tfid_fvs  = placeHolderNames }))
 
 mkFamDecl :: SrcSpan
-          -> FamilyInfo
+          -> FamilyInfo RdrName
           -> LHsType RdrName   -- LHS
           -> Maybe (LHsKind RdrName) -- Optional kind signature
           -> P (LFamilyDecl RdrName)

@@ -72,7 +72,7 @@ For the generic representation we need to generate:
 
 \begin{code}
 gen_Generic_binds :: GenericKind -> TyCon -> MetaTyCons -> Module
-                 -> TcM (LHsBinds RdrName, FamInst Unbranched)
+                 -> TcM (LHsBinds RdrName, FamInst)
 gen_Generic_binds gk tc metaTyCons mod = do
   repTyInsts <- tc_mkRepFamInsts gk tc metaTyCons mod
   return (mkBindsRep gk tc, repTyInsts)
@@ -404,7 +404,7 @@ tc_mkRepFamInsts :: GenericKind     -- Gen0 or Gen1
                -> TyCon           -- The type to generate representation for
                -> MetaTyCons      -- Metadata datatypes to refer to
                -> Module          -- Used as the location of the new RepTy
-               -> TcM (FamInst Unbranched) -- Generated representation0 coercion
+               -> TcM (FamInst)   -- Generated representation0 coercion
 tc_mkRepFamInsts gk tycon metaDts mod = 
        -- Consider the example input tycon `D`, where data D a b = D_ a
        -- Also consider `R:DInt`, where { data family D x y :: * -> *
@@ -445,7 +445,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
                         (nameSrcSpan (tyConName tycon))
 
      ; let axiom = mkSingleCoAxiom rep_name tyvars fam_tc appT repTy
-     ; newFamInst SynFamilyInst False (tyConName fam_tc) axiom  }
+     ; newFamInst OpenTypeFamily axiom  }
 
 --------------------------------------------------------------------------------
 -- Type representation

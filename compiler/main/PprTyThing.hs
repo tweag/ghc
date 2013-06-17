@@ -175,10 +175,14 @@ pprTyCon :: PrintExplicitForalls -> ShowSub -> TyCon -> SDoc
 pprTyCon pefas ss tyCon
   | Just syn_rhs <- GHC.synTyConRhs_maybe tyCon
   = case syn_rhs of
-      SynFamilyTyCon {} -> pprTyConHdr pefas tyCon <+> dcolon <+> 
-                           pprTypeForUser pefas (GHC.synTyConResKind tyCon)
-      SynonymTyCon rhs_ty -> hang (pprTyConHdr pefas tyCon <+> equals) 
-                                2 (ppr rhs_ty)   -- Don't suppress foralls on RHS type!
+      IfaceOpenSynFamilyTyCon -> pprTyConHdr pefas tyCon <+> dcolon <+> 
+                                 pprTypeForUser pefas (GHC.synTyConResKind tyCon)
+      IfaceClosedSynFamilyTyCon ax ->
+        hang (pprTyConHdr pefas tyCon <+> dcolon <+>
+              pprTypeForUser pefas (GHC.synTyConResKind tyCon) <+> equals)
+           2 (ppr ax)
+      IfaceSynonymTyCon rhs_ty -> hang (pprTyConHdr pefas tyCon <+> equals) 
+                                     2 (ppr rhs_ty)   -- Don't suppress foralls on RHS type!
                                                  -- e.g. type T = forall a. a->a
   | Just cls <- GHC.tyConClass_maybe tyCon
   = pprClass pefas ss cls

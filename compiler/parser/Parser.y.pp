@@ -639,7 +639,7 @@ ty_decl :: { LTyClDecl RdrName }
         | 'type' 'family' type opt_kind_sig where_type_family
                 -- Note the use of type for the head; this allows
                 -- infix type constructors to be declared
-                {% do { L loc decl <- mkFamDecl (comb4 $1 $3 $4 $5) $5 $3 (unLoc $4)
+                {% do { L loc decl <- mkFamDecl (comb4 $1 $3 $4 $5) (unLoc $5) $3 (unLoc $4)
                       ; return (L loc (FamDecl decl)) } }
 
           -- ordinary data type or newtype declaration
@@ -692,19 +692,19 @@ inst_decl :: { LInstDecl RdrName }
         
 -- Closed type families
 
-where_type_family :: { FamilyInfo RdrName }
-        : {- empty -}                      { OpenTypeFamily }
+where_type_family :: { Located (FamilyInfo RdrName) }
+        : {- empty -}                      { noLoc OpenTypeFamily }
         | 'where' ty_fam_inst_eqn_list
-               { ClosedTypeFamily (reverse $2) }
+               { LL (ClosedTypeFamily (reverse (unLoc $2))) }
 
-ty_fam_inst_eqn_list :: { [LTyFamInstEqn RdrName] }
-        :     '{' ty_fam_inst_eqns '}'     { $2 }
+ty_fam_inst_eqn_list :: { Located [LTyFamInstEqn RdrName] }
+        :     '{' ty_fam_inst_eqns '}'     { LL (unLoc $2) }
         | vocurly ty_fam_inst_eqns close   { $2 }
 
-ty_fam_inst_eqns :: { [LTyFamInstEqn RdrName] }
-        : ty_fam_inst_eqns ';' ty_fam_inst_eqn   { ($3 : $1) }
-        | ty_fam_inst_eqns ';'                   { $1 }
-        | ty_fam_inst_eqn                        { [$1] }
+ty_fam_inst_eqns :: { Located [LTyFamInstEqn RdrName] }
+        : ty_fam_inst_eqns ';' ty_fam_inst_eqn   { LL ($3 : unLoc $1) }
+        | ty_fam_inst_eqns ';'                   { LL (unLoc $1) }
+        | ty_fam_inst_eqn                        { LL [$1] }
 
 ty_fam_inst_eqn :: { LTyFamInstEqn RdrName }
         : type '=' ctype

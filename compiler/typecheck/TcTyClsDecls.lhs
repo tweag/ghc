@@ -159,14 +159,7 @@ tcTyClGroup boot_details tyclds
            -- we want them in the environment because
            -- they may be mentioned in interface files
        ; tcExtendGlobalValEnv (mkDefaultMethodIds tyclss) $
-         addFamInsts (get_fam_insts tyclss) $ -- RAE: Remove this hack
          tcAddImplicits tyclss } }
-  where --RAE remove all of this.
-    get_fam_insts :: [TyThing] -> [FamInst Branched]
-    get_fam_insts [] = []
-    get_fam_insts (ATyCon (SynTyCon { synTcRhs = ClosedSynFamilyTyCon inst }) : rest)
-      = inst : get_fam_insts rest
-    get_fam_insts (h : t) = get_fam_insts t
 
 tcAddImplicits :: [TyThing] -> TcM TcGblEnv
 tcAddImplicits tyclss
@@ -666,7 +659,7 @@ tcFamDecl1 parent
             (FamilyDecl { fdInfo = ClosedTypeFamily eqns
                         , fdLName = lname@(L _ tc_name), fdTyVars = tvs })
 -- Closed type families are a little tricky, because they contain the definition
--- of both the type family and an instance.
+-- of both the type family and the equations for a CoAxiom.
   = do { traceTc "closed type family:" (ppr tc_name)
          -- the variables in the header have no scope:
        ; (tvs', kind) <- tcTyClTyVars tc_name tvs $ \ tvs' kind ->
@@ -679,26 +672,23 @@ tcFamDecl1 parent
        ; let names = map (tfie_tycon . unLoc) eqns
        ; tcSynFamInstNames lname names
 
-         -- The CoAxiom refers to the TyCon, and vice versa. So, we need a
-         -- knot:
-       ; (fam_tc, axiom) <- fixM $ \(rec_fam_tc, _rec_axiom) -> do
+         -- we need the tycon that we will be creating, but it's in scope.
+         -- just look it up.
+       ; fam_tc <- tcLookupLocatedTyCon lname
 
          -- process the equations, creating CoAxBranches
-         { branches <- mapM (tcTyFamInstEqn rec_fam_tc) eqns
+       ; branches <- mapM (tcTyFamInstEqn fam_tc) eqns
 
-           -- create a CoAxiom, with the correct src location
-         ; loc <- getSrcSpanM
-         ; co_ax_name <- newFamInstAxiomName loc tc_name branches
-         ; let co_ax = mkBranchedCoAxiom co_ax_name rec_fam_tc branches
+         -- create a CoAxiom, with the correct src location
+       ; loc <- getSrcSpanM
+       ; co_ax_name <- newFamInstAxiomName loc tc_name branches
+       ; let co_ax = mkBranchedCoAxiom co_ax_name fam_tc branches
 
-           -- make the FamInst
-         ; fam_inst <- newFamInst ClosedTypeFamily tc_name co_ax
+         -- now, finally, build the TyCon
+       ; let syn_rhs = ClosedSynFamilyTyCon co_ax
+       ; tycon <- buildSynTyCon tc_name tvs' syn_rhs kind parent
 
-           -- now, finally, build the TyCon
-         ; let syn_rhs = ClosedSynFamilyTyCon fam_inst
-         ; tycon <- buildSynTyCon tc_name tvs' syn_rhs kind parent }
-
-       ; return [ATyCon fam_tc, ACoAxiom axiom] }
+       ; return [ATyCon tycon, ACoAxiom axiom] }
 -- We check for instance validity later, when doing validity checking for
 -- the tycon
 
@@ -1285,7 +1275,7 @@ checkValidTyCon tc
 
   | Just syn_rhs <- synTyConRhs_maybe tc
   = case syn_rhs of
-      ClosedSynFamilyTyCon inst -> checkValidClosedFamInst inst
+      ClosedSynFamilyTyCon ax -> checkValidClosedCoAxiom ax
       OpenSynFamilyTyCon  -> return ()
       SynonymTyCon ty     -> checkValidType syn_ctxt ty
 
@@ -1351,14 +1341,12 @@ checkValidTyCon tc
                 fty2 = dataConFieldType con2 label
     check_fields [] = panic "checkValidTyCon/check_fields []"
 
-checkValidClosedFamInst :: FamInst Branched -> TcM ()
-checkValidClosedFamInst (FamInst { fi_axiom = axiom, fi_fam_tc = tc })
+checkValidClosedCoAxiom :: CoAxiom Branched -> TcM ()
+checkValidClosedCoAxiom (CoAxiom { co_ax_branches = branches, co_ax_tc = tc })
  = tcAddClosedTypeFamilyDeclCtxt tc $
    do { foldlM_ check_accessibility [] branches
       ; void $ brListMapM (checkValidTyFamInst Nothing tc) branches }
    where
-     branches = coAxBranches axiom
-
      check_accessibility :: [CoAxBranch]       -- prev branches (in reverse order)
                          -> CoAxBranch         -- cur branch
                          -> TcM [CoAxBranch]   -- cur : prev

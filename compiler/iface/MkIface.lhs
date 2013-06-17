@@ -1491,8 +1491,9 @@ tyConToIfaceDecl env tycon
   where
     (env1, tyvars) = tidyTyClTyVarBndrs env (tyConTyVars tycon)
 
-    to_ifsyn_rhs (SynFamilyTyCon a b) = SynFamilyTyCon a b
-    to_ifsyn_rhs (SynonymTyCon ty)    = SynonymTyCon (tidyToIfaceType env1 ty)
+    to_ifsyn_rhs OpenSynFamilyTyCon        = IfaceOpenSynFamilyTyCon
+    to_ifsyn_rhs (ClosedSynFamilyTyCon ax) = IfaceClosedSynFamilyTyCon (coAxiomName ax)
+    to_ifsyn_rhs (SynonymTyCon ty)         = IfaceSynonymTyCon (tidyToIfaceType env1 ty)
 
     ifaceConDecls (NewTyCon { data_con = con })     = IfNewTyCon  (ifaceConDecl con)
     ifaceConDecls (DataTyCon { data_cons = cons })  = IfDataTyCon (map ifaceConDecl cons)
@@ -1638,19 +1639,15 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag
                         (n : _) -> Just (nameOccName n)
 
 --------------------------
-famInstToIfaceFamInst :: FamInst br -> IfaceFamInst
+famInstToIfaceFamInst :: FamInst -> IfaceFamInst
 famInstToIfaceFamInst (FamInst { fi_axiom    = axiom,
-                                 fi_branched = branched,
                                  fi_fam      = fam,
-                                 fi_branches = branches })
+                                 fi_tcs      = roughs })
   = IfaceFamInst { ifFamInstAxiom    = coAxiomName axiom
                  , ifFamInstFam      = fam
-                 , ifFamInstBranched = branched
-                 , ifFamInstTys      = map (map do_rough) roughs
+                 , ifFamInstTys      = map do_rough roughs
                  , ifFamInstOrph     = orph }
   where
-    roughs = brListMap famInstBranchRoughMatch branches
-
     do_rough Nothing  = Nothing
     do_rough (Just n) = Just (toIfaceTyCon_name n)
 

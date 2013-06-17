@@ -456,7 +456,7 @@ addClsInsts :: [InstInfo Name] -> TcM a -> TcM a
 addClsInsts infos thing_inside
   = tcExtendLocalInstEnv (map iSpec infos) thing_inside
 
-addFamInsts :: [FamInst Branched] -> TcM a -> TcM a
+addFamInsts :: [FamInst] -> TcM a -> TcM a
 -- Extend (a) the family instance envt
 --        (b) the type envt with stuff from data type decls
 addFamInsts fam_insts thing_inside
@@ -490,7 +490,7 @@ the brutal solution will do.
 
 \begin{code}
 tcLocalInstDecl :: LInstDecl Name
-                -> TcM ([InstInfo Name], [FamInst Branched])
+                -> TcM ([InstInfo Name], [FamInst])
         -- A source-file instance declaration
         -- Type-check all the stuff before the "where"
         --
@@ -507,7 +507,7 @@ tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
   = do { (insts, fam_insts) <- tcClsInstDecl (L loc decl)
        ; return (insts, map toBranchedFamInst fam_insts) }
 
-tcClsInstDecl :: LClsInstDecl Name -> TcM ([InstInfo Name], [FamInst Unbranched])
+tcClsInstDecl :: LClsInstDecl Name -> TcM ([InstInfo Name], [FamInst])
 tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                                   , cid_sigs = uprags, cid_tyfam_insts = ats
                                   , cid_datafam_insts = adts }))
@@ -534,7 +534,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
         ; let defined_ats = mkNameSet $ map (tyFamInstDeclName . unLoc) ats
               defined_adts = mkNameSet $ map (unLoc . dfid_tycon . unLoc) adts
 
-              mk_deflt_at_instances :: ClassATItem -> TcM [FamInst Unbranched]
+              mk_deflt_at_instances :: ClassATItem -> TcM [FamInst]
               mk_deflt_at_instances (fam_tc, defs)
                  -- User supplied instances ==> everything is OK
                 | tyConName fam_tc `elemNameSet` defined_ats
@@ -559,7 +559,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
                      ; let axiom = mkSingleCoAxiom rep_tc_name tvs' fam_tc pat_tys' rhs'
                      ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
-                       newFamInst OpenTypeFamily (tyConName fam_tc) axiom }
+                       newFamInst OpenTypeFamily axiom }
 
         ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
         
@@ -582,7 +582,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
 tcAssocTyDecl :: Class                   -- Class of associated type
               -> VarEnv Type             -- Instantiation of class TyVars
               -> LTyFamInstDecl Name     
-              -> TcM (FamInst Unbranched)
+              -> TcM (FamInst)
 tcAssocTyDecl clas mini_env ldecl
   = do { fam_inst <- tcTyFamInstDecl (Just (clas, mini_env)) ldecl
        ; return $ toUnbranchedFamInst fam_inst }
@@ -621,7 +621,7 @@ tcFamInstDeclCombined mb_clsinfo fam_tc_lname
        ; return fam_tc }
 
 tcTyFamInstDecl :: Maybe (Class, VarEnv Type) -- the class & mini_env if applicable
-                -> LTyFamInstDecl Name -> TcM (FamInst Branched)
+                -> LTyFamInstDecl Name -> TcM FamInst
   -- "type instance"
 tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_eqns = eqns }))
   = setSrcSpan loc           $
@@ -646,10 +646,10 @@ tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_eqns = eqns }))
                                             (tyFamInstDeclName decl)
                                             [co_ax_branch]
        ; let axiom = mkBranchedCoAxiom rep_tc_name fam_tc co_ax_branches
-       ; newFamInst OpenTypeFamily (tyConName fam_tc) axiom }
+       ; newFamInst OpenTypeFamily axiom }
 
 tcDataFamInstDecl :: Maybe (Class, VarEnv Type)
-                  -> LDataFamInstDecl Name -> TcM (FamInst Unbranched)
+                  -> LDataFamInstDecl Name -> TcM FamInst
   -- "newtype instance" and "data instance"
 tcDataFamInstDecl mb_clsinfo 
     (L loc decl@(DataFamInstDecl
@@ -707,7 +707,7 @@ tcDataFamInstDecl mb_clsinfo
                  -- further instance might not introduce a new recursive
                  -- dependency.  (2) They are always valid loop breakers as
                  -- they involve a coercion.
-              ; fam_inst <- newFamInst (DataFamily rep_tc) (tyConName fam_tc) axiom
+              ; fam_inst <- newFamInst (DataFamily rep_tc) axiom
               ; return (rep_tc, fam_inst) }
 
          -- Remember to check validity; no recursion to worry about here

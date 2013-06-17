@@ -99,10 +99,10 @@ that code to deal with branched axioms, especially when the code can be sure
 of the fact that an axiom is indeed a singleton. At the same time, it seems
 dangerous to assume singlehood in various places through GHC.
 
-The solution to this is to label a CoAxiom (and FamInst) with a phantom
-type variable declaring whether it is known to be a singleton or not. The
-list of branches is stored using a special form of list, declared below,
-that ensures that the type variable is accurate.
+The solution to this is to label a CoAxiom with a phantom type variable
+declaring whether it is known to be a singleton or not. The list of branches
+is stored using a special form of list, declared below, that ensures that the
+type variable is accurate.
 
 As of this writing (Dec 2012), it would not be appropriate to use a promoted
 type as the phantom type, so we use empty datatypes. We wish to have GHC

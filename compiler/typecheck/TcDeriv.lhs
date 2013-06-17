@@ -355,7 +355,7 @@ tcDeriving tycl_decls inst_decls deriv_decls
   where
     ddump_deriving :: Bag (InstInfo Name) -> HsValBinds Name
                    -> Bag TyCon                 -- ^ Empty data constructors
-                   -> Bag (FamInst Unbranched)  -- ^ Rep type family instances
+                   -> Bag (FamInst)             -- ^ Rep type family instances
                    -> SDoc
     ddump_deriving inst_infos extra_binds repMetaTys repFamInsts
       =    hang (ptext (sLit "Derived instances:"))
@@ -370,12 +370,11 @@ tcDeriving tycl_decls inst_decls deriv_decls
     hangP s x = text "" $$ hang (ptext (sLit s)) 2 x
 
 -- Prints the representable type family instance
-pprRepTy :: FamInst Unbranched -> SDoc
-pprRepTy fi@(FamInst { fi_branches = FirstBranch (FamInstBranch { fib_lhs = lhs
-                                                                , fib_rhs = rhs }) })
+pprRepTy :: FamInst -> SDoc
+pprRepTy fi@(FamInst { fi_tys = lhs })
   = ptext (sLit "type") <+> ppr (mkTyConApp (famInstTyCon fi) lhs) <+>
-      equals <+> ppr rhs 
-
+      equals <+> ppr rhs
+  where rhs = famInstRHS fi
 
 -- As of 24 April 2012, this only shares MetaTyCons between derivations of
 -- Generic and Generic1; thus the types and logic are quite simple.

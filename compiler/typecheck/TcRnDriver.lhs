@@ -769,8 +769,9 @@ checkBootTyCon tc1 tc2
   , Just syn_rhs2 <- synTyConRhs_maybe tc2
   , Just env <- eqTyVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
-    let eqSynRhs (SynFamilyTyCon o1 i1) (SynFamilyTyCon o2 i2)
-            = o1==o2 && i1==i2
+    let eqSynRhs OpenSynFamilyTyCon OpenSynFamilyTyCon = True
+        eqSynRhs (ClosedSynFamilyTyCon ax1) (ClosedSynFamilyTyCon ax2)
+            = ax1 == ax2
         eqSynRhs (SynonymTyCon t1) (SynonymTyCon t2)
             = eqTypeX env t1 t2
         eqSynRhs _ _ = False
@@ -1738,7 +1739,7 @@ tcRnLookupName' name = do
 
 tcRnGetInfo :: HscEnv
             -> Name
-            -> IO (Messages, Maybe (TyThing, Fixity, [ClsInst], [FamInst Branched]))
+            -> IO (Messages, Maybe (TyThing, Fixity, [ClsInst], [FamInst]))
 
 -- Used to implement :info in GHCi
 --
@@ -1763,7 +1764,7 @@ tcRnGetInfo hsc_env name
     (cls_insts, fam_insts) <- lookupInsts thing
     return (thing, fixity, cls_insts, fam_insts)
 
-lookupInsts :: TyThing -> TcM ([ClsInst],[FamInst Branched])
+lookupInsts :: TyThing -> TcM ([ClsInst],[FamInst])
 lookupInsts (ATyCon tc)
   | Just cls <- tyConClass_maybe tc
   = do  { inst_envs <- tcGetInstEnvs
@@ -1901,7 +1902,7 @@ ppr_types insts type_env
         -- that the type checker has invented.  Top-level user-defined things
         -- have External names.
 
-ppr_tycons :: [FamInst br] -> TypeEnv -> SDoc
+ppr_tycons :: [FamInst] -> TypeEnv -> SDoc
 ppr_tycons fam_insts type_env
   = vcat [ text "TYPE CONSTRUCTORS"
          ,   nest 2 (ppr_tydecls tycons)
@@ -1919,7 +1920,7 @@ ppr_insts :: [ClsInst] -> SDoc
 ppr_insts []     = empty
 ppr_insts ispecs = text "INSTANCES" $$ nest 2 (pprInstances ispecs)
 
-ppr_fam_insts :: [FamInst br] -> SDoc
+ppr_fam_insts :: [FamInst] -> SDoc
 ppr_fam_insts []        = empty
 ppr_fam_insts fam_insts =
   text "FAMILY INSTANCES" $$ nest 2 (pprFamInsts fam_insts)

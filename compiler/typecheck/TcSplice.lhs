@@ -1308,14 +1308,16 @@ reifyClassInstance i
      n_silent = dfunNSilent dfun
 
 ------------------------------
-reifyFamilyInstance :: FamInst br -> TcM TH.Dec
-reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
-                                , fi_branches = branches
+reifyFamilyInstance :: FamInst -> TcM TH.Dec
+reifyFamilyInstance fi@(FamInst { fi_flavor = flavor 
                                 , fi_fam = fam })
   = case flavor of
       SynFamilyInst ->
-        do { th_eqns <- sequence $ brListMap reifyFamInstBranch branches
-           ; return (TH.TySynInstD (reifyName fam) th_eqns) }
+        do { let lhs = famInstLHS fi
+                 rhs = famInstRHS fi
+           ; th_lhs <- reifyTypes lhs
+           ; th_rhs <- reifyType  rhs
+           ; return (TH.TySynInstD (reifyName fam) th_lhs th_rhs) }
 
       DataFamilyInst rep_tc ->
         do { let tvs = tyConTyVars rep_tc
@@ -1326,12 +1328,6 @@ reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
            ; return (if isNewTyCon rep_tc
                      then TH.NewtypeInstD [] fam' th_tys (head cons) []
                      else TH.DataInstD    [] fam' th_tys cons        []) }
-
-reifyFamInstBranch :: FamInstBranch -> TcM TH.TySynEqn
-reifyFamInstBranch (FamInstBranch { fib_lhs = lhs, fib_rhs = rhs })
-  = do { th_lhs <- reifyTypes lhs
-       ; th_rhs <- reifyType rhs
-       ; return (TH.TySynEqn th_lhs th_rhs) }
 
 ------------------------------
 reifyType :: TypeRep.Type -> TcM TH.Type

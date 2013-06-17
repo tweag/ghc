@@ -1,9 +1,0 @@
-\begin{code}
-
-module FamInstEnv where
-
-data FamInst br
-
--- RAE: Remove this.
-
-\end{code}
