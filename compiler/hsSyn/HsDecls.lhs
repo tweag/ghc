@@ -618,6 +618,9 @@ pprFlavour DataFamily            = ptext (sLit "data family")
 pprFlavour OpenTypeFamily        = ptext (sLit "type family")
 pprFlavour (ClosedTypeFamily {}) = ptext (sLit "type family")
 
+instance Outputable (FamilyInfo name) where
+  ppr = pprFlavour
+
 pp_vanilla_decl_head :: OutputableBndr name
    => Located name
    -> LHsTyVarBndrs name

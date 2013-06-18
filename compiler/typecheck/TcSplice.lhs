@@ -1169,7 +1169,6 @@ reifyThing (AGlobal (AnId id))
     }
 
 reifyThing (AGlobal (ATyCon tc))   = reifyTyCon tc
-reifyThing (AGlobal (ACoAxiom ax)) = reifyAxiom ax
 reifyThing (AGlobal (ADataCon dc))
   = do  { let name = dataConName dc
         ; ty <- reifyType (idType (dataConWrapId dc))
@@ -1192,12 +1191,7 @@ reifyThing (ATyVar tv tv1)
 
 reifyThing thing = pprPanic "reifyThing" (pprTcTyThingCategory thing)
 
-------------------------------
-reifyAxiom :: CoAxiom br -> TcM TH.Info
-reifyAxiom (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
-  = do { eqns <- sequence $ brListMap reifyAxBranch branches
-       ; return (TH.TyConI (TH.TySynInstD (reifyName tc) eqns)) }
-
+-------------------------------------------
 reifyAxBranch :: CoAxBranch -> TcM TH.TySynEqn
 reifyAxBranch (CoAxBranch { cab_lhs = args, cab_rhs = rhs })
   = do { args' <- mapM reifyType args
@@ -1216,18 +1210,24 @@ reifyTyCon tc
   = return (TH.PrimTyConI (reifyName tc) (tyConArity tc) (isUnLiftedTyCon tc))
 
   | isFamilyTyCon tc
-  = do { let flavour = reifyFamFlavour tc
-             tvs     = tyConTyVars tc
+  = do { let tvs     = tyConTyVars tc
              kind    = tyConKind tc
        ; kind' <- if isLiftedTypeKind kind then return Nothing
                   else fmap Just (reifyKind kind)
 
-       ; fam_envs <- tcGetFamInstEnvs
-       ; instances <- mapM reifyFamilyInstance (familyInstances fam_envs tc)
        ; tvs' <- reifyTyVars tvs
-       ; return (TH.FamilyI
-                    (TH.FamilyD flavour (reifyName tc) tvs' kind')
-                    instances) }
+       ; flav' <- reifyFamFlavour tc
+       ; case flav' of
+         { Left flav ->  -- open type/data family
+             do { fam_envs <- tcGetFamInstEnvs
+                ; instances <- mapM reifyFamilyInstance (familyInstances fam_envs tc)
+                ; return (TH.FamilyI
+                            (TH.FamilyD flav (reifyName tc) tvs' kind')
+                            instances) }
+         ; Right eqns -> -- closed type family
+             return (TH.FamilyI
+                      (TH.ClosedTypeFamilyD (reifyName tc) tvs' kind' eqns)
+                      []) } }
 
   | Just (tvs, rhs) <- synTyConDefn_maybe tc  -- Vanilla type synonym
   = do { rhs' <- reifyType rhs
@@ -1309,20 +1309,19 @@ reifyClassInstance i
 
 ------------------------------
 reifyFamilyInstance :: FamInst -> TcM TH.Dec
-reifyFamilyInstance fi@(FamInst { fi_flavor = flavor 
-                                , fi_fam = fam })
+reifyFamilyInstance (FamInst { fi_flavor = flavor 
+                             , fi_fam = fam
+                             , fi_tys = lhs
+                             , fi_rhs = rhs })
   = case flavor of
       SynFamilyInst ->
-        do { let lhs = famInstLHS fi
-                 rhs = famInstRHS fi
-           ; th_lhs <- reifyTypes lhs
+        do { th_lhs <- reifyTypes lhs
            ; th_rhs <- reifyType  rhs
-           ; return (TH.TySynInstD (reifyName fam) th_lhs th_rhs) }
+           ; return (TH.TySynInstD (reifyName fam) (TH.TySynEqn th_lhs th_rhs)) }
 
       DataFamilyInst rep_tc ->
         do { let tvs = tyConTyVars rep_tc
                  fam' = reifyName fam
-                 lhs = famInstBranchLHS $ famInstSingleBranch (toUnbranchedFamInst fi)
            ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
            ; th_tys <- reifyTypes lhs
            ; return (if isNewTyCon rep_tc
@@ -1390,11 +1389,17 @@ reifyCxt   = mapM reifyPred
 reifyFunDep :: ([TyVar], [TyVar]) -> TH.FunDep
 reifyFunDep (xs, ys) = TH.FunDep (map reifyName xs) (map reifyName ys)
 
-reifyFamFlavour :: TyCon -> TH.FamFlavour
-reifyFamFlavour tc | isSynFamilyTyCon tc = TH.TypeFam
-                   | isFamilyTyCon    tc = TH.DataFam
-                   | otherwise
-                   = panic "TcSplice.reifyFamFlavour: not a type family"
+reifyFamFlavour :: TyCon -> TcM (Either TH.FamFlavour [TH.TySynEqn])
+reifyFamFlavour tc
+  | isOpenSynFamilyTyCon tc = return $ Left TH.TypeFam
+  | isDataFamilyTyCon    tc = return $ Left TH.DataFam
+
+  | Just ax <- isClosedSynFamilyTyCon_maybe tc
+  = do { eqns <- brListMapM reifyAxBranch $ coAxiomBranches ax
+       ; return $ Right eqns }
+                   
+  | otherwise
+  = panic "TcSplice.reifyFamFlavour: not a type family"
 
 reifyTyVars :: [TyVar] -> TcM [TH.TyVarBndr]
 reifyTyVars = mapM reifyTyVar . filter isTypeVar

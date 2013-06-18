@@ -51,7 +51,6 @@ import PrelNames hiding (error_RDR)
 import PrimOp
 import SrcLoc
 import TyCon
-import CoAxiom
 import TcType
 import TysPrim
 import TysWiredIn

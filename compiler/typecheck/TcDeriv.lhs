@@ -46,7 +46,6 @@ import RdrName
 import Name
 import NameSet
 import TyCon
-import CoAxiom
 import TcType
 import Var
 import VarSet
@@ -551,8 +550,9 @@ deriveFamInst decl@(DataFamInstDecl { dfid_tycon = L _ tc_name, dfid_pats = pats
                                     , dfid_defn = HsDataDefn { dd_derivs = Just preds } })
   = tcAddDataFamInstCtxt decl $
     do { fam_tc <- tcLookupTyCon tc_name
-       ; tcFamTyPats fam_tc pats (\_ -> return ()) $ \ tvs' pats' _ ->
-         mapM (deriveTyData tvs' fam_tc pats') preds }
+       ; tcFamTyPats tc_name (tyConKind fam_tc) pats (\_ -> return ()) $
+         \ tvs' pats' _ ->
+           mapM (deriveTyData tvs' fam_tc pats') preds }
         -- Tiresomely we must figure out the "lhs", which is awkward for type families
         -- E.g.   data T a b = .. deriving( Eq )
         --          Here, the lhs is (T a b)

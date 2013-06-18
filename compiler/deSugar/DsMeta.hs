@@ -265,17 +265,26 @@ repSynDecl tc bndrs ty
        ; repTySyn tc bndrs ty1 }
 
 repFamilyDecl :: LFamilyDecl Name -> DsM (SrcSpan, Core TH.DecQ)
-repFamilyDecl (L loc (FamilyDecl { fdFlavour = flavour,
+repFamilyDecl (L loc (FamilyDecl { fdInfo    = info,
                                    fdLName   = tc,
                                    fdTyVars  = tvs, 
 		                   fdKindSig = opt_kind }))
   = do { tc1 <- lookupLOcc tc 		-- See note [Binders and occurrences] 
        ; dec <- addTyClTyVarBinds tvs $ \bndrs ->
-           do { flav <- repFamilyFlavour flavour
-	      ; case opt_kind of 
-                  Nothing -> repFamilyNoKind flav tc1 bndrs
-                  Just ki -> do { ki1 <- repLKind ki 
-                                ; repFamilyKind flav tc1 bndrs ki1 }
+           do { info' <- repFamilyInfo info
+	      ; case (opt_kind, info) of 
+                  (Nothing, ClosedTypeFamily eqns) ->
+                    do { eqns1 <- mapM repTyFamEqn eqns
+                       ; eqns2 <- coreList tySynEqnQTyConName eqns1
+                       ; repClosedFamilyNoKind tc1 bndrs eqns2 }
+                  (Just ki, ClosedTypeFamily eqns) ->
+                    do { eqns1 <- mapM repTyFamEqn eqns
+                       ; eqns2 <- coreList tySynEqnQTyConName eqns1
+                       ; ki1 <- repLKind ki
+                       ; repClosedFamilyKind tc1 bndrs ki1 eqns2 }              
+                  (Nothing, _) -> repFamilyNoKind info' tc1 bndrs
+                  (Just ki, _) -> do { ki1 <- repLKind ki 
+                                ; repFamilyKind info' tc1 bndrs ki1 }
               }
        ; return (loc, dec)
        }
@@ -324,9 +333,10 @@ repLFunDep (L _ (xs, ys)) = do xs' <- repList nameTyConName lookupBinder xs
 
 -- represent family declaration flavours
 --
-repFamilyFlavour :: FamilyFlavour -> DsM (Core TH.FamFlavour)
-repFamilyFlavour TypeFamily = rep2 typeFamName []
-repFamilyFlavour DataFamily = rep2 dataFamName []
+repFamilyInfo :: FamilyInfo Name -> DsM (Core TH.FamFlavour)
+repFamilyInfo OpenTypeFamily      = rep2 typeFamName []
+repFamilyInfo DataFamily          = rep2 dataFamName []
+repFamilyInfo ClosedTypeFamily {} = panic "repFamilyInfo"
 
 -- Represent instance declarations
 --
@@ -369,12 +379,11 @@ repClsInstD (ClsInstDecl { cid_poly_ty = ty, cid_binds = binds
    Just (tvs, cxt, cls, tys) = splitLHsInstDeclTy_maybe ty
 
 repTyFamInstD :: TyFamInstDecl Name -> DsM (Core TH.DecQ)
-repTyFamInstD decl@(TyFamInstDecl { tfid_eqns = eqns })
+repTyFamInstD decl@(TyFamInstDecl { tfid_eqn = eqn })
   = do { let tc_name = tyFamInstDeclLName decl
        ; tc <- lookupLOcc tc_name		-- See note [Binders and occurrences]  
-       ; eqns1 <- mapM repTyFamEqn eqns
-       ; eqns2 <- coreList tySynEqnQTyConName eqns1
-       ; repTySynInst tc eqns2 }
+       ; eqn1 <- repTyFamEqn eqn
+       ; repTySynInst tc eqn1 }
 
 repTyFamEqn :: LTyFamInstEqn Name -> DsM (Core TH.TySynEqnQ)
 repTyFamEqn (L loc (TyFamInstEqn { tfie_pats = HsWB { hswb_cts = tys
@@ -1695,9 +1704,24 @@ repFamilyKind :: Core TH.FamFlavour -> Core TH.Name -> Core [TH.TyVarBndr]
 repFamilyKind (MkC flav) (MkC nm) (MkC tvs) (MkC ki)
     = rep2 familyKindDName [flav, nm, tvs, ki]
 
-repTySynInst :: Core TH.Name -> Core [TH.TySynEqnQ] -> DsM (Core TH.DecQ)
-repTySynInst (MkC nm) (MkC eqns)
-  = rep2 tySynInstDName [nm, eqns]
+repTySynInst :: Core TH.Name -> Core TH.TySynEqnQ -> DsM (Core TH.DecQ)
+repTySynInst (MkC nm) (MkC eqn)
+    = rep2 tySynInstDName [nm, eqn]
+
+repClosedFamilyNoKind :: Core TH.Name
+                      -> Core [TH.TyVarBndr]
+                      -> Core [TH.TySynEqnQ]
+                      -> DsM (Core TH.DecQ)
+repClosedFamilyNoKind (MkC nm) (MkC tvs) (MkC eqns)
+    = rep2 closedTypeFamilyNoKindDName [nm, tvs, eqns]
+
+repClosedFamilyKind :: Core TH.Name
+                    -> Core [TH.TyVarBndr]
+                    -> Core TH.Kind
+                    -> Core [TH.TySynEqnQ]
+                    -> DsM (Core TH.DecQ)
+repClosedFamilyKind (MkC nm) (MkC tvs) (MkC ki) (MkC eqns)
+    = rep2 closedTypeFamilyKindDName [nm, tvs, ki, eqns]
 
 repTySynEqn :: Core [TH.TypeQ] -> Core TH.TypeQ -> DsM (Core TH.TySynEqnQ)
 repTySynEqn (MkC lhs) (MkC rhs)
@@ -2001,7 +2025,8 @@ templateHaskellNames = [
     pragInlDName, pragSpecDName, pragSpecInlDName, pragSpecInstDName,
     pragRuleDName,
     familyNoKindDName, familyKindDName, dataInstDName, newtypeInstDName,
-    tySynInstDName, infixLDName, infixRDName, infixNDName,
+    tySynInstDName, closedTypeFamilyKindDName, closedTypeFamilyNoKindDName,
+    infixLDName, infixRDName, infixNDName,
     -- Cxt
     cxtName,
     -- Pred
@@ -2214,6 +2239,7 @@ funDName, valDName, dataDName, newtypeDName, tySynDName, classDName,
     instanceDName, sigDName, forImpDName, pragInlDName, pragSpecDName,
     pragSpecInlDName, pragSpecInstDName, pragRuleDName, familyNoKindDName,
     familyKindDName, dataInstDName, newtypeInstDName, tySynInstDName,
+    closedTypeFamilyKindDName, closedTypeFamilyNoKindDName,
     infixLDName, infixRDName, infixNDName :: Name
 funDName          = libFun (fsLit "funD")          funDIdKey
 valDName          = libFun (fsLit "valD")          valDIdKey
@@ -2234,6 +2260,10 @@ familyKindDName   = libFun (fsLit "familyKindD")   familyKindDIdKey
 dataInstDName     = libFun (fsLit "dataInstD")     dataInstDIdKey
 newtypeInstDName  = libFun (fsLit "newtypeInstD")  newtypeInstDIdKey
 tySynInstDName    = libFun (fsLit "tySynInstD")    tySynInstDIdKey
+closedTypeFamilyKindDName
+                  = libFun (fsLit "closedTypeFamilyKindD") closedTypeFamilyKindDIdKey
+closedTypeFamilyNoKindDName
+                  = libFun (fsLit "closedTypeFamilyNoKindD") closedTypeFamilyNoKindDIdKey
 infixLDName       = libFun (fsLit "infixLD")       infixLDIdKey
 infixRDName       = libFun (fsLit "infixRD")       infixRDIdKey
 infixNDName       = libFun (fsLit "infixND")       infixNDIdKey
@@ -2550,29 +2580,32 @@ funDIdKey, valDIdKey, dataDIdKey, newtypeDIdKey, tySynDIdKey,
     pragSpecDIdKey, pragSpecInlDIdKey, pragSpecInstDIdKey, pragRuleDIdKey,
     familyNoKindDIdKey, familyKindDIdKey,
     dataInstDIdKey, newtypeInstDIdKey, tySynInstDIdKey,
+    closedTypeFamilyKindDIdKey, closedTypeFamilyNoKindDIdKey,
     infixLDIdKey, infixRDIdKey, infixNDIdKey :: Unique
-funDIdKey          = mkPreludeMiscIdUnique 330
-valDIdKey          = mkPreludeMiscIdUnique 331
-dataDIdKey         = mkPreludeMiscIdUnique 332
-newtypeDIdKey      = mkPreludeMiscIdUnique 333
-tySynDIdKey        = mkPreludeMiscIdUnique 334
-classDIdKey        = mkPreludeMiscIdUnique 335
-instanceDIdKey     = mkPreludeMiscIdUnique 336
-sigDIdKey          = mkPreludeMiscIdUnique 337
-forImpDIdKey       = mkPreludeMiscIdUnique 338
-pragInlDIdKey      = mkPreludeMiscIdUnique 339
-pragSpecDIdKey     = mkPreludeMiscIdUnique 340
-pragSpecInlDIdKey  = mkPreludeMiscIdUnique 341
-pragSpecInstDIdKey = mkPreludeMiscIdUnique 412
-pragRuleDIdKey     = mkPreludeMiscIdUnique 413
-familyNoKindDIdKey = mkPreludeMiscIdUnique 342
-familyKindDIdKey   = mkPreludeMiscIdUnique 343
-dataInstDIdKey     = mkPreludeMiscIdUnique 344
-newtypeInstDIdKey  = mkPreludeMiscIdUnique 345
-tySynInstDIdKey    = mkPreludeMiscIdUnique 346
-infixLDIdKey       = mkPreludeMiscIdUnique 347
-infixRDIdKey       = mkPreludeMiscIdUnique 348
-infixNDIdKey       = mkPreludeMiscIdUnique 349
+funDIdKey                    = mkPreludeMiscIdUnique 330
+valDIdKey                    = mkPreludeMiscIdUnique 331
+dataDIdKey                   = mkPreludeMiscIdUnique 332
+newtypeDIdKey                = mkPreludeMiscIdUnique 333
+tySynDIdKey                  = mkPreludeMiscIdUnique 334
+classDIdKey                  = mkPreludeMiscIdUnique 335
+instanceDIdKey               = mkPreludeMiscIdUnique 336
+sigDIdKey                    = mkPreludeMiscIdUnique 337
+forImpDIdKey                 = mkPreludeMiscIdUnique 338
+pragInlDIdKey                = mkPreludeMiscIdUnique 339
+pragSpecDIdKey               = mkPreludeMiscIdUnique 340
+pragSpecInlDIdKey            = mkPreludeMiscIdUnique 341
+pragSpecInstDIdKey           = mkPreludeMiscIdUnique 412
+pragRuleDIdKey               = mkPreludeMiscIdUnique 413
+familyNoKindDIdKey           = mkPreludeMiscIdUnique 342
+familyKindDIdKey             = mkPreludeMiscIdUnique 343
+dataInstDIdKey               = mkPreludeMiscIdUnique 344
+newtypeInstDIdKey            = mkPreludeMiscIdUnique 345
+tySynInstDIdKey              = mkPreludeMiscIdUnique 346
+closedTypeFamilyKindDIdKey   = mkPreludeMiscIdUnique 347
+closedTypeFamilyNoKindDIdKey = mkPreludeMiscIdUnique 348
+infixLDIdKey                 = mkPreludeMiscIdUnique 349
+infixRDIdKey                 = mkPreludeMiscIdUnique 350
+infixNDIdKey                 = mkPreludeMiscIdUnique 351
 
 -- type Cxt = ...
 cxtIdKey :: Unique

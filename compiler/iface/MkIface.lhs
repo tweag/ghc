@@ -311,7 +311,6 @@ mkIface_ hsc_env maybe_old_fingerprint
                         mi_warn_fn     = mkIfaceWarnCache warns,
                         mi_fix_fn      = mkIfaceFixCache fixities }
                 }
-
         ; (new_iface, no_change_at_all) 
                 <- {-# SCC "versioninfo" #-}
                          addFingerprints hsc_env maybe_old_fingerprint

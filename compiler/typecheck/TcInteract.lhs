@@ -20,7 +20,7 @@ import VarSet
 import Type
 import Unify
 import FamInstEnv
-import Coercion( mkAxInstRHS )
+import Coercion( mkUnbranchedAxInstRHS )
 
 import Var
 import TcType
@@ -1483,7 +1483,6 @@ doTopReactFunEq _ct fl fun_tc args xi loc
        ; case match_res of {
            Nothing -> return NoTopInt ;
            Just (FamInstMatch { fim_instance = famInst
-                              , fim_index    = index
                               , fim_tys      = rep_tys }) -> 
 
     -- Found a top-level instance
@@ -1491,8 +1490,8 @@ doTopReactFunEq _ct fl fun_tc args xi loc
          unless (isDerived fl) (addSolvedFunEq fam_ty fl xi)
 
        ; let coe_ax = famInstAxiom famInst 
-       ; succeed_with "Fun/Top" (mkTcAxInstCo coe_ax index rep_tys)
-                      (mkAxInstRHS coe_ax index rep_tys) } } } } }
+       ; succeed_with "Fun/Top" (mkTcUnbranchedAxInstCo coe_ax rep_tys)
+                      (mkUnbranchedAxInstRHS coe_ax rep_tys) } } } } }
   where
     fam_ty = mkTyConApp fun_tc args
 
@@ -1766,11 +1765,11 @@ matchClassInst _ clas [ k, ty ] _
                   { fim_instance = FamInst { fi_axiom  = axDataFam
                                            , fi_flavor = DataFamilyInst tcon
                                            }
-                  , fim_index = ix, fim_tys = tys
+                  , fim_tys = tys
                   } | Just (_,_,axSing) <- unwrapNewTyCon_maybe tcon ->
 
                   do let co1 = mkTcSymCo $ mkTcUnbranchedAxInstCo axSing tys
-                         co2 = mkTcSymCo $ mkTcAxInstCo axDataFam ix tys
+                         co2 = mkTcSymCo $ mkTcUnbranchedAxInstCo axDataFam tys
                          co3 = mkTcSymCo $ mkTcUnbranchedAxInstCo axDict [k,ty]
                      return $ GenInst [] $ EvCast (EvLit evLit) $
                         mkTcTransCo co1 $ mkTcTransCo co2 co3

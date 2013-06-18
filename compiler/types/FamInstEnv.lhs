@@ -7,15 +7,16 @@ FamInstEnv: Type checked family instance declarations
 \begin{code}
 
 module FamInstEnv (
-	FamInst(..), FamFlavor(..), famInstAxiom, 
+	FamInst(..), FamFlavor(..), famInstAxiom, famInstTyCon, famInstRHS,
         famInstsRepTyCons, famInstRepTyCon_maybe, dataFamInstRepTyCon, 
 	pprFamInst, pprFamInstHdr, pprFamInsts, 
 	mkImportedFamInst,
 
 	FamInstEnvs, FamInstEnv, emptyFamInstEnv, emptyFamInstEnvs, 
 	extendFamInstEnv, deleteFromFamInstEnv, extendFamInstEnvList, 
-	identicalFamInst, famInstEnvElts, familyInstances,
+	identicalFamInst, famInstEnvElts, familyInstances, orphNamesOfFamInst,
 
+        FamInstMatch(..),
 	lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
 
         isDominatedBy,
@@ -29,6 +30,7 @@ module FamInstEnv (
 import InstEnv
 import Unify
 import Type
+import TcType ( orphNamesOfTypes )
 import TypeRep
 import TyCon
 import Coercion
@@ -40,6 +42,7 @@ import UniqFM
 import Outputable
 import Maybes
 import Util
+import NameSet
 import FastString
 \end{code}
 
@@ -111,6 +114,10 @@ famInstSplitLHS (FamInst { fi_axiom = axiom, fi_tys = lhs })
 -- Get the RHS of the FamInst
 famInstRHS :: FamInst -> Type
 famInstRHS = fi_rhs
+
+-- Get the family TyCon of the FamInst
+famInstTyCon :: FamInst -> TyCon
+famInstTyCon = coAxiomTyCon . famInstAxiom
 
 -- Return the representation TyCons introduced by data family instances, if any
 famInstsRepTyCons :: [FamInst] -> [TyCon]
@@ -289,6 +296,17 @@ familyInstances (pkg_fie, home_fie) fam
     get env = case lookupUFM env fam of
 		Just (FamIE insts _) -> insts
 		Nothing	             -> []
+
+-- | Collects the names of the concrete types and type constructors that
+-- make up the LHS of a type family instance. For instance,
+-- given `type family Foo a b`:
+--
+-- `type instance Foo (F (G (H a))) b = ...` would yield [F,G,H]
+--
+-- Used in the implementation of ":info" in GHCi.
+orphNamesOfFamInst :: FamInst -> NameSet
+orphNamesOfFamInst
+    = orphNamesOfTypes . concat . brListMap cab_lhs . coAxiomBranches . fi_axiom
 
 extendFamInstEnvList :: FamInstEnv -> [FamInst] -> FamInstEnv
 extendFamInstEnvList inst_env fis = foldl extendFamInstEnv inst_env fis

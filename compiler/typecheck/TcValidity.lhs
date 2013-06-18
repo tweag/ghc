@@ -45,6 +45,7 @@ import ListSetOps
 import SrcLoc
 import Outputable
 import FastString
+import BasicTypes ( Arity )
 
 import Control.Monad
 import Data.List        ( (\\) )
@@ -1133,10 +1134,20 @@ checkValidFamPats :: TyCon -> [TyVar] -> [Type] -> TcM ()
 --    e.g. we disallow (Trac #7536)
 --         type T a = Int
 --         type instance F (T a) = a
+-- c) Have the right number of patterns
 checkValidFamPats fam_tc tvs ty_pats
-  = do { mapM_ checkTyFamFreeness ty_pats
+  = do { checkTc (length ty_pats == fam_arity) $
+           wrongNumberOfParmsErr fam_arity
+       ; mapM_ checkTyFamFreeness ty_pats
        ; let unbound_tvs = filterOut (`elemVarSet` exactTyVarsOfTypes ty_pats) tvs
        ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
+  where fam_arity    = tyConArity fam_tc - length fam_kvs
+        (fam_kvs, _) = splitForAllTys (tyConKind fam_tc)
+
+wrongNumberOfParmsErr :: Arity -> SDoc
+wrongNumberOfParmsErr exp_arity
+  = ptext (sLit "Number of parameters must match family declaration; expected")
+    <+> ppr exp_arity
 
 -- Ensure that no type family instances occur in a type.
 --

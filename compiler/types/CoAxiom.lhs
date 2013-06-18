@@ -4,7 +4,7 @@
 
 \begin{code}
 
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GADTs, ScopedTypeVariables #-}
 
 -- | Module for coercion axioms, used to represent type family instances
 -- and newtypes
@@ -14,7 +14,7 @@ module CoAxiom (
        toBranchList, fromBranchList,
        toBranchedList, toUnbranchedList,
        brListLength, brListNth, brListMap, brListFoldr, brListMapM,
-       brListZipWith, brListIndices,
+       brListFoldlM_, brListZipWith,
 
        CoAxiom(..), CoAxBranch(..), 
 
@@ -154,14 +154,6 @@ brListLength :: BranchList a br -> Int
 brListLength (FirstBranch _) = 1
 brListLength (NextBranch _ t) = 1 + brListLength t
 
--- Indices
-brListIndices :: BranchList a br -> [BranchIndex]
-brListIndices bs = go 0 bs 
- where
-   go :: BranchIndex -> BranchList a br -> [BranchIndex]
-   go n (NextBranch _ t) = n : go (n+1) t
-   go n (FirstBranch {}) = [n]
-
 -- lookup
 brListNth :: BranchList a br -> BranchIndex -> a
 brListNth (FirstBranch b) 0 = b
@@ -183,6 +175,15 @@ brListMapM f (FirstBranch b) = f b >>= \fb -> return [fb]
 brListMapM f (NextBranch h t) = do { fh <- f h
                                    ; ft <- brListMapM f t
                                    ; return (fh : ft) }
+
+brListFoldlM_ :: forall a b m br. Monad m
+              => (a -> b -> m a) -> a -> BranchList b br -> m ()
+brListFoldlM_ f z brs = do { _ <- go brs
+                           ; return () }
+  where go :: forall br'. Monad m => BranchList b br' -> m a
+        go (FirstBranch b)  = f z b
+        go (NextBranch h t) = do { t' <- go t
+                                 ; f t' h }
 
 -- zipWith
 brListZipWith :: (a -> b -> c) -> BranchList a br1 -> BranchList b br2 -> [c]

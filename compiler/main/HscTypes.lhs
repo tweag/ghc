@@ -1280,10 +1280,12 @@ implicitTyConThings tc
 extras_plus :: TyThing -> [TyThing]
 extras_plus thing = thing : implicitTyThings thing
 
--- For newtypes (only) add the implicit coercion tycon
+-- For newtypes and closed type families (only) add the implicit coercion tycon
 implicitCoTyCon :: TyCon -> [TyThing]
 implicitCoTyCon tc
   | Just co <- newTyConCo_maybe tc = [ACoAxiom $ toBranchedAxiom co]
+  | Just co <- isClosedSynFamilyTyCon_maybe tc
+                                   = [ACoAxiom co]
   | otherwise                      = []
 
 -- | Returns @True@ if there should be no interface-file declaration

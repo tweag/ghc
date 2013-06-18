@@ -27,7 +27,6 @@ import TcType
 import TcGenDeriv
 import DataCon
 import TyCon
-import CoAxiom
 import Coercion         ( mkSingleCoAxiom )
 import FamInstEnv       ( FamInst, FamFlavor(..) )
 import FamInst
@@ -445,7 +444,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
                         (nameSrcSpan (tyConName tycon))
 
      ; let axiom = mkSingleCoAxiom rep_name tyvars fam_tc appT repTy
-     ; newFamInst OpenTypeFamily axiom  }
+     ; newFamInst SynFamilyInst axiom  }
 
 --------------------------------------------------------------------------------
 -- Type representation

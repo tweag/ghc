@@ -31,7 +31,7 @@ import TcRnMonad
 import TcValidity
 import TcMType
 import TcType
-import Coercion( mkSingleCoAxiom, mkBranchedCoAxiom, pprCoAxBranch )
+import Coercion( mkSingleCoAxiom, mkUnbranchedCoAxiom )
 import BuildTyCl
 import Inst
 import InstEnv
@@ -466,7 +466,7 @@ addFamInsts fam_insts thing_inside
        ; tcg_env <- tcAddImplicits things
        ; setGblEnv tcg_env thing_inside }
   where
-    axioms = map famInstAxiom fam_insts
+    axioms = map (toBranchedAxiom . famInstAxiom) fam_insts
     tycons = famInstsRepTyCons fam_insts
     things = map ATyCon tycons ++ map ACoAxiom axioms 
 \end{code}
@@ -501,11 +501,11 @@ tcLocalInstDecl (L loc (TyFamInstD { tfid_inst = decl }))
 
 tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
   = do { fam_inst <- tcDataFamInstDecl Nothing (L loc decl)
-       ; return ([], [toBranchedFamInst fam_inst]) }
+       ; return ([], [fam_inst]) }
 
 tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
   = do { (insts, fam_insts) <- tcClsInstDecl (L loc decl)
-       ; return (insts, map toBranchedFamInst fam_insts) }
+       ; return (insts, fam_insts) }
 
 tcClsInstDecl :: LClsInstDecl Name -> TcM ([InstInfo Name], [FamInst])
 tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
@@ -559,7 +559,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
                      ; let axiom = mkSingleCoAxiom rep_tc_name tvs' fam_tc pat_tys' rhs'
                      ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
-                       newFamInst OpenTypeFamily axiom }
+                       newFamInst SynFamilyInst axiom }
 
         ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
         
@@ -585,7 +585,7 @@ tcAssocTyDecl :: Class                   -- Class of associated type
               -> TcM (FamInst)
 tcAssocTyDecl clas mini_env ldecl
   = do { fam_inst <- tcTyFamInstDecl (Just (clas, mini_env)) ldecl
-       ; return $ toUnbranchedFamInst fam_inst }
+       ; return fam_inst }
 \end{code}
 
 %************************************************************************
@@ -623,7 +623,7 @@ tcFamInstDeclCombined mb_clsinfo fam_tc_lname
 tcTyFamInstDecl :: Maybe (Class, VarEnv Type) -- the class & mini_env if applicable
                 -> LTyFamInstDecl Name -> TcM FamInst
   -- "type instance"
-tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_eqns = eqns }))
+tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_eqn = eqn }))
   = setSrcSpan loc           $
     tcAddTyFamInstCtxt decl  $
     do { let fam_lname = tfie_tycon (unLoc eqn)
@@ -645,8 +645,8 @@ tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_eqns = eqns }))
        ; rep_tc_name <- newFamInstAxiomName loc
                                             (tyFamInstDeclName decl)
                                             [co_ax_branch]
-       ; let axiom = mkBranchedCoAxiom rep_tc_name fam_tc co_ax_branches
-       ; newFamInst OpenTypeFamily axiom }
+       ; let axiom = mkUnbranchedCoAxiom rep_tc_name fam_tc co_ax_branch
+       ; newFamInst SynFamilyInst axiom }
 
 tcDataFamInstDecl :: Maybe (Class, VarEnv Type)
                   -> LDataFamInstDecl Name -> TcM FamInst
@@ -666,7 +666,7 @@ tcDataFamInstDecl mb_clsinfo
        ; checkTc (isAlgTyCon fam_tc) (wrongKindOfFamily fam_tc)
 
          -- Kind check type patterns
-       ; tcFamTyPats fam_tc pats (kcDataDefn defn) $ 
+       ; tcFamTyPats (unLoc fam_tc_name) (tyConKind fam_tc) pats (kcDataDefn defn) $ 
            \tvs' pats' res_kind -> do
 
        { -- Check that left-hand side contains no type family applications
@@ -707,7 +707,7 @@ tcDataFamInstDecl mb_clsinfo
                  -- further instance might not introduce a new recursive
                  -- dependency.  (2) They are always valid loop breakers as
                  -- they involve a coercion.
-              ; fam_inst <- newFamInst (DataFamily rep_tc) axiom
+              ; fam_inst <- newFamInst (DataFamilyInst rep_tc) axiom
               ; return (rep_tc, fam_inst) }
 
          -- Remember to check validity; no recursion to worry about here
@@ -1498,11 +1498,6 @@ badFamInstDecl tc_name
   = vcat [ ptext (sLit "Illegal family instance for") <+>
            quotes (ppr tc_name)
          , nest 2 (parens $ ptext (sLit "Use -XTypeFamilies to allow indexed type families")) ]
-
-inaccessibleCoAxBranch :: TyCon -> CoAxBranch -> SDoc
-inaccessibleCoAxBranch tc fi
-  = ptext (sLit "Inaccessible family instance equation:") $$
-      (pprCoAxBranch tc fi)
 
 notOpenFamily :: TyCon -> SDoc
 notOpenFamily tc

@@ -65,6 +65,7 @@ newFamInst flavor axiom@(CoAxiom { co_ax_branches = FirstBranch branch
                          , fi_tcs      = roughMatchTcs lhs
                          , fi_tvs      = tvs'
                          , fi_tys      = substTys subst lhs
+                         , fi_rhs      = substTy  subst rhs
                          , fi_axiom    = axiom }) }
   where
     fam_tc_name = tyConName fam_tc
@@ -236,10 +237,8 @@ tcLookupDataFamInst tycon tys
        ; case maybeFamInst of
            Nothing             -> famInstNotFound tycon tys
            Just (FamInstMatch { fim_instance = famInst
-                              , fim_index    = index
                               , fim_tys      = tys })
-             -> ASSERT( index == 0 )
-                let tycon' = dataFamInstRepTyCon famInst
+             -> let tycon' = dataFamInstRepTyCon famInst
                 in return (tycon', tys) }
 
 famInstNotFound :: TyCon -> [Type] -> TcM a
@@ -339,7 +338,7 @@ environments (one for the EPS and one for the HPT).
 checkForConflicts :: FamInstEnvs -> FamInst -> TcM Bool
 checkForConflicts inst_envs fam_inst
   = do { let conflicts = lookupFamInstEnvConflicts inst_envs fam_inst
-             no_conflicts = all null conflicts
+             no_conflicts = null conflicts
        ; traceTc "checkForConflicts" (ppr conflicts $$ ppr fam_inst $$ ppr inst_envs)
        ; unless no_conflicts $ conflictInstErr fam_inst conflicts
        ; return no_conflicts }
@@ -362,7 +361,7 @@ addFamInstsErr herald insts
  where
    getSpan   = getSrcLoc . famInstAxiom
    sorted    = sortWith getSpan insts
-   (fi1,ix1) = head sorted
+   fi1       = head sorted
    srcSpan   = coAxBranchSpan (coAxiomSingleBranch (famInstAxiom fi1))
    -- The sortWith just arranges that instances are dislayed in order
    -- of source location, which reduced wobbling in error messages,

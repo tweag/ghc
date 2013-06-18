@@ -16,7 +16,7 @@
 --
 module Coercion (
         -- * CoAxioms
-        mkCoAxBranch, mkBranchedCoAxiom, mkSingleCoAxiom,
+        mkCoAxBranch, mkBranchedCoAxiom, mkUnbranchedCoAxiom, mkSingleCoAxiom,
 
         -- * Main data type
         Coercion(..), Var, CoVar,
@@ -152,6 +152,14 @@ mkBranchedCoAxiom ax_name fam_tc branches
             , co_ax_tc       = fam_tc
             , co_ax_implicit = False
             , co_ax_branches = toBranchList branches }
+
+mkUnbranchedCoAxiom :: Name -> TyCon -> CoAxBranch -> CoAxiom Unbranched
+mkUnbranchedCoAxiom ax_name fam_tc branch
+  = CoAxiom { co_ax_unique   = nameUnique ax_name
+            , co_ax_name     = ax_name
+            , co_ax_tc       = fam_tc
+            , co_ax_implicit = False
+            , co_ax_branches = FirstBranch branch }
 
 mkSingleCoAxiom :: Name -> [TyVar] -> TyCon -> [Type] -> Type -> CoAxiom Unbranched
 mkSingleCoAxiom ax_name tvs fam_tc lhs_tys rhs_ty

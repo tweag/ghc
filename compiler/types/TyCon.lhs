@@ -34,7 +34,7 @@ module TyCon(
         isFunTyCon,
         isPrimTyCon,
         isTupleTyCon, isUnboxedTupleTyCon, isBoxedTupleTyCon,
-        isSynTyCon, isOpenSynFamilyTyCon,
+        isSynTyCon, 
         isDecomposableTyCon,
         isForeignTyCon, 
         isPromotedDataCon, isPromotedTyCon,
@@ -46,6 +46,7 @@ module TyCon(
         isEnumerationTyCon,
         isNewTyCon, isAbstractTyCon,
         isFamilyTyCon, isSynFamilyTyCon, isDataFamilyTyCon,
+        isOpenSynFamilyTyCon, isClosedSynFamilyTyCon_maybe,
         isUnLiftedTyCon,
         isGadtSyntaxTyCon, isDistinctTyCon, isDistinctAlgRhs,
         isTyConAssoc, tyConAssoc_maybe,
@@ -1169,6 +1170,11 @@ isSynFamilyTyCon _ = False
 isOpenSynFamilyTyCon :: TyCon -> Bool
 isOpenSynFamilyTyCon (SynTyCon {synTcRhs = OpenSynFamilyTyCon }) = True
 isOpenSynFamilyTyCon _ = False
+
+isClosedSynFamilyTyCon_maybe :: TyCon -> Maybe (CoAxiom Branched)
+isClosedSynFamilyTyCon_maybe
+  (SynTyCon {synTcRhs = ClosedSynFamilyTyCon ax}) = Just ax
+isClosedSynFamilyTyCon_maybe _ = Nothing
 
 -- | Is this a synonym 'TyCon' that can have may have further instances appear?
 isDataFamilyTyCon :: TyCon -> Bool
