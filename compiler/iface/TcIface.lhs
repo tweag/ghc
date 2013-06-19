@@ -549,7 +549,8 @@ tc_iface_decl _ _ (IfaceAxiom {ifName = ax_occ, ifTyCon = tc, ifAxBranches = bra
   = do { tc_name     <- lookupIfaceTop ax_occ
        ; tc_tycon    <- tcIfaceTyCon tc
        ; tc_branches <- mapM tc_ax_branch branches
-       ; let axiom = CoAxiom { co_ax_unique   = nameUnique tc_name
+       ; let axiom = computeAxiomIncomps $
+                     CoAxiom { co_ax_unique   = nameUnique tc_name
                              , co_ax_name     = tc_name
                              , co_ax_tc       = tc_tycon
                              , co_ax_branches = toBranchList tc_branches
@@ -564,7 +565,8 @@ tc_ax_branch (IfaceAxBranch { ifaxbTyVars = tv_bndrs, ifaxbLHS = lhs, ifaxbRHS =
     ; return (CoAxBranch { cab_loc = noSrcSpan
                          , cab_tvs = tvs
                          , cab_lhs = tc_lhs
-                         , cab_rhs = tc_rhs } ) }
+                         , cab_rhs = tc_rhs
+                         , cab_incomps = placeHolderIncomps } ) }
 
 tcIfaceDataCons :: Name -> TyCon -> [TyVar] -> IfaceConDecls -> IfL AlgTyConRhs
 tcIfaceDataCons tycon_name tycon _ if_cons

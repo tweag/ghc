@@ -27,8 +27,7 @@ import TcType
 import TcGenDeriv
 import DataCon
 import TyCon
-import Coercion         ( mkSingleCoAxiom )
-import FamInstEnv       ( FamInst, FamFlavor(..) )
+import FamInstEnv       ( FamInst, FamFlavor(..), mkSingleCoAxiom )
 import FamInst
 import Module           ( Module, moduleName, moduleNameString )
 import IfaceEnv         ( newGlobalBinder )

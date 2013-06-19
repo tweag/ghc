@@ -15,9 +15,6 @@
 -- more on System FC and how coercions fit into it.
 --
 module Coercion (
-        -- * CoAxioms
-        mkCoAxBranch, mkBranchedCoAxiom, mkUnbranchedCoAxiom, mkSingleCoAxiom,
-
         -- * Main data type
         Coercion(..), Var, CoVar,
         LeftOrRight(..), pickLR,
@@ -112,66 +109,6 @@ import FastString
 
 import qualified Data.Data as Data hiding ( TyCon )
 \end{code}
-
-
-%************************************************************************
-%*                                                                      *
-           Constructing axioms
-    These functions are here because tidyType etc 
-    are not available in CoAxiom
-%*                                                                      *
-%************************************************************************
-
-Note [Tidy axioms when we build them]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We print out axioms and don't want to print stuff like
-    F k k a b = ...
-Instead we must tidy those kind variables.  See Trac #7524.
-
-
-\begin{code}
-mkCoAxBranch :: [TyVar] -- original, possibly stale, tyvars
-             -> [Type]  -- LHS patterns
-             -> Type    -- RHS
-             -> SrcSpan
-             -> CoAxBranch
-mkCoAxBranch tvs lhs rhs loc
-  = CoAxBranch { cab_tvs = tvs1
-               , cab_lhs = tidyTypes env lhs
-               , cab_rhs = tidyType  env rhs
-               , cab_loc = loc }
-  where
-    (env, tvs1) = tidyTyVarBndrs emptyTidyEnv tvs
-    -- See Note [Tidy axioms when we build them]
-  
-
-mkBranchedCoAxiom :: Name -> TyCon -> [CoAxBranch] -> CoAxiom Branched
-mkBranchedCoAxiom ax_name fam_tc branches
-  = CoAxiom { co_ax_unique   = nameUnique ax_name
-            , co_ax_name     = ax_name
-            , co_ax_tc       = fam_tc
-            , co_ax_implicit = False
-            , co_ax_branches = toBranchList branches }
-
-mkUnbranchedCoAxiom :: Name -> TyCon -> CoAxBranch -> CoAxiom Unbranched
-mkUnbranchedCoAxiom ax_name fam_tc branch
-  = CoAxiom { co_ax_unique   = nameUnique ax_name
-            , co_ax_name     = ax_name
-            , co_ax_tc       = fam_tc
-            , co_ax_implicit = False
-            , co_ax_branches = FirstBranch branch }
-
-mkSingleCoAxiom :: Name -> [TyVar] -> TyCon -> [Type] -> Type -> CoAxiom Unbranched
-mkSingleCoAxiom ax_name tvs fam_tc lhs_tys rhs_ty
-  = CoAxiom { co_ax_unique   = nameUnique ax_name
-            , co_ax_name     = ax_name
-            , co_ax_tc       = fam_tc
-            , co_ax_implicit = False
-            , co_ax_branches = FirstBranch branch }
-  where
-    branch = mkCoAxBranch tvs lhs_tys rhs_ty (getSrcSpan ax_name)
-\end{code}
-
 
 %************************************************************************
 %*									*
@@ -832,7 +769,8 @@ mkNewTypeCo name tycon tvs rhs_ty
   where branch = CoAxBranch { cab_loc = getSrcSpan name
                             , cab_tvs = tvs
                             , cab_lhs = mkTyVarTys tvs
-                            , cab_rhs = rhs_ty }
+                            , cab_rhs = rhs_ty
+                            , cab_incomps = [] }
 
 mkPiCos :: [Var] -> Coercion -> Coercion
 mkPiCos vs co = foldr mkPiCo co vs

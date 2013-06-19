@@ -31,7 +31,6 @@ import TcRnMonad
 import TcValidity
 import TcMType
 import TcType
-import Coercion( mkSingleCoAxiom, mkUnbranchedCoAxiom )
 import BuildTyCl
 import Inst
 import InstEnv

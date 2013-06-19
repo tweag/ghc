@@ -23,7 +23,8 @@ module CoAxiom (
        coAxiomTyCon, isImplicitCoAxiom, coAxiomNumPats,
        coAxiomNthBranch, coAxiomSingleBranch_maybe,
        coAxiomSingleBranch, coAxBranchTyVars, coAxBranchLHS,
-       coAxBranchRHS, coAxBranchSpan
+       coAxBranchRHS, coAxBranchSpan, coAxBranchIncomps,
+       placeHolderIncomps
        ) where 
 
 import {-# SOURCE #-} TypeRep ( Type )
@@ -204,6 +205,25 @@ instance Outputable a => Outputable (BranchList a br) where
 %*                                                                      *
 %************************************************************************
 
+Note [Storing compatibility]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+During axiom application, we need to be aware of which branches are compatible
+with which others. The full explanation is in Note [Compatibility] in
+FamInstEnv. (The code is placed there to avoid a dependency from CoAxiom on
+the unification algorithm.) Although we could theoretically compute
+compatibility on the fly, this is silly, so we store it in a CoAxiom.
+
+Specifically, each branch refers to all other branches with which it is
+incompatible. This list might well be empty, and it will always be for the
+first branch of any axiom.
+
+CoAxBranches that do not (yet) belong to a CoAxiom should have a panic thunk
+stored in cab_incomps. The incompatibilities are properly a property of the
+axiom as a whole, and they are computed only when the final axiom is built.
+
+During serialization, the list is converted into a list of the indices
+of the branches.
+
 \begin{code}
 -- | A 'CoAxiom' is a \"coercion constructor\", i.e. a named equality axiom.
 
@@ -224,12 +244,14 @@ data CoAxiom br
 
 data CoAxBranch
   = CoAxBranch
-    { cab_loc      :: SrcSpan      -- Location of the defining equation
-                                   -- See Note [CoAxiom locations]
-    , cab_tvs      :: [TyVar]      -- Bound type variables; not necessarily fresh
-                                   -- See Note [CoAxBranch type variables]
-    , cab_lhs      :: [Type]       -- Type patterns to match against
-    , cab_rhs      :: Type         -- Right-hand side of the equality
+    { cab_loc      :: SrcSpan       -- Location of the defining equation
+                                    -- See Note [CoAxiom locations]
+    , cab_tvs      :: [TyVar]       -- Bound type variables; not necessarily fresh
+                                    -- See Note [CoAxBranch type variables]
+    , cab_lhs      :: [Type]        -- Type patterns to match against
+    , cab_rhs      :: Type          -- Right-hand side of the equality
+    , cab_incomps  :: [CoAxBranch]  -- The previous incompatible branches
+                                    -- See Note [Storing compatibility]
     }
   deriving Typeable
 
@@ -285,6 +307,12 @@ coAxBranchSpan = cab_loc
 
 isImplicitCoAxiom :: CoAxiom br -> Bool
 isImplicitCoAxiom = co_ax_implicit
+
+coAxBranchIncomps :: CoAxBranch -> [CoAxBranch]
+coAxBranchIncomps = cab_incomps
+
+placeHolderIncomps :: [CoAxBranch]
+placeHolderIncomps = panic "placeHolderIncomps"
 
 \end{code}
 

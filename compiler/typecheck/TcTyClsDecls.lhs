@@ -37,8 +37,8 @@ import TcMType
 import TcType
 import TysWiredIn( unitTy )
 import FamInst
-import FamInstEnv( isDominatedBy )
-import Coercion( mkCoAxBranch, mkBranchedCoAxiom, pprCoAxBranch )
+import FamInstEnv( isDominatedBy, mkCoAxBranch, mkBranchedCoAxiom )
+import Coercion( pprCoAxBranch )
 import Type
 import Kind
 import Class

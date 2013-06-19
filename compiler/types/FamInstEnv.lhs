@@ -6,6 +6,8 @@ FamInstEnv: Type checked family instance declarations
 
 \begin{code}
 
+{-# LANGUAGE GADTs #-}
+
 module FamInstEnv (
 	FamInst(..), FamFlavor(..), famInstAxiom, famInstTyCon, famInstRHS,
         famInstsRepTyCons, famInstRepTyCon_maybe, dataFamInstRepTyCon, 
@@ -16,8 +18,12 @@ module FamInstEnv (
 	extendFamInstEnv, deleteFromFamInstEnv, extendFamInstEnvList, 
 	identicalFamInst, famInstEnvElts, familyInstances, orphNamesOfFamInst,
 
+        -- * CoAxioms
+        mkCoAxBranch, mkBranchedCoAxiom, mkUnbranchedCoAxiom, mkSingleCoAxiom,
+        computeAxiomIncomps,
+
         FamInstMatch(..),
-	lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
+	lookupFamInstEnv, lookupFamInstEnvConflicts,
 
         isDominatedBy,
 	
@@ -43,6 +49,7 @@ import Outputable
 import Maybes
 import Util
 import Pair
+import SrcLoc
 import NameSet
 import FastString
 \end{code}
@@ -353,6 +360,160 @@ identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
 
 %************************************************************************
 %*									*
+                Compatibility
+%*									*
+%************************************************************************
+
+Note [Compatibility]
+~~~~~~~~~~~~~~~~~~~~
+Two patterns are /compatible/ if either of the following conditions hold:
+1) The patterns are apart.
+2) The patterns unify with a substitution S, and their right hand sides
+equal under that substitution.
+
+For open type families, only compatible instances are allowed. For closed
+type families, the story is slightly more complicated. Consider the following:
+
+type family F a where
+  F Int = Bool
+  F a   = Int
+
+g :: Show a => a -> F a
+g x = length (show x)
+
+Should that type-check? No. We need to allow for the possibility that 'a'
+might be Int and therefore 'F a' should be Bool. We can simplify 'F a' to Int
+only when we can be sure that 'a' is not Int.
+
+To achieve this, after finding a possible match within the equations, we have to
+go back to all previous equations and check that, under the
+substitution induced by the match, other branches are surely apart. (See
+[Apartness] in types/Unify.lhs.) This is similar to what happens with class
+instance selection, when we need to guarantee that there is only a match and
+no unifiers. The exact algorithm is different here because the the
+potentially-overlapping group is closed.
+
+As another example, consider this:
+
+type family G x
+type instance where
+  G Int = Bool
+  G a   = Double
+
+type family H y
+-- no instances
+
+Now, we want to simplify (G (H Char)). We can't, because (H Char) might later
+simplify to be Int. So, (G (H Char)) is stuck, for now.
+
+While everything above is quite sound, it isn't as expressive as we'd like.
+Consider this:
+
+type family J a where
+  J Int = Int
+  J a   = a
+
+Can we simplify (J b) to b? Sure we can. Yes, the first equation matches if
+b is instantiated with Int, but the RHSs coincide there, so it's all OK.
+
+So, the rule is this: when looking up a branch in a closed type family, we
+find a branch that matches the target, but then we make sure that the target
+is apart from every previous *incompatible* branch. We don't check the
+branches that are compatible with the matching branch, because they are eithe
+irrelevant (clause 1 of compatible) or benign (clause 2 of compatible).
+
+\begin{code}
+
+compatibleBranches :: CoAxBranch -> CoAxBranch -> Bool
+compatibleBranches (CoAxBranch { cab_lhs = lhs1, cab_rhs = rhs1 })
+                   (CoAxBranch { cab_lhs = lhs2, cab_rhs = rhs2 })
+  = case tcApartTys instanceBindFun lhs1 lhs2 of
+      SurelyApart -> True
+      NotApart subst
+        | Type.substTy subst rhs1 `eqType` Type.substTy subst rhs2
+        -> True
+      _ -> False
+
+-- takes a CoAxiom with unknown branch incompatibilities and computes
+-- the compatibilities
+computeAxiomIncomps :: CoAxiom br -> CoAxiom br
+computeAxiomIncomps ax@(CoAxiom { co_ax_branches = branches })
+  = ax { co_ax_branches = go [] branches }
+  where
+    go :: [CoAxBranch] -> BranchList CoAxBranch br -> BranchList CoAxBranch br
+    go prev_branches (FirstBranch br)
+      = FirstBranch (br { cab_incomps = mk_incomps br prev_branches })
+    go prev_branches (NextBranch br tail)
+      = let br' = br { cab_incomps = mk_incomps br prev_branches } in
+        NextBranch br' (go (br' : prev_branches) tail)
+
+    mk_incomps :: CoAxBranch -> [CoAxBranch] -> [CoAxBranch]
+    mk_incomps br = filter (not . compatibleBranches br)
+
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+           Constructing axioms
+    These functions are here because tidyType / tcApartTys
+    are not available in CoAxiom
+%*                                                                      *
+%************************************************************************
+
+Note [Tidy axioms when we build them]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We print out axioms and don't want to print stuff like
+    F k k a b = ...
+Instead we must tidy those kind variables.  See Trac #7524.
+
+\begin{code}
+mkCoAxBranch :: [TyVar] -- original, possibly stale, tyvars
+             -> [Type]  -- LHS patterns
+             -> Type    -- RHS
+             -> SrcSpan
+             -> CoAxBranch
+mkCoAxBranch tvs lhs rhs loc
+  = CoAxBranch { cab_tvs = tvs1
+               , cab_lhs = tidyTypes env lhs
+               , cab_rhs = tidyType  env rhs
+               , cab_loc = loc
+               , cab_incomps = placeHolderIncomps }
+  where
+    (env, tvs1) = tidyTyVarBndrs emptyTidyEnv tvs
+    -- See Note [Tidy axioms when we build them]
+
+-- all of the following code is here to avoid mutual dependencies with
+-- Coercion
+mkBranchedCoAxiom :: Name -> TyCon -> [CoAxBranch] -> CoAxiom Branched
+mkBranchedCoAxiom ax_name fam_tc branches
+  = computeAxiomIncomps $
+    CoAxiom { co_ax_unique   = nameUnique ax_name
+            , co_ax_name     = ax_name
+            , co_ax_tc       = fam_tc
+            , co_ax_implicit = False
+            , co_ax_branches = toBranchList branches }
+
+mkUnbranchedCoAxiom :: Name -> TyCon -> CoAxBranch -> CoAxiom Unbranched
+mkUnbranchedCoAxiom ax_name fam_tc branch
+  = CoAxiom { co_ax_unique   = nameUnique ax_name
+            , co_ax_name     = ax_name
+            , co_ax_tc       = fam_tc
+            , co_ax_implicit = False
+            , co_ax_branches = FirstBranch (branch { cab_incomps = [] }) }
+
+mkSingleCoAxiom :: Name -> [TyVar] -> TyCon -> [Type] -> Type -> CoAxiom Unbranched
+mkSingleCoAxiom ax_name tvs fam_tc lhs_tys rhs_ty
+  = CoAxiom { co_ax_unique   = nameUnique ax_name
+            , co_ax_name     = ax_name
+            , co_ax_tc       = fam_tc
+            , co_ax_implicit = False
+            , co_ax_branches = FirstBranch (branch { cab_incomps = [] }) }
+  where
+    branch = mkCoAxBranch tvs lhs_tys rhs_ty (getSrcSpan ax_name)
+\end{code}
+
+%************************************************************************
+%*									*
 		Looking up a family instance
 %*									*
 %************************************************************************
@@ -402,7 +563,7 @@ lookupFamInstEnv
 lookupFamInstEnvConflicts
     :: FamInstEnvs
     -> FamInst		-- Putative new instance
-    -> [FamInstMatch] 	-- Conflicting matches
+    -> [FamInstMatch] 	-- Conflicting matches (don't look at the fim_tys field)
 -- E.g. when we are about to add
 --    f : type instance F [a] = a->a
 -- we do (lookupFamInstConflicts f [b])
@@ -410,35 +571,25 @@ lookupFamInstEnvConflicts
 --
 -- Precondition: the tycon is saturated (or over-saturated)
 
-lookupFamInstEnvConflicts envs fam_inst
+lookupFamInstEnvConflicts envs fam_inst@(FamInst { fi_axiom = new_axiom })
   = lookup_fam_inst_env my_unify False envs fam tys
   where
     (fam, tys) = famInstSplitLHS fam_inst
         -- In example above,   fam tys' = F [b]   
 
-    my_unify old_fam_inst tpl_tvs tpl_tys match_tys
+    my_unify (FamInst { fi_axiom = old_axiom }) tpl_tvs tpl_tys _
        = ASSERT2( tyVarsOfTypes tys `disjointVarSet` tpl_tvs,
 		  (ppr fam <+> ppr tys) $$
 		  (ppr tpl_tvs <+> ppr tpl_tys) )
 		-- Unification will break badly if the variables overlap
 		-- They shouldn't because we allocate separate uniques for them
-         case tcUnifyTys instanceBindFun tpl_tys match_tys of
-	      Just subst | conflicting old_fam_inst subst -> Just subst
-	      _other	   	              	          -> Nothing
-
+         if compatibleBranches (coAxiomSingleBranch old_axiom) (new_branch)
+           then Nothing
+           else Just noSubst
       -- Note [Family instance overlap conflicts]
-    conflicting old_fam_inst subst 
-      | isAlgTyCon fam = True
-      | otherwise      = not (old_rhs `eqType` new_rhs)
-      where
-        old_rhs       = Type.substTy subst (famInstRHS old_fam_inst) 
-        new_rhs       = Type.substTy subst (famInstRHS fam_inst)
 
--- This variant is called when we want to check if the conflict is only in the
--- home environment (see FamInst.addLocalFamInst)
-lookupFamInstEnvConflicts' :: FamInstEnv -> FamInst -> [FamInstMatch]
-lookupFamInstEnvConflicts' env fam_inst
-  = lookupFamInstEnvConflicts (emptyFamInstEnv, env) fam_inst
+    noSubst = panic "lookupFamInstEnvConflicts noSubst"
+    new_branch = coAxiomSingleBranch new_axiom
 \end{code}
 
 Note [Family instance overlap conflicts]
@@ -622,8 +773,10 @@ findBranch prev_branches
               : rest) ind target_tys
   = case tcMatchTys (mkVarSet tpl_tvs) tpl_lhs target_tys of
       Just subst -- matching worked. now, check for apartness.
-        |  all (isSurelyApart . tcApartTys instanceBindFun target_tys . coAxBranchLHS)
-             prev_branches
+        |  all (isSurelyApart
+                . tcApartTys instanceBindFun target_tys
+                . coAxBranchLHS) $ -- RAE: This is horribly inefficient
+             filter (not . compatibleBranches cur) prev_branches
         -> -- matching worked & we're apart from all incompatible branches. success
            Just (ind, substTyVars subst tpl_tvs)
 
