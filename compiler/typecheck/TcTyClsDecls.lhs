@@ -903,12 +903,18 @@ tcFamTyPats :: Name -- of the family TyCon
 tcFamTyPats fam_tc_name kind
             (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tvars })
             kind_checker thing_inside
-  = do { -- A family instance must have exactly the same number of type
-         -- parameters as the family declaration.  You can't write
-         --     type family F a :: * -> *
-         --     type instance F Int y = y
-         -- because then the type (F Int) would be like (\y.y)
-       ; let (fam_kvs, fam_body) = splitForAllTys kind
+  = do { let (fam_kvs, fam_body) = splitForAllTys kind
+
+         -- We wish to check that the pattern has the right number of arguments
+         -- in checkValidFamPats (in TcValidity), so we can do the check *after*
+         -- we're done with the knot. But, the splitKindFunTysN below will panic
+         -- if there are *too many* patterns. So, we do a preliminary check here.
+         -- Note that we don't have enough information at hand to do a full check,
+         -- as that requires the full declared arity of the family, which isn't
+         -- nearby.
+       ; let max_args = length (fst $ splitKindFunTys kind)
+       ; checkTc (length arg_pats <= max_args) $
+           wrongNumberOfParmsErrTooMany max_args
 
          -- Instantiate with meta kind vars
        ; fam_arg_kinds <- mapM (const newMetaKindVar) fam_kvs
@@ -1780,7 +1786,7 @@ tcAddClosedTypeFamilyDeclCtxt :: TyCon -> TcM a -> TcM a
 tcAddClosedTypeFamilyDeclCtxt tc
   = addErrCtxt ctxt
   where
-    ctxt = ptext (sLit "In the declaration for closed type family") <+>
+    ctxt = ptext (sLit "In the equations for closed type family") <+>
            quotes (ppr tc)
 
 resultTypeMisMatch :: Name -> DataCon -> DataCon -> SDoc
@@ -1898,6 +1904,11 @@ wrongKindOfFamily family
     kindOfFamily | isSynTyCon family = ptext (sLit "type synonym")
                  | isAlgTyCon family = ptext (sLit "data type")
                  | otherwise = pprPanic "wrongKindOfFamily" (ppr family)
+
+wrongNumberOfParmsErrTooMany :: Arity -> SDoc
+wrongNumberOfParmsErrTooMany max_args
+  = ptext (sLit "Number of parameters must match family declaration; expected no more than")
+    <+> ppr max_args
 
 wrongNamesInInstGroup :: Name -> Name -> SDoc
 wrongNamesInInstGroup first cur
