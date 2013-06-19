@@ -1765,7 +1765,7 @@ lookupInsts (ATyCon tc)
   = do  { inst_envs <- tcGetInstEnvs
         ; return (classInstances inst_envs cls, []) }
 
-  | isFamilyTyCon tc || isTyConAssoc tc
+  | isOpenFamilyTyCon tc || isTyConAssoc tc
   = do  { inst_envs <- tcGetFamInstEnvs
         ; return ([], familyInstances inst_envs tc) }
 

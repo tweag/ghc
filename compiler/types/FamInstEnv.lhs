@@ -22,7 +22,7 @@ module FamInstEnv (
         isDominatedBy,
 	
 	-- Normalisation
-	topNormaliseType, normaliseType, normaliseTcApp
+	chooseBranch, topNormaliseType, normaliseType, normaliseTcApp
     ) where
 
 #include "HsVersions.h"
@@ -42,6 +42,7 @@ import UniqFM
 import Outputable
 import Maybes
 import Util
+import Pair
 import NameSet
 import FastString
 \end{code}
@@ -472,7 +473,7 @@ lookup_fam_inst_env' 	      -- The worker, local to this module
     -> TyCon -> [Type]		-- What we are looking for
     -> [FamInstMatch] 	        -- Successful matches
 lookup_fam_inst_env' match_fun one_sided ie fam tys
-  | not (isFamilyTyCon fam) 
+  | not (isOpenFamilyTyCon fam) 
   = []
   | otherwise
   = ASSERT2( n_tys >= arity, ppr fam <+> ppr tys )	-- Family type applications must be saturated
@@ -573,6 +574,73 @@ isDominatedBy branch branches
 
 %************************************************************************
 %*									*
+                Choosing an axiom application
+%*									*
+%************************************************************************
+
+The lookupFamInstEnv function does a nice job for *open* type families,
+but we also need to handle closed ones when normalising a type:
+
+\begin{code}
+
+-- The TyCon can be oversaturated. This works on both open and closed families
+chooseAxiom :: FamInstEnvs -> TyCon -> [Type] -> Maybe (Coercion, Type)
+chooseAxiom envs tc tys
+  | isOpenFamilyTyCon tc
+  , [FamInstMatch { fim_instance = fam_inst
+                  , fim_tys =      inst_tys }] <- lookupFamInstEnv envs tc tys
+  = let co = mkUnbranchedAxInstCo (famInstAxiom fam_inst) inst_tys
+        ty = pSnd (coercionKind co)
+    in Just (co, ty)
+
+  | Just ax <- isClosedSynFamilyTyCon_maybe tc
+  , Just (ind, inst_tys) <- chooseBranch ax tys
+  = let co = mkAxInstCo ax ind inst_tys
+        ty = pSnd (coercionKind co)
+    in Just (co, ty)
+
+  | otherwise
+  = Nothing
+
+-- The axiom can be oversaturated. (Closed families only.)
+chooseBranch :: CoAxiom Branched -> [Type] -> Maybe (BranchIndex, [Type])
+chooseBranch axiom tys
+  = do { let num_pats = coAxiomNumPats axiom
+             (target_tys, extra_tys) = splitAt num_pats tys
+             branches = coAxiomBranches axiom
+       ; (ind, inst_tys) <- findBranch [] (fromBranchList branches) 0 target_tys
+       ; return (ind, inst_tys ++ extra_tys) }
+
+-- The axiom must *not* be oversaturated
+findBranch :: [CoAxBranch]             -- branches seen so far
+           -> [CoAxBranch]             -- branches to check
+           -> BranchIndex              -- index of current branch
+           -> [Type]                   -- target types
+           -> Maybe (BranchIndex, [Type])
+findBranch prev_branches
+           (cur@CoAxBranch { cab_tvs = tpl_tvs, cab_lhs = tpl_lhs }
+              : rest) ind target_tys
+  = case tcMatchTys (mkVarSet tpl_tvs) tpl_lhs target_tys of
+      Just subst -- matching worked. now, check for apartness.
+        |  all (isSurelyApart . tcApartTys instanceBindFun target_tys . coAxBranchLHS)
+             prev_branches
+        -> -- matching worked & we're apart from all incompatible branches. success
+           Just (ind, substTyVars subst tpl_tvs)
+
+      -- failure. keep looking
+      _ -> findBranch (cur : prev_branches) rest (ind+1) target_tys
+
+  where isSurelyApart SurelyApart = True
+        isSurelyApart _           = False
+
+-- fail if no branches left
+findBranch _ [] _ _ = Nothing
+
+\end{code}
+
+
+%************************************************************************
+%*									*
 		Looking up a family instance
 %*									*
 %************************************************************************
@@ -607,7 +675,7 @@ topNormaliseType env ty
           else let nt_co = mkUnbranchedAxInstCo (newTyConCo tc) tys
                in add_co nt_co rec_nts' nt_rhs
 
-	| isFamilyTyCon tc		-- Expand open tycons
+	| isFamilyTyCon tc		-- Expand family tycons
 	, (co, ty) <- normaliseTcApp env tc tys
 		-- Note that normaliseType fully normalises 'tys', 
 		-- It has do to so to be sure that nested calls like
@@ -633,12 +701,8 @@ normaliseTcApp :: FamInstEnvs -> TyCon -> [Type] -> (Coercion, Type)
 normaliseTcApp env tc tys
   | isFamilyTyCon tc
   , tyConArity tc <= length tys	   -- Unsaturated data families are possible
-  , [FamInstMatch { fim_instance = fam_inst
-                  , fim_tys =      inst_tys }] <- lookupFamInstEnv env tc ntys 
-  = let    -- A matching family instance exists
-        ax              = famInstAxiom fam_inst
-        co              = mkUnbranchedAxInstCo  ax inst_tys
-        rhs             = mkUnbranchedAxInstRHS ax inst_tys
+  , Just (co, rhs) <- chooseAxiom env tc ntys
+  = let    -- A reduction is possible
 	first_coi       = mkTransCo tycon_coi co
 	(rest_coi,nty)  = normaliseType env rhs
 	fix_coi         = mkTransCo first_coi rest_coi

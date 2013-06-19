@@ -1027,7 +1027,7 @@ reifyInstances th_nm th_tys
                -> do { inst_envs <- tcGetInstEnvs
                      ; let (matches, unifies, _) = lookupInstEnv inst_envs cls tys
                      ; mapM reifyClassInstance (map fst matches ++ unifies) }
-               | isFamilyTyCon tc
+               | isOpenFamilyTyCon tc
                -> do { inst_envs <- tcGetFamInstEnvs
                      ; let matches = lookupFamInstEnv inst_envs tc tys
                      ; mapM (reifyFamilyInstance . fim_instance) matches }

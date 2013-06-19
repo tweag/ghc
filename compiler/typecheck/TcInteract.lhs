@@ -20,7 +20,6 @@ import VarSet
 import Type
 import Unify
 import FamInstEnv
-import Coercion( mkUnbranchedAxInstRHS )
 
 import Var
 import TcType
@@ -1482,16 +1481,13 @@ doTopReactFunEq _ct fl fun_tc args xi loc
     do { match_res <- matchFam fun_tc args   -- See Note [MATCHING-SYNONYMS]
        ; case match_res of {
            Nothing -> return NoTopInt ;
-           Just (FamInstMatch { fim_instance = famInst
-                              , fim_tys      = rep_tys }) -> 
+           Just (co, ty) ->
 
     -- Found a top-level instance
     do {    -- Add it to the solved goals
          unless (isDerived fl) (addSolvedFunEq fam_ty fl xi)
 
-       ; let coe_ax = famInstAxiom famInst 
-       ; succeed_with "Fun/Top" (mkTcUnbranchedAxInstCo coe_ax rep_tys)
-                      (mkUnbranchedAxInstRHS coe_ax rep_tys) } } } } }
+       ; succeed_with "Fun/Top" co ty } } } } }
   where
     fam_ty = mkTyConApp fun_tc args
 
@@ -1759,7 +1755,7 @@ matchClassInst _ clas [ k, ty ] _
     case unwrapNewTyCon_maybe (classTyCon clas) of
       Just (_,dictRep, axDict)
         | Just tcSing <- tyConAppTyCon_maybe dictRep ->
-           do mbInst <- matchFam tcSing [k,ty]
+           do mbInst <- matchOpenFam tcSing [k,ty]
               case mbInst of
                 Just FamInstMatch
                   { fim_instance = FamInst { fi_axiom  = axDataFam

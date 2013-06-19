@@ -211,7 +211,7 @@ which implies that :R42T was declared as 'data instance T [a]'.
 \begin{code}
 tcLookupFamInst :: TyCon -> [Type] -> TcM (Maybe FamInstMatch)
 tcLookupFamInst tycon tys
-  | not (isFamilyTyCon tycon)
+  | not (isOpenFamilyTyCon tycon)
   = return Nothing
   | otherwise
   = do { instEnv <- tcGetFamInstEnvs
@@ -229,7 +229,7 @@ tcLookupDataFamInst :: TyCon -> [Type] -> TcM (TyCon, [Type])
 -- Find the instance of a data family
 -- Note [Looking up family instances for deriving]
 tcLookupDataFamInst tycon tys
-  | not (isFamilyTyCon tycon)
+  | not (isOpenFamilyTyCon tycon)
   = return (tycon, tys)
   | otherwise
   = ASSERT( isAlgTyCon tycon )

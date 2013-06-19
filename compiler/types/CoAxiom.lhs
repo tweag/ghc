@@ -20,7 +20,7 @@ module CoAxiom (
 
        toBranchedAxiom, toUnbranchedAxiom,
        coAxiomName, coAxiomArity, coAxiomBranches,
-       coAxiomTyCon, isImplicitCoAxiom,
+       coAxiomTyCon, isImplicitCoAxiom, coAxiomNumPats,
        coAxiomNthBranch, coAxiomSingleBranch_maybe,
        coAxiomSingleBranch, coAxBranchTyVars, coAxBranchLHS,
        coAxBranchRHS, coAxBranchSpan
@@ -178,12 +178,12 @@ brListMapM f (NextBranch h t) = do { fh <- f h
 
 brListFoldlM_ :: forall a b m br. Monad m
               => (a -> b -> m a) -> a -> BranchList b br -> m ()
-brListFoldlM_ f z brs = do { _ <- go brs
+brListFoldlM_ f z brs = do { _ <- go z brs
                            ; return () }
-  where go :: forall br'. Monad m => BranchList b br' -> m a
-        go (FirstBranch b)  = f z b
-        go (NextBranch h t) = do { t' <- go t
-                                 ; f t' h }
+  where go :: forall br'. Monad m => a -> BranchList b br' -> m a
+        go acc (FirstBranch b)  = f acc b
+        go acc (NextBranch h t) = do { fh <- f acc h
+                                     ; go fh t }
 
 -- zipWith
 brListZipWith :: (a -> b -> c) -> BranchList a br1 -> BranchList b br2 -> [c]
@@ -240,6 +240,9 @@ toBranchedAxiom (CoAxiom unique name tc branches implicit)
 toUnbranchedAxiom :: CoAxiom br -> CoAxiom Unbranched
 toUnbranchedAxiom (CoAxiom unique name tc branches implicit)
   = CoAxiom unique name tc (toUnbranchedList branches) implicit
+
+coAxiomNumPats :: CoAxiom br -> Int
+coAxiomNumPats = length . coAxBranchLHS . (flip coAxiomNthBranch 0)
 
 coAxiomNthBranch :: CoAxiom br -> BranchIndex -> CoAxBranch
 coAxiomNthBranch (CoAxiom { co_ax_branches = bs }) index

@@ -45,7 +45,8 @@ module TyCon(
         isDataTyCon, isProductTyCon, isDataProductTyCon_maybe,
         isEnumerationTyCon,
         isNewTyCon, isAbstractTyCon,
-        isFamilyTyCon, isSynFamilyTyCon, isDataFamilyTyCon,
+        isFamilyTyCon, isOpenFamilyTyCon,
+        isSynFamilyTyCon, isDataFamilyTyCon,
         isOpenSynFamilyTyCon, isClosedSynFamilyTyCon_maybe,
         isUnLiftedTyCon,
         isGadtSyntaxTyCon, isDistinctTyCon, isDistinctAlgRhs,
@@ -1160,6 +1161,13 @@ isFamilyTyCon (SynTyCon {synTcRhs = OpenSynFamilyTyCon })      = True
 isFamilyTyCon (SynTyCon {synTcRhs = ClosedSynFamilyTyCon {} }) = True
 isFamilyTyCon (AlgTyCon {algTcRhs = DataFamilyTyCon {}})       = True
 isFamilyTyCon _ = False
+
+-- | Is this a 'TyCon', synonym or otherwise, that defines an family with
+-- instances?
+isOpenFamilyTyCon :: TyCon -> Bool
+isOpenFamilyTyCon (SynTyCon {synTcRhs = OpenSynFamilyTyCon }) = True
+isOpenFamilyTyCon (AlgTyCon {algTcRhs = DataFamilyTyCon })    = True
+isOpenFamilyTyCon _ = False
 
 -- | Is this a synonym 'TyCon' that can have may have further instances appear?
 isSynFamilyTyCon :: TyCon -> Bool

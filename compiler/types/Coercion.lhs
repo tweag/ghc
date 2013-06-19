@@ -682,7 +682,7 @@ mkCoVarCo cv
 mkReflCo :: Type -> Coercion
 mkReflCo = Refl
 
-mkAxInstCo :: CoAxiom br -> Int -> [Type] -> Coercion
+mkAxInstCo :: CoAxiom br -> BranchIndex -> [Type] -> Coercion
 -- mkAxInstCo can legitimately be called over-staturated; 
 -- i.e. with more type arguments than the coercion requires
 mkAxInstCo ax index tys
