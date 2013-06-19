@@ -1141,8 +1141,7 @@ checkValidFamPats fam_tc tvs ty_pats
        ; mapM_ checkTyFamFreeness ty_pats
        ; let unbound_tvs = filterOut (`elemVarSet` exactTyVarsOfTypes ty_pats) tvs
        ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
-  where fam_arity    = tyConArity fam_tc - length fam_kvs
-        (fam_kvs, _) = splitForAllTys (tyConKind fam_tc)
+  where fam_arity    = tyConArity fam_tc
 
 wrongNumberOfParmsErr :: Arity -> SDoc
 wrongNumberOfParmsErr exp_arity
