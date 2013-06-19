@@ -43,6 +43,7 @@ import Demand
 import Annotations
 import Class
 import NameSet
+import CoAxiom ( BranchIndex )
 import Name
 import CostCentre
 import Literal
@@ -127,13 +128,23 @@ data IfaceAT = IfaceAT IfaceDecl [IfaceAxBranch]
         -- Just ds => default associated type instance from these templates
 
 instance Outputable IfaceAxBranch where
-   ppr (IfaceAxBranch { ifaxbTyVars = tvs, ifaxbLHS = pat_tys, ifaxbRHS = ty }) 
-      = ppr tvs <+> hsep (map ppr pat_tys) <+> char '=' <+> ppr ty
+   ppr (IfaceAxBranch { ifaxbTyVars = tvs, ifaxbLHS = pat_tys, ifaxbRHS = ty
+                      , ifaxbIncomps = incomps }) 
+      = ppr tvs <+> hsep (map ppr pat_tys) <+> char '=' <+> ppr ty $$ maybe_incomps
+      where
+        maybe_incomps
+          | [] <- incomps
+          = empty
+
+          | otherwise
+          = parens (ptext (sLit "incompatible indices:") <+> ppr incomps)
 
 -- this is just like CoAxBranch
-data IfaceAxBranch = IfaceAxBranch { ifaxbTyVars :: [IfaceTvBndr]
-                                   , ifaxbLHS    :: [IfaceType]
-                                   , ifaxbRHS    :: IfaceType }
+data IfaceAxBranch = IfaceAxBranch { ifaxbTyVars  :: [IfaceTvBndr]
+                                   , ifaxbLHS     :: [IfaceType]
+                                   , ifaxbRHS     :: IfaceType
+                                   , ifaxbIncomps :: [BranchIndex] }
+                                     -- See Note [Storing compatibility] in CoAxiom
 
 data IfaceConDecls
   = IfAbstractTyCon Bool        -- c.f TyCon.AbstractTyCon

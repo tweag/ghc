@@ -1314,15 +1314,17 @@ instance Binary IfaceDecl where
                     return (IfaceAxiom occ a2 a3)
 
 instance Binary IfaceAxBranch where
-    put_ bh (IfaceAxBranch a1 a2 a3) = do
+    put_ bh (IfaceAxBranch a1 a2 a3 a4) = do
         put_ bh a1
         put_ bh a2
         put_ bh a3
+        put_ bh a4
     get bh = do
         a1 <- get bh
         a2 <- get bh
         a3 <- get bh
-        return (IfaceAxBranch a1 a2 a3)
+        a4 <- get bh
+        return (IfaceAxBranch a1 a2 a3 a4)
 
 instance Binary IfaceSynTyConRhs where
     put_ bh IfaceOpenSynFamilyTyCon        = putByte bh 0

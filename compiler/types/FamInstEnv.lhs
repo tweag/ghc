@@ -429,7 +429,7 @@ compatibleBranches (CoAxBranch { cab_lhs = lhs1, cab_rhs = rhs1 })
                    (CoAxBranch { cab_lhs = lhs2, cab_rhs = rhs2 })
   = case tcApartTys instanceBindFun lhs1 lhs2 of
       SurelyApart -> True
-      NotApart subst
+      Unifiable subst
         | Type.substTy subst rhs1 `eqType` Type.substTy subst rhs2
         -> True
       _ -> False
@@ -759,35 +759,33 @@ chooseBranch axiom tys
   = do { let num_pats = coAxiomNumPats axiom
              (target_tys, extra_tys) = splitAt num_pats tys
              branches = coAxiomBranches axiom
-       ; (ind, inst_tys) <- findBranch [] (fromBranchList branches) 0 target_tys
+       ; (ind, inst_tys) <- findBranch (fromBranchList branches) 0 target_tys
        ; return (ind, inst_tys ++ extra_tys) }
 
 -- The axiom must *not* be oversaturated
-findBranch :: [CoAxBranch]             -- branches seen so far
-           -> [CoAxBranch]             -- branches to check
+findBranch :: [CoAxBranch]             -- branches to check
            -> BranchIndex              -- index of current branch
            -> [Type]                   -- target types
            -> Maybe (BranchIndex, [Type])
-findBranch prev_branches
-           (cur@CoAxBranch { cab_tvs = tpl_tvs, cab_lhs = tpl_lhs }
+findBranch (CoAxBranch { cab_tvs = tpl_tvs, cab_lhs = tpl_lhs, cab_incomps = incomps }
               : rest) ind target_tys
   = case tcMatchTys (mkVarSet tpl_tvs) tpl_lhs target_tys of
       Just subst -- matching worked. now, check for apartness.
         |  all (isSurelyApart
                 . tcApartTys instanceBindFun target_tys
                 . coAxBranchLHS) $ -- RAE: This is horribly inefficient
-             filter (not . compatibleBranches cur) prev_branches
+             incomps
         -> -- matching worked & we're apart from all incompatible branches. success
            Just (ind, substTyVars subst tpl_tvs)
 
       -- failure. keep looking
-      _ -> findBranch (cur : prev_branches) rest (ind+1) target_tys
+      _ -> findBranch rest (ind+1) target_tys
 
   where isSurelyApart SurelyApart = True
         isSurelyApart _           = False
 
 -- fail if no branches left
-findBranch _ [] _ _ = Nothing
+findBranch [] _ _ = Nothing
 
 \end{code}
 

@@ -1444,16 +1444,33 @@ coAxiomToIfaceDecl :: CoAxiom br -> IfaceDecl
 coAxiomToIfaceDecl ax@(CoAxiom { co_ax_tc = tycon, co_ax_branches = branches })
  = IfaceAxiom { ifName       = name
               , ifTyCon      = toIfaceTyCon tycon
-              , ifAxBranches = brListMap (coAxBranchToIfaceBranch emptyTidyEnv) branches }
+              , ifAxBranches = brListMap (coAxBranchToIfaceBranch
+                                            emptyTidyEnv
+                                            (brListMap coAxBranchLHS branches)) branches }
  where
    name = getOccName ax
 
+-- 2nd parameter is the list of branch LHSs, for conversion from incompatible branches
+-- to incompatible indices
+-- See [Storing compatibility] in CoAxiom
+coAxBranchToIfaceBranch :: TidyEnv -> [[Type]] -> CoAxBranch -> IfaceAxBranch
+coAxBranchToIfaceBranch env0 lhs_s
+                        branch@(CoAxBranch { cab_incomps = incomps })
+  = (coAxBranchToIfaceBranch' env0 branch) { ifaxbIncomps = iface_incomps }
+  where
+    iface_incomps = map (expectJust "iface_incomps"
+                        . (flip findIndex lhs_s
+                          . eqTypes)
+                        . coAxBranchLHS) incomps
 
-coAxBranchToIfaceBranch :: TidyEnv -> CoAxBranch -> IfaceAxBranch
-coAxBranchToIfaceBranch env0 (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs })
+-- use this one for standalone branches without incompatibles
+coAxBranchToIfaceBranch' :: TidyEnv -> CoAxBranch -> IfaceAxBranch
+coAxBranchToIfaceBranch' env0
+                        (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs })
   = IfaceAxBranch { ifaxbTyVars = toIfaceTvBndrs tv_bndrs
                   , ifaxbLHS    = map (tidyToIfaceType env1) lhs
-                  , ifaxbRHS    = tidyToIfaceType env1 rhs }
+                  , ifaxbRHS    = tidyToIfaceType env1 rhs
+                  , ifaxbIncomps = [] }
   where
     (env1, tv_bndrs) = tidyTyVarBndrs env0 tvs
 
@@ -1550,7 +1567,7 @@ classToIfaceDecl env clas
     
     toIfaceAT :: ClassATItem -> IfaceAT
     toIfaceAT (tc, defs)
-      = IfaceAT (tyConToIfaceDecl env1 tc) (map (coAxBranchToIfaceBranch env1) defs)
+      = IfaceAT (tyConToIfaceDecl env1 tc) (map (coAxBranchToIfaceBranch' env1) defs)
 
     toIfaceClassOp (sel_id, def_meth)
         = ASSERT(sel_tyvars == clas_tyvars)
