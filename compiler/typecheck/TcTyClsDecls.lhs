@@ -912,7 +912,7 @@ tcFamTyPats fam_tc_name kind
          -- Note that we don't have enough information at hand to do a full check,
          -- as that requires the full declared arity of the family, which isn't
          -- nearby.
-       ; let max_args = length (fst $ splitKindFunTys kind)
+       ; let max_args = length (fst $ splitKindFunTys fam_body)
        ; checkTc (length arg_pats <= max_args) $
            wrongNumberOfParmsErrTooMany max_args
 
