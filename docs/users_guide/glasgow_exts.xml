@@ -5258,7 +5258,16 @@ type instance G (Char, a) = [a]  -- ILLEGAL overlap, as [Char] /= [Int]
 	  in turn relies on type family reduction. This condition of "apartness", as
 	  stated, is impossible to check, so we use this conservative approximation:
 	  two types are considered to be apart when the two types cannot be unified,
-	  even by a potentially infinite unifier.
+	  even by a potentially infinite unifier. Allowing the unifier to be infinite
+	  disallows the following pair of instances:
+<programlisting>
+type instance H x   x = Int
+type instance H [x] x = Bool
+</programlisting>
+          The type patterns in this pair equal if <literal>x</literal> is replaced
+	  by an infinite nesting of lists. Rejecting instances such as these is
+	  necessary for type soundness.
+	</para>
 
     <para> However see <xref linkend="ghci-decls"/> for the overlap rules in GHCi.</para>
     </sect3>
