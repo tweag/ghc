@@ -4872,7 +4872,7 @@ representation).</para>
 <title>Type families</title>
 
 <para>
-  <firstterm>Indexed type families</firstterm> are a new GHC extension to
+  <firstterm>Indexed type families</firstterm> form an extension to
   facilitate type-level
   programming. Type families are a generalisation of <firstterm>associated
   data types</firstterm>
@@ -4915,11 +4915,11 @@ representation).</para>
   indices.
 </para>
 <para>
-  Indexed type families come in two flavours: <firstterm>data
-    families</firstterm> and <firstterm>type synonym
-    families</firstterm>. They are the indexed family variants of algebraic
-  data types and type synonyms, respectively. The instances of data families
-  can be data types and newtypes.
+  Indexed type families come in three flavours: <firstterm>data
+  families</firstterm>, <firstterm>open type synonym families</firstterm>, and
+  <firstterm>closed type synonym families</firstterm>. They are the indexed
+  family variants of algebraic data types and type synonyms, respectively. The
+  instances of data families can be data types and newtypes.
 </para>
 <para>
   Type families are enabled by the flag <option>-XTypeFamilies</option>.
@@ -5027,7 +5027,7 @@ data instance G [a] b where
     </para>
 
     <para>
-      Even if type families are defined as toplevel declarations, functions
+      Even if data families are defined as toplevel declarations, functions
       that perform different computations for different family instances may still
       need to be defined as methods of type classes.  In particular, the
       following is not possible:
