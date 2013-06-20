@@ -5073,22 +5073,24 @@ instance Foo Char where
   <title>Synonym families</title>
 
   <para>
-    Type families appear in two flavours: (1) they can be defined on the
-    toplevel or (2) they can appear inside type classes (in which case they
-    are known as associated type synonyms).  The former is the more general
-    variant, as it lacks the requirement for the type-indexes to coincide with
-    the class parameters.  However, the latter can lead to more clearly
-    structured code and compiler warnings if some type instances were -
-    possibly accidentally - omitted.  In the following, we always discuss the
-    general toplevel form first and then cover the additional constraints
-    placed on associated types.
+    Type families appear in three flavours: (1) they can be defined as open
+    families on the toplevel, (2) they can be defined as closed families on
+    the toplevel, or (3) they can appear inside type classes (in which case
+    they are known as associated type synonyms). Toplevel families are more
+    general, as they lack the requirement for the type-indexes to coincide
+    with the class parameters. However, associated type synonyms can lead to
+    more clearly structured code and compiler warnings if some type instances
+    were - possibly accidentally - omitted. In the following, we always
+    discuss the general toplevel forms first and then cover the additional
+    constraints placed on associated types. Note that closed associated type
+    synonyms do not exist.
   </para>
 
   <sect3 id="type-family-declarations">
     <title>Type family declarations</title>
 
     <para>
-      Indexed type families are introduced by a signature, such as
+      Open indexed type families are introduced by a signature, such as
 <programlisting>
 type family Elem c :: *
 </programlisting>
@@ -5124,12 +5126,7 @@ F Bool             -- WRONG: unsaturated application
   <sect3 id="type-instance-declarations">
     <title>Type instance declarations</title>
     <para>
-      There are two forms of type family instance declaration: unbranched and
-      branched. Branched instances list any number of alternatives, to be
-      checked in order from top to bottom, similarly to normal function
-      declarations. Unbranched instances supply only one left-hand side.
-
-      Unbranched instance declarations of type families are very similar to
+      Instance declarations of type families are very similar to
       standard type synonym declarations. The only two differences are that
       the keyword <literal>type</literal> is followed by
       <literal>instance</literal> and that some or all of the type arguments
@@ -5142,30 +5139,6 @@ F Bool             -- WRONG: unsaturated application
 <programlisting>
 type instance Elem [e] = e
 </programlisting>
-    </para>
-
-    <para>
-      Branched instance declarations, on the other hand, allow many different
-      left-hand-side type patterns. These patterns are tried in order, from
-      top to bottom, when simplifying a type family application. A branched instance
-      declaration is introduced by <literal>type instance where</literal>. For example:
-<programlisting>
-type instance where
-  F Int  = Double
-  F Bool = Char
-  F a    = String
-</programlisting>
-      In this example, we declare an instance for <literal>F</literal> such
-      that <literal>F Int</literal> simplifies to <literal>Double</literal>,
-      <literal>F Bool</literal> simplifies to <literal>Char</literal>, and for
-      any other type <literal>a</literal> that is known not to be
-      <literal>Int</literal> or <literal>Bool</literal>, <literal>F
-      a</literal> simplifies to <literal>String</literal>. Note that GHC must
-      be sure that <literal>a</literal> cannot unify with
-      <literal>Int</literal> or <literal>Bool</literal> in that last case; if
-      a programmer specifies just <literal>F a</literal> in their code, GHC will
-      not be able to simplify the type. After all, <literal>a</literal> might later
-      be instantiated with <literal>Int</literal>.
     </para>
 
     <para>
@@ -5183,7 +5156,45 @@ type instance where
       declaration. Finally, the right-hand side of a type instance must be a
       monotype (i.e., it may not include foralls) and after the expansion of
       all saturated vanilla type synonyms, no synonyms, except family synonyms
-      may remain. Here are some examples of admissible and illegal type
+      may remain.
+    </para>
+  </sect3>2
+
+  <sect3 id="closed-type-families">
+    <title>Closed type families</title>
+    <para>
+      A type family can also be declared with a <literal>where</literal> clause,
+      defining the full set of equations for that family. For example:
+<programlisting>
+type family F a where
+  F Int  = Double
+  F Bool = Char
+  F a    = String
+</programlisting>
+      A closed type family's equations are tried in order, from top to bottom,
+      when simplifying a type family application. In this example, we declare
+      an instance for <literal>F</literal> such that <literal>F Int</literal>
+      simplifies to <literal>Double</literal>, <literal>F Bool</literal>
+      simplifies to <literal>Char</literal>, and for any other type
+      <literal>a</literal> that is known not to be <literal>Int</literal> or
+      <literal>Bool</literal>, <literal>F a</literal> simplifies to
+      <literal>String</literal>. Note that GHC must be sure that
+      <literal>a</literal> cannot unify with <literal>Int</literal> or
+      <literal>Bool</literal> in that last case; if a programmer specifies
+      just <literal>F a</literal> in their code, GHC will not be able to
+      simplify the type. After all, <literal>a</literal> might later be
+      instantiated with <literal>Int</literal>.
+    </para>
+
+    <para>
+      A closed type family's equations have the same restrictions as the
+      equations for an open type family instances.
+    </para>
+  </sect3>
+
+  <sect3 id="type-family-examples">
+    <para>
+Here are some examples of admissible and illegal type
       instances:
 <programlisting>
 type family F a :: *

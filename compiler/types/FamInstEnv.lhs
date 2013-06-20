@@ -298,7 +298,7 @@ newtype FamilyInstEnv
   = FamIE [FamInst]	-- The instances for a particular family, in any order
 
 instance Outputable FamilyInstEnv where
-  ppr (FamIE fs  = ptext (sLit "FamIE") <+> vcat (map ppr fs)
+  ppr (FamIE fs) = ptext (sLit "FamIE") <+> vcat (map ppr fs)
 
 -- INVARIANTS:
 --  * The fs_tvs are distinct in each FamInst
@@ -643,9 +643,7 @@ lookup_fam_inst_env' match_fun _one_sided ie fam tys
   = find match_fun tys insts    -- The common case
   | otherwise = []
   where
-    rough_tcs = roughMatchTcs match_tys
 
-    --------------
     find [] = []
     find (item@(FamInst { fi_tcs = mb_tcs, fi_tvs = tpl_tvs, 
 			  fi_tys = tpl_tys }) : rest)
@@ -664,10 +662,11 @@ lookup_fam_inst_env' match_fun _one_sided ie fam tys
       = find rest
       
       -- Precondition: the tycon is saturated (or over-saturated)
-      
-    -- Deal with over-saturation
-    -- See Note [Over-saturated matches]
-    (match_tys1, match_tys2) = splitAtList mb_tcs match_tys
+      where
+        -- Deal with over-saturation
+        -- See Note [Over-saturated matches]
+        (match_tys1, match_tys2) = splitAtList mb_tcs match_tys
+        rough_tcs = roughMatchTcs match_tys1
 
 lookup_fam_inst_env           -- The worker, local to this module
     :: MatchFun
