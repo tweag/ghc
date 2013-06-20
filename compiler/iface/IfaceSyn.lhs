@@ -128,10 +128,22 @@ data IfaceAT = IfaceAT IfaceDecl [IfaceAxBranch]
         -- Just ds => default associated type instance from these templates
 
 instance Outputable IfaceAxBranch where
-   ppr (IfaceAxBranch { ifaxbTyVars = tvs, ifaxbLHS = pat_tys, ifaxbRHS = ty
-                      , ifaxbIncomps = incomps }) 
-      = ppr tvs <+> hsep (map ppr pat_tys) <+> char '=' <+> ppr ty $$ maybe_incomps
+  ppr = pprAxBranch Nothing
+
+pprAxBranch :: Maybe IfaceTyCon -> IfaceAxBranch -> SDoc
+pprAxBranch mtycon (IfaceAxBranch { ifaxbTyVars = tvs
+                                  , ifaxbLHS = pat_tys
+                                  , ifaxbRHS = ty
+                                  , ifaxbIncomps = incomps })
+  = ppr tvs <+> ppr_lhs <+> char '=' <+> ppr ty $+$
+    nest 4 maybe_incomps
       where
+        ppr_lhs
+          | Just tycon <- mtycon
+          = ppr (IfaceTyConApp tycon pat_tys)
+          | otherwise
+          = hsep (map ppr pat_tys)
+
         maybe_incomps
           | [] <- incomps
           = empty
@@ -554,10 +566,7 @@ pprIfaceDecl (IfaceClass {ifCtxt = context, ifName = clas, ifTyVars = tyvars,
 
 pprIfaceDecl (IfaceAxiom {ifName = name, ifTyCon = tycon, ifAxBranches = branches })
   = hang (ptext (sLit "axiom") <+> ppr name <> colon)
-       2 (vcat $ map ppr_branch branches)
-  where
-     ppr_branch (IfaceAxBranch { ifaxbTyVars = tyvars, ifaxbLHS = lhs, ifaxbRHS = rhs })
-        = pprIfaceTvBndrs tyvars <> dot <+> ppr (IfaceTyConApp tycon lhs) <+> text "~#" <+> ppr rhs
+       2 (vcat $ map (pprAxBranch $ Just tycon) branches)
 
 pprCType :: Maybe CType -> SDoc
 pprCType Nothing = ptext (sLit "No C type associated")

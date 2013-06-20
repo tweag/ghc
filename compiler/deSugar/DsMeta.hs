@@ -271,7 +271,7 @@ repFamilyDecl (L loc (FamilyDecl { fdInfo    = info,
 		                   fdKindSig = opt_kind }))
   = do { tc1 <- lookupLOcc tc 		-- See note [Binders and occurrences] 
        ; dec <- addTyClTyVarBinds tvs $ \bndrs ->
-           do { info' <- repFamilyInfo info
+           do { 
 	      ; case (opt_kind, info) of 
                   (Nothing, ClosedTypeFamily eqns) ->
                     do { eqns1 <- mapM repTyFamEqn eqns
@@ -282,9 +282,13 @@ repFamilyDecl (L loc (FamilyDecl { fdInfo    = info,
                        ; eqns2 <- coreList tySynEqnQTyConName eqns1
                        ; ki1 <- repLKind ki
                        ; repClosedFamilyKind tc1 bndrs ki1 eqns2 }              
-                  (Nothing, _) -> repFamilyNoKind info' tc1 bndrs
-                  (Just ki, _) -> do { ki1 <- repLKind ki 
-                                ; repFamilyKind info' tc1 bndrs ki1 }
+                  (Nothing, _) ->
+                    do { info' <- repFamilyInfo info
+                       ; repFamilyNoKind info' tc1 bndrs }
+                  (Just ki, _) ->
+                    do { info' <- repFamilyInfo info
+                       ; ki1 <- repLKind ki 
+                       ; repFamilyKind info' tc1 bndrs ki1 }
               }
        ; return (loc, dec)
        }
