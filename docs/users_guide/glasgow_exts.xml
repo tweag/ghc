@@ -5193,6 +5193,7 @@ type family F a where
   </sect3>
 
   <sect3 id="type-family-examples">
+    <title>Type family examples</title>
     <para>
 Here are some examples of admissible and illegal type
       instances:
@@ -5203,13 +5204,11 @@ type instance F String             = Char        -- OK!
 type instance F (F a)              = a           -- WRONG: type parameter mentions a type family
 type instance F (forall a. (a, b)) = b           -- WRONG: a forall type appears in a type parameter
 type instance F Float              = forall a.a  -- WRONG: right-hand side may not be a forall type
-type instance where                              -- OK!
-  F (Maybe Int)  = Int
-  F (Maybe Bool) = Bool
-  F (Maybe a)    = String
-type instance where            -- WRONG: conflicts with earlier instances (see below)
-  F Int = Float
-  F a   = [a]
+type family H a where                            -- OK!
+  H Int  = Int
+  H Bool = Bool
+  H a    = String
+type instance H Char = Char       -- WRONG: cannot have instances of closed family
 
 type family G a b :: * -> *
 type instance G Int            = (,)     -- WRONG: must be two type parameters
@@ -5218,35 +5217,49 @@ type instance G Int Char Float = Double  -- WRONG: must be two type parameters
     </para>
     </sect3>
     <sect3 id="type-family-overlap">
-      <title>Overlap of type synonym instances</title>
+      <title>Compatibility and apartness of type family equations</title>
       <para>
-	The unbranched instance declarations of a type family used in a single
-	program may only overlap if the right-hand sides of the overlapping
-	instances coincide for the overlapping types. More formally, two
-	instance declarations overlap if there is a substitution that makes
-	the left-hand sides of the instances syntactically the same. Whenever
-	that is the case, if the instances are unbranched, the right-hand
-	sides of the instances must also be syntactically equal under the same
-	substitution. This condition is independent of whether the type family
-	is associated or not, and it is not only a matter of consistency, but
-	one of type safety. Branched instances are not permitted to overlap
-	with any other instances, branched or unbranched.
+        There must be some restrictions on the equations of type families, lest
+	we define an ambiguous rewrite system. So, equations of open type families
+	are restricted to be <firstterm>compatible</firstterm>. Two type patterns
+	are compatible if
+<orderedlist>
+<listitem><para>all corresponding types in the patterns are <firstterm>apart</firstterm>, or</para></listitem>
+<listitem><para>the two patterns unify producing a substitution, and the right-hand sides are equal under that substitution.</para></listitem>
+</orderedlist>
+        Two types are considered <firstterm>apart</firstterm> if, for all possible
+	substitutions, the types cannot reduce to a common reduct.
       </para>
+
       <para>
-	Here are two example to illustrate the condition under which overlap
-	is permitted.
+	The first clause of "compatible" is the more straightforward one. It says
+	that the patterns of two distinct type family instances cannot overlap.
+	For example, the following is disallowed:
+<programlisting>
+type instance F Int = Bool
+type instance F Int = Char
+</programlisting>
+        The second clause is a little more interesting. It says that two
+        overlapping type family instances are allowed if the right-hand
+	sides coincide in the region of overlap. Some examples help here:
 <programlisting>
 type instance F (a, Int) = [a]
 type instance F (Int, b) = [b]   -- overlap permitted
 
 type instance G (a, Int)  = [a]
 type instance G (Char, a) = [a]  -- ILLEGAL overlap, as [Char] /= [Int]
-
-type instance H Int = Int
-type instance where              -- ILLEGAL overlap, as branched instances may not overlap
-  H a = a
 </programlisting>
-      </para>
+	Note that this compatibility condition is independent of whether the type family
+	is associated or not, and it is not only a matter of consistency, but
+	one of type safety. </para>
+
+	<para>
+	  The definition for "compatible" uses a notion of "apart", whose definition
+	  in turn relies on type family reduction. This condition of "apartness", as
+	  stated, is impossible to check, so we use this conservative approximation:
+	  two types are considered to be apart when the two types cannot be unified,
+	  even by a potentially infinite unifier.
+
     <para> However see <xref linkend="ghci-decls"/> for the overlap rules in GHCi.</para>
     </sect3>
 

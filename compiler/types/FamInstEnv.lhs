@@ -336,7 +336,7 @@ extendFamInstEnvList :: FamInstEnv -> [FamInst] -> FamInstEnv
 extendFamInstEnvList inst_env fis = foldl extendFamInstEnv inst_env fis
 
 extendFamInstEnv :: FamInstEnv -> FamInst -> FamInstEnv
-extendFamInstEnv inst_env ins_item@(FamInst {fi_fam = cls_nm, fi_tcs = mb_tcs})
+extendFamInstEnv inst_env ins_item@(FamInst {fi_fam = cls_nm})
   = addToUFM_C add inst_env cls_nm (FamIE [ins_item])
   where
     add (FamIE items) _ = FamIE (ins_item:items)
@@ -640,7 +640,7 @@ lookup_fam_inst_env' 	      -- The worker, local to this module
 lookup_fam_inst_env' match_fun _one_sided ie fam tys
   | isOpenFamilyTyCon fam
   , Just (FamIE insts) <- lookupUFM ie fam
-  = find match_fun tys insts    -- The common case
+  = find insts    -- The common case
   | otherwise = []
   where
 
@@ -662,11 +662,11 @@ lookup_fam_inst_env' match_fun _one_sided ie fam tys
       = find rest
       
       -- Precondition: the tycon is saturated (or over-saturated)
-      where
-        -- Deal with over-saturation
-        -- See Note [Over-saturated matches]
-        (match_tys1, match_tys2) = splitAtList mb_tcs match_tys
-        rough_tcs = roughMatchTcs match_tys1
+
+    -- Deal with over-saturation
+    -- See Note [Over-saturated matches]
+    (match_tys1, match_tys2) = splitAt (tyConArity fam) tys
+    rough_tcs = roughMatchTcs match_tys1
 
 lookup_fam_inst_env           -- The worker, local to this module
     :: MatchFun
@@ -828,10 +828,6 @@ topNormaliseType env ty
                 -- are correctly top-normalised
         , not (isReflCo co)
         = add_co co rec_nts ty
-        where
-          nt_rhs = newTyConInstRhs tc tys
-          rec_nts' | isRecursiveTyCon tc = tc:rec_nts
-                   | otherwise           = rec_nts
 
     go _ _ = Nothing
 

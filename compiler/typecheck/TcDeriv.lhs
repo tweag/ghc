@@ -743,10 +743,8 @@ mkEqnHelp orig tvs cls cls_tys tc_app mtheta
                 Nothing -> bale_out (ptext (sLit "No family instance for")
                                      <+> quotes (pprTypeApp tycon tys))
                 Just (FamInstMatch { fim_instance = famInst
-                                   , fim_index    = index
                                    , fim_tys      = tys })
-                  -> ASSERT( index == 0 )
-                     let tycon' = dataFamInstRepTyCon famInst
+                  -> let tycon' = dataFamInstRepTyCon famInst
                      in return (tycon', tys) }
 \end{code}
 
