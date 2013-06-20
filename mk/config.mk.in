@@ -95,7 +95,7 @@ TargetElf = YES
 endif
 
 # Some platforms don't support shared libraries
-NoSharedLibsPlatformList =
+NoSharedLibsPlatformList = arm-unknown-linux
 
 ifeq "$(SOLARIS_BROKEN_SHLD)" "YES"
 NoSharedLibsPlatformList += i386-unknown-solaris2
@@ -137,6 +137,8 @@ DYNAMIC_GHC_PROGRAMS = NO
 else ifeq "$(TargetOS_CPP)" "freebsd"
 # FreeBSD cannot do proper resolution for $ORIGIN (due to a bug in
 # rtld(1)), so disable it by default (see #7819).
+DYNAMIC_GHC_PROGRAMS = NO
+else ifeq "$(PlatformSupportsSharedLibs)" "NO"
 DYNAMIC_GHC_PROGRAMS = NO
 else
 DYNAMIC_GHC_PROGRAMS = YES
@@ -387,7 +389,6 @@ BIN_DIST_PREP_DIR     = bindistprep/$(BIN_DIST_NAME)
 BIN_DIST_PREP_TAR     = bindistprep/$(BIN_DIST_NAME)-$(TARGETPLATFORM).tar
 BIN_DIST_PREP_TAR_BZ2 = $(BIN_DIST_PREP_TAR).bz2
 BIN_DIST_TAR_BZ2      = $(BIN_DIST_NAME)-$(TARGETPLATFORM).tar.bz2
-BIN_DIST_LIST         = bindist-list
 
 # -----------------------------------------------------------------------------
 # Utilities programs: flags 
@@ -615,7 +616,12 @@ CPP			= @CPP@ @CPPFLAGS@
 # RAWCPP_FLAGS are the flags to give to cpp (viz, gcc -E) to persuade it to
 # behave plausibly on Haskell sources.
 #
+# Clang in particular is a bit more annoying, so we suppress some warnings.
 RAWCPP_FLAGS            = -undef -traditional
+ifeq "$(CC_CLANG_BACKEND)" "1"
+RAWCPP_FLAGS           += -Wno-invalid-pp-token -Wno-unicode -Wno-trigraphs
+endif
+
 FIND			= @FindCmd@
 
 #

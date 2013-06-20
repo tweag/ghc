@@ -109,7 +109,8 @@ data GhciSettings = GhciSettings {
         availableCommands :: [Command],
         shortHelpText     :: String,
         fullHelpText      :: String,
-        defPrompt         :: String
+        defPrompt         :: String,
+        defPrompt2        :: String
     }
 
 defaultGhciSettings :: GhciSettings
@@ -118,7 +119,8 @@ defaultGhciSettings =
         availableCommands = ghciCommands,
         shortHelpText     = defShortHelpText,
         fullHelpText      = defFullHelpText,
-        defPrompt         = default_prompt
+        defPrompt         = default_prompt,
+        defPrompt2        = default_prompt2
     }
 
 ghciWelcomeMsg :: String
@@ -285,6 +287,7 @@ defFullHelpText =
   "   :set args <arg> ...         set the arguments returned by System.getArgs\n" ++
   "   :set prog <progname>        set the value returned by System.getProgName\n" ++
   "   :set prompt <prompt>        set the prompt used in GHCi\n" ++
+  "   :set prompt2 <prompt>       set the continuation prompt used in GHCi\n" ++
   "   :set editor <cmd>           set the command used for :edit\n" ++
   "   :set stop [<n>] <cmd>       set the command to run when a breakpoint is hit\n" ++
   "   :unset <option> ...         unset options\n" ++
@@ -327,9 +330,10 @@ findEditor = do
 
 foreign import ccall unsafe "rts_isProfiled" isProfiled :: IO CInt
 
-default_progname, default_prompt, default_stop :: String
+default_progname, default_prompt, default_prompt2, default_stop :: String
 default_progname = "<interactive>"
 default_prompt = "%s> "
+default_prompt2 = "%s| "
 default_stop = ""
 
 default_args :: [String]
@@ -393,7 +397,7 @@ interactiveUI config srcs maybe_exprs = do
         GHCiState{ progname       = default_progname,
                    GhciMonad.args = default_args,
                    prompt         = defPrompt config,
-                   def_prompt     = defPrompt config,
+                   prompt2        = defPrompt2 config,
                    stop           = default_stop,
                    editor         = default_editor,
                    options        = [],
@@ -583,6 +587,11 @@ fileLoop hdl = do
    l <- liftIO $ tryIO $ hGetLine hdl
    case l of
         Left e | isEOFError e              -> return Nothing
+               | -- as we share stdin with the program, the program
+                 -- might have already closed it, so we might get a
+                 -- handle-closed exception. We therefore catch that
+                 -- too.
+                 isIllegalOperation e      -> return Nothing
                | InvalidArgument <- etype  -> return Nothing
                | otherwise                 -> liftIO $ ioError e
                 where etype = ioeGetErrorType e
@@ -704,7 +713,7 @@ runOneCommand eh gCmd = do
     multiLineCmd q = do
       st <- lift getGHCiState
       let p = prompt st
-      lift $ setGHCiState st{ prompt = "%s| " }
+      lift $ setGHCiState st{ prompt = prompt2 st }
       mb_cmd <- collectCommand q ""
       lift $ getGHCiState >>= \st' -> setGHCiState st'{ prompt = p }
       return mb_cmd
@@ -1872,17 +1881,18 @@ setCmd ""   = showOptions False
 setCmd "-a" = showOptions True
 setCmd str
   = case getCmd str of
-    Right ("args",   rest) ->
+    Right ("args",    rest) ->
         case toArgs rest of
             Left err -> liftIO (hPutStrLn stderr err)
             Right args -> setArgs args
-    Right ("prog",   rest) ->
+    Right ("prog",    rest) ->
         case toArgs rest of
             Right [prog] -> setProg prog
             _ -> liftIO (hPutStrLn stderr "syntax: :set prog <progname>")
-    Right ("prompt", rest) -> setPrompt $ Just $ dropWhile isSpace rest
-    Right ("editor", rest) -> setEditor $ dropWhile isSpace rest
-    Right ("stop",   rest) -> setStop   $ dropWhile isSpace rest
+    Right ("prompt",  rest) -> setPrompt  $ dropWhile isSpace rest
+    Right ("prompt2", rest) -> setPrompt2 $ dropWhile isSpace rest
+    Right ("editor",  rest) -> setEditor  $ dropWhile isSpace rest
+    Right ("stop",    rest) -> setStop    $ dropWhile isSpace rest
     _ -> case toArgs str of
          Left err -> liftIO (hPutStrLn stderr err)
          Right wds -> setOptions wds
@@ -1975,22 +1985,30 @@ setStop cmd = do
   st <- getGHCiState
   setGHCiState st{ stop = cmd }
 
-setPrompt :: Maybe String -> GHCi ()
-setPrompt Nothing = do
-    st <- getGHCiState
-    setGHCiState ( st { prompt = def_prompt st } )
+setPrompt :: String -> GHCi ()
+setPrompt = setPrompt_ f err
+  where
+    f v st = st { prompt = v }
+    err st = "syntax: :set prompt <prompt>, currently \"" ++ prompt st ++ "\""
 
-setPrompt (Just value) = do
+setPrompt2 :: String -> GHCi ()
+setPrompt2 = setPrompt_ f err
+  where
+    f v st = st { prompt2 = v }
+    err st = "syntax: :set prompt2 <prompt>, currently \"" ++ prompt2 st ++ "\""
+
+setPrompt_ :: (String -> GHCiState -> GHCiState) -> (GHCiState -> String) -> String -> GHCi ()
+setPrompt_ f err value = do
   st <- getGHCiState
   if null value
-      then liftIO $ hPutStrLn stderr $ "syntax: :set prompt <prompt>, currently \"" ++ prompt st ++ "\""
+      then liftIO $ hPutStrLn stderr $ err st
       else case value of
            '\"' : _ -> case reads value of
                        [(value', xs)] | all isSpace xs ->
-                           setGHCiState (st { prompt = value' })
+                           setGHCiState $ f value' st
                        _ ->
                            liftIO $ hPutStrLn stderr "Can't parse prompt string. Use Haskell syntax."
-           _ -> setGHCiState (st { prompt = value })
+           _ -> setGHCiState $ f value st
 
 setOptions wds =
    do -- first, deal with the GHCi opts (+s, +t, etc.)
@@ -2054,11 +2072,12 @@ unsetOptions str
          (other_opts, rest3) = partition (`elem` map fst defaulters) rest2
 
          defaulters =
-           [ ("args"  , setArgs default_args)
-           , ("prog"  , setProg default_progname)
-           , ("prompt", setPrompt Nothing)
-           , ("editor", liftIO findEditor >>= setEditor)
-           , ("stop"  , setStop default_stop)
+           [ ("args"   , setArgs default_args)
+           , ("prog"   , setProg default_progname)
+           , ("prompt" , setPrompt default_prompt)
+           , ("prompt2", setPrompt2 default_prompt2)
+           , ("editor" , liftIO findEditor >>= setEditor)
+           , ("stop"   , setStop default_stop)
            ]
 
          no_flag ('-':'f':rest) = return ("-fno-" ++ rest)
@@ -2120,6 +2139,7 @@ showCmd str = do
         ["args"]     -> liftIO $ putStrLn (show (GhciMonad.args st))
         ["prog"]     -> liftIO $ putStrLn (show (progname st))
         ["prompt"]   -> liftIO $ putStrLn (show (prompt st))
+        ["prompt2"]  -> liftIO $ putStrLn (show (prompt2 st))
         ["editor"]   -> liftIO $ putStrLn (show (editor st))
         ["stop"]     -> liftIO $ putStrLn (show (stop st))
         ["imports"]  -> showImports
@@ -2134,8 +2154,8 @@ showCmd str = do
         ["languages"] -> showLanguages -- backwards compat
         ["language"]  -> showLanguages
         ["lang"]      -> showLanguages -- useful abbreviation
-        _ -> throwGhcException (CmdLineError ("syntax:  :show [ args | prog | prompt | editor | stop | modules | bindings\n"++
-                                     "               | breaks | context | packages | language ]"))
+        _ -> throwGhcException (CmdLineError ("syntax:  :show [ args | prog | prompt | prompt2 | editor | stop | modules\n" ++
+                                              "               | bindings | breaks | context | packages | language ]"))
 
 showiCmd :: String -> GHCi ()
 showiCmd str = do
@@ -2346,7 +2366,7 @@ listHomeModules w = do
 
 completeSetOptions = wrapCompleter flagWordBreakChars $ \w -> do
   return (filter (w `isPrefixOf`) opts)
-    where opts = "args":"prog":"prompt":"editor":"stop":flagList
+    where opts = "args":"prog":"prompt":"prompt2":"editor":"stop":flagList
           flagList = map head $ group $ sort allFlags
 
 completeSeti = wrapCompleter flagWordBreakChars $ \w -> do
@@ -2355,7 +2375,7 @@ completeSeti = wrapCompleter flagWordBreakChars $ \w -> do
 
 completeShowOptions = wrapCompleter flagWordBreakChars $ \w -> do
   return (filter (w `isPrefixOf`) opts)
-    where opts = ["args", "prog", "prompt", "editor", "stop",
+    where opts = ["args", "prog", "prompt", "prompt2", "editor", "stop",
                      "modules", "bindings", "linker", "breaks",
                      "context", "packages", "language"]
 
@@ -2446,7 +2466,7 @@ enclosingTickSpan _ (UnhelpfulSpan _) = panic "enclosingTickSpan UnhelpfulSpan"
 enclosingTickSpan md (RealSrcSpan src) = do
   ticks <- getTickArray md
   let line = srcSpanStartLine src
-  ASSERT (inRange (bounds ticks) line) do
+  ASSERT(inRange (bounds ticks) line) do
   let toRealSrcSpan (UnhelpfulSpan _) = panic "enclosingTickSpan UnhelpfulSpan"
       toRealSrcSpan (RealSrcSpan s) = s
       enclosing_spans = [ pan | (_,pan) <- ticks ! line

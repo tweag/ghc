@@ -22,7 +22,7 @@ module Type (
         -- ** Constructing and deconstructing types
         mkTyVarTy, mkTyVarTys, getTyVar, getTyVar_maybe,
 
-        mkAppTy, mkAppTys, mkNakedAppTys, splitAppTy, splitAppTys,
+        mkAppTy, mkAppTys, splitAppTy, splitAppTys,
         splitAppTy_maybe, repSplitAppTy_maybe,
 
         mkFunTy, mkFunTys, splitFunTy, splitFunTy_maybe,
@@ -159,14 +159,13 @@ import Class
 import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, typeNatKind, typeSymbolKind )
-import PrelNames ( eqTyConKey, ipClassNameKey,
+import PrelNames ( eqTyConKey, ipClassNameKey, openTypeKindTyConKey,
                    constraintKindTyConKey, liftedTypeKindTyConKey )
 import CoAxiom
 
 -- others
 import Unique           ( Unique, hasKey )
 import BasicTypes       ( Arity, RepArity )
-import NameSet
 import StaticFlags
 import Util
 import Outputable
@@ -349,11 +348,6 @@ mkAppTys :: Type -> [Type] -> Type
 mkAppTys ty1                []   = ty1
 mkAppTys (TyConApp tc tys1) tys2 = mkTyConApp tc (tys1 ++ tys2)
 mkAppTys ty1                tys2 = foldl AppTy ty1 tys2
-
-mkNakedAppTys :: Type -> [Type] -> Type
-mkNakedAppTys ty1                []   = ty1
-mkNakedAppTys (TyConApp tc tys1) tys2 = mkNakedTyConApp tc (tys1 ++ tys2)
-mkNakedAppTys ty1                tys2 = foldl AppTy ty1 tys2
 
 -------------
 splitAppTy_maybe :: Type -> Maybe (Type, Type)
@@ -595,31 +589,6 @@ The reason is that we then get better (shorter) type signatures in
 interfaces.  Notably this plays a role in tcTySigs in TcBinds.lhs.
 
 
-Note [Expanding newtypes]
-~~~~~~~~~~~~~~~~~~~~~~~~~
-When expanding a type to expose a data-type constructor, we need to be
-careful about newtypes, lest we fall into an infinite loop. Here are
-the key examples:
-
-  newtype Id  x = MkId x
-  newtype Fix f = MkFix (f (Fix f))
-  newtype T     = MkT (T -> T)
-
-  Type           Expansion
- --------------------------
-  T              T -> T
-  Fix Maybe      Maybe (Fix Maybe)
-  Id (Id Int)    Int
-  Fix Id         NO NO NO
-
-Notice that we can expand T, even though it's recursive.
-And we can expand Id (Id Int), even though the Id shows up
-twice at the outer level.
-
-So, when expanding, we keep track of when we've seen a recursive
-newtype at outermost level; and bale out if we see it again.
-
-
                 Representation types
                 ~~~~~~~~~~~~~~~~~~~~
 
@@ -654,9 +623,9 @@ flattenRepType (UnaryRep ty)     = [ty]
 -- It's useful in the back end of the compiler.
 repType :: Type -> RepType
 repType ty
-  = go emptyNameSet ty
+  = go initRecTc ty
   where
-    go :: NameSet -> Type -> RepType
+    go :: RecTcChecker -> Type -> RepType
     go rec_nts ty                       -- Expand predicates and synonyms
       | Just ty' <- coreView ty
       = go rec_nts ty'
@@ -667,10 +636,7 @@ repType ty
     go rec_nts (TyConApp tc tys)        -- Expand newtypes
       | isNewTyCon tc
       , tys `lengthAtLeast` tyConArity tc
-      , let tc_name = tyConName tc
-            rec_nts' | isRecursiveTyCon tc = addOneToNameSet rec_nts tc_name
-                     | otherwise           = rec_nts
-      , not (tc_name `elemNameSet` rec_nts)  -- See Note [Expanding newtypes]
+      , Just rec_nts' <- checkRecTc rec_nts tc   -- See Note [Expanding newtypes] in TyCon
       = go rec_nts' (newTyConInstRhs tc tys)
 
       | isUnboxedTupleTyCon tc
@@ -1250,7 +1216,7 @@ cmpTypeX env t1 t2 | Just t1' <- coreView t1 = cmpTypeX env t1' t2
 -- So the RHS has a data type
 
 cmpTypeX env (TyVarTy tv1)       (TyVarTy tv2)       = rnOccL env tv1 `compare` rnOccR env tv2
-cmpTypeX env (ForAllTy tv1 t1)   (ForAllTy tv2 t2)   = cmpTypeX env (tyVarKind tv1) (tyVarKind tv1)
+cmpTypeX env (ForAllTy tv1 t1)   (ForAllTy tv2 t2)   = cmpTypeX env (tyVarKind tv1) (tyVarKind tv2)
                                                        `thenCmp` cmpTypeX (rnBndr2 env tv1 tv2) t1 t2
 cmpTypeX env (AppTy s1 t1)       (AppTy s2 t2)       = cmpTypeX env s1 s2 `thenCmp` cmpTypeX env t1 t2
 cmpTypeX env (FunTy s1 t1)       (FunTy s2 t2)       = cmpTypeX env s1 s2 `thenCmp` cmpTypeX env t1 t2
@@ -1291,13 +1257,31 @@ cmpTypesX _   _         []        = GT
 cmpTc :: TyCon -> TyCon -> Ordering
 -- Here we treat * and Constraint as equal
 -- See Note [Kind Constraint and kind *] in Kinds.lhs
-cmpTc tc1 tc2 = nu1 `compare` nu2
+--
+-- Also we treat OpenTypeKind as equal to either * or #
+-- See Note [Comparison with OpenTypeKind]
+cmpTc tc1 tc2 
+  | u1 == openTypeKindTyConKey, isSubOpenTypeKindKey u2 = EQ
+  | u2 == openTypeKindTyConKey, isSubOpenTypeKindKey u1 = EQ
+  | otherwise = nu1 `compare` nu2
   where
     u1  = tyConUnique tc1
     nu1 = if u1==constraintKindTyConKey then liftedTypeKindTyConKey else u1
     u2  = tyConUnique tc2
     nu2 = if u2==constraintKindTyConKey then liftedTypeKindTyConKey else u2
 \end{code}
+
+Note [Comparison with OpenTypeKind]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In PrimOpWrappers we have things like
+   PrimOpWrappers.mkWeak# = /\ a b c. Prim.mkWeak# a b c
+where
+   Prim.mkWeak# :: forall (a:Open) b c. a -> b -> c 
+                                     -> State# RealWorld -> (# State# RealWorld, Weak# b #)
+Now, eta reduction will turn the definition into
+     PrimOpWrappers.mkWeak# = Prim.mkWeak#
+which is kind-of OK, but now the types aren't really equal.  So HACK HACK
+we pretend (in Core) that Open is equal to * or #.  I hate this.
 
 Note [cmpTypeX]
 ~~~~~~~~~~~~~~~

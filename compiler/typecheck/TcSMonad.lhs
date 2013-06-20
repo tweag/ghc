@@ -81,8 +81,6 @@ module TcSMonad (
     newFlexiTcSTy, instFlexiTcS, instFlexiTcSHelperTcS,
     cloneMetaTyVar,
 
-    compatKind, mkKindErrorCtxtTcS,
-
     Untouchables, isTouchableMetaTyVarTcS, isFilledMetaTyVar_maybe,
     zonkTyVarsAndFV,
 
@@ -110,7 +108,6 @@ import qualified TcRnMonad as TcM
 import qualified TcMType as TcM
 import qualified TcEnv as TcM 
        ( checkWellStaged, topIdLvl, tcGetDefaultTys )
-import {-# SOURCE #-} qualified TcUnify as TcM ( mkKindErrorCtxt )
 import Kind
 import TcType
 import DynFlags
@@ -146,19 +143,6 @@ import StaticFlags( opt_PprStyle_Debug )
 import VarSet
 import Digraph
 #endif
-\end{code}
-
-
-\begin{code}
-compatKind :: Kind -> Kind -> Bool
-compatKind k1 k2 = k1 `tcIsSubKind` k2 || k2 `tcIsSubKind` k1 
-
-mkKindErrorCtxtTcS :: Type -> Kind 
-                   -> Type -> Kind 
-                   -> ErrCtxt
-mkKindErrorCtxtTcS ty1 ki1 ty2 ki2
-  = (False,TcM.mkKindErrorCtxt ty1 ty2 ki1 ki2)
-
 \end{code}
 
 %************************************************************************

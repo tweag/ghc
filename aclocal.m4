@@ -535,18 +535,6 @@ AC_DEFUN([FPTOOLS_SET_C_LD_FLAGS],
         $2="$$2 -fno-stack-protector"
     fi
 
-    # Reduce memory usage when linking. See trac #5240.
-    if test -n "$LdHashSize31"
-    then
-        $3="$$3 -Wl,$LdHashSize31"
-        $4="$$4     $LdHashSize31"
-    fi
-    if test -n "$LdReduceMemoryOverheads"
-    then
-        $3="$$3 -Wl,$LdReduceMemoryOverheads"
-        $4="$$4     $LdReduceMemoryOverheads"
-    fi
-
     rm -f conftest.c conftest.o
     AC_MSG_RESULT([done])
 ])
@@ -693,8 +681,6 @@ AC_ARG_WITH($2,
 # Figure out how to do context diffs. Sets the output variable ContextDiffCmd.
 #
 # Note: NeXTStep thinks diff'ing a file against itself is "trouble".
-#
-# Used by ghc, glafp-utils/ltx, and glafp-utils/runstdtest.
 AC_DEFUN([FP_PROG_CONTEXT_DIFF],
 [AC_CACHE_CHECK([for a working context diff], [fp_cv_context_diff],
 [echo foo > conftest1
@@ -921,27 +907,6 @@ fi
 rm -rf conftest*])
 $2=$fp_cv_$2
 ])# FP_PROG_LD_FLAG
-
-
-# FP_PROG_LD_HashSize31
-# ------------
-# Sets the output variable LdHashSize31 to --hash-size=31 if ld supports
-# this flag. Otherwise the variable's value is empty.
-AC_DEFUN([FP_PROG_LD_HashSize31],
-[
-FP_PROG_LD_FLAG([--hash-size=31],[LdHashSize31])
-])# FP_PROG_LD_HashSize31
-
-
-# FP_PROG_LD_ReduceMemoryOverheads
-# ------------
-# Sets the output variable LdReduceMemoryOverheads to
-# --reduce-memory-overheads if ld supports this flag.
-# Otherwise the variable's value is empty.
-AC_DEFUN([FP_PROG_LD_ReduceMemoryOverheads],
-[
-FP_PROG_LD_FLAG([--reduce-memory-overheads],[LdReduceMemoryOverheads])
-])# FP_PROG_LD_ReduceMemoryOverheads
 
 
 # FP_PROG_LD_BUILD_ID
@@ -1553,6 +1518,15 @@ if test "$RELEASE" = "NO"; then
         AC_MSG_RESULT(given $PACKAGE_VERSION)
     else
         AC_MSG_WARN([cannot determine snapshot version: no .git directory and no VERSION file])
+        dnl We'd really rather this case didn't happen, but it might
+        dnl do (in particular, people using lndir trees may find that
+        dnl the build system can't find any other date). If it does
+        dnl happen, then we use the current date.
+        dnl This way we get some idea about how recent a build is.
+        dnl It also means that packages built for 2 different builds
+        dnl will probably use different version numbers, so things are
+        dnl less likely to go wrong.
+        PACKAGE_VERSION=${PACKAGE_VERSION}.`date +%Y%m%d`
     fi
 fi
 
@@ -2015,7 +1989,7 @@ AC_DEFUN([FIND_LLVM_PROG],[
         for p in ${PATH}; do
             if test -d "${p}"; then
                 $1=`${FindCmd} "${p}" -type f -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
-                if test -n "$1"; then
+                if test -n "$$1"; then
                     break
                 fi
             fi

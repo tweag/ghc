@@ -35,7 +35,7 @@ module MkId (
         wiredInIds, ghcPrimIds,
         unsafeCoerceName, unsafeCoerceId, realWorldPrimId, 
         voidArgId, nullAddrId, seqId, lazyId, lazyIdKey,
-        coercionTokenId,
+        coercionTokenId, magicSingIId,
 
 	-- Re-export error Ids
 	module PrelRules
@@ -136,7 +136,8 @@ ghcPrimIds
     realWorldPrimId,
     unsafeCoerceId,
     nullAddrId,
-    seqId
+    seqId,
+    magicSingIId
     ]
 \end{code}
 
@@ -320,9 +321,9 @@ mkDictSelId dflags no_unf name clas
 
     strict_sig = mkStrictSig (mkTopDmdType [arg_dmd] topRes)
     arg_dmd | new_tycon = evalDmd
-            | otherwise = mkProdDmd [ if the_arg_id == id then evalDmd else absDmd
+            | otherwise = mkManyUsedDmd $
+                          mkProdDmd [ if the_arg_id == id then evalDmd else absDmd
                                     | id <- arg_ids ]
-
 
     tycon      	   = classTyCon clas
     new_tycon  	   = isNewTyCon tycon
@@ -346,14 +347,13 @@ mkDictSelId dflags no_unf name clas
 				-- varToCoreExpr needed for equality superclass selectors
 				--   sel a b d = case x of { MkC _ (g:a~b) _ -> CO g }
 
-dictSelRule :: Int -> Arity
-            -> DynFlags -> Id -> IdUnfoldingFun -> [CoreExpr] -> Maybe CoreExpr
+dictSelRule :: Int -> Arity -> RuleFun
 -- Tries to persuade the argument to look like a constructor
 -- application, using exprIsConApp_maybe, and then selects
 -- from it
 --       sel_i t1..tk (D t1..tk op1 ... opm) = opi
 --
-dictSelRule val_index n_ty_args _ _ id_unf args
+dictSelRule val_index n_ty_args _ id_unf _ args
   | (dict_arg : _) <- drop n_ty_args args
   , Just (_, _, con_args) <- exprIsConApp_maybe id_unf dict_arg
   = Just (getNth con_args val_index)
@@ -1023,13 +1023,14 @@ they can unify with both unlifted and lifted types.  Hence we provide
 another gun with which to shoot yourself in the foot.
 
 \begin{code}
-lazyIdName, unsafeCoerceName, nullAddrName, seqName, realWorldName, coercionTokenName :: Name
+lazyIdName, unsafeCoerceName, nullAddrName, seqName, realWorldName, coercionTokenName, magicSingIName :: Name
 unsafeCoerceName  = mkWiredInIdName gHC_PRIM (fsLit "unsafeCoerce#") unsafeCoerceIdKey  unsafeCoerceId
 nullAddrName      = mkWiredInIdName gHC_PRIM (fsLit "nullAddr#")     nullAddrIdKey      nullAddrId
 seqName           = mkWiredInIdName gHC_PRIM (fsLit "seq")           seqIdKey           seqId
 realWorldName     = mkWiredInIdName gHC_PRIM (fsLit "realWorld#")    realWorldPrimIdKey realWorldPrimId
 lazyIdName        = mkWiredInIdName gHC_MAGIC (fsLit "lazy")         lazyIdKey           lazyId
 coercionTokenName = mkWiredInIdName gHC_PRIM (fsLit "coercionToken#") coercionTokenIdKey coercionTokenId
+magicSingIName    = mkWiredInIdName gHC_PRIM (fsLit "magicSingI")    magicSingIKey magicSingIId
 \end{code}
 
 \begin{code}
@@ -1082,8 +1083,7 @@ seqId = pcMiscPrelId seqName ty info
                                 , ru_try   = match_seq_of_cast
                                 }
 
-match_seq_of_cast :: DynFlags -> Id -> IdUnfoldingFun -> [CoreExpr]
-                  -> Maybe CoreExpr
+match_seq_of_cast :: RuleFun
     -- See Note [Built-in RULES for seq]
 match_seq_of_cast _ _ _ [Type _, Type res_ty, Cast scrut co, expr]
   = Just (Var seqId `mkApps` [Type (pFst (coercionKind co)), Type res_ty,
@@ -1096,6 +1096,15 @@ lazyId = pcMiscPrelId lazyIdName ty info
   where
     info = noCafIdInfo
     ty  = mkForAllTys [alphaTyVar] (mkFunTy alphaTy alphaTy)
+
+
+--------------------------------------------------------------------------------
+magicSingIId :: Id  -- See Note [magicSingIId magic]
+magicSingIId = pcMiscPrelId magicSingIName ty info
+  where
+  info = noCafIdInfo `setInlinePragInfo` neverInlinePragma
+  ty   = mkForAllTys [alphaTyVar] alphaTy
+
 \end{code}
 
 Note [Unsafe coerce magic]
@@ -1188,6 +1197,45 @@ See Trac #3259 for a real world example.
 
 lazyId is defined in GHC.Base, so we don't *have* to inline it.  If it
 appears un-applied, we'll end up just calling it.
+
+
+Note [magicSingIId magic]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The identifier `magicSIngI` is just a place-holder, which is used to
+implement a primitve that we cannot define in Haskell but we can write
+in Core.  It is declared with a place-holder type:
+
+    magicSingI :: forall a. a
+
+The intention is that the identifier will be used in a very specific way,
+namely we add the following to the library:
+
+    withSingI :: Sing n -> (SingI n => a) -> a
+    withSingI x = magicSingI x ((\f -> f) :: () -> ())
+
+The actual primitive is `withSingI`, and it uses its first argument
+(of type `Sing n`) as the evidece/dictionary in the second argument.
+This is done by adding a built-in rule to `prelude/PrelRules.hs`
+(see `match_magicSingI`), which works as follows:
+
+magicSingI @ (Sing n -> (() -> ()) -> (SingI n -> a) -> a)
+             x
+             (\f -> _)
+
+---->
+
+\(f :: (SingI n -> a) -> a) -> f (cast x (newtypeCo n))
+
+The `newtypeCo` coercion is extracted from the `SingI` type constructor,
+which is available in the instantiation.  We are casting `Sing n` into `SingI n`,
+which is OK because `SingI` is a class with a single methid,
+and thus it is implemented as newtype.
+
+The `(\f -> f)` parameter is there just so that we can avoid
+having to make up a new name for the lambda, it is completely
+changed by the rewrite.
+
 
 -------------------------------------------------------------
 @realWorld#@ used to be a magic literal, \tr{void#}.  If things get

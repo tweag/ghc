@@ -412,7 +412,7 @@ RTS_FUN_DECL(stg_threadStatuszh);
 RTS_FUN_DECL(stg_mkWeakzh);
 RTS_FUN_DECL(stg_mkWeakNoFinalizzerzh);
 RTS_FUN_DECL(stg_mkWeakForeignzh);
-RTS_FUN_DECL(stg_mkWeakForeignEnvzh);
+RTS_FUN_DECL(stg_addCFinalizzerToWeakzh);
 RTS_FUN_DECL(stg_finalizzeWeakzh);
 RTS_FUN_DECL(stg_deRefWeakzh);
 
@@ -465,7 +465,6 @@ extern StgWord stg_stack_save_entries[];
 // Storage.c
 extern unsigned int RTS_VAR(g0);
 extern unsigned int RTS_VAR(large_alloc_lim);
-extern StgWord RTS_VAR(weak_ptr_list);
 extern StgWord RTS_VAR(atomic_modify_mutvar_mutex);
 
 // RtsFlags

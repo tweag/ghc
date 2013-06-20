@@ -133,7 +133,7 @@ import TyCon
 
 import Data.Maybe
 import qualified Data.Char
-import Control.Monad ( when )
+import Control.Monad ( unless, when )
 
 -----------------------------------------------------------------------------
 --
@@ -238,15 +238,24 @@ tickyEnterDynCon      = ifTicky $ bumpTickyCounter (fsLit "ENT_DYN_CON_ctr")
 tickyEnterStaticCon   = ifTicky $ bumpTickyCounter (fsLit "ENT_STATIC_CON_ctr")
 tickyEnterViaNode     = ifTicky $ bumpTickyCounter (fsLit "ENT_VIA_NODE_ctr")
 
-tickyEnterThunk :: FCode ()
-tickyEnterThunk = ifTicky $ do
- bumpTickyCounter (fsLit "ENT_DYN_THK_ctr")
- ifTickyDynThunk $ do
-   ticky_ctr_lbl <- getTickyCtrLabel
-   registerTickyCtrAtEntryDyn ticky_ctr_lbl
-   bumpTickyEntryCount ticky_ctr_lbl
+tickyEnterThunk :: ClosureInfo -> FCode ()
+tickyEnterThunk cl_info
+  = ifTicky $ do 
+    { bumpTickyCounter ctr
+    ; unless static $ do 
+      ticky_ctr_lbl <- getTickyCtrLabel
+      registerTickyCtrAtEntryDyn ticky_ctr_lbl
+      bumpTickyEntryCount ticky_ctr_lbl }
+  where
+    updatable = closureSingleEntry cl_info
+    static    = isStaticClosure cl_info
 
-tickyEnterStdThunk :: FCode ()
+    ctr | static    = if updatable then fsLit "ENT_STATIC_THK_SINGLE_ctr"
+                                   else fsLit "ENT_STATIC_THK_MANY_ctr"
+        | otherwise = if updatable then fsLit "ENT_DYN_THK_SINGLE_ctr"
+                                   else fsLit "ENT_DYN_THK_MANY_ctr"
+
+tickyEnterStdThunk :: ClosureInfo -> FCode ()
 tickyEnterStdThunk = tickyEnterThunk
 
 tickyBlackHole :: Bool{-updatable-} -> FCode ()

@@ -250,7 +250,7 @@ mkImportedFamInst fam mb_tcs axiom
 %************************************************************************
 
 Note [FamInstEnv]
-~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~
 A FamInstEnv maps a family name to the list of known instances for that family.
 
 The same FamInstEnv includes both 'data family' and 'type family' instances.
@@ -268,6 +268,25 @@ Neverthless it is still useful to have data families in the FamInstEnv:
  - In standalone deriving instance Eq (T [Int]) we need to find the 
    representation type for T [Int]
 
+Note [Varying number of patterns for data family axioms]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+For data families, the number of patterns may vary between instances.
+For example
+   data family T a b
+   data instance T Int a = T1 a | T2
+   data instance T Bool [a] = T3 a
+
+Then we get a data type for each instance, and an axiom:
+   data TInt a = T1 a | T2
+   data TBoolList a = T3 a
+
+   axiom ax7   :: T Int ~ TInt   -- Eta-reduced
+   axiom ax8 a :: T Bool [a] ~ TBoolList a
+
+These two axioms for T, one with one pattern, one with two.  The reason
+for this eta-reduction is decribed in TcInstDcls
+   Note [Eta reduction for data family axioms]
+
 \begin{code}
 type FamInstEnv = UniqFM FamilyInstEnv	-- Maps a family to its instances
      -- See Note [FamInstEnv]
@@ -275,14 +294,11 @@ type FamInstEnv = UniqFM FamilyInstEnv	-- Maps a family to its instances
 type FamInstEnvs = (FamInstEnv, FamInstEnv)
      -- External package inst-env, Home-package inst-env
 
-data FamilyInstEnv
+newtype FamilyInstEnv
   = FamIE [FamInst]	-- The instances for a particular family, in any order
-  	  Bool 		-- True <=> there is an instance of form T a b c
-			-- 	If *not* then the common case of looking up
-			--	(T a b c) can fail immediately
 
 instance Outputable FamilyInstEnv where
-  ppr (FamIE fs b) = ptext (sLit "FamIE") <+> ppr b <+> vcat (map ppr fs)
+  ppr (FamIE fs  = ptext (sLit "FamIE") <+> vcat (map ppr fs)
 
 -- INVARIANTS:
 --  * The fs_tvs are distinct in each FamInst
@@ -295,14 +311,14 @@ emptyFamInstEnv :: FamInstEnv
 emptyFamInstEnv = emptyUFM
 
 famInstEnvElts :: FamInstEnv -> [FamInst]
-famInstEnvElts fi = [elt | FamIE elts _ <- eltsUFM fi, elt <- elts]
+famInstEnvElts fi = [elt | FamIE elts <- eltsUFM fi, elt <- elts]
 
 familyInstances :: (FamInstEnv, FamInstEnv) -> TyCon -> [FamInst]
 familyInstances (pkg_fie, home_fie) fam
   = get home_fie ++ get pkg_fie
   where
     get env = case lookupUFM env fam of
-		Just (FamIE insts _) -> insts
+		Just (FamIE insts) -> insts
 		Nothing	             -> []
 
 -- | Collects the names of the concrete types and type constructors that
@@ -321,19 +337,17 @@ extendFamInstEnvList inst_env fis = foldl extendFamInstEnv inst_env fis
 
 extendFamInstEnv :: FamInstEnv -> FamInst -> FamInstEnv
 extendFamInstEnv inst_env ins_item@(FamInst {fi_fam = cls_nm, fi_tcs = mb_tcs})
-  = addToUFM_C add inst_env cls_nm (FamIE [ins_item] ins_tyvar)
+  = addToUFM_C add inst_env cls_nm (FamIE [ins_item])
   where
-    add (FamIE items tyvar) _ = FamIE (ins_item:items)
-				      (ins_tyvar || tyvar)
-    ins_tyvar = not (any isJust mb_tcs)
+    add (FamIE items) _ = FamIE (ins_item:items)
 
 deleteFromFamInstEnv :: FamInstEnv -> FamInst -> FamInstEnv
 deleteFromFamInstEnv inst_env fam_inst@(FamInst {fi_fam = fam_nm})
  = adjustUFM adjust inst_env fam_nm
  where
    adjust :: FamilyInstEnv -> FamilyInstEnv
-   adjust (FamIE items tyvars)
-     = FamIE (filterOut (identicalFamInst fam_inst) items) tyvars
+   adjust (FamIE items)
+     = FamIE (filterOut (identicalFamInst fam_inst) items)
 
 identicalFamInst :: FamInst -> FamInst -> Bool
 -- Same LHS, *and* the instance is defined in the same module
@@ -621,38 +635,15 @@ lookup_fam_inst_env' 	      -- The worker, local to this module
     :: MatchFun
     -> OneSidedMatch
     -> FamInstEnv
-    -> TyCon -> [Type]		-- What we are looking for
-    -> [FamInstMatch] 	        -- Successful matches
-lookup_fam_inst_env' match_fun one_sided ie fam tys
-  | not (isOpenFamilyTyCon fam) 
-  = []
-  | otherwise
-  = ASSERT2( n_tys >= arity, ppr fam <+> ppr tys )	-- Family type applications must be saturated
-    lookup ie
+    -> TyCon -> [Type]        -- What we are looking for
+    -> [FamInstMatch]
+lookup_fam_inst_env' match_fun _one_sided ie fam tys
+  | isOpenFamilyTyCon fam
+  , Just (FamIE insts) <- lookupUFM ie fam
+  = find match_fun tys insts    -- The common case
+  | otherwise = []
   where
-    -- See Note [Over-saturated matches]
-    arity = tyConArity fam
-    n_tys = length tys
-    extra_tys = drop arity tys
-    (match_tys, add_extra_tys) 
-       | arity < n_tys = (take arity tys, \res_tys -> res_tys ++ extra_tys)
-       | otherwise     = (tys,            \res_tys -> res_tys)
-       	 -- The second case is the common one, hence functional representation
-
-    --------------
     rough_tcs = roughMatchTcs match_tys
-    all_tvs   = all isNothing rough_tcs && one_sided
-
-    --------------
-    lookup env = case lookupUFM env fam of
-		   Nothing -> []	-- No instances for this class
-		   Just (FamIE insts has_tv_insts)
-		       -- Short cut for common case:
-		       --   The thing we are looking up is of form (C a
-		       --   b c), and the FamIE has no instances of
-		       --   that form, so don't bother to search 
-		     | all_tvs && not has_tv_insts -> []
-		     | otherwise                   -> find insts
 
     --------------
     find [] = []
@@ -663,17 +654,22 @@ lookup_fam_inst_env' match_fun one_sided ie fam tys
       = find rest
 
         -- Proper check
-      | Just subst <- match_fun item (mkVarSet tpl_tvs) tpl_tys match_tys
+      | Just subst <- match_fun item (mkVarSet tpl_tvs) tpl_tys match_tys1
       = (FamInstMatch { fim_instance = item
-                      , fim_tys      = add_extra_tys $ substTyVars subst tpl_tvs })
+                      , fim_tys      = substTyVars subst tpl_tvs `chkAppend` match_tys2 })
         : find rest
 
         -- No match => try next
       | otherwise
       = find rest
--- Precondition: the tycon is saturated (or over-saturated)
+      
+      -- Precondition: the tycon is saturated (or over-saturated)
+      
+    -- Deal with over-saturation
+    -- See Note [Over-saturated matches]
+    (match_tys1, match_tys2) = splitAtList mb_tcs match_tys
 
-lookup_fam_inst_env 	      -- The worker, local to this module
+lookup_fam_inst_env           -- The worker, local to this module
     :: MatchFun
     -> OneSidedMatch
     -> FamInstEnvs
@@ -813,25 +809,24 @@ topNormaliseType :: FamInstEnvs
 -- Its a bit like Type.repType, but handles type families too
 
 topNormaliseType env ty
-  = go [] ty
+  = go initRecTc ty
   where
-    go :: [TyCon] -> Type -> Maybe (Coercion, Type)
-    go rec_nts ty | Just ty' <- coreView ty 	-- Expand synonyms
-	= go rec_nts ty'	
+    go :: RecTcChecker -> Type -> Maybe (Coercion, Type)
+    go rec_nts ty 
+        | Just ty' <- coreView ty     -- Expand synonyms
+        = go rec_nts ty'
 
-    go rec_nts (TyConApp tc tys)
-        | isNewTyCon tc		-- Expand newtypes
-	= if tc `elem` rec_nts 	-- See Note [Expanding newtypes] in Type.lhs
-	  then Nothing
-          else let nt_co = mkUnbranchedAxInstCo (newTyConCo tc) tys
-               in add_co nt_co rec_nts' nt_rhs
+        | Just (rec_nts', nt_co, nt_rhs) <- topNormaliseNewTypeX rec_nts ty
+        = add_co nt_co rec_nts' nt_rhs
 
-	| isFamilyTyCon tc		-- Expand family tycons
-	, (co, ty) <- normaliseTcApp env tc tys
-		-- Note that normaliseType fully normalises 'tys', 
-		-- It has do to so to be sure that nested calls like
-		--    F (G Int)
-		-- are correctly top-normalised
+    go rec_nts (TyConApp tc tys) 
+        | isFamilyTyCon tc              -- Expand family tycons
+        , (co, ty) <- normaliseTcApp env tc tys
+                -- Note that normaliseType fully normalises 'tys',
+                -- wrt type functions but *not* newtypes
+                -- It has do to so to be sure that nested calls like
+                --    F (G Int)
+                -- are correctly top-normalised
         , not (isReflCo co)
         = add_co co rec_nts ty
         where
@@ -851,7 +846,6 @@ topNormaliseType env ty
 normaliseTcApp :: FamInstEnvs -> TyCon -> [Type] -> (Coercion, Type)
 normaliseTcApp env tc tys
   | isFamilyTyCon tc
-  , tyConArity tc <= length tys	   -- Unsaturated data families are possible
   , Just (co, rhs) <- chooseAxiom env tc ntys
   = let    -- A reduction is possible
 	first_coi       = mkTransCo tycon_coi co

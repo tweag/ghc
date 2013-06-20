@@ -461,15 +461,22 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
            ; let fam_tc = coAxiomTyCon ax
                  ax_unbr = toUnbranchedAxiom ax
                  -- data families don't have branches:
-                 branch = coAxiomSingleBranch ax_unbr
-                 ax_tvs = coAxBranchTyVars branch
-                 ax_lhs = coAxBranchLHS branch
-                 subst = zipTopTvSubst ax_tvs (mkTyVarTys tyvars)
+                 branch    = coAxiomSingleBranch ax_unbr
+                 ax_tvs    = coAxBranchTyVars branch
+                 ax_lhs    = coAxBranchLHS branch
+                 tycon_tys = mkTyVarTys tyvars
+                 subst     = mkTopTvSubst (ax_tvs `zip` tycon_tys)
                             -- The subst matches the tyvar of the TyCon
                             -- with those from the CoAxiom.  They aren't
                             -- necessarily the same, since the two may be
                             -- gotten from separate interface-file declarations
-           ; return (FamInstTyCon ax_unbr fam_tc (substTys subst ax_lhs)) }
+                            -- NB: ax_tvs may be shorter because of eta-reduction
+                            -- See Note [Eta reduction for data family axioms] in TcInstDcls
+                 lhs_tys = substTys subst ax_lhs `chkAppend` 
+                           dropList ax_tvs tycon_tys
+                            -- The 'lhs_tys' should be 1-1 with the 'tyvars'
+                            -- but ax_tvs maybe shorter because of eta-reduction
+           ; return (FamInstTyCon ax_unbr fam_tc lhs_tys) }
 
 tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs, 
                                   ifSynRhs = mb_rhs_ty,
@@ -1254,15 +1261,15 @@ tcUnfolding name _ _ (IfInlineRule arity unsat_ok boring_ok if_expr)
                                                  (UnfWhen unsat_ok boring_ok))
     }
 
-tcUnfolding name dfun_ty _ (IfDFunUnfold ops)
-  = do { mb_ops1 <- forkM_maybe doc $ mapM tc_arg ops
+tcUnfolding name dfun_ty _ (IfDFunUnfold bs ops)
+  = bindIfaceBndrs bs $ \ bs' ->
+    do { mb_ops1 <- forkM_maybe doc $ mapM tcIfaceExpr ops
        ; return (case mb_ops1 of
                     Nothing   -> noUnfolding
-                    Just ops1 -> mkDFunUnfolding dfun_ty ops1) }
+                    Just ops1 -> mkDFunUnfolding bs' (classDataCon cls) ops1) }
   where
     doc = text "Class ops for dfun" <+> ppr name
-    tc_arg (DFunPolyArg  e) = do { e' <- tcIfaceExpr e; return (DFunPolyArg e') }
-    tc_arg (DFunLamArg i)   = return (DFunLamArg i)
+    (_, _, cls, _) = tcSplitDFunTy dfun_ty
 
 tcUnfolding name ty info (IfExtWrapper arity wkr)
   = tcIfaceWrapper name ty info arity (tcIfaceExtId wkr)
