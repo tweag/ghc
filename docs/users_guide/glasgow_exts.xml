@@ -5142,11 +5142,6 @@ type instance Elem [e] = e
     </para>
 
     <para>
-      Branched instances and unbranched instances may be mixed freely for the same
-      type family.
-    </para>
-
-    <para>
       Type family instance declarations are only legitimate when an
       appropriate family declaration is in scope - just like class instances
       require the class declaration to be visible. Moreover, each instance
@@ -5158,7 +5153,7 @@ type instance Elem [e] = e
       all saturated vanilla type synonyms, no synonyms, except family synonyms
       may remain.
     </para>
-  </sect3>2
+  </sect3>
 
   <sect3 id="closed-type-families">
     <title>Closed type families</title>
@@ -5423,10 +5418,6 @@ instance GMapKey Flob where
         <literal>(GMap Flob ...)</literal>, this facility is most useful when
         the free indexed parameter is of a kind with a finite number of alternatives
         (unlike <literal>*</literal>).
-      </para>
-
-      <para>
-	Branched associated type instances are not currently supported.
       </para>
     </sect3>
 
