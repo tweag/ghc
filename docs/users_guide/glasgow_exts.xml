@@ -5269,6 +5269,31 @@ type instance H [x] x = Bool
 	  necessary for type soundness.
 	</para>
 
+	<para>
+	  Compatibility also affects closed type families. When simplifying an
+	  application of a closed type family, GHC will select an equation only
+	  when it is sure that no incompatible previous equation will ever apply.
+	  Here are some examples:
+<programlisting>
+type family F a where
+  F Int = Bool
+  F a   = Char
+
+type family G a where
+  G Int = Int
+  G a   = a
+</programlisting>
+          In the definition for <literal>F</literal>, the two equations are
+          incompatible -- their patterns are not apart, and yet their
+          right-hand sides do not coincide. Thus, before GHC selects the
+          second equation, it must be sure that the first can never apply. So,
+          the type <literal>F a</literal> does not simplify; only a type such
+          as <literal>F Double</literal> will simplify to
+          <literal>Char</literal>. In <literal>G</literal>, on the other hand,
+          the two equations are compatible. Thus, GHC can ignore the first
+          equation when looking at the second. So, <literal>G a</literal> will
+          simplify to <literal>a</literal>.
+
     <para> However see <xref linkend="ghci-decls"/> for the overlap rules in GHCi.</para>
     </sect3>
 
