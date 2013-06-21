@@ -746,6 +746,8 @@ Solution: eta-reduce both axioms, thus:
 Now
    d' = d |> Monad (sym (ax2 ; ax1))
 
+This eta reduction happens both for data instances and newtype instances.
+
 See Note [Newtype eta] in TyCon.
 
 

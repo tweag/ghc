@@ -376,7 +376,7 @@ repClsInstD (ClsInstDecl { cid_poly_ty = ty, cid_binds = binds
 repTyFamInstD :: TyFamInstDecl Name -> DsM (Core TH.DecQ)
 repTyFamInstD decl@(TyFamInstDecl { tfid_eqn = eqn })
   = do { let tc_name = tyFamInstDeclLName decl
-       ; tc <- lookupLOcc tc_name		-- See note [Binders and occurrences]  
+       ; tc <- lookupLOcc tc_name               -- See note [Binders and occurrences]  
        ; eqn1 <- repTyFamEqn eqn
        ; repTySynInst tc eqn1 }
 

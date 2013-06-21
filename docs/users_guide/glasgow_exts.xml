@@ -5292,7 +5292,7 @@ type family G a where
           <literal>Char</literal>. In <literal>G</literal>, on the other hand,
           the two equations are compatible. Thus, GHC can ignore the first
           equation when looking at the second. So, <literal>G a</literal> will
-          simplify to <literal>a</literal>.
+          simplify to <literal>a</literal>.</para>
 
     <para> However see <xref linkend="ghci-decls"/> for the overlap rules in GHCi.</para>
     </sect3>

@@ -385,6 +385,8 @@ Note [Branched instance checking] in types/FamInstEnv.lhs.
 -- See Note [Conflict checking with AxiomInstCo]
 checkAxInstCo :: Coercion -> Maybe CoAxBranch
 -- defined here to avoid dependencies in Coercion
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in CoreLint
 checkAxInstCo (AxiomInstCo ax ind cos)
   = let branch = coAxiomNthBranch ax ind
         tvs = coAxBranchTyVars branch

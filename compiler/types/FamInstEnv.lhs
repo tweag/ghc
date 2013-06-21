@@ -9,26 +9,26 @@ FamInstEnv: Type checked family instance declarations
 {-# LANGUAGE GADTs #-}
 
 module FamInstEnv (
-	FamInst(..), FamFlavor(..), famInstAxiom, famInstTyCon, famInstRHS,
+        FamInst(..), FamFlavor(..), famInstAxiom, famInstTyCon, famInstRHS,
         famInstsRepTyCons, famInstRepTyCon_maybe, dataFamInstRepTyCon, 
-	pprFamInst, pprFamInstHdr, pprFamInsts, 
-	mkImportedFamInst,
+        pprFamInst, pprFamInstHdr, pprFamInsts, 
+        mkImportedFamInst,
 
-	FamInstEnvs, FamInstEnv, emptyFamInstEnv, emptyFamInstEnvs, 
-	extendFamInstEnv, deleteFromFamInstEnv, extendFamInstEnvList, 
-	identicalFamInst, famInstEnvElts, familyInstances, orphNamesOfFamInst,
+        FamInstEnvs, FamInstEnv, emptyFamInstEnv, emptyFamInstEnvs, 
+        extendFamInstEnv, deleteFromFamInstEnv, extendFamInstEnvList, 
+        identicalFamInst, famInstEnvElts, familyInstances, orphNamesOfFamInst,
 
         -- * CoAxioms
         mkCoAxBranch, mkBranchedCoAxiom, mkUnbranchedCoAxiom, mkSingleCoAxiom,
         computeAxiomIncomps,
 
         FamInstMatch(..),
-	lookupFamInstEnv, lookupFamInstEnvConflicts,
+        lookupFamInstEnv, lookupFamInstEnvConflicts,
 
         isDominatedBy,
-	
-	-- Normalisation
-	chooseBranch, topNormaliseType, normaliseType, normaliseTcApp
+        
+        -- Normalisation
+        chooseBranch, topNormaliseType, normaliseType, normaliseTcApp
     ) where
 
 #include "HsVersions.h"
@@ -55,9 +55,9 @@ import FastString
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
           Type checked family instance heads
-%*									*
+%*                                                                      *
 %************************************************************************
 
 Note [FamInsts and CoAxioms]
@@ -84,21 +84,21 @@ data FamInst  -- See Note [FamInsts and CoAxioms]
             -- Everything below here is a redundant, 
             -- cached version of the two things above
             -- except that the TyVars are freshened 
-            , fi_fam   :: Name		-- Family name
+            , fi_fam   :: Name          -- Family name
 
-		-- Used for "rough matching"; same idea as for class instances
+                -- Used for "rough matching"; same idea as for class instances
                 -- See Note [Rough-match field] in InstEnv
-	    , fi_tcs   :: [Maybe Name]	-- Top of type args
-		-- INVARIANT: fi_tcs = roughMatchTcs fi_tys
+            , fi_tcs   :: [Maybe Name]  -- Top of type args
+                -- INVARIANT: fi_tcs = roughMatchTcs fi_tys
 
-		-- Used for "proper matching"; ditto
-	    , fi_tvs    :: [TyVar]	-- Template tyvars for full match
+                -- Used for "proper matching"; ditto
+            , fi_tvs    :: [TyVar]      -- Template tyvars for full match
                                  -- Like ClsInsts, these variables are always
                                  -- fresh. See Note [Template tyvars are fresh]
                                  -- in InstEnv
 
-	    , fi_tys    :: [Type]	--   and its arg types
-		-- INVARIANT: fi_tvs = coAxiomTyVars fi_axiom
+            , fi_tys    :: [Type]       --   and its arg types
+                -- INVARIANT: fi_tvs = coAxiomTyVars fi_axiom
 
             , fi_rhs    :: Type         --   the RHS, with its freshened vars
             }
@@ -244,9 +244,9 @@ mkImportedFamInst fam mb_tcs axiom
 \end{code}
 
 %************************************************************************
-%*									*
-		FamInstEnv
-%*									*
+%*                                                                      *
+                FamInstEnv
+%*                                                                      *
 %************************************************************************
 
 Note [FamInstEnv]
@@ -288,21 +288,21 @@ for this eta-reduction is decribed in TcInstDcls
    Note [Eta reduction for data family axioms]
 
 \begin{code}
-type FamInstEnv = UniqFM FamilyInstEnv	-- Maps a family to its instances
+type FamInstEnv = UniqFM FamilyInstEnv  -- Maps a family to its instances
      -- See Note [FamInstEnv]
 
 type FamInstEnvs = (FamInstEnv, FamInstEnv)
      -- External package inst-env, Home-package inst-env
 
 newtype FamilyInstEnv
-  = FamIE [FamInst]	-- The instances for a particular family, in any order
+  = FamIE [FamInst]     -- The instances for a particular family, in any order
 
 instance Outputable FamilyInstEnv where
   ppr (FamIE fs) = ptext (sLit "FamIE") <+> vcat (map ppr fs)
 
 -- INVARIANTS:
 --  * The fs_tvs are distinct in each FamInst
---	of a range value of the map (so we can safely unify them)
+--      of a range value of the map (so we can safely unify them)
 
 emptyFamInstEnvs :: (FamInstEnv, FamInstEnv)
 emptyFamInstEnvs = (emptyFamInstEnv, emptyFamInstEnv)
@@ -318,8 +318,8 @@ familyInstances (pkg_fie, home_fie) fam
   = get home_fie ++ get pkg_fie
   where
     get env = case lookupUFM env fam of
-		Just (FamIE insts) -> insts
-		Nothing	             -> []
+                Just (FamIE insts) -> insts
+                Nothing                      -> []
 
 -- | Collects the names of the concrete types and type constructors that
 -- make up the LHS of a type family instance. For instance,
@@ -373,9 +373,9 @@ identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
                 Compatibility
-%*									*
+%*                                                                      *
 %************************************************************************
 
 Note [Compatibility]
@@ -527,9 +527,9 @@ mkSingleCoAxiom ax_name tvs fam_tc lhs_tys rhs_ty
 \end{code}
 
 %************************************************************************
-%*									*
-		Looking up a family instance
-%*									*
+%*                                                                      *
+                Looking up a family instance
+%*                                                                      *
 %************************************************************************
 
 @lookupFamInstEnv@ looks up in a @FamInstEnv@, using a one-way match.
@@ -565,19 +565,19 @@ instance Outputable FamInstMatch where
 
 lookupFamInstEnv
     :: FamInstEnvs
-    -> TyCon -> [Type]		-- What we are looking for
-    -> [FamInstMatch] 	        -- Successful matches
+    -> TyCon -> [Type]          -- What we are looking for
+    -> [FamInstMatch]           -- Successful matches
 -- Precondition: the tycon is saturated (or over-saturated)
 
 lookupFamInstEnv
-   = lookup_fam_inst_env match True
+   = lookup_fam_inst_env match
    where
      match _ tpl_tvs tpl_tys tys = tcMatchTys tpl_tvs tpl_tys tys
 
 lookupFamInstEnvConflicts
     :: FamInstEnvs
-    -> FamInst		-- Putative new instance
-    -> [FamInstMatch] 	-- Conflicting matches (don't look at the fim_tys field)
+    -> FamInst          -- Putative new instance
+    -> [FamInstMatch]   -- Conflicting matches (don't look at the fim_tys field)
 -- E.g. when we are about to add
 --    f : type instance F [a] = a->a
 -- we do (lookupFamInstConflicts f [b])
@@ -586,17 +586,17 @@ lookupFamInstEnvConflicts
 -- Precondition: the tycon is saturated (or over-saturated)
 
 lookupFamInstEnvConflicts envs fam_inst@(FamInst { fi_axiom = new_axiom })
-  = lookup_fam_inst_env my_unify False envs fam tys
+  = lookup_fam_inst_env my_unify envs fam tys
   where
     (fam, tys) = famInstSplitLHS fam_inst
         -- In example above,   fam tys' = F [b]   
 
     my_unify (FamInst { fi_axiom = old_axiom }) tpl_tvs tpl_tys _
        = ASSERT2( tyVarsOfTypes tys `disjointVarSet` tpl_tvs,
-		  (ppr fam <+> ppr tys) $$
-		  (ppr tpl_tvs <+> ppr tpl_tys) )
-		-- Unification will break badly if the variables overlap
-		-- They shouldn't because we allocate separate uniques for them
+                  (ppr fam <+> ppr tys) $$
+                  (ppr tpl_tvs <+> ppr tpl_tys) )
+                -- Unification will break badly if the variables overlap
+                -- They shouldn't because we allocate separate uniques for them
          if compatibleBranches (coAxiomSingleBranch old_axiom) (new_branch)
            then Nothing
            else Just noSubst
@@ -623,21 +623,17 @@ Note [Family instance overlap conflicts]
 \begin{code}
 ------------------------------------------------------------
 -- Might be a one-way match or a unifier
-type MatchFun =  FamInst		-- The FamInst template
-     	      -> TyVarSet -> [Type]	--   fi_tvs, fi_tys of that FamInst
-	      -> [Type]			-- Target to match against
-	      -> Maybe TvSubst
+type MatchFun =  FamInst                -- The FamInst template
+              -> TyVarSet -> [Type]     --   fi_tvs, fi_tys of that FamInst
+              -> [Type]                         -- Target to match against
+              -> Maybe TvSubst
 
-type OneSidedMatch = Bool     -- Are optimisations that are only valid for
-                              -- one sided matches allowed?
-
-lookup_fam_inst_env' 	      -- The worker, local to this module
+lookup_fam_inst_env'          -- The worker, local to this module
     :: MatchFun
-    -> OneSidedMatch
     -> FamInstEnv
     -> TyCon -> [Type]        -- What we are looking for
     -> [FamInstMatch]
-lookup_fam_inst_env' match_fun _one_sided ie fam tys
+lookup_fam_inst_env' match_fun ie fam match_tys
   | isOpenFamilyTyCon fam
   , Just (FamIE insts) <- lookupUFM ie fam
   = find insts    -- The common case
@@ -646,8 +642,8 @@ lookup_fam_inst_env' match_fun _one_sided ie fam tys
 
     find [] = []
     find (item@(FamInst { fi_tcs = mb_tcs, fi_tvs = tpl_tvs, 
-			  fi_tys = tpl_tys }) : rest)
-	-- Fast check for no match, uses the "rough match" fields
+                          fi_tys = tpl_tys }) : rest)
+        -- Fast check for no match, uses the "rough match" fields
       | instanceCantMatch rough_tcs mb_tcs
       = find rest
 
@@ -660,26 +656,38 @@ lookup_fam_inst_env' match_fun _one_sided ie fam tys
         -- No match => try next
       | otherwise
       = find rest
+
+      where
+        (rough_tcs, match_tys1, match_tys2) = split_tys tpl_tys
       
       -- Precondition: the tycon is saturated (or over-saturated)
 
     -- Deal with over-saturation
     -- See Note [Over-saturated matches]
-    (match_tys1, match_tys2) = splitAt (tyConArity fam) tys
-    rough_tcs = roughMatchTcs match_tys1
+    split_tys tpl_tys
+      | isSynFamilyTyCon fam
+      = pre_rough_split_tys
+
+      | otherwise
+      = let (match_tys1, match_tys2) = splitAtList tpl_tys match_tys
+            rough_tcs = roughMatchTcs match_tys1
+        in (rough_tcs, match_tys1, match_tys2)
+
+    (pre_match_tys1, pre_match_tys2) = splitAt (tyConArity fam) match_tys
+    pre_rough_split_tys
+      = (roughMatchTcs pre_match_tys1, pre_match_tys1, pre_match_tys2)
 
 lookup_fam_inst_env           -- The worker, local to this module
     :: MatchFun
-    -> OneSidedMatch
     -> FamInstEnvs
-    -> TyCon -> [Type]		-- What we are looking for
-    -> [FamInstMatch] 	        -- Successful matches
+    -> TyCon -> [Type]          -- What we are looking for
+    -> [FamInstMatch]           -- Successful matches
 
 -- Precondition: the tycon is saturated (or over-saturated)
 
-lookup_fam_inst_env match_fun one_sided (pkg_ie, home_ie) fam tys = 
-    lookup_fam_inst_env' match_fun one_sided home_ie fam tys ++
-    lookup_fam_inst_env' match_fun one_sided pkg_ie  fam tys
+lookup_fam_inst_env match_fun (pkg_ie, home_ie) fam tys = 
+    lookup_fam_inst_env' match_fun home_ie fam tys ++
+    lookup_fam_inst_env' match_fun pkg_ie  fam tys
 
 \end{code}
 
@@ -697,6 +705,14 @@ Then looking up (F (Int,Bool) Char) will return a FamInstMatch
      (FPair, [Int,Bool,Char])
 
 The "extra" type argument [Char] just stays on the end.
+
+Because of eta-reduction of data family instances (see 
+Note [Eta reduction for data family axioms] in TcInstDecls), we must
+handle data families and type families separately here. All instances
+of a type family must have the same arity, so we can precompute the split
+between the match_tys and the overflow tys. This is done in pre_rough_split_tys.
+For data instances, though, we need to re-split for each instance, because
+the breakdown might be different.
 
 \begin{code}
 
@@ -719,9 +735,9 @@ isDominatedBy branch branches
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
                 Choosing an axiom application
-%*									*
+%*                                                                      *
 %************************************************************************
 
 The lookupFamInstEnv function does a nice job for *open* type families,
@@ -786,19 +802,19 @@ findBranch [] _ _ = Nothing
 
 
 %************************************************************************
-%*									*
-		Looking up a family instance
-%*									*
+%*                                                                      *
+                Looking up a family instance
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
 topNormaliseType :: FamInstEnvs
-		 -> Type
-	   	 -> Maybe (Coercion, Type)
+                 -> Type
+                 -> Maybe (Coercion, Type)
 
 -- Get rid of *outermost* (or toplevel) 
---	* type functions 
---	* newtypes
+--      * type functions 
+--      * newtypes
 -- using appropriate coercions.
 -- By "outer" we mean that toplevelNormaliseType guarantees to return
 -- a type that does not have a reducible redex (F ty1 .. tyn) as its
@@ -832,10 +848,10 @@ topNormaliseType env ty
     go _ _ = Nothing
 
     add_co co rec_nts ty 
-	= case go rec_nts ty of
-		Nothing 	-> Just (co, ty)
-		Just (co', ty') -> Just (mkTransCo co co', ty')
-	 
+        = case go rec_nts ty of
+                Nothing         -> Just (co, ty)
+                Just (co', ty') -> Just (mkTransCo co co', ty')
+         
 
 ---------------
 normaliseTcApp :: FamInstEnvs -> TyCon -> [Type] -> (Coercion, Type)
@@ -843,27 +859,27 @@ normaliseTcApp env tc tys
   | isFamilyTyCon tc
   , Just (co, rhs) <- chooseAxiom env tc ntys
   = let    -- A reduction is possible
-	first_coi       = mkTransCo tycon_coi co
-	(rest_coi,nty)  = normaliseType env rhs
-	fix_coi         = mkTransCo first_coi rest_coi
+        first_coi       = mkTransCo tycon_coi co
+        (rest_coi,nty)  = normaliseType env rhs
+        fix_coi         = mkTransCo first_coi rest_coi
     in 
     (fix_coi, nty)
 
   | otherwise   -- No unique matching family instance exists;
-		-- we do not do anything
+                -- we do not do anything
   = (tycon_coi, TyConApp tc ntys)
 
   where
-	-- Normalise the arg types so that they'll match 
-	-- when we lookup in in the instance envt
+        -- Normalise the arg types so that they'll match 
+        -- when we lookup in in the instance envt
     (cois, ntys) = mapAndUnzip (normaliseType env) tys
     tycon_coi    = mkTyConAppCo tc cois
 
 ---------------
-normaliseType :: FamInstEnvs 		-- environment with family instances
-	      -> Type  			-- old type
-	      -> (Coercion, Type)	-- (coercion,new type), where
-					-- co :: old-type ~ new_type
+normaliseType :: FamInstEnvs            -- environment with family instances
+              -> Type                           -- old type
+              -> (Coercion, Type)       -- (coercion,new type), where
+                                        -- co :: old-type ~ new_type
 -- Normalise the input type, by eliminating *all* type-function redexes
 -- Returns with Refl if nothing happens
 

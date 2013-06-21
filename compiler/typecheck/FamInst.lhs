@@ -35,6 +35,7 @@ import Maybes
 import TcMType
 import TcType
 import Name
+import VarSet -- RAE
 import Control.Monad
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -216,9 +217,9 @@ tcLookupFamInst tycon tys
   | otherwise
   = do { instEnv <- tcGetFamInstEnvs
        ; let mb_match = lookupFamInstEnv instEnv tycon tys 
---       ; traceTc "lookupFamInst" ((ppr tycon <+> ppr tys) $$ 
---                                  pprTvBndrs (varSetElems (tyVarsOfTypes tys)) $$ 
---                                  ppr mb_match $$ ppr instEnv)
+       ; traceTc "lookupFamInst" ((ppr tycon <+> ppr tys) $$ 
+                                  pprTvBndrs (varSetElems (tyVarsOfTypes tys)) $$ 
+                                  ppr mb_match $$ ppr instEnv)
        ; case mb_match of
 	   [] -> return Nothing
 	   (match:_) 
