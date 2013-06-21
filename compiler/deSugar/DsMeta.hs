@@ -376,21 +376,9 @@ repClsInstD (ClsInstDecl { cid_poly_ty = ty, cid_binds = binds
 repTyFamInstD :: TyFamInstDecl Name -> DsM (Core TH.DecQ)
 repTyFamInstD decl@(TyFamInstDecl { tfid_eqn = eqn })
   = do { let tc_name = tyFamInstDeclLName decl
-<<<<<<< HEAD
        ; tc <- lookupLOcc tc_name		-- See note [Binders and occurrences]  
        ; eqn1 <- repTyFamEqn eqn
        ; repTySynInst tc eqn1 }
-||||||| merged common ancestors
-       ; tc <- lookupLOcc tc_name		-- See note [Binders and occurrences]  
-       ; eqns1 <- mapM repTyFamEqn eqns
-       ; eqns2 <- coreList tySynEqnQTyConName eqns1
-       ; repTySynInst tc eqns2 }
-=======
-       ; tc <- lookupLOcc tc_name               -- See note [Binders and occurrences]
-       ; eqns1 <- mapM repTyFamEqn eqns
-       ; eqns2 <- coreList tySynEqnQTyConName eqns1
-       ; repTySynInst tc eqns2 }
->>>>>>> master
 
 repTyFamEqn :: LTyFamInstEqn Name -> DsM (Core TH.TySynEqnQ)
 repTyFamEqn (L loc (TyFamInstEqn { tfie_pats = HsWB { hswb_cts = tys
