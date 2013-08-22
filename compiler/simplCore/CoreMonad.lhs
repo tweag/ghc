@@ -762,7 +762,8 @@ instance Monad CoreM where
     mx >>= f = CoreM $ \s -> do
             (x, s', w1) <- unCoreM mx s
             (y, s'', w2) <- unCoreM (f x) s'
-            return (y, s'', w1 `plusWriter` w2)
+            let w = w1 `plusWriter` w2 -- forcing w before returning avoids a space leak (Trac #7702)
+            return $ seq w (y, s'', w)
 
 instance Applicative CoreM where
     pure = return
@@ -780,6 +781,12 @@ instance MonadUnique CoreM where
         let (us1, us2) = splitUniqSupply us
         modifyS (\s -> s { cs_uniq_supply = us2 })
         return us1
+
+    getUniqueM = do
+        us <- getS cs_uniq_supply
+        let (u,us') = takeUniqFromSupply us
+        modifyS (\s -> s { cs_uniq_supply = us' })
+        return u
 
 runCoreM :: HscEnv
          -> RuleBase
@@ -895,6 +902,14 @@ gets linked against a *newly loaded* copy of the GHC package. This would
 not be a problem, except that the new copy has its own mutable state
 that is not shared with that state that has already been initialized by
 the original GHC package.
+
+(NB This mechanism is sufficient for granting plugins read-only access to
+globals that are guaranteed to be initialized before the plugin is loaded.  If
+any further synchronization is necessary, I would suggest using the more
+sophisticated mechanism involving GHC.Conc.Sync.sharedCAF and rts/Globals.c to
+share a single instance of the global variable among the compiler and the
+plugins.  Perhaps we should migrate all global variables to use that mechanism,
+for robustness... -- NSF July 2013)
 
 This leads to loaded plugins calling GHC code which pokes the static flags,
 and then dying with a panic because the static flags *it* sees are uninitialized.

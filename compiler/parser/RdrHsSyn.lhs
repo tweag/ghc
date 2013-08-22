@@ -10,7 +10,7 @@ module RdrHsSyn (
         mkHsDo, mkHsSplice, mkTopSpliceDecl,
         mkClassDecl, 
         mkTyData, mkFamInstData, 
-        mkTySynonym, mkTyFamInstEqn, mkTyFamInstGroup,
+        mkTySynonym, mkTyFamInstEqn,
         mkTyFamInst, 
         mkFamDecl, 
         splitCon, mkInlinePragma,
@@ -45,7 +45,6 @@ module RdrHsSyn (
         checkValSig,          -- (SrcLoc, HsExp, HsRhs, [HsDecl]) -> P HsDecl
         checkDoAndIfThenElse,
         checkRecordSyntax,
-        parseError,
         parseErrorSDoc,
 
         -- Help with processing exports
@@ -178,39 +177,31 @@ mkTySynonym loc lhs rhs
        ; return (L loc (SynDecl { tcdLName = tc, tcdTyVars = tyvars,
                                  tcdRhs = rhs, tcdFVs = placeHolderNames })) }
 
-mkTyFamInstEqn :: SrcSpan
+mkTyFamInstEqn :: LHsType RdrName
                -> LHsType RdrName
-               -> LHsType RdrName
-               -> P (LTyFamInstEqn RdrName)
-mkTyFamInstEqn loc lhs rhs
+               -> P (TyFamInstEqn RdrName)
+mkTyFamInstEqn lhs rhs
   = do { (tc, tparams) <- checkTyClHdr lhs
-       ; return (L loc (TyFamInstEqn { tfie_tycon = tc
-                                     , tfie_pats  = mkHsWithBndrs tparams
-                                     , tfie_rhs   = rhs })) }
+       ; return (TyFamInstEqn { tfie_tycon = tc
+                              , tfie_pats  = mkHsWithBndrs tparams
+                              , tfie_rhs   = rhs }) }
 
 mkTyFamInst :: SrcSpan
             -> LTyFamInstEqn RdrName
             -> P (LTyFamInstDecl RdrName)
 mkTyFamInst loc eqn
-  = return (L loc (TyFamInstDecl { tfid_eqns  = [eqn]
-                                 , tfid_group = False
-                                 , tfid_fvs   = placeHolderNames }))
-
-mkTyFamInstGroup :: [LTyFamInstEqn RdrName]
-                 -> TyFamInstDecl RdrName
-mkTyFamInstGroup eqns = TyFamInstDecl { tfid_eqns  = eqns
-                                      , tfid_group = True
-                                      , tfid_fvs   = placeHolderNames }
+  = return (L loc (TyFamInstDecl { tfid_eqn  = eqn
+                                 , tfid_fvs  = placeHolderNames }))
 
 mkFamDecl :: SrcSpan
-          -> FamilyFlavour
+          -> FamilyInfo RdrName
           -> LHsType RdrName   -- LHS
           -> Maybe (LHsKind RdrName) -- Optional kind signature
           -> P (LFamilyDecl RdrName)
-mkFamDecl loc flavour lhs ksig
+mkFamDecl loc info lhs ksig
   = do { (tc, tparams) <- checkTyClHdr lhs
        ; tyvars <- checkTyVars lhs tparams
-       ; return (L loc (FamilyDecl flavour tc tyvars ksig)) }
+       ; return (L loc (FamilyDecl info tc tyvars ksig)) }
 
 mkTopSpliceDecl :: LHsExpr RdrName -> HsDecl RdrName
 -- If the user wrote
@@ -473,10 +464,14 @@ checkTyVars tycl_hdr tparms = do { tvs <- mapM chk tparms
                                  ; return (mkHsQTvs tvs) }
   where
         -- Check that the name space is correct!
+    chk (L l (HsRoleAnnot (L _ (HsKindSig (L _ (HsTyVar tv)) k)) r))
+        | isRdrTyVar tv    = return (L l (HsTyVarBndr tv (Just k) (Just r)))
     chk (L l (HsKindSig (L _ (HsTyVar tv)) k))
-        | isRdrTyVar tv    = return (L l (KindedTyVar tv k))
+        | isRdrTyVar tv    = return (L l (HsTyVarBndr tv (Just k) Nothing))
+    chk (L l (HsRoleAnnot (L _ (HsTyVar tv)) r))
+        | isRdrTyVar tv    = return (L l (HsTyVarBndr tv Nothing (Just r)))
     chk (L l (HsTyVar tv))
-        | isRdrTyVar tv    = return (L l (UserTyVar tv))
+        | isRdrTyVar tv    = return (L l (HsTyVarBndr tv Nothing Nothing))
     chk t@(L l _)
         = parseErrorSDoc l $
           vcat [ sep [ ptext (sLit "Unexpected type") <+> quotes (ppr t)
@@ -1090,9 +1085,6 @@ mkTypeImpExp name =
 -- Misc utils
 
 \begin{code}
-parseError :: SrcSpan -> String -> P a
-parseError span s = parseErrorSDoc span (text s)
-
 parseErrorSDoc :: SrcSpan -> SDoc -> P a
 parseErrorSDoc span s = failSpanMsgP span s
 \end{code}

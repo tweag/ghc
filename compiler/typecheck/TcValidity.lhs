@@ -8,7 +8,7 @@ module TcValidity (
   Rank, UserTypeCtxt(..), checkValidType, checkValidMonoType,
   expectedKindInCtxt, 
   checkValidTheta, checkValidFamPats,
-  checkValidInstHead, checkValidInstance, validDerivPred,
+  checkValidInstance, validDerivPred,
   checkInstTermination, checkValidTyFamInst, checkTyFamFreeness, 
   checkConsistentFamInst,
   arityErr, badATErr
@@ -45,6 +45,7 @@ import ListSetOps
 import SrcLoc
 import Outputable
 import FastString
+import BasicTypes ( Arity )
 
 import Control.Monad
 import Data.List        ( (\\) )
@@ -61,6 +62,12 @@ import Data.List        ( (\\) )
 \begin{code}
 checkAmbiguity :: UserTypeCtxt -> Type -> TcM ()
 checkAmbiguity ctxt ty
+  | GhciCtxt <- ctxt    -- Allow ambiguous types in GHCi's :kind command
+  = return ()           -- E.g.   type family T a :: *  -- T :: forall k. k -> *
+                        -- Then :k T should work in GHCi, not complain that
+                        -- (T k) is ambiguous!
+
+  | otherwise
   = do { allow_ambiguous <- xoptM Opt_AllowAmbiguousTypes
        ; unless allow_ambiguous $ 
     do {(subst, _tvs) <- tcInstSkolTyVars (varSetElems (tyVarsOfType ty))
@@ -276,30 +283,54 @@ check_type ctxt rank (AppTy ty1 ty2)
         ; check_arg_type ctxt rank ty2 }
 
 check_type ctxt rank ty@(TyConApp tc tys)
-  | isSynTyCon tc
-  = do  {       -- Check that the synonym has enough args
-                -- This applies equally to open and closed synonyms
-                -- It's OK to have an *over-applied* type synonym
-                --      data Tree a b = ...
-                --      type Foo a = Tree [a]
-                --      f :: Foo a b -> ...
-          checkTc (tyConArity tc <= length tys) arity_msg
+  | isSynTyCon tc          = check_syn_tc_app ctxt rank ty tc tys
+  | isUnboxedTupleTyCon tc = check_ubx_tuple  ctxt      ty    tys
+  | otherwise              = mapM_ (check_arg_type ctxt rank) tys
 
-        -- See Note [Liberal type synonyms]
+check_type _ _ (LitTy {}) = return ()
+
+check_type _ _ ty = pprPanic "check_type" (ppr ty)
+
+----------------------------------------
+check_syn_tc_app :: UserTypeCtxt -> Rank -> KindOrType 
+                 -> TyCon -> [KindOrType] -> TcM ()
+check_syn_tc_app ctxt rank ty tc tys
+  | tc_arity <= n_args   -- Saturated
+       -- Check that the synonym has enough args
+       -- This applies equally to open and closed synonyms
+       -- It's OK to have an *over-applied* type synonym
+       --      data Tree a b = ...
+       --      type Foo a = Tree [a]
+       --      f :: Foo a b -> ...
+  = do  { -- See Note [Liberal type synonyms]
         ; liberal <- xoptM Opt_LiberalTypeSynonyms
         ; if not liberal || isSynFamilyTyCon tc then
                 -- For H98 and synonym families, do check the type args
-                mapM_ (check_mono_type ctxt synArgMonoType) tys
+                mapM_ check_arg tys
 
           else  -- In the liberal case (only for closed syns), expand then check
           case tcView ty of   
              Just ty' -> check_type ctxt rank ty' 
-             Nothing  -> pprPanic "check_tau_type" (ppr ty)
-    }
-    
-  | isUnboxedTupleTyCon tc
+             Nothing  -> pprPanic "check_tau_type" (ppr ty)  }
+
+  | GhciCtxt <- ctxt  -- Accept under-saturated type synonyms in 
+                      -- GHCi :kind commands; see Trac #7586
+  = mapM_ check_arg tys
+
+  | otherwise
+  = failWithTc (arityErr "Type synonym" (tyConName tc) tc_arity n_args)
+  where
+    n_args = length tys
+    tc_arity  = tyConArity tc
+    check_arg | isSynFamilyTyCon tc = check_arg_type  ctxt rank
+              | otherwise           = check_mono_type ctxt synArgMonoType
+         
+----------------------------------------
+check_ubx_tuple :: UserTypeCtxt -> KindOrType 
+                -> [KindOrType] -> TcM ()
+check_ubx_tuple ctxt ty tys
   = do  { ub_tuples_allowed <- xoptM Opt_UnboxedTuples
-        ; checkTc ub_tuples_allowed ubx_tup_msg
+        ; checkTc ub_tuples_allowed (ubxArgTyErr ty)
 
         ; impred <- xoptM Opt_ImpredicativeTypes        
         ; let rank' = if impred then ArbitraryRank else tyConArgMonoType
@@ -307,21 +338,7 @@ check_type ctxt rank ty@(TyConApp tc tys)
                 -- However, args are allowed to be unlifted, or
                 -- more unboxed tuples, so can't use check_arg_ty
         ; mapM_ (check_type ctxt rank') tys }
-
-  | otherwise
-  = mapM_ (check_arg_type ctxt rank) tys
-
-  where
-    n_args    = length tys
-    tc_arity  = tyConArity tc
-
-    arity_msg   = arityErr "Type synonym" (tyConName tc) tc_arity n_args
-    ubx_tup_msg = ubxArgTyErr ty
-
-check_type _ _ (LitTy {}) = return ()
-
-check_type _ _ ty = pprPanic "check_type" (ppr ty)
-
+    
 ----------------------------------------
 check_arg_type :: UserTypeCtxt -> Rank -> KindOrType -> TcM ()
 -- The sort of type that can instantiate a type variable,
@@ -819,11 +836,9 @@ validDerivPred tv_set pred
 checkValidInstance :: UserTypeCtxt -> LHsType Name -> Type
                    -> TcM ([TyVar], ThetaType, Class, [Type])
 checkValidInstance ctxt hs_type ty
-  = do { let (tvs, theta, tau) = tcSplitSigmaTy ty
-       ; case getClassPredTys_maybe tau of {
-           Nothing          -> failWithTc (ptext (sLit "Malformed instance type")) ;
-           Just (clas,inst_tys)  -> 
-    do  { setSrcSpan head_loc (checkValidInstHead ctxt clas inst_tys)
+  | Just (clas,inst_tys) <- getClassPredTys_maybe tau
+  , inst_tys `lengthIs` classArity clas
+  = do  { setSrcSpan head_loc (checkValidInstHead ctxt clas inst_tys)
         ; checkValidTheta ctxt theta
 
         -- The Termination and Coverate Conditions
@@ -845,8 +860,12 @@ checkValidInstance ctxt hs_type ty
                   ; checkTc (checkInstCoverage clas inst_tys)
                             (instTypeErr clas inst_tys msg) }
                   
-        ; return (tvs, theta, clas, inst_tys) } } }
+        ; return (tvs, theta, clas, inst_tys) } 
+
+  | otherwise 
+  = failWithTc (ptext (sLit "Malformed instance head:") <+> ppr tau)
   where
+    (tvs, theta, tau) = tcSplitSigmaTy ty
     msg  = parens (vcat [ptext (sLit "the Coverage Condition fails for one of the functional dependencies;"),
                          undecidableMsg])
 
@@ -1117,10 +1136,25 @@ checkValidFamPats :: TyCon -> [TyVar] -> [Type] -> TcM ()
 --    e.g. we disallow (Trac #7536)
 --         type T a = Int
 --         type instance F (T a) = a
+-- c) Have the right number of patterns
 checkValidFamPats fam_tc tvs ty_pats
-  = do { mapM_ checkTyFamFreeness ty_pats
+  = do { -- A family instance must have exactly the same number of type
+         -- parameters as the family declaration.  You can't write
+         --     type family F a :: * -> *
+         --     type instance F Int y = y
+         -- because then the type (F Int) would be like (\y.y)
+         checkTc (length ty_pats == fam_arity) $
+           wrongNumberOfParmsErr (fam_arity - length fam_kvs) -- report only types
+       ; mapM_ checkTyFamFreeness ty_pats
        ; let unbound_tvs = filterOut (`elemVarSet` exactTyVarsOfTypes ty_pats) tvs
        ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
+  where fam_arity    = tyConArity fam_tc
+        (fam_kvs, _) = splitForAllTys (tyConKind fam_tc)
+
+wrongNumberOfParmsErr :: Arity -> SDoc
+wrongNumberOfParmsErr exp_arity
+  = ptext (sLit "Number of parameters must match family declaration; expected")
+    <+> ppr exp_arity
 
 -- Ensure that no type family instances occur in a type.
 --

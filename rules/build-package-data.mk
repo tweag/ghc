@@ -86,7 +86,7 @@ endif
 
 $1_$2_CONFIGURE_OPTS += --configure-option=--with-cc="$$(CC_STAGE$3)"
 $1_$2_CONFIGURE_OPTS += --with-ar="$$(AR_STAGE$3)"
-$1_$2_CONFIGURE_OPTS += --with-ranlib="$$(RANLIB)"
+$1_$2_CONFIGURE_OPTS += --with-ranlib="$$(REAL_RANLIB_CMD)"
 $1_$2_CONFIGURE_OPTS += $$(if $$(ALEX),--with-alex="$$(ALEX)")
 $1_$2_CONFIGURE_OPTS += $$(if $$(HAPPY),--with-happy="$$(HAPPY)")
 
@@ -98,7 +98,7 @@ $1/$2/build/autogen/cabal_macros.h : $1/$2/package-data.mk
 # This rule configures the package, generates the package-data.mk file
 # for our build system, and registers the package for use in-place in
 # the build tree.
-$1/$2/package-data.mk : $$$$(ghc-cabal_INPLACE) $$($1_$2_GHC_PKG_DEP) $1/$$($1_PACKAGE).cabal $$(wildcard $1/configure) $$(LAX_DEPS_FOLLOW) $$($1_$2_HC_CONFIG_DEP)
+$1/$2/package-data.mk : $$$$(ghc-cabal_INPLACE) $$($1_$2_GHC_PKG_DEP) $1/$$($1_PACKAGE).cabal $$(wildcard $1/configure) $$(LAX_DEPS_FOLLOW) $$$$($1_$2_HC_CONFIG_DEP)
 # Checking packages built with the bootstrapping compiler would
 # generally be a waste of time. Either we will rebuild them with
 # stage1/stage2, or we don't really care about them.
@@ -107,7 +107,7 @@ ifneq "$$($1_NO_CHECK)" "YES"
 	"$$(ghc-cabal_INPLACE)" check $1
 endif
 endif
-	"$$(ghc-cabal_INPLACE)" configure --with-ghc="$$($1_$2_HC_CONFIG)" --with-ghc-pkg="$$($1_$2_GHC_PKG)" $$($1_CONFIGURE_OPTS) $$($1_$2_CONFIGURE_OPTS) -- $2 $1
+	"$$(ghc-cabal_INPLACE)" configure $1 $2 "$$($1_$2_dll0_MODULES)" --with-ghc="$$($1_$2_HC_CONFIG)" --with-ghc-pkg="$$($1_$2_GHC_PKG)" $$($1_CONFIGURE_OPTS) $$($1_$2_CONFIGURE_OPTS)
 ifeq "$$($1_$2_PROG)" ""
 ifneq "$$($1_$2_REGISTER_PACKAGE)" "NO"
 	$$(call cmd,$1_$2_GHC_PKG) update --force $$($1_$2_GHC_PKG_OPTS) $1/$2/inplace-pkg-config

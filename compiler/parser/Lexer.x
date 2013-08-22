@@ -57,6 +57,8 @@ module Lexer (
    extension, bangPatEnabled, datatypeContextsEnabled,
    traditionalRecordSyntaxEnabled,
    typeLiteralsEnabled,
+   explicitForallEnabled,
+   inRulePrag,
    explicitNamespacesEnabled, sccProfilingOn, hpcEnabled,
    addWarning,
    lexTokenStream
@@ -362,14 +364,14 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
   @qual @varid                  { idtoken qvarid }
   @qual @conid                  { idtoken qconid }
   @varid                        { varid }
-  @conid                        { idtoken conid }
+  @conid                        { conid }
 }
 
 <0> {
   @qual @varid "#"+ / { ifExtension magicHashEnabled } { idtoken qvarid }
   @qual @conid "#"+ / { ifExtension magicHashEnabled } { idtoken qconid }
   @varid "#"+       / { ifExtension magicHashEnabled } { varid }
-  @conid "#"+       / { ifExtension magicHashEnabled } { idtoken conid }
+  @conid "#"+       / { ifExtension magicHashEnabled } { conid }
 }
 
 -- ToDo: - move `var` and (sym) into lexical syntax?
@@ -385,12 +387,16 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 -- when trying to be close to Haskell98
 <0> {
   -- Normal integral literals (:: Num a => a, from Integer)
-  @decimal           { tok_num positive 0 0 decimal }
-  0[oO] @octal       { tok_num positive 2 2 octal }
-  0[xX] @hexadecimal { tok_num positive 2 2 hexadecimal }
+  @decimal                                                               { tok_num positive 0 0 decimal }
+  0[oO] @octal                                                           { tok_num positive 2 2 octal }
+  0[xX] @hexadecimal                                                     { tok_num positive 2 2 hexadecimal }
+  @negative @decimal           / { ifExtension negativeLiteralsEnabled } { tok_num negative 1 1 decimal }
+  @negative 0[oO] @octal       / { ifExtension negativeLiteralsEnabled } { tok_num negative 3 3 octal }
+  @negative 0[xX] @hexadecimal / { ifExtension negativeLiteralsEnabled } { tok_num negative 3 3 hexadecimal }
 
   -- Normal rational literals (:: Fractional a => a, from Rational)
-  @floating_point    { strtoken tok_float }
+  @floating_point                                                        { strtoken tok_float }
+  @negative @floating_point    / { ifExtension negativeLiteralsEnabled } { strtoken tok_float }
 }
 
 <0> {
@@ -471,6 +477,9 @@ data Token
   | ITgroup
   | ITby
   | ITusing
+  | ITnominal
+  | ITrepresentational
+  | ITphantom
 
   -- Pragmas
   | ITinline_prag InlineSpec RuleMatchInfo
@@ -660,10 +669,18 @@ reservedWordsFM = listToUFM $
          ( "capi",           ITcapiconv,      bit cApiFfiBit),
          ( "prim",           ITprimcallconv,  bit ffiBit),
 
-         ( "rec",            ITrec,           bit arrowsBit .|. 
+         ( "rec",            ITrec,           bit arrowsBit .|.
                                               bit recursiveDoBit),
          ( "proc",           ITproc,          bit arrowsBit)
      ]
+
+reservedUpcaseWordsFM :: UniqFM (Token, Int)
+reservedUpcaseWordsFM = listToUFM $
+    map (\(x, y, z) -> (mkFastString x, (y, z)))
+       [ ( "N",     ITnominal,          0 ), -- no extension bit for better error msgs
+         ( "R",     ITrepresentational, 0 ),
+         ( "P",     ITphantom,          0 )
+       ]
 
 reservedSymsFM :: UniqFM (Token, Int -> Bool)
 reservedSymsFM = listToUFM $
@@ -696,8 +713,7 @@ reservedSymsFM = listToUFM $
 
        ,("∷",   ITdcolon, unicodeSyntaxEnabled)
        ,("⇒",   ITdarrow, unicodeSyntaxEnabled)
-       ,("∀",   ITforall, \i -> unicodeSyntaxEnabled i &&
-                                explicitForallEnabled i)
+       ,("∀",   ITforall, unicodeSyntaxEnabled)
        ,("→",   ITrarrow, unicodeSyntaxEnabled)
        ,("←",   ITlarrow, unicodeSyntaxEnabled)
 
@@ -1010,8 +1026,20 @@ varid span buf len =
   where
     !fs = lexemeToFastString buf len
 
-conid :: StringBuffer -> Int -> Token
-conid buf len = ITconid $! lexemeToFastString buf len
+conid :: Action
+conid span buf len =
+  case lookupUFM reservedUpcaseWordsFM fs of
+    Just (keyword, 0) -> return $ L span keyword
+
+    Just (keyword, exts) -> do
+      extsEnabled <- extension $ \i -> exts .&. i /= 0
+      if extsEnabled
+        then return $ L span keyword
+        else return $ L span $ ITconid fs
+
+    Nothing -> return $ L span $ ITconid fs
+  where
+    !fs = lexemeToFastString buf len
 
 qvarsym, qconsym, prefixqvarsym, prefixqconsym :: StringBuffer -> Int -> Token
 qvarsym buf len = ITqvarsym $! splitQualName buf len False
@@ -1870,6 +1898,8 @@ explicitNamespacesBit :: Int
 explicitNamespacesBit = 29
 lambdaCaseBit :: Int
 lambdaCaseBit = 30
+negativeLiteralsBit :: Int
+negativeLiteralsBit = 31
 
 
 always :: Int -> Bool
@@ -1902,8 +1932,8 @@ datatypeContextsEnabled :: Int -> Bool
 datatypeContextsEnabled flags = testBit flags datatypeContextsBit
 qqEnabled :: Int -> Bool
 qqEnabled        flags = testBit flags qqBit
--- inRulePrag :: Int -> Bool
--- inRulePrag       flags = testBit flags inRulePragBit
+inRulePrag :: Int -> Bool
+inRulePrag       flags = testBit flags inRulePragBit
 rawTokenStreamEnabled :: Int -> Bool
 rawTokenStreamEnabled flags = testBit flags rawTokenStreamBit
 alternativeLayoutRule :: Int -> Bool
@@ -1925,6 +1955,8 @@ explicitNamespacesEnabled :: Int -> Bool
 explicitNamespacesEnabled flags = testBit flags explicitNamespacesBit
 lambdaCaseEnabled :: Int -> Bool
 lambdaCaseEnabled flags = testBit flags lambdaCaseBit
+negativeLiteralsEnabled :: Int -> Bool
+negativeLiteralsEnabled flags = testBit flags negativeLiteralsBit
 
 -- PState for parsing options pragmas
 --
@@ -1988,6 +2020,7 @@ mkPState flags buf loc =
                .|. typeLiteralsBit             `setBitIf` xopt Opt_DataKinds flags
                .|. explicitNamespacesBit       `setBitIf` xopt Opt_ExplicitNamespaces flags
                .|. lambdaCaseBit               `setBitIf` xopt Opt_LambdaCase               flags
+               .|. negativeLiteralsBit         `setBitIf` xopt Opt_NegativeLiterals         flags
       --
       setBitIf :: Int -> Bool -> Int
       b `setBitIf` cond | cond      = bit b

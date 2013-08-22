@@ -298,7 +298,7 @@ data TcGblEnv
         tcg_anns      :: [Annotation],      -- ...Annotations
         tcg_tcs       :: [TyCon],           -- ...TyCons and Classes
         tcg_insts     :: [ClsInst],         -- ...Instances
-        tcg_fam_insts :: [FamInst Branched],-- ...Family instances
+        tcg_fam_insts :: [FamInst],         -- ...Family instances
         tcg_rules     :: [LRuleDecl Id],    -- ...Rules
         tcg_fords     :: [LForeignDecl Id], -- ...Foreign import & exports
         tcg_vects     :: [LVectDecl Id],    -- ...Vectorisation declarations
@@ -885,7 +885,8 @@ data Ct
       cc_ev :: CtEvidence,   -- See Note [Ct/evidence invariant]
         -- The ctev_pred of the evidence is 
         -- of form   (tv xi1 xi2 ... xin)
-        --      or   (t1 ~ t2)   where not (kind(t1) `compatKind` kind(t2)
+        --      or   (tv1 ~ ty2)   where the CTyEqCan  kind invariant fails
+        --      or   (F tys ~ ty)  where the CFunEqCan kind invariant fails
         -- See Note [CIrredEvCan constraints]
       cc_loc :: CtLoc
     }
@@ -893,8 +894,8 @@ data Ct
   | CTyEqCan {  -- tv ~ xi      (recall xi means function free)
        -- Invariant:
        --   * tv not in tvs(xi)   (occurs check)
-       --   * typeKind xi `compatKind` typeKind tv
-       --       See Note [Spontaneous solving and kind compatibility]
+       --   * typeKind xi `subKind` typeKind tv
+       --       See Note [Kind orientation for CTyEqCan]
        --   * We prefer unification variables on the left *JUST* for efficiency
       cc_ev :: CtEvidence,    -- See Note [Ct/evidence invariant]
       cc_tyvar  :: TcTyVar,
@@ -904,7 +905,8 @@ data Ct
 
   | CFunEqCan {  -- F xis ~ xi
        -- Invariant: * isSynFamilyTyCon cc_fun
-       --            * typeKind (F xis) `compatKind` typeKind xi
+       --            * typeKind (F xis) `subKind` typeKind xi
+       --       See Note [Kind orientation for CFunEqCan]
       cc_ev     :: CtEvidence,  -- See Note [Ct/evidence invariant]
       cc_fun    :: TyCon,       -- A type function
       cc_tyargs :: [Xi],        -- Either under-saturated or exactly saturated
@@ -925,6 +927,49 @@ data Ct
       cc_occ :: OccName    -- The name of this hole
     }
 \end{code}
+
+Note [Kind orientation for CTyEqCan]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Given an equality  (t:* ~ s:Open), we absolutely want to re-orient it.
+We can't solve it by updating t:=s, ragardless of how touchable 't' is,
+because the kinds don't work.  Indeed we don't want to leave it with
+the orientation (t ~ s), becuase if that gets into the inert set we'll
+start replacing t's by s's, and that too is the wrong way round.
+
+Hence in a CTyEqCan, (t:k1 ~ xi:k2) we require that k2 is a subkind of k1.
+
+If the two have incompatible kinds, we just don't use a CTyEqCan at all.
+See Note [Equalities with incompatible kinds] in TcCanonical
+
+We can't require *equal* kinds, because
+     * wanted constraints don't necessarily have identical kinds
+               eg   alpha::? ~ Int
+     * a solved wanted constraint becomes a given
+
+Note [Kind orientation for CFunEqCan]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+For (F xis ~ rhs) we require that kind(rhs) is a subkind of kind(lhs).
+This reallly only maters when rhs is an Open type variable (since only type
+variables have Open kinds):
+   F ty ~ (a:Open)
+which can happen, say, from
+      f :: F a b
+      f = undefined   -- The a:Open comes from instantiating 'undefined'
+
+Note that the kind invariant is maintained by rewriting.
+Eg wanted1 rewrites wanted2; if both were compatible kinds before,
+   wanted2 will be afterwards.  Similarly givens.
+
+Caveat:
+  - Givens from higher-rank, such as: 
+          type family T b :: * -> * -> * 
+          type instance T Bool = (->) 
+
+          f :: forall a. ((T a ~ (->)) => ...) -> a -> ... 
+          flop = f (...) True 
+     Whereas we would be able to apply the type instance, we would not be able to 
+     use the given (T Bool ~ (->)) in the body of 'flop' 
+
 
 Note [CIrredEvCan constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -970,12 +1015,32 @@ ctPred :: Ct -> PredType
 ctPred ct = ctEvPred (cc_ev ct)
 
 dropDerivedWC :: WantedConstraints -> WantedConstraints
-dropDerivedWC wc@(WC { wc_flat = flats })
-  = wc { wc_flat = filterBag isWantedCt flats }
-    -- Don't filter the insolubles, because derived
-    -- insolubles should stay so that we report them.
+-- See Note [Insoluble derived constraints]
+dropDerivedWC wc@(WC { wc_flat = flats, wc_insol = insols })
+  = wc { wc_flat  = filterBag isWantedCt          flats
+       , wc_insol = filterBag (not . isDerivedCt) insols  }
+    -- Keep Givens from insols because they indicate unreachable code
     -- The implications are (recursively) already filtered
 \end{code}
+
+Note [Insoluble derived constraints]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In general we discard derived constraints at the end of constraint solving;
+see dropDerivedWC.  For example, 
+
+ * If we have an unsolved (Ord a), we don't want to complain about 
+   an unsolved (Eq a) as well.
+ * If we have kind-incompatible (a::* ~ Int#::#) equality, we 
+   don't want to complain about the kind error twice.  
+
+Arguably, for *some* derived constraints we might want to report errors. 
+Notably, functional dependencies.  If we have  
+    class C a b | a -> b
+and we have
+    [W] C a b, [W] C a c
+where a,b,c are all signature variables.  Then we could reasonably
+report an error unifying (b ~ c). But it's probably not worth it;
+after all, we also get an error because we can't discharge the constraint.
 
 
 %************************************************************************
@@ -1480,7 +1545,7 @@ pprSkolInfo :: SkolemInfo -> SDoc
 -- Complete the sentence "is a rigid type variable bound by..."
 pprSkolInfo (SigSkol (FunSigCtxt f) ty)
                             = hang (ptext (sLit "the type signature for"))
-                                 2 (ppr f <+> dcolon <+> ppr ty)
+                                 2 (pprPrefixOcc f <+> dcolon <+> ppr ty)
 pprSkolInfo (SigSkol cx ty) = hang (pprUserTypeCtxt cx <> colon)
                                  2 (ppr ty)
 pprSkolInfo (IPSkol ips)    = ptext (sLit "the implicit-parameter bindings for")

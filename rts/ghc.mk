@@ -24,7 +24,7 @@ rts_WAYS = $(GhcLibWays) $(filter-out $(GhcLibWays),$(GhcRTSWays))
 rts_dist_WAYS = $(rts_WAYS)
 
 ALL_RTS_LIBS = $(foreach way,$(rts_WAYS),rts/dist/build/libHSrts$($(way)_libsuf))
-all_rts : $(ALL_RTS_LIBS)
+$(eval $(call all-target,rts,$(ALL_RTS_LIBS)))
 
 # -----------------------------------------------------------------------------
 # Defining the sources
@@ -68,10 +68,14 @@ DTRACEPROBES_H = rts/dist/build/RtsProbes.h
 rts_H_FILES += $(DTRACEPROBES_H)
 endif
 
-# collect the -l flags that we need to link the rts dyn lib.
-rts/libs.depend : $$(ghc-pkg_INPLACE)
-	"$(ghc-pkg_INPLACE)" field rts extra-libraries \
-	  | sed -e 's/^extra-libraries: //' -e 's/\([a-z0-9]*\)[ ]*/-l\1 /g' > $@
+# collect the -l and -L flags that we need to link the rts dyn lib.
+# Note that, as sed on OS X doesn't handle \+, we use [^ ][^ ]* rather
+# than [^ ]\+
+rts/dist/libs.depend : $$(ghc-pkg_INPLACE) | $$(dir $$@)/.
+	"$(ghc-pkg_INPLACE)" --simple-output field rts extra-libraries \
+	  | sed -e 's/\([^ ][^ ]*\)/-l\1/g' > $@
+	"$(ghc-pkg_INPLACE)" --simple-output field rts library-dirs \
+	  | sed -e 's/\([^ ][^ ]*\)/-L\1/g' >> $@
 
 
 # ----------------------------------------------------------------------------
@@ -105,13 +109,13 @@ endif
 ifneq "$(BINDIST)" "YES"
 ifneq "$(UseSystemLibFFI)" "YES"
 ifeq "$(HostOS_CPP)" "mingw32" 
-rts/dist/build/libffi.dll: libffi/build/inst/bin/$(LIBFFI_DLL)
+rts/dist/build/$(LIBFFI_DLL): libffi/build/inst/bin/$(LIBFFI_DLL)
 	cp $< $@
 else
 # This is a little hacky. We don't know the SO version, so we only
 # depend on libffi.so, but copy libffi.so*
-rts/dist/build/libffi$(soext): libffi/build/inst/lib/libffi$(soext)
-	cp libffi/build/inst/lib/libffi$(soext)* rts/dist/build
+rts/dist/build/lib$(LIBFFI_NAME)$(soext): libffi/build/inst/lib/lib$(LIBFFI_NAME)$(soext)
+	cp libffi/build/inst/lib/lib$(LIBFFI_NAME)$(soext)* rts/dist/build
 endif
 endif
 endif
@@ -170,7 +174,7 @@ endif
 rts_dist_$1_CC_OPTS += -DRtsWay=\"rts_$1\"
 
 ifneq "$$(UseSystemLibFFI)" "YES"
-rts_dist_FFI_SO = rts/dist/build/libffi$$(soext)
+rts_dist_FFI_SO = rts/dist/build/lib$$(LIBFFI_NAME)$$(soext)
 else
 rts_dist_FFI_SO =
 endif
@@ -178,26 +182,28 @@ endif
 # Making a shared library for the RTS.
 ifneq "$$(findstring dyn, $1)" ""
 ifeq "$$(HostOS_CPP)" "mingw32" 
-$$(rts_$1_LIB) : $$(rts_$1_OBJS) $$(ALL_RTS_DEF_LIBS) rts/libs.depend rts/dist/build/libffi.dll
+$$(rts_$1_LIB) : $$(rts_$1_OBJS) $$(ALL_RTS_DEF_LIBS) rts/dist/libs.depend rts/dist/build/$$(LIBFFI_DLL)
 	"$$(RM)" $$(RM_OPTS) $$@
 	"$$(rts_dist_HC)" -package-name rts -shared -dynamic -dynload deploy \
-	  -no-auto-link-packages -Lrts/dist/build -lffi `cat rts/libs.depend` $$(rts_$1_OBJS) $$(ALL_RTS_DEF_LIBS) -o $$@
+	  -no-auto-link-packages -Lrts/dist/build -l$$(LIBFFI_NAME) \
+	  `cat rts/dist/libs.depend` $$(rts_$1_OBJS) $$(ALL_RTS_DEF_LIBS) -o $$@
 else
 ifneq "$$(UseSystemLibFFI)" "YES"
-LIBFFI_LIBS = -Lrts/dist/build -lffi 
+LIBFFI_LIBS = -Lrts/dist/build -l$$(LIBFFI_NAME)
 ifeq "$$(TargetElf)" "YES"
-LIBFFI_LIBS += -optl-Wl,-rpath -optl-Wl,'$$$$ORIGIN'
+LIBFFI_LIBS += -optl-Wl,-rpath -optl-Wl,'$$$$ORIGIN' -optl-Wl,-z -optl-Wl,origin
 endif
 
 else
-# flags will be taken care of in rts/libs.depend
+# flags will be taken care of in rts/dist/libs.depend
 LIBFFI_LIBS =
 endif
-$$(rts_$1_LIB) : $$(rts_$1_OBJS) $$(rts_$1_DTRACE_OBJS) rts/libs.depend $$(rts_dist_FFI_SO)
+$$(rts_$1_LIB) : $$(rts_$1_OBJS) $$(rts_$1_DTRACE_OBJS) rts/dist/libs.depend $$(rts_dist_FFI_SO)
 	"$$(RM)" $$(RM_OPTS) $$@
 	"$$(rts_dist_HC)" -package-name rts -shared -dynamic -dynload deploy \
-	  -no-auto-link-packages $$(LIBFFI_LIBS) `cat rts/libs.depend` $$(rts_$1_OBJS) \
+	  -no-auto-link-packages $$(LIBFFI_LIBS) `cat rts/dist/libs.depend` $$(rts_$1_OBJS) \
 	  $$(rts_$1_DTRACE_OBJS) -o $$@
+	$(call relative-dynlib-references,rts,dist,1)
 endif
 else
 $$(rts_$1_LIB) : $$(rts_$1_OBJS) $$(rts_$1_DTRACE_OBJS)
@@ -206,8 +212,8 @@ $$(rts_$1_LIB) : $$(rts_$1_OBJS) $$(rts_$1_DTRACE_OBJS)
 		$$(AR_OPTS_STAGE1) $$(EXTRA_AR_ARGS_STAGE1) $$@
 
 ifneq "$$(UseSystemLibFFI)" "YES"
-$$(rts_$1_LIB) : rts/dist/build/libCffi$$($1_libsuf)
-rts/dist/build/libCffi$$($1_libsuf): libffi/build/inst/lib/libffi.a
+$$(rts_$1_LIB) : rts/dist/build/libC$$(LIBFFI_NAME)$$($1_libsuf)
+rts/dist/build/libC$$(LIBFFI_NAME)$$($1_libsuf): libffi/build/inst/lib/libffi.a
 	cp $$< $$@
 endif
 
@@ -220,7 +226,7 @@ endef
 # And expand the above for each way:
 $(foreach way,$(rts_WAYS),$(eval $(call build-rts-way,$(way))))
 
-$(eval $(call distdir-opts,rts,dist))
+$(eval $(call distdir-opts,rts,dist,1))
 
 #-----------------------------------------------------------------------------
 # Flags for compiling every file
@@ -418,7 +424,9 @@ rts/win32/ThrIOManager_CC_OPTS += -w
 # for details
 
 # Without this, thread_obj will not be inlined (at least on x86 with GCC 4.1.0)
+ifneq "$(CC_CLANG_BACKEND)" "1"
 rts/sm/Compact_CC_OPTS += -finline-limit=2500
+endif
 
 # -O3 helps unroll some loops (especially in copy() with a constant argument).
 rts/sm/Evac_CC_OPTS += -funroll-loops
@@ -469,7 +477,7 @@ else # UseSystemLibFFI==YES
 
 rts_PACKAGE_CPP_OPTS += -DFFI_INCLUDE_DIR=
 rts_PACKAGE_CPP_OPTS += -DFFI_LIB_DIR=
-rts_PACKAGE_CPP_OPTS += '-DFFI_LIB="Cffi"'
+rts_PACKAGE_CPP_OPTS += '-DFFI_LIB="C$(LIBFFI_NAME)"'
 
 endif
 
@@ -479,9 +487,12 @@ endif
 rts_WAYS_DASHED = $(subst $(space),,$(patsubst %,-%,$(strip $(rts_WAYS))))
 rts_dist_depfile_base = rts/dist/build/.depend$(rts_WAYS_DASHED)
 
-rts_dist_C_SRCS  = $(rts_C_SRCS) $(rts_thr_EXTRA_C_SRCS)
-rts_dist_S_SRCS =  $(rts_S_SRCS)
-rts_dist_C_FILES = $(rts_C_SRCS) $(rts_thr_EXTRA_C_SRCS) $(rts_S_SRCS)
+rts_dist_C_SRCS    = $(rts_C_SRCS) $(rts_thr_EXTRA_C_SRCS)
+rts_dist_S_SRCS    = $(rts_S_SRCS)
+rts_dist_CMM_SRCS  = $(rts_CMM_SRCS)
+rts_dist_C_FILES   = $(rts_dist_C_SRCS)
+rts_dist_S_FILES   = $(rts_dist_S_SRCS)
+rts_dist_CMM_FILES = $(rts_dist_CMM_SRCS)
 
 # Hack: we define every way-related option here, so that we get (hopefully)
 # a superset of the dependencies.  To do this properly, we should generate
@@ -549,8 +560,8 @@ rts/package.conf.inplace : $(includes_H_CONFIG) $(includes_H_PLATFORM)
 
 RTS_INSTALL_LIBS += $(ALL_RTS_LIBS)
 ifneq "$(UseSystemLibFFI)" "YES"
-RTS_INSTALL_LIBS += $(wildcard rts/dist/build/libffi*$(soext)*)
-RTS_INSTALL_LIBS += $(foreach w,$(filter-out %dyn,$(rts_WAYS)),rts/dist/build/libCffi$($w_libsuf))
+RTS_INSTALL_LIBS += $(wildcard rts/dist/build/lib$(LIBFFI_NAME)*$(soext)*)
+RTS_INSTALL_LIBS += $(foreach w,$(filter-out %dyn,$(rts_WAYS)),rts/dist/build/libC$(LIBFFI_NAME)$($w_libsuf))
 endif
 
 ifneq "$(UseSystemLibFFI)" "YES"

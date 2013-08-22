@@ -30,7 +30,7 @@
             <entry>-</entry>
           </row>
           <row>
-            <entry><option>-help</option></entry>
+            <entry><option>--help</option></entry>
             <entry>help</entry>
             <entry>mode</entry>
             <entry>-</entry>
@@ -54,31 +54,37 @@
             <entry>-</entry>
           </row>
           <row>
-            <entry><option>&ndash;&ndash;supported-extensions</option> or <option>&ndash;&ndash;supported-languages</option></entry>
+            <entry><option>--supported-extensions</option> or <option>--supported-languages</option></entry>
             <entry>display the supported languages and language extensions</entry>
             <entry>mode</entry>
             <entry>-</entry>
           </row>
           <row>
-            <entry><option>&ndash;&ndash;info</option></entry>
+            <entry><option>--show-options</option></entry>
+            <entry>display the supported command line options</entry>
+            <entry>mode</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>--info</option></entry>
             <entry>display information about the compiler</entry>
             <entry>mode</entry>
             <entry>-</entry>
           </row>
           <row>
-            <entry><option>&ndash;&ndash;version</option></entry>
+            <entry><option>--version</option></entry>
             <entry>display GHC version</entry>
             <entry>mode</entry>
             <entry>-</entry>
           </row>
           <row>
-            <entry><option>&ndash;&ndash;numeric-version</option></entry>
+            <entry><option>--numeric-version</option></entry>
             <entry>display GHC version (numeric only)</entry>
             <entry>mode</entry>
             <entry>-</entry>
           </row>
           <row>
-            <entry><option>&ndash;&ndash;print-libdir</option></entry>
+            <entry><option>--print-libdir</option></entry>
             <entry>display GHC library directory</entry>
             <entry>mode</entry>
             <entry>-</entry>
@@ -784,6 +790,12 @@
             <entry><option>-XNPlusKPatterns</option></entry>
           </row>
           <row>
+            <entry><option>-XNegativeLiterals</option></entry>
+            <entry>Enable support for negative literals</entry>
+            <entry>dynamic</entry>
+            <entry><option>-XNoNegativeLiterals</option></entry>
+          </row>
+          <row>
             <entry><option>-XNoTraditionalRecordSyntax</option></entry>
             <entry>Disable support for traditional record syntax (as supported by Haskell 98) <literal>C {f = x}</literal></entry>
             <entry>dynamic</entry>
@@ -1009,7 +1021,7 @@
           </row>
           <row>
             <entry><option>-XTypeOperators</option></entry>
-            <entry>Enable type operators.</entry>
+            <entry>Enable <link linkend="type-operators">type operators</link>.</entry>
             <entry>dynamic</entry>
             <entry><option>-XNoTypeOperators</option></entry>
           </row>

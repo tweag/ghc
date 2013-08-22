@@ -161,7 +161,7 @@ Ok, modules loaded: Main.
       <para>or it can be set using the <literal>:set</literal> command
       from within GHCi (see <xref
       linkend="ghci-cmd-line-options"/>)<footnote><para>Note that in
-      GHCi, and <option>&ndash;&ndash;make</option> mode, the <option>-i</option>
+      GHCi, and <option>--make</option> mode, the <option>-i</option>
       option is used to specify the search path for
       <emphasis>source</emphasis> files, whereas in standard
       batch-compilation mode the <option>-i</option> option is used to
@@ -338,7 +338,7 @@ Compiling A                ( A.hs, interpreted )
     <para>HINT: since GHCi will only use a compiled object file if it
     can be sure that the compiled version is up-to-date, a good technique
     when working on a large program is to occasionally run
-    <literal>ghc &ndash;&ndash;make</literal> to compile the whole project (say
+    <literal>ghc --make</literal> to compile the whole project (say
     before you go for lunch :-), then continue working in the
     interpreter.  As you modify code, the changed modules will be
     interpreted, but the rest of the project will remain
@@ -1715,7 +1715,7 @@ a :: a
       <para>The history is only available when
         using <literal>:trace</literal>; the reason for this is we found that
         logging each breakpoint in the history cuts performance by a factor of
-        2 or more.  By default, GHCi remembers the last 50 steps in the history, but this can be changed with the <option>-fghci-hist-size=<replaceable>n</replaceable></option><indexterm><primary><option>&ndash;fghci-hist-size</option></primary></indexterm> option).</para>
+        2 or more.  By default, GHCi remembers the last 50 steps in the history, but this can be changed with the <option>-fghci-hist-size=<replaceable>n</replaceable></option><indexterm><primary><option>-fghci-hist-size</option></primary></indexterm> option).</para>
     </sect2>
 
     <sect2 id="ghci-debugger-exceptions">
@@ -1910,10 +1910,10 @@ Just 20
   <sect1 id="ghci-invocation">
     <title>Invoking GHCi</title>
     <indexterm><primary>invoking</primary><secondary>GHCi</secondary></indexterm>
-    <indexterm><primary><option>&ndash;&ndash;interactive</option></primary></indexterm>
+    <indexterm><primary><option>--interactive</option></primary></indexterm>
 
     <para>GHCi is invoked with the command <literal>ghci</literal> or
-    <literal>ghc &ndash;&ndash;interactive</literal>.  One or more modules or
+    <literal>ghc --interactive</literal>.  One or more modules or
     filenames can also be specified on the command line; this
     instructs GHCi to load the specified modules or filenames (and all
     the modules they depend on), just as if you had said
@@ -2180,6 +2180,93 @@ maybe :: b -> (a -> b) -> Maybe a -> b
 
       <varlistentry>
 	<term>
+          <literal>:complete</literal> <replaceable>type</replaceable>
+                                       <optional><replaceable>n</replaceable>-</optional><optional><replaceable>m</replaceable></optional>
+                                       <replaceable>string-literal</replaceable>
+          <indexterm><primary><literal>:complete</literal></primary></indexterm>
+        </term>
+	<listitem>
+          <para>This command allows to request command completions
+          from GHCi even when interacting over a pipe instead of a
+          proper terminal and is designed for integrating GHCi's
+          completion with text editors and IDEs.</para>
+
+          <para>When called, <literal>:complete</literal> prints the
+          <replaceable>n</replaceable><superscript>th</superscript> to
+          <replaceable>m</replaceable><superscript>th</superscript>
+          completion candidates for the partial input
+          <replaceable>string-literal</replaceable> for the completion
+          domain denoted by
+          <replaceable>type</replaceable>. Currently, only the
+          <literal>repl</literal> domain is supported which denotes
+          the kind of completion that would be provided interactively
+          by GHCi at the input prompt.</para>
+
+          <para>If omitted, <replaceable>n</replaceable> and
+          <replaceable>m</replaceable> default to the first or last
+          available completion candidate respectively. If there are
+          less candidates than requested via the range argument,
+          <replaceable>n</replaceable> and
+          <replaceable>m</replaceable> are implicitly capped to the
+          number of available completition candidates.</para>
+
+          <para>The output of <literal>:complete</literal> begins with
+          a header line containing three space-delimited fields: 
+
+          <itemizedlist>
+            <listitem>An integer denoting the number
+            <replaceable>l</replaceable> of printed
+            completions,</listitem>
+
+            <listitem>an integer denoting the total number of
+            completions available, and finally</listitem>
+
+            <listitem>a string literal denoting a common
+            prefix to be added to the returned completion
+            candidates.</listitem>
+          </itemizedlist>
+
+          The header line is followed by <replaceable>l</replaceable>
+          lines each containing one completion candidate encoded as
+          (quoted) string literal. Here are some example invocations
+          showing the various cases:</para>
+
+<screen>
+Prelude&gt; :complete repl 0 ""
+0 470 ""
+Prelude&gt; :complete repl 5 "import For"
+5 21 "import "
+"Foreign"
+"Foreign.C"
+"Foreign.C.Error"
+"Foreign.C.String"
+"Foreign.C.Types"
+Prelude&gt; :complete repl 5-10 "import For"
+6 21 "import "
+"Foreign.C.Types"
+"Foreign.Concurrent"
+"Foreign.ForeignPtr"
+"Foreign.ForeignPtr.Safe"
+"Foreign.ForeignPtr.Unsafe"
+"Foreign.Marshal"
+Prelude&gt; :complete repl 20- "import For"
+2 21 "import "
+"Foreign.StablePtr"
+"Foreign.Storable"
+Prelude&gt; :complete repl "map"
+3 3 ""
+"map"
+"mapM"
+"mapM_"
+Prelude&gt; :complete repl 5-10 "map"
+0 3 ""
+</screen>
+
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term>
           <literal>:continue</literal>
           <indexterm><primary><literal>:continue</literal></primary></indexterm>
         </term>
@@ -2255,11 +2342,11 @@ Prelude> :mycd ..
 </screen>
 
 	  <para>Or I could define a simple way to invoke
-	  &ldquo;<literal>ghc &ndash;&ndash;make Main</literal>&rdquo; in the
+	  &ldquo;<literal>ghc --make Main</literal>&rdquo; in the
 	  current directory:</para>
 
 <screen>
-Prelude> :def make (\_ -> return ":! ghc &ndash;&ndash;make Main")
+Prelude> :def make (\_ -> return ":! ghc --make Main")
 </screen>
 
           <para>We can define a command that reads GHCi input from a
@@ -2410,9 +2497,11 @@ Prelude> :. cmds.ghci
 	  and (b) all the other things mentioned in the instance
 	  are in scope (either qualified or otherwise) as a result of
 	  a <literal>:load</literal> or <literal>:module</literal> commands. </para>
+          <para>
           The command <literal>:info!</literal> works in a similar fashion
           but it removes restriction (b), showing all instances that are in
           scope and mention <replaceable>name</replaceable> in their head.
+          </para>
 	</listitem>
       </varlistentry>
 
@@ -2426,7 +2515,21 @@ Prelude> :. cmds.ghci
 	  <para>Infers and prints the kind of
 	  <replaceable>type</replaceable>. The latter can be an arbitrary
 	    type expression, including a partial application of a type constructor,
-	    such as <literal>Either Int</literal>.  If you specify the 
+	    such as <literal>Either Int</literal>.  In fact, <literal>:kind</literal>
+            even allows you to write a partial application of a type synonym (usually disallowed),
+            so that this works:
+<programlisting>
+ghci> type T a b = (a,b,a)
+ghci> :k T Int Bool
+T Int Bool :: *
+ghci> :k T
+T :: * -> * -> *
+ghci> :k T Int
+T Int :: * -> *
+</programlisting>
+            </para>
+            <para>
+            If you specify the 
             optional "<literal>!</literal>", GHC will in addition normalise the type
             by expanding out type synonyms and evaluating type-function applications,
             and display the normalised result.</para>
@@ -2684,10 +2787,22 @@ bar
 	  <para>Sets the string to be used as the prompt in GHCi.
 	  Inside <replaceable>prompt</replaceable>, the sequence
 	  <literal>%s</literal> is replaced by the names of the
-	  modules currently in scope, and <literal>%%</literal> is
-	  replaced by <literal>%</literal>. If <replaceable>prompt</replaceable>
+	  modules currently in scope, <literal>%l</literal> is replaced
+	  by the line number (as referenced in compiler messages) of the
+	  current prompt, and <literal>%%</literal> is replaced by
+	  <literal>%</literal>.  If <replaceable>prompt</replaceable>
       starts with &quot; then it is parsed as a Haskell String;
       otherwise it is treated as a literal string.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term>
+           <literal>:set</literal> <literal>prompt2</literal> <replaceable>prompt</replaceable>
+        </term>
+	<listitem>
+	  <para>Sets the string to be used as the continuation prompt
+      (used when using the <literal>:{</literal> command) in GHCi.</para>
         </listitem>
       </varlistentry>
 

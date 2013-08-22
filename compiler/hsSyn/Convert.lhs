@@ -20,6 +20,7 @@ import qualified OccName
 import OccName
 import SrcLoc
 import Type
+import qualified Coercion ( Role(..) )
 import TysWiredIn
 import BasicTypes as Hs
 import ForeignCall
@@ -215,7 +216,7 @@ cvtDec (FamilyD flav tc tvs kind)
        ; kind' <- cvtMaybeKind kind
        ; returnL $ TyClD (FamDecl (FamilyDecl (cvtFamFlavour flav) tc' tvs' kind')) }
   where
-    cvtFamFlavour TypeFam = TypeFamily
+    cvtFamFlavour TypeFam = OpenTypeFamily
     cvtFamFlavour DataFam = DataFamily
 
 cvtDec (DataInstD ctxt tc tys constrs derivs)
@@ -243,13 +244,21 @@ cvtDec (NewtypeInstD ctxt tc tys constr derivs)
            { dfid_inst = DataFamInstDecl { dfid_tycon = tc', dfid_pats = typats'
                                          , dfid_defn = defn, dfid_fvs = placeHolderNames } }}
 
-cvtDec (TySynInstD tc eqns)
+cvtDec (TySynInstD tc eqn)
   = do  { tc' <- tconNameL tc
-        ; eqns' <- mapM (cvtTySynEqn tc') eqns
+        ; eqn' <- cvtTySynEqn tc' eqn
         ; returnL $ InstD $ TyFamInstD
-            { tfid_inst = TyFamInstDecl { tfid_eqns = eqns'
-                                        , tfid_group = (length eqns' /= 1)
+            { tfid_inst = TyFamInstDecl { tfid_eqn = eqn'
                                         , tfid_fvs = placeHolderNames } } }
+
+cvtDec (ClosedTypeFamilyD tc tyvars mkind eqns)
+  | not $ null eqns
+  = do { (_, tc', tvs') <- cvt_tycl_hdr [] tc tyvars
+       ; mkind' <- cvtMaybeKind mkind
+       ; eqns' <- mapM (cvtTySynEqn tc') eqns
+       ; returnL $ TyClD (FamDecl (FamilyDecl (ClosedTypeFamily eqns') tc' tvs' mkind')) }
+  | otherwise
+  = failWith (ptext (sLit "Illegal empty closed type family"))
 ----------------
 cvtTySynEqn :: Located RdrName -> TySynEqn -> CvtM (LTyFamInstEqn RdrName)
 cvtTySynEqn tc (TySynEqn lhs rhs)
@@ -839,11 +848,25 @@ cvtTvs tvs = do { tvs' <- mapM cvt_tv tvs; return (mkHsQTvs tvs') }
 cvt_tv :: TH.TyVarBndr -> CvtM (LHsTyVarBndr RdrName)
 cvt_tv (TH.PlainTV nm)
   = do { nm' <- tName nm
-       ; returnL $ UserTyVar nm' }
+       ; returnL $ HsTyVarBndr nm' Nothing Nothing }
 cvt_tv (TH.KindedTV nm ki)
   = do { nm' <- tName nm
        ; ki' <- cvtKind ki
-       ; returnL $ KindedTyVar nm' ki' }
+       ; returnL $ HsTyVarBndr nm' (Just ki') Nothing }
+cvt_tv (TH.RoledTV nm r)
+  = do { nm' <- tName nm
+       ; r'  <- cvtRole r
+       ; returnL $ HsTyVarBndr nm' Nothing (Just r') }
+cvt_tv (TH.KindedRoledTV nm k r)
+  = do { nm' <- tName nm
+       ; k'  <- cvtKind k
+       ; r'  <- cvtRole r
+       ; returnL $ HsTyVarBndr nm' (Just k') (Just r') }
+
+cvtRole :: TH.Role -> CvtM Coercion.Role
+cvtRole TH.Nominal          = return Coercion.Nominal
+cvtRole TH.Representational = return Coercion.Representational
+cvtRole TH.Phantom          = return Coercion.Phantom
 
 cvtContext :: TH.Cxt -> CvtM (LHsContext RdrName)
 cvtContext tys = do { preds' <- mapM cvtPred tys; returnL preds' }

@@ -99,6 +99,7 @@ Library
 
     c-sources:
         ghci/keepCAFsForGHCi.c
+        cbits/genSym.c
 
     hs-source-dirs:
         basicTypes
@@ -138,6 +139,7 @@ Library
         Literal
         Llvm
         Llvm.AbsSyn
+        Llvm.MetaData
         Llvm.PpLlvm
         Llvm.Types
         LlvmCodeGen
@@ -206,7 +208,6 @@ Library
         StgCmmEnv
         StgCmmExpr
         StgCmmForeign
-        StgCmmGran
         StgCmmHeap
         StgCmmHpc
         StgCmmArgRep

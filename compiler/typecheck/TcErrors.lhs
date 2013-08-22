@@ -92,11 +92,6 @@ in TcErrors. TcErrors.reportTidyWanteds does not print the errors
 and does not fail if -fdefer-type-errors is on, so that we can continue
 compilation. The errors are turned into warnings in `reportUnsolved`.
 
-Note [Suppressing error messages]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If there are any insolubles, like (Int~Bool), then we suppress all less-drastic
-errors (like (Eq a)).  Often the latter are a knock-on effect of the former.
-
 \begin{code}
 reportUnsolved :: WantedConstraints -> TcM (Bag EvBind)
 reportUnsolved wanted
@@ -131,8 +126,7 @@ report_unsolved mb_binds_var defer wanted
              err_ctxt = CEC { cec_encl  = []
                             , cec_tidy  = tidy_env
                             , cec_defer    = defer
-                            , cec_suppress = insolubleWC wanted
-                                  -- See Note [Suppressing error messages]
+                            , cec_suppress = False -- See Note [Suppressing error messages]
                             , cec_binds    = mb_binds_var }
 
        ; traceTc "reportUnsolved (after unflattening):" $ 
@@ -161,8 +155,23 @@ data ReportErrCtxt
           , cec_suppress :: Bool    -- True <=> More important errors have occurred,
                                     --          so create bindings if need be, but
                                     --          don't issue any more errors/warnings
+                                    -- See Note [Suppressing error messages]
       }
+\end{code}
 
+Note [Suppressing error messages]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The cec_suppress flag says "don't report any errors.  Instead, just create
+evidence bindings (as usual).  It's used when more important errors have occurred.
+Specifically (see reportWanteds)
+  * If there are insoluble Givens, then we are in unreachable code and all bets
+    are off.  So don't report any further errors.
+  * If there are any insolubles (eg Int~Bool), here or in a nested implication, 
+    then suppress errors from the flat constraints here.  Sometimes the
+    flat-constraint errors are a knock-on effect of the insolubles.
+
+
+\begin{code}
 reportImplic :: ReportErrCtxt -> Implication -> TcM ()
 reportImplic ctxt implic@(Implic { ic_skols = tvs, ic_given = given
                                  , ic_wanted = wanted, ic_binds = evb
@@ -188,20 +197,33 @@ reportImplic ctxt implic@(Implic { ic_skols = tvs, ic_given = given
                                  Just {} -> Just evb }
 
 reportWanteds :: ReportErrCtxt -> WantedConstraints -> TcM ()
-reportWanteds ctxt (WC { wc_flat = flats, wc_insol = insols, wc_impl = implics })
-  = do { reportFlats (ctxt { cec_suppress = False }) (mapBag (tidyCt env) insols)
-       ; reportFlats ctxt                            (mapBag (tidyCt env) flats)
+reportWanteds ctxt wanted@(WC { wc_flat = flats, wc_insol = insols, wc_impl = implics })
+  = do { reportFlats ctxt  (mapBag (tidyCt env) insol_given)
+       ; reportFlats ctxt1 (mapBag (tidyCt env) insol_wanted)
+       ; reportFlats ctxt2 (mapBag (tidyCt env) flats)
             -- All the Derived ones have been filtered out of flats 
             -- by the constraint solver. This is ok; we don't want
             -- to report unsolved Derived goals as errors
             -- See Note [Do not report derived but soluble errors]
-       ; mapBagM_ (reportImplic ctxt) implics }
-  where
+       ; mapBagM_ (reportImplic ctxt1) implics }
+            -- NB ctxt1: don't suppress inner insolubles if there's only a
+            -- wanted insoluble here; but do suppress inner insolubles
+            -- if there's a given insoluble here (= inaccessible code)
+ where
+    (insol_given, insol_wanted) = partitionBag isGivenCt insols
     env = cec_tidy ctxt
+
+      -- See Note [Suppressing error messages]
+    suppress0 = cec_suppress ctxt
+    suppress1 = suppress0 || not (isEmptyBag insol_given)
+    suppress2 = suppress0 || insolubleWC wanted
+    ctxt1     = ctxt { cec_suppress = suppress1 }
+    ctxt2     = ctxt { cec_suppress = suppress2 }
 
 reportFlats :: ReportErrCtxt -> Cts -> TcM ()
 reportFlats ctxt flats    -- Here 'flats' includes insolble goals
-  = traceTc "reportFlats" (ppr flats) >>
+  = traceTc "reportFlats" (vcat [ ptext (sLit "Flats =") <+> ppr flats
+                                , ptext (sLit "Suppress =") <+> ppr (cec_suppress ctxt)]) >>
     tryReporters 
       [ -- First deal with things that are utterly wrong
         -- Like Int ~ Bool (incl nullary TyCons)
@@ -301,6 +323,7 @@ mkGroupReporter mk_err ctxt (ct1 : rest)
        ; maybeReportError ctxt err
        ; mapM_ (maybeAddDeferredBinding ctxt err) first_group
                -- Add deferred bindings for all
+               -- But see Note [Always warn with -fdefer-type-errors]
        ; mkGroupReporter mk_err ctxt others }
   where
    loc               = cc_loc ct1
@@ -314,8 +337,7 @@ mkGroupReporter mk_err ctxt (ct1 : rest)
 maybeReportError :: ReportErrCtxt -> ErrMsg -> TcM ()
 -- Report the error and/or make a deferred binding for it
 maybeReportError ctxt err
-  | cec_defer ctxt  -- We have -fdefer-type-errors
-                    -- so warn about all, even if cec_suppress is on
+  | cec_defer ctxt  -- See Note [Always warn with -fdefer-type-errors]
   = reportWarning (makeIntoWarning err)
   | cec_suppress ctxt
   = return ()
@@ -402,6 +424,22 @@ getUserGivens (CEC {cec_encl = ctxt})
     | Implic {ic_given = givens, ic_env = env, ic_info = info } <- ctxt
     , not (null givens) ]
 \end{code}
+
+Note [Always warn with -fdefer-type-errors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When -fdefer-type-errors is on we warn about *all* type errors, even
+if cec_suppress is on.  This can lead to a lot more warnings than you
+would get errors without -fdefer-type-errors, but if we suppress any of
+them you might get a runtime error that wasn't warned about at compile
+time. 
+
+This is an easy design choice to change; just flip the order of the
+first two equations for maybeReportError
+
+To be consistent, we should also report multiple warnings from a single
+location in mkGroupReporter, when -fdefer-type-errors is on.  But that 
+is perhaps a bit *over*-consistent! Again, an easy choice to change.
+
 
 Note [Do not report derived but soluble errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1164,7 +1202,7 @@ relevantBindings ctxt ct
        | otherwise
        = do { (tidy_env', tidy_ty) <- zonkTidyTcType tidy_env (idType id)
             ; let id_tvs = tyVarsOfType tidy_ty
-                  doc = sep [ ppr id <+> dcolon <+> ppr tidy_ty
+                  doc = sep [ pprPrefixOcc id <+> dcolon <+> ppr tidy_ty
 		            , nest 2 (parens (ptext (sLit "bound at")
 			    	 <+> ppr (getSrcLoc id)))]
             ; if id_tvs `intersectsVarSet` ct_tvs 

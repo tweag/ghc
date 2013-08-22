@@ -612,7 +612,7 @@ readParseDatabase verbosity mb_user_conf use_cache path
               pkgs <- parseMultiPackageConf verbosity path
               mkPackageDB pkgs
          Right fs
-           | not use_cache -> ignore_cache
+           | not use_cache -> ignore_cache (const $ return ())
            | otherwise -> do
               let cache = path </> cachefilename
               tdir     <- getModificationTime path
@@ -621,24 +621,42 @@ readParseDatabase verbosity mb_user_conf use_cache path
                 Left ex -> do
                      when (verbosity > Normal) $
                         warn ("warning: cannot read cache file " ++ cache ++ ": " ++ show ex)
-                     ignore_cache
-                Right tcache
-                  | tcache >= tdir -> do
-                     when (verbosity > Normal) $
-                        infoLn ("using cache: " ++ cache)
-                     pkgs <- myReadBinPackageDB cache
-                     let pkgs' = map convertPackageInfoIn pkgs
-                     mkPackageDB pkgs'
-                  | otherwise -> do
-                     when (verbosity >= Normal) $ do
-                        warn ("WARNING: cache is out of date: " ++ cache)
-                        warn "  use 'ghc-pkg recache' to fix."
-                     ignore_cache
+                     ignore_cache (const $ return ())
+                Right tcache -> do
+                  let compareTimestampToCache file =
+                          when (verbosity >= Verbose) $ do
+                              tFile <- getModificationTime file
+                              compareTimestampToCache' file tFile
+                      compareTimestampToCache' file tFile = do
+                          let rel = case tcache `compare` tFile of
+                                    LT -> " (NEWER than cache)"
+                                    GT -> " (older than cache)"
+                                    EQ -> " (same as cache)"
+                          warn ("Timestamp " ++ show tFile
+                             ++ " for " ++ file ++ rel)
+                  when (verbosity >= Verbose) $ do
+                      warn ("Timestamp " ++ show tcache ++ " for " ++ cache)
+                      compareTimestampToCache' path tdir
+                  if tcache >= tdir
+                      then do
+                          when (verbosity > Normal) $
+                             infoLn ("using cache: " ++ cache)
+                          pkgs <- myReadBinPackageDB cache
+                          let pkgs' = map convertPackageInfoIn pkgs
+                          mkPackageDB pkgs'
+                      else do
+                          when (verbosity >= Normal) $ do
+                              warn ("WARNING: cache is out of date: "
+                                 ++ cache)
+                              warn "Use 'ghc-pkg recache' to fix."
+                          ignore_cache compareTimestampToCache
             where
-                 ignore_cache = do
+                 ignore_cache :: (FilePath -> IO ()) -> IO PackageDB
+                 ignore_cache checkTime = do
                      let confs = filter (".conf" `isSuffixOf`) fs
-                     pkgs <- mapM (parseSingletonPackageConf verbosity) $
-                                   map (path </>) confs
+                         doFile f = do checkTime f
+                                       parseSingletonPackageConf verbosity f
+                     pkgs <- mapM doFile $ map (path </>) confs
                      mkPackageDB pkgs
   where
     mkPackageDB pkgs = do
@@ -883,6 +901,10 @@ updateDBCache verbosity db = do
       if isPermissionError e
       then die (filename ++ ": you don't have permission to modify this file")
       else ioError e
+#ifndef mingw32_HOST_OS
+  status <- getFileStatus filename
+  setFileTimes (location db) (accessTime status) (modificationTime status)
+#endif
 
 -- -----------------------------------------------------------------------------
 -- Exposing, Hiding, Trusting, Distrusting, Unregistering are all similar
@@ -1153,34 +1175,16 @@ describeField :: Verbosity -> [Flag] -> PackageArg -> [String] -> Bool -> IO ()
 describeField verbosity my_flags pkgarg fields expand_pkgroot = do
   (_, _, flag_db_stack) <- 
       getPkgDatabases verbosity False True{-use cache-} expand_pkgroot my_flags
-  fns <- toFields fields
+  fns <- mapM toField fields
   ps <- findPackages flag_db_stack pkgarg
   mapM_ (selectFields fns) ps
-  where toFields [] = return []
-        toFields (f:fs) = case toField f of
-            Nothing -> die ("unknown field: " ++ f)
-            Just fn -> do fns <- toFields fs
-                          return (fn:fns)
+  where showFun = if FlagSimpleOutput `elem` my_flags
+                  then showSimpleInstalledPackageInfoField
+                  else showInstalledPackageInfoField
+        toField f = case showFun f of
+                    Nothing -> die ("unknown field: " ++ f)
+                    Just fn -> return fn
         selectFields fns pinfo = mapM_ (\fn->putStrLn (fn pinfo)) fns
-
-toField :: String -> Maybe (InstalledPackageInfo -> String)
--- backwards compatibility:
-toField "import_dirs"     = Just $ strList . importDirs
-toField "source_dirs"     = Just $ strList . importDirs
-toField "library_dirs"    = Just $ strList . libraryDirs
-toField "hs_libraries"    = Just $ strList . hsLibraries
-toField "extra_libraries" = Just $ strList . extraLibraries
-toField "include_dirs"    = Just $ strList . includeDirs
-toField "c_includes"      = Just $ strList . includes
-toField "package_deps"    = Just $ strList . map display. depends
-toField "extra_cc_opts"   = Just $ strList . ccOptions
-toField "extra_ld_opts"   = Just $ strList . ldOptions
-toField "framework_dirs"  = Just $ strList . frameworkDirs
-toField "extra_frameworks"= Just $ strList . frameworks
-toField s                 = showInstalledPackageInfoField s
-
-strList :: [String] -> String
-strList = show
 
 
 -- -----------------------------------------------------------------------------

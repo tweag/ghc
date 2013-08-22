@@ -50,24 +50,24 @@ import Data.Char
 --      Top-level constructors
 ---------------------------------------------------------------
 
-cgTopRhsCon :: Id               -- Name of thing bound to this RHS
+cgTopRhsCon :: DynFlags
+            -> Id               -- Name of thing bound to this RHS
             -> DataCon          -- Id
             -> [StgArg]         -- Args
-            -> FCode (CgIdInfo, FCode ())
-cgTopRhsCon id con args
-  = do dflags <- getDynFlags
-       let id_info = litIdInfo dflags id (mkConLFInfo con) (CmmLabel closure_label)
-       return ( id_info, gen_code )
+            -> (CgIdInfo, FCode ())
+cgTopRhsCon dflags id con args =
+    let id_info = litIdInfo dflags id (mkConLFInfo con) (CmmLabel closure_label)
+    in (id_info, gen_code)
   where
    name          = idName id
    caffy         = idCafInfo id -- any stgArgHasCafRefs args
    closure_label = mkClosureLabel name caffy
 
    gen_code =
-     do { dflags <- getDynFlags
+     do { this_mod <- getModuleName
         ; when (platformOS (targetPlatform dflags) == OSMinGW32) $
               -- Windows DLLs have a problem with static cross-DLL refs.
-              ASSERT( not (isDllConApp dflags con args) ) return ()
+              ASSERT( not (isDllConApp dflags this_mod con args) ) return ()
         ; ASSERT( args `lengthIs` dataConRepRepArity con ) return ()
 
         -- LAY IT OUT
@@ -234,7 +234,7 @@ buildDynCon' dflags _ binder actually_bound ccs con args
       use_cc      -- cost-centre to stick in the object
         | isCurrentCCS ccs = curCCS
         | otherwise        = panic "buildDynCon: non-current CCS not implemented"
-  
+
       blame_cc = use_cc -- cost-centre on which to blame the alloc (same)
 
 

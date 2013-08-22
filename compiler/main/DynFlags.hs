@@ -32,7 +32,7 @@ module DynFlags (
         lang_set,
         whenGeneratingDynamicToo, ifGeneratingDynamicToo,
         whenCannotGenerateDynamicToo,
-        doDynamicToo,
+        dynamicTooMkDynamicDynFlags,
         DynFlags(..),
         HasDynFlags(..), ContainsDynFlags(..),
         RtsOptsEnabled(..),
@@ -50,7 +50,7 @@ module DynFlags (
 
         printOutputForUser, printInfoForUser,
 
-        Way(..), mkBuildTag, wayRTSOnly, updateWays,
+        Way(..), mkBuildTag, wayRTSOnly, addWay', updateWays,
         wayGeneralFlags, wayUnsetGeneralFlags,
 
         -- ** Safe Haskell
@@ -79,6 +79,7 @@ module DynFlags (
         defaultFatalMessager,
         defaultLogAction,
         defaultLogActionHPrintDoc,
+        defaultLogActionHPutStrDoc,
         defaultFlushOut,
         defaultFlushErr,
 
@@ -129,6 +130,9 @@ module DynFlags (
         -- * SSE
         isSse2Enabled,
         isSse4_2Enabled,
+
+        -- * Linker information
+        LinkerInfo(..),
   ) where
 
 #include "HsVersions.h"
@@ -274,6 +278,8 @@ data GeneralFlag
    -- optimisation opts
    | Opt_Strictness
    | Opt_LateDmdAnal
+   | Opt_KillAbsence
+   | Opt_KillOneShot
    | Opt_FullLaziness
    | Opt_FloatIn
    | Opt_Specialise
@@ -350,6 +356,7 @@ data GeneralFlag
    | Opt_RPath
    | Opt_RelativeDynlibPaths
    | Opt_Hpc
+   | Opt_FlatCache
 
    -- PreInlining is on by default. The option is there just to see how
    -- bad things get if you turn it off!
@@ -407,6 +414,8 @@ data WarningFlag =
    | Opt_WarnIncompletePatterns
    | Opt_WarnIncompleteUniPatterns
    | Opt_WarnIncompletePatternsRecUpd
+   | Opt_WarnOverflowedLiterals
+   | Opt_WarnEmptyEnumerations
    | Opt_WarnMissingFields
    | Opt_WarnMissingImportList
    | Opt_WarnMissingMethods
@@ -527,6 +536,7 @@ data ExtensionFlag
    | Opt_MagicHash
    | Opt_EmptyDataDecls
    | Opt_KindSignatures
+   | Opt_RoleAnnotations
    | Opt_ParallelListComp
    | Opt_TransformListComp
    | Opt_MonadComprehensions
@@ -551,6 +561,7 @@ data ExtensionFlag
    | Opt_LambdaCase
    | Opt_MultiWayIf
    | Opt_TypeHoles
+   | Opt_NegativeLiterals
    | Opt_EmptyCase
    deriving (Eq, Enum, Show)
 
@@ -561,8 +572,6 @@ data DynFlags = DynFlags {
   ghcLink               :: GhcLink,
   hscTarget             :: HscTarget,
   settings              :: Settings,
-  hscOutName            :: String,      -- ^ Name of the output file
-  extCoreName           :: String,      -- ^ Name of the .hcr output file
   verbosity             :: Int,         -- ^ Verbosity level: see Note [Verbosity levels]
   optLevel              :: Int,         -- ^ Optimisation level
   simplPhases           :: Int,         -- ^ Number of simplifier phases
@@ -613,6 +622,14 @@ data DynFlags = DynFlags {
   dynObjectSuf          :: String,
   dynHiSuf              :: String,
 
+  -- Packages.isDllName needs to know whether a call is within a
+  -- single DLL or not. Normally it does this by seeing if the call
+  -- is to the same package, but for the ghc package, we split the
+  -- package between 2 DLLs. The dllSplit tells us which sets of
+  -- modules are in which package.
+  dllSplitFile          :: Maybe FilePath,
+  dllSplit              :: Maybe [Set String],
+
   outputFile            :: Maybe String,
   dynOutputFile         :: Maybe String,
   outputHi              :: Maybe String,
@@ -626,7 +643,7 @@ data DynFlags = DynFlags {
   --    Set by @-ddump-file-prefix@
   dumpPrefixForce       :: Maybe FilePath,
 
-  ldInputs              :: [String],
+  ldInputs              :: [Option],
 
   includePaths          :: [String],
   libraryPaths          :: [String],
@@ -735,7 +752,10 @@ data DynFlags = DynFlags {
   nextWrapperNum        :: IORef Int,
 
   -- | Machine dependant flags (-m<blah> stuff)
-  sseVersion            :: Maybe (Int, Int)  -- (major, minor)
+  sseVersion            :: Maybe (Int, Int),  -- (major, minor)
+
+  -- | Run-time linker information (what options we need, etc.)
+  rtldFlags             :: IORef (Maybe LinkerInfo)
  }
 
 class HasDynFlags m where
@@ -868,11 +888,6 @@ opt_lc dflags = sOpt_lc (settings dflags)
 --
 -- 'HscNothing' can be used to avoid generating any output, however, note
 -- that:
---
---  * This will not run the desugaring step, thus no warnings generated in
---    this step will be output.  In particular, this includes warnings related
---    to pattern matching.  You can run the desugarer manually using
---    'GHC.desugarModule'.
 --
 --  * If a program uses Template Haskell the typechecker may try to run code
 --    from an imported module.  This will fail if no code has been generated
@@ -1167,27 +1182,35 @@ generateDynamicTooConditional dflags canGen cannotGen notTryingToGen
               if b then canGen else cannotGen
       else notTryingToGen
 
-doDynamicToo :: DynFlags -> DynFlags
-doDynamicToo dflags0 = let dflags1 = addWay' WayDyn dflags0
-                           dflags2 = dflags1 {
-                                         outputFile = dynOutputFile dflags1,
-                                         hiSuf = dynHiSuf dflags1,
-                                         objectSuf = dynObjectSuf dflags1
-                                     }
-                           dflags3 = updateWays dflags2
-                       in dflags3
+dynamicTooMkDynamicDynFlags :: DynFlags -> DynFlags
+dynamicTooMkDynamicDynFlags dflags0
+    = let dflags1 = addWay' WayDyn dflags0
+          dflags2 = dflags1 {
+                        outputFile = dynOutputFile dflags1,
+                        hiSuf = dynHiSuf dflags1,
+                        objectSuf = dynObjectSuf dflags1
+                    }
+          dflags3 = updateWays dflags2
+          dflags4 = gopt_unset dflags3 Opt_BuildDynamicToo
+      in dflags4
 
 -----------------------------------------------------------------------------
 
 -- | Used by 'GHC.newSession' to partially initialize a new 'DynFlags' value
 initDynFlags :: DynFlags -> IO DynFlags
 initDynFlags dflags = do
- refCanGenerateDynamicToo <- newIORef True
+ let -- We can't build with dynamic-too on Windows, as labels before
+     -- the fork point are different depending on whether we are
+     -- building dynamically or not.
+     platformCanGenerateDynamicToo
+         = platformOS (targetPlatform dflags) /= OSMinGW32
+ refCanGenerateDynamicToo <- newIORef platformCanGenerateDynamicToo
  refFilesToClean <- newIORef []
  refDirsToClean <- newIORef Map.empty
  refFilesToNotIntermediateClean <- newIORef []
  refGeneratedDumps <- newIORef Set.empty
  refLlvmVersion <- newIORef 28
+ refRtldFlags <- newIORef Nothing
  wrapperNum <- newIORef 0
  canUseUnicodeQuotes <- do let enc = localeEncoding
                                str = "‛’"
@@ -1203,7 +1226,8 @@ initDynFlags dflags = do
         generatedDumps = refGeneratedDumps,
         llvmVersion    = refLlvmVersion,
         nextWrapperNum = wrapperNum,
-        useUnicodeQuotes = canUseUnicodeQuotes
+        useUnicodeQuotes = canUseUnicodeQuotes,
+        rtldFlags      = refRtldFlags
         }
 
 -- | The normal 'DynFlags'. Note that they is not suitable for use in this form
@@ -1214,8 +1238,6 @@ defaultDynFlags mySettings =
         ghcMode                 = CompManager,
         ghcLink                 = LinkBinary,
         hscTarget               = defaultHscTarget (sTargetPlatform mySettings),
-        hscOutName              = "",
-        extCoreName             = "",
         verbosity               = 0,
         optLevel                = 0,
         simplPhases             = 2,
@@ -1253,6 +1275,9 @@ defaultDynFlags mySettings =
         canGenerateDynamicToo   = panic "defaultDynFlags: No canGenerateDynamicToo",
         dynObjectSuf            = "dyn_" ++ phaseInputExt StopLn,
         dynHiSuf                = "dyn_hi",
+
+        dllSplitFile            = Nothing,
+        dllSplit                = Nothing,
 
         pluginModNames          = [],
         pluginModNameOpts       = [],
@@ -1336,7 +1361,8 @@ defaultDynFlags mySettings =
         llvmVersion = panic "defaultDynFlags: No llvmVersion",
         interactivePrint = Nothing,
         nextWrapperNum = panic "defaultDynFlags: No nextWrapperNum",
-        sseVersion = Nothing
+        sseVersion = Nothing,
+        rtldFlags = panic "defaultDynFlags: no rtldFlags"
       }
 
 defaultWays :: Settings -> [Way]
@@ -1360,22 +1386,31 @@ defaultFatalMessager = hPutStrLn stderr
 defaultLogAction :: LogAction
 defaultLogAction dflags severity srcSpan style msg
     = case severity of
-      SevOutput -> printSDoc msg style
-      SevDump   -> printSDoc (msg $$ blankLine) style
-      SevInfo   -> printErrs msg style
-      SevFatal  -> printErrs msg style
-      _         -> do hPutChar stderr '\n'
-                      printErrs (mkLocMessage severity srcSpan msg) style
-                      -- careful (#2302): printErrs prints in UTF-8, whereas
-                      -- converting to string first and using hPutStr would
-                      -- just emit the low 8 bits of each unicode char.
-    where printSDoc = defaultLogActionHPrintDoc dflags stdout
-          printErrs = defaultLogActionHPrintDoc dflags stderr
+      SevOutput      -> printSDoc msg style
+      SevDump        -> printSDoc (msg $$ blankLine) style
+      SevInteractive -> putStrSDoc msg style
+      SevInfo        -> printErrs msg style
+      SevFatal       -> printErrs msg style
+      _              -> do hPutChar stderr '\n'
+                           printErrs (mkLocMessage severity srcSpan msg) style
+                           -- careful (#2302): printErrs prints in UTF-8,
+                           -- whereas converting to string first and using
+                           -- hPutStr would just emit the low 8 bits of
+                           -- each unicode char.
+    where printSDoc  = defaultLogActionHPrintDoc  dflags stdout
+          printErrs  = defaultLogActionHPrintDoc  dflags stderr
+          putStrSDoc = defaultLogActionHPutStrDoc dflags stdout
 
 defaultLogActionHPrintDoc :: DynFlags -> Handle -> SDoc -> PprStyle -> IO ()
 defaultLogActionHPrintDoc dflags h d sty
     = do let doc = runSDoc d (initSDocContext dflags sty)
          Pretty.printDoc Pretty.PageMode (pprCols dflags) h doc
+         hFlush h
+
+defaultLogActionHPutStrDoc :: DynFlags -> Handle -> SDoc -> PprStyle -> IO ()
+defaultLogActionHPutStrDoc dflags h d sty
+    = do let doc = runSDoc d (initSDocContext dflags sty)
+         hPutStr h (Pretty.render doc)
          hFlush h
 
 newtype FlushOut = FlushOut (IO ())
@@ -1853,9 +1888,23 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
 
   let (dflags4, consistency_warnings) = makeDynFlagsConsistent dflags3
 
-  liftIO $ setUnsafeGlobalDynFlags dflags4
+  dflags5 <- case dllSplitFile dflags4 of
+             Nothing -> return (dflags4 { dllSplit = Nothing })
+             Just f ->
+                 case dllSplit dflags4 of
+                 Just _ ->
+                     -- If dllSplit is out of date then it would have
+                     -- been set to Nothing. As it's a Just, it must be
+                     -- up-to-date.
+                     return dflags4
+                 Nothing ->
+                     do xs <- liftIO $ readFile f
+                        let ss = map (Set.fromList . words) (lines xs)
+                        return $ dflags4 { dllSplit = Just ss }
 
-  return (dflags4, leftover, consistency_warnings ++ sh_warns ++ warns)
+  liftIO $ setUnsafeGlobalDynFlags dflags5
+
+  return (dflags5, leftover, consistency_warnings ++ sh_warns ++ warns)
 
 updateWays :: DynFlags -> DynFlags
 updateWays dflags
@@ -2034,10 +2083,12 @@ dynamic_flags = [
   , Flag "shared"             (noArg (\d -> d{ ghcLink=LinkDynLib }))
   , Flag "dynload"            (hasArg parseDynLibLoaderMode)
   , Flag "dylib-install-name" (hasArg setDylibInstallName)
+    -- -dll-split is an internal flag, used only during the GHC build
+  , Flag "dll-split"          (hasArg (\f d -> d{ dllSplitFile = Just f, dllSplit = Nothing }))
 
         ------- Libraries ---------------------------------------------------
   , Flag "L"   (Prefix addLibraryPath)
-  , Flag "l"   (hasArg (addOptl . ("-l" ++)))
+  , Flag "l"   (hasArg (addLdInputs . Option . ("-l" ++)))
 
         ------- Frameworks --------------------------------------------------
         -- -framework-path should really be -F ...
@@ -2389,6 +2440,8 @@ fWarningFlags = [
   ( "warn-dodgy-foreign-imports",       Opt_WarnDodgyForeignImports, nop ),
   ( "warn-dodgy-exports",               Opt_WarnDodgyExports, nop ),
   ( "warn-dodgy-imports",               Opt_WarnDodgyImports, nop ),
+  ( "warn-overflowed-literals",         Opt_WarnOverflowedLiterals, nop ),
+  ( "warn-empty-enumerations",          Opt_WarnEmptyEnumerations, nop ),
   ( "warn-duplicate-exports",           Opt_WarnDuplicateExports, nop ),
   ( "warn-duplicate-constraints",       Opt_WarnDuplicateConstraints, nop ),
   ( "warn-hi-shadowing",                Opt_WarnHiShadows, nop ),
@@ -2508,7 +2561,10 @@ fFlags = [
   ( "prof-cafs",                        Opt_AutoSccsOnIndividualCafs, nop ),
   ( "hpc",                              Opt_Hpc, nop ),
   ( "pre-inlining",                     Opt_SimplPreInlining, nop ),
-  ( "use-rpaths",                       Opt_RPath, nop )
+  ( "flat-cache",                       Opt_FlatCache, nop ),
+  ( "use-rpaths",                       Opt_RPath, nop ),
+  ( "kill-absence",                     Opt_KillAbsence, nop),
+  ( "kill-one-shot",                    Opt_KillOneShot, nop)
   ]
 
 -- | These @-f\<blah\>@ flags can all be reversed with @-fno-\<blah\>@
@@ -2587,6 +2643,7 @@ xFlags = [
   ( "MagicHash",                        Opt_MagicHash, nop ),
   ( "ExistentialQuantification",        Opt_ExistentialQuantification, nop ),
   ( "KindSignatures",                   Opt_KindSignatures, nop ),
+  ( "RoleAnnotations",                  Opt_RoleAnnotations, nop ),
   ( "EmptyDataDecls",                   Opt_EmptyDataDecls, nop ),
   ( "ParallelListComp",                 Opt_ParallelListComp, nop ),
   ( "TransformListComp",                Opt_TransformListComp, nop ),
@@ -2679,6 +2736,7 @@ xFlags = [
   ( "IncoherentInstances",              Opt_IncoherentInstances, nop ),
   ( "PackageImports",                   Opt_PackageImports, nop ),
   ( "TypeHoles",                        Opt_TypeHoles, nop ),
+  ( "NegativeLiterals",                 Opt_NegativeLiterals, nop ),
   ( "EmptyCase",                        Opt_EmptyCase, nop )
   ]
 
@@ -2698,6 +2756,7 @@ defaultFlags settings
       Opt_HelpfulErrors,
       Opt_ProfCountEntries,
       Opt_SimplPreInlining,
+      Opt_FlatCache,
       Opt_RPath
     ]
 
@@ -2775,6 +2834,7 @@ optLevelFlags
     , ([1,2],   Opt_FullLaziness)
     , ([1,2],   Opt_Specialise)
     , ([1,2],   Opt_FloatIn)
+    , ([1,2],   Opt_UnboxSmallStrictFields)
 
     , ([2],     Opt_LiberateCase)
     , ([2],     Opt_SpecConstr)
@@ -2808,24 +2868,25 @@ optLevelFlags
 
 standardWarnings :: [WarningFlag]
 standardWarnings
-    = [ Opt_WarnWarningsDeprecations,
+    = [ Opt_WarnOverlappingPatterns,
+        Opt_WarnWarningsDeprecations,
         Opt_WarnDeprecatedFlags,
         Opt_WarnUnrecognisedPragmas,
-        Opt_WarnOverlappingPatterns,
+        Opt_WarnPointlessPragmas,
+        Opt_WarnDuplicateConstraints,
+        Opt_WarnDuplicateExports,
+        Opt_WarnOverflowedLiterals,
+        Opt_WarnEmptyEnumerations,
         Opt_WarnMissingFields,
         Opt_WarnMissingMethods,
-        Opt_WarnDuplicateExports,
         Opt_WarnLazyUnliftedBindings,
-        Opt_WarnDodgyForeignImports,
         Opt_WarnWrongDoBind,
-        Opt_WarnAlternativeLayoutRuleTransitional,
-        Opt_WarnPointlessPragmas,
         Opt_WarnUnsupportedCallingConventions,
-        Opt_WarnUnsupportedLlvmVersion,
+        Opt_WarnDodgyForeignImports,
+        Opt_WarnTypeableInstances,
         Opt_WarnInlineRuleShadowing,
-        Opt_WarnDuplicateConstraints,
-        Opt_WarnInlineRuleShadowing,
-        Opt_WarnTypeableInstances
+        Opt_WarnAlternativeLayoutRuleTransitional,
+        Opt_WarnUnsupportedLlvmVersion
       ]
 
 minusWOpts :: [WarningFlag]
@@ -3184,6 +3245,9 @@ setMainIs arg
   where
     (main_mod, main_fn) = splitLongestPrefix arg (== '.')
 
+addLdInputs :: Option -> DynFlags -> DynFlags
+addLdInputs p dflags = dflags{ldInputs = ldInputs dflags ++ [p]}
+
 -----------------------------------------------------------------------------
 -- Paths & Libraries
 
@@ -3359,6 +3423,7 @@ compilerInfo dflags
        ("Support SMP",                 cGhcWithSMP),
        ("Tables next to code",         cGhcEnableTablesNextToCode),
        ("RTS ways",                    cGhcRTSWays),
+       ("Support dynamic-too",         "YES"),
        ("Dynamic by default",          if dYNAMIC_BY_DEFAULT dflags
                                        then "YES" else "NO"),
        ("GHC Dynamic",                 if cDYNAMIC_GHC_PROGRAMS
@@ -3415,7 +3480,7 @@ makeDynFlagsConsistent dflags
       else let dflags' = dflags { hscTarget = HscLlvm }
                warn = "Compiler not unregisterised, so using LLVM rather than compiling via C"
            in loop dflags' warn
- | hscTarget dflags /= HscC && hscTarget dflags /= HscLlvm &&
+ | hscTarget dflags == HscAsm &&
    platformUnregisterised (targetPlatform dflags)
     = loop (dflags { hscTarget = HscC })
            "Compiler unregisterised, so compiling via C"
@@ -3484,3 +3549,14 @@ isSse2Enabled dflags = case platformArch (targetPlatform dflags) of
 
 isSse4_2Enabled :: DynFlags -> Bool
 isSse4_2Enabled dflags = sseVersion dflags >= Just (4,2)
+
+-- -----------------------------------------------------------------------------
+-- Linker information
+
+-- LinkerInfo contains any extra options needed by the system linker.
+data LinkerInfo
+  = GnuLD    [Option]
+  | GnuGold  [Option]
+  | DarwinLD [Option]
+  | UnknownLD
+  deriving Eq

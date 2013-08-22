@@ -32,7 +32,7 @@ module HsTypes (
         splitLHsInstDeclTy_maybe,
         splitHsClassTy_maybe, splitLHsClassTy_maybe,
         splitHsFunType,
-        splitHsAppTys, mkHsAppTys, mkHsOpTy,
+        splitHsAppTys, hsTyGetAppHead_maybe, mkHsAppTys, mkHsOpTy,
 
         -- Printing
         pprParendHsType, pprHsForAll, pprHsContext, ppr_hs_context,
@@ -47,6 +47,7 @@ import Name( Name )
 import RdrName( RdrName )
 import DataCon( HsBang(..) )
 import Type
+import TyCon ( Role(..) )
 import HsDoc
 import BasicTypes
 import SrcLoc
@@ -152,8 +153,8 @@ hsQTvBndrs :: LHsTyVarBndrs name -> [LHsTyVarBndr name]
 hsQTvBndrs = hsq_tvs
 
 data HsWithBndrs thing
-  = HsWB { hswb_cts :: thing           -- Main payload (type or list of types)
-         , hswb_kvs :: [Name]         -- Kind vars
+  = HsWB { hswb_cts :: thing         -- Main payload (type or list of types)
+         , hswb_kvs :: [Name]        -- Kind vars
          , hswb_tvs :: [Name]        -- Type vars
     }                  
   deriving (Data, Typeable)
@@ -179,19 +180,14 @@ instance OutputableBndr HsIPName where
     pprInfixOcc  n = ppr n
     pprPrefixOcc n = ppr n
 
-
 data HsTyVarBndr name
-  = UserTyVar           -- No explicit kinding
-         name           -- See Note [Printing KindedTyVars]
-
-  | KindedTyVar
-         name
-         (LHsKind name)   -- The user-supplied kind signature
+  = HsTyVarBndr name
+                (Maybe (LHsKind name)) -- See Note [Printing KindedTyVars]
+                (Maybe Role)
       --  *** NOTA BENE *** A "monotype" in a pragma can have
       -- for-alls in it, (mostly to do with dictionaries).  These
       -- must be explicitly Kinded.
   deriving (Data, Typeable)
-
 
 data HsType name
   = HsForAllTy  HsExplicitFlag          -- Renamer leaves this flag unchanged, to record the way
@@ -231,6 +227,9 @@ data HsType name
 
   | HsKindSig           (LHsType name)  -- (ty :: kind)
                         (LHsKind name)  -- A type with a kind signature
+
+  | HsRoleAnnot         (LHsType name)  -- ty@role, seen only right after parsing
+                        Role
 
   | HsQuasiQuoteTy      (HsQuasiQuote name)
 
@@ -280,7 +279,7 @@ Note [HsForAllTy tyvar binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 After parsing:
   * Implicit => empty
-    Explicit => the varibles the user wrote
+    Explicit => the variables the user wrote
 
 After renaming
   * Implicit => the *type* variables free in the type
@@ -421,8 +420,7 @@ hsExplicitTvs _                                   = []
 
 ---------------------
 hsTyVarName :: HsTyVarBndr name -> name
-hsTyVarName (UserTyVar n)     = n
-hsTyVarName (KindedTyVar n _) = n
+hsTyVarName (HsTyVarBndr n _ _) = n
 
 hsLTyVarName :: LHsTyVarBndr name -> name
 hsLTyVarName = hsTyVarName . unLoc
@@ -447,7 +445,22 @@ hsLTyVarLocNames qtvs = map hsLTyVarLocName (hsQTvBndrs qtvs)
 \begin{code}
 splitHsAppTys :: LHsType n -> [LHsType n] -> (LHsType n, [LHsType n])
 splitHsAppTys (L _ (HsAppTy f a)) as = splitHsAppTys f (a:as)
+splitHsAppTys (L _ (HsParTy f))   as = splitHsAppTys f as
 splitHsAppTys f                   as = (f,as)
+
+-- retrieve the name of the "head" of a nested type application
+-- somewhat like splitHsAppTys, but a little more thorough
+-- used to examine the result of a GADT-like datacon, so it doesn't handle
+-- *all* cases (like lists, tuples, (~), etc.)
+hsTyGetAppHead_maybe :: LHsType n -> Maybe (n, [LHsType n])
+hsTyGetAppHead_maybe = go []
+  where
+    go tys (L _ (HsTyVar n))             = Just (n, tys)
+    go tys (L _ (HsAppTy l r))           = go (r : tys) l
+    go tys (L _ (HsOpTy l (_, L _ n) r)) = Just (n, l : r : tys)
+    go tys (L _ (HsParTy t))             = go tys t
+    go tys (L _ (HsKindSig t _))         = go tys t
+    go _   _                             = Nothing
 
 mkHsAppTys :: OutputableBndr n => LHsType n -> [LHsType n] -> HsType n
 mkHsAppTys fun_ty [] = pprPanic "mkHsAppTys" (ppr fun_ty)
@@ -528,8 +541,10 @@ instance (OutputableBndr name) => Outputable (LHsTyVarBndrs name) where
       = sep [ ifPprDebug $ braces (interppSP kvs), interppSP tvs ]
 
 instance (OutputableBndr name) => Outputable (HsTyVarBndr name) where
-    ppr (UserTyVar name)        = ppr name
-    ppr (KindedTyVar name kind) = parens $ hsep [ppr name, dcolon, ppr kind]
+    ppr (HsTyVarBndr n Nothing  Nothing)  = ppr n
+    ppr (HsTyVarBndr n (Just k) Nothing)  = parens $ hsep [ppr n, dcolon, ppr k]
+    ppr (HsTyVarBndr n Nothing  (Just r)) = ppr n <> char '@' <> ppr r
+    ppr (HsTyVarBndr n (Just k) (Just r)) = parens $ hsep [ppr n, dcolon, ppr k] <> char '@' <> ppr r
 
 instance (Outputable thing) => Outputable (HsWithBndrs thing) where
     ppr (HsWB { hswb_cts = ty }) = ppr ty
@@ -621,6 +636,7 @@ ppr_mono_ty _    (HsTupleTy con tys) = tupleParens std_con (interpp'SP tys)
                     HsUnboxedTuple -> UnboxedTuple
                     _              -> BoxedTuple
 ppr_mono_ty _    (HsKindSig ty kind) = parens (ppr_mono_lty pREC_TOP ty <+> dcolon <+> ppr kind)
+ppr_mono_ty _    (HsRoleAnnot ty r)  = ppr ty <> char '@' <> ppr r
 ppr_mono_ty _    (HsListTy ty)       = brackets (ppr_mono_lty pREC_TOP ty)
 ppr_mono_ty _    (HsPArrTy ty)       = paBrackets (ppr_mono_lty pREC_TOP ty)
 ppr_mono_ty prec (HsIParamTy n ty)   = maybeParen prec pREC_FUN (ppr n <+> dcolon <+> ppr_mono_lty pREC_TOP ty)

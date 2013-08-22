@@ -133,7 +133,7 @@ import TyCon
 
 import Data.Maybe
 import qualified Data.Char
-import Control.Monad ( when )
+import Control.Monad ( unless, when )
 
 -----------------------------------------------------------------------------
 --
@@ -150,10 +150,13 @@ withNewTickyCounterLNE nm args code = do
   b <- tickyLNEIsOn
   if not b then code else withNewTickyCounter TickyLNE nm args code
 
-withNewTickyCounterThunk,withNewTickyCounterStdThunk :: Name -> FCode a -> FCode a
-withNewTickyCounterThunk name code = do
+withNewTickyCounterThunk,withNewTickyCounterStdThunk ::
+  Bool -> Name -> FCode a -> FCode a
+withNewTickyCounterThunk isStatic name code = do
     b <- tickyDynThunkIsOn
-    if not b then code else withNewTickyCounter TickyThunk name [] code
+    if isStatic || not b -- ignore static thunks
+      then code
+      else withNewTickyCounter TickyThunk name [] code
 
 withNewTickyCounterStdThunk = withNewTickyCounterThunk
 
@@ -235,15 +238,24 @@ tickyEnterDynCon      = ifTicky $ bumpTickyCounter (fsLit "ENT_DYN_CON_ctr")
 tickyEnterStaticCon   = ifTicky $ bumpTickyCounter (fsLit "ENT_STATIC_CON_ctr")
 tickyEnterViaNode     = ifTicky $ bumpTickyCounter (fsLit "ENT_VIA_NODE_ctr")
 
-tickyEnterThunk :: FCode ()
-tickyEnterThunk = ifTicky $ do
- bumpTickyCounter (fsLit "ENT_DYN_THK_ctr")
- ifTickyDynThunk $ do
-   ticky_ctr_lbl <- getTickyCtrLabel
-   registerTickyCtrAtEntryDyn ticky_ctr_lbl
-   bumpTickyEntryCount ticky_ctr_lbl
+tickyEnterThunk :: ClosureInfo -> FCode ()
+tickyEnterThunk cl_info
+  = ifTicky $ do
+    { bumpTickyCounter ctr
+    ; unless static $ do
+      ticky_ctr_lbl <- getTickyCtrLabel
+      registerTickyCtrAtEntryDyn ticky_ctr_lbl
+      bumpTickyEntryCount ticky_ctr_lbl }
+  where
+    updatable = closureSingleEntry cl_info
+    static    = isStaticClosure cl_info
 
-tickyEnterStdThunk :: FCode ()
+    ctr | static    = if updatable then fsLit "ENT_STATIC_THK_SINGLE_ctr"
+                                   else fsLit "ENT_STATIC_THK_MANY_ctr"
+        | otherwise = if updatable then fsLit "ENT_DYN_THK_SINGLE_ctr"
+                                   else fsLit "ENT_DYN_THK_MANY_ctr"
+
+tickyEnterStdThunk :: ClosureInfo -> FCode ()
 tickyEnterStdThunk = tickyEnterThunk
 
 tickyBlackHole :: Bool{-updatable-} -> FCode ()
@@ -558,19 +570,18 @@ bumpTickyLit lhs = bumpTickyLitBy lhs 1
 bumpTickyLitBy :: CmmLit -> Int -> FCode ()
 bumpTickyLitBy lhs n = do
   dflags <- getDynFlags
-  -- All the ticky-ticky counters are declared "unsigned long" in C
-  emit (addToMem (cLong dflags) (CmmLit lhs) n)
+  emit (addToMem (bWord dflags) (CmmLit lhs) n)
 
 bumpTickyLitByE :: CmmLit -> CmmExpr -> FCode ()
 bumpTickyLitByE lhs e = do
   dflags <- getDynFlags
-  -- All the ticky-ticky counters are declared "unsigned long" in C
-  emit (addToMemE (cLong dflags) (CmmLit lhs) e)
+  emit (addToMemE (bWord dflags) (CmmLit lhs) e)
 
 bumpHistogram :: FastString -> Int -> FCode ()
 bumpHistogram _lbl _n
 --  = bumpHistogramE lbl (CmmLit (CmmInt (fromIntegral n) cLongWidth))
     = return ()    -- TEMP SPJ Apr 07
+                   -- six years passed - still temp? JS Aug 2013
 
 {-
 bumpHistogramE :: LitString -> CmmExpr -> FCode ()

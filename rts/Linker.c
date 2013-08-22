@@ -156,6 +156,10 @@ static /*Str*/HashTable *stablehash;
 /* List of currently loaded objects */
 ObjectCode *objects = NULL;     /* initially empty */
 
+/* List of objects that have been unloaded via unloadObj(), but are waiting
+   to be actually freed via checkUnload() */
+ObjectCode *unloaded_objects = NULL; /* initially empty */
+
 static HsInt loadOc( ObjectCode* oc );
 static ObjectCode* mkOc( pathchar *path, char *image, int imageSize,
                          char *archiveMemberName
@@ -228,6 +232,8 @@ static int ocAllocateSymbolExtras_MachO ( ObjectCode* oc );
 static void machoInitSymbolsWithoutUnderscore( void );
 #endif
 #endif
+
+static void freeProddableBlocks (ObjectCode *oc);
 
 /* on x86_64 we have a problem with relocating symbol references in
  * code that was compiled without -fPIC.  By default, the small memory
@@ -321,7 +327,7 @@ typedef struct _RtsSymbolVal {
 
 #define Maybe_Stable_Names      SymI_HasProto(stg_mkWeakzh)                     \
                                 SymI_HasProto(stg_mkWeakNoFinalizzerzh)         \
-                                SymI_HasProto(stg_mkWeakForeignEnvzh)           \
+                                SymI_HasProto(stg_addCFinalizzerToWeakzh)       \
                                 SymI_HasProto(stg_makeStableNamezh)             \
                                 SymI_HasProto(stg_finalizzeWeakzh)
 
@@ -901,8 +907,10 @@ typedef struct _RtsSymbolVal {
       SymI_NeedsProto(top_ct)                           \
                                                         \
       SymI_HasProto(ENT_VIA_NODE_ctr)                   \
-      SymI_HasProto(ENT_STATIC_THK_ctr)                 \
-      SymI_HasProto(ENT_DYN_THK_ctr)                    \
+      SymI_HasProto(ENT_STATIC_THK_SINGLE_ctr)          \
+      SymI_HasProto(ENT_STATIC_THK_MANY_ctr)            \
+      SymI_HasProto(ENT_DYN_THK_SINGLE_ctr)             \
+      SymI_HasProto(ENT_DYN_THK_MANY_ctr)               \
       SymI_HasProto(ENT_STATIC_FUN_DIRECT_ctr)          \
       SymI_HasProto(ENT_DYN_FUN_DIRECT_ctr)             \
       SymI_HasProto(ENT_STATIC_CON_ctr)                 \
@@ -970,8 +978,6 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(UPD_NEW_PERM_IND_ctr)               \
       SymI_HasProto(UPD_OLD_IND_ctr)                    \
       SymI_HasProto(UPD_OLD_PERM_IND_ctr)               \
-      SymI_HasProto(UPD_BH_UPDATABLE_ctr)               \
-      SymI_HasProto(UPD_BH_SINGLE_ENTRY_ctr)            \
       SymI_HasProto(UPD_CAF_BH_UPDATABLE_ctr)           \
       SymI_HasProto(UPD_CAF_BH_SINGLE_ENTRY_ctr)        \
       SymI_HasProto(GC_SEL_ABANDONED_ctr)               \
@@ -1058,6 +1064,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_yield_to_interpreter)                           \
       SymI_HasProto(stg_block_noregs)                                   \
       SymI_HasProto(stg_block_takemvar)                                 \
+      SymI_HasProto(stg_block_readmvar)                           \
       SymI_HasProto(stg_block_putmvar)                                  \
       MAIN_CAP_SYM                                                      \
       SymI_HasProto(MallocFailHook)                                     \
@@ -1067,7 +1074,6 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(addDLL)                                             \
       SymI_HasProto(__int_encodeDouble)                                 \
       SymI_HasProto(__word_encodeDouble)                                \
-      SymI_HasProto(__2Int_encodeDouble)                                \
       SymI_HasProto(__int_encodeFloat)                                  \
       SymI_HasProto(__word_encodeFloat)                                 \
       SymI_HasProto(stg_atomicallyzh)                                   \
@@ -1106,9 +1112,9 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(getOrSetSystemEventThreadIOManagerThreadStore)      \
       SymI_HasProto(getOrSetSystemTimerThreadEventManagerStore)         \
       SymI_HasProto(getOrSetSystemTimerThreadIOManagerThreadStore)      \
+      SymI_HasProto(getOrSetLibHSghcFastStringTable)                    \
       SymI_HasProto(getGCStats)                                         \
       SymI_HasProto(getGCStatsEnabled)                                  \
-      SymI_HasProto(genSymZh)                                           \
       SymI_HasProto(genericRaise)                                       \
       SymI_HasProto(getProgArgv)                                        \
       SymI_HasProto(getFullProgArgv)                                    \
@@ -1281,12 +1287,6 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_ap_7_upd_info)                                  \
       SymI_HasProto(stg_exit)                                           \
       SymI_HasProto(stg_sel_0_upd_info)                                 \
-      SymI_HasProto(stg_sel_10_upd_info)                                \
-      SymI_HasProto(stg_sel_11_upd_info)                                \
-      SymI_HasProto(stg_sel_12_upd_info)                                \
-      SymI_HasProto(stg_sel_13_upd_info)                                \
-      SymI_HasProto(stg_sel_14_upd_info)                                \
-      SymI_HasProto(stg_sel_15_upd_info)                                \
       SymI_HasProto(stg_sel_1_upd_info)                                 \
       SymI_HasProto(stg_sel_2_upd_info)                                 \
       SymI_HasProto(stg_sel_3_upd_info)                                 \
@@ -1296,13 +1296,37 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_sel_7_upd_info)                                 \
       SymI_HasProto(stg_sel_8_upd_info)                                 \
       SymI_HasProto(stg_sel_9_upd_info)                                 \
+      SymI_HasProto(stg_sel_10_upd_info)                                \
+      SymI_HasProto(stg_sel_11_upd_info)                                \
+      SymI_HasProto(stg_sel_12_upd_info)                                \
+      SymI_HasProto(stg_sel_13_upd_info)                                \
+      SymI_HasProto(stg_sel_14_upd_info)                                \
+      SymI_HasProto(stg_sel_15_upd_info)                                \
+      SymI_HasProto(stg_sel_0_noupd_info)                                 \
+      SymI_HasProto(stg_sel_1_noupd_info)                                 \
+      SymI_HasProto(stg_sel_2_noupd_info)                                 \
+      SymI_HasProto(stg_sel_3_noupd_info)                                 \
+      SymI_HasProto(stg_sel_4_noupd_info)                                 \
+      SymI_HasProto(stg_sel_5_noupd_info)                                 \
+      SymI_HasProto(stg_sel_6_noupd_info)                                 \
+      SymI_HasProto(stg_sel_7_noupd_info)                                 \
+      SymI_HasProto(stg_sel_8_noupd_info)                                 \
+      SymI_HasProto(stg_sel_9_noupd_info)                                 \
+      SymI_HasProto(stg_sel_10_noupd_info)                                \
+      SymI_HasProto(stg_sel_11_noupd_info)                                \
+      SymI_HasProto(stg_sel_12_noupd_info)                                \
+      SymI_HasProto(stg_sel_13_noupd_info)                                \
+      SymI_HasProto(stg_sel_14_noupd_info)                                \
+      SymI_HasProto(stg_sel_15_noupd_info)                                \
       SymI_HasProto(stg_upd_frame_info)                                 \
       SymI_HasProto(stg_bh_upd_frame_info)                              \
       SymI_HasProto(suspendThread)                                      \
       SymI_HasProto(stg_takeMVarzh)                                     \
+      SymI_HasProto(stg_readMVarzh)                               \
       SymI_HasProto(stg_threadStatuszh)                                 \
       SymI_HasProto(stg_tryPutMVarzh)                                   \
       SymI_HasProto(stg_tryTakeMVarzh)                                  \
+      SymI_HasProto(stg_tryReadMVarzh)                            \
       SymI_HasProto(stg_unmaskAsyncExceptionszh)                        \
       SymI_HasProto(unloadObj)                                          \
       SymI_HasProto(stg_unsafeThawArrayzh)                              \
@@ -1499,6 +1523,9 @@ initLinker( void )
     } else {
         linker_init_done = 1;
     }
+
+    objects = NULL;
+    unloaded_objects = NULL;
 
 #if defined(THREADED_RTS) && (defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO))
     initMutex(&dl_mutex);
@@ -2025,6 +2052,40 @@ mmap_again:
    return result;
 }
 #endif // USE_MMAP
+
+
+void freeObjectCode (ObjectCode *oc)
+{
+    int pagesize, size, r;
+
+#ifdef USE_MMAP
+
+    pagesize = getpagesize();
+    size = ROUND_UP(oc->fileSize, pagesize);
+
+    r = munmap(oc->image, size);
+    if (r == -1) {
+        sysErrorBelch("munmap");
+    }
+
+    if (!USE_CONTIGUOUS_MMAP)
+    {
+        munmap(oc->symbol_extras,
+               ROUND_UP(sizeof(SymbolExtra) * oc->n_symbol_extras, pagesize));
+    }
+
+#else
+
+    stgFree(oc->image);
+    stgFree(oc->symbol_extras);
+
+#endif
+
+    stgFree(oc->fileName);
+    stgFree(oc->archiveMemberName);
+    stgFree(oc);
+}
+
 
 static ObjectCode*
 mkOc( pathchar *path, char *image, int imageSize,
@@ -2728,7 +2789,7 @@ resolveObjs( void )
 HsInt
 unloadObj( pathchar *path )
 {
-    ObjectCode *oc, *prev;
+    ObjectCode *oc, *prev, *next;
     HsBool unloadedAnyObj = HS_BOOL_FALSE;
 
     ASSERT(symhash != NULL);
@@ -2736,8 +2797,12 @@ unloadObj( pathchar *path )
 
     initLinker();
 
+    IF_DEBUG(linker, debugBelch("unloadObj: %s\n", path));
+
     prev = NULL;
-    for (oc = objects; oc; prev = oc, oc = oc->next) {
+    for (oc = objects; oc; prev = oc, oc = next) {
+        next = oc->next;
+
         if (!pathcmp(oc->fileName,path)) {
 
             /* Remove all the mappings for the symbols within this
@@ -2757,22 +2822,27 @@ unloadObj( pathchar *path )
             } else {
                 prev->next = oc->next;
             }
+            oc->next = unloaded_objects;
+            unloaded_objects = oc;
 
-            // We're going to leave this in place, in case there are
-            // any pointers from the heap into it:
-                // #ifdef mingw32_HOST_OS
-                // If uncommenting, note that currently oc->image is
-                // not the right address to free on Win64, as we added
-                // 4 bytes of padding at the start
-                //  VirtualFree(oc->image);
-                // #else
-            //  stgFree(oc->image);
-            // #endif
-            stgFree(oc->fileName);
-            stgFree(oc->archiveMemberName);
+            // The data itself and a few other bits (oc->fileName,
+            // oc->archiveMemberName) are kept until freeObjectCode(),
+            // which is only called when it has been determined that
+            // it is safe to unload the object.
             stgFree(oc->symbols);
-            stgFree(oc->sections);
-            stgFree(oc);
+
+            {
+                Section *s, *nexts;
+
+                for (s = oc->sections; s != NULL; s = nexts) {
+                    nexts = s->next;
+                    stgFree(s);
+                }
+            }
+
+            freeProddableBlocks(oc);
+
+            oc->status = OBJECT_UNLOADED;
 
             /* This could be a member of an archive so continue
              * unloading other members. */
@@ -2820,6 +2890,17 @@ checkProddableBlock (ObjectCode *oc, void *addr, size_t size )
       if (a >= s && (a+size) <= e) return;
    }
    barf("checkProddableBlock: invalid fixup in runtime linker: %p", addr);
+}
+
+static void freeProddableBlocks (ObjectCode *oc)
+{
+    ProddableBlock *pb, *next;
+
+    for (pb = oc->proddables; pb != NULL; pb = next) {
+        next = pb->next;
+        stgFree(pb);
+    }
+    oc->proddables = NULL;
 }
 
 /* -----------------------------------------------------------------------------
@@ -2910,6 +2991,7 @@ static int ocAllocateSymbolExtras( ObjectCode* oc, int count, int first )
                 memcpy(new, oc->image, oc->fileSize);
                 munmap(oc->image, n);
                 oc->image = new;
+                oc->fileSize = n + (sizeof(SymbolExtra) * count);
                 oc->symbol_extras = (SymbolExtra *) (oc->image + n);
             }
             else
@@ -4941,6 +5023,7 @@ do_Elf_Rel_relocations ( ObjectCode* oc, char* ehdrC,
                // Generate veneer
                SymbolExtra *extra = makeArmSymbolExtra(oc, ELF_R_SYM(info), S+imm+4, 1, is_target_thm);
                offset = (StgWord32) &extra->jumpIsland - P - 4;
+               sign = offset >> 31;
                to_thm = 1;
             } else if (!is_target_thm && ELF_R_TYPE(info) == R_ARM_THM_CALL) {
                offset &= ~0x3;

@@ -529,6 +529,10 @@ instance NamedThing DataCon where
 instance Outputable DataCon where
     ppr con = ppr (dataConName con)
 
+instance OutputableBndr DataCon where
+    pprInfixOcc con = pprInfixName (dataConName con)
+    pprPrefixOcc con = pprPrefixName (dataConName con)
+
 instance Data.Data DataCon where
     -- don't traverse?
     toConstr _   = abstractConstr "DataCon"
@@ -646,11 +650,12 @@ mkDataCon name declared_infix
       | isJust (promotableTyCon_maybe rep_tycon)
           -- The TyCon is promotable only if all its datacons
           -- are, so the promoteType for prom_kind should succeed
-      = Just (mkPromotedDataCon con name (getUnique name) prom_kind arity)
+      = Just (mkPromotedDataCon con name (getUnique name) prom_kind roles)
       | otherwise 
       = Nothing          
     prom_kind = promoteType (dataConUserType con)
-    arity     = dataConSourceArity con
+    roles = map (const Nominal)          (univ_tvs ++ ex_tvs) ++
+            map (const Representational) orig_arg_tys
 
 eqSpecPreds :: [(TyVar,Type)] -> ThetaType
 eqSpecPreds spec = [ mkEqPred (mkTyVarTy tv) ty | (tv,ty) <- spec ]
@@ -884,9 +889,9 @@ dataConInstArgTys :: DataCon	-- ^ A datacon with no existentials or equality con
 	      	  -> [Type]
 dataConInstArgTys dc@(MkData {dcUnivTyVars = univ_tvs, dcEqSpec = eq_spec,
 			      dcExTyVars = ex_tvs}) inst_tys
- = ASSERT2 ( length univ_tvs == length inst_tys 
-           , ptext (sLit "dataConInstArgTys") <+> ppr dc $$ ppr univ_tvs $$ ppr inst_tys)
-   ASSERT2 ( null ex_tvs && null eq_spec, ppr dc )        
+ = ASSERT2( length univ_tvs == length inst_tys
+          , ptext (sLit "dataConInstArgTys") <+> ppr dc $$ ppr univ_tvs $$ ppr inst_tys)
+   ASSERT2( null ex_tvs && null eq_spec, ppr dc )
    map (substTyWith univ_tvs inst_tys) (dataConRepArgTys dc)
 
 -- | Returns just the instantiated /value/ argument types of a 'DataCon',
@@ -992,6 +997,7 @@ dataConCannotMatch tys con
 \begin{code}
 buildAlgTyCon :: Name 
               -> [TyVar]               -- ^ Kind variables and type variables
+              -> [Role]
 	      -> Maybe CType
 	      -> ThetaType	       -- ^ Stupid theta
 	      -> AlgTyConRhs
@@ -1001,14 +1007,14 @@ buildAlgTyCon :: Name
               -> TyConParent
 	      -> TyCon
 
-buildAlgTyCon tc_name ktvs cType stupid_theta rhs 
+buildAlgTyCon tc_name ktvs roles cType stupid_theta rhs 
               is_rec is_promotable gadt_syn parent
   = tc
   where 
     kind = mkPiKinds ktvs liftedTypeKind
 
     -- tc and mb_promoted_tc are mutually recursive
-    tc = mkAlgTyCon tc_name kind ktvs cType stupid_theta 
+    tc = mkAlgTyCon tc_name kind ktvs roles cType stupid_theta 
                     rhs parent is_rec gadt_syn 
                     mb_promoted_tc
 

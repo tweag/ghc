@@ -346,6 +346,7 @@ wanteds = concat
 
           ,structSize C  "generation"
           ,structField C "generation" "n_new_large_words"
+          ,structField C "generation" "weak_ptr_list"
 
           ,structSize Both   "CostCentreStack"
           ,structField C     "CostCentreStack" "ccsID"
@@ -469,10 +470,14 @@ wanteds = concat
           ,closureField C "StgWeak" "key"
           ,closureField C "StgWeak" "value"
           ,closureField C "StgWeak" "finalizer"
-          ,closureField C "StgWeak" "cfinalizer"
+          ,closureField C "StgWeak" "cfinalizers"
 
-          ,closureSize  C "StgDeadWeak"
-          ,closureField C "StgDeadWeak" "link"
+          ,closureSize  C "StgCFinalizerList"
+          ,closureField C "StgCFinalizerList" "link"
+          ,closureField C "StgCFinalizerList" "fptr"
+          ,closureField C "StgCFinalizerList" "ptr"
+          ,closureField C "StgCFinalizerList" "eptr"
+          ,closureField C "StgCFinalizerList" "flag"
 
           ,closureSize  C "StgMVar"
           ,closureField C "StgMVar" "head"
@@ -571,11 +576,11 @@ wanteds = concat
           ,constantWord Haskell "MAX_Float_REG"        "MAX_FLOAT_REG"
           ,constantWord Haskell "MAX_Double_REG"       "MAX_DOUBLE_REG"
           ,constantWord Haskell "MAX_Long_REG"         "MAX_LONG_REG"
-          ,constantWord Haskell "MAX_SSE_REG"          "MAX_SSE_REG"
+          ,constantWord Haskell "MAX_XMM_REG"          "MAX_XMM_REG"
           ,constantWord Haskell "MAX_Real_Vanilla_REG" "MAX_REAL_VANILLA_REG"
           ,constantWord Haskell "MAX_Real_Float_REG"   "MAX_REAL_FLOAT_REG"
           ,constantWord Haskell "MAX_Real_Double_REG"  "MAX_REAL_DOUBLE_REG"
-          ,constantWord Haskell "MAX_Real_SSE_REG"     "MAX_REAL_SSE_REG"
+          ,constantWord Haskell "MAX_Real_XMM_REG"     "MAX_REAL_XMM_REG"
           ,constantWord Haskell "MAX_Real_Long_REG"    "MAX_REAL_LONG_REG"
 
           -- This tells the native code generator the size of the spill

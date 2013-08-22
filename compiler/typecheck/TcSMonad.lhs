@@ -81,14 +81,12 @@ module TcSMonad (
     newFlexiTcSTy, instFlexiTcS, instFlexiTcSHelperTcS,
     cloneMetaTyVar,
 
-    compatKind, mkKindErrorCtxtTcS,
-
     Untouchables, isTouchableMetaTyVarTcS, isFilledMetaTyVar_maybe,
     zonkTyVarsAndFV,
 
     getDefaultInfo, getDynFlags,
 
-    matchClass, matchFam, MatchInstResult (..), 
+    matchFam, matchOpenFam, 
     checkWellStagedDFun, 
     pprEq                                    -- Smaller utils, re-exported from TcM
                                              -- TODO (DV): these are only really used in the 
@@ -110,7 +108,6 @@ import qualified TcRnMonad as TcM
 import qualified TcMType as TcM
 import qualified TcEnv as TcM 
        ( checkWellStaged, topIdLvl, tcGetDefaultTys )
-import {-# SOURCE #-} qualified TcUnify as TcM ( mkKindErrorCtxt )
 import Kind
 import TcType
 import DynFlags
@@ -135,7 +132,7 @@ import TcRnTypes
 import Unique 
 import UniqFM
 import Maybes ( orElse, catMaybes, firstJust )
-import StaticFlags( opt_NoFlatCache )
+import Pair ( pSnd )
 
 import Control.Monad( unless, when, zipWithM )
 import Data.IORef
@@ -146,19 +143,6 @@ import StaticFlags( opt_PprStyle_Debug )
 import VarSet
 import Digraph
 #endif
-\end{code}
-
-
-\begin{code}
-compatKind :: Kind -> Kind -> Bool
-compatKind k1 k2 = k1 `tcIsSubKind` k2 || k2 `tcIsSubKind` k1 
-
-mkKindErrorCtxtTcS :: Type -> Kind 
-                   -> Type -> Kind 
-                   -> ErrCtxt
-mkKindErrorCtxtTcS ty1 ki1 ty2 ki2
-  = (False,TcM.mkKindErrorCtxt ty1 ty2 ki1 ki2)
-
 \end{code}
 
 %************************************************************************
@@ -896,18 +880,19 @@ lookupFlatEqn fam_ty
 lookupInInerts :: TcPredType -> TcS (Maybe CtEvidence)
 -- Is this exact predicate type cached in the solved or canonicals of the InertSet
 lookupInInerts pty
-  = do { IS { inert_solved_dicts = solved, inert_cans = ics } <- getTcSInerts
-       ; case lookupSolvedDict solved pty of
+  = do { inerts <- getTcSInerts
+       ; case lookupSolvedDict inerts pty of
            Just ctev -> return (Just ctev)
-           Nothing   -> return (lookupInInertCans ics pty) }
+           Nothing   -> return (lookupInInertCans inerts pty) }
 
-lookupSolvedDict :: PredMap CtEvidence -> TcPredType -> Maybe CtEvidence
+lookupSolvedDict :: InertSet -> TcPredType -> Maybe CtEvidence
 -- Returns just if exactly this predicate type exists in the solved.
-lookupSolvedDict tm pty = lookupTM pty $ unPredMap tm
+lookupSolvedDict (IS { inert_solved_dicts = solved }) pty 
+  = lookupTM pty (unPredMap solved)
 
-lookupInInertCans :: InertCans -> TcPredType -> Maybe CtEvidence
+lookupInInertCans :: InertSet -> TcPredType -> Maybe CtEvidence
 -- Returns Just if exactly this pred type exists in the inert canonicals
-lookupInInertCans ics pty
+lookupInInertCans (IS { inert_cans = ics }) pty
   = case (classifyPredType pty) of
       ClassPred cls _ 
          -> lookupCCanMap cls (\ct -> ctEvPred ct `eqType` pty) (inert_dicts ics)
@@ -1160,6 +1145,7 @@ getTcSInertsRef = TcS (return . tcs_inerts)
 
 getTcSWorkListRef :: TcS (IORef WorkList) 
 getTcSWorkListRef = TcS (return . tcs_worklist) 
+
 getTcSInerts :: TcS InertSet 
 getTcSInerts = getTcSInertsRef >>= wrapTcS . (TcM.readTcRef) 
 
@@ -1380,8 +1366,9 @@ newFlattenSkolem Given fam_ty
        ; let rhs_ty = mkTyVarTy tv
              ctev = CtGiven { ctev_pred = mkTcEqPred fam_ty rhs_ty
                             , ctev_evtm = EvCoercion (mkTcReflCo fam_ty) }
+       ; dflags <- getDynFlags
        ; updInertTcS $ \ is@(IS { inert_fsks = fsks }) -> 
-            extendFlatCache fam_ty ctev rhs_ty
+            extendFlatCache dflags fam_ty ctev rhs_ty
             is { inert_fsks       = tv : fsks }
 
        ; return (ctev, rhs_ty) }
@@ -1391,12 +1378,14 @@ newFlattenSkolem _ fam_ty  -- Wanted or Derived: make new unification variable
        ; ctev <- newWantedEvVarNC (mkTcEqPred fam_ty rhs_ty)
                                    -- NC (no-cache) version because we've already
                                    -- looked in the solved goals an inerts (lookupFlatEqn)
-       ; updInertTcS $ extendFlatCache fam_ty ctev rhs_ty
+       ; dflags <- getDynFlags
+       ; updInertTcS $ extendFlatCache dflags fam_ty ctev rhs_ty
        ; return (ctev, rhs_ty) }
 
-extendFlatCache :: TcType -> CtEvidence -> TcType -> InertSet -> InertSet
-extendFlatCache 
-  | opt_NoFlatCache
+extendFlatCache :: DynFlags -> TcType -> CtEvidence -> TcType
+                -> InertSet -> InertSet
+extendFlatCache dflags
+  | not (gopt Opt_FlatCache dflags)
   = \ _ _ _ is -> is
   | otherwise
   = \ fam_ty ctev rhs_ty is@(IS { inert_flat_cache = fc }) -> 
@@ -1646,48 +1635,30 @@ rewriteCtFlavor (CtWanted { ctev_evar = evar, ctev_pred = old_pred }) new_pred c
 
 
 
--- Matching and looking up classes and family instances
--- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+matchOpenFam :: TyCon -> [Type] -> TcS (Maybe FamInstMatch)
+matchOpenFam tycon args = wrapTcS $ tcLookupFamInst tycon args
 
-data MatchInstResult mi
-  = MatchInstNo         -- No matching instance 
-  | MatchInstSingle mi  -- Single matching instance
-  | MatchInstMany       -- Multiple matching instances
+matchFam :: TyCon -> [Type] -> TcS (Maybe (TcCoercion, TcType))
+matchFam tycon args
+  | isOpenSynFamilyTyCon tycon
+  = do { maybe_match <- matchOpenFam tycon args
+       ; case maybe_match of
+           Nothing -> return Nothing
+           Just (FamInstMatch { fim_instance = famInst
+                              , fim_tys      = inst_tys })
+             -> let co = mkTcUnbranchedAxInstCo (famInstAxiom famInst) inst_tys
+                    ty = pSnd $ tcCoercionKind co
+                in return $ Just (co, ty) }
 
+  | Just ax <- isClosedSynFamilyTyCon_maybe tycon
+  , Just (ind, inst_tys) <- chooseBranch ax args
+  = let co = mkTcAxInstCo ax ind inst_tys
+        ty = pSnd (tcCoercionKind co)
+    in return $ Just (co, ty)
 
-matchClass :: Class -> [Type] -> TcS (MatchInstResult (DFunId, [Maybe TcType])) 
--- Look up a class constraint in the instance environment
-matchClass clas tys
-  = do	{ let pred = mkClassPred clas tys 
-        ; instEnvs <- getInstEnvs
-        ; case lookupInstEnv instEnvs clas tys of {
-            ([], _unifs, _)               -- Nothing matches  
-                -> do { traceTcS "matchClass not matching" $ 
-                        vcat [ text "dict" <+> ppr pred
-                             {- , ppr instEnvs -} ]
-                        
-                      ; return MatchInstNo  
-                      } ;  
-	    ([(ispec, inst_tys)], [], _) -- A single match 
-		-> do	{ let dfun_id = is_dfun ispec
-			; traceTcS "matchClass success" $
-                          vcat [text "dict" <+> ppr pred, 
-                                text "witness" <+> ppr dfun_id
-                                               <+> ppr (idType dfun_id) ]
-				  -- Record that this dfun is needed
-                        ; return $ MatchInstSingle (dfun_id, inst_tys)
-                        } ;
-     	    (matches, _unifs, _)          -- More than one matches 
-		-> do	{ traceTcS "matchClass multiple matches, deferring choice" $
-                          vcat [text "dict" <+> ppr pred,
-                                text "matches" <+> ppr matches]
-                        ; return MatchInstMany 
-		        }
-	}
-        }
-
-matchFam :: TyCon -> [Type] -> TcS (Maybe FamInstMatch)
-matchFam tycon args = wrapTcS $ tcLookupFamInst tycon args
+  | otherwise
+  = return Nothing
+       
 \end{code}
 
 \begin{code}

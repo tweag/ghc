@@ -557,7 +557,7 @@ stmt    :: { CmmParse () }
         -- we tweak the syntax to avoid the conflict.  The later
         -- option is taken here because the other way would require
         -- multiple levels of expanding and get unwieldy.
-        | foreign_results 'foreign' STRING expr '(' cmm_hint_exprs0 ')' safety opt_never_returns ';'
+        | foreign_results 'foreign' STRING foreignLabel '(' cmm_hint_exprs0 ')' safety opt_never_returns ';'
                 {% foreignCall $3 $1 $4 $6 $8 $9 }
         | foreign_results 'prim' '%' NAME '(' exprs0 ')' ';'
                 {% primCall $1 $4 $6 }
@@ -587,6 +587,9 @@ stmt    :: { CmmParse () }
                 { cmmIfThenElse $2 $4 $6 }
         | 'push' '(' exprs0 ')' maybe_body
                 { pushStackFrame $3 $5 }
+
+foreignLabel     :: { CmmParse CmmExpr }
+        : NAME                          { return (CmmLit (CmmLabel (mkForeignLabel $1 Nothing ForeignLabelInThisPackage IsFunction))) }
 
 opt_never_returns :: { CmmReturnInfo }
         :                               { CmmMayReturn }
@@ -1002,8 +1005,7 @@ stmtMacros = listToUFM [
                                         tickyAllocPAP goods slop ),
   ( fsLit "TICK_ALLOC_UP_THK",     \[goods,slop] ->
                                         tickyAllocThunk goods slop ),
-  ( fsLit "UPD_BH_UPDATABLE",      \[reg] -> emitBlackHoleCode False reg ),
-  ( fsLit "UPD_BH_SINGLE_ENTRY",   \[reg] -> emitBlackHoleCode True  reg )
+  ( fsLit "UPD_BH_UPDATABLE",      \[reg] -> emitBlackHoleCode reg )
  ]
 
 emitPushUpdateFrame :: CmmExpr -> CmmExpr -> FCode ()

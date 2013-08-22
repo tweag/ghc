@@ -947,6 +947,7 @@ scheduleDetectDeadlock (Capability **pcap, Task *task)
 	    case BlockedOnBlackHole:
 	    case BlockedOnMsgThrowTo:
 	    case BlockedOnMVar:
+	    case BlockedOnMVarRead:
 		throwToSingleThreaded(cap, task->incall->tso, 
 				      (StgClosure *)nonTermination_closure);
 		return;
@@ -1437,7 +1438,7 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
     rtsBool heap_census;
     nat collect_gen;
 #ifdef THREADED_RTS
-    rtsBool gc_type;
+    StgWord8 gc_type;
     nat i, sync;
     StgTSO *tso;
 #endif
@@ -2722,7 +2723,19 @@ raiseExceptionHelper (StgRegTable *reg, StgTSO *tso, StgClosure *exception)
             tso->stackobj->sp = p;
 	    return STOP_FRAME;
 
-        case CATCH_RETRY_FRAME:
+        case CATCH_RETRY_FRAME: {
+            StgTRecHeader *trec = tso -> trec;
+            StgTRecHeader *outer = trec -> enclosing_trec;
+            debugTrace(DEBUG_stm,
+                       "found CATCH_RETRY_FRAME at %p during raise", p);
+            debugTrace(DEBUG_stm, "trec=%p outer=%p", trec, outer);
+            stmAbortTransaction(cap, trec);
+            stmFreeAbortedTRec(cap, trec);
+            tso -> trec = outer;
+            p = next;
+            continue;
+        }
+
 	default:
 	    p = next; 
 	    continue;
@@ -2831,6 +2844,7 @@ resurrectThreads (StgTSO *threads)
 	
 	switch (tso->why_blocked) {
 	case BlockedOnMVar:
+	case BlockedOnMVarRead:
 	    /* Called by GC - sched_mutex lock is currently held. */
 	    throwToSingleThreaded(cap, tso,
 				  (StgClosure *)blockedIndefinitelyOnMVar_closure);

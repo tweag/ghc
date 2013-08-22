@@ -50,12 +50,12 @@ import Control.Monad (when,void)
 import Util
 
 codeGen :: DynFlags
-         -> Module
-         -> [TyCon]
-         -> CollectedCCs                -- (Local/global) cost-centres needing declaring/registering.
-         -> [StgBinding]                -- Bindings to convert
-         -> HpcInfo
-         -> Stream IO CmmGroup ()       -- Output as a stream, so codegen can
+        -> Module
+        -> [TyCon]
+        -> CollectedCCs                -- (Local/global) cost-centres needing declaring/registering.
+        -> [StgBinding]                -- Bindings to convert
+        -> HpcInfo
+        -> Stream IO CmmGroup ()       -- Output as a stream, so codegen can
                                         -- be interleaved with output
 
 codeGen dflags this_mod data_tycons
@@ -118,33 +118,33 @@ variable. -}
 cgTopBinding :: DynFlags -> StgBinding -> FCode ()
 cgTopBinding dflags (StgNonRec id rhs)
   = do  { id' <- maybeExternaliseId dflags id
-        ; (info, fcode) <- cgTopRhs NonRecursive id' rhs
+        ; let (info, fcode) = cgTopRhs dflags NonRecursive id' rhs
         ; fcode
-        ; addBindC (cg_id info) info -- Add the *un-externalised* Id to the envt,
-                                     -- so we find it when we look up occurrences
+        ; addBindC info -- Add the *un-externalised* Id to the envt,
+                        -- so we find it when we look up occurrences
         }
 
 cgTopBinding dflags (StgRec pairs)
   = do  { let (bndrs, rhss) = unzip pairs
         ; bndrs' <- Prelude.mapM (maybeExternaliseId dflags) bndrs
         ; let pairs' = zip bndrs' rhss
-        ; r <- sequence $ unzipWith (cgTopRhs Recursive) pairs'
-        ; let (infos, fcodes) = unzip r
+              r = unzipWith (cgTopRhs dflags Recursive) pairs'
+              (infos, fcodes) = unzip r
         ; addBindsC infos
         ; sequence_ fcodes
         }
 
 
-cgTopRhs :: RecFlag -> Id -> StgRhs -> FCode (CgIdInfo, FCode ())
+cgTopRhs :: DynFlags -> RecFlag -> Id -> StgRhs -> (CgIdInfo, FCode ())
         -- The Id is passed along for setting up a binding...
         -- It's already been externalised if necessary
 
-cgTopRhs _rec bndr (StgRhsCon _cc con args)
-  = forkStatics (cgTopRhsCon bndr con args)
+cgTopRhs dflags _rec bndr (StgRhsCon _cc con args)
+  = cgTopRhsCon dflags bndr con args
 
-cgTopRhs rec bndr (StgRhsClosure cc bi fvs upd_flag _srt args body)
+cgTopRhs dflags rec bndr (StgRhsClosure cc bi fvs upd_flag _srt args body)
   = ASSERT(null fvs)    -- There should be no free variables
-    forkStatics (cgTopRhsClosure rec bndr cc bi upd_flag args body)
+    cgTopRhsClosure dflags rec bndr cc bi upd_flag args body
 
 
 ---------------------------------------------------------------
@@ -178,13 +178,13 @@ cgTopRhs rec bndr (StgRhsClosure cc bi fvs upd_flag _srt args body)
    module in the program, and we don't want to require that this name
    has the version and way info appended to it.
 
-We initialise the module tree by keeping a work-stack, 
+We initialise the module tree by keeping a work-stack,
         * pointed to by Sp
         * that grows downward
         * Sp points to the last occupied slot
 -}
 
-mkModuleInit 
+mkModuleInit
         :: CollectedCCs         -- cost centre info
         -> Module
         -> HpcInfo
