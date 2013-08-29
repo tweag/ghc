@@ -731,7 +731,9 @@ data CoreReader = CoreReader {
 }
 
 data CoreWriter = CoreWriter {
-        cw_simpl_count :: SimplCount
+        cw_simpl_count :: !SimplCount  
+        -- Making this strict fixes a nasty space leak
+        -- See Trac #7702
 }
 
 emptyWriter :: DynFlags -> CoreWriter
@@ -922,8 +924,11 @@ argument to the plugin function so that we can turn this function into
 reinitializeGlobals :: CoreM ()
 reinitializeGlobals = do
     (sf_globals, linker_globals) <- read cr_globals
+    hsc_env <- getHscEnv
+    let dflags = hsc_dflags hsc_env
     liftIO $ restoreStaticFlagGlobals sf_globals
     liftIO $ restoreLinkerGlobals linker_globals
+    liftIO $ setUnsafeGlobalDynFlags dflags
 \end{code}
 
 %************************************************************************

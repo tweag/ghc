@@ -2,7 +2,7 @@
 --
 -- The register liveness determinator
 --
--- (c) The University of Glasgow 2004
+-- (c) The University of Glasgow 2004-2013
 --
 -----------------------------------------------------------------------------
 module RegAlloc.Liveness (
@@ -33,8 +33,8 @@ import Reg
 import Instruction
 
 import BlockId
-import OldCmm hiding (RegSet)
-import OldPprCmm()
+import Cmm hiding (RegSet)
+import PprCmm()
 
 import Digraph
 import DynFlags
@@ -423,7 +423,7 @@ slurpReloadCoalesce live
                 , slotMap'                      <- addToUFM slotMap slot reg
                 = return (slotMap', Nothing)
 
-                -- add an edge betwen the this reg and the last one stored into the slot
+                -- add an edge between the this reg and the last one stored into the slot
                 | LiveInstr (RELOAD slot reg) _ <- li
                 = case lookupUFM slotMap slot of
                         Just reg2
@@ -594,7 +594,7 @@ patchEraseLive patchF cmm
                 -- source and destination regs are the same
                 | r1 == r2      = True
 
-                -- desination reg is never used
+                -- destination reg is never used
                 | elementOfUniqSet r2 (liveBorn live)
                 , elementOfUniqSet r2 (liveDieRead live) || elementOfUniqSet r2 (liveDieWrite live)
                 = True
@@ -690,10 +690,11 @@ regLiveness platform (CmmProc info lbl live sccs)
 
 -- -----------------------------------------------------------------------------
 -- | Check ordering of Blocks
---   The computeLiveness function requires SCCs to be in reverse dependent order.
---   If they're not the liveness information will be wrong, and we'll get a bad allocation.
---   Better to check for this precondition explicitly or some other poor sucker will
---   waste a day staring at bad assembly code..
+--   The computeLiveness function requires SCCs to be in reverse
+--   dependent order.  If they're not the liveness information will be
+--   wrong, and we'll get a bad allocation.  Better to check for this
+--   precondition explicitly or some other poor sucker will waste a
+--   day staring at bad assembly code..
 --
 checkIsReverseDependent
         :: Instruction instr

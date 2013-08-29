@@ -31,7 +31,7 @@ module CoreSyn (
 	mkFloatLit, mkFloatLitFloat,
 	mkDoubleLit, mkDoubleLitDouble,
 	
-	mkConApp, mkTyBind, mkCoBind,
+	mkConApp, mkConApp2, mkTyBind, mkCoBind,
 	varToCoreExpr, varsToCoreExprs,
 
         isId, cmpAltCon, cmpAlt, ltAlt,
@@ -261,6 +261,9 @@ These data types are the heart of the compiler
 -- *  A type: this should only show up at the top level of an Arg
 --
 -- *  A coercion
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data Expr b
   = Var	  Id
   | Lit   Literal
@@ -281,9 +284,15 @@ type Arg b = Expr b
 -- | A case split alternative. Consists of the constructor leading to the alternative,
 -- the variables bound from the constructor, and the expression to be executed given that binding.
 -- The default alternative is @(DEFAULT, [], rhs)@
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 type Alt b = (AltCon, [b], Expr b)
 
 -- | A case alternative constructor (i.e. pattern match)
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data AltCon 
   = DataAlt DataCon   --  ^ A plain data constructor: @case e of { Foo x -> ... }@.
                       -- Invariant: the 'DataCon' is always from a @data@ type, and never from a @newtype@
@@ -296,6 +305,9 @@ data AltCon
    deriving (Eq, Ord, Data, Typeable)
 
 -- | Binding, used for top level bindings in a module and local bindings in a @let@.
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data Bind b = NonRec b (Expr b)
 	    | Rec [(b, (Expr b))]
   deriving (Data, Typeable)
@@ -423,6 +435,9 @@ unboxed type.
 
 \begin{code}
 -- | Allows attaching extra information to points in expressions
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data Tickish id =
     -- | An @{-# SCC #-}@ profiling annotation, either automatically
     -- added by the desugarer as a result of -auto-all, or added by
@@ -464,7 +479,7 @@ data Tickish id =
 -- cannot discard a tick, and the compiler should preserve the number
 -- of ticks as far as possible.
 --
--- Hwever, we stil allow the simplifier to increase or decrease
+-- However, we still allow the simplifier to increase or decrease
 -- sharing, so in practice the actual number of ticks may vary, except
 -- that we never change the value from zero to non-zero or vice versa.
 --
@@ -614,11 +629,11 @@ Representation of desugared vectorisation declarations that are fed to the vecto
 'ModGuts').
 
 \begin{code}
-data CoreVect = Vect      Id   (Maybe CoreExpr)
+data CoreVect = Vect      Id   CoreExpr
               | NoVect    Id
               | VectType  Bool TyCon (Maybe TyCon)
               | VectClass TyCon                     -- class tycon
-              | VectInst  Id                        -- instance dfun (always SCALAR)
+              | VectInst  Id                        -- instance dfun (always SCALAR)  !!!FIXME: should be superfluous now
 \end{code}
 
 
@@ -1049,6 +1064,9 @@ a list of CoreBind
    chunks.  
 
 \begin{code}
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 type CoreProgram = [CoreBind]	-- See Note [CoreProgram]
 
 -- | The common case for the type of binders and variables when
@@ -1114,6 +1132,11 @@ mkTyApps  f args = foldl (\ e a -> App e (Type a)) f args
 mkCoApps  f args = foldl (\ e a -> App e (Coercion a)) f args
 mkVarApps f vars = foldl (\ e a -> App e (varToCoreExpr a)) f vars
 mkConApp con args = mkApps (Var (dataConWorkId con)) args
+
+mkConApp2 :: DataCon -> [Type] -> [Var] -> Expr b
+mkConApp2 con tys arg_ids = Var (dataConWorkId con) 
+                            `mkApps` map Type tys
+                            `mkApps` map varToCoreExpr arg_ids
 
 
 -- | Create a machine integer literal expression of type @Int#@ from an @Integer@.
@@ -1213,6 +1236,8 @@ varsToCoreExprs vs = map varToCoreExpr vs
 \begin{code}
 -- | Extract every variable by this group
 bindersOf  :: Bind b -> [b]
+-- If you edit this function, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 bindersOf (NonRec binder _) = [binder]
 bindersOf (Rec pairs)       = [binder | (binder, _) <- pairs]
 
@@ -1304,8 +1329,9 @@ isRuntimeVar = isId
 isRuntimeArg :: CoreExpr -> Bool
 isRuntimeArg = isValArg
 
--- | Returns @False@ iff the expression is a 'Type' or 'Coercion'
--- expression at its top level
+-- | Returns @True@ for value arguments, false for type args
+-- NB: coercions are value arguments (zero width, to be sure,
+-- like State#, but still value args).
 isValArg :: Expr b -> Bool
 isValArg e = not (isTypeArg e)
 

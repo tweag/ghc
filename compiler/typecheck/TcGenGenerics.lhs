@@ -27,7 +27,10 @@ import TcType
 import TcGenDeriv
 import DataCon
 import TyCon
-import FamInstEnv       ( FamInst, mkSynFamInst )
+import CoAxiom
+import Coercion         ( mkSingleCoAxiom )
+import FamInstEnv       ( FamInst, FamFlavor(..) )
+import FamInst
 import Module           ( Module, moduleName, moduleNameString )
 import IfaceEnv         ( newGlobalBinder )
 import Name      hiding ( varName )
@@ -46,10 +49,9 @@ import Bag
 import VarSet (elemVarSet)
 import Outputable 
 import FastString
-import UniqSupply
 import Util
 
-import Control.Monad (mplus)
+import Control.Monad (mplus,forM)
 import qualified State as S
 
 #include "HsVersions.h"
@@ -70,46 +72,40 @@ For the generic representation we need to generate:
 
 \begin{code}
 gen_Generic_binds :: GenericKind -> TyCon -> MetaTyCons -> Module
-                 -> TcM (LHsBinds RdrName, FamInst)
+                 -> TcM (LHsBinds RdrName, FamInst Unbranched)
 gen_Generic_binds gk tc metaTyCons mod = do
   repTyInsts <- tc_mkRepFamInsts gk tc metaTyCons mod
   return (mkBindsRep gk tc, repTyInsts)
 
 genGenericMetaTyCons :: TyCon -> Module -> TcM (MetaTyCons, BagDerivStuff)
 genGenericMetaTyCons tc mod =
-  do  uniqS <- newUniqueSupply
+  do  loc <- getSrcSpanM
       let
-        -- Uniques for everyone
-        (uniqD:uniqs) = uniqsFromSupply uniqS
-        (uniqsC,us) = splitAt (length tc_cons) uniqs
-        uniqsS :: [[Unique]] -- Unique supply for the S datatypes
-        uniqsS = mkUniqsS tc_arits us
-        mkUniqsS []    _  = []
-        mkUniqsS (n:t) us = case splitAt n us of
-                              (us1,us2) -> us1 : mkUniqsS t us2
-
         tc_name   = tyConName tc
         tc_cons   = tyConDataCons tc
         tc_arits  = map dataConSourceArity tc_cons
-        
+
         tc_occ    = nameOccName tc_name
         d_occ     = mkGenD tc_occ
         c_occ m   = mkGenC tc_occ m
         s_occ m n = mkGenS tc_occ m n
-        d_name    = mkExternalName uniqD mod d_occ wiredInSrcSpan
-        c_names   = [ mkExternalName u mod (c_occ m) wiredInSrcSpan
-                      | (u,m) <- zip uniqsC [0..] ]
-        s_names   = [ [ mkExternalName u mod (s_occ m n) wiredInSrcSpan 
-                        | (u,n) <- zip us [0..] ] | (us,m) <- zip uniqsS [0..] ]
-        
+
         mkTyCon name = ASSERT( isExternalName name )
                        buildAlgTyCon name [] Nothing [] distinctAbstractTyConRhs
-                                          NonRecursive False NoParentTyCon
+                                          NonRecursive 
+                                          False          -- Not promotable
+                                          False          -- Not GADT syntax
+                                          NoParentTyCon
+
+      d_name  <- newGlobalBinder mod d_occ loc
+      c_names <- forM (zip [0..] tc_cons) $ \(m,_) ->
+                    newGlobalBinder mod (c_occ m) loc
+      s_names <- forM (zip [0..] tc_arits) $ \(m,a) -> forM [0..a-1] $ \n ->
+                    newGlobalBinder mod (s_occ m n) loc
 
       let metaDTyCon  = mkTyCon d_name
           metaCTyCons = map mkTyCon c_names
-          metaSTyCons =  [ [ mkTyCon s_name | s_name <- s_namesC ] 
-                         | s_namesC <- s_names ]
+          metaSTyCons = map (map mkTyCon) s_names
 
           metaDts = MetaTyCons metaDTyCon metaCTyCons metaSTyCons
 
@@ -135,33 +131,32 @@ metaTyConsToDerivStuff tc metaDts =
       let
         safeOverlap = safeLanguageOn dflags
         (dBinds,cBinds,sBinds) = mkBindsMetaD fix_env tc
+        mk_inst clas tc dfun_name 
+          = mkLocalInstance (mkDictFunId dfun_name [] [] clas tys)
+                            (NoOverlap safeOverlap)
+                            [] clas tys
+          where
+            tys = [mkTyConTy tc]
         
         -- Datatype
         d_metaTycon = metaD metaDts
-        d_inst = mkLocalInstance d_dfun $ NoOverlap safeOverlap
-        d_binds = VanillaInst dBinds [] False
-        d_dfun  = mkDictFunId d_dfun_name (tyConTyVars tc) [] dClas 
-                    [ mkTyConTy d_metaTycon ]
+        d_inst   = mk_inst dClas d_metaTycon d_dfun_name
+        d_binds  = VanillaInst dBinds [] False
         d_mkInst = DerivInst (InstInfo { iSpec = d_inst, iBinds = d_binds })
         
         -- Constructor
         c_metaTycons = metaC metaDts
-        c_insts = [ mkLocalInstance (c_dfun c ds) $ NoOverlap safeOverlap
+        c_insts = [ mk_inst cClas c ds
                   | (c, ds) <- myZip1 c_metaTycons c_dfun_names ]
         c_binds = [ VanillaInst c [] False | c <- cBinds ]
-        c_dfun c dfun_name = mkDictFunId dfun_name (tyConTyVars tc) [] cClas 
-                               [ mkTyConTy c ]
         c_mkInst = [ DerivInst (InstInfo { iSpec = is, iBinds = bs })
                    | (is,bs) <- myZip1 c_insts c_binds ]
         
         -- Selector
         s_metaTycons = metaS metaDts
-        s_insts = map (map (\(s,ds) -> mkLocalInstance (s_dfun s ds) $
-                                                  NoOverlap safeOverlap))
-                    (myZip2 s_metaTycons s_dfun_names)
+        s_insts = map (map (\(s,ds) -> mk_inst sClas s ds))
+                      (myZip2 s_metaTycons s_dfun_names)
         s_binds = [ [ VanillaInst s [] False | s <- ss ] | ss <- sBinds ]
-        s_dfun s dfun_name = mkDictFunId dfun_name (tyConTyVars tc) [] sClas
-                               [ mkTyConTy s ]
         s_mkInst = map (map (\(is,bs) -> DerivInst (InstInfo { iSpec  = is
                                                              , iBinds = bs})))
                        (myZip2 s_insts s_binds)
@@ -208,10 +203,10 @@ canDoGenerics tc tc_args
               (if (not (null (tyConStupidTheta tc)))
                 then (Just (tc_name <+> text "must not have a datatype context"))
                 else Nothing) :
-          -- The type should not be instantiated (see #5939)
+          -- The type arguments should not be instantiated (see #5939)
           -- Data family indices can be instantiated; the `tc_args` here are the
           -- representation tycon args
-              (if (all isTyVarTy tc_args)
+              (if (all isTyVarTy (filterOut isKindTy tc_args))
                 then Nothing
                 else Just (tc_name <+> text "must not be instantiated;" <+>
                            text "try deriving `" <> tc_name <+> tc_tys <>
@@ -294,7 +289,7 @@ canDoGenerics1_w rep_tc
 
     check_vanilla :: DataCon -> Maybe SDoc
     check_vanilla con | isVanillaDataCon con = Nothing
-    		      | otherwise	     = Just (bad con existential)
+                      | otherwise            = Just (bad con existential)
 
     -- the Bool is if the parameter occurs in the type
     ft_check :: DataCon -> FFoldType (Bool, S.State [Name] (Maybe SDoc))
@@ -306,7 +301,7 @@ canDoGenerics1_w rep_tc
                         -- applications, so we must compensate with extra logic
                         -- to ensure that the variable only occurs as the last
                         -- argument.
-	      	      , ft_fun = \x y -> if fst x then (True, return $ Just $ bad con wrong_arg)
+                      , ft_fun = \x y -> if fst x then (True, return $ Just $ bad con wrong_arg)
                                          else x `bmplus` y
                       , ft_tup = \_ xs ->
                           if not (null xs) && any fst (init xs)
@@ -324,17 +319,15 @@ canDoGenerics1_w rep_tc
     representable ty = case tcSplitTyConApp_maybe ty of
       Nothing -> return Nothing
       -- if it's a type constructor, it has to be representable
-      Just (tc, tc_args) -> do
+      Just (tc, _) -> do
         let n = tyConName tc
         s <- S.get
         -- internally assume that recursive occurrences are OK
         if n `elem` s then return Nothing else do
           S.put (n : s)
-          fmap {-maybe-} (\_ -> bad_app tc) -- don't give the message, just name what wasn't representable
-            `fmap` {-state-} case canDoGenerics tc tc_args of
-              j@(Just _) -> return j
-              -- only check Generic1 if it passes Generic
-              Nothing -> canDoGenerics1_w tc
+          fmap {-maybe-} (\_ -> bad_app tc) -- don't give the message, just
+                                            -- name what wasn't representable
+            `fmap` {-state-} canDoGenerics1_w tc
 
     existential = (ptext . sLit) "must not have existential arguments"
     covariant   = (ptext . sLit) "must not use the last type parameter in a function argument"
@@ -407,17 +400,17 @@ mkBindsRep gk tycon =
 --       type Rep_D a b = ...representation type for D ...
 --------------------------------------------------------------------------------
 
-tc_mkRepFamInsts ::  GenericKind     -- Gen0 or Gen1
+tc_mkRepFamInsts :: GenericKind     -- Gen0 or Gen1
                -> TyCon           -- The type to generate representation for
                -> MetaTyCons      -- Metadata datatypes to refer to
                -> Module          -- Used as the location of the new RepTy
-               -> TcM FamInst     -- Generated representation0 coercion
+               -> TcM (FamInst Unbranched) -- Generated representation0 coercion
 tc_mkRepFamInsts gk tycon metaDts mod = 
        -- Consider the example input tycon `D`, where data D a b = D_ a
        -- Also consider `R:DInt`, where { data family D x y :: * -> *
        --                               ; data instance D Int a b = D_ a }
   do { -- `rep` = GHC.Generics.Rep or GHC.Generics.Rep1 (type family)
-       rep <- case gk of
+       fam_tc <- case gk of
          Gen0 -> tcLookupTyCon repTyConName
          Gen1 -> tcLookupTyCon rep1TyConName
 
@@ -430,6 +423,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
 
            tyvar_args = mkTyVarTys tyvars
 
+           appT :: [Type]
            appT = case tyConFamInst_maybe tycon of
                      -- `appT` = D Int a b (data families case)
                      Just (famtycon, apps) ->
@@ -450,8 +444,8 @@ tc_mkRepFamInsts gk tycon metaDts mod =
                    in newGlobalBinder mod (mkGen (nameOccName (tyConName tycon)))
                         (nameSrcSpan (tyConName tycon))
 
-     ; return $ mkSynFamInst rep_name tyvars rep appT repTy
-     }
+     ; let axiom = mkSingleCoAxiom rep_name tyvars fam_tc appT repTy
+     ; newFamInst SynFamilyInst False axiom  }
 
 --------------------------------------------------------------------------------
 -- Type representation
@@ -624,8 +618,10 @@ mkBindsMetaD fix_env tycon = (dtBinds, allConBinds, allSelBinds)
         mkBag l = foldr1 unionBags 
                     [ unitBag (L loc (mkFunBind (L loc name) matches)) 
                         | (name, matches) <- l ]
-        dtBinds       = mkBag [ (datatypeName_RDR, dtName_matches)
-                              , (moduleName_RDR, moduleName_matches)]
+        dtBinds       = mkBag ( [ (datatypeName_RDR, dtName_matches)
+                                , (moduleName_RDR, moduleName_matches)]
+                              ++ ifElseEmpty (isNewTyCon tycon)
+                                [ (isNewtypeName_RDR, isNewtype_matches) ] )
 
         allConBinds   = map conBinds datacons
         conBinds c    = mkBag ( [ (conName_RDR, conName_matches c)]
@@ -659,6 +655,7 @@ mkBindsMetaD fix_env tycon = (dtBinds, allConBinds, allSelBinds)
                            $ tyConName_user
         moduleName_matches = mkStringLHS . moduleNameString . moduleName 
                            . nameModule . tyConName $ tycon
+        isNewtype_matches  = [mkSimpleHsAlt nlWildPat (nlHsVar true_RDR)]
 
         conName_matches     c = mkStringLHS . occNameString . nameOccName
                               . dataConName $ c

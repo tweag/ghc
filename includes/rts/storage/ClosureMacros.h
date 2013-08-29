@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------------
  *
- * (c) The GHC Team, 1998-2004
+ * (c) The GHC Team, 1998-2012
  *
  * Macros for building and manipulating closures
  *
@@ -26,7 +26,7 @@
        "info pointer"    The first word of the closure.  Might point
                          to either the end or the beginning of the
 			 info table, depending on whether we're using
-			 the mini interpretter or not.  GET_INFO(c)
+			 the mini interpreter or not.  GET_INFO(c)
 			 retrieves the info pointer of a closure.
 
        "info table"      The info table structure associated with a
@@ -488,10 +488,6 @@ EXTERN_INLINE void overwritingClosure (StgClosure *p);
 EXTERN_INLINE void overwritingClosure (StgClosure *p)
 {
     nat size, i;
-
-#if defined(PROFILING)
-    if (era <= 0) return;
-#endif
 
     size = closure_sizeW(p);
 

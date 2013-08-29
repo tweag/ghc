@@ -12,7 +12,7 @@ module ErrUtils (
         MsgDoc, mkLocMessage, pprMessageBag, pprErrMsgBag, pprErrMsgBagWithLoc,
         pprLocErrMsg, makeIntoWarning,
         
-        errorsFound, emptyMessages,
+        errorsFound, emptyMessages, isEmptyMessages,
         mkErrMsg, mkPlainErrMsg, mkLongErrMsg, mkWarnMsg, mkPlainWarnMsg,
         printBagOfErrors, 
         warnIsErrorMsg, mkLongWarnMsg,
@@ -52,6 +52,7 @@ import Data.IORef
 import Data.Ord
 import Data.Time
 import Control.Monad
+import Control.Monad.IO.Class
 import System.IO
 
 -- -----------------------------------------------------------------------------
@@ -135,6 +136,9 @@ mkPlainWarnMsg dflags locn        msg       = mk_err_msg dflags SevWarning locn 
 ----------------
 emptyMessages :: Messages
 emptyMessages = (emptyBag, emptyBag)
+
+isEmptyMessages :: Messages -> Bool
+isEmptyMessages (warns, errs) = isEmptyBag warns && isEmptyBag errs
 
 warnIsErrorMsg :: DynFlags -> ErrMsg
 warnIsErrorMsg dflags
@@ -357,6 +361,6 @@ prettyPrintGhcErrors dflags
                       PprProgramError str doc ->
                           pprDebugAndThen dflags pgmError str doc
                       _ ->
-                          throw e
+                          liftIO $ throwIO e
 \end{code}
 

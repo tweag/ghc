@@ -77,6 +77,7 @@ import Util             ( readRational )
 
 import Control.Monad
 import Data.Bits
+import Data.ByteString (ByteString)
 import Data.Char
 import Data.List
 import Data.Maybe
@@ -338,7 +339,7 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 }
 
 <0> {
-  "(#" / { ifExtension unboxedTuplesEnabled `alexAndPred` notFollowedBySymbol }
+  "(#" / { ifExtension unboxedTuplesEnabled }
          { token IToubxparen }
   "#)" / { ifExtension unboxedTuplesEnabled }
          { token ITcubxparen }
@@ -552,7 +553,7 @@ data Token
   | ITrational   FractionalLit
 
   | ITprimchar   Char
-  | ITprimstring FastBytes
+  | ITprimstring ByteString
   | ITprimint    Integer
   | ITprimword   Integer
   | ITprimfloat  FractionalLit
@@ -678,7 +679,7 @@ reservedSymsFM = listToUFM $
        ,("->",  ITrarrow,   always)
        ,("@",   ITat,       always)
        ,("~",   ITtilde,    always)
-       ,("~#",  ITtildehsh, always)
+       ,("~#",  ITtildehsh, magicHashEnabled)
        ,("=>",  ITdarrow,   always)
        ,("-",   ITminus,    always)
        ,("!",   ITbang,     always)
@@ -1244,8 +1245,8 @@ lex_string s = do
                    setInput i
                    if any (> '\xFF') s
                     then failMsgP "primitive string literal must contain only characters <= \'\\xFF\'"
-                    else let fb = unsafeMkFastBytesString (reverse s)
-                         in return (ITprimstring fb)
+                    else let bs = unsafeMkByteString (reverse s)
+                         in return (ITprimstring bs)
               _other ->
                 return (ITstring (mkFastString (reverse s)))
           else
@@ -2388,8 +2389,11 @@ dispatch_pragmas prags span buf len = case Map.lookup (clean_pragma (lexemeToStr
                                        Nothing -> lexError "unknown pragma"
 
 known_pragma :: Map String Action -> AlexAccPred Int
-known_pragma prags _ _ len (AI _ buf) = (isJust $ Map.lookup (clean_pragma (lexemeToString (offsetBytes (- len) buf) len)) prags)
-                                          && (nextCharIsNot buf (\c -> isAlphaNum c || c == '_'))
+known_pragma prags _ (AI _ startbuf) _ (AI _ curbuf)
+ = isKnown && nextCharIsNot curbuf pragmaNameChar
+    where l = lexemeToString startbuf (byteDiff startbuf curbuf)
+          isKnown = isJust $ Map.lookup (clean_pragma l) prags
+          pragmaNameChar c = isAlphaNum c || c == '_'
 
 clean_pragma :: String -> String
 clean_pragma prag = canon_ws (map toLower (unprefix prag))

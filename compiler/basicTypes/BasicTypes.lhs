@@ -26,6 +26,8 @@ types that
 module BasicTypes(
 	Version, bumpVersion, initialVersion,
 
+        ConTag, fIRST_TAG,
+
 	Arity, RepArity,
 	
 	Alignment,
@@ -61,9 +63,6 @@ module BasicTypes(
 	InterestingCxt,
 
         EP(..),
-
-	HsBang(..), isBanged, isMarkedUnboxed, 
-        StrictnessMark(..), isMarkedStrict,
 
 	DefMethSpec(..),
         SwapFlag(..), flipSwap, unSwap,
@@ -112,6 +111,21 @@ type Arity = Int
 --  \x -> fib x                has representation arity 1
 --  \(# x, y #) -> fib (x + y) has representation arity 2
 type RepArity = Int
+\end{code}
+
+%************************************************************************
+%*									*
+              Constructor tags
+%*									*
+%************************************************************************
+
+\begin{code}
+-- | Type of the tags associated with each constructor possibility
+type ConTag = Int
+
+fIRST_TAG :: ConTag
+-- ^ Tags are allocated from here for real constructors
+fIRST_TAG =  1
 \end{code}
 
 %************************************************************************
@@ -574,61 +588,6 @@ instance Outputable OccInfo where
 
 %************************************************************************
 %*									*
-		Strictness indication
-%*									*
-%************************************************************************
-
-The strictness annotations on types in data type declarations
-e.g. 	data T = MkT !Int !(Bool,Bool)
-
-\begin{code}
--------------------------
--- HsBang describes what the *programmer* wrote
--- This info is retained in the DataCon.dcStrictMarks field
-data HsBang = HsNoBang	
-
-	    | HsStrict	
-
-	    | HsUnpack	       -- {-# UNPACK #-} ! (GHC extension, meaning "unbox")
-
-	    | HsUnpackFailed   -- An UNPACK pragma that we could not make 
-	      		       -- use of, because the type isn't unboxable; 
-                               -- equivalant to HsStrict except for checkValidDataCon
-            | HsNoUnpack       -- {-# NOUNPACK #-} ! (GHC extension, meaning "strict but not unboxed")
-  deriving (Eq, Data, Typeable)
-
-instance Outputable HsBang where
-    ppr HsNoBang       = empty
-    ppr HsStrict       = char '!'
-    ppr HsUnpack       = ptext (sLit "{-# UNPACK #-} !")
-    ppr HsUnpackFailed = ptext (sLit "{-# UNPACK (failed) #-} !")
-    ppr HsNoUnpack     = ptext (sLit "{-# NOUNPACK #-} !")
-
-isBanged :: HsBang -> Bool
-isBanged HsNoBang = False
-isBanged _        = True
-
-isMarkedUnboxed :: HsBang -> Bool
-isMarkedUnboxed HsUnpack = True
-isMarkedUnboxed _        = False
-
--------------------------
--- StrictnessMark is internal only, used to indicate strictness 
--- of the DataCon *worker* fields
-data StrictnessMark = MarkedStrict | NotMarkedStrict	
-
-instance Outputable StrictnessMark where
-  ppr MarkedStrict     = ptext (sLit "!")
-  ppr NotMarkedStrict  = empty
-
-isMarkedStrict :: StrictnessMark -> Bool
-isMarkedStrict NotMarkedStrict = False
-isMarkedStrict _               = True   -- All others are strict
-\end{code}
-
-
-%************************************************************************
-%*									*
 		Default method specfication
 %*									*
 %************************************************************************
@@ -727,7 +686,8 @@ data InlineSpec   -- What the user's INLINE pragama looked like
   = Inline
   | Inlinable
   | NoInline
-  | EmptyInlineSpec
+  | EmptyInlineSpec  -- Used in a place-holder InlinePragma in SpecPrag or IdInfo,
+                     -- where there isn't any real inline pragma at all
   deriving( Eq, Data, Typeable, Show )
 	-- Show needed for Lexer.x
 \end{code}

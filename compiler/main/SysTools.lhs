@@ -243,6 +243,7 @@ initSysTools mbMinusB
                                ++ tntc_gcc_args)
        ldSupportsCompactUnwind <- getBooleanSetting "ld supports compact unwind"
        ldSupportsBuildId       <- getBooleanSetting "ld supports build-id"
+       ldSupportsFilelist      <- getBooleanSetting "ld supports filelist"
        ldIsGnuLd               <- getBooleanSetting "ld is GNU ld"
        perl_path <- getSetting "perl command"
 
@@ -284,10 +285,11 @@ initSysTools mbMinusB
                     ++ gcc_args
 
        -- Other things being equal, as and ld are simply gcc
+       gcc_link_args_str <- getSetting "C compiler link flags"
        let   as_prog  = gcc_prog
              as_args  = gcc_args
              ld_prog  = gcc_prog
-             ld_args  = gcc_args
+             ld_args  = gcc_args ++ map Option (words gcc_link_args_str)
 
        -- We just assume on command line
        lc_prog <- getSetting "LLVM llc command"
@@ -314,6 +316,7 @@ initSysTools mbMinusB
                     sSystemPackageConfig = pkgconfig_path,
                     sLdSupportsCompactUnwind = ldSupportsCompactUnwind,
                     sLdSupportsBuildId       = ldSupportsBuildId,
+                    sLdSupportsFilelist      = ldSupportsFilelist,
                     sLdIsGnuLd               = ldIsGnuLd,
                     sPgm_L   = unlit_path,
                     sPgm_P   = (cpp_prog, cpp_args),
@@ -353,7 +356,7 @@ findTopDir Nothing
          maybe_exec_dir <- getBaseDir
          case maybe_exec_dir of
              -- "Just" on Windows, "Nothing" on unix
-             Nothing  -> ghcError (InstallationError "missing -B<dir> option")
+             Nothing  -> throwGhcExceptionIO (InstallationError "missing -B<dir> option")
              Just dir -> return dir
 \end{code}
 
@@ -527,13 +530,20 @@ runClang :: DynFlags -> [Option] -> IO ()
 runClang dflags args = do
   -- we simply assume its available on the PATH
   let clang = "clang"
+      -- be careful what options we call clang with
+      -- see #5903 and #7617 for bugs caused by this.
+      (_,args0) = pgm_a dflags
+      args1 = args0 ++ args
+  mb_env <- getGccEnv args1
   Exception.catch (do
-        runSomething dflags "Clang (Assembler)" clang args
+        runSomethingFiltered dflags id "Clang (Assembler)" clang args1 mb_env
     )
     (\(err :: SomeException) -> do
-        errorMsg dflags $ text $ "Error running clang! you need clang installed"
-                              ++ " to use the LLVM backend"
-        throw err
+        errorMsg dflags $
+            text ("Error running clang! you need clang installed to use the" ++
+                "LLVM backend") $+$
+            text "(or GHC tried to execute clang incorrectly)"
+        throwIO err
     )
 
 -- | Figure out which version of LLVM we are running this session
@@ -830,14 +840,14 @@ handleProc pgm phase_name proc = do
         -- the case of a missing program there will otherwise be no output
         -- at all.
        | n == 127  -> does_not_exist
-       | otherwise -> ghcError (PhaseFailed phase_name rc)
+       | otherwise -> throwGhcExceptionIO (PhaseFailed phase_name rc)
   where
     handler err =
        if IO.isDoesNotExistError err
           then does_not_exist
           else IO.ioError err
 
-    does_not_exist = ghcError (InstallationError ("could not execute: " ++ pgm))
+    does_not_exist = throwGhcExceptionIO (InstallationError ("could not execute: " ++ pgm))
 
 
 builderMainLoop :: DynFlags -> (String -> String) -> FilePath
@@ -969,7 +979,7 @@ traceCmd dflags phase_name cmd_line action
   where
     handle_exn _verb exn = do { debugTraceMsg dflags 2 (char '\n')
                               ; debugTraceMsg dflags 2 (ptext (sLit "Failed:") <+> text cmd_line <+> text (show exn))
-                              ; ghcError (PhaseFailed phase_name (ExitFailure 1)) }
+                              ; throwGhcExceptionIO (PhaseFailed phase_name (ExitFailure 1)) }
 \end{code}
 
 %************************************************************************
@@ -1041,10 +1051,22 @@ linesPlatform xs =
 #endif
 
 linkDynLib :: DynFlags -> [String] -> [PackageId] -> IO ()
-linkDynLib dflags o_files dep_packages
+linkDynLib dflags0 o_files dep_packages
  = do
-    let verbFlags = getVerbFlags dflags
-    let o_file = outputFile dflags
+    let -- This is a rather ugly hack to fix dynamically linked
+        -- GHC on Windows. If GHC is linked with -threaded, then
+        -- it links against libHSrts_thr. But if base is linked
+        -- against libHSrts, then both end up getting loaded,
+        -- and things go wrong. We therefore link the libraries
+        -- with the same RTS flags that we link GHC with.
+        dflags1 = if cGhcThreaded then addWay' WayThreaded dflags0
+                                  else                     dflags0
+        dflags2 = if cGhcDebugged then addWay' WayDebug dflags1
+                                  else                  dflags1
+        dflags = updateWays dflags2
+
+        verbFlags = getVerbFlags dflags
+        o_file = outputFile dflags
 
     pkgs <- getPreloadPackagesAnd dflags dep_packages
 

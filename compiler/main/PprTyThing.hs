@@ -31,8 +31,11 @@ import Id
 import TyCon
 import Coercion( pprCoAxiom )
 import HscTypes( tyThingParent_maybe )
+import Type( tidyTopType, tidyOpenType )
 import TcType
 import Name
+import VarEnv( emptyTidyEnv )
+import StaticFlags( opt_PprStyle_Debug )
 import Outputable
 import FastString
 
@@ -162,8 +165,12 @@ pprTypeForUser print_foralls ty
   | print_foralls = ppr tidy_ty
   | otherwise     = ppr (mkPhiTy ctxt ty')
   where
-    tidy_ty     = tidyTopType ty
     (_, ctxt, ty') = tcSplitSigmaTy tidy_ty
+    (_, tidy_ty)   = tidyOpenType emptyTidyEnv ty
+     -- Often the types/kinds we print in ghci are fully generalised
+     -- and have no free variables, but it turns out that we sometimes
+     -- print un-generalised kinds (eg when doing :k T), so it's
+     -- better to use tidyOpenType here
 
 pprTyCon :: PrintExplicitForalls -> ShowSub -> TyCon -> SDoc
 pprTyCon pefas ss tyCon
@@ -172,8 +179,8 @@ pprTyCon pefas ss tyCon
       SynFamilyTyCon {} -> pprTyConHdr pefas tyCon <+> dcolon <+> 
                            pprTypeForUser pefas (GHC.synTyConResKind tyCon)
       SynonymTyCon rhs_ty -> hang (pprTyConHdr pefas tyCon <+> equals) 
-                                2 (pprTypeForUser pefas rhs_ty)
-
+                                2 (ppr rhs_ty)   -- Don't suppress foralls on RHS type!
+                                                 -- e.g. type T = forall a. a->a
   | Just cls <- GHC.tyConClass_maybe tyCon
   = pprClass pefas ss cls
   | otherwise
@@ -205,7 +212,7 @@ pprDataConDecl pefas ss gadt_style dataCon
     (arg_tys, res_ty)        = tcSplitFunTys tau
     labels     = GHC.dataConFieldLabels dataCon
     stricts    = GHC.dataConStrictMarks dataCon
-    tys_w_strs = zip stricts arg_tys
+    tys_w_strs = zip (map user_ify stricts) arg_tys
     pp_foralls | pefas     = GHC.pprForAll forall_tvs
                | otherwise = empty
 
@@ -213,11 +220,17 @@ pprDataConDecl pefas ss gadt_style dataCon
     add str_ty pp_ty = pprParendBangTy str_ty <+> arrow <+> pp_ty
 
     pprParendBangTy (bang,ty) = ppr bang <> GHC.pprParendType ty
+    pprBangTy       (bang,ty) = ppr bang <> ppr ty
 
-    pprBangTy bang ty = ppr bang <> ppr ty
+    -- See Note [Printing bangs on data constructors]
+    user_ify :: HsBang -> HsBang
+    user_ify bang | opt_PprStyle_Debug = bang
+    user_ify HsStrict                  = HsUserBang Nothing     True
+    user_ify (HsUnpack {})             = HsUserBang (Just True) True
+    user_ify bang                      = bang
 
-    maybe_show_label (lbl,(strict,tp))
-	| showSub ss lbl = Just (ppr lbl <+> dcolon <+> pprBangTy strict tp)
+    maybe_show_label (lbl,bty)
+	| showSub ss lbl = Just (ppr_bndr lbl <+> dcolon <+> pprBangTy bty)
 	| otherwise      = Nothing
 
     ppr_fields [ty1, ty2]
@@ -292,3 +305,11 @@ showWithLoc loc doc
   where
     comment = ptext (sLit "--")
 
+{- 
+Note [Printing bangs on data constructors] 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+For imported data constructors the dataConStrictMarks are the
+representation choices (see Note [Bangs on data constructor arguments]
+in DataCon.lhs). So we have to fiddle a little bit here to turn them
+back into user-printable form.
+-}

@@ -29,11 +29,11 @@ module StgCmmUtils (
         cmmOffsetW, cmmOffsetB,
         cmmOffsetLitW, cmmOffsetLitB,
         cmmLoadIndexW,
-        cmmConstrTag, cmmConstrTag1,
+        cmmConstrTag1,
 
-        cmmUntag, cmmIsTagged, cmmGetTag,
+        cmmUntag, cmmIsTagged,
 
-        addToMem, addToMemE, addToMemLbl,
+        addToMem, addToMemE, addToMemLblE, addToMemLbl,
         mkWordCLit,
         newStringCLit, newByteStringCLit,
         blankWord
@@ -65,6 +65,7 @@ import DynFlags
 import FastString
 import Outputable
 
+import qualified Data.ByteString as BS
 import Data.Char
 import Data.List
 import Data.Ord
@@ -79,7 +80,7 @@ import Data.Maybe
 -------------------------------------------------------------------------
 
 cgLit :: Literal -> FCode CmmLit
-cgLit (MachStr s) = newByteStringCLit (bytesFB s)
+cgLit (MachStr s) = newByteStringCLit (BS.unpack s)
  -- not unpackFS; we want the UTF-8 byte stream.
 cgLit other_lit   = do dflags <- getDynFlags
                        return (mkSimpleLit dflags other_lit)
@@ -116,6 +117,9 @@ mkSimpleLit _ other             = pprPanic "mkSimpleLit" (ppr other)
 
 addToMemLbl :: CmmType -> CLabel -> Int -> CmmAGraph
 addToMemLbl rep lbl n = addToMem rep (CmmLit (CmmLabel lbl)) n
+
+addToMemLblE :: CmmType -> CLabel -> CmmExpr -> CmmAGraph
+addToMemLblE rep lbl = addToMemE rep (CmmLit (CmmLabel lbl))
 
 addToMem :: CmmType     -- rep of the counter
          -> CmmExpr     -- Address
@@ -169,22 +173,21 @@ tagToClosure dflags tycon tag
 -------------------------------------------------------------------------
 
 emitRtsCall :: PackageId -> FastString -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
-emitRtsCall pkg fun args safe = emitRtsCallGen [] pkg fun args safe
+emitRtsCall pkg fun args safe = emitRtsCallGen [] (mkCmmCodeLabel pkg fun) args safe
 
 emitRtsCallWithResult :: LocalReg -> ForeignHint -> PackageId -> FastString
         -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
 emitRtsCallWithResult res hint pkg fun args safe
-   = emitRtsCallGen [(res,hint)] pkg fun args safe
+   = emitRtsCallGen [(res,hint)] (mkCmmCodeLabel pkg fun) args safe
 
 -- Make a call to an RTS C procedure
 emitRtsCallGen
    :: [(LocalReg,ForeignHint)]
-   -> PackageId
-   -> FastString
+   -> CLabel
    -> [(CmmExpr,ForeignHint)]
    -> Bool -- True <=> CmmSafe call
    -> FCode ()
-emitRtsCallGen res pkg fun args safe
+emitRtsCallGen res lbl args safe
   = do { dflags <- getDynFlags
        ; updfr_off <- getUpdFrameOff
        ; let (caller_save, caller_load) = callerSaveVolatileRegs dflags
@@ -200,7 +203,7 @@ emitRtsCallGen res pkg fun args safe
         emit $ mkUnsafeCall (ForeignTarget fun_expr conv) res' args'
     (args', arg_hints) = unzip args
     (res',  res_hints) = unzip res
-    fun_expr = mkLblExpr (mkCmmCodeLabel pkg fun)
+    fun_expr = mkLblExpr lbl
 
 
 -----------------------------------------------------------------------------

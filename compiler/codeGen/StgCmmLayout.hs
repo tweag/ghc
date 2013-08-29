@@ -24,15 +24,7 @@ module StgCmmLayout (
 
 	mkVirtHeapOffsets, mkVirtConstrOffsets, getHpRelOffset, hpRel,
 
-	stdInfoTableSizeB,
-	entryCode, closureInfoPtr,
-	getConstrTag,
-        cmmGetClosureType,
-	infoTable, infoTableClosureType,
-	infoTablePtrs, infoTableNonPtrs,
-        funInfoTable,
-
-        ArgRep(..), toArgRep, argRepSizeW
+        ArgRep(..), toArgRep, argRepSizeW -- re-exported from StgCmmArgRep
   ) where
 
 
@@ -40,6 +32,7 @@ module StgCmmLayout (
 
 import StgCmmClosure
 import StgCmmEnv
+import StgCmmArgRep -- notably: ( slowCallPattern )
 import StgCmmTicky
 import StgCmmMonad
 import StgCmmUtils
@@ -49,6 +42,7 @@ import MkGraph
 import SMRep
 import Cmm
 import CmmUtils
+import CmmInfo
 import CLabel
 import StgSyn
 import Id
@@ -58,7 +52,6 @@ import BasicTypes	( RepArity )
 import DynFlags
 import Module
 
-import Constants
 import Util
 import Data.List
 import Outputable
@@ -121,7 +114,7 @@ emitCallWithExtraStack (callConv, retConv) fun args extra_stack
 	; updfr_off <- getUpdFrameOff
         ; case sequel of
             Return _ -> do
-              emit $ mkForeignJumpExtra dflags callConv fun args updfr_off extra_stack
+              emit $ mkJumpExtra dflags callConv fun args updfr_off extra_stack
               return AssignedDirectly
             AssignTo res_regs _ -> do
               k <- newLabelC
@@ -155,7 +148,7 @@ adjustHpBackwards
 		then mkNop
 		else mkAssign hpReg new_hp)	-- Generates nothing when vHp==rHp
 
-	; tickyAllocHeap adjust_words		-- ...ditto
+	; tickyAllocHeap False adjust_words		-- ...ditto
 
 	; setRealHp vHp
 	}
@@ -305,75 +298,6 @@ slowArgs dflags args -- careful: reps contains voids (V), but args does not
     save_cccs  = [(N, Just (mkLblExpr save_cccs_lbl)), (N, Just curCCS)]
     save_cccs_lbl = mkCmmRetInfoLabel rtsPackageId (fsLit "stg_restore_cccs")
 
-
-
--- These cases were found to cover about 99% of all slow calls:
-slowCallPattern :: [ArgRep] -> (FastString, RepArity)
--- Returns the generic apply function and arity
-slowCallPattern (P: P: P: P: P: P: _) = (fsLit "stg_ap_pppppp", 6)
-slowCallPattern (P: P: P: P: P: _)    = (fsLit "stg_ap_ppppp", 5)
-slowCallPattern (P: P: P: P: _)       = (fsLit "stg_ap_pppp", 4)
-slowCallPattern (P: P: P: V: _)       = (fsLit "stg_ap_pppv", 4)
-slowCallPattern (P: P: P: _)          = (fsLit "stg_ap_ppp", 3)
-slowCallPattern (P: P: V: _)          = (fsLit "stg_ap_ppv", 3)
-slowCallPattern (P: P: _)	      = (fsLit "stg_ap_pp", 2)
-slowCallPattern (P: V: _)	      = (fsLit "stg_ap_pv", 2)
-slowCallPattern (P: _)		      = (fsLit "stg_ap_p", 1)
-slowCallPattern (V: _)		      = (fsLit "stg_ap_v", 1)
-slowCallPattern (N: _)		      = (fsLit "stg_ap_n", 1)
-slowCallPattern (F: _)		      = (fsLit "stg_ap_f", 1)
-slowCallPattern (D: _)		      = (fsLit "stg_ap_d", 1)
-slowCallPattern (L: _)		      = (fsLit "stg_ap_l", 1)
-slowCallPattern []		      = (fsLit "stg_ap_0", 0)
-
-
--------------------------------------------------------------------------
---      Classifying arguments: ArgRep
--------------------------------------------------------------------------
-
--- ArgRep is exported, but only for use in the byte-code generator which
--- also needs to know about the classification of arguments.
-
-data ArgRep = P   -- GC Ptr
-            | N   -- Word-sized non-ptr
-            | L   -- 64-bit non-ptr (long)
-            | V   -- Void
-            | F   -- Float
-            | D   -- Double
-instance Outputable ArgRep where
-  ppr P = text "P"
-  ppr N = text "N"
-  ppr L = text "L"
-  ppr V = text "V"
-  ppr F = text "F"
-  ppr D = text "D"
-
-toArgRep :: PrimRep -> ArgRep
-toArgRep VoidRep   = V
-toArgRep PtrRep    = P
-toArgRep IntRep    = N
-toArgRep WordRep   = N
-toArgRep AddrRep   = N
-toArgRep Int64Rep  = L
-toArgRep Word64Rep = L
-toArgRep FloatRep  = F
-toArgRep DoubleRep = D
-
-isNonV :: ArgRep -> Bool
-isNonV V = False
-isNonV _ = True
-
-argRepSizeW :: DynFlags -> ArgRep -> WordOff                -- Size in words
-argRepSizeW _      N = 1
-argRepSizeW _      P = 1
-argRepSizeW _      F = 1
-argRepSizeW dflags L = wORD64_SIZE        `quot` wORD_SIZE dflags
-argRepSizeW dflags D = dOUBLE_SIZE dflags `quot` wORD_SIZE dflags
-argRepSizeW _      V = 0
-
-idArgRep :: Id -> ArgRep
-idArgRep = toArgRep . idPrimRep
-
 -------------------------------------------------------------------------
 ----	Laying out objects on the heap and stack
 -------------------------------------------------------------------------
@@ -463,12 +387,13 @@ argBits dflags (arg : args) = take (argRepSizeW dflags arg) (repeat True)
 stdPattern :: [ArgRep] -> Maybe Int
 stdPattern reps
   = case reps of
-	[]  -> Just ARG_NONE	-- just void args, probably
-	[N] -> Just ARG_N
-	[P] -> Just ARG_P
-	[F] -> Just ARG_F
-	[D] -> Just ARG_D
-	[L] -> Just ARG_L
+	[]    -> Just ARG_NONE	-- just void args, probably
+	[N]   -> Just ARG_N
+	[P]   -> Just ARG_P
+	[F]   -> Just ARG_F
+	[D]   -> Just ARG_D
+	[L]   -> Just ARG_L
+	[V16] -> Just ARG_V16
 
 	[N,N] -> Just ARG_NN
 	[N,P] -> Just ARG_NP
@@ -534,116 +459,3 @@ emitClosureAndInfoTable info_tbl conv args body
        ; let entry_lbl = toEntryLbl (cit_lbl info_tbl)
        ; emitProcWithConvention conv (Just info_tbl) entry_lbl args blks
        }
-
------------------------------------------------------------------------------
---
---	Info table offsets
---
------------------------------------------------------------------------------
-	
-stdInfoTableSizeW :: DynFlags -> WordOff
--- The size of a standard info table varies with profiling/ticky etc,
--- so we can't get it from Constants
--- It must vary in sync with mkStdInfoTable
-stdInfoTableSizeW dflags
-  = size_fixed + size_prof
-  where
-    size_fixed = 2	-- layout, type
-    size_prof | gopt Opt_SccProfilingOn dflags = 2
-	      | otherwise	   = 0
-
-stdInfoTableSizeB  :: DynFlags -> ByteOff
-stdInfoTableSizeB dflags = stdInfoTableSizeW dflags * wORD_SIZE dflags
-
-stdSrtBitmapOffset :: DynFlags -> ByteOff
--- Byte offset of the SRT bitmap half-word which is 
--- in the *higher-addressed* part of the type_lit
-stdSrtBitmapOffset dflags = stdInfoTableSizeB dflags - hALF_WORD_SIZE dflags
-
-stdClosureTypeOffset :: DynFlags -> ByteOff
--- Byte offset of the closure type half-word 
-stdClosureTypeOffset dflags = stdInfoTableSizeB dflags - wORD_SIZE dflags
-
-stdPtrsOffset, stdNonPtrsOffset :: DynFlags -> ByteOff
-stdPtrsOffset    dflags = stdInfoTableSizeB dflags - 2 * wORD_SIZE dflags
-stdNonPtrsOffset dflags = stdInfoTableSizeB dflags - 2 * wORD_SIZE dflags + hALF_WORD_SIZE dflags
-
--------------------------------------------------------------------------
---
---	Accessing fields of an info table
---
--------------------------------------------------------------------------
-
-closureInfoPtr :: DynFlags -> CmmExpr -> CmmExpr
--- Takes a closure pointer and returns the info table pointer
-closureInfoPtr dflags e = CmmLoad e (bWord dflags)
-
-entryCode :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info pointer (the first word of a closure)
--- and returns its entry code
-entryCode dflags e
- | tablesNextToCode dflags = e
- | otherwise               = CmmLoad e (bWord dflags)
-
-getConstrTag :: DynFlags -> CmmExpr -> CmmExpr
--- Takes a closure pointer, and return the *zero-indexed*
--- constructor tag obtained from the info table
--- This lives in the SRT field of the info table
--- (constructors don't need SRTs).
-getConstrTag dflags closure_ptr
-  = CmmMachOp (MO_UU_Conv (halfWordWidth dflags) (wordWidth dflags)) [infoTableConstrTag dflags info_table]
-  where
-    info_table = infoTable dflags (closureInfoPtr dflags closure_ptr)
-
-cmmGetClosureType :: DynFlags -> CmmExpr -> CmmExpr
--- Takes a closure pointer, and return the closure type
--- obtained from the info table
-cmmGetClosureType dflags closure_ptr
-  = CmmMachOp (MO_UU_Conv (halfWordWidth dflags) (wordWidth dflags)) [infoTableClosureType dflags info_table]
-  where
-    info_table = infoTable dflags (closureInfoPtr dflags closure_ptr)
-
-infoTable :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info pointer (the first word of a closure)
--- and returns a pointer to the first word of the standard-form
--- info table, excluding the entry-code word (if present)
-infoTable dflags info_ptr
-  | tablesNextToCode dflags = cmmOffsetB dflags info_ptr (- stdInfoTableSizeB dflags)
-  | otherwise               = cmmOffsetW dflags info_ptr 1 -- Past the entry code pointer
-
-infoTableConstrTag :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info table pointer (from infoTable) and returns the constr tag
--- field of the info table (same as the srt_bitmap field)
-infoTableConstrTag = infoTableSrtBitmap
-
-infoTableSrtBitmap :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info table pointer (from infoTable) and returns the srt_bitmap
--- field of the info table
-infoTableSrtBitmap dflags info_tbl
-  = CmmLoad (cmmOffsetB dflags info_tbl (stdSrtBitmapOffset dflags)) (bHalfWord dflags)
-
-infoTableClosureType :: DynFlags -> CmmExpr -> CmmExpr
--- Takes an info table pointer (from infoTable) and returns the closure type
--- field of the info table.
-infoTableClosureType dflags info_tbl
-  = CmmLoad (cmmOffsetB dflags info_tbl (stdClosureTypeOffset dflags)) (bHalfWord dflags)
-
-infoTablePtrs :: DynFlags -> CmmExpr -> CmmExpr
-infoTablePtrs dflags info_tbl
-  = CmmLoad (cmmOffsetB dflags info_tbl (stdPtrsOffset dflags)) (bHalfWord dflags)
-
-infoTableNonPtrs :: DynFlags -> CmmExpr -> CmmExpr
-infoTableNonPtrs dflags info_tbl
-  = CmmLoad (cmmOffsetB dflags info_tbl (stdNonPtrsOffset dflags)) (bHalfWord dflags)
-
-funInfoTable :: DynFlags -> CmmExpr -> CmmExpr
--- Takes the info pointer of a function,
--- and returns a pointer to the first word of the StgFunInfoExtra struct
--- in the info table.
-funInfoTable dflags info_ptr
-  | tablesNextToCode dflags
-  = cmmOffsetB dflags info_ptr (- stdInfoTableSizeB dflags - sIZEOF_StgFunInfoExtraRev dflags)
-  | otherwise
-  = cmmOffsetW dflags info_ptr (1 + stdInfoTableSizeW dflags)
-				-- Past the entry code pointer
-

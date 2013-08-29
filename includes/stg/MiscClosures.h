@@ -101,6 +101,8 @@ RTS_ENTRY(stg_DEAD_WEAK);
 RTS_ENTRY(stg_STABLE_NAME);
 RTS_ENTRY(stg_MVAR_CLEAN);
 RTS_ENTRY(stg_MVAR_DIRTY);
+RTS_ENTRY(stg_TVAR_CLEAN);
+RTS_ENTRY(stg_TVAR_DIRTY);
 RTS_ENTRY(stg_TSO);
 RTS_ENTRY(stg_STACK);
 RTS_ENTRY(stg_ARR_WORDS);
@@ -112,6 +114,7 @@ RTS_ENTRY(stg_MUT_ARR_PTRS_FROZEN0);
 RTS_ENTRY(stg_MUT_VAR_CLEAN);
 RTS_ENTRY(stg_MUT_VAR_DIRTY);
 RTS_ENTRY(stg_END_TSO_QUEUE);
+RTS_ENTRY(stg_STM_AWOKEN);
 RTS_ENTRY(stg_MSG_TRY_WAKEUP);
 RTS_ENTRY(stg_MSG_THROWTO);
 RTS_ENTRY(stg_MSG_BLACKHOLE);
@@ -130,7 +133,6 @@ RTS_ENTRY(stg_atomically);
 RTS_ENTRY(stg_TVAR_WATCH_QUEUE);
 RTS_ENTRY(stg_INVARIANT_CHECK_QUEUE);
 RTS_ENTRY(stg_ATOMIC_INVARIANT);
-RTS_ENTRY(stg_TVAR);
 RTS_ENTRY(stg_TREC_CHUNK);
 RTS_ENTRY(stg_TREC_HEADER);
 RTS_ENTRY(stg_END_STM_WATCH_QUEUE);
@@ -141,6 +143,7 @@ RTS_ENTRY(stg_NO_TREC);
 /* closures */
 
 RTS_CLOSURE(stg_END_TSO_QUEUE_closure);
+RTS_CLOSURE(stg_STM_AWOKEN_closure);
 RTS_CLOSURE(stg_NO_FINALIZER_closure);
 RTS_CLOSURE(stg_dummy_ret_closure);
 RTS_CLOSURE(stg_forceIO_closure);
@@ -220,6 +223,7 @@ RTS_RET(stg_ap_v);
 RTS_RET(stg_ap_f);
 RTS_RET(stg_ap_d);
 RTS_RET(stg_ap_l);
+RTS_RET(stg_ap_v16);
 RTS_RET(stg_ap_n);
 RTS_RET(stg_ap_p);
 RTS_RET(stg_ap_pv);
@@ -236,6 +240,7 @@ RTS_FUN_DECL(stg_ap_v_fast);
 RTS_FUN_DECL(stg_ap_f_fast);
 RTS_FUN_DECL(stg_ap_d_fast);
 RTS_FUN_DECL(stg_ap_l_fast);
+RTS_FUN_DECL(stg_ap_v16_fast);
 RTS_FUN_DECL(stg_ap_n_fast);
 RTS_FUN_DECL(stg_ap_p_fast);
 RTS_FUN_DECL(stg_ap_pv_fast);
@@ -468,6 +473,7 @@ extern StgWord RTS_VAR(RtsFlags); // bogus type
 
 // Stable.c
 extern StgWord RTS_VAR(stable_ptr_table);
+extern StgWord RTS_VAR(stable_name_table);
 
 // Profiling.c
 extern unsigned int RTS_VAR(era);

@@ -1,4 +1,3 @@
-
 %
 % (c) The University of Glasgow, 1992-2006
 %
@@ -29,7 +28,7 @@ module HsUtils(
   mkHsWrap, mkLHsWrap, mkHsWrapCo, mkLHsWrapCo,
   coToHsWrapper, mkHsDictLet, mkHsLams,
   mkHsOpApp, mkHsDo, mkHsComp, mkHsWrapPat, mkHsWrapPatCo,
-  mkLHsPar, 
+  mkLHsPar, mkHsCmdCast,
 
   nlHsTyApp, nlHsVar, nlHsLit, nlHsApp, nlHsApps, nlHsIntLit, nlHsVarApps, 
   nlHsDo, nlHsOpApp, nlHsLam, nlHsPar, nlHsIf, nlHsCase, nlList,
@@ -68,7 +67,7 @@ module HsUtils(
   collectLStmtBinders, collectStmtBinders,
 
   hsLTyClDeclBinders, hsTyClDeclBinders, hsTyClDeclsBinders, 
-  hsForeignDeclsBinders, hsGroupBinders, hsFamInstBinders,
+  hsForeignDeclsBinders, hsGroupBinders, hsDataFamInstBinders,
   
   -- Collecting implicit binders
   lStmtsImplicits, hsValBindsImplicits, lPatImplicits
@@ -128,7 +127,7 @@ unguardedRHS :: Located (body id) -> [LGRHS id (Located (body id))]
 unguardedRHS rhs@(L loc _) = [L loc (GRHS [] rhs)]
 
 mkMatchGroup :: [LMatch id (Located (body id))] -> MatchGroup id (Located (body id))
-mkMatchGroup matches = MatchGroup matches placeHolderType
+mkMatchGroup matches = MG { mg_alts = matches, mg_arg_tys = [], mg_res_ty = placeHolderType }
 
 mkHsAppTy :: LHsType name -> LHsType name -> LHsType name
 mkHsAppTy t1 t2 = addCLoc t1 t2 (HsAppTy t1 t2)
@@ -344,7 +343,7 @@ nlHsLam	match		= noLoc (HsLam (mkMatchGroup [match]))
 nlHsPar e		= noLoc (HsPar e)
 nlHsIf cond true false	= noLoc (mkHsIf cond true false)
 nlHsCase expr matches	= noLoc (HsCase expr (mkMatchGroup matches))
-nlList exprs		= noLoc (ExplicitList placeHolderType exprs)
+nlList exprs		= noLoc (ExplicitList placeHolderType Nothing exprs)
 
 nlHsAppTy :: LHsType name -> LHsType name -> LHsType name
 nlHsTyVar :: name                         -> LHsType name
@@ -393,6 +392,10 @@ mkHsWrapCo co e | isTcReflCo co = e
 mkLHsWrapCo :: TcCoercion -> LHsExpr id -> LHsExpr id
 mkLHsWrapCo co (L loc e) | isTcReflCo co = L loc e
                          | otherwise     = L loc (mkHsWrap (WpCast co) e)
+
+mkHsCmdCast :: TcCoercion -> HsCmd id -> HsCmd id
+mkHsCmdCast co cmd | isTcReflCo co = cmd
+                   | otherwise     = HsCmdCast co cmd
 
 coToHsWrapper :: TcCoercion -> HsWrapper
 coToHsWrapper co | isTcReflCo co = idHsWrapper
@@ -566,7 +569,7 @@ collect_lpat (L _ pat) bndrs
     go (ViewPat _ pat _)          = collect_lpat pat bndrs
     go (ParPat  pat)     	  = collect_lpat pat bndrs
 				  
-    go (ListPat pats _)    	  = foldr collect_lpat bndrs pats
+    go (ListPat pats _ _)         = foldr collect_lpat bndrs pats
     go (PArrPat pats _)    	  = foldr collect_lpat bndrs pats
     go (TuplePat pats _ _)  	  = foldr collect_lpat bndrs pats
 				  
@@ -639,32 +642,35 @@ hsLTyClDeclBinders (L _ d) = hsTyClDeclBinders d
 
 -------------------
 hsTyClDeclBinders :: Eq name => TyClDecl name -> [Located name]
-hsTyClDeclBinders (TyFamily    {tcdLName = name}) = [name]
+hsTyClDeclBinders (FamDecl { tcdFam = FamilyDecl { fdLName = name} }) = [name]
 hsTyClDeclBinders (ForeignType {tcdLName = name}) = [name]
+hsTyClDeclBinders (SynDecl     {tcdLName = name}) = [name]
 
 hsTyClDeclBinders (ClassDecl { tcdLName = cls_name, tcdSigs = sigs
-                             , tcdATs = ats, tcdATDefs = fam_insts })
+                             , tcdATs = ats })
   = cls_name : 
-    concatMap hsLTyClDeclBinders ats ++ 
-    concatMap (hsFamInstBinders . unLoc) fam_insts ++
+    map (fdLName . unLoc) ats ++ 
     [n | L _ (TypeSig ns _) <- sigs, n <- ns]
 
-hsTyClDeclBinders (TyDecl { tcdLName = name, tcdTyDefn = defn }) 
-  = name : hsTyDefnBinders defn
+hsTyClDeclBinders (DataDecl { tcdLName = name, tcdDataDefn = defn }) 
+  = name : hsDataDefnBinders defn
 
 -------------------
 hsInstDeclBinders :: Eq name => InstDecl name -> [Located name]
-hsInstDeclBinders (ClsInstD { cid_fam_insts = fis }) = concatMap (hsFamInstBinders . unLoc) fis
-hsInstDeclBinders (FamInstD { lid_inst = fi }) = hsFamInstBinders fi
+hsInstDeclBinders (ClsInstD { cid_inst = ClsInstDecl { cid_datafam_insts = dfis } })
+  = concatMap (hsDataFamInstBinders . unLoc) dfis
+hsInstDeclBinders (DataFamInstD { dfid_inst = fi }) = hsDataFamInstBinders fi
+hsInstDeclBinders (TyFamInstD {}) = []
 
 -------------------
-hsFamInstBinders :: Eq name => FamInstDecl name -> [Located name]
-hsFamInstBinders (FamInstDecl { fid_defn = defn }) = hsTyDefnBinders defn
+hsDataFamInstBinders :: Eq name => DataFamInstDecl name -> [Located name]
+hsDataFamInstBinders (DataFamInstDecl { dfid_defn = defn })
+  = hsDataDefnBinders defn
+  -- There can't be repeated symbols because only data instances have binders
 
 -------------------
-hsTyDefnBinders :: Eq name => HsTyDefn name -> [Located name]
-hsTyDefnBinders (TySynonym {})              = []
-hsTyDefnBinders (TyData { td_cons = cons }) = hsConDeclsBinders cons
+hsDataDefnBinders :: Eq name => HsDataDefn name -> [Located name]
+hsDataDefnBinders (HsDataDefn { dd_cons = cons }) = hsConDeclsBinders cons
   -- See Note [Binders in family instances]
 
 -------------------
@@ -748,7 +754,7 @@ lPatImplicits = hs_lpat
     hs_pat (AsPat _ pat)       = hs_lpat pat
     hs_pat (ViewPat _ pat _)   = hs_lpat pat
     hs_pat (ParPat  pat)       = hs_lpat pat
-    hs_pat (ListPat pats _)    = hs_lpats pats
+    hs_pat (ListPat pats _ _)  = hs_lpats pats
     hs_pat (PArrPat pats _)    = hs_lpats pats
     hs_pat (TuplePat pats _ _) = hs_lpats pats
 

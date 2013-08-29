@@ -63,6 +63,7 @@ processHeapClosureForDead( StgClosure *c )
     case STACK:
     case MVAR_CLEAN:
     case MVAR_DIRTY:
+    case TVAR:
     case MUT_ARR_PTRS_CLEAN:
     case MUT_ARR_PTRS_DIRTY:
     case MUT_ARR_PTRS_FROZEN:
@@ -211,7 +212,7 @@ processChainForDead( bdescr *bd )
  * current garbage collection.  This function is called from a garbage
  * collector right before tidying up, when all dead closures are still
  * stored in the heap and easy to identify.  Generations 0 through N
- * have just beed garbage collected.
+ * have just been garbage collected.
  * ----------------------------------------------------------------------- */
 void
 LdvCensusForDead( nat N )

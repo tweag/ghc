@@ -24,10 +24,25 @@ compiler_stage3_MKDEPENDC_OPTS = -DMAKING_GHC_BUILD_SYSTEM_DEPENDENCIES
 
 compiler_stage1_C_FILES_NODEPS = compiler/parser/cutils.c
 
+# This package doesn't pass the Cabal checks because include-dirs
+# points outside the source directory. This isn't a real problem, so
+# we just skip the check.
+compiler_NO_CHECK = YES
+
 ifneq "$(BINDIST)" "YES"
 compiler/stage1/package-data.mk : compiler/stage1/build/Config.hs
 compiler/stage2/package-data.mk : compiler/stage2/build/Config.hs
 compiler/stage3/package-data.mk : compiler/stage3/build/Config.hs
+
+compiler/stage1/build/PlatformConstants.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
+compiler/stage2/build/PlatformConstants.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
+compiler/stage3/build/PlatformConstants.o: $(includes_GHCCONSTANTS_HASKELL_TYPE)
+compiler/stage1/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
+compiler/stage2/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
+compiler/stage3/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
+compiler/stage1/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_WRAPPERS)
+compiler/stage2/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_WRAPPERS)
+compiler/stage3/build/DynFlags.o: $(includes_GHCCONSTANTS_HASKELL_WRAPPERS)
 endif
 
 compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
@@ -86,27 +101,37 @@ endif
 	@echo 'cLeadingUnderscore    = "$(LeadingUnderscore)"'              >> $@
 	@echo 'cRAWCPP_FLAGS         :: String'                             >> $@
 	@echo 'cRAWCPP_FLAGS         = "$(RAWCPP_FLAGS)"'                   >> $@
-	@echo 'cGHC_DRIVER_DIR       :: String'                             >> $@
-	@echo 'cGHC_DRIVER_DIR       = "$(GHC_DRIVER_DIR)"'                 >> $@
 	@echo 'cGHC_UNLIT_PGM        :: String'                             >> $@
-	@echo 'cGHC_UNLIT_PGM        = "$(GHC_UNLIT_PGM)"'                  >> $@
-	@echo 'cGHC_UNLIT_DIR        :: String'                             >> $@
-	@echo 'cGHC_UNLIT_DIR        = "$(GHC_UNLIT_DIR)"'                  >> $@
+	@echo 'cGHC_UNLIT_PGM        = "$(utils/unlit_dist_PROG)"'          >> $@
 	@echo 'cGHC_SPLIT_PGM        :: String'                             >> $@
-	@echo 'cGHC_SPLIT_PGM        = "$(GHC_SPLIT_PGM)"'                  >> $@
-	@echo 'cGHC_SPLIT_DIR        :: String'                             >> $@
-	@echo 'cGHC_SPLIT_DIR        = "$(GHC_SPLIT_DIR)"'                  >> $@
-	@echo 'cGHC_SYSMAN_PGM       :: String'                             >> $@
-	@echo 'cGHC_SYSMAN_PGM       = "$(GHC_SYSMAN)"'                     >> $@
-	@echo 'cGHC_SYSMAN_DIR       :: String'                             >> $@
-	@echo 'cGHC_SYSMAN_DIR       = "$(GHC_SYSMAN_DIR)"'                 >> $@
-	@echo 'cDEFAULT_TMPDIR       :: String'                             >> $@
-	@echo 'cDEFAULT_TMPDIR       = "$(DEFAULT_TMPDIR)"'                 >> $@
+	@echo 'cGHC_SPLIT_PGM        = "$(driver/split_dist_PROG)"'         >> $@
 	@echo 'cLibFFI               :: Bool'                               >> $@
 ifeq "$(UseLibFFIForAdjustors)" "YES"
 	@echo 'cLibFFI               = True'                                >> $@
 else
 	@echo 'cLibFFI               = False'                               >> $@
+endif
+	@echo 'cDYNAMIC_GHC_PROGRAMS :: Bool'                               >> $@
+ifeq "$(DYNAMIC_GHC_PROGRAMS)" "YES"
+	@echo 'cDYNAMIC_GHC_PROGRAMS = True'                                >> $@
+else
+	@echo 'cDYNAMIC_GHC_PROGRAMS = False'                               >> $@
+endif
+# Note that GhcThreaded just reflects the Makefile variable setting.
+# In particular, the stage1 compiler is never actually compiled with
+# -threaded, but it will nevertheless have cGhcThreaded = True.
+# The "+RTS --info" output will show what RTS GHC is really using.
+	@echo 'cGhcThreaded :: Bool'                                        >> $@
+ifeq "$(GhcThreaded)" "YES"
+	@echo 'cGhcThreaded = True'                                         >> $@
+else
+	@echo 'cGhcThreaded = False'                                        >> $@
+endif
+	@echo 'cGhcDebugged :: Bool'                                        >> $@
+ifeq "$(GhcDebugged)" "YES"
+	@echo 'cGhcDebugged = True'                                         >> $@
+else
+	@echo 'cGhcDebugged = False'                                        >> $@
 endif
 	@echo done.
 
@@ -120,63 +145,12 @@ endif
 
 PLATFORM_H = ghc_boot_platform.h
 
-ifeq "$(BuildingCrossCompiler)" "YES"
-compiler/stage1/$(PLATFORM_H) : compiler/stage2/$(PLATFORM_H)
-	cp $< $@
-else
 compiler/stage1/$(PLATFORM_H) : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	$(call removeFiles,$@)
 	@echo "Creating $@..."
 	@echo "#ifndef __PLATFORM_H__"                           >> $@
 	@echo "#define __PLATFORM_H__"                           >> $@
 	@echo                                                    >> $@
-	@echo "#define BuildPlatform_NAME  \"$(BUILDPLATFORM)\"" >> $@
-	@echo "#define HostPlatform_NAME   \"$(BUILDPLATFORM)\"" >> $@
-	@echo "#define TargetPlatform_NAME \"$(HOSTPLATFORM)\""  >> $@
-	@echo                                                    >> $@
-	@echo "#define $(BuildPlatform_CPP)_BUILD 1"             >> $@
-	@echo "#define $(BuildPlatform_CPP)_HOST 1"              >> $@
-	@echo "#define $(HostPlatform_CPP)_TARGET 1"             >> $@
-	@echo                                                    >> $@
-	@echo "#define $(BuildArch_CPP)_BUILD_ARCH 1"            >> $@
-	@echo "#define $(BuildArch_CPP)_HOST_ARCH 1"             >> $@
-	@echo "#define $(HostArch_CPP)_TARGET_ARCH 1"            >> $@
-	@echo "#define BUILD_ARCH \"$(BuildArch_CPP)\""          >> $@
-	@echo "#define HOST_ARCH \"$(BuildArch_CPP)\""           >> $@
-	@echo "#define TARGET_ARCH \"$(HostArch_CPP)\""          >> $@
-	@echo                                                    >> $@
-	@echo "#define $(BuildOS_CPP)_BUILD_OS 1"                >> $@
-	@echo "#define $(BuildOS_CPP)_HOST_OS 1"                 >> $@
-	@echo "#define $(HostOS_CPP)_TARGET_OS 1"                >> $@
-	@echo "#define BUILD_OS \"$(BuildOS_CPP)\""              >> $@
-	@echo "#define HOST_OS \"$(BuildOS_CPP)\""               >> $@
-	@echo "#define TARGET_OS \"$(HostOS_CPP)\""              >> $@
-ifeq "$(HostOS_CPP)" "irix"
-	@echo "#ifndef $(IRIX_MAJOR)_TARGET_OS"                  >> $@
-	@echo "#define $(IRIX_MAJOR)_TARGET_OS 1"                >> $@
-	@echo "#endif"                                           >> $@
-endif
-	@echo                                                    >> $@
-	@echo "#define $(BuildVendor_CPP)_BUILD_VENDOR 1"        >> $@
-	@echo "#define $(BuildVendor_CPP)_HOST_VENDOR 1"         >> $@
-	@echo "#define $(HostVendor_CPP)_TARGET_VENDOR 1"        >> $@
-	@echo "#define BUILD_VENDOR \"$(BuildVendor_CPP)\""      >> $@
-	@echo "#define HOST_VENDOR \"$(BuildVendor_CPP)\""       >> $@
-	@echo "#define TARGET_VENDOR \"$(HostVendor_CPP)\""      >> $@
-	@echo                                                    >> $@
-	@echo "#endif /* __PLATFORM_H__ */"                      >> $@
-	@echo "Done."
-endif
-
-# For stage2 and above, the BUILD platform is the HOST of stage1, and
-# the HOST platform is the TARGET of stage1.  The TARGET remains the same
-# (stage1 is the cross-compiler, not stage2).
-compiler/stage2/$(PLATFORM_H) : mk/config.mk mk/project.mk | $$(dir $$@)/.
-	$(call removeFiles,$@)
-	@echo "Creating $@..."
-	@echo "#ifndef __PLATFORM_H__"                            >> $@
-	@echo "#define __PLATFORM_H__"                            >> $@
-	@echo                                                     >> $@
 	@echo "#define BuildPlatform_NAME  \"$(BUILDPLATFORM)\""  >> $@
 	@echo "#define HostPlatform_NAME   \"$(HOSTPLATFORM)\""   >> $@
 	@echo "#define TargetPlatform_NAME \"$(TARGETPLATFORM)\"" >> $@
@@ -188,14 +162,14 @@ compiler/stage2/$(PLATFORM_H) : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo "#define $(BuildArch_CPP)_BUILD_ARCH 1"             >> $@
 	@echo "#define $(HostArch_CPP)_HOST_ARCH 1"               >> $@
 	@echo "#define $(TargetArch_CPP)_TARGET_ARCH 1"           >> $@
-	@echo "#define BUILD_ARCH \"$(HostArch_CPP)\""            >> $@
+	@echo "#define BUILD_ARCH \"$(BuildArch_CPP)\""           >> $@
 	@echo "#define HOST_ARCH \"$(HostArch_CPP)\""             >> $@
 	@echo "#define TARGET_ARCH \"$(TargetArch_CPP)\""         >> $@
 	@echo                                                     >> $@
-	@echo "#define $(HostOS_CPP)_BUILD_OS 1"                  >> $@
+	@echo "#define $(BuildOS_CPP)_BUILD_OS 1"                 >> $@
 	@echo "#define $(HostOS_CPP)_HOST_OS 1"                   >> $@
 	@echo "#define $(TargetOS_CPP)_TARGET_OS 1"               >> $@
-	@echo "#define BUILD_OS \"$(HostOS_CPP)\""                >> $@
+	@echo "#define BUILD_OS \"$(BuildOS_CPP)\""               >> $@
 	@echo "#define HOST_OS \"$(HostOS_CPP)\""                 >> $@
 	@echo "#define TARGET_OS \"$(TargetOS_CPP)\""             >> $@
 ifeq "$(TargetOS_CPP)" "irix"
@@ -209,6 +183,52 @@ endif
 	@echo "#define $(TargetVendor_CPP)_TARGET_VENDOR  1"      >> $@
 	@echo "#define BUILD_VENDOR \"$(BuildVendor_CPP)\""       >> $@
 	@echo "#define HOST_VENDOR \"$(HostVendor_CPP)\""         >> $@
+	@echo "#define TARGET_VENDOR \"$(TargetVendor_CPP)\""     >> $@
+	@echo                                                     >> $@
+	@echo "#endif /* __PLATFORM_H__ */"                       >> $@
+	@echo "Done."
+
+# For stage2 and above, the BUILD platform is the HOST of stage1, and
+# the HOST platform is the TARGET of stage1.  The TARGET remains the same
+# (stage1 is the cross-compiler, not stage2).
+compiler/stage2/$(PLATFORM_H) : mk/config.mk mk/project.mk | $$(dir $$@)/.
+	$(call removeFiles,$@)
+	@echo "Creating $@..."
+	@echo "#ifndef __PLATFORM_H__"                            >> $@
+	@echo "#define __PLATFORM_H__"                            >> $@
+	@echo                                                     >> $@
+	@echo "#define BuildPlatform_NAME  \"$(HOSTPLATFORM)\""   >> $@
+	@echo "#define HostPlatform_NAME   \"$(TARGETPLATFORM)\"" >> $@
+	@echo "#define TargetPlatform_NAME \"$(TARGETPLATFORM)\"" >> $@
+	@echo                                                     >> $@
+	@echo "#define $(HostPlatform_CPP)_BUILD 1"               >> $@
+	@echo "#define $(TargetPlatform_CPP)_HOST 1"              >> $@
+	@echo "#define $(TargetPlatform_CPP)_TARGET 1"            >> $@
+	@echo                                                     >> $@
+	@echo "#define $(HostArch_CPP)_BUILD_ARCH 1"              >> $@
+	@echo "#define $(TargetArch_CPP)_HOST_ARCH 1"             >> $@
+	@echo "#define $(TargetArch_CPP)_TARGET_ARCH 1"           >> $@
+	@echo "#define BUILD_ARCH \"$(HostArch_CPP)\""            >> $@
+	@echo "#define HOST_ARCH \"$(TargetArch_CPP)\""           >> $@
+	@echo "#define TARGET_ARCH \"$(TargetArch_CPP)\""         >> $@
+	@echo                                                     >> $@
+	@echo "#define $(HostOS_CPP)_BUILD_OS 1"                  >> $@
+	@echo "#define $(TargetOS_CPP)_HOST_OS 1"                 >> $@
+	@echo "#define $(TargetOS_CPP)_TARGET_OS 1"               >> $@
+	@echo "#define BUILD_OS \"$(HostOS_CPP)\""                >> $@
+	@echo "#define HOST_OS \"$(TargetOS_CPP)\""               >> $@
+	@echo "#define TARGET_OS \"$(TargetOS_CPP)\""             >> $@
+ifeq "$(TargetOS_CPP)" "irix"
+	@echo "#ifndef $(IRIX_MAJOR)_TARGET_OS"                   >> $@
+	@echo "#define $(IRIX_MAJOR)_TARGET_OS 1"                 >> $@
+	@echo "#endif"                                            >> $@
+endif
+	@echo                                                     >> $@
+	@echo "#define $(HostVendor_CPP)_BUILD_VENDOR 1"          >> $@
+	@echo "#define $(TargetVendor_CPP)_HOST_VENDOR 1"         >> $@
+	@echo "#define $(TargetVendor_CPP)_TARGET_VENDOR  1"      >> $@
+	@echo "#define BUILD_VENDOR \"$(HostVendor_CPP)\""        >> $@
+	@echo "#define HOST_VENDOR \"$(TargetVendor_CPP)\""       >> $@
 	@echo "#define TARGET_VENDOR \"$(TargetVendor_CPP)\""     >> $@
 	@echo                                                     >> $@
 	@echo "#endif /* __PLATFORM_H__ */"                       >> $@
@@ -230,6 +250,7 @@ PRIMOP_BITS_NAMES = primop-data-decl.hs-incl        \
                     primop-code-size.hs-incl        \
                     primop-can-fail.hs-incl         \
                     primop-strictness.hs-incl       \
+                    primop-fixity.hs-incl       \
                     primop-primop-info.hs-incl
 
 PRIMOP_BITS_STAGE1 = $(addprefix compiler/stage1/build/,$(PRIMOP_BITS_NAMES))
@@ -247,33 +268,33 @@ compiler/stage$1/build/Parser.y: compiler/parser/Parser.y.pp
 compiler/stage$1/build/primops.txt: compiler/prelude/primops.txt.pp compiler/stage$1/$$(PLATFORM_H)
 	$$(CPP) $$(RAWCPP_FLAGS) -P $$(compiler_CPP_OPTS) -Icompiler/stage$1 -x c $$< | grep -v '^#pragma GCC' > $$@
 
-ifneq "$$(BootingFromHc)" "YES"
-compiler/stage$1/build/primop-data-decl.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --data-decl          < $$< > $$@
-compiler/stage$1/build/primop-tag.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --primop-tag         < $$< > $$@
-compiler/stage$1/build/primop-list.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --primop-list        < $$< > $$@
-compiler/stage$1/build/primop-has-side-effects.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --has-side-effects   < $$< > $$@
-compiler/stage$1/build/primop-out-of-line.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --out-of-line        < $$< > $$@
-compiler/stage$1/build/primop-commutable.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --commutable         < $$< > $$@
-compiler/stage$1/build/primop-code-size.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --code-size          < $$< > $$@
-compiler/stage$1/build/primop-can-fail.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --can-fail           < $$< > $$@
-compiler/stage$1/build/primop-strictness.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --strictness         < $$< > $$@
-compiler/stage$1/build/primop-primop-info.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --primop-primop-info < $$< > $$@
+compiler/stage$1/build/primop-data-decl.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --data-decl          < $$< > $$@
+compiler/stage$1/build/primop-tag.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --primop-tag         < $$< > $$@
+compiler/stage$1/build/primop-list.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --primop-list        < $$< > $$@
+compiler/stage$1/build/primop-has-side-effects.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --has-side-effects   < $$< > $$@
+compiler/stage$1/build/primop-out-of-line.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --out-of-line        < $$< > $$@
+compiler/stage$1/build/primop-commutable.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --commutable         < $$< > $$@
+compiler/stage$1/build/primop-code-size.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --code-size          < $$< > $$@
+compiler/stage$1/build/primop-can-fail.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --can-fail           < $$< > $$@
+compiler/stage$1/build/primop-strictness.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --strictness         < $$< > $$@
+compiler/stage$1/build/primop-fixity.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --fixity             < $$< > $$@
+compiler/stage$1/build/primop-primop-info.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --primop-primop-info < $$< > $$@
 
 # Usages aren't used any more; but the generator 
 # can still generate them if we want them back
-compiler/stage$1/build/primop-usage.hs-incl: compiler/stage$1/build/primops.txt $$(GENPRIMOP_INPLACE)
-	"$$(GENPRIMOP_INPLACE)" --usage              < $$< > $$@
-endif
+compiler/stage$1/build/primop-usage.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
+	"$$(genprimopcode_INPLACE)" --usage              < $$< > $$@
 
 endef
 
@@ -295,20 +316,6 @@ endif
 
 ifeq "$(GhcWithInterpreter)" "YES"
 compiler_stage2_CONFIGURE_OPTS += --flags=ghci
-
-ifeq "$(BuildSharedLibs)" "YES"
-# There are too many symbols to make a Windows DLL for the ghc package,
-# so we don't build it the dyn way; see trac #5987
-ifneq "$(TargetOS_CPP)" "mingw32"
-compiler_stage2_CONFIGURE_OPTS += --enable-shared
-# If we are going to use dynamic libraries instead of .o files for ghci,
-# we will need to always retain CAFs in the compiler.
-# ghci/keepCAFsForGHCi contains a GNU C __attribute__((constructor))
-# function which sets the keepCAFs flag for the RTS before any Haskell
-# code is run.
-compiler_stage2_CONFIGURE_OPTS += --flags=dynlibs
-endif
-endif
 
 ifeq "$(GhcEnableTablesNextToCode) $(GhcUnregisterised)" "YES NO"
 # Should GHCI be building info tables in the TABLES_NEXT_TO_CODE style
@@ -404,23 +411,20 @@ compiler_stage1_REGISTER_PACKAGE = NO
 
 endif
 
-# haddocking only happens for stage2
-compiler_stage1_DO_HADDOCK = NO
-compiler_stage3_DO_HADDOCK = NO
-
 # Don't do splitting for the GHC package, it takes too long and
 # there's not much benefit.
 compiler_stage1_SplitObjs = NO
 compiler_stage2_SplitObjs = NO
 compiler_stage3_SplitObjs = NO
 
-ifeq "$(TargetOS_CPP)" "mingw32"
-# There are too many symbols to make a Windows DLL for the ghc package,
-# so we don't build it the dyn way; see trac #5987
-compiler_stage1_EXCLUDED_WAYS := dyn
-compiler_stage2_EXCLUDED_WAYS := dyn
-compiler_stage3_EXCLUDED_WAYS := dyn
-endif
+# There are too many symbols in the ghc package for a Windows DLL.
+# We therefore need to split some of the modules off into a separate
+# DLL. This clump are the modules reachable from DynFlags:
+compiler_stage2_dll0_START_MODULE = DynFlags
+compiler_stage2_dll0_MODULES = Annotations Avail Bag BasicTypes Binary Bitmap BlockId BreakArray BufWrite ByteCodeAsm ByteCodeInstr ByteCodeItbls ByteCodeLink CLabel Class CmdLineParser Cmm CmmCallConv CmmExpr CmmInfo CmmMachOp CmmNode CmmType CmmUtils CoAxiom CodeGen.Platform CodeGen.Platform.ARM CodeGen.Platform.NoRegs CodeGen.Platform.PPC CodeGen.Platform.PPC_Darwin CodeGen.Platform.SPARC CodeGen.Platform.X86 CodeGen.Platform.X86_64 Coercion Config Constants CoreArity CoreFVs CoreSubst CoreSyn CoreTidy CoreUnfold CoreUtils CostCentre DataCon Demand Digraph DriverPhases DynFlags Encoding ErrUtils Exception FamInstEnv FastBool FastFunctions FastMutInt FastString FastTypes Fingerprint FiniteMap ForeignCall Hoopl Hoopl.Dataflow HsBinds HsDecls HsDoc HsExpr HsImpExp HsLit HsPat HsSyn HsTypes HsUtils HscTypes Id IdInfo IfaceSyn IfaceType InstEnv InteractiveEvalTypes Kind ListSetOps Literal Maybes MkCore MkGraph MkId Module MonadUtils Name NameEnv NameSet ObjLink OccName OccurAnal OptCoercion OrdList Outputable PackageConfig Packages Pair Panic Platform PlatformConstants PprCmm PprCmmDecl PprCmmExpr PprCore PrelNames PrelRules Pretty PrimOp RdrName Reg RegClass Rules SMRep Serialized SrcLoc StaticFlags StgCmmArgRep StgCmmClosure StgCmmEnv StgCmmLayout StgCmmMonad StgCmmProf StgCmmTicky StgCmmUtils StgSyn Stream StringBuffer TcEvidence TcType TyCon Type TypeRep TysPrim TysWiredIn Unify UniqFM UniqSet UniqSupply Unique Util Var VarEnv VarSet
+
+compiler_stage2_dll0_HS_OBJS = \
+    $(patsubst %,compiler/stage2/build/%.$(dyn_osuf),$(subst .,/,$(compiler_stage2_dll0_MODULES)))
 
 # if stage is set to something other than "1" or "", disable stage 1
 ifneq "$(filter-out 1,$(stage))" ""
@@ -437,6 +441,20 @@ endif
 $(eval $(call build-package,compiler,stage1,0))
 $(eval $(call build-package,compiler,stage2,1))
 $(eval $(call build-package,compiler,stage3,2))
+
+# We only want to turn keepCAFs on if we will be loading dynamic
+# Haskell libraries with GHCi. We therefore filter the object file
+# out for non-dynamic ways.
+define keepCAFsForGHCiDynOnly
+# $1 = stage
+# $2 = way
+ifeq "$$(findstring dyn, $1)" ""
+compiler_stage$1_$2_C_OBJS := $$(filter-out %/keepCAFsForGHCi.o,$$(compiler_stage$1_$2_C_OBJS))
+endif
+endef
+$(foreach w,$(compiler_stage1_WAYS),$(eval $(call keepCAFsForGHCiDynOnly,1,$w)))
+$(foreach w,$(compiler_stage2_WAYS),$(eval $(call keepCAFsForGHCiDynOnly,2,$w)))
+$(foreach w,$(compiler_stage3_WAYS),$(eval $(call keepCAFsForGHCiDynOnly,3,$w)))
 
 # after build-package, because that adds --enable-library-for-ghci
 # to compiler_stage*_CONFIGURE_OPTS:
@@ -474,11 +492,11 @@ $(compiler_stage1_depfile_haskell) : $(COMPILER_INCLUDES_DEPS) $(PRIMOP_BITS_STA
 $(compiler_stage2_depfile_haskell) : $(COMPILER_INCLUDES_DEPS) $(PRIMOP_BITS_STAGE2)
 $(compiler_stage3_depfile_haskell) : $(COMPILER_INCLUDES_DEPS) $(PRIMOP_BITS_STAGE3)
 
-$(foreach way,$$(compiler_stage1_WAYS),\
+$(foreach way,$(compiler_stage1_WAYS),\
       compiler/stage1/build/PrimOp.$($(way)_osuf)) : $(PRIMOP_BITS_STAGE1)
-$(foreach way,$$(compiler_stage2_WAYS),\
+$(foreach way,$(compiler_stage2_WAYS),\
       compiler/stage2/build/PrimOp.$($(way)_osuf)) : $(PRIMOP_BITS_STAGE2)
-$(foreach way,$$(compiler_stage3_WAYS),\
+$(foreach way,$(compiler_stage3_WAYS),\
       compiler/stage3/build/PrimOp.$($(way)_osuf)) : $(PRIMOP_BITS_STAGE3)
 
 
@@ -486,17 +504,13 @@ $(foreach way,$$(compiler_stage3_WAYS),\
 # switch off the recompilation checker for that module:
 compiler/prelude/PrimOp_HC_OPTS  += -fforce-recomp
 
-# LibFFI.hs #includes ffi.h
-compiler/stage2/build/LibFFI.hs : $(libffi_HEADERS)
-# On Windows it seems we also need to link directly to libffi
-ifeq "$(HostOS_CPP)" "mingw32"
-define windowsDynLinkToFfi
-# $1 = way
-ifneq "$$(findstring dyn, $1)" ""
-compiler_stage2_$1_ALL_HC_OPTS += -l$$(LIBFFI_WINDOWS_LIB)
+ifeq "$(DYNAMIC_GHC_PROGRAMS)" "YES"
+compiler/utils/Util_HC_OPTS += -DDYNAMIC_GHC_PROGRAMS
 endif
-endef
-$(foreach way,$(GhcLibWays),$(eval $(call windowsDynLinkToFfi,$(way))))
+
+# LibFFI.hs #includes ffi.h
+ifneq "$(UseSystemLibFFI)" "YES"
+compiler/stage2/build/LibFFI.hs : $(libffi_HEADERS)
 endif
 
 # Note [munge-stage1-package-config]

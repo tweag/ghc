@@ -241,6 +241,7 @@ thePipeline = [ ("canonicalization",        TcCanonical.canonicalize)
 
 \begin{code}
 spontaneousSolveStage :: SimplifierStage 
+-- CTyEqCans are always consumed, returning Stop
 spontaneousSolveStage workItem
   = do { mb_solved <- trySpontaneousSolve workItem
        ; case mb_solved of
@@ -1203,7 +1204,7 @@ then overwrite the Eq t constraint with a superclass selection!
 
 At first I had a gross hack, whereby I simply did not add superclass constraints
 in addWanted, though I did for addGiven and addIrred.  This was sub-optimal,
-becuase it lost legitimate superclass sharing, and it still didn't do the job:
+because it lost legitimate superclass sharing, and it still didn't do the job:
 I found a very obscure program (now tcrun021) in which improvement meant the
 simplifier got two bites a the cherry... so something seemed to be an Stop
 first time, but reducible next time.
@@ -1399,7 +1400,7 @@ doTopReact inerts workItem
        ; case workItem of
       	   CDictCan { cc_ev = fl, cc_class = cls, cc_tyargs = xis
       	            , cc_loc = d }
-      	      -> doTopReactDict inerts workItem fl cls xis d
+      	      -> doTopReactDict inerts fl cls xis d
 
       	   CFunEqCan { cc_ev = fl, cc_fun = tc, cc_tyargs = args
       	             , cc_rhs = xi, cc_loc = d }
@@ -1409,42 +1410,31 @@ doTopReact inerts workItem
       	         return NoTopInt  }
 
 --------------------
-doTopReactDict :: InertSet -> WorkItem -> CtEvidence -> Class -> [Xi]
+doTopReactDict :: InertSet -> CtEvidence -> Class -> [Xi]
                -> CtLoc -> TcS TopInteractResult
-doTopReactDict inerts workItem fl cls xis loc
-  = do { instEnvs <- getInstEnvs 
-       ; let pred = mkClassPred cls xis
-             fd_eqns = improveFromInstEnv instEnvs (pred, arising_sdoc)
-             
-       ; fd_work <- rewriteWithFunDeps fd_eqns loc
-       ; if not (null fd_work) then
-            do { updWorkListTcS (extendWorkListEqs fd_work)
-               ; return SomeTopInt { tir_rule = "Dict/Top (fundeps)"
-                                   , tir_new_item = ContinueWith workItem } }
-         else if not (isWanted fl) then 
-            return NoTopInt
-         else do
+doTopReactDict inerts fl cls xis loc
+  | not (isWanted fl)
+  = try_fundeps_and_return
 
-       { solved_dicts <- getTcSInerts >>= (return . inert_solved_dicts)
-       ; case lookupSolvedDict solved_dicts pred of {
-            Just ev -> do { setEvBind dict_id (ctEvTerm ev); 
-                          ; return $ 
-                            SomeTopInt { tir_rule = "Dict/Top (cached)" 
-                                       , tir_new_item = Stop } } ;
-            Nothing -> do
+  | Just ev <- lookupSolvedDict inerts pred   -- Cached
+  = do { setEvBind dict_id (ctEvTerm ev); 
+       ; return $ SomeTopInt { tir_rule = "Dict/Top (cached)" 
+                             , tir_new_item = Stop } } 
 
-      { lkup_inst_res  <- matchClassInst inerts cls xis loc
-      ; case lkup_inst_res of
-           GenInst wtvs ev_term -> do { addSolvedDict fl 
-                                      ; doSolveFromInstance wtvs ev_term }
-           NoInstance -> return NoTopInt } } } }
+  | otherwise  -- Not cached
+   = do { lkup_inst_res <- matchClassInst inerts cls xis loc
+         ; case lkup_inst_res of
+               GenInst wtvs ev_term -> do { addSolvedDict fl 
+                                          ; solve_from_instance wtvs ev_term }
+               NoInstance -> try_fundeps_and_return }
    where 
      arising_sdoc = pprArisingAt loc
      dict_id = ctEvId fl
-     
-     doSolveFromInstance :: [CtEvidence] -> EvTerm -> TcS TopInteractResult
+     pred = mkClassPred cls xis
+                       
+     solve_from_instance :: [CtEvidence] -> EvTerm -> TcS TopInteractResult
       -- Precondition: evidence term matches the predicate workItem
-     doSolveFromInstance evs ev_term 
+     solve_from_instance evs ev_term 
         | null evs
         = do { traceTcS "doTopReact/found nullary instance for" $
                ppr dict_id
@@ -1464,6 +1454,18 @@ doTopReactDict inerts workItem fl cls xis loc
                SomeTopInt { tir_rule     = "Dict/Top (solved, more work)"
                           , tir_new_item = Stop } }
 
+     -- We didn't solve it; so try functional dependencies with 
+     -- the instance environment, and return
+     -- NB: even if there *are* some functional dependencies against the
+     -- instance environment, there might be a unique match, and if 
+     -- so we make sure we get on and solve it first. See Note [Weird fundeps]
+     try_fundeps_and_return
+       = do { instEnvs <- getInstEnvs 
+            ; let fd_eqns = improveFromInstEnv instEnvs (pred, arising_sdoc)
+            ; fd_work <- rewriteWithFunDeps fd_eqns loc
+            ; unless (null fd_work) (updWorkListTcS (extendWorkListEqs fd_work))
+            ; return NoTopInt }
+       
 --------------------
 doTopReactFunEq :: Ct -> CtEvidence -> TyCon -> [Xi] -> Xi
                 -> CtLoc -> TcS TopInteractResult
@@ -1483,15 +1485,17 @@ doTopReactFunEq _ct fl fun_tc args xi loc
     do { match_res <- matchFam fun_tc args   -- See Note [MATCHING-SYNONYMS]
        ; case match_res of {
            Nothing -> return NoTopInt ;
-           Just (famInst, rep_tys) -> 
+           Just (FamInstMatch { fim_instance = famInst
+                              , fim_index    = index
+                              , fim_tys      = rep_tys }) -> 
 
     -- Found a top-level instance
     do {    -- Add it to the solved goals
          unless (isDerived fl) (addSolvedFunEq fam_ty fl xi)
 
        ; let coe_ax = famInstAxiom famInst 
-       ; succeed_with "Fun/Top" (mkTcAxInstCo coe_ax rep_tys)
-                      (mkAxInstRHS coe_ax rep_tys) } } } } }
+       ; succeed_with "Fun/Top" (mkTcAxInstCo coe_ax index rep_tys)
+                      (mkAxInstRHS coe_ax index rep_tys) } } } } }
   where
     fam_ty = mkTyConApp fun_tc args
 
@@ -1591,6 +1595,25 @@ and now we need improvement between that derived superclass an the Given (L a b)
 
 Test typecheck/should_fail/FDsFromGivens also shows why it's a good idea to 
 emit Derived FDs for givens as well. 
+
+Note [Weird fundeps]
+~~~~~~~~~~~~~~~~~~~~
+Consider   class Het a b | a -> b where
+              het :: m (f c) -> a -> m b
+
+	   class GHet (a :: * -> *) (b :: * -> *) | a -> b
+	   instance            GHet (K a) (K [a])
+	   instance Het a b => GHet (K a) (K b)
+
+The two instances don't actually conflict on their fundeps,
+although it's pretty strange.  So they are both accepted. Now
+try   [W] GHet (K Int) (K Bool)
+This triggers fudeps from both instance decls; but it also 
+matches a *unique* instance decl, and we should go ahead and
+pick that one right now.  Otherwise, if we don't, it ends up 
+unsolved in the inert set and is reported as an error.
+
+Trac #7875 is a case in point.
 
 Note [Overriding implicit parameters]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1720,13 +1743,46 @@ data LookupInstResult
 
 matchClassInst :: InertSet -> Class -> [Type] -> CtLoc -> TcS LookupInstResult
 
-matchClassInst _ clas [ _, ty ] _
+matchClassInst _ clas [ k, ty ] _
   | className clas == singIClassName
-  , Just n <- isNumLitTy ty = return $ GenInst [] $ EvLit $ EvNum n
+  , Just n <- isNumLitTy ty = makeDict (EvNum n)
 
   | className clas == singIClassName
-  , Just s <- isStrLitTy ty = return $ GenInst [] $ EvLit $ EvStr s
+  , Just s <- isStrLitTy ty = makeDict (EvStr s)
 
+  where
+  {- This adds a coercion that will convert the literal into a dictionary
+     of the appropriate type.  See Note [SingI and EvLit] in TcEvidence.
+     The coercion happens in 3 steps:
+
+     evLit    -> Sing_k_n   -- literal to representation of data family
+     Sing_k_n -> Sing k n   -- representation of data family to data family
+     Sing k n -> SingI k n   -- data family to class dictionary.
+  -}
+  makeDict evLit =
+    case unwrapNewTyCon_maybe (classTyCon clas) of
+      Just (_,dictRep, axDict)
+        | Just tcSing <- tyConAppTyCon_maybe dictRep ->
+           do mbInst <- matchFam tcSing [k,ty]
+              case mbInst of
+                Just FamInstMatch
+                  { fim_instance = FamInst { fi_axiom  = axDataFam
+                                           , fi_flavor = DataFamilyInst tcon
+                                           }
+                  , fim_index = ix, fim_tys = tys
+                  } | Just (_,_,axSing) <- unwrapNewTyCon_maybe tcon ->
+
+                  do let co1 = mkTcSymCo $ mkTcUnbranchedAxInstCo axSing tys
+                         co2 = mkTcSymCo $ mkTcAxInstCo axDataFam ix tys
+                         co3 = mkTcSymCo $ mkTcUnbranchedAxInstCo axDict [k,ty]
+                     return $ GenInst [] $ EvCast (EvLit evLit) $
+                        mkTcTransCo co1 $ mkTcTransCo co2 co3
+
+                _ -> unexpected
+
+      _ -> unexpected
+
+  unexpected = panicTcS (text "Unexpected evidence for SingI")
 
 matchClassInst inerts clas tys loc
    = do { dflags <- getDynFlags

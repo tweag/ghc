@@ -1,6 +1,6 @@
 -- -----------------------------------------------------------------------------
 --
--- (c) The University of Glasgow, 2005
+-- (c) The University of Glasgow, 2005-2012
 --
 -- The GHC API
 --
@@ -17,7 +17,6 @@ module GHC (
         runGhc, runGhcT, initGhcMonad,
         gcatch, gbracket, gfinally,
         printException,
-        printExceptionAndWarnings,
         handleSourceError,
         needsTemplateHaskell,
 
@@ -181,7 +180,9 @@ module GHC (
         ClsInst, 
         instanceDFunId, 
         pprInstance, pprInstanceHdr,
-        pprFamInst, pprFamInstHdr,
+        pprFamInst,
+
+        FamInst, Branched,
 
         -- ** Types and Kinds
         Type, splitForAllTys, funResultTy, 
@@ -261,7 +262,7 @@ import InteractiveEval
 
 import HscMain
 import GhcMake
-import DriverPipeline   ( compile' )
+import DriverPipeline   ( compileOne' )
 import GhcMonad
 import TcRnMonad        ( finalSafeMode )
 import TcRnTypes
@@ -289,8 +290,7 @@ import DriverPhases     ( Phase(..), isHaskellSrcFilename )
 import Finder
 import HscTypes
 import DynFlags
-import StaticFlagParser
-import qualified StaticFlags
+import StaticFlags
 import SysTools
 import Annotations
 import Module
@@ -349,7 +349,7 @@ defaultErrorHandler fm (FlushOut flushOut) inner =
                      Just StackOverflow ->
                          fatalErrorMsg'' fm "stack overflow: use +RTS -K<size> to increase it"
                      _ -> case fromException exception of
-                          Just (ex :: ExitCode) -> throw ex
+                          Just (ex :: ExitCode) -> liftIO $ throwIO ex
                           _ ->
                               fatalErrorMsg'' fm
                                   (show (Panic (show exception)))
@@ -369,7 +369,7 @@ defaultErrorHandler fm (FlushOut flushOut) inner =
   inner
 
 -- | Install a default cleanup handler to remove temporary files deposited by
--- a GHC run.  This is seperate from 'defaultErrorHandler', because you might
+-- a GHC run.  This is separate from 'defaultErrorHandler', because you might
 -- want to override the error handling, but still get the ordinary cleanup
 -- behaviour.
 defaultCleanupHandler :: (ExceptionMonad m, MonadIO m) =>
@@ -446,7 +446,7 @@ initGhcMonad mb_top_dir = do
   -- catch ^C
   liftIO $ installSignalHandlers
 
-  liftIO $ StaticFlags.initStaticOpts
+  liftIO $ initStaticOpts
 
   mySettings <- liftIO $ initSysTools mb_top_dir
   dflags <- liftIO $ initDynFlags (defaultDynFlags mySettings)
@@ -498,6 +498,7 @@ setSessionDynFlags dflags = do
   (dflags', preload) <- liftIO $ initPackages dflags
   modifySession $ \h -> h{ hsc_dflags = dflags'
                          , hsc_IC = (hsc_IC h){ ic_dflags = dflags' } }
+  invalidateModSummaryCache
   return preload
 
 -- | Sets the program 'DynFlags'.
@@ -505,7 +506,33 @@ setProgramDynFlags :: GhcMonad m => DynFlags -> m [PackageId]
 setProgramDynFlags dflags = do
   (dflags', preload) <- liftIO $ initPackages dflags
   modifySession $ \h -> h{ hsc_dflags = dflags' }
+  invalidateModSummaryCache
   return preload
+
+-- When changing the DynFlags, we want the changes to apply to future
+-- loads, but without completely discarding the program.  But the
+-- DynFlags are cached in each ModSummary in the hsc_mod_graph, so
+-- after a change to DynFlags, the changes would apply to new modules
+-- but not existing modules; this seems undesirable.
+--
+-- Furthermore, the GHC API client might expect that changing
+-- log_action would affect future compilation messages, but for those
+-- modules we have cached ModSummaries for, we'll continue to use the
+-- old log_action.  This is definitely wrong (#7478).
+--
+-- Hence, we invalidate the ModSummary cache after changing the
+-- DynFlags.  We do this by tweaking the date on each ModSummary, so
+-- that the next downsweep will think that all the files have changed
+-- and preprocess them again.  This won't necessarily cause everything
+-- to be recompiled, because by the time we check whether we need to
+-- recopmile a module, we'll have re-summarised the module and have a
+-- correct ModSummary.
+--
+invalidateModSummaryCache :: GhcMonad m => m ()
+invalidateModSummaryCache =
+  modifySession $ \h -> h { hsc_mod_graph = map inval (hsc_mod_graph h) }
+ where
+  inval ms = ms { ms_hs_date = addUTCTime (-1) (ms_hs_date ms) }
 
 -- | Returns the program 'DynFlags'.
 getProgramDynFlags :: GhcMonad m => m DynFlags
@@ -592,7 +619,7 @@ guessTarget str Nothing
            then return (target (TargetModule (mkModuleName file)))
            else do
         dflags <- getDynFlags
-        throwGhcException
+        liftIO $ throwGhcExceptionIO
                  (ProgramError (showSDoc dflags $
                  text "target" <+> quotes (text file) <+> 
                  text "is not a module name or a source file"))
@@ -722,10 +749,10 @@ getModSummary mod = do
    mg <- liftM hsc_mod_graph getSession
    case [ ms | ms <- mg, ms_mod_name ms == mod, not (isBootSummary ms) ] of
      [] -> do dflags <- getDynFlags
-              throw $ mkApiErr dflags (text "Module not part of module graph")
+              liftIO $ throwIO $ mkApiErr dflags (text "Module not part of module graph")
      [ms] -> return ms
      multiple -> do dflags <- getDynFlags
-                    throw $ mkApiErr dflags (text "getModSummary is ambiguous: " <+> ppr multiple)
+                    liftIO $ throwIO $ mkApiErr dflags (text "getModSummary is ambiguous: " <+> ppr multiple)
 
 -- | Parse a module.
 --
@@ -813,11 +840,9 @@ loadModule tcm = do
 
    -- compile doesn't change the session
    hsc_env <- getSession
-   mod_info <- liftIO $ compile' (hscNothingBackendOnly     tcg,
-                                  hscInteractiveBackendOnly tcg,
-                                  hscBatchBackendOnly       tcg)
-                                  hsc_env ms 1 1 Nothing mb_linkable
-                                  source_modified
+   mod_info <- liftIO $ compileOne' (Just tcg) Nothing
+                                    hsc_env ms 1 1 Nothing mb_linkable
+                                    source_modified
 
    modifySession $ \e -> e{ hsc_HPT = addToUFM (hsc_HPT e) mod mod_info }
    return tcm
@@ -867,8 +892,10 @@ compileToCoreSimplified = compileCore True
 -- The resulting .o, .hi, and executable files, if any, are stored in the
 -- current directory, and named according to the module name.
 -- This has only so far been tested with a single self-contained module.
-compileCoreToObj :: GhcMonad m => Bool -> CoreModule -> m ()
-compileCoreToObj simplify cm@(CoreModule{ cm_module = mName }) = do
+compileCoreToObj :: GhcMonad m
+                 => Bool -> CoreModule -> FilePath -> FilePath -> m ()
+compileCoreToObj simplify cm@(CoreModule{ cm_module = mName })
+                 output_fn extCore_filename = do
   dflags      <- getSessionDynFlags
   currentTime <- liftIO $ getCurrentTime
   cwd         <- liftIO $ getCurrentDirectory
@@ -894,7 +921,7 @@ compileCoreToObj simplify cm@(CoreModule{ cm_module = mName }) = do
       }
 
   hsc_env <- getSession
-  liftIO $ hscCompileCore hsc_env simplify (cm_safe cm) modSum (cm_binds cm)
+  liftIO $ hscCompileCore hsc_env simplify (cm_safe cm) modSum (cm_binds cm) output_fn extCore_filename
 
 
 compileCore :: GhcMonad m => Bool -> FilePath -> m CoreModule
@@ -977,7 +1004,7 @@ getBindings = withSession $ \hsc_env ->
     return $ icInScopeTTs $ hsc_IC hsc_env
 
 -- | Return the instances for the current interactive session.
-getInsts :: GhcMonad m => m ([ClsInst], [FamInst])
+getInsts :: GhcMonad m => m ([ClsInst], [FamInst Branched])
 getInsts = withSession $ \hsc_env ->
     return $ ic_instances (hsc_IC hsc_env)
 
@@ -1187,7 +1214,7 @@ getModuleSourceAndFlags mod = do
   m <- getModSummary (moduleName mod)
   case ml_hs_file $ ms_location m of
     Nothing -> do dflags <- getDynFlags
-                  throw $ mkApiErr dflags (text "No source available for module " <+> ppr mod)
+                  liftIO $ throwIO $ mkApiErr dflags (text "No source available for module " <+> ppr mod)
     Just sourceFile -> do
         source <- liftIO $ hGetStringBuffer sourceFile
         return (sourceFile, source, ms_hspp_opts m)
@@ -1205,7 +1232,7 @@ getTokenStream mod = do
     POk _ ts  -> return ts
     PFailed span err ->
         do dflags <- getDynFlags
-           throw $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
+           liftIO $ throwIO $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
 
 -- | Give even more information on the source than 'getTokenStream'
 -- This function allows reconstructing the source completely with
@@ -1218,7 +1245,7 @@ getRichTokenStream mod = do
     POk _ ts -> return $ addSourceToTokens startLoc source ts
     PFailed span err ->
         do dflags <- getDynFlags
-           throw $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
+           liftIO $ throwIO $ mkSrcErr (unitBag $ mkPlainErrMsg dflags span err)
 
 -- | Given a source location and a StringBuffer corresponding to this
 -- location, return a rich token stream with the source associated to the
@@ -1297,7 +1324,7 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
              err -> noModError dflags noSrcSpan mod_name err
 
 modNotLoadedError :: DynFlags -> Module -> ModLocation -> IO a
-modNotLoadedError dflags m loc = ghcError $ CmdLineError $ showSDoc dflags $
+modNotLoadedError dflags m loc = throwGhcExceptionIO $ CmdLineError $ showSDoc dflags $
    text "module is not loaded:" <+> 
    quotes (ppr (moduleName m)) <+>
    parens (text (expectJust "modNotLoadedError" (ml_hs_file loc)))

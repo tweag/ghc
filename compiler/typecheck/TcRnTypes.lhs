@@ -1,5 +1,5 @@
 
-% (c) The University of Glasgow 2006
+% (c) The University of Glasgow 2006-2012
 % (c) The GRASP Project, Glasgow University, 1992-2002
 %
 
@@ -181,6 +181,8 @@ data Env gbl lcl
 
 instance ContainsDynFlags (Env gbl lcl) where
     extractDynFlags env = hsc_dflags (env_top env)
+    replaceDynFlags env dflags
+        = env {env_top = replaceDynFlags (env_top env) dflags}
 
 instance ContainsModule gbl => ContainsModule (Env gbl lcl) where
     extractModule env = extractModule (env_gbl env)
@@ -233,14 +235,9 @@ data TcGblEnv
           -- things bound in this module. Also store Safe Haskell info
           -- here about transative trusted packaage requirements.
 
-        tcg_dus :: DefUses,
-          -- ^ What is defined in this module and what is used.
-          -- The latter is used to generate
-          --
-          --  (a) version tracking; no need to recompile if these things have
-          --      not changed version stamp
-          --
-          --  (b) unused-import info
+        tcg_dus :: DefUses,   -- ^ What is defined in this module and what is used.
+        tcg_used_rdrnames :: TcRef (Set RdrName),
+          -- See Note [Tracking unused binding and imports]
 
         tcg_keep :: TcRef NameSet,
           -- ^ Locally-defined top-level names to keep alive.
@@ -265,7 +262,7 @@ data TcGblEnv
           -- ^ @True@ <=> Template Haskell syntax used.
           --
           -- We need this so that we can generate a dependency on the
-          -- Template Haskell package, becuase the desugarer is going
+          -- Template Haskell package, because the desugarer is going
           -- to emit loads of references to TH symbols.  The reference
           -- is implicit rather than explicit, so we have to zap a
           -- mutable variable.
@@ -287,10 +284,6 @@ data TcGblEnv
                 -- Keep the renamed imports regardless.  They are not
                 -- voluminous and are needed if you want to report unused imports
 
-        tcg_used_rdrnames :: TcRef (Set RdrName),
-                -- The set of used *imported* (not locally-defined) RdrNames
-                -- Used only to report unused import declarations
-
         tcg_rn_decls :: Maybe (HsGroup Name),
           -- ^ Renamed decls, maybe.  @Nothing@ <=> Don't retain renamed
           -- decls.
@@ -305,7 +298,7 @@ data TcGblEnv
         tcg_anns      :: [Annotation],      -- ...Annotations
         tcg_tcs       :: [TyCon],           -- ...TyCons and Classes
         tcg_insts     :: [ClsInst],         -- ...Instances
-        tcg_fam_insts :: [FamInst],         -- ...Family instances
+        tcg_fam_insts :: [FamInst Branched],-- ...Family instances
         tcg_rules     :: [LRuleDecl Id],    -- ...Rules
         tcg_fords     :: [LForeignDecl Id], -- ...Foreign import & exports
         tcg_vects     :: [LVectDecl Id],    -- ...Vectorisation declarations
@@ -338,6 +331,29 @@ data RecFieldEnv
         -- module.  For imported modules, we get the same info from the
         -- TypeEnv
 \end{code}
+
+Note [Tracking unused binding and imports]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We gather two sorts of usage information
+ * tcg_dus (defs/uses)
+      Records *defined* Names (local, top-level)
+          and *used*    Names (local or imported)
+
+      Used (a) to report "defined but not used"
+               (see RnNames.reportUnusedNames)
+           (b) to generate version-tracking usage info in interface
+               files (see MkIface.mkUsedNames)
+   This usage info is mainly gathered by the renamer's 
+   gathering of free-variables
+
+ * tcg_used_rdrnames
+      Records used *imported* (not locally-defined) RdrNames
+      Used only to report unused import declarations
+      Notice that they are RdrNames, not Names, so we can
+      tell whether the reference was qualified or unqualified, which
+      is esssential in deciding whether a particular import decl 
+      is unnecessary.  This info isn't present in Names.
+
 
 %************************************************************************
 %*                                                                      *
@@ -591,6 +607,7 @@ data PromotionErr
 
   | RecDataConPE     -- Data constructor in a reuursive loop
                      -- See Note [ARecDataCon: recusion and promoting data constructors] in TcTyClsDecls
+  | NoDataKinds      -- -XDataKinds not enabled
 
 instance Outputable TcTyThing where     -- Debugging only
    ppr (AGlobal g)      = pprTyThing g
@@ -608,6 +625,7 @@ instance Outputable PromotionErr where
   ppr TyConPE      = text "TyConPE"
   ppr FamDataConPE = text "FamDataConPE"
   ppr RecDataConPE = text "RecDataConPE"
+  ppr NoDataKinds  = text "NoDataKinds"
 
 pprTcTyThingCategory :: TcTyThing -> SDoc
 pprTcTyThingCategory (AGlobal thing)    = pprTyThingCategory thing
@@ -621,6 +639,7 @@ pprPECategory ClassPE      = ptext (sLit "Class")
 pprPECategory TyConPE      = ptext (sLit "Type constructor")
 pprPECategory FamDataConPE = ptext (sLit "Data constructor")
 pprPECategory RecDataConPE = ptext (sLit "Data constructor")
+pprPECategory NoDataKinds  = ptext (sLit "Data constructor")
 \end{code}
 
 
@@ -781,7 +800,7 @@ emptyImportAvails = ImportAvails { imp_mods          = emptyModuleEnv,
 -- | Union two ImportAvails
 --
 -- This function is a key part of Import handling, basically
--- for each import we create a seperate ImportAvails structure
+-- for each import we create a separate ImportAvails structure
 -- and then union them all together with this function.
 plusImportAvails ::  ImportAvails ->  ImportAvails ->  ImportAvails
 plusImportAvails
@@ -819,11 +838,14 @@ The @WhereFrom@ type controls where the renamer looks for an interface file
 data WhereFrom
   = ImportByUser IsBootInterface        -- Ordinary user import (perhaps {-# SOURCE #-})
   | ImportBySystem                      -- Non user import.
+  | ImportByPlugin                      -- Importing a plugin; 
+                                        -- See Note [Care with plugin imports] in LoadIface
 
 instance Outputable WhereFrom where
   ppr (ImportByUser is_boot) | is_boot     = ptext (sLit "{- SOURCE -}")
                              | otherwise   = empty
   ppr ImportBySystem                       = ptext (sLit "{- SYSTEM -}")
+  ppr ImportByPlugin                       = ptext (sLit "{- PLUGIN -}")
 \end{code}
 
 %************************************************************************
@@ -859,13 +881,12 @@ data Ct
       cc_loc  :: CtLoc
     }
 
-  | CIrredEvCan {  -- These stand for yet-unknown predicates
+  | CIrredEvCan {  -- These stand for yet-unusable predicates
       cc_ev :: CtEvidence,   -- See Note [Ct/evidence invariant]
-                   -- In CIrredEvCan, the ctev_pred of the evidence is flat
-                   -- and hence it may only be of the form (tv xi1 xi2 ... xin)
-                   -- Since, if it were a type constructor application, that'd make the
-                   -- whole constraint a CDictCan, or CTyEqCan. And it can't be
-                   -- a type family application either because it's a Xi type.
+        -- The ctev_pred of the evidence is 
+        -- of form   (tv xi1 xi2 ... xin)
+        --      or   (t1 ~ t2)   where not (kind(t1) `compatKind` kind(t2)
+        -- See Note [CIrredEvCan constraints]
       cc_loc :: CtLoc
     }
 
@@ -882,8 +903,8 @@ data Ct
     }
 
   | CFunEqCan {  -- F xis ~ xi
-                 -- Invariant: * isSynFamilyTyCon cc_fun
-                 --            * typeKind (F xis) `compatKind` typeKind xi
+       -- Invariant: * isSynFamilyTyCon cc_fun
+       --            * typeKind (F xis) `compatKind` typeKind xi
       cc_ev     :: CtEvidence,  -- See Note [Ct/evidence invariant]
       cc_fun    :: TyCon,       -- A type function
       cc_tyargs :: [Xi],        -- Either under-saturated or exactly saturated
@@ -891,7 +912,6 @@ data Ct
                                 --    we should have decomposed)
 
       cc_loc  :: CtLoc
-
     }
 
   | CNonCanonical { -- See Note [NonCanonical Semantics]
@@ -901,9 +921,27 @@ data Ct
 
   | CHoleCan {
       cc_ev  :: CtEvidence,
-      cc_loc :: CtLoc
+      cc_loc :: CtLoc,
+      cc_occ :: OccName    -- The name of this hole
     }
 \end{code}
+
+Note [CIrredEvCan constraints]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+CIrredEvCan constraints are used for constraints that are "stuck"
+   - we can't solve them (yet)
+   - we can't use them to solve other constraints
+   - but they may become soluble if we substitute for some
+     of the type variables in the constraint
+
+Example 1:  (c Int), where c :: * -> Constraint.  We can't do anything 
+            with this yet, but if later c := Num, *then* we can solve it
+
+Example 2:  a ~ b, where a :: *, b :: k, where k is a kind variable
+            We don't want to use this to substitute 'b' for 'a', in case
+            'k' is subequently unifed with (say) *->*, because then 
+            we'd have ill-kinded types floating about.  Rather we want
+            to defer using the equality altogether until 'k' get resolved.
 
 Note [Ct/evidence invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -932,12 +970,32 @@ ctPred :: Ct -> PredType
 ctPred ct = ctEvPred (cc_ev ct)
 
 dropDerivedWC :: WantedConstraints -> WantedConstraints
-dropDerivedWC wc@(WC { wc_flat = flats })
-  = wc { wc_flat = filterBag isWantedCt flats }
-    -- Don't filter the insolubles, because derived
-    -- insolubles should stay so that we report them.
+-- See Note [Insoluble derived constraints]
+dropDerivedWC wc@(WC { wc_flat = flats, wc_insol = insols })
+  = wc { wc_flat  = filterBag isWantedCt          flats
+       , wc_insol = filterBag (not . isDerivedCt) insols  }
+    -- Keep Givens from insols because they indicate unreachable code
     -- The implications are (recursively) already filtered
 \end{code}
+
+Note [Insoluble derived constraints]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In general we discard derived constraints at the end of constraint solving;
+see dropDerivedWC.  For example, 
+
+ * If we have an unsolved (Ord a), we don't want to complain about 
+   an unsolved (Eq a) as well.
+ * If we have kind-incompatible (a::* ~ Int#::#) equality, we 
+   don't want to complain about the kind error twice.  
+
+Arguably, for *some* derived constraints we might want to report errors. 
+Notably, functional dependencies.  If we have  
+    class C a b | a -> b
+and we have
+    [W] C a b, [W] C a c
+where a,b,c are all signature variables.  Then we could reasonably
+report an error unifying (b ~ c). But it's probably not worth it;
+after all, we also get an error because we can't discharge the constraint.
 
 
 %************************************************************************
@@ -1442,7 +1500,7 @@ pprSkolInfo :: SkolemInfo -> SDoc
 -- Complete the sentence "is a rigid type variable bound by..."
 pprSkolInfo (SigSkol (FunSigCtxt f) ty)
                             = hang (ptext (sLit "the type signature for"))
-                                 2 (ppr f <+> dcolon <+> ppr ty)
+                                 2 (pprPrefixOcc f <+> dcolon <+> ppr ty)
 pprSkolInfo (SigSkol cx ty) = hang (pprUserTypeCtxt cx <> colon)
                                  2 (ppr ty)
 pprSkolInfo (IPSkol ips)    = ptext (sLit "the implicit-parameter bindings for")
@@ -1501,7 +1559,7 @@ data CtOrigin
   | PArrSeqOrigin  (ArithSeqInfo Name) -- [:x..y:] and [:x,y..z:]
   | SectionOrigin
   | TupleOrigin                        -- (..,..)
-  | AmbigOrigin Name    -- f :: ty
+  | AmbigOrigin UserTypeCtxt    -- Will be FunSigCtxt, InstDeclCtxt, or SpecInstCtxt
   | ExprSigOrigin       -- e :: ty
   | PatSigOrigin        -- p :: ty
   | PatOrigin           -- Instantiating a polytyped pattern at a constructor
@@ -1519,7 +1577,9 @@ data CtOrigin
   | AnnOrigin           -- An annotation
   | FunDepOrigin
   | HoleOrigin
-
+  | UnboundOccurrenceOf RdrName
+  | ListOrigin          -- An overloaded list
+  
 pprO :: CtOrigin -> SDoc
 pprO (GivenOrigin sk)      = ppr sk
 pprO (OccurrenceOf name)   = hsep [ptext (sLit "a use of"), quotes (ppr name)]
@@ -1527,7 +1587,11 @@ pprO AppOrigin             = ptext (sLit "an application")
 pprO (SpecPragOrigin name) = hsep [ptext (sLit "a specialisation pragma for"), quotes (ppr name)]
 pprO (IPOccOrigin name)    = hsep [ptext (sLit "a use of implicit parameter"), quotes (ppr name)]
 pprO RecordUpdOrigin       = ptext (sLit "a record update")
-pprO (AmbigOrigin name)    = ptext (sLit "the ambiguity check for") <+> quotes (ppr name)
+pprO (AmbigOrigin ctxt)    = ptext (sLit "the ambiguity check for") 
+                             <+> case ctxt of 
+                                    FunSigCtxt name -> quotes (ppr name)
+                                    InfSigCtxt name -> quotes (ppr name)
+                                    _               -> pprUserTypeCtxt ctxt
 pprO ExprSigOrigin         = ptext (sLit "an expression type signature")
 pprO PatSigOrigin          = ptext (sLit "a pattern type signature")
 pprO PatOrigin             = ptext (sLit "a pattern")
@@ -1550,7 +1614,9 @@ pprO (TypeEqOrigin t1 t2)  = ptext (sLit "a type equality") <+> sep [ppr t1, cha
 pprO (KindEqOrigin t1 t2 _) = ptext (sLit "a kind equality arising from") <+> sep [ppr t1, char '~', ppr t2]
 pprO AnnOrigin             = ptext (sLit "an annotation")
 pprO FunDepOrigin          = ptext (sLit "a functional dependency")
-pprO HoleOrigin            = ptext (sLit "a use of the hole") <+> quotes (ptext $ sLit "_")
+pprO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
+pprO (UnboundOccurrenceOf name) = hsep [ptext (sLit "an undeclared identifier"), quotes (ppr name)]
+pprO ListOrigin            = ptext (sLit "an overloaded list")
 
 instance Outputable CtOrigin where
   ppr = pprO

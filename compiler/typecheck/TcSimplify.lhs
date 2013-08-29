@@ -7,8 +7,9 @@
 -- for details
 
 module TcSimplify( 
-       simplifyInfer, simplifyAmbiguityCheck,
-       simplifyDefault, simplifyDeriv, 
+       simplifyInfer, quantifyPred,
+       simplifyAmbiguityCheck,
+       simplifyDefault, 
        simplifyRule, simplifyTop, simplifyInteractive,
        solveWantedsTcM
   ) where
@@ -18,11 +19,12 @@ module TcSimplify(
 import TcRnTypes
 import TcRnMonad
 import TcErrors
-import TcMType
+import TcMType as TcM
 import TcType 
-import TcSMonad 
+import TcSMonad as TcS
 import TcInteract 
 import Inst
+import FunDeps  ( growThetaTyVars )
 import Type     ( classifyPredType, PredTree(..), getClassPredTys_maybe )
 import Class    ( Class )
 import Var
@@ -30,7 +32,6 @@ import Unique
 import VarSet
 import VarEnv 
 import TcEvidence
-import TypeRep
 import Name
 import Bag
 import ListSetOps
@@ -75,13 +76,13 @@ simplifyTop wanteds
     simpl_top :: WantedConstraints -> TcS WantedConstraints
     simpl_top wanteds
       = do { wc_first_go <- nestTcS (solve_wanteds_and_drop wanteds)
-           ; let meta_tvs = filter isMetaTyVar (varSetElems (tyVarsOfWC wc_first_go))
-                   -- tyVarsOfWC: post-simplification the WC should reflect
-                   --             all unifications that have happened
+           ; free_tvs <- TcS.zonkTyVarsAndFV (tyVarsOfWC wc_first_go) 
+           ; let meta_tvs = filterVarSet isMetaTyVar free_tvs
+                   -- zonkTyVarsAndFV: the wc_first_go is not yet zonked
                    -- filter isMetaTyVar: we might have runtime-skolems in GHCi, 
                    -- and we definitely don't want to try to assign to those!
 
-           ; mapM_ defaultTyVar meta_tvs   -- Has unification side effects
+           ; mapM_ defaultTyVar (varSetElems meta_tvs)   -- Has unification side effects
            ; simpl_top_loop wc_first_go }
     
     simpl_top_loop wc
@@ -136,7 +137,7 @@ go with option (i), implemented at SimplifyTop. Namely:
 Now, that has to do with class defaulting. However there exists type variable /kind/
 defaulting. Again this is done at the top-level and the plan is:
      - At the top-level, once you had a go at solving the constraint, do 
-       figure out /all/ the touchable unification variables of the wanted contraints.
+       figure out /all/ the touchable unification variables of the wanted constraints.
      - Apply defaulting to their kinds
 
 More details in Note [DefaultTyVar].
@@ -176,135 +177,6 @@ simplifyDefault theta
        ; return () }
 \end{code}
 
-
-***********************************************************************************
-*                                                                                 * 
-*                            Deriving                                             *
-*                                                                                 *
-***********************************************************************************
-
-\begin{code}
-simplifyDeriv :: CtOrigin
-              -> PredType
-	      -> [TyVar]	
-	      -> ThetaType		-- Wanted
-	      -> TcM ThetaType	-- Needed
--- Given  instance (wanted) => C inst_ty 
--- Simplify 'wanted' as much as possibles
--- Fail if not possible
-simplifyDeriv orig pred tvs theta 
-  = do { (skol_subst, tvs_skols) <- tcInstSkolTyVars tvs -- Skolemize
-      	 	-- The constraint solving machinery 
-		-- expects *TcTyVars* not TyVars.  
-		-- We use *non-overlappable* (vanilla) skolems
-		-- See Note [Overlap and deriving]
-
-       ; let subst_skol = zipTopTvSubst tvs_skols $ map mkTyVarTy tvs
-             skol_set   = mkVarSet tvs_skols
-	     doc = ptext (sLit "deriving") <+> parens (ppr pred)
-
-       ; wanted <- newFlatWanteds orig (substTheta skol_subst theta)
-
-       ; traceTc "simplifyDeriv" $ 
-         vcat [ pprTvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
-       ; (residual_wanted, _ev_binds1)
-             <- solveWantedsTcM (mkFlatWC wanted)
-                -- Post: residual_wanted are already zonked
-
-       ; let (good, bad) = partitionBagWith get_good (wc_flat residual_wanted)
-                         -- See Note [Exotic derived instance contexts]
-             get_good :: Ct -> Either PredType Ct
-             get_good ct | validDerivPred skol_set p 
-                         , isWantedCt ct  = Left p 
-                         -- NB: residual_wanted may contain unsolved
-                         -- Derived and we stick them into the bad set
-                         -- so that reportUnsolved may decide what to do with them
-                         | otherwise = Right ct
-                         where p = ctPred ct
-
-       -- We never want to defer these errors because they are errors in the
-       -- compiler! Hence the `False` below
-       ; reportAllUnsolved (residual_wanted { wc_flat = bad })
-
-       ; let min_theta = mkMinimalBySCs (bagToList good)
-       ; return (substTheta subst_skol min_theta) }
-\end{code}
-
-Note [Overlap and deriving]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider some overlapping instances:
-  data Show a => Show [a] where ..
-  data Show [Char] where ...
-
-Now a data type with deriving:
-  data T a = MkT [a] deriving( Show )
-
-We want to get the derived instance
-  instance Show [a] => Show (T a) where...
-and NOT
-  instance Show a => Show (T a) where...
-so that the (Show (T Char)) instance does the Right Thing
-
-It's very like the situation when we're inferring the type
-of a function
-   f x = show [x]
-and we want to infer
-   f :: Show [a] => a -> String
-
-BOTTOM LINE: use vanilla, non-overlappable skolems when inferring
-             the context for the derived instance. 
-	     Hence tcInstSkolTyVars not tcInstSuperSkolTyVars
-
-Note [Exotic derived instance contexts]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-In a 'derived' instance declaration, we *infer* the context.  It's a
-bit unclear what rules we should apply for this; the Haskell report is
-silent.  Obviously, constraints like (Eq a) are fine, but what about
-	data T f a = MkT (f a) deriving( Eq )
-where we'd get an Eq (f a) constraint.  That's probably fine too.
-
-One could go further: consider
-	data T a b c = MkT (Foo a b c) deriving( Eq )
-	instance (C Int a, Eq b, Eq c) => Eq (Foo a b c)
-
-Notice that this instance (just) satisfies the Paterson termination 
-conditions.  Then we *could* derive an instance decl like this:
-
-	instance (C Int a, Eq b, Eq c) => Eq (T a b c) 
-even though there is no instance for (C Int a), because there just
-*might* be an instance for, say, (C Int Bool) at a site where we
-need the equality instance for T's.  
-
-However, this seems pretty exotic, and it's quite tricky to allow
-this, and yet give sensible error messages in the (much more common)
-case where we really want that instance decl for C.
-
-So for now we simply require that the derived instance context
-should have only type-variable constraints.
-
-Here is another example:
-	data Fix f = In (f (Fix f)) deriving( Eq )
-Here, if we are prepared to allow -XUndecidableInstances we
-could derive the instance
-	instance Eq (f (Fix f)) => Eq (Fix f)
-but this is so delicate that I don't think it should happen inside
-'deriving'. If you want this, write it yourself!
-
-NB: if you want to lift this condition, make sure you still meet the
-termination conditions!  If not, the deriving mechanism generates
-larger and larger constraints.  Example:
-  data Succ a = S a
-  data Seq a = Cons a (Seq (Succ a)) | Nil deriving Show
-
-Note the lack of a Show instance for Succ.  First we'll generate
-  instance (Show (Succ a), Show a) => Show (Seq a)
-and then
-  instance (Show (Succ (Succ a)), Show (Succ a), Show a) => Show (Seq a)
-and so on.  Instead we want to complain of no instance for (Show (Succ a)).
-
-The bottom line
-~~~~~~~~~~~~~~~
-Allow constraints which consist only of type variables, with no repeats.
 
 *********************************************************************************
 *                                                                                 * 
@@ -394,6 +266,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
                             meta_tvs   = filter isMetaTyVar (varSetElems (tyVarsOfCts quant_cand)) 
                       ; ((flats, _insols), _extra_binds) <- runTcS $ 
                         do { mapM_ (promoteAndDefaultTyVar untch gbl_tvs) meta_tvs
+                                 -- See Note [Promote _and_ default when inferring]
                            ; _implics <- solveInteract quant_cand
                            ; getInertUnsolved }
                       ; return (map ctPred $ filter isWantedCt (bagToList flats)) }
@@ -406,7 +279,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        -- NB: quant_pred_candidates is already the fixpoint of any 
        --     unifications that may have happened
        ; gbl_tvs        <- tcGetGlobalTyVars
-       ; zonked_tau_tvs <- zonkTyVarsAndFV (tyVarsOfTypes (map snd name_taus))
+       ; zonked_tau_tvs <- TcM.zonkTyVarsAndFV (tyVarsOfTypes (map snd name_taus))
        ; let init_tvs  = zonked_tau_tvs `minusVarSet` gbl_tvs
              poly_qtvs = growThetaTyVars quant_pred_candidates init_tvs 
                          `minusVarSet` gbl_tvs
@@ -450,7 +323,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        ; qtvs_to_return <- zonkQuantifiedTyVars (varSetElems qtvs)
 
             -- Step 7) Emit an implication
-       ; minimal_bound_ev_vars <- mapM TcMType.newEvVar minimal_flat_preds
+       ; minimal_bound_ev_vars <- mapM TcM.newEvVar minimal_flat_preds
        ; let implic = Implic { ic_untch    = pushUntouchables untch
                              , ic_skols    = qtvs_to_return
                              , ic_fsks     = []  -- wanted_tansformed arose only from solveWanteds
@@ -472,7 +345,40 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
 
        ; return ( qtvs_to_return, minimal_bound_ev_vars
                 , mr_bites,  TcEvBinds ev_binds_var) } }
+
+quantifyPred :: TyVarSet           -- Quantifying over these
+	     -> PredType -> Bool   -- True <=> quantify over this wanted
+quantifyPred qtvs pred
+  | isIPPred pred = True  -- Note [Inheriting implicit parameters]
+  | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
 \end{code}
+
+Note [Inheriting implicit parameters]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider this:
+
+	f x = (x::Int) + ?y
+
+where f is *not* a top-level binding.
+From the RHS of f we'll get the constraint (?y::Int).
+There are two types we might infer for f:
+
+	f :: Int -> Int
+
+(so we get ?y from the context of f's definition), or
+
+	f :: (?y::Int) => Int -> Int
+
+At first you might think the first was better, because then
+?y behaves like a free variable of the definition, rather than
+having to be passed at each call site.  But of course, the WHOLE
+IDEA is that ?y should be passed at each call site (that's what
+dynamic binding means) so we'd better infer the second.
+
+BOTTOM LINE: when *inferring types* you must quantify over implicit
+parameters, *even if* they don't mention the bound type variables.
+Reason: because implicit parameters, uniquely, have local instance
+declarations. See the predicate quantifyPred.
 
 Note [Quantification with errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -550,7 +456,7 @@ situations like
 When inferring a type for 'g', we don't want to apply the
 instance decl, because then we can't satisfy (C t).  So we
 just notice that g isn't quantified over 't' and partition
-the contraints before simplifying.
+the constraints before simplifying.
 
 This only half-works, but then let-generalisation only half-works.
 
@@ -607,7 +513,8 @@ simplifyRule name lhs_wanted rhs_wanted
        ; traceTc "simplifyRule" $
          vcat [ ptext (sLit "LHS of rule") <+> doubleQuotes (ftext name)
               , text "zonked_lhs_flats" <+> ppr zonked_lhs_flats 
-              , text "q_cts"      <+> ppr q_cts ]
+              , text "q_cts"      <+> ppr q_cts
+              , text "non_q_cts"  <+> ppr non_q_cts ]
 
        ; return ( map (ctEvId . ctEvidence) (bagToList q_cts)
                 , lhs_wanted { wc_flat = non_q_cts }) }
@@ -654,7 +561,7 @@ to compile, and it will run fine unless we evaluate `a`. This is what
 
 It does this by keeping track of which errors correspond to which coercion
 in TcErrors (with ErrEnv). TcErrors.reportTidyWanteds does not print the errors
-and does not fail if -fwarn-type-errors is on, so that we can continue
+and does not fail if -fdefer-type-errors is on, so that we can continue
 compilation. The errors are turned into warnings in `reportUnsolved`.
 
 Note [Zonk after solving]
@@ -799,8 +706,7 @@ solveImplication inerts
                  , ic_wanted = wanteds
                  , ic_info   = info
                  , ic_env    = env })
-  = 
-    do { traceTcS "solveImplication {" (ppr imp) 
+  = do { traceTcS "solveImplication {" (ppr imp) 
 
          -- Solve the nested constraints
          -- NB: 'inerts' has empty inert_fsks
@@ -847,37 +753,35 @@ floatEqualities skols can_given wanteds@(WC { wc_flat = flats })
   = return (emptyBag, wanteds)   -- Note [Float Equalities out of Implications]
   | otherwise 
   = do { let (float_eqs, remaining_flats) = partitionBag is_floatable flats
-       ; untch <- TcSMonad.getUntouchables
+       ; untch <- TcS.getUntouchables
        ; mapM_ (promoteTyVar untch) (varSetElems (tyVarsOfCts float_eqs))
+             -- See Note [Promoting unification variables]
        ; ty_binds <- getTcSTyBindsMap
-       ; traceTcS "floatEqualities" (vcat [ text "Floated eqs =" <+> ppr float_eqs
+       ; traceTcS "floatEqualities" (vcat [ text "Flats =" <+> ppr flats
+                                          , text "Floated eqs =" <+> ppr float_eqs
                                           , text "Ty binds =" <+> ppr ty_binds])
        ; return (float_eqs, wanteds { wc_flat = remaining_flats }) }
   where 
-    skol_set = growSkols wanteds (mkVarSet skols)
+      -- See Note [Float equalities from under a skolem binding]
+    skol_set = fixVarSet mk_next (mkVarSet skols)
+    mk_next tvs = foldrBag grow_one tvs flats
+    grow_one (CFunEqCan { cc_tyargs = xis, cc_rhs = rhs }) tvs
+       | intersectsVarSet tvs (tyVarsOfTypes xis) 
+       = tvs `unionVarSet` tyVarsOfType rhs
+    grow_one _ tvs = tvs
 
     is_floatable :: Ct -> Bool
-    is_floatable ct
-       = isEqPred pred && skol_set `disjointVarSet` tyVarsOfType pred
+    is_floatable ct = isEqPred pred && skol_set `disjointVarSet` tyVarsOfType pred
        where
          pred = ctPred ct
-
-growSkols :: WantedConstraints -> VarSet -> VarSet
--- Find all the type variables that might possibly be unified
--- with a type that mentions a skolem.  This test is very conservative.
--- I don't *think* we need look inside the implications, because any 
--- relevant unification variables in there are untouchable.
-growSkols (WC { wc_flat = flats }) skols
-  = growThetaTyVars theta skols
-  where
-    theta = foldrBag ((:) . ctPred) [] flats
 
 promoteTyVar :: Untouchables -> TcTyVar  -> TcS ()
 -- When we float a constraint out of an implication we must restore
 -- invariant (MetaTvInv) in Note [Untouchable type variables] in TcType
+-- See Note [Promoting unification variables]
 promoteTyVar untch tv 
   | isFloatedTouchableMetaTyVar untch tv
-  = do { cloned_tv <- TcSMonad.cloneMetaTyVar tv
+  = do { cloned_tv <- TcS.cloneMetaTyVar tv
        ; let rhs_tv = setMetaTyVarUntouchables cloned_tv untch
        ; setWantedTyBind tv (mkTyVarTy rhs_tv) }
   | otherwise
@@ -896,7 +800,7 @@ defaultTyVar :: TcTyVar -> TcS TcTyVar
 -- See Note [DefaultTyVar]
 defaultTyVar the_tv
   | not (k `eqKind` default_k)
-  = do { tv' <- TcSMonad.cloneMetaTyVar the_tv
+  = do { tv' <- TcS.cloneMetaTyVar the_tv
        ; let new_tv = setTyVarKind tv' default_k
        ; traceTcS "defaultTyVar" (ppr the_tv <+> ppr new_tv)
        ; setWantedTyBind the_tv (mkTyVarTy new_tv)
@@ -1008,6 +912,7 @@ have an instance (C ((x:*) -> Int)).  The instance doesn't match -- but it
 should!  If we don't solve the constraint, we'll stupidly quantify over 
 (C (a->Int)) and, worse, in doing so zonkQuantifiedTyVar will quantify over
 (b:*) instead of (a:OpenKind), which can lead to disaster; see Trac #7332.
+Trac #7641 is a simpler example.
 
 Note [Float Equalities out of Implications]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
@@ -1053,6 +958,49 @@ Principle:
 Consequence: classes with functional dependencies don't matter (since there is 
 no evidence for a fundep equality), but equality superclasses do matter (since 
 they carry evidence).
+
+Note [Float equalities from under a skolem binding]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+You might worry about skolem escape with all this floating.
+For example, consider
+    [2] forall a. (a ~ F beta[2] delta, 
+                   Maybe beta[2] ~ gamma[1])
+
+The (Maybe beta ~ gamma) doesn't mention 'a', so we float it, and
+solve with gamma := beta. But what if later delta:=Int, and 
+  F b Int = b.  
+Then we'd get a ~ beta[2], and solve to get beta:=a, and now the
+skolem has escaped!
+
+But it's ok: when we float (Maybe beta[2] ~ gamma[1]), we promote beta[2]
+to beta[1], and that means the (a ~ beta[1]) will be stuck, as it should be.
+
+Previously we tried to "grow" the skol_set with the constraints, to get
+all the tyvars that could *conceivably* unify with the skolems, but that
+was far too conservative (Trac #7804). Example: this should be fine:
+    f :: (forall a. a -> Proxy x -> Proxy (F x)) -> Int
+    f = error "Urk" :: (forall a. a -> Proxy x -> Proxy (F x)) -> Int
+
+BUT (sigh) we have to be careful.  Here are some edge cases:
+
+a)    [2]forall a. (F a delta[1] ~ beta[2],   delta[1] ~ Maybe beta[2])
+b)    [2]forall a. (F b ty ~ beta[2],         G beta[2] ~ gamma[2])
+c)    [2]forall a. (F a ty ~ beta[2],         delta[1] ~ Maybe beta[2])
+
+In (a) we *must* float out the second equality, 
+       else we can't solve at all (Trac #7804).
+
+In (b) we *must not* float out the second equality.  
+       It will ultimately be solved (by flattening) in situ, but if we
+       float it we'll promote beta,gamma, and render the first equality insoluble.
+
+In (c) it would be OK to float the second equality but better not to.
+       If we flatten we see (delta[1] ~ Maybe (F a ty)), which is a 
+       skolem-escape problem.  If we float the secodn equality we'll 
+       end up with (F a ty ~ beta'[1]), which is a less explicable error.
+
+Hence we start with the skolems, grow them by the CFunEqCans, and
+float ones that don't mention the grown variables.  Seems very ad hoc.
 
 Note [Promoting unification variables]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1254,23 +1202,3 @@ dealing with the (Num a) context arising from f's definition;
 we try to unify a with Int (to default it), but find that it's
 already been unified with the rigid variable from g's type sig
 
-
-
-*********************************************************************************
-*                                                                               * 
-*                   Utility functions
-*                                                                               *
-*********************************************************************************
-
-\begin{code}
-newFlatWanteds :: CtOrigin -> ThetaType -> TcM [Ct]
-newFlatWanteds orig theta
-  = do { loc <- getCtLoc orig
-       ; mapM (inst_to_wanted loc) theta }
-  where 
-    inst_to_wanted loc pty 
-          = do { v <- TcMType.newWantedEvVar pty 
-               ; return $ mkNonCanonical loc $
-                 CtWanted { ctev_evar = v
-                          , ctev_pred = pty } }
-\end{code}

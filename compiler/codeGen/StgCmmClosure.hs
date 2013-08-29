@@ -49,7 +49,7 @@ module StgCmmClosure (
         -- ** Labels
         -- These just need the info table label
         closureInfoLabel, staticClosureLabel,
-        closureRednCountsLabel, closureSlowEntryLabel, closureLocalEntryLabel,
+        closureSlowEntryLabel, closureLocalEntryLabel,
 
         -- ** Predicates
         -- These are really just functions on LambdaFormInfo
@@ -63,6 +63,7 @@ module StgCmmClosure (
         -- * InfoTables
         mkDataConInfoTable,
         cafBlackHoleInfoTable,
+        indStaticInfoTable,
         staticClosureNeedsLink,
     ) where
 
@@ -771,9 +772,6 @@ isToplevClosure (ClosureInfo { closureLFInfo = lf_info })
 staticClosureLabel :: ClosureInfo -> CLabel
 staticClosureLabel = toClosureLbl .  closureInfoLabel
 
-closureRednCountsLabel :: ClosureInfo -> CLabel
-closureRednCountsLabel = toRednCountsLbl . closureInfoLabel
-
 closureSlowEntryLabel :: ClosureInfo -> CLabel
 closureSlowEntryLabel = toSlowEntryLbl . closureInfoLabel
 
@@ -912,6 +910,13 @@ cafBlackHoleInfoTable :: CmmInfoTable
 cafBlackHoleInfoTable
   = CmmInfoTable { cit_lbl  = mkCAFBlackHoleInfoTableLabel
                  , cit_rep  = blackHoleRep
+                 , cit_prof = NoProfilingInfo
+                 , cit_srt  = NoC_SRT }
+
+indStaticInfoTable :: CmmInfoTable
+indStaticInfoTable
+  = CmmInfoTable { cit_lbl  = mkIndStaticInfoLabel
+                 , cit_rep  = indStaticRep
                  , cit_prof = NoProfilingInfo
                  , cit_srt  = NoC_SRT }
 

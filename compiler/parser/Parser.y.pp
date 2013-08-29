@@ -469,7 +469,7 @@ exportlist :: { [LIE RdrName] }
         | exportlist1                           { $1 }
 
 exportlist1 :: { [LIE RdrName] }
-        : expdoclist export expdoclist ',' exportlist  { $1 ++ ($2 : $3) ++ $5 }
+        : expdoclist export expdoclist ',' exportlist1 { $1 ++ ($2 : $3) ++ $5 }
         | expdoclist export expdoclist                 { $1 ++ ($2 : $3) }
         | expdoclist                                   { $1 }
 
@@ -592,8 +592,7 @@ topdecl :: { OrdList (LHsDecl RdrName) }
         | '{-# DEPRECATED' deprecations '#-}'   { $2 }
         | '{-# WARNING' warnings '#-}'          { $2 }
         | '{-# RULES' rules '#-}'               { $2 }
-        | '{-# VECTORISE_SCALAR' qvar '#-}'     { unitOL $ LL $ VectD (HsVect       $2 Nothing) }
-        | '{-# VECTORISE' qvar '=' exp '#-}'    { unitOL $ LL $ VectD (HsVect       $2 (Just $4)) }
+        | '{-# VECTORISE' qvar '=' exp '#-}'    { unitOL $ LL $ VectD (HsVect       $2 $4) }
         | '{-# NOVECTORISE' qvar '#-}'          { unitOL $ LL $ VectD (HsNoVect     $2) }
         | '{-# VECTORISE' 'type' gtycon '#-}'     
                                                 { unitOL $ LL $ 
@@ -608,8 +607,6 @@ topdecl :: { OrdList (LHsDecl RdrName) }
                                                 { unitOL $ LL $ 
                                                     VectD (HsVectTypeIn True $3 (Just $5)) }
         | '{-# VECTORISE' 'class' gtycon '#-}'  { unitOL $ LL $ VectD (HsVectClassIn $3) }
-        | '{-# VECTORISE_SCALAR' 'instance' type '#-}'     
-                                                { unitOL $ LL $ VectD (HsVectInstIn $3) }
         | annotation { unitOL $1 }
         | decl                                  { unLoc $1 }
 
@@ -642,7 +639,8 @@ ty_decl :: { LTyClDecl RdrName }
         | 'type' 'family' type opt_kind_sig 
                 -- Note the use of type for the head; this allows
                 -- infix type constructors to be declared
-                {% mkTyFamily (comb3 $1 $3 $4) TypeFamily $3 (unLoc $4) }
+                {% do { L loc decl <- mkFamDecl (comb3 $1 $3 $4) TypeFamily $3 (unLoc $4)
+                      ; return (L loc (FamDecl decl)) } }
 
           -- ordinary data type or newtype declaration
         | data_or_newtype capi_ctype tycl_hdr constrs deriving
@@ -662,26 +660,30 @@ ty_decl :: { LTyClDecl RdrName }
 
           -- data/newtype family
         | 'data' 'family' type opt_kind_sig
-                {% mkTyFamily (comb3 $1 $2 $4) DataFamily $3 (unLoc $4) }
+                {% do { L loc decl <- mkFamDecl (comb3 $1 $2 $4) DataFamily $3 (unLoc $4)
+                      ; return (L loc (FamDecl decl)) } }
 
 inst_decl :: { LInstDecl RdrName }
         : 'instance' inst_type where_inst
-                 { let (binds, sigs, _, ats, _) = cvBindsAndSigs (unLoc $3)
-                   in L (comb3 $1 $2 $3) (ClsInstD { cid_poly_ty = $2, cid_binds = binds
-                                                   , cid_sigs = sigs, cid_fam_insts = ats }) }
+                 { let (binds, sigs, _, ats, adts, _) = cvBindsAndSigs (unLoc $3) in
+                   let cid = ClsInstDecl { cid_poly_ty = $2, cid_binds = binds
+                                         , cid_sigs = sigs, cid_tyfam_insts = ats
+                                         , cid_datafam_insts = adts }
+                   in L (comb3 $1 $2 $3) (ClsInstD { cid_inst = cid }) }
 
            -- type instance declarations
-        | 'type' 'instance' type '=' ctype
-                -- Note the use of type for the head; this allows
-                -- infix type constructors and type patterns
-                {% do { L loc d <- mkFamInstSynonym (comb2 $1 $5) $3 $5
-                      ; return (L loc (FamInstD { lid_inst = d })) } }
+        | 'type' 'instance' ty_fam_inst_eqn
+                {% do { L loc tfi <- mkTyFamInst (comb2 $1 $3) $3
+                      ; return (L loc (TyFamInstD { tfid_inst = tfi })) } }
+
+        | 'type' 'instance' 'where' ty_fam_inst_eqn_list
+                { LL (TyFamInstD { tfid_inst = mkTyFamInstGroup (unLoc $4) }) }
 
           -- data/newtype instance declaration
         | data_or_newtype 'instance' tycl_hdr constrs deriving
                 {% do { L loc d <- mkFamInstData (comb4 $1 $3 $4 $5) (unLoc $1) Nothing $3
                                       Nothing (reverse (unLoc $4)) (unLoc $5)
-                      ; return (L loc (FamInstD { lid_inst = d })) } }
+                      ; return (L loc (DataFamInstD { dfid_inst = d })) } }
 
           -- GADT instance declaration
         | data_or_newtype 'instance' tycl_hdr opt_kind_sig 
@@ -689,8 +691,25 @@ inst_decl :: { LInstDecl RdrName }
                  deriving
                 {% do { L loc d <- mkFamInstData (comb4 $1 $3 $5 $6) (unLoc $1) Nothing $3
                                             (unLoc $4) (unLoc $5) (unLoc $6)
-                      ; return (L loc (FamInstD { lid_inst = d })) } }
+                      ; return (L loc (DataFamInstD { dfid_inst = d })) } }
         
+-- Type instance groups
+
+ty_fam_inst_eqn_list :: { Located [LTyFamInstEqn RdrName] }
+        :     '{' ty_fam_inst_eqns '}'     { LL (unLoc $2) }
+        | vocurly ty_fam_inst_eqns close   { $2 }
+
+ty_fam_inst_eqns :: { Located [LTyFamInstEqn RdrName] }
+        : ty_fam_inst_eqn ';' ty_fam_inst_eqns   { LL ($1 : unLoc $3) }
+        | ty_fam_inst_eqns ';'                   { LL (unLoc $1) }
+        | ty_fam_inst_eqn                        { LL [$1] }
+
+ty_fam_inst_eqn :: { LTyFamInstEqn RdrName }
+        : type '=' ctype
+                -- Note the use of type for the head; this allows
+                -- infix type constructors and type patterns
+              {% mkTyFamInstEqn (comb2 $1 $3) $1 $3 }
+
 -- Associated type family declarations
 --
 -- * They have a different syntax than on the toplevel (no family special
@@ -705,31 +724,32 @@ at_decl_cls :: { LHsDecl RdrName }
         : 'type' type opt_kind_sig
                 -- Note the use of type for the head; this allows
                 -- infix type constructors to be declared.
-                {% do { L loc decl <- mkTyFamily (comb3 $1 $2 $3) TypeFamily $2 (unLoc $3)
-                      ; return (L loc (TyClD decl)) } }
+                {% do { L loc decl <- mkFamDecl (comb3 $1 $2 $3) TypeFamily $2 (unLoc $3)
+                      ; return (L loc (TyClD (FamDecl decl))) } }
 
         | 'data' type opt_kind_sig
-                {% do { L loc decl <- mkTyFamily (comb3 $1 $2 $3) DataFamily $2 (unLoc $3)
-                      ; return (L loc (TyClD decl)) } }
+                {% do { L loc decl <- mkFamDecl (comb3 $1 $2 $3) DataFamily $2 (unLoc $3)
+                      ; return (L loc (TyClD (FamDecl decl))) } }
 
            -- default type instance
-        | 'type' type '=' ctype
+        | 'type' ty_fam_inst_eqn
                 -- Note the use of type for the head; this allows
                 -- infix type constructors and type patterns
-                {% do { L loc fid <- mkFamInstSynonym (comb2 $1 $4) $2 $4
-                      ; return (L loc (InstD (FamInstD { lid_inst = fid }))) } }
+                {% do { L loc tfi <- mkTyFamInst (comb2 $1 $2) $2
+                      ; return (L loc (InstD (TyFamInstD { tfid_inst = tfi }))) } }
 
 -- Associated type instances
 --
-at_decl_inst :: { LFamInstDecl RdrName }
+at_decl_inst :: { LTyFamInstDecl RdrName }
            -- type instance declarations
-        : 'type' type '=' ctype
+        : 'type' ty_fam_inst_eqn
                 -- Note the use of type for the head; this allows
                 -- infix type constructors and type patterns
-                {% mkFamInstSynonym (comb2 $1 $4) $2 $4 }
+                {% mkTyFamInst (comb2 $1 $2) $2 }
 
+adt_decl_inst :: { LDataFamInstDecl RdrName }
         -- data/newtype instance declaration
-        | data_or_newtype capi_ctype tycl_hdr constrs deriving
+        : data_or_newtype capi_ctype tycl_hdr constrs deriving
                 {% mkFamInstData (comb4 $1 $3 $4 $5) (unLoc $1) $2 $3 
                                  Nothing (reverse (unLoc $4)) (unLoc $5) }
 
@@ -808,7 +828,8 @@ where_cls :: { Located (OrdList (LHsDecl RdrName)) }    -- Reversed
 -- Declarations in instance bodies
 --
 decl_inst  :: { Located (OrdList (LHsDecl RdrName)) }
-decl_inst  : at_decl_inst               { LL (unitOL (L1 (InstD (FamInstD { lid_inst = unLoc $1 })))) }
+decl_inst  : at_decl_inst               { LL (unitOL (L1 (InstD (TyFamInstD { tfid_inst = unLoc $1 })))) }
+           | adt_decl_inst              { LL (unitOL (L1 (InstD (DataFamInstD { dfid_inst = unLoc $1 })))) }
            | decl                       { $1 }
 
 decls_inst :: { Located (OrdList (LHsDecl RdrName)) }   -- Reversed
@@ -870,18 +891,20 @@ rules   :: { OrdList (LHsDecl RdrName) }
         |  {- empty -}                          { nilOL }
 
 rule    :: { LHsDecl RdrName }
-        : STRING activation rule_forall infixexp '=' exp
+        : STRING rule_activation rule_forall infixexp '=' exp
              { LL $ RuleD (HsRule (getSTRING $1) 
                                   ($2 `orElse` AlwaysActive) 
                                   $3 $4 placeHolderNames $6 placeHolderNames) }
 
-activation :: { Maybe Activation } 
+-- Rules can be specified to be NeverActive, unlike inline/specialize pragmas
+rule_activation :: { Maybe Activation } 
         : {- empty -}                           { Nothing }
-        | explicit_activation                   { Just $1 }
+        | rule_explicit_activation              { Just $1 }
 
-explicit_activation :: { Activation }  -- In brackets
+rule_explicit_activation :: { Activation }  -- In brackets
         : '[' INTEGER ']'               { ActiveAfter  (fromInteger (getINTEGER $2)) }
         | '[' '~' INTEGER ']'           { ActiveBefore (fromInteger (getINTEGER $3)) }
+        | '[' '~' ']'                   { NeverActive }
 
 rule_forall :: { [RuleBndr RdrName] }
         : 'forall' rule_var_list '.'            { $2 }
@@ -1004,9 +1027,13 @@ infixtype :: { LHsType RdrName }
         | btype tyvarop  type    { LL $ mkHsOpTy $1 $2 $3 }
 
 strict_mark :: { Located HsBang }
-        : '!'                           { L1 HsStrict }
-        | '{-# UNPACK' '#-}' '!'        { LL HsUnpack }
-        | '{-# NOUNPACK' '#-}' '!'      { LL HsNoUnpack }
+        : '!'                           { L1 (HsUserBang Nothing      True) }
+        | '{-# UNPACK' '#-}'            { LL (HsUserBang (Just True)  False) }
+        | '{-# NOUNPACK' '#-}'          { LL (HsUserBang (Just False) True) }
+        | '{-# UNPACK' '#-}' '!'        { LL (HsUserBang (Just True)  True) }
+        | '{-# NOUNPACK' '#-}' '!'      { LL (HsUserBang (Just False) True) }
+        -- Although UNPAACK with no '!' is illegal, we get a 
+        -- better error message if we parse it here
 
 -- A ctype is a for-all type
 ctype   :: { LHsType RdrName }
@@ -1328,14 +1355,14 @@ decl    :: { Located (OrdList (LHsDecl RdrName)) }
         : sigdecl               { $1 }
 
         | '!' aexp rhs          {% do { let { e = LL (SectionR (LL (HsVar bang_RDR)) $2) };
-                                        pat <- checkPattern e;
+                                        pat <- checkPattern empty e;
                                         return $ LL $ unitOL $ LL $ ValD $
                                                PatBind pat (unLoc $3)
                                                        placeHolderType placeHolderNames (Nothing,[]) } }
                                 -- Turn it all into an expression so that
                                 -- checkPattern can check that bangs are enabled
 
-        | infixexp opt_sig rhs  {% do { r <- checkValDef $1 $2 $3;
+        | infixexp opt_sig rhs  {% do { r <- checkValDef empty $1 $2 $3;
                                         let { l = comb2 $1 $> };
                                         return $! (sL l (unitOL $! (sL l $ ValD r))) } }
         | docdecl               { LL $ unitOL $1 }
@@ -1372,6 +1399,14 @@ sigdecl :: { Located (OrdList (LHsDecl RdrName)) }
                             | t <- $5] }
         | '{-# SPECIALISE' 'instance' inst_type '#-}'
                 { LL $ unitOL (LL $ SigD (SpecInstSig $3)) }
+
+activation :: { Maybe Activation } 
+        : {- empty -}                           { Nothing }
+        | explicit_activation                   { Just $1 }
+
+explicit_activation :: { Activation }  -- In brackets
+        : '[' INTEGER ']'               { ActiveAfter  (fromInteger (getINTEGER $2)) }
+        | '[' '~' INTEGER ']'           { ActiveBefore (fromInteger (getINTEGER $3)) }
 
 -----------------------------------------------------------------------------
 -- Expressions
@@ -1427,9 +1462,9 @@ exp10 :: { LHsExpr RdrName }
                                                                       else HsPar $2 } }
 
         | 'proc' aexp '->' exp  
-                        {% checkPattern $2 >>= \ p -> 
+                        {% checkPattern empty $2 >>= \ p -> 
                             checkCommand $4 >>= \ cmd ->
-                            return (LL $ HsProc p (LL $ HsCmdTop cmd [] 
+                            return (LL $ HsProc p (LL $ HsCmdTop cmd placeHolderType
                                                     placeHolderType undefined)) }
                                                 -- TODO: is LL right here?
 
@@ -1510,7 +1545,7 @@ aexp2   :: { LHsExpr RdrName }
         | TH_TY_QUOTE gtycon    { LL $ HsBracket (VarBr False (unLoc $2)) }
         | '[|' exp '|]'         { LL $ HsBracket (ExpBr $2) }                       
         | '[t|' ctype '|]'      { LL $ HsBracket (TypBr $2) }                       
-        | '[p|' infixexp '|]'   {% checkPattern $2 >>= \p ->
+        | '[p|' infixexp '|]'   {% checkPattern empty $2 >>= \p ->
                                         return (LL $ HsBracket (PatBr p)) }
         | '[d|' cvtopbody '|]'  { LL $ HsBracket (DecBrL $2) }
         | quasiquote            { L1 (HsQuasiQuoteE (unLoc $1)) }
@@ -1524,7 +1559,7 @@ cmdargs :: { [LHsCmdTop RdrName] }
 
 acmd    :: { LHsCmdTop RdrName }
         : aexp2                 {% checkCommand $1 >>= \ cmd ->
-                                    return (L1 $ HsCmdTop cmd [] placeHolderType undefined) }
+                                    return (L1 $ HsCmdTop cmd placeHolderType placeHolderType undefined) }
 
 cvtopbody :: { [LHsDecl RdrName] }
         :  '{'            cvtopdecls0 '}'               { $2 }
@@ -1582,12 +1617,12 @@ tup_tail :: { [HsTupArg RdrName] }
 -- avoiding another shift/reduce-conflict.
 
 list :: { LHsExpr RdrName }
-        : texp                  { L1 $ ExplicitList placeHolderType [$1] }
-        | lexps                 { L1 $ ExplicitList placeHolderType (reverse (unLoc $1)) }
-        | texp '..'             { LL $ ArithSeq noPostTcExpr (From $1) }
-        | texp ',' exp '..'     { LL $ ArithSeq noPostTcExpr (FromThen $1 $3) }
-        | texp '..' exp         { LL $ ArithSeq noPostTcExpr (FromTo $1 $3) }
-        | texp ',' exp '..' exp { LL $ ArithSeq noPostTcExpr (FromThenTo $1 $3 $5) }
+        : texp                  { L1 $ ExplicitList placeHolderType Nothing [$1] }
+        | lexps                 { L1 $ ExplicitList placeHolderType Nothing (reverse (unLoc $1)) }
+        | texp '..'             { LL $ ArithSeq noPostTcExpr Nothing (From $1) }
+        | texp ',' exp '..'     { LL $ ArithSeq noPostTcExpr Nothing (FromThen $1 $3) }
+        | texp '..' exp         { LL $ ArithSeq noPostTcExpr Nothing (FromTo $1 $3) }
+        | texp ',' exp '..' exp { LL $ ArithSeq noPostTcExpr Nothing (FromThenTo $1 $3 $5) }
         | texp '|' flattenedpquals      
              {% checkMonadComp >>= \ ctxt ->
                 return (sL (comb2 $1 $>) $ 
@@ -1678,6 +1713,8 @@ guardquals1 :: { Located [LStmt RdrName (LHsExpr RdrName)] }
 altslist :: { Located [LMatch RdrName (LHsExpr RdrName)] }
         : '{'            alts '}'       { LL (reverse (unLoc $2)) }
         |     vocurly    alts  close    { L (getLoc $2) (reverse (unLoc $2)) }
+        | '{'                 '}'       { noLoc [] }
+        |     vocurly          close    { noLoc [] }
 
 alts    :: { Located [LMatch RdrName (LHsExpr RdrName)] }
         : alts1                         { L1 (unLoc $1) }
@@ -1710,12 +1747,16 @@ gdpat   :: { LGRHS RdrName (LHsExpr RdrName) }
 -- Bangs inside are parsed as infix operator applications, so that
 -- we parse them right when bang-patterns are off
 pat     :: { LPat RdrName }
-pat     :  exp                  {% checkPattern $1 }
-        | '!' aexp              {% checkPattern (LL (SectionR (L1 (HsVar bang_RDR)) $2)) }
+pat     :  exp                  {% checkPattern empty $1 }
+        | '!' aexp              {% checkPattern empty (LL (SectionR (L1 (HsVar bang_RDR)) $2)) }
+
+bindpat :: { LPat RdrName }
+bindpat :  exp                  {% checkPattern (text "Possibly caused by a missing 'do'?") $1 }
+        | '!' aexp              {% checkPattern (text "Possibly caused by a missing 'do'?") (LL (SectionR (L1 (HsVar bang_RDR)) $2)) }
 
 apat   :: { LPat RdrName }      
-apat    : aexp                  {% checkPattern $1 }
-        | '!' aexp              {% checkPattern (LL (SectionR (L1 (HsVar bang_RDR)) $2)) }
+apat    : aexp                  {% checkPattern empty $1 }
+        | '!' aexp              {% checkPattern empty (LL (SectionR (L1 (HsVar bang_RDR)) $2)) }
 
 apats  :: { [LPat RdrName] }
         : apat apats            { $1 : $2 }
@@ -1749,12 +1790,12 @@ maybe_stmt :: { Maybe (LStmt RdrName (LHsExpr RdrName)) }
         | {- nothing -}                 { Nothing }
 
 stmt  :: { LStmt RdrName (LHsExpr RdrName) }
-        : qual                              { $1 }
+        : qual                          { $1 }
         | 'rec' stmtlist                { LL $ mkRecStmt (unLoc $2) }
 
 qual  :: { LStmt RdrName (LHsExpr RdrName) }
-    : pat '<-' exp                      { LL $ mkBindStmt $1 $3 }
-    | exp                                   { L1 $ mkBodyStmt $1 }
+    : bindpat '<-' exp                  { LL $ mkBindStmt $1 $3 }
+    | exp                               { L1 $ mkBodyStmt $1 }
     | 'let' binds                       { LL $ LetStmt (unLoc $2) }
 
 -----------------------------------------------------------------------------
@@ -2063,7 +2104,7 @@ modid   :: { Located ModuleName }
                                      (unpackFS mod ++ '.':unpackFS c))
                                 }
 
-commas :: { Int }
+commas :: { Int }   -- One or more commas
         : commas ','                    { $1 + 1 }
         | ','                           { 1 }
 

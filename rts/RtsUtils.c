@@ -137,26 +137,6 @@ heapOverflow(void)
 }
 
 /* -----------------------------------------------------------------------------
-   genSym stuff, used by GHC itself for its splitting unique supply.
-
-   ToDo: put this somewhere sensible.
-   -------------------------------------------------------------------------  */
-
-static HsInt __GenSymCounter = 0;
-
-HsInt
-genSymZh(void)
-{
-    return(__GenSymCounter++);
-}
-HsInt
-resetGenSymZh(void) /* it's your funeral */
-{
-    __GenSymCounter=0;
-    return(__GenSymCounter);
-}
-
-/* -----------------------------------------------------------------------------
    Get the current time as a string.  Used in profiling reports.
    -------------------------------------------------------------------------- */
 
@@ -272,7 +252,7 @@ heapCheckFail( void )
  * genericRaise(), rather than raise(3).
  */
 int genericRaise(int sig) {
-#if defined(THREADED_RTS) && (defined(openbsd_HOST_OS) || defined(freebsd_HOST_OS) || defined(dragonfly_HOST_OS) || defined(netbsd_HOST_OS))
+#if defined(THREADED_RTS) && (defined(openbsd_HOST_OS) || defined(freebsd_HOST_OS) || defined(dragonfly_HOST_OS) || defined(netbsd_HOST_OS) || defined(darwin_HOST_OS))
         return pthread_kill(pthread_self(), sig);
 #else
         return raise(sig);

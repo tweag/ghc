@@ -57,8 +57,10 @@
 #include <sched.h>
 #endif
 
-#if defined(HAVE_SYS_CPUSET_H)
+#if defined(HAVE_SYS_PARAM_H)
 #include <sys/param.h>
+#endif
+#if defined(HAVE_SYS_CPUSET_H)
 #include <sys/cpuset.h>
 #endif
 
@@ -337,7 +339,8 @@ KernelThreadId kernelThreadId (void)
 #elif defined(freebsd_HOST_OS) && (__FreeBSD_version >= 900031)
     return pthread_getthreadid_np();
 
-#elif defined(darwin_HOST_OS)
+// Check for OS X >= 10.6 (see #7356)
+#elif defined(darwin_HOST_OS) && !(defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 1060)
     uint64_t ktid;
     pthread_threadid_np(NULL, &ktid);
     return ktid;

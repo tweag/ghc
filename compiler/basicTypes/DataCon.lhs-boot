@@ -4,6 +4,7 @@ import Name( Name )
 import {-# SOURCE #-} TyCon( TyCon )
 
 data DataCon
+data DataConRep
 dataConName      :: DataCon -> Name
 dataConTyCon     :: DataCon -> TyCon
 isVanillaDataCon :: DataCon -> Bool

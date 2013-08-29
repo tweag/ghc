@@ -122,7 +122,7 @@ void resurrectThreads (StgTSO *);
 
 #if !IN_STG_CODE
 
-/* END_TSO_QUEUE and friends now defined in includes/StgMiscClosures.h */
+/* END_TSO_QUEUE and friends now defined in includes/stg/MiscClosures.h */
 
 /* Add a thread to the end of the run queue.
  * NOTE: tso->link should be END_TSO_QUEUE before calling this macro.
@@ -183,7 +183,14 @@ popRunQueue (Capability *cap)
     return t;
 }
 
-extern void removeFromRunQueue (Capability *cap, StgTSO *tso);
+INLINE_HEADER StgTSO *
+peekRunQueue (Capability *cap)
+{
+    return cap->run_queue_hd;
+}
+
+void removeFromRunQueue (Capability *cap, StgTSO *tso);
+extern void promoteInRunQueue (Capability *cap, StgTSO *tso);
 
 /* Add a thread to the end of the blocked queue.
  */
@@ -213,6 +220,22 @@ INLINE_HEADER rtsBool
 emptyRunQueue(Capability *cap)
 {
     return emptyQueue(cap->run_queue_hd);
+}
+
+/* assumes that the queue is not empty; so combine this with
+ * an emptyRunQueue check! */
+INLINE_HEADER rtsBool
+singletonRunQueue(Capability *cap)
+{
+    ASSERT(!emptyRunQueue(cap));
+    return cap->run_queue_hd->_link == END_TSO_QUEUE;
+}
+
+INLINE_HEADER void
+truncateRunQueue(Capability *cap)
+{
+    cap->run_queue_hd = END_TSO_QUEUE;
+    cap->run_queue_tl = END_TSO_QUEUE;
 }
 
 #if !defined(THREADED_RTS)

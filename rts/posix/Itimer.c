@@ -45,6 +45,20 @@
 #include <string.h>
 
 /*
+ * timer_create doesn't exist and setitimer doesn't fire on iOS, so we're using
+ * a pthreads-based implementation. It may be to do with interference with the
+ * signals of the debugger. Revisit. See #7723.
+ */
+#if defined(ios_HOST_OS)
+#define USE_PTHREAD_FOR_ITIMER
+#endif
+
+#if defined(USE_PTHREAD_FOR_ITIMER)
+#include <pthread.h>
+#include <unistd.h>
+#endif
+
+/*
  * We use a realtime timer by default.  I found this much more
  * reliable than a CPU timer:
  *
@@ -73,6 +87,24 @@
  * etc.).
  */
 
+#if defined(solaris2_HOST_OS)
+/* USE_TIMER_CREATE is usually disabled for Solaris. In fact it is
+   supported well on this OS, but requires additional privilege. When
+   user does not have it, then the testing configure program fails
+   which results in USE_TIMER_CREATE not defined.
+   On the other hand when we cross-compile, then we optimistically
+   assume usage of timer_create function. The problem is that if we
+   cross compile for example from i386-solaris2 to x86_64-solaris2,
+   then the build fails with error like this:
+
+ghc-stage2: timer_create: Not owner
+
+   which happens on first ghc-stage2 invocation. So to support
+   cross-compilation to Solaris we manually undefine USE_TIMER_CREATE
+   here */
+#undef USE_TIMER_CREATE
+#endif /* solaris2_HOST_OS */
+
 #if defined(USE_TIMER_CREATE)
 #  define ITIMER_SIGNAL SIGVTALRM
 #elif defined(HAVE_SETITIMER)
@@ -89,6 +121,7 @@ static timer_t timer;
 
 static Time itimer_interval = DEFAULT_TICK_INTERVAL;
 
+#if !defined(USE_PTHREAD_FOR_ITIMER)
 static void install_vtalrm_handler(TickProc handle_tick)
 {
     struct sigaction action;
@@ -114,13 +147,33 @@ static void install_vtalrm_handler(TickProc handle_tick)
         stg_exit(EXIT_FAILURE);
     }
 }
+#endif
+
+#if defined(USE_PTHREAD_FOR_ITIMER)
+static volatile int itimer_enabled;
+static void *itimer_thread_func(void *_handle_tick)
+{
+    TickProc handle_tick = _handle_tick;
+    while (1) {
+        usleep(TimeToUS(itimer_interval));
+        switch (itimer_enabled) {
+            case 1: handle_tick(0); break;
+            case 2: itimer_enabled = 0;
+        }
+    }
+    return NULL;
+}
+#endif
 
 void
 initTicker (Time interval, TickProc handle_tick)
 {
     itimer_interval = interval;
 
-#if defined(USE_TIMER_CREATE)
+#if defined(USE_PTHREAD_FOR_ITIMER)
+    pthread_t tid;
+    pthread_create(&tid, NULL, itimer_thread_func, (void*)handle_tick);
+#elif defined(USE_TIMER_CREATE)
     {
         struct sigevent ev;
 
@@ -135,15 +188,18 @@ initTicker (Time interval, TickProc handle_tick)
             stg_exit(EXIT_FAILURE);
         }
     }
-#endif
-
     install_vtalrm_handler(handle_tick);
+#else
+    install_vtalrm_handler(handle_tick);
+#endif
 }
 
 void
 startTicker(void)
 {
-#if defined(USE_TIMER_CREATE)
+#if defined(USE_PTHREAD_FOR_ITIMER)
+    itimer_enabled = 1;
+#elif defined(USE_TIMER_CREATE)
     {
         struct itimerspec it;
         
@@ -175,7 +231,14 @@ startTicker(void)
 void
 stopTicker(void)
 {
-#if defined(USE_TIMER_CREATE)
+#if defined(USE_PTHREAD_FOR_ITIMER)
+    if (itimer_enabled == 1) {
+        itimer_enabled = 2;
+        /* Wait for the thread to confirm it won't generate another tick. */
+        while (itimer_enabled != 0)
+            sched_yield();
+    }
+#elif defined(USE_TIMER_CREATE)
     struct itimerspec it;
 
     it.it_value.tv_sec = 0;

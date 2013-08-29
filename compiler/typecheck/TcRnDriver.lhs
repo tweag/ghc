@@ -25,7 +25,6 @@ module TcRnDriver (
 import {-# SOURCE #-} TcSplice ( tcSpliceDecls )
 #endif
 
-import TypeRep
 import DynFlags
 import StaticFlags
 import HsSyn
@@ -42,7 +41,6 @@ import FamInstEnv
 import TcAnnotations
 import TcBinds
 import HeaderInfo       ( mkPrelImports )
-import TcType   ( tidyTopType )
 import TcDefaults
 import TcEnv
 import TcRules
@@ -77,7 +75,7 @@ import Outputable
 import DataCon
 import Type
 import Class
-import TcType   ( orphNamesOfDFunHead )
+import CoAxiom  ( CoAxBranch(..) )
 import Inst     ( tcGetInstEnvs )
 import Data.List ( sortBy )
 import Data.IORef ( readIORef )
@@ -488,6 +486,8 @@ tc_rn_src_decls boot_details ds
         setEnvs (tcg_env, tcl_env) $
         case group_tail of {
            Nothing -> do { tcg_env <- checkMain ;       -- Check for `main'
+                           traceTc "returning from tc_rn_src_decls: " $
+                             ppr $ nameEnvElts $ tcg_type_env tcg_env ; -- RAE
                            return (tcg_env, tcl_env)
                       } ;
 
@@ -746,7 +746,8 @@ checkBootTyCon tc1 tc2
            eqListBy eqATDef def_ats1 def_ats2
 
        -- Ignore the location of the defaults
-       eqATDef (ATD tvs1 ty_pats1 ty1 _loc1) (ATD tvs2 ty_pats2 ty2 _loc2)
+       eqATDef (CoAxBranch { cab_tvs = tvs1, cab_lhs =  ty_pats1, cab_rhs = ty1 })
+               (CoAxBranch { cab_tvs = tvs2, cab_lhs =  ty_pats2, cab_rhs = ty2 })
          | Just env <- eqTyVarBndrs emptyRnEnv2 tvs1 tvs2
          = eqListBy (eqTypeX env) ty_pats1 ty_pats2 &&
            eqTypeX env ty1 ty2
@@ -801,7 +802,7 @@ checkBootTyCon tc1 tc2
     eqCon c1 c2
       =  dataConName c1 == dataConName c2
       && dataConIsInfix c1 == dataConIsInfix c2
-      && dataConStrictMarks c1 == dataConStrictMarks c2
+      && eqListBy eqHsBang (dataConStrictMarks c1) (dataConStrictMarks c2)
       && dataConFieldLabels c1 == dataConFieldLabels c2
       && eqType (dataConUserType c1) (dataConUserType c2)
 
@@ -892,7 +893,7 @@ tcTopSrcDecls boot_details
 
                 -- Foreign import declarations next.
         traceTc "Tc4" empty ;
-        (fi_ids, fi_decls) <- tcForeignImports foreign_decls ;
+        (fi_ids, fi_decls, fi_gres) <- tcForeignImports foreign_decls ;
         tcExtendGlobalValEnv fi_ids     $ do {
 
                 -- Default declarations
@@ -918,7 +919,7 @@ tcTopSrcDecls boot_details
 
                 -- Foreign exports
         traceTc "Tc7" empty ;
-        (foe_binds, foe_decls) <- tcForeignExports foreign_decls ;
+        (foe_binds, foe_decls, foe_gres) <- tcForeignExports foreign_decls ;
 
                 -- Annotations
         annotations <- tcAnnotations annotation_decls ;
@@ -934,6 +935,12 @@ tcTopSrcDecls boot_details
         let { all_binds = inst_binds     `unionBags`
                           foe_binds
 
+            ; fo_gres = fi_gres `unionBags` foe_gres
+            ; fo_fvs = foldrBag (\gre fvs -> fvs `addOneFV` gre_name gre) 
+                                emptyFVs fo_gres
+            ; fo_rdr_names :: [RdrName]
+            ; fo_rdr_names = foldrBag gre_to_rdr_name [] fo_gres
+
             ; sig_names = mkNameSet (collectHsValBinders val_binds)
                           `minusNameSet` getTypeSigNames val_binds
 
@@ -944,10 +951,27 @@ tcTopSrcDecls boot_details
                                  , tcg_rules = tcg_rules tcg_env ++ rules
                                  , tcg_vects = tcg_vects tcg_env ++ vects
                                  , tcg_anns  = tcg_anns tcg_env ++ annotations
-                                 , tcg_fords = tcg_fords tcg_env ++ foe_decls ++ fi_decls } } ;
+                                 , tcg_fords = tcg_fords tcg_env ++ foe_decls ++ fi_decls
+                                 , tcg_dus   = tcg_dus tcg_env `plusDU` usesOnly fo_fvs } } ;
+                                 -- tcg_dus: see Note [Newtype constructor usage in foreign declarations]
 
+        addUsedRdrNames fo_rdr_names ;
+        traceTc "Tc8: type_env: " (ppr $ nameEnvElts $ tcg_type_env tcg_env') ; -- RAE
         return (tcg_env', tcl_env)
     }}}}}}
+  where
+    gre_to_rdr_name :: GlobalRdrElt -> [RdrName] -> [RdrName]
+        -- For *imported* newtype data constructors, we want to
+        -- make sure that at least one of the imports for them is used
+        -- See Note [Newtype constructor usage in foreign declarations]
+    gre_to_rdr_name gre rdrs
+      = case gre_prov gre of
+           LocalDef          -> rdrs
+           Imported []       -> panic "gre_to_rdr_name: Imported []"
+           Imported (is : _) -> mkRdrQual modName occName : rdrs
+              where
+                modName = is_as (is_decl is)
+                occName = nameOccName (gre_name gre)
 
 ---------------------------
 tcTyClsInstDecls :: ModDetails 
@@ -969,13 +993,14 @@ tcTyClsInstDecls boot_details tycl_decls inst_decls deriv_decls
   where
     -- get_cons extracts the *constructor* bindings of the declaration
     get_cons :: LInstDecl Name -> [Name]
-    get_cons (L _ (FamInstD { lid_inst = fid }))       = get_fi_cons fid
-    get_cons (L _ (ClsInstD { cid_fam_insts = fids })) = concatMap (get_fi_cons . unLoc) fids
+    get_cons (L _ (TyFamInstD {}))                     = []
+    get_cons (L _ (DataFamInstD { dfid_inst = fid }))  = get_fi_cons fid
+    get_cons (L _ (ClsInstD { cid_inst = ClsInstDecl { cid_datafam_insts = fids } }))
+      = concatMap (get_fi_cons . unLoc) fids
 
-    get_fi_cons :: FamInstDecl Name -> [Name]
-    get_fi_cons (FamInstDecl { fid_defn = TyData { td_cons = cons } }) 
+    get_fi_cons :: DataFamInstDecl Name -> [Name]
+    get_fi_cons (DataFamInstDecl { dfid_defn = HsDataDefn { dd_cons = cons } }) 
       = map (unLoc . con_name . unLoc) cons
-    get_fi_cons (FamInstDecl {}) = []
 \end{code}
 
 Note [AFamDataCon: not promoting data family constructors]
@@ -1074,31 +1099,35 @@ check_main dflags tcg_env
                 <+> ptext (sLit "is not defined in module") <+> quotes (ppr main_mod)
     pp_main_fn = ppMainFn main_fn
 
-ppMainFn :: RdrName -> SDoc
-ppMainFn main_fn
-  | main_fn == main_RDR_Unqual
-  = ptext (sLit "function") <+> quotes (ppr main_fn)
-  | otherwise
-  = ptext (sLit "main function") <+> quotes (ppr main_fn)
-
 -- | Get the unqualified name of the function to use as the \"main\" for the main module.
 -- Either returns the default name or the one configured on the command line with -main-is
 getMainFun :: DynFlags -> RdrName
-getMainFun dflags = case (mainFunIs dflags) of
-    Just fn -> mkRdrUnqual (mkVarOccFS (mkFastString fn))
-    Nothing -> main_RDR_Unqual
+getMainFun dflags = case mainFunIs dflags of
+                      Just fn -> mkRdrUnqual (mkVarOccFS (mkFastString fn))
+                      Nothing -> main_RDR_Unqual
 
 checkMainExported :: TcGblEnv -> TcM ()
-checkMainExported tcg_env = do
-  dflags    <- getDynFlags
-  case tcg_main tcg_env of
-    Nothing -> return () -- not the main module
-    Just main_name -> do
-      let main_mod = mainModIs dflags
-      checkTc (main_name `elem` concatMap availNames (tcg_exports tcg_env)) $
-              ptext (sLit "The") <+> ppMainFn (nameRdrName main_name) <+>
-              ptext (sLit "is not exported by module") <+> quotes (ppr main_mod)
+checkMainExported tcg_env
+  = case tcg_main tcg_env of
+      Nothing -> return () -- not the main module
+      Just main_name -> 
+         do { dflags <- getDynFlags
+            ; let main_mod = mainModIs dflags
+            ; checkTc (main_name `elem` concatMap availNames (tcg_exports tcg_env)) $
+                ptext (sLit "The") <+> ppMainFn (nameRdrName main_name) <+>
+                ptext (sLit "is not exported by module") <+> quotes (ppr main_mod) }
+
+ppMainFn :: RdrName -> SDoc
+ppMainFn main_fn
+  | rdrNameOcc main_fn == mainOcc
+  = ptext (sLit "IO action") <+> quotes (ppr main_fn)
+  | otherwise
+  = ptext (sLit "main IO action") <+> quotes (ppr main_fn)
+
+mainOcc :: OccName
+mainOcc = mkVarOccFS (fsLit "main")
 \end{code}
+
 
 Note [Root-main Id]
 ~~~~~~~~~~~~~~~~~~~
@@ -1262,7 +1291,7 @@ The Ids bound by previous Stmts in GHCi are currently
      generator will consider the occurrences to be free rather than
      global.
 
- (b) They retain their Internal names becuase we don't have a suitable
+ (b) They retain their Internal names because we don't have a suitable
      Module to name them with. We could revisit this choice.
 
  (c) Their types are tidied. This is important, because :info may ask
@@ -1449,7 +1478,7 @@ tcGhciStmts stmts
                 -- get their *polymorphic* values.  (And we'd get ambiguity errs
                 -- if they were overloaded, since they aren't applied to anything.)
             ret_expr = nlHsApp (nlHsTyApp ret_id [ret_ty])
-                       (noLoc $ ExplicitList unitTy (map mk_item ids)) ;
+                       (noLoc $ ExplicitList unitTy Nothing (map mk_item ids)) ;
             mk_item id = nlHsApp (nlHsTyApp unsafeCoerceId [idType id, unitTy])
                                  (nlHsVar id) ;
             stmts = tc_stmts ++ [noLoc (mkLastStmt ret_expr)]
@@ -1487,7 +1516,7 @@ isGHCiMonad hsc_env ictxt ty
                 let name = gre_name n
                 ghciClass <- tcLookupClass ghciIoClassName 
                 userTyCon <- tcLookupTyCon name
-                let userTy = TyConApp userTyCon []
+                let userTy = mkTyConApp userTyCon []
                 _ <- tcLookupInstance ghciClass [userTy]
                 return name
 
@@ -1503,6 +1532,7 @@ tcRnExpr :: HscEnv
          -> InteractiveContext
          -> LHsExpr RdrName
          -> IO (Messages, Maybe Type)
+-- Type checks the expression and returns its most general type
 tcRnExpr hsc_env ictxt rdr_expr
   = initTcPrintErrors hsc_env iNTERACTIVE $
     setInteractiveContext hsc_env ictxt $ do {
@@ -1548,26 +1578,41 @@ tcRnType :: HscEnv
          -> IO (Messages, Maybe (Type, Kind))
 tcRnType hsc_env ictxt normalise rdr_type
   = initTcPrintErrors hsc_env iNTERACTIVE $
-    setInteractiveContext hsc_env ictxt $ do {
-
-    (rn_type, _fvs) <- rnLHsType GHCiCtx rdr_type ;
-    failIfErrsM ;
+    setInteractiveContext hsc_env ictxt $ 
+    setXOptM Opt_PolyKinds $   -- See Note [Kind-generalise in tcRnType]
+    do { (rn_type, _fvs) <- rnLHsType GHCiCtx rdr_type
+       ; failIfErrsM
 
         -- Now kind-check the type
         -- It can have any rank or kind
-    ty <- tcHsSigType GhciCtxt rn_type ;
+       ; ty <- tcHsSigType GhciCtxt rn_type ;
 
-    ty' <- if normalise
-           then do { fam_envs <- tcGetFamInstEnvs
-                   ; return (snd (normaliseType fam_envs ty)) }
-                   -- normaliseType returns a coercion
-                   -- which we discard
-           else return ty ;
+       ; ty' <- if normalise
+                then do { fam_envs <- tcGetFamInstEnvs
+                        ; return (snd (normaliseType fam_envs ty)) }
+                        -- normaliseType returns a coercion
+                        -- which we discard
+                else return ty ;
 
-    return (ty', typeKind ty)
-    }
-
+       ; return (ty', typeKind ty) }
 \end{code}
+
+Note [Kind-generalise in tcRnType]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We switch on PolyKinds when kind-checking a user type, so that we will
+kind-generalise the type.  This gives the right default behaviour at
+the GHCi prompt, where if you say ":k T", and T has a polymorphic
+kind, you'd like to see that polymorphism. Of course.  If T isn't
+kind-polymorphic you won't get anything unexpected, but the apparent
+*loss* of polymorphism, for types that you know are polymorphic, is
+quite surprising.  See Trac #7688 for a discussion.
+
+
+%************************************************************************
+%*                                                                      *
+                 tcRnDeclsi
+%*                                                                      *
+%************************************************************************
 
 tcRnDeclsi exists to allow class, data, and other declarations in GHCi.
 
@@ -1610,6 +1655,8 @@ tcRnDeclsi hsc_env ictxt local_decls =
                              tcg_fords     = fords' }
 
     tcg_env'' <- setGlobalTypeEnv tcg_env' final_type_env
+
+    traceTc "returning from tcRnDeclsi: " $ ppr $ nameEnvElts $ tcg_type_env tcg_env'' -- RAE
 
     return tcg_env''
 
@@ -1691,7 +1738,7 @@ tcRnLookupName' name = do
 
 tcRnGetInfo :: HscEnv
             -> Name
-            -> IO (Messages, Maybe (TyThing, Fixity, [ClsInst]))
+            -> IO (Messages, Maybe (TyThing, Fixity, [ClsInst], [FamInst Branched]))
 
 -- Used to implement :info in GHCi
 --
@@ -1713,29 +1760,41 @@ tcRnGetInfo hsc_env name
 
     thing  <- tcRnLookupName' name
     fixity <- lookupFixityRn name
-    ispecs <- lookupInsts thing
-    return (thing, fixity, ispecs)
+    (cls_insts, fam_insts) <- lookupInsts thing
+    return (thing, fixity, cls_insts, fam_insts)
 
-lookupInsts :: TyThing -> TcM [ClsInst]
+lookupInsts :: TyThing -> TcM ([ClsInst],[FamInst Branched])
 lookupInsts (ATyCon tc)
   | Just cls <- tyConClass_maybe tc
   = do  { inst_envs <- tcGetInstEnvs
-        ; return (classInstances inst_envs cls) }
+        ; return (classInstances inst_envs cls, []) }
+
+  | isFamilyTyCon tc || isTyConAssoc tc
+  = do  { inst_envs <- tcGetFamInstEnvs
+        ; return ([], familyInstances inst_envs tc) }
 
   | otherwise
   = do  { (pkg_ie, home_ie) <- tcGetInstEnvs
+        ; (pkg_fie, home_fie) <- tcGetFamInstEnvs
                 -- Load all instances for all classes that are
                 -- in the type environment (which are all the ones
                 -- we've seen in any interface file so far)
-        ; return [ ispec        -- Search all
+
+          -- Return only the instances relevant to the given thing, i.e.
+          -- the instances whose head contains the thing's name.
+        ; let cls_insts =
+                 [ ispec        -- Search all
                  | ispec <- instEnvElts home_ie ++ instEnvElts pkg_ie
-                 , let dfun = instanceDFunId ispec
-                 , relevant dfun ] }
+                 , tc_name `elemNameSet` orphNamesOfClsInst ispec ]
+        ; let fam_insts =
+                 [ fispec
+                 | fispec <- famInstEnvElts home_fie ++ famInstEnvElts pkg_fie
+                 , tc_name `elemNameSet` orphNamesOfFamInst fispec ]
+        ; return (cls_insts, fam_insts) }
   where
-    relevant df = tc_name `elemNameSet` orphNamesOfDFunHead (idType df)
     tc_name     = tyConName tc
 
-lookupInsts _ = return []
+lookupInsts _ = return ([],[])
 
 loadUnqualIfaces :: HscEnv -> InteractiveContext -> TcM ()
 -- Load the interface for everything that is in scope unqualified
@@ -1842,7 +1901,7 @@ ppr_types insts type_env
         -- that the type checker has invented.  Top-level user-defined things
         -- have External names.
 
-ppr_tycons :: [FamInst] -> TypeEnv -> SDoc
+ppr_tycons :: [FamInst br] -> TypeEnv -> SDoc
 ppr_tycons fam_insts type_env
   = vcat [ text "TYPE CONSTRUCTORS"
          ,   nest 2 (ppr_tydecls tycons)
@@ -1860,7 +1919,7 @@ ppr_insts :: [ClsInst] -> SDoc
 ppr_insts []     = empty
 ppr_insts ispecs = text "INSTANCES" $$ nest 2 (pprInstances ispecs)
 
-ppr_fam_insts :: [FamInst] -> SDoc
+ppr_fam_insts :: [FamInst br] -> SDoc
 ppr_fam_insts []        = empty
 ppr_fam_insts fam_insts =
   text "FAMILY INSTANCES" $$ nest 2 (pprFamInsts fam_insts)

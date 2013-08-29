@@ -26,6 +26,8 @@ import TcEvidence
 import TcHsType
 import TcPat
 import TcMType
+import Type( tidyOpenType )
+import FunDeps( growThetaTyVars )
 import TyCon
 import TcType
 import TysPrim
@@ -241,7 +243,7 @@ tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
     -- co : t -> IP "x" t
     toDict ipClass x ty =
       case unwrapNewTyCon_maybe (classTyCon ipClass) of
-        Just (_,_,ax) -> HsWrap $ WpCast $ mkTcSymCo $ mkTcAxInstCo ax [x,ty]
+        Just (_,_,ax) -> HsWrap $ WpCast $ mkTcSymCo $ mkTcUnbranchedAxInstCo ax [x,ty]
         Nothing       -> panic "The dictionary for `IP` is not a newtype?"
 
 
@@ -323,9 +325,10 @@ tc_group top_lvl sig_fn prag_fn (NonRecursive, binds) thing_inside
        ; return ( [(NonRecursive, binds1)], thing) }
 
 tc_group top_lvl sig_fn prag_fn (Recursive, binds) thing_inside
-  =     -- To maximise polymorphism (assumes -XRelaxedPolyRec), we do a new 
+  =     -- To maximise polymorphism, we do a new 
         -- strongly-connected-component analysis, this time omitting 
         -- any references to variables with type signatures.
+        -- (This used to be optional, but isn't now.)
     do  { traceTc "tc_group rec" (pprLHsBinds binds)
         ; (binds1, _ids, thing) <- go sccs
              -- Here is where we should do bindInstsOfLocalFuns
@@ -601,7 +604,7 @@ mkExport prag_fn qtvs theta (poly_name, mb_sig, mono_id)
         
 
     prag_sigs = prag_fn poly_name
-    origin    = AmbigOrigin poly_name
+    origin    = AmbigOrigin sig_ctxt
     sig_ctxt  = InfSigCtxt poly_name
 \end{code}
 
@@ -783,17 +786,12 @@ tcVect :: VectDecl Name -> TcM (VectDecl TcId)
 --   during type checking.  Instead, constrain the rhs of a vectorisation declaration to be a single
 --   identifier (this is checked in 'rnHsVectDecl').  Fix this by enabling the use of 'vectType'
 --   from the vectoriser here.
-tcVect (HsVect name Nothing)
-  = addErrCtxt (vectCtxt name) $
-    do { var <- wrapLocM tcLookupId name
-       ; return $ HsVect var Nothing
-       }
-tcVect (HsVect name (Just rhs))
+tcVect (HsVect name rhs)
   = addErrCtxt (vectCtxt name) $
     do { var <- wrapLocM tcLookupId name
        ; let L rhs_loc (HsVar rhs_var_name) = rhs
        ; rhs_id <- tcLookupId rhs_var_name
-       ; return $ HsVect var (Just $ L rhs_loc (HsVar rhs_id))
+       ; return $ HsVect var (L rhs_loc (HsVar rhs_id))
        }
 
 {- OLD CODE:
@@ -1009,7 +1007,12 @@ type MonoBindInfo = (Name, Maybe TcSigInfo, TcId)
 tcLhs :: TcSigFun -> LetBndrSpec -> HsBind Name -> TcM TcMonoBind
 tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_infix = inf, fun_matches = matches })
   | Just sig <- sig_fn name
-  = do  { mono_id <- newSigLetBndr no_gen name sig
+  = ASSERT2( case no_gen of { LetLclBndr -> True; LetGblBndr {} -> False }
+           , ppr name )  -- { f :: ty; f x = e } is always done via CheckGen
+                         -- which gives rise to LetLclBndr.  It wouldn't make
+                         -- sense to have a *polymorphic* function Id at this point
+    do  { mono_name <- newLocalName name
+        ; let mono_id = mkLocalId mono_name (sig_tau sig)
         ; return (TcFunBind (name, Just sig, mono_id) nm_loc inf matches) }
   | otherwise
   = do  { mono_ty <- newFlexiTyVarTy openTypeKind
@@ -1101,17 +1104,6 @@ However, we do *not* support this
         f :: forall a. a->a
         (f,g) = e
 
-  - For multiple function bindings, unless Opt_RelaxedPolyRec is on
-        f :: forall a. a -> a
-        f = g
-        g :: forall b. b -> b
-        g = ...f...
-    Reason: we use mutable variables for 'a' and 'b', since they may
-    unify to each other, and that means the scoped type variable would
-    not stand for a completely rigid variable.
-
-    Currently, we simply make Opt_ScopedTypeVariables imply Opt_RelaxedPolyRec
-
 Note [More instantiated than scoped]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 There may be more instantiated type variables than lexically-scoped 
@@ -1162,16 +1154,28 @@ For example:
 (Instantiation is only necessary because of type synonyms.  Otherwise,
 it's all cool; each signature has distinct type variables from the renamer.)
 
+Note [Fail eagerly on bad signatures]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If a type signaure is wrong, fail immediately:
+
+ * the type sigs may bind type variables, so proceeding without them
+   can lead to a cascade of errors
+
+ * the type signature might be ambiguous, in which case checking
+   the code against the signature will give a very similar error
+   to the ambiguity error.
+
+ToDo: this means we fall over if any type sig
+is wrong (eg at the top level of the module), 
+which is over-conservative
+
 \begin{code}
 tcTySigs :: [LSig Name] -> TcM ([TcId], TcSigFun)
 tcTySigs hs_sigs
-  = do { ty_sigs <- concat <$> checkNoErrs (mapAndRecoverM tcTySig hs_sigs)
-                -- No recovery from bad signatures, because the type sigs
-                -- may bind type variables, so proceeding without them
-                -- can lead to a cascade of errors
-                -- ToDo: this means we fall over immediately if any type sig
-                -- is wrong, which is over-conservative, see Trac bug #745
-       ; let env = mkNameEnv [(idName (sig_id sig), sig) | sig <- ty_sigs]
+  = checkNoErrs $   -- See Note [Fail eagerly on bad signatures]
+    do { ty_sigs_s<- mapAndRecoverM tcTySig hs_sigs
+       ; let ty_sigs = concat ty_sigs_s
+             env = mkNameEnv [(idName (sig_id sig), sig) | sig <- ty_sigs]
        ; return (map sig_id ty_sigs, lookupNameEnv env) }
 
 tcTySig :: LSig Name -> TcM [TcSigInfo]
@@ -1305,8 +1309,8 @@ decideGeneralisationPlan dflags type_env bndr_names lbinds sig_fn
                                                            && no_sig (unLoc v)
     restricted (AbsBinds {}) = panic "isRestrictedGroup/unrestricted AbsBinds"
 
-    restricted_match (MatchGroup (L _ (Match [] _ _) : _) _) = True
-    restricted_match _                                       = False
+    restricted_match (MG { mg_alts = L _ (Match [] _ _) : _ }) = True
+    restricted_match _                                         = False
         -- No args => like a pattern binding
         -- Some args => a function binding
 

@@ -7,9 +7,7 @@ import Type     ( Type,  mkTyVarTy, mkNumLitTy, mkTyConApp
                 , TyThing(ACoAxiomRule)
                 )
 import PrelNames ( gHC_PRIM )
-import TysPrim  ( tyVarList
-                , typeNatKind
-                )
+import TysPrim  ( tyVarList)
 import TysWiredIn ( typeNatAddTyCon
                   , typeNatMulTyCon
                   , typeNatExpTyCon
@@ -18,6 +16,7 @@ import TysWiredIn ( typeNatAddTyCon
                   , boolKind, trueTy, falseTy
                   , nat1Kind, zeroTy
                   , fromNat1TyCon
+                  , typeNatKind
                   )
 
 import Name     ( Name, mkWiredInName, BuiltInSyntax(..) )
@@ -25,13 +24,15 @@ import OccName  ( mkOccName, tcName )
 import Unique   ( mkAxiomRuleUnique )
 
 
-
 typeNatRuleThings :: [TyThing]
 typeNatRuleThings = map ACoAxiomRule $
   [ axAddDef, axMulDef, axExpDef, axLeqDef ]
+    ++ [ leq0, leqRefl, leqTrans, leqAsym ]
     ++ bRules
     ++ map snd impRules
     ++ map snd widenRules
+    ++ iffRules
+
 
 
 --------------------------------------------------------------------------------
@@ -107,8 +108,6 @@ axLeqDef = mkDef 3 "LeqDef" $ \a b ->
              mkLeq (mkNumLitTy a) (mkNumLitTy b) === mkBoolLiTy (a <= b)
 
 
--- XXX: We should be able to cope with some assumptions in backward
--- reasoning too.
 bRules :: [CoAxiomRule]
 bRules =
   [ bRule 10 "Add0L" (mkAdd n0 a === a)
@@ -119,7 +118,7 @@ bRules =
   , bRule 14 "Mul1L" (mkMul n1 a === a)
   , bRule 15 "Mul1R" (mkMul a n1 === a)
 
-  -- TnExp0L:  (1 <= n) => 0 ^ n ~ 0
+  -- TnExp0L:  see iffRules
   , bRule 17 "TnExp0R" (mkExp a n0 === n1)
   , bRule 18 "TnExp1L" (mkExp n1 a === n1)
   , bRule 19 "TnExp1R" (mkExp a n1 === a)
@@ -220,6 +219,7 @@ widenRules =
       [ n2 <== a, mkExp a b === c ] (b <== c))
 
 
+  -- Improvements related to `FromNat1`
   , (True, mkAx 60 "FromNat1_inj" (take 2 nat1Vars ++ take 1 (drop 2 natVars))
       [ mkFromNat1 a1 === c, mkFromNat1 b1 === c] (a1 === b1))
 
@@ -240,6 +240,10 @@ widenRules =
     Currently this is implemented with some hand-written code in TcTypeNats.hs
   -}
 
+  -- Desugaring rules for `iff` rules, forward direction.
+  , (True, mkAx 66 "SubE" (take 3 natVars)
+      [ mkSub c b === a ] (mkAdd a b === c))
+
   ]
   where
   a  : b  : c : x : y : z : _ = map mkTyVarTy natVars
@@ -250,11 +254,13 @@ widenRules =
 
 iffRules :: [CoAxiomRule]
 iffRules =
-  [ mkAx 65 "SubDef" (take 3 natVars) [ mkAdd a b === c ] (mkSub c b === a)
+  [ mkAx 65 "SubI"    (take 3 natVars) [ mkAdd a b === c ] (mkSub c b === a)
+  , mkAx 67 "TnExp0L" (take 1 natVars) [ n1 <== a        ] (mkExp n0 a === n0)
   ]
   where
   a : b : c : _ = map mkTyVarTy natVars
-
+  n0 = mkNumLitTy 0
+  n1 = mkNumLitTy 1
 
 
 

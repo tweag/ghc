@@ -603,6 +603,7 @@ thread_obj (StgInfoTable *info, StgPtr p)
     case MUT_PRIM:
     case MUT_VAR_CLEAN:
     case MUT_VAR_DIRTY:
+    case TVAR:
     case BLACKHOLE:
     case BLOCKING_QUEUE:
     {
@@ -963,7 +964,7 @@ compact(StgClosure *static_objects)
     thread_static(static_objects /* ToDo: ok? */);
 
     // the stable pointer table
-    threadStablePtrTable((evac_fn)thread_root, NULL);
+    threadStableTables((evac_fn)thread_root, NULL);
 
     // the CAF list (used by GHCi)
     markCAFs((evac_fn)thread_root, NULL);

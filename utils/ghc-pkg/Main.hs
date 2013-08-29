@@ -21,7 +21,7 @@ import Distribution.Text
 import Distribution.Version
 import System.FilePath as FilePath
 import qualified System.FilePath.Posix as FilePath.Posix
-import System.Cmd       ( rawSystem )
+import System.Process
 import System.Directory ( getAppUserDataDirectory, createDirectoryIfMissing,
                           getModificationTime )
 import Text.Printf
@@ -61,7 +61,6 @@ import System.Posix hiding (fdToHandle)
 #endif
 
 #if defined(GLOB)
-import System.Process(runInteractiveCommand)
 import qualified System.Info(os)
 #endif
 
@@ -98,7 +97,7 @@ main = do
            Left err -> die err
         (_,_,errors) -> do
            prog <- getProgramName
-           die (concat errors ++ usageInfo (usageHeader prog) flags)
+           die (concat errors ++ shortUsage prog)
 
 -- -----------------------------------------------------------------------------
 -- Command-line syntax
@@ -184,6 +183,9 @@ deprecFlags = [
 
 ourCopyright :: String
 ourCopyright = "GHC package manager version " ++ Version.version ++ "\n"
+
+shortUsage :: String -> String
+shortUsage prog = "For usage information see '" ++ prog ++ " --help'."
 
 usageHeader :: String -> String
 usageHeader prog = substProg prog $
@@ -408,11 +410,9 @@ runit verbosity cli nonopts = do
         recache verbosity cli
 
     [] -> do
-        die ("missing command\n" ++
-                usageInfo (usageHeader prog) flags)
+        die ("missing command\n" ++ shortUsage prog)
     (_cmd:_) -> do
-        die ("command-line syntax error\n" ++
-                usageInfo (usageHeader prog) flags)
+        die ("command-line syntax error\n" ++ shortUsage prog)
 
 parseCheck :: ReadP a a -> String -> String -> IO a
 parseCheck parser str what =
@@ -1153,34 +1153,16 @@ describeField :: Verbosity -> [Flag] -> PackageArg -> [String] -> Bool -> IO ()
 describeField verbosity my_flags pkgarg fields expand_pkgroot = do
   (_, _, flag_db_stack) <- 
       getPkgDatabases verbosity False True{-use cache-} expand_pkgroot my_flags
-  fns <- toFields fields
+  fns <- mapM toField fields
   ps <- findPackages flag_db_stack pkgarg
   mapM_ (selectFields fns) ps
-  where toFields [] = return []
-        toFields (f:fs) = case toField f of
-            Nothing -> die ("unknown field: " ++ f)
-            Just fn -> do fns <- toFields fs
-                          return (fn:fns)
+  where showFun = if FlagSimpleOutput `elem` my_flags
+                  then showSimpleInstalledPackageInfoField
+                  else showInstalledPackageInfoField
+        toField f = case showFun f of
+                    Nothing -> die ("unknown field: " ++ f)
+                    Just fn -> return fn
         selectFields fns pinfo = mapM_ (\fn->putStrLn (fn pinfo)) fns
-
-toField :: String -> Maybe (InstalledPackageInfo -> String)
--- backwards compatibility:
-toField "import_dirs"     = Just $ strList . importDirs
-toField "source_dirs"     = Just $ strList . importDirs
-toField "library_dirs"    = Just $ strList . libraryDirs
-toField "hs_libraries"    = Just $ strList . hsLibraries
-toField "extra_libraries" = Just $ strList . extraLibraries
-toField "include_dirs"    = Just $ strList . includeDirs
-toField "c_includes"      = Just $ strList . includes
-toField "package_deps"    = Just $ strList . map display. depends
-toField "extra_cc_opts"   = Just $ strList . ccOptions
-toField "extra_ld_opts"   = Just $ strList . ldOptions
-toField "framework_dirs"  = Just $ strList . frameworkDirs
-toField "extra_frameworks"= Just $ strList . frameworks
-toField s                 = showInstalledPackageInfoField s
-
-strList :: [String] -> String
-strList = show
 
 
 -- -----------------------------------------------------------------------------

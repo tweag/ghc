@@ -950,13 +950,15 @@ test.hs:(5,4)-(6,7):
     <option>-fwarn-overlapping-patterns</option>,
     <option>-fwarn-warnings-deprecations</option>,
     <option>-fwarn-deprecated-flags</option>,
+    <option>-fwarn-duplicate-constraints</option>,
     <option>-fwarn-duplicate-exports</option>,
     <option>-fwarn-missing-fields</option>,
     <option>-fwarn-missing-methods</option>,
     <option>-fwarn-lazy-unlifted-bindings</option>,
     <option>-fwarn-wrong-do-bind</option>,
-    <option>-fwarn-unsupported-calling-conventions</option>, and
-    <option>-fwarn-dodgy-foreign-imports</option>.  The following
+    <option>-fwarn-unsupported-calling-conventions</option>,
+    <option>-fwarn-dodgy-foreign-imports</option>, and
+    <option>-fwarn-typeable-instances</option>.  The following
     flags are
     simple ways to select standard &ldquo;packages&rdquo; of warnings:
     </para>
@@ -1191,6 +1193,24 @@ foreign import "&amp;f" f :: FunPtr t
       <literal>where !(I# x) = ...</literal> instead. This will be an
       error, rather than a warning, in GHC 7.2.
       </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><option>-fwarn-duplicate-constraints</option>:</term>
+        <listitem>
+          <indexterm><primary><option>-fwarn-duplicate-constraints</option></primary></indexterm>
+          <indexterm><primary>duplicate constraints, warning</primary></indexterm>
+
+          <para>Have the compiler warn about duplicate constraints in a type signature. For
+          example
+          <programlisting>
+             f :: (Eq a, Show a, Eq a) => a -> a
+          </programlisting>
+          The warning will indicate the duplicated <literal>Eq a</literal> constraint.
+          </para>
+
+          <para>This option is on by default.</para>
         </listitem>
       </varlistentry>
 
@@ -1663,6 +1683,19 @@ f "2"    = 2
         </listitem>
       </varlistentry>
 
+      <varlistentry>
+        <term><option>-fwarn-typeable-instances</option>:</term>
+        <listitem>
+          <indexterm><primary><option>-fwarn-typeable-instances</option></primary></indexterm>
+          <indexterm><primary>typeable instances, warning</primary></indexterm>
+
+          <para>Report handwritten (ie. not derived) instances of the
+          <literal>Typeable</literal> class. These are ignore by the compiler;
+          only derived instances of <literal>Typeable</literal> are allowed.
+          </para>
+        </listitem>
+      </varlistentry>
+
     </variablelist>
 
     <para>If you're feeling really paranoid, the
@@ -1857,6 +1890,54 @@ f "2"    = 2
             unboxing by default but disable it for certain constructor
             fields using the <literal>NOUNPACK</literal> pragma (see
             <xref linkend="nounpack-pragma"/>).</para>
+          </listitem>
+        </varlistentry>
+
+        <varlistentry>
+          <term>
+            <option>-funbox-small-strict-fields</option>:
+            <indexterm><primary><option>-funbox-small-strict-fields</option></primary></indexterm>
+            <indexterm><primary>strict constructor fields</primary></indexterm>
+            <indexterm><primary>constructor fields, strict</primary></indexterm>
+          </term>
+          <listitem>
+            <para><emphasis>On by default.</emphasis>. This option
+            causes all constructor fields which are marked strict
+            (i.e. &ldquo;!&rdquo;) and which representation is smaller
+            or equal to the size of a pointer to be unpacked, if
+            possible. It is equivalent to adding an
+            <literal>UNPACK</literal> pragma (see <xref
+            linkend="unpack-pragma"/>) to every strict constructor
+            field that fulfils the size restriction.
+            </para>
+
+            <para>For example, the constructor fields in the following
+            data types
+<programlisting>
+data A = A !Int
+data B = B !A
+newtype C = C B
+data D = D !C
+</programlisting>
+            would all be represented by a single
+            <literal>Int#</literal> (see <xref linkend="primitives"/>)
+            value with
+            <option>-funbox-small-strict-fields</option> enabled.
+            </para>
+
+            <para>This option is less of a sledgehammer than
+            <option>-funbox-strict-fields</option>: it should rarely make things
+            worse. If you use <option>-funbox-small-strict-fields</option>
+            to turn on unboxing by default you can disable it for certain
+            constructor fields using the <literal>NOUNPACK</literal> pragma (see
+            <xref linkend="nounpack-pragma"/>).</para>
+
+            <para>
+            Note that for consistency <literal>Double</literal>,
+            <literal>Word64</literal>, and <literal>Int64</literal> constructor
+            fields are unpacked on 32-bit platforms, even though they are
+            technically larger than a pointer on those platforms.
+            </para>
           </listitem>
         </varlistentry>
 
@@ -2212,9 +2293,15 @@ last (x : xs) = last' x xs
             <indexterm><primary><option></option></primary></indexterm>
           </term>
           <listitem>
-            <para>Data Parallel Haskell.
-            </para>
-            TODO: Document optimisation
+            <para>Part of <link linkend="dph">Data Parallel Haskell
+            (DPH)</link>.</para>
+
+            <para><emphasis>Off by default.</emphasis> Enable the
+            <emphasis>vectorisation</emphasis> optimisation transformation. This
+            optimisation transforms the nested data parallelism code of programs
+            using DPH into flat data parallelism. Flat data parallel programs
+            should have better load balancing, enable SIMD parallelism and
+            friendlier cache behaviour.</para>
           </listitem>
         </varlistentry>
 
@@ -2224,9 +2311,19 @@ last (x : xs) = last' x xs
             <indexterm><primary><option></option></primary></indexterm>
           </term>
           <listitem>
-            <para>Data Parallel Haskell.
-            </para>
-            TODO: Document optimisation
+            <para>Part of <link linkend="dph">Data Parallel Haskell
+            (DPH)</link>.</para>
+
+            <para><emphasis>Off by default.</emphasis> Enable the
+            <emphasis>vectorisation</emphasis> avoidance optimisation. This
+            optimisation only works when used in combination with the
+            <option>-fvectorise</option> transformation.</para>
+
+            <para>While vectorisation of code using DPH is often a big win, it
+            can also produce worse results for some kinds of code. This
+            optimisation modifies the vectorisation transformation to try to
+            determine if a function would be better of unvectorised and if
+            so, do just that.</para>
           </listitem>
         </varlistentry>
 

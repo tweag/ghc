@@ -12,15 +12,17 @@ import Outputable ( ppr, pprWithCommas
                   , Outputable
                   , SDoc
                   , (<>), (<+>), text, vcat, parens
-                  , hsep
+                  , hsep, nest
                   )
 import Var      ( TyVar )
+import VarSet   ( elemVarSet )
 import TyCon    ( TyCon, tyConName )
 import Type     ( Type, isNumLitTy, getTyVar_maybe, isTyVarTy, mkNumLitTy
                 , mkTyConApp
                 , splitTyConApp_maybe
                 , eqType, cmpType
                 , CoAxiomRule, Eqn, co_axr_inst, co_axr_is_rule
+                , tyVarsOfType
                 )
 import TysWiredIn ( typeNatAddTyCon
                   , typeNatMulTyCon
@@ -54,6 +56,7 @@ import TcEvidence ( EvTerm(..)
                   , evTermCoercion
                   , TcCoercion(TcTypeNatCo)
                   , mkTcSymCo, mkTcTransCo
+                  , mkTcReflCo, mkTcTyConAppCo
                   , tcCoercionKind
                   )
 import TcSMonad ( TcS, emitInsoluble, setEvBind
@@ -66,12 +69,12 @@ import TcSMonad ( TcS, emitInsoluble, setEvBind
                 , newFlexiTcSTy
                 , tyVarsOfCt
                 , newWantedEvVarNC
-                -- , getDynFlags
+                , foldFamHeadMap
                 )
 
 -- From base libraries
-import Data.Maybe ( isNothing, mapMaybe )
-import Data.List  ( sortBy, partition, find )
+import Data.Maybe ( isNothing, mapMaybe, catMaybes )
+import Data.List  ( sortBy, partition, find, nub, nubBy )
 import Data.Ord   ( comparing )
 import Control.Monad ( msum, guard, when, liftM2 )
 import qualified Data.Set as S
@@ -80,16 +83,15 @@ import qualified Data.Map as M
 {-
 -- Just fore debugging
 import Debug.Trace
--- import DynFlags ( tracingDynFlags )
+import DynFlags( unsafeGlobalDynFlags )
 import Outputable (showSDoc)
 
 pureTrace :: String -> a -> a
 pureTrace x a = if True then trace x a else a
 
 ppsh :: SDoc -> String
-ppsh = showSDoc tracingDynFlags   -- tracingDynFlags is gone..
--}
-
+ppsh = showSDoc unsafeGlobalDynFlags
+--}
 
 --------------------------------------------------------------------------------
 
@@ -122,9 +124,25 @@ typeNatStage ct
              Just c  -> do natTrace "solved wanted: " (ppr ct)
                            setEvBind (ctEvId ev) c
                            return Stop
-             Nothing -> do natTrace "failed to solve wanted: " (ppr ct)
-                           reExamineWanteds asmps ct
-                           checkBad =<< computeNewDerivedWork ct
+             Nothing ->
+              do (bad,good0) <- interactCt False ct asmps
+                 let good = nubBy sameCt good0
+                 if not (null bad)
+                   then reportContradictions bad
+                   else
+                     -- XXX: Currently `good` contains only one step of
+                     -- reasoning.  It may be useful to go deeper.
+                     do improved <- tryImprovement ct good
+                        if improved
+                         then return Stop
+                         else
+                           do natTrace "failed to solve wanted: " (ppr ct)
+                              reExamineWanteds asmps ct
+                              when (not (null good)) $
+                                do natTrace "New derived:" (vcat $ map ppr good)
+                                   updWorkListTcS (extendWorkListCts good)
+                              return $ ContinueWith ct
+
   | otherwise =
     case solve ct of
       Just _  -> return Stop
@@ -135,9 +153,106 @@ typeNatStage ct
   ev = ctEvidence ct
   checkBad bad
     | null bad  = return (ContinueWith ct)
-    | otherwise = do natTrace "Contradictions:" (vcat $ map ppr bad)
-                     emitInsoluble ct
-                     return Stop
+    | otherwise = reportContradictions bad
+
+  reportContradictions bad = do natTrace "Contradictions:" (vcat $ map ppr bad)
+                                emitInsoluble ct
+                                return Stop
+
+
+{- | Try to improve the given constraint using the provided derived constraints.
+Returns `True` if improvement happened.
+
+The idea behind improvement is as follows: say we need to solve `P`
+from assumptions `QS`, but we can't do it directly in a singe step.
+
+Now, suppose that `(P,QS) => (x ~ t)` where `x` is a variable mentioned in `P`
+(i.e., we know that if `P` holds in context `QS`, then `x` must be `t`).
+Then, we have a good strategy for solving `P`:
+  1. solve A: `x ~ t`
+  2. sovle B: `P[t/x]
+Now we can construct a proof of `P` in terms of `A` and `B` and, furthermore,
+they are both "simpler" then the original goal.  We refer to `P[t/x]` as
+an _improved_ version of `P`.
+
+The most common use of improvement is to perform evaluation, for
+example when we see `3 + 5 ~ x`, we solve this in terms of two
+subgoals: (x ~ 8, 3 + 5 ~ 8).
+
+XXX: Make sure that it is not possible to get stuck in a loop where
+[P a/b] -> P [b/a] -> P [a/b] ...
+-}
+
+tryImprovement :: Ct -> [Ct] -> TcS Bool
+tryImprovement
+ (CFunEqCan
+   { cc_ev = CtWanted { ctev_pred = p, ctev_evar = w }
+   , cc_fun = tc, cc_tyargs = ts, cc_rhs = t, cc_loc = loc
+   }) implied =
+
+  do impSubst <- catMaybes `fmap` mapM improves implied
+     if null impSubst
+       then return False
+       else do natTrace "improving subst: " $ nest 2 $ vcat $ map ppr impSubst
+               let (argEvs, argTs) = unzip $ map (impTy impSubst) ts
+                   (resEv,  resT)  = impTy impSubst t
+               newGoal <- improvedGoal argTs resT
+               setEvBind w (mkProof (getCo newGoal) argEvs resEv)
+               updWorkListTcS (extendWorkListCts (newGoal : map snd impSubst))
+               return True
+  where
+  {- The improving constraints form a substitution
+     (the _improving substitution_), and here we apply it.
+     Note that we assume that we are working with simple kinds,
+     where all the terms are either a variable or a constant---this is the
+     case for kinds `Nat` and `Bool`---which is why we just check if the
+     term is a variable. -}
+
+  impTy cts ty =
+    case getTyVar_maybe ty of
+      Just x | Just ct1 <- lookup x cts -> (getCo ct1, cc_rhs ct1)
+      _                                 -> (mkTcReflCo ty, ty)
+
+
+
+  {- A constrinat of the form `x ~ t` improves the current goal if `x`
+  appears in the variables of the goal.  These are always simpler then
+  original goal, because the original goal is of the form: `F as ~ b`,
+  and `as`, `b`, and `t` are all normalized (they do not mention functions) -}
+  improves ct1@CTyEqCan { cc_tyvar = x, cc_ev = CtDerived { ctev_pred = asmp }}
+    | x `elemVarSet` tyVarsOfType p =
+      do w <- newWantedEvVarNC asmp
+         return $ Just (x, ct1 { cc_ev = w })
+
+  improves _ = return Nothing
+
+  -- Proof of the original goal in terms of the improved goal
+  -- and the improving equations: F argEvs ; newGoal ; sym resEv
+  mkProof newGoal argEvs resEv =
+    EvCoercion $
+    mkTcTransCo (mkTcTyConAppCo tc argEvs) $
+    mkTcTransCo newGoal (mkTcSymCo resEv)
+
+  -- This is the improved goal that we'll try to solve next.
+  improvedGoal ts1 t1 =
+    do let p = mkTcEqPred (mkTyConApp tc ts1) t1
+       w <- newWantedEvVarNC p
+       return CFunEqCan
+                { cc_ev  = w
+                , cc_fun = tc, cc_tyargs = ts1, cc_rhs = t1, cc_loc = loc
+                }
+
+  -- Turn a constraint into a coercion
+  getCo = evTermCoercion . ctEvTerm . cc_ev
+
+
+
+tryImprovement _ _ = return False
+
+
+
+
+
 
 
 {- We do this before adding a new wanted to the inert set.
@@ -180,17 +295,28 @@ simply get solved by it, but also to new given and derived constraints.
 Given and dervied constraints that can be solved in this way are ignored
 because they would not be contributing any new information. -}
 solve :: Ct -> Maybe EvTerm
-solve ct = msum $ solveWithAxiom ct : map (`solveWithRule` ct) bRules
+solve (CFunEqCan { cc_fun = tc, cc_tyargs = ts, cc_rhs = t }) =
+  do ([],ev) <- byBasic (TPOther (mkTyConApp tc ts), TPOther t)
+     return ev
+solve _ = Nothing
+
+
+solveLeq :: LeqFacts -> Ct -> Maybe EvTerm
+solveLeq m ct =
+  do (t1,t2) <- isLeqCt ct
+     isLeq m t1 t2
 
 solveWanted :: [Ct] -> Ct -> Maybe EvTerm
 solveWanted asmps0 ct = msum [ solve ct
                              , solveLeq leq ct
-                             , fmap ev (find this (widenAsmps asmps))
+                             , fmap ev (find this $ dbg $ widenAsmps asmps)
                              ]
   where
   ev   = ctEvTerm . ctEvidence
   this = sameCt ct
   (leq,asmps) = makeLeqModel asmps0
+
+  dbg x = x -- pureTrace (unlines ("assumptions:" : map (ppsh . ppr) asmps ++ "-----\nwidened assumptions:" : map (ppsh . ppr) x)) x
 
 {- Try to reformulate the goal in terms of some simpler goals, using
 the given rule. The result indicates if we succeeded. -}
@@ -354,6 +480,81 @@ matchTypes (x : xs) (y : ys)  =
      return (su1 ++ su2)
 matchTypes _ _                = Nothing
 
+{-| The function `matchTypePat` checks to see if we can make two
+type patterns the same by instantiating them to concrete types.
+It is similar to unification, but we only bind variables to concrete
+terms and not other pattren variables.  Also, the variables in the left
+and right patterns are considered to be distinct, even if they have the
+same name.  This is why we return a left and aright substitution.
+The use case for this function is when we want to instantiate a
+rule to solve a local goal in an active rule.
+Example (using capital letters for variables):
+
+rule:        forall A. A + 0 ~ A
+active rule: forall Z. (x + 0 ~ y, x + 0 ~ Z) => (y ~ Z)
+
+Now, when we match the rule against the second argument of the active
+rule we get:
+
+{ A ~ x } and { Z ~ x }
+
+This allows the active rule to complete firing and construct the
+proof of `y ~ x`.
+
+An alternative (and more traditional) implementation would be to generate
+fresh variables for the rule and unify the terms.  For now we don't do this
+because it would requires monadification of most of the solver.
+-}
+
+matchTypePats :: [TypePat] -> [TypePat] -> Maybe (SimpleSubst,SimpleSubst)
+matchTypePats p1 p2 =
+  case doMatchTypePats p1 p2 of
+    Yes suL suR -> Just (suL, suR)
+    _           -> Nothing
+
+
+data MatchResult = Yes SimpleSubst SimpleSubst
+                 | No                         -- Type patterns did not match
+                 | Maybe [TypePat] [TypePat]  -- Don't know (var vs. pattern)
+
+doMatchTypePat :: TypePat -> TypePat -> MatchResult
+doMatchTypePat p (TPOther t)  = maybe No (`Yes` []) (matchType p t)
+doMatchTypePat (TPOther t) p  = maybe No ([] `Yes`) (matchType p t)
+doMatchTypePat (TPCon c1 ts1) (TPCon c2 ts2)
+  | c1 == c2                  = doMatchTypePats ts1 ts2
+  | otherwise                 = No
+doMatchTypePat p1 p2          = Maybe [p1] [p2]
+
+doMatchTypePats :: [TypePat] -> [TypePat] -> MatchResult
+doMatchTypePats = attempt False [] []
+  where
+
+  -- Done!
+  attempt _     []  []  [] [] = Yes [] []
+
+  -- We have delayed work, but we learned something, so try again.
+  attempt True  ds1 ds2 [] [] = attempt False [] [] ds1 ds2
+
+  -- We have delayed work, and we learned nothing, so we are done for now.
+  attempt False ds1 ds2 [] [] = Maybe ds1 ds2
+
+  -- We have normal work.
+  attempt ch    ds1 ds2 (t1:ts1) (t2:ts2) =
+    case doMatchTypePat t1 t2 of
+      No            -> No
+      Maybe ps1 ps2 -> attempt ch (ps1++ds1) (ps2++ds2) ts1 ts2
+      Yes suL1 suR1 ->
+        case attempt True (apSimpSubst suL1 ds1) (apSimpSubst suR1 ds2)
+                          (apSimpSubst suL1 ts1) (apSimpSubst suR1 ts2) of
+          No            -> No
+          Maybe xs1 xs2 -> Maybe xs1 xs2
+          Yes suL2 suR2 -> Yes (suL1 ++ suL2) (suR1 ++ suR2)
+
+  -- The number of arguments did not match.  This should not really happen
+  -- because kinds should have been checked, but `No` is a safe answer.
+  attempt _ _ _ [] (_:_)  = No
+  attempt _ _ _ (_:_) []  = No
+
 
 --------------------------------------------------------------------------------
 
@@ -372,6 +573,14 @@ byAsmp ct (lhs,rhs) =
      su <- matchTypes [lhs,rhs] [t1,t2]
      return (su, ev)
 
+
+-- Tries to solve the equation using one of the basic rules.
+byBRule :: CoAxiomRule -> (TypePat, TypePat) -> Maybe (SimpleSubst, EvTerm)
+byBRule r (lhs,rhs) =
+  do (vs,[],(a,b)) <- co_axr_is_rule r
+     (suL,suR) <- matchTypePats [toTypePat vs a, toTypePat vs b] [lhs,rhs]
+     tys <- mapM (`lookup` suL) vs
+     return (suR, useRule r tys [])
 
 -- Check if we can solve the equation using one of the family of axioms.
 byAxiom :: (TypePat, TypePat) -> Maybe (SimpleSubst, EvTerm)
@@ -435,32 +644,17 @@ byAxiom (TPOther ty, TPOther tp3)
 byAxiom _ = Nothing
 
 
+-- Solve a goal either using an axiom or a basic rule.
+byBasic :: (TypePat,TypePat) -> Maybe (SimpleSubst, EvTerm)
+byBasic eq = msum (byAxiom eq : map (`byBRule` eq) bRules)
+
+
 -- Construct evidence using a specific axiom rule.
 useRule :: CoAxiomRule -> [Type] -> [EvTerm] -> EvTerm
 useRule ax ts ps = EvCoercion $ mk ax ts (map evTermCoercion ps)
   where mk = TcTypeNatCo
 
 
-
-solveWithRule :: CoAxiomRule -> Ct -> Maybe EvTerm
-solveWithRule r ct =
-  do (vs,[],(a,b)) <- co_axr_is_rule r -- Currently we just use simple axioms.
-     let lhs = toTypePat vs a
-         rhs = toTypePat vs b
-     (su,_) <- byAsmp ct (lhs,rhs)    -- Just for the instantiation
-     tys <- mapM (`lookup` su) vs
-     return (useRule r tys [])
-
-solveWithAxiom :: Ct -> Maybe EvTerm
-solveWithAxiom (CFunEqCan { cc_fun = tc, cc_tyargs = ts, cc_rhs = t }) =
-  do ([],ev) <- byAxiom (TPOther (mkTyConApp tc ts), TPOther t)
-     return ev
-solveWithAxiom _ = Nothing
-
-solveLeq :: LeqFacts -> Ct -> Maybe EvTerm
-solveLeq m ct =
-  do (t1,t2) <- isLeqCt ct
-     isLeq m t1 t2
 
 --------------------------------------------------------------------------------
 
@@ -584,7 +778,6 @@ funRule tc = AR
            | otherwise = natVars
 
 
-
 {- We get these when a rule fires.  Later, they are converted to
 givens or derived, depending on what we are doing. -}
 data RuleResult = RuleResult
@@ -592,13 +785,19 @@ data RuleResult = RuleResult
   , evidence         :: EvTerm  -- proof, given evidence for derived
   }
 
+instance Eq RuleResult where
+  r1 == r2  = eqType s1 t1 && eqType s2 t2
+    where (s1,s2) = conclusion r1
+          (t1,t2) = conclusion r2
+
 
 {- Check if the `ActiveRule` is completely instantiated and, if so,
 compute the resulting equation and the evidence for it.
 
-If some of the parameters for the equation were matched by
-`Derived` constraints, then the evidence for the term will be parmatereized
-by proofs for them.
+We also do some last effort solving: we check the ordering model to see
+if any ordering side-conditions are solvable now.  These never produe a
+new substitution (i.e., they have a yes/no answer) so we can just do
+them while attempting to fire the rule.
 -}
 fireRule :: LeqFacts -> ActiveRule -> Maybe RuleResult
 fireRule leq r =
@@ -724,14 +923,15 @@ setArg n (su,ev) r =
 
   inst xs = [ (x,apSimpSubst su y) | (x,y) <- xs ]
 
--- Try to solve one of the assumptions by axiom.
+-- Try to solve one of the assumptions by axiom or a basic rule.
 applyAxiom1 :: ActiveRule -> Maybe ActiveRule
 applyAxiom1 r = msum $ map attempt $ todoArgs r
   where
   attempt (n,eq) = do (su,ev) <- byAxiom eq
                       return (setArg n (su, ev) r)
 
--- Try to satisfy some of the rule's assumptions by axiom.
+-- Try to satisfy some of the rule's assumptions by axiom or a basic rule.
+-- We repeat the process until there no changes occur.
 applyAxiom :: ActiveRule -> ActiveRule
 applyAxiom r = maybe r applyAxiom (applyAxiom1 r)
 
@@ -752,19 +952,38 @@ applyAsmp r ct =
            | otherwise  = id
 
 
+
+{- | Attempts to solve any remaining assumptions using bRules.
+Generally, interacting with `bRules` leads to trivially true facts,
+which is why we only do this once at the end.  The reason we do it
+at all is that it improves inferred types when comined with `funRule`s,
+resulting in improvements like this: (a + 0 ~ b) => (a ~ b)
+-}
+applyBRules :: ActiveRule -> ActiveRule
+applyBRules = attempt []
+  where
+  attempt tried r =
+    case filter ((`notElem` tried) . fst) (todoArgs r) of
+      [] -> r
+      (n,eq) : _ ->
+        case msum (map (`byBRule` eq) bRules) of
+          Just ok -> attempt tried (setArg n ok r)
+          Nothing -> attempt (n:tried) r
+
+
 {- Does forward reasoning:  compute new facts by interacting
 existing facts with a set of rules. -}
 interactActiveRules :: LeqFacts -> [ActiveRule] -> [Ct] -> [RuleResult]
 interactActiveRules leq rs0 cs0 =
   loop (map applyAxiom rs0) cs0
   where
-  loop rs []       = mapMaybe (fireRule leq) rs
+  loop rs []       = nub $ mapMaybe (fireRule leq . applyBRules) rs
   loop rs (c : cs) = let new = map applyAxiom (concatMap (`applyAsmp` c) rs)
                      in loop (new ++ rs) cs
 
 {- A (possibly over-compliacted) example illustrating how the
 order in which we do the matching for the assumptions makes a difference
-to the conlusion of the rule.  I am not sure that at present we have rules
+to the conclusion of the rule.  I am not sure that at present we have rules
 that are as complex.
 
 
@@ -799,6 +1018,11 @@ getEvCt =
      return $ bagToList $ fst $ partCtFamHeadMap hasEv
                               $ inert_funeqs $ inert_cans is
   where hasEv c = isGivenCt c || isWantedCt c
+
+getAllCt :: TcS [Ct]
+getAllCt =
+  do is <- getTcSInerts
+     return $ foldFamHeadMap (:) [] $ inert_funeqs $ inert_cans is
 
 sameCt :: Ct -> Ct -> Bool
 sameCt c1 c2 = eqType (ctPred c1) (ctPred c2)
@@ -873,25 +1097,30 @@ customNat1Improvement leq ct
 -- Given a set of facts, apply forward reasoning using the "difficult"
 -- rules to derive some additional facts.
 widenAsmps :: [Ct] -> [Ct]
-widenAsmps asmps = step given wanted []
+widenAsmps asmps = step given wanted
 
   where
+  -- givens are already "widened", so we don't need to redo that part.
   (given, wanted) = partition isGivenCt asmps
 
   known c cs  = any (sameCt c) cs
 
-  step done [] [] = reverse done
-  step done [] cs = step done (reverse cs) []
-  step done (c : cs) ds
-    | known c done  = step done cs ds
+  step done [] = done
+  step done (c : cs)
+    | known c done  = step done cs
     | otherwise
       = let active = concatMap (`applyAsmp` c) $ map activate widenRules
-            new = filter nonTrivial $
+            new = filter (not . (`known` done)) $
+                  filter nonTrivial $
                   map (ruleResultToGiven (cc_loc c))
                       $ interactActiveRules leq active done
-        in step (c : done) cs (new ++ ds)
+        in -- pureTrace ("ACTIVE CANDIDATES: " ++ show (length active))
+         {-$ pureTrace (unlines $ "NEW FACTS: " : map (ppsh . ppr) new)
+         $ -} step (c : done) (new ++ cs)
 
   -- For the moment, widedning rules have no ordering side conditions.
+  -- XXX: Actually, they do, the derived ordering rules have side conditions
+  -- so we should construct a model.
   leq = noLeqFacts
 
   nonTrivial ct = impossible ct || not (isEmptyUniqSet (tyVarsOfCt ct))
@@ -907,7 +1136,7 @@ computeNewGivenWork :: Ct -> TcS [Ct]
 computeNewGivenWork ct =
   do (bad,good) <- interactCt True ct =<< getFacts
 
-     when (null bad) $
+     when (null bad && not (null good)) $
        do natTrace "New givens:" (vcat $ map ppr good)
           updWorkListTcS (extendWorkListCts good)
 
@@ -920,9 +1149,10 @@ Returns any obvious contradictions that we found. -}
 -- XXX: We should probably be using the deived constraints here too
 computeNewDerivedWork :: Ct -> TcS [Ct]
 computeNewDerivedWork ct =
-  do (bad,good) <- interactCt False ct =<< getEvCt
+  do asmps <- getEvCt
+     (bad,good) <- interactCt False ct asmps -- =<< getEvCt
 
-     when (null bad) $
+     when (null bad && not (null good)) $
        do natTrace "New derived:" (vcat $ map ppr good)
           updWorkListTcS (extendWorkListCts good)
 

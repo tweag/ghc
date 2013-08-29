@@ -37,7 +37,7 @@ module TcType (
   TcTyVarDetails(..), pprTcTyVarDetails, vanillaSkolemTv, superSkolemTv,
   MetaDetails(Flexi, Indirect), MetaInfo(..), 
   isImmutableTyVar, isSkolemTyVar, isMetaTyVar,  isMetaTyVarTy, isTyVarTy,
-  isSigTyVar, isOverlappableTyVar,  isTyConableTyVar,
+  isSigTyVar, isOverlappableTyVar,  isTyConableTyVar, isFlatSkolTyVar,
   isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
   isFlexi, isIndirect, isRuntimeUnkSkol,
   isTypeVar, isKindVar, 
@@ -76,6 +76,7 @@ module TcType (
   -- Misc type manipulators
   deNoteType, occurCheckExpand, OccCheckResult(..),
   orphNamesOfType, orphNamesOfDFunHead, orphNamesOfCo,
+  orphNamesOfTypes, orphNamesOfCoCon,
   getDFunTyKey,
   evVarPred_maybe, evVarPred,
 
@@ -88,17 +89,6 @@ module TcType (
 
   -- * Finding "exact" (non-dead) type variables
   exactTyVarsOfType, exactTyVarsOfTypes,
-
-  -- * Tidying type related things up for printing
-  tidyType,      tidyTypes,
-  tidyOpenType,  tidyOpenTypes,
-  tidyOpenKind,
-  tidyTyVarBndr, tidyTyVarBndrs, tidyFreeTyVars,
-  tidyOpenTyVar, tidyOpenTyVars,
-  tidyTyVarOcc,
-  tidyTopType,
-  tidyKind, 
-  tidyCo, tidyCos,
 
   ---------------------------------
   -- Foreign import and export
@@ -173,6 +163,7 @@ import VarSet
 import Coercion
 import Type
 import TyCon
+import CoAxiom
 
 -- others:
 import DynFlags
@@ -190,7 +181,6 @@ import ListSetOps
 import Outputable
 import FastString
 
-import Data.List( mapAccumL )
 import Data.IORef
 \end{code}
 
@@ -447,6 +437,7 @@ uf will get unified *once more* to (F Int).
 
 \begin{code}
 newtype Untouchables = Untouchables Int
+  -- See Note [Untouchable type variables] for what this Int is
 
 noUntouchables :: Untouchables
 noUntouchables = Untouchables 0   -- 0 = outermost level
@@ -516,154 +507,6 @@ pprUserTypeCtxt SigmaCtxt         = ptext (sLit "the context of a polymorphic ty
 pprUserTypeCtxt (DataTyCtxt tc)   = ptext (sLit "the context of the data type declaration for") <+> quotes (ppr tc)
 \end{code}
 
-
-%************************************************************************
-%*									*
-\subsection{TidyType}
-%*									*
-%************************************************************************
-
-Tidying is here becuase it has a special case for FlatSkol
-
-\begin{code}
--- | This tidies up a type for printing in an error message, or in
--- an interface file.
--- 
--- It doesn't change the uniques at all, just the print names.
-tidyTyVarBndrs :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
-tidyTyVarBndrs env tvs = mapAccumL tidyTyVarBndr env tvs
-
-tidyTyVarBndr :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
-tidyTyVarBndr tidy_env@(occ_env, subst) tyvar
-  = case tidyOccName occ_env occ1 of
-      (tidy', occ') -> ((tidy', subst'), tyvar')
-	where
-          subst' = extendVarEnv subst tyvar tyvar'
-          tyvar' = setTyVarKind (setTyVarName tyvar name') kind'
-          name'  = tidyNameOcc name occ'
-          kind'  = tidyKind tidy_env (tyVarKind tyvar)
-  where
-    name = tyVarName tyvar
-    occ  = getOccName name
-    -- System Names are for unification variables;
-    -- when we tidy them we give them a trailing "0" (or 1 etc)
-    -- so that they don't take precedence for the un-modified name
-    occ1 | isSystemName name = mkTyVarOcc (occNameString occ ++ "0")
-         | otherwise         = occ
-
-
----------------
-tidyFreeTyVars :: TidyEnv -> TyVarSet -> TidyEnv
--- ^ Add the free 'TyVar's to the env in tidy form,
--- so that we can tidy the type they are free in
-tidyFreeTyVars (full_occ_env, var_env) tyvars 
-  = fst (tidyOpenTyVars (full_occ_env, var_env) (varSetElems tyvars))
-
-        ---------------
-tidyOpenTyVars :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
-tidyOpenTyVars env tyvars = mapAccumL tidyOpenTyVar env tyvars
-
----------------
-tidyOpenTyVar :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
--- ^ Treat a new 'TyVar' as a binder, and give it a fresh tidy name
--- using the environment if one has not already been allocated. See
--- also 'tidyTyVarBndr'
-tidyOpenTyVar env@(_, subst) tyvar
-  = case lookupVarEnv subst tyvar of
-	Just tyvar' -> (env, tyvar')		-- Already substituted
-	Nothing	    -> tidyTyVarBndr env tyvar	-- Treat it as a binder
-
----------------
-tidyTyVarOcc :: TidyEnv -> TyVar -> TyVar
-tidyTyVarOcc (_, subst) tv
-  = case lookupVarEnv subst tv of
-	Nothing  -> tv
-	Just tv' -> tv'
-
----------------
-tidyTypes :: TidyEnv -> [Type] -> [Type]
-tidyTypes env tys = map (tidyType env) tys
-
----------------
-tidyType :: TidyEnv -> Type -> Type
-tidyType _   (LitTy n)            = LitTy n
-tidyType env (TyVarTy tv)	  = TyVarTy (tidyTyVarOcc env tv)
-tidyType env (TyConApp tycon tys) = let args = tidyTypes env tys
- 		                    in args `seqList` TyConApp tycon args
-tidyType env (AppTy fun arg)	  = (AppTy $! (tidyType env fun)) $! (tidyType env arg)
-tidyType env (FunTy fun arg)	  = (FunTy $! (tidyType env fun)) $! (tidyType env arg)
-tidyType env (ForAllTy tv ty)	  = ForAllTy tvp $! (tidyType envp ty)
-			          where
-			            (envp, tvp) = tidyTyVarBndr env tv
-
----------------
--- | Grabs the free type variables, tidies them
--- and then uses 'tidyType' to work over the type itself
-tidyOpenType :: TidyEnv -> Type -> (TidyEnv, Type)
-tidyOpenType env ty
-  = (env', tidyType (trimmed_occ_env, var_env) ty)
-  where
-    (env'@(_, var_env), tvs') = tidyOpenTyVars env (varSetElems (tyVarsOfType ty))
-    trimmed_occ_env = initTidyOccEnv (map getOccName tvs')
-      -- The idea here was that we restrict the new TidyEnv to the 
-      -- _free_ vars of the type, so that we don't gratuitously rename
-      -- the _bound_ variables of the type.
-
----------------
-tidyOpenTypes :: TidyEnv -> [Type] -> (TidyEnv, [Type])
-tidyOpenTypes env tys = mapAccumL tidyOpenType env tys
-
----------------
--- | Calls 'tidyType' on a top-level type (i.e. with an empty tidying environment)
-tidyTopType :: Type -> Type
-tidyTopType ty = tidyType emptyTidyEnv ty
-
----------------
-tidyOpenKind :: TidyEnv -> Kind -> (TidyEnv, Kind)
-tidyOpenKind = tidyOpenType
-
-tidyKind :: TidyEnv -> Kind -> Kind
-tidyKind = tidyType
-\end{code}
-
-%************************************************************************
-%*									*
-                            Tidying coercions
-%*									*
-%************************************************************************
-
-\begin{code}
-tidyCo :: TidyEnv -> Coercion -> Coercion
-tidyCo env@(_, subst) co
-  = go co
-  where
-    go (Refl ty)             = Refl (tidyType env ty)
-    go (TyConAppCo tc cos)   = let args = map go cos
-                               in args `seqList` TyConAppCo tc args
-    go (AppCo co1 co2)       = (AppCo $! go co1) $! go co2
-    go (ForAllCo tv co)      = ForAllCo tvp $! (tidyCo envp co)
-                               where
-                                 (envp, tvp) = tidyTyVarBndr env tv
-    go (CoVarCo cv)          = case lookupVarEnv subst cv of
-                                 Nothing  -> CoVarCo cv
-                                 Just cv' -> CoVarCo cv'
-    go (AxiomInstCo con cos) = let args = tidyCos env cos
-                               in  args `seqList` AxiomInstCo con args
-    go (UnsafeCo ty1 ty2)    = (UnsafeCo $! tidyType env ty1) $! tidyType env ty2
-    go (SymCo co)            = SymCo $! go co
-    go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
-    go (NthCo d co)          = NthCo d $! go co
-    go (LRCo lr co)          = LRCo lr $! go co
-    go (InstCo co ty)        = (InstCo $! go co) $! tidyType env ty
-
-    go (TypeNatCo co ts cs)  = let ts' = tidyTypes env ts
-                                   cs' = tidyCos env cs
-                               in ts' `seqList` cs' `seqList`
-                                  TypeNatCo co ts' cs'
-
-tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
-tidyCos env = map (tidyCo env)
-\end{code}
 
 %************************************************************************
 %*                  *
@@ -770,7 +613,7 @@ isImmutableTyVar tv
   | otherwise    = True
 
 isTyConableTyVar, isSkolemTyVar, isOverlappableTyVar,
-  isMetaTyVar, isAmbiguousTyVar :: TcTyVar -> Bool 
+  isMetaTyVar, isAmbiguousTyVar, isFlatSkolTyVar :: TcTyVar -> Bool 
 
 isTyConableTyVar tv	
 	-- True of a meta-type variable that can be filled in 
@@ -781,6 +624,12 @@ isTyConableTyVar tv
 	MetaTv { mtv_info = SigTv } -> False
 	_                           -> True
 	
+isFlatSkolTyVar tv
+  = ASSERT2( isTcTyVar tv, ppr tv )
+    case tcTyVarDetails tv of
+        FlatSkol {} -> True
+        _           -> False
+
 isSkolemTyVar tv 
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
@@ -904,10 +753,11 @@ mkTcEqPred ty1 ty2
 isTauTy :: Type -> Bool
 isTauTy ty | Just ty' <- tcView ty = isTauTy ty'
 isTauTy (TyVarTy _)	  = True
+isTauTy (LitTy {})        = True
 isTauTy (TyConApp tc tys) = all isTauTy tys && isTauTyCon tc
 isTauTy (AppTy a b)	  = isTauTy a && isTauTy b
 isTauTy (FunTy a b)	  = isTauTy a && isTauTy b
-isTauTy _    		  = False
+isTauTy (ForAllTy {})     = False
 
 isTauTyCon :: TyCon -> Bool
 -- Returns False for type synonyms whose expansion is a polytype
@@ -1097,23 +947,20 @@ tcIsTyVarTy :: Type -> Bool
 tcIsTyVarTy ty = maybeToBool (tcGetTyVar_maybe ty)
 
 -----------------------
-tcSplitDFunTy :: Type -> ([TyVar], Int, Class, [Type])
+tcSplitDFunTy :: Type -> ([TyVar], [Type], Class, [Type])
 -- Split the type of a dictionary function
 -- We don't use tcSplitSigmaTy,  because a DFun may (with NDP)
 -- have non-Pred arguments, such as
 --     df :: forall m. (forall b. Eq b => Eq (m b)) -> C m
+-- 
+-- Also NB splitFunTys, not tcSplitFunTys; 
+-- the latter  specifically stops at PredTy arguments, 
+-- and we don't want to do that here
 tcSplitDFunTy ty 
-  = case tcSplitForAllTys ty   of { (tvs, rho)  ->
-    case split_dfun_args 0 rho of { (n_theta, tau) ->
-    case tcSplitDFunHead tau   of { (clas, tys) ->
-    (tvs, n_theta, clas, tys) }}}
-  where
-    -- Count the context of the dfun.  This can be a mix of
-    -- coercion and class constraints; or (in the general NDP case)
-    -- some other function argument
-    split_dfun_args n ty | Just ty' <- tcView ty = split_dfun_args n ty'
-    split_dfun_args n (FunTy _ ty)     = split_dfun_args (n+1) ty
-    split_dfun_args n ty               = (n, ty)
+  = case tcSplitForAllTys ty   of { (tvs, rho)   ->
+    case splitFunTys rho       of { (theta, tau) ->  
+    case tcSplitDFunHead tau   of { (clas, tys)  ->
+    (tvs, theta, clas, tys) }}}
 
 tcSplitDFunHead :: Type -> (Class, [Type])
 tcSplitDFunHead = getClassPredTys
@@ -1465,8 +1312,11 @@ orphNamesOfType (FunTy arg res)	    = orphNamesOfType arg `unionNameSets` orphNa
 orphNamesOfType (AppTy fun arg)	    = orphNamesOfType fun `unionNameSets` orphNamesOfType arg
 orphNamesOfType (ForAllTy _ ty)	    = orphNamesOfType ty
 
+orphNamesOfThings :: (a -> NameSet) -> [a] -> NameSet
+orphNamesOfThings f = foldr (unionNameSets . f) emptyNameSet
+
 orphNamesOfTypes :: [Type] -> NameSet
-orphNamesOfTypes tys = foldr (unionNameSets . orphNamesOfType) emptyNameSet tys
+orphNamesOfTypes = orphNamesOfThings orphNamesOfType
 
 orphNamesOfDFunHead :: Type -> NameSet
 -- Find the free type constructors and classes 
@@ -1485,7 +1335,7 @@ orphNamesOfCo (TyConAppCo tc cos)   = unitNameSet (getName tc) `unionNameSets` o
 orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
 orphNamesOfCo (ForAllCo _ co)       = orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
-orphNamesOfCo (AxiomInstCo con cos) = orphNamesOfCoCon con `unionNameSets` orphNamesOfCos cos
+orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSets` orphNamesOfCos cos
 orphNamesOfCo (UnsafeCo ty1 ty2)    = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
@@ -1496,11 +1346,18 @@ orphNamesOfCo (TypeNatCo _ ts cs)   = orphNamesOfTypes ts `unionNameSets`
                                       orphNamesOfCos cs
 
 orphNamesOfCos :: [Coercion] -> NameSet
-orphNamesOfCos = foldr (unionNameSets . orphNamesOfCo) emptyNameSet
+orphNamesOfCos = orphNamesOfThings orphNamesOfCo
 
-orphNamesOfCoCon :: CoAxiom -> NameSet
-orphNamesOfCoCon (CoAxiom { co_ax_lhs = ty1, co_ax_rhs = ty2 })
-  = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
+orphNamesOfCoCon :: CoAxiom br -> NameSet
+orphNamesOfCoCon (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
+  = orphNamesOfTyCon tc `unionNameSets` orphNamesOfCoAxBranches branches
+
+orphNamesOfCoAxBranches :: BranchList CoAxBranch br -> NameSet
+orphNamesOfCoAxBranches = brListFoldr (unionNameSets . orphNamesOfCoAxBranch) emptyNameSet
+
+orphNamesOfCoAxBranch :: CoAxBranch -> NameSet
+orphNamesOfCoAxBranch (CoAxBranch { cab_lhs = lhs, cab_rhs = rhs })
+  = orphNamesOfTypes lhs `unionNameSets` orphNamesOfType rhs
 \end{code}
 
 

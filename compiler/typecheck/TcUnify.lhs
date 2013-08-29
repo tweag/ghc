@@ -44,7 +44,6 @@ module TcUnify (
 import HsSyn
 import TypeRep
 import TcMType
-import TcIface
 import TcRnMonad
 import TcType
 import Type
@@ -110,7 +109,7 @@ namely:
 
 This is not (currently) where deep skolemisation occurs;
 matchExpectedFunTys does not skolmise nested foralls in the 
-expected type, becuase it expects that to have been done already
+expected type, because it expects that to have been done already
 
 
 \begin{code}
@@ -154,12 +153,15 @@ matchExpectedFunTys herald arity orig_ty
 	       Flexi        -> defer n_req ty }
 
        -- In all other cases we bale out into ordinary unification
-    go n_req ty = defer n_req ty
+       -- However unlike the meta-tyvar case, we are sure that the
+       -- number of arrows doesn't match up, so we can add a bit 
+       -- more context to the error message (cf Trac #7869)
+    go n_req ty = addErrCtxtM mk_ctxt $
+                  defer n_req ty
 
     ------------
     defer n_req fun_ty 
-      = addErrCtxtM mk_ctxt $
-        do { arg_tys <- newFlexiTyVarTys n_req openTypeKind
+      = do { arg_tys <- newFlexiTyVarTys n_req openTypeKind
                         -- See Note [Foralls to left of arrow]
            ; res_ty  <- newFlexiTyVarTy openTypeKind
            ; co   <- unifyType fun_ty (mkFunTys arg_tys res_ty)
@@ -207,53 +209,53 @@ matchExpectedPArrTy exp_ty
 ----------------------
 matchExpectedTyConApp :: TyCon                -- T :: forall kv1 ... kvm. k1 -> ... -> kn -> *
                       -> TcRhoType 	      -- orig_ty
-                      -> TcM (TcCoercion,      -- T k1 k2 k3 a b c ~ orig_ty
+                      -> TcM (TcCoercion,     -- T k1 k2 k3 a b c ~ orig_ty
                               [TcSigmaType])  -- Element types, k1 k2 k3 a b c
-                              
+
 -- It's used for wired-in tycons, so we call checkWiredInTyCon
 -- Precondition: never called with FunTyCon
 -- Precondition: input type :: *
+-- Postcondition: (T k1 k2 k3 a b c) is well-kinded
 
 matchExpectedTyConApp tc orig_ty
-  = do  { checkWiredInTyCon tc
-        ; go (tyConArity tc) orig_ty [] }
+  = go orig_ty
   where
-    go :: Int -> TcRhoType -> [TcSigmaType] -> TcM (TcCoercion, [TcSigmaType])
-    -- If     go n ty tys = (co, [t1..tn] ++ tys)
-    -- then   co : T t1..tn ~ ty
+    go ty 
+       | Just ty' <- tcView ty 
+       = go ty'
 
-    go n_req ty tys
-      | Just ty' <- tcView ty = go n_req ty' tys
+    go ty@(TyConApp tycon args) 
+       | tc == tycon  -- Common case
+       = return (mkTcReflCo ty, args)
 
-    go n_req ty@(TyVarTy tv) tys
-      | ASSERT( isTcTyVar tv) isMetaTyVar tv
-      = do { cts <- readMetaTyVar tv
-           ; case cts of
-               Indirect ty -> go n_req ty tys
-               Flexi       -> defer n_req ty tys }
+    go (TyVarTy tv)
+       | ASSERT( isTcTyVar tv) isMetaTyVar tv
+       = do { cts <- readMetaTyVar tv
+            ; case cts of
+                Indirect ty -> go ty
+                Flexi       -> defer }
+   
+    go _ = defer
 
-    go n_req ty@(TyConApp tycon args) tys
-      | tc == tycon
-      = ASSERT( n_req == length args)   -- ty::*
-        return (mkTcReflCo ty, args ++ tys)
+    -- If the common case does not occur, instantiate a template
+    -- T k1 .. kn t1 .. tm, and unify with the original type
+    -- Doing it this way ensures that the types we return are
+    -- kind-compatible with T.  For example, suppose we have
+    --       matchExpectedTyConApp T (f Maybe)
+    -- where data T a = MkT a  
+    -- Then we don't want to instantate T's data constructors with  
+    --    (a::*) ~ Maybe
+    -- because that'll make types that are utterly ill-kinded.
+    -- This happened in Trac #7368
+    defer = ASSERT2( isSubOpenTypeKind res_kind, ppr tc )
+            do { kappa_tys <- mapM (const newMetaKindVar) kvs
+               ; let arg_kinds' = map (substKiWith kvs kappa_tys) arg_kinds
+               ; tau_tys <- mapM newFlexiTyVarTy arg_kinds'
+               ; co <- unifyType (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
+               ; return (co, kappa_tys ++ tau_tys) }
 
-    go n_req (AppTy fun arg) tys
-      | n_req > 0
-      = do { (co, args) <- go (n_req - 1) fun (arg : tys) 
-           ; return (mkTcAppCo co (mkTcReflCo arg), args) }
-
-    go n_req ty tys = defer n_req ty tys
-
-    ----------
-    defer n_req ty tys
-      = do { kappa_tys <- mapM (const newMetaKindVar) kvs
-           ; let arg_kinds' = map (substKiWith kvs kappa_tys) arg_kinds
-           ; tau_tys <- mapM newFlexiTyVarTy arg_kinds'
-           ; co <- unifyType (mkTyConApp tc (kappa_tys ++ tau_tys)) ty
-           ; return (co, kappa_tys ++ tau_tys ++ tys) }
-      where
-        (kvs, body) = splitForAllTys (tyConKind tc)
-        (arg_kinds, _) = splitKindFunTysN (n_req - length kvs) body
+    (kvs, body)           = splitForAllTys (tyConKind tc)
+    (arg_kinds, res_kind) = splitKindFunTys body
 
 ----------------------
 matchExpectedAppTy :: TcRhoType                         -- orig_ty
@@ -897,7 +899,7 @@ checkTauTvUpdate dflags tv ty
 
     defer_me :: TcType -> Bool
     -- Checks for (a) occurrence of tv
-    --            (b) type family applicatios
+    --            (b) type family applications
     -- See Note [Conservative unification check]
     defer_me (LitTy {})        = False
     defer_me (TyVarTy tv')     = tv == tv'

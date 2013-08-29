@@ -1,18 +1,13 @@
 -- CmmNode type for representation using Hoopl graphs.
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
-
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
 
 module CmmNode (
      CmmNode(..), CmmFormal, CmmActual,
-     UpdFrameOffset, Convention(..), ForeignConvention(..), ForeignTarget(..),
+     UpdFrameOffset, Convention(..),
+     ForeignConvention(..), ForeignTarget(..), foreignTargetHints,
      CmmReturnInfo(..),
      mapExp, mapExpDeep, wrapRecExp, foldExp, foldExpDeep, wrapRecExpf,
      mapExpM, mapExpDeepM, wrapRecExpM, mapSuccessors
@@ -48,19 +43,20 @@ data CmmNode e x where
     -- Assign to memory location.  Size is
     -- given by cmmExprType of the rhs.
 
-  CmmUnsafeForeignCall ::         -- An unsafe foreign call;
-                                  -- see Note [Foreign calls]
-  		       		  -- Like a "fat machine instruction"; can occur
-				  -- in the middle of a block
-      ForeignTarget ->            -- call target
-      [CmmFormal] ->               -- zero or more results
-      [CmmActual] ->               -- zero or more arguments
+  CmmUnsafeForeignCall ::       -- An unsafe foreign call;
+                                -- see Note [Foreign calls]
+                                -- Like a "fat machine instruction"; can occur
+                                -- in the middle of a block
+      ForeignTarget ->          -- call target
+      [CmmFormal] ->            -- zero or more results
+      [CmmActual] ->            -- zero or more arguments
       CmmNode O O
       -- Semantics: clobbers any GlobalRegs for which callerSaves r == True
       -- See Note [foreign calls clobber GlobalRegs]
       --
-      -- Also, there is a current bug for what can be put in
-      -- arguments, see Note [Register Parameter Passing]
+      -- Invariant: the arguments and the ForeignTarget must not
+      -- mention any registers for which CodeGen.Platform.callerSaves
+      -- is True.  See Note [Register Parameter Passing].
 
   CmmBranch :: ULabel -> CmmNode O C
                                    -- Goto another block in the same procedure
@@ -121,7 +117,7 @@ data CmmNode e x where
   } -> CmmNode O C
 
   CmmForeignCall :: {           -- A safe foreign call; see Note [Foreign calls]
-  		    		-- Always the last node of a block
+                                -- Always the last node of a block
       tgt   :: ForeignTarget,   -- call target and convention
       res   :: [CmmFormal],     -- zero or more results
       args  :: [CmmActual],     -- zero or more arguments; see Note [Register parameter passing]
@@ -140,14 +136,14 @@ instruction".  In particular, they do *not* kill all live registers,
 just the registers they return to (there was a bit of code in GHC that
 conservatively assumed otherwise.)  However, see [Register parameter passing].
 
-Safe ones are trickier.  A safe foreign call 
+Safe ones are trickier.  A safe foreign call
      r = f(x)
 ultimately expands to
-     push "return address"	-- Never used to return to; 
-     	  	  		-- just points an info table
+     push "return address"      -- Never used to return to;
+                                -- just points an info table
      save registers into TSO
      call suspendThread
-     r = f(x)			-- Make the call
+     r = f(x)                   -- Make the call
      call resumeThread
      restore registers
      pop "return address"
@@ -197,20 +193,8 @@ way is done in cmm/CmmOpt.hs currently.  We should fix this!
 
 ---------------------------------------------
 -- Eq instance of CmmNode
--- It is a shame GHC cannot infer it by itself :(
 
-instance Eq (CmmNode e x) where
-  (CmmEntry a)                 == (CmmEntry a')                   = a==a'
-  (CmmComment a)               == (CmmComment a')                 = a==a'
-  (CmmAssign a b)              == (CmmAssign a' b')               = a==a' && b==b'
-  (CmmStore a b)               == (CmmStore a' b')                = a==a' && b==b'
-  (CmmUnsafeForeignCall a b c) == (CmmUnsafeForeignCall a' b' c') = a==a' && b==b' && c==c'
-  (CmmBranch a)                == (CmmBranch a')                  = a==a'
-  (CmmCondBranch a b c)        == (CmmCondBranch a' b' c')        = a==a' && b==b' && c==c'
-  (CmmSwitch a b)              == (CmmSwitch a' b')               = a==a' && b==b'
-  (CmmCall a b c d e f)          == (CmmCall a' b' c' d' e' f')   = a==a' && b==b' && c==c' && d==d' && e==e' && f==f'
-  (CmmForeignCall a b c d e f) == (CmmForeignCall a' b' c' d' e' f') = a==a' && b==b' && c==c' && d==d' && e==e' && f==f'
-  _                            == _                               = False
+deriving instance Eq (CmmNode e x)
 
 ----------------------------------------------
 -- Hoopl instances of CmmNode
@@ -280,6 +264,17 @@ data ForeignTarget        -- The target of a foreign call
   | PrimTarget            -- A possibly-side-effecting machine operation
         CallishMachOp            -- Which one
   deriving Eq
+
+foreignTargetHints :: ForeignTarget -> ([ForeignHint], [ForeignHint])
+foreignTargetHints target
+  = ( res_hints ++ repeat NoHint
+    , arg_hints ++ repeat NoHint )
+  where
+    (res_hints, arg_hints) =
+       case target of
+          PrimTarget op -> callishMachOpHints op
+          ForeignTarget _ (ForeignConvention _ arg_hints res_hints _) ->
+             (res_hints, arg_hints)
 
 --------------------------------------------------
 -- Instances of register and slot users / definers
@@ -352,7 +347,7 @@ instance DefinerOfRegs GlobalReg (CmmNode e x) where
 -----------------------------------
 -- mapping Expr in CmmNode
 
-mapForeignTarget :: (CmmExpr -> CmmExpr) -> ForeignTarget -> ForeignTarget 
+mapForeignTarget :: (CmmExpr -> CmmExpr) -> ForeignTarget -> ForeignTarget
 mapForeignTarget exp   (ForeignTarget e c) = ForeignTarget (exp e) c
 mapForeignTarget _   m@(PrimTarget _)      = m
 
@@ -428,7 +423,7 @@ mapExpDeepM f = mapExpM $ wrapRecExpM f
 -----------------------------------
 -- folding Expr in CmmNode
 
-foldExpForeignTarget :: (CmmExpr -> z -> z) -> ForeignTarget -> z -> z 
+foldExpForeignTarget :: (CmmExpr -> z -> z) -> ForeignTarget -> z -> z
 foldExpForeignTarget exp (ForeignTarget e _) z = exp e z
 foldExpForeignTarget _   (PrimTarget _)      z = z
 
