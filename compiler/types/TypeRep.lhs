@@ -161,22 +161,24 @@ type SuperKind = Type
 \end{code}
 
 
-% Rules for building Evidence
-% ---------------------------
-
-
-Conditional axioms.  The genral idea is that a `CoAxiomRule` looks like this:
+Note [CoAxiomRules]
+~~~~~~~~~~~~~~~~~~~
+A CoAxiomRule is a conditional axiom.
+The genral idea is that a `CoAxiomRule` looks like this:
 
     forall as. (r1 ~ r2, s1 ~ s2) => t1 ~ t2
 
-My intension is to reuse these for both (~) and (~#).
+My intention is to reuse these for both (~) and (~#).
 The short-term plan is to use this datatype to represent the type-nat axioms.
 In the longer run, it would probably be good to unify this and `CoAxiom`,
 as `CoAxiom` is the special case when there are no assumptions.
 
-`CoAxiomTyLit` is used for axiom schemes defining equations between
+`CoAxiomTyLit` is used for axiom *schemes* defining equations between
 type-literal constants.  Currently, they contain no type variables
-or assumptions.
+or assumptions.  Eg if 
+    axr = CoAxiomTyList "add" (\n m -> Add n m ~ n+m)
+and
+    TypeNatCo axr 3 4 :: Add 3 4 ~ 7
 
 Note that if we think of equality as a (special) class:
 

@@ -139,16 +139,23 @@ data Coercion
   -- See Note [Forall coercions]
   | ForAllCo TyVar Coercion       -- forall a. g
 
-  -- These are special
   | CoVarCo CoVar
-  | AxiomInstCo CoAxiom [Coercion]  -- The coercion arguments always *precisely*
-                                    -- saturate arity of CoAxiom.
-                                    -- See [Coercion axioms applied to coercions]
   | UnsafeCo Type Type
   | SymCo Coercion
   | TransCo Coercion Coercion
 
+  -- Axioms
+  | AxiomInstCo CoAxiom [Coercion]  -- The coercion arguments always *precisely*
+                                    -- saturate arity of CoAxiom.
+                                    -- See [Coercion axioms applied to coercions]
+
   | TypeNatCo CoAxiomRule [Type] [Coercion]
+           -- An AxiomInstCo is like a degenerate TypeNatCo with empty [Coercion]
+           -- but in AxiomInstCo you can instantiate with [Coercion] not 
+           -- only a [Type].
+
+           -- SPJ/DV: does the [Type] [Coercion] exactly saturate the 
+           --         CoAxiomRule.  Guess: yes; like AxiomInstCo.
 
   -- These are destructors
   | NthCo  Int         Coercion     -- Zero-indexed; decomposes (T t0 ... tn)
