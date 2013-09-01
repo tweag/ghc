@@ -54,6 +54,7 @@ import UniqFM
 import FastString ( sLit ) 
 import DynFlags
 import Util
+import TcTypeNats
 \end{code}
 **********************************************************************
 *                                                                    * 
@@ -226,7 +227,9 @@ thePipeline :: [(String,SimplifierStage)]
 thePipeline = [ ("canonicalization",        TcCanonical.canonicalize)
               , ("spontaneous solve",       spontaneousSolveStage)
               , ("interact with inerts",    interactWithInertsStage)
-              , ("top-level reactions",     topReactionsStage) ]
+              , ("top-level reactions",     topReactionsStage)
+              , ("type-nat solver",         typeNatStage)
+              ]
 \end{code}
 
 

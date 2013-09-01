@@ -59,6 +59,7 @@ module TypeRep (
 
         -- Substitutions
         TvSubst(..), TvSubstEnv
+
     ) where
 
 #include "HsVersions.h"
@@ -354,6 +355,7 @@ data TyThing
   | ADataCon DataCon
   | ATyCon   TyCon       -- TyCons and classes; see Note [ATyCon for classes]
   | ACoAxiom (CoAxiom Branched)
+  | ACoAxiomRule CoAxiomRule
   deriving (Eq, Ord)
 
 instance Outputable TyThing where 
@@ -367,6 +369,7 @@ pprTyThingCategory (ATyCon tc)
   | isClassTyCon tc = ptext (sLit "Class")
   | otherwise       = ptext (sLit "Type constructor")
 pprTyThingCategory (ACoAxiom _) = ptext (sLit "Coercion axiom")
+pprTyThingCategory (ACoAxiomRule _) = ptext (sLit "Coercion axiom rule")
 pprTyThingCategory (AnId   _)   = ptext (sLit "Identifier")
 pprTyThingCategory (ADataCon _) = ptext (sLit "Data constructor")
 
@@ -375,6 +378,7 @@ instance NamedThing TyThing where	-- Can't put this with the type
   getName (AnId id)     = getName id	-- decl, because the DataCon instance
   getName (ATyCon tc)   = getName tc	-- isn't visible there
   getName (ACoAxiom cc) = getName cc
+  getName (ACoAxiomRule cc) = getName cc
   getName (ADataCon dc) = dataConName dc
 
 \end{code}

@@ -224,6 +224,12 @@ opt_co' env sym mrole (InstCo co ty)
 
 opt_co' env sym _ (SubCo co) = opt_co env sym (Just Representational) co
 
+-- XXX: Write some simplification rules to make the proofs nicer.
+opt_co' env sym mrole (AxiomRuleCo co ts cs) =
+  wrapRole mrole Nominal $
+    AxiomRuleCo co (map (substTy env) ts) (map (opt_co env sym Nothing) cs)
+
+
 -------------
 opt_univ :: CvSubst -> Role -> Type -> Type -> Coercion
 opt_univ env role oty1 oty2

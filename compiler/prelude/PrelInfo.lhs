@@ -43,6 +43,8 @@ import Class
 import TyCon
 import Util
 
+import TcTypeNatsRules(typeNatRuleThings)
+
 import Data.Array
 \end{code}
 
@@ -87,6 +89,7 @@ wiredInThings
 
 		-- PrimOps
 	, map (AnId . primOpId) allThePrimOps
+        , typeNatRuleThings
     ]
   where
     tycon_things = map ATyCon ([funTyCon] ++ primTyCons ++ wiredInTyCons)

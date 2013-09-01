@@ -1412,6 +1412,11 @@ freeNamesIfCoercion (IfaceInstCo co ty)
   = freeNamesIfCoercion co &&& freeNamesIfType ty
 freeNamesIfCoercion (IfaceSubCo co)
   = freeNamesIfCoercion co
+freeNamesIfCoercion (IfaceAxiomRuleCo ax tys cos)
+  = unitNameSet ax &&&
+    fnList freeNamesIfType tys &&&
+    fnList freeNamesIfCoercion cos
+
 
 freeNamesIfTvBndrs :: [IfaceTvBndr] -> NameSet
 freeNamesIfTvBndrs = fnList freeNamesIfTvBndr

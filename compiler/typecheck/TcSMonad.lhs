@@ -76,6 +76,7 @@ module TcSMonad (
     PredMap, FamHeadMap,
     partCtFamHeadMap, lookupFamHead, lookupSolvedDict,
     filterSolved,
+    foldFamHeadMap,
 
     instDFunType,                              -- Instantiation
     newFlexiTcSTy, instFlexiTcS, instFlexiTcSHelperTcS,
@@ -435,6 +436,8 @@ partCtFamHeadMap f ctmap
                       = ty1 
                       | otherwise 
                       = panic "partCtFamHeadMap, encountered non equality!"
+foldFamHeadMap :: (a -> b -> b) -> b -> FamHeadMap a -> b
+foldFamHeadMap f a (FamHeadMap m) = foldTypeMap f a m
 
 filterSolved :: (CtEvidence -> Bool) -> PredMap CtEvidence -> PredMap CtEvidence
 filterSolved p (PredMap mp) = PredMap (foldTM upd mp emptyTM)

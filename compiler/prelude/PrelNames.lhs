@@ -289,10 +289,12 @@ basicKnownKeyNames
 
         -- Type-level naturals
         singIClassName,
-        typeNatLeqClassName,
+        typeNatLeqTyFamName,
         typeNatAddTyFamName,
         typeNatMulTyFamName,
         typeNatExpTyFamName,
+        typeNatSubTyFamName,
+        fromNat1TyFamName,
 
         -- Implicit parameters
         ipClassName,
@@ -1120,13 +1122,19 @@ randomGenClassName  = clsQual rANDOM (fsLit "RandomGen") randomGenClassKey
 isStringClassName   = clsQual dATA_STRING (fsLit "IsString") isStringClassKey
 
 -- Type-level naturals
-singIClassName, typeNatLeqClassName,
-  typeNatAddTyFamName, typeNatMulTyFamName, typeNatExpTyFamName :: Name
+singIClassName, typeNatLeqTyFamName,
+  typeNatAddTyFamName, typeNatMulTyFamName, typeNatExpTyFamName,
+  typeNatSubTyFamName
+  :: Name
 singIClassName      = clsQual gHC_TYPELITS (fsLit "SingI") singIClassNameKey
-typeNatLeqClassName = clsQual gHC_TYPELITS (fsLit "<=")  typeNatLeqClassNameKey
+typeNatLeqTyFamName = clsQual gHC_TYPELITS (fsLit "<=?") typeNatLeqTyFamNameKey
 typeNatAddTyFamName = tcQual  gHC_TYPELITS (fsLit "+")   typeNatAddTyFamNameKey
 typeNatMulTyFamName = tcQual  gHC_TYPELITS (fsLit "*")   typeNatMulTyFamNameKey
 typeNatExpTyFamName = tcQual  gHC_TYPELITS (fsLit "^")   typeNatExpTyFamNameKey
+typeNatSubTyFamName = tcQual  gHC_TYPELITS (fsLit "-")   typeNatSubTyFamNameKey
+
+fromNat1TyFamName :: Name
+fromNat1TyFamName = tcQual  gHC_TYPELITS (fsLit "FromNat1") fromNat1TyFamNameKey
 
 -- Implicit parameters
 ipClassName :: Name
@@ -1249,9 +1257,8 @@ constructorClassKey = mkPreludeClassUnique 40
 selectorClassKey    = mkPreludeClassUnique 41
 
 -- SingI: see Note [SingI and EvLit] in TcEvidence
-singIClassNameKey, typeNatLeqClassNameKey :: Unique
+singIClassNameKey :: Unique
 singIClassNameKey       = mkPreludeClassUnique 42
-typeNatLeqClassNameKey  = mkPreludeClassUnique 43
 
 ghciIoClassKey :: Unique
 ghciIoClassKey = mkPreludeClassUnique 44
@@ -1453,13 +1460,23 @@ rep1TyConKey = mkPreludeTyConUnique 156
 
 -- Type-level naturals
 typeNatKindConNameKey, typeSymbolKindConNameKey,
-  typeNatAddTyFamNameKey, typeNatMulTyFamNameKey, typeNatExpTyFamNameKey
+  typeNatLeqTyFamNameKey,
+  typeNatAddTyFamNameKey,
+  typeNatMulTyFamNameKey,
+  typeNatExpTyFamNameKey,
+  typeNatSubTyFamNameKey
   :: Unique
 typeNatKindConNameKey     = mkPreludeTyConUnique 160
 typeSymbolKindConNameKey  = mkPreludeTyConUnique 161
-typeNatAddTyFamNameKey    = mkPreludeTyConUnique 162
-typeNatMulTyFamNameKey    = mkPreludeTyConUnique 163
-typeNatExpTyFamNameKey    = mkPreludeTyConUnique 164
+typeNatLeqTyFamNameKey    = mkPreludeTyConUnique 162
+typeNatAddTyFamNameKey    = mkPreludeTyConUnique 163
+typeNatMulTyFamNameKey    = mkPreludeTyConUnique 164
+typeNatExpTyFamNameKey    = mkPreludeTyConUnique 165
+typeNatSubTyFamNameKey    = mkPreludeTyConUnique 166
+
+nat1TyConKey, fromNat1TyFamNameKey :: Unique
+nat1TyConKey              = mkPreludeTyConUnique 167
+fromNat1TyFamNameKey      = mkPreludeTyConUnique 168
 
 -- SIMD vector types (Unique keys)
 floatX4PrimTyConKey, doubleX2PrimTyConKey, int32X4PrimTyConKey,
@@ -1528,6 +1545,10 @@ gtDataConKey                            = mkPreludeDataConUnique 29
 integerGmpSDataConKey, integerGmpJDataConKey :: Unique
 integerGmpSDataConKey                   = mkPreludeDataConUnique 30
 integerGmpJDataConKey                   = mkPreludeDataConUnique 31
+
+zeroDataConKey, succDataConKey :: Unique
+zeroDataConKey                          = mkPreludeDataConUnique 40
+succDataConKey                          = mkPreludeDataConUnique 41
 \end{code}
 
 %************************************************************************

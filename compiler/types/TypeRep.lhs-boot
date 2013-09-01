@@ -4,6 +4,7 @@ module TypeRep where
 import Outputable (Outputable)
 
 data Type
+data TyLit
 data TyThing
 
 type PredType = Type
