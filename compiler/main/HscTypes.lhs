@@ -1351,6 +1351,7 @@ Examples:
 implicitTyThings :: TyThing -> [TyThing]
 implicitTyThings (AnId _)       = []
 implicitTyThings (ACoAxiom _cc) = []
+implicitTyThings (ACoAxiomRule _cc) = []
 implicitTyThings (ATyCon tc)    = implicitTyConThings tc
 implicitTyThings (ADataCon dc)  = map AnId (dataConImplicitIds dc)
     -- For data cons add the worker and (possibly) wrapper
@@ -1405,6 +1406,7 @@ isImplicitTyThing (ADataCon {}) = True
 isImplicitTyThing (AnId id)     = isImplicitId id
 isImplicitTyThing (ATyCon tc)   = isImplicitTyCon tc
 isImplicitTyThing (ACoAxiom ax) = isImplicitCoAxiom ax
+isImplicitTyThing (ACoAxiomRule ax) = isImplicitCoAxiomRule ax
 
 -- | tyThingParent_maybe x returns (Just p)
 -- when pprTyThingInContext sould print a declaration for p

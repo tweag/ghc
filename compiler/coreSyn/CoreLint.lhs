@@ -974,6 +974,37 @@ lintCoercion co@(SubCo co')
   = do { (k,s,t,r) <- lintCoercion co'
        ; checkRole co Nominal r
        ; return (k,s,t,Representational) }
+
+lintCoercion (AxiomRuleCo co ts cs)
+  = do _ks <- mapM lintType ts
+       eqs <- mapM lintCoercion cs
+
+       let (asmps,(l,r)) = co_axr_inst co ts
+
+       kL <- lintType l
+       kR <- lintType r
+       checkL (eqKind kL kR)
+          $ err "Kind error in CoAxiomRule" [ppr kL <+> txt "/=" <+> ppr kR]
+
+       check asmps eqs
+       return (kL, l, r,Nominal)
+
+  where
+  txt       = ptext . sLit
+  eqn (x,y) = ppr x <+> txt "~" <+> ppr y
+  err m xs  = hang (txt m) 2 $ vcat (txt "Rule:" <+> ppr (getName co) : xs)
+
+  check [] [] = return ()
+  check ((l,r) : as) ((_,t1,t2,_) : bs) =
+           do checkL (eqType l t1 && eqType r t2)
+                $ err "Mismatch in assumption"
+                      [ txt "Proof needed:" <+> eqn (l,r)
+                      , txt "Proof given:"  <+> eqn (t1,t2)
+                      ]
+              check as bs
+  check [] _  = failWithL $ err "Too many proofs" []
+  check _ []  = failWithL $ err "Not enough proofs" []
+
 \end{code}
 
 %************************************************************************

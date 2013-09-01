@@ -34,7 +34,7 @@ import Coercion( LeftOrRight(..), pickLR )
 import PprCore ()   -- Instance OutputableBndr TyVar
 import TypeRep  -- Knows type representation
 import TcType
-import Type( tyConAppArgN, tyConAppTyCon_maybe, getEqPredTys, coAxNthLHS )
+import Type( tyConAppArgN, tyConAppTyCon_maybe, getEqPredTys, coAxNthLHS, co_axr_inst )
 import TysPrim( funTyCon )
 import TyCon
 import CoAxiom
@@ -111,6 +111,7 @@ data TcCoercion
   | TcLRCo LeftOrRight TcCoercion
   | TcCastCo TcCoercion TcCoercion     -- co1 |> co2
   | TcLetCo TcEvBinds TcCoercion
+  | TcAxiomRuleCo CoAxiomRule [TcType] [TcCoercion]
   deriving (Data.Data, Data.Typeable)
 
 isEqVar :: Var -> Bool 
@@ -232,6 +233,9 @@ tcCoercionKind co = go co
     go (TcNthCo d co)         = tyConAppArgN d <$> go co
     go (TcLRCo lr co)         = (pickLR lr . tcSplitAppTy) <$> go co
 
+    go (TcAxiomRuleCo ax ts _)  = let (_,(l,r)) = co_axr_inst ax ts
+                                in Pair l r
+
     -- c.f. Coercion.coercionKind
     go_inst (TcInstCo co ty) tys = go_inst co (ty:tys)
     go_inst co               tys = (`applyTys` tys) <$> go co
@@ -264,6 +268,7 @@ coVarsOfTcCo tc_co
                                    `minusVarSet` get_bndrs bs
     go (TcLetCo {}) = emptyVarSet    -- Harumph. This does legitimately happen in the call
                                      -- to evVarsOfTerm in the DEBUG check of setEvBind
+    go (TcAxiomRuleCo _ _ cos)     = foldr (unionVarSet . go) emptyVarSet cos
 
     -- We expect only coercion bindings, so use evTermCoercion 
     go_bind :: EvBind -> VarSet
@@ -330,6 +335,23 @@ ppr_co p (TcTransCo co1 co2) = maybeParen p FunPrec $
 ppr_co p (TcSymCo co)         = pprPrefixApp p (ptext (sLit "Sym")) [pprParendTcCo co]
 ppr_co p (TcNthCo n co)       = pprPrefixApp p (ptext (sLit "Nth:") <+> int n) [pprParendTcCo co]
 ppr_co p (TcLRCo lr co)       = pprPrefixApp p (ppr lr) [pprParendTcCo co]
+
+ppr_co p (TcAxiomRuleCo co ts ps)= maybeParen p TopPrec $ ppr_type_nat_co co ts ps
+
+ppr_type_nat_co :: CoAxiomRule -> [Type] -> [TcCoercion] -> SDoc
+ppr_type_nat_co co ts ps = ppr (getName co) <> ppTs ts $$ nest 2 (ppPs ps)
+  where
+  ppTs []   = Outputable.empty
+  ppTs [t]  = ptext (sLit "@") <> ppr_type TopPrec t
+  ppTs ts   = ptext (sLit "@") <>
+                parens (hsep $ punctuate comma $ map pprType ts)
+
+  ppPs []   = Outputable.empty
+  ppPs [p]  = pprParendTcCo p
+  ppPs (p : ps) = ptext (sLit "(") <+> pprTcCo p $$
+                  vcat [ ptext (sLit ",") <+> pprTcCo q | q <- ps ] $$
+                  ptext (sLit ")")
+
 
 ppr_fun_co :: Prec -> TcCoercion -> SDoc
 ppr_fun_co p co = pprArrowChain p (split co)
@@ -581,7 +603,7 @@ for "SingI (n :: Nat)" is of the form "EvLit (EvNum n)".
 
 We make the following assumptions about dictionaries in GHC:
   1. The "dictionary" for classes with a single method---like SingI---is
-     a newtype for the type of the method, so using a evidence amounts
+     a newtype for the type of the method, so using evidence amounts
      to a coercion, and
   2. Newtypes use the same representation as their definition types.
 

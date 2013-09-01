@@ -378,6 +378,9 @@ Library
         TcTyClsDecls
         TcTyDecls
         TcType
+        TcTypeNats
+        TcTypeNatsRules
+        TcTypeNatsEval
         TcEvidence
         TcUnify
         TcInteract

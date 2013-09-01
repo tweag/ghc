@@ -471,7 +471,8 @@ data CoercionMap a
        , km_left   :: CoercionMap a
        , km_right  :: CoercionMap a
        , km_inst   :: CoercionMap (TypeMap a) 
-       , km_sub    :: CoercionMap a }
+       , km_sub    :: CoercionMap a
+       , km_axiom_rule :: NameEnv (ListMap TypeMap (ListMap CoercionMap a)) }
 
 wrapEmptyKM :: CoercionMap a
 wrapEmptyKM = KM { km_refl = emptyTM, km_tc_app = emptyTM
@@ -479,7 +480,8 @@ wrapEmptyKM = KM { km_refl = emptyTM, km_tc_app = emptyTM
                  , km_var = emptyTM, km_axiom = emptyNameEnv
                  , km_univ = emptyTM, km_sym = emptyTM, km_trans = emptyTM
                  , km_nth = emptyTM, km_left = emptyTM, km_right = emptyTM
-                 , km_inst = emptyTM, km_sub = emptyTM }
+                 , km_inst = emptyTM, km_sub = emptyTM 
+				 , km_axiom_rule = emptyTM }
 
 instance TrieMap CoercionMap where
    type Key CoercionMap = Coercion
@@ -496,6 +498,7 @@ mapC f (KM { km_refl = krefl, km_tc_app = ktc
            , km_var = kvar, km_axiom = kax
            , km_univ   = kuniv  , km_sym = ksym, km_trans = ktrans
            , km_nth = knth, km_left = kml, km_right = kmr
+           , km_axiom_rule = knats
            , km_inst = kinst, km_sub = ksub })
   = KM { km_refl   = mapTM (mapTM f) krefl
        , km_tc_app = mapTM (mapNameEnv (mapTM f)) ktc
@@ -509,6 +512,7 @@ mapC f (KM { km_refl = krefl, km_tc_app = ktc
        , km_nth    = IntMap.map (mapTM f) knth
        , km_left   = mapTM f kml
        , km_right  = mapTM f kmr
+       , km_axiom_rule = mapNameEnv (mapTM (mapTM f)) knats
        , km_inst   = mapTM (mapTM f) kinst
        , km_sub    = mapTM f ksub }
 
@@ -531,6 +535,9 @@ lkC env co m
     go (LRCo CLeft  c)         = km_left   >.> lkC env c
     go (LRCo CRight c)         = km_right  >.> lkC env c
     go (SubCo c)               = km_sub    >.> lkC env c
+    go (AxiomRuleCo co ts cs)    = km_axiom_rule >.> lkNamed co          >=>
+                                                  lkList (lkT env) ts >=>
+                                                  lkList (lkC env) cs
 
 xtC :: CmEnv -> Coercion -> XT a -> CoercionMap a -> CoercionMap a
 xtC env co f EmptyKM = xtC env co f wrapEmptyKM
@@ -549,6 +556,10 @@ xtC env (NthCo n c)             f m = m { km_nth    = km_nth m |> xtInt n |>> xt
 xtC env (LRCo CLeft  c)         f m = m { km_left   = km_left  m |> xtC env c f } 
 xtC env (LRCo CRight c)         f m = m { km_right  = km_right m |> xtC env c f }
 xtC env (SubCo c)               f m = m { km_sub    = km_sub m |> xtC env c f } 
+xtC env (AxiomRuleCo co ts cs)    f m = m { km_axiom_rule = km_axiom_rule m
+                                     |>  xtNamed co
+                                     |>> xtList (xtT env) ts
+                                     |>> xtList (xtC env) cs f}
 
 fdC :: (a -> b -> b) -> CoercionMap a -> b -> b
 fdC _ EmptyKM = \z -> z
@@ -564,6 +575,7 @@ fdC k m = foldTM (foldTM k) (km_refl m)
         . foldTM (foldTM k) (km_nth m)
         . foldTM k          (km_left m)
         . foldTM k          (km_right m)
+        . foldTM (foldTM (foldTM k)) (km_axiom_rule m)
         . foldTM (foldTM k) (km_inst m)
         . foldTM k          (km_sub m)
 
