@@ -1,4 +1,4 @@
-module TcTypeNats where
+module TcTypeNats( typeNatStage ) where
 
 import PrelNames( typeNatAddTyFamName
                 , typeNatMulTyFamName
@@ -288,8 +288,8 @@ ppImp qs q = pprWithCommas p qs <+> text "=>" <+> p q
 
 --------------------------------------------------------------------------------
 
-{- See if the constraint is "obvious" (i.e., it can be solved by an
-axiom with no preconditions). We apply this not only to wanteds, which may
+{- See if the constraint is "obvious" (i.e., it can be solved by a
+build-in axiom with no preconditions). We apply this not only to wanteds, which may
 simply get solved by it, but also to new given and derived constraints.
 Given and dervied constraints that can be solved in this way are ignored
 because they would not be contributing any new information. -}
@@ -339,16 +339,19 @@ solveByIff ct
 
 
 impossible :: Ct -> Bool
-
+-- Some ad-hoc checks for un-satisfiable constraints
 impossible (CFunEqCan { cc_fun = tc, cc_tyargs = [t1,t2], cc_rhs = t3 })
 
   | name == typeNatAddTyFamName =
       case (mbA,mbB,mbC) of
+            -- na + ? = nc   requires na <= nc
         (Just a, _     , Just c) -> isNothing (minus c a)
         (_     , Just b, Just c) -> isNothing (minus c b)
+
+            -- na + b = c, a > 0   requires b /= c
         (Just a, _     , _) | a > 0 -> eqType t2 t3
         (_     , Just b, _) | b > 0 -> eqType t1 t3
-        _                        -> False
+        _                           -> False
 
   | name == typeNatMulTyFamName =
       case (mbA,mbB,mbC) of

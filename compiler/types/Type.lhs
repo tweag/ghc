@@ -1691,12 +1691,14 @@ co_axr_tynum2_rule n f = co_axr_tylit_rule n toEqn
         toEqn _ = panic "`co_axr_tynum2_rule` requires 2 numeric literals."
 
 co_axr_inst :: CoAxiomRule -> [Type] -> ([Eqn], Eqn)
+-- (co_axr_inst axr tys) instantiates 'axr' at types 'tys',
+-- returning  (eqn_1, .., eqn_n) => eqn
 co_axr_inst (CoAxiomRule _ vs as c) ts = (map inst2 as, inst2 c)
   where inst        = substTyWith vs ts
         inst2 (a,b) = (inst a, inst b)
 
 co_axr_inst (CoAxiomTyLit _ f) ts =
-  case mapM isTyLit ts of
+  case mapM isTyLit ts of       -- All type args must be TyLits
     Just tls -> ([], f tls)
     Nothing  -> pprPanic "co_axr_inst"
                  (vcat ( text "CoAxiomTyLit was used with a non-literal type."
