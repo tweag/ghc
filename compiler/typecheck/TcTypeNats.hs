@@ -1,16 +1,57 @@
-module TcTypeNats (tnMatchFam, tnInteractTop) where
+module TcTypeNats (tnMatchFam, tnInteractTop, typeNatTyThings) where
 
 import Type
 import Pair
-import TyCon      ( TyCon )
+import TyCon      ( TyCon, SynTyConRhs(..), mkSynTyCon, TyConParent(..)  )
+import Coercion   ( Role(..) )
 import TcRnTypes  ( Xi )
 import TcEvidence ( mkTcAxiomRuleCo, TcCoercion )
 import CoAxiom    ( CoAxiomRule(..) )
 import Name       ( Name, mkWiredInName, BuiltInSyntax(..) )
 import OccName    ( mkOccName, tcName )
 import Unique     ( mkAxiomRuleUnique )
-import PrelNames  ( gHC_PRIM )
-import TysWiredIn ( typeNatAddTyCon, typeNatMulTyCon, typeNatExpTyCon )
+import TysWiredIn ( typeNatKind )
+import TysPrim    ( tyVarList, mkArrowKinds )
+import PrelNames  ( gHC_PRIM
+                  , typeNatAddTyFamName
+                  , typeNatMulTyFamName
+                  , typeNatExpTyFamName
+                  )
+
+typeNatTyThings :: [TyThing]
+typeNatTyThings = typeNatTyCons ++ typeNatAxioms
+
+
+{-------------------------------------------------------------------------------
+Built-in type constructors for functions on type-lelve nats
+-}
+
+typeNatTyCons :: [TyThing]
+typeNatTyCons = map ATyCon
+  [ typeNatAddTyCon
+  , typeNatMulTyCon
+  , typeNatExpTyCon
+  ]
+
+typeNatAddTyCon :: TyCon
+typeNatAddTyCon = mkTypeNatFunTyCon2 typeNatAddTyFamName
+
+typeNatMulTyCon :: TyCon
+typeNatMulTyCon = mkTypeNatFunTyCon2 typeNatMulTyFamName
+
+typeNatExpTyCon :: TyCon
+typeNatExpTyCon = mkTypeNatFunTyCon2 typeNatExpTyFamName
+
+-- Make a binary built-in constructor of kind: Nat -> Nat -> Nat
+mkTypeNatFunTyCon2 :: Name -> TyCon
+mkTypeNatFunTyCon2 op =
+  mkSynTyCon op
+    (mkArrowKinds [ typeNatKind, typeNatKind ] typeNatKind)
+    (take 2 $ tyVarList typeNatKind)
+    [Nominal,Nominal]
+    OpenSynFamilyTyCon  -- XXX: BuiltIn
+    NoParentTyCon
+
 
 
 
@@ -72,6 +113,24 @@ axMul1R  = mkAxiom1   axMul1RKey  "Mul1R" $ \t -> (t .*. num 1) === t
 axExp1L  = mkAxiom1   axExp1LKey  "Exp1L" $ \t -> (num 1 .^. t) === num 1
 axExp0R  = mkAxiom1   axExp0RKey  "Exp0R" $ \t -> (t .^. num 0) === num 1
 axExp1R  = mkAxiom1   axExp1RKey  "Exp1R" $ \t -> (t .^. num 1) === t
+
+typeNatAxioms :: [TyThing]
+typeNatAxioms = map ACoAxiomRule
+  [ axAddDef
+  , axMulDef
+  , axExpDef
+  , axAdd0L
+  , axAdd0R
+  , axMul0L
+  , axMul0R
+  , axMul1L
+  , axMul1R
+  , axExp1L
+  , axExp0R
+  , axExp1R
+  ]
+
+
 
 
 {-------------------------------------------------------------------------------

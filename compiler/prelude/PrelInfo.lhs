@@ -42,6 +42,7 @@ import HscTypes
 import Class
 import TyCon
 import Util
+import {-# SOURCE #-} TcTypeNats ( typeNatTyThings )
 
 import Data.Array
 \end{code}
@@ -87,6 +88,9 @@ wiredInThings
 
 		-- PrimOps
 	, map (AnId . primOpId) allThePrimOps
+
+            -- TyCons and axioms for type-nats
+        , typeNatTyThings
     ]
   where
     tycon_things = map ATyCon ([funTyCon] ++ primTyCons ++ wiredInTyCons)
