@@ -54,6 +54,7 @@ import OptCoercion ( checkAxInstCo )
 import Control.Monad
 import MonadUtils
 import Data.Maybe
+import Pair
 \end{code}
 
 Note [GHC Formalism]
@@ -974,6 +975,29 @@ lintCoercion co@(SubCo co')
   = do { (k,s,t,r) <- lintCoercion co'
        ; checkRole co Nominal r
        ; return (k,s,t,Representational) }
+
+
+lintCoercion this@(AxiomRuleCo co ts cs)
+  = do _ks <- mapM lintType ts
+       eqs <- mapM lintCoercion cs
+
+       let unexpected_roles = [ r | (_,_,_,r) <- eqs, r /= Nominal ]
+       unless (null unexpected_roles) $
+          failWithL $ err "CoAxiomRule applied to non-nominal coercion(s)"
+                          (map ppr unexpected_roles)
+
+       case coaxrProves co ts [ Pair l r | (_,l,r,_) <- eqs ] of
+         Nothing -> failWithL $ err "Malformed use of AxiomRuleCo" [ ppr this ]
+         Just (Pair l r) ->
+           do kL <- lintType l
+              kR <- lintType r
+              checkL (eqKind kL kR)
+                $ err "Kind error in CoAxiomRule" [ppr kL <+> txt "/=" <+> ppr kR]
+              return (kL, l, r, Nominal)
+  where
+  txt       = ptext . sLit
+  err m xs  = hang (txt m) 2 $ vcat (txt "Rule:" <+> ppr (getName co) : xs)
+
 \end{code}
 
 %************************************************************************

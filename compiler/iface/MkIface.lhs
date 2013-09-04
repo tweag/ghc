@@ -1429,6 +1429,8 @@ tyThingToIfaceDecl (ATyCon tycon) = tyConToIfaceDecl emptyTidyEnv tycon
 tyThingToIfaceDecl (ACoAxiom ax)  = coAxiomToIfaceDecl ax
 tyThingToIfaceDecl (ADataCon dc)  = pprPanic "toIfaceDecl" (ppr dc)
                                     -- Should be trimmed out earlier
+tyThingToIfaceDecl (ACoAxiomRule _)
+  = pprPanic "tyThingToIfaceDecl: declaration for a CoAxiomRule?" empty
 
 --------------------------
 idToIfaceDecl :: Id -> IfaceDecl
