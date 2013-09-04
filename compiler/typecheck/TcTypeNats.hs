@@ -11,14 +11,15 @@ import CoAxiom    ( CoAxiomRule(..) )
 import Name       ( Name, mkWiredInName, BuiltInSyntax(..) )
 import OccName    ( mkOccName, tcName )
 import Unique     ( mkAxiomRuleUnique )
-import TysWiredIn ( typeNatKind )
+import TysWiredIn ( typeNatKind, mkWiredInTyConName )
 import TysPrim    ( tyVarList, mkArrowKinds )
-import PrelNames  ( gHC_PRIM
-                  , typeNatAddTyFamName
-                  , typeNatMulTyFamName
-                  , typeNatExpTyFamName
+import PrelNames  ( gHC_PRIM, gHC_TYPELITS
+                  , typeNatAddTyFamNameKey
+                  , typeNatMulTyFamNameKey
+                  , typeNatExpTyFamNameKey
                   )
 import FamInst(TcBuiltInSynFamily(..),trivialBuiltInFamily)
+import FastString ( fsLit )
 
 typeNatTyThings :: [TyThing]
 
@@ -37,28 +38,37 @@ typeNatTyCons = map ATyCon
   ]
 
 typeNatAddTyCon :: TyCon
-typeNatAddTyCon = mkTypeNatFunTyCon2 typeNatAddTyFamName
+typeNatAddTyCon = mkTypeNatFunTyCon2 name
   TcBuiltInSynFamily
     { sfMatchFam      = matchFamAdd
     , sfInteractTop   = interactTopAdd
     , sfInteractInert = sfInteractInert trivialBuiltInFamily
     }
+  where
+  name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "+")
+            typeNatAddTyFamNameKey typeNatAddTyCon
 
 typeNatMulTyCon :: TyCon
-typeNatMulTyCon = mkTypeNatFunTyCon2 typeNatMulTyFamName
+typeNatMulTyCon = mkTypeNatFunTyCon2 name
   TcBuiltInSynFamily
     { sfMatchFam      = matchFamMul
     , sfInteractTop   = interactTopMul
     , sfInteractInert = sfInteractInert trivialBuiltInFamily
     }
+  where
+  name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "*")
+            typeNatMulTyFamNameKey typeNatMulTyCon
 
 typeNatExpTyCon :: TyCon
-typeNatExpTyCon = mkTypeNatFunTyCon2 typeNatExpTyFamName
+typeNatExpTyCon = mkTypeNatFunTyCon2 name
   TcBuiltInSynFamily
     { sfMatchFam      = matchFamExp
     , sfInteractTop   = interactTopExp
     , sfInteractInert = sfInteractInert trivialBuiltInFamily
     }
+  where
+  name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "*")
+                typeNatExpTyFamNameKey typeNatExpTyCon
 
 -- Make a binary built-in constructor of kind: Nat -> Nat -> Nat
 mkTypeNatFunTyCon2 :: Name -> TcBuiltInSynFamily -> TyCon

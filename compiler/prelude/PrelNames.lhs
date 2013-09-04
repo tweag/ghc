@@ -289,10 +289,6 @@ basicKnownKeyNames
 
         -- Type-level naturals
         singIClassName,
-        typeNatLeqClassName,
-        typeNatAddTyFamName,
-        typeNatMulTyFamName,
-        typeNatExpTyFamName,
 
         -- Implicit parameters
         ipClassName,
@@ -1120,13 +1116,8 @@ randomGenClassName  = clsQual rANDOM (fsLit "RandomGen") randomGenClassKey
 isStringClassName   = clsQual dATA_STRING (fsLit "IsString") isStringClassKey
 
 -- Type-level naturals
-singIClassName, typeNatLeqClassName,
-  typeNatAddTyFamName, typeNatMulTyFamName, typeNatExpTyFamName :: Name
+singIClassName :: Name
 singIClassName      = clsQual gHC_TYPELITS (fsLit "SingI") singIClassNameKey
-typeNatLeqClassName = clsQual gHC_TYPELITS (fsLit "<=")  typeNatLeqClassNameKey
-typeNatAddTyFamName = tcQual  gHC_TYPELITS (fsLit "+")   typeNatAddTyFamNameKey
-typeNatMulTyFamName = tcQual  gHC_TYPELITS (fsLit "*")   typeNatMulTyFamNameKey
-typeNatExpTyFamName = tcQual  gHC_TYPELITS (fsLit "^")   typeNatExpTyFamNameKey
 
 -- Implicit parameters
 ipClassName :: Name

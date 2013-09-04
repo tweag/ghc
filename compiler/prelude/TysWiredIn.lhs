@@ -68,6 +68,8 @@ module TysWiredIn (
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
 
+        mkWiredInTyConName -- This is used in TcTypeNats to define the
+                           -- built-in functions for evaluation.
     ) where
 
 #include "HsVersions.h"
