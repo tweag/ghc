@@ -68,6 +68,9 @@ module TysWiredIn (
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
 
+        -- * Type-level naturals
+        typeNatAddTyCon, typeNatMulTyCon, typeNatExpTyCon
+
     ) where
 
 #include "HsVersions.h"
@@ -782,3 +785,39 @@ mkPArrFakeCon arity  = data_con
 isPArrFakeCon      :: DataCon -> Bool
 isPArrFakeCon dcon  = dcon == parrFakeCon (dataConSourceArity dcon)
 \end{code}
+
+
+
+
+%*******************************************************************
+%*
+\subsection[TysWiredIn-TypeNat]{Type-level Numbers}
+%*
+%*******************************************************************
+
+
+Type functions related to type-nats.
+
+\begin{code}
+
+-- Make a binary built-in constructor of kind: Nat -> Nat -> Nat
+mkTypeNatFunTyCon2 :: Name -> TyCon
+mkTypeNatFunTyCon2 op =
+  mkSynTyCon op
+    (mkArrowKinds [ typeNatKind, typeNatKind ] typeNatKind)
+    (take 2 $ tyVarList typeNatKind)
+    [Nominal,Nominal]
+    OpenSynFamilyTyCon  -- XXX: BuiltIn
+    NoParentTyCon
+
+typeNatAddTyCon :: TyCon
+typeNatAddTyCon = mkTypeNatFunTyCon2 typeNatAddTyFamName
+
+typeNatMulTyCon :: TyCon
+typeNatMulTyCon = mkTypeNatFunTyCon2 typeNatMulTyFamName
+
+typeNatExpTyCon :: TyCon
+typeNatExpTyCon = mkTypeNatFunTyCon2 typeNatExpTyFamName
+
+\end{code}
+

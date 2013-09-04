@@ -40,15 +40,17 @@ import TcMType ( zonkTcPredType )
 import TcRnTypes
 import TcErrors
 import TcSMonad
+import TcTypeNats(tnMatchFam,tnInteractTop)
 import Maybes( orElse )
 import Bag
 
 import Control.Monad ( foldM )
+import Data.Maybe(catMaybes)
 
 import VarEnv
 
 import Control.Monad( when, unless )
-import Pair ()
+import Pair (Pair(..))
 import Unique( hasKey )
 import UniqFM
 import FastString ( sLit ) 
@@ -1427,10 +1429,12 @@ doTopReactFunEq _ct fl fun_tc args xi loc
                 succeed_with "Fun/Cache" (evTermCoercion (ctEvTerm ctev)) rhs_ty ;
            _other -> 
 
-    -- Look up in top-level instances
-    do { match_res <- matchFam fun_tc args   -- See Note [MATCHING-SYNONYMS]
+    -- Look up in top-level instances, or built-in axiom
+    do { match_res <- case tnMatchFam fun_tc args of
+                        Nothing -> matchFam fun_tc args   -- See Note [MATCHING-SYNONYMS]
+                        yes -> return yes
        ; case match_res of {
-           Nothing -> return NoTopInt ;
+           Nothing -> try_improve_and_return ;
            Just (co, ty) ->
 
     -- Found a top-level instance
@@ -1440,6 +1444,15 @@ doTopReactFunEq _ct fl fun_tc args xi loc
        ; succeed_with "Fun/Top" co ty } } } } }
   where
     fam_ty = mkTyConApp fun_tc args
+
+    try_improve_and_return =
+      do { let eqns = tnInteractTop fun_tc args xi
+         ; eqnsMb <- mapM (\(Pair x y) -> newDerived (mkTcEqPred x y)) eqns
+         ; let eqns = catMaybes eqnsMb
+               work = map (mkNonCanonical loc) eqns
+         ; unless (null work) (updWorkListTcS (extendWorkListEqs work))
+         ; return NoTopInt
+         }
 
     succeed_with :: String -> TcCoercion -> TcType -> TcS TopInteractResult
     succeed_with str co rhs_ty    -- co :: fun_tc args ~ rhs_ty
