@@ -1,7 +1,8 @@
-module TcTypeNats (tnMatchFam, tnInteractTop, typeNatTyThings) where
+module TcTypeNats (typeNatTyThings, TcBuiltInSynFamily(..)) where
 
 import Type
 import Pair
+import TcType     ( TcType )
 import TyCon      ( TyCon, SynTyConRhs(..), mkSynTyCon, TyConParent(..)  )
 import Coercion   ( Role(..) )
 import TcRnTypes  ( Xi )
@@ -17,8 +18,10 @@ import PrelNames  ( gHC_PRIM
                   , typeNatMulTyFamName
                   , typeNatExpTyFamName
                   )
+import FamInst(TcBuiltInSynFamily(..),trivialBuiltInFamily)
 
 typeNatTyThings :: [TyThing]
+
 typeNatTyThings = typeNatTyCons ++ typeNatAxioms
 
 
@@ -35,23 +38,37 @@ typeNatTyCons = map ATyCon
 
 typeNatAddTyCon :: TyCon
 typeNatAddTyCon = mkTypeNatFunTyCon2 typeNatAddTyFamName
+  TcBuiltInSynFamily
+    { sfMatchFam      = matchFamAdd
+    , sfInteractTop   = interactTopAdd
+    , sfInteractInert = sfInteractInert trivialBuiltInFamily
+    }
 
 typeNatMulTyCon :: TyCon
 typeNatMulTyCon = mkTypeNatFunTyCon2 typeNatMulTyFamName
+  TcBuiltInSynFamily
+    { sfMatchFam      = matchFamMul
+    , sfInteractTop   = interactTopMul
+    , sfInteractInert = sfInteractInert trivialBuiltInFamily
+    }
 
 typeNatExpTyCon :: TyCon
 typeNatExpTyCon = mkTypeNatFunTyCon2 typeNatExpTyFamName
+  TcBuiltInSynFamily
+    { sfMatchFam      = matchFamExp
+    , sfInteractTop   = interactTopExp
+    , sfInteractInert = sfInteractInert trivialBuiltInFamily
+    }
 
 -- Make a binary built-in constructor of kind: Nat -> Nat -> Nat
-mkTypeNatFunTyCon2 :: Name -> TyCon
-mkTypeNatFunTyCon2 op =
+mkTypeNatFunTyCon2 :: Name -> TcBuiltInSynFamily -> TyCon
+mkTypeNatFunTyCon2 op tcb =
   mkSynTyCon op
     (mkArrowKinds [ typeNatKind, typeNatKind ] typeNatKind)
     (take 2 $ tyVarList typeNatKind)
     [Nominal,Nominal]
-    OpenSynFamilyTyCon  -- XXX: BuiltIn
+    (BuiltInSynFamTyCon tcb)
     NoParentTyCon
-
 
 
 
@@ -195,15 +212,7 @@ mkAxiom1 key str f = mkAxName key str $ \name ->
 Evaluation
 -------------------------------------------------------------------------------}
 
-tnMatchFam :: TyCon -> [Xi] -> Maybe (TcCoercion, Xi)
-tnMatchFam tc xis
-  | tc == typeNatAddTyCon = matchFamAdd xis
-  | tc == typeNatMulTyCon = matchFamMul xis
-  | tc == typeNatExpTyCon = matchFamExp xis
-tnMatchFam _ _ = Nothing
-
-
-matchFamAdd :: [Xi] -> Maybe (TcCoercion, Xi)
+matchFamAdd :: [Type] -> Maybe (TcCoercion, TcType)
 matchFamAdd [s,t]
   | Just 0 <- mbX = Just (mkTcAxiomRuleCo axAdd0L [t] [], t)
   | Just 0 <- mbY = Just (mkTcAxiomRuleCo axAdd0R [s] [], s)
@@ -240,13 +249,6 @@ matchFamExp _ = Nothing
 {-------------------------------------------------------------------------------
 Interact with axioms
 -------------------------------------------------------------------------------}
-
-tnInteractTop :: TyCon -> [Xi] -> Xi -> [Pair Type]
-tnInteractTop tc lhs rhs
-  | tc == typeNatAddTyCon = interactTopAdd lhs rhs
-  | tc == typeNatMulTyCon = interactTopMul lhs rhs
-  | tc == typeNatExpTyCon = interactTopExp lhs rhs
-tnInteractTop _ _ _ = []
 
 interactTopAdd :: [Xi] -> Xi -> [Pair Type]
 interactTopAdd [s,t] r

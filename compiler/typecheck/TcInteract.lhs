@@ -20,6 +20,7 @@ import VarSet
 import Type
 import Unify
 import FamInstEnv
+import FamInst(TcBuiltInSynFamily(..))
 import InstEnv( lookupInstEnv, instanceDFunId )
 
 import Var
@@ -40,7 +41,6 @@ import TcMType ( zonkTcPredType )
 import TcRnTypes
 import TcErrors
 import TcSMonad
-import TcTypeNats(tnMatchFam,tnInteractTop)
 import Maybes( orElse )
 import Bag
 
@@ -1430,9 +1430,7 @@ doTopReactFunEq _ct fl fun_tc args xi loc
            _other -> 
 
     -- Look up in top-level instances, or built-in axiom
-    do { match_res <- case tnMatchFam fun_tc args of
-                        Nothing -> matchFam fun_tc args   -- See Note [MATCHING-SYNONYMS]
-                        yes -> return yes
+    do { match_res <- matchFam fun_tc args   -- See Note [MATCHING-SYNONYMS]
        ; case match_res of {
            Nothing -> try_improve_and_return ;
            Just (co, ty) ->
@@ -1446,11 +1444,15 @@ doTopReactFunEq _ct fl fun_tc args xi loc
     fam_ty = mkTyConApp fun_tc args
 
     try_improve_and_return =
-      do { let eqns = tnInteractTop fun_tc args xi
-         ; eqnsMb <- mapM (\(Pair x y) -> newDerived (mkTcEqPred x y)) eqns
-         ; let eqns = catMaybes eqnsMb
-               work = map (mkNonCanonical loc) eqns
-         ; unless (null work) (updWorkListTcS (extendWorkListEqs work))
+      do { case isBuiltInSynFamTyCon_maybe fun_tc of
+             Just ops ->
+               do { let eqns = sfInteractTop ops args xi
+                  ; impsMb <- mapM (\(Pair x y) -> newDerived (mkTcEqPred x y))
+                                   eqns
+                  ; let work = map (mkNonCanonical loc) (catMaybes impsMb)
+                  ; unless (null work) (updWorkListTcS (extendWorkListEqs work))
+                  }
+             _ -> return ()
          ; return NoTopInt
          }
 

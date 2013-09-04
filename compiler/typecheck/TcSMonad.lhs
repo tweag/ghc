@@ -1656,6 +1656,8 @@ matchFam tycon args
         ty = pSnd (tcCoercionKind co)
     in return $ Just (co, ty)
 
+  | Just ops <- isBuiltInSynFamTyCon_maybe tycon = return (sfMatchFam ops args)
+
   | otherwise
   = return Nothing
        
