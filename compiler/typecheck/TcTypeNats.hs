@@ -65,7 +65,7 @@ typeNatExpTyCon = mkTypeNatFunTyCon2 name
     , sfInteractInert = sfInteractInert trivialBuiltInFamily
     }
   where
-  name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "*")
+  name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "^")
                 typeNatExpTyFamNameKey typeNatExpTyCon
 
 -- Make a binary built-in constructor of kind: Nat -> Nat -> Nat
