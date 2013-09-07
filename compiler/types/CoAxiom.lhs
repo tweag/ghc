@@ -486,7 +486,7 @@ type Eqn = Pair Type
 
 -- | For now, we work only with nominal equality.
 data CoAxiomRule = CoAxiomRule
-  { coaxrName      :: Name
+  { coaxrName      :: FastString
   , coaxrTypeArity :: Int
   , coaxrAsmpArity :: Int
   , coaxrProves    :: [Type] -> [Eqn] -> Maybe Eqn
@@ -500,19 +500,16 @@ instance Data.Data CoAxiomRule where
   gunfold _ _  = error "gunfold"
   dataTypeOf _ = mkNoRepType "CoAxiomRule"
 
-instance NamedThing CoAxiomRule where
-  getName = coaxrName
-
 instance Uniquable CoAxiomRule where
-  getUnique = getUnique . getName
+  getUnique = getUnique . coaxrName
 
 instance Eq CoAxiomRule where
-  x == y = getUnique x == getUnique y
+  x == y = coaxrName x == coaxrName y
 
 instance Ord CoAxiomRule where
-  compare x y = compare (getUnique x) (getUnique y)
+  compare x y = compare (coaxrName x) (coaxrName y)
 
 instance Outputable CoAxiomRule where
-  ppr = ppr . getName
+  ppr = ppr . coaxrName
 \end{code}
 

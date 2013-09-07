@@ -106,7 +106,7 @@ data IfaceCoercion
   | IfaceLRCo        LeftOrRight IfaceCoercion
   | IfaceInstCo      IfaceCoercion IfaceType
   | IfaceSubCo       IfaceCoercion
-  | IfaceAxiomRuleCo IfExtName [IfaceType] [IfaceCoercion]
+  | IfaceAxiomRuleCo IfLclName [IfaceType] [IfaceCoercion]
 \end{code}
 
 %************************************************************************
@@ -644,7 +644,7 @@ toIfaceCoercion (InstCo co ty)      = IfaceInstCo (toIfaceCoercion co)
 toIfaceCoercion (SubCo co)          = IfaceSubCo (toIfaceCoercion co)
 
 toIfaceCoercion (AxiomRuleCo co ts cs) = IfaceAxiomRuleCo
-                                          (getName co)
+                                          (coaxrName co)
                                           (map toIfaceType ts)
                                           (map toIfaceCoercion cs)
 \end{code}

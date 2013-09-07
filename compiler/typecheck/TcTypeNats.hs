@@ -1,4 +1,8 @@
-module TcTypeNats (typeNatTyThings, TcBuiltInSynFamily(..)) where
+module TcTypeNats
+  ( typeNatTyCons
+  , typeNatCoAxiomRules
+  , TcBuiltInSynFamily(..)
+  ) where
 
 import Type
 import Pair
@@ -8,30 +12,24 @@ import Coercion   ( Role(..) )
 import TcRnTypes  ( Xi )
 import TcEvidence ( mkTcAxiomRuleCo, TcCoercion )
 import CoAxiom    ( CoAxiomRule(..) )
-import Name       ( Name, mkWiredInName, BuiltInSyntax(..) )
-import OccName    ( mkOccName, tcName )
-import Unique     ( mkAxiomRuleUnique )
+import Name       ( Name, BuiltInSyntax(..) )
 import TysWiredIn ( typeNatKind, mkWiredInTyConName )
 import TysPrim    ( tyVarList, mkArrowKinds )
-import PrelNames  ( gHC_PRIM, gHC_TYPELITS
+import PrelNames  ( gHC_TYPELITS
                   , typeNatAddTyFamNameKey
                   , typeNatMulTyFamNameKey
                   , typeNatExpTyFamNameKey
                   )
-import FamInst(TcBuiltInSynFamily(..),trivialBuiltInFamily)
-import FastString ( fsLit )
-
-typeNatTyThings :: [TyThing]
-
-typeNatTyThings = typeNatTyCons ++ typeNatAxioms
-
+import FamInst    ( TcBuiltInSynFamily(..), trivialBuiltInFamily )
+import FastString ( FastString, fsLit )
+import qualified Data.Map as Map
 
 {-------------------------------------------------------------------------------
 Built-in type constructors for functions on type-lelve nats
 -}
 
-typeNatTyCons :: [TyThing]
-typeNatTyCons = map ATyCon
+typeNatTyCons :: [TyCon]
+typeNatTyCons =
   [ typeNatAddTyCon
   , typeNatMulTyCon
   , typeNatExpTyCon
@@ -87,33 +85,8 @@ mkTypeNatFunTyCon2 op tcb =
 Built-in rules axioms
 -------------------------------------------------------------------------------}
 
-axAddDefKey
-  , axMulDefKey
-  , axExpDefKey
-  , axAdd0LKey
-  , axAdd0RKey
-  , axMul0LKey
-  , axMul0RKey
-  , axMul1LKey
-  , axMul1RKey
-  , axExp1LKey
-  , axExp0RKey
-  , axExp1RKey
-  :: Int
-axAddDefKey = 0
-axMulDefKey = 1
-axExpDefKey = 2
-axAdd0LKey  = 3
-axAdd0RKey  = 4
-axMul0LKey  = 5
-axMul0RKey  = 6
-axMul1LKey  = 7
-axMul1RKey  = 8
-axExp1LKey  = 9
-axExp0RKey  = 10
-axExp1RKey  = 11
-
-
+-- If you add additional rules, please remember to add them to
+-- `typeNatCoAxiomRules` also.
 axAddDef
   , axMulDef
   , axExpDef
@@ -126,23 +99,22 @@ axAddDef
   , axExp1L
   , axExp0R
   , axExp1R
-
   :: CoAxiomRule
-axAddDef = mkBinAxiom axAddDefKey "AddDef" typeNatAddTyCon (+) -- s + t ~ (s+t)
-axMulDef = mkBinAxiom axMulDefKey "MulDef" typeNatMulTyCon (*) -- s * t ~ (s*t)
-axExpDef = mkBinAxiom axExpDefKey "ExpDef" typeNatExpTyCon (^) -- s ^ t ~ (s^t)
-axAdd0L  = mkAxiom1   axAdd0LKey  "Add0L" $ \t -> (num 0 .+. t) === t
-axAdd0R  = mkAxiom1   axAdd0RKey  "Add0R" $ \t -> (t .+. num 0) === t
-axMul0L  = mkAxiom1   axMul0LKey  "Mul0L" $ \t -> (num 0 .*. t) === num 0
-axMul0R  = mkAxiom1   axMul0RKey  "Mul0R" $ \t -> (t .*. num 0) === num 0
-axMul1L  = mkAxiom1   axMul1LKey  "Mul1L" $ \t -> (num 1 .*. t) === t
-axMul1R  = mkAxiom1   axMul1RKey  "Mul1R" $ \t -> (t .*. num 1) === t
-axExp1L  = mkAxiom1   axExp1LKey  "Exp1L" $ \t -> (num 1 .^. t) === num 1
-axExp0R  = mkAxiom1   axExp0RKey  "Exp0R" $ \t -> (t .^. num 0) === num 1
-axExp1R  = mkAxiom1   axExp1RKey  "Exp1R" $ \t -> (t .^. num 1) === t
+axAddDef = mkBinAxiom "AddDef" typeNatAddTyCon (+) -- s + t ~ (s+t)
+axMulDef = mkBinAxiom "MulDef" typeNatMulTyCon (*) -- s * t ~ (s*t)
+axExpDef = mkBinAxiom "ExpDef" typeNatExpTyCon (^) -- s ^ t ~ (s^t)
+axAdd0L  = mkAxiom1   "Add0L" $ \t -> (num 0 .+. t) === t
+axAdd0R  = mkAxiom1   "Add0R" $ \t -> (t .+. num 0) === t
+axMul0L  = mkAxiom1   "Mul0L" $ \t -> (num 0 .*. t) === num 0
+axMul0R  = mkAxiom1   "Mul0R" $ \t -> (t .*. num 0) === num 0
+axMul1L  = mkAxiom1   "Mul1L" $ \t -> (num 1 .*. t) === t
+axMul1R  = mkAxiom1   "Mul1R" $ \t -> (t .*. num 1) === t
+axExp1L  = mkAxiom1   "Exp1L" $ \t -> (num 1 .^. t) === num 1
+axExp0R  = mkAxiom1   "Exp0R" $ \t -> (t .^. num 0) === num 1
+axExp1R  = mkAxiom1   "Exp1R" $ \t -> (t .^. num 1) === t
 
-typeNatAxioms :: [TyThing]
-typeNatAxioms = map ACoAxiomRule
+typeNatCoAxiomRules :: Map.Map FastString CoAxiomRule
+typeNatCoAxiomRules = Map.fromList $ map (\x -> (coaxrName x, x))
   [ axAddDef
   , axMulDef
   , axExpDef
@@ -156,7 +128,6 @@ typeNatAxioms = map ACoAxiomRule
   , axExp0R
   , axExp1R
   ]
-
 
 
 
@@ -180,21 +151,12 @@ num :: Integer -> Type
 num = mkNumLitTy
 
 
-mkAxName :: Int -> String -> (Name -> CoAxiomRule) -> CoAxiomRule
-mkAxName n s r = thing
-  where
-  thing = r name
-
-  -- XXX: I'm not sure that we should be using the type name space here
-  name  = mkWiredInName gHC_PRIM (mkOccName tcName s) (mkAxiomRuleUnique n)
-                          (ACoAxiomRule thing) BuiltInSyntax
-
 -- For the definitional axioms
-mkBinAxiom :: Int -> String -> TyCon ->
+mkBinAxiom :: String -> TyCon ->
               (Integer -> Integer -> Integer) -> CoAxiomRule
-mkBinAxiom key str tc f = mkAxName key str $ \name ->
+mkBinAxiom str tc f =
   CoAxiomRule
-    { coaxrName      = name
+    { coaxrName      = fsLit str
     , coaxrTypeArity = 2
     , coaxrAsmpArity = 0
     , coaxrProves    = \ts cs ->
@@ -206,10 +168,10 @@ mkBinAxiom key str tc f = mkAxName key str $ \name ->
           _ -> Nothing
     }
 
-mkAxiom1 :: Int -> String -> (Type -> Pair Type) -> CoAxiomRule
-mkAxiom1 key str f = mkAxName key str $ \name ->
+mkAxiom1 :: String -> (Type -> Pair Type) -> CoAxiomRule
+mkAxiom1 str f =
   CoAxiomRule
-    { coaxrName      = name
+    { coaxrName      = fsLit str
     , coaxrTypeArity = 1
     , coaxrAsmpArity = 0
     , coaxrProves    = \ts cs ->

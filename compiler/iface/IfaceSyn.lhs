@@ -1404,9 +1404,9 @@ freeNamesIfCoercion (IfaceInstCo co ty)
   = freeNamesIfCoercion co &&& freeNamesIfType ty
 freeNamesIfCoercion (IfaceSubCo co)
   = freeNamesIfCoercion co
-freeNamesIfCoercion (IfaceAxiomRuleCo ax tys cos)
-  = unitNameSet ax &&&
-    fnList freeNamesIfType tys &&&
+freeNamesIfCoercion (IfaceAxiomRuleCo _ax tys cos)
+  -- the axiom is just a string, so we don't count it as a name.
+  = fnList freeNamesIfType tys &&&
     fnList freeNamesIfCoercion cos
 
 freeNamesIfTvBndrs :: [IfaceTvBndr] -> NameSet

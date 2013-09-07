@@ -1,5 +1,5 @@
 module TcTypeNats where
 
-import TypeRep(TyThing)
+import TyCon (TyCon)
 
-typeNatTyThings :: [TyThing]
+typeNatTyCons :: [TyCon]

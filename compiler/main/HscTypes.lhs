@@ -1354,7 +1354,6 @@ implicitTyThings (ACoAxiom _cc) = []
 implicitTyThings (ATyCon tc)    = implicitTyConThings tc
 implicitTyThings (ADataCon dc)  = map AnId (dataConImplicitIds dc)
     -- For data cons add the worker and (possibly) wrapper
-implicitTyThings (ACoAxiomRule _cc) = []
 
 implicitClassThings :: Class -> [TyThing]
 implicitClassThings cl
@@ -1406,7 +1405,6 @@ isImplicitTyThing (ADataCon {}) = True
 isImplicitTyThing (AnId id)     = isImplicitId id
 isImplicitTyThing (ATyCon tc)   = isImplicitTyCon tc
 isImplicitTyThing (ACoAxiom ax) = isImplicitCoAxiom ax
-isImplicitTyThing (ACoAxiomRule _) = True
 
 -- | tyThingParent_maybe x returns (Just p)
 -- when pprTyThingInContext sould print a declaration for p

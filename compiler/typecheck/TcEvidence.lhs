@@ -345,7 +345,7 @@ ppr_co p (TcAxiomRuleCo co ts ps) = maybeParen p TopPrec
                                   $ ppr_tc_axiom_rule_co co ts ps
 
 ppr_tc_axiom_rule_co :: CoAxiomRule -> [TcType] -> [TcCoercion] -> SDoc
-ppr_tc_axiom_rule_co co ts ps = ppr (getName co) <> ppTs ts $$ nest 2 (ppPs ps)
+ppr_tc_axiom_rule_co co ts ps = ppr (coaxrName co) <> ppTs ts $$ nest 2 (ppPs ps)
   where
   ppTs []   = Outputable.empty
   ppTs [t]  = ptext (sLit "@") <> ppr_type TopPrec t

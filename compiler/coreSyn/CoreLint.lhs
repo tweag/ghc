@@ -996,7 +996,7 @@ lintCoercion this@(AxiomRuleCo co ts cs)
               return (kL, l, r, Nominal)
   where
   txt       = ptext . sLit
-  err m xs  = hang (txt m) 2 $ vcat (txt "Rule:" <+> ppr (getName co) : xs)
+  err m xs  = hang (txt m) 2 $ vcat (txt "Rule:" <+> ppr (coaxrName co) : xs)
 
 \end{code}
 

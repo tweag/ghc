@@ -368,7 +368,6 @@ data TyThing
   | ADataCon DataCon
   | ATyCon   TyCon       -- TyCons and classes; see Note [ATyCon for classes]
   | ACoAxiom (CoAxiom Branched)
-  | ACoAxiomRule CoAxiomRule
   deriving (Eq, Ord)
 
 instance Outputable TyThing where 
@@ -384,7 +383,6 @@ pprTyThingCategory (ATyCon tc)
 pprTyThingCategory (ACoAxiom _) = ptext (sLit "Coercion axiom")
 pprTyThingCategory (AnId   _)   = ptext (sLit "Identifier")
 pprTyThingCategory (ADataCon _) = ptext (sLit "Data constructor")
-pprTyThingCategory (ACoAxiomRule _) = ptext (sLit "Coercion axiom rule")
 
 
 instance NamedThing TyThing where	-- Can't put this with the type
@@ -392,7 +390,6 @@ instance NamedThing TyThing where	-- Can't put this with the type
   getName (ATyCon tc)   = getName tc	-- isn't visible there
   getName (ACoAxiom cc) = getName cc
   getName (ADataCon dc) = dataConName dc
-  getName (ACoAxiomRule cc) = getName cc
 
 \end{code}
 

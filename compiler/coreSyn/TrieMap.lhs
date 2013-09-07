@@ -31,6 +31,7 @@ import Var
 import UniqFM
 import Unique( Unique )
 import FastString(FastString)
+import CoAxiom(CoAxiomRule(coaxrName))
 
 import qualified Data.Map    as Map
 import qualified Data.IntMap as IntMap
@@ -472,7 +473,8 @@ data CoercionMap a
        , km_right  :: CoercionMap a
        , km_inst   :: CoercionMap (TypeMap a) 
        , km_sub    :: CoercionMap a
-       , km_axiom_rule :: NameEnv (ListMap TypeMap (ListMap CoercionMap a))
+       , km_axiom_rule :: Map.Map FastString
+                                  (ListMap TypeMap (ListMap CoercionMap a))
        }
 
 wrapEmptyKM :: CoercionMap a
@@ -515,7 +517,7 @@ mapC f (KM { km_refl = krefl, km_tc_app = ktc
        , km_right  = mapTM f kmr
        , km_inst   = mapTM (mapTM f) kinst
        , km_sub    = mapTM f ksub
-       , km_axiom_rule = mapNameEnv (mapTM (mapTM f)) kaxr
+       , km_axiom_rule = mapTM (mapTM (mapTM f)) kaxr
        }
 
 lkC :: CmEnv -> Coercion -> CoercionMap a -> Maybe a
@@ -538,7 +540,7 @@ lkC env co m
     go (LRCo CRight c)         = km_right  >.> lkC env c
     go (SubCo c)               = km_sub    >.> lkC env c
     go (AxiomRuleCo co ts cs)  = km_axiom_rule >.>
-                                    lkNamed co >=>
+                                    lookupTM (coaxrName co) >=>
                                     lkList (lkT env) ts >=>
                                     lkList (lkC env) cs
 
@@ -561,7 +563,7 @@ xtC env (LRCo CLeft  c)         f m = m { km_left   = km_left  m |> xtC env c f 
 xtC env (LRCo CRight c)         f m = m { km_right  = km_right m |> xtC env c f }
 xtC env (SubCo c)               f m = m { km_sub    = km_sub m |> xtC env c f } 
 xtC env (AxiomRuleCo co ts cs)  f m = m { km_axiom_rule = km_axiom_rule m
-                                                        |>  xtNamed co
+                                                        |>  alterTM (coaxrName co)
                                                         |>> xtList (xtT env) ts
                                                         |>> xtList (xtC env) cs f}
 

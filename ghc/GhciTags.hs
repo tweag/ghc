@@ -107,8 +107,6 @@ listModuleTags m = do
     tyThing2TagKind (ADataCon _) = 'd'
     tyThing2TagKind (ATyCon _)   = 't'
     tyThing2TagKind (ACoAxiom _) = 'x'
-    -- XXX: What is this for?
-    tyThing2TagKind (ACoAxiomRule _) = 'r'
 
 
 data TagInfo = TagInfo
