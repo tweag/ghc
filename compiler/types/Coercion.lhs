@@ -1784,7 +1784,7 @@ coercionRole = go
     go (LRCo _ _)           = Nominal
     go (InstCo co _)        = go co
     go (SubCo _)            = Representational
-    go (AxiomRuleCo _ _ _)  = Nominal
+    go (AxiomRuleCo c _ _)  = coaxrRole c
 \end{code}
 
 Note [Nested InstCos]

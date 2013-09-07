@@ -487,8 +487,9 @@ type Eqn = Pair Type
 -- | For now, we work only with nominal equality.
 data CoAxiomRule = CoAxiomRule
   { coaxrName      :: FastString
-  , coaxrTypeArity :: Int
-  , coaxrAsmpArity :: Int
+  , coaxrTypeArity :: Int       -- number of type argumentInts
+  , coaxrAsmpRoles :: [Role]    -- roles of parameter equations
+  , coaxrRole      :: Role      -- role of resulting equation
   , coaxrProves    :: [Type] -> [Eqn] -> Maybe Eqn
     -- ^ This returns @Nothing@ when we don't like
     -- the supplied arguments.

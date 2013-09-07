@@ -158,7 +158,8 @@ mkBinAxiom str tc f =
   CoAxiomRule
     { coaxrName      = fsLit str
     , coaxrTypeArity = 2
-    , coaxrAsmpArity = 0
+    , coaxrAsmpRoles = []
+    , coaxrRole      = Nominal
     , coaxrProves    = \ts cs ->
         case (ts,cs) of
           ([s,t],[]) -> do x <- isNumLitTy s
@@ -173,7 +174,8 @@ mkAxiom1 str f =
   CoAxiomRule
     { coaxrName      = fsLit str
     , coaxrTypeArity = 1
-    , coaxrAsmpArity = 0
+    , coaxrAsmpRoles = []
+    , coaxrRole      = Nominal
     , coaxrProves    = \ts cs ->
         case (ts,cs) of
           ([s],[]) -> return (f s)
