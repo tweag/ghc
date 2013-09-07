@@ -181,6 +181,8 @@ data Coercion
   | SymCo Coercion             -- :: e -> e
   | TransCo Coercion Coercion  -- :: e -> e -> e
 
+    -- The number of types and coercions should match exactly the expectations
+    -- of the CoAxiomRule (i.e., the rule is fully saturated).
   | AxiomRuleCo CoAxiomRule [Type] [Coercion]
 
   -- These are destructors

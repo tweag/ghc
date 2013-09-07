@@ -106,6 +106,8 @@ data TcCoercion
   | TcCoVarCo EqVar               -- variable always at role N
   | TcAxiomInstCo (CoAxiom Branched) Int [TcType] -- Int specifies branch number
                                                   -- See [CoAxiom Index] in Coercion.lhs
+  -- This is number of types and coercions are expected to macth to CoAxiomRule
+  -- (i.e., the CoAxiomRules are always fully saturated)
   | TcAxiomRuleCo CoAxiomRule [TcType] [TcCoercion]
   | TcSymCo TcCoercion
   | TcTransCo TcCoercion TcCoercion
