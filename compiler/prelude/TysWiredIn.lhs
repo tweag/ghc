@@ -14,6 +14,7 @@ module TysWiredIn (
         boolTy, boolTyCon, boolTyCon_RDR, boolTyConName,
         trueDataCon,  trueDataConId,  true_RDR,
         falseDataCon, falseDataConId, false_RDR,
+        promotedBoolTyCon, promotedFalseDataCon, promotedTrueDataCon,
 
         -- * Ordering
         ltDataCon, ltDataConId,
@@ -783,6 +784,15 @@ mkPArrFakeCon arity  = data_con
 -- | Checks whether a data constructor is a fake constructor for parallel arrays
 isPArrFakeCon      :: DataCon -> Bool
 isPArrFakeCon dcon  = dcon == parrFakeCon (dataConSourceArity dcon)
+\end{code}
+
+Promoted Booleans
+
+\begin{code}
+promotedBoolTyCon, promotedFalseDataCon, promotedTrueDataCon :: TyCon
+promotedBoolTyCon     = promoteTyCon boolTyCon
+promotedTrueDataCon   = promoteDataCon trueDataCon
+promotedFalseDataCon  = promoteDataCon falseDataCon
 \end{code}
 
 

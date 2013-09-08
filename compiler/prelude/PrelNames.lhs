@@ -1240,9 +1240,8 @@ constructorClassKey = mkPreludeClassUnique 40
 selectorClassKey    = mkPreludeClassUnique 41
 
 -- SingI: see Note [SingI and EvLit] in TcEvidence
-singIClassNameKey, typeNatLeqClassNameKey :: Unique
+singIClassNameKey :: Unique
 singIClassNameKey       = mkPreludeClassUnique 42
-typeNatLeqClassNameKey  = mkPreludeClassUnique 43
 
 ghciIoClassKey :: Unique
 ghciIoClassKey = mkPreludeClassUnique 44
@@ -1444,13 +1443,15 @@ rep1TyConKey = mkPreludeTyConUnique 156
 
 -- Type-level naturals
 typeNatKindConNameKey, typeSymbolKindConNameKey,
-  typeNatAddTyFamNameKey, typeNatMulTyFamNameKey, typeNatExpTyFamNameKey
+  typeNatAddTyFamNameKey, typeNatMulTyFamNameKey, typeNatExpTyFamNameKey,
+  typeNatLeqTyFamNameKey
   :: Unique
 typeNatKindConNameKey     = mkPreludeTyConUnique 160
 typeSymbolKindConNameKey  = mkPreludeTyConUnique 161
 typeNatAddTyFamNameKey    = mkPreludeTyConUnique 162
 typeNatMulTyFamNameKey    = mkPreludeTyConUnique 163
 typeNatExpTyFamNameKey    = mkPreludeTyConUnique 164
+typeNatLeqTyFamNameKey    = mkPreludeTyConUnique 165
 
 -- SIMD vector types (Unique keys)
 floatX4PrimTyConKey, doubleX2PrimTyConKey, int32X4PrimTyConKey,
