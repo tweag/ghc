@@ -20,7 +20,7 @@ import PrelNames  ( gHC_TYPELITS
                   , typeNatMulTyFamNameKey
                   , typeNatExpTyFamNameKey
                   )
-import FamInst    ( TcBuiltInSynFamily(..), trivialBuiltInFamily )
+import FamInst    ( TcBuiltInSynFamily(..) )
 import FastString ( FastString, fsLit )
 import qualified Data.Map as Map
 
@@ -40,7 +40,7 @@ typeNatAddTyCon = mkTypeNatFunTyCon2 name
   TcBuiltInSynFamily
     { sfMatchFam      = matchFamAdd
     , sfInteractTop   = interactTopAdd
-    , sfInteractInert = sfInteractInert trivialBuiltInFamily
+    , sfInteractInert = interactInertAdd
     }
   where
   name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "+")
@@ -51,7 +51,7 @@ typeNatMulTyCon = mkTypeNatFunTyCon2 name
   TcBuiltInSynFamily
     { sfMatchFam      = matchFamMul
     , sfInteractTop   = interactTopMul
-    , sfInteractInert = sfInteractInert trivialBuiltInFamily
+    , sfInteractInert = interactInertMul
     }
   where
   name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "*")
@@ -62,7 +62,7 @@ typeNatExpTyCon = mkTypeNatFunTyCon2 name
   TcBuiltInSynFamily
     { sfMatchFam      = matchFamExp
     , sfInteractTop   = interactTopExp
-    , sfInteractInert = sfInteractInert trivialBuiltInFamily
+    , sfInteractInert = interactInertExp
     }
   where
   name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "^")
@@ -149,6 +149,13 @@ x === y = Pair x y
 
 num :: Integer -> Type
 num = mkNumLitTy
+
+known :: (Integer -> Bool) -> TcType -> Bool
+known p x = case isNumLitTy x of
+              Just a  -> p a
+              Nothing -> False
+
+
 
 
 -- For the definitional axioms
@@ -257,8 +264,32 @@ interactTopExp [s,t] r
   mbZ = isNumLitTy r
 interactTopExp _ _ = []
 
+{-------------------------------------------------------------------------------
+Interacton with inerts
+-------------------------------------------------------------------------------}
 
+interactInertAdd :: [Xi] -> Xi -> [Xi] -> Xi -> [Pair Type]
+interactInertAdd [x1,y1] z1 [x2,y2] z2
+  | sameZ && eqType x1 x2         = [ y1 === y2 ]
+  | sameZ && eqType y1 y2         = [ x1 === x2 ]
+  where sameZ = eqType z1 z2
+interactInertAdd _ _ _ _ = []
 
+interactInertMul :: [Xi] -> Xi -> [Xi] -> Xi -> [Pair Type]
+interactInertMul [x1,y1] z1 [x2,y2] z2
+  | sameZ && known (/= 0) x1 && eqType x1 x2 = [ y1 === y2 ]
+  | sameZ && known (/= 0) y1 && eqType y1 y2 = [ x1 === x2 ]
+  where sameZ   = eqType z1 z2
+
+interactInertMul _ _ _ _ = []
+
+interactInertExp :: [Xi] -> Xi -> [Xi] -> Xi -> [Pair Type]
+interactInertExp [x1,y1] z1 [x2,y2] z2
+  | sameZ && known (> 1) x1 && eqType x1 x2 = [ y1 === y2 ]
+  | sameZ && known (> 0) y1 && eqType y1 y2 = [ x1 === x2 ]
+  where sameZ = eqType z1 z2
+
+interactInertExp _ _ _ _ = []
 
 
 {- -----------------------------------------------------------------------------
