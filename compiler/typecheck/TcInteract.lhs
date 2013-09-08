@@ -565,6 +565,7 @@ interactWithInertsStage wi
   = do { traceTcS "interactWithInerts" $ text "workitem = " <+> ppr wi
        ; rels <- extractRelevantInerts wi 
        ; traceTcS "relevant inerts are:" $ ppr rels
+       ; builtInInteractions
        ; foldlBagM interact_next (ContinueWith wi) rels }
 
   where interact_next Stop atomic_inert 
@@ -593,6 +594,31 @@ interactWithInertsStage wi
                        -> do { insertInertItemTcS atomic_inert
                              ; return (ContinueWith wi) }
                }
+
+        -- See if we can compute some new derived work for built-ins.
+        builtInInteractions
+          | CFunEqCan { cc_fun = tc, cc_tyargs = args, cc_rhs = xi } <- wi
+          , Just ops <- isBuiltInSynFamTyCon_maybe tc =
+            do is <- getInertsFunEqTyCon tc
+               traceTcS "builtInCandidates: " $ ppr is
+               let interact = sfInteractInert ops args xi
+               impMbs <- sequence
+                 [ do mb <- newDerived (mkTcEqPred lhs rhs)
+                      case mb of
+                        Just x -> return $ Just $ mkNonCanonical d x
+                        Nothing -> return Nothing
+                 | CFunEqCan { cc_tyargs = iargs
+                             , cc_rhs = ixi
+                             , cc_loc = d } <- is
+                 , Pair lhs rhs <- interact iargs ixi
+                 ]
+               let imps = catMaybes impMbs
+               unless (null imps) $ updWorkListTcS (extendWorkListEqs imps)
+          | otherwise = return ()
+
+
+
+
 \end{code}
 
 \begin{code}
