@@ -18,7 +18,8 @@ module TrieMap(
    CoercionMap, 
    MaybeMap, 
    ListMap,
-   TrieMap(..)
+   TrieMap(..),
+   lookupTypeMapTyCon
  ) where
 
 import CoreSyn
@@ -27,6 +28,7 @@ import Literal
 import Name
 import Type
 import TypeRep
+import TyCon(TyCon)
 import Var
 import UniqFM
 import Unique( Unique )
@@ -647,6 +649,15 @@ emptyTypeMap = EmptyTM
 
 lookupTypeMap :: TypeMap a -> Type -> Maybe a
 lookupTypeMap cm t = lkT emptyCME t cm
+
+-- Returns the type map entries that have keys starting with the given tycon.
+-- This only considers saturated applications (i.e. TyConApp ones).
+lookupTypeMapTyCon :: TypeMap a -> TyCon -> [a]
+lookupTypeMapTyCon EmptyTM _ = []
+lookupTypeMapTyCon TM { tm_tc_app = cs } tc =
+  case lookupUFM cs tc of
+    Nothing -> []
+    Just xs -> foldTM (:) xs []
 
 extendTypeMap :: TypeMap a -> Type -> a -> TypeMap a
 extendTypeMap m t v = xtT emptyCME t (\_ -> Just v) m
