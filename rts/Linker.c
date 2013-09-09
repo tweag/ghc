@@ -169,7 +169,6 @@ static ObjectCode* mkOc( pathchar *path, char *image, int imageSize,
 #define struct_stat struct _stat
 #define open wopen
 #define WSTR(s) L##s
-#define PATH_FMT "S"
 #else
 #define pathcmp strcmp
 #define pathlen strlen
@@ -177,7 +176,6 @@ static ObjectCode* mkOc( pathchar *path, char *image, int imageSize,
 #define pathstat stat
 #define struct_stat struct stat
 #define WSTR(s) s
-#define PATH_FMT "s"
 #endif
 
 static pathchar* pathdup(pathchar *path)
@@ -3800,6 +3798,11 @@ ocGetNames_PEi386 ( ObjectCode* oc )
       /* I'm sure this is the Right Way to do it.  However, the
          alternative of testing the sectab_i->Name field seems to
          work ok with Cygwin.
+
+         EZY: We should strongly consider using this style, because
+         it lets us pick up sections that should be added (e.g.
+         for a while the linker did not work due to missing .eh_frame
+         in this section.)
       */
       if (sectab_i->Characteristics & MYIMAGE_SCN_CNT_CODE ||
           sectab_i->Characteristics & MYIMAGE_SCN_CNT_INITIALIZED_DATA)
@@ -3809,6 +3812,7 @@ ocGetNames_PEi386 ( ObjectCode* oc )
       if (0==strcmp(".text",(char*)secname) ||
           0==strcmp(".text.startup",(char*)secname) ||
           0==strcmp(".rdata",(char*)secname)||
+          0==strcmp(".eh_frame", (char*)secname)||
           0==strcmp(".rodata",(char*)secname))
          kind = SECTIONKIND_CODE_OR_RODATA;
       if (0==strcmp(".data",(char*)secname) ||
@@ -3837,6 +3841,8 @@ ocGetNames_PEi386 ( ObjectCode* oc )
           /* ignore unknown section that appeared in gcc 3.4.5(?) */
           && 0!= strcmp(".reloc", (char*)secname)
           && 0 != strcmp(".rdata$zzz", (char*)secname)
+          /* ignore linker directive sections */
+          && 0 != strcmp(".drectve", (char*)secname)
          ) {
          errorBelch("Unknown PEi386 section name `%s' (while processing: %" PATH_FMT")", secname, oc->fileName);
          stgFree(secname);
