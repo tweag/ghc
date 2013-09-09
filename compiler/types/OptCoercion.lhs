@@ -228,8 +228,9 @@ opt_co' env sym _ (SubCo co) = opt_co env sym (Just Representational) co
 -- would allow us to do custom simplifications.
 opt_co' env sym mrole (AxiomRuleCo co ts cs) =
   wrapRole mrole (coaxrRole co) $
+    wrapSym sym $
     AxiomRuleCo co (map (substTy env) ts)
-                   (zipWith (opt_co env sym) (map Just (coaxrAsmpRoles co)) cs)
+                   (zipWith (opt_co env False) (map Just (coaxrAsmpRoles co)) cs)
 
 
 
