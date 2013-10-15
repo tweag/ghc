@@ -866,6 +866,27 @@ iterate twice to be sure of not getting over-optimistic CPR info,
 in the case where t turns out to be not-demanded.  This is handled
 by dmdAnalTopBind.
 
+Note [On the nature of call demands]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In a signature environment P, variables f are associated with a usage
+signature <k; t; \phi>, where k is the arity of f. Why does t not
+have enough information to make k redundant?
+
+Consider an example:
+
+h = \f -> \g -> case y of True  -> \a -> f (a 1) 
+                          False -> \b -> b (g 2)
+
+For h the analysis produces the following demand type (handling of
+case-expressions is defined in S3.8):
+
+1*C1(U) -> 1*C1(U) -> 1*C1(U) -> *
+
+At the call site (h f1 g1) having two arguments provided (k = 2) is
+already enough to unleash the inferred demand type. Had we taken k =
+3, as suggested by the demand type, we would not be able to treat this
+case with a non-trivial demand.
 
 Note [NOINLINE and strictness]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
