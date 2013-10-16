@@ -38,12 +38,14 @@ import TcEvidence
 import Outputable
 
 import TcMType ( zonkTcPredType )
+import TcTypeNats(isLinArithTyCon,decideLinArith,LinArithResult(..))
 
 import TcRnTypes
 import TcErrors
 import TcSMonad
 import Maybes( orElse )
 import Bag
+import MonadUtils(liftIO)
 
 import Control.Monad ( foldM )
 import Data.Maybe ( catMaybes, mapMaybe )
@@ -1444,7 +1446,7 @@ doTopReactDict inerts fl cls xis loc
 --------------------
 doTopReactFunEq :: Ct -> CtEvidence -> TyCon -> [Xi] -> Xi
                 -> CtLoc -> TcS TopInteractResult
-doTopReactFunEq _ct fl fun_tc args xi loc
+doTopReactFunEq wi fl fun_tc args xi loc
   = ASSERT(isSynFamilyTyCon fun_tc) -- No associated data families have
                                      -- reached this far 
     -- Look in the cache of solved funeqs
@@ -1470,18 +1472,24 @@ doTopReactFunEq _ct fl fun_tc args xi loc
   where
     fam_ty = mkTyConApp fun_tc args
 
-    try_improve_and_return =
-      do { case isBuiltInSynFamTyCon_maybe fun_tc of
-             Just ops ->
-               do { let eqns = sfInteractTop ops args xi
-                  ; impsMb <- mapM (\(Pair x y) -> newDerived (mkTcEqPred x y))
-                                   eqns
-                  ; let work = map (mkNonCanonical loc) (catMaybes impsMb)
-                  ; unless (null work) (updWorkListTcS (extendWorkListEqs work))
-                  }
-             _ -> return ()
-         ; return NoTopInt
-         }
+    try_improve_and_return
+       | isLinArithTyCon fun_tc =
+          do { (gis,wis) <- undefined -- getRelevantLinArithInerts
+             ; res <- liftIO $ decideLinArith gis wis wi
+             ; let addInerts = mapM_ insertInertItemTcS
+             ; case res of
+                 SolvedWanted ev -> do
+                   addInerts wis
+                   setEvBind (ctEvId $ ctEvidence wi) ev
+                 IgnoreGiven -> do
+                   addInerts wis
+                 Progress new_work new_is -> do
+                   addInerts new_is
+                   updWorkListTcS $ extendWorkListEqs new_work
+             ; return $ SomeTopInt "LinArith" Stop
+             }
+
+       | otherwise = return NoTopInt
 
     succeed_with :: String -> TcCoercion -> TcType -> TcS TopInteractResult
     succeed_with str co rhs_ty    -- co :: fun_tc args ~ rhs_ty

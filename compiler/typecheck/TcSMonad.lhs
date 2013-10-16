@@ -996,6 +996,10 @@ instance Monad TcS where
   fail err  = TcS (\_ -> fail err) 
   m >>= k   = TcS (\ebs -> unTcS m ebs >>= \r -> unTcS (k r) ebs)
 
+-- Currently, this is just used to call an external decision procedure
+instance MonadIO TcS where
+  liftIO m = TcS (\_ -> liftIO m)
+
 -- Basic functionality 
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 wrapTcS :: TcM a -> TcS a 

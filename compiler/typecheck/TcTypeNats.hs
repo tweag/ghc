@@ -2,6 +2,9 @@ module TcTypeNats
   ( typeNatTyCons
   , typeNatCoAxiomRules
   , TcBuiltInSynFamily(..)
+  , LinArithResult(..)
+  , decideLinArith
+  , isLinArithTyCon
   ) where
 
 import Type
@@ -9,8 +12,8 @@ import Pair
 import TcType     ( TcType )
 import TyCon      ( TyCon, SynTyConRhs(..), mkSynTyCon, TyConParent(..)  )
 import Coercion   ( Role(..) )
-import TcRnTypes  ( Xi )
-import TcEvidence ( mkTcAxiomRuleCo, TcCoercion )
+import TcRnTypes  ( Xi, Ct )
+import TcEvidence ( mkTcAxiomRuleCo, TcCoercion, EvTerm )
 import CoAxiom    ( CoAxiomRule(..) )
 import Name       ( Name, BuiltInSyntax(..) )
 import TysWiredIn ( typeNatKind, mkWiredInTyConName
@@ -29,6 +32,12 @@ import FamInst    ( TcBuiltInSynFamily(..) )
 import FastString ( FastString, fsLit )
 import qualified Data.Map as Map
 import Data.Maybe ( isJust )
+
+
+isLinArithTyCon :: TyCon -> Bool
+isLinArithTyCon tc = tc `elem` [ typeNatAddTyCon, typeNatMulTyCon,
+                                 typeNatLeqTyCon, typeNatSubTyCon ]
+
 
 {-------------------------------------------------------------------------------
 Built-in type constructors for functions on type-lelve nats
@@ -190,7 +199,23 @@ typeNatCoAxiomRules = Map.fromList $ map (\x -> (coaxrName x, x))
   , axLeqRefl
   , axLeq0L
   , axSubDef
+  , decisionProcedure "z3"
   ]
+
+decisionProcedure :: String -> CoAxiomRule
+decisionProcedure name =
+  CoAxiomRule
+    { coaxrName      = fsLit name
+    , coaxrTypeArity = 2
+    , coaxrAsmpRoles = []
+    , coaxrRole      = Nominal
+    , coaxrProves    = \ts cs ->
+        case (ts,cs) of
+          ([s,t],[]) -> return (s === t)
+          _          -> Nothing
+    }
+
+
 
 
 
@@ -540,7 +565,15 @@ genLog x base = Just (exactLoop 0 x)
 
 
 
+{- -----------------------------------------------------------------------------
+Calling an external decision procedure
+----------------------------------------------------------------------------- -}
 
+data LinArithResult = SolvedWanted EvTerm
+                    | IgnoreGiven
+                    | Progress [Ct] [Ct] -- new work and new inerts
 
+decideLinArith :: [Ct] -> [Ct] -> Ct -> IO LinArithResult
+decideLinArith = undefined 
 
 
