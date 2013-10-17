@@ -1381,6 +1381,7 @@ data CtEvidence
     -- but if we do manage to solve it may help in solving other goals.
 
 data CtFlavour = Given | Wanted | Derived
+                  deriving Eq
 
 ctFlavour :: Ct -> CtFlavour
 ctFlavour ct = ctEvFlavour (cc_ev ct)

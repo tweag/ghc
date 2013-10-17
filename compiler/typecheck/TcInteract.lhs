@@ -1473,19 +1473,42 @@ doTopReactFunEq wi fl fun_tc args xi loc
     fam_ty = mkTyConApp fun_tc args
 
     try_improve_and_return
-       | isLinArithTyCon fun_tc =
-          do { (gis,wis) <- undefined -- getRelevantLinArithInerts
+       | isLinArithTyCon fun_tc args =
+          do { (gis,wis) <- getRelevantLinArithInerts
              ; res <- liftIO $ decideLinArith gis wis wi
              ; let addInerts = mapM_ insertInertItemTcS
+                   setEvidence (ct, ev) =
+                     setEvBind (ctEvId $ ctEvidence ct) ev
              ; case res of
                  SolvedWanted ev -> do
                    addInerts wis
-                   setEvBind (ctEvId $ ctEvidence wi) ev
+                   setEvidence (wi, ev)
+                   traceTcS "[NATS]" (text "SOLVED WANTED")
                  IgnoreGiven -> do
                    addInerts wis
-                 Progress new_work new_is -> do
+                   traceTcS "[NATS]" (text "IGNORING")
+                 Impossible -> do emitInsoluble wi
+                                  traceTcS "[NATS]" (text "IMPOSSIBLE")
+                 Progress new_wanted_work new_work new_is solved -> do
                    addInerts new_is
-                   updWorkListTcS $ extendWorkListEqs new_work
+                   let mkWanted (tv, xi) =
+                        do ev <- newWantedEvVarNC (mkEqPred (mkTyVarTy tv) xi)
+                           return $ CTyEqCan
+                             { cc_ev = ev, cc_tyvar = tv, cc_rhs = xi
+                             , cc_loc = cc_loc wi }
+                   mapM_ setEvidence solved
+                   new_wanted_cts <- mapM mkWanted new_wanted_work
+                   updWorkListTcS $ extendWorkListEqs $
+                     new_wanted_cts ++ new_work
+                   let dbg x ys = text x $$ nest 2 (vcat $ map ppr ys)
+                   traceTcS "[NATS]" $
+                     text "Progress" $$
+                        nest 2 (vcat
+                          [ dbg "New wanted work:" (new_wanted_cts ++ new_work)
+                          , dbg "Solved:" (map fst solved)
+                          , dbg "Inerts" new_is
+                          ]
+                        )
              ; return $ SomeTopInt "LinArith" Stop
              }
 
@@ -1508,6 +1531,27 @@ doTopReactFunEq wi fl fun_tc args xi loc
         xcomp [x] = EvCoercion (co `mkTcTransCo` evTermCoercion x)
         xcomp _   = panic "No more goals!"
         xev = XEvTerm xcomp xdecomp
+
+-- This gets givens and wanteds relevant to the numeric solver.
+-- The givens are just copies of what's in the inert set, while the wanteds
+-- are removed from the inert set.
+getRelevantLinArithInerts :: TcS ([Ct], [Ct])
+getRelevantLinArithInerts =
+  modifyInertTcS $ upd $ \fun_eqs->
+    let (wanteds, rest_funeqs) = partCtFamHeadMap (isArith Wanted) fun_eqs
+        givens = getCtFamHeadMapCts (isArith Given) rest_funeqs
+    in ((bagToList givens, bagToList wanteds), rest_funeqs)
+
+  where
+  isArith fl ct
+    | fl == ctFlavour ct
+    , Just (tc,tys) <- isCFunEqCan_maybe ct = isLinArithTyCon tc tys
+    | otherwise = False
+
+  upd f i =
+    let cans = inert_cans i
+        (a,new) = f (inert_funeqs cans)
+    in (a, i { inert_cans = cans { inert_funeqs = new } })
 \end{code}
 
 

@@ -79,6 +79,7 @@ module TcSMonad (
     CCanMap(..), CtTypeMap, CtFamHeadMap, CtPredMap,
     PredMap, FamHeadMap,
     partCtFamHeadMap, lookupFamHead, lookupSolvedDict,
+    getCtFamHeadMapCts,
     filterSolved,
 
     instDFunType,                              -- Instantiation
@@ -438,6 +439,10 @@ partCtFamHeadMap f (FamHeadMap ctmap)
          | otherwise = (cts,acc_map)
          where 
            fam_head = funEqHead ct
+
+-- XXX: Maybe this could be more efficient?
+getCtFamHeadMapCts :: (Ct -> Bool) -> CtFamHeadMap -> Cts
+getCtFamHeadMapCts p = fst . partCtFamHeadMap p
 
 funEqHead :: Ct -> Type
 funEqHead ct = case isCFunEqCan_maybe ct of 
