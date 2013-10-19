@@ -38,7 +38,7 @@ import TcEvidence
 import Outputable
 
 import TcMType ( zonkTcPredType )
-import TcTypeNats(isLinArithTyCon,decideLinArith,LinArithResult(..))
+import TcTypeNats(Theory(..), Result(..), thyVarName, linArith)
 
 import TcRnTypes
 import TcErrors
@@ -47,15 +47,17 @@ import Maybes( orElse )
 import Bag
 import MonadUtils(liftIO)
 
-import Control.Monad ( foldM )
-import Data.Maybe ( catMaybes, mapMaybe )
+import Data.Maybe ( catMaybes, mapMaybe, maybeToList )
+import qualified Data.Map as Map
+import Data.List ( tails )
 
 import VarEnv
 
-import Control.Monad( when, unless )
+import Control.Monad( when, unless, foldM, forM )
 import Pair (Pair(..))
 import Unique( hasKey )
 import UniqFM
+import UniqSet(foldUniqSet)
 import FastString ( sLit ) 
 import DynFlags
 import Util
@@ -1473,43 +1475,9 @@ doTopReactFunEq wi fl fun_tc args xi loc
     fam_ty = mkTyConApp fun_tc args
 
     try_improve_and_return
-       | isLinArithTyCon fun_tc args =
-          do { (gis,wis) <- getRelevantLinArithInerts
-             ; res <- liftIO $ decideLinArith gis wis wi
-             ; let addInerts = mapM_ insertInertItemTcS
-                   setEvidence (ct, ev) =
-                     setEvBind (ctEvId $ ctEvidence ct) ev
-             ; case res of
-                 SolvedWanted ev -> do
-                   addInerts wis
-                   setEvidence (wi, ev)
-                   traceTcS "[NATS]" (text "SOLVED WANTED")
-                 IgnoreGiven -> do
-                   addInerts wis
-                   traceTcS "[NATS]" (text "IGNORING")
-                 Impossible -> do emitInsoluble wi
-                                  traceTcS "[NATS]" (text "IMPOSSIBLE")
-                 Progress new_wanted_work new_work new_is solved -> do
-                   addInerts new_is
-                   let mkWanted (tv, xi) =
-                        do ev <- newWantedEvVarNC (mkEqPred (mkTyVarTy tv) xi)
-                           return $ CTyEqCan
-                             { cc_ev = ev, cc_tyvar = tv, cc_rhs = xi
-                             , cc_loc = cc_loc wi }
-                   mapM_ setEvidence solved
-                   new_wanted_cts <- mapM mkWanted new_wanted_work
-                   updWorkListTcS $ extendWorkListEqs $
-                     new_wanted_cts ++ new_work
-                   let dbg x ys = text x $$ nest 2 (vcat $ map ppr ys)
-                   traceTcS "[NATS]" $
-                     text "Progress" $$
-                        nest 2 (vcat
-                          [ dbg "New wanted work:" (new_wanted_cts ++ new_work)
-                          , dbg "Solved:" (map fst solved)
-                          , dbg "Inerts" new_is
-                          ]
-                        )
-             ; return $ SomeTopInt "LinArith" Stop
+       | thyRelevant linArith fun_tc args =
+          do { (gis,wis) <- getRelevantCtsFor linArith
+             ; decideExternal linArith gis wis wi
              }
 
        | otherwise = return NoTopInt
@@ -1532,20 +1500,123 @@ doTopReactFunEq wi fl fun_tc args xi loc
         xcomp _   = panic "No more goals!"
         xev = XEvTerm xcomp xdecomp
 
--- This gets givens and wanteds relevant to the numeric solver.
--- The givens are just copies of what's in the inert set, while the wanteds
--- are removed from the inert set.
-getRelevantLinArithInerts :: TcS ([Ct], [Ct])
-getRelevantLinArithInerts =
+decideExternal :: Theory t e v -> [Ct] -> [Ct] -> Ct -> TcS TopInteractResult
+decideExternal thy givenCts wantedCts goalCt =
+  do proved <- prove assumptions goal
+     if proved
+       then do when (ctFlavour goalCt == Wanted) (solve goalCt)
+               mapM_ insertInertItemTcS wantedCts
+               done Stop
+
+            -- Check if we are consistent with existing context
+       else do res <- check (goal : assumptions)
+               case res of
+                 Unsat   -> emitInsoluble goalCt >> done Stop
+                 Unknown -> improve [] >>= prune >> done (ContinueWith goalCt)
+                 Sat mo  -> improve mo >>= prune >> done (ContinueWith goalCt)
+
+  where
+  assumptions
+    | ctFlavour goalCt == Wanted = givens ++ wanteds
+    | otherwise                  = givens
+
+  improve model =
+    do let candidates =
+             [ ( thyEq thy (thyVar thy x) (thyVal thy v)
+               , (xv, thyFromValue thy v)
+               ) | (x, v) <- model, xv <- maybeToList (Map.lookup x varMap) ]
+             ++
+             [ ( thyEq thy (thyVar thy x) (thyVar thy y)
+               , (xv, mkTyVarTy yv)
+               ) | (x,xv):xs <- tails vars
+                 , (y,yv)    <- xs
+                 , eqType (tyVarKind xv) (tyVarKind yv) ]
+       fmap catMaybes $ forM candidates $ \(prop,imp) ->
+         do proved <- prove (goal : assumptions) prop
+            return (if proved then Just imp else Nothing)
+
+  prune eqs
+    | ctFlavour goalCt == Given = addWork (wantedCts ++ map toGivenEqCt eqs)
+                                    -- kick-out wanteds, hopefully none!
+    | otherwise =
+      do addWork =<< mapM toWantedEqCt eqs
+         simplifyInerts (zip wanteds wantedCts) (goal : givens)
+
+  simplifyInerts [] _ = return ()
+  simplifyInerts ((p, ct):todo) assmps =
+    do proved <- prove (map fst todo ++ assmps) p
+       if proved
+         then do solve ct
+                 simplifyInerts todo assmps
+         else do insertInertItemTcS ct
+                 simplifyInerts todo (p:assmps)
+
+  -- Convert to the theory's representations
+  givens    = map ctToTerm givenCts
+  wanteds   = map ctToTerm wantedCts
+  goal      = ctToTerm goalCt
+  vars      = getVars (goalCt : wantedCts ++ givenCts)
+  varMap    = Map.fromList vars
+
+  ctToTerm CFunEqCan { cc_fun = tc, cc_tyargs = ts, cc_rhs = xi } =
+    thyToProp thy tc (map (thyToTerm thy) ts) (thyToTerm thy xi)
+  ctToTerm ct = pprPanic "ctToTerm" (text (thyName thy) <+> ppr ct)
+
+  getVars :: [Ct] -> [(String,TyVar)]
+  getVars = map addName . foldUniqSet (:) [] . tyVarsOfTypes . concatMap ctTypes
+    where addName x = (thyVarName x, x)
+
+          ctTypes CFunEqCan { cc_tyargs = [t1,t2], cc_rhs = xi } = [t1,t2,xi]
+          ctTypes ct = pprPanic "getVarTys" (ppr ct)
+
+  -- Convenient names for common things:
+  toWantedEqCt (tv, xi) =
+    do ev <- newWantedEvVarNC (mkEqPred (mkTyVarTy tv) xi)
+       return $ CTyEqCan { cc_ev = ev, cc_tyvar = tv, cc_rhs = xi
+                         , cc_loc = cc_loc goalCt }
+
+  toGivenEqCt :: (TyVar,Xi) -> Ct
+  toGivenEqCt (tv, rhs) =
+    let lhs = mkTyVarTy tv
+    in CTyEqCan { cc_ev = CtGiven { ctev_pred = mkEqPred lhs rhs
+                                  , ctev_evtm =thyEv thy lhs rhs }
+                , cc_loc = cc_loc goalCt, cc_tyvar = tv, cc_rhs = rhs }
+
+  solve :: Ct -> TcS ()
+  solve ct    = setEvBind (ctEvId $ ctEvidence ct)
+              $ uncurry (thyEv thy) $ getEqPredTys $ ctPred ct
+
+  done :: StopOrContinue -> TcS TopInteractResult
+  done x = return (SomeTopInt (thyName thy) x)
+
+  addWork :: [Ct] -> TcS ()
+  addWork cs  = updWorkListTcS (extendWorkListCts cs)
+
+  check = liftIO . thySat thy [ (x, thyToType thy (tyVarKind xv))
+                                                    | (x,xv) <- vars ]
+
+  prove ps p =
+    do x <- check (thyNot thy p : ps)
+       case x of
+         Unsat -> return True
+         _     -> return False
+
+
+
+{- This gets givens and wanteds relevant to the specified theory.
+The givens are just copies of what's in the inert set, while the wanteds
+are removed from the inert set. -}
+getRelevantCtsFor :: Theory t e v -> TcS ([Ct], [Ct])
+getRelevantCtsFor thy =
   modifyInertTcS $ upd $ \fun_eqs->
-    let (wanteds, rest_funeqs) = partCtFamHeadMap (isArith Wanted) fun_eqs
-        givens = getCtFamHeadMapCts (isArith Given) rest_funeqs
+    let (wanteds, rest_funeqs) = partCtFamHeadMap (consider Wanted) fun_eqs
+        givens = getCtFamHeadMapCts (consider Given) rest_funeqs
     in ((bagToList givens, bagToList wanteds), rest_funeqs)
 
   where
-  isArith fl ct
+  consider fl ct
     | fl == ctFlavour ct
-    , Just (tc,tys) <- isCFunEqCan_maybe ct = isLinArithTyCon tc tys
+    , Just (tc,tys) <- isCFunEqCan_maybe ct = thyRelevant thy tc tys
     | otherwise = False
 
   upd f i =
