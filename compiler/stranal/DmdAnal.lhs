@@ -18,8 +18,10 @@ import DynFlags
 import WwLib            ( deepSplitProductType_maybe )
 import Demand	-- All of it
 import CoreSyn
+import CoreFVs
 import Outputable
 import VarEnv
+import VarSet
 import BasicTypes	
 import FastString
 import Data.List
@@ -1155,3 +1157,28 @@ of the Id, and start from "bottom".  Nowadays the Id can have a current
 strictness, because interface files record strictness for nested bindings.
 To know when we are in the first iteration, we look at the ae_virgin
 field of the AnalEnv.
+
+\begin{code}
+
+-- Quick and dirty join-point-detection
+
+isJoinPointOf :: Var -> CoreExpr -> Bool
+isJoinPointOf v (Var x) | v == x = True
+isJoinPointOf _ (Var _) = False
+isJoinPointOf _ (Lit _) = False
+isJoinPointOf _ (Type _) = False
+isJoinPointOf _ (Coercion _) = False
+isJoinPointOf _ (Lam _ _) = False
+isJoinPointOf v (Let bndr body) = v `notInBinder` bndr && isJoinPointOf v body
+isJoinPointOf v (App f e) = v `notInExpr` e && isJoinPointOf v f
+isJoinPointOf v (Tick _ e) = isJoinPointOf v e
+isJoinPointOf v (Cast e _) = isJoinPointOf v e
+isJoinPointOf v (Case e _ _ alts) = v `notInExpr` e &&
+    all (\(_,_,e) -> isJoinPointOf v e || v `notInExpr` e) alts
+
+notInExpr :: Var -> CoreExpr -> Bool
+notInExpr v e = not $ v `elemVarSet` exprFreeVars e
+notInBinder :: Var -> CoreBind -> Bool
+notInBinder v e = not $ v `elemVarSet` bindFreeVars e
+
+\end{code}
