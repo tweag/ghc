@@ -10,6 +10,8 @@ module Demand (
         StrDmd, UseDmd(..), Count(..), 
         countOnce, countMany,   -- cardinality
 
+        JointDmd(..), MaybeUsed(..), lubDmdResult, -- temporary hack
+
         Demand, CleanDemand, 
         mkProdDmd, mkOnceUsedDmd, mkManyUsedDmd, mkHeadStrict, oneifyDmd,
         getUsage, toCleanDmd, 

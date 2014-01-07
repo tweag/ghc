@@ -283,7 +283,7 @@ dmdAnal env dmd (Case scrut case_bndr ty alts)
     (res_ty, Case scrut' case_bndr' ty alts')
 
 dmdAnal env dmd (Let (NonRec id rhs) body)
-  = (body_ty2, Let (NonRec id2 annotated_rhs) body')                    
+  = (body_ty2, Let (NonRec id3 annotated_rhs) body')
   where
     (sig, lazy_fv, id1, rhs') = dmdAnalRhs NotTopLevel Nothing env id rhs
     (body_ty, body') 	      = dmdAnal (extendAnalEnv NotTopLevel env id sig) dmd body
@@ -293,6 +293,20 @@ dmdAnal env dmd (Let (NonRec id rhs) body)
     -- Annotate top-level lambdas at RHS basing on the aggregated demand info
     -- See Note [Annotating lambdas at right-hand side] 
     annotated_rhs = annLamWithShotness (idDemandInfo id2) rhs'   
+
+    -- If var is a joint point for the expression of which dmd_ty is the demand
+    -- type, then restrict var's CPR property to that in dmd_ty
+    -- Of course, this implementation is a HACK!
+    id3 | isJoinPointOf id body = setIdStrictness id2 $
+           case (idStrictness id2, body_ty) of
+            (StrictSig (DmdType fv args r1), DmdType _ _ r2) ->
+                (\x ->
+                    if r1 /= r2
+                    then pprTrace "cpr-join-point-fix" (vcat [ppr (idDemandInfo id2), ppr body_ty, ppr (idStrictness id2), ppr x]) x
+                    else x) $
+                -- TODO: What about a bottoming result?
+                StrictSig (DmdType fv args (r1 `lubDmdResult` r2))
+        | otherwise = id2
 
 	-- If the actual demand is better than the vanilla call
 	-- demand, you might think that we might do better to re-analyse 
