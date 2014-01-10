@@ -19,7 +19,7 @@ module Demand (
         peelUseCall, cleanUseDmd_maybe, strictenDmd, bothCleanDmd,
 
         DmdType(..), dmdTypeDepth, lubDmdType, lubDmdTypes, bothDmdType,
-        nopDmdType, botDmdType, mkDmdType,
+        nopDmdType, litDmdType, botDmdType, mkDmdType,
         addDemand,
         BothDmdArg, mkBothDmdArg, toBothDmdArg,
 
@@ -1062,9 +1062,10 @@ emptyDmdEnv = emptyVarEnv
 -- (lazy, absent, no CPR information, no termination information).
 -- Note that it is ''not'' the top of the lattice (which would be "may use everything"),
 -- so it is (no longer) called topDmd
-nopDmdType, botDmdType :: DmdType
+nopDmdType, litDmdType, botDmdType :: DmdType
 nopDmdType = DmdType emptyDmdEnv [] topRes
 botDmdType = DmdType emptyDmdEnv [] botRes
+litDmdType = DmdType emptyDmdEnv [] convRes
 
 cprProdDmdType :: Arity -> DmdType
 cprProdDmdType _arity
