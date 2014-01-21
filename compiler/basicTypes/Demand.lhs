@@ -27,7 +27,7 @@ module Demand (
         peelFV,
 
         DmdResult, CPRResult,
-        isBotRes, isTopRes, getDmdResult, resTypeArgDmd,
+        isBotRes, isTopRes, getDmdResult, removeArgs, resTypeArgDmd,
         topRes, convRes, botRes,
         splitNestedRes,
         appIsBottom, isBottomingSig, pprIfaceStrictSig,
@@ -814,8 +814,15 @@ cprProdRes :: Int -> [DmdResult] -> DmdResult
 cprProdRes depth arg_ress = cutDmdResult depth $ Converges $ RetProd arg_ress
 
 getDmdResult :: DmdType -> DmdResult
-getDmdResult (DmdType _ [] r) = r       -- Only for data-typed arguments!
-getDmdResult _                = topRes
+getDmdResult (DmdType _ [] r)            = r       -- Only for data-typed arguments!
+getDmdResult (DmdType _ _ (Converges _)) = convRes -- Convergence is retained
+getDmdResult _                           = topRes  -- Other CPR information is invalid now
+
+-- This removes the arguments from a demand signature,
+-- e.g. in dmdAnalRhs, where a function value should not be
+-- exported. If it is removing arguments, zap the CPR information!
+removeArgs :: DmdType -> DmdType
+removeArgs d@(DmdType fv _ _) = (DmdType fv [] (getDmdResult d))
 
 -- Forget that something might converge for sure
 divergeDmdResult :: DmdResult -> DmdResult

@@ -692,13 +692,21 @@ dmdAnalRhs top_lvl rec_flag env var rhs
   = (fn_str, emptyDmdEnv, set_idStrictness env var fn_str, rhs)
 
   | otherwise
-  = (sig_ty, lazy_fv, var', mkLams bndrs' body')
+  = -- pprTrace "dmdAnalRhs" (vcat [ text "body_ty"  <+> ppr body_ty
+    --                             , text "body_ty'" <+> ppr body_ty'
+    --                             , text "sig_ty"   <+> ppr sig_ty
+    --                             ]) $
+    (sig_ty, lazy_fv, var', mkLams bndrs' body')
   where
     (bndrs, body)        = collectBinders rhs
     env_body             = foldl extendSigsWithLam env bndrs
-    (DmdType body_fv _      body_res, body')  = dmdAnal env_body body_dmd body
-    (DmdType rhs_fv rhs_dmds rhs_res, bndrs') = annotateLamBndrs env (isDFunId var)
-                                                  (DmdType body_fv [] body_res) bndrs
+    (body_ty, body')     = dmdAnal env_body body_dmd body
+    body_ty'             = removeArgs body_ty
+                           -- ^ we do not want to expose a function demand type
+                           -- that does not come from top-level lambdas
+    (DmdType rhs_fv rhs_dmds rhs_res, bndrs')
+                         = annotateLamBndrs env (isDFunId var) body_ty' bndrs
+
     sig_ty               = mkStrictSig $
                            mkDmdType sig_fv rhs_dmds $
                                 handle_sum_cpr $
