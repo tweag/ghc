@@ -1235,9 +1235,9 @@ postProcessUnsat (True,  One)  ty = deferType ty
 postProcessUnsat (False, One)  ty = ty
 
 deferType, reuseType, deferReuse :: DmdType -> DmdType
-deferType  (DmdType fv ds _)      = DmdType (deferEnv fv)      (map deferDmd ds)      convRes
+deferType  (DmdType fv ds res_ty) = DmdType (deferEnv fv)      (map deferDmd ds)      res_ty
 reuseType  (DmdType fv ds res_ty) = DmdType (reuseEnv fv)      (map reuseDmd ds)      res_ty
-deferReuse (DmdType fv ds _)      = DmdType (deferReuseEnv fv) (map deferReuseDmd ds) convRes
+deferReuse (DmdType fv ds res_ty) = DmdType (deferReuseEnv fv) (map deferReuseDmd ds) res_ty
 
 deferEnv, reuseEnv, deferReuseEnv :: DmdEnv -> DmdEnv
 deferEnv      fv = mapVarEnv deferDmd fv
@@ -1296,22 +1296,23 @@ then d1 and d2 is precisely the demand unleashed onto x1 and x2 (similar for
 the free variable environment) and furthermore the result information r is the
 one we want to use.
 
+An anonymous lambda is also an unsaturated function all (needs one argument,
+none given), so this applies to that case as well.
+
 But the demand fed into f might be less than <C(C(S)), C1(C1(S))>. There are a few cases:
  * Not enough demand on the strictness side:
    - In that case, we need to zap all strictness in the demand on arguments and
      free variables.
-   - Furthermore, we need to remove CPR information (after all, "f x1" surely
-     does not return a constructor).
-   - And finally, if r said that f would (possible or definitely) diverge when
-     called with two arguments, then "f x1" may diverge. So we use topRes here.
-     (We could return "Converges NoCPR" if f would converge for sure, but that
-     information would currently not be useful in any way.)
  * Not enough demand from the usage side: The missing usage can be expanded
    using UCall Many, therefore this is subsumed by the third case:
  * At least one of the uses has a cardinality of Many.
    - Even if f puts a One demand on any of its argument or free variables, if
      we call f multiple times, we may evaluate this argument or free variable
      multiple times. So forget about any occurrence of "One" in the demand.
+
+The termination and CPR information stays valid: The missing arguments still
+appear in the demand type, and once they are provided as well, the termination
+and CPR information will hold.
 
 In dmdTransformSig, we call peelManyCalls to find out if we are in any of these
 cases, and then call postProcessUnsat to reduce the demand appropriately.
