@@ -1154,11 +1154,24 @@ coerceId = pcMiscPrelId coerceName ty info
     eqRPrimTy = mkTyConApp eqReprPrimTyCon [k, aTy, bTy]
     ty   = mkForAllTys [kv, a, b] (mkFunTys [eqRTy, aTy] bTy)
 
-    [eqR,x,eq] = mkTemplateLocals [eqRTy, aTy,eqRPrimTy]
-    rhs = mkLams [kv,a,b,eqR,x] $
-          mkWildCase (Var eqR) eqRTy bTy $
-	  [(DataAlt coercibleDataCon, [eq], Cast (Var x) (CoVarCo eq))]
+    [eqR,eq] = mkTemplateLocals [eqRTy, eqRPrimTy]
+    -- See Note [The shape of coerce]
+    rhs = mkLams [kv,a,b,eqR] $
+          mkWildCase (Var eqR) eqRTy (mkFunTy aTy bTy) $
+	  [(DataAlt coercibleDataCon, [eq], mkCastedIdentity (CoVarCo eq))]
+
+-- Turns co :: a ~#R b coercion into
+--  (\x -> x) |> (<a>_R -> co)
+-- which allows the unfolding of coerce to have a lower arity
+mkCastedIdentity :: Coercion -> CoreExpr
+mkCastedIdentity co = Cast
+    (mkLams [x] (Var x))
+    (mkFunCo Representational (mkReflCo Representational aTy) co)
+ where
+    Pair aTy _ = coercionKind co
+    [x] = mkTemplateLocals [aTy]
 \end{code}
+
 
 Note [Unsafe coerce magic]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1296,6 +1309,25 @@ The `co` coercion is the newtype-coercion extracted from the type-class.
 The type class is obtain by looking at the type of wrap.
 
 
+Note [The shape of coerce]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+coerce could be implemented like this
+    λ k α β c x -> case c of (MkCoercible co) -> x ▷ co
+which is the most direct implementation. But note that we want the user to be
+able to write a RULE of the shape
+    map coerce = coerce
+and we want that to match the Core that the simplifiers creates for
+    map Age
+which has the form
+    map @α @β ((λ x -> x) ▷ (α_R → NTCo:Age)).
+Therefore we need to coerce to
+ * unfold even when given only three arguments, and
+ * unfold to the given shape.
+This happens to the LHS of a RULE, so only simpleOptExpr is being applied to
+it. Therefore, we create the unfolding in the required shape, namely:
+    λ k α β c -> case c of (MkCoercible co) -> (λx. x) ▷ (α_R → co)
+(If the rule-matcher would be a bit smarter with pushing coercions down the
+tree when they get in the way, this could be revisited.)
 
 -------------------------------------------------------------
 @realWorld#@ used to be a magic literal, \tr{void#}.  If things get
