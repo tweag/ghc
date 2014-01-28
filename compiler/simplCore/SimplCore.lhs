@@ -260,6 +260,7 @@ getCoreToDo dflags
         simpl_phase 0 ["main"] (max max_iter 3),
 
         CoreDoCallArity,
+        simpl_phase 0 ["post-call-arity"] (max max_iter 3),
 
         runWhen strictness demand_analyser,
 

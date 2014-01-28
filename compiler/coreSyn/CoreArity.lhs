@@ -42,6 +42,7 @@ import FastString
 import Pair
 import Util     ( debugIsOn )
 import Control.Arrow ( second )
+import Data.Maybe ( fromMaybe )
 \end{code}
 
 %************************************************************************
@@ -1105,23 +1106,26 @@ callArityAnal arity int (Lam v e)
 -- Non-recursive let. Find out how the body calls the rhs, analise that,
 -- and combine the results, convervatively using both
 callArityAnal arity int (Let (NonRec v rhs) e)
+
     -- We are tail-calling into the rhs. So a tail-call in the RHS is a
     -- tail-call for everything
     | Just n <- rhs_arity
     = let (ae_rhs, rhs') = callArityAnal n int rhs
           final_ae       = ae_rhs `lubEnv` ae_body'
+          v'             = v `setIdCalledArity` n
       in -- pprTrace "callArityAnal:LetNonRecTailCall"
          --          (vcat [ppr v, ppr arity, ppr n, ppr final_ae ])
-         (final_ae, Let (NonRec v rhs') e')
+         (final_ae, Let (NonRec v' rhs') e')
 
     -- We are calling the rhs in any other way (or not at all), so kill the
     -- tail-call information from there
     | otherwise
     = let (ae_rhs, rhs') = callArityAnal 0 int rhs
           final_ae = forgetTailCalls ae_rhs `lubEnv` ae_body'
+          v'             = v `setIdCalledArity` 0
       in -- pprTrace "callArityAnal:LetNonRecNonTailCall"
          --          (vcat [ppr v, ppr arity, ppr final_ae ])
-         (final_ae, Let (NonRec v rhs') e')
+         (final_ae, Let (NonRec v' rhs') e')
   where
     int_body = int `extendVarSet` v
     (ae_body, e') = callArityAnal arity int_body e
@@ -1137,17 +1141,19 @@ callArityAnal arity int (Let (Rec [(v,rhs)]) e)
     | Just n <- rhs_arity
     = let (ae_rhs, rhs_arity', rhs') = callArityFix n int_body v rhs
           final_ae = ae_rhs `lubEnv` ae_body'
+          v'             = v `setIdCalledArity` fromMaybe 0 rhs_arity'
       in -- pprTrace "callArityAnal:LetRecTailCall"
          --          (vcat [ppr v, ppr arity, ppr n, ppr rhs_arity', ppr final_ae ])
-         (final_ae, Let (Rec [(v,rhs')]) e')
+         (final_ae, Let (Rec [(v',rhs')]) e')
     -- We are calling the body in any other way (or not at all), so kill the
     -- tail-call information from there. No need to iterate there.
     | otherwise
     = let (ae_rhs, rhs') = callArityAnal 0 int_body rhs
           final_ae = forgetTailCalls ae_rhs `lubEnv` ae_body'
+          v'             = v `setIdCalledArity` 0
       in -- pprTrace "callArityAnal:LetRecNonTailCall"
          --          (vcat [ppr v, ppr arity, ppr final_ae ])
-         (final_ae, Let (NonRec v rhs') e')
+         (final_ae, Let (Rec [(v',rhs')]) e')
   where
     int_body = int `extendVarSet` v
     (ae_body, e') = callArityAnal arity int_body e
