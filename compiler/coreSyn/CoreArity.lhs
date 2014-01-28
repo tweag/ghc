@@ -1034,7 +1034,15 @@ Call arity anlysis: For let-bound things, find out the minimum arity it is
 called with, so that the value can be eta-expanded to that arity, creating
 better code (main goal: good foldl as foldr).
 
-For let-bound thunks, be very careful if there are multiple calls.
+Be sure to only consider tail calls. This allows us to detect that there is at
+most one call to n in
+
+ let n = case .. of .. -- A thunk!
+ in case .. of
+     True -> let go = \y -> case .. of
+                              True -> go (y+1)
+                              False > n
+    False -> n
 
 \begin{code}
 
@@ -1046,150 +1054,160 @@ callArityBind (NonRec id rhs) = NonRec id (callArityRHS rhs)
 callArityBind (Rec binds) = Rec $ map (\(id,rhs) -> (id, callArityRHS rhs)) binds
 
 callArityRHS :: CoreExpr -> CoreExpr
-callArityRHS = snd . callArityAnal 0 emptyVarSet emptyVarSet
+callArityRHS = snd . callArityAnal 0 emptyVarSet
 
+
+type CallArityEnv = VarEnv (Maybe Arity)
 
 callArityAnal ::
     Arity ->  -- The arity this expression is called with
     VarSet -> -- The set of interesting variables
-    VarSet -> -- The set of variables for thunks
     CoreExpr ->  -- The expression to analyse
-    (VarEnv Arity, CoreExpr)
-        -- How this expression uses its free variables,
+    (CallArityEnv, CoreExpr)
+        -- How this expression uses its interesting variables:
+        --   Just n  => a tail call with that arity
+        --   Nothing => other uses
         -- and the expression with IdInfo updated
 
 -- The trivial base cases
-callArityAnal _     _   _      e@(Lit _)
+callArityAnal _     _   e@(Lit _)
     = (emptyVarEnv, e)
-callArityAnal _     _   _      e@(Type _)
+callArityAnal _     _   e@(Type _)
     = (emptyVarEnv, e)
-callArityAnal _     _   _      e@(Coercion _)
+callArityAnal _     _   e@(Coercion _)
     = (emptyVarEnv, e)
 -- The transparent cases
-callArityAnal arity int thunks (Tick t e)
-    = second (Tick t) $ callArityAnal arity int thunks e
-callArityAnal arity int thunks (Cast e co)
-    = second (\e -> Cast e co) $ callArityAnal arity int thunks e
+callArityAnal arity int (Tick t e)
+    = second (Tick t) $ callArityAnal arity int e
+callArityAnal arity int (Cast e co)
+    = second (\e -> Cast e co) $ callArityAnal arity int e
 
 -- The interesting case: Variables, Lambdas, Lets, Applications, Cases
-callArityAnal arity int _thunks e@(Var v)
+callArityAnal arity int e@(Var v)
     | v `elemVarSet` int
-    = (unitVarEnv v arity, e)
+    = (unitVarEnv v (Just arity), e)
     | otherwise
     = (emptyVarEnv, e)
 
--- We have a lambda that we are not sure to call. This may
--- share calls to thunks, so zap them.
-callArityAnal 0     int thunks (Lam v e)
+-- We have a lambda that we are not sure to call. Tail calls therein
+-- are no longer tail calls
+callArityAnal 0     int (Lam v e)
     = (ae', Lam v e')
   where
-    (ae, e') = callArityAnal 0 int thunks e
-    ae' = constVarEnvByVarSet 0 ae thunks `delVarEnv` v
+    (ae, e') = callArityAnal 0 int e
+    ae' = forgetTailCalls ae
 -- We have a lambda that we are calling. decrease arity.
-callArityAnal arity int thunks (Lam v e)
-    = (ae', Lam v e')
+callArityAnal arity int (Lam v e)
+    = (ae, Lam v e')
   where
-    (ae, e') = callArityAnal (arity - 1) int thunks e
-    ae' = ae `delVarEnv` v
+    (ae, e') = callArityAnal (arity - 1) int e
 
 -- Non-recursive let. Find out how the body calls the rhs, analise that,
 -- and combine the results, convervatively using both
-callArityAnal arity int thunks (Let (NonRec v rhs) e)
-    = pprTrace "callArityAnal:LetNonRec" (vcat [ppr v, ppr arity, ppr rhs_arity ])
-      (ae', Let (NonRec v rhs') e')
+callArityAnal arity int (Let (NonRec v rhs) e)
+    -- We are tail-calling into the rhs. So a tail-call in the RHS is a
+    -- tail-call for everything
+    | Just n <- rhs_arity
+    = let (ae_rhs, rhs') = callArityAnal n int rhs
+          final_ae       = ae_rhs `lubEnv` ae_body'
+      in -- pprTrace "callArityAnal:LetNonRecTailCall"
+         --          (vcat [ppr v, ppr arity, ppr n, ppr final_ae ])
+         (final_ae, Let (NonRec v rhs') e')
+
+    -- We are calling the rhs in any other way (or not at all), so kill the
+    -- tail-call information from there
+    | otherwise
+    = let (ae_rhs, rhs') = callArityAnal 0 int rhs
+          final_ae = forgetTailCalls ae_rhs `lubEnv` ae_body'
+      in -- pprTrace "callArityAnal:LetNonRecNonTailCall"
+         --          (vcat [ppr v, ppr arity, ppr final_ae ])
+         (final_ae, Let (NonRec v rhs') e')
   where
     int_body = int `extendVarSet` v
-    thunks_body | exprIsHNF rhs = thunks
-                | otherwise     = thunks `extendVarSet` v
-    (ae_body, e') = callArityAnal arity int_body thunks_body e
+    (ae_body, e') = callArityAnal arity int_body e
     ae_body' = ae_body `delVarEnv` v
-
-    rhs_arity = lookupWithDefaultVarEnv ae_body 0 v
-    (ae_rhs, rhs') = callArityAnal rhs_arity int thunks rhs
-
-    ae' = bothEnv thunks ae_body' ae_rhs
+    rhs_arity = lookupWithDefaultVarEnv ae_body Nothing v
 
 -- Recursive let. Again, find out how the body calls the rhs, analise that,
 -- but then check if it is compatible with how rhs calls itself. If not,
 -- retry with lower arity.
-callArityAnal arity int thunks (Let (Rec [(v,rhs)]) e)
-    = pprTrace "callArityAnal:LetRec" (vcat [ppr v, ppr arity, ppr rhs_arity, ppr rhs_arity' ])
-      (ae', Let (Rec [(v,rhs')]) e')
+callArityAnal arity int (Let (Rec [(v,rhs)]) e)
+    -- We are tail-calling into the rhs. So a tail-call in the RHS is a
+    -- tail-call for everything
+    | Just n <- rhs_arity
+    = let (ae_rhs, rhs_arity', rhs') = callArityFix n int_body v rhs
+          final_ae = ae_rhs `lubEnv` ae_body'
+      in -- pprTrace "callArityAnal:LetRecTailCall"
+         --          (vcat [ppr v, ppr arity, ppr n, ppr rhs_arity', ppr final_ae ])
+         (final_ae, Let (Rec [(v,rhs')]) e')
+    -- We are calling the body in any other way (or not at all), so kill the
+    -- tail-call information from there. No need to iterate there.
+    | otherwise
+    = let (ae_rhs, rhs') = callArityAnal 0 int_body rhs
+          final_ae = forgetTailCalls ae_rhs `lubEnv` ae_body'
+      in -- pprTrace "callArityAnal:LetRecNonTailCall"
+         --          (vcat [ppr v, ppr arity, ppr final_ae ])
+         (final_ae, Let (NonRec v rhs') e')
   where
     int_body = int `extendVarSet` v
-    thunks_body | exprIsHNF rhs = thunks
-                | otherwise     = thunks `extendVarSet` v
-    (ae_body, e') = callArityAnal arity int_body thunks_body e
+    (ae_body, e') = callArityAnal arity int_body e
     ae_body' = ae_body `delVarEnv` v
-
-    rhs_arity = lookupWithDefaultVarEnv ae_body 0 v
-    (ae_rhs, rhs_arity', rhs') = callArityFix rhs_arity int_body thunks_body v rhs
-
-    ae' = bothEnv thunks ae_body' ae_rhs
+    rhs_arity = lookupWithDefaultVarEnv ae_body Nothing v
 
 -- Mutual recursion. Do nothing serious here, for now
-callArityAnal arity int thunks (Let (Rec binds) e)
+callArityAnal arity int (Let (Rec binds) e)
     = (final_ae, Let (Rec binds') e')
   where
     (aes, binds') = unzip $ map go binds
-    go (i,e) = let (ae,e') = callArityAnal 0 int thunks e
-               in (ae, (i,e'))
-    (ae, e') = callArityAnal arity int thunks e
-    binds_ae = foldl both emptyVarEnv aes
-    final_ae = binds_ae `both` binds_ae `both` ae
-    both = bothEnv thunks
+    go (i,e) = let (ae,e') = callArityAnal 0 int e
+               in (forgetTailCalls ae, (i,e'))
+    (ae, e') = callArityAnal arity int e
+    final_ae = foldl lubEnv ae aes
 
 -- Application. Increase arity for the called expresion, nothing to know about
 -- the second
-callArityAnal arity int thunks (App e1 e2)
+callArityAnal arity int (App e1 e2)
     = (final_ae, App e1' e2')
   where
-    (ae1, e1') = callArityAnal (arity + 1) int thunks e1
-    (ae2, e2') = callArityAnal 0           int thunks e2
-    final_ae = bothEnv thunks ae1 ae2
+    (ae1, e1') = callArityAnal (arity + 1) int e1
+    (ae2, e2') = callArityAnal 0           int e2
+    final_ae = ae1 `lubEnv` forgetTailCalls ae2
 
 -- Case expression. Not much happening here.
-callArityAnal arity int thunks (Case scrut bndr ty alts)
-    = (final_ae, Case scrut' bndr ty alts')
+callArityAnal arity int (Case scrut bndr ty alts)
+    = -- pprTrace "callArityAnal:Case"
+      --          (vcat [ppr scrut, ppr final_ae])
+      (final_ae, Case scrut' bndr ty alts')
   where
     (aes, alts') = unzip $ map go alts
-    go (dc, bndrs, e) = let (ae, e') = callArityAnal arity int thunks e
+    go (dc, bndrs, e) = let (ae, e') = callArityAnal arity int e
                         in  (ae, (dc, bndrs, e'))
-    (ae, scrut') = callArityAnal 0 int thunks scrut
-    final_ae = bothEnv thunks ae (foldl lubEnv emptyVarEnv aes)
+    (ae, scrut') = callArityAnal 0 int scrut
+    final_ae = foldl lubEnv (forgetTailCalls ae) aes
 
-callArityFix :: Arity -> VarSet -> VarSet -> Id -> CoreExpr -> (VarEnv Arity, Arity, CoreExpr)
-callArityFix arity int thunks v e
-    | new_arity < arity
+callArityFix :: Arity -> VarSet -> Id -> CoreExpr -> (CallArityEnv, Maybe Arity, CoreExpr)
+callArityFix arity int v e
+    | Nothing <- new_arity
+    -- Not tail recusive, rerun with arity 0 and bail out
+    -- (Or not recursive at all, but that was hopefully handled by the simplifier before)
+    = let (ae, e') = callArityAnal 0 int e
+      in (forgetTailCalls ae `delVarEnv` v, Nothing, e')
+    | Just n <- new_arity, n < arity
     -- Retry
-    = callArityFix new_arity int thunks v e
+    = callArityFix n int v e
     | otherwise
     -- RHS calls itself with at least as many arguments as the body of the let
-    = (final_ae, new_arity, e')
+    = (ae `delVarEnv` v, new_arity, e')
   where
-    (ae, e') = callArityAnal arity int thunks e
-    new_arity = lookupWithDefaultVarEnv ae 0 v
-    -- Just to be safe, both the environment with itself
-    final_ae = bothEnv thunks ae ae `delVarEnv` v
+    (ae, e') = callArityAnal arity int e
+    new_arity = lookupWithDefaultVarEnv ae Nothing v
+
+
+forgetTailCalls :: VarEnv (Maybe Arity) -> VarEnv (Maybe Arity)
+forgetTailCalls = mapVarEnv (const Nothing)
 
 -- Used when combining results from alternative cases; take the minimum
-lubEnv :: VarEnv Arity -> VarEnv Arity -> VarEnv Arity
+lubEnv :: CallArityEnv -> CallArityEnv -> CallArityEnv
 lubEnv = plusVarEnv_C min
-
--- For non-thunks, combine using `min`
--- For thunks, if both are mentioning it, reset to zero (conservatively)
-bothEnv :: VarSet -> VarEnv Arity -> VarEnv Arity -> VarEnv Arity
-bothEnv thunks e1 e2
-    =  plusVarEnv_C min         e1       e2       `plusVarEnv`
-       plusVarEnv_C (\_ _ -> 0) e1_thunk e2_thunk -- This overwrite the previous..
- where
-   e1_thunk = restrictVarEnv e1 thunks
-   e2_thunk = restrictVarEnv e2 thunks
--- I guess we need a plusVarEnv_CD_with_Key :-(
-
-
-
-constVarEnvByVarSet :: a -> VarEnv a -> VarSet -> VarEnv a
-constVarEnvByVarSet x e s = foldVarSet (\v e -> modifyVarEnv (const x) e v) e s
 
 \end{code}
