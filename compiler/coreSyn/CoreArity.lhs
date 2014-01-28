@@ -42,7 +42,7 @@ import FastString
 import Pair
 import Util     ( debugIsOn )
 import Control.Arrow ( second )
-import Data.Maybe ( fromMaybe )
+import Data.Maybe ( fromMaybe, isJust )
 \end{code}
 
 %************************************************************************
@@ -1205,7 +1205,11 @@ callArityAnal arity int (App e1 e2)
     (ae2, e2') = callArityAnal 0           int e2
     final_ae = ae1 `lubEnv` forgetTailCalls ae2
 
--- Case expression. Not much happening here.
+-- Case expression. Here we decide whether
+-- we want to look at calls from the scrunitee or the alternatives;
+-- one of them we set to Nothing.
+-- Naive idea: If there are interesting calls in the scrunitee,
+-- zap the alternatives
 callArityAnal arity int (Case scrut bndr ty alts)
     = -- pprTrace "callArityAnal:Case"
       --          (vcat [ppr scrut, ppr final_ae])
@@ -1215,7 +1219,8 @@ callArityAnal arity int (Case scrut bndr ty alts)
     go (dc, bndrs, e) = let (ae, e') = callArityAnal arity int e
                         in  (ae, (dc, bndrs, e'))
     (ae, scrut') = callArityAnal 0 int scrut
-    final_ae = foldl lubEnv (forgetTailCalls ae) aes
+    final_ae | anyTailCalls ae = foldl lubEnv ae $ map forgetTailCalls aes
+             | otherwise       = foldl lubEnv (forgetTailCalls ae) aes
 
 callArityFix :: Arity -> VarSet -> Id -> CoreExpr -> (CallArityEnv, Maybe Arity, CoreExpr)
 callArityFix arity int v e
@@ -1234,6 +1239,9 @@ callArityFix arity int v e
     (ae, e') = callArityAnal arity int e
     new_arity = lookupWithDefaultVarEnv ae Nothing v
 
+
+anyTailCalls :: VarEnv (Maybe Arity) -> Bool
+anyTailCalls = foldVarEnv ((||) . isJust) False
 
 forgetTailCalls :: VarEnv (Maybe Arity) -> VarEnv (Maybe Arity)
 forgetTailCalls = mapVarEnv (const Nothing)
