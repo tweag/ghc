@@ -16,7 +16,8 @@
 -- | Arit and eta expansion
 module CoreArity (
 	manifestArity, exprArity, exprBotStrictness_maybe,
-	exprEtaExpandArity, findRhsArity, CheapFun, etaExpand
+	exprEtaExpandArity, findRhsArity, CheapFun, etaExpand,
+        callArityAnalProgram,
     ) where
 
 #include "HsVersions.h"
@@ -28,6 +29,7 @@ import CoreSubst
 import Demand
 import Var
 import VarEnv
+import VarSet
 import Id
 import Type
 import TyCon	( initRecTc, checkRecTc )
@@ -39,6 +41,7 @@ import Outputable
 import FastString
 import Pair
 import Util     ( debugIsOn )
+import Control.Arrow ( second )
 \end{code}
 
 %************************************************************************
@@ -1026,3 +1029,167 @@ freshEtaId n subst ty
 	subst'  = extendTvInScope subst eta_id'		  
 \end{code}
 
+
+Call arity anlysis: For let-bound things, find out the minimum arity it is
+called with, so that the value can be eta-expanded to that arity, creating
+better code (main goal: good foldl as foldr).
+
+For let-bound thunks, be very careful if there are multiple calls.
+
+\begin{code}
+
+callArityAnalProgram :: DynFlags -> CoreProgram -> CoreProgram
+callArityAnalProgram _dflags = map callArityBind
+
+callArityBind :: CoreBind -> CoreBind
+callArityBind (NonRec id rhs) = NonRec id (callArityRHS rhs) 
+callArityBind (Rec binds) = Rec $ map (\(id,rhs) -> (id, callArityRHS rhs)) binds
+
+callArityRHS :: CoreExpr -> CoreExpr
+callArityRHS = snd . callArityAnal 0 emptyVarSet emptyVarSet
+
+
+callArityAnal ::
+    Arity ->  -- The arity this expression is called with
+    VarSet -> -- The set of interesting variables
+    VarSet -> -- The set of variables for thunks
+    CoreExpr ->  -- The expression to analyse
+    (VarEnv Arity, CoreExpr)
+        -- How this expression uses its free variables,
+        -- and the expression with IdInfo updated
+
+-- The trivial base cases
+callArityAnal _     _   _      e@(Lit _)
+    = (emptyVarEnv, e)
+callArityAnal _     _   _      e@(Type _)
+    = (emptyVarEnv, e)
+callArityAnal _     _   _      e@(Coercion _)
+    = (emptyVarEnv, e)
+-- The transparent cases
+callArityAnal arity int thunks (Tick t e)
+    = second (Tick t) $ callArityAnal arity int thunks e
+callArityAnal arity int thunks (Cast e co)
+    = second (\e -> Cast e co) $ callArityAnal arity int thunks e
+
+-- The interesting case: Variables, Lambdas, Lets, Applications, Cases
+callArityAnal arity int _thunks e@(Var v)
+    | v `elemVarSet` int
+    = (unitVarEnv v arity, e)
+    | otherwise
+    = (emptyVarEnv, e)
+
+-- We have a lambda that we are not sure to call. This may
+-- share calls to thunks, so zap them.
+callArityAnal 0     int thunks (Lam v e)
+    = (ae', Lam v e')
+  where
+    (ae, e') = callArityAnal 0 int thunks e
+    ae' = constVarEnvByVarSet 0 ae thunks `delVarEnv` v
+-- We have a lambda that we are calling. decrease arity.
+callArityAnal arity int thunks (Lam v e)
+    = (ae', Lam v e')
+  where
+    (ae, e') = callArityAnal (arity - 1) int thunks e
+    ae' = ae `delVarEnv` v
+
+-- Non-recursive let. Find out how the body calls the rhs, analise that,
+-- and combine the results, convervatively using both
+callArityAnal arity int thunks (Let (NonRec v rhs) e)
+    = pprTrace "callArityAnal:LetNonRec" (vcat [ppr v, ppr arity, ppr rhs_arity ])
+      (ae', Let (NonRec v rhs') e')
+  where
+    int_body = int `extendVarSet` v
+    thunks_body | exprIsHNF rhs = thunks
+                | otherwise     = thunks `extendVarSet` v
+    (ae_body, e') = callArityAnal arity int_body thunks_body e
+    ae_body' = ae_body `delVarEnv` v
+
+    rhs_arity = lookupWithDefaultVarEnv ae_body 0 v
+    (ae_rhs, rhs') = callArityAnal rhs_arity int thunks rhs
+
+    ae' = bothEnv thunks ae_body' ae_rhs
+
+-- Recursive let. Again, find out how the body calls the rhs, analise that,
+-- but then check if it is compatible with how rhs calls itself. If not,
+-- retry with lower arity.
+callArityAnal arity int thunks (Let (Rec [(v,rhs)]) e)
+    = pprTrace "callArityAnal:LetRec" (vcat [ppr v, ppr arity, ppr rhs_arity, ppr rhs_arity' ])
+      (ae', Let (Rec [(v,rhs')]) e')
+  where
+    int_body = int `extendVarSet` v
+    thunks_body | exprIsHNF rhs = thunks
+                | otherwise     = thunks `extendVarSet` v
+    (ae_body, e') = callArityAnal arity int_body thunks_body e
+    ae_body' = ae_body `delVarEnv` v
+
+    rhs_arity = lookupWithDefaultVarEnv ae_body 0 v
+    (ae_rhs, rhs_arity', rhs') = callArityFix rhs_arity int_body thunks_body v rhs
+
+    ae' = bothEnv thunks ae_body' ae_rhs
+
+-- Mutual recursion. Do nothing serious here, for now
+callArityAnal arity int thunks (Let (Rec binds) e)
+    = (final_ae, Let (Rec binds') e')
+  where
+    (aes, binds') = unzip $ map go binds
+    go (i,e) = let (ae,e') = callArityAnal 0 int thunks e
+               in (ae, (i,e'))
+    (ae, e') = callArityAnal arity int thunks e
+    binds_ae = foldl both emptyVarEnv aes
+    final_ae = binds_ae `both` binds_ae `both` ae
+    both = bothEnv thunks
+
+-- Application. Increase arity for the called expresion, nothing to know about
+-- the second
+callArityAnal arity int thunks (App e1 e2)
+    = (final_ae, App e1' e2')
+  where
+    (ae1, e1') = callArityAnal (arity + 1) int thunks e1
+    (ae2, e2') = callArityAnal 0           int thunks e2
+    final_ae = bothEnv thunks ae1 ae2
+
+-- Case expression. Not much happening here.
+callArityAnal arity int thunks (Case scrut bndr ty alts)
+    = (final_ae, Case scrut' bndr ty alts')
+  where
+    (aes, alts') = unzip $ map go alts
+    go (dc, bndrs, e) = let (ae, e') = callArityAnal arity int thunks e
+                        in  (ae, (dc, bndrs, e'))
+    (ae, scrut') = callArityAnal 0 int thunks scrut
+    final_ae = bothEnv thunks ae (foldl lubEnv emptyVarEnv aes)
+
+callArityFix :: Arity -> VarSet -> VarSet -> Id -> CoreExpr -> (VarEnv Arity, Arity, CoreExpr)
+callArityFix arity int thunks v e
+    | new_arity < arity
+    -- Retry
+    = callArityFix new_arity int thunks v e
+    | otherwise
+    -- RHS calls itself with at least as many arguments as the body of the let
+    = (final_ae, new_arity, e')
+  where
+    (ae, e') = callArityAnal arity int thunks e
+    new_arity = lookupWithDefaultVarEnv ae 0 v
+    -- Just to be safe, both the environment with itself
+    final_ae = bothEnv thunks ae ae `delVarEnv` v
+
+-- Used when combining results from alternative cases; take the minimum
+lubEnv :: VarEnv Arity -> VarEnv Arity -> VarEnv Arity
+lubEnv = plusVarEnv_C min
+
+-- For non-thunks, combine using `min`
+-- For thunks, if both are mentioning it, reset to zero (conservatively)
+bothEnv :: VarSet -> VarEnv Arity -> VarEnv Arity -> VarEnv Arity
+bothEnv thunks e1 e2
+    =  plusVarEnv_C min         e1       e2       `plusVarEnv`
+       plusVarEnv_C (\_ _ -> 0) e1_thunk e2_thunk -- This overwrite the previous..
+ where
+   e1_thunk = restrictVarEnv e1 thunks
+   e2_thunk = restrictVarEnv e2 thunks
+-- I guess we need a plusVarEnv_CD_with_Key :-(
+
+
+
+constVarEnvByVarSet :: a -> VarEnv a -> VarSet -> VarEnv a
+constVarEnvByVarSet x e s = foldVarSet (\v e -> modifyVarEnv (const x) e v) e s
+
+\end{code}

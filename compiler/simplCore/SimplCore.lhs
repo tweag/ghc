@@ -37,6 +37,7 @@ import SAT              ( doStaticArgs )
 import Specialise       ( specProgram)
 import SpecConstr       ( specConstrProgram)
 import DmdAnal          ( dmdAnalProgram )
+import CoreArity        ( callArityAnalProgram )
 import WorkWrap         ( wwTopBinds )
 import Vectorise        ( vectorise )
 import FastString
@@ -258,6 +259,8 @@ getCoreToDo dflags
                 -- Don't stop now!
         simpl_phase 0 ["main"] (max max_iter 3),
 
+        CoreDoCallArity,
+
         runWhen strictness demand_analyser,
 
         runWhen full_laziness $
@@ -395,6 +398,9 @@ doCorePass (CoreDoFloatOutwards f)   = {-# SCC "FloatOutwards" #-}
 
 doCorePass CoreDoStaticArgs          = {-# SCC "StaticArgs" #-}
                                        doPassU doStaticArgs
+
+doCorePass CoreDoCallArity           = {-# SCC "CallArity" #-}
+                                       doPassD callArityAnalProgram
 
 doCorePass CoreDoStrictness          = {-# SCC "NewStranal" #-}
                                        doPassDFM dmdAnalProgram
