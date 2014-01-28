@@ -1030,13 +1030,24 @@ freshEtaId n subst ty
 	subst'  = extendTvInScope subst eta_id'		  
 \end{code}
 
+  
+%************************************************************************
+%*									*
+              Called Arity Analyis
+%*									*
+%************************************************************************
 
-Call arity anlysis: For let-bound things, find out the minimum arity it is
-called with, so that the value can be eta-expanded to that arity, creating
-better code (main goal: good foldl as foldr).
 
-Be sure to only consider tail calls. This allows us to detect that there is at
-most one call to n in
+For let-bound things, find out the minimum arity it is called with, so that the
+value can be eta-expanded to that arity, creating better code (main goal: good
+foldl as foldr).
+
+Main problem: Thunks! We must not lose sharing. So one needs to consider how
+often something is called. We use the following approximation:
+
+    Only consider tail calls!
+
+This allows us to detect that there is at most one call to n in
 
  let n = case .. of .. -- A thunk!
  in case .. of
@@ -1044,6 +1055,21 @@ most one call to n in
                               True -> go (y+1)
                               False > n
     False -> n
+
+despite a call from a recursive function, becuase
+
+    A tail-recursive function can make at most one tail-call somewhere else.
+
+
+The following code is not yet very quick. Possible improvements:
+ * Re-use existing information in nested fixed-points.
+ * Upon failure in fixed-pointing, go directly to 0 (or the manifestArity).
+
+Possibe improvements in precision:
+ * Always start with at least the manifestArity.
+ * When analysing a recursive RHS, starting with its manifestArity,
+   even if it calls itself at a lower arity, that is still good enough to stop.
+ * In the above, use exprArity instead of manifestArity.
 
 \begin{code}
 
