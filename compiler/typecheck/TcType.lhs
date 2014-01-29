@@ -379,6 +379,7 @@ data UserTypeCtxt
                         -- e.g. (f e) where f has a higher-rank type
                         -- We might want to elaborate this
   | GhciCtxt            -- GHCi command :kind <type>
+  | StaticCtxt          -- Static form
 
   | ClassSCCtxt Name    -- Superclasses of a class
   | SigmaCtxt           -- Theta part of a normal for-all type
@@ -534,6 +535,7 @@ pprUserTypeCtxt InstDeclCtxt      = ptext (sLit "an instance declaration")
 pprUserTypeCtxt SpecInstCtxt      = ptext (sLit "a SPECIALISE instance pragma")
 pprUserTypeCtxt GenSigCtxt        = ptext (sLit "a type expected by the context")
 pprUserTypeCtxt GhciCtxt          = ptext (sLit "a type in a GHCi command")
+pprUserTypeCtxt StaticCtxt        = ptext (sLit "a static form")
 pprUserTypeCtxt (ClassSCCtxt c)   = ptext (sLit "the super-classes of class") <+> quotes (ppr c)
 pprUserTypeCtxt SigmaCtxt         = ptext (sLit "the context of a polymorphic type")
 pprUserTypeCtxt (DataTyCtxt tc)   = ptext (sLit "the context of the data type declaration for") <+> quotes (ppr tc)

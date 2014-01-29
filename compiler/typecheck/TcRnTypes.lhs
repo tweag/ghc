@@ -87,6 +87,7 @@ module TcRnTypes(
 #include "HsVersions.h"
 
 import HsSyn
+import CoreSyn
 import HscTypes
 import TcEvidence
 import Type
@@ -283,6 +284,8 @@ data TcGblEnv
           --     rule
           --
           --   * Top-level variables appearing free in a TH bracket
+          --
+          --   * Top-level variables introduced by the static form
 
         tcg_th_used :: TcRef Bool,
           -- ^ @True@ <=> Template Haskell syntax used.
@@ -354,9 +357,26 @@ data TcGblEnv
         tcg_main      :: Maybe Name,         -- ^ The Name of the main
                                              -- function, if this module is
                                              -- the main module.
-        tcg_safeInfer :: TcRef Bool          -- Has the typechecker
+        tcg_safeInfer :: TcRef Bool,         -- Has the typechecker
                                              -- inferred this module
                                              -- as -XSafe (Safe Haskell)
+        tcg_static_occs :: TcRef [( TcType
+                                  , WantedConstraints
+                                  , Untouchables
+                                  , SrcSpan
+                                  , [ErrCtxt]
+                                  )],
+                -- ^ Occurrences of static forms
+                --
+                -- Each entry holds the type of the body of the static form,
+                -- the constraints the body requires, the location of the static
+                -- form and the error context to use when reporting errors.
+
+        tcg_static_binds :: IORef [(Id,CoreExpr)]
+          -- ^ Bindings resulted from floating static forms
+          --
+          -- The typechecker needs to carry this information when desugaring
+          -- splices that contain static forms.
     }
 
 -- Note [Signature parameters in TcGblEnv and DynFlags]
@@ -1875,6 +1895,7 @@ data CtOrigin
   | HoleOrigin
   | UnboundOccurrenceOf RdrName
   | ListOrigin          -- An overloaded list
+  | StaticOrigin        -- A static form
 
 ctoHerald :: SDoc
 ctoHerald = ptext (sLit "arising from")
@@ -1953,5 +1974,6 @@ pprCtO (TypeEqOrigin t1 t2)  = ptext (sLit "a type equality") <+> sep [ppr t1, c
 pprCtO AnnOrigin             = ptext (sLit "an annotation")
 pprCtO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprCtO ListOrigin            = ptext (sLit "an overloaded list")
+pprCtO StaticOrigin          = ptext (sLit "a static form")
 pprCtO _                     = panic "pprCtOrigin"
 \end{code}

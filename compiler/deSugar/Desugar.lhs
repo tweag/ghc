@@ -49,6 +49,7 @@ import Coverage
 import Util
 import MonadUtils
 import OrdList
+import SPT
 import Data.List
 import Data.IORef
 import Control.Monad( when )
@@ -91,7 +92,8 @@ deSugar hsc_env
                             tcg_tcs          = tcs,
                             tcg_insts        = insts,
                             tcg_fam_insts    = fam_insts,
-                            tcg_hpc          = other_hpc_info })
+                            tcg_hpc          = other_hpc_info,
+                            tcg_static_binds = static_binds_var })
 
   = do { let dflags = hsc_dflags hsc_env
              print_unqual = mkPrintUnqualified dflags rdr_env
@@ -121,23 +123,36 @@ deSugar hsc_env
                           ; (ds_fords, foreign_prs) <- dsForeigns fords
                           ; ds_rules <- mapMaybeM dsRule rules
                           ; ds_vects <- mapM dsVect vects
+                          ; stBinds <- dsGetStaticBindsVar >>= liftIO . readIORef
+                          ; let core_prs' = core_prs `appOL` toOL stBinds
                           ; let hpc_init
                                   | gopt Opt_Hpc dflags = hpcInitCode mod ds_hpc_info
                                   | otherwise = empty
+                          ; -- Collects the sptEntries of the module
+                            let spt_init = sptInitCode mod stBinds
                           ; return ( ds_ev_binds
-                                   , foreign_prs `appOL` core_prs `appOL` spec_prs
+                                   , foreign_prs `appOL` core_prs' `appOL` spec_prs
                                    , spec_rules ++ ds_rules, ds_vects
-                                   , ds_fords `appendStubC` hpc_init) }
+                                   , ds_fords `appendStubC` hpc_init `appendStubC` spt_init) }
 
         ; case mb_res of {
            Nothing -> return (msgs, Nothing) ;
-           Just (ds_ev_binds, all_prs, all_rules, vects0, ds_fords) -> do
+           Just (ds_ev_binds, all_prs, {-st_binds,-} all_rules, vects0, ds_fords) ->
 
-     do {       -- Add export flags to bindings
-          keep_alive <- readIORef keep_var
+     do { st_binds' <- readIORef static_binds_var
+          -- Add export flags to bindings
+        ; keep_alive <- readIORef keep_var
+        -- ; let static_names = map (map (idName . fst)) $ [ st_binds', st_binds ]
+        --      keep_alive_all = foldl addListToNameSet keep_alive static_names
         ; let (rules_for_locals, rules_for_imps) = partition isLocalRule all_rules
-              final_prs = addExportFlagsAndRules target export_set keep_alive
-                                                 rules_for_locals (fromOL all_prs)
+              final_prs = addExportFlagsAndRules
+                            target export_set keep_alive
+                            rules_for_locals $ fromOL $ all_prs
+
+                            -- target export_set keep_alive_all
+                            -- rules_for_locals $ fromOL $
+                            --   all_prs `appOL`
+                            --  toOL st_binds' `appOL` toOL st_binds
 
               final_pgm = combineEvBinds ds_ev_binds final_prs
         -- Notice that we put the whole lot in a big Rec, even the foreign binds

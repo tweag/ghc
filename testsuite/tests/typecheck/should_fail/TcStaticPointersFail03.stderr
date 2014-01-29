@@ -1,0 +1,6 @@
+
+TcStaticPointersFail03.hs:9:29:
+    Illegal polymorphic or qualified type: Monad m => a -> m a
+    In the body of a static form: return
+    In the first argument of ‘deRefStaticPtr’, namely ‘(static return)’
+    In the expression: deRefStaticPtr (static return)

@@ -319,6 +319,7 @@ Library
         PlatformConstants
         PprTyThing
         StaticFlags
+        SPT
         SysTools
         TidyPgm
         Ctype

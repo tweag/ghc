@@ -37,6 +37,9 @@ import TcHsSyn
 import TcExpr
 import TcRnMonad
 import TcEvidence
+import TcType (Untouchables)
+import TysWiredIn (staticPtrTyCon)
+import TcValidity
 import PprTyThing( pprTyThing )
 import Coercion( pprCoAxiom )
 import FamInst
@@ -473,6 +476,12 @@ tcRnSrcDecls boot_iface decls
                         simplifyTop lie ;
         traceTc "Tc9" empty ;
 
+        failIfErrsM ;
+
+        ((), lie2) <- captureConstraints checkStaticPointers ;
+        new_ev_binds2 <- {-# SCC "simplifyTop" #-}
+                         simplifyTop lie2 ;
+
         failIfErrsM ;   -- Don't zonk if there have been errors
                         -- It's a waste of time; and we may get debug warnings
                         -- about strangely-typed TyCons!
@@ -488,7 +497,8 @@ tcRnSrcDecls boot_iface decls
                          tcg_rules     = rules,
                          tcg_vects     = vects,
                          tcg_fords     = fords } = tcg_env
-            ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds } ;
+            ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
+                                          `unionBags` new_ev_binds2 } ;
 
         (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
             <- {-# SCC "zonkTopDecls" #-}
@@ -1641,8 +1651,11 @@ tcGhciStmts stmts
         -- OK, we're ready to typecheck the stmts
         traceTc "TcRnDriver.tcGhciStmts: tc stmts" empty ;
         ((tc_stmts, ids), lie) <- captureConstraints $
-                                  tc_io_stmts $ \ _ ->
-                                  mapM tcLookupId names  ;
+                                  (tc_io_stmts $ \ _ ->
+                                     mapM tcLookupId names)
+                                  -- Ignore bindings for static pointers
+                                  <* checkStaticPointers ;
+
                         -- Look up the names right in the middle,
                         -- where they will all be in scope
 
@@ -1731,6 +1744,8 @@ tcRnExpr hsc_env rdr_expr
                                           captureUntouchables $
                                           tcInferRho rn_expr ;
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $
+                                      -- Ignore bindings for static pointers
+                                      checkStaticPointers >>
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer untch
                                                     False {- No MR for now -}
@@ -1817,8 +1832,13 @@ tcRnDeclsi hsc_env local_decls =
 
     new_ev_binds <- simplifyTop lie
     failIfErrsM
-    let TcGblEnv { tcg_type_env  = type_env,
-                   tcg_binds     = binds,
+    ((), lie2) <- captureConstraints checkStaticPointers
+    new_ev_binds2 <- {-# SCC "simplifyTop" #-}
+                     simplifyTop lie2
+
+    failIfErrsM
+    let TcGblEnv { tcg_binds     = binds,
+                   tcg_type_env  = type_env,
                    tcg_sigs      = sig_ns,
                    tcg_ev_binds  = cur_ev_binds,
                    tcg_imp_specs = imp_specs,
@@ -1826,6 +1846,7 @@ tcRnDeclsi hsc_env local_decls =
                    tcg_vects     = vects,
                    tcg_fords     = fords } = tcg_env
         all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
+                                    `unionBags` new_ev_binds2
 
     (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
         <- zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords
@@ -2089,4 +2110,38 @@ ppr_tydecls tycons
   = vcat (map ppr_tycon (sortBy (comparing getOccName) tycons))
   where
     ppr_tycon tycon = vcat [ ppr (tyThingToIfaceDecl (ATyCon tycon)) ]
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+                 checkStaticPointers
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+-- | Checks that the static forms have valid types when generalized.
+--
+-- The type @StaticPtr tau@ is valid if it is predicative, that is, tau is unqualified
+-- and monomorphic.
+--
+checkStaticPointers :: TcM ()
+checkStaticPointers = do
+    stOccsVar <- tcg_static_occs <$> getGblEnv
+    stOccs <- readTcRef stOccsVar
+    writeTcRef stOccsVar []
+    mapM_ checkStaticPointer stOccs
+  where
+    checkStaticPointer ::
+      (TcType, WantedConstraints, Untouchables, SrcSpan, [ErrCtxt]) -> TcM ()
+    checkStaticPointer (ty, lie, untch, loc, errCtx) =
+      setSrcSpan loc $ setErrCtxt errCtx $ do
+      fresh_name <- newSysName $ mkVarOccFS $ fsLit "static"
+      (_, dicts, _, _) <- simplifyInfer untch
+                                        False -- No MR
+                                        [(fresh_name, ty)]
+                                        lie
+
+      let expr_qty = mkPiTypes dicts ty
+      zty <- zonkTcType $ mkTyConApp staticPtrTyCon [ expr_qty ]
+      void $ tryM $ checkValidType StaticCtxt zty
 \end{code}

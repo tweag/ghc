@@ -62,6 +62,10 @@ import Bag
 import Outputable
 import FastString
 
+import IdInfo
+-- import Module ( HasModule(..), lookupWithDefaultModuleEnv, extendModuleEnv )
+import Data.IORef       ( atomicModifyIORef, modifyIORef )
+
 import Control.Monad
 \end{code}
 
@@ -410,6 +414,51 @@ dsExpr (PArrSeq _ _)
   = panic "DsExpr.dsExpr: Infinite parallel array!"
     -- the parser shouldn't have generated it and the renamer and typechecker
     -- shouldn't have let it through
+\end{code}
+
+\noindent
+\underline{\bf Static Pointers}
+%              ~~~~~~~~~~~~~~~
+\begin{verbatim}
+    static f
+==>
+    StaticPtr (StaticName "pkg id of f" "module of f" "f")
+\end{verbatim}
+
+\begin{code}
+dsExpr (HsStatic expr@(L loc _)) = do
+    expr_ds <- dsLExpr expr
+    let ty = exprType expr_ds
+    case dropTypeApps expr_ds of
+      Var _ -> return ()
+      _ -> do
+        failWithDs $ cat
+          [ ptext (sLit "The argument of a static form can be only a name")
+          , ptext (sLit "but found: static") <+> parens (ppr expr)
+          ]
+    n' <- mkSptEntryName loc
+    static_binds_var <- dsGetStaticBindsVar
+
+    let mod = nameModule n'
+        pkgKey = modulePackageKey mod
+        pkgName = packageKeyString pkgKey
+
+    -- create static name
+    nm <- fmap (mkConApp staticNameDataCon) $
+            mapM mkStringExprFS
+                 [ fsLit pkgName
+                 , moduleNameFS $ moduleName mod
+                 , occNameFS $ nameOccName n'
+                 ]
+    let tvars = varSetElems $ tyVarsOfType ty
+        speId = mkExportedLocalId VanillaId n' staticSptEntryTy
+        spe   = mkConApp staticSptEntryDataCon
+                  [Type (mkForAllTys tvars ty), nm, mkLams tvars expr_ds]
+    liftIO $ modifyIORef static_binds_var ((speId, spe) :)
+    putSrcSpanDs loc $ return $ mkConApp staticPtrDataCon [Type ty, nm, expr_ds]
+  where
+    dropTypeApps (App e (Type _)) = dropTypeApps e
+    dropTypeApps e = e
 \end{code}
 
 \noindent
@@ -886,4 +935,33 @@ badMonadBind rhs elt_ty flag_doc
          , hang (ptext (sLit "Suppress this warning by saying"))
               2 (quotes $ ptext (sLit "_ <-") <+> ppr rhs)
          , ptext (sLit "or by using the flag") <+>  flag_doc ]
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+\subsection{Static pointers}
+%*                                                                      *
+%************************************************************************
+
+
+-- mkStaticRhs :: CoreExpr ->
+
+\begin{code}
+mkSptEntryName :: SrcSpan -> DsM Name
+mkSptEntryName loc = do
+    uniq <- newUnique
+    mod  <- getModule
+    occ  <- mkWrapperName "sptEntry"
+    return $ mkExternalName uniq mod occ loc
+  where
+    mkWrapperName what
+      = do dflags <- getDynFlags
+           thisMod <- getModule
+           let -- Note [Generating fresh names for ccall wrapper]
+               -- in compiler/typecheck/TcEnv.hs
+               wrapperRef = nextWrapperNum dflags
+           wrapperNum <- liftIO $ atomicModifyIORef wrapperRef $ \mod_env ->
+               let num = lookupWithDefaultModuleEnv mod_env 0 thisMod
+                in (extendModuleEnv mod_env thisMod (num+1), num)
+           return $ mkVarOcc $ what ++ ":" ++ show wrapperNum
 \end{code}
