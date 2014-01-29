@@ -16,6 +16,10 @@
 
 #include <string.h>
 
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
 #define HSEGSIZE    1024    /* Size of a single hash table segment */
                             /* Also the minimum size of a hash table */
 #define HDIRSIZE    1024    /* Size of the segment directory */
@@ -99,6 +103,31 @@ hashStr(HashTable *table, char *key)
     return bucket;
 }
 
+int
+hashFingerprint(HashTable *table, uint64_t *key)
+{
+    int h, bucket;
+    char *s;
+
+    s = (char *)key;
+    size_t i;
+    for (i=0, h=0; i< sizeof(uint64_t)*2; ++i, ++s) {
+        h *= 128;
+        h += *s;
+        h = h % 1048583;        /* some random large prime */
+    }
+
+    /* Mod the size of the hash table (a power of 2) */
+    bucket = h & table->mask1;
+
+    if (bucket < table->split) {
+        /* Mod the size of the expanded hash table (also a power of 2) */
+        bucket = h & table->mask2;
+    }
+
+    return bucket;
+}
+
 static int
 compareWord(StgWord key1, StgWord key2)
 {
@@ -109,6 +138,11 @@ static int
 compareStr(StgWord key1, StgWord key2)
 {
     return (strcmp((char *)key1, (char *)key2) == 0);
+}
+
+static int
+compareFingerprint(uint64_t *ptra, uint64_t *ptrb) {
+    return (ptra[0]-ptrb[0]==0ULL)?((ptra[1] - ptrb[1] == 0ULL)?0:1):1;
 }
 
 
@@ -385,6 +419,13 @@ allocStrHashTable(void)
 {
     return allocHashTable_((HashFunction *)hashStr,
                            (CompareFunction *)compareStr);
+}
+
+HashTable *
+allocFpHashTable(void)
+{
+    return allocHashTable_((HashFunction *)hashFingerprint,
+                           (CompareFunction *)compareFingerprint);
 }
 
 void

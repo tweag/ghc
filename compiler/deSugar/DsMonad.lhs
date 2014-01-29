@@ -21,7 +21,7 @@ module DsMonad (
         mkPrintUnqualifiedDs,
         newUnique, 
         UniqSupply, newUniqueSupply,
-        getGhcModeDs, dsGetFamInstEnvs,
+        getGhcModeDs, dsGetFamInstEnvs, dsGetStaticBindsVar,
         dsLookupGlobal, dsLookupGlobalId, dsDPHBuiltin, dsLookupTyCon, dsLookupDataCon,
         
         PArrBuiltin(..), 
@@ -167,6 +167,8 @@ data DsGblEnv
                                                 -- exported entities of 'Data.Array.Parallel' iff
                                                 -- '-XParallelArrays' was given; otherwise, empty
         , ds_parr_bi :: PArrBuiltin             -- desugarar names for '-XParallelArrays'
+        , ds_static_binds :: IORef [(Id,CoreExpr)]
+          -- ^ Bindings resulted from floating static forms
         }
 
 instance ContainsModule DsGblEnv where
@@ -197,8 +199,11 @@ initDs :: HscEnv
 
 initDs hsc_env mod rdr_env type_env fam_inst_env thing_inside
   = do  { msg_var <- newIORef (emptyBag, emptyBag)
+        ; static_binds_var <- newIORef []
         ; let dflags                   = hsc_dflags hsc_env
-              (ds_gbl_env, ds_lcl_env) = mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var
+              (ds_gbl_env, ds_lcl_env) = mkDsEnvs dflags mod rdr_env type_env
+                                                  fam_inst_env msg_var
+                                                  static_binds_var
 
         ; either_res <- initTcRnIf 'd' hsc_env ds_gbl_env ds_lcl_env $
                           loadDAP $
@@ -276,12 +281,15 @@ initDsTc thing_inside
         ; let type_env = tcg_type_env tcg_env
               rdr_env  = tcg_rdr_env tcg_env
               fam_inst_env = tcg_fam_inst_env tcg_env
-              ds_envs  = mkDsEnvs dflags this_mod rdr_env type_env fam_inst_env msg_var
+              static_binds_var = tcg_static_binds tcg_env
+              ds_envs  = mkDsEnvs dflags this_mod rdr_env type_env fam_inst_env
+                                  msg_var static_binds_var
         ; setEnvs ds_envs thing_inside
         }
 
-mkDsEnvs :: DynFlags -> Module -> GlobalRdrEnv -> TypeEnv -> FamInstEnv -> IORef Messages -> (DsGblEnv, DsLclEnv)
-mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var
+mkDsEnvs :: DynFlags -> Module -> GlobalRdrEnv -> TypeEnv -> FamInstEnv
+         -> IORef Messages -> IORef [(Id, CoreExpr)] -> (DsGblEnv, DsLclEnv)
+mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var static_binds_var
   = let if_genv = IfGblEnv { if_rec_types = Just (mod, return type_env) }
         if_lenv = mkIfLclEnv mod (ptext (sLit "GHC error in desugarer lookup in") <+> ppr mod)
         gbl_env = DsGblEnv { ds_mod     = mod
@@ -291,6 +299,7 @@ mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var
                            , ds_msgs    = msg_var
                            , ds_dph_env = emptyGlobalRdrEnv
                            , ds_parr_bi = panic "DsMonad: uninitialised ds_parr_bi"
+                           , ds_static_binds = static_binds_var
                            }
         lcl_env = DsLclEnv { ds_meta = emptyNameEnv
                            , ds_loc  = noSrcSpan
@@ -496,6 +505,9 @@ dsLookupMetaEnv name = do { env <- getLclEnv; return (lookupNameEnv (ds_meta env
 dsExtendMetaEnv :: DsMetaEnv -> DsM a -> DsM a
 dsExtendMetaEnv menv thing_inside
   = updLclEnv (\env -> env { ds_meta = ds_meta env `plusNameEnv` menv }) thing_inside
+
+dsGetStaticBindsVar :: DsM (IORef [(Id,CoreExpr)])
+dsGetStaticBindsVar = fmap ds_static_binds getGblEnv
 \end{code}
 
 \begin{code}

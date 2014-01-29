@@ -23,6 +23,7 @@ import HsSyn
 import TcHsSyn
 import TcRnMonad
 import TcUnify
+import TcValidity
 import BasicTypes
 import Inst
 import TcBinds
@@ -38,6 +39,9 @@ import DsMonad hiding (Splice)
 import Id
 import ConLike
 import DataCon
+-- import IdInfo
+-- import Module ( HasModule(..), lookupWithDefaultModuleEnv, extendModuleEnv )
+-- import Data.IORef       ( atomicModifyIORef )
 import PatSyn
 import RdrName
 import Name
@@ -484,6 +488,28 @@ tcExpr (HsDo do_or_lc stmts _) res_ty
 tcExpr (HsProc pat cmd) res_ty
   = do  { (pat', cmd', coi) <- tcProc pat cmd res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
+
+tcExpr (HsStatic expr@(L loc _)) res_ty
+  = do  { (co, [expr_ty]) <- matchExpectedTyConApp staticPtrTyCon res_ty
+        ; (expr', lie) <- captureConstraints $
+            addErrCtxt (hang (ptext (sLit "In the body of a static form:"))
+                             2 (ppr expr)
+                       ) $
+            tcPolyExprNC expr expr_ty
+        ; lieTcRef <- tcl_lie <$> getLclEnv
+        ; updTcRef lieTcRef (`andWC` lie)
+        -- Keep the name in case it is not used anywhere else.
+        ; case expr of
+            L _ (HsVar n) -> keepAlive n
+            _             -> return ()
+        -- Require the type of the argument to be Typeable.
+        ; (typeableClass, _) <- tcClass typeableClassName
+        ; _ <- instCall StaticOrigin [expr_ty]
+                [ mkTyConApp (classTyCon typeableClass)
+                             [liftedTypeKind, expr_ty]
+                ]
+        ; return $ mkHsWrapCo co $ HsStatic expr'
+        }
 \end{code}
 
 Note [Rebindable syntax for if]

@@ -15,7 +15,7 @@ module TcHsType (
                 -- Type checking type and class decls
         kcLookupKind, kcTyClTyVars, tcTyClTyVars,
         tcHsConArgType, tcDataKindSig,
-        tcClassSigType,
+        tcClassSigType, tcClass,
 
                 -- Kind-checking types
                 -- No kind generalisation, no checkValidType
