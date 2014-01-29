@@ -260,6 +260,7 @@ data DumpFlag
    | Opt_D_dump_stranal
    | Opt_D_dump_strsigs
    | Opt_D_dump_tc
+   | Opt_D_dump_static_binds
    | Opt_D_dump_types
    | Opt_D_dump_rules
    | Opt_D_dump_cse
@@ -604,6 +605,7 @@ data ExtensionFlag
    | Opt_NegativeLiterals
    | Opt_EmptyCase
    | Opt_PatternSynonyms
+   | Opt_StaticValues
    deriving (Eq, Enum, Show)
 
 data SigOf = NotSigOf
@@ -1644,6 +1646,7 @@ dopt f dflags = (fromEnum f `IntSet.member` dumpFlags dflags)
           enableIfVerbose Opt_D_dump_if_trace               = False
           enableIfVerbose Opt_D_dump_vt_trace               = False
           enableIfVerbose Opt_D_dump_tc                     = False
+          enableIfVerbose Opt_D_dump_static_binds           = False
           enableIfVerbose Opt_D_dump_rn                     = False
           enableIfVerbose Opt_D_dump_rn_stats               = False
           enableIfVerbose Opt_D_dump_hi_diffs               = False
@@ -2402,6 +2405,7 @@ dynamic_flags = [
   , Flag "ddump-stranal"           (setDumpFlag Opt_D_dump_stranal)
   , Flag "ddump-strsigs"           (setDumpFlag Opt_D_dump_strsigs)
   , Flag "ddump-tc"                (setDumpFlag Opt_D_dump_tc)
+  , Flag "ddump-static-binds"      (setDumpFlag Opt_D_dump_static_binds)
   , Flag "ddump-types"             (setDumpFlag Opt_D_dump_types)
   , Flag "ddump-rules"             (setDumpFlag Opt_D_dump_rules)
   , Flag "ddump-cse"               (setDumpFlag Opt_D_dump_cse)
@@ -2960,7 +2964,8 @@ xFlags = [
   ( "UndecidableInstances",             Opt_UndecidableInstances, nop ),
   ( "UnicodeSyntax",                    Opt_UnicodeSyntax, nop ),
   ( "UnliftedFFITypes",                 Opt_UnliftedFFITypes, nop ),
-  ( "ViewPatterns",                     Opt_ViewPatterns, nop )
+  ( "ViewPatterns",                     Opt_ViewPatterns, nop ),
+  ( "StaticValues",                     Opt_StaticValues, nop )
   ]
 
 defaultFlags :: Settings -> [GeneralFlag]

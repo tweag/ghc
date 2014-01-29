@@ -252,6 +252,7 @@ Library
         GHC.Ptr
         GHC.Read
         GHC.Real
+        GHC.Ref
         GHC.ST
         GHC.STRef
         GHC.Show

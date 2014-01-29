@@ -48,6 +48,7 @@ import CostCentre
 import Id
 import Unique
 import Module
+import Packages
 import VarSet
 import VarEnv
 import ConLike
@@ -63,6 +64,7 @@ import Outputable
 import FastString
 
 import Control.Monad
+import Distribution.Package(InstalledPackageId(..))
 \end{code}
 
 
@@ -411,6 +413,48 @@ dsExpr (PArrSeq _ _)
     -- the parser shouldn't have generated it and the renamer and typechecker
     -- shouldn't have let it through
 \end{code}
+
+\noindent
+\underline{\bf Static values}
+%              ~~~~~~~~~~~~~
+\begin{verbatim}
+    static f
+==>
+    Ref (GlobalName "pkg id of f" "installed-package-id" "module of f" "f")
+\end{verbatim}
+
+\begin{code}
+dsExpr (HsStatic (L loc (HsVar varId))) = do
+    let n = idName varId
+        mod = nameModule n
+        pkgKey = modulePackageKey mod
+        pkgName = packageKeyString pkgKey
+    dflags <- getDynFlags
+    let installedPkgId =
+          case lookupPackage (pkgIdMap $ pkgState dflags) pkgKey of
+            Nothing -> ""
+            Just pd -> case installedPackageId pd of
+                         InstalledPackageId ipid -> ipid
+    putSrcSpanDs loc $ do
+      args <- mapM mkStringExprFS
+                [ fsLit pkgName
+                , fsLit installedPkgId
+                , moduleNameFS $ moduleName mod
+                , occNameFS $ nameOccName n
+                ]
+      return $ mkConApp refDataCon
+        [Type (idType varId), mkConApp globalNameDataCon args]
+
+-- See Note [The body of a static form is a variable]
+dsExpr (HsStatic _) = panic "DsExpr.dsExpr: HsStatic: non-variable expression."
+\end{code}
+
+Note [The body of a static form is a variable]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+During type-checking the bodies of static forms which are not variables are
+floated as top-level bindings with fresh names, and the fresh names are placed
+as the bodies of the static forms. Thus, in the desugaring phase all static
+forms should have variables as bodies.
 
 \noindent
 \underline{\bf Record construction and update}

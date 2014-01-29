@@ -83,8 +83,8 @@ import Inst     ( tcGetInstEnvs )
 import Annotations
 import Data.List ( sortBy )
 import Data.Ord
-#ifdef GHCI
 import BasicTypes hiding( SuccessFlag(..) )
+#ifdef GHCI
 import TcType   ( isUnitTy, isTauTy )
 import TcHsType
 import TcMatches
@@ -95,6 +95,10 @@ import TidyPgm    ( globaliseAndTidyId )
 import TysWiredIn ( unitTy, mkListTy )
 #endif
 import TidyPgm    ( mkBootModDetailsTc )
+import TcPat      ( LetBndrSpec(..), newNoSigLetBndr )
+import TcType     ( evVarPred )
+import TysWiredIn ( refTyCon )
+import TcValidity
 
 import FastString
 import Maybes
@@ -473,6 +477,12 @@ tcRnSrcDecls boot_iface decls
                         simplifyTop lie ;
         traceTc "Tc9" empty ;
 
+        failIfErrsM ;
+
+        (stBinds, lie2) <- captureConstraints checkStaticValues ;
+        new_ev_binds2 <- {-# SCC "simplifyTop" #-}
+                         simplifyTop lie2 ;
+
         failIfErrsM ;   -- Don't zonk if there have been errors
                         -- It's a waste of time; and we may get debug warnings
                         -- about strangely-typed TyCons!
@@ -481,14 +491,15 @@ tcRnSrcDecls boot_iface decls
         -- Even simplifyTop may do some unification.
         -- This pass also warns about missing type signatures
         let { TcGblEnv { tcg_type_env  = type_env,
-                         tcg_binds     = binds,
                          tcg_sigs      = sig_ns,
                          tcg_ev_binds  = cur_ev_binds,
                          tcg_imp_specs = imp_specs,
                          tcg_rules     = rules,
                          tcg_vects     = vects,
                          tcg_fords     = fords } = tcg_env
-            ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds } ;
+            ; binds = tcg_binds tcg_env `unionBags` stBinds
+            ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
+                                          `unionBags` new_ev_binds2 } ;
 
         (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
             <- {-# SCC "zonkTopDecls" #-}
@@ -1641,8 +1652,11 @@ tcGhciStmts stmts
         -- OK, we're ready to typecheck the stmts
         traceTc "TcRnDriver.tcGhciStmts: tc stmts" empty ;
         ((tc_stmts, ids), lie) <- captureConstraints $
-                                  tc_io_stmts $ \ _ ->
-                                  mapM tcLookupId names  ;
+                                  (tc_io_stmts $ \ _ ->
+                                     mapM tcLookupId names)
+                                  -- Ignore bindings for static values
+                                  <* checkStaticValues ;
+
                         -- Look up the names right in the middle,
                         -- where they will all be in scope
 
@@ -1731,12 +1745,15 @@ tcRnExpr hsc_env rdr_expr
                                           captureUntouchables $
                                           tcInferRho rn_expr ;
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $
+                                      -- Ignore bindings for static values
+                                      checkStaticValues >>
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer untch
                                                     False {- No MR for now -}
                                                     [(fresh_it, res_ty)]
                                                     lie ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
+
 
     let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     zonkTcType all_expr_ty
@@ -1816,16 +1833,23 @@ tcRnDeclsi hsc_env local_decls =
     setEnvs (tcg_env, tclcl_env) $ do
 
     new_ev_binds <- simplifyTop lie
+
+    failIfErrsM
+    (stBinds, lie2) <- captureConstraints checkStaticValues
+    new_ev_binds2 <- {-# SCC "simplifyTop" #-}
+                     simplifyTop lie2
+
     failIfErrsM
     let TcGblEnv { tcg_type_env  = type_env,
-                   tcg_binds     = binds,
                    tcg_sigs      = sig_ns,
                    tcg_ev_binds  = cur_ev_binds,
                    tcg_imp_specs = imp_specs,
                    tcg_rules     = rules,
                    tcg_vects     = vects,
                    tcg_fords     = fords } = tcg_env
+        binds = tcg_binds tcg_env `unionBags` stBinds
         all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
+                                    `unionBags` new_ev_binds2
 
     (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
         <- zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords
@@ -2089,4 +2113,68 @@ ppr_tydecls tycons
   = vcat (map ppr_tycon (sortBy (comparing getOccName) tycons))
   where
     ppr_tycon tycon = vcat [ ppr (tyThingToIfaceDecl (ATyCon tycon)) ]
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+                 checkStaticValues
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+-- | Checks that the static values have valid types when generalized.
+--
+-- The @Ref tau@ is valid if it is predicative, that is, tau is unqualified
+-- and monomorphic.
+--
+-- When all static values have valid types this function produces
+-- the generated fresh bindings for those values that need it
+-- (i.e their arguments are not a single identifier).
+--
+checkStaticValues :: TcM (LHsBinds Id)
+checkStaticValues = do
+    stOccsVar <- tcg_static_occs <$> getGblEnv
+    stOccs <- readTcRef stOccsVar
+    writeTcRef stOccsVar []
+    stBinds <- mapM checkStaticValue stOccs
+    when (not $ null stOccs) $
+      dumpOptTcRn Opt_D_dump_static_binds $ mkDumpDoc "Static bindings" $
+        vcat $ map ((text "" $$) . ppr) stBinds
+    return $ listToBag stBinds
+  where
+    checkStaticValue :: (TcId, LHsExpr TcId, WantedConstraints, [ErrCtxt])
+                     -> TcM (LHsBind Id)
+    checkStaticValue (stId, expr@(L loc _hsE), lie, errCtx) =
+      setSrcSpan loc $ setErrCtxt errCtx $ do
+      mono_id <- newNoSigLetBndr LetLclBndr (idName stId) (idType stId)
+      (qtvs, dicts, _, ev_binds) <- simplifyInfer True -- Free vars are closed
+                                      False -- No MR
+                                      [(idName mono_id, idType stId)]
+                                      lie
+
+      let expr_qty = mkPiTypes dicts $ idType stId
+      zty <- zonkTcType $ mkTyConApp refTyCon [ expr_qty ]
+      _ <- tryM $ checkValidType StaticCtxt zty
+
+      theta <- zonkTcThetaType (map evVarPred dicts)
+      exports <- checkNoErrs $ (:[]) <$>
+        mkExport (const []) qtvs theta (idName stId, Nothing, mono_id)
+
+      let binds' = unitBag $ L loc $ FunBind
+                     { fun_id = L loc mono_id
+                     , fun_infix = False
+                     , fun_matches =
+                            (mkMatchGroup Generated
+                                          [ mkMatch [] expr emptyLocalBinds ]
+                            ) { mg_res_ty = mkForAllTys qtvs expr_qty }
+                        , fun_co_fn = idHsWrapper
+                        , bind_fvs = emptyNameSet -- NB: closed binding
+                        , fun_tick = Nothing
+                        }
+
+      return $ L loc AbsBinds
+                       { abs_tvs = qtvs
+                       , abs_ev_vars = dicts, abs_ev_binds = ev_binds
+                       , abs_exports = exports, abs_binds = binds'
+                       }
 \end{code}

@@ -1145,6 +1145,7 @@ data Exp
   | SigE Exp Type                      -- ^ @{ e :: t }@
   | RecConE Name [FieldExp]            -- ^ @{ T { x = y, z = w } }@
   | RecUpdE Exp [FieldExp]             -- ^ @{ (f x) { z = w } }@
+  | StaticE Exp                        -- ^ @{ static e }@
   deriving( Show, Eq, Data, Typeable, Generic )
 
 type FieldExp = (Name,Exp)

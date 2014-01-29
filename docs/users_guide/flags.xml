@@ -3030,6 +3030,12 @@
             <entry>-</entry>
           </row>
           <row>
+            <entry><option>-ddump-static-binds</option></entry>
+            <entry>Dump bindings created for static values</entry>
+            <entry>dynamic</entry>
+            <entry>-</entry>
+          </row>
+          <row>
             <entry><option>-ddump-stg</option></entry>
             <entry>Dump final STG</entry>
             <entry>dynamic</entry>

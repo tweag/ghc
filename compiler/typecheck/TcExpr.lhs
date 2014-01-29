@@ -23,6 +23,7 @@ import HsSyn
 import TcHsSyn
 import TcRnMonad
 import TcUnify
+import TcValidity
 import BasicTypes
 import Inst
 import TcBinds
@@ -36,8 +37,10 @@ import TcMType
 import TcType
 import DsMonad hiding (Splice)
 import Id
+import IdInfo
 import ConLike
 import DataCon
+import Module ( HasModule(..), lookupWithDefaultModuleEnv, extendModuleEnv )
 import PatSyn
 import RdrName
 import Name
@@ -62,6 +65,7 @@ import FastString
 import Control.Monad
 import Class(classTyCon)
 import Data.Function
+import Data.IORef       ( atomicModifyIORef )
 import Data.List
 import qualified Data.Set as Set
 \end{code}
@@ -484,6 +488,30 @@ tcExpr (HsDo do_or_lc stmts _) res_ty
 tcExpr (HsProc pat cmd) res_ty
   = do  { (pat', cmd', coi) <- tcProc pat cmd res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
+
+tcExpr (HsStatic expr@(L loc _)) res_ty
+  = do  { (co, [expr_ty]) <- matchExpectedTyConApp refTyCon res_ty
+        ; ((expr',errCtx), lie) <- captureConstraints $
+            addErrCtxt (hang (ptext (sLit "In the body of a static form:"))
+                             2 (ppr expr)
+                       ) $
+            liftM2 (,) (tcPolyExprNC expr expr_ty) getErrCtxt
+        ; lieTcRef <- tcl_lie <$> getLclEnv
+        ; updTcRef lieTcRef (`andWC` lie)
+        ; stId <- case unLoc expr of
+            -- Keep the name if the static argument is a variable
+            -- and type-checking it does not raise any constraints.
+            HsVar n | isEmptyWC lie ->
+              return $ mkExportedLocalId VanillaId n expr_ty
+            -- Generate a fresh name if the static argument is not a variable.
+            _   -> do
+              stName <- mkStaticName loc
+              let stId = mkExportedLocalId VanillaId stName expr_ty
+              stOccsVar <- tcg_static_occs <$> getGblEnv
+              updTcRef stOccsVar ((stId, expr', lie, errCtx) :)
+              return stId
+        ; keepAlive $ idName stId
+        ; return $ mkHsWrapCo co $ HsStatic $ L loc $ HsVar stId }
 \end{code}
 
 Note [Rebindable syntax for if]
@@ -1616,4 +1644,30 @@ missingFields con fields
         <+> pprWithCommas ppr fields
 
 -- callCtxt fun args = ptext (sLit "In the call") <+> parens (ppr (foldl mkHsApp fun args))
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+             Static Values
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+mkStaticName :: SrcSpan -> TcM Name
+mkStaticName loc = do
+    uniq <- newUnique
+    mod <- getModule
+    occ <- mkWrapperName "static"
+    return $ mkExternalName uniq mod occ loc
+  where
+    mkWrapperName what
+      = do dflags <- getDynFlags
+           thisMod <- getModule
+           let -- Note [Generating fresh names for ccall wrapper]
+               -- in compiler/typecheck/TcEnv.hs
+               wrapperRef = nextWrapperNum dflags
+           wrapperNum <- liftIO $ atomicModifyIORef wrapperRef $ \mod_env ->
+               let num = lookupWithDefaultModuleEnv mod_env 0 thisMod
+                in (extendModuleEnv mod_env thisMod (num+1), num)
+           return $ mkVarOcc $ what ++ ":" ++ show wrapperNum
 \end{code}
