@@ -271,6 +271,10 @@ data HsExpr id
                                         -- always has an empty stack
 
   ---------------------------------------
+  -- static values extension
+  | HsStatic    (LHsExpr id)
+
+  ---------------------------------------
   -- The following are commands, not expressions proper
   -- They are only used in the parsing stage and are removed
   --    immediately in parser.RdrHsSyn.checkCommand
@@ -607,6 +611,9 @@ ppr_expr (HsQuasiQuoteE qq)    = ppr qq
 
 ppr_expr (HsProc pat (L _ (HsCmdTop cmd _ _ _)))
   = hsep [ptext (sLit "proc"), ppr pat, ptext (sLit "->"), ppr cmd]
+
+ppr_expr (HsStatic e)
+  = hsep [ptext (sLit "static"), pprParendExpr e]
 
 ppr_expr (HsTick tickish exp)
   = pprTicks (ppr exp) $

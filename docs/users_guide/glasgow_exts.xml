@@ -9926,6 +9926,199 @@ Assertion failures can be caught, see the documentation for the
 
 </sect1>
 
+<!-- =============================== STATIC VALUES ===========================  -->
+
+<sect1 id="static-values">
+<title>Static values
+<indexterm><primary>Static values</primary></indexterm>
+</title>
+
+<para>
+When the language extension <literal>StaticValues</literal> is enabled,
+the form <literal>static <replaceable>e</replaceable></literal>
+produces a reference to a closed expression <replaceable>e</replaceable> that
+remains valid across different processes in possibly different
+machines. Thus, a process can create a reference and send it
+to another process that can then lookup for <replaceable>e</replaceable>.
+</para>
+
+<para>
+Static values were proposed in the paper
+<ulink
+url="http://research.microsoft.com/%7Esimonpj/papers/gadt/">Towards Haskell
+in the cloud</ulink>, Jeff Epstein, Andrew P. Black and Simon Peyton-Jones,
+Proceedings of the 4th ACM Symposium on Haskell, pp. 118-129, ACM, 2011.
+</para>
+
+<para>
+Suppose we have the following module:
+<programlisting>
+{-# LANGUAGE StaticValues #-}
+module M (rOne, rTwo, evalOp) where
+
+import GHC.Ref
+  ( Ref
+  , deRef -- :: Ref a -> IO (Maybe a)
+  )
+
+one :: IO ()
+one = print 1
+
+rOne :: Ref (IO ())
+rOne = static one
+
+rTwo :: Ref (IO ())
+rTwo = static (print 2)
+
+-- @evalOp rOne@ prints 1 in stdout
+-- @evalOp rTwo@ prints 2 in stdout
+evalOp :: Ref (IO ()) -> IO ()
+evalOp r = deRef r >>= maybe (return ()) id
+</programlisting>
+This module first imports the <literal>Ref</literal> type constructor
+and the dereferencing operation <literal>deRef</literal>. Static values
+are produced and named <literal>rOne</literal> and
+<literal>rTwo</literal>. Derefencing the static values and evaluating
+the resulting computation produces some output.
+
+We can have a program print the static values:
+<programlisting>
+-- printer.hs
+import M
+main = print rOne >> print rTwo
+</programlisting>
+If compiled and executed the program will produce the output:
+<programlisting>
+$ ghc --make printer.hs
+$ ./printer
+Ref (GlobalName "main" "" "M" "one")
+Ref (GlobalName "main" "" "M" "static:0")
+</programlisting>
+These references point to the values <literal>one</literal> and
+<literal>print 2</literal>. The label <literal>static:0</literal>
+is a fresh name automatically created to designate the expression
+<literal>print 2</literal>.
+</para>
+
+<para>
+The information contained in the reference is used by
+<literal>deRef</literal> to locate the values at runtime using the
+symbol tables in executables, libraries and object files.
+</para>
+
+<para>
+Now we can use these references in a different program which also
+happens to use module <literal>M</literal>.
+<programlisting>
+-- reader.hs
+import M (evalOp)
+import Control.Monad(replicateM)
+main = replicateM 2 $ getLine >>= evalOp . read
+</programlisting>
+Executing the program yields the following output:
+<programlisting>
+$ ghc --make -optl-Wl,--export-dynamic printer.hs
+$ ./printer | ./reader
+1
+2
+</programlisting>
+</para>
+
+<para>
+In the above example, the reader program depends on the ability of 
+<literal>deRef</literal> to find the symbols of static values at
+runtime. Currently, this can be achieved by linking
+<literal>M</literal> as part of a shared library, or by loading
+<literal>M.o</literal> with the RTS linker,
+or as done in the example, by adding all symbols in the linked executable
+to the dynamic symbol table. There is no portable way to do the later,
+the example is showing the solution for Linux by passing the flag
+<literal>-optl-Wl,--export-dynamic</literal> to GHC during linking.
+</para>
+
+<para>
+There are some restrictions that arise from using the extension:
+<itemizedlist>
+<listitem><para>
+When using the extension the <literal>static</literal> keyword is only allowed
+in the function position of an application.
+
+<literal>static</literal> is not a valid identifier in modules using the <literal>StaticValues</literal>
+extension, so it cannot be used to name functions or arguments.
+</para></listitem>
+<listitem><para>
+The argument of <literal>static</literal> needs to be a closed
+expression. That is, free variables should refer only to top-level
+bindings. No scoped type variables or local variables are allowed in
+the argument. For instance, the expression
+<literal>\x -> static x</literal> would be rejected because x is free
+in <literal>static x</literal> but not in scope at the top-level.
+</para></listitem>
+<listitem><para>
+The <literal>static</literal> form cannot generate top-level bindings
+when used at the GHCi prompt. This is still to be implemented.
+</para></listitem>
+</itemizedlist>
+</para>
+
+<sect2 id="typechecking-static-values">
+<title>Typechecking static values</title>
+
+<para>
+Informally, if we have a closed expression
+<programlisting>
+       e :: forall a b ... . t
+</programlisting>
+the static form would have the following type
+<programlisting>
+static e :: forall a b ... . Ref t
+</programlisting>
+
+Here there are some examples:
+<programlisting>
+static id      :: forall a   . Ref (a -> a)
+static seq     :: forall a b . Ref (a -> b-> b)
+static "hello" ::              Ref String
+</programlisting>
+
+Only rank-1 polymorphic types with no constraints are allowed in
+the argument of a <literal>static</literal> form. Thus the following
+expressions are illegal:
+<programlisting>
+static show                    -- show has constraint (Show a)
+static Control.Monad.ST.runST  -- runST has a higher-ranked type
+</programlisting>
+
+Instead, one can produce static values for the following wrappers of
+<literal>show</literal> and <literal>runST</literal>.
+<programlisting>
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE StaticValues #-}
+
+import Control.Monad.ST
+import GHC.Ref
+
+data Dict c = c => Dict
+
+dictWrapper :: (c => a) -> Dict c -> a
+dictWrapper v Dict = v
+
+g1 :: Ref (Dict (Show a) -> a -> String)
+g1 = static (dictWrapper show :: Dict (Show a) -> a -> String)
+
+data Rank2Wrapper f = R2W (forall s. f s)
+newtype Flip f a s = Flip { unFlip :: f s a }
+
+g2 :: Ref (Rank2Wrapper (Flip ST a) -> a)
+g2 = static (\(R2W f) -> runST (unFlip f))
+</programlisting>
+</para>
+</sect2>
+
+</sect1>
+
 
 <!-- =============================== PRAGMAS ===========================  -->
 
