@@ -492,6 +492,7 @@ data Token
   | ITby
   | ITusing
   | ITpattern
+  | ITstatic
 
   -- Pragmas
   | ITinline_prag InlineSpec RuleMatchInfo
@@ -671,6 +672,7 @@ reservedWordsFM = listToUFM $
          ( "family",         ITfamily,        0 ),
          ( "role",           ITrole,          0 ),
          ( "pattern",        ITpattern,       bit patternSynonymsBit),
+         ( "static",         ITstatic,        0 ),
          ( "group",          ITgroup,         bit transformComprehensionsBit),
          ( "by",             ITby,            bit transformComprehensionsBit),
          ( "using",          ITusing,         bit transformComprehensionsBit),
@@ -1043,6 +1045,11 @@ varid span buf len =
                    return ITcase
       maybe_layout keyword
       return $ L span keyword
+    Just (ITstatic, _) -> do
+      flags <- getDynFlags
+      if xopt Opt_StaticValues flags
+        then return $ L span ITstatic
+        else return $ L span $ ITvarid fs
     Just (keyword, 0) -> do
       maybe_layout keyword
       return $ L span keyword
