@@ -161,6 +161,8 @@ extern void hs_free_stable_ptr_unsafe (HsStablePtr sp);
 extern void hs_free_stable_ptr (HsStablePtr sp);
 extern void hs_free_fun_ptr    (HsFunPtr fp);
 
+extern StgPtr hs_spt_lookup(StgWord64 key[2]);
+
 /* -------------------------------------------------------------------------- */
 
 #ifdef __cplusplus

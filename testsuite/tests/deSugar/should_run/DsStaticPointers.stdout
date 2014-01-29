@@ -1,0 +1,5 @@
+StaticPtrInfo {spInfoPackageId = "main", spInfoModuleName = "Main", spInfoName = "sptEntry:1"}
+StaticPtrInfo {spInfoPackageId = "main", spInfoModuleName = "Main", spInfoName = "sptEntry:2"}
+StaticPtrInfo {spInfoPackageId = "main", spInfoModuleName = "Main", spInfoName = "sptEntry:0"}
+StaticPtrInfo {spInfoPackageId = "main", spInfoModuleName = "Main", spInfoName = "sptEntry:3"}
+StaticPtrInfo {spInfoPackageId = "main", spInfoModuleName = "Main", spInfoName = "sptEntry:4"}
