@@ -114,6 +114,10 @@ test('T8103', only_ways(['normal']), compile_and_run, [''])
 test('T7953', reqlib('random'), compile_and_run, [''])
 test('T8256', reqlib('vector'), compile_and_run, [''])
 test('T6084',normal, compile_and_run, ['-O2'])
+test('CgStaticValues',
+     [ when(compiler_lt('ghc', '7.9'), skip),
+       extra_run_opts('"' + config.libdir + '"') ],
+     compile_and_run, ['-package ghc'])
 test('StaticArraySize', normal, compile_and_run, ['-O2'])
 test('StaticByteArraySize', normal, compile_and_run, ['-O2'])
 test('CopySmallArray', normal, compile_and_run, [''])

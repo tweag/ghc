@@ -349,6 +349,7 @@ data UserTypeCtxt
                         --      f :: <S> => a -> a
   | DataTyCtxt Name     -- Theta part of a data decl
                         --      data <S> => T a = MkT a
+  | StaticCtxt          -- A static form
 \end{code}
 
 
@@ -496,6 +497,7 @@ pprUserTypeCtxt GhciCtxt          = ptext (sLit "a type in a GHCi command")
 pprUserTypeCtxt (ClassSCCtxt c)   = ptext (sLit "the super-classes of class") <+> quotes (ppr c)
 pprUserTypeCtxt SigmaCtxt         = ptext (sLit "the context of a polymorphic type")
 pprUserTypeCtxt (DataTyCtxt tc)   = ptext (sLit "the context of the data type declaration for") <+> quotes (ppr tc)
+pprUserTypeCtxt StaticCtxt        = ptext (sLit "a static form")
 \end{code}
 
 

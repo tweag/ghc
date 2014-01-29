@@ -734,6 +734,15 @@ zonkExpr env (HsProc pat body)
         ; new_body <- zonkCmdTop env1 body
         ; return (HsProc new_pat new_body) }
 
+-- StaticValues extension
+zonkExpr env (HsStatic (L loc (HsVar stId)))
+  = do new_ty <- zonkTcTypeToType env $ idType stId
+       return $ HsStatic $ L loc $ HsVar $ setIdType stId new_ty
+
+-- See Note [The body of a static form is a variable] in DsExpr.hs.
+zonkExpr _ (HsStatic _) =
+  panic "TcHsSyn.zonkExpr: HsStatic: non-variable expression."
+
 zonkExpr env (HsWrap co_fn expr)
   = do (env1, new_co_fn) <- zonkCoFn env co_fn
        new_expr <- zonkExpr env1 expr

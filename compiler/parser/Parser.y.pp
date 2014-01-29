@@ -267,6 +267,7 @@ incorrect.
  'by'       { L _ ITby }        -- for list transform extension
  'using'    { L _ ITusing }     -- for list transform extension
  'pattern'      { L _ ITpattern } -- for pattern synonyms
+ 'static'       { L _ ITstatic }  -- for static values extension
 
  '{-# INLINE'             { L _ (ITinline_prag _ _) }
  '{-# SPECIALISE'         { L _ ITspec_prag }
@@ -1585,6 +1586,7 @@ hpc_annot :: { Located (FastString,(Int,Int),(Int,Int)) }
 
 fexp    :: { LHsExpr RdrName }
         : fexp aexp                             { LL $ HsApp $1 $2 }
+        | 'static' aexp                         { LL $ HsStatic $2 }
         | aexp                                  { $1 }
 
 aexp    :: { LHsExpr RdrName }

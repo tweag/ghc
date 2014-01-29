@@ -9946,6 +9946,124 @@ Assertion failures can be caught, see the documentation for the
 
 </sect1>
 
+<!-- =============================== STATIC VALUES ===========================  -->
+
+<sect1 id="static-values">
+<title>Static values
+<indexterm><primary>Static values</primary></indexterm>
+</title>
+
+<para>
+The language extension <literal>-XStaticValues</literal> adds a new
+<literal>static <replaceable>e</replaceable></literal> syntactic form,
+which stands for a reference to the closed expression
+<replaceable>e</replaceable>. This reference is stable and portable,
+in the sense that it remains valid across different processes on
+possibly different machines. Thus, a process can create a reference
+and send it to another process that can resolve it to
+<replaceable>e</replaceable>.
+</para>
+
+<para>
+Static values were first proposed in the paper <ulink
+url="http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf">
+Towards Haskell in the cloud</ulink>, Jeff Epstein, Andrew P. Black and Simon
+Peyton-Jones, Proceedings of the 4th ACM Symposium on Haskell, pp.
+118-129, ACM, 2011.
+</para>
+
+<sect2 id="using-static-values">
+<title>Using static values</title>
+
+<para>
+The information contained in the reference is used by
+<ulink url="&libraryBaseLocation;/GHC.Ref.html#v%3AdeRef"><literal>deRef</literal></ulink>
+to locate the values at runtime using the
+symbol tables in executables, libraries and object files. For this to
+work, symbol tables need to be made available at runtime. A simple way
+to ensure this is to pass the <literal>-rdynamic</literal> flag to GHC
+during linking.
+</para>
+
+<para>
+With this extension turned on, <literal>static</literal> is no longer
+a valid identifier. The body <literal>e</literal> of a <literal>static
+e</literal> expression must be a closed expression. That is, there can
+be no free variables occurring in <literal>e</literal>, i.e. lambda-
+or let-bound variables bound locally in the context of the expression.
+</para>
+
+<para>
+All of the following are permissible:
+<programlisting>
+inc :: Int -> Int
+inc x = x + 1
+
+ref1 = static 1
+ref2 = static inc
+ref3 = static (inc 1)
+ref4 = static ((\x -> x + 1) (1 :: Int))
+ref5 y = static (let x = 1 in x)
+</programlisting>
+While the following definitions are rejected:
+<programlisting>
+ref6 = let x = 1 in static x
+ref7 y = static (let x = 1 in y)
+</programlisting>
+Note that currently, the body <literal>e</literal> in <literal>static
+e</literal> is restricted to a single identifier when at the GHCi
+prompt.
+</para>
+</sect2>
+
+<sect2 id="typechecking-static-values">
+<title>Static semantics of static values</title>
+
+<para>
+Informally, if we have a closed expression
+<programlisting>
+       e :: forall a_1 ... a_n. t
+</programlisting>
+the static form is of type
+<programlisting>
+static e :: forall a_1 ... a_n. Ref t
+</programlisting>
+
+Only expressions of rank-1 type with no constraints are allowed as the
+body of a <literal>static</literal> form. The following are therefore
+illegal:
+<programlisting>
+static show                    -- show has a constraint (Show a)
+static Control.Monad.ST.runST  -- runST has a higher-ranked type
+</programlisting>
+
+That being said, with the appropriate use of wrapper datatypes, the
+above limitations induce no loss of generality:
+<programlisting>
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE StaticValues #-}
+
+import Control.Monad.ST
+import GHC.Ref
+
+data Dict c = c => Dict
+
+g1 :: Ref (Dict (Show a) -> a -> String)
+g1 = static (\Dict -> show)
+
+data Rank2Wrapper f = R2W (forall s. f s)
+newtype Flip f a s = Flip { unFlip :: f s a }
+
+g2 :: Ref (Rank2Wrapper (Flip ST a) -> a)
+g2 = static (\(R2W f) -> runST (unFlip f))
+</programlisting>
+</para>
+</sect2>
+
+</sect1>
+
 
 <!-- =============================== PRAGMAS ===========================  -->
 

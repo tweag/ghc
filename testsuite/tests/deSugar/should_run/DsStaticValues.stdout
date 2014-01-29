@@ -1,0 +1,5 @@
+GlobalName "main" "Main" "g"
+GlobalName "base" "GHC.Base" "id"
+GlobalName "ghc-prim" "GHC.Classes" "&&"
+GlobalName "main" "Main" "static:0"
+GlobalName "main" "Main" "t_field"
