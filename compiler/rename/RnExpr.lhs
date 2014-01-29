@@ -325,6 +325,31 @@ rnExpr e@(ELazyPat {}) = patSynErr e
 
 %************************************************************************
 %*                                                                      *
+        Static values
+%*                                                                      *
+%************************************************************************
+
+For the static form we check that the free variables are all top-level
+value bindings. This is done by checking that the name is external or
+wired-in. See the Note about the NameSorts in Name.lhs.
+
+\begin{code}
+rnExpr e@(HsStatic expr)
+  = do (expr',fvExpr) <- rnLExpr expr
+       let isTopLevelValName n = isValName n && (isExternalName n || isWiredInName n)
+       case nameSetToList $ filterNameSet (not . isTopLevelValName) fvExpr of
+         [] -> return ()
+         fvNonGlobal -> do
+           addErr $ cat [ ptext $ sLit "Only top-level value bindings can be referred inside the static form"
+                        , nest 2 $ ppr e
+                        , ptext $ sLit "but the following identifiers were found instead:"
+                        , nest 2 $ vcat $ map ppr fvNonGlobal
+                        ]
+       return (HsStatic expr', fvExpr)
+\end{code}
+
+%************************************************************************
+%*                                                                      *
         Arrow notation
 %*                                                                      *
 %************************************************************************
