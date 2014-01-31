@@ -70,6 +70,9 @@ module TysWiredIn (
         parrTyCon, parrFakeCon, isPArrTyCon, isPArrFakeCon,
         parrTyCon_RDR, parrTyConName,
 
+        -- * StaticRef
+        staticRefTyCon, staticRefTyConName,
+
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
         coercibleTyCon, coercibleDataCon, coercibleClass,
@@ -155,6 +158,8 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               , wordTyCon
               , listTyCon
               , parrTyCon
+              , staticRefTyCon
+              , globalNameTyCon
               , eqTyCon
               , coercibleTyCon
               , typeNatKindCon
@@ -231,6 +236,19 @@ parrTyConName   = mkWiredInTyConName   BuiltInSyntax
                     gHC_PARR' (fsLit "[::]") parrTyConKey parrTyCon
 parrDataConName = mkWiredInDataConName UserSyntax
                     gHC_PARR' (fsLit "PArr") parrDataConKey parrDataCon
+
+staticRefTyConName, staticRefDataConName :: Name
+staticRefTyConName   = mkWiredInTyConName   UserSyntax
+                    gHC_STATICREF (fsLit "StaticRef") staticRefTyConKey staticRefTyCon
+staticRefDataConName = mkWiredInDataConName UserSyntax
+                    gHC_STATICREF (fsLit "StaticRef") staticRefDataConKey staticRefDataCon
+
+globalNameTyConName, globalNameDataConName :: Name
+globalNameTyConName   = mkWiredInTyConName   UserSyntax
+                    gHC_STATICREF (fsLit "GlobalName") globalNameTyConKey globalNameTyCon
+globalNameDataConName = mkWiredInDataConName UserSyntax
+                    gHC_STATICREF (fsLit "GlobalName") globalNameDataConKey globalNameDataCon
+
 
 boolTyCon_RDR, false_RDR, true_RDR, intTyCon_RDR, charTyCon_RDR,
     intDataCon_RDR, listTyCon_RDR, consDataCon_RDR, parrTyCon_RDR, eqTyCon_RDR :: RdrName
@@ -888,6 +906,25 @@ mkPArrFakeCon arity  = data_con
 -- | Checks whether a data constructor is a fake constructor for parallel arrays
 isPArrFakeCon      :: DataCon -> Bool
 isPArrFakeCon dcon  = dcon == parrFakeCon (dataConSourceArity dcon)
+\end{code}
+
+StaticRef
+
+\begin{code}
+staticRefTyCon :: TyCon
+staticRefTyCon  = pcNonRecDataTyCon staticRefTyConName Nothing alpha_tyvar [staticRefDataCon]
+
+staticRefDataCon :: DataCon
+staticRefDataCon  = pcDataCon staticRefDataConName alpha_tyvar [globalNameTy] staticRefTyCon
+
+globalNameTy :: Type
+globalNameTy = mkTyConTy globalNameTyCon
+
+globalNameTyCon :: TyCon
+globalNameTyCon  = pcNonRecDataTyCon globalNameTyConName Nothing [] [globalNameDataCon]
+
+globalNameDataCon :: DataCon
+globalNameDataCon  = pcDataCon globalNameDataConName [] (replicate 4 stringTy) globalNameTyCon
 \end{code}
 
 Promoted Booleans
