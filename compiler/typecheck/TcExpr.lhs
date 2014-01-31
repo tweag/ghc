@@ -488,6 +488,13 @@ tcExpr (HsDo do_or_lc stmts _) res_ty
 tcExpr (HsProc pat cmd) res_ty
   = do  { (pat', cmd', coi) <- tcProc pat cmd res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
+
+tcExpr (HsStatic (L p (HsVar n))) res_ty
+  = do  { tcid <- lookup_id n
+        ; coi <- unifyType (mkTyConApp staticRefTyCon [ idType tcid ]) res_ty
+        ; return $ mkHsWrapCo coi $ HsStatic $ L p $ HsVar tcid }
+
+tcExpr (HsStatic _) _ = panic "TcExpr.tcExpr: HsStatic should bring only an identifier."
 \end{code}
 
 Note [Rebindable syntax for if]
@@ -1060,13 +1067,13 @@ tcInferIdWithOrig :: CtOrigin -> Name -> TcM (HsExpr TcId, TcRhoType)
 -- Look up an occurrence of an Id, and instantiate it (deeply)
 
 tcInferIdWithOrig orig id_name
-  = do { id <- lookup_id
+  = do { id <- lookup_id id_name
        ; (id_expr, id_rho) <- instantiateOuter orig id
        ; (wrap, rho) <- deeplyInstantiate orig id_rho
        ; return (mkHsWrap wrap id_expr, rho) }
-  where
-    lookup_id :: TcM TcId
-    lookup_id
+
+lookup_id :: Name -> TcM TcId
+lookup_id id_name
        = do { thing <- tcLookup id_name
             ; case thing of
                  ATcId { tct_id = id }
@@ -1088,6 +1095,7 @@ tcInferIdWithOrig orig id_name
 
                  other -> failWithTc (bad_lookup other) }
 
+  where
     bad_lookup thing = ppr thing <+> ptext (sLit "used where a value identifer was expected")
 
     bad_patsyn name = ppr name <+>  ptext (sLit "used in an expression, but it's a non-bidirectional pattern synonym")
