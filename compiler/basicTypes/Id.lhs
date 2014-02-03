@@ -29,6 +29,7 @@ module Id (
         -- ** Simple construction
         mkGlobalId, mkVanillaGlobal, mkVanillaGlobalWithInfo,
         mkLocalId, mkLocalIdWithInfo, mkExportedLocalId,
+        mkExportedLocalIdM,
         mkSysLocal, mkSysLocalM, mkUserLocal, mkUserLocalM,
         mkTemplateLocals, mkTemplateLocalsNum, mkTemplateLocal,
         mkWorkerId, mkWiredInIdName,
@@ -252,6 +253,10 @@ mkExportedLocalId :: Name -> Type -> Id
 mkExportedLocalId name ty = Var.mkExportedLocalVar VanillaId name ty vanillaIdInfo
         -- Note [Free type variables]
 
+mkExportedLocalIdM :: MonadUnique m => FastString -> Type -> m Id
+mkExportedLocalIdM fs ty = do
+  uniq <- getUniqueM
+  return $ mkExportedLocalId (mkSystemVarName uniq fs) ty
 
 -- | Create a system local 'Id'. These are local 'Id's (see "Var#globalvslocal")
 -- that are created by the compiler out of thin air

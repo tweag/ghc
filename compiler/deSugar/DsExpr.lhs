@@ -388,6 +388,26 @@ dsExpr (PArrSeq _ _)
   = panic "DsExpr.dsExpr: Infinite parallel array!"
     -- the parser shouldn't have generated it and the renamer and typechecker
     -- shouldn't have let it through
+
+dsExpr (HsStatic expr_ty expr)
+    = do { fstrs <- case expr of
+                      L _ (HsVar varId)) ->
+                        let n = idName varId
+                            mod = nameModule n
+                        in return [ modulePackageId mod, moduleName mod, nameOccName n ]
+                      _ -> do
+                        dsLExpr expr
+                        stId <- mkExportedLocalIdM (sLit "st") ty
+                        addBinding $ mkFunBind  stId id
+                        return [] 
+         ; pkgName <- hs_string_lit 
+         ; dsExpr (HsApp map hs_string_lit [,,,])
+         }
+  where
+    hs_string_lit = HsLit . HsString . fsLit
+
+-- dsExpr (HsApp fun arg)
+--  = mkCoreAppDs <$> dsLExpr fun <*>  dsLExpr arg
 \end{code}
 
 \noindent
