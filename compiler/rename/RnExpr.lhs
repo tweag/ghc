@@ -334,7 +334,7 @@ value bindings. This is done by checking that the name is external or
 wired-in. See the Note about the NameSorts in Name.lhs.
 
 \begin{code}
-rnExpr e@(HsStatic expr)
+rnExpr e@(HsStatic ty expr)
   = do (expr',fvExpr) <- rnLExpr expr
        let isTopLevelName n = isExternalName n || isWiredInName n
        case nameSetToList $ filterNameSet (not . isTopLevelName) fvExpr of
@@ -345,7 +345,7 @@ rnExpr e@(HsStatic expr)
                         , ptext $ sLit "but the following identifiers were found instead:"
                         , nest 2 $ vcat $ map ppr fvNonGlobal
                         ]
-       return (HsStatic expr', fvExpr)
+       return (HsStatic ty expr', fvExpr)
 \end{code}
 
 %************************************************************************

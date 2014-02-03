@@ -45,6 +45,7 @@ import DynFlags
 import CostCentre
 import Id
 import Module
+import Packages
 import VarSet
 import VarEnv
 import ConLike
@@ -59,6 +60,7 @@ import Outputable
 import FastString
 
 import Control.Monad
+import Distribution.Package(InstalledPackageId(..))
 \end{code}
 
 
@@ -388,6 +390,40 @@ dsExpr (PArrSeq _ _)
   = panic "DsExpr.dsExpr: Infinite parallel array!"
     -- the parser shouldn't have generated it and the renamer and typechecker
     -- shouldn't have let it through
+\end{code}
+
+\noindent
+\underline{\bf Static values}
+%              ~~~~~~~~~~~~~
+\begin{verbatim}
+    static f
+==>
+    StaticRef (GlobalName "pkg id of f" "pkg-installation suffix" "module of f" "f")
+\end{verbatim}
+
+\begin{code}
+dsExpr (HsStatic ty (L loc (HsVar varId)))
+  = let n = idName varId
+        mod = nameModule n
+        pkgId = modulePackageId mod
+     in do
+       dflags <- getDynFlags
+       (pkgName, pkgInstallationSuffix) <- if elem pkgId [ mainPackageId, interactivePackageId ]
+          then return (packageIdString pkgId, "")
+          else case lookupPackage (pkgIdMap $ pkgState dflags) pkgId of
+            Just pd -> let InstalledPackageId ipid = installedPackageId pd
+                           pkg_id_string = packageIdString pkgId
+                        in return (pkg_id_string, drop (length pkg_id_string + 1) ipid)
+            Nothing -> panic $ "DsExpr.dsExpr: cannot find package details for " ++ packageIdString pkgId
+       putSrcSpanDs loc $ mkConApp staticRefDataCon . (Type ty :) . (:[]) . mkConApp globalNameDataCon
+         <$> mapM mkStringExprFS
+               [ fsLit pkgName
+               , fsLit pkgInstallationSuffix
+               , moduleNameFS $ moduleName mod
+               , occNameFS $ nameOccName n
+               ]
+
+dsExpr (HsStatic _ _) = panic "DsExpr.dsExpr: HsStatic should bring only an identifier."
 \end{code}
 
 \noindent

@@ -485,12 +485,13 @@ tcExpr (HsProc pat cmd) res_ty
   = do  { (pat', cmd', coi) <- tcProc pat cmd res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
 
-tcExpr (HsStatic (L p (HsVar n))) res_ty
+tcExpr (HsStatic _ (L p (HsVar n))) res_ty
   = do  { tcid <- lookup_id n
-        ; coi <- unifyType (mkTyConApp staticRefTyCon [ varType tcid ]) res_ty
-        ; return $ mkHsWrapCo coi $ HsStatic $ L p $ HsVar tcid }
+        ; let n_ty = varType tcid
+        ; coi <- unifyType (mkTyConApp staticRefTyCon [ n_ty ]) res_ty
+        ; return $ mkHsWrapCo coi $ HsStatic n_ty $ L p $ HsVar tcid }
 
-tcExpr (HsStatic _) _ = panic "TcExpr.tcExpr: HsStatic should bring only an identifier."
+tcExpr (HsStatic _ _) _ = panic "TcExpr.tcExpr: HsStatic should bring only an identifier."
 \end{code}
 
 Note [Rebindable syntax for if]
