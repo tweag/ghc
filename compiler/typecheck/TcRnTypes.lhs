@@ -277,6 +277,8 @@ data TcGblEnv
           --     rule
           --
           --   * Top-level variables appearing free in a TH bracket
+          --
+          --   * Top-level variables introduced by the static form
 
         tcg_th_used :: TcRef Bool,
           -- ^ @True@ <=> Template Haskell syntax used.
