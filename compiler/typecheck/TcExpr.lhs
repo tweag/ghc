@@ -494,6 +494,7 @@ tcExpr (HsProc pat cmd) res_ty
 tcExpr (HsStatic (L p (HsVar n))) res_ty
   = do  { tcid <- lookup_id n
         ; coi <- unifyType (mkTyConApp staticRefTyCon [ idType tcid ]) res_ty
+        ; keepAlive n
         ; return $ mkHsWrapCo coi $ HsStatic $ L p $ HsVar tcid }
 
 tcExpr (HsStatic _) _ = panic "TcExpr.tcExpr: HsStatic should bring only an identifier."
