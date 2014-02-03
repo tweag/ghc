@@ -70,6 +70,7 @@ module TysWiredIn (
 
         -- * StaticRef
         staticRefTyCon, staticRefTyConName,
+        staticRefDataCon, globalNameDataCon,
 
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
