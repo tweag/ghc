@@ -1,0 +1,8 @@
+
+RnStaticValuesFail02.hs:5:5:
+    Only top-level value bindings can be referred inside the static form
+      static T
+    but the following identifiers were found instead:
+      T
+
+RnStaticValuesFail02.hs:5:12: Not in scope: data constructor ‘T’
