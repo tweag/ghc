@@ -1,0 +1,7 @@
+
+TcStaticValuesFail01.hs:8:6:
+    Couldn't match type ‘Int -> Int’ with ‘Int’
+    Expected type: StaticRef Int
+      Actual type: StaticRef (Int -> Int)
+    In the expression: static g
+    In an equation for ‘f0’: f0 = static g
