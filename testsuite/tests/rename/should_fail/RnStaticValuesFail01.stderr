@@ -1,0 +1,6 @@
+
+RnStaticValuesFail01.hs:5:7:
+    Only top-level value bindings can be referred inside the static form
+      static x
+    but the following identifiers were found instead:
+      x
