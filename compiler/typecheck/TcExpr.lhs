@@ -23,6 +23,7 @@ import HsSyn
 import TcHsSyn
 import TcRnMonad
 import TcUnify
+import Bag              (unitBag, consBag)
 import BasicTypes
 import Inst
 import TcBinds
@@ -34,6 +35,7 @@ import TcMatches
 import TcHsType
 import TcPat
 import TcMType
+import TcSimplify       ( simplifyInfer )
 import TcType
 import DsMonad hiding (Splice)
 import Id
@@ -42,6 +44,7 @@ import DataCon
 import PatSyn
 import RdrName
 import Name
+import NameSet          ( emptyNameSet )
 import TyCon
 import Type
 import TcEvidence
@@ -63,6 +66,7 @@ import FastString
 import Control.Monad
 import Class(classTyCon)
 import Data.Function
+import Data.IORef       ( modifyIORef )
 import Data.List
 import qualified Data.Set as Set
 \end{code}
@@ -497,7 +501,12 @@ tcExpr (HsStatic (L p (HsVar n))) res_ty
         ; keepAlive n
         ; return $ mkHsWrapCo coi $ HsStatic $ L p $ HsVar tcid }
 
-tcExpr (HsStatic _) _ = panic "TcExpr.tcExpr: HsStatic should bring only an identifier."
+tcExpr (HsStatic expr@(L loc _)) res_ty
+  = do  { (tc_bind, stId) <- tcStaticExpr expr
+        ; keepAlive $ idName stId
+        ; addStaticBinding tc_bind
+        ; coi <- unifyType (mkTyConApp staticRefTyCon [ idType stId ]) res_ty
+        ; return $ mkHsWrapCo coi $ HsStatic $ L loc (HsVar stId)  }
 \end{code}
 
 Note [Rebindable syntax for if]
@@ -1630,4 +1639,53 @@ missingFields con fields
         <+> pprWithCommas ppr fields
 
 -- callCtxt fun args = ptext (sLit "In the call") <+> parens (ppr (foldl mkHsApp fun args))
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+             Static Values
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+addStaticBinding :: LHsBindLR TcId TcId -> TcM ()
+addStaticBinding b = do
+    stBindsVar <- tcg_static_binds <$> getGblEnv
+    updTcRef stBindsVar $ consBag b
+
+tcStaticExpr :: LHsExpr Name -> TcM (LHsBindLR TcId TcId,TcId)
+tcStaticExpr expr@(L loc _) = do
+    ((tc_expr, res_ty), lie) <- captureConstraints $ tcInferRho expr
+    stId0 <- mkStableIdFromString "static" res_ty loc id
+    let stName = idName stId0
+    mono_id <- newNoSigLetBndr LetLclBndr stName res_ty
+
+    (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
+                                    False {- No MR for now -}
+                                    [(idName mono_id, res_ty)]
+                                    lie
+
+    let all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty)
+    ty <- zonkTcType all_expr_ty
+    let stId = setIdType stId0 ty
+
+    theta <- zonkTcThetaType (map evVarPred dicts)
+    exports <- checkNoErrs $ (:[]) <$> mkExport (const []) qtvs theta (stName,Nothing,mono_id)
+
+    let binds' = unitBag $ L loc $
+                              FunBind { fun_id = L loc mono_id
+                                      , fun_infix = False
+                                      , fun_matches = (mkMatchGroup Generated [ mkMatch [] tc_expr emptyLocalBinds ])
+                                                       { mg_res_ty = ty }
+                                      , fun_co_fn = idHsWrapper
+                                      , bind_fvs = emptyNameSet -- NB: closed binding
+                                      , fun_tick = Nothing
+                                      }
+
+        tc_bind = L loc $ AbsBinds
+                    { abs_tvs = qtvs
+                    , abs_ev_vars = dicts, abs_ev_binds = ev_binds
+                    , abs_exports = exports, abs_binds = binds'
+                    }
+    return (tc_bind,stId)
 \end{code}
