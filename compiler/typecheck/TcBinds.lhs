@@ -10,7 +10,7 @@ module TcBinds ( tcLocalBinds, tcTopBinds, tcRecSelBinds,
                  PragFun, tcSpecPrags, tcVectDecls, mkPragFun, 
                  TcSigInfo(..), TcSigFun, 
                  instTcTySig, instTcTySigFromId,
-                 badBootDeclErr ) where
+                 badBootDeclErr, mkExport ) where
 
 import {-# SOURCE #-} TcMatches ( tcGRHSsPat, tcMatchesFun )
 import {-# SOURCE #-} TcExpr  ( tcMonoExpr )
@@ -163,9 +163,11 @@ tcTopBinds (ValBindsOut binds sigs)
                ; return (gbl, lcl) }
         ; specs <- tcImpPrags sigs   -- SPECIALISE prags for imported Ids
 
+        ; stBinds <- readTcRef $ tcg_static_binds tcg_env
+        ; writeTcRef (tcg_static_binds tcg_env) emptyBag
         ; let { tcg_env' = tcg_env { tcg_binds = foldr (unionBags . snd)
                                                        (tcg_binds tcg_env)
-                                                       binds'
+                                                       binds' `unionBags` stBinds
                                    , tcg_imp_specs = specs ++ tcg_imp_specs tcg_env } }
 
         ; return (tcg_env', tcl_env) }
