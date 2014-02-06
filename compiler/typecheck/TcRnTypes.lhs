@@ -347,9 +347,10 @@ data TcGblEnv
         tcg_main      :: Maybe Name,         -- ^ The Name of the main
                                              -- function, if this module is
                                              -- the main module.
-        tcg_safeInfer :: TcRef Bool          -- Has the typechecker
+        tcg_safeInfer :: TcRef Bool,         -- Has the typechecker
                                              -- inferred this module
                                              -- as -XSafe (Safe Haskell)
+        tcg_static_binds :: TcRef (LHsBinds Id) -- ^ Bindings introduced by static values
     }
 
 instance ContainsModule TcGblEnv where
