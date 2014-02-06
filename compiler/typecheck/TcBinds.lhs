@@ -10,7 +10,7 @@ module TcBinds ( tcLocalBinds, tcTopBinds, tcRecSelBinds,
                  PragFun, tcSpecPrags, tcVectDecls, mkPragFun, 
                  TcSigInfo(..), TcSigFun, 
                  instTcTySig, instTcTySigFromId,
-                 badBootDeclErr ) where
+                 badBootDeclErr, mkExport ) where
 
 import {-# SOURCE #-} TcMatches ( tcGRHSsPat, tcMatchesFun )
 import {-# SOURCE #-} TcExpr  ( tcMonoExpr )
