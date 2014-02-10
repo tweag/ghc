@@ -15,6 +15,9 @@ f3 = static method
 f4 :: StaticRef (forall a . T a -> a)
 f4 = static t_field
 
+f5 :: StaticRef (forall a . a -> a)
+f5 = static (id . id)
+
 g :: Int -> Int
 g = id
 

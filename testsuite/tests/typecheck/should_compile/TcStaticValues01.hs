@@ -10,6 +10,9 @@ f0 = static g
 f1 :: StaticRef (Bool -> Bool -> Bool)
 f1 = static (&&)
 
+f2 :: StaticRef (Bool -> Bool -> Bool)
+f2 = static ((&&) . id)
+
 g :: Int -> Int
 g = id
 
