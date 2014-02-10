@@ -14,6 +14,8 @@ main = putStr $ unlines $ map showGlobalName gNames
       , globalNameStaticRef $ static (&&)
       , globalNameStaticRef $ static method
       , globalNameStaticRef $ static t_field
+      , globalNameStaticRef $ static (id . show)
+      , globalNameStaticRef $ static (id . (+))
       ]
 
 g :: Int -> Int
