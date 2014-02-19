@@ -21,7 +21,7 @@ import HsSyn
 import TcHsSyn
 import TcRnMonad
 import TcUnify
-import Bag(unitBag,consBag)
+import Bag ( filterBag, mapBag )
 import BasicTypes
 import Inst
 import TcBinds
@@ -33,7 +33,6 @@ import TcMatches
 import TcHsType
 import TcPat
 import TcMType
-import TcSimplify       ( simplifyInfer )
 import TcType
 import DsMonad hiding (Splice)
 import Id
@@ -42,7 +41,7 @@ import DataCon
 import PatSyn
 import RdrName
 import Name
-import NameSet(emptyNameSet)
+import NameEnv
 import TyCon
 import Type
 import TcEvidence
@@ -64,7 +63,6 @@ import FastString
 import Control.Monad
 import Class(classTyCon)
 import Data.Function
-import Data.IORef(modifyIORef)
 import Data.List
 import qualified Data.Set as Set
 \end{code}
@@ -489,19 +487,24 @@ tcExpr (HsProc pat cmd) res_ty
   = do  { (pat', cmd', coi) <- tcProc pat cmd res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
 
-tcExpr (HsStatic _ (L p (HsVar n))) res_ty
-  = do  { tcid <- lookup_id n
-        ; let n_ty = varType tcid
-        ; coi <- unifyType (mkTyConApp staticRefTyCon [ n_ty ]) res_ty
-        ; keepAlive n
-        ; return $ mkHsWrapCo coi $ HsStatic n_ty $ L p $ HsVar tcid }
-
 tcExpr (HsStatic _ expr@(L loc _)) res_ty
-  = do  { (tc_bind, stId, expr_ty) <- tcStaticExpr expr
-        ; keepAlive $ idName stId
-        ; addStaticBinding tc_bind
-        ; coi <- unifyType (mkTyConApp staticRefTyCon [ expr_ty ]) res_ty
-        ; return $ mkHsWrapCo coi $ HsStatic expr_ty (L loc (HsVar stId))  }
+  = do  { (coi, [expr_ty]) <- matchExpectedTyConApp staticRefTyCon res_ty
+        ; (tc_expr,lie) <- captureConstraints $ tcPolyExpr expr expr_ty
+        ; stId <- mkStableIdFromString "static" expr_ty loc id
+        -- propagate type equality constraints
+        ; wcRef <- getConstraintVar
+        ; updTcRef wcRef (andWC lie)
+--        ; pprTrace "propagated lie" (ppr (keepTyEqCts lie)) $ return ()
+        ; addStaticValueInfo stId tc_expr lie
+        ; return $ mkHsWrapCo coi $ HsStatic expr_ty (L loc (HsVar stId)) }
+{-
+  where
+    keepTyEqCts (WC flats impls ins) =
+      WC (filterBag isCTyEq flats)
+         (mapBag (\impl -> impl { ic_wanted = keepTyEqCts (ic_wanted impl) }) impls)
+         (filterBag (not . isCTyEq) ins)
+    isCTyEq ct = isCTyEqCan ct ||  (cc_ev ct)
+-}
 \end{code}
 
 Note [Rebindable syntax for if]
@@ -1642,46 +1645,8 @@ missingFields con fields
 %************************************************************************
 
 \begin{code}
-addStaticBinding :: LHsBindLR TcId TcId -> RnM ()
-addStaticBinding b = do
-    stBindsVar <- tcg_static_binds <$> getGblEnv
-    liftIO $ modifyIORef stBindsVar $ consBag (Generated, b)
-
-tcStaticExpr :: LHsExpr Name -> TcM (LHsBindLR TcId TcId,TcId,Type)
-tcStaticExpr expr@(L loc _) = do
-    ((tc_expr, res_ty), lie) <- captureConstraints $ tcInferRho expr
-    stId0 <- mkStableIdFromString "static" res_ty loc id
-    let stName = idName stId0
-    mono_id <- newNoSigLetBndr LetLclBndr stName res_ty
-
-    (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
-                                    False {- No MR for now -}
-                                    [(idName mono_id, res_ty)]
-                                    lie
-
-    let all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty)
-    ty <- zonkTcType all_expr_ty
-    let stId = setIdType stId0 res_ty
-
-    theta <- zonkTcThetaType (map evVarPred dicts)
-    exports <- checkNoErrs $ (:[]) <$> mkExport (const []) qtvs theta (stName,Nothing,mono_id)
-
-    let binds' = unitBag ( Generated, L loc $
-                              FunBind { fun_id = L loc mono_id
-                                      , fun_infix = False
-                                      , fun_matches = (mkMatchGroup [ mkMatch [] tc_expr emptyLocalBinds ])
-                                                       { mg_res_ty = ty }
-                                      , fun_co_fn = idHsWrapper
-                                      , bind_fvs = emptyNameSet -- NB: closed binding
-                                      , fun_tick = Nothing
-                                      }
-                         )
-
-        tc_bind = L loc $ AbsBinds
-                    { abs_tvs = qtvs
-                    , abs_ev_vars = dicts, abs_ev_binds = ev_binds
-                    , abs_exports = exports, abs_binds = binds'
-                    }
---    tc_expr' <- zonkTopLExpr tc_expr
-    return (tc_bind,stId,ty)
+addStaticValueInfo :: TcId -> LHsExpr TcId -> WantedConstraints -> RnM ()
+addStaticValueInfo stId expr lie = do
+    stInfoVar <- tcg_static_info <$> getGblEnv
+    updTcRef stInfoVar $ \nenv -> extendNameEnv nenv (idName stId) (stId,expr,lie)
 \end{code}

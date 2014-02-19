@@ -163,11 +163,9 @@ tcTopBinds (ValBindsOut binds sigs)
                ; return (gbl, lcl) }
         ; specs <- tcImpPrags sigs   -- SPECIALISE prags for imported Ids
 
-        ; stBinds <- readTcRef $ tcg_static_binds tcg_env
-        ; writeTcRef (tcg_static_binds tcg_env) emptyBag
         ; let { tcg_env' = tcg_env { tcg_binds = foldr (unionBags . snd)
                                                        (tcg_binds tcg_env)
-                                                       binds' `unionBags` stBinds
+                                                       binds'
                                    , tcg_imp_specs = specs ++ tcg_imp_specs tcg_env } }
 
         ; return (tcg_env', tcl_env) }

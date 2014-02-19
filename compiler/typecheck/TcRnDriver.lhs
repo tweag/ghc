@@ -33,6 +33,7 @@ import PrelNames
 import RdrName
 import TcHsSyn
 import TcExpr
+import TcPat ( newNoSigLetBndr, LetBndrSpec(..) )
 import TcRnMonad
 import TcEvidence
 import PprTyThing( pprTyThing )
@@ -50,6 +51,7 @@ import TcForeign
 import TcInstDcls
 import TcIface
 import TcMType
+import TcType ( evVarPred )
 import MkIface
 import TcSimplify
 import TcTyClsDecls
@@ -441,6 +443,13 @@ tcRnSrcDecls boot_iface decls
                         simplifyTop lie ;
         traceTc "Tc9" empty ;
 
+        -- Introduce static bindings for the static forms collected during
+        -- type-checking.
+        stBinds <- listToBag . zip (repeat Generated) <$>
+                     (mapM mkStaticBinding . nameEnvElts
+                       =<< readTcRef =<< tcg_static_info <$> getGblEnv) ;
+        let { tcg_env' = tcg_env { tcg_binds = tcg_binds tcg_env `unionBags` stBinds } } ;
+
         failIfErrsM ;   -- Don't zonk if there have been errors
                         -- It's a waste of time; and we may get debug warnings
                         -- about strangely-typed TyCons!
@@ -455,7 +464,7 @@ tcRnSrcDecls boot_iface decls
                          tcg_imp_specs = imp_specs,
                          tcg_rules     = rules,
                          tcg_vects     = vects,
-                         tcg_fords     = fords } = tcg_env
+                         tcg_fords     = fords } = tcg_env'
             ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds } ;
 
         (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
@@ -463,14 +472,14 @@ tcRnSrcDecls boot_iface decls
                zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords ;
 
         let { final_type_env = extendTypeEnvWithIds type_env bind_ids
-            ; tcg_env' = tcg_env { tcg_binds    = binds',
-                                   tcg_ev_binds = ev_binds',
-                                   tcg_imp_specs = imp_specs',
-                                   tcg_rules    = rules',
-                                   tcg_vects    = vects',
-                                   tcg_fords    = fords' } } ;
+            ; tcg_env'' = tcg_env' { tcg_binds    = binds',
+                                     tcg_ev_binds = ev_binds',
+                                     tcg_imp_specs = imp_specs',
+                                     tcg_rules    = rules',
+                                     tcg_vects    = vects',
+                                     tcg_fords    = fords' } } ;
 
-        setGlobalTypeEnv tcg_env' final_type_env
+        setGlobalTypeEnv tcg_env'' final_type_env
        
    } }
 
@@ -2179,4 +2188,53 @@ ppr_rules [] = empty
 ppr_rules rs = vcat [ptext (sLit "{-# RULES"),
                       nest 2 (pprRules rs),
                       ptext (sLit "#-}")]
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+             Static Values
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+mkStaticBinding :: (TcId,LHsExpr TcId,WantedConstraints) -> TcM (LHsBindLR TcId TcId)
+mkStaticBinding (stId, tc_expr@(L loc _), lie) = do
+    let expr_ty = idType stId
+        stName = idName stId
+--    pprTrace "lie" (ppr lie) $ return ()
+--    pprTrace "tc_expr" (ppr tc_expr) $ return ()
+    mono_id <- newNoSigLetBndr LetLclBndr stName expr_ty
+
+    (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
+                                    False {- No MR for now -}
+                                    [(idName mono_id, expr_ty)]
+                                    lie
+--    pprTrace "qtvs" (ppr qtvs) $ return ()
+--    pprTrace "dicts" (ppr dicts) $ return ()
+--    pprTrace "ev_binds" (ppr ev_binds) $ return ()
+
+    let all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts expr_ty)
+    ty <- zonkTcType all_expr_ty
+
+    theta <- zonkTcThetaType (map evVarPred dicts)
+    exports <- checkNoErrs $ (:[]) <$> mkExport (const []) qtvs theta (stName,Nothing,mono_id)
+
+    let binds' = unitBag ( Generated, L loc $
+                              FunBind { fun_id = L loc mono_id
+                                      , fun_infix = False
+                                      , fun_matches = (mkMatchGroup [ mkMatch [] tc_expr emptyLocalBinds ])
+                                                       { mg_res_ty = ty }
+                                      , fun_co_fn = idHsWrapper
+                                      , bind_fvs = emptyNameSet -- NB: closed binding
+                                      , fun_tick = Nothing
+                                      }
+                         )
+
+        tc_bind = L loc $ AbsBinds
+                    { abs_tvs = qtvs
+                    , abs_ev_vars = dicts, abs_ev_binds = ev_binds
+                    , abs_exports = exports, abs_binds = binds'
+                    }
+    keepAlive $ idName stId
+    return tc_bind
 \end{code}

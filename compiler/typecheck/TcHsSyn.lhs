@@ -724,7 +724,7 @@ zonkExpr env (HsProc pat body)
 
 -- StaticValues extension
 zonkExpr env (HsStatic expr_ty expr)
-  = HsStatic expr_ty <$> zonkLExpr env expr
+  = HsStatic <$> zonkTcTypeToType env expr_ty <*> zonkLExpr env expr
 
 zonkExpr env (HsWrap co_fn expr)
   = do (env1, new_co_fn) <- zonkCoFn env co_fn

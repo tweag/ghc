@@ -402,7 +402,7 @@ dsExpr (PArrSeq _ _)
 \end{verbatim}
 
 \begin{code}
-dsExpr (HsStatic ty (L loc (HsVar varId)))
+dsExpr (HsStatic expr_ty (L loc (HsVar varId)))
   = let n = idName varId
         mod = nameModule n
         pkgId = modulePackageId mod
@@ -415,7 +415,7 @@ dsExpr (HsStatic ty (L loc (HsVar varId)))
                            pkg_id_string = packageIdString pkgId
                         in return (pkg_id_string, drop (length pkg_id_string + 1) ipid)
             Nothing -> panic $ "DsExpr.dsExpr: cannot find package details for " ++ packageIdString pkgId
-       putSrcSpanDs loc $ mkConApp staticRefDataCon . (Type ty :) . (:[]) . mkConApp globalNameDataCon
+       putSrcSpanDs loc $ mkConApp staticRefDataCon . (Type expr_ty :) . (:[]) . mkConApp globalNameDataCon
          <$> mapM mkStringExprFS
                [ fsLit pkgName
                , fsLit pkgInstallationSuffix

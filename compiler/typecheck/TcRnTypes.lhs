@@ -346,7 +346,7 @@ data TcGblEnv
         tcg_safeInfer :: TcRef Bool,         -- Has the typechecker
                                              -- inferred this module
                                              -- as -XSafe (Safe Haskell)
-        tcg_static_binds :: TcRef (LHsBinds Id) -- ^ Bindings introduced by static values
+        tcg_static_info :: TcRef (NameEnv (TcId,LHsExpr TcId,WantedConstraints)) -- ^ Info about static values
     }
 
 instance ContainsModule TcGblEnv where
