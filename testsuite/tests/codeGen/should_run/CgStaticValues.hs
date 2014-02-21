@@ -1,24 +1,82 @@
-{-# LANGUAGE StaticValues #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE StaticValues #-}
 
+-- |A test to load symbols produced by the static form.
+--
+-- First we have this program load itself using the GHC API.
+-- Then we look for the symbols that the static form should have
+-- exposed and use the values found at the symbol addresses.
+--
 module Main(main) where
 
-import Data.List ( isPrefixOf )
-import System.Process
+import GHC.Ptr          ( Ptr(..), nullPtr )
+import Foreign.C.String ( withCString, CString )
+import GHC.Exts         ( addrToAny# )
+import GHC.StaticRef
+import System.Info      ( os )
+import System.Environment
 
-main = readProcess "sh" [] "nm --defined-only CgStaticValues.o"
-        >>= const putStr (static g, static (id . (+)), static (id . show))
-               . unlines
-               . filter isInteresting
-               . map (dropWhile (/=' '))
-               . lines
+import Control.Monad.IO.Class ( liftIO )
+import DynFlags
+import Encoding               ( zEncodeString )
+import GHC
+
+main = do {
+    ; [libdir] <- getArgs
+    ; runGhc (Just libdir) $ do
+      oldFlags <- getDynFlags
+      setSessionDynFlags oldFlags  {hscTarget = HscInterpreted, ghcLink = LinkInMemory , ghcMode = CompManager
+                                   , packageFlags = [ ExposePackage "ghc" ]
+                                   , ldInputs = FileOption "" "CgStaticValues.o" : ldInputs oldFlags
+                                   }
+      load LoadAllTargets
+      liftIO $ do
+        unstaticMain (static g) >>= putStrLn
+        unstaticMain (f0 :: StaticRef Char) >>= print
+        unstaticMain (f1 :: StaticRef Char) >>= print
+        -- The ((>>=) $ x) avoids the need to type long type signatures when
+        -- using impredicative types and direct application (x >>=).
+        ((>>=) $ unstaticMain $ static (id . (+))) $
+          \op -> print $ op (2 :: Int) (1 :: Int)
+        ((>>=) $ unstaticMain $ static (id . show)) $
+          \sh -> putStrLn $ sh (1 :: Int)
+    }
+
   where
-    isInteresting :: String -> Bool
-    isInteresting x = any (`isPrefixOf` x)
-      [ " D Main_g_closure"
-      , " D Main_stableZZC0ZZCmainZZCMainZZCstatic_closure"
-      , " D Main_stableZZC1ZZCmainZZCMainZZCstatic_closure"
-      ]
+    unstaticMain :: StaticRef a -> IO a
+    unstaticMain (StaticRef (GlobalName "main" "" m n)) =
+      loadFunction__ m n
+        >>= maybe (error $ m ++ "." ++ n ++ " not found") return
+    unstaticMain gn = error $ "unexpected package in " ++ show gn
 
-g = ""
+g = "hello"
 
+g1 = '1'
+
+class C a where
+  f0 :: StaticRef a
+  f1 :: StaticRef a
+
+instance C Char where
+  f0 = static g1
+  f1 = static '2'
+
+loadFunction__ :: String
+              -> String
+              -> IO (Maybe a)
+loadFunction__ m valsym = do
+    let symbol = prefixUnderscore++zEncodeString m++"_"++(zEncodeString valsym)++"_closure"
+    ptr@(Ptr addr) <- withCString symbol c_lookupSymbol
+    if (ptr == nullPtr)
+      then return Nothing
+      else case addrToAny# addr of
+             (# hval #) -> return ( Just hval )
+  where
+    prefixUnderscore = if elem os ["darwin","mingw32","cygwin"] then "_" else ""
+
+
+foreign import ccall safe "lookupSymbol"
+   c_lookupSymbol :: CString -> IO (Ptr a)
