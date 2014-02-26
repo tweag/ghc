@@ -492,16 +492,20 @@ tcExpr (HsProc pat cmd) res_ty
 
 tcExpr (HsStatic (L p (HsVar n))) res_ty
   = do  { tcid <- lookup_id n
-        ; coi <- unifyType (mkTyConApp staticRefTyCon [ idType tcid ]) res_ty
+        ; let (qtvs,n_ty_) = tcSplitForAllTys $ idType tcid
+        ; (wrap, rho) <- deeplyInstantiate StaticOrigin $
+            mkForAllTys qtvs $ mkTyConApp staticRefTyCon [ n_ty_ ]
         ; keepAlive n
-        ; return $ mkHsWrapCo coi $ HsStatic $ L p $ HsVar tcid }
+        ; tcWrapResult (mkHsWrap wrap $ HsStatic $ L p $ HsVar tcid) rho res_ty }
 
 tcExpr (HsStatic expr@(L loc _)) res_ty
   = do  { (tc_bind, stId) <- tcStaticExpr expr
         ; keepAlive $ idName stId
         ; addStaticBinding tc_bind
-        ; coi <- unifyType (mkTyConApp staticRefTyCon [ idType stId ]) res_ty
-        ; return $ mkHsWrapCo coi $ HsStatic $ L loc (HsVar stId)  }
+        ; let (qtvs,expr_ty_) = tcSplitForAllTys $ idType stId
+        ; (wrap, rho) <- deeplyInstantiate StaticOrigin $
+            mkForAllTys qtvs $ mkTyConApp staticRefTyCon [ expr_ty_ ]
+        ; tcWrapResult (mkHsWrap wrap $ HsStatic $ L loc $ HsVar stId) rho res_ty }
 \end{code}
 
 Note [Rebindable syntax for if]
