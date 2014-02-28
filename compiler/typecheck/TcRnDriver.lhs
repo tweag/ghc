@@ -1226,6 +1226,9 @@ tcTopSrcDecls boot_details
                 -- collect top-level bindings introduced by static forms
         stBinds <- readTcRef $ tcg_static_binds tcg_env ;
         writeTcRef (tcg_static_binds tcg_env) emptyBag ;
+        when (not $ isEmptyBag stBinds) $
+          dumpOptTcRn Opt_D_dump_static_binds $ mkDumpDoc "Static bindings" $
+            vcat $ map ((text "" $$) . ppr . snd) $ bagToList stBinds ;
 
                 -- Wrap up
         traceTc "Tc7a" empty ;
