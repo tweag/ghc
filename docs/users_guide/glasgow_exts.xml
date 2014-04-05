@@ -9926,6 +9926,240 @@ Assertion failures can be caught, see the documentation for the
 
 </sect1>
 
+<!-- =============================== STATIC VALUES ===========================  -->
+
+<sect1 id="static-values">
+<title>Static values
+<indexterm><primary>Static values</primary></indexterm>
+</title>
+
+<para>
+When the language extension <literal>StaticValues</literal> is enabled,
+the form <literal>static <replaceable>e</replaceable></literal>
+produces a reference to a closed expression <replaceable>e</replaceable> that
+remains valid across different processes in possibly different
+machines. Thus, a process can create a reference and send it
+to another process that can then lookup for <replaceable>e</replaceable>.
+</para>
+
+<para>
+Static values were proposed in the paper
+<ulink
+url="http://research.microsoft.com/%7Esimonpj/papers/gadt/">Towards Haskell
+in the cloud</ulink>, Jeff Epstein, Andrew P. Black and Simon Peyton-Jones,
+Proceedings of the 4th ACM Symposium on Haskell, pp. 118-129, ACM, 2011.
+</para>
+
+<para>
+The language extension <literal>StaticValues</literal> ensures that:
+<itemizedlist>
+<listitem><para>
+A symbol for the address of the compiled argument of the static form
+appears in the object files or libraries produced by the compiler.
+</para></listitem>
+<listitem><para>
+The reference produced by the static form provides some information
+that might be useful to locate the symbol at runtime (package name,
+package version, module name, etc).
+</para></listitem>
+</itemizedlist>
+</para>
+
+<para>
+Suppose we have the following module:
+<programlisting>
+{-# LANGUAGE StaticValues #-}
+module M(g) where
+
+import GHC.StaticRef
+
+f :: Int -> Int
+f = (+1)
+
+g :: StaticRef (Int -> Int)
+g = static f
+</programlisting>
+</para>
+
+<para>
+Firstly, when compiling the module <literal>M</literal>, we can see that the symbol
+for <literal>f</literal> appears in the output, despite of not being exported.
+<programlisting>
+$ /home/facundo/parsci/ghc/inplace/bin/ghc-stage2 -c M.hs
+$ nm --defined-only M.o
+00000000000000d8 D M_f_closure
+0000000000000088 T M_f_info
+...
+</programlisting>
+</para>
+
+<para>
+Secondly, we have that
+<programlisting>
+static f == StaticRef (GlobalName "foo-0.1" "" "M" "f")
+</programlisting>
+</para>
+
+<para>
+The information contained in the reference produced by the <literal>static</literal>
+form can be used to locate the symbol at runtime.
+</para>
+
+<para>
+If a program is expected to find the symbols of static values, then it
+must link object code containing the symbols. The extension is not
+concerned with the concrete mechanism that is employed to find the
+symbols or the libraries where they are defined. Implementations are
+possible using the RTS linker or, in linux, the system dynamic linker.
+</para>
+
+<para>
+When the argument of the static form is the name of an existing
+top-level binding, a reference to the existing binding is provided as
+in the example above.
+Otherwise, a top-level binding with a fresh name is generated and the
+argument of the static form is given as right-hand side.
+For instance, <literal>static "hello"</literal> points to a generated top-level binding:
+
+<programlisting>
+module N where
+
+import GHC.StaticRef
+
+static:0 = "hello"
+
+g :: StaticRef String
+g = static "hello"
+-- static "hello" == StaticRef (GlobalName "foo-0.1" "" "N" "static:0")
+</programlisting>
+</para>
+
+<para>
+The names of generated top-level bindings have the form
+<literal>static:<replaceable>N</replaceable></literal> where
+<replaceable>N</replaceable> comes from a per-module counter.
+</para>
+
+<para>
+The data constructors StaticRef and GlobalName have been defined in
+<ulink url="&libraryBaseLocation;/GHC-StaticRef.html">base:GHC.StaticRef</ulink>.
+</para>
+
+<para>
+In the desugaring phase, the <literal>static</literal> form is always replaced
+by a term of the same type written as:
+<programlisting>
+StaticRef (GlobalName "package_name" "installationSuffix" "module" "name")
+</programlisting>
+</para>
+
+<para>
+Each static form has an associated top-level binding.
+<replaceable>"package_name"</replaceable> is the package name where
+the top-level binding is defined.
+<replaceable>"installationSuffix"</replaceable> provides
+additional information to locate the package like the package
+version or the hash value. <replaceable>"module"</replaceable> is the
+module name where the top-level binding is defined.
+<replaceable>"name"</replaceable> is the name of the top-level
+binding.
+</para>
+
+<para>
+The installation suffix in the case of <literal>static f</literal> and
+<literal>static "hello"</literal> is empty because the compiler does
+not have access to information related to installation of the
+current package while compiling the code where the static form
+appears. Thus, the field is mostly useful when referring to
+identifiers exported by dependencies. For instance,
+<literal>static
+    <ulink url="../libraries/bytestring/Data-ByteString.html#v:empty">
+        <function>Data.ByteString.empty</function>
+    </ulink>
+</literal>
+points to the top-level binding in the
+<literal>
+    <ulink url="../libraries/bytestring/Data-ByteString.html#v:empty">
+        bytestring
+    </ulink>
+</literal>
+package:
+
+<programlisting>
+static Data.ByteString.empty
+         == StaticRef (GlobalName "bytestring-0.10.0.2"
+                                  "4f93248f75667c2c3321a7a6761b576f"
+                                  "Data.ByteString"
+                                  "empty"
+                      )
+</programlisting>
+</para>
+
+<para>
+The package usually appears in the package name, but wired-in packages
+show it in the installation suffix (base, ghc-prim and others). Compare
+<literal>static id</literal> with the previous example:
+
+<programlisting>
+static id == StaticRef (GlobalName "base" "4.7.0.0-8aa5d403c45ea59dcd2c39f123e27d57" "GHC.Base" "id")
+</programlisting>
+</para>
+
+<para>
+There are some restriction that arise from using the extension:
+<itemizedlist>
+<listitem><para>
+When using the extension the <literal>static</literal> keyword is only allowed
+in the function position of an application.
+
+<programlisting>
+e ::= v | \v -> e | e_1 e_2 | static e | ...
+</programlisting>
+
+<literal>static</literal> is not a valid identifier in modules using the <literal>StaticValues</literal>
+extension, so it cannot be used to name functions or arguments.
+</para></listitem>
+<listitem><para>
+The argument of <literal>static</literal> needs to be a closed
+expression. That is, free variables should refer only to top-level
+bindings. No scoped type variables or local variables are allowed in
+the argument. For instance, the expression
+<literal>\x -> static x</literal> would be rejected because x is free
+in <literal>static x</literal> but not in scope at the top-level.
+</para></listitem>
+<listitem><para>
+The <literal>static</literal> form cannot generate top-level bindings
+when used at the GHCi prompt. This is still to be implemented.
+</para></listitem>
+</itemizedlist>
+</para>
+
+<sect2 id="typechecking-static-values">
+<title>Typechecking static values</title>
+
+<para>
+Informally, if we have a closed expression
+<programlisting>
+       e :: forall a b ... . (C1,C2,...) => t
+</programlisting>
+the static form would have the following type
+<programlisting>
+static e :: forall a b ... . StaticRef ((C1,C2,...) => t)
+</programlisting>
+
+Here there are some examples:
+<programlisting>
+static id      ::   forall a . StaticRef (a -> a)
+static seq     :: forall a b . StaticRef (a -> b-> b)
+static "hello" ::              StaticRef String
+static show    ::   forall a . StaticRef (Show a => a -> String)
+</programlisting>
+</para>
+
+</sect2>
+
+</sect1>
+
 
 <!-- =============================== PRAGMAS ===========================  -->
 
