@@ -1828,6 +1828,7 @@ data CtOrigin
   | HoleOrigin
   | UnboundOccurrenceOf RdrName
   | ListOrigin          -- An overloaded list
+  | StaticOrigin        -- A static form
 
 pprO :: CtOrigin -> SDoc
 pprO (GivenOrigin sk)      = ppr sk
@@ -1875,6 +1876,7 @@ pprO FunDepOrigin          = ptext (sLit "a functional dependency")
 pprO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprO (UnboundOccurrenceOf name) = hsep [ptext (sLit "an undeclared identifier"), quotes (ppr name)]
 pprO ListOrigin            = ptext (sLit "an overloaded list")
+pprO StaticOrigin          = ptext (sLit "a static form")
 
 instance Outputable CtOrigin where
   ppr = pprO

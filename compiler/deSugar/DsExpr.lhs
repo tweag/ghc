@@ -414,8 +414,10 @@ dsExpr (HsStatic (L loc (HsVar varId))) = do
           case lookupPackage (pkgIdMap $ pkgState dflags) pkgId of
             Nothing -> ""
             Just pd -> let InstalledPackageId ipid = installedPackageId pd
-                        in drop (length pkg_id_string + 1) ipid
-    putSrcSpanDs loc $ mkConApp staticRefDataCon . (Type (idType varId) :) . (:[]) . mkConApp globalNameDataCon
+                        in drop (length pkgName + 1) ipid
+        (qtvs,ty_) = tcSplitForAllTys $ idType varId
+    putSrcSpanDs loc $
+      mkLams qtvs . mkConApp staticRefDataCon . (Type ty_ :) . (:[]) . mkConApp globalNameDataCon
       <$> mapM mkStringExprFS
                [ fsLit pkgName
                , fsLit pkgInstallationSuffix
