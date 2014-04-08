@@ -39,6 +39,7 @@ import DsMonad hiding (Splice)
 import Id
 import ConLike
 import DataCon
+import Module ( HasModule(..), lookupWithDefaultModuleEnv, extendModuleEnv )
 import PatSyn
 import RdrName
 import Name
@@ -64,7 +65,7 @@ import FastString
 import Control.Monad
 import Class(classTyCon)
 import Data.Function
-import Data.IORef       ( modifyIORef )
+import Data.IORef       ( atomicModifyIORef )
 import Data.List
 import qualified Data.Set as Set
 \end{code}
@@ -1653,8 +1654,7 @@ addStaticBinding b = do
 tcStaticExpr :: LHsExpr Name -> TcM (LHsBindLR TcId TcId,TcId)
 tcStaticExpr expr@(L loc _) = do
     ((tc_expr, res_ty), lie) <- captureConstraints $ tcInferRho expr
-    stId0 <- mkStableIdFromString "static" res_ty loc id
-    let stName = idName stId0
+    stName <- mkStaticName loc
     mono_id <- newNoSigLetBndr LetLclBndr stName res_ty
 
     (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
@@ -1664,7 +1664,6 @@ tcStaticExpr expr@(L loc _) = do
 
     let all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty)
     ty <- zonkTcType all_expr_ty
-    let stId = setIdType stId0 ty
 
     theta <- zonkTcThetaType (map evVarPred dicts)
     exports <- checkNoErrs $ (:[]) <$> mkExport (const []) qtvs theta (stName,Nothing,mono_id)
@@ -1684,5 +1683,22 @@ tcStaticExpr expr@(L loc _) = do
                     , abs_ev_vars = dicts, abs_ev_binds = ev_binds
                     , abs_exports = exports, abs_binds = binds'
                     }
-    return (tc_bind,stId)
+    return (tc_bind,mkExportedLocalId stName ty)
+
+mkStaticName :: SrcSpan -> TcM Name
+mkStaticName loc = do
+    uniq <- newUnique
+    mod <- getModule
+    occ <- mkWrapperName "static"
+    return $ mkExternalName uniq mod occ loc
+  where
+    mkWrapperName what
+      = do dflags <- getDynFlags
+           thisMod <- getModule
+           let -- Note [Generating fresh names for ccall wrapper] in compiler/typecheck/TcEnv.hs
+               wrapperRef = nextWrapperNum dflags
+           wrapperNum <- liftIO $ atomicModifyIORef wrapperRef $ \mod_env ->
+               let num = lookupWithDefaultModuleEnv mod_env 0 thisMod
+                in (extendModuleEnv mod_env thisMod (num+1), num)
+           return $ mkVarOcc $ what ++ ":" ++ show wrapperNum
 \end{code}
