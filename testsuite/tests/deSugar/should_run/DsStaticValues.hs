@@ -1,21 +1,21 @@
 {-# LANGUAGE StaticValues #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 
-import GHC.StaticRef
+import GHC.Ref
 
 main = putStr $ unlines $ map showGlobalName gNames
   where
-    globalNameStaticRef (StaticRef gn) = gn
+    globalNameRef (Ref gn) = gn
     showGlobalName (GlobalName pkg _ m n) =
       unwords $ ("GlobalName" :) $ map show [ pkg, m, n ]
     gNames =
-      [ globalNameStaticRef $ static g
-      , globalNameStaticRef $ static id
-      , globalNameStaticRef $ static (&&)
-      , globalNameStaticRef $ static method
-      , globalNameStaticRef $ static t_field
-      , globalNameStaticRef $ static (id . show)
-      , globalNameStaticRef $ static (id . (+))
+      [ globalNameRef $ static g
+      , globalNameRef $ static id
+      , globalNameRef $ static (&&)
+      , globalNameRef $ static method
+      , globalNameRef $ static t_field
+      , globalNameRef $ static (id . show)
+      , globalNameRef $ static (id . (+))
       ]
 
 g :: Int -> Int

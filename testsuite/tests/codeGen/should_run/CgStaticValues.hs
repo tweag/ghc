@@ -14,7 +14,7 @@ module Main(main) where
 import GHC.Ptr          ( Ptr(..), nullPtr )
 import Foreign.C.String ( withCString, CString )
 import GHC.Exts         ( addrToAny# )
-import GHC.StaticRef
+import GHC.Ref
 import System.Info      ( os )
 import System.Environment
 
@@ -34,8 +34,8 @@ main = do {
       load LoadAllTargets
       liftIO $ do
         unstaticMain (static g) >>= putStrLn
-        unstaticMain (f0 :: StaticRef Char) >>= print
-        unstaticMain (f1 :: StaticRef Char) >>= print
+        unstaticMain (f0 :: Ref Char) >>= print
+        unstaticMain (f1 :: Ref Char) >>= print
         -- The ((>>=) $ x) avoids the need to type long type signatures when
         -- using impredicative types and direct application (x >>=).
         ((>>=) $ unstaticMain $ static (id . (+))) $
@@ -45,8 +45,8 @@ main = do {
     }
 
   where
-    unstaticMain :: StaticRef a -> IO a
-    unstaticMain (StaticRef (GlobalName "main" "" m n)) =
+    unstaticMain :: Ref a -> IO a
+    unstaticMain (Ref (GlobalName "main" "" m n)) =
       loadFunction__ m n
         >>= maybe (error $ m ++ "." ++ n ++ " not found") return
     unstaticMain gn = error $ "unexpected package in " ++ show gn
@@ -56,8 +56,8 @@ g = "hello"
 g1 = '1'
 
 class C a where
-  f0 :: StaticRef a
-  f1 :: StaticRef a
+  f0 :: Ref a
+  f1 :: Ref a
 
 instance C Char where
   f0 = static g1

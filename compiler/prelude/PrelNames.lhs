@@ -456,7 +456,7 @@ gHC_PARR' :: Module
 gHC_PARR' = mkBaseModule (fsLit "GHC.PArr")
 
 gHC_STATICREF :: Module
-gHC_STATICREF = mkBaseModule (fsLit "GHC.StaticRef")
+gHC_STATICREF = mkBaseModule (fsLit "GHC.Ref")
 
 mAIN, rOOT_MAIN :: Module
 mAIN            = mkMainModule_ mAIN_NAME
@@ -1527,8 +1527,8 @@ specTyConKey = mkPreludeTyConUnique 177
 smallArrayPrimTyConKey        = mkPreludeTyConUnique  178
 smallMutableArrayPrimTyConKey = mkPreludeTyConUnique  179
 
-staticRefTyConKey  :: Unique
-staticRefTyConKey  = mkPreludeTyConUnique 180
+refTyConKey  :: Unique
+refTyConKey  = mkPreludeTyConUnique 180
 
 globalNameTyConKey :: Unique
 globalNameTyConKey = mkPreludeTyConUnique 181
@@ -1600,8 +1600,8 @@ integerGmpJDataConKey                   = mkPreludeDataConUnique 31
 
 coercibleDataConKey                     = mkPreludeDataConUnique 32
 
-staticRefDataConKey :: Unique
-staticRefDataConKey                     = mkPreludeDataConUnique 33
+refDataConKey :: Unique
+refDataConKey                           = mkPreludeDataConUnique 33
 
 globalNameDataConKey :: Unique
 globalNameDataConKey                    = mkPreludeDataConUnique 34
