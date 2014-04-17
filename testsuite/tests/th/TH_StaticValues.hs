@@ -15,7 +15,7 @@ module Main(main) where
 import GHC.Ptr          ( Ptr(..), nullPtr )
 import Foreign.C.String ( withCString, CString )
 import GHC.Exts         ( addrToAny# )
-import GHC.StaticRef
+import GHC.Ref
 import Language.Haskell.TH
 import System.Info      ( os )
 import System.Environment
@@ -45,8 +45,8 @@ main = do {
     }
 
   where
-    unstaticMain :: StaticRef a -> IO a
-    unstaticMain (StaticRef (GlobalName "main" "" m n)) =
+    unstaticMain :: Ref a -> IO a
+    unstaticMain (Ref (GlobalName "main" "" m n)) =
       loadFunction__ m n
         >>= maybe (error $ m ++ "." ++ n ++ " not found") return
     unstaticMain gn = error $ "unexpected package in " ++ show gn

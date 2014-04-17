@@ -2,15 +2,15 @@
 
 module StaticValues01 where
 
-import GHC.StaticRef
+import GHC.Ref
 
-f0 :: StaticRef (Int -> Int)
+f0 :: Ref (Int -> Int)
 f0 = static g
 
-f1 :: StaticRef (Bool -> Bool -> Bool)
+f1 :: Ref (Bool -> Bool -> Bool)
 f1 = static (&&)
 
-f2 :: StaticRef (Bool -> Bool -> Bool)
+f2 :: Ref (Bool -> Bool -> Bool)
 f2 = static ((&&) . id)
 
 g :: Int -> Int
