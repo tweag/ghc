@@ -498,7 +498,7 @@ tcExpr (HsStatic (L p (HsVar n))) res_ty
   = do  { tcid <- lookup_id n
         ; let (qtvs,n_ty_) = tcSplitForAllTys $ idType tcid
         ; (wrap, rho) <- deeplyInstantiate StaticOrigin $
-            mkForAllTys qtvs $ mkTyConApp staticRefTyCon [ n_ty_ ]
+            mkForAllTys qtvs $ mkTyConApp refTyCon [ n_ty_ ]
         ; keepAlive n
         ; tcWrapResult (mkHsWrap wrap $ HsStatic $ L p $ HsVar tcid) rho res_ty }
 
@@ -508,7 +508,7 @@ tcExpr (HsStatic expr@(L loc _)) res_ty
         ; addStaticBinding tc_bind
         ; let (qtvs,expr_ty_) = tcSplitForAllTys $ idType stId
         ; (wrap, rho) <- deeplyInstantiate StaticOrigin $
-            mkForAllTys qtvs $ mkTyConApp staticRefTyCon [ expr_ty_ ]
+            mkForAllTys qtvs $ mkTyConApp refTyCon [ expr_ty_ ]
         ; tcWrapResult (mkHsWrap wrap $ HsStatic $ L loc $ HsVar stId) rho res_ty }
 \end{code}
 

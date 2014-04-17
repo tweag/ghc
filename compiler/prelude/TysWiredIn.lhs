@@ -68,9 +68,9 @@ module TysWiredIn (
         parrTyCon, parrFakeCon, isPArrTyCon, isPArrFakeCon,
         parrTyCon_RDR, parrTyConName,
 
-        -- * StaticRef
-        staticRefTyCon, staticRefTyConName,
-        staticRefDataCon, globalNameDataCon,
+        -- * Ref
+        refTyCon, refTyConName,
+        refDataCon, globalNameDataCon,
 
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
@@ -157,7 +157,7 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               , wordTyCon
               , listTyCon
               , parrTyCon
-              , staticRefTyCon
+              , refTyCon
               , globalNameTyCon
               , eqTyCon
               , coercibleTyCon
@@ -236,11 +236,11 @@ parrTyConName   = mkWiredInTyConName   BuiltInSyntax
 parrDataConName = mkWiredInDataConName UserSyntax
                     gHC_PARR' (fsLit "PArr") parrDataConKey parrDataCon
 
-staticRefTyConName, staticRefDataConName :: Name
-staticRefTyConName   = mkWiredInTyConName   UserSyntax
-                    gHC_STATICREF (fsLit "StaticRef") staticRefTyConKey staticRefTyCon
-staticRefDataConName = mkWiredInDataConName UserSyntax
-                    gHC_STATICREF (fsLit "StaticRef") staticRefDataConKey staticRefDataCon
+refTyConName, refDataConName :: Name
+refTyConName   = mkWiredInTyConName   UserSyntax
+                    gHC_STATICREF (fsLit "Ref") refTyConKey refTyCon
+refDataConName = mkWiredInDataConName UserSyntax
+                    gHC_STATICREF (fsLit "Ref") refDataConKey refDataCon
 
 globalNameTyConName, globalNameDataConName :: Name
 globalNameTyConName   = mkWiredInTyConName   UserSyntax
@@ -907,14 +907,14 @@ isPArrFakeCon      :: DataCon -> Bool
 isPArrFakeCon dcon  = dcon == parrFakeCon (dataConSourceArity dcon)
 \end{code}
 
-StaticRef
+Ref
 
 \begin{code}
-staticRefTyCon :: TyCon
-staticRefTyCon  = pcNonRecDataTyCon staticRefTyConName Nothing alpha_tyvar [staticRefDataCon]
+refTyCon :: TyCon
+refTyCon  = pcNonRecDataTyCon refTyConName Nothing alpha_tyvar [refDataCon]
 
-staticRefDataCon :: DataCon
-staticRefDataCon  = pcDataCon staticRefDataConName alpha_tyvar [globalNameTy] staticRefTyCon
+refDataCon :: DataCon
+refDataCon  = pcDataCon refDataConName alpha_tyvar [globalNameTy] refTyCon
 
 globalNameTy :: Type
 globalNameTy = mkTyConTy globalNameTyCon

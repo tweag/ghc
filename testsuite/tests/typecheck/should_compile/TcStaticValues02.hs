@@ -3,18 +3,18 @@
 
 module StaticValues02 where
 
-import GHC.StaticRef
+import GHC.Ref
 
-f2 :: StaticRef (a -> a)
+f2 :: Ref (a -> a)
 f2 = static id
 
-f3 :: StaticRef (C a => a -> Int)
+f3 :: Ref (C a => a -> Int)
 f3 = static method
 
-f4 :: StaticRef (T a -> a)
+f4 :: Ref (T a -> a)
 f4 = static t_field
 
-f5 :: StaticRef (a -> a)
+f5 :: Ref (a -> a)
 f5 = static (id . id)
 
 g :: Int -> Int

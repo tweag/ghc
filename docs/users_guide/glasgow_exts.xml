@@ -9796,12 +9796,12 @@ Suppose we have the following module:
 {-# LANGUAGE StaticValues #-}
 module M(g) where
 
-import GHC.StaticRef
+import GHC.Ref
 
 f :: Int -> Int
 f = (+1)
 
-g :: StaticRef (Int -> Int)
+g :: Ref (Int -> Int)
 g = static f
 </programlisting>
 </para>
@@ -9821,7 +9821,7 @@ $ nm --defined-only M.o
 <para>
 Secondly, we have that
 <programlisting>
-static f == StaticRef (GlobalName "foo-0.1" "" "M" "f")
+static f == Ref (GlobalName "foo-0.1" "" "M" "f")
 </programlisting>
 </para>
 
@@ -9849,13 +9849,13 @@ For instance, <literal>static "hello"</literal> points to a generated top-level 
 <programlisting>
 module N where
 
-import GHC.StaticRef
+import GHC.Ref
 
 static:0 = "hello"
 
-g :: StaticRef String
+g :: Ref String
 g = static "hello"
--- static "hello" == StaticRef (GlobalName "foo-0.1" "" "N" "static:0")
+-- static "hello" == Ref (GlobalName "foo-0.1" "" "N" "static:0")
 </programlisting>
 </para>
 
@@ -9866,15 +9866,15 @@ The names of generated top-level bindings have the form
 </para>
 
 <para>
-The data constructors StaticRef and GlobalName have been defined in
-<ulink url="&libraryBaseLocation;/GHC-StaticRef.html">base:GHC.StaticRef</ulink>.
+The data constructors Ref and GlobalName have been defined in
+<ulink url="&libraryBaseLocation;/GHC-Ref.html">base:GHC.Ref</ulink>.
 </para>
 
 <para>
 In the desugaring phase, the <literal>static</literal> form is always replaced
 by a term of the same type written as:
 <programlisting>
-StaticRef (GlobalName "package_name" "installationSuffix" "module" "name")
+Ref (GlobalName "package_name" "installationSuffix" "module" "name")
 </programlisting>
 </para>
 
@@ -9912,11 +9912,11 @@ package:
 
 <programlisting>
 static Data.ByteString.empty
-         == StaticRef (GlobalName "bytestring-0.10.0.2"
-                                  "4f93248f75667c2c3321a7a6761b576f"
-                                  "Data.ByteString"
-                                  "empty"
-                      )
+         == Ref (GlobalName "bytestring-0.10.0.2"
+                            "4f93248f75667c2c3321a7a6761b576f"
+                            "Data.ByteString"
+                            "empty"
+                )
 </programlisting>
 </para>
 
@@ -9926,7 +9926,7 @@ show it in the installation suffix (base, ghc-prim and others). Compare
 <literal>static id</literal> with the previous example:
 
 <programlisting>
-static id == StaticRef (GlobalName "base" "4.7.0.0-8aa5d403c45ea59dcd2c39f123e27d57" "GHC.Base" "id")
+static id == Ref (GlobalName "base" "4.7.0.0-8aa5d403c45ea59dcd2c39f123e27d57" "GHC.Base" "id")
 </programlisting>
 </para>
 
@@ -9969,15 +9969,15 @@ Informally, if we have a closed expression
 </programlisting>
 the static form would have the following type
 <programlisting>
-static e :: forall a b ... . StaticRef ((C1,C2,...) => t)
+static e :: forall a b ... . Ref ((C1,C2,...) => t)
 </programlisting>
 
 Here there are some examples:
 <programlisting>
-static id      ::   forall a . StaticRef (a -> a)
-static seq     :: forall a b . StaticRef (a -> b-> b)
-static "hello" ::              StaticRef String
-static show    ::   forall a . StaticRef (Show a => a -> String)
+static id      ::   forall a . Ref (a -> a)
+static seq     :: forall a b . Ref (a -> b-> b)
+static "hello" ::              Ref String
+static show    ::   forall a . Ref (Show a => a -> String)
 </programlisting>
 </para>
 

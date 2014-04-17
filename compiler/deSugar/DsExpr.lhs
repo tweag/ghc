@@ -398,7 +398,7 @@ dsExpr (PArrSeq _ _)
 \begin{verbatim}
     static f
 ==>
-    StaticRef (GlobalName "pkg id of f" "pkg-installation suffix" "module of f" "f")
+    Ref (GlobalName "pkg id of f" "pkg-installation suffix" "module of f" "f")
 \end{verbatim}
 
 \begin{code}
@@ -415,7 +415,7 @@ dsExpr (HsStatic (L loc (HsVar varId))) = do
                         in drop (length pkgName + 1) ipid
         (qtvs,ty_) = tcSplitForAllTys $ idType varId
     putSrcSpanDs loc $
-      mkLams qtvs . mkConApp staticRefDataCon . (Type ty_ :) . (:[]) . mkConApp globalNameDataCon
+      mkLams qtvs . mkConApp refDataCon . (Type ty_ :) . (:[]) . mkConApp globalNameDataCon
       <$> mapM mkStringExprFS
                [ fsLit pkgName
                , fsLit pkgInstallationSuffix
