@@ -425,8 +425,16 @@ dsExpr (HsStatic (L loc (HsVar varId))) = do
                , occNameFS $ nameOccName n
                ]
 
-dsExpr (HsStatic _) = panic "DsExpr.dsExpr: HsStatic should bring only an identifier."
+-- See Note [The argument of a static form is a variable]
+dsExpr (HsStatic _) = panic "DsExpr.dsExpr: HsStatic: non-variable expression."
 \end{code}
+
+Note [The argument of a static form is a variable]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+During type-checking the arguments of static forms which are not variables are
+floated as top-level bindings with fresh names, and the fresh names are placed
+as the arguments of the static forms. Thus, in the desugaring phase all static
+forms should have variables as arguments.
 
 \noindent
 \underline{\bf Record construction and update}
