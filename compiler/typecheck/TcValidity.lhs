@@ -175,6 +175,7 @@ checkValidType ctxt ty
                  SpecInstCtxt   -> rank1
                  ThBrackCtxt    -> rank1
                  GhciCtxt       -> ArbitraryRank
+                 StaticCtxt     -> rank1
                  _              -> panic "checkValidType"
                                           -- Can't happen; not used for *user* sigs
 
