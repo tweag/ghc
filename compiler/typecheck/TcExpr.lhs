@@ -23,6 +23,7 @@ import HsSyn
 import TcHsSyn
 import TcRnMonad
 import TcUnify
+import TcValidity
 import Bag              (unitBag, consBag)
 import BasicTypes
 import Inst
@@ -496,22 +497,20 @@ tcExpr (HsProc pat cmd) res_ty
   = do  { (pat', cmd', coi) <- tcProc pat cmd res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
 
-tcExpr (HsStatic (L p (HsVar n))) res_ty
-  = do  { tcid <- lookup_id n
-        ; let (qtvs,n_ty_) = tcSplitForAllTys $ idType tcid
-        ; (wrap, rho) <- deeplyInstantiate StaticOrigin $
-            mkForAllTys qtvs $ mkTyConApp refTyCon [ n_ty_ ]
-        ; keepAlive n
-        ; tcWrapResult (mkHsWrap wrap $ HsStatic $ L p $ HsVar tcid) rho res_ty }
-
-tcExpr (HsStatic expr@(L loc _)) res_ty
+tcExpr (HsStatic expr@(L loc hsE)) res_ty
   = do  { (tc_bind, stId) <- tcStaticExpr expr
-        ; keepAlive $ idName stId
-        ; addStaticBinding tc_bind
         ; let (qtvs,expr_ty_) = tcSplitForAllTys $ idType stId
-        ; (wrap, rho) <- deeplyInstantiate StaticOrigin $
-            mkForAllTys qtvs $ mkTyConApp refTyCon [ expr_ty_ ]
-        ; tcWrapResult (mkHsWrap wrap $ HsStatic $ L loc $ HsVar stId) rho res_ty }
+              ty = mkForAllTys qtvs $ mkTyConApp refTyCon [ expr_ty_ ]
+        ; (wrap, rho) <- deeplyInstantiate StaticOrigin ty
+        ; checkValidType StaticCtxt ty
+        ; stId' <- case hsE of
+            -- Keep the name if the static argument is a variable.
+            HsVar n -> return $ setIdName stId n
+            -- Add a generated binding if the static argument is not a variable.
+            _       -> do addStaticBinding tc_bind
+                          return stId
+        ; keepAlive $ idName stId'
+        ; tcWrapResult (mkHsWrap wrap $ HsStatic $ L loc $ HsVar stId') rho res_ty }
 \end{code}
 
 Note [Rebindable syntax for if]

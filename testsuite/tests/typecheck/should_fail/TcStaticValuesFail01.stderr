@@ -1,7 +1,21 @@
 
-TcStaticValuesFail01.hs:8:6:
+TcStaticValuesFail01.hs:9:6:
     Couldn't match type ‘Int -> Int’ with ‘Int’
     Expected type: Ref Int
       Actual type: Ref (Int -> Int)
     In the expression: static g
     In an equation for ‘f0’: f0 = static g
+
+TcStaticValuesFail01.hs:14:27:
+    Illegal polymorphic or qualified type: forall a. a -> a
+    Perhaps you intended to use RankNTypes or Rank2Types
+    In an expression type signature: (forall a. a -> a) -> b
+    In the expression: (undefined :: (forall a. a -> a) -> b)
+    In the expression: static (undefined :: (forall a. a -> a) -> b)
+
+TcStaticValuesFail01.hs:16:6:
+    Illegal polymorphic or qualified type:
+      Monad m => m a -> (a -> m b) -> m b
+    Perhaps you intended to use ImpredicativeTypes
+    In the expression: static (>>=)
+    In an equation for ‘f2’: f2 = static (>>=)

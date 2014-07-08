@@ -3,6 +3,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE StaticValues #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 
 -- |A test to load symbols produced by the static form.
 --
