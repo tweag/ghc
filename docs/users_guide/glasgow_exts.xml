@@ -9913,7 +9913,7 @@ g = static f
 Firstly, when compiling the module <literal>M</literal>, we can see that the symbol
 for <literal>f</literal> appears in the output, despite of not being exported.
 <programlisting>
-$ /home/facundo/parsci/ghc/inplace/bin/ghc-stage2 -c M.hs
+$ ghc -c M.hs
 $ nm --defined-only M.o
 00000000000000d8 D M_f_closure
 0000000000000088 T M_f_info
@@ -9977,7 +9977,7 @@ The data constructors Ref and GlobalName have been defined in
 In the desugaring phase, the <literal>static</literal> form is always replaced
 by a term of the same type written as:
 <programlisting>
-Ref (GlobalName "package_name" "installationSuffix" "module" "name")
+Ref (GlobalName "package_name" "installedPackageId" "module" "name")
 </programlisting>
 </para>
 
@@ -9985,20 +9985,24 @@ Ref (GlobalName "package_name" "installationSuffix" "module" "name")
 Each static form has an associated top-level binding.
 <replaceable>"package_name"</replaceable> is the package name where
 the top-level binding is defined.
-<replaceable>"installationSuffix"</replaceable> provides
-additional information to locate the package like the package
-version or the hash value. <replaceable>"module"</replaceable> is the
+<replaceable>"installedPackageId"</replaceable> provides
+additional information to locate the package when there are multiple
+variations of it installed. It has the value of
+<ulink url="../libraries/Cabal/Distribution-Package.html#t:InstalledPackageId">
+  <function>Distribution.Package.InstalledPackageId</function>
+</ulink>.
+<replaceable>"module"</replaceable> is the
 module name where the top-level binding is defined.
 <replaceable>"name"</replaceable> is the name of the top-level
 binding.
 </para>
 
 <para>
-The installation suffix in the case of <literal>static f</literal> and
-<literal>static "hello"</literal> is empty because the compiler does
-not have access to information related to installation of the
-current package while compiling the code where the static form
-appears. Thus, the field is mostly useful when referring to
+The installed package id is empty in the case of
+<literal>static f</literal> and <literal>static "hello"</literal>
+because the compiler does not have access to information related to
+installation of the current package while compiling the code where the
+static form appears. Thus, the field is mostly useful when referring to
 identifiers exported by dependencies. For instance,
 <literal>static
     <ulink url="../libraries/bytestring/Data-ByteString.html#v:empty">
@@ -10016,20 +10020,10 @@ package:
 <programlisting>
 static Data.ByteString.empty
          == Ref (GlobalName "bytestring-0.10.0.2"
-                            "4f93248f75667c2c3321a7a6761b576f"
+                            "bytestring-0.10.0.2-4f93248f75667c2c3321a7a6761b576f"
                             "Data.ByteString"
                             "empty"
                 )
-</programlisting>
-</para>
-
-<para>
-The package usually appears in the package name, but wired-in packages
-show it in the installation suffix (base, ghc-prim and others). Compare
-<literal>static id</literal> with the previous example:
-
-<programlisting>
-static id == Ref (GlobalName "base" "4.7.0.0-8aa5d403c45ea59dcd2c39f123e27d57" "GHC.Base" "id")
 </programlisting>
 </para>
 
@@ -10068,19 +10062,26 @@ when used at the GHCi prompt. This is still to be implemented.
 <para>
 Informally, if we have a closed expression
 <programlisting>
-       e :: forall a b ... . (C1,C2,...) => t
+       e :: forall a b ... . t
 </programlisting>
 the static form would have the following type
 <programlisting>
-static e :: forall a b ... . Ref ((C1,C2,...) => t)
+static e :: forall a b ... . Ref t
 </programlisting>
 
 Here there are some examples:
 <programlisting>
-static id      ::   forall a . Ref (a -> a)
+static id      :: forall a   . Ref (a -> a)
 static seq     :: forall a b . Ref (a -> b-> b)
 static "hello" ::              Ref String
-static show    ::   forall a . Ref (Show a => a -> String)
+</programlisting>
+
+Only rank-1 polymorphic types with no constraints are allowed in
+the argument of a <literal>static</literal> form. Thus the following
+expressions are illegal:
+<programlisting>
+static show                    -- show has constraint (Show a)
+static Control.Monad.ST.runST  -- runST has a higher-ranked type
 </programlisting>
 </para>
 
