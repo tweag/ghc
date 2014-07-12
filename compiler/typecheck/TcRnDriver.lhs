@@ -1223,10 +1223,18 @@ tcTopSrcDecls boot_details
                 -- Vectorisation declarations
         vects <- tcVectDecls vect_decls ;
 
+                -- collect top-level bindings introduced by static forms
+        stBinds <- readTcRef $ tcg_static_binds tcg_env ;
+        writeTcRef (tcg_static_binds tcg_env) emptyBag ;
+        when (not $ isEmptyBag stBinds) $
+          dumpOptTcRn Opt_D_dump_static_binds $ mkDumpDoc "Static bindings" $
+            vcat $ map ((text "" $$) . ppr) $ bagToList stBinds ;
+
                 -- Wrap up
         traceTc "Tc7a" empty ;
         let { all_binds = inst_binds     `unionBags`
-                          foe_binds
+                          foe_binds      `unionBags`
+                          stBinds
 
             ; fo_gres = fi_gres `unionBags` foe_gres
             ; fo_fvs = foldrBag (\gre fvs -> fvs `addOneFV` gre_name gre) 

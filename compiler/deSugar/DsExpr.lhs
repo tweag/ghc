@@ -45,6 +45,7 @@ import DynFlags
 import CostCentre
 import Id
 import Module
+import Packages
 import VarSet
 import VarEnv
 import ConLike
@@ -59,6 +60,7 @@ import Outputable
 import FastString
 
 import Control.Monad
+import Distribution.Package(InstalledPackageId(..))
 \end{code}
 
 
@@ -389,6 +391,48 @@ dsExpr (PArrSeq _ _)
     -- the parser shouldn't have generated it and the renamer and typechecker
     -- shouldn't have let it through
 \end{code}
+
+\noindent
+\underline{\bf Static values}
+%              ~~~~~~~~~~~~~
+\begin{verbatim}
+    static f
+==>
+    Ref (GlobalName "pkg id of f" "pkg-installation suffix" "module of f" "f")
+\end{verbatim}
+
+\begin{code}
+dsExpr (HsStatic (L loc (HsVar varId))) = do
+    let n = idName varId
+        mod = nameModule n
+        pkgId = modulePackageId mod
+        pkgName = packageIdString pkgId
+    dflags <- getDynFlags
+    let pkgInstallationSuffix =
+          case lookupPackage (pkgIdMap $ pkgState dflags) pkgId of
+            Nothing -> ""
+            Just pd -> let InstalledPackageId ipid = installedPackageId pd
+                        in drop (length pkgName + 1) ipid
+        (qtvs,ty_) = tcSplitForAllTys $ idType varId
+    putSrcSpanDs loc $
+      mkLams qtvs . mkConApp refDataCon . (Type ty_ :) . (:[]) . mkConApp globalNameDataCon
+      <$> mapM mkStringExprFS
+               [ fsLit pkgName
+               , fsLit pkgInstallationSuffix
+               , moduleNameFS $ moduleName mod
+               , occNameFS $ nameOccName n
+               ]
+
+-- See Note [The argument of a static form is a variable]
+dsExpr (HsStatic _) = panic "DsExpr.dsExpr: HsStatic: non-variable expression."
+\end{code}
+
+Note [The argument of a static form is a variable]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+During type-checking the arguments of static forms which are not variables are
+floated as top-level bindings with fresh names, and the fresh names are placed
+as the arguments of the static forms. Thus, in the desugaring phase all static
+forms should have variables as arguments.
 
 \noindent
 \underline{\bf Record construction and update}

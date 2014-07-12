@@ -275,6 +275,8 @@ data TcGblEnv
           --     rule
           --
           --   * Top-level variables appearing free in a TH bracket
+          --
+          --   * Top-level variables introduced by the static form
 
         tcg_th_used :: TcRef Bool,
           -- ^ @True@ <=> Template Haskell syntax used.
@@ -343,9 +345,10 @@ data TcGblEnv
         tcg_main      :: Maybe Name,         -- ^ The Name of the main
                                              -- function, if this module is
                                              -- the main module.
-        tcg_safeInfer :: TcRef Bool          -- Has the typechecker
+        tcg_safeInfer :: TcRef Bool,         -- Has the typechecker
                                              -- inferred this module
                                              -- as -XSafe (Safe Haskell)
+        tcg_static_binds :: TcRef (LHsBinds Id) -- ^ Bindings introduced by static values
     }
 
 instance ContainsModule TcGblEnv where
@@ -1818,6 +1821,7 @@ data CtOrigin
   | HoleOrigin
   | UnboundOccurrenceOf RdrName
   | ListOrigin          -- An overloaded list
+  | StaticOrigin        -- A static form
 
 pprO :: CtOrigin -> SDoc
 pprO (GivenOrigin sk)      = ppr sk
@@ -1865,6 +1869,7 @@ pprO FunDepOrigin          = ptext (sLit "a functional dependency")
 pprO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprO (UnboundOccurrenceOf name) = hsep [ptext (sLit "an undeclared identifier"), quotes (ppr name)]
 pprO ListOrigin            = ptext (sLit "an overloaded list")
+pprO StaticOrigin          = ptext (sLit "a static form")
 
 instance Outputable CtOrigin where
   ppr = pprO
