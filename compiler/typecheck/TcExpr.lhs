@@ -40,6 +40,7 @@ import TcSimplify       ( simplifyInfer )
 import TcType
 import DsMonad hiding (Splice)
 import Id
+import IdInfo
 import ConLike
 import DataCon
 import Module ( HasModule(..), lookupWithDefaultModuleEnv, extendModuleEnv )
@@ -1689,7 +1690,7 @@ tcStaticExpr expr@(L loc _) = do
                     , abs_ev_vars = dicts, abs_ev_binds = ev_binds
                     , abs_exports = exports, abs_binds = binds'
                     }
-    return (tc_bind,mkExportedLocalId stName ty)
+    return (tc_bind,mkExportedLocalId VanillaId stName ty)
 
 mkStaticName :: SrcSpan -> TcM Name
 mkStaticName loc = do
