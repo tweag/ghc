@@ -10028,7 +10028,7 @@ static Data.ByteString.empty
 </para>
 
 <para>
-There are some restriction that arise from using the extension:
+There are some restrictions that arise from using the extension:
 <itemizedlist>
 <listitem><para>
 When using the extension the <literal>static</literal> keyword is only allowed
@@ -10083,8 +10083,33 @@ expressions are illegal:
 static show                    -- show has constraint (Show a)
 static Control.Monad.ST.runST  -- runST has a higher-ranked type
 </programlisting>
-</para>
 
+Instead, one can produce static values for the following wrappers of
+<literal>show</literal> and <literal>runST</literal>.
+<programlisting>
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE StaticValues #-}
+
+import Control.Monad.ST
+import GHC.Ref
+
+data Dict c = c => Dict
+
+dictWrapper :: (c => a) -> Dict c -> a
+dictWrapper v Dict = v
+
+g1 :: Ref (Dict (Show a) -> a -> String)
+g1 = static (dictWrapper show :: Dict (Show a) -> a -> String)
+
+data Rank2Wrapper f = R2W (forall s. f s)
+newtype Flip f a s = Flip { unFlip :: f s a }
+
+g2 :: Ref (Rank2Wrapper (Flip ST a) -> a)
+g2 = static (\(R2W f) -> runST (unFlip f))
+</programlisting>
+</para>
 </sect2>
 
 </sect1>
