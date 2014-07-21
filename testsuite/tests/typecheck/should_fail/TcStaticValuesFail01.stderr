@@ -16,6 +16,5 @@ TcStaticValuesFail01.hs:14:27:
 TcStaticValuesFail01.hs:16:6:
     Illegal polymorphic or qualified type:
       Monad m => m a -> (a -> m b) -> m b
-    Perhaps you intended to use ImpredicativeTypes
     In the expression: static (>>=)
     In an equation for ‘f2’: f2 = static (>>=)

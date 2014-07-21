@@ -1,5 +1,4 @@
 {-# LANGUAGE StaticValues #-}
-{-# LANGUAGE ImpredicativeTypes #-}
 
 import GHC.Ref
 
@@ -12,10 +11,8 @@ main = putStr $ unlines $ map showGlobalName gNames
       [ globalNameRef $ static g
       , globalNameRef $ static id
       , globalNameRef $ static (&&)
-      , globalNameRef $ static method
+      , globalNameRef $ static (method :: Char -> Int)
       , globalNameRef $ static t_field
-      , globalNameRef $ static (id . show)
-      , globalNameRef $ static (id . (+))
       ]
 
 g :: Int -> Int
@@ -23,5 +20,8 @@ g = id
 
 class C a where
   method :: a -> Int
+
+instance C Char where
+  method = const 0
 
 data T a = T { t_field :: a }

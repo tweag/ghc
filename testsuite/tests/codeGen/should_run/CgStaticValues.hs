@@ -2,7 +2,6 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE StaticValues #-}
-{-# LANGUAGE ImpredicativeTypes #-}
 
 -- |A test to load symbols produced by the static form.
 --
@@ -37,12 +36,8 @@ main = do {
         unstaticMain (static g) >>= putStrLn
         unstaticMain (f0 :: Ref Char) >>= print
         unstaticMain (f1 :: Ref Char) >>= print
-        -- The ((>>=) $ x) avoids the need to type long type signatures when
-        -- using impredicative types and direct application (x >>=).
-        ((>>=) $ unstaticMain $ static (id . (+))) $
-          \op -> print $ op (2 :: Int) (1 :: Int)
-        ((>>=) $ unstaticMain $ static (id . show)) $
-          \sh -> putStrLn $ sh (1 :: Int)
+        unstaticMain (static (id . id)) >>= \op ->
+          print (op (1 :: Int))
     }
 
   where

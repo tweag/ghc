@@ -501,8 +501,8 @@ tcExpr (HsProc pat cmd) res_ty
 tcExpr (HsStatic expr@(L loc hsE)) res_ty
   = do  { (tc_bind, stId) <- tcStaticExpr expr
         ; let (qtvs,expr_ty_) = tcSplitForAllTys $ idType stId
-              ty = mkForAllTys qtvs $ mkTyConApp refTyCon [ expr_ty_ ]
-        ; (wrap, rho) <- deeplyInstantiate StaticOrigin ty
+              ty = mkTyConApp refTyCon [ expr_ty_ ]
+        ; (wrap, rho) <- deeplyInstantiate StaticOrigin $ mkForAllTys qtvs ty
         ; checkValidType StaticCtxt ty
         ; stId' <- case hsE of
             -- Keep the name if the static argument is a variable.
