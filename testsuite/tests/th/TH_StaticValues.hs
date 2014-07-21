@@ -3,7 +3,6 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE StaticValues #-}
-{-# LANGUAGE ImpredicativeTypes #-}
 
 -- |A test to load symbols produced by the static form.
 --
@@ -37,12 +36,8 @@ main = do {
       load LoadAllTargets
       liftIO $ do
         unstaticMain $([| static g |]) >>= putStrLn
-        -- The ((>>=) $ x) avoids the need to type long type signatures when
-        -- using impredicative types and direct application (x >>=).
-        ((>>=) $ unstaticMain $([| static (id . (+)) |])) $
-          \op -> print $ op (2 :: Int) (1 :: Int)
-        ((>>=) $ unstaticMain $([| static (id . show) |])) $
-          \sh -> putStrLn $ sh (1 :: Int)
+        unstaticMain $([| static (id . id) |]) >>=
+          \op -> print $ op (2 :: Int)
     }
 
   where
