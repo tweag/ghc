@@ -10011,6 +10011,8 @@ must link object code containing the symbols. The extension is not
 concerned with the concrete mechanism that is employed to find the
 symbols or the libraries where they are defined. Implementations are
 possible using the RTS linker or, in linux, the system dynamic linker.
+A basic lookup implementation is provided in the module
+<ulink url="&libraryBaseLocation;/GHC-Ref.html">base:GHC.Ref</ulink>.
 </para>
 
 <para>

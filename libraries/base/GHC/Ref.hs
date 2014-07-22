@@ -27,10 +27,32 @@
 --
 -----------------------------------------------------------------------------
 
-{-# LANGUAGE DeriveDataTypeable #-}
-module GHC.Ref where
+{-# LANGUAGE CPP                      #-}
+{-# LANGUAGE DeriveDataTypeable       #-}
+#ifdef __GLASGOW_HASKELL__
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE MagicHash                #-}
+{-# LANGUAGE UnboxedTuples            #-}
+#endif
+module GHC.Ref
+  ( Ref(..)
+  , GlobalName(..)
+#ifdef __GLASGOW_HASKELL__
+  , deRef
+#endif
+  ) where
 
-import Data.Typeable (Typeable)
+import Data.Typeable    (Typeable)
+
+#ifdef __GLASGOW_HASKELL__
+import Data.Char
+import Foreign.C.String ( withCString, CString )
+import GHC.Exts         ( addrToAny# )
+import GHC.Ptr          ( Ptr(..), nullPtr )
+import Numeric
+import System.Info      ( os )
+#endif
+
 
 -- | A reference to a top-level value of type 'a'.
 data Ref a = Ref { unRef :: GlobalName }
@@ -50,3 +72,151 @@ data Ref a = Ref { unRef :: GlobalName }
 data GlobalName = GlobalName String String String String
   deriving (Show, Typeable)
 
+#ifdef __GLASGOW_HASKELL__
+-- | An unsafe lookup function for symbolic references.
+--
+-- @deRef (r :: Ref a)@ returns @Nothing@ if no associated value is found for
+-- @r@, and @Just v@ if @v@ is the value associated to @r@ and it has the
+-- expected type @a@.
+--
+-- This function is unsafe because if an associated value @v@ of a different
+-- type is found, then the behavior of this function is undefined.
+--
+-- Currently, a value is considered associated to a reference if the module
+-- producing the reference has been dynamically linked to the program which
+-- calls deRef. This can be done either using the system linker in linux
+-- or the RTS linker.
+--
+-- This function is only available with the GHC compiler.
+--
+deRef :: Ref a -> IO (Maybe a)
+deRef (Ref (GlobalName pkg _ m n)) = do
+    let mpkg = case pkg of
+                 "main" -> Nothing
+                 _ -> Just pkg
+    loadFunction mpkg m n
+
+-- loadFunction__ taken from
+-- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
+loadFunction :: Maybe String
+             -> String
+             -> String
+             -> IO (Maybe a)
+loadFunction mpkg m valsym = do
+    let symbol = prefixUnderscore
+                   ++ maybe "" (\p -> zEncodeString p ++ "_") mpkg
+                   ++ zEncodeString m ++ "_" ++ zEncodeString valsym
+                   ++ "_closure"
+    ptr@(Ptr addr) <- withCString symbol c_lookupSymbol
+    if (ptr == nullPtr)
+    then return Nothing
+    else case addrToAny# addr of
+           (# hval #) -> return ( Just hval )
+  where
+    prefixUnderscore = if elem os ["darwin","mingw32","cygwin"] then "_" else ""
+
+foreign import ccall safe "lookupSymbol"
+   c_lookupSymbol :: CString -> IO (Ptr a)
+
+-----------------------------------------------------------------
+-- The following definitions are copied from the zenc package. --
+-----------------------------------------------------------------
+
+type UserString = String        -- As the user typed it
+type EncodedString = String     -- Encoded form
+
+
+zEncodeString :: UserString -> EncodedString
+zEncodeString s = case maybe_tuple s of
+                Just n  -> n            -- Tuples go to Z2T etc
+                Nothing -> go s
+          where
+                go []     = []
+                go (c:cs) = encode_digit_ch c ++ go' cs
+                go' []     = []
+                go' (c:cs) = encode_ch c ++ go' cs
+
+unencodedChar :: Char -> Bool   -- True for chars that don't need encoding
+unencodedChar 'Z' = False
+unencodedChar 'z' = False
+unencodedChar c   =  c >= 'a' && c <= 'z'
+                  || c >= 'A' && c <= 'Z'
+                  || c >= '0' && c <= '9'
+
+-- If a digit is at the start of a symbol then we need to encode it.
+-- Otherwise package names like 9pH-0.1 give linker errors.
+encode_digit_ch :: Char -> EncodedString
+encode_digit_ch c | c >= '0' && c <= '9' = encode_as_unicode_char c
+encode_digit_ch c | otherwise            = encode_ch c
+
+encode_ch :: Char -> EncodedString
+encode_ch c | unencodedChar c = [c]     -- Common case first
+
+-- Constructors
+encode_ch '('  = "ZL"   -- Needed for things like (,), and (->)
+encode_ch ')'  = "ZR"   -- For symmetry with (
+encode_ch '['  = "ZM"
+encode_ch ']'  = "ZN"
+encode_ch ':'  = "ZC"
+encode_ch 'Z'  = "ZZ"
+
+-- Variables
+encode_ch 'z'  = "zz"
+encode_ch '&'  = "za"
+encode_ch '|'  = "zb"
+encode_ch '^'  = "zc"
+encode_ch '$'  = "zd"
+encode_ch '='  = "ze"
+encode_ch '>'  = "zg"
+encode_ch '#'  = "zh"
+encode_ch '.'  = "zi"
+encode_ch '<'  = "zl"
+encode_ch '-'  = "zm"
+encode_ch '!'  = "zn"
+encode_ch '+'  = "zp"
+encode_ch '\'' = "zq"
+encode_ch '\\' = "zr"
+encode_ch '/'  = "zs"
+encode_ch '*'  = "zt"
+encode_ch '_'  = "zu"
+encode_ch '%'  = "zv"
+encode_ch c    = encode_as_unicode_char c
+
+encode_as_unicode_char :: Char -> EncodedString
+encode_as_unicode_char c = 'z' : if isDigit (head hex_str) then hex_str
+                                                           else '0':hex_str
+  where hex_str = showHex (ord c) "U"
+  -- ToDo: we could improve the encoding here in various ways.
+  -- eg. strings of unicode characters come out as 'z1234Uz5678U', we
+  -- could remove the 'U' in the middle (the 'z' works as a separator).
+
+{-
+Tuples are encoded as
+        Z3T or Z3H
+for 3-tuples or unboxed 3-tuples respectively.  No other encoding starts
+        Z<digit>
+
+* "(# #)" is the tycon for an unboxed 1-tuple (not 0-tuple)
+  There are no unboxed 0-tuples.
+
+* "()" is the tycon for a boxed 0-tuple.
+  There are no boxed 1-tuples.
+-}
+
+maybe_tuple :: UserString -> Maybe EncodedString
+
+maybe_tuple "(# #)" = Just("Z1H")
+maybe_tuple ('(' : '#' : cs) = case count_commas (0::Int) cs of
+                                 (n, '#' : ')' : _) -> Just ('Z' : shows (n+1) "H")
+                                 _                  -> Nothing
+maybe_tuple "()" = Just("Z0T")
+maybe_tuple ('(' : cs)       = case count_commas (0::Int) cs of
+                                 (n, ')' : _) -> Just ('Z' : shows (n+1) "T")
+                                 _            -> Nothing
+maybe_tuple _                = Nothing
+
+count_commas :: Int -> String -> (Int, String)
+count_commas n (',' : cs) = count_commas (n+1) cs
+count_commas n cs         = (n,cs)
+
+#endif
