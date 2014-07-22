@@ -1,7 +1,4 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE StaticValues #-}
 
 -- |A test to load symbols produced by the static form.
@@ -12,17 +9,12 @@
 --
 module Main(main) where
 
-import GHC.Ptr          ( Ptr(..), nullPtr )
-import Foreign.C.String ( withCString, CString )
-import GHC.Exts         ( addrToAny# )
 import GHC.Ref
 import Language.Haskell.TH
-import System.Info      ( os )
 import System.Environment
 
 import Control.Monad.IO.Class ( liftIO )
 import DynFlags
-import Encoding               ( zEncodeString )
 import GHC
 
 main = do {
@@ -35,33 +27,13 @@ main = do {
                                    }
       load LoadAllTargets
       liftIO $ do
-        unstaticMain $([| static g |]) >>= putStrLn
-        unstaticMain $([| static (id . id) |]) >>=
+        unstatic $([| static g |]) >>= putStrLn
+        unstatic $([| static (id . id) |]) >>=
           \op -> print $ op (2 :: Int)
     }
-
   where
-    unstaticMain :: Ref a -> IO a
-    unstaticMain (Ref (GlobalName "main" "" m n)) =
-      loadFunction__ m n
-        >>= maybe (error $ m ++ "." ++ n ++ " not found") return
-    unstaticMain gn = error $ "unexpected package in " ++ show gn
+    unstatic :: Ref a -> IO a
+    unstatic r = deRef r >>= maybe (error $ show r ++ " not found") return
 
 g = "hello"
 
-loadFunction__ :: String
-              -> String
-              -> IO (Maybe a)
-loadFunction__ m valsym = do
-    let symbol = prefixUnderscore++zEncodeString m++"_"++(zEncodeString valsym)++"_closure"
-    ptr@(Ptr addr) <- withCString symbol c_lookupSymbol
-    if (ptr == nullPtr)
-      then return Nothing
-      else case addrToAny# addr of
-             (# hval #) -> return ( Just hval )
-  where
-    prefixUnderscore = if elem os ["darwin","mingw32","cygwin"] then "_" else ""
-
-
-foreign import ccall safe "lookupSymbol"
-   c_lookupSymbol :: CString -> IO (Ptr a)
