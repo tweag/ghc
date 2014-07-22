@@ -407,11 +407,11 @@ dsExpr (PArrSeq _ _)
 dsExpr (HsStatic (L loc (HsVar varId))) = do
     let n = idName varId
         mod = nameModule n
-        pkgId = modulePackageId mod
-        pkgName = packageIdString pkgId
+        pkgKey = modulePackageKey mod
+        pkgName = packageKeyString pkgKey
     dflags <- getDynFlags
     let installedPkgId =
-          case lookupPackage (pkgIdMap $ pkgState dflags) pkgId of
+          case lookupPackage (pkgIdMap $ pkgState dflags) pkgKey of
             Nothing -> ""
             Just pd -> case installedPackageId pd of
                          InstalledPackageId ipid -> ipid
