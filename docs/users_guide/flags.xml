@@ -2429,6 +2429,14 @@
             <entry>dynamic</entry>
             <entry>-</entry>
           </row>
+          <row>
+            <entry><option>-rdynamic</option></entry>
+            <entry>This instructs the linker to add all symbols, not only used ones, to the
+              dynamic symbol table. Currently Linux only.
+              This is equivalent to using <literal>-optl -rdynamic</literal>.</entry>
+            <entry>dynamic</entry>
+            <entry>-</entry>
+          </row>
         </tbody>
       </tgroup>
     </informaltable>
