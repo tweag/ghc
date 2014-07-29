@@ -2159,6 +2159,8 @@ dynamic_flags = [
   , Flag "rdynamic" $ noArg $
 #ifdef linux_HOST_OS
                               addOptl "-rdynamic"
+#elif defined (mingw32_HOST_OS)
+                              addOptl "-export-all-symbols"
 #else
     -- ignored for compat w/ gcc:
                               id
