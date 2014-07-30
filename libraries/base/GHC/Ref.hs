@@ -86,9 +86,8 @@ data GlobalName = GlobalName String String String String
 -- the module producing the reference are made available at runtime.
 -- This can be achieved by linking the module as part of a shared library, or by
 -- loading the module using the RTS linker, or by adding the symbols of the
--- program executable to the dynamic symbol table with platform specific
--- mechanisms. In Linux, the later is done by passing
--- @-optl-Wl,--export-dynamic@ to GHC when linking the program.
+-- program executable to the dynamic symbol table with by passing @-rdynamic@ to
+-- GHC when linking the program.
 --
 -- This function is only available with the GHC compiler.
 --
