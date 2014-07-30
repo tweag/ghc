@@ -9957,10 +9957,12 @@ Peyton-Jones, Proceedings of the 4th ACM Symposium on Haskell, pp.
 
 <para>
 The information contained in the reference is used by
-<literal>deRef</literal> to locate the values at runtime using the
+<ulink url="&libraryBaseLocation;/GHC.Ref.html#v%3AdeRef"><literal>deRef</literal></ulink>
+to locate the values at runtime using the
 symbol tables in executables, libraries and object files. For this to
-work, executables must be linked specially. This can be done by
-passing the <literal>-rdynamic</literal> flag to GHC.
+work, symbol tables need to be made available at runtime. A simple way
+to ensure this is to pass the <literal>-rdynamic</literal> flag to GHC
+during linking.
 </para>
 
 <para>
