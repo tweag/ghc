@@ -497,7 +497,9 @@ tcExpr (HsProc pat cmd) res_ty
 
 tcExpr (HsStatic expr@(L loc _)) res_ty
   = do  { (co, [expr_ty]) <- matchExpectedTyConApp refTyCon res_ty
-        ; expr' <- tcMonoExpr expr expr_ty
+        ; (expr', lie) <- captureConstraints $ tcPolyExpr expr expr_ty
+        ; lieTcRef <- tcl_lie <$> getLclEnv
+        ; updTcRef lieTcRef (`andWC` lie)
         ; stId <- case unLoc expr' of
             -- Keep the name if the static argument is a variable.
             HsVar n -> return n
@@ -506,7 +508,7 @@ tcExpr (HsStatic expr@(L loc _)) res_ty
                           return $ mkExportedLocalId VanillaId stName expr_ty
         ; keepAlive $ idName stId
         ; stOccsVar <- tcg_static_occs <$> getGblEnv
-        ; updTcRef stOccsVar ((stId, expr') :)
+        ; updTcRef stOccsVar ((stId, expr', lie) :)
         ; return $ mkHsWrapCo co $ HsStatic $ L loc $ HsVar stId }
 \end{code}
 

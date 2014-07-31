@@ -319,7 +319,10 @@ tcRnSrcDecls :: ModDetails -> [LHsDecl RdrName] -> TcM TcGblEnv
         -- Reason: solely to report unused imports and bindings
 tcRnSrcDecls boot_iface decls
  = do {         -- Do all the declarations
-        ((tcg_env, tcl_env), lie) <- captureConstraints $ tc_rn_src_decls boot_iface decls ;
+        ((tcg_env, tcl_env), lie) <- captureConstraints $ do
+          (tcg_env, tcl_env) <- tc_rn_src_decls boot_iface decls
+          stBinds <- checkStaticValues
+          return (tcg_env { tcg_binds = tcg_binds tcg_env `unionBags` stBinds }, tcl_env)
       ; traceTc "Tc8" empty ;
       ; setEnvs (tcg_env, tcl_env) $
    do {
@@ -363,10 +366,8 @@ tcRnSrcDecls boot_iface decls
             <- {-# SCC "zonkTopDecls" #-}
                zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords ;
 
-        stBinds <- checkStaticValues lie ;
-
         let { final_type_env = extendTypeEnvWithIds type_env bind_ids
-            ; tcg_env' = tcg_env { tcg_binds    = binds' `unionBags` stBinds,
+            ; tcg_env' = tcg_env { tcg_binds    = binds',
                                    tcg_ev_binds = ev_binds',
                                    tcg_imp_specs = imp_specs',
                                    tcg_rules    = rules',
@@ -1419,7 +1420,7 @@ tcGhciStmts stmts
         const_binds <- checkNoErrs (simplifyInteractive lie) ;
                 -- checkNoErrs ensures that the plan fails if context redn fails
 
-        _ <- checkNoErrs (checkStaticValues lie) ; -- Ignore bindings for static values
+        _ <- checkNoErrs checkStaticValues ; -- Ignore bindings for static values
 
         traceTc "TcRnDriver.tcGhciStmts: done" empty ;
         let {   -- mk_return builds the expression
@@ -1507,7 +1508,7 @@ tcRnExpr hsc_env rdr_expr
                                                     lie ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
 
-    _ <- checkStaticValues lie ; -- Ignore bindings for static values
+    _ <- checkStaticValues ; -- Ignore bindings for static values
 
     let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     zonkTcType all_expr_ty
@@ -1601,7 +1602,7 @@ tcRnDeclsi hsc_env local_decls =
     (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
         <- zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords
 
-    stBinds <- checkStaticValues lie
+    stBinds <- checkStaticValues
 
     let --global_ids = map globaliseAndTidyId bind_ids
         final_type_env = extendTypeEnvWithIds type_env bind_ids --global_ids
@@ -1880,8 +1881,8 @@ ppr_tydecls tycons
 -- the generated fresh bindings for those values that need it
 -- (i.e their arguments are not a single identifier).
 --
-checkStaticValues :: WantedConstraints -> TcM (LHsBinds Id)
-checkStaticValues lie = do
+checkStaticValues :: TcM (LHsBinds Id)
+checkStaticValues = do
     stOccsVar <- tcg_static_occs <$> getGblEnv
     stOccs <- readTcRef stOccsVar
     writeTcRef stOccsVar []
@@ -1891,8 +1892,8 @@ checkStaticValues lie = do
         vcat $ map ((text "" $$) . ppr) stBinds
     return $ listToBag stBinds
   where
-    checkStaticValue :: (TcId, LHsExpr TcId) -> TcM (Maybe (LHsBind Id))
-    checkStaticValue ( stId, expr@(L loc hsE)) = do
+    checkStaticValue :: (TcId, LHsExpr TcId, WantedConstraints) -> TcM (Maybe (LHsBind Id))
+    checkStaticValue (stId, expr@(L loc hsE), lie) = do
       mono_id <- newNoSigLetBndr LetLclBndr (idName stId) $ idType stId
       (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
                                       False {- No MR -}

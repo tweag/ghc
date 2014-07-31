@@ -350,7 +350,7 @@ data TcGblEnv
         tcg_safeInfer :: TcRef Bool,         -- Has the typechecker
                                              -- inferred this module
                                              -- as -XSafe (Safe Haskell)
-        tcg_static_occs :: TcRef [(TcId, LHsExpr TcId)]
+        tcg_static_occs :: TcRef [(TcId, LHsExpr TcId, WantedConstraints)]
                 -- ^ Occurrences of static values
                 -- Each entry holds the argument of the static form and its Type.
     }
