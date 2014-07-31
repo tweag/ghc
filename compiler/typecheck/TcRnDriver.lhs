@@ -94,6 +94,10 @@ import MkId
 import TidyPgm    ( globaliseAndTidyId )
 import TysWiredIn ( unitTy, mkListTy )
 #endif
+import TcPat      ( LetBndrSpec(..), newNoSigLetBndr )
+import TcType     ( evVarPred )
+import TysWiredIn ( refTyCon )
+import TcValidity
 
 import FastString
 import Maybes
@@ -359,8 +363,10 @@ tcRnSrcDecls boot_iface decls
             <- {-# SCC "zonkTopDecls" #-}
                zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords ;
 
+        stBinds <- checkStaticValues lie ;
+
         let { final_type_env = extendTypeEnvWithIds type_env bind_ids
-            ; tcg_env' = tcg_env { tcg_binds    = binds',
+            ; tcg_env' = tcg_env { tcg_binds    = binds' `unionBags` stBinds,
                                    tcg_ev_binds = ev_binds',
                                    tcg_imp_specs = imp_specs',
                                    tcg_rules    = rules',
@@ -920,18 +926,10 @@ tcTopSrcDecls boot_details
                 -- Vectorisation declarations
         vects <- tcVectDecls vect_decls ;
 
-                -- collect top-level bindings introduced by static forms
-        stBinds <- readTcRef $ tcg_static_binds tcg_env ;
-        writeTcRef (tcg_static_binds tcg_env) emptyBag ;
-        when (not $ isEmptyBag stBinds) $
-          dumpOptTcRn Opt_D_dump_static_binds $ mkDumpDoc "Static bindings" $
-            vcat $ map ((text "" $$) . ppr) $ bagToList stBinds ;
-
                 -- Wrap up
         traceTc "Tc7a" empty ;
         let { all_binds = inst_binds     `unionBags`
-                          foe_binds      `unionBags`
-                          stBinds
+                          foe_binds
 
             ; fo_gres = fi_gres `unionBags` foe_gres
             ; fo_fvs = foldrBag (\gre fvs -> fvs `addOneFV` gre_name gre) 
@@ -1421,6 +1419,8 @@ tcGhciStmts stmts
         const_binds <- checkNoErrs (simplifyInteractive lie) ;
                 -- checkNoErrs ensures that the plan fails if context redn fails
 
+        _ <- checkNoErrs (checkStaticValues lie) ; -- Ignore bindings for static values
+
         traceTc "TcRnDriver.tcGhciStmts: done" empty ;
         let {   -- mk_return builds the expression
                 --      returnIO @ [()] [coerce () x, ..,  coerce () z]
@@ -1506,6 +1506,8 @@ tcRnExpr hsc_env rdr_expr
                                                     [(fresh_it, res_ty)]
                                                     lie ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
+
+    _ <- checkStaticValues lie ; -- Ignore bindings for static values
 
     let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     zonkTcType all_expr_ty
@@ -1599,9 +1601,11 @@ tcRnDeclsi hsc_env local_decls =
     (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
         <- zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords
 
+    stBinds <- checkStaticValues lie
+
     let --global_ids = map globaliseAndTidyId bind_ids
         final_type_env = extendTypeEnvWithIds type_env bind_ids --global_ids
-        tcg_env' = tcg_env { tcg_binds     = binds',
+        tcg_env' = tcg_env { tcg_binds     = binds' `unionBags` stBinds,
                              tcg_ev_binds  = ev_binds',
                              tcg_imp_specs = imp_specs',
                              tcg_rules     = rules',
@@ -1858,4 +1862,68 @@ ppr_tydecls tycons
   = vcat (map ppr_tycon (sortBy (comparing getOccName) tycons))
   where
     ppr_tycon tycon = vcat [ ppr (tyThingToIfaceDecl (ATyCon tycon)) ]
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+                 checkStaticValues
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+-- | Checks that the static values have valid types when generalized.
+--
+-- The @Ref tau@ is valid if it is predicative, that is, tau is unqualified
+-- and monomorphic.
+--
+-- When all static values have valid types this function produces
+-- the generated fresh bindings for those values that need it
+-- (i.e their arguments are not a single identifier).
+--
+checkStaticValues :: WantedConstraints -> TcM (LHsBinds Id)
+checkStaticValues lie = do
+    stOccsVar <- tcg_static_occs <$> getGblEnv
+    stOccs <- readTcRef stOccsVar
+    writeTcRef stOccsVar []
+    stBinds <- catMaybes <$> mapM checkStaticValue stOccs
+    when (not $ null stOccs) $
+      dumpOptTcRn Opt_D_dump_static_binds $ mkDumpDoc "Static bindings" $
+        vcat $ map ((text "" $$) . ppr) stBinds
+    return $ listToBag stBinds
+  where
+    checkStaticValue :: (TcId, LHsExpr TcId) -> TcM (Maybe (LHsBind Id))
+    checkStaticValue ( stId, expr@(L loc hsE)) = do
+      mono_id <- newNoSigLetBndr LetLclBndr (idName stId) $ idType stId
+      (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
+                                      False {- No MR -}
+                                      [(idName mono_id, idType stId)]
+                                      lie
+
+      let expr_qty = mkPiTypes dicts $ idType stId
+      checkValidType StaticCtxt $ mkTyConApp refTyCon [ expr_qty ]
+
+      case hsE of
+        -- No binding needed
+        HsVar _ -> return Nothing
+        -- Produce a new top-level binding.
+        _       -> do
+          theta <- zonkTcThetaType (map evVarPred dicts)
+          exports <- checkNoErrs $ (:[]) <$>
+            mkExport (const []) qtvs theta (idName stId, Nothing, mono_id)
+
+          let binds' = unitBag $ L loc $ FunBind
+                         { fun_id = L loc mono_id
+                         , fun_infix = False
+                         , fun_matches = (mkMatchGroup Generated [ mkMatch [] expr emptyLocalBinds ])
+                                           { mg_res_ty = mkForAllTys qtvs $ expr_qty }
+                         , fun_co_fn = idHsWrapper
+                         , bind_fvs = emptyNameSet -- NB: closed binding
+                         , fun_tick = Nothing
+                         }
+
+          return $ Just $ L loc $ AbsBinds
+                          { abs_tvs = qtvs
+                          , abs_ev_vars = dicts, abs_ev_binds = ev_binds
+                          , abs_exports = exports, abs_binds = binds'
+                      }
 \end{code}

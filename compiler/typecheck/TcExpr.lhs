@@ -24,7 +24,6 @@ import TcHsSyn
 import TcRnMonad
 import TcUnify
 import TcValidity
-import Bag              (unitBag, consBag)
 import BasicTypes
 import Inst
 import TcBinds
@@ -36,7 +35,6 @@ import TcMatches
 import TcHsType
 import TcPat
 import TcMType
-import TcSimplify       ( simplifyInfer )
 import TcType
 import DsMonad hiding (Splice)
 import Id
@@ -47,7 +45,6 @@ import Module ( HasModule(..), lookupWithDefaultModuleEnv, extendModuleEnv )
 import PatSyn
 import RdrName
 import Name
-import NameSet          ( emptyNameSet )
 import TyCon
 import Type
 import TcEvidence
@@ -498,20 +495,19 @@ tcExpr (HsProc pat cmd) res_ty
   = do  { (pat', cmd', coi) <- tcProc pat cmd res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
 
-tcExpr (HsStatic expr@(L loc hsE)) res_ty
-  = do  { (tc_bind, stId) <- tcStaticExpr expr
-        ; let (qtvs,expr_ty_) = tcSplitForAllTys $ idType stId
-              ty = mkTyConApp refTyCon [ expr_ty_ ]
-        ; (wrap, rho) <- deeplyInstantiate StaticOrigin $ mkForAllTys qtvs ty
-        ; checkValidType StaticCtxt ty
-        ; stId' <- case hsE of
+tcExpr (HsStatic expr@(L loc _)) res_ty
+  = do  { (co, [expr_ty]) <- matchExpectedTyConApp refTyCon res_ty
+        ; expr' <- tcMonoExpr expr expr_ty
+        ; stId <- case unLoc expr' of
             -- Keep the name if the static argument is a variable.
-            HsVar n -> return $ setIdName stId n
-            -- Add a generated binding if the static argument is not a variable.
-            _       -> do addStaticBinding tc_bind
-                          return stId
-        ; keepAlive $ idName stId'
-        ; tcWrapResult (mkHsWrap wrap $ HsStatic $ L loc $ HsVar stId') rho res_ty }
+            HsVar n -> return n
+            -- Generate a fresh name if the static argument is not a variable.
+            _       -> do stName <- mkStaticName loc
+                          return $ mkExportedLocalId VanillaId stName expr_ty
+        ; keepAlive $ idName stId
+        ; stOccsVar <- tcg_static_occs <$> getGblEnv
+        ; updTcRef stOccsVar ((stId, expr') :)
+        ; return $ mkHsWrapCo co $ HsStatic $ L loc $ HsVar stId }
 \end{code}
 
 Note [Rebindable syntax for if]
@@ -1653,45 +1649,6 @@ missingFields con fields
 %************************************************************************
 
 \begin{code}
-addStaticBinding :: LHsBindLR TcId TcId -> TcM ()
-addStaticBinding b = do
-    stBindsVar <- tcg_static_binds <$> getGblEnv
-    updTcRef stBindsVar $ consBag b
-
-tcStaticExpr :: LHsExpr Name -> TcM (LHsBindLR TcId TcId,TcId)
-tcStaticExpr expr@(L loc _) = do
-    ((tc_expr, res_ty), lie) <- captureConstraints $ tcInferRho expr
-    stName <- mkStaticName loc
-    mono_id <- newNoSigLetBndr LetLclBndr stName res_ty
-
-    (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
-                                    False {- No MR for now -}
-                                    [(idName mono_id, res_ty)]
-                                    lie
-
-    let all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty)
-    ty <- zonkTcType all_expr_ty
-
-    theta <- zonkTcThetaType (map evVarPred dicts)
-    exports <- checkNoErrs $ (:[]) <$> mkExport (const []) qtvs theta (stName,Nothing,mono_id)
-
-    let binds' = unitBag $ L loc $
-                              FunBind { fun_id = L loc mono_id
-                                      , fun_infix = False
-                                      , fun_matches = (mkMatchGroup Generated [ mkMatch [] tc_expr emptyLocalBinds ])
-                                                       { mg_res_ty = ty }
-                                      , fun_co_fn = idHsWrapper
-                                      , bind_fvs = emptyNameSet -- NB: closed binding
-                                      , fun_tick = Nothing
-                                      }
-
-        tc_bind = L loc $ AbsBinds
-                    { abs_tvs = qtvs
-                    , abs_ev_vars = dicts, abs_ev_binds = ev_binds
-                    , abs_exports = exports, abs_binds = binds'
-                    }
-    return (tc_bind,mkExportedLocalId VanillaId stName ty)
-
 mkStaticName :: SrcSpan -> TcM Name
 mkStaticName loc = do
     uniq <- newUnique
