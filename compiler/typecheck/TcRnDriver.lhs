@@ -1410,8 +1410,11 @@ tcGhciStmts stmts
         -- OK, we're ready to typecheck the stmts
         traceTc "TcRnDriver.tcGhciStmts: tc stmts" empty ;
         ((tc_stmts, ids), lie) <- captureConstraints $
-                                  tc_io_stmts $ \ _ ->
-                                  mapM tcLookupId names  ;
+                                  (tc_io_stmts $ \ _ ->
+                                     mapM tcLookupId names)
+                                  -- Ignore bindings for static values
+                                  <* checkStaticValues ;
+
                         -- Look up the names right in the middle,
                         -- where they will all be in scope
 
@@ -1419,8 +1422,6 @@ tcGhciStmts stmts
         traceTc "TcRnDriver.tcGhciStmts: simplify ctxt" empty ;
         const_binds <- checkNoErrs (simplifyInteractive lie) ;
                 -- checkNoErrs ensures that the plan fails if context redn fails
-
-        _ <- checkNoErrs checkStaticValues ; -- Ignore bindings for static values
 
         traceTc "TcRnDriver.tcGhciStmts: done" empty ;
         let {   -- mk_return builds the expression
@@ -1505,10 +1506,11 @@ tcRnExpr hsc_env rdr_expr
                                       simplifyInfer True {- Free vars are closed -}
                                                     False {- No MR for now -}
                                                     [(fresh_it, res_ty)]
-                                                    lie ;
+                                                    lie
+                                      -- Ignore bindings for static values
+                                      <* checkStaticValues ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
 
-    _ <- checkStaticValues ; -- Ignore bindings for static values
 
     let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     zonkTcType all_expr_ty
@@ -1584,7 +1586,10 @@ tcRnDeclsi hsc_env local_decls =
   runTcInteractive hsc_env $ do
 
     ((tcg_env, tclcl_env), lie) <-
-        captureConstraints $ tc_rn_src_decls emptyModDetails local_decls
+        captureConstraints $ do
+          (tcg_env, tcl_env) <- tc_rn_src_decls emptyModDetails local_decls
+          stBinds <- checkStaticValues
+          return (tcg_env { tcg_binds = tcg_binds tcg_env `unionBags` stBinds }, tcl_env)
     setEnvs (tcg_env, tclcl_env) $ do
 
     new_ev_binds <- simplifyTop lie
@@ -1602,11 +1607,9 @@ tcRnDeclsi hsc_env local_decls =
     (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
         <- zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords
 
-    stBinds <- checkStaticValues
-
     let --global_ids = map globaliseAndTidyId bind_ids
         final_type_env = extendTypeEnvWithIds type_env bind_ids --global_ids
-        tcg_env' = tcg_env { tcg_binds     = binds' `unionBags` stBinds,
+        tcg_env' = tcg_env { tcg_binds     = binds',
                              tcg_ev_binds  = ev_binds',
                              tcg_imp_specs = imp_specs',
                              tcg_rules     = rules',
@@ -1901,7 +1904,8 @@ checkStaticValues = do
                                       lie
 
       let expr_qty = mkPiTypes dicts $ idType stId
-      checkValidType StaticCtxt $ mkTyConApp refTyCon [ expr_qty ]
+      zty <- zonkTcType $ mkTyConApp refTyCon [ expr_qty ]
+      checkValidType StaticCtxt zty
 
       case hsE of
         -- No binding needed
