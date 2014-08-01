@@ -319,10 +319,7 @@ tcRnSrcDecls :: ModDetails -> [LHsDecl RdrName] -> TcM TcGblEnv
         -- Reason: solely to report unused imports and bindings
 tcRnSrcDecls boot_iface decls
  = do {         -- Do all the declarations
-        ((tcg_env, tcl_env), lie) <- captureConstraints $ do
-          (tcg_env, tcl_env) <- tc_rn_src_decls boot_iface decls
-          stBinds <- checkStaticValues
-          return (tcg_env { tcg_binds = tcg_binds tcg_env `unionBags` stBinds }, tcl_env)
+        ((tcg_env, tcl_env), lie) <- captureConstraints $ tc_rn_src_decls boot_iface decls ;
       ; traceTc "Tc8" empty ;
       ; setEnvs (tcg_env, tcl_env) $
    do {
@@ -345,6 +342,10 @@ tcRnSrcDecls boot_iface decls
                         simplifyTop lie ;
         traceTc "Tc9" empty ;
 
+        (stBinds, lie2) <- captureConstraints checkStaticValues ;
+        new_ev_binds2 <- {-# SCC "simplifyTop" #-}
+                         simplifyTop lie2 ;
+
         failIfErrsM ;   -- Don't zonk if there have been errors
                         -- It's a waste of time; and we may get debug warnings
                         -- about strangely-typed TyCons!
@@ -353,14 +354,15 @@ tcRnSrcDecls boot_iface decls
         -- Even simplifyTop may do some unification.
         -- This pass also warns about missing type signatures
         let { TcGblEnv { tcg_type_env  = type_env,
-                         tcg_binds     = binds,
                          tcg_sigs      = sig_ns,
                          tcg_ev_binds  = cur_ev_binds,
                          tcg_imp_specs = imp_specs,
                          tcg_rules     = rules,
                          tcg_vects     = vects,
                          tcg_fords     = fords } = tcg_env
-            ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds } ;
+            ; binds = tcg_binds tcg_env `unionBags` stBinds
+            ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
+                                          `unionBags` new_ev_binds2 } ;
 
         (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
             <- {-# SCC "zonkTopDecls" #-}
@@ -1502,13 +1504,13 @@ tcRnExpr hsc_env rdr_expr
     ((_tc_expr, res_ty), lie) <- captureConstraints $ 
                                  tcInferRho rn_expr ;
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $
+                                      -- Ignore bindings for static values
+                                      checkStaticValues >>
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer True {- Free vars are closed -}
                                                     False {- No MR for now -}
                                                     [(fresh_it, res_ty)]
-                                                    lie
-                                      -- Ignore bindings for static values
-                                      <* checkStaticValues ;
+                                                    lie ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
 
 
@@ -1586,23 +1588,26 @@ tcRnDeclsi hsc_env local_decls =
   runTcInteractive hsc_env $ do
 
     ((tcg_env, tclcl_env), lie) <-
-        captureConstraints $ do
-          (tcg_env, tcl_env) <- tc_rn_src_decls emptyModDetails local_decls
-          stBinds <- checkStaticValues
-          return (tcg_env { tcg_binds = tcg_binds tcg_env `unionBags` stBinds }, tcl_env)
+        captureConstraints $ tc_rn_src_decls emptyModDetails local_decls
     setEnvs (tcg_env, tclcl_env) $ do
 
     new_ev_binds <- simplifyTop lie
+
+    (stBinds, lie2) <- captureConstraints checkStaticValues
+    new_ev_binds2 <- {-# SCC "simplifyTop" #-}
+                     simplifyTop lie2
+
     failIfErrsM
     let TcGblEnv { tcg_type_env  = type_env,
-                   tcg_binds     = binds,
                    tcg_sigs      = sig_ns,
                    tcg_ev_binds  = cur_ev_binds,
                    tcg_imp_specs = imp_specs,
                    tcg_rules     = rules,
                    tcg_vects     = vects,
                    tcg_fords     = fords } = tcg_env
+        binds = tcg_binds tcg_env `unionBags` stBinds
         all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
+                                    `unionBags` new_ev_binds2
 
     (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
         <- zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords
