@@ -415,9 +415,8 @@ dsExpr (HsStatic (L loc (HsVar varId))) = do
             Nothing -> ""
             Just pd -> case installedPackageId pd of
                          InstalledPackageId ipid -> ipid
-        (qtvs,ty_) = tcSplitForAllTys $ idType varId
     putSrcSpanDs loc $
-      mkLams qtvs . mkConApp refDataCon . (Type ty_ :) . (:[]) . mkConApp globalNameDataCon
+      mkConApp refDataCon . (Type (idType varId) :) . (:[]) . mkConApp globalNameDataCon
       <$> mapM mkStringExprFS
                [ fsLit pkgName
                , fsLit installedPkgId
