@@ -1879,6 +1879,25 @@ ppr_tydecls tycons
 %*                                                                      *
 %************************************************************************
 
+Note [Generalizing static and desugaring]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For some reason, an equation like
+
+    main = print $ GHC.Ref.unRef $ static id
+
+desugars to
+
+    main = print $ GHC.Ref.unRef @ (a -> a) $ Ref @ (forall a . a -> a) (...)
+
+where
+
+    main = print $ GHC.Ref.unRef @ (Any -> Any) $ Ref @ (Any -> Any) (...)
+
+is expected. However, the above behavior is avoided if the argument of the
+static form is *zonked* before trying to generalize its type with
+'simplifyInfer'.
+
 \begin{code}
 -- | Checks that the static values have valid types when generalized.
 --
@@ -1906,6 +1925,10 @@ checkStaticValues = do
       setSrcSpan loc $ setErrCtxt errCtx $ addErrCtxt (
           hang (ptext (sLit "In the argument of a static form:")) 2 (ppr expr)
         ) $ do
+      -- XXX: Find out a better way to avoid generalization from instantiating
+      -- the input type with the generalized type.
+      -- See note [Generalizing static and desugaring].
+      _ <- zonkTopLExpr expr
       mono_id <- newNoSigLetBndr LetLclBndr (idName stId) (idType stId)
       (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
                                       False {- No MR -}
