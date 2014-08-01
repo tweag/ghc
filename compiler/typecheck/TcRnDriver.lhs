@@ -1900,8 +1900,10 @@ checkStaticValues = do
         vcat $ map ((text "" $$) . ppr) stBinds
     return $ listToBag stBinds
   where
-    checkStaticValue :: (TcId, LHsExpr TcId, WantedConstraints) -> TcM (Maybe (LHsBind Id))
-    checkStaticValue (stId, expr@(L loc hsE), lie) = do
+    checkStaticValue :: (TcId, LHsExpr TcId, WantedConstraints, [ErrCtxt])
+                     -> TcM (Maybe (LHsBind Id))
+    checkStaticValue (stId, expr@(L loc hsE), lie, errCtx) =
+      setSrcSpan loc $ setErrCtxt errCtx $ do
       mono_id <- newNoSigLetBndr LetLclBndr (idName stId) $ idType stId
       (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
                                       False {- No MR -}
@@ -1924,8 +1926,10 @@ checkStaticValues = do
           let binds' = unitBag $ L loc $ FunBind
                          { fun_id = L loc mono_id
                          , fun_infix = False
-                         , fun_matches = (mkMatchGroup Generated [ mkMatch [] expr emptyLocalBinds ])
-                                           { mg_res_ty = mkForAllTys qtvs $ expr_qty }
+                         , fun_matches =
+                             (mkMatchGroup Generated
+                                           [ mkMatch [] expr emptyLocalBinds ]
+                             ) { mg_res_ty = mkForAllTys qtvs $ expr_qty }
                          , fun_co_fn = idHsWrapper
                          , bind_fvs = emptyNameSet -- NB: closed binding
                          , fun_tick = Nothing

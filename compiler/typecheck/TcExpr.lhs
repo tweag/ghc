@@ -507,8 +507,9 @@ tcExpr (HsStatic expr@(L loc _)) res_ty
             _       -> do stName <- mkStaticName loc
                           return $ mkExportedLocalId VanillaId stName expr_ty
         ; keepAlive $ idName stId
+        ; errCtx <- getErrCtxt
         ; stOccsVar <- tcg_static_occs <$> getGblEnv
-        ; updTcRef stOccsVar ((stId, expr', lie) :)
+        ; updTcRef stOccsVar ((stId, expr', lie, errCtx) :)
         ; return $ mkHsWrapCo co $ HsStatic $ L loc $ HsVar stId }
 \end{code}
 
