@@ -497,7 +497,11 @@ tcExpr (HsProc pat cmd) res_ty
 
 tcExpr (HsStatic expr@(L loc _)) res_ty
   = do  { (co, [expr_ty]) <- matchExpectedTyConApp refTyCon res_ty
-        ; (expr', lie) <- captureConstraints $ tcPolyExpr expr expr_ty
+        ; ((expr',errCtx), lie) <- captureConstraints $
+            addErrCtxt (hang (ptext (sLit "In the argument of a static form:"))
+                             2 (ppr expr)
+                       ) $
+            liftM2 (,) (tcPolyExprNC expr expr_ty) getErrCtxt
         ; lieTcRef <- tcl_lie <$> getLclEnv
         ; updTcRef lieTcRef (`andWC` lie)
         ; stId <- case unLoc expr' of
@@ -507,7 +511,6 @@ tcExpr (HsStatic expr@(L loc _)) res_ty
             _       -> do stName <- mkStaticName loc
                           return $ mkExportedLocalId VanillaId stName expr_ty
         ; keepAlive $ idName stId
-        ; errCtx <- getErrCtxt
         ; stOccsVar <- tcg_static_occs <$> getGblEnv
         ; updTcRef stOccsVar ((stId, expr', lie, errCtx) :)
         ; return $ mkHsWrapCo co $ HsStatic $ L loc $ HsVar stId }

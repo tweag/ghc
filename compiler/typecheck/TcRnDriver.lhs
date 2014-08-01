@@ -1925,9 +1925,7 @@ checkStaticValues = do
     checkStaticValue :: (TcId, LHsExpr TcId, WantedConstraints, [ErrCtxt])
                      -> TcM (Maybe (LHsBind Id))
     checkStaticValue (stId, expr@(L loc hsE), lie, errCtx) =
-      setSrcSpan loc $ setErrCtxt errCtx $ addErrCtxt (
-          hang (ptext (sLit "In the argument of a static form:")) 2 (ppr expr)
-        ) $ do
+      setSrcSpan loc $ setErrCtxt errCtx $ do
       -- XXX: Find out a better way to avoid generalization from instantiating
       -- the input type with the generalized type.
       -- See note [Generalizing static and desugaring].
