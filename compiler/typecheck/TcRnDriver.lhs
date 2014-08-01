@@ -1905,8 +1905,8 @@ checkStaticValues = do
     checkStaticValue (stId, expr@(L loc hsE), lie, errCtx) =
       setSrcSpan loc $ setErrCtxt errCtx $ addErrCtxt (
           hang (ptext (sLit "In the argument of a static form:")) 2 (ppr expr)
-        ) $do
-      mono_id <- newNoSigLetBndr LetLclBndr (idName stId) $ idType stId
+        ) $ do
+      mono_id <- newNoSigLetBndr LetLclBndr (idName stId) (idType stId)
       (qtvs, dicts, _, ev_binds) <- simplifyInfer True {- Free vars are closed -}
                                       False {- No MR -}
                                       [(idName mono_id, idType stId)]
@@ -1931,7 +1931,7 @@ checkStaticValues = do
                          , fun_matches =
                              (mkMatchGroup Generated
                                            [ mkMatch [] expr emptyLocalBinds ]
-                             ) { mg_res_ty = mkForAllTys qtvs $ expr_qty }
+                             ) { mg_res_ty = mkForAllTys qtvs expr_qty }
                          , fun_co_fn = idHsWrapper
                          , bind_fvs = emptyNameSet -- NB: closed binding
                          , fun_tick = Nothing
