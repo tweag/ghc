@@ -83,8 +83,8 @@ import Inst     ( tcGetInstEnvs )
 import Annotations
 import Data.List ( sortBy )
 import Data.Ord
-#ifdef GHCI
 import BasicTypes hiding( SuccessFlag(..) )
+#ifdef GHCI
 import TcType   ( isUnitTy, isTauTy )
 import TcHsType
 import TcMatches
