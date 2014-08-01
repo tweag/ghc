@@ -342,6 +342,8 @@ tcRnSrcDecls boot_iface decls
                         simplifyTop lie ;
         traceTc "Tc9" empty ;
 
+        failIfErrsM ;
+
         (stBinds, lie2) <- captureConstraints checkStaticValues ;
         new_ev_binds2 <- {-# SCC "simplifyTop" #-}
                          simplifyTop lie2 ;
@@ -1593,6 +1595,7 @@ tcRnDeclsi hsc_env local_decls =
 
     new_ev_binds <- simplifyTop lie
 
+    failIfErrsM
     (stBinds, lie2) <- captureConstraints checkStaticValues
     new_ev_binds2 <- {-# SCC "simplifyTop" #-}
                      simplifyTop lie2
