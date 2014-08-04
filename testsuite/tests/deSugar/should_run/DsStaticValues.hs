@@ -4,15 +4,14 @@ import GHC.Ref
 
 main = putStr $ unlines $ map showGlobalName gNames
   where
-    globalNameRef (Ref gn) = gn
     showGlobalName (GlobalName pkg _ m n) =
       unwords $ ("GlobalName" :) $ map show [ pkg, m, n ]
     gNames =
-      [ globalNameRef $ static g
-      , globalNameRef $ static id
-      , globalNameRef $ static (&&)
-      , globalNameRef $ static (method :: Char -> Int)
-      , globalNameRef $ static t_field
+      [ unRef $ static g
+      , unRef $ static id
+      , unRef $ static (&&)
+      , unRef (static method :: Ref (Char -> Int))
+      , unRef $ static t_field
       ]
 
 g :: Int -> Int

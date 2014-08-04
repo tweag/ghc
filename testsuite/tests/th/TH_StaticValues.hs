@@ -7,6 +7,9 @@
 -- Then we look for the symbols that the static form should have
 -- exposed and use the values found at the symbol addresses.
 --
+-- Note that we lookup for 'g' in symbol tables which does not appear
+-- in the export list of Main.
+--
 module Main(main) where
 
 import GHC.Ref
@@ -27,13 +30,9 @@ main = do {
                                    }
       load LoadAllTargets
       liftIO $ do
-        unstatic $([| static g |]) >>= putStrLn
-        unstatic $([| static (id . id) |]) >>=
-          \op -> print $ op (2 :: Int)
+        deRef $([| static g |]) >>= print
+        deRef $([| static (id . id) |]) >>= print . fmap ($ 2)
     }
-  where
-    unstatic :: Ref a -> IO a
-    unstatic r = deRef r >>= maybe (error $ show r ++ " not found") return
 
-g = "hello"
+g = "found"
 

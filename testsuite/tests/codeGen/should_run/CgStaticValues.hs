@@ -15,28 +15,24 @@ import Control.Monad.IO.Class ( liftIO )
 import DynFlags
 import GHC
 
-main = do {
-    ; [libdir] <- getArgs
-    ; runGhc (Just libdir) $ do
-      oldFlags <- getDynFlags
-      setSessionDynFlags oldFlags  {hscTarget = HscInterpreted, ghcLink = LinkInMemory , ghcMode = CompManager
-                                   , packageFlags = [ ExposePackage "ghc" ]
-                                   , ldInputs = FileOption "" "CgStaticValues.o" : ldInputs oldFlags
-                                   }
-      load LoadAllTargets
-      liftIO $ do
-        unstatic (static g) >>= putStrLn
-        unstatic (f0 :: Ref Char) >>= print
-        unstatic (f1 :: Ref Char) >>= print
-        unstatic (static (id . id)) >>= \op ->
-          print (op (1 :: Int))
-    }
+main = do
+    [libdir] <- getArgs
+    runGhc (Just libdir) $ do
+    oldFlags <- getDynFlags
+    setSessionDynFlags oldFlags { hscTarget = HscInterpreted, ghcLink = LinkInMemory , ghcMode = CompManager
+                                , packageFlags = [ ExposePackage "ghc" ]
+                                , ldInputs = FileOption "" "CgStaticValues.o" : ldInputs oldFlags
+                                }
+    load LoadAllTargets
+    liftIO $ do
+      deRef (static g) >>= print
+      deRef (f0 :: Ref Char) >>= print
+      deRef (f1 :: Ref Char) >>= print
+      deRef (static (id . id)) >>= print . fmap ($ 1)
+      deRef (static method :: Ref (Char -> Int)) >>= print . fmap ($ 'a')
+      deRef (static t_field) >>= print . fmap ($ T 'b')
 
-  where
-    unstatic :: Ref a -> IO a
-    unstatic r = deRef r >>= maybe (error $ show r ++ " not found") return
-
-g = "hello"
+g = "found"
 
 g1 = '1'
 
@@ -47,3 +43,11 @@ class C a where
 instance C Char where
   f0 = static g1
   f1 = static '2'
+
+class C1 a where
+  method :: a -> Int
+
+instance C1 Char where
+  method = const 0
+
+data T a = T { t_field :: a }
