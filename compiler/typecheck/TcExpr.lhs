@@ -504,15 +504,19 @@ tcExpr (HsStatic expr@(L loc _)) res_ty
             liftM2 (,) (tcPolyExprNC expr expr_ty) getErrCtxt
         ; lieTcRef <- tcl_lie <$> getLclEnv
         ; updTcRef lieTcRef (`andWC` lie)
-        ; stId <- case unLoc expr' of
-            -- Keep the name if the static argument is a variable.
-            HsVar n -> return n
+        ; stId <- case unLoc expr of
+            -- Keep the name if the static argument is a variable
+            -- and type-checking it does not raise any constraints.
+            HsVar n | isEmptyWC lie ->
+              return $ mkExportedLocalId VanillaId n expr_ty
             -- Generate a fresh name if the static argument is not a variable.
-            _       -> do stName <- mkStaticName loc
-                          return $ mkExportedLocalId VanillaId stName expr_ty
+            _   -> do
+              stName <- mkStaticName loc
+              let stId = mkExportedLocalId VanillaId stName expr_ty
+              stOccsVar <- tcg_static_occs <$> getGblEnv
+              updTcRef stOccsVar ((stId, expr', lie, errCtx) :)
+              return stId
         ; keepAlive $ idName stId
-        ; stOccsVar <- tcg_static_occs <$> getGblEnv
-        ; updTcRef stOccsVar ((stId, expr', lie, errCtx) :)
         ; return $ mkHsWrapCo co $ HsStatic $ L loc $ HsVar stId }
 \end{code}
 

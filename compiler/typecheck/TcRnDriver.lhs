@@ -1916,15 +1916,15 @@ checkStaticValues = do
     stOccsVar <- tcg_static_occs <$> getGblEnv
     stOccs <- readTcRef stOccsVar
     writeTcRef stOccsVar []
-    stBinds <- catMaybes <$> mapM checkStaticValue stOccs
+    stBinds <- mapM checkStaticValue stOccs
     when (not $ null stOccs) $
       dumpOptTcRn Opt_D_dump_static_binds $ mkDumpDoc "Static bindings" $
         vcat $ map ((text "" $$) . ppr) stBinds
     return $ listToBag stBinds
   where
     checkStaticValue :: (TcId, LHsExpr TcId, WantedConstraints, [ErrCtxt])
-                     -> TcM (Maybe (LHsBind Id))
-    checkStaticValue (stId, expr@(L loc hsE), lie, errCtx) =
+                     -> TcM (LHsBind Id)
+    checkStaticValue (stId, expr@(L loc _hsE), lie, errCtx) =
       setSrcSpan loc $ setErrCtxt errCtx $ do
       -- XXX: Find out a better way to avoid generalization from instantiating
       -- the input type with the generalized type.
@@ -1940,30 +1940,25 @@ checkStaticValues = do
       zty <- zonkTcType $ mkTyConApp refTyCon [ expr_qty ]
       checkValidType StaticCtxt zty
 
-      case hsE of
-        -- No binding needed
-        HsVar _ -> return Nothing
-        -- Produce a new top-level binding.
-        _       -> do
-          theta <- zonkTcThetaType (map evVarPred dicts)
-          exports <- checkNoErrs $ (:[]) <$>
-            mkExport (const []) qtvs theta (idName stId, Nothing, mono_id)
+      theta <- zonkTcThetaType (map evVarPred dicts)
+      exports <- checkNoErrs $ (:[]) <$>
+        mkExport (const []) qtvs theta (idName stId, Nothing, mono_id)
 
-          let binds' = unitBag $ L loc $ FunBind
-                         { fun_id = L loc mono_id
-                         , fun_infix = False
-                         , fun_matches =
-                             (mkMatchGroup Generated
-                                           [ mkMatch [] expr emptyLocalBinds ]
-                             ) { mg_res_ty = mkForAllTys qtvs expr_qty }
-                         , fun_co_fn = idHsWrapper
-                         , bind_fvs = emptyNameSet -- NB: closed binding
-                         , fun_tick = Nothing
-                         }
+      let binds' = unitBag $ L loc $ FunBind
+                     { fun_id = L loc mono_id
+                     , fun_infix = False
+                     , fun_matches =
+                            (mkMatchGroup Generated
+                                          [ mkMatch [] expr emptyLocalBinds ]
+                            ) { mg_res_ty = mkForAllTys qtvs expr_qty }
+                        , fun_co_fn = idHsWrapper
+                        , bind_fvs = emptyNameSet -- NB: closed binding
+                        , fun_tick = Nothing
+                        }
 
-          return $ Just $ L loc $ AbsBinds
-                          { abs_tvs = qtvs
-                          , abs_ev_vars = dicts, abs_ev_binds = ev_binds
-                          , abs_exports = exports, abs_binds = binds'
-                      }
+      return $ L loc AbsBinds
+                       { abs_tvs = qtvs
+                       , abs_ev_vars = dicts, abs_ev_binds = ev_binds
+                       , abs_exports = exports, abs_binds = binds'
+                       }
 \end{code}
