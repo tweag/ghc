@@ -1938,7 +1938,7 @@ checkStaticValues = do
 
       let expr_qty = mkPiTypes dicts $ idType stId
       zty <- zonkTcType $ mkTyConApp refTyCon [ expr_qty ]
-      checkValidType StaticCtxt zty
+      _ <- tryM $ checkValidType StaticCtxt zty
 
       theta <- zonkTcThetaType (map evVarPred dicts)
       exports <- checkNoErrs $ (:[]) <$>
