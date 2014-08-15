@@ -87,6 +87,7 @@ module TcRnTypes(
 #include "HsVersions.h"
 
 import HsSyn
+import CoreSyn
 import HscTypes
 import TcEvidence
 import Type
@@ -359,16 +360,22 @@ data TcGblEnv
         tcg_safeInfer :: TcRef Bool,         -- Has the typechecker
                                              -- inferred this module
                                              -- as -XSafe (Safe Haskell)
-        tcg_static_occs :: TcRef [( TcId
-                                  , LHsExpr TcId
+        tcg_static_occs :: TcRef [( TcType
                                   , WantedConstraints
+                                  , SrcSpan
                                   , [ErrCtxt]
-                                  )]
-                -- ^ Occurrences of static forms which introduce new bindings
+                                  )],
+                -- ^ Occurrences of static forms
                 --
-                -- Each entry holds an identifier assigned to the static form,
-                -- the body of the static form, the constraints it requires
-                -- and the error context to use when reporting errors.
+                -- Each entry holds the type of the body of the static form,
+                -- the constraints the body requires, the location of the static
+                -- form and the error context to use when reporting errors.
+
+        tcg_static_binds :: IORef [(Id,CoreExpr)]
+          -- ^ Bindings resulted from floating static forms
+          --
+          -- The typechecker needs to carry this information when desugaring
+          -- splices that contain static forms.
     }
 
 -- Note [Signature parameters in TcGblEnv and DynFlags]

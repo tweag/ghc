@@ -479,7 +479,7 @@ tcRnSrcDecls boot_iface decls
 
         failIfErrsM ;
 
-        (stBinds, lie2) <- captureConstraints checkStaticValues ;
+        ((), lie2) <- captureConstraints checkStaticValues ;
         new_ev_binds2 <- {-# SCC "simplifyTop" #-}
                          simplifyTop lie2 ;
 
@@ -490,14 +490,14 @@ tcRnSrcDecls boot_iface decls
         -- Zonk the final code.  This must be done last.
         -- Even simplifyTop may do some unification.
         -- This pass also warns about missing type signatures
-        let { TcGblEnv { tcg_type_env  = type_env,
+        let { TcGblEnv { tcg_binds     = binds,
+                         tcg_type_env  = type_env,
                          tcg_sigs      = sig_ns,
                          tcg_ev_binds  = cur_ev_binds,
                          tcg_imp_specs = imp_specs,
                          tcg_rules     = rules,
                          tcg_vects     = vects,
                          tcg_fords     = fords } = tcg_env
-            ; binds = tcg_binds tcg_env `unionBags` stBinds
             ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
                                           `unionBags` new_ev_binds2 } ;
 
@@ -1835,19 +1835,19 @@ tcRnDeclsi hsc_env local_decls =
     new_ev_binds <- simplifyTop lie
 
     failIfErrsM
-    (stBinds, lie2) <- captureConstraints checkStaticValues
+    ((), lie2) <- captureConstraints checkStaticValues
     new_ev_binds2 <- {-# SCC "simplifyTop" #-}
                      simplifyTop lie2
 
     failIfErrsM
-    let TcGblEnv { tcg_type_env  = type_env,
+    let TcGblEnv { tcg_binds     = binds,
+                   tcg_type_env  = type_env,
                    tcg_sigs      = sig_ns,
                    tcg_ev_binds  = cur_ev_binds,
                    tcg_imp_specs = imp_specs,
                    tcg_rules     = rules,
                    tcg_vects     = vects,
                    tcg_fords     = fords } = tcg_env
-        binds = tcg_binds tcg_env `unionBags` stBinds
         all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
                                     `unionBags` new_ev_binds2
 
@@ -2122,6 +2122,33 @@ ppr_tydecls tycons
 %************************************************************************
 
 \begin{code}
+-- | Checks that the static forms have valid types when generalized.
+--
+-- The type @Ref tau@ is valid if it is predicative, that is, tau is unqualified
+-- and monomorphic.
+--
+checkStaticValues :: TcM ()
+checkStaticValues = do
+    stOccsVar <- tcg_static_occs <$> getGblEnv
+    stOccs <- readTcRef stOccsVar
+    writeTcRef stOccsVar []
+    mapM_ checkStaticValue stOccs
+  where
+    checkStaticValue :: (TcType, WantedConstraints, SrcSpan, [ErrCtxt])
+                     -> TcM ()
+    checkStaticValue (ty, lie, loc, errCtx) =
+      setSrcSpan loc $ setErrCtxt errCtx $ do
+      fresh_name <- newSysName $ mkVarOccFS $ fsLit "static"
+      (_, dicts, _, _) <- simplifyInfer True -- Free vars are closed
+                                        False -- No MR
+                                        [(fresh_name, ty)]
+                                        lie
+
+      let expr_qty = mkPiTypes dicts ty
+      zty <- zonkTcType $ mkTyConApp refTyCon [ expr_qty ]
+      void $ tryM $ checkValidType StaticCtxt zty
+\end{code}
+
 -- | Checks that the static values have valid types when generalized.
 --
 -- The @Ref tau@ is valid if it is predicative, that is, tau is unqualified
@@ -2177,4 +2204,4 @@ checkStaticValues = do
                        , abs_ev_vars = dicts, abs_ev_binds = ev_binds
                        , abs_exports = exports, abs_binds = binds'
                        }
-\end{code}
+
