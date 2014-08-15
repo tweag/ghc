@@ -121,7 +121,7 @@ deSugar hsc_env
                           ; (ds_fords, foreign_prs) <- dsForeigns fords
                           ; ds_rules <- mapMaybeM dsRule rules
                           ; ds_vects <- mapM dsVect vects
-                          ; stBinds <- dsGetStaticBinds
+                          ; stBinds <- dsGetStaticBindsVar >>= liftIO . readIORef
                           ; let hpc_init
                                   | gopt Opt_Hpc dflags = hpcInitCode mod ds_hpc_info
                                   | otherwise = empty

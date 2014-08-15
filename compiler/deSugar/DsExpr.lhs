@@ -61,6 +61,10 @@ import Bag
 import Outputable
 import FastString
 
+import IdInfo
+-- import Module ( HasModule(..), lookupWithDefaultModuleEnv, extendModuleEnv )
+import Data.IORef       ( atomicModifyIORef, modifyIORef )
+
 import Control.Monad
 import Distribution.Package(InstalledPackageId(..))
 \end{code}
@@ -404,7 +408,35 @@ dsExpr (PArrSeq _ _)
 \end{verbatim}
 
 \begin{code}
-dsExpr (HsStatic (L loc (HsVar varId))) = do
+dsExpr (HsStatic expr@(L loc _) ty) = do
+    n <- mkStaticName loc
+    let mod = nameModule n
+        pkgKey = modulePackageKey mod
+        pkgName = packageKeyString pkgKey
+    expr_ds <- dsLExpr expr
+    static_binds_var <- dsGetStaticBindsVar
+    let qtvs = varSetElems $ tyVarsOfType ty
+        ty' = mkForAllTys qtvs ty
+        stId = mkExportedLocalId VanillaId n ty'
+    liftIO $ modifyIORef static_binds_var ((stId,expr_ds) :)
+    dflags <- getDynFlags
+    let installedPkgId =
+          case lookupPackage (pkgIdMap $ pkgState dflags) pkgKey of
+            Nothing -> ""
+            Just pd -> case installedPackageId pd of
+                         InstalledPackageId ipid -> ipid
+    putSrcSpanDs loc $ do
+      args <- mapM mkStringExprFS
+                [ fsLit pkgName
+                , fsLit installedPkgId
+                , moduleNameFS $ moduleName mod
+                , occNameFS $ nameOccName n
+                ]
+      return $ mkConApp refDataCon
+        [Type ty, mkConApp globalNameDataCon args]
+
+{-
+dsExpr (HsStatic (L loc (HsVar varId)) _) = do
     let n = idName varId
         mod = nameModule n
         pkgKey = modulePackageKey mod
@@ -424,17 +456,9 @@ dsExpr (HsStatic (L loc (HsVar varId))) = do
                 ]
       return $ mkConApp refDataCon
         [Type (idType varId), mkConApp globalNameDataCon args]
-
--- See Note [The body of a static form is a variable]
-dsExpr (HsStatic _) = panic "DsExpr.dsExpr: HsStatic: non-variable expression."
+dsExpr (HsStatic _ _) = error "panic"
+-}
 \end{code}
-
-Note [The body of a static form is a variable]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-During type-checking the bodies of static forms which are not variables are
-floated as top-level bindings with fresh names, and the fresh names are placed
-as the bodies of the static forms. Thus, in the desugaring phase all static
-forms should have variables as bodies.
 
 \noindent
 \underline{\bf Record construction and update}
@@ -909,4 +933,33 @@ badMonadBind rhs elt_ty flag_doc
          , hang (ptext (sLit "Suppress this warning by saying"))
               2 (quotes $ ptext (sLit "_ <-") <+> ppr rhs)
          , ptext (sLit "or by using the flag") <+>  flag_doc ]
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+\subsection{Static values}
+%*                                                                      *
+%************************************************************************
+
+
+-- mkStaticRhs :: CoreExpr ->
+
+\begin{code}
+mkStaticName :: SrcSpan -> DsM Name
+mkStaticName loc = do
+    uniq <- newUnique
+    mod <- getModule
+    occ <- mkWrapperName "static"
+    return $ mkExternalName uniq mod occ loc
+  where
+    mkWrapperName what
+      = do dflags <- getDynFlags
+           thisMod <- getModule
+           let -- Note [Generating fresh names for ccall wrapper]
+               -- in compiler/typecheck/TcEnv.hs
+               wrapperRef = nextWrapperNum dflags
+           wrapperNum <- liftIO $ atomicModifyIORef wrapperRef $ \mod_env ->
+               let num = lookupWithDefaultModuleEnv mod_env 0 thisMod
+                in (extendModuleEnv mod_env thisMod (num+1), num)
+           return $ mkVarOcc $ what ++ ":" ++ show wrapperNum
 \end{code}

@@ -58,6 +58,7 @@ import Bag
 import FastString
 import Outputable
 import Util
+import Control.Monad ( liftM2 )
 import Data.Traversable ( traverse )
 \end{code}
 
@@ -735,13 +736,8 @@ zonkExpr env (HsProc pat body)
         ; return (HsProc new_pat new_body) }
 
 -- StaticValues extension
-zonkExpr env (HsStatic (L loc (HsVar stId)))
-  = do new_ty <- zonkTcTypeToType env $ idType stId
-       return $ HsStatic $ L loc $ HsVar $ setIdType stId new_ty
-
--- See Note [The body of a static form is a variable] in DsExpr.hs.
-zonkExpr _ (HsStatic _) =
-  panic "TcHsSyn.zonkExpr: HsStatic: non-variable expression."
+zonkExpr env (HsStatic expr ty)
+  = liftM2 HsStatic (zonkLExpr env expr) (zonkTcTypeToType env ty)
 
 zonkExpr env (HsWrap co_fn expr)
   = do (env1, new_co_fn) <- zonkCoFn env co_fn
