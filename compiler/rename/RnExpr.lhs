@@ -319,7 +319,7 @@ value bindings. This is done by checking that the name is external or
 wired-in. See the Note about the NameSorts in Name.lhs.
 
 \begin{code}
-rnExpr e@(HsStatic expr) = do
+rnExpr e@(HsStatic expr ty) = do
     (expr',fvExpr) <- rnLExpr expr
     stage <- getStage
     case stage of
@@ -338,7 +338,7 @@ rnExpr e@(HsStatic expr) = do
              , ptext $ sLit "but the following identifiers were found instead:"
              , nest 2 $ vcat $ map ppr fvNonGlobal
              ]
-    return (HsStatic expr', fvExpr)
+    return (HsStatic expr' ty, fvExpr)
 \end{code}
 
 %************************************************************************

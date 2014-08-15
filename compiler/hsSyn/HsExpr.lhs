@@ -278,7 +278,7 @@ data HsExpr id
 
   ---------------------------------------
   -- static values extension
-  | HsStatic    (LHsExpr id)
+  | HsStatic    (LHsExpr id) PostTcType
 
   ---------------------------------------
   -- The following are commands, not expressions proper
@@ -571,7 +571,7 @@ ppr_expr (HsQuasiQuoteE qq)    = ppr qq
 ppr_expr (HsProc pat (L _ (HsCmdTop cmd _ _ _)))
   = hsep [ptext (sLit "proc"), ppr pat, ptext (sLit "->"), ppr cmd]
 
-ppr_expr (HsStatic e)
+ppr_expr (HsStatic e _)
   = hsep [ptext (sLit "static"), pprParendExpr e]
 
 ppr_expr (HsTick tickish exp)

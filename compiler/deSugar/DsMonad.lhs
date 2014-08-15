@@ -21,7 +21,7 @@ module DsMonad (
         mkPrintUnqualifiedDs,
         newUnique, 
         UniqSupply, newUniqueSupply,
-        getGhcModeDs, dsGetFamInstEnvs, dsGetStaticBinds,
+        getGhcModeDs, dsGetFamInstEnvs, dsGetStaticBindsVar,
         dsLookupGlobal, dsLookupGlobalId, dsDPHBuiltin, dsLookupTyCon, dsLookupDataCon,
         
         PArrBuiltin(..), 
@@ -506,8 +506,8 @@ dsExtendMetaEnv :: DsMetaEnv -> DsM a -> DsM a
 dsExtendMetaEnv menv thing_inside
   = updLclEnv (\env -> env { ds_meta = ds_meta env `plusNameEnv` menv }) thing_inside
 
-dsGetStaticBinds :: DsM [(Id,CoreExpr)]
-dsGetStaticBinds = fmap ds_static_binds getGblEnv >>= liftIO . readIORef
+dsGetStaticBindsVar :: DsM (IORef [(Id,CoreExpr)])
+dsGetStaticBindsVar = fmap ds_static_binds getGblEnv
 \end{code}
 
 \begin{code}

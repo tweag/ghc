@@ -489,7 +489,7 @@ tcExpr (HsProc pat cmd) res_ty
   = do  { (pat', cmd', coi) <- tcProc pat cmd res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
 
-tcExpr (HsStatic expr@(L loc _)) res_ty
+tcExpr (HsStatic expr@(L loc _) _) res_ty
   = do  { (co, [expr_ty]) <- matchExpectedTyConApp refTyCon res_ty
         ; ((expr',errCtx), lie) <- captureConstraints $
             addErrCtxt (hang (ptext (sLit "In the body of a static form:"))
@@ -498,10 +498,10 @@ tcExpr (HsStatic expr@(L loc _)) res_ty
             liftM2 (,) (tcPolyExprNC expr expr_ty) getErrCtxt
         ; lieTcRef <- tcl_lie <$> getLclEnv
         ; updTcRef lieTcRef (`andWC` lie)
-        -- Insert the static form in a global collection for later validation.
+        -- Insert the static form in a global list for later validation.
         ; stOccsVar <- tcg_static_occs <$> getGblEnv
         ; updTcRef stOccsVar ((expr_ty, lie, loc, errCtx) :)
-        ; return $ mkHsWrapCo co $ HsStatic expr' }
+        ; return $ mkHsWrapCo co $ HsStatic expr' expr_ty}
 
 {-
 tcExpr (HsStatic expr@(L loc _)) res_ty
@@ -1661,27 +1661,3 @@ missingFields con fields
 
 -- callCtxt fun args = ptext (sLit "In the call") <+> parens (ppr (foldl mkHsApp fun args))
 \end{code}
-
-%************************************************************************
-%*                                                                      *
-             Static Values
-%*                                                                      *
-%************************************************************************
-
-mkStaticName :: SrcSpan -> TcM Name
-mkStaticName loc = do
-    uniq <- newUnique
-    mod <- getModule
-    occ <- mkWrapperName "static"
-    return $ mkExternalName uniq mod occ loc
-  where
-    mkWrapperName what
-      = do dflags <- getDynFlags
-           thisMod <- getModule
-           let -- Note [Generating fresh names for ccall wrapper]
-               -- in compiler/typecheck/TcEnv.hs
-               wrapperRef = nextWrapperNum dflags
-           wrapperNum <- liftIO $ atomicModifyIORef wrapperRef $ \mod_env ->
-               let num = lookupWithDefaultModuleEnv mod_env 0 thisMod
-                in (extendModuleEnv mod_env thisMod (num+1), num)
-           return $ mkVarOcc $ what ++ ":" ++ show wrapperNum
