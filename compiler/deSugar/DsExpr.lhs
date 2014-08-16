@@ -418,7 +418,7 @@ dsExpr (HsStatic expr@(L loc _) ty) = do
     let qtvs = varSetElems $ tyVarsOfType ty
         ty' = mkForAllTys qtvs ty
         stId = mkExportedLocalId VanillaId n ty'
-    liftIO $ modifyIORef static_binds_var ((stId,expr_ds) :)
+    liftIO $ modifyIORef static_binds_var ((stId,mkLams qtvs expr_ds) :)
     dflags <- getDynFlags
     let installedPkgId =
           case lookupPackage (pkgIdMap $ pkgState dflags) pkgKey of
