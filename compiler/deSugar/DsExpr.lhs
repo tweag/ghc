@@ -408,17 +408,24 @@ dsExpr (PArrSeq _ _)
 \end{verbatim}
 
 \begin{code}
-dsExpr (HsStatic expr@(L loc _) ty) = do
-    n <- mkStaticName loc
+dsExpr (HsStatic expr@(L loc _) _ty) = do
+    expr_ds <- dsLExpr expr
+    let ty = exprType expr_ds
+    n <- case dropTypeApps expr_ds of
+      Var stId -> return $ idName stId
+      _ -> do
+        n <- mkStaticName loc
+        static_binds_var <- dsGetStaticBindsVar
+        let qtvs = varSetElems $ tyVarsOfType ty
+            ty' = mkForAllTys qtvs ty
+            stId = mkExportedLocalId VanillaId n ty'
+        liftIO $ modifyIORef static_binds_var ((stId,mkLams qtvs expr_ds) :)
+        return n
+
     let mod = nameModule n
         pkgKey = modulePackageKey mod
         pkgName = packageKeyString pkgKey
-    expr_ds <- dsLExpr expr
-    static_binds_var <- dsGetStaticBindsVar
-    let qtvs = varSetElems $ tyVarsOfType ty
-        ty' = mkForAllTys qtvs ty
-        stId = mkExportedLocalId VanillaId n ty'
-    liftIO $ modifyIORef static_binds_var ((stId,mkLams qtvs expr_ds) :)
+
     dflags <- getDynFlags
     let installedPkgId =
           case lookupPackage (pkgIdMap $ pkgState dflags) pkgKey of
@@ -434,30 +441,9 @@ dsExpr (HsStatic expr@(L loc _) ty) = do
                 ]
       return $ mkConApp refDataCon
         [Type ty, mkConApp globalNameDataCon args]
-
-{-
-dsExpr (HsStatic (L loc (HsVar varId)) _) = do
-    let n = idName varId
-        mod = nameModule n
-        pkgKey = modulePackageKey mod
-        pkgName = packageKeyString pkgKey
-    dflags <- getDynFlags
-    let installedPkgId =
-          case lookupPackage (pkgIdMap $ pkgState dflags) pkgKey of
-            Nothing -> ""
-            Just pd -> case installedPackageId pd of
-                         InstalledPackageId ipid -> ipid
-    putSrcSpanDs loc $ do
-      args <- mapM mkStringExprFS
-                [ fsLit pkgName
-                , fsLit installedPkgId
-                , moduleNameFS $ moduleName mod
-                , occNameFS $ nameOccName n
-                ]
-      return $ mkConApp refDataCon
-        [Type (idType varId), mkConApp globalNameDataCon args]
-dsExpr (HsStatic _ _) = error "panic"
--}
+  where
+    dropTypeApps (App e (Type _)) = dropTypeApps e
+    dropTypeApps e = e
 \end{code}
 
 \noindent
