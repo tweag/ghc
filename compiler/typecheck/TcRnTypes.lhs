@@ -362,6 +362,7 @@ data TcGblEnv
                                              -- as -XSafe (Safe Haskell)
         tcg_static_occs :: TcRef [( TcType
                                   , WantedConstraints
+                                  , Untouchables
                                   , SrcSpan
                                   , [ErrCtxt]
                                   )],

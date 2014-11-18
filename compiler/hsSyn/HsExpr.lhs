@@ -278,7 +278,7 @@ data HsExpr id
 
   ---------------------------------------
   -- static values extension
-  | HsStatic    (LHsExpr id) PostTcType
+  | HsStatic    (LHsExpr id) (PostTc id Type)
 
   ---------------------------------------
   -- The following are commands, not expressions proper

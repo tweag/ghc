@@ -68,7 +68,6 @@ import IdInfo
 import Data.IORef       ( atomicModifyIORef, modifyIORef )
 
 import Control.Monad
-import Distribution.Package(InstalledPackageId(..))
 \end{code}
 
 
@@ -448,14 +447,14 @@ dsExpr (HsStatic expr@(L loc _) _ty) = do
 
     dflags <- getDynFlags
     let installedPkgId =
-          case lookupPackage (pkgIdMap $ pkgState dflags) pkgKey of
-            Nothing -> ""
+          case lookupPackage dflags pkgKey of
+            Nothing -> fsLit ""
             Just pd -> case installedPackageId pd of
-                         InstalledPackageId ipid -> ipid
+                         Packages.InstalledPackageId ipid -> ipid
     putSrcSpanDs loc $ do
       args <- mapM mkStringExprFS
                 [ fsLit pkgName
-                , fsLit installedPkgId
+                , installedPkgId
                 , moduleNameFS $ moduleName mod
                 , occNameFS $ nameOccName n
                 ]

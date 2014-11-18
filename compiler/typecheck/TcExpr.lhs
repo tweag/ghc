@@ -491,7 +491,8 @@ tcExpr (HsProc pat cmd) res_ty
 
 tcExpr (HsStatic expr@(L loc _) _) res_ty
   = do  { (co, [expr_ty]) <- matchExpectedTyConApp refTyCon res_ty
-        ; ((expr',errCtx), lie) <- captureConstraints $
+        ; (((expr',errCtx), untch), lie) <- captureConstraints $
+                                            captureUntouchables $
             addErrCtxt (hang (ptext (sLit "In the body of a static form:"))
                              2 (ppr expr)
                        ) $
@@ -500,7 +501,7 @@ tcExpr (HsStatic expr@(L loc _) _) res_ty
         ; updTcRef lieTcRef (`andWC` lie)
         -- Insert the static form in a global list for later validation.
         ; stOccsVar <- tcg_static_occs <$> getGblEnv
-        ; updTcRef stOccsVar ((expr_ty, lie, loc, errCtx) :)
+        ; updTcRef stOccsVar ((expr_ty, lie, untch, loc, errCtx) :)
         ; return $ mkHsWrapCo co $ HsStatic expr' expr_ty}
 
 {-

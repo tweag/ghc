@@ -95,8 +95,7 @@ import TidyPgm    ( globaliseAndTidyId )
 import TysWiredIn ( unitTy, mkListTy )
 #endif
 import TidyPgm    ( mkBootModDetailsTc )
-import TcPat      ( LetBndrSpec(..), newNoSigLetBndr )
-import TcType     ( evVarPred )
+import TcType     ( evVarPred, Untouchables )
 import TysWiredIn ( refTyCon )
 import TcValidity
 
@@ -2134,12 +2133,12 @@ checkStaticValues = do
     writeTcRef stOccsVar []
     mapM_ checkStaticValue stOccs
   where
-    checkStaticValue :: (TcType, WantedConstraints, SrcSpan, [ErrCtxt])
-                     -> TcM ()
-    checkStaticValue (ty, lie, loc, errCtx) =
+    checkStaticValue ::
+      (TcType, WantedConstraints, Untouchables, SrcSpan, [ErrCtxt]) -> TcM ()
+    checkStaticValue (ty, lie, untch, loc, errCtx) =
       setSrcSpan loc $ setErrCtxt errCtx $ do
       fresh_name <- newSysName $ mkVarOccFS $ fsLit "static"
-      (_, dicts, _, _) <- simplifyInfer True -- Free vars are closed
+      (_, dicts, _, _) <- simplifyInfer untch
                                         False -- No MR
                                         [(fresh_name, ty)]
                                         lie
