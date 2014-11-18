@@ -499,6 +499,12 @@ tcExpr (HsStatic expr@(L loc _) _) res_ty
             liftM2 (,) (tcPolyExprNC expr expr_ty) getErrCtxt
         ; lieTcRef <- tcl_lie <$> getLclEnv
         ; updTcRef lieTcRef (`andWC` lie)
+        -- Require the type of the argument to be Typeable.
+        ; (typeableClass, _) <- tcClass typeableClassName
+        ; _ <- instCall StaticOrigin [expr_ty]
+                [ mkTyConApp (classTyCon typeableClass)
+                             [liftedTypeKind, expr_ty]
+                ]
         -- Insert the static form in a global list for later validation.
         ; stOccsVar <- tcg_static_occs <$> getGblEnv
         ; updTcRef stOccsVar ((expr_ty, lie, untch, loc, errCtx) :)
