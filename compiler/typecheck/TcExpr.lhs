@@ -509,32 +509,6 @@ tcExpr (HsStatic expr@(L loc _) _) res_ty
         ; stOccsVar <- tcg_static_occs <$> getGblEnv
         ; updTcRef stOccsVar ((expr_ty, lie, untch, loc, errCtx) :)
         ; return $ mkHsWrapCo co $ HsStatic expr' expr_ty}
-
-{-
-tcExpr (HsStatic expr@(L loc _)) res_ty
-  = do  { (co, [expr_ty]) <- matchExpectedTyConApp refTyCon res_ty
-        ; ((expr',errCtx), lie) <- captureConstraints $
-            addErrCtxt (hang (ptext (sLit "In the body of a static form:"))
-                             2 (ppr expr)
-                       ) $
-            liftM2 (,) (tcPolyExprNC expr expr_ty) getErrCtxt
-        ; lieTcRef <- tcl_lie <$> getLclEnv
-        ; updTcRef lieTcRef (`andWC` lie)
-        ; stId <- case unLoc expr of
-            -- Keep the name if the static argument is a variable
-            -- and type-checking it does not raise any constraints.
-            HsVar n | isEmptyWC lie ->
-              return $ mkExportedLocalId VanillaId n expr_ty
-            -- Generate a fresh name if the static argument is not a variable.
-            _   -> do
-              stName <- mkStaticName loc
-              let stId = mkExportedLocalId VanillaId stName expr_ty
-              stOccsVar <- tcg_static_occs <$> getGblEnv
-              updTcRef stOccsVar ((stId, expr', lie, errCtx) :)
-              return stId
-        ; keepAlive $ idName stId
-        ; return $ mkHsWrapCo co $ HsStatic $ L loc $ HsVar stId }
--}
 \end{code}
 
 Note [Rebindable syntax for if]
