@@ -56,9 +56,9 @@ data StaticPtr a = StaticPtr { unStaticPtr :: StaticName }
 
 -- | Identifying of top-level values
 --
--- > StaticName package_id installed_package_id module_name value_name
+-- > StaticName package_id module_name value_name
 --
-data StaticName = StaticName String String String String
+data StaticName = StaticName String String String
   deriving (Read, Show, Typeable)
 
 -- | An unsafe lookup function for symbolic references.
@@ -73,7 +73,7 @@ data StaticName = StaticName String String String String
 -- GHC when linking the program.
 --
 deRefStaticPtr :: StaticPtr a -> a
-deRefStaticPtr p@(StaticPtr (StaticName pkg _ m n)) = unsafePerformIO $ do
+deRefStaticPtr p@(StaticPtr (StaticName pkg m n)) = unsafePerformIO $ do
     let mpkg = case pkg of
                  "main" -> Nothing
                  _ -> Just pkg

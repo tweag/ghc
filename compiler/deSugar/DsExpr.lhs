@@ -48,7 +48,6 @@ import CostCentre
 import Id
 import Unique
 import Module
-import Packages
 import VarSet
 import VarEnv
 import ConLike
@@ -423,7 +422,7 @@ dsExpr (PArrSeq _ _)
 \begin{verbatim}
     static f
 ==>
-    StaticPtr (StaticName "pkg id of f" "installed-package-id" "module of f" "f")
+    StaticPtr (StaticName "pkg id of f" "module of f" "f")
 \end{verbatim}
 
 \begin{code}
@@ -445,16 +444,9 @@ dsExpr (HsStatic expr@(L loc _) _ty) = do
         pkgKey = modulePackageKey mod
         pkgName = packageKeyString pkgKey
 
-    dflags <- getDynFlags
-    let installedPkgId =
-          case lookupPackage dflags pkgKey of
-            Nothing -> fsLit ""
-            Just pd -> case installedPackageId pd of
-                         Packages.InstalledPackageId ipid -> ipid
     putSrcSpanDs loc $ do
       args <- mapM mkStringExprFS
                 [ fsLit pkgName
-                , installedPkgId
                 , moduleNameFS $ moduleName mod
                 , occNameFS $ nameOccName n
                 ]
