@@ -889,7 +889,7 @@ staticNameTyCon  =
 
 staticNameDataCon :: DataCon
 staticNameDataCon  =
-    pcDataCon staticNameDataConName [] (replicate 4 stringTy) staticNameTyCon
+    pcDataCon staticNameDataConName [] (replicate 3 stringTy) staticNameTyCon
 \end{code}
 
 Promoted Booleans
