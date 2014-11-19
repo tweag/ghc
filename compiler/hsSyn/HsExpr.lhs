@@ -277,7 +277,7 @@ data HsExpr id
                                         -- always has an empty stack
 
   ---------------------------------------
-  -- static values extension
+  -- static pointers extension
   | HsStatic    (LHsExpr id) (PostTc id Type)
 
   ---------------------------------------

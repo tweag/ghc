@@ -273,7 +273,7 @@ incorrect.
  'by'       { L _ ITby }        -- for list transform extension
  'using'    { L _ ITusing }     -- for list transform extension
  'pattern'      { L _ ITpattern } -- for pattern synonyms
- 'static'       { L _ ITstatic }  -- for static values extension
+ 'static'       { L _ ITstatic }  -- for static pointers extension
 
  '{-# INLINE'             { L _ (ITinline_prag _ _) }
  '{-# SPECIALISE'         { L _ ITspec_prag }

@@ -1653,7 +1653,7 @@ tcGhciStmts stmts
         ((tc_stmts, ids), lie) <- captureConstraints $
                                   (tc_io_stmts $ \ _ ->
                                      mapM tcLookupId names)
-                                  -- Ignore bindings for static values
+                                  -- Ignore bindings for static pointers
                                   <* checkStaticPointers ;
 
                         -- Look up the names right in the middle,
@@ -1744,7 +1744,7 @@ tcRnExpr hsc_env rdr_expr
                                           captureUntouchables $
                                           tcInferRho rn_expr ;
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $
-                                      -- Ignore bindings for static values
+                                      -- Ignore bindings for static pointers
                                       checkStaticPointers >>
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer untch

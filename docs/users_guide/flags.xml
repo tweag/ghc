@@ -3031,7 +3031,7 @@
           </row>
           <row>
             <entry><option>-ddump-static-binds</option></entry>
-            <entry>Dump bindings created for static values</entry>
+            <entry>Dump bindings created for static pointers</entry>
             <entry>dynamic</entry>
             <entry>-</entry>
           </row>
