@@ -429,8 +429,10 @@ dsExpr (HsStatic expr@(L loc _) _ty) = do
     n <- case dropTypeApps expr_ds of
       Var stId -> return $ idName stId
       _ -> do
-        failWithDs $ ptext $
-          sLit "The argument of static can only be a variable."
+        failWithDs $ cat
+          [ ptext (sLit "The argument of a static form can be only a name")
+          , ptext (sLit "but found: static") <+> parens (ppr expr)
+          ]
 
     let mod = nameModule n
         pkgKey = modulePackageKey mod
