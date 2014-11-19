@@ -98,7 +98,6 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
 
         dependent_files_var <- newIORef [] ;
         static_occs_var      <- newIORef [] ;
-        static_binds_var     <- newIORef [] ;
 #ifdef GHCI
         th_topdecls_var      <- newIORef [] ;
         th_topnames_var      <- newIORef emptyNameSet ;
@@ -165,8 +164,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcg_main           = Nothing,
                 tcg_safeInfer      = infer_var,
                 tcg_dependent_files = dependent_files_var,
-                tcg_static_occs    = static_occs_var,
-                tcg_static_binds   = static_binds_var
+                tcg_static_occs    = static_occs_var
              } ;
              lcl_env = TcLclEnv {
                 tcl_errs       = errs_var,

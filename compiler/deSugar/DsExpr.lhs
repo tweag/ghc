@@ -62,10 +62,7 @@ import Bag
 import Outputable
 import FastString
 
-import IdInfo
 -- import Module ( HasModule(..), lookupWithDefaultModuleEnv, extendModuleEnv )
-import Data.IORef       ( atomicModifyIORef, modifyIORef )
-
 import Control.Monad
 \end{code}
 
@@ -432,13 +429,8 @@ dsExpr (HsStatic expr@(L loc _) _ty) = do
     n <- case dropTypeApps expr_ds of
       Var stId -> return $ idName stId
       _ -> do
-        n <- mkStaticName loc
-        static_binds_var <- dsGetStaticBindsVar
-        let qtvs = varSetElems $ tyVarsOfType ty
-            ty' = mkForAllTys qtvs ty
-            stId = mkExportedLocalId VanillaId n ty'
-        liftIO $ modifyIORef static_binds_var ((stId,mkLams qtvs expr_ds) :)
-        return n
+        failWithDs $ ptext $
+          sLit "The argument of static can only be a variable."
 
     let mod = nameModule n
         pkgKey = modulePackageKey mod
@@ -931,33 +923,4 @@ badMonadBind rhs elt_ty flag_doc
          , hang (ptext (sLit "Suppress this warning by saying"))
               2 (quotes $ ptext (sLit "_ <-") <+> ppr rhs)
          , ptext (sLit "or by using the flag") <+>  flag_doc ]
-\end{code}
-
-%************************************************************************
-%*                                                                      *
-\subsection{Static pointers}
-%*                                                                      *
-%************************************************************************
-
-
--- mkStaticRhs :: CoreExpr ->
-
-\begin{code}
-mkStaticName :: SrcSpan -> DsM Name
-mkStaticName loc = do
-    uniq <- newUnique
-    mod <- getModule
-    occ <- mkWrapperName "static"
-    return $ mkExternalName uniq mod occ loc
-  where
-    mkWrapperName what
-      = do dflags <- getDynFlags
-           thisMod <- getModule
-           let -- Note [Generating fresh names for ccall wrapper]
-               -- in compiler/typecheck/TcEnv.hs
-               wrapperRef = nextWrapperNum dflags
-           wrapperNum <- liftIO $ atomicModifyIORef wrapperRef $ \mod_env ->
-               let num = lookupWithDefaultModuleEnv mod_env 0 thisMod
-                in (extendModuleEnv mod_env thisMod (num+1), num)
-           return $ mkVarOcc $ what ++ ":" ++ show wrapperNum
 \end{code}
