@@ -452,8 +452,8 @@ gHC_IP          = mkBaseModule (fsLit "GHC.IP")
 gHC_PARR' :: Module
 gHC_PARR' = mkBaseModule (fsLit "GHC.PArr")
 
-gHC_STATICREF :: Module
-gHC_STATICREF = mkBaseModule (fsLit "GHC.Ref")
+gHC_STATICPTR :: Module
+gHC_STATICPTR = mkBaseModule (fsLit "GHC.StaticPtr")
 
 mAIN, rOOT_MAIN :: Module
 mAIN            = mkMainModule_ mAIN_NAME
@@ -1486,11 +1486,11 @@ specTyConKey = mkPreludeTyConUnique 177
 smallArrayPrimTyConKey        = mkPreludeTyConUnique  178
 smallMutableArrayPrimTyConKey = mkPreludeTyConUnique  179
 
-refTyConKey  :: Unique
-refTyConKey  = mkPreludeTyConUnique 180
+staticPtrTyConKey  :: Unique
+staticPtrTyConKey  = mkPreludeTyConUnique 180
 
-globalNameTyConKey :: Unique
-globalNameTyConKey = mkPreludeTyConUnique 181
+staticNameTyConKey :: Unique
+staticNameTyConKey = mkPreludeTyConUnique 181
 
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
@@ -1555,11 +1555,11 @@ gtDataConKey                            = mkPreludeDataConUnique 29
 
 coercibleDataConKey                     = mkPreludeDataConUnique 32
 
-refDataConKey :: Unique
-refDataConKey                           = mkPreludeDataConUnique 33
+staticPtrDataConKey :: Unique
+staticPtrDataConKey                     = mkPreludeDataConUnique 33
 
-globalNameDataConKey :: Unique
-globalNameDataConKey                    = mkPreludeDataConUnique 34
+staticNameDataConKey :: Unique
+staticNameDataConKey                    = mkPreludeDataConUnique 34
 
 \end{code}
 

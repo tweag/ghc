@@ -1104,7 +1104,7 @@ varid span buf len =
       return $ L span keyword
     Just (ITstatic, _) -> do
       flags <- getDynFlags
-      if xopt Opt_StaticValues flags
+      if xopt Opt_StaticPointers flags
         then return $ L span ITstatic
         else return $ L span $ ITvarid fs
     Just (keyword, 0) -> do

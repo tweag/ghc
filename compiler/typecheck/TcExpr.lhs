@@ -490,7 +490,7 @@ tcExpr (HsProc pat cmd) res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
 
 tcExpr (HsStatic expr@(L loc _) _) res_ty
-  = do  { (co, [expr_ty]) <- matchExpectedTyConApp refTyCon res_ty
+  = do  { (co, [expr_ty]) <- matchExpectedTyConApp staticPtrTyCon res_ty
         ; (((expr',errCtx), untch), lie) <- captureConstraints $
                                             captureUntouchables $
             addErrCtxt (hang (ptext (sLit "In the body of a static form:"))

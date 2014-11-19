@@ -737,7 +737,7 @@ zonkExpr env (HsProc pat body)
         ; new_body <- zonkCmdTop env1 body
         ; return (HsProc new_pat new_body) }
 
--- StaticValues extension
+-- StaticPointers extension
 zonkExpr env (HsStatic expr ty)
   = liftM2 HsStatic (zonkLExpr env expr) (zonkTcTypeToType env ty)
 

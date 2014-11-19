@@ -9984,12 +9984,12 @@ Assertion failures can be caught, see the documentation for the
 <!-- =============================== STATIC VALUES ===========================  -->
 
 <sect1 id="static-values">
-<title>Static values
-<indexterm><primary>Static values</primary></indexterm>
+<title>Static pointers
+<indexterm><primary>Static pointers</primary></indexterm>
 </title>
 
 <para>
-The language extension <literal>-XStaticValues</literal> adds a new
+The language extension <literal>-XStaticPointers</literal> adds a new
 <literal>static <replaceable>e</replaceable></literal> syntactic form,
 which stands for a reference to the closed expression
 <replaceable>e</replaceable>. This reference is stable and portable,
@@ -10000,19 +10000,19 @@ and send it to another process that can resolve it to
 </para>
 
 <para>
-Static values were first proposed in the paper <ulink
+Static pointers were first proposed in the paper <ulink
 url="http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf">
 Towards Haskell in the cloud</ulink>, Jeff Epstein, Andrew P. Black and Simon
 Peyton-Jones, Proceedings of the 4th ACM Symposium on Haskell, pp.
 118-129, ACM, 2011.
 </para>
 
-<sect2 id="using-static-values">
-<title>Using static values</title>
+<sect2 id="using-static-pointers">
+<title>Using static pointers</title>
 
 <para>
 The information contained in the reference is used by
-<ulink url="&libraryBaseLocation;/GHC.Ref.html#v%3AdeRef"><literal>deRef</literal></ulink>
+<ulink url="&libraryBaseLocation;/GHC.StaticPtr.html#v%3AdeRef"><literal>deRefStaticPtr</literal></ulink>
 to locate the values at runtime using the
 symbol tables in executables, libraries and object files. For this to
 work, symbol tables need to be made available at runtime. A simple way
@@ -10051,47 +10051,53 @@ prompt.
 </para>
 </sect2>
 
-<sect2 id="typechecking-static-values">
-<title>Static semantics of static values</title>
+<sect2 id="typechecking-static-pointers">
+<title>Static semantics of static pointers</title>
 
 <para>
+
 Informally, if we have a closed expression
 <programlisting>
-       e :: forall a_1 ... a_n. t
+e :: forall a_1 ... a_n . t
 </programlisting>
 the static form is of type
 <programlisting>
-static e :: forall a_1 ... a_n. Ref t
+static e :: (Typeable a_1, ... , Typeable a_n) => StaticPtr t
 </programlisting>
+Furthermore, type <literal>t</literal> is constrained to have a
+<literal>Typeable</literal> instance.
 
-Only expressions of rank-1 type with no constraints are allowed as the
-body of a <literal>static</literal> form. The following are therefore
-illegal:
+The following are therefore illegal:
 <programlisting>
-static show                    -- show has a constraint (Show a)
-static Control.Monad.ST.runST  -- runST has a higher-ranked type
+static show                    -- No Typeable instance for (Show a => a -> String)
+static Control.Monad.ST.runST  -- No Typeable instance for ((forall s. ST s a) -> a)
 </programlisting>
 
 That being said, with the appropriate use of wrapper datatypes, the
 above limitations induce no loss of generality:
 <programlisting>
-{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ConstraintKinds           #-}
+{-# LANGUAGE DerivingDataTypeable      #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE StaticValues #-}
+{-# LANGUAGE Rank2Types                #-}
+{-# LANGUAGE StandaloneDeriving        #-}
+{-# LANGUAGE StaticPointers            #-}
 
 import Control.Monad.ST
-import GHC.Ref
+import GHC.StaticPtr
 
 data Dict c = c => Dict
+  deriving Typeable
 
-g1 :: Ref (Dict (Show a) -> a -> String)
+g1 :: Typeable a => StaticPtr (Dict (Show a) -> a -> String)
 g1 = static (\Dict -> show)
 
 data Rank2Wrapper f = R2W (forall s. f s)
+  deriving Typeable
 newtype Flip f a s = Flip { unFlip :: f s a }
+  deriving Typeable
 
-g2 :: Ref (Rank2Wrapper (Flip ST a) -> a)
+g2 :: Typeable a => StaticPtr (Rank2Wrapper (Flip ST a) -> a)
 g2 = static (\(R2W f) -> runST (unFlip f))
 </programlisting>
 </para>

@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  GHC.Ref
--- Copyright   :  (C) 2014 EURL Tweag
+-- Module      :  GHC.StaticPtr
+-- Copyright   :  (C) 2014 I/O Tweag
 -- License     :  see libraries/base/LICENSE
 --
 -- Maintainer  :  cvs-ghc@haskell.org
@@ -22,81 +22,63 @@
 -- package, module and name of a value. This information could be used to locate
 -- the value in different processes.
 --
--- Currently, the main use case for references is the StaticValues language
+-- Currently, the main use case for references is the StaticPointers language
 -- extension.
 --
 -----------------------------------------------------------------------------
 
 {-# LANGUAGE CPP                      #-}
 {-# LANGUAGE DeriveDataTypeable       #-}
-#ifdef __GLASGOW_HASKELL__
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash                #-}
 {-# LANGUAGE UnboxedTuples            #-}
-#endif
-module GHC.Ref
-  ( Ref(..)
-  , GlobalName(..)
-#ifdef __GLASGOW_HASKELL__
-  , deRef
-#endif
+module GHC.StaticPtr
+  ( StaticPtr(..)
+  , StaticName(..)
+  , deRefStaticPtr
   ) where
 
 import Data.Typeable    (Typeable)
-
-#ifdef __GLASGOW_HASKELL__
 import Data.Char
 import Foreign.C.String ( withCString, CString )
 import GHC.Exts         ( addrToAny# )
 import GHC.Ptr          ( Ptr(..), nullPtr )
 import Numeric
 import System.Info      ( os )
-#endif
+import System.IO.Unsafe ( unsafePerformIO )
 
 
 -- | A reference to a top-level value of type 'a'.
-data Ref a = Ref { unRef :: GlobalName }
+--
+-- TODO make this into a newtype.
+data StaticPtr a = StaticPtr { unStaticPtr :: StaticName }
   deriving (Read, Show, Typeable)
 
--- | Global names identifying top-level values
+-- | Identifying of top-level values
 --
--- > GlobalName package_id installed_package_id module_name value_name
+-- > StaticName package_id installed_package_id module_name value_name
 --
--- In essence, a 'GlobalName' augments the information provided by
--- 'Language.Haskell.TH.Syntax.Name' with the information in the
--- @installed_package_id@ field. This field is
--- Cabal:'Distribution.Package.InstalledPackageId' and it
--- is needed to identify the package when multiple variations of it are
--- installed.
---
-data GlobalName = GlobalName String String String String
+data StaticName = StaticName String String String String
   deriving (Read, Show, Typeable)
 
-#ifdef __GLASGOW_HASKELL__
 -- | An unsafe lookup function for symbolic references.
 --
--- @deRef (r :: Ref a)@ returns @Nothing@ if no associated value is found for
--- @r@, and @Just v@ if @v@ is the value associated to @r@ and it has the
--- expected type @a@.
+-- @deRefStaticPtr (p :: StaticPtr a)@ returns the value pointed by @p@.
 --
--- This function is unsafe because if an associated value @v@ of a different
--- type is found, then the behavior of this function is undefined.
---
--- Currently, a value is considered associated to a reference if the symbols of
+-- Currently, the function is partial. The pointer is valid if the symbols of
 -- the module producing the reference are made available at runtime.
 -- This can be achieved by linking the module as part of a shared library, or by
 -- loading the module using the RTS linker, or by adding the symbols of the
 -- program executable to the dynamic symbol table with by passing @-rdynamic@ to
 -- GHC when linking the program.
 --
--- This function is only available with the GHC compiler.
---
-deRef :: Ref a -> IO (Maybe a)
-deRef (Ref (GlobalName pkg _ m n)) = do
+deRefStaticPtr :: StaticPtr a -> a
+deRefStaticPtr p@(StaticPtr (StaticName pkg _ m n)) = unsafePerformIO $ do
     let mpkg = case pkg of
                  "main" -> Nothing
                  _ -> Just pkg
-    loadFunction mpkg m n
+    loadFunction mpkg m n >>=
+      maybe (error $ "Unknown StaticPtr: " ++ show p) return
 
 -- loadFunction__ taken from
 -- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
@@ -221,5 +203,3 @@ maybe_tuple _                = Nothing
 count_commas :: Int -> String -> (Int, String)
 count_commas n (',' : cs) = count_commas (n+1) cs
 count_commas n cs         = (n,cs)
-
-#endif

@@ -67,9 +67,9 @@ module TysWiredIn (
         parrTyCon, parrFakeCon, isPArrTyCon, isPArrFakeCon,
         parrTyCon_RDR, parrTyConName,
 
-        -- * Ref
-        refTyCon, refTyConName,
-        refDataCon, globalNameDataCon,
+        -- * StaticPtr
+        staticPtrTyCon, staticPtrTyConName,
+        staticPtrDataCon, staticNameDataCon,
 
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
@@ -155,8 +155,8 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               , wordTyCon
               , listTyCon
               , parrTyCon
-              , refTyCon
-              , globalNameTyCon
+              , staticPtrTyCon
+              , staticNameTyCon
               , eqTyCon
               , coercibleTyCon
               , typeNatKindCon
@@ -222,17 +222,17 @@ parrTyConName   = mkWiredInTyConName   BuiltInSyntax
 parrDataConName = mkWiredInDataConName UserSyntax
                     gHC_PARR' (fsLit "PArr") parrDataConKey parrDataCon
 
-refTyConName, refDataConName :: Name
-refTyConName   = mkWiredInTyConName   UserSyntax
-                    gHC_STATICREF (fsLit "Ref") refTyConKey refTyCon
-refDataConName = mkWiredInDataConName UserSyntax
-                    gHC_STATICREF (fsLit "Ref") refDataConKey refDataCon
+staticPtrTyConName, staticPtrDataConName :: Name
+staticPtrTyConName   = mkWiredInTyConName UserSyntax
+    gHC_STATICPTR (fsLit "StaticPtr") staticPtrTyConKey staticPtrTyCon
+staticPtrDataConName = mkWiredInDataConName UserSyntax
+    gHC_STATICPTR (fsLit "StaticPtr") staticPtrDataConKey staticPtrDataCon
 
-globalNameTyConName, globalNameDataConName :: Name
-globalNameTyConName   = mkWiredInTyConName   UserSyntax
-    gHC_STATICREF (fsLit "GlobalName") globalNameTyConKey globalNameTyCon
-globalNameDataConName = mkWiredInDataConName UserSyntax
-    gHC_STATICREF (fsLit "GlobalName") globalNameDataConKey globalNameDataCon
+staticNameTyConName, staticNameDataConName :: Name
+staticNameTyConName   = mkWiredInTyConName UserSyntax
+    gHC_STATICPTR (fsLit "StaticName") staticNameTyConKey staticNameTyCon
+staticNameDataConName = mkWiredInDataConName UserSyntax
+    gHC_STATICPTR (fsLit "StaticName") staticNameDataConKey staticNameDataCon
 
 
 boolTyCon_RDR, false_RDR, true_RDR, intTyCon_RDR, charTyCon_RDR,
@@ -869,25 +869,27 @@ isPArrFakeCon      :: DataCon -> Bool
 isPArrFakeCon dcon  = dcon == parrFakeCon (dataConSourceArity dcon)
 \end{code}
 
-Ref
+StaticPtr
 
 \begin{code}
-refTyCon :: TyCon
-refTyCon  = pcNonRecDataTyCon refTyConName Nothing alpha_tyvar [refDataCon]
+staticPtrTyCon :: TyCon
+staticPtrTyCon  =
+    pcNonRecDataTyCon staticPtrTyConName Nothing alpha_tyvar [staticPtrDataCon]
 
-refDataCon :: DataCon
-refDataCon  = pcDataCon refDataConName alpha_tyvar [globalNameTy] refTyCon
+staticPtrDataCon :: DataCon
+staticPtrDataCon  =
+    pcDataCon staticPtrDataConName alpha_tyvar [staticNameTy] staticPtrTyCon
 
-globalNameTy :: Type
-globalNameTy = mkTyConTy globalNameTyCon
+staticNameTy :: Type
+staticNameTy = mkTyConTy staticNameTyCon
 
-globalNameTyCon :: TyCon
-globalNameTyCon  =
-    pcNonRecDataTyCon globalNameTyConName Nothing [] [globalNameDataCon]
+staticNameTyCon :: TyCon
+staticNameTyCon  =
+    pcNonRecDataTyCon staticNameTyConName Nothing [] [staticNameDataCon]
 
-globalNameDataCon :: DataCon
-globalNameDataCon  =
-    pcDataCon globalNameDataConName [] (replicate 4 stringTy) globalNameTyCon
+staticNameDataCon :: DataCon
+staticNameDataCon  =
+    pcDataCon staticNameDataConName [] (replicate 4 stringTy) staticNameTyCon
 \end{code}
 
 Promoted Booleans

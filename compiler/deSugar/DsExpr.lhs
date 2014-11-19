@@ -418,12 +418,12 @@ dsExpr (PArrSeq _ _)
 \end{code}
 
 \noindent
-\underline{\bf Static values}
-%              ~~~~~~~~~~~~~
+\underline{\bf Static Pointers}
+%              ~~~~~~~~~~~~~~~
 \begin{verbatim}
     static f
 ==>
-    Ref (GlobalName "pkg id of f" "installed-package-id" "module of f" "f")
+    StaticPtr (StaticName "pkg id of f" "installed-package-id" "module of f" "f")
 \end{verbatim}
 
 \begin{code}
@@ -458,8 +458,8 @@ dsExpr (HsStatic expr@(L loc _) _ty) = do
                 , moduleNameFS $ moduleName mod
                 , occNameFS $ nameOccName n
                 ]
-      return $ mkConApp refDataCon
-        [Type ty, mkConApp globalNameDataCon args]
+      return $ mkConApp staticPtrDataCon
+        [Type ty, mkConApp staticNameDataCon args]
   where
     dropTypeApps (App e (Type _)) = dropTypeApps e
     dropTypeApps e = e
@@ -943,7 +943,7 @@ badMonadBind rhs elt_ty flag_doc
 
 %************************************************************************
 %*                                                                      *
-\subsection{Static values}
+\subsection{Static pointers}
 %*                                                                      *
 %************************************************************************
 

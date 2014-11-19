@@ -96,7 +96,7 @@ import TysWiredIn ( unitTy, mkListTy )
 #endif
 import TidyPgm    ( mkBootModDetailsTc )
 import TcType     ( evVarPred, Untouchables )
-import TysWiredIn ( refTyCon )
+import TysWiredIn ( staticPtrTyCon )
 import TcValidity
 
 import FastString
@@ -478,7 +478,7 @@ tcRnSrcDecls boot_iface decls
 
         failIfErrsM ;
 
-        ((), lie2) <- captureConstraints checkStaticValues ;
+        ((), lie2) <- captureConstraints checkStaticPointers ;
         new_ev_binds2 <- {-# SCC "simplifyTop" #-}
                          simplifyTop lie2 ;
 
@@ -1654,7 +1654,7 @@ tcGhciStmts stmts
                                   (tc_io_stmts $ \ _ ->
                                      mapM tcLookupId names)
                                   -- Ignore bindings for static values
-                                  <* checkStaticValues ;
+                                  <* checkStaticPointers ;
 
                         -- Look up the names right in the middle,
                         -- where they will all be in scope
@@ -1745,7 +1745,7 @@ tcRnExpr hsc_env rdr_expr
                                           tcInferRho rn_expr ;
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $
                                       -- Ignore bindings for static values
-                                      checkStaticValues >>
+                                      checkStaticPointers >>
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer untch
                                                     False {- No MR for now -}
@@ -1834,7 +1834,7 @@ tcRnDeclsi hsc_env local_decls =
     new_ev_binds <- simplifyTop lie
 
     failIfErrsM
-    ((), lie2) <- captureConstraints checkStaticValues
+    ((), lie2) <- captureConstraints checkStaticPointers
     new_ev_binds2 <- {-# SCC "simplifyTop" #-}
                      simplifyTop lie2
 
@@ -2116,26 +2116,26 @@ ppr_tydecls tycons
 
 %************************************************************************
 %*                                                                      *
-                 checkStaticValues
+                 checkStaticPointers
 %*                                                                      *
 %************************************************************************
 
 \begin{code}
 -- | Checks that the static forms have valid types when generalized.
 --
--- The type @Ref tau@ is valid if it is predicative, that is, tau is unqualified
+-- The type @StaticPtr tau@ is valid if it is predicative, that is, tau is unqualified
 -- and monomorphic.
 --
-checkStaticValues :: TcM ()
-checkStaticValues = do
+checkStaticPointers :: TcM ()
+checkStaticPointers = do
     stOccsVar <- tcg_static_occs <$> getGblEnv
     stOccs <- readTcRef stOccsVar
     writeTcRef stOccsVar []
-    mapM_ checkStaticValue stOccs
+    mapM_ checkStaticPointer stOccs
   where
-    checkStaticValue ::
+    checkStaticPointer ::
       (TcType, WantedConstraints, Untouchables, SrcSpan, [ErrCtxt]) -> TcM ()
-    checkStaticValue (ty, lie, untch, loc, errCtx) =
+    checkStaticPointer (ty, lie, untch, loc, errCtx) =
       setSrcSpan loc $ setErrCtxt errCtx $ do
       fresh_name <- newSysName $ mkVarOccFS $ fsLit "static"
       (_, dicts, _, _) <- simplifyInfer untch
@@ -2144,7 +2144,7 @@ checkStaticValues = do
                                         lie
 
       let expr_qty = mkPiTypes dicts ty
-      zty <- zonkTcType $ mkTyConApp refTyCon [ expr_qty ]
+      zty <- zonkTcType $ mkTyConApp staticPtrTyCon [ expr_qty ]
       void $ tryM $ checkValidType StaticCtxt zty
 \end{code}
 

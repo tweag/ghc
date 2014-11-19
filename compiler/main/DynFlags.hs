@@ -605,7 +605,7 @@ data ExtensionFlag
    | Opt_NegativeLiterals
    | Opt_EmptyCase
    | Opt_PatternSynonyms
-   | Opt_StaticValues
+   | Opt_StaticPointers
    deriving (Eq, Enum, Show)
 
 data SigOf = NotSigOf
@@ -2965,7 +2965,7 @@ xFlags = [
   ( "UnicodeSyntax",                    Opt_UnicodeSyntax, nop ),
   ( "UnliftedFFITypes",                 Opt_UnliftedFFITypes, nop ),
   ( "ViewPatterns",                     Opt_ViewPatterns, nop ),
-  ( "StaticValues",                     Opt_StaticValues, nop )
+  ( "StaticPointers",                   Opt_StaticPointers, nop )
   ]
 
 defaultFlags :: Settings -> [GeneralFlag]
