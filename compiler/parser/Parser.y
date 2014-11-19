@@ -1600,7 +1600,7 @@ hpc_annot :: { Located (FastString,(Int,Int),(Int,Int)) }
 
 fexp    :: { LHsExpr RdrName }
         : fexp aexp                             { sLL $1 $> $ HsApp $1 $2 }
-        | 'static' aexp                         { sLL $1 $> $ HsStatic $2 placeHolderType }
+        | 'static' aexp                         { sLL $1 $> $ HsStatic $2 }
         | aexp                                  { $1 }
 
 aexp    :: { LHsExpr RdrName }

@@ -58,7 +58,6 @@ import Bag
 import FastString
 import Outputable
 import Util
-import Control.Monad ( liftM2 )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable ( traverse )
 #endif
@@ -738,8 +737,8 @@ zonkExpr env (HsProc pat body)
         ; return (HsProc new_pat new_body) }
 
 -- StaticPointers extension
-zonkExpr env (HsStatic expr ty)
-  = liftM2 HsStatic (zonkLExpr env expr) (zonkTcTypeToType env ty)
+zonkExpr env (HsStatic expr)
+  = HsStatic <$> zonkLExpr env expr
 
 zonkExpr env (HsWrap co_fn expr)
   = do (env1, new_co_fn) <- zonkCoFn env co_fn

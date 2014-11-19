@@ -423,7 +423,7 @@ dsExpr (PArrSeq _ _)
 \end{verbatim}
 
 \begin{code}
-dsExpr (HsStatic expr@(L loc _) _ty) = do
+dsExpr (HsStatic expr@(L loc _)) = do
     expr_ds <- dsLExpr expr
     let ty = exprType expr_ds
     n <- case dropTypeApps expr_ds of
