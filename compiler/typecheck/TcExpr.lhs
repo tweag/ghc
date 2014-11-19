@@ -499,6 +499,10 @@ tcExpr (HsStatic expr@(L loc _)) res_ty
             liftM2 (,) (tcPolyExprNC expr expr_ty) getErrCtxt
         ; lieTcRef <- tcl_lie <$> getLclEnv
         ; updTcRef lieTcRef (`andWC` lie)
+        -- Keep the name in case it is not used anywhere else.
+        ; case expr of
+            L _ (HsVar n) -> keepAlive n
+            _             -> return ()
         -- Require the type of the argument to be Typeable.
         ; (typeableClass, _) <- tcClass typeableClassName
         ; _ <- instCall StaticOrigin [expr_ty]
