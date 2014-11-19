@@ -1,5 +1,5 @@
-{-# LANGUAGE StaticValues #-}
+{-# LANGUAGE StaticPointers #-}
 
 module RnStaticValuesFail03 where
 
-f x = static (x . id)
+f x = static x

@@ -1,26 +1,20 @@
-{-# LANGUAGE StaticValues #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE StaticPointers       #-}
 
-import GHC.Ref
+import Data.Typeable
+import GHC.StaticPtr
 
-main = putStr $ unlines $ map showGlobalName gNames
+main = putStr $ unlines $ map show gNames
   where
-    showGlobalName (GlobalName pkg _ m n) =
-      unwords $ ("GlobalName" :) $ map show [ pkg, m, n ]
     gNames =
-      [ unRef $ static g
-      , unRef $ static id
-      , unRef $ static (&&)
-      , unRef (static method :: Ref (Char -> Int))
-      , unRef $ static t_field
+      [ -- unStaticPtr $ static g
+        unStaticPtr $ (static id :: StaticPtr (Int -> Int))
+        -- , unStaticPtr $ static (&&)
+      , unStaticPtr $ (static t_field :: StaticPtr (T Int -> Int))
       ]
 
 g :: Int -> Int
 g = id
 
-class C a where
-  method :: a -> Int
-
-instance C Char where
-  method = const 0
-
 data T a = T { t_field :: a }
+  deriving Typeable

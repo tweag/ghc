@@ -1,4 +1,4 @@
-{-# LANGUAGE StaticValues #-}
+{-# LANGUAGE StaticPointers #-}
 
 module RnStaticValuesFail02 where
 

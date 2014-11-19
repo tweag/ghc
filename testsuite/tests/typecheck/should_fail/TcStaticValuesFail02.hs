@@ -1,12 +1,12 @@
-{-# LANGUAGE StaticValues   #-}
+{-# LANGUAGE StaticPointers     #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 
 module StaticValuesFail02 where
 
-import GHC.Ref
+import GHC.StaticPtr
 
-f1 :: Ref ((forall a . a -> a) -> b)
+f1 :: StaticPtr ((forall a . a -> a) -> b)
 f1 = static (undefined :: (forall a . a -> a) -> b)
 
-f2 :: Ref (Monad m => a -> m a)
+f2 :: StaticPtr (Monad m => a -> m a)
 f2 = static return
