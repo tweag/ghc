@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE StaticValues #-}
+{-# LANGUAGE StaticPointers #-}
 
 -- |A test to load symbols produced by the static form.
 --
@@ -12,7 +12,7 @@
 --
 module Main(main) where
 
-import GHC.Ref
+import GHC.StaticPtr
 import Language.Haskell.TH
 import System.Environment
 
@@ -28,13 +28,12 @@ main = do {
         { hscTarget    = HscInterpreted
         , ghcLink      = LinkInMemory
         , ghcMode      = CompManager
-        , packageFlags = [ ExposePackage "ghc" ]
+        , packageFlags = [ ExposePackage (PackageArg "ghc") Nothing ]
         , ldInputs     = FileOption "" "TH_StaticValues.o" : ldInputs oldFlags
         }
       load LoadAllTargets
       liftIO $ do
-        deRef $([| static g |]) >>= print
-        deRef $([| static (id . id) |]) >>= print . fmap ($ 2)
+        print $ deRefStaticPtr $([| static g :: StaticPtr String |])
     }
 
 g = "found"
