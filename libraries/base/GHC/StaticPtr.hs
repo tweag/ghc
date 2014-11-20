@@ -27,14 +27,16 @@
 --
 -----------------------------------------------------------------------------
 
-{-# LANGUAGE CPP                      #-}
-{-# LANGUAGE DeriveDataTypeable       #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE MagicHash                #-}
-{-# LANGUAGE UnboxedTuples            #-}
+{-# LANGUAGE CPP                       #-}
+{-# LANGUAGE DeriveDataTypeable        #-}
+{-# LANGUAGE ForeignFunctionInterface  #-}
+{-# LANGUAGE MagicHash                 #-}
+{-# LANGUAGE UnboxedTuples             #-}
+{-# LANGUAGE ExistentialQuantification #-}
 module GHC.StaticPtr
   ( StaticPtr(..)
   , StaticName(..)
+  , SptEntry
   , deRefStaticPtr
   ) where
 
@@ -60,6 +62,9 @@ data StaticPtr a = StaticPtr { unStaticPtr :: StaticName }
 --
 data StaticName = StaticName String String String
   deriving (Read, Show, Typeable)
+
+-- | Entries of the static pointer table.
+data SptEntry = forall a . SptEntry StaticName a
 
 -- | An unsafe lookup function for symbolic references.
 --

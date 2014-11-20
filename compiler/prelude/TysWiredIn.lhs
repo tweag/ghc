@@ -70,6 +70,7 @@ module TysWiredIn (
         -- * StaticPtr
         staticPtrTyCon, staticPtrTyConName,
         staticPtrDataCon, staticNameDataCon,
+        staticSptEntryTyCon, staticSptEntryTyConName, staticSptEntryDataCon,
 
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
@@ -234,6 +235,11 @@ staticNameTyConName   = mkWiredInTyConName UserSyntax
 staticNameDataConName = mkWiredInDataConName UserSyntax
     gHC_STATICPTR (fsLit "StaticName") staticNameDataConKey staticNameDataCon
 
+staticSptEntryTyConName, staticSptEntryDataConName :: Name
+staticSptEntryTyConName = mkWiredInTyConName UserSyntax
+    gHC_STATICPTR (fsLit "SptEntry") staticSptEntryTyConKey staticSptEntryTyCon
+staticSptEntryDataConName = mkWiredInDataConName UserSyntax
+    gHC_STATICPTR (fsLit "SptEntry") staticSptEntryConKey staticNameDataCon
 
 boolTyCon_RDR, false_RDR, true_RDR, intTyCon_RDR, charTyCon_RDR,
     intDataCon_RDR, listTyCon_RDR, consDataCon_RDR, parrTyCon_RDR, eqTyCon_RDR :: RdrName
@@ -890,6 +896,18 @@ staticNameTyCon  =
 staticNameDataCon :: DataCon
 staticNameDataCon  =
     pcDataCon staticNameDataConName [] (replicate 3 stringTy) staticNameTyCon
+
+staticSptEntryTy :: Type
+staticSptEntryTy = mkTyConTy staticSptEntryTyCon
+
+staticSptEntryTyCon :: TyCon
+staticSptEntryTyCon =
+    pcNonRecDataTyCon staticSptEntryTyConName Nothing [] [staticSptEntryDataCon]
+
+staticSptEntryDataCon :: DataCon
+staticSptEntryDataCon =
+    pcDataCon staticSptEntryDataConName [] [] staticSptEntryTyCon
+
 \end{code}
 
 Promoted Booleans
