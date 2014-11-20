@@ -365,12 +365,18 @@ data TcGblEnv
                                   , Untouchables
                                   , SrcSpan
                                   , [ErrCtxt]
-                                  )]
+                                  )],
                 -- ^ Occurrences of static forms
                 --
                 -- Each entry holds the type of the body of the static form,
                 -- the constraints the body requires, the location of the static
                 -- form and the error context to use when reporting errors.
+
+        tcg_static_binds :: IORef [(Id,CoreExpr)]
+          -- ^ Bindings resulted from floating static forms
+          --
+          -- The typechecker needs to carry this information when desugaring
+          -- splices that contain static forms.
     }
 
 -- Note [Signature parameters in TcGblEnv and DynFlags]
