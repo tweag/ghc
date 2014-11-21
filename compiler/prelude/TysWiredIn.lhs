@@ -907,7 +907,7 @@ staticSptEntryTyCon =
 
 staticSptEntryDataCon :: DataCon
 staticSptEntryDataCon =
-    pcDataCon staticSptEntryDataConName [] [] staticSptEntryTyCon
+    pcDataCon staticSptEntryDataConName []{- alpha_tyvar-} [staticNameTy{-, alphaTy-}] staticSptEntryTyCon
 
 \end{code}
 

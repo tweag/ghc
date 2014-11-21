@@ -438,25 +438,30 @@ dsExpr (HsStatic expr@(L loc _)) = do
           ]
     n' <- mkSptEntryName loc
     static_binds_var <- dsGetStaticBindsVar
-    let qtvs = varSetElems $ tyVarsOfType speTy
-        ty' = mkForAllTys qtvs speTy
-        stId = mkExportedLocalId VanillaId n' ty'
-	speTy = staticSptEntryTy
-        spe  = mkConApp staticSptEntryDataCon []
-    liftIO $ modifyIORef static_binds_var ((stId,mkLams qtvs {-expr_ds-}spe) :)
 
     let mod = nameModule n
         pkgKey = modulePackageKey mod
         pkgName = packageKeyString pkgKey
 
+    -- create static name
+    nm <- do
+       args <- mapM mkStringExprFS
+                 [ fsLit pkgName
+                 , moduleNameFS $ moduleName mod
+                 , occNameFS $ nameOccName n
+                 ]
+       return $ mkConApp staticNameDataCon args
+    let
+	speTy = staticSptEntryTy
+        qtvs = varSetElems $ tyVarsOfType speTy
+        ty' = mkForAllTys qtvs speTy
+        stId = mkExportedLocalId VanillaId n' ty'
+        spe  = mkConApp staticSptEntryDataCon [nm{-, expr_ds-}]
+    tl <- putSrcSpanDs loc $ return $ mkLams qtvs spe
+    liftIO $ modifyIORef static_binds_var ((stId,tl) :)
     putSrcSpanDs loc $ do
-      args <- mapM mkStringExprFS
-                [ fsLit pkgName
-                , moduleNameFS $ moduleName mod
-                , occNameFS $ nameOccName n
-                ]
       return $ mkConApp staticPtrDataCon
-        [Type ty, mkConApp staticNameDataCon args]
+        [Type ty, nm] 
   where
     dropTypeApps (App e (Type _)) = dropTypeApps e
     dropTypeApps e = e
