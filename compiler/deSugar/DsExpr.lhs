@@ -62,9 +62,9 @@ import Bag
 import Outputable
 import FastString
 
--- import IdInfo
+import IdInfo
 -- import Module ( HasModule(..), lookupWithDefaultModuleEnv, extendModuleEnv )
--- import Data.IORef       ( atomicModifyIORef, modifyIORef )
+import Data.IORef       ( atomicModifyIORef, modifyIORef )
 
 import Control.Monad
 \end{code}
@@ -436,23 +436,13 @@ dsExpr (HsStatic expr@(L loc _)) = do
           [ ptext (sLit "The argument of a static form can be only a name")
           , ptext (sLit "but found: static") <+> parens (ppr expr)
           ]
-{-
-=======
-        n <- mkStaticName loc
-        static_binds_var <- dsGetStaticBindsVar
-        let qtvs = varSetElems $ tyVarsOfType ty
-            ty' = mkForAllTys qtvs ty
-            stId = mkExportedLocalId VanillaId n ty'
-        liftIO $ modifyIORef static_binds_var $
-          mkConApp (STP
+    --n' <- mkSptEntryName loc
+    --static_binds_var <- dsGetStaticBindsVar
+    --let qtvs = varSetElems $ tyVarsOfType ty
+    --    ty' = mkForAllTys qtvs ty
+    --    stId = mkExportedLocalId VanillaId n' ty'
+    -- liftIO $ modifyIORef static_binds_var ((stId,mkLams qtvs expr_ds) :)
 
-{-SPT (StaticName args)
-                                                   (error "not yet implemented")
-                                                   (mkConApp 
-                                                   ) -}
-        return 
->>>>>>> parent of 73b499a... Remove floating from the desugarer.
--}
 
     let mod = nameModule n
         pkgKey = modulePackageKey mod
@@ -957,12 +947,11 @@ badMonadBind rhs elt_ty flag_doc
 -- mkStaticRhs :: CoreExpr ->
 
 \begin{code}
-{-
-mkStaticName :: SrcSpan -> DsM Name
-mkStaticName loc = do
+mkSptEntryName :: SrcSpan -> DsM Name
+mkSptEntryName loc = do
     uniq <- newUnique
-    mod <- getModule
-    occ <- mkWrapperName "static"
+    mod  <- getModule
+    occ  <- mkWrapperName "sptEntry"
     return $ mkExternalName uniq mod occ loc
   where
     mkWrapperName what
@@ -975,5 +964,4 @@ mkStaticName loc = do
                let num = lookupWithDefaultModuleEnv mod_env 0 thisMod
                 in (extendModuleEnv mod_env thisMod (num+1), num)
            return $ mkVarOcc $ what ++ ":" ++ show wrapperNum
--}
 \end{code}
