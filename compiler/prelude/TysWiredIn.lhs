@@ -70,7 +70,8 @@ module TysWiredIn (
         -- * StaticPtr
         staticPtrTyCon, staticPtrTyConName,
         staticPtrDataCon, staticNameDataCon,
-        staticSptEntryTyCon, staticSptEntryTyConName, staticSptEntryDataCon,
+        staticSptEntryTy, staticSptEntryTyCon,
+        staticSptEntryTyConName, staticSptEntryDataCon,
 
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,

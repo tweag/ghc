@@ -436,13 +436,14 @@ dsExpr (HsStatic expr@(L loc _)) = do
           [ ptext (sLit "The argument of a static form can be only a name")
           , ptext (sLit "but found: static") <+> parens (ppr expr)
           ]
-    --n' <- mkSptEntryName loc
-    --static_binds_var <- dsGetStaticBindsVar
-    --let qtvs = varSetElems $ tyVarsOfType ty
-    --    ty' = mkForAllTys qtvs ty
-    --    stId = mkExportedLocalId VanillaId n' ty'
-    -- liftIO $ modifyIORef static_binds_var ((stId,mkLams qtvs expr_ds) :)
-
+    n' <- mkSptEntryName loc
+    static_binds_var <- dsGetStaticBindsVar
+    let qtvs = varSetElems $ tyVarsOfType speTy
+        ty' = mkForAllTys qtvs speTy
+        stId = mkExportedLocalId VanillaId n' ty'
+	speTy = staticSptEntryTy
+        spe  = mkConApp staticSptEntryDataCon []
+    liftIO $ modifyIORef static_binds_var ((stId,mkLams qtvs {-expr_ds-}spe) :)
 
     let mod = nameModule n
         pkgKey = modulePackageKey mod
