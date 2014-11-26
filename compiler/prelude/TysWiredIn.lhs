@@ -907,8 +907,31 @@ staticSptEntryTyCon =
 
 staticSptEntryDataCon :: DataCon
 staticSptEntryDataCon =
-    pcDataCon staticSptEntryDataConName []{- alpha_tyvar-} [staticNameTy{-, alphaTy-}] staticSptEntryTyCon
+    let dc_name  = staticSptEntryDataConName
+        arg_tys  = [ staticNameTy, alphaTy ]
+        modu     = ASSERT( isExternalName dc_name )
+                   nameModule dc_name
+        wrk_key  = incrUnique (nameUnique dc_name)
+        wrk_occ  = mkDataConWorkerOcc (nameOccName dc_name)
+        wrk_name = mkWiredInName modu wrk_occ wrk_key
+                             (AnId (dataConWorkId data_con)) UserSyntax
+        data_con = mkDataCon
+          dc_name
+          False
+          (map (const HsNoBang) arg_tys)
+          []       -- No labelled fields
+          []       -- No univerally quantified type variables
+          [alphaTyVar] -- Existentially quantified type variables
+          []       -- No equality spec
+          []       -- No theta
+          arg_tys  -- Argument types
+          staticSptEntryTy -- Result type
+          staticSptEntryTyCon -- Representation type constructor
+          []      -- No stupid theta
+          (mkDataConWorkId wrk_name data_con) -- Worker Id
+          NoDataConRep    -- No data constructor representation
 
+     in data_con
 \end{code}
 
 Promoted Booleans

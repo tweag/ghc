@@ -444,24 +444,16 @@ dsExpr (HsStatic expr@(L loc _)) = do
         pkgName = packageKeyString pkgKey
 
     -- create static name
-    nm <- do
-       args <- mapM mkStringExprFS
+    nm <- fmap (mkConApp staticNameDataCon) $
+            mapM mkStringExprFS
                  [ fsLit pkgName
                  , moduleNameFS $ moduleName mod
                  , occNameFS $ nameOccName n
                  ]
-       return $ mkConApp staticNameDataCon args
-    let
-	speTy = staticSptEntryTy
-        qtvs = varSetElems $ tyVarsOfType speTy
-        ty' = mkForAllTys qtvs speTy
-        stId = mkExportedLocalId VanillaId n' ty'
-        spe  = mkConApp staticSptEntryDataCon [nm{-, expr_ds-}]
-    tl <- putSrcSpanDs loc $ return $ mkLams qtvs spe
-    liftIO $ modifyIORef static_binds_var ((stId,tl) :)
-    putSrcSpanDs loc $ do
-      return $ mkConApp staticPtrDataCon
-        [Type ty, nm] 
+    let stId  = mkExportedLocalId VanillaId n' staticSptEntryTy
+        spe   = mkConApp staticSptEntryDataCon [Type ty, nm, expr_ds]
+    liftIO $ modifyIORef static_binds_var ((stId, spe) :)
+    putSrcSpanDs loc $ return $ mkConApp staticPtrDataCon [Type ty, nm]
   where
     dropTypeApps (App e (Type _)) = dropTypeApps e
     dropTypeApps e = e
