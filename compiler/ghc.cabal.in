@@ -240,6 +240,7 @@ Library
         StgCmmMonad
         StgCmmPrim
         StgCmmProf
+        StgCmmSPT
         StgCmmTicky
         StgCmmUtils
         StgCmmExtCode

@@ -22,6 +22,7 @@ import StgCmmLayout
 import StgCmmUtils
 import StgCmmClosure
 import StgCmmHpc
+import StgCmmSPT
 import StgCmmTicky
 
 import Cmm
@@ -34,6 +35,7 @@ import HscTypes
 import CostCentre
 import Id
 import IdInfo
+import FastString
 import Type
 import DataCon
 import Name
@@ -47,6 +49,8 @@ import OrdList
 import MkGraph
 
 import Data.IORef
+import Data.List (isPrefixOf)
+import Data.Maybe (catMaybes)
 import Control.Monad (when,void)
 import Util
 
@@ -78,11 +82,19 @@ codeGen dflags this_mod data_tycons
                          return a
                 yield cmm
 
+              -- Collects the sptEntries of the module
+              sptEntryIds = catMaybes $ flip Prelude.map stg_binds $ \bind ->
+                case bind of
+                 StgNonRec speId _
+                   | "sptEntry:" `isPrefixOf`
+                     unpackFS (occNameFS $ occName $ idName speId) -> Just speId
+                 _ -> Nothing
+
                -- Note [codegen-split-init] the cmm_init block must come
                -- FIRST.  This is because when -split-objs is on we need to
                -- combine this block with its initialisation routines; see
                -- Note [pipeline-split-init].
-        ; cg (mkModuleInit cost_centre_info this_mod hpc_info)
+        ; cg (mkModuleInit cost_centre_info this_mod hpc_info sptEntryIds)
 
         ; mapM_ (cg . cgTopBinding dflags) stg_binds
 
@@ -187,11 +199,13 @@ mkModuleInit
         :: CollectedCCs         -- cost centre info
         -> Module
         -> HpcInfo
+        -> [Id]                 -- SPT entries
         -> FCode ()
 
-mkModuleInit cost_centre_info this_mod hpc_info
+mkModuleInit cost_centre_info this_mod hpc_info spes
   = do  { initHpc this_mod hpc_info
         ; initCostCentres cost_centre_info
+        ; initSPT this_mod spes
             -- For backwards compatibility: user code may refer to this
             -- label for calling hs_add_root().
         ; emitDecl (CmmData Data (Statics (mkPlainModuleInitLabel this_mod) []))

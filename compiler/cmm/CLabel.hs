@@ -96,6 +96,8 @@ module CLabel (
         mkPicBaseLabel,
         mkDeadStripPreventer,
 
+        mkSPTLabel,
+
         mkHpcTicksLabel,
 
         hasCAF,
@@ -215,6 +217,9 @@ data CLabel
   -- | A label before an info table to prevent excessive dead-stripping on darwin
   | DeadStripPreventer CLabel
 
+
+  -- | Per-module Static Pointer table
+  | SPTLabel Module
 
   -- | Per-module table of tick locations
   | HpcTicksLabel Module
@@ -520,6 +525,10 @@ mkRtsSlowFastTickyCtrLabel :: String -> CLabel
 mkRtsSlowFastTickyCtrLabel pat = RtsLabel (RtsSlowFastTickyCtr pat)
 
 
+-- Constructing Static Pointer Table Labels
+mkSPTLabel :: Module -> CLabel
+mkSPTLabel = SPTLabel
+
 -- Constructing Code Coverage Labels
 mkHpcTicksLabel :: Module -> CLabel
 mkHpcTicksLabel                = HpcTicksLabel
@@ -647,6 +656,7 @@ needsCDecl (CmmLabel pkgId _ _)
 needsCDecl l@(ForeignLabel{})           = not (isMathFun l)
 needsCDecl (CC_Label _)                 = True
 needsCDecl (CCS_Label _)                = True
+needsCDecl (SPTLabel _)                 = True
 needsCDecl (HpcTicksLabel _)            = True
 needsCDecl (DynamicLinkerLabel {})      = panic "needsCDecl DynamicLinkerLabel"
 needsCDecl PicBaseLabel                 = panic "needsCDecl PicBaseLabel"
@@ -771,6 +781,7 @@ externallyVisibleCLabel (IdLabel name _ info)   = isExternalName name && externa
 externallyVisibleCLabel (CC_Label _)            = True
 externallyVisibleCLabel (CCS_Label _)           = True
 externallyVisibleCLabel (DynamicLinkerLabel _ _)  = False
+externallyVisibleCLabel (SPTLabel _)            = True
 externallyVisibleCLabel (HpcTicksLabel _)       = True
 externallyVisibleCLabel (LargeBitmapLabel _)    = False
 externallyVisibleCLabel (SRTLabel _)            = False
@@ -889,6 +900,7 @@ labelDynamic dflags this_pkg this_mod lbl =
 
    PlainModuleInitLabel m -> not (gopt Opt_Static dflags) && this_pkg /= (modulePackageKey m)
 
+   SPTLabel m             -> not (gopt Opt_Static dflags) && this_pkg /= (modulePackageKey m)
    HpcTicksLabel m        -> not (gopt Opt_Static dflags) && this_pkg /= (modulePackageKey m)
 
    -- Note that DynamicLinkerLabels do NOT require dynamic linking themselves.
@@ -1102,6 +1114,9 @@ pprCLbl (CCS_Label ccs)         = ppr ccs
 
 pprCLbl (PlainModuleInitLabel mod)
    = ptext (sLit "__stginit_") <> ppr mod
+
+pprCLbl (SPTLabel mod)
+  = ptext (sLit "_spt_entries_")  <> ppr mod <> ptext (sLit "_spt")
 
 pprCLbl (HpcTicksLabel mod)
   = ptext (sLit "_hpc_tickboxes_")  <> ppr mod <> ptext (sLit "_hpc")
