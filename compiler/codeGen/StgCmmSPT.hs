@@ -27,6 +27,7 @@ initSPT this_mod speIds = do
                     [ moduleNameFS (moduleName this_mod)
                     , fsLit "."
                     , occNameFS $ occName n
+                    , fsLit "\0"
                     ]
            return [ key -- char* to "<module>.speEntry:<#>"
                   , CmmLabel $ mkClosureLabel n (idCafInfo speId)
