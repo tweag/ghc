@@ -439,7 +439,7 @@ dsExpr (HsStatic expr@(L loc _)) = do
     n' <- mkSptEntryName loc
     static_binds_var <- dsGetStaticBindsVar
 
-    let mod = nameModule n
+    let mod = nameModule n'
         pkgKey = modulePackageKey mod
         pkgName = packageKeyString pkgKey
 
@@ -448,7 +448,7 @@ dsExpr (HsStatic expr@(L loc _)) = do
             mapM mkStringExprFS
                  [ fsLit pkgName
                  , moduleNameFS $ moduleName mod
-                 , occNameFS $ nameOccName n
+                 , occNameFS $ nameOccName n'
                  ]
     let stId  = mkExportedLocalId VanillaId n' staticSptEntryTy
         spe   = mkConApp staticSptEntryDataCon [Type ty, nm, expr_ds]
