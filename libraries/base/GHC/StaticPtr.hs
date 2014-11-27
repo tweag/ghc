@@ -48,6 +48,7 @@ import GHC.Ptr          ( Ptr(..), nullPtr )
 import Numeric
 import System.Info      ( os )
 import System.IO.Unsafe ( unsafePerformIO )
+import Unsafe.Coerce    ( unsafeCoerce )
 
 
 -- | A reference to a top-level value of type 'a'.
@@ -83,28 +84,29 @@ deRefStaticPtr p@(StaticPtr (StaticName pkg m n)) = unsafePerformIO $ do
                  "main" -> Nothing
                  _ -> Just pkg
     loadFunction mpkg m n >>=
-      maybe (error $ "Unknown StaticPtr: " ++ show p) return
+      maybe (error $ "Unknown StaticPtr: " ++ show p)
+            (\(SptEntry _ a) -> return $ unsafeCoerce a)
 
 -- loadFunction__ taken from
 -- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
 loadFunction :: Maybe String
              -> String
              -> String
-             -> IO (Maybe a)
+             -> IO (Maybe SptEntry)
 loadFunction mpkg m valsym = do
     let symbol = prefixUnderscore
                    ++ maybe "" (\p -> zEncodeString p ++ "_") mpkg
                    ++ zEncodeString m ++ "_" ++ zEncodeString valsym
-                   ++ "_closure"
     ptr@(Ptr addr) <- withCString symbol c_lookupSymbol
     if (ptr == nullPtr)
-    then return Nothing
+    then do putStrLn "loadFunction: returning Nothing"
+            return Nothing
     else case addrToAny# addr of
            (# hval #) -> return ( Just hval )
   where
     prefixUnderscore = if elem os ["darwin","mingw32","cygwin"] then "_" else ""
 
-foreign import ccall safe "lookupSymbol"
+foreign import ccall safe "hs_spt_lookup"
    c_lookupSymbol :: CString -> IO (Ptr a)
 
 -----------------------------------------------------------------

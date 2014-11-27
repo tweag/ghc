@@ -41,3 +41,9 @@ hs_spt_module(void *spe[])
     insertHashTable(next, (StgWord)next, next+1);
   }
 }
+
+StgPtr hs_spt_lookup(char* key) {
+    StgPtr res = lookupHashTable(spt, (StgWord)key);
+	printf("lookup %s: %p\n", key, res);
+	return res;
+}
