@@ -52,11 +52,14 @@ sptInitCode this_mod entries
         ++ [ptext (sLit "hs_spt_module") <>
               parens (ptext (sLit "(void*[])") <>
                 braces (hcat $ punctuate comma
-                       ((concatMap (\(n,_) -> [doubleQuotes (ppr $ idName n), ppr $ mkClosureLabel (idName n) (idCafInfo n)])
+                       ((concatMap (\(n,_) ->
+                          [ doubleQuotes (ppr $ idName n)
+                          , ptext (sLit "&") <> ppr (mkClosureLabel (idName n) (idCafInfo n))
+                          ])
                                    entries)
                         ++ [ptext (sLit "0")]
                        ))
-		     ) <> semi]))
+           ) <> semi]))
     ]
     {-
   where
