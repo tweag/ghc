@@ -4,11 +4,11 @@
 % (c) 2014 I/O Tweag
 %
 \begin{code}
-{-# LANGUAGE NondecreasingIndentation #-}
 {-# OPITIONS_GHC -Wall -Werror #-}
 
-module SPT (hpcSptCode) where
+module SPT (sptInitCode) where
 
+import CoreSyn
 import Module
 import Outputable
 import Id
@@ -39,20 +39,20 @@ static void hs_hpc_init_Main(void)
 }
 
 \begin{code}
-hpcSptCode :: Module -> [Id] -> SDoc
-hpcSptCode _ [] = Outputable.empty
-hpcSptCode this_mod entries 
+sptInitCode :: Module -> [(Id,CoreExpr)] -> SDoc
+sptInitCode _ [] = Outputable.empty
+sptInitCode this_mod entries
  = vcat
     [ text "static void hs_spt_init_" <> ppr this_mod
          <> text "(void) __attribute__((constructor));"
     , text "static void hs_spt_init_" <> ppr this_mod <> text "(void)"
     , braces (vcat (
-        (map (\n -> ptext (sLit "extern StgPtr ") <> (ppr $ mkClosureLabel (idName n) (idCafInfo n)) <> semi) 
+        (map (\(n,_) -> ptext (sLit "extern StgPtr ") <> (ppr $ mkClosureLabel (idName n) (idCafInfo n)) <> semi)
             entries)
         ++ [ptext (sLit "hs_spt_module") <>
               parens (ptext (sLit "(void*[])") <>
                 braces (hcat $ punctuate comma
-                       ((concatMap (\n -> [doubleQuotes (ppr $ idName n), ppr $ mkClosureLabel (idName n) (idCafInfo n)])
+                       ((concatMap (\(n,_) -> [doubleQuotes (ppr $ idName n), ppr $ mkClosureLabel (idName n) (idCafInfo n)])
                                    entries)
                         ++ [ptext (sLit "0")]
                        ))
