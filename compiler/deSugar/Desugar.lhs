@@ -49,7 +49,7 @@ import Coverage
 import Util
 import MonadUtils
 import OrdList
-import Spt
+import SPT
 import Data.List
 import Data.IORef
 import Control.Monad( when )
