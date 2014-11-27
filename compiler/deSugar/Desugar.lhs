@@ -123,7 +123,7 @@ deSugar hsc_env
                           ; ds_rules <- mapMaybeM dsRule rules
                           ; ds_vects <- mapM dsVect vects
                           ; stBinds <- dsGetStaticBindsVar >>= liftIO . readIORef
-			  ; let core_prs' = core_prs `appOL` toOL stBinds
+                          ; let core_prs' = core_prs `appOL` toOL stBinds
                           ; let hpc_init
                                   | gopt Opt_Hpc dflags = hpcInitCode mod ds_hpc_info
                                   | otherwise = empty
