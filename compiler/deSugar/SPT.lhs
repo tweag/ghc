@@ -7,7 +7,7 @@
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# OPITIONS_GHC -Wall -Werror #-}
 
-module Spt (hpcSptCode) where
+module SPT (hpcSptCode) where
 
 import Module
 import Outputable
@@ -41,7 +41,7 @@ static void hs_hpc_init_Main(void)
 \begin{code}
 hpcSptCode :: Module -> [Id] -> SDoc
 hpcSptCode _ [] = Outputable.empty
-hpcInitCode this_mod entries 
+hpcSptCode this_mod entries 
  = vcat
     [ text "static void hs_spt_init_" <> ppr this_mod
          <> text "(void) __attribute__((constructor));"
