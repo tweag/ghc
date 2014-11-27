@@ -35,10 +35,11 @@ hs_spt_module(void *spe[])
     spt = allocStrHashTable();
   }
 
-  void *next=NULL;
-  for (next=*spe; next; next+=2) {
-    getStablePtr(next+1);
-    insertHashTable(next, (StgWord)next, next+1);
+  size_t i;
+  for (i=0; spe[i]; i+=2) {
+	printf("save %s: %p\n", spe[i], spe[i+1]);
+    getStablePtr(spe[i+1]);
+    insertHashTable(spt, (StgWord)spe[i], spe[i+1]);
   }
 }
 
