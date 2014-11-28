@@ -491,12 +491,11 @@ tcExpr (HsProc pat cmd) res_ty
 
 tcExpr (HsStatic expr@(L loc _)) res_ty
   = do  { (co, [expr_ty]) <- matchExpectedTyConApp staticPtrTyCon res_ty
-        ; (((expr',errCtx), untch), lie) <- captureConstraints $
-                                            captureUntouchables $
+        ; (expr', lie) <- captureConstraints $
             addErrCtxt (hang (ptext (sLit "In the body of a static form:"))
                              2 (ppr expr)
                        ) $
-            liftM2 (,) (tcPolyExprNC expr expr_ty) getErrCtxt
+            tcPolyExprNC expr expr_ty
         ; lieTcRef <- tcl_lie <$> getLclEnv
         ; updTcRef lieTcRef (`andWC` lie)
         -- Keep the name in case it is not used anywhere else.
@@ -509,9 +508,6 @@ tcExpr (HsStatic expr@(L loc _)) res_ty
                 [ mkTyConApp (classTyCon typeableClass)
                              [liftedTypeKind, expr_ty]
                 ]
-        -- Insert the static form in a global list for later validation.
-        ; stOccsVar <- tcg_static_occs <$> getGblEnv
-        ; updTcRef stOccsVar ((expr_ty, lie, untch, loc, errCtx) :)
         ; return $ mkHsWrapCo co $ HsStatic expr'
         }
 \end{code}
