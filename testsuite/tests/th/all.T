@@ -320,9 +320,8 @@ test('T8577',
 test('T8633', normal, compile_and_run, [''])
 test('T8625', normal, ghci_script, ['T8625.script'])
 test('TH_StaticValues',
-     [ when(compiler_lt('ghc', '7.9'), skip),
-       extra_run_opts('"' + config.libdir + '"') ],
-     compile_and_run, ['-package ghc'])
+     [ when(compiler_lt('ghc', '7.9'), skip) ],
+     compile_and_run, [''])
 test('T8759', normal, compile_fail, ['-v0'])
 test('T8759a', normal, compile_fail, ['-v0'])
 test('T7021',

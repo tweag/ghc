@@ -11,35 +11,18 @@ module Main(main) where
 
 import Data.Typeable
 import GHC.StaticPtr
-import System.Environment
-
-import Control.Monad.IO.Class ( liftIO )
-import DynFlags
-import GHC
 
 main :: IO ()
 main = do
-    [libdir] <- getArgs
-    runGhc (Just libdir) $ do
-    oldFlags <- getDynFlags
-    setSessionDynFlags oldFlags
-      { hscTarget    = HscInterpreted
-      , ghcLink      = LinkInMemory
-      , ghcMode      = CompManager
-      , packageFlags = [ ExposePackage (PackageArg "ghc") Nothing ]
-      , ldInputs     = FileOption "" "CgStaticValues.o" : ldInputs oldFlags
-      }
-    load LoadAllTargets
-    liftIO $ do
-      -- For some reason, removing the type signature below causes @g@ to appear
-      -- in the desugarer with a coercion like:
-      -- main@main:Main.g{v r20J} |> (Sub cobox_a36d{v}[lid])
-      print $ deRefStaticPtr (static g :: StaticPtr String)
-      -- For some reason, removing the type signature below causes an assertion
-      -- failure in the compiler:
-      --
-      -- ASSERT failed! file compiler/typecheck/TcType.lhs line 645
-      print $ deRefStaticPtr (static t_field :: StaticPtr (T Char -> Char)) $ T 'b'
+  -- For some reason, removing the type signature below causes @g@ to appear
+  -- in the desugarer with a coercion like:
+  -- main@main:Main.g{v r20J} |> (Sub cobox_a36d{v}[lid])
+  print $ deRefStaticPtr (static g :: StaticPtr String)
+  -- For some reason, removing the type signature below causes an assertion
+  -- failure in the compiler:
+  --
+  -- ASSERT failed! file compiler/typecheck/TcType.lhs line 645
+  print $ deRefStaticPtr (static t_field :: StaticPtr (T Char -> Char)) $ T 'b'
 
 g :: String
 g = "found"
