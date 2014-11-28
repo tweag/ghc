@@ -10,7 +10,6 @@ import CoreSyn
 import Module
 import Outputable
 import Id
-import TyCon
 import CLabel
 import FastString
 import GHC.Fingerprint
@@ -79,6 +78,6 @@ pprFingerprint (Fingerprint w1 w2) =
    ptext (sLit "(uint64_t[])")
    <> (braces $ hcat $ punctuate comma [integer (fromIntegral w1) <> ptext  (sLit "ULL")
                                        ,integer (fromIntegral w2) <> ptext (sLit "ULL")
-                                       ,integer 0 <> ptext (sLit "ULL")])
+                                       ])
 \end{code}
 
