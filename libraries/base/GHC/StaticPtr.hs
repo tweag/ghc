@@ -33,9 +33,11 @@
 {-# LANGUAGE MagicHash                 #-}
 {-# LANGUAGE UnboxedTuples             #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs                     #-}
 module GHC.StaticPtr
   ( StaticPtr(..)
   , StaticName(..)
+  , DynStaticPtr
   , SptEntry
   , deRefStaticPtr
   ) where
@@ -66,6 +68,12 @@ data StaticName = StaticName String String String
 
 -- | Entries of the static pointer table.
 data SptEntry = forall a . SptEntry StaticName a
+
+-- | Dynamic static pointer.
+--
+data DynStaticPtr where
+  DSP :: StaticPtr a -> DynStaticPtr
+
 
 -- | An unsafe lookup function for symbolic references.
 --
