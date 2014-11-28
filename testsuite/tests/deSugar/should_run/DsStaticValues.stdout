@@ -1,2 +1,2 @@
-StaticName "base" "GHC.Base" "id"
-StaticName "main" "Main" "t_field"
+StaticName "main" "Main" "sptEntry:0"
+StaticName "main" "Main" "sptEntry:1"
