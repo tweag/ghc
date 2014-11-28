@@ -45,7 +45,7 @@ module GHC.StaticPtr
 import Data.Typeable    (Typeable)
 import Data.Char
 import Foreign.C.String ( withCString, CString )
-import Foreign.Marshal  ( withArray0 )
+import Foreign.Marshal  ( withArray )
 import Foreign.Ptr      ( castPtr )
 import GHC.Exts         ( addrToAny# )
 import GHC.Ptr          ( Ptr(..), nullPtr )
@@ -129,7 +129,7 @@ zencodeStaticName (StaticName pkg m valsym) =
 loadFunction :: Fingerprint
              -> IO (Maybe SptEntry)
 loadFunction (Fingerprint w1 w2) = do
-    ptr@(Ptr addr) <- withArray0 0 [w1,w2] (c_lookupSymbol . castPtr)
+    ptr@(Ptr addr) <- withArray [w1,w2] (c_lookupSymbol . castPtr)
     if (ptr == nullPtr)
     then do putStrLn "loadFunction: returning Nothing"
             return Nothing
