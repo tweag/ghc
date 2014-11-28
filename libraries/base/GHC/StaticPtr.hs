@@ -45,9 +45,11 @@ module GHC.StaticPtr
 import Data.Typeable    (Typeable)
 import Data.Char
 import Foreign.C.String ( withCString, CString )
+import Foreign.Marshal  ( withArray0 )
+import Foreign.Ptr      ( castPtr )
 import GHC.Exts         ( addrToAny# )
 import GHC.Ptr          ( Ptr(..), nullPtr )
-import GHC.Fingerprint  ( Fingerprint, fingerprintString )
+import GHC.Fingerprint  ( Fingerprint(..), fingerprintString )
 import Numeric
 import System.Info      ( os )
 import System.IO.Unsafe ( unsafePerformIO )
@@ -104,7 +106,8 @@ decodeStaticPtr key = unsafePerformIO $ error "fix the key before"
 deRefStaticPtr :: StaticPtr a -> a
 deRefStaticPtr p@(StaticPtr s) = unsafePerformIO $ do
     let key = zencodeStaticName s
-    loadFunction key >>=
+        fp  = fingerprintString key
+    loadFunction fp >>=
       maybe (error $ "Unknown StaticPtr: " ++ show p)
             (\(SptEntry _ a) -> return $ unsafeCoerce a)
 
@@ -123,10 +126,10 @@ zencodeStaticName (StaticName pkg m valsym) =
 
 -- loadFunction__ taken from
 -- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
-loadFunction :: String
+loadFunction :: Fingerprint
              -> IO (Maybe SptEntry)
-loadFunction key = do
-    ptr@(Ptr addr) <- withCString key c_lookupSymbol
+loadFunction (Fingerprint w1 w2) = do
+    ptr@(Ptr addr) <- withArray0 0 [w1,w2] (c_lookupSymbol . castPtr)
     if (ptr == nullPtr)
     then do putStrLn "loadFunction: returning Nothing"
             return Nothing
