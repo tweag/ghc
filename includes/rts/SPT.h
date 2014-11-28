@@ -17,6 +17,6 @@
 
 void hs_spt_module (void * entries[]);
 
-StgPtr hs_spt_lookup(char* key);
+// StgPtr hs_spt_lookup(char* key);
 
 #endif /* RTS_HPC_H */
