@@ -88,7 +88,7 @@ encodeStaticPtr (StaticPtr s) = fingerprintString (encodeStaticName s)
 -- table and if not found returns Nothing.
 decodeStaticPtr :: Fingerprint -> Maybe DynStaticPtr
 decodeStaticPtr key = unsafePerformIO $
-   fmap (fmap (\(SptEntry s _) -> DSP $ StaticPtr s)) (loadFunction key)
+   fmap (fmap (\(SptEntry s _) -> DSP $ StaticPtr s)) (sptLookup key)
 
 -- | An unsafe lookup function for symbolic references.
 --
@@ -105,7 +105,7 @@ deRefStaticPtr :: StaticPtr a -> a
 deRefStaticPtr p@(StaticPtr s) = unsafePerformIO $ do
     let key = encodeStaticName s
         fp  = fingerprintString key
-    loadFunction fp >>=
+    sptLookup fp >>=
       maybe (error $ "Unknown StaticPtr: " ++ show p)
             (\(SptEntry _ a) -> return $ unsafeCoerce a)
 
@@ -114,18 +114,12 @@ deRefStaticPtr p@(StaticPtr s) = unsafePerformIO $ do
 encodeStaticName :: StaticName -> String
 encodeStaticName (StaticName pkg m valsym) = concat [pkg,":",m,".",valsym]
 
--- loadFunction__ taken from
--- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
-loadFunction :: Fingerprint
-             -> IO (Maybe SptEntry)
-loadFunction (Fingerprint w1 w2) = do
-    ptr@(Ptr addr) <- withArray [w1,w2] (c_lookupSymbol . castPtr)
+sptLookup :: Fingerprint -> IO (Maybe SptEntry)
+sptLookup (Fingerprint w1 w2) = do
+    ptr@(Ptr addr) <- withArray [w1,w2] (hs_spt_lookup . castPtr)
     if (ptr == nullPtr)
-    then do putStrLn "loadFunction: returning Nothing"
-            return Nothing
+    then return Nothing
     else case addrToAny# addr of
-           (# hval #) -> return ( Just hval )
+           (# spe #) -> return (Just spe)
 
-foreign import ccall safe "hs_spt_lookup"
-   c_lookupSymbol :: CString -> IO (Ptr a)
-
+foreign import ccall unsafe hs_spt_lookup :: Ptr () -> IO (Ptr a)
