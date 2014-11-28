@@ -429,8 +429,8 @@ dsExpr (PArrSeq _ _)
 dsExpr (HsStatic expr@(L loc _)) = do
     expr_ds <- dsLExpr expr
     let ty = exprType expr_ds
-    n <- case dropTypeApps expr_ds of
-      Var stId -> return $ idName stId
+    case dropTypeApps expr_ds of
+      Var _ -> return ()
       _ -> do
         failWithDs $ cat
           [ ptext (sLit "The argument of a static form can be only a name")
@@ -450,9 +450,11 @@ dsExpr (HsStatic expr@(L loc _)) = do
                  , moduleNameFS $ moduleName mod
                  , occNameFS $ nameOccName n'
                  ]
-    let stId  = mkExportedLocalId VanillaId n' staticSptEntryTy
-        spe   = mkConApp staticSptEntryDataCon [Type ty, nm, expr_ds]
-    liftIO $ modifyIORef static_binds_var ((stId, spe) :)
+    let tvars = varSetElems $ tyVarsOfType ty
+        speId = mkExportedLocalId VanillaId n' staticSptEntryTy
+        spe   = mkConApp staticSptEntryDataCon
+                  [Type (mkForAllTys tvars ty), nm, mkLams tvars expr_ds]
+    liftIO $ modifyIORef static_binds_var ((speId, spe) :)
     putSrcSpanDs loc $ return $ mkConApp staticPtrDataCon [Type ty, nm]
   where
     dropTypeApps (App e (Type _)) = dropTypeApps e
