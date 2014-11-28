@@ -33,7 +33,6 @@
 {-# LANGUAGE MagicHash                 #-}
 {-# LANGUAGE UnboxedTuples             #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE GADTs                     #-}
 module GHC.StaticPtr
   ( StaticPtr(..)
   , StaticName(..)
@@ -76,13 +75,12 @@ data SptEntry = forall a . SptEntry StaticName a
 
 -- | Dynamic static pointer.
 --
-data DynStaticPtr where
-  DSP :: StaticPtr a -> DynStaticPtr
+data DynStaticPtr = forall a . DSP (StaticPtr a)
 
 -- | Encodes static pointer in the form that can
 -- be later serialized.
 encodeStaticPtr :: StaticPtr a -> Fingerprint
-encodeStaticPtr (StaticPtr s) = fingerprintString (encodeStaticName s)
+encodeStaticPtr = fingerprintStaticName . unStaticPtr
 
 -- | Decodes encoded pointer. It looks up function in static pointers
 -- table and if not found returns Nothing.
@@ -103,16 +101,13 @@ decodeStaticPtr key = unsafePerformIO $
 --
 deRefStaticPtr :: StaticPtr a -> a
 deRefStaticPtr p@(StaticPtr s) = unsafePerformIO $ do
-    let key = encodeStaticName s
-        fp  = fingerprintString key
-    sptLookup fp >>=
+    sptLookup (fingerprintStaticName s) >>=
       maybe (error $ "Unknown StaticPtr: " ++ show p)
             (\(SptEntry _ a) -> return $ unsafeCoerce a)
 
--- based on loadFunction__ taken from
--- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
-encodeStaticName :: StaticName -> String
-encodeStaticName (StaticName pkg m valsym) = concat [pkg,":",m,".",valsym]
+fingerprintStaticName :: StaticName -> Fingerprint
+fingerprintStaticName (StaticName pkg m valsym) =
+    fingerprintString $ concat [pkg, ":", m, ".", valsym]
 
 sptLookup :: Fingerprint -> IO (Maybe SptEntry)
 sptLookup (Fingerprint w1 w2) = do
