@@ -9,6 +9,10 @@
 #ifndef HASH_H
 #define HASH_H
 
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
 #include "BeginPrivate.h"
 
 typedef struct hashtable HashTable; /* abstract */
@@ -27,6 +31,10 @@ int keyCountHashTable (HashTable *table);
  */
 HashTable * allocStrHashTable ( void );
 
+/* Hash table access where the keys are fingerprints {uint64_t[2]}
+ */
+HashTable * allocFpHashTable ( void );
+
 #define lookupStrHashTable(table, key)  \
    (lookupHashTable(table, (StgWord)key))
 
@@ -42,6 +50,8 @@ typedef int CompareFunction(StgWord key1, StgWord key2);
 HashTable * allocHashTable_(HashFunction *hash, CompareFunction *compare);
 int hashWord(HashTable *table, StgWord key);
 int hashStr(HashTable *table, char *key);
+int hashFingerprint(HashTable *table, uint64_t* key);
+
 
 /* Freeing hash tables
  */
