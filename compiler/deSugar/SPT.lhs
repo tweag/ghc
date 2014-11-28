@@ -30,7 +30,7 @@ function of the form hs_spt_init_module() which is emitted into the _stub.c
 file and annotated with __attribute__((constructor)) so that it gets
 executed at startup time.
 
-The function's purpose is to call hs_spt_module to register this
+The function's purpose is to call hs_spt_module_init to register this
 module with the RTS, and it looks something like this:
 
 static void hs_hpc_init_Main(void) __attribute__((constructor));
@@ -58,7 +58,7 @@ sptInitCode this_mod entries
                  <> (ppr $ mkClosureLabel (idName n) (idCafInfo n))
                  <> semi)
             entries)
-        ++ [ptext (sLit "hs_spt_module") <>
+        ++ [ptext (sLit "hs_spt_module_init") <>
               parens (
                 ptext (sLit "(void*[])")
                 <> braces (hcat $ punctuate comma

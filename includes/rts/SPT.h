@@ -15,7 +15,7 @@
 #define RTS_SPT_H
 
 
-void hs_spt_module (void * entries[]);
+void hs_spt_module_init (void * entries[]);
 
 // StgPtr hs_spt_lookup(char* key);
 

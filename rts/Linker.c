@@ -1415,7 +1415,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(atomic_inc)                                         \
       SymI_HasProto(atomic_dec)                                         \
       SymI_HasProto(hs_spt_lookup)                                      \
-      SymI_HasProto(hs_spt_module)                                      \
+      SymI_HasProto(hs_spt_module_init)                                 \
       RTS_USER_SIGNALS_SYMBOLS                                          \
       RTS_INTCHAR_SYMBOLS
 

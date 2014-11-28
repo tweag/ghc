@@ -24,7 +24,7 @@
 static HashTable * spt = NULL;
 
 void
-hs_spt_module(void *spe[])
+hs_spt_module_init(void *spe[])
 {
   if (spt == NULL) {
     spt = allocFpHashTable();
