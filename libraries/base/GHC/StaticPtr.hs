@@ -63,7 +63,7 @@ import Unsafe.Coerce    ( unsafeCoerce )
 data StaticPtr a = StaticPtr { unStaticPtr :: StaticName }
   deriving (Read, Show, Typeable)
 
--- | Identifying of top-level values
+-- | Identification of top-level values
 --
 -- > StaticName package_id module_name value_name
 --
@@ -74,31 +74,19 @@ data StaticName = StaticName String String String
 data SptEntry = forall a . SptEntry StaticName a
 
 -- | Dynamic static pointer.
---
 data DynStaticPtr = forall a . DSP (StaticPtr a)
 
--- | Encodes static pointer in the form that can
--- be later serialized.
+-- | Encodes static pointer in the form that can be later serialized.
 encodeStaticPtr :: StaticPtr a -> Fingerprint
 encodeStaticPtr = fingerprintStaticName . unStaticPtr
 
--- | Decodes encoded pointer. It looks up function in static pointers
--- table and if not found returns Nothing.
+-- | Decodes an encoded pointer. It looks up a static pointer in
+-- entry in the static pointer table.
 decodeStaticPtr :: Fingerprint -> Maybe DynStaticPtr
 decodeStaticPtr key = unsafePerformIO $
    fmap (fmap (\(SptEntry s _) -> DSP $ StaticPtr s)) (sptLookup key)
 
--- | An unsafe lookup function for symbolic references.
---
--- @deRefStaticPtr (p :: StaticPtr a)@ returns the value pointed by @p@.
---
--- Currently, the function is partial. The pointer is valid if the symbols of
--- the module producing the reference are made available at runtime.
--- This can be achieved by linking the module as part of a shared library, or by
--- loading the module using the RTS linker, or by adding the symbols of the
--- program executable to the dynamic symbol table with by passing @-rdynamic@ to
--- GHC when linking the program.
---
+-- | Dereferences a static pointer.
 deRefStaticPtr :: StaticPtr a -> a
 deRefStaticPtr p@(StaticPtr s) = unsafePerformIO $ do
     sptLookup (fingerprintStaticName s) >>=
