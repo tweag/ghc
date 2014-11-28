@@ -47,6 +47,7 @@ import Data.Char
 import Foreign.C.String ( withCString, CString )
 import GHC.Exts         ( addrToAny# )
 import GHC.Ptr          ( Ptr(..), nullPtr )
+import GHC.Fingerprint  ( Fingerprint, fingerprintString )
 import Numeric
 import System.Info      ( os )
 import System.IO.Unsafe ( unsafePerformIO )
@@ -74,6 +75,20 @@ data SptEntry = forall a . SptEntry StaticName a
 data DynStaticPtr where
   DSP :: StaticPtr a -> DynStaticPtr
 
+-- | Encodes static pointer in the form that can
+-- be later serialized.
+encodeStaticPtr :: StaticPtr a -> Fingerprint
+encodeStaticPtr (StaticPtr s) = fingerprintString (zencodeStaticName s)
+
+-- | Decodes encoded pointer. It looks up function in static pointers
+-- table and if not found returns Nothing.
+decodeStaticPtr :: Fingerprint -> Maybe DynStaticPtr
+decodeStaticPtr key = unsafePerformIO $ error "fix the key before"
+{-
+   loadFunction key >>=
+      maybe (return Nothing)
+            (\(SptEntry s _) -> return $ unsafeCoerce s)
+-}
 
 -- | An unsafe lookup function for symbolic references.
 --
@@ -87,32 +102,36 @@ data DynStaticPtr where
 -- GHC when linking the program.
 --
 deRefStaticPtr :: StaticPtr a -> a
-deRefStaticPtr p@(StaticPtr (StaticName pkg m n)) = unsafePerformIO $ do
-    let mpkg = case pkg of
-                 "main" -> Nothing
-                 _ -> Just pkg
-    loadFunction mpkg m n >>=
+deRefStaticPtr p@(StaticPtr s) = unsafePerformIO $ do
+    let key = zencodeStaticName s
+    loadFunction key >>=
       maybe (error $ "Unknown StaticPtr: " ++ show p)
             (\(SptEntry _ a) -> return $ unsafeCoerce a)
 
+-- based on loadFunction__ taken from
+-- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
+zencodeStaticName :: StaticName -> String
+zencodeStaticName (StaticName pkg m valsym) =
+    prefixUnderscore
+      ++ maybe "" (\p -> zEncodeString p ++ "_") mpkg
+      ++ zEncodeString m ++ "_" ++ zEncodeString valsym
+   where
+     mpkg = case pkg of
+              "main" -> Nothing
+              _ -> Just pkg
+     prefixUnderscore = if elem os ["darwin","mingw32","cygwin"] then "_" else ""
+
 -- loadFunction__ taken from
 -- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
-loadFunction :: Maybe String
-             -> String
-             -> String
+loadFunction :: String
              -> IO (Maybe SptEntry)
-loadFunction mpkg m valsym = do
-    let symbol = prefixUnderscore
-                   ++ maybe "" (\p -> zEncodeString p ++ "_") mpkg
-                   ++ zEncodeString m ++ "_" ++ zEncodeString valsym
-    ptr@(Ptr addr) <- withCString symbol c_lookupSymbol
+loadFunction key = do
+    ptr@(Ptr addr) <- withCString key c_lookupSymbol
     if (ptr == nullPtr)
     then do putStrLn "loadFunction: returning Nothing"
             return Nothing
     else case addrToAny# addr of
            (# hval #) -> return ( Just hval )
-  where
-    prefixUnderscore = if elem os ["darwin","mingw32","cygwin"] then "_" else ""
 
 foreign import ccall safe "hs_spt_lookup"
    c_lookupSymbol :: CString -> IO (Ptr a)
