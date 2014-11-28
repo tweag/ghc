@@ -18,6 +18,6 @@ void hs_spt_module_init(void *spe[]) {
   }
 }
 
-StgPtr hs_spt_lookup(char* key) {
+StgPtr hs_spt_lookup(StgWord64 key[2]) {
     return lookupHashTable(spt, (StgWord)key);
 }

@@ -87,7 +87,7 @@ fingerprintId n =
 
 pprFingerprint :: Fingerprint -> SDoc
 pprFingerprint (Fingerprint w1 w2) =
-   ptext (sLit "(uint64_t[])")
+   ptext (sLit "(StgWord64[2])")
    <> (braces $ hcat $ punctuate comma [integer (fromIntegral w1) <> ptext  (sLit "ULL")
                                        ,integer (fromIntegral w2) <> ptext (sLit "ULL")
                                        ])
