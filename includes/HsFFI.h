@@ -161,7 +161,7 @@ extern void hs_free_stable_ptr_unsafe (HsStablePtr sp);
 extern void hs_free_stable_ptr (HsStablePtr sp);
 extern void hs_free_fun_ptr    (HsFunPtr fp);
 
-extern void hs_spt_lookup(char *key);
+extern StgPtr hs_spt_lookup(char *key);
 
 /* -------------------------------------------------------------------------- */
 
