@@ -17,6 +17,8 @@ import Control.Monad.IO.Class ( liftIO )
 import DynFlags
 import GHC
 
+import Unsafe.Coerce
+
 main :: IO ()
 main = do
     [libdir] <- getArgs
@@ -40,6 +42,11 @@ main = do
       --
       -- ASSERT failed! file compiler/typecheck/TcType.lhs line 645
       print $ deRefStaticPtr (static t_field :: StaticPtr (T Char -> Char)) $ T 'b'
+      let s = (static g :: StaticPtr String)
+          f = encodeStaticPtr s
+      print f
+      let (Just p) = decodeStaticPtr f
+      print $ (\(DSP x) -> deRefStaticPtr (unsafeCoerce x :: StaticPtr String)) p
 
 g :: String
 g = "found"

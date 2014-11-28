@@ -37,9 +37,11 @@
 module GHC.StaticPtr
   ( StaticPtr(..)
   , StaticName(..)
-  , DynStaticPtr
+  , DynStaticPtr(..)
   , SptEntry
   , deRefStaticPtr
+  , encodeStaticPtr
+  , decodeStaticPtr
   ) where
 
 import Data.Typeable    (Typeable)
@@ -85,12 +87,8 @@ encodeStaticPtr (StaticPtr s) = fingerprintString (zencodeStaticName s)
 -- | Decodes encoded pointer. It looks up function in static pointers
 -- table and if not found returns Nothing.
 decodeStaticPtr :: Fingerprint -> Maybe DynStaticPtr
-decodeStaticPtr key = unsafePerformIO $ error "fix the key before"
-{-
-   loadFunction key >>=
-      maybe (return Nothing)
-            (\(SptEntry s _) -> return $ unsafeCoerce s)
--}
+decodeStaticPtr key = unsafePerformIO $
+   fmap (fmap (\(SptEntry s _) -> DSP $ StaticPtr s)) (loadFunction key)
 
 -- | An unsafe lookup function for symbolic references.
 --
