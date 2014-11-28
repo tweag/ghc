@@ -10,9 +10,13 @@ import CoreSyn
 import Module
 import Outputable
 import Id
+import Name
 import CLabel
 import FastString
+import Foreign.Ptr
 import GHC.Fingerprint
+import qualified Data.ByteString.Unsafe as BS
+import System.IO.Unsafe (unsafePerformIO)
 \end{code}
 
 %************************************************************************
@@ -71,7 +75,15 @@ sptInitCode this_mod entries
 
 \begin{code}
 fingerprintId :: Id -> Fingerprint
-fingerprintId n = fingerprintString $ showSDocSimple (pprCode CStyle $ ppr $ idName n)
+fingerprintId n =
+   fingerprintString (unpackFS name)
+ where
+   name = concatFS [ packageKeyFS $ modulePackageKey $ nameModule $ idName n
+                   , fsLit ":"
+                   , moduleNameFS (moduleName $ nameModule $ idName n)
+                   , fsLit "."
+                   , occNameFS $ occName $ idName n
+                   ]
 
 pprFingerprint :: Fingerprint -> SDoc
 pprFingerprint (Fingerprint w1 w2) =

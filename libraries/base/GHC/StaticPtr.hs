@@ -82,7 +82,7 @@ data DynStaticPtr where
 -- | Encodes static pointer in the form that can
 -- be later serialized.
 encodeStaticPtr :: StaticPtr a -> Fingerprint
-encodeStaticPtr (StaticPtr s) = fingerprintString (zencodeStaticName s)
+encodeStaticPtr (StaticPtr s) = fingerprintString (encodeStaticName s)
 
 -- | Decodes encoded pointer. It looks up function in static pointers
 -- table and if not found returns Nothing.
@@ -103,7 +103,7 @@ decodeStaticPtr key = unsafePerformIO $
 --
 deRefStaticPtr :: StaticPtr a -> a
 deRefStaticPtr p@(StaticPtr s) = unsafePerformIO $ do
-    let key = zencodeStaticName s
+    let key = encodeStaticName s
         fp  = fingerprintString key
     loadFunction fp >>=
       maybe (error $ "Unknown StaticPtr: " ++ show p)
@@ -111,16 +111,8 @@ deRefStaticPtr p@(StaticPtr s) = unsafePerformIO $ do
 
 -- based on loadFunction__ taken from
 -- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
-zencodeStaticName :: StaticName -> String
-zencodeStaticName (StaticName pkg m valsym) =
-    prefixUnderscore
-      ++ maybe "" (\p -> zEncodeString p ++ "_") mpkg
-      ++ zEncodeString m ++ "_" ++ zEncodeString valsym
-   where
-     mpkg = case pkg of
-              "main" -> Nothing
-              _ -> Just pkg
-     prefixUnderscore = if elem os ["darwin","mingw32","cygwin"] then "_" else ""
+encodeStaticName :: StaticName -> String
+encodeStaticName (StaticName pkg m valsym) = concat [pkg,":",m,".",valsym]
 
 -- loadFunction__ taken from
 -- @plugins-1.5.4.0:System.Plugins.Load.loadFunction__@
@@ -137,104 +129,3 @@ loadFunction (Fingerprint w1 w2) = do
 foreign import ccall safe "hs_spt_lookup"
    c_lookupSymbol :: CString -> IO (Ptr a)
 
------------------------------------------------------------------
--- The following definitions are copied from the zenc package. --
------------------------------------------------------------------
-
-type UserString = String        -- As the user typed it
-type EncodedString = String     -- Encoded form
-
-
-zEncodeString :: UserString -> EncodedString
-zEncodeString s = case maybe_tuple s of
-                Just n  -> n            -- Tuples go to Z2T etc
-                Nothing -> go s
-          where
-                go []     = []
-                go (c:cs) = encode_digit_ch c ++ go' cs
-                go' []     = []
-                go' (c:cs) = encode_ch c ++ go' cs
-
-unencodedChar :: Char -> Bool   -- True for chars that don't need encoding
-unencodedChar 'Z' = False
-unencodedChar 'z' = False
-unencodedChar c   =  c >= 'a' && c <= 'z'
-                  || c >= 'A' && c <= 'Z'
-                  || c >= '0' && c <= '9'
-
--- If a digit is at the start of a symbol then we need to encode it.
--- Otherwise package names like 9pH-0.1 give linker errors.
-encode_digit_ch :: Char -> EncodedString
-encode_digit_ch c | c >= '0' && c <= '9' = encode_as_unicode_char c
-encode_digit_ch c | otherwise            = encode_ch c
-
-encode_ch :: Char -> EncodedString
-encode_ch c | unencodedChar c = [c]     -- Common case first
-
--- Constructors
-encode_ch '('  = "ZL"   -- Needed for things like (,), and (->)
-encode_ch ')'  = "ZR"   -- For symmetry with (
-encode_ch '['  = "ZM"
-encode_ch ']'  = "ZN"
-encode_ch ':'  = "ZC"
-encode_ch 'Z'  = "ZZ"
-
--- Variables
-encode_ch 'z'  = "zz"
-encode_ch '&'  = "za"
-encode_ch '|'  = "zb"
-encode_ch '^'  = "zc"
-encode_ch '$'  = "zd"
-encode_ch '='  = "ze"
-encode_ch '>'  = "zg"
-encode_ch '#'  = "zh"
-encode_ch '.'  = "zi"
-encode_ch '<'  = "zl"
-encode_ch '-'  = "zm"
-encode_ch '!'  = "zn"
-encode_ch '+'  = "zp"
-encode_ch '\'' = "zq"
-encode_ch '\\' = "zr"
-encode_ch '/'  = "zs"
-encode_ch '*'  = "zt"
-encode_ch '_'  = "zu"
-encode_ch '%'  = "zv"
-encode_ch c    = encode_as_unicode_char c
-
-encode_as_unicode_char :: Char -> EncodedString
-encode_as_unicode_char c = 'z' : if isDigit (head hex_str) then hex_str
-                                                           else '0':hex_str
-  where hex_str = showHex (ord c) "U"
-  -- ToDo: we could improve the encoding here in various ways.
-  -- eg. strings of unicode characters come out as 'z1234Uz5678U', we
-  -- could remove the 'U' in the middle (the 'z' works as a separator).
-
-{-
-Tuples are encoded as
-        Z3T or Z3H
-for 3-tuples or unboxed 3-tuples respectively.  No other encoding starts
-        Z<digit>
-
-* "(# #)" is the tycon for an unboxed 1-tuple (not 0-tuple)
-  There are no unboxed 0-tuples.
-
-* "()" is the tycon for a boxed 0-tuple.
-  There are no boxed 1-tuples.
--}
-
-maybe_tuple :: UserString -> Maybe EncodedString
-
-maybe_tuple "(# #)" = Just("Z1H")
-maybe_tuple ('(' : '#' : cs) =
-    case count_commas (0::Int) cs of
-      (n, '#' : ')' : _) -> Just ('Z' : shows (n+1) "H")
-      _                  -> Nothing
-maybe_tuple "()" = Just("Z0T")
-maybe_tuple ('(' : cs)       = case count_commas (0::Int) cs of
-                                 (n, ')' : _) -> Just ('Z' : shows (n+1) "T")
-                                 _            -> Nothing
-maybe_tuple _                = Nothing
-
-count_commas :: Int -> String -> (Int, String)
-count_commas n (',' : cs) = count_commas (n+1) cs
-count_commas n cs         = (n,cs)
