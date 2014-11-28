@@ -7,12 +7,9 @@
 
 static HashTable * spt = NULL;
 
-void
-hs_spt_module_init(void *spe[])
-{
-  if (spt == NULL) {
+void hs_spt_module_init(void *spe[]) {
+  if (spt == NULL)
     spt = allocFpHashTable();
-  }
 
   size_t i;
   for (i=0; spe[i]; i+=2) {
