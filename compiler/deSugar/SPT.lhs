@@ -19,30 +19,31 @@ import qualified Data.ByteString.Unsafe as BS
 import System.IO.Unsafe (unsafePerformIO)
 \end{code}
 
-%************************************************************************
-%*                                                                      *
-%*              initialisation
-%*                                                                      *
-%************************************************************************
-
 Each module that uses 'static' keyword declares an initialization
 function of the form hs_spt_init_module() which is emitted into the _stub.c
 file and annotated with __attribute__((constructor)) so that it gets
 executed at startup time.
 
-The function's purpose is to call hs_spt_module_init to register this
-module with the RTS, and it looks something like this:
+The function's purpose is to call hs_spt_module_init to insert the static
+pointers of this module in the hashtable of the RTS, and it looks something
+like this:
 
 static void hs_hpc_init_Main(void) __attribute__((constructor));
 static void hs_hpc_init_Main(void)
 {
- extern StgWord64 Main_sptEntryZC0_closure[];
- ...
- hs_spt_module_init((uint64_t[]){16252233376642134256ULL,7370534374097506082ULL}, Main_sptEntryZC0_closure...});
+ extern StgPtr Main_sptEntryZC0_closure;
+ extern StgPtr Main_sptEntryZC1_closure;
+ hs_spt_module_init((void*[])
+     { (StgWord64[2]){16252233376642134256ULL,7370534374097506082ULL}
+     , &Main_sptEntryZC0_closure
+     , (StgWord64[2]){12545634534567898323ULL,5409674567544156781ULL}
+     , &Main_sptEntryZC1_closure
+     , 0
+     });
 }
 
-where constants are values of a fingerprint of z-encoded version of
-static point entry name, see 'GHC.Fingerprint' for details.
+where constants are values of a fingerprint of the triplet
+(package_id, module_name, sptEntry:N).
 
 \begin{code}
 sptInitCode :: Module -> [(Id,CoreExpr)] -> SDoc
