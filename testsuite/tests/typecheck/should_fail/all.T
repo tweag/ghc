@@ -334,6 +334,8 @@ test('TcStaticValuesFail01',
      when(compiler_lt('ghc', '7.9'), skip), compile_fail, [''])
 test('TcStaticValuesFail02',
      when(compiler_lt('ghc', '7.9'), skip), compile_fail, [''])
+test('TcStaticValuesFail03',
+     when(compiler_lt('ghc', '7.9'), skip), compile_fail, [''])
 test('T8806', normal, compile_fail, [''])
 test('T8912', normal, compile_fail, [''])
 test('T9033', normal, compile_fail, [''])
