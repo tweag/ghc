@@ -10012,12 +10012,10 @@ Peyton-Jones, Proceedings of the 4th ACM Symposium on Haskell, pp.
 
 <para>
 The information contained in the reference is used by
-<ulink url="&libraryBaseLocation;/GHC.StaticPtr.html#v%3AdeRef"><literal>deRefStaticPtr</literal></ulink>
-to locate the values at runtime using the
-symbol tables in executables, libraries and object files. For this to
-work, symbol tables need to be made available at runtime. A simple way
-to ensure this is to pass the <literal>-rdynamic</literal> flag to GHC
-during linking.
+<ulink url="&libraryBaseLocation;/GHC.StaticPtr.html#v%3AdeRefStaticPtr"><literal>deRefStaticPtr</literal></ulink>
+to locate the values at runtime using a global and immutable table called
+the Static Pointer Table. The compiler includes entries in this table for
+all static forms found in the linked modules.
 </para>
 
 <para>
