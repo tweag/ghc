@@ -7,15 +7,12 @@
 
 static HashTable * spt = NULL;
 
-void hs_spt_module_init(void *spe[]) {
+void hs_spt_insert(StgWord64 key[2],void *spe_closure) {
   if (spt == NULL)
     spt = allocFpHashTable();
 
-  size_t i;
-  for (i=0; spe[i]; i+=2) {
-    getStablePtr(spe[i+1]);
-    insertHashTable(spt, (StgWord)spe[i], spe[i+1]);
-  }
+  getStablePtr(spe_closure);
+  insertHashTable(spt, (StgWord)key, spe_closure);
 }
 
 StgPtr hs_spt_lookup(StgWord64 key[2]) {
