@@ -32,6 +32,7 @@
 {-# LANGUAGE ForeignFunctionInterface  #-}
 {-# LANGUAGE MagicHash                 #-}
 {-# LANGUAGE UnboxedTuples             #-}
+{-# LANGUAGE BangPatterns              #-}
 {-# LANGUAGE ExistentialQuantification #-}
 module GHC.StaticPtr
   ( StaticPtr(..)
@@ -60,8 +61,11 @@ import Unsafe.Coerce    ( unsafeCoerce )
 -- | A reference to a top-level value of type 'a'.
 --
 -- TODO make this into a newtype.
-data StaticPtr a = StaticPtr { unStaticPtr :: StaticName }
+data StaticPtr a = StaticPtr StaticName 
   deriving (Read, Show, Typeable)
+
+unStaticPtr :: StaticPtr a -> StaticName
+unStaticPtr (StaticPtr n) = n
 
 -- | Identification of top-level values
 --
