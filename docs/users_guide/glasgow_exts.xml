@@ -9981,16 +9981,16 @@ Assertion failures can be caught, see the documentation for the
 
 </sect1>
 
-<!-- =============================== STATIC VALUES ===========================  -->
+<!-- =============================== STATIC POINTERS ===========================  -->
 
-<sect1 id="static-values">
+<sect1 id="static-pointers">
 <title>Static pointers
 <indexterm><primary>Static pointers</primary></indexterm>
 </title>
 
 <para>
 The language extension <literal>-XStaticPointers</literal> adds a new
-<literal>static <replaceable>e</replaceable></literal> syntactic form,
+syntactic form <literal>static <replaceable>e</replaceable></literal>,
 which stands for a reference to the closed expression
 <replaceable>e</replaceable>. This reference is stable and portable,
 in the sense that it remains valid across different processes on
@@ -9998,7 +9998,10 @@ possibly different machines. Thus, a process can create a reference
 and send it to another process that can resolve it to
 <replaceable>e</replaceable>.
 </para>
-
+<para>
+With this extension turned on, <literal>static</literal> is no longer
+a valid identifier. 
+</para>
 <para>
 Static pointers were first proposed in the paper <ulink
 url="http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/remote.pdf">
@@ -10019,8 +10022,7 @@ all static forms found in the linked modules.
 </para>
 
 <para>
-With this extension turned on, <literal>static</literal> is no longer
-a valid identifier. The body <literal>e</literal> of a <literal>static
+The body <literal>e</literal> of a <literal>static
 e</literal> expression must be a closed expression. That is, there can
 be no free variables occurring in <literal>e</literal>, i.e. lambda-
 or let-bound variables bound locally in the context of the expression.
