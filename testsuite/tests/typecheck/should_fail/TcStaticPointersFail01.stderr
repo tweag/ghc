@@ -1,5 +1,5 @@
 
-TcStaticValuesFail01.hs:8:13:
+TcStaticPointersFail01.hs:8:13:
     Couldn't match expected type ‘Int’ with actual type ‘Int -> Int’
     Probable cause: ‘g’ is applied to too few arguments
     In the body of a static form: g

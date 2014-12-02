@@ -1,6 +1,6 @@
 {-# LANGUAGE StaticPointers #-}
 
-module StaticValues01 where
+module StaticPointers01 where
 
 import GHC.StaticPtr
 

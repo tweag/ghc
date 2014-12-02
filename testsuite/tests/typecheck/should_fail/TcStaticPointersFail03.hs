@@ -1,6 +1,6 @@
 {-# LANGUAGE StaticPointers     #-}
 
-module StaticValuesFail03 where
+module StaticPointersFail03 where
 
 import GHC.StaticPtr
 import Data.Typeable

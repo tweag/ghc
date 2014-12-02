@@ -1,7 +1,7 @@
 {-# LANGUAGE StaticPointers     #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 
-module StaticValuesFail02 where
+module StaticPointersFail02 where
 
 import GHC.StaticPtr
 

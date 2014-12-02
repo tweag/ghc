@@ -1,6 +1,6 @@
 {-# LANGUAGE StaticPointers #-}
 
-module RnStaticValuesFail02 where
+module RnStaticPointersFail02 where
 
 f = static T
 

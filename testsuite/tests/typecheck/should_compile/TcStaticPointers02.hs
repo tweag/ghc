@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE StaticPointers     #-}
 
-module StaticValues02 where
+module StaticPointers02 where
 
 import GHC.StaticPtr
 import Data.Typeable
