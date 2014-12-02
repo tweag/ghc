@@ -360,17 +360,8 @@ data TcGblEnv
         tcg_safeInfer :: TcRef Bool,         -- Has the typechecker
                                              -- inferred this module
                                              -- as -XSafe (Safe Haskell)
-        tcg_static_occs :: TcRef [( TcType
-                                  , WantedConstraints
-                                  , Untouchables
-                                  , SrcSpan
-                                  , [ErrCtxt]
-                                  )],
-                -- ^ Occurrences of static forms
-                --
-                -- Each entry holds the type of the body of the static form,
-                -- the constraints the body requires, the location of the static
-                -- form and the error context to use when reporting errors.
+        tcg_static_wc :: TcRef WantedConstraints,
+          -- ^ Wanted constraints of static forms.
 
         tcg_static_binds :: IORef [(Id,CoreExpr)]
           -- ^ Bindings resulted from floating static forms

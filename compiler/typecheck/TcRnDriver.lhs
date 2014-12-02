@@ -37,8 +37,6 @@ import TcHsSyn
 import TcExpr
 import TcRnMonad
 import TcEvidence
-import TcType (Untouchables)
-import TysWiredIn (staticPtrTyCon)
 import TcValidity
 import PprTyThing( pprTyThing )
 import Coercion( pprCoAxiom )
@@ -457,6 +455,8 @@ tcRnSrcDecls boot_iface decls
       ; traceTc "Tc8" empty ;
       ; setEnvs (tcg_env, tcl_env) $
    do {
+        -- wanted constraints from static forms
+        stWC <- tcg_static_wc <$> getGblEnv >>= readTcRef ;
 
              --         Finish simplifying class constraints
              --
@@ -473,14 +473,8 @@ tcRnSrcDecls boot_iface decls
              --  * the local env exposes the local Ids to simplifyTop,
              --    so that we get better error messages (monomorphism restriction)
         new_ev_binds <- {-# SCC "simplifyTop" #-}
-                        simplifyTop lie ;
+                        simplifyTop (andWC stWC lie) ;
         traceTc "Tc9" empty ;
-
-        failIfErrsM ;
-
-        ((), lie2) <- captureConstraints checkStaticPointers ;
-        new_ev_binds2 <- {-# SCC "simplifyTop" #-}
-                         simplifyTop lie2 ;
 
         failIfErrsM ;   -- Don't zonk if there have been errors
                         -- It's a waste of time; and we may get debug warnings
@@ -497,8 +491,7 @@ tcRnSrcDecls boot_iface decls
                          tcg_rules     = rules,
                          tcg_vects     = vects,
                          tcg_fords     = fords } = tcg_env
-            ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
-                                          `unionBags` new_ev_binds2 } ;
+            ; all_ev_binds = cur_ev_binds `unionBags` new_ev_binds } ;
 
         (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
             <- {-# SCC "zonkTopDecls" #-}
@@ -1652,16 +1645,17 @@ tcGhciStmts stmts
         traceTc "TcRnDriver.tcGhciStmts: tc stmts" empty ;
         ((tc_stmts, ids), lie) <- captureConstraints $
                                   (tc_io_stmts $ \ _ ->
-                                     mapM tcLookupId names)
-                                  -- Ignore bindings for static pointers
-                                  <* checkStaticPointers ;
+                                     mapM tcLookupId names) ;
 
                         -- Look up the names right in the middle,
                         -- where they will all be in scope
 
+        -- wanted constraints from static forms
+        stWC <- tcg_static_wc <$> getGblEnv >>= readTcRef ;
+
         -- Simplify the context
         traceTc "TcRnDriver.tcGhciStmts: simplify ctxt" empty ;
-        const_binds <- checkNoErrs (simplifyInteractive lie) ;
+        const_binds <- checkNoErrs (simplifyInteractive (andWC stWC lie)) ;
                 -- checkNoErrs ensures that the plan fails if context redn fails
 
         traceTc "TcRnDriver.tcGhciStmts: done" empty ;
@@ -1745,13 +1739,16 @@ tcRnExpr hsc_env rdr_expr
                                           tcInferRho rn_expr ;
     ((qtvs, dicts, _, _), lie_top) <- captureConstraints $
                                       -- Ignore bindings for static pointers
-                                      checkStaticPointers >>
                                       {-# SCC "simplifyInfer" #-}
                                       simplifyInfer untch
                                                     False {- No MR for now -}
                                                     [(fresh_it, res_ty)]
                                                     lie ;
-    _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
+    -- wanted constraints from static forms
+    stWC <- tcg_static_wc <$> getGblEnv >>= readTcRef ;
+
+    -- Ignore the dicionary bindings
+    _ <- simplifyInteractive (andWC stWC lie_top) ;
 
     let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     zonkTcType all_expr_ty
@@ -1830,11 +1827,10 @@ tcRnDeclsi hsc_env local_decls =
         captureConstraints $ tc_rn_src_decls emptyModDetails local_decls
     setEnvs (tcg_env, tclcl_env) $ do
 
-    new_ev_binds <- simplifyTop lie
-    failIfErrsM
-    ((), lie2) <- captureConstraints checkStaticPointers
-    new_ev_binds2 <- {-# SCC "simplifyTop" #-}
-                     simplifyTop lie2
+    -- wanted constraints from static forms
+    stWC <- tcg_static_wc <$> getGblEnv >>= readTcRef
+
+    new_ev_binds <- simplifyTop (andWC stWC lie)
 
     failIfErrsM
     let TcGblEnv { tcg_binds     = binds,
@@ -1846,7 +1842,6 @@ tcRnDeclsi hsc_env local_decls =
                    tcg_vects     = vects,
                    tcg_fords     = fords } = tcg_env
         all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
-                                    `unionBags` new_ev_binds2
 
     (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
         <- zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords
@@ -2110,38 +2105,4 @@ ppr_tydecls tycons
   = vcat (map ppr_tycon (sortBy (comparing getOccName) tycons))
   where
     ppr_tycon tycon = vcat [ ppr (tyThingToIfaceDecl (ATyCon tycon)) ]
-\end{code}
-
-%************************************************************************
-%*                                                                      *
-                 checkStaticPointers
-%*                                                                      *
-%************************************************************************
-
-\begin{code}
--- | Checks that the static forms have valid types when generalized.
---
--- The type @StaticPtr tau@ is valid if it is predicative, that is, tau is unqualified
--- and monomorphic.
---
-checkStaticPointers :: TcM ()
-checkStaticPointers = do
-    stOccsVar <- tcg_static_occs <$> getGblEnv
-    stOccs <- readTcRef stOccsVar
-    writeTcRef stOccsVar []
-    mapM_ checkStaticPointer stOccs
-  where
-    checkStaticPointer ::
-      (TcType, WantedConstraints, Untouchables, SrcSpan, [ErrCtxt]) -> TcM ()
-    checkStaticPointer (ty, lie, untch, loc, errCtx) =
-      setSrcSpan loc $ setErrCtxt errCtx $ do
-      fresh_name <- newSysName $ mkVarOccFS $ fsLit "static"
-      (_, dicts, _, _) <- simplifyInfer untch
-                                        False -- No MR
-                                        [(fresh_name, ty)]
-                                        lie
-
-      let expr_qty = mkPiTypes dicts ty
-      zty <- zonkTcType $ mkTyConApp staticPtrTyCon [ expr_qty ]
-      void $ tryM $ checkValidType StaticCtxt zty
 \end{code}

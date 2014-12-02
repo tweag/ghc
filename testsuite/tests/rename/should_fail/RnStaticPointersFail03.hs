@@ -2,4 +2,4 @@
 
 module RnStaticPointersFail03 where
 
-f x = static x
+f x = static (x . id)

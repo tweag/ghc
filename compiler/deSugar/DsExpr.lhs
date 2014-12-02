@@ -429,13 +429,6 @@ dsExpr (PArrSeq _ _)
 dsExpr (HsStatic expr@(L loc _)) = do
     expr_ds <- dsLExpr expr
     let ty = exprType expr_ds
-    case dropTypeApps expr_ds of
-      Var _ -> return ()
-      _ -> do
-        failWithDs $ cat
-          [ ptext (sLit "The argument of a static form can be only a name")
-          , ptext (sLit "but found: static") <+> parens (ppr expr)
-          ]
     n' <- mkSptEntryName loc
     static_binds_var <- dsGetStaticBindsVar
 
@@ -456,9 +449,6 @@ dsExpr (HsStatic expr@(L loc _)) = do
                   [Type (mkForAllTys tvars ty), nm, mkLams tvars expr_ds]
     liftIO $ modifyIORef static_binds_var ((speId, spe) :)
     putSrcSpanDs loc $ return $ mkConApp staticPtrDataCon [Type ty, nm, expr_ds]
-  where
-    dropTypeApps (App e (Type _)) = dropTypeApps e
-    dropTypeApps e = e
 \end{code}
 
 \noindent

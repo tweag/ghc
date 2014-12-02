@@ -489,29 +489,24 @@ tcExpr (HsProc pat cmd) res_ty
   = do  { (pat', cmd', coi) <- tcProc pat cmd res_ty
         ; return $ mkHsWrapCo coi (HsProc pat' cmd') }
 
-tcExpr (HsStatic expr@(L loc _)) res_ty
+tcExpr (HsStatic expr) res_ty
   = do  { (co, [expr_ty]) <- matchExpectedTyConApp staticPtrTyCon res_ty
-        ; (((expr',errCtx), untch), lie) <- captureConstraints $
-                                            captureUntouchables $
+        ; (expr', lie) <- captureConstraints $
             addErrCtxt (hang (ptext (sLit "In the body of a static form:"))
                              2 (ppr expr)
                        ) $
-            liftM2 (,) (tcPolyExprNC expr expr_ty) getErrCtxt
-        ; lieTcRef <- tcl_lie <$> getLclEnv
-        ; updTcRef lieTcRef (`andWC` lie)
-        -- Keep the name in case it is not used anywhere else.
-        ; case expr of
-            L _ (HsVar n) -> keepAlive n
-            _             -> return ()
+            tcPolyExprNC expr expr_ty
         -- Require the type of the argument to be Typeable.
+        -- The evidence is not used, but asking the constraint ensures that
+        -- the current implementation is as restrictive as future versions
+        -- of the StaticPointers extension.
         ; (typeableClass, _) <- tcClass typeableClassName
-        ; _ <- instCall StaticOrigin [expr_ty]
-                [ mkTyConApp (classTyCon typeableClass)
+        ; _ <- emitWanted StaticOrigin $
+                  mkTyConApp (classTyCon typeableClass)
                              [liftedTypeKind, expr_ty]
-                ]
         -- Insert the static form in a global list for later validation.
-        ; stOccsVar <- tcg_static_occs <$> getGblEnv
-        ; updTcRef stOccsVar ((expr_ty, lie, untch, loc, errCtx) :)
+        ; stWC <- tcg_static_wc <$> getGblEnv
+        ; updTcRef stWC (andWC lie)
         ; return $ mkHsWrapCo co $ HsStatic expr'
         }
 \end{code}
