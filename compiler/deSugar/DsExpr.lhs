@@ -455,7 +455,7 @@ dsExpr (HsStatic expr@(L loc _)) = do
         spe   = mkConApp staticSptEntryDataCon
                   [Type (mkForAllTys tvars ty), nm, mkLams tvars expr_ds]
     liftIO $ modifyIORef static_binds_var ((speId, spe) :)
-    putSrcSpanDs loc $ return $ mkConApp staticPtrDataCon [Type ty, nm]
+    putSrcSpanDs loc $ return $ mkConApp staticPtrDataCon [Type ty, nm, expr_ds]
   where
     dropTypeApps (App e (Type _)) = dropTypeApps e
     dropTypeApps e = e

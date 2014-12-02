@@ -61,11 +61,11 @@ import Unsafe.Coerce    ( unsafeCoerce )
 -- | A reference to a top-level value of type 'a'.
 --
 -- TODO make this into a newtype.
-data StaticPtr a = StaticPtr StaticName 
+data StaticPtr a = StaticPtr StaticName a
   deriving (Read, Show, Typeable)
 
 unStaticPtr :: StaticPtr a -> StaticName
-unStaticPtr (StaticPtr n) = n
+unStaticPtr (StaticPtr n _) = n
 
 -- | Identification of top-level values
 --
@@ -88,14 +88,11 @@ encodeStaticPtr = fingerprintStaticName . unStaticPtr
 -- entry in the static pointer table.
 decodeStaticPtr :: Fingerprint -> Maybe DynStaticPtr
 decodeStaticPtr key = unsafePerformIO $
-   fmap (fmap (\(SptEntry s _) -> DSP $ StaticPtr s)) (sptLookup key)
+   fmap (fmap (\(SptEntry s v) -> DSP $ StaticPtr s v)) (sptLookup key)
 
 -- | Dereferences a static pointer.
 deRefStaticPtr :: StaticPtr a -> a
-deRefStaticPtr p@(StaticPtr s) = unsafePerformIO $ do
-    sptLookup (fingerprintStaticName s) >>=
-      maybe (error $ "Unknown StaticPtr: " ++ show p)
-            (\(SptEntry _ a) -> return $ unsafeCoerce a)
+deRefStaticPtr p@(StaticPtr s v) = v
 
 fingerprintStaticName :: StaticName -> Fingerprint
 fingerprintStaticName (StaticName pkg m valsym) =

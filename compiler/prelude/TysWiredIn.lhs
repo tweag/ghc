@@ -1,4 +1,4 @@
-%
+, alpha%
 % (c) The GRASP Project, Glasgow University, 1994-1998
 %
 \section[TysWiredIn]{Wired-in knowledge about {\em non-primitive} types}
@@ -885,7 +885,7 @@ staticPtrTyCon  =
 
 staticPtrDataCon :: DataCon
 staticPtrDataCon  =
-    pcDataCon staticPtrDataConName alpha_tyvar [staticNameTy] staticPtrTyCon
+    pcDataCon staticPtrDataConName alpha_tyvar [staticNameTy, alphaTy] staticPtrTyCon
 
 staticNameTy :: Type
 staticNameTy = mkTyConTy staticNameTyCon
