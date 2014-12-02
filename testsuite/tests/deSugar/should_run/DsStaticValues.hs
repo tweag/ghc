@@ -4,13 +4,13 @@
 import Data.Typeable
 import GHC.StaticPtr
 
-main = putStr $ unlines $ map show gNames
+main = putStr $ unlines $ map show names
   where
-    gNames =
+    names =
       [ -- unStaticPtr $ static g
-        unStaticPtr $ (static id :: StaticPtr (Int -> Int))
+        staticName $ (static id :: StaticPtr (Int -> Int))
         -- , unStaticPtr $ static (&&)
-      , unStaticPtr $ (static t_field :: StaticPtr (T Int -> Int))
+      , staticName $ (static t_field :: StaticPtr (T Int -> Int))
       ]
 
 g :: Int -> Int

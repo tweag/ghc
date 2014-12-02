@@ -35,7 +35,8 @@
 {-# LANGUAGE BangPatterns              #-}
 {-# LANGUAGE ExistentialQuantification #-}
 module GHC.StaticPtr
-  ( StaticPtr(..)
+  ( StaticPtr
+  , staticName
   , StaticName(..)
   , DynStaticPtr(..)
   , SptEntry
@@ -64,8 +65,8 @@ import Unsafe.Coerce    ( unsafeCoerce )
 data StaticPtr a = StaticPtr StaticName a
   deriving (Read, Show, Typeable)
 
-unStaticPtr :: StaticPtr a -> StaticName
-unStaticPtr (StaticPtr n _) = n
+staticName :: StaticPtr a -> StaticName
+staticName (StaticPtr n _) = n
 
 -- | Identification of top-level values
 --
@@ -82,7 +83,7 @@ data DynStaticPtr = forall a . DSP (StaticPtr a)
 
 -- | Encodes static pointer in the form that can be later serialized.
 encodeStaticPtr :: StaticPtr a -> Fingerprint
-encodeStaticPtr = fingerprintStaticName . unStaticPtr
+encodeStaticPtr = fingerprintStaticName . staticName
 
 -- | Decodes an encoded pointer. It looks up a static pointer in
 -- entry in the static pointer table.
