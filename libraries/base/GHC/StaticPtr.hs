@@ -45,17 +45,12 @@ module GHC.StaticPtr
   ) where
 
 import Data.Typeable    (Typeable)
-import Data.Char
-import Foreign.C.String ( withCString, CString )
 import Foreign.Marshal  ( withArray )
 import Foreign.Ptr      ( castPtr )
 import GHC.Exts         ( addrToAny# )
 import GHC.Ptr          ( Ptr(..), nullPtr )
 import GHC.Fingerprint  ( Fingerprint(..), fingerprintString )
-import Numeric
-import System.Info      ( os )
 import System.IO.Unsafe ( unsafePerformIO )
-import Unsafe.Coerce    ( unsafeCoerce )
 
 
 -- | A reference to a top-level value of type 'a'.
@@ -90,7 +85,7 @@ decodeStaticPtr key = unsafePerformIO $
 
 -- | Dereferences a static pointer.
 deRefStaticPtr :: StaticPtr a -> a
-deRefStaticPtr p@(StaticPtr s v) = v
+deRefStaticPtr (StaticPtr _ v) = v
 
 fingerprintStaticName :: StaticName -> Fingerprint
 fingerprintStaticName (StaticName pkg m valsym) =
