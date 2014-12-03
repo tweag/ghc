@@ -53,7 +53,7 @@ import VarEnv
 import ConLike
 import DataCon
 import TysWiredIn
-import PrelNames ( seqIdKey )
+import PrelNames ( seqIdKey, staticSptEntryDataConName, staticNameDataConName, staticPtrDataConName, staticSptEntryTyConName )
 import BasicTypes
 import Maybes
 import SrcLoc
@@ -437,6 +437,12 @@ dsExpr (HsStatic expr@(L loc _)) = do
         pkgName = packageKeyString pkgKey
 
     -- create static name
+    staticEntryDataCon <- dsLookupDataCon staticSptEntryDataConName
+    staticNameDataCon  <- dsLookupDataCon staticNameDataConName
+    staticPtrDataCon   <- dsLookupDataCon staticPtrDataConName
+
+    staticEntryTy <- fmap (flip mkTyConApp []) (dsLookupTyCon staticSptEntryTyConName)
+
     nm <- fmap (mkConApp staticNameDataCon) $
             mapM mkStringExprFS
                  [ fsLit pkgName
@@ -444,8 +450,8 @@ dsExpr (HsStatic expr@(L loc _)) = do
                  , occNameFS $ nameOccName n'
                  ]
     let tvars = varSetElems $ tyVarsOfType ty
-        speId = mkExportedLocalId VanillaId n' staticSptEntryTy
-        spe   = mkConApp staticSptEntryDataCon
+        speId = mkExportedLocalId VanillaId n' staticEntryTy
+        spe   = mkConApp staticEntryDataCon
                   [Type (mkForAllTys tvars ty), nm, mkLams tvars expr_ds]
     liftIO $ modifyIORef static_binds_var ((speId, spe) :)
     putSrcSpanDs loc $ return $ mkConApp staticPtrDataCon [Type ty, nm, expr_ds]

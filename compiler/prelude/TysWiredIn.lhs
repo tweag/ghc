@@ -67,12 +67,6 @@ module TysWiredIn (
         parrTyCon, parrFakeCon, isPArrTyCon, isPArrFakeCon,
         parrTyCon_RDR, parrTyConName,
 
-        -- * StaticPtr
-        staticPtrTyCon, staticPtrTyConName,
-        staticPtrDataCon, staticNameDataCon,
-        staticSptEntryTy, staticSptEntryTyCon,
-        staticSptEntryTyConName, staticSptEntryDataCon,
-
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
         coercibleTyCon, coercibleDataCon, coercibleClass,
@@ -157,8 +151,8 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               , wordTyCon
               , listTyCon
               , parrTyCon
-              , staticPtrTyCon
-              , staticNameTyCon
+              -- , staticPtrTyCon
+              -- , staticNameTyCon
               , eqTyCon
               , coercibleTyCon
               , typeNatKindCon
@@ -223,24 +217,6 @@ parrTyConName   = mkWiredInTyConName   BuiltInSyntax
                     gHC_PARR' (fsLit "[::]") parrTyConKey parrTyCon
 parrDataConName = mkWiredInDataConName UserSyntax
                     gHC_PARR' (fsLit "PArr") parrDataConKey parrDataCon
-
-staticPtrTyConName, staticPtrDataConName :: Name
-staticPtrTyConName   = mkWiredInTyConName UserSyntax
-    gHC_STATICPTR (fsLit "StaticPtr") staticPtrTyConKey staticPtrTyCon
-staticPtrDataConName = mkWiredInDataConName UserSyntax
-    gHC_STATICPTR (fsLit "StaticPtr") staticPtrDataConKey staticPtrDataCon
-
-staticNameTyConName, staticNameDataConName :: Name
-staticNameTyConName   = mkWiredInTyConName UserSyntax
-    gHC_STATICPTR (fsLit "StaticName") staticNameTyConKey staticNameTyCon
-staticNameDataConName = mkWiredInDataConName UserSyntax
-    gHC_STATICPTR (fsLit "StaticName") staticNameDataConKey staticNameDataCon
-
-staticSptEntryTyConName, staticSptEntryDataConName :: Name
-staticSptEntryTyConName = mkWiredInTyConName UserSyntax
-    gHC_STATICPTR (fsLit "SptEntry") staticSptEntryTyConKey staticSptEntryTyCon
-staticSptEntryDataConName = mkWiredInDataConName UserSyntax
-    gHC_STATICPTR (fsLit "SptEntry") staticSptEntryConKey staticNameDataCon
 
 boolTyCon_RDR, false_RDR, true_RDR, intTyCon_RDR, charTyCon_RDR,
     intDataCon_RDR, listTyCon_RDR, consDataCon_RDR, parrTyCon_RDR, eqTyCon_RDR :: RdrName
@@ -874,64 +850,6 @@ mkPArrFakeCon arity  = data_con
 -- | Checks whether a data constructor is a fake constructor for parallel arrays
 isPArrFakeCon      :: DataCon -> Bool
 isPArrFakeCon dcon  = dcon == parrFakeCon (dataConSourceArity dcon)
-\end{code}
-
-StaticPtr
-
-\begin{code}
-staticPtrTyCon :: TyCon
-staticPtrTyCon  =
-    pcNonRecDataTyCon staticPtrTyConName Nothing alpha_tyvar [staticPtrDataCon]
-
-staticPtrDataCon :: DataCon
-staticPtrDataCon  =
-    pcDataCon staticPtrDataConName alpha_tyvar [staticNameTy, alphaTy] staticPtrTyCon
-
-staticNameTy :: Type
-staticNameTy = mkTyConTy staticNameTyCon
-
-staticNameTyCon :: TyCon
-staticNameTyCon  =
-    pcNonRecDataTyCon staticNameTyConName Nothing [] [staticNameDataCon]
-
-staticNameDataCon :: DataCon
-staticNameDataCon  =
-    pcDataCon staticNameDataConName [] (replicate 3 stringTy) staticNameTyCon
-
-staticSptEntryTy :: Type
-staticSptEntryTy = mkTyConTy staticSptEntryTyCon
-
-staticSptEntryTyCon :: TyCon
-staticSptEntryTyCon =
-    pcNonRecDataTyCon staticSptEntryTyConName Nothing [] [staticSptEntryDataCon]
-
-staticSptEntryDataCon :: DataCon
-staticSptEntryDataCon =
-    let dc_name  = staticSptEntryDataConName
-        arg_tys  = [ staticNameTy, alphaTy ]
-        modu     = ASSERT( isExternalName dc_name )
-                   nameModule dc_name
-        wrk_key  = incrUnique (nameUnique dc_name)
-        wrk_occ  = mkDataConWorkerOcc (nameOccName dc_name)
-        wrk_name = mkWiredInName modu wrk_occ wrk_key
-                             (AnId (dataConWorkId data_con)) UserSyntax
-        data_con = mkDataCon
-          dc_name
-          False
-          (map (const HsNoBang) arg_tys)
-          []       -- No labelled fields
-          []       -- No univerally quantified type variables
-          [alphaTyVar] -- Existentially quantified type variables
-          []       -- No equality spec
-          []       -- No theta
-          arg_tys  -- Argument types
-          staticSptEntryTy -- Result type
-          staticSptEntryTyCon -- Representation type constructor
-          []      -- No stupid theta
-          (mkDataConWorkId wrk_name data_con) -- Worker Id
-          NoDataConRep    -- No data constructor representation
-
-     in data_con
 \end{code}
 
 Promoted Booleans

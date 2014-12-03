@@ -354,6 +354,12 @@ basicKnownKeyNames
 
         -- GHCi Sandbox
         , ghciIoClassName, ghciStepIoMName
+
+        -- StaticPtr
+        , staticPtrTyConName
+        , staticPtrDataConName, staticNameDataConName
+        , staticSptEntryTyConName, staticSptEntryDataConName
+
     ] ++ case cIntegerLibraryType of
            IntegerGMP    -> [integerSDataConName]
            IntegerGMP2   -> [integerSDataConName]
@@ -1168,6 +1174,26 @@ cORE_MONAD :: Module
 cORE_MONAD = mkThisGhcModule (fsLit "CoreMonad")
 pluginTyConName :: Name
 pluginTyConName = tcQual cORE_MONAD (fsLit "Plugin") pluginTyConKey
+
+-- Static pointers
+staticNameTyConName :: Name
+staticNameTyConName = tcQual gHC_STATICPTR (fsLit "StaticName") staticNameTyConKey
+
+staticNameDataConName :: Name 
+staticNameDataConName = conName gHC_STATICPTR (fsLit "StaticName") staticNameDataConKey
+
+staticPtrTyConName :: Name
+staticPtrTyConName = tcQual gHC_STATICPTR (fsLit "StaticPtr") staticPtrTyConKey
+
+staticPtrDataConName :: Name
+staticPtrDataConName = conName gHC_STATICPTR (fsLit "StaticPtr") staticPtrDataConKey
+
+staticSptEntryTyConName :: Name 
+staticSptEntryTyConName = tcQual gHC_STATICPTR (fsLit "SptEntry") staticSptEntryTyConKey
+
+staticSptEntryDataConName :: Name
+staticSptEntryDataConName = conName gHC_STATICPTR (fsLit "SptEntry") staticSptEntryDataConKey
+
 \end{code}
 
 %************************************************************************
@@ -1567,8 +1593,8 @@ staticPtrDataConKey                     = mkPreludeDataConUnique 33
 staticNameDataConKey :: Unique
 staticNameDataConKey                    = mkPreludeDataConUnique 34
 
-staticSptConKey :: Unique
-staticSptConKey                         = mkPreludeDataConUnique 35
+staticSptEntryDataConKey :: Unique
+staticSptEntryDataConKey                = mkPreludeDataConUnique 35
 
 \end{code}
 
