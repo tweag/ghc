@@ -193,3 +193,10 @@ test('T9086b', normal, ghci_script, ['T9086b.script'])
 test('T9140', combined_output, ghci_script, ['T9140.script'])
 test('T9658', normal, ghci_script, ['T9658.script'])
 test('T9293', normal, ghci_script_without_flag('-fno-warn-tabs'), ['T9293.script'])
+test('T9887',
+    [extra_clean(['T9887.hi','T9887.o'])],
+    ghci_script, ['T9887.script'])
+test('T9887b',
+    [ extra_run_opts('-fobject-code'),
+      extra_clean(['T9887.hi','T9887.o'])],
+    ghci_script, ['T9887b.script'])

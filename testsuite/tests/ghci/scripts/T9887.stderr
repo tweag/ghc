@@ -1,0 +1,6 @@
+
+T9887.hs:6:21:
+    The static declaration is not supported when producing byte-code. Please use -fobject-code.
+    In the first argument of ‘deRefStaticPtr’, namely ‘(static True)’
+    In the expression: deRefStaticPtr (static True)
+    In an equation for ‘f’: f = deRefStaticPtr (static True)
