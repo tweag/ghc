@@ -317,6 +317,12 @@ wired-in. See the Note about the NameSorts in Name.lhs.
 -}
 
 rnExpr e@(HsStatic expr) = do
+    -- Check that module will be compiled to object code, otherwise
+    -- StaticPointerTable will not be initilized, see bug #9878
+    target <- fmap hscTarget getDynFlags
+    case target of
+      HscInterpreted -> addErrRn (text "The static declaration is not supported when producing byte-code. Please use -fobject-code.")
+      _ -> return ()
     (expr',fvExpr) <- rnLExpr expr
     stage <- getStage
     case stage of
