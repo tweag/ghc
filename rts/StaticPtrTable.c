@@ -11,8 +11,13 @@
 #include "Rts.h"
 #include "StaticPtrTable.h"
 #include "Hash.h"
+#include "RWLock.h"
 
 static HashTable * spt = NULL;
+
+#ifdef THREADED_RTS
+static RWLock* spt_lock;
+#endif
 
 /// Hash function for the SPT.
 static int hashFingerprint(HashTable *table, StgWord64 key[2]) {
@@ -28,21 +33,39 @@ static int compareFingerprint(StgWord64 ptra[2], StgWord64 ptrb[2]) {
 void hs_spt_insert(StgWord64 key[2],void *spe_closure) {
   // hs_spt_insert is called from constructor functions, so
   // the SPT needs to be initialized here.
-  if (spt == NULL)
+  if (spt == NULL) {
     spt = allocHashTable_( (HashFunction *)hashFingerprint
                          , (CompareFunction *)compareFingerprint
                          );
+#ifdef THREADED_RTS
+    spt_lock = allocRWLock();
+#endif
+  }
 
   getStablePtr(spe_closure);
+  wlockRWLock(spt_lock);
   insertHashTable(spt, (StgWord)key, spe_closure);
+  wunlockRWLock(spt_lock);
 }
 
 StgPtr hs_spt_lookup(StgWord64 key[2]) {
-  return spt ? lookupHashTable(spt, (StgWord)key) : NULL;
+  if (spt) {
+    rlockRWLock(spt_lock);
+    const StgPtr ret = lookupHashTable(spt, (StgWord)key);
+    runlockRWLock(spt_lock);
+    return ret;
+  } else
+    return NULL;
 }
 
 int hs_spt_keys(StgPtr keys[], int szKeys) {
-  return spt ? keysHashTable(spt, (StgWord*)keys, szKeys) : 0;
+  if (spt) {
+    rlockRWLock(spt_lock);
+    const int ret = keysHashTable(spt, (StgWord*)keys, szKeys);
+    runlockRWLock(spt_lock);
+    return ret;
+  } else
+    return 0;
 }
 
 int hs_spt_key_count() {
@@ -53,5 +76,6 @@ void exitStaticPtrTable() {
   if (spt) {
     freeHashTable(spt, NULL);
     spt = NULL;
+    freeRWLock(spt_lock);
   }
 }

@@ -33,6 +33,7 @@
 #include "Trace.h"
 #include "Stable.h"
 #include "StaticPtrTable.h"
+#include "RWLock.h"
 #include "Hash.h"
 #include "Profiling.h"
 #include "Timer.h"
@@ -436,6 +437,9 @@ hs_exit_(rtsBool wait_foreign)
 
     /* free hash table storage */
     exitHashTable();
+
+    /* free RWLock storage */
+    exitRWLock();
 
     // Finally, free all our storage.  However, we only free the heap
     // memory if we have waited for foreign calls to complete;
