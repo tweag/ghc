@@ -1,5 +1,5 @@
 {-# LANGUAGE StaticPointers #-}
-module T9887 where
+module T9878 where
 
 import GHC.StaticPtr
 

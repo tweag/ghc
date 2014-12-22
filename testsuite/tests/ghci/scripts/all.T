@@ -201,3 +201,8 @@ test('T9878b',
     [ extra_run_opts('-fobject-code'),
       extra_clean(['T9878.hi','T9878.o'])],
     ghci_script, ['T9878b.script'])
+test('T9878c',
+    [ extra_run_opts('-fobject-code'),
+      extra_clean(['T9878.hi','T9878.o']),
+      combined_output],
+    ghci_script, ['T9878c.script'])

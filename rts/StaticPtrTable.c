@@ -8,9 +8,11 @@
  *
  */
 
-#include "Rts.h"
 #include "StaticPtrTable.h"
+#include "Rts.h"
+#include "RtsUtils.h"
 #include "Hash.h"
+#include "Stable.h"
 
 static HashTable * spt = NULL;
 
@@ -41,17 +43,35 @@ void hs_spt_insert(StgWord64 key[2],void *spe_closure) {
 #endif
   }
 
-  getStablePtr(spe_closure);
+  StgStablePtr * entry = stgMallocBytes(sizeof(StgStablePtr), "hs_spt_insert: entry");
+  *entry = getStablePtr(spe_closure);
   ACQUIRE_LOCK(&spt_lock);
-  insertHashTable(spt, (StgWord)key, spe_closure);
+  insertHashTable(spt, (StgWord)key, entry);
   RELEASE_LOCK(&spt_lock);
+}
+
+static void freeSptEntry(void* entry) {
+  freeStablePtr(*(StgStablePtr*)entry);
+  stgFree(entry);
+}
+
+void hs_spt_remove(StgWord64 key[2]) {
+   if (spt) {
+     ACQUIRE_LOCK(&spt_lock);
+     StgStablePtr* entry = removeHashTable(spt, (StgWord)key, NULL);
+     RELEASE_LOCK(&spt_lock);
+
+     if (entry)
+       freeSptEntry(entry);
+   }
 }
 
 StgPtr hs_spt_lookup(StgWord64 key[2]) {
   if (spt) {
     ACQUIRE_LOCK(&spt_lock);
-    const StgPtr ret = lookupHashTable(spt, (StgWord)key);
+    const StgStablePtr * entry = lookupHashTable(spt, (StgWord)key);
     RELEASE_LOCK(&spt_lock);
+    const StgPtr ret = entry ? deRefStablePtr(*entry) : NULL;
     return ret;
   } else
     return NULL;
@@ -73,7 +93,7 @@ int hs_spt_key_count() {
 
 void exitStaticPtrTable() {
   if (spt) {
-    freeHashTable(spt, NULL);
+    freeHashTable(spt, freeSptEntry);
     spt = NULL;
 #ifdef THREADED_RTS
     closeMutex(&spt_lock);
