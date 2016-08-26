@@ -39,11 +39,15 @@ module TcRnTypes(
 
         -- Typechecker types
         TcTypeEnv, TcIdBinderStack, TcIdBinder(..),
-        TcTyThing(..), PromotionErr(..),
+        TcTyThing(..), TcCntTyThing(..), PromotionErr(..),
         IdBindingInfo(..),
         IsGroupClosed(..),
         SelfBootInfo(..),
         pprTcTyThingCategory, pprPECategory,
+
+        -- Counts
+        Rig(..),
+        unrestrictedTyThing,
 
         -- Desugaring types
         DsM, DsLclEnv(..), DsGblEnv(..), PArrBuiltin(..),
@@ -177,7 +181,7 @@ import Control.Monad (ap, liftM, msum)
 import qualified Control.Monad.Fail as MonadFail
 #endif
 import Data.Set      ( Set )
-
+import Data.String   ( fromString )
 #ifdef GHCI
 import Data.Map      ( Map )
 import Data.Dynamic  ( Dynamic )
@@ -726,7 +730,22 @@ data TcLclEnv           -- Changes as we move inside an expression
         tcl_errs :: TcRef Messages              -- Place to accumulate errors
     }
 
-type TcTypeEnv = NameEnv TcTyThing
+data Rig = Omega | One | Zero
+instance Num Rig where
+  Omega * One = Omega
+  One * Omega = Omega
+  One * One   = One
+  Omega * Omega = Omega
+instance Outputable Rig where
+  ppr One = fromString "1"
+  ppr Omega = fromString "ω"
+
+unrestrictedTyThing = TCTT Omega
+data TcCntTyThing = TCTT {thingCnt :: Rig, thingThing :: TcTyThing}
+instance Outputable TcCntTyThing where
+   ppr (TCTT cnt t) = ppr cnt <> ppr t
+
+type TcTypeEnv = NameEnv TcCntTyThing
 
 type ThBindEnv = NameEnv (TopLevelFlag, ThLevel)
    -- Domain = all Ids bound in this module (ie not imported)
