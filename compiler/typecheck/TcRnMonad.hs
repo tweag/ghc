@@ -100,7 +100,7 @@ module TcRnMonad(
   pushLevelAndCaptureConstraints,
   pushTcLevelM_, pushTcLevelM,
   getTcLevel, setTcLevel, isTouchableTcM,
-  getLclTypeEnv, setLclTypeEnv,
+  getLclTypeEnv, setLclTypeEnv, delLclTypeEnv,
   traceTcConstraints, emitWildCardHoleConstraints,
 
   -- * Template Haskell context
@@ -215,6 +215,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
 
         dependent_files_var <- newIORef [] ;
         static_wc_var       <- newIORef emptyWC ;
+        rh_tcl_env           <- newIORef emptyNameEnv ;
 #ifdef GHCI
         th_topdecls_var      <- newIORef [] ;
         th_topnames_var      <- newIORef emptyNameSet ;
@@ -299,7 +300,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcl_th_ctxt    = topStage,
                 tcl_th_bndrs   = emptyNameEnv,
                 tcl_arrow_ctxt = NoArrowCtxt,
-                tcl_env        = emptyNameEnv,
+                tcl_env        = rh_tcl_env,
                 tcl_bndrs      = [],
                 tcl_tidy       = emptyTidyEnv,
                 tcl_tyvars     = tvs_var,
@@ -416,18 +417,18 @@ setGblEnv gbl_env = updEnv (\ env -> env { env_gbl = gbl_env })
 getLclEnv :: TcRnIf gbl lcl lcl
 getLclEnv = do { env <- getEnv; return (env_lcl env) }
 
-updLclEnv :: (lcl -> lcl) -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
-updLclEnv upd = updEnv (\ env@(Env { env_lcl = lcl }) ->
-                          env { env_lcl = upd lcl })
+-- updLclEnv :: (lcl -> lcl) -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
+-- updLclEnv upd = updEnv (\ env@(Env { env_lcl = lcl }) ->
+--                           env { env_lcl = upd lcl })
 
-setLclEnv :: lcl' -> TcRnIf gbl lcl' a -> TcRnIf gbl lcl a
-setLclEnv lcl_env = updEnv (\ env -> env { env_lcl = lcl_env })
+-- setLclEnv :: lcl' -> TcRnIf gbl lcl' a -> TcRnIf gbl lcl a
+-- setLclEnv lcl_env = updEnv (\ env -> env { env_lcl = lcl_env })
 
 getEnvs :: TcRnIf gbl lcl (gbl, lcl)
 getEnvs = do { env <- getEnv; return (env_gbl env, env_lcl env) }
 
-setEnvs :: (gbl', lcl') -> TcRnIf gbl' lcl' a -> TcRnIf gbl lcl a
-setEnvs (gbl_env, lcl_env) = updEnv (\ env -> env { env_gbl = gbl_env, env_lcl = lcl_env })
+-- setEnvs :: (gbl', lcl') -> TcRnIf gbl' lcl' a -> TcRnIf gbl lcl a
+-- setEnvs (gbl_env, lcl_env) = updEnv (\ env -> env { env_gbl = gbl_env, env_lcl = lcl_env })
 
 -- Command-line flags
 
@@ -1446,7 +1447,21 @@ isTouchableTcM tv
        ; return (isTouchableMetaTyVar (tcl_tclvl env) tv) }
 
 getLclTypeEnv :: TcM TcTypeEnv
-getLclTypeEnv = do { env <- getLclEnv; return (tcl_env env) }
+getLclTypeEnv = do { env <- getLclEnv; readTcRef (tcl_env env) }
+
+getLclTypeEnvRef :: TcM (TcRef TcTypeEnv)
+getLclTypeEnvRef = do { env <- getLclEnv; return (tcl_env env) }
+
+delLclTypeEnv :: Rig -> Name -> TcM ()
+delLclTypeEnv cnt nm = do
+  local_env_ref <- getLclTypeEnvRef
+  env <- readTcRef local_env_ref
+  case lookupNameEnv env nm of
+    Nothing -> error "PANIC: delLclTypeEnv"
+    Just (TCTT cnt1 thing) -> do
+      when (cnt1 < cnt) (fail "pas bien! vilain!")
+      writeTcRef local_env_ref
+        (alterNameEnv (\(Just (TCTT cnt1 x)) -> Just (TCTT (cnt1 - cnt) x)) env nm)
 
 setLclTypeEnv :: TcLclEnv -> TcM a -> TcM a
 -- Set the local type envt, but do *not* disturb other fields,

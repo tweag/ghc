@@ -712,7 +712,7 @@ data TcLclEnv           -- Changes as we move inside an expression
                 -- We still need the unsullied global name env so that
                 --   we can look up record field names
 
-        tcl_env  :: TcTypeEnv,    -- The local type environment:
+        tcl_env  :: TcRef (TcTypeEnv),    -- The local type environment:
                                   -- Ids and TyVars defined in this module
 
         tcl_bndrs :: TcIdBinderStack,   -- Used for reporting relevant bindings
@@ -730,7 +730,9 @@ data TcLclEnv           -- Changes as we move inside an expression
         tcl_errs :: TcRef Messages              -- Place to accumulate errors
     }
 
-data Rig = Omega | One | Zero
+data Rig =  Zero | One | Omega
+  deriving (Eq,Ord)
+
 instance Num Rig where
   Omega * One = Omega
   One * Omega = Omega
