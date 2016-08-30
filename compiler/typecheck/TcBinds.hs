@@ -515,11 +515,11 @@ tcPolyBinds top_lvl sig_fn prag_fn rec_group rec_tc closed bind_list
 -- If typechecking the binds fails, then return with each
 -- signature-less binder given type (forall a.a), to minimise
 -- subsequent error messages
-recoveryCode :: [Name] -> TcSigFun -> TcM (LHsBinds TcId, [Id])
+recoveryCode :: [Name] -> TcSigFun -> TcM (LHsBinds TcId, [Counted Id])
 recoveryCode binder_names sig_fn
   = do  { traceTc "tcBindsWithSigs: error recovery" (ppr binder_names)
         ; let poly_ids = map mk_dummy binder_names
-        ; return (emptyBag, poly_ids) }
+        ; return (emptyBag, map (Counted Omega) poly_ids) }
   where
     mk_dummy name
       | Just sig <- sig_fn name
@@ -619,7 +619,7 @@ tcPolyCheck prag_fn
                         , abs_sig_ev_bind = ev_binds
                         , abs_sig_bind    = L loc bind' }
 
-       ; return (unitBag abs_bind, [(Omega,poly_id)]) }
+       ; return (unitBag abs_bind, [Counted Omega poly_id]) }
 
 tcPolyCheck _prag_fn sig bind
   = pprPanic "tcPolyCheck" (ppr sig $$ ppr bind)
@@ -695,7 +695,7 @@ tcPolyInfer rec_tc prag_fn tc_sig_fn mono bind_list
                                  , abs_exports = exports, abs_binds = binds' }
 
        ; traceTc "Binding:" (ppr (poly_ids `zip` map idType poly_ids))
-       ; return (unitBag abs_bind, poly_ids) }
+       ; return (unitBag abs_bind, map (Counted Omega) poly_ids) }
          -- poly_ids are guaranteed zonked by mkExport
 
 --------------
