@@ -66,7 +66,9 @@ tcLetPat sig_fn pat pat_ty thing_inside
   where
     penv = PE { pe_lazy = True
               , pe_ctxt = LetPat sig_fn
-              , pe_orig = PatOrigin }
+              , pe_count = Omega
+              , pe_orig = PatOrigin
+              }
 
 -----------------
 tcPats :: HsMatchContext Name
@@ -89,7 +91,7 @@ tcPats :: HsMatchContext Name
 tcPats ctxt pats pat_tys thing_inside
   = tc_lpats penv pats pat_tys thing_inside
   where
-    penv = PE { pe_lazy = False, pe_ctxt = LamPat ctxt, pe_orig = PatOrigin }
+    penv = PE { pe_lazy = False, pe_ctxt = LamPat ctxt, pe_orig = PatOrigin, pe_count = Omega }
 
 tcPat :: HsMatchContext Name
       -> LPat Name -> ExpSigmaType
@@ -106,7 +108,7 @@ tcPat_O :: HsMatchContext Name
 tcPat_O ctxt orig pat pat_ty thing_inside
   = tc_lpat pat pat_ty penv thing_inside
   where
-    penv = PE { pe_lazy = False, pe_ctxt = LamPat ctxt, pe_orig = orig }
+    penv = PE { pe_lazy = False, pe_ctxt = LamPat ctxt, pe_orig = orig, pe_count = Omega }
 
 
 -----------------
@@ -114,7 +116,7 @@ data PatEnv
   = PE { pe_lazy :: Bool        -- True <=> lazy context, so no existentials allowed
        , pe_ctxt :: PatCtxt     -- Context in which the whole pattern appears
        , pe_orig :: CtOrigin    -- origin to use if the pat_ty needs inst'ing
-       , pe_count :: Rig
+       , pe_count :: Rig        -- 'scale' for the pattern
        }
 
 data PatCtxt

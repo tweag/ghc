@@ -419,13 +419,13 @@ isTypeClosedLetBndr id
   | isEmptyVarSet (tyCoVarsOfType (idType id)) = True
   | otherwise                                  = False
 
-tcExtendLetEnv :: TopLevelFlag -> IsGroupClosed -> [(Rig,TcId)] -> TcM a -> TcM a
+tcExtendLetEnv :: TopLevelFlag -> IsGroupClosed -> [Counted TcId] -> TcM a -> TcM a
 -- Used for both top-level value bindings and and nested let/where-bindings
 -- Adds to the TcIdBinderStack too
 tcExtendLetEnv top_lvl closed_group ids thing_inside
-  = tcExtendIdBndrs [TcIdBndr id top_lvl | (_,id) <- ids] $
+  = tcExtendIdBndrs [TcIdBndr id top_lvl | Counted _ id <- ids] $
     tcExtendLetEnvIds' top_lvl closed_group
-                       [Counted cnt (idName id, id) | (cnt,id) <- ids]
+                       [Counted cnt (idName id, id) | Counted cnt id <- ids]
                        thing_inside
 
 tcExtendLetEnvIds :: TopLevelFlag -> [Counted (Name, TcId)] -> TcM a -> TcM a

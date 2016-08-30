@@ -299,7 +299,7 @@ tcValBinds top_lvl binds sigs thing_inside
                 -- declared with complete type signatures
                 -- Do not extend the TcIdBinderStack; instead
                 -- we extend it on a per-rhs basis in tcExtendForRhs
-        ; tcExtendLetEnvIds top_lvl [(idName id, Omega, id) | id <- poly_ids] $ do
+        ; tcExtendLetEnvIds top_lvl [Counted Omega (idName id, id) | id <- poly_ids] $ do
             { (binds', (extra_binds', thing)) <- tcBindGroups top_lvl sig_fn prag_fn binds $ do
                    { thing <- thing_inside
                      -- See Note [Pattern synonym builders don't yield dependencies]
@@ -467,7 +467,7 @@ tcPolyBinds :: TopLevelFlag -> TcSigFun -> TcPragEnv
                                -- dependencies based on type signatures
             -> IsGroupClosed   -- Whether the group is closed
             -> [LHsBind Name]  -- None are PatSynBind
-            -> TcM (LHsBinds TcId, [(Rig,TcId)])
+            -> TcM (LHsBinds TcId, [Counted TcId])
 
 -- Typechecks a single bunch of values bindings all together,
 -- and generalises them.  The bunch may be only part of a recursive
@@ -498,9 +498,9 @@ tcPolyBinds top_lvl sig_fn prag_fn rec_group rec_tc closed bind_list
         -- Check whether strict bindings are ok
         -- These must be non-recursive etc, and are not generalised
         -- They desugar to a case expression in the end
-    ; checkStrictBinds top_lvl rec_group bind_list tc_binds poly_ids
+    ; checkStrictBinds top_lvl rec_group bind_list tc_binds (map countedThing poly_ids)
     ; traceTc "} End of bindings for" (vcat [ ppr binder_names, ppr rec_group
-                                            , vcat [ppr id <+> ppr (idType id) | id <- poly_ids]
+                                            , vcat [ppr id <+> ppr (idType id) | Counted _ id <- poly_ids]
                                           ])
 
     ; return result }
@@ -542,7 +542,7 @@ tcPolyNoGen     -- No generalisation whatsoever
                    -- dependencies based on type signatures
   -> TcPragEnv -> TcSigFun
   -> [LHsBind Name]
-  -> TcM (LHsBinds TcId, [(Rig,TcId)])
+  -> TcM (LHsBinds TcId, [Counted TcId])
 
 tcPolyNoGen rec_tc prag_fn tc_sig_fn bind_list
   = do { (binds', mono_infos) <- tcMonoBinds rec_tc tc_sig_fn
@@ -556,7 +556,7 @@ tcPolyNoGen rec_tc prag_fn tc_sig_fn bind_list
              -- Zonk, mainly to expose unboxed types to checkStrictBinds
            ; let mono_id' = setIdType mono_id mono_ty'
            ; _specs <- tcSpecPrags mono_id' (lookupPragEnv prag_fn name)
-           ; return (count,mono_id') }
+           ; return (Counted count mono_id') }
            -- NB: tcPrags generates error messages for
            --     specialisation pragmas for non-overloaded sigs
            -- Indeed that is why we call it here!
@@ -572,7 +572,7 @@ tcPolyNoGen rec_tc prag_fn tc_sig_fn bind_list
 tcPolyCheck :: TcPragEnv
             -> TcIdSigInfo     -- Must be a complete signature
             -> LHsBind Name    -- Must be a FunBind
-            -> TcM (LHsBinds TcId, [(Rig,TcId)])
+            -> TcM (LHsBinds TcId, [Counted TcId])
 -- There is just one binding,
 --   it is a Funbind
 --   it has a complete type signature,
@@ -666,7 +666,7 @@ tcPolyInfer
   -> TcPragEnv -> TcSigFun
   -> Bool         -- True <=> apply the monomorphism restriction
   -> [LHsBind Name]
-  -> TcM (LHsBinds TcId, [(Rig,TcId)])
+  -> TcM (LHsBinds TcId, [Counted TcId])
 tcPolyInfer rec_tc prag_fn tc_sig_fn mono bind_list
   = do { (tclvl, wanted, (binds', mono_infos))
              <- pushLevelAndCaptureConstraints  $
@@ -1225,7 +1225,7 @@ tcMonoBinds _ sig_fn no_gen binds
 
         -- Bring the monomorphic Ids, into scope for the RHSs
         ; let mono_infos = getMonoBindInfo tc_binds
-              rhs_id_env = [ (name, count, mono_id)
+              rhs_id_env = [ Counted count (name, mono_id)
                            | MBI { mbi_poly_name = name
                                  , mbi_sig       = mb_sig
                                  , mbi_count     = count
@@ -1237,7 +1237,7 @@ tcMonoBinds _ sig_fn no_gen binds
                 -- a complete type sig.  (Ones with a sig are already in scope.)
 
         ; traceTc "tcMonoBinds" $ vcat [ ppr n <+> ppr id <+> ppr (idType id)
-                                       | (n,_count,id) <- rhs_id_env]
+                                       | Counted _ (n,id) <- rhs_id_env]
         ; binds' <- tcExtendLetEnvIds NotTopLevel rhs_id_env $
                     mapM (wrapLocM tcRhs) tc_binds
 
@@ -1586,7 +1586,7 @@ isClosedBndrGroup binds = do
     is_closed_id :: TcTypeEnv -> Name -> Bool
     -- See Note [Bindings with closed types] in TcRnTypes
     is_closed_id type_env name
-      | Just (TCTT _ thing) <- lookupNameEnv type_env name
+      | Just (Counted _ thing) <- lookupNameEnv type_env name
       = case thing of
           ATcId { tct_info = ClosedLet } -> True  -- This is the key line
           ATcId {}                       -> False
