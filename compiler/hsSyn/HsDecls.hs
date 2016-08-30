@@ -1114,7 +1114,7 @@ deriving instance (DataId name) => Data (ConDecl name)
 
 -- | Haskell data Constructor Declaration Details
 type HsConDeclDetails name
-   = HsConDetails (LBangType name) (Located [LConDeclField name])
+   = HsConDetails (Rig,(LBangType name)) (Located [LConDeclField name])
 
 getConNames :: ConDecl name -> [Located name]
 getConNames ConDeclH98  {con_name  = name}  = [name]
@@ -1138,14 +1138,14 @@ gadtDeclDetails HsIB {hsib_body = lbody_ty} = (details,res_ty,cxt,tvs)
     (tvs, cxt, tau) = splitLHsSigmaTy lbody_ty
     (details, res_ty)           -- See Note [Sorting out the result type]
       = case tau of
-          L _ (HsFunTy (L l (HsRecTy flds)) res_ty')
+          L _ (HsFunTy count (L l (HsRecTy flds)) res_ty')
                   -> (RecCon (L l flds), res_ty')
           _other  -> (PrefixCon [], tau)
 
-hsConDeclArgTys :: HsConDeclDetails name -> [LBangType name]
+hsConDeclArgTys :: HsConDeclDetails name -> [(Rig,LBangType name)]
 hsConDeclArgTys (PrefixCon tys)    = tys
 hsConDeclArgTys (InfixCon ty1 ty2) = [ty1,ty2]
-hsConDeclArgTys (RecCon flds)      = map (cd_fld_type . unLoc) (unLoc flds)
+hsConDeclArgTys (RecCon flds)      = map ((\fld -> (cd_fld_count fld,cd_fld_type fld)) . unLoc) (unLoc flds)
 
 pp_data_defn :: (OutputableBndrId name)
                   => (HsContext name -> SDoc)   -- Printing the header
@@ -1191,11 +1191,11 @@ pprConDecl (ConDeclH98 { con_name = L _ con
                        , con_cxt = mcxt
                        , con_details = details
                        , con_doc = doc })
-  = sep [ppr_mbDoc doc, pprHsForAll tvs cxt,         ppr_details details]
+  = sep [ppr_mbDoc doc, pprHsForAll tvs cxt, ppr_details details]
   where
     ppr_details (InfixCon t1 t2) = hsep [ppr t1, pprInfixOcc con, ppr t2]
     ppr_details (PrefixCon tys)  = hsep (pprPrefixOcc con
-                                   : map (pprParendHsType . unLoc) tys)
+                                   : map (pprParendHsType . unLoc . _) tys)
     ppr_details (RecCon fields)  = pprPrefixOcc con
                                  <+> pprConDeclFields (unLoc fields)
     tvs = case mtvs of

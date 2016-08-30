@@ -17,6 +17,7 @@ HsTypes: Abstract syntax: user-defined types
 {-# LANGUAGE CPP #-}
 
 module HsTypes (
+        Rig(..),
         HsType(..), LHsType, HsKind, LHsKind,
         HsTyVarBndr(..), LHsTyVarBndr,
         LHsQTyVars(..),
@@ -95,6 +96,7 @@ import Control.Monad ( unless )
 import Data.Semigroup   ( Semigroup )
 import qualified Data.Semigroup as Semigroup
 #endif
+import Data.String   ( fromString )
 
 {-
 ************************************************************************
@@ -422,6 +424,18 @@ isHsKindedTyVar (KindedTyVar {}) = True
 hsTvbAllKinded :: LHsQTyVars name -> Bool
 hsTvbAllKinded = all (isHsKindedTyVar . unLoc) . hsQTvExplicit
 
+data Rig =  Zero | One | Omega
+  deriving (Eq,Ord,Data)
+
+instance Num Rig where
+  Omega * One = Omega
+  One * Omega = Omega
+  One * One   = One
+  Omega * Omega = Omega
+instance Outputable Rig where
+  ppr One = fromString "1"
+  ppr Omega = fromString "ω"
+
 -- | Haskell Type
 data HsType name
   = HsForAllTy   -- See Note [HsType binders]
@@ -454,7 +468,7 @@ data HsType name
 
       -- For details on above see note [Api annotations] in ApiAnnotation
 
-  | HsFunTy             (LHsType name)   -- function type
+  | HsFunTy Rig         (LHsType name)   -- function type
                         (LHsType name)
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRarrow',
 
@@ -740,6 +754,7 @@ data ConDeclField name  -- Record fields have Haddoc docs on them
   = ConDeclField { cd_fld_names :: [LFieldOcc name],
                                    -- ^ See Note [ConDeclField names]
                    cd_fld_type :: LBangType name,
+                   cd_fld_count :: Rig,
                    cd_fld_doc  :: Maybe LHsDocString }
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDcolon'
 
@@ -747,7 +762,7 @@ data ConDeclField name  -- Record fields have Haddoc docs on them
 deriving instance (DataId name) => Data (ConDeclField name)
 
 instance (OutputableBndrId name) => Outputable (ConDeclField name) where
-  ppr (ConDeclField fld_n fld_ty _) = ppr fld_n <+> dcolon <+> ppr fld_ty
+  ppr (ConDeclField fld_n fld_ty cnt _) = ppr fld_n <+> dcolon <> ppr cnt <+> ppr fld_ty
 
 -- HsConDetails is used for patterns/expressions *and* for data type
 -- declarations
@@ -771,10 +786,10 @@ updateGadtResult
   :: (Monad m)
      => (SDoc -> m ())
      -> SDoc
-     -> HsConDetails (LHsType Name) (Located [LConDeclField Name])
+     -> HsConDetails (Rig,LHsType Name) (Located [LConDeclField Name])
                      -- ^ Original details
      -> LHsType Name -- ^ Original result type
-     -> m (HsConDetails (LHsType Name) (Located [LConDeclField Name]),
+     -> m (HsConDetails (Rig,LHsType Name) (Located [LConDeclField Name]),
            LHsType Name)
 updateGadtResult failWith doc details ty
   = do { let (arg_tys, res_ty) = splitHsFunType ty
@@ -935,13 +950,13 @@ mkHsAppTys = foldl mkHsAppTy
 --      splitHsFunType (a -> (b -> c)) = ([a,b], c)
 -- Also deals with (->) t1 t2; that is why it only works on LHsType Name
 --   (see Trac #9096)
-splitHsFunType :: LHsType Name -> ([LHsType Name], LHsType Name)
+splitHsFunType :: LHsType Name -> ([(Rig,LHsType Name)], LHsType Name)
 splitHsFunType (L _ (HsParTy ty))
   = splitHsFunType ty
 
-splitHsFunType (L _ (HsFunTy x y))
+splitHsFunType (L _ (HsFunTy count x y))
   | (args, res) <- splitHsFunType y
-  = (x:args, res)
+  = ((count,x):args, res)
 
 splitHsFunType orig_ty@(L _ (HsAppTy t1 t2))
   = go t1 [t2]
@@ -949,7 +964,7 @@ splitHsFunType orig_ty@(L _ (HsAppTy t1 t2))
     go (L _ (HsTyVar (L _ fn))) tys | fn == funTyConName
                                  , [t1,t2] <- tys
                                  , (args, res) <- splitHsFunType t2
-                                 = (t1:args, res)
+                                 = ((Omega,t1):args, res)
     go (L _ (HsAppTy t1 t2)) tys = go t1 (t2:tys)
     go (L _ (HsParTy ty))    tys = go ty tys
     go _                     _   = ([], orig_ty)  -- Failure to match
@@ -1262,7 +1277,8 @@ ppr_mono_ty ctxt_prec (HsQualTy { hst_ctxt = L _ ctxt, hst_body = ty })
 ppr_mono_ty _    (HsBangTy b ty)     = ppr b <> ppr_mono_lty TyConPrec ty
 ppr_mono_ty _    (HsRecTy flds)      = pprConDeclFields flds
 ppr_mono_ty _    (HsTyVar (L _ name))= pprPrefixOcc name
-ppr_mono_ty prec (HsFunTy ty1 ty2)   = ppr_fun_ty prec ty1 ty2
+ppr_mono_ty prec (HsFunTy Omega ty1 ty2)   = ppr_fun_ty (text "->") prec ty1 ty2
+ppr_mono_ty prec (HsFunTy One ty1 ty2)     = ppr_fun_ty (text "⊸") prec ty1 ty2
 ppr_mono_ty _    (HsTupleTy con tys) = tupleParens std_con (pprWithCommas ppr tys)
   where std_con = case con of
                     HsUnboxedTuple -> UnboxedTuple
@@ -1310,13 +1326,13 @@ ppr_mono_ty ctxt_prec (HsDocTy ty doc)
 
 --------------------------
 ppr_fun_ty :: (OutputableBndrId name)
-           => TyPrec -> LHsType name -> LHsType name -> SDoc
-ppr_fun_ty ctxt_prec ty1 ty2
+           => SDoc -> TyPrec -> LHsType name -> LHsType name -> SDoc
+ppr_fun_ty arr ctxt_prec ty1 ty2
   = let p1 = ppr_mono_lty FunPrec ty1
         p2 = ppr_mono_lty TopPrec ty2
     in
     maybeParen ctxt_prec FunPrec $
-    sep [p1, text "->" <+> p2]
+    sep [p1, arr <+> p2]
 
 --------------------------
 ppr_app_ty :: (OutputableBndrId name) => TyPrec -> HsAppType name -> SDoc

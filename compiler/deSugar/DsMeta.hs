@@ -957,7 +957,7 @@ repTy (HsAppTy f a)         = do
                                 f1 <- repLTy f
                                 a1 <- repLTy a
                                 repTapp f1 a1
-repTy (HsFunTy f a)         = do
+repTy (HsFunTy Omega f a)         = do
                                 f1   <- repLTy f
                                 a1   <- repLTy a
                                 tcon <- repArrowTyCon
@@ -1016,7 +1016,7 @@ repTyLit (HsStrTy _ s) = do { s' <- mkStringExprFS s
 repLKind :: LHsKind Name -> DsM (Core TH.Kind)
 repLKind ki
   = do { let (kis, ki') = splitHsFunType ki
-       ; kis_rep <- mapM repLKind kis
+       ; kis_rep <- mapM repLKind (map snd kis)
        ; ki'_rep <- repNonArrowLKind ki'
        ; kcon <- repKArrow
        ; let f k1 k2 = repKApp kcon k1 >>= flip repKApp k2

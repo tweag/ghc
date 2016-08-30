@@ -1620,17 +1620,17 @@ is connected to the first type too.
 type :: { LHsType RdrName }
         : btype                        { $1 }
         | btype '->' ctype             {% ams $1 [mu AnnRarrow $2] -- See note [GADT decl discards annotations]
-                                       >> ams (sLL $1 $> $ HsFunTy $1 $3)
+                                       >> ams (sLL $1 $> $ HsFunTy Omega $1 $3)
                                               [mu AnnRarrow $2] }
 
 
 typedoc :: { LHsType RdrName }
         : btype                          { $1 }
         | btype docprev                  { sLL $1 $> $ HsDocTy $1 $2 }
-        | btype '->'     ctypedoc        {% ams (sLL $1 $> $ HsFunTy $1 $3)
+        | btype '->'     ctypedoc        {% ams (sLL $1 $> $ HsFunTy Omega $1 $3)
                                                 [mu AnnRarrow $2] }
         | btype docprev '->' ctypedoc    {% ams (sLL $1 $> $
-                                                 HsFunTy (L (comb2 $1 $2) (HsDocTy $1 $2))
+                                                 HsFunTy Omega (L (comb2 $1 $2) (HsDocTy $1 $2))
                                                          $4)
                                                 [mu AnnRarrow $3] }
 

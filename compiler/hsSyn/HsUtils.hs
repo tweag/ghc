@@ -469,7 +469,7 @@ nlHsFunTy :: LHsType name -> LHsType name -> LHsType name
 
 nlHsAppTy f t           = noLoc (HsAppTy f t)
 nlHsTyVar x             = noLoc (HsTyVar (noLoc x))
-nlHsFunTy a b           = noLoc (HsFunTy a b)
+nlHsFunTy a b           = noLoc (HsFunTy Omega a b)
 
 nlHsTyConApp :: name -> [LHsType name] -> LHsType name
 nlHsTyConApp tycon tys  = foldl nlHsAppTy (nlHsTyVar tycon) tys
@@ -1002,11 +1002,11 @@ hsConDeclsBinders cons = go id cons
              L loc (ConDeclGADT { con_names = names
                                 , con_type = HsIB { hsib_body = res_ty}}) ->
                case tau of
-                 L _ (HsFunTy
+                 L _ (HsFunTy Omega
                       (L _ (HsAppsTy
                             [L _ (HsAppPrefix (L _ (HsRecTy flds)))])) _res_ty)
                          -> record_gadt flds
-                 L _ (HsFunTy (L _ (HsRecTy flds)) _res_ty)
+                 L _ (HsFunTy Omega (L _ (HsRecTy flds)) _res_ty)
                          -> record_gadt flds
 
                  _other  -> (map (L loc . unLoc) names ++ ns, fs)

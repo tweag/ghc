@@ -651,6 +651,7 @@ data Token
   | ITvbar
   | ITlarrow            IsUnicodeSyntax
   | ITrarrow            IsUnicodeSyntax
+  | ITloli              IsUnicodeSyntax
   | ITat
   | ITtilde
   | ITtildehsh
@@ -855,6 +856,7 @@ reservedSymsFM = listToUFM $
        ,("|",   ITvbar,                always)
        ,("<-",  ITlarrow NormalSyntax, always)
        ,("->",  ITrarrow NormalSyntax, always)
+       ,("-o",  ITloli   NormalSyntax, always)
        ,("@",   ITat,                  always)
        ,("~",   ITtilde,               always)
        ,("~#",  ITtildehsh,            magicHashEnabled)
@@ -874,6 +876,7 @@ reservedSymsFM = listToUFM $
        ,("⇒",   ITdarrow UnicodeSyntax, unicodeSyntaxEnabled)
        ,("∀",   ITforall UnicodeSyntax, unicodeSyntaxEnabled)
        ,("→",   ITrarrow UnicodeSyntax, unicodeSyntaxEnabled)
+       ,("⊸",    ITloli   UnicodeSyntax, unicodeSyntaxEnabled)
        ,("←",   ITlarrow UnicodeSyntax, unicodeSyntaxEnabled)
 
        ,("⤙",   ITlarrowtail UnicodeSyntax,

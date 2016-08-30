@@ -180,7 +180,6 @@ import Control.Monad (ap, liftM, msum)
 import qualified Control.Monad.Fail as MonadFail
 #endif
 import Data.Set      ( Set )
-import Data.String   ( fromString )
 #ifdef GHCI
 import Data.Map      ( Map )
 import Data.Dynamic  ( Dynamic )
@@ -731,17 +730,6 @@ data TcLclEnv           -- Changes as we move inside an expression
         tcl_errs :: TcRef Messages              -- Place to accumulate errors
     }
 
-data Rig =  Zero | One | Omega
-  deriving (Eq,Ord)
-
-instance Num Rig where
-  Omega * One = Omega
-  One * Omega = Omega
-  One * One   = One
-  Omega * Omega = Omega
-instance Outputable Rig where
-  ppr One = fromString "1"
-  ppr Omega = fromString "ω"
 
 data Counted a = Counted {countedCount :: Rig, countedThing :: a}
 
