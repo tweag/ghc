@@ -201,7 +201,7 @@ tcDefMeth clas tyvars this_dict binds_in hs_sig_fn prag_fn
           (sel_id, Just (dm_name, dm_spec))
   | Just (L bind_loc dm_bind, bndr_loc, prags) <- findMethodBind sel_name binds_in prag_fn
   = do { -- First look up the default method -- It should be there!
-         global_dm_id  <- tcLookupId dm_name
+         global_dm_id  <- tcLookupId Omega dm_name
        ; global_dm_id  <- addInlinePrags global_dm_id prags
        ; local_dm_name <- newNameAt (getOccName sel_name) bndr_loc
             -- Base the local_dm_name on the selector name, because

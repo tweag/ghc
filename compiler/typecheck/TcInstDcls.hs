@@ -1372,7 +1372,7 @@ tcMethodBodyHelp sig_fn sel_id local_meth_id meth_bind
                                           , sig_loc  = getLoc (hsSigType hs_sig_ty) }
 
 
-       ; (tc_bind, [inner_id]) <- tcPolyCheck no_prag_fn inner_meth_sig meth_bind
+       ; (tc_bind, [Counted Omega inner_id]) <- tcPolyCheck no_prag_fn inner_meth_sig meth_bind
 
        ; let export = ABE { abe_poly  = local_meth_id
                           , abe_mono  = inner_id
@@ -1521,7 +1521,7 @@ mkDefMethBind :: Class -> [Type] -> Id -> Name -> TcM (LHsBind Name, [LSig Name]
 -- visible type application here
 mkDefMethBind clas inst_tys sel_id dm_name
   = do  { dflags <- getDynFlags
-        ; dm_id <- tcLookupId dm_name
+        ; dm_id <- tcLookupId Omega dm_name
         ; let inline_prag = idInlinePragma dm_id
               inline_prags | isAnyInlinePragma inline_prag
                            = [noLoc (InlineSig fn inline_prag)]

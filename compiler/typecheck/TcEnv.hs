@@ -34,7 +34,7 @@ module TcEnv(
         isTypeClosedLetBndr,
 
         tcLookup, tcLookup', tcLookupLocalIds,
-        tcLookupId, tcLookupTyVar,
+        tcLookupId, tcLookupId', tcLookupTyVar,
         tcLookupLcl_maybe,
         getInLocalScope,
         wrongThingErr, pprBinders,
@@ -209,7 +209,7 @@ tcLookupAxiom name = do
         _           -> wrongThingErr "axiom" (AGlobal thing) name
 
 tcLookupLocatedGlobalId :: Located Name -> TcM Id
-tcLookupLocatedGlobalId = addLocM tcLookupId
+tcLookupLocatedGlobalId = addLocM tcLookupId'
 
 tcLookupLocatedClass :: Located Name -> TcM Class
 tcLookupLocatedClass = addLocM tcLookupClass
@@ -339,17 +339,20 @@ tcLookupTyVar name
            ATyVar _ tv -> return tv
            _           -> pprPanic "tcLookupTyVar" (ppr name) }
 
-tcLookupId :: Name -> TcM Id
+tcLookupId :: Rig -> Name -> TcM Id
 -- Used when we aren't interested in the binding level, nor refinement.
 -- The "no refinement" part means that we return the un-refined Id regardless
 --
 -- The Id is never a DataCon. (Why does that matter? see TcExpr.tcId)
-tcLookupId name = do
-    thing <- tcLookup Zero name
+tcLookupId count name = do
+    thing <- tcLookup count name
     case thing of
         ATcId { tct_id = id} -> return id
         AGlobal (AnId id)    -> return id
         _                    -> pprPanic "tcLookupId" (ppr name)
+
+tcLookupId' :: Name -> TcM Id
+tcLookupId' = tcLookupId Omega
 
 tcLookupLocalIds :: [Name] -> TcM [TcId]
 -- We expect the variables to all be bound, and all at

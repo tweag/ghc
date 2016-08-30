@@ -749,7 +749,7 @@ tcImpPrags prags
 
 tcImpSpec :: (Name, Sig Name) -> TcM [TcSpecPrag]
 tcImpSpec (name, prag)
- = do { id <- tcLookupId name
+ = do { id <- tcLookupId Zero name
       ; unless (isAnyInlinePragma (idInlinePragma id))
                (addWarnTc NoReason (impSpecErr name))
       ; tcSpecPrag id prag }
