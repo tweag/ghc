@@ -33,8 +33,8 @@ module TcEnv(
         tcExtendIdBndrs,
         isTypeClosedLetBndr,
 
-        tcLookup, tcLookup', tcLookupLocated, tcLookupLocalIds,
-        tcLookupId, tcLookupId', tcLookupTyVar,
+        tcLookup, tcLookup', tcLookupLocalIds,
+        tcLookupId, tcLookupTyVar,
         tcLookupLcl_maybe,
         getInLocalScope,
         wrongThingErr, pprBinders,
@@ -320,13 +320,13 @@ tcExtendRecEnv gbl_stuff thing_inside
 tcLookupLcl_maybe :: Name -> TcM (Maybe TcTyThing)
 tcLookupLcl_maybe name
   = do { local_env <- getLclTypeEnv
-       ; return (thingThing <$> lookupNameEnv local_env name) }
+       ; return (countedThing <$> lookupNameEnv local_env name) }
 
 tcLookup :: Rig -> Name -> TcM TcTyThing
 tcLookup cnt name = do
     local_env <- getLclTypeEnv
     case lookupNameEnv local_env name of
-        Just thing -> delLclTypeEnv cnt name >> return thing
+        Just (Counted _ thing) -> delLclTypeEnv cnt name >> return thing
         Nothing    -> AGlobal <$> tcLookupGlobal name
 
 tcLookup' :: Name -> TcM TcTyThing
@@ -336,7 +336,7 @@ tcLookupTyVar :: Name -> TcM TcTyVar
 tcLookupTyVar name
   = do { thing <- tcLookup Zero name
        ; case thing of
-           TCTT _ (ATyVar _ tv) -> return tv
+           ATyVar _ tv -> return tv
            _           -> pprPanic "tcLookupTyVar" (ppr name) }
 
 tcLookupId :: Name -> TcM Id
@@ -345,34 +345,29 @@ tcLookupId :: Name -> TcM Id
 --
 -- The Id is never a DataCon. (Why does that matter? see TcExpr.tcId)
 tcLookupId name = do
-    thing <- tcLookup name
+    thing <- tcLookup Zero name
     case thing of
-        TCTT cnt (ATcId { tct_id = id}) -> return id
-        TCTT cnt (AGlobal (AnId id))    -> return id
+        ATcId { tct_id = id} -> return id
+        AGlobal (AnId id)    -> return id
         _                    -> pprPanic "tcLookupId" (ppr name)
 
-tcLookupLocalIds :: [Name] -> TcM [(Rig,TcId)]
+tcLookupLocalIds :: [Name] -> TcM [TcId]
 -- We expect the variables to all be bound, and all at
 -- the same level as the lookup.  Only used in one place...
 tcLookupLocalIds ns
-  = do { env <- getLclEnv
-       ; return (map (lookup (tcl_env env)) ns) }
+  = do { env <- readTcRef =<< (tcl_env <$> getLclEnv)
+       ; return (map (lookup env) ns) }
   where
     lookup lenv name
         = case lookupNameEnv lenv name of
-                Just (TCTT cnt (ATcId { tct_id = id })) -> (cnt,id)
+                Just (Counted cnt (ATcId { tct_id = id })) -> id
                 _ -> pprPanic "tcLookupLocalIds" (ppr name)
-
-tcLookupLocalIds' :: [Name] -> TcM [TcId]
--- We expect the variables to all be bound, and all at
--- the same level as the lookup.  Only used in one place...
-tcLookupLocalIds' = fmap (fmap snd) . tcLookupLocalIds
 
 getInLocalScope :: TcM (Name -> Bool)
 getInLocalScope = do { lcl_env <- getLclTypeEnv
                      ; return (`elemNameEnv` lcl_env) }
 
-unrestrictedEnv env = [(nm,unrestrictedTyThing t) | (nm,t) <- env]
+unrestrictedEnv env = [(nm,unrestricted t) | (nm,t) <- env]
 
 tcExtendKindEnv2 :: [(Name, TcTyThing)] -> TcM r -> TcM r
 -- Used only during kind checking, for TcThings that are
@@ -380,9 +375,13 @@ tcExtendKindEnv2 :: [(Name, TcTyThing)] -> TcM r -> TcM r
 -- No need to update the global tyvars, or tcl_th_bndrs, or tcl_rdr
 tcExtendKindEnv2 things thing_inside
   = do { traceTc "txExtendKindEnv" (ppr things)
-       ; updLclEnv upd_env thing_inside }
-  where
-    upd_env env = env { tcl_env = extendNameEnvList (tcl_env env) (unrestrictedEnv things) }
+       ; tcl_env_ref <- tcl_env <$> getLclEnv
+       ; env0 <- readTcRef tcl_env_ref
+       ; updTcRef tcl_env_ref (flip extendNameEnvList (unrestrictedEnv things))
+       ; result <- thing_inside
+       ; writeTcRef tcl_env_ref env0
+       ; return result
+       ; }
 
 -----------------------
 -- Scoped type and kind variables
@@ -395,10 +394,10 @@ tcExtendTyVarEnv2 binds thing_inside
   -- this should be used only for explicitly mentioned scoped variables.
   -- thus, no coercion variables
   = do { tc_extend_local_env NotTopLevel
-                    [(name, TCTT Zero (ATyVar name tv)) | (name, tv) <- binds] $
+                    [(name, Counted Zero (ATyVar name tv)) | (name, tv) <- binds] $
          do { env <- getLclEnv
             ; let env' = env { tcl_tidy = add_tidy_tvs (tcl_tidy env) }
-            ; setLclEnv env' thing_inside }}
+            ; setLclEnvUnrestricted env' thing_inside }}
   where
     add_tidy_tvs env = foldl add env binds
 
@@ -426,23 +425,23 @@ tcExtendLetEnv :: TopLevelFlag -> IsGroupClosed -> [(Rig,TcId)] -> TcM a -> TcM 
 tcExtendLetEnv top_lvl closed_group ids thing_inside
   = tcExtendIdBndrs [TcIdBndr id top_lvl | (_,id) <- ids] $
     tcExtendLetEnvIds' top_lvl closed_group
-                       [(idName id, cnt, id) | (cnt,id) <- ids]
+                       [Counted cnt (idName id, id) | (cnt,id) <- ids]
                        thing_inside
 
-tcExtendLetEnvIds :: TopLevelFlag -> [(Name, Rig, TcId)] -> TcM a -> TcM a
+tcExtendLetEnvIds :: TopLevelFlag -> [Counted (Name, TcId)] -> TcM a -> TcM a
 -- Used for both top-level value bindings and and nested let/where-bindings
 -- Does not extend the TcIdBinderStack
 tcExtendLetEnvIds top_lvl
   = tcExtendLetEnvIds' top_lvl ClosedGroup
 
 tcExtendLetEnvIds' :: TopLevelFlag -> IsGroupClosed
-                   -> [(Name,Rig,TcId)] -> TcM a
+                   -> [Counted (Name,TcId)] -> TcM a
                    -> TcM a
 -- Used for both top-level value bindings and and nested let/where-bindings
 -- Does not extend the TcIdBinderStack
 tcExtendLetEnvIds' top_lvl closed_group pairs thing_inside
   = tc_extend_local_env top_lvl
-      [ (name, TCTT cnt (ATcId { tct_id = let_id
+      [ (name, Counted cnt (ATcId { tct_id = let_id
                                , tct_info = case closed_group of
                                    ClosedGroup
                                      | isTypeClosedLetBndr let_id -> ClosedLet
@@ -452,31 +451,31 @@ tcExtendLetEnvIds' top_lvl closed_group pairs thing_inside
                                        (maybe emptyNameSet id $ lookupNameEnv fvs name)
                                        (isTypeClosedLetBndr let_id)
                      }))
-      | (name,cnt, let_id) <- pairs ] $
+      | Counted cnt (name,let_id) <- pairs ] $
     thing_inside
 
-tcExtendIdEnv :: [(Rig,TcId)] -> TcM a -> TcM a
+tcExtendIdEnv :: [Counted TcId] -> TcM a -> TcM a
 -- For lambda-bound and case-bound Ids
 -- Extends the the TcIdBinderStack as well
 tcExtendIdEnv ids thing_inside
-  = tcExtendIdEnv2 [(idName id,cnt, id) | (cnt,id) <- ids] thing_inside
+  = tcExtendIdEnv2 [Counted cnt (idName id,id) | Counted cnt id <- ids] thing_inside
 
 tcExtendIdEnv1 :: Name -> Rig -> TcId -> TcM a -> TcM a
 -- Exactly like tcExtendIdEnv2, but for a single (name,id) pair
 tcExtendIdEnv1 name cnt id thing_inside
-  = tcExtendIdEnv2 [(name,cnt,id)] thing_inside
+  = tcExtendIdEnv2 [Counted cnt (name,id)] thing_inside
 
-tcExtendIdEnv2 :: [(Name,Rig,TcId)] -> TcM a -> TcM a
+tcExtendIdEnv2 :: [Counted (Name,TcId)] -> TcM a -> TcM a
 tcExtendIdEnv2 names_w_ids thing_inside
   = tcExtendIdBndrs [ TcIdBndr mono_id NotTopLevel
-                    | (_,_,mono_id) <- names_w_ids ] $
+                    | Counted _ (_,mono_id) <- names_w_ids ] $
     do  { tc_extend_local_env NotTopLevel
-          [ (name, TCTT cnt (ATcId { tct_id = id
+          [ (name, Counted cnt (ATcId { tct_id = id
                                    , tct_info = NotLetBound }))
-          | (name,cnt,id) <- names_w_ids] $
+          | Counted cnt (name,id) <- names_w_ids] $
           thing_inside }
 
-tc_extend_local_env :: TopLevelFlag -> [(Name, TcCntTyThing)]
+tc_extend_local_env :: TopLevelFlag -> [(Name, Counted TcTyThing)]
                     -> TcM a -> TcM a
 tc_extend_local_env top_lvl extra_env thing_inside
 -- Precondition: the argument list extra_env has TcTyThings
@@ -494,17 +493,17 @@ tc_extend_local_env top_lvl extra_env thing_inside
 -- as free in the types of extra_env.
   = do  { traceTc "env2" (ppr extra_env)
         ; env0 <- getLclEnv
-        ; let tcl_env_ref = ...
-        ; tcl_env_0 <- readTcRef tcl_env_ref
-        ; modifyTcRef (flip extendNameEnvList tc_ty_things)
+        ; let tcl_env_ref = tcl_env env0
+        ; updTcRef tcl_env_ref (flip extendNameEnvList extra_env)
         ; env1 <- tcExtendLocalTypeEnv env0 extra_env
         ; stage <- getStage
         ; let env2 = extend_local_env (top_lvl, thLevel stage) extra_env env1
-        ; setLclEnv env2 thing_inside
-        ; writeTcRef tcl_env_ref =<< trimLocalEnv (map fst tc_ty_things) =<< readTcRef tcl_env_ref
+        ; result <- setLclEnvUnrestricted env2 thing_inside
+        ; writeTcRef tcl_env_ref =<< trimLocalEnv (map fst extra_env) =<< readTcRef tcl_env_ref
+        ; return result
         ; }
   where
-    extend_local_env :: (TopLevelFlag, ThLevel) -> [(Name, TcCntTyThing)] -> TcLclEnv -> TcLclEnv
+    extend_local_env :: (TopLevelFlag, ThLevel) -> [(Name, Counted TcTyThing)] -> TcLclEnv -> TcLclEnv
     -- Extend the local LocalRdrEnv and Template Haskell staging env simultaneously
     -- Reason for extending LocalRdrEnv: after running a TH splice we need
     -- to do renaming.
@@ -515,17 +514,18 @@ tc_extend_local_env top_lvl extra_env thing_inside
                                 -- The LocalRdrEnv contains only non-top-level names
                                 -- (GlobalRdrEnv handles the top level)
             , tcl_th_bndrs = extendNameEnvList th_bndrs  -- We only track Ids in tcl_th_bndrs
-                                 [(n, thlvl) | (n, TCTT _ (ATcId {})) <- pairs] }
+                                 [(n, thlvl) | (n, Counted _ (ATcId {})) <- pairs] }
 
+-- remove some local 
 trimLocalEnv :: [Name] -> TcTypeEnv -> TcM TcTypeEnv
 trimLocalEnv [] env = return env
 trimLocalEnv (n:ns) env = do
-  case lookupNameEnv n env of
-    Just (TCTT cnt _) -> if cnt `elem` [Zero, Omega]
-                         then trimLocalEnv ns (nameEnvRemove name env)
-                         else creve "not used"
+  case lookupNameEnv env n of
+    Just (Counted cnt _) -> if cnt `elem` [Zero, Omega]
+                         then trimLocalEnv ns (delFromNameEnv env n)
+                         else pprPanic "trimLocalEnv" (ppr n)
 
-tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, TcCntTyThing)] -> TcM TcLclEnv
+tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, Counted TcTyThing)] -> TcM TcLclEnv
 tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env_ref }) tc_ty_things
   | isEmptyVarSet extra_tvs
   = return lcl_env
@@ -534,7 +534,7 @@ tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env_ref }) tc_ty_thi
        ; new_g_var  <- newMutVar (global_tvs `unionVarSet` extra_tvs)
        ; return (lcl_env { tcl_tyvars = new_g_var } ) }
   where
-    extra_tvs = foldr get_tvs emptyVarSet [(nm,ty_thing) | (nm,TCTT _ ty_thing) <- tc_ty_things]
+    extra_tvs = foldr get_tvs emptyVarSet [(nm,ty_thing) | (nm,Counted _ ty_thing) <- tc_ty_things]
 
     get_tvs (_, ATcId { tct_id = id, tct_info = closed }) tvs
       = case closed of
@@ -568,7 +568,7 @@ tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env_ref }) tc_ty_thi
 tcExtendIdBndrs :: [TcIdBinder] -> TcM a -> TcM a
 tcExtendIdBndrs bndrs thing_inside
   = do { traceTc "tcExtendIdBndrs" (ppr bndrs)
-       ; updLclEnv (\env -> env { tcl_bndrs = bndrs ++ tcl_bndrs env })
+       ; updLclEnvUnrestricted (\env -> env { tcl_bndrs = bndrs ++ tcl_bndrs env })
                    thing_inside }
 
 
@@ -987,6 +987,7 @@ pprBinders bndrs  = pprWithCommas ppr bndrs
 notFound :: Name -> TcM TyThing
 notFound name
   = do { lcl_env <- getLclEnv
+       ; tcl_env <- readTcRef (tcl_env lcl_env)
        ; let stage = tcl_th_ctxt lcl_env
        ; case stage of   -- See Note [Out of scope might be a staging error]
            Splice {}
@@ -996,7 +997,7 @@ notFound name
            _ -> failWithTc $
                 vcat[text "GHC internal error:" <+> quotes (ppr name) <+>
                      text "is not in scope during type checking, but it passed the renamer",
-                     text "tcl_env of environment:" <+> ppr (tcl_env lcl_env)]
+                     text "tcl_env of environment:" <+> ppr tcl_env]
                        -- Take care: printing the whole gbl env can
                        -- cause an infinite loop, in the case where we
                        -- are in the middle of a recursive TyCon/Class group;

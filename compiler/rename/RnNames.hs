@@ -553,7 +553,7 @@ getLocalNonValBinders fixity_env
                                  (tyClGroupTyClDecls tycl_decls)
         ; traceRn (text "getLocalNonValBinders 1" <+> ppr tc_avails)
         ; envs <- extendGlobalRdrEnvRn tc_avails fixity_env
-        ; setEnvs envs $ do {
+        ; setEnvsUnrestricted envs $ do {
             -- Bring these things into scope first
             -- See Note [Looking up family names in family instances]
 

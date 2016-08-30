@@ -281,7 +281,7 @@ extendIfaceIdEnv ids thing_inside
   = do  { env <- getLclEnv
         ; let { id_env' = extendFsEnvList (if_id_env env) pairs
               ; pairs   = [(occNameFS (getOccName id), id) | id <- ids] }
-        ; setLclEnv (env { if_id_env = id_env' }) thing_inside }
+        ; setLclEnvUnrestricted (env { if_id_env = id_env' }) thing_inside }
 
 
 tcIfaceTyVar :: FastString -> IfL TyVar
@@ -310,7 +310,7 @@ extendIfaceTyVarEnv tyvars thing_inside
   = do  { env <- getLclEnv
         ; let { tv_env' = extendFsEnvList (if_tv_env env) pairs
               ; pairs   = [(occNameFS (getOccName tv), tv) | tv <- tyvars] }
-        ; setLclEnv (env { if_tv_env = tv_env' }) thing_inside }
+        ; setLclEnvUnrestricted (env { if_tv_env = tv_env' }) thing_inside }
 
 extendIfaceEnvs :: [TyCoVar] -> IfL a -> IfL a
 extendIfaceEnvs tcvs thing_inside

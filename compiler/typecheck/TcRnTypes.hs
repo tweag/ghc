@@ -39,15 +39,14 @@ module TcRnTypes(
 
         -- Typechecker types
         TcTypeEnv, TcIdBinderStack, TcIdBinder(..),
-        TcTyThing(..), TcCntTyThing(..), PromotionErr(..),
+        TcTyThing(..), PromotionErr(..),
         IdBindingInfo(..),
         IsGroupClosed(..),
         SelfBootInfo(..),
         pprTcTyThingCategory, pprPECategory,
 
         -- Counts
-        Rig(..),
-        unrestrictedTyThing,
+        Rig(..), Counted(..), unrestricted,
 
         -- Desugaring types
         DsM, DsLclEnv(..), DsGblEnv(..), PArrBuiltin(..),
@@ -191,6 +190,8 @@ import GHCi.RemoteTypes
 
 import qualified Language.Haskell.TH as TH
 #endif
+import System.IO.Unsafe (unsafePerformIO)
+import Data.IORef (newIORef)
 
 {-
 ************************************************************************
@@ -712,7 +713,7 @@ data TcLclEnv           -- Changes as we move inside an expression
                 -- We still need the unsullied global name env so that
                 --   we can look up record field names
 
-        tcl_env  :: TcRef (TcTypeEnv),    -- The local type environment:
+        tcl_env  :: TcRef TcTypeEnv,    -- The local type environment:
                                   -- Ids and TyVars defined in this module
 
         tcl_bndrs :: TcIdBinderStack,   -- Used for reporting relevant bindings
@@ -742,12 +743,14 @@ instance Outputable Rig where
   ppr One = fromString "1"
   ppr Omega = fromString "ω"
 
-unrestrictedTyThing = TCTT Omega
-data TcCntTyThing = TCTT {thingCnt :: Rig, thingThing :: TcTyThing}
-instance Outputable TcCntTyThing where
-   ppr (TCTT cnt t) = ppr cnt <> ppr t
+data Counted a = Counted {countedCount :: Rig, countedThing :: a}
 
-type TcTypeEnv = NameEnv TcCntTyThing
+unrestricted = Counted Omega
+
+instance Outputable a => Outputable (Counted a) where
+   ppr (Counted cnt t) = ppr cnt <> ppr t
+
+type TcTypeEnv = NameEnv (Counted TcTyThing)
 
 type ThBindEnv = NameEnv (TopLevelFlag, ThLevel)
    -- Domain = all Ids bound in this module (ie not imported)

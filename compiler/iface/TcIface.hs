@@ -1338,7 +1338,7 @@ tcPragExpr name expr
              ; rec_ids <- case if_rec_types gbl_env of
                             Nothing -> return []
                             Just (_, get_env) -> do
-                               { type_env <- setLclEnv () get_env
+                               { type_env <- setLclEnvUnrestricted () get_env
                                ; return (typeEnvIds type_env) }
              ; return (bindingsVars (if_tv_env lcl_env) `unionVarSet`
                        bindingsVars (if_id_env lcl_env) `unionVarSet`
@@ -1372,7 +1372,7 @@ tcIfaceGlobal name
             Just (mod, get_type_env)
                 | nameIsLocalOrFrom mod name
                 -> do           -- It's defined in the module being compiled
-                { type_env <- setLclEnv () get_type_env         -- yuk
+                { type_env <- setLclEnvUnrestricted () get_type_env         -- yuk
                 ; case lookupNameEnv type_env name of
                     Just thing -> return thing
                     Nothing   ->

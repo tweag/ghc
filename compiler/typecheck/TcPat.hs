@@ -114,6 +114,7 @@ data PatEnv
   = PE { pe_lazy :: Bool        -- True <=> lazy context, so no existentials allowed
        , pe_ctxt :: PatCtxt     -- Context in which the whole pattern appears
        , pe_orig :: CtOrigin    -- origin to use if the pat_ty needs inst'ing
+       , pe_count :: Rig
        }
 
 data PatCtxt
@@ -308,7 +309,7 @@ tc_pat  :: PatEnv
 
 tc_pat penv (VarPat (L l name)) pat_ty thing_inside
   = do  { (wrap, id) <- tcPatBndr penv name pat_ty
-        ; res <- tcExtendIdEnv1 name id thing_inside
+        ; res <- tcExtendIdEnv1 name (pe_count penv) id thing_inside
         ; pat_ty <- readExpType pat_ty
         ; return (mkHsWrapPat wrap (VarPat (L l id)) pat_ty, res) }
 
@@ -355,7 +356,7 @@ tc_pat _ (WildPat _) pat_ty thing_inside
 
 tc_pat penv (AsPat (L nm_loc name) pat) pat_ty thing_inside
   = do  { (wrap, bndr_id) <- setSrcSpan nm_loc (tcPatBndr penv name pat_ty)
-        ; (pat', res) <- tcExtendIdEnv1 name bndr_id $
+        ; (pat', res) <- tcExtendIdEnv1 name (pe_count penv) bndr_id $
                          tc_lpat pat (mkCheckExpType $ idType bndr_id)
                                  penv thing_inside
             -- NB: if we do inference on:
@@ -588,7 +589,7 @@ tc_pat penv (NPlusKPat (L nm_loc name) (L loc lit) _ ge minus _) pat_ty thing_in
           do { icls <- tcLookupClass integralClassName
              ; instStupidTheta orig [mkClassPred icls [pat_ty]] }
 
-        ; res <- tcExtendIdEnv1 name bndr_id thing_inside
+        ; res <- tcExtendIdEnv1 name (pe_count penv) bndr_id thing_inside
 
         ; let minus'' = minus' { syn_res_wrap =
                                     minus_wrap <.> syn_res_wrap minus' }

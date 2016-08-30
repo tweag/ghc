@@ -299,7 +299,7 @@ tcValBinds top_lvl binds sigs thing_inside
                 -- declared with complete type signatures
                 -- Do not extend the TcIdBinderStack; instead
                 -- we extend it on a per-rhs basis in tcExtendForRhs
-        ; tcExtendLetEnvIds top_lvl [(idName id, id) | id <- poly_ids] $ do
+        ; tcExtendLetEnvIds top_lvl [(idName id, Omega, id) | id <- poly_ids] $ do
             { (binds', (extra_binds', thing)) <- tcBindGroups top_lvl sig_fn prag_fn binds $ do
                    { thing <- thing_inside
                      -- See Note [Pattern synonym builders don't yield dependencies]
@@ -467,7 +467,7 @@ tcPolyBinds :: TopLevelFlag -> TcSigFun -> TcPragEnv
                                -- dependencies based on type signatures
             -> IsGroupClosed   -- Whether the group is closed
             -> [LHsBind Name]  -- None are PatSynBind
-            -> TcM (LHsBinds TcId, [TcId])
+            -> TcM (LHsBinds TcId, [(Rig,TcId)])
 
 -- Typechecks a single bunch of values bindings all together,
 -- and generalises them.  The bunch may be only part of a recursive
@@ -542,7 +542,7 @@ tcPolyNoGen     -- No generalisation whatsoever
                    -- dependencies based on type signatures
   -> TcPragEnv -> TcSigFun
   -> [LHsBind Name]
-  -> TcM (LHsBinds TcId, [TcId])
+  -> TcM (LHsBinds TcId, [(Rig,TcId)])
 
 tcPolyNoGen rec_tc prag_fn tc_sig_fn bind_list
   = do { (binds', mono_infos) <- tcMonoBinds rec_tc tc_sig_fn
@@ -551,12 +551,12 @@ tcPolyNoGen rec_tc prag_fn tc_sig_fn bind_list
        ; mono_ids' <- mapM tc_mono_info mono_infos
        ; return (binds', mono_ids') }
   where
-    tc_mono_info (MBI { mbi_poly_name = name, mbi_mono_id = mono_id })
+    tc_mono_info (MBI { mbi_poly_name = name, mbi_mono_id = mono_id, mbi_count = count })
       = do { mono_ty' <- zonkTcType (idType mono_id)
              -- Zonk, mainly to expose unboxed types to checkStrictBinds
            ; let mono_id' = setIdType mono_id mono_ty'
            ; _specs <- tcSpecPrags mono_id' (lookupPragEnv prag_fn name)
-           ; return mono_id' }
+           ; return (count,mono_id') }
            -- NB: tcPrags generates error messages for
            --     specialisation pragmas for non-overloaded sigs
            -- Indeed that is why we call it here!
@@ -572,7 +572,7 @@ tcPolyNoGen rec_tc prag_fn tc_sig_fn bind_list
 tcPolyCheck :: TcPragEnv
             -> TcIdSigInfo     -- Must be a complete signature
             -> LHsBind Name    -- Must be a FunBind
-            -> TcM (LHsBinds TcId, [TcId])
+            -> TcM (LHsBinds TcId, [(Rig,TcId)])
 -- There is just one binding,
 --   it is a Funbind
 --   it has a complete type signature,
@@ -619,7 +619,7 @@ tcPolyCheck prag_fn
                         , abs_sig_ev_bind = ev_binds
                         , abs_sig_bind    = L loc bind' }
 
-       ; return (unitBag abs_bind, [poly_id]) }
+       ; return (unitBag abs_bind, [(Omega,poly_id)]) }
 
 tcPolyCheck _prag_fn sig bind
   = pprPanic "tcPolyCheck" (ppr sig $$ ppr bind)
@@ -666,7 +666,7 @@ tcPolyInfer
   -> TcPragEnv -> TcSigFun
   -> Bool         -- True <=> apply the monomorphism restriction
   -> [LHsBind Name]
-  -> TcM (LHsBinds TcId, [TcId])
+  -> TcM (LHsBinds TcId, [(Rig,TcId)])
 tcPolyInfer rec_tc prag_fn tc_sig_fn mono bind_list
   = do { (tclvl, wanted, (binds', mono_infos))
              <- pushLevelAndCaptureConstraints  $
@@ -1173,7 +1173,9 @@ We do not need to do this
 
 data MonoBindInfo = MBI { mbi_poly_name :: Name
                         , mbi_sig       :: Maybe TcIdSigInst
-                        , mbi_mono_id   :: TcId }
+                        , mbi_mono_id   :: TcId
+                        , mbi_count     :: Rig
+                        }
 
 tcMonoBinds :: RecFlag  -- Whether the binding is recursive for typechecking purposes
                         -- i.e. the binders are mentioned in their RHSs, and
@@ -1223,9 +1225,10 @@ tcMonoBinds _ sig_fn no_gen binds
 
         -- Bring the monomorphic Ids, into scope for the RHSs
         ; let mono_infos = getMonoBindInfo tc_binds
-              rhs_id_env = [ (name, mono_id)
+              rhs_id_env = [ (name, count, mono_id)
                            | MBI { mbi_poly_name = name
                                  , mbi_sig       = mb_sig
+                                 , mbi_count     = count
                                  , mbi_mono_id   = mono_id } <- mono_infos
                            , case mb_sig of
                                Just sig -> isPartialSig sig
@@ -1234,7 +1237,7 @@ tcMonoBinds _ sig_fn no_gen binds
                 -- a complete type sig.  (Ones with a sig are already in scope.)
 
         ; traceTc "tcMonoBinds" $ vcat [ ppr n <+> ppr id <+> ppr (idType id)
-                                       | (n,id) <- rhs_id_env]
+                                       | (n,_count,id) <- rhs_id_env]
         ; binds' <- tcExtendLetEnvIds NotTopLevel rhs_id_env $
                     mapM (wrapLocM tcRhs) tc_binds
 
@@ -1583,7 +1586,7 @@ isClosedBndrGroup binds = do
     is_closed_id :: TcTypeEnv -> Name -> Bool
     -- See Note [Bindings with closed types] in TcRnTypes
     is_closed_id type_env name
-      | Just thing <- lookupNameEnv type_env name
+      | Just (TCTT _ thing) <- lookupNameEnv type_env name
       = case thing of
           ATcId { tct_info = ClosedLet } -> True  -- This is the key line
           ATcId {}                       -> False

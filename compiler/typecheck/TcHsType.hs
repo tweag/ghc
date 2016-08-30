@@ -924,7 +924,7 @@ tcTyVar :: TcTyMode -> Name -> TcM (TcType, TcKind)
 -- in TcTyClsDecls
 tcTyVar mode name         -- Could be a tyvar, a tycon, or a datacon
   = do { traceTc "lk1" (ppr name)
-       ; thing <- tcLookup name
+       ; thing <- tcLookup Zero name
        ; case thing of
            ATyVar _ tv -> return (mkTyVarTy tv, tyVarKind tv)
 
@@ -1010,7 +1010,7 @@ tcTyVar mode name         -- Could be a tyvar, a tycon, or a datacon
 
 tcClass :: Name -> TcM (Class, TcKind)
 tcClass cls     -- Must be a class
-  = do { thing <- tcLookup cls
+  = do { thing <- tcLookup Zero cls
        ; case thing of
            ATcTyCon tc -> return (aThingErr "tcClass" cls, tyConKind tc)
            AGlobal (ATyCon tc)
@@ -1651,7 +1651,7 @@ vars are indeed mentioned in a kind somewhere. If not, error.
 -- that we're currently type-checking, so we're sure to find a TcTyCon.
 kcLookupTcTyCon :: Name -> TcM TcTyCon
 kcLookupTcTyCon nm
-  = do { tc_ty_thing <- tcLookup nm
+  = do { tc_ty_thing <- tcLookup Zero nm
        ; return $ case tc_ty_thing of
            ATcTyCon tc -> tc
            _           -> pprPanic "kcLookupTcTyCon" (ppr tc_ty_thing) }

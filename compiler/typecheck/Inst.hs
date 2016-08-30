@@ -83,7 +83,7 @@ newMethodFromName :: CtOrigin -> Name -> TcRhoType -> TcM (HsExpr TcId)
 -- type variable and constraint
 
 newMethodFromName origin name inst_ty
-  = do { id <- tcLookupId' name
+  = do { id <- tcLookupId name
               -- Use tcLookupId not tcLookupGlobalId; the method is almost
               -- always a class op, but with -XRebindableSyntax GHC is
               -- meant to find whatever thing is in scope, and that may
@@ -576,7 +576,7 @@ tcSyntaxName orig ty (std_nm, HsVar (L _ user_nm))
        return (std_nm, rhs)
 
 tcSyntaxName orig ty (std_nm, user_nm_expr) = do
-    std_id <- tcLookupId' std_nm
+    std_id <- tcLookupId std_nm
     let
         -- C.f. newMethodAtLoc
         ([tv], _, tau) = tcSplitSigmaTy (idType std_id)

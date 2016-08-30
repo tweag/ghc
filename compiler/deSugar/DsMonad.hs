@@ -231,7 +231,7 @@ initDsTc thing_inside
               fam_inst_env = tcg_fam_inst_env tcg_env
               ds_envs  = mkDsEnvs dflags this_mod rdr_env type_env fam_inst_env
                                   msg_var pm_iter_var
-        ; setEnvs ds_envs thing_inside
+        ; setEnvsUnrestricted ds_envs thing_inside
         }
 
 initTcDsForSolver :: TcM a -> DsM (Messages, Maybe a)
@@ -286,7 +286,7 @@ mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var pmvar
 loadModule :: SDoc -> Module -> DsM GlobalRdrEnv
 loadModule doc mod
   = do { env    <- getGblEnv
-       ; setEnvs (ds_if_env env) $ do
+       ; setEnvsUnrestricted (ds_if_env env) $ do
        { iface <- loadInterface doc mod ImportBySystem
        ; case iface of
            Failed err      -> pprPanic "DsMonad.loadModule: failed to load" (err $$ doc)
@@ -346,7 +346,7 @@ getDictsDs = do { env <- getLclEnv; return (dsl_dicts env) }
 -- | Add in-scope type constraints (pm check)
 addDictsDs :: Bag EvVar -> DsM a -> DsM a
 addDictsDs ev_vars
-  = updLclEnv (\env -> env { dsl_dicts = unionBags ev_vars (dsl_dicts env) })
+  = updLclEnvUnrestricted (\env -> env { dsl_dicts = unionBags ev_vars (dsl_dicts env) })
 
 -- | Get in-scope term constraints (pm check)
 getTmCsDs :: DsM (Bag SimpleEq)
@@ -355,7 +355,7 @@ getTmCsDs = do { env <- getLclEnv; return (dsl_tm_cs env) }
 -- | Add in-scope term constraints (pm check)
 addTmCsDs :: Bag SimpleEq -> DsM a -> DsM a
 addTmCsDs tm_cs
-  = updLclEnv (\env -> env { dsl_tm_cs = unionBags tm_cs (dsl_tm_cs env) })
+  = updLclEnvUnrestricted (\env -> env { dsl_tm_cs = unionBags tm_cs (dsl_tm_cs env) })
 
 -- | Increase the counter for elapsed pattern match check iterations.
 -- If the current counter is already over the limit, fail
@@ -380,7 +380,7 @@ putSrcSpanDs :: SrcSpan -> DsM a -> DsM a
 putSrcSpanDs (UnhelpfulSpan {}) thing_inside
   = thing_inside
 putSrcSpanDs (RealSrcSpan real_span) thing_inside
-  = updLclEnv (\ env -> env {dsl_loc = real_span}) thing_inside
+  = updLclEnvUnrestricted (\ env -> env {dsl_loc = real_span}) thing_inside
 
 -- | Emit a warning for the current source location
 warnDs :: WarnReason -> SDoc -> DsM ()
@@ -411,7 +411,7 @@ dsLookupGlobal :: Name -> DsM TyThing
 -- Very like TcEnv.tcLookupGlobal
 dsLookupGlobal name
   = do  { env <- getGblEnv
-        ; setEnvs (ds_if_env env)
+        ; setEnvsUnrestricted (ds_if_env env)
                   (tcIfaceGlobal name) }
 
 dsLookupGlobalId :: Name -> DsM Id
@@ -510,7 +510,7 @@ dsLookupMetaEnv name = do { env <- getLclEnv; return (lookupNameEnv (dsl_meta en
 
 dsExtendMetaEnv :: DsMetaEnv -> DsM a -> DsM a
 dsExtendMetaEnv menv thing_inside
-  = updLclEnv (\env -> env { dsl_meta = dsl_meta env `plusNameEnv` menv }) thing_inside
+  = updLclEnvUnrestricted (\env -> env { dsl_meta = dsl_meta env `plusNameEnv` menv }) thing_inside
 
 discardWarningsDs :: DsM a -> DsM a
 -- Ignore warnings inside the thing inside;

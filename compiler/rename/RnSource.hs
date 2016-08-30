@@ -112,7 +112,7 @@ rnSrcDecls group@(HsGroup { hs_valds   = val_decls,
    (tc_envs, tc_bndrs) <- getLocalNonValBinders local_fix_env group ;
 
 
-   setEnvs tc_envs $ do {
+   setEnvsUnrestricted tc_envs $ do {
 
    failIfErrsM ; -- No point in continuing if (say) we have duplicate declarations
 
@@ -134,7 +134,7 @@ rnSrcDecls group@(HsGroup { hs_valds   = val_decls,
    traceRn (text "rnSrcDecls" <+> ppr id_bndrs) ;
    tc_envs <- extendGlobalRdrEnvRn (map avail id_bndrs) local_fix_env ;
    traceRn (text "D2" <+> ppr (tcg_rdr_env (fst tc_envs)));
-   setEnvs tc_envs $ do {
+   setEnvsUnrestricted tc_envs $ do {
 
    --  Now everything is in scope, as the remaining renaming assumes.
 
@@ -2064,7 +2064,7 @@ extendPatSynEnv val_decls local_fix_env thing = do {
 
    ; let field_env' = extendNameEnvList (tcg_field_env gbl_env) names_with_fls
          final_gbl_env = gbl_env { tcg_field_env = field_env' }
-   ; setEnvs (final_gbl_env, lcl_env) (thing pat_syn_bndrs) }
+   ; setEnvsUnrestricted (final_gbl_env, lcl_env) (thing pat_syn_bndrs) }
   where
     new_ps :: HsValBinds RdrName -> TcM [(Name, [FieldLabel])]
     new_ps (ValBindsIn binds _) = foldrBagM new_ps' [] binds

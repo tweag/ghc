@@ -1665,7 +1665,7 @@ bindLocalNames names enclosed_scope
              th_bndrs' = extendNameEnvList (tcl_th_bndrs lcl_env)
                            [ (n, (NotTopLevel, th_level)) | n <- names ]
              rdr_env'  = extendLocalRdrEnvList (tcl_rdr lcl_env) names
-       ; setLclEnv (lcl_env { tcl_th_bndrs = th_bndrs'
+       ; setLclEnvUnrestricted (lcl_env { tcl_th_bndrs = th_bndrs'
                             , tcl_rdr      = rdr_env' })
                     enclosed_scope }
 

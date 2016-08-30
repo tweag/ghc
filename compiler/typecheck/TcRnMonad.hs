@@ -15,8 +15,8 @@ module TcRnMonad(
   -- * Simple accessors
   discardResult,
   getTopEnv, updTopEnv, getGblEnv, updGblEnv,
-  setGblEnv, getLclEnv, updLclEnv, setLclEnv,
-  getEnvs, setEnvs,
+  setGblEnv, getLclEnv, updLclEnvUnrestricted, setLclEnvUnrestricted,
+  getEnvs, setEnvsUnrestricted,
   xoptM, doptM, goptM, woptM,
   setXOptM, unsetGOptM, unsetWOptM,
   whenDOptM, whenGOptM, whenWOptM, whenXOptM,
@@ -417,18 +417,18 @@ setGblEnv gbl_env = updEnv (\ env -> env { env_gbl = gbl_env })
 getLclEnv :: TcRnIf gbl lcl lcl
 getLclEnv = do { env <- getEnv; return (env_lcl env) }
 
--- updLclEnv :: (lcl -> lcl) -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
--- updLclEnv upd = updEnv (\ env@(Env { env_lcl = lcl }) ->
---                           env { env_lcl = upd lcl })
+updLclEnvUnrestricted :: (lcl -> lcl) -> TcRnIf gbl lcl a -> TcRnIf gbl lcl a
+updLclEnvUnrestricted upd = updEnv (\ env@(Env { env_lcl = lcl }) ->
+                          env { env_lcl = upd lcl })
 
--- setLclEnv :: lcl' -> TcRnIf gbl lcl' a -> TcRnIf gbl lcl a
--- setLclEnv lcl_env = updEnv (\ env -> env { env_lcl = lcl_env })
+setLclEnvUnrestricted :: lcl' -> TcRnIf gbl lcl' a -> TcRnIf gbl lcl a
+setLclEnvUnrestricted lcl_env = updEnv (\ env -> env { env_lcl = lcl_env })
 
 getEnvs :: TcRnIf gbl lcl (gbl, lcl)
 getEnvs = do { env <- getEnv; return (env_gbl env, env_lcl env) }
 
--- setEnvs :: (gbl', lcl') -> TcRnIf gbl' lcl' a -> TcRnIf gbl lcl a
--- setEnvs (gbl_env, lcl_env) = updEnv (\ env -> env { env_gbl = gbl_env, env_lcl = lcl_env })
+setEnvsUnrestricted :: (gbl', lcl') -> TcRnIf gbl' lcl' a -> TcRnIf gbl lcl a
+setEnvsUnrestricted (gbl_env, lcl_env) = updEnv (\ env -> env { env_gbl = gbl_env, env_lcl = lcl_env })
 
 -- Command-line flags
 
@@ -527,12 +527,12 @@ getEpsAndHpt = do { env <- getTopEnv; eps <- readMutVar (hsc_EPS env)
 
 newArrowScope :: TcM a -> TcM a
 newArrowScope
-  = updLclEnv $ \env -> env { tcl_arrow_ctxt = ArrowCtxt (tcl_rdr env) (tcl_lie env) }
+  = updLclEnvUnrestricted $ \env -> env { tcl_arrow_ctxt = ArrowCtxt (tcl_rdr env) (tcl_lie env) }
 
 -- Return to the stored environment (from the enclosing proc)
 escapeArrowScope :: TcM a -> TcM a
 escapeArrowScope
-  = updLclEnv $ \ env ->
+  = updLclEnvUnrestricted $ \ env ->
     case tcl_arrow_ctxt env of
       NoArrowCtxt       -> env
       ArrowCtxt rdr_env lie -> env { tcl_arrow_ctxt = NoArrowCtxt
@@ -782,7 +782,7 @@ getSrcSpanM = do { env <- getLclEnv; return (RealSrcSpan (tcl_loc env)) }
 
 setSrcSpan :: SrcSpan -> TcRn a -> TcRn a
 setSrcSpan (RealSrcSpan real_loc) thing_inside
-    = updLclEnv (\env -> env { tcl_loc = real_loc }) thing_inside
+    = updLclEnvUnrestricted (\env -> env { tcl_loc = real_loc }) thing_inside
 -- Don't overwrite useful info with useless:
 setSrcSpan (UnhelpfulSpan _) thing_inside = thing_inside
 
@@ -810,7 +810,7 @@ getErrsVar :: TcRn (TcRef Messages)
 getErrsVar = do { env <- getLclEnv; return (tcl_errs env) }
 
 setErrsVar :: TcRef Messages -> TcRn a -> TcRn a
-setErrsVar v = updLclEnv (\ env -> env { tcl_errs =  v })
+setErrsVar v = updLclEnvUnrestricted (\ env -> env { tcl_errs =  v })
 
 addErr :: MsgDoc -> TcRn ()
 addErr msg = do { loc <- getSrcSpanM; addErrAt loc msg }
@@ -1087,7 +1087,7 @@ getErrCtxt :: TcM [ErrCtxt]
 getErrCtxt = do { env <- getLclEnv; return (tcl_ctxt env) }
 
 setErrCtxt :: [ErrCtxt] -> TcM a -> TcM a
-setErrCtxt ctxt = updLclEnv (\ env -> env { tcl_ctxt = ctxt })
+setErrCtxt ctxt = updLclEnvUnrestricted (\ env -> env { tcl_ctxt = ctxt })
 
 -- | Add a fixed message to the error context. This message should not
 -- do any tidying.
@@ -1112,7 +1112,7 @@ addLandmarkErrCtxtM ctxt = updCtxt (\ctxts -> (True, ctxt) : ctxts)
 
 -- Helper function for the above
 updCtxt :: ([ErrCtxt] -> [ErrCtxt]) -> TcM a -> TcM a
-updCtxt upd = updLclEnv (\ env@(TcLclEnv { tcl_ctxt = ctxt }) ->
+updCtxt upd = updLclEnvUnrestricted (\ env@(TcLclEnv { tcl_ctxt = ctxt }) ->
                            env { tcl_ctxt = upd ctxt })
 
 popErrCtxt :: TcM a -> TcM a
@@ -1129,7 +1129,7 @@ getCtLocM origin t_or_k
 setCtLocM :: CtLoc -> TcM a -> TcM a
 -- Set the SrcSpan and error context from the CtLoc
 setCtLocM (CtLoc { ctl_env = lcl }) thing_inside
-  = updLclEnv (\env -> env { tcl_loc   = tcl_loc lcl
+  = updLclEnvUnrestricted (\env -> env { tcl_loc   = tcl_loc lcl
                            , tcl_bndrs = tcl_bndrs lcl
                            , tcl_ctxt  = tcl_ctxt lcl })
               thing_inside
@@ -1355,7 +1355,7 @@ getConstraintVar :: TcM (TcRef WantedConstraints)
 getConstraintVar = do { env <- getLclEnv; return (tcl_lie env) }
 
 setConstraintVar :: TcRef WantedConstraints -> TcM a -> TcM a
-setConstraintVar lie_var = updLclEnv (\ env -> env { tcl_lie = lie_var })
+setConstraintVar lie_var = updLclEnvUnrestricted (\ env -> env { tcl_lie = lie_var })
 
 emitConstraints :: WantedConstraints -> TcM ()
 emitConstraints ct
@@ -1405,7 +1405,7 @@ captureConstraints :: TcM a -> TcM (a, WantedConstraints)
 -- (captureConstraints m) runs m, and returns the type constraints it generates
 captureConstraints thing_inside
   = do { lie_var <- newTcRef emptyWC ;
-         res <- updLclEnv (\ env -> env { tcl_lie = lie_var })
+         res <- updLclEnvUnrestricted (\ env -> env { tcl_lie = lie_var })
                           thing_inside ;
          lie <- readTcRef lie_var ;
          return (res, lie) }
@@ -1415,21 +1415,21 @@ pushLevelAndCaptureConstraints thing_inside
   = do { env <- getLclEnv
        ; lie_var <- newTcRef emptyWC
        ; let tclvl' = pushTcLevel (tcl_tclvl env)
-       ; res <- setLclEnv (env { tcl_tclvl = tclvl'
-                               , tcl_lie   = lie_var })
+       ; res <- setLclEnvUnrestricted (env { tcl_tclvl = tclvl'
+                                           , tcl_lie   = lie_var })
                 thing_inside
        ; lie <- readTcRef lie_var
        ; return (tclvl', lie, res) }
 
 pushTcLevelM_ :: TcM a -> TcM a
-pushTcLevelM_ x = updLclEnv (\ env -> env { tcl_tclvl = pushTcLevel (tcl_tclvl env) }) x
+pushTcLevelM_ x = updLclEnvUnrestricted (\ env -> env { tcl_tclvl = pushTcLevel (tcl_tclvl env) }) x
 
 pushTcLevelM :: TcM a -> TcM (a, TcLevel)
 -- See Note [TcLevel assignment]
 pushTcLevelM thing_inside
   = do { env <- getLclEnv
        ; let tclvl' = pushTcLevel (tcl_tclvl env)
-       ; res <- setLclEnv (env { tcl_tclvl = tclvl' })
+       ; res <- setLclEnvUnrestricted (env { tcl_tclvl = tclvl' })
                           thing_inside
        ; return (res, tclvl') }
 
@@ -1439,7 +1439,7 @@ getTcLevel = do { env <- getLclEnv
 
 setTcLevel :: TcLevel -> TcM a -> TcM a
 setTcLevel tclvl thing_inside
-  = updLclEnv (\env -> env { tcl_tclvl = tclvl }) thing_inside
+  = updLclEnvUnrestricted (\env -> env { tcl_tclvl = tclvl }) thing_inside
 
 isTouchableTcM :: TcTyVar -> TcM Bool
 isTouchableTcM tv
@@ -1458,16 +1458,16 @@ delLclTypeEnv cnt nm = do
   env <- readTcRef local_env_ref
   case lookupNameEnv env nm of
     Nothing -> error "PANIC: delLclTypeEnv"
-    Just (TCTT cnt1 thing) -> do
+    Just (Counted cnt1 thing) -> do
       when (cnt1 < cnt) (fail "pas bien! vilain!")
       writeTcRef local_env_ref
-        (alterNameEnv (\(Just (TCTT cnt1 x)) -> Just (TCTT (cnt1 - cnt) x)) env nm)
+        (alterNameEnv (\(Just (Counted cnt1 x)) -> Just (Counted (cnt1 - cnt) x)) env nm)
 
 setLclTypeEnv :: TcLclEnv -> TcM a -> TcM a
 -- Set the local type envt, but do *not* disturb other fields,
 -- notably the lie_var
 setLclTypeEnv lcl_env thing_inside
-  = updLclEnv upd thing_inside
+  = updLclEnvUnrestricted upd thing_inside
   where
     upd env = env { tcl_env = tcl_env lcl_env,
                     tcl_tyvars = tcl_tyvars lcl_env }
@@ -1544,7 +1544,7 @@ getStageAndBindLevel name
            Just (top_lvl, bind_lvl) -> return (Just (top_lvl, bind_lvl, tcl_th_ctxt env)) }
 
 setStage :: ThStage -> TcM a -> TcRn a
-setStage s = updLclEnv (\ env -> env { tcl_th_ctxt = s })
+setStage s = updLclEnvUnrestricted (\ env -> env { tcl_th_ctxt = s })
 
 #ifdef GHCI
 -- | Adds the given modFinalizers to the global environment and set them to use
@@ -1605,7 +1605,7 @@ getLocalRdrEnv = do { env <- getLclEnv; return (tcl_rdr env) }
 
 setLocalRdrEnv :: LocalRdrEnv -> RnM a -> RnM a
 setLocalRdrEnv rdr_env thing_inside
-  = updLclEnv (\env -> env {tcl_rdr = rdr_env}) thing_inside
+  = updLclEnvUnrestricted (\env -> env {tcl_rdr = rdr_env}) thing_inside
 
 {-
 ************************************************************************
@@ -1634,7 +1634,7 @@ initIfaceTcRn thing_inside
                             if_rec_types = Just (tcg_mod tcg_env, get_type_env)
                          }
               ; get_type_env = readTcRef (tcg_type_env_var tcg_env) }
-        ; setEnvs (if_env, ()) thing_inside }
+        ; setEnvsUnrestricted (if_env, ()) thing_inside }
 
 -- Used when sucking in a ModIface into a ModDetails to put in
 -- the HPT.  Notably, unlike initIfaceCheck, this does NOT use
@@ -1663,7 +1663,7 @@ initIfaceCheck doc hsc_env do_this
 
 initIfaceLcl :: Module -> SDoc -> Bool -> IfL a -> IfM lcl a
 initIfaceLcl mod loc_doc hi_boot_file thing_inside
-  = setLclEnv (mkIfLclEnv mod loc_doc hi_boot_file) thing_inside
+  = setLclEnvUnrestricted (mkIfLclEnv mod loc_doc hi_boot_file) thing_inside
 
 getIfModule :: IfL Module
 getIfModule = do { env <- getLclEnv; return (if_mod env) }
@@ -1700,7 +1700,7 @@ forkM_maybe doc thing_inside
       ; unsafeInterleaveM $ uninterruptibleMaskM_ $ updEnv (\env -> env { env_us = child_env_us }) $
         do { traceIf (text "Starting fork {" <+> doc)
            ; mb_res <- tryM $
-                       updLclEnv (\env -> env { if_loc = if_loc env $$ doc }) $
+                       updLclEnvUnrestricted (\env -> env { if_loc = if_loc env $$ doc }) $
                        thing_inside
            ; case mb_res of
                 Right r  -> do  { traceIf (text "} ending fork" <+> doc)
