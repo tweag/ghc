@@ -475,14 +475,14 @@ tcRnSrcDecls explicit_mod_hdr decls
 
                    -- Check for the 'main' declaration
                    -- Must do this inside the captureConstraints
-                 ; tcg_env <- setEnvs (tcg_env, tcl_env) $
+                 ; tcg_env <- setEnvsUnrestricted (tcg_env, tcl_env) $
                               checkMain explicit_mod_hdr
                  ; return (tcg_env, tcl_env) }
 
         -- Emit Typeable bindings
       ; tcg_env <- setGblEnv tcg_env mkTypeableBinds
 
-      ; setEnvs (tcg_env, tcl_env) $ do {
+      ; setEnvsUnrestricted (tcg_env, tcl_env) $ do {
 
 #ifdef GHCI
       ; finishTH
@@ -590,7 +590,7 @@ tc_rn_src_decls ds
                               tcTopSrcDecls rn_decls
 
         -- If there is no splice, we're nearly done
-      ; setEnvs (tcg_env, tcl_env) $
+      ; setEnvsUnrestricted (tcg_env, tcl_env) $
         case group_tail of
           { Nothing -> return (tcg_env, tcl_env)
 
@@ -1226,14 +1226,14 @@ tcTopSrcDecls (HsGroup { hs_tyclds = tycl_decls,
                 -- the bindings produced in a Data instance.)
         traceTc "Tc5" empty ;
         tc_envs <- tcTopBinds val_binds val_sigs;
-        setEnvs tc_envs $ do {
+        setEnvsUnrestricted tc_envs $ do {
 
                 -- Now GHC-generated derived bindings, generics, and selectors
                 -- Do not generate warnings from compiler-generated code;
                 -- hence the use of discardWarnings
         tc_envs@(tcg_env, tcl_env)
             <- discardWarnings (tcTopBinds deriv_binds deriv_sigs) ;
-        setEnvs tc_envs $ do {  -- Environment doesn't change now
+        setEnvsUnrestricted tc_envs $ do {  -- Environment doesn't change now
 
                 -- Second pass over class and instance declarations,
                 -- now using the kind-checked decls
@@ -1674,8 +1674,8 @@ runTcInteractive hsc_env thing_inside
                          , tcg_imports      = imports
                          }
 
-       ; lcl_env' <- tcExtendLocalTypeEnv lcl_env lcl_ids
-       ; setEnvs (gbl_env', lcl_env') thing_inside }
+       ; lcl_env' <- tcExtendLocalTypeEnv lcl_env (map unrestricted lcl_ids)
+       ; setEnvsUnrestricted (gbl_env', lcl_env') thing_inside }
   where
     (home_insts, home_fam_insts) = hptInstances hsc_env (\_ -> True)
 

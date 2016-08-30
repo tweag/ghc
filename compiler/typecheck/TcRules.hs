@@ -73,7 +73,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
        ; let (id_bndrs, tv_bndrs) = partition isId vars
        ; (lhs', lhs_wanted, rhs', rhs_wanted, rule_ty)
             <- tcExtendTyVarEnv tv_bndrs $
-               tcExtendIdEnv    id_bndrs $
+               tcExtendIdEnv    (map unrestricted id_bndrs) $
                do { -- See Note [Solve order for RULES]
                     ((lhs', rule_ty), lhs_wanted) <- captureConstraints (tcInferRho lhs)
                   ; (rhs', rhs_wanted) <- captureConstraints $

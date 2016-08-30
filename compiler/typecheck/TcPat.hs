@@ -981,7 +981,7 @@ tcConArgs con_like arg_tys (RecCon (HsRecFields rpats dd)) penv thing_inside
                         (LHsRecField TcId (LPat TcId))
     tc_field (L l (HsRecField (L loc (FieldOcc (L lr rdr) sel)) pat pun)) penv
                                                                     thing_inside
-      = do { sel'   <- tcLookupId Omega sel
+      = do { sel'   <- tcLookupId sel
            ; pat_ty <- setSrcSpan loc $ find_field_ty (occNameFS $ rdrNameOcc rdr)
            ; (pat', res) <- tcConArg (pat, pat_ty) penv thing_inside
            ; return (L l (HsRecField (L loc (FieldOcc (L lr rdr) sel')) pat'

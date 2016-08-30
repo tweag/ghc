@@ -715,7 +715,7 @@ data TcLclEnv           -- Changes as we move inside an expression
 
         tcl_env  :: TcRef TcTypeEnv,    -- The local type environment:
                                   -- Ids and TyVars defined in this module
-
+        tcl_scale :: Rig, -- how many "things" we have to produce at this point
         tcl_bndrs :: TcIdBinderStack,   -- Used for reporting relevant bindings
 
         tcl_tidy :: TidyEnv,      -- Used for tidying types; contains all

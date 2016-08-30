@@ -1040,15 +1040,15 @@ tcVect :: VectDecl Name -> TcM (VectDecl TcId)
 --   from the vectoriser here.
 tcVect (HsVect s name rhs)
   = addErrCtxt (vectCtxt name) $
-    do { var <- wrapLocM (tcLookupId Omega) name
+    do { var <- wrapLocM tcLookupId name
        ; let L rhs_loc (HsVar (L lv rhs_var_name)) = rhs
-       ; rhs_id <- tcLookupId Omega rhs_var_name
+       ; rhs_id <- tcLookupId rhs_var_name
        ; return $ HsVect s var (L rhs_loc (HsVar (L lv rhs_id)))
        }
 
 tcVect (HsNoVect s name)
   = addErrCtxt (vectCtxt name) $
-    do { var <- wrapLocM (tcLookupId Omega) name
+    do { var <- wrapLocM tcLookupId name
        ; return $ HsNoVect s var
        }
 tcVect (HsVectTypeIn _ isScalar lname rhs_name)

@@ -1521,7 +1521,7 @@ mkDefMethBind :: Class -> [Type] -> Id -> Name -> TcM (LHsBind Name, [LSig Name]
 -- visible type application here
 mkDefMethBind clas inst_tys sel_id dm_name
   = do  { dflags <- getDynFlags
-        ; dm_id <- tcLookupId Omega dm_name
+        ; dm_id <- tcLookupId dm_name
         ; let inline_prag = idInlinePragma dm_id
               inline_prags | isAnyInlinePragma inline_prag
                            = [noLoc (InlineSig fn inline_prag)]

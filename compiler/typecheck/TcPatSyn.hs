@@ -75,7 +75,7 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
             <- pushLevelAndCaptureConstraints  $
                do { pat_ty <- newOpenInferExpType
                   ; stuff <- tcPat PatSyn lpat pat_ty $
-                             mapM (tcLookupId Omega) arg_names
+                             mapM tcLookupId arg_names
                   ; pat_ty <- readExpType pat_ty
                   ; return (stuff, pat_ty) }
 
@@ -196,7 +196,7 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(L _ name), psb_args = details
     tc_arg subst arg_name arg_ty
       = do {   -- Look up the variable actually bound by lpat
                -- and check that it has the expected type
-             arg_id <- tcLookupId Omega arg_name
+             arg_id <- tcLookupId arg_name
            ; coi <- unifyType (Just arg_id)
                               (idType arg_id)
                               (substTyUnchecked subst arg_ty)

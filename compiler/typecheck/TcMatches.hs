@@ -522,7 +522,7 @@ tcLcStmt m_tc ctxt (TransStmt { trS_form = form, trS_stmts = stmts
 
        -- Type check the thing in the environment with
        -- these new binders and return the result
-       ; thing <- tcExtendIdEnv n_bndr_ids (thing_inside elt_ty)
+       ; thing <- tcExtendIdEnv (map unrestricted n_bndr_ids) (thing_inside elt_ty)
 
        ; return (TransStmt { trS_stmts = stmts', trS_bndrs = bindersMap'
                            , trS_by = fmap fst by', trS_using = final_using
@@ -702,7 +702,7 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
 
        -- Type check the thing in the environment with
        -- these new binders and return the result
-       ; thing <- tcExtendIdEnv n_bndr_ids $
+       ; thing <- tcExtendIdEnv (map unrestricted n_bndr_ids) $
                   thing_inside (mkCheckExpType new_res_ty)
 
        ; return (TransStmt { trS_stmts = stmts', trS_bndrs = bindersMap'
@@ -868,7 +868,7 @@ tcDoStmt ctxt (RecStmt { recS_stmts = stmts, recS_later_ids = later_names
         ; let tup_ids = zipWith mkLocalId tup_names tup_elt_tys
               tup_ty  = mkBigCoreTupTy tup_elt_tys
 
-        ; tcExtendIdEnv tup_ids $ do
+        ; tcExtendIdEnv (map unrestricted tup_ids) $ do
         { stmts_ty <- newOpenInferExpType
         ; (stmts', (ret_op', tup_rets))
                 <- tcStmtsAndThen ctxt tcDoStmt stmts stmts_ty   $

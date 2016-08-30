@@ -2574,7 +2574,7 @@ checkClosedInStaticForm name = do
       -- The @visited@ set is an accumulating parameter that contains the set of
       -- visited nodes, so we avoid repeating cycles in the traversal.
       case lookupNameEnv type_env n of
-        Just (ATcId { tct_id = tcid, tct_info = info }) -> case info of
+        Just (Counted _ (ATcId { tct_id = tcid, tct_info = info })) -> case info of
           ClosedLet   -> Nothing
           NotLetBound -> Just NotLetBoundReason
           NonClosedLet fvs type_closed -> listToMaybe $

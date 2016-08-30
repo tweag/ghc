@@ -32,9 +32,11 @@ module TcEnv(
         tcExtendIdEnv, tcExtendIdEnv1, tcExtendIdEnv2,
         tcExtendIdBndrs,
         isTypeClosedLetBndr,
-
-        tcLookup, tcLookup', tcLookupLocalIds,
-        tcLookupId, tcLookupId', tcLookupTyVar,
+        tcExtendLocalTypeEnv,
+        
+        tcScale,
+        tcLookup, tcLookupLocalIds,
+        tcLookupId, tcLookupTyVar,
         tcLookupLcl_maybe,
         getInLocalScope,
         wrongThingErr, pprBinders,
@@ -209,7 +211,7 @@ tcLookupAxiom name = do
         _           -> wrongThingErr "axiom" (AGlobal thing) name
 
 tcLookupLocatedGlobalId :: Located Name -> TcM Id
-tcLookupLocatedGlobalId = addLocM tcLookupId'
+tcLookupLocatedGlobalId = addLocM tcLookupId
 
 tcLookupLocatedClass :: Located Name -> TcM Class
 tcLookupLocatedClass = addLocM tcLookupClass
@@ -322,37 +324,35 @@ tcLookupLcl_maybe name
   = do { local_env <- getLclTypeEnv
        ; return (countedThing <$> lookupNameEnv local_env name) }
 
-tcLookup :: Rig -> Name -> TcM TcTyThing
-tcLookup cnt name = do
+tcLookup :: Name -> TcM TcTyThing
+tcLookup name = do
+    scale <- tcl_scale <$> getLclEnv
     local_env <- getLclTypeEnv
     case lookupNameEnv local_env name of
-        Just (Counted _ thing) -> delLclTypeEnv cnt name >> return thing
+        Just (Counted _ thing) -> delLclTypeEnv scale name >> return thing
         Nothing    -> AGlobal <$> tcLookupGlobal name
 
-tcLookup' :: Name -> TcM TcTyThing
-tcLookup' = tcLookup Omega
+tcScale :: Rig -> TcM a -> TcM a
+tcScale cnt = updLclEnvUnrestricted (\env -> env {tcl_scale = tcl_scale env * cnt})
 
 tcLookupTyVar :: Name -> TcM TcTyVar
 tcLookupTyVar name
-  = do { thing <- tcLookup Zero name
+  = do { thing <- tcLookup name
        ; case thing of
            ATyVar _ tv -> return tv
            _           -> pprPanic "tcLookupTyVar" (ppr name) }
 
-tcLookupId :: Rig -> Name -> TcM Id
+tcLookupId :: Name -> TcM Id
 -- Used when we aren't interested in the binding level, nor refinement.
 -- The "no refinement" part means that we return the un-refined Id regardless
 --
 -- The Id is never a DataCon. (Why does that matter? see TcExpr.tcId)
-tcLookupId count name = do
-    thing <- tcLookup count name
+tcLookupId name = do
+    thing <- tcLookup name
     case thing of
         ATcId { tct_id = id} -> return id
         AGlobal (AnId id)    -> return id
         _                    -> pprPanic "tcLookupId" (ppr name)
-
-tcLookupId' :: Name -> TcM Id
-tcLookupId' = tcLookupId Omega
 
 tcLookupLocalIds :: [Name] -> TcM [TcId]
 -- We expect the variables to all be bound, and all at
@@ -397,7 +397,7 @@ tcExtendTyVarEnv2 binds thing_inside
   -- this should be used only for explicitly mentioned scoped variables.
   -- thus, no coercion variables
   = do { tc_extend_local_env NotTopLevel
-                    [(name, Counted Zero (ATyVar name tv)) | (name, tv) <- binds] $
+                    [Counted Zero (name,(ATyVar name tv)) | (name, tv) <- binds] $
          do { env <- getLclEnv
             ; let env' = env { tcl_tidy = add_tidy_tvs (tcl_tidy env) }
             ; setLclEnvUnrestricted env' thing_inside }}
@@ -444,7 +444,7 @@ tcExtendLetEnvIds' :: TopLevelFlag -> IsGroupClosed
 -- Does not extend the TcIdBinderStack
 tcExtendLetEnvIds' top_lvl closed_group pairs thing_inside
   = tc_extend_local_env top_lvl
-      [ (name, Counted cnt (ATcId { tct_id = let_id
+      [Counted cnt (name,(ATcId { tct_id = let_id
                                , tct_info = case closed_group of
                                    ClosedGroup
                                      | isTypeClosedLetBndr let_id -> ClosedLet
@@ -473,12 +473,12 @@ tcExtendIdEnv2 names_w_ids thing_inside
   = tcExtendIdBndrs [ TcIdBndr mono_id NotTopLevel
                     | Counted _ (_,mono_id) <- names_w_ids ] $
     do  { tc_extend_local_env NotTopLevel
-          [ (name, Counted cnt (ATcId { tct_id = id
+          [ Counted cnt (name,(ATcId { tct_id = id
                                    , tct_info = NotLetBound }))
           | Counted cnt (name,id) <- names_w_ids] $
           thing_inside }
 
-tc_extend_local_env :: TopLevelFlag -> [(Name, Counted TcTyThing)]
+tc_extend_local_env :: TopLevelFlag -> [Counted (Name, TcTyThing)]
                     -> TcM a -> TcM a
 tc_extend_local_env top_lvl extra_env thing_inside
 -- Precondition: the argument list extra_env has TcTyThings
@@ -495,14 +495,16 @@ tc_extend_local_env top_lvl extra_env thing_inside
 -- that are bound together with extra_env and should not be regarded
 -- as free in the types of extra_env.
   = do  { traceTc "env2" (ppr extra_env)
+        ; scale <- tcl_scale <$> getLclEnv
+        ; let scaled_extra_env = [(n,Counted (c*scale) x) | (Counted c (n,x)) <- extra_env]
         ; env0 <- getLclEnv
         ; let tcl_env_ref = tcl_env env0
-        ; updTcRef tcl_env_ref (flip extendNameEnvList extra_env)
+        ; updTcRef tcl_env_ref (flip extendNameEnvList scaled_extra_env)
         ; env1 <- tcExtendLocalTypeEnv env0 extra_env
         ; stage <- getStage
-        ; let env2 = extend_local_env (top_lvl, thLevel stage) extra_env env1
+        ; let env2 = extend_local_env (top_lvl, thLevel stage) scaled_extra_env env1
         ; result <- setLclEnvUnrestricted env2 thing_inside
-        ; writeTcRef tcl_env_ref =<< trimLocalEnv (map fst extra_env) =<< readTcRef tcl_env_ref
+        ; writeTcRef tcl_env_ref =<< trimLocalEnv (map (fst . countedThing) extra_env) =<< readTcRef tcl_env_ref
         ; return result
         ; }
   where
@@ -528,7 +530,7 @@ trimLocalEnv (n:ns) env = do
                          then trimLocalEnv ns (delFromNameEnv env n)
                          else pprPanic "trimLocalEnv" (ppr n)
 
-tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, Counted TcTyThing)] -> TcM TcLclEnv
+tcExtendLocalTypeEnv :: TcLclEnv -> [Counted (Name, TcTyThing)] -> TcM TcLclEnv
 tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env_ref }) tc_ty_things
   | isEmptyVarSet extra_tvs
   = return lcl_env
@@ -537,7 +539,7 @@ tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env_ref }) tc_ty_thi
        ; new_g_var  <- newMutVar (global_tvs `unionVarSet` extra_tvs)
        ; return (lcl_env { tcl_tyvars = new_g_var } ) }
   where
-    extra_tvs = foldr get_tvs emptyVarSet [(nm,ty_thing) | (nm,Counted _ ty_thing) <- tc_ty_things]
+    extra_tvs = foldr get_tvs emptyVarSet [(nm,ty_thing) | Counted _ (nm,ty_thing) <- tc_ty_things]
 
     get_tvs (_, ATcId { tct_id = id, tct_info = closed }) tvs
       = case closed of
