@@ -119,9 +119,9 @@ instance Num Rig where
   x + Zero = x
   _ + _ = Omega
 
-instance Outputable Rig where
-  ppr One = fromString "1"
-  ppr Omega = fromString "ω"
+-- instance Outputable Rig where
+--   ppr One = fromString "1"
+--   ppr Omega = fromString "ω"
 
 
 {-
@@ -483,6 +483,7 @@ data HsType name
       -- For details on above see note [Api annotations] in ApiAnnotation
 
   | HsFunTy             (LHsType name)   -- function type
+                        Rig
                         (LHsType name)
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRarrow',
 
@@ -963,13 +964,13 @@ mkHsAppTys = foldl mkHsAppTy
 --      splitHsFunType (a -> (b -> c)) = ([a,b], c)
 -- Also deals with (->) t1 t2; that is why it only works on LHsType Name
 --   (see Trac #9096)
-splitHsFunType :: LHsType Name -> ([LHsType Name], LHsType Name)
+splitHsFunType :: LHsType Name -> ([(Rig,LHsType Name)], LHsType Name)
 splitHsFunType (L _ (HsParTy ty))
   = splitHsFunType ty
 
-splitHsFunType (L _ (HsFunTy x y))
+splitHsFunType (L _ (HsFunTy x weight y))
   | (args, res) <- splitHsFunType y
-  = (x:args, res)
+  = ((weight,x):args, res)
 
 splitHsFunType orig_ty@(L _ (HsAppTy t1 t2))
   = go t1 [t2]
