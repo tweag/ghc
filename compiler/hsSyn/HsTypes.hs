@@ -99,6 +99,34 @@ import qualified Data.Semigroup as Semigroup
 {-
 ************************************************************************
 *                                                                      *
+\subsection{Weights}
+*                                                                      *
+************************************************************************
+-}
+
+data Rig =  Zero | One | Omega
+  deriving (Eq,Ord,Data)
+
+instance Num Rig where
+  Zero * _ = Zero
+  _ * Zero = Zero
+  Omega * One = Omega
+  One * Omega = Omega
+  One * One   = One
+  Omega * Omega = Omega
+
+  Zero + x = x
+  x + Zero = x
+  _ + _ = Omega
+
+instance Outputable Rig where
+  ppr One = fromString "1"
+  ppr Omega = fromString "ω"
+
+
+{-
+************************************************************************
+*                                                                      *
 \subsection{Bang annotations}
 *                                                                      *
 ************************************************************************
