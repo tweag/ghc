@@ -465,11 +465,11 @@ nlList exprs           = noLoc (ExplicitList placeHolderType Nothing exprs)
 
 nlHsAppTy :: LHsType name -> LHsType name -> LHsType name
 nlHsTyVar :: name                         -> LHsType name
-nlHsFunTy :: LHsType name -> LHsType name -> LHsType name
+nlHsFunTy :: LHsType name -> Rig -> LHsType name -> LHsType name
 
 nlHsAppTy f t           = noLoc (HsAppTy f t)
 nlHsTyVar x             = noLoc (HsTyVar (noLoc x))
-nlHsFunTy a b           = noLoc (HsFunTy a b)
+nlHsFunTy a weight b           = noLoc (HsFunTy a weight b)
 
 nlHsTyConApp :: name -> [LHsType name] -> LHsType name
 nlHsTyConApp tycon tys  = foldl nlHsAppTy (nlHsTyVar tycon) tys
@@ -591,7 +591,11 @@ toLHsSigWcType ty
       , (theta, tau) <- tcSplitPhiTy ty
       = noLoc (HsQualTy { hst_ctxt = noLoc (map go theta)
                         , hst_body = go tau })
-    go (FunTy arg res) = nlHsFunTy (go arg) (go res)
+    -- TODO: arnaud: FunTy is a core type, so in this first approximation we
+    -- lost the information that a function is linear or not. I guess it means
+    -- that without some backporting to core, Generalizednewtypederiving can
+    -- yield incorrect result.
+    go (FunTy arg res) = nlHsFunTy (go arg) Omega (go res)
     go ty@(ForAllTy {})
       | (tvs, tau) <- tcSplitForAllTys ty
       = noLoc (HsForAllTy { hst_bndrs = map go_tv tvs
@@ -1003,10 +1007,10 @@ hsConDeclsBinders cons = go id cons
                                 , con_type = HsIB { hsib_body = res_ty}}) ->
                case tau of
                  L _ (HsFunTy
-                      (L _ (HsAppsTy
-                            [L _ (HsAppPrefix (L _ (HsRecTy flds)))])) _res_ty)
+                      (L _ (HsAppsTy -- TODO: arnaud: line length
+                            [L _ (HsAppPrefix (L _ (HsRecTy flds)))])) _weight _res_ty)
                          -> record_gadt flds
-                 L _ (HsFunTy (L _ (HsRecTy flds)) _res_ty)
+                 L _ (HsFunTy (L _ (HsRecTy flds)) _weight _res_ty)
                          -> record_gadt flds
 
                  _other  -> (map (L loc . unLoc) names ++ ns, fs)

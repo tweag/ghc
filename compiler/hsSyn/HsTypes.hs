@@ -46,6 +46,8 @@ module HsTypes (
         HsWildCardInfo(..), mkAnonWildCardTy,
         wildCardName, sameWildCard,
 
+        Rig(..),
+
         mkHsImplicitBndrs, mkHsWildCardBndrs, hsImplicitBody,
         mkEmptyImplicitBndrs, mkEmptyWildCardBndrs,
         mkHsQTvs, hsQTvExplicit, emptyLHsQTvs, isEmptyLHsQTvs,
@@ -104,19 +106,20 @@ import qualified Data.Semigroup as Semigroup
 ************************************************************************
 -}
 
-data Rig =  Zero | One | Omega
+data Rig =  -- Zero |
+  One | Omega
   deriving (Eq,Ord,Data)
 
 instance Num Rig where
-  Zero * _ = Zero
-  _ * Zero = Zero
+  -- Zero * _ = Zero
+  -- _ * Zero = Zero
   Omega * One = Omega
   One * Omega = Omega
   One * One   = One
   Omega * Omega = Omega
 
-  Zero + x = x
-  x + Zero = x
+  -- Zero + x = x
+  -- x + Zero = x
   _ + _ = Omega
 
 -- instance Outputable Rig where
@@ -964,13 +967,16 @@ mkHsAppTys = foldl mkHsAppTy
 --      splitHsFunType (a -> (b -> c)) = ([a,b], c)
 -- Also deals with (->) t1 t2; that is why it only works on LHsType Name
 --   (see Trac #9096)
-splitHsFunType :: LHsType Name -> ([(Rig,LHsType Name)], LHsType Name)
+
+-- TODO: arnaud: first step: ignore weight annotations (seems to be used mostly
+-- for gadt syntax).
+splitHsFunType :: LHsType Name -> ([LHsType Name], LHsType Name)
 splitHsFunType (L _ (HsParTy ty))
   = splitHsFunType ty
 
-splitHsFunType (L _ (HsFunTy x weight y))
+splitHsFunType (L _ (HsFunTy x _weight y))
   | (args, res) <- splitHsFunType y
-  = ((weight,x):args, res)
+  = (x:args, res)
 
 splitHsFunType orig_ty@(L _ (HsAppTy t1 t2))
   = go t1 [t2]
@@ -1291,7 +1297,7 @@ ppr_mono_ty ctxt_prec (HsQualTy { hst_ctxt = L _ ctxt, hst_body = ty })
 ppr_mono_ty _    (HsBangTy b ty)     = ppr b <> ppr_mono_lty TyConPrec ty
 ppr_mono_ty _    (HsRecTy flds)      = pprConDeclFields flds
 ppr_mono_ty _    (HsTyVar (L _ name))= pprPrefixOcc name
-ppr_mono_ty prec (HsFunTy ty1 ty2)   = ppr_fun_ty prec ty1 ty2
+ppr_mono_ty prec (HsFunTy ty1 weight ty2)   = ppr_fun_ty prec ty1 weight ty2
 ppr_mono_ty _    (HsTupleTy con tys) = tupleParens std_con (pprWithCommas ppr tys)
   where std_con = case con of
                     HsUnboxedTuple -> UnboxedTuple
@@ -1339,13 +1345,16 @@ ppr_mono_ty ctxt_prec (HsDocTy ty doc)
 
 --------------------------
 ppr_fun_ty :: (OutputableBndrId name)
-           => TyPrec -> LHsType name -> LHsType name -> SDoc
-ppr_fun_ty ctxt_prec ty1 ty2
+           => TyPrec -> LHsType name -> Rig -> LHsType name -> SDoc
+ppr_fun_ty ctxt_prec ty1 weight ty2
   = let p1 = ppr_mono_lty FunPrec ty1
         p2 = ppr_mono_lty TopPrec ty2
+        arr = case weight of
+          One -> "⊸"
+          Omega -> "ω"
     in
     maybeParen ctxt_prec FunPrec $
-    sep [p1, text "->" <+> p2]
+    sep [p1, text arr <+> p2]
 
 --------------------------
 ppr_app_ty :: (OutputableBndrId name) => TyPrec -> HsAppType name -> SDoc
