@@ -793,7 +793,7 @@ data TypeMapX a
 trieMapView :: Type -> Maybe Type
 trieMapView ty | Just ty' <- coreViewOneStarKind ty = Just ty'
 trieMapView (TyConApp tc tys@(_:_)) = Just $ foldl AppTy (TyConApp tc []) tys
-trieMapView (FunTy arg res)
+trieMapView (FunTy _ arg res) -- FIXME: arnaud: when funTyCon takes an argument
   = Just ((TyConApp funTyCon [] `AppTy` arg) `AppTy` res)
 trieMapView _ = Nothing
 
@@ -824,8 +824,8 @@ instance Eq (DeBruijn Type) where
             -> D env t1 == D env' t1' && D env t2 == D env' t2'
         (s, AppTy t1' t2') | Just (t1, t2) <- repSplitAppTy_maybe s
             -> D env t1 == D env' t1' && D env t2 == D env' t2'
-        (FunTy t1 t2, FunTy t1' t2')
-            -> D env t1 == D env' t1' && D env t2 == D env' t2'
+        (FunTy w1 t1 t2, FunTy w1' t1' t2')
+            -> w1 == w1' && D env t1 == D env' t1' && D env t2 == D env' t2'
         (TyConApp tc tys, TyConApp tc' tys')
             -> tc == tc' && D env tys == D env' tys'
         (LitTy l, LitTy l')

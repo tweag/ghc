@@ -139,7 +139,7 @@ countFunRepArgs :: Arity -> Type -> RepArity
 countFunRepArgs 0 _
   = 0
 countFunRepArgs n ty
-  | UnaryRep (FunTy arg res) <- repType ty
+  | UnaryRep (FunTy _ arg res) <- repType ty
   = length (repTypeArgs arg) + countFunRepArgs (n - 1) res
   | otherwise
   = pprPanic "countFunRepArgs: arity greater than type can handle" (ppr (n, ty, repType ty))
@@ -151,7 +151,7 @@ countConRepArgs dc = go (dataConRepArity dc) (dataConRepType dc)
     go 0 _
       = 0
     go n ty
-      | UnaryRep (FunTy arg res) <- repType ty
+      | UnaryRep (FunTy _ arg res) <- repType ty
       = length (repTypeSlots (repType arg)) + go (n - 1) res
       | otherwise
       = pprPanic "countConRepArgs: arity greater than type can handle" (ppr (n, ty, repType ty))

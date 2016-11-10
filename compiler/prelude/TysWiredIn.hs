@@ -568,7 +568,7 @@ unboxedTupleKind = tYPE unboxedTupleRepDataConTy
 -- mkFunKind and mkForAllKind are defined here
 -- solely so that TyCon can use them via a SOURCE import
 mkFunKind :: Kind -> Kind -> Kind
-mkFunKind = mkFunTy
+mkFunKind = mkFunTy Omega -- no linearity in kinds
 
 mkForAllKind :: TyVar -> ArgFlag -> Kind -> Kind
 mkForAllKind = mkForAllTy

@@ -359,8 +359,8 @@ expandTypeSynonyms ty
     go _     (LitTy l)     = LitTy l
     go subst (TyVarTy tv)  = substTyVar subst tv
     go subst (AppTy t1 t2) = mkAppTy (go subst t1) (go subst t2)
-    go subst (FunTy arg res)
-      = mkFunTy (go subst arg) (go subst res)
+    go subst (FunTy weight arg res)
+      = mkFunTy weight (go subst arg) (go subst res)
     go subst (ForAllTy (TvBndr tv vis) t)
       = let (subst', tv') = substTyVarBndrCallback go subst tv in
         ForAllTy (TvBndr tv' vis) (go subst' t)
@@ -481,7 +481,7 @@ mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
     go t@(TyConApp _ []) = return t  -- avoid allocation in this exceedingly
                                      -- common case (mostly, for *)
     go (TyConApp tc tys) = mktyconapp tc <$> mapM go tys
-    go (FunTy arg res)   = FunTy <$> go arg <*> go res
+    go (FunTy w arg res) = FunTy w <$> go arg <*> go res
     go (ForAllTy (TvBndr tv vis) inner)
       = do { (env', tv') <- tybinder env tv vis
            ; inner' <- mapType mapper env' inner
@@ -652,7 +652,7 @@ splitAppTy_maybe ty = repSplitAppTy_maybe ty
 repSplitAppTy_maybe :: Type -> Maybe (Type,Type)
 -- ^ Does the AppTy split as in 'splitAppTy_maybe', but assumes that
 -- any Core view stuff is already done
-repSplitAppTy_maybe (FunTy ty1 ty2)   = Just (TyConApp funTyCon [ty1], ty2)
+repSplitAppTy_maybe (FunTy _ ty1 ty2)   = Just (TyConApp funTyCon [ty1], ty2) -- FIXME: arnaud: should generalise funTyCon to take a weight parameter and dispatch with it. This would move Rig to prelude (presumably in a dedicated module).
 repSplitAppTy_maybe (AppTy ty1 ty2)   = Just (ty1, ty2)
 repSplitAppTy_maybe (TyConApp tc tys)
   | mightBeUnsaturatedTyCon tc || tys `lengthExceeds` tyConArity tc
@@ -666,9 +666,9 @@ repSplitAppTy_maybe _other = Nothing
 tcRepSplitAppTy_maybe :: Type -> Maybe (Type,Type)
 -- ^ Does the AppTy split as in 'tcSplitAppTy_maybe', but assumes that
 -- any coreView stuff is already done. Refuses to look through (c => t)
-tcRepSplitAppTy_maybe (FunTy ty1 ty2)
+tcRepSplitAppTy_maybe (FunTy _ ty1 ty2)
   | isConstraintKind (typeKind ty1)     = Nothing  -- See Note [Decomposing fat arrow c=>t]
-  | otherwise                           = Just (TyConApp funTyCon [ty1], ty2)
+  | otherwise                           = Just (TyConApp funTyCon [ty1], ty2) -- FIXME: arnaud: like above.
 tcRepSplitAppTy_maybe (AppTy ty1 ty2)   = Just (ty1, ty2)
 tcRepSplitAppTy_maybe (TyConApp tc tys)
   | mightBeUnsaturatedTyCon tc || tys `lengthExceeds` tyConArity tc
@@ -699,7 +699,7 @@ splitAppTys ty = split ty ty []
             (tc_args1, tc_args2) = splitAt n tc_args
         in
         (TyConApp tc tc_args1, tc_args2 ++ args)
-    split _   (FunTy ty1 ty2) args = ASSERT( null args )
+    split _   (FunTy _ ty1 ty2) args = ASSERT( null args ) -- arnaud: FIXME: like above
                                      (TyConApp funTyCon [], [ty1,ty2])
     split orig_ty _           args = (orig_ty, args)
 
@@ -714,7 +714,7 @@ repSplitAppTys ty = split ty []
             (tc_args1, tc_args2) = splitAt n tc_args
         in
         (TyConApp tc tc_args1, tc_args2 ++ args)
-    split (FunTy ty1 ty2) args = ASSERT( null args )
+    split (FunTy _ ty1 ty2) args = ASSERT( null args ) -- arnaud: FIXME: like above
                                  (TyConApp funTyCon [], [ty1, ty2])
     split ty args = (ty, args)
 
@@ -796,32 +796,32 @@ splitFunTy :: Type -> (Type, Type)
 -- ^ Attempts to extract the argument and result types from a type, and
 -- panics if that is not possible. See also 'splitFunTy_maybe'
 splitFunTy ty | Just ty' <- coreView ty = splitFunTy ty'
-splitFunTy (FunTy arg res) = (arg, res)
+splitFunTy (FunTy _ arg res) = (arg, res) -- TODO: arnaud: the weight information is probably needed. I don't know how yet.
 splitFunTy other           = pprPanic "splitFunTy" (ppr other)
 
 splitFunTy_maybe :: Type -> Maybe (Type, Type)
 -- ^ Attempts to extract the argument and result types from a type
 splitFunTy_maybe ty | Just ty' <- coreView ty = splitFunTy_maybe ty'
-splitFunTy_maybe (FunTy arg res) = Just (arg, res)
+splitFunTy_maybe (FunTy _ arg res) = Just (arg, res) -- TODO: arnaud: the weight information is probably needed. I don't know how yet.
 splitFunTy_maybe _               = Nothing
 
 splitFunTys :: Type -> ([Type], Type)
 splitFunTys ty = split [] ty ty
   where
     split args orig_ty ty | Just ty' <- coreView ty = split args orig_ty ty'
-    split args _       (FunTy arg res) = split (arg:args) res res
+    split args _       (FunTy _ arg res) = split (arg:args) res res -- TODO: arnaud: the weight information is probably needed. I don't know how yet.
     split args orig_ty _               = (reverse args, orig_ty)
 
 funResultTy :: Type -> Type
 -- ^ Extract the function result type and panic if that is not possible
 funResultTy ty | Just ty' <- coreView ty = funResultTy ty'
-funResultTy (FunTy _ res) = res
+funResultTy (FunTy _ _ res) = res
 funResultTy ty            = pprPanic "funResultTy" (ppr ty)
 
 funArgTy :: Type -> Type
 -- ^ Extract the function argument type and panic if that is not possible
 funArgTy ty | Just ty' <- coreView ty = funArgTy ty'
-funArgTy (FunTy arg _res) = arg
+funArgTy (FunTy _ arg _res) = arg
 funArgTy ty               = pprPanic "funArgTy" (ppr ty)
 
 piResultTy :: Type -> Type ->  Type
@@ -837,7 +837,7 @@ piResultTy_maybe :: Type -> Type -> Maybe Type
 piResultTy_maybe ty arg
   | Just ty' <- coreView ty = piResultTy_maybe ty' arg
 
-  | FunTy _ res <- ty
+  | FunTy _ _ res <- ty
   = Just res
 
   | ForAllTy (TvBndr tv _) res <- ty
@@ -875,7 +875,7 @@ piResultTys ty orig_args@(arg:args)
   | Just ty' <- coreView ty
   = piResultTys ty' orig_args
 
-  | FunTy _ res <- ty
+  | FunTy _ _ res <- ty
   = piResultTys res args
 
   | ForAllTy (TvBndr tv _) res <- ty
@@ -893,7 +893,7 @@ piResultTys ty orig_args@(arg:args)
       | Just ty' <- coreView ty
       = go tv_env ty' all_args
 
-      | FunTy _ res <- ty
+      | FunTy _ _ res <- ty
       = go tv_env res args
 
       | ForAllTy (TvBndr tv _) res <- ty
@@ -930,7 +930,7 @@ applyTysX tvs body_ty arg_tys
 mkTyConApp :: TyCon -> [Type] -> Type
 mkTyConApp tycon tys
   | isFunTyCon tycon, [ty1,ty2] <- tys
-  = FunTy ty1 ty2
+  = FunTy Omega ty1 ty2 -- FIXME: arnaud: when type constaints have a weight. Probably by making `isFunTycon` return a `Rig` instead of a bool and using a view-guard like for `tys`.
 
   | otherwise
   = TyConApp tycon tys
@@ -961,7 +961,7 @@ tyConAppTyCon ty = tyConAppTyCon_maybe ty `orElse` pprPanic "tyConAppTyCon" (ppr
 tyConAppArgs_maybe :: Type -> Maybe [Type]
 tyConAppArgs_maybe ty | Just ty' <- coreView ty = tyConAppArgs_maybe ty'
 tyConAppArgs_maybe (TyConApp _ tys) = Just tys
-tyConAppArgs_maybe (FunTy arg res)  = Just [arg,res]
+tyConAppArgs_maybe (FunTy _ arg res)  = Just [arg,res] -- FIXME: arnaud: I don't see how this could not be a source of bugs. Maybe just remove this function altogether.
 tyConAppArgs_maybe _                = Nothing
 
 tyConAppArgs :: Type -> [Type]
@@ -992,7 +992,7 @@ splitTyConApp_maybe ty                           = repSplitTyConApp_maybe ty
 -- assumes the synonyms have already been dealt with.
 repSplitTyConApp_maybe :: Type -> Maybe (TyCon, [Type])
 repSplitTyConApp_maybe (TyConApp tc tys) = Just (tc, tys)
-repSplitTyConApp_maybe (FunTy arg res)   = Just (funTyCon, [arg,res])
+repSplitTyConApp_maybe (FunTy _ arg res)   = Just (funTyCon, [arg,res]) -- FIXME: arnaud: like the other use of `funTyCon`
 repSplitTyConApp_maybe _                 = Nothing
 
 -- | Attempts to tease a list type apart and gives the type of the elements if
@@ -1110,7 +1110,7 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
         affix_co (fst $ splitPiTys $ typeKind saturated_tc)
                  saturated_tc (decomp_args `chkAppend` args) co
 
-    split_apps args (FunTy arg res) co
+    split_apps args (FunTy _ arg res) co -- FIXME: arnaud: needs a parametric funTyCon. It's probably easy to use this function and it would destroy linearity
       = affix_co (tyConTyBinders funTyCon) (mkTyConTy funTyCon)
                  (arg : res : args) co
     split_apps args ty co
@@ -1223,13 +1223,14 @@ mkLamType  :: Var -> Type -> Type
 -- ^ Makes a @(->)@ type or an implicit forall type, depending
 -- on whether it is given a type variable or a term variable.
 -- This is used, for example, when producing the type of a lambda.
--- Always uses Inferred binders.
+-- Always uses Inferred binders. Guesses the weight annotation to
+-- be @Omega@.
 mkLamTypes :: [Var] -> Type -> Type
 -- ^ 'mkLamType' for multiple type or value arguments
 
 mkLamType v ty
-   | isTyVar v = ForAllTy (TvBndr v Inferred) ty
-   | otherwise = FunTy    (varType v)          ty
+   | isTyVar v = ForAllTy    (TvBndr v Inferred) ty
+   | otherwise = FunTy Omega (varType v)         ty
 
 mkLamTypes vs ty = foldr mkLamType ty vs
 
@@ -1310,7 +1311,7 @@ splitPiTy_maybe ty = go ty
   where
     go ty | Just ty' <- coreView ty = go ty'
     go (ForAllTy bndr ty) = Just (Named bndr, ty)
-    go (FunTy arg res)    = Just (Anon arg, res)
+    go (FunTy _ arg res)  = Just (Anon arg, res)
     go _                  = Nothing
 
 -- | Takes a forall type apart, or panics
@@ -1326,7 +1327,7 @@ splitPiTys ty = split ty ty []
   where
     split orig_ty ty bs | Just ty' <- coreView ty = split orig_ty ty' bs
     split _       (ForAllTy b res) bs  = split res res (Named b  : bs)
-    split _       (FunTy arg res)  bs  = split res res (Anon arg : bs)
+    split _      (FunTy _ arg res) bs  = split res res (Anon arg : bs)
     split orig_ty _                bs  = (reverse bs, orig_ty)
 
 -- Like splitPiTys, but returns only *invisible* binders, including constraints
@@ -1337,7 +1338,7 @@ splitPiTysInvisible ty = split ty ty []
     split orig_ty ty bs | Just ty' <- coreView ty = split orig_ty ty' bs
     split _       (ForAllTy b@(TvBndr _ vis) res) bs
       | isInvisibleArgFlag vis         = split res res (Named b  : bs)
-    split _       (FunTy arg res)  bs
+    split _       (FunTy _ arg res)  bs
       | isPredTy arg                   = split res res (Anon arg : bs)
     split orig_ty _                bs  = (reverse bs, orig_ty)
 
@@ -1489,7 +1490,7 @@ isPredTy ty = go ty []
     go (TyVarTy tv)      args       = go_k (tyVarKind tv) args
     go (TyConApp tc tys) args       = ASSERT( null args )  -- TyConApp invariant
                                       go_tc tc tys
-    go (FunTy arg res) []
+    go (FunTy _ arg res) []
       | isPredTy arg                = isPredTy res   -- (Eq a => C a)
       | otherwise                   = False          -- (Int -> Bool)
     go (ForAllTy _ ty) []           = go ty []
@@ -1730,7 +1731,7 @@ typeSize :: Type -> Int
 typeSize (LitTy {})                 = 1
 typeSize (TyVarTy {})               = 1
 typeSize (AppTy t1 t2)              = typeSize t1 + typeSize t2
-typeSize (FunTy t1 t2)              = typeSize t1 + typeSize t2
+typeSize (FunTy _ t1 t2)            = typeSize t1 + typeSize t2
 typeSize (ForAllTy (TvBndr tv _) t) = typeSize (tyVarKind tv) + typeSize t
 typeSize (TyConApp _ ts)            = 1 + sum (map typeSize ts)
 typeSize (CastTy ty co)             = typeSize ty + coercionSize co
@@ -1927,7 +1928,7 @@ seqType :: Type -> ()
 seqType (LitTy n)                   = n `seq` ()
 seqType (TyVarTy tv)                = tv `seq` ()
 seqType (AppTy t1 t2)               = seqType t1 `seq` seqType t2
-seqType (FunTy t1 t2)               = seqType t1 `seq` seqType t2
+seqType (FunTy w t1 t2)             = w `seq` seqType t1 `seq` seqType t2
 seqType (TyConApp tc tys)           = tc `seq` seqTypes tys
 seqType (ForAllTy (TvBndr tv _) ty) = seqType (tyVarKind tv) `seq` seqType ty
 seqType (CastTy ty co)              = seqType ty `seq` seqCo co
@@ -2080,8 +2081,8 @@ nonDetCmpTypeX env orig_t1 orig_t2 =
     go env ty1 (AppTy s2 t2)
       | Just (s1, t1) <- repSplitAppTy_maybe ty1
       = go env s1 s2 `thenCmpTy` go env t1 t2
-    go env (FunTy s1 t1) (FunTy s2 t2)
-      = go env s1 s2 `thenCmpTy` go env t1 t2
+    go env (FunTy w1 s1 t1) (FunTy w2 s2 t2)
+      = liftOrdering (compare w1 w2) `thenCmpTy` go env s1 s2 `thenCmpTy` go env t1 t2
     go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       = liftOrdering (tc1 `nonDetCmpTc` tc2) `thenCmpTy` gos env tys1 tys2
     go _   (LitTy l1)          (LitTy l2)          = liftOrdering (compare l1 l2)
@@ -2179,7 +2180,7 @@ tyConsOfType ty
      go (LitTy {})                  = emptyNameEnv
      go (TyConApp tc tys)           = go_tc tc `plusNameEnv` go_s tys
      go (AppTy a b)                 = go a `plusNameEnv` go b
-     go (FunTy a b)                 = go a `plusNameEnv` go b `plusNameEnv` go_tc funTyCon
+     go (FunTy _ a b)               = go a `plusNameEnv` go b `plusNameEnv` go_tc funTyCon -- FIXME: arnaud: when funTyCon has an argument.
      go (ForAllTy (TvBndr tv _) ty) = go ty `plusNameEnv` go (tyVarKind tv)
      go (CastTy ty co)              = go ty `plusNameEnv` go_co co
      go (CoercionTy co)             = go_co co
@@ -2234,7 +2235,7 @@ splitVisVarsOfType orig_ty = Pair invis_vars vis_vars
     go (TyVarTy tv)      = Pair (tyCoVarsOfType $ tyVarKind tv) (unitVarSet tv)
     go (AppTy t1 t2)     = go t1 `mappend` go t2
     go (TyConApp tc tys) = go_tc tc tys
-    go (FunTy t1 t2)     = go t1 `mappend` go t2
+    go (FunTy _ t1 t2)   = go t1 `mappend` go t2
     go (ForAllTy (TvBndr tv _) ty)
       = ((`delVarSet` tv) <$> go ty) `mappend`
         (invisible (tyCoVarsOfType $ tyVarKind tv))

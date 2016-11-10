@@ -1525,7 +1525,8 @@ ty_co_subst lc role ty
                              liftCoSubstTyVar lc r tv
     go r (AppTy ty1 ty2)   = mkAppCo (go r ty1) (go Nominal ty2)
     go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go (tyConRolesX r tc) tys)
-    go r (FunTy ty1 ty2)   = mkFunCo r (go r ty1) (go r ty2)
+    go r (FunTy _ ty1 ty2) = mkFunCo r (go r ty1) (go r ty2)
+                             -- only in Core, which ignores linearity so we can leave Omega here.
     go r (ForAllTy (TvBndr v _) ty)
                            = let (lc', v', h) = liftCoSubstVarBndr lc v in
                              mkForAllCo v' h $! ty_co_subst lc' r ty
