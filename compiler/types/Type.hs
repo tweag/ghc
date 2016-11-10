@@ -15,7 +15,7 @@ module Type (
 
         -- $representation_types
         TyThing(..), Type, ArgFlag(..), KindOrType, PredType, ThetaType,
-        Var, TyVar, isTyVar, TyCoVar, TyBinder, TyVarBinder,
+        Var, TyVar, isTyVar, TyCoVar, TyBinder, TyVarBinder, Rig(..),
 
         -- ** Constructing and deconstructing types
         mkTyVarTy, mkTyVarTys, getTyVar, getTyVar_maybe, repGetTyVar_maybe,
@@ -289,6 +289,7 @@ import Control.Arrow    ( first, second )
 -- this module will automatically convert a source into a representation type
 -- if they are spotted, to the best of it's abilities. If you don't want this
 -- to happen, use the equivalent functions from the "TcType" module.
+
 
 {-
 ************************************************************************

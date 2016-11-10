@@ -46,8 +46,6 @@ module HsTypes (
         HsWildCardInfo(..), mkAnonWildCardTy,
         wildCardName, sameWildCard,
 
-        Rig(..),
-
         mkHsImplicitBndrs, mkHsWildCardBndrs, hsImplicitBody,
         mkEmptyImplicitBndrs, mkEmptyWildCardBndrs,
         mkHsQTvs, hsQTvExplicit, emptyLHsQTvs, isEmptyLHsQTvs,
@@ -97,35 +95,6 @@ import Control.Monad ( unless )
 import Data.Semigroup   ( Semigroup )
 import qualified Data.Semigroup as Semigroup
 #endif
-
-{-
-************************************************************************
-*                                                                      *
-\subsection{Weights}
-*                                                                      *
-************************************************************************
--}
-
-data Rig =  -- Zero |
-  One | Omega
-  deriving (Eq,Ord,Data)
-
-instance Num Rig where
-  -- Zero * _ = Zero
-  -- _ * Zero = Zero
-  Omega * One = Omega
-  One * Omega = Omega
-  One * One   = One
-  Omega * Omega = Omega
-
-  -- Zero + x = x
-  -- x + Zero = x
-  _ + _ = Omega
-
--- instance Outputable Rig where
---   ppr One = fromString "1"
---   ppr Omega = fromString "ω"
-
 
 {-
 ************************************************************************
