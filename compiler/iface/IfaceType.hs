@@ -530,7 +530,7 @@ toIfaceTcArgs tc ty_args
         t'  = toIfaceType t
         ts' = go (extendTvSubst env tv t) res ts
 
-    go env (FunTy _ res) (t:ts) -- No type-class args in tycon apps
+    go env (FunTy _ _ res) (t:ts) -- No type-class args in tycon apps
       = ITC_Vis (toIfaceType t) (go env res ts)
 
     go env (TyVarTy tv) ts
@@ -1277,7 +1277,7 @@ toIfaceType (TyVarTy tv)      = IfaceTyVar (toIfaceTyVar tv)
 toIfaceType (AppTy t1 t2)     = IfaceAppTy (toIfaceType t1) (toIfaceType t2)
 toIfaceType (LitTy n)         = IfaceLitTy (toIfaceTyLit n)
 toIfaceType (ForAllTy b t)    = IfaceForAllTy (toIfaceForAllBndr b) (toIfaceType t)
-toIfaceType (FunTy t1 t2)
+toIfaceType (FunTy _ t1 t2) -- TODO: arnaud: I'm not sure what this is about. If it's about the fat arrow `=>` then we don't need the linear arrow (we will assume that this is always an Omega-weighted arrow). But if it's about types in interfaces, then not sure.
   | isPredTy t1 = IfaceDFunTy (toIfaceType t1) (toIfaceType t2)
   | otherwise   = IfaceFunTy  (toIfaceType t1) (toIfaceType t2)
 toIfaceType (CastTy ty co)      = IfaceCastTy (toIfaceType ty) (toIfaceCoercion co)

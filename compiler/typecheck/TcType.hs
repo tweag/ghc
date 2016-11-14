@@ -721,7 +721,7 @@ tcTyFamInsts (TyConApp tc tys)
 tcTyFamInsts (LitTy {})         = []
 tcTyFamInsts (ForAllTy bndr ty) = tcTyFamInsts (binderKind bndr)
                                   ++ tcTyFamInsts ty
-tcTyFamInsts (FunTy ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
+tcTyFamInsts (FunTy _ ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
 tcTyFamInsts (AppTy ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
 tcTyFamInsts (CastTy ty _)      = tcTyFamInsts ty
 tcTyFamInsts (CoercionTy _)     = []  -- don't count tyfams in coercions,
@@ -774,7 +774,7 @@ exactTyCoVarsOfType ty
     go (TyConApp _ tys)     = exactTyCoVarsOfTypes tys
     go (LitTy {})           = emptyVarSet
     go (AppTy fun arg)      = go fun `unionVarSet` go arg
-    go (FunTy arg res)      = go arg `unionVarSet` go res
+    go (FunTy _ arg res)      = go arg `unionVarSet` go res
     go (ForAllTy bndr ty)   = delBinderVar (go ty) bndr `unionVarSet` go (binderKind bndr)
     go (CastTy ty co)       = go ty `unionVarSet` goCo co
     go (CoercionTy co)      = goCo co
@@ -823,7 +823,7 @@ allBoundVariables ty = fvVarSet $ go ty
     go (TyVarTy tv)     = go (tyVarKind tv)
     go (TyConApp _ tys) = mapUnionFV go tys
     go (AppTy t1 t2)    = go t1 `unionFV` go t2
-    go (FunTy t1 t2)    = go t1 `unionFV` go t2
+    go (FunTy _ t1 t2)    = go t1 `unionFV` go t2
     go (ForAllTy (TvBndr tv _) t2) = FV.unitFV tv `unionFV`
                                     go (tyVarKind tv) `unionFV` go t2
     go (LitTy {})       = emptyFV
@@ -940,7 +940,7 @@ splitDepVarsOfType = go
                              , dv_tvs = unitDVarSet tv }
     go (AppTy t1 t2)    = go t1 `mappend` go t2
     go (TyConApp _ tys) = foldMap go tys
-    go (FunTy arg res)  = go arg `mappend` go res
+    go (FunTy _ arg res)  = go arg `mappend` go res
     go (LitTy {})       = mempty
     go (CastTy ty co)   = go ty `mappend` go_co co
     go (CoercionTy co)  = go_co co
@@ -1142,7 +1142,7 @@ isTauTy (TyVarTy _)           = True
 isTauTy (LitTy {})            = True
 isTauTy (TyConApp tc tys)     = all isTauTy tys && isTauTyCon tc
 isTauTy (AppTy a b)           = isTauTy a && isTauTy b
-isTauTy (FunTy a b)           = isTauTy a && isTauTy b
+isTauTy (FunTy _ a b)         = isTauTy a && isTauTy b
 isTauTy (ForAllTy {})         = False
 isTauTy (CastTy _ _)          = False
 isTauTy (CoercionTy _)        = False
@@ -1161,7 +1161,7 @@ getDFunTyKey (TyVarTy tv)            = getOccName tv
 getDFunTyKey (TyConApp tc _)         = getOccName tc
 getDFunTyKey (LitTy x)               = getDFunTyLitKey x
 getDFunTyKey (AppTy fun _)           = getDFunTyKey fun
-getDFunTyKey (FunTy _ _)             = getOccName funTyCon
+getDFunTyKey (FunTy _ _ _)           = getOccName funTyCon
 getDFunTyKey (ForAllTy _ t)          = getDFunTyKey t
 getDFunTyKey (CastTy ty _)           = getDFunTyKey ty
 getDFunTyKey t@(CoercionTy _)        = pprPanic "getDFunTyKey" (ppr t)
@@ -1244,7 +1244,7 @@ tcSplitPredFunTy_maybe :: Type -> Maybe (PredType, Type)
 -- Split off the first predicate argument from a type
 tcSplitPredFunTy_maybe ty
   | Just ty' <- coreView ty = tcSplitPredFunTy_maybe ty'
-tcSplitPredFunTy_maybe (FunTy arg res)
+tcSplitPredFunTy_maybe (FunTy _ arg res)
   | isPredTy arg = Just (arg, res)
 tcSplitPredFunTy_maybe _
   = Nothing
@@ -1303,7 +1303,7 @@ tcSplitTyConApp_maybe ty                           = tcRepSplitTyConApp_maybe ty
 
 tcRepSplitTyConApp_maybe :: Type -> Maybe (TyCon, [Type])
 tcRepSplitTyConApp_maybe (TyConApp tc tys) = Just (tc, tys)
-tcRepSplitTyConApp_maybe (FunTy arg res)   = Just (funTyCon, [arg,res])
+tcRepSplitTyConApp_maybe (FunTy _ arg res) = Just (funTyCon, [arg,res]) -- FIXME: Aeneid: when funTyCon has an argument
 tcRepSplitTyConApp_maybe _                 = Nothing
 
 
@@ -1317,7 +1317,7 @@ tcSplitFunTys ty = case tcSplitFunTy_maybe ty of
 
 tcSplitFunTy_maybe :: Type -> Maybe (Type, Type)
 tcSplitFunTy_maybe ty | Just ty' <- coreView ty         = tcSplitFunTy_maybe ty'
-tcSplitFunTy_maybe (FunTy arg res) | not (isPredTy arg) = Just (arg, res)
+tcSplitFunTy_maybe (FunTy _ arg res) | not (isPredTy arg) = Just (arg, res)
 tcSplitFunTy_maybe _                                    = Nothing
         -- Note the typeKind guard
         -- Consider     (?x::Int) => Bool
@@ -1490,8 +1490,8 @@ tc_eq_type view_fun orig_ty1 orig_ty2 = go True orig_env orig_ty1 orig_ty2
       = go (isVisibleArgFlag vis1) env (tyVarKind tv1) (tyVarKind tv2)
           <!> go vis (rnBndr2 env tv1 tv2) ty1 ty2
           <!> check vis (vis1 == vis2)
-    go vis env (FunTy arg1 res1) (FunTy arg2 res2)
-      = go vis env arg1 arg2 <!> go vis env res1 res2
+    go vis env (FunTy w1 arg1 res1) (FunTy w2 arg2 res2)
+      = check vis (w1 == w2) <!> go vis env arg1 arg2 <!> go vis env res1 res2
 
       -- See Note [Equality on AppTys] in Type
     go vis env (AppTy s1 t1)        ty2
@@ -1614,7 +1614,7 @@ occurCheckExpand dflags tv ty
     fast_check (TyVarTy tv')       = tv /= tv' && fast_check (tyVarKind tv')
     fast_check (TyConApp tc tys)   = all fast_check tys
                                      && (isTauTyCon tc || impredicative)
-    fast_check (FunTy a r)         = fast_check a && fast_check r
+    fast_check (FunTy _ a r)       = fast_check a && fast_check r
     fast_check (AppTy fun arg)     = fast_check fun && fast_check arg
     fast_check (ForAllTy (TvBndr tv' _) ty)
                                    = impredicative
@@ -1639,9 +1639,9 @@ occurCheckExpand dflags tv ty
     go env (AppTy ty1 ty2) = do { ty1' <- go env ty1
                                 ; ty2' <- go env ty2
                                 ; return (mkAppTy ty1' ty2') }
-    go env (FunTy ty1 ty2) = do { ty1' <- go env ty1
-                                ; ty2' <- go env ty2
-                                ; return (mkFunTy ty1' ty2') }
+    go env (FunTy w ty1 ty2) = do { ty1' <- go env ty1
+                                  ; ty2' <- go env ty2
+                                  ; return (mkFunTy w ty1' ty2') }
     go env ty@(ForAllTy (TvBndr tv' vis) body_ty)
        | not impredicative = OC_Forall
        | tv == tv'         = return ty
@@ -2003,13 +2003,13 @@ isSigmaTy :: TcType -> Bool
 --        f :: (?x::Int) => Int -> Int
 isSigmaTy ty | Just ty' <- coreView ty = isSigmaTy ty'
 isSigmaTy (ForAllTy {}) = True
-isSigmaTy (FunTy a _)   = isPredTy a
+isSigmaTy (FunTy _ a _)   = isPredTy a
 isSigmaTy _             = False
 
 isRhoTy :: TcType -> Bool   -- True of TcRhoTypes; see Note [TcRhoType]
 isRhoTy ty | Just ty' <- coreView ty = isRhoTy ty'
 isRhoTy (ForAllTy {}) = False
-isRhoTy (FunTy a r)   = not (isPredTy a) && isRhoTy r
+isRhoTy (FunTy _ a r)   = not (isPredTy a) && isRhoTy r
 isRhoTy _             = True
 
 -- | Like 'isRhoTy', but also says 'True' for 'Infer' types
@@ -2022,7 +2022,7 @@ isOverloadedTy :: Type -> Bool
 -- Used only by bindLocalMethods
 isOverloadedTy ty | Just ty' <- coreView ty = isOverloadedTy ty'
 isOverloadedTy (ForAllTy _  ty) = isOverloadedTy ty
-isOverloadedTy (FunTy a _)      = isPredTy a
+isOverloadedTy (FunTy _ a _)      = isPredTy a
 isOverloadedTy _                = False
 
 isFloatTy, isDoubleTy, isIntegerTy, isIntTy, isWordTy, isBoolTy,
@@ -2103,7 +2103,7 @@ isTyVarUnderDatatype tv = go False
                                                       Representational
                                     in any (go under_dt') tys
     go _        (LitTy {}) = False
-    go _        (FunTy arg res) = go True arg || go True res
+    go _        (FunTy _ arg res) = go True arg || go True res
     go under_dt (AppTy fun arg) = go under_dt fun || go under_dt arg
     go under_dt (ForAllTy (TvBndr tv' _) inner_ty)
       | tv' == tv = False
@@ -2519,7 +2519,7 @@ sizeType = go
                                            -- expand to any arbitrary size
       | otherwise                = sizeTypes (filterOutInvisibleTypes tc tys) + 1
     go (LitTy {})                = 1
-    go (FunTy arg res)           = go arg + go res + 1
+    go (FunTy _ arg res)         = go arg + go res + 1
     go (AppTy fun arg)           = go fun + go arg
     go (ForAllTy (TvBndr tv vis) ty)
         | isVisibleArgFlag vis   = go (tyVarKind tv) + go ty + 1
