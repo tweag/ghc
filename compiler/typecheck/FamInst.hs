@@ -506,7 +506,7 @@ unusedInjTvsInRHS tycon injList lhs rhs =
         | otherwise            = mapUnionVarSet collectInjVars tys
       collectInjVars (LitTy {})
         = emptyVarSet
-      collectInjVars (FunTy arg res)
+      collectInjVars (FunTy _ arg res)
         = collectInjVars arg `unionVarSet` collectInjVars res
       collectInjVars (AppTy fun arg)
         = collectInjVars fun `unionVarSet` collectInjVars arg

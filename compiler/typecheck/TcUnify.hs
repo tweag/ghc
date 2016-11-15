@@ -132,7 +132,7 @@ matchExpectedFunTys herald arity orig_ty thing_inside
     go acc_arg_tys n ty
       | Just ty' <- coreView ty = go acc_arg_tys n ty'
 
-    go acc_arg_tys n (FunTy arg_ty res_ty)
+    go acc_arg_tys n (FunTy _ arg_ty res_ty)
       = ASSERT( not (isPredTy arg_ty) )
         do { (result, wrap_res) <- go (mkCheckExpType arg_ty : acc_arg_tys)
                                       (n-1) res_ty
@@ -258,7 +258,7 @@ matchActualFunTysPart herald ct_orig mb_thing arity orig_ty
     go n acc_args ty
       | Just ty' <- coreView ty = go n acc_args ty'
 
-    go n acc_args (FunTy arg_ty res_ty)
+    go n acc_args (FunTy _ arg_ty res_ty)
       = ASSERT( not (isPredTy arg_ty) )
         do { (wrap_res, tys, ty_r) <- go (n-1) (arg_ty : acc_args) res_ty
            ; return ( mkWpFun idHsWrapper wrap_res arg_ty ty_r
@@ -421,7 +421,7 @@ matchExpectedAppTy orig_ty
            ; return (co, (ty1, ty2)) }
 
     orig_kind = typeKind orig_ty
-    kind1 = mkFunTy liftedTypeKind orig_kind
+    kind1 = mkFunTy Omega liftedTypeKind orig_kind
     kind2 = liftedTypeKind    -- m :: * -> k
                               -- arg type :: *
 
@@ -742,9 +742,10 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
                  |  otherwise
                  -> inst_and_unify }
 
-    go (FunTy act_arg act_res) (FunTy exp_arg exp_res)
+    go (FunTy act_weight act_arg act_res) (FunTy exp_weight exp_arg exp_res)
       | not (isPredTy act_arg)
       , not (isPredTy exp_arg)
+      , act_weight == exp_weight -- arnaud: TODO: weight subsumption when it is implemented
       = -- See Note [Co/contra-variance of subsumption checking]
         do { res_wrap <- tc_sub_type_ds eq_orig inst_orig ctxt act_res exp_res
            ; arg_wrap
@@ -1150,7 +1151,7 @@ uType origin t_or_k orig_ty1 orig_ty2
            ; return (mkCoherenceRightCo co_tys co2) }
 
         -- Functions (or predicate functions) just check the two parts
-    go (FunTy fun1 arg1) (FunTy fun2 arg2)
+    go (FunTy w1 fun1 arg1) (FunTy w2 fun2 arg2) | w1 == w2
       = do { co_l <- uType origin t_or_k fun1 fun2
            ; co_r <- uType origin t_or_k arg1 arg2
            ; return $ mkFunCo Nominal co_l co_r }
@@ -1463,7 +1464,7 @@ checkTauTvUpdate dflags origin t_or_k tv ty
                                  || not (impredicative || isTauTyCon tc)
     defer_me (ForAllTy bndr t) = defer_me (binderKind bndr) || defer_me t
                                  || not impredicative
-    defer_me (FunTy fun arg)   = defer_me fun || defer_me arg
+    defer_me (FunTy _ fun arg) = defer_me fun || defer_me arg
     defer_me (AppTy fun arg)   = defer_me fun || defer_me arg
     defer_me (CastTy ty co)    = defer_me ty || defer_me_co co
     defer_me (CoercionTy co)   = defer_me_co co
@@ -1634,13 +1635,13 @@ matchExpectedFunKind num_args_remaining ty = go
                 Indirect fun_kind -> go fun_kind
                 Flexi ->             defer k }
 
-    go k@(FunTy arg res) = return (mkNomReflCo k, arg, res)
-    go other             = defer other
+    go k@(FunTy _ arg res) = return (mkNomReflCo k, arg, res)
+    go other               = defer other
 
     defer k
       = do { arg_kind <- newMetaKindVar
            ; res_kind <- newMetaKindVar
-           ; let new_fun = mkFunTy arg_kind res_kind
+           ; let new_fun = mkFunTy Omega arg_kind res_kind
                  thing   = mkTypeErrorThingArgs ty num_args_remaining
                  origin  = TypeEqOrigin { uo_actual   = k
                                         , uo_expected = mkCheckExpType new_fun

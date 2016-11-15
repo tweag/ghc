@@ -1915,7 +1915,7 @@ unifyWanted loc role orig_ty1 orig_ty2
     go ty1 ty2 | Just ty1' <- coreView ty1 = go ty1' ty2
     go ty1 ty2 | Just ty2' <- coreView ty2 = go ty1 ty2'
 
-    go (FunTy s1 t1) (FunTy s2 t2)
+    go (FunTy w1 s1 t1) (FunTy w2 s2 t2) | w1 == w2
       = do { co_s <- unifyWanted loc role s1 s2
            ; co_t <- unifyWanted loc role t1 t2
            ; return (mkTyConAppCo role funTyCon [co_s,co_t]) }
@@ -1964,7 +1964,7 @@ unify_derived loc role    orig_ty1 orig_ty2
     go ty1 ty2 | Just ty1' <- coreView ty1 = go ty1' ty2
     go ty1 ty2 | Just ty2' <- coreView ty2 = go ty1 ty2'
 
-    go (FunTy s1 t1) (FunTy s2 t2)
+    go (FunTy w1 s1 t1) (FunTy w2 s2 t2) | w1 == w2
       = do { unify_derived loc role s1 s2
            ; unify_derived loc role t1 t2 }
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)

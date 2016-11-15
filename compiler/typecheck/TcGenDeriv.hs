@@ -1441,8 +1441,8 @@ gen_data dflags data_type_name constr_names loc rep_tc
 
 
 kind1, kind2 :: Kind
-kind1 = liftedTypeKind `mkFunTy` liftedTypeKind
-kind2 = liftedTypeKind `mkFunTy` kind1
+kind1 = mkFunTy Omega liftedTypeKind liftedTypeKind
+kind2 = mkFunTy Omega liftedTypeKind kind1
 
 gfoldl_RDR, gunfold_RDR, toConstr_RDR, dataTypeOf_RDR, mkConstr_RDR,
     mkDataType_RDR, conIndex_RDR, prefix_RDR, infix_RDR,
@@ -1683,8 +1683,8 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
 
     go co ty | Just ty' <- coreView ty = go co ty'
     go co (TyVarTy    v) | v == var = (if co then caseCoVar else caseVar,True)
-    go co (FunTy x y)  | isPredTy x = go co y
-                       | xc || yc   = (caseFun xr yr,True)
+    go co (FunTy _ x y)  | isPredTy x = go co y -- FIXME: arnaud: probably loses information. I don't think (based on a guess: I haven't thought about it) we need to special case linear arrow to derive functor instances, but we may need to remember that we traversed a linear arrow.
+                         | xc || yc   = (caseFun xr yr,True)
         where (xr,xc) = go (not co) x
               (yr,yc) = go co       y
     go co (AppTy    x y) | xc = (caseWrongArg,   True)
@@ -2308,7 +2308,7 @@ genAuxBindSpec loc (DerivCon2Tag tycon)
 
     sig_ty = mkLHsSigWcType $ L loc $ HsCoreTy $
              mkSpecSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
-             mkParentType tycon `mkFunTy` intPrimTy
+             mkFunTy Omega (mkParentType tycon) intPrimTy -- TODO: arnaud: I don't know what this is. So it's probably wrong.
 
     lots_of_constructors = tyConFamilySize tycon > 8
                         -- was: mAX_FAMILY_SIZE_FOR_VEC_RETURNS
@@ -2332,7 +2332,7 @@ genAuxBindSpec loc (DerivTag2Con tycon)
   where
     sig_ty = mkLHsSigWcType $ L loc $
              HsCoreTy $ mkSpecForAllTys (tyConTyVars tycon) $
-             intTy `mkFunTy` mkParentType tycon
+             mkFunTy Omega intTy (mkParentType tycon) -- TODO: arnaud: I don't know what this is. So it's probably wrong.
 
     rdr_name = tag2con_RDR tycon
 
