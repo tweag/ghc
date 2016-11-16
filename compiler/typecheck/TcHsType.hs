@@ -56,6 +56,7 @@ import TcIface
 import TcSimplify ( solveEqualities )
 import TcType
 import Inst   ( tcInstBinders, tcInstBindersX, tcInstBinderX )
+import Weight
 import Type
 import Kind
 import RdrName( lookupLocalRdrOcc )
@@ -1264,7 +1265,8 @@ tcWildCardBindersX :: (Name -> TcM TcTyVar)
 tcWildCardBindersX new_wc wc_names thing_inside
   = do { wcs <- mapM new_wc wc_names
        ; let wc_prs = wc_names `zip` wcs
-       ; tcExtendTyVarEnv2 wc_prs $
+       ; let wc_prs_env = wc_names `zip` (unrestricted <$> wcs)
+       ; tcExtendTyVarEnv2 wc_prs_env $
          thing_inside wc_prs }
 
 -- | Kind-check a 'LHsQTyVars'. If the decl under consideration has a complete,
@@ -1291,7 +1293,7 @@ kcHsTyVarBndrs name cusk open_fam all_kind_vars
   | cusk
   = do { kv_kinds <- mk_kv_kinds
        ; let scoped_kvs = zipWith mk_skolem_tv kv_ns kv_kinds
-       ; tcExtendTyVarEnv2 (kv_ns `zip` scoped_kvs) $
+       ; tcExtendTyVarEnv2 (kv_ns `zip` (unrestricted <$> scoped_kvs)) $
     do { (tc_binders, res_kind, stuff) <- solveEqualities $
                                           bind_telescope hs_tvs thing_inside
 
@@ -1336,7 +1338,7 @@ kcHsTyVarBndrs name cusk open_fam all_kind_vars
        ; scoped_kvs <- zipWithM newSigTyVar kv_ns kv_kinds
                      -- the names must line up in splitTelescopeTvs
        ; (binders, res_kind, stuff)
-           <- tcExtendTyVarEnv2 (kv_ns `zip` scoped_kvs) $
+           <- tcExtendTyVarEnv2 (kv_ns `zip` (unrestricted <$> scoped_kvs)) $
               bind_telescope hs_tvs thing_inside
        ; let   -- NB: Don't add scoped_kvs to tyConTyVars, because they
                -- must remain lined up with the binders
@@ -1380,7 +1382,7 @@ kcHsTyVarBndrs name cusk open_fam all_kind_vars
     bind_unless_scoped :: (TcTyVar, Bool) -> TcM a -> TcM a
     bind_unless_scoped (_, True)   thing_inside = thing_inside
     bind_unless_scoped (tv, False) thing_inside
-      = tcExtendTyVarEnv [tv] thing_inside
+      = tcExtendTyVarEnv [unrestricted tv] thing_inside
 
     kc_hs_tv :: HsTyVarBndr Name -> TcM (TcTyVar, Bool)
     kc_hs_tv (UserTyVar (L _ name))
@@ -1439,7 +1441,7 @@ tcImplicitTKBndrsX :: (Name -> TcM (TcTyVar, Bool))  -- new_tv function
 --   i.e. no cloning of fresh names
 tcImplicitTKBndrsX new_tv var_ns thing_inside
   = do { tkvs_pairs <- mapM new_tv var_ns
-       ; let must_scope_tkvs = [ tkv | (tkv, False) <- tkvs_pairs ]
+       ; let must_scope_tkvs = [ unrestricted tkv | (tkv, False) <- tkvs_pairs ]
              tkvs            = map fst tkvs_pairs
        ; (result, bound_tvs) <- tcExtendTyVarEnv must_scope_tkvs $
                                 thing_inside
@@ -1490,7 +1492,7 @@ tcExplicitTKBndrsX new_tv orig_hs_tvs thing_inside
     go [] thing = thing []
     go (L _ hs_tv : hs_tvs) thing
       = do { tv <- tcHsTyVarBndr new_tv hs_tv
-           ; tcExtendTyVarEnv [tv] $
+           ; tcExtendTyVarEnv [unrestricted tv] $
              go hs_tvs $ \ tvs ->
              thing (tv : tvs) }
 
@@ -1666,7 +1668,7 @@ kcLookupTcTyCon nm
 kcTyClTyVars :: Name -> TcM a -> TcM a
 kcTyClTyVars tycon_name thing_inside
   = do { tycon <- kcLookupTcTyCon tycon_name
-       ; tcExtendTyVarEnv (tcTyConScopedTyVars tycon) $ thing_inside }
+       ; tcExtendTyVarEnv (unrestricted <$> tcTyConScopedTyVars tycon) $ thing_inside }
 
 tcTyClTyVars :: Name
              -> ([TyConBinder] -> Kind -> TcM a) -> TcM a
@@ -1702,7 +1704,7 @@ tcTyClTyVars tycon_name thing_inside
 
           -- Add the *unzonked* tyvars to the env't, because those
           -- are the ones mentioned in the source.
-       ; tcExtendTyVarEnv scoped_tvs $
+       ; tcExtendTyVarEnv (unrestricted <$> scoped_tvs) $
          thing_inside binders res_kind }
   where
 
