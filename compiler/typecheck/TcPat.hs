@@ -25,6 +25,7 @@ import Id
 import Var
 import Name
 import RdrName
+import Weight
 import TcEnv
 import TcMType
 import TcValidity( arityErr )
@@ -58,7 +59,7 @@ import ListSetOps ( getNth )
 -}
 
 tcLetPat :: (Name -> Maybe TcId)
-         -> LPat Name -> ExpSigmaType
+         -> LPat Name -> Weighted ExpSigmaType
          -> TcM a
          -> TcM (LPat TcId, a)
 tcLetPat sig_fn pat pat_ty thing_inside
@@ -71,7 +72,7 @@ tcLetPat sig_fn pat pat_ty thing_inside
 -----------------
 tcPats :: HsMatchContext Name
        -> [LPat Name]            -- Patterns,
-       -> [ExpSigmaType]         --   and their types
+       -> [Weighted ExpSigmaType]         --   and their types
        -> TcM a                  --   and the checker for the body
        -> TcM ([LPat TcId], a)
 
@@ -92,7 +93,7 @@ tcPats ctxt pats pat_tys thing_inside
     penv = PE { pe_lazy = False, pe_ctxt = LamPat ctxt, pe_orig = PatOrigin }
 
 tcPat :: HsMatchContext Name
-      -> LPat Name -> ExpSigmaType
+      -> LPat Name -> Weighted ExpSigmaType
       -> TcM a                     -- Checker for body
       -> TcM (LPat TcId, a)
 tcPat ctxt = tcPat_O ctxt PatOrigin
@@ -100,7 +101,7 @@ tcPat ctxt = tcPat_O ctxt PatOrigin
 -- | A variant of 'tcPat' that takes a custom origin
 tcPat_O :: HsMatchContext Name
         -> CtOrigin              -- ^ origin to use if the type needs inst'ing
-        -> LPat Name -> ExpSigmaType
+        -> LPat Name -> Weighted ExpSigmaType
         -> TcM a                 -- Checker for body
         -> TcM (LPat TcId, a)
 tcPat_O ctxt orig pat pat_ty thing_inside
@@ -137,7 +138,7 @@ inPatBind (PE { pe_ctxt = LamPat {} }) = False
 *                                                                      *
 ********************************************************************* -}
 
-tcPatBndr :: PatEnv -> Name -> ExpSigmaType -> TcM (HsWrapper, TcId)
+tcPatBndr :: PatEnv -> Name -> Weighted ExpSigmaType -> TcM (HsWrapper, TcId)
 -- (coi, xp) = tcPatBndr penv x pat_ty
 -- Then coi : pat_ty ~ typeof(xp)
 --
@@ -145,7 +146,7 @@ tcPatBndr (PE { pe_ctxt = LetPat lookup_sig
               , pe_orig = orig }) bndr_name pat_ty
           -- See Note [Typing patterns in pattern bindings]
   | Just bndr_id <- lookup_sig bndr_name
-  = do { wrap <- tcSubTypeET orig pat_ty (idType bndr_id)
+  = do { wrap <- tcSubTypeET orig (weightedThing pat_ty) (idType bndr_id)
        ; traceTc "tcPatBndr(lsl,sig)" (ppr bndr_id $$ ppr (idType bndr_id) $$ ppr pat_ty)
        ; return (wrap, bndr_id) }
 
@@ -153,7 +154,7 @@ tcPatBndr (PE { pe_ctxt = LetPat lookup_sig
   = pprPanic "tcPatBndr" (ppr bndr_name)
 
 tcPatBndr (PE { pe_ctxt = _lam_or_proc }) bndr_name pat_ty
-  = do { pat_ty <- expTypeToType pat_ty
+  = do { pat_ty <- expTypeToType (weightedThing pat_ty)
        ; traceTc "tcPatBndr(not let)" (ppr bndr_name $$ ppr pat_ty)
        ; return (idHsWrapper, mkLocalId bndr_name pat_ty) }
                -- Whether or not there is a sig is irrelevant,
@@ -278,7 +279,7 @@ tcMultiple tc_pat args penv thing_inside
 
 --------------------
 tc_lpat :: LPat Name
-        -> ExpSigmaType
+        -> Weighted ExpSigmaType
         -> PatEnv
         -> TcM a
         -> TcM (LPat TcId, a)
@@ -289,7 +290,7 @@ tc_lpat (L span pat) pat_ty penv thing_inside
         ; return (L span pat', res) }
 
 tc_lpats :: PatEnv
-         -> [LPat Name] -> [ExpSigmaType]
+         -> [LPat Name] -> [Weighted ExpSigmaType]
          -> TcM a
          -> TcM ([LPat TcId], a)
 tc_lpats penv pats tys thing_inside
@@ -301,7 +302,7 @@ tc_lpats penv pats tys thing_inside
 --------------------
 tc_pat  :: PatEnv
         -> Pat Name
-        -> ExpSigmaType  -- Fully refined result type
+        -> Weighted ExpSigmaType  -- Fully refined result type
         -> TcM a                -- Thing inside
         -> TcM (Pat TcId,       -- Translated pattern
                 a)              -- Result of thing inside
