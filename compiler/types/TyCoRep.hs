@@ -146,6 +146,7 @@ import Var
 import VarEnv
 import VarSet
 import Name hiding ( varName )
+import Weight
 import BasicTypes
 import TyCon
 import Class
@@ -171,36 +172,6 @@ import Data.IORef ( IORef )   -- for CoercionHole
 #if MIN_VERSION_GLASGOW_HASKELL(7,10,2,0)
 import GHC.Stack (CallStack)
 #endif
-
-{-
-************************************************************************
-*                                                                      *
-\subsection{Weights}
-*                                                                      *
-************************************************************************
--}
-
--- TODO: arnaud: clean up
-data Rig =  -- Zero |
-  One | Omega
-  deriving (Eq,Ord,Data.Data)
-
-instance Num Rig where
-  -- Zero * _ = Zero
-  -- _ * Zero = Zero
-  Omega * One = Omega
-  One * Omega = Omega
-  One * One   = One
-  Omega * Omega = Omega
-
-  -- Zero + x = x
-  -- x + Zero = x
-  _ + _ = Omega
-
--- instance Outputable Rig where
---   ppr One = fromString "1"
---   ppr Omega = fromString "ω"
-
 
 {-
 %************************************************************************
