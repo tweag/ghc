@@ -527,6 +527,7 @@ compiler_stage2_dll0_MODULES = \
 	TcRnTypes \
 	TcType \
 	TrieMap \
+	Weight \
 	TyCon \
 	Type \
 	TyCoRep \
