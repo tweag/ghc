@@ -24,7 +24,7 @@ module Type (
         mkAppTy, mkAppTys, splitAppTy, splitAppTys, repSplitAppTys,
         splitAppTy_maybe, repSplitAppTy_maybe, tcRepSplitAppTy_maybe,
 
-        mkFunTy, mkFunTys, splitFunTy, splitFunTy_maybe,
+        mkFunTy, mkFunTyOm, mkFunTys, splitFunTy, splitFunTy_maybe,
         splitFunTys, funResultTy, funArgTy,
 
         mkTyConApp, mkTyConTy,

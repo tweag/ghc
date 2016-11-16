@@ -17,6 +17,7 @@ HsTypes: Abstract syntax: user-defined types
 {-# LANGUAGE CPP #-}
 
 module HsTypes (
+        Rig(..),
         HsType(..), LHsType, HsKind, LHsKind,
         HsTyVarBndr(..), LHsTyVarBndr,
         LHsQTyVars(..),

@@ -39,7 +39,7 @@ module TyCoRep (
 
         -- * Functions over types
         mkTyConTy, mkTyVarTy, mkTyVarTys,
-        mkFunTy, mkFunTys, mkForAllTy, mkForAllTys,
+        mkFunTy, mkFunTyOm, mkFunTys, mkForAllTy, mkForAllTys,
         mkPiTy, mkPiTys,
         isLiftedTypeKind, isUnliftedTypeKind,
         isCoercionType, isRuntimeRepTy, isRuntimeRepVar,
@@ -707,6 +707,10 @@ infixr 3 `mkFunTy`      -- Associates to the right
 -- | Make an arrow type
 mkFunTy :: Rig -> Type -> Type -> Type
 mkFunTy weight arg res = FunTy weight arg res
+
+-- | Special, common, case: Arrow type with weight Omega
+mkFunTyOm :: Type -> Type -> Type
+mkFunTyOm = mkFunTy Omega
 
 -- | Make nested arrow types
 mkFunTys :: [Type] -> Type -> Type

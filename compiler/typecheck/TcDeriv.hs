@@ -1374,7 +1374,7 @@ canDeriveAnyClass dflags _tycon clas
     target_kind = tyVarKind (last (classTyVars clas))
 
 typeToTypeKind :: Kind
-typeToTypeKind = liftedTypeKind `mkFunTy` liftedTypeKind
+typeToTypeKind = liftedTypeKind `mkFunTyOm` liftedTypeKind
 
 type Condition = (DynFlags, TyCon) -> Validity
         -- TyCon is the *representation* tycon if the data type is an indexed one
