@@ -2332,7 +2332,7 @@ genAuxBindSpec loc (DerivTag2Con tycon)
   where
     sig_ty = mkLHsSigWcType $ L loc $
              HsCoreTy $ mkSpecForAllTys (tyConTyVars tycon) $
-             mkFunTy Omega intTy (mkParentType tycon) -- TODO: arnaud: I don't know what this is. So it's probably wrong.
+             intTy `mkFunTyOm` mkParentType tycon -- TODO: arnaud: I don't know what this is. So it's probably wrong.
 
     rdr_name = tag2con_RDR tycon
 

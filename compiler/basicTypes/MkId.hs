@@ -1201,7 +1201,7 @@ runRWId = pcMiscPrelId runRWName ty info
     -- (# State# RealWorld, o #)
     ret_ty  = mkTupleTy Unboxed [stateRW, openAlphaTy]
     -- State# RealWorld -> (# State# RealWorld, o #)
-    arg_ty  = mkFunTy Omega stateRW ret_ty
+    arg_ty  = stateRW `mkFunTyOm` ret_ty
     -- (State# RealWorld -> (# State# RealWorld, o #))
     --   -> (# State# RealWorld, o #)
     ty      = mkSpecForAllTys [runtimeRep1TyVar, openAlphaTyVar] $

@@ -217,7 +217,7 @@ mkWpFuns args res_ty res_wrap = snd $ go args res_ty res_wrap
     go [] res_ty res_wrap = (res_ty, res_wrap)
     go ((arg_ty, arg_wrap) : args) res_ty res_wrap
       = let (tail_ty, tail_wrap) = go args res_ty res_wrap in
-        (mkFunTy Omega arg_ty tail_ty, mkWpFun arg_wrap tail_wrap arg_ty tail_ty)
+        (arg_ty `mkFunTyOm` tail_ty, mkWpFun arg_wrap tail_wrap arg_ty tail_ty)
 
 mkWpCastR :: TcCoercionR -> HsWrapper
 mkWpCastR co

@@ -456,7 +456,7 @@ mkUnzipBind _ elt_tys
     elt_list_tys       = map mkListTy elt_tys
     elt_list_tuple_ty  = mkBigCoreTupTy elt_list_tys
 
-    unzip_fn_ty        = mkFunTy Omega elt_tuple_list_ty elt_list_tuple_ty -- FIXME: arnaud: almost certainly wrong
+    unzip_fn_ty        = elt_tuple_list_ty `mkFunTyOm` elt_list_tuple_ty -- FIXME: arnaud: almost certainly wrong
 
     mkConcatExpression (list_element_ty, head, tail) = mkConsExpr list_element_ty head tail
 
