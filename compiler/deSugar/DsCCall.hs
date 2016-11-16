@@ -247,7 +247,7 @@ boxResult result_ty
                                              [the_alt]
                                      ]
 
-        ; return (mkFunTy Omega realWorldStatePrimTy ccall_res_ty, wrap) }
+        ; return (realWorldStatePrimTy `mkFunTyOm` ccall_res_ty, wrap) }
 
 boxResult result_ty
   = do -- It isn't IO, so do unsafePerformIO
@@ -259,7 +259,7 @@ boxResult result_ty
                                            ccall_res_ty
                                            (coreAltType the_alt)
                                            [the_alt]
-       return (mkFunTy Omega realWorldStatePrimTy ccall_res_ty, wrap)
+       return (realWorldStatePrimTy `mkFunTyOm` ccall_res_ty, wrap)
   where
     return_result _ [ans] = ans
     return_result _ _     = panic "return_result: expected single result"

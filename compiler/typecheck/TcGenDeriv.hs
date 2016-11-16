@@ -1441,8 +1441,8 @@ gen_data dflags data_type_name constr_names loc rep_tc
 
 
 kind1, kind2 :: Kind
-kind1 = mkFunTy Omega liftedTypeKind liftedTypeKind
-kind2 = mkFunTy Omega liftedTypeKind kind1
+kind1 = liftedTypeKind `mkFunTyOm` liftedTypeKind
+kind2 = liftedTypeKind `mkFunTyOm` kind1
 
 gfoldl_RDR, gunfold_RDR, toConstr_RDR, dataTypeOf_RDR, mkConstr_RDR,
     mkDataType_RDR, conIndex_RDR, prefix_RDR, infix_RDR,

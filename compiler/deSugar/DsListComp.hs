@@ -270,7 +270,7 @@ deBindComp pat core_list1 quals core_list2 = do
     let u2_ty = hsLPatType pat
 
     let res_ty = exprType core_list2
-        h_ty   = mkFunTy Omega u1_ty res_ty
+        h_ty   = u1_ty `mkFunTyOm` res_ty
 
     [h, u1, u2, u3] <- newSysLocalsDs [h_ty, u1_ty, u2_ty, u3_ty]
 
