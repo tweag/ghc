@@ -40,3 +40,6 @@ unrestricted = Weighted Omega
 
 instance Outputable a => Outputable (Weighted a) where
    ppr (Weighted cnt t) = ppr cnt <> ppr t
+
+weightedSet :: Weighted a -> b -> Weighted b
+weightedSet x b = fmap (\_->b) x

@@ -1890,23 +1890,25 @@ tcHsPatSigType ctxt sig_ty
 
 tcPatSig :: Bool                    -- True <=> pattern binding
          -> LHsSigWcType Name
-         -> ExpSigmaType
+         -> Weighted ExpSigmaType
          -> TcM (TcType,            -- The type to use for "inside" the signature
-                 [TcTyVar],         -- The new bit of type environment, binding
+                 [Weighted TcTyVar],-- The new bit of type environment, binding
                                     -- the scoped type variables
-                 [(Name,TcTyVar)],  -- The wildcards
+                 [(Name, Weighted TcTyVar)],  -- The wildcards
                  HsWrapper)         -- Coercion due to unification with actual ty
                                     -- Of shape:  res_ty ~ sig_ty
 tcPatSig in_pat_bind sig res_ty
- = do  { (sig_wcs, sig_tvs, sig_ty) <- tcHsPatSigType PatSigCtxt sig
+ = do  { (sig_wcs0, sig_tvs, sig_ty) <- tcHsPatSigType PatSigCtxt sig
         -- sig_tvs are the type variables free in 'sig',
         -- and not already in scope. These are the ones
         -- that should be brought into scope
 
+        ; let sig_wcs = map (\(x,y)-> (x,weightedSet res_ty y)) sig_wcs0 -- TODO: arnaud: distributes the weight of the type to the component. Correct for now as the weight of the component is always 1, but should actually be a multiplication, using the join of (multiplicative, writer) monadic structure of Weighted
+        ; let sig_tvs_weighted = map (weightedSet res_ty) sig_tvs -- TODO: arnaud: see previous
         ; if null sig_tvs then do {
                 -- Just do the subsumption check and return
                   wrap <- addErrCtxtM (mk_msg sig_ty) $
-                          tcSubTypeET_NC PatSigCtxt res_ty sig_ty
+                          tcSubTypeET_NC PatSigCtxt (weightedThing res_ty) sig_ty
                 ; return (sig_ty, [], sig_wcs, wrap)
         } else do
                 -- Type signature binds at least one scoped type variable
@@ -1929,15 +1931,15 @@ tcPatSig in_pat_bind sig res_ty
 
         -- Now do a subsumption check of the pattern signature against res_ty
         ; wrap <- addErrCtxtM (mk_msg sig_ty) $
-                  tcSubTypeET_NC PatSigCtxt res_ty sig_ty
+                  tcSubTypeET_NC PatSigCtxt (weightedThing res_ty) sig_ty
 
         -- Phew!
-        ; return (sig_ty, sig_tvs, sig_wcs, wrap)
+        ; return (sig_ty, sig_tvs_weighted, sig_wcs, wrap)
         } }
   where
     mk_msg sig_ty tidy_env
        = do { (tidy_env, sig_ty) <- zonkTidyTcType tidy_env sig_ty
-            ; res_ty <- readExpType res_ty   -- should be filled in by now
+            ; res_ty <- readExpType (weightedThing res_ty)   -- should be filled in by now
             ; (tidy_env, res_ty) <- zonkTidyTcType tidy_env res_ty
             ; let msg = vcat [ hang (text "When checking that the pattern signature:")
                                   4 (ppr sig_ty)
