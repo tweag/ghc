@@ -1,6 +1,6 @@
 -- TODO: arnaud: copyright notice
 
-{-# LANGUAGE DeriveDataTypeable, DeriveFunctor #-}
+{-# LANGUAGE DeriveDataTypeable, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 
 -- | This module defines the semi-ring (aka Rig) of weights, and associated
 -- functions. Weights annotate arrow types to indicate the linearity of the
@@ -34,7 +34,7 @@ instance Outputable Rig where
   ppr Omega = fromString "ω"
 
 data Weighted a = Weighted {weightedWeight :: Rig, weightedThing :: a}
-  deriving (Functor)
+  deriving (Functor,Foldable,Traversable,Data)
 
 unrestricted = Weighted Omega
 

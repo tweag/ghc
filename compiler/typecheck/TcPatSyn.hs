@@ -16,6 +16,7 @@ import HsSyn
 import TcPat
 import Type( mkTyVarBinders, mkEmptyTCvSubst
            , tidyTyVarBinders, tidyTypes, tidyType )
+import Weight ( unrestricted )
 import TcRnMonad
 import TcSigs( emptyPragEnv, completeSigFromId )
 import TcEnv
@@ -74,7 +75,7 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
        ; (tclvl, wanted, ((lpat', args), pat_ty))
             <- pushLevelAndCaptureConstraints  $
                do { pat_ty <- newOpenInferExpType
-                  ; stuff <- tcPat PatSyn lpat pat_ty $
+                  ; stuff <- tcPat PatSyn lpat (unrestricted pat_ty) $ -- unknown type weight, choose unrestricted
                              mapM tcLookupId arg_names
                   ; pat_ty <- readExpType pat_ty
                   ; return (stuff, pat_ty) }
@@ -118,7 +119,7 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(L _ name), psb_args = details
 
        ; tcCheckPatSynPat lpat
 
-       ; (arg_tys, pat_ty) <- case tcSplitFunTysN decl_arity sig_body_ty of
+       ; (arg_tys, pat_ty) <- case tcSplitFunTysN decl_arity sig_body_ty of -- TODO: arnaud: tcSplitFunTysN should return weighted types
                                  Right stuff  -> return stuff
                                  Left missing -> wrongNumberOfParmsErr name decl_arity missing
 
@@ -147,8 +148,8 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(L _ name), psb_args = details
        ; (tclvl, wanted, (lpat', (ex_tvs', prov_dicts, args'))) <-
            ASSERT2( equalLength arg_names arg_tys, ppr name $$ ppr arg_names $$ ppr arg_tys )
            pushLevelAndCaptureConstraints            $
-           tcExtendTyVarEnv univ_tvs                 $
-           tcPat PatSyn lpat (mkCheckExpType pat_ty) $
+           tcExtendTyVarEnv (unrestricted <$> univ_tvs) $ -- TODO: arnaud: I'm not sure
+           tcPat PatSyn lpat (unrestricted $ mkCheckExpType pat_ty) $ -- TODO: arnaud: when tclSplitFunTysN returns weighted type, should preserve the weight
            do { let new_tv | isUnidirectional dir = newMetaTyVarX
                            | otherwise            = newMetaSigTyVarX
                     in_scope    = mkInScopeSet (mkVarSet univ_tvs)
