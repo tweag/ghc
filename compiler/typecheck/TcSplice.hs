@@ -41,6 +41,7 @@ import Annotations
 import Name
 import TcRnMonad
 import TcType
+import Weight
 
 import Outputable
 import TcExpr
@@ -1276,7 +1277,7 @@ tcLookupTh :: Name -> TcM TcTyThing
 tcLookupTh name
   = do  { (gbl_env, lcl_env) <- getEnvs
         ; case lookupNameEnv (tcl_env lcl_env) name of {
-                Just thing -> return thing;
+                Just (Weighted _ thing) -> return thing; -- TODO: arnaud: tcLookUpTh should probably return a weighted type as well
                 Nothing    ->
 
           case lookupNameEnv (tcg_type_env gbl_env) name of {
