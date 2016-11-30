@@ -37,6 +37,7 @@ import TcHsType
 import TcMType
 import TysWiredIn ( unitTy )
 import TcType
+import Weight
 import RnEnv( RoleAnnotEnv, mkRoleAnnotEnv, lookupRoleAnnot
             , lookupConstructorFields )
 import FamInst
@@ -196,7 +197,7 @@ tcTyClDecls tyclds role_annots
                  -- Also extend the local type envt with bindings giving
                  -- the (polymorphic) kind of each knot-tied TyCon or Class
                  -- See Note [Type checking recursive type and class declarations]
-             tcExtendKindEnv2 (map mkTcTyConPair tc_tycons)              $
+             tcExtendKindEnv2 (map ((fmap unrestricted) . mkTcTyConPair) tc_tycons) $ -- type classes are always unrestricted bindings
 
                  -- Kind and type check declarations for this group
                mapM (tcTyClDecl roles) tyclds
@@ -322,7 +323,7 @@ kcTyClGroup decls
                vcat (map pp_initial_kind initial_kinds)
 
              -- Step 2: Set initial envt, kind-check the synonyms
-             ; lcl_env <- tcExtendKindEnv2 initial_kinds $
+             ; lcl_env <- tcExtendKindEnv2 (map (fmap unrestricted) initial_kinds) $
                           kcSynDecls (calcSynCycles syn_decls)
 
              -- Step 3: Set extended envt, kind-check the non-synonyms
@@ -344,7 +345,7 @@ kcTyClGroup decls
     -- For polymorphic things this is a no-op
     generalise kind_env name
       = do { let tc = case lookupNameEnv kind_env name of
-                        Just (ATcTyCon tc) -> tc
+                        Just (Weighted _ (ATcTyCon tc)) -> tc
                         _ -> pprPanic "kcTyClGroup" (ppr name $$ ppr kind_env)
                  kc_binders  = tyConBinders tc
                  kc_res_kind = tyConResKind tc
@@ -414,7 +415,7 @@ mk_thing_env (decl : decls)
 
 getInitialKinds :: [LTyClDecl Name] -> TcM [(Name, TcTyThing)]
 getInitialKinds decls
-  = tcExtendKindEnv2 (mk_thing_env decls) $
+  = tcExtendKindEnv2 (map (fmap unrestricted) $ mk_thing_env decls) $
     do { pairss <- mapM (addLocM getInitialKind) decls
        ; return (concat pairss) }
 
@@ -472,7 +473,7 @@ getInitialKind decl@(SynDecl {})
 getFamDeclInitialKinds :: Maybe Bool  -- if assoc., CUSKness of assoc. class
                        -> [LFamilyDecl Name] -> TcM [(Name, TcTyThing)]
 getFamDeclInitialKinds mb_cusk decls
-  = tcExtendKindEnv2 [ (n, APromotionErr TyConPE)
+  = tcExtendKindEnv2 [ (n, unrestricted (APromotionErr TyConPE))
                      | L _ (FamilyDecl { fdLName = L _ n }) <- decls] $
     concatMapM (addLocM (getFamDeclInitialKind mb_cusk)) decls
 
@@ -509,7 +510,7 @@ kcSynDecls [] = getLclEnv
 kcSynDecls (group : groups)
   = do  { tc <- kcSynDecl1 group
         ; traceTc "kcSynDecl" (ppr tc <+> dcolon <+> ppr (tyConKind tc))
-        ; tcExtendKindEnv2 [ mkTcTyConPair tc ] $
+        ; tcExtendKindEnv2 [ fmap unrestricted $ mkTcTyConPair tc ] $
           kcSynDecls groups }
 
 kcSynDecl1 :: SCC (LTyClDecl Name)
@@ -1286,7 +1287,7 @@ tcFamTyPats fam_shape@(name,_,_,_) mb_clsinfo pats kind_checker thing_inside
 
        ; traceTc "tcFamTyPats" (ppr name $$ ppr typats)
             -- don't print out too much, as we might be in the knot
-       ; tcExtendTyVarEnv qtkvs' $
+       ; tcExtendTyVarEnv (map unrestricted qtkvs') $
          thing_inside qtkvs' typats' res_kind' }
 
 {-

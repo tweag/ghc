@@ -35,6 +35,7 @@ import FamInstEnv       ( FamInstEnvs )
 import RnEnv            ( addUsedGRE, addNameClashErrRn
                         , unknownSubordinateErr )
 import TcEnv
+import Weight
 import TcArrows
 import TcMatches
 import TcHsType
@@ -535,7 +536,7 @@ tcExpr (HsCase scrut matches) res_ty
           (scrut', scrut_ty) <- tcInferRho scrut
 
         ; traceTc "HsCase" (ppr scrut_ty)
-        ; matches' <- tcMatchesCase match_ctxt scrut_ty matches res_ty
+        ; matches' <- tcMatchesCase match_ctxt (unrestricted scrut_ty) matches res_ty -- TODO: arnaud: add support for weight annotation on case. In the meantime, suppose it's always Omega (it's incorrect, of course, as we can make 1-things into ω-things this way, and when a check is implemented to prevent that behaviour, then we will not be able to typecheck linear matches)
         ; return (HsCase scrut' matches') }
  where
     match_ctxt = MC { mc_what = CaseAlt,
@@ -1339,7 +1340,7 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
              , match_wrapper )         -- :: (arg_ty -> res_ty) "->" rho_ty
                <- matchExpectedFunTys herald 1 (mkCheckExpType rho_ty) $
                   \ [arg_ty] res_ty ->
-                  do { arg_tc_ty <- expTypeToType arg_ty
+                  do { arg_tc_ty <- expTypeToType (weightedThing arg_ty) -- TODO: arnaud: rather fmap, probably, but it changes the type of thing_inside, which I have to check whether it's worth it or not
                      ; res_tc_ty <- expTypeToType res_ty
 
                          -- another nested arrow is too much for now,
