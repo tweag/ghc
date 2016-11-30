@@ -35,6 +35,7 @@ import TcEvidence
 import TcRnMonad
 import TcHsSyn
 import Type
+import Weight
 import CoreSyn
 import CoreUtils
 import MkCore
@@ -597,7 +598,7 @@ dsExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
         ; alts <- mapM (mk_alt upd_fld_env) cons_to_upd
         ; ([discrim_var], matching_code)
                 <- matchWrapper RecUpd Nothing (MG { mg_alts = noLoc alts
-                                                   , mg_arg_tys = [in_ty]
+                                                   , mg_arg_tys = [unrestricted in_ty] -- TODO: arnaud: haven't thought of the rules for record update
                                                    , mg_res_ty = out_ty, mg_origin = FromSource })
                                                    -- FromSource is not strictly right, but we
                                                    -- want incomplete pattern-match warnings
@@ -917,7 +918,7 @@ dsDo stmts
            ; let fun = L noSrcSpan $ HsLam $
                    MG { mg_alts = noLoc [mkSimpleMatch LambdaExpr pats
                                                        body']
-                      , mg_arg_tys = arg_tys
+                      , mg_arg_tys = map unrestricted arg_tys
                       , mg_res_ty = body_ty
                       , mg_origin = Generated }
 
@@ -950,7 +951,7 @@ dsDo stmts
                            (MG { mg_alts = noLoc [mkSimpleMatch
                                                     LambdaExpr
                                                     [mfix_pat] body]
-                               , mg_arg_tys = [tup_ty], mg_res_ty = body_ty
+                               , mg_arg_tys = [unrestricted tup_ty], mg_res_ty = body_ty
                                , mg_origin = Generated })
         mfix_pat     = noLoc $ LazyPat $ mkBigLHsPatTupId rec_tup_pats
         body         = noLoc $ HsDo

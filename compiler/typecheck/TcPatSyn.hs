@@ -429,7 +429,7 @@ tcPatSynMatcher (L loc name) lpat
                     L (getLoc lpat) $
                     HsCase (nlHsVar scrutinee) $
                     MG{ mg_alts = L (getLoc lpat) cases
-                      , mg_arg_tys = [pat_ty]
+                      , mg_arg_tys = [unrestricted pat_ty] -- TODO: arnaud: unrestricted is surely incorrect here
                       , mg_res_ty = res_ty
                       , mg_origin = Generated
                       }
@@ -437,7 +437,7 @@ tcPatSynMatcher (L loc name) lpat
                      HsLam $
                      MG{ mg_alts = noLoc [mkSimpleMatch LambdaExpr
                                                         args body]
-                       , mg_arg_tys = [pat_ty, cont_ty, res_ty]
+                       , mg_arg_tys = map unrestricted [pat_ty, cont_ty, res_ty] -- TODO: arnaud: unrestricted is surely incorrect here
                        , mg_res_ty = res_ty
                        , mg_origin = Generated
                        }

@@ -15,6 +15,7 @@ import HsSyn
 import TcMatches
 import TcHsSyn( hsLPatType )
 import TcType
+import Weight
 import TcMType
 import TcBinds
 import TcPat
@@ -86,7 +87,7 @@ tcProc pat cmd exp_ty
         ; (co, (exp_ty1, res_ty)) <- matchExpectedAppTy exp_ty
         ; (co1, (arr_ty, arg_ty)) <- matchExpectedAppTy exp_ty1
         ; let cmd_env = CmdEnv { cmd_arr = arr_ty }
-        ; (pat', cmd') <- tcPat ProcExpr pat (mkCheckExpType arg_ty) $
+        ; (pat', cmd') <- tcPat ProcExpr pat (unrestricted $ mkCheckExpType arg_ty) $
                           tcCmdTop cmd_env cmd (unitTy, res_ty)
         ; let res_co = mkTcTransCo co
                          (mkTcAppCo co1 (mkTcNomReflCo res_ty))
