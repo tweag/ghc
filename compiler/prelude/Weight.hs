@@ -13,23 +13,28 @@ import Data.String
 import Outputable
 
 -- TODO: arnaud: clean up
-data Rig =  -- Zero |
-  One | Omega
+data Rig = Zero | One | Omega
   deriving (Eq,Ord,Data)
 
 instance Num Rig where
-  -- Zero * _ = Zero
-  -- _ * Zero = Zero
+  Zero * _ = Zero
+  _ * Zero = Zero
   Omega * One = Omega
   One * Omega = Omega
   One * One   = One
   Omega * Omega = Omega
 
-  -- Zero + x = x
-  -- x + Zero = x
+  Zero + x = x
+  x + Zero = x
   _ + _ = Omega
 
+subtractOne :: Rig -> Maybe Rig
+subtractOne Zero = Nothing
+subtractOne One = Just Zero
+subtractOne Omega = Just Omega
+
 instance Outputable Rig where
+  ppr Zero = fromString "0"
   ppr One = fromString "1"
   ppr Omega = fromString "ω"
 
@@ -37,6 +42,7 @@ data Weighted a = Weighted {weightedWeight :: Rig, weightedThing :: a}
   deriving (Functor,Foldable,Traversable,Data)
 
 unrestricted = Weighted Omega
+staticOnly = Weighted Zero
 
 instance Outputable a => Outputable (Weighted a) where
    ppr (Weighted cnt t) = ppr cnt <> ppr t

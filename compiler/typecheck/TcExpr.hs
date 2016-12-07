@@ -1610,7 +1610,7 @@ tc_infer_assert assert_name
 
 tc_infer_id :: RdrName -> Name -> TcM (HsExpr TcId, TcSigmaType)
 tc_infer_id lbl id_name
- = do { thing <- tcLookup id_name
+ = do { thing <- tcLookupTakeOne id_name
       ; case thing of
              ATcId { tct_id = id }
                -> do { check_naughty id        -- Note [Local record selectors]
