@@ -505,7 +505,7 @@ rnHsTyKi env (HsFunTy ty1 weight ty2)
         -- when we find return :: forall m. Monad m -> forall a. a -> m a
 
         -- Check for fixity rearrangements
-       ; res_ty <- mkHsOpTyRn hs_fun_ty (funTyConName Omega) funTyFixity ty1' ty2'
+       ; res_ty <- mkHsOpTyRn hs_fun_ty (funTyConName weight) funTyFixity ty1' ty2'
        ; return (res_ty, fvs1 `plusFV` fvs2) }
   where
     hs_fun_ty a b = HsFunTy a weight b
