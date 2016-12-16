@@ -335,8 +335,7 @@ kcTyClGroup decls
              -- Step 4: generalisation
              -- Kind checking done for this group
              -- Now we have to kind generalize the flexis
-        ; tcl_lcl_env <- readTcRef (tcl_env lcl_env)
-        ; res <- concatMapM (generaliseTCD tcl_lcl_env) decls
+        ; res <- concatMapM (generaliseTCD (tcl_env lcl_env)) decls
 
         ; traceTc "kcTyClGroup result" (vcat (map pp_res res))
         ; return res }
@@ -910,8 +909,7 @@ tcTySynRhs :: RolesInfo
            -> LHsType Name -> TcM TyCon
 tcTySynRhs roles_info tc_name binders res_kind hs_ty
   = do { env <- getLclEnv
-       ; tcl_env_v <- readTcRef (tcl_env env)
-       ; traceTc "tc-syn" (ppr tc_name $$ ppr tcl_env_v)
+       ; traceTc "tc-syn" (ppr tc_name $$ ppr (tcl_env env))
        ; rhs_ty <- solveEqualities $ tcCheckLHsType hs_ty res_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
        ; let roles = roles_info tc_name

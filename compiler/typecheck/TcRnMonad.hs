@@ -215,7 +215,6 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
 
         dependent_files_var <- newIORef [] ;
         static_wc_var       <- newIORef emptyWC ;
-        rh_tcl_env          <- newIORef emptyNameEnv ;
 #ifdef GHCI
         th_topdecls_var      <- newIORef [] ;
         th_topnames_var      <- newIORef emptyNameSet ;
@@ -300,8 +299,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcl_th_ctxt    = topStage,
                 tcl_th_bndrs   = emptyNameEnv,
                 tcl_arrow_ctxt = NoArrowCtxt,
-                tcl_env        = rh_tcl_env,
-                tcl_scale      = One,
+                tcl_env        = emptyNameEnv,
                 tcl_bndrs      = [],
                 tcl_tidy       = emptyTidyEnv,
                 tcl_tyvars     = tvs_var,
@@ -1448,10 +1446,7 @@ isTouchableTcM tv
        ; return (isTouchableMetaTyVar (tcl_tclvl env) tv) }
 
 getLclTypeEnv :: TcM TcTypeEnv
-getLclTypeEnv = do { env <- getLclEnv; readTcRef (tcl_env env) }
-
-getLclTypeEnvRef :: TcM (TcRef TcTypeEnv)
-getLclTypeEnvRef = do { env <- getLclEnv; return (tcl_env env) }
+getLclTypeEnv = do { env <- getLclEnv; return (tcl_env env) }
 
 setLclTypeEnv :: TcLclEnv -> TcM a -> TcM a
 -- Set the local type envt, but do *not* disturb other fields,

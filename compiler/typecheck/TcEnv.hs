@@ -356,8 +356,8 @@ tcLookupLocalIds :: [Name] -> TcM [TcId]
 -- We expect the variables to all be bound, and all at
 -- the same level as the lookup.  Only used in one place...
 tcLookupLocalIds ns
-  = do { env <- readTcRef =<< (tcl_env <$> getLclEnv)
-       ; return (map (lookup env) ns) }
+  = do { env <- getLclEnv
+       ; return (map (lookup (tcl_env env)) ns) }
   where
     lookup lenv name
         = case lookupNameEnv lenv name of
@@ -374,13 +374,9 @@ tcExtendKindEnv2 :: [(Name, Weighted TcTyThing)] -> TcM r -> TcM r
 -- No need to update the global tyvars, or tcl_th_bndrs, or tcl_rdr
 tcExtendKindEnv2 things thing_inside
   = do { traceTc "txExtendKindEnv" (ppr things)
-       ; tcl_env_ref <- tcl_env <$> getLclEnv
-       ; env0 <- readTcRef tcl_env_ref
-       ; updTcRef tcl_env_ref (flip extendNameEnvList things)
-       ; result <- thing_inside
-       ; writeTcRef tcl_env_ref env0
-       ; return result
-       ; }
+       ; updLclEnv upd_env thing_inside }
+  where
+    upd_env env = env { tcl_env = extendNameEnvList (tcl_env env) things }
 
 -----------------------
 -- Scoped type and kind variables
@@ -490,19 +486,12 @@ tc_extend_local_env top_lvl extra_env thing_inside
 -- The second argument of type TyVarSet is a set of type variables
 -- that are bound together with extra_env and should not be regarded
 -- as free in the types of extra_env.
-  -- TODO: arnaud: explain what happens here.
   = do  { traceTc "env2" (ppr extra_env)
-        ; scale <- tcl_scale <$> getLclEnv
-        ; let scaled_extra_env = [(n,Weighted (c*scale) x) | (n,Weighted c x) <- extra_env]
         ; env0 <- getLclEnv
-        ; let tcl_env_ref = tcl_env env0
-        ; updTcRef tcl_env_ref (flip extendNameEnvList scaled_extra_env)
         ; env1 <- tcExtendLocalTypeEnv env0 extra_env
         ; stage <- getStage
-        ; let env2 = extend_local_env (top_lvl, thLevel stage) scaled_extra_env env1
-        ; result <- setLclEnv env2 thing_inside
-        ; writeTcRef tcl_env_ref =<< trimLocalEnv (map fst extra_env) =<< readTcRef tcl_env_ref
-        ; return result }
+        ; let env2 = extend_local_env (top_lvl, thLevel stage) extra_env env1
+        ; setLclEnv env2 thing_inside }
   where
     extend_local_env :: (TopLevelFlag, ThLevel) -> [(Name, Weighted TcTyThing)] -> TcLclEnv -> TcLclEnv
     -- Extend the local LocalRdrEnv and Template Haskell staging env simultaneously
@@ -517,25 +506,15 @@ tc_extend_local_env top_lvl extra_env thing_inside
             , tcl_th_bndrs = extendNameEnvList th_bndrs  -- We only track Ids in tcl_th_bndrs
                                  [(n, thlvl) | (n, Weighted _ ATcId {}) <- pairs] }
 
--- Remove local variables when they go out of scope. Ensure they have been
--- consumed if they were linear
-trimLocalEnv :: [Name] -> TcTypeEnv -> TcM TcTypeEnv
-trimLocalEnv [] env = return env
-trimLocalEnv (n:ns) env = do
-  case lookupNameEnv env n of
-    Just (Weighted cnt _) -> if cnt `elem` [-- Zero,
-                                           Omega]
-                         then trimLocalEnv ns (delFromNameEnv env n)
-                         else pprPanic "trimLocalEnv" (ppr n)
-
 tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, Weighted TcTyThing)] -> TcM TcLclEnv
-tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env_ref }) tc_ty_things
+tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env }) tc_ty_things
   | isEmptyVarSet extra_tvs
-  = return lcl_env
+  = return (lcl_env { tcl_env = extendNameEnvList lcl_type_env tc_ty_things })
   | otherwise
   = do { global_tvs <- readMutVar (tcl_tyvars lcl_env)
        ; new_g_var  <- newMutVar (global_tvs `unionVarSet` extra_tvs)
-       ; return (lcl_env { tcl_tyvars = new_g_var } ) }
+       ; return (lcl_env { tcl_tyvars = new_g_var
+                         , tcl_env = extendNameEnvList lcl_type_env tc_ty_things } ) }
   where
     extra_tvs = foldr get_tvs emptyVarSet tc_ty_things
 
@@ -990,7 +969,6 @@ pprBinders bndrs  = pprWithCommas ppr bndrs
 notFound :: Name -> TcM TyThing
 notFound name
   = do { lcl_env <- getLclEnv
-       ; tcl_env <- readTcRef (tcl_env lcl_env)
        ; let stage = tcl_th_ctxt lcl_env
        ; case stage of   -- See Note [Out of scope might be a staging error]
            Splice {}
@@ -1000,7 +978,7 @@ notFound name
            _ -> failWithTc $
                 vcat[text "GHC internal error:" <+> quotes (ppr name) <+>
                      text "is not in scope during type checking, but it passed the renamer",
-                     text "tcl_env of environment:" <+> ppr tcl_env]
+                     text "tcl_env of environment:" <+> ppr (tcl_env lcl_env)]
                        -- Take care: printing the whole gbl env can
                        -- cause an infinite loop, in the case where we
                        -- are in the middle of a recursive TyCon/Class group;

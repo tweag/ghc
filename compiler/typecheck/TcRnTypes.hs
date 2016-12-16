@@ -709,12 +709,8 @@ data TcLclEnv           -- Changes as we move inside an expression
                 -- We still need the unsullied global name env so that
                 --   we can look up record field names
 
-        tcl_env  :: TcRef TcTypeEnv,    -- The local type environment:
-                                        -- Ids and TyVars defined in this module
-                                        -- Managing weight (linearity) imposes that
-                                        -- it is a state rather than a reader
-                                        -- like in regular HM type systems.
-        tcl_scale :: Rig, -- how many "things" we have to produce at this point -- TODO: arnaud: improve comment
+        tcl_env  :: TcTypeEnv,    -- The local type environment:
+                                  -- Ids and TyVars defined in this module
 
         tcl_bndrs :: TcIdBinderStack,   -- Used for reporting relevant bindings
 
