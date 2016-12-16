@@ -575,7 +575,7 @@ mkTyConAppCo r tc cos
 
 -- | Make a function 'Coercion' between two other 'Coercion's
 mkFunCo :: Role -> Coercion -> Coercion -> Coercion
-mkFunCo r co1 co2 = mkTyConAppCo r funTyCon [co1, co2]
+mkFunCo r co1 co2 = mkTyConAppCo r (funTyCon Omega) [co1, co2] -- TODO: arnaud: make sure how this is used, it may be that we need to parametrise by a weight
 
 -- | Make nested function 'Coercion's
 mkFunCos :: Role -> [Coercion] -> Coercion -> Coercion

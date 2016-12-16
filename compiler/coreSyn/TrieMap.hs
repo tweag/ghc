@@ -793,8 +793,8 @@ data TypeMapX a
 trieMapView :: Type -> Maybe Type
 trieMapView ty | Just ty' <- coreViewOneStarKind ty = Just ty'
 trieMapView (TyConApp tc tys@(_:_)) = Just $ foldl AppTy (TyConApp tc []) tys
-trieMapView (FunTy _ arg res) -- FIXME: arnaud: when funTyCon takes an argument
-  = Just ((TyConApp funTyCon [] `AppTy` arg) `AppTy` res)
+trieMapView (FunTy w arg res)
+  = Just ((TyConApp (funTyCon w) [] `AppTy` arg) `AppTy` res)
 trieMapView _ = Nothing
 
 instance TrieMap TypeMapX where

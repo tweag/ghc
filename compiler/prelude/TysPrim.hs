@@ -325,11 +325,16 @@ openBetaTy  = mkTyVarTy openBetaTyVar
 ************************************************************************
 -}
 
-funTyConName :: Name
-funTyConName = mkPrimTyConName (fsLit "(->)") funTyConKey funTyCon
+funTyConName :: Rig -> Name
+funTyConName Zero = mkPrimTyConName (fsLit "(->_0)") funTyConKey (funTyCon Zero)
+funTyConName One = mkPrimTyConName (fsLit "(⊸)") funTyConKey (funTyCon One)
+funTyConName Omega = mkPrimTyConName (fsLit "(->)") funTyConKey (funTyCon Omega)
 
-funTyCon :: TyCon
-funTyCon = mkFunTyCon funTyConName tc_bndrs tc_rep_nm
+-- TODO: arnaud: without Rig, funTyCon (and funTyConName) was allocated a single
+-- time, now it's allocated at every call. It may be worth a bit of boilerplate
+-- to make the allocation unique as it used to.
+funTyCon :: Rig -> TyCon
+funTyCon w = mkFunTyCon w (funTyConName w) tc_bndrs tc_rep_nm
   where
     tc_bndrs = mkTemplateAnonTyConBinders [liftedTypeKind, liftedTypeKind]
 
@@ -342,7 +347,7 @@ funTyCon = mkFunTyCon funTyConName tc_bndrs tc_rep_nm
         -- a prefix way, thus:  (->) Int# Int#.  And this is unusual.
         -- because they are never in scope in the source
 
-    tc_rep_nm = mkPrelTyConRepName funTyConName
+    tc_rep_nm = mkPrelTyConRepName (funTyConName w)
 
 {-
 ************************************************************************

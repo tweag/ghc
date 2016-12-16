@@ -34,6 +34,7 @@ import DataCon
 import Id
 import Name
 import MkId
+import Weight           ( Rig(..) )
 import TysPrim
 import TysWiredIn
 import HscTypes
@@ -77,7 +78,7 @@ knownKeyNames :: [Name]
 -- you get a Name with the correct known key
 -- (See Note [Known-key names] in PrelNames)
 knownKeyNames
-  = concat [ tycon_kk_names funTyCon
+  = concat [ tycon_kk_names (funTyCon Omega) -- TODO: arnaud at least for One too
            , concatMap tycon_kk_names primTyCons
 
            , concatMap tycon_kk_names wiredInTyCons
@@ -155,7 +156,7 @@ ghcPrimExports
  = map (avail . idName) ghcPrimIds ++
    map (avail . idName . primOpId) allThePrimOps ++
    [ AvailTC n [n] []
-   | tc <- funTyCon : primTyCons, let n = tyConName tc  ]
+   | tc <- funTyCon Omega : primTyCons, let n = tyConName tc  ]
 
 {-
 ************************************************************************

@@ -1161,7 +1161,7 @@ getDFunTyKey (TyVarTy tv)            = getOccName tv
 getDFunTyKey (TyConApp tc _)         = getOccName tc
 getDFunTyKey (LitTy x)               = getDFunTyLitKey x
 getDFunTyKey (AppTy fun _)           = getDFunTyKey fun
-getDFunTyKey (FunTy _ _ _)           = getOccName funTyCon
+getDFunTyKey (FunTy w _ _)           = getOccName (funTyCon w)
 getDFunTyKey (ForAllTy _ t)          = getDFunTyKey t
 getDFunTyKey (CastTy ty _)           = getDFunTyKey ty
 getDFunTyKey t@(CoercionTy _)        = pprPanic "getDFunTyKey" (ppr t)
@@ -1303,7 +1303,7 @@ tcSplitTyConApp_maybe ty                           = tcRepSplitTyConApp_maybe ty
 
 tcRepSplitTyConApp_maybe :: Type -> Maybe (TyCon, [Type])
 tcRepSplitTyConApp_maybe (TyConApp tc tys) = Just (tc, tys)
-tcRepSplitTyConApp_maybe (FunTy _ arg res) = Just (funTyCon, [arg,res]) -- FIXME: Aeneid: when funTyCon has an argument
+tcRepSplitTyConApp_maybe (FunTy w arg res) = Just (funTyCon w, [arg,res])
 tcRepSplitTyConApp_maybe _                 = Nothing
 
 

@@ -208,7 +208,7 @@ ghcPrimTypeableBinds stuff
   = unionManyBags (map mkBind all_prim_tys)
   where
     all_prim_tys :: [TyCon]
-    all_prim_tys = [ tc' | tc <- funTyCon : primTyCons
+    all_prim_tys = [ tc' | tc <- (funTyCon Omega) : primTyCons
                          , tc' <- tc : tyConATs tc ]
 
     mkBind :: TyCon -> LHsBinds Id

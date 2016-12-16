@@ -951,7 +951,7 @@ splitHsFunType (L _ (HsFunTy x _weight y))
 splitHsFunType orig_ty@(L _ (HsAppTy t1 t2))
   = go t1 [t2]
   where  -- Look for (->) t1 t2, possibly with parenthesisation
-    go (L _ (HsTyVar (L _ fn))) tys | fn == funTyConName
+    go (L _ (HsTyVar (L _ fn))) tys | fn == (funTyConName Omega) -- TODO: arnaud harder but should be done for all arity
                                  , [t1,t2] <- tys
                                  , (args, res) <- splitHsFunType t2
                                  = (t1:args, res)
