@@ -33,7 +33,7 @@ module TcEnv(
         tcExtendIdBndrs, tcExtendLocalTypeEnv,
         isTypeClosedLetBndr,
 
-        tcLookup, tcLookupTakeOne, tcLookupLocated, tcLookupLocalIds,
+        tcLookup, tcLookupLocated, tcLookupLocalIds,
         tcLookupId, tcLookupTyVar,
         tcLookupLcl_maybe,
         getInLocalScope,
@@ -333,23 +333,6 @@ tcLookup name = do
         Just thing -> return (weightedThing thing)
         Nothing    -> AGlobal <$> tcLookupGlobal name
 
--- looks up 'name' in the environment, and subtracts one from its weight if it
--- is a local variable. Fails if the weight is zero.
-tcLookupTakeOne :: Name -> TcM TcTyThing
-tcLookupTakeOne name = do
-    local_env_ref <- getLclTypeEnvRef
-    local_env <- readTcRef local_env_ref
-    case lookupNameEnv local_env name of
-      Just (Weighted weight thing) ->
-        case subtractOne weight of
-          Just w -> do
-            let updated_env =
-                  extendNameEnv (delFromNameEnv local_env name) name (Weighted w thing)
-            writeTcRef local_env_ref updated_env
-            return thing
-          Nothing -> pprPanic "tclLookupTakeOne" (ppr name) -- TODO: arnaud: real error
-      Nothing -> AGlobal <$> tcLookupGlobal name
-
 tcLookupTyVar :: Name -> TcM TcTyVar
 tcLookupTyVar name
   = do { thing <- tcLookup name
@@ -534,7 +517,7 @@ trimLocalEnv :: [Name] -> TcTypeEnv -> TcM TcTypeEnv
 trimLocalEnv [] env = return env
 trimLocalEnv (n:ns) env = do
   case lookupNameEnv env n of
-    Just (Weighted cnt _) -> if cnt `elem` [Zero,
+    Just (Weighted cnt _) -> if cnt `elem` [-- Zero,
                                            Omega]
                          then trimLocalEnv ns (delFromNameEnv env n)
                          else pprPanic "trimLocalEnv" (ppr n)

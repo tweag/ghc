@@ -100,7 +100,7 @@ module TcRnMonad(
   pushLevelAndCaptureConstraints,
   pushTcLevelM_, pushTcLevelM,
   getTcLevel, setTcLevel, isTouchableTcM,
-  getLclTypeEnv, getLclTypeEnvRef, setLclTypeEnv,
+  getLclTypeEnv, setLclTypeEnv,
   traceTcConstraints, emitWildCardHoleConstraints,
 
   -- * Template Haskell context
