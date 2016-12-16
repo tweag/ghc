@@ -714,6 +714,8 @@ data TcLclEnv           -- Changes as we move inside an expression
                                         -- Managing weight (linearity) imposes that
                                         -- it is a state rather than a reader
                                         -- like in regular HM type systems.
+        tcl_scale :: Rig, -- how many "things" we have to produce at this point -- TODO: arnaud: improve comment
+
         tcl_bndrs :: TcIdBinderStack,   -- Used for reporting relevant bindings
 
         tcl_tidy :: TidyEnv,      -- Used for tidying types; contains all

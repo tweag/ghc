@@ -301,6 +301,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcl_th_bndrs   = emptyNameEnv,
                 tcl_arrow_ctxt = NoArrowCtxt,
                 tcl_env        = rh_tcl_env,
+                tcl_scale      = One,
                 tcl_bndrs      = [],
                 tcl_tidy       = emptyTidyEnv,
                 tcl_tyvars     = tvs_var,

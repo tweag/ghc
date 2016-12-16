@@ -1675,8 +1675,8 @@ runTcInteractive hsc_env thing_inside
                          , tcg_imports      = imports
                          }
 
-       ; tcExtendLocalTypeEnv lcl_env (map (fmap unrestricted) lcl_ids) $ -- TODO: arnaud: I don't know what `lcl_ids` are so I don't know if unrestricted is right
-         setGblEnv gbl_env thing_inside }
+       ; lcl_env' <- tcExtendLocalTypeEnv lcl_env (map (fmap unrestricted) lcl_ids) -- TODO: arnaud: I don't know what `lcl_ids` are so I don't know if unrestricted is right
+       ; setEnvs (gbl_env', lcl_env') thing_inside }
   where
     (home_insts, home_fam_insts) = hptInstances hsc_env (\_ -> True)
 

@@ -490,13 +490,19 @@ tc_extend_local_env top_lvl extra_env thing_inside
 -- The second argument of type TyVarSet is a set of type variables
 -- that are bound together with extra_env and should not be regarded
 -- as free in the types of extra_env.
+  -- TODO: arnaud: explain what happens here.
   = do  { traceTc "env2" (ppr extra_env)
+        ; scale <- tcl_scale <$> getLclEnv
+        ; let scaled_extra_env = [(n,Weighted (c*scale) x) | (n,Weighted c x) <- extra_env]
         ; env0 <- getLclEnv
-        ; tcExtendLocalTypeEnv env0 extra_env $ do {
-          ; stage <- getStage
-          ; env1  <- getLclEnv
-          ; let env2 = extend_local_env (top_lvl, thLevel stage) extra_env env1
-          ; setLclEnv env2 thing_inside }}
+        ; let tcl_env_ref = tcl_env env0
+        ; updTcRef tcl_env_ref (flip extendNameEnvList scaled_extra_env)
+        ; env1 <- tcExtendLocalTypeEnv env0 extra_env
+        ; stage <- getStage
+        ; let env2 = extend_local_env (top_lvl, thLevel stage) scaled_extra_env env1
+        ; result <- setLclEnv env2 thing_inside
+        ; writeTcRef tcl_env_ref =<< trimLocalEnv (map fst extra_env) =<< readTcRef tcl_env_ref
+        ; return result }
   where
     extend_local_env :: (TopLevelFlag, ThLevel) -> [(Name, Weighted TcTyThing)] -> TcLclEnv -> TcLclEnv
     -- Extend the local LocalRdrEnv and Template Haskell staging env simultaneously
@@ -522,23 +528,15 @@ trimLocalEnv (n:ns) env = do
                          then trimLocalEnv ns (delFromNameEnv env n)
                          else pprPanic "trimLocalEnv" (ppr n)
 
-
-
-tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, Weighted TcTyThing)] -> TcM a -> TcM a
-tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env_ref }) tc_ty_things thing_inside
+tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, Weighted TcTyThing)] -> TcM TcLclEnv
+tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env_ref }) tc_ty_things
   | isEmptyVarSet extra_tvs
-  = local_extend_ref thing_inside
+  = return lcl_env
   | otherwise
   = do { global_tvs <- readMutVar (tcl_tyvars lcl_env)
        ; new_g_var  <- newMutVar (global_tvs `unionVarSet` extra_tvs)
-       ; local_extend_ref $ setLclEnv (lcl_env { tcl_tyvars = new_g_var } ) thing_inside }
+       ; return (lcl_env { tcl_tyvars = new_g_var } ) }
   where
-    local_extend_ref thing_inside'
-      = do { updTcRef lcl_type_env_ref (flip extendNameEnvList tc_ty_things)
-           ; result <- thing_inside'
-           ; writeTcRef lcl_type_env_ref =<< trimLocalEnv (map fst tc_ty_things) =<< readTcRef lcl_type_env_ref
-           ; return result}
-
     extra_tvs = foldr get_tvs emptyVarSet tc_ty_things
 
     get_tvs (_, Weighted _ (ATcId { tct_id = id, tct_info = closed })) tvs
