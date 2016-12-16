@@ -96,10 +96,12 @@ scaleUE w (UsageEnv e) = UsageEnv $
 
 -- | |deleteUEAsserting w x env| deletes the binding to |x| in |env| under one
 -- condition: if |x| is bound to |w'| in |env|, then |w'| must be a subweight of
--- |w|. If the condition is not met, then |Nothing| is returned.
+-- |w|, if |x| is not bound in |env| then |Zero| must be a subweight of |W|. If
+-- the condition is not met, then |Nothing| is returned.
 deleteUEAsserting :: Rig -> Name -> UsageEnv -> Maybe UsageEnv
 deleteUEAsserting w x (UsageEnv e) | Just w' <- lookupNameEnv e x = do
   guard (subweight w' w)
   return $ UsageEnv (delFromNameEnv e x)
-deleteUEAsserting _ x (UsageEnv e) =
-  return $ UsageEnv (delFromNameEnv e x)
+deleteUEAsserting w x (UsageEnv e) = do
+  guard (subweight Zero w)
+  return $ UsageEnv e
