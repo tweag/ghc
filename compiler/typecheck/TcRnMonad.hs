@@ -141,6 +141,7 @@ import HscTypes
 import Module
 import RdrName
 import Name
+import Weight
 import Type
 
 import TcType
@@ -206,6 +207,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
         th_var       <- newIORef False ;
         th_splice_var<- newIORef False ;
         th_locs_var  <- newIORef Set.empty ;
+        usage_var    <- newIORef zeroUE ;
         infer_var    <- newIORef (True, emptyBag) ;
         lie_var      <- newIORef emptyWC ;
         dfun_n_var   <- newIORef emptyOccSet ;
@@ -300,6 +302,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcl_th_bndrs   = emptyNameEnv,
                 tcl_arrow_ctxt = NoArrowCtxt,
                 tcl_env        = emptyNameEnv,
+                tcl_usage      = usage_var,
                 tcl_bndrs      = [],
                 tcl_tidy       = emptyTidyEnv,
                 tcl_tyvars     = tvs_var,

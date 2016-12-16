@@ -77,6 +77,12 @@ weightedSet x b = fmap (\_->b) x
 -- 'Zero'.
 newtype UsageEnv = UsageEnv (NameEnv Rig)
 
+unitUE :: Name -> Rig -> UsageEnv
+unitUE x w = UsageEnv $ unitNameEnv x w
+
+mkUE :: [Weighted Name] -> UsageEnv
+mkUE ws = UsageEnv $ mkNameEnv (map (\wx -> (weightedThing wx,weightedWeight wx)) ws)
+
 zeroUE :: UsageEnv
 zeroUE = UsageEnv emptyNameEnv
 

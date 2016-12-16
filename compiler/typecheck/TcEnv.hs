@@ -553,6 +553,13 @@ tcExtendIdBndrs bndrs thing_inside
        ; updLclEnv (\env -> env { tcl_bndrs = bndrs ++ tcl_bndrs env })
                    thing_inside }
 
+tcEmitBindingUsage :: UsageEnv -> TcM ()
+tcEmitBindingUsage ue
+  = do { lcl_env <- getLclEnv
+       ; let usage = tcl_usage lcl_env
+       ; updTcRef usage (addUE ue) }
+
+
 
 {- *********************************************************************
 *                                                                      *
