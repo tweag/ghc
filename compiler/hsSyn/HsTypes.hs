@@ -1320,6 +1320,7 @@ ppr_fun_ty ctxt_prec ty1 weight ty2
   = let p1 = ppr_mono_lty FunPrec ty1
         p2 = ppr_mono_lty TopPrec ty2
         arr = case weight of
+          Zero -> "->_0"
           One -> "⊸"
           Omega -> "ω"
     in
