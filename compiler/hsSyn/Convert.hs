@@ -1158,7 +1158,7 @@ cvtTypeKind ty_str ty
              -> mk_apps (HsTyVar (noLoc (getRdrName (sumTyCon n)))) tys'
            ArrowT -- TODO: arnaud: linear syntax for template haskell.
              | [x',y'] <- tys' -> returnL (HsFunTy x' Omega y')
-             | otherwise -> mk_apps (HsTyVar (noLoc (getRdrName funTyCon))) tys'
+             | otherwise -> mk_apps (HsTyVar (noLoc (getRdrName (funTyCon Omega)))) tys' -- TODO: arnaud: fix when the above is done
            ListT
              | [x']    <- tys' -> returnL (HsListTy x')
              | otherwise
