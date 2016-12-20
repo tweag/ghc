@@ -46,6 +46,7 @@ import CoreSyn     ( isOrphan )
 import FunDeps
 import TcMType
 import Type
+import Weight
 import TyCoRep     ( TyBinder(..) )
 import TcType
 import HscTypes
@@ -150,7 +151,7 @@ deeplySkolemise ty
                    <.> mkWpEvVarApps ids1
                 , tvs1     ++ tvs2
                 , ev_vars1 ++ ev_vars2
-                , mkFunTys arg_tys rho ) }
+                , mkFunTys (map unrestricted arg_tys) rho ) } -- TODO: arnaud: check: possibly a bug here.
 
   | otherwise
   = return (idHsWrapper, [], [], ty)
@@ -188,7 +189,7 @@ top_instantiate inst_all orig ty
        ; (subst, inst_tvs') <- mapAccumLM newMetaTyVarX empty_subst inst_tvs
        ; let inst_theta' = substTheta subst inst_theta
              sigma'      = substTy subst (mkForAllTys leave_bndrs $
-                                          mkFunTys leave_theta rho)
+                                          mkFunTys (map unrestricted leave_theta) rho)
 
        ; wrap1 <- instCall orig (mkTyVarTys inst_tvs') inst_theta'
        ; traceTc "Instantiating"
@@ -245,7 +246,7 @@ deeplyInstantiate orig ty
                     <.> wrap2
                     <.> wrap1
                     <.> mkWpEvVarApps ids1,
-                 mkFunTys arg_tys rho2) }
+                 mkFunTys (map unrestricted arg_tys) rho2) }
 
   | otherwise = return (idHsWrapper, ty)
 

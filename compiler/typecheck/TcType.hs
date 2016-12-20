@@ -210,6 +210,7 @@ import VarEnv
 import PrelNames
 import TysWiredIn( coercibleClass, unitTyCon, unitTyConKey
                  , listTyCon, constraintKind )
+import Weight
 import BasicTypes
 import Util
 import Bag
@@ -1133,7 +1134,7 @@ mkSpecSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
 mkSpecSigmaTy tyvars ty = mkSigmaTy (mkTyVarBinders Specified tyvars) ty
 
 mkPhiTy :: [PredType] -> Type -> Type
-mkPhiTy = mkFunTys
+mkPhiTy = mkFunTys . map unrestricted
 
 -- @isTauTy@ tests if a type is "simple"..
 isTauTy :: Type -> Bool

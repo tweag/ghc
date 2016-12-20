@@ -35,6 +35,7 @@ import Inst( topInstantiate )
 import TcEnv( tcLookupId )
 import TcEvidence( HsWrapper, (<.>) )
 import Type( mkTyVarBinders )
+import Weight
 
 import DynFlags
 import Var      ( TyVar, tyVarName, tyVarKind )
@@ -368,9 +369,9 @@ tcPatSynSig name sig_ty
        -- Kind generalisation
        ; kvs <- kindGeneralize $
                 mkSpecForAllTys (implicit_tvs ++ univ_tvs) $
-                mkFunTys req $
+                mkFunTys (map unrestricted req) $
                 mkSpecForAllTys ex_tvs $
-                mkFunTys prov $
+                mkFunTys (map unrestricted prov) $
                 body_ty
 
        -- These are /signatures/ so we zonk to squeeze out any kind
