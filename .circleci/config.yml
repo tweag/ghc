@@ -4,6 +4,7 @@ jobs:
     working_directory: ~/ghc
     docker:
     - image: haskell:8
+    resource_class: xlarge
     steps:
     - run:
         name: git
@@ -22,12 +23,6 @@ jobs:
     - run:
         name: build
         command: |
-          # # do  not build docs
-          # echo 'HADDOCK_DOCS       = NO' >> mk/validate.mk
           echo 'BUILD_SPHINX_HTML  = NO' >> mk/validate.mk
           echo 'BUILD_SPHINX_PDF   = NO' >> mk/validate.mk
-          # # do not build dynamic libraries
-          # echo 'DYNAMIC_GHC_PROGRAMS = NO' >> mk/validate.mk
-          # echo 'GhcLibWays = v' >> mk/validate.mk
-          # nproc
-          THREADS=2 SKIP_PERF_TESTS=YES VERBOSE=2 ./validate --fast --quiet
+          THREADS=8 SKIP_PERF_TESTS=YES VERBOSE=2 ./validate --fast --quiet
