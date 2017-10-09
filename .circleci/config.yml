@@ -23,7 +23,7 @@ jobs:
           name: git
           command: |
             apt-get update
-            apt-get install -y git openssh-client make automake autoconf gcc perl python3 texinfo
+            apt-get install -qq git openssh-client make automake autoconf gcc perl python3 texinfo
       - checkout
       - *submodules
       - run:
@@ -42,7 +42,7 @@ jobs:
           command: |
             add-apt-repository ppa:hvr/ghc
             apt-get update
-            apt-get install -y ghc-8.0.2 alex happy
+            apt-get install -qq ghc-8.0.2 alex happy ncurses-dev
       - checkout
       - *submodules
       - run:
