@@ -33,7 +33,6 @@ jobs:
           echo 'BUILD_SPHINX_PDF   = NO' >> mk/validate.mk
           THREADS=8 SKIP_PERF_TESTS=YES VERBOSE=2 ./validate --fast --quiet
 
-jobs:
   "validate-x86_64-linux":
     docker:
     - image: tweag/toolchain-x86_64-freebsd
