@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   g++ \
   git \
   make \
+  openssh-client \
   patch \
   perl \
   python2.7 \
