@@ -1,23 +1,10 @@
 version: 2
-
-aliases:
-  - &defaults
-    working_directory: ~/ghc
-    resource_class: xlarge
-  - &submodules
-    run:
-      name: submodules
-      command: |
-        # Use github.com/ghc for those submodule repositories we couldn't connect to.
-        git config remote.origin.url git://github.com/ghc/ghc.git
-        git config --global url."git://github.com/ghc/packages-".insteadOf git://github.com/ghc/packages/
-        git submodule init # Don't be quiet, we want to show these urls.
-        git submodule --quiet update --recursive # Now we can be quiet again.
-
 jobs:
-  "validate-x86_64-linux":
+  build:
+    working_directory: ~/ghc
     docker:
-    - image: haskell:8.2
+    - image: haskell:8
+    resource_class: xlarge
     steps:
     - run:
         name: git
@@ -25,38 +12,17 @@ jobs:
           apt-get update
           apt-get install -y git openssh-client make automake autoconf gcc perl python3 texinfo
     - checkout
-    - *submodules
+    - run:
+        name: submodules
+        command: |
+          # Use github.com/ghc for those submodule repositories we couldn't connect to.
+          git config remote.origin.url git://github.com/ghc/ghc.git
+          git config --global url."git://github.com/ghc/packages-".insteadOf git://github.com/ghc/packages/
+          git submodule init # Don't be quiet, we want to show these urls.
+          git submodule --quiet update --recursive # Now we can be quiet again.
     - run:
         name: build
         command: |
           echo 'BUILD_SPHINX_HTML  = NO' >> mk/validate.mk
           echo 'BUILD_SPHINX_PDF   = NO' >> mk/validate.mk
           THREADS=8 SKIP_PERF_TESTS=YES VERBOSE=2 ./validate --fast --quiet
-
-jobs:
-  "validate-x86_64-linux":
-    docker:
-    - image: tweag/toolchain-x86_64-freebsd
-    steps:
-    - run:
-        name: git
-        command: |
-          add-apt-repository ppa:hvr/ghc
-          apt-get update
-          apt-get install -y ghc-8.0.2 alex happy
-    - checkout
-    - *submodules
-    - run:
-        name: build
-        command: |
-          echo 'BUILD_SPHINX_HTML = NO' >> mk/validate.mk
-          echo 'BUILD_SPHINX_PDF = NO' >> mk/validate.mk
-          echo 'HADDOCK_DOCS = NO' >> mk/validate.mk
-          echo 'WERROR = -Wwarn' >> mk/validate.mk
-          THREADS=8 SKIP_PERF_TESTS=YES VERBOSE=2 config_args=--target=x86_64-unknown-freebsd10 ./validate --quiet --build-only
-
-workflows:
-  version: 2
-  validate:
-    - validate-x86_64-linux
-    - validate-x86_64-freebsd
