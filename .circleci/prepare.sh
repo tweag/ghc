@@ -16,6 +16,7 @@ case "$target" in
     ;;
   Darwin)
     brew install ghc python3
+    cabal install alex happy haddock
     ;;
 esac
 
