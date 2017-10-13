@@ -15,7 +15,7 @@ case "$target" in
     apt-get install -qy ghc-8.0.2 alex happy ncurses-dev
     ;;
   Darwin)
-    brew install ghc python3
+    brew install ghc cabal-install python3
     cabal install alex happy haddock
     ;;
 esac
