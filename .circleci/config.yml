@@ -4,52 +4,36 @@ aliases:
   - &defaults
     working_directory: ~/ghc
     resource_class: xlarge
+  - &build-steps
+    - checkout
+    - run:
+        name: system-dependencies
+        command: .circleci/system-dependencies.sh
+    - run:
+        name: submodules
+        command: .circleci/fetch-submodules.sh
+    - run:
+        name: build
+        command: .circleci/build.sh
+
 
 jobs:
   "validate-x86_64-linux":
     docker:
       - image: haskell:8.2
-    steps:
-      - run:
-          name: git
-          command: |
-            apt-get update
-            apt-get install -qq git openssh-client make automake autoconf gcc perl python3 texinfo
-      - checkout
-      - run:
-          name: submodules
-          command: .circleci/fetch-submodules.sh
-      - run:
-          name: build
-          command: |
-            echo 'BUILD_SPHINX_HTML  = NO' >> mk/validate.mk
-            echo 'BUILD_SPHINX_PDF   = NO' >> mk/validate.mk
-            THREADS=8 SKIP_PERF_TESTS=YES VERBOSE=2 ./validate --fast --quiet
+    steps: *build-steps
 
   "validate-x86_64-freebsd":
     docker:
       - image: tweag/toolchain-x86_64-freebsd
-    steps:
-      - run:
-          name: Install GHC
-          command: |
-            add-apt-repository ppa:hvr/ghc
-            apt-get update
-            apt-get install -qq ghc-8.0.2 alex happy ncurses-dev
-      - checkout
-      - run:
-          name: submodules
-          command: .circleci/fetch-submodules.sh
-      - run:
-          name: build
-          command: |
-            echo 'BUILD_SPHINX_HTML = NO' >> mk/validate.mk
-            echo 'BUILD_SPHINX_PDF = NO' >> mk/validate.mk
-            echo 'HADDOCK_DOCS = NO' >> mk/validate.mk
-            echo 'WERROR=' >> mk/validate.mk
-            export PATH=/opt/ghc/bin:$PATH
-            ./boot
-            THREADS=8 SKIP_PERF_TESTS=YES VERBOSE=2 config_args=--target=x86_64-unknown-freebsd10 ./validate --quiet --build-only
+    environment:
+      TARGET: FreeBSD
+    steps: *build-steps
+
+  "validate-x86_64-darwin":
+    macos:
+      xcode: "9.0"
+    steps: *build-steps
 
 workflows:
   version: 2
@@ -57,3 +41,4 @@ workflows:
     jobs:
     - validate-x86_64-linux
     - validate-x86_64-freebsd
+    - validate-x86_64-darwin
