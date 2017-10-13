@@ -7,8 +7,8 @@ aliases:
   - &build-steps
     - checkout
     - run:
-        name: prepare-the-system
-        command: .circleci/prepare.sh
+        name: prepare-system
+        command: .circleci/prepare-system.sh
     - run:
         name: submodules
         command: .circleci/fetch-submodules.sh
