@@ -23,12 +23,14 @@ case "$(uname)" in
         echo 'HADDOCK_DOCS = NO' >> mk/validate.mk
         echo 'WERROR=' >> mk/validate.mk
         export PATH=/opt/ghc/bin:$PATH
+        export config_args=--target=x86_64-unknown-freebsd10
         ./boot
-        config_args=--target=x86_64-unknown-freebsd10 ./validate --quiet --build-only
+        ./validate --quiet --build-only
       else
         fail "TARGET=$target not supported"
       fi
     else
+      ./boot
       ./validate --fast --quiet
     fi
     ;;
@@ -36,6 +38,7 @@ case "$(uname)" in
     if [[ -n ${TARGET:-} ]]; then
       fail "uname=$(uname) not supported for cross-compilation"
     fi
+    ./boot
     ./validate --fast --quiet
     ;;
   *)
