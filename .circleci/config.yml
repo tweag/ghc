@@ -1,9 +1,6 @@
 version: 2
 
 aliases:
-  - &defaults
-    working_directory: ~/ghc
-    resource_class: xlarge
   - &build-steps
     - checkout
     - run:
