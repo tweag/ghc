@@ -18,6 +18,8 @@ case "$target" in
     brew install ghc cabal-install python3
     cabal update
     cabal install alex happy haddock
+    ln -s $HOME/.cabal/bin/alex /usr/local/bin/alex
+    ln -s $HOME/.cabal/bin/happy /usr/local/bin/happy
     ;;
 esac
 
