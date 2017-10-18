@@ -19,11 +19,13 @@ aliases:
 
 jobs:
   "validate-x86_64-linux":
+    resource_class: xlarge
     docker:
       - image: haskell:8.2
     steps: *build-steps
 
   "validate-x86_64-freebsd":
+    resource_class: xlarge
     docker:
       - image: tweag/toolchain-x86_64-freebsd
     environment:
