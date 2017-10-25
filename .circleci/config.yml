@@ -39,5 +39,5 @@ workflows:
   validate:
     jobs:
     - validate-x86_64-linux
-    - validate-x86_64-freebsd
-    - validate-x86_64-darwin
+    #- validate-x86_64-freebsd
+    #- validate-x86_64-darwin

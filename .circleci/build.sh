@@ -30,8 +30,8 @@ case "$(uname)" in
         fail "TARGET=$target not supported"
       fi
     else
-      ./boot
-      ./validate --fast --quiet
+#      ./boot
+      ./validate --fast # --quiet
     fi
     ;;
   Darwin)
