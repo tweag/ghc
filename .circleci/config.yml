@@ -1,17 +1,20 @@
 version: 2
 
 aliases:
-  - &build-steps
-    - checkout
-    - run:
-        name: prepare-system
-        command: .circleci/prepare-system.sh
-    - run:
-        name: submodules
-        command: .circleci/fetch-submodules.sh
-    - run:
-        name: build
-        command: .circleci/build.sh
+  - &defaults
+    working_directory: ~/ghc
+  - &prepare
+    run:
+      name: prepare-system
+      command: .circleci/prepare-system.sh
+  - &submodules
+    run:
+      name: submodules
+      command: .circleci/fetch-submodules.sh
+  - &build
+    run:
+      name: build
+      command: .circleci/build.sh
 
 
 jobs:
@@ -19,7 +22,19 @@ jobs:
     resource_class: xlarge
     docker:
       - image: haskell:8.2
-    steps: *build-steps
+    steps:
+      # Make sure we have proper openssh before checkout: CircleCI git
+      # does not check the repository out properly without it and also
+      # takes 20 times longer than it should be.
+      - run:
+          name: install openssh
+          command: |
+            apt-get update -qq
+            apt-get install -y openssh-client
+      - checkout
+      - *prepare
+      - *submodules
+      - *build
 
   "validate-x86_64-freebsd":
     resource_class: xlarge
@@ -27,12 +42,26 @@ jobs:
       - image: tweag/toolchain-x86_64-freebsd
     environment:
       TARGET: FreeBSD
-    steps: *build-steps
+    steps:
+      - run:
+          name: install git
+          command: |
+            apt-get update -qq
+            apt-get install -qy openssh-client
+      - checkout
+      - *prepare
+      - *submodules
+      - *build
 
   "validate-x86_64-darwin":
     macos:
       xcode: "9.0"
-    steps: *build-steps
+    # OSX comes with git by default so we shouldn't need to pull it in
+    steps:
+      - checkout
+      - *prepare
+      - *submodules
+      - *build
 
 workflows:
   version: 2
