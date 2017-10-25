@@ -11,6 +11,16 @@ fail() {
 echo 'BUILD_SPHINX_HTML = NO' > mk/validate.mk
 echo 'BUILD_SPHINX_PDF = NO' >> mk/validate.mk
 
+cat > mk/build.mk <<EOF
+V=1
+HADDOCK_DOCS=YES
+LATEX_DOCS=YES
+HSCOLOUR_SRCS=YES
+BUILD_DOCBOOK_HTML=YES
+BeConservative=YES
+EOF
+
+
 export THREADS=8
 export SKIP_PERF_TESTS=YES
 export VERBOSE=2
@@ -30,8 +40,14 @@ case "$(uname)" in
         fail "TARGET=$target not supported"
       fi
     else
-#      ./boot
-      ./validate --fast # --quiet
+      ./boot
+      ./configure
+      make -j8
+      make test
+      make binary-dist
+      #make test_bindist
+
+      #./validate --fast # --quiet
     fi
     ;;
   Darwin)

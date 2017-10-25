@@ -21,7 +21,9 @@ case "$(uname)" in
     else
       # assuming Ubuntu
       apt-get update -qq
-      apt-get install -qy git openssh-client make automake autoconf gcc perl python3 texinfo
+      apt-get install -qy git openssh-client make automake autoconf gcc perl python3 texinfo xz-utils
+      cabal update
+      cabal install --reinstall hscolour
     fi
     ;;
   Darwin)
