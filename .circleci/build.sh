@@ -30,8 +30,8 @@ case "$(uname)" in
     if [[ -n ${TARGET:-} ]]; then
       if [[ $TARGET = FreeBSD ]]; then
         # cross-compiling to FreeBSD
-        echo 'HADDOCK_DOCS = NO' >> mk/validate.mk
-        echo 'WERROR=' >> mk/validate.mk
+        echo 'HADDOCK_DOCS = NO' >> mk/build.mk
+        echo 'WERROR=' >> mk/build.mk
         export PATH=/opt/ghc/bin:$PATH
         export config_args=
         ./boot
