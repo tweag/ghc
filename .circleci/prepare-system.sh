@@ -17,6 +17,9 @@ case "$(uname)" in
         apt-get install -qy ghc-8.0.2 cabal-install  alex happy ncurses-dev git openssh-client make automake autoconf gcc perl python3 texinfo xz-utils
         cabal update
         cabal install --reinstall hscolour
+        echo $PATH
+        ln -s $HOME/.cabal/bin/hscolour /usr/local/bin/hscolour
+        which hscolour
       else
         fail "TARGET=$target not supported"
       fi
@@ -38,6 +41,7 @@ case "$(uname)" in
     # put them on the $PATH
     ln -s $HOME/.cabal/bin/alex /usr/local/bin/alex
     ln -s $HOME/.cabal/bin/happy /usr/local/bin/happy
+    ln -s $HOME/.cabal/bin/hscolour /usr/local/bin/hscolour
     ;;
   *)
     fail "uname=$(uname) not supported"
