@@ -35,6 +35,16 @@ jobs:
       - *prepare
       - *submodules
       - *build
+      - run:
+          name: collect artifacts
+
+          # We need this because CircleCI expects a path without
+          # wildcards but bindist archive name is not static
+          command: |
+            mkdir -p /tmp/artifacts
+            cp ~/ghc/bindistprep/ghc*.tar.xz /tmp/artifacts
+      - store-artifacts:
+          path: /tmp/artifacts
 
   "validate-x86_64-freebsd":
     resource_class: xlarge
@@ -67,6 +77,7 @@ workflows:
   version: 2
   validate:
     jobs:
-    #- validate-x86_64-linux
-    - validate-x86_64-freebsd
+    - validate-x86_64-linux
+    # FreeBSD disabled: https://github.com/haskell/unix/issues/102
+    # - validate-x86_64-freebsd
     - validate-x86_64-darwin
