@@ -1136,7 +1136,7 @@ unix-binary-dist-prep:
 # h means "follow symlinks", e.g. if aclocal.m4 is a symlink to a source
 # tree then we want to include the real file, not a symlink to it
 	sort bindist-list | uniq > bindist-list.uniq
-	cd bindistprep && "$(TAR_CMD)" hcf - -T ../bindist-list.uniq | $(TAR_COMP_CMD) -c > ../$(BIN_DIST_PREP_TAR_COMP)
+	cd bindistprep && "$(TAR_CMD)" hcf - -T ../bindist-list.uniq | $(TAR_COMP_CMD) -c --verbose > ../$(BIN_DIST_PREP_TAR_COMP)
 
 windows-binary-dist-prep:
 	$(call removeTrees,bindistprep/)
