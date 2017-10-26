@@ -17,10 +17,7 @@ case "$(uname)" in
         apt-get install -qy ghc-8.0.2 cabal-install  alex happy ncurses-dev git openssh-client make automake autoconf gcc perl python3 texinfo xz-utils
         cabal update
         cabal install --reinstall hscolour
-        echo $PATH $HOME
-        find $HOME/.cabal
-        ln -s $HOME/.cabal/bin/hscolour /usr/local/bin/hscolour
-        which hscolour
+        ln -s $HOME/.cabal/bin/HsColour /usr/local/bin/HsColour
       else
         fail "TARGET=$target not supported"
       fi
