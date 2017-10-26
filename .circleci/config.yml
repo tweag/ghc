@@ -15,7 +15,14 @@ aliases:
     run:
       name: build
       command: .circleci/build.sh
-
+  - &collectartifacts
+    run:
+      name: collect artifacts
+      # We need this because CircleCI expects a path without
+      # wildcards but bindist archive name is not static
+      command: |
+        mkdir -p /tmp/artifacts
+        cp ~/ghc/bindistprep/ghc*.tar.xz /tmp/artifacts
 
 jobs:
   "validate-x86_64-linux":
@@ -35,14 +42,7 @@ jobs:
       - *prepare
       - *submodules
       - *build
-      - run:
-          name: collect artifacts
-
-          # We need this because CircleCI expects a path without
-          # wildcards but bindist archive name is not static
-          command: |
-            mkdir -p /tmp/artifacts
-            cp ~/ghc/bindistprep/ghc*.tar.xz /tmp/artifacts
+      - *collectartifacts
       - store-artifacts:
           path: /tmp/artifacts
 
@@ -66,12 +66,14 @@ jobs:
   "validate-x86_64-darwin":
     macos:
       xcode: "9.0"
-    # OSX comes with git by default so we shouldn't need to pull it in
     steps:
       - checkout
       - *prepare
       - *submodules
       - *build
+      - *collectartifacts
+      - store-artifacts:
+          path: /tmp/artifacts
 
 workflows:
   version: 2
