@@ -34,7 +34,7 @@ case "$(uname)" in
     fi
     brew install ghc cabal-install python3 ncurses
     cabal update
-    cabal install alex happy haddock
+    cabal install --reinstall alex happy haddock hscolour
     # put them on the $PATH
     ln -s $HOME/.cabal/bin/alex /usr/local/bin/alex
     ln -s $HOME/.cabal/bin/happy /usr/local/bin/happy
