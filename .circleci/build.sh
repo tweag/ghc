@@ -33,9 +33,12 @@ case "$(uname)" in
         echo 'HADDOCK_DOCS = NO' >> mk/validate.mk
         echo 'WERROR=' >> mk/validate.mk
         export PATH=/opt/ghc/bin:$PATH
-        export config_args=--target=x86_64-unknown-freebsd10
+        export config_args=
         ./boot
-        ./validate --quiet --build-only
+        ./configure --target=x86_64-unknown-freebsd10
+        make -j8
+        make fasttest
+        make binary-dist
       else
         fail "TARGET=$target not supported"
       fi
@@ -43,11 +46,8 @@ case "$(uname)" in
       ./boot
       ./configure
       make -j8
-      make test
+      make fasttest
       make binary-dist
-      #make test_bindist
-
-      #./validate --fast # --quiet
     fi
     ;;
   Darwin)
@@ -55,7 +55,10 @@ case "$(uname)" in
       fail "uname=$(uname) not supported for cross-compilation"
     fi
     ./boot
-    ./validate --fast --quiet
+    ./configure
+    make -j8
+    make fasttest
+    make binary-dist
     ;;
   *)
     fail "uname=$(uname) not supported"
