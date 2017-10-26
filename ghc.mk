@@ -1091,7 +1091,7 @@ $(eval $(call bindist-list,.,\
     $(wildcard libraries/*/*/dist-install/doc/) \
     $(filter-out settings llvm-targets,$(INSTALL_LIBS)) \
     $(RTS_INSTALL_LIBS) \
-    $(filter-out %/project.mk mk/config.mk %/mk/install.mk,$(MAKEFILE_LIST)) \
+    $(filter-out testsuite/utils/check-ppr/% testsuite/utils/check-api-annotations/% %/project.mk mk/config.mk %/mk/install.mk,$(MAKEFILE_LIST)) \
     mk/project.mk \
     mk/install.mk.in \
     bindist.mk \
