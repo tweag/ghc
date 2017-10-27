@@ -27,12 +27,12 @@ install:
       bash -lc "cabal install -j --prefix=/usr/local alex happy"
 
 build_script:
-  - bash -lc "pwd"
-  - bash -lc "cd ghc && ./boot"
-  - bash -lc "cd ghc && ./configure --enable-tarball-autodownload"
-  - bash -lc "cd ghc && make -j8"
-  - bash -lc "cd ghc && make binary_dist"
-    bash -lc "cd ghc && 7z a ghc-windows.zip *.tar.xz"
+  - cd C:\projects\ghc
+  - bash -lc "./boot"
+  - bash -lc "./configure --enable-tarball-autodownload"
+  - bash -lc "make -j8"
+  - bash -lc "make binary_dist"
+    bash -lc "7z a ghc-windows.zip *.tar.xz"
 
 artifacts:
   - path: ghc-windows.zip
