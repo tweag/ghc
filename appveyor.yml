@@ -27,7 +27,7 @@ install:
       bash -lc "cabal install -j --prefix=/usr/local alex happy"
 
 build_script:
-  - bash -lc "cd $APPVEYOR_BUILD_FOLDER; boot"
+  - bash -lc "cd $APPVEYOR_BUILD_FOLDER; ./boot"
   - bash -lc "cd $APPVEYOR_BUILD_FOLDER; ./configure --enable-tarball-autodownload"
   - bash -lc "cd $APPVEYOR_BUILD_FOLDER; make -j8"
   - bash -lc "cd $APPVEYOR_BUILD_FOLDER; make binary_dist"
