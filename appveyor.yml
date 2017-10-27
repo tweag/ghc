@@ -18,6 +18,8 @@ deploy: off
 install:
   - cmd: |
       SET "PATH=C:\%MSYS2_DIR%\%MSYSTEM%\bin;C:\%MSYS2_DIR%\usr\bin;%PATH%"
+      bash -lc "pacman --noconfirm -S --needed git"
+      bash -lc "cd $APPVEYORD_BUILD_FOLDER; pwd; ls -lha; git status"
       bash -lc "pacman --noconfirm -Syuu"
       bash -lc "pacman --noconfirm -S --needed git tar bsdtar binutils autoconf make xz curl libtool automake python python2 p7zip patch mingw-w64-$(uname -m)-gcc mingw-w64-$(uname -m)-python3-sphinx mingw-w64-$(uname -m)-tools-git"
       bash -lc "curl -L https://downloads.haskell.org/~ghc/8.2.1/ghc-8.2.1-x86_64-unknown-mingw32.tar.xz | tar -xJ -C /mingw64 --strip-components=1"
@@ -27,6 +29,7 @@ install:
       bash -lc "cabal install -j --prefix=/usr/local alex happy"
 
 build_script:
+  - bash -lc "cd $APPVEYORD_BUILD_FOLDER; ls -lha"
   - bash -lc "cd $APPVEYORD_BUILD_FOLDER; git config remote.origin.url git://github.com/ghc/ghc.git"
   - bash -lc "cd $APPVEYORD_BUILD_FOLDER; git config --global url.\"git://github.com/ghc/packages-\".insteadOf git://github.com/ghc/packages/"
   - bash -lc "cd $APPVEYORD_BUILD_FOLDER; git submodule init"
