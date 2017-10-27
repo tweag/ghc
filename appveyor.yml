@@ -28,7 +28,8 @@ install:
 
 build_script:
   - cd C:\projects\ghc
-  - bash -lc "./boot"
+  - bash -lc "pwd && ls"
+  - bash -lc "perl boot"
   - bash -lc "./configure --enable-tarball-autodownload"
   - bash -lc "make -j8"
   - bash -lc "make binary_dist"
