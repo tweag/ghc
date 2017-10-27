@@ -27,6 +27,10 @@ install:
       bash -lc "cabal install -j --prefix=/usr/local alex happy"
 
 build_script:
+  - bash -lc "cd $APPVEYORD_BUILD_FOLDER; git config remote.origin.url git://github.com/ghc/ghc.git"
+  - bash -lc "cd $APPVEYORD_BUILD_FOLDER; git config --global url.\"git://github.com/ghc/packages-\".insteadOf git://github.com/ghc/packages/"
+  - bash -lc "cd $APPVEYORD_BUILD_FOLDER; git submodule init"
+  - bash -lc "cd $APPVEYORD_BUILD_FOLDER; git submodule --quiet update --recursive"
   - bash -lc "cd $APPVEYOR_BUILD_FOLDER; ./boot"
   - bash -lc "cd $APPVEYOR_BUILD_FOLDER; ./configure --enable-tarball-autodownload"
   - bash -lc "cd $APPVEYOR_BUILD_FOLDER; make -j8"
