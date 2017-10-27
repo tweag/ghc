@@ -27,15 +27,13 @@ install:
       bash -lc "cabal install -j --prefix=/usr/local alex happy"
 
 build_script:
-  - cd C:\projects\ghc
-  - bash -lc "pwd && ls"
-  - bash -lc "perl boot"
-  - bash -lc "./configure --enable-tarball-autodownload"
-  - bash -lc "make -j8"
-  - bash -lc "make binary_dist"
-    bash -lc "7z a ghc-windows.zip *.tar.xz"
+  - bash -lc "cd $APPVEYOR_BUILD_FOLDER; boot"
+  - bash -lc "cd $APPVEYOR_BUILD_FOLDER; ./configure --enable-tarball-autodownload"
+  - bash -lc "cd $APPVEYOR_BUILD_FOLDER; make -j8"
+  - bash -lc "cd $APPVEYOR_BUILD_FOLDER; make binary_dist"
+    bash -lc "cd $APPVEYOR_BUILD_FOLDER; 7z a ghc-windows.zip *.tar.xz"
 
 artifacts:
-  - path: ghc-windows.zip
+  - path: C:\projects\ghc\ghc-windows.zip
     name: GHC Windows bindist
     type: zip
