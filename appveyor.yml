@@ -32,7 +32,7 @@ install:
 
 build_script:
   - bash -lc "cd $APPVEYOR_BUILD_FOLDER; ./boot"
-  - bash -lc "cd $APPVEYOR_BUILD_FOLDER; ./configure --enable-tarball-autodownload"
+  - bash -lc "cd $APPVEYOR_BUILD_FOLDER; ./configure --enable-tarballs-autodownload"
   - bash -lc "cd $APPVEYOR_BUILD_FOLDER; make -j8"
   - bash -lc "cd $APPVEYOR_BUILD_FOLDER; make binary_dist"
     bash -lc "cd $APPVEYOR_BUILD_FOLDER; 7z a ghc-windows.zip *.tar.xz"
