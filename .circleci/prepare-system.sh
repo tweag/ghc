@@ -36,10 +36,10 @@ case "$(uname)" in
     brew install ghc cabal-install python3 ncurses
     cabal update
     cabal install --reinstall alex happy haddock hscolour
-    # put them on the $PATH
-    ln -s $HOME/.cabal/bin/alex /usr/local/bin/alex
-    ln -s $HOME/.cabal/bin/happy /usr/local/bin/happy
-    ln -s $HOME/.cabal/bin/hscolour /usr/local/bin/hscolour
+    # put them on the $PATH, don't fail if already installed
+    ln -s $HOME/.cabal/bin/alex /usr/local/bin/alex || true
+    ln -s $HOME/.cabal/bin/happy /usr/local/bin/happy || true
+    ln -s $HOME/.cabal/bin/hscolour /usr/local/bin/hscolour || true
     ;;
   *)
     fail "uname=$(uname) not supported"

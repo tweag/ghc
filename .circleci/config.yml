@@ -22,7 +22,9 @@ aliases:
       # wildcards but bindist archive name is not static
       command: |
         mkdir -p /tmp/artifacts
-        cp ~/ghc/ghc*.tar.xz /tmp/artifacts
+        pwd
+        find .
+        cp ghc*.tar.xz /tmp/artifacts
 
 jobs:
   "validate-x86_64-linux":
