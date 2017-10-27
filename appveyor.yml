@@ -3,26 +3,33 @@ version: "{build}"
 build:
   verbosity: normal
 
+environment:
+  matrix:
+    - COMPILER: msys2
+      PLATFORM: x64
+      MSYS2_ARCH: x86_64
+      MSYSTEM: MNGW64
+      BIT: 64
+
 deploy: off
 
 install:
   ps: |
-    bash -c 'curl -Lso stack.zip -L --insecure http://www.stackage.org/stack/windows-i386'
-    7z x stack.zip stack.exe
-    mkdir C:\stack
-    mv stack.exe C:\stack
+    SET "PATH=C:\%MSYS2_DIR%\%MSYSTEM%\bin;C:\%MSYS2_DIR%\usr\bin;%PATH%"
+    bash -lc "pacman -Syuu"
+    bash -lc "pacman -S --needed git tar bsdtar binutils autoconf make xz curl libtool automake python python2 p7zip patch mingw-w64-$(uname -m)-gcc mingw-w64-$(uname -m)-python3-sphinx mingw-w64-$(uname -m)-tools-git"
+    bash -lc "curl -L https://downloads.haskell.org/~ghc/8.2.1/ghc-8.2.1-x86_64-unknown-mingw32.tar.xz | tar -xJ -C /mingw64 --strip-components=1"
+    bash -lc "mkdir -p /usr/local/bin"
+    bash -lc "curl -L https://www.haskell.org/cabal/release/cabal-install-1.24.0.0/cabal-install-1.24.0.0-x86_64-unknown-mingw32.zip | bsdtar -xzf- -C /usr/local/bin"
+    bash -lc "cabal update"
+    bash -lc "cabal install -j --prefix=/usr/local alex happy"
 
 build_script:
-  - set PATH=C:\stack;%PATH%
-  - stack setup
-  - stack install alex happy
-  - stack exec --no-ghc-package-path -- mintty -e pacman -Syuu
-  - stack exec --no-ghc-package-path -- mintty -e "pacman -S --needed git tar bsdtar binutils autoconf make xz curl libtool automake python python2 p7zip patch mingw-w64-$(uname -m)-gcc mingw-w64-$(uname -m)-python3-sphinx mingw-w64-$(uname -m)-tools-git"
-  - stack exec --no-ghc-package-path -- mintty -e ./boot
-  - stack exec --no-ghc-package-path -- mintty -e ./configure --enable-tarball-autodownload
-  - stack exec --no-ghc-package-path -- mintty -e make -j8
-  - stack exec --no-ghc-package-path -- mintty -e make binary_dist
-  - stack exec --no-ghc-package-path -- mintty -e "7z a ghc-windows.zip *.tar.xz"
+  - bash -lc "./boot"
+  - bash -lc "./configure --enable-tarball-autodownload"
+  - bash -lc "make -j8"
+  - bash -lc "make binary_dist"
+    bash -lc "7z a ghc-windows.zip *.tar.xz"
 
 artifacts:
   - path: ghc-windows.zip
