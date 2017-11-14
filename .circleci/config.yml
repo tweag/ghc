@@ -1,43 +1,33 @@
 version: 2
 
-aliases:
-  - &build-steps
-    - checkout
-    - run:
-        name: prepare-system
-        command: .circleci/prepare-system.sh
-    - run:
-        name: submodules
-        command: .circleci/fetch-submodules.sh
-    - run:
-        name: build
-        command: .circleci/build.sh
-
-
 jobs:
-  "validate-x86_64-linux":
+  "docker-xlarge":
     resource_class: xlarge
     docker:
-      - image: haskell:8.2
-    steps: *build-steps
+      - image: ubuntu
+    steps:
+      - run: "env"
+      - run: "lscpu"
 
-  "validate-x86_64-freebsd":
-    resource_class: xlarge
+  "docker":
     docker:
-      - image: tweag/toolchain-x86_64-freebsd
-    environment:
-      TARGET: FreeBSD
-    steps: *build-steps
+      - image: ubuntu
+    steps:
+      - run: "env"
+      - run: "lscpu"
 
-  "validate-x86_64-darwin":
+  "macos":
     macos:
       xcode: "9.0"
-    steps: *build-steps
+    steps:
+      - run: "sysctl -n hw.ncpu"
+
 
 workflows:
   version: 2
   validate:
     jobs:
-    - validate-x86_64-linux
-    - validate-x86_64-freebsd
-    - validate-x86_64-darwin
+      - docker-xlarge
+      - docker
+      - macos
+
