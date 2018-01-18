@@ -567,7 +567,7 @@ repSafety PlaySafe = rep2 safeName []
 
 repFixD :: LFixitySig GhcRn -> DsM [(SrcSpan, Core TH.DecQ)]
 repFixD (L loc (FixitySig names (Fixity _ prec dir)))
-  = do { MkC prec' <- coreIntLit prec
+  = do { MkC prec' <- coreIntLit (toInteger prec)
        ; let rep_fn = case dir of
                         InfixL -> infixLDName
                         InfixR -> infixRDName
@@ -834,9 +834,9 @@ repRuleMatch ConLike = dataCon conLikeDataConName
 repRuleMatch FunLike = dataCon funLikeDataConName
 
 repPhases :: Activation -> DsM (Core TH.Phases)
-repPhases (ActiveBefore _ i) = do { MkC arg <- coreIntLit i
+repPhases (ActiveBefore _ i) = do { MkC arg <- coreIntLit (toInteger i)
                                   ; dataCon' beforePhaseDataConName [arg] }
-repPhases (ActiveAfter _ i)  = do { MkC arg <- coreIntLit i
+repPhases (ActiveAfter _ i)  = do { MkC arg <- coreIntLit (toInteger i)
                                   ; dataCon' fromPhaseDataConName [arg] }
 repPhases _                  = dataCon allPhasesDataConName
 
@@ -1833,8 +1833,8 @@ repPunboxedSum :: Core TH.PatQ -> TH.SumAlt -> TH.SumArity -> DsM (Core TH.PatQ)
 repPunboxedSum (MkC p) alt arity
  = do { dflags <- getDynFlags
       ; rep2 unboxedSumPName [ p
-                             , mkIntExprInt dflags alt
-                             , mkIntExprInt dflags arity ] }
+                             , mkIntExpr dflags (toInteger alt)
+                             , mkIntExpr dflags (toInteger arity) ] }
 
 repPcon   :: Core TH.Name -> Core [TH.PatQ] -> DsM (Core TH.PatQ)
 repPcon (MkC s) (MkC ps) = rep2 conPName [s, ps]
@@ -1903,8 +1903,8 @@ repUnboxedSum :: Core TH.ExpQ -> TH.SumAlt -> TH.SumArity -> DsM (Core TH.ExpQ)
 repUnboxedSum (MkC e) alt arity
  = do { dflags <- getDynFlags
       ; rep2 unboxedSumEName [ e
-                             , mkIntExprInt dflags alt
-                             , mkIntExprInt dflags arity ] }
+                             , mkIntExpr dflags (toInteger alt)
+                             , mkIntExpr dflags (toInteger arity) ] }
 
 repCond :: Core TH.ExpQ -> Core TH.ExpQ -> Core TH.ExpQ -> DsM (Core TH.ExpQ)
 repCond (MkC x) (MkC y) (MkC z) = rep2 condEName [x,y,z]
@@ -2262,17 +2262,19 @@ repNamedTyCon (MkC s) = rep2 conTName [s]
 repTupleTyCon :: Int -> DsM (Core TH.TypeQ)
 -- Note: not Core Int; it's easier to be direct here
 repTupleTyCon i = do dflags <- getDynFlags
-                     rep2 tupleTName [mkIntExprInt dflags i]
+                     rep2 tupleTName [mkIntExpr dflags (toInteger i)]
 
 repUnboxedTupleTyCon :: Int -> DsM (Core TH.TypeQ)
 -- Note: not Core Int; it's easier to be direct here
-repUnboxedTupleTyCon i = do dflags <- getDynFlags
-                            rep2 unboxedTupleTName [mkIntExprInt dflags i]
+repUnboxedTupleTyCon i
+    = do dflags <- getDynFlags
+         rep2 unboxedTupleTName [mkIntExpr dflags (toInteger i)]
 
 repUnboxedSumTyCon :: TH.SumArity -> DsM (Core TH.TypeQ)
 -- Note: not Core TH.SumArity; it's easier to be direct here
-repUnboxedSumTyCon arity = do dflags <- getDynFlags
-                              rep2 unboxedSumTName [mkIntExprInt dflags arity]
+repUnboxedSumTyCon arity
+    = do dflags <- getDynFlags
+         rep2 unboxedSumTName [mkIntExpr dflags (toInteger arity)]
 
 repArrowTyCon :: DsM (Core TH.TypeQ)
 repArrowTyCon = rep2 arrowTName []
@@ -2284,8 +2286,9 @@ repPromotedDataCon :: Core TH.Name -> DsM (Core TH.TypeQ)
 repPromotedDataCon (MkC s) = rep2 promotedTName [s]
 
 repPromotedTupleTyCon :: Int -> DsM (Core TH.TypeQ)
-repPromotedTupleTyCon i = do dflags <- getDynFlags
-                             rep2 promotedTupleTName [mkIntExprInt dflags i]
+repPromotedTupleTyCon i
+    = do dflags <- getDynFlags
+         rep2 promotedTupleTName [mkIntExpr dflags (toInteger i)]
 
 repPromotedNilTyCon :: DsM (Core TH.TypeQ)
 repPromotedNilTyCon = rep2 promotedNilTName []
@@ -2455,9 +2458,9 @@ coreJust' elt_ty es = MkC (mkJustExpr elt_ty (unC es))
 
 ------------ Literals & Variables -------------------
 
-coreIntLit :: Int -> DsM (Core Int)
+coreIntLit :: Integer -> DsM (Core Int)
 coreIntLit i = do dflags <- getDynFlags
-                  return (MkC (mkIntExprInt dflags i))
+                  return (MkC (mkIntExprWrap dflags i))
 
 coreIntegerLit :: Integer -> DsM (Core Integer)
 coreIntegerLit i = fmap MkC (mkIntegerExpr i)

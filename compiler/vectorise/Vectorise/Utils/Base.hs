@@ -66,7 +66,7 @@ newLocalVVar fs vty
 -- Constructors ---------------------------------------------------------------
 
 mkDataConTag :: DynFlags -> DataCon -> CoreExpr
-mkDataConTag dflags = mkIntLitInt dflags . dataConTagZ
+mkDataConTag dflags = mkIntLit dflags . toInteger . dataConTagZ
 
 
 -- Type Construction ----------------------------------------------------------

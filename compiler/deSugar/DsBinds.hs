@@ -1335,15 +1335,16 @@ dsEvCallStack cs = do
   df            <- getDynFlags
   m             <- getModule
   srcLocDataCon <- dsLookupDataCon srcLocDataConName
-  let mkSrcLoc l =
+  let intExp x = mkIntExpr df (toInteger x)
+      mkSrcLoc l =
         liftM (mkCoreConApps srcLocDataCon)
               (sequence [ mkStringExprFS (unitIdFS $ moduleUnitId m)
                         , mkStringExprFS (moduleNameFS $ moduleName m)
                         , mkStringExprFS (srcSpanFile l)
-                        , return $ mkIntExprInt df (srcSpanStartLine l)
-                        , return $ mkIntExprInt df (srcSpanStartCol l)
-                        , return $ mkIntExprInt df (srcSpanEndLine l)
-                        , return $ mkIntExprInt df (srcSpanEndCol l)
+                        , return $ intExp (srcSpanStartLine l)
+                        , return $ intExp (srcSpanStartCol l)
+                        , return $ intExp (srcSpanEndLine l)
+                        , return $ intExp (srcSpanEndCol l)
                         ])
 
   emptyCS <- Var <$> dsLookupGlobalId emptyCallStackName

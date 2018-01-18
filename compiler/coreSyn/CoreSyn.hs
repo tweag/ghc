@@ -24,8 +24,8 @@ module CoreSyn (
         mkLet, mkLets, mkLetNonRec, mkLetRec, mkLams,
         mkApps, mkTyApps, mkCoApps, mkVarApps, mkTyArg,
 
-        mkIntLit, mkIntLitInt,
-        mkWordLit, mkWordLitWord,
+        mkIntLit, mkIntLitWrap,
+        mkWordLit, mkWordLitWrap,
         mkWord64LitWord64, mkInt64LitInt64,
         mkCharLit, mkStringLit,
         mkFloatLit, mkFloatLitFloat,
@@ -1823,22 +1823,23 @@ mkTyArg ty
 -- | Create a machine integer literal expression of type @Int#@ from an @Integer@.
 -- If you want an expression of type @Int@ use 'MkCore.mkIntExpr'
 mkIntLit      :: DynFlags -> Integer -> Expr b
--- | Create a machine integer literal expression of type @Int#@ from an @Int@.
+-- | Create a machine integer literal expression of type @Int#@ from an @Integer@,
+-- truncating the value to fit in the target word size.
 -- If you want an expression of type @Int@ use 'MkCore.mkIntExpr'
-mkIntLitInt   :: DynFlags -> Int     -> Expr b
+mkIntLitWrap   :: DynFlags -> Integer     -> Expr b
 
-mkIntLit    dflags n = Lit (mkMachInt dflags n)
-mkIntLitInt dflags n = Lit (mkMachInt dflags (toInteger n))
+mkIntLit     dflags n = Lit (mkMachInt dflags n)
+mkIntLitWrap dflags n = Lit (mkMachIntWrap dflags n)
 
 -- | Create a machine word literal expression of type  @Word#@ from an @Integer@.
 -- If you want an expression of type @Word@ use 'MkCore.mkWordExpr'
 mkWordLit     :: DynFlags -> Integer -> Expr b
 -- | Create a machine word literal expression of type  @Word#@ from a @Word@.
 -- If you want an expression of type @Word@ use 'MkCore.mkWordExpr'
-mkWordLitWord :: DynFlags -> Word -> Expr b
+mkWordLitWrap :: DynFlags -> Integer -> Expr b
 
 mkWordLit     dflags w = Lit (mkMachWord dflags w)
-mkWordLitWord dflags w = Lit (mkMachWord dflags (toInteger w))
+mkWordLitWrap dflags w = Lit (mkMachWordWrap dflags w)
 
 mkWord64LitWord64 :: Word64 -> Expr b
 mkWord64LitWord64 w = Lit (mkMachWord64 (toInteger w))
