@@ -686,7 +686,8 @@ liftLitDynFlags f = do
 removeOp32 :: RuleM CoreExpr
 removeOp32 = do
   dflags <- getDynFlags
-  if wordSizeInBits dflags == 32
+  if wordSizeInBits dflags == 32 &&
+     platformArch (targetPlatform dflags) /= ArchJavaScript
   then do
     [e] <- getArgs
     return e
