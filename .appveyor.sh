@@ -35,7 +35,7 @@ case "$1" in
         # Build the compiler
         ./boot
         ./configure --enable-tarballs-autodownload
-        make -j2
+        make -j3 all_libraries/ghc-prim
         ;;
 
     "test")
