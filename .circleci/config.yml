@@ -63,6 +63,9 @@ aliases:
   - &store_test_results
     store_test_results:
       path: test-results
+  - &store_test_artifacts
+    store_artifacts:
+      path: test-results
   - &slowtest
     run:
       name: Full Test
@@ -105,6 +108,7 @@ jobs:
       - *storeartifacts
       - *test
       - *store_test_results
+      - *store_test_artifacts
 
   "validate-x86_64-freebsd":
     resource_class: xlarge
