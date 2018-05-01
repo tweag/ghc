@@ -212,7 +212,11 @@ same_fields flds1 flds2
 
 -----------------
 selectConMatchVars :: [Weighted Type] -> ConArgPats -> DsM [Id]
-selectConMatchVars arg_tys (RecCon {})      = newSysLocalsDsNoLP arg_tys
+-- MattP: I added the scaling here on 01/05/2018. It fixed quite a lot of
+-- core lint failings and matches up with the other cases (via
+-- selectMatchVars) which also return Omega. This will have to be
+-- revisited.
+selectConMatchVars arg_tys (RecCon {})      = newSysLocalsDsNoLP (map (scaleWeighted Omega) arg_tys)
 selectConMatchVars _       (PrefixCon ps)   = selectMatchVars (map unLoc ps)
 selectConMatchVars _       (InfixCon p1 p2) = selectMatchVars [unLoc p1, unLoc p2]
 
