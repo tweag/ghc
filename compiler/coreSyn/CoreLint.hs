@@ -767,6 +767,7 @@ lintCoreExpr (Let (NonRec bndr rhs) body)
                   addGoodJoins [bndr] $
                   lintCoreExpr body)
         ; let l_weight = idWeight bndr
+        ; pprTrace "let-corelint" (ppr bndr $$ ppr let_ue $$ ppr l_weight $$ ppr body_ue $$ ppr body) (return ())
         ; checkLinearity body_ue bndr
         ; return (body_ty, body_ue `addUE` (l_weight `scaleUE` let_ue))}
 

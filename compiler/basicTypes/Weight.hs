@@ -103,8 +103,8 @@ irrelevantWeight = weightedThing
 mkWeighted = Weighted
 
 instance Outputable a => Outputable (Weighted a) where
-   ppr (Weighted cnt t) = -- ppr cnt <> ppr t
-                          ppr t
+   ppr (Weighted cnt t) = ppr t <> brackets (ppr cnt)
+                          --ppr t
 
 -- MattP: For now we don't print the weight by default as it creeps into
 -- error messages.

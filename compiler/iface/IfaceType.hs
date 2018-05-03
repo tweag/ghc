@@ -1115,14 +1115,14 @@ pprParendIfaceCoercion = ppr_co TyConPrec
 
 ppr_co :: TyPrec -> IfaceCoercion -> SDoc
 ppr_co _         (IfaceReflCo r ty) = angleBrackets (ppr ty) <> ppr_role r
-ppr_co ctxt_prec (IfaceFunCo r _ co1 co2) -- TODO: arnaud: print multiplicity somehow
+ppr_co ctxt_prec (IfaceFunCo r w co1 co2) -- TODO: arnaud: print multiplicity somehow
   = maybeParen ctxt_prec FunPrec $
     sep (ppr_co FunPrec co1 : ppr_fun_tail co2)
   where
-    ppr_fun_tail (IfaceFunCo r _ co1 co2)
-      = (arrow <> ppr_role r <+> ppr_co FunPrec co1) : ppr_fun_tail co2
+    ppr_fun_tail (IfaceFunCo r w co1 co2)
+      = (arrow <> ppr_role r <> brackets (ppr w) <+> ppr_co FunPrec co1) : ppr_fun_tail co2
     ppr_fun_tail other_co
-      = [arrow <> ppr_role r <+> pprIfaceCoercion other_co]
+      = [arrow <> ppr_role r <> brackets (ppr w) <+> pprIfaceCoercion other_co]
 
 ppr_co _         (IfaceTyConAppCo r tc cos)
   = parens (pprIfaceCoTcApp TopPrec tc cos) <> ppr_role r
