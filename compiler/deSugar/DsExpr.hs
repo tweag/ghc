@@ -215,7 +215,7 @@ dsUnliftedBind (PatBind {pat_lhs = pat, pat_rhs = grhss
        ; let upat = unLoc pat
              eqn = EqnInfo { eqn_pats = [upat],
                              eqn_rhs = cantFailMatchResult body }
-       ; var    <- selectMatchVar upat
+       ; var    <- selectMatchVar Omega upat -- MattP: TODO: This looks correctish but check the OMEGA
        ; result <- matchEquations PatBindRhs [var] [eqn] (exprType body)
        ; return (bindNonRec var rhs result) }
 

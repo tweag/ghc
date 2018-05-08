@@ -212,9 +212,12 @@ same_fields flds1 flds2
 
 -----------------
 selectConMatchVars :: [Weighted Type] -> ConArgPats -> DsM [Id]
-selectConMatchVars arg_tys (RecCon {})      = newSysLocalsDsNoLP arg_tys
-selectConMatchVars _       (PrefixCon ps)   = selectMatchVars (map unLoc ps)
-selectConMatchVars _       (InfixCon p1 p2) = selectMatchVars [unLoc p1, unLoc p2]
+selectConMatchVars arg_tys con = case con of
+                                   (RecCon {}) -> newSysLocalsDsNoLP arg_tys
+                                   (PrefixCon ps) -> selectMatchVars (zipWeights arg_tys ps)
+                                   (InfixCon p1 p2) -> selectMatchVars (zipWeights arg_tys [p1, p2])
+  where
+    zipWeights = zipWithEqual "selectConMatchVar" (\a b -> (weightedWeight a, unLoc b))
 
 conArgPats :: [Weighted Type]-- Instantiated argument types
                           -- Used only to fill in the types of WildPats, which

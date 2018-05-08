@@ -98,7 +98,11 @@ otherwise, make one up.
 -}
 
 selectSimpleMatchVarL :: LPat GhcTc -> DsM Id
-selectSimpleMatchVarL pat = selectMatchVar (unLoc pat)
+selectSimpleMatchVarL pat = selectMatchVar Omega (unLoc pat)
+-- TODO: MattP: This function is used in a few places where is might be
+-- necessary to take into account multiplicity but it wasn't on the
+-- critical path to fix for now.
+
 
 -- (selectMatchVars ps tys) chooses variables of type tys
 -- to use for matching ps against.  If the pattern is a variable,
@@ -116,8 +120,8 @@ selectSimpleMatchVarL pat = selectMatchVar (unLoc pat)
 --    Then we must not choose (x::Int) as the matching variable!
 -- And nowadays we won't, because the (x::Int) will be wrapped in a CoPat
 
-selectMatchVars :: [Pat GhcTc] -> DsM [Id]
-selectMatchVars ps = mapM selectMatchVar ps
+selectMatchVars :: [(Rig, Pat GhcTc)] -> DsM [Id]
+selectMatchVars ps = mapM (uncurry selectMatchVar) ps
 
 selectMatchVar :: Rig -> Pat GhcTc -> DsM Id
 selectMatchVar w (BangPat _ pat) = selectMatchVar w (unLoc pat)

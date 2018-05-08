@@ -716,7 +716,11 @@ matchWrapper ctxt mb_scr (MG { mg_alts = L _ matches
 
         ; new_vars    <- case matches of
                            []    -> mapM (\(Weighted w ty) -> newSysLocalDsNoLP w ty) arg_tys
-                           (m:_) -> selectMatchVars (map unLoc (hsLMatchPats m))
+                           (m:_) ->
+                            selectMatchVars (zipWithEqual "matchWrapper"
+                                              (\a b -> (weightedWeight a, unLoc b))
+                                                arg_tys
+                                                (hsLMatchPats m))
 
         ; eqns_info   <- mapM (mk_eqn_info new_vars) matches
 
