@@ -604,8 +604,7 @@ dsCmd ids local_vars stack_ty res_ty
     core_body <- dsExpr (HsCase noExt exp
                          (MG { mg_alts = L l matches'
                              , mg_arg_tys = arg_tys
-                             , mg_res_ty = sum_ty, mg_origin = origin
-                             , mg_weight = Omega })) -- TODO: MattP check this multiplicity is correct
+                             , mg_res_ty = sum_ty, mg_origin = origin }))
         -- Note that we replace the HsCase result type by sum_ty,
         -- which is the type of matches'
 

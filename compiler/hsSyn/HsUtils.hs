@@ -163,14 +163,13 @@ unguardedGRHSs rhs@(L loc _)
 unguardedRHS :: SrcSpan -> Located (body id) -> [LGRHS id (Located (body id))]
 unguardedRHS loc rhs = [L loc (GRHS [] rhs)]
 
-mkMatchGroup :: (PostTc name Type ~ PlaceHolder, PostTc name Rig ~ PlaceHolder)
+mkMatchGroup :: (PostTc name Type ~ PlaceHolder)
              => Origin -> [LMatch name (Located (body name))]
              -> MatchGroup name (Located (body name))
 mkMatchGroup origin matches = MG { mg_alts = mkLocatedList matches
                                  , mg_arg_tys = []
                                  , mg_res_ty = placeHolderType
-                                 , mg_origin = origin
-                                 , mg_weight = PlaceHolder }
+                                 , mg_origin = origin }
 
 mkLocatedList ::  [Located a] -> Located [Located a]
 mkLocatedList [] = noLoc []
@@ -828,7 +827,7 @@ mkPatSynBind name details lpat dir = PatSynBind noExt psb
 -- |If any of the matches in the 'FunBind' are infix, the 'FunBind' is
 -- considered infix.
 isInfixFunBind :: HsBindLR id1 id2 -> Bool
-isInfixFunBind (FunBind _ _ (MG matches _ _ _ _) _ _)
+isInfixFunBind (FunBind _ _ (MG matches _ _ _) _ _)
   = any (isInfixMatch . unLoc) (unLoc matches)
 isInfixFunBind _ = False
 

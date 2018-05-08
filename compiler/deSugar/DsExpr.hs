@@ -215,8 +215,8 @@ dsUnliftedBind (PatBind {pat_lhs = pat, pat_rhs = grhss
        ; let upat = unLoc pat
              eqn = EqnInfo { eqn_pats = [upat],
                              eqn_rhs = cantFailMatchResult body }
-       ; var    <- selectMatchVar Omega upat -- TODO: MattP
-       ; result <- matchEquations PatBindRhs [var] [eqn] (exprType body) Omega -- MattP: TODO check this multiplicity.
+       ; var    <- selectMatchVar upat
+       ; result <- matchEquations PatBindRhs [var] [eqn] (exprType body)
        ; return (bindNonRec var rhs result) }
 
 dsUnliftedBind bind body = pprPanic "dsLet: unlifted" (ppr bind $$ ppr body)
@@ -632,9 +632,7 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
         ; ([discrim_var], matching_code)
                 <- matchWrapper RecUpd Nothing (MG { mg_alts = noLoc alts
                                                    , mg_arg_tys = [unrestricted in_ty] -- TODO: arnaud: haven't thought of the rules for record update
-                                                   , mg_res_ty = out_ty
-                                                   , mg_origin = FromSource
-                                                   , mg_weight = Omega }) -- MattP: TODO Check this multiplicity
+                                                   , mg_res_ty = out_ty, mg_origin = FromSource })
                                                    -- FromSource is not strictly right, but we
                                                    -- want incomplete pattern-match warnings
 
@@ -958,8 +956,7 @@ dsDo stmts
                                                        body']
                       , mg_arg_tys = map unrestricted arg_tys
                       , mg_res_ty = body_ty
-                      , mg_origin = Generated
-                      , mg_weight = Omega } -- TODO: MattP: Check this multiplicity
+                      , mg_origin = Generated }
 
            ; fun' <- dsLExpr fun
            ; let mk_ap_call l (op,r) = dsSyntaxExpr op [l,r]
@@ -991,8 +988,7 @@ dsDo stmts
                                                     LambdaExpr
                                                     [mfix_pat] body]
                                , mg_arg_tys = [unrestricted tup_ty], mg_res_ty = body_ty
-                               , mg_origin = Generated
-                               , mg_weight = Omega }) -- TODO: MattP: check this multiplicity
+                               , mg_origin = Generated })
         mfix_pat     = noLoc $ LazyPat noExt $ mkBigLHsPatTupId rec_tup_pats
         body         = noLoc $ HsDo body_ty
                                 DoExpr (noLoc (rec_stmts ++ [ret_stmt]))

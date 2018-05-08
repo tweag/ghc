@@ -259,11 +259,7 @@ tc_cmd env
                                          , m_grhss = grhss' })
               arg_tys = map hsLPatType pats'
               cmd' = HsCmdLam x (MG { mg_alts = L l [match'], mg_arg_tys = map unrestricted arg_tys
-                                  , mg_res_ty = res_ty, mg_origin = origin, mg_weight = Omega  })
-                                    -- MattP: Check Omega here - not sure
-                                    -- what this was used for yet but
-                                    -- I think it's probably fine to be
-                                    -- Omega.
+                                  , mg_res_ty = res_ty, mg_origin = origin })
         ; return (mkHsCmdWrap (mkWpCastN co) cmd') }
   where
     n_pats     = length pats
