@@ -154,7 +154,7 @@ matchOneConLike vars ty weight (eqn1 : eqns)   -- All eqns for a single construc
                             )
               shift (_, (EqnInfo { eqn_pats = ps })) = pprPanic "matchOneCon/shift" (ppr ps)
         ; let scale_new_vars = map (\var -> scaleIdBy var weight)
-        ; arg_vars <- scale_new_vars <$> selectConMatchVars val_arg_tys args1
+        ; arg_vars <- selectConMatchVars val_arg_tys args1
                 -- Use the first equation as a source of
                 -- suggestions for the new variables
 

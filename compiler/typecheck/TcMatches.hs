@@ -231,7 +231,7 @@ tcMatches ctxt pat_tys rhs_ty (MG { mg_alts = L l matches
                     , mg_arg_tys = pat_tys
                     , mg_res_ty = rhs_ty
                     , mg_origin = origin
-                    , mg_weight = Omega }) } -- MattP: This information should be collected from above
+                    , mg_weight = One }) } -- MattP: This information should be collected from above
 
 -------------
 tcMatch :: (Outputable (body GhcRn)) => TcMatchCtxt body
