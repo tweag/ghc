@@ -2744,7 +2744,8 @@ knownCon :: SimplEnv
          -> SimplM (SimplFloats, OutExpr)
 
 knownCon env scrut dc dc_ty_args dc_args bndr bs rhs cont
-  = do  { (floats1, env1)  <- bind_args env bs dc_args
+  = do  { let bs' = map (\i -> scaleIdBy i (idWeight bndr)) bs
+        ; (floats1, env1)  <- bind_args env bs' dc_args
         ; (floats2, env2) <- bind_case_bndr env1
         ; (floats3, expr') <- simplExprF env2 rhs cont
         ; return (floats1 `addFloats` floats2 `addFloats` floats3, expr') }
