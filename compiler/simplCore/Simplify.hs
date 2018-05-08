@@ -2346,7 +2346,10 @@ rebuildCase env scrut case_bndr alts cont
         }
   where
     simple_rhs bs rhs = ASSERT( null bs )
-                        do { (floats1, env') <- simplNonRecX env case_bndr scrut
+                        do { let case_bndr' = scaleIdBy case_bndr Omega -- MattP: This is an annoying occurence as it comes from decontructing a case. Thus the weight on the variable was the
+  -- weight of the overall case. We are now going to use it as a variable
+  -- so I have no idea how to properly scale it but this will work?
+                           ; (floats1, env') <- simplNonRecX env case_bndr' scrut
                                -- scrut is a constructor application,
                                -- hence satisfies let/app invariant
                            ; (floats2, expr') <- simplExprF env' rhs cont
