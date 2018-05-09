@@ -52,3 +52,5 @@ T13244
 -- 48
 joao-circular
 unboxedsums12
+-- #77
+T3787
