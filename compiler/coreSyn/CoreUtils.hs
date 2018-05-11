@@ -54,7 +54,10 @@ module CoreUtils (
         collectMakeStaticArgs,
 
         -- * Join points
-        isJoinBind
+        isJoinBind,
+
+        -- * Linearity
+        scaleBind
     ) where
 
 #include "HsVersions.h"
@@ -2516,3 +2519,19 @@ isJoinBind :: CoreBind -> Bool
 isJoinBind (NonRec b _)       = isJoinId b
 isJoinBind (Rec ((b, _) : _)) = isJoinId b
 isJoinBind _                  = False
+
+{-
+************************************************************************
+*                                                                      *
+\subsection{Linearity}
+*                                                                      *
+************************************************************************
+-}
+
+-- | Scale a bind by a weight, only applies to NonRec binds as recursive
+-- binds are always treated as `Omega`.
+scaleBind :: Rig -> CoreBind -> CoreBind
+scaleBind w (NonRec b rhs) = NonRec (scaleIdBy b w) rhs
+scaleBind _ b = b
+
+

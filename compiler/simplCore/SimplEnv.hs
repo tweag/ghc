@@ -36,7 +36,7 @@ module SimplEnv (
 
         -- * LetFloats
         LetFloats, letFloatBinds, emptyLetFloats, unitLetFloat,
-        addLetFlts,  mapLetFloats,
+        addLetFlts,  mapLetFloats, scaleLetFloats,
 
         -- * JoinFloats
         JoinFloat, JoinFloats, emptyJoinFloats,
@@ -561,6 +561,15 @@ addJoinFloats floats join_floats
   = floats { sfJoinFloats = sfJoinFloats floats `addJoinFlts` join_floats
            , sfInScope    = foldlOL extendInScopeSetBind
                                     (sfInScope floats) join_floats }
+
+
+-- See note [Scaling Let Floats] TODO: Write this note and explain why we
+-- have to scale floated let bindings (as they might float outside cases)
+scaleLetFloats :: Rig -> SimplFloats -> SimplFloats
+scaleLetFloats w floats = floats { sfLetFloats = scale_let_floats (sfLetFloats floats) }
+  where
+    scale_let_floats (LetFloats olist fltflag) = LetFloats (fmap (scaleBind w) olist) fltflag
+
 
 extendInScopeSetBind :: InScopeSet -> CoreBind -> InScopeSet
 extendInScopeSetBind in_scope bind

@@ -1189,7 +1189,11 @@ rebuild env expr cont
                        -- NB: mkCast implements the (Coercion co |> g) optimisation
 
       Select { sc_bndr = bndr, sc_alts = alts, sc_env = se, sc_cont = cont }
-        -> rebuildCase (se `setInScopeFromE` env) expr bndr alts cont
+        -> do
+            (floats, expr) <- rebuildCase (se `setInScopeFromE` env) expr bndr alts cont
+            let scrut_weight = idWeight bndr
+            -- See Note [Scaling let floats]
+            return (scaleLetFloats scrut_weight floats, expr)
 
       StrictArg { sc_fun = fun, sc_cont = cont, sc_weight = w }
         -> rebuildCall env (fun `addValArgTo` (w, expr)) cont
@@ -1909,6 +1913,56 @@ continuations.  We have to keep the right in-scope set around; AND we have
 to get the effect that finding (error "foo") in a strict arg position will
 discard the entire application and replace it with (error "foo").  Getting
 all this at once is TOO HARD!
+
+Note [Scaling Let Floats]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The simplifier creates let bindings under certain circumstances which
+are then inserted later, at as high a level as possible.
+
+However, we have to be somewhat careful here when it comes to linearity
+as if we create a floating binding `x`
+
+```
+case_w (let x[1] = "Foo" in Qux x) of
+  Qux _ -> "Bar"
+```
+
+Then the let will continue outwards
+
+```
+let x[1] = "Foo"
+in "Bar"
+```
+
+So we get a linearity failure as the one usage of `x` is eliminated.
+However, because the ambient context is an `Omega` context, we know that
+we will use the scrutinee `Omega` times and hence all bindings inside it
+`Omega` times as well. The failure was that we created a `[1]` binding
+whilst inside this context.
+
+We also have to be careful as if we have a `[1]` case
+
+```
+case_1 (let x[1] = "Foo" in Qux x) of
+  Qux x -> x
+```
+
+then the binding maintains the correct linearity once it is floated rom
+the case and KnownBranch is performed.
+
+```
+let x[1] = "Foo"
+in x
+```
+
+Why do we do this scaling afterwards rather than when the binding is
+created? It is possible the binding comes from a point deep inside the
+expression. It wasn't clear to me that we know enough about the context
+at the point we make the binding due to the `SimplCont` type. It might
+be thread this information through to get it right at definition site.
+For now, I leave warnings and this message to my future self.
+
 
 
 ************************************************************************
