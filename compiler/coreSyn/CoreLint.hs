@@ -1085,7 +1085,7 @@ lintAltBinders rhs_ue scrut_ty con_ty ((var_w, bndr):bndrs)
 checkCaseLinearity :: (Rig, Var -> Rig, Rig) ->  Rig -> Var -> LintM ()
 checkCaseLinearity (scrut_usage, var_usage, scrut_w) var_w bndr = do
   lintL (lhs `subweight` rhs) err_msg
-  lintLinearBinder (ppr bndr) (var_usage bndr) (varWeight bndr)
+  lintLinearBinder (ppr bndr) (scrut_w * var_w) (varWeight bndr)
   where
     lhs = var_usage bndr + (scrut_usage * var_w)
     rhs = scrut_w * var_w
@@ -1250,13 +1250,13 @@ lintCoreAlt lookup_scrut scrut_ty scrut_weight alt_ty alt@(DataAlt con, args, rh
 
 lintLinearBinder :: SDoc -> Rig -> Rig -> LintM ()
 lintLinearBinder doc actual_usage described_usage
-  = lintL (actual_usage `subweight` described_usage)
+  = lintL (actual_usage == described_usage)
           err_msg
     where
-      err_msg = (text "Weight of variable does agree with its usage"
+      err_msg = (text "Weight of variable does agree with its context"
                 $$ doc
-                $$ ppr described_usage
-                $$ text "Usage:" <+> ppr actual_usage)
+                $$ ppr actual_usage
+                $$ text "Annotation:" <+> ppr described_usage)
 
 {-
 ************************************************************************
