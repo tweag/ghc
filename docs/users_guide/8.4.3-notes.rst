@@ -1,6 +1,6 @@
-.. _release-8-4-2:
+.. _release-8-4-3:
 
-Release notes for version 8.4.2
+Release notes for version 8.4.3
 ===============================
 
 Highlights
@@ -8,20 +8,18 @@ Highlights
 
 This is a bug-fix release resolving several regressions introduced in 8.4.1.
 
-The highlights, since the 8.4.1 release, are:
+The highlights, since the 8.4.2 release, are:
 
-- Fixed a regression causing uses of ``Control.Exception.evaluate`` to be
-  incorrectly optimised, resulting in incorrect evaluation behavior
-  (:ghc-ticket:`13930`)
+- A bug (:ghc-ticket:`15068`) causing GHC to produce assembler that would be rejected by
+  some versions of GNU Binutils, has been fixed.
 
-- Fix a regression causing the interpreter to segmentation fault when built with
-  profiling (:ghc-ticket:`14705`)
-  
-- DWARF debug information support has been significantly improved
-  (:ghc-ticket:`14894`, :ghc-ticket:`14779`)
+- ``GHC.Compact.compact`` now properly handles ``SmallArray``\ s (:ghc-ticket:`13857`)
 
-- A regression in runtime performance of code involving ``newtype``\s has been
-  fixed (:ghc-ticket:`14936`)
+- A bug (:ghc-ticket:`15038`) resulting in memory corruption and crashes in some uses of
+  unboxed sums has been fixed.
+
+- GHC now logs a message when an :ref:`environment file <package-environments>`
+  is loaded (:ghc-ticket:`15145`).
 
 Full details
 ------------
@@ -32,25 +30,15 @@ other issues, described below.
 Compiler
 ~~~~~~~~
 
-- A bug affecting GHC's debug output support (:ghc-flag:`-g`) which resulted in
-  invalid code being generated for string literals (:ghc-ticket:`13868`)
-
-- :ghc-ticket:`14918`, where ``Read`` instances for types with field names
-  containing ``#`` would fail to parse, has been fixed.
-
-- Several compiler panics have been resolved (:ghc-ticket:`12158`,
-  :ghc-ticket:`15002`, :ghc-ticket:`14933`, :ghc-ticket:`14959`)
-
-- Fix a regression in which derived ``Read`` instances for record data types
-  with field names ending with ``#`` (by way of :ghc-flag:`-XMagicHash`) would
-  no longer parse valid output.
+No changes beyond those listed in Highlights.
 
 
 Runtime system
 ~~~~~~~~~~~~~~
 
-- A bug causing panics while running programs with retainer profiling
-  (:rts-flag:`-hr`) was fixed (:ghc-ticket:`14947`)
+- A bug causing aggressive potentially resulting in crashes when
+  (:rts-flag:`nursery chunks <-n ⟨size⟩>`) are used with a changing capability
+  count has been fixed.
 
 Template Haskell
 ~~~~~~~~~~~~~~~~
@@ -74,18 +62,12 @@ No changes.
 ``integer-gmp`` library
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-- Version bumped to 1.0.2.0 to account for the addition of ``powModSecInteger``.
-
-- Define ``powModSecInteger``, a "secure" version of ``powModInteger`` using
-  the ``mpz_powm_sec`` function.
+No changes.
 
 Build system
 ~~~~~~~~~~~~
 
-- ``configure`` now takes a ``--disable-dtrace`` flag, allowing workaround of
-  :ghc-ticket:`15040`.
-
-- A bug breaking GHC builds bootstrapped on Darwin has been fixed (:ghc-ticket:`14972`)
+No changes.
 
 Included libraries
 ------------------
