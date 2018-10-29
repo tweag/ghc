@@ -855,8 +855,8 @@ simplExprF env e cont
 simplExprF1 :: SimplEnv -> InExpr -> SimplCont
             -> SimplM (SimplFloats, OutExpr)
 
-simplExprF1 _ (Type ty) _
-  = pprPanic "simplExprF: type" (ppr ty)
+simplExprF1 _ (Type ty) cont
+  = pprPanic "simplExprF: type" (ppr ty <+> text"cont: " <+> ppr cont)
     -- simplExprF does only with term-valued expressions
     -- The (Type ty) case is handled separately by simplExpr
     -- and by the other callers of simplExprF
@@ -941,7 +941,7 @@ simplExprF1 env (Let (NonRec bndr rhs) body) cont
   = {-#SCC "simplNonRecJoinPoint" #-} simplNonRecJoinPoint env bndr' rhs' body cont
 
   | otherwise
-  = {-#SCC "simplNonRecE" #-} simplNonRecE env bndr (rhs, env) ([], body) cont
+  = {-#SCC "simplNonRecE" #-} ASSERT (isId bndr) simplNonRecE env bndr (rhs, env) ([], body) cont
 
 {- Note [Avoiding space leaks in OutType]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1350,7 +1350,7 @@ simplLam env (bndr:bndrs) body (ApplyToVal { sc_arg = arg, sc_env = arg_se
 
   | otherwise
   = do  { tick (BetaReduction bndr)
-        ; simplNonRecE env zapped_bndr (arg, arg_se) (bndrs, body) cont }
+        ; ASSERT2 (isId bndr, ppr bndr) simplNonRecE env zapped_bndr (arg, arg_se) (bndrs, body) cont }
   where
     zapped_bndr  -- See Note [Zap unfolding when beta-reducing]
       | isId bndr = zapStableUnfolding bndr
@@ -1425,7 +1425,7 @@ simplNonRecE :: SimplEnv
 --       the call to simplLam in simplExprF (Lam ...)
 
 simplNonRecE env bndr (rhs, rhs_se) (bndrs, body) cont
-  | ASSERT( isId bndr && not (isJoinId bndr) ) True
+  | ASSERT2( isId bndr && not (isJoinId bndr) , ppr bndr <+> text"=" <+> ppr rhs) True
   , Just env' <- preInlineUnconditionally env NotTopLevel bndr rhs rhs_se
   = do { tick (PreInlineUnconditionally bndr)
        ; -- pprTrace "preInlineUncond" (ppr bndr <+> ppr rhs) $
