@@ -1245,6 +1245,13 @@ dataConUserType :: DataCon -> Type
 -- mentions the family tycon, not the internal one.
 dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
                           dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                          dcOrigResTy = res_ty, dcRep = NoDataConRep })
+  = mkForAllTys user_tvbs $
+    mkFunTys (map unrestricted theta) $
+    mkFunTys arg_tys $
+    res_ty
+dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
+                          dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                           dcOrigResTy = res_ty })
   = let tvb = mkTyVarBinder Inferred multiplicityTyVar
         ty  = mkTyVarTy multiplicityTyVar
