@@ -193,7 +193,7 @@ def format_path(path):
 # On Windows we need to set $PATH to include the paths to all the DLLs
 # in order for the dynamic library tests to work.
 if windows or darwin:
-    pkginfo = str(getStdout([config.ghc_pkg, 'dump']))
+    pkginfo = getStdout([config.ghc_pkg, 'dump'])
     topdir = config.libdir
     if windows:
         mingw = os.path.abspath(os.path.join(topdir, '../mingw/bin'))
@@ -289,7 +289,7 @@ for name in config.only:
         framework_fail(name, '', 'test not found')
     else:
         # Let user fix .T file errors before reporting on unfound tests.
-        # The reson the test can not be found is likely because of those
+        # The reason the test can not be found is likely because of those
         # .T file errors.
         pass
 
