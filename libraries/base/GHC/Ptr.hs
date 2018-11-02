@@ -1,5 +1,5 @@
 {-# LANGUAGE Unsafe #-}
-{-# LANGUAGE CPP, NoImplicitPrelude, MagicHash, RoleAnnotations #-}
+{-# LANGUAGE CPP, NoImplicitPrelude, MagicHash, RoleAnnotations, GADTSyntax, LinearTypes #-}
 {-# OPTIONS_HADDOCK hide #-}
 
 -----------------------------------------------------------------------------
@@ -41,8 +41,13 @@ import Numeric          ( showHex )
 -- pointer. And phantom is useful to implement castPtr (see #9163)
 
 -- redundant role annotation checks that this doesn't change
+
+-- The Ptr data type is defined with GADT syntax so that the data constructor
+-- is unrestricted in the Addr# argument. This is desirable for users
+-- of linear haskell.
 type role Ptr phantom
-data Ptr a = Ptr Addr#
+data Ptr a where
+  Ptr :: Addr# -> Ptr a
   deriving ( Eq  -- ^ @since 2.01
            , Ord -- ^ @since 2.01
            )

@@ -1,6 +1,6 @@
 {-# LANGUAGE MagicHash, NoImplicitPrelude, TypeFamilies, UnboxedTuples,
              MultiParamTypeClasses, RoleAnnotations, CPP, TypeOperators,
-             PolyKinds #-}
+             PolyKinds, LinearTypes, GADTSyntax #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  GHC.Types
@@ -129,25 +129,40 @@ To convert a 'Char' to or from the corresponding 'Int' value defined
 by Unicode, use 'Prelude.toEnum' and 'Prelude.fromEnum' from the
 'Prelude.Enum' class respectively (or equivalently 'ord' and 'chr').
 -}
-data {-# CTYPE "HsChar" #-} Char = C# Char#
+data {-# CTYPE "HsChar" #-} Char where
+  -- Char is defined with GADT syntax to make the data constructor unrestricted
+  -- in its argument for users of linear haskell.
+  C# :: Char# -> Char
 
 -- | A fixed-precision integer type with at least the range @[-2^29 .. 2^29-1]@.
 -- The exact range for a given implementation can be determined by using
 -- 'Prelude.minBound' and 'Prelude.maxBound' from the 'Prelude.Bounded' class.
-data {-# CTYPE "HsInt" #-} Int = I# Int#
+data {-# CTYPE "HsInt" #-} Int where
+  -- Int is defined with GADT syntax to make the data constructor unrestricted
+  -- in its argument for users of linear haskell.
+  I# :: Int# -> Int
 
 -- |A 'Word' is an unsigned integral type, with the same size as 'Int'.
-data {-# CTYPE "HsWord" #-} Word = W# Word#
+data {-# CTYPE "HsWord" #-} Word where
+  -- Word is defined with GADT syntax to make the data constructor unrestricted
+  -- in its argument for users of linear haskell.
+  W# :: Word# -> Word
 
 -- | Single-precision floating point numbers.
 -- It is desirable that this type be at least equal in range and precision
 -- to the IEEE single-precision type.
-data {-# CTYPE "HsFloat" #-} Float = F# Float#
+data {-# CTYPE "HsFloat" #-} Float where
+  -- Float is defined with GADT syntax to make the data constructor unrestricted
+  -- in its argument for users of linear haskell.
+  F# :: Float# -> Float
 
 -- | Double-precision floating point numbers.
 -- It is desirable that this type be at least equal in range and precision
 -- to the IEEE double-precision type.
-data {-# CTYPE "HsDouble" #-} Double = D# Double#
+data {-# CTYPE "HsDouble" #-} Double where
+  -- Double is defined with GADT syntax to make the data constructor unrestricted
+  -- in its argument for users of linear haskell.
+  D# :: Double# -> Double
 
 
 {- *********************************************************************

@@ -1,5 +1,6 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE CPP, NoImplicitPrelude, BangPatterns, MagicHash, UnboxedTuples #-}
+{-# LANGUAGE CPP, NoImplicitPrelude, BangPatterns, MagicHash, UnboxedTuples,
+             LinearTypes, GADTSyntax #-}
 {-# OPTIONS_HADDOCK hide #-}
 
 -----------------------------------------------------------------------------
@@ -60,8 +61,11 @@ import GHC.Show
 
 -- Word8 is represented in the same way as Word. Operations may assume
 -- and must ensure that it holds only values from its logical range.
+-- It uses GADT syntax to be unrestricted in the underlying Word# for
+-- users of linear haskell.
 
-data {-# CTYPE "HsWord8" #-} Word8 = W8# Word#
+data {-# CTYPE "HsWord8" #-} Word8 where
+  W8# :: Word# -> Word8
 -- ^ 8-bit unsigned integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules
@@ -244,8 +248,11 @@ instance FiniteBits Word8 where
 
 -- Word16 is represented in the same way as Word. Operations may assume
 -- and must ensure that it holds only values from its logical range.
+-- It uses GADT syntax to be unrestricted in the underlying Word# for
+-- users of linear haskell.
 
-data {-# CTYPE "HsWord16" #-} Word16 = W16# Word#
+data {-# CTYPE "HsWord16" #-} Word16 where
+  W16# :: Word# -> Word16
 -- ^ 16-bit unsigned integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules
@@ -437,6 +444,8 @@ byteSwap16 (W16# w#) = W16# (narrow16Word# (byteSwap16# w#))
 #if WORD_SIZE_IN_BITS > 32
 -- Operations may assume and must ensure that it holds only values
 -- from its logical range.
+-- It uses GADT syntax to be unrestricted in the underlying Word# for
+-- users of linear haskell.
 
 -- We can use rewrite rules for the RealFrac methods
 
@@ -472,7 +481,8 @@ byteSwap16 (W16# w#) = W16# (narrow16Word# (byteSwap16# w#))
 
 #endif
 
-data {-# CTYPE "HsWord32" #-} Word32 = W32# Word#
+data {-# CTYPE "HsWord32" #-} Word32 where
+  W32# :: Word# -> Word32
 -- ^ 32-bit unsigned integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules
@@ -660,7 +670,10 @@ byteSwap32 (W32# w#) = W32# (narrow32Word# (byteSwap32# w#))
 
 #if WORD_SIZE_IN_BITS < 64
 
-data {-# CTYPE "HsWord64" #-} Word64 = W64# Word64#
+-- The Word64 data type uses GADT syntax to be unrestricted in the underlying
+-- Word64# for users of linear haskell.
+data {-# CTYPE "HsWord64" #-} Word64 where
+  W64# :: Word64# -> Word64
 -- ^ 64-bit unsigned integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules
@@ -801,8 +814,11 @@ a `shiftRL64#` b | isTrue# (b >=# 64#) = wordToWord64# 0##
 -- Word64 is represented in the same way as Word.
 -- Operations may assume and must ensure that it holds only values
 -- from its logical range.
+-- It uses GADT syntax to be unrestricted in the underlying Word# for
+-- users of linear haskell.
 
-data {-# CTYPE "HsWord64" #-} Word64 = W64# Word#
+data {-# CTYPE "HsWord64" #-} Word64 where
+  W64# :: Word# -> Word64
 -- ^ 64-bit unsigned integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules

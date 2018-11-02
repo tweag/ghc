@@ -1,6 +1,6 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE CPP, NoImplicitPrelude, BangPatterns, MagicHash, UnboxedTuples,
-             StandaloneDeriving, NegativeLiterals #-}
+             StandaloneDeriving, NegativeLiterals, LinearTypes, GADTSyntax #-}
 {-# OPTIONS_HADDOCK hide #-}
 
 -----------------------------------------------------------------------------
@@ -53,8 +53,11 @@ import GHC.Show
 
 -- Int8 is represented in the same way as Int. Operations may assume
 -- and must ensure that it holds only values from its logical range.
+-- It uses GADT syntax to be unrestricted in the underlying Int# for
+-- users of linear haskell.
 
-data {-# CTYPE "HsInt8" #-} Int8 = I8# Int#
+data {-# CTYPE "HsInt8" #-} Int8 where
+  I8# :: Int# -> Int8
 -- ^ 8-bit signed integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules
@@ -253,8 +256,11 @@ instance FiniteBits Int8 where
 
 -- Int16 is represented in the same way as Int. Operations may assume
 -- and must ensure that it holds only values from its logical range.
+-- It uses GADT syntax to be unrestricted in the underlying Int# for
+-- users of linear haskell.
 
-data {-# CTYPE "HsInt16" #-} Int16 = I16# Int#
+data {-# CTYPE "HsInt16" #-} Int16 where
+  I16# :: Int# -> Int16
 -- ^ 16-bit signed integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules
@@ -457,9 +463,12 @@ instance FiniteBits Int16 where
 #if WORD_SIZE_IN_BITS > 32
 -- Operations may assume and must ensure that it holds only values
 -- from its logical range.
+-- It uses GADT syntax to be unrestricted in the underlying Int# for
+-- users of linear haskell.
 #endif
 
-data {-# CTYPE "HsInt32" #-} Int32 = I32# Int#
+data {-# CTYPE "HsInt32" #-} Int32 where
+  I32# :: Int# -> Int32
 -- ^ 32-bit signed integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules
@@ -675,7 +684,10 @@ instance Ix Int32 where
 
 #if WORD_SIZE_IN_BITS < 64
 
-data {-# CTYPE "HsInt64" #-} Int64 = I64# Int64#
+-- The Int64 data type uses GADT syntax to be unrestricted in the underlying
+-- Int64# for users of linear haskell.
+data {-# CTYPE "HsInt64" #-} Int64 where
+  I64# :: Int64# -> Int64
 -- ^ 64-bit signed integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules
@@ -874,8 +886,11 @@ a `iShiftRA64#` b | isTrue# (b >=# 64#) = if isTrue# (a `ltInt64#` (intToInt64# 
 -- Int64 is represented in the same way as Int.
 -- Operations may assume and must ensure that it holds only values
 -- from its logical range.
+-- It uses GADT syntax to be unrestricted in the underlying Int# for
+-- users of linear haskell.
 
-data {-# CTYPE "HsInt64" #-} Int64 = I64# Int#
+data {-# CTYPE "HsInt64" #-} Int64 where
+  I64# :: Int# -> Int64
 -- ^ 64-bit signed integer type
 
 -- See GHC.Classes#matching_overloaded_methods_in_rules
