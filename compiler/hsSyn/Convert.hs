@@ -17,7 +17,6 @@ module Convert( convertToHsExpr, convertToPat, convertToHsDecls,
 import GhcPrelude
 
 import HsSyn as Hs
-import qualified Class
 import PrelNames
 import RdrName
 import qualified Name
@@ -599,7 +598,7 @@ cvtDerivs :: [TH.DerivClause] -> CvtM (HsDeriving GhcPs)
 cvtDerivs cs = do { cs' <- mapM cvtDerivClause cs
                   ; returnL cs' }
 
-cvt_fundep :: FunDep -> CvtM (Located (Class.FunDep (Located RdrName)))
+cvt_fundep :: FunDep -> CvtM (LHsFunDep GhcPs)
 cvt_fundep (FunDep xs ys) = do { xs' <- mapM tNameL xs
                                ; ys' <- mapM tNameL ys
                                ; returnL (xs', ys') }

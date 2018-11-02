@@ -31,7 +31,6 @@ import DsMonad
 import qualified Language.Haskell.TH as TH
 
 import HsSyn
-import Class
 import PrelNames
 -- To avoid clashes with DsMeta.varName we must make a local alias for
 -- OccName.varName we do this by removing varName from the import of
@@ -472,10 +471,10 @@ repAssocTyFamDefaults = mapM rep_deflt
 -------------------------
 -- represent fundeps
 --
-repLFunDeps :: [Located (FunDep (Located Name))] -> DsM (Core [TH.FunDep])
+repLFunDeps :: [LHsFunDep GhcRn] -> DsM (Core [TH.FunDep])
 repLFunDeps fds = repList funDepTyConName repLFunDep fds
 
-repLFunDep :: Located (FunDep (Located Name)) -> DsM (Core TH.FunDep)
+repLFunDep :: LHsFunDep GhcRn -> DsM (Core TH.FunDep)
 repLFunDep (L _ (xs, ys))
    = do xs' <- repList nameTyConName (lookupBinder . unLoc) xs
         ys' <- repList nameTyConName (lookupBinder . unLoc) ys
@@ -1891,7 +1890,7 @@ unC (MkC x) = x
 
 rep2 :: Name -> [ CoreExpr ] -> DsM (Core a)
 rep2 n xs = do { id <- dsLookupGlobalId n
-               ; return (MkC (foldl App (Var id) xs)) }
+               ; return (MkC (foldl' App (Var id) xs)) }
 
 dataCon' :: Name -> [CoreExpr] -> DsM (Core a)
 dataCon' n args = do { id <- dsLookupDataCon n
