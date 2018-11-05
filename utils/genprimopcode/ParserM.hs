@@ -69,6 +69,7 @@ init_state = St {
 
 data Token = TEOF
            | TArrow
+           | TLinearArrow
            | TDArrow
            | TEquals
            | TComma

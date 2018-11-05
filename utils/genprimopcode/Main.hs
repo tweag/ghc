@@ -72,6 +72,7 @@ desugarVectorSpec i              = case vecOptions i of
 
         desugarTy :: Ty -> Ty
         desugarTy (TyF s d)           = TyF (desugarTy s) (desugarTy d)
+        desugarTy (TyL s d)           = TyL (desugarTy s) (desugarTy d)
         desugarTy (TyC s d)           = TyC (desugarTy s) (desugarTy d)
         desugarTy (TyApp SCALAR [])   = TyApp (TyCon repCon) []
         desugarTy (TyApp VECTOR [])   = TyApp (VecTyCon vecCons vecTyName) []
@@ -378,6 +379,7 @@ pprTy :: Ty -> String
 pprTy = pty
     where
           pty (TyF t1 t2) = pbty t1 ++ " -> " ++ pty t2
+          pty (TyL t1 t2) = pbty t1 ++ " ->. " ++ pty t2
           pty (TyC t1 t2) = pbty t1 ++ " => " ++ pty t2
           pty t      = pbty t
           pbty (TyApp tc ts) = show tc ++ concat (map (' ' :) (map paty ts))
@@ -431,6 +433,7 @@ gen_latex_doc (Info defaults entries)
                  ++ "}\n"
            mk_source_ty typ = pty typ
              where pty (TyF t1 t2) = pbty t1 ++ " -> " ++ pty t2
+                   pty (TyL t1 t2) = pbty t1 ++ " ->. " ++ pty t2
                    pty (TyC t1 t2) = pbty t1 ++ " => " ++ pty t2
                    pty t = pbty t
                    pbty (TyApp tc ts) = show tc ++ (concat (map (' ':) (map paty ts)))
@@ -441,6 +444,7 @@ gen_latex_doc (Info defaults entries)
 
            mk_core_ty typ = foralls ++ (pty typ)
              where pty (TyF t1 t2) = pbty t1 ++ " -> " ++ pty t2
+                   pty (TyL t1 t2) = pbty t1 ++ " ->. " ++ pty t2
                    pty (TyC t1 t2) = pbty t1 ++ " => " ++ pty t2
                    pty t = pbty t
                    pbty (TyApp tc ts) = (zencode (show tc)) ++ (concat (map (' ':) (map paty ts)))
@@ -457,6 +461,7 @@ gen_latex_doc (Info defaults entries)
                    tbinds ("o":tbs) = "(o::?) " ++ (tbinds tbs)
                    tbinds (tv:tbs) = tv ++ " " ++ (tbinds tbs)
            tvars_of (TyF t1 t2) = tvars_of t1 `union` tvars_of t2
+           tvars_of (TyL t1 t2) = tvars_of t1 `union` tvars_of t2
            tvars_of (TyC t1 t2) = tvars_of t1 `union` tvars_of t2
            tvars_of (TyApp _ ts) = foldl union [] (map tvars_of ts)
            tvars_of (TyUTup ts) = foldr union [] (map tvars_of ts)
@@ -843,6 +848,7 @@ ppType (TyUTup ts) = "(mkTupleTy Unboxed "
                      ++ listify (map ppType ts) ++ ")"
 
 ppType (TyF s d) = "(mkFunTy Omega (" ++ ppType s ++ ") (" ++ ppType d ++ "))"
+ppType (TyL s d) = "(mkFunTy One (" ++ ppType s ++ ") (" ++ ppType d ++ "))"
 ppType (TyC s d) = "(mkFunTy Omega (" ++ ppType s ++ ") (" ++ ppType d ++ "))"
 
 ppType other
@@ -858,11 +864,13 @@ listify ss = "[" ++ concat (intersperse ", " ss) ++ "]"
 
 flatTys :: Ty -> ([Ty],Ty)
 flatTys (TyF t1 t2) = case flatTys t2 of (ts,t) -> (t1:ts,t)
+flatTys (TyL t1 t2) = case flatTys t2 of (ts,t) -> (t1:ts,t)
 flatTys (TyC t1 t2) = case flatTys t2 of (ts,t) -> (t1:ts,t)
 flatTys other       = ([],other)
 
 tvsIn :: Ty -> [TyVar]
 tvsIn (TyF t1 t2)    = tvsIn t1 ++ tvsIn t2
+tvsIn (TyL t1 t2)    = tvsIn t1 ++ tvsIn t2
 tvsIn (TyC t1 t2)    = tvsIn t1 ++ tvsIn t2
 tvsIn (TyApp _ tys)  = concatMap tvsIn tys
 tvsIn (TyVar tv)     = [tv]
@@ -870,6 +878,7 @@ tvsIn (TyUTup tys)   = concatMap tvsIn tys
 
 tyconsIn :: Ty -> [TyCon]
 tyconsIn (TyF t1 t2)    = tyconsIn t1 `union` tyconsIn t2
+tyconsIn (TyL t1 t2)    = tyconsIn t1 `union` tyconsIn t2
 tyconsIn (TyC t1 t2)    = tyconsIn t1 `union` tyconsIn t2
 tyconsIn (TyApp tc tys) = foldr union [tc] $ map tyconsIn tys
 tyconsIn (TyVar _)      = []

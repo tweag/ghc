@@ -71,6 +71,7 @@ data Category
 -- types
 data Ty
    = TyF    Ty Ty
+   | TyL    Ty Ty -- The linear arrow
    | TyC    Ty Ty -- We only allow one constraint, keeps the grammar simpler
    | TyApp  TyCon [Ty]
    | TyVar  TyVar

@@ -3052,6 +3052,27 @@ primop  GetApStackValOp "getApStackVal#" GenPrimOp
    out_of_line = True
 
 ------------------------------------------------------------------------
+section "Fork and Join"
+------------------------------------------------------------------------
+
+primop   ForkStateOp "forkState#" GenPrimOp
+   State# RealWorld ->. (# State# RealWorld, State# RealWorld #)
+   { Split a state token into two state tokens. Forcing either of the
+     two resulting state tokens will force the argument state token.
+     This is intended to be used by Linear Haskell library authors. }
+   with
+   code_size = 0
+
+primop   JoinStateOp "joinState#" GenPrimOp
+   State# RealWorld ->. State# RealWorld ->. State# RealWorld
+   { Join two state tokens. Forcing the resulting state token will force
+     both of the argument state tokens. This is intended to be used
+     by Linear Haskell library authors. }
+   with
+   code_size = 0
+
+
+------------------------------------------------------------------------
 section "Misc"
         {These aren't nearly as wired in as Etc...}
 ------------------------------------------------------------------------

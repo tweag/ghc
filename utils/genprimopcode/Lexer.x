@@ -33,6 +33,7 @@ words :-
                                                }
                                     }
     <0>         "->"                { mkT TArrow }
+    <0>         "->."               { mkT TLinearArrow }
     <0>         "=>"                { mkT TDArrow }
     <0>         "="                 { mkT TEquals }
     <0>         ","                 { mkT TComma }

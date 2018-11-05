@@ -15,6 +15,7 @@ import Syntax
 
 %token
     '->'            { TArrow }
+    '->.'           { TLinearArrow }
     '=>'            { TDArrow }
     '='             { TEquals }
     ','             { TComma }
@@ -155,6 +156,7 @@ pVector : '<' upperName ',' upperName ',' integer '>' { ($2, $4, $6) }
  
 pType :: { Ty }
 pType : paT '->' pType { TyF $1 $3 }
+      | paT '->.' pType { TyL $1 $3 }
       | paT '=>' pType { TyC $1 $3 }
       | paT            { $1 }
 
