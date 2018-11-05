@@ -776,7 +776,7 @@ mkPOI_RHS_text i
               in
                   "mkGenPrimOp " ++ sl_name i ++ " "
                       ++ listify (map ppTyVar tvs) ++ " "
-                      ++ listify (map ppType argTys) ++ " "
+                      ++ listify (map (\(w,t) -> ppWeight w ++ " (" ++ ppType t ++ ")") argTys) ++ " "
                       ++ "(" ++ ppType resTy ++ ")"
 
 sl_name :: Entry -> String
@@ -789,6 +789,10 @@ ppTyVar "c" = "gammaTyVar"
 ppTyVar "s" = "deltaTyVar"
 ppTyVar "o" = "runtimeRep1TyVar, openAlphaTyVar"
 ppTyVar _   = error "Unknown type var"
+
+ppWeight :: Weight -> String
+ppWeight One = "linear"
+ppWeight Omega = "unrestricted"
 
 ppType :: Ty -> String
 ppType (TyApp (TyCon "Any")         []) = "anyTy"
@@ -862,10 +866,10 @@ pprFixityDir InfixR = "infixr"
 listify :: [String] -> String
 listify ss = "[" ++ concat (intersperse ", " ss) ++ "]"
 
-flatTys :: Ty -> ([Ty],Ty)
-flatTys (TyF t1 t2) = case flatTys t2 of (ts,t) -> (t1:ts,t)
-flatTys (TyL t1 t2) = case flatTys t2 of (ts,t) -> (t1:ts,t)
-flatTys (TyC t1 t2) = case flatTys t2 of (ts,t) -> (t1:ts,t)
+flatTys :: Ty -> ([(Weight,Ty)],Ty)
+flatTys (TyF t1 t2) = case flatTys t2 of (ts,t) -> ((Omega,t1):ts,t)
+flatTys (TyL t1 t2) = case flatTys t2 of (ts,t) -> ((One,t1):ts,t)
+flatTys (TyC t1 t2) = case flatTys t2 of (ts,t) -> ((Omega,t1):ts,t)
 flatTys other       = ([],other)
 
 tvsIn :: Ty -> [TyVar]

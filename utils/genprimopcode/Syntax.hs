@@ -79,6 +79,8 @@ data Ty
                    -- but convenient like this
    deriving (Eq,Show)
 
+data Weight = Omega | One
+
 type TyVar = String
 
 data TyCon = TyCon String

@@ -122,7 +122,7 @@ data PrimOpInfo
                 Type
   | GenPrimOp   OccName         -- string :: \/a1..an . T1 -> .. -> Tk -> T
                 [TyVar]
-                [Type]
+                [Weighted Type]
                 Type
 
 mkDyadic, mkMonadic, mkCompare :: FastString -> Type -> PrimOpInfo
@@ -130,7 +130,7 @@ mkDyadic str  ty = Dyadic  (mkVarOccFS str) ty
 mkMonadic str ty = Monadic (mkVarOccFS str) ty
 mkCompare str ty = Compare (mkVarOccFS str) ty
 
-mkGenPrimOp :: FastString -> [TyVar] -> [Type] -> Type -> PrimOpInfo
+mkGenPrimOp :: FastString -> [TyVar] -> [Weighted Type] -> Type -> PrimOpInfo
 mkGenPrimOp str tvs tys ty = GenPrimOp (mkVarOccFS str) tvs tys ty
 
 {-
@@ -544,7 +544,7 @@ primOpType op
     Compare _occ ty -> compare_fun_ty ty
 
     GenPrimOp _occ tyvars arg_tys res_ty ->
-        mkSpecForAllTys tyvars (mkFunTys (map unrestricted arg_tys) res_ty)
+        mkSpecForAllTys tyvars (mkFunTys arg_tys res_ty)
 
 primOpOcc :: PrimOp -> OccName
 primOpOcc op = case primOpInfo op of
@@ -562,16 +562,16 @@ isComparisonPrimOp op = case primOpInfo op of
 -- (type variables, argument types, result type)
 -- It also gives arity, strictness info
 
-primOpSig :: PrimOp -> ([TyVar], [Type], Type, Arity, StrictSig)
+primOpSig :: PrimOp -> ([TyVar], [Weighted Type], Type, Arity, StrictSig)
 primOpSig op
   = (tyvars, arg_tys, res_ty, arity, primOpStrictness op arity)
   where
     arity = length arg_tys
     (tyvars, arg_tys, res_ty)
       = case (primOpInfo op) of
-        Monadic   _occ ty                    -> ([],     [ty],    ty       )
-        Dyadic    _occ ty                    -> ([],     [ty,ty], ty       )
-        Compare   _occ ty                    -> ([],     [ty,ty], intPrimTy)
+        Monadic   _occ ty                    -> ([],     [unrestricted ty], ty )
+        Dyadic    _occ ty                    -> ([],     [unrestricted ty,unrestricted ty], ty )
+        Compare   _occ ty                    -> ([],     [unrestricted ty,unrestricted ty], intPrimTy)
         GenPrimOp _occ tyvars arg_tys res_ty -> (tyvars, arg_tys, res_ty   )
 
 data PrimOpResultInfo
