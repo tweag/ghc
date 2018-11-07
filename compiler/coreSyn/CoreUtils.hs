@@ -78,7 +78,7 @@ import Id
 import IdInfo
 import PrelNames( absentErrorIdKey )
 import Type
-import TyCoRep( TyBinder(..) )
+import TyCoRep( TyCoBinder(..), TyBinder )
 import Weight
 import Coercion
 import TyCon
@@ -269,7 +269,7 @@ mkCast e co
   = e
 
 mkCast (Coercion e_co) co
-  | isCoercionType (pSnd (coercionKind co))
+  | isCoVarType (pSnd (coercionKind co))
        -- The guard here checks that g has a (~#) on both sides,
        -- otherwise decomposeCo fails.  Can in principle happen
        -- with unsafeCoerce
@@ -972,6 +972,8 @@ it off at source.
 -}
 
 exprIsTrivial :: CoreExpr -> Bool
+-- If you modify this function, you may also
+-- need to modify getIdFromTrivialExpr
 exprIsTrivial (Var _)          = True        -- See Note [Variables are trivial]
 exprIsTrivial (Type _)         = True
 exprIsTrivial (Coercion _)     = True
@@ -1001,20 +1003,24 @@ if the variable actually refers to a literal; thus we use
 T12076lit for an example where this matters.
 -}
 
-getIdFromTrivialExpr :: CoreExpr -> Id
+getIdFromTrivialExpr :: HasDebugCallStack => CoreExpr -> Id
 getIdFromTrivialExpr e
     = fromMaybe (pprPanic "getIdFromTrivialExpr" (ppr e))
                 (getIdFromTrivialExpr_maybe e)
 
 getIdFromTrivialExpr_maybe :: CoreExpr -> Maybe Id
 -- See Note [getIdFromTrivialExpr]
-getIdFromTrivialExpr_maybe e = go e
-  where go (Var v) = Just v
-        go (App f t) | not (isRuntimeArg t) = go f
-        go (Tick t e) | not (tickishIsCode t) = go e
-        go (Cast e _) = go e
-        go (Lam b e) | not (isRuntimeVar b) = go e
-        go _ = Nothing
+-- Th equations for this should line up with those for exprIsTrivial
+getIdFromTrivialExpr_maybe e
+  = go e
+  where
+    go (App f t) | not (isRuntimeArg t)   = go f
+    go (Tick t e) | not (tickishIsCode t) = go e
+    go (Cast e _)                         = go e
+    go (Lam b e) | not (isRuntimeVar b)   = go e
+    go (Case e _ _ [])                    = go e
+    go (Var v) = Just v
+    go _       = Nothing
 
 {-
 exprIsBottom is a very cheap and cheerful function; it may return
@@ -1514,7 +1520,6 @@ expr_ok primop_ok (Lam b e)
                  | isTyVar b = expr_ok primop_ok  e
                  | otherwise = True
 
-
 -- Tick annotations that *tick* cannot be speculated, because these
 -- are meant to identify whether or not (and how often) the particular
 -- source expression was evaluated at runtime.
@@ -1536,10 +1541,13 @@ expr_ok primop_ok (Case scrut bndr _ alts)
   && altsAreExhaustive alts
 
 expr_ok primop_ok other_expr
-  = case collectArgs other_expr of
-        (expr, args) | Var f <- stripTicksTopE (not . tickishCounts) expr
-                     -> app_ok primop_ok f args
-        _            -> False
+  | (expr, args) <- collectArgs other_expr
+  = case stripTicksTopE (not . tickishCounts) expr of
+        Var f   -> app_ok primop_ok f args
+        -- 'RubbishLit' is the only literal that can occur in the head of an
+        -- application and will not be matched by the above case (Var /= Lit).
+        Lit lit -> ASSERT( lit == rubbishLit ) True
+        _       -> False
 
 -----------------------------
 app_ok :: (PrimOp -> Bool) -> Id -> [CoreExpr] -> Bool
@@ -1621,7 +1629,7 @@ isDivOp _                = False
 exprOkForSpeculation accepts very special case expressions.
 Reason: (a ==# b) is ok-for-speculation, but the litEq rules
 in PrelRules convert it (a ==# 3#) to
-   case a of { DEAFULT -> 0#; 3# -> 1# }
+   case a of { DEFAULT -> 0#; 3# -> 1# }
 for excellent reasons described in
   PrelRules Note [The litEq rule: converting equality to case].
 So, annoyingly, we want that case expression to be
@@ -1693,7 +1701,7 @@ In earlier GHCs, we got this:
           0 -> 0 }
 
 Before join-points etc we could only get rid of two cases (which are
-redundant) by recognising that th e(case <# ds 5 of { ... }) is
+redundant) by recognising that the (case <# ds 5 of { ... }) is
 ok-for-speculation, even though it has /lifted/ type.  But now join
 points do the job nicely.
 ------- End of historical note ------------
@@ -1706,23 +1714,6 @@ Is this ok-for-speculation (see Trac #13027)?
 Well, yes.  The primop accepts lifted arguments and does not
 evaluate them.  Indeed, in general primops are, well, primitive
 and do not perform evaluation.
-
-There is one primop, dataToTag#, which does /require/ a lifted
-argument to be evaluated.  To ensure this, CorePrep adds an
-eval if it can't see the argument is definitely evaluated
-(see [dataToTag magic] in CorePrep).
-
-We make no attempt to guarantee that dataToTag#'s argument is
-evaluated here.  Main reason: it's very fragile to test for the
-evaluatedness of a lifted argument.  Consider
-    case x of y -> let v = dataToTag# y in ...
-
-where x/y have type Int, say.  'y' looks evaluated (by the enclosing
-case) so all is well.  Now the FloatOut pass does a binder-swap (for
-very good reasons), changing to
-   case x of y -> let v = dataToTag# x in ...
-
-See also Note [dataToTag#] in primops.txt.pp.
 
 Bottom line:
   * in exprOkForSpeculation we simply ignore all lifted arguments.
@@ -1896,8 +1887,8 @@ exprIsTickedString_maybe _ = Nothing
 These InstPat functions go here to avoid circularity between DataCon and Id
 -}
 
-dataConRepInstPat   ::                 [Unique] -> Rig -> DataCon -> [Type] -> ([TyVar], [Id])
-dataConRepFSInstPat :: [FastString] -> [Unique] -> Rig -> DataCon -> [Type] -> ([TyVar], [Id])
+dataConRepInstPat   ::                 [Unique] -> Rig -> DataCon -> [Type] -> ([TyCoVar], [Id])
+dataConRepFSInstPat :: [FastString] -> [Unique] -> Rig -> DataCon -> [Type] -> ([TyCoVar], [Id])
 
 dataConRepInstPat   = dataConInstPat (repeat ((fsLit "ipv")))
 dataConRepFSInstPat = dataConInstPat
@@ -1907,7 +1898,7 @@ dataConInstPat :: [FastString]          -- A long enough list of FSs to use for 
                -> Rig                   -- The multiplicity annotation of the case expression: scales the multiplicity of variables
                -> DataCon
                -> [Type]                -- Types to instantiate the universally quantified tyvars
-               -> ([TyVar], [Id])       -- Return instantiated variables
+               -> ([TyCoVar], [Id])     -- Return instantiated variables
 -- dataConInstPat arg_fun fss us weight con inst_tys returns a tuple
 -- (ex_tvs, arg_ids),
 --
@@ -1940,7 +1931,7 @@ dataConInstPat fss uniqs weight con inst_tys
     (ex_bndrs, arg_ids)
   where
     univ_tvs = dataConUnivTyVars con
-    ex_tvs   = dataConExTyVars con
+    ex_tvs   = dataConExTyCoVars con
     arg_tys  = dataConRepArgTys con
     arg_strs = dataConRepStrictness con  -- 1-1 with arg_tys
     n_ex = length ex_tvs
@@ -1956,13 +1947,16 @@ dataConInstPat fss uniqs weight con inst_tys
     (full_subst, ex_bndrs) = mapAccumL mk_ex_var univ_subst
                                        (zip3 ex_tvs ex_fss ex_uniqs)
 
-    mk_ex_var :: TCvSubst -> (TyVar, FastString, Unique) -> (TCvSubst, TyVar)
-    mk_ex_var subst (tv, fs, uniq) = (Type.extendTvSubstWithClone subst tv
+    mk_ex_var :: TCvSubst -> (TyCoVar, FastString, Unique) -> (TCvSubst, TyCoVar)
+    mk_ex_var subst (tv, fs, uniq) = (Type.extendTCvSubstWithClone subst tv
                                        new_tv
                                      , new_tv)
       where
-        new_tv = mkTyVar (mkSysTvName uniq fs) kind
-        kind   = Type.substTyUnchecked subst (tyVarKind tv)
+        new_tv | isTyVar tv
+               = mkTyVar (mkSysTvName uniq fs) kind
+               | otherwise
+               = mkCoVar (mkSystemVarName uniq fs) kind
+        kind   = Type.substTyUnchecked subst (varType tv)
 
       -- Make value vars, instantiating types
     arg_ids = zipWith4 mk_id_var id_uniqs id_fss arg_tys arg_strs

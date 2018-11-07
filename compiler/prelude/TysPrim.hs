@@ -20,6 +20,8 @@ module TysPrim(
 
         alphaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
         alphaTys, alphaTy, betaTy, gammaTy, deltaTy,
+        alphaTyVarsUnliftedRep, alphaTyVarUnliftedRep,
+        alphaTysUnliftedRep, alphaTyUnliftedRep,
         runtimeRep1TyVar, runtimeRep2TyVar, runtimeRep1Ty, runtimeRep2Ty,
         openAlphaTy, openBetaTy, openAlphaTyVar, openBetaTyVar,
 
@@ -98,7 +100,7 @@ import {-# SOURCE #-} TysWiredIn
   , doubleElemRepDataConTy
   , mkPromotedListTy, multiplicityTy )
 
-import Var              ( TyVar, TyVarBndr(TvBndr), mkTyVar )
+import Var              ( TyVar, VarBndr(Bndr), mkTyVar )
 import Name
 import TyCon
 import SrcLoc
@@ -317,6 +319,17 @@ alphaTys = mkTyVarTys alphaTyVars
 alphaTy, betaTy, gammaTy, deltaTy :: Type
 (alphaTy:betaTy:gammaTy:deltaTy:_) = alphaTys
 
+alphaTyVarsUnliftedRep :: [TyVar]
+alphaTyVarsUnliftedRep = mkTemplateTyVars $ repeat (tYPE unliftedRepDataConTy)
+
+alphaTyVarUnliftedRep :: TyVar
+(alphaTyVarUnliftedRep:_) = alphaTyVarsUnliftedRep
+
+alphaTysUnliftedRep :: [Type]
+alphaTysUnliftedRep = mkTyVarTys alphaTyVarsUnliftedRep
+alphaTyUnliftedRep :: Type
+(alphaTyUnliftedRep:_) = alphaTysUnliftedRep
+
 runtimeRep1TyVar, runtimeRep2TyVar :: TyVar
 (runtimeRep1TyVar : runtimeRep2TyVar : _)
   = drop 16 (mkTemplateTyVars (repeat runtimeRepTy))  -- selects 'q','r'
@@ -356,9 +369,9 @@ funTyConName = mkPrimTyConName (fsLit "->") funTyConKey funTyCon
 funTyCon :: TyCon
 funTyCon = mkFunTyCon funTyConName tc_bndrs tc_rep_nm
   where
-    tc_bndrs = [ TvBndr multiplicityTyVar (NamedTCB Inferred)
-               , TvBndr runtimeRep1TyVar (NamedTCB Inferred)
-               , TvBndr runtimeRep2TyVar (NamedTCB Inferred)
+    tc_bndrs = [ Bndr multiplicityTyVar (NamedTCB Inferred)
+               , Bndr runtimeRep1TyVar (NamedTCB Inferred)
+               , Bndr runtimeRep2TyVar (NamedTCB Inferred)
                ]
                ++ mkTemplateAnonTyConBinders [ tYPE runtimeRep1Ty
                                              , tYPE runtimeRep2Ty
@@ -604,7 +617,7 @@ GHC sports a veritable menagerie of equality types:
          class?    L/U                        TyCon
 -----------------------------------------------------------------------------------------
 ~#         T        U      hetero   nominal   eqPrimTyCon      GHC.Prim
-~~         C        L      hetero   nominal   hEqTyCon         GHC.Types
+~~         C        L      hetero   nominal   heqTyCon         GHC.Types
 ~          C        L      homo     nominal   eqTyCon          GHC.Types
 :~:        T        L      homo     nominal   (not built-in)   Data.Type.Equality
 :~~:       T        L      hetero   nominal   (not built-in)   Data.Type.Equality
@@ -949,7 +962,7 @@ mkStablePtrPrimTy ty = TyConApp stablePtrPrimTyCon [ty]
 -}
 
 stableNamePrimTyCon :: TyCon
-stableNamePrimTyCon = pcPrimTyCon stableNamePrimTyConName [Representational] UnliftedRep
+stableNamePrimTyCon = pcPrimTyCon stableNamePrimTyConName [Phantom] UnliftedRep
 
 mkStableNamePrimTy :: Type -> Type
 mkStableNamePrimTy ty = TyConApp stableNamePrimTyCon [ty]

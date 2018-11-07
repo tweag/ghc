@@ -37,7 +37,6 @@ import BlockId
 import MkGraph
 import StgSyn
 import Cmm
-import CmmInfo
 import Type     ( Type, tyConAppTyCon )
 import TyCon
 import CLabel
@@ -2305,6 +2304,7 @@ doWriteSmallPtrArrayOp :: CmmExpr
 doWriteSmallPtrArrayOp addr idx val = do
     dflags <- getDynFlags
     let ty = cmmExprType dflags val
+    emitPrimCall [] MO_WriteBarrier [] -- #12469
     mkBasicIndexedWrite (smallArrPtrsHdrSize dflags) Nothing addr ty idx val
     emit (setInfo addr (CmmLit (CmmLabel mkSMAP_DIRTY_infoLabel)))
 
