@@ -21,6 +21,7 @@
 
 -- The constructors in this file can be unrestricted.
 {-# LANGUAGE LinearTypes #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -389,6 +390,9 @@ trLiftedRep = typeRep
 trOmega :: TypeRep 'Omega
 trOmega = typeRep
 
+trMultiplicity :: TypeRep Multiplicity
+trMultiplicity = typeRep
+
 -- | Construct a representation for a type application that is
 -- NOT a saturated arrow type. This is not checked!
 
@@ -424,15 +428,16 @@ mkTrAppChecked :: forall k1 k2 (a :: k1 -> k2) (b :: k1).
                   TypeRep (a :: k1 -> k2)
                -> TypeRep (b :: k1)
                -> TypeRep (a b)
-mkTrAppChecked rep@(TrApp {trAppFun = p, trAppArg = x :: TypeRep x})
+mkTrAppChecked rep@(TrApp {trAppFun = TrApp { trAppFun = p, trAppArg = mul :: TypeRep mul}, trAppArg = x :: TypeRep x})
                (y :: TypeRep y)
   | TrTyCon {trTyCon=con} <- p
   , con == funTyCon  -- cheap check first
+  , Just HRefl <- typeRepKind mul `eqTypeRep` trMultiplicity
   , Just (IsTYPE (rx :: TypeRep rx)) <- isTYPE (typeRepKind x)
   , Just (IsTYPE (ry :: TypeRep ry)) <- isTYPE (typeRepKind y)
-  , Just HRefl <- withTypeable x $ withTypeable rx $ withTypeable ry
-                  $ typeRep @((->) x :: TYPE ry -> Type) `eqTypeRep` rep
-  = mkTrFun trOmega x y -- TODO handle multiplicity
+  , Just HRefl <- withTypeable x $ withTypeable rx $ withTypeable ry $ withTypeable mul
+                  $ typeRep @(FUN mul x :: TYPE ry -> Type) `eqTypeRep` rep
+  = undefined -- mkTrFun undefined undefined undefined -- mul x y
 mkTrAppChecked a b = mkTrApp a b
 
 -- | A type application.
@@ -563,7 +568,7 @@ typeRepTyCon :: TypeRep a -> TyCon
 typeRepTyCon TrType = tyConTYPE
 typeRepTyCon (TrTyCon {trTyCon = tc}) = tc
 typeRepTyCon (TrApp {trAppFun = a})   = typeRepTyCon a
-typeRepTyCon (TrFun {trFunMul = m})   = typeRepTyCon $ typeRep @(FUN 'Omega) -- TODO
+typeRepTyCon (TrFun {trFunMul = m})   = typeRepTyCon $ typeRep @FUN
 
 -- | Type equality
 --
@@ -845,7 +850,7 @@ tyConTYPE = mkTyCon (tyConPackage liftedRepTyCon) "GHC.Prim" "TYPE" 0
 
 
 funTyCon :: TyCon
-funTyCon = typeRepTyCon (typeRep @(FUN 'Omega))  -- TODO
+funTyCon = typeRepTyCon (typeRep @FUN)
 
 isListTyCon :: TyCon -> Bool
 isListTyCon tc = tc == typeRepTyCon (typeRep :: TypeRep [])
