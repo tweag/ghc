@@ -86,6 +86,8 @@ Other Prelude modules are much easier with fewer complex dependencies.
            , KindSignatures
            , PolyKinds
            , DataKinds
+           , LinearTypes
+           , GADTSyntax
   #-}
 -- -Wno-orphans is needed for things like:
 -- Orphan rule: "x# -# x#" ALWAYS forall x# :: Int# -# x# x# = 0
@@ -195,9 +197,15 @@ Similar to GHC.Integer.
 -- for use when compiling GHC.Base itself doesn't work
 data  Bool  =  False | True
 data Ordering = LT | EQ | GT
-data Char = C# Char#
+-- Char is defined with GADT syntax to make the data constructor unrestricted
+-- in its argument for users of linear haskell.
+data Char where
+  C# :: Char# -> Char
 type  String = [Char]
-data Int = I# Int#
+-- Int is defined with GADT syntax to make the data constructor unrestricted
+-- in its argument for users of linear haskell.
+data Int where
+  I# :: Int# -> Int
 data  ()  =  ()
 data [] a = MkNil
 
