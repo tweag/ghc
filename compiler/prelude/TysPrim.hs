@@ -379,10 +379,10 @@ funTyCon :: TyCon
 funTyCon = mkFunTyCon funTyConName tc_bndrs tc_rep_nm
   where
     -- See also unrestrictedFunTyCon
-    tc_bndrs = [ Bndr multiplicityTyVar (NamedTCB Required)
-               , Bndr runtimeRep1TyVar (NamedTCB Inferred)
-               , Bndr runtimeRep2TyVar (NamedTCB Inferred)
-               ]
+    tc_bndrs = mkTemplateAnonTyConBinders [ multiplicityTy ]
+               ++ [ Bndr runtimeRep1TyVar (NamedTCB Inferred)
+                  , Bndr runtimeRep2TyVar (NamedTCB Inferred)
+                  ]
                ++ mkTemplateAnonTyConBinders [ tYPE runtimeRep1Ty
                                              , tYPE runtimeRep2Ty
                                              ]

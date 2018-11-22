@@ -423,8 +423,10 @@ mkTrAppChecked :: forall k1 k2 (a :: k1 -> k2) (b :: k1).
                   TypeRep (a :: k1 -> k2)
                -> TypeRep (b :: k1)
                -> TypeRep (a b)
+mkTrAppChecked = undefined
+{-
 mkTrAppChecked rep@(TrApp {trAppFun = p, trAppArg = x :: TypeRep x})
-               (y :: TypeRep y)
+               (y :: TypeRep y) =
   | TrTyCon {trTyCon=con} <- p
   , con == funTyCon  -- cheap check first
   , Just (IsTYPE (rx :: TypeRep rx)) <- isTYPE (typeRepKind x)
@@ -433,6 +435,7 @@ mkTrAppChecked rep@(TrApp {trAppFun = p, trAppArg = x :: TypeRep x})
                   $ typeRep @((->) x :: TYPE ry -> Type) `eqTypeRep` rep
   = mkTrFun trOmega x y -- TODO handle multiplicity
 mkTrAppChecked a b = mkTrApp a b
+-}
 
 -- | A type application.
 --
@@ -563,7 +566,7 @@ typeRepTyCon :: TypeRep a -> TyCon
 typeRepTyCon TrType = tyConTYPE
 typeRepTyCon (TrTyCon {trTyCon = tc}) = tc
 typeRepTyCon (TrApp {trAppFun = a})   = typeRepTyCon a
-typeRepTyCon (TrFun {})               = typeRepTyCon $ typeRep @(->)
+typeRepTyCon (TrFun {})               = undefined --TODO typeRepTyCon $ typeRep @(->)
 
 -- | Type equality
 --
@@ -846,7 +849,7 @@ tyConTYPE = mkTyCon (tyConPackage liftedRepTyCon) "GHC.Prim" "TYPE" 0
     liftedRepTyCon = typeRepTyCon (typeRep @RuntimeRep)
 
 funTyCon :: TyCon
-funTyCon = typeRepTyCon (typeRep @(->))
+funTyCon = undefined -- TODO typeRepTyCon (typeRep @(->))
 
 isListTyCon :: TyCon -> Bool
 isListTyCon tc = tc == typeRepTyCon (typeRep :: TypeRep [])
