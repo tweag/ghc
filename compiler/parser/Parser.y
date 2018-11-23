@@ -85,8 +85,6 @@ import TysWiredIn       ( unitTyCon, unitDataCon, tupleTyCon, tupleDataCon, nilD
 -- compiler/utils
 import Util             ( looksLikePackageName, fstOf3, sndOf3, thdOf3 )
 import GhcPrelude
-
-import qualified GHC.LanguageExtensions as LangExt
 }
 
 %expect 236 -- shift/reduce conflicts
@@ -2055,14 +2053,14 @@ atype :: { LHsType GhcPs }
                                              (sL1 $1 (mkUnqual varName (getTH_ID_SPLICE $1))))
                                              [mj AnnThIdSplice $1] }
                                       -- see Note [Promotion] for the followings
-        | SIMPLEQUOTE qcon_nowiredlist {% ams (sLL $1 $> $ HsTyVar noExt Promoted $2) [mj AnnSimpleQuote $1,mj AnnName $2] }
+        | SIMPLEQUOTE qcon_nowiredlist {% ams (sLL $1 $> $ HsTyVar noExt IsPromoted $2) [mj AnnSimpleQuote $1,mj AnnName $2] }
         | SIMPLEQUOTE  '(' ktype ',' comma_types1 ')'
                              {% addAnnotation (gl $3) AnnComma (gl $4) >>
                                 ams (sLL $1 $> $ HsExplicitTupleTy noExt ($3 : $5))
                                     [mj AnnSimpleQuote $1,mop $2,mcp $6] }
-        | SIMPLEQUOTE  '[' comma_types0 ']'     {% ams (sLL $1 $> $ HsExplicitListTy noExt Promoted $3)
+        | SIMPLEQUOTE  '[' comma_types0 ']'     {% ams (sLL $1 $> $ HsExplicitListTy noExt IsPromoted $3)
                                                        [mj AnnSimpleQuote $1,mos $2,mcs $4] }
-        | SIMPLEQUOTE var                       {% ams (sLL $1 $> $ HsTyVar noExt Promoted $2)
+        | SIMPLEQUOTE var                       {% ams (sLL $1 $> $ HsTyVar noExt IsPromoted $2)
                                                        [mj AnnSimpleQuote $1,mj AnnName $2] }
 
         -- Two or more [ty, ty, ty] must be a promoted list type, just as
@@ -3778,14 +3776,14 @@ hintLinear span = do
 -- Hint about the MultiWayIf extension
 hintMultiWayIf :: SrcSpan -> P ()
 hintMultiWayIf span = do
-  mwiEnabled <- liftM ((LangExt.MultiWayIf `extopt`) . options) getPState
+  mwiEnabled <- getBit MultiWayIfBit
   unless mwiEnabled $ parseErrorSDoc span $
     text "Multi-way if-expressions need MultiWayIf turned on"
 
 -- Hint about if usage for beginners
 hintIf :: SrcSpan -> String -> P (LHsExpr GhcPs)
 hintIf span msg = do
-  mwiEnabled <- liftM ((LangExt.MultiWayIf `extopt`) . options) getPState
+  mwiEnabled <- getBit MultiWayIfBit
   if mwiEnabled
     then parseErrorSDoc span $ text $ "parse error in if statement"
     else parseErrorSDoc span $ text $ "parse error in if statement: "++msg
@@ -3793,8 +3791,8 @@ hintIf span msg = do
 -- Hint about explicit-forall, assuming UnicodeSyntax is on
 hintExplicitForall :: SrcSpan -> P ()
 hintExplicitForall span = do
-    forall      <- extension explicitForallEnabled
-    rulePrag    <- extension inRulePrag
+    forall   <- getBit ExplicitForallBit
+    rulePrag <- getBit InRulePragBit
     unless (forall || rulePrag) $ parseErrorSDoc span $ vcat
       [ text "Illegal symbol '\x2200' in type" -- U+2200 FOR ALL
       , text "Perhaps you intended to use RankNTypes or a similar language"
@@ -3804,7 +3802,7 @@ hintExplicitForall span = do
 -- Hint about explicit-forall, assuming UnicodeSyntax is off
 hintExplicitForall' :: SrcSpan -> P (GenLocated SrcSpan RdrName)
 hintExplicitForall' span = do
-    forall    <- extension explicitForallEnabled
+    forall <- getBit ExplicitForallBit
     let illegalDot = "Illegal symbol '.' in type"
     if forall
       then parseErrorSDoc span $ vcat
@@ -3824,7 +3822,7 @@ checkIfBang _ = False
 -- | Warn about missing space after bang
 warnSpaceAfterBang :: SrcSpan -> P ()
 warnSpaceAfterBang span = do
-    bang_on <- extension bangPatEnabled
+    bang_on <- getBit BangPatBit
     unless bang_on $
       addWarning Opt_WarnSpaceAfterBang span msg
     where
@@ -3837,8 +3835,8 @@ warnSpaceAfterBang span = do
 -- variable or constructor. See Trac #13450.
 reportEmptyDoubleQuotes :: SrcSpan -> P (GenLocated SrcSpan (HsExpr GhcPs))
 reportEmptyDoubleQuotes span = do
-    thEnabled <- liftM ((LangExt.TemplateHaskellQuotes `extopt`) . options) getPState
-    if thEnabled
+    thQuotes <- getBit ThQuotesBit
+    if thQuotes
       then parseErrorSDoc span $ vcat
         [ text "Parser error on `''`"
         , text "Character literals may not be empty"

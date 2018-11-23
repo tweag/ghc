@@ -106,9 +106,7 @@ import FastString
 import Maybes
 import Util
 import ApiAnnotation
-import HsExtension      ( noExt )
 import Data.List
-import qualified GHC.LanguageExtensions as LangExt
 import DynFlags ( WarningFlag(..) )
 
 import Control.Monad
@@ -846,7 +844,7 @@ equalsDots = text "= ..."
 checkDatatypeContext :: Maybe (LHsContext GhcPs) -> P ()
 checkDatatypeContext Nothing = return ()
 checkDatatypeContext (Just (L loc c))
-    = do allowed <- extension datatypeContextsEnabled
+    = do allowed <- getBit DatatypeContextsBit
          unless allowed $
              parseErrorSDoc loc
                  (text "Illegal datatype context (use DatatypeContexts):" <+>
@@ -881,7 +879,7 @@ checkRuleTyVarBndrNames = mapM_ (check . fmap hsTyVarName)
 
 checkRecordSyntax :: Outputable a => Located a -> P (Located a)
 checkRecordSyntax lr@(L loc r)
-    = do allowed <- extension traditionalRecordSyntaxEnabled
+    = do allowed <- getBit TraditionalRecordSyntaxBit
          if allowed
              then return lr
              else parseErrorSDoc loc
@@ -893,8 +891,8 @@ checkRecordSyntax lr@(L loc r)
 checkEmptyGADTs :: Located ([AddAnn], [LConDecl GhcPs])
                 -> P (Located ([AddAnn], [LConDecl GhcPs]))
 checkEmptyGADTs gadts@(L span (_, []))               -- Empty GADT declaration.
-    = do opts <- fmap options getPState
-         if LangExt.GADTSyntax `extopt` opts         -- GADTs implies GADTSyntax
+    = do gadtSyntax <- getBit GadtSyntaxBit   -- GADTs implies GADTSyntax
+         if gadtSyntax
             then return gadts
             else parseErrorSDoc span $ vcat
               [ text "Illegal keyword 'where' in data declaration"
@@ -958,8 +956,8 @@ checkBlockArguments expr = case unLoc expr of
     _ -> return ()
   where
     check element = do
-      pState <- getPState
-      unless (extopt LangExt.BlockArguments (options pState)) $
+      blockArguments <- getBit BlockArgumentsBit
+      unless blockArguments $
         parseErrorSDoc (getLoc expr) $
           text "Unexpected " <> text element <> text " in function application:"
            $$ nest 4 (ppr expr)
@@ -1044,8 +1042,7 @@ checkPat msg loc e _
 
 checkAPat :: SDoc -> SrcSpan -> HsExpr GhcPs -> P (Pat GhcPs)
 checkAPat msg loc e0 = do
- pState <- getPState
- let opts = options pState
+ nPlusKPatterns <- getBit NPlusKPatternsBit
  case e0 of
    EWildPat _ -> return (WildPat noExt)
    HsVar _ x  -> return (VarPat noExt x)
@@ -1079,7 +1076,7 @@ checkAPat msg loc e0 = do
    -- n+k patterns
    OpApp _ (L nloc (HsVar _ (L _ n))) (L _ (HsVar _ (L _ plus)))
            (L lloc (HsOverLit _ lit@(OverLit {ol_val = HsIntegral {}})))
-                      | extopt LangExt.NPlusKPatterns opts && (plus == plus_RDR)
+                      | nPlusKPatterns && (plus == plus_RDR)
                       -> return (mkNPlusKPat (L nloc n) (L lloc lit))
 
    OpApp _ l (L cl (HsVar _ (L _ c))) r
@@ -1242,8 +1239,8 @@ checkDoAndIfThenElse :: LHsExpr GhcPs
                      -> P ()
 checkDoAndIfThenElse guardExpr semiThen thenExpr semiElse elseExpr
  | semiThen || semiElse
-    = do pState <- getPState
-         unless (extopt LangExt.DoAndIfThenElse (options pState)) $ do
+    = do doAndIfThenElse <- getBit DoAndIfThenElseBit
+         unless doAndIfThenElse $ do
              parseErrorSDoc (combineLocs guardExpr elseExpr)
                             (text "Unexpected semi-colons in conditional:"
                           $$ nest 4 expr
@@ -1313,7 +1310,7 @@ isFunLhs e = go e [] []
 
    go e@(L loc (OpApp _ l (L loc' (HsVar _ (L _ op))) r)) es ann
         | Just (e',es') <- splitBang e
-        = do { bang_on <- extension bangPatEnabled
+        = do { bang_on <- getBit BangPatBit
              ; if bang_on then go e' (es' ++ es) ann
                else return (Just (L loc' op, Infix, (l:r:es), ann)) }
                 -- No bangs; behave just like the next case
@@ -1743,15 +1740,15 @@ mergeDataCon all_xs =
             nest 2 (hsep . reverse $ map ppr all_xs'))
 
 ---------------------------------------------------------------------------
--- Check for monad comprehensions
+-- | Check for monad comprehensions
 --
--- If the flag MonadComprehensions is set, return a `MonadComp' context,
--- otherwise use the usual `ListComp' context
+-- If the flag MonadComprehensions is set, return a 'MonadComp' context,
+-- otherwise use the usual 'ListComp' context
 
 checkMonadComp :: P (HsStmtContext Name)
 checkMonadComp = do
-    pState <- getPState
-    return $ if extopt LangExt.MonadComprehensions (options pState)
+    monadComprehensions <- getBit TransformComprehensionsBit
+    return $ if monadComprehensions
                 then MonadComp
                 else ListComp
 
@@ -2068,8 +2065,8 @@ mkModuleImpExp (L l specname) subs =
     ImpExpList xs        ->
       (\newName -> IEThingWith noExt (L l newName) NoIEWildcard (wrapped xs) [])
         <$> nameT
-    ImpExpAllWith xs                       ->
-      do allowed <- extension patternSynonymsEnabled
+    ImpExpAllWith xs     ->
+      do allowed <- getBit PatternSynonymsBit
          if allowed
           then
             let withs = map unLoc xs
@@ -2106,7 +2103,7 @@ mkModuleImpExp (L l specname) subs =
 mkTypeImpExp :: Located RdrName   -- TcCls or Var name space
              -> P (Located RdrName)
 mkTypeImpExp name =
-  do allowed <- extension explicitNamespacesEnabled
+  do allowed <- getBit ExplicitNamespacesBit
      if allowed
        then return (fmap (`setRdrNameSpace` tcClsName) name)
        else parseErrorSDoc (getLoc name)
@@ -2162,7 +2159,7 @@ warnStarBndr span = addWarning Opt_WarnStarBinder span msg
 
 failOpFewArgs :: Located RdrName -> P a
 failOpFewArgs (L loc op) =
-  do { star_is_type <- extension starIsTypeEnabled
+  do { star_is_type <- getBit StarIsTypeBit
      ; let msg = too_few $$ starInfo star_is_type op
      ; parseErrorSDoc loc msg }
   where
@@ -2194,7 +2191,7 @@ parseErrorSDoc span s = failSpanMsgP span s
 -- | Hint about bang patterns, assuming @BangPatterns@ is off.
 hintBangPat :: SrcSpan -> HsExpr GhcPs -> P ()
 hintBangPat span e = do
-    bang_on <- extension bangPatEnabled
+    bang_on <- getBit BangPatBit
     unless bang_on $
       parseErrorSDoc span
         (text "Illegal bang-pattern (use BangPatterns):" $$ ppr e)
