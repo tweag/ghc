@@ -3769,7 +3769,7 @@ fileSrcSpan = do
 -- Hint about linear types
 hintLinear :: SrcSpan -> P ()
 hintLinear span = do
-  linearEnabled <- liftM ((LangExt.LinearTypes `extopt`) . options) getPState
+  linearEnabled <- getBit LinearTypesBit
   unless linearEnabled $ parseErrorSDoc span $
     text "Enable LinearTypes to allow linear functions"
 
