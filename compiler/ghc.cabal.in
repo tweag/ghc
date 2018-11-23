@@ -441,6 +441,7 @@ Library
         CoreToStg
         StgLint
         StgSyn
+        StgFVs
         CallArity
         DmdAnal
         Exitify
@@ -560,6 +561,8 @@ Library
             TargetReg
             NCGMonad
             Instruction
+            BlockLayout
+            CFG
             Format
             Reg
             RegClass

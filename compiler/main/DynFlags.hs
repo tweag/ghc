@@ -171,7 +171,11 @@ module DynFlags (
         FilesToClean(..), emptyFilesToClean,
 
         -- * Include specifications
-        IncludeSpecs(..), addGlobalInclude, addQuoteInclude, flattenIncludes
+        IncludeSpecs(..), addGlobalInclude, addQuoteInclude, flattenIncludes,
+
+
+        -- * Make use of the Cmm CFG
+        CfgWeights(..), backendMaintainsCfg
   ) where
 
 #include "HsVersions.h"
@@ -344,6 +348,7 @@ data DumpFlag
    | Opt_D_dump_cmm_info
    | Opt_D_dump_cmm_cps
    -- end cmm subflags
+   | Opt_D_dump_cfg_weights -- ^ Dump the cfg used for block layout.
    | Opt_D_dump_asm
    | Opt_D_dump_asm_native
    | Opt_D_dump_asm_liveness
@@ -484,6 +489,8 @@ data GeneralFlag
    | Opt_DictsStrict                     -- be strict in argument dictionaries
    | Opt_DmdTxDictSel              -- use a special demand transformer for dictionary selectors
    | Opt_Loopification                  -- See Note [Self-recursive tail calls]
+   | Opt_CfgBlocklayout             -- ^ Use the cfg based block layout algorithm.
+   | Opt_WeightlessBlocklayout         -- ^ Layout based on last instruction per block.
    | Opt_CprAnal
    | Opt_WorkerWrapper
    | Opt_SolveConstantDicts
@@ -609,7 +616,7 @@ data GeneralFlag
    -- Except for uniques, as some simplifier phases introduce new
    -- variables that have otherwise identical names.
    | Opt_SuppressUniques
-   | Opt_SuppressStgFreeVars
+   | Opt_SuppressStgExts
    | Opt_SuppressTicks     -- Replaces Opt_PprShowTicks
    | Opt_SuppressTimestamps -- ^ Suppress timestamps in dumps
 
@@ -689,6 +696,8 @@ optimisationFlags = EnumSet.fromList
    , Opt_DictsStrict
    , Opt_DmdTxDictSel
    , Opt_Loopification
+   , Opt_CfgBlocklayout
+   , Opt_WeightlessBlocklayout
    , Opt_CprAnal
    , Opt_WorkerWrapper
    , Opt_SolveConstantDicts
@@ -1127,8 +1136,85 @@ data DynFlags = DynFlags {
 
   -- | Unique supply configuration for testing build determinism
   initialUnique         :: Int,
-  uniqueIncrement       :: Int
+  uniqueIncrement       :: Int,
+
+  -- | Temporary: CFG Edge weights for fast iterations
+  cfgWeightInfo         :: CfgWeights
 }
+
+-- | Edge weights to use when generating a CFG from CMM
+data CfgWeights
+    = CFGWeights
+    { uncondWeight :: Int
+    , condBranchWeight :: Int
+    , switchWeight :: Int
+    , callWeight :: Int
+    , likelyCondWeight :: Int
+    , unlikelyCondWeight :: Int
+    , infoTablePenalty :: Int
+    , backEdgeBonus :: Int
+    }
+
+defaultCfgWeights :: CfgWeights
+defaultCfgWeights
+    = CFGWeights
+    { uncondWeight = 1000
+    , condBranchWeight = 800
+    , switchWeight = 1
+    , callWeight = -10
+    , likelyCondWeight = 900
+    , unlikelyCondWeight = 300
+    , infoTablePenalty = 300
+    , backEdgeBonus = 400
+    }
+
+parseCfgWeights :: String -> CfgWeights -> CfgWeights
+parseCfgWeights s oldWeights =
+        foldl' (\cfg (n,v) -> update n v cfg) oldWeights assignments
+    where
+        assignments = map assignment $ settings s
+        update "uncondWeight" n w =
+            w {uncondWeight = n}
+        update "condBranchWeight" n w =
+            w {condBranchWeight = n}
+        update "switchWeight" n w =
+            w {switchWeight = n}
+        update "callWeight" n w =
+            w {callWeight = n}
+        update "likelyCondWeight" n w =
+            w {likelyCondWeight = n}
+        update "unlikelyCondWeight" n w =
+            w {unlikelyCondWeight = n}
+        update "infoTablePenalty" n w =
+            w {infoTablePenalty = n}
+        update "backEdgeBonus" n w =
+            w {backEdgeBonus = n}
+        update other _ _
+            = panic $ other ++
+                      " is not a cfg weight parameter. " ++
+                      exampleString
+        settings s
+            | (s1,rest) <- break (== ',') s
+            , null rest
+            = [s1]
+            | (s1,rest) <- break (== ',') s
+            = [s1] ++ settings (drop 1 rest)
+            | otherwise = panic $ "Invalid cfg parameters." ++ exampleString
+        assignment as
+            | (name, _:val) <- break (== '=') as
+            = (name,read val)
+            | otherwise
+            = panic $ "Invalid cfg parameters." ++ exampleString
+        exampleString = "Example parameters: uncondWeight=1000," ++
+            "condBranchWeight=800,switchWeight=0,callWeight=300" ++
+            ",likelyCondWeight=900,unlikelyCondWeight=300" ++
+            ",infoTablePenalty=300,backEdgeBonus=400"
+
+backendMaintainsCfg :: DynFlags -> Bool
+backendMaintainsCfg dflags = case (platformArch $ targetPlatform dflags) of
+    -- ArchX86 -- Should work but not tested so disabled currently.
+    ArchX86_64 -> True
+    _otherwise -> False
 
 class HasDynFlags m where
     getDynFlags :: m DynFlags
@@ -1935,7 +2021,8 @@ defaultDynFlags mySettings (myLlvmTargets, myLlvmPasses) =
         uniqueIncrement = 1,
 
         reverseErrors = False,
-        maxErrors     = Nothing
+        maxErrors     = Nothing,
+        cfgWeightInfo = defaultCfgWeights
       }
 
 defaultWays :: Settings -> [Way]
@@ -3079,7 +3166,7 @@ dynamic_flags_deps = [
                   setGeneralFlag Opt_SuppressTypeApplications
                   setGeneralFlag Opt_SuppressIdInfo
                   setGeneralFlag Opt_SuppressTicks
-                  setGeneralFlag Opt_SuppressStgFreeVars
+                  setGeneralFlag Opt_SuppressStgExts
                   setGeneralFlag Opt_SuppressTypeSignatures
                   setGeneralFlag Opt_SuppressTimestamps)
 
@@ -3117,6 +3204,8 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_cmm_info)
   , make_ord_flag defGhcFlag "ddump-cmm-cps"
         (setDumpFlag Opt_D_dump_cmm_cps)
+  , make_ord_flag defGhcFlag "ddump-cfg-weights"
+        (setDumpFlag Opt_D_dump_cfg_weights)
   , make_ord_flag defGhcFlag "ddump-core-stats"
         (setDumpFlag Opt_D_dump_core_stats)
   , make_ord_flag defGhcFlag "ddump-asm"
@@ -3430,8 +3519,10 @@ dynamic_flags_deps = [
       (noArg (\d -> d { floatLamArgs = Nothing }))
   , make_ord_flag defFlag "fproc-alignment"
       (intSuffix (\n d -> d { cmmProcAlignment = Just n }))
-
-
+  , make_ord_flag defFlag "fblock-layout-weights"
+        (HasArg (\s ->
+            upd (\d -> d { cfgWeightInfo =
+                parseCfgWeights s (cfgWeightInfo d)})))
   , make_ord_flag defFlag "fhistory-size"
       (intSuffix (\n d -> d { historySize = n }))
   , make_ord_flag defFlag "funfolding-creation-threshold"
@@ -3885,7 +3976,9 @@ dFlagsDeps = [
   depFlagSpec' "ppr-ticks"              Opt_PprShowTicks
      (\turn_on -> useInstead "-d" "suppress-ticks" (not turn_on)),
   flagSpec "suppress-ticks"             Opt_SuppressTicks,
-  flagSpec "suppress-stg-free-vars"     Opt_SuppressStgFreeVars,
+  depFlagSpec' "suppress-stg-free-vars" Opt_SuppressStgExts
+     (useInstead "-d" "suppress-stg-exts"),
+  flagSpec "suppress-stg-exts"          Opt_SuppressStgExts,
   flagSpec "suppress-coercions"         Opt_SuppressCoercions,
   flagSpec "suppress-idinfo"            Opt_SuppressIdInfo,
   flagSpec "suppress-unfoldings"        Opt_SuppressUnfoldings,
@@ -3963,6 +4056,8 @@ fFlagsDeps = [
   flagHiddenSpec "llvm-tbaa"                  Opt_LlvmTBAA,
   flagHiddenSpec "llvm-fill-undef-with-garbage" Opt_LlvmFillUndefWithGarbage,
   flagSpec "loopification"                    Opt_Loopification,
+  flagSpec "block-layout-cfg"                 Opt_CfgBlocklayout,
+  flagSpec "block-layout-weightless"          Opt_WeightlessBlocklayout,
   flagSpec "omit-interface-pragmas"           Opt_OmitInterfacePragmas,
   flagSpec "omit-yields"                      Opt_OmitYields,
   flagSpec "optimal-applicative-do"           Opt_OptimalApplicativeDo,
@@ -4453,6 +4548,8 @@ optLevelFlags -- see Note [Documenting optimisation flags]
     , ([1,2],   Opt_FullLaziness)
     , ([1,2],   Opt_IgnoreAsserts)
     , ([1,2],   Opt_Loopification)
+    , ([1,2],   Opt_CfgBlocklayout)      -- Experimental
+
     , ([1,2],   Opt_Specialise)
     , ([1,2],   Opt_CrossModuleSpecialise)
     , ([1,2],   Opt_Strictness)
