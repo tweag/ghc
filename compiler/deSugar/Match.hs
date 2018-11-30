@@ -42,6 +42,7 @@ import MatchLit
 import Type
 import Coercion ( eqCoercion )
 import TyCon( isNewTyCon )
+import Multiplicity
 import TysWiredIn
 import SrcLoc
 import Maybes
@@ -162,6 +163,10 @@ type MatchId = Id   -- See Note [Match Ids]
 
 match :: [MatchId]        -- Variables rep\'ing the exprs we\'re matching with
                           -- See Note [Match Ids]
+                          --
+                          -- Note that the Match Ids carry not only a name, but
+                          -- also the multiplicity at which each column has been
+                          -- type checked.
       -> Type             -- Type of the case expression
       -> [EquationInfo]   -- Info about patterns, etc. (type synonym below)
       -> DsM MatchResult  -- Desugared result!
@@ -235,7 +240,7 @@ matchEmpty :: MatchId -> Type -> DsM [MatchResult]
 matchEmpty var res_ty
   = return [MatchResult CanFail mk_seq]
   where
-    mk_seq fail = return $ mkWildCase (Var var) (idType var) res_ty
+    mk_seq fail = return $ mkWildCase (Var var) (Scaled (idWeight var) (idType var)) res_ty
                                       [(DEFAULT, [], fail)]
 
 matchVariables :: [MatchId] -> Type -> [EquationInfo] -> DsM MatchResult
@@ -256,7 +261,7 @@ matchCoercion :: [MatchId] -> Type -> [EquationInfo] -> DsM MatchResult
 matchCoercion (var:vars) ty (eqns@(eqn1:_))
   = do  { let CoPat _ co pat _ = firstPat eqn1
         ; let pat_ty' = hsPatType pat
-        ; var' <- newUniqueId var pat_ty'
+        ; var' <- newUniqueId var (idWeight var) pat_ty'
         ; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getCoPat) eqns
         ; core_wrap <- dsHsWrapper co
@@ -273,7 +278,7 @@ matchView (var:vars) ty (eqns@(eqn1:_))
          let ViewPat _ viewExpr (dL->L _ pat) = firstPat eqn1
          -- do the rest of the compilation
         ; let pat_ty' = hsPatType pat
-        ; var' <- newUniqueId var pat_ty'
+        ; var' <- newUniqueId var (idWeight var) pat_ty'
         ; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getViewPat) eqns
          -- compile the view expressions
@@ -288,7 +293,7 @@ matchOverloadedList (var:vars) ty (eqns@(eqn1:_))
 -- Since overloaded list patterns are treated as view patterns,
 -- the code is roughly the same as for matchView
   = do { let ListPat (ListPatTc elt_ty (Just (_,e))) _ = firstPat eqn1
-       ; var' <- newUniqueId var (mkListTy elt_ty)  -- we construct the overall type by hand
+       ; var' <- newUniqueId var (idWeight var) (mkListTy elt_ty)  -- we construct the overall type by hand
        ; match_result <- match (var':vars) ty $
                             map (decomposeFirstPat getOLPat) eqns -- getOLPat builds the pattern inside as a non-overloaded version of the overloaded list pattern
        ; e' <- dsSyntaxExpr e [Var var]
@@ -502,7 +507,7 @@ tidy_bang_pat v l p@(ConPatOut { pat_con = (dL->L _ (RealDataCon dc))
   -- Newtypes: push bang inwards (Trac #9844)
   =
     if isNewTyCon (dataConTyCon dc)
-      then tidy1 v (p { pat_args = push_bang_into_newtype_arg l ty args })
+      then tidy1 v (p { pat_args = push_bang_into_newtype_arg l (scaledThing ty) args })
       else tidy1 v p  -- Data types: discard the bang
     where
       (ty:_) = dataConInstArgTys dc arg_tys
@@ -708,8 +713,12 @@ matchWrapper ctxt mb_scr (MG { mg_alts = (dL->L _ matches)
         ; locn   <- getSrcSpanDs
 
         ; new_vars    <- case matches of
-                           []    -> mapM newSysLocalDsNoLP arg_tys
-                           (m:_) -> selectMatchVars (map unLoc (hsLMatchPats m))
+                           []    -> mapM (\(Scaled w ty) -> newSysLocalDsNoLP w ty) arg_tys
+                           (m:_) ->
+                            selectMatchVars (zipWithEqual "matchWrapper"
+                                              (\a b -> (scaledMult a, unLoc b))
+                                                arg_tys
+                                                (hsLMatchPats m))
 
         ; eqns_info   <- mapM (mk_eqn_info new_vars) matches
 
@@ -793,7 +802,7 @@ matchSinglePat (Var var) ctx pat ty match_result
   = matchSinglePatVar var ctx pat ty match_result
 
 matchSinglePat scrut hs_ctx pat ty match_result
-  = do { var           <- selectSimpleMatchVarL pat
+  = do { var           <- selectSimpleMatchVarL Omega pat
        ; match_result' <- matchSinglePatVar var hs_ctx pat ty match_result
        ; return (adjustMatchResult (bindNonRec var scrut) match_result') }
 
@@ -1041,7 +1050,8 @@ viewLExprEq (e1,_) (e2,_) = lexp e1 e2
     --        equating different ways of writing a coercion)
     wrap WpHole WpHole = True
     wrap (WpCompose w1 w2) (WpCompose w1' w2') = wrap w1 w1' && wrap w2 w2'
-    wrap (WpFun w1 w2 _ _) (WpFun w1' w2' _ _) = wrap w1 w1' && wrap w2 w2'
+    wrap (WpFun w1 w2 _ _) (WpFun w1' w2' _ _) =
+      wrap w1 w1' && wrap w2 w2'
     wrap (WpCast co)       (WpCast co')        = co `eqCoercion` co'
     wrap (WpEvApp et1)     (WpEvApp et2)       = et1 `ev_term` et2
     wrap (WpTyApp t)       (WpTyApp t')        = eqType t t'

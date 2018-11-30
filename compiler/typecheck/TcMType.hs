@@ -9,7 +9,7 @@ This module contains monadic operations over types that contain
 mutable type variables
 -}
 
-{-# LANGUAGE CPP, TupleSections, MultiWayIf #-}
+{-# LANGUAGE CPP, TupleSections, MultiWayIf, PatternSynonyms #-}
 
 module TcMType (
   TcTyVar, TcKind, TcType, TcTauType, TcThetaType, TcTyVarSet,
@@ -24,6 +24,7 @@ module TcMType (
   cloneMetaTyVar,
   newFmvTyVar, newFskTyVar,
 
+  newMultiplicityVar,
   readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
   newMetaDetails, isFilledMetaTyVar_maybe, isFilledMetaTyVar, isUnfilledMetaTyVar,
 
@@ -117,6 +118,7 @@ import FastString
 import Bag
 import Pair
 import UniqSet
+import Multiplicity
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
@@ -166,7 +168,7 @@ newEvVars theta = mapM newEvVar theta
 newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
 -- Creates new *rigid* variables for predicates
 newEvVar ty = do { name <- newSysName (predTypeOccName ty)
-                 ; return (mkLocalIdOrCoVar name ty) }
+                 ; return (mkLocalIdOrCoVar name (Regular Omega) ty) }
 
 newWanted :: CtOrigin -> Maybe TypeOrKind -> PredType -> TcM CtEvidence
 -- Deals with both equality and non-equality predicates
@@ -277,7 +279,7 @@ emitWantedEvVars orig = mapM (emitWantedEvVar orig)
 newDict :: Class -> [TcType] -> TcM DictId
 newDict cls tys
   = do { name <- newSysName (mkDictOcc (getOccName cls))
-       ; return (mkLocalId name (mkClassPred cls tys)) }
+       ; return (mkLocalId name (Regular Omega) (mkClassPred cls tys)) }
 
 predTypeOccName :: PredType -> OccName
 predTypeOccName ty = case classifyPredType ty of
@@ -805,6 +807,7 @@ writeMetaTyVarRef tyvar ref ty
        -- Check for level OK
        -- See Note [Level check when unifying]
        ; MASSERT2( level_check_ok, level_check_msg )
+       -- another level check problem, see #97
 
        -- Check Kinds ok
        ; MASSERT2( kind_check_ok, kind_msg )
@@ -905,6 +908,9 @@ cloneAnonMetaTyVar info tv kind
 At the moment we give a unification variable a System Name, which
 influences the way it is tidied; see TypeRep.tidyTyVarBndr.
 -}
+
+newMultiplicityVar :: TcM TcType
+newMultiplicityVar = newFlexiTyVarTy multiplicityTy
 
 newFlexiTyVar :: Kind -> TcM TcTyVar
 newFlexiTyVar kind = newAnonMetaTyVar TauTv kind
@@ -1173,6 +1179,13 @@ collect_cand_qtvs :: Bool   -- True <=> consider every fv in Type to be dependen
 collect_cand_qtvs is_dep bound dvs ty
   = go dvs ty
   where
+    go_mult dv Zero  = return dv
+    go_mult dv One   = return dv
+    go_mult dv Omega = return dv
+    go_mult dv (MultAdd x y) = foldlM go_mult dv [x, y]
+    go_mult dv (MultMul x y) = foldlM go_mult dv [x, y]
+    go_mult dv (MultThing x) = go dv x
+
     is_bound tv = tv `elemVarSet` bound
 
     -----------------
@@ -1180,7 +1193,8 @@ collect_cand_qtvs is_dep bound dvs ty
     -- Uses accumulating-parameter style
     go dv (AppTy t1 t2)    = foldlM go dv [t1, t2]
     go dv (TyConApp _ tys) = foldlM go dv tys
-    go dv (FunTy arg res)  = foldlM go dv [arg, res]
+    go dv (FunTy w arg res) = do dv1 <- go_mult dv w
+                                 foldlM go dv1 [arg, res]
     go dv (LitTy {})       = return dv
     go dv (CastTy ty co)   = do dv1 <- go dv ty
                                 collect_cand_qtvs_co bound dv1 co
@@ -1238,7 +1252,7 @@ collect_cand_qtvs_co bound = go_co
                                         go_mco dv1 mco
     go_co dv (TyConAppCo _ _ cos)  = foldlM go_co dv cos
     go_co dv (AppCo co1 co2)       = foldlM go_co dv [co1, co2]
-    go_co dv (FunCo _ co1 co2)     = foldlM go_co dv [co1, co2]
+    go_co dv (FunCo _ w co1 co2)   = foldlM go_co dv [w, co1, co2]
     go_co dv (AxiomInstCo _ _ cos) = foldlM go_co dv cos
     go_co dv (AxiomRuleCo _ cos)   = foldlM go_co dv cos
     go_co dv (UnivCo prov _ t1 t2) = do dv1 <- go_prov dv prov
@@ -1502,6 +1516,10 @@ defaultTyVar default_kind tv
                         -- unless it is a TyVarTv, handled earlier
   = do { traceTc "Defaulting a RuntimeRep var to LiftedRep" (ppr tv)
        ; writeMetaTyVar tv liftedRepTy
+       ; return True }
+  | isMultiplicityVar tv
+  = do { traceTc "Defaulting a Multiplicty var to Omega" (ppr tv)
+       ; writeMetaTyVar tv omegaDataConTy
        ; return True }
 
   | default_kind                 -- -XNoPolyKinds and this is a kind var
@@ -2127,8 +2145,8 @@ tidySigSkol env cx ty tv_prs
       where
         (env', tv') = tidy_tv_bndr env tv
 
-    tidy_ty env (FunTy arg res)
-      = FunTy (tidyType env arg) (tidy_ty env res)
+    tidy_ty env (FunTy w arg res)
+      = FunTy w (tidyType env arg) (tidy_ty env res)
 
     tidy_ty env ty = tidyType env ty
 

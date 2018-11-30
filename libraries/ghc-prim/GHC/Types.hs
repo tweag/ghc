@@ -1,6 +1,6 @@
 {-# LANGUAGE MagicHash, NoImplicitPrelude, TypeFamilies, UnboxedTuples,
              MultiParamTypeClasses, RoleAnnotations, CPP, TypeOperators,
-             PolyKinds #-}
+             PolyKinds, NegativeLiterals #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  GHC.Types
@@ -40,12 +40,27 @@ module GHC.Types (
 
         -- * Runtime type representation
         Module(..), TrName(..), TyCon(..), TypeLitSort(..),
-        KindRep(..), KindBndr
+        KindRep(..), KindBndr,
+
+        -- * Multiplicity Types
+        Multiplicity(..)
     ) where
 
 import GHC.Prim
 
 infixr 5 :
+
+
+{- *********************************************************************
+*                                                                      *
+                  Functions
+*                                                                      *
+********************************************************************* -}
+
+infixr -1 -> -- trac #10145
+
+-- | The built-in function type.
+data (->) a b
 
 {- *********************************************************************
 *                                                                      *
@@ -428,6 +443,8 @@ data VecElem = Int8ElemRep
              | FloatElemRep
              | DoubleElemRep
 -- Enum, Bounded instances in GHC.Enum
+
+data Multiplicity = Omega | One
 
 {- *********************************************************************
 *                                                                      *

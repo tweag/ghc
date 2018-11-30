@@ -11,7 +11,7 @@ Type subsumption and unification
 module TcUnify (
   -- Full-blown subsumption
   tcWrapResult, tcWrapResultO, tcSkolemise, tcSkolemiseET,
-  tcSubTypeHR, tcSubTypeO, tcSubType_NC, tcSubTypeDS,
+  tcSubTypeHR, tcSubTypeO, tcSubType_NC, tcSubTypeDS, tcSubMult,
   tcSubTypeDS_NC_O, tcSubTypeET,
   checkConstraints, checkTvConstraints,
   buildImplicationFor, emitResidualTvConstraint,
@@ -45,6 +45,7 @@ import TcMType
 import TcRnMonad
 import TcType
 import Type
+import Multiplicity
 import Coercion
 import TcEvidence
 import Name( isSystemName )
@@ -135,7 +136,7 @@ matchExpectedFunTys :: forall a.
                        SDoc   -- See Note [Herald for matchExpectedFunTys]
                     -> Arity
                     -> ExpRhoType  -- deeply skolemised
-                    -> ([ExpSigmaType] -> ExpRhoType -> TcM a)
+                    -> ([Scaled ExpSigmaType] -> ExpRhoType -> TcM a)
                           -- must fill in these ExpTypes here
                     -> TcM (a, HsWrapper)
 -- If    matchExpectedFunTys n ty = (_, wrap)
@@ -153,12 +154,12 @@ matchExpectedFunTys herald arity orig_ty thing_inside
     go acc_arg_tys n ty
       | Just ty' <- tcView ty = go acc_arg_tys n ty'
 
-    go acc_arg_tys n (FunTy arg_ty res_ty)
+    go acc_arg_tys n (FunTy mult arg_ty res_ty)
       = ASSERT( not (isPredTy arg_ty) )
-        do { (result, wrap_res) <- go (mkCheckExpType arg_ty : acc_arg_tys)
+        do { (result, wrap_res) <- go ((Scaled mult $ mkCheckExpType arg_ty) : acc_arg_tys)
                                       (n-1) res_ty
            ; return ( result
-                    , mkWpFun idHsWrapper wrap_res arg_ty res_ty doc ) }
+                    , mkWpFun idHsWrapper wrap_res (Scaled mult arg_ty) res_ty doc ) }
       where
         doc = text "When inferring the argument type of a function with type" <+>
               quotes (ppr orig_ty)
@@ -189,14 +190,14 @@ matchExpectedFunTys herald arity orig_ty thing_inside
                           defer acc_arg_tys n (mkCheckExpType ty)
 
     ------------
-    defer :: [ExpSigmaType] -> Arity -> ExpRhoType -> TcM (a, HsWrapper)
+    defer :: [Scaled ExpSigmaType] -> Arity -> ExpRhoType -> TcM (a, HsWrapper)
     defer acc_arg_tys n fun_ty
       = do { more_arg_tys <- replicateM n newInferExpTypeNoInst
            ; res_ty       <- newInferExpTypeInst
-           ; result       <- thing_inside (reverse acc_arg_tys ++ more_arg_tys) res_ty
+           ; result       <- thing_inside (reverse acc_arg_tys ++ (map unrestricted more_arg_tys)) res_ty
            ; more_arg_tys <- mapM readExpType more_arg_tys
            ; res_ty       <- readExpType res_ty
-           ; let unif_fun_ty = mkFunTys more_arg_tys res_ty
+           ; let unif_fun_ty = mkFunTys (map unrestricted more_arg_tys) res_ty
            ; wrap <- tcSubTypeDS AppOrigin GenSigCtxt unif_fun_ty fun_ty
                          -- Not a good origin at all :-(
            ; return (result, wrap) }
@@ -220,7 +221,7 @@ matchActualFunTys :: SDoc   -- See Note [Herald for matchExpectedFunTys]
                   -> Maybe (HsExpr GhcRn)   -- the thing with type TcSigmaType
                   -> Arity
                   -> TcSigmaType
-                  -> TcM (HsWrapper, [TcSigmaType], TcSigmaType)
+                  -> TcM (HsWrapper, [Scaled TcSigmaType], TcSigmaType)
 -- If    matchActualFunTys n ty = (wrap, [t1,..,tn], ty_r)
 -- then  wrap : ty ~> (t1 -> ... -> tn -> ty_r)
 matchActualFunTys herald ct_orig mb_thing arity ty
@@ -233,9 +234,9 @@ matchActualFunTysPart :: SDoc -- See Note [Herald for matchExpectedFunTys]
                       -> Maybe (HsExpr GhcRn)  -- the thing with type TcSigmaType
                       -> Arity
                       -> TcSigmaType
-                      -> [TcSigmaType] -- reversed args. See (*) below.
+                      -> [Scaled TcSigmaType] -- reversed args. See (*) below.
                       -> Arity   -- overall arity of the function, for errs
-                      -> TcM (HsWrapper, [TcSigmaType], TcSigmaType)
+                      -> TcM (HsWrapper, [Scaled TcSigmaType], TcSigmaType)
 matchActualFunTysPart herald ct_orig mb_thing arity orig_ty
                       orig_old_args full_arity
   = go arity orig_old_args orig_ty
@@ -266,9 +267,9 @@ matchActualFunTysPart herald ct_orig mb_thing arity orig_ty
     --
     -- Refactoring is welcome.
     go :: Arity
-       -> [TcSigmaType] -- accumulator of arguments (reversed)
+       -> [Scaled TcSigmaType] -- accumulator of arguments (reversed)
        -> TcSigmaType   -- the remainder of the type as we're processing
-       -> TcM (HsWrapper, [TcSigmaType], TcSigmaType)
+       -> TcM (HsWrapper, [Scaled TcSigmaType], TcSigmaType)
     go 0 _ ty = return (idHsWrapper, [], ty)
 
     go n acc_args ty
@@ -282,11 +283,11 @@ matchActualFunTysPart herald ct_orig mb_thing arity orig_ty
     go n acc_args ty
       | Just ty' <- tcView ty = go n acc_args ty'
 
-    go n acc_args (FunTy arg_ty res_ty)
+    go n acc_args (FunTy w arg_ty res_ty)
       = ASSERT( not (isPredTy arg_ty) )
-        do { (wrap_res, tys, ty_r) <- go (n-1) (arg_ty : acc_args) res_ty
-           ; return ( mkWpFun idHsWrapper wrap_res arg_ty ty_r doc
-                    , arg_ty : tys, ty_r ) }
+        do { (wrap_res, tys, ty_r) <- go (n-1) (Scaled w arg_ty : acc_args) res_ty
+           ; return ( mkWpFun idHsWrapper wrap_res (Scaled w arg_ty) ty_r doc
+                    , Scaled w arg_ty : tys, ty_r ) }
       where
         doc = text "When inferring the argument type of a function with type" <+>
               quotes (ppr orig_ty)
@@ -320,12 +321,12 @@ matchActualFunTysPart herald ct_orig mb_thing arity orig_ty
     defer n fun_ty
       = do { arg_tys <- replicateM n newOpenFlexiTyVarTy
            ; res_ty  <- newOpenFlexiTyVarTy
-           ; let unif_fun_ty = mkFunTys arg_tys res_ty
+           ; let unif_fun_ty = mkFunTys (map unrestricted arg_tys) res_ty
            ; co <- unifyType mb_thing fun_ty unif_fun_ty
-           ; return (mkWpCastN co, arg_tys, res_ty) }
+           ; return (mkWpCastN co, map unrestricted arg_tys, res_ty) }
 
     ------------
-    mk_ctxt :: [TcSigmaType] -> TcSigmaType -> TidyEnv -> TcM (TidyEnv, MsgDoc)
+    mk_ctxt :: [Scaled TcSigmaType] -> TcSigmaType -> TidyEnv -> TcM (TidyEnv, MsgDoc)
     mk_ctxt arg_tys res_ty env
       = do { let ty = mkFunTys arg_tys res_ty
            ; (env1, zonked) <- zonkTidyTcType env ty
@@ -371,7 +372,7 @@ matchExpectedTyConApp :: TyCon                -- T :: forall kv1 ... kvm. k1 -> 
 -- Postcondition: (T k1 k2 k3 a b c) is well-kinded
 
 matchExpectedTyConApp tc orig_ty
-  = ASSERT(tc /= funTyCon) go orig_ty
+  = ASSERT(not $ isFunTyCon tc) go orig_ty
   where
     go ty
        | Just ty' <- tcView ty
@@ -441,7 +442,7 @@ matchExpectedAppTy orig_ty
            ; return (co, (ty1, ty2)) }
 
     orig_kind = typeKind orig_ty
-    kind1 = mkFunTy liftedTypeKind orig_kind
+    kind1 = mkFunTy Omega liftedTypeKind orig_kind
     kind2 = liftedTypeKind    -- m :: * -> k
                               -- arg type :: *
 
@@ -754,14 +755,15 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
     -- caused Trac #12616 because (also bizarrely) 'deriving' code had
     -- -XImpredicativeTypes on.  I deleted the entire case.
 
-    go (FunTy act_arg act_res) (FunTy exp_arg exp_res)
+    go (FunTy act_mult act_arg act_res) (FunTy exp_mult exp_arg exp_res)
       | not (isPredTy act_arg)
       , not (isPredTy exp_arg)
       = -- See Note [Co/contra-variance of subsumption checking]
-        do { res_wrap <- tc_sub_type_ds eq_orig inst_orig  ctxt       act_res exp_res
+        do { tcEqMult eq_orig inst_orig ctxt act_mult exp_mult
+           ; res_wrap <- tc_sub_type_ds eq_orig inst_orig  ctxt       act_res exp_res
            ; arg_wrap <- tc_sub_tc_type eq_orig given_orig GenSigCtxt exp_arg act_arg
                          -- GenSigCtxt: See Note [Setting the argument context]
-           ; return (mkWpFun arg_wrap res_wrap exp_arg exp_res doc) }
+           ; return (mkWpFun arg_wrap res_wrap (Scaled exp_mult exp_arg) exp_res doc) }
                -- arg_wrap :: exp_arg ~> act_arg
                -- res_wrap :: act-res ~> exp_res
       where
@@ -808,6 +810,38 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
 
      -- use versions without synonyms expanded
     unify = mkWpCastN <$> uType TypeLevel eq_orig ty_actual ty_expected
+
+tcEqMult :: CtOrigin -> CtOrigin -> UserTypeCtxt -> Mult -> Mult -> TcM ()
+tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
+  { -- Note that here we do not call to `submultMaybe`, so we check
+    -- for strict equality.
+  ; _wrap <- tc_sub_type_ds eq_orig inst_orig ctxt (fromMult w_actual) (fromMult w_expected)
+  -- I don't know why, but `_wrap` need not be an identity wrapper. At any rate,
+  -- the wrapper isn't significant for multiplicities, so it is safe to drop
+  -- it. But maybe there is a better way to implement this function.
+  ; return () }
+
+-- As an approximation to checking w1 * w2 <= w we check that w1 <= w and
+-- w2 <= w. As together they imply that w1 * w2 <= w.
+-- For w1 + w2 <= w we instantiate w1 and w2 to Omega and check that Omega
+-- <= w
+-- The error messages from this function are currently awful.
+tcSubMult :: Mult -> Mult -> TcM ()
+tcSubMult actual_w w
+  = do_one actual_w
+  where
+    do_one mult =
+      case mult of
+        MultAdd _ _ -> do
+          tcSubMult Omega w
+        MultMul m1 m2 -> do
+          tcSubMult m1 w
+          tcSubMult m2 w
+        _ -> do_one_action mult w
+
+    do_one_action a_w c_w
+       = tcEqMult AppOrigin AppOrigin TypeAppCtxt a_w c_w
+
 
 {- Note [Settting the argument context]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1416,10 +1450,11 @@ uType t_or_k origin orig_ty1 orig_ty2
       | Just ty2' <- tcView ty2 = go ty1  ty2'
 
         -- Functions (or predicate functions) just check the two parts
-    go (FunTy fun1 arg1) (FunTy fun2 arg2)
+    go (FunTy w1 fun1 arg1) (FunTy w2 fun2 arg2)
       = do { co_l <- uType t_or_k origin fun1 fun2
            ; co_r <- uType t_or_k origin arg1 arg2
-           ; return $ mkFunCo Nominal co_l co_r }
+           ; co_w <- uType t_or_k origin (fromMult w1) (fromMult w2)
+           ; return $ mkFunCo Nominal co_w co_l co_r }
 
         -- Always defer if a type synonym family (type function)
         -- is involved.  (Data families behave rigidly.)
@@ -2035,13 +2070,13 @@ matchExpectedFunKind hs_ty = go
                 Indirect fun_kind -> go fun_kind
                 Flexi ->             defer k }
 
-    go k@(FunTy arg res) = return (mkNomReflCo k, arg, res)
-    go other             = defer other
+    go k@(FunTy _ arg res) = return (mkNomReflCo k, arg, res)
+    go other               = defer other
 
     defer k
       = do { arg_kind <- newMetaKindVar
            ; res_kind <- newMetaKindVar
-           ; let new_fun = mkFunTy arg_kind res_kind
+           ; let new_fun = mkFunTy Omega arg_kind res_kind
                  origin  = TypeEqOrigin { uo_actual   = k
                                         , uo_expected = new_fun
                                         , uo_thing    = Just (ppr hs_ty)
@@ -2199,7 +2234,7 @@ preCheck dflags ty_fam_ok tv ty
       | bad_tc tc              = OC_Bad
       | otherwise              = mapM fast_check tys >> ok
     fast_check (LitTy {})      = ok
-    fast_check (FunTy a r)     = fast_check a   >> fast_check r
+    fast_check (FunTy _ a r)   = fast_check a   >> fast_check r
     fast_check (AppTy fun arg) = fast_check fun >> fast_check arg
     fast_check (CastTy ty co)  = fast_check ty  >> fast_check_co co
     fast_check (CoercionTy co) = fast_check_co co

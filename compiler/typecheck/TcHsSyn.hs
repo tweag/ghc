@@ -80,8 +80,10 @@ import Outputable
 import Util
 import UniqFM
 import CoreSyn
+import Multiplicity
 
 import Control.Monad
+import Data.Functor.Compose ( Compose(..) )
 import Data.List  ( partition )
 import Control.Arrow ( second )
 
@@ -670,7 +672,7 @@ zonkMatchGroup env zBody (MG { mg_alts = (dL->L l ms)
                              , mg_ext = MatchGroupTc arg_tys res_ty
                              , mg_origin = origin })
   = do  { ms' <- mapM (zonkMatch env zBody) ms
-        ; arg_tys' <- zonkTcTypesToTypesX env arg_tys
+        ; Compose arg_tys' <- zonkTcTypesToTypesX env (Compose arg_tys)
         ; res_ty'  <- zonkTcTypeToTypeX env res_ty
         ; return (MG { mg_alts = cL l ms'
                      , mg_ext = MatchGroupTc arg_tys' res_ty'
@@ -1055,7 +1057,7 @@ zonkCoFn env (WpCompose c1 c2) = do { (env1, c1') <- zonkCoFn env c1
                                     ; return (env2, WpCompose c1' c2') }
 zonkCoFn env (WpFun c1 c2 t1 d) = do { (env1, c1') <- zonkCoFn env c1
                                      ; (env2, c2') <- zonkCoFn env1 c2
-                                     ; t1'         <- zonkTcTypeToTypeX env2 t1
+                                     ; t1'         <- zonkScaledTcTypeToTypeX env2 t1
                                      ; return (env2, WpFun c1' c2' t1' d) }
 zonkCoFn env (WpCast co) = do { co' <- zonkCoToCo env co
                               ; return (env, WpCast co') }
@@ -1210,14 +1212,15 @@ zonkStmt env _ (LetStmt x (dL->L l binds))
   = do (env1, new_binds) <- zonkLocalBinds env binds
        return (env1, LetStmt x (cL l new_binds))
 
-zonkStmt env zBody (BindStmt bind_ty pat body bind_op fail_op)
+zonkStmt env zBody (BindStmt (w, bind_ty) pat body bind_op fail_op)
   = do  { (env1, new_bind) <- zonkSyntaxExpr env bind_op
+        ; new_w <- zonkRigX env1 w
         ; new_bind_ty <- zonkTcTypeToTypeX env1 bind_ty
         ; new_body <- zBody env1 body
         ; (env2, new_pat) <- zonkPat env1 pat
         ; (_, new_fail) <- zonkSyntaxExpr env1 fail_op
         ; return ( env2
-                 , BindStmt new_bind_ty new_pat new_body new_bind new_fail) }
+                 , BindStmt (new_w, new_bind_ty) new_pat new_body new_bind new_fail) }
 
 -- Scopes: join > ops (in reverse order) > pats (in forward order)
 --              > rest of stmts
@@ -1610,10 +1613,11 @@ zonkEvTypeable env (EvTypeableTyApp t1 t2)
   = do { t1' <- zonkEvTerm env t1
        ; t2' <- zonkEvTerm env t2
        ; return (EvTypeableTyApp t1' t2') }
-zonkEvTypeable env (EvTypeableTrFun t1 t2)
-  = do { t1' <- zonkEvTerm env t1
+zonkEvTypeable env (EvTypeableTrFun tm t1 t2)
+  = do { tm' <- zonkEvTerm env tm
+       ; t1' <- zonkEvTerm env t1
        ; t2' <- zonkEvTerm env t2
-       ; return (EvTypeableTrFun t1' t2') }
+       ; return (EvTypeableTrFun tm' t1' t2') }
 zonkEvTypeable env (EvTypeableTyLit t1)
   = do { t1' <- zonkEvTerm env t1
        ; return (EvTypeableTyLit t1') }
@@ -1798,6 +1802,9 @@ commitFlexi flexi tv zonked_kind
         | isRuntimeRepTy zonked_kind
         -> do { traceTc "Defaulting flexi tyvar to LiftedRep:" (pprTyVar tv)
               ; return liftedRepTy }
+        | isMultiplicityTy zonked_kind
+        -> do { traceTc "Defaulting flexi tyvar to Omega:" (pprTyVar tv)
+              ; return omegaDataConTy }
         | otherwise
         -> do { traceTc "Defaulting flexi tyvar to Any:" (pprTyVar tv)
               ; return (anyTypeOfKind zonked_kind) }
@@ -1868,7 +1875,17 @@ zonkTcTypeToTypeX = mapType zonk_tycomapper
 zonkTcTypesToTypes :: [TcType] -> TcM [Type]
 zonkTcTypesToTypes = initZonkEnv zonkTcTypesToTypesX
 
-zonkTcTypesToTypesX :: ZonkEnv -> [TcType] -> TcM [Type]
+zonkScaledTcTypeToTypeX :: ZonkEnv -> Scaled TcType -> TcM (Scaled TcType)
+zonkScaledTcTypeToTypeX env (Scaled r ty) = Scaled <$> zonkRigX env r
+                                                         <*> zonkTcTypeToTypeX env ty
+
+zonkRigX :: ZonkEnv -> Mult -> TcM Mult
+zonkRigX env (MultThing t) = MultThing <$> zonkTcTypeToTypeX env t
+zonkRigX env (MultAdd m1 m2) = MultAdd <$> zonkRigX env m1 <*> zonkRigX env m2
+zonkRigX env (MultMul m1 m2) = MultMul <$> zonkRigX env m1 <*> zonkRigX env m2
+zonkRigX _env r = return r
+
+zonkTcTypesToTypesX :: Traversable t => ZonkEnv -> (t TcType) -> TcM (t Type)
 zonkTcTypesToTypesX env tys = mapM (zonkTcTypeToTypeX env) tys
 
 zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion

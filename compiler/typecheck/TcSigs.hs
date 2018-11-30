@@ -39,10 +39,11 @@ import Inst( topInstantiate )
 import TcEnv( tcLookupId )
 import TcEvidence( HsWrapper, (<.>) )
 import Type( mkTyVarBinders )
+import Multiplicity
 
 import DynFlags
 import Var      ( TyVar, tyVarKind )
-import Id       ( Id, idName, idType, idInlinePragma, setInlinePragma, mkLocalId )
+import Id       ( Id, VarMult(..), idName, idType, idInlinePragma, setInlinePragma, mkLocalId )
 import PrelNames( mkUnboundName )
 import BasicTypes
 import Bag( foldrBag )
@@ -53,6 +54,7 @@ import Outputable
 import SrcLoc
 import Util( singleton )
 import Maybes( orElse )
+import Data.Functor.Compose
 import Data.Maybe( mapMaybe )
 import Control.Monad( unless )
 
@@ -218,7 +220,12 @@ tcUserTypeSig loc hs_sig_ty mb_name
   | isCompleteHsSig hs_sig_ty
   = do { sigma_ty <- tcHsSigWcType ctxt_F hs_sig_ty
        ; return $
-         CompleteSig { sig_bndr  = mkLocalId name sigma_ty
+         CompleteSig { sig_bndr  = mkLocalId name (Regular Omega) sigma_ty
+                                   -- We use `Omega' as the multiplicity here,
+                                   -- as if this identifier corresponds to
+                                   -- anything, it is a top-level
+                                   -- definition. Which are all unrestricted in
+                                   -- the current implementation.
                      , sig_ctxt  = ctxt_T
                      , sig_loc   = loc } }
                        -- Location of the <type> in   f :: <type>
@@ -381,7 +388,7 @@ tcPatSynSig name sig_ty
        -- arguments become the types of binders. We thus cannot allow
        -- levity polymorphism here
        ; let (arg_tys, _) = tcSplitFunTys body_ty'
-       ; mapM_ (checkForLevPoly empty) arg_tys
+       ; mapM_ (checkForLevPoly empty) (Compose arg_tys)
 
        ; traceTc "tcTySig }" $
          vcat [ text "implicit_tvs" <+> ppr_tvs implicit_tvs'
@@ -405,9 +412,9 @@ tcPatSynSig name sig_ty
     build_patsyn_type kvs imp univ req ex prov body
       = mkInvForAllTys kvs $
         mkSpecForAllTys (imp ++ univ) $
-        mkFunTys req $
+        mkFunTys (map unrestricted req) $
         mkSpecForAllTys ex $
-        mkFunTys prov $
+        mkFunTys (map unrestricted prov) $
         body
 tcPatSynSig _ (XHsImplicitBndrs _) = panic "tcPatSynSig"
 

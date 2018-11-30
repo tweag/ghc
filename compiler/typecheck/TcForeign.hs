@@ -46,6 +46,7 @@ import FamInst
 import FamInstEnv
 import Coercion
 import Type
+import Multiplicity
 import ForeignCall
 import ErrUtils
 import Id
@@ -253,7 +254,7 @@ tcFImport (L dloc fo@(ForeignImport { fd_name = L nloc nm, fd_sig_ty = hs_ty
            -- structure of the foreign type.
              (bndrs, res_ty)   = tcSplitPiTys norm_sig_ty
              arg_tys           = mapMaybe binderRelevantType_maybe bndrs
-             id                = mkLocalId nm sig_ty
+             id                = mkLocalId nm (Regular Omega) sig_ty
                  -- Use a LocalId to obey the invariant that locally-defined
                  -- things are LocalIds.  However, it does not need zonking,
                  -- (so TcHsSyn.zonkForeignExports ignores it).
@@ -277,7 +278,7 @@ tcCheckFIType arg_tys res_ty (CImport (L lc cconv) safety mh l@(CLabel _) src)
   = do checkCg checkCOrAsmOrLlvmOrInterp
        -- NB check res_ty not sig_ty!
        --    In case sig_ty is (forall a. ForeignPtr a)
-       check (isFFILabelTy (mkFunTys arg_tys res_ty)) (illegalForeignTyErr Outputable.empty)
+       check (isFFILabelTy (mkFunTys (map unrestricted arg_tys) res_ty)) (illegalForeignTyErr Outputable.empty)
        cconv' <- checkCConv cconv
        return (CImport (L lc cconv') safety mh l src)
 
@@ -289,7 +290,7 @@ tcCheckFIType arg_tys res_ty (CImport (L lc cconv) safety mh CWrapper src) = do
     checkCg checkCOrAsmOrLlvmOrInterp
     cconv' <- checkCConv cconv
     case arg_tys of
-        [arg1_ty] -> do checkForeignArgs isFFIExternalTy arg1_tys
+        [arg1_ty] -> do checkForeignArgs isFFIExternalTy (map scaledThing arg1_tys)
                         checkForeignRes nonIOok  checkSafe isFFIExportResultTy res1_ty
                         checkForeignRes mustBeIO checkSafe (isFFIDynTy arg1_ty) res_ty
                   where
@@ -307,7 +308,7 @@ tcCheckFIType arg_tys res_ty idecl@(CImport (L lc cconv) (L ls safety) mh
           addErrTc (illegalForeignTyErr Outputable.empty (text "At least one argument expected"))
         (arg1_ty:arg_tys) -> do
           dflags <- getDynFlags
-          let curried_res_ty = mkFunTys arg_tys res_ty
+          let curried_res_ty = mkFunTys (map unrestricted arg_tys) res_ty
           check (isFFIDynTy curried_res_ty arg1_ty)
                 (illegalForeignTyErr argument)
           checkForeignArgs (isFFIArgumentTy dflags safety) arg_tys

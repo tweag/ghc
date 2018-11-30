@@ -119,7 +119,14 @@ module TysWiredIn (
         int8ElemRepDataConTy, int16ElemRepDataConTy, int32ElemRepDataConTy,
         int64ElemRepDataConTy, word8ElemRepDataConTy, word16ElemRepDataConTy,
         word32ElemRepDataConTy, word64ElemRepDataConTy, floatElemRepDataConTy,
-        doubleElemRepDataConTy
+        doubleElemRepDataConTy,
+
+        -- * Multiplicity and friends
+        multiplicityTyConName, oneDataConName, omegaDataConName, multiplicityTy,
+        multiplicityTyCon, oneDataCon, omegaDataCon, oneDataConTy, omegaDataConTy,
+        oneDataConTyCon, omegaDataConTyCon,
+
+        unrestrictedFunTyCon, unrestrictedFunTyConName
 
     ) where
 
@@ -128,7 +135,7 @@ module TysWiredIn (
 
 import GhcPrelude
 
-import {-# SOURCE #-} MkId( mkDataConWorkId, mkDictSelId )
+import {-# SOURCE #-} MkId( mkDataConWorkId, mkDataConRepSimple, mkDictSelId )
 
 -- friends:
 import PrelNames
@@ -138,6 +145,7 @@ import {-# SOURCE #-} KnownUniques
 -- others:
 import CoAxiom
 import Id
+import Var (VarBndr (Bndr))
 import Constants        ( mAX_TUPLE_SIZE, mAX_CTUPLE_SIZE, mAX_SUM_SIZE )
 import Module           ( Module )
 import Type
@@ -152,6 +160,7 @@ import NameEnv          ( NameEnv, mkNameEnv, lookupNameEnv, lookupNameEnv_NF )
 import NameSet          ( NameSet, mkNameSet, elemNameSet )
 import BasicTypes       ( Arity, Boxity(..), TupleSort(..), ConTagZ,
                           SourceText(..) )
+import Multiplicity
 import ForeignCall
 import SrcLoc           ( noSrcSpan )
 import Unique
@@ -230,6 +239,7 @@ wiredInTyCons = [ -- Units are not treated like other tuples, because then
                 , vecElemTyCon
                 , constraintKindTyCon
                 , liftedTypeKindTyCon
+                , multiplicityTyCon
                 ]
 
 mkWiredInTyConName :: BuiltInSyntax -> Module -> FastString -> Unique -> TyCon -> Name
@@ -406,6 +416,20 @@ constraintKindTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Constr
 liftedTypeKindTyConName :: Name
 liftedTypeKindTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Type") liftedTypeKindTyConKey liftedTypeKindTyCon
 
+multiplicityTyConName :: Name
+multiplicityTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Multiplicity")
+                          multiplicityTyConKey multiplicityTyCon
+
+oneDataConName, omegaDataConName :: Name
+oneDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "One") oneDataConKey oneDataCon
+omegaDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "Omega") omegaDataConKey omegaDataCon
+ -- It feels wrong to have One and Omega be BuiltInSyntax. But otherwise,
+ -- `Omega`, in particular, is considered out of scope unless an appropriate
+ -- file is open. The problem with this is that `Omega` appears implicitly in
+ -- types every time there is an `(->)`, hence out-of-scope errors get
+ -- reported. Making them built-in make it so that they are always considered in
+ -- scope.
+
 runtimeRepTyConName, vecRepDataConName, tupleRepDataConName, sumRepDataConName :: Name
 runtimeRepTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "RuntimeRep") runtimeRepTyConKey runtimeRepTyCon
 vecRepDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "VecRep") vecRepDataConKey vecRepDataCon
@@ -539,19 +563,38 @@ pcDataConWithFixity' declared_infix dc_name wrk_key rri
                 (mkTyCoVarBinders Specified user_tyvars)
                 []      -- No equality spec
                 []      -- No theta
-                arg_tys (mkTyConApp tycon (mkTyVarTys tyvars))
+                (map assign_mult arg_tys)
+                (mkTyConApp tycon (mkTyVarTys tyvars))
                 rri
                 tycon
                 (lookupNameEnv_NF tag_map dc_name)
                 []      -- No stupid theta
                 (mkDataConWorkId wrk_name data_con)
-                NoDataConRep    -- Wired-in types are too simple to need wrappers
+                (mkDataConRepSimple wrapper_name data_con)
+
+    wrapper_name = mkDataConWrapperName data_con (dataConWrapperUnique (nameUnique dc_name))
+     -- We assume that we don't need non-linear wired-in types. Constraints are,
+     -- on the other hand, always unrestricted (constraint arguments occur, in
+     -- particular, in @Eq#@)
+    assign_mult ty | isPredTy ty = unrestricted ty
+                   | otherwise = linear ty
 
     no_bang = HsSrcBang NoSourceText NoSrcUnpack NoSrcStrict
 
     wrk_name = mkDataConWorkerName data_con wrk_key
 
     prom_info = mkPrelTyConRepName dc_name
+
+mkDataConWrapperName :: DataCon -> Unique -> Name
+mkDataConWrapperName data_con wrap_key =
+    mkWiredInName modu wrk_occ wrap_key
+                  (AnId (dataConWrapId data_con)) UserSyntax
+  where
+    modu     = ASSERT( isExternalName dc_name )
+               nameModule dc_name
+    dc_name = dataConName data_con
+    dc_occ  = nameOccName dc_name
+    wrk_occ = mkDataConWrapperOcc dc_occ
 
 mkDataConWorkerName :: DataCon -> Unique -> Name
 mkDataConWorkerName data_con wrk_key =
@@ -598,7 +641,7 @@ constraintKind   = mkTyConApp constraintKindTyCon []
 -- mkFunKind and mkForAllKind are defined here
 -- solely so that TyCon can use them via a SOURCE import
 mkFunKind :: Kind -> Kind -> Kind
-mkFunKind = mkFunTy
+mkFunKind = mkFunTy Omega -- no linearity in kinds
 
 mkForAllKind :: TyCoVar -> ArgFlag -> Kind -> Kind
 mkForAllKind = mkForAllTy
@@ -704,7 +747,8 @@ isBuiltInOcc_maybe occ =
       "~"    -> Just eqTyConName
 
       -- function tycon
-      "->"   -> Just funTyConName
+      "FUN"  -> Just funTyConName
+      "->"  -> Just unrestrictedFunTyConName
 
       -- boxed tuple data/tycon
       "()"    -> Just $ tup_name Boxed 0
@@ -910,7 +954,7 @@ unitDataCon :: DataCon
 unitDataCon   = head (tyConDataCons unitTyCon)
 
 unitDataConId :: Id
-unitDataConId = dataConWorkId unitDataCon
+unitDataConId = dataConWrapId unitDataCon
 
 pairTyCon :: TyCon
 pairTyCon = tupleTyCon Boxed 2
@@ -1106,6 +1150,55 @@ mk_class tycon sc_pred sc_sel_id
             [] [] (mkAnd []) tycon
 
 
+
+{- *********************************************************************
+*                                                                      *
+                Multiplicity Polymorphism
+*                                                                      *
+********************************************************************* -}
+
+{- Multiplicity polymorphism is implemented very similarly to levity
+ polymorphism. We write in the multiplicity kind and the One and Omega
+ types which can appear in user programs. These are defined properly in GHC.Types.
+
+data Multiplicity = One | Omega
+-}
+
+multiplicityTy :: Type
+multiplicityTy = mkTyConTy multiplicityTyCon
+
+multiplicityTyCon :: TyCon
+multiplicityTyCon = pcTyCon multiplicityTyConName Nothing []
+                          [oneDataCon, omegaDataCon]
+
+oneDataCon, omegaDataCon :: DataCon
+oneDataCon = pcDataCon oneDataConName [] [] multiplicityTyCon
+omegaDataCon = pcDataCon omegaDataConName [] [] multiplicityTyCon
+
+oneDataConTy, omegaDataConTy :: Type
+oneDataConTy = mkTyConTy oneDataConTyCon
+omegaDataConTy = mkTyConTy omegaDataConTyCon
+
+oneDataConTyCon, omegaDataConTyCon :: TyCon
+oneDataConTyCon = promoteDataCon oneDataCon
+omegaDataConTyCon = promoteDataCon omegaDataCon
+
+unrestrictedFunTy :: Type
+unrestrictedFunTy = functionWithMultiplicity omegaDataConTy
+
+unrestrictedFunTyCon :: TyCon
+unrestrictedFunTyCon = buildSynTyCon unrestrictedFunTyConName [] arrowKind [] unrestrictedFunTy
+  where arrowKind = mkTyConKind binders liftedTypeKind
+        -- See also funTyCon
+        binders = [ Bndr runtimeRep1TyVar (NamedTCB Inferred)
+                  , Bndr runtimeRep2TyVar (NamedTCB Inferred)
+                  ]
+                  ++ mkTemplateAnonTyConBinders [ tYPE runtimeRep1Ty
+                                                , tYPE runtimeRep2Ty
+                                                ]
+
+unrestrictedFunTyConName :: Name
+unrestrictedFunTyConName = mkWiredInTyConName BuiltInSyntax gHC_TYPES (fsLit "->") unrestrictedFunTyConKey unrestrictedFunTyCon
 
 {- *********************************************************************
 *                                                                      *

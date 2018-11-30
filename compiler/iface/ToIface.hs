@@ -17,6 +17,7 @@ module ToIface
     , toIfaceTyCon
     , toIfaceTyCon_name
     , toIfaceTyLit
+    , toIfaceMult
       -- * Tidying types
     , tidyToIfaceType
     , tidyToIfaceContext
@@ -60,6 +61,7 @@ import PrelNames
 import Name
 import BasicTypes
 import Type
+import Multiplicity
 import PatSyn
 import Outputable
 import FastString
@@ -88,7 +90,8 @@ toIfaceIdBndr :: Id -> IfaceIdBndr
 toIfaceIdBndr = toIfaceIdBndrX emptyVarSet
 
 toIfaceIdBndrX :: VarSet -> CoVar -> IfaceIdBndr
-toIfaceIdBndrX fr covar = ( occNameFS (getOccName covar)
+toIfaceIdBndrX fr covar = ( toIfaceMult (idWeight covar)
+                          , occNameFS (getOccName covar)
                           , toIfaceTypeX fr (varType covar)
                           )
 
@@ -140,9 +143,9 @@ toIfaceTypeX fr ty@(AppTy {})  =
 toIfaceTypeX _  (LitTy n)      = IfaceLitTy (toIfaceTyLit n)
 toIfaceTypeX fr (ForAllTy b t) = IfaceForAllTy (toIfaceForAllBndrX fr b)
                                                (toIfaceTypeX (fr `delVarSet` binderVar b) t)
-toIfaceTypeX fr (FunTy t1 t2)
-  | isPredTy t1                 = IfaceDFunTy (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
-  | otherwise                   = IfaceFunTy  (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
+toIfaceTypeX fr (FunTy w t1 t2)
+  | isPredTy t1 && w `eqMult` Omega   = IfaceDFunTy (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
+  | otherwise                   = IfaceFunTy (toIfaceMult w) (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
 toIfaceTypeX fr (CastTy ty co)  = IfaceCastTy (toIfaceTypeX fr ty) (toIfaceCoercionX fr co)
 toIfaceTypeX fr (CoercionTy co) = IfaceCoercionTy (toIfaceCoercionX fr co)
 
@@ -182,6 +185,9 @@ toIfaceForAllBndr = toIfaceForAllBndrX emptyVarSet
 
 toIfaceForAllBndrX :: VarSet -> TyCoVarBinder -> IfaceForAllBndr
 toIfaceForAllBndrX fr (Bndr v vis) = Bndr (toIfaceBndrX fr v) vis
+
+toIfaceMult :: Mult -> IfaceMult
+toIfaceMult = toIfaceType . fromMult
 
 ----------------
 toIfaceTyCon :: TyCon -> IfaceTyCon
@@ -261,9 +267,10 @@ toIfaceCoercionX fr co
                                           (toIfaceTypeX fr t2)
     go (TyConAppCo r tc cos)
       | tc `hasKey` funTyConKey
-      , [_,_,_,_] <- cos         = pprPanic "toIfaceCoercion" (ppr co)
-      | otherwise                = IfaceTyConAppCo r (toIfaceTyCon tc) (map go cos)
-    go (FunCo r co1 co2)   = IfaceFunCo r (go co1) (go co2)
+      , [_,_,_,_, _] <- cos         = pprPanic "toIfaceCoercion" empty
+      | otherwise                =
+        IfaceTyConAppCo r (toIfaceTyCon tc) (map go cos)
+    go (FunCo r w co1 co2)   = IfaceFunCo r (go w) (go co1) (go co2)
 
     go (ForAllCo tv k co) = IfaceForAllCo (toIfaceBndr tv)
                                           (toIfaceCoercionX fr' k)
@@ -310,7 +317,7 @@ toIfaceAppArgsX fr kind ty_args
         t'  = toIfaceTypeX fr t
         ts' = go (extendTCvSubst env tv t) res ts
 
-    go env (FunTy _ res) (t:ts) -- No type-class args in tycon apps
+    go env (FunTy _ _ res) (t:ts) -- No type-class args in tycon apps
       = IA_Arg (toIfaceTypeX fr t) Required (go env res ts)
 
     go env ty ts@(t1:ts1)
@@ -354,7 +361,7 @@ patSynToIfaceDecl ps
                 , ifPatExBndrs    = map toIfaceForAllBndr ex_bndrs'
                 , ifPatProvCtxt   = tidyToIfaceContext env2 prov_theta
                 , ifPatReqCtxt    = tidyToIfaceContext env2 req_theta
-                , ifPatArgs       = map (tidyToIfaceType env2) args
+                , ifPatArgs       = map (tidyToIfaceType env2 . scaledThing) args
                 , ifPatTy         = tidyToIfaceType env2 rhs_ty
                 , ifFieldLabels   = (patSynFieldLabels ps)
                 }

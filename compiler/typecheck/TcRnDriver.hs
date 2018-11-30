@@ -90,6 +90,7 @@ import MkIface          ( coAxiomToIfaceDecl )
 import HeaderInfo       ( mkPrelImports )
 import TcDefaults
 import TcEnv
+import Multiplicity
 import TcRules
 import TcForeign
 import TcInstDcls
@@ -1849,7 +1850,7 @@ runTcInteractive hsc_env thing_inside
                          , tcg_imports      = imports
                          }
 
-       ; lcl_env' <- tcExtendLocalTypeEnv lcl_env lcl_ids
+       ; lcl_env' <- tcExtendLocalTypeEnv lcl_env (map (fmap unrestricted) lcl_ids)
        ; setEnvs (gbl_env', lcl_env') thing_inside }
   where
     (home_insts, home_fam_insts) = hptInstances hsc_env (\_ -> True)
@@ -2276,10 +2277,9 @@ getGhciStepIO = do
     let ghciM   = nlHsAppTy (nlHsTyVar ghciTy) (nlHsTyVar a_tv)
         ioM     = nlHsAppTy (nlHsTyVar ioTyConName) (nlHsTyVar a_tv)
 
-        step_ty = noLoc $ HsForAllTy
-                     { hst_bndrs = [noLoc $ UserTyVar noExt (noLoc a_tv)]
-                     , hst_xforall = noExt
-                     , hst_body  = nlHsFunTy ghciM ioM }
+        step_ty = noLoc $ HsForAllTy { hst_bndrs = [noLoc $ UserTyVar noExt (noLoc a_tv)]
+                                     , hst_xforall = noExt
+                                     , hst_body  = nlHsFunTy ghciM HsUnrestrictedArrow ioM }
 
         stepTy :: LHsSigWcType GhcRn
         stepTy = mkEmptyWildCardBndrs (mkEmptyImplicitBndrs step_ty)
