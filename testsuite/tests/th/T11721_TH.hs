@@ -12,15 +12,16 @@ $(return [])
 
 main :: IO ()
 main = print
-  $(do let rightOrder :: [TyVarBndr] -> Bool
-           rightOrder [KindedTV b _, KindedTV a _]
-             = nameBase b == "b" && nameBase a == "a"
-           rightOrder _ = False
+  $(do let varName :: TyVarBndr -> Maybe String
+           varName (KindedTV v _) = Just (nameBase v)
+           varName _ = Nothing
 
        TyConI (DataD _ _ _ _
                      [ForallC con_tvbs1 _ _] _) <- reify ''T
        DataConI _ (ForallT con_tvbs2 _ _) _ <- reify 'MkT
 
-       if rightOrder con_tvbs1 && rightOrder con_tvbs2
+       let actual   = (mapM varName con_tvbs1, mapM varName con_tvbs2)
+           expected = (Just ["b", "a"]       , Just ["n", "b", "a"])
+       if actual == expected
           then [| () |]
-          else fail "T11721_TH failed")
+          else fail $ "TH11721_TH failed " ++ show (actual, expected))
