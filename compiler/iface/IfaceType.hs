@@ -1055,9 +1055,7 @@ pprIfaceForAllCoBndrs bndrs = hsep $ map pprIfaceForAllCoBndr bndrs
 pprIfaceForAllBndr :: IfaceForAllBndr -> SDoc
 pprIfaceForAllBndr (Bndr (IfaceTvBndr tv) Inferred)
   = sdocWithDynFlags $ \dflags ->
-                          if gopt Opt_PrintExplicitForalls dflags
-                          then braces $ pprIfaceTvBndr False tv
-                          else pprIfaceTvBndr True tv
+                          braces $ pprIfaceTvBndr False tv
 pprIfaceForAllBndr (Bndr (IfaceTvBndr tv) _)  = pprIfaceTvBndr True tv
 pprIfaceForAllBndr (Bndr (IfaceIdBndr idv) _) = pprIfaceIdBndr idv
 
