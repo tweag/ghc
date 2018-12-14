@@ -3086,7 +3086,7 @@ checkNewDataCon con
           text "A newtype cannot have an unlifted argument type"
 
         ; checkTc (ok_mult (scaledMult arg_ty1)) $
-          text "A newtype constructor must be linear"
+          text "A newtype constructor must be linear" <+> ppr (scaledMult arg_ty1)
 
         ; check_con (null eq_spec) $
           text "A newtype constructor must have a return type of form T a1 ... an"
