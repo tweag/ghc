@@ -2461,8 +2461,8 @@ ensureEqTys ty1 ty2 msg = lintL (ty1 `eqType` ty2) msg
 ensureEqMults :: Mult -> Mult -> SDoc -> LintM ()
 ensureEqMults actual_usage described_usage err_msg =
     case (actual_usage `submultMaybe` described_usage) of
-      Smaller -> return ()
-      Larger -> addErrL err_msg
+      Submult -> return ()
+      NotSubmult -> addErrL err_msg
       Unknown -> ensureEqTys (fromMult actual_usage)
                              (fromMult described_usage) err_msg
 

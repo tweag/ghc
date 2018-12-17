@@ -169,9 +169,9 @@ scaleScaled w x =
 -- * Multiplicity ordering
 --
 
-data IsSubmult = Smaller -- Definitely a submult
-               | Larger  -- Definitely not a submult
-               | Unknown -- Could be a submult, need to ask the typechecker
+data IsSubmult = Submult     -- Definitely a submult
+               | NotSubmult  -- Definitely not a submult
+               | Unknown     -- Could be a submult, need to ask the typechecker
                deriving (Show, Eq, Ord)
 
 instance Outputable IsSubmult where
@@ -182,18 +182,18 @@ instance Outputable IsSubmult where
 submultMaybe :: GMult t -> GMult t -> IsSubmult
 submultMaybe r1 r2 = go r1 r2
   where
-    go _     Omega = Smaller
-    go Zero  Zero  = Smaller
-    go _     Zero  = Larger
-    go Zero  One   = Larger
+    go _     Omega = Submult
+    go Zero  Zero  = Submult
+    go _     Zero  = NotSubmult
+    go Zero  One   = NotSubmult
     -- It is no mistake: 'Zero' is not a submult of 'One': a value which must be
     -- used zero times cannot be used one time.
     -- Zero = {0}
     -- One  = {1}
     -- Omega = {0...}
-    go One   One   = Smaller
+    go One   One   = Submult
     -- The 1 <= p rule
-    go One   _     = Smaller
+    go One   _     = Submult
 --    go (MultThing t) (MultThing t') = Unknown
     go _     _     = Unknown
 
