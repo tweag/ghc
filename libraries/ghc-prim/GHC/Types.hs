@@ -43,7 +43,7 @@ module GHC.Types (
         KindRep(..), KindBndr,
 
         -- * Multiplicity Types
-        Multiplicity(..)
+        Multiplicity(..), MultAdd, MultMul
     ) where
 
 import GHC.Prim
@@ -75,6 +75,9 @@ data Constraint
 type Type = TYPE 'LiftedRep
 
 data Multiplicity = Omega | One
+
+type family MultAdd :: Multiplicity -> Multiplicity -> Multiplicity
+type family MultMul :: Multiplicity -> Multiplicity -> Multiplicity
 
 {- *********************************************************************
 *                                                                      *

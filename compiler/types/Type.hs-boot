@@ -24,3 +24,4 @@ tyCoVarsOfTypesWellScoped :: [Type] -> [TyCoVar]
 tyCoVarsOfTypeWellScoped :: Type -> [TyCoVar]
 scopedSort :: [TyCoVar] -> [TyCoVar]
 splitTyConApp_maybe :: HasDebugCallStack => Type -> Maybe (TyCon, [Type])
+mkTyConApp :: TyCon -> [Type] -> Type

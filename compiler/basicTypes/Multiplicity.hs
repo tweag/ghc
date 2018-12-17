@@ -36,8 +36,10 @@ import GhcPrelude
 import Data.Data
 import Outputable
 import {-# SOURCE #-} TyCoRep (Type)
-import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy )
-import {-# SOURCE #-} Type( eqType )
+import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy, multAddTyCon, multMulTyCon )
+import {-# SOURCE #-} Type( eqType, splitTyConApp_maybe, mkTyConApp )
+import PrelNames (multAddTyConKey, multMulTyConKey)
+import Unique (hasKey)
 
 {-
 Note [Adding new multiplicities]
@@ -70,14 +72,18 @@ data Mult
 fromMult :: Mult -> Type
 fromMult One = oneDataConTy
 fromMult Omega = omegaDataConTy
+fromMult (MultAdd x y) = mkTyConApp multAddTyCon [fromMult x, fromMult y]
+fromMult (MultMul x y) = mkTyConApp multMulTyCon [fromMult x, fromMult y]
 fromMult (MultThing ty) = ty
-fromMult _ =
-  pprPanic "Type.fromMult" (text "Full support for multiplicity polymorphism is not implemented yet")
 
 toMult :: Type -> Mult
 toMult ty
   | oneDataConTy `eqType` ty = One
   | omegaDataConTy `eqType` ty = Omega
+  | Just (tc, [x, y]) <- splitTyConApp_maybe ty
+  , tc `hasKey` multAddTyConKey = mkMultAdd (toMult x) (toMult y)
+  | Just (tc, [x, y]) <- splitTyConApp_maybe ty
+  , tc `hasKey` multMulTyConKey = mkMultMul (toMult x) (toMult y)
   | otherwise = MultThing_ ty
 
 -- Note that pattern synonyms for One and Omega are not necessary: we could just
