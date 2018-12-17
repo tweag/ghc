@@ -89,7 +89,6 @@ import DataCon( HsSrcBang(..), HsImplBang(..),
                 SrcStrictness(..), SrcUnpackedness(..) )
 import TysWiredIn( unrestrictedFunTyConName, omegaDataConName, oneDataConName )
 import Type
-import Multiplicity
 import HsDoc
 import BasicTypes
 import SrcLoc
@@ -751,26 +750,9 @@ oneDataConHsTy = HsTyVar noExt NotPromoted (noLoc oneDataConName)
 omegaDataConHsTy :: HsType GhcRn
 omegaDataConHsTy = HsTyVar noExt NotPromoted (noLoc omegaDataConName)
 
-instance Multable (LHsType GhcRn) where
-  fromMult One = noLoc oneDataConHsTy
-  fromMult Omega = noLoc omegaDataConHsTy
-  fromMult (MultThing ty) = ty
-  fromMult Zero =
-    pprPanic "HsTypes.fromMult" (text "A multiplicity 0 leaked into a type")
-  fromMult _ =
-    pprPanic "HsTypes.fromMult" (text "Full support for multiplicity polymorphism is not implemented yet")
-
-  toMult ty
-    | L _ (HsTyVar _ _ (L _ n)) <- ty
-    , oneDataConName == n = One
-    | L _ (HsTyVar _ _ (L _ n)) <- ty
-    , omegaDataConName == n = Omega
-    | otherwise = unsafeMultThing ty
-
 isHsOmega :: HsMult -> Bool
-isHsOmega m = case toMult m of
-                Omega -> True
-                _ -> False
+isHsOmega (L _ (HsTyVar _ _ (L _ n))) = n == omegaDataConName
+isHsOmega _ = False
 
 -- | Denotes the type of arrows in the surface language
 data HsArrow pass
@@ -787,8 +769,8 @@ data HsArrow pass
 -- erases the information of whether the programmer wrote an explicit
 -- multiplicity or a shorthand.
 arrowToMult :: HsArrow GhcRn -> HsMult
-arrowToMult HsUnrestrictedArrow = fromMult Omega
-arrowToMult HsLinearArrow = fromMult One
+arrowToMult HsUnrestrictedArrow = noLoc omegaDataConHsTy
+arrowToMult HsLinearArrow = noLoc oneDataConHsTy
 arrowToMult (HsExplicitMult p) = p
 
 -- | This is used in the syntax. In constructor declaration. It must keep the
