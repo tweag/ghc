@@ -743,7 +743,7 @@ data HsTyLit
     deriving Data
 
 -- | Serves as an intermediate type in the conversion to an Type-level multiplicity
-type HsMult = GMult (LHsType GhcRn)
+type HsMult = LHsType GhcRn
 
 oneDataConHsTy :: HsType GhcRn
 oneDataConHsTy = HsTyVar noExt NotPromoted (noLoc oneDataConName)
@@ -768,8 +768,9 @@ instance Multable (LHsType GhcRn) where
     | otherwise = unsafeMultThing ty
 
 isHsOmega :: HsMult -> Bool
-isHsOmega Omega = True
-isHsOmega _ = False
+isHsOmega m = case toMult m of
+                Omega -> True
+                _ -> False
 
 -- | Denotes the type of arrows in the surface language
 data HsArrow pass
@@ -786,9 +787,9 @@ data HsArrow pass
 -- erases the information of whether the programmer wrote an explicit
 -- multiplicity or a shorthand.
 arrowToMult :: HsArrow GhcRn -> HsMult
-arrowToMult HsUnrestrictedArrow = Omega
-arrowToMult HsLinearArrow = One
-arrowToMult (HsExplicitMult p) = MultThing p
+arrowToMult HsUnrestrictedArrow = fromMult Omega
+arrowToMult HsLinearArrow = fromMult One
+arrowToMult (HsExplicitMult p) = p
 
 -- | This is used in the syntax. In constructor declaration. It must keep the
 -- arrow representation.
