@@ -21,7 +21,7 @@ HsTypes: Abstract syntax: user-defined types
 {-# LANGUAGE FlexibleInstances #-}
 
 module HsTypes (
-        Mult, HsMult, HsScaled(..),
+        Mult, HsScaled(..),
         HsArrow(..), arrowToMult,
         hsLinear, hsUnrestricted, isHsOmega,
         HsType(..), NewHsTypeX(..), LHsType, HsKind, LHsKind,
@@ -741,16 +741,13 @@ data HsTyLit
   | HsStrTy SourceText FastString
     deriving Data
 
--- | Serves as an intermediate type in the conversion to an Type-level multiplicity
-type HsMult = LHsType GhcRn
-
 oneDataConHsTy :: HsType GhcRn
 oneDataConHsTy = HsTyVar noExt NotPromoted (noLoc oneDataConName)
 
 omegaDataConHsTy :: HsType GhcRn
 omegaDataConHsTy = HsTyVar noExt NotPromoted (noLoc omegaDataConName)
 
-isHsOmega :: HsMult -> Bool
+isHsOmega :: LHsType GhcRn -> Bool
 isHsOmega (L _ (HsTyVar _ _ (L _ n))) = n == omegaDataConName
 isHsOmega _ = False
 
@@ -768,7 +765,7 @@ data HsArrow pass
 -- | Convert an arrow into its corresponding multiplicity. In essence this
 -- erases the information of whether the programmer wrote an explicit
 -- multiplicity or a shorthand.
-arrowToMult :: HsArrow GhcRn -> HsMult
+arrowToMult :: HsArrow GhcRn -> LHsType GhcRn
 arrowToMult HsUnrestrictedArrow = noLoc omegaDataConHsTy
 arrowToMult HsLinearArrow = noLoc oneDataConHsTy
 arrowToMult (HsExplicitMult p) = p

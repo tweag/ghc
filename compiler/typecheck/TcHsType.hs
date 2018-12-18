@@ -421,7 +421,7 @@ tcLHsTypeUnsaturated ty = addTypeCtxt ty (tc_infer_lhs_type mode ty)
   where
     mode = allowUnsaturated typeLevelMode
 
-tcMult :: HsMult -> TcM Mult
+tcMult :: LHsType GhcRn -> TcM Mult
 tcMult hc = tc_mult typeLevelMode hc
 
 {-
@@ -622,7 +622,7 @@ tc_fun_type mode mult ty1 ty2 exp_kind = case mode_level mode of
        ; mult' <- tc_mult mode (arrowToMult mult)
        ; checkExpectedKind (HsFunTy noExt ty1 mult ty2) (mkFunTy mult' ty1' ty2') liftedTypeKind exp_kind }
 
-tc_mult :: TcTyMode -> HsMult -> TcM Mult
+tc_mult :: TcTyMode -> LHsType GhcRn -> TcM Mult
 tc_mult mode ty = toMult <$> tc_lhs_type mode ty multiplicityTy
 
 
