@@ -185,6 +185,7 @@ submultMaybe r1 r2 = go r1 r2
     go _     Omega = Submult
     go Zero  Zero  = Submult
     go _     Zero  = NotSubmult
+    go Omega One   = NotSubmult
     go Zero  One   = NotSubmult
     -- It is no mistake: 'Zero' is not a submult of 'One': a value which must be
     -- used zero times cannot be used one time.
