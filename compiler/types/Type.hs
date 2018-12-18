@@ -2452,7 +2452,6 @@ seqTypes []       = ()
 seqTypes (ty:tys) = seqType ty `seq` seqTypes tys
 
 seqMult :: Mult -> ()
-seqMult Zero = ()
 seqMult One = ()
 seqMult Omega = ()
 seqMult (MultThing t) = seqType t
@@ -2645,7 +2644,6 @@ nonDetCmpTypeX env orig_t1 orig_t2 =
     gos env (ty1:tys1) (ty2:tys2) = go env ty1 ty2 `thenCmpTy` gos env tys1 tys2
 
 eqMult :: Mult -> Mult -> Bool
-eqMult Zero Zero = True
 eqMult One One = True
 eqMult Omega Omega = True
 eqMult (MultThing ty) (MultThing ty') = eqType ty ty'

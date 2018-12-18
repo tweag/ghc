@@ -344,8 +344,6 @@ instance Multable Type where
   fromMult One = oneDataConTy
   fromMult Omega = omegaDataConTy
   fromMult (MultThing ty) = ty
-  fromMult Zero =
-    pprPanic "Type.fromMult" (text "A multiplicity 0 leaked into a type")
   fromMult _ =
     pprPanic "Type.fromMult" (text "Full support for multiplicity polymorphism is not implemented yet")
 
@@ -1791,7 +1789,6 @@ tyCoVarsOfTypes :: [Type] -> TyCoVarSet
 tyCoVarsOfTypes tys = ty_co_vars_of_types tys emptyVarSet emptyVarSet
 
 ty_co_vars_of_mult :: Mult -> TyCoVarSet -> TyCoVarSet -> TyCoVarSet
-ty_co_vars_of_mult Zero          _  acc = acc
 ty_co_vars_of_mult One           _  acc = acc
 ty_co_vars_of_mult Omega         _  acc = acc
 ty_co_vars_of_mult (MultAdd x y) is acc = ty_co_vars_of_mult x is (ty_co_vars_of_mult y is acc)
@@ -3411,7 +3408,6 @@ debug_ppr_ty _ (TyVarTy tv)
 debug_ppr_ty prec (FunTy mult arg res)
   =
     let arr = case mult of
-                Zero -> mulArrow (text "0")
                 One -> lollipop
                 Omega -> arrow
                 w -> mulArrow (ppr w)

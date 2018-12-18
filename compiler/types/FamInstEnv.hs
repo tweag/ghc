@@ -1557,7 +1557,6 @@ coreFlattenTy = go
     go env (CoercionTy co) = let (env', co') = coreFlattenCo env co in
                              (env', CoercionTy co')
 
-    go_mult env Zero = (env, Zero)
     go_mult env One = (env, One)
     go_mult env Omega = (env, Omega)
     go_mult env (MultThing t) = let (env', t') = go env t

@@ -6,7 +6,6 @@ import GhcPrelude
 import Multiplicity
 import Name
 import NameEnv
-import UniqFM ( nonDetEltsUFM, plusUFM_CD )
 import Outputable
 import TyCoRep ( Mult, Scaled )
 
@@ -29,13 +28,17 @@ import Control.Monad
 -- much harder to get right. The module structure is the point-wise extension of
 -- the action of 'Mult' on itself, every absent name being considered to map to
 -- 'Zero'.
-newtype UsageEnv = UsageEnv (NameEnv Mult)
+data Usage = Zero | Usage Mult
+
+instance Outputable Usage -- TODO
+
+newtype UsageEnv = UsageEnv (NameEnv Usage)
 
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
-unitUE x w = UsageEnv $ unitNameEnv (getName x) w
+unitUE x w = UsageEnv $ unitNameEnv (getName x) $ Usage w
 
 mkUE :: [Scaled Name] -> UsageEnv
-mkUE ws = UsageEnv $ mkNameEnv (map (\wx -> (scaledThing wx,scaledMult wx)) ws)
+mkUE ws = UsageEnv $ mkNameEnv (map (\wx -> (scaledThing wx, Usage $ scaledMult wx)) ws)
 
 zeroUE, emptyUE :: UsageEnv
 zeroUE = UsageEnv emptyNameEnv
@@ -44,18 +47,25 @@ emptyUE = zeroUE
 
 addUE :: UsageEnv -> UsageEnv -> UsageEnv
 addUE (UsageEnv e1) (UsageEnv e2) = UsageEnv $
-  plusNameEnv_C MultAdd e1 e2
+  plusNameEnv_C usageAdd e1 e2
+  where usageAdd (Usage x) (Usage y) = Usage (MultAdd x y)
+        usageAdd Zero      x         = x
+        usageAdd x         Zero      = x
 
 addUEs :: Foldable t => t UsageEnv -> UsageEnv
 addUEs = foldr addUE zeroUE
 
 scaleUE :: Mult -> UsageEnv -> UsageEnv
 scaleUE w (UsageEnv e) = UsageEnv $
-  mapNameEnv (MultMul w) e
+  mapNameEnv (usageMult w) e
+  where usageMult w (Usage x) = Usage (MultMul w x)
+        usageMult _ Zero      = Zero
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1) (UsageEnv e2) = UsageEnv $
-  plusNameEnv_CD sup e1 Zero e2 Zero
+  plusNameEnv_CD supUsage e1 Zero e2 Zero
+   where supUsage (Usage x) (Usage y) = Usage (sup x y)
+         supUsage _         _         = Usage Omega
 
 supUEs :: [UsageEnv] -> UsageEnv
 supUEs [] = zeroUE -- This is incorrect, it should be the bottom usage env, but
@@ -71,11 +81,11 @@ supUEs l = foldr1 supUE l
 -- @w@, if @x@ is not bound in @env@ then 'Zero' must be a submult of @W@. If
 -- the condition is not met, then @Nothing@ is returned.
 deleteUEAsserting :: UsageEnv -> Mult -> Name -> Maybe UsageEnv
-deleteUEAsserting (UsageEnv e) w x | Just w' <- lookupNameEnv e x = do
+deleteUEAsserting (UsageEnv e) w x | Just (Usage w') <- lookupNameEnv e x = do
   guard (submult w' w)
   return $ UsageEnv (delFromNameEnv e x)
 deleteUEAsserting (UsageEnv e) w _x = do
-  guard (submult Zero w)
+  guard (submult Omega w)
   return $ UsageEnv e
 
 deleteUE :: NamedThing n => UsageEnv -> n -> UsageEnv
@@ -87,17 +97,16 @@ deleteListUE e xs = foldl' deleteUE e xs
 
 -- | |lookupUE x env| returns the multiplicity assigned to |x| in |env|, if |x| is not
 -- bound in |env|, then returns |Zero|.
-lookupUE :: NamedThing n => UsageEnv -> n -> Mult
+lookupUE :: NamedThing n => UsageEnv -> n -> Usage
 lookupUE (UsageEnv e) x =
   case lookupNameEnv e (getName x) of
     Just w  -> w
     Nothing -> Zero
 
 mapUE :: (Mult -> Mult) -> UsageEnv -> UsageEnv
-mapUE f (UsageEnv ue) = UsageEnv $ fmap f ue
-
-allUE :: (Mult -> Bool) -> UsageEnv -> Bool
-allUE p (UsageEnv ue) = all p (nonDetEltsUFM ue)
+mapUE f (UsageEnv ue) = UsageEnv $ fmap g ue
+   where g Zero = Zero
+         g (Usage x) = Usage (f x)
 
 instance Outputable UsageEnv where
   ppr (UsageEnv ne) = text "UsageEnv:" <+> ppr ne
@@ -106,10 +115,3 @@ submult :: Mult -> Mult -> Bool
 submult r1 r2 = case submultMaybe r1 r2 of
                     Submult -> True
                     _ -> False
-
-submultUE :: UsageEnv -> UsageEnv -> Bool
-submultUE (UsageEnv lhs) (UsageEnv rhs) =
-    all (uncurry submult) (nonDetEltsUFM pairs)
-  where
-    pairs =
-      plusUFM_CD (,) lhs Zero rhs Zero

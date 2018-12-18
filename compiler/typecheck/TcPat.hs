@@ -373,7 +373,7 @@ tc_pat _ (WildPat _) pat_ty thing_inside
         ; return (WildPat pat_ty, res) }
     where
       checkLinearity =
-        when (not $ submult Zero (scaledMult pat_ty)) $
+        when (not $ submult Omega (scaledMult pat_ty)) $
           addErrTc $ text "Wildcard patterns of multiplicity " <+>
                      quotes (ppr $ scaledMult pat_ty) <+>
                      text "are not allowed"

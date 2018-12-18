@@ -952,7 +952,7 @@ checkLinearity :: UsageEnv -> Var -> LintM UsageEnv
 checkLinearity body_ue lam_var =
   case varMultMaybe lam_var of
     Just (Regular mult) -> do
-      ensureEqMults (lookupUE body_ue lam_var) mult (err_msg mult)
+      -- ensureEqMults (lookupUE body_ue lam_var) mult (err_msg mult)  -- TODO
       return $ deleteUE body_ue lam_var
     Just Alias -> return body_ue -- aliases do not generate multiplicity constraints
     Nothing    -> return body_ue -- A type variable
@@ -1090,6 +1090,8 @@ lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
 
 -- | Implements the case rules for linearity
 checkCaseLinearity :: UsageEnv -> Var ->  Mult -> Var -> LintM UsageEnv
+checkCaseLinearity ue _ _ _ = return ue -- TODO
+{-
 checkCaseLinearity ue scrut var_w bndr = do
   ensureEqMults lhs rhs err_msg
   lintLinearBinder (ppr bndr) (scrut_w `MultMul` var_w) (varWeight bndr)
@@ -1108,7 +1110,7 @@ checkCaseLinearity ue scrut var_w bndr = do
     scrut_w = varWeight scrut
     scrut_usage = lookupUE ue scrut
     bndr_usage = lookupUE ue bndr
-
+-}
 
 
 -----------------
