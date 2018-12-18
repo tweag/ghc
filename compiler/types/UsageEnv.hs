@@ -6,7 +6,6 @@ import GhcPrelude
 import Multiplicity
 import Name
 import NameEnv
-import UniqFM ( nonDetEltsUFM, plusUFM_CD )
 import Outputable
 import TyCoRep ( Mult, Scaled )
 
@@ -96,9 +95,6 @@ lookupUE (UsageEnv e) x =
 mapUE :: (Mult -> Mult) -> UsageEnv -> UsageEnv
 mapUE f (UsageEnv ue) = UsageEnv $ fmap f ue
 
-allUE :: (Mult -> Bool) -> UsageEnv -> Bool
-allUE p (UsageEnv ue) = all p (nonDetEltsUFM ue)
-
 instance Outputable UsageEnv where
   ppr (UsageEnv ne) = text "UsageEnv:" <+> ppr ne
 
@@ -106,10 +102,3 @@ submult :: Mult -> Mult -> Bool
 submult r1 r2 = case submultMaybe r1 r2 of
                     Submult -> True
                     _ -> False
-
-submultUE :: UsageEnv -> UsageEnv -> Bool
-submultUE (UsageEnv lhs) (UsageEnv rhs) =
-    all (uncurry submult) (nonDetEltsUFM pairs)
-  where
-    pairs =
-      plusUFM_CD (,) lhs Zero rhs Zero
