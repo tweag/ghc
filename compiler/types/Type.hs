@@ -2632,11 +2632,7 @@ nonDetCmpTypeX env orig_t1 orig_t2 =
     go_mult env r1 r2 =
       if r1 `eqMult` r2
         then TEQ
-        else
-          case submultMaybe r1 r2 of
-            Submult -> TLT
-            NotSubmult  -> TGT
-            Unknown -> go env (fromMult r1) (fromMult r2)
+        else go env (fromMult r1) (fromMult r2)
 
     gos :: RnEnv2 -> [Type] -> [Type] -> TypeOrdering
     gos _   []         []         = TEQ
