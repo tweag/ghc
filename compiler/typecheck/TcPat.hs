@@ -31,7 +31,6 @@ import Var
 import Name
 import RdrName
 import Multiplicity
-import UsageEnv (submult)
 import TcEnv
 import TcMType
 import TcValidity( arityErr )
@@ -363,8 +362,7 @@ tc_pat penv (LazyPat x pat) pat_ty thing_inside
         ; return (LazyPat x pat', res) }
     where
       checkLinearity =
-        when (not $ submult Omega (scaledMult pat_ty)) $
-          addErrTc $ text "Lazy patterns are only allowed at multiplicity Omega"
+        tcSubMult Omega (scaledMult pat_ty)
 
 tc_pat _ (WildPat _) pat_ty thing_inside
   = do  { checkLinearity
@@ -373,10 +371,7 @@ tc_pat _ (WildPat _) pat_ty thing_inside
         ; return (WildPat pat_ty, res) }
     where
       checkLinearity =
-        when (not $ submult Zero (scaledMult pat_ty)) $
-          addErrTc $ text "Wildcard patterns of multiplicity " <+>
-                     quotes (ppr $ scaledMult pat_ty) <+>
-                     text "are not allowed"
+        tcSubMult Zero (scaledMult pat_ty)
 
 
 tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside
@@ -396,8 +391,7 @@ tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside
         ; return (mkHsWrapPat wrap (AsPat x (cL nm_loc bndr_id) pat') pat_ty, res) }
     where
       checkLinearity =
-        when (not $ submult Omega (scaledMult pat_ty)) $
-          addErrTc $ text "@-patterns are only allowed at multiplicity Omega"
+        tcSubMult Omega (scaledMult pat_ty)
 
 tc_pat penv (ViewPat _ expr pat) overall_pat_ty thing_inside
   = do  { checkLinearity
@@ -435,8 +429,7 @@ tc_pat penv (ViewPat _ expr pat) overall_pat_ty thing_inside
         ; return (ViewPat overall_pat_ty (mkLHsWrap expr_wrap expr') pat', res)}
     where
       checkLinearity =
-        when (not $ submult Omega (scaledMult overall_pat_ty)) $
-          addErrTc $ text "View patterns are only allowed at multiplicity Omega"
+        tcSubMult Omega (scaledMult overall_pat_ty)
 
 -- Type signatures in patterns
 -- See Note [Pattern coercions] below
@@ -579,8 +572,7 @@ tc_pat _ (NPat _ (dL->L l over_lit) mb_neg eq) pat_ty thing_inside
         ; return (NPat pat_ty (cL l lit') mb_neg' eq', res) }
     where
       checkLinearity =
-        when (not $ submult Omega (scaledMult pat_ty)) $
-          addErrTc $ text "Literal patterns are only allowed at multiplicity Omega"
+        tcSubMult Omega (scaledMult pat_ty)
 
 
 {-
@@ -647,8 +639,7 @@ tc_pat penv (NPlusKPat _ (dL->L nm_loc name) (dL->L loc lit) _ ge minus) pat_ty_
         ; return (pat', res) }
     where
       checkLinearity =
-        when (not $ submult Omega (scaledMult pat_ty_scaled)) $
-          addErrTc $ text "N+K patterns are only allowed at multiplicity Omega"
+        tcSubMult Omega (scaledMult pat_ty_scaled)
 
 
 -- HsSpliced is an annotation produced by 'RnSplice.rnSplicePat'.
@@ -882,8 +873,7 @@ tcPatSynPat penv (dL->L con_span _) pat_syn pat_ty arg_pats thing_inside
               prov_theta' = substTheta tenv prov_theta
               req_theta'  = substTheta tenv req_theta
 
-        ; when (not $ submult Omega pat_mult) $
-            addErrTc $ text "Pattern synonyms are only allowed at multiplicity Omega"
+        ; tcSubMult Omega pat_mult
 
         ; wrap <- tcSubTypePat penv (scaledThing pat_ty) ty'
         ; traceTc "tcPatSynPat" (ppr pat_syn $$

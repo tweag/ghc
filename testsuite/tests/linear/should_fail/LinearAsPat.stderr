@@ -1,4 +1,5 @@
 
 LinearAsPat.hs:6:12: error:
-    • @-patterns are only allowed at multiplicity Omega
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from an application
     • In an equation for ‘shouldFail’: shouldFail x@True = x
