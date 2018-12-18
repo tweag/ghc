@@ -1138,12 +1138,12 @@ repTy (HsAppTy _ f a)       = do
                                 f1 <- repLTy f
                                 a1 <- repLTy a
                                 repTapp f1 a1
-repTy (HsFunTy _ f (arrowToMult -> Omega) a) = do
+repTy (HsFunTy _ f (arrowToMult -> w) a) | isHsOmega w = do
                                 f1   <- repLTy f
                                 a1   <- repLTy a
                                 tcon <- repArrowTyCon
                                 repTapps tcon [f1, a1]
-repTy ty@(HsFunTy _ _ w _) = notHandled "Function with non-Omega multiplicity" (ppr ty)
+repTy ty@(HsFunTy _ _ _ _) = notHandled "Function with non-Omega multiplicity" (ppr ty)
 repTy (HsListTy _ t)        = do
                                 t1   <- repLTy t
                                 tcon <- repListTyCon

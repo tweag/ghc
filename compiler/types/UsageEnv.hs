@@ -104,7 +104,7 @@ instance Outputable UsageEnv where
 
 submult :: Mult -> Mult -> Bool
 submult r1 r2 = case submultMaybe r1 r2 of
-                    Smaller -> True
+                    Submult -> True
                     _ -> False
 
 submultUE :: UsageEnv -> UsageEnv -> Bool

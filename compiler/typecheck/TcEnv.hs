@@ -611,9 +611,9 @@ tc_extend_local_env top_lvl extra_env thing_inside
       let actual_w = lookupUE uenv x
       traceTc "check_binder" (ppr w $$ ppr actual_w)
       case submultMaybe actual_w w of
-        Smaller -> return ()
+        Submult -> return ()
         Unknown -> tcSubMult actual_w w
-        Larger  ->
+        NotSubmult  ->
           addErrTc $ text "Couldn't match expected multiplicity" <+> quotes (ppr w) <+>
                      text "of variable" <+> quotes (ppr x) <+>
                      text "with actual multiplicity" <+> quotes (ppr actual_w)

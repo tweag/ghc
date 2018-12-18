@@ -74,6 +74,8 @@ data Constraint
 -- | The kind of types with values. For example @Int :: Type@.
 type Type = TYPE 'LiftedRep
 
+data Multiplicity = Omega | One
+
 {- *********************************************************************
 *                                                                      *
                   Nat and Symbol
@@ -443,8 +445,6 @@ data VecElem = Int8ElemRep
              | FloatElemRep
              | DoubleElemRep
 -- Enum, Bounded instances in GHC.Enum
-
-data Multiplicity = Omega | One
 
 {- *********************************************************************
 *                                                                      *
