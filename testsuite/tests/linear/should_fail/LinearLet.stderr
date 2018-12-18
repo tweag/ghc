@@ -1,5 +1,4 @@
 
 LinearLet.hs:5:3: error:
-    • Couldn't match type ‘'Omega’ with ‘'One’
-        arising from an application
+    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Omega’
     • In an equation for ‘f’: f x = let y = x in (y, y)

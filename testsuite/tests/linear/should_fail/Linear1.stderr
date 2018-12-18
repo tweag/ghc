@@ -1,7 +1,6 @@
 
 Linear1.hs:10:14: error:
-    • Couldn't match type ‘'Omega’ with ‘'One’
-        arising from an application
+    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Omega’
     • In an equation for ‘incorrectDup’: incorrectDup x = (x, x)
 
 Linear1.hs:14:15: error:

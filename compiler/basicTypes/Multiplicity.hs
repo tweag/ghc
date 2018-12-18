@@ -113,7 +113,7 @@ unsafeMultThing = MultThing_
 instance (Outputable a, Multable a) => Outputable (GMult a) where
   ppr Zero = text "0"
   ppr One = text "1"
-  ppr Omega = text "ω"
+  ppr Omega = text "Omega"
   ppr (MultAdd m1 m2) = parens (ppr m1 <+> text "+" <+> ppr m2)
   ppr (MultMul m1 m2) = parens (ppr m1 <+> text "*" <+> ppr m2)
   ppr (MultThing t) = ppr t
@@ -185,6 +185,7 @@ submultMaybe r1 r2 = go r1 r2
     go _     Omega = Submult
     go Zero  Zero  = Submult
     go _     Zero  = NotSubmult
+    go Omega One   = NotSubmult
     go Zero  One   = NotSubmult
     -- It is no mistake: 'Zero' is not a submult of 'One': a value which must be
     -- used zero times cannot be used one time.

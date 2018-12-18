@@ -1,7 +1,6 @@
 
 Linear7.hs:7:16: error:
-    • Couldn't match type ‘'Omega’ with ‘'One’
-        arising from an application
+    • Couldn't match expected multiplicity ‘1’ of variable ‘n’ with actual multiplicity ‘Omega’
     • In an equation for ‘incorrectLCase’:
           incorrectLCase n
             = \case
