@@ -1966,7 +1966,7 @@ genAuxBindSpec dflags loc (DerivCon2Tag tycon)
 
     sig_ty = mkLHsSigWcType $ L loc $ XHsType $ NHsCoreTy $
              mkSpecSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
-             mkFunTy Omega (mkParentType tycon) intPrimTy
+             mkFunTyOm (mkParentType tycon) intPrimTy
 
     lots_of_constructors = tyConFamilySize tycon > 8
                         -- was: mAX_FAMILY_SIZE_FOR_VEC_RETURNS

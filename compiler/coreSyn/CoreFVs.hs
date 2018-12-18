@@ -71,7 +71,7 @@ import Name
 import VarSet
 import Var
 import Type
-import Multiplicity (Multable(..), multThingList)
+import Multiplicity (multThingList)
 import TyCoRep
 import TyCon
 import CoAxiom

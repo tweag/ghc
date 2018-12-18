@@ -883,7 +883,7 @@ mkOneRecordSelector all_cons idDetails fl
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
            | otherwise  = mkSpecForAllTys data_tvs          $
                           mkPhiTy (conLikeStupidTheta con1) $   -- Urgh!
-                          mkFunTy Omega data_ty             $
+                          mkFunTyOm data_ty                 $
                             -- Record selectors are always typed with Omega. We
                             -- could improve on it in the case where all the
                             -- fields in all the constructor have multiplicity Omega.

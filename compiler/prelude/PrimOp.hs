@@ -611,7 +611,7 @@ commutableOp :: PrimOp -> Bool
 
 dyadic_fun_ty, monadic_fun_ty, compare_fun_ty :: Type -> Type
 dyadic_fun_ty  ty = mkFunTys [unrestricted ty, unrestricted ty] ty
-monadic_fun_ty ty = mkFunTy Omega ty ty
+monadic_fun_ty ty = mkFunTyOm ty ty
 compare_fun_ty ty = mkFunTys [unrestricted ty, unrestricted ty] intPrimTy
 
 -- Output stuff:
