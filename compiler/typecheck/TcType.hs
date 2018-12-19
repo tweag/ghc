@@ -27,7 +27,7 @@ module TcType (
 
   ExpType(..), InferResult(..), ExpSigmaType, ExpRhoType, mkCheckExpType,
 
-  SyntaxOpType(..), SyntaxOpMultiplicity(..), synKnownType, mkSynFunTys,
+  SyntaxOpType(..), synKnownType, mkSynFunTys,
 
   -- TcLevel
   TcLevel(..), topTcLevel, pushTcLevel, isTopTcLevel,
@@ -416,18 +416,9 @@ data SyntaxOpType
   = SynAny     -- ^ Any type
   | SynRho     -- ^ A rho type, deeply skolemised or instantiated as appropriate
   | SynList    -- ^ A list type. You get back the element type of the list
-  | SynFun SyntaxOpMultiplicity SyntaxOpType SyntaxOpType
+  | SynFun SyntaxOpType SyntaxOpType
                -- ^ A function.
   | SynType ExpType   -- ^ A known type.
-
-data SyntaxOpMultiplicity
-  = SynAnyMult  -- ^ A multiplicity hole
-  | SynMult Mult -- ^ A known multiplicity
-
--- | Shortcut for unrestricted functions
-synFun :: SyntaxOpType -> SyntaxOpType -> SyntaxOpType
-synFun = SynFun (SynMult Omega)
-infixr 0 `synFun`
 
 -- | Like 'SynType' but accepts a regular TcType
 synKnownType :: TcType -> SyntaxOpType
@@ -435,7 +426,7 @@ synKnownType = SynType . mkCheckExpType
 
 -- | Like 'mkFunTys' but for 'SyntaxOpType'
 mkSynFunTys :: [SyntaxOpType] -> ExpType -> SyntaxOpType
-mkSynFunTys arg_tys res_ty = foldr synFun (SynType res_ty) arg_tys
+mkSynFunTys arg_tys res_ty = foldr SynFun (SynType res_ty) arg_tys
 
 
 {-
