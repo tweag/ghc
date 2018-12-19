@@ -25,7 +25,7 @@ module Multiplicity
   , scaledSet
   , scaleScaled
   , IsSubmult(..)
-  , submultMaybe
+  , submult
   , traverseMult
   , multThingList
   , mapMult ) where
@@ -171,10 +171,10 @@ data IsSubmult = Submult     -- Definitely a submult
 instance Outputable IsSubmult where
   ppr = text . show
 
--- | @submultMaybe w1 w2@ check whether a value of multiplicity @w1@ is allowed where a
+-- | @submult w1 w2@ check whether a value of multiplicity @w1@ is allowed where a
 -- value of multiplicity @w2@ is expected. This is a partial order.
-submultMaybe :: GMult t -> GMult t -> IsSubmult
-submultMaybe r1 r2 = go r1 r2
+submult :: GMult t -> GMult t -> IsSubmult
+submult r1 r2 = go r1 r2
   where
     go _     Omega = Submult
     go Zero  Zero  = Submult

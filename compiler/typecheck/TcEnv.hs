@@ -610,7 +610,7 @@ tc_extend_local_env top_lvl extra_env thing_inside
     check_binder w x uenv = do
       let actual_w = lookupUE uenv x
       traceTc "check_binder" (ppr w $$ ppr actual_w)
-      case submultMaybe actual_w w of
+      case submult actual_w w of
         Submult -> return ()
         Unknown -> tcSubMult actual_w w
         NotSubmult  ->
