@@ -1343,7 +1343,7 @@ instance ToHie (TScoped (LHsType GhcRn)) where
         [ toHie a
         , toHie b
         ]
-      HsFunTy _ a HsUnrestrictedArrow b ->
+      HsFunTy _ HsUnrestrictedArrow a b ->
         [ toHie a
         , toHie b
         ]

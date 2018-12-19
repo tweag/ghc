@@ -545,8 +545,8 @@ data HsType pass
       -- For details on above see note [Api annotations] in ApiAnnotation
 
   | HsFunTy             (XFunTy pass)
-                        (LHsType pass)   -- function type
                         (HsArrow pass)
+                        (LHsType pass)   -- function type
                         (LHsType pass)
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRarrow',
 
@@ -1124,7 +1124,7 @@ splitHsFunType :: LHsType GhcRn -> ([HsScaled GhcRn (LHsType GhcRn)], LHsType Gh
 splitHsFunType (L _ (HsParTy _ ty))
   = splitHsFunType ty
 
-splitHsFunType (L _ (HsFunTy _ x mult y))
+splitHsFunType (L _ (HsFunTy _ mult x y))
   | (args, res) <- splitHsFunType y
   = (HsScaled mult x:args, res)
 
@@ -1453,7 +1453,7 @@ ppr_mono_ty (HsRecTy _ flds)      = pprConDeclFields flds
 ppr_mono_ty (HsTyVar _ prom (L _ name))
   | isPromoted prom = quote (pprPrefixOcc name)
   | otherwise       = pprPrefixOcc name
-ppr_mono_ty (HsFunTy _ ty1 mult ty2)   = ppr_fun_ty ty1 mult ty2
+ppr_mono_ty (HsFunTy _ mult ty1 ty2)   = ppr_fun_ty ty1 mult ty2
 ppr_mono_ty (HsTupleTy _ con tys) = tupleParens std_con (pprWithCommas ppr tys)
   where std_con = case con of
                     HsUnboxedTuple -> UnboxedTuple
@@ -1565,7 +1565,7 @@ lhsTypeHasLeadingPromotionQuote ty
     go (HsBangTy{})          = False
     go (HsRecTy{})           = False
     go (HsTyVar _ p _)       = isPromoted p
-    go (HsFunTy _ arg _ _)   = goL arg
+    go (HsFunTy _ _ arg _)   = goL arg
     go (HsListTy{})          = False
     go (HsTupleTy{})         = False
     go (HsSumTy{})           = False
