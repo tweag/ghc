@@ -270,6 +270,7 @@
         ({ KindSigs.hs:22:8-44 }
          (HsFunTy
           (NoExt)
+          (HsUnrestrictedArrow)
           ({ KindSigs.hs:22:8-20 }
            (HsParTy
             (NoExt)
@@ -290,10 +291,10 @@
                 ({ KindSigs.hs:22:16-19 }
                  (Unqual
                   {OccName: Type}))))))))
-          (HsUnrestrictedArrow)
           ({ KindSigs.hs:22:25-44 }
            (HsFunTy
             (NoExt)
+            (HsUnrestrictedArrow)
             ({ KindSigs.hs:22:25-28 }
              (HsTyVar
               (NoExt)
@@ -301,7 +302,6 @@
               ({ KindSigs.hs:22:25-28 }
                (Unqual
                 {OccName: Bool}))))
-            (HsUnrestrictedArrow)
             ({ KindSigs.hs:22:33-44 }
              (HsParTy
               (NoExt)
@@ -342,11 +342,11 @@
             (NoSrcStrict))
            [(XPat
              ({ KindSigs.hs:23:5 }
-             (WildPat
+              (WildPat
                (NoExt))))
            ,(XPat
              ({ KindSigs.hs:23:7 }
-             (WildPat
+              (WildPat
                (NoExt))))]
            (GRHSs
             (NoExt)
@@ -609,3 +609,5 @@
       [])))]
   (Nothing)
   (Nothing)))
+
+
