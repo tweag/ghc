@@ -25,7 +25,7 @@ module IfaceType (
         IfaceForAllBndr, ArgFlag(..), ShowForAllFlag(..),
         mkIfaceForAllTvBndr,
 
-        ifForAllBndrVar, ifForAllBndrName,
+        ifForAllBndrVar, ifForAllBndrName, ifaceBndrName,
         ifTyConBinderVar, ifTyConBinderName,
 
         -- Equality testing

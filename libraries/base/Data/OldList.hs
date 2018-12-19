@@ -221,7 +221,7 @@ import GHC.Real
 import GHC.List
 import GHC.Base
 
-infix 5 \\ -- comment to fool cpp: https://www.haskell.org/ghc/docs/latest/html/users_guide/options-phases.html#cpp-string-gaps
+infix 5 \\ -- comment to fool cpp: https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/phases.html#cpp-and-string-gaps
 
 -- -----------------------------------------------------------------------------
 -- List functions
@@ -241,9 +241,9 @@ infix 5 \\ -- comment to fool cpp: https://www.haskell.org/ghc/docs/latest/html/
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p = foldr (\x xs -> if p x && null xs then [] else x : xs) []
 
--- | The 'stripPrefix' function drops the given prefix from a list.
--- It returns 'Nothing' if the list did not start with the prefix
--- given, or 'Just' the list after the prefix, if it does.
+-- | /O(min(m,n))/. The 'stripPrefix' function drops the given prefix from a
+-- list. It returns 'Nothing' if the list did not start with the prefix given,
+-- or 'Just' the list after the prefix, if it does.
 --
 -- >>> stripPrefix "foo" "foobar"
 -- Just "bar"
@@ -319,7 +319,7 @@ findIndices p ls = build $ \c n ->
   in foldr go (\_ -> n) ls 0#
 #endif  /* USE_REPORT_PRELUDE */
 
--- | The 'isPrefixOf' function takes two lists and returns 'True'
+-- | /O(min(m,n))/. The 'isPrefixOf' function takes two lists and returns 'True'
 -- iff the first list is a prefix of the second.
 --
 -- >>> "Hello" `isPrefixOf` "Hello World!"
@@ -431,8 +431,8 @@ elem_by eq y (x:xs)     =  x `eq` y || elem_by eq y xs
 #endif
 
 
--- | 'delete' @x@ removes the first occurrence of @x@ from its list argument.
--- For example,
+-- | /O(n)/. 'delete' @x@ removes the first occurrence of @x@ from its list
+-- argument. For example,
 --
 -- >>> delete 'a' "banana"
 -- "bnana"
@@ -442,7 +442,7 @@ elem_by eq y (x:xs)     =  x `eq` y || elem_by eq y xs
 delete                  :: (Eq a) => a -> [a] -> [a]
 delete                  =  deleteBy (==)
 
--- | The 'deleteBy' function behaves like 'delete', but takes a
+-- | /O(n)/. The 'deleteBy' function behaves like 'delete', but takes a
 -- user-supplied equality predicate.
 --
 -- >>> deleteBy (<=) 4 [1..10]
@@ -509,7 +509,7 @@ intersectBy _  [] _     =  []
 intersectBy _  _  []    =  []
 intersectBy eq xs ys    =  [x | x <- xs, any (eq x) ys]
 
--- | The 'intersperse' function takes an element and a list and
+-- | /O(n)/. The 'intersperse' function takes an element and a list and
 -- \`intersperses\' that element between the elements of the list.
 -- For example,
 --
@@ -618,19 +618,18 @@ mapAccumR f s (x:xs)    =  (s'', y:ys)
                            where (s'',y ) = f s' x
                                  (s', ys) = mapAccumR f s xs
 
--- | The 'insert' function takes an element and a list and inserts the
--- element into the list at the first position where it is less
--- than or equal to the next element.  In particular, if the list
--- is sorted before the call, the result will also be sorted.
--- It is a special case of 'insertBy', which allows the programmer to
--- supply their own comparison function.
+-- | /O(n)/. The 'insert' function takes an element and a list and inserts the
+-- element into the list at the first position where it is less than or equal to
+-- the next element. In particular, if the list is sorted before the call, the
+-- result will also be sorted. It is a special case of 'insertBy', which allows
+-- the programmer to supply their own comparison function.
 --
 -- >>> insert 4 [1,2,3,5,6,7]
 -- [1,2,3,4,5,6,7]
 insert :: Ord a => a -> [a] -> [a]
 insert e ls = insertBy (compare) e ls
 
--- | The non-overloaded version of 'insert'.
+-- | /O(n)/. The non-overloaded version of 'insert'.
 insertBy :: (a -> a -> Ordering) -> a -> [a] -> [a]
 insertBy _   x [] = [x]
 insertBy cmp x ys@(y:ys')
@@ -670,9 +669,14 @@ minimumBy cmp xs        =  foldl1 minBy xs
                                        GT -> y
                                        _  -> x
 
--- | The 'genericLength' function is an overloaded version of 'length'.  In
--- particular, instead of returning an 'Int', it returns any type which is
--- an instance of 'Num'.  It is, however, less efficient than 'length'.
+-- | /O(n)/. The 'genericLength' function is an overloaded version of 'length'.
+-- In particular, instead of returning an 'Int', it returns any type which is an
+-- instance of 'Num'. It is, however, less efficient than 'length'.
+--
+-- >>> genericLength [1, 2, 3] :: Int
+-- 3
+-- >>> genericLength [1, 2, 3] :: Float
+-- 3.0
 genericLength           :: (Num i) => [a] -> i
 {-# NOINLINE [1] genericLength #-}
 genericLength []        =  0
@@ -997,7 +1001,7 @@ inits                   = map toListSB . scanl' snocSB emptySB
 -- if it fuses with a consumer, and it would generally lead to serious
 -- loss of sharing if allowed to fuse with a producer.
 
--- | The 'tails' function returns all final segments of the argument,
+-- | /O(n)/. The 'tails' function returns all final segments of the argument,
 -- longest first.  For example,
 --
 -- >>> tails "abc"
