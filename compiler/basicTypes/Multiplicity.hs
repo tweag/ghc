@@ -171,7 +171,7 @@ data IsSubmult = Submult     -- Definitely a submult
 instance Outputable IsSubmult where
   ppr = text . show
 
--- | @submult w1 w2@ check whether a value of multiplicity @w1@ is allowed where a
+-- | @submultMaybe w1 w2@ check whether a value of multiplicity @w1@ is allowed where a
 -- value of multiplicity @w2@ is expected. This is a partial order.
 submultMaybe :: GMult t -> GMult t -> IsSubmult
 submultMaybe r1 r2 = go r1 r2
