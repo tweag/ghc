@@ -1453,7 +1453,7 @@ ppr_mono_ty (HsRecTy _ flds)      = pprConDeclFields flds
 ppr_mono_ty (HsTyVar _ prom (L _ name))
   | isPromoted prom = quote (pprPrefixOcc name)
   | otherwise       = pprPrefixOcc name
-ppr_mono_ty (HsFunTy _ mult ty1 ty2)   = ppr_fun_ty ty1 mult ty2
+ppr_mono_ty (HsFunTy _ mult ty1 ty2)   = ppr_fun_ty mult ty1 ty2
 ppr_mono_ty (HsTupleTy _ con tys) = tupleParens std_con (pprWithCommas ppr tys)
   where std_con = case con of
                     HsUnboxedTuple -> UnboxedTuple
@@ -1498,8 +1498,8 @@ ppr_mono_ty (XHsType t) = ppr t
 
 --------------------------
 ppr_fun_ty :: (OutputableBndrId (GhcPass p))
-           => LHsType (GhcPass p) -> HsArrow (GhcPass p) -> LHsType (GhcPass p) -> SDoc
-ppr_fun_ty ty1 mult ty2
+           => HsArrow (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p) -> SDoc
+ppr_fun_ty mult ty1 ty2
   = let p1 = ppr_mono_lty ty1
         p2 = ppr_mono_lty ty2
         arr = case mult of
