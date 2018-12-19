@@ -1,5 +1,6 @@
 
 LinearLazyPat.hs:5:3: error:
-    • Lazy patterns are only allowed at multiplicity Omega
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from an application
     • In the pattern: ~(x, y)
       In an equation for ‘f’: f ~(x, y) = (y, x)

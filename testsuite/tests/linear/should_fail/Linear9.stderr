@@ -1,6 +1,7 @@
 
 Linear9.hs:9:17: error:
-    • Wildcard patterns of multiplicity  ‘1’ are not allowed
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from an application
     • In the pattern: _
       In the pattern: (a, _)
       In an equation for ‘incorrectFst’: incorrectFst (a, _) = a
@@ -17,20 +18,23 @@ Linear9.hs:15:20: error:
           incorrectFirstDup (a, b) = ((a, a), b)
 
 Linear9.hs:18:21: error:
-    • Wildcard patterns of multiplicity  ‘1’ are not allowed
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from an application
     • In the pattern: _
       In the pattern: (a, _)
       In the pattern: ((a, _), _)
 
 Linear9.hs:18:24: error:
-    • Wildcard patterns of multiplicity  ‘1’ are not allowed
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from an application
     • In the pattern: _
       In the pattern: ((a, _), _)
       In an equation for ‘incorrectFstFst’:
           incorrectFstFst ((a, _), _) = a
 
 Linear9.hs:25:25: error:
-    • Wildcard patterns of multiplicity  ‘1’ are not allowed
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from an application
     • In the pattern: _
       In the pattern: Foo a _
       In an equation for ‘incorrectTestFst’:

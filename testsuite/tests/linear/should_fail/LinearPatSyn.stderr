@@ -1,5 +1,6 @@
 
 LinearPatSyn.hs:14:4: error:
-    • Pattern synonyms are only allowed at multiplicity Omega
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from an application
     • In the pattern: P y x
       In an equation for ‘s’: s (P y x) = (y, x)

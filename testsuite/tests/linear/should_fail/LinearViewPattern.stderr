@@ -1,5 +1,6 @@
 
 LinearViewPattern.hs:11:4: error:
-    • View patterns are only allowed at multiplicity Omega
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from an application
     • In the pattern: not -> True
       In an equation for ‘f’: f (not -> True) = True

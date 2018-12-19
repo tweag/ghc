@@ -13,4 +13,4 @@ type family If b t f where
 
 dep :: SBool b -> Int -->.(If b One Omega) Int
 dep STrue x = x
-dep SFalse x = 0
+dep SFalse _ = 0
