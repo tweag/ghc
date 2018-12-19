@@ -8,12 +8,10 @@ module Linear17 where
 (>>=) :: a ⊸ (a ⊸ b) ⊸ b
 (>>=) x f = f x
 
--- Not sure why `fail` and return are needed in my examples
+-- `fail` is needed due to pattern matching on ();
+-- ideally, it shouldn't be there.
 fail :: a
-fail = error "fail"
-
-return :: a ⊸ a
-return x = x
+fail = fail
 
 incorrectDo1 = do
   x <- ()
