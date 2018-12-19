@@ -503,19 +503,17 @@ nlList exprs          = noLoc (ExplicitList noExt Nothing exprs)
 
 nlHsAppTy :: LHsType (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p)
 nlHsTyVar :: IdP (GhcPass p)                            -> LHsType (GhcPass p)
-nlHsFunTy :: (XFunTy p ~ NoExt, XParTy p ~ NoExt) => LHsType p -> HsArrow p -> LHsType p -> LHsType p
+nlHsFunTy :: (XFunTy p ~ NoExt, XParTy p ~ NoExt) => HsArrow p -> LHsType p -> LHsType p -> LHsType p
 nlHsParTy :: LHsType (GhcPass p)                        -> LHsType (GhcPass p)
 
 nlHsAppTy f t = noLoc (HsAppTy noExt f (parenthesizeHsType appPrec t))
 nlHsTyVar x   = noLoc (HsTyVar noExt NotPromoted (noLoc x))
 
-nlHsFunTy a mult b = noLoc (HsFunTy noExt (parenthesizeHsType funPrec a)
-                                     mult
+nlHsFunTy mult a b = noLoc (HsFunTy noExt mult (parenthesizeHsType funPrec a)
                                      (parenthesize_fun_tail b))
   where
-    parenthesize_fun_tail (dL->L loc (HsFunTy ext ty1 mult ty2))
-      = cL loc (HsFunTy ext (parenthesizeHsType funPrec ty1)
-                            mult
+    parenthesize_fun_tail (dL->L loc (HsFunTy ext mult ty1 ty2))
+      = cL loc (HsFunTy ext mult (parenthesizeHsType funPrec ty1)
                            (parenthesize_fun_tail ty2))
     parenthesize_fun_tail lty = lty
 nlHsParTy t   = noLoc (HsParTy noExt t)
@@ -669,7 +667,7 @@ typeToLHsType ty
       = noLoc (HsQualTy { hst_ctxt = noLoc (map go theta)
                         , hst_xqual = noExt
                         , hst_body = go tau })
-    go (FunTy mult arg res) = nlHsFunTy (go arg) (multToHsArrow mult) (go res)
+    go (FunTy mult arg res) = nlHsFunTy (multToHsArrow mult) (go arg) (go res)
     go ty@(ForAllTy {})
       | (tvs, tau) <- tcSplitForAllTys ty
       = noLoc (HsForAllTy { hst_bndrs = map go_tv tvs

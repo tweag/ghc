@@ -1138,7 +1138,7 @@ repTy (HsAppTy _ f a)       = do
                                 f1 <- repLTy f
                                 a1 <- repLTy a
                                 repTapp f1 a1
-repTy (HsFunTy _ f (arrowToMult -> w) a) | isHsOmega w = do
+repTy (HsFunTy _ (arrowToMult -> w) f a) | isHsOmega w = do
                                 f1   <- repLTy f
                                 a1   <- repLTy a
                                 tcon <- repArrowTyCon

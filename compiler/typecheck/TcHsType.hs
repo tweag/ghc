@@ -615,12 +615,12 @@ tc_fun_type mode mult ty1 ty2 exp_kind = case mode_level mode of
        ; ty1' <- tc_lhs_type mode ty1 arg_k
        ; ty2' <- tc_lhs_type mode ty2 res_k
        ; mult' <- tc_mult mode (arrowToMult mult)
-       ; checkExpectedKind (HsFunTy noExt ty1 mult ty2) (mkFunTy mult' ty1' ty2') liftedTypeKind exp_kind }
+       ; checkExpectedKind (HsFunTy noExt mult ty1 ty2) (mkFunTy mult' ty1' ty2') liftedTypeKind exp_kind }
   KindLevel ->  -- no representation polymorphism in kinds. yet.
     do { ty1' <- tc_lhs_type mode ty1 liftedTypeKind
        ; ty2' <- tc_lhs_type mode ty2 liftedTypeKind
        ; mult' <- tc_mult mode (arrowToMult mult)
-       ; checkExpectedKind (HsFunTy noExt ty1 mult ty2) (mkFunTy mult' ty1' ty2') liftedTypeKind exp_kind }
+       ; checkExpectedKind (HsFunTy noExt mult ty1 ty2) (mkFunTy mult' ty1' ty2') liftedTypeKind exp_kind }
 
 tc_mult :: TcTyMode -> LHsType GhcRn -> TcM Mult
 tc_mult mode ty = toMult <$> tc_lhs_type mode ty multiplicityTy
@@ -665,7 +665,7 @@ tc_hs_type _ ty@(HsSpliceTy {}) _exp_kind
   = failWithTc (text "Unexpected type splice:" <+> ppr ty)
 
 ---------- Functions and applications
-tc_hs_type mode ty@(HsFunTy _ ty1 mult ty2) exp_kind
+tc_hs_type mode ty@(HsFunTy _ mult ty1 ty2) exp_kind
   | mode_level mode == KindLevel && not (isHsOmega (arrowToMult mult))
     = failWithTc (text "Linear arrows disallowed in kinds:" <+> ppr ty)
   | otherwise

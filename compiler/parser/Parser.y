@@ -1946,14 +1946,14 @@ is connected to the first type too.
 type :: { LHsType GhcPs }
         : btype                        { $1 }
         | btype '->' ctype             {% ams $1 [mu AnnRarrow $2] -- See note [GADT decl discards annotations]
-                                       >> ams (sLL $1 $> $ HsFunTy noExt $1 HsUnrestrictedArrow $3)
+                                       >> ams (sLL $1 $> $ HsFunTy noExt HsUnrestrictedArrow $1 $3)
                                               [mu AnnRarrow $2] }
 
         | btype '⊸' ctype             {% hintLinear (getLoc $1) >>
-                                         ams (sLL $1 $> $ HsFunTy noExt $1 HsLinearArrow $3)
+                                         ams (sLL $1 $> $ HsFunTy noExt HsLinearArrow $1 $3)
                                              [mu AnnRarrow $2] }
         | btype '-->.' '(' mult ')' ctype  {% hintLinear (getLoc $1) >>
-                                              ams (sLL $1 $> $ HsFunTy noExt $1 (HsExplicitMult $4) $6)
+                                              ams (sLL $1 $> $ HsFunTy noExt (HsExplicitMult $4) $1 $6)
                                                   [mu AnnRarrow $2] }
 
 mult :: { LHsType GhcPs }
@@ -1965,30 +1965,28 @@ typedoc :: { LHsType GhcPs }
         | btype docprev                  { sLL $1 $> $ HsDocTy noExt $1 $2 }
         | docnext btype                  { sLL $1 $> $ HsDocTy noExt $2 $1 }
         | btype '->'     ctypedoc        {% ams $1 [mu AnnRarrow $2] -- See note [GADT decl discards annotations]
-                                         >> ams (sLL $1 $> $ HsFunTy noExt $1 HsUnrestrictedArrow $3)
+                                         >> ams (sLL $1 $> $ HsFunTy noExt HsUnrestrictedArrow $1 $3)
                                                 [mu AnnRarrow $2] }
         | btype docprev '->' ctypedoc    {% ams $1 [mu AnnRarrow $3] -- See note [GADT decl discards annotations]
                                          >> ams (sLL $1 $> $
-                                                 HsFunTy noExt (cL (comb2 $1 $2) (HsDocTy noExt $1 $2))
-                                                         HsUnrestrictedArrow $4)
+                                                 HsFunTy noExt HsUnrestrictedArrow
+                                                         (cL (comb2 $1 $2) (HsDocTy noExt $1 $2)) $4)
                                                 [mu AnnRarrow $3] }
         | btype '⊸'     ctypedoc        {% hintLinear (getLoc $1) >>
-                                           ams (sLL $1 $> $ HsFunTy noExt $1 HsLinearArrow $3)
+                                           ams (sLL $1 $> $ HsFunTy noExt HsLinearArrow $1 $3)
                                                 [mu AnnRarrow $2] }
         | btype docprev '⊸' ctypedoc    {% hintLinear (getLoc $1) >>
                                            ams (sLL $1 $> $
-                                                 HsFunTy noExt (cL (comb2 $1 $2) (HsDocTy noExt $1 $2))
-                                                         HsLinearArrow
-                                                         $4)
+                                                 HsFunTy noExt HsLinearArrow
+                                                         (cL (comb2 $1 $2) (HsDocTy noExt $1 $2)) $4)
                                                 [mu AnnRarrow $3] }
         | btype '-->.' '(' mult ')' ctypedoc  {% hintLinear (getLoc $1) >>
-                                                 ams (sLL $1 $> $ HsFunTy noExt $1 (HsExplicitMult $4) $6)
+                                                 ams (sLL $1 $> $ HsFunTy noExt (HsExplicitMult $4) $1 $6)
                                                      [mu AnnRarrow $2] }
         | docnext btype '->' ctypedoc    {% ams $2 [mu AnnRarrow $3] -- See note [GADT decl discards annotations]
                                          >> ams (sLL $1 $> $
-                                                 HsFunTy noExt (cL (comb2 $1 $2)
-                                                            (HsDocTy noExt $2 $1))
-                                                            HsUnrestrictedArrow
+                                                 HsFunTy noExt HsUnrestrictedArrow
+                                                         (cL (comb2 $1 $2) (HsDocTy noExt $2 $1))
                                                          $4)
                                                 [mu AnnRarrow $3] }
 

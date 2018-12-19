@@ -681,7 +681,7 @@ mkGadtDecl names ty
     args' = nudgeHsSrcBangs args
 
     -- See Note [GADT abstract syntax] in HsDecls
-    split_tau (dL->L _ (HsFunTy _ (dL->L loc (HsRecTy _ rf)) _w res_ty))
+    split_tau (dL->L _ (HsFunTy _ _w (dL->L loc (HsRecTy _ rf)) res_ty))
       = (RecCon (cL loc rf), res_ty)
     split_tau tau
       = (PrefixCon [], tau)

@@ -253,8 +253,8 @@ typeDocs = go 0
   where
     go n (HsForAllTy { hst_body = ty }) = go n (unLoc ty)
     go n (HsQualTy   { hst_body = ty }) = go n (unLoc ty)
-    go n (HsFunTy _ (dL->L _
-                      (HsDocTy _ _ (dL->L _ x))) _ (dL->L _ ty)) =
+    go n (HsFunTy _ _ (dL->L _
+                      (HsDocTy _ _ (dL->L _ x))) (dL->L _ ty)) =
        M.insert n x $ go (n+1) ty
     go n (HsFunTy _ _ _ ty) = go (n+1) (unLoc ty)
     go n (HsDocTy _ _ (dL->L _ doc)) = M.singleton n doc
