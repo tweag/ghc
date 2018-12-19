@@ -65,18 +65,6 @@ supUEs [] = zeroUE -- This is incorrect, it should be the bottom usage env, but
                    -- inference is implemented.
 supUEs l = foldr1 supUE l
 
--- | @deleteUEAsserting w x env@ deletes the binding to @x@ in @env@ under one
--- condition: if @x@ is bound to @w'@ in @env@, then @w'@ must be a submult of
--- @w@, if @x@ is not bound in @env@ then 'Zero' must be a submult of @W@. If
--- the condition is not met, then @Nothing@ is returned.
-deleteUEAsserting :: UsageEnv -> Mult -> Name -> Maybe UsageEnv
-deleteUEAsserting (UsageEnv e) w x | Just w' <- lookupNameEnv e x = do
-  guard (submult w' w)
-  return $ UsageEnv (delFromNameEnv e x)
-deleteUEAsserting (UsageEnv e) w _x = do
-  guard (submult Zero w)
-  return $ UsageEnv e
-
 deleteUE :: NamedThing n => UsageEnv -> n -> UsageEnv
 deleteUE (UsageEnv e) x = UsageEnv $ delFromNameEnv e (getName x)
 
@@ -97,8 +85,3 @@ mapUE f (UsageEnv ue) = UsageEnv $ fmap f ue
 
 instance Outputable UsageEnv where
   ppr (UsageEnv ne) = text "UsageEnv:" <+> ppr ne
-
-submult :: Mult -> Mult -> Bool
-submult r1 r2 = case submultMaybe r1 r2 of
-                    Submult -> True
-                    _ -> False
