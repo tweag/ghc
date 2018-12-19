@@ -1553,7 +1553,7 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
            ; result <- thing_inside [elt_ty] []
            ; return (result, mkWpCastN list_co) }
 
-    go rho_ty (SynFun mult_shape arg_shape res_shape)
+    go rho_ty (SynFun arg_shape res_shape)
       = do { ( ( ( (result, arg_ty, res_ty, op_mult, _res_mult)
                  , res_wrapper )                   -- :: res_ty_out "->" res_ty
                , arg_wrapper1, [], arg_wrapper2 )  -- :: arg_ty "->" arg_ty_out
@@ -1571,13 +1571,13 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
                                , text "Too many nested arrows in SyntaxOpType" $$
                                  pprCtOrigin orig )
 
-                     ; (op_mult, res_mult, arg_inferred_mult) <- synMult (scaledMult arg_ty)
+                     ; let arg_mult = scaledMult arg_ty
                      ; tcSynArgA orig arg_tc_ty [] arg_shape $
                        \ arg_results arg_res_mults ->
                        tcSynArgE orig res_tc_ty res_shape $
                        \ res_results res_res_mults ->
-                       do { result <- thing_inside (arg_results ++ res_results) (arg_inferred_mult ++ arg_res_mults ++ res_res_mults)
-                          ; return (result, arg_tc_ty, res_tc_ty, op_mult, res_mult) }}
+                       do { result <- thing_inside (arg_results ++ res_results) ([arg_mult] ++ arg_res_mults ++ res_res_mults)
+                          ; return (result, arg_tc_ty, res_tc_ty, arg_mult, arg_mult) }}
 
            ; return ( result
                     , match_wrapper <.>
@@ -1586,15 +1586,6 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
       where
         herald = text "This rebindable syntax expects a function with"
         doc = text "When checking a rebindable syntax operator arising from" <+> ppr orig
-        synMult arg_mult =
-          case mult_shape of
-            SynAnyMult -> return (arg_mult, arg_mult, [arg_mult])
-            SynMult mult ->
-              if submult arg_mult mult then
-                return (arg_mult, mult, [])
-              else
-                addErrTc (text "Incorrect multiplicity in rebindable syntax") >>
-                return (mult, mult, [])
 
     go rho_ty (SynType the_ty)
       = do { wrap   <- tcSubTypeET orig GenSigCtxt the_ty rho_ty

@@ -569,7 +569,7 @@ tcMcStmt ctxt (BindStmt _ pat rhs bind_op fail_op) res_ty thing_inside
            -- (>>=) :: rhs_ty -> (pat_ty -> new_res_ty) -> res_ty
   = do  { ((rhs', pat_mult, pat', thing, new_res_ty), bind_op')
             <- tcSyntaxOp MCompOrigin bind_op
-                          [SynRho, SynFun SynAnyMult SynAny SynRho] res_ty $
+                          [SynRho, SynFun SynAny SynRho] res_ty $
                \ [rhs_ty, pat_ty, new_res_ty] [rhs_mult, fun_mult, pat_mult] ->
                do { rhs' <- tcScalingUsage rhs_mult $ tcMonoExprNC rhs (mkCheckExpType rhs_ty)
                   ; (pat', thing) <- tcScalingUsage fun_mult $ tcPat (StmtCtxt ctxt) pat
@@ -772,7 +772,7 @@ tcMcStmt ctxt (ParStmt _ bndr_stmts_s mzip_op bind_op) res_ty thing_inside
        ; (((blocks', thing), inner_res_ty), bind_op')
            <- tcSyntaxOp MCompOrigin bind_op
                          [ synKnownType (m_ty `mkAppTy` tuple_ty)
-                         , SynFun SynAnyMult (synKnownType tuple_ty) SynRho ] res_ty $
+                         , SynFun (synKnownType tuple_ty) SynRho ] res_ty $
               \ [inner_res_ty] _ ->
               do { stuff <- loop m_ty (mkCheckExpType inner_res_ty)
                                  tup_tys bndr_stmts_s
@@ -832,7 +832,7 @@ tcDoStmt ctxt (BindStmt _ pat rhs bind_op fail_op) res_ty thing_inside
                 -- in full generality; see Trac #1537
 
           ((rhs', pat_mult, pat', new_res_ty, thing), bind_op')
-            <- tcSyntaxOp DoOrigin bind_op [SynRho, SynFun SynAnyMult SynAny SynRho] res_ty $
+            <- tcSyntaxOp DoOrigin bind_op [SynRho, SynFun SynAny SynRho] res_ty $
                 \ [rhs_ty, pat_ty, new_res_ty] [rhs_mult,fun_mult,pat_mult] ->
                 do { rhs' <- tcScalingUsage rhs_mult $ tcMonoExprNC rhs (mkCheckExpType rhs_ty)
                    ; (pat', thing) <- tcScalingUsage fun_mult $ tcPat (StmtCtxt ctxt) pat
@@ -900,7 +900,7 @@ tcDoStmt ctxt (RecStmt { recS_stmts = stmts, recS_later_ids = later_names
         ; ((thing, new_res_ty), bind_op')
             <- tcSyntaxOp DoOrigin bind_op
                           [ synKnownType mfix_res_ty
-                          , SynFun SynAnyMult (synKnownType tup_ty) SynRho ]
+                          , SynFun (synKnownType tup_ty) SynRho ]
                           res_ty $
                \ [new_res_ty] _ ->
                do { thing <- thing_inside (mkCheckExpType new_res_ty)
