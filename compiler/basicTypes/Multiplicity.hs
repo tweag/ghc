@@ -174,23 +174,21 @@ instance Outputable IsSubmult where
 -- | @submult w1 w2@ check whether a value of multiplicity @w1@ is allowed where a
 -- value of multiplicity @w2@ is expected. This is a partial order.
 submult :: GMult t -> GMult t -> IsSubmult
-submult r1 r2 = go r1 r2
-  where
-    go _     Omega = Submult
-    go Zero  Zero  = Submult
-    go _     Zero  = NotSubmult
-    go Omega One   = NotSubmult
-    go Zero  One   = NotSubmult
-    -- It is no mistake: 'Zero' is not a submult of 'One': a value which must be
-    -- used zero times cannot be used one time.
-    -- Zero = {0}
-    -- One  = {1}
-    -- Omega = {0...}
-    go One   One   = Submult
-    -- The 1 <= p rule
-    go One   _     = Submult
---    go (MultThing t) (MultThing t') = Unknown
-    go _     _     = Unknown
+submult _     Omega = Submult
+submult Zero  Zero  = Submult
+submult _     Zero  = NotSubmult
+submult Omega One   = NotSubmult
+submult Zero  One   = NotSubmult
+-- It is no mistake: 'Zero' is not a submult of 'One': a value which must be
+-- used zero times cannot be used one time.
+-- Zero = {0}
+-- One  = {1}
+-- Omega = {0...}
+submult One   One   = Submult
+-- The 1 <= p rule
+submult One   _     = Submult
+--    submult (MultThing t) (MultThing t') = Unknown
+submult _     _     = Unknown
 
 
 traverseMult :: (Multable t, Multable u, Applicative f) => (t -> f u) -> GMult t -> f (GMult u)
