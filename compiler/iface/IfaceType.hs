@@ -44,6 +44,7 @@ module IfaceType (
         pprIfaceCoercion, pprParendIfaceCoercion,
         splitIfaceSigmaTy, pprIfaceTypeApp, pprUserIfaceForAll,
         pprIfaceCoTcApp, pprTyTcApp, pprIfacePrefixApp,
+        ppr_fun_arrow,
 
         suppressIfaceInvisibles,
         stripIfaceInvisVars,
@@ -775,6 +776,14 @@ pprPrecIfaceType :: PprPrec -> IfaceType -> SDoc
 pprPrecIfaceType prec ty =
   hideNonStandardTypes (ppr_ty prec) ty
 
+ppr_fun_arrow :: IfaceMult -> SDoc
+ppr_fun_arrow w
+  | (IfaceTyConApp tc _) <- w
+  , tc `ifaceTyConHasKey` (getUnique omegaDataConTyCon) = arrow
+  | (IfaceTyConApp tc _) <- w
+  , tc `ifaceTyConHasKey` (getUnique oneDataConTyCon) = lollipop
+  | otherwise = mulArrow (pprIfaceType w)
+
 ppr_ty :: PprPrec -> IfaceType -> SDoc
 ppr_ty _         (IfaceFreeTyVar tyvar) = ppr tyvar  -- This is the main reason for IfaceFreeTyVar!
 ppr_ty _         (IfaceTyVar tyvar)     = ppr tyvar  -- See Note [TcTyVars in IfaceType]
@@ -791,13 +800,6 @@ ppr_ty ctxt_prec (IfaceFunTy w ty1 ty2)
       = (ppr_fun_arrow wthis <+> ppr_ty funPrec ty1) : ppr_fun_tail wnext ty2
     ppr_fun_tail wthis other_ty
       = [ppr_fun_arrow wthis <+> pprIfaceType other_ty]
-
-    ppr_fun_arrow w
-      | (IfaceTyConApp tc _) <- w
-      , tc `ifaceTyConHasKey` (getUnique omegaDataConTyCon) = arrow
-      | (IfaceTyConApp tc _) <- w
-      , tc `ifaceTyConHasKey` (getUnique oneDataConTyCon) = lollipop
-      | otherwise = mulArrow (pprIfaceType w)
 
 ppr_ty ctxt_prec (IfaceAppTy t ts)
   = if_print_coercions
