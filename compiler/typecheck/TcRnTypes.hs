@@ -853,7 +853,7 @@ type ErrCtxt = (Bool, TidyEnv -> TcM (TidyEnv, MsgDoc))
         -- Bool:  True <=> this is a landmark context; do not
         --                 discard it when trimming for display
 
-type TcTypeEnv = NameEnv (Scaled TcTyThing)
+type TcTypeEnv = NameEnv TcTyThing
 
 type ThBindEnv = NameEnv (TopLevelFlag, ThLevel)
    -- Domain = all Ids bound in this module (ie not imported)

@@ -401,13 +401,13 @@ tcLookupLocated = addLocM tcLookup
 tcLookupLcl_maybe :: Name -> TcM (Maybe TcTyThing)
 tcLookupLcl_maybe name
   = do { local_env <- getLclTypeEnv
-       ; return (fmap scaledThing $ lookupNameEnv local_env name) }
+       ; return (lookupNameEnv local_env name) }
 
 tcLookup :: Name -> TcM TcTyThing
 tcLookup name = do
     local_env <- getLclTypeEnv
     case lookupNameEnv local_env name of
-        Just thing -> return (scaledThing thing)
+        Just thing -> return thing
         Nothing    -> AGlobal <$> tcLookupGlobal name
 
 tcLookupTyVar :: Name -> TcM TcTyVar
@@ -445,14 +445,14 @@ tcLookupLocalIds ns
   where
     lookup lenv name
         = case lookupNameEnv lenv name of
-                Just (Scaled { scaledThing = (ATcId { tct_id = id })}) ->  id
+                Just (ATcId { tct_id = id }) ->  id
                 _ -> pprPanic "tcLookupLocalIds" (ppr name)
 
 getInLocalScope :: TcM (Name -> Bool)
 getInLocalScope = do { lcl_env <- getLclTypeEnv
                      ; return (`elemNameEnv` lcl_env) }
 
-tcExtendKindEnvList :: [(Name, Scaled TcTyThing)] -> TcM r -> TcM r
+tcExtendKindEnvList :: [(Name, TcTyThing)] -> TcM r -> TcM r
 -- Used only during kind checking, for TcThings that are
 --      ATcTyCon or APromotionErr
 -- No need to update the global tyvars, or tcl_th_bndrs, or tcl_rdr
@@ -462,7 +462,7 @@ tcExtendKindEnvList things thing_inside
   where
     upd_env env = env { tcl_env = extendNameEnvList (tcl_env env) things }
 
-tcExtendKindEnv :: NameEnv (Scaled TcTyThing) -> TcM r -> TcM r
+tcExtendKindEnv :: NameEnv TcTyThing -> TcM r -> TcM r
 -- A variant of tcExtendKindEvnList
 tcExtendKindEnv extra_env thing_inside
   = do { traceTc "tcExtendKindEnv" (ppr extra_env)
@@ -576,15 +576,16 @@ tc_extend_local_env top_lvl extra_env thing_inside
 -- that are bound together with extra_env and should not be regarded
 -- as free in the types of extra_env.
   = do  { traceTc "tc_extend_local_env" (ppr extra_env)
+        ; let extra_env_unscaled = map (\(n, s) -> (n, scaledThing s)) extra_env
         ; env0 <- getLclEnv
-        ; env1 <- tcExtendLocalTypeEnv env0 extra_env
+        ; env1 <- tcExtendLocalTypeEnv env0 extra_env_unscaled
         ; stage <- getStage
-        ; let env2 = extend_local_env (top_lvl, thLevel stage) extra_env env1
+        ; let env2 = extend_local_env (top_lvl, thLevel stage) extra_env_unscaled env1
         ; (local_usage,result) <- setLclEnv env2 (tcCollectingUsage thing_inside)
         ; check_then_add_usage local_usage
         ; return result }
   where
-    extend_local_env :: (TopLevelFlag, ThLevel) -> [(Name, Scaled TcTyThing)] -> TcLclEnv -> TcLclEnv
+    extend_local_env :: (TopLevelFlag, ThLevel) -> [(Name, TcTyThing)] -> TcLclEnv -> TcLclEnv
     -- Extend the local LocalRdrEnv and Template Haskell staging env simultaneously
     -- Reason for extending LocalRdrEnv: after running a TH splice we need
     -- to do renaming.
@@ -595,7 +596,7 @@ tc_extend_local_env top_lvl extra_env thing_inside
                                 -- The LocalRdrEnv contains only non-top-level names
                                 -- (GlobalRdrEnv handles the top level)
             , tcl_th_bndrs = extendNameEnvList th_bndrs  -- We only track Ids in tcl_th_bndrs
-                                 [(n, thlvl) | (n, Scaled _ ATcId {}) <- pairs] }
+                                 [(n, thlvl) | (n, ATcId {}) <- pairs] }
 
     check_then_add_usage :: UsageEnv -> TcM ()
     -- Checks that the usage of the newly introduced binders is compatible with
@@ -622,7 +623,7 @@ tc_extend_local_env top_lvl extra_env thing_inside
 
 
 
-tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, Scaled TcTyThing)] -> TcM TcLclEnv
+tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, TcTyThing)] -> TcM TcLclEnv
 tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env }) tc_ty_things
   | isEmptyVarSet extra_tvs
   = return (lcl_env { tcl_env = extendNameEnvList lcl_type_env tc_ty_things })
@@ -634,7 +635,7 @@ tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env }) tc_ty_things
   where
     extra_tvs = foldr get_tvs emptyVarSet tc_ty_things
 
-    get_tvs (_, Scaled _ (ATcId { tct_id = id, tct_info = closed })) tvs
+    get_tvs (_, ATcId { tct_id = id, tct_info = closed }) tvs
       = case closed of
           ClosedLet -> ASSERT2( is_closed_type, ppr id $$ ppr (idType id) )
                        tvs
@@ -650,13 +651,13 @@ tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env }) tc_ty_things
            -- where co :: * ~ *
            -- or some other as-yet-unsolved kind coercion
 
-    get_tvs (_, Scaled _ (ATyVar _ tv)) tvs          -- See Note [Global TyVars]
+    get_tvs (_, ATyVar _ tv) tvs          -- See Note [Global TyVars]
       = tvs `unionVarSet` tyCoVarsOfType (tyVarKind tv) `extendVarSet` tv
 
-    get_tvs (_, Scaled _ (ATcTyCon tc)) tvs = tvs `unionVarSet` tyCoVarsOfType (tyConKind tc)
+    get_tvs (_, ATcTyCon tc) tvs = tvs `unionVarSet` tyCoVarsOfType (tyConKind tc)
 
-    get_tvs (_, Scaled _ (AGlobal {}))       tvs = tvs
-    get_tvs (_, Scaled _ (APromotionErr {})) tvs = tvs
+    get_tvs (_, AGlobal {})       tvs = tvs
+    get_tvs (_, APromotionErr {}) tvs = tvs
 
         -- Note [Global TyVars]
         -- It's important to add the in-scope tyvars to the global tyvar set
@@ -754,7 +755,7 @@ tcInitOpenTidyEnv tvs
 tcAddDataFamConPlaceholders :: [LInstDecl GhcRn] -> TcM a -> TcM a
 -- See Note [AFamDataCon: not promoting data family constructors]
 tcAddDataFamConPlaceholders inst_decls thing_inside
-  = tcExtendKindEnvList [ (con, Scaled Omega (APromotionErr FamDataConPE))
+  = tcExtendKindEnvList [ (con, APromotionErr FamDataConPE)
                         | lid <- inst_decls, con <- get_cons lid ]
       thing_inside
       -- Note [AFamDataCon: not promoting data family constructors]
@@ -782,7 +783,7 @@ tcAddDataFamConPlaceholders inst_decls thing_inside
 tcAddPatSynPlaceholders :: [PatSynBind GhcRn GhcRn] -> TcM a -> TcM a
 -- See Note [Don't promote pattern synonyms]
 tcAddPatSynPlaceholders pat_syns thing_inside
-  = tcExtendKindEnvList [ (name, Scaled Omega (APromotionErr PatSynPE))
+  = tcExtendKindEnvList [ (name, APromotionErr PatSynPE)
                         | PSB{ psb_id = L _ name } <- pat_syns ]
        thing_inside
 

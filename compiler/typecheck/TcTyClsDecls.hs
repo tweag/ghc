@@ -852,7 +852,7 @@ There are some wrinkles
 --------------
 tcExtendKindEnvWithTyCons :: [TcTyCon] -> TcM a -> TcM a
 tcExtendKindEnvWithTyCons tcs
-  = tcExtendKindEnvList [ (tyConName tc, unrestricted (ATcTyCon tc)) | tc <- tcs ]
+  = tcExtendKindEnvList [ (tyConName tc, ATcTyCon tc) | tc <- tcs ]
 
 --------------
 mkPromotionErrorEnv :: [LTyClDecl GhcRn] -> TcTypeEnv
@@ -867,21 +867,21 @@ mkPromotionErrorEnv decls
 
 mk_prom_err_env :: TyClDecl GhcRn -> TcTypeEnv
 mk_prom_err_env (ClassDecl { tcdLName = L _ nm, tcdATs = ats })
-  = unitNameEnv nm (unrestricted $ APromotionErr ClassPE)
+  = unitNameEnv nm (APromotionErr ClassPE)
     `plusNameEnv`
-    mkNameEnv [ (name, unrestricted $ APromotionErr TyConPE)
+    mkNameEnv [ (name, APromotionErr TyConPE)
               | (dL->L _ (FamilyDecl { fdLName = (dL->L _ name) })) <- ats ]
 
 mk_prom_err_env (DataDecl { tcdLName = (dL->L _ name)
                           , tcdDataDefn = HsDataDefn { dd_cons = cons } })
-  = unitNameEnv name (unrestricted $ APromotionErr TyConPE)
+  = unitNameEnv name (APromotionErr TyConPE)
     `plusNameEnv`
-    mkNameEnv [ (con, unrestricted $ APromotionErr RecDataConPE)
+    mkNameEnv [ (con, APromotionErr RecDataConPE)
               | (dL->L _ con') <- cons
               , (dL->L _ con)  <- getConNames con' ]
 
 mk_prom_err_env decl
-  = unitNameEnv (tcdName decl) (unrestricted $ APromotionErr TyConPE)
+  = unitNameEnv (tcdName decl) (APromotionErr TyConPE)
     -- Works for family declarations too
 
 --------------
