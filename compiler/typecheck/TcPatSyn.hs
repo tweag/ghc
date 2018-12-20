@@ -385,7 +385,7 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(dL->L _ name), psb_args = details
            ASSERT2( equalLength arg_names arg_tys, ppr name $$ ppr arg_names $$ ppr arg_tys )
            pushLevelAndCaptureConstraints            $
            tcExtendTyVarEnv (map unrestricted univ_tvs)  $
-           tcExtendKindEnvList [(getName (binderVar ex_tv), unrestricted (APromotionErr PatSynExPE))
+           tcExtendKindEnvList [(getName (binderVar ex_tv), APromotionErr PatSynExPE)
                                | ex_tv <- extra_ex] $
                -- See Note [Pattern synonym existentials do not scope]
            tcPat PatSyn lpat (unrestricted $ mkCheckExpType pat_ty) $

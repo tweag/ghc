@@ -1309,7 +1309,7 @@ tcLookupTh :: Name -> TcM TcTyThing
 tcLookupTh name
   = do  { (gbl_env, lcl_env) <- getEnvs
         ; case lookupNameEnv (tcl_env lcl_env) name of {
-                Just (Scaled _ thing) -> return thing;
+                Just thing -> return thing;
                 Nothing    ->
 
           case lookupNameEnv (tcg_type_env gbl_env) name of {

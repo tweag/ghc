@@ -1712,7 +1712,7 @@ isClosedBndrGroup type_env binds
     is_closed :: Name -> ClosedTypeId
     is_closed name
       | Just thing <- lookupNameEnv type_env name
-      = case scaledThing thing of
+      = case thing of
           AGlobal {}                     -> True
           ATcId { tct_info = ClosedLet } -> True
           _                              -> False
@@ -1725,7 +1725,7 @@ isClosedBndrGroup type_env binds
     -- We're already removed Global and ClosedLet Ids
     is_closed_type_id name
       | Just thing <- lookupNameEnv type_env name
-      = case scaledThing thing of
+      = case thing of
           ATcId { tct_info = NonClosedLet _ cl } -> cl
           ATcId { tct_info = NotLetBound }       -> False
           ATyVar {}                              -> False
