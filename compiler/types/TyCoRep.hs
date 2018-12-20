@@ -3411,7 +3411,6 @@ debug_ppr_ty _ (TyVarTy tv)
 debug_ppr_ty prec (FunTy mult arg res)
   =
     let arr = case mult of
-                Zero -> mulArrow (text "0")
                 One -> lollipop
                 Omega -> arrow
                 w -> mulArrow (ppr w)

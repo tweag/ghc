@@ -53,7 +53,6 @@ import Util
 import Outputable
 import qualified GHC.LanguageExtensions as LangExt
 import Control.Arrow  ( second )
-import Control.Monad ( when )
 import ListSetOps ( getNth )
 import Data.Functor.Compose ( Compose(..) )
 

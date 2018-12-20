@@ -830,20 +830,9 @@ tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
 -- <= w
 -- The error messages from this function are currently awful.
 tcSubMult :: Mult -> Mult -> TcM ()
-tcSubMult actual_w w
-  = do_one actual_w
-  where
-    do_one mult =
-      case mult of
-        MultAdd _ _ -> do
-          tcSubMult Omega w
-        MultMul m1 m2 -> do
-          tcSubMult m1 w
-          tcSubMult m2 w
-        _ -> do_one_action mult w
-
-    do_one_action a_w c_w
-       = tcEqMult AppOrigin AppOrigin TypeAppCtxt a_w c_w
+tcSubMult (MultAdd _ _) w = tcSubMult Omega w
+tcSubMult (MultMul m1 m2) w = tcSubMult m1 w >> tcSubMult m2 w
+tcSubMult a_w c_w = tcEqMult AppOrigin AppOrigin TypeAppCtxt a_w c_w
 
 
 {- Note [Settting the argument context]
