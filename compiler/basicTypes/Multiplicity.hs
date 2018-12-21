@@ -7,7 +7,6 @@
 -- arrow (in the sense of linear types).
 module Multiplicity
   ( GMult
-  , pattern Zero
   , pattern One
   , pattern Omega
   , pattern MultAdd
@@ -40,8 +39,7 @@ import Outputable
 --
 
 data GMult a
-  = Zero_
-  | One_
+  = One_
   | Omega_
   | MultAdd_ (GMult a) (GMult a)
   | MultMul_ (GMult a) (GMult a)
@@ -60,16 +58,13 @@ class Multable a where
   -- that @m@ is a subtree of @toMult . fromMult m@.
   toMult :: a -> GMult a
 
--- Note that pattern synonyms for One, Omega, and Zero are not necessary: we could just
+-- Note that pattern synonyms for One and Omega are not necessary: we could just
 -- export them as constructors. They are defined as pattern synonym for
 -- symmetry. Following the principle of least surprise.
 
 -- We may enforce more invariants in the type of GMult. For instance, we can
 -- enforce that it is in the form of a sum of products, and even that the
 -- sumands and factors are ordered somehow, to have more equalities.
-
-pattern Zero :: GMult a
-pattern Zero = Zero_
 
 pattern One :: GMult a
 pattern One = One_
@@ -79,8 +74,6 @@ pattern Omega = Omega_
 
 pattern MultMul :: GMult a -> GMult a -> GMult a
 pattern MultMul p q <- MultMul_ p q where
-  Zero `MultMul` _ = Zero
-  _ `MultMul` Zero = Zero
   One `MultMul` p = p
   p `MultMul` One = p
   Omega `MultMul` _ = Omega
@@ -89,8 +82,6 @@ pattern MultMul p q <- MultMul_ p q where
 
 pattern MultAdd :: GMult a -> GMult a -> GMult a
 pattern MultAdd p q <- MultAdd_ p q where
-  Zero `MultAdd` p = p
-  p `MultAdd` Zero = p
   One `MultAdd` One = Omega
   Omega `MultAdd` _ = Omega
   _ `MultAdd` Omega = Omega
@@ -100,7 +91,7 @@ pattern MultThing :: Multable a => a -> GMult a
 pattern MultThing a <- MultThing_ a where
   MultThing a = toMult a
 
-{-# COMPLETE Zero, One, Omega, MultMul, MultAdd, MultThing #-}
+{-# COMPLETE One, Omega, MultMul, MultAdd, MultThing #-}
 
 -- | Used to defined 'Multable' instances. Requires that the argument cannot be
 -- reified any further. There is probably no good reason to use it outside of a
@@ -109,7 +100,6 @@ unsafeMultThing :: a -> GMult a
 unsafeMultThing = MultThing_
 
 instance (Outputable a, Multable a) => Outputable (GMult a) where
-  ppr Zero = text "0"
   ppr One = text "1"
   ppr Omega = text "Omega"
   ppr (MultAdd m1 m2) = parens (ppr m1 <+> text "+" <+> ppr m2)
@@ -119,7 +109,6 @@ instance (Outputable a, Multable a) => Outputable (GMult a) where
 -- | @sup w1 w2@ returns the smallest multiplicity larger than or equal to both @w1@
 -- and @w2@.
 sup :: GMult a -> GMult a -> GMult a
-sup Zero  Zero  = Zero
 sup One   One   = One
 sup Omega Omega = Omega
 sup _     _     = Omega
@@ -173,26 +162,17 @@ instance Outputable IsSubmult where
 
 -- | @submult w1 w2@ check whether a value of multiplicity @w1@ is allowed where a
 -- value of multiplicity @w2@ is expected. This is a partial order.
+
 submult :: GMult t -> GMult t -> IsSubmult
 submult _     Omega = Submult
-submult Zero  Zero  = Submult
-submult _     Zero  = NotSubmult
 submult Omega One   = NotSubmult
-submult Zero  One   = NotSubmult
--- It is no mistake: 'Zero' is not a submult of 'One': a value which must be
--- used zero times cannot be used one time.
--- Zero = {0}
--- One  = {1}
--- Omega = {0...}
 submult One   One   = Submult
 -- The 1 <= p rule
 submult One   _     = Submult
 --    submult (MultThing t) (MultThing t') = Unknown
 submult _     _     = Unknown
 
-
 traverseMult :: (Multable t, Multable u, Applicative f) => (t -> f u) -> GMult t -> f (GMult u)
-traverseMult _ Zero = pure Zero
 traverseMult _ One = pure One
 traverseMult _ Omega = pure Omega
 traverseMult f (MultThing t) = MultThing <$> f t
@@ -201,8 +181,7 @@ traverseMult f (MultMul x y) = MultMul <$> traverseMult f x <*> traverseMult f y
 
 multThingList :: Multable t => (t -> a) -> GMult t -> [a]
 multThingList f = go []
-  where go acc Zero = acc
-        go acc One = acc
+  where go acc One = acc
         go acc Omega = acc
         go acc (MultThing t) = f t : acc
         go acc (MultAdd x y) = go (go acc y) x
@@ -210,7 +189,6 @@ multThingList f = go []
 
 -- Not a Functor, since MultThing calls 'fromMult'.
 mapMult :: (Multable t, Multable u) => (t -> u) -> GMult t -> GMult u
-mapMult _ Zero = Zero
 mapMult _ One = One
 mapMult _ Omega = Omega
 mapMult f (MultThing t) = MultThing (f t)
