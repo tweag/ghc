@@ -112,6 +112,8 @@ sup :: GMult a -> GMult a -> GMult a
 sup One   One   = One
 sup Omega Omega = Omega
 sup _     _     = Omega
+-- Note: If you are changing this logic, check 'supUE' in UsageEnv as well.
+--
 -- I assume that `sup` is incomplete in presence of multiplicity
 -- polymorphism. Maybe we need a syntactic join operation on multiplicities.
 

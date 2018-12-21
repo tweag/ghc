@@ -70,6 +70,7 @@ scaleUE w (UsageEnv e) = UsageEnv $
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1) (UsageEnv e2) = UsageEnv $
   plusNameEnv_CD sup e1 Omega e2 Omega
+-- Note: If you are changing this logic, check 'sup' in Multiplicity as well.
 
 supUEs :: [UsageEnv] -> UsageEnv
 supUEs [] = zeroUE -- This is incorrect, it should be the bottom usage env, but
