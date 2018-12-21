@@ -36,27 +36,27 @@ T14273.hs:7:32: warning: [-Wtyped-holes (in -Wdefault)]
           (imported from ‘Prelude’ at T14273.hs:1:8-40
            (and originally defined in ‘GHC.Base’))
         False :: Bool
-          with False @'Omega
+          with False @n1
           (imported from ‘Prelude’ at T14273.hs:1:8-40
            (and originally defined in ‘GHC.Types’))
         True :: Bool
-          with True @'Omega
+          with True @n2
           (imported from ‘Prelude’ at T14273.hs:1:8-40
            (and originally defined in ‘GHC.Types’))
         LT :: Ordering
-          with LT @'Omega
+          with LT @n3
           (imported from ‘Prelude’ at T14273.hs:1:8-40
            (and originally defined in ‘GHC.Types’))
         EQ :: Ordering
-          with EQ @'Omega
+          with EQ @n4
           (imported from ‘Prelude’ at T14273.hs:1:8-40
            (and originally defined in ‘GHC.Types’))
         GT :: Ordering
-          with GT @'Omega
+          with GT @n5
           (imported from ‘Prelude’ at T14273.hs:1:8-40
            (and originally defined in ‘GHC.Types’))
         () :: ()
-          with () @'Omega
+          with () @n0
           (bound at <wired into compiler>)
         pi :: forall a. Floating a => a
           with pi @Double
