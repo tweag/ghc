@@ -1018,7 +1018,7 @@ pprIfaceConDecl ss gadt_style tycon tc_binders parent
         -- because we don't have a Name for the tycon, only an OccName
     pp_tau | null fields
            = case pp_args ++ [pp_gadt_res_ty] of
-                (t:ts) -> fsep (t : map (arrow <+>) ts)
+                (t:ts) -> fsep (t : zipWith (\(w,_) d -> ppr_fun_arrow w <+> d) arg_tys ts)
                 []     -> panic "pp_con_taus"
            | otherwise
            = sep [pp_field_args, arrow <+> pp_gadt_res_ty]

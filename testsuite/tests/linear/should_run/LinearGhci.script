@@ -2,3 +2,6 @@ data T a = MkT a
 :type +v MkT
 :set -XLinearTypes
 :type +v MkT
+:set -XGADTs
+data T a where MkT :: a ->. a -> T a
+:info T
