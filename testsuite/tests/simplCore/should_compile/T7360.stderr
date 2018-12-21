@@ -4,7 +4,8 @@ Result size of Tidy Core
   = {terms: 121, types: 61, coercions: 0, joins: 0/0}
 
 -- RHS size: {terms: 2, types: 1, coercions: 0, joins: 0/0}
-T7360.$WFoo1 [InlPrag=INLINE[0]] :: Foo
+T7360.$WFoo1 [InlPrag=INLINE[0]]
+  :: forall (n :: GHC.Types.Multiplicity). Foo
 [GblId[DataConWrapper],
  Caf=NoCafRefs,
  Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
@@ -14,7 +15,8 @@ T7360.$WFoo1 [InlPrag=INLINE[0]] :: Foo
 T7360.$WFoo1 = \ (@ (n :: GHC.Types.Multiplicity)) -> T7360.Foo1
 
 -- RHS size: {terms: 2, types: 1, coercions: 0, joins: 0/0}
-T7360.$WFoo2 [InlPrag=INLINE[0]] :: Foo
+T7360.$WFoo2 [InlPrag=INLINE[0]]
+  :: forall (n :: GHC.Types.Multiplicity). Foo
 [GblId[DataConWrapper],
  Caf=NoCafRefs,
  Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
@@ -24,7 +26,8 @@ T7360.$WFoo2 [InlPrag=INLINE[0]] :: Foo
 T7360.$WFoo2 = \ (@ (n :: GHC.Types.Multiplicity)) -> T7360.Foo2
 
 -- RHS size: {terms: 7, types: 4, coercions: 0, joins: 0/0}
-T7360.$WFoo3 [InlPrag=INLINE[0]] :: Int -> Foo
+T7360.$WFoo3 [InlPrag=INLINE[0]]
+  :: forall (n :: GHC.Types.Multiplicity). Int -->.(n) Foo
 [GblId[DataConWrapper],
  Arity=1,
  Caf=NoCafRefs,
@@ -290,3 +293,6 @@ T7360.$tc'Foo3
       T7360.$tc'Foo10
       0#
       T7360.$tc'Foo9
+
+
+

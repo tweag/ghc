@@ -4,7 +4,8 @@ Result size of Tidy Core
   = {terms: 64, types: 45, coercions: 1, joins: 0/0}
 
 -- RHS size: {terms: 3, types: 5, coercions: 1, joins: 0/0}
-T2431.$WRefl [InlPrag=INLINE[0]] :: forall a. a :~: a
+T2431.$WRefl [InlPrag=INLINE[0]]
+  :: forall (n :: GHC.Types.Multiplicity) a. a :~: a
 [GblId[DataConWrapper],
  Caf=NoCafRefs,
  Str=m,
@@ -112,3 +113,6 @@ T2431.$tc'Refl
       $tc'Refl2
       1#
       $krep3
+
+
+

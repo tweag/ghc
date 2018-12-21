@@ -4,7 +4,8 @@ Result size of Tidy Core
   = {terms: 107, types: 53, coercions: 11, joins: 0/0}
 
 -- RHS size: {terms: 4, types: 4, coercions: 3, joins: 0/0}
-Roles13.$WMkWrap [InlPrag=INLINE[0]] :: forall a. a -> Wrap a
+Roles13.$WMkWrap [InlPrag=INLINE[0]]
+  :: forall (n :: GHC.Types.Multiplicity) a. a -->.(n) Wrap a
 [GblId[DataConWrapper],
  Arity=1,
  Caf=NoCafRefs,
@@ -27,7 +28,8 @@ Roles13.$WMkWrap
               :: a[sk:1] ~R# Wrap a[sk:1])
 
 -- RHS size: {terms: 3, types: 2, coercions: 2, joins: 0/0}
-Roles13.$WMkAge [InlPrag=INLINE[0]] :: Int -> Age
+Roles13.$WMkAge [InlPrag=INLINE[0]]
+  :: forall (n :: GHC.Types.Multiplicity). Int -->.(n) Age
 [GblId[DataConWrapper],
  Arity=1,
  Caf=NoCafRefs,
