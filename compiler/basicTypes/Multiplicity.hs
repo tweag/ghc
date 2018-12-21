@@ -34,6 +34,18 @@ import GhcPrelude
 import Data.Data
 import Outputable
 
+{-
+Note [Adding new multiplicities]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+To add a new multiplicity, you need to:
+* Add the new value to the GMult type
+* Define new cases in fromMult/toMult functions in TyCoRep,
+  possibly defining new syntax for the multiplicity
+* Update cases in MultAdd, MultMul, sup, submult, tcSubmult
+* Check supUE function that computes sup of a multiplicity
+  and Zero
+-}
+
 --
 -- * Core properties of multiplicities
 --
