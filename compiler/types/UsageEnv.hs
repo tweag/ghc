@@ -26,6 +26,23 @@ import TyCoRep ( Mult, Scaled )
 -- much harder to get right. The module structure is the point-wise extension of
 -- the action of 'Mult' on itself, every absent name being considered to map to
 -- 'Zero'.
+data Usage = Zero | MUsage Mult
+
+instance Outputable Usage where
+  ppr Zero = text "0"
+  ppr (MUsage x) = ppr x
+
+addUsage :: Usage -> Usage -> Usage
+addUsage Zero x = x
+addUsage x Zero = x
+addUsage (MUsage x) (MUsage y) = MUsage $ MultAdd x y
+
+multUsage :: Usage -> Usage -> Usage
+multUsage Zero _ = Zero
+multUsage _ Zero = Zero
+multUsage (MUsage x) (MUsage y) = MUsage $ MultMul x y
+
+
 newtype UsageEnv = UsageEnv (NameEnv Mult)
 
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
@@ -52,7 +69,8 @@ scaleUE w (UsageEnv e) = UsageEnv $
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1) (UsageEnv e2) = UsageEnv $
-  plusNameEnv_CD sup e1 Zero e2 Zero
+  plusNameEnv_CD sup e1 Omega e2 Omega
+-- Note: If you are changing this logic, check 'sup' in Multiplicity as well.
 
 supUEs :: [UsageEnv] -> UsageEnv
 supUEs [] = zeroUE -- This is incorrect, it should be the bottom usage env, but
@@ -72,10 +90,10 @@ deleteListUE e xs = foldl' deleteUE e xs
 
 -- | |lookupUE x env| returns the multiplicity assigned to |x| in |env|, if |x| is not
 -- bound in |env|, then returns |Zero|.
-lookupUE :: NamedThing n => UsageEnv -> n -> Mult
+lookupUE :: NamedThing n => UsageEnv -> n -> Usage
 lookupUE (UsageEnv e) x =
   case lookupNameEnv e (getName x) of
-    Just w  -> w
+    Just w  -> MUsage w
     Nothing -> Zero
 
 instance Outputable UsageEnv where

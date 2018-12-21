@@ -1179,7 +1179,6 @@ collect_cand_qtvs :: Bool   -- True <=> consider every fv in Type to be dependen
 collect_cand_qtvs is_dep bound dvs ty
   = go dvs ty
   where
-    go_mult dv Zero  = return dv
     go_mult dv One   = return dv
     go_mult dv Omega = return dv
     go_mult dv (MultAdd x y) = foldlM go_mult dv [x, y]

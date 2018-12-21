@@ -370,7 +370,7 @@ tc_pat _ (WildPat _) pat_ty thing_inside
         ; return (WildPat pat_ty, res) }
     where
       checkLinearity =
-        tcSubMult Zero (scaledMult pat_ty)
+        tcSubMult Omega (scaledMult pat_ty)
 
 
 tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside

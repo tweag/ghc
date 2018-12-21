@@ -951,9 +951,9 @@ checkJoinOcc var n_args
 checkLinearity :: UsageEnv -> Var -> LintM UsageEnv
 checkLinearity body_ue lam_var =
   case varMultMaybe lam_var of
-    Just (Regular mult) -> do
-      ensureEqMults (lookupUE body_ue lam_var) mult (err_msg mult)
-      return $ deleteUE body_ue lam_var
+    Just (Regular mult) -> do let m = case lhs of MUsage m -> m; Zero -> Omega
+                              ensureEqMults m mult (err_msg mult)
+                              return $ deleteUE body_ue lam_var
     Just Alias -> return body_ue -- aliases do not generate multiplicity constraints
     Nothing    -> return body_ue -- A type variable
   where
@@ -1089,13 +1089,15 @@ lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
        ; lintAltBinders rhs_ue' scrut scrut_ty con_ty' bndrs }
 
 -- | Implements the case rules for linearity
-checkCaseLinearity :: UsageEnv -> Var ->  Mult -> Var -> LintM UsageEnv
+checkCaseLinearity :: UsageEnv -> Var -> Mult -> Var -> LintM UsageEnv
 checkCaseLinearity ue scrut var_w bndr = do
-  ensureEqMults lhs rhs err_msg
+  case lhs of
+    MUsage mult -> ensureEqMults mult rhs err_msg
+    Zero -> addErrL err_msg
   lintLinearBinder (ppr bndr) (scrut_w `MultMul` var_w) (varWeight bndr)
   return $ deleteUE ue bndr
   where
-    lhs = bndr_usage `MultAdd` (scrut_usage `MultMul` var_w)
+    lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
     rhs = scrut_w `MultMul` var_w
     err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
                 $$ ppr lhs <+> text "⊈" <+> ppr rhs
