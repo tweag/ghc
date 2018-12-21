@@ -836,15 +836,14 @@ ppr_ty ctxt_prec (IfaceCoercionTy co)
 ppr_ty ctxt_prec ty -- IfaceForAllTy
   = maybeParen ctxt_prec funPrec (pprIfaceSigmaType ShowForAllMust ty)
 
-{-
-Note [Defaulting RuntimeRep variables]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-RuntimeRep variables are considered by many (most?) users to be little more than
-syntactic noise. When the notion was introduced there was a signficant and
-understandable push-back from those with pedagogy in mind, which argued that
-RuntimeRep variables would throw a wrench into nearly any teach approach since
-they appear in even the lowly ($) function's type,
+{- Note [Defaulting RuntimeRep variables]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+RuntimeRep variables are considered by many (most?) users to be little
+more than syntactic noise. When the notion was introduced there was a
+signficant and understandable push-back from those with pedagogy in
+mind, which argued that RuntimeRep variables would throw a wrench into
+nearly any teach approach since they appear in even the lowly ($)
+function's type,
 
     ($) :: forall (w :: RuntimeRep) a (b :: TYPE w). (a -> b) -> a -> b
 
@@ -852,16 +851,33 @@ which is significantly less readable than its non RuntimeRep-polymorphic type of
 
     ($) :: (a -> b) -> a -> b
 
-Moreover, unboxed types don't appear all that often in run-of-the-mill Haskell
-programs, so it makes little sense to make all users pay this syntactic
-overhead.
+Moreover, unboxed types don't appear all that often in run-of-the-mill
+Haskell programs, so it makes little sense to make all users pay this
+syntactic overhead.
 
-For this reason it was decided that we would hide RuntimeRep variables for now
-(see #11549). We do this by defaulting all type variables of kind RuntimeRep to
-LiftedRep. Likewise, we default all Multiplicity variables to Omega.
+For this reason it was decided that we would hide RuntimeRep variables
+for now (see #11549). We do this by defaulting all type variables of
+kind RuntimeRep to LiftedRep.
+Likewise, we default all Multiplicity variables to Omega.
+
 This is done in a pass right before pretty-printing
-(defaultNonStandardVars, controlled by -fprint-explicit-runtime-reps
-and -XLinearTypes)
+(defaultNonStandardVars, controlled by
+-fprint-explicit-runtime-reps and -XLinearTypes)
+
+This applies to /quantified/ variables like 'w' above.  What about
+variables that are /free/ in the type being printed, which certainly
+happens in error messages.  Suppose (Trac #16074) we are reporting a
+mismatch between two skolems
+          (a :: RuntimeRep) ~ (b :: RuntimeRep)
+We certainly don't want to say "Can't match LiftedRep ~ LiftedRep"!
+
+But if we are printing the type
+    (forall (a :: Type r). blah
+we do want to turn that (free) r into LiftedRep, so it prints as
+    (forall a. blah)
+
+Conclusion: keep track of whether we we are in the kind of a
+binder; ohly if so, convert free RuntimeRep variables to LiftedRep.
 -}
 
 -- | Default 'RuntimeRep' variables to 'LiftedPtr', and 'Multiplicity'
@@ -879,69 +895,72 @@ and -XLinearTypes)
 -- @ Just :: forall a . a -> Maybe a @
 --
 -- We do this to prevent RuntimeRep and Multiplicity variables from
--- incurring a significant -- syntactic overhead in otherwise simple
+-- incurring a significant syntactic overhead in otherwise simple
 -- type signatures (e.g. ($)). See Note [Defaulting RuntimeRep variables]
 -- and #11549 for further discussion.
-defaultNonStandardVars :: Bool -> Bool -> PprStyle -> IfaceType -> IfaceType
-defaultNonStandardVars do_runtimereps do_multiplicities sty =
-    go emptyFsEnv
+defaultNonStandardVars :: Bool -> Bool -> IfaceType -> IfaceType
+defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv ty
   where
-    go :: FastStringEnv IfaceType -> IfaceType -> IfaceType
-    go subs (IfaceForAllTy (Bndr (IfaceTvBndr (var, var_kind)) argf) ty)
-      | isInvisibleArgFlag argf -- don't default *visible* quantification
+    go :: Bool              -- True <=> Inside the kind of a binder
+       -> FastStringEnv IfaceType -- Set of enclosing forall-ed RuntimeRep/Multiplicity variables
+       -> IfaceType
+       -> IfaceType
+    go ink subs (IfaceForAllTy (Bndr (IfaceTvBndr (var, var_kind)) argf) ty)
+     | isInvisibleArgFlag argf  -- Don't default *visible* quantification
                                 -- or we get the mess in #13963
-      , Just substituted_ty <- check_substitution var_kind
+     , Just substituted_ty <- check_substitution var_kind
       = let subs' = extendFsEnv subs var substituted_ty
-        in go subs' ty
+            -- Record that we should replace it with LiftedRep,
+            -- and recurse, discarding the forall
+        in go ink subs' ty
 
-    go subs (IfaceForAllTy bndr ty)
-      = IfaceForAllTy (go_ifacebndr subs bndr) (go subs ty)
+    go ink subs (IfaceForAllTy bndr ty)
+      = IfaceForAllTy (go_ifacebndr subs bndr) (go ink subs ty)
 
-    go subs ty@(IfaceTyVar tv) = case lookupFsEnv subs tv of
+    go _ subs ty@(IfaceTyVar tv) = case lookupFsEnv subs tv of
       Just s -> s
       Nothing -> ty
 
-    go _ ty@(IfaceFreeTyVar tv)
-      | userStyle sty && do_runtimereps && TyCoRep.isRuntimeRepTy (tyVarKind tv)
-         -- don't require -fprint-explicit-runtime-reps for good debugging output
+    go in_kind _ ty@(IfaceFreeTyVar tv)
+      -- See Note [Defaulting RuntimeRep variables], about free vars
+      | in_kind && do_runtimereps && TyCoRep.isRuntimeRepTy (tyVarKind tv)
       = liftedRep_ty
-      | userStyle sty && do_multiplicities && TyCoRep.isMultiplicityTy (tyVarKind tv)
-         -- don't require -XLinearTypes for good debugging output
+      | in_kind && do_multiplicities && TyCoRep.isMultiplicityTy (tyVarKind tv)
       = omega_ty
       | otherwise
       = ty
 
-    go subs (IfaceTyConApp tc tc_args)
-      = IfaceTyConApp tc (go_args subs tc_args)
+    go ink subs (IfaceTyConApp tc tc_args)
+      = IfaceTyConApp tc (go_args ink subs tc_args)
 
-    go subs (IfaceTupleTy sort is_prom tc_args)
-      = IfaceTupleTy sort is_prom (go_args subs tc_args)
+    go ink subs (IfaceTupleTy sort is_prom tc_args)
+      = IfaceTupleTy sort is_prom (go_args ink subs tc_args)
 
-    go subs (IfaceFunTy w arg res)
-      = IfaceFunTy (go subs w) (go subs arg) (go subs res)
+    go ink subs (IfaceFunTy w arg res)
+      = IfaceFunTy (go ink subs w) (go ink subs arg) (go ink subs res)
 
-    go subs (IfaceAppTy t ts)
-      = IfaceAppTy (go subs t) (go_args subs ts)
+    go ink subs (IfaceAppTy t ts)
+      = IfaceAppTy (go ink subs t) (go_args ink subs ts)
 
-    go subs (IfaceDFunTy x y)
-      = IfaceDFunTy (go subs x) (go subs y)
+    go ink subs (IfaceDFunTy x y)
+      = IfaceDFunTy (go ink subs x) (go ink subs y)
 
-    go subs (IfaceCastTy x co)
-      = IfaceCastTy (go subs x) co
+    go ink subs (IfaceCastTy x co)
+      = IfaceCastTy (go ink subs x) co
 
-    go _ ty@(IfaceLitTy {}) = ty
-    go _ ty@(IfaceCoercionTy {}) = ty
+    go _ _ ty@(IfaceLitTy {}) = ty
+    go _ _ ty@(IfaceCoercionTy {}) = ty
 
     go_ifacebndr :: FastStringEnv IfaceType -> IfaceForAllBndr -> IfaceForAllBndr
     go_ifacebndr subs (Bndr (IfaceIdBndr (w, n, t)) argf)
-      = Bndr (IfaceIdBndr (w, n, go subs t)) argf
+      = Bndr (IfaceIdBndr (w, n, go True subs t)) argf
     go_ifacebndr subs (Bndr (IfaceTvBndr (n, t)) argf)
-      = Bndr (IfaceTvBndr (n, go subs t)) argf
+      = Bndr (IfaceTvBndr (n, go True subs t)) argf
 
-    go_args :: FastStringEnv IfaceType -> IfaceAppArgs -> IfaceAppArgs
-    go_args _ IA_Nil = IA_Nil
-    go_args subs (IA_Arg ty argf args)
-                     = IA_Arg (go subs ty) argf (go_args subs args)
+    go_args :: Bool -> FastStringEnv IfaceType -> IfaceAppArgs -> IfaceAppArgs
+    go_args _ _ IA_Nil = IA_Nil
+    go_args ink subs (IA_Arg ty argf args)
+      = IA_Arg (go ink subs ty) argf (go_args ink subs args)
 
     check_substitution :: IfaceType -> Maybe IfaceType
     check_substitution (IfaceTyConApp tc _)
@@ -962,11 +981,14 @@ omega_ty =
   where dc_name = getName omegaDataConTyCon
 
 hideNonStandardTypes :: (IfaceType -> SDoc) -> IfaceType -> SDoc
-hideNonStandardTypes f ty = sdocWithDynFlags $ \dflags ->
+hideNonStandardTypes f ty
+  = sdocWithDynFlags $ \dflags ->
+    getPprStyle      $ \sty    ->
     let do_runtimerep = not (gopt Opt_PrintExplicitRuntimeReps dflags)
         do_multiplicity = not (xopt LangExt.LinearTypes dflags)
-    in getPprStyle $ \sty ->
-        f (defaultNonStandardVars do_runtimerep do_multiplicity sty ty)
+    in if userStyle sty
+       then f (defaultNonStandardVars do_runtimerep do_multiplicity ty)
+       else f ty
 
 instance Outputable IfaceAppArgs where
   ppr tca = pprIfaceAppArgs tca
