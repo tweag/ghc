@@ -9,8 +9,6 @@ import NameEnv
 import Outputable
 import TyCoRep ( Mult, Scaled )
 
-import Control.Monad
-
 --
 -- * Usage environments
 --
@@ -79,9 +77,6 @@ lookupUE (UsageEnv e) x =
   case lookupNameEnv e (getName x) of
     Just w  -> w
     Nothing -> Zero
-
-mapUE :: (Mult -> Mult) -> UsageEnv -> UsageEnv
-mapUE f (UsageEnv ue) = UsageEnv $ fmap f ue
 
 instance Outputable UsageEnv where
   ppr (UsageEnv ne) = text "UsageEnv:" <+> ppr ne
