@@ -951,9 +951,8 @@ checkJoinOcc var n_args
 checkLinearity :: UsageEnv -> Var -> LintM UsageEnv
 checkLinearity body_ue lam_var =
   case varMultMaybe lam_var of
-    Just (Regular mult) -> do case lhs of
-                                 MUsage m -> ensureEqMults m mult (err_msg mult)
-                                 Zero -> addErrL (err_msg mult)
+    Just (Regular mult) -> do let m = case lhs of MUsage m -> m; Zero -> Omega
+                              ensureEqMults m mult (err_msg mult)
                               return $ deleteUE body_ue lam_var
     Just Alias -> return body_ue -- aliases do not generate multiplicity constraints
     Nothing    -> return body_ue -- A type variable
