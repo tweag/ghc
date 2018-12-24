@@ -409,7 +409,7 @@ dictSelRule :: Int -> Arity -> RuleFun
 --
 dictSelRule val_index n_ty_args _ id_unf _ args
   | (dict_arg : _) <- drop n_ty_args args
-  , Just (_, _, con_args) <- exprIsConApp_maybe id_unf dict_arg
+  , Just ([], _, _, con_args) <- exprIsConApp_maybe id_unf dict_arg
   = Just (getNth con_args val_index)
   | otherwise
   = Nothing
@@ -706,6 +706,7 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
 
 {- Note [Activation for data constructor wrappers]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 The Activation on a data constructor wrapper allows it to inline in
 Phase 2 and later (1, 0).  But not in the InitialPhase.  That gives
 rewrite rules a chance to fire (in the InitialPhase) if they mention

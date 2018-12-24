@@ -66,8 +66,9 @@ module Id (
         isClassOpId_maybe, isDFunId,
         isPrimOpId, isPrimOpId_maybe,
         isFCallId, isFCallId_maybe,
-        isDataConWorkId, isDataConWorkId_maybe, isDataConId_maybe, idDataCon,
+        isDataConWorkId, isDataConWorkId_maybe,
         isDataConWrapId, isDataConWrapId_maybe,
+        isDataConId_maybe, idDataCon,
         isConLikeId, isBottomingId, idIsFrom,
         hasNoBinding,
 
