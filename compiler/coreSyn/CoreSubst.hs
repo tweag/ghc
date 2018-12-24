@@ -14,7 +14,7 @@ module CoreSubst (
 
         -- ** Substituting into expressions and related types
         deShadowBinds, substSpec, substRulesForImportedIds,
-        substTy, substRig, substCo, substExpr, substExprSC, substBind, substBindSC,
+        substTy, substMult, substCo, substExpr, substExprSC, substBind, substBindSC,
         substUnfolding, substUnfoldingSC,
         lookupIdSubst, lookupTCvSubst, substIdOcc,
         substTickish, substDVarSet, substIdInfo,
@@ -478,7 +478,7 @@ substIdBndr _doc rec_subst subst@(Subst in_scope env tvs cvs) old_id
         | otherwise      =  setIdWeight
                               (setIdType id1
                                 (substTy subst old_ty))
-                                (substRig subst old_w)
+                                (substMult subst old_w)
 
     old_ty = idType old_id
     old_w = idWeight old_id
@@ -586,8 +586,8 @@ substCoVarBndr (Subst in_scope id_env tv_env cv_env) cv
 substTy :: Subst -> Type -> Type
 substTy subst ty = Type.substTyUnchecked (getTCvSubst subst) ty
 
-substRig :: Subst -> Mult -> Mult
-substRig subst ty = Type.substMultUnchecked (getTCvSubst subst) ty
+substMult :: Subst -> Mult -> Mult
+substMult subst ty = Type.substMultUnchecked (getTCvSubst subst) ty
 
 getTCvSubst :: Subst -> TCvSubst
 getTCvSubst (Subst in_scope _ tenv cenv) = TCvSubst in_scope tenv cenv
@@ -611,7 +611,7 @@ substIdType subst@(Subst _ _ tv_env cv_env) id
   | otherwise   =
       setIdWeight
         (setIdType id (substTy subst old_ty))
-        (substRig subst old_w)
+        (substMult subst old_w)
                 -- The tyCoVarsOfType is cheaper than it looks
                 -- because we cache the free tyvars of the type
                 -- in a Note in the id's type itself
