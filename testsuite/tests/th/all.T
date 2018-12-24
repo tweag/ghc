@@ -12,6 +12,8 @@ setTestOpts(req_interp)
 if config.have_ext_interp :
        setTestOpts(extra_ways(['ext-interp']))
        setTestOpts(only_ways(['normal','ghci','ext-interp']))
+       if config.ghc_built_by_llvm:
+           setTestOpts(expect_broken_for(16087, ['ext-interp']))
 
 test('TH_mkName', normal, compile, ['-v0'])
 test('TH_overloadedlabels', normal, compile, ['-v0'])
@@ -388,7 +390,10 @@ test('T13018', normal, compile, ['-v0'])
 test('T13123', normal, compile, ['-v0'])
 test('T13098', normal, compile, ['-v0'])
 test('T11046', normal, multimod_compile, ['T11046','-v0'])
-test('T13366', expect_broken_for(13366, ['ghci']), compile_and_run, ['-lstdc++ -v0'])
+test('T13366',
+     [expect_broken_for(13366, ['ghci']), when(opsys('darwin'), expect_broken(16083))],
+     compile_and_run,
+     ['-lstdc++ -v0'])
 test('T13473', normal, multimod_compile_and_run,
      ['T13473.hs', '-v0 ' + config.ghc_th_way_flags])
 test('T13587', expect_broken(13587), compile_and_run, ['-v0'])
