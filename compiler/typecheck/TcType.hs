@@ -419,6 +419,7 @@ data SyntaxOpType
   | SynFun SyntaxOpType SyntaxOpType
                -- ^ A function.
   | SynType ExpType   -- ^ A known type.
+infixr 0 `SynFun`
 
 -- | Like 'SynType' but accepts a regular TcType
 synKnownType :: TcType -> SyntaxOpType
