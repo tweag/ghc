@@ -6,16 +6,14 @@
 -- functions. Multiplicities annotate arrow types to indicate the linearity of the
 -- arrow (in the sense of linear types).
 module Multiplicity
-  ( GMult
+  ( Mult
   , pattern One
   , pattern Omega
   , pattern MultAdd
   , pattern MultMul
   , pattern MultThing
-  , Multable(..)
-  , unsafeMultThing
   , sup
-  , GScaled(..)
+  , Scaled(..)
   , unrestricted
   , linear
   , tymult
@@ -27,19 +25,24 @@ module Multiplicity
   , submult
   , traverseMult
   , multThingList
-  , mapMult ) where
+  , mapMult
+  , fromMult
+  , toMult ) where
 
 import GhcPrelude
 
 import Data.Data
 import Outputable
+import {-# SOURCE #-} TyCoRep (Type)
+import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy )
+import {-# SOURCE #-} Type( eqType )
 
 {-
 Note [Adding new multiplicities]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 To add a new multiplicity, you need to:
-* Add the new value to the GMult type
-* Define new cases in fromMult/toMult functions in TyCoRep,
+* Add the new value to the Mult type
+* Define new cases in fromMult/toMult functions,
   possibly defining new syntax for the multiplicity
 * Update cases in MultAdd, MultMul, sup, submult, tcSubmult
 * Check supUE function that computes sup of a multiplicity
@@ -50,41 +53,42 @@ To add a new multiplicity, you need to:
 -- * Core properties of multiplicities
 --
 
-data GMult a
+data Mult
   = One_
   | Omega_
-  | MultAdd_ (GMult a) (GMult a)
-  | MultMul_ (GMult a) (GMult a)
-  | MultThing_ a
+  | MultAdd_ Mult Mult
+  | MultMul_ Mult Mult
+  | MultThing_ Type
   deriving (Data)
 
--- | The 'Multable' class describes the requirements that a type needs to be a
--- good citizen as an argument of 'GMult'
-class Multable a where
-  -- | A way to relect multiplicities into @a@
-  fromMult :: GMult a -> a
+-- We may enforce more invariants in Mult. For instance, we can
+-- enforce that it is in the form of a sum of products, and even that the
+-- sumands and factors are ordered somehow, to have more equalities.
 
-  -- | A way to reify multiplicities from a value of @a@. @fromMult . toMult@
-  -- should be the identity for a suitable equality. It is also expected that
-  -- @toMult t@ reifies @t@ as much as possible. A more formal requirement is
-  -- that @m@ is a subtree of @toMult . fromMult m@.
-  toMult :: a -> GMult a
+fromMult :: Mult -> Type
+fromMult One = oneDataConTy
+fromMult Omega = omegaDataConTy
+fromMult (MultThing ty) = ty
+fromMult _ =
+  pprPanic "Type.fromMult" (text "Full support for multiplicity polymorphism is not implemented yet")
+
+toMult :: Type -> Mult
+toMult ty
+  | oneDataConTy `eqType` ty = One
+  | omegaDataConTy `eqType` ty = Omega
+  | otherwise = MultThing_ ty
 
 -- Note that pattern synonyms for One and Omega are not necessary: we could just
 -- export them as constructors. They are defined as pattern synonym for
 -- symmetry. Following the principle of least surprise.
 
--- We may enforce more invariants in the type of GMult. For instance, we can
--- enforce that it is in the form of a sum of products, and even that the
--- sumands and factors are ordered somehow, to have more equalities.
-
-pattern One :: GMult a
+pattern One :: Mult
 pattern One = One_
 
-pattern Omega :: GMult a
+pattern Omega :: Mult
 pattern Omega = Omega_
 
-pattern MultMul :: GMult a -> GMult a -> GMult a
+pattern MultMul :: Mult -> Mult -> Mult
 pattern MultMul p q <- MultMul_ p q where
   One `MultMul` p = p
   p `MultMul` One = p
@@ -92,26 +96,20 @@ pattern MultMul p q <- MultMul_ p q where
   _ `MultMul` Omega = Omega
   p `MultMul` q = MultMul_ p q
 
-pattern MultAdd :: GMult a -> GMult a -> GMult a
+pattern MultAdd :: Mult -> Mult -> Mult
 pattern MultAdd p q <- MultAdd_ p q where
   One `MultAdd` One = Omega
   Omega `MultAdd` _ = Omega
   _ `MultAdd` Omega = Omega
   p `MultAdd` q = MultAdd_ p q
 
-pattern MultThing :: Multable a => a -> GMult a
+pattern MultThing :: Type -> Mult
 pattern MultThing a <- MultThing_ a where
   MultThing a = toMult a
 
 {-# COMPLETE One, Omega, MultMul, MultAdd, MultThing #-}
 
--- | Used to defined 'Multable' instances. Requires that the argument cannot be
--- reified any further. There is probably no good reason to use it outside of a
--- 'Multable' instance definition.
-unsafeMultThing :: a -> GMult a
-unsafeMultThing = MultThing_
-
-instance (Outputable a, Multable a) => Outputable (GMult a) where
+instance Outputable Mult where
   ppr One = text "1"
   ppr Omega = text "Omega"
   ppr (MultAdd m1 m2) = parens (ppr m1 <+> text "+" <+> ppr m2)
@@ -120,7 +118,7 @@ instance (Outputable a, Multable a) => Outputable (GMult a) where
 
 -- | @sup w1 w2@ returns the smallest multiplicity larger than or equal to both @w1@
 -- and @w2@.
-sup :: GMult a -> GMult a -> GMult a
+sup :: Mult -> Mult -> Mult
 sup One   One   = One
 sup Omega Omega = Omega
 sup _     _     = Omega
@@ -135,30 +133,30 @@ sup _     _     = Omega
 --
 
 -- | A shorthand for data with an attached 'Mult' element (the multiplicity).
-data GScaled t a = Scaled {scaledMult :: GMult t, scaledThing :: a}
+data Scaled a = Scaled {scaledMult :: Mult, scaledThing :: a}
   deriving (Functor,Foldable,Traversable,Data)
 
-unrestricted, linear, tymult :: a -> GScaled t a
+unrestricted, linear, tymult :: a -> Scaled a
 unrestricted = Scaled Omega
 linear = Scaled One
 
 -- Used for type arguments in core
 tymult = Scaled Omega
 
-irrelevantMult :: GScaled t a -> a
+irrelevantMult :: Scaled a -> a
 irrelevantMult = scaledThing
 
-mkScaled :: GMult t -> a -> GScaled t a
+mkScaled :: Mult -> a -> Scaled a
 mkScaled = Scaled
 
-instance (Multable t, Outputable a) => Outputable (GScaled t a) where
+instance (Outputable a) => Outputable (Scaled a) where
    ppr (Scaled _cnt t) = ppr t
      -- Do not print the multiplicity here because it tends to be too verbose
 
-scaledSet :: GScaled t a -> b -> GScaled t b
+scaledSet :: Scaled a -> b -> Scaled b
 scaledSet x b = fmap (\_->b) x
 
-scaleScaled :: GMult t -> GScaled t a -> GScaled t a
+scaleScaled :: Mult -> Scaled a -> Scaled a
 scaleScaled w x =
   x { scaledMult = w `MultMul` scaledMult x }
 
@@ -177,7 +175,7 @@ instance Outputable IsSubmult where
 -- | @submult w1 w2@ check whether a value of multiplicity @w1@ is allowed where a
 -- value of multiplicity @w2@ is expected. This is a partial order.
 
-submult :: GMult t -> GMult t -> IsSubmult
+submult :: Mult -> Mult -> IsSubmult
 submult _     Omega = Submult
 submult Omega One   = NotSubmult
 submult One   One   = Submult
@@ -186,14 +184,14 @@ submult One   _     = Submult
 --    submult (MultThing t) (MultThing t') = Unknown
 submult _     _     = Unknown
 
-traverseMult :: (Multable t, Multable u, Applicative f) => (t -> f u) -> GMult t -> f (GMult u)
+traverseMult :: Applicative f => (Type -> f Type) -> Mult -> f Mult
 traverseMult _ One = pure One
 traverseMult _ Omega = pure Omega
 traverseMult f (MultThing t) = MultThing <$> f t
 traverseMult f (MultAdd x y) = MultAdd <$> traverseMult f x <*> traverseMult f y
 traverseMult f (MultMul x y) = MultMul <$> traverseMult f x <*> traverseMult f y
 
-multThingList :: Multable t => (t -> a) -> GMult t -> [a]
+multThingList :: (Type -> a) -> Mult -> [a]
 multThingList f = go []
   where go acc One = acc
         go acc Omega = acc
@@ -201,8 +199,7 @@ multThingList f = go []
         go acc (MultAdd x y) = go (go acc y) x
         go acc (MultMul x y) = go (go acc y) x
 
--- Not a Functor, since MultThing calls 'fromMult'.
-mapMult :: (Multable t, Multable u) => (t -> u) -> GMult t -> GMult u
+mapMult :: (Type -> Type) -> Mult -> Mult
 mapMult _ One = One
 mapMult _ Omega = Omega
 mapMult f (MultThing t) = MultThing (f t)

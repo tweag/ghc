@@ -7,7 +7,6 @@ import Multiplicity
 import Name
 import NameEnv
 import Outputable
-import TyCoRep ( Mult, Scaled )
 
 --
 -- * Usage environments
