@@ -17,6 +17,7 @@ which deal with the instantiated versions are located elsewhere:
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module HsUtils(
@@ -105,8 +106,9 @@ import TcEvidence
 import RdrName
 import Var
 import TyCoRep
+import Multiplicity ( pattern One, pattern Omega, fromMult )
 import Type   ( filterOutInvisibleTypes )
-import TysWiredIn ( unitTy )
+import TysWiredIn ( unitTy, omegaDataConTy )
 import TcType
 import DataCon
 import ConLike
@@ -206,7 +208,8 @@ mkHsCaseAlt :: LPat (GhcPass p) -> (Located (body (GhcPass p)))
 mkHsCaseAlt pat expr
   = mkSimpleMatch CaseAlt [pat] expr
 
-nlHsTyApp :: IdP (GhcPass id) -> [Type] -> LHsExpr (GhcPass id)
+nlHsTyApp :: (XVar p ~ NoExt
+             ,XWrap p ~ NoExt ) => IdP p -> [Type] -> LHsExpr p
 nlHsTyApp fun_id tys
   = noLoc (mkHsWrap (mkWpTyApps tys) (HsVar noExt (noLoc fun_id)))
 
@@ -307,7 +310,7 @@ mkBodyStmt body
   = BodyStmt noExt body noSyntaxExpr noSyntaxExpr
 mkBindStmt pat body
   = BindStmt noExt pat body noSyntaxExpr noSyntaxExpr
-mkTcBindStmt pat body = BindStmt unitTy pat body noSyntaxExpr noSyntaxExpr
+mkTcBindStmt pat body = BindStmt (Omega, unitTy) pat body noSyntaxExpr noSyntaxExpr
   -- don't use placeHolderTypeTc above, because that panics during zonking
 
 emptyRecStmt' :: forall idL idR body.
@@ -398,7 +401,8 @@ nlHsVar n = noLoc (HsVar noExt (noLoc n))
 
 -- NB: Only for LHsExpr **Id**
 nlHsDataCon :: DataCon -> LHsExpr GhcTc
-nlHsDataCon con = noLoc (HsConLikeOut noExt (RealDataCon con))
+nlHsDataCon con = mkLHsWrap (mkWpTyApps [omegaDataConTy])
+                    (noLoc (HsConLikeOut noExt (RealDataCon con)))
 
 nlHsLit :: HsLit (GhcPass p) -> LHsExpr (GhcPass p)
 nlHsLit n = noLoc (HsLit noExt n)
@@ -499,16 +503,17 @@ nlList exprs          = noLoc (ExplicitList noExt Nothing exprs)
 
 nlHsAppTy :: LHsType (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p)
 nlHsTyVar :: IdP (GhcPass p)                            -> LHsType (GhcPass p)
-nlHsFunTy :: LHsType (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p)
+nlHsFunTy :: (XFunTy p ~ NoExt, XParTy p ~ NoExt) => HsArrow p -> LHsType p -> LHsType p -> LHsType p
 nlHsParTy :: LHsType (GhcPass p)                        -> LHsType (GhcPass p)
 
 nlHsAppTy f t = noLoc (HsAppTy noExt f (parenthesizeHsType appPrec t))
 nlHsTyVar x   = noLoc (HsTyVar noExt NotPromoted (noLoc x))
-nlHsFunTy a b = noLoc (HsFunTy noExt (parenthesizeHsType funPrec a)
+
+nlHsFunTy mult a b = noLoc (HsFunTy noExt mult (parenthesizeHsType funPrec a)
                                      (parenthesize_fun_tail b))
   where
-    parenthesize_fun_tail (dL->L loc (HsFunTy ext ty1 ty2))
-      = cL loc (HsFunTy ext (parenthesizeHsType funPrec ty1)
+    parenthesize_fun_tail (dL->L loc (HsFunTy ext mult ty1 ty2))
+      = cL loc (HsFunTy ext mult (parenthesizeHsType funPrec ty1)
                            (parenthesize_fun_tail ty2))
     parenthesize_fun_tail lty = lty
 nlHsParTy t   = noLoc (HsParTy noExt t)
@@ -656,13 +661,13 @@ typeToLHsType ty
   = go ty
   where
     go :: Type -> LHsType GhcPs
-    go ty@(FunTy arg _)
+    go ty@(FunTy _ arg _)
       | isPredTy arg
       , (theta, tau) <- tcSplitPhiTy ty
       = noLoc (HsQualTy { hst_ctxt = noLoc (map go theta)
                         , hst_xqual = noExt
                         , hst_body = go tau })
-    go (FunTy arg res) = nlHsFunTy (go arg) (go res)
+    go (FunTy mult arg res) = nlHsFunTy (multToHsArrow mult) (go arg) (go res)
     go ty@(ForAllTy {})
       | (tvs, tau) <- tcSplitForAllTys ty
       = noLoc (HsForAllTy { hst_bndrs = map go_tv tvs
@@ -692,6 +697,16 @@ typeToLHsType ty
     go_tv :: TyVar -> LHsTyVarBndr GhcPs
     go_tv tv = noLoc $ KindedTyVar noExt (noLoc (getRdrName tv))
                                    (go (tyVarKind tv))
+
+-- | This is used to transform an arrow from Core's Type to surface
+-- syntax. There is a choice between being very explicit here, or trying to
+-- refold arrows into shorthands as much as possible. We choose to do the
+-- latter, for it should be more readable. It also helps printing Haskell'98
+-- code into Haskell'98 syntax.
+multToHsArrow :: Mult -> HsArrow GhcPs
+multToHsArrow One = HsLinearArrow
+multToHsArrow Omega = HsUnrestrictedArrow
+multToHsArrow ty = HsExplicitMult (typeToLHsType (fromMult ty))
 
 {-
 Note [Kind signatures in typeToLHsType]
@@ -754,7 +769,7 @@ mkLHsWrap co_fn (dL->L loc e) = cL loc (mkHsWrap co_fn e)
 
 -- Avoid (HsWrap co (HsWrap co' _)).
 -- See Note [Detecting forced eta expansion] in DsExpr
-mkHsWrap :: HsWrapper -> HsExpr (GhcPass id) -> HsExpr (GhcPass id)
+mkHsWrap :: (XWrap p ~ NoExt) => HsWrapper -> HsExpr p -> HsExpr p
 mkHsWrap co_fn e | isIdHsWrapper co_fn = e
 mkHsWrap co_fn (HsWrap _ co_fn' e)     = mkHsWrap (co_fn <.> co_fn') e
 mkHsWrap co_fn e                       = HsWrap noExt co_fn e

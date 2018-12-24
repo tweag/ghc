@@ -34,6 +34,7 @@ import TcType
 import TyCon
 import TyCoRep
 import Type
+import Multiplicity
 import Util
 import Var
 import VarSet
@@ -369,8 +370,8 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
 
     go co ty | Just ty' <- tcView ty = go co ty'
     go co (TyVarTy    v) | v == var = (if co then caseCoVar else caseVar,True)
-    go co (FunTy x y)  | isPredTy x = go co y
-                       | xc || yc   = (caseFun xr yr,True)
+    go co (FunTy _ x y)  | isPredTy x = go co y
+                         | xc || yc   = (caseFun xr yr,True)
         where (xr,xc) = go (not co) x
               (yr,yc) = go co       y
     go co (AppTy    x y) | xc = (caseWrongArg,   True)
@@ -417,7 +418,7 @@ deepSubtypesContaining tv
 foldDataConArgs :: FFoldType a -> DataCon -> [a]
 -- Fold over the arguments of the datacon
 foldDataConArgs ft con
-  = map foldArg (dataConOrigArgTys con)
+  = map foldArg (map scaledThing $ dataConOrigArgTys con)
   where
     foldArg
       = case getTyVar_maybe (last (tyConAppArgs (dataConOrigResTy con))) of

@@ -25,6 +25,7 @@ import Outputable
 import DynFlags
 import Maybes
 import FV ( fvVarList, fvVarSet, unionFV, mkFVs, FV )
+import Multiplicity (unrestricted)
 
 import Control.Arrow ( (&&&) )
 
@@ -676,7 +677,7 @@ findValidHoleFits tidy_env implics simples ct | isExprHoleCt ct =
       where newTyVars = replicateM refLvl $ setLvl <$>
                             (newOpenTypeKind >>= newFlexiTyVar)
             setLvl = flip setMetaTyVarTcLevel hole_lvl
-            wrapWithVars vars = mkFunTys (map mkTyVarTy vars) hole_ty
+            wrapWithVars vars = mkFunTys (map (unrestricted . mkTyVarTy) vars) hole_ty
 
     sortFits :: SortingAlg    -- How we should sort the hole fits
              -> [HoleFit]     -- The subs to sort

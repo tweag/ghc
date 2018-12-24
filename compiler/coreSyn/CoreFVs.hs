@@ -71,6 +71,7 @@ import Name
 import VarSet
 import Var
 import Type
+import Multiplicity (multThingList)
 import TyCoRep
 import TyCon
 import CoAxiom
@@ -353,7 +354,8 @@ orphNamesOfType (TyConApp tycon tys) = orphNamesOfTyCon tycon
                                        `unionNameSet` orphNamesOfTypes tys
 orphNamesOfType (ForAllTy bndr res)  = orphNamesOfType (binderType bndr)
                                        `unionNameSet` orphNamesOfType res
-orphNamesOfType (FunTy arg res)      = unitNameSet funTyConName    -- NB!  See Trac #8535
+orphNamesOfType (FunTy w arg res)    = unitNameSet funTyConName    -- NB!  See Trac #8535
+                                       `unionNameSet` unionNameSets (multThingList orphNamesOfType w)
                                        `unionNameSet` orphNamesOfType arg
                                        `unionNameSet` orphNamesOfType res
 orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSet` orphNamesOfType arg
@@ -377,7 +379,7 @@ orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSet` or
 orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (ForAllCo _ kind_co co)
   = orphNamesOfCo kind_co `unionNameSet` orphNamesOfCo co
-orphNamesOfCo (FunCo _ co1 co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
+orphNamesOfCo (FunCo _ co_mult co1 co2) = orphNamesOfCo co_mult `unionNameSet` orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
 orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCos cos
 orphNamesOfCo (UnivCo p _ t1 t2)    = orphNamesOfProv p `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2
@@ -711,9 +713,10 @@ freeVars = go
   where
     go :: CoreExpr -> CoreExprWithFVs
     go (Var v)
-      | isLocalVar v = (aFreeVar v `unionFVs` ty_fvs, AnnVar v)
+      | isLocalVar v = (aFreeVar v `unionFVs` ty_fvs `unionFVs` rig_vars, AnnVar v)
       | otherwise    = (emptyDVarSet,                 AnnVar v)
       where
+        rig_vars = tyCoVarsOfMultDSet (idWeight v)
         ty_fvs = dVarTypeTyCoVars v
                  -- See Note [The FVAnn invariant]
 

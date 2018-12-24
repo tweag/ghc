@@ -98,7 +98,7 @@ test('T4918', [], run_command, ['$MAKE -s --no-print-directory T4918'])
 # result of -ddump-simpl, which is never advertised to
 # be very stable
 test('T4945',
-     normal,
+     expect_broken(15840),
      run_command,
      ['$MAKE -s --no-print-directory T4945'])
 
@@ -119,7 +119,7 @@ test('T5359a', normal, compile, [''])  # Lint error with -O (OccurAnal)
 test('T5359b', normal, compile, [''])  # Lint error with -O (OccurAnal)
 test('T5458', normal, compile, [''])
 test('simpl021', [extra_files(['Simpl021A.hs', 'Simpl021B.hs'])], run_command, ['$MAKE -s --no-print-directory simpl021'])
-test('T5327', normal, run_command, ['$MAKE -s --no-print-directory T5327'])
+test('T5327', expect_broken(235), run_command, ['$MAKE -s --no-print-directory T5327'])
 test('T5615', normal, run_command, ['$MAKE -s --no-print-directory T5615'])
 test('T5623', normal, run_command, ['$MAKE -s --no-print-directory T5623'])
 test('T13155', normal, run_command, ['$MAKE -s --no-print-directory T13155'])

@@ -163,6 +163,8 @@ import DataCon  ( DataCon, dataConUserType, dataConOrigArgTys )
 import PatSyn   ( PatSyn, pprPatSynType )
 import Id       ( idType, idName )
 import FieldLabel ( FieldLabel )
+import Multiplicity
+import UsageEnv
 import TcType
 import Annotations
 import InstEnv
@@ -826,6 +828,9 @@ data TcLclEnv           -- Changes as we move inside an expression
 
         tcl_env  :: TcTypeEnv,    -- The local type environment:
                                   -- Ids and TyVars defined in this module
+
+        tcl_usage :: TcRef UsageEnv, -- Required multiplicity of bindings is accumulated here.
+
 
         tcl_bndrs :: TcBinderStack,   -- Used for reporting relevant bindings,
                                       -- and for tidying types
@@ -2772,7 +2777,7 @@ wrapTypeWithImplication ty impl = wrapType ty mentioned_skols givens
           mentioned_skols = filter (`elemVarSet` freeVars) skols
 
 wrapType :: Type -> [TyVar] -> [PredType] -> Type
-wrapType ty skols givens = mkSpecForAllTys skols $ mkFunTys givens ty
+wrapType ty skols givens = mkSpecForAllTys skols $ mkFunTys (map unrestricted givens) ty
 
 
 {-
@@ -3745,7 +3750,7 @@ pprCtOrigin (UnboundOccurrenceOf name)
 pprCtOrigin (DerivOriginDC dc n _)
   = hang (ctoHerald <+> text "the" <+> speakNth n
           <+> text "field of" <+> quotes (ppr dc))
-       2 (parens (text "type" <+> quotes (ppr ty)))
+       2 (parens (text "type" <+> quotes (ppr (scaledThing ty))))
   where
     ty = dataConOrigArgTys dc !! (n-1)
 

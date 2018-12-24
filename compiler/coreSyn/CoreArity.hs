@@ -29,6 +29,7 @@ import Var
 import VarEnv
 import Id
 import Type
+import Multiplicity
 import TyCon    ( initRecTc, checkRecTc )
 import Coercion
 import BasicTypes
@@ -122,7 +123,7 @@ typeArity ty
       = go rec_nts ty'
 
       | Just (arg,res) <- splitFunTy_maybe ty
-      = typeOneShot arg : go rec_nts res
+      = typeOneShot (scaledThing arg) : go rec_nts res
 
       | Just (tc,tys) <- splitTyConApp_maybe ty
       , Just (ty', _) <- instNewTyCon_maybe tc tys
@@ -1047,12 +1048,12 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
                --   lambda \co:ty. e co. In this case we generate a new variable
                --   of the coercion type, update the scope, and reduce n by 1.
                | isTyVar tcv = ((subst', tcv'), n)
-               | otherwise  = (freshEtaId n subst' (varType tcv'), n-1)
+               | otherwise  = (freshEtaId n subst' (Scaled (varWeight tcv') (varType tcv')), n-1)
            -- Avoid free vars of the original expression
          in go n_n n_subst ty' (EtaVar n_tcv : eis)
 
        | Just (arg_ty, res_ty) <- splitFunTy_maybe ty
-       , not (isTypeLevPoly arg_ty)
+       , not (isTypeLevPoly (scaledThing arg_ty))
           -- See Note [Levity polymorphism invariants] in CoreSyn
           -- See also test case typecheck/should_run/EtaExpandLevPoly
 
@@ -1144,7 +1145,7 @@ etaBodyForJoinPoint need_args body
     init_subst e = mkEmptyTCvSubst (mkInScopeSet (exprFreeVars e))
 
 --------------
-freshEtaId :: Int -> TCvSubst -> Type -> (TCvSubst, Id)
+freshEtaId :: Int -> TCvSubst -> Scaled Type -> (TCvSubst, Id)
 -- Make a fresh Id, with specified type (after applying substitution)
 -- It should be "fresh" in the sense that it's not in the in-scope set
 -- of the TvSubstEnv; and it should itself then be added to the in-scope
@@ -1155,7 +1156,7 @@ freshEtaId :: Int -> TCvSubst -> Type -> (TCvSubst, Id)
 freshEtaId n subst ty
       = (subst', eta_id')
       where
-        ty'     = Type.substTy subst ty
+        ty'     = Type.substTy subst (scaledThing ty)
         eta_id' = uniqAway (getTCvInScope subst) $
-                  mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) ty'
+                  mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) (Regular $ scaledMult ty) ty'
         subst'  = extendTCvInScope subst eta_id'

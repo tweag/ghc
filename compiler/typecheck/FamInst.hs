@@ -41,6 +41,7 @@ import Name
 import Pair
 import Panic
 import VarSet
+import Multiplicity
 import Bag( Bag, unionBags, unitBag )
 import Control.Monad
 
@@ -818,8 +819,10 @@ injTyVarsOfType (TyConApp tc tys)
   = injTyVarsOfTypes tys
 injTyVarsOfType (LitTy {})
   = emptyVarSet
-injTyVarsOfType (FunTy arg res)
-  = injTyVarsOfType arg `unionVarSet` injTyVarsOfType res
+injTyVarsOfType (FunTy w arg res)
+  = unionVarSets (multThingList injTyVarsOfType w) `unionVarSet`
+    injTyVarsOfType arg `unionVarSet`
+    injTyVarsOfType res
 injTyVarsOfType (AppTy fun arg)
   = injTyVarsOfType fun `unionVarSet` injTyVarsOfType arg
 -- No forall types in the RHS of a type family

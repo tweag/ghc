@@ -51,13 +51,15 @@
           []
           (Nothing)
           (PrefixCon
-           [({ DumpParsedAst.hs:5:26-30 }
-             (HsTyVar
-              (NoExt)
-              (NotPromoted)
-              ({ DumpParsedAst.hs:5:26-30 }
-               (Unqual
-                {OccName: Peano}))))])
+           [(HsScaled
+             (HsLinearArrow)
+             ({ DumpParsedAst.hs:5:26-30 }
+              (HsTyVar
+               (NoExt)
+               (NotPromoted)
+               ({ DumpParsedAst.hs:5:26-30 }
+                (Unqual
+                 {OccName: Peano})))))])
           (Nothing)))]
        ({ <no location info> }
         [])))))
