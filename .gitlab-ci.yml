@@ -13,7 +13,7 @@ stages:
   - full-build
 
 ############################################################
-# Tags
+# Runner Tags
 ############################################################
 #
 # * x86_64-linux: Any Docker-capable x86_64 Linux machine
@@ -267,7 +267,6 @@ validate-x86_64-linux-fedora27:
 validate-x86_64-linux-deb9-integer-simple:
   extends: .validate-linux
   stage: full-build
-  allow_failure: true
   variables:
     INTEGER_LIBRARY: integer-simple
   image: ghcci/x86_64-linux-deb9:0.2
@@ -302,12 +301,24 @@ validate-x86_64-linux-deb9-unreg:
   before_script:
     - git clean -xdf
     - git submodule foreach git clean -xdf
-    - PATH=C:\msys64\usr\bin;%PATH%
+
+    # Use a local temporary directory to ensure that concurrent builds don't
+    # interfere with one another
+    - |
+      mkdir tmp
+      set TMP=%cd%\tmp
+      set TEMP=%cd%\tmp
+
+    - set PATH=C:\msys64\usr\bin;%PATH%
     - python .gitlab/fix-submodules.py
     - git submodule sync --recursive
     - git submodule update --init --recursive
     - git checkout .gitmodules
     - bash .gitlab/win32-init.sh
+  after_script:
+    - rd /s /q tmp
+    - robocopy /np /nfl /ndl /e "%APPDATA%\cabal" cabal-cache
+    - bash -c 'make clean || true'
   cache:
     paths:
       - cabal-cache
@@ -317,11 +328,11 @@ validate-x86_64-linux-deb9-unreg:
 validate-x86_64-windows-hadrian:
   extends: .validate-windows
   stage: full-build
+  # due to #16073
+  allow_failure: true
   variables:
     GHC_VERSION: "8.6.2"
     LANG: "en_US.UTF-8"
-  # due to #16073
-  allow_failure: true
   script:
     - |
       set MSYSTEM=MINGW64
@@ -333,7 +344,6 @@ validate-x86_64-windows-hadrian:
     - bash -c "PATH=`pwd`/toolchain/bin:$PATH hadrian/build.cabal.sh -j`mk/detect-cpu-count.sh` --flavour=Quick --no-lint"
     - bash -c "PATH=`pwd`/toolchain/bin:$PATH hadrian/build.cabal.sh binary-dist"
     - bash -c 'make V=0 test THREADS=`mk/detect-cpu-count.sh` JUNIT_FILE=../../junit.xml'
-    - cp -Rf $APPDATA/cabal cabal-cache
   cache:
     key: x86_64-windows
   tags:
@@ -342,6 +352,8 @@ validate-x86_64-windows-hadrian:
 validate-x86_64-windows:
   extends: .validate-windows
   stage: full-build
+  # due to #16084
+  allow_failure: true
   variables:
     GHC_VERSION: "8.6.2"
     LANG: "en_US.UTF-8"
@@ -350,9 +362,9 @@ validate-x86_64-windows:
       set MSYSTEM=MINGW64
       python boot
       bash -c './configure --with-ghc=`pwd`/toolchain/bin/ghc --enable-tarballs-autodownload HappyCmd=`pwd`/toolchain/bin/happy AlexCmd=`pwd`/toolchain/bin/alex'
+    - bash -c "echo include mk/flavours/quick.mk > mk/build.mk"
     - bash -c "PATH=`pwd`/toolchain/bin:$PATH make -j`mk/detect-cpu-count.sh`"
     - bash -c 'make V=0 test THREADS=`mk/detect-cpu-count.sh` JUNIT_FILE=../../junit.xml'
-    - cp -Rf $APPDATA/cabal cabal-cache
   cache:
     key: x86_64-windows
   tags:
