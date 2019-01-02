@@ -2528,5 +2528,4 @@ The following names should be considered by GHCi to be in scope always.
 pretendNameIsInScope :: Name -> Bool
 pretendNameIsInScope n
   = any (n `hasKey`)
-    [ liftedTypeKindTyConKey, tYPETyConKey
-    , liftedRepDataConKey ]
+    [ ]
