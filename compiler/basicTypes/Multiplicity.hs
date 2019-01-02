@@ -181,8 +181,6 @@ submult :: GMult t -> GMult t -> IsSubmult
 submult _     Omega = Submult
 submult Omega One   = NotSubmult
 submult One   One   = Submult
--- The 1 <= p rule
-submult One   _     = Submult
 --    submult (MultThing t) (MultThing t') = Unknown
 submult _     _     = Unknown
 
