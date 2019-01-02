@@ -980,6 +980,7 @@ addBang = go
            _             -> cL l (BangPat noExt lp)
 
 isTrueLHsExpr :: LHsExpr GhcTc -> Maybe (CoreExpr -> DsM CoreExpr)
+isTrueLHsExpr (dL->L _ x) = isTrueHsExpr x
 
 -- Returns Just {..} if we're sure that the expression is True
 -- I.e.   * 'True' datacon
@@ -987,24 +988,26 @@ isTrueLHsExpr :: LHsExpr GhcTc -> Maybe (CoreExpr -> DsM CoreExpr)
 --        * Trivial wappings of these
 -- The arguments to Just are any HsTicks that we have found,
 -- because we still want to tick then, even it they are always evaluated.
-isTrueLHsExpr (dL->L _ (HsVar _ (dL->L _ v)))
+isTrueHsExpr :: HsExpr GhcTc -> Maybe (CoreExpr -> DsM CoreExpr)
+isTrueHsExpr (HsVar _ (dL->L _ v))
   |  v `hasKey` otherwiseIdKey
      || v `hasKey` getUnique trueDataConId
                                               = Just return
         -- trueDataConId doesn't have the same unique as trueDataCon
-isTrueLHsExpr (dL->L _ (HsConLikeOut _ con))
+isTrueHsExpr (HsConLikeOut _ con)
   | con `hasKey` getUnique trueDataCon = Just return
-isTrueLHsExpr (dL->L _ (HsTick _ tickish e))
+isTrueHsExpr (HsTick _ tickish e)
     | Just ticks <- isTrueLHsExpr e
     = Just (\x -> do wrapped <- ticks x
                      return (Tick tickish wrapped))
    -- This encodes that the result is constant True for Hpc tick purposes;
    -- which is specifically what isTrueLHsExpr is trying to find out.
-isTrueLHsExpr (dL->L _ (HsBinTick _ ixT _ e))
+isTrueHsExpr (HsBinTick _ ixT _ e)
     | Just ticks <- isTrueLHsExpr e
     = Just (\x -> do e <- ticks x
                      this_mod <- getModule
                      return (Tick (HpcTick this_mod ixT) e))
 
-isTrueLHsExpr (dL->L _ (HsPar _ e))   = isTrueLHsExpr e
-isTrueLHsExpr _                       = Nothing
+isTrueHsExpr (HsPar _ e)    = isTrueLHsExpr e
+isTrueHsExpr (HsWrap _ _ e) = isTrueHsExpr e
+isTrueHsExpr _ = Nothing
