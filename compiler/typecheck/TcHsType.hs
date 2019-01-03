@@ -421,7 +421,7 @@ tcLHsTypeUnsaturated ty = addTypeCtxt ty (tc_infer_lhs_type mode ty)
   where
     mode = allowUnsaturated typeLevelMode
 
-tcMult :: LHsType GhcRn -> TcM Mult
+tcMult :: HsArrow GhcRn -> TcM Mult
 tcMult hc = tc_mult typeLevelMode hc
 
 {-
@@ -614,16 +614,16 @@ tc_fun_type mode mult ty1 ty2 exp_kind = case mode_level mode of
        ; res_k <- newOpenTypeKind
        ; ty1' <- tc_lhs_type mode ty1 arg_k
        ; ty2' <- tc_lhs_type mode ty2 res_k
-       ; mult' <- tc_mult mode (arrowToMult mult)
+       ; mult' <- tc_mult mode mult
        ; checkExpectedKind (HsFunTy noExt mult ty1 ty2) (mkFunTy mult' ty1' ty2') liftedTypeKind exp_kind }
   KindLevel ->  -- no representation polymorphism in kinds. yet.
     do { ty1' <- tc_lhs_type mode ty1 liftedTypeKind
        ; ty2' <- tc_lhs_type mode ty2 liftedTypeKind
-       ; mult' <- tc_mult mode (arrowToMult mult)
+       ; mult' <- tc_mult mode mult
        ; checkExpectedKind (HsFunTy noExt mult ty1 ty2) (mkFunTy mult' ty1' ty2') liftedTypeKind exp_kind }
 
-tc_mult :: TcTyMode -> LHsType GhcRn -> TcM Mult
-tc_mult mode ty = toMult <$> tc_lhs_type mode ty multiplicityTy
+tc_mult :: TcTyMode -> HsArrow GhcRn -> TcM Mult
+tc_mult mode ty = toMult <$> tc_lhs_type mode (arrowToMult ty) multiplicityTy
 
 
 ------------------------------------------
