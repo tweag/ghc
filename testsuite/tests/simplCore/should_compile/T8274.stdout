@@ -1,7 +1,11 @@
-T8274.$WNegatives [InlPrag=INLINE[0]] :: forall (n :: GHC.Types.Multiplicity). Int# -->.(n) Float# -->.(n) Double# -->.(n) N
-         Tmpl= \ (@ (n :: GHC.Types.Multiplicity)) (dt [Occ=Once] :: Int#) (dt [Occ=Once] :: Float#) (dt [Occ=Once] :: Double#) ->
-  = \ (@ (n :: GHC.Types.Multiplicity)) (dt [Occ=Once] :: Int#) (dt [Occ=Once] :: Float#) (dt [Occ=Once] :: Double#) ->
-  :: forall (n :: GHC.Types.Multiplicity). Int# -->.(n) Float# -->.(n) Double# -->.(n) Char# -->.(n) Word# -->.(n) P
+     Int# -->.(n) Float# -->.(o) Double# -->.(p) N
+                 (dt [Occ=Once] :: Int#)
+                 (dt [Occ=Once] :: Float#)
+                 (dt [Occ=Once] :: Double#) ->
+      (dt [Occ=Once] :: Int#)
+      (dt [Occ=Once] :: Float#)
+      (dt [Occ=Once] :: Double#) ->
+     Int# -->.(n) Float# -->.(o) Double# -->.(p) Char# -->.(q) Word# -->.(r) P
                  (dt [Occ=Once] :: Int#)
                  (dt [Occ=Once] :: Float#)
                  (dt [Occ=Once] :: Double#)
