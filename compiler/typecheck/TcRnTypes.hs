@@ -3588,6 +3588,8 @@ data CtOrigin
   | InstProvidedOrigin Module ClsInst
         -- Skolem variable arose when we were testing if an instance
         -- is solvable or not.
+   | NonLinearPatternOrigin
+   | UsageEnvironmentOf Name
 
 -- | Flag to see whether we're type-checking terms or kind-checking types
 data TypeOrKind = TypeLevel | KindLevel
@@ -3827,6 +3829,8 @@ pprCtO AnnOrigin             = text "an annotation"
 pprCtO HoleOrigin            = text "a use of" <+> quotes (text "_")
 pprCtO ListOrigin            = text "an overloaded list"
 pprCtO StaticOrigin          = text "a static form"
+pprCtO NonLinearPatternOrigin = text "a non-linear pattern"
+pprCtO (UsageEnvironmentOf x) = hsep [text "multiplicity of", quotes (ppr x)]
 pprCtO _                     = panic "pprCtOrigin"
 
 {-

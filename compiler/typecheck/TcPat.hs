@@ -322,6 +322,9 @@ tc_lpats penv pats tys thing_inside
                 penv thing_inside
 
 --------------------
+checkOmegaPattern :: Scaled a -> TcM ()
+checkOmegaPattern pat_ty = tcSubMult NonLinearPatternOrigin Omega (scaledMult pat_ty)
+
 tc_pat  :: PatEnv
         -> Pat GhcRn
         -> Scaled ExpSigmaType  -- Fully refined result type
@@ -344,7 +347,7 @@ tc_pat penv (BangPat x pat) pat_ty thing_inside
         ; return (BangPat x pat', res) }
 
 tc_pat penv (LazyPat x pat) pat_ty thing_inside
-  = do  { checkLinearity
+  = do  { checkOmegaPattern pat_ty
         ; (pat', (res, pat_ct))
                 <- tc_lpat pat pat_ty (makeLazy penv) $
                    captureConstraints thing_inside
@@ -359,22 +362,16 @@ tc_pat penv (LazyPat x pat) pat_ty thing_inside
         ; _ <- unifyType Nothing (tcTypeKind pat_ty) liftedTypeKind
 
         ; return (LazyPat x pat', res) }
-    where
-      checkLinearity =
-        tcSubMult Omega (scaledMult pat_ty)
 
 tc_pat _ (WildPat _) pat_ty thing_inside
-  = do  { checkLinearity
+  = do  { checkOmegaPattern pat_ty
         ; res <- thing_inside
         ; pat_ty <- expTypeToType (scaledThing pat_ty)
         ; return (WildPat pat_ty, res) }
-    where
-      checkLinearity =
-        tcSubMult Omega (scaledMult pat_ty)
 
 
 tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside
-  = do  { checkLinearity
+  = do  { checkOmegaPattern pat_ty
         ; (wrap, bndr_id) <- setSrcSpan nm_loc (tcPatBndr penv name pat_ty)
         ; (pat', res) <- tcExtendIdEnv1 name (pat_ty `scaledSet` bndr_id) $
                          tc_lpat pat (pat_ty `scaledSet`(mkCheckExpType $ idType bndr_id))
@@ -388,12 +385,9 @@ tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside
             -- If you fix it, don't forget the bindInstsOfPatIds!
         ; pat_ty <- readExpType (scaledThing pat_ty)
         ; return (mkHsWrapPat wrap (AsPat x (cL nm_loc bndr_id) pat') pat_ty, res) }
-    where
-      checkLinearity =
-        tcSubMult Omega (scaledMult pat_ty)
 
 tc_pat penv (ViewPat _ expr pat) overall_pat_ty thing_inside
-  = do  { checkLinearity
+  = do  { checkOmegaPattern overall_pat_ty
           -- It should be possible to have view patterns at linear (or otherwise
           -- non-Omega) multiplicity. But it is not clear at the moment what
           -- restriction need to be put in place, if any, for linear view
@@ -426,9 +420,6 @@ tc_pat penv (ViewPat _ expr pat) overall_pat_ty thing_inside
               expr_wrap = expr_wrap2' <.> expr_wrap1
               doc = text "When checking the view pattern function:" <+> (ppr expr)
         ; return (ViewPat overall_pat_ty (mkLHsWrap expr_wrap expr') pat', res)}
-    where
-      checkLinearity =
-        tcSubMult Omega (scaledMult overall_pat_ty)
 
 -- Type signatures in patterns
 -- See Note [Pattern coercions] below
@@ -545,7 +536,7 @@ tc_pat penv (LitPat x simple_lit) pat_ty thing_inside
 --
 -- When there is no negation, neg_lit_ty and lit_ty are the same
 tc_pat _ (NPat _ (dL->L l over_lit) mb_neg eq) pat_ty thing_inside
-  = do  { checkLinearity
+  = do  { checkOmegaPattern pat_ty
           -- It may be possible to refine linear pattern so that they work in
           -- linear environments. But it is not clear how useful this is.
         ; let orig = LiteralOrigin over_lit
@@ -569,9 +560,6 @@ tc_pat _ (NPat _ (dL->L l over_lit) mb_neg eq) pat_ty thing_inside
         ; res <- thing_inside
         ; pat_ty <- readExpType (scaledThing pat_ty)
         ; return (NPat pat_ty (cL l lit') mb_neg' eq', res) }
-    where
-      checkLinearity =
-        tcSubMult Omega (scaledMult pat_ty)
 
 
 {-
@@ -604,7 +592,7 @@ AST is used for the subtraction operation.
 
 -- See Note [NPlusK patterns]
 tc_pat penv (NPlusKPat _ (dL->L nm_loc name) (dL->L loc lit) _ ge minus) pat_ty_scaled thing_inside
-  = do  { checkLinearity
+  = do  { checkOmegaPattern pat_ty_scaled
         ; pat_ty <- expTypeToType (scaledThing pat_ty_scaled)
         ; let orig = LiteralOrigin lit
         ; (lit1', ge')
@@ -636,9 +624,6 @@ tc_pat penv (NPlusKPat _ (dL->L nm_loc name) (dL->L loc lit) _ ge minus) pat_ty_
               pat' = NPlusKPat pat_ty (cL nm_loc bndr_id) (cL loc lit1') lit2'
                                ge' minus''
         ; return (pat', res) }
-    where
-      checkLinearity =
-        tcSubMult Omega (scaledMult pat_ty_scaled)
 
 
 -- HsSpliced is an annotation produced by 'RnSplice.rnSplicePat'.
@@ -872,7 +857,7 @@ tcPatSynPat penv (dL->L con_span _) pat_syn pat_ty arg_pats thing_inside
               prov_theta' = substTheta tenv prov_theta
               req_theta'  = substTheta tenv req_theta
 
-        ; tcSubMult Omega pat_mult
+        ; checkOmegaPattern pat_ty
 
         ; wrap <- tcSubTypePat penv (scaledThing pat_ty) ty'
         ; traceTc "tcPatSynPat" (ppr pat_syn $$
