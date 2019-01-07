@@ -24,7 +24,6 @@ import ConLike
 import BasicTypes ( Origin(..) )
 import TcType
 import Multiplicity
-import Type ( Scaled )
 import DsMonad
 import DsUtils
 import MkCore   ( mkCoreLets )

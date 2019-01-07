@@ -34,7 +34,7 @@ import Multiplicity
 import TcEnv
 import TcMType
 import TcValidity( arityErr )
-import Type ( Scaled, pprTyVars )
+import Type ( pprTyVars )
 import TcType
 import TcUnify
 import TcHsType

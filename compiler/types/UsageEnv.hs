@@ -7,7 +7,6 @@ import Multiplicity
 import Name
 import NameEnv
 import Outputable
-import TyCoRep ( Mult, Scaled )
 
 --
 -- * Usage environments
@@ -60,9 +59,6 @@ addUE :: UsageEnv -> UsageEnv -> UsageEnv
 addUE (UsageEnv e1) (UsageEnv e2) = UsageEnv $
   plusNameEnv_C MultAdd e1 e2
 
-addUEs :: Foldable t => t UsageEnv -> UsageEnv
-addUEs = foldr addUE zeroUE
-
 scaleUE :: Mult -> UsageEnv -> UsageEnv
 scaleUE w (UsageEnv e) = UsageEnv $
   mapNameEnv (MultMul w) e
@@ -83,9 +79,6 @@ supUEs l = foldr1 supUE l
 
 deleteUE :: NamedThing n => UsageEnv -> n -> UsageEnv
 deleteUE (UsageEnv e) x = UsageEnv $ delFromNameEnv e (getName x)
-
-deleteListUE :: NamedThing n => UsageEnv -> [n] -> UsageEnv
-deleteListUE e xs = foldl' deleteUE e xs
 
 
 -- | |lookupUE x env| returns the multiplicity assigned to |x| in |env|, if |x| is not
