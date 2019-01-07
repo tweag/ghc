@@ -368,6 +368,8 @@ test('T11484', normal, compile, ['-v0'])
 test('T11629', normal, compile, ['-v0'])
 
 test('T8761', normal, compile, ['-v0 -ddump-splices -dsuppress-uniques'])
+test('T12045TH1', normal, compile, ['-v0 -ddump-splices -dsuppress-uniques'])
+test('T12045TH2', normal, compile, ['-v0'])
 test('T12130', [], multimod_compile,
      ['T12130', '-v0 ' + config.ghc_th_way_flags])
 test('T12387', normal, compile_fail, ['-v0'])
@@ -436,6 +438,7 @@ test('T15331', normal, compile, ['-v0 -ddump-splices -dsuppress-uniques'])
 test('T15365', normal, compile, ['-v0 -ddump-splices -dsuppress-uniques'])
 test('T15360a', normal, compile, [''])
 test('T15360b', normal, compile_fail, [''])
+test('T15362', normal, compile_fail,['-v0'])
 # Note: T9693 should be only_ways(['ghci']) once it's fixed.
 test('T9693', expect_broken(9693), ghci_script, ['T9693.script'])
 test('T14471', normal, compile, [''])
@@ -463,3 +466,4 @@ test('T15845', normal, compile, ['-v0 -dsuppress-uniques'])
 test('T15437', expect_broken(15437), multimod_compile,
      ['T15437', '-v0 ' + config.ghc_th_way_flags])
 test('T15985', normal, compile, [''])
+test('T16133', normal, compile_fail, [''])

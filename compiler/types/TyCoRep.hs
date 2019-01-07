@@ -16,7 +16,7 @@ Note [The Type-related module hierarchy]
 -}
 
 -- We expose the relevant stuff from this module via the Type module
-{-# OPTIONS_HADDOCK hide #-}
+{-# OPTIONS_HADDOCK not-home #-}
 {-# LANGUAGE CPP, DeriveDataTypeable, MultiWayIf #-}
 
 module TyCoRep (
@@ -60,6 +60,7 @@ module TyCoRep (
         isInvisibleArgFlag, isVisibleArgFlag,
         isInvisibleBinder, isVisibleBinder,
         isTyBinder, isNamedBinder,
+        tyCoBinderArgFlag,
 
         -- * Functions over coercions
         pickLR,
@@ -560,6 +561,12 @@ isNamedBinder (Anon {})  = False
 isTyBinder :: TyCoBinder -> Bool
 isTyBinder (Named bnd) = isTyVarBinder bnd
 isTyBinder _ = True
+
+tyCoBinderArgFlag :: TyCoBinder -> ArgFlag
+tyCoBinderArgFlag (Named (Bndr _ flag)) = flag
+tyCoBinderArgFlag (Anon ty)
+ | isPredTy (scaledThing ty) = Inferred
+ | otherwise = Required
 
 {- Note [TyCoBinders]
 ~~~~~~~~~~~~~~~~~~~

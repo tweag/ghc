@@ -652,7 +652,7 @@ rnClsInstDecl (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = mbinds
        ; let (ktv_names, _, head_ty') = splitLHsInstDeclTy inst_ty'
        ; let cls = case hsTyGetAppHead_maybe head_ty' of
                      Nothing -> mkUnboundName (mkTcOccFS (fsLit "<class>"))
-                     Just (dL->L _ cls, _) -> cls
+                     Just (dL->L _ cls) -> cls
                      -- rnLHsInstType has added an error message
                      -- if hsTyGetAppHead_maybe fails
 
@@ -710,7 +710,7 @@ rnFamInstEqn doc mb_cls rhs_kvars
                                , feqn_fixity = fixity
                                , feqn_rhs    = payload }}) rn_payload
   = do { tycon'   <- lookupFamInstName (fmap fst mb_cls) tycon
-       ; let pat_kity_vars_with_dups = extractHsTysRdrTyVarsDups pats
+       ; let pat_kity_vars_with_dups = extractHsTyArgRdrKiTyVarsDup pats
              -- Use the "...Dups" form because it's needed
              -- below to report unsed binder on the LHS
        ; let pat_kity_vars = rmDupsInRdrTyVars pat_kity_vars_with_dups
@@ -745,7 +745,7 @@ rnFamInstEqn doc mb_cls rhs_kvars
                  --  the user meant to bring in scope here. This is an explicit
                  --  forall, so we want fresh names, not class variables.
                  --  Thus: always pass Nothing
-                 do { (pats', pat_fvs) <- rnLHsTypes (FamPatCtx tycon) pats
+                 do { (pats', pat_fvs) <- rnLHsTypeArgs (FamPatCtx tycon) pats
                     ; (payload', rhs_fvs) <- rn_payload doc payload
 
                        -- Report unused binders on the LHS
@@ -780,16 +780,10 @@ rnFamInstEqn doc mb_cls rhs_kvars
 
                     ; return ((bndrs', pats', payload'), rhs_fvs `plusFV` pat_fvs) }
 
-       ; let anon_wcs = concatMap collectAnonWildCards pats'
-             all_ibs  = anon_wcs ++ all_imp_var_names
-                        -- all_ibs: include anonymous wildcards in the implicit
-                        -- binders In a type pattern they behave just like any
-                        -- other type variable except for being anoymous.  See
-                        -- Note [Wildcards in family instances]
-             all_fvs  = fvs `addOneFV` unLoc tycon'
-                        -- type instance => use, hence addOneFV
+       ; let all_fvs  = fvs `addOneFV` unLoc tycon'
+            -- type instance => use, hence addOneFV
 
-       ; return (HsIB { hsib_ext = all_ibs
+       ; return (HsIB { hsib_ext = all_imp_var_names -- Note [Wildcards in family instances]
                       , hsib_body
                           = FamEqn { feqn_ext    = noExt
                                    , feqn_tycon  = tycon'
@@ -915,12 +909,13 @@ is the same as
     type family F a b :: *
     type instance F Int b = Int
 
-This is implemented as follows: during renaming anonymous wild cards
-'_' are given freshly generated names. These names are collected after
-renaming (rnFamInstEqn) and used to make new type variables during
-type checking (tc_fam_ty_pats). One should not confuse these wild
-cards with the ones from partial type signatures. The latter generate
-fresh meta-variables whereas the former generate fresh skolems.
+This is implemented as follows: Unnamed wildcards remain unchanged after
+the renamer, and then given fresh meta-variables during typechecking, and
+it is handled pretty much the same way as the ones in partial type signatures.
+We however don't want to emit hole constraints on wildcards in family
+instances, so we turn on PartialTypeSignatures and turn off warning flag to
+let typechecker know this.
+See related Note [Wildcards in visible kind application] in TcHsType.hs
 
 Note [Unused type variables in family instances]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1009,6 +1004,7 @@ rnSrcDerivDecl (DerivDecl _ ty mds overlap)
            <- rnLDerivStrategy DerivDeclCtx mds $ \strat_tvs ppr_via_ty ->
               rnAndReportFloatingViaTvs strat_tvs loc ppr_via_ty "instance" $
               rnHsSigWcType BindUnlessForall DerivDeclCtx ty
+       ; warnNoDerivStrat mds' loc
        ; return (DerivDecl noExt ty' mds' overlap, fvs) }
   where
     loc = getLoc $ hsib_body $ hswc_body ty
@@ -1710,6 +1706,29 @@ rnDataDefn doc (HsDataDefn { dd_ND = new_or_data, dd_cType = cType
            ; return (cL loc ds', fvs) }
 rnDataDefn _ (XHsDataDefn _) = panic "rnDataDefn"
 
+warnNoDerivStrat :: Maybe (LDerivStrategy GhcRn)
+                 -> SrcSpan
+                 -> RnM ()
+warnNoDerivStrat mds loc
+  = do { dyn_flags <- getDynFlags
+       ; when (wopt Opt_WarnMissingDerivingStrategies dyn_flags) $
+           case mds of
+             Nothing -> addWarnAt
+               (Reason Opt_WarnMissingDerivingStrategies)
+               loc
+               (if xopt LangExt.DerivingStrategies dyn_flags
+                 then no_strat_warning
+                 else no_strat_warning $+$ deriv_strat_nenabled
+               )
+             _ -> pure ()
+       }
+  where
+    no_strat_warning :: SDoc
+    no_strat_warning = text "No deriving strategy specified. Did you want stock"
+                       <> text ", newtype, or anyclass?"
+    deriv_strat_nenabled :: SDoc
+    deriv_strat_nenabled = text "Use DerivingStrategies to specify a strategy."
+
 rnLHsDerivingClause :: HsDocContext -> LHsDerivingClause GhcPs
                     -> RnM (LHsDerivingClause GhcRn, FreeVars)
 rnLHsDerivingClause doc
@@ -1720,6 +1739,7 @@ rnLHsDerivingClause doc
   = do { (dcs', dct', fvs)
            <- rnLDerivStrategy doc dcs $ \strat_tvs ppr_via_ty ->
               mapFvRn (rn_deriv_ty strat_tvs ppr_via_ty) dct
+       ; warnNoDerivStrat dcs' loc
        ; pure ( cL loc (HsDerivingClause { deriv_clause_ext = noExt
                                          , deriv_clause_strategy = dcs'
                                          , deriv_clause_tys = cL loc' dct' })

@@ -328,6 +328,10 @@ instance (HasLoc a, HasLoc b) => HasLoc (FamEqn s a b) where
   loc (FamEqn _ a (Just tvs) b _ c) = foldl1' combineSrcSpans
                                               [loc a, loc tvs, loc b, loc c]
   loc _ = noSrcSpan
+instance (HasLoc tm, HasLoc ty) => HasLoc (HsArg tm ty) where
+  loc (HsValArg tm) = loc tm
+  loc (HsTypeArg ty) = loc ty
+  loc (HsArgPar sp)  = sp
 
 instance HasLoc (HsDataDefn GhcRn) where
   loc def@(HsDataDefn{}) = loc $ dd_cons def
@@ -1343,6 +1347,10 @@ instance ToHie (TScoped (LHsType GhcRn)) where
         [ toHie a
         , toHie b
         ]
+      HsAppKindTy _ ty ki ->
+        [ toHie ty
+        , toHie $ TS (ResolvedScopes []) ki
+        ]
       HsFunTy _ HsUnrestrictedArrow a b ->
         [ toHie a
         , toHie b
@@ -1393,14 +1401,14 @@ instance ToHie (TScoped (LHsType GhcRn)) where
         [ toHie tys
         ]
       HsTyLit _ _ -> []
-      HsWildCardTy e ->
-        [ toHie e
-        ]
+      HsWildCardTy _ -> []
       HsStarTy _ _ -> []
       XHsType _ -> []
 
-instance ToHie HsWildCardInfo where
-  toHie (AnonWildCard name) = toHie $ C Use name
+instance (ToHie tm, ToHie ty) => ToHie (HsArg tm ty) where
+  toHie (HsValArg tm) = toHie tm
+  toHie (HsTypeArg ty) = toHie ty
+  toHie (HsArgPar sp) = pure $ locOnly sp
 
 instance ToHie (TVScoped (LHsTyVarBndr GhcRn)) where
   toHie (TVS tsc sc (L span bndr)) = concatM $ makeNode bndr span : case bndr of
