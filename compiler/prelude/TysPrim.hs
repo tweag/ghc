@@ -26,6 +26,7 @@ module TysPrim(
         openAlphaTy, openBetaTy, openAlphaTyVar, openBetaTyVar,
 
         multiplicityTyVar,
+        multiplicityTyVarList,
 
         -- Kind constructors...
         tYPETyCon, tYPETyConName,
@@ -369,6 +370,8 @@ openBetaTy  = mkTyVarTy openBetaTyVar
 multiplicityTyVar :: TyVar
 multiplicityTyVar = mkTemplateTyVars (repeat multiplicityTy) !! 13
 
+multiplicityTyVarList :: [a] -> [TyVar]
+multiplicityTyVarList l = take (length l) $ drop 13 $ mkTemplateTyVars (repeat multiplicityTy)
 {-
 ************************************************************************
 *                                                                      *

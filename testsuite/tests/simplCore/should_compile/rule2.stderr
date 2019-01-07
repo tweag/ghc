@@ -10,7 +10,7 @@
 
 
 ==================== Grand total simplifier statistics ====================
-Total ticks:     29
+Total ticks:     30
 
 9 PreInlineUnconditionally
   2 dt
@@ -28,9 +28,10 @@ Total ticks:     29
 1 RuleFired 1 foo/bar
 1 LetFloatFromLet 1
 1 EtaReduction 1 ds
-13 BetaReduction
+14 BetaReduction
   3 n
   2 dt
+  1 o
   1 f
   1 a
   1 m

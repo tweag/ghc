@@ -63,7 +63,7 @@ import TcEvidence
 import VarSet
 import MkId( seqId )
 import TysWiredIn
-import TysPrim( intPrimTy, multiplicityTyVar, mkTemplateTyVars, tYPE )
+import TysPrim( intPrimTy, multiplicityTyVarList, mkTemplateTyVars, tYPE )
 import PrimOp( tagToEnumKey )
 import PrelNames
 import DynFlags
@@ -504,11 +504,13 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
        ; arg_tys <- case boxity of
            { Boxed   -> newFlexiTyVarTys arity liftedTypeKind
            ; Unboxed -> replicateM arity newOpenFlexiTyVarTy }
-      ; let w_tvb = mkTyVarBinder Inferred multiplicityTyVar
-            w_ty  = mkTyVarTy multiplicityTyVar
-       ; let actual_res_ty
-                 =  mkForAllTys [w_tvb] $
-                    mkFunTys [ mkScaled (MultThing w_ty) ty | (ty, (L _ (Missing _))) <- arg_tys `zip` tup_args]
+       ; let missing_tys = [ty | (ty, L _ (Missing _)) <- zip arg_tys tup_args]
+             w_tyvars = multiplicityTyVarList missing_tys
+             w_tvb = map (mkTyVarBinder Inferred) w_tyvars
+             actual_res_ty
+                 =  mkForAllTys w_tvb $
+                    mkFunTys [ mkScaled (MultThing (mkTyVarTy w_ty)) ty |
+                              (ty, w_ty) <- zip missing_tys w_tyvars]
                             (mkTupleTy boxity arg_tys)
 
        ; wrap <- tcSubTypeHR (Shouldn'tHappenOrigin "ExpTuple")
@@ -1878,9 +1880,9 @@ tc_infer_id lbl id_name
                  theta' = substTheta subst theta
                  rho'   = substTy subst rho
            ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
-           ; addDataConStupidTheta con (tail tys')
-           -- The first argument of `tys'` is the multiplicity argument.
-           -- It is then followed by the dictionaries which are the stupid
+           ; addDataConStupidTheta con (drop (length (dataConOrigArgTys con)) tys')
+           -- The first K arguments of `tys'` are multiplicities.
+           -- They are followed by the dictionaries which are the stupid
            -- theta. Thus, we ignore the first argument as we just want to
            -- instantiate dictionary arguments in `addDataConStupidTheta`.
            -- It might be better to use `dataConRepType` in `con_ty` below.

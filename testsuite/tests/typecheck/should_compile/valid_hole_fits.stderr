@@ -105,28 +105,21 @@ valid_hole_fits.hs:30:10: warning: [-Wtyped-holes (in -Wdefault)]
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Base’))
         False :: Bool
-          with False @n1
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Types’))
         True :: Bool
-          with True @n2
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Types’))
         LT :: Ordering
-          with LT @n3
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Types’))
         EQ :: Ordering
-          with EQ @n4
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Types’))
         GT :: Ordering
-          with GT @n5
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Types’))
-        () :: ()
-          with () @n0
-          (bound at <wired into compiler>)
+        () :: () (bound at <wired into compiler>)
         pi :: forall a. Floating a => a
           with pi @Double
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
@@ -189,11 +182,9 @@ valid_hole_fits.hs:34:14: warning: [-Wtyped-holes (in -Wdefault)]
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Base’))
         False :: Bool
-          with False @n0
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Types’))
         True :: Bool
-          with True @n1
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Types’))
         maxBound :: forall a. Bounded a => a
@@ -218,7 +209,7 @@ valid_hole_fits.hs:38:10: warning: [-Wtyped-holes (in -Wdefault)]
       Valid hole fits include
         myCons :: a -> [a] -> [a] (bound at valid_hole_fits.hs:38:1)
         (:) :: forall a. a -> [a] -> [a]
-          with (:) @'Omega @a
+          with (:) @'Omega @'Omega @a
           (bound at <wired into compiler>)
         (<$) :: forall (f :: * -> *) a b. Functor f => a -> f b -> f a
           with (<$) @[] @a @a
