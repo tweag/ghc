@@ -1,35 +1,15 @@
 {-# LANGUAGE LinearTypes #-}
-{-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE CPP, NoImplicitPrelude, ScopedTypeVariables,
-             MagicHash, BangPatterns, DataKinds, RankNTypes #-}
+{-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, BangPatterns, RankNTypes #-}
 
------------------------------------------------------------------------------
--- |
--- Module      :  Data.List
--- Copyright   :  (c) The University of Glasgow 2001
--- License     :  BSD-style (see the file libraries/base/LICENSE)
---
--- Maintainer  :  libraries@haskell.org
--- Stability   :  stable
--- Portability :  portable
---
--- Operations on lists.
---
------------------------------------------------------------------------------
+{-
+This is a simplified version of Data.OldList module from base.
+This caused an assertion failure in earlier version of linear
+types implementation.
+-}
 
 module Data.OldList where
 
-import Data.Maybe
-import Data.Bits        ( (.&.) )
-import Data.Char        ( isSpace )
-import Data.Ord         ( comparing )
-import Data.Tuple       ( fst, snd )
-
-import GHC.Num
-import GHC.Real
-import GHC.List
 import GHC.Base
-import GHC.Types
 
 sortBy :: forall a . (a -> a -> Ordering) -> [a]
 sortBy cmp = []

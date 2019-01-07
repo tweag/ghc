@@ -1,25 +1,23 @@
 {-# LANGUAGE LinearTypes #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-module Dollar where
+module Op where
 {-
-inplace/bin/ghc-stage1 -O2 -dcore-lint
-
-See in Control.Arrow and Data.Functor.Contravariant
+See Control.Arrow and Data.Functor.Contravariant
 -}
 
 import GHC.Base
 
 class Or p where
-	or :: p a b -> p a b -> p a b
+    or :: p a b -> p a b -> p a b
 
 instance Or (->) where
-	or x _ = x
+    or x _ = x
 
 
 foo = or Just (\x -> Just x)
 
 {-
-[1 of 1] Compiling Dollar           ( linear-tests/Op.hs, linear-tests/Op.o )
+This caused an error in the earlier version of linear types:
 
 linear-tests/Op.hs:18:16: error:
     • Couldn't match expected type ‘a ⊸ Maybe a’
