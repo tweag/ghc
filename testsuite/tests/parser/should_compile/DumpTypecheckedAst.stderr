@@ -27,10 +27,35 @@
                 ({ <no location info> }
                  (HsWrap
                   (NoExt)
-                  (WpTyApp
-                   (TyConApp
-                    ({abstract:TyCon})
-                    []))
+                  (WpCompose
+                   (WpCompose
+                    (WpCompose
+                     (WpCompose
+                      (WpCompose
+                       (WpTyApp
+                        (TyConApp
+                         ({abstract:TyCon})
+                         []))
+                       (WpTyApp
+                        (TyConApp
+                         ({abstract:TyCon})
+                         [])))
+                      (WpTyApp
+                       (TyConApp
+                        ({abstract:TyCon})
+                        [])))
+                     (WpTyApp
+                      (TyConApp
+                       ({abstract:TyCon})
+                       [])))
+                    (WpTyApp
+                     (TyConApp
+                      ({abstract:TyCon})
+                      [])))
+                   (WpTyApp
+                    (TyConApp
+                     ({abstract:TyCon})
+                     [])))
                   (HsConLikeOut
                    (NoExt)
                    ({abstract:ConLike}))))
@@ -105,10 +130,35 @@
                 ({ <no location info> }
                  (HsWrap
                   (NoExt)
-                  (WpTyApp
-                   (TyConApp
-                    ({abstract:TyCon})
-                    []))
+                  (WpCompose
+                   (WpCompose
+                    (WpCompose
+                     (WpCompose
+                      (WpCompose
+                       (WpTyApp
+                        (TyConApp
+                         ({abstract:TyCon})
+                         []))
+                       (WpTyApp
+                        (TyConApp
+                         ({abstract:TyCon})
+                         [])))
+                      (WpTyApp
+                       (TyConApp
+                        ({abstract:TyCon})
+                        [])))
+                     (WpTyApp
+                      (TyConApp
+                       ({abstract:TyCon})
+                       [])))
+                    (WpTyApp
+                     (TyConApp
+                      ({abstract:TyCon})
+                      [])))
+                   (WpTyApp
+                    (TyConApp
+                     ({abstract:TyCon})
+                     [])))
                   (HsConLikeOut
                    (NoExt)
                    ({abstract:ConLike}))))
@@ -564,10 +614,15 @@
         ({ <no location info> }
          (HsWrap
           (NoExt)
-          (WpTyApp
-           (TyConApp
-            ({abstract:TyCon})
-            []))
+          (WpCompose
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             []))
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             [])))
           (HsConLikeOut
            (NoExt)
            ({abstract:ConLike}))))
@@ -595,10 +650,15 @@
         ({ <no location info> }
          (HsWrap
           (NoExt)
-          (WpTyApp
-           (TyConApp
-            ({abstract:TyCon})
-            []))
+          (WpCompose
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             []))
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             [])))
           (HsConLikeOut
            (NoExt)
            ({abstract:ConLike}))))
@@ -626,37 +686,6 @@
         ({ <no location info> }
          (HsWrap
           (NoExt)
-          (WpTyApp
-           (TyConApp
-            ({abstract:TyCon})
-            []))
-          (HsConLikeOut
-           (NoExt)
-           ({abstract:ConLike}))))
-        ({ <no location info> }
-         (HsVar
-          (NoExt)
-          ({ <no location info> }
-           {Var: $krep})))))
-      ({ <no location info> }
-       (HsVar
-        (NoExt)
-        ({ <no location info> }
-         {Var: $krep})))))
-    (False)))
- ,({ <no location info> }
-   (VarBind
-    (NoExt)
-    {Var: $krep}
-    ({ <no location info> }
-     (HsApp
-      (NoExt)
-      ({ <no location info> }
-       (HsApp
-        (NoExt)
-        ({ <no location info> }
-         (HsWrap
-          (NoExt)
           (WpCompose
            (WpTyApp
             (TyConApp
@@ -729,10 +758,51 @@
         ({ <no location info> }
          (HsWrap
           (NoExt)
-          (WpTyApp
-           (TyConApp
-            ({abstract:TyCon})
-            []))
+          (WpCompose
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             []))
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             [])))
+          (HsConLikeOut
+           (NoExt)
+           ({abstract:ConLike}))))
+        ({ <no location info> }
+         (HsVar
+          (NoExt)
+          ({ <no location info> }
+           {Var: $krep})))))
+      ({ <no location info> }
+       (HsVar
+        (NoExt)
+        ({ <no location info> }
+         {Var: $krep})))))
+    (False)))
+ ,({ <no location info> }
+   (VarBind
+    (NoExt)
+    {Var: $krep}
+    ({ <no location info> }
+     (HsApp
+      (NoExt)
+      ({ <no location info> }
+       (HsApp
+        (NoExt)
+        ({ <no location info> }
+         (HsWrap
+          (NoExt)
+          (WpCompose
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             []))
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             [])))
           (HsConLikeOut
            (NoExt)
            ({abstract:ConLike}))))
@@ -758,10 +828,15 @@
                 (TyConApp
                  ({abstract:TyCon})
                  []))
-               (WpTyApp
-                (TyConApp
-                 ({abstract:TyCon})
-                 [])))
+               (WpCompose
+                (WpTyApp
+                 (TyConApp
+                  ({abstract:TyCon})
+                  []))
+                (WpTyApp
+                 (TyConApp
+                  ({abstract:TyCon})
+                  []))))
               (HsConLikeOut
                (NoExt)
                ({abstract:ConLike}))))
@@ -787,10 +862,15 @@
                     (TyConApp
                      ({abstract:TyCon})
                      []))
-                   (WpTyApp
-                    (TyConApp
-                     ({abstract:TyCon})
-                     [])))
+                   (WpCompose
+                    (WpTyApp
+                     (TyConApp
+                      ({abstract:TyCon})
+                      []))
+                    (WpTyApp
+                     (TyConApp
+                      ({abstract:TyCon})
+                      []))))
                   (HsConLikeOut
                    (NoExt)
                    ({abstract:ConLike}))))
@@ -816,10 +896,15 @@
                         (TyConApp
                          ({abstract:TyCon})
                          []))
-                       (WpTyApp
-                        (TyConApp
-                         ({abstract:TyCon})
-                         [])))
+                       (WpCompose
+                        (WpTyApp
+                         (TyConApp
+                          ({abstract:TyCon})
+                          []))
+                        (WpTyApp
+                         (TyConApp
+                          ({abstract:TyCon})
+                          []))))
                       (HsConLikeOut
                        (NoExt)
                        ({abstract:ConLike}))))
@@ -831,15 +916,10 @@
                   ({ <no location info> }
                    (HsWrap
                     (NoExt)
-                    (WpCompose
-                     (WpTyApp
-                      (TyConApp
-                       ({abstract:TyCon})
-                       []))
-                     (WpTyApp
-                      (TyConApp
-                       ({abstract:TyCon})
-                       [])))
+                    (WpTyApp
+                     (TyConApp
+                      ({abstract:TyCon})
+                      []))
                     (HsConLikeOut
                      (NoExt)
                      ({abstract:ConLike}))))))))))))))))))
@@ -857,10 +937,15 @@
         ({ <no location info> }
          (HsWrap
           (NoExt)
-          (WpTyApp
-           (TyConApp
-            ({abstract:TyCon})
-            []))
+          (WpCompose
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             []))
+           (WpTyApp
+            (TyConApp
+             ({abstract:TyCon})
+             [])))
           (HsConLikeOut
            (NoExt)
            ({abstract:ConLike}))))
