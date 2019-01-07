@@ -1775,10 +1775,10 @@ tc_eq_type view_fun orig_ty1 orig_ty2 = go True orig_env orig_ty1 orig_ty2
     -- kind variable, which causes things to blow up.
     go vis env (FunTy w1 arg1 res1) (FunTy w2 arg2 res2)
       = check vis (w1 `eqMult` w2) <!> go vis env arg1 arg2 <!> go vis env res1 res2
-    go vis env ty (FunTy _ arg res)
-      = eqFunTy vis env arg res ty
-    go vis env (FunTy _ arg res) ty
-      = eqFunTy vis env arg res ty
+    go vis env ty (FunTy w arg res)
+      = eqFunTy vis env w arg res ty
+    go vis env (FunTy w arg res) ty
+      = eqFunTy vis env w arg res ty
 
       -- See Note [Equality on AppTys] in Type
     go vis env (AppTy s1 t1)        ty2
@@ -1815,26 +1815,26 @@ tc_eq_type view_fun orig_ty1 orig_ty2 = go True orig_env orig_ty1 orig_ty2
 
     orig_env = mkRnEnv2 $ mkInScopeSet $ tyCoVarsOfTypes [orig_ty1, orig_ty2]
 
-    -- @eqFunTy arg res ty@ is True when @ty@ equals @FunTy arg res@. This is
+    -- @eqFunTy w arg res ty@ is True when @ty@ equals @FunTy w arg res@. This is
     -- sometimes hard to know directly because @ty@ might have some casts
     -- obscuring the FunTy. And 'splitAppTy' is difficult because we can't
     -- always extract a RuntimeRep (see Note [xyz]) if the kind of the arg or
     -- res is unzonked/unflattened. Thus this function, which handles this
     -- corner case.
-    eqFunTy :: Bool -> RnEnv2 -> Type -> Type -> Type -> Maybe Bool
-    eqFunTy vis env arg res (FunTy _ arg' res')
-      = go vis env arg arg' <!> go vis env res res'
-    eqFunTy vis env arg res ty@(AppTy{})
-      | Just (tc, [_, _, arg', res']) <- get_args ty []
+    eqFunTy :: Bool -> RnEnv2 -> Mult -> Type -> Type -> Type -> Maybe Bool
+    eqFunTy vis env w arg res (FunTy w' arg' res')
+      = go vis env (fromMult w) (fromMult w') <!> go vis env arg arg' <!> go vis env res res'
+    eqFunTy vis env w arg res ty@(AppTy{})
+      | Just (tc, [w', _, _, arg', res']) <- get_args ty []
       , tc == funTyCon
-      = go vis env arg arg' <!> go vis env res res'
+      = go vis env (fromMult w) w' <!> go vis env arg arg' <!> go vis env res res'
       where
         get_args :: Type -> [Type] -> Maybe (TyCon, [Type])
         get_args (AppTy f x)       args = get_args f (x:args)
         get_args (CastTy t _)      args = get_args t args
         get_args (TyConApp tc tys) args = Just (tc, tys ++ args)
         get_args _                 _    = Nothing
-    eqFunTy vis _ _ _ _
+    eqFunTy vis _ _ _ _ _
       = Just vis
 
 -- | Like 'pickyEqTypeVis', but returns a Bool for convenience

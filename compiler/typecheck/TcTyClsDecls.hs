@@ -2360,7 +2360,7 @@ tcConArg :: HsScaled GhcRn (LHsType GhcRn) -> TcM (Scaled TcType, HsSrcBang)
 tcConArg (HsScaled w bty)
   = do  { traceTc "tcConArg 1" (ppr bty)
         ; arg_ty <- tcHsOpenType (getBangType bty)
-        ; w' <- tcMult (arrowToMult w)
+        ; w' <- tcMult w
              -- Newtypes can't have unboxed types, but we check
              -- that in checkValidDataCon; this tcConArg stuff
              -- doesn't happen for GADT-style declarations
