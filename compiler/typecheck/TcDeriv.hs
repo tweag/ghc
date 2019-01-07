@@ -331,6 +331,9 @@ renameDeriv is_boot inst_infos bagBinds
     setXOptM LangExt.KindSignatures $
     -- Derived decls (for newtype-deriving) can use ScopedTypeVariables &
     -- KindSignatures
+    setXOptM LangExt.TypeApplications $
+    -- GND/DerivingVia uses TypeApplications in generated code
+    -- (See Note [Newtype-deriving instances] in TcGenDeriv)
     unsetXOptM LangExt.RebindableSyntax $
     -- See Note [Avoid RebindableSyntax when deriving]
     do  {
@@ -718,7 +721,7 @@ tcStandaloneDerivInstType ctxt
                                        , hsib_body   = deriv_ty_body })})
   | (tvs, theta, rho) <- splitLHsSigmaTy deriv_ty_body
   , L _ [wc_pred] <- theta
-  , L _ (HsWildCardTy (AnonWildCard (L wc_span _))) <- ignoreParens wc_pred
+  , L wc_span (HsWildCardTy _) <- ignoreParens wc_pred
   = do dfun_ty <- tcHsClsInstType ctxt $
                   HsIB { hsib_ext = vars
                        , hsib_body

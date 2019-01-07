@@ -1534,7 +1534,7 @@ type LTyFamInstEqn pass = Located (TyFamInstEqn pass)
 type LTyFamDefltEqn pass = Located (TyFamDefltEqn pass)
 
 -- | Haskell Type Patterns
-type HsTyPats pass = [LHsType pass]
+type HsTyPats pass = [LHsTypeArg pass]
 
 {- Note [Family instance declaration binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
