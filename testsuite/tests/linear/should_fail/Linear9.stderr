@@ -1,7 +1,7 @@
 
 Linear9.hs:9:17: error:
     • Couldn't match type ‘'Omega’ with ‘'One’
-        arising from an application
+        arising from a non-linear pattern
     • In the pattern: _
       In the pattern: (a, _)
       In an equation for ‘incorrectFst’: incorrectFst (a, _) = a
@@ -19,14 +19,14 @@ Linear9.hs:15:20: error:
 
 Linear9.hs:18:21: error:
     • Couldn't match type ‘'Omega’ with ‘'One’
-        arising from an application
+        arising from a non-linear pattern
     • In the pattern: _
       In the pattern: (a, _)
       In the pattern: ((a, _), _)
 
 Linear9.hs:18:24: error:
     • Couldn't match type ‘'Omega’ with ‘'One’
-        arising from an application
+        arising from a non-linear pattern
     • In the pattern: _
       In the pattern: ((a, _), _)
       In an equation for ‘incorrectFstFst’:
@@ -34,7 +34,7 @@ Linear9.hs:18:24: error:
 
 Linear9.hs:25:25: error:
     • Couldn't match type ‘'Omega’ with ‘'One’
-        arising from an application
+        arising from a non-linear pattern
     • In the pattern: _
       In the pattern: Foo a _
       In an equation for ‘incorrectTestFst’:
