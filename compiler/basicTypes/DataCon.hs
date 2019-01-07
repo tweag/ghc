@@ -1296,12 +1296,12 @@ dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
 dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
                           dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                           dcOrigResTy = res_ty })
-  = let tvb = mkTyVarBinder Inferred multiplicityTyVar
-        ty  = mkTyVarTy multiplicityTyVar
+  = let tyvars = multiplicityTyVarList arg_tys
+        tvb = map (mkTyVarBinder Inferred) tyvars
         -- See Note [Wrapper multiplicities]
-        arg_tys' = map (scaleScaled (MultThing ty)) arg_tys
+        arg_tys' = zipWith (\m b -> scaleScaled (MultThing (mkTyVarTy m)) b) tyvars arg_tys
     in
-      mkForAllTys (tvb : user_tvbs) $
+      mkForAllTys (tvb ++ user_tvbs) $
       mkFunTys (map unrestricted theta) $
       mkFunTys arg_tys' $
       res_ty

@@ -33,7 +33,7 @@ import VarEnv
 import VarSet
 import Name( Name )
 import Type hiding ( getTvSubstEnv )
-import Multiplicity ( Multable(..) )
+import Multiplicity ( fromMult )
 import Coercion hiding ( getCvSubstEnv )
 import TyCon
 import TyCoRep hiding ( getTvSubstEnv, getCvSubstEnv )

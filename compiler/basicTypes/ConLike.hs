@@ -35,7 +35,7 @@ import Unique
 import Util
 import Name
 import BasicTypes
-import TyCoRep (Type, ThetaType, Scaled)
+import TyCoRep (Type, ThetaType)
 import Var
 import Type (mkTyConApp)
 import Multiplicity

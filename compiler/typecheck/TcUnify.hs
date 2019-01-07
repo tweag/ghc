@@ -826,11 +826,10 @@ tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
 -- w2 <= w. As together they imply that w1 * w2 <= w.
 -- For w1 + w2 <= w we instantiate w1 and w2 to Omega and check that Omega
 -- <= w
--- The error messages from this function are currently awful.
-tcSubMult :: Mult -> Mult -> TcM ()
-tcSubMult (MultAdd _ _) w = tcSubMult Omega w
-tcSubMult (MultMul m1 m2) w = tcSubMult m1 w >> tcSubMult m2 w
-tcSubMult a_w c_w = tcEqMult AppOrigin AppOrigin TypeAppCtxt a_w c_w
+tcSubMult :: CtOrigin -> Mult -> Mult -> TcM ()
+tcSubMult o (MultAdd _ _) w = tcSubMult o Omega w
+tcSubMult o (MultMul m1 m2) w = tcSubMult o m1 w >> tcSubMult o m2 w
+tcSubMult o a_w c_w = tcEqMult o o TypeAppCtxt a_w c_w
 
 
 {- Note [Settting the argument context]

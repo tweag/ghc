@@ -618,7 +618,7 @@ tc_extend_local_env top_lvl extra_env thing_inside
       traceTc "check_binder" (ppr w $$ ppr actual_w)
       case submult actual_w w of
         Submult -> return ()
-        Unknown -> tcSubMult actual_w w
+        Unknown -> tcSubMult (UsageEnvironmentOf x) actual_w w
         NotSubmult  ->
           addErrTc $ text "Couldn't match expected multiplicity" <+> quotes (ppr w) <+>
                      text "of variable" <+> quotes (ppr x) <+>
