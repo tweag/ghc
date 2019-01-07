@@ -29,7 +29,6 @@ module TyCoRep (
         KnotTied,
         PredType, ThetaType,      -- Synonyms
         ArgFlag(..),
-        Mult, Scaled,
 
         -- * Coercions
         Coercion(..),
@@ -166,10 +165,9 @@ import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy, mkCastTy
                           , tyCoVarsOfTypeWellScoped
                           , tyCoVarsOfTypesWellScoped
                           , scopedSort
-                          , coreView, eqType )
+                          , coreView )
    -- Transitively pulls in a LOT of stuff, better to break the loop
 
-import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy )
 import {-# SOURCE #-} Coercion
 import {-# SOURCE #-} ConLike ( ConLike(..), conLikeName )
 import {-# SOURCE #-} ToIface( toIfaceTypeX, toIfaceTyLit, toIfaceForAllBndr
@@ -335,24 +333,6 @@ data Type
                     -- GADT data constructor
 
   deriving Data.Data
-
--- | Common short-hands
-type Mult = GMult Type
-type Scaled = GScaled Type
-
-instance Multable Type where
-  fromMult One = oneDataConTy
-  fromMult Omega = omegaDataConTy
-  fromMult (MultThing ty) = ty
-  fromMult _ =
-    pprPanic "Type.fromMult" (text "Full support for multiplicity polymorphism is not implemented yet")
-
-  toMult ty
-    | oneDataConTy `eqType` ty = One
-    | omegaDataConTy `eqType` ty = Omega
-    | otherwise = unsafeMultThing ty
-
-
 
 -- NOTE:  Other parts of the code assume that type literals do not contain
 -- types or type variables.

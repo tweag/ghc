@@ -535,7 +535,7 @@ instance Eq (DeBruijn Type) where
             -> True
         _ -> False
 
-instance (Multable a, Eq (DeBruijn a)) => Eq (DeBruijn (GMult a)) where
+instance Eq (DeBruijn Mult) where
   (D _ One) == (D _ One) = True
   (D _ Omega) == (D _ Omega) = True
   (D env (MultAdd p q)) == (D env' (MultAdd p' q')) = (D env p) == (D env' p') && (D env q) == (D env' q')

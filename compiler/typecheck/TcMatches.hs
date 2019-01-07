@@ -30,7 +30,6 @@ import TcRnMonad
 import TcEnv
 import TcPat
 import Multiplicity
-import Type ( Scaled )
 import UsageEnv
 import TcMType
 import TcType
