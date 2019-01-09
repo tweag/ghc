@@ -1336,6 +1336,7 @@ isWorkFreeApp fn n_val_args
   | otherwise
   = case idDetails fn of
       DataConWorkId {} -> True
+      DataConWrapId {} -> True
       _                -> False
 
 isCheapApp :: CheapAppFun
