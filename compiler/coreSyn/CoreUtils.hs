@@ -1354,6 +1354,9 @@ isWorkFreeApp fn n_val_args
   | otherwise
   = case idDetails fn of
       DataConWorkId {} -> True
+      -- Wrappers that don't force their arguments are workfree.
+      -- This allows more unfoldings (e.g. see T5327)
+      DataConWrapId d | not (any isMarkedStrict (dataConRepStrictness d)) -> True
       _                -> False
 
 isCheapApp :: CheapAppFun
