@@ -104,8 +104,7 @@ pattern MultAdd p q <- MultAdd_ p q where
   p `MultAdd` q = MultAdd_ p q
 
 pattern MultThing :: Type -> Mult
-pattern MultThing a <- MultThing_ a where
-  MultThing a = toMult a
+pattern MultThing a <- MultThing_ a
 
 {-# COMPLETE One, Omega, MultMul, MultAdd, MultThing #-}
 
@@ -187,7 +186,7 @@ submult _     _     = Unknown
 traverseMult :: Applicative f => (Type -> f Type) -> Mult -> f Mult
 traverseMult _ One = pure One
 traverseMult _ Omega = pure Omega
-traverseMult f (MultThing t) = MultThing <$> f t
+traverseMult f (MultThing t) = toMult <$> f t
 traverseMult f (MultAdd x y) = MultAdd <$> traverseMult f x <*> traverseMult f y
 traverseMult f (MultMul x y) = MultMul <$> traverseMult f x <*> traverseMult f y
 
@@ -202,6 +201,6 @@ multThingList f = go []
 mapMult :: (Type -> Type) -> Mult -> Mult
 mapMult _ One = One
 mapMult _ Omega = Omega
-mapMult f (MultThing t) = MultThing (f t)
+mapMult f (MultThing t) = toMult (f t)
 mapMult f (MultAdd x y) = MultAdd (mapMult f x) (mapMult f y)
 mapMult f (MultMul x y) = MultMul (mapMult f x) (mapMult f y)
