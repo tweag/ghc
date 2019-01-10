@@ -25,8 +25,8 @@ There are two ways of running this locally:
 
 ```
 [...]
-resolver: ghc-8.2
-compiler: ghc-8.2
+resolver: ghc-8.7
+compiler: ghc-8.7
 system-ghc: true
 
 docker:
@@ -51,7 +51,7 @@ use, and what the relevant image actually builds.
   * happy
   * alex
   * cabal-install
-  * ghc >= 8.0.2
+  * ghc >= 8.4.3
 
 1. Clone the GHC repository mirror from GitHub:
   Note: cloning GHC from Github requires a special setup. See [Getting a GHC
@@ -116,15 +116,16 @@ Usage documentation
 The extention is provided as-is, but here is some basic documentation of how
 to use it.
 
+Use `-XLinearTypes` to activate the extension. This adds the following syntax:
 
-## Activating the extension
-The extension is _always on_ for the time being, so no need to set any
-flags or pragmas. In the future it will be an ordinary extension.
+* `a ->. b` for linear functions
+* `a ⊸ b` for linear functions, if `-XUnicodeSyntax` is on
+* `a -->.(p) b` for functions of multiplicity `p :: Multiplicity`. This type
+  is defined in `GHC.Types`.
 
+The syntax is not final and subject to change.
 
-## Writing linear functions
-Only the unicode lollipop arrow `⊸` is currently recognised. In the future there
-will be an ASCII version, but no decision has been taken on notation.
+GADT constructors can use the unrestricted `->` and linear `->.` arrows.
 
 When writing a function, you declare in the types which arguments are to be
 checked for linearity. If you do not treat these as such in your
@@ -134,22 +135,22 @@ implementation, the type checker will nag on you:
 λ> let frugal :: a ⊸ (a,a); frugal a = (a,a)
 
 <interactive>:2:33: error:
-    • Couldn't match expected weight ‘1’ of variable ‘a’ with actual weight ‘ω’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘a’ with actual multiplicity ‘Omega’
     • In an equation for ‘frugal’: frugal a = (a, a)
 
 
 λ> let wasteful :: a ⊸ b ⊸ a; wasteful a b = a
 
 <interactive>:3:39: error:
-    • Couldn't match expected weight ‘1’ of variable ‘b’ with actual weight ‘0’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘b’ with actual multiplicity ‘Omega’
     • In an equation for ‘wasteful’: wasteful a b = a
 ```
 
 As you can see, the type checker gives some hints on _how_ you treated your
-variable wrongly, multiplicity `ω` means it was used more than once, or a
+variable wrongly, multiplicity `Omega` means it was used more than once, or a
 varying number in different code branches.
 
-This `expected ‘1’ but actually ‘ω’`-error also occurs when the variables are
+This `expected ‘1’ but actually ‘Omega’`-error also occurs when the variables are
 passed to unrestricted functions, this is not always very obvious so be
 mindful of that possibility:
 
@@ -157,7 +158,7 @@ mindful of that possibility:
 λ> let plus1 :: Int ⊸ Int; plus1 x = x + 1
 
 <interactive>:12:31: error:
-    • Couldn't match expected weight ‘1’ of variable ‘x’ with actual weight ‘ω’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Omega’
     • In an equation for ‘plus1’: plus1 x = x + 1
 ```
 
@@ -172,8 +173,7 @@ using functions that are _implemented_ linearly, but not declared as such.
 In particular, functions in `where`-clauses are easy to forget to annotate
 with signatures (`-XPartialTypeSignatures` or `-XScopedTypeVariables` are
 useful for this). Lambda expressions are linearly inferred using type
-information from their context. Worth noting is that there is currently a
-caveat here, see section on Bugs below.
+information from their context.
 
 
 ## Calling them
@@ -196,14 +196,14 @@ The probably most noteworthy things are `case` and `let`:
 λ> let f :: a ⊸ a; f x = case x of x -> x
 
 <interactive>:27:19: error:
-    • Couldn't match expected weight ‘1’ of variable ‘x’ with actual weight ‘ω’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Omega’
     • In an equation for ‘f’: f x = case x of { x -> x }
 
 
 λ> let f :: a ⊸ a; f x = let y = x in y
 
 <interactive>:28:19: error:
-    • Couldn't match expected weight ‘1’ of variable ‘x’ with actual weight ‘ω’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Omega’
     • In an equation for ‘f’: f x = let y = x in y
 ```
 
@@ -239,25 +239,8 @@ be more but it has not been thoroughly tested yet.
 
 
 ## Bugs
-There is currently one particular bug causing headaches, where linear and
-non-linear arrows get equalised under certain conditions. It happens when you
-pass a non-linear function where a linear function is expected, and the
-linearity checker happily accepts this, making stuff like this look fine while
-it really is not:
-
-```
-λ> let skip :: a ⊸ (); skip = const ()
-```
-
-This also applies to lambda expressions under certain conditions.
-
-
-`@`-patterns also do not work as expected, as this passes just fine while
-being incorrect:
-
-```
-λ> let dup :: a ⊸ (a,a); dup y@x = (y,x)
-```
+Multiplicity polymorphism is not fully supported. Even in simple cases, you
+are likely to see an error message about multiplicity mismatch.
 
 There are probably more bugs; if you find something that definitely looks off,
 we would appreciate a well-documented bug report to
