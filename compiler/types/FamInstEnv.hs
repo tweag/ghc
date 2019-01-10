@@ -1566,10 +1566,10 @@ coreFlattenTy = go
                                 in (env', toMult t')
     go_mult env (MultAdd m1 m2) = let (env1, m1') = go_mult env m1
                                       (env2, m2') = go_mult env1 m2 in
-                                  (env2, MultAdd m1' m2')
+                                  (env2, mkMultAdd m1' m2')
     go_mult env (MultMul m1 m2) = let (env1, m1') = go_mult env m1
                                       (env2, m2') = go_mult env1 m2 in
-                                  (env2, MultMul m1' m2')
+                                  (env2, mkMultMul m1' m2')
 
 
 -- when flattening, we don't care about the contents of coercions.

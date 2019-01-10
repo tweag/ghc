@@ -34,12 +34,12 @@ instance Outputable Usage where
 addUsage :: Usage -> Usage -> Usage
 addUsage Zero x = x
 addUsage x Zero = x
-addUsage (MUsage x) (MUsage y) = MUsage $ MultAdd x y
+addUsage (MUsage x) (MUsage y) = MUsage $ mkMultAdd x y
 
 multUsage :: Usage -> Usage -> Usage
 multUsage Zero _ = Zero
 multUsage _ Zero = Zero
-multUsage (MUsage x) (MUsage y) = MUsage $ MultMul x y
+multUsage (MUsage x) (MUsage y) = MUsage $ mkMultMul x y
 
 
 newtype UsageEnv = UsageEnv (NameEnv Mult)
@@ -57,11 +57,11 @@ emptyUE = zeroUE
 
 addUE :: UsageEnv -> UsageEnv -> UsageEnv
 addUE (UsageEnv e1) (UsageEnv e2) = UsageEnv $
-  plusNameEnv_C MultAdd e1 e2
+  plusNameEnv_C mkMultAdd e1 e2
 
 scaleUE :: Mult -> UsageEnv -> UsageEnv
 scaleUE w (UsageEnv e) = UsageEnv $
-  mapNameEnv (MultMul w) e
+  mapNameEnv (mkMultMul w) e
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1) (UsageEnv e2) = UsageEnv $

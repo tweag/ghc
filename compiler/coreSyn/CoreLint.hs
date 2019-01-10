@@ -1094,11 +1094,11 @@ checkCaseLinearity ue scrut var_w bndr = do
   case lhs of
     MUsage mult -> ensureEqMults mult rhs err_msg
     Zero -> addErrL err_msg
-  lintLinearBinder (ppr bndr) (scrut_w `MultMul` var_w) (varWeight bndr)
+  lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varWeight bndr)
   return $ deleteUE ue bndr
   where
     lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
-    rhs = scrut_w `MultMul` var_w
+    rhs = scrut_w `mkMultMul` var_w
     err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
                 $$ ppr lhs <+> text "⊈" <+> ppr rhs
                 $$ text "Computed by:"
