@@ -123,7 +123,7 @@ Use `-XLinearTypes` to activate the extension. This adds the following syntax:
 * `a -->.(p) b` for functions of multiplicity `p :: Multiplicity`. This type
   is defined in `GHC.Types`.
 
-The syntax is not final and subject to change.
+The syntax is not final and subject to change. The last type is highly experimental and expected to break in many cases.
 
 GADT constructors can use the unrestricted `->` and linear `->.` arrows.
 
