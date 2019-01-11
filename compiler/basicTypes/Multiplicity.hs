@@ -12,6 +12,8 @@ module Multiplicity
   , pattern MultAdd
   , pattern MultMul
   , pattern MultThing
+  , mkMultAdd
+  , mkMultMul
   , sup
   , Scaled(..)
   , unrestricted
@@ -88,24 +90,26 @@ pattern One = One_
 pattern Omega :: Mult
 pattern Omega = Omega_
 
-pattern MultMul :: Mult -> Mult -> Mult
-pattern MultMul p q <- MultMul_ p q where
-  One `MultMul` p = p
-  p `MultMul` One = p
-  Omega `MultMul` _ = Omega
-  _ `MultMul` Omega = Omega
-  p `MultMul` q = MultMul_ p q
-
 pattern MultAdd :: Mult -> Mult -> Mult
-pattern MultAdd p q <- MultAdd_ p q where
-  One `MultAdd` One = Omega
-  Omega `MultAdd` _ = Omega
-  _ `MultAdd` Omega = Omega
-  p `MultAdd` q = MultAdd_ p q
+pattern MultAdd p q <- MultAdd_ p q
+pattern MultMul :: Mult -> Mult -> Mult
+pattern MultMul p q <- MultMul_ p q
 
 pattern MultThing :: Type -> Mult
-pattern MultThing a <- MultThing_ a where
-  MultThing a = toMult a
+pattern MultThing a <- MultThing_ a
+
+mkMultAdd :: Mult -> Mult -> Mult
+mkMultAdd One One = Omega
+mkMultAdd Omega _ = Omega
+mkMultAdd _ Omega = Omega
+mkMultAdd p q     = MultAdd_ p q
+
+mkMultMul :: Mult -> Mult -> Mult
+mkMultMul One p = p
+mkMultMul p One = p
+mkMultMul Omega _ = Omega
+mkMultMul _ Omega = Omega
+mkMultMul p q = MultMul_ p q
 
 {-# COMPLETE One, Omega, MultMul, MultAdd, MultThing #-}
 
@@ -158,7 +162,7 @@ scaledSet x b = fmap (\_->b) x
 
 scaleScaled :: Mult -> Scaled a -> Scaled a
 scaleScaled w x =
-  x { scaledMult = w `MultMul` scaledMult x }
+  x { scaledMult = w `mkMultMul` scaledMult x }
 
 --
 -- * Multiplicity ordering
@@ -187,9 +191,9 @@ submult _     _     = Unknown
 traverseMult :: Applicative f => (Type -> f Type) -> Mult -> f Mult
 traverseMult _ One = pure One
 traverseMult _ Omega = pure Omega
-traverseMult f (MultThing t) = MultThing <$> f t
-traverseMult f (MultAdd x y) = MultAdd <$> traverseMult f x <*> traverseMult f y
-traverseMult f (MultMul x y) = MultMul <$> traverseMult f x <*> traverseMult f y
+traverseMult f (MultThing t) = toMult <$> f t
+traverseMult f (MultAdd x y) = mkMultAdd <$> traverseMult f x <*> traverseMult f y
+traverseMult f (MultMul x y) = mkMultMul <$> traverseMult f x <*> traverseMult f y
 
 multThingList :: (Type -> a) -> Mult -> [a]
 multThingList f = go []
@@ -202,6 +206,6 @@ multThingList f = go []
 mapMult :: (Type -> Type) -> Mult -> Mult
 mapMult _ One = One
 mapMult _ Omega = Omega
-mapMult f (MultThing t) = MultThing (f t)
-mapMult f (MultAdd x y) = MultAdd (mapMult f x) (mapMult f y)
-mapMult f (MultMul x y) = MultMul (mapMult f x) (mapMult f y)
+mapMult f (MultThing t) = toMult (f t)
+mapMult f (MultAdd x y) = mkMultAdd (mapMult f x) (mapMult f y)
+mapMult f (MultMul x y) = mkMultMul (mapMult f x) (mapMult f y)
