@@ -1510,6 +1510,8 @@ instance ( ToHie (LHsExpr a)
         ]
       HsSpliced _ _ _ ->
         []
+      HsSplicedT _ ->
+        []
       XSplice _ -> []
 
 instance ToHie (LRoleAnnotDecl GhcRn) where
