@@ -43,7 +43,7 @@ import Type     hiding ( substTy, extendTvSubst, extendCvSubst, extendTvSubstLis
                        , isInScope, substTyVarBndr, cloneTyVarBndr )
 import Multiplicity
 import Coercion hiding ( substCo, substCoVarBndr )
-import TyCon        ( tyConArity )
+import TyCon        ( tyConArity, isNewTyCon )
 import TysWiredIn
 import PrelNames
 import BasicTypes
@@ -233,7 +233,8 @@ simple_opt_expr env expr
     go (Case e b ty as)
        -- See Note [Getting the map/coerce RULE to work]
       | isDeadBinder b
-      , Just ([], con, _tys, es) <- exprIsConApp_maybe in_scope_env e'
+      , Just (should_empty, con, _tys, es) <- exprIsConApp_maybe in_scope_env e'
+      , null should_empty
         -- We don't need to be concerned about floats when looking for coerce.
       , Just (altcon, bs, rhs) <- findAlt (DataAlt con) as
       = case altcon of
@@ -800,9 +801,14 @@ exprIsConApp_maybe (in_scope, id_unf) expr
     go subst floats (Lam var body) (CC (arg:args) co)
        | exprIsTrivial arg          -- Don't duplicate stuff!
        = go (extend subst var arg) floats body (CC args co)
+    -- Alternative (needs a test, also lack of exprIsTrivial needs a test):
+    -- go subst (FloatLet (NonRec var arg) : floats) body (CC args co)
+
+    -- This block needs testing
     go subst floats (Let bndr@(NonRec _ _) expr) cont
        = let (subst', bndr') = subst_bind subst bndr in
            go subst' (FloatLet bndr' : floats) expr cont
+
     go subst floats (Case scrut b _ [(con, vars, expr)]) cont
        = let
           (subst', b') = subst_bndr subst b
@@ -824,6 +830,14 @@ exprIsConApp_maybe (in_scope, id_unf) expr
         -- Look through data constructor wrappers: they inline late (See Note
         -- [Activation for data constructor wrappers]) but we want to do
         -- case-of-known-constructor optimisation eagerly.
+        | Just a <- isDataConWrapId_maybe fun
+        , let rhs = uf_tmpl (realIdUnfolding fun)
+        , isNewTyCon (dataConTyCon a)
+        , arg:args' <- args
+        = case rhs of
+           Lam v body -> go (extend (Left in_scope) v arg) floats body (CC args' co)
+           _ -> pprPanic "exprIsConApp_maybe newtype" (ppr rhs)
+
         | isDataConWrapId fun
         , let rhs = uf_tmpl (realIdUnfolding fun)
         = go (Left in_scope) floats rhs cont
