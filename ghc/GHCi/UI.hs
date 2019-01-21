@@ -433,9 +433,12 @@ interactiveUI config srcs maybe_exprs = do
    -- The initial set of DynFlags used for interactive evaluation is the same
    -- as the global DynFlags, plus -XExtendedDefaultRules and
    -- -XNoMonomorphismRestriction.
+   -- See note [Changing language extensions for interactive evaluation] #10857
    dflags <- getDynFlags
-   let dflags' = (`xopt_set` LangExt.ExtendedDefaultRules)
-               . (`xopt_unset` LangExt.MonomorphismRestriction)
+   let dflags' = (xopt_set_unlessExplSpec
+                      LangExt.ExtendedDefaultRules xopt_set)
+               . (xopt_set_unlessExplSpec
+                      LangExt.MonomorphismRestriction xopt_unset)
                $ dflags
    GHC.setInteractiveDynFlags dflags'
 
@@ -485,6 +488,7 @@ interactiveUI config srcs maybe_exprs = do
                    ghci_commands      = availableCommands config,
                    ghci_macros        = [],
                    last_command       = Nothing,
+                   cmd_wrapper        = (cmdSuccess =<<),
                    cmdqueue           = [],
                    remembered_ctx     = [],
                    transient_ctx      = [],
@@ -500,6 +504,32 @@ interactiveUI config srcs maybe_exprs = do
                  }
 
    return ()
+
+{-
+Note [Changing language extensions for interactive evaluation]
+--------------------------------------------------------------
+GHCi maintains two sets of options:
+
+- The "loading options" apply when loading modules
+- The "interactive options" apply when evaluating expressions and commands
+    typed at the GHCi prompt.
+
+The loading options are mostly created in ghc/Main.hs:main' from the command
+line flags. In the function ghc/GHCi/UI.hs:interactiveUI the loading options
+are copied to the interactive options.
+
+These interactive options (but not the loading options!) are supplemented
+unconditionally by setting ExtendedDefaultRules ON and
+MonomorphismRestriction OFF. The unconditional setting of these options
+eventually overwrite settings already specified at the command line.
+
+Therefore instead of unconditionally setting ExtendedDefaultRules and
+NoMonomorphismRestriction for the interactive options, we use the function
+'xopt_set_unlessExplSpec' to first check whether the extension has already
+specified at the command line.
+
+The ghci config file has not yet been processed.
+-}
 
 resetLastErrorLocations :: GHCi ()
 resetLastErrorLocations = do
@@ -944,9 +974,11 @@ runOneCommand eh gCmd = do
   mb_cmd1 <- maybe (noSpace gCmd) (return . Just) mb_cmd0
   case mb_cmd1 of
     Nothing -> return Nothing
-    Just c  -> ghciHandle (\e -> lift $ eh e >>= return . Just) $
-             handleSourceError printErrorAndFail
-               (doCommand c)
+    Just c  -> do
+      st <- getGHCiState
+      ghciHandle (\e -> lift $ eh e >>= return . Just) $
+        handleSourceError printErrorAndFail $
+          cmd_wrapper st $ doCommand c
                -- source error's are handled by runStmt
                -- is the handler necessary here?
   where
@@ -985,14 +1017,14 @@ runOneCommand eh gCmd = do
     collectError = userError "unterminated multiline command :{ .. :}"
 
     -- | Handle a line of input
-    doCommand :: String -> InputT GHCi (Maybe Bool)
+    doCommand :: String -> InputT GHCi CommandResult
 
     -- command
-    doCommand stmt | (':' : cmd) <- removeSpaces stmt = do
-      result <- specialCommand cmd
-      case result of
-        True -> return Nothing
-        _    -> return $ Just True
+    doCommand stmt | stmt'@(':' : cmd) <- removeSpaces stmt = do
+      (stats, result) <- runWithStats (const Nothing) $ specialCommand cmd
+      let processResult True = Nothing
+          processResult False = Just True
+      return $ CommandComplete stmt' (processResult <$> result) stats
 
     -- haskell
     doCommand stmt = do
@@ -1004,12 +1036,13 @@ runOneCommand eh gCmd = do
           fst_line_num <- line_number <$> getGHCiState
           mb_stmt <- checkInputForLayout stmt gCmd
           case mb_stmt of
-            Nothing      -> return $ Just True
+            Nothing -> return CommandIncomplete
             Just ml_stmt -> do
               -- temporarily compensate line-number for multi-line input
-              result <- timeIt runAllocs $ lift $
+              (stats, result) <- runAndPrintStats runAllocs $ lift $
                 runStmtWithLineNum fst_line_num ml_stmt GHC.RunToCompletion
-              return $ Just (runSuccess result)
+              return $
+                CommandComplete ml_stmt (Just . runSuccess <$> result) stats
         else do -- single line input and :{ - multiline input
           last_line_num <- line_number <$> getGHCiState
           -- reconstruct first line num from last line num and stmt
@@ -1018,9 +1051,9 @@ runOneCommand eh gCmd = do
               stmt_nl_cnt2 = length [ () | '\n' <- stmt' ]
               stmt' = dropLeadingWhiteLines stmt -- runStmt doesn't like leading empty lines
           -- temporarily compensate line-number for multi-line input
-          result <- timeIt runAllocs $ lift $
+          (stats, result) <- runAndPrintStats runAllocs $ lift $
             runStmtWithLineNum fst_line_num stmt' GHC.RunToCompletion
-          return $ Just (runSuccess result)
+          return $ CommandComplete stmt' (Just . runSuccess <$> result) stats
 
     -- runStmt wrapper for temporarily overridden line-number
     runStmtWithLineNum :: Int -> String -> SingleStep
@@ -1716,7 +1749,9 @@ wrapDeferTypeErrors load =
     (\_ -> load)
 
 loadModule :: [(FilePath, Maybe Phase)] -> InputT GHCi SuccessFlag
-loadModule fs = timeIt (const Nothing) (loadModule' fs)
+loadModule fs = do
+  (_, result) <- runAndPrintStats (const Nothing) (loadModule' fs)
+  either (liftIO . Exception.throwIO) return result
 
 -- | @:load@ command
 loadModule_ :: [FilePath] -> InputT GHCi ()

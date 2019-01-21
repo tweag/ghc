@@ -187,6 +187,7 @@ instance H.Builder Builder where
 
         Hsc2Hs stage -> (\p -> [p]) <$> templateHscPath stage
         Make dir  -> return [dir -/- "Makefile"]
+        Haddock _ -> haddockDeps Stage1  -- Haddock currently runs in Stage1
         _         -> return []
 
     -- query the builder for some information.

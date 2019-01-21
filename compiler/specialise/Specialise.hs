@@ -2289,10 +2289,12 @@ instance Monad SpecM where
                                case f y of
                                    SpecM z ->
                                        z
+#if !MIN_VERSION_base(4,13,0)
     fail = MonadFail.fail
+#endif
 
 instance MonadFail.MonadFail SpecM where
-    fail str = SpecM $ fail str
+   fail str = SpecM $ error str
 
 instance MonadUnique SpecM where
     getUniqueSupplyM

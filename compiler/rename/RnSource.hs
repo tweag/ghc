@@ -648,13 +648,27 @@ rnClsInstDecl (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = mbinds
                            , cid_sigs = uprags, cid_tyfam_insts = ats
                            , cid_overlap_mode = oflag
                            , cid_datafam_insts = adts })
-  = do { (inst_ty', inst_fvs) <- rnLHsInstType (text "an instance declaration") inst_ty
+  = do { (inst_ty', inst_fvs)
+           <- rnHsSigType (GenericCtx $ text "an instance declaration") inst_ty
        ; let (ktv_names, _, head_ty') = splitLHsInstDeclTy inst_ty'
-       ; let cls = case hsTyGetAppHead_maybe head_ty' of
-                     Nothing -> mkUnboundName (mkTcOccFS (fsLit "<class>"))
-                     Just (dL->L _ cls) -> cls
-                     -- rnLHsInstType has added an error message
-                     -- if hsTyGetAppHead_maybe fails
+       ; cls <-
+           case hsTyGetAppHead_maybe head_ty' of
+             Just (dL->L _ cls) -> pure cls
+             Nothing -> do
+               -- The instance is malformed. We'd still like
+               -- to make *some* progress (rather than failing outright), so
+               -- we report an error and continue for as long as we can.
+               -- Importantly, this error should be thrown before we reach the
+               -- typechecker, lest we encounter different errors that are
+               -- hopelessly confusing (such as the one in Trac #16114).
+               addErrAt (getLoc (hsSigType inst_ty)) $
+                 hang (text "Illegal class instance:" <+> quotes (ppr inst_ty))
+                    2 (vcat [ text "Class instances must be of the form"
+                            , nest 2 $ text "context => C ty_1 ... ty_n"
+                            , text "where" <+> quotes (char 'C')
+                              <+> text "is a class"
+                            ])
+               pure $ mkUnboundName (mkTcOccFS (fsLit "<class>"))
 
           -- Rename the bindings
           -- The typechecker (not the renamer) checks that all
@@ -769,14 +783,6 @@ rnFamInstEqn doc mb_cls rhs_kvars
                           all_nms = all_imp_var_names
                                       ++ map hsLTyVarName bndrs'
                     ; warnUnusedTypePatterns all_nms nms_used
-
-                         -- See Note [Renaming associated types]
-                    ; let bad_tvs = maybe [] (filter is_bad . snd) mb_cls
-                          var_name_set = mkNameSet (map hsLTyVarName bndrs'
-                                                    ++ all_imp_var_names)
-                          is_bad cls_tkv = cls_tkv `elemNameSet` rhs_fvs
-                                           && not (cls_tkv `elemNameSet` var_name_set)
-                    ; unless (null bad_tvs) (badAssocRhs bad_tvs)
 
                     ; return ((bndrs', pats', payload'), rhs_fvs `plusFV` pat_fvs) }
 
@@ -985,6 +991,21 @@ can all be in scope (Trac #5862):
       id :: Ob x a => x a a
       (.) :: (Ob x a, Ob x b, Ob x c) => x b c -> x a b -> x a c
 Here 'k' is in scope in the kind signature, just like 'x'.
+
+Although type family equations can bind type variables with explicit foralls,
+it need not be the case that all variables that appear on the RHS must be bound
+by a forall. For instance, the following is acceptable:
+
+   class C a where
+     type T a b
+   instance C (Maybe a) where
+     type forall b. T (Maybe a) b = Either a b
+
+Even though `a` is not bound by the forall, this is still accepted because `a`
+was previously bound by the `instance C (Maybe a)` part. (see Trac #16116).
+
+In each case, the function which detects improperly bound variables on the RHS
+is TcValidity.checkValidFamPats.
 -}
 
 
@@ -2064,13 +2085,6 @@ are no data constructors we allow h98_style = True
 ***************************************************** -}
 
 ---------------
-badAssocRhs :: [Name] -> RnM ()
-badAssocRhs ns
-  = addErr (hang (text "The RHS of an associated type declaration mentions"
-                  <+> text "out-of-scope variable" <> plural ns
-                  <+> pprWithCommas (quotes . ppr) ns)
-               2 (text "All such variables must be bound on the LHS"))
-
 wrongTyFamName :: Name -> Name -> SDoc
 wrongTyFamName fam_tc_name eqn_tc_name
   = hang (text "Mismatched type name in type family instance.")
