@@ -175,9 +175,43 @@ The "wrapper Id", \$WC, goes as follows
   nothing for the wrapper to do.  That is, if its defn would be
         \$wC = C
 
+Note [Data constructor workers and wrappers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+* Algebraic data types
+  - Always have a worker, with no unfolding
+  - May or may not have a wrapper; see Note [The need for a wrapper]
+
+* Newtypes
+  - Always have a worker, which has a compulsory unfolding (just a cast)
+  - May or may not have a wrapper; see Note [The need for a wrapper]
+
+* INVARIANT: the dictionary constructor for a class
+             never has a wrapper.
+
+* Neither_ the worker _nor_ the wrapper take the dcStupidTheta dicts as arguments
+
+* The wrapper (if it exists) takes dcOrigArgTys as its arguments, as well as
+  the additional multiplicity arguments.
+  The worker takes dataConRepArgTys as its arguments
+  If the worker is absent, dataConRepArgTys is the same as dcOrigArgTys
+
+* The 'NoDataConRep' case is important because not every data constructor can
+  have a wrapper. Specifically levity-polymorphic data constructors (unboxed
+  tuples and unboxed sums) can't be eta-expanded, as this would not respect the
+  levity-polymorphism restriction. Type-class dictionaries don't have a
+  wrapper, they don't need one, and wrappers seem to cause problems with `(~#)`
+  constraints.
+
 Note [The need for a wrapper]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Why might the wrapper have anything to do?  Two reasons:
+All datatypes have a wrapper; see wrapper_reqd in 
+wrapper_reqd in MkId.mkDataConRep.
+
+This is for uniformity. There are multiple reasons a
+wrapper might be useful:
+
+* For simple data type the only purpose of the wrapper is to make them
+  polymorphic in the multiplicity of their fields.
 
 * Unboxing strict fields (with -funbox-strict-fields)
         data T = MkT !(Int,Int)
@@ -200,12 +234,14 @@ Why might the wrapper have anything to do?  Two reasons:
   The third argument is a coercion
         [a] :: [a]~[a]
 
-INVARIANT: the dictionary constructor for a class
-           never has a wrapper.
+* Data family instances may do a cast on the result
+
+* Type variables may be permuted; see MkId
+  Note [Data con wrappers and GADT syntax]
 
 
-A note about the stupid context
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [The stupid context]
+~~~~~~~~~~~~~~~~~~~~~~~~~
 Data types can have a context:
 
         data (Eq a, Ord b) => T a b = T1 a b | T2 a
@@ -569,9 +605,12 @@ perspective.
 -}
 
 -- | Data Constructor Representation
+-- See Note [Data constructor workers and wrappers]
 data DataConRep
-  = NoDataConRep              -- No wrapper
+  = -- NoDataConRep means that the data con has no wrapper
+    NoDataConRep
 
+    -- DCR means that the data con has a wrapper
   | DCR { dcr_wrap_id :: Id   -- Takes src args, unboxes/flattens,
                               -- and constructs the representation
 
@@ -589,29 +628,6 @@ data DataConRep
                                      -- See Note [Bangs on data constructor arguments]
 
     }
--- Algebraic data types always have a worker, and
--- may or may not have a wrapper, depending on whether
--- the wrapper does anything.
---
--- For simple data type the only purpose of the wrapper is to make them
--- polymorphic in the multiplicity of their fields.
---
--- Data types have a worker with no unfolding
--- Newtypes have a worker with a compulsory unfolding (just a cast)
-
--- _Neither_ the worker _nor_ the wrapper take the dcStupidTheta dicts as arguments
-
--- The wrapper (if it exists) takes dcOrigArgTys as its arguments, as well as
--- the additional multiplicity arguments.
--- The worker takes dataConRepArgTys as its arguments
--- If the worker is absent, dataConRepArgTys is the same as dcOrigArgTys
-
--- The 'NoDataConRep' case is important because not every data constructor can
--- have a wrapper. Specifically levity-polymorphic data constructors (unboxed
--- tuples and unboxed sums) can't be eta-expanded, as this would not respect the
--- levity-polymorphism restriction. Type-class dictionaries don't have a
--- wrapper, they don't need one, and wrappers seem to cause problems with `(~#)`
--- constraints.
 
 -------------------------
 

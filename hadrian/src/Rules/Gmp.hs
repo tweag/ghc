@@ -1,5 +1,5 @@
 module Rules.Gmp (
-    gmpRules, gmpBuildPath, gmpObjectsDir, gmpLibraryH
+    gmpRules, gmpBuildPath, gmpObjects, gmpLibraryH
     ) where
 
 import Base
@@ -8,6 +8,17 @@ import Oracles.Setting
 import Packages
 import Target
 import Utilities
+
+-- | Build GMP library objects and return their paths.
+gmpObjects :: Action [FilePath]
+gmpObjects = do
+    gmpPath <- gmpBuildPath
+    need [gmpPath -/- gmpLibraryH]
+    -- The line below causes a Shake Lint failure on Windows, which forced us to
+    -- disable Lint by default. See more details here:
+    -- https://ghc.haskell.org/trac/ghc/ticket/15971.
+    map unifyPath <$>
+        liftIO (getDirectoryFilesIO "" [gmpPath -/- gmpObjectsDir -/- "*.o"])
 
 gmpBase :: FilePath
 gmpBase = pkgPath integerGmp -/- "gmp"

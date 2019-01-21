@@ -2493,7 +2493,6 @@ data UntypedSpliceFlavour
 
 -- | Pending Type-checker Splice
 data PendingTcSplice
-  -- AZ:TODO: The hard-coded GhcTc feels wrong.
   = PendingTcSplice SplicePointName (LHsExpr GhcTc)
 
 {-
