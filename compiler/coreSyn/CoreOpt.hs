@@ -42,7 +42,7 @@ import OptCoercion ( optCoercion )
 import Type     hiding ( substTy, extendTvSubst, extendCvSubst, extendTvSubstList
                        , isInScope, substTyVarBndr, cloneTyVarBndr )
 import Coercion hiding ( substCo, substCoVarBndr )
-import TyCon        ( tyConArity )
+import TyCon        ( tyConArity, isNewTyCon )
 import TysWiredIn
 import PrelNames
 import BasicTypes
@@ -797,7 +797,7 @@ exprIsConApp_maybe (in_scope, id_unf) expr
     go subst floats (Lam var body) (CC (arg:args) co)
        | exprIsTrivial arg          -- Don't duplicate stuff!
        = go (extend subst var arg) floats body (CC args co)
-    go subst floats (Let bndr@(NonRec b _) expr) cont
+    go subst floats (Let bndr@(NonRec _ _) expr) cont
        = let (subst', bndr') = subst_bind subst bndr in
            go subst' (FloatLet bndr' : floats) expr cont
     go subst floats (Case scrut b _ [(con, vars, expr)]) cont
@@ -832,6 +832,12 @@ exprIsConApp_maybe (in_scope, id_unf) expr
         = pushFloats floats $
           pushCoDataCon con (map (substExpr (text "exprIsConApp1") subst) dfun_args) co
 
+        -- See Note [Looking through newtype wrappers]
+        | Just a <- isDataConWrapId_maybe fun
+        , isNewTyCon (dataConTyCon a)
+        , let rhs = uf_tmpl (realIdUnfolding fun)
+        = dealWithNewtypeWrapper (Left in_scope) floats rhs cont
+
         -- Look through unfoldings, but only arity-zero one;
         -- if arity > 0 we are effectively inlining a function call,
         -- and that is the business of callSiteInline.
@@ -858,6 +864,24 @@ exprIsConApp_maybe (in_scope, id_unf) expr
       (c, tys, args) <- x
       return (floats, c, tys, args)
 
+    {-
+    Note [Looking through newtype wrappers]
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    exprIsConApp_maybe should look through newtypes; for example,
+    Size (I# 10) is an application of constructor I# to argument 10
+    via some coercion c.
+
+    For newtypes without a wrapper, this becomes I# 10 `cast` c,
+    and we check for casts. See Trac #5327.
+    For newtypes with a wrapper, we must simplify (\x -> x `cast` c) (I# 10),
+    which is done by dealWithNewtypeWrapper. See Trac #16254 and T16254.
+
+    dealWithNewtypeWrapper is recursive since newtypes can have
+    multiple type arguments.
+    -}
+    dealWithNewtypeWrapper scope floats (Lam v body) (CC (arg:args) co) =
+      dealWithNewtypeWrapper (extend scope v arg) floats body (CC args co)
+    dealWithNewtypeWrapper scope floats expr args = go scope floats expr args
     ----------------------------
     -- Operations on the (Either InScopeSet CoreSubst)
     -- The Left case is wildly dominant
