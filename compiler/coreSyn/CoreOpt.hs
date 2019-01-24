@@ -28,7 +28,7 @@ import CoreSyn
 import CoreSubst
 import CoreUtils
 import CoreFVs
-import MkCore ( FloatBind(..) )
+import MkCore ( FloatBind(..), mkCoreLet )
 import PprCore  ( pprCoreBindings, pprRules )
 import OccurAnal( occurAnalyseExpr, occurAnalysePgm )
 import Literal  ( Literal(LitString) )
@@ -42,7 +42,7 @@ import OptCoercion ( optCoercion )
 import Type     hiding ( substTy, extendTvSubst, extendCvSubst, extendTvSubstList
                        , isInScope, substTyVarBndr, cloneTyVarBndr )
 import Coercion hiding ( substCo, substCoVarBndr )
-import TyCon        ( tyConArity )
+import TyCon        ( tyConArity, isNewTyCon )
 import TysWiredIn
 import PrelNames
 import BasicTypes
@@ -819,6 +819,40 @@ Is transformed into
 Which, effectively, means emitting a float `let x = arg` and recursively
 analysing the body.
 
+This strategy requires a special case for newtypes. Suppose we have
+   newtype T a b where
+     MkT :: a -> T b a   -- Note args swapped
+
+This defines a worker function MkT, a wrapper function $WMkT, and an axT:
+   $WMkT :: forall a b. a -> T b a
+   $WMkT = /\b a. \(x:a). MkT a b x    -- A real binding
+
+   MkT :: forall a b. a -> T a b
+   MkT = /\a b. \(x:a). x |> (ax a b)  -- A compulsory unfolding
+
+   axiom axT :: a ~R# T a b
+
+Now we are optimising
+   case $WMkT (I# 3) |> sym axT of I# y -> ...
+we clearly want to simplify this.  The danger is that we'll end up with
+   let a = I#3 in case a of I# y -> ...
+because in general, we do this on-the-fly beta-reduction
+   (\x. e) blah  -->  let x = blah in e
+and then float the the let.  (Substitution would risk duplicating 'blah'.)
+
+But if the case-of-known-constructor doesn't actually fire (i.e.
+exprIsConApp_maybe does not return Just) then nothing happens, and nothing
+will happen the next time either.
+
+For newtype wrappers we know for sure that the argument of the beta-redex
+is used exactly once, so we can substitute aggressively rather than use a let.
+Hence the special case, implemented in dealWithNewtypeWrapper.
+(It's sound for any beta-redex where the argument is used once, of course.)
+
+dealWithNewtypeWrapper is recursive since newtypes can have
+multiple type arguments.
+
+See test T16254, which checks the behavior of newtypes.
 -}
 
 data ConCont = CC [CoreExpr] Coercion
@@ -861,7 +895,9 @@ exprIsConApp_maybe (in_scope, id_unf) expr
     go subst floats (Lam var body) (CC (arg:args) co)
        | exprIsTrivial arg          -- Don't duplicate stuff!
        = go (extend subst var arg) floats body (CC args co)
-    go subst floats (Let bndr@(NonRec b _) expr) cont
+    go subst floats (Lam var body) (CC (arg:args) co)
+       = go subst floats (mkCoreLet (NonRec var arg) body) (CC args co)
+    go subst floats (Let bndr@(NonRec _ _) expr) cont
        = let (subst', bndr') = subst_bind subst bndr in
            go subst' (FloatLet bndr' : floats) expr cont
     go subst floats (Case scrut b _ [(con, vars, expr)]) cont
@@ -881,6 +917,12 @@ exprIsConApp_maybe (in_scope, id_unf) expr
         | Just con <- isDataConWorkId_maybe fun
         , count isValArg args == idArity fun
         = pushFloats floats $ pushCoDataCon con args co
+
+        -- See Note [beta-reduction in exprIsConApp_maybe]
+        | Just a <- isDataConWrapId_maybe fun
+        , isNewTyCon (dataConTyCon a)
+        , let rhs = uf_tmpl (realIdUnfolding fun)
+        = dealWithNewtypeWrapper (Left in_scope) floats rhs cont
 
         -- Look through data constructor wrappers: they inline late (See Note
         -- [Activation for data constructor wrappers]) but we want to do
@@ -922,6 +964,9 @@ exprIsConApp_maybe (in_scope, id_unf) expr
       (c, tys, args) <- x
       return (floats, c, tys, args)
 
+    dealWithNewtypeWrapper scope floats (Lam v body) (CC (arg:args) co) =
+      dealWithNewtypeWrapper (extend scope v arg) floats body (CC args co)
+    dealWithNewtypeWrapper scope floats expr args = go scope floats expr args
     ----------------------------
     -- Operations on the (Either InScopeSet CoreSubst)
     -- The Left case is wildly dominant
