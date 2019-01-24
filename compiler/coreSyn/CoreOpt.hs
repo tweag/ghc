@@ -799,10 +799,7 @@ exprIsConApp_maybe (in_scope, id_unf) expr
     go subst floats (App fun arg) (CC args co)
        = go subst floats fun (CC (subst_arg subst arg : args) co)
     go subst floats (Lam var body) (CC (arg:args) co)
-       | exprIsTrivial arg          -- Don't duplicate stuff!
-       = go (extend subst var arg) floats body (CC args co)
-    -- Alternative (needs a test, also lack of exprIsTrivial needs a test):
-    -- go subst (FloatLet (NonRec var arg) : floats) body (CC args co)
+       = go subst floats (Let (NonRec var arg) body) (CC args co)
 
     -- This block needs testing
     go subst floats (Let bndr@(NonRec _ _) expr) cont
