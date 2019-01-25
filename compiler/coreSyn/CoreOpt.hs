@@ -803,6 +803,11 @@ exprIsConApp_maybe (in_scope, id_unf) expr
         , let subst = mkOpenSubst in_scope (bndrs `zip` args)
         = pushCoDataCon con (map (substExpr (text "exprIsConApp1") subst) dfun_args) co
 
+        -- Look through wrappers
+        | isDataConWrapId fun
+        , let rhs = uf_tmpl (realIdUnfolding fun)
+        = go (Left in_scope) rhs cont
+
         -- Look through unfoldings, but only arity-zero one;
         -- if arity > 0 we are effectively inlining a function call,
         -- and that is the business of callSiteInline.
