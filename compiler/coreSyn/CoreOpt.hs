@@ -41,7 +41,7 @@ import OptCoercion ( optCoercion )
 import Type     hiding ( substTy, extendTvSubst, extendCvSubst, extendTvSubstList
                        , isInScope, substTyVarBndr, cloneTyVarBndr )
 import Coercion hiding ( substCo, substCoVarBndr )
-import TyCon        ( tyConArity )
+import TyCon        ( tyConArity, isNewTyCon )
 import TysWiredIn
 import PrelNames
 import BasicTypes
@@ -802,6 +802,15 @@ exprIsConApp_maybe (in_scope, id_unf) expr
         , bndrs `equalLength` args    -- See Note [DFun arity check]
         , let subst = mkOpenSubst in_scope (bndrs `zip` args)
         = pushCoDataCon con (map (substExpr (text "exprIsConApp1") subst) dfun_args) co
+
+        -- Look through newtypes
+        | Just a <- isDataConWrapId_maybe fun
+        , let rhs = uf_tmpl (realIdUnfolding fun)
+        , isNewTyCon (dataConTyCon a)
+        , arg:args' <- args
+        = case rhs of
+           Lam v body -> go (extend (Left in_scope) v arg) body (CC args' co)
+           _ -> pprPanic "exprIsConApp_maybe newtype" (ppr rhs)
 
         -- Look through data constructor wrappers: they inline late (See Note
         -- [Activation for data constructor wrappers]) but we want to do
