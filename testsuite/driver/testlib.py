@@ -20,6 +20,7 @@ import subprocess
 
 from testglobals import config, ghc_env, default_testopts, brokens, t
 from testutil import strip_quotes, lndir, link_or_copy_file, passed, failBecause, str_fail, str_pass
+from cpu_features import have_cpu_feature
 import perf_notes as Perf
 from perf_notes import MetricChange
 extra_src_files = {'T4198': ['exitminus1.c']} # TODO: See #12223
@@ -881,6 +882,8 @@ def do_test(name, way, func, args, files):
         if os.path.isfile(src):
             link_or_copy_file(src, dst)
         elif os.path.isdir(src):
+            if os.path.exists(dst):
+                shutil.rmtree(dst)
             os.mkdir(dst)
             lndir(src, dst)
         else:
