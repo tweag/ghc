@@ -257,7 +257,7 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
                   | not (tickishFloatable t) = surely_not_lam e
                    -- eta-reduction could float
                 surely_not_lam _            = True
-                        -- Do not do the "abstract tyyvar" thing if there's
+                        -- Do not do the "abstract tyvar" thing if there's
                         -- a lambda inside, because it defeats eta-reduction
                         --    f = /\a. \x. g a x
                         -- should eta-reduce.
@@ -272,7 +272,7 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
 
               -- Never float join-floats out of a non-join let-binding
               -- So wrap the body in the join-floats right now
-              -- Henc: body_floats1 consists only of let-floats
+              -- Hence: body_floats1 consists only of let-floats
         ; let (body_floats1, body1) = wrapJoinFloatsX body_floats0 body0
 
         -- ANF-ise a constructor or PAP rhs

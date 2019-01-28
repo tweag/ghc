@@ -873,7 +873,7 @@ proxyPrimTyCon :: TyCon
 proxyPrimTyCon = mkPrimTyCon proxyPrimTyConName binders res_kind [Nominal,Nominal]
   where
      -- Kind: forall k. k -> Void#
-     binders = mkTemplateTyConBinders [liftedTypeKind] (\ks-> ks)
+     binders = mkTemplateTyConBinders [liftedTypeKind] id
      res_kind = unboxedTupleKind []
 
 
@@ -889,7 +889,7 @@ eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 eqPrimTyCon  = mkPrimTyCon eqPrimTyConName binders res_kind roles
   where
     -- Kind :: forall k1 k2. k1 -> k2 -> Void#
-    binders  = mkTemplateTyConBinders [liftedTypeKind, liftedTypeKind] (\ks -> ks)
+    binders  = mkTemplateTyConBinders [liftedTypeKind, liftedTypeKind] id
     res_kind = unboxedTupleKind []
     roles    = [Nominal, Nominal, Nominal, Nominal]
 
@@ -900,7 +900,7 @@ eqReprPrimTyCon :: TyCon   -- See Note [The equality types story]
 eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName binders res_kind roles
   where
     -- Kind :: forall k1 k2. k1 -> k2 -> Void#
-    binders  = mkTemplateTyConBinders [liftedTypeKind, liftedTypeKind] (\ks -> ks)
+    binders  = mkTemplateTyConBinders [liftedTypeKind, liftedTypeKind] id
     res_kind = unboxedTupleKind []
     roles    = [Nominal, Nominal, Representational, Representational]
 
@@ -911,7 +911,7 @@ eqPhantPrimTyCon :: TyCon
 eqPhantPrimTyCon = mkPrimTyCon eqPhantPrimTyConName binders res_kind roles
   where
     -- Kind :: forall k1 k2. k1 -> k2 -> Void#
-    binders  = mkTemplateTyConBinders [liftedTypeKind, liftedTypeKind] (\ks -> ks)
+    binders  = mkTemplateTyConBinders [liftedTypeKind, liftedTypeKind] id
     res_kind = unboxedTupleKind []
     roles    = [Nominal, Nominal, Phantom, Phantom]
 
