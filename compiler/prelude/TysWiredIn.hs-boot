@@ -48,3 +48,4 @@ oneDataConTyCon :: TyCon
 omegaDataConTy :: Type
 omegaDataConTyCon :: TyCon
 unrestrictedFunTyCon :: TyCon
+multAddTyCon, multMulTyCon :: TyCon
