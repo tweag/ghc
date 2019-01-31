@@ -2378,26 +2378,30 @@ rebuildCase env scrut case_bndr alts cont
   = do  { tick (KnownBranch case_bndr)
         ; case findAlt (LitAlt lit) alts of
             Nothing           -> missingAlt env case_bndr alts cont
-            Just (_, bs, rhs) -> simple_rhs bs rhs }
+            Just (_, bs, rhs) -> simple_rhs scrut bs rhs }
 
   | Just (con, ty_args, other_args) <- exprIsConApp_maybe (getUnfoldingInRuleMatch env) scrut
         -- Works when the scrutinee is a variable with a known unfolding
         -- as well as when it's an explicit constructor application
   = do  { tick (KnownBranch case_bndr)
+        ; let con_app = Var (dataConWorkId con)
+                                                 `mkTyApps` ty_args
+                                                 `mkApps`   other_args
         ; case findAlt (DataAlt con) alts of
             Nothing  -> missingAlt env case_bndr alts cont
-            Just (DEFAULT, bs, rhs) -> simple_rhs bs rhs
+            Just (DEFAULT, bs, rhs) -> simple_rhs con_app bs rhs
             Just (_, bs, rhs)       -> knownCon env scrut con ty_args other_args
                                                 case_bndr bs rhs cont
         }
   where
-    simple_rhs bs rhs = ASSERT( null bs )
-                        do { (floats1, env') <- simplNonRecX env case_bndr scrut
-                               -- scrut is a constructor application,
-                               -- hence satisfies let/app invariant
-                           ; (floats2, expr') <- simplExprF env' rhs cont
-                           ; return (floats1 `addFloats` floats2, expr') }
-
+    simple_rhs scrut' bs rhs =
+                               ASSERT( null bs )
+                               do { (floats1, env') <- simplNonRecX env case_bndr scrut'
+                                  ; pprTrace "simple_rhs" (ppr scrut <> text " vs " <> ppr scrut' <> text " floats: " <> ppr ( floats1)) (return ())
+                                      -- scrut is a constructor application,
+                                      -- hence satisfies let/app invariant
+                                  ; (floats2, expr') <- simplExprF env' rhs cont
+                                  ; return (floats1 `addFloats` floats2, expr') }
 
 --------------------------------------------------
 --      2. Eliminate the case if scrutinee is evaluated
