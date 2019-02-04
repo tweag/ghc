@@ -102,11 +102,26 @@ patterns such as `"//Prelude.*"` can be used when matching input and output file
 where `//` matches an arbitrary number of path components and `*` matches an entire
 path component, excluding any separators.
 
+### Enabling -Werror
+
+It is useful to enable `-Werror` when building GHC as this setting is
+used in the CI to ensure a warning free build. The `werror` function can be
+used to easily modify a flavour to turn this setting on.
+
+```
+devel2WerrorFlavour :: Flavour
+devel2WerrorFlavour = werror (developmentFlavour Stage2)
+```
+
 ## Packages
 
 Users can add and remove packages from particular build stages. As an example,
 below we add package `base` to Stage0 and remove package `haskeline` from Stage1:
 ```haskell
+...
+import Packages
+...
+
 userFlavour :: Flavour
 userFlavour = defaultFlavour { name = "user", packages = modifiedPackages }
 
@@ -136,7 +151,7 @@ You can choose which integer library to use when builing GHC using the
 (default) and `integerSimple`.
 ```haskell
 userFlavour :: Flavour
-userFlavour = defaultFlavour { name = "user", integerLibrary = integerSimple }
+userFlavour = defaultFlavour { name = "user", integerLibrary = pure integerSimple }
 ```
 
 ### Specifying the final stage to build

@@ -16,7 +16,6 @@ module Demand (
         absDmd, topDmd, botDmd, seqDmd,
         lubDmd, bothDmd,
         lazyApply1Dmd, lazyApply2Dmd, strictApply1Dmd,
-        catchArgDmd,
         isTopDmd, isAbsDmd, isSeqDmd,
         peelUseCall, cleanUseDmd_maybe, strictenDmd, bothCleanDmd,
         addCaseBndrDmd,
@@ -31,12 +30,12 @@ module Demand (
 
         DmdResult, CPRResult,
         isBotRes, isTopRes,
-        topRes, botRes, exnRes, cprProdRes,
+        topRes, botRes, cprProdRes,
         vanillaCprProdRes, cprSumRes,
         appIsBottom, isBottomingSig, pprIfaceStrictSig,
         trimCPRInfo, returnsCPR_maybe,
         StrictSig(..), mkStrictSig, mkClosedStrictSig,
-        nopSig, botSig, exnSig, cprProdSig,
+        nopSig, botSig, cprProdSig,
         isTopSig, hasDemandEnvSig,
         splitStrictSig, strictSigDmdEnv,
         increaseStrictSigArity, etaExpandStrictSig,
@@ -115,105 +114,76 @@ mkJointDmds ss as = zipWithEqual "mkJointDmds" mkJointDmd ss as
 *                                                                      *
 ************************************************************************
 
-        Lazy
-         |
-  ExnStr x -
+          Lazy
            |
         HeadStr
         /     \
     SCall      SProd
-        \      /
+        \     /
         HyperStr
 
 Note [Exceptions and strictness]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Exceptions need rather careful treatment, especially because of 'catch'
-('catch#'), 'catchSTM' ('catchSTM#'), and 'orElse' ('catchRetry#').
-See Trac #11555, #10712 and #13330, and for some more background, #11222.
+We used to smart about catching exceptions, but we aren't anymore.
+See Trac #14998 for the way it's resolved at the moment.
 
-There are three main pieces.
+Here's a historic breakdown:
 
-* The Termination type includes ThrowsExn, meaning "under the given
-  demand this expression either diverges or throws an exception".
+Apparently, exception handling prim-ops didn't use to have any special
+strictness signatures, thus defaulting to topSig, which assumes they use their
+arguments lazily. Joachim was the first to realise that we could provide richer
+information. Thus, in 0558911f91c (Dec 13), he added signatures to
+primops.txt.pp indicating that functions like `catch#` and `catchRetry#` call
+their argument, which is useful information for usage analysis. Still with a
+'Lazy' strictness demand (i.e. 'lazyApply1Dmd'), though, and the world was fine.
 
-  This is relatively uncontroversial. The primops raise# and
-  raiseIO# both return ThrowsExn; nothing else does.
+In 7c0fff4 (July 15), Simon argued that giving `catch#` et al. a
+'strictApply1Dmd' leads to substantial performance gains. That was at the cost
+of correctness, as Trac #10712 proved. So, back to 'lazyApply1Dmd' in
+28638dfe79e (Dec 15).
 
-* An ArgStr has an ExnStr flag to say how to process the Termination
-  result of the argument.  If the ExnStr flag is ExnStr, we squash
-  ThrowsExn to topRes.  (This is done in postProcessDmdResult.)
+Motivated to reproduce the gains of 7c0fff4 without the breakage of Trac #10712,
+Ben opened Trac #11222. Simon made the demand analyser "understand catch" in
+9915b656 (Jan 16) by adding a new 'catchArgDmd', which basically said to call
+its argument strictly, but also swallow any thrown exceptions in
+'postProcessDmdResult'. This was realized by extending the 'Str' constructor of
+'ArgStr' with a 'ExnStr' field, indicating that it catches the exception, and
+adding a 'ThrowsExn' constructor to the 'Termination' lattice as an element
+between 'Dunno' and 'Diverges'. Then along came Trac #11555 and finally #13330,
+so we had to revert to 'lazyApply1Dmd' again in 701256df88c (Mar 17).
 
-Here is the key example
+This left the other variants like 'catchRetry#' having 'catchArgDmd', which is
+where #14998 picked up. Item 1 was concerned with measuring the impact of also
+making `catchRetry#` and `catchSTM#` have 'lazyApply1Dmd'. The result was that
+there was none. We removed the last usages of 'catchArgDmd' in 00b8ecb7
+(Apr 18). There was a lot of dead code resulting from that change, that we
+removed in ef6b283 (Jan 19): We got rid of 'ThrowsExn' and 'ExnStr' again and
+removed any code that was dealing with the peculiarities.
 
-    catchRetry# (\s -> retry# s) blah
+Where did the speed-ups vanish to? In Trac #14998, item 3 established that
+turning 'catch#' strict in its first argument didn't bring back any of the
+alleged performance benefits. Item 2 of that ticket finally found out that it
+was entirely due to 'catchException's new (since Trac #11555) definition, which
+was simply
 
-We analyse the argument (\s -> retry# s) with demand
-    Str ExnStr (SCall HeadStr)
-i.e. with the ExnStr flag set.
-  - First we analyse the argument with the "clean-demand" (SCall
-    HeadStr), getting a DmdResult of ThrowsExn from the saturated
-    application of retry#.
-  - Then we apply the post-processing for the shell, squashing the
-    ThrowsExn to topRes.
+    catchException !io handler = catch io handler
 
-This also applies uniformly to free variables.  Consider
+While 'catchException' is arguably the saner semantics for 'catch', it is an
+internal helper function in "GHC.IO". Its use in
+"GHC.IO.Handle.Internals.do_operation" made for the huge allocation differences:
+Remove the bang and you find the regressions we originally wanted to avoid with
+'catchArgDmd'. See also #exceptions_and_strictness# in "GHC.IO".
 
-    let r = \st -> retry# st
-    in catchRetry# (\s -> ...(r s')..) handler st
+So history keeps telling us that the only possibly correct strictness annotation
+for the first argument of 'catch#' is 'lazyApply1Dmd', because 'catch#' really
+is not strict in its argument: Just try this in GHCi
 
-If we give the first argument of catch a strict signature, we'll get a demand
-'C(S)' for 'r'; that is, 'r' is definitely called with one argument, which
-indeed it is.  But when we post-process the free-var demands on catchRetry#'s
-argument (in postProcessDmdEnv), we'll give 'r' a demand of (Str ExnStr (SCall
-HeadStr)); and if we feed that into r's RHS (which would be reasonable) we'll
-squash the retry just as if we'd inlined 'r'.
+  :set -XScopedTypeVariables
+  import Control.Exception
+  catch undefined (\(_ :: SomeException) -> putStrLn "you'll see this")
 
-* We don't try to get clever about 'catch#' and 'catchSTM#' at the moment. We
-previously (#11222) tried to take advantage of the fact that 'catch#' calls its
-first argument eagerly. See especially commit
-9915b6564403a6d17651e9969e9ea5d7d7e78e7f. We analyzed that first argument with
-a strict demand, and then performed a post-processing step at the end to change
-ThrowsExn to TopRes.  The trouble, I believe, is that to use this approach
-correctly, we'd need somewhat different information about that argument.
-Diverges, ThrowsExn (i.e., diverges or throws an exception), and Dunno are the
-wrong split here.  In order to evaluate part of the argument speculatively,
-we'd need to know that it *does not throw an exception*. That is, that it
-either diverges or succeeds. But we don't currently have a way to talk about
-that. Abstractly and approximately,
-
-catch# m f s = case ORACLE m s of
-  DivergesOrSucceeds -> m s
-  Fails exc -> f exc s
-
-where the magical ORACLE determines whether or not (m s) throws an exception
-when run, and if so which one. If we want, we can safely consider (catch# m f s)
-strict in anything that both branches are strict in (by performing demand
-analysis for 'catch#' in the same way we do for case). We could also safely
-consider it strict in anything demanded by (m s) that is guaranteed not to
-throw an exception under that demand, but I don't know if we have the means
-to express that.
-
-My mind keeps turning to this model (not as an actual change to the type, but
-as a way to think about what's going on in the analysis):
-
-newtype IO a = IO {unIO :: State# s -> (# s, (# SomeException | a #) #)}
-instance Monad IO where
-  return a = IO $ \s -> (# s, (# | a #) #)
-  IO m >>= f = IO $ \s -> case m s of
-    (# s', (# e | #) #) -> (# s', e #)
-    (# s', (# | a #) #) -> unIO (f a) s
-raiseIO# e s = (# s, (# e | #) #)
-catch# m f s = case m s of
-  (# s', (# e | #) #) -> f e s'
-  res -> res
-
-Thinking about it this way seems likely to be productive for analyzing IO
-exception behavior, but imprecise exceptions and asynchronous exceptions remain
-quite slippery beasts. Can we incorporate them? I think we can. We can imagine
-applying 'seq#' to evaluate @m s@, determining whether it throws an imprecise
-or asynchronous exception or whether it succeeds or throws an IO exception.
-This confines the peculiarities to 'seq#', which is indeed rather essentially
-peculiar.
+Any analysis that assumes otherwise will be broken in some way or another
+(beyond `-fno-pendantic-bottoms`).
 -}
 
 -- | Vanilla strictness domain
@@ -239,22 +209,13 @@ data StrDmd
 type ArgStr = Str StrDmd
 
 -- | Strictness demand.
-data Str s = Lazy         -- ^ Lazy (top of the lattice)
-           | Str ExnStr s -- ^ Strict
+data Str s = Lazy  -- ^ Lazy (top of the lattice)
+           | Str s -- ^ Strict
   deriving ( Eq, Show )
-
--- | How are exceptions handled for strict demands?
-data ExnStr  -- See Note [Exceptions and strictness]
-  = VanStr   -- ^ "Vanilla" case, ordinary strictness
-
-  | ExnStr   -- ^ @Str ExnStr d@ means be strict like @d@ but then degrade
-             -- the 'Termination' info 'ThrowsExn' to 'Dunno'.
-             -- e.g. the first argument of @catch@ has this strictness.
-  deriving( Eq, Show )
 
 -- Well-formedness preserving constructors for the Strictness domain
 strBot, strTop :: ArgStr
-strBot = Str VanStr HyperStr
+strBot = Str HyperStr
 strTop = Lazy
 
 mkSCall :: StrDmd -> StrDmd
@@ -272,8 +233,8 @@ isLazy Lazy     = True
 isLazy (Str {}) = False
 
 isHyperStr :: ArgStr -> Bool
-isHyperStr (Str _ HyperStr) = True
-isHyperStr _                = False
+isHyperStr (Str HyperStr) = True
+isHyperStr _              = False
 
 -- Pretty-printing
 instance Outputable StrDmd where
@@ -283,18 +244,13 @@ instance Outputable StrDmd where
   ppr (SProd sx)    = char 'S' <> parens (hcat (map ppr sx))
 
 instance Outputable ArgStr where
-  ppr (Str x s)     = (case x of VanStr -> empty; ExnStr -> char 'x')
-                      <> ppr s
-  ppr Lazy          = char 'L'
+  ppr (Str s) = ppr s
+  ppr Lazy    = char 'L'
 
 lubArgStr :: ArgStr -> ArgStr -> ArgStr
-lubArgStr Lazy        _           = Lazy
-lubArgStr _           Lazy        = Lazy
-lubArgStr (Str x1 s1) (Str x2 s2) = Str (x1 `lubExnStr` x2) (s1 `lubStr` s2)
-
-lubExnStr :: ExnStr -> ExnStr -> ExnStr
-lubExnStr VanStr VanStr = VanStr
-lubExnStr _      _      = ExnStr   -- ExnStr is lazier
+lubArgStr Lazy     _        = Lazy
+lubArgStr _        Lazy     = Lazy
+lubArgStr (Str s1) (Str s2) = Str (s1 `lubStr` s2)
 
 lubStr :: StrDmd -> StrDmd -> StrDmd
 lubStr HyperStr s              = s
@@ -311,13 +267,9 @@ lubStr (SProd _) (SCall _)     = HeadStr
 lubStr HeadStr   _             = HeadStr
 
 bothArgStr :: ArgStr -> ArgStr -> ArgStr
-bothArgStr Lazy        s           = s
-bothArgStr s           Lazy        = s
-bothArgStr (Str x1 s1) (Str x2 s2) = Str (x1 `bothExnStr` x2) (s1 `bothStr` s2)
-
-bothExnStr :: ExnStr -> ExnStr -> ExnStr
-bothExnStr ExnStr ExnStr = ExnStr
-bothExnStr _      _      = VanStr
+bothArgStr Lazy     s        = s
+bothArgStr s        Lazy     = s
+bothArgStr (Str s1) (Str s2) = Str (s1 `bothStr` s2)
 
 bothStr :: StrDmd -> StrDmd -> StrDmd
 bothStr HyperStr _             = HyperStr
@@ -345,13 +297,13 @@ seqStrDmdList [] = ()
 seqStrDmdList (d:ds) = seqArgStr d `seq` seqStrDmdList ds
 
 seqArgStr :: ArgStr -> ()
-seqArgStr Lazy      = ()
-seqArgStr (Str x s) = x `seq` seqStrDmd s
+seqArgStr Lazy    = ()
+seqArgStr (Str s) = seqStrDmd s
 
 -- Splitting polymorphic demands
 splitArgStrProdDmd :: Int -> ArgStr -> Maybe [ArgStr]
-splitArgStrProdDmd n Lazy      = Just (replicate n Lazy)
-splitArgStrProdDmd n (Str _ s) = splitStrProdDmd n s
+splitArgStrProdDmd n Lazy    = Just (replicate n Lazy)
+splitArgStrProdDmd n (Str s) = splitStrProdDmd n s
 
 splitStrProdDmd :: Int -> StrDmd -> Maybe [ArgStr]
 splitStrProdDmd n HyperStr   = Just (replicate n strBot)
@@ -712,12 +664,12 @@ mkHeadStrict :: CleanDemand -> CleanDemand
 mkHeadStrict cd = cd { sd = HeadStr }
 
 mkOnceUsedDmd, mkManyUsedDmd :: CleanDemand -> Demand
-mkOnceUsedDmd (JD {sd = s,ud = a}) = JD { sd = Str VanStr s, ud = Use One a }
-mkManyUsedDmd (JD {sd = s,ud = a}) = JD { sd = Str VanStr s, ud = Use Many a }
+mkOnceUsedDmd (JD {sd = s,ud = a}) = JD { sd = Str s, ud = Use One a }
+mkManyUsedDmd (JD {sd = s,ud = a}) = JD { sd = Str s, ud = Use Many a }
 
 evalDmd :: Demand
 -- Evaluated strictly, and used arbitrarily deeply
-evalDmd = JD { sd = Str VanStr HeadStr, ud = useTop }
+evalDmd = JD { sd = Str HeadStr, ud = useTop }
 
 mkProdDmd :: [Demand] -> CleanDemand
 mkProdDmd dx
@@ -761,16 +713,10 @@ bothDmd (JD {sd = s1, ud = a1}) (JD {sd = s2, ud = a2})
  = JD { sd = s1 `bothArgStr` s2
       , ud = a1 `bothArgUse` a2 }
 
-lazyApply1Dmd, lazyApply2Dmd, strictApply1Dmd, catchArgDmd :: Demand
+lazyApply1Dmd, lazyApply2Dmd, strictApply1Dmd :: Demand
 
-strictApply1Dmd = JD { sd = Str VanStr (SCall HeadStr)
+strictApply1Dmd = JD { sd = Str (SCall HeadStr)
                      , ud = Use Many (UCall One Used) }
-
--- First argument of catchRetry# and catchSTM#:
---    uses its arg once, applies it once
---    and catches exceptions (the ExnStr) part
-catchArgDmd = JD { sd = Str ExnStr (SCall HeadStr)
-                 , ud = Use One (UCall One Used) }
 
 lazyApply1Dmd = JD { sd = Lazy
                    , ud = Use One (UCall One Used) }
@@ -791,7 +737,7 @@ botDmd :: Demand
 botDmd = JD { sd = strBot, ud = useBot }
 
 seqDmd :: Demand
-seqDmd = JD { sd = Str VanStr HeadStr, ud = Use One UHead }
+seqDmd = JD { sd = Str HeadStr, ud = Use One UHead }
 
 oneifyDmd :: JointDmd s (Use u) -> JointDmd s (Use u)
 oneifyDmd (JD { sd = s, ud = Use _ a }) = JD { sd = s, ud = Use One a }
@@ -807,7 +753,7 @@ isAbsDmd (JD {ud = Abs}) = True   -- The strictness part can be HyperStr
 isAbsDmd _               = False  -- for a bottom demand
 
 isSeqDmd :: Demand -> Bool
-isSeqDmd (JD {sd = Str VanStr HeadStr, ud = Use _ UHead}) = True
+isSeqDmd (JD {sd = Str HeadStr, ud = Use _ UHead}) = True
 isSeqDmd _                                                = False
 
 isUsedOnce :: JointDmd (Str s) (Use u) -> Bool
@@ -865,8 +811,8 @@ trimToType (JD { sd = ms, ud = mu }) ts
   = JD (go_ms ms ts) (go_mu mu ts)
   where
     go_ms :: ArgStr -> TypeShape -> ArgStr
-    go_ms Lazy      _  = Lazy
-    go_ms (Str x s) ts = Str x (go_s s ts)
+    go_ms Lazy    _  = Lazy
+    go_ms (Str s) ts = Str (go_s s ts)
 
     go_s :: StrDmd -> TypeShape -> StrDmd
     go_s HyperStr    _            = HyperStr
@@ -932,11 +878,11 @@ splitProdDmd_maybe :: Demand -> Maybe [Demand]
 -- The demand is not necessarily strict!
 splitProdDmd_maybe (JD { sd = s, ud = u })
   = case (s,u) of
-      (Str _ (SProd sx), Use _ u) | Just ux <- splitUseProdDmd (length sx) u
-                                  -> Just (mkJointDmds sx ux)
-      (Str _ s, Use _ (UProd ux)) | Just sx <- splitStrProdDmd (length ux) s
-                                  -> Just (mkJointDmds sx ux)
-      (Lazy,    Use _ (UProd ux)) -> Just (mkJointDmds (replicate (length ux) Lazy) ux)
+      (Str (SProd sx), Use _ u) | Just ux <- splitUseProdDmd (length sx) u
+                                -> Just (mkJointDmds sx ux)
+      (Str s, Use _ (UProd ux)) | Just sx <- splitStrProdDmd (length ux) s
+                                -> Just (mkJointDmds sx ux)
+      (Lazy,  Use _ (UProd ux)) -> Just (mkJointDmds (replicate (length ux) Lazy) ux)
       _ -> Nothing
 
 {-
@@ -949,9 +895,7 @@ splitProdDmd_maybe (JD { sd = s, ud = u })
 
 DmdResult:     Dunno CPRResult
                /
-           ThrowsExn
-             /
-        Diverges
+          Diverges
 
 
 CPRResult:         NoCPR
@@ -970,9 +914,11 @@ We have lubs, but not glbs; but that is ok.
 
 data Termination r
   = Diverges    -- Definitely diverges
-  | ThrowsExn   -- Definitely throws an exception or diverges
   | Dunno r     -- Might diverge or converge
   deriving( Eq, Show )
+
+-- At this point, Termination is just the 'Lifted' lattice over 'r'
+-- (https://hackage.haskell.org/package/lattices/docs/Algebra-Lattice-Lifted.html)
 
 type DmdResult = Termination CPRResult
 
@@ -989,10 +935,7 @@ lubCPR _ _                     = NoCPR
 
 lubDmdResult :: DmdResult -> DmdResult -> DmdResult
 lubDmdResult Diverges       r              = r
-lubDmdResult ThrowsExn      Diverges       = ThrowsExn
-lubDmdResult ThrowsExn      r              = r
-lubDmdResult (Dunno c1)     Diverges       = Dunno c1
-lubDmdResult (Dunno c1)     ThrowsExn      = Dunno c1
+lubDmdResult r              Diverges       = r
 lubDmdResult (Dunno c1)     (Dunno c2)     = Dunno (c1 `lubCPR` c2)
 -- This needs to commute with defaultDmd, i.e.
 -- defaultDmd (r1 `lubDmdResult` r2) = defaultDmd r1 `lubDmd` defaultDmd r2
@@ -1001,7 +944,6 @@ lubDmdResult (Dunno c1)     (Dunno c2)     = Dunno (c1 `lubCPR` c2)
 bothDmdResult :: DmdResult -> Termination () -> DmdResult
 -- See Note [Asymmetry of 'both' for DmdType and DmdResult]
 bothDmdResult _ Diverges   = Diverges
-bothDmdResult r ThrowsExn  = case r of { Diverges -> r; _ -> ThrowsExn }
 bothDmdResult r (Dunno {}) = r
 -- This needs to commute with defaultDmd, i.e.
 -- defaultDmd (r1 `bothDmdResult` r2) = defaultDmd r1 `bothDmd` defaultDmd r2
@@ -1009,7 +951,6 @@ bothDmdResult r (Dunno {}) = r
 
 instance Outputable r => Outputable (Termination r) where
   ppr Diverges      = char 'b'
-  ppr ThrowsExn     = char 'x'
   ppr (Dunno c)     = ppr c
 
 instance Outputable CPRResult where
@@ -1019,7 +960,6 @@ instance Outputable CPRResult where
 
 seqDmdResult :: DmdResult -> ()
 seqDmdResult Diverges  = ()
-seqDmdResult ThrowsExn = ()
 seqDmdResult (Dunno c) = seqCPRResult c
 
 seqCPRResult :: CPRResult -> ()
@@ -1034,9 +974,8 @@ seqCPRResult RetProd      = ()
 
 -- [cprRes] lets us switch off CPR analysis
 -- by making sure that everything uses TopRes
-topRes, exnRes, botRes :: DmdResult
+topRes, botRes :: DmdResult
 topRes = Dunno NoCPR
-exnRes = ThrowsExn
 botRes = Diverges
 
 cprSumRes :: ConTag -> DmdResult
@@ -1052,10 +991,9 @@ isTopRes :: DmdResult -> Bool
 isTopRes (Dunno NoCPR) = True
 isTopRes _             = False
 
+-- | True if the result diverges or throws an exception
 isBotRes :: DmdResult -> Bool
--- True if the result diverges or throws an exception
 isBotRes Diverges   = True
-isBotRes ThrowsExn  = True
 isBotRes (Dunno {}) = False
 
 trimCPRInfo :: Bool -> Bool -> DmdResult -> DmdResult
@@ -1084,7 +1022,7 @@ retCPR_maybe NoCPR       = Nothing
 -- and [defaultDmd vs. resTypeArgDmd]
 defaultDmd :: Termination r -> Demand
 defaultDmd (Dunno {}) = absDmd
-defaultDmd _          = botDmd  -- Diverges or ThrowsExn
+defaultDmd _          = botDmd  -- Diverges
 
 resTypeArgDmd :: Termination r -> Demand
 -- TopRes and BotRes are polymorphic, so that
@@ -1093,7 +1031,7 @@ resTypeArgDmd :: Termination r -> Demand
 -- This function makes that concrete
 -- Also see Note [defaultDmd vs. resTypeArgDmd]
 resTypeArgDmd (Dunno _) = topDmd
-resTypeArgDmd _         = botDmd   -- Diverges or ThrowsExn
+resTypeArgDmd _         = botDmd   -- Diverges
 
 {-
 Note [defaultDmd and resTypeArgDmd]
@@ -1222,7 +1160,6 @@ toBothDmdArg :: DmdType -> BothDmdArg
 toBothDmdArg (DmdType fv _ r) = (fv, go r)
   where
     go (Dunno {}) = Dunno ()
-    go ThrowsExn  = ThrowsExn
     go Diverges   = Diverges
 
 bothDmdType :: DmdType -> BothDmdArg -> DmdType
@@ -1252,10 +1189,9 @@ emptyDmdEnv = emptyVarEnv
 -- (lazy, absent, no CPR information, no termination information).
 -- Note that it is ''not'' the top of the lattice (which would be "may use everything"),
 -- so it is (no longer) called topDmd
-nopDmdType, botDmdType, exnDmdType :: DmdType
+nopDmdType, botDmdType :: DmdType
 nopDmdType = DmdType emptyDmdEnv [] topRes
 botDmdType = DmdType emptyDmdEnv [] botRes
-exnDmdType = DmdType emptyDmdEnv [] exnRes
 
 cprProdDmdType :: Arity -> DmdType
 cprProdDmdType arity
@@ -1320,14 +1256,14 @@ deferAfterIO d@(DmdType _ _ res) =
         DmdType fv ds _ -> DmdType fv ds (defer_res res)
   where
   defer_res r@(Dunno {}) = r
-  defer_res _            = topRes  -- Diverges and ThrowsExn
+  defer_res _            = topRes  -- Diverges
 
 strictenDmd :: Demand -> CleanDemand
 strictenDmd (JD { sd = s, ud = u})
   = JD { sd = poke_s s, ud = poke_u u }
   where
     poke_s Lazy      = HeadStr
-    poke_s (Str _ s) = s
+    poke_s (Str s)   = s
     poke_u Abs       = UHead
     poke_u (Use _ u) = u
 
@@ -1345,8 +1281,8 @@ toCleanDmd (JD { sd = s, ud = u })
     -- See Note [Analysing with absent demand]
   where
     (ss, s') = case s of
-                Str x s' -> (Str x (), s')
-                Lazy     -> (Lazy,     HeadStr)
+                Str s' -> (Str (), s')
+                Lazy   -> (Lazy,   HeadStr)
 
     (us, u') = case u of
                  Use c u' -> (Use c (), u')
@@ -1362,14 +1298,11 @@ postProcessDmdType du@(JD { sd = ss }) (DmdType fv _ res_ty)
     where
        term_info = case postProcessDmdResult ss res_ty of
                      Dunno _   -> Dunno ()
-                     ThrowsExn -> ThrowsExn
                      Diverges  -> Diverges
 
 postProcessDmdResult :: Str () -> DmdResult -> DmdResult
-postProcessDmdResult Lazy           _         = topRes
-postProcessDmdResult (Str ExnStr _) ThrowsExn = topRes  -- Key point!
--- Note that only ThrowsExn results can be caught, not Diverges
-postProcessDmdResult _              res       = res
+postProcessDmdResult Lazy _   = topRes
+postProcessDmdResult _    res = res
 
 postProcessDmdEnv :: DmdShell -> DmdEnv -> DmdEnv
 postProcessDmdEnv ds@(JD { sd = ss, ud = us }) env
@@ -1377,7 +1310,7 @@ postProcessDmdEnv ds@(JD { sd = ss, ud = us }) env
     -- In this case (postProcessDmd ds) == id; avoid a redundant rebuild
     -- of the environment. Be careful, bad things will happen if this doesn't
     -- match postProcessDmd (see #13977).
-  | Str VanStr _ <- ss
+  | Str _ <- ss
   , Use One _ <- us = env
   | otherwise       = mapVarEnv (postProcessDmd ds) env
   -- For the Absent case just discard all usage information
@@ -1386,7 +1319,7 @@ postProcessDmdEnv ds@(JD { sd = ss, ud = us }) env
 
 reuseEnv :: DmdEnv -> DmdEnv
 reuseEnv = mapVarEnv (postProcessDmd
-                        (JD { sd = Str VanStr (), ud = Use Many () }))
+                        (JD { sd = Str (), ud = Use Many () }))
 
 postProcessUnsat :: DmdShell -> DmdType -> DmdType
 postProcessUnsat ds@(JD { sd = ss }) (DmdType fv args res_ty)
@@ -1399,17 +1332,12 @@ postProcessDmd (JD { sd = ss, ud = us }) (JD { sd = s, ud = a})
   = JD { sd = s', ud = a' }
   where
     s' = case ss of
-           Lazy         -> Lazy
-           Str ExnStr _ -> markExnStr s
-           Str VanStr _ -> s
+           Lazy  -> Lazy
+           Str _ -> s
     a' = case us of
            Abs        -> Abs
            Use Many _ -> markReusedDmd a
            Use One  _ -> a
-
-markExnStr :: ArgStr -> ArgStr
-markExnStr (Str VanStr s) = Str ExnStr s
-markExnStr s              = s
 
 -- Peels one call level from the demand, and also returns
 -- whether it was unsaturated (separately for strictness and usage)
@@ -1421,8 +1349,8 @@ peelCallDmd (JD {sd = s, ud = u})
   = (JD { sd = s', ud = u' }, JD { sd = ss, ud = us })
   where
     (s', ss) = case s of
-                 SCall s' -> (s',       Str VanStr ())
-                 HyperStr -> (HyperStr, Str VanStr ())
+                 SCall s' -> (s',       Str ())
+                 HyperStr -> (HyperStr, Str ())
                  _        -> (HeadStr,  Lazy)
     (u', us) = case u of
                  UCall c u' -> (u',   Use c    ())
@@ -1439,8 +1367,8 @@ peelManyCalls n (JD { sd = str, ud = abs })
   = JD { sd = go_str n str, ud = go_abs n abs }
   where
     go_str :: Int -> StrDmd -> Str ()  -- True <=> unsaturated, defer
-    go_str 0 _          = Str VanStr ()
-    go_str _ HyperStr   = Str VanStr () -- == go_str (n-1) HyperStr, as HyperStr = Call(HyperStr)
+    go_str 0 _          = Str ()
+    go_str _ HyperStr   = Str () -- == go_str (n-1) HyperStr, as HyperStr = Call(HyperStr)
     go_str n (SCall d') = go_str (n-1) d'
     go_str _ _          = Lazy
 
@@ -1691,14 +1619,13 @@ hasDemandEnvSig (StrictSig (DmdType env _ _)) = not (isEmptyVarEnv env)
 strictSigDmdEnv :: StrictSig -> DmdEnv
 strictSigDmdEnv (StrictSig (DmdType env _ _)) = env
 
+-- | True if the signature diverges or throws an exception
 isBottomingSig :: StrictSig -> Bool
--- True if the signature diverges or throws an exception
 isBottomingSig (StrictSig (DmdType _ _ res)) = isBotRes res
 
-nopSig, botSig, exnSig :: StrictSig
+nopSig, botSig :: StrictSig
 nopSig = StrictSig nopDmdType
 botSig = StrictSig botDmdType
-exnSig = StrictSig exnDmdType
 
 cprProdSig :: Arity -> StrictSig
 cprProdSig arity = StrictSig (cprProdDmdType arity)
@@ -1832,7 +1759,7 @@ The occurrence analyser propagates this one-shot infor to the
 binders \pqr and \xyz; see Note [Use one-shot information] in OccurAnal.
 -}
 
--- appIsBottom returns true if an application to n args
+-- | Returns true if an application to n args
 -- would diverge or throw an exception
 -- See Note [Unsaturated applications]
 appIsBottom :: StrictSig -> Int -> Bool
@@ -1955,14 +1882,14 @@ strictifyDictDmd ty dmd = case getUseDmd dmd of
              --
              -- TODO revisit this if we ever do boxity analysis
            | otherwise -> case mkProdDmd $ zipWith strictifyDictDmd (map scaledThing inst_con_arg_tys) dmds of
-               JD {sd = s,ud = a} -> JD (Str VanStr s) (Use n a)
+               JD {sd = s,ud = a} -> JD (Str s) (Use n a)
              -- TODO could optimize with an aborting variant of zipWith since
              -- the superclass dicts are always a prefix
   _ -> dmd -- unused or not a dictionary
 
 strictifyDmd :: Demand -> Demand
 strictifyDmd dmd@(JD { sd = str })
-  = dmd { sd = str `bothArgStr` Str VanStr HeadStr }
+  = dmd { sd = str `bothArgStr` Str HeadStr }
 
 {-
 Note [HyperStr and Use demands]
@@ -2003,30 +1930,19 @@ instance Binary StrDmd where
            _ -> do sx <- get bh
                    return (SProd sx)
 
-instance Binary ExnStr where
-  put_ bh VanStr = putByte bh 0
-  put_ bh ExnStr = putByte bh 1
-
-  get bh = do h <- getByte bh
-              return (case h of
-                        0 -> VanStr
-                        _ -> ExnStr)
-
 instance Binary ArgStr where
     put_ bh Lazy         = do
             putByte bh 0
-    put_ bh (Str x s)    = do
+    put_ bh (Str s)    = do
             putByte bh 1
-            put_ bh x
             put_ bh s
 
     get  bh = do
             h <- getByte bh
             case h of
               0 -> return Lazy
-              _ -> do x <- get bh
-                      s  <- get bh
-                      return $ Str x s
+              _ -> do s  <- get bh
+                      return $ Str s
 
 instance Binary Count where
     put_ bh One  = do putByte bh 0
@@ -2103,13 +2019,11 @@ instance Binary DmdType where
 
 instance Binary DmdResult where
   put_ bh (Dunno c)     = do { putByte bh 0; put_ bh c }
-  put_ bh ThrowsExn     = putByte bh 1
-  put_ bh Diverges      = putByte bh 2
+  put_ bh Diverges      = putByte bh 1
 
   get bh = do { h <- getByte bh
               ; case h of
                   0 -> do { c <- get bh; return (Dunno c) }
-                  1 -> return ThrowsExn
                   _ -> return Diverges }
 
 instance Binary CPRResult where
