@@ -373,8 +373,7 @@ mkHsString :: String -> HsLit (GhcPass p)
 mkHsString s = HsString NoSourceText (mkFastString s)
 
 mkHsStringPrimLit :: FastString -> HsLit (GhcPass p)
-mkHsStringPrimLit fs
-  = HsStringPrim NoSourceText (fastStringToByteString fs)
+mkHsStringPrimLit fs = HsStringPrim NoSourceText (bytesFS fs)
 
 -------------
 userHsLTyVarBndrs :: SrcSpan -> [Located (IdP (GhcPass p))]
@@ -509,13 +508,7 @@ nlHsParTy :: LHsType (GhcPass p)                        -> LHsType (GhcPass p)
 nlHsAppTy f t = noLoc (HsAppTy noExt f (parenthesizeHsType appPrec t))
 nlHsTyVar x   = noLoc (HsTyVar noExt NotPromoted (noLoc x))
 
-nlHsFunTy mult a b = noLoc (HsFunTy noExt mult (parenthesizeHsType funPrec a)
-                                     (parenthesize_fun_tail b))
-  where
-    parenthesize_fun_tail (dL->L loc (HsFunTy ext mult ty1 ty2))
-      = cL loc (HsFunTy ext mult (parenthesizeHsType funPrec ty1)
-                           (parenthesize_fun_tail ty2))
-    parenthesize_fun_tail lty = lty
+nlHsFunTy mult a b = noLoc (HsFunTy noExt mult (parenthesizeHsType funPrec a) b)
 nlHsParTy t   = noLoc (HsParTy noExt t)
 
 nlHsTyConApp :: IdP (GhcPass p) -> [LHsType (GhcPass p)] -> LHsType (GhcPass p)

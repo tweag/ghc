@@ -931,6 +931,18 @@ messages and in GHCi:
                   in a’
         or by using the flag -fno-warn-unused-do-bind
 
+.. ghc-flag:: -fdefer-diagnostics
+    :shortdesc: Defer and group diagnostic messages by severity
+    :type: dynamic
+    :category: verbosity
+
+    Causes GHC to group diagnostic messages by severity and output them after
+    other messages when building a multi-module Haskell program. This flag can
+    make diagnostic messages more visible when used in conjunction with
+    :ghc-flag:`--make` and :ghc-flag:`-j[⟨n⟩]`. Otherwise, it can be hard to
+    find the relevant errors or likely to ignore the warnings when they are
+    mixed with many other messages.
+
 .. ghc-flag:: -fdiagnostics-color=⟨always|auto|never⟩
     :shortdesc: Use colors in error messages
     :type: dynamic
@@ -1087,6 +1099,16 @@ Some flags only make sense for particular target platforms.
     and later). The :ref:`LLVM backend <llvm-code-gen>` will also use
     SSE4.2 if your processor supports it but detects this automatically
     so no flag is required.
+
+.. ghc-flag:: -mbmi2
+    :shortdesc: (x86 only) Use BMI2 for bit manipulation operations
+    :type: dynamic
+    :category: platform-options
+
+    (x86 only, added in GHC 7.4.1) Use the BMI2 instruction set to
+    implement some bit operations when using the
+    :ref:`native code generator <native-code-gen>`. The resulting compiled
+    code will only run on processors that support BMI2 (Intel Haswell and newer, AMD Excavator, Zen and newer).
 
 Miscellaneous flags
 -------------------
