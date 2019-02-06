@@ -420,6 +420,7 @@ isDataConRecordSelector  :: Id -> Bool
 isPrimOpId              :: Id -> Bool
 isFCallId               :: Id -> Bool
 isDataConWorkId         :: Id -> Bool
+isDataConWrapId         :: Id -> Bool
 isDFunId                :: Id -> Bool
 
 isClassOpId_maybe       :: Id -> Maybe Class
