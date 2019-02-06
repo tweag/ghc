@@ -766,21 +766,23 @@ data ConCont = CC [CoreExpr] Coercion
 -- | Returns @Just ([b1..bp], dc, [t1..tk], [x1..xn])@ if the argument
 -- expression is a *saturated* constructor application of the form @let bp in
 -- .. let b1 in dc t1..tk x1 .. xn@, where t1..tk are the
--- *universally-quantified* type args of 'dc'. Note that the floats are in
--- reversed dependency order. Floats can also be single-alternative case
--- expressions. We're looking through lets and cases so that we can detect early
--- that we are in the presence of a data constructor wrappers. Data constructor
--- wrappers are unfolded late, but we really want to trigger
--- case-of-known-constructor as early as possible. See also Note [Activation for
--- data constructor wrappers] in MkId.
+-- *universally-quantified* type args of 'dc'. Floats can also be
+-- single-alternative case expressions. We're looking through lets and cases so
+-- that we can detect early that we are in the presence of a data constructor
+-- wrappers. Data constructor wrappers are unfolded late, but we really want to
+-- trigger case-of-known-constructor as early as possible. See also Note
+-- [Activation for data constructor wrappers] in MkId.
 exprIsConApp_maybe :: InScopeEnv -> CoreExpr -> Maybe ([FloatBind], DataCon, [Type], [CoreExpr])
 exprIsConApp_maybe (in_scope, id_unf) expr
-  = go (Left in_scope) [] expr (CC [] (mkRepReflCo (exprType expr)))
+  = do
+    (floats, con, ty, args) <- go (Left in_scope) [] expr (CC [] (mkRepReflCo (exprType expr)))
+    return $ (reverse floats, con, ty, args)
   where
     go :: Either InScopeSet Subst
              -- Left in-scope  means "empty substitution"
              -- Right subst    means "apply this substitution to the CoreExpr"
        -> [FloatBind] -> CoreExpr -> ConCont
+             -- Notice that the floats here are in reverse order
        -> Maybe ([FloatBind], DataCon, [Type], [CoreExpr])
     go subst floats (Tick t expr) cont
        | not (tickishIsCode t) = go subst floats expr cont
