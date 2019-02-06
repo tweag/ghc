@@ -64,11 +64,8 @@ resolveVisibility kind ty_args
       where
         ts' = go (extendTvSubst env tv t) res ts
 
-    go env (FunTy Omega _ res) (t:ts) -- No type-class args in tycon apps
+    go env (FunTy _ _ res) (t:ts) -- No type-class args in tycon apps
       = (True,t) : (go env res ts)
-
-    go _env (FunTy _ _ _) _ -- No type-class args in tycon apps
-      = error "Functions with non-Omega multiplicity are not yet supported"
 
     go env (TyVarTy tv) ts
       | Just ki <- lookupTyVar env tv = go env ki ts
@@ -85,7 +82,7 @@ hieTypeToIface = foldType go
     go (HLitTy l) = IfaceLitTy l
     go (HForAllTy ((n,k),af) t) = let b = (occNameFS $ getOccName n, k)
                                   in IfaceForAllTy (Bndr (IfaceTvBndr b) af) t
-    go (HFunTy a b) = IfaceFunTy omega_ty a b
+    go (HFunTy w a b) = IfaceFunTy w a b
     go (HQualTy pred b) = IfaceDFunTy pred b
     go (HCastTy a) = a
     go HCoercionTy = IfaceTyVar "<coercion type>"
@@ -162,13 +159,13 @@ getTypeIndex t
       k <- getTypeIndex (varType v)
       i <- getTypeIndex t
       return $ HForAllTy ((varName v,k),a) i
-    go (FunTy Omega a b) = do
+    go (FunTy w a b) = do
       ai <- getTypeIndex a
       bi <- getTypeIndex b
+      wi <- getTypeIndex (fromMult w)
       return $ if isPredTy a
-                  then HQualTy ai bi
-                  else HFunTy ai bi
-    go (FunTy _ _ _) = error "Functions with non-Omega multiplicity are not yet supported"
+                  then case w of Omega -> HQualTy ai bi; _ -> error "Unexpected non-linear predicate"
+                  else HFunTy wi ai bi
     go (LitTy a) = return $ HLitTy $ toIfaceTyLit a
     go (CastTy t _) = do
       i <- getTypeIndex t

@@ -269,7 +269,7 @@ no_anon_wc lty = go lty
       HsWildCardTy _                 -> False
       HsAppTy _ ty1 ty2              -> go ty1 && go ty2
       HsAppKindTy _ ty ki            -> go ty && go ki
-      HsFunTy _ w ty1 ty2            -> go ty1 && go ty2 && go (arrowToMult w)
+      HsFunTy _ w ty1 ty2            -> go ty1 && go ty2 && go (arrowToHsType w)
       HsListTy _ ty                  -> go ty
       HsTupleTy _ _ tys              -> gos tys
       HsSumTy _ tys                  -> gos tys

@@ -1280,7 +1280,7 @@ instance ToHie (Located OverlapMode) where
   toHie (L span _) = pure $ locOnly span
 
 instance ToHie a => ToHie (HsScaled GhcRn a) where
-  toHie = toHie . hsThing
+  toHie (HsScaled w t) = concatM [toHie (arrowToHsType w), toHie t]
 
 instance ToHie (LConDecl GhcRn) where
   toHie (L span decl) = concatM $ makeNode decl span : case decl of
@@ -1409,8 +1409,9 @@ instance ToHie (TScoped (LHsType GhcRn)) where
         [ toHie ty
         , toHie $ TS (ResolvedScopes []) ki
         ]
-      HsFunTy _ HsUnrestrictedArrow a b ->
-        [ toHie a
+      HsFunTy _ w a b ->
+        [ toHie (arrowToHsType w)
+        , toHie a
         , toHie b
         ]
       HsFunTy _ _ _ _ ->

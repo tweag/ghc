@@ -656,7 +656,7 @@ tc_fun_type mode mult ty1 ty2 exp_kind = case mode_level mode of
                            liftedTypeKind exp_kind }
 
 tc_mult :: TcTyMode -> HsArrow GhcRn -> TcM Mult
-tc_mult mode ty = toMult <$> tc_lhs_type mode (arrowToMult ty) multiplicityTy
+tc_mult mode ty = toMult <$> tc_lhs_type mode (arrowToHsType ty) multiplicityTy
 
 ------------------------------------------
 tc_hs_type :: TcTyMode -> HsType GhcRn -> TcKind -> TcM TcType
@@ -698,7 +698,7 @@ tc_hs_type _ ty@(HsSpliceTy {}) _exp_kind
 
 ---------- Functions and applications
 tc_hs_type mode ty@(HsFunTy _ mult ty1 ty2) exp_kind
-  | mode_level mode == KindLevel && not (isHsOmega (arrowToMult mult))
+  | mode_level mode == KindLevel && not (isUnrestricted mult)
     = failWithTc (text "Linear arrows disallowed in kinds:" <+> ppr ty)
   | otherwise
     = tc_fun_type mode mult ty1 ty2 exp_kind
