@@ -24,7 +24,7 @@ HsTypes: Abstract syntax: user-defined types
 
 module HsTypes (
         Mult, HsScaled(..),
-        HsArrow(..), arrowToMult,
+        HsArrow(..), arrowToHsType,
         hsLinear, hsUnrestricted, isUnrestricted,
         HsType(..), NewHsTypeX(..), LHsType, HsKind, LHsKind,
         HsTyVarBndr(..), LHsTyVarBndr,
@@ -759,7 +759,7 @@ omegaDataConHsTy :: HsType GhcRn
 omegaDataConHsTy = HsTyVar noExt NotPromoted (noLoc omegaDataConName)
 
 isUnrestricted :: HsArrow GhcRn -> Bool
-isUnrestricted (arrowToMult -> L _ (HsTyVar _ _ (L _ n))) = n == omegaDataConName
+isUnrestricted (arrowToHsType -> L _ (HsTyVar _ _ (L _ n))) = n == omegaDataConName
 isUnrestricted _ = False
 
 -- | Denotes the type of arrows in the surface language
@@ -776,10 +776,10 @@ data HsArrow pass
 -- | Convert an arrow into its corresponding multiplicity. In essence this
 -- erases the information of whether the programmer wrote an explicit
 -- multiplicity or a shorthand.
-arrowToMult :: HsArrow GhcRn -> LHsType GhcRn
-arrowToMult HsUnrestrictedArrow = noLoc omegaDataConHsTy
-arrowToMult HsLinearArrow = noLoc oneDataConHsTy
-arrowToMult (HsExplicitMult p) = p
+arrowToHsType :: HsArrow GhcRn -> LHsType GhcRn
+arrowToHsType HsUnrestrictedArrow = noLoc omegaDataConHsTy
+arrowToHsType HsLinearArrow = noLoc oneDataConHsTy
+arrowToHsType (HsExplicitMult p) = p
 
 -- | This is used in the syntax. In constructor declaration. It must keep the
 -- arrow representation.
