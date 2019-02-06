@@ -2405,8 +2405,15 @@ rebuildCase env scrut case_bndr alts cont
          ; case wfloats of
              [] -> return (floats1 `addFloats` floats2, expr')
              _ -> return
-               -- If we have FloatBinds coming from the constructor, we cannot
-               -- float past them.
+               -- If we have FloatBinds coming from the constructor wrapper, we
+               -- cannot float past them. We'd need to float the FloatBind
+               -- together with the simplify floats, unfortunately the
+               -- simplifier doesn't have case-floats. The simplest thing we can
+               -- do is to wrap all the floats here. The next iteration of the
+               -- simplifier will take care of all these cases and lets. We
+               -- could try and be more clever (like maybe wfloats only contain
+               -- let binders, so we could float them). But the need for the
+               -- extra complication is not clear.
                    ( emptyFloats env,
                      MkCore.wrapFloats wfloats $
                      wrapFloats (floats1 `addFloats` floats2) expr' )}
@@ -2852,9 +2859,16 @@ knownCon env scrut dc_floats dc dc_ty_args dc_args bndr bs rhs cont
             [] ->
               return (floats1 `addFloats` floats2 `addFloats` floats3, expr')
             _ ->
-              -- If we have FloatBinds coming from the constructor, we cannot
-              -- float past them.
               return ( emptyFloats env
+               -- If we have FloatBinds coming from the constructor wrapper, we
+               -- cannot float past them. We'd need to float the FloatBind
+               -- together with the simplify floats, unfortunately the
+               -- simplifier doesn't have case-floats. The simplest thing we can
+               -- do is to wrap all the floats here. The next iteration of the
+               -- simplifier will take care of all these cases and lets. We
+               -- could try and be more clever (like maybe wfloats only contain
+               -- let binders, so we could float them). But the need for the
+               -- extra complication is not clear.return ( emptyFloats env
                      , MkCore.wrapFloats dc_floats $
                        wrapFloats (floats1 `addFloats` floats2 `addFloats` floats3) expr') }
   where
