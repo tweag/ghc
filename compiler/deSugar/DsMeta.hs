@@ -1181,7 +1181,7 @@ repTy (HsAppKindTy _ ty ki) = do
                                 ty1 <- repLTy ty
                                 ki1 <- repLTy ki
                                 repTappKind ty1 ki1
-repTy (HsFunTy _ (arrowToMult -> w) f a) | isHsOmega w = do
+repTy (HsFunTy _ w f a) | isUnrestricted w = do
                                 f1   <- repLTy f
                                 a1   <- repLTy a
                                 tcon <- repArrowTyCon

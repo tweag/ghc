@@ -20,11 +20,12 @@ HsTypes: Abstract syntax: user-defined types
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module HsTypes (
         Mult, HsScaled(..),
         HsArrow(..), arrowToMult,
-        hsLinear, hsUnrestricted, isHsOmega,
+        hsLinear, hsUnrestricted, isUnrestricted,
         HsType(..), NewHsTypeX(..), LHsType, HsKind, LHsKind,
         HsTyVarBndr(..), LHsTyVarBndr,
         LHsQTyVars(..), HsQTvsRn(..),
@@ -757,9 +758,9 @@ oneDataConHsTy = HsTyVar noExt NotPromoted (noLoc oneDataConName)
 omegaDataConHsTy :: HsType GhcRn
 omegaDataConHsTy = HsTyVar noExt NotPromoted (noLoc omegaDataConName)
 
-isHsOmega :: LHsType GhcRn -> Bool
-isHsOmega (L _ (HsTyVar _ _ (L _ n))) = n == omegaDataConName
-isHsOmega _ = False
+isUnrestricted :: HsArrow GhcRn -> Bool
+isUnrestricted (arrowToMult -> L _ (HsTyVar _ _ (L _ n))) = n == omegaDataConName
+isUnrestricted _ = False
 
 -- | Denotes the type of arrows in the surface language
 data HsArrow pass
