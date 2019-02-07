@@ -707,7 +707,7 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The Activation on a data constructor wrapper allows it to inline only in Phase
-0. This way rules have a change to fire if they mention a data constructor on
+0. This way rules have a chance to fire if they mention a data constructor on
 the left
    RULE "foo"  f (K a b) = ...
 Since the LHS of rules are simplified with InitialPhase, we won't

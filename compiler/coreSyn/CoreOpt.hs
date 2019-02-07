@@ -758,20 +758,84 @@ To get this to come out we need to simplify on the fly
    ((/\a b. K e1 e2) |> g) @t1 @t2
 
 Hence the use of pushCoArgs.
+
+Note [exprIsConApp_maybe on strict datacon wrappers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Consider the following type declaration
+
+data T =
+  MkT !Int
+
+MkT is given a wrapper:
+
+$WMkT n = case n of n' -> T n'
+
+We want, however, to detect case-of-known-constructor opportunities on T, and
+this must be done on the wrapper $WMkT, because wrappers inline very late (see
+Note [Activation for data constructor wrappers] in MkId.). Therefore
+exprIsConApp_maybe must detect that `$WMkT n`, despite being nominally a
+case-expression is actually a constructor application. _i.e._
+
+    case $WMT n of { T p -> rhs }
+
+should become
+
+    case n of { n' -> let p = n' in rhs }
+
+In order for that to happen, exprIsConApp_maybe returns `case n of n' ->` as a
+float, and recursively analyses `T n'`.
+
+Note [beta-reduction in exprIsConApp_maybe]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The unfolding a definition (_e.g._ a let-bound variable or a datacon wrapper) is
+typically a function. For instance, take the wrapper for MkT in Note
+[exprIsConApp_maybe on strict datacon wrappers]:
+
+    $WMkT n = case n of { n' -> T n' }
+
+If `exprIsConApp_maybe` is trying to analyse `$MkT arg`, upon unfolding of $MkT,
+it will see
+
+   (\n -> case n of { n' -> T n' }) arg
+
+In order to go progress, `exprIsConApp_maybe` must perform a beta-reduction.
+
+We don't want to blindly substitute `arg` in the body of the function, because
+it duplicates work. We can (and, in fact, used to) substitute `arg` in the body,
+but only when `arg` is a variable (or something equally work-free).
+
+But, because of Note [exprIsConApp_maybe on strict datacon wrappers],
+'exprIsConApp_maybe' now returns floats. So, instead, we can beta-reduce
+_always_:
+
+    (\x -> body) arg
+
+Is transformed into
+
+   let x = arg in body
+
+Which, effectively, means emitting a float `let x = arg` and recursively
+analysing the body.
+
 -}
 
 data ConCont = CC [CoreExpr] Coercion
                   -- Substitution already applied
 
 -- | Returns @Just ([b1..bp], dc, [t1..tk], [x1..xn])@ if the argument
--- expression is a *saturated* constructor application of the form @let bp in
--- .. let b1 in dc t1..tk x1 .. xn@, where t1..tk are the
--- *universally-quantified* type args of 'dc'. Floats can also be
--- single-alternative case expressions. We're looking through lets and cases so
--- that we can detect early that we are in the presence of a data constructor
--- wrappers. Data constructor wrappers are unfolded late, but we really want to
--- trigger case-of-known-constructor as early as possible. See also Note
--- [Activation for data constructor wrappers] in MkId.
+-- expression is a *saturated* constructor application of the form @let b1 in
+-- .. let bp in dc t1..tk x1 .. xn@, where t1..tk are the
+-- *universally-quantified* type args of 'dc'. Floats can also be (and most
+-- likely are) single-alternative case expressions. Why does
+-- 'exprIsConApp_maybe' return floats? We may have to look through lets and
+-- cases to detect that we are in the presence of a data constructor wrapper. In
+-- this case, we need to return the lets and cases that we traversed. See Note
+-- [exprIsConApp_maybe on strict datacon wrappers]. Data constructor wrappers
+-- are unfolded late, but we really want to trigger case-of-known-constructor as
+-- early as possible. See also Note [Activation for data constructor wrappers]
+-- in MkId.
 exprIsConApp_maybe :: InScopeEnv -> CoreExpr -> Maybe ([FloatBind], DataCon, [Type], [CoreExpr])
 exprIsConApp_maybe (in_scope, id_unf) expr
   = do
