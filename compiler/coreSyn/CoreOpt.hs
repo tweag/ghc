@@ -758,20 +758,34 @@ To get this to come out we need to simplify on the fly
    ((/\a b. K e1 e2) |> g) @t1 @t2
 
 Hence the use of pushCoArgs.
+
+Note [exprIsConApp_maybe on strict datacon wrappers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Consider the following type declaration
+
+data T =
+  MkT !Int
+
+MkT is given a wr
+
 -}
 
 data ConCont = CC [CoreExpr] Coercion
                   -- Substitution already applied
 
 -- | Returns @Just ([b1..bp], dc, [t1..tk], [x1..xn])@ if the argument
--- expression is a *saturated* constructor application of the form @let bp in
--- .. let b1 in dc t1..tk x1 .. xn@, where t1..tk are the
--- *universally-quantified* type args of 'dc'. Floats can also be
--- single-alternative case expressions. We're looking through lets and cases so
--- that we can detect early that we are in the presence of a data constructor
--- wrappers. Data constructor wrappers are unfolded late, but we really want to
--- trigger case-of-known-constructor as early as possible. See also Note
--- [Activation for data constructor wrappers] in MkId.
+-- expression is a *saturated* constructor application of the form @let b1 in
+-- .. let bp in dc t1..tk x1 .. xn@, where t1..tk are the
+-- *universally-quantified* type args of 'dc'. Floats can also be (and most
+-- likely are) single-alternative case expressions. Why does
+-- 'exprIsConApp_maybe' return floats? We may have to look through lets and
+-- cases to detect that we are in the presence of a data constructor wrapper. In
+-- this case, we need to return the lets and cases that we traversed. See Note
+-- [exprIsConApp_maybe on strict datacon wrappers]. Data constructor wrappers
+-- are unfolded late, but we really want to trigger case-of-known-constructor as
+-- early as possible. See also Note [Activation for data constructor wrappers]
+-- in MkId.
 exprIsConApp_maybe :: InScopeEnv -> CoreExpr -> Maybe ([FloatBind], DataCon, [Type], [CoreExpr])
 exprIsConApp_maybe (in_scope, id_unf) expr
   = do
