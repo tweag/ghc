@@ -47,7 +47,7 @@ import GhcPrelude
 import DynFlags
 import CoreSyn
 import PprCore          ()      -- Instances
-import OccurAnal        ( occurAnalyseExpr )
+import OccurAnal        ( occurAnalyseExpr_NoBinderSwap )
 import CoreOpt
 import CoreArity       ( manifestArity )
 import CoreUtils
@@ -101,7 +101,7 @@ mkDFunUnfolding :: [Var] -> DataCon -> [CoreExpr] -> Unfolding
 mkDFunUnfolding bndrs con ops
   = DFunUnfolding { df_bndrs = bndrs
                   , df_con = con
-                  , df_args = map occurAnalyseExpr ops }
+                  , df_args = map occurAnalyseExpr_NoBinderSwap ops } -- see Trac #16288
                   -- See Note [Occurrence analysis of unfoldings]
 
 mkWwInlineRule :: DynFlags -> CoreExpr -> Arity -> Unfolding
@@ -311,7 +311,7 @@ mkCoreUnfolding :: UnfoldingSource -> Bool -> CoreExpr
                 -> UnfoldingGuidance -> Unfolding
 -- Occurrence-analyses the expression before capturing it
 mkCoreUnfolding src top_lvl expr guidance
-  = CoreUnfolding { uf_tmpl         = occurAnalyseExpr expr,
+  = CoreUnfolding { uf_tmpl         = occurAnalyseExpr_NoBinderSwap expr, -- see Trac #16288
                       -- See Note [Occurrence analysis of unfoldings]
                     uf_src          = src,
                     uf_is_top       = top_lvl,
@@ -330,7 +330,7 @@ mkUnfolding :: DynFlags -> UnfoldingSource
 -- Calculates unfolding guidance
 -- Occurrence-analyses the expression before capturing it
 mkUnfolding dflags src is_top_lvl is_bottoming expr
-  = CoreUnfolding { uf_tmpl         = occurAnalyseExpr expr,
+  = CoreUnfolding { uf_tmpl         = occurAnalyseExpr_NoBinderSwap expr, -- see Trac #16288
                       -- See Note [Occurrence analysis of unfoldings]
                     uf_src          = src,
                     uf_is_top       = is_top_lvl,
@@ -342,7 +342,7 @@ mkUnfolding dflags src is_top_lvl is_bottoming expr
   where
     is_top_bottoming = is_top_lvl && is_bottoming
     guidance         = calcUnfoldingGuidance dflags is_top_bottoming expr
-        -- NB: *not* (calcUnfoldingGuidance (occurAnalyseExpr expr))!
+        -- NB: *not* (calcUnfoldingGuidance (occurAnalyseExpr_NoBinderSwap expr))!
         -- See Note [Calculate unfolding guidance on the non-occ-anal'd expression]
 
 {-
