@@ -1,4 +1,3 @@
-
 --                                                              -*-haskell-*-
 -- ---------------------------------------------------------------------------
 -- (c) The University of Glasgow 1997-2003
@@ -1145,20 +1144,20 @@ inst_decl :: { LInstDecl GhcPs }
           -- data/newtype instance declaration
         | data_or_newtype 'instance' capi_ctype tycl_hdr_inst constrs
                           maybe_derivings
-            {% amms (mkDataFamInst (comb4 $1 $4 $5 $6) (snd $ unLoc $1) $3 $4
+            {% amms (mkDataFamInst (comb4 $1 $4 $5 $6) (snd $ unLoc $1) $3 (snd $ unLoc $4)
                                       Nothing (reverse (snd  $ unLoc $5))
                                               (fmap reverse $6))
-                    ((fst $ unLoc $1):mj AnnInstance $2:(fst $ unLoc $5)) }
+                    ((fst $ unLoc $1):mj AnnInstance $2:(fst $ unLoc $4)++(fst $ unLoc $5)) }
 
           -- GADT instance declaration
         | data_or_newtype 'instance' capi_ctype tycl_hdr_inst opt_kind_sig
                  gadt_constrlist
                  maybe_derivings
-            {% amms (mkDataFamInst (comb4 $1 $4 $6 $7) (snd $ unLoc $1) $3 $4
+            {% amms (mkDataFamInst (comb4 $1 $4 $6 $7) (snd $ unLoc $1) $3 (snd $ unLoc $4)
                                    (snd $ unLoc $5) (snd $ unLoc $6)
                                    (fmap reverse $7))
                     ((fst $ unLoc $1):mj AnnInstance $2
-                       :(fst $ unLoc $5)++(fst $ unLoc $6)) }
+                       :(fst $ unLoc $4)++(fst $ unLoc $5)++(fst $ unLoc $6)) }
 
 overlap_pragma :: { Maybe (Located OverlapMode) }
   : '{-# OVERLAPPABLE'    '#-}' {% ajs (Just (sLL $1 $> (Overlappable (getOVERLAPPABLE_PRAGs $1))))
@@ -1244,8 +1243,8 @@ ty_fam_inst_eqn :: { Located ([AddAnn],TyFamInstEqn GhcPs) }
         : 'forall' tv_bndrs '.' type '=' ktype
               {% do { hintExplicitForall (getLoc $1)
                     ; (eqn,ann) <- mkTyFamInstEqn (Just $2) $4 $6
-                    ; ams (sLL $4 $> (mj AnnEqual $5:ann, eqn))
-                          [mu AnnForall $1, mj AnnDot $3]  } }
+                    ; return (sLL $1 $>
+                               (mu AnnForall $1:mj AnnDot $3:mj AnnEqual $5:ann,eqn)) } }
         | type '=' ktype
               {% do { (eqn,ann) <- mkTyFamInstEqn Nothing $1 $3
                     ; return (sLL $1 $> (mj AnnEqual $2:ann, eqn))  } }
@@ -1315,16 +1314,16 @@ at_decl_inst :: { LInstDecl GhcPs }
         -- data/newtype instance declaration, with optional 'instance' keyword
         -- (can't use opt_instance because you get reduce/reduce errors)
         | data_or_newtype capi_ctype tycl_hdr_inst constrs maybe_derivings
-               {% amms (mkDataFamInst (comb4 $1 $3 $4 $5) (snd $ unLoc $1) $2 $3
+               {% amms (mkDataFamInst (comb4 $1 $3 $4 $5) (snd $ unLoc $1) $2 (snd $ unLoc $3)
                                     Nothing (reverse (snd $ unLoc $4))
                                             (fmap reverse $5))
-                       ((fst $ unLoc $1):(fst $ unLoc $4)) }
+                       ((fst $ unLoc $1):(fst $ unLoc $3) ++ (fst $ unLoc $4)) }
 
         | data_or_newtype 'instance' capi_ctype tycl_hdr_inst constrs maybe_derivings
-               {% amms (mkDataFamInst (comb4 $1 $4 $5 $6) (snd $ unLoc $1) $3 $4
+               {% amms (mkDataFamInst (comb4 $1 $4 $5 $6) (snd $ unLoc $1) $3 (snd $ unLoc $4)
                                     Nothing (reverse (snd $ unLoc $5))
                                             (fmap reverse $6))
-                       ((fst $ unLoc $1):mj AnnInstance $2:(fst $ unLoc $5)) }
+                       ((fst $ unLoc $1):mj AnnInstance $2:(fst $ unLoc $4)++(fst $ unLoc $5)) }
 
         -- GADT instance declaration, with optional 'instance' keyword
         -- (can't use opt_instance because you get reduce/reduce errors)
@@ -1332,17 +1331,17 @@ at_decl_inst :: { LInstDecl GhcPs }
                  gadt_constrlist
                  maybe_derivings
                 {% amms (mkDataFamInst (comb4 $1 $3 $5 $6) (snd $ unLoc $1) $2
-                                $3 (snd $ unLoc $4) (snd $ unLoc $5)
+                                (snd $ unLoc $3) (snd $ unLoc $4) (snd $ unLoc $5)
                                 (fmap reverse $6))
-                        ((fst $ unLoc $1):(fst $ unLoc $4)++(fst $ unLoc $5)) }
+                        ((fst $ unLoc $1):(fst $ unLoc $3)++(fst $ unLoc $4)++(fst $ unLoc $5)) }
 
         | data_or_newtype 'instance' capi_ctype tycl_hdr_inst opt_kind_sig
                  gadt_constrlist
                  maybe_derivings
                 {% amms (mkDataFamInst (comb4 $1 $4 $6 $7) (snd $ unLoc $1) $3
-                                $4 (snd $ unLoc $5) (snd $ unLoc $6)
+                                (snd $ unLoc $4) (snd $ unLoc $5) (snd $ unLoc $6)
                                 (fmap reverse $7))
-                        ((fst $ unLoc $1):mj AnnInstance $2:(fst $ unLoc $5)++(fst $ unLoc $6)) }
+                        ((fst $ unLoc $1):mj AnnInstance $2:(fst $ unLoc $4)++(fst $ unLoc $5)++(fst $ unLoc $6)) }
 
 data_or_newtype :: { Located (AddAnn, NewOrData) }
         : 'data'        { sL1 $1 (mj AnnData    $1,DataType) }
@@ -1385,20 +1384,21 @@ tycl_hdr :: { Located (Maybe (LHsContext GhcPs), LHsType GhcPs) }
                                     }
         | type                      { sL1 $1 (Nothing, $1) }
 
-tycl_hdr_inst :: { Located (Maybe (LHsContext GhcPs), Maybe [LHsTyVarBndr GhcPs], LHsType GhcPs) }
+tycl_hdr_inst :: { Located ([AddAnn],(Maybe (LHsContext GhcPs), Maybe [LHsTyVarBndr GhcPs], LHsType GhcPs)) }
         : 'forall' tv_bndrs '.' context '=>' type   {% hintExplicitForall (getLoc $1)
                                                        >> (addAnnotation (gl $4) (toUnicodeAnn AnnDarrow $5) (gl $5)
-                                                           >> ams (sLL $1 $> $ (Just $4, Just $2, $6))
-                                                                  [mu AnnForall $1, mj AnnDot $3])
+                                                           >> return (sLL $1 $> ([mu AnnForall $1, mj AnnDot $3]
+                                                                                , (Just $4, Just $2, $6)))
+                                                          )
                                                     }
         | 'forall' tv_bndrs '.' type   {% hintExplicitForall (getLoc $1)
-                                          >> ams (sLL $1 $> $ (Nothing, Just $2, $4))
-                                                 [mu AnnForall $1, mj AnnDot $3]
+                                          >> return (sLL $1 $> ([mu AnnForall $1, mj AnnDot $3]
+                                                               , (Nothing, Just $2, $4)))
                                        }
         | context '=>' type         {% addAnnotation (gl $1) (toUnicodeAnn AnnDarrow $2) (gl $2)
-                                       >> (return (sLL $1 $> (Just $1, Nothing, $3)))
+                                       >> (return (sLL $1 $>([], (Just $1, Nothing, $3))))
                                     }
-        | type                      { sL1 $1 (Nothing, Nothing, $1) }
+        | type                      { sL1 $1 ([], (Nothing, Nothing, $1)) }
 
 
 capi_ctype :: { Maybe (Located CType) }
@@ -2011,7 +2011,7 @@ tyapps :: { [Located TyEl] } -- NB: This list is reversed
 
 tyapp :: { Located TyEl }
         : atype                         { sL1 $1 $ TyElOpd (unLoc $1) }
-        | TYPEAPP atype                 { sLL $1 $> $ (TyElKindApp (getLoc $1) $2) }
+        | TYPEAPP atype                 { sLL $1 $> $ (TyElKindApp (comb2 $1 $2) $2) }
         | qtyconop                      { sL1 $1 $ TyElOpr (unLoc $1) }
         | tyvarop                       { sL1 $1 $ TyElOpr (unLoc $1) }
         | SIMPLEQUOTE qconop            {% ams (sLL $1 $> $ TyElOpr (unLoc $2))
@@ -2048,12 +2048,8 @@ atype :: { LHsType GhcPs }
                                              [mo $1,mc $3] }
         | '[' ktype ']'               {% ams (sLL $1 $> $ HsListTy  noExt $2) [mos $1,mcs $3] }
         | '(' ktype ')'               {% ams (sLL $1 $> $ HsParTy   noExt $2) [mop $1,mcp $3] }
-        | quasiquote                  { sL1 $1 (HsSpliceTy noExt (unLoc $1) ) }
-        | '$(' exp ')'                {% ams (sLL $1 $> $ mkHsSpliceTy HasParens $2)
-                                             [mj AnnOpenPE $1,mj AnnCloseP $3] }
-        | TH_ID_SPLICE                {%ams (sLL $1 $> $ mkHsSpliceTy HasDollar $ sL1 $1 $ HsVar noExt $
-                                             (sL1 $1 (mkUnqual varName (getTH_ID_SPLICE $1))))
-                                             [mj AnnThIdSplice $1] }
+        | quasiquote                  { mapLoc (HsSpliceTy noExt) $1 }
+        | splice_untyped              { mapLoc (HsSpliceTy noExt) $1 }
                                       -- see Note [Promotion] for the followings
         | SIMPLEQUOTE qcon_nowiredlist {% ams (sLL $1 $> $ HsTyVar noExt IsPromoted $2) [mj AnnSimpleQuote $1,mj AnnName $2] }
         | SIMPLEQUOTE  '(' ktype ',' comma_types1 ')'
@@ -2607,7 +2603,7 @@ exp10 :: { LHsExpr GhcPs }
         | scc_annot exp        {% ams (sLL $1 $> $ HsSCC noExt (snd $ fst $ unLoc $1) (snd $ unLoc $1) $2)
                                       (fst $ fst $ unLoc $1) }
 
-optSemi :: { ([Located a],Bool) }
+optSemi :: { ([Located Token],Bool) }
         : ';'         { ([$1],True) }
         | {- empty -} { ([],False) }
 
@@ -2772,17 +2768,23 @@ aexp2   :: { LHsExpr GhcPs }
                                           [mu AnnOpenB $1,mu AnnCloseB $4] }
 
 splice_exp :: { LHsExpr GhcPs }
-        : TH_ID_SPLICE          {% ams (sL1 $1 $ mkHsSpliceE HasDollar
+        : splice_untyped { mapLoc (HsSpliceE noExt) $1 }
+        | splice_typed   { mapLoc (HsSpliceE noExt) $1 }
+
+splice_untyped :: { Located (HsSplice GhcPs) }
+        : TH_ID_SPLICE          {% ams (sL1 $1 $ mkUntypedSplice HasDollar
                                         (sL1 $1 $ HsVar noExt (sL1 $1 (mkUnqual varName
                                                            (getTH_ID_SPLICE $1)))))
                                        [mj AnnThIdSplice $1] }
-        | '$(' exp ')'          {% ams (sLL $1 $> $ mkHsSpliceE HasParens $2)
+        | '$(' exp ')'          {% ams (sLL $1 $> $ mkUntypedSplice HasParens $2)
                                        [mj AnnOpenPE $1,mj AnnCloseP $3] }
-        | TH_ID_TY_SPLICE       {% ams (sL1 $1 $ mkHsSpliceTE HasDollar
+
+splice_typed :: { Located (HsSplice GhcPs) }
+        : TH_ID_TY_SPLICE       {% ams (sL1 $1 $ mkTypedSplice HasDollar
                                         (sL1 $1 $ HsVar noExt (sL1 $1 (mkUnqual varName
                                                         (getTH_ID_TY_SPLICE $1)))))
                                        [mj AnnThIdTySplice $1] }
-        | '$$(' exp ')'         {% ams (sLL $1 $> $ mkHsSpliceTE HasParens $2)
+        | '$$(' exp ')'         {% ams (sLL $1 $> $ mkTypedSplice HasParens $2)
                                        [mj AnnOpenPTE $1,mj AnnCloseP $3] }
 
 cmdargs :: { [LHsCmdTop GhcPs] }
@@ -3840,7 +3842,7 @@ warnSpaceAfterBang span = do
 -- When two single quotes don't followed by tyvar or gtycon, we report the
 -- error as empty character literal, or TH quote that missing proper type
 -- variable or constructor. See Trac #13450.
-reportEmptyDoubleQuotes :: SrcSpan -> P (Located (HsExpr GhcPs))
+reportEmptyDoubleQuotes :: SrcSpan -> P a
 reportEmptyDoubleQuotes span = do
     thQuotes <- getBit ThQuotesBit
     if thQuotes

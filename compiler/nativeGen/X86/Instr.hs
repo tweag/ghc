@@ -946,7 +946,7 @@ x86_mkStackAllocInstr platform amount
                            ]
             ArchX86_64 | needs_probe_call platform amount ->
                            [ MOV II64 (OpImm (ImmInt amount)) (OpReg rax)
-                           , CALL (Left $ strImmLit "__chkstk_ms") [rax]
+                           , CALL (Left $ strImmLit "___chkstk_ms") [rax]
                            , SUB II64 (OpReg rax) (OpReg rsp)
                            ]
                        | otherwise ->
@@ -1062,6 +1062,8 @@ is_G_instr instr
 -- and all branches pointing to L are retargetted to point to Lnew.
 -- Otherwise, we would repeat the $rsp adjustment for each branch to
 -- L.
+--
+-- Returns a list of (L,Lnew) pairs.
 --
 allocMoreStack
   :: Platform

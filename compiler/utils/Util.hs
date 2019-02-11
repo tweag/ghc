@@ -28,7 +28,7 @@ module Util (
         mapAndUnzip, mapAndUnzip3, mapAccumL2,
         nOfThem, filterOut, partitionWith,
 
-        dropWhileEndLE, spanEnd, last2,
+        dropWhileEndLE, spanEnd, last2, lastMaybe,
 
         foldl1', foldl2, count, countWhile, all2,
 
@@ -779,15 +779,29 @@ last2 = foldl' (\(_,x2) x -> (x2,x)) (partialError,partialError)
   where
     partialError = panic "last2 - list length less than two"
 
+lastMaybe :: [a] -> Maybe a
+lastMaybe [] = Nothing
+lastMaybe xs = Just $ last xs
+
+-- | Split a list into its last element and the initial part of the list.
+-- @snocView xs = Just (init xs, last xs)@ for non-empty lists.
+-- @snocView xs = Nothing@ otherwise.
+-- Unless both parts of the result are guaranteed to be used
+-- prefer separate calls to @last@ + @init@.
+-- If you are guaranteed to use both, this will
+-- be more efficient.
 snocView :: [a] -> Maybe ([a],a)
-        -- Split off the last element
 snocView [] = Nothing
-snocView xs = go [] xs
-            where
-                -- Invariant: second arg is non-empty
-              go acc [x]    = Just (reverse acc, x)
-              go acc (x:xs) = go (x:acc) xs
-              go _   []     = panic "Util: snocView"
+snocView xs
+    | (xs,x) <- go xs
+    = Just (xs,x)
+  where
+    go :: [a] -> ([a],a)
+    go [x] = ([],x)
+    go (x:xs)
+        | !(xs',x') <- go xs
+        = (x:xs', x')
+    go [] = error "impossible"
 
 split :: Char -> String -> [String]
 split c s = case rest of

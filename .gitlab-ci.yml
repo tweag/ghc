@@ -59,6 +59,7 @@ ghc-linters:
     - ./boot
     - ./configure $CONFIGURE_ARGS
     - hadrian/build.cabal.sh -j`mk/detect-cpu-count.sh`
+    - hadrian/build.cabal.sh -j`mk/detect-cpu-count.sh` docs-haddock
   cache:
     key: hadrian
     paths:
@@ -213,6 +214,16 @@ nightly-i386-linux-deb9:
   cache:
     key: linux-i386-deb9
 
+# N.B. Has DEBUG assertions enabled in stage2
+validate-x86_64-linux-deb9-debug:
+  extends: .validate-linux
+  stage: build
+  image: ghcci/x86_64-linux-deb9:0.2
+  variables:
+    BUILD_FLAVOUR: devel2
+  cache:
+    key: linux-x86_64-deb9
+
 validate-x86_64-linux-deb9:
   extends: .validate-linux
   stage: build
@@ -237,7 +248,6 @@ nightly-x86_64-linux-deb9:
 validate-x86_64-linux-deb9-llvm:
   extends: .validate-linux
   stage: full-build
-  allow_failure: true
   image: ghcci/x86_64-linux-deb9:0.2
   variables:
     BUILD_FLAVOUR: perf-llvm
