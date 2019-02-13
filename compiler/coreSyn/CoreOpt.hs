@@ -286,8 +286,8 @@ simple_app env (Var v) as
   = simple_app (soeSetInScope env env') e as
 
   | let unf = idUnfolding v
-  , isCompulsoryUnfolding (idUnfolding v)
-  , isAlwaysActive (idInlineActivation v)
+  , isCompulsoryUnfolding (idUnfolding v) || isDataConWrapId v
+  , isAlwaysActive (idInlineActivation v) || isDataConWrapId v
     -- See Note [Unfold compulsory unfoldings in LHSs]
   = simple_app (soeZapSubst env) (unfoldingTemplate unf) as
 
