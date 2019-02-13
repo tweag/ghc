@@ -362,6 +362,21 @@ emitPrimOp _      [res] AddrToAnyOp [arg]
 emitPrimOp _      [res] AnyToAddrOp [arg]
    = emitAssign (CmmLocal res) arg
 
+-- Every argument to and result from this operation is a state token,
+-- so there is nothing to generate. 
+emitPrimOp _      [] ForkStateOp []
+   = pure ()
+
+-- Every argument to and result from this operation is a state token,
+-- so there is nothing to generate. 
+emitPrimOp _      [] JoinStateOp []
+   = pure ()
+
+--  #define dataToTagzh(r,a)  r=(GET_TAG(((StgClosure *)a)->header.info))
+--  Note: argument may be tagged!
+emitPrimOp dflags [res] DataToTagOp [arg]
+   = emitAssign (CmmLocal res) (getConstrTag dflags (cmmUntag dflags arg))
+
 {- Freezing arrays-of-ptrs requires changing an info table, for the
    benefit of the generational collector.  It needs to scavenge mutable
    objects, even if they are in old space.  When they become immutable,

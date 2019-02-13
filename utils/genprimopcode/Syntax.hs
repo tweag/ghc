@@ -71,12 +71,15 @@ data Category
 -- types
 data Ty
    = TyF    Ty Ty
+   | TyL    Ty Ty -- The linear arrow
    | TyC    Ty Ty -- We only allow one constraint, keeps the grammar simpler
    | TyApp  TyCon [Ty]
    | TyVar  TyVar
    | TyUTup [Ty]   -- unboxed tuples; just a TyCon really, 
                    -- but convenient like this
    deriving (Eq,Show)
+
+data Weight = Omega | One
 
 type TyVar = String
 
