@@ -43,7 +43,7 @@ import Type     hiding ( substTy, extendTvSubst, extendCvSubst, extendTvSubstLis
                        , isInScope, substTyVarBndr, cloneTyVarBndr )
 import Multiplicity
 import Coercion hiding ( substCo, substCoVarBndr )
-import TyCon        ( tyConArity )
+import TyCon        ( tyConArity, isNewTyCon )
 import TysWiredIn
 import PrelNames
 import BasicTypes
@@ -290,6 +290,11 @@ simple_app env (Var v) as
   , isCompulsoryUnfolding (idUnfolding v)
   , isAlwaysActive (idInlineActivation v)
     -- See Note [Unfold compulsory unfoldings in LHSs]
+  = simple_app (soeZapSubst env) (unfoldingTemplate unf) as
+
+  | let unf = idUnfolding v
+  , Just a <- isDataConWrapId_maybe v
+  , isNewTyCon (dataConTyCon a)
   = simple_app (soeZapSubst env) (unfoldingTemplate unf) as
 
   | otherwise

@@ -94,7 +94,7 @@ test('T4918', [], makefile_test, ['T4918'])
 # result of -ddump-simpl, which is never advertised to
 # be very stable
 test('T4945',
-     expect_broken(230),
+     normal,
      makefile_test, ['T4945'])
 
 test('T4957',
@@ -112,7 +112,7 @@ test('T5359a', normal, compile, [''])  # Lint error with -O (OccurAnal)
 test('T5359b', normal, compile, [''])  # Lint error with -O (OccurAnal)
 test('T5458', normal, compile, [''])
 test('simpl021', [extra_files(['Simpl021A.hs', 'Simpl021B.hs'])], makefile_test, ['simpl021'])
-test('T5327', expect_broken(235), makefile_test, ['T5327'])
+test('T5327', normal, makefile_test, ['T5327'])
 test('T5615', normal, makefile_test, ['T5615'])
 test('T5623', normal, makefile_test, ['T5623'])
 test('T13155', normal, makefile_test, ['T13155'])
