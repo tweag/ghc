@@ -976,13 +976,13 @@ maybe_safe :: { ([AddAnn],Bool) }
         | {- empty -}                           { ([],False) }
 
 maybe_pkg :: { ([AddAnn],Maybe StringLiteral) }
-        : STRING  {% let pkgFS = getSTRING $1 in
-                     if looksLikePackageName (unpackFS pkgFS)
-                        then return ([mj AnnPackageName $1], Just (StringLiteral (getSTRINGs $1) pkgFS))
-                        else parseErrorSDoc (getLoc $1) $ vcat [
-                             text "parse error" <> colon <+> quotes (ppr pkgFS),
+        : STRING  {% do { let { pkgFS = getSTRING $1 }
+                        ; unless (looksLikePackageName (unpackFS pkgFS)) $
+                             addError (getLoc $1) $ vcat [
+                             text "Parse error" <> colon <+> quotes (ppr pkgFS),
                              text "Version number or non-alphanumeric" <+>
-                             text "character in package name"] }
+                             text "character in package name"]
+                        ; return ([mj AnnPackageName $1], Just (StringLiteral (getSTRINGs $1) pkgFS)) } }
         | {- empty -}                           { ([],Nothing) }
 
 optqualified :: { ([AddAnn],Bool) }
@@ -1241,7 +1241,7 @@ ty_fam_inst_eqns :: { Located [LTyFamInstEqn GhcPs] }
 
 ty_fam_inst_eqn :: { Located ([AddAnn],TyFamInstEqn GhcPs) }
         : 'forall' tv_bndrs '.' type '=' ktype
-              {% do { hintExplicitForall (getLoc $1)
+              {% do { hintExplicitForall $1
                     ; (eqn,ann) <- mkTyFamInstEqn (Just $2) $4 $6
                     ; return (sLL $1 $>
                                (mu AnnForall $1:mj AnnDot $3:mj AnnEqual $5:ann,eqn)) } }
@@ -1385,13 +1385,13 @@ tycl_hdr :: { Located (Maybe (LHsContext GhcPs), LHsType GhcPs) }
         | type                      { sL1 $1 (Nothing, $1) }
 
 tycl_hdr_inst :: { Located ([AddAnn],(Maybe (LHsContext GhcPs), Maybe [LHsTyVarBndr GhcPs], LHsType GhcPs)) }
-        : 'forall' tv_bndrs '.' context '=>' type   {% hintExplicitForall (getLoc $1)
+        : 'forall' tv_bndrs '.' context '=>' type   {% hintExplicitForall $1
                                                        >> (addAnnotation (gl $4) (toUnicodeAnn AnnDarrow $5) (gl $5)
                                                            >> return (sLL $1 $> ([mu AnnForall $1, mj AnnDot $3]
                                                                                 , (Just $4, Just $2, $6)))
                                                           )
                                                     }
-        | 'forall' tv_bndrs '.' type   {% hintExplicitForall (getLoc $1)
+        | 'forall' tv_bndrs '.' type   {% hintExplicitForall $1
                                           >> return (sLL $1 $> ([mu AnnForall $1, mj AnnDot $3]
                                                                , (Nothing, Just $2, $4)))
                                        }
@@ -1670,7 +1670,7 @@ rule_explicit_activation :: { ([AddAnn]
 
 rule_foralls :: { ([AddAnn], Maybe [LHsTyVarBndr GhcPs], [LRuleBndr GhcPs]) }
         : 'forall' rule_vars '.' 'forall' rule_vars '.'    {% let tyvs = mkRuleTyVarBndrs $2
-                                                              in hintExplicitForall (getLoc $1)
+                                                              in hintExplicitForall $1
                                                               >> checkRuleTyVarBndrNames (mkRuleTyVarBndrs $2)
                                                               >> return ([mu AnnForall $1,mj AnnDot $3,
                                                                           mu AnnForall $4,mj AnnDot $6],
@@ -1858,7 +1858,7 @@ ktypedoc :: { LHsType GhcPs }
 
 -- A ctype is a for-all type
 ctype   :: { LHsType GhcPs }
-        : 'forall' tv_bndrs '.' ctype   {% hintExplicitForall (getLoc $1) >>
+        : 'forall' tv_bndrs '.' ctype   {% hintExplicitForall $1 >>
                                            ams (sLL $1 $> $
                                                 HsForAllTy { hst_bndrs = $2
                                                            , hst_xforall = noExt
@@ -1885,7 +1885,7 @@ ctype   :: { LHsType GhcPs }
 -- to 'field' or to 'Int'. So we must use `ctype` to describe the type.
 
 ctypedoc :: { LHsType GhcPs }
-        : 'forall' tv_bndrs '.' ctypedoc {% hintExplicitForall (getLoc $1) >>
+        : 'forall' tv_bndrs '.' ctypedoc {% hintExplicitForall $1 >>
                                             ams (sLL $1 $> $
                                                  HsForAllTy { hst_bndrs = $2
                                                             , hst_xforall = noExt
@@ -3107,16 +3107,16 @@ qual  :: { LStmt GhcPs (LHsExpr GhcPs) }
 -----------------------------------------------------------------------------
 -- Record Field Update/Construction
 
-fbinds  :: { ([AddAnn],([LHsRecField GhcPs (LHsExpr GhcPs)], Bool)) }
+fbinds  :: { ([AddAnn],([LHsRecField GhcPs (LHsExpr GhcPs)], Maybe SrcSpan)) }
         : fbinds1                       { $1 }
-        | {- empty -}                   { ([],([], False)) }
+        | {- empty -}                   { ([],([], Nothing)) }
 
-fbinds1 :: { ([AddAnn],([LHsRecField GhcPs (LHsExpr GhcPs)], Bool)) }
+fbinds1 :: { ([AddAnn],([LHsRecField GhcPs (LHsExpr GhcPs)], Maybe SrcSpan)) }
         : fbind ',' fbinds1
                 {% addAnnotation (gl $1) AnnComma (gl $2) >>
                    return (case $3 of (ma,(flds, dd)) -> (ma,($1 : flds, dd))) }
-        | fbind                         { ([],([$1], False)) }
-        | '..'                          { ([mj AnnDotdot $1],([],   True)) }
+        | fbind                         { ([],([$1], Nothing)) }
+        | '..'                          { ([mj AnnDotdot $1],([],   Just (getLoc $1))) }
 
 fbind   :: { LHsRecField GhcPs (LHsExpr GhcPs) }
         : qvar '=' texp {% ams  (sLL $1 $> $ HsRecField (sL1 $1 $ mkFieldOcc $1) $3 False)
@@ -3394,7 +3394,7 @@ tyvarop :: { Located RdrName }
 tyvarop : '`' tyvarid '`'       {% ams (sLL $1 $> (unLoc $2))
                                        [mj AnnBackquote $1,mj AnnVal $2
                                        ,mj AnnBackquote $3] }
-        | '.'                   {% hintExplicitForall' (getLoc $1) }
+        | '.'                   { sL1 $1 $ mkUnqual tcClsName (fsLit ".") }
 
 tyvarid :: { Located RdrName }
         : VARID            { sL1 $1 $! mkUnqual tvName (getVARID $1) }
@@ -3495,7 +3495,7 @@ special_id
 special_sym :: { Located FastString }
 special_sym : '!'       {% ams (sL1 $1 (fsLit "!")) [mj AnnBang $1] }
             | '.'       { sL1 $1 (fsLit ".") }
-            | '*'       { sL1 $1 (fsLit (if isUnicode $1 then "\x2605" else "*")) }
+            | '*'       { sL1 $1 (fsLit (starSym (isUnicode $1))) }
 
 -----------------------------------------------------------------------------
 -- Data constructors
@@ -3691,7 +3691,7 @@ getSCC lt = do let s = getSTRING lt
                    err = "Spaces are not allowed in SCCs"
                -- We probably actually want to be more restrictive than this
                if ' ' `elem` unpackFS s
-                   then failSpanMsgP (getLoc lt) (text err)
+                   then addFatalError (getLoc lt) (text err)
                    else return s
 
 -- Utilities for combining source spans
@@ -3779,50 +3779,29 @@ fileSrcSpan = do
 hintLinear :: SrcSpan -> P ()
 hintLinear span = do
   linearEnabled <- getBit LinearTypesBit
-  unless linearEnabled $ parseErrorSDoc span $
+  unless linearEnabled $ addError span $
     text "Enable LinearTypes to allow linear functions"
 
 -- Hint about the MultiWayIf extension
 hintMultiWayIf :: SrcSpan -> P ()
 hintMultiWayIf span = do
   mwiEnabled <- getBit MultiWayIfBit
-  unless mwiEnabled $ parseErrorSDoc span $
+  unless mwiEnabled $ addError span $
     text "Multi-way if-expressions need MultiWayIf turned on"
 
--- Hint about if usage for beginners
-hintIf :: SrcSpan -> String -> P (LHsExpr GhcPs)
-hintIf span msg = do
-  mwiEnabled <- getBit MultiWayIfBit
-  if mwiEnabled
-    then parseErrorSDoc span $ text $ "parse error in if statement"
-    else parseErrorSDoc span $ text $ "parse error in if statement: "++msg
-
--- Hint about explicit-forall, assuming UnicodeSyntax is on
-hintExplicitForall :: SrcSpan -> P ()
-hintExplicitForall span = do
+-- Hint about explicit-forall
+hintExplicitForall :: Located Token -> P ()
+hintExplicitForall tok = do
     forall   <- getBit ExplicitForallBit
     rulePrag <- getBit InRulePragBit
-    unless (forall || rulePrag) $ parseErrorSDoc span $ vcat
-      [ text "Illegal symbol '\x2200' in type" -- U+2200 FOR ALL
+    unless (forall || rulePrag) $ addError (getLoc tok) $ vcat
+      [ text "Illegal symbol" <+> quotes forallSymDoc <+> text "in type"
       , text "Perhaps you intended to use RankNTypes or a similar language"
-      , text "extension to enable explicit-forall syntax: \x2200 <tvs>. <type>"
+      , text "extension to enable explicit-forall syntax:" <+>
+        forallSymDoc <+> text "<tvs>. <type>"
       ]
-
--- Hint about explicit-forall, assuming UnicodeSyntax is off
-hintExplicitForall' :: SrcSpan -> P (Located RdrName)
-hintExplicitForall' span = do
-    forall <- getBit ExplicitForallBit
-    let illegalDot = "Illegal symbol '.' in type"
-    if forall
-      then parseErrorSDoc span $ vcat
-        [ text illegalDot
-        , text "Perhaps you meant to write 'forall <tvs>. <type>'?"
-        ]
-      else parseErrorSDoc span $ vcat
-        [ text illegalDot
-        , text "Perhaps you intended to use RankNTypes or a similar language"
-        , text "extension to enable explicit-forall syntax: forall <tvs>. <type>"
-        ]
+  where
+    forallSymDoc = text (forallSym (isUnicode tok))
 
 checkIfBang :: LHsExpr GhcPs -> Bool
 checkIfBang (dL->L _ (HsVar _ (dL->L _ op))) = op == bang_RDR
@@ -3846,13 +3825,13 @@ reportEmptyDoubleQuotes :: SrcSpan -> P a
 reportEmptyDoubleQuotes span = do
     thQuotes <- getBit ThQuotesBit
     if thQuotes
-      then parseErrorSDoc span $ vcat
+      then addFatalError span $ vcat
         [ text "Parser error on `''`"
         , text "Character literals may not be empty"
         , text "Or perhaps you intended to use quotation syntax of TemplateHaskell,"
         , text "but the type variable or constructor is missing"
         ]
-      else parseErrorSDoc span $ vcat
+      else addFatalError span $ vcat
         [ text "Parser error on `''`"
         , text "Character literals may not be empty"
         ]

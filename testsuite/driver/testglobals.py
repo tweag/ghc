@@ -223,6 +223,9 @@ class TestOptions:
        # the stdin file that this test will use (empty for <name>.stdin)
        self.stdin = ''
 
+       # Set the expected stderr/stdout. '' means infer from test name.
+       self.use_specs = {}
+
        # don't compare output
        self.ignore_stdout = False
        self.ignore_stderr = False
@@ -250,10 +253,20 @@ class TestOptions:
        # extra files to copy to the testdir
        self.extra_files = []
 
-       # Map from metric to expectected value and allowed percentage deviation. e.g.
-       #     { 'bytes allocated': (9300000000, 10) }
-       # To allow a 10% deviation from 9300000000 for the 'bytes allocated' metric.
+       # Map from metric to (function from way and commit to baseline value, allowed percentage deviation) e.g.
+       #     { 'bytes allocated': (
+       #              lambda way commit:
+       #                    ...
+       #                    if way1: return None ...
+       #                    elif way2:return 9300000000 ...
+       #                    ...
+       #              , 10) }
+       # This means no baseline is available for way1. For way 2, allow a 10%
+       # deviation from 9300000000.
        self.stats_range_fields = {}
+
+       # Is the test testing performance?
+       self.is_stats_test = False
 
        # Does this test the compiler's performance as opposed to the generated code.
        self.is_compiler_stats_test = False

@@ -411,8 +411,8 @@ dictSelRule :: Int -> Arity -> RuleFun
 --
 dictSelRule val_index n_ty_args _ id_unf _ args
   | (dict_arg : _) <- drop n_ty_args args
-  , Just ([], _, _, con_args) <- exprIsConApp_maybe id_unf dict_arg
-  = Just (getNth con_args val_index)
+  , Just (floats, _, _, con_args) <- exprIsConApp_maybe id_unf dict_arg
+  = Just (wrapFloats floats $ getNth con_args val_index)
   | otherwise
   = Nothing
 
@@ -730,25 +730,22 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
 
 {- Note [Activation for data constructor wrappers]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 The Activation on a data constructor wrapper allows it to inline only in Phase
-0. This way rules have a change to fire if they mention a data constructor on
+0. This way rules have a chance to fire if they mention a data constructor on
 the left
    RULE "foo"  f (K a b) = ...
 Since the LHS of rules are simplified with InitialPhase, we won't
 inline the wrapper on the LHS either.
 
-It used to activate in phases 2 (afterInitial) and later, but it is problematic
-with linear types adding a wrapper to most constructors: all the rules of the
-form RULE[1] (which fire in phase one) with a data constructor on the left,
-would start misbehaving (there are, for instance, such rules with ':', the list
-constructor).
+On the other hand, this means that exprIsConApp_maybe must be able to deal
+with wrappers so that case-of-constructor is not delayed; see
+Note [exprIsConApp_maybe on data constructors with wrappers] for details.
 
-Even before linear types it made it awkward to write a RULE[1] with a
-constructor on the left: it would work if a constructor had no wrapper, but
-whether a constructor had a wrapper depends, for instance, on the order of type
-argument of that constructors. Therefore changing the order of type argument
-could make previously working RULEs fail.
+It used to activate in phases 2 (afterInitial) and later, but it makes it
+awkward to write a RULE[1] with a constructor on the left: it would work if a
+constructor has no wrapper, but whether a constructor has a wrapper depends, for
+instance, on the order of type argument of that constructors. Therefore changing
+the order of type argument could make previously working RULEs fail.
 
 See also https://ghc.haskell.org/trac/ghc/ticket/15840 .
 
@@ -1315,10 +1312,14 @@ proxyHashId
        (noCafIdInfo `setUnfoldingInfo` evaldUnfolding -- Note [evaldUnfoldings]
                     `setNeverLevPoly`  ty )
   where
-    -- proxy# :: forall k (a:k). Proxy# k a
-    bndrs   = mkTemplateKiTyVars [liftedTypeKind] id
-    [k,t]   = mkTyVarTys bndrs
-    ty      = mkSpecForAllTys bndrs (mkProxyPrimTy k t)
+    -- proxy# :: forall {k} (a:k). Proxy# k a
+    --
+    -- The visibility of the `k` binder is Inferred to match the type of the
+    -- Proxy data constructor (#16293).
+    [kv,tv] = mkTemplateKiTyVars [liftedTypeKind] id
+    kv_ty   = mkTyVarTy kv
+    tv_ty   = mkTyVarTy tv
+    ty      = mkInvForAllTy kv $ mkSpecForAllTy tv $ mkProxyPrimTy kv_ty tv_ty
 
 ------------------------------------------------
 unsafeCoerceId :: Id

@@ -28,7 +28,7 @@ import CoreSyn
 import CoreSubst
 import CoreUtils
 import CoreFVs
-import MkCore ( FloatBind(..) )
+import MkCore ( FloatBind(..), mkCoreLet )
 import PprCore  ( pprCoreBindings, pprRules )
 import OccurAnal( occurAnalyseExpr, occurAnalysePgm )
 import Literal  ( Literal(LitString) )
@@ -43,7 +43,7 @@ import Type     hiding ( substTy, extendTvSubst, extendCvSubst, extendTvSubstLis
                        , isInScope, substTyVarBndr, cloneTyVarBndr )
 import Multiplicity
 import Coercion hiding ( substCo, substCoVarBndr )
-import TyCon        ( tyConArity )
+import TyCon        ( tyConArity, isNewTyCon )
 import TysWiredIn
 import PrelNames
 import BasicTypes
@@ -763,29 +763,138 @@ To get this to come out we need to simplify on the fly
    ((/\a b. K e1 e2) |> g) @t1 @t2
 
 Hence the use of pushCoArgs.
+
+Note [exprIsConApp_maybe on data constructors with wrappers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Problem:
+- some data constructors have wrappers
+- these wrappers inline late (see MkId Note [Activation for data constructor wrappers])
+- but we still want case-of-known-constructor to fire early.
+
+Example:
+   data T = MkT !Int
+   $WMkT n = case n of n' -> MkT n'   -- Wrapper for MkT
+   foo x = case $WMkT e of MkT y -> blah
+
+Here we want the case-of-known-constructor transformation to fire, giving
+   foo x = case e of x' -> let y = x' in blah
+
+Here's how exprIsConApp_maybe achieves this:
+
+0.  Start with scrutinee = $WMkT e
+
+1.  Inline $WMkT on-the-fly.  That's why data-constructor wrappers are marked
+    as expandable. (See CoreUtils.isExpandableApp.) Now we have
+      scrutinee = (\n. case n of n' -> MkT n') e
+
+2.  Beta-reduce the application, generating a floated 'let'.
+    See Note [Special case for newtype wrappers] below.  Now we have
+      scrutinee = case n of n' -> MkT n'
+      with floats {Let n = e}
+
+3.  Float the "case x of x' ->" binding out.  Now we have
+      scrutinee = MkT n'
+      with floats {Let n = e; case n of n' ->}
+
+And now we have a known-constructor MkT that we can return.
+
+Notice that both (2) and (3) require exprIsConApp_maybe to gather and return
+a bunch of floats, both let and case bindings.
+
+Note [Special case for newtype wrappers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The unfolding a definition (_e.g._ a let-bound variable or a datacon wrapper) is
+typically a function. For instance, take the wrapper for MkT in Note
+[exprIsConApp_maybe on data constructors with wrappers]:
+
+    $WMkT n = case n of { n' -> T n' }
+
+If `exprIsConApp_maybe` is trying to analyse `$MkT arg`, upon unfolding of $MkT,
+it will see
+
+   (\n -> case n of { n' -> T n' }) arg
+
+In order to go progress, `exprIsConApp_maybe` must perform a beta-reduction.
+
+We don't want to blindly substitute `arg` in the body of the function, because
+it duplicates work. We can (and, in fact, used to) substitute `arg` in the body,
+but only when `arg` is a variable (or something equally work-free).
+
+But, because of Note [exprIsConApp_maybe on data constructors with wrappers],
+'exprIsConApp_maybe' now returns floats. So, instead, we can beta-reduce
+_always_:
+
+    (\x -> body) arg
+
+Is transformed into
+
+   let x = arg in body
+
+Which, effectively, means emitting a float `let x = arg` and recursively
+analysing the body.
+
+This strategy requires a special case for newtypes. Suppose we have
+   newtype T a b where
+     MkT :: a -> T b a   -- Note args swapped
+
+This defines a worker function MkT, a wrapper function $WMkT, and an axT:
+   $WMkT :: forall a b. a -> T b a
+   $WMkT = /\b a. \(x:a). MkT a b x    -- A real binding
+
+   MkT :: forall a b. a -> T a b
+   MkT = /\a b. \(x:a). x |> (ax a b)  -- A compulsory unfolding
+
+   axiom axT :: a ~R# T a b
+
+Now we are optimising
+   case $WMkT (I# 3) |> sym axT of I# y -> ...
+we clearly want to simplify this.  The danger is that we'll end up with
+   let a = I#3 in case a of I# y -> ...
+because in general, we do this on-the-fly beta-reduction
+   (\x. e) blah  -->  let x = blah in e
+and then float the the let.  (Substitution would risk duplicating 'blah'.)
+
+But if the case-of-known-constructor doesn't actually fire (i.e.
+exprIsConApp_maybe does not return Just) then nothing happens, and nothing
+will happen the next time either.
+
+For newtype wrappers we know for sure that the argument of the beta-redex
+is used exactly once, so we can substitute aggressively rather than use a let.
+Hence the special case, implemented in dealWithNewtypeWrapper.
+(It's sound for any beta-redex where the argument is used once, of course.)
+
+dealWithNewtypeWrapper is recursive since newtypes can have
+multiple type arguments.
+
+See test T16254, which checks the behavior of newtypes.
 -}
 
 data ConCont = CC [CoreExpr] Coercion
                   -- Substitution already applied
 
 -- | Returns @Just ([b1..bp], dc, [t1..tk], [x1..xn])@ if the argument
--- expression is a *saturated* constructor application of the form @let bp in
--- .. let b1 in dc t1..tk x1 .. xn@, where t1..tk are the
--- *universally-quantified* type args of 'dc'. Note that the floats are in
--- reversed dependency order. Floats can also be single-alternative case
--- expressions. We're looking through lets and cases so that we can detect early
--- that we are in the presence of a data constructor wrappers. Data constructor
--- wrappers are unfolded late, but we really want to trigger
--- case-of-known-constructor as early as possible. See also Note [Activation for
--- data constructor wrappers] in MkId.
+-- expression is a *saturated* constructor application of the form @let b1 in
+-- .. let bp in dc t1..tk x1 .. xn@, where t1..tk are the
+-- *universally-quantified* type args of 'dc'. Floats can also be (and most
+-- likely are) single-alternative case expressions. Why does
+-- 'exprIsConApp_maybe' return floats? We may have to look through lets and
+-- cases to detect that we are in the presence of a data constructor wrapper. In
+-- this case, we need to return the lets and cases that we traversed. See Note
+-- [exprIsConApp_maybe on data constructors with wrappers]. Data constructor wrappers
+-- are unfolded late, but we really want to trigger case-of-known-constructor as
+-- early as possible. See also Note [Activation for data constructor wrappers]
+-- in MkId.
 exprIsConApp_maybe :: InScopeEnv -> CoreExpr -> Maybe ([FloatBind], DataCon, [Type], [CoreExpr])
 exprIsConApp_maybe (in_scope, id_unf) expr
-  = go (Left in_scope) [] expr (CC [] (mkRepReflCo (exprType expr)))
+  = do
+    (floats, con, ty, args) <- go (Left in_scope) [] expr (CC [] (mkRepReflCo (exprType expr)))
+    return $ (reverse floats, con, ty, args)
   where
     go :: Either InScopeSet Subst
              -- Left in-scope  means "empty substitution"
              -- Right subst    means "apply this substitution to the CoreExpr"
        -> [FloatBind] -> CoreExpr -> ConCont
+             -- Notice that the floats here are in reverse order
        -> Maybe ([FloatBind], DataCon, [Type], [CoreExpr])
     go subst floats (Tick t expr) cont
        | not (tickishIsCode t) = go subst floats expr cont
@@ -800,15 +909,8 @@ exprIsConApp_maybe (in_scope, id_unf) expr
     go subst floats (Lam var body) (CC (arg:args) co)
        | exprIsTrivial arg          -- Don't duplicate stuff!
        = go (extend subst var arg) floats body (CC args co)
-    go subst floats (Let bndr@(NonRec _ _) expr) cont
-       = let (subst', bndr') = subst_bind subst bndr in
-           go subst' (FloatLet bndr' : floats) expr cont
-    go subst floats (Case scrut b _ [(con, vars, expr)]) cont
-       = let
-          (subst', b') = subst_bndr subst b
-          (subst'', vars') = subst_bndrs subst' vars
-         in
-           go subst'' (FloatCase (subst_arg subst scrut) b' con vars' : floats) expr cont
+    go subst floats (Lam var body) (CC (arg:args) co)
+       = go subst floats (mkCoreLet (NonRec var arg) body) (CC args co)
     go (Right sub) floats (Var v) cont
        = go (Left (substInScope sub))
             floats
@@ -820,6 +922,12 @@ exprIsConApp_maybe (in_scope, id_unf) expr
         | Just con <- isDataConWorkId_maybe fun
         , count isValArg args == idArity fun
         = pushFloats floats $ pushCoDataCon con args co
+
+        -- See Note [Special case for newtype wrappers]
+        | Just a <- isDataConWrapId_maybe fun
+        , isNewTyCon (dataConTyCon a)
+        , let rhs = uf_tmpl (realIdUnfolding fun)
+        = dealWithNewtypeWrapper (Left in_scope) floats rhs cont
 
         -- Look through data constructor wrappers: they inline late (See Note
         -- [Activation for data constructor wrappers]) but we want to do
@@ -848,7 +956,7 @@ exprIsConApp_maybe (in_scope, id_unf) expr
         -- See Note [exprIsConApp_maybe on literal strings]
         | (fun `hasKey` unpackCStringIdKey) ||
           (fun `hasKey` unpackCStringUtf8IdKey)
-        , [arg]                <- args
+        , [arg]              <- args
         , Just (LitString str) <- exprIsLiteral_maybe (in_scope, id_unf) arg
         = pushFloats floats $ dealWithStringLiteral fun str co
         where
@@ -861,6 +969,9 @@ exprIsConApp_maybe (in_scope, id_unf) expr
       (c, tys, args) <- x
       return (floats, c, tys, args)
 
+    dealWithNewtypeWrapper scope floats (Lam v body) (CC (arg:args) co) =
+      dealWithNewtypeWrapper (extend scope v arg) floats body (CC args co)
+    dealWithNewtypeWrapper scope floats expr args = go scope floats expr args
     ----------------------------
     -- Operations on the (Either InScopeSet CoreSubst)
     -- The Left case is wildly dominant

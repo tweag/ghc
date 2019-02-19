@@ -874,9 +874,9 @@ can_eq_nc'
    -> TcS (StopOrContinue Ct)
 
 -- Expand synonyms first; see Note [Type synonyms and canonicalization]
-can_eq_nc' flat _rdr_env _envs ev eq_rel ty1 ps_ty1 ty2 ps_ty2
-  | Just ty1' <- tcView ty1 = can_eq_nc flat ev eq_rel ty1' ps_ty1 ty2  ps_ty2
-  | Just ty2' <- tcView ty2 = can_eq_nc flat ev eq_rel ty1  ps_ty1 ty2' ps_ty2
+can_eq_nc' flat rdr_env envs ev eq_rel ty1 ps_ty1 ty2 ps_ty2
+  | Just ty1' <- tcView ty1 = can_eq_nc' flat rdr_env envs ev eq_rel ty1' ps_ty1 ty2  ps_ty2
+  | Just ty2' <- tcView ty2 = can_eq_nc' flat rdr_env envs ev eq_rel ty1  ps_ty1 ty2' ps_ty2
 
 -- need to check for reflexivity in the ReprEq case.
 -- See Note [Eager reflexivity check]
@@ -1049,7 +1049,7 @@ can_eq_nc_forall ev eq_rel s1 s2
 -- | Compare types for equality, while zonking as necessary. Gives up
 -- as soon as it finds that two types are not equal.
 -- This is quite handy when some unification has made two
--- types in an inert wanted to be equal. We can discover the equality without
+-- types in an inert Wanted to be equal. We can discover the equality without
 -- flattening, which is sometimes very expensive (in the case of type functions).
 -- In particular, this function makes a ~20% improvement in test case
 -- perf/compiler/T5030.
@@ -1578,11 +1578,15 @@ canDecomposableTyConAppOK :: CtEvidence -> EqRel
                           -> TcS ()
 -- Precondition: tys1 and tys2 are the same length, hence "OK"
 canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
-  = case ev of
+  = ASSERT( tys1 `equalLength` tys2 )
+    case ev of
      CtDerived {}
         -> unifyDeriveds loc tc_roles tys1 tys2
 
      CtWanted { ctev_dest = dest }
+                   -- new_locs and tc_roles are both infinite, so
+                   -- we are guaranteed that cos has the same length
+                   -- as tys1 and tys2
         -> do { cos <- zipWith4M unifyWanted new_locs tc_roles tys1 tys2
               ; setWantedEq dest (mkTyConAppCo role tc cos) }
 
@@ -1598,21 +1602,29 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
   where
     loc        = ctEvLoc ev
     role       = eqRelRole eq_rel
+
+      -- infinite, as tyConRolesX returns an infinite tail of Nominal
     tc_roles   = tyConRolesX role tc
 
-      -- the following makes a better distinction between "kind" and "type"
-      -- in error messages
-    bndrs      = tyConBinders tc
-    is_kinds   = map isNamedTyConBinder bndrs
-    is_viss    = map isVisibleTyConBinder bndrs
-
-    kind_xforms = map (\is_kind -> if is_kind then toKindLoc else id) is_kinds
-    vis_xforms  = map (\is_vis  -> if is_vis  then id
-                                   else flip updateCtLocOrigin toInvisibleOrigin)
-                      is_viss
-
-    -- zipWith3 (.) composes its first two arguments and applies it to the third
-    new_locs = zipWith3 (.) kind_xforms vis_xforms (repeat loc)
+      -- Add nuances to the location during decomposition:
+      --  * if the argument is a kind argument, remember this, so that error
+      --    messages say "kind", not "type". This is determined based on whether
+      --    the corresponding tyConBinder is named (that is, dependent)
+      --  * if the argument is invisible, note this as well, again by
+      --    looking at the corresponding binder
+      -- For oversaturated tycons, we need the (repeat loc) tail, which doesn't
+      -- do either of these changes. (Forgetting to do so led to #16188)
+      --
+      -- NB: infinite in length
+    new_locs = [ new_loc
+               | bndr <- tyConBinders tc
+               , let new_loc0 | isNamedTyConBinder bndr = toKindLoc loc
+                              | otherwise               = loc
+                     new_loc  | isVisibleTyConBinder bndr
+                              = updateCtLocOrigin new_loc0 toInvisibleOrigin
+                              | otherwise
+                              = new_loc0 ]
+               ++ repeat loc
 
 -- | Call when canonicalizing an equality fails, but if the equality is
 -- representational, there is some hope for the future.
@@ -1826,10 +1838,11 @@ canEqTyVar ev eq_rel swapped tv1 ps_ty1 xi2 ps_xi2
   | k1 `tcEqType` k2
   = canEqTyVarHomo ev eq_rel swapped tv1 ps_ty1 xi2 ps_xi2
 
-         -- Note [Flattening] in TcFlatten gives us (F2), which says that
-         -- flattening is always homogeneous (doesn't change kinds). But
-         -- perhaps by flattening the kinds of the two sides of the equality
-         -- at hand makes them equal. So let's try that.
+  -- So the LHS and RHS don't have equal kinds
+  -- Note [Flattening] in TcFlatten gives us (F2), which says that
+  -- flattening is always homogeneous (doesn't change kinds). But
+  -- perhaps by flattening the kinds of the two sides of the equality
+  -- at hand makes them equal. So let's try that.
   | otherwise
   = do { (flat_k1, k1_co) <- flattenKind loc flav k1  -- k1_co :: flat_k1 ~N kind(xi1)
        ; (flat_k2, k2_co) <- flattenKind loc flav k2  -- k2_co :: flat_k2 ~N kind(xi2)
@@ -1842,7 +1855,7 @@ canEqTyVar ev eq_rel swapped tv1 ps_ty1 xi2 ps_xi2
                         , ppr flat_k2
                         , ppr k2_co ])
 
-         -- we know the LHS is a tyvar. So let's dump all the coercions on the RHS
+         -- We know the LHS is a tyvar. So let's dump all the coercions on the RHS
          -- If flat_k1 == flat_k2, let's dump all the coercions on the RHS and
          -- then call canEqTyVarHomo. If they don't equal, just rewriteEqEvidence
          -- (as an optimization, so that we don't have to flatten the kinds again)
@@ -1924,7 +1937,7 @@ canEqTyVarHetero ev eq_rel tv1 co1 ki1 ps_tv1 xi2 ki2 ps_xi2
 
   -- See Note [Equalities with incompatible kinds]
   | otherwise   -- Wanted and Derived
-                  -- NB: all kind equalities are Nominal
+                -- NB: all kind equalities are Nominal
   = do { emitNewDerivedEq kind_loc Nominal ki1 ki2
              -- kind_ev :: (ki1 :: *) ~ (ki2 :: *)
        ; traceTcS "Hetero equality gives rise to derived kind equality" $

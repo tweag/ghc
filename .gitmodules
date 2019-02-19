@@ -83,10 +83,6 @@
 	url = ../packages/unix.git
 	ignore = untracked
 	branch = 2.7
-[submodule "libraries/parallel"]
-	path = libraries/parallel
-	url = ../packages/parallel.git
-	ignore = untracked
 [submodule "libraries/stm"]
 	path = libraries/stm
 	url = ../packages/stm.git
@@ -111,6 +107,3 @@
 [submodule "gmp-tarballs"]
 	path = libraries/integer-gmp/gmp/gmp-tarballs
 	url = ../gmp-tarballs.git
-[submodule ".arc-linters/arcanist-external-json-linter"]
-	path = .arc-linters/arcanist-external-json-linter
-	url = ../arcanist-external-json-linter.git

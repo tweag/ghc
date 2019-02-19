@@ -438,7 +438,7 @@ splitAppCo_maybe (TyConAppCo r tc args)
   , Just (args', arg') <- snocView args
   = Just ( mkTyConAppCo r tc args', arg' )
 
-  | mightBeUnsaturatedTyCon tc
+  | not (mustBeSaturated tc)
     -- Never create unsaturated type family apps!
   , Just (args', arg') <- snocView args
   , Just arg'' <- setNominalRole_maybe (nthRole r tc (length args')) arg'
@@ -1329,10 +1329,13 @@ applyRoles tc cos
 -- the Role parameter is the Role of the TyConAppCo
 -- defined here because this is intimately concerned with the implementation
 -- of TyConAppCo
+-- Always returns an infinite list (with a infinite tail of Nominal)
 tyConRolesX :: Role -> TyCon -> [Role]
 tyConRolesX Representational tc = tyConRolesRepresentational tc
 tyConRolesX role             _  = repeat role
 
+-- Returns the roles of the parameters of a tycon, with an infinite tail
+-- of Nominal
 tyConRolesRepresentational :: TyCon -> [Role]
 tyConRolesRepresentational tc = tyConRoles tc ++ repeat Nominal
 
