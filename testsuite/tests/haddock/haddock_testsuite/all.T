@@ -1,5 +1,5 @@
 test('haddockHtmlTest',
-     [ignore_stdout, unless(in_tree_compiler(), skip), req_haddock],
+     [ignore_stdout, unless(in_tree_compiler(), skip), req_haddock, expect_broken(0)],
      makefile_test,
      ['htmlTest'])
 
@@ -14,6 +14,6 @@ test('haddockHoogleTest',
      ['hoogleTest'])
 
 test('haddockHypsrcTest',
-     [ignore_stdout, unless(in_tree_compiler(), skip), req_haddock],
+     [ignore_stdout, unless(in_tree_compiler(), skip), req_haddock, expect_broken(0)],
      makefile_test,
      ['hypsrcTest'])
