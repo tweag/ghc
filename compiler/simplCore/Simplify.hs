@@ -2375,6 +2375,26 @@ Why don't we drop the case?  Because it's strict in v.  It's technically
 wrong to drop even unnecessary evaluations, and in practice they
 may be a result of 'seq' so we *definitely* don't want to drop those.
 I don't really know how to improve this situation.
+
+
+Note [FloatBinds from constructor wrappers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If we have FloatBinds coming from the constructor wrapper
+(as in Note [exprIsConApp_maybe on data constructors with wrappers]),
+ew cannot float past them. We'd need to float the FloatBind
+together with the simplify floats, unfortunately the
+simplifier doesn't have case-floats. The simplest thing we can
+do is to wrap all the floats here. The next iteration of the
+simplifier will take care of all these cases and lets.
+
+Given data T = MkT !Bool, this allows us to simplify
+case $WMkT b of { MkT x -> f x }
+to
+case b of { b' -> f b' }.
+
+We could try and be more clever (like maybe wfloats only contain
+let binders, so we could float them). But the need for the
+extra complication is not clear.
 -}
 
 ---------------------------------------------------------
@@ -2425,8 +2445,7 @@ rebuildCase env scrut case_bndr alts cont
          ; case wfloats of
              [] -> return (floats1 `addFloats` floats2, expr')
              _ -> return
-               -- If we have FloatBinds coming from the constructor, we cannot
-               -- float past them.
+               -- See Note [FloatBinds from constructor wrappers]
                    ( emptyFloats env,
                      MkCore.wrapFloats wfloats $
                      wrapFloats (floats1 `addFloats` floats2) expr' )}
@@ -2872,9 +2891,8 @@ knownCon env scrut dc_floats dc dc_ty_args dc_args bndr bs rhs cont
             [] ->
               return (floats1 `addFloats` floats2 `addFloats` floats3, expr')
             _ ->
-              -- If we have FloatBinds coming from the constructor, we cannot
-              -- float past them.
               return ( emptyFloats env
+               -- See Note [FloatBinds from constructor wrappers]
                      , MkCore.wrapFloats dc_floats $
                        wrapFloats (floats1 `addFloats` floats2 `addFloats` floats3) expr') }
   where
