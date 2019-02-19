@@ -1,4 +1,3 @@
-4607
 test('tcfail001', normal, compile_fail, [''])
 test('tcfail002', normal, compile_fail, [''])
 test('tcfail003', normal, compile_fail, [''])
@@ -143,7 +142,7 @@ test('tcfail156', normal, compile_fail, [''])
 test('tcfail157', normal, compile_fail, [''])
 # Skip tcfail158 until Trac ticket #15899 fixes the broken test
 test('tcfail158', skip, compile_fail, [''])
-test('tcfail159', when(compiler_debugged(), expect_broken(16113)), compile_fail, [''])
+test('tcfail159', normal, compile_fail, [''])
 test('tcfail160', normal, compile_fail, [''])
 test('tcfail161', normal, compile_fail, [''])
 test('tcfail162', normal, compile_fail, [''])
@@ -510,3 +509,4 @@ test('T16059d', [extra_files(['T16059b.hs'])], multimod_compile_fail,
 test('T16059e', [extra_files(['T16059b.hs'])], multimod_compile_fail,
     ['T16059e', '-v0'])
 test('T16255', normal, compile_fail, [''])
+test('T16204c', normal, compile_fail, [''])

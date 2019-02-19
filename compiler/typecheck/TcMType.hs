@@ -6,7 +6,7 @@
 Monadic type operations
 
 This module contains monadic operations over types that contain
-mutable type variables
+mutable type variables.
 -}
 
 {-# LANGUAGE CPP, TupleSections, MultiWayIf, PatternSynonyms #-}
@@ -786,10 +786,8 @@ writeMetaTyVarRef tyvar ref ty
   = do { meta_details <- readMutVar ref;
        -- Zonk kinds to allow the error check to work
        ; zonked_tv_kind <- zonkTcType tv_kind
-       ; zonked_ty      <- zonkTcType ty
-       ; let zonked_ty_kind = tcTypeKind zonked_ty  -- Need to zonk even before typeKind;
-                                                    -- otherwise, we can panic in piResultTy
-             kind_check_ok = tcIsConstraintKind zonked_tv_kind
+       ; zonked_ty_kind <- zonkTcType ty_kind
+       ; let kind_check_ok = tcIsConstraintKind zonked_tv_kind
                           || tcEqKind zonked_ty_kind zonked_tv_kind
              -- Hack alert! tcIsConstraintKind: see TcHsType
              -- Note [Extra-constraint holes in partial type signatures]
@@ -816,6 +814,7 @@ writeMetaTyVarRef tyvar ref ty
        ; writeMutVar ref (Indirect ty) }
   where
     tv_kind = tyVarKind tyvar
+    ty_kind = tcTypeKind ty
 
     tv_lvl = tcTyVarLevel tyvar
     ty_lvl = tcTypeLevel ty
@@ -1535,15 +1534,14 @@ defaultTyVar default_kind tv
        ; writeMetaTyVar tv omegaDataConTy
        ; return True }
 
-  | default_kind                 -- -XNoPolyKinds and this is a kind var
-  = do { default_kind_var tv     -- so default it to * if possible
-       ; return True }
+  | default_kind            -- -XNoPolyKinds and this is a kind var
+  = default_kind_var tv     -- so default it to * if possible
 
   | otherwise
   = return False
 
   where
-    default_kind_var :: TyVar -> TcM ()
+    default_kind_var :: TyVar -> TcM Bool
        -- defaultKindVar is used exclusively with -XNoPolyKinds
        -- See Note [Defaulting with -XNoPolyKinds]
        -- It takes an (unconstrained) meta tyvar and defaults it.
@@ -1551,11 +1549,20 @@ defaultTyVar default_kind tv
     default_kind_var kv
       | isLiftedTypeKind (tyVarKind kv)
       = do { traceTc "Defaulting a kind var to *" (ppr kv)
-           ; writeMetaTyVar kv liftedTypeKind }
+           ; writeMetaTyVar kv liftedTypeKind
+           ; return True }
       | otherwise
-      = addErr (vcat [ text "Cannot default kind variable" <+> quotes (ppr kv')
-                     , text "of kind:" <+> ppr (tyVarKind kv')
-                     , text "Perhaps enable PolyKinds or add a kind signature" ])
+      = do { addErr (vcat [ text "Cannot default kind variable" <+> quotes (ppr kv')
+                          , text "of kind:" <+> ppr (tyVarKind kv')
+                          , text "Perhaps enable PolyKinds or add a kind signature" ])
+           -- We failed to default it, so return False to say so.
+           -- Hence, it'll get skolemised.  That might seem odd, but we must either
+           -- promote, skolemise, or zap-to-Any, to satisfy TcHsType
+           --    Note [Recipe for checking a signature]
+           -- Otherwise we get level-number assertion failures. It doesn't matter much
+           -- because we are in an error siutation anyway.
+           ; return False
+        }
       where
         (_, kv') = tidyOpenTyCoVar emptyTidyEnv kv
 
@@ -1949,12 +1956,11 @@ zonkCoVar = zonkId
 -- before all metavars are filled in.
 zonkTcTypeMapper :: TyCoMapper () TcM
 zonkTcTypeMapper = TyCoMapper
-  { tcm_smart = True
-  , tcm_tyvar = const zonkTcTyVar
+  { tcm_tyvar = const zonkTcTyVar
   , tcm_covar = const (\cv -> mkCoVarCo <$> zonkTyCoVarKind cv)
   , tcm_hole  = hole
   , tcm_tycobinder = \_env tv _vis -> ((), ) <$> zonkTyCoVarKind tv
-  , tcm_tycon = return }
+  , tcm_tycon      = zonkTcTyCon }
   where
     hole :: () -> CoercionHole -> TcM Coercion
     hole _ hole@(CoercionHole { ch_ref = ref, ch_co_var = cv })
@@ -1964,6 +1970,15 @@ zonkTcTypeMapper = TyCoMapper
                              ; checkCoercionHole cv co' }
                Nothing -> do { cv' <- zonkCoVar cv
                              ; return $ HoleCo (hole { ch_co_var = cv' }) } }
+
+zonkTcTyCon :: TcTyCon -> TcM TcTyCon
+-- Only called on TcTyCons
+-- A non-poly TcTyCon may have unification
+-- variables that need zonking, but poly ones cannot
+zonkTcTyCon tc
+ | tcTyConIsPoly tc = return tc
+ | otherwise        = do { tck' <- zonkTcType (tyConKind tc)
+                         ; return (setTcTyConKind tc tck') }
 
 -- For unbound, mutable tyvars, zonkType uses the function given to it
 -- For tyvars bound at a for-all, zonkType zonks them to an immutable

@@ -790,6 +790,8 @@ data WarningFlag =
    | Opt_WarnUnusedMatches
    | Opt_WarnUnusedTypePatterns
    | Opt_WarnUnusedForalls
+   | Opt_WarnUnusedRecordWildcards
+   | Opt_WarnRedundantRecordWildcards
    | Opt_WarnWarningsDeprecations
    | Opt_WarnDeprecatedFlags
    | Opt_WarnMissingMonadFailInstances -- since 8.0
@@ -911,6 +913,9 @@ data DynFlags = DynFlags {
   specConstrCount       :: Maybe Int,   -- ^ Max number of specialisations for any one function
   specConstrRecursive   :: Int,         -- ^ Max number of specialisations for recursive types
                                         --   Not optional; otherwise ForceSpecConstr can diverge.
+  binBlobThreshold      :: Word,        -- ^ Binary literals (e.g. strings) whose size is above
+                                        --   this threshold will be dumped in a binary file
+                                        --   by the assembler code generator (0 to disable)
   liberateCaseThreshold :: Maybe Int,   -- ^ Threshold for LiberateCase
   floatLamArgs          :: Maybe Int,   -- ^ Arg count for lambda floating
                                         --   See CoreMonad.FloatOutSwitches
@@ -1884,6 +1889,7 @@ defaultDynFlags mySettings (myLlvmTargets, myLlvmPasses) =
         maxPmCheckIterations    = 2000000,
         ruleCheck               = Nothing,
         inlineCheck             = Nothing,
+        binBlobThreshold        = 500000, -- 500K is a good default (see #16190)
         maxRelevantBinds        = Just 6,
         maxValidHoleFits   = Just 6,
         maxRefHoleFits     = Just 6,
@@ -3526,6 +3532,8 @@ dynamic_flags_deps = [
                                                 setOptLevel (mb_n `orElse` 1)))
                 -- If the number is missing, use 1
 
+  , make_ord_flag defFlag "fbinary-blob-threshold"
+      (intSuffix (\n d -> d { binBlobThreshold = fromIntegral n }))
 
   , make_ord_flag defFlag "fmax-relevant-binds"
       (intSuffix (\n d -> d { maxRelevantBinds = Just n }))
@@ -4040,6 +4048,8 @@ wWarningFlagsDeps = [
   flagSpec "unused-pattern-binds"        Opt_WarnUnusedPatternBinds,
   flagSpec "unused-top-binds"            Opt_WarnUnusedTopBinds,
   flagSpec "unused-type-patterns"        Opt_WarnUnusedTypePatterns,
+  flagSpec "unused-record-wildcards"     Opt_WarnUnusedRecordWildcards,
+  flagSpec "redundant-record-wildcards"  Opt_WarnRedundantRecordWildcards,
   flagSpec "warnings-deprecations"       Opt_WarnWarningsDeprecations,
   flagSpec "wrong-do-bind"               Opt_WarnWrongDoBind,
   flagSpec "missing-pattern-synonym-signatures"
@@ -4794,7 +4804,9 @@ minusWallOpts
         Opt_WarnUnusedDoBind,
         Opt_WarnTrustworthySafe,
         Opt_WarnUntickedPromotedConstructors,
-        Opt_WarnMissingPatternSynonymSignatures
+        Opt_WarnMissingPatternSynonymSignatures,
+        Opt_WarnUnusedRecordWildcards,
+        Opt_WarnRedundantRecordWildcards
       ]
 
 -- | Things you get with -Weverything, i.e. *all* known warnings flags
