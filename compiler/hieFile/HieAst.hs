@@ -1422,8 +1422,6 @@ instance ToHie (TScoped (LHsType GhcRn)) where
         , toHie a
         , toHie b
         ]
-      HsFunTy _ _ _ _ ->
-        error "Functions with non-Omega multiplicity are not yet supported"
       HsListTy _ a ->
         [ toHie a
         ]
