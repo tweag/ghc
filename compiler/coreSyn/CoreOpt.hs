@@ -927,12 +927,6 @@ exprIsConApp_maybe (in_scope, id_unf) expr
         , count isValArg args == idArity fun
         = pushFloats floats $ pushCoDataCon con args co
 
-        -- See Note [Special case for newtype wrappers]
-        | Just a <- isDataConWrapId_maybe fun
-        , isNewTyCon (dataConTyCon a)
-        , let rhs = uf_tmpl (realIdUnfolding fun)
-        = dealWithNewtypeWrapper (Left in_scope) floats rhs cont
-
         -- Look through data constructor wrappers: they inline late (See Note
         -- [Activation for data constructor wrappers]) but we want to do
         -- case-of-known-constructor optimisation eagerly.
@@ -972,10 +966,6 @@ exprIsConApp_maybe (in_scope, id_unf) expr
     pushFloats floats x = do
       (c, tys, args) <- x
       return (floats, c, tys, args)
-
-    dealWithNewtypeWrapper scope floats (Lam v body) (CC (arg:args) co) =
-      dealWithNewtypeWrapper (extend scope v arg) floats body (CC args co)
-    dealWithNewtypeWrapper scope floats expr args = go scope floats expr args
     ----------------------------
     -- Operations on the (Either InScopeSet CoreSubst)
     -- The Left case is wildly dominant
