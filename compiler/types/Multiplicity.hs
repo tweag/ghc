@@ -1,10 +1,16 @@
 {-# LANGUAGE DeriveDataTypeable, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# OPTIONS -Wno-missing-methods #-}
 
--- | This module defines the semi-ring (aka Mult) of multiplicities, and associated
--- functions. Multiplicities annotate arrow types to indicate the linearity of the
--- arrow (in the sense of linear types).
+{-|
+This module defines the semi-ring of multiplicities, and associated functions.
+Multiplicities annotate arrow types to indicate the linearity of the
+arrow (in the sense of linear types).
+
+Mult corresponds to a Type that is of kind Multiplicity.
+The functions fromMult and toMult convert both ways between Mult and Type.
+We use a separate type to support pattern matching over common multiplicities.
+The smart constructors perform simplifications such as Omega + x = x.
+-}
 module Multiplicity
   ( Mult
   , pattern One
