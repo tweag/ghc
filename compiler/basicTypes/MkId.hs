@@ -643,7 +643,8 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
              -- See Note [Inline partially-applied constructor wrappers]
              -- Passing Nothing here allows the wrapper to inline when
              -- unsaturated.
-             wrap_unf = mkInlineUnfolding wrap_rhs
+             wrap_unf | isNewTyCon tycon = mkCompulsoryUnfolding wrap_rhs
+                      | otherwise        = mkInlineUnfolding wrap_rhs
 
              casted_body | isNewTyCon tycon = wrap_body
                          | otherwise = wrapFamInstBody tycon res_ty_args $
