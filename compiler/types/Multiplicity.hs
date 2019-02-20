@@ -2,8 +2,8 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 {-|
-This module defines the semi-ring (aka Mult) of multiplicities, and associated
-functions. Multiplicities annotate arrow types to indicate the linearity of the
+This module defines the semi-ring of multiplicities, and associated functions.
+Multiplicities annotate arrow types to indicate the linearity of the
 arrow (in the sense of linear types).
 
 Mult corresponds to a Type that is of kind Multiplicity.
