@@ -99,7 +99,7 @@ module TyCon(
         algTcFields,
         tyConRuntimeRepInfo,
         tyConBinders, tyConResKind, tyConTyVarBinders,
-        tcTyConScopedTyVars, tcTyConUserTyVars, tcTyConIsPoly,
+        tcTyConScopedTyVars, tcTyConIsPoly,
         mkTyConTagMap,
 
         -- ** Manipulating TyCons
@@ -862,7 +862,6 @@ data TyCon
                            -- without a CUSK, it's the original left-to-right
                            -- that the user wrote. Nec'y for getting Specified
                            -- variables in the right order.
-        tcTyConUserTyVars :: SDoc, -- ^ Original, user-written tycon tyvars
         tcTyConIsPoly     :: Bool, -- ^ Is this TcTyCon already generalized?
 
         tcTyConFlavour :: TyConFlavour
@@ -1584,7 +1583,6 @@ mkSumTyCon name binders res_kind arity tyvars cons parent
 -- See also Note [Kind checking recursive type and class declarations]
 -- in TcTyClsDecls.
 mkTcTyCon :: Name
-          -> SDoc                -- ^ user-written tycon tyvars
           -> [TyConBinder]
           -> Kind                -- ^ /result/ kind only
           -> [(Name,TcTyVar)]    -- ^ Scoped type variables;
@@ -1592,7 +1590,7 @@ mkTcTyCon :: Name
           -> Bool                -- ^ Is this TcTyCon generalised already?
           -> TyConFlavour        -- ^ What sort of 'TyCon' this represents
           -> TyCon
-mkTcTyCon name tyvars binders res_kind scoped_tvs poly flav
+mkTcTyCon name binders res_kind scoped_tvs poly flav
   = TcTyCon { tyConUnique  = getUnique name
             , tyConName    = name
             , tyConTyVars  = binderVars binders
@@ -1602,8 +1600,7 @@ mkTcTyCon name tyvars binders res_kind scoped_tvs poly flav
             , tyConArity   = length binders
             , tcTyConScopedTyVars = scoped_tvs
             , tcTyConIsPoly       = poly
-            , tcTyConFlavour      = flav
-            , tcTyConUserTyVars   = tyvars }
+            , tcTyConFlavour      = flav }
 
 -- | Create an unlifted primitive 'TyCon', such as @Int#@.
 mkPrimTyCon :: Name -> [TyConBinder]
@@ -1720,7 +1717,7 @@ isAbstractTyCon _ = False
 -- Used when recovering from errors
 makeRecoveryTyCon :: TyCon -> TyCon
 makeRecoveryTyCon tc
-  = mkTcTyCon (tyConName tc) empty
+  = mkTcTyCon (tyConName tc)
               (tyConBinders tc) (tyConResKind tc)
               [{- no scoped vars -}]
               True

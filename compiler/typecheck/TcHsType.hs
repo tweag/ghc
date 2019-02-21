@@ -1851,7 +1851,7 @@ kcLHsQTyVars_Cusk, kcLHsQTyVars_NonCusk
 
 ------------------------------
 kcLHsQTyVars_Cusk name flav
-  user_tyvars@(HsQTvs { hsq_ext = HsQTvsRn { hsq_implicit = kv_ns
+              (HsQTvs { hsq_ext = HsQTvsRn { hsq_implicit = kv_ns
                                            , hsq_dependent = dep_names }
                       , hsq_explicit = hs_tvs }) thing_inside
   -- CUSK case
@@ -1892,7 +1892,7 @@ kcLHsQTyVars_Cusk name flav
                               ++ map (mkRequiredTyConBinder mentioned_kv_set) tc_tvs
 
              all_tv_prs = [(tyVarName var, var) | var <- (scoped_kvs ++ tc_tvs)]
-             tycon = mkTcTyCon name (ppr user_tyvars)
+             tycon = mkTcTyCon name
                                final_tc_binders
                                res_kind
                                all_tv_prs
@@ -1933,7 +1933,7 @@ kcLHsQTyVars_Cusk _ _ (XLHsQTyVars _) _ = panic "kcLHsQTyVars"
 
 ------------------------------
 kcLHsQTyVars_NonCusk name flav
-  user_tyvars@(HsQTvs { hsq_ext = HsQTvsRn { hsq_implicit = kv_ns
+              (HsQTvs { hsq_ext = HsQTvsRn { hsq_implicit = kv_ns
                                            , hsq_dependent = dep_names }
                       , hsq_explicit = hs_tvs }) thing_inside
   -- Non_CUSK case
@@ -1955,7 +1955,7 @@ kcLHsQTyVars_NonCusk name flav
                -- Also, note that tc_binders has the tyvars from only the
                -- user-written tyvarbinders. See S1 in Note [How TcTyCons work]
                -- in TcTyClsDecls
-             tycon = mkTcTyCon name (ppr user_tyvars) tc_binders res_kind
+             tycon = mkTcTyCon name tc_binders res_kind
                                ([(tyVarName var, var) | var <- (scoped_kvs ++ tc_tvs)])
                                False -- not yet generalised
                                flav
