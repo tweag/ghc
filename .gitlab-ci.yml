@@ -54,6 +54,7 @@ ghc-linters:
 .validate-hadrian:
   allow_failure: true
   script:
+    - cabal update
     - git clean -xdf && git submodule foreach git clean -xdf
     - bash .circleci/prepare-system.sh
     - if [[ -d ./cabal-cache ]]; then cp -R ./.cabal-cache ~/.cabal-cache; fi
@@ -359,6 +360,8 @@ validate-x86_64-linux-deb9-unreg:
     - robocopy /np /nfl /ndl /e "%APPDATA%\cabal" cabal-cache
     - bash -c 'make clean || true'
   dependencies: []
+  variables:
+    FORCE_SYMLINKS: 1
   cache:
     paths:
       - cabal-cache
