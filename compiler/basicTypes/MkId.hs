@@ -298,6 +298,15 @@ so the data constructor for T:C had a single argument, namely the
 predicate (C a).  But now we treat that as an ordinary argument, not
 part of the theta-type, so all is well.
 
+Note [Compulsory newtype unfolding]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Newtype wrappers, just like workers, have compulsory unfoldings.
+This way, two optimizations involving newtypes have the same effect
+whether or not a wrapper is present:
+
+(1) Case-of-known constructor; see Note [beta-reduction in exprIsConApp_maybe]
+
+(2) Matching the newtype constructor against 'coerce'; see Note []
 
 ************************************************************************
 *                                                                      *
@@ -607,7 +616,9 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
              -- See Note [Inline partially-applied constructor wrappers]
              -- Passing Nothing here allows the wrapper to inline when
              -- unsaturated.
-             wrap_unf = mkInlineUnfolding wrap_rhs
+             wrap_unf | isNewTyCon tycon = mkCompulsoryUnfolding wrap_rhs
+                        -- See Note [Compulsory newtype unfolding]
+                      | otherwise        = mkInlineUnfolding wrap_rhs
              wrap_rhs = mkLams wrap_tvs $
                         mkLams wrap_args $
                         wrapFamInstBody tycon res_ty_args $
