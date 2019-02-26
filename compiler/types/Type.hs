@@ -458,7 +458,7 @@ expandTypeSynonyms ty
       = let (subst', tv', kind_co') = go_cobndr subst tv kind_co in
         mkForAllCo tv' kind_co' (go_co subst' co)
     go_co subst (FunCo r w co1 co2)
-      = mkFunCo r w (go_co subst co1) (go_co subst co2)
+      = mkFunCo r (go_co subst w) (go_co subst co1) (go_co subst co2)
     go_co subst (CoVarCo cv)
       = substCoVar subst cv
     go_co subst (AxiomInstCo ax ind args)
@@ -2950,9 +2950,10 @@ occCheckExpand vs_to_avoid ty
                  as'  = as `delVarSet` tv
            ; body' <- go_co (as', env') body_co
            ; return (ForAllCo tv' kind_co' body') }
-    go_co cxt (FunCo w r co1 co2)       = do { co1' <- go_co cxt co1
+    go_co cxt (FunCo r w co1 co2)       = do { co1' <- go_co cxt co1
                                              ; co2' <- go_co cxt co2
-                                             ; return (mkFunCo w r co1' co2') }
+                                             ; w' <- go_co cxt w
+                                             ; return (mkFunCo r w' co1' co2') }
     go_co cxt@(as,env) (CoVarCo c)
       | c `elemVarSet` as               = Nothing
       | Just c' <- lookupVarEnv env c   = return (mkCoVarCo c')
