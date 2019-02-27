@@ -2149,7 +2149,7 @@ seqCo (TyConAppCo r tc cos)     = r `seq` tc `seq` seqCos cos
 seqCo (AppCo co1 co2)           = seqCo co1 `seq` seqCo co2
 seqCo (ForAllCo tv k co)        = seqType (varType tv) `seq` seqCo k
                                                        `seq` seqCo co
-seqCo (FunCo r w co1 co2)       = r `seq` w `seq` seqCo co1 `seq` seqCo co2
+seqCo (FunCo r w co1 co2)       = r `seq` seqCo w `seq` seqCo co1 `seq` seqCo co2
 seqCo (CoVarCo cv)              = cv `seq` ()
 seqCo (HoleCo h)                = coHoleCoVar h `seq` ()
 seqCo (AxiomInstCo con ind cos) = con `seq` ind `seq` seqCos cos
