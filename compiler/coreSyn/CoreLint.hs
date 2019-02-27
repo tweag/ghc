@@ -1447,10 +1447,11 @@ lintType ty@(TyConApp tc tys)
 
 -- arrows can related *unlifted* kinds, so this has to be separate from
 -- a dependent forall.
-lintType ty@(FunTy _ t1 t2)
+lintType ty@(FunTy w t1 t2)
   = do { k1 <- lintType t1
        ; k2 <- lintType t2
-       ; lintArrow (text "type or kind" <+> quotes (ppr ty)) k1 k2 }
+       ; kw <- lintType (fromMult w)
+       ; lintArrow (text "type or kind" <+> quotes (ppr ty)) k1 k2 kw }
 
 lintType t@(ForAllTy (Bndr tv _vis) ty)
   -- forall over types
@@ -1552,13 +1553,14 @@ checkValueKind k doc
            text "when checking" <+> doc)
 
 -----------------
-lintArrow :: SDoc -> LintedKind -> LintedKind -> LintM LintedKind
+lintArrow :: SDoc -> LintedKind -> LintedKind -> LintedKind -> LintM LintedKind
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
-lintArrow what k1 k2   -- Eg lintArrow "type or kind `blah'" k1 k2
+lintArrow what k1 k2 kw -- Eg lintArrow "type or kind `blah'" k1 k2
                        -- or lintarrow "coercion `blah'" k1 k2
   = do { unless (classifiesTypeWithValues k1) (addErrL (msg (text "argument") k1))
        ; unless (classifiesTypeWithValues k2) (addErrL (msg (text "result")   k2))
+       ; unless (isMultiplicityTy kw) (addErrL (msg (text "result") kw))
        ; return liftedTypeKind }
   where
     msg ar k
@@ -1860,8 +1862,8 @@ lintCoercion co@(FunCo r w co1 co2)
   = do { (k1,k'1,s1,t1,r1) <- lintCoercion co1
        ; (k2,k'2,s2,t2,r2) <- lintCoercion co2
        ; (k3, k'3, s3, t3, r3) <- lintCoercion w
-       ; k <- lintArrow (text "coercion" <+> quotes (ppr co)) k1 k2
-       ; k' <- lintArrow (text "coercion" <+> quotes (ppr co)) k'1 k'2
+       ; k <- lintArrow (text "coercion" <+> quotes (ppr co)) k1 k2 k3
+       ; k' <- lintArrow (text "coercion" <+> quotes (ppr co)) k'1 k'2 k'3
        ; ensureEqTys k3 multiplicityTy (text "coercion" <> quotes (ppr co))
        ; ensureEqTys k'3 multiplicityTy (text "coercion" <> quotes (ppr co))
        ; lintRole co1 r r1
