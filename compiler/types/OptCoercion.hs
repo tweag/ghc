@@ -122,9 +122,9 @@ optCoercion' env co
         (Pair in_ty1  in_ty2,  in_role)  = coercionKindRole co
         (Pair out_ty1 out_ty2, out_role) = coercionKindRole out_co
     in
-    ASSERT2( substTy env in_ty1 `eqType` out_ty1 &&
+    WARN( not (substTy env in_ty1 `eqType` out_ty1 &&
              substTy env in_ty2 `eqType` out_ty2 &&
-             in_role == out_role
+             in_role == out_role)
            , text "optCoercion changed types!"
              $$ hang (text "in_co:") 2 (ppr co)
              $$ hang (text "in_ty1:") 2 (ppr in_ty1)
