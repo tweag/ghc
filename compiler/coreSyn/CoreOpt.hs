@@ -1350,7 +1350,7 @@ pushCoDataCon dc dc_args co
                          ppr ex_args, ppr val_args, ppr co, ppr from_ty, ppr to_ty, ppr to_tc
                          , ppr $ mkTyConApp to_tc (map exprToType $ takeList dc_univ_tyvars dc_args) ]
     in
-    ASSERT2( eqType from_ty (mkTyConApp to_tc (map exprToType $ takeList dc_univ_tyvars dc_args)), dump_doc )
+    WARN( not $ eqType from_ty (mkTyConApp to_tc (map exprToType $ takeList dc_univ_tyvars dc_args)), dump_doc )
     ASSERT2( equalLength val_args arg_tys, dump_doc )
     Just (dc, to_tc_arg_tys, to_ex_args ++ new_val_args)
 
