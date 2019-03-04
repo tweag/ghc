@@ -4,6 +4,7 @@
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ViewPatterns #-}
 module CoreOpt (
         -- ** Simple expression optimiser
         simpleOptPgm, simpleOptExpr, simpleOptExprWith,
@@ -56,6 +57,7 @@ import Util
 import Maybes       ( orElse )
 import FastString
 import Data.List
+import TyCoRep (Coercion(..), isLiftedTypeKind)
 import qualified Data.ByteString as BS
 
 {-
@@ -956,8 +958,9 @@ exprIsConApp_maybe (in_scope, id_unf) expr
 
         | Just con <- isDataConWorkId_maybe fun
         , count isValArg args == idArity fun
-        = succeedWith in_scope floats $
-          pushCoDataCon con args co
+        = (case co of
+            FunCo _ (coercionKind -> Pair u v) _ _ | isLiftedTypeKind u || isLiftedTypeKind v -> pprTrace "bad lifted!" (ppr co)
+            _ -> id) (succeedWith in_scope floats $ pushCoDataCon con args co)
 
         -- See Note [Special case for newtype wrappers]
         | Just a <- isDataConWrapId_maybe fun
@@ -1299,7 +1302,7 @@ pushCoercionIntoLambda in_scope x e co
     = pprTrace "exprIsLambda_maybe: Unexpected lambda in case" (ppr (Lam x e))
       Nothing
 
-pushCoDataCon :: DataCon -> [CoreExpr] -> Coercion
+pushCoDataCon :: HasCallStack => DataCon -> [CoreExpr] -> Coercion
               -> Maybe (DataCon
                        , [Type]      -- Universal type args
                        , [CoreExpr]) -- All other args incl existentials
@@ -1345,14 +1348,15 @@ pushCoDataCon dc dc_args co
 
         to_ex_args = map Type to_ex_arg_tys
 
+        dump_doc :: HasCallStack => SDoc
         dump_doc = vcat [ppr dc,      ppr dc_univ_tyvars, ppr dc_ex_tcvars,
                          ppr arg_tys, ppr dc_args,
                          ppr ex_args, ppr val_args, ppr co, ppr from_ty, ppr to_ty, ppr to_tc
-                         , ppr $ mkTyConApp to_tc (map exprToType $ takeList dc_univ_tyvars dc_args) ]
+                         , ppr $ mkTyConApp to_tc (map exprToType $ takeList dc_univ_tyvars dc_args), callStackDoc ]
     in
-    WARN( not $ eqType from_ty (mkTyConApp to_tc (map exprToType $ takeList dc_univ_tyvars dc_args)), dump_doc )
-    ASSERT2( equalLength val_args arg_tys, dump_doc )
-    Just (dc, to_tc_arg_tys, to_ex_args ++ new_val_args)
+    (if eqType from_ty (mkTyConApp to_tc (map exprToType $ takeList dc_univ_tyvars dc_args)) then id else pprTrace "bad type" dump_doc)
+    -- ASSERT2( equalLength val_args arg_tys, dump_doc )
+    (Just (dc, to_tc_arg_tys, to_ex_args ++ new_val_args))
 
   | otherwise
   = Nothing
