@@ -1,8 +1,6 @@
 module Var where
 
-import GhcPrelude
-import Outputable
-import Data.Data
+import GhcPrelude()
 
 data Var
 type Id = Var
