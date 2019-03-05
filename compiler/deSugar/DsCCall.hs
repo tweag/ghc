@@ -121,7 +121,7 @@ mkFCall dflags uniq the_fcall val_args res_ty
     mkApps (mkVarApps (Var the_fcall_id) tyvars) val_args
   where
     arg_tys = map exprType val_args
-    body_ty = (mkFunTys (map unrestricted arg_tys) res_ty)
+    body_ty = (mkVisFunTysOm arg_tys res_ty)
     tyvars  = tyCoVarsOfTypeWellScoped body_ty
     ty      = mkInvForAllTys tyvars body_ty
     the_fcall_id = mkFCallId dflags uniq the_fcall ty
@@ -254,7 +254,7 @@ boxResult result_ty
                                              [the_alt]
                                      ]
 
-        ; return (realWorldStatePrimTy `mkFunTyOm` ccall_res_ty, wrap) }
+        ; return (realWorldStatePrimTy `mkVisFunTyOm` ccall_res_ty, wrap) }
 
 boxResult result_ty
   = do -- It isn't IO, so do unsafePerformIO
@@ -266,7 +266,7 @@ boxResult result_ty
                                            (unrestricted ccall_res_ty)
                                            (coreAltType the_alt)
                                            [the_alt]
-       return (realWorldStatePrimTy `mkFunTyOm` ccall_res_ty, wrap)
+       return (realWorldStatePrimTy `mkVisFunTyOm` ccall_res_ty, wrap)
   where
     return_result _ [ans] = ans
     return_result _ _     = panic "return_result: expected single result"

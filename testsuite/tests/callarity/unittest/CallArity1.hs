@@ -28,16 +28,16 @@ import FastString
 go, go2, x, d, n, y, z, scrutf, scruta :: Id
 [go, go2, x,d, n, y, z, scrutf, scruta, f] = mkTestIds
     (words "go go2 x d n y z scrutf scruta f")
-    [ mkFunTysOm [intTy, intTy] intTy
-    , mkFunTysOm [intTy, intTy] intTy
+    [ mkVisFunTysOm [intTy, intTy] intTy
+    , mkVisFunTysOm [intTy, intTy] intTy
     , intTy
-    , mkFunTysOm [intTy] intTy
-    , mkFunTysOm [intTy] intTy
+    , mkVisFunTysOm [intTy] intTy
+    , mkVisFunTysOm [intTy] intTy
     , intTy
     , intTy
-    , mkFunTysOm [boolTy] boolTy
+    , mkVisFunTysOm [boolTy] boolTy
     , boolTy
-    , mkFunTysOm [intTy, intTy] intTy -- protoypical external function
+    , mkVisFunTysOm [intTy, intTy] intTy -- protoypical external function
     ]
 
 exprs :: [(String, CoreExpr)]

@@ -623,7 +623,7 @@ mkBuildExpr :: (MonadFail.MonadFail m, MonadThings m, MonadUnique m)
 mkBuildExpr elt_ty mk_build_inside = do
     [n_tyvar] <- newTyVars [alphaTyVar]
     let n_ty = mkTyVarTy n_tyvar
-        c_ty = mkFunTys [unrestricted elt_ty, unrestricted n_ty] n_ty
+        c_ty = mkVisFunTysOm [elt_ty, n_ty] n_ty
     [c, n] <- sequence [mkSysLocalM (fsLit "c") Omega c_ty, mkSysLocalM (fsLit "n") Omega n_ty]
 
     build_inside <- mk_build_inside (c, c_ty) (n, n_ty)
@@ -805,7 +805,7 @@ runtimeErrorTy :: Type
 -- forall (rr :: RuntimeRep) (a :: rr). Addr# -> a
 --   See Note [Error and friends have an "open-tyvar" forall]
 runtimeErrorTy = mkSpecForAllTys [runtimeRep1TyVar, openAlphaTyVar]
-                                 (mkFunTyOm addrPrimTy openAlphaTy)
+                                 (mkVisFunTyOm addrPrimTy openAlphaTy)
 
 {- Note [Error and friends have an "open-tyvar" forall]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -895,7 +895,7 @@ be relying on anything from it.
 aBSENT_ERROR_ID
  = mkVanillaGlobalWithInfo absentErrorName absent_ty arity_info
  where
-   absent_ty = mkSpecForAllTys [alphaTyVar] (mkFunTyOm addrPrimTy alphaTy)
+   absent_ty = mkSpecForAllTys [alphaTyVar] (mkVisFunTyOm addrPrimTy alphaTy)
    -- Not runtime-rep polymorphic. aBSENT_ERROR_ID is only used for
    -- lifted-type things; see Note [Absent errors] in WwLib
    arity_info = vanillaIdInfo `setArityInfo` 1

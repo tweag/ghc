@@ -1399,12 +1399,12 @@ normalise_type ty
                               ; return (mkReflCo r ty, ty) }
     go (AppTy ty1 ty2) = go_app_tys ty1 [ty2]
 
-    go (FunTy w ty1 ty2)
+    go ty@(FunTy { ft_mult = w, ft_arg = ty1, ft_res = ty2 })
       = do { (co1, nty1) <- go ty1
            ; (co2, nty2) <- go ty2
            ; (wco, wty) <- go (fromMult w)
            ; r <- getRole
-           ; return (mkFunCo r wco co1 co2, mkFunTy (toMult wty) nty1 nty2) }
+           ; return (mkFunCo r wco co1 co2, ty { ft_mult = toMult wty, ft_arg = nty1, ft_res = nty2 }) }
     go (ForAllTy (Bndr tcvar vis) ty)
       = do { (lc', tv', h, ki') <- normalise_var_bndr tcvar
            ; (co, nty)          <- withLC lc' $ normalise_type ty
@@ -1623,10 +1623,11 @@ coreFlattenTy = go
       = let (env', tys') = coreFlattenTys env tys in
         (env', mkTyConApp tc tys')
 
-    go env (FunTy mult ty1 ty2) = let (env1, ty1') = go env  ty1
-                                      (env2, ty2') = go env1 ty2
-                                      (env3, mult') = go_mult env2 mult in
-                                  (env3, mkFunTy mult' ty1' ty2')
+    go env ty@(FunTy { ft_mult = mult, ft_arg = ty1, ft_res = ty2 })
+      = let (env1, ty1') = go env  ty1
+            (env2, ty2') = go env1 ty2
+            (env3, mult') = go_mult env2 mult in
+        (env3, ty { ft_mult = mult', ft_arg = ty1', ft_res = ty2' })
 
     go env (ForAllTy (Bndr tv vis) ty)
       = let (env1, tv') = coreFlattenVarBndr env tv
@@ -1719,7 +1720,7 @@ allTyCoVarsInTy = go
     go (TyVarTy tv)      = unitVarSet tv
     go (TyConApp _ tys)  = allTyCoVarsInTys tys
     go (AppTy ty1 ty2)   = (go ty1) `unionVarSet` (go ty2)
-    go (FunTy w ty1 ty2) = unionVarSets (multThingList go w) `unionVarSet`
+    go (FunTy _ w ty1 ty2) = unionVarSets (multThingList go w) `unionVarSet`
                            (go ty1) `unionVarSet` (go ty2)
     go (ForAllTy (Bndr tv _) ty) = unitVarSet tv     `unionVarSet`
                                    go (tyVarKind tv) `unionVarSet`

@@ -821,7 +821,7 @@ injTyVarsOfType (TyConApp tc tys)
   = injTyVarsOfTypes tys
 injTyVarsOfType (LitTy {})
   = emptyVarSet
-injTyVarsOfType (FunTy w arg res)
+injTyVarsOfType (FunTy _ w arg res)
   = unionVarSets (multThingList injTyVarsOfType w) `unionVarSet`
     injTyVarsOfType arg `unionVarSet`
     injTyVarsOfType res

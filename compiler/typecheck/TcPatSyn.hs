@@ -751,16 +751,16 @@ tcPatSynMatcher (dL->L loc name) lpat
                | is_unlifted = ([nlHsVar voidPrimId], [voidPrimTy])
                | otherwise   = (args,                 arg_tys)
              cont_ty = mkInfSigmaTy ex_tvs prov_theta $
-                       mkFunTys (map unrestricted cont_arg_tys) res_ty
+                       mkVisFunTysOm cont_arg_tys res_ty
 
-             fail_ty  = mkFunTyOm voidPrimTy res_ty
+             fail_ty  = mkVisFunTyOm voidPrimTy res_ty
 
        ; matcher_name <- newImplicitBinder name mkMatcherOcc
        ; scrutinee    <- newSysLocalId (fsLit "scrut") Omega pat_ty
        ; cont         <- newSysLocalId (fsLit "cont")  Omega cont_ty
        ; fail         <- newSysLocalId (fsLit "fail")  Omega fail_ty
 
-       ; let matcher_tau   = mkFunTys (map unrestricted [pat_ty, cont_ty, fail_ty]) res_ty
+       ; let matcher_tau   = mkVisFunTysOm [pat_ty, cont_ty, fail_ty] res_ty
              matcher_sigma = mkInfSigmaTy (rr_tv:res_tv:univ_tvs) req_theta matcher_tau
              matcher_id    = mkExportedVanillaId matcher_name matcher_sigma
                              -- See Note [Exported LocalIds] in Id
@@ -849,8 +849,8 @@ mkPatSynBuilderId dir (dL->L _ name)
              builder_sigma  = add_void need_dummy_arg $
                               mkForAllTys univ_bndrs $
                               mkForAllTys ex_bndrs $
-                              mkFunTys (map unrestricted theta) $
-                              mkFunTys (map unrestricted arg_tys) $
+                              mkPhiTy theta $
+                              mkVisFunTysOm arg_tys $
                               pat_ty
              builder_id     = mkExportedVanillaId builder_name builder_sigma
               -- See Note [Exported LocalIds] in Id
@@ -957,7 +957,7 @@ tcPatSynBuilderOcc ps
 
 add_void :: Bool -> Type -> Type
 add_void need_dummy_arg ty
-  | need_dummy_arg = mkFunTyOm voidPrimTy ty
+  | need_dummy_arg = mkVisFunTyOm voidPrimTy ty
   | otherwise      = ty
 
 tcPatToExpr :: Name -> [Located Name] -> LPat GhcRn

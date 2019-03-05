@@ -4,6 +4,7 @@ import GhcPrelude
 
 import Outputable ( Outputable, SDoc )
 import Data.Data  ( Data )
+import {-# SOURCE #-} Var( Var, ArgFlag, AnonArgFlag )
 
 data Type
 data TyThing
@@ -22,11 +23,11 @@ type MCoercionN = MCoercion
 
 pprKind :: Kind -> SDoc
 pprType :: Type -> SDoc
+mkFunTyOm :: AnonArgFlag -> Type -> Type -> Type
+mkForAllTy :: Var -> ArgFlag -> Type -> Type
 
 isRuntimeRepTy :: Type -> Bool
 isMultiplicityTy :: Type -> Bool
 
-instance Data Type
-  -- To support Data instances in CoAxiom
-
+instance Data Type  -- To support Data instances in CoAxiom
 instance Outputable Type

@@ -2777,7 +2777,7 @@ wrapTypeWithImplication ty impl = wrapType ty mentioned_skols givens
           mentioned_skols = filter (`elemVarSet` freeVars) skols
 
 wrapType :: Type -> [TyVar] -> [PredType] -> Type
-wrapType ty skols givens = mkSpecForAllTys skols $ mkFunTys (map unrestricted givens) ty
+wrapType ty skols givens = mkSpecForAllTys skols $ mkPhiTy givens ty
 
 
 {-
@@ -3671,8 +3671,6 @@ exprCtOrigin (HsTcBracketOut {})= panic "exprCtOrigin HsTcBracketOut"
 exprCtOrigin (HsSpliceE {})      = Shouldn'tHappenOrigin "TH splice"
 exprCtOrigin (HsProc {})         = Shouldn'tHappenOrigin "proc"
 exprCtOrigin (HsStatic {})       = Shouldn'tHappenOrigin "static expression"
-exprCtOrigin (HsArrApp {})       = panic "exprCtOrigin HsArrApp"
-exprCtOrigin (HsArrForm {})      = panic "exprCtOrigin HsArrForm"
 exprCtOrigin (HsTick _ _ e)           = lexprCtOrigin e
 exprCtOrigin (HsBinTick _ _ _ e)      = lexprCtOrigin e
 exprCtOrigin (HsTickPragma _ _ _ _ e) = lexprCtOrigin e

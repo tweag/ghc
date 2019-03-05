@@ -2236,9 +2236,10 @@ The following syntax is stolen:
     .. index::
        single: forall
 
-    Stolen (in types) by: :extension:`ExplicitForAll`, and hence by
-    :extension:`ScopedTypeVariables`, :extension:`LiberalTypeSynonyms`,
-    :extension:`RankNTypes`, :extension:`ExistentialQuantification`
+    Stolen (in types) by default (see :ref:`infelicities-lexical`). ``forall`` is
+    a reserved keyword and never a type variable, in accordance with `GHC Proposal #43
+    <https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0043-forall-keyword.rst>`__.
+
 
 ``mdo``
     .. index::
@@ -8881,18 +8882,18 @@ using kind signatures: ::
 
 The general principle is this:
 
--  *When there is a right-hand side, GHC infers the most polymorphic
-   kind consistent with the right-hand side.* Examples: ordinary data
+-  When there is a right-hand side, GHC infers the most polymorphic
+   kind consistent with the right-hand side. Examples: ordinary data
    type and GADT declarations, class declarations. In the case of a
    class declaration the role of "right hand side" is played by the
    class method signatures.
 
--  *When there is no right hand side, GHC defaults argument and result
-   kinds to ``Type``, except when directed otherwise by a kind signature*.
+-  When there is no right hand side, GHC defaults argument and result
+   kinds to ``Type``, except when directed otherwise by a kind signature.
    Examples: data and open type family declarations.
 
 This rule has occasionally-surprising consequences (see
-:ghc-ticket:`10132`. ::
+:ghc-ticket:`10132`). ::
 
     class C a where    -- Class declarations are generalised
                        -- so C :: forall k. k -> Constraint
@@ -8956,21 +8957,21 @@ is implicitly declared in ``c``\'s kind. Thus, according to our general
 principle, ``b`` must come *before* ``k``. However, ``b`` *depends on*
 ``k``. We thus reject ``T2`` with a suitable error message.
 
-In keeping with the way that class methods list their class variables
-first, associated types also list class variables before others. This
-means that the inferred variables from the class come before the
-specified variables from the class, which come before other implicitly
-bound variables. Here is an example::
+In associated types, we order the type variables as if the type family was a
+top-level declaration, ignoring the visibilities of the class's type variable
+binders. Here is an example: ::
 
   class C (a :: k) b where
     type F (c :: j) (d :: Proxy m) a b
 
 We infer these kinds::
 
-  C :: forall {k2 :: Type} (k :: Type). k -> k2 -> Constraint
-  F :: forall {k2 :: Type} (k :: Type)
-              {k3 :: Type} (j :: Type) (m :: k3).
-	      j -> Proxy m -> k -> k2 -> Type
+  C :: forall {k1 :: Type} (k :: Type). k -> k1 -> Constraint
+  F :: forall {k1 :: Type} {k2 :: Type} {k3 :: Type} j (m :: k1).
+       j -> Proxy m -> k2 -> k3 -> Type
+
+Note that the kind of ``a`` is specified in the kind of ``C`` but inferred in
+the kind of ``F``.
 
 The "general principle" described here is meant to make all this more
 predictable for users. It would not be hard to extend GHC to relax
@@ -9276,6 +9277,28 @@ distinction). GHC does not consider ``forall k. k -> Type`` and
 ``forall {k}. k -> Type`` to be equal at the kind level, and thus rejects
 ``Foo Proxy`` as ill-kinded.
 
+Constraints in kinds
+--------------------
+
+As kinds and types are the same, kinds can (with :extension:`TypeInType`)
+contain type constraints. However, only equality constraints are supported.
+
+Here is an example of a constrained kind: ::
+
+  type family IsTypeLit a where
+    IsTypeLit Nat    = 'True
+    IsTypeLit Symbol = 'True
+    IsTypeLit a      = 'False
+
+  data T :: forall a. (IsTypeLit a ~ 'True) => a -> Type where
+    MkNat    :: T 42
+    MkSymbol :: T "Don't panic!"
+
+The declarations above are accepted. However, if we add ``MkOther :: T Int``,
+we get an error that the equality constraint is not satisfied; ``Int`` is
+not a type literal. Note that explicitly quantifying with ``forall a`` is
+not necessary here.
+
 The kind ``Type``
 -----------------
 
@@ -9411,8 +9434,8 @@ Here are the key definitions, all available from ``GHC.Exts``: ::
   data RuntimeRep = LiftedRep     -- for things like `Int`
                   | UnliftedRep   -- for things like `Array#`
                   | IntRep        -- for `Int#`
-		  | TupleRep [RuntimeRep]  -- unboxed tuples, indexed by the representations of the elements
-		  | SumRep [RuntimeRep]    -- unboxed sums, indexed by the representations of the disjuncts
+                  | TupleRep [RuntimeRep]  -- unboxed tuples, indexed by the representations of the elements
+                  | SumRep [RuntimeRep]    -- unboxed sums, indexed by the representations of the disjuncts
                   | ...
 
   type Type = TYPE LiftedRep    -- Type is just an ordinary type synonym
@@ -10082,9 +10105,6 @@ in :ref:`data-instance-declarations`, :ref:`type-instance-declarations`,
 :ref:`closed-type-families`, :ref:`assoc-inst`, and :ref:`rewrite-rules`.
 
 Notes:
-
-- With :extension:`ExplicitForAll`, ``forall`` becomes a keyword; you can't use ``forall`` as a
-  type variable any more!
 
 - As well in type signatures, you can also use an explicit ``forall``
   in an instance declaration: ::
@@ -10797,10 +10817,10 @@ application. This isn't true, however! Be sure to use :ghci-cmd:`:type +v`
 if you want the most accurate information with respect to visible type
 application properties.
 
-.. _ScopedSort:
-
 .. index::
    single: ScopedSort
+
+.. _ScopedSort:
 
 Ordering of specified variables
 -------------------------------

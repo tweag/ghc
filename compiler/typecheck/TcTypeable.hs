@@ -3,12 +3,14 @@
 (c) The GRASP/AQUA Project, Glasgow University, 1992-1999
 -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module TcTypeable(mkTypeableBinds) where
 
+#include "HsVersions.h"
 
 import GhcPrelude
 
@@ -437,7 +439,7 @@ typeIsTypeable ty
   | isJust (kindRep_maybe ty)       = True
 typeIsTypeable (TyVarTy _)          = True
 typeIsTypeable (AppTy a b)          = typeIsTypeable a && typeIsTypeable b
-typeIsTypeable (FunTy w a b)        = and (multThingList typeIsTypeable w) &&
+typeIsTypeable (FunTy _ w a b)      = and (multThingList typeIsTypeable w) &&
                                       typeIsTypeable a && typeIsTypeable b
 typeIsTypeable (TyConApp tc args)   = tyConIsTypeable tc
                                    && all typeIsTypeable args
@@ -466,8 +468,8 @@ liftTc = KindRepM . lift
 builtInKindReps :: [(Kind, Name)]
 builtInKindReps =
     [ (star, starKindRepName)
-    , (mkFunTyOm star star, starArrStarKindRepName)
-    , (mkFunTys [unrestricted star, unrestricted star] star, starArrStarArrStarKindRepName)
+    , (mkVisFunTyOm star star, starArrStarKindRepName)
+    , (mkVisFunTysOm [star, star] star, starArrStarArrStarKindRepName)
     ]
   where
     star = liftedTypeKind
@@ -557,8 +559,9 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
         -- We handle (TYPE LiftedRep) etc separately to make it
         -- clear to consumers (e.g. serializers) that there is
         -- a loop here (as TYPE :: RuntimeRep -> TYPE 'LiftedRep)
-      | not (tcIsConstraintKind k)    -- Typeable respects the Constraint/* distinction
-                                      -- so do not follow the special case here
+      | not (tcIsConstraintKind k)
+              -- Typeable respects the Constraint/Type distinction
+              -- so do not follow the special case here
       , Just arg <- kindRep_maybe k
       , Just (tc, []) <- splitTyConApp_maybe arg
       , Just dc <- isPromotedDataCon_maybe tc
@@ -590,7 +593,7 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
     new_kind_rep (ForAllTy (Bndr var _) ty)
       = pprPanic "mkTyConKindRepBinds(ForAllTy)" (ppr var $$ ppr ty)
 
-    new_kind_rep (FunTy _ t1 t2)
+    new_kind_rep (FunTy _ _ t1 t2)
       = do rep1 <- getKindRep stuff in_scope t1
            rep2 <- getKindRep stuff in_scope t2
            return $ dataConOmega kindRepFunDataCon

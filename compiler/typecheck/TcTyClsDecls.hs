@@ -40,7 +40,7 @@ import TcDeriv (DerivInfo)
 import TcHsType
 import ClsInst( AssocInstInfo(..) )
 import TcMType
-import TysWiredIn ( unitTy )
+import TysWiredIn ( unitTy, makeRecoveryTyCon )
 import TcType
 import Multiplicity
 import RnEnv( lookupConstructorFields )
@@ -2149,8 +2149,8 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
 
        ; kvs <- kindGeneralize (mkSpecForAllTys (binderVars tmpl_bndrs) $
                                 mkSpecForAllTys exp_tvs $
-                                mkFunTys (map unrestricted ctxt) $
-                                mkFunTys arg_tys $
+                                mkPhiTy ctxt $
+                                mkVisFunTys arg_tys $
                                 unitTy)
                  -- That type is a lie, of course. (It shouldn't end in ()!)
                  -- And we could construct a proper result type from the info
@@ -2224,8 +2224,8 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
        ; let user_tvs = imp_tvs ++ exp_tvs
 
        ; tkvs <- kindGeneralize (mkSpecForAllTys user_tvs $
-                                 mkFunTys (map unrestricted ctxt) $
-                                 mkFunTys arg_tys $
+                                 mkPhiTy ctxt $
+                                 mkVisFunTys arg_tys $
                                  res_ty)
 
              -- Zonk to Types
@@ -2730,12 +2730,12 @@ checkValidTyCl :: TyCon -> TcM [TyCon]
 -- See Note [Recover from validity error]
 checkValidTyCl tc
   = setSrcSpan (getSrcSpan tc) $
-    addTyConCtxt tc $
-    recoverM recovery_code
-             (do { traceTc "Starting validity for tycon" (ppr tc)
-                 ; checkValidTyCon tc
-                 ; traceTc "Done validity for tycon" (ppr tc)
-                 ; return [tc] })
+    addTyConCtxt tc            $
+    recoverM recovery_code     $
+    do { traceTc "Starting validity for tycon" (ppr tc)
+       ; checkValidTyCon tc
+       ; traceTc "Done validity for tycon" (ppr tc)
+       ; return [tc] }
   where
     recovery_code -- See Note [Recover from validity error]
       = do { traceTc "Aborted validity for tycon" (ppr tc)
@@ -3554,7 +3554,7 @@ checkValidRoles tc
       =  check_ty_roles env role    ty1
       >> check_ty_roles env Nominal ty2
 
-    check_ty_roles env role (FunTy w ty1 ty2)
+    check_ty_roles env role (FunTy _ w ty1 ty2)
       =  sequence_ (multThingList (check_ty_roles env role) w)
       >> check_ty_roles env role ty1
       >> check_ty_roles env role ty2
@@ -3719,7 +3719,7 @@ badDataConTyCon data_con res_ty_tmpl actual_res_ty
     (actual_res_tvs, actual_res_theta, actual_res_rho)
       = tcSplitNestedSigmaTys actual_res_ty
     suggested_ty = mkSpecForAllTys (actual_ex_tvs ++ actual_res_tvs) $
-                   mkFunTys (map unrestricted (actual_theta ++ actual_res_theta))
+                   mkPhiTy (actual_theta ++ actual_res_theta)
                    actual_res_rho
 
 badGadtDecl :: Name -> SDoc

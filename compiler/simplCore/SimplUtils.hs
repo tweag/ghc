@@ -416,8 +416,8 @@ contHoleType (StrictArg  { sc_fun = ai, sc_mult = _m })      = funArgTy (ai_type
 contHoleType (ApplyToTy  { sc_hole_ty = ty }) = ty  -- See Note [The hole type in ApplyToTy]
 contHoleType (ApplyToVal { sc_arg = e, sc_env = se, sc_dup = dup, sc_cont = k
                          , sc_mult = m })
-  = mkFunTy m (perhapsSubstTy dup se (exprType e))
-                  (contHoleType k)
+  = mkVisFunTy m (perhapsSubstTy dup se (exprType e))
+                 (contHoleType k)
 contHoleType (Select { sc_dup = d, sc_bndr =  b, sc_env = se })
   = perhapsSubstTy d se (idType b)
 

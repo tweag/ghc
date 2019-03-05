@@ -503,14 +503,14 @@ tcLcStmt m_tc ctxt (TransStmt { trS_form = form, trS_stmts = stmts
              by_arrow :: Type -> Type     -- Wraps 'ty' to '(a->t) -> ty' if the By is present
              by_arrow = case by' of
                           Nothing       -> \ty -> ty
-                          Just (_,e_ty) -> \ty -> (alphaTy `mkFunTyOm` e_ty) `mkFunTyOm` ty
+                          Just (_,e_ty) -> \ty -> (alphaTy `mkVisFunTyOm` e_ty) `mkVisFunTyOm` ty
 
              tup_ty        = mkBigCoreVarTupTy bndr_ids
              poly_arg_ty   = m_app alphaTy
              poly_res_ty   = m_app (n_app alphaTy)
              using_poly_ty = mkInvForAllTy alphaTyVar $
                              by_arrow $
-                             poly_arg_ty `mkFunTyOm` poly_res_ty
+                             poly_arg_ty `mkVisFunTyOm` poly_res_ty
 
        ; using' <- tcPolyExpr using using_poly_ty
        ; let final_using = fmap (mkHsWrap (WpTyApp tup_ty)) using'
@@ -624,7 +624,7 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
                          , trS_by = by, trS_using = using, trS_form = form
                          , trS_ret = return_op, trS_bind = bind_op
                          , trS_fmap = fmap_op }) res_ty thing_inside
-  = do { let star_star_kind = liftedTypeKind `mkFunTyOm` liftedTypeKind
+  = do { let star_star_kind = liftedTypeKind `mkVisFunTyOm` liftedTypeKind
        ; m1_ty   <- newFlexiTyVarTy star_star_kind
        ; m2_ty   <- newFlexiTyVarTy star_star_kind
        ; tup_ty  <- newFlexiTyVarTy liftedTypeKind
@@ -640,7 +640,7 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
              --                          or res                    ('by' absent)
              by_arrow = case by of
                           Nothing -> \res -> res
-                          Just {} -> \res -> (alphaTy `mkFunTyOm` by_e_ty) `mkFunTyOm` res
+                          Just {} -> \res -> (alphaTy `mkVisFunTyOm` by_e_ty) `mkVisFunTyOm` res
 
              poly_arg_ty  = m1_ty `mkAppTy` alphaTy
              using_arg_ty = m1_ty `mkAppTy` tup_ty
@@ -648,7 +648,7 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
              using_res_ty = m2_ty `mkAppTy` n_app tup_ty
              using_poly_ty = mkInvForAllTy alphaTyVar $
                              by_arrow $
-                             poly_arg_ty `mkFunTyOm` poly_res_ty
+                             poly_arg_ty `mkVisFunTyOm` poly_res_ty
 
              -- 'stmts' returns a result of type (m1_ty tuple_ty),
              -- typically something like [(Int,Bool,Int)]
@@ -679,7 +679,7 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
        ; new_res_ty <- newFlexiTyVarTy liftedTypeKind
        ; (_, bind_op')  <- tcSyntaxOp MCompOrigin bind_op
                              [ synKnownType using_res_ty
-                             , synKnownType (n_app tup_ty `mkFunTyOm` new_res_ty) ]
+                             , synKnownType (n_app tup_ty `mkVisFunTyOm` new_res_ty) ]
                              res_ty $ \ _ _ -> return ()
 
        --------------- Typecheck the 'fmap' function -------------
@@ -688,9 +688,9 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
                        _ -> fmap unLoc . tcPolyExpr (noLoc fmap_op) $
                             mkInvForAllTy alphaTyVar $
                             mkInvForAllTy betaTyVar  $
-                            (alphaTy `mkFunTyOm` betaTy)
-                            `mkFunTyOm` (n_app alphaTy)
-                            `mkFunTyOm` (n_app betaTy)
+                            (alphaTy `mkVisFunTyOm` betaTy)
+                            `mkVisFunTyOm` (n_app alphaTy)
+                            `mkVisFunTyOm` (n_app betaTy)
 
        --------------- Typecheck the 'using' function -------------
        -- using :: ((a,b,c)->t) -> m1 (a,b,c) -> m2 (n (a,b,c))
@@ -749,14 +749,14 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
 --        -> m (st1, (st2, st3))
 --
 tcMcStmt ctxt (ParStmt _ bndr_stmts_s mzip_op bind_op) res_ty thing_inside
-  = do { let star_star_kind = liftedTypeKind `mkFunTyOm` liftedTypeKind
+  = do { let star_star_kind = liftedTypeKind `mkVisFunTyOm` liftedTypeKind
        ; m_ty   <- newFlexiTyVarTy star_star_kind
 
        ; let mzip_ty  = mkInvForAllTys [alphaTyVar, betaTyVar] $
                         (m_ty `mkAppTy` alphaTy)
-                        `mkFunTyOm`
+                        `mkVisFunTyOm`
                         (m_ty `mkAppTy` betaTy)
-                        `mkFunTyOm`
+                        `mkVisFunTyOm`
                         (m_ty `mkAppTy` mkBoxedTupleTy [alphaTy, betaTy])
        ; mzip_op' <- unLoc `fmap` tcPolyExpr (noLoc mzip_op) mzip_ty
 
@@ -893,7 +893,7 @@ tcDoStmt ctxt (RecStmt { recS_stmts = stmts, recS_later_ids = later_names
         ; ((_, mfix_op'), mfix_res_ty)
             <- tcInferInst $ \ exp_ty ->
                tcSyntaxOp DoOrigin mfix_op
-                          [synKnownType (mkFunTyOm tup_ty stmts_ty)] exp_ty $
+                          [synKnownType (mkVisFunTyOm tup_ty stmts_ty)] exp_ty $
                \ _ _ -> return ()
 
         ; ((thing, new_res_ty), bind_op')
@@ -1026,7 +1026,7 @@ tcApplicativeStmts ctxt pairs rhs_ty thing_inside
       ; ts <- replicateM (arity-1) $ newInferExpTypeInst
       ; exp_tys <- replicateM arity $ newFlexiTyVarTy liftedTypeKind
       ; pat_tys <- replicateM arity $ newFlexiTyVarTy liftedTypeKind
-      ; let fun_ty = mkFunTys (map unrestricted pat_tys) body_ty
+      ; let fun_ty = mkVisFunTysOm pat_tys body_ty
 
        -- NB. do the <$>,<*> operators first, we don't want type errors here
        --     i.e. goOps before goArgs

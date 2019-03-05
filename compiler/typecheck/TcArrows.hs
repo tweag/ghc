@@ -309,7 +309,7 @@ tc_cmd env cmd@(HsCmdArrForm x expr f fixity cmd_args) (cmd_stk, res_ty)
     do  { (cmd_args', cmd_tys) <- mapAndUnzipM tc_cmd_arg cmd_args
                               -- We use alphaTyVar for 'w'
         ; let e_ty = mkInvForAllTy alphaTyVar $
-                     mkFunTys (map unrestricted cmd_tys) $
+                     mkVisFunTysOm cmd_tys $
                      mkCmdArrTy env (mkPairTy alphaTy cmd_stk) res_ty
         ; expr' <- tcPolyExpr expr e_ty
         ; return (HsCmdArrForm x expr' f fixity cmd_args') }
@@ -427,7 +427,7 @@ mkPairTy :: Type -> Type -> Type
 mkPairTy t1 t2 = mkTyConApp pairTyCon [t1,t2]
 
 arrowTyConKind :: Kind          --  *->*->*
-arrowTyConKind = mkFunTys [unrestricted liftedTypeKind, unrestricted liftedTypeKind] liftedTypeKind
+arrowTyConKind = mkVisFunTysOm [liftedTypeKind, liftedTypeKind] liftedTypeKind
 
 {-
 ************************************************************************
