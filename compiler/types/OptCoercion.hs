@@ -113,25 +113,22 @@ optCoercion dflags env co
 
 optCoercion' :: TCvSubst -> Coercion -> NormalCo
 optCoercion' env co
-  | debugIsOn
   = let out_co = opt_co1 lc False co
         (Pair in_ty1  in_ty2,  in_role)  = coercionKindRole co
         (Pair out_ty1 out_ty2, out_role) = coercionKindRole out_co
     in
-    ASSERT2( substTy env in_ty1 `eqType` out_ty1 &&
+    if substTy env in_ty1 `eqType` out_ty1 &&
              substTy env in_ty2 `eqType` out_ty2 &&
              in_role == out_role
-           , text "optCoercion changed types!"
-             $$ hang (text "in_co:") 2 (ppr co)
+        then out_co else pprPanic "optCoercion changed types!" (
+                hang (text "in_co:") 2 (ppr co)
              $$ hang (text "in_ty1:") 2 (ppr in_ty1)
              $$ hang (text "in_ty2:") 2 (ppr in_ty2)
              $$ hang (text "out_co:") 2 (ppr out_co)
              $$ hang (text "out_ty1:") 2 (ppr out_ty1)
              $$ hang (text "out_ty2:") 2 (ppr out_ty2)
              $$ hang (text "subst:") 2 (ppr env) )
-    out_co
 
-  | otherwise         = opt_co1 lc False co
   where
     lc = mkSubstLiftingContext env
 
