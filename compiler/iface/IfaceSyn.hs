@@ -73,6 +73,9 @@ import Lexeme (isLexSym)
 import Control.Monad
 import System.IO.Unsafe
 
+import qualified GHC.LanguageExtensions as LangExt
+import DynFlags
+
 infixl 3 &&&
 
 {-
@@ -1018,10 +1021,16 @@ pprIfaceConDecl ss gadt_style tycon tc_binders parent
         -- because we don't have a Name for the tycon, only an OccName
     pp_tau | null fields
            = case pp_args ++ [pp_gadt_res_ty] of
-                (t:ts) -> fsep (t : zipWith (\(w,_) d -> ppr_fun_arrow w <+> d) arg_tys ts)
+                (t:ts) -> fsep (t : zipWith (\(w,_) d -> ppr_arr w <+> d) arg_tys ts)
                 []     -> panic "pp_con_taus"
            | otherwise
            = sep [pp_field_args, arrow <+> pp_gadt_res_ty]
+
+    -- Constructors are linear by default, but we don't want to show
+    -- linear arrows when -XLinearTypes is disabled
+    ppr_arr w = sdocWithDynFlags (\dflags -> if xopt LangExt.LinearTypes dflags
+                                             then ppr_fun_arrow w
+                                             else arrow)
 
     ppr_bang IfNoBang = whenPprDebug $ char '_'
     ppr_bang IfStrict = char '!'
