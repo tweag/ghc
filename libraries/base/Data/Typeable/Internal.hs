@@ -86,7 +86,7 @@ module Data.Typeable.Internal (
 import GHC.Prim ( FUN )
 import GHC.Base
 import qualified GHC.Arr as A
-import GHC.Types ( TYPE, Multiplicity (Omega) )
+import GHC.Types ( TYPE )
 import Data.Type.Equality
 import GHC.List ( splitAt, foldl', elem )
 import GHC.Word
@@ -338,7 +338,7 @@ pattern Fun :: forall k (fun :: k). ()
             -> TypeRep res
             -> TypeRep fun
 pattern Fun arg res <- TrFun {trFunArg = arg, trFunRes = res}
-  where Fun arg res = mkTrFun trOmega arg res
+  where Fun arg res = mkTrFun arg res
 
 -- | Observe the 'Fingerprint' of a type representation
 --
@@ -385,9 +385,6 @@ trTYPE = typeRep
 trLiftedRep :: TypeRep 'LiftedRep
 trLiftedRep = typeRep
 
-trOmega :: TypeRep 'Omega
-trOmega = typeRep
-
 -- | Construct a representation for a type application that is
 -- NOT a saturated arrow type. This is not checked!
 
@@ -431,7 +428,7 @@ mkTrAppChecked rep@(TrApp {trAppFun = p, trAppArg = x :: TypeRep x})
   , Just (IsTYPE (ry :: TypeRep ry)) <- isTYPE (typeRepKind y)
   , Just HRefl <- withTypeable x $ withTypeable rx $ withTypeable ry
                   $ typeRep @((->) x :: TYPE ry -> Type) `eqTypeRep` rep
-  = mkTrFun trOmega x y
+  = mkTrFun x y
 mkTrAppChecked a b = mkTrApp a b
 
 -- | A type application.
@@ -621,7 +618,7 @@ instantiateKindRep vars = go
     go (KindRepApp f a)
       = SomeTypeRep $ mkTrApp (unsafeCoerceRep $ go f) (unsafeCoerceRep $ go a)
     go (KindRepFun a b)
-      = SomeTypeRep $ mkTrFun trOmega (unsafeCoerceRep $ go a) (unsafeCoerceRep $ go b)
+      = SomeTypeRep $ mkTrFun (unsafeCoerceRep $ go a) (unsafeCoerceRep $ go b)
     go (KindRepTYPE LiftedRep) = SomeTypeRep TrType
     go (KindRepTYPE r) = unkindedTypeRep $ tYPE `kApp` runtimeRepTypeRep r
     go (KindRepTypeLitS sort s)
@@ -999,14 +996,13 @@ typeLitTypeRep :: forall k (a :: k). (Typeable k) =>
 typeLitTypeRep nm kind_tycon = mkTrCon (mkTypeLitTyCon nm kind_tycon) []
 
 -- | For compiler use.
-mkTrFun :: forall (m :: Multiplicity) (r1 :: RuntimeRep) (r2 :: RuntimeRep)
+mkTrFun :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                   (a :: TYPE r1) (b :: TYPE r2).
-           TypeRep m -> TypeRep a -> TypeRep b -> TypeRep ((a -->.(m) b) :: Type)
-mkTrFun mul arg res | Just HRefl <- mul `eqTypeRep` trOmega = TrFun
+           TypeRep a -> TypeRep b -> TypeRep (a -> b)
+mkTrFun arg res = TrFun
     { trFunFingerprint = fpr
     , trFunArg = arg
     , trFunRes = res }
-                    | otherwise = error "not supported"
   where fpr = fingerprintFingerprints [ typeRepFingerprint arg
                                       , typeRepFingerprint res]
 
