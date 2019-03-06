@@ -94,7 +94,7 @@ test('T4918', [], makefile_test, ['T4918'])
 # result of -ddump-simpl, which is never advertised to
 # be very stable
 test('T4945',
-     expect_broken(230),
+     normal,
      makefile_test, ['T4945'])
 
 test('T4957',
