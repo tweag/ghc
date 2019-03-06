@@ -37,7 +37,6 @@ import Demand
 import OccName          ( OccName, pprOccName, mkVarOccFS )
 import TyCon            ( TyCon, isPrimTyCon, PrimRep(..) )
 import Type
-import TyCoRep          ( mkVisFunTyOm )
 import RepType          ( typePrimRep1, tyConPrimRep1 )
 import BasicTypes       ( Arity, Fixity(..), FixityDirection(..), Boxity(..),
                           SourceText(..) )

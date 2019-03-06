@@ -164,7 +164,6 @@ import BasicTypes       ( Arity, Boxity(..), TupleSort(..), ConTagZ,
                           SourceText(..) )
 import Multiplicity
 import ForeignCall
-import Var              ( AnonArgFlag(..) )
 import SrcLoc           ( noSrcSpan )
 import Unique
 import Data.Array
