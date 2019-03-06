@@ -59,12 +59,12 @@ module TcType (
   -- These are important because they do not look through newtypes
   getTyVar,
   tcSplitForAllTy_maybe,
-  tcSplitForAllTys, tcSplitPiTys, tcSplitPiTy_maybe, tcSplitForAllVarBndrs,
+  tcSplitForAllTys, tcSplitForAllTysSameVis,
+  tcSplitPiTys, tcSplitPiTy_maybe, tcSplitForAllVarBndrs,
   tcSplitPhiTy, tcSplitPredFunTy_maybe,
   tcSplitFunTy_maybe, tcSplitFunTys, tcFunArgTy, tcFunResultTy, tcFunResultTyN,
   tcSplitFunTysN,
   tcSplitTyConApp, tcSplitTyConApp_maybe,
-  tcRepSplitTyConApp, tcRepSplitTyConApp_maybe, tcRepSplitTyConApp_maybe',
   tcTyConAppTyCon, tcTyConAppTyCon_maybe, tcTyConAppArgs,
   tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, tcRepSplitAppTy_maybe,
   tcRepGetNumAppTys,
@@ -129,16 +129,18 @@ module TcType (
 
   --------------------------------
   -- Rexported from Type
-  Type, PredType, ThetaType, TyCoBinder, ArgFlag(..),
+  Type, PredType, ThetaType, TyCoBinder,
+  ArgFlag(..), AnonArgFlag(..), ForallVisFlag(..),
 
   mkForAllTy, mkForAllTys, mkTyCoInvForAllTys, mkSpecForAllTys, mkTyCoInvForAllTy,
   mkInvForAllTy, mkInvForAllTys,
-  mkFunTy, mkFunTyOm, mkFunTys,
+  mkVisFunTy, mkVisFunTys, mkInvisFunTy,
+  mkVisFunTyOm, mkVisFunTysOm, mkInvisFunTysOm,
   mkTyConApp, mkAppTy, mkAppTys,
   mkTyConTy, mkTyVarTy, mkTyVarTys,
   mkTyCoVarTy, mkTyCoVarTys,
 
-  isClassPred, isEqPred, isNomEqPred, isIPPred,
+  isClassPred, isEqPrimPred, isIPPred, isEqPred, isEqPredClass,
   mkClassPred,
   isDictLikeTy,
   tcSplitDFunTy, tcSplitDFunHead, tcSplitMethodTy,
@@ -918,8 +920,8 @@ tcTyFamInstsAndVisX = go
     go _            (LitTy {})         = []
     go is_invis_arg (ForAllTy bndr ty) = go is_invis_arg (binderType bndr)
                                          ++ go is_invis_arg ty
-    go is_invis_arg (FunTy w ty1 ty2)  = concat (multThingList (go is_invis_arg) w)
-                                         ++ go is_invis_arg ty1
+    go is_invis_arg (FunTy _ w ty1 ty2)  = concat (multThingList (go is_invis_arg) w)
+                                           ++ go is_invis_arg ty1
                                          ++ go is_invis_arg ty2
     go is_invis_arg ty@(AppTy _ _)     =
       let (ty_head, ty_args) = splitAppTys ty
@@ -986,7 +988,7 @@ exactTyCoVarsOfType ty
     go (TyConApp _ tys)     = exactTyCoVarsOfTypes tys
     go (LitTy {})           = emptyVarSet
     go (AppTy fun arg)      = go fun `unionVarSet` go arg
-    go (FunTy w arg res)    = unionVarSets (multThingList go w) `unionVarSet` go arg `unionVarSet` go res
+    go (FunTy _ w arg res)    = unionVarSets (multThingList go w) `unionVarSet` go arg `unionVarSet` go res
     go (ForAllTy bndr ty)   = delBinderVar (go ty) bndr `unionVarSet` go (binderType bndr)
     go (CastTy ty co)       = go ty `unionVarSet` goCo co
     go (CoercionTy co)      = goCo co
@@ -1044,7 +1046,7 @@ anyRewritableTyVar ignore_cos role pred ty
     go _ _     (LitTy {})       = False
     go rl bvs (TyConApp tc tys) = go_tc rl bvs tc tys
     go rl bvs (AppTy fun arg)   = go rl bvs fun || go NomEq bvs arg
-    go rl bvs (FunTy w arg res) = or (multThingList (go rl bvs) w) || go rl bvs arg || go rl bvs res
+    go rl bvs (FunTy _ w arg res) = or (multThingList (go rl bvs) w) || go rl bvs arg || go rl bvs res
     go rl bvs (ForAllTy tv ty)  = go rl (bvs `extendVarSet` binderVar tv) ty
     go rl bvs (CastTy ty co)    = go rl bvs ty || go_co rl bvs co
     go rl bvs (CoercionTy co)   = go_co rl bvs co  -- ToDo: check
@@ -1278,7 +1280,7 @@ mkSpecSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
 mkSpecSigmaTy tyvars preds ty = mkSigmaTy (mkTyCoVarBinders Specified tyvars) preds ty
 
 mkPhiTy :: [PredType] -> Type -> Type
-mkPhiTy = mkFunTys . map unrestricted
+mkPhiTy = mkInvisFunTysOm
 
 ---------------
 getDFunTyKey :: Type -> OccName -- Get some string from a type, to be used to
@@ -1288,7 +1290,7 @@ getDFunTyKey (TyVarTy tv)            = getOccName tv
 getDFunTyKey (TyConApp tc _)         = getOccName tc
 getDFunTyKey (LitTy x)               = getDFunTyLitKey x
 getDFunTyKey (AppTy fun _)           = getDFunTyKey fun
-getDFunTyKey (FunTy _ _ _)           = getOccName funTyCon
+getDFunTyKey (FunTy {})              = getOccName funTyCon
 getDFunTyKey (ForAllTy _ t)          = getDFunTyKey t
 getDFunTyKey (CastTy ty _)           = getDFunTyKey ty
 getDFunTyKey t@(CoercionTy _)        = pprPanic "getDFunTyKey" (ppr t)
@@ -1359,6 +1361,14 @@ tcSplitForAllTys ty
   = ASSERT( all isTyVar (fst sty) ) sty
   where sty = splitForAllTys ty
 
+-- | Like 'tcSplitForAllTys', but only splits a 'ForAllTy' if
+-- @'sameVis' argf supplied_argf@ is 'True', where @argf@ is the visibility
+-- of the @ForAllTy@'s binder and @supplied_argf@ is the visibility provided
+-- as an argument to this function.
+tcSplitForAllTysSameVis :: ArgFlag -> Type -> ([TyVar], Type)
+tcSplitForAllTysSameVis supplied_argf ty = ASSERT( all isTyVar (fst sty) ) sty
+  where sty = splitForAllTysSameVis supplied_argf ty
+
 -- | Like 'tcSplitForAllTys', but splits off only named binders.
 tcSplitForAllVarBndrs :: Type -> ([TyVarBinder], Type)
 tcSplitForAllVarBndrs ty = ASSERT( all isTyVarBinder (fst sty)) sty
@@ -1374,8 +1384,9 @@ tcSplitPredFunTy_maybe :: Type -> Maybe (PredType, Type)
 -- Split off the first predicate argument from a type
 tcSplitPredFunTy_maybe ty
   | Just ty' <- tcView ty = tcSplitPredFunTy_maybe ty'
-tcSplitPredFunTy_maybe (FunTy _ arg res)
-  | isPredTy arg = Just (arg, res)
+tcSplitPredFunTy_maybe (FunTy { ft_af = InvisArg
+                              , ft_arg = arg, ft_res = res })
+  = Just (arg, res)
 tcSplitPredFunTy_maybe _
   = Nothing
 
@@ -1418,7 +1429,7 @@ tcSplitNestedSigmaTys ty
     -- underneath it.
   | Just (arg_tys, tvs1, theta1, rho1) <- tcDeepSplitSigmaTy_maybe ty
   = let (tvs2, theta2, rho2) = tcSplitNestedSigmaTys rho1
-    in (tvs1 ++ tvs2, theta1 ++ theta2, mkFunTys arg_tys rho2)
+    in (tvs1 ++ tvs2, theta1 ++ theta2, mkVisFunTys arg_tys rho2)
     -- If there's no forall, we're done.
   | otherwise = ([], [], ty)
 
@@ -1452,8 +1463,9 @@ tcTyConAppTyCon_maybe ty
   | Just ty' <- tcView ty = tcTyConAppTyCon_maybe ty'
 tcTyConAppTyCon_maybe (TyConApp tc _)
   = Just tc
-tcTyConAppTyCon_maybe (FunTy _ _ _)
-  = Just funTyCon
+tcTyConAppTyCon_maybe (FunTy { ft_af = VisArg })
+  = Just funTyCon  -- (=>) is /not/ a TyCon in its own right
+                   -- C.f. tcRepSplitAppTy_maybe
 tcTyConAppTyCon_maybe _
   = Nothing
 
@@ -1467,27 +1479,6 @@ tcSplitTyConApp ty = case tcSplitTyConApp_maybe ty of
                         Just stuff -> stuff
                         Nothing    -> pprPanic "tcSplitTyConApp" (pprType ty)
 
--- | Like 'tcRepSplitTyConApp_maybe', but returns 'Nothing' if,
---
--- 1. the type is structurally not a type constructor application, or
---
--- 2. the type is a function type (e.g. application of 'funTyCon'), but we
---    currently don't even enough information to fully determine its RuntimeRep
---    variables. For instance, @FunTy (a :: k) Int@.
---
--- By contrast 'tcRepSplitTyConApp_maybe' panics in the second case.
---
--- The behavior here is needed during canonicalization; see Note [FunTy and
--- decomposing tycon applications] in TcCanonical for details.
-tcRepSplitTyConApp_maybe' :: HasCallStack => Type -> Maybe (TyCon, [Type])
-tcRepSplitTyConApp_maybe' (TyConApp tc tys)          = Just (tc, tys)
-tcRepSplitTyConApp_maybe' (FunTy w arg res)
-  | Just arg_rep <- getRuntimeRep_maybe arg
-  , Just res_rep <- getRuntimeRep_maybe res
-  = Just (funTyCon, [fromMult w, arg_rep, res_rep, arg, res])
-tcRepSplitTyConApp_maybe' _                          = Nothing
-
-
 -----------------------
 tcSplitFunTys :: Type -> ([Scaled Type], Type)
 tcSplitFunTys ty = case tcSplitFunTy_maybe ty of
@@ -1497,10 +1488,12 @@ tcSplitFunTys ty = case tcSplitFunTy_maybe ty of
                                           (args,res') = tcSplitFunTys res
 
 tcSplitFunTy_maybe :: Type -> Maybe (Scaled Type, Type)
-tcSplitFunTy_maybe ty | Just ty' <- tcView ty         = tcSplitFunTy_maybe ty'
-tcSplitFunTy_maybe (FunTy w arg res) | not (isPredTy arg) = Just (Scaled w arg, res)
-tcSplitFunTy_maybe _                                    = Nothing
-        -- Note the tcTypeKind guard
+tcSplitFunTy_maybe ty
+  | Just ty' <- tcView ty = tcSplitFunTy_maybe ty'
+tcSplitFunTy_maybe (FunTy { ft_af = af, ft_mult = w, ft_arg = arg, ft_res = res })
+  | VisArg <- af = Just (Scaled w arg, res)
+tcSplitFunTy_maybe _ = Nothing
+        -- Note the VisArg guard
         -- Consider     (?x::Int) => Bool
         -- We don't want to treat this as a function type!
         -- A concrete example is test tc230:
@@ -1702,10 +1695,10 @@ tc_eq_type keep_syns vis_only orig_ty1 orig_ty2
     -- Make sure we handle all FunTy cases since falling through to the
     -- AppTy case means that tcRepSplitAppTy_maybe may see an unzonked
     -- kind variable, which causes things to blow up.
-    go env (FunTy w1 arg1 res1) (FunTy w2 arg2 res2)
+    go env (FunTy _ w1 arg1 res1) (FunTy _ w2 arg2 res2)
       = w1 `eqMult` w2 && go env arg1 arg2 && go env res1 res2
-    go env ty (FunTy w arg res) = eqFunTy env w arg res ty
-    go env (FunTy w arg res) ty = eqFunTy env w arg res ty
+    go env ty (FunTy _ w arg res) = eqFunTy env w arg res ty
+    go env (FunTy _ w arg res) ty = eqFunTy env w arg res ty
 
       -- See Note [Equality on AppTys] in Type
     go env (AppTy s1 t1)        ty2
@@ -2005,7 +1998,7 @@ isInsolubleOccursCheck eq_rel tv ty
     go (AppTy t1 t2) = case eq_rel of  -- See Note [AppTy and ReprEq]
                          NomEq  -> go t1 || go t2
                          ReprEq -> go t1
-    go (FunTy w t1 t2) = or (multThingList go w) || go t1 || go t2
+    go (FunTy _ w t1 t2) = or (multThingList go w) || go t1 || go t2
     go (ForAllTy (Bndr tv' _) inner_ty)
       | tv' == tv = False
       | otherwise = go (varType tv') || go inner_ty
@@ -2125,15 +2118,15 @@ isSigmaTy :: TcType -> Bool
 -- *necessarily* have any foralls.  E.g
 --        f :: (?x::Int) => Int -> Int
 isSigmaTy ty | Just ty' <- tcView ty = isSigmaTy ty'
-isSigmaTy (ForAllTy {}) = True
-isSigmaTy (FunTy _ a _)   = isPredTy a
-isSigmaTy _             = False
+isSigmaTy (ForAllTy {})                = True
+isSigmaTy (FunTy { ft_af = InvisArg }) = True
+isSigmaTy _                            = False
 
 isRhoTy :: TcType -> Bool   -- True of TcRhoTypes; see Note [TcRhoType]
 isRhoTy ty | Just ty' <- tcView ty = isRhoTy ty'
-isRhoTy (ForAllTy {}) = False
-isRhoTy (FunTy _ a r)   = not (isPredTy a) && isRhoTy r
-isRhoTy _             = True
+isRhoTy (ForAllTy {})                          = False
+isRhoTy (FunTy { ft_af = VisArg, ft_res = r }) = isRhoTy r
+isRhoTy _                                      = True
 
 -- | Like 'isRhoTy', but also says 'True' for 'Infer' types
 isRhoExpTy :: ExpType -> Bool
@@ -2144,9 +2137,9 @@ isOverloadedTy :: Type -> Bool
 -- Yes for a type of a function that might require evidence-passing
 -- Used only by bindLocalMethods
 isOverloadedTy ty | Just ty' <- tcView ty = isOverloadedTy ty'
-isOverloadedTy (ForAllTy _  ty) = isOverloadedTy ty
-isOverloadedTy (FunTy _ a _)      = isPredTy a
-isOverloadedTy _                = False
+isOverloadedTy (ForAllTy _  ty)             = isOverloadedTy ty
+isOverloadedTy (FunTy { ft_af = InvisArg }) = True
+isOverloadedTy _                            = False
 
 isFloatTy, isDoubleTy, isIntegerTy, isIntTy, isWordTy, isBoolTy,
     isUnitTy, isCharTy, isAnyTy :: Type -> Bool
@@ -2574,7 +2567,7 @@ sizeType = go
                                    -- size ordering is sound, but why is this better?
                                    -- I came across this when investigating #14010.
     go (LitTy {})                = 1
-    go (FunTy w arg res)         = sum (multThingList go w) + go arg + go res + 1
+    go (FunTy _ w arg res)         = sum (multThingList go w) + go arg + go res + 1
     go (AppTy fun arg)           = go fun + go arg
     go (ForAllTy (Bndr tv vis) ty)
         | isVisibleArgFlag vis   = go (tyVarKind tv) + go ty + 1

@@ -890,8 +890,8 @@ ppType (TyApp (VecTyCon _ pptc) [])      = pptc
 ppType (TyUTup ts) = "(mkTupleTy Unboxed "
                      ++ listify (map ppType ts) ++ ")"
 
-ppType (TyF s d) = "(mkFunTy Omega (" ++ ppType s ++ ") (" ++ ppType d ++ "))"
-ppType (TyC s d) = "(mkFunTy Omega (" ++ ppType s ++ ") (" ++ ppType d ++ "))"
+ppType (TyF s d) = "(mkVisFunTyOm ("   ++ ppType s ++ ") (" ++ ppType d ++ "))"
+ppType (TyC s d) = "(mkInvisFunTyOm (" ++ ppType s ++ ") (" ++ ppType d ++ "))"
 
 ppType other
    = error ("ppType: can't handle: " ++ show other ++ "\n")

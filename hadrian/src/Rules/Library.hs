@@ -13,6 +13,7 @@ import Flavour
 import Oracles.ModuleFiles
 import Packages
 import Rules.Gmp
+import Rules.Libffi (libffiDependencies)
 import Settings
 import Target
 import Utilities
@@ -57,6 +58,14 @@ buildDynamicLibUnix root suffix dynlibpath = do
     let context = libDynContext dynlib
     deps <- contextDependencies context
     need =<< mapM pkgLibraryFile deps
+
+    -- TODO should this be somewhere else?
+    -- Custom build step to generate libffi.so* in the rts build directory.
+    when (package context == rts) . interpretInContext context $ do
+        stage   <- getStage
+        rtsPath <- expr (rtsBuildPath stage)
+        expr $ need ((rtsPath -/-) <$> libffiDependencies)
+
     objs <- libraryObjects context
     build $ target context (Ghc LinkHs $ Context.stage context) objs [dynlibpath]
 
@@ -112,18 +121,8 @@ libraryObjects :: Context -> Action [FilePath]
 libraryObjects context@Context{..} = do
     hsObjs   <- hsObjects    context
     noHsObjs <- nonHsObjects context
-
-    -- This will create split objects if required (we don't track them
-    -- explicitly as this would needlessly bloat the Shake database).
     need $ noHsObjs ++ hsObjs
-
-    split <- interpretInContext context =<< splitObjects <$> flavour
-    let getSplitObjs = concatForM hsObjs $ \obj -> do
-            let dir = dropExtension obj ++ "_" ++ osuf way ++ "_split"
-            contents <- liftIO $ IO.getDirectoryContents dir
-            return . map (dir -/-) $ filter (not . all (== '.')) contents
-
-    (noHsObjs ++) <$> if split then getSplitObjs else return hsObjs
+    return (noHsObjs ++ hsObjs)
 
 -- * Library paths types and parsers
 

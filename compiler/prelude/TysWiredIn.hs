@@ -16,8 +16,6 @@ module TysWiredIn (
 
         mkWiredInIdName,    -- used in MkId
 
-        mkFunKind, mkForAllKind,
-
         -- * All wired in things
         wiredInTyCons, isBuiltInOcc_maybe,
 
@@ -85,6 +83,9 @@ module TysWiredIn (
 
         -- * Any
         anyTyCon, anyTy, anyTypeOfKind,
+
+        -- * Recovery TyCon
+        makeRecoveryTyCon,
 
         -- * Sums
         mkSumTy, sumTyCon, sumDataCon,
@@ -406,6 +407,29 @@ anyTy = mkTyConTy anyTyCon
 anyTypeOfKind :: Kind -> Type
 anyTypeOfKind kind = mkTyConApp anyTyCon [kind]
 
+-- | Make a fake, recovery 'TyCon' from an existing one.
+-- Used when recovering from errors in type declarations
+makeRecoveryTyCon :: TyCon -> TyCon
+makeRecoveryTyCon tc
+  = mkTcTyCon (tyConName tc)
+              bndrs res_kind
+              []               -- No scoped vars
+              True             -- Fully generalised
+              flavour          -- Keep old flavour
+  where
+    flavour = tyConFlavour tc
+    [kv] = mkTemplateKindVars [liftedTypeKind]
+    (bndrs, res_kind)
+       = case flavour of
+           PromotedDataConFlavour -> ([mkNamedTyConBinder Inferred kv], mkTyVarTy kv)
+           _ -> (tyConBinders tc, tyConResKind tc)
+        -- For data types we have already validated their kind, so it
+        -- makes sense to keep it. For promoted data constructors we haven't,
+        -- so we recover with kind (forall k. k).  Otherwise consider
+        --     data T a where { MkT :: Show a => T a }
+        -- If T is for some reason invalid, we don't want to fall over
+        -- at (promoted) use-sites of MkT.
+
 -- Kinds
 typeNatKindConName, typeSymbolKindConName :: Name
 typeNatKindConName    = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Nat")    typeNatKindConNameKey    typeNatKindCon
@@ -509,7 +533,7 @@ consDataCon_RDR = nameRdrName consDataConName
 pcTyCon :: Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
 pcTyCon name cType tyvars cons
   = mkAlgTyCon name
-                (mkAnonTyConBinders tyvars)
+                (mkAnonTyConBinders VisArg tyvars)
                 liftedTypeKind
                 (map (const Representational) tyvars)
                 cType
@@ -638,14 +662,6 @@ constraintKindTyCon = pcTyCon constraintKindTyConName Nothing [] []
 liftedTypeKind, constraintKind :: Kind
 liftedTypeKind   = tYPE liftedRepTy
 constraintKind   = mkTyConApp constraintKindTyCon []
-
--- mkFunKind and mkForAllKind are defined here
--- solely so that TyCon can use them via a SOURCE import
-mkFunKind :: Kind -> Kind -> Kind
-mkFunKind = mkFunTy Omega -- no linearity in kinds
-
-mkForAllKind :: TyCoVar -> ArgFlag -> Kind -> Kind
-mkForAllKind = mkForAllTy
 
 {-
 ************************************************************************

@@ -722,10 +722,8 @@ rnIfaceType (IfaceTyVar   n)   = pure (IfaceTyVar n)
 rnIfaceType (IfaceAppTy t1 t2)
     = IfaceAppTy <$> rnIfaceType t1 <*> rnIfaceAppArgs t2
 rnIfaceType (IfaceLitTy l)         = return (IfaceLitTy l)
-rnIfaceType (IfaceFunTy w t1 t2)
-    = IfaceFunTy <$> rnIfaceType w <*> rnIfaceType t1 <*> rnIfaceType t2
-rnIfaceType (IfaceDFunTy t1 t2)
-    = IfaceDFunTy <$> rnIfaceType t1 <*> rnIfaceType t2
+rnIfaceType (IfaceFunTy af w t1 t2)
+    = IfaceFunTy af <$> rnIfaceType w <*> rnIfaceType t1 <*> rnIfaceType t2
 rnIfaceType (IfaceTupleTy s i tks)
     = IfaceTupleTy s i <$> rnIfaceAppArgs tks
 rnIfaceType (IfaceTyConApp tc tks)

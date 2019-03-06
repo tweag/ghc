@@ -386,20 +386,6 @@ then
     fp_prog_ar="${mingwbin}ar.exe"
 
     AC_PATH_PROG([Genlib],[genlib])
-
-    # NB. Download the perl binaries if required
-    if ! test -d inplace/perl ||
-         test inplace/perl -ot ghc-tarballs/perl/ghc-perl*.tar.gz
-    then
-        AC_MSG_NOTICE([Making in-tree perl tree])
-        rm -rf inplace/perl
-        mkdir inplace/perl
-        (
-            cd inplace/perl &&
-            tar -zxf ../../ghc-tarballs/perl/ghc-perl*.tar.gz
-        )
-        AC_MSG_NOTICE([In-tree perl tree created])
-    fi
 fi
 
 # We don't want to bundle a MinGW-w64 toolchain
@@ -696,36 +682,6 @@ AC_SUBST([GhcLibsWithUnix])
 dnl ** does #! work?
 AC_SYS_INTERPRETER()
 
-# Check for split-objs
-SplitObjsBroken=NO
-dnl ** look for `perl'
-case $HostOS_CPP in
-cygwin32|mingw32)
-  if test "$EnableDistroToolchain" = "NO"; then
-    PerlCmd=$hardtop/inplace/perl/perl
-  else
-    AC_PATH_PROG([PerlCmd],[perl])
-  fi
-  # because of Trac #15051 SplitObjs is useless on Windows.  It regresses
-  # build times to days for a build, and this effect is also there for end users
-  # of GHC.  So unfortunately we have to disable it, even without having
-  # split-sections.  Though the compile time hit for split-sections should be
-  # tiny compared to this so maybe we should enable it for x86_64.
-  SplitObjsBroken=YES
-  ;;
-*)
-    AC_PATH_PROG([PerlCmd],[perl])
-    if test -z "$PerlCmd"
-    then
-        AC_MSG_WARN([No Perl on PATH, disabling split object support])
-        SplitObjsBroken=YES
-    else
-        FPTOOLS_CHECK_PERL_VERSION
-    fi
-    ;;
-esac
-AC_SUBST([SplitObjsBroken])
-
 dnl ** look for GCC and find out which version
 dnl     Figure out which C compiler to use.  Gcc is preferred.
 dnl     If gcc, make sure it's at least 3.0
@@ -816,6 +772,9 @@ AC_PATH_PROGS(XzCmd,pxz xz, xz)
 dnl ** check for patch
 dnl if GNU patch is named gpatch, look for it first
 AC_PATH_PROGS(PatchCmd,gpatch patch, patch)
+
+dnl ** check for autoreconf
+AC_PATH_PROG(AutoreconfCmd, autoreconf, autoreconf)
 
 dnl ** check for dtrace (currently only implemented for Mac OS X)
 AC_ARG_ENABLE(dtrace,
@@ -1332,7 +1291,7 @@ checkMake380() {
 checkMake380 make
 checkMake380 gmake
 
-AC_CONFIG_FILES([mk/config.mk mk/install.mk mk/project.mk rts/rts.cabal compiler/ghc.cabal ghc/ghc-bin.cabal utils/iserv/iserv.cabal utils/iserv-proxy/iserv-proxy.cabal utils/runghc/runghc.cabal utils/gen-dll/gen-dll.cabal libraries/ghc-boot/ghc-boot.cabal libraries/ghc-boot-th/ghc-boot-th.cabal libraries/ghci/ghci.cabal libraries/ghc-heap/ghc-heap.cabal libraries/libiserv/libiserv.cabal libraries/template-haskell/template-haskell.cabal settings docs/users_guide/ghc_config.py docs/index.html libraries/prologue.txt distrib/configure.ac])
+AC_CONFIG_FILES([mk/config.mk mk/install.mk mk/project.mk rts/rts.cabal compiler/ghc.cabal ghc/ghc-bin.cabal utils/iserv/iserv.cabal utils/iserv-proxy/iserv-proxy.cabal utils/remote-iserv/remote-iserv.cabal utils/runghc/runghc.cabal utils/gen-dll/gen-dll.cabal libraries/ghc-boot/ghc-boot.cabal libraries/ghc-boot-th/ghc-boot-th.cabal libraries/ghci/ghci.cabal libraries/ghc-heap/ghc-heap.cabal libraries/libiserv/libiserv.cabal libraries/template-haskell/template-haskell.cabal settings docs/users_guide/ghc_config.py docs/index.html libraries/prologue.txt distrib/configure.ac])
 AC_OUTPUT
 [
 if test "$print_make_warning" = "true"; then
@@ -1388,7 +1347,6 @@ echo "\
    genlib       : $GenlibCmd
    Happy        : $HappyCmd ($HappyVersion)
    Alex         : $AlexCmd ($AlexVersion)
-   Perl         : $PerlCmd
    sphinx-build : $SPHINXBUILD
    xelatex      : $XELATEX
 

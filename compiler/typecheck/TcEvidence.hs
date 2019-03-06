@@ -299,7 +299,6 @@ mkWpFun (WpCast co1) WpHole       (Scaled w _)  t2 _ = WpCast (mkTcFunCo Represe
 mkWpFun (WpCast co1) (WpCast co2) (Scaled w _)  _  _ = WpCast (mkTcFunCo Representational (multRefl w) (mkTcSymCo co1) co2)
 mkWpFun co1          co2          t1 _  d = WpFun co1 co2 t1 d
 
-
 mkWpCastR :: TcCoercionR -> HsWrapper
 mkWpCastR co
   | isTcReflCo co = WpHole

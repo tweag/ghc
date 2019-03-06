@@ -2310,9 +2310,11 @@ getGhciStepIO = do
     let ghciM   = nlHsAppTy (nlHsTyVar ghciTy) (nlHsTyVar a_tv)
         ioM     = nlHsAppTy (nlHsTyVar ioTyConName) (nlHsTyVar a_tv)
 
-        step_ty = noLoc $ HsForAllTy { hst_bndrs = [noLoc $ UserTyVar noExt (noLoc a_tv)]
-                                     , hst_xforall = noExt
-                                     , hst_body  = nlHsFunTy HsUnrestrictedArrow ghciM ioM }
+        step_ty = noLoc $ HsForAllTy
+                     { hst_fvf = ForallInvis
+                     , hst_bndrs = [noLoc $ UserTyVar noExt (noLoc a_tv)]
+                     , hst_xforall = noExt
+                     , hst_body  = nlHsFunTy HsUnrestrictedArrow ghciM ioM }
 
         stepTy :: LHsSigWcType GhcRn
         stepTy = mkEmptyWildCardBndrs (mkEmptyImplicitBndrs step_ty)
@@ -2376,7 +2378,8 @@ tcRnExpr hsc_env mode rdr_expr
     _ <- perhaps_disable_default_warnings $
          simplifyInteractive residual ;
 
-    let { all_expr_ty = mkInvForAllTys qtvs (mkLamTypes dicts res_ty) } ;
+    let { all_expr_ty = mkInvForAllTys qtvs $
+                        mkPhiTy (map idType dicts) res_ty } ;
     ty <- zonkTcType all_expr_ty ;
 
     -- We normalise type families, so that the type of an expression is the

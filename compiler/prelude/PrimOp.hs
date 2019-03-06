@@ -37,7 +37,6 @@ import Demand
 import OccName          ( OccName, pprOccName, mkVarOccFS )
 import TyCon            ( TyCon, isPrimTyCon, PrimRep(..) )
 import Type
-import Multiplicity
 import RepType          ( typePrimRep1, tyConPrimRep1 )
 import BasicTypes       ( Arity, Fixity(..), FixityDirection(..), Boxity(..),
                           SourceText(..) )
@@ -543,7 +542,7 @@ primOpType op
     Compare _occ ty -> compare_fun_ty ty
 
     GenPrimOp _occ tyvars arg_tys res_ty ->
-        mkSpecForAllTys tyvars (mkFunTys (map unrestricted arg_tys) res_ty)
+        mkSpecForAllTys tyvars (mkVisFunTysOm arg_tys res_ty)
 
 primOpOcc :: PrimOp -> OccName
 primOpOcc op = case primOpInfo op of
@@ -610,9 +609,9 @@ commutableOp :: PrimOp -> Bool
 -- Utils:
 
 dyadic_fun_ty, monadic_fun_ty, compare_fun_ty :: Type -> Type
-dyadic_fun_ty  ty = mkFunTys [unrestricted ty, unrestricted ty] ty
-monadic_fun_ty ty = mkFunTyOm ty ty
-compare_fun_ty ty = mkFunTys [unrestricted ty, unrestricted ty] intPrimTy
+dyadic_fun_ty  ty = mkVisFunTysOm [ty, ty] ty
+monadic_fun_ty ty = mkVisFunTyOm  ty ty
+compare_fun_ty ty = mkVisFunTysOm [ty, ty] intPrimTy
 
 -- Output stuff:
 

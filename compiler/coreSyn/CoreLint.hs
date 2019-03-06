@@ -1447,7 +1447,7 @@ lintType ty@(TyConApp tc tys)
 
 -- arrows can related *unlifted* kinds, so this has to be separate from
 -- a dependent forall.
-lintType ty@(FunTy w t1 t2)
+lintType ty@(FunTy _ w t1 t2)
   = do { k1 <- lintType t1
        ; k2 <- lintType t2
        ; kw <- lintType (fromMult w)
@@ -1609,7 +1609,7 @@ lint_app doc kfn kas
       | Just kfn' <- coreView kfn
       = go_app in_scope kfn' tka
 
-    go_app _ (FunTy _ kfa kfb) tka@(_,ka)
+    go_app _ (FunTy _ _ kfa kfb) tka@(_,ka)
       = do { unless (ka `eqType` kfa) $
              addErrL (fail_msg (text "Fun:" <+> (ppr kfa $$ ppr tka)))
            ; return kfb }
@@ -1869,7 +1869,7 @@ lintCoercion co@(FunCo r w co1 co2)
        ; lintRole co1 r r1
        ; lintRole co2 r r2
        ; lintRole w Nominal r3
-       ; return (k, k', mkFunTy (toMult s3) s1 s2, mkFunTy (toMult t3) t1 t2, r) }
+       ; return (k, k', mkVisFunTy (toMult s3) s1 s2, mkVisFunTy (toMult t3) t1 t2, r) }
 
 lintCoercion (CoVarCo cv)
   | not (isCoVar cv)

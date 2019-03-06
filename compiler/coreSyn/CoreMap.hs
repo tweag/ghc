@@ -3,6 +3,7 @@
 (c) The GRASP/AQUA Project, Glasgow University, 1992-1998
 -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -10,6 +11,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module CoreMap(
    -- * Maps over Core expressions
    CoreMap, emptyCoreMap, extendCoreMap, lookupCoreMap, foldCoreMap,
@@ -33,6 +35,8 @@ module CoreMap(
    lkDNamed, xtDNamed,
    (>.>), (|>), (|>>),
  ) where
+
+#include "HsVersions.h"
 
 import GhcPrelude
 
@@ -522,7 +526,7 @@ instance Eq (DeBruijn Type) where
             -> D env t1 == D env' t1' && D env t2 == D env' t2'
         (s, AppTy t1' t2') | Just (t1, t2) <- repSplitAppTy_maybe s
             -> D env t1 == D env' t1' && D env t2 == D env' t2'
-        (FunTy w1 t1 t2, FunTy w1' t1' t2')
+        (FunTy _ w1 t1 t2, FunTy _ w1' t1' t2')
             -> w1 `eqMult` w1' && D env t1 == D env' t1' && D env t2 == D env' t2'
         (TyConApp tc tys, TyConApp tc' tys')
             -> tc == tc' && D env tys == D env' tys'

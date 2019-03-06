@@ -219,6 +219,7 @@ tcUserTypeSig :: SrcSpan -> LHsSigWcType GhcRn -> Maybe Name
 tcUserTypeSig loc hs_sig_ty mb_name
   | isCompleteHsSig hs_sig_ty
   = do { sigma_ty <- tcHsSigWcType ctxt_F hs_sig_ty
+       ; traceTc "tcuser" (ppr sigma_ty)
        ; return $
          CompleteSig { sig_bndr  = mkLocalId name (Regular Omega) sigma_ty
                                    -- We use `Omega' as the multiplicity here,
@@ -372,8 +373,8 @@ tcPatSynSig :: Name -> LHsSigType GhcRn -> TcM TcPatSynInfo
 tcPatSynSig name sig_ty
   | HsIB { hsib_ext = implicit_hs_tvs
          , hsib_body = hs_ty }  <- sig_ty
-  , (univ_hs_tvs, hs_req,  hs_ty1)     <- splitLHsSigmaTy hs_ty
-  , (ex_hs_tvs,   hs_prov, hs_body_ty) <- splitLHsSigmaTy hs_ty1
+  , (univ_hs_tvs, hs_req,  hs_ty1)     <- splitLHsSigmaTyInvis hs_ty
+  , (ex_hs_tvs,   hs_prov, hs_body_ty) <- splitLHsSigmaTyInvis hs_ty1
   = do {  traceTc "tcPatSynSig 1" (ppr sig_ty)
        ; (implicit_tvs, (univ_tvs, (ex_tvs, (req, prov, body_ty))))
            <- pushTcLevelM_   $
@@ -388,8 +389,8 @@ tcPatSynSig name sig_ty
                      -- e.g. pattern Zero <- 0#   (Trac #12094)
                  ; return (req, prov, body_ty) }
 
-       ; let ungen_patsyn_ty = build_patsyn_type [] implicit_tvs univ_tvs req
-                                                 ex_tvs prov body_ty
+       ; let ungen_patsyn_ty = build_patsyn_type [] implicit_tvs univ_tvs
+                                                 req ex_tvs prov body_ty
 
        -- Kind generalisation
        ; kvs <- kindGeneralize ungen_patsyn_ty
@@ -456,9 +457,9 @@ tcPatSynSig name sig_ty
     build_patsyn_type kvs imp univ req ex prov body
       = mkInvForAllTys kvs $
         mkSpecForAllTys (imp ++ univ) $
-        mkFunTys (map unrestricted req) $
+        mkPhiTy req $
         mkSpecForAllTys ex $
-        mkFunTys (map unrestricted prov) $
+        mkPhiTy prov $
         body
 tcPatSynSig _ (XHsImplicitBndrs _) = panic "tcPatSynSig"
 

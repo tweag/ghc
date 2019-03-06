@@ -83,14 +83,14 @@ synonymTyConsOfType ty
   = nameEnvElts (go ty)
   where
      go :: Type -> NameEnv TyCon  -- The NameEnv does duplicate elim
-     go (TyConApp tc tys)         = go_tc tc `plusNameEnv` go_s tys
-     go (LitTy _)                 = emptyNameEnv
-     go (TyVarTy _)               = emptyNameEnv
-     go (AppTy a b)               = go a `plusNameEnv` go b
-     go (FunTy w a b)             = go_mult w `plusNameEnv` go a `plusNameEnv` go b
-     go (ForAllTy _ ty)           = go ty
-     go (CastTy ty co)            = go ty `plusNameEnv` go_co co
-     go (CoercionTy co)           = go_co co
+     go (TyConApp tc tys) = go_tc tc `plusNameEnv` go_s tys
+     go (LitTy _)         = emptyNameEnv
+     go (TyVarTy _)       = emptyNameEnv
+     go (AppTy a b)       = go a `plusNameEnv` go b
+     go (FunTy _ w a b)   = go_mult w `plusNameEnv` go a `plusNameEnv` go b
+     go (ForAllTy _ ty)   = go ty
+     go (CastTy ty co)    = go ty `plusNameEnv` go_co co
+     go (CoercionTy co)   = go_co co
 
      -- Note [TyCon cycles through coercions?!]
      -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -601,8 +601,8 @@ irType = go
                                           lcls' = extendVarSet lcls tv
                                     ; markNominal lcls (tyVarKind tv)
                                     ; go lcls' ty }
-    go lcls (FunTy w arg res)  = sequence_ (multThingList (go lcls) w) >>
-                                 go lcls arg >> go lcls res
+    go lcls (FunTy _ w arg res)  = sequence_ (multThingList (go lcls) w) >>
+                                   go lcls arg >> go lcls res
     go _    (LitTy {})         = return ()
       -- See Note [Coercions in role inference]
     go lcls (CastTy ty _)      = go lcls ty
@@ -638,7 +638,7 @@ markNominal lcls ty = let nvars = fvVarList (FV.delFVs lcls $ get_ty_vars ty) in
     get_ty_vars :: Type -> FV
     get_ty_vars (TyVarTy tv)      = unitFV tv
     get_ty_vars (AppTy t1 t2)     = get_ty_vars t1 `unionFV` get_ty_vars t2
-    get_ty_vars (FunTy w t1 t2)   = unionsFV (multThingList get_ty_vars w)
+    get_ty_vars (FunTy _ w t1 t2) = unionsFV (multThingList get_ty_vars w)
                                     `unionFV` get_ty_vars t1 `unionFV` get_ty_vars t2
     get_ty_vars (TyConApp _ tys)  = mapUnionFV get_ty_vars tys
     get_ty_vars (ForAllTy tvb ty) = tyCoFVsBndr tvb (get_ty_vars ty)
@@ -883,7 +883,7 @@ mkOneRecordSelector all_cons idDetails fl
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
            | otherwise  = mkSpecForAllTys data_tvs          $
                           mkPhiTy (conLikeStupidTheta con1) $   -- Urgh!
-                          mkFunTyOm data_ty                 $
+                          mkVisFunTyOm data_ty              $
                             -- Record selectors are always typed with Omega. We
                             -- could improve on it in the case where all the
                             -- fields in all the constructor have multiplicity Omega.

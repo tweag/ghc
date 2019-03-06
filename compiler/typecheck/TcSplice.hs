@@ -1253,7 +1253,7 @@ reifyInstances th_nm th_tys
         ; rdr_ty <- cvt loc (mkThAppTs (TH.ConT th_nm) th_tys)
           -- #9262 says to bring vars into scope, like in HsForAllTy case
           -- of rnHsTyKi
-        ; let tv_rdrs = freeKiTyVarsAllVars (extractHsTyRdrTyVars rdr_ty)
+        ; let tv_rdrs = extractHsTyRdrTyVars rdr_ty
           -- Rename  to HsType Name
         ; ((tv_names, rn_ty), _fvs)
             <- checkNoErrs $ -- If there are out-of-scope Names here, then we
@@ -1815,7 +1815,8 @@ reifyType :: TyCoRep.Type -> TcM TH.Type
 reifyType ty                | tcIsLiftedTypeKind ty = return TH.StarT
   -- Make sure to use tcIsLiftedTypeKind here, since we don't want to confuse it
   -- with Constraint (#14869).
-reifyType ty@(ForAllTy {})  = reify_for_all ty
+reifyType ty@(ForAllTy (Bndr _ argf) _)
+                            = reify_for_all argf ty
 reifyType (LitTy t)         = do { r <- reifyTyLit t; return (TH.LitT r) }
 reifyType (TyVarTy tv)      = return (TH.VarT (reifyName tv))
 reifyType (TyConApp tc tys) = reify_tc_app tc tys   -- Do not expand type synonyms here
@@ -1836,21 +1837,26 @@ reifyType ty@(AppTy {})     = do
     filter_out_invisible_args ty_head ty_args =
       filterByList (map isVisibleArgFlag $ appTyArgFlags ty_head ty_args)
                    ty_args
-reifyType ty@(FunTy Omega t1 t2)
-  | isPredTy t1 = reify_for_all ty  -- Types like ((?x::Int) => Char -> Char)
-  | otherwise   = do { [r1,r2] <- reifyTypes [t1,t2] ; return (TH.ArrowT `TH.AppT` r1 `TH.AppT` r2) }
-reifyType ty@(FunTy _ _ _)  = noTH (sLit "non-Omega multiplicity") (ppr ty)
+reifyType ty@(FunTy { ft_af = af, ft_mult = Omega, ft_arg = t1, ft_res = t2 })
+  | InvisArg <- af = reify_for_all Inferred ty  -- Types like ((?x::Int) => Char -> Char)
+  | otherwise      = do { [r1,r2] <- reifyTypes [t1,t2] ; return (TH.ArrowT `TH.AppT` r1 `TH.AppT` r2) }
+reifyType ty@(FunTy {})  = noTH (sLit "non-Omega multiplicity") (ppr ty)
 reifyType (CastTy t _)      = reifyType t -- Casts are ignored in TH
 reifyType ty@(CoercionTy {})= noTH (sLit "coercions in types") (ppr ty)
 
-reify_for_all :: TyCoRep.Type -> TcM TH.Type
-reify_for_all ty
-  = do { cxt' <- reifyCxt cxt;
-       ; tau' <- reifyType tau
-       ; tvs' <- reifyTyVars tvs
-       ; return (TH.ForallT tvs' cxt' tau') }
+reify_for_all :: TyCoRep.ArgFlag -> TyCoRep.Type -> TcM TH.Type
+-- Arg of reify_for_all is always ForAllTy or a predicate FunTy
+reify_for_all argf ty = do
+  tvs' <- reifyTyVars tvs
+  case argToForallVisFlag argf of
+    ForallVis   -> do phi' <- reifyType phi
+                      pure $ TH.ForallVisT tvs' phi'
+    ForallInvis -> do let (cxt, tau) = tcSplitPhiTy phi
+                      cxt' <- reifyCxt cxt
+                      tau' <- reifyType tau
+                      pure $ TH.ForallT tvs' cxt' tau'
   where
-    (tvs, cxt, tau) = tcSplitSigmaTy ty
+    (tvs, phi) = tcSplitForAllTysSameVis argf ty
 
 reifyTyLit :: TyCoRep.TyLit -> TcM TH.TyLit
 reifyTyLit (NumTyLit n) = return (TH.NumTyLit n)
@@ -1869,7 +1875,7 @@ reifyPatSynType (univTyVars, req, exTyVars, prov, argTys, resTy)
        ; req'        <- reifyCxt req
        ; exTyVars'   <- reifyTyVars exTyVars
        ; prov'       <- reifyCxt prov
-       ; tau'        <- reifyType (mkFunTys argTys resTy)
+       ; tau'        <- reifyType (mkVisFunTys argTys resTy)
        ; return $ TH.ForallT univTyVars' req'
                 $ TH.ForallT exTyVars' prov' tau' }
 

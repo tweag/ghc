@@ -8,17 +8,29 @@ import Context
 import Expression hiding (stage, way)
 import Oracles.Flag
 import Oracles.ModuleFiles
+import Oracles.Setting (topDirectory)
 import Packages
 import Settings
 import Settings.Default
 import Target
 import Utilities
-import Flavour
 
 -- | TODO: Drop code duplication
 buildProgramRules :: [(Resource, Int)] -> Rules ()
 buildProgramRules rs = do
     root <- buildRootRules
+
+    -- Proxy rule for the whole mingw toolchain on Windows.
+    -- We 'need' configure  because that's when the inplace/mingw
+    -- folder gets filled with the toolchain. This "proxy" rule
+    -- is listed as a runtime dependency for stage >= 1 GHCs.
+    root -/- mingwStamp %> \stampPath -> do
+        top <- topDirectory
+        need [ top -/- "configure" ]
+        copyDirectory (top -/- "inplace" -/- "mingw") root
+        writeFile' stampPath "OK"
+
+    -- Rules for programs that are actually built by hadrian.
     forM_ [Stage0 ..] $ \stage ->
         [ root -/- stageString stage -/- "bin"     -/- "*"
         , root -/- stageString stage -/- "lib/bin" -/- "*" ] |%> \bin -> do
@@ -45,18 +57,13 @@ getProgramContexts stage = do
     -- make sure that we cover these
     -- "prof-build-under-other-name" cases.
     -- iserv gets its names from Packages.hs:programName
-    --
-    profiled <- ghcProfiled <$> flavour
-    let allCtxs =
-          if pkg == ghc && profiled && stage > Stage0
-            then [ Context stage pkg profiling ]
-            else [ vanillaContext stage pkg
-                  , Context stage pkg profiling
-                  -- TODO Dynamic way has been reverted as the dynamic build is
-                  --      broken. See #15837.
-                  -- , Context stage pkg dynamic
-                 ]
-
+    ctx <- programContext stage pkg -- TODO: see todo on programContext.
+    let allCtxs = if pkg == iserv
+        then [ vanillaContext stage pkg
+             , Context stage pkg profiling
+             , Context stage pkg dynamic
+             ]
+        else [ ctx ]
     forM allCtxs $ \ctx -> do
       name <- programName ctx
       return (name <.> exe, ctx)

@@ -966,37 +966,34 @@ mkDataCon name declared_infix prom_info
         NoDataConRep -> dataConUserType con
         -- If the DataCon has a wrapper, then the worker's type is never seen
         -- by the user. The visibilities we pick do not matter here.
-        _ -> mkInvForAllTys univ_tvs $ mkTyCoInvForAllTys ex_tvs $
-                 mkFunTys rep_arg_tys $
+        DCR{} -> mkInvForAllTys univ_tvs $ mkTyCoInvForAllTys ex_tvs $
+                 mkVisFunTys rep_arg_tys $
                  mkTyConApp rep_tycon (mkTyVarTys univ_tvs)
 
       -- See Note [Promoted data constructors] in TyCon
     prom_tv_bndrs = [ mkNamedTyConBinder vis tv
                     | Bndr tv vis <- user_tvbs ]
 
-    prom_arg_bndrs = mkCleanAnonTyConBinders prom_tv_bndrs (theta ++ map scaledThing orig_arg_tys)
-    prom_res_kind  = orig_res_ty
-    promoted       = mkPromotedDataCon con name prom_info
-                                       (prom_tv_bndrs ++ prom_arg_bndrs)
-                                       prom_res_kind roles rep_info
+    fresh_names = freshNames (map getName user_tvbs)
+      -- fresh_names: make sure that the "anonymous" tyvars don't
+      -- clash in name or unique with the universal/existential ones.
+      -- Tiresome!  And unnecessary because these tyvars are never looked at
+    prom_theta_bndrs = [ mkAnonTyConBinder InvisArg (mkTyVar n t)
+     {- Invisible -}   | (n,t) <- fresh_names `zip` theta ]
+    prom_arg_bndrs   = [ mkAnonTyConBinder VisArg (mkTyVar n t)
+     {- Visible -}     | (n,t) <- dropList theta fresh_names `zip` map scaledThing orig_arg_tys ]
+    prom_bndrs       = prom_tv_bndrs ++ prom_theta_bndrs ++ prom_arg_bndrs
+    prom_res_kind    = orig_res_ty
+    promoted         = mkPromotedDataCon con name prom_info prom_bndrs
+                                         prom_res_kind roles rep_info
 
     roles = map (\tv -> if isTyVar tv then Nominal else Phantom)
                 (univ_tvs ++ ex_tvs)
-            ++ map (const Representational) orig_arg_tys
-
-mkCleanAnonTyConBinders :: [TyConBinder] -> [Type] -> [TyConBinder]
--- Make sure that the "anonymous" tyvars don't clash in
--- name or unique with the universal/existential ones.
--- Tiresome!  And unnecessary because these tyvars are never looked at
-mkCleanAnonTyConBinders tc_bndrs tys
-  = [ mkAnonTyConBinder (mkTyVar name ty)
-    | (name, ty) <- fresh_names `zip` tys ]
-  where
-    fresh_names = freshNames (map getName (binderVars tc_bndrs))
+            ++ map (const Representational) (theta ++ map scaledThing orig_arg_tys)
 
 freshNames :: [Name] -> [Name]
--- Make names whose Uniques and OccNames differ from
--- those in the 'avoid' list
+-- Make an infinite list of Names whose Uniques and OccNames
+-- differ from those in the 'avoid' list
 freshNames avoids
   = [ mkSystemName uniq occ
     | n <- [0..]
@@ -1308,8 +1305,8 @@ dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
                           dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                           dcOrigResTy = res_ty, dcRep = NoDataConRep })
   = mkForAllTys user_tvbs $
-    mkFunTys (map unrestricted theta) $
-    mkFunTys arg_tys $
+    mkInvisFunTysOm theta $
+    mkVisFunTys arg_tys $
     res_ty
 dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
                           dcOtherTheta = theta, dcOrigArgTys = arg_tys,
@@ -1320,8 +1317,8 @@ dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
         arg_tys' = zipWith (\m b -> scaleScaled (toMult (mkTyVarTy m)) b) tyvars arg_tys
     in
       mkForAllTys (tvb ++ user_tvbs) $
-      mkFunTys (map unrestricted theta) $
-      mkFunTys arg_tys' $
+      mkInvisFunTysOm theta $
+      mkVisFunTys arg_tys' $
       res_ty
 
 -- | Finds the instantiated types of the arguments required to construct a

@@ -4,7 +4,7 @@ module Packages (
     array, base, binary, bytestring, cabal, checkApiAnnotations, checkPpr,
     compareSizes, compiler, containers, deepseq, deriveConstants, directory,
     filepath, genapply, genprimopcode, ghc, ghcBoot, ghcBootTh, ghcCompact,
-    ghcHeap, ghci, ghcPkg, ghcPrim, ghcSplit, haddock, haskeline,
+    ghcHeap, ghci, ghcPkg, ghcPrim, haddock, haskeline,
     hsc2hs, hp2ps, hpc, hpcBin, integerGmp, integerSimple, iserv, libffi,
     libiserv, mtl, parsec, pretty, primitive, process, rts, runGhc,
     stm, templateHaskell, terminfo, text, time, timeout, touchy, transformers,
@@ -12,7 +12,7 @@ module Packages (
 
     -- * Package information
     programName, nonHsMainPackage, autogenPath, programPath, timeoutPath,
-    rtsContext, rtsBuildPath, libffiContext, libffiBuildPath, libffiLibraryName,
+    rtsContext, rtsBuildPath, libffiBuildPath, libffiLibraryName,
     generatedGhcDependencies, ensureConfigured
     ) where
 
@@ -69,7 +69,6 @@ ghcHeap             = lib  "ghc-heap"
 ghci                = lib  "ghci"
 ghcPkg              = util "ghc-pkg"
 ghcPrim             = lib  "ghc-prim"
-ghcSplit            = util "ghc-split"
 haddock             = util "haddock"
 haskeline           = lib  "haskeline"
 hsc2hs              = util "hsc2hs"
@@ -200,14 +199,12 @@ rtsContext stage = vanillaContext stage rts
 rtsBuildPath :: Stage -> Action FilePath
 rtsBuildPath stage = buildPath (rtsContext stage)
 
--- | Build directory for @libffi@. This probably doesn't need to be stage
--- dependent but it is for consistency for now.
-libffiContext :: Stage -> Context
-libffiContext stage = vanillaContext stage libffi
-
 -- | Build directory for in-tree 'libffi' library.
 libffiBuildPath :: Stage -> Action FilePath
-libffiBuildPath stage = buildPath (libffiContext stage)
+libffiBuildPath stage = buildPath $ Context
+    stage
+    libffi
+    (error "libffiBuildPath: way not set.")
 
 -- | Name of the 'libffi' library.
 libffiLibraryName :: Action FilePath

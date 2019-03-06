@@ -1464,7 +1464,7 @@ pprConDecl (ConDeclH98 { con_name = L _ con
                        , con_mb_cxt = mcxt
                        , con_args = args
                        , con_doc = doc })
-  = sep [ppr_mbDoc doc, pprHsForAll ex_tvs cxt, ppr_details args]
+  = sep [ppr_mbDoc doc, pprHsForAll ForallInvis ex_tvs cxt, ppr_details args]
   where
     -- In ppr_details: let's not print the multiplicities (they are always 1, by
     -- definition) as they do not appear in an actual declaration.
@@ -1479,7 +1479,7 @@ pprConDecl (ConDeclGADT { con_names = cons, con_qvars = qvars
                         , con_mb_cxt = mcxt, con_args = args
                         , con_res_ty = res_ty, con_doc = doc })
   = ppr_mbDoc doc <+> ppr_con_names cons <+> dcolon
-    <+> (sep [pprHsForAll (hsq_explicit qvars) cxt,
+    <+> (sep [pprHsForAll ForallInvis (hsq_explicit qvars) cxt,
               ppr_arrow_chain (get_args args ++ [ppr res_ty]) ])
   where
     get_args (PrefixCon args) = map ppr args
@@ -1786,7 +1786,7 @@ pprHsFamInstLHS :: (OutputableBndrId (GhcPass p))
    -> LHsContext (GhcPass p)
    -> SDoc
 pprHsFamInstLHS thing bndrs typats fixity mb_ctxt
-   = hsep [ pprHsExplicitForAll bndrs
+   = hsep [ pprHsExplicitForAll ForallInvis bndrs
           , pprLHsContext mb_ctxt
           , pp_pats typats ]
    where

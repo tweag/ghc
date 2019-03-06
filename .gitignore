@@ -68,7 +68,6 @@ _darcs/
 /driver/ghc/dist/
 /driver/haddock/dist/
 /driver/ghci/dist/
-/driver/split/dist/
 /includes/dist-*/
 /libffi/dist-install/
 /libraries/*/dist-boot/
@@ -182,6 +181,7 @@ _darcs/
 /testlog*
 /utils/iserv/iserv.cabal
 /utils/iserv-proxy/iserv-proxy.cabal
+/utils/remote-iserv/remote-iserv.cabal
 /utils/mkUserGuidePart/mkUserGuidePart.cabal
 /utils/runghc/runghc.cabal
 /utils/gen-dll/gen-dll.cabal

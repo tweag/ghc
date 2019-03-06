@@ -10,22 +10,16 @@ Roles13.$WMkWrap [InlPrag=INLINE[0]]
  Arity=1,
  Caf=NoCafRefs,
  Str=<L,U>,
- Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+ Unf=Unf{Src=Compulsory, TopLvl=True, Value=True, ConLike=True,
          WorkFree=True, Expandable=True,
-         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=True)
+         Guidance=ALWAYS_IF(arity=0,unsat_ok=True,boring_ok=True)
          Tmpl= \ (@ (n :: GHC.Types.Multiplicity))
-                 (@ a[sk:1])
-                 (dt [Occ=Once] :: a[sk:1]) ->
-                 dt
-                 `cast` (Sym (Roles13.N:Wrap[0] <a[sk:1]>_R)
-                         :: a[sk:1] ~R# Wrap a[sk:1])}]
+                 (@ a)
+                 (dt [Occ=Once] :: a) ->
+                 dt `cast` (Sym (Roles13.N:Wrap[0] <a>_R) :: a ~R# Wrap a)}]
 Roles13.$WMkWrap
-  = \ (@ (n :: GHC.Types.Multiplicity))
-      (@ a[sk:1])
-      (dt [Occ=Once] :: a[sk:1]) ->
-      dt
-      `cast` (Sym (Roles13.N:Wrap[0] <a[sk:1]>_R)
-              :: a[sk:1] ~R# Wrap a[sk:1])
+  = \ (@ (n :: GHC.Types.Multiplicity)) (@ a) (dt [Occ=Once] :: a) ->
+      dt `cast` (Sym (Roles13.N:Wrap[0] <a>_R) :: a ~R# Wrap a)
 
 -- RHS size: {terms: 3, types: 2, coercions: 2, joins: 0/0}
 Roles13.$WMkAge [InlPrag=INLINE[0]]
@@ -34,9 +28,9 @@ Roles13.$WMkAge [InlPrag=INLINE[0]]
  Arity=1,
  Caf=NoCafRefs,
  Str=<L,U>,
- Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+ Unf=Unf{Src=Compulsory, TopLvl=True, Value=True, ConLike=True,
          WorkFree=True, Expandable=True,
-         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=True)
+         Guidance=ALWAYS_IF(arity=0,unsat_ok=True,boring_ok=True)
          Tmpl= \ (@ (n :: GHC.Types.Multiplicity)) (dt [Occ=Once] :: Int) ->
                  dt `cast` (Sym (Roles13.N:Age[0]) :: Int ~R# Age)}]
 Roles13.$WMkAge
