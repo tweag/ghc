@@ -3881,16 +3881,16 @@ debug_ppr_ty _ (TyVarTy tv)
 
 debug_ppr_ty prec ty@(FunTy { ft_af = af, ft_mult = mult, ft_arg = arg, ft_res = res })
   = maybeParen prec funPrec $
-    sep [debug_ppr_ty funPrec arg, arrow <+> debug_ppr_ty prec res]
+    sep [debug_ppr_ty funPrec arg, arr <+> debug_ppr_ty prec res]
   where
-    arrow = case af of
-              VisArg   -> case mult of
-                            One -> lollipop
-                            Omega -> arrow
-                            w -> mulArrow (ppr w)
-              InvisArg -> case mult of
-                            Omega -> text "=>"
-                            _ -> pprPanic "unexpected multiplicity" (ppr ty)
+    arr = case af of
+            VisArg   -> case mult of
+                          One -> lollipop
+                          Omega -> arrow
+                          w -> mulArrow (ppr w)
+            InvisArg -> case mult of
+                          Omega -> text "=>"
+                          _ -> pprPanic "unexpected multiplicity" (ppr ty)
 
 debug_ppr_ty prec (TyConApp tc tys)
   | null tys  = ppr tc
