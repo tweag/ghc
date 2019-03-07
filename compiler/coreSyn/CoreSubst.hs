@@ -594,7 +594,7 @@ getTCvSubst (Subst in_scope _ tenv cenv) = TCvSubst in_scope tenv cenv
 
 -- | See 'Coercion.substCo'
 substCo :: Subst -> Coercion -> Coercion
-substCo subst co = Coercion.substCo (getTCvSubst subst) co
+substCo subst co = Type.substCoUnchecked (getTCvSubst subst) co
 
 {-
 ************************************************************************
