@@ -254,11 +254,12 @@ opt_co4 env sym rep r (FunCo _r cow co1 co2)
   = ASSERT( r == _r )
     if rep
     then mkFunCo Representational cow' co1' co2'
-    else mkFunCo r cow' co1' co2'
+    else mkFunCo r cow'g co1' co2'
   where
     co1' = opt_co4_wrap env sym rep r co1
     co2' = opt_co4_wrap env sym rep r co2
-    cow' = opt_co1 env sym cow
+    cow' = opt_co4_wrap env sym rep r cow
+    cow'g = opt_co1 env sym cow
 
 opt_co4 env sym rep r (CoVarCo cv)
   | Just co <- lookupCoVar (lcTCvSubst env) cv
