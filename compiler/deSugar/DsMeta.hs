@@ -44,7 +44,6 @@ import Id
 import Name hiding( isVarOcc, isTcOcc, varName, tcName )
 import THNames
 import NameEnv
-import NameSet
 import TcType
 import TyCon
 import TysWiredIn
@@ -394,9 +393,7 @@ repFamilyDecl decl@(dL->L loc (FamilyDecl { fdInfo      = info
                                           , fdInjectivityAnn = injectivity }))
   = do { tc1 <- lookupLOcc tc           -- See note [Binders and occurrences]
        ; let mkHsQTvs :: [LHsTyVarBndr GhcRn] -> LHsQTyVars GhcRn
-             mkHsQTvs tvs = HsQTvs { hsq_ext = HsQTvsRn
-                                                { hsq_implicit = []
-                                                , hsq_dependent = emptyNameSet }
+             mkHsQTvs tvs = HsQTvs { hsq_ext = []
                                    , hsq_explicit = tvs }
              resTyVar = case resultSig of
                      TyVarSig _ bndr -> mkHsQTvs [bndr]
@@ -571,9 +568,7 @@ repTyFamEqn (HsIB { hsib_ext = var_names
                                        , feqn_fixity = fixity
                                        , feqn_rhs  = rhs }})
   = do { tc <- lookupLOcc tc_name     -- See note [Binders and occurrences]
-       ; let hs_tvs = HsQTvs { hsq_ext = HsQTvsRn
-                               { hsq_implicit = var_names
-                               , hsq_dependent = emptyNameSet }   -- Yuk
+       ; let hs_tvs = HsQTvs { hsq_ext = var_names
                              , hsq_explicit = fromMaybe [] mb_bndrs }
        ; addTyClTyVarBinds hs_tvs $ \ _ ->
          do { mb_bndrs1 <- repMaybeList tyVarBndrQTyConName
@@ -612,9 +607,7 @@ repDataFamInstD (DataFamInstDecl { dfid_eqn =
                                              , feqn_fixity = fixity
                                              , feqn_rhs   = defn }})})
   = do { tc <- lookupLOcc tc_name         -- See note [Binders and occurrences]
-       ; let hs_tvs = HsQTvs { hsq_ext = HsQTvsRn
-                                 { hsq_implicit = var_names
-                                 , hsq_dependent = emptyNameSet }   -- Yuk
+       ; let hs_tvs = HsQTvs { hsq_ext = var_names
                              , hsq_explicit = fromMaybe [] mb_bndrs }
        ; addTyClTyVarBinds hs_tvs $ \ _ ->
          do { mb_bndrs1 <- repMaybeList tyVarBndrQTyConName
@@ -1054,7 +1047,7 @@ addTyVarBinds :: LHsQTyVars GhcRn                    -- the binders to be added
 -- gensym a list of type variables and enter them into the meta environment;
 -- the computations passed as the second argument is executed in that extended
 -- meta environment and gets the *new* names on Core-level as an argument
-addTyVarBinds (HsQTvs { hsq_ext = HsQTvsRn { hsq_implicit = imp_tvs}
+addTyVarBinds (HsQTvs { hsq_ext = imp_tvs
                       , hsq_explicit = exp_tvs })
               thing_inside
   = addSimpleTyVarBinds imp_tvs $

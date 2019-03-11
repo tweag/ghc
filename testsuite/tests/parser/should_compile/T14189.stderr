@@ -21,10 +21,7 @@
         ({ T14189.hs:6:6-11 }
          {Name: T14189.MyType})
         (HsQTvs
-         (HsQTvsRn
-          []
-          {NameSet:
-           []})
+         []
          [])
         (Prefix)
         (HsDataDefn
