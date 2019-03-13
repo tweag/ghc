@@ -205,13 +205,6 @@ or the 'Prelude.>>' and 'Prelude.>>=' operations from the 'Prelude.Monad'
 class.
 -}
 newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
-type role IO representational
-
-{- The 'type role' role annotation for IO is redundant but is included
-because this role is significant in the normalisation of FFI
-types. Specifically, if this role were to become nominal (which would
-be very strange, indeed!), changes elsewhere in GHC would be
-necessary. See [FFI type roles] in TcForeign.  -}
 
 
 {- *********************************************************************

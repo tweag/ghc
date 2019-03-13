@@ -316,7 +316,7 @@ decomposeFunCo :: HasDebugCallStack
 -- Returns (co1 :: s1~s2, co2 :: t1~t2)
 -- See Note [Function coercions] for the "3" and "4"
 decomposeFunCo r co = ASSERT2( all_ok, ppr co )
-                      (mkNthCo r 0 co, mkNthCo r 3 co, mkNthCo r 4 co)
+                      (mkNthCo Nominal 0 co, mkNthCo r 3 co, mkNthCo r 4 co)
   where
     Pair s1t1 s2t2 = coercionKind co
     all_ok = isFunTy s1t1 && isFunTy s2t2
@@ -1050,7 +1050,7 @@ mkNthCo r n co
       --    resk_co :: sk2 ~ tk2  =  mkNthCo 0 (mkKindCo res_co)
       --                             i.e. mkRuntimeRepCo
       = case n of
-          0 -> ASSERT( r == r0 )      w
+          0 -> ASSERT( r == Nominal ) w
           1 -> ASSERT( r == Nominal ) mkRuntimeRepCo arg
           2 -> ASSERT( r == Nominal ) mkRuntimeRepCo res
           3 -> ASSERT( r == r0 )      arg
