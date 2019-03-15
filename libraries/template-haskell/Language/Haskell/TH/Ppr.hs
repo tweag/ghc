@@ -741,7 +741,7 @@ pprParendType (TupleT 0)          = text "()"
 pprParendType (TupleT n)          = parens (hcat (replicate (n-1) comma))
 pprParendType (UnboxedTupleT n)   = hashParens $ hcat $ replicate (n-1) comma
 pprParendType (UnboxedSumT arity) = hashParens $ hcat $ replicate (arity-1) bar
-pprParendType ArrowT              = text "FUN"
+pprParendType MulArrowT           = text "FUN"
 pprParendType ListT               = text "[]"
 pprParendType (LitT l)            = pprTyLit l
 pprParendType (PromotedT c)       = text "'" <> pprName' Applied c
@@ -792,9 +792,11 @@ parens around it.  E.g. the parens are required here:
 So we always print a SigT with parens (see #10050). -}
 
 pprTyApp :: (Type, [TypeArg]) -> Doc
-pprTyApp (ArrowT, [TANormal (PromotedT c), TANormal arg1, TANormal arg2]) | c == mkNameG DataName "ghc-prim" "GHC.Types" "Omega" = sep [pprFunArgType arg1 <+> text "->", ppr arg2]
-pprTyApp (ArrowT, [TANormal (PromotedT c), TANormal arg1, TANormal arg2]) | c == mkNameG DataName "ghc-prim" "GHC.Types" "One" = sep [pprFunArgType arg1 <+> text "->.", ppr arg2]
-pprTyApp (ArrowT, [TANormal argm, TANormal arg1, TANormal arg2]) = sep [pprFunArgType arg1 <+> text "-->.(" <+> ppr argm <+> text ")", ppr arg2]
+pprTyApp (MulArrowT, [TANormal (PromotedT c), TANormal arg1, TANormal arg2])
+  | c == oneName   = sep [pprFunArgType arg1 <+> text "->.", ppr arg2]
+  | c == omegaName = sep [pprFunArgType arg1 <+> text "->", ppr arg2]
+pprTyApp (MulArrowT, [TANormal argm, TANormal arg1, TANormal arg2]) =
+                     sep [pprFunArgType arg1 <+> text "-->.(" <+> ppr argm <+> text ")", ppr arg2]
 
 pprTyApp (EqualityT, [TANormal arg1, TANormal arg2]) =
     sep [pprFunArgType arg1 <+> text "~", ppr arg2]
@@ -809,7 +811,7 @@ pprFunArgType :: Type -> Doc    -- Should really use a precedence argument
 -- Everything except forall and (->) binds more tightly than (->)
 pprFunArgType ty@(ForallT {})                 = parens (ppr ty)
 pprFunArgType ty@(ForallVisT {})              = parens (ppr ty)
-pprFunArgType ty@(((ArrowT `AppT` _) `AppT` _) `AppT` _)  = parens (ppr ty)
+pprFunArgType ty@(((MulArrowT `AppT` _) `AppT` _) `AppT` _)  = parens (ppr ty)
 pprFunArgType ty@(SigT _ _)                   = parens (ppr ty)
 pprFunArgType ty                              = ppr ty
 

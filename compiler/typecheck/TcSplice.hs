@@ -1843,7 +1843,7 @@ reifyType ty@(AppTy {})     = do
 reifyType ty@(FunTy { ft_af = af, ft_mult = tm, ft_arg = t1, ft_res = t2 })
   | InvisArg <- af = reify_for_all Inferred ty  -- Types like ((?x::Int) => Char -> Char)
   | otherwise      = do { [rm,r1,r2] <- reifyTypes [fromMult tm,t1,t2]
-                        ; return (TH.ArrowT `TH.AppT` rm `TH.AppT` r1 `TH.AppT` r2) }
+                        ; return (TH.MulArrowT `TH.AppT` rm `TH.AppT` r1 `TH.AppT` r2) }
 reifyType (CastTy t _)      = reifyType t -- Casts are ignored in TH
 reifyType ty@(CoercionTy {})= noTH (sLit "coercions in types") (ppr ty)
 
@@ -1922,7 +1922,7 @@ reify_tc_app tc tys
                                             else TH.TupleT arity
          | tc `hasKey` constraintKindTyConKey
                                           = TH.ConstraintT
-         | tc `hasKey` funTyConKey        = TH.ArrowT
+         | tc `hasKey` funTyConKey        = TH.MulArrowT
          | tc `hasKey` listTyConKey       = TH.ListT
          | tc `hasKey` nilDataConKey      = TH.PromotedNilT
          | tc `hasKey` consDataConKey     = TH.PromotedConsT

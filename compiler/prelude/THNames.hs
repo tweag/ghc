@@ -98,7 +98,7 @@ templateHaskellNames = [
     -- Type
     forallTName, forallVisTName, varTName, conTName, infixTName, appTName,
     appKindTName, equalityTName, tupleTName, unboxedTupleTName,
-    unboxedSumTName, arrowTName, listTName, sigTName, litTName,
+    unboxedSumTName, mulArrowTName, listTName, sigTName, litTName,
     promotedTName, promotedTupleTName, promotedNilTName, promotedConsTName,
     wildCardTName, implicitParamTName,
     -- TyLit
@@ -431,7 +431,7 @@ recordPatSynName = libFun (fsLit "recordPatSyn") recordPatSynIdKey
 
 -- data Type = ...
 forallTName, forallVisTName, varTName, conTName, infixTName, tupleTName,
-    unboxedTupleTName, unboxedSumTName, arrowTName, listTName, appTName,
+    unboxedTupleTName, unboxedSumTName, mulArrowTName, listTName, appTName,
     appKindTName, sigTName, equalityTName, litTName, promotedTName,
     promotedTupleTName, promotedNilTName, promotedConsTName,
     wildCardTName, implicitParamTName :: Name
@@ -442,7 +442,7 @@ conTName            = libFun (fsLit "conT")           conTIdKey
 tupleTName          = libFun (fsLit "tupleT")         tupleTIdKey
 unboxedTupleTName   = libFun (fsLit "unboxedTupleT")  unboxedTupleTIdKey
 unboxedSumTName     = libFun (fsLit "unboxedSumT")    unboxedSumTIdKey
-arrowTName          = libFun (fsLit "arrowT")         arrowTIdKey
+mulArrowTName       = libFun (fsLit "mulArrowT")      mulArrowTIdKey
 listTName           = libFun (fsLit "listT")          listTIdKey
 appTName            = libFun (fsLit "appT")           appTIdKey
 appKindTName        = libFun (fsLit "appKindT")       appKindTIdKey
@@ -954,7 +954,7 @@ recordPatSynIdKey = mkPreludeMiscIdUnique 382
 
 -- data Type = ...
 forallTIdKey, forallVisTIdKey, varTIdKey, conTIdKey, tupleTIdKey,
-    unboxedTupleTIdKey, unboxedSumTIdKey, arrowTIdKey, listTIdKey, appTIdKey,
+    unboxedTupleTIdKey, unboxedSumTIdKey, mulArrowTIdKey, listTIdKey, appTIdKey,
     appKindTIdKey, sigTIdKey, equalityTIdKey, litTIdKey, promotedTIdKey,
     promotedTupleTIdKey, promotedNilTIdKey, promotedConsTIdKey,
     wildCardTIdKey, implicitParamTIdKey, infixTIdKey :: Unique
@@ -965,7 +965,7 @@ conTIdKey           = mkPreludeMiscIdUnique 393
 tupleTIdKey         = mkPreludeMiscIdUnique 394
 unboxedTupleTIdKey  = mkPreludeMiscIdUnique 395
 unboxedSumTIdKey    = mkPreludeMiscIdUnique 396
-arrowTIdKey         = mkPreludeMiscIdUnique 397
+mulArrowTIdKey      = mkPreludeMiscIdUnique 397
 listTIdKey          = mkPreludeMiscIdUnique 398
 appTIdKey           = mkPreludeMiscIdUnique 399
 appKindTIdKey       = mkPreludeMiscIdUnique 400

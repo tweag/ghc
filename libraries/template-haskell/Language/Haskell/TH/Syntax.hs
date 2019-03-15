@@ -3,7 +3,7 @@
              RankNTypes, RoleAnnotations, ScopedTypeVariables,
              MagicHash, KindSignatures, PolyKinds, TypeApplications, DataKinds,
              GADTs, UnboxedTuples, UnboxedSums, TypeInType,
-             Trustworthy #-}
+             Trustworthy, PatternSynonyms, ViewPatterns #-}
 
 {-# OPTIONS_GHC -fno-warn-inline-rule-shadowing #-}
 
@@ -1019,6 +1019,10 @@ rightName = mkNameG DataName "base" "Data.Either" "Right"
 
 nonemptyName :: Name
 nonemptyName = mkNameG DataName "base" "GHC.Base" ":|"
+
+oneName, omegaName :: Name
+oneName   = mkNameG DataName "ghc-prim" "GHC.Types" "One"
+omegaName = mkNameG DataName "ghc-prim" "GHC.Types" "Omega"
 
 -----------------------------------------------------
 --
@@ -2335,7 +2339,7 @@ data Type = ForallT [TyVarBndr] Cxt Type  -- ^ @forall \<vars\>. \<ctxt\> => \<t
           | TupleT Int                    -- ^ @(,), (,,), etc.@
           | UnboxedTupleT Int             -- ^ @(\#,\#), (\#,,\#), etc.@
           | UnboxedSumT SumArity          -- ^ @(\#|\#), (\#||\#), etc.@
-          | ArrowT                        -- ^ @->@
+          | MulArrowT                     -- ^ @->@
           | EqualityT                     -- ^ @~@
           | ListT                         -- ^ @[]@
           | PromotedTupleT Int            -- ^ @'(), '(,), '(,,), etc.@
@@ -2347,6 +2351,10 @@ data Type = ForallT [TyVarBndr] Cxt Type  -- ^ @forall \<vars\>. \<ctxt\> => \<t
           | WildCardT                     -- ^ @_@
           | ImplicitParamT String Type    -- ^ @?x :: t@
       deriving( Show, Eq, Ord, Data, Generic )
+
+pattern ArrowT :: Type
+pattern ArrowT <- AppT MulArrowT (PromotedT ((== omegaName) -> True)) where
+   ArrowT = AppT MulArrowT (PromotedT omegaName)
 
 data TyVarBndr = PlainTV  Name            -- ^ @a@
                | KindedTV Name Kind       -- ^ @(a :: k)@

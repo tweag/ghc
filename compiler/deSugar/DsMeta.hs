@@ -2510,7 +2510,7 @@ repUnboxedSumTyCon arity = do dflags <- getDynFlags
                               rep2 unboxedSumTName [mkIntExprInt dflags arity]
 
 repArrowTyCon :: DsM (Core TH.TypeQ)
-repArrowTyCon = rep2 arrowTName []
+repArrowTyCon = rep2 mulArrowTName []
 
 repListTyCon :: DsM (Core TH.TypeQ)
 repListTyCon = rep2 listTName []

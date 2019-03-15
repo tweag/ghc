@@ -4,6 +4,7 @@ For other documentation, refer to:
 <http://www.haskell.org/haskellwiki/Template_Haskell>
 
 -}
+{-# LANGUAGE PatternSynonyms #-}
 module Language.Haskell.TH(
         -- * The monad and its operations
         Q,
@@ -83,6 +84,7 @@ module Language.Haskell.TH(
     -- ** Types
         Type(..), TyVarBndr(..), TyLit(..), Kind, Cxt, Pred, Syntax.Role(..),
         FamilyResultSig(..), Syntax.InjectivityAnn(..), PatSynType,
+        pattern ArrowT,
 
     -- * Library functions
     module Language.Haskell.TH.Lib,

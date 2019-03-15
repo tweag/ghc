@@ -683,8 +683,8 @@ appKindT ty ki = do
                ki' <- ki
                return $ AppKindT ty' ki'
 
-arrowT :: TypeQ
-arrowT = return ArrowT
+mulArrowT :: TypeQ
+mulArrowT = return MulArrowT
 
 listT :: TypeQ
 listT = return ListT

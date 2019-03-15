@@ -52,7 +52,7 @@ module Language.Haskell.TH.Lib (
     bindS, letS, noBindS, parS, recS,
 
     -- *** Types
-        forallT, forallVisT, varT, conT, appT, appKindT, arrowT, infixT,
+        forallT, forallVisT, varT, conT, appT, appKindT, arrowT, mulArrowT, infixT,
         uInfixT, parensT, equalityT, listT, tupleT, unboxedTupleT, unboxedSumT,
         sigT, litT, wildCardT, promotedT, promotedTupleT, promotedNilT,
         promotedConsT, implicitParamT,
@@ -265,6 +265,8 @@ sigT t k
       t' <- t
       return $ SigT t' k
 
+arrowT :: TypeQ
+arrowT = return ArrowT
 -------------------------------------------------------------------------------
 -- *   Kind
 

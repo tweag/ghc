@@ -1364,7 +1364,7 @@ cvtTypeKind ty_str ty
              -> mk_apps
                 (HsTyVar noExt NotPromoted (noLoc (getRdrName (sumTyCon n))))
                 tys'
-           ArrowT
+           MulArrowT
              | Just normals <- m_normals
              , [w',x',y'] <- normals -> do
                  x'' <- case unLoc x' of
