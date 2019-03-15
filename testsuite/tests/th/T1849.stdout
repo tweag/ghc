@@ -1,4 +1,4 @@
-AppT (AppT ArrowT (ConT GHC.Types.Int)) (ConT GHC.Types.Int)
+AppT (AppT (AppT MulArrowT (PromotedT GHC.Types.Omega)) (ConT GHC.Types.Int)) (ConT GHC.Types.Int)
 True
 AppT ListT (ConT GHC.Types.Int)
 True
