@@ -1131,7 +1131,7 @@ repTy ty@(HsQualTy {})                = repForall ForallInvis ty
 repTy (HsTyVar _ _ (dL->L _ n))
   | isLiftedTypeKindTyConName n        = repTStar
   | n `hasKey` constraintKindTyConKey  = repTConstraint
-  | n `hasKey` unrestrictedFunTyConKey = repArrowTyCon
+  | n `hasKey` funTyConKey             = repArrowTyCon
   | isTvOcc occ   = do tv1 <- lookupOcc n
                        repTvar tv1
   | isDataOcc occ = do tc1 <- lookupOcc n
@@ -1150,12 +1150,12 @@ repTy (HsAppKindTy _ ty ki) = do
                                 ty1 <- repLTy ty
                                 ki1 <- repLTy ki
                                 repTappKind ty1 ki1
-repTy (HsFunTy _ w f a) | isUnrestricted w = do
+repTy (HsFunTy _ w f a) = do
                                 f1   <- repLTy f
                                 a1   <- repLTy a
+                                w1   <- repLTy (arrowToHsType w)
                                 tcon <- repArrowTyCon
-                                repTapps tcon [f1, a1]
-repTy ty@(HsFunTy _ _ _ _) = notHandled "Function with non-Omega multiplicity" (ppr ty)
+                                repTapps tcon [w1, f1, a1]
 repTy (HsListTy _ t)        = do
                                 t1   <- repLTy t
                                 tcon <- repListTyCon

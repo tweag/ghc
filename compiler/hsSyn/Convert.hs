@@ -1366,7 +1366,7 @@ cvtTypeKind ty_str ty
                 tys'
            ArrowT
              | Just normals <- m_normals
-             , [x',y'] <- normals -> do
+             , [w',x',y'] <- normals -> do
                  x'' <- case unLoc x' of
                           HsFunTy{}    -> returnL (HsParTy noExt x')
                           HsForAllTy{} -> returnL (HsParTy noExt x') -- #14646
@@ -1374,10 +1374,11 @@ cvtTypeKind ty_str ty
                           _            -> return $
                                           parenthesizeHsType sigPrec x'
                  let y'' = parenthesizeHsType sigPrec y'
-                 returnL (HsFunTy noExt HsUnrestrictedArrow x'' y'')
+                     w'' = hsTypeToArrow w'
+                 returnL (HsFunTy noExt w'' x'' y'')
              | otherwise
              -> mk_apps
-                (HsTyVar noExt NotPromoted (noLoc (getRdrName unrestrictedFunTyCon)))
+                (HsTyVar noExt NotPromoted (noLoc (getRdrName funTyCon)))
                 tys'
            ListT
              | Just normals <- m_normals
@@ -1511,6 +1512,12 @@ cvtTypeKind ty_str ty
 
            _ -> failWith (ptext (sLit ("Malformed " ++ ty_str)) <+> text (show ty))
     }
+
+hsTypeToArrow :: LHsType GhcPs -> HsArrow GhcPs
+hsTypeToArrow w = case unLoc w of
+                     HsTyVar _ _ (L _ n) | n == nameRdrName oneDataConName -> HsLinearArrow
+                     HsTyVar _ _ (L _ n) | n == nameRdrName omegaDataConName -> HsUnrestrictedArrow
+                     _ -> HsExplicitMult w
 
 -- | Constructs an application of a type to arguments passed in a list.
 mk_apps :: HsType GhcPs -> [LHsTypeArg GhcPs] -> CvtM (LHsType GhcPs)
