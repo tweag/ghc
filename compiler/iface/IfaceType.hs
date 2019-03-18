@@ -872,7 +872,7 @@ This is done in a pass right before pretty-printing
 
 This applies to /quantified/ variables like 'w' above.  What about
 variables that are /free/ in the type being printed, which certainly
-happens in error messages.  Suppose (Trac #16074) we are reporting a
+happens in error messages.  Suppose (#16074) we are reporting a
 mismatch between two skolems
           (a :: RuntimeRep) ~ (b :: RuntimeRep)
 We certainly don't want to say "Can't match LiftedRep ~ LiftedRep"!
@@ -1202,7 +1202,7 @@ family instances as Specified.
 
 Note [Printing promoted type constructors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider this GHCi session (Trac #14343)
+Consider this GHCi session (#14343)
     > _ :: Proxy '[ 'True ]
     error:
       Found hole: _ :: Proxy '['True]

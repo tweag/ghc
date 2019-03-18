@@ -386,7 +386,7 @@ about it!
 
 {- -----------------------
       Commented out until the pattern match
-      checker can handle it; see Trac #16185
+      checker can handle it; see #16185
 
       For now we use the CPP macro #define FunTy FFunTy _
       (see HsVersions.h) to allow pattern matching on a
@@ -1334,7 +1334,7 @@ have no coercion variables.
 Note [Generalized reflexive coercion]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-GRefl is a generalized reflexive coercion (see Trac #15192). It wraps a kind
+GRefl is a generalized reflexive coercion (see #15192). It wraps a kind
 coercion, which might be reflexive (MRefl) or any coercion (MCo co). The typing
 rules for GRefl:
 
@@ -1491,7 +1491,7 @@ See Simplify.simplCoercionF, which generates such selections.
 Note [Roles]
 ~~~~~~~~~~~~
 Roles are a solution to the GeneralizedNewtypeDeriving problem, articulated
-in Trac #1496. The full story is in docs/core-spec/core-spec.pdf. Also, see
+in #1496. The full story is in docs/core-spec/core-spec.pdf. Also, see
 http://ghc.haskell.org/trac/ghc/wiki/RolesImplementation
 
 Here is one way to phrase the problem:
@@ -1642,7 +1642,7 @@ which makes the code complicated and inefficient.
 This only happens for NthCo. Caching the role solves the problem, and
 allows coercionKind and coercionRole to be simple.
 
-See Trac #11735
+See #11735
 
 Note [InstCo roles]
 ~~~~~~~~~~~~~~~~~~~
@@ -1811,7 +1811,7 @@ Note [CoercionHoles and coercion free variables]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Why does a CoercionHole contain a CoVar, as well as reference to
 fill in?  Because we want to treat that CoVar as a free variable of
-the coercion.  See Trac #14584, and Note [What prevents a
+the coercion.  See #14584, and Note [What prevents a
 constraint from floating] in TcSimplify, item (4):
 
         forall k. [W] co1 :: t1 ~# t2 |> co2
@@ -1904,14 +1904,14 @@ so we profiled several versions, exploring different implementation strategies.
    "in-scope set" filter found in the internals of FV, but without the
    determinism overhead.
 
-See Trac #14880.
+See #14880.
 
 Note [Closing over free variable kinds]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 tyCoVarsOfType and tyCoFVsOfType, while traversing a type, will also close over
 free variable kinds. In previous GHC versions, this happened naively: whenever
 we would encounter an occurrence of a free type variable, we would close over
-its kind. This, however is wrong for two reasons (see Trac #14880):
+its kind. This, however is wrong for two reasons (see #14880):
 
 1. Efficiency. If we have Proxy (a::k) -> Proxy (a::k) -> Proxy (a::k), then
    we don't want to have to traverse k more than once.
@@ -2256,7 +2256,7 @@ This is because FV includes the InterestingVarFun, which is useful here,
 because we can cleverly use it to restrict our calculations to CoVars - this
 is what getCoVarSet achieves.
 
-See Trac #14880.
+See #14880.
 
 -}
 
@@ -3288,8 +3288,7 @@ isValidTCvSubst (TCvSubst in_scope tenv cenv) =
 -- Note [The substitution invariant].
 checkValidSubst :: HasCallStack => TCvSubst -> [Type] -> [Coercion] -> a -> a
 checkValidSubst subst@(TCvSubst in_scope tenv cenv) tys cos a
--- TODO (RAE): Change back to ASSERT
-  = WARN( not (isValidTCvSubst subst),
+  = ASSERT2( isValidTCvSubst subst,
              text "in_scope" <+> ppr in_scope $$
              text "tenv" <+> ppr tenv $$
              text "tenvFVs" <+> ppr (tyCoVarsOfTypesSet tenv) $$
@@ -3297,7 +3296,7 @@ checkValidSubst subst@(TCvSubst in_scope tenv cenv) tys cos a
              text "cenvFVs" <+> ppr (tyCoVarsOfCosSet cenv) $$
              text "tys" <+> ppr (toList tys) $$
              text "cos" <+> ppr cos )
-    WARN( not tysCosFVsInScope,
+    ASSERT2( tysCosFVsInScope,
              text "in_scope" <+> ppr in_scope $$
              text "tenv" <+> ppr tenv $$
              text "cenv" <+> ppr cenv $$
@@ -3929,7 +3928,7 @@ Note [When to print foralls]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Mostly we want to print top-level foralls when (and only when) the user specifies
 -fprint-explicit-foralls.  But when kind polymorphism is at work, that suppresses
-too much information; see Trac #9018.
+too much information; see #9018.
 
 So I'm trying out this rule: print explicit foralls if
   a) User specifies -fprint-explicit-foralls, or
@@ -3959,7 +3958,7 @@ remember to parenthesise the operator, thus
 
    (~>) a b -> b
 
-See Trac #2766.
+See #2766.
 -}
 
 pprDataCons :: TyCon -> SDoc
