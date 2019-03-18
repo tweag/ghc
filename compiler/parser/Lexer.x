@@ -1890,7 +1890,7 @@ lex_quasiquote start s = do
 
     -- NB: The string "|]" terminates the quasiquote,
     -- with absolutely no escaping. See the extensive
-    -- discussion on Trac #5348 for why there is no
+    -- discussion on #5348 for why there is no
     -- escape handling.
     Just ('|',i)
         | Just (']',i) <- alexGetChar' i

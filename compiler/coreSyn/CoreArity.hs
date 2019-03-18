@@ -221,7 +221,7 @@ Now suppose we have:
 Now we want the built-in op/$dfList rule will fire to give
    blah = $copList dCInt
 
-But with eta-expansion 'blah' might (and in Trac #3772, which is
+But with eta-expansion 'blah' might (and in #3772, which is
 slightly more complicated, does) turn into
 
    blah = op (\eta. ($dfList dCInt |> sym co) eta)
@@ -303,7 +303,7 @@ This isn't really right in the presence of seq.  Consider
 This should diverge!  But if we eta-expand, it won't.  We ignore this
 "problem" (unless -fpedantic-bottoms is on), because being scrupulous
 would lose an important transformation for many programs. (See
-Trac #5587 for an example.)
+#5587 for an example.)
 
 Consider also
         f = \x -> error "foo"
@@ -323,7 +323,7 @@ this transformation.  So we try to limit it as much as possible:
 
  (1) Do NOT move a lambda outside a known-bottom case expression
        case undefined of { (a,b) -> \y -> e }
-     This showed up in Trac #5557
+     This showed up in #5557
 
  (2) Do NOT move a lambda outside a case if all the branches of
      the case are known to return bottom.
@@ -335,7 +335,7 @@ this transformation.  So we try to limit it as much as possible:
  (3) Do NOT move a lambda outside a case unless
      (a) The scrutinee is ok-for-speculation, or
      (b) more liberally: the scrutinee is cheap (e.g. a variable), and
-         -fpedantic-bottoms is not enforced (see Trac #2915 for an example)
+         -fpedantic-bottoms is not enforced (see #2915 for an example)
 
 Of course both (1) and (2) are readily defeated by disguising the bottoms.
 
@@ -382,7 +382,7 @@ See also Id.isOneShotBndr.
 Note [State hack and bottoming functions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 It's a terrible idea to use the state hack on a bottoming function.
-Here's what happens (Trac #2861):
+Here's what happens (#2861):
 
   f :: String -> IO T
   f = \p. error "..."
@@ -411,7 +411,7 @@ Extrude g1.g3
 And now we can repeat the whole loop.  Aargh!  The bug is in applying the
 state hack to a function which then swallows the argument.
 
-This arose in another guise in Trac #3959.  Here we had
+This arose in another guise in #3959.  Here we had
 
      catch# (throw exn >> return ())
 
@@ -591,7 +591,7 @@ says it has arity "infinity" the first time round.
 
 This example happens a lot; it first showed up in Andy Gill's thesis,
 fifteen years ago!  It also shows up in the code for 'rnf' on lists
-in Trac #4138.
+in #4138.
 
 The analysis is easy to achieve because exprEtaExpandArity takes an
 argument
@@ -727,7 +727,7 @@ arityType env (Cast e co)
     -- See Note [exprArity invariant] (2); must be true of
     -- arityType too, since that is how we compute the arity
     -- of variables, and they in turn affect result of exprArity
-    -- Trac #5441 is a nice demo
+    -- #5441 is a nice demo
     -- However, do make sure that ATop -> ATop and ABot -> ABot!
     --   Casts don't affect that part. Getting this wrong provoked #5475
 
@@ -1154,7 +1154,7 @@ freshEtaId :: Int -> TCvSubst -> Scaled Type -> (TCvSubst, Id)
 freshEtaId n subst ty
       = (subst', eta_id')
       where
-        ty'     = Type.substTy subst (scaledThing ty)
+        ty'     = Type.substTyUnchecked subst (scaledThing ty)
         eta_id' = uniqAway (getTCvInScope subst) $
                   mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) (Regular $ scaledMult ty) ty'
         subst'  = extendTCvInScope subst eta_id'

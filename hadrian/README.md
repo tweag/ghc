@@ -120,7 +120,7 @@ messages by Shake oracles.
 * `--lint`: run [Shake Lint](https://shakebuild.com/manual#lint) during the
 build to check that the build system is well formed. Note that the Lint check
 currently fails under certain circumstances, as discussed in
-[this ticket](https://ghc.haskell.org/trac/ghc/ticket/15971).
+[this ticket](https://gitlab.haskell.org/ghc/ghc/issues/15971).
 
 #### User settings
 
@@ -157,6 +157,27 @@ build stage2:lib:text
 # directory _build/stage1/haddock.
 build stage1:exe:haddock
 ```
+
+#### Fast feedback using ghci
+
+Running the `./hadrian/ghci.sh` script will load the main compiler into
+a ghci session. This is intended for fast development feedback, modules are only
+typechecked so it isn't possible to run any functions in the repl.
+
+```
+./hadrian/ghci.sh
+```
+
+You can also use this target with `ghcid`.
+
+```
+ghcid --command="./hadrian/ghci.sh"
+```
+
+The first time this command is run hadrian will need to compile a few dependencies
+which will take 1-2 minutes. Loading GHC into GHCi itself takes about 30 seconds and
+reloads after that take in the region of 1-5 seconds depending on which modules
+need to be recompiled.
 
 #### Testing
 
@@ -203,6 +224,23 @@ a compiler built using Stage2. This is useful for cross-compilation. Detailed
 instructions can be found in the corresponding
 [part of the user settings manual](doc/user-settings.md#specifying-the-final-stage-to-build).
 
+#### Integrating Hadrian into other tooling
+
+The `tool-args` target is designed to allow hadrian to be integrated into other
+tooling which uses the GHC API.
+`tool-args` prints out a list of flags which hadrian will use to compile
+a module in the `compiler` directory. Using these flags you can then set up
+a GHC API session with the correct environment to load a module into your own
+GHC session. This is how `haskell-ide-engine` is able to support hadrian.
+
+```
+> ./hadrian/build.sh tool-args
+-hide-all-packages -no-user-package-db -package-db _build/stage0/lib/packag...
+```
+
+
+The `./hadrian/ghci.sh` script is implemented using this target.
+
 Troubleshooting
 ---------------
 
@@ -216,7 +254,7 @@ Here are a few simple suggestions that might help you fix the build:
   [wiki](https://github.com/snowleopard/hadrian/wiki)
   and Shake's [debugging tutorial](https://shakebuild.com/debugging).
 
-If nothing helps, don't hesitate to create a GHC Trac ticket, choosing the
+If nothing helps, don't hesitate to create a GHC issue, choosing the
 component `Build System (Hadrian)`.
 
 Current limitations

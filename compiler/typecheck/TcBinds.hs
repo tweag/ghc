@@ -393,13 +393,12 @@ tcValBinds :: TopLevelFlag
            -> TcM ([(RecFlag, LHsBinds GhcTcId)], thing)
 
 tcValBinds top_lvl binds sigs thing_inside
-  = do  { let patsyns = getPatSynBinds binds
-
-            -- Typecheck the signature
+  = do  {   -- Typecheck the signatures
+            -- It's easier to do so now, once for all the SCCs together
+            -- because a single signature  f,g :: <type>
+            -- might relate to more than one SCC
         ; (poly_ids, sig_fn) <- tcAddPatSynPlaceholders patsyns $
                                 tcTySigs sigs
-
-        ; let prag_fn = mkPragEnv sigs (foldr (unionBags . snd) emptyBag binds)
 
                 -- Extend the envt right away with all the Ids
                 -- declared with complete type signatures
@@ -417,6 +416,9 @@ tcValBinds top_lvl binds sigs thing_inside
                    ; let extra_binds = [ (NonRecursive, builder) | builder <- patsyn_builders ]
                    ; return (extra_binds, thing) }
             ; return (binds' ++ extra_binds', thing) }}
+  where
+    patsyns = getPatSynBinds binds
+    prag_fn = mkPragEnv sigs (foldr (unionBags . snd) emptyBag binds)
 
 ------------------------
 tcBindGroups :: TopLevelFlag -> TcSigFun -> TcPragEnv
@@ -644,7 +646,7 @@ forall_a_a :: TcType
 -- Another alternative would be (forall (a :: TYPE kappa). a), where
 -- kappa is a unification variable. But I don't think we need that
 -- complication here. I'm going to just use (forall (a::*). a).
--- See Trac #15276
+-- See #15276
 forall_a_a = mkSpecForAllTys [alphaTyVar] alphaTy
 
 {- *********************************************************************
@@ -924,7 +926,7 @@ mkInferredPolyId insoluble qtvs inferred_theta poly_name mb_sig_inst mono_ty
          checkValidType (InfSigCtxt poly_name) inferred_poly_ty
          -- See Note [Validity of inferred types]
          -- If we found an insoluble error in the function definition, don't
-         -- do this check; otherwise (Trac #14000) we may report an ambiguity
+         -- do this check; otherwise (#14000) we may report an ambiguity
          -- error for a rather bogus type.
 
        ; return (mkLocalIdOrCoVar poly_name (Regular Omega) inferred_poly_ty) }
@@ -938,7 +940,7 @@ chooseInferredQuantifiers :: TcThetaType   -- inferred
 chooseInferredQuantifiers inferred_theta tau_tvs qtvs Nothing
   = -- No type signature (partial or complete) for this binder,
     do { let free_tvs = closeOverKinds (growThetaTyVars inferred_theta tau_tvs)
-                        -- Include kind variables!  Trac #7916
+                        -- Include kind variables!  #7916
              my_theta = pickCapturedPreds free_tvs inferred_theta
              binders  = [ mkTyVarBinder Inferred tv
                         | tv <- qtvs
@@ -1092,7 +1094,7 @@ checkOverloadedSig :: Bool -> TcIdSigInst -> TcM ()
 --   K f = e
 -- The MR applies, but the signature is overloaded, and it's
 -- best to complain about this directly
--- c.f Trac #11339
+-- c.f #11339
 checkOverloadedSig monomorphism_restriction_applies sig
   | not (null (sig_inst_theta sig))
   , monomorphism_restriction_applies
@@ -1130,7 +1132,7 @@ doesn't seem much point.  Indeed, adding a partial type signature is a
 way to get per-binding inferred generalisation.
 
 We apply the MR if /all/ of the partial signatures lack a context.
-In particular (Trac #11016):
+In particular (#11016):
    f2 :: (?loc :: Int) => _
    f2 = ?loc
 It's stupid to apply the MR here.  This test includes an extra-constraints
@@ -1156,7 +1158,7 @@ But now consider:
 We want to get an error from this, because 'a' and 'b' get unified.
 So we make a test, one per parital signature, to check that the
 explicitly-quantified type variables have not been unified together.
-Trac #14449 showed this up.
+#14449 showed this up.
 
 
 Note [Validity of inferred types]
@@ -1206,7 +1208,7 @@ Then we want to check that
      forall qtvs. theta => f_mono_ty   is more polymorphic than   f's polytype
 and the proof is the impedance matcher.
 
-Notice that the impedance matcher may do defaulting.  See Trac #7173.
+Notice that the impedance matcher may do defaulting.  See #7173.
 
 It also cleverly does an ambiguity check; for example, rejecting
    f :: F a -> F a
@@ -1503,7 +1505,7 @@ getMonoBindInfo tc_binds
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Look at:
    - typecheck/should_compile/ExPat
-   - Trac #12427, typecheck/should_compile/T12427{a,b}
+   - #12427, typecheck/should_compile/T12427{a,b}
 
   data T where
     MkT :: Integral a => a -> Int -> T
@@ -1582,7 +1584,7 @@ We typecheck pattern bindings as follows.  First tcLhs does this:
        CheckGen), then the let_bndr_spec will be LetLclBndr.  In that case
        we want to bind a cloned, local version of the variable, with the
        type given by the pattern context, *not* by the signature (even if
-       there is one; see Trac #7268). The mkExport part of the
+       there is one; see #7268). The mkExport part of the
        generalisation step will do the checking and impedance matching
        against the signature.
 

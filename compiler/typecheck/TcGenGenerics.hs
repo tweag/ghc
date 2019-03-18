@@ -436,7 +436,7 @@ tc_mkRepFamInsts gk tycon inst_tys =
            env        = zipTyEnv env_tyvars env_inst_args
            in_scope   = mkInScopeSet (tyCoVarsOfTypes inst_tys)
            subst      = mkTvSubst in_scope env
-           repTy'     = substTy  subst repTy
+           repTy'     = substTyUnchecked  subst repTy
            tcv'       = tyCoVarsOfTypeList inst_ty
            (tv', cv') = partition isTyVar tcv'
            tvs'       = scopedSort tv'
@@ -911,7 +911,7 @@ a Generic(1) instance is being derived, not the fully instantiated type. As a
 result, tc_mkRepTy builds the most generalized Rep(1) instance possible using
 the type variables it learns from the TyCon (i.e., it uses tyConTyVars). This
 can cause problems when the instance has instantiated type variables
-(see Trac #11732). As an example:
+(see #11732). As an example:
 
     data T a = MkT a
     deriving instance Generic (T Int)
@@ -995,7 +995,7 @@ Note [Generics compilation speed tricks]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Deriving Generic(1) is known to have a large constant factor during
 compilation, which contributes to noticeable compilation slowdowns when
-deriving Generic(1) for large datatypes (see Trac #5642).
+deriving Generic(1) for large datatypes (see #5642).
 
 To ease the pain, there is a trick one can play when generating definitions for
 to(1) and from(1). If you have a datatype like:
