@@ -3583,8 +3583,8 @@ data CtOrigin
   | InstProvidedOrigin Module ClsInst
         -- Skolem variable arose when we were testing if an instance
         -- is solvable or not.
-   | NonLinearPatternOrigin
-   | UsageEnvironmentOf Name
+  | NonLinearPatternOrigin
+  | UsageEnvironmentOf Name
 
 -- | Flag to see whether we're type-checking terms or kind-checking types
 data TypeOrKind = TypeLevel | KindLevel
