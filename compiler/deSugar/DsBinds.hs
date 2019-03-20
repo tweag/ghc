@@ -1276,13 +1276,13 @@ ds_ev_typeable ty (EvTypeableTrFun evm ev1 ev2)
   | Just (Scaled m t1,t2) <- splitFunTy_maybe ty
   = do { e1 <- getRep ev1 t1
        ; e2 <- getRep ev2 t2
-       ; em <- getRep evm (fromMult m)
+       ; em <- getRep evm m
        ; mkTrFun <- dsLookupGlobalId mkTrFunName
                     -- mkTrFun :: forall (m :: Multiplicity) r1 r2 (a :: TYPE r1) (b :: TYPE r2).
                     --            TypeRep m -> TypeRep a -> TypeRep b -> TypeRep (a -->.(m) b)
        ; let r1 = getRuntimeRep t1
              r2 = getRuntimeRep t2
-       ; return $ mkApps (mkTyApps (Var mkTrFun) [fromMult m, r1, r2, t1, t2])
+       ; return $ mkApps (mkTyApps (Var mkTrFun) [m, r1, r2, t1, t2])
                          [ em, e1, e2 ]
        }
 

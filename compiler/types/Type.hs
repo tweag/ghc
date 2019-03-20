@@ -159,7 +159,7 @@ module Type (
         closeOverKindsDSet, closeOverKindsFV, closeOverKindsList,
         closeOverKinds,
 
-        noFreeVarsOfType, noFreeVarsOfMult, noFreeVarsOfVarMult,
+        noFreeVarsOfType, noFreeVarsOfVarMult,
         splitVisVarsOfType, splitVisVarsOfTypes,
         expandTypeSynonyms,
         typeSize, occCheckExpand,
@@ -171,7 +171,7 @@ module Type (
         -- * Type comparison
         eqType, eqTypeX, eqTypes, nonDetCmpType, nonDetCmpTypes, nonDetCmpTypeX,
         nonDetCmpTypesX, nonDetCmpTc,
-        eqVarBndrs, eqMult,
+        eqVarBndrs,
 
         -- * Forcing evaluation of types
         seqType, seqTypes,
@@ -440,7 +440,7 @@ expandTypeSynonyms ty
     go subst (TyVarTy tv)  = substTyVar subst tv
     go subst (AppTy t1 t2) = mkAppTy (go subst t1) (go subst t2)
     go subst ty@(FunTy _ mult arg res)
-      = ty { ft_mult = mapMult (go subst) mult, ft_arg = go subst arg, ft_res = go subst res }
+      = ty { ft_mult = go subst mult, ft_arg = go subst arg, ft_res = go subst res }
     go subst (ForAllTy (Bndr tv vis) t)
       = let (subst', tv') = substVarBndrUsing go subst tv in
         ForAllTy (Bndr tv' vis) (go subst' t)
@@ -575,8 +575,7 @@ mapType mapper@(TyCoMapper { tcm_tyvar = tyvar
     go (CoercionTy co) = CoercionTy <$> mapCoercion mapper env co
 
     go ty@(FunTy _ w arg res)
-      = do { w' <- traverseMult go w
-           ; arg' <- go arg; res' <- go res
+      = do { w' <- go w; arg' <- go arg; res' <- go res
            ; return (ty { ft_mult = w', ft_arg = arg', ft_res = res' }) }
 
     go ty@(TyConApp tc tys)
@@ -768,7 +767,7 @@ repSplitAppTy_maybe :: HasDebugCallStack => Type -> Maybe (Type,Type)
 -- ^ Does the AppTy split as in 'splitAppTy_maybe', but assumes that
 -- any Core view stuff is already done
 repSplitAppTy_maybe (FunTy _ w ty1 ty2)
-  = Just (TyConApp funTyCon [fromMult w, rep1, rep2, ty1], ty2)
+  = Just (TyConApp funTyCon [w, rep1, rep2, ty1], ty2)
   where
     rep1 = getRuntimeRep ty1
     rep2 = getRuntimeRep ty2
@@ -793,7 +792,7 @@ tcRepSplitAppTy_maybe (FunTy { ft_af = af, ft_mult = w, ft_arg = ty1, ft_res = t
   | InvisArg <- af
   = Nothing  -- See Note [Decomposing fat arrow c=>t]
   | otherwise
-  = Just (TyConApp funTyCon [fromMult w, rep1, rep2, ty1], ty2)
+  = Just (TyConApp funTyCon [w, rep1, rep2, ty1], ty2)
   where
     rep1 = getRuntimeRep ty1
     rep2 = getRuntimeRep ty2
@@ -831,7 +830,7 @@ splitAppTys ty = split ty ty []
         (TyConApp tc tc_args1, tc_args2 ++ args)
     split _   (FunTy _ w ty1 ty2) args
       = ASSERT( null args )
-        (TyConApp funTyCon [], [fromMult w, rep1, rep2, ty1, ty2])
+        (TyConApp funTyCon [], [w, rep1, rep2, ty1, ty2])
       where
         rep1 = getRuntimeRep ty1
         rep2 = getRuntimeRep ty2
@@ -851,7 +850,7 @@ repSplitAppTys ty = split ty []
         (TyConApp tc tc_args1, tc_args2 ++ args)
     split (FunTy _ w ty1 ty2) args
       = ASSERT( null args )
-        (TyConApp funTyCon [], [fromMult w, rep1, rep2, ty1, ty2])
+        (TyConApp funTyCon [], [w, rep1, rep2, ty1, ty2])
       where
         rep1 = getRuntimeRep ty1
         rep2 = getRuntimeRep ty2
@@ -1135,7 +1134,7 @@ mkTyConApp :: TyCon -> [Type] -> Type
 mkTyConApp tycon tys
   | isFunTyCon tycon
   , [w,_rep1,_rep2,ty1,ty2] <- tys
-  = FunTy { ft_af = VisArg, ft_mult = toMult w, ft_arg = ty1, ft_res = ty2 }
+  = FunTy { ft_af = VisArg, ft_mult = w, ft_arg = ty1, ft_res = ty2 }
     -- The FunTyCon (->) is always a visible one
 
   | otherwise
@@ -1170,7 +1169,7 @@ tyConAppArgs_maybe (TyConApp _ tys) = Just tys
 tyConAppArgs_maybe (FunTy _ w arg res)
   | Just rep1 <- getRuntimeRep_maybe arg
   , Just rep2 <- getRuntimeRep_maybe res
-  = Just [fromMult w, rep1, rep2, arg, res]
+  = Just [w, rep1, rep2, arg, res]
 tyConAppArgs_maybe _  = Nothing
 
 tyConAppArgs :: Type -> [Type]
@@ -1212,7 +1211,7 @@ repSplitTyConApp_maybe (TyConApp tc tys) = Just (tc, tys)
 repSplitTyConApp_maybe (FunTy _ w arg res)
   | Just arg_rep <- getRuntimeRep_maybe arg
   , Just res_rep <- getRuntimeRep_maybe res
-  = Just (funTyCon, [fromMult w, arg_rep, res_rep, arg, res])
+  = Just (funTyCon, [w, arg_rep, res_rep, arg, res])
 repSplitTyConApp_maybe _ = Nothing
 
 -------------------
@@ -1723,7 +1722,7 @@ isTauTy (TyVarTy _)           = True
 isTauTy (LitTy {})            = True
 isTauTy (TyConApp tc tys)     = all isTauTy tys && isTauTyCon tc
 isTauTy (AppTy a b)           = isTauTy a && isTauTy b
-isTauTy (FunTy _ w a b)       = and (multThingList isTauTy w) && isTauTy a && isTauTy b
+isTauTy (FunTy _ w a b)       = isTauTy w && isTauTy a && isTauTy b
 isTauTy (ForAllTy {})         = False
 isTauTy (CastTy ty _)         = isTauTy ty
 isTauTy (CoercionTy _)        = False  -- Not sure about this
@@ -2271,8 +2270,7 @@ isFamFreeTy (TyVarTy _)       = True
 isFamFreeTy (LitTy {})        = True
 isFamFreeTy (TyConApp tc tys) = all isFamFreeTy tys && isFamFreeTyCon tc
 isFamFreeTy (AppTy a b)       = isFamFreeTy a && isFamFreeTy b
-isFamFreeTy (FunTy _ w a b)   = and (multThingList isFamFreeTy w) &&
-                                isFamFreeTy a && isFamFreeTy b
+isFamFreeTy (FunTy _ w a b)   = isFamFreeTy w && isFamFreeTy a && isFamFreeTy b
 isFamFreeTy (ForAllTy _ ty)   = isFamFreeTy ty
 isFamFreeTy (CastTy ty _)     = isFamFreeTy ty
 isFamFreeTy (CoercionTy _)    = False  -- Not sure about this
@@ -2458,7 +2456,7 @@ seqType :: Type -> ()
 seqType (LitTy n)                   = n `seq` ()
 seqType (TyVarTy tv)                = tv `seq` ()
 seqType (AppTy t1 t2)               = seqType t1 `seq` seqType t2
-seqType (FunTy _ w t1 t2)           = seqMult w `seq` seqType t1 `seq` seqType t2
+seqType (FunTy _ w t1 t2)           = seqType w `seq` seqType t1 `seq` seqType t2
 seqType (TyConApp tc tys)           = tc `seq` seqTypes tys
 seqType (ForAllTy (Bndr tv _) ty)   = seqType (varType tv) `seq` seqType ty
 seqType (CastTy ty co)              = seqType ty `seq` seqCo co
@@ -2467,13 +2465,6 @@ seqType (CoercionTy co)             = seqCo co
 seqTypes :: [Type] -> ()
 seqTypes []       = ()
 seqTypes (ty:tys) = seqType ty `seq` seqTypes tys
-
-seqMult :: Mult -> ()
-seqMult One = ()
-seqMult Omega = ()
-seqMult (MultThing t) = seqType t
-seqMult (MultAdd x y) = seqMult x `seq` seqMult y
-seqMult (MultMul x y) = seqMult x `seq` seqMult y
 
 {-
 ************************************************************************
@@ -2619,7 +2610,7 @@ nonDetCmpTypeX env orig_t1 orig_t2 =
       | Just (s1, t1) <- repSplitAppTy_maybe ty1
       = go env s1 s2 `thenCmpTy` go env t1 t2
     go env (FunTy _ w1 s1 t1) (FunTy _ w2 s2 t2)
-      = go env (fromMult w1) (fromMult w2) `thenCmpTy`
+      = go env w1 w2 `thenCmpTy`
         go env s1 s2 `thenCmpTy` go env t1 t2
     go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       = liftOrdering (tc1 `nonDetCmpTc` tc2) `thenCmpTy` gos env tys1 tys2
@@ -2649,14 +2640,6 @@ nonDetCmpTypeX env orig_t1 orig_t2 =
     gos _   []         _          = TLT
     gos _   _          []         = TGT
     gos env (ty1:tys1) (ty2:tys2) = go env ty1 ty2 `thenCmpTy` gos env tys1 tys2
-
-eqMult :: Mult -> Mult -> Bool
-eqMult One One = True
-eqMult Omega Omega = True
-eqMult (MultThing ty) (MultThing ty') = eqType ty ty'
-eqMult (MultAdd r1 r2) (MultAdd r1' r2') = eqMult r1 r1' && eqMult r2 r2'
-eqMult (MultMul r1 r2) (MultMul r1' r2') = eqMult r1 r1' && eqMult r2 r2'
-eqMult _ _ = False
 
 -------------
 nonDetCmpTypesX :: RnEnv2 -> [Type] -> [Type] -> Ordering
@@ -2931,7 +2914,7 @@ occCheckExpand vs_to_avoid ty
                                 ; ty2' <- go cxt ty2
                                 ; return (mkAppTy ty1' ty2') }
     go cxt ty@(FunTy _ w ty1 ty2)
-       = do { w' <- traverseMult (go cxt) w
+       = do { w'   <- go cxt w
             ; ty1' <- go cxt ty1
             ; ty2' <- go cxt ty2
             ; return (ty { ft_mult = w', ft_arg = ty1', ft_res = ty2' }) }
@@ -3054,7 +3037,7 @@ tyConsOfType ty
      go (LitTy {})                  = emptyUniqSet
      go (TyConApp tc tys)           = go_tc tc `unionUniqSets` go_s tys
      go (AppTy a b)                 = go a `unionUniqSets` go b
-     go (FunTy _ w a b)             = unionManyUniqSets (multThingList go w) `unionUniqSets`
+     go (FunTy _ w a b)             = go w `unionUniqSets`
                                       go a `unionUniqSets` go b `unionUniqSets` go_tc funTyCon
      go (ForAllTy (Bndr tv _) ty)   = go ty `unionUniqSets` go (varType tv)
      go (CastTy ty co)              = go ty `unionUniqSets` go_co co
@@ -3114,8 +3097,7 @@ splitVisVarsOfType orig_ty = Pair invis_vars vis_vars
     go (TyVarTy tv)      = Pair (tyCoVarsOfType $ tyVarKind tv) (unitVarSet tv)
     go (AppTy t1 t2)     = go t1 `mappend` go t2
     go (TyConApp tc tys) = go_tc tc tys
-    go (FunTy _ w t1 t2)   = mconcat (multThingList go w) `mappend`
-                             go t1 `mappend` go t2
+    go (FunTy _ w t1 t2) = go w `mappend` go t1 `mappend` go t2
     go (ForAllTy (Bndr tv _) ty)
       = ((`delVarSet` tv) <$> go ty) `mappend`
         (invisible (tyCoVarsOfType $ varType tv))

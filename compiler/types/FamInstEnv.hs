@@ -41,7 +41,6 @@ module FamInstEnv (
 import GhcPrelude
 
 import Unify
-import Multiplicity
 import Type
 import TyCoRep
 import TyCon
@@ -1402,9 +1401,9 @@ normalise_type ty
     go ty@(FunTy { ft_mult = w, ft_arg = ty1, ft_res = ty2 })
       = do { (co1, nty1) <- go ty1
            ; (co2, nty2) <- go ty2
-           ; (wco, wty) <- go (fromMult w)
+           ; (wco, wty) <- go w
            ; r <- getRole
-           ; return (mkFunCo r wco co1 co2, ty { ft_mult = toMult wty, ft_arg = nty1, ft_res = nty2 }) }
+           ; return (mkFunCo r wco co1 co2, ty { ft_mult = wty, ft_arg = nty1, ft_res = nty2 }) }
     go (ForAllTy (Bndr tcvar vis) ty)
       = do { (lc', tv', h, ki') <- normalise_var_bndr tcvar
            ; (co, nty)          <- withLC lc' $ normalise_type ty
@@ -1626,7 +1625,7 @@ coreFlattenTy = go
     go env ty@(FunTy { ft_mult = mult, ft_arg = ty1, ft_res = ty2 })
       = let (env1, ty1') = go env  ty1
             (env2, ty2') = go env1 ty2
-            (env3, mult') = go_mult env2 mult in
+            (env3, mult') = go env2 mult in
         (env3, ty { ft_mult = mult', ft_arg = ty1', ft_res = ty2' })
 
     go env (ForAllTy (Bndr tv vis) ty)
@@ -1642,17 +1641,6 @@ coreFlattenTy = go
 
     go env (CoercionTy co) = let (env', co') = coreFlattenCo env co in
                              (env', CoercionTy co')
-
-    go_mult env One = (env, One)
-    go_mult env Omega = (env, Omega)
-    go_mult env (MultThing t) = let (env', t') = go env t
-                                in (env', toMult t')
-    go_mult env (MultAdd m1 m2) = let (env1, m1') = go_mult env m1
-                                      (env2, m2') = go_mult env1 m2 in
-                                  (env2, mkMultAdd m1' m2')
-    go_mult env (MultMul m1 m2) = let (env1, m1') = go_mult env m1
-                                      (env2, m2') = go_mult env1 m2 in
-                                  (env2, mkMultMul m1' m2')
 
 
 -- when flattening, we don't care about the contents of coercions.
@@ -1720,8 +1708,7 @@ allTyCoVarsInTy = go
     go (TyVarTy tv)      = unitVarSet tv
     go (TyConApp _ tys)  = allTyCoVarsInTys tys
     go (AppTy ty1 ty2)   = (go ty1) `unionVarSet` (go ty2)
-    go (FunTy _ w ty1 ty2) = unionVarSets (multThingList go w) `unionVarSet`
-                           (go ty1) `unionVarSet` (go ty2)
+    go (FunTy _ w ty1 ty2) = (go w) `unionVarSet` (go ty1) `unionVarSet` (go ty2)
     go (ForAllTy (Bndr tv _) ty) = unitVarSet tv     `unionVarSet`
                                    go (tyVarKind tv) `unionVarSet`
                                    go ty

@@ -47,7 +47,6 @@ import CoreSyn
 import Coercion
 import Name
 import Type
-import Multiplicity
 import TyCoRep
 import Var
 import FastString(FastString)
@@ -527,7 +526,7 @@ instance Eq (DeBruijn Type) where
         (s, AppTy t1' t2') | Just (t1, t2) <- repSplitAppTy_maybe s
             -> D env t1 == D env' t1' && D env t2 == D env' t2'
         (FunTy _ w1 t1 t2, FunTy _ w1' t1' t2')
-            -> w1 `eqMult` w1' && D env t1 == D env' t1' && D env t2 == D env' t2'
+            -> w1 `eqType` w1' && D env t1 == D env' t1' && D env t2 == D env' t2'
         (TyConApp tc tys, TyConApp tc' tys')
             -> tc == tc' && D env tys == D env' tys'
         (LitTy l, LitTy l')
@@ -538,14 +537,6 @@ instance Eq (DeBruijn Type) where
         (CoercionTy {}, CoercionTy {})
             -> True
         _ -> False
-
-instance Eq (DeBruijn Mult) where
-  (D _ One) == (D _ One) = True
-  (D _ Omega) == (D _ Omega) = True
-  (D env (MultAdd p q)) == (D env' (MultAdd p' q')) = (D env p) == (D env' p') && (D env q) == (D env' q')
-  (D env (MultMul p q)) == (D env' (MultMul p' q')) = (D env p) == (D env' p') && (D env q) == (D env' q')
-  (D env (MultThing a)) == (D env' (MultThing a')) = (D env a) == (D env' a')
-  _ == _ = False
 
 instance Eq (DeBruijn VarMult) where
   (D _ Alias) == (D _ Alias) = True
@@ -806,7 +797,7 @@ fdBndrMap f (BndrMap tm) = foldTM (f . fst) tm
 lkBndr :: CmEnv -> Var -> BndrMap a -> Maybe a
 lkBndr env v (BndrMap tymap) = do
   (a, w) <- lkG (D env (varType v)) tymap
-  guard (w `eqMult` varWeightDef v)
+  guard (w `eqType` varWeightDef v)
   return a
 
 

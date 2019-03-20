@@ -509,7 +509,7 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
              w_tvb = map (mkTyVarBinder Inferred) w_tyvars
              actual_res_ty
                  =  mkForAllTys w_tvb $
-                    mkVisFunTys [ mkScaled (toMult (mkTyVarTy w_ty)) ty |
+                    mkVisFunTys [ mkScaled (mkTyVarTy w_ty) ty |
                               (ty, w_ty) <- zip missing_tys w_tyvars]
                             (mkTupleTy boxity arg_tys)
 

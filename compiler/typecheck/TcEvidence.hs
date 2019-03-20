@@ -282,7 +282,7 @@ c <.> WpHole = c
 c1 <.> c2    = c1 `WpCompose` c2
 
 multRefl :: Mult -> TcCoercion
-multRefl w = mkReflCo Representational (fromMult w)
+multRefl w = mkReflCo Representational w
 
 mkWpFun :: HsWrapper -> HsWrapper
         -> (Scaled TcType)    -- the "from" type of the first wrapper

@@ -700,7 +700,7 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
 
     -- See Note [Wrapper multiplicities]
     wrap_arg_tys = (map unrestricted theta)
-                    ++ (zipWith (\a b -> scaleScaled (toMult (mkTyVarTy a)) b) mult_vars orig_arg_tys)
+                    ++ (zipWith (\a b -> scaleScaled (mkTyVarTy a) b) mult_vars orig_arg_tys)
     wrap_arity   = count isCoVar ex_tvs + length wrap_arg_tys
              -- The wrap_args are the arguments *other than* the eq_spec
              -- Because we are going to apply the eq_spec args manually in the

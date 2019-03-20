@@ -1119,9 +1119,9 @@ flatten_one (TyConApp tc tys)
 flatten_one ty@(FunTy _ mult ty1 ty2)
   = do { (xi1,co1) <- flatten_one ty1
        ; (xi2,co2) <- flatten_one ty2
-       ; (xi3,co3) <- flatten_one (fromMult mult)
+       ; (xi3,co3) <- flatten_one mult
        ; role <- getRole
-       ; return (ty { ft_mult = toMult xi3, ft_arg = xi1, ft_res = xi2 }
+       ; return (ty { ft_mult = xi3, ft_arg = xi1, ft_res = xi2 }
                 , mkFunCo role co3 co1 co2) }
 
 flatten_one ty@(ForAllTy {})

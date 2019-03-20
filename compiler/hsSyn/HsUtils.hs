@@ -107,7 +107,7 @@ import TcEvidence
 import RdrName
 import Var
 import TyCoRep
-import Multiplicity ( pattern One, pattern Omega, fromMult )
+import Multiplicity ( pattern One, pattern Omega )
 import Type   ( tyConArgFlags )
 import TysWiredIn ( unitTy, omegaDataConTy )
 import TcType
@@ -712,7 +712,7 @@ typeToLHsType ty
 multToHsArrow :: Mult -> HsArrow GhcPs
 multToHsArrow One = HsLinearArrow
 multToHsArrow Omega = HsUnrestrictedArrow
-multToHsArrow ty = HsExplicitMult (typeToLHsType (fromMult ty))
+multToHsArrow ty = HsExplicitMult (typeToLHsType ty)
 
 {-
 Note [Kind signatures in typeToLHsType]

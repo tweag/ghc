@@ -71,7 +71,6 @@ import Name
 import VarSet
 import Var
 import Type
-import Multiplicity (multThingList)
 import TyCoRep
 import TyCon
 import CoAxiom
@@ -355,7 +354,7 @@ orphNamesOfType (TyConApp tycon tys) = orphNamesOfTyCon tycon
 orphNamesOfType (ForAllTy bndr res)  = orphNamesOfType (binderType bndr)
                                        `unionNameSet` orphNamesOfType res
 orphNamesOfType (FunTy _ w arg res)  = unitNameSet funTyConName    -- NB!  See #8535
-                                       `unionNameSet` unionNameSets (multThingList orphNamesOfType w)
+                                       `unionNameSet` orphNamesOfType w
                                        `unionNameSet` orphNamesOfType arg
                                        `unionNameSet` orphNamesOfType res
 orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSet` orphNamesOfType arg
@@ -716,7 +715,7 @@ freeVars = go
       | isLocalVar v = (aFreeVar v `unionFVs` ty_fvs `unionFVs` rig_vars, AnnVar v)
       | otherwise    = (emptyDVarSet,                 AnnVar v)
       where
-        rig_vars = tyCoVarsOfMultDSet (idWeight v)
+        rig_vars = tyCoVarsOfTypeDSet (idWeight v)
         ty_fvs = dVarTypeTyCoVars v
                  -- See Note [The FVAnn invariant]
 

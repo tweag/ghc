@@ -815,7 +815,7 @@ tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
   {
   -- Note that here we do not call to `submult`, so we check
   -- for strict equality.
-  ; _wrap <- tc_sub_type_ds eq_orig inst_orig ctxt (fromMult w_actual) (fromMult w_expected)
+  ; _wrap <- tc_sub_type_ds eq_orig inst_orig ctxt w_actual w_expected
   -- I don't know why, but `_wrap` need not be an identity wrapper. At any rate,
   -- the wrapper isn't significant for multiplicities, so it is safe to drop
   -- it. But maybe there is a better way to implement this function.
@@ -1448,7 +1448,7 @@ uType t_or_k origin orig_ty1 orig_ty2
     go (FunTy _ w1 fun1 arg1) (FunTy _ w2 fun2 arg2)
       = do { co_l <- uType t_or_k origin fun1 fun2
            ; co_r <- uType t_or_k origin arg1 arg2
-           ; co_w <- uType t_or_k origin (fromMult w1) (fromMult w2)
+           ; co_w <- uType t_or_k origin w1 w2
            ; return $ mkFunCo Nominal co_w co_l co_r }
 
         -- Always defer if a type synonym family (type function)
@@ -2071,7 +2071,7 @@ matchExpectedFunKind hs_ty n k = go n k
 
     go n (FunTy _ w arg res)
       = do { co <- go (n-1) res
-           ; return (mkTcFunCo Nominal (mkTcNomReflCo (fromMult w)) (mkTcNomReflCo arg) co) }
+           ; return (mkTcFunCo Nominal (mkTcNomReflCo w) (mkTcNomReflCo arg) co) }
 
     go n other
      = defer n other
@@ -2235,8 +2235,7 @@ preCheck dflags ty_fam_ok tv ty
       | bad_tc tc              = OC_Bad
       | otherwise              = mapM fast_check tys >> ok
     fast_check (LitTy {})      = ok
-    fast_check (FunTy _ w a r)   = sequence_ (multThingList fast_check w) >>
-                                   fast_check a   >> fast_check r
+    fast_check (FunTy _ w a r) = fast_check w >> fast_check a >> fast_check r
     fast_check (AppTy fun arg) = fast_check fun >> fast_check arg
     fast_check (CastTy ty co)  = fast_check ty  >> fast_check_co co
     fast_check (CoercionTy co) = fast_check_co co

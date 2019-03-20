@@ -427,7 +427,7 @@ splitTyConAppCo_maybe (FunCo _ w arg res)     = Just (funTyCon, cos)
 splitTyConAppCo_maybe _                     = Nothing
 
 multToCo :: Mult -> Coercion
-multToCo r = mkNomReflCo (fromMult r)
+multToCo r = mkNomReflCo r
 
 -- first result has role equal to input; third result is Nominal
 splitAppCo_maybe :: Coercion -> Maybe (Coercion, Coercion)
@@ -712,7 +712,7 @@ mkFunCo r w co1 co2
   | Just (ty1, _) <- isReflCo_maybe co1
   , Just (ty2, _) <- isReflCo_maybe co2
   , Just (w, _) <- isReflCo_maybe w
-  = mkReflCo r (mkVisFunTy (toMult w) ty1 ty2)
+  = mkReflCo r (mkVisFunTy w ty1 ty2)
   | otherwise = FunCo r w co1 co2
 
 -- | Apply a 'Coercion' to another 'Coercion'.
@@ -1912,7 +1912,7 @@ ty_co_subst lc role ty
                              liftCoSubstTyVar lc r tv
     go r (AppTy ty1 ty2)   = mkAppCo (go r ty1) (go Nominal ty2)
     go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go (tyConRolesX r tc) tys)
-    go r (FunTy _ w ty1 ty2) = mkFunCo r (go r $ fromMult w) (go r ty1) (go r ty2)
+    go r (FunTy _ w ty1 ty2) = mkFunCo r (go r w) (go r ty1) (go r ty2)
     go r t@(ForAllTy (Bndr v _) ty)
        = let (lc', v', h) = liftCoSubstVarBndr lc v
              body_co = ty_co_subst lc' r ty in
@@ -2208,7 +2208,7 @@ coercionKind co =
        | otherwise                = go_forall empty_subst co
        where
          empty_subst = mkEmptyTCvSubst (mkInScopeSet $ tyCoVarsOfCo co)
-    go (FunCo _ w co1 co2)  = mkVisFunTy <$> (fmap toMult (go w)) <*> go co1 <*> go co2
+    go (FunCo _ w co1 co2)  = mkVisFunTy <$> go w <*> go co1 <*> go co2
     go (CoVarCo cv)         = coVarTypes cv
     go (HoleCo h)           = coVarTypes (coHoleCoVar h)
     go (AxiomInstCo ax ind cos)
@@ -2388,7 +2388,7 @@ buildCoercion orig_ty1 orig_ty2 = go orig_ty1 orig_ty2
 
     go (FunTy { ft_mult = w1, ft_arg = arg1, ft_res = res1 })
        (FunTy { ft_mult = w2, ft_arg = arg2, ft_res = res2 })
-      = mkFunCo Nominal (go (fromMult w1) (fromMult w2)) (go arg1 arg2) (go res1 res2)
+      = mkFunCo Nominal (go w1 w2) (go arg1 arg2) (go res1 res2)
 
     go (TyConApp tc1 args1) (TyConApp tc2 args2)
       = ASSERT( tc1 == tc2 )
