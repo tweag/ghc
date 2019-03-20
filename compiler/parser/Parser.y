@@ -93,7 +93,7 @@ import Util             ( looksLikePackageName, fstOf3, sndOf3, thdOf3 )
 import GhcPrelude
 }
 
-%expect 236 -- shift/reduce conflicts
+%expect 235 -- shift/reduce conflicts
 
 {- Last updated: 04 June 2018
 
@@ -3396,8 +3396,6 @@ sysdcon_nolist :: { Located DataCon }  -- Wired in data constructors
         | '(' commas ')'        {% ams (sLL $1 $> $ tupleDataCon Boxed (snd $2 + 1))
                                        (mop $1:mcp $3:(mcommas (fst $2))) }
         | '(#' '#)'             {% ams (sLL $1 $> $ unboxedUnitDataCon) [mo $1,mc $2] }
-        | '(#' commas '#)'      {% ams (sLL $1 $> $ tupleDataCon Unboxed (snd $2 + 1))
-                                       (mo $1:mc $3:(mcommas (fst $2))) }
 
 sysdcon :: { Located DataCon }
         : sysdcon_nolist                 { $1 }
