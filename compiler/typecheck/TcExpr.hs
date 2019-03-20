@@ -484,19 +484,6 @@ tcExpr expr@(SectionL x arg1 op) res_ty
     -- See #13285
 
 tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
-  | all tupArgPresent tup_args
-  = do { let arity  = length tup_args
-             tup_tc = tupleTyCon boxity arity
-       ; res_ty <- expTypeToType res_ty
-       ; (coi, arg_tys) <- matchExpectedTyConApp tup_tc res_ty
-                           -- Unboxed tuples have RuntimeRep vars, which we
-                           -- don't care about here
-                           -- See Note [Unboxed tuple RuntimeRep vars] in TyCon
-       ; let arg_tys' = case boxity of Unboxed -> drop arity arg_tys
-                                       Boxed   -> arg_tys
-       ; tup_args1 <- tcTupArgs tup_args arg_tys'
-       ; return $ mkHsWrapCo coi (ExplicitTuple x tup_args1 boxity) }
-
   | otherwise
   = -- The tup_args are a mixture of Present and Missing (for tuple sections)
     do { let arity = length tup_args
