@@ -90,6 +90,7 @@ import RdrName ( RdrName )
 import DataCon( HsSrcBang(..), HsImplBang(..),
                 SrcStrictness(..), SrcUnpackedness(..) )
 import TysWiredIn( unrestrictedFunTyConName, omegaDataConName, oneDataConName )
+import TysPrim( funTyConName )
 import Type
 import HsDoc
 import BasicTypes
@@ -1143,6 +1144,10 @@ splitHsFunType orig_ty@(L _ (HsAppTy _ t1 t2))
                                  , [t1,t2] <- tys
                                  , (args, res) <- splitHsFunType t2
                                  = (hsUnrestricted t1:args, res)
+    go (L _ (HsTyVar _ _ (L _ fn))) tys | fn == funTyConName
+                                 , [tm,t1,t2] <- tys
+                                 , (args, res) <- splitHsFunType t2
+                                 = (HsScaled (HsExplicitMult tm) t1:args, res)
     go (L _ (HsAppTy _ t1 t2)) tys = go t1 (t2:tys)
     go (L _ (HsParTy _ ty))    tys = go ty tys
     go _                       _   = ([], orig_ty)  -- Failure to match
