@@ -2077,7 +2077,7 @@ okCompStmt dflags _ stmt
 checkTupleSection :: [LHsTupArg GhcPs] -> RnM ()
 checkTupleSection args
   = do  { tuple_section <- xoptM LangExt.TupleSections
-        ; checkErr (all tupArgPresent args || tuple_section) msg }
+        ; checkErr (all tupArgPresent args || all (not . tupArgPresent) args || tuple_section) msg }
   where
     msg = text "Illegal tuple section: use TupleSections"
 
