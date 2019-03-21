@@ -78,12 +78,6 @@ abstract_refinement_hole_fits.hs:4:5: warning: [-Wtyped-holes (in -Wdefault)]
           where (=<<) :: forall (m :: * -> *) a b.
                          Monad m =>
                          (a -> m b) -> m a -> m b
-        id (_ :: t1 -> [Integer] -> Integer) (_ :: t1)
-          where id :: forall a. a -> a
-        head (_ :: [t1 -> [Integer] -> Integer]) (_ :: t1)
-          where head :: forall a. [a] -> a
-        last (_ :: [t1 -> [Integer] -> Integer]) (_ :: t1)
-          where last :: forall a. [a] -> a
         (<*) (_ :: [Integer] -> Integer) (_ :: [Integer] -> b5)
           where (<*) :: forall (f :: * -> *) a b.
                         Applicative f =>
@@ -92,6 +86,12 @@ abstract_refinement_hole_fits.hs:4:5: warning: [-Wtyped-holes (in -Wdefault)]
           where (<$) :: forall (f :: * -> *) a b.
                         Functor f =>
                         a -> f b -> f a
+        id (_ :: t1 -> [Integer] -> Integer) (_ :: t1)
+          where id :: forall a. a -> a
+        head (_ :: [t1 -> [Integer] -> Integer]) (_ :: t1)
+          where head :: forall a. [a] -> a
+        last (_ :: [t1 -> [Integer] -> Integer]) (_ :: t1)
+          where last :: forall a. [a] -> a
         fst (_ :: (t1 -> [Integer] -> Integer, b2)) (_ :: t1)
           where fst :: forall a b. (a, b) -> a
         snd (_ :: (a3, t1 -> [Integer] -> Integer)) (_ :: t1)
@@ -201,12 +201,6 @@ abstract_refinement_hole_fits.hs:7:5: warning: [-Wtyped-holes (in -Wdefault)]
           where (=<<) :: forall (m :: * -> *) a b.
                          Monad m =>
                          (a -> m b) -> m a -> m b
-        id (_ :: t1 -> Integer -> [Integer] -> Integer) (_ :: t1)
-          where id :: forall a. a -> a
-        head (_ :: [t1 -> Integer -> [Integer] -> Integer]) (_ :: t1)
-          where head :: forall a. [a] -> a
-        last (_ :: [t1 -> Integer -> [Integer] -> Integer]) (_ :: t1)
-          where last :: forall a. [a] -> a
         (<*) (_ :: Integer -> [Integer] -> Integer) (_ :: Integer -> b5)
           where (<*) :: forall (f :: * -> *) a b.
                         Applicative f =>
@@ -215,6 +209,12 @@ abstract_refinement_hole_fits.hs:7:5: warning: [-Wtyped-holes (in -Wdefault)]
           where (<$) :: forall (f :: * -> *) a b.
                         Functor f =>
                         a -> f b -> f a
+        id (_ :: t1 -> Integer -> [Integer] -> Integer) (_ :: t1)
+          where id :: forall a. a -> a
+        head (_ :: [t1 -> Integer -> [Integer] -> Integer]) (_ :: t1)
+          where head :: forall a. [a] -> a
+        last (_ :: [t1 -> Integer -> [Integer] -> Integer]) (_ :: t1)
+          where last :: forall a. [a] -> a
         fst (_ :: (t1 -> Integer -> [Integer] -> Integer, b2)) (_ :: t1)
           where fst :: forall a b. (a, b) -> a
         snd (_ :: (a3, t1 -> Integer -> [Integer] -> Integer)) (_ :: t1)
