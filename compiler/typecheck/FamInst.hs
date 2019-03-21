@@ -41,7 +41,6 @@ import Name
 import Pair
 import Panic
 import VarSet
-import Multiplicity
 import Bag( Bag, unionBags, unitBag )
 import Control.Monad
 
@@ -822,7 +821,7 @@ injTyVarsOfType (TyConApp tc tys)
 injTyVarsOfType (LitTy {})
   = emptyVarSet
 injTyVarsOfType (FunTy _ w arg res)
-  = unionVarSets (multThingList injTyVarsOfType w) `unionVarSet`
+  = injTyVarsOfType w `unionVarSet`
     injTyVarsOfType arg `unionVarSet`
     injTyVarsOfType res
 injTyVarsOfType (AppTy fun arg)

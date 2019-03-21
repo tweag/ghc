@@ -826,7 +826,7 @@ tc_hs_type _    wc@(HsWildCardTy _)        ek = tcWildCardOcc wc ek
 
 ------------------------------------------
 tc_mult :: TcTyMode -> HsArrow GhcRn -> TcM Mult
-tc_mult mode ty = toMult <$> tc_lhs_type mode (arrowToHsType ty) multiplicityTy
+tc_mult mode ty = tc_lhs_type mode (arrowToHsType ty) multiplicityTy
 ------------------------------------------
 tc_fun_type :: TcTyMode -> HsArrow GhcRn -> LHsType GhcRn -> LHsType GhcRn -> TcKind
             -> TcM TcType

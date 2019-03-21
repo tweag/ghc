@@ -33,7 +33,6 @@ import VarEnv
 import VarSet
 import Name( Name )
 import Type hiding ( getTvSubstEnv )
-import Multiplicity ( fromMult )
 import Coercion hiding ( getCvSubstEnv )
 import TyCon
 import TyCoRep hiding ( getTvSubstEnv, getCvSubstEnv )
@@ -1449,7 +1448,7 @@ ty_co_match menv subst (FunTy _ w ty1 ty2) co _lkco _rkco
   | Just (tc, [co_mult, _,_,co1,co2]) <- splitTyConAppCo_maybe co
   , tc == funTyCon
   = let Pair lkcos rkcos = traverse (fmap mkNomReflCo . coercionKind) [co_mult,co1,co2]
-    in ty_co_match_args menv subst [fromMult w, ty1, ty2] [co_mult, co1, co2] lkcos rkcos
+    in ty_co_match_args menv subst [w, ty1, ty2] [co_mult, co1, co2] lkcos rkcos
 
 ty_co_match menv subst (ForAllTy (Bndr tv1 _) ty1)
                        (ForAllCo tv2 kind_co2 co2)

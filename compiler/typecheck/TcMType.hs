@@ -1228,12 +1228,6 @@ collect_cand_qtvs
 collect_cand_qtvs is_dep bound dvs ty
   = go dvs ty
   where
-    go_mult dv One   = return dv
-    go_mult dv Omega = return dv
-    go_mult dv (MultAdd x y) = foldlM go_mult dv [x, y]
-    go_mult dv (MultMul x y) = foldlM go_mult dv [x, y]
-    go_mult dv (MultThing x) = go dv x
-
     is_bound tv = tv `elemVarSet` bound
 
     -----------------
@@ -1241,8 +1235,7 @@ collect_cand_qtvs is_dep bound dvs ty
     -- Uses accumulating-parameter style
     go dv (AppTy t1 t2)    = foldlM go dv [t1, t2]
     go dv (TyConApp _ tys) = foldlM go dv tys
-    go dv (FunTy _ w arg res) = do dv1 <- go_mult dv w
-                                   foldlM go dv1 [arg, res]
+    go dv (FunTy _ w arg res) = foldlM go dv [w, arg, res]
     go dv (LitTy {})        = return dv
     go dv (CastTy ty co)    = do dv1 <- go dv ty
                                  collect_cand_qtvs_co bound dv1 co
@@ -2192,7 +2185,7 @@ tidySigSkol env cx ty tv_prs
         (env', tv') = tidy_tv_bndr env tv
 
     tidy_ty env ty@(FunTy _ w arg res)
-      = ty { ft_mult = mapMult (tidy_ty env) w,
+      = ty { ft_mult = tidy_ty env w,
              ft_arg = tidyType env arg,
              ft_res = tidy_ty env res }
 

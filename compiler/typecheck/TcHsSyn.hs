@@ -1246,7 +1246,7 @@ zonkStmt env _ (LetStmt x (dL->L l binds))
 
 zonkStmt env zBody (BindStmt (w, bind_ty) pat body bind_op fail_op)
   = do  { (env1, new_bind) <- zonkSyntaxExpr env bind_op
-        ; new_w <- zonkMultX env1 w
+        ; new_w <- zonkTcTypeToTypeX env1 w
         ; new_bind_ty <- zonkTcTypeToTypeX env1 bind_ty
         ; new_body <- zBody env1 body
         ; (env2, new_pat) <- zonkPat env1 pat
@@ -1907,11 +1907,8 @@ zonkTcTypesToTypes :: [TcType] -> TcM [Type]
 zonkTcTypesToTypes tys = initZonkEnv $ \ ze -> zonkTcTypesToTypesX ze tys
 
 zonkScaledTcTypeToTypeX :: ZonkEnv -> Scaled TcType -> TcM (Scaled TcType)
-zonkScaledTcTypeToTypeX env (Scaled r ty) = Scaled <$> zonkMultX env r
-                                                         <*> zonkTcTypeToTypeX env ty
-
-zonkMultX :: ZonkEnv -> Mult -> TcM Mult
-zonkMultX env = traverseMult (zonkTcTypeToTypeX env)
+zonkScaledTcTypeToTypeX env (Scaled r ty) = Scaled <$> zonkTcTypeToTypeX env r
+                                                   <*> zonkTcTypeToTypeX env ty
 
 zonkTcTypesToTypesX :: Traversable t => ZonkEnv -> (t TcType) -> TcM (t Type)
 zonkTcTypesToTypesX env tys = mapM (zonkTcTypeToTypeX env) tys

@@ -89,7 +89,7 @@ module TyCoRep (
         debugPprType,
 
         -- * Free variables
-        tyCoVarsOfType, tyCoVarsOfTypeDSet, tyCoVarsOfMultDSet,
+        tyCoVarsOfType, tyCoVarsOfTypeDSet,
         tyCoVarsOfTypes, tyCoVarsOfTypesDSet,
         tyCoFVsBndr, tyCoFVsVarBndr, tyCoFVsVarBndrs,
         tyCoFVsOfType, tyCoVarsOfTypeList,
@@ -103,7 +103,7 @@ module TyCoRep (
         almostDevoidCoVarOfCo,
         injectiveVarsOfType, tyConAppNeedsKindSig,
 
-        noFreeVarsOfType, noFreeVarsOfCo, noFreeVarsOfMult,
+        noFreeVarsOfType, noFreeVarsOfCo,
         noFreeVarsOfVarMult,
 
         -- * Substitutions
@@ -1986,13 +1986,6 @@ tyCoVarsOfType ty = ty_co_vars_of_type ty emptyVarSet emptyVarSet
 tyCoVarsOfTypes :: [Type] -> TyCoVarSet
 tyCoVarsOfTypes tys = ty_co_vars_of_types tys emptyVarSet emptyVarSet
 
-ty_co_vars_of_mult :: Mult -> TyCoVarSet -> TyCoVarSet -> TyCoVarSet
-ty_co_vars_of_mult One           _  acc = acc
-ty_co_vars_of_mult Omega         _  acc = acc
-ty_co_vars_of_mult (MultAdd x y) is acc = ty_co_vars_of_mult x is (ty_co_vars_of_mult y is acc)
-ty_co_vars_of_mult (MultMul x y) is acc = ty_co_vars_of_mult x is (ty_co_vars_of_mult y is acc)
-ty_co_vars_of_mult (MultThing x) is acc = ty_co_vars_of_type x is acc
-
 ty_co_vars_of_type :: Type -> TyCoVarSet -> TyCoVarSet -> TyCoVarSet
 ty_co_vars_of_type (TyVarTy v) is acc
   | v `elemVarSet` is  = acc
@@ -2004,7 +1997,7 @@ ty_co_vars_of_type (TyVarTy v) is acc
 ty_co_vars_of_type (TyConApp _ tys)   is acc = ty_co_vars_of_types tys is acc
 ty_co_vars_of_type (LitTy {})         _  acc = acc
 ty_co_vars_of_type (AppTy fun arg)    is acc = ty_co_vars_of_type fun is (ty_co_vars_of_type arg is acc)
-ty_co_vars_of_type (FunTy _ w arg res)  is acc = ty_co_vars_of_mult w is (ty_co_vars_of_type arg is (ty_co_vars_of_type res is acc))
+ty_co_vars_of_type (FunTy _ w arg res)  is acc = ty_co_vars_of_type w is (ty_co_vars_of_type arg is (ty_co_vars_of_type res is acc))
 ty_co_vars_of_type (ForAllTy (Bndr tv _) ty) is acc = ty_co_vars_of_type (varType tv) is $
                                                       ty_co_vars_of_type ty (extendVarSet is tv) acc
 ty_co_vars_of_type (CastTy ty co)     is acc = ty_co_vars_of_type ty is (ty_co_vars_of_co co is acc)
@@ -2091,9 +2084,6 @@ tyCoVarsOfTypeDSet :: Type -> DTyCoVarSet
 -- See Note [Free variables of types]
 tyCoVarsOfTypeDSet ty = fvDVarSet $ tyCoFVsOfType ty
 
-tyCoVarsOfMultDSet :: Mult -> DTyCoVarSet
-tyCoVarsOfMultDSet r = fvDVarSet $ tyCoFVsOfMult r
-
 -- | `tyCoFVsOfType` that returns free variables of a type in deterministic
 -- order. For explanation of why using `VarSet` is not deterministic see
 -- Note [Deterministic FV] in FV.
@@ -2145,16 +2135,10 @@ tyCoFVsOfType (TyVarTy v)        f bound_vars (acc_list, acc_set)
 tyCoFVsOfType (TyConApp _ tys)   f bound_vars acc = tyCoFVsOfTypes tys f bound_vars acc
 tyCoFVsOfType (LitTy {})         f bound_vars acc = emptyFV f bound_vars acc
 tyCoFVsOfType (AppTy fun arg)    f bound_vars acc = (tyCoFVsOfType fun `unionFV` tyCoFVsOfType arg) f bound_vars acc
-tyCoFVsOfType (FunTy _ w arg res)  f bound_vars acc = (tyCoFVsOfMult w `unionFV` tyCoFVsOfType arg `unionFV` tyCoFVsOfType res) f bound_vars acc
+tyCoFVsOfType (FunTy _ w arg res)  f bound_vars acc = (tyCoFVsOfType w `unionFV` tyCoFVsOfType arg `unionFV` tyCoFVsOfType res) f bound_vars acc
 tyCoFVsOfType (ForAllTy bndr ty) f bound_vars acc = tyCoFVsBndr bndr (tyCoFVsOfType ty)  f bound_vars acc
 tyCoFVsOfType (CastTy ty co)     f bound_vars acc = (tyCoFVsOfType ty `unionFV` tyCoFVsOfCo co) f bound_vars acc
 tyCoFVsOfType (CoercionTy co)    f bound_vars acc = tyCoFVsOfCo co f bound_vars acc
-
-tyCoFVsOfMult :: Mult -> FV
-tyCoFVsOfMult (MultThing t) a b c = (tyCoFVsOfType t) a b c
-tyCoFVsOfMult (MultAdd m1 m2) a b c = (tyCoFVsOfMult m1 `unionFV` tyCoFVsOfMult m2) a b c
-tyCoFVsOfMult (MultMul m1 m2) a b c = (tyCoFVsOfMult m1 `unionFV` tyCoFVsOfMult m2) a b c
-tyCoFVsOfMult _ a b c = emptyFV a b c
 
 tyCoFVsBndr :: TyCoVarBinder -> FV -> FV
 -- Free vars of (forall b. <thing with fvs>)
@@ -2341,10 +2325,6 @@ almost_devoid_co_var_of_prov (ProofIrrelProv co) cv
 almost_devoid_co_var_of_prov UnsafeCoerceProv _ = True
 almost_devoid_co_var_of_prov (PluginProv _) _ = True
 
-almost_devoid_co_var_of_mult :: Mult -> CoVar -> Bool
-almost_devoid_co_var_of_mult m cv =
-  and $ multThingList (\x -> almost_devoid_co_var_of_type x cv) m
-
 almost_devoid_co_var_of_type :: Type -> CoVar -> Bool
 almost_devoid_co_var_of_type (TyVarTy _) _ = True
 almost_devoid_co_var_of_type (TyConApp _ tys) cv
@@ -2354,7 +2334,7 @@ almost_devoid_co_var_of_type (AppTy fun arg) cv
   = almost_devoid_co_var_of_type fun cv
   && almost_devoid_co_var_of_type arg cv
 almost_devoid_co_var_of_type (FunTy _ w arg res) cv
-  = almost_devoid_co_var_of_mult w cv
+  = almost_devoid_co_var_of_type w cv
   && almost_devoid_co_var_of_type arg cv
   && almost_devoid_co_var_of_type res cv
 almost_devoid_co_var_of_type (ForAllTy (Bndr v _) ty) cv
@@ -2396,8 +2376,7 @@ injectiveVarsOfType = go
                            = go ty'
     go (TyVarTy v)         = unitFV v `unionFV` go (tyVarKind v)
     go (AppTy f a)         = go f `unionFV` go a
-    go (FunTy _ w ty1 ty2) = unionsFV (multThingList go w) `unionFV`
-                             go ty1 `unionFV` go ty2
+    go (FunTy _ w ty1 ty2) = go w `unionFV` go ty1 `unionFV` go ty2
     go (TyConApp tc tys)   =
       case tyConInjectivityInfo tc of
         NotInjective  -> emptyFV
@@ -2689,18 +2668,15 @@ noFreeVarsOfType (TyVarTy _)      = False
 noFreeVarsOfType (AppTy t1 t2)    = noFreeVarsOfType t1 && noFreeVarsOfType t2
 noFreeVarsOfType (TyConApp _ tys) = all noFreeVarsOfType tys
 noFreeVarsOfType ty@(ForAllTy {}) = isEmptyVarSet (tyCoVarsOfType ty)
-noFreeVarsOfType (FunTy _ w t1 t2)  = noFreeVarsOfMult w
+noFreeVarsOfType (FunTy _ w t1 t2)  = noFreeVarsOfType w
                                       && noFreeVarsOfType t1
                                       && noFreeVarsOfType t2
 noFreeVarsOfType (LitTy _)        = True
 noFreeVarsOfType (CastTy ty co)   = noFreeVarsOfType ty && noFreeVarsOfCo co
 noFreeVarsOfType (CoercionTy co)  = noFreeVarsOfCo co
 
-noFreeVarsOfMult :: Mult -> Bool
-noFreeVarsOfMult w = and (multThingList noFreeVarsOfType w)
-
 noFreeVarsOfVarMult :: VarMult -> Bool
-noFreeVarsOfVarMult (Regular w) = noFreeVarsOfMult w
+noFreeVarsOfVarMult (Regular w) = noFreeVarsOfType w
 noFreeVarsOfVarMult Alias = True
 
 noFreeVarsOfMCo :: MCoercion -> Bool
@@ -3329,7 +3305,7 @@ substTy subst ty
 substMultUnchecked :: TCvSubst -> Mult -> Mult
 substMultUnchecked subst r
   | isEmptyTCvSubst subst = r
-  | otherwise             = subst_mult subst r
+  | otherwise             = subst_ty subst r
 
 substVarMult :: TCvSubst -> VarMult -> VarMult
 substVarMult subst (Regular w) = Regular $ substMultUnchecked subst w
@@ -3394,7 +3370,7 @@ subst_ty subst ty
     go (TyConApp tc tys) = let args = map go tys
                            in  args `seqList` TyConApp tc args
     go ty@(FunTy { ft_mult = mult, ft_arg = arg, ft_res = res })
-      = let !mult' = subst_mult subst mult
+      = let !mult' = subst_ty subst mult
             !arg' = go arg
             !res' = go res
         in ty { ft_mult = mult', ft_arg = arg', ft_res = res' }
@@ -3406,9 +3382,6 @@ subst_ty subst ty
     go (LitTy n)         = LitTy $! n
     go (CastTy ty co)    = (mkCastTy $! (go ty)) $! (subst_co subst co)
     go (CoercionTy co)   = CoercionTy $! (subst_co subst co)
-
-subst_mult :: TCvSubst -> Mult -> Mult
-subst_mult subst = mapMult (subst_ty subst)
 
 substTyVar :: TCvSubst -> TyVar -> Type
 substTyVar (TCvSubst _ tenv _) tv
@@ -4091,16 +4064,13 @@ tidyTypes :: TidyEnv -> [Type] -> [Type]
 tidyTypes env tys = map (tidyType env) tys
 
 ---------------
-tidyMult :: TidyEnv -> Mult -> Mult
-tidyMult env = mapMult (tidyType env)
-
 tidyType :: TidyEnv -> Type -> Type
 tidyType _   (LitTy n)             = LitTy n
 tidyType env (TyVarTy tv)          = TyVarTy (tidyTyCoVarOcc env tv)
 tidyType env (TyConApp tycon tys)  = let args = tidyTypes env tys
                                      in args `seqList` TyConApp tycon args
 tidyType env (AppTy fun arg)       = (AppTy $! (tidyType env fun)) $! (tidyType env arg)
-tidyType env ty@(FunTy _ w arg res)  = let { !w'   = tidyMult env w
+tidyType env ty@(FunTy _ w arg res)  = let { !w'   = tidyType env w
                                            ; !arg' = tidyType env arg
                                            ; !res' = tidyType env res }
                                        in ty { ft_mult = w', ft_arg = arg', ft_res = res' }

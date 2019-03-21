@@ -422,7 +422,7 @@ doFunTy clas ty (Scaled mult arg_ty) ret_ty
                      , cir_mk_ev     = mk_ev
                      , cir_what      = BuiltinInstance }
   where
-    preds = map (mk_typeable_pred clas) [fromMult mult, arg_ty, ret_ty]
+    preds = map (mk_typeable_pred clas) [mult, arg_ty, ret_ty]
     mk_ev [mult_ev, arg_ev, ret_ev] = evTypeable ty $
                         EvTypeableTrFun (EvExpr mult_ev) (EvExpr arg_ev) (EvExpr ret_ev)
     mk_ev _ = panic "TcInteract.doFunTy"

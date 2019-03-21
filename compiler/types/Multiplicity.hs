@@ -1,15 +1,15 @@
 {-# LANGUAGE DeriveDataTypeable, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE PatternSynonyms, ViewPatterns #-}
 
 {-|
 This module defines the semi-ring of multiplicities, and associated functions.
 Multiplicities annotate arrow types to indicate the linearity of the
 arrow (in the sense of linear types).
 
-Mult corresponds to a Type that is of kind Multiplicity.
-The functions fromMult and toMult convert both ways between Mult and Type.
-We use a separate type to support pattern matching over common multiplicities.
-The smart constructors perform simplifications such as Omega + x = x.
+Mult is a type synonym for Type, used only when its kind is Multiplicity.
+To simplify dealing with multiplicities, smart constructors such as
+mkMultAdd perform simplifications such as Omega + x = x on the fly.
+Pattern synonyms such as MultAdd can be used to analyze particular Mults.
 -}
 module Multiplicity
   ( Mult
@@ -17,7 +17,6 @@ module Multiplicity
   , pattern Omega
   , pattern MultAdd
   , pattern MultMul
-  , pattern MultThing
   , mkMultAdd
   , mkMultMul
   , sup
@@ -30,12 +29,7 @@ module Multiplicity
   , scaledSet
   , scaleScaled
   , IsSubmult(..)
-  , submult
-  , traverseMult
-  , multThingList
-  , mapMult
-  , fromMult
-  , toMult ) where
+  , submult) where
 
 import GhcPrelude
 
@@ -51,9 +45,7 @@ import Unique (hasKey)
 Note [Adding new multiplicities]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 To add a new multiplicity, you need to:
-* Add the new value to the Mult type
-* Define new cases in fromMult/toMult functions,
-  possibly defining new syntax for the multiplicity
+* Add the new type with Multiplicity kind
 * Update cases in MultAdd, MultMul, sup, submult, tcSubmult
 * Check supUE function that computes sup of a multiplicity
   and Zero
@@ -63,74 +55,48 @@ To add a new multiplicity, you need to:
 -- * Core properties of multiplicities
 --
 
-data Mult
-  = One_
-  | Omega_
-  | MultAdd_ Mult Mult
-  | MultMul_ Mult Mult
-  | MultThing_ Type
-  deriving (Data)
+type Mult = Type
 
 -- We may enforce more invariants in Mult. For instance, we can
 -- enforce that it is in the form of a sum of products, and even that the
 -- sumands and factors are ordered somehow, to have more equalities.
 
-fromMult :: Mult -> Type
-fromMult One = oneDataConTy
-fromMult Omega = omegaDataConTy
-fromMult (MultAdd x y) = mkTyConApp multAddTyCon [fromMult x, fromMult y]
-fromMult (MultMul x y) = mkTyConApp multMulTyCon [fromMult x, fromMult y]
-fromMult (MultThing ty) = ty
-
-toMult :: Type -> Mult
-toMult ty
-  | oneDataConTy `eqType` ty = One
-  | omegaDataConTy `eqType` ty = Omega
-  | Just (tc, [x, y]) <- splitTyConApp_maybe ty
-  , tc `hasKey` multAddTyConKey = mkMultAdd (toMult x) (toMult y)
-  | Just (tc, [x, y]) <- splitTyConApp_maybe ty
-  , tc `hasKey` multMulTyConKey = mkMultMul (toMult x) (toMult y)
-  | otherwise = MultThing_ ty
-
--- Note that pattern synonyms for One and Omega are not necessary: we could just
--- export them as constructors. They are defined as pattern synonym for
--- symmetry. Following the principle of least surprise.
-
 pattern One :: Mult
-pattern One = One_
+pattern One <- (eqType oneDataConTy -> True)
+  where One = oneDataConTy
 
 pattern Omega :: Mult
-pattern Omega = Omega_
+pattern Omega <- (eqType omegaDataConTy -> True)
+  where Omega = omegaDataConTy
+
+isMultAdd :: Mult -> Maybe (Mult, Mult)
+isMultAdd ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
+             , tc `hasKey` multAddTyConKey = Just (x, y)
+             | otherwise = Nothing
+
+isMultMul :: Mult -> Maybe (Mult, Mult)
+isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
+             , tc `hasKey` multMulTyConKey = Just (x, y)
+             | otherwise = Nothing
 
 pattern MultAdd :: Mult -> Mult -> Mult
-pattern MultAdd p q <- MultAdd_ p q
-pattern MultMul :: Mult -> Mult -> Mult
-pattern MultMul p q <- MultMul_ p q
+pattern MultAdd p q <- (isMultAdd -> Just (p,q))
 
-pattern MultThing :: Type -> Mult
-pattern MultThing a <- MultThing_ a
+pattern MultMul :: Mult -> Mult -> Mult
+pattern MultMul p q <- (isMultMul -> Just (p,q))
 
 mkMultAdd :: Mult -> Mult -> Mult
 mkMultAdd One One = Omega
 mkMultAdd Omega _ = Omega
 mkMultAdd _ Omega = Omega
-mkMultAdd p q     = MultAdd_ p q
+mkMultAdd p q     = mkTyConApp multAddTyCon [p, q]
 
 mkMultMul :: Mult -> Mult -> Mult
 mkMultMul One p = p
 mkMultMul p One = p
 mkMultMul Omega _ = Omega
 mkMultMul _ Omega = Omega
-mkMultMul p q = MultMul_ p q
-
-{-# COMPLETE One, Omega, MultMul, MultAdd, MultThing #-}
-
-instance Outputable Mult where
-  ppr One = text "1"
-  ppr Omega = text "Omega"
-  ppr (MultAdd m1 m2) = parens (ppr m1 <+> text "+" <+> ppr m2)
-  ppr (MultMul m1 m2) = parens (ppr m1 <+> text "*" <+> ppr m2)
-  ppr (MultThing t) = ppr t
+mkMultMul p q = mkTyConApp multMulTyCon [p, q]
 
 -- | @sup w1 w2@ returns the smallest multiplicity larger than or equal to both @w1@
 -- and @w2@.
@@ -197,27 +163,4 @@ submult Omega One   = NotSubmult
 submult One   One   = Submult
 -- The 1 <= p rule
 submult One   _     = Submult
---    submult (MultThing t) (MultThing t') = Unknown
 submult _     _     = Unknown
-
-traverseMult :: Applicative f => (Type -> f Type) -> Mult -> f Mult
-traverseMult _ One = pure One
-traverseMult _ Omega = pure Omega
-traverseMult f (MultThing t) = toMult <$> f t
-traverseMult f (MultAdd x y) = mkMultAdd <$> traverseMult f x <*> traverseMult f y
-traverseMult f (MultMul x y) = mkMultMul <$> traverseMult f x <*> traverseMult f y
-
-multThingList :: (Type -> a) -> Mult -> [a]
-multThingList f = go []
-  where go acc One = acc
-        go acc Omega = acc
-        go acc (MultThing t) = f t : acc
-        go acc (MultAdd x y) = go (go acc y) x
-        go acc (MultMul x y) = go (go acc y) x
-
-mapMult :: (Type -> Type) -> Mult -> Mult
-mapMult _ One = One
-mapMult _ Omega = Omega
-mapMult f (MultThing t) = toMult (f t)
-mapMult f (MultAdd x y) = mkMultAdd (mapMult f x) (mapMult f y)
-mapMult f (MultMul x y) = mkMultMul (mapMult f x) (mapMult f y)

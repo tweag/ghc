@@ -1450,7 +1450,7 @@ lintType ty@(TyConApp tc tys)
 lintType ty@(FunTy _ w t1 t2)
   = do { k1 <- lintType t1
        ; k2 <- lintType t2
-       ; kw <- lintType (fromMult w)
+       ; kw <- lintType w
        ; lintArrow (text "type or kind" <+> quotes (ppr ty)) k1 k2 kw }
 
 lintType t@(ForAllTy (Bndr tv _vis) ty)
@@ -1869,7 +1869,7 @@ lintCoercion co@(FunCo r w co1 co2)
        ; lintRole co1 r r1
        ; lintRole co2 r r2
        ; lintRole w Nominal r3
-       ; return (k, k', mkVisFunTy (toMult s3) s1 s2, mkVisFunTy (toMult t3) t1 t2, r) }
+       ; return (k, k', mkVisFunTy s3 s1 s2, mkVisFunTy t3 t1 t2, r) }
 
 lintCoercion (CoVarCo cv)
   | not (isCoVar cv)
@@ -2482,8 +2482,7 @@ ensureEqMults actual_usage described_usage err_msg =
     case (actual_usage `submult` described_usage) of
       Submult -> return ()
       NotSubmult -> addErrL err_msg
-      Unknown -> ensureEqTys (fromMult actual_usage)
-                             (fromMult described_usage) err_msg
+      Unknown -> ensureEqTys actual_usage described_usage err_msg
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared

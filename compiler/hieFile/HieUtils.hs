@@ -162,7 +162,7 @@ getTypeIndex t
     go (FunTy { ft_af = af, ft_mult = w, ft_arg = a, ft_res = b }) = do
       ai <- getTypeIndex a
       bi <- getTypeIndex b
-      wi <- getTypeIndex (fromMult w)
+      wi <- getTypeIndex w
       return $ case af of
                  InvisArg -> case w of Omega -> HQualTy ai bi; _ -> error "Unexpected non-linear predicate"
                  VisArg   -> HFunTy wi ai bi
