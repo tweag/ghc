@@ -1402,7 +1402,7 @@ def simple_run(name, way, prog, extra_run_opts):
             print('Wrong exit code for ' + name + '(' + way + ')' + '(expected', opts.exit_code, ', actual', exit_code, ')')
             dump_stdout(name)
             dump_stderr(name)
-        return failBecause('bad exit code')
+        return failBecause('bad exit code (%d)' % exit_code)
 
     if not (opts.ignore_stderr or stderr_ok(name, way) or opts.combined_output):
         return failBecause('bad stderr')
@@ -2214,7 +2214,7 @@ def printUnexpectedTests(file, testInfoss):
 
 def printTestInfosSummary(file, testInfos):
     maxDirLen = max(len(tr.directory) for tr in testInfos)
-    for result in testInfos:
+    for result in sorted(testInfos, key=lambda r: (r.testname.lower(), r.way, r.directory)):
         directory = result.directory.ljust(maxDirLen)
         file.write('   {directory}  {r.testname} [{r.reason}] ({r.way})\n'.format(
             r = result,

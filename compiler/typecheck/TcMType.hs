@@ -150,7 +150,7 @@ newMetaKindVar
        ; return (mkTyVarTy kv) }
 
 newMetaKindVars :: Int -> TcM [TcKind]
-newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
+newMetaKindVars n = replicateM n newMetaKindVar
 
 {-
 ************************************************************************
@@ -950,7 +950,7 @@ newFlexiTyVarTy kind = do
     return (mkTyVarTy tc_tyvar)
 
 newFlexiTyVarTys :: Int -> Kind -> TcM [TcType]
-newFlexiTyVarTys n kind = mapM newFlexiTyVarTy (nOfThem n kind)
+newFlexiTyVarTys n kind = replicateM n (newFlexiTyVarTy kind)
 
 newOpenTypeKind :: TcM TcKind
 newOpenTypeKind
@@ -1090,7 +1090,7 @@ Note [CandidatesQTvs determinism and order]
   accumulating-parameter style for candidateQTyVarsOfType so that we
   add variables one at a time, left to right.  That means we tend to
   produce the variables in left-to-right order.  This is just to make
-  it bit more predicatable for the programmer.
+  it bit more predictable for the programmer.
 
 Note [Naughty quantification candidates]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

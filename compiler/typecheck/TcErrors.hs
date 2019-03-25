@@ -16,7 +16,7 @@ import GhcPrelude
 import TcRnTypes
 import TcRnMonad
 import TcMType
-import TcUnify( occCheckForErrors, OccCheckResult(..) )
+import TcUnify( occCheckForErrors, MetaTyVarUpdateResult(..) )
 import TcEnv( tcInitTidyEnv )
 import TcType
 import RnUnbound ( unknownNameSuggestions )
@@ -829,11 +829,11 @@ maybeReportHoleError :: ReportErrCtxt -> Ct -> ErrMsg -> TcM ()
 maybeReportHoleError ctxt ct err
   -- When -XPartialTypeSignatures is on, warnings (instead of errors) are
   -- generated for holes in partial type signatures.
-  -- Unless -fwarn_partial_type_signatures is not on,
+  -- Unless -fwarn-partial-type-signatures is not on,
   -- in which case the messages are discarded.
   | isTypeHoleCt ct
   = -- For partial type signatures, generate warnings only, and do that
-    -- only if -fwarn_partial_type_signatures is on
+    -- only if -fwarn-partial-type-signatures is on
     case cec_type_holes ctxt of
        HoleError -> reportError err
        HoleWarn  -> reportWarning (Reason Opt_WarnPartialTypeSignatures) err
@@ -1632,7 +1632,7 @@ mkTyVarEqErr' dflags ctxt report ct oriented tv1 co1 ty2
         , report
         ]
 
-  | OC_Occurs <- occ_check_expand
+  | MTVU_Occurs <- occ_check_expand
     -- We report an "occurs check" even for  a ~ F t a, where F is a type
     -- function; it's not insoluble (because in principle F could reduce)
     -- but we have certainly been unable to solve it
@@ -1657,10 +1657,10 @@ mkTyVarEqErr' dflags ctxt report ct oriented tv1 co1 ty2
        ; mkErrorMsgFromCt ctxt ct $
          mconcat [important main_msg, extra2, extra3, report] }
 
-  | OC_Bad <- occ_check_expand
+  | MTVU_Bad <- occ_check_expand
   = do { let msg = vcat [ text "Cannot instantiate unification variable"
                           <+> quotes (ppr tv1)
-                        , hang (text "with a" <+> what <+> text "involving foralls:") 2 (ppr ty2)
+                        , hang (text "with a" <+> what <+> text "involving polytypes:") 2 (ppr ty2)
                         , nest 2 (text "GHC doesn't yet support impredicative polymorphism") ]
        -- Unlike the other reports, this discards the old 'report_important'
        -- instead of augmenting it.  This is because the details are not likely
