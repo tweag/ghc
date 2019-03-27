@@ -687,7 +687,7 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
   where
     (univ_tvs, ex_tvs, eq_spec, theta, orig_arg_tys, _orig_res_ty)
       = dataConFullSig data_con
-    mult_vars    = multiplicityTyVarList orig_arg_tys
+    mult_vars    = dataConMulVars data_con
     wrap_tvs     = mult_vars ++ dataConUserTyVars data_con
     res_ty_args  = substTyVars (mkTvSubstPrs (map eqSpecPair eq_spec)) univ_tvs
 

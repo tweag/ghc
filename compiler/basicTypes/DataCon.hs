@@ -35,6 +35,7 @@ module DataCon (
         dataConUserTyVars, dataConUserTyVarBinders,
         dataConEqSpec, dataConTheta,
         dataConStupidTheta,
+        dataConMulVars,
         dataConInstArgTys, dataConOrigArgTys, dataConOrigResTy,
         dataConInstOrigArgTys, dataConRepArgTys,
         dataConFieldLabels, dataConFieldType, dataConFieldType_maybe,
@@ -1286,6 +1287,21 @@ dataConOrigResTy dc = dcOrigResTy dc
 dataConStupidTheta :: DataCon -> ThetaType
 dataConStupidTheta dc = dcStupidTheta dc
 
+-- Multiplicity variables of a DataCon.
+-- To avoid spurious renaming, do not use names that were written by user.
+-- For example, given
+--    MkT :: forall n. n -> T n
+-- we don't want to use 'n' for the multiplicity variable, because the user
+-- would see
+--    MkT :: forall {n :: Multiplicity} n2. n2 -->.(n) T n2
+-- and without linear types,
+--    MkT :: forall n2. n2 -> T n2
+-- See test LinearGhci.
+dataConMulVars :: DataCon -> [TyVar]
+dataConMulVars (MkData { dcUserTyVarBinders = user_tvbs,
+                         dcOrigArgTys = arg_tys }) =
+  multiplicityTyVarList (length arg_tys) (map getOccName (binderVars user_tvbs))
+
 dataConUserType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor
 -- in the nice-to-read form:
@@ -1308,10 +1324,10 @@ dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
     mkInvisFunTysOm theta $
     mkVisFunTys arg_tys $
     res_ty
-dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
-                          dcOtherTheta = theta, dcOrigArgTys = arg_tys,
-                          dcOrigResTy = res_ty })
-  = let tyvars = multiplicityTyVarList arg_tys
+dataConUserType dc@(MkData { dcUserTyVarBinders = user_tvbs,
+                             dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                             dcOrigResTy = res_ty })
+  = let tyvars = dataConMulVars dc
         tvb = map (mkTyVarBinder Inferred) tyvars
         -- See Note [Wrapper multiplicities]
         arg_tys' = zipWith (\m b -> scaleScaled (mkTyVarTy m) b) tyvars arg_tys

@@ -505,7 +505,7 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
            { Boxed   -> newFlexiTyVarTys arity liftedTypeKind
            ; Unboxed -> replicateM arity newOpenFlexiTyVarTy }
        ; let missing_tys = [ty | (ty, L _ (Missing _)) <- zip arg_tys tup_args]
-             w_tyvars = multiplicityTyVarList missing_tys
+             w_tyvars = multiplicityTyVarList (length missing_tys) []
              w_tvb = map (mkTyVarBinder Inferred) w_tyvars
              actual_res_ty
                  =  mkForAllTys w_tvb $
