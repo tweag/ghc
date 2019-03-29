@@ -20,6 +20,7 @@ correctApp4 x = f (f x)
     f :: Int ⊸ Int
     f y = y
 
-correctIf :: Bool ⊸ a ⊸ a
+-- To be removed after Linear4 is fixed.
+correctIf :: Bool -> a ⊸ a
 correctIf x n =
    if x then n else n
