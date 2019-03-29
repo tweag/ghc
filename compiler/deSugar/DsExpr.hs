@@ -380,12 +380,12 @@ ds_expr _ e@(SectionR _ op expr) = do
                                                           core_op [Var x_id, Var y_id]))
 
 ds_expr _ (ExplicitTuple _ tup_args boxity)
-  = do { let go (lam_vars, args, missing, mult:mults) (dL->L _ (Missing ty))
+  = do { let go (lam_vars, args, usedmults, mult:mults) (dL->L _ (Missing ty))
                     -- For every missing expression, we need
                     -- another lambda in the desugaring. This lambda is linear
                     -- since tuples are linear
                = do { lam_var <- newSysLocalDsNoLP (mkTyVarTy mult) ty
-                    ; return (lam_var : lam_vars, Var lam_var : args, missing + 1, mults) }
+                    ; return (lam_var : lam_vars, Var lam_var : args, mult:usedmults, mults) }
              go (lam_vars, args, missing, mults) (dL->L _ (Present _ expr))
                     -- Expressions that are present don't generate
                     -- lambdas, just arguments.
@@ -394,10 +394,10 @@ ds_expr _ (ExplicitTuple _ tup_args boxity)
              go _ _ = panic "ds_expr"
 
        ; let multiplicityVars = mkTemplateTyVars (repeat multiplicityTy)
-       ; dsWhenNoErrs (foldM go ([], [], 0, multiplicityVars) (reverse tup_args))
+       ; dsWhenNoErrs (foldM go ([], [], [], multiplicityVars) (reverse tup_args))
                 -- The reverse is because foldM goes left-to-right
-                      (\(lam_vars, args, missing, _) ->
-                      (mkCoreLams (reverse $ take missing multiplicityVars)) $
+                      (\(lam_vars, args, usedmults, _) ->
+                      mkCoreLams usedmults $
                         mkCoreLams lam_vars $
                                             mkCoreTupBoxity boxity args) }
 
