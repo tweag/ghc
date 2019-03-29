@@ -1157,14 +1157,15 @@ isRuntimeRepTy _ = False
 isRuntimeRepVar :: TyVar -> Bool
 isRuntimeRepVar = isRuntimeRepTy . tyVarKind
 
-isMultiplicityVar :: TyVar -> Bool
-isMultiplicityVar = isMultiplicityTy . tyVarKind
-
+-- | Is this the type 'Multiplicity'?
 isMultiplicityTy :: Type -> Bool
 isMultiplicityTy ty | Just ty' <- coreView ty = isMultiplicityTy ty'
 isMultiplicityTy (TyConApp tc []) = tc `hasKey` multiplicityTyConKey
 isMultiplicityTy _ = False
 
+-- | Is a tyvar of type 'Multiplicity'?
+isMultiplicityVar :: TyVar -> Bool
+isMultiplicityVar = isMultiplicityTy . tyVarKind
 
 isLinearType :: Type -> Bool
 -- ^ Returns @True@ of an 'Type' if the 'Type' has any linear function arrows
