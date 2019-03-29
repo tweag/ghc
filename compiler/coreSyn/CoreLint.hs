@@ -2460,10 +2460,11 @@ addAliasUE id ue thing_inside = LintM $ \ env errs ->
 
 varCallSiteUsage :: Id -> LintM UsageEnv
 varCallSiteUsage id = LintM $ \env errs ->
-  let id_ue =
-        lookupNameEnv (le_ue_aliases env) (getName id)
-  in
-    (id_ue, errs)
+  (case varMult id of
+     Regular w -> Just (unitUE id w)
+     Alias -> case lookupNameEnv (le_ue_aliases env) (getName id) of
+                 Nothing -> Nothing
+                 Just id_ue -> Just id_ue, errs)
 
 lintTyCoVarInScope :: TyCoVar -> LintM ()
 lintTyCoVarInScope var
