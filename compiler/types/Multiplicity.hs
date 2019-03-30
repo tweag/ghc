@@ -96,7 +96,8 @@ mkMultMul One p = p
 mkMultMul p One = p
 mkMultMul Omega _ = Omega
 mkMultMul _ Omega = Omega
-mkMultMul p q = mkTyConApp multMulTyCon [p, q]
+mkMultMul p q | p `eqType` q = p
+              | otherwise = mkTyConApp multMulTyCon [p, q]
 
 -- | @sup w1 w2@ returns the smallest multiplicity larger than or equal to both @w1@
 -- and @w2@.
