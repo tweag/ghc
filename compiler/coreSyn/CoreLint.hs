@@ -524,7 +524,7 @@ lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
          -- Check the rhs
     do { (ty, rhs_ue) <- lintRhs binder rhs
        ; binder_ty <- applySubstTy (idType binder)
-       --; ensureEqTys binder_ty ty (mkRhsMsg binder (text "RHS") ty)
+       ; ensureEqTys binder_ty ty (mkRhsMsg binder (text "RHS") ty)
 
        -- If the binding is for a CoVar, the RHS should be (Coercion co)
        -- See Note [CoreSyn type and coercion invariant] in CoreSyn
@@ -676,8 +676,8 @@ lintIdUnfolding :: Id -> Type -> Unfolding -> LintM ()
 lintIdUnfolding bndr bndr_ty uf
   | isStableUnfolding uf
   , Just rhs <- maybeUnfoldingTemplate uf
-  = do { (_, _) <- lintRhs bndr rhs
-       ; return () }
+  = do { (ty, _) <- lintRhs bndr rhs
+       ; ensureEqTys bndr_ty ty (mkRhsMsg bndr (text "unfolding") ty) }
 lintIdUnfolding  _ _ _
   = return ()       -- Do not Lint unstable unfoldings, because that leads
                     -- to exponential behaviour; c.f. CoreFVs.idUnfoldingVars
