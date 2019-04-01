@@ -543,22 +543,13 @@ pcTyCon name cType tyvars cons
                 False           -- Not in GADT syntax
 
 pcDataCon :: Name -> [TyVar] -> [Type] -> TyCon -> DataCon
-pcDataCon n univs tys = pcDataConW n univs (assign_mult tys)
+pcDataCon n univs tys = pcDataConW n univs (map linear tys)
 
 pcDataConW :: Name -> [TyVar] -> [Scaled Type] -> TyCon -> DataCon
 pcDataConW n univs tys = pcDataConWithFixity False n univs
                       []    -- no ex_tvs
                       univs -- the univs are precisely the user-written tyvars
                       tys
-
-assign_mult :: [Type] -> [Scaled Type]
-assign_mult = map f
-  where
-    -- We assume that we don't need non-linear wired-in types. Constraints are,
-    -- on the other hand, always unrestricted (constraint arguments occur, in
-    -- particular, in @Eq#@)
-    f ty | isPredTy ty = unrestricted ty
-         | otherwise = linear ty
 
 pcDataConWithFixity :: Bool      -- ^ declared infix?
                     -> Name      -- ^ datacon name
@@ -644,7 +635,7 @@ mkDataConWorkerName data_con wrk_key =
 pcSpecialDataCon :: Name -> [Type] -> TyCon -> RuntimeRepInfo -> DataCon
 pcSpecialDataCon dc_name arg_tys tycon rri
   = pcDataConWithFixity' False dc_name (dataConWorkerUnique (nameUnique dc_name)) rri
-                         [] [] [] (assign_mult arg_tys) tycon
+                         [] [] [] (map linear arg_tys) tycon
 
 {-
 ************************************************************************
@@ -1598,7 +1589,7 @@ consDataCon :: DataCon
 consDataCon = pcDataConWithFixity True {- Declared infix -}
                consDataConName
                alpha_tyvar [] alpha_tyvar
-               (assign_mult [alphaTy, mkTyConApp listTyCon alpha_ty]) listTyCon
+               (map linear [alphaTy, mkTyConApp listTyCon alpha_ty]) listTyCon
 -- Interesting: polymorphic recursion would help here.
 -- We can't use (mkListTy alphaTy) in the defn of consDataCon, else mkListTy
 -- gets the over-specific type (Type -> Type)
