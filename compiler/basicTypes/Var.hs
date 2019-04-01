@@ -322,7 +322,7 @@ instance Outputable Var where
                |  codeStyle ppr_style
                  -> ppr (varName var) <> ppr_debug var ppr_style
                |  otherwise
-                 -> ppr (varName var)  -- <> maybe empty (brackets . ppr) (varMultMaybe var)
+                 -> ppr (varName var)  <> maybe empty (brackets . ppr) (varMultMaybe var)
                                         -- Types don't have multiplicites
                                       <> ppr_debug var ppr_style
 
@@ -331,8 +331,8 @@ ppr_debug (TyVar {}) sty
   | debugStyle sty = brackets (text "tv")
 ppr_debug (TcTyVar {tc_tv_details = d}) sty
   | dumpStyle sty || debugStyle sty = brackets (pprTcTyVarDetails d)
-ppr_debug (Id { idScope = s, id_details = d }) sty
-  | debugStyle sty = brackets (ppr_id_scope s <> pprIdDetails d)
+ppr_debug (Id { idScope = s, id_details = d, varMult = vm }) sty
+  | debugStyle sty = brackets (ppr_id_scope s <> pprIdDetails d <> text "[" <> ppr vm <> text "]")
 ppr_debug _ _ = empty
 
 ppr_id_scope :: IdScope -> SDoc
