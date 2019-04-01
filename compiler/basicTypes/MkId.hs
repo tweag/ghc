@@ -583,7 +583,7 @@ mkDataConRepSimple :: Name -> DataCon -> DataConRep
 mkDataConRepSimple n dc =
   runIdentity $
     mkDataConRepX
-      (\tys -> Identity $ mkTemplateLocals (map scaledThing tys))
+      (\tys -> Identity $ zipWith mkTemplateLocalW [1..] tys)
       (\idus ini -> return (mkVarApps ini (map fst idus))) -- They are all going to be unitUnboxer
       emptyFamInstEnvs
       n
