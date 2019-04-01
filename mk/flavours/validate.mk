@@ -8,6 +8,7 @@ SplitSections      = NO
 HADDOCK_DOCS       = YES
 BUILD_SPHINX_HTML  = YES
 BUILD_SPHINX_PDF   = NO
+INTEGER_LIBRARY    = integer-simple
 
 ifeq "$(ValidateHpc)" "YES"
 GhcStage2HcOpts   += -fhpc -hpcdir $(TOP)/testsuite/hpc_output/
