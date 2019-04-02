@@ -2484,7 +2484,7 @@ ensureSubMult actual_usage described_usage err_msg =
     case (actual_usage `submult` described_usage) of
       Submult -> return ()
       NotSubmult -> addWarnL err_msg
-      Unknown -> ensureEqTys actual_usage described_usage err_msg
+      Unknown -> when (not (actual_usage `eqType` described_usage)) (addWarnL err_msg)
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared
