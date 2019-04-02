@@ -1042,7 +1042,7 @@ mkWWcpr_help (data_con, inst_tys, arg_tys, co)
 
        ; return ( True
                 , \ wkr_call -> Case wkr_call arg (exprType con_app) [(DEFAULT, [], con_app)]
-                , \ body     -> mkUnpackCase body co Omega work_uniq data_con [arg] (varToCoreExpr arg)
+                , \ body     -> mkUnpackCase body co One work_uniq data_con [arg] (varToCoreExpr arg)
                                 -- varToCoreExpr important here: arg can be a coercion
                                 -- Lacking this caused #10658
                 , scaledThing arg_ty1 ) }
@@ -1066,7 +1066,7 @@ mkWWcpr_help (data_con, inst_tys, arg_tys, co)
 
        ; return (True
                 , \ wkr_call -> Case wkr_call wrap_wild (exprType con_app)  [(DataAlt (tupleDataCon Unboxed (length arg_tys)), args, con_app)]
-                , \ body     -> mkUnpackCase body co Omega work_uniq data_con args ubx_tup_app
+                , \ body     -> mkUnpackCase body co One work_uniq data_con args ubx_tup_app
                 , ubx_tup_ty ) }
 
 mkUnpackCase ::  CoreExpr -> Coercion -> Mult -> Unique -> DataCon -> [Id] -> CoreExpr -> CoreExpr
@@ -1209,6 +1209,6 @@ mk_ww_local :: Unique -> (Scaled Type, StrictnessMark) -> Id
 -- The StrictnessMark comes form the data constructor and says
 -- whether this field is strict
 -- See Note [Record evaluated-ness in worker/wrapper]
-mk_ww_local uniq (Scaled _ ty,str)
+mk_ww_local uniq (Scaled w ty,str)
   = setCaseBndrEvald str $
-    mkSysLocalOrCoVar (fsLit "ww") uniq (Regular Omega) ty
+    mkSysLocalOrCoVar (fsLit "ww") uniq (Regular w) ty
