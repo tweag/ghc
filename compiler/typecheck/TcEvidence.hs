@@ -282,7 +282,7 @@ c <.> WpHole = c
 c1 <.> c2    = c1 `WpCompose` c2
 
 multRefl :: Mult -> TcCoercion
-multRefl w = mkReflCo Representational w
+multRefl w = mkReflCo Nominal w
 
 mkWpFun :: HsWrapper -> HsWrapper
         -> (Scaled TcType)    -- the "from" type of the first wrapper
@@ -290,9 +290,6 @@ mkWpFun :: HsWrapper -> HsWrapper
                      -- second wrapper is the identity)
         -> SDoc      -- what caused you to want a WpFun? Something like "When converting ..."
         -> HsWrapper
--- When the multiplicities are not the same, always make a proper wrapper.  We
--- don't currently need to actually record the source multiplicity: it is just
--- here to prevent making a coercion between two incoercible function arrow
 mkWpFun WpHole       WpHole       _  _  _ = WpHole
 mkWpFun WpHole       (WpCast co2) (Scaled w t1) _  _ = WpCast (mkTcFunCo Representational (multRefl w) (mkTcRepReflCo t1) co2)
 mkWpFun (WpCast co1) WpHole       (Scaled w _)  t2 _ = WpCast (mkTcFunCo Representational (multRefl w) (mkTcSymCo co1) (mkTcRepReflCo t2))
