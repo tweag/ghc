@@ -815,7 +815,8 @@ tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
   {
   -- Note that here we do not call to `submult`, so we check
   -- for strict equality.
-  ; _wrap <- tc_sub_type_ds eq_orig inst_orig ctxt w_actual w_expected
+  ; wrap <- tc_sub_type_ds eq_orig inst_orig ctxt w_actual w_expected
+  ; when (not (isIdHsWrapper wrap)) (pprPanic "wrap" (ppr wrap))
   -- I don't know why, but `_wrap` need not be an identity wrapper. At any rate,
   -- the wrapper isn't significant for multiplicities, so it is safe to drop
   -- it. But maybe there is a better way to implement this function.
