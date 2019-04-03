@@ -14,7 +14,7 @@ module CoreSubst (
 
         -- ** Substituting into expressions and related types
         deShadowBinds, substSpec, substRulesForImportedIds,
-        substTy, substMult, substCo, substExpr, substExprSC, substBind, substBindSC,
+        substTy, substVarMult, substCo, substExpr, substExprSC, substBind, substBindSC,
         substUnfolding, substUnfoldingSC,
         lookupIdSubst, lookupTCvSubst, substIdOcc,
         substTickish, substDVarSet, substIdInfo,
@@ -475,15 +475,17 @@ substIdBndr _doc rec_subst subst@(Subst in_scope env tvs cvs) old_id
   where
     id1 = uniqAway in_scope old_id      -- id1 is cloned if necessary
     id2 | no_type_change = id1
-        | otherwise      =  setIdWeight
+        | otherwise      =  setVarMult
                               (setIdType id1
                                 (substTy subst old_ty))
-                                (substMult subst old_w)
+                                (substVarMult subst old_w)
 
     old_ty = idType old_id
-    old_w = idWeight old_id
+    old_w = idMult old_id
     no_type_change = (isEmptyVarEnv tvs && isEmptyVarEnv cvs) ||
-                     (noFreeVarsOfType old_ty && noFreeVarsOfType old_w)
+                     (noFreeVarsOfType old_ty && (case old_w of
+                                                     Regular w' -> noFreeVarsOfType w'
+                                                     Alias -> True))
 
         -- new_id has the right IdInfo
         -- The lazy-set is because we're in a loop here, with
@@ -586,8 +588,9 @@ substCoVarBndr (Subst in_scope id_env tv_env cv_env) cv
 substTy :: Subst -> Type -> Type
 substTy subst ty = Type.substTyUnchecked (getTCvSubst subst) ty
 
-substMult :: Subst -> Mult -> Mult
-substMult subst ty = Type.substMultUnchecked (getTCvSubst subst) ty
+substVarMult :: Subst -> VarMult -> VarMult
+substVarMult subst (Regular w) = Regular (Type.substMultUnchecked (getTCvSubst subst) w)
+substVarMult _     Alias = Alias
 
 getTCvSubst :: Subst -> TCvSubst
 getTCvSubst (Subst in_scope _ tenv cenv) = TCvSubst in_scope tenv cenv
@@ -607,17 +610,18 @@ substCo subst co = Coercion.substCo (getTCvSubst subst) co
 substIdType :: Subst -> Id -> Id
 substIdType subst@(Subst _ _ tv_env cv_env) id
   | (isEmptyVarEnv tv_env && isEmptyVarEnv cv_env)
-    || (noFreeVarsOfType old_ty && noFreeVarsOfType old_w) = id
+    || (noFreeVarsOfType old_ty && (case old_w of Alias -> True
+                                                  Regular w -> noFreeVarsOfType w)) = id
   | otherwise   =
-      setIdWeight
+      setVarMult
         (setIdType id (substTy subst old_ty))
-        (substMult subst old_w)
-                -- The tyCoVarsOfType is cheaper than it looks
-                -- because we cache the free tyvars of the type
-                -- in a Note in the id's type itself
+        (substVarMult subst old_w)
+        -- The tyCoVarsOfType is cheaper than it looks
+        -- because we cache the free tyvars of the type
+        -- in a Note in the id's type itself
   where
     old_ty = idType id
-    old_w  = idWeight id
+    old_w  = varMult id
 
 ------------------
 -- | Substitute into some 'IdInfo' with regard to the supplied new 'Id'.
