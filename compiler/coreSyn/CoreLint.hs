@@ -1869,7 +1869,10 @@ lintCoercion co@(FunCo r w co1 co2)
        ; ensureEqTys k'3 multiplicityTy (text "coercion" <> quotes (ppr co))
        ; lintRole co1 r r1
        ; lintRole co2 r r2
-       ; lintRole w Nominal r3
+       ; let expected_mult_role = case r of
+                                    Phantom -> Phantom
+                                    _ -> Nominal
+       ; lintRole w expected_mult_role r3
        ; return (k, k', mkVisFunTy s3 s1 s2, mkVisFunTy t3 t1 t2, r) }
 
 lintCoercion (CoVarCo cv)
