@@ -213,7 +213,7 @@ module Type (
         substVarBndr, substVarBndrs,
         cloneTyVarBndr, cloneTyVarBndrs, lookupTyVar,
 
-        substMultUnchecked, substVarMult,
+        substMultUnchecked, substVarMultUnchecked,
 
         -- * Pretty-printing
         pprType, pprParendType, pprPrecType,

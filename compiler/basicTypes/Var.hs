@@ -48,7 +48,7 @@ module Var (
 
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType, updateVarType,
-        updateVarTypeM, scaleVarBy, setVarWeight, setVarMult,
+        updateVarTypeM, scaleVarBy, setVarMult,
 
         -- ** Constructing, taking apart, modifying 'Id's
         mkGlobalVar, mkLocalVar, mkExportedLocalVar, mkCoVar,
@@ -435,9 +435,6 @@ scaleVarBy id _ = id
 setVarMult :: Id -> VarMult -> Id
 setVarMult id r | isId id = id { varMult = r }
 setVarMult id _ = id
-
-setVarWeight :: Id -> Mult -> Id
-setVarWeight id w = setVarMult id (Regular w)
 
 isUnrestrictedVar :: Id -> Bool
 isUnrestrictedVar Id { varMult = Regular Omega } = True
