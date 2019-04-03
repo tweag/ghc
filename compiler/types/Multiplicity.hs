@@ -133,7 +133,7 @@ mkScaled :: Mult -> a -> Scaled a
 mkScaled = Scaled
 
 instance (Outputable a) => Outputable (Scaled a) where
-   ppr (Scaled _cnt t) = ppr t <> text "[" <> ppr _cnt <> text "]"
+   ppr (Scaled _cnt t) = ppr t
      -- Do not print the multiplicity here because it tends to be too verbose
 
 scaledSet :: Scaled a -> b -> Scaled b
