@@ -668,8 +668,7 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
                         -- See Note [Compulsory newtype unfolding]
                       | otherwise        = mkInlineUnfolding wrap_rhs
 
-             casted_body | isNewTyCon tycon = wrap_body
-                         | otherwise = wrapFamInstBody tycon res_ty_args $
+             casted_body = wrapFamInstBody tycon res_ty_args $
                                         wrap_body
 
              wrap_rhs = mkLams wrap_tvs $
