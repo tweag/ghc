@@ -2411,6 +2411,9 @@ getValidJoins = LintM (\ env errs -> (Just (le_joins env), errs))
 getTCvSubst :: LintM TCvSubst
 getTCvSubst = LintM (\ env errs -> (Just (le_subst env), errs))
 
+getUEAliases :: LintM (NameEnv UsageEnv)
+getUEAliases = LintM (\ env errs -> (Just (le_ue_aliases env), errs))
+
 getInScope :: LintM InScopeSet
 getInScope = LintM (\ env errs -> (Just (getTCvInScope $ le_subst env), errs))
 
@@ -2463,12 +2466,14 @@ addAliasUE id ue thing_inside = LintM $ \ env errs ->
     unLintM thing_inside (env { le_ue_aliases = new_ue_aliases }) errs
 
 varCallSiteUsage :: Id -> LintM UsageEnv
-varCallSiteUsage id = LintM $ \env errs ->
-  (case varMult id of
-     Regular w -> Just (unitUE id w)
-     Alias -> case lookupNameEnv (le_ue_aliases env) (getName id) of
-                 Nothing -> Nothing
-                 Just id_ue -> Just id_ue, errs)
+varCallSiteUsage id =
+  case varMult id of
+     Regular w -> return (unitUE id w)
+     Alias -> do m <- getUEAliases
+                 case lookupNameEnv m (getName id) of
+                     Nothing -> do --addErrL (text "bad alias" <+> ppr id)
+                                   return (unitUE id Omega)
+                     Just id_ue -> return id_ue
 
 lintTyCoVarInScope :: TyCoVar -> LintM ()
 lintTyCoVarInScope var
