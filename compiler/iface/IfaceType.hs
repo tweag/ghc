@@ -98,7 +98,7 @@ data IfaceBndr          -- Local (non-top-level) binders
   = IfaceIdBndr {-# UNPACK #-} !IfaceIdBndr
   | IfaceTvBndr {-# UNPACK #-} !IfaceTvBndr
 
-type IfaceIdBndr  = (IfaceType, IfLclName, IfaceType)
+type IfaceIdBndr  = (IfaceMult, IfLclName, IfaceType)
 type IfaceTvBndr  = (IfLclName, IfaceKind)
 
 ifaceTvBndrName :: IfaceTvBndr -> IfLclName
