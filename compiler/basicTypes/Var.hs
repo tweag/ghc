@@ -106,7 +106,6 @@ import DynFlags
 import Outputable
 
 import Data.Data
-import Data.Maybe
 
 {-
 ************************************************************************
@@ -404,14 +403,14 @@ varWeightMaybe v =
   case varMultMaybe v of
     Just (Regular w) -> Just w
     Just Alias -> pprPanic "varWeight" (ppr v)
-  -- It may be preferable to fail returning a multiplicity in the 'Alias' case,
-  -- varWeight probably isn't called on alias-like variables. Until it poses a
-  -- problem, however, let's just pretend that these are secretly linear
-  -- binders.
     Nothing -> Nothing
 
-varWeightDef :: Id -> Mult
-varWeightDef = fromMaybe Omega . varWeightMaybe
+varWeightDef :: HasCallStack => Id -> Mult
+varWeightDef v =
+  case varMultMaybe v of
+    Just (Regular w) -> w
+    Just Alias -> Omega -- TODO
+    Nothing -> Omega
 
 -- Assumes that `id` is a term variable (`Id`)
 varWeight :: HasCallStack => Id -> Mult
