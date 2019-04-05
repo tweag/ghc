@@ -377,10 +377,13 @@ zonkIdOccs env ids = map (zonkIdOcc env) ids
 zonkIdBndr :: ZonkEnv -> TcId -> TcM Id
 zonkIdBndr env v
   = do ty' <- zonkTcTypeToTypeX env (idType v)
+       w' <- case varMult v of
+               Alias -> return Alias
+               Regular w -> Regular <$> zonkTcTypeToTypeX env w
        ensureNotLevPoly ty'
          (text "In the type of binder" <+> quotes (ppr v))
 
-       return (modifyIdInfo (`setLevityInfoWithType` ty') (setIdType v ty'))
+       return (modifyIdInfo (`setLevityInfoWithType` ty') (setVarMult (setIdType v ty') w'))
 
 zonkIdBndrs :: ZonkEnv -> [TcId] -> TcM [Id]
 zonkIdBndrs env ids = mapM (zonkIdBndr env) ids

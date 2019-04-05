@@ -143,7 +143,7 @@ toIfaceTypeX _  (LitTy n)      = IfaceLitTy (toIfaceTyLit n)
 toIfaceTypeX fr (ForAllTy b t) = IfaceForAllTy (toIfaceForAllBndrX fr b)
                                                (toIfaceTypeX (fr `delVarSet` binderVar b) t)
 toIfaceTypeX fr (FunTy { ft_arg = t1, ft_mult = w, ft_res = t2, ft_af = af })
-  = IfaceFunTy af (toIfaceType w) (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
+  = IfaceFunTy af (toIfaceTypeX fr w) (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
 toIfaceTypeX fr (CastTy ty co)  = IfaceCastTy (toIfaceTypeX fr ty) (toIfaceCoercionX fr co)
 toIfaceTypeX fr (CoercionTy co) = IfaceCoercionTy (toIfaceCoercionX fr co)
 

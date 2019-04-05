@@ -869,7 +869,7 @@ lintVarOcc var nargs
                  (text "Non term variable" <+> ppr var)
                  -- See CoreSyn Note [Variable occurrences in Core]
 
-        -- Cneck that the type of the occurrence is the same
+        -- Check that the type of the occurrence is the same
         -- as the type of the binding site
         ; ty   <- applySubstTy (idType var)
         ; var' <- lookupIdInScope var
@@ -952,7 +952,7 @@ checkLinearity :: UsageEnv -> Var -> LintM UsageEnv
 checkLinearity body_ue lam_var =
   case varMultMaybe lam_var of
     Just (Regular mult) -> do let m = case lhs of MUsage m -> m; Zero -> Omega
-                              ensureEqMults m mult (err_msg mult)
+                              ensureSubMult m mult (err_msg mult)
                               return $ deleteUE body_ue lam_var
     Just Alias -> return body_ue -- aliases do not generate multiplicity constraints
     Nothing    -> return body_ue -- A type variable
@@ -1091,13 +1091,14 @@ lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
 -- | Implements the case rules for linearity
 checkCaseLinearity :: UsageEnv -> Var -> Mult -> Var -> LintM UsageEnv
 checkCaseLinearity ue scrut var_w bndr = do
-  case lhs of
-    MUsage mult -> ensureEqMults mult rhs err_msg
-    Zero -> addErrL err_msg
+  ensureSubMult lhs' rhs err_msg
   lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varWeight bndr)
   return $ deleteUE ue bndr
   where
     lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
+    lhs' = case lhs of
+             MUsage mult -> mult
+             Zero -> Omega
     rhs = scrut_w `mkMultMul` var_w
     err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
                 $$ ppr lhs <+> text "⊈" <+> ppr rhs
@@ -1258,7 +1259,7 @@ lintCoreAlt scrut scrut_ty _scrut_mult alt_ty alt@(DataAlt con, args, rhs)
 
 lintLinearBinder :: SDoc -> Mult -> Mult -> LintM ()
 lintLinearBinder doc actual_usage described_usage
-  = ensureEqMults actual_usage described_usage err_msg
+  = ensureSubMult actual_usage described_usage err_msg
     where
       err_msg = (text "Multiplicity of variable does agree with its context"
                 $$ doc
@@ -1868,7 +1869,10 @@ lintCoercion co@(FunCo r w co1 co2)
        ; ensureEqTys k'3 multiplicityTy (text "coercion" <> quotes (ppr co))
        ; lintRole co1 r r1
        ; lintRole co2 r r2
-       ; lintRole w Nominal r3
+       ; let expected_mult_role = case r of
+                                    Phantom -> Phantom
+                                    _ -> Nominal
+       ; lintRole w expected_mult_role r3
        ; return (k, k', mkVisFunTy s3 s1 s2, mkVisFunTy t3 t1 t2, r) }
 
 lintCoercion (CoVarCo cv)
@@ -2407,6 +2411,9 @@ getValidJoins = LintM (\ env errs -> (Just (le_joins env), errs))
 getTCvSubst :: LintM TCvSubst
 getTCvSubst = LintM (\ env errs -> (Just (le_subst env), errs))
 
+getUEAliases :: LintM (NameEnv UsageEnv)
+getUEAliases = LintM (\ env errs -> (Just (le_ue_aliases env), errs))
+
 getInScope :: LintM InScopeSet
 getInScope = LintM (\ env errs -> (Just (getTCvInScope $ le_subst env), errs))
 
@@ -2459,11 +2466,14 @@ addAliasUE id ue thing_inside = LintM $ \ env errs ->
     unLintM thing_inside (env { le_ue_aliases = new_ue_aliases }) errs
 
 varCallSiteUsage :: Id -> LintM UsageEnv
-varCallSiteUsage id = LintM $ \env errs ->
-  let id_ue =
-        lookupNameEnv (le_ue_aliases env) (getName id)
-  in
-    (id_ue, errs)
+varCallSiteUsage id =
+  case varMult id of
+     Regular w -> return (unitUE id w)
+     Alias -> do m <- getUEAliases
+                 case lookupNameEnv m (getName id) of
+                     Nothing -> do --addErrL (text "bad alias" <+> ppr id)
+                                   return (unitUE id Omega)
+                     Just id_ue -> return id_ue
 
 lintTyCoVarInScope :: TyCoVar -> LintM ()
 lintTyCoVarInScope var
@@ -2477,12 +2487,12 @@ ensureEqTys :: OutType -> OutType -> MsgDoc -> LintM ()
 -- Assumes ty1,ty2 are have already had the substitution applied
 ensureEqTys ty1 ty2 msg = lintL (ty1 `eqType` ty2) msg
 
-ensureEqMults :: Mult -> Mult -> SDoc -> LintM ()
-ensureEqMults actual_usage described_usage err_msg =
+ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()
+ensureSubMult actual_usage described_usage err_msg =
     case (actual_usage `submult` described_usage) of
       Submult -> return ()
-      NotSubmult -> addErrL err_msg
-      Unknown -> ensureEqTys actual_usage described_usage err_msg
+      NotSubmult -> addWarnL err_msg
+      Unknown -> when (not (actual_usage `eqType` described_usage)) (addWarnL err_msg)
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared

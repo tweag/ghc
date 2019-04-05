@@ -160,7 +160,7 @@ normaliseFfiType' env ty0 = go Representational initRecTc ty0
         where
           tc_key = getUnique tc
           children_only
-            = do xs <- zipWithM (\ty r -> go r rec_nts ty) tys (tyConRoles tc)
+            = do xs <- zipWithM (\ty r -> go r rec_nts ty) tys (tyConRolesX role tc)
                  let (cos, tys', gres) = unzip3 xs
                  return ( mkTyConAppCo role tc cos
                         , mkTyConApp tc tys', unionManyBags gres)

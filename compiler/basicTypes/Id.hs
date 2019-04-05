@@ -49,7 +49,7 @@ module Id (
         recordSelectorTyCon,
 
         -- ** Modifying an Id
-        setIdName, setIdUnique, Id.setIdType, setIdWeight,
+        setIdName, setIdUnique, Id.setIdType, setIdVarMult,
         setIdExported, setIdNotExported,
         globaliseId, localiseId,
         setIdInfo, lazySetIdInfo, modifyIdInfo, maybeModifyIdInfo,
@@ -203,8 +203,8 @@ idMult = Var.varMult
 scaleIdBy :: Id -> Mult -> Id
 scaleIdBy = Var.scaleVarBy
 
-setIdWeight :: Id -> Mult -> Id
-setIdWeight = Var.setVarWeight
+setIdVarMult :: Id -> VarMult -> Id
+setIdVarMult = Var.setVarMult
 
 setIdName :: Id -> Name -> Id
 setIdName = Var.setVarName

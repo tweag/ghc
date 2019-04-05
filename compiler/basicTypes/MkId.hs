@@ -583,7 +583,7 @@ mkDataConRepSimple :: Name -> DataCon -> DataConRep
 mkDataConRepSimple n dc =
   runIdentity $
     mkDataConRepX
-      (\tys -> Identity $ mkTemplateLocals (map scaledThing tys))
+      (\tys -> Identity $ zipWith mkTemplateLocalW [1..] tys)
       (\idus ini -> return (mkVarApps ini (map fst idus))) -- They are all going to be unitUnboxer
       emptyFamInstEnvs
       n
@@ -668,8 +668,7 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
                         -- See Note [Compulsory newtype unfolding]
                       | otherwise        = mkInlineUnfolding wrap_rhs
 
-             casted_body | isNewTyCon tycon = wrap_body
-                         | otherwise = wrapFamInstBody tycon res_ty_args $
+             casted_body = wrapFamInstBody tycon res_ty_args $
                                         wrap_body
 
              wrap_rhs = mkLams wrap_tvs $

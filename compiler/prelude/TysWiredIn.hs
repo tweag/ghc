@@ -543,16 +543,20 @@ pcTyCon name cType tyvars cons
                 False           -- Not in GADT syntax
 
 pcDataCon :: Name -> [TyVar] -> [Type] -> TyCon -> DataCon
-pcDataCon n univs = pcDataConWithFixity False n univs
+pcDataCon n univs tys = pcDataConW n univs (map linear tys)
+
+pcDataConW :: Name -> [TyVar] -> [Scaled Type] -> TyCon -> DataCon
+pcDataConW n univs tys = pcDataConWithFixity False n univs
                       []    -- no ex_tvs
                       univs -- the univs are precisely the user-written tyvars
+                      tys
 
 pcDataConWithFixity :: Bool      -- ^ declared infix?
                     -> Name      -- ^ datacon name
                     -> [TyVar]   -- ^ univ tyvars
                     -> [TyCoVar] -- ^ ex tycovars
                     -> [TyCoVar] -- ^ user-written tycovars
-                    -> [Type]    -- ^ args
+                    -> [Scaled Type]    -- ^ args
                     -> TyCon
                     -> DataCon
 pcDataConWithFixity infx n = pcDataConWithFixity' infx n (dataConWorkerUnique (nameUnique n))
@@ -566,7 +570,7 @@ pcDataConWithFixity infx n = pcDataConWithFixity' infx n (dataConWorkerUnique (n
 
 pcDataConWithFixity' :: Bool -> Name -> Unique -> RuntimeRepInfo
                      -> [TyVar] -> [TyCoVar] -> [TyCoVar]
-                     -> [Type] -> TyCon -> DataCon
+                     -> [Scaled Type] -> TyCon -> DataCon
 -- The Name should be in the DataName name space; it's the name
 -- of the DataCon itself.
 
@@ -588,7 +592,7 @@ pcDataConWithFixity' declared_infix dc_name wrk_key rri
                 (mkTyCoVarBinders Specified user_tyvars)
                 []      -- No equality spec
                 []      -- No theta
-                (map assign_mult arg_tys)
+                arg_tys
                 (mkTyConApp tycon (mkTyVarTys tyvars))
                 rri
                 tycon
@@ -598,11 +602,6 @@ pcDataConWithFixity' declared_infix dc_name wrk_key rri
                 (mkDataConRepSimple wrapper_name data_con)
 
     wrapper_name = mkDataConWrapperName data_con (dataConWrapperUnique (nameUnique dc_name))
-     -- We assume that we don't need non-linear wired-in types. Constraints are,
-     -- on the other hand, always unrestricted (constraint arguments occur, in
-     -- particular, in @Eq#@)
-    assign_mult ty | isPredTy ty = unrestricted ty
-                   | otherwise = linear ty
 
     no_bang = HsSrcBang NoSourceText NoSrcUnpack NoSrcStrict
 
@@ -636,7 +635,7 @@ mkDataConWorkerName data_con wrk_key =
 pcSpecialDataCon :: Name -> [Type] -> TyCon -> RuntimeRepInfo -> DataCon
 pcSpecialDataCon dc_name arg_tys tycon rri
   = pcDataConWithFixity' False dc_name (dataConWorkerUnique (nameUnique dc_name)) rri
-                         [] [] [] arg_tys tycon
+                         [] [] [] (map linear arg_tys) tycon
 
 {-
 ************************************************************************
@@ -1114,7 +1113,7 @@ eqSCSelId, heqSCSelId, coercibleSCSelId :: Id
                              rhs klass
                              (mkPrelTyConRepName eqTyConName)
     klass     = mk_class tycon sc_pred sc_sel_id
-    datacon   = pcDataCon eqDataConName tvs [sc_pred] tycon
+    datacon   = pcDataConW eqDataConName tvs [unrestricted sc_pred] tycon
 
     -- Kind: forall k. k -> k -> Constraint
     binders   = mkTemplateTyConBinders [liftedTypeKind] (\[k] -> [k,k])
@@ -1132,7 +1131,7 @@ eqSCSelId, heqSCSelId, coercibleSCSelId :: Id
                              rhs klass
                              (mkPrelTyConRepName heqTyConName)
     klass     = mk_class tycon sc_pred sc_sel_id
-    datacon   = pcDataCon heqDataConName tvs [sc_pred] tycon
+    datacon   = pcDataConW heqDataConName tvs [unrestricted sc_pred] tycon
 
     -- Kind: forall k1 k2. k1 -> k2 -> Constraint
     binders   = mkTemplateTyConBinders [liftedTypeKind, liftedTypeKind] id
@@ -1150,7 +1149,7 @@ eqSCSelId, heqSCSelId, coercibleSCSelId :: Id
                              rhs klass
                              (mkPrelTyConRepName coercibleTyConName)
     klass     = mk_class tycon sc_pred sc_sel_id
-    datacon   = pcDataCon coercibleDataConName tvs [sc_pred] tycon
+    datacon   = pcDataConW coercibleDataConName tvs [unrestricted sc_pred] tycon
 
     -- Kind: forall k. k -> k -> Constraint
     binders   = mkTemplateTyConBinders [liftedTypeKind] (\[k] -> [k,k])
@@ -1590,7 +1589,7 @@ consDataCon :: DataCon
 consDataCon = pcDataConWithFixity True {- Declared infix -}
                consDataConName
                alpha_tyvar [] alpha_tyvar
-               [alphaTy, mkTyConApp listTyCon alpha_ty] listTyCon
+               (map linear [alphaTy, mkTyConApp listTyCon alpha_ty]) listTyCon
 -- Interesting: polymorphic recursion would help here.
 -- We can't use (mkListTy alphaTy) in the defn of consDataCon, else mkListTy
 -- gets the over-specific type (Type -> Type)

@@ -933,7 +933,7 @@ substIdType (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv
       setVarMult
         (Id.setIdType id
           (Type.substTy subst old_ty))
-          (Type.substVarMult subst old_w)
+          (Type.substVarMultUnchecked subst old_w)
 
                 -- The tyCoVarsOfType is cheaper than it looks
                 -- because we cache the free tyvars of the type
