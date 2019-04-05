@@ -43,7 +43,7 @@ module GHC.Types (
         KindRep(..), KindBndr,
 
         -- * Multiplicity Types
-        Multiplicity(..), MultAdd, MultMul
+        Multiplicity(..), MultMul
     ) where
 
 import GHC.Prim
@@ -76,7 +76,6 @@ type Type = TYPE 'LiftedRep
 
 data Multiplicity = Omega | One
 
-type family MultAdd :: Multiplicity -> Multiplicity -> Multiplicity
 type family MultMul :: Multiplicity -> Multiplicity -> Multiplicity
 
 {- *********************************************************************

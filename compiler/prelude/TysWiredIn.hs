@@ -126,7 +126,7 @@ module TysWiredIn (
         multiplicityTyConName, oneDataConName, omegaDataConName, multiplicityTy,
         multiplicityTyCon, oneDataCon, omegaDataCon, oneDataConTy, omegaDataConTy,
         oneDataConTyCon, omegaDataConTyCon,
-        multAddTyCon, multMulTyCon,
+        multMulTyCon,
 
         unrestrictedFunTyCon, unrestrictedFunTyConName
 
@@ -1199,20 +1199,11 @@ oneDataConTyCon, omegaDataConTyCon :: TyCon
 oneDataConTyCon = promoteDataCon oneDataCon
 omegaDataConTyCon = promoteDataCon omegaDataCon
 
-multAddTyConName, multMulTyConName :: Name
-multAddTyConName =
-    mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "MultAdd") multAddTyConKey multAddTyCon
+multMulTyConName :: Name
 multMulTyConName =
     mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "MultMul") multMulTyConKey multMulTyCon
 
-multAddTyCon, multMulTyCon :: TyCon
-multAddTyCon = mkFamilyTyCon multAddTyConName binders multiplicityTy Nothing
-                         (BuiltInSynFamTyCon trivialBuiltInFamily)
-                         Nothing
-                         NotInjective
-  where
-    binders = mkTemplateAnonTyConBinders [multiplicityTy, multiplicityTy]
-
+multMulTyCon :: TyCon
 multMulTyCon = mkFamilyTyCon multMulTyConName binders multiplicityTy Nothing
                          (BuiltInSynFamTyCon trivialBuiltInFamily)
                          Nothing

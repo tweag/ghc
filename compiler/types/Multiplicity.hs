@@ -8,14 +8,13 @@ arrow (in the sense of linear types).
 
 Mult is a type synonym for Type, used only when its kind is Multiplicity.
 To simplify dealing with multiplicities, smart constructors such as
-mkMultAdd perform simplifications such as Omega + x = x on the fly.
-Pattern synonyms such as MultAdd can be used to analyze particular Mults.
+mkMultMul perform simplifications such as Omega + x = x on the fly.
+Pattern synonyms such as MultMul can be used to analyze particular Mults.
 -}
 module Multiplicity
   ( Mult
   , pattern One
   , pattern Omega
-  , pattern MultAdd
   , pattern MultMul
   , mkMultAdd
   , mkMultMul
@@ -36,9 +35,9 @@ import GhcPrelude
 import Data.Data
 import Outputable
 import {-# SOURCE #-} TyCoRep (Type)
-import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy, multAddTyCon, multMulTyCon )
+import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy, multMulTyCon )
 import {-# SOURCE #-} Type( eqType, splitTyConApp_maybe, mkTyConApp )
-import PrelNames (multAddTyConKey, multMulTyConKey)
+import PrelNames (multMulTyConKey)
 import Unique (hasKey)
 
 {-
@@ -46,7 +45,7 @@ Note [Adding new multiplicities]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 To add a new multiplicity, you need to:
 * Add the new type with Multiplicity kind
-* Update cases in MultAdd, MultMul, sup, submult, tcSubmult
+* Update cases in mkMultAdd, mkMultMul, sup, submult, tcSubmult
 * Check supUE function that computes sup of a multiplicity
   and Zero
 -}
@@ -69,27 +68,13 @@ pattern Omega :: Mult
 pattern Omega <- (eqType omegaDataConTy -> True)
   where Omega = omegaDataConTy
 
-isMultAdd :: Mult -> Maybe (Mult, Mult)
-isMultAdd ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
-             , tc `hasKey` multAddTyConKey = Just (x, y)
-             | otherwise = Nothing
-
 isMultMul :: Mult -> Maybe (Mult, Mult)
 isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
              , tc `hasKey` multMulTyConKey = Just (x, y)
              | otherwise = Nothing
 
-pattern MultAdd :: Mult -> Mult -> Mult
-pattern MultAdd p q <- (isMultAdd -> Just (p,q))
-
 pattern MultMul :: Mult -> Mult -> Mult
 pattern MultMul p q <- (isMultMul -> Just (p,q))
-
-mkMultAdd :: Mult -> Mult -> Mult
-mkMultAdd One One = Omega
-mkMultAdd Omega _ = Omega
-mkMultAdd _ Omega = Omega
-mkMultAdd p q     = mkTyConApp multAddTyCon [p, q]
 
 mkMultMul :: Mult -> Mult -> Mult
 mkMultMul One p = p
@@ -98,6 +83,10 @@ mkMultMul Omega _ = Omega
 mkMultMul _ Omega = Omega
 mkMultMul p q | p `eqType` q = p
               | otherwise = mkTyConApp multMulTyCon [p, q]
+
+-- For now, approximate p + q by Omega.
+mkMultAdd :: Mult -> Mult -> Mult
+mkMultAdd _ _     = Omega
 
 -- | @sup w1 w2@ returns the smallest multiplicity larger than or equal to both @w1@
 -- and @w2@.
