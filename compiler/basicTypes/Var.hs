@@ -399,11 +399,11 @@ varMultMaybe :: Id -> Maybe VarMult
 varMultMaybe (Id { varMult = mult }) = Just mult
 varMultMaybe _ = Nothing
 
-varWeightMaybe :: Id -> Maybe Mult
+varWeightMaybe :: HasCallStack => Id -> Maybe Mult
 varWeightMaybe v =
   case varMultMaybe v of
     Just (Regular w) -> Just w
-    Just Alias -> Just One
+    Just Alias -> pprPanic "varWeight" (ppr v)
   -- It may be preferable to fail returning a multiplicity in the 'Alias' case,
   -- varWeight probably isn't called on alias-like variables. Until it poses a
   -- problem, however, let's just pretend that these are secretly linear
@@ -414,7 +414,7 @@ varWeightDef :: Id -> Mult
 varWeightDef = fromMaybe Omega . varWeightMaybe
 
 -- Assumes that `id` is a term variable (`Id`)
-varWeight :: Id -> Mult
+varWeight :: HasCallStack => Id -> Mult
 varWeight id = case varWeightMaybe id of
   Just x -> x
   Nothing -> error "Attempted to retrieve the multiplicity of a non-Id variable"

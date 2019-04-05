@@ -193,7 +193,7 @@ idUnique  = Var.varUnique
 idType   :: Id -> Kind
 idType    = Var.varType
 
-idWeight :: Id -> Mult
+idWeight :: HasCallStack => Id -> Mult
 idWeight x =
   Var.varWeight x
 
