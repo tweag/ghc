@@ -1396,12 +1396,15 @@ mkLamType v body_ty
    = ForAllTy (Bndr v Required) body_ty
 
    | isPredTy arg_ty  -- See Note [mkLamType: dictionary arguments]
-   = mkInvisFunTy (varWeight v) arg_ty body_ty
+   = mkInvisFunTy mult arg_ty body_ty
 
    | otherwise
-   = mkVisFunTy (varWeight v) arg_ty body_ty
+   = mkVisFunTy mult arg_ty body_ty
    where
      arg_ty = varType v
+     mult = case varMult v of
+              Regular w -> w
+              Alias -> One  -- TODO
 
 mkLamTypes vs ty = foldr mkLamType ty vs
 
