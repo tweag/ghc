@@ -1,8 +1,7 @@
 # Questions about this file?
-# See https://gitlab.haskell.org/ghc/ghc/wikis/continuous-integration/usage.
+# See https://ghc.haskell.org/trac/ghc/wiki/ContinuousIntegration/Usage.
 
 version: 2
-
 aliases:
   - &defaults
     working_directory: ~/ghc
@@ -25,6 +24,15 @@ aliases:
       name: Boot
       command: |
         ./boot
+
+        cat <<EOF >> mk/build.mk
+        BuildFlavour=$BUILD_FLAVOUR
+        ifneq "\$(BuildFlavour)" ""
+        include mk/flavours/\$(BuildFlavour).mk
+        endif
+        GhcLibHcOpts       = -O -dcore-lint
+        # TODO: arnaud: revert the above line before merge (hack)
+        EOF
   - &set_git_identity
       run:
         name: Set Git Identity
@@ -73,11 +81,6 @@ aliases:
     run:
       name: Push Performance Git Notes
       command: .circleci/push-test-metrics.sh
-  - &store_test_artifacts
-    store_artifacts:
-      # we might want to add the whole output of the test phase
-      # too at some point
-      path: test-results/junit.xml
   - &slowtest
     run:
       name: Full Test
@@ -88,22 +91,47 @@ aliases:
     run:
       name: Create bindist
       # Reduce compression effort to 3
-      command: make binary-dist TAR_COMP_OPTS="-2" && mv ghc*.tar.xz ghc.tar.xz
+      command: make binary-dist TAR_COMP_OPTS="-2"
       # Building bindist takes ~15 minutes without output, account for
       # that.
       no_output_timeout: "30m"
-  - &store_bindist
-    store_artifacts:
-      path: ghc.tar.xz
-  - &only_release_tags
-    tags:
-      only: /^ghc-.*/
-  - &ignore_gitlab_branches
-    branches:
-      ignore: /^gitlab\/.*/
+  - &storeartifacts
+    run:
+      name: Store artifacts
+      command: |
+        curl https://ghc-artifacts.s3.amazonaws.com/tools/ghc-artifact-collector-$GHC_COLLECTOR_FLAVOR --output ghc-artifact-collector
+        chmod +x ghc-artifact-collector
+        ./ghc-artifact-collector ghc*.tar.xz
+  - &trigger_on_tags
+    filters:
+      tags:
+        only: /^ghc-.*/
 
 jobs:
+  "validate-x86_64-linux":
+    resource_class: xlarge
+    docker:
+      - image: ghcci/x86_64-linux:0.0.7
+    environment:
+      GHC_COLLECTOR_FLAVOR: x86_64-linux
+      BUILD_SPHINX_PDF: "NO"
+      BUILD_SPHINX_HTML: "NO"
+      TEST_ENV: x86_64-linux
+      BUILD_FLAVOUR: validate
+    steps:
+      - checkout
+      - *set_git_identity
+      - *prepare
+      - *submodules
+      - *boot
+      - *configure_unix
+      - *make
+      - *test
+      - *store_test_results
+      - *push_perf_note
+
   "validate-x86_64-freebsd":
+    resource_class: xlarge
     docker:
       - image: ghcci/x86_64-freebsd
     environment:
@@ -120,21 +148,19 @@ jobs:
       - *configure_bsd
       - *make
       - *bindist
-      - *store_bindist
+      - *storeartifacts
       - *test
       - *store_test_results
-      - *store_test_artifacts
       - *push_perf_note
 
   "validate-x86_64-darwin":
     macos:
       xcode: "9.0"
     environment:
-      # Disable sphinx PDF output as MacTeX apparently doesn't provide xelatex
-      BUILD_SPHINX_PDF: "NO"
       MACOSX_DEPLOYMENT_TARGET: "10.7"
       # Only Sierra and onwards supports clock_gettime. See #12858
       ac_cv_func_clock_gettime: "no"
+    environment:
       GHC_COLLECTOR_FLAVOR: x86_64-darwin
       <<: *buildenv
       TEST_ENV: x86_64-darwin
@@ -147,81 +173,15 @@ jobs:
       - *configure_unix
       - *make
       - *bindist
-      - *store_bindist
+      - *storeartifacts
       - *test
       - *store_test_results
-      - *store_test_artifacts
       - *push_perf_note
 
-  "validate-x86_64-linux-deb8":
+  "validate-hadrian-x86_64-linux":
+    resource_class: xlarge
     docker:
-      - image: ghcci/x86_64-linux-deb8:0.1
-    environment:
-      <<: *buildenv
-      GHC_COLLECTOR_FLAVOR: x86_64-linux
-      TEST_ENV: x86_64-linux-deb8
-    steps:
-      - checkout
-      - *set_git_identity
-      - *prepare
-      - *submodules
-      - *boot
-      - *configure_unix
-      - *make
-      - *bindist
-      - *store_bindist
-      - *test
-      - *store_test_results
-      - *store_test_artifacts
-      - *push_perf_note
-
-  "validate-x86_64-linux-deb9-integer-simple":
-    docker:
-      - image: ghcci/x86_64-linux-deb9:0.2
-    environment:
-      <<: *buildenv
-      INTEGER_LIBRARY: integer-simple
-      GHC_COLLECTOR_FLAVOR: x86_64-linux-deb9
-    steps:
-      - checkout
-      - *set_git_identity
-      - *prepare
-      - *submodules
-      - *boot
-      - *configure_unix
-      - *make
-      - *bindist
-      - *store_bindist
-      - *test
-      - *store_test_results
-      - *store_test_artifacts
-      - *push_perf_note
-
-  "validate-x86_64-linux-deb9":
-    docker:
-      - image: ghcci/x86_64-linux-deb9:0.1
-    environment:
-      <<: *buildenv
-      GHC_COLLECTOR_FLAVOR: x86_64-linux-deb9
-      TEST_ENV: x86_64-linux-deb9
-    steps:
-      - checkout
-      - *set_git_identity
-      - *prepare
-      - *submodules
-      - *boot
-      - *configure_unix
-      - *make
-      - *bindist
-      - *store_bindist
-      - *test
-      - *store_test_results
-      - *store_test_artifacts
-      - *push_perf_note
-
-  "validate-hadrian-x86_64-linux-deb8":
-    docker:
-      - image: ghcci/x86_64-linux-deb8:0.1
+      - image: ghcci/x86_64-linux:0.0.7
     environment:
       <<: *buildenv
     steps:
@@ -233,12 +193,13 @@ jobs:
       - *configure_unix
       - *build_hadrian
 
-  "validate-x86_64-linux-deb8-unreg":
+  "validate-x86_64-linux-unreg":
+    resource_class: xlarge
     docker:
-      - image: ghcci/x86_64-linux-deb8:0.1
+      - image: ghcci/x86_64-linux:0.0.7
     environment:
       <<: *buildenv
-      TEST_ENV: x86_64-linux-deb8-unreg
+      TEST_ENV: x86_64-linux-unreg
     steps:
       - checkout
       - *set_git_identity
@@ -250,16 +211,21 @@ jobs:
       - *test
       - *store_test_results
       - *push_perf_note
-      - *store_test_artifacts
 
-  "validate-x86_64-linux-deb9-llvm":
+  "validate-x86_64-linux-llvm":
+    resource_class: xlarge
     docker:
-      - image: ghcci/x86_64-linux-deb9:0.2
+      - image: ghcci/x86_64-linux:0.0.7
     environment:
       <<: *buildenv
       BUILD_FLAVOUR: perf-llvm
-      TEST_ENV: x86_64-linux-deb9-llvm
+      TEST_ENV: x86_64-linux-llvm
     steps:
+      - run:
+          name: Install LLVM
+          command: |
+            curl http://releases.llvm.org/6.0.0/clang+llvm-6.0.0-x86_64-linux-gnu-debian8.tar.xz | tar -xJC ..
+            echo "export PATH=`pwd`/../clang+llvm-6.0.0-x86_64-linux-gnu-debian8/bin:\$PATH" >> $BASH_ENV
       - run:
           name: Verify that llc works
           command: llc
@@ -271,18 +237,17 @@ jobs:
       - *configure_unix
       - *make
       - *test
-      - *store_test_results
-      - *store_test_artifacts
       - *push_perf_note
 
   # Nightly build with -DDEBUG using devel2 flavour
-  "validate-x86_64-linux-deb8-debug":
+  "validate-x86_64-linux-debug":
+    resource_class: xlarge
     docker:
-      - image: ghcci/x86_64-linux-deb8:0.1
+      - image: ghcci/x86_64-linux:0.0.7
     environment:
       BUILD_FLAVOUR: devel2
       <<: *buildenv
-      TEST_ENV: x86_64-linux-deb8-debug
+      TEST_ENV: x86_64-linux-debug
       SKIP_PERF_TESTS: YES
     steps:
       - checkout
@@ -290,42 +255,20 @@ jobs:
       - *prepare
       - *submodules
       - *boot
-      - *configure_unix
+      - *configure_unreg
       - *make
       - *test
       - *store_test_results
-      - *store_test_artifacts
       - *push_perf_note
 
-  "validate-i386-linux-deb9":
+  "validate-i386-linux":
+    resource_class: xlarge
     docker:
-      - image: ghcci/i386-linux-deb9:0.2
-    environment:
-      <<: *buildenv
-      GHC_COLLECTOR_FLAVOR: i386-linux-deb9
-      TEST_ENV: i386-linux-deb9
-    steps:
-      - checkout
-      - *set_git_identity
-      - *prepare
-      - *submodules
-      - *boot
-      - *configure_unix_32
-      - *make
-      - *bindist
-      - *store_bindist
-      - *test
-      - *store_test_results
-      - *store_test_artifacts
-      - *push_perf_note
-
-  "validate-i386-linux-deb8":
-    docker:
-      - image: ghcci/i386-linux-deb8:0.1
+      - image: ghcci/i386-linux:0.0.6
     environment:
       <<: *buildenv
       GHC_COLLECTOR_FLAVOR: i386-linux
-      TEST_ENV: i386-linux-deb8
+      TEST_ENV: i386-linux
     steps:
       - checkout
       - *set_git_identity
@@ -335,44 +278,19 @@ jobs:
       - *configure_unix_32
       - *make
       - *bindist
-      - *store_bindist
+      - *storeartifacts
       - *test
       - *store_test_results
-      - *store_test_artifacts
       - *push_perf_note
 
-  "validate-x86_64-linux-centos7":
+  "validate-x86_64-fedora":
+    resource_class: xlarge
     docker:
-      - image: ghcci/x86_64-linux-centos7:0.1
-    environment:
-      <<: *buildenv
-      GHC_COLLECTOR_FLAVOR: x86_64-centos7
-      LANG: en_US.UTF-8
-      TEST_ENV: x86_64-centos7
-      # Sphinx is too old
-      BUILD_SPHINX_PDF: NO
-    steps:
-      - checkout
-      - *set_git_identity
-      - *prepare
-      - *submodules
-      - *boot
-      - *configure_unix
-      - *make
-      - *bindist
-      - *store_bindist
-      - *test
-      - *store_test_results
-      - *store_test_artifacts
-      - *push_perf_note
-
-  "validate-x86_64-linux-fedora27":
-    docker:
-      - image: ghcci/x86_64-linux-fedora27:0.1
+      - image: ghcci/x86_64-linux-fedora:0.0.16
     environment:
       <<: *buildenv
       GHC_COLLECTOR_FLAVOR: x86_64-fedora
-      TEST_ENV: x86_64-linux-fedora27
+      TEST_ENV: x86_64-fedora
     steps:
       - checkout
       - *set_git_identity
@@ -382,18 +300,18 @@ jobs:
       - *configure_unix
       - *make
       - *bindist
-      - *store_bindist
+      - *storeartifacts
       - *test
       - *store_test_results
-      - *store_test_artifacts
       - *push_perf_note
 
-  "slow-validate-x86_64-linux-deb8":
+  "slow-validate-x86_64-linux":
+    resource_class: xlarge
     docker:
-      - image: ghcci/x86_64-linux-deb8:0.1
+      - image: ghcci/x86_64-linux:0.0.7
     environment:
       <<: *buildenv
-      GHC_COLLECTOR_FLAVOR: x86_64-linux-deb8
+      GHC_COLLECTOR_FLAVOR: x86_64-linux
     steps:
       - checkout
       - *prepare
@@ -403,59 +321,10 @@ jobs:
       - *make
       - *slowtest
       - *store_test_results
-      - *store_test_artifacts
       - *push_perf_note
 
 workflows:
   version: 2
   validate:
     jobs:
-    - validate-x86_64-linux-deb8:
-        filters:
-          <<: [*only_release_tags, *ignore_gitlab_branches]
-    # FreeBSD disabled: https://github.com/haskell/unix/issues/102
-    # - validate-x86_64-freebsd
-    - validate-x86_64-darwin:
-        filters:
-          <<: [*only_release_tags, *ignore_gitlab_branches]
-    - validate-x86_64-linux-deb8-llvm:
-        filters:
-          <<: *ignore_gitlab_branches
-    - validate-i386-linux-deb8:
-        filters:
-          <<: [*only_release_tags, *ignore_gitlab_branches]
-    - validate-x86_64-linux-deb9:
-        filters:
-          <<: [*only_release_tags, *ignore_gitlab_branches]
-    - validate-i386-linux-deb9:
-        filters:
-          <<: [*only_release_tags, *ignore_gitlab_branches]
-    - validate-x86_64-linux-centos7:
-        filters:
-          <<: [*only_release_tags, *ignore_gitlab_branches]
-    - validate-hadrian-x86_64-linux-deb8:
-        filters:
-          <<: *ignore_gitlab_branches
-    - validate-x86_64-linux-fedora27:
-        filters:
-          <<: [*only_release_tags, *ignore_gitlab_branches]
-
-  nightly:
-    triggers:
-      - schedule:
-          cron: "0 0 * * *"
-          filters:
-            branches:
-              only:
-                - master
-    jobs:
-    - validate-x86_64-linux-deb8-unreg
-    - validate-x86_64-linux-deb8-llvm
-    - validate-x86_64-linux-deb8-debug
-    - validate-x86_64-linux-deb9
-    - validate-x86_64-linux-deb9-integer-simple
-    - slow-validate-x86_64-linux-deb8
-
-notify:
-  webhooks:
-    - url: https://phabricator.haskell.org/harbormaster/hook/circleci/
+    - validate-x86_64-linux
