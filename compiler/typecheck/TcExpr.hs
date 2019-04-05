@@ -586,9 +586,7 @@ tcExpr (HsCase x scrut matches) res_ty
                       mc_body = tcBody }
 
 tcExpr (HsIf x Nothing pred b1 b2) res_ty    -- Ordinary 'if'
-  = do { pred' <- tcScalingUsage Omega $ tcMonoExpr pred (mkCheckExpType boolTy)
-         -- Since 'if' desugars to 'case', and 'case' is not linear yet,
-         -- we cannot be linear in the predicate.
+  = do { pred' <- tcMonoExpr pred (mkCheckExpType boolTy)
        ; res_ty <- tauifyExpType res_ty
            -- Just like Note [Case branches must never infer a non-tau type]
            -- in TcMatches (See #10619)
