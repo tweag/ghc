@@ -170,15 +170,9 @@ ds_val_bind (is_rec, binds) body
         ; ASSERT2( not (any (isUnliftedType . idType . fst) prs), ppr is_rec $$ ppr binds )
           case prs of
             [] -> return body
-            _  -> return (Let (Rec prs) body') }
-        -- Use a Rec regardless of is_rec.
-        -- Why? Because it allows the binds to be all
-        -- mixed up, which is what happens in one rare case
-        -- Namely, for an AbsBind with no tyvars and no dicts,
-        --         but which does have dictionary bindings.
-        -- See notes with TcSimplify.inferLoop [NO TYVARS]
-        -- It turned out that wrapping a Rec here was the easiest solution
-        --
+            _  -> case is_rec of
+                     Recursive -> return (Let (Rec prs) body')
+                     NonRecursive -> return (mkLets [NonRec b r | (b,r) <- prs] body') }
         -- NB The previous case dealt with unlifted bindings, so we
         --    only have to deal with lifted ones now; so Rec is ok
 
