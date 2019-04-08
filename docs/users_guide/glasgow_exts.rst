@@ -3787,7 +3787,7 @@ Haskell 98 allows the programmer to add a deriving clause to a data type
 declaration, to generate a standard instance declaration for specified class.
 GHC extends this mechanism along several axes:
 
-* The derivation mechanism can be used separtely from the data type
+* The derivation mechanism can be used separately from the data type
   declaration, using the `standalone deriving mechanism
   <#stand-alone-deriving>`__.
 
@@ -10358,6 +10358,24 @@ function that can *never* be called, such as this one: ::
 
       f :: (Int ~ Bool) => a -> a
 
+Sometimes :extension:`AllowAmbiguousTypes` does not mix well with :extension:`RankNTypes`.
+For example: :: 
+      foo :: forall r. (forall i. (KnownNat i) => r) -> r
+      foo f = f @1
+
+      boo :: forall j. (KnownNat j) => Int
+      boo = ....
+          
+      h :: Int
+      h = foo boo
+
+This program will be rejected as ambiguous because GHC will not unify
+the type variables `j` and `i`.
+
+Unlike the previous examples, it is not currently possible
+to resolve the ambiguity manually by using :extension:`TypeApplications`.
+
+       
 .. note::
     *A historical note.* GHC used to impose some more restrictive and less
     principled conditions on type signatures. For type
@@ -10872,7 +10890,7 @@ We say that the type variables in ``f`` are *specified*, while those in
 a type variable in the source program, it is *specified*; if not, it is
 *inferred*.
 
-Thus rule applies in datatype declarations, too. For example, if we have
+This rule applies in datatype declarations, too. For example, if we have
 ``data Proxy a = Proxy`` (and :extension:`PolyKinds` is enabled), then
 ``a`` will be assigned kind ``k``, where ``k`` is a fresh kind variable.
 Because ``k`` was not written by the user, it will be unavailable for

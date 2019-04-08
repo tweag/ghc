@@ -385,7 +385,7 @@ holes should
 By defining ExpType, separately from Type, we can achieve goals 1 and 2
 statically.
 
-See also [wiki:Typechecking]
+See also [wiki:typechecking]
 
 Note [TcLevel of ExpType]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1502,7 +1502,7 @@ quantifiableTv :: TcLevel   -- Level of the context, outside the quantification
                -> TcTyVar
                -> Bool
 quantifiableTv outer_tclvl tcv
-  | isTcTyVar tcv  -- Might be a CoVar; change this when gather covars separtely
+  | isTcTyVar tcv  -- Might be a CoVar; change this when gather covars separately
   = tcTyVarLevel tcv > outer_tclvl
   | otherwise
   = False
@@ -2212,7 +2212,7 @@ See Note [Levity polymorphism checking] in DsMonad
 -}
 
 -- | According to the rules around representation polymorphism
--- (see https://ghc.haskell.org/trac/ghc/wiki/NoSubKinds), no binder
+-- (see https://gitlab.haskell.org/ghc/ghc/wikis/no-sub-kinds), no binder
 -- can have a representation-polymorphic type. This check ensures
 -- that we respect this rule. It is a bit regrettable that this error
 -- occurs in zonking, after which we should have reported all errors.

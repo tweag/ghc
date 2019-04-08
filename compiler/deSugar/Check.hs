@@ -281,7 +281,7 @@ instance Monoid PartialResult where
 -- More details about the classification of clauses into useful, redundant
 -- and with inaccessible right hand side can be found here:
 --
---     https://ghc.haskell.org/trac/ghc/wiki/PatternMatchCheck
+--     https://gitlab.haskell.org/ghc/ghc/wikis/pattern-match-check
 --
 data PmResult =
   PmResult {
@@ -2119,15 +2119,22 @@ pmcheckHd (p@(PmLit l)) ps guards
 -- no information is lost
 
 -- LitCon
-pmcheckHd (PmLit l) ps guards (va@(PmCon {})) (ValVec vva delta)
+pmcheckHd p@PmLit{} ps guards va@PmCon{} (ValVec vva delta)
   = do y <- liftD $ mkPmId (pmPatType va)
-       let tm_state = extendSubst y (PmExprLit l) (delta_tm_cs delta)
+       -- Analogous to the ConVar case, we have to case split the value
+       -- abstraction on possible literals. We do so by introducing a fresh
+       -- variable that is equated to the constructor. LitVar will then take
+       -- care of the case split by resorting to NLit.
+       let tm_state = extendSubst y (vaToPmExpr va) (delta_tm_cs delta)
            delta'   = delta { delta_tm_cs = tm_state }
-       pmcheckHdI (PmVar y) ps guards va (ValVec vva delta')
+       pmcheckHdI p ps guards (PmVar y) (ValVec vva delta')
 
 -- ConLit
-pmcheckHd (p@(PmCon {})) ps guards (PmLit l) (ValVec vva delta)
+pmcheckHd p@PmCon{} ps guards (PmLit l) (ValVec vva delta)
   = do y <- liftD $ mkPmId (pmPatType p)
+       -- This desugars to the ConVar case by introducing a fresh variable that
+       -- is equated to the literal via a constraint. ConVar will then properly
+       -- case split on all possible constructors.
        let tm_state = extendSubst y (PmExprLit l) (delta_tm_cs delta)
            delta'   = delta { delta_tm_cs = tm_state }
        pmcheckHdI p ps guards (PmVar y) (ValVec vva delta')
@@ -2333,7 +2340,7 @@ term constraints (respectively) as we go deeper.
 
 The type constraints we propagate inwards are collected by `collectEvVarsPats'
 in HsPat.hs. This handles bug #4139 ( see example
-  https://ghc.haskell.org/trac/ghc/attachment/ticket/4139/GADTbug.hs )
+  https://gitlab.haskell.org/ghc/ghc/snippets/672 )
 where this is needed.
 
 For term equalities we do less, we just generate equalities for HsCase. For

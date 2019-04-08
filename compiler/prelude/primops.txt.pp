@@ -5,7 +5,7 @@
 -- Primitive Operations and Types
 --
 -- For more information on PrimOps, see
---   http://ghc.haskell.org/trac/ghc/wiki/Commentary/PrimOps
+--   https://gitlab.haskell.org/ghc/ghc/wikis/commentary/prim-ops
 --
 -----------------------------------------------------------------------
 
@@ -18,7 +18,7 @@
 -- Information on how PrimOps are implemented and the steps necessary to
 -- add a new one can be found in the Commentary:
 --
---  http://ghc.haskell.org/trac/ghc/wiki/Commentary/PrimOps
+--  https://gitlab.haskell.org/ghc/ghc/wikis/commentary/prim-ops
 --
 -- Note in particular that Haskell block-style comments are not recognized
 -- here, so stick to '--' (even for Notes spanning multiple lines).
@@ -652,6 +652,17 @@ primop   BSwap64Op   "byteSwap64#"   Monadic   WORD64 -> WORD64
     {Swap bytes in a 64 bits of a word.}
 primop   BSwapOp     "byteSwap#"     Monadic   Word# -> Word#
     {Swap bytes in a word.}
+
+primop   BRev8Op    "bitReverse8#"   Monadic   Word# -> Word#
+    {Reverse the order of the bits in a 8-bit word.}
+primop   BRev16Op   "bitReverse16#"   Monadic   Word# -> Word#
+    {Reverse the order of the bits in a 16-bit word.}
+primop   BRev32Op   "bitReverse32#"   Monadic   Word# -> Word#
+    {Reverse the order of the bits in a 32-bit word.}
+primop   BRev64Op   "bitReverse64#"   Monadic   WORD64 -> WORD64
+    {Reverse the order of the bits in a 64-bit word.}
+primop   BRevOp     "bitReverse#"     Monadic   Word# -> Word#
+    {Reverse the order of the bits in a word.}
 
 ------------------------------------------------------------------------
 section "Narrowings"
