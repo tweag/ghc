@@ -810,7 +810,10 @@ lintCoreExpr (Lam var expr)
 lintCoreExpr e@(Case scrut var alt_ty alts) =
        -- Check the scrutinee
   do { let scrut_diverges = exprIsBottom scrut
-           scrut_mult = varWeight var
+     ; scrut_mult <- case varMult var of
+                       Regular w -> return w
+                       Alias -> return One --TODO failWithL (text "Alias in scrut_mult" <+> ppr e)
+
      ; (scrut_ty, scrut_ue) <- markAllJoinsBad $ lintCoreExpr scrut
      ; (alt_ty, _) <- lintInTy alt_ty
      ; (var_ty, _) <- lintInTy (idType var)
@@ -1091,26 +1094,31 @@ lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
 -- | Implements the case rules for linearity
 checkCaseLinearity :: UsageEnv -> Var -> Mult -> Var -> LintM UsageEnv
 checkCaseLinearity ue scrut var_w bndr = do
+  bndr_w <- case varMult bndr of
+    Regular w -> return w
+    Alias -> failWithL (text "Alias in case binder:" <+> ppr bndr)
+  scrut_w <- case varMult scrut of
+    Regular w -> return w
+    Alias -> failWithL (text "Alias in case scrutinee:" <+> ppr scrut)
+  let lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
+      lhs' = case lhs of
+               MUsage mult -> mult
+               Zero -> Omega
+      rhs = scrut_w `mkMultMul` var_w
+      err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
+                  $$ ppr lhs <+> text "⊈" <+> ppr rhs
+                  $$ text "Computed by:"
+                  <+> text "LHS:" <+> lhs_formula
+                  <+> text "RHS:" <+> rhs_formula)
+      lhs_formula = ppr bndr_usage <+> text "+"
+                                   <+> parens (ppr scrut_usage <+> text "*" <+> ppr var_w)
+      rhs_formula = ppr scrut_w <+> text "*" <+> ppr var_w
+      scrut_usage = lookupUE ue scrut
+      bndr_usage = lookupUE ue bndr
+
   ensureSubMult lhs' rhs err_msg
-  lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varWeight bndr)
+  lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) bndr_w
   return $ deleteUE ue bndr
-  where
-    lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
-    lhs' = case lhs of
-             MUsage mult -> mult
-             Zero -> Omega
-    rhs = scrut_w `mkMultMul` var_w
-    err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
-                $$ ppr lhs <+> text "⊈" <+> ppr rhs
-                $$ text "Computed by:"
-                <+> text "LHS:" <+> lhs_formula
-                <+> text "RHS:" <+> rhs_formula)
-    lhs_formula = ppr bndr_usage <+> text "+"
-                                 <+> parens (ppr scrut_usage <+> text "*" <+> ppr var_w)
-    rhs_formula = ppr scrut_w <+> text "*" <+> ppr var_w
-    scrut_w = varWeight scrut
-    scrut_usage = lookupUE ue scrut
-    bndr_usage = lookupUE ue bndr
 
 
 
