@@ -1967,10 +1967,10 @@ type :: { LHsType GhcPs }
                                        >> ams (sLL $1 $> $ HsFunTy noExt HsUnrestrictedArrow $1 $3)
                                               [mu AnnRarrow $2] }
 
-        | btype '->.' ctype             {% hintLinear (getLoc $1) >>
+        | btype '->.' ctype             {% hintLinear (getLoc $2) >>
                                          ams (sLL $1 $> $ HsFunTy noExt HsLinearArrow $1 $3)
                                              [mu AnnRarrow $2] }
-        | btype '-->.' '(' mult ')' ctype  {% hintLinear (getLoc $1) >>
+        | btype '-->.' '(' mult ')' ctype  {% hintLinear (getLoc $2) >>
                                               ams (sLL $1 $> $ HsFunTy noExt (HsExplicitMult $4) $1 $6)
                                                   [mu AnnRarrow $2] }
 
@@ -1990,15 +1990,15 @@ typedoc :: { LHsType GhcPs }
                                                  HsFunTy noExt HsUnrestrictedArrow
                                                          (cL (comb2 $1 $2) (HsDocTy noExt $1 $2)) $4)
                                                 [mu AnnRarrow $3] }
-        | btype '->.'     ctypedoc       {% hintLinear (getLoc $1) >>
+        | btype '->.'     ctypedoc       {% hintLinear (getLoc $2) >>
                                            ams (sLL $1 $> $ HsFunTy noExt HsLinearArrow $1 $3)
                                                 [mu AnnRarrow $2] }
-        | btype docprev '->.' ctypedoc   {% hintLinear (getLoc $1) >>
+        | btype docprev '->.' ctypedoc   {% hintLinear (getLoc $2) >>
                                            ams (sLL $1 $> $
                                                  HsFunTy noExt HsLinearArrow
                                                          (cL (comb2 $1 $2) (HsDocTy noExt $1 $2)) $4)
                                                 [mu AnnRarrow $3] }
-        | btype '-->.' '(' mult ')' ctypedoc  {% hintLinear (getLoc $1) >>
+        | btype '-->.' '(' mult ')' ctypedoc  {% hintLinear (getLoc $2) >>
                                                  ams (sLL $1 $> $ HsFunTy noExt (HsExplicitMult $4) $1 $6)
                                                      [mu AnnRarrow $2] }
         | docnext btype '->' ctypedoc    {% ams $2 [mu AnnRarrow $3] -- See note [GADT decl discards annotations]
