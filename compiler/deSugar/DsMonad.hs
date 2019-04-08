@@ -346,7 +346,7 @@ still reporting nice error messages.
 -}
 
 -- Make a new Id with the same print name, but different type, and new unique
-newUniqueId :: Id -> Mult -> Type -> DsM Id
+newUniqueId :: Id -> VarMult -> Type -> DsM Id
 newUniqueId id = mk_local (occNameFS (nameOccName (idName id)))
 
 duplicateLocalDs :: Id -> DsM Id
@@ -359,13 +359,13 @@ newPredVarDs pred
  = newSysLocalDs Omega pred
 
 newSysLocalDsNoLP, newSysLocalDs, newFailLocalDs :: Mult -> Type -> DsM Id
-newSysLocalDsNoLP  = mk_local (fsLit "ds")
+newSysLocalDsNoLP w = mk_local (fsLit "ds") (Regular w)
 
 -- this variant should be used when the caller can be sure that the variable type
 -- is not levity-polymorphic. It is necessary when the type is knot-tied because
 -- of the fixM used in DsArrows. See Note [Levity polymorphism checking]
-newSysLocalDs = mkSysLocalOrCoVarM (fsLit "ds")
-newFailLocalDs = mkSysLocalOrCoVarM (fsLit "fail")
+newSysLocalDs w = mkSysLocalOrCoVarM (fsLit "ds") (Regular w)
+newFailLocalDs w = mkSysLocalOrCoVarM (fsLit "fail") (Regular w)
   -- the fail variable is used only in a situation where we can tell that
   -- levity-polymorphism is impossible.
 
@@ -373,7 +373,7 @@ newSysLocalsDsNoLP, newSysLocalsDs :: [Scaled Type] -> DsM [Id]
 newSysLocalsDsNoLP = mapM (\(Scaled w t) -> newSysLocalDsNoLP w t)
 newSysLocalsDs = mapM (\(Scaled w t) -> newSysLocalDs w t)
 
-mk_local :: FastString -> Mult -> Type -> DsM Id
+mk_local :: FastString -> VarMult -> Type -> DsM Id
 mk_local fs w ty = do { dsNoLevPoly ty (text "When trying to create a variable of type:" <+>
                                         ppr ty)  -- could improve the msg with another
                                                  -- parameter indicating context
