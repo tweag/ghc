@@ -1371,7 +1371,7 @@ dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
     map (fmap $ substTy subst) arg_tys
   where
     tyvars = univ_tvs ++ ex_tvs
-    inst_tys2 = if isUnboxedTupleCon dc
+    inst_tys2 = if isUnboxedTupleCon dc || isUnboxedSumCon dc
                   then map getRuntimeRep inst_tys ++ inst_tys
                   else inst_tys
                   -- See Note [Unboxed tuple RuntimeRep vars]
