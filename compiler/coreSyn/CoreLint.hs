@@ -1261,7 +1261,7 @@ lintLinearBinder :: SDoc -> Mult -> Mult -> LintM ()
 lintLinearBinder doc actual_usage described_usage
   = ensureSubMult actual_usage described_usage err_msg
     where
-      err_msg = (text "Multiplicity of variable does agree with its context"
+      err_msg = (text "Multiplicity of variable does not agree with its context"
                 $$ doc
                 $$ ppr actual_usage
                 $$ text "Annotation:" <+> ppr described_usage)
