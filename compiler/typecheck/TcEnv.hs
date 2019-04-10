@@ -697,6 +697,7 @@ tcCollectingUsage thing_inside
 tcScalingUsage :: Mult -> TcM a -> TcM a
 tcScalingUsage mult thing_inside
   = do { (usage, result) <- tcCollectingUsage thing_inside
+       ; traceTc "tsScalingUsage" (ppr mult)
        ; tcEmitBindingUsage $ scaleUE mult usage
        ; return result }
 
