@@ -1356,7 +1356,7 @@ tcLhs sig_fn no_gen (FunBind { fun_id = (dL->L nm_loc name)
 
   | otherwise  -- No type signature
   = do { mono_ty <- newOpenFlexiTyVarTy
-       ; mono_id <- newLetBndr no_gen name Alias mono_ty
+       ; mono_id <- newLetBndr no_gen name (Regular Omega) mono_ty
        ; let mono_info = MBI { mbi_poly_name = name
                              , mbi_sig       = Nothing
                              , mbi_mono_id   = mono_id }
