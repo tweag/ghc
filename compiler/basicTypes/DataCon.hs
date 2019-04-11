@@ -1366,7 +1366,9 @@ dataConInstOrigArgTys
 dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
                                   dcUnivTyVars = univ_tvs,
                                   dcExTyCoVars = ex_tvs}) inst_tys
-  = if tyvars `equalLength` inst_tys then map (fmap $ substTy subst) arg_tys else pprPanic "dataConInstOrigArgTys" (ppr dc $$ ppr tyvars $$ ppr inst_tys )
+  = ASSERT2( tyvars `equalLength` inst_tys
+           , text "dataConInstOrigArgTys" <+> ppr dc $$ ppr tyvars $$ ppr inst_tys )
+    map (fmap $ substTy subst) arg_tys
   where
     tyvars = univ_tvs ++ ex_tvs
     subst  = zipTCvSubst tyvars inst_tys
