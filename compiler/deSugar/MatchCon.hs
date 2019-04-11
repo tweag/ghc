@@ -32,7 +32,6 @@ import MkCore   ( mkCoreLets )
 import Util
 import Id
 import NameEnv
-import FieldLabel ( flSelector )
 import SrcLoc
 import Outputable
 import Control.Monad(liftM)
