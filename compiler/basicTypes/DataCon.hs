@@ -1357,7 +1357,7 @@ dataConInstArgTys dc@(MkData {dcUnivTyVars = univ_tvs,
 -- | Returns just the instantiated /value/ argument types of a 'DataCon',
 -- (excluding dictionary args)
 dataConInstOrigArgTys
-        :: DataCon      -- Works for any DataCon
+        :: HasCallStack => DataCon      -- Works for any DataCon
         -> [Type]       -- Includes existential tyvar args, but NOT
                         -- equality constraints or dicts
         -> [Scaled Type]
@@ -1366,16 +1366,10 @@ dataConInstOrigArgTys
 dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
                                   dcUnivTyVars = univ_tvs,
                                   dcExTyCoVars = ex_tvs}) inst_tys
-  = ASSERT2( tyvars `equalLength` inst_tys2
-           , text "dataConInstOrigArgTys" <+> ppr dc $$ ppr tyvars $$ ppr inst_tys )
-    map (fmap $ substTy subst) arg_tys
+  = if tyvars `equalLength` inst_tys then map (fmap $ substTy subst) arg_tys else pprPanic "dataConInstOrigArgTys" (ppr dc $$ ppr tyvars $$ ppr inst_tys )
   where
     tyvars = univ_tvs ++ ex_tvs
-    inst_tys2 = if (isUnboxedTupleCon dc || isUnboxedSumCon dc) && length inst_tys /= length tyvars
-                  then map getRuntimeRep inst_tys ++ inst_tys
-                  else inst_tys
-                  -- See Note [Unboxed tuple RuntimeRep vars]
-    subst  = zipTCvSubst tyvars inst_tys2
+    subst  = zipTCvSubst tyvars inst_tys
 
 -- | Returns the argument types of the wrapper, excluding all dictionary arguments
 -- and without substituting for any type variables

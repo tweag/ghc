@@ -10,6 +10,7 @@ import Outputable ( Outputable, OutputableBndr )
 import BasicTypes (Arity)
 import {-# SOURCE #-} TyCoRep ( Type, ThetaType )
 import Multiplicity (Scaled)
+import GHC.Stack
 
 data DataCon
 data DataConRep
@@ -22,7 +23,7 @@ dataConUserTyVars :: DataCon -> [TyVar]
 dataConUserTyVarBinders :: DataCon -> [TyVarBinder]
 dataConSourceArity  :: DataCon -> Arity
 dataConFieldLabels :: DataCon -> [FieldLabel]
-dataConInstOrigArgTys  :: DataCon -> [Type] -> [Scaled Type]
+dataConInstOrigArgTys  :: HasCallStack => DataCon -> [Type] -> [Scaled Type]
 dataConStupidTheta :: DataCon -> ThetaType
 dataConFullSig :: DataCon
                -> ([TyVar], [TyCoVar], [EqSpec], ThetaType, [Scaled Type], Type)

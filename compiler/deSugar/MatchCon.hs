@@ -18,6 +18,8 @@ import GhcPrelude
 
 import {-# SOURCE #-} Match     ( match )
 
+import DataCon
+import Type (getRuntimeRep)
 import HsSyn
 import DsBinds
 import ConLike
@@ -138,7 +140,11 @@ matchOneConLike vars ty mult (eqn1 : eqns)   -- All eqns for a single constructo
                          ASSERT( tvs1 `equalLength` ex_tvs )
                          arg_tys ++ mkTyVarTys tvs1
 
-              val_arg_tys = conLikeInstOrigArgTys con1 inst_tys
+              val_arg_tys = conLikeInstOrigArgTys con1 (case con1 of
+                                                          RealDataCon dc | (isUnboxedTupleCon dc || isUnboxedSumCon dc),
+                                                                           length inst_tys /= length (dataConUnivTyVars dc ++ dataConExTyCoVars dc) -> map getRuntimeRep inst_tys ++ inst_tys
+                                                          _ -> inst_tys)
+
         -- dataConInstOrigArgTys takes the univ and existential tyvars
         -- and returns the types of the *value* args, which is what we want
 

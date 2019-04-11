@@ -108,7 +108,7 @@ conLikeFieldLabels (PatSynCon pat_syn)    = patSynFieldLabels pat_syn
 
 -- | Returns just the instantiated /value/ argument types of a 'ConLike',
 -- (excluding dictionary args)
-conLikeInstOrigArgTys :: ConLike -> [Type] -> [Scaled Type]
+conLikeInstOrigArgTys :: HasCallStack => ConLike -> [Type] -> [Scaled Type]
 conLikeInstOrigArgTys (RealDataCon data_con) tys =
     dataConInstOrigArgTys data_con tys
 conLikeInstOrigArgTys (PatSynCon pat_syn) tys =
