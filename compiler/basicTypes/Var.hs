@@ -403,7 +403,7 @@ varMult' :: Id -> Mult
 varMult' v =
   case varMultMaybe v of
     Just (Regular w) -> w
-    _ -> pprPanic "Irregular multiplicity in varMult'" (ppr v)
+    _ -> pprPanic "varMult'" (text "Irregular multiplicity" <+> ppr v)
 
 varWeightMaybe :: Id -> Maybe Mult
 varWeightMaybe v =
@@ -423,7 +423,7 @@ varWeightDef = fromMaybe Omega . varWeightMaybe
 varWeight :: Id -> Mult
 varWeight id = case varWeightMaybe id of
   Just x -> x
-  Nothing -> pprPanic "Attempted to retrieve the multiplicity of a non-Id variable" (ppr id)
+  Nothing -> pprPanic "varWeight" (text "Attempted to retrieve the multiplicity of a non-Id variable" <+> ppr id)
 
 scaleVarBy :: Id -> Mult -> Id
 scaleVarBy id@(Id { varMult = Regular w }) r =
