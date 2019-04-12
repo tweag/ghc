@@ -13,7 +13,7 @@ module CSE (cseProgram, cseOneExpr) where
 import GhcPrelude
 
 import CoreSubst
-import Var              ( Var )
+import Var              ( Var, VarMult(..), varMultMaybe )
 import VarEnv           ( elemInScopeSet, mkInScopeSet )
 import Id               ( Id, idType, isDeadBinder
                         , idInlineActivation, setInlineActivation
@@ -30,6 +30,7 @@ import BasicTypes
 import CoreMap
 import Util             ( filterOut )
 import Data.List        ( mapAccumL )
+import Multiplicity
 
 {-
                         Simple common sub-expression
@@ -444,10 +445,11 @@ noCSE id =  not (isAlwaysActive (idInlineActivation id)) &&
          || isJoinId id
              -- See Note [CSE for join points?]
   where
-    multiplicityOkForCSE (Id { varMult = Alias }) = True
-    multiplicityOkForCSE (Id { varMult = Regular Omega }) = True
-    multiplicityOkForCSE (Id { varMult = Regular _ }) = False
-    multiplicityOkForCSE _ = True
+    multiplicityOkForCSE v = case varMultMaybe v of
+                                Just Alias -> True
+                                Just (Regular Omega) -> True
+                                Just (Regular _) -> False
+                                Nothing -> True
 
 
 {- Note [Take care with literal strings]
