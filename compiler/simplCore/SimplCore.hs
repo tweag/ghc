@@ -126,7 +126,7 @@ getCoreToDo dflags
     full_laziness = gopt Opt_FullLaziness                 dflags
     do_specialise = gopt Opt_Specialise                   dflags
     do_float_in   = gopt Opt_FloatIn                      dflags
-    cse           = gopt Opt_CSE                          dflags
+    cse           = False
     spec_constr   = gopt Opt_SpecConstr                   dflags
     liberate_case = gopt Opt_LiberateCase                 dflags
     late_dmd_anal = gopt Opt_LateDmdAnal                  dflags
