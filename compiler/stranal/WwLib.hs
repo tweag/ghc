@@ -151,7 +151,7 @@ mkWwBodies dflags fam_envs rhs_fvs fun_id demands res_info
 
         -- Do CPR w/w.  See Note [Always do CPR w/w]
         ; (useful2, wrap_fn_cpr, work_fn_cpr, cpr_res_ty)
-              <- mkWWcpr (gopt Opt_CprAnal dflags) fam_envs res_ty res_info
+              <- mkWWcpr False fam_envs res_ty res_info
 
         ; let (work_lam_args, work_call_args) = mkWorkerArgs dflags work_args cpr_res_ty
               worker_args_dmds = [idDemandInfo v | v <- work_call_args, isId v]
