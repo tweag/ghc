@@ -441,7 +441,7 @@ noCSE id =  not (isAlwaysActive (idInlineActivation id)) &&
              -- See Note [CSE for INLINE and NOINLINE]
          || isAnyInlinePragma (idInlinePragma id)
              -- See Note [CSE for stable unfoldings]
-         || multiplicityOkForCSE id
+         || not (multiplicityOkForCSE id)
          || isJoinId id
              -- See Note [CSE for join points?]
   where
