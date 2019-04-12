@@ -440,8 +440,14 @@ noCSE id =  not (isAlwaysActive (idInlineActivation id)) &&
              -- See Note [CSE for INLINE and NOINLINE]
          || isAnyInlinePragma (idInlinePragma id)
              -- See Note [CSE for stable unfoldings]
+         || multiplicityOkForCSE id
          || isJoinId id
              -- See Note [CSE for join points?]
+  where
+    multiplicityOkForCSE (Id { varMult = Alias }) = True
+    multiplicityOkForCSE (Id { varMult = Regular Omega }) = True
+    multiplicityOkForCSE (Id { varMult = Regular _ }) = False
+    multiplicityOkForCSE _ = True
 
 
 {- Note [Take care with literal strings]
