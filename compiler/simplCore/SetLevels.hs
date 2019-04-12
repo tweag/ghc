@@ -1520,10 +1520,6 @@ extendCaseBndrEnv :: LevelEnv
                   -> Id                 -- Pre-cloned case binder
                   -> Expr LevelledBndr  -- Post-cloned scrutinee
                   -> LevelEnv
-extendCaseBndrEnv le@(LE { le_subst = subst, le_env = id_env })
-                  case_bndr (Var scrut_var)
-  = le { le_subst   = extendSubstWithVar subst case_bndr scrut_var
-       , le_env     = add_id id_env (case_bndr, scrut_var) }
 extendCaseBndrEnv env _ _ = env
 
 -- See Note [Join ceiling]
