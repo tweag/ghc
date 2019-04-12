@@ -205,7 +205,7 @@ mkWildCase scrut (Scaled w scrut_ty) res_ty alts
 mkIfThenElse :: CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
 mkIfThenElse guard then_expr else_expr
 -- Not going to be refining, so okay to take the type of the "then" clause
-  = mkWildCase guard (unrestricted boolTy) (exprType then_expr)
+  = mkWildCase guard (linear boolTy) (exprType then_expr)
          [ (DataAlt falseDataCon, [], else_expr),       -- Increasing order of tag!
            (DataAlt trueDataCon,  [], then_expr) ]
 
