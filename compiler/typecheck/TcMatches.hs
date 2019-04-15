@@ -93,6 +93,13 @@ tcMatchesFun fn@(L _ fun_name) matches exp_ty
                do { (matches', wrap_fun)
                        <- matchExpectedFunTys herald arity exp_rho $
                           \ pat_tys rhs_ty ->
+                          tcScalingUsage Omega $
+                          -- toplevel bindings and let bindings are, at the
+                          -- moment, always unrestricted. The value being bound
+                          -- must, accordingly, be unrestricted. Hence them
+                          -- being scaled by Omega. When let binders come with a
+                          -- multiplicity, then @tcMatchesFun@ will have to take
+                          -- a multiplicity argument, and scale accordingly.
                           tcMatches match_ctxt pat_tys rhs_ty matches
                   ; return (wrap_fun, matches') }
         ; return (wrap_gen <.> wrap_fun, group) }

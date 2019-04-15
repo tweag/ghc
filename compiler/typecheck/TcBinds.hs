@@ -1281,10 +1281,6 @@ tcMonoBinds is_rec sig_fn no_gen
                   -- We extend the error context even for a non-recursive
                   -- function so that in type error messages we show the
                   -- type of the thing whose rhs we are type checking
-               tcScalingUsage Omega $
-                  -- toplevel and let-bindings are, at the moment, always
-                  -- unrestricted. The value being bound must, accordingly, be
-                  -- unrestricted. Hence them being scaled above.
                tcMatchesFun (cL nm_loc name) matches exp_ty
 
         ; mono_id <- newLetBndr no_gen name Alias rhs_ty
@@ -1314,10 +1310,7 @@ tcMonoBinds _ sig_fn no_gen binds
         ; traceTc "tcMonoBinds" $ vcat [ ppr n <+> ppr id <+> ppr (idType id)
                                        | (n,id) <- rhs_id_env]
         ; binds' <- tcExtendRecIds (map (fmap unrestricted) rhs_id_env) $
-                    tcScalingUsage Omega $ mapM (wrapLocM tcRhs) tc_binds
-                    -- toplevel and let-bindings are, at the moment, always
-                    -- unrestricted. The value being bound must, accordingly, be
-                    -- unrestricted. Hence them being scaled above.
+                    mapM (wrapLocM tcRhs) tc_binds
 
         ; return (listToBag binds', mono_infos) }
 
@@ -1456,6 +1449,12 @@ tcRhs (TcPatBind infos pat' grhss pat_ty)
     tcExtendIdBinderStackForRhs infos        $
     do  { traceTc "tcRhs: pat bind" (ppr pat' $$ ppr pat_ty)
         ; grhss' <- addErrCtxt (patMonoBindsCtxt pat' grhss) $
+                    tcScalingUsage Omega $
+                    -- Like in tcMatchesFun, this scaling happens because all
+                    -- let bindings are unrestricted. A difference, here, is
+                    -- that when this is not the case, any more, we will have to
+                    -- make sure that the pattern is strict, otherwise this will
+                    -- be desugar to incorrect code.
                     tcGRHSsPat grhss pat_ty
         ; return ( PatBind { pat_lhs = pat', pat_rhs = grhss'
                            , pat_ext = NPatBindTc placeHolderNamesTc pat_ty

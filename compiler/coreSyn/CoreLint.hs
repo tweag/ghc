@@ -1261,7 +1261,7 @@ lintLinearBinder :: SDoc -> Mult -> Mult -> LintM ()
 lintLinearBinder doc actual_usage described_usage
   = ensureSubMult actual_usage described_usage err_msg
     where
-      err_msg = (text "Multiplicity of variable does agree with its context"
+      err_msg = (text "Multiplicity of variable does not agree with its context"
                 $$ doc
                 $$ ppr actual_usage
                 $$ text "Annotation:" <+> ppr described_usage)
@@ -2191,7 +2191,7 @@ defaultLintFlags = LF { lf_check_global_ids = False
 newtype LintM a =
    LintM { unLintM ::
             LintEnv ->
-            WarnsAndErrs ->           -- Error and warning messages so far
+            WarnsAndErrs ->           -- Warning and error messages so far
             (Maybe a, WarnsAndErrs) } -- Result and messages (if any)
 
 type WarnsAndErrs = (Bag MsgDoc, Bag MsgDoc)
@@ -2300,10 +2300,13 @@ data LintLocInfo
   | InCo   Coercion     -- Inside a coercion
 
 initL :: DynFlags -> LintFlags -> InScopeSet
-       -> LintM a -> WarnsAndErrs    -- Errors and warnings
+       -> LintM a -> WarnsAndErrs    -- Warnings and errors
 initL dflags flags in_scope m
   = case unLintM m env (emptyBag, emptyBag) of
-      (_, errs) -> errs
+      (Just _, errs) -> errs
+      (Nothing, errs@(_, e)) | not (isEmptyBag e) -> errs
+                             | otherwise -> pprPanic ("Bug in Lint: a failure occurred " ++
+                                                      "without reporting an error message") empty
   where
     env = LE { le_flags = flags
              , le_subst = mkEmptyTCvSubst in_scope

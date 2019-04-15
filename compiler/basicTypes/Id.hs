@@ -45,7 +45,7 @@ module Id (
 
         -- ** Taking an Id apart
         VarMult(..),
-        idName, idType, idWeight, idMult, idUnique, idInfo, idDetails,
+        idName, idType, idWeight, idMult, idMult', idUnique, idInfo, idDetails,
         recordSelectorTyCon,
 
         -- ** Modifying an Id
@@ -199,6 +199,9 @@ idWeight x =
 
 idMult :: Id -> VarMult
 idMult = Var.varMult
+
+idMult' :: Id -> Mult
+idMult' = Var.varMult'
 
 scaleIdBy :: Id -> Mult -> Id
 scaleIdBy = Var.scaleVarBy

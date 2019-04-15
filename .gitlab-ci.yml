@@ -4,6 +4,10 @@ variables:
   # Commit of ghc/ci-images repository from which to pull Docker images
   DOCKER_REV: cefaee3c742af193e0f7783f87edb0d35374515c
 
+  # Sequential version number capturing the versions of all tools fetched by
+  # .gitlab/win32-init.sh.
+  WINDOWS_TOOLCHAIN_VERSION: 1
+
 before_script:
   - python3 .gitlab/fix-submodules.py
   - git submodule sync --recursive
@@ -48,13 +52,14 @@ ghc-linters:
   stage: lint
   image: "registry.gitlab.haskell.org/ghc/ci-images/linters:$DOCKER_REV"
   script:
-    - git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+    - git fetch "$CI_MERGE_REQUEST_PROJECT_URL" $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
     - base="$(git merge-base FETCH_HEAD $CI_COMMIT_SHA)"
     - "echo Merge base $base"
     #    - validate-commit-msg .git $(git rev-list $base..$CI_COMMIT_SHA)
     - validate-whitespace .git $(git rev-list $base..$CI_COMMIT_SHA)
     - .gitlab/linters/check-makefiles.py $base $CI_COMMIT_SHA
     - .gitlab/linters/check-cpp.py $base $CI_COMMIT_SHA
+    - .gitlab/linters/check-version-number.sh
   dependencies: []
   tags:
     - lint
@@ -80,7 +85,14 @@ lint-submods:
     refs:
       - master
       - /ghc-[0-9]+\.[0-9]+/
-      - wip/marge_bot_batch_merge_job
+
+lint-submods-marge:
+  extends: .lint-submods
+  only:
+    refs:
+      - merge_requests
+    variables:
+      - $CI_MERGE_REQUEST_LABELS =~ /.*wip/marge_bot_batch_merge_job.*/
 
 lint-submods-mr:
   extends: .lint-submods
@@ -520,12 +532,12 @@ validate-x86_64-linux-fedora27:
     paths:
       - ghc.tar.xz
 
-validate-x86_64-windows-hadrian:
+.validate-x86_64-windows-hadrian:
   extends: .build-windows-hadrian
   variables:
     MSYSTEM: MINGW64
   cache:
-    key: x86_64-windows-hadrian
+    key: "x86_64-windows-hadrian-$WINDOWS_TOOLCHAIN_VERSION"
 
 nightly-i386-windows-hadrian:
   extends: .build-windows-hadrian
@@ -535,7 +547,7 @@ nightly-i386-windows-hadrian:
     variables:
       - $NIGHTLY
   cache:
-    key: i386-windows-hadrian
+    key: "i386-windows-hadrian-$WINDOWS_TOOLCHAIN_VERSION"
 
 .build-windows-make:
   extends: .build-windows
@@ -571,7 +583,7 @@ validate-x86_64-windows:
     MSYSTEM: MINGW64
     CONFIGURE_ARGS: "--target=x86_64-unknown-mingw32"
   cache:
-    key: x86_64-windows
+    key: "x86_64-windows-$WINDOWS_TOOLCHAIN_VERSION"
 
 # Normal Windows validate builds are profiled; that won't do for releases.
 release-x86_64-windows:
@@ -592,7 +604,7 @@ release-i386-windows:
     BUILD_FLAVOUR: "perf"
     CONFIGURE_ARGS: "--target=i386-unknown-mingw32"
   cache:
-    key: i386-windows
+    key: "i386-windows-$WINDOWS_TOOLCHAIN_VERSION"
 
 nightly-i386-windows:
   extends: .build-windows-make
@@ -603,7 +615,7 @@ nightly-i386-windows:
     MSYSTEM: MINGW32
     CONFIGURE_ARGS: "--target=i386-unknown-mingw32"
   cache:
-    key: i386-windows
+    key: "i386-windows-$WINDOWS_TOOLCHAIN_VERSION"
 
 ############################################################
 # Cleanup
@@ -764,4 +776,3 @@ pages:
   artifacts:
     paths:
       - public
-

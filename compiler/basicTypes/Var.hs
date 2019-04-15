@@ -44,7 +44,7 @@ module Var (
         -- ** Taking 'Var's apart
         VarMult(..),
         varName, varUnique, varType, varWeight, varWeightMaybe, varWeightDef,
-        varMult, varMultMaybe,
+        varMult, varMultMaybe, varMult',
 
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType, updateVarType,
@@ -399,6 +399,12 @@ varMultMaybe :: Id -> Maybe VarMult
 varMultMaybe (Id { varMult = mult }) = Just mult
 varMultMaybe _ = Nothing
 
+varMult' :: Id -> Mult
+varMult' v =
+  case varMultMaybe v of
+    Just (Regular w) -> w
+    _ -> pprPanic "varMult'" (text "Irregular multiplicity" <+> ppr v)
+
 varWeightMaybe :: Id -> Maybe Mult
 varWeightMaybe v =
   case varMultMaybe v of
@@ -417,7 +423,7 @@ varWeightDef = fromMaybe Omega . varWeightMaybe
 varWeight :: Id -> Mult
 varWeight id = case varWeightMaybe id of
   Just x -> x
-  Nothing -> error "Attempted to retrieve the multiplicity of a non-Id variable"
+  Nothing -> pprPanic "varWeight" (text "Attempted to retrieve the multiplicity of a non-Id variable" <+> ppr id)
 
 scaleVarBy :: Id -> Mult -> Id
 scaleVarBy id@(Id { varMult = Regular w }) r =
