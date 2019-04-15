@@ -199,15 +199,9 @@ initSysTools top_dir
        let unreg_gcc_args = if targetUnregisterised
                             then ["-DNO_REGS", "-DUSE_MINIINTERPRETER"]
                             else []
-           -- TABLES_NEXT_TO_CODE affects the info table layout.
-           tntc_gcc_args
-            | mkTablesNextToCode targetUnregisterised
-               = ["-DTABLES_NEXT_TO_CODE"]
-            | otherwise = []
            cpp_args= map Option (words cpp_args_str)
            gcc_args = map Option (words gcc_args_str
-                               ++ unreg_gcc_args
-                               ++ tntc_gcc_args)
+                               ++ unreg_gcc_args)
        ldSupportsCompactUnwind <- getBooleanSetting "ld supports compact unwind"
        ldSupportsBuildId       <- getBooleanSetting "ld supports build-id"
        ldSupportsFilelist      <- getBooleanSetting "ld supports filelist"
@@ -301,6 +295,7 @@ initSysTools top_dir
                     sOpt_P_fingerprint = fingerprint0,
                     sOpt_F       = [],
                     sOpt_c       = [],
+                    sOpt_cxx     = [],
                     sOpt_a       = [],
                     sOpt_l       = [],
                     sOpt_windres = [],
