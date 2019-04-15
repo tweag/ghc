@@ -5,7 +5,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module CmmExpr
-    ( CmmExpr(..), cmmExprType, cmmExprWidth, maybeInvertCmmExpr
+    ( CmmExpr(..), cmmExprType, cmmExprWidth, cmmExprAlignment, maybeInvertCmmExpr
     , CmmReg(..), cmmRegType, cmmRegWidth
     , CmmLit(..), cmmLitType
     , LocalReg(..), localRegType
@@ -42,6 +42,8 @@ import Unique
 
 import Data.Set (Set)
 import qualified Data.Set as Set
+
+import BasicTypes (Alignment, mkAlignment, alignmentOf)
 
 -----------------------------------------------------------------------------
 --              CmmExpr
@@ -239,6 +241,13 @@ cmmLabelType dflags lbl
 cmmExprWidth :: DynFlags -> CmmExpr -> Width
 cmmExprWidth dflags e = typeWidth (cmmExprType dflags e)
 
+-- | Returns an alignment in bytes of a CmmExpr when it's a statically
+-- known integer constant, otherwise returns an alignment of 1 byte.
+-- The caller is responsible for using with a sensible CmmExpr
+-- argument.
+cmmExprAlignment :: CmmExpr -> Alignment
+cmmExprAlignment (CmmLit (CmmInt intOff _)) = alignmentOf (fromInteger intOff)
+cmmExprAlignment _                          = mkAlignment 1
 --------
 --- Negation for conditional branches
 
@@ -474,6 +483,9 @@ instance Eq GlobalReg where
    FloatReg i == FloatReg j = i==j
    DoubleReg i == DoubleReg j = i==j
    LongReg i == LongReg j = i==j
+   -- NOTE: XMM, YMM, ZMM registers actually are the same registers
+   -- at least with respect to store at YMM i and then read from XMM i
+   -- and similarly for ZMM etc.
    XmmReg i == XmmReg j = i==j
    YmmReg i == YmmReg j = i==j
    ZmmReg i == ZmmReg j = i==j
@@ -584,6 +596,9 @@ globalRegType dflags (VanillaReg _ VNonGcPtr) = bWord dflags
 globalRegType _      (FloatReg _)      = cmmFloat W32
 globalRegType _      (DoubleReg _)     = cmmFloat W64
 globalRegType _      (LongReg _)       = cmmBits W64
+-- TODO: improve the internal model of SIMD/vectorized registers
+-- the right design SHOULd improve handling of float and double code too.
+-- see remarks in "NOTE [SIMD Design for the future]"" in StgCmmPrim
 globalRegType _      (XmmReg _)        = cmmVec 4 (cmmBits W32)
 globalRegType _      (YmmReg _)        = cmmVec 8 (cmmBits W32)
 globalRegType _      (ZmmReg _)        = cmmVec 16 (cmmBits W32)

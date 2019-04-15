@@ -86,12 +86,18 @@ you can simply do:
   ./configure --prefix=<path> [... other configure options ...]
   make install
 
+In order to support @bin@ and @lib@ directories that don't sit next to each
+other, the install script:
+   * installs programs into @LIBDIR/ghc-VERSION/bin@
+   * installs libraries into @LIBDIR/ghc-VERSION/lib@
+   * installs the wrappers scripts into @BINDIR@ directory
+
 -}
 
 bindistRules :: Rules ()
 bindistRules = do
     root <- buildRootRules
-    phony "binary-dist" $ do
+    phony "binary-dist-dir" $ do
         -- We 'need' all binaries and libraries
         targets <- mapM pkgTarget =<< stagePackages Stage1
         need targets
@@ -115,7 +121,13 @@ bindistRules = do
         copyDirectory (ghcBuildDir -/- "lib") bindistFilesDir
         copyDirectory (rtsIncludeDir)         bindistFilesDir
         need ["docs"]
-        copyDirectory (root -/- "docs") bindistFilesDir
+        -- TODO: we should only embed the docs that have been generated
+        -- depending on the current settings (flavours' "ghcDocs" field and
+        -- "--docs=.." command-line flag)
+        -- Currently we embed the "docs" directory if it exists but it may
+        -- contain outdated or even invalid data.
+        whenM (doesDirectoryExist (root -/- "docs")) $ do
+          copyDirectory (root -/- "docs") bindistFilesDir
         when windows $ do
           copyDirectory (root -/- "mingw") bindistFilesDir
           -- we use that opportunity to delete the .stamp file that we use
@@ -135,8 +147,18 @@ bindistRules = do
                    (["configure", "Makefile"] ++ bindistInstallFiles)
         need $ map ((bindistFilesDir -/- "wrappers") -/-) ["check-api-annotations"
                    , "check-ppr", "ghc", "ghc-iserv", "ghc-pkg"
-                   , "ghci-script", "ghci", "haddock", "hpc", "hp2ps", "hsc2hs"
+                   , "ghci-script", "haddock", "hpc", "hp2ps", "hsc2hs"
                    , "runghc"]
+
+
+    phony "binary-dist" $ do
+
+        need ["binary-dist-dir"]
+
+        version        <- setting ProjectVersion
+        targetPlatform <- setting TargetPlatformFull
+
+        let ghcVersionPretty = "ghc-" ++ version ++ "-" ++ targetPlatform
 
         -- Finally, we create the archive <root>/bindist/ghc-X.Y.Z-platform.tar.xz
         tarPath <- builderPath (Tar Create)
@@ -268,6 +290,7 @@ bindistMakefile = unlines
     , "install: install_mingw update_package_db"
     , ""
     , "ActualBinsDir=${ghclibdir}/bin"
+    , "ActualLibsDir=${ghclibdir}/lib"
     , "WrapperBinsDir=${bindir}"
     , ""
     , "# We need to install binaries relative to libraries."
@@ -280,18 +303,17 @@ bindistMakefile = unlines
     , "\tdone"
     , ""
     , "install_ghci:"
-    , "\t@echo \"Copying and installing ghci\""
-    , "\t$(CREATE_SCRIPT) '$(WrapperBinsDir)/ghci'"
-    , "\t@echo \"#!$(SHELL)\" >>  '$(WrapperBinsDir)/ghci'"
+    , "\t@echo \"Installing ghci wrapper\""
+    , "\t@echo \"#!$(SHELL)\" >  '$(WrapperBinsDir)/ghci'"
     , "\tcat wrappers/ghci-script >> '$(WrapperBinsDir)/ghci'"
     , "\t$(EXECUTABLE_FILE) '$(WrapperBinsDir)/ghci'"
     , ""
     , "LIBRARIES = $(wildcard ./lib/*)"
     , "install_lib:"
-    , "\t@echo \"Copying libraries to $(libdir)\""
-    , "\t$(INSTALL_DIR) \"$(libdir)\""
+    , "\t@echo \"Copying libraries to $(ActualLibsDir)\""
+    , "\t$(INSTALL_DIR) \"$(ActualLibsDir)\""
     , "\tfor i in $(LIBRARIES); do \\"
-    , "\t\tcp -R $$i \"$(libdir)/\"; \\"
+    , "\t\tcp -R $$i \"$(ActualLibsDir)/\"; \\"
     , "\tdone"
     , ""
     , "INCLUDES = $(wildcard ./include/*)"
@@ -317,9 +339,10 @@ bindistMakefile = unlines
     , "\t$(foreach p, $(BINARY_NAMES),\\"
     , "\t\t$(call installscript,$p,$(WrapperBinsDir)/$p," ++
       "$(WrapperBinsDir),$(ActualBinsDir),$(ActualBinsDir)/$p," ++
-      "$(libdir),$(docdir),$(includedir)))"
+      "$(ActualLibsDir),$(docdir),$(includedir)))"
+    , "\trm -f '$(WrapperBinsDir)/ghci-script'" -- FIXME: we shouldn't generate it in the first place
     , ""
-    , "PKG_CONFS = $(wildcard $(libdir)/package.conf.d/*)"
+    , "PKG_CONFS = $(wildcard $(ActualLibsDir)/package.conf.d/*)"
     , "update_package_db:"
     , "\t@echo \"Updating the package DB\""
     , "\t$(foreach p, $(PKG_CONFS),\\"
@@ -343,7 +366,6 @@ bindistMakefile = unlines
 wrapper :: FilePath -> String
 wrapper "ghc"         = ghcWrapper
 wrapper "ghc-pkg"     = ghcPkgWrapper
-wrapper "ghci"        = ghciWrapper
 wrapper "ghci-script" = ghciScriptWrapper
 wrapper "haddock"     = haddockWrapper
 wrapper "hsc2hs"      = hsc2hsWrapper
@@ -359,9 +381,6 @@ ghcPkgWrapper :: String
 ghcPkgWrapper = unlines
     [ "PKGCONF=\"$libdir/package.conf.d\""
     , "exec \"$executablename\" --global-package-db \"$PKGCONF\" ${1+\"$@\"}" ]
-
-ghciWrapper :: String
-ghciWrapper = "exec \"$executablename\" --interactive \"$@\"\n"
 
 haddockWrapper :: String
 haddockWrapper = "exec \"$executablename\" -B\"$libdir\" -l\"$libdir\" ${1+\"$@\"}\n"
