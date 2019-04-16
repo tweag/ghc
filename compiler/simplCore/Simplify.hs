@@ -2530,10 +2530,15 @@ reallyRebuildCase env scrut case_bndr alts cont
        ; rebuild env case_expr cont }
 
   | otherwise
-  = do { (floats, cont') <- mkDupableCaseCont env alts cont
+  = do { -- pprTraceM "reallyRebuildCase start" (ppr scrut <+> text "," <+> ppr case_bndr <+> ppr alts <+> ppr cont)
+       ; (floats, cont') <- mkDupableCaseCont env alts cont
        ; case_expr <- simplAlts (env `setInScopeFromF` floats)
-                                scrut case_bndr alts cont'
+                                -- TODO inconsistent argument order
+                                scrut (scaleIdBy case_bndr holeScaling) (scaleAltsBy holeScaling alts) cont'
+       ; -- pprTraceM "reallyRebuildCase" (ppr scrut <+> text "," <+> ppr case_bndr <+> text "," <+> ppr cont <+> text "|" <+> ppr cont' <+> text "=" <+> ppr case_expr <+> text "," <+> ppr floats)
        ; return (floats, case_expr) }
+  where
+    holeScaling = contHoleScaling cont
 
 {-
 simplCaseBinder checks whether the scrutinee is a variable, v.  If so,

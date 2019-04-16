@@ -32,6 +32,8 @@ module SimplUtils (
 
         abstractFloats,
 
+        contHoleScaling,
+
         -- Utilities
         isExitJoinId
     ) where
@@ -2323,3 +2325,16 @@ without getting changed to c1=I# c2.
 I don't think this is worth fixing, even if I knew how. It'll
 all come out in the next pass anyway.
 -}
+
+contHoleScaling :: SimplCont -> Mult
+contHoleScaling (Stop _ _) = One
+contHoleScaling (CastIt _ k) = contHoleScaling k
+contHoleScaling (StrictBind { sc_bndr = id, sc_cont = k }) =
+  (idWeight id) `mkMultMul` contHoleScaling k
+contHoleScaling (StrictArg { sc_mult = w, sc_cont = k }) =
+  w `mkMultMul` contHoleScaling k
+contHoleScaling (Select { sc_bndr = id, sc_cont = k }) =
+  (idWeight id) `mkMultMul` contHoleScaling k
+contHoleScaling (ApplyToTy { sc_cont = k }) = contHoleScaling k
+contHoleScaling (ApplyToVal { sc_cont = k }) = contHoleScaling k
+contHoleScaling (TickIt _ k) = contHoleScaling k
