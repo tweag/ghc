@@ -81,8 +81,7 @@ mkMultMul One p = p
 mkMultMul p One = p
 mkMultMul Omega _ = Omega
 mkMultMul _ Omega = Omega
-mkMultMul p q | p `eqType` q = p
-              | otherwise = mkTyConApp multMulTyCon [p, q]
+mkMultMul p q = mkTyConApp multMulTyCon [p, q]
 
 -- For now, approximate p + q by Omega.
 mkMultAdd :: Mult -> Mult -> Mult
