@@ -2474,8 +2474,26 @@ varCallSiteUsage id =
      Regular w -> return (unitUE id w)
      Alias -> do m <- getUEAliases
                  case lookupNameEnv m (getName id) of
-                     Nothing -> do --addErrL (text "bad alias" <+> ppr id)
-                                   return (unitUE id Omega)
+                     Nothing -> return (unitUE id One)
+                       -- If the alias's usage environment doesn't exist, it
+                       -- means that the variable is actually defined at
+                       -- toplevel. Because toplevel is usually a big mutually
+                       -- recursive block, everything at toplevel is morally
+                       -- `Omega`.
+                       --
+                       -- Because let-binders can float to toplevel, we can
+                       -- however, have alias-like binders at the toplevel. It's
+                       -- entirely fine: we can just treat them as unrestricted
+                       -- binders!
+                       --
+                       -- Unrestricted binder checks always succeed (in fact, in
+                       -- the case of toplevel binders: we don't even perform a
+                       -- multiplicity check). So it doesn't really matter how
+                       -- we count the variable. We could even not count it at
+                       -- all! However, if the variable was a locally-bound
+                       -- unrestricted variable, we would count 1. Therefore,
+                       -- for the sake of consistency in the debugging outputs,
+                       -- we count 1 here too.
                      Just id_ue -> return id_ue
 
 lintTyCoVarInScope :: TyCoVar -> LintM ()
