@@ -2471,7 +2471,7 @@ addAliasUE id ue thing_inside = LintM $ \ env errs ->
 varCallSiteUsage :: Id -> LintM UsageEnv
 varCallSiteUsage id =
   case varMult id of
-     Regular w -> return (unitUE id w)
+     Regular _ -> return (unitUE id One)
      Alias -> do m <- getUEAliases
                  case lookupNameEnv m (getName id) of
                      Nothing -> do --addErrL (text "bad alias" <+> ppr id)
