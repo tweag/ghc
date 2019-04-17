@@ -2532,8 +2532,10 @@ reallyRebuildCase env scrut case_bndr alts cont
   | otherwise
   = do { (floats, cont') <- mkDupableCaseCont env alts cont
        ; case_expr <- simplAlts (env `setInScopeFromF` floats)
-                                scrut case_bndr alts cont'
+                                scrut (scaleIdBy case_bndr holeScaling) (scaleAltsBy holeScaling alts) cont'
        ; return (floats, case_expr) }
+  where
+    holeScaling = contHoleScaling cont
 
 {-
 simplCaseBinder checks whether the scrutinee is a variable, v.  If so,
