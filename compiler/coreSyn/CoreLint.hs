@@ -2509,6 +2509,9 @@ ensureEqTys :: OutType -> OutType -> MsgDoc -> LintM ()
 ensureEqTys ty1 ty2 msg = lintL (ty1 `eqType` ty2) msg
 
 ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()
+-- Keep in sync with tcSubMult in TcUnify
+ensureSubMult (MultMul m1 m2) w err_msg = ensureSubMult m1 w err_msg >>
+                                          ensureSubMult m2 w err_msg
 ensureSubMult actual_usage described_usage err_msg =
     case (actual_usage `submult` described_usage) of
       Submult -> return ()
