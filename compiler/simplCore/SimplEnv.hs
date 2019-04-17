@@ -40,7 +40,7 @@ module SimplEnv (
 
         -- * JoinFloats
         JoinFloat, JoinFloats, emptyJoinFloats,
-        wrapJoinFloats, wrapJoinFloatsX, unitJoinFloat, addJoinFlts
+        wrapJoinFloats, wrapJoinFloatsX, unitJoinFloat, addJoinFlts, scaleFloatsBy
     ) where
 
 #include "HsVersions.h"
@@ -943,3 +943,9 @@ substIdType (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv
     subst = TCvSubst in_scope tv_env cv_env
     old_ty = idType id
     old_w  = varMult id
+
+scaleFloatsBy :: Mult -> SimplFloats -> SimplFloats
+scaleFloatsBy w (SimplFloats lfs jfs in_scope) =
+  SimplFloats lfs' jfs in_scope
+  where
+    lfs' = mapLetFloats lfs (\(bndr, e) -> (scaleIdBy bndr w, e)) 
