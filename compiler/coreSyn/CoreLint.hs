@@ -2510,10 +2510,15 @@ ensureEqTys ty1 ty2 msg = lintL (ty1 `eqType` ty2) msg
 
 ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()
 ensureSubMult actual_usage described_usage err_msg =
-    case (actual_usage `submult` described_usage) of
+    case (norm actual_usage `submult` norm described_usage) of
       Submult -> return ()
       NotSubmult -> addWarnL err_msg
-      Unknown -> when (not (actual_usage `eqType` described_usage)) (addWarnL err_msg)
+      Unknown -> when (not (norm actual_usage `eqType` norm described_usage)) (addWarnL err_msg)
+   where -- Sometimes we end up with MultMul Omega x,
+         -- for example when compiling Data/Text/Internal/Fusion/Common.hs
+         -- TODO: track the source
+         norm (MultMul x y) = mkMultMul (norm x) (norm y)
+         norm u = u
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared
