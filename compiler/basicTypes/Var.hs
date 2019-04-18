@@ -409,10 +409,10 @@ varWeightMaybe :: Id -> Maybe Mult
 varWeightMaybe v =
   case varMultMaybe v of
     Just (Regular w) -> Just w
-    Just Alias -> Just One
+    Just Alias -> Just Omega
   -- It may be preferable to fail returning a multiplicity in the 'Alias' case,
   -- varWeight probably isn't called on alias-like variables. Until it poses a
-  -- problem, however, let's just pretend that these are secretly linear
+  -- problem, however, let's just pretend that these are secretly unrestricted
   -- binders.
     Nothing -> Nothing
 
