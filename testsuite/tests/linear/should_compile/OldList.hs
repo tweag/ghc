@@ -1,4 +1,4 @@
-{-# LANGUAGE LinearTypes #-}
+{-# LANGUAGE LinearTypes, DataKinds, TypeApplications #-}
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, BangPatterns, RankNTypes #-}
 
 {-
@@ -10,6 +10,7 @@ types implementation.
 module Data.OldList where
 
 import GHC.Base
+import GHC.Types
 
 sortBy :: forall a . (a -> a -> Ordering) -> [a]
 sortBy cmp = []
@@ -29,6 +30,6 @@ sortBy cmp = []
       | a `cmp` b /= GT = ascending b foo bs
       where
         foo :: [a] -->.(k) [a]
-        foo ys = as (a:ys)
+        foo ys = as @One (a:ys)
     ascending a as bs   = let !x = as [a]
                           in x : sequences bs
