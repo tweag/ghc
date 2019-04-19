@@ -1427,7 +1427,10 @@ newSigLetBndr (LetGblBndr prags) name (TISI { sig_inst_sig = id_sig })
   | CompleteSig { sig_bndr = poly_id } <- id_sig
   = addInlinePrags poly_id (lookupPragEnv prags name)
 newSigLetBndr no_gen name (TISI { sig_inst_tau = tau })
-  = newLetBndr no_gen name Alias tau
+  = newLetBndr no_gen name (Regular Omega) tau
+    -- Binders with a signature are currently always of multiplicity
+    -- Omega. Because they come either from toplevel, let, or where
+    -- declarations. Which are all unrestricted currently.
 
 -------------------
 tcRhs :: TcMonoBind -> TcM (HsBind GhcTcId)
