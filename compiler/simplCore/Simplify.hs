@@ -2913,7 +2913,10 @@ knownCon env scrut dc_floats dc dc_ty_args dc_args bndr bs rhs cont
 
     bind_args env' (b:bs') (arg : args)
       = ASSERT( isId b )
-        do { let b' = zap_occ b
+        do { let b' = zap_occ b `setIdVarMult` Alias
+             -- Non-recursive let-binders must be Alias. Especially since they
+             -- are going to be floated.
+             --
              -- Note that the binder might be "dead", because it doesn't
              -- occur in the RHS; and simplNonRecX may therefore discard
              -- it via postInlineUnconditionally.
