@@ -47,8 +47,9 @@ module Var (
         varMult, varMultMaybe, varMult',
 
         -- ** Modifying 'Var's
-        setVarName, setVarUnique, setVarType, updateVarType,
-        updateVarTypeM, scaleVarBy, setVarMult,
+        setVarName, setVarUnique, setVarType,
+        setVarTypeMult, scaleVarBy, setVarMult,
+        updateVarTypeAndMult, updateVarTypeAndMultM,
 
         -- ** Constructing, taking apart, modifying 'Id's
         mkGlobalVar, mkLocalVar, mkExportedLocalVar, mkCoVar,
@@ -388,12 +389,18 @@ setVarName var new_name
 setVarType :: Id -> Type -> Id
 setVarType id ty = id { varType = ty }
 
-updateVarType :: (Type -> Type) -> Id -> Id
-updateVarType f id = id { varType = f (varType id) }
+updateVarTypeAndMult :: (Type -> Type) -> Id -> Id
+updateVarTypeAndMult f id = let id' = id { varType = f (varType id) }
+                            in case varMult id' of
+                                      Regular w -> setVarMult id' (Regular (f w))
+                                      Alias -> id'
 
-updateVarTypeM :: Monad m => (Type -> m Type) -> Id -> m Id
-updateVarTypeM f id = do { ty' <- f (varType id)
-                         ; return (id { varType = ty' }) }
+updateVarTypeAndMultM :: Monad m => (Type -> m Type) -> Id -> m Id
+updateVarTypeAndMultM f id = do { ty' <- f (varType id)
+                                ; m' <- case varMult id of
+                                          Regular w -> Regular <$> f w
+                                          Alias -> return Alias
+                                ; return (setVarMult (setVarType id ty') m') }
 
 varMultMaybe :: Id -> Maybe VarMult
 varMultMaybe (Id { varMult = mult }) = Just mult
@@ -441,6 +448,9 @@ scaleVarBy id _ = id
 setVarMult :: Id -> VarMult -> Id
 setVarMult id r | isId id = id { varMult = r }
 setVarMult id _ = id
+
+setVarTypeMult :: Id -> Type -> VarMult -> Id
+setVarTypeMult id t m = setVarMult (setVarType id t) m
 
 isUnrestrictedVar :: Id -> Bool
 isUnrestrictedVar Id { varMult = Regular Omega } = True

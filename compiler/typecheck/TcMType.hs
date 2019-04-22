@@ -1868,8 +1868,7 @@ zonkImplication implic@(Implic { ic_skols  = skols
                         , ic_info   = info' }) }
 
 zonkEvVar :: EvVar -> TcM EvVar
-zonkEvVar var = do { ty' <- zonkTcType (varType var)
-                   ; return (setVarType var ty') }
+zonkEvVar var = updateVarTypeAndMultM zonkTcType var
 
 
 zonkWC :: WantedConstraints -> TcM WantedConstraints
@@ -1987,7 +1986,10 @@ zonkSkolemInfo skol_info = return skol_info
 zonkId :: TcId -> TcM TcId
 zonkId id
   = do { ty' <- zonkTcType (idType id)
-       ; return (Id.setIdType id ty') }
+       ; m' <- case idMult id of
+                 Regular w -> Regular <$> zonkTcType w
+                 Alias -> return Alias
+       ; return (Id.setIdVarMult (Id.setIdType id ty') m') }
 
 zonkCoVar :: CoVar -> TcM CoVar
 zonkCoVar = zonkId
@@ -2159,7 +2161,7 @@ tidyCt env ct
 
 ----------------
 tidyEvVar :: TidyEnv -> EvVar -> EvVar
-tidyEvVar env var = setVarType var (tidyType env (varType var))
+tidyEvVar env var = updateVarTypeAndMult (tidyType env) var
 
 ----------------
 tidySkolemInfo :: TidyEnv -> SkolemInfo -> SkolemInfo

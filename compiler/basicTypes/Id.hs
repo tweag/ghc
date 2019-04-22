@@ -49,7 +49,7 @@ module Id (
         recordSelectorTyCon,
 
         -- ** Modifying an Id
-        setIdName, setIdUnique, Id.setIdType, setIdVarMult,
+        setIdName, setIdUnique, Id.setIdType, setIdVarMult, updateIdTypeAndMult,
         setIdExported, setIdNotExported,
         globaliseId, localiseId,
         setIdInfo, lazySetIdInfo, modifyIdInfo, maybeModifyIdInfo,
@@ -219,6 +219,9 @@ setIdUnique = Var.setVarUnique
 -- reduce space usage
 setIdType :: Id -> Type -> Id
 setIdType id ty = seqType ty `seq` Var.setVarType id ty
+
+updateIdTypeAndMult :: (Type -> Type) -> Id -> Id
+updateIdTypeAndMult = Var.updateVarTypeAndMult
 
 setIdExported :: Id -> Id
 setIdExported = Var.setIdExported

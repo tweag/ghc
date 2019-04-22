@@ -3478,7 +3478,7 @@ subst_co subst co
 
     -- See Note [Substituting in a coercion hole]
     go_hole h@(CoercionHole { ch_co_var = cv })
-      = h { ch_co_var = updateVarType go_ty cv }
+      = h { ch_co_var = updateVarTypeAndMult go_ty cv }
 
 substForAllCoBndr :: TCvSubst -> TyCoVar -> KindCoercion
                   -> (TCvSubst, TyCoVar, Coercion)
@@ -3989,8 +3989,7 @@ tidyVarBndr tidy_env@(occ_env, subst) var
       (occ_env', occ') -> ((occ_env', subst'), var')
         where
           subst' = extendVarEnv subst var var'
-          var'   = setVarType (setVarName var name') type'
-          type'  = tidyType tidy_env (varType var)
+          var'   = updateVarTypeAndMult (tidyType tidy_env) (setVarName var name')
           name'  = tidyNameOcc name occ'
           name   = varName var
 
@@ -4057,7 +4056,7 @@ tidyOpenTyCoVar env@(_, subst) tyvar
 tidyTyCoVarOcc :: TidyEnv -> TyCoVar -> TyCoVar
 tidyTyCoVarOcc env@(_, subst) tv
   = case lookupVarEnv subst tv of
-        Nothing  -> updateVarType (tidyType env) tv
+        Nothing  -> updateVarTypeAndMult (tidyType env) tv
         Just tv' -> tv'
 
 ---------------

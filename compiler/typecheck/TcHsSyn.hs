@@ -383,7 +383,7 @@ zonkIdBndr env v
        ensureNotLevPoly ty'
          (text "In the type of binder" <+> quotes (ppr v))
 
-       return (modifyIdInfo (`setLevityInfoWithType` ty') (setVarMult (setIdType v ty') w'))
+       return (modifyIdInfo (`setLevityInfoWithType` ty') (setIdVarMult (setIdType v ty') w'))
 
 zonkIdBndrs :: ZonkEnv -> [TcId] -> TcM [Id]
 zonkIdBndrs env ids = mapM (zonkIdBndr env) ids
@@ -409,11 +409,7 @@ zonkEvBndr :: ZonkEnv -> EvVar -> TcM EvVar
 -- Works for dictionaries and coercions
 -- Does not extend the ZonkEnv
 zonkEvBndr env var
-  = do { let var_ty = varType var
-       ; ty <-
-           {-# SCC "zonkEvBndr_zonkTcTypeToType" #-}
-           zonkTcTypeToTypeX env var_ty
-       ; return (setVarType var ty) }
+  = updateVarTypeAndMultM ({-# SCC "zonkEvBndr_zonkTcTypeToType" #-} zonkTcTypeToTypeX env) var
 
 {-
 zonkEvVarOcc :: ZonkEnv -> EvVar -> TcM EvTerm
@@ -613,7 +609,7 @@ zonk_bind env (AbsBinds { abs_tvs = tyvars, abs_ev_vars = evs
       , (dL->L loc bind@(FunBind { fun_id      = (dL->L mloc mono_id)
                                  , fun_matches = ms
                                  , fun_co_fn   = co_fn })) <- lbind
-      = do { new_mono_id <- updateVarTypeM (zonkTcTypeToTypeX env) mono_id
+      = do { new_mono_id <- updateVarTypeAndMultM (zonkTcTypeToTypeX env) mono_id
                             -- Specifically /not/ zonkIdBndr; we do not
                             -- want to complain about a levity-polymorphic binder
            ; (env', new_co_fn) <- zonkCoFn env co_fn
