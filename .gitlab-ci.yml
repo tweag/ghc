@@ -30,6 +30,7 @@ stages:
     - /ghc-[0-9]+\.[0-9]+/
     - merge_requests
     - tags
+    - web
 
 ############################################################
 # Runner Tags
@@ -124,7 +125,8 @@ lint-changelogs:
 lint-release-changelogs:
   extends: .lint-changelogs
   only:
-    - tags
+    refs:
+      - /ghc-[0-9]+\.[0-9]+\.[0-9]+-.*/
 
 
 ############################################################
@@ -456,6 +458,27 @@ release-x86_64-linux-deb8:
     when: always
     expire_in: 2 week
 
+#################################
+# x86_64-linux-centos7
+#################################
+
+release-x86_64-linux-centos7:
+  extends: .validate-linux
+  stage: full-build
+  image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-centos7:$DOCKER_REV"
+  variables:
+    # The sphinx release shipped with Centos 7 fails to build out documentation
+    BUILD_SPHINX_HTML: "NO"
+    BUILD_SPHINX_PDF: "NO"
+    TEST_ENV: "x86_64-linux-centos7"
+    BIN_DIST_PREP_TAR_COMP: "bindistprep/ghc-x86_64-centos7-linux.tar.xz"
+  only:
+    - tags
+  cache:
+    key: linux-x86_64-centos7
+  artifacts:
+    when: always
+    expire_in: 2 week
 
 #################################
 # x86_64-linux-fedora27
@@ -603,6 +626,8 @@ release-i386-windows:
     MSYSTEM: MINGW32
     BUILD_FLAVOUR: "perf"
     CONFIGURE_ARGS: "--target=i386-unknown-mingw32"
+    # Due to #15934
+    BUILD_PROF_LIBS: "NO"
   cache:
     key: "i386-windows-$WINDOWS_TOOLCHAIN_VERSION"
 
@@ -614,6 +639,8 @@ nightly-i386-windows:
   variables:
     MSYSTEM: MINGW32
     CONFIGURE_ARGS: "--target=i386-unknown-mingw32"
+    # Due to #15934
+    BUILD_PROF_LIBS: "NO"
   cache:
     key: "i386-windows-$WINDOWS_TOOLCHAIN_VERSION"
 
@@ -687,6 +714,11 @@ doc-tarball:
   dependencies:
     - validate-x86_64-linux-deb9
     - validate-x86_64-windows
+  variables:
+    LINUX_BINDIST: "ghc-x86_64-deb9-linux.tar.xz"
+    WINDOWS_BINDIST: "ghc-x86_64-mingw32.tar.xz"
+  # Due to Windows allow_failure
+  allow_failure: true
   artifacts:
     paths:
       - haddock.html.tar.xz
@@ -695,8 +727,17 @@ doc-tarball:
       - index.html
       - "*.pdf"
   script:
+    - |
+      if [ ! -f "$LINUX_BINDIST" ]; then
+        echo "Error: $LINUX_BINDIST does not exist. Did the Debian 9 job fail?"
+        exit 1
+      fi
+      if [ ! -f "$WINDOWS_BINDIST" ]; then
+        echo "Error: $WINDOWS_BINDIST does not exist. Did the 64-bit Windows job fail?"
+        exit 1
+      fi
     - rm -Rf docs
-    - bash -ex distrib/mkDocs/mkDocs ghc-x86_64-deb9-linux.tar.xz ghc-x86_64-mingw32.tar.xz
+    - bash -ex distrib/mkDocs/mkDocs $LINUX_BINDIST $WINDOWS_BINDIST
     - ls -lh
     - mv docs/*.tar.xz docs/index.html .
 
@@ -763,6 +804,8 @@ pages:
   dependencies:
     - doc-tarball
   image: ghcci/x86_64-linux-deb9:0.2
+  # Due to Windows allow_failure
+  allow_failure: true
   tags:
     - x86_64-linux
   script:

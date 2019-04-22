@@ -102,7 +102,7 @@ import Data.Char
 import Data.Function
 import Data.IORef ( IORef, modifyIORef, newIORef, readIORef, writeIORef )
 import Data.List ( find, group, intercalate, intersperse, isPrefixOf, nub,
-                   partition, sort, sortBy )
+                   partition, sort, sortBy, (\\) )
 import qualified Data.Set as S
 import Data.Maybe
 import Data.Map (Map)
@@ -351,13 +351,16 @@ defFullHelpText =
   "\n" ++
   "   :set <option> ...           set options\n" ++
   "   :seti <option> ...          set options for interactive evaluation only\n" ++
+  "   :set local-config { source | ignore }\n" ++
+  "                               set whether to source .ghci in current dir\n" ++
+  "                               (loading untrusted config is a security issue)\n" ++
   "   :set args <arg> ...         set the arguments returned by System.getArgs\n" ++
   "   :set prog <progname>        set the value returned by System.getProgName\n" ++
   "   :set prompt <prompt>        set the prompt used in GHCi\n" ++
   "   :set prompt-cont <prompt>   set the continuation prompt used in GHCi\n" ++
   "   :set prompt-function <expr> set the function to handle the prompt\n" ++
-  "   :set prompt-cont-function <expr>" ++
-                     "set the function to handle the continuation prompt\n" ++
+  "   :set prompt-cont-function <expr>\n" ++
+  "                               set the function to handle the continuation prompt\n" ++
   "   :set editor <cmd>           set the command used for :edit\n" ++
   "   :set stop [<n>] <cmd>       set the command to run when a breakpoint is hit\n" ++
   "   :unset <option> ...         unset options\n" ++
@@ -482,6 +485,7 @@ interactiveUI config srcs maybe_exprs = do
                    stop               = default_stop,
                    editor             = default_editor,
                    options            = [],
+                   localConfig        = SourceLocalConfig,
                    -- We initialize line number as 0, not 1, because we use
                    -- current line number while reporting errors which is
                    -- incremented after reading a line.
@@ -566,8 +570,6 @@ runGHCi paths maybe_exprs = do
   let
    ignore_dot_ghci = gopt Opt_IgnoreDotGhci dflags
 
-   current_dir = return (Just ".ghci")
-
    app_user_dir = liftIO $ withGhcAppData
                     (\dir -> return (Just (dir </> "ghci.conf")))
                     (return Nothing)
@@ -606,17 +608,44 @@ runGHCi paths maybe_exprs = do
 
   setGHCContextFromGHCiState
 
-  dot_cfgs <- if ignore_dot_ghci then return [] else do
-    dot_files <- catMaybes <$> sequence [ current_dir, app_user_dir, home_dir ]
-    liftIO $ filterM checkFileAndDirPerms dot_files
-  mdot_cfgs <- liftIO $ mapM canonicalizePath' dot_cfgs
+  processedCfgs <- if ignore_dot_ghci
+    then pure []
+    else do
+      userCfgs <- do
+        paths <- catMaybes <$> sequence [ app_user_dir, home_dir ]
+        checkedPaths <- liftIO $ filterM checkFileAndDirPerms paths
+        liftIO . fmap (nub . catMaybes) $ mapM canonicalizePath' checkedPaths
+
+      localCfg <- do
+        let path = ".ghci"
+        ok <- liftIO $ checkFileAndDirPerms path
+        if ok then liftIO $ canonicalizePath' path else pure Nothing
+
+      mapM_ sourceConfigFile userCfgs
+        -- Process the global and user .ghci
+        -- (but not $CWD/.ghci or CLI args, yet)
+
+      behaviour <- localConfig <$> getGHCiState
+
+      processedLocalCfg <- case localCfg of
+        Just path | path `notElem` userCfgs ->
+          -- don't read .ghci twice if CWD is $HOME
+          case behaviour of
+            SourceLocalConfig -> localCfg <$ sourceConfigFile path
+            IgnoreLocalConfig -> pure Nothing
+        _ -> pure Nothing
+
+      pure $ maybe id (:) processedLocalCfg userCfgs
 
   let arg_cfgs = reverse $ ghciScripts dflags
     -- -ghci-script are collected in reverse order
     -- We don't require that a script explicitly added by -ghci-script
     -- is owned by the current user. (#6017)
-  mapM_ sourceConfigFile $ nub $ (catMaybes mdot_cfgs) ++ arg_cfgs
-    -- nub, because we don't want to read .ghci twice if the CWD is $HOME.
+
+  mapM_ sourceConfigFile $ nub arg_cfgs \\ processedCfgs
+    -- Dedup, and remove any configs we already processed.
+    -- Importantly, if $PWD/.ghci was ignored due to configuration,
+    -- explicitly specifying it does cause it to be processed.
 
   -- Perform a :load for files given on the GHCi command line
   -- When in -e mode, if the load fails then we want to stop
@@ -2663,6 +2692,8 @@ setCmd str
 
     Right ("editor",  rest) -> setEditor  $ dropWhile isSpace rest
     Right ("stop",    rest) -> setStop    $ dropWhile isSpace rest
+    Right ("local-config", rest) ->
+        setLocalConfigBehaviour $ dropWhile isSpace rest
     _ -> case toArgs str of
          Left err -> liftIO (hPutStrLn stderr err)
          Right wds -> setOptions wds
@@ -2728,6 +2759,7 @@ showDynFlags show_all dflags = do
 
 setArgs, setOptions :: GhciMonad m => [String] -> m ()
 setProg, setEditor, setStop :: GhciMonad m => String -> m ()
+setLocalConfigBehaviour :: GhciMonad m => String -> m ()
 
 setArgs args = do
   st <- getGHCiState
@@ -2740,6 +2772,14 @@ setProg prog = do
   setGHCiState st { progname = prog, evalWrapper = wrapper }
 
 setEditor cmd = modifyGHCiState (\st -> st { editor = cmd })
+
+setLocalConfigBehaviour s
+  | s == "source" =
+      modifyGHCiState (\st -> st { localConfig = SourceLocalConfig })
+  | s == "ignore" =
+      modifyGHCiState (\st -> st { localConfig = IgnoreLocalConfig })
+  | otherwise = throwGhcException
+      (CmdLineError "syntax:  :set local-config { source | ignore }")
 
 setStop str@(c:_) | isDigit c
   = do let (nm_str,rest) = break (not.isDigit) str
