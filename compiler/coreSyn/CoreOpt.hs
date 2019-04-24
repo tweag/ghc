@@ -525,11 +525,7 @@ subst_opt_id_bndr env@(SOE { soe_subst = subst, soe_inl = inl }) old_id
     Subst in_scope id_subst tv_subst cv_subst = subst
 
     id1    = uniqAway in_scope old_id
-    id2    =
-      setIdVarMult
-        (setIdType id1
-          (substTy subst (idType old_id)))
-          (substVarMult subst (idMult old_id))
+    id2    = updateIdTypeAndMult (substTy subst) id1
     new_id = zapFragileIdInfo id2
              -- Zaps rules, unfolding, and fragile OccInfo
              -- The unfolding and rules will get added back later, by add_info
@@ -1262,7 +1258,7 @@ pushCoercionIntoLambda in_scope x e co
     | ASSERT(not (isTyVar x) && not (isCoVar x)) True
     , Pair s1s2 t1t2 <- coercionKind co
     , Just (_s1,_s2) <- splitFunTy_maybe s1s2
-    , Just (t1,_t2) <- splitFunTy_maybe t1t2
+    , Just (Scaled w1 t1,_t2) <- splitFunTy_maybe t1t2
     , (co_mult, co1, co2) <- decomposeFunCo Representational co
     , isReflCo co_mult
       -- We can't push the coercion in the case where co_mult isn't
@@ -1270,7 +1266,7 @@ pushCoercionIntoLambda in_scope x e co
     = let
           -- Should we optimize the coercions here?
           -- Otherwise they might not match too well
-          x' = x `setIdType` scaledThing t1
+          x' = x `setIdType` t1 `setIdVarMult` (Regular w1)
           in_scope' = in_scope `extendInScopeSet` x'
           subst = extendIdSubst (mkEmptySubst in_scope')
                                 x

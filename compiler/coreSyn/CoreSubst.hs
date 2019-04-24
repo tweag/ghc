@@ -14,7 +14,7 @@ module CoreSubst (
 
         -- ** Substituting into expressions and related types
         deShadowBinds, substSpec, substRulesForImportedIds,
-        substTy, substVarMult, substCo, substExpr, substExprSC, substBind, substBindSC,
+        substTy, substCo, substExpr, substExprSC, substBind, substBindSC,
         substUnfolding, substUnfoldingSC,
         lookupIdSubst, lookupTCvSubst, substIdOcc,
         substTickish, substDVarSet, substIdInfo,
@@ -475,10 +475,7 @@ substIdBndr _doc rec_subst subst@(Subst in_scope env tvs cvs) old_id
   where
     id1 = uniqAway in_scope old_id      -- id1 is cloned if necessary
     id2 | no_type_change = id1
-        | otherwise      =  setVarMult
-                              (setIdType id1
-                                (substTy subst old_ty))
-                                (substVarMult subst old_w)
+        | otherwise      =  updateIdTypeAndMult (substTy subst) id1
 
     old_ty = idType old_id
     old_w = idMult old_id
@@ -588,10 +585,6 @@ substCoVarBndr (Subst in_scope id_env tv_env cv_env) cv
 substTy :: Subst -> Type -> Type
 substTy subst ty = Type.substTyUnchecked (getTCvSubst subst) ty
 
-substVarMult :: Subst -> VarMult -> VarMult
-substVarMult subst (Regular w) = Regular (Type.substMultUnchecked (getTCvSubst subst) w)
-substVarMult _     Alias = Alias
-
 getTCvSubst :: Subst -> TCvSubst
 getTCvSubst (Subst in_scope _ tenv cenv) = TCvSubst in_scope tenv cenv
 
@@ -613,9 +606,7 @@ substIdType subst@(Subst _ _ tv_env cv_env) id
     || (noFreeVarsOfType old_ty && (case old_w of Alias -> True
                                                   Regular w -> noFreeVarsOfType w)) = id
   | otherwise   =
-      setVarMult
-        (setIdType id (substTy subst old_ty))
-        (substVarMult subst old_w)
+      updateIdTypeAndMult (substTy subst) id
         -- The tyCoVarsOfType is cheaper than it looks
         -- because we cache the free tyvars of the type
         -- in a Note in the id's type itself

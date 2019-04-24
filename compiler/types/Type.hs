@@ -213,8 +213,6 @@ module Type (
         substVarBndr, substVarBndrs,
         cloneTyVarBndr, cloneTyVarBndrs, lookupTyVar,
 
-        substMultUnchecked, substVarMultUnchecked,
-
         -- * Pretty-printing
         pprType, pprParendType, pprPrecType,
         pprTypeApp, pprTyThingCategory, pprShortTyThing,
@@ -2959,8 +2957,7 @@ occCheckExpand vs_to_avoid ty
                                 ; return (mkCoercionTy co') }
 
     ------------------
-    go_var cxt v = do { k' <- go cxt (varType v)
-                      ; return (setVarType v k') }
+    go_var cxt v = updateVarTypeAndMultM (go cxt) v
            -- Works for TyVar and CoVar
            -- See Note [Occurrence checking: look inside kinds]
 

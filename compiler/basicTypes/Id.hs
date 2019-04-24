@@ -50,6 +50,7 @@ module Id (
 
         -- ** Modifying an Id
         setIdName, setIdUnique, Id.setIdType, setIdVarMult,
+        updateIdTypeAndMult, updateIdTypeAndMultM,
         setIdExported, setIdNotExported,
         globaliseId, localiseId,
         setIdInfo, lazySetIdInfo, modifyIdInfo, maybeModifyIdInfo,
@@ -219,6 +220,12 @@ setIdUnique = Var.setVarUnique
 -- reduce space usage
 setIdType :: Id -> Type -> Id
 setIdType id ty = seqType ty `seq` Var.setVarType id ty
+
+updateIdTypeAndMult :: (Type -> Type) -> Id -> Id
+updateIdTypeAndMult = Var.updateVarTypeAndMult
+
+updateIdTypeAndMultM :: Monad m => (Type -> m Type) -> Id -> m Id
+updateIdTypeAndMultM = Var.updateVarTypeAndMultM
 
 setIdExported :: Id -> Id
 setIdExported = Var.setIdExported

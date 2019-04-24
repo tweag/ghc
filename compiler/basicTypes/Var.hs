@@ -47,8 +47,9 @@ module Var (
         varMult, varMultMaybe, varMult',
 
         -- ** Modifying 'Var's
-        setVarName, setVarUnique, setVarType, updateVarType,
-        updateVarTypeM, scaleVarBy, setVarMult,
+        setVarName, setVarUnique, setVarType,
+        scaleVarBy, setVarMult,
+        updateVarTypeAndMult, updateVarTypeAndMultM,
 
         -- ** Constructing, taking apart, modifying 'Id's
         mkGlobalVar, mkLocalVar, mkExportedLocalVar, mkCoVar,
@@ -388,12 +389,20 @@ setVarName var new_name
 setVarType :: Id -> Type -> Id
 setVarType id ty = id { varType = ty }
 
-updateVarType :: (Type -> Type) -> Id -> Id
-updateVarType f id = id { varType = f (varType id) }
+updateVarTypeAndMult :: (Type -> Type) -> Id -> Id
+updateVarTypeAndMult f id = let id' = id { varType = f (varType id) }
+                            in case varMultMaybe id' of
+                                      Just (Regular w) -> setVarMult id' (Regular (f w))
+                                      _ -> id'
 
-updateVarTypeM :: Monad m => (Type -> m Type) -> Id -> m Id
-updateVarTypeM f id = do { ty' <- f (varType id)
-                         ; return (id { varType = ty' }) }
+updateVarTypeAndMultM :: Monad m => (Type -> m Type) -> Id -> m Id
+updateVarTypeAndMultM f id = do { ty' <- f (varType id)
+                                ; let id' = setVarType id ty'
+                                ; case varMultMaybe id of
+                                    Just (Regular w) -> do w' <- f w
+                                                           return $ setVarMult id' (Regular w')
+                                    _ -> return id'
+                                }
 
 varMultMaybe :: Id -> Maybe VarMult
 varMultMaybe (Id { varMult = mult }) = Just mult
