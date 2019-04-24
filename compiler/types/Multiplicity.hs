@@ -35,8 +35,8 @@ import GhcPrelude
 import Data.Data
 import Outputable
 import {-# SOURCE #-} TyCoRep (Type)
-import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy, multMulTyCon )
-import {-# SOURCE #-} Type( eqType, splitTyConApp_maybe, mkTyConApp )
+import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy )
+import {-# SOURCE #-} Type( eqType, splitTyConApp_maybe )
 import PrelNames (multMulTyConKey)
 import Unique (hasKey)
 
@@ -76,12 +76,13 @@ isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
 pattern MultMul :: Mult -> Mult -> Mult
 pattern MultMul p q <- (isMultMul -> Just (p,q))
 
+-- For now, approximate p * q by Omega unless p or q are known to be One.
 mkMultMul :: Mult -> Mult -> Mult
 mkMultMul One p = p
 mkMultMul p One = p
 mkMultMul Omega _ = Omega
 mkMultMul _ Omega = Omega
-mkMultMul p q = mkTyConApp multMulTyCon [p, q]
+mkMultMul _ _ = Omega
 
 -- For now, approximate p + q by Omega.
 mkMultAdd :: Mult -> Mult -> Mult
