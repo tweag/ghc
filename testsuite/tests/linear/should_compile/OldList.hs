@@ -29,6 +29,6 @@ sortBy cmp = []
       | a `cmp` b /= GT = ascending b foo bs
       where
         foo :: [a] -->.(k) [a]
-        foo ys = as (a:ys)
+        foo ys = as (((:) :: a -> [a] ->. [a]) a ys)
     ascending a as bs   = let !x = as [a]
                           in x : sequences bs

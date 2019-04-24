@@ -8,7 +8,7 @@ arrow (in the sense of linear types).
 
 Mult is a type synonym for Type, used only when its kind is Multiplicity.
 To simplify dealing with multiplicities, smart constructors such as
-mkMultMul perform simplifications such as Omega + x = x on the fly.
+mkMultMul perform simplifications such as One * x = x on the fly.
 Pattern synonyms such as MultMul can be used to analyze particular Mults.
 -}
 module Multiplicity
