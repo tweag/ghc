@@ -1984,12 +1984,7 @@ zonkSkolemInfo skol_info = return skol_info
 
 -- zonkId is used *during* typechecking just to zonk the Id's type
 zonkId :: TcId -> TcM TcId
-zonkId id
-  = do { ty' <- zonkTcType (idType id)
-       ; m' <- case idMult id of
-                 Regular w -> Regular <$> zonkTcType w
-                 Alias -> return Alias
-       ; return (Id.setIdVarMult (Id.setIdType id ty') m') }
+zonkId id = Id.updateIdTypeAndMultM zonkTcType id
 
 zonkCoVar :: CoVar -> TcM CoVar
 zonkCoVar = zonkId

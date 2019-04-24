@@ -48,7 +48,7 @@ module Var (
 
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType,
-        setVarTypeMult, scaleVarBy, setVarMult,
+        scaleVarBy, setVarMult,
         updateVarTypeAndMult, updateVarTypeAndMultM,
 
         -- ** Constructing, taking apart, modifying 'Id's
@@ -450,9 +450,6 @@ scaleVarBy id _ = id
 setVarMult :: Id -> VarMult -> Id
 setVarMult id r | isId id = id { varMult = r }
 setVarMult id _ = id
-
-setVarTypeMult :: Id -> Type -> VarMult -> Id
-setVarTypeMult id t m = setVarMult (setVarType id t) m
 
 isUnrestrictedVar :: Id -> Bool
 isUnrestrictedVar Id { varMult = Regular Omega } = True

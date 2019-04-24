@@ -49,7 +49,8 @@ module Id (
         recordSelectorTyCon,
 
         -- ** Modifying an Id
-        setIdName, setIdUnique, Id.setIdType, setIdVarMult, updateIdTypeAndMult,
+        setIdName, setIdUnique, Id.setIdType, setIdVarMult,
+        updateIdTypeAndMult, updateIdTypeAndMultM,
         setIdExported, setIdNotExported,
         globaliseId, localiseId,
         setIdInfo, lazySetIdInfo, modifyIdInfo, maybeModifyIdInfo,
@@ -222,6 +223,9 @@ setIdType id ty = seqType ty `seq` Var.setVarType id ty
 
 updateIdTypeAndMult :: (Type -> Type) -> Id -> Id
 updateIdTypeAndMult = Var.updateVarTypeAndMult
+
+updateIdTypeAndMultM :: Monad m => (Type -> m Type) -> Id -> m Id
+updateIdTypeAndMultM = Var.updateVarTypeAndMultM
 
 setIdExported :: Id -> Id
 setIdExported = Var.setIdExported

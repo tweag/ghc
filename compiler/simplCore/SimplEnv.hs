@@ -929,12 +929,7 @@ substIdType (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv
   | (isEmptyVarEnv tv_env && isEmptyVarEnv cv_env)
     || no_free_vars
   = id
-  | otherwise =
-      setVarMult
-        (Id.setIdType id
-          (Type.substTy subst old_ty))
-          (Type.substVarMultUnchecked subst old_w)
-
+  | otherwise = Id.updateIdTypeAndMult (Type.substTyUnchecked subst) id
                 -- The tyCoVarsOfType is cheaper than it looks
                 -- because we cache the free tyvars of the type
                 -- in a Note in the id's type itself

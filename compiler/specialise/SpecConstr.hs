@@ -2098,7 +2098,7 @@ callToPats env bndr_occs call@(Call _ args con_env)
                 -- The kind of a type variable may mention a kind variable
                 -- and the type of a term variable may mention a type variable
 
-              sanitise id   = id `setIdType` expandTypeSynonyms (idType id)
+              sanitise id   = updateIdTypeAndMult expandTypeSynonyms id
                 -- See Note [Free type variables of the qvar types]
 
               -- Bad coercion variables: see Note [SpecConstr and casts]

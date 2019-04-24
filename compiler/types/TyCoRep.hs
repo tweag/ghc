@@ -145,8 +145,6 @@ module TyCoRep (
         substVarBndrUsing, substForAllCoBndrUsing,
         checkValidSubst, isValidTCvSubst,
 
-        substMultUnchecked, substVarMultUnchecked,
-
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,
         tidyOpenType,  tidyOpenTypes,
@@ -3302,15 +3300,6 @@ substTy subst ty
   | isEmptyTCvSubst subst = ty
   | otherwise             = checkValidSubst subst [ty] [] $
                             subst_ty subst ty
-
-substMultUnchecked :: TCvSubst -> Mult -> Mult
-substMultUnchecked subst r
-  | isEmptyTCvSubst subst = r
-  | otherwise             = subst_ty subst r
-
-substVarMultUnchecked :: TCvSubst -> VarMult -> VarMult
-substVarMultUnchecked subst (Regular w) = Regular $ substMultUnchecked subst w
-substVarMultUnchecked _ Alias = Alias
 
 -- | Substitute within a 'Type' disabling the sanity checks.
 -- The problems that the sanity checks in substTy catch are described in
