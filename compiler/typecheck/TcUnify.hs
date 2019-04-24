@@ -824,7 +824,7 @@ tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
 -- As an approximation to checking w1 * w2 <= w we check that w1 <= w and
 -- w2 <= w. As together they imply that w1 * w2 <= w.
 tcSubMult :: CtOrigin -> Mult -> Mult -> TcM ()
-tcSubMult o (MultMul m1 m2) w = tcSubMult o m1 w >> tcSubMult o m2 w
+tcSubMult o (MultMul _ _) w = tcSubMult o Omega w
 tcSubMult o a_w c_w = tcEqMult o o TypeAppCtxt a_w c_w
 
 
