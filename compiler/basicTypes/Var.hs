@@ -391,16 +391,18 @@ setVarType id ty = id { varType = ty }
 
 updateVarTypeAndMult :: (Type -> Type) -> Id -> Id
 updateVarTypeAndMult f id = let id' = id { varType = f (varType id) }
-                            in case varMult id' of
-                                      Regular w -> setVarMult id' (Regular (f w))
-                                      Alias -> id'
+                            in case varMultMaybe id' of
+                                      Just (Regular w) -> setVarMult id' (Regular (f w))
+                                      _ -> id'
 
 updateVarTypeAndMultM :: Monad m => (Type -> m Type) -> Id -> m Id
 updateVarTypeAndMultM f id = do { ty' <- f (varType id)
-                                ; m' <- case varMult id of
-                                          Regular w -> Regular <$> f w
-                                          Alias -> return Alias
-                                ; return (setVarMult (setVarType id ty') m') }
+                                ; let id' = setVarType id ty'
+                                ; case varMultMaybe id of
+                                    Just (Regular w) -> do w' <- f w
+                                                           return $ setVarMult id' (Regular w')
+                                    _ -> return id'
+                                }
 
 varMultMaybe :: Id -> Maybe VarMult
 varMultMaybe (Id { varMult = mult }) = Just mult
