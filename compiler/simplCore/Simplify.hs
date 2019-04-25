@@ -2427,13 +2427,14 @@ rebuildCase env scrut case_bndr alts cont
         -- as well as when it's an explicit constructor application
   , let env0 = setInScopeSet env in_scope'
   = do  { tick (KnownBranch case_bndr)
+        ; let scaled_wfloats = map scale_float wfloats
         ; case findAlt (DataAlt con) alts of
             Nothing  -> missingAlt env0 case_bndr alts cont
             Just (DEFAULT, bs, rhs) -> let con_app = Var (dataConWorkId con)
                                                  `mkTyApps` ty_args
                                                  `mkApps`   other_args
-                                       in simple_rhs env0 wfloats con_app bs rhs
-            Just (_, bs, rhs)       -> knownCon env0 scrut wfloats con ty_args other_args
+                                       in simple_rhs env0 scaled_wfloats con_app bs rhs
+            Just (_, bs, rhs)       -> knownCon env0 scrut scaled_wfloats con ty_args other_args
                                                 case_bndr bs rhs cont
         }
   where
@@ -2450,6 +2451,16 @@ rebuildCase env scrut case_bndr alts cont
                    ( emptyFloats env,
                      MkCore.wrapFloats wfloats $
                      wrapFloats (floats1 `addFloats` floats2) expr' )}
+
+    -- This scales case floats by the multiplicity of the continuation hole.
+    -- Let floats are _not_ scaled, because they are aliases anyway.
+    scale_float (MkCore.FloatCase scrut case_bndr con vars) =
+      let
+        holeScaling = contHoleScaling cont
+        scale_id id = scaleIdBy id holeScaling
+      in
+      MkCore.FloatCase scrut (scale_id case_bndr) con (map scale_id vars)
+    scale_float f = f
 
 
 --------------------------------------------------
