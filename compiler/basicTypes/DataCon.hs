@@ -1287,7 +1287,9 @@ dataConOrigResTy dc = dcOrigResTy dc
 dataConStupidTheta :: DataCon -> ThetaType
 dataConStupidTheta dc = dcStupidTheta dc
 
--- Multiplicity variables of a DataCon.
+-- Multiplicity variables of a DataCon, and arguments scaled by them.
+-- See Note [Wrapper multiplicities].
+--
 -- To avoid spurious renaming, do not use names that were written by user.
 -- For example, given
 --    MkT :: forall n. n -> T n
@@ -1297,10 +1299,11 @@ dataConStupidTheta dc = dcStupidTheta dc
 -- and without linear types,
 --    MkT :: forall n2. n2 -> T n2
 -- See test LinearGhci.
-dataConMulVars :: DataCon -> [TyVar]
+dataConMulVars :: DataCon -> ([TyVar], [Scaled Type])
 dataConMulVars (MkData { dcUserTyVarBinders = user_tvbs,
                          dcOrigArgTys = arg_tys }) =
-  multiplicityTyVarList (length arg_tys) (map getOccName (binderVars user_tvbs))
+   (vars, zipWithEqual "dataConMulVars" (\m b -> scaleScaled (mkTyVarTy m) b) vars arg_tys)
+   where vars = multiplicityTyVarList (length arg_tys) (map getOccName (binderVars user_tvbs))
 
 dataConUserType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor
@@ -1325,12 +1328,10 @@ dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
     mkVisFunTys arg_tys $
     res_ty
 dataConUserType dc@(MkData { dcUserTyVarBinders = user_tvbs,
-                             dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                             dcOtherTheta = theta,
                              dcOrigResTy = res_ty })
-  = let tyvars = dataConMulVars dc
-        tvb = map (mkTyVarBinder Inferred) tyvars
-        -- See Note [Wrapper multiplicities]
-        arg_tys' = zipWith (\m b -> scaleScaled (mkTyVarTy m) b) tyvars arg_tys
+  = let (mult_vars, arg_tys') = dataConMulVars dc
+        tvb = map (mkTyVarBinder Inferred) mult_vars
     in
       mkForAllTys (tvb ++ user_tvbs) $
       mkInvisFunTysOm theta $
