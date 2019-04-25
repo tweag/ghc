@@ -816,15 +816,14 @@ tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
   -- Note that here we do not call to `submult`, so we check
   -- for strict equality.
   ; _wrap <- tc_sub_type_ds eq_orig inst_orig ctxt w_actual w_expected
-  -- I don't know why, but `_wrap` need not be an identity wrapper. At any rate,
-  -- the wrapper isn't significant for multiplicities, so it is safe to drop
-  -- it. But maybe there is a better way to implement this function.
+  -- `_wrap` need not be an identity wrapper. Currently we drop it,
+  -- but this causes Lint failure in the test LinearPolyType.
   ; return () }
 
--- As an approximation to checking w1 * w2 <= w we check that w1 <= w and
--- w2 <= w. As together they imply that w1 * w2 <= w.
+-- As an approximation to p < q we assume p ~ q.
+-- This should be replaced by a solver once we know how to infer
+-- multiplicities.
 tcSubMult :: CtOrigin -> Mult -> Mult -> TcM ()
-tcSubMult o (MultMul m1 m2) w = tcSubMult o m1 w >> tcSubMult o m2 w
 tcSubMult o a_w c_w = tcEqMult o o TypeAppCtxt a_w c_w
 
 
