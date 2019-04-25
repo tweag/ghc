@@ -8,7 +8,7 @@ arrow (in the sense of linear types).
 
 Mult is a type synonym for Type, used only when its kind is Multiplicity.
 To simplify dealing with multiplicities, smart constructors such as
-mkMultMul perform simplifications such as Omega + x = x on the fly.
+mkMultMul perform simplifications such as Omega * x = Omega on the fly.
 Pattern synonyms such as MultMul can be used to analyze particular Mults.
 -}
 module Multiplicity
@@ -45,7 +45,7 @@ Note [Adding new multiplicities]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 To add a new multiplicity, you need to:
 * Add the new type with Multiplicity kind
-* Update cases in mkMultAdd, mkMultMul, sup, submult, tcSubmult
+* Update cases in mkMultAdd, mkMultMul, sup, submult, tcSubMult
 * Check supUE function that computes sup of a multiplicity
   and Zero
 -}
