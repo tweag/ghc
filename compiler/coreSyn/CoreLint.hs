@@ -636,7 +636,7 @@ lintRhs bndr rhs
       = addLoc (LambdaBodyOf var) $
         lintBinder LambdaBind var $ \ var' ->
         do { (body_ty, ue) <- lint_join_lams (n-1) tot enforce expr
-           ; return $ (mkLamType var' body_ty, ue) }
+           ; return $ (mkLamType var' body_ty, deleteUE ue var') }
 
     lint_join_lams n tot True _other
       = failWithL $ mkBadJoinArityMsg bndr tot (tot-n) rhs
@@ -662,7 +662,7 @@ lintRhs _bndr rhs = fmap lf_check_static_ptrs getLintFlags >>= go
           addLoc (LambdaBodyOf var) $
             lintBinder LambdaBind var $ \var' ->
               do { (body_ty, ue) <- loopBinders
-                 ; return $ (mkLamType var' body_ty, ue) }
+                 ; return $ (mkLamType var' body_ty, deleteUE ue var') }
         )
         -- imitate @lintCoreExpr (App ...)@
         (do fun_ty_ue <- lintCoreExpr fun
