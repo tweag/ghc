@@ -706,8 +706,10 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
     new_tycon = isNewTyCon tycon
     arg_ibangs
       | new_tycon
-      = ASSERT( isSingleton orig_arg_tys )
-        [HsLazy] -- See Note [HsImplBangs for newtypes]
+      = map (const HsLazy) orig_arg_tys -- See Note [HsImplBangs for newtypes]
+                                        -- orig_arg_tys should be a singleton, but
+                                        -- if a user declared a wrong newtype we
+                                        -- detect this later (see test T2334A)
       | otherwise
       = case mb_bangs of
           Left dflags -> zipWith (dataConSrcToImplBang dflags fam_envs)
