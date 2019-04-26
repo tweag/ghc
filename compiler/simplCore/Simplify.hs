@@ -2452,8 +2452,9 @@ rebuildCase env scrut case_bndr alts cont
                      MkCore.wrapFloats wfloats $
                      wrapFloats (floats1 `addFloats` floats2) expr' )}
 
-    -- This scales case floats by the multiplicity of the continuation hole.
-    -- Let floats are _not_ scaled, because they are aliases anyway.
+    -- This scales case floats by the multiplicity of the continuation hole (see
+    -- Note [Scaling in case-of-case]).  Let floats are _not_ scaled, because
+    -- they are aliases anyway.
     scale_float (MkCore.FloatCase scrut case_bndr con vars) =
       let
         holeScaling = contHoleScaling cont
@@ -2547,6 +2548,7 @@ reallyRebuildCase env scrut case_bndr alts cont
        ; return (floats, case_expr) }
   where
     holeScaling = contHoleScaling cont
+    -- Note [Scaling in case-of-case]
 
 {-
 simplCaseBinder checks whether the scrutinee is a variable, v.  If so,
@@ -2625,6 +2627,39 @@ taking advantage of the `seq`.
 At one point I did transformation in LiberateCase, but it's more
 robust here.  (Otherwise, there's a danger that we'll simply drop the
 'seq' altogether, before LiberateCase gets to see it.)
+
+Note [Scaling in case-of-case]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When two cases commute, if done naively, the multiplicities will be wrong:
+
+  case (case u of w[1] { (x[1], y[1]) } -> f x y) of w'[Omega]
+  { (z[Omega], t[Omega]) -> z
+  }
+
+The multiplicities here, are correct, but if I perform a case of case:
+
+  case u of w[1]
+  { (x[1], y[1]) -> case f x y of w'[Omega] of { (z[Omega], t[Omega]) -> z }
+  }
+
+This is wrong! Using `f x y` inside a `case … of w'[Omega]` means that `x` and
+`y` must have multiplicities `Omega` not `1`! The correct solution is to make
+all the `1`-s be `Omega`-s instead:
+
+  case u of w[Omega]
+  { (x[Omega], y[Omega]) -> case f x y of w'[Omega] of { (z[Omega], t[Omega]) -> z }
+  }
+
+In general, when commuting two cases, the rule has to be:
+
+  case (case … of x[p] {…}) of y[q] { … }
+  ===> case … of x[p*q] { … case … of y[q] { … } }
+
+This is materialised, in the simplifier, by the fact that every time we simplify
+case alternatives with a continuation (the surrounded case (or more!)), we must
+scale the entire case we are simplifying, by a scaling factor which can be
+computed in the continuation (with function `contHoleScaling`).
 -}
 
 simplAlts :: SimplEnv
@@ -3136,6 +3171,7 @@ mkDupableCont env (Select { sc_bndr = case_bndr, sc_alts = alts
 
         ; let alt_env = se `setInScopeFromF` floats
         ; let cont_scaling = contHoleScaling cont
+          -- See Note [Scaling in case-of-case]
         ; (alt_env', case_bndr') <- simplBinder alt_env (scaleIdBy case_bndr cont_scaling)
         ; alts' <- mapM (simplAlt alt_env' Nothing [] case_bndr' alt_cont) (scaleAltsBy cont_scaling alts)
         -- Safe to say that there are no handled-cons for the DEFAULT case
