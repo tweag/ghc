@@ -3135,8 +3135,9 @@ mkDupableCont env (Select { sc_bndr = case_bndr, sc_alts = alts
                 -- And this is important: see Note [Fusing case continuations]
 
         ; let alt_env = se `setInScopeFromF` floats
-        ; (alt_env', case_bndr') <- simplBinder alt_env case_bndr
-        ; alts' <- mapM (simplAlt alt_env' Nothing [] case_bndr' alt_cont) alts
+        ; let cont_scaling = contHoleScaling cont
+        ; (alt_env', case_bndr') <- simplBinder alt_env (scaleIdBy case_bndr cont_scaling)
+        ; alts' <- mapM (simplAlt alt_env' Nothing [] case_bndr' alt_cont) (scaleAltsBy cont_scaling alts)
         -- Safe to say that there are no handled-cons for the DEFAULT case
                 -- NB: simplBinder does not zap deadness occ-info, so
                 -- a dead case_bndr' will still advertise its deadness
