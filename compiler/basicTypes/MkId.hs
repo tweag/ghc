@@ -686,7 +686,7 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
   where
     (univ_tvs, ex_tvs, eq_spec, theta, orig_arg_tys, _orig_res_ty)
       = dataConFullSig data_con
-    mult_vars    = dataConMulVars data_con
+    (mult_vars, scaled_arg_tys)    = dataConMulVars data_con
     wrap_tvs     = mult_vars ++ dataConUserTyVars data_con
     res_ty_args  = substTyVars (mkTvSubstPrs (map eqSpecPair eq_spec)) univ_tvs
 
@@ -697,9 +697,7 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
     ev_ibangs    = map (const HsLazy) ev_tys
     orig_bangs   = dataConSrcBangs data_con
 
-    -- See Note [Wrapper multiplicities]
-    wrap_arg_tys = (map unrestricted theta)
-                    ++ (zipWith (\a b -> scaleScaled (mkTyVarTy a) b) mult_vars orig_arg_tys)
+    wrap_arg_tys = (map unrestricted theta) ++ scaled_arg_tys
     wrap_arity   = count isCoVar ex_tvs + length wrap_arg_tys
              -- The wrap_args are the arguments *other than* the eq_spec
              -- Because we are going to apply the eq_spec args manually in the
@@ -708,8 +706,10 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
     new_tycon = isNewTyCon tycon
     arg_ibangs
       | new_tycon
-      = ASSERT( isSingleton orig_arg_tys )
-        [HsLazy] -- See Note [HsImplBangs for newtypes]
+      = map (const HsLazy) orig_arg_tys -- See Note [HsImplBangs for newtypes]
+                                        -- orig_arg_tys should be a singleton, but
+                                        -- if a user declared a wrong newtype we
+                                        -- detect this later (see test T2334A)
       | otherwise
       = case mb_bangs of
           Left dflags -> zipWith (dataConSrcToImplBang dflags fam_envs)
