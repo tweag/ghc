@@ -663,7 +663,8 @@ lintRhs _bndr rhs = fmap lf_check_static_ptrs getLintFlags >>= go
           addLoc (LambdaBodyOf var) $
             lintBinder LambdaBind var $ \var' ->
               do { (body_ty, ue) <- loopBinders
-                 ; return $ (mkLamType var' body_ty, deleteUE ue var') }
+                 ; ue' <- checkLinearity ue var'
+                 ; return $ (mkLamType var' body_ty, ue') }
         )
         -- imitate @lintCoreExpr (App ...)@
         (do fun_ty_ue <- lintCoreExpr fun
