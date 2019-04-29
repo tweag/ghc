@@ -903,7 +903,8 @@ lintCoreFun (Lam var body) nargs
   = addLoc (LambdaBodyOf var) $
     lintBinder LambdaBind var $ \ var' ->
     do { (body_ty, ue) <- lintCoreFun body (nargs - 1)
-       ; return (mkLamType var' body_ty, ue) }
+       ; ue' <- checkLinearity ue var'
+       ; return (mkLamType var' body_ty, ue') }
 
 lintCoreFun expr nargs
   = markAllJoinsBadIf (nargs /= 0) $
