@@ -144,6 +144,7 @@ lint-release-changelogs:
     - ./boot
     - ./configure $CONFIGURE_ARGS
     - hadrian/build.cabal.sh -j`mk/detect-cpu-count.sh` --docs=no-sphinx binary-dist
+    - hadrian/build.cabal.sh -j`mk/detect-cpu-count.sh` --docs=no-sphinx test
     - mv _build/bindist/ghc*.tar.xz ghc.tar.xz
   cache:
     key: hadrian
@@ -437,6 +438,21 @@ validate-x86_64-linux-deb9-unreg:
   variables:
     CONFIGURE_ARGS: --enable-unregisterised
     TEST_ENV: "x86_64-linux-deb9-unreg"
+
+release-x86_64-linux-deb9-dwarf:
+  extends: .validate-linux
+  stage: build
+  image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-deb9:$DOCKER_REV"
+  allow_failure: true
+  variables:
+    CONFIGURE_ARGS: "--enable-dwarf-unwind"
+    BUILD_FLAVOUR: dwarf
+    TEST_ENV: "x86_64-linux-deb9"
+  artifacts:
+    when: always
+    expire_in: 2 week
+  cache:
+    key: linux-x86_64-deb9
 
 
 #################################
@@ -746,6 +762,7 @@ source-tarball:
   tags:
     - x86_64-linux
   image: ghcci/x86_64-linux-deb9:0.2
+  dependencies: []
   only:
     - tags
   artifacts:

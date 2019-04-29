@@ -2419,8 +2419,8 @@ decl_no_th :: { LHsDecl GhcPs }
         | '!' aexp rhs          {% runExpCmdP $2 >>= \ $2 ->
                                    do { let { e = sLL $1 $2 (SectionR noExt (sL1 $1 (HsVar noExt (sL1 $1 bang_RDR))) $2)
                                             ; l = comb2 $1 $> };
-                                        (ann, r) <- checkValDef empty SrcStrict e Nothing $3 ;
-                                        hintBangPat (comb2 $1 $2) (unLoc e) ;
+                                        (ann, r) <- checkValDef SrcStrict e Nothing $3 ;
+                                        runPV $ hintBangPat (comb2 $1 $2) (unLoc e) ;
                                         -- Depending upon what the pattern looks like we might get either
                                         -- a FunBind or PatBind back from checkValDef. See Note
                                         -- [FunBind vs PatBind]
@@ -2433,7 +2433,7 @@ decl_no_th :: { LHsDecl GhcPs }
                                         _ <- amsL l (ann ++ fst (unLoc $3) ++ [mj AnnBang $1]) ;
                                         return $! (sL l $ ValD noExt r) } }
 
-        | infixexp_top opt_sig rhs  {% do { (ann,r) <- checkValDef empty NoSrcStrict $1 (snd $2) $3;
+        | infixexp_top opt_sig rhs  {% do { (ann,r) <- checkValDef NoSrcStrict $1 (snd $2) $3;
                                         let { l = comb2 $1 $> };
                                         -- Depending upon what the pattern looks like we might get either
                                         -- a FunBind or PatBind back from checkValDef. See Note
@@ -2605,8 +2605,8 @@ exp   :: { ExpCmdP }
 infixexp :: { ExpCmdP }
         : exp10 { $1 }
         | infixexp qop exp10  {  ExpCmdP $
-                                 runExpCmdP $1 >>= \ $1 ->
-                                 runExpCmdP $3 >>= \ $3 ->
+                                 runExpCmdPV $1 >>= \ $1 ->
+                                 runExpCmdPV $3 >>= \ $3 ->
                                  ams (sLL $1 $> (ecOpApp $1 $2 $3))
                                      [mj AnnVal $2] }
                  -- AnnVal annotation for NPlusKPat, which discards the operator
@@ -2693,13 +2693,13 @@ hpc_annot :: { Located ( (([AddAnn],SourceText),(StringLiteral,(Int,Int),(Int,In
 
 fexp    :: { ExpCmdP }
         : fexp aexp                  {% runExpCmdP $2 >>= \ $2 ->
-                                        checkBlockArguments $2 >>= \_ ->
+                                        runPV (checkBlockArguments $2) >>= \_ ->
                                         return $ ExpCmdP $
-                                          runExpCmdP $1 >>= \ $1 ->
+                                          runExpCmdPV $1 >>= \ $1 ->
                                           checkBlockArguments $1 >>= \_ ->
                                           return (sLL $1 $> (ecHsApp $1 $2)) }
         | fexp TYPEAPP atype         {% runExpCmdP $1 >>= \ $1 ->
-                                        checkBlockArguments $1 >>= \_ ->
+                                        runPV (checkBlockArguments $1) >>= \_ ->
                                         fmap ecFromExp $
                                         ams (sLL $1 $> $ HsAppType noExt $1 (mkHsWildCardBndrs $3))
                                             [mj AnnAt $2] }
@@ -2722,7 +2722,7 @@ aexp    :: { ExpCmdP }
 
         | '\\' apat apats '->' exp
                    {  ExpCmdP $
-                      runExpCmdP $5 >>= \ $5 ->
+                      runExpCmdPV $5 >>= \ $5 ->
                       ams (sLL $1 $> $ ecHsLam (mkMatchGroup FromSource
                             [sLL $1 $> $ Match { m_ext = noExt
                                                , m_ctxt = LambdaExpr
@@ -2730,12 +2730,12 @@ aexp    :: { ExpCmdP }
                                                , m_grhss = unguardedGRHSs $5 }]))
                           [mj AnnLam $1, mu AnnRarrow $4] }
         | 'let' binds 'in' exp          {  ExpCmdP $
-                                           runExpCmdP $4 >>= \ $4 ->
+                                           runExpCmdPV $4 >>= \ $4 ->
                                            ams (sLL $1 $> $ ecHsLet (snd (unLoc $2)) $4)
                                                (mj AnnLet $1:mj AnnIn $3
                                                  :(fst $ unLoc $2)) }
         | '\\' 'lcase' altslist
-            {% $3 >>= \ $3 ->
+            {% runPV $3 >>= \ $3 ->
                fmap ecFromExp $
                ams (sLL $1 $> $ HsLamCase noExt
                                    (mkMatchGroup FromSource (snd $ unLoc $3)))
@@ -2743,8 +2743,8 @@ aexp    :: { ExpCmdP }
         | 'if' exp optSemi 'then' exp optSemi 'else' exp
                          {% runExpCmdP $2 >>= \ $2 ->
                             return $ ExpCmdP $
-                              runExpCmdP $5 >>= \ $5 ->
-                              runExpCmdP $8 >>= \ $8 ->
+                              runExpCmdPV $5 >>= \ $5 ->
+                              runExpCmdPV $8 >>= \ $8 ->
                               checkDoAndIfThenElse $2 (snd $3) $5 (snd $6) $8 >>
                               ams (sLL $1 $> $ ecHsIf $2 $5 $8)
                                   (mj AnnIf $1:mj AnnThen $4
@@ -2769,13 +2769,13 @@ aexp    :: { ExpCmdP }
                                         ams (cL (comb2 $1 $2)
                                                (ecHsDo (mapLoc snd $2)))
                                                (mj AnnDo $1:(fst $ unLoc $2)) }
-        | 'mdo' stmtlist            {% $2 >>= \ $2 ->
+        | 'mdo' stmtlist            {% runPV $2 >>= \ $2 ->
                                        fmap ecFromExp $
                                        ams (cL (comb2 $1 $2)
                                               (mkHsDo MDoExpr (snd $ unLoc $2)))
                                            (mj AnnMdo $1:(fst $ unLoc $2)) }
         | 'proc' aexp '->' exp
-                       {% (checkPattern empty <=< runExpCmdP) $2 >>= \ p ->
+                       {% (checkPattern <=< runExpCmdP) $2 >>= \ p ->
                            runExpCmdP $4 >>= \ $4@cmd ->
                            fmap ecFromExp $
                            ams (sLL $1 $> $ HsProc noExt p (sLL $1 $> $ HsCmdTop noExt cmd))
@@ -2811,7 +2811,7 @@ aexp2   :: { ExpCmdP }
         -- correct Haskell (you'd have to write '((+ 3), (4 -))')
         -- but the less cluttered version fell out of having texps.
         | '(' texp ')'                  { ExpCmdP $
-                                           runExpCmdP $2 >>= \ $2 ->
+                                           runExpCmdPV $2 >>= \ $2 ->
                                            ams (sLL $1 $> (ecHsPar $2)) [mop $1,mcp $3] }
         | '(' tup_exprs ')'             {% do { e <- mkSumOrTuple Boxed (comb2 $1 $3) (snd $2)
                                               ; fmap ecFromExp $
@@ -2848,7 +2848,7 @@ aexp2   :: { ExpCmdP }
                                       (if (hasE $1) then [mj AnnOpenE $1,mc $3] else [mo $1,mc $3]) }
         | '[t|' ktype '|]'    {% fmap ecFromExp $
                                  ams (sLL $1 $> $ HsBracket noExt (TypBr noExt $2)) [mo $1,mu AnnCloseQ $3] }
-        | '[p|' infixexp '|]' {% (checkPattern empty <=< runExpCmdP) $2 >>= \p ->
+        | '[p|' infixexp '|]' {% (checkPattern <=< runExpCmdP) $2 >>= \p ->
                                       fmap ecFromExp $
                                       ams (sLL $1 $> $ HsBracket noExt (PatBr noExt p))
                                           [mo $1,mu AnnCloseQ $3] }
@@ -3045,12 +3045,12 @@ squals :: { Located [LStmt GhcPs (LHsExpr GhcPs)] }   -- In reverse order, becau
                 amsL (comb2 $1 $>) (fst $ unLoc $3) >>
                 return (sLL $1 $> [sLL $1 $> ((snd $ unLoc $3) (reverse (unLoc $1)))]) }
     | squals ',' qual
-             {% $3 >>= \ $3 ->
+             {% runPV $3 >>= \ $3 ->
                 addAnnotation (gl $ head $ unLoc $1) AnnComma (gl $2) >>
                 return (sLL $1 $> ($3 : unLoc $1)) }
     | transformqual        {% ams $1 (fst $ unLoc $1) >>
                               return (sLL $1 $> [cL (getLoc $1) ((snd $ unLoc $1) [])]) }
-    | qual                               {% $1 >>= \ $1 ->
+    | qual                               {% runPV $1 >>= \ $1 ->
                                             return $ sL1 $1 [$1] }
 --  | transformquals1 ',' '{|' pquals '|}'   { sLL $1 $> ($4 : unLoc $1) }
 --  | '{|' pquals '|}'                       { sL1 $1 [$2] }
@@ -3091,11 +3091,11 @@ guardquals :: { Located [LStmt GhcPs (LHsExpr GhcPs)] }
     : guardquals1           { cL (getLoc $1) (reverse (unLoc $1)) }
 
 guardquals1 :: { Located [LStmt GhcPs (LHsExpr GhcPs)] }
-    : guardquals1 ',' qual  {% $3 >>= \ $3 ->
+    : guardquals1 ',' qual  {% runPV $3 >>= \ $3 ->
                                addAnnotation (gl $ head $ unLoc $1) AnnComma
                                              (gl $2) >>
                                return (sLL $1 $> ($3 : unLoc $1)) }
-    | qual                  {% $1 >>= \ $1 ->
+    | qual                  {% runPV $1 >>= \ $1 ->
                                return $ sL1 $1 [$1] }
 
 -----------------------------------------------------------------------------
@@ -3149,7 +3149,7 @@ alt_rhs :: { forall b. ExpCmdI b => PV (Located ([AddAnn],GRHSs GhcPs (Located (
                                       return $ sLL alt $> (fst $ unLoc $2, GRHSs noExt (unLoc alt) (snd $ unLoc $2)) }
 
 ralt :: { forall b. ExpCmdI b => PV (Located [LGRHS GhcPs (Located (b GhcPs))]) }
-        : '->' exp            { runExpCmdP $2 >>= \ $2 ->
+        : '->' exp            { runExpCmdPV $2 >>= \ $2 ->
                                 ams (sLL $1 $> (unguardedRHS (comb2 $1 $2) $2))
                                     [mu AnnRarrow $1] }
         | gdpats              { $1 >>= \gdpats ->
@@ -3165,14 +3165,14 @@ gdpats :: { forall b. ExpCmdI b => PV (Located [LGRHS GhcPs (Located (b GhcPs))]
 -- generate the open brace in addition to the vertical bar in the lexer, and
 -- we don't need it.
 ifgdpats :: { Located ([AddAnn],[LGRHS GhcPs (LHsExpr GhcPs)]) }
-         : '{' gdpats '}'                 {% $2 >>= \ $2 ->
+         : '{' gdpats '}'                 {% runPV $2 >>= \ $2 ->
                                              return $ sLL $1 $> ([moc $1,mcc $3],unLoc $2)  }
-         |     gdpats close               {% $1 >>= \ $1 ->
+         |     gdpats close               {% runPV $1 >>= \ $1 ->
                                              return $ sL1 $1 ([],unLoc $1) }
 
 gdpat   :: { forall b. ExpCmdI b => PV (LGRHS GhcPs (Located (b GhcPs))) }
         : '|' guardquals '->' exp
-                                   { runExpCmdP $4 >>= \ $4 ->
+                                   { runExpCmdPV $4 >>= \ $4 ->
                                      ams (sL (comb2 $1 $>) $ GRHS noExt (unLoc $2) $4)
                                          [mj AnnVbar $1,mu AnnRarrow $3] }
 
@@ -3181,26 +3181,26 @@ gdpat   :: { forall b. ExpCmdI b => PV (LGRHS GhcPs (Located (b GhcPs))) }
 -- Bangs inside are parsed as infix operator applications, so that
 -- we parse them right when bang-patterns are off
 pat     :: { LPat GhcPs }
-pat     :  exp          {% (checkPattern empty <=< runExpCmdP) $1 }
+pat     :  exp          {% (checkPattern <=< runExpCmdP) $1 }
         | '!' aexp      {% runExpCmdP $2 >>= \ $2 ->
-                           amms (checkPattern empty (sLL $1 $> (SectionR noExt
+                           amms (checkPattern (sLL $1 $> (SectionR noExt
                                                      (sL1 $1 (HsVar noExt (sL1 $1 bang_RDR))) $2)))
                                 [mj AnnBang $1] }
 
 bindpat :: { LPat GhcPs }
 bindpat :  exp            {% runExpCmdP $1 >>= \ $1 ->
-                             checkPattern
-                                (text "Possibly caused by a missing 'do'?") $1 }
+                             -- See Note [Parser-Validator ReaderT SDoc] in RdrHsSyn
+                             checkPattern_msg (text "Possibly caused by a missing 'do'?") $1 }
         | '!' aexp        {% runExpCmdP $2 >>= \ $2 ->
-                             amms (checkPattern
-                                     (text "Possibly caused by a missing 'do'?")
+                             -- See Note [Parser-Validator ReaderT SDoc] in RdrHsSyn
+                             amms (checkPattern_msg (text "Possibly caused by a missing 'do'?")
                                      (sLL $1 $> (SectionR noExt (sL1 $1 (HsVar noExt (sL1 $1 bang_RDR))) $2)))
                                   [mj AnnBang $1] }
 
 apat   :: { LPat GhcPs }
-apat    : aexp                  {% (checkPattern empty <=< runExpCmdP) $1 }
+apat    : aexp                  {% (checkPattern <=< runExpCmdP) $1 }
         | '!' aexp              {% runExpCmdP $2 >>= \ $2 ->
-                                   amms (checkPattern empty
+                                   amms (checkPattern
                                             (sLL $1 $> (SectionR noExt
                                                 (sL1 $1 (HsVar noExt (sL1 $1 bang_RDR))) $2)))
                                         [mj AnnBang $1] }
@@ -3252,12 +3252,12 @@ stmts :: { forall b. ExpCmdI b => PV (Located ([AddAnn],[LStmt GhcPs (Located (b
 -- For typing stmts at the GHCi prompt, where
 -- the input may consist of just comments.
 maybe_stmt :: { Maybe (LStmt GhcPs (LHsExpr GhcPs)) }
-        : stmt                          {% fmap Just $1 }
+        : stmt                          {% fmap Just (runPV $1) }
         | {- nothing -}                 { Nothing }
 
 -- For GHC API.
 e_stmt :: { LStmt GhcPs (LHsExpr GhcPs) }
-        : stmt                          {% $1 }
+        : stmt                          {% runPV $1 }
 
 stmt  :: { forall b. ExpCmdI b => PV (LStmt GhcPs (Located (b GhcPs))) }
         : qual                          { $1 }
@@ -3266,10 +3266,10 @@ stmt  :: { forall b. ExpCmdI b => PV (LStmt GhcPs (Located (b GhcPs))) }
                                                (mj AnnRec $1:(fst $ unLoc $2)) }
 
 qual  :: { forall b. ExpCmdI b => PV (LStmt GhcPs (Located (b GhcPs))) }
-    : bindpat '<-' exp                   { runExpCmdP $3 >>= \ $3 ->
+    : bindpat '<-' exp                   { runExpCmdPV $3 >>= \ $3 ->
                                            ams (sLL $1 $> $ mkBindStmt $1 $3)
                                                [mu AnnLarrow $2] }
-    | exp                                { runExpCmdP $1 >>= \ $1 ->
+    | exp                                { runExpCmdPV $1 >>= \ $1 ->
                                            return $ sL1 $1 $ mkBodyStmt $1 }
     | 'let' binds                        { ams (sLL $1 $> $ LetStmt noExt (snd $ unLoc $2))
                                                (mj AnnLet $1:(fst $ unLoc $2)) }
@@ -4067,7 +4067,7 @@ am a (b,s) = do
 -- as any annotations that may arise in the binds. This will include open
 -- and closing braces if they are used to delimit the let expressions.
 --
-ams :: Located a -> [AddAnn] -> P (Located a)
+ams :: MonadP m => Located a -> [AddAnn] -> m (Located a)
 ams a@(dL->L l _) bs = addAnnsAt l bs >> return a
 
 amsL :: SrcSpan -> [AddAnn] -> P ()
