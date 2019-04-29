@@ -1585,18 +1585,13 @@ wrapJoinCont env cont thing_inside
   | contIsStop cont        -- Common case; no need for fancy footwork
   = thing_inside env cont
 
-  | not (sm_case_case (getMode env))
+  | True
     -- See Note [Join points wih -fno-case-of-case]
   = do { (floats1, expr1) <- thing_inside env (mkBoringStop (contHoleType cont))
        ; let (floats2, expr2) = wrapJoinFloatsX floats1 expr1
        ; (floats3, expr3) <- rebuild (env `setInScopeFromF` floats2) expr2 cont
        ; return (floats2 `addFloats` floats3, expr3) }
 
-  | otherwise
-    -- Normal case; see Note [Join points and case-of-case]
-  = do { (floats1, cont')  <- mkDupableCont env cont
-       ; (floats2, result) <- thing_inside (env `setInScopeFromF` floats1) cont'
-       ; return (floats1 `addFloats` floats2, result) }
 
 
 --------------------
