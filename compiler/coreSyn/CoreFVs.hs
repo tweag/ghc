@@ -71,11 +71,13 @@ import Name
 import VarSet
 import Var
 import Type
+import Multiplicity
 import TyCoRep
 import TyCon
 import CoAxiom
 import FamInstEnv
 import TysPrim( funTyConName )
+import TysWiredIn( unrestrictedFunTyConName, omegaDataConTy )
 import Maybes( orElse )
 import Util
 import BasicTypes( Activation )
@@ -349,14 +351,25 @@ orphNamesOfType ty | Just ty' <- coreView ty = orphNamesOfType ty'
                 -- Look through type synonyms (#4912)
 orphNamesOfType (TyVarTy _)          = emptyNameSet
 orphNamesOfType (LitTy {})           = emptyNameSet
-orphNamesOfType (TyConApp tycon tys) = orphNamesOfTyCon tycon
+orphNamesOfType (TyConApp tycon tys) = func
+                                       `unionNameSet` orphNamesOfTyCon tycon
                                        `unionNameSet` orphNamesOfTypes tys
+        where func = case tys of -- Detect FUN 'Omega as an application of (->),
+                                 -- so that :i (->) works as expected (see T8535)
+                                 -- Issue #16475 describes a more robust solution
+                       arg:_ | tycon == funTyCon, arg `eqType` omegaDataConTy ->
+                            unitNameSet unrestrictedFunTyConName
+                       _ -> emptyNameSet
 orphNamesOfType (ForAllTy bndr res)  = orphNamesOfType (binderType bndr)
                                        `unionNameSet` orphNamesOfType res
-orphNamesOfType (FunTy _ w arg res)  = unitNameSet funTyConName    -- NB!  See #8535
+orphNamesOfType (FunTy _ w arg res)  = func
+                                       `unionNameSet` unitNameSet funTyConName
                                        `unionNameSet` orphNamesOfType w
                                        `unionNameSet` orphNamesOfType arg
                                        `unionNameSet` orphNamesOfType res
+        where func = case w of  -- NB!  See #8535
+                       Omega -> unitNameSet unrestrictedFunTyConName
+                       _ -> emptyNameSet
 orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSet` orphNamesOfType arg
 orphNamesOfType (CastTy ty co)       = orphNamesOfType ty `unionNameSet` orphNamesOfCo co
 orphNamesOfType (CoercionTy co)      = orphNamesOfCo co
