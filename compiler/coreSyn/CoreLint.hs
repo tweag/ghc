@@ -1250,12 +1250,13 @@ lintCoreAlt scrut scrut_ty _scrut_mult alt_ty alt@(DataAlt con, args, rhs)
 
         -- And now bring the new binders into scope
     ; lintBinders CasePatBind args $ \ args' -> do
-    {
-    rhs_ue <- lintAltExpr rhs alt_ty ;
---    ; pprTrace "lintCoreAlt" (ppr multiplicities $$ ppr args' $$ ppr (dataConRepArgTys con) $$ ppr (dataConSig con)) ( return ())
-    ; rhs_ue' <- addLoc (CasePat alt) (lintAltBinders rhs_ue scrut scrut_ty con_payload_ty (zipEqual "lintCoreAlt" multiplicities  args')) ;
-    return $ deleteUE rhs_ue' scrut
-    } }
+      {
+        rhs_ue <- lintAltExpr rhs alt_ty
+       -- ; pprTrace "lintCoreAlt" (ppr multiplicities $$ ppr args' $$ ppr (dataConRepArgTys con) $$ ppr (dataConSig con)) ( return ())
+      ; rhs_ue' <- addLoc (CasePat alt) (lintAltBinders rhs_ue scrut scrut_ty con_payload_ty (zipEqual "lintCoreAlt" multiplicities  args'))
+      ; return $ deleteUE rhs_ue' scrut
+      }
+   }
 
   | otherwise   -- Scrut-ty is wrong shape
   = zeroUE <$ addErrL (mkBadAltMsg scrut_ty alt)

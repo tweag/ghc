@@ -247,8 +247,7 @@ applyTypeToArgs e op_ty args
     panic_msg as = vcat [ text "Expression:" <+> pprCoreExpr e
                      , text "Type:" <+> ppr op_ty
                      , text "Args:" <+> ppr args
-                     , text "Args':" <+> ppr as
-                     , callStackDoc ]
+                     , text "Args':" <+> ppr as ]
 
 
 {-
@@ -2368,8 +2367,7 @@ need to address that here.
 
 tryEtaReduce :: [Var] -> CoreExpr -> Maybe CoreExpr
 tryEtaReduce bndrs body
-  =   -- pprTrace "tryEtaReduce" (ppr bndrs $$ ppr body $$ ppr (exprType body)) $
-      go (reverse bndrs) body (mkRepReflCo (exprType body))
+  = go (reverse bndrs) body (mkRepReflCo (exprType body))
   where
     incoming_arity = count isId bndrs
 

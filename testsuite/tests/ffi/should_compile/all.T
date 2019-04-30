@@ -34,7 +34,7 @@ test('T11983', [omit_ways(['ghci'])], compile, ['T11983.c'])
 test('T14125', normal, compile, [''])
 test(
     'cc017',
-    skip,  # broken on circleci (also in master), TODO restore before merging
+    normal,
     compile,
     [
         '-optc=-DC -optcxx=-DCXX -optcxx=-std=c++11'

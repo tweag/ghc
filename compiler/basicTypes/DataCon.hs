@@ -207,7 +207,7 @@ Note [Data constructor workers and wrappers]
 
 Note [The need for a wrapper]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-All datatypes have a wrapper; see wrapper_reqd in 
+All datatypes have a wrapper; see wrapper_reqd in
 wrapper_reqd in MkId.mkDataConRep.
 
 This is for uniformity. There are multiple reasons a
