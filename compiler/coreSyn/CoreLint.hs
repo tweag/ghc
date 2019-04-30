@@ -636,7 +636,8 @@ lintRhs bndr rhs
       = addLoc (LambdaBodyOf var) $
         lintBinder LambdaBind var $ \ var' ->
         do { (body_ty, ue) <- lint_join_lams (n-1) tot enforce expr
-           ; return $ (mkLamType var' body_ty, ue) }
+             -- TODO change to: ue' <- checkLinearity ue var'
+           ; return (mkLamType var' body_ty, deleteUE ue var') }
 
     lint_join_lams n tot True _other
       = failWithL $ mkBadJoinArityMsg bndr tot (tot-n) rhs
@@ -662,7 +663,8 @@ lintRhs _bndr rhs = fmap lf_check_static_ptrs getLintFlags >>= go
           addLoc (LambdaBodyOf var) $
             lintBinder LambdaBind var $ \var' ->
               do { (body_ty, ue) <- loopBinders
-                 ; return $ (mkLamType var' body_ty, ue) }
+                 ; ue' <- checkLinearity ue var'
+                 ; return (mkLamType var' body_ty, ue') }
         )
         -- imitate @lintCoreExpr (App ...)@
         (do fun_ty_ue <- lintCoreExpr fun
@@ -903,7 +905,8 @@ lintCoreFun (Lam var body) nargs
   = addLoc (LambdaBodyOf var) $
     lintBinder LambdaBind var $ \ var' ->
     do { (body_ty, ue) <- lintCoreFun body (nargs - 1)
-       ; return (mkLamType var' body_ty, ue) }
+       ; ue' <- checkLinearity ue var'
+       ; return (mkLamType var' body_ty, ue') }
 
 lintCoreFun expr nargs
   = markAllJoinsBadIf (nargs /= 0) $
@@ -2512,8 +2515,8 @@ ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()
 ensureSubMult actual_usage described_usage err_msg =
     case (actual_usage `submult` described_usage) of
       Submult -> return ()
-      NotSubmult -> addWarnL err_msg
-      Unknown -> when (not (actual_usage `eqType` described_usage)) (addWarnL err_msg)
+      NotSubmult -> addErrL err_msg
+      Unknown -> when (not (actual_usage `eqType` described_usage)) (addErrL err_msg)
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared
