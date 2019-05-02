@@ -2959,10 +2959,7 @@ knownCon env scrut dc_floats dc dc_ty_args dc_args bndr bs rhs cont
 
     bind_args env' (b:bs') (arg : args)
       = ASSERT( isId b )
-        do { let b' = zap_occ b `setIdMult` Omega
-             -- Non-recursive let-binders must be Omega. Especially since they
-             -- are going to be floated.
-             --
+        do { let b' = zap_occ b
              -- Note that the binder might be "dead", because it doesn't
              -- occur in the RHS; and simplNonRecX may therefore discard
              -- it via postInlineUnconditionally.
