@@ -467,7 +467,6 @@ noCSE id =  not (isAlwaysActive (idInlineActivation id)) &&
     -- It's alright, though! Because there is never a need to share linear
     -- definitions.
     multiplicityOkForCSE v = case varMultMaybe v of
-                                Just Alias -> True
                                 Just (Regular Omega) -> True
                                 Just (Regular _) -> False
                                 Nothing -> True

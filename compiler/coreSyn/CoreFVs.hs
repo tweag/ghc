@@ -730,7 +730,6 @@ freeVars = go
       where
         rig_vars = case varMult v of
                       Regular w -> tyCoVarsOfTypeDSet w
-                      Alias -> emptyDVarSet
         ty_fvs = dVarTypeTyCoVars v
                  -- See Note [The FVAnn invariant]
 

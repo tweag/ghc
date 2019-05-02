@@ -2676,7 +2676,6 @@ noFreeVarsOfType (CoercionTy co)  = noFreeVarsOfCo co
 
 noFreeVarsOfVarMult :: VarMult -> Bool
 noFreeVarsOfVarMult (Regular w) = noFreeVarsOfType w
-noFreeVarsOfVarMult Alias = True
 
 noFreeVarsOfMCo :: MCoercion -> Bool
 noFreeVarsOfMCo MRefl    = True

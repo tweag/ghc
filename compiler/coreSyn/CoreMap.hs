@@ -539,9 +539,7 @@ instance Eq (DeBruijn Type) where
         _ -> False
 
 instance Eq (DeBruijn VarMult) where
-  (D _ Alias) == (D _ Alias) = True
   (D env (Regular w)) == (D env' (Regular w')) = (D env w) == (D env' w')
-  _ == _ = False
 
 instance {-# OVERLAPPING #-}
          Outputable a => Outputable (TypeMapG a) where

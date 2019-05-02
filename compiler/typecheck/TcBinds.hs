@@ -1283,7 +1283,7 @@ tcMonoBinds is_rec sig_fn no_gen
                   -- type of the thing whose rhs we are type checking
                tcMatchesFun (cL nm_loc name) matches exp_ty
 
-        ; mono_id <- newLetBndr no_gen name Alias rhs_ty
+        ; mono_id <- newLetBndr no_gen name (Regular Omega) rhs_ty
         ; return (unitBag $ cL b_loc $
                      FunBind { fun_id = cL nm_loc mono_id,
                                fun_matches = matches', fun_ext = fvs,

@@ -61,7 +61,7 @@ module Var (
         isId, isTyVar, isTcTyVar,
         isLocalVar, isLocalId, isCoVar, isNonCoVarId, isTyCoVar,
         isGlobalId, isExportedId,
-        mustHaveLocalBinding, isUnrestrictedVar, isAliasLikeVar,
+        mustHaveLocalBinding, isUnrestrictedVar,
 
         -- * ArgFlags
         ArgFlag(..), isVisibleArgFlag, isInvisibleArgFlag, sameVis,
@@ -267,11 +267,6 @@ data VarMult
   = Regular Mult
   -- ^ a normal variable, carrying a multiplicity like in the Linear Haskell
   -- paper
-  | Alias
-  -- ^ a variable typed as a alias for the multiplicity of other variables, this
-  -- lets the variable be used differently depending on the branch. Tremendously
-  -- useful for join points. But also used for regular lets because of inlining,
-  -- float out, and common subexpression elimination.
 
 {- Note [ExportFlag on binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -418,11 +413,6 @@ varWeightMaybe :: Id -> Maybe Mult
 varWeightMaybe v =
   case varMultMaybe v of
     Just (Regular w) -> Just w
-    Just Alias -> Just Omega
-  -- It may be preferable to fail returning a multiplicity in the 'Alias' case,
-  -- varWeight probably isn't called on alias-like variables. Until it poses a
-  -- problem, however, let's just pretend that these are secretly unrestricted
-  -- binders.
     Nothing -> Nothing
 
 varWeightDef :: Id -> Mult
@@ -454,10 +444,6 @@ setVarMult id _ = id
 isUnrestrictedVar :: Id -> Bool
 isUnrestrictedVar Id { varMult = Regular Omega } = True
 isUnrestrictedVar _ = False
-
-isAliasLikeVar :: Id -> Bool
-isAliasLikeVar Id { varMult = Alias } = True
-isAliasLikeVar _ = False
 
 {- *********************************************************************
 *                                                                      *
@@ -512,7 +498,6 @@ instance Binary ArgFlag where
 
 instance Outputable VarMult where
   ppr (Regular w) = ppr w
-  ppr Alias = text"alias"
 
 -- | The non-dependent version of 'ArgFlag'.
 

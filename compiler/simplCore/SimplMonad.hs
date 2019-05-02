@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-
 (c) The AQUA Project, Glasgow University, 1993-1998
 
@@ -38,6 +39,7 @@ import ErrUtils as Err
 import Panic (throwGhcExceptionIO, GhcException (..))
 import BasicTypes          ( IntWithInf, treatZeroAsInf, mkIntWithInf )
 import Control.Monad       ( liftM, ap )
+import Multiplicity        ( pattern Omega )
 
 {-
 ************************************************************************
@@ -193,7 +195,7 @@ newJoinId bndrs body_ty
              id_info    = vanillaIdInfo `setArityInfo` arity
 --                                        `setOccInfo` strongLoopBreaker
 
-       ; return (mkLocalVar details name Alias join_id_ty id_info) }
+       ; return (mkLocalVar details name (Regular Omega) join_id_ty id_info) }
 
 {-
 ************************************************************************
