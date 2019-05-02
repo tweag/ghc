@@ -22,7 +22,7 @@ module SimplMonad (
 
 import GhcPrelude
 
-import Var              ( Var, isTyVar, mkLocalVar, VarMult(..) )
+import Var              ( Var, isTyVar, mkLocalVar )
 import Name             ( mkSystemVarName )
 import Id               ( Id, mkSysLocalOrCoVar )
 import IdInfo           ( IdDetails(..), vanillaIdInfo, setArityInfo )
@@ -182,7 +182,7 @@ getFamEnvs = SM (\st_env us sc -> return (st_fams st_env, us, sc))
 
 newId :: FastString -> Mult -> Type -> SimplM Id
 newId fs w ty = do uniq <- getUniqueM
-                   return (mkSysLocalOrCoVar fs uniq (Regular w) ty)
+                   return (mkSysLocalOrCoVar fs uniq w ty)
 
 newJoinId :: [Var] -> Type -> SimplM Id
 newJoinId bndrs body_ty
@@ -195,7 +195,7 @@ newJoinId bndrs body_ty
              id_info    = vanillaIdInfo `setArityInfo` arity
 --                                        `setOccInfo` strongLoopBreaker
 
-       ; return (mkLocalVar details name (Regular Omega) join_id_ty id_info) }
+       ; return (mkLocalVar details name Omega join_id_ty id_info) }
 
 {-
 ************************************************************************

@@ -546,7 +546,7 @@ makeTrivialWithInfo mode top_lvl occ_fs info expr
           else do
         { uniq <- getUniqueM
         ; let name = mkSystemVarName uniq occ_fs
-              var  = mkLocalIdOrCoVarWithInfo name (Regular Omega) expr_ty info
+              var  = mkLocalIdOrCoVarWithInfo name Omega expr_ty info
 
         -- Now something very like completeBind,
         -- but without the postInlineUnconditinoally part
@@ -2959,8 +2959,8 @@ knownCon env scrut dc_floats dc dc_ty_args dc_args bndr bs rhs cont
 
     bind_args env' (b:bs') (arg : args)
       = ASSERT( isId b )
-        do { let b' = zap_occ b `setIdVarMult` Regular Omega
-             -- Non-recursive let-binders must be Alias. Especially since they
+        do { let b' = zap_occ b `setIdMult` Omega
+             -- Non-recursive let-binders must be Omega. Especially since they
              -- are going to be floated.
              --
              -- Note that the binder might be "dead", because it doesn't

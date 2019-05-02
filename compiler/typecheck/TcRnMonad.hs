@@ -646,12 +646,12 @@ newSysName occ
 newSysLocalId :: FastString -> Mult -> TcType -> TcRnIf gbl lcl TcId
 newSysLocalId fs w ty
   = do  { u <- newUnique
-        ; return (mkSysLocalOrCoVar fs u (Regular w) ty) }
+        ; return (mkSysLocalOrCoVar fs u w ty) }
 
 newSysLocalIds :: FastString -> [Scaled TcType] -> TcRnIf gbl lcl [TcId]
 newSysLocalIds fs tys
   = do  { us <- newUniqueSupply
-        ; let mkId' n (Scaled w t) = mkSysLocalOrCoVar fs n (Regular w) t
+        ; let mkId' n (Scaled w t) = mkSysLocalOrCoVar fs n w t
         ; return (zipWith mkId' (uniqsFromSupply us) tys) }
 
 instance MonadUnique (IOEnv (Env gbl lcl)) where

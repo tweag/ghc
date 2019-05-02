@@ -638,7 +638,7 @@ recoveryCode binder_names sig_fn
       , Just poly_id <- completeSigPolyId_maybe sig
       = poly_id
       | otherwise
-      = mkLocalId name (Regular Omega) forall_a_a
+      = mkLocalId name Omega forall_a_a
 
 forall_a_a :: TcType
 -- At one point I had (forall r (a :: TYPE r). a), but of course
@@ -929,7 +929,7 @@ mkInferredPolyId insoluble qtvs inferred_theta poly_name mb_sig_inst mono_ty
          -- do this check; otherwise (#14000) we may report an ambiguity
          -- error for a rather bogus type.
 
-       ; return (mkLocalIdOrCoVar poly_name (Regular Omega) inferred_poly_ty) }
+       ; return (mkLocalIdOrCoVar poly_name Omega inferred_poly_ty) }
 
 
 chooseInferredQuantifiers :: TcThetaType   -- inferred
@@ -1283,7 +1283,7 @@ tcMonoBinds is_rec sig_fn no_gen
                   -- type of the thing whose rhs we are type checking
                tcMatchesFun (cL nm_loc name) matches exp_ty
 
-        ; mono_id <- newLetBndr no_gen name (Regular Omega) rhs_ty
+        ; mono_id <- newLetBndr no_gen name Omega rhs_ty
         ; return (unitBag $ cL b_loc $
                      FunBind { fun_id = cL nm_loc mono_id,
                                fun_matches = matches', fun_ext = fvs,
@@ -1356,7 +1356,7 @@ tcLhs sig_fn no_gen (FunBind { fun_id = (dL->L nm_loc name)
 
   | otherwise  -- No type signature
   = do { mono_ty <- newOpenFlexiTyVarTy
-       ; mono_id <- newLetBndr no_gen name (Regular Omega) mono_ty
+       ; mono_id <- newLetBndr no_gen name Omega mono_ty
           -- This ^ generates a binder with Omega multiplicity because all
           -- let/where-binders are unrestricted. When we introduce linear let
           -- binders, we will need to retrieve the multiplicity information.
@@ -1427,7 +1427,7 @@ newSigLetBndr (LetGblBndr prags) name (TISI { sig_inst_sig = id_sig })
   | CompleteSig { sig_bndr = poly_id } <- id_sig
   = addInlinePrags poly_id (lookupPragEnv prags name)
 newSigLetBndr no_gen name (TISI { sig_inst_tau = tau })
-  = newLetBndr no_gen name (Regular Omega) tau
+  = newLetBndr no_gen name Omega tau
     -- Binders with a signature are currently always of multiplicity
     -- Omega. Because they come either from toplevel, let, or where
     -- declarations. Which are all unrestricted currently.

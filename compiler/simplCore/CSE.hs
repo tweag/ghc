@@ -13,7 +13,7 @@ module CSE (cseProgram, cseOneExpr) where
 import GhcPrelude
 
 import CoreSubst
-import Var              ( Var, VarMult(..), varMultMaybe )
+import Var              ( Var, varMultMaybe )
 import VarEnv           ( elemInScopeSet, mkInScopeSet )
 import Id               ( Id, idType, isDeadBinder
                         , idInlineActivation, setInlineActivation
@@ -467,8 +467,8 @@ noCSE id =  not (isAlwaysActive (idInlineActivation id)) &&
     -- It's alright, though! Because there is never a need to share linear
     -- definitions.
     multiplicityOkForCSE v = case varMultMaybe v of
-                                Just (Regular Omega) -> True
-                                Just (Regular _) -> False
+                                Just Omega -> True
+                                Just _ -> False
                                 Nothing -> True
 
 

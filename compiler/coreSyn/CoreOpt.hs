@@ -1266,7 +1266,7 @@ pushCoercionIntoLambda in_scope x e co
     = let
           -- Should we optimize the coercions here?
           -- Otherwise they might not match too well
-          x' = x `setIdType` t1 `setIdVarMult` (Regular w1)
+          x' = x `setIdType` t1 `setIdMult` w1
           in_scope' = in_scope `extendInScopeSet` x'
           subst = extendIdSubst (mkEmptySubst in_scope')
                                 x

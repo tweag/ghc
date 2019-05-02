@@ -104,7 +104,6 @@ module TyCoRep (
         injectiveVarsOfType, tyConAppNeedsKindSig,
 
         noFreeVarsOfType, noFreeVarsOfCo,
-        noFreeVarsOfVarMult,
 
         -- * Substitutions
         TCvSubst(..), TvSubstEnv, CvSubstEnv,
@@ -2673,9 +2672,6 @@ noFreeVarsOfType (FunTy _ w t1 t2)  = noFreeVarsOfType w
 noFreeVarsOfType (LitTy _)        = True
 noFreeVarsOfType (CastTy ty co)   = noFreeVarsOfType ty && noFreeVarsOfCo co
 noFreeVarsOfType (CoercionTy co)  = noFreeVarsOfCo co
-
-noFreeVarsOfVarMult :: VarMult -> Bool
-noFreeVarsOfVarMult (Regular w) = noFreeVarsOfType w
 
 noFreeVarsOfMCo :: MCoercion -> Bool
 noFreeVarsOfMCo MRefl    = True

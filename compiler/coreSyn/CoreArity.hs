@@ -1046,7 +1046,7 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
                --   lambda \co:ty. e co. In this case we generate a new variable
                --   of the coercion type, update the scope, and reduce n by 1.
                | isTyVar tcv = ((subst', tcv'), n)
-               | otherwise  = (freshEtaId n subst' (Scaled (varWeight tcv') (varType tcv')), n-1)
+               | otherwise  = (freshEtaId n subst' (Scaled (varMult' tcv') (varType tcv')), n-1)
            -- Avoid free vars of the original expression
          in go n_n n_subst ty' (EtaVar n_tcv : eis)
 
@@ -1156,5 +1156,5 @@ freshEtaId n subst ty
       where
         ty'     = Type.substTyUnchecked subst (scaledThing ty)
         eta_id' = uniqAway (getTCvInScope subst) $
-                  mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) (Regular $ scaledMult ty) ty'
+                  mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) (scaledMult ty) ty'
         subst'  = extendTCvInScope subst eta_id'

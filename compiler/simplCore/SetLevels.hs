@@ -1534,7 +1534,7 @@ extendCaseBndrEnv :: LevelEnv
                   -> LevelEnv
 extendCaseBndrEnv le@(LE { le_subst = subst, le_env = id_env })
                   case_bndr (Var scrut_var)
-    | Regular Omega <- varMult case_bndr
+    | Omega <- varMult case_bndr
   = le { le_subst   = extendSubstWithVar subst case_bndr scrut_var
        , le_env     = add_id id_env (case_bndr, scrut_var) }
 extendCaseBndrEnv env _ _ = env
@@ -1671,7 +1671,7 @@ newLvlVar lvld_rhs join_arity_maybe is_mk_static
       = mkExportedVanillaId (mkSystemVarName uniq (mkFastString "static_ptr"))
                             rhs_ty
       | otherwise
-      = mkSysLocalOrCoVar (mkFastString "lvl") uniq (Regular Omega) rhs_ty
+      = mkSysLocalOrCoVar (mkFastString "lvl") uniq Omega rhs_ty
         -- The let-bind is made alias-like, because it allows float out to
         -- preserve type even when floating out of a branch.
 

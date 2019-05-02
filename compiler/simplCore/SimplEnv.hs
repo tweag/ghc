@@ -934,7 +934,7 @@ substIdType (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv
                 -- because we cache the free tyvars of the type
                 -- in a Note in the id's type itself
   where
-    no_free_vars = noFreeVarsOfType old_ty && noFreeVarsOfVarMult old_w
+    no_free_vars = noFreeVarsOfType old_ty && noFreeVarsOfType old_w
     subst = TCvSubst in_scope tv_env cv_env
     old_ty = idType id
     old_w  = varMult id

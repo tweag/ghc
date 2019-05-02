@@ -879,7 +879,7 @@ case of a newtype constructor, we simply hardcode its dcr_bangs field to
 -------------------------
 newLocal :: Scaled Type -> UniqSM Var
 newLocal (Scaled w ty) = do { uniq <- getUniqueM
-                            ; return (mkSysLocalOrCoVar (fsLit "dt") uniq (Regular w) ty) }
+                            ; return (mkSysLocalOrCoVar (fsLit "dt") uniq w ty) }
 
 -- | Unpack/Strictness decisions from source module.
 --
@@ -1002,7 +1002,7 @@ dataConArgUnpack (Scaled arg_mult arg_ty)
     ( rep_tys `zip` dataConRepStrictness con
     ,( \ arg_id ->
        do { rep_ids <- mapM newLocal rep_tys
-          ; let r_mult = idWeight arg_id
+          ; let r_mult = idMult' arg_id
           ; let unbox_fn body
                   = Case (Var arg_id) arg_id (exprType body)
                          [(DataAlt con, map (flip scaleIdBy r_mult) rep_ids, body)]

@@ -159,7 +159,7 @@ module Type (
         closeOverKindsDSet, closeOverKindsFV, closeOverKindsList,
         closeOverKinds,
 
-        noFreeVarsOfType, noFreeVarsOfVarMult,
+        noFreeVarsOfType,
         splitVisVarsOfType, splitVisVarsOfTypes,
         expandTypeSynonyms,
         typeSize, occCheckExpand,
@@ -1394,10 +1394,10 @@ mkLamType v body_ty
    = ForAllTy (Bndr v Required) body_ty
 
    | isPredTy arg_ty  -- See Note [mkLamType: dictionary arguments]
-   = mkInvisFunTy (varWeight v) arg_ty body_ty
+   = mkInvisFunTy (varMult' v) arg_ty body_ty
 
    | otherwise
-   = mkVisFunTy (varWeight v) arg_ty body_ty
+   = mkVisFunTy (varMult' v) arg_ty body_ty
    where
      arg_ty = varType v
 

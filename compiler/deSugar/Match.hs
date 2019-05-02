@@ -241,7 +241,7 @@ matchEmpty :: MatchId -> Type -> DsM [MatchResult]
 matchEmpty var res_ty
   = return [MatchResult CanFail mk_seq]
   where
-    mk_seq fail = return $ mkWildCase (Var var) (Scaled (idWeight var) (idType var)) res_ty
+    mk_seq fail = return $ mkWildCase (Var var) (Scaled (idMult' var) (idType var)) res_ty
                                       [(DEFAULT, [], fail)]
 
 matchVariables :: [MatchId] -> Type -> [EquationInfo] -> DsM MatchResult
@@ -262,7 +262,7 @@ matchCoercion :: [MatchId] -> Type -> [EquationInfo] -> DsM MatchResult
 matchCoercion (var:vars) ty (eqns@(eqn1:_))
   = do  { let CoPat _ co pat _ = firstPat eqn1
         ; let pat_ty' = hsPatType pat
-        ; var' <- newUniqueId var (idWeight var) pat_ty'
+        ; var' <- newUniqueId var (idMult' var) pat_ty'
         ; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getCoPat) eqns
         ; core_wrap <- dsHsWrapper co
@@ -279,7 +279,7 @@ matchView (var:vars) ty (eqns@(eqn1:_))
          let ViewPat _ viewExpr (dL->L _ pat) = firstPat eqn1
          -- do the rest of the compilation
         ; let pat_ty' = hsPatType pat
-        ; var' <- newUniqueId var (idWeight var) pat_ty'
+        ; var' <- newUniqueId var (idMult' var) pat_ty'
         ; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getViewPat) eqns
          -- compile the view expressions
@@ -294,7 +294,7 @@ matchOverloadedList (var:vars) ty (eqns@(eqn1:_))
 -- Since overloaded list patterns are treated as view patterns,
 -- the code is roughly the same as for matchView
   = do { let ListPat (ListPatTc elt_ty (Just (_,e))) _ = firstPat eqn1
-       ; var' <- newUniqueId var (idWeight var) (mkListTy elt_ty)  -- we construct the overall type by hand
+       ; var' <- newUniqueId var (idMult' var) (mkListTy elt_ty)  -- we construct the overall type by hand
        ; match_result <- match (var':vars) ty $
                             map (decomposeFirstPat getOLPat) eqns -- getOLPat builds the pattern inside as a non-overloaded version of the overloaded list pattern
        ; e' <- dsSyntaxExpr e [Var var]

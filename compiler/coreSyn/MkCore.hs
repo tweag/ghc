@@ -194,7 +194,7 @@ mkWildEvBinder pred = mkWildValBinder Omega pred
 -- easy to get into difficulties with shadowing.  That's why it is used so little.
 -- See Note [WildCard binders] in SimplEnv
 mkWildValBinder :: Mult -> Type -> Id
-mkWildValBinder w ty = mkLocalIdOrCoVar wildCardName (Regular w) ty
+mkWildValBinder w ty = mkLocalIdOrCoVar wildCardName w ty
 
 mkWildCase :: CoreExpr -> Scaled Type -> Type -> [CoreAlt] -> CoreExpr
 -- Make a case expression whose case binder is unused
