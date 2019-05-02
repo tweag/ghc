@@ -636,8 +636,8 @@ lintRhs bndr rhs
       = addLoc (LambdaBodyOf var) $
         lintBinder LambdaBind var $ \ var' ->
         do { (body_ty, ue) <- lint_join_lams (n-1) tot enforce expr
-             -- TODO change to: ue' <- checkLinearity ue var'
-           ; return (mkLamType var' body_ty, deleteUE ue var') }
+           ; ue' <- checkLinearity ue var'
+           ; return (mkLamType var' body_ty, ue') }
 
     lint_join_lams n tot True _other
       = failWithL $ mkBadJoinArityMsg bndr tot (tot-n) rhs
