@@ -1864,7 +1864,7 @@ tc_infer_id lbl id_name
            ; addDataConStupidTheta con (drop (length (dataConOrigArgTys con)) tys')
            -- The first K arguments of `tys'` are multiplicities.
            -- They are followed by the dictionaries which are the stupid
-           -- theta. Thus, we ignore the first argument as we just want to
+           -- theta. Thus, we ignore the first K arguments as we just want to
            -- instantiate dictionary arguments in `addDataConStupidTheta`.
            -- It might be better to use `dataConRepType` in `con_ty` below.
            ; return ( mkHsWrap wrap (HsConLikeOut noExt (RealDataCon con))
