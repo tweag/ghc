@@ -977,7 +977,7 @@ specCase env scrut' case_bndr [(con, args, rhs)]
                        ; return (mkUserLocalOrCoVar occ uniq wght ty loc) }
        where
          name = idName bndr
-         wght = idWeight bndr
+         wght = idMult' bndr
          ty   = idType bndr
          occ  = nameOccName name
          loc  = getSrcSpan name

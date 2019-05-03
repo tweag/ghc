@@ -761,16 +761,12 @@ lintCoreExpr (Let (NonRec tv (Type ty)) body)
 lintCoreExpr (Let (NonRec bndr rhs) body)
   | isId bndr
   = do  { let_ue <- lintSingleBinding NotTopLevel NonRecursive (bndr,rhs)
-        ; let (rhs_ue, update_ue) =
-                case varMult bndr of
-                  Regular w -> (w `scaleUE` let_ue, id)
-                  Alias -> (zeroUE, addAliasUE bndr let_ue)
-        ; (body_ty, body_ue) <-
-            addLoc (BodyOfLetRec [bndr]) $
-            update_ue
-                 (lintBinder LetBind bndr $ \_ -> addGoodJoins [bndr] $ lintCoreExpr body)
-        ; body_ue' <- checkLinearity body_ue bndr
-        ; return (body_ty, body_ue' `addUE` rhs_ue)}
+          -- See Note [Multiplicity of let binders] in Var
+        ; addLoc (BodyOfLetRec [bndr]) $
+                 (lintBinder LetBind bndr $ \_ ->
+                     addGoodJoins [bndr] $
+                     addAliasUE bndr let_ue $
+                     lintCoreExpr body)}
 
   | otherwise
   = failWithL (mkLetErr bndr rhs)       -- Not quite accurate
@@ -788,8 +784,11 @@ lintCoreExpr e@(Let (Rec pairs) body)
         ; checkL (all isJoinId bndrs || all (not . isJoinId) bndrs) $
             mkInconsistentRecMsg bndrs
 
-        ; mapM_ (lintSingleBinding NotTopLevel Recursive) pairs
-        ; addLoc (BodyOfLetRec bndrs) (lintCoreExpr body) }
+          -- See Note [Multiplicity of let binders] in Var
+        ; ues <- mapM (lintSingleBinding NotTopLevel Recursive) pairs
+        ; (body_type, body_ue) <- addLoc (BodyOfLetRec bndrs) (lintCoreExpr body)
+        ; return (body_type, body_ue `addUE` scaleUE Omega (foldr1 addUE ues))
+        }
   where
     bndrs = map fst pairs
     (_, dups) = removeDups compare bndrs
@@ -812,7 +811,7 @@ lintCoreExpr (Lam var expr)
 lintCoreExpr e@(Case scrut var alt_ty alts) =
        -- Check the scrutinee
   do { let scrut_diverges = exprIsBottom scrut
-           scrut_mult = varWeight var
+           scrut_mult = varMult' var
      ; (scrut_ty, scrut_ue) <- markAllJoinsBad $ lintCoreExpr scrut
      ; (alt_ty, _) <- lintInTy alt_ty
      ; (var_ty, _) <- lintInTy (idType var)
@@ -954,10 +953,9 @@ checkJoinOcc var n_args
 checkLinearity :: UsageEnv -> Var -> LintM UsageEnv
 checkLinearity body_ue lam_var =
   case varMultMaybe lam_var of
-    Just (Regular mult) -> do let m = case lhs of MUsage m -> m; Zero -> Omega
-                              ensureSubMult m mult (err_msg mult)
-                              return $ deleteUE body_ue lam_var
-    Just Alias -> return body_ue -- aliases do not generate multiplicity constraints
+    Just mult -> do let m = case lhs of MUsage m -> m; Zero -> Omega
+                    ensureSubMult m mult (err_msg mult)
+                    return $ deleteUE body_ue lam_var
     Nothing    -> return body_ue -- A type variable
   where
     lhs = lookupUE body_ue lam_var
@@ -1095,7 +1093,7 @@ lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
 checkCaseLinearity :: UsageEnv -> Var -> Mult -> Var -> LintM UsageEnv
 checkCaseLinearity ue scrut var_w bndr = do
   ensureSubMult lhs' rhs err_msg
-  lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varWeight bndr)
+  lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varMult' bndr)
   return $ deleteUE ue bndr
   where
     lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
@@ -1111,7 +1109,7 @@ checkCaseLinearity ue scrut var_w bndr = do
     lhs_formula = ppr bndr_usage <+> text "+"
                                  <+> parens (ppr scrut_usage <+> text "*" <+> ppr var_w)
     rhs_formula = ppr scrut_w <+> text "*" <+> ppr var_w
-    scrut_w = varWeight scrut
+    scrut_w = varMult' scrut
     scrut_usage = lookupUE ue scrut
     bndr_usage = lookupUE ue bndr
 
@@ -1367,7 +1365,7 @@ lintIdBndr top_lvl bind_site id linterF
                (text "Non-CoVar has coercion type" <+> ppr id <+> dcolon <+> ppr ty)
 
        ; let id' = setIdType id ty
-       ; addInScopeVar id' $ (linterF id') }
+       ; addInScopeVar id' $ deleteAlias id' $ linterF id' }
   where
     is_top_lvl = isTopLevel top_lvl
     is_let_bind = case bind_site of
@@ -2472,33 +2470,20 @@ addAliasUE id ue thing_inside = LintM $ \ env errs ->
   in
     unLintM thing_inside (env { le_ue_aliases = new_ue_aliases }) errs
 
+deleteAlias :: Id -> LintM a -> LintM a
+deleteAlias id thing_inside = LintM $ \env errs ->
+  let new_ue_aliases =
+        delFromNameEnv (le_ue_aliases env) (getName id)
+  in
+    unLintM thing_inside (env { le_ue_aliases = new_ue_aliases }) errs
+
+
 varCallSiteUsage :: Id -> LintM UsageEnv
 varCallSiteUsage id =
-  case varMult id of
-     Regular _ -> return (unitUE id One)
-     Alias -> do m <- getUEAliases
-                 case lookupNameEnv m (getName id) of
-                     Nothing -> return (unitUE id One)
-                       -- If the alias's usage environment doesn't exist, it
-                       -- means that the variable is actually defined at
-                       -- toplevel. Because toplevel is usually a big mutually
-                       -- recursive block, everything at toplevel is morally
-                       -- `Omega`.
-                       --
-                       -- Because let-binders can float to toplevel, we can
-                       -- however, have alias-like binders at the toplevel. It's
-                       -- entirely fine: we can just treat them as unrestricted
-                       -- binders!
-                       --
-                       -- Unrestricted binder checks always succeed (in fact, in
-                       -- the case of toplevel binders: we don't even perform a
-                       -- multiplicity check). So it doesn't really matter how
-                       -- we count the variable. We could even not count it at
-                       -- all! However, if the variable was a locally-bound
-                       -- unrestricted variable, we would count 1. Therefore,
-                       -- for the sake of consistency in the debugging outputs,
-                       -- we count 1 here too.
-                     Just id_ue -> return id_ue
+  do m <- getUEAliases
+     case lookupNameEnv m (getName id) of
+         Nothing -> return (unitUE id One)
+         Just id_ue -> return id_ue
 
 lintTyCoVarInScope :: TyCoVar -> LintM ()
 lintTyCoVarInScope var

@@ -2002,7 +2002,7 @@ dataConInstPat fss uniqs mult con inst_tys
     arg_ids = zipWith4 mk_id_var id_uniqs id_fss arg_tys arg_strs
     mk_id_var uniq fs (Scaled m ty) str
       = setCaseBndrEvald str $  -- See Note [Mark evaluated arguments]
-        mkLocalIdOrCoVar name (Regular $ mult `mkMultMul` m) (Type.substTy full_subst ty)
+        mkLocalIdOrCoVar name (mult `mkMultMul` m) (Type.substTy full_subst ty)
       where
         name = mkInternalName uniq (mkVarOccFS fs) noSrcSpan
 
@@ -2435,7 +2435,7 @@ tryEtaReduce bndrs body
        , bndr == tv  = Just (mkHomoForAllCos [tv] co, [])
     ok_arg bndr (Var v) co fun_ty
        | bndr == v
-       , let mult = idWeight v
+       , let mult = idMult' v
        , Just (Scaled fun_mult _, _) <- splitFunTy_maybe fun_ty
        , mult `eqType` fun_mult -- There is no change in multiplicity, otherwise we must abort
        = let reflCo = mkRepReflCo (idType bndr)
@@ -2444,7 +2444,7 @@ tryEtaReduce bndrs body
        | (ticks, Var v) <- stripTicksTop tickishFloatable e
        , Just (Scaled fun_mult _, _) <- splitFunTy_maybe fun_ty
        , bndr == v
-       , fun_mult `eqType` idWeight v
+       , fun_mult `eqType` idMult' v
        = Just (mkFunCo Representational (multToCo fun_mult) (mkSymCo co_arg) co, ticks)
        -- The simplifier combines multiple casts into one,
        -- so we can have a simple-minded pattern match here

@@ -297,7 +297,7 @@ withLiftedBndr abs_ids bndr inner = do
         -- not be caffy themselves and subsequently will miss a static link
         -- field in their closure. Chaos ensues.
         . flip setIdCafInfo caf_info
-        . mkSysLocalOrCoVar (mkFastString str) uniq (Regular Omega)
+        . mkSysLocalOrCoVar (mkFastString str) uniq Omega
             -- This is a toplevel binders, hence must be Omega
         $ ty
   LiftM $ RWS.local

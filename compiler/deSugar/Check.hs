@@ -1705,7 +1705,7 @@ mkPmId :: Type -> DsM Id
 mkPmId ty = getUniqueM >>= \unique ->
   let occname = mkVarOccFS $ fsLit "$pm"
       name    = mkInternalName unique occname noSrcSpan
-  in  return (mkLocalId name (Regular Omega) ty)
+  in  return (mkLocalId name Omega ty)
 
 -- | Generate a fresh term variable of a given and return it in two forms:
 -- * A variable pattern
@@ -1871,7 +1871,7 @@ the scrutinee type, SBool z.
 -- * Types and constraints
 
 newEvVar :: Name -> Type -> EvVar
-newEvVar name ty = mkLocalId name (Regular Omega) ty
+newEvVar name ty = mkLocalId name Omega ty
 
 nameType :: String -> Type -> DsM EvVar
 nameType name ty = do

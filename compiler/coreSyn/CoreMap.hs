@@ -538,11 +538,6 @@ instance Eq (DeBruijn Type) where
             -> True
         _ -> False
 
-instance Eq (DeBruijn VarMult) where
-  (D _ Alias) == (D _ Alias) = True
-  (D env (Regular w)) == (D env' (Regular w')) = (D env w) == (D env' w')
-  _ == _ = False
-
 instance {-# OVERLAPPING #-}
          Outputable a => Outputable (TypeMapG a) where
   ppr m = text "TypeMap elts" <+> ppr (foldTM (:) m [])
@@ -797,14 +792,14 @@ fdBndrMap f (BndrMap tm) = foldTM (f . fst) tm
 lkBndr :: CmEnv -> Var -> BndrMap a -> Maybe a
 lkBndr env v (BndrMap tymap) = do
   (a, w) <- lkG (D env (varType v)) tymap
-  guard (w `eqType` varWeightDef v)
+  guard (w `eqType` varMultDef v)
   return a
 
 
 xtBndr :: forall a . CmEnv -> Var -> XT a -> BndrMap a -> BndrMap a
 xtBndr env v xt (BndrMap tymap)  =
   let xt' :: Maybe (a, Mult) -> Maybe (a, Mult)
-      xt' mv = (\a -> (a, varWeightDef v)) <$> xt (fst <$> mv)
+      xt' mv = (\a -> (a, varMultDef v)) <$> xt (fst <$> mv)
   in BndrMap (xtG (D env (varType v)) xt' tymap)
 
 

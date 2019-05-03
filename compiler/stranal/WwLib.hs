@@ -465,7 +465,7 @@ applyToVars vars fn = mkVarApps fn vars
 
 mk_wrap_arg :: Unique -> Scaled Type -> Demand -> Id
 mk_wrap_arg uniq (Scaled w ty) dmd
-  = mkSysLocalOrCoVar (fsLit "w") uniq (Regular w) ty
+  = mkSysLocalOrCoVar (fsLit "w") uniq w ty
        `setIdDemandInfo` dmd
 
 {- Note [Freshen WW arguments]
@@ -615,12 +615,12 @@ unbox_one :: DynFlags -> FamInstEnvs -> Var
 unbox_one dflags fam_envs arg cs
           (data_con, inst_tys, inst_con_arg_tys, co)
   = do { (uniq1:uniqs) <- getUniquesM
-        ; let   scale = scaleScaled (idWeight arg)
+        ; let   scale = scaleScaled (idMult' arg)
                 scaled_inst_con_arg_tys = map (\(t,s) -> (scale t, s)) inst_con_arg_tys
                 -- See Note [Add demands for strict constructors]
                 cs'       = addDataConStrictness data_con cs
                 unpk_args = zipWith3 mk_ww_arg uniqs scaled_inst_con_arg_tys cs'
-                unbox_fn  = mkUnpackCase (Var arg) co (idWeight arg) uniq1
+                unbox_fn  = mkUnpackCase (Var arg) co (idMult' arg) uniq1
                                          data_con unpk_args
                 arg_no_unf = zapStableUnfolding arg
                              -- See Note [Zap unfolding when beta-reducing]
@@ -1211,4 +1211,4 @@ mk_ww_local :: Unique -> (Scaled Type, StrictnessMark) -> Id
 -- See Note [Record evaluated-ness in worker/wrapper]
 mk_ww_local uniq (Scaled w ty,str)
   = setCaseBndrEvald str $
-    mkSysLocalOrCoVar (fsLit "ww") uniq (Regular w) ty
+    mkSysLocalOrCoVar (fsLit "ww") uniq w ty

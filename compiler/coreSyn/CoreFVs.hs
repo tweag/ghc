@@ -725,12 +725,10 @@ freeVars = go
   where
     go :: CoreExpr -> CoreExprWithFVs
     go (Var v)
-      | isLocalVar v = (aFreeVar v `unionFVs` ty_fvs `unionFVs` rig_vars, AnnVar v)
+      | isLocalVar v = (aFreeVar v `unionFVs` ty_fvs `unionFVs` mult_vars, AnnVar v)
       | otherwise    = (emptyDVarSet,                 AnnVar v)
       where
-        rig_vars = case varMult v of
-                      Regular w -> tyCoVarsOfTypeDSet w
-                      Alias -> emptyDVarSet
+        mult_vars = tyCoVarsOfTypeDSet (varMult v)
         ty_fvs = dVarTypeTyCoVars v
                  -- See Note [The FVAnn invariant]
 
