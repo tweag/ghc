@@ -634,10 +634,7 @@ lintRhs bndr rhs
 
     lint_join_lams n tot enforce (Lam var expr)
       = addLoc (LambdaBodyOf var) $
-        lintBinder LambdaBind var $ \ var' ->
-        do { (body_ty, ue) <- lint_join_lams (n-1) tot enforce expr
-           ; ue' <- checkLinearity ue var'
-           ; return (mkLamType var' body_ty, ue') }
+        lintLambda var $ lint_join_lams (n-1) tot enforce expr
 
     lint_join_lams n tot True _other
       = failWithL $ mkBadJoinArityMsg bndr tot (tot-n) rhs
@@ -661,10 +658,7 @@ lintRhs _bndr rhs = fmap lf_check_static_ptrs getLintFlags >>= go
         -- imitate @lintCoreExpr (Lam ...)@
         (\var loopBinders ->
           addLoc (LambdaBodyOf var) $
-            lintBinder LambdaBind var $ \var' ->
-              do { (body_ty, ue) <- loopBinders
-                 ; ue' <- checkLinearity ue var'
-                 ; return (mkLamType var' body_ty, ue') }
+            lintLambda var loopBinders
         )
         -- imitate @lintCoreExpr (App ...)@
         (do fun_ty_ue <- lintCoreExpr fun
@@ -803,10 +797,7 @@ lintCoreExpr e@(App _ _)
 lintCoreExpr (Lam var expr)
   = addLoc (LambdaBodyOf var) $
     markAllJoinsBad $
-    lintBinder LambdaBind var $ \ var' ->
-    do { (body_ty, ue) <- lintCoreExpr expr
-       ; ue' <- checkLinearity ue var'
-       ; return $ (mkLamType var' body_ty, ue') }
+    lintLambda var $ lintCoreExpr expr
 
 lintCoreExpr e@(Case scrut var alt_ty alts) =
        -- Check the scrutinee
@@ -902,10 +893,7 @@ lintCoreFun (Lam var body) nargs
   -- Note [Beta redexes]
   | nargs /= 0
   = addLoc (LambdaBodyOf var) $
-    lintBinder LambdaBind var $ \ var' ->
-    do { (body_ty, ue) <- lintCoreFun body (nargs - 1)
-       ; ue' <- checkLinearity ue var'
-       ; return (mkLamType var' body_ty, ue') }
+    lintLambda var $ lintCoreFun body (nargs - 1)
 
 lintCoreFun expr nargs
   = markAllJoinsBadIf (nargs /= 0) $
@@ -947,6 +935,12 @@ checkJoinOcc var n_args
   | otherwise
   = return ()
 
+lintLambda :: Var -> LintM (Type, UsageEnv) -> LintM (Type, UsageEnv)
+lintLambda var lintBody =
+    lintBinder LambdaBind var $ \ var' ->
+    do { (body_ty, ue) <- lintBody
+       ; ue' <- checkLinearity ue var'
+       ; return (mkLamType var' body_ty, ue') }
 
 -- Check that the usage of var is consistent with var itself, and pops the var
 -- from the usage environment (this is important because of shadowing).
