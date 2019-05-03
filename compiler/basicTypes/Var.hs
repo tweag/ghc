@@ -248,7 +248,7 @@ data Var
         varName    :: !Name,
         realUnique :: {-# UNPACK #-} !Int,
         varType    :: Type,
-        varMult    :: Mult,
+        varMult    :: Mult,             -- See Note [Multiplicity of let binders]
         idScope    :: IdScope,
         id_details :: IdDetails,        -- Stable, doesn't change
         id_info    :: IdInfo }          -- Unstable, updated by simplifier
@@ -299,6 +299,18 @@ A LocalId is
   * always treated as a candidate by the free-variable finder
 
 After CoreTidy, top-level LocalIds are turned into GlobalIds
+
+Note [Multiplicity of let binders]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In Core, let-binders' multiplicity is always completely determined by syntax:
+a recursive let will always have multiplicity Omega (it's a prerequisite for
+being recursive), and non-recursive let doesn't have a conventional multiplicity,
+instead they act, for the purpose of multiplicity, as an alias for their
+right-hand side.
+
+Therefore, the `varMult` field of identifier is only used by binders in lambda
+and case expressions. In a let expression the `varMult` field holds an
+arbitrary value which will (and must!) be ignored.
 -}
 
 instance Outputable Var where

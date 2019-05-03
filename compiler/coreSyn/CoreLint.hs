@@ -761,6 +761,7 @@ lintCoreExpr (Let (NonRec tv (Type ty)) body)
 lintCoreExpr (Let (NonRec bndr rhs) body)
   | isId bndr
   = do  { let_ue <- lintSingleBinding NotTopLevel NonRecursive (bndr,rhs)
+          -- See Note [Multiplicity of let binders] in Var
         ; addLoc (BodyOfLetRec [bndr]) $
                  (lintBinder LetBind bndr $ \_ ->
                      addGoodJoins [bndr] $
@@ -783,6 +784,7 @@ lintCoreExpr e@(Let (Rec pairs) body)
         ; checkL (all isJoinId bndrs || all (not . isJoinId) bndrs) $
             mkInconsistentRecMsg bndrs
 
+          -- See Note [Multiplicity of let binders] in Var
         ; ues <- mapM (lintSingleBinding NotTopLevel Recursive) pairs
         ; (body_type, body_ue) <- addLoc (BodyOfLetRec bndrs) (lintCoreExpr body)
         ; return (body_type, body_ue `addUE` scaleUE Omega (foldr1 addUE ues))
