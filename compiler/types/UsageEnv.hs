@@ -51,9 +51,6 @@ newtype UsageEnv = UsageEnv (NameEnv Mult)
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
 unitUE x w = UsageEnv $ unitNameEnv (getName x) w
 
-mkUE :: [Scaled Name] -> UsageEnv
-mkUE ws = UsageEnv $ mkNameEnv (map (\wx -> (scaledThing wx,scaledMult wx)) ws)
-
 zeroUE, emptyUE :: UsageEnv
 zeroUE = UsageEnv emptyNameEnv
 

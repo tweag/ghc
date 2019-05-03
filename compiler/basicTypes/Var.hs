@@ -60,7 +60,7 @@ module Var (
         isId, isTyVar, isTcTyVar,
         isLocalVar, isLocalId, isCoVar, isNonCoVarId, isTyCoVar,
         isGlobalId, isExportedId,
-        mustHaveLocalBinding, isUnrestrictedVar,
+        mustHaveLocalBinding,
 
         -- * ArgFlags
         ArgFlag(..), isVisibleArgFlag, isInvisibleArgFlag, sameVis,
@@ -435,10 +435,6 @@ scaleVarBy id _ = id
 setVarMult :: Id -> Mult -> Id
 setVarMult id r | isId id = id { varMult = r }
 setVarMult id _ = id
-
-isUnrestrictedVar :: Id -> Bool
-isUnrestrictedVar Id { varMult = Omega } = True
-isUnrestrictedVar _ = False
 
 {- *********************************************************************
 *                                                                      *
