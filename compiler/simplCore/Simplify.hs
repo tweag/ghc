@@ -56,6 +56,7 @@ import ErrUtils
 import Module          ( moduleName, pprModuleName )
 import Multiplicity
 import PrimOp          ( PrimOp (SeqOp) )
+import TyCoRep         ( TyCoBinder(..) )
 
 
 {-
@@ -317,8 +318,43 @@ simplJoinBind :: SimplEnv
 simplJoinBind env cont old_bndr new_bndr rhs rhs_se
   = do  { let rhs_env = rhs_se `setInScopeFromE` env
         ; rhs' <- simplJoinRhs rhs_env old_bndr rhs cont
-        ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr rhs' }
+        ; let mult = contHoleScaling cont
+              Just arity = isJoinIdDetails_maybe (idDetails new_bndr)
+              new_type = scaleJoinPointType mult arity (varType new_bndr)
+              new_bndr' = setIdType new_bndr new_type
+        ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr' rhs' }
 
+{-
+Note [Scaling join point arguments]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider a join point which is linear in its variable, in some context E:
+
+E[join j :: a ->. a
+       j x = x
+  in case v of
+       A -> j 'x'
+       B -> <blah>]
+
+The simplifier changes to:
+
+join j :: a ->. a
+     j x = E[x]
+in case v of
+     A -> j 'x'
+     B -> E[<blah>]
+
+If E uses its argument in a nonlinear way (e.g. a case['Omega]), then
+this is wrong: the join point has to change its type to a -> a.
+Otherwise, we'd get a linearity error.
+
+See also Note [Return type for join points] and Note [Join points and case-of-case].
+-}
+scaleJoinPointType :: Mult -> Int -> Type -> Type
+scaleJoinPointType mult arity ty | arity == 0 = ty
+                                 | otherwise  = case splitPiTy ty of
+  (binder, ty') -> mkPiTy (scaleBinder binder) (scaleJoinPointType mult (arity-1) ty')
+  where scaleBinder   (Anon af t) = Anon af (scaleScaled mult t)
+        scaleBinder b@(Named _)   = b
 --------------------------
 simplNonRecX :: SimplEnv
              -> InId            -- Old binder; not a JoinId
@@ -996,7 +1032,8 @@ simplJoinRhs :: SimplEnv -> InId -> InExpr -> SimplCont
 simplJoinRhs env bndr expr cont
   | Just arity <- isJoinId_maybe bndr
   =  do { let (join_bndrs, join_body) = collectNBinders arity expr
-        ; (env', join_bndrs') <- simplLamBndrs env join_bndrs
+              mult = contHoleScaling cont
+        ; (env', join_bndrs') <- simplLamBndrs env (map (flip scaleIdBy mult) join_bndrs)
         ; join_body' <- simplExprC env' join_body cont
         ; return $ mkLams join_bndrs' join_body' }
 

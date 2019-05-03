@@ -633,11 +633,7 @@ lintRhs bndr rhs
       = lintCoreExpr rhs
 
     lint_join_lams n tot enforce (Lam var expr)
-      = addLoc (LambdaBodyOf var) $
-        lintBinder LambdaBind var $ \ var' ->
-        do { (body_ty, ue) <- lint_join_lams (n-1) tot enforce expr
-             -- TODO change to: ue' <- checkLinearity ue var'
-           ; return (mkLamType var' body_ty, deleteUE ue var') }
+      = lintLambda var $ lint_join_lams (n-1) tot enforce expr
 
     lint_join_lams n tot True _other
       = failWithL $ mkBadJoinArityMsg bndr tot (tot-n) rhs
@@ -659,13 +655,7 @@ lintRhs _bndr rhs = fmap lf_check_static_ptrs getLintFlags >>= go
       = markAllJoinsBad $
         foldr
         -- imitate @lintCoreExpr (Lam ...)@
-        (\var loopBinders ->
-          addLoc (LambdaBodyOf var) $
-            lintBinder LambdaBind var $ \var' ->
-              do { (body_ty, ue) <- loopBinders
-                 ; ue' <- checkLinearity ue var'
-                 ; return (mkLamType var' body_ty, ue') }
-        )
+        lintLambda
         -- imitate @lintCoreExpr (App ...)@
         (do fun_ty_ue <- lintCoreExpr fun
             addLoc (AnExpr rhs') $ lintCoreArgs fun_ty_ue [Type t, info, e]
@@ -801,12 +791,8 @@ lintCoreExpr e@(App _ _)
     (fun, args) = collectArgs e
 
 lintCoreExpr (Lam var expr)
-  = addLoc (LambdaBodyOf var) $
-    markAllJoinsBad $
-    lintBinder LambdaBind var $ \ var' ->
-    do { (body_ty, ue) <- lintCoreExpr expr
-       ; ue' <- checkLinearity ue var'
-       ; return $ (mkLamType var' body_ty, ue') }
+  = markAllJoinsBad $
+    lintLambda var $ lintCoreExpr expr
 
 lintCoreExpr e@(Case scrut var alt_ty alts) =
        -- Check the scrutinee
@@ -901,11 +887,7 @@ lintCoreFun (Lam var body) nargs
   -- Act like lintCoreExpr of Lam, but *don't* call markAllJoinsBad; see
   -- Note [Beta redexes]
   | nargs /= 0
-  = addLoc (LambdaBodyOf var) $
-    lintBinder LambdaBind var $ \ var' ->
-    do { (body_ty, ue) <- lintCoreFun body (nargs - 1)
-       ; ue' <- checkLinearity ue var'
-       ; return (mkLamType var' body_ty, ue') }
+  = lintLambda var $ lintCoreFun body (nargs - 1)
 
 lintCoreFun expr nargs
   = markAllJoinsBadIf (nargs /= 0) $
@@ -947,14 +929,20 @@ checkJoinOcc var n_args
   | otherwise
   = return ()
 
+lintLambda :: Var -> LintM (Type, UsageEnv) -> LintM (Type, UsageEnv)
+lintLambda var lintBody =
+    addLoc (LambdaBodyOf var) $
+    lintBinder LambdaBind var $ \ var' ->
+    do { (body_ty, ue) <- lintBody
+       ; ue' <- checkLinearity ue var'
+       ; return (mkLamType var' body_ty, ue') }
 
--- Check that the usage of var is consistent with var itself, and pops the var
+-- Check that the usage of var is consistent with var itself, and pop the var
 -- from the usage environment (this is important because of shadowing).
 checkLinearity :: UsageEnv -> Var -> LintM UsageEnv
 checkLinearity body_ue lam_var =
   case varMultMaybe lam_var of
-    Just mult -> do let m = case lhs of MUsage m -> m; Zero -> Omega
-                    ensureSubMult m mult (err_msg mult)
+    Just mult -> do ensureSubMult (usageToMult lhs) mult (err_msg mult)
                     return $ deleteUE body_ue lam_var
     Nothing    -> return body_ue -- A type variable
   where
@@ -1097,9 +1085,7 @@ checkCaseLinearity ue scrut var_w bndr = do
   return $ deleteUE ue bndr
   where
     lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
-    lhs' = case lhs of
-             MUsage mult -> mult
-             Zero -> Omega
+    lhs' = usageToMult lhs
     rhs = scrut_w `mkMultMul` var_w
     err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
                 $$ ppr lhs <+> text "⊈" <+> ppr rhs

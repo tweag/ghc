@@ -723,6 +723,8 @@ changed!!
 That's why we pass res_ty into simplNonRecJoinBndr, and substIdBndr
 takes a (Just res_ty) argument so that it knows to do the type-changing
 thing.
+
+See also Note [Scaling join point arguments].
 -}
 
 simplBinders :: SimplEnv -> [InBndr] -> SimplM (SimplEnv, [OutBndr])

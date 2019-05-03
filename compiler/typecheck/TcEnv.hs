@@ -614,7 +614,7 @@ tc_extend_local_env top_lvl extra_env thing_inside
 
     check_binder :: Mult -> Name -> UsageEnv -> TcM UsageEnv
     check_binder w x uenv = do
-      let actual_w = case lookupUE uenv x of MUsage u -> u; Zero -> Omega
+      let actual_w = usageToMult (lookupUE uenv x)
       traceTc "check_binder" (ppr w $$ ppr actual_w)
       case submult actual_w w of
         Submult -> return ()

@@ -31,6 +31,10 @@ instance Outputable Usage where
   ppr Zero = text "0"
   ppr (MUsage x) = ppr x
 
+usageToMult :: Usage -> Mult
+usageToMult Zero       = Omega
+usageToMult (MUsage m) = m
+
 addUsage :: Usage -> Usage -> Usage
 addUsage Zero x = x
 addUsage x Zero = x
