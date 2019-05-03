@@ -324,6 +324,31 @@ simplJoinBind env cont old_bndr new_bndr rhs rhs_se
               new_bndr' = setIdType new_bndr new_type
         ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr' rhs' }
 
+{-
+Note [Scaling join point arguments]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider a join point which is linear in its variable, in some context E:
+
+E[join j :: a ->. a
+       j x = x
+  in case v of
+       A -> j 'x'
+       B -> <blah>]
+
+The simplifier changes to:
+
+join j :: a ->. a
+     j x = E[x]
+in case v of
+     A -> j 'x'
+     B -> E[<blah>]
+
+If E uses its argument in a nonlinear way (e.g. a case['Omega]), then
+this is wrong: the join point has to change its type to a -> a.
+Otherwise, we'd get a linearity error.
+
+See also Note [Return type for join points] and Note [Join points and case-of-case].
+-}
 scaleJoinPointType :: Mult -> Int -> Type -> Type
 scaleJoinPointType mult arity ty | arity == 0 = ty
                                  | otherwise  = case splitPiTy ty of
