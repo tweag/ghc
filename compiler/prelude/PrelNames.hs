@@ -1892,9 +1892,6 @@ multiplicityTyConKey = mkPreludeTyConUnique 191
 unrestrictedFunTyConKey :: Unique
 unrestrictedFunTyConKey = mkPreludeTyConUnique 192
 
-multMulTyConKey :: Unique
-multMulTyConKey = mkPreludeTyConUnique 194
-
 ---------------- Template Haskell -------------------
 --      THNames.hs: USES TyConUniques 200-299
 -----------------------------------------------------
