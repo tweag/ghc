@@ -942,13 +942,12 @@ lintLambda var lintBody =
        ; ue' <- checkLinearity ue var'
        ; return (mkLamType var' body_ty, ue') }
 
--- Check that the usage of var is consistent with var itself, and pops the var
+-- Check that the usage of var is consistent with var itself, and pop the var
 -- from the usage environment (this is important because of shadowing).
 checkLinearity :: UsageEnv -> Var -> LintM UsageEnv
 checkLinearity body_ue lam_var =
   case varMultMaybe lam_var of
-    Just mult -> do let m = case lhs of MUsage m -> m; Zero -> Omega
-                    ensureSubMult m mult (err_msg mult)
+    Just mult -> do ensureSubMult (usageToMult lhs) mult (err_msg mult)
                     return $ deleteUE body_ue lam_var
     Nothing    -> return body_ue -- A type variable
   where
@@ -1091,9 +1090,7 @@ checkCaseLinearity ue scrut var_w bndr = do
   return $ deleteUE ue bndr
   where
     lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
-    lhs' = case lhs of
-             MUsage mult -> mult
-             Zero -> Omega
+    lhs' = usageToMult lhs
     rhs = scrut_w `mkMultMul` var_w
     err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
                 $$ ppr lhs <+> text "⊈" <+> ppr rhs
