@@ -633,8 +633,7 @@ lintRhs bndr rhs
       = lintCoreExpr rhs
 
     lint_join_lams n tot enforce (Lam var expr)
-      = addLoc (LambdaBodyOf var) $
-        lintLambda var $ lint_join_lams (n-1) tot enforce expr
+      = lintLambda var $ lint_join_lams (n-1) tot enforce expr
 
     lint_join_lams n tot True _other
       = failWithL $ mkBadJoinArityMsg bndr tot (tot-n) rhs
@@ -656,10 +655,7 @@ lintRhs _bndr rhs = fmap lf_check_static_ptrs getLintFlags >>= go
       = markAllJoinsBad $
         foldr
         -- imitate @lintCoreExpr (Lam ...)@
-        (\var loopBinders ->
-          addLoc (LambdaBodyOf var) $
-            lintLambda var loopBinders
-        )
+        lintLambda
         -- imitate @lintCoreExpr (App ...)@
         (do fun_ty_ue <- lintCoreExpr fun
             addLoc (AnExpr rhs') $ lintCoreArgs fun_ty_ue [Type t, info, e]
@@ -795,8 +791,7 @@ lintCoreExpr e@(App _ _)
     (fun, args) = collectArgs e
 
 lintCoreExpr (Lam var expr)
-  = addLoc (LambdaBodyOf var) $
-    markAllJoinsBad $
+  = markAllJoinsBad $
     lintLambda var $ lintCoreExpr expr
 
 lintCoreExpr e@(Case scrut var alt_ty alts) =
@@ -892,8 +887,7 @@ lintCoreFun (Lam var body) nargs
   -- Act like lintCoreExpr of Lam, but *don't* call markAllJoinsBad; see
   -- Note [Beta redexes]
   | nargs /= 0
-  = addLoc (LambdaBodyOf var) $
-    lintLambda var $ lintCoreFun body (nargs - 1)
+  = lintLambda var $ lintCoreFun body (nargs - 1)
 
 lintCoreFun expr nargs
   = markAllJoinsBadIf (nargs /= 0) $
@@ -937,6 +931,7 @@ checkJoinOcc var n_args
 
 lintLambda :: Var -> LintM (Type, UsageEnv) -> LintM (Type, UsageEnv)
 lintLambda var lintBody =
+    addLoc (LambdaBodyOf var) $
     lintBinder LambdaBind var $ \ var' ->
     do { (body_ty, ue) <- lintBody
        ; ue' <- checkLinearity ue var'
