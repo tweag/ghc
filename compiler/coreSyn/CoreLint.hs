@@ -783,8 +783,10 @@ lintCoreExpr e@(Let (Rec pairs) body)
         ; checkL (all isJoinId bndrs || all (not . isJoinId) bndrs) $
             mkInconsistentRecMsg bndrs
 
-        ; mapM_ (lintSingleBinding NotTopLevel Recursive) pairs
-        ; addLoc (BodyOfLetRec bndrs) (lintCoreExpr body) }
+        ; ues <- mapM (lintSingleBinding NotTopLevel Recursive) pairs
+        ; (body_type, body_ue) <- addLoc (BodyOfLetRec bndrs) (lintCoreExpr body)
+        ; return (body_type, body_ue `addUE` scaleUE Omega (foldr1 addUE ues))
+        }
   where
     bndrs = map fst pairs
     (_, dups) = removeDups compare bndrs
