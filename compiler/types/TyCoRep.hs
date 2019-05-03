@@ -324,7 +324,7 @@ data Type
   | FunTy      -- ^ t1 -->.(m) t2   Very common, so an important special case
                 -- See Note [Function types]
      { ft_af  :: AnonArgFlag    -- Is this (->) or (=>)?
-     , ft_mult :: Mult          -- Multiplicity 
+     , ft_mult :: Mult          -- Multiplicity
      , ft_arg :: Type           -- Argument type
      , ft_res :: Type }         -- Result type
 
