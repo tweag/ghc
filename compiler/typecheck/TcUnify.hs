@@ -815,9 +815,15 @@ tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
   {
   -- Note that here we do not call to `submult`, so we check
   -- for strict equality.
-  ; _wrap <- tc_sub_type_ds eq_orig inst_orig ctxt w_actual w_expected
-  -- `_wrap` need not be an identity wrapper. Currently we drop it,
-  -- but this causes Lint failure in the test LinearPolyType.
+  ; wrap <- tc_sub_type_ds eq_orig inst_orig ctxt w_actual w_expected
+
+  -- We do not support multiplicity coercions yet.
+  -- If the wrapper is nontrivial, we do not compile.
+  -- (This is important for the test LinearPolyType,
+  -- and for failing linearity tests with -fdefer-type-errors.)
+  ; when (not (isIdHsWrapper wrap)) (addErrTc
+     (text "Nontrivial multiplicity equalities are currently not supported"))
+
   ; return () }
 
 -- As an approximation to p < q we assume p ~ q.
