@@ -37,7 +37,7 @@ import Name
 import BasicTypes
 import TyCoRep (Type, ThetaType)
 import Var
-import Type (mkTyConApp)
+import Type (mkTyConApp, getRuntimeRep)
 
 import qualified Data.Data as Data
 
@@ -145,7 +145,8 @@ conLikeImplBangs (PatSynCon pat_syn)    =
 
 -- | Returns the type of the whole pattern
 conLikeResTy :: ConLike -> [Type] -> Type
-conLikeResTy (RealDataCon con) tys = mkTyConApp (dataConTyCon con) tys
+conLikeResTy (RealDataCon con) tys | isUnboxedTupleCon con || isUnboxedSumCon con = mkTyConApp (dataConTyCon con) (map getRuntimeRep tys ++ tys)
+                                   | otherwise = mkTyConApp (dataConTyCon con) tys
 conLikeResTy (PatSynCon ps)    tys = patSynInstResTy ps tys
 
 -- | The \"full signature\" of the 'ConLike' returns, in order:
