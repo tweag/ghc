@@ -3025,11 +3025,12 @@ unionTCvSubst (TCvSubst in_scope1 tenv1 cenv1) (TCvSubst in_scope2 tenv2 cenv2)
 
 -- | Generates the in-scope set for the 'TCvSubst' from the types in the incoming
 -- environment. No CoVars, please!
-zipTvSubst :: [TyVar] -> [Type] -> TCvSubst
+zipTvSubst :: HasCallStack => [TyVar] -> [Type] -> TCvSubst
 zipTvSubst tvs tys
-  | debugIsOn
-  , not (all isTyVar tvs) || neLength tvs tys
-  = pprTrace "zipTvSubst" (ppr tvs $$ ppr tys) emptyTCvSubst
+  | not (all isTyVar tvs)
+  = pprPanic "zipTvSubst isTyVar" (ppr tvs)
+  | neLength tvs tys
+  = pprPanic "zipTvSubst neLength" (ppr tvs $$ ppr tys)
   | otherwise
   = mkTvSubst (mkInScopeSet (tyCoVarsOfTypes tys)) tenv
   where
@@ -3037,21 +3038,22 @@ zipTvSubst tvs tys
 
 -- | Generates the in-scope set for the 'TCvSubst' from the types in the incoming
 -- environment.  No TyVars, please!
-zipCvSubst :: [CoVar] -> [Coercion] -> TCvSubst
+zipCvSubst :: HasCallStack => [CoVar] -> [Coercion] -> TCvSubst
 zipCvSubst cvs cos
-  | debugIsOn
-  , not (all isCoVar cvs) || neLength cvs cos
-  = pprTrace "zipCvSubst" (ppr cvs $$ ppr cos) emptyTCvSubst
+  | not (all isCoVar cvs)
+  = pprPanic "zipCvSubst isTyVar" (ppr cvs)
+  | neLength cvs cos
+  = pprPanic "zipCvSubst neLength" (ppr cvs $$ ppr cos)
+
   | otherwise
   = TCvSubst (mkInScopeSet (tyCoVarsOfCos cos)) emptyTvSubstEnv cenv
   where
     cenv = zipCoEnv cvs cos
 
-zipTCvSubst :: [TyCoVar] -> [Type] -> TCvSubst
+zipTCvSubst :: HasCallStack => [TyCoVar] -> [Type] -> TCvSubst
 zipTCvSubst tcvs tys
-  | debugIsOn
-  , neLength tcvs tys
-  = pprTrace "zipTCvSubst" (ppr tcvs $$ ppr tys) emptyTCvSubst
+  | neLength tcvs tys
+  = pprPanic "zipTCvSubst" (ppr tcvs $$ ppr tys)
   | otherwise
   = zip_tcvsubst tcvs tys (mkEmptyTCvSubst $ mkInScopeSet (tyCoVarsOfTypes tys))
   where zip_tcvsubst :: [TyCoVar] -> [Type] -> TCvSubst -> TCvSubst
