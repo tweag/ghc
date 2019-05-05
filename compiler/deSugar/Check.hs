@@ -1629,12 +1629,12 @@ mkOneConFull :: Id -> ConLike -> DsM InhabitationCandidate
 --          ic_strict_arg_tys: [s1]
 mkOneConFull x con = do
   let res_ty  = idType x
-      (_univ_tvs, ex_tvs, eq_spec, thetas, _req_theta , arg_tys, con_res_ty)
+      (univ_tvs, ex_tvs, eq_spec, thetas, _req_theta , arg_tys, con_res_ty)
         = conLikeFullSig con
       arg_is_banged = map isBanged $ conLikeImplBangs con
       tc_args = tyConAppArgs res_ty
       subst1  = case con of
-                  RealDataCon {} -> emptyTCvSubst
+                  RealDataCon {} -> if length univ_tvs == length tc_args then zipTvSubst univ_tvs tc_args else emptyTCvSubst
                   PatSynCon {}   -> expectJust "mkOneConFull" (tcMatchTy con_res_ty res_ty)
                                     -- See Note [Pattern synonym result type] in PatSyn
 
