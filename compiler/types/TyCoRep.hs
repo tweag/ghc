@@ -3227,10 +3227,7 @@ checkValidSubst subst@(TCvSubst in_scope tenv cenv) tys cos a
 -- The substitution has to satisfy the invariants described in
 -- Note [The substitution invariant].
 substTy :: HasCallStack => TCvSubst -> Type  -> Type
-substTy subst ty
-  | isEmptyTCvSubst subst = ty
-  | otherwise             = checkValidSubst subst [ty] [] $
-                            subst_ty subst ty
+substTy subst ty = substTyUnchecked subst ty
 
 -- | Substitute within a 'Type' disabling the sanity checks.
 -- The problems that the sanity checks in substTy catch are described in
@@ -3246,9 +3243,7 @@ substTyUnchecked subst ty
 -- The substitution has to satisfy the invariants described in
 -- Note [The substitution invariant].
 substTys :: HasCallStack => TCvSubst -> [Type] -> [Type]
-substTys subst tys
-  | isEmptyTCvSubst subst = tys
-  | otherwise = checkValidSubst subst tys [] $ map (subst_ty subst) tys
+substTys subst tys = substTysUnchecked subst tys
 
 -- | Substitute within several 'Type's disabling the sanity checks.
 -- The problems that the sanity checks in substTys catch are described in

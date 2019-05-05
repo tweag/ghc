@@ -1629,7 +1629,7 @@ mkOneConFull :: Id -> ConLike -> DsM InhabitationCandidate
 --          ic_strict_arg_tys: [s1]
 mkOneConFull x con = do
   let res_ty  = idType x
-      (univ_tvs, ex_tvs, eq_spec, thetas, _req_theta , arg_tys, con_res_ty)
+      (_univ_tvs, ex_tvs, eq_spec, thetas, _req_theta , arg_tys, con_res_ty)
         = conLikeFullSig con
       arg_is_banged = map isBanged $ conLikeImplBangs con
       tc_args = tyConAppArgs res_ty
