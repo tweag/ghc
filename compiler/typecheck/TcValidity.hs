@@ -1654,12 +1654,12 @@ dropCasts :: Type -> Type
 -- This function can turn a well-kinded type into an ill-kinded
 -- one, so I've kept it local to this module
 -- To consider: drop only HoleCo casts
-dropCasts (CastTy ty _)     = dropCasts ty
-dropCasts (AppTy t1 t2)     = mkAppTy (dropCasts t1) (dropCasts t2)
+dropCasts (CastTy ty _)       = dropCasts ty
+dropCasts (AppTy t1 t2)       = mkAppTy (dropCasts t1) (dropCasts t2)
 dropCasts ty@(FunTy _ w t1 t2)  = ty { ft_mult = dropCasts w, ft_arg = dropCasts t1, ft_res = dropCasts t2 }
-dropCasts (TyConApp tc tys) = mkTyConApp tc (map dropCasts tys)
-dropCasts (ForAllTy b ty)   = ForAllTy (dropCastsB b) (dropCasts ty)
-dropCasts ty                = ty  -- LitTy, TyVarTy, CoercionTy
+dropCasts (TyConApp tc tys)   = mkTyConApp tc (map dropCasts tys)
+dropCasts (ForAllTy b ty)     = ForAllTy (dropCastsB b) (dropCasts ty)
+dropCasts ty                  = ty  -- LitTy, TyVarTy, CoercionTy
 
 dropCastsB :: TyVarBinder -> TyVarBinder
 dropCastsB b = b   -- Don't bother in the kind of a forall
