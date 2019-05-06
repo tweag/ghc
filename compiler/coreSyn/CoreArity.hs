@@ -159,7 +159,7 @@ exprBotStrictness_maybe e
 {-
 Note [exprArity invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-exprArity has the following invariant:
+exprArity has the following invariants:
 
   (1) If typeArity (exprType e) = n,
       then manifestArity (etaExpand e n) = n

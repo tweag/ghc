@@ -1374,7 +1374,7 @@ However, consider this case:
         f :: Int -> Int
         g x = x
 We don't want to say 'f' is out of scope; instead, we want to
-return the imported 'f', so that later on the reanamer will
+return the imported 'f', so that later on the renamer will
 correctly report "misplaced type sig".
 
 Note [Signatures for top level things]
@@ -1472,18 +1472,23 @@ lookupBindGroupOcc ctxt what rdr_name
     lookup_top keep_me
       = do { env <- getGlobalRdrEnv
            ; let all_gres = lookupGlobalRdrEnv env (rdrNameOcc rdr_name)
+           ; let candidates_msg = candidates $ map gre_name
+                                             $ filter isLocalGRE
+                                             $ globalRdrEnvElts env
            ; case filter (keep_me . gre_name) all_gres of
-               [] | null all_gres -> bale_out_with Outputable.empty
+               [] | null all_gres -> bale_out_with candidates_msg
                   | otherwise     -> bale_out_with local_msg
                (gre:_)            -> return (Right (gre_name gre)) }
 
     lookup_group bound_names  -- Look in the local envt (not top level)
       = do { mname <- lookupLocalOccRn_maybe rdr_name
+           ; env <- getLocalRdrEnv
+           ; let candidates_msg = candidates $ localRdrEnvElts env
            ; case mname of
                Just n
                  | n `elemNameSet` bound_names -> return (Right n)
                  | otherwise                   -> bale_out_with local_msg
-               Nothing                         -> bale_out_with Outputable.empty }
+               Nothing                         -> bale_out_with candidates_msg }
 
     bale_out_with msg
         = return (Left (sep [ text "The" <+> what
@@ -1493,6 +1498,22 @@ lookupBindGroupOcc ctxt what rdr_name
 
     local_msg = parens $ text "The"  <+> what <+> ptext (sLit "must be given where")
                            <+> quotes (ppr rdr_name) <+> text "is declared"
+
+    -- Identify all similar names and produce a message listing them
+    candidates :: [Name] -> MsgDoc
+    candidates names_in_scope
+      = case similar_names of
+          []  -> Outputable.empty
+          [n] -> text "Perhaps you meant" <+> pp_item n
+          _   -> sep [ text "Perhaps you meant one of these:"
+                     , nest 2 (pprWithCommas pp_item similar_names) ]
+      where
+        similar_names
+          = fuzzyLookup (unpackFS $ occNameFS $ rdrNameOcc rdr_name)
+                        $ map (\x -> ((unpackFS $ occNameFS $ nameOccName x), x))
+                              names_in_scope
+
+        pp_item x = quotes (ppr x) <+> parens (pprDefinedAt x)
 
 
 ---------------
