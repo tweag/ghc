@@ -201,7 +201,7 @@ mkModIdRHS :: Module -> TcM (LHsExpr GhcTc)
 mkModIdRHS mod
   = do { trModuleDataCon <- tcLookupDataCon trModuleDataConName
        ; trNameLit <- mkTrNameLit
-       ; return $ dataConOmega trModuleDataCon
+       ; return $ nlHsDataCon trModuleDataCon
                   `nlHsApp` trNameLit (unitIdFS (moduleUnitId mod))
                   `nlHsApp` trNameLit (moduleNameFS (moduleName mod))
        }
@@ -386,10 +386,6 @@ collect_stuff = do
     trNameLit              <- mkTrNameLit
     return Stuff {..}
 
--- | Defaults the multiplicity of an argument to Omega
-dataConOmega :: DataCon -> LHsExpr GhcTc
-dataConOmega dc = nlHsDataCon dc
-
 -- | Lookup the necessary pieces to construct the @trNameLit@. We do this so we
 -- can save the work of repeating lookups when constructing many TyCon
 -- representations.
@@ -397,7 +393,7 @@ mkTrNameLit :: TcM (FastString -> LHsExpr GhcTc)
 mkTrNameLit = do
     trNameSDataCon <- tcLookupDataCon trNameSDataConName
     let trNameLit :: FastString -> LHsExpr GhcTc
-        trNameLit fs = nlHsPar $ dataConOmega trNameSDataCon
+        trNameLit fs = nlHsPar $ nlHsDataCon trNameSDataCon
                        `nlHsApp` nlHsLit (mkHsStringPrimLit fs)
     return trNameLit
 
@@ -564,11 +560,11 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
       , Just arg <- kindRep_maybe k
       , Just (tc, []) <- splitTyConApp_maybe arg
       , Just dc <- isPromotedDataCon_maybe tc
-      = return $ dataConOmega kindRepTYPEDataCon `nlHsApp` dataConOmega dc
+      = return $ nlHsDataCon kindRepTYPEDataCon `nlHsApp` nlHsDataCon dc
 
     new_kind_rep (TyVarTy v)
       | Just idx <- lookupCME in_scope v
-      = return $ dataConOmega kindRepVarDataCon
+      = return $ nlHsDataCon kindRepVarDataCon
                  `nlHsApp` nlHsIntLit (fromIntegral idx)
       | otherwise
       = pprPanic "mkTyConKindRepBinds.go(tyvar)" (ppr v)
@@ -576,14 +572,14 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
     new_kind_rep (AppTy t1 t2)
       = do rep1 <- getKindRep stuff in_scope t1
            rep2 <- getKindRep stuff in_scope t2
-           return $ dataConOmega kindRepAppDataCon
+           return $ nlHsDataCon kindRepAppDataCon
                     `nlHsApp` rep1 `nlHsApp` rep2
 
     new_kind_rep k@(TyConApp tc tys)
       | Just rep_name <- tyConRepName_maybe tc
       = do rep_id <- liftTc $ lookupId rep_name
            tys' <- mapM (getKindRep stuff in_scope) tys
-           return $ dataConOmega kindRepTyConAppDataCon
+           return $ nlHsDataCon kindRepTyConAppDataCon
                     `nlHsApp` nlHsVar rep_id
                     `nlHsApp` mkList (mkTyConTy kindRepTyCon) tys'
       | otherwise
@@ -595,17 +591,17 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
     new_kind_rep (FunTy _ _ t1 t2)
       = do rep1 <- getKindRep stuff in_scope t1
            rep2 <- getKindRep stuff in_scope t2
-           return $ dataConOmega kindRepFunDataCon
+           return $ nlHsDataCon kindRepFunDataCon
                     `nlHsApp` rep1 `nlHsApp` rep2
 
     new_kind_rep (LitTy (NumTyLit n))
-      = return $ dataConOmega kindRepTypeLitSDataCon
-                 `nlHsApp` dataConOmega typeLitNatDataCon
+      = return $ nlHsDataCon kindRepTypeLitSDataCon
+                 `nlHsApp` nlHsDataCon typeLitNatDataCon
                  `nlHsApp` nlHsLit (mkHsStringPrimLit $ mkFastString $ show n)
 
     new_kind_rep (LitTy (StrTyLit s))
-      = return $ dataConOmega kindRepTypeLitSDataCon
-                 `nlHsApp` dataConOmega typeLitSymbolDataCon
+      = return $ nlHsDataCon kindRepTypeLitSDataCon
+                 `nlHsApp` nlHsDataCon typeLitSymbolDataCon
                  `nlHsApp` nlHsLit (mkHsStringPrimLit $ mkFastString $ show s)
 
     new_kind_rep (CastTy ty co)
@@ -620,7 +616,7 @@ mkTyConRepTyConRHS :: TypeableStuff -> TypeRepTodo
                    -> LHsExpr GhcTc -- ^ its 'KindRep'
                    -> LHsExpr GhcTc
 mkTyConRepTyConRHS (Stuff {..}) todo tycon kind_rep
-  =           dataConOmega trTyConDataCon
+  =           nlHsDataCon trTyConDataCon
     `nlHsApp` nlHsLit (word64 dflags high)
     `nlHsApp` nlHsLit (word64 dflags low)
     `nlHsApp` mod_rep_expr todo
@@ -716,7 +712,7 @@ mkList ty = foldr consApp (nilExpr ty)
     consApp x xs = cons `nlHsApp` x `nlHsApp` xs
 
     nilExpr :: Type -> LHsExpr GhcTc
-    nilExpr ty = mkLHsWrap (mkWpTyApps [ty]) (dataConOmega nilDataCon)
+    nilExpr ty = mkLHsWrap (mkWpTyApps [ty]) (nlHsDataCon nilDataCon)
 
     consExpr :: Type -> LHsExpr GhcTc
-    consExpr ty = mkLHsWrap (mkWpTyApps [ty]) (dataConOmega consDataCon)
+    consExpr ty = mkLHsWrap (mkWpTyApps [ty]) (nlHsDataCon consDataCon)
