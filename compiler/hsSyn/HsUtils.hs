@@ -498,7 +498,7 @@ nlList exprs          = noLoc (ExplicitList noExt Nothing exprs)
 
 nlHsAppTy :: LHsType (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p)
 nlHsTyVar :: IdP (GhcPass p)                            -> LHsType (GhcPass p)
-nlHsFunTy :: (XFunTy p ~ NoExt, XParTy p ~ NoExt) => HsArrow p -> LHsType p -> LHsType p -> LHsType p
+nlHsFunTy :: HsArrow (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p)
 nlHsParTy :: LHsType (GhcPass p)                        -> LHsType (GhcPass p)
 
 nlHsAppTy f t = noLoc (HsAppTy noExt f (parenthesizeHsType appPrec t))
