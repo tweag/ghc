@@ -1344,7 +1344,7 @@ lintType ty@(TyConApp tc tys)
 
 -- arrows can related *unlifted* kinds, so this has to be separate from
 -- a dependent forall.
-lintType ty@(FunTy _ t1 t2)
+lintType ty@(FunTy (ArgType _ t1) t2)
   = do { k1 <- lintType t1
        ; k2 <- lintType t2
        ; lintArrow (text "type or kind" <+> quotes (ppr ty)) k1 k2 }
@@ -1504,7 +1504,7 @@ lint_app doc kfn kas
       | Just kfn' <- coreView kfn
       = go_app in_scope kfn' tka
 
-    go_app _ (FunTy _ kfa kfb) tka@(_,ka)
+    go_app _ (FunTy (ArgType _ kfa) kfb) tka@(_,ka)
       = do { unless (ka `eqType` kfa) $
              addErrL (fail_msg (text "Fun:" <+> (ppr kfa $$ ppr tka)))
            ; return kfb }

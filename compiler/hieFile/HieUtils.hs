@@ -63,7 +63,7 @@ resolveVisibility kind ty_args
       where
         ts' = go (extendTvSubst env tv t) res ts
 
-    go env (FunTy { ft_res = res }) (t:ts) -- No type-class args in tycon apps
+    go env (FunTy _ res) (t:ts) -- No type-class args in tycon apps
       = (True,t) : (go env res ts)
 
     go env (TyVarTy tv) ts
@@ -158,7 +158,7 @@ getTypeIndex t
       k <- getTypeIndex (varType v)
       i <- getTypeIndex t
       return $ HForAllTy ((varName v,k),a) i
-    go (FunTy { ft_af = af, ft_arg = a, ft_res = b }) = do
+    go (FunTy (ArgType { at_af = af, at_type = a }) b) = do
       ai <- getTypeIndex a
       bi <- getTypeIndex b
       return $ case af of

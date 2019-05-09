@@ -919,8 +919,8 @@ tcTyFamInstsAndVisX = go
     go _            (LitTy {})         = []
     go is_invis_arg (ForAllTy bndr ty) = go is_invis_arg (binderType bndr)
                                          ++ go is_invis_arg ty
-    go is_invis_arg (FunTy _ ty1 ty2)  = go is_invis_arg ty1
-                                         ++ go is_invis_arg ty2
+    go is_invis_arg (FunTy (ArgType _ ty1) ty2)  = go is_invis_arg ty1
+                                                ++ go is_invis_arg ty2
     go is_invis_arg ty@(AppTy _ _)     =
       let (ty_head, ty_args) = splitAppTys ty
           ty_arg_flags       = appTyArgFlags ty_head ty_args
@@ -986,7 +986,7 @@ exactTyCoVarsOfType ty
     go (TyConApp _ tys)     = exactTyCoVarsOfTypes tys
     go (LitTy {})           = emptyVarSet
     go (AppTy fun arg)      = go fun `unionVarSet` go arg
-    go (FunTy _ arg res)    = go arg `unionVarSet` go res
+    go (FunTy (ArgType _ arg) res) = go arg `unionVarSet` go res
     go (ForAllTy bndr ty)   = delBinderVar (go ty) bndr `unionVarSet` go (binderType bndr)
     go (CastTy ty co)       = go ty `unionVarSet` goCo co
     go (CoercionTy co)      = goCo co
@@ -1044,7 +1044,7 @@ anyRewritableTyVar ignore_cos role pred ty
     go _ _     (LitTy {})        = False
     go rl bvs (TyConApp tc tys)  = go_tc rl bvs tc tys
     go rl bvs (AppTy fun arg)    = go rl bvs fun || go NomEq bvs arg
-    go rl bvs (FunTy _ arg res)  = go rl bvs arg || go rl bvs res
+    go rl bvs (FunTy (ArgType _ arg) res)  = go rl bvs arg || go rl bvs res
     go rl bvs (ForAllTy tv ty)   = go rl (bvs `extendVarSet` binderVar tv) ty
     go rl bvs (CastTy ty co)     = go rl bvs ty || go_co rl bvs co
     go rl bvs (CoercionTy co)    = go_co rl bvs co  -- ToDo: check
@@ -1381,8 +1381,8 @@ tcSplitPredFunTy_maybe :: Type -> Maybe (PredType, Type)
 -- Split off the first predicate argument from a type
 tcSplitPredFunTy_maybe ty
   | Just ty' <- tcView ty = tcSplitPredFunTy_maybe ty'
-tcSplitPredFunTy_maybe (FunTy { ft_af = InvisArg
-                              , ft_arg = arg, ft_res = res })
+tcSplitPredFunTy_maybe (FunTy (ArgType { at_af = InvisArg
+                                       , at_type = arg }) res)
   = Just (arg, res)
 tcSplitPredFunTy_maybe _
   = Nothing
@@ -1460,7 +1460,7 @@ tcTyConAppTyCon_maybe ty
   | Just ty' <- tcView ty = tcTyConAppTyCon_maybe ty'
 tcTyConAppTyCon_maybe (TyConApp tc _)
   = Just tc
-tcTyConAppTyCon_maybe (FunTy { ft_af = VisArg })
+tcTyConAppTyCon_maybe (FunTy (ArgType { at_af = VisArg }) _)
   = Just funTyCon  -- (=>) is /not/ a TyCon in its own right
                    -- C.f. tcRepSplitAppTy_maybe
 tcTyConAppTyCon_maybe _
@@ -1487,7 +1487,7 @@ tcSplitFunTys ty = case tcSplitFunTy_maybe ty of
 tcSplitFunTy_maybe :: Type -> Maybe (Type, Type)
 tcSplitFunTy_maybe ty
   | Just ty' <- tcView ty = tcSplitFunTy_maybe ty'
-tcSplitFunTy_maybe (FunTy { ft_af = af, ft_arg = arg, ft_res = res })
+tcSplitFunTy_maybe (FunTy (ArgType { at_af = af, at_type = arg }) res)
   | VisArg <- af = Just (arg, res)
 tcSplitFunTy_maybe _ = Nothing
         -- Note the VisArg guard
@@ -1692,10 +1692,10 @@ tc_eq_type keep_syns vis_only orig_ty1 orig_ty2
     -- Make sure we handle all FunTy cases since falling through to the
     -- AppTy case means that tcRepSplitAppTy_maybe may see an unzonked
     -- kind variable, which causes things to blow up.
-    go env (FunTy _ arg1 res1) (FunTy _ arg2 res2)
+    go env (FunTy (ArgType _ arg1) res1) (FunTy (ArgType _ arg2) res2)
       = go env arg1 arg2 && go env res1 res2
-    go env ty (FunTy _ arg res) = eqFunTy env arg res ty
-    go env (FunTy _ arg res) ty = eqFunTy env arg res ty
+    go env ty (FunTy (ArgType _ arg) res) = eqFunTy env arg res ty
+    go env (FunTy (ArgType _ arg) res) ty = eqFunTy env arg res ty
 
       -- See Note [Equality on AppTys] in Type
     go env (AppTy s1 t1)        ty2
@@ -1995,7 +1995,7 @@ isInsolubleOccursCheck eq_rel tv ty
     go (AppTy t1 t2) = case eq_rel of  -- See Note [AppTy and ReprEq]
                          NomEq  -> go t1 || go t2
                          ReprEq -> go t1
-    go (FunTy _ t1 t2) = go t1 || go t2
+    go (FunTy (ArgType _ t1) t2) = go t1 || go t2
     go (ForAllTy (Bndr tv' _) inner_ty)
       | tv' == tv = False
       | otherwise = go (varType tv') || go inner_ty
@@ -2134,14 +2134,14 @@ isSigmaTy :: TcType -> Bool
 -- *necessarily* have any foralls.  E.g
 --        f :: (?x::Int) => Int -> Int
 isSigmaTy ty | Just ty' <- tcView ty = isSigmaTy ty'
-isSigmaTy (ForAllTy {})                = True
-isSigmaTy (FunTy { ft_af = InvisArg }) = True
-isSigmaTy _                            = False
+isSigmaTy (ForAllTy {})                            = True
+isSigmaTy (FunTy (ArgType { at_af = InvisArg }) _) = True
+isSigmaTy _                                        = False
 
 isRhoTy :: TcType -> Bool   -- True of TcRhoTypes; see Note [TcRhoType]
 isRhoTy ty | Just ty' <- tcView ty = isRhoTy ty'
 isRhoTy (ForAllTy {})                          = False
-isRhoTy (FunTy { ft_af = VisArg, ft_res = r }) = isRhoTy r
+isRhoTy (FunTy (ArgType { at_af = VisArg }) r) = isRhoTy r
 isRhoTy _                                      = True
 
 -- | Like 'isRhoTy', but also says 'True' for 'Infer' types
@@ -2153,9 +2153,9 @@ isOverloadedTy :: Type -> Bool
 -- Yes for a type of a function that might require evidence-passing
 -- Used only by bindLocalMethods
 isOverloadedTy ty | Just ty' <- tcView ty = isOverloadedTy ty'
-isOverloadedTy (ForAllTy _  ty)             = isOverloadedTy ty
-isOverloadedTy (FunTy { ft_af = InvisArg }) = True
-isOverloadedTy _                            = False
+isOverloadedTy (ForAllTy _  ty)                         = isOverloadedTy ty
+isOverloadedTy (FunTy (ArgType { at_af = InvisArg }) _) = True
+isOverloadedTy _                                        = False
 
 isFloatTy, isDoubleTy, isIntegerTy, isIntTy, isWordTy, isBoolTy,
     isUnitTy, isCharTy, isAnyTy :: Type -> Bool
@@ -2583,7 +2583,7 @@ sizeType = go
                                    -- size ordering is sound, but why is this better?
                                    -- I came across this when investigating #14010.
     go (LitTy {})                = 1
-    go (FunTy _ arg res)         = go arg + go res + 1
+    go (FunTy (ArgType _ arg) res) = go arg + go res + 1
     go (AppTy fun arg)           = go fun + go arg
     go (ForAllTy (Bndr tv vis) ty)
         | isVisibleArgFlag vis   = go (tyVarKind tv) + go ty + 1

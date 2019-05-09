@@ -1900,7 +1900,7 @@ ty_co_subst lc role ty
                              liftCoSubstTyVar lc r tv
     go r (AppTy ty1 ty2)   = mkAppCo (go r ty1) (go Nominal ty2)
     go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go (tyConRolesX r tc) tys)
-    go r (FunTy _ ty1 ty2) = mkFunCo r (go r ty1) (go r ty2)
+    go r (FunTy (ArgType _ ty1) ty2) = mkFunCo r (go r ty1) (go r ty2)
     go r t@(ForAllTy (Bndr v _) ty)
        = let (lc', v', h) = liftCoSubstVarBndr lc v
              body_co = ty_co_subst lc' r ty in
@@ -2374,8 +2374,8 @@ buildCoercion orig_ty1 orig_ty2 = go orig_ty1 orig_ty2
                   ; _           -> False      } )
         mkNomReflCo ty1
 
-    go (FunTy { ft_arg = arg1, ft_res = res1 })
-       (FunTy { ft_arg = arg2, ft_res = res2 })
+    go (FunTy (ArgType { at_type = arg1 }) res1)
+       (FunTy (ArgType { at_type = arg2 }) res2)
       = mkFunCo Nominal (go arg1 arg2) (go res1 res2)
 
     go (TyConApp tc1 args1) (TyConApp tc2 args2)

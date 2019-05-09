@@ -77,7 +77,7 @@ import Id
 import IdInfo
 import PrelNames( absentErrorIdKey )
 import Type
-import TyCoRep( TyCoBinder(..), TyBinder )
+import TyCoRep( TyCoBinder(..), TyBinder, ArgType(..) )
 import Coercion
 import TyCon
 import Unique
@@ -1381,8 +1381,8 @@ isExpandableApp fn n_val_args
        | Just (bndr, ty) <- splitPiTy_maybe ty
        = case bndr of
            Named {}        -> all_pred_args n_val_args ty
-           Anon InvisArg _ -> all_pred_args (n_val_args-1) ty
-           Anon VisArg _   -> False
+           Anon (ArgType InvisArg _) -> all_pred_args (n_val_args-1) ty
+           Anon (ArgType VisArg _)   -> False
 
        | otherwise
        = False
@@ -1577,8 +1577,8 @@ app_ok primop_ok fun args
     (arg_tys, _) = splitPiTys (idType fun)
 
     primop_arg_ok :: TyBinder -> CoreExpr -> Bool
-    primop_arg_ok (Named _) _ = True   -- A type argument
-    primop_arg_ok (Anon _ ty) arg      -- A term argument
+    primop_arg_ok (Named _) _ = True             -- A type argument
+    primop_arg_ok (Anon (ArgType _ ty)) arg      -- A term argument
        | isUnliftedType ty = expr_ok primop_ok arg
        | otherwise         = True  -- See Note [Primops with lifted arguments]
 
