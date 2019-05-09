@@ -1112,11 +1112,11 @@ flatten_one (TyConApp tc tys)
 --                   _ -> fmode
   = flatten_ty_con_app tc tys
 
-flatten_one ty@(FunTy _ ty1 ty2)
+flatten_one (FunTy at@(ArgType _ ty1) ty2)
   = do { (xi1,co1) <- flatten_one ty1
        ; (xi2,co2) <- flatten_one ty2
        ; role <- getRole
-       ; return (ty { ft_arg = xi1, ft_res = xi2 }
+       ; return (FunTy (at { at_type = xi1 }) xi2
                 , mkFunCo role co1 co2) }
 
 flatten_one ty@(ForAllTy {})
@@ -1858,9 +1858,9 @@ split_pi_tys' ty = split ty ty
   split orig_ty ty | Just ty' <- coreView ty = split orig_ty ty'
   split _       (ForAllTy b res) = let (bs, ty, _) = split res res
                                    in  (Named b : bs, ty, True)
-  split _       (FunTy { ft_af = af, ft_arg = arg, ft_res = res })
+  split _       (FunTy (ArgType af arg) res)
                                  = let (bs, ty, named) = split res res
-                                   in  (Anon af arg : bs, ty, named)
+                                   in  (Anon (ArgType af arg) : bs, ty, named)
   split orig_ty _                = ([], orig_ty, False)
 {-# INLINE split_pi_tys' #-}
 
@@ -1872,6 +1872,6 @@ ty_con_binders_ty_binders' = foldr go ([], False)
     go (Bndr tv (NamedTCB vis)) (bndrs, _)
       = (Named (Bndr tv vis) : bndrs, True)
     go (Bndr tv (AnonTCB af))   (bndrs, n)
-      = (Anon af (tyVarKind tv)   : bndrs, n)
+      = (Anon (ArgType af (tyVarKind tv))   : bndrs, n)
     {-# INLINE go #-}
 {-# INLINE ty_con_binders_ty_binders' #-}

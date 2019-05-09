@@ -140,7 +140,7 @@ toIfaceTypeX fr ty@(AppTy {})  =
 toIfaceTypeX _  (LitTy n)      = IfaceLitTy (toIfaceTyLit n)
 toIfaceTypeX fr (ForAllTy b t) = IfaceForAllTy (toIfaceForAllBndrX fr b)
                                                (toIfaceTypeX (fr `delVarSet` binderVar b) t)
-toIfaceTypeX fr (FunTy { ft_arg = t1, ft_res = t2, ft_af = af })
+toIfaceTypeX fr (FunTy (ArgType { at_type = t1, at_af = af }) t2)
   = IfaceFunTy af (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
 toIfaceTypeX fr (CastTy ty co)  = IfaceCastTy (toIfaceTypeX fr ty) (toIfaceCoercionX fr co)
 toIfaceTypeX fr (CoercionTy co) = IfaceCoercionTy (toIfaceCoercionX fr co)
@@ -309,7 +309,7 @@ toIfaceAppArgsX fr kind ty_args
         t'  = toIfaceTypeX fr t
         ts' = go (extendTCvSubst env tv t) res ts
 
-    go env (FunTy { ft_af = af, ft_res = res }) (t:ts)
+    go env (FunTy (ArgType { at_af = af }) res) (t:ts)
       = IA_Arg (toIfaceTypeX fr t) argf (go env res ts)
       where
         argf = case af of

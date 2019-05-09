@@ -75,7 +75,7 @@ import TcUnify
 import TcIface
 import TcSimplify
 import TcHsSyn
-import TyCoRep  ( Type(..) )
+import TyCoRep  ( Type(..), ArgType(..) )
 import TcErrors ( reportAllUnsolved )
 import TcType
 import Inst   ( tcInstInvisibleTyBinders, tcInstInvisibleTyBinder )
@@ -1068,8 +1068,8 @@ tcInferApps_nosat mode orig_hs_ty fun orig_hs_args
         case ki_binder of
 
         -- FunTy with PredTy on LHS, or ForAllTy with Inferred
-        Named (Bndr _ Inferred) -> instantiate ki_binder inner_ki
-        Anon InvisArg _         -> instantiate ki_binder inner_ki
+        Named (Bndr _ Inferred)   -> instantiate ki_binder inner_ki
+        Anon (ArgType InvisArg _) -> instantiate ki_binder inner_ki
 
         Named (Bndr _ Specified) ->  -- Visible kind application
           do { traceTc "tcInferApps (vis kind app)"
@@ -2387,7 +2387,7 @@ etaExpandAlgTyCon tc_bndrs kind
       = case splitPiTy_maybe kind of
           Nothing -> (reverse acc, substTy subst kind)
 
-          Just (Anon af arg, kind')
+          Just (Anon (ArgType af arg), kind')
             -> go loc occs' uniqs' subst' (tcb : acc) kind'
             where
               arg'   = substTy subst arg
@@ -2422,7 +2422,7 @@ tcbVisibilities tc orig_args
     go fun_kind subst all_args@(arg : args)
       | Just (tcb, inner_kind) <- splitPiTy_maybe fun_kind
       = case tcb of
-          Anon af _           -> AnonTCB af   : go inner_kind subst  args
+          Anon (ArgType af _) -> AnonTCB af   : go inner_kind subst  args
           Named (Bndr tv vis) -> NamedTCB vis : go inner_kind subst' args
                  where
                     subst' = extendTCvSubst subst tv arg

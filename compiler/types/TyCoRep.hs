@@ -25,8 +25,9 @@ module TyCoRep (
         -- * Types
         Type( TyVarTy, AppTy, TyConApp, ForAllTy
             , LitTy, CastTy, CoercionTy
-            , FunTy, ft_arg, ft_res, ft_af
+            , FunTy
             ),  -- Export the type synonym FunTy too
+        ArgType(..),
 
         TyLit(..),
         KindOrType, Kind,
@@ -272,6 +273,13 @@ type KindOrType = Type -- See Note [Arguments to type constructors]
 -- | The key type representing kinds in the compiler.
 type Kind = Type
 
+-- See Note [ArgType]
+data ArgType = ArgType {
+                  at_af :: AnonArgFlag,  -- Is this (->) or (=>)?
+                  at_type :: Type        -- Argument type
+               }
+   deriving Data.Data
+
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 data Type
@@ -310,11 +318,10 @@ data Type
         {-# UNPACK #-} !TyCoVarBinder
         Type            -- ^ A Π type.
 
-  | FunTy      -- ^ t1 -> t2   Very common, so an important special case
-                -- See Note [Function types]
-     { ft_af  :: AnonArgFlag  -- Is this (->) or (=>)?
-     , ft_arg :: Type           -- Argument type
-     , ft_res :: Type }         -- Result type
+  | FunTy               -- ^ t1 -> t2   Very common, so an important special case
+                        -- See Note [Function types]
+        ArgType
+        Type
 
   | LitTy TyLit     -- ^ Type literals are similar to type constructors.
 
@@ -346,8 +353,6 @@ data TyLit
 FFunTy is the constructor for a function type.  Lots of things to say
 about it!
 
-* FFunTy is the data constructor, meaning "full function type".
-
 * The function type constructor (->) has kind
      (->) :: forall r1 r2. TYPE r1 -> TYPE r2 -> Type LiftedRep
   mkTyConApp ensure that we convert a saturated application
@@ -355,7 +360,12 @@ about it!
   dropping the 'r1' and 'r2' arguments; they are easily recovered
   from 't1' and 't2'.
 
-* The ft_af field says whether or not this is an invisible argument
+Note [ArgType]
+~~~~~~~~~~~~~~
+ArgType is used to group argument-related data. It's used in
+FunTy (Type) and Anon (TyCoBinder).
+
+* The at_af field says whether or not this is an invisible argument
      VisArg:   t1 -> t2    Ordinary function type
      InvisArg: t1 => t2    t1 is guaranteed to be a predicate type,
                            i.e. t1 :: Constraint
@@ -364,9 +374,10 @@ about it!
   This visibility info makes no difference in Core; it matters
   only when we regard the type as a Haskell source type.
 
-* FunTy is a (unidirectional) pattern synonym that allows
-  positional pattern matching (FunTy arg res), ignoring the
-  ArgFlag.
+* The at_type field contains the argument type.
+
+* In the future, we plan to add linearity or matchability information
+  to ArgType.
 -}
 
 {- -----------------------
@@ -723,7 +734,7 @@ type KnotTied ty = ty
 -- not. See Note [TyCoBinders]
 data TyCoBinder
   = Named TyCoVarBinder    -- A type-lambda binder
-  | Anon AnonArgFlag Type  -- A term-lambda binder. Type here can be CoercionTy.
+  | Anon ArgType           -- A term-lambda binder. Type here can be CoercionTy.
                            -- Visibility is determined by the AnonArgFlag
   deriving Data.Data
 
@@ -739,8 +750,8 @@ delBinderVar vars (Bndr tv _) = vars `delVarSet` tv
 -- | Does this binder bind an invisible argument?
 isInvisibleBinder :: TyCoBinder -> Bool
 isInvisibleBinder (Named (Bndr _ vis)) = isInvisibleArgFlag vis
-isInvisibleBinder (Anon InvisArg _)    = True
-isInvisibleBinder (Anon VisArg   _)    = False
+isInvisibleBinder (Anon (ArgType InvisArg _))    = True
+isInvisibleBinder (Anon (ArgType VisArg   _))    = False
 
 -- | Does this binder bind a visible argument?
 isVisibleBinder :: TyCoBinder -> Bool
@@ -1013,7 +1024,7 @@ mkTyCoVarTys = map mkTyCoVarTy
 infixr 3 `mkFunTy`, `mkVisFunTy`, `mkInvisFunTy`      -- Associates to the right
 
 mkFunTy :: AnonArgFlag -> Type -> Type -> Type
-mkFunTy af arg res = FunTy { ft_af = af, ft_arg = arg, ft_res = res }
+mkFunTy af arg res = FunTy (ArgType { at_af = af, at_type = arg }) res
 
 mkVisFunTy, mkInvisFunTy :: Type -> Type -> Type
 mkVisFunTy   = mkFunTy VisArg
@@ -1033,8 +1044,8 @@ mkForAllTy tv vis ty = ForAllTy (Bndr tv vis) ty
 mkForAllTys :: [TyCoVarBinder] -> Type -> Type
 mkForAllTys tyvars ty = foldr ForAllTy ty tyvars
 
-mkPiTy:: TyCoBinder -> Type -> Type
-mkPiTy (Anon af ty1) ty2        = FunTy { ft_af = af, ft_arg = ty1, ft_res = ty2 }
+mkPiTy :: TyCoBinder -> Type -> Type
+mkPiTy (Anon at) ty             = FunTy at ty
 mkPiTy (Named (Bndr tv vis)) ty = mkForAllTy tv vis ty
 
 mkPiTys :: [TyCoBinder] -> Type -> Type
@@ -1942,7 +1953,7 @@ ty_co_vars_of_type (TyVarTy v) is acc
 ty_co_vars_of_type (TyConApp _ tys)   is acc = ty_co_vars_of_types tys is acc
 ty_co_vars_of_type (LitTy {})         _  acc = acc
 ty_co_vars_of_type (AppTy fun arg)    is acc = ty_co_vars_of_type fun is (ty_co_vars_of_type arg is acc)
-ty_co_vars_of_type (FunTy _ arg res)  is acc = ty_co_vars_of_type arg is (ty_co_vars_of_type res is acc)
+ty_co_vars_of_type (FunTy (ArgType _ arg) res)  is acc = ty_co_vars_of_type arg is (ty_co_vars_of_type res is acc)
 ty_co_vars_of_type (ForAllTy (Bndr tv _) ty) is acc = ty_co_vars_of_type (varType tv) is $
                                                       ty_co_vars_of_type ty (extendVarSet is tv) acc
 ty_co_vars_of_type (CastTy ty co)     is acc = ty_co_vars_of_type ty is (ty_co_vars_of_co co is acc)
@@ -2079,7 +2090,7 @@ tyCoFVsOfType (TyVarTy v)        f bound_vars (acc_list, acc_set)
 tyCoFVsOfType (TyConApp _ tys)   f bound_vars acc = tyCoFVsOfTypes tys f bound_vars acc
 tyCoFVsOfType (LitTy {})         f bound_vars acc = emptyFV f bound_vars acc
 tyCoFVsOfType (AppTy fun arg)    f bound_vars acc = (tyCoFVsOfType fun `unionFV` tyCoFVsOfType arg) f bound_vars acc
-tyCoFVsOfType (FunTy _ arg res)  f bound_vars acc = (tyCoFVsOfType arg `unionFV` tyCoFVsOfType res) f bound_vars acc
+tyCoFVsOfType (FunTy (ArgType _ arg) res)  f bound_vars acc = (tyCoFVsOfType arg `unionFV` tyCoFVsOfType res) f bound_vars acc
 tyCoFVsOfType (ForAllTy bndr ty) f bound_vars acc = tyCoFVsBndr bndr (tyCoFVsOfType ty)  f bound_vars acc
 tyCoFVsOfType (CastTy ty co)     f bound_vars acc = (tyCoFVsOfType ty `unionFV` tyCoFVsOfCo co) f bound_vars acc
 tyCoFVsOfType (CoercionTy co)    f bound_vars acc = tyCoFVsOfCo co f bound_vars acc
@@ -2274,7 +2285,7 @@ almost_devoid_co_var_of_type (LitTy {}) _ = True
 almost_devoid_co_var_of_type (AppTy fun arg) cv
   = almost_devoid_co_var_of_type fun cv
   && almost_devoid_co_var_of_type arg cv
-almost_devoid_co_var_of_type (FunTy _ arg res) cv
+almost_devoid_co_var_of_type (FunTy (ArgType _ arg) res) cv
   = almost_devoid_co_var_of_type arg cv
   && almost_devoid_co_var_of_type res cv
 almost_devoid_co_var_of_type (ForAllTy (Bndr v _) ty) cv
@@ -2316,7 +2327,7 @@ injectiveVarsOfType = go
                           = go ty'
     go (TyVarTy v)        = unitFV v `unionFV` go (tyVarKind v)
     go (AppTy f a)        = go f `unionFV` go a
-    go (FunTy _ ty1 ty2)  = go ty1 `unionFV` go ty2
+    go (FunTy (ArgType _ ty1) ty2)  = go ty1 `unionFV` go ty2
     go (TyConApp tc tys)  =
       case tyConInjectivityInfo tc of
         NotInjective  -> emptyFV
@@ -2608,7 +2619,7 @@ noFreeVarsOfType (TyVarTy _)      = False
 noFreeVarsOfType (AppTy t1 t2)    = noFreeVarsOfType t1 && noFreeVarsOfType t2
 noFreeVarsOfType (TyConApp _ tys) = all noFreeVarsOfType tys
 noFreeVarsOfType ty@(ForAllTy {}) = isEmptyVarSet (tyCoVarsOfType ty)
-noFreeVarsOfType (FunTy _ t1 t2)  = noFreeVarsOfType t1 && noFreeVarsOfType t2
+noFreeVarsOfType (FunTy (ArgType _ t1) t2)  = noFreeVarsOfType t1 && noFreeVarsOfType t2
 noFreeVarsOfType (LitTy _)        = True
 noFreeVarsOfType (CastTy ty co)   = noFreeVarsOfType ty && noFreeVarsOfCo co
 noFreeVarsOfType (CoercionTy co)  = noFreeVarsOfCo co
@@ -3287,10 +3298,10 @@ subst_ty subst ty
                 -- by [Int], represented with TyConApp
     go (TyConApp tc tys) = let args = map go tys
                            in  args `seqList` TyConApp tc args
-    go ty@(FunTy { ft_arg = arg, ft_res = res })
+    go (FunTy at@(ArgType { at_type = arg }) res)
       = let !arg' = go arg
             !res' = go res
-        in ty { ft_arg = arg', ft_res = res' }
+        in FunTy (at { at_type = arg' }) res'
     go (ForAllTy (Bndr tv vis) ty)
                          = case substVarBndrUnchecked subst tv of
                              (subst', tv') ->
@@ -3743,7 +3754,7 @@ pprTyVar tv
     kind = tyVarKind tv
 
 instance Outputable TyCoBinder where
-  ppr (Anon af ty) = ppr af <+> ppr ty
+  ppr (Anon (ArgType af ty))     = ppr af <+> ppr ty
   ppr (Named (Bndr v Required))  = ppr v
   ppr (Named (Bndr v Specified)) = char '@' <> ppr v
   ppr (Named (Bndr v Inferred))  = braces (ppr v)
@@ -3768,7 +3779,7 @@ debug_ppr_ty _ (LitTy l)
 debug_ppr_ty _ (TyVarTy tv)
   = ppr tv  -- With -dppr-debug we get (tv :: kind)
 
-debug_ppr_ty prec (FunTy { ft_af = af, ft_arg = arg, ft_res = res })
+debug_ppr_ty prec (FunTy (ArgType { at_af = af, at_type = arg }) res)
   = maybeParen prec funPrec $
     sep [debug_ppr_ty funPrec arg, arrow <+> debug_ppr_ty prec res]
   where
@@ -3982,9 +3993,9 @@ tidyType env (TyVarTy tv)          = TyVarTy (tidyTyCoVarOcc env tv)
 tidyType env (TyConApp tycon tys)  = let args = tidyTypes env tys
                                      in args `seqList` TyConApp tycon args
 tidyType env (AppTy fun arg)       = (AppTy $! (tidyType env fun)) $! (tidyType env arg)
-tidyType env ty@(FunTy _ arg res)  = let { !arg' = tidyType env arg
-                                         ; !res' = tidyType env res }
-                                     in ty { ft_arg = arg', ft_res = res' }
+tidyType env (FunTy at@(ArgType _ arg) res)  = let { !arg' = tidyType env arg
+                                                   ; !res' = tidyType env res }
+                                               in FunTy (at { at_type = arg' }) res'
 tidyType env (ty@(ForAllTy{}))     = mkForAllTys' (zip tvs' vis) $! tidyType env' body_ty
   where
     (tvs, vis, body_ty) = splitForAllTys' ty
@@ -4107,7 +4118,7 @@ typeSize :: Type -> Int
 typeSize (LitTy {})                 = 1
 typeSize (TyVarTy {})               = 1
 typeSize (AppTy t1 t2)              = typeSize t1 + typeSize t2
-typeSize (FunTy _ t1 t2)            = typeSize t1 + typeSize t2
+typeSize (FunTy (ArgType _ t1) t2)  = typeSize t1 + typeSize t2
 typeSize (ForAllTy (Bndr tv _) t)   = typeSize (varType tv) + typeSize t
 typeSize (TyConApp _ ts)            = 1 + sum (map typeSize ts)
 typeSize (CastTy ty co)             = typeSize ty + coercionSize co

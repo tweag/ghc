@@ -442,7 +442,7 @@ tcInstInvisibleTyBinder subst (Named (Bndr tv _))
   = do { (subst', tv') <- newMetaTyVarX subst tv
        ; return (subst', mkTyVarTy tv') }
 
-tcInstInvisibleTyBinder subst (Anon af ty)
+tcInstInvisibleTyBinder subst (Anon (ArgType af ty))
   | Just (mk, k1, k2) <- get_eq_tys_maybe (substTy subst ty)
     -- Equality is the *only* constraint currently handled in types.
     -- See Note [Constraints in kinds] in TyCoRep

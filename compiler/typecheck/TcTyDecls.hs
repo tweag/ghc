@@ -34,7 +34,7 @@ import GhcPrelude
 import TcRnMonad
 import TcEnv
 import TcBinds( tcValBinds, addTypecheckedBinds )
-import TyCoRep( Type(..), Coercion(..), MCoercion(..), UnivCoProvenance(..) )
+import TyCoRep( Type(..), Coercion(..), MCoercion(..), UnivCoProvenance(..), ArgType(..) )
 import TcType
 import TysWiredIn( unitTy )
 import MkCore( rEC_SEL_ERROR_ID )
@@ -87,7 +87,7 @@ synonymTyConsOfType ty
      go (LitTy _)         = emptyNameEnv
      go (TyVarTy _)       = emptyNameEnv
      go (AppTy a b)       = go a `plusNameEnv` go b
-     go (FunTy _ a b)     = go a `plusNameEnv` go b
+     go (FunTy (ArgType _ a) b)     = go a `plusNameEnv` go b
      go (ForAllTy _ ty)   = go ty
      go (CastTy ty co)    = go ty `plusNameEnv` go_co co
      go (CoercionTy co)   = go_co co
@@ -597,7 +597,7 @@ irType = go
                                           lcls' = extendVarSet lcls tv
                                     ; markNominal lcls (tyVarKind tv)
                                     ; go lcls' ty }
-    go lcls (FunTy _ arg res)  = go lcls arg >> go lcls res
+    go lcls (FunTy (ArgType _ arg) res)  = go lcls arg >> go lcls res
     go _    (LitTy {})         = return ()
       -- See Note [Coercions in role inference]
     go lcls (CastTy ty _)      = go lcls ty
@@ -633,7 +633,7 @@ markNominal lcls ty = let nvars = fvVarList (FV.delFVs lcls $ get_ty_vars ty) in
     get_ty_vars :: Type -> FV
     get_ty_vars (TyVarTy tv)      = unitFV tv
     get_ty_vars (AppTy t1 t2)     = get_ty_vars t1 `unionFV` get_ty_vars t2
-    get_ty_vars (FunTy _ t1 t2)   = get_ty_vars t1 `unionFV` get_ty_vars t2
+    get_ty_vars (FunTy (ArgType _ t1) t2)   = get_ty_vars t1 `unionFV` get_ty_vars t2
     get_ty_vars (TyConApp _ tys)  = mapUnionFV get_ty_vars tys
     get_ty_vars (ForAllTy tvb ty) = tyCoFVsBndr tvb (get_ty_vars ty)
     get_ty_vars (LitTy {})        = emptyFV
