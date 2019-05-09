@@ -1155,6 +1155,7 @@ freshEtaId n subst ty
       = (subst', eta_id')
       where
         ty'     = Type.substTyUnchecked subst (scaledThing ty)
+        mult'   = Type.substTyUnchecked subst (scaledMult ty)
         eta_id' = uniqAway (getTCvInScope subst) $
-                  mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) (scaledMult ty) ty'
+                  mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) mult' ty'
         subst'  = extendTCvInScope subst eta_id'
