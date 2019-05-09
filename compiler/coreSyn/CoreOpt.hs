@@ -1288,8 +1288,9 @@ pushCoDataCon :: DataCon -> [CoreExpr] -> Coercion
 -- but the right-hand one might not be.  (Though it usually will.)
 pushCoDataCon dc dc_args co
   | isReflCo co || from_ty `eqType` to_ty  -- try cheap test first
-  , let (univ_ty_args, rest_args) = (splitAtList (dataConUnivTyVars dc) dc_args)
+  , let (univ_ty_args, rest_args) = splitAtList (dataConUnivTyVars dc) dc_args
   = Just (dc, map exprToType univ_ty_args, rest_args)
+
   | Just (to_tc, to_tc_arg_tys) <- splitTyConApp_maybe to_ty
   , to_tc == dataConTyCon dc
         -- These two tests can fail; we might see

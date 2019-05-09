@@ -1855,7 +1855,7 @@ tyConToIfaceDecl env tycon
                     ifConCtxt    = tidyToIfaceContext con_env2 theta,
                     ifConArgTys  =
                       map (\(Scaled w t) -> (tidyToIfaceType con_env2 w
-                                        , (tidyToIfaceType con_env2 t))) arg_tys,
+                                          , (tidyToIfaceType con_env2 t))) arg_tys,
                     ifConFields  = dataConFieldLabels data_con,
                     ifConStricts = map (toIfaceBang con_env2)
                                        (dataConImplBangs data_con),

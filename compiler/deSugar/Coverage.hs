@@ -929,7 +929,7 @@ addTickCmdGRHS :: GRHS GhcTc (LHsCmd GhcTc) -> TM (GRHS GhcTc (LHsCmd GhcTc))
 -- The *guards* are *not* Cmds, although the body is
 -- C.f. addTickGRHS for the BinBox stuff
 addTickCmdGRHS (GRHS x stmts cmd)
-  = do { (stmts',expr') <- addTickLStmts' (Just $ BinBox GuardBinBox)
+  = do { (stmts',expr') <- addTickLStmts' (Just $ BinBox $ GuardBinBox)
                                    stmts (addTickLHsCmd cmd)
        ; return $ GRHS x stmts' expr' }
 addTickCmdGRHS (XGRHS _) = panic "addTickCmdGRHS"
