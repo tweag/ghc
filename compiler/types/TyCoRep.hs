@@ -1169,8 +1169,8 @@ isLinearType :: Type -> Bool
 -- in its type. We use this function to check whether it is safe to eta
 -- reduce an Id.
 isLinearType ty = case ty of
-                      FunTy _ One _ _ -> True
-                      FunTy _ _ _ res -> isLinearType res
+                      FunTy _ Omega _ res -> isLinearType res
+                      FunTy _ _ _ _ -> True
                       ForAllTy _ res -> isLinearType res
                       _ -> False
 
