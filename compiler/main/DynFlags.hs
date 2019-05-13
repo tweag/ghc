@@ -843,6 +843,7 @@ data WarningFlag =
    | Opt_WarnImplicitKindVars             -- Since 8.6
    | Opt_WarnSpaceAfterBang
    | Opt_WarnMissingDerivingStrategies    -- Since 8.8
+   | Opt_WarnPrepositiveQualifiedModule   -- Since TBD
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -1353,7 +1354,11 @@ data Settings = Settings {
   sOpt_lcc               :: [String], -- LLVM: c compiler
   sOpt_i                 :: [String], -- iserv options
 
-  sPlatformConstants     :: PlatformConstants
+  sPlatformConstants     :: PlatformConstants,
+
+  -- Formerly Config.hs, target specific
+  sTargetPlatformString :: String, -- TODO Recalculate string from richer info?
+  sTablesNextToCode :: Bool
  }
 
 targetPlatform :: DynFlags -> Platform
@@ -1621,17 +1626,14 @@ defaultObjectTarget platform
   | cGhcWithNativeCodeGen == "YES"      =  HscAsm
   | otherwise                           =  HscLlvm
 
-tablesNextToCode :: DynFlags -> Bool
-tablesNextToCode dflags
-    = mkTablesNextToCode (platformUnregisterised (targetPlatform dflags))
-
 -- Determines whether we will be compiling
 -- info tables that reside just before the entry code, or with an
 -- indirection to the entry code.  See TABLES_NEXT_TO_CODE in
 -- includes/rts/storage/InfoTables.h.
-mkTablesNextToCode :: Bool -> Bool
-mkTablesNextToCode unregisterised
-    = not unregisterised && cGhcEnableTablesNextToCode == "YES"
+tablesNextToCode :: DynFlags -> Bool
+tablesNextToCode dflags =
+    not (platformUnregisterised $ targetPlatform dflags) &&
+    sTablesNextToCode (settings dflags)
 
 data DynLibLoader
   = Deployable
@@ -4070,7 +4072,10 @@ wWarningFlagsDeps = [
   flagSpec "star-binder"                 Opt_WarnStarBinder,
   flagSpec "star-is-type"                Opt_WarnStarIsType,
   flagSpec "missing-space-after-bang"    Opt_WarnSpaceAfterBang,
-  flagSpec "partial-fields"              Opt_WarnPartialFields ]
+  flagSpec "partial-fields"              Opt_WarnPartialFields,
+  flagSpec "prepositive-qualified-module"
+                                         Opt_WarnPrepositiveQualifiedModule
+ ]
 
 -- | These @-\<blah\>@ flags can all be reversed with @-no-\<blah\>@
 negatableFlagsDeps :: [(Deprecation, FlagSpec GeneralFlag)]
@@ -4396,6 +4401,7 @@ xFlagsDeps = [
                                               setGenDeriving,
   flagSpec "ImplicitParams"                   LangExt.ImplicitParams,
   flagSpec "ImplicitPrelude"                  LangExt.ImplicitPrelude,
+  flagSpec "ImportQualifiedPost"              LangExt.ImportQualifiedPost,
   flagSpec "ImpredicativeTypes"               LangExt.ImpredicativeTypes,
   flagSpec' "IncoherentInstances"             LangExt.IncoherentInstances
                                               setIncoherentInsts,
@@ -5617,12 +5623,12 @@ compilerInfo dflags
        ("Stage",                       cStage),
        ("Build platform",              cBuildPlatformString),
        ("Host platform",               cHostPlatformString),
-       ("Target platform",             cTargetPlatformString),
+       ("Target platform",             sTargetPlatformString $ settings dflags),
        ("Have interpreter",            cGhcWithInterpreter),
        ("Object splitting supported",  showBool False),
        ("Have native code generator",  cGhcWithNativeCodeGen),
        ("Support SMP",                 cGhcWithSMP),
-       ("Tables next to code",         cGhcEnableTablesNextToCode),
+       ("Tables next to code",         showBool $ sTablesNextToCode $ settings dflags),
        ("RTS ways",                    cGhcRTSWays),
        ("RTS expects libdw",           showBool cGhcRtsWithLibdw),
        -- Whether or not we support @-dynamic-too@

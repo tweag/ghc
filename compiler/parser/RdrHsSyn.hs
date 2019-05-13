@@ -49,6 +49,7 @@ module   RdrHsSyn (
 
         -- Bunch of functions in the parser monad for
         -- checking and constructing values
+        checkImportDecl,
         checkExpBlockArguments,
         checkPrecP,           -- Int -> P Int
         checkContext,         -- HsType -> P HsContext
@@ -81,7 +82,10 @@ module   RdrHsSyn (
 
         -- Warnings and errors
         warnStarIsType,
+        warnPrepositiveQualifiedModule,
         failOpFewArgs,
+        failOpNotEnabledImportQualifiedPost,
+        failOpImportQualifiedTwice,
 
         SumOrTuple (..),
 
@@ -954,8 +958,8 @@ checkTyClHdr is_cls ty
            ; let name = mkOccName tcClsName (starSym isUni)
            ; return (cL l (Unqual name), acc, fix, (ann ++ mkParensApiAnn lp)) }
 
-    go l (HsTyVar _ _ (dL->L _ tc)) acc ann fix
-      | isRdrTc tc               = return (cL l tc, acc, fix, ann)
+    go _ (HsTyVar _ _ ltc@(dL->L _ tc)) acc ann fix
+      | isRdrTc tc               = return (ltc, acc, fix, ann)
     go _ (HsOpTy _ t1 ltc@(dL->L _ tc) t2) acc ann _fix
       | isRdrTc tc               = return (ltc, HsValArg t1:HsValArg t2:acc, Infix, ann)
     go l (HsParTy _ ty)    acc ann fix = goL ty acc (ann ++mkParensApiAnn l) fix
@@ -1049,6 +1053,31 @@ checkNoDocs msg ty = go ty
                                   [ text "Unexpected haddock", quotes (ppr ds)
                                   , text "on", msg, quotes (ppr t) ]
     go _ = pure ()
+
+checkImportDecl :: Maybe (Located Token)
+                -> Maybe (Located Token)
+                -> P ()
+checkImportDecl mPre mPost = do
+  let whenJust mg f = maybe (pure ()) f mg
+
+  importQualifiedPostEnabled <- getBit ImportQualifiedPostBit
+
+  -- Error if 'qualified' found in postpostive position and
+  -- 'ImportQualifiedPost' is not in effect.
+  whenJust mPost $ \post ->
+    when (not importQualifiedPostEnabled) $
+      failOpNotEnabledImportQualifiedPost (getLoc post)
+
+  -- Error if 'qualified' occurs in both pre and postpositive
+  -- positions.
+  whenJust mPost $ \post ->
+    when (isJust mPre) $
+      failOpImportQualifiedTwice (getLoc post)
+
+  -- Warn if 'qualified' found in prepositive position and
+  -- 'Opt_WarnPrepositiveQualifiedModule' is enabled.
+  whenJust mPre $ \pre ->
+    warnPrepositiveQualifiedModule (getLoc pre)
 
 -- -------------------------------------------------------------------------
 -- Checking Patterns.
@@ -1846,20 +1875,16 @@ ecpFromCmd a = ECP (ecpFromCmd' a)
 -- | Disambiguate infix operators.
 -- See Note [Ambiguous syntactic categories]
 class DisambInfixOp b where
-  checkIfBang :: b -> Bool
   mkHsVarOpPV :: Located RdrName -> PV (Located b)
   mkHsConOpPV :: Located RdrName -> PV (Located b)
   mkHsInfixHolePV :: SrcSpan -> PV (Located b)
 
 instance p ~ GhcPs => DisambInfixOp (HsExpr p) where
-  checkIfBang (HsVar _ (unLoc -> op)) = isBangRdr op
-  checkIfBang _ = False
   mkHsVarOpPV v = return $ cL (getLoc v) (HsVar noExt v)
   mkHsConOpPV v = return $ cL (getLoc v) (HsVar noExt v)
   mkHsInfixHolePV l = return $ cL l hsHoleExpr
 
 instance DisambInfixOp RdrName where
-  checkIfBang = isBangRdr
   mkHsConOpPV (dL->L l v) = return $ cL l v
   mkHsVarOpPV (dL->L l v) = return $ cL l v
   mkHsInfixHolePV l =
@@ -2131,7 +2156,9 @@ instance p ~ GhcPs => DisambECP (PatBuilder p) where
   mkHsLetPV l _ _ = addFatalError l $ text "(let ... in ...)-syntax in pattern"
   type InfixOp (PatBuilder p) = RdrName
   superInfixOp m = m
-  mkHsOpAppPV l p1 op p2 = return $ cL l $ PatBuilderOpApp p1 op p2
+  mkHsOpAppPV l p1 op p2 = do
+    warnSpaceAfterBang op (getLoc p2)
+    return $ cL l $ PatBuilderOpApp p1 op p2
   mkHsCasePV l _ _ = addFatalError l $ text "(case ... of ...)-syntax in pattern"
   type FunArg (PatBuilder p) = PatBuilder p
   superFunArg m = m
@@ -2191,6 +2218,19 @@ mkPatRec (unLoc -> PatBuilderVar c) (HsRecFields fs dd)
        return (PatBuilderPat (ConPatIn c (RecCon (HsRecFields fs dd))))
 mkPatRec p _ =
   addFatalError (getLoc p) $ text "Not a record constructor:" <+> ppr p
+
+-- | Warn about missing space after bang
+warnSpaceAfterBang :: Located RdrName -> SrcSpan -> PV ()
+warnSpaceAfterBang (dL->L opLoc op) argLoc = do
+    bang_on <- getBit BangPatBit
+    when (not bang_on && noSpace && isBangRdr op) $
+      addWarning Opt_WarnSpaceAfterBang span msg
+    where
+      span = combineSrcSpans opLoc argLoc
+      noSpace = srcSpanEnd opLoc == srcSpanStart argLoc
+      msg = text "Did you forget to enable BangPatterns?" $$
+            text "If you mean to bind (!) then perhaps you want" $$
+            text "to add a space after the bang for clarity."
 
 {- Note [Ambiguous syntactic categories]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2932,6 +2972,27 @@ isImpExpQcWildcard _                = False
 
 -----------------------------------------------------------------------------
 -- Warnings and failures
+
+warnPrepositiveQualifiedModule :: SrcSpan -> P ()
+warnPrepositiveQualifiedModule span =
+  addWarning Opt_WarnPrepositiveQualifiedModule span msg
+  where
+    msg = text "Found" <+> quotes (text "qualified")
+           <+> text "in prepositive position"
+       $$ text "Suggested fix: place " <+> quotes (text "qualified")
+           <+> text "after the module name instead."
+
+failOpNotEnabledImportQualifiedPost :: SrcSpan -> P ()
+failOpNotEnabledImportQualifiedPost loc = addError loc msg
+  where
+    msg = text "Found" <+> quotes (text "qualified")
+          <+> text "in postpositive position. "
+      $$ text "To allow this, enable language extension 'ImportQualifiedPost'"
+
+failOpImportQualifiedTwice :: SrcSpan -> P ()
+failOpImportQualifiedTwice loc = addError loc msg
+  where
+    msg = text "Multiple occurences of 'qualified'"
 
 warnStarIsType :: SrcSpan -> P ()
 warnStarIsType span = addWarning Opt_WarnStarIsType span msg

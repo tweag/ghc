@@ -655,7 +655,7 @@
      (Nothing)
      (False)
      (False)
-     (False)
+     (NotQualified)
      (True)
      (Nothing)
      (Nothing)))
@@ -668,7 +668,7 @@
      (Nothing)
      (False)
      (False)
-     (False)
+     (NotQualified)
      (False)
      (Nothing)
      (Nothing)))
@@ -681,7 +681,7 @@
      (Nothing)
      (False)
      (False)
-     (False)
+     (NotQualified)
      (False)
      (Nothing)
      (Just
@@ -697,5 +697,3 @@
               {Name: GHC.Types.Type})))))])))))]
   (Nothing)
   (Nothing)))
-
-
