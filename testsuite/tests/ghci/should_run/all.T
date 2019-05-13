@@ -32,6 +32,7 @@ test('T12128',     just_ghci, ghci_script, ['T12128.script'])
 test('T12456',     just_ghci, ghci_script, ['T12456.script'])
 test('T12525',     just_ghci, ghci_script, ['T12525.script'])
 test('T12549',     just_ghci, ghci_script, ['T12549.script'])
+test('T13456',     [just_ghci, combined_output], ghci_script, ['T13456.script'])
 test('BinaryArray', normal, compile_and_run, [''])
 test('T14125a',    just_ghci, ghci_script, ['T14125a.script'])
 test('T13825-ghci',just_ghci, ghci_script, ['T13825-ghci.script'])
@@ -61,3 +62,4 @@ test('T15633b',
      ghci_script, ['T15633b.script'])
 
 test('T16096', just_ghci, ghci_script, ['T16096.script'])
+test('T507', just_ghci, ghci_script, ['T507.script'])

@@ -292,6 +292,7 @@ generateSettings = do
         , ("libtool command", settingsFileSetting SettingsFileSetting_LibtoolCommand)
         , ("unlit command", ("$topdir/bin/" <>) . takeFileName <$> builderPath Unlit)
         , ("cross compiling", flag' CrossCompiling)
+        , ("target platform string", setting TargetPlatform)
         , ("target os", lookupValueOrError configFile "haskell-target-os")
         , ("target arch", lookupValueOrError configFile "haskell-target-arch")
         , ("target word size", lookupValueOrError configFile "target-word-size")
@@ -303,6 +304,8 @@ generateSettings = do
         , ("LLVM llc command", settingsFileSetting SettingsFileSetting_LlcCommand)
         , ("LLVM opt command", settingsFileSetting SettingsFileSetting_OptCommand)
         , ("LLVM clang command", settingsFileSetting SettingsFileSetting_ClangCommand)
+
+        , ("Tables next to code", yesNo <$> ghcEnableTablesNextToCode)
         ]
     let showTuple (k, v) = "(" ++ show k ++ ", " ++ show v ++ ")"
     pure $ case settings of
@@ -334,7 +337,6 @@ generateConfigHs = do
     cGhcWithInterpreter        <- expr $ yesNo <$> ghcWithInterpreter
     cGhcWithNativeCodeGen      <- expr $ yesNo <$> ghcWithNativeCodeGen
     cGhcWithSMP                <- expr $ yesNo <$> ghcWithSMP
-    cGhcEnableTablesNextToCode <- expr $ yesNo <$> ghcEnableTablesNextToCode
     cLeadingUnderscore         <- expr $ yesNo <$> flag LeadingUnderscore
     cLibFFI                    <- expr useLibFFIForAdjustors
     rtsWays                    <- getRtsWays
@@ -356,8 +358,6 @@ generateConfigHs = do
         , "cBuildPlatformString = BuildPlatform_NAME"
         , "cHostPlatformString :: String"
         , "cHostPlatformString = HostPlatform_NAME"
-        , "cTargetPlatformString :: String"
-        , "cTargetPlatformString = TargetPlatform_NAME"
         , ""
         , "cProjectName          :: String"
         , "cProjectName          = " ++ show cProjectName
@@ -389,8 +389,6 @@ generateConfigHs = do
         , "cGhcWithSMP           = " ++ show cGhcWithSMP
         , "cGhcRTSWays           :: String"
         , "cGhcRTSWays           = " ++ show cGhcRTSWays
-        , "cGhcEnableTablesNextToCode :: String"
-        , "cGhcEnableTablesNextToCode = " ++ show cGhcEnableTablesNextToCode
         , "cLeadingUnderscore    :: String"
         , "cLeadingUnderscore    = " ++ show cLeadingUnderscore
         , "cLibFFI               :: Bool"
@@ -453,7 +451,6 @@ generateGhcBootPlatformH = do
         , ""
         , "#define BuildPlatform_NAME  " ++ show buildPlatform
         , "#define HostPlatform_NAME   " ++ show hostPlatform
-        , "#define TargetPlatform_NAME " ++ show targetPlatform
         , ""
         , "#define " ++ cppify buildPlatform  ++ "_BUILD 1"
         , "#define " ++ cppify hostPlatform   ++ "_HOST 1"

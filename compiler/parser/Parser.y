@@ -39,6 +39,7 @@ module Parser (parseModule, parseSignature, parseImport, parseStatement, parseBa
 import Control.Monad    ( unless, liftM, when, (<=<) )
 import GHC.Exts
 import Data.Char
+import Data.Maybe       ( maybeToList )
 import Control.Monad    ( mplus )
 import Control.Applicative ((<$))
 
@@ -958,17 +959,22 @@ importdecls_semi
         | {- empty -}           { [] }
 
 importdecl :: { LImportDecl GhcPs }
-        : 'import' maybe_src maybe_safe optqualified maybe_pkg modid maybeas maybeimpspec
-                {% ams (cL (comb4 $1 $6 (snd $7) $8) $
-                  ImportDecl { ideclExt = noExt
-                             , ideclSourceSrc = snd $ fst $2
-                             , ideclName = $6, ideclPkgQual = snd $5
-                             , ideclSource = snd $2, ideclSafe = snd $3
-                             , ideclQualified = snd $4, ideclImplicit = False
-                             , ideclAs = unLoc (snd $7)
-                             , ideclHiding = unLoc $8 })
-                   ((mj AnnImport $1 : (fst $ fst $2) ++ fst $3 ++ fst $4
-                                    ++ fst $5 ++ fst $7)) }
+        : 'import' maybe_src maybe_safe optqualified maybe_pkg modid optqualified maybeas maybeimpspec
+                {% do {
+                  ; checkImportDecl $4 $7
+                  ; ams (cL (comb4 $1 $6 (snd $8) $9) $
+                      ImportDecl { ideclExt = noExt
+                                  , ideclSourceSrc = snd $ fst $2
+                                  , ideclName = $6, ideclPkgQual = snd $5
+                                  , ideclSource = snd $2, ideclSafe = snd $3
+                                  , ideclQualified = importDeclQualifiedStyle $4 $7
+                                  , ideclImplicit = False
+                                  , ideclAs = unLoc (snd $8)
+                                  , ideclHiding = unLoc $9 })
+                         ((mj AnnImport $1 : fst (fst $2) ++ fst $3 ++ fmap (mj AnnQualified) (maybeToList $4)
+                                          ++ fst $5 ++ fmap (mj AnnQualified) (maybeToList $7) ++ fst $8))
+                  }
+                }
 
 maybe_src :: { (([AddAnn],SourceText),IsBootInterface) }
         : '{-# SOURCE' '#-}'        { (([mo $1,mc $2],getSOURCE_PRAGs $1)
@@ -989,9 +995,9 @@ maybe_pkg :: { ([AddAnn],Maybe StringLiteral) }
                         ; return ([mj AnnPackageName $1], Just (StringLiteral (getSTRINGs $1) pkgFS)) } }
         | {- empty -}                           { ([],Nothing) }
 
-optqualified :: { ([AddAnn],Bool) }
-        : 'qualified'                           { ([mj AnnQualified $1],True)  }
-        | {- empty -}                           { ([],False) }
+optqualified :: { Maybe (Located Token) }
+        : 'qualified'                           { Just $1 }
+        | {- empty -}                           { Nothing }
 
 maybeas :: { ([AddAnn],Located (Maybe (Located ModuleName))) }
         : 'as' modid                           { ([mj AnnAs $1]
@@ -2624,14 +2630,8 @@ infixexp_top :: { ECP }
                                          $2 >>= \ $2 ->
                                          runECP_PV $1 >>= \ $1 ->
                                          runECP_PV $3 >>= \ $3 ->
-                                         do { when (srcSpanEnd (getLoc $2)
-                                                == srcSpanStart (getLoc $3)
-                                                && checkIfBang (unLoc $2)) $
-                                                warnSpaceAfterBang (comb2 $2 $3);
-                                              amms (mkHsOpAppPV (comb2 $1 $>) $1 $2 $3)
-                                                   [mj AnnVal $2]
-                                            }
-                                      }
+                                         amms (mkHsOpAppPV (comb2 $1 $>) $1 $2 $3)
+                                              [mj AnnVal $2] }
 
 exp10_top :: { ECP }
         : '-' fexp                      { ECP $
@@ -3992,17 +3992,6 @@ hintExplicitForall tok = do
       ]
   where
     forallSymDoc = text (forallSym (isUnicode tok))
-
--- | Warn about missing space after bang
-warnSpaceAfterBang :: SrcSpan -> PV ()
-warnSpaceAfterBang span = do
-    bang_on <- getBit BangPatBit
-    unless bang_on $
-      addWarning Opt_WarnSpaceAfterBang span msg
-    where
-      msg = text "Did you forget to enable BangPatterns?" $$
-            text "If you mean to bind (!) then perhaps you want" $$
-            text "to add a space after the bang for clarity."
 
 -- When two single quotes don't followed by tyvar or gtycon, we report the
 -- error as empty character literal, or TH quote that missing proper type

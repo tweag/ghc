@@ -177,6 +177,7 @@ initSysTools top_dir
                                  Nothing -> pgmError ("Failed to read " ++ show key ++ " value " ++ show xs)
                              Nothing -> pgmError ("No entry for " ++ show key ++ " in " ++ show settingsFile)
        crossCompiling <- getBooleanSetting "cross compiling"
+       targetPlatformString <- getSetting "target platform string"
        targetArch <- readSetting "target arch"
        targetOS <- readSetting "target os"
        targetWordSize <- readSetting "target word size"
@@ -184,6 +185,7 @@ initSysTools top_dir
        targetHasGnuNonexecStack <- readSetting "target has GNU nonexec stack"
        targetHasIdentDirective <- readSetting "target has .ident directive"
        targetHasSubsectionsViaSymbols <- readSetting "target has subsections via symbols"
+       tablesNextToCode <- getBooleanSetting "Tables next to code"
        myExtraGccViaCFlags <- getSetting "GCC extra via C opts"
        -- On Windows, mingw is distributed with GHC,
        -- so we look in TopDir/../mingw/bin,
@@ -303,7 +305,9 @@ initSysTools top_dir
                     sOpt_lo      = [],
                     sOpt_lc      = [],
                     sOpt_i       = [],
-                    sPlatformConstants = platformConstants
+                    sPlatformConstants = platformConstants,
+                    sTargetPlatformString = targetPlatformString,
+                    sTablesNextToCode = tablesNextToCode
              }
 
 
