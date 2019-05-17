@@ -147,12 +147,10 @@ data PatTy = PAT | VA -- Used only as a kind, to index PmPat
 -- the number of p1..pn that are not Guards
 
 pmConAdjust :: HasCallStack => PmPat a -> PmPat a
-pmConAdjust x@(PmCon {pm_con_con = RealDataCon con, pm_con_arg_tys = tys}) | isUnboxedTupleCon con || isUnboxedSumCon con, 2 * length tys == length (dataConUnivTyVars con) = (x { pm_con_arg_tys = map getRuntimeRep tys ++ tys })
 pmConAdjust x = x
 
 pmConCheck :: HasCallStack => PmPat a -> PmPat a
-pmConCheck x@(PmCon {pm_con_con = RealDataCon con, pm_con_arg_tys = tys}) | isUnboxedTupleCon con || isUnboxedSumCon con, length tys == length (dataConUnivTyVars con) = x
-                                                                          | length tys /= length (dataConUnivTyVars con) = pprPanic "bad check" empty
+pmConCheck (PmCon {pm_con_con = RealDataCon con, pm_con_arg_tys = tys}) | length tys /= length (dataConUnivTyVars con) = pprPanic "bad check" empty
 pmConCheck x = x
 
 data PmPat :: PatTy -> * where

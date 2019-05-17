@@ -37,7 +37,7 @@ import Name
 import BasicTypes
 import TyCoRep (Type, ThetaType)
 import Var
-import Type (mkTyConApp, getRuntimeRep)
+import Type (mkTyConApp)
 
 import qualified Data.Data as Data
 

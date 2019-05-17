@@ -613,17 +613,22 @@ instance (Outputable p, Outputable arg)
 ************************************************************************
 -}
 
+checkPatOut :: Pat p -> Pat p
+-- checkPatOut x@(ConPatOut { pat_con = (dL->L _ (RealDataCon con)), pat_arg_tys = tys }) | isUnboxedTupleCon con || isUnboxedSumCon con = pprTrace "patout2" (ppr (length tys == length (dataConUnivTyVars con)) <+> callStackDoc) x
+checkPatOut x = x
+
 mkPrefixConPat :: DataCon ->
                   [OutPat (GhcPass p)] -> [Type] -> OutPat (GhcPass p)
 -- Make a vanilla Prefix constructor pattern
 mkPrefixConPat dc pats tys
-  = noLoc $ ConPatOut { pat_con = noLoc (RealDataCon dc)
+  = noLoc $ checkPatOut $ ConPatOut { pat_con = noLoc (RealDataCon dc)
                       , pat_tvs = []
                       , pat_dicts = []
                       , pat_binds = emptyTcEvBinds
                       , pat_args = PrefixCon pats
-                      , pat_arg_tys = tys
+                      , pat_arg_tys = tys'
                       , pat_wrap = idHsWrapper }
+     where tys' = if isUnboxedTupleCon dc || isUnboxedSumCon dc then map getRuntimeRep tys ++ tys else tys 
 
 mkNilPat :: Type -> OutPat (GhcPass p)
 mkNilPat ty = mkPrefixConPat nilDataCon [] [ty]
