@@ -145,7 +145,8 @@ conLikeImplBangs (PatSynCon pat_syn)    =
 
 -- | Returns the type of the whole pattern
 conLikeResTy :: HasCallStack => ConLike -> [Type] -> Type
-conLikeResTy (RealDataCon con) tys | isUnboxedTupleCon con || isUnboxedSumCon con, length tys /= length (dataConUnivTyVars con) = (mkTyConApp (dataConTyCon con) (map getRuntimeRep tys ++ tys))
+conLikeResTy (RealDataCon con) tys | isUnboxedTupleCon con || isUnboxedSumCon con, 2 * length tys == length (dataConUnivTyVars con) = (mkTyConApp (dataConTyCon con) (map getRuntimeRep tys ++ tys))
+                                   | length tys /= length (dataConUnivTyVars con) = pprPanic "conLikeResTy" (ppr tys <+> ppr con)
                                    | otherwise = mkTyConApp (dataConTyCon con) tys
 conLikeResTy (PatSynCon ps)    tys = patSynInstResTy ps tys
 
