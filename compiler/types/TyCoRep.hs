@@ -2965,8 +2965,6 @@ unionTCvSubst (TCvSubst in_scope1 tenv1 cenv1) (TCvSubst in_scope2 tenv2 cenv2)
 -- environment. No CoVars, please!
 zipTvSubst :: HasCallStack => [TyVar] -> [Type] -> TCvSubst
 zipTvSubst tvs tys
-  | not (all isTyVar tvs)
-  = pprPanic "zipTvSubst isTyVar" (ppr tvs)
   | neLength tvs tys
   = pprPanic "zipTvSubst neLength" (ppr tvs $$ ppr tys)
   | otherwise
@@ -2978,11 +2976,8 @@ zipTvSubst tvs tys
 -- environment.  No TyVars, please!
 zipCvSubst :: HasCallStack => [CoVar] -> [Coercion] -> TCvSubst
 zipCvSubst cvs cos
-  | not (all isCoVar cvs)
-  = pprPanic "zipCvSubst isTyVar" (ppr cvs)
   | neLength cvs cos
   = pprPanic "zipCvSubst neLength" (ppr cvs $$ ppr cos)
-
   | otherwise
   = TCvSubst (mkInScopeSet (tyCoVarsOfCos cos)) emptyTvSubstEnv cenv
   where
@@ -3013,6 +3008,9 @@ mkTvSubstPrs prs =
 
 zipTyEnv :: [TyVar] -> [Type] -> TvSubstEnv
 zipTyEnv tyvars tys
+  | not (all isTyVar tyvars)
+  = pprPanic "zipTyEnv" (ppr tyvars <+> ppr tys)
+  | otherwise
   = ASSERT( all (not . isCoercionTy) tys )
     mkVarEnv (zipEqual "zipTyEnv" tyvars tys)
         -- There used to be a special case for when
@@ -3029,7 +3027,11 @@ zipTyEnv tyvars tys
         -- Simplest fix is to nuke the "optimisation"
 
 zipCoEnv :: [CoVar] -> [Coercion] -> CvSubstEnv
-zipCoEnv cvs cos = mkVarEnv (zipEqual "zipCoEnv" cvs cos)
+zipCoEnv cvs cos
+  | not (all isCoVar cvs)
+  = pprPanic "zipCoEnv" (ppr cvs <+> ppr cos)
+  | otherwise
+  = mkVarEnv (zipEqual "zipCoEnv" cvs cos)
 
 instance Outputable TCvSubst where
   ppr (TCvSubst ins tenv cenv)
