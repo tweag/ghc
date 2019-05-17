@@ -42,6 +42,7 @@ import Outputable
 import FastString
 import DataCon
 import PatSyn
+import BasicTypes (Boxity(..))
 import HscTypes (CompleteMatch(..))
 
 import DsMonad
@@ -144,6 +145,15 @@ data PatTy = PAT | VA -- Used only as a kind, to index PmPat
 
 -- The *arity* of a PatVec [p1,..,pn] is
 -- the number of p1..pn that are not Guards
+
+pmConAdjust :: HasCallStack => PmPat a -> PmPat a
+pmConAdjust x@(PmCon {pm_con_con = RealDataCon con, pm_con_arg_tys = tys}) | isUnboxedTupleCon con || isUnboxedSumCon con, 2 * length tys == length (dataConUnivTyVars con) = (x { pm_con_arg_tys = map getRuntimeRep tys ++ tys })
+pmConAdjust x = x
+
+pmConCheck :: HasCallStack => PmPat a -> PmPat a
+pmConCheck x@(PmCon {pm_con_con = RealDataCon con, pm_con_arg_tys = tys}) | isUnboxedTupleCon con || isUnboxedSumCon con, length tys == length (dataConUnivTyVars con) = x
+                                                                          | length tys /= length (dataConUnivTyVars con) = pprPanic "bad check" empty
+pmConCheck x = x
 
 data PmPat :: PatTy -> * where
   PmCon  :: { pm_con_con     :: ConLike
@@ -936,11 +946,11 @@ mkCanFailPmPat ty = do
   var <- mkPmVar ty
   return [var, PmFake]
 
-vanillaConPattern :: ConLike -> [Type] -> PatVec -> Pattern
+vanillaConPattern :: HasCallStack => ConLike -> [Type] -> PatVec -> Pattern
 -- ADT constructor pattern => no existentials, no local constraints
 vanillaConPattern con arg_tys args =
-  PmCon { pm_con_con = con, pm_con_arg_tys = arg_tys
-        , pm_con_tvs = [], pm_con_dicts = [], pm_con_args = args }
+  pmConCheck (PmCon { pm_con_con = con, pm_con_arg_tys = arg_tys
+        , pm_con_tvs = [], pm_con_dicts = [], pm_con_args = args })
 {-# INLINE vanillaConPattern #-}
 
 -- | Create an empty list pattern of a given type
@@ -1052,7 +1062,7 @@ translatePat fam_insts pat = case pat of
       [] -> mkCanFailPmPat (conLikeResTy con arg_tys)
       _  -> do
         args <- translateConPatVec fam_insts arg_tys ex_tvs con ps
-        return [PmCon { pm_con_con     = con
+        return [pmConCheck $ pmConAdjust $ PmCon { pm_con_con     = con
                       , pm_con_arg_tys = arg_tys
                       , pm_con_tvs     = ex_tvs
                       , pm_con_dicts   = dicts
@@ -1078,12 +1088,16 @@ translatePat fam_insts pat = case pat of
   TuplePat tys ps boxity -> do
     tidy_ps <- translatePatVec fam_insts (map unLoc ps)
     let tuple_con = RealDataCon (tupleDataCon boxity (length ps))
-    return [vanillaConPattern tuple_con tys (concat tidy_ps)]
+        tys' = case boxity of
+                 Boxed -> tys
+                 Unboxed -> map getRuntimeRep tys ++ tys
+
+    return [vanillaConPattern tuple_con tys' (concat tidy_ps)]
 
   SumPat ty p alt arity -> do
     tidy_p <- translatePat fam_insts (unLoc p)
     let sum_con = RealDataCon (sumDataCon alt arity)
-    return [vanillaConPattern sum_con ty tidy_p]
+    return [vanillaConPattern sum_con (map getRuntimeRep ty ++ ty) tidy_p]
 
   -- --------------------------------------------------------------------------
   -- Not supposed to happen
@@ -1785,7 +1799,7 @@ translation step. See #15753 for why this yields surprising results.
 --  2. From `COMPLETE` pragmas which have the same type as the result
 --     type constructor. Note that we only use `COMPLETE` pragmas
 --     *all* of whose pattern types match. See #14135
-allCompleteMatches :: ConLike -> [Type] -> DsM [(Provenance, [ConLike])]
+allCompleteMatches :: HasCallStack => ConLike -> [Type] -> DsM [(Provenance, [ConLike])]
 allCompleteMatches cl tys = do
   let fam = case cl of
            RealDataCon dc ->
