@@ -1634,7 +1634,8 @@ mkOneConFull x con = do
       arg_is_banged = map isBanged $ conLikeImplBangs con
       tc_args = tyConAppArgs res_ty
       subst1  = case con of
-                  RealDataCon {} -> zipTvSubst univ_tvs tc_args
+                  RealDataCon dc | isUnboxedTupleCon dc || isUnboxedSumCon dc, length univ_tvs /= length tc_args -> zipTvSubst univ_tvs (map getRuntimeRep tc_args ++ tc_args)
+                                 | otherwise -> zipTvSubst univ_tvs tc_args
                   PatSynCon {}   -> expectJust "mkOneConFull" (tcMatchTy con_res_ty res_ty)
                                     -- See Note [Pattern synonym result type] in PatSyn
 
