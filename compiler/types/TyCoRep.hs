@@ -2965,7 +2965,8 @@ unionTCvSubst (TCvSubst in_scope1 tenv1 cenv1) (TCvSubst in_scope2 tenv2 cenv2)
 -- environment. No CoVars, please!
 zipTvSubst :: [TyVar] -> [Type] -> TCvSubst
 zipTvSubst tvs tys
-  = mkTvSubst (mkInScopeSet (tyCoVarsOfTypes tys)) tenv
+  | length tvs /= length tys = pprPanic "zipTvSubst" (ppr tvs <+> ppr tys)
+  | otherwise = mkTvSubst (mkInScopeSet (tyCoVarsOfTypes tys)) tenv
   where
     tenv = zipTyEnv tvs tys
 
@@ -2973,6 +2974,8 @@ zipTvSubst tvs tys
 -- environment.  No TyVars, please!
 zipCvSubst :: [CoVar] -> [Coercion] -> TCvSubst
 zipCvSubst cvs cos
+  | length cvs /= length cos = pprPanic "zipTvSubst" (ppr cvs <+> ppr cos)
+  | otherwise
   = TCvSubst (mkInScopeSet (tyCoVarsOfCos cos)) emptyTvSubstEnv cenv
   where
     cenv = zipCoEnv cvs cos

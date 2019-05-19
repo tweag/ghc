@@ -145,7 +145,8 @@ conLikeImplBangs (PatSynCon pat_syn)    =
 
 -- | Returns the type of the whole pattern
 conLikeResTy :: ConLike -> [Type] -> Type
-conLikeResTy (RealDataCon con) tys = mkTyConApp (dataConTyCon con) tys
+conLikeResTy (RealDataCon con) tys | length tys /= length (dataConUnivTyVars con) = pprPanic "conlike" empty
+                                   | otherwise = mkTyConApp (dataConTyCon con) tys
 conLikeResTy (PatSynCon ps)    tys = patSynInstResTy ps tys
 
 -- | The \"full signature\" of the 'ConLike' returns, in order:
