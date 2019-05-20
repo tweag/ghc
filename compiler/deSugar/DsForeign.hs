@@ -51,7 +51,6 @@ import Outputable
 import FastString
 import DynFlags
 import Platform
-import Config
 import OrdList
 import Pair
 import Util
@@ -543,7 +542,7 @@ mkFExportCBits dflags c_nm maybe_target arg_htys res_hty is_IO_res_ty cc
         | otherwise = text ('a':show n)
 
   -- generate a libffi-style stub if this is a "wrapper" and libffi is enabled
-  libffi = cLibFFI && isNothing maybe_target
+  libffi = sLibFFI (settings dflags) && isNothing maybe_target
 
   type_string
       -- libffi needs to know the result type too:
