@@ -2212,7 +2212,7 @@ commonly used commands.
 
        This output shows that, in the context of the current session (ie
        in the scope of ``Prelude``), the first group of items from
-       ``Data.Maybe`` are not in scope (althought they are available in
+       ``Data.Maybe`` are not in scope (although they are available in
        fully qualified form in the GHCi session - see
        :ref:`ghci-scope`), whereas the second group of items are in
        scope (via ``Prelude``) and are therefore available either
@@ -3360,11 +3360,14 @@ The interpreter can't load modules with foreign export declarations!
     need to go fast, rather than interpreting them with optimisation
     turned on.
 
-Unboxed tuples don't work with GHCi
-    That's right. You can always compile a module that uses unboxed
-    tuples and load it into GHCi, however. (Incidentally the previous
-    point, namely that :ghc-flag:`-O` is incompatible with GHCi, is because the
-    bytecode compiler can't deal with unboxed tuples).
+Modules using unboxed tuples will automatically enable `-fobject-code`
+    The interpreter doesn't support unboxed tuples, so GHCi will
+    automatically compile these modules, and all modules they depend
+    on, to object code instead of bytecode.
+
+    Incidentally, the previous point, that :ghc-flag:`-O` is
+    incompatible with GHCi, is because the bytecode compiler can't
+    deal with unboxed tuples.
 
 Concurrent threads don't carry on running when GHCi is waiting for input.
     This should work, as long as your GHCi was built with the

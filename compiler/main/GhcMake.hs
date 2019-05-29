@@ -184,6 +184,10 @@ warnMissingHomeModules hsc_env mod_graph =
     is_my_target mod (TargetFile target_file _)
       | Just mod_file <- ml_hs_file (ms_location mod)
       = target_file == mod_file ||
+
+           --  Don't warn on B.hs-boot if B.hs is specified (#16551)
+           addBootSuffix target_file == mod_file ||
+
            --  We can get a file target even if a module name was
            --  originally specified in a command line because it can
            --  be converted in guessTarget (by appending .hs/.lhs).
@@ -1430,6 +1434,7 @@ upsweep_mod hsc_env mHscMessage old_hpt (stable_obj, stable_bco) summary mod_ind
                         && (not (isObjectTarget prevailing_target)
                             || not (isObjectTarget local_target))
                         && not (prevailing_target == HscNothing)
+                        && not (prevailing_target == HscInterpreted)
                         then prevailing_target
                         else local_target
 
@@ -1953,9 +1958,13 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
        -- See Note [-fno-code mode] #8025
        map1 <- if hscTarget dflags == HscNothing
          then enableCodeGenForTH
-           (defaultObjectTarget (targetPlatform dflags))
+           (defaultObjectTarget (settings dflags))
            map0
-         else return map0
+         else if hscTarget dflags == HscInterpreted
+           then enableCodeGenForUnboxedTuples
+             (defaultObjectTarget (settings dflags))
+             map0
+           else return map0
        return $ concat $ nodeMapElts map1
      where
         calcDeps = msDeps
@@ -1969,7 +1978,7 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
         getRootSummary :: Target -> IO (Either ErrMsg ModSummary)
         getRootSummary (Target (TargetFile file mb_phase) obj_allowed maybe_buf)
            = do exists <- liftIO $ doesFileExist file
-                if exists
+                if exists || isJust maybe_buf
                     then Right `fmap` summariseFile hsc_env old_summaries file mb_phase
                                        obj_allowed maybe_buf
                     else return $ Left $ mkPlainErrMsg dflags noSrcSpan $
@@ -2034,7 +2043,50 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
 enableCodeGenForTH :: HscTarget
   -> NodeMap [Either ErrMsg ModSummary]
   -> IO (NodeMap [Either ErrMsg ModSummary])
-enableCodeGenForTH target nodemap =
+enableCodeGenForTH =
+  enableCodeGenWhen condition should_modify TFL_CurrentModule TFL_GhcSession
+  where
+    condition = isTemplateHaskellOrQQNonBoot
+    should_modify (ModSummary { ms_hspp_opts = dflags }) =
+      hscTarget dflags == HscNothing &&
+      -- Don't enable codegen for TH on indefinite packages; we
+      -- can't compile anything anyway! See #16219.
+      not (isIndefinite dflags)
+
+-- | Update the every ModSummary that is depended on
+-- by a module that needs unboxed tuples. We enable codegen to
+-- the specified target, disable optimization and change the .hi
+-- and .o file locations to be temporary files.
+--
+-- This is used used in order to load code that uses unboxed tuples
+-- into GHCi while still allowing some code to be interpreted.
+enableCodeGenForUnboxedTuples :: HscTarget
+  -> NodeMap [Either ErrMsg ModSummary]
+  -> IO (NodeMap [Either ErrMsg ModSummary])
+enableCodeGenForUnboxedTuples =
+  enableCodeGenWhen condition should_modify TFL_GhcSession TFL_CurrentModule
+  where
+    condition ms =
+      xopt LangExt.UnboxedTuples (ms_hspp_opts ms) &&
+      not (isBootSummary ms)
+    should_modify (ModSummary { ms_hspp_opts = dflags }) =
+      hscTarget dflags == HscInterpreted
+
+-- | Helper used to implement 'enableCodeGenForTH' and
+-- 'enableCodeGenForUnboxedTuples'. In particular, this enables
+-- unoptimized code generation for all modules that meet some
+-- condition (first parameter), or are dependencies of those
+-- modules. The second parameter is a condition to check before
+-- marking modules for code generation.
+enableCodeGenWhen
+  :: (ModSummary -> Bool)
+  -> (ModSummary -> Bool)
+  -> TempFileLifetime
+  -> TempFileLifetime
+  -> HscTarget
+  -> NodeMap [Either ErrMsg ModSummary]
+  -> IO (NodeMap [Either ErrMsg ModSummary])
+enableCodeGenWhen condition should_modify staticLife dynLife target nodemap =
   traverse (traverse (traverse enable_code_gen)) nodemap
   where
     enable_code_gen ms
@@ -2042,18 +2094,15 @@ enableCodeGenForTH target nodemap =
         { ms_mod = ms_mod
         , ms_location = ms_location
         , ms_hsc_src = HsSrcFile
-        , ms_hspp_opts = dflags@DynFlags
-          {hscTarget = HscNothing}
+        , ms_hspp_opts = dflags
         } <- ms
-      -- Don't enable codegen for TH on indefinite packages; we
-      -- can't compile anything anyway! See #16219.
-      , not (isIndefinite dflags)
+      , should_modify ms
       , ms_mod `Set.member` needs_codegen_set
       = do
         let new_temp_file suf dynsuf = do
-              tn <- newTempName dflags TFL_CurrentModule suf
+              tn <- newTempName dflags staticLife suf
               let dyn_tn = tn -<.> dynsuf
-              addFilesToClean dflags TFL_GhcSession [dyn_tn]
+              addFilesToClean dflags dynLife [dyn_tn]
               return tn
           -- We don't want to create .o or .hi files unless we have been asked
           -- to by the user. But we need them, so we patch their locations in
@@ -2076,7 +2125,7 @@ enableCodeGenForTH target nodemap =
       [ ms
       | mss <- Map.elems nodemap
       , Right ms <- mss
-      , isTemplateHaskellOrQQNonBoot ms
+      , condition ms
       ]
 
     -- find the set of all transitive dependencies of a list of modules.
@@ -2426,34 +2475,12 @@ preprocessFile :: HscEnv
                -> Maybe Phase -- ^ Starting phase
                -> Maybe (StringBuffer,UTCTime)
                -> IO (DynFlags, FilePath, StringBuffer)
-preprocessFile hsc_env src_fn mb_phase Nothing
+preprocessFile hsc_env src_fn mb_phase maybe_buf
   = do
-        (dflags', hspp_fn) <- preprocess hsc_env (src_fn, mb_phase)
+        (dflags', hspp_fn)
+            <- preprocess hsc_env src_fn (fst <$> maybe_buf) mb_phase
         buf <- hGetStringBuffer hspp_fn
         return (dflags', hspp_fn, buf)
-
-preprocessFile hsc_env src_fn mb_phase (Just (buf, _time))
-  = do
-        let dflags = hsc_dflags hsc_env
-        let local_opts = getOptions dflags buf src_fn
-
-        (dflags', leftovers, warns)
-            <- parseDynamicFilePragma dflags local_opts
-        checkProcessArgsResult dflags leftovers
-        handleFlagWarnings dflags' warns
-
-        let needs_preprocessing
-                | Just (Unlit _) <- mb_phase    = True
-                | Nothing <- mb_phase, Unlit _ <- startPhase src_fn  = True
-                  -- note: local_opts is only required if there's no Unlit phase
-                | xopt LangExt.Cpp dflags'      = True
-                | gopt Opt_Pp  dflags'          = True
-                | otherwise                     = False
-
-        when needs_preprocessing $
-           throwGhcExceptionIO (ProgramError "buffer needs preprocesing; interactive check disabled")
-
-        return (dflags', src_fn, buf)
 
 
 -----------------------------------------------------------------------------

@@ -560,6 +560,7 @@ Library
         Outputable
         Pair
         Panic
+        PlainPanic
         PprColour
         Pretty
         State
@@ -653,6 +654,7 @@ Library
             ByteCodeItbls
             ByteCodeLink
             Debugger
+            LinkerTypes
             Linker
             RtClosureInspect
             GHCi

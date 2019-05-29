@@ -937,7 +937,7 @@ for example).
     :type: dynamic
     :category: linking
 
-    :default: all
+    :default: some
 
     This option affects the processing of RTS control options given
     either on the command line or via the :envvar:`GHCRTS` environment
@@ -1019,7 +1019,7 @@ for example).
     :type: dynamic
     :category: linking
 
-    On Windows, GHC normally generates a manifestmanifest file when
+    On Windows, GHC normally generates a manifest file when
     linking a binary. The manifest is placed in the file
     :file:`{prog}.exe.manifest`` where ⟨prog.exe⟩ is the name of the
     executable. The manifest file currently serves just one purpose: it
