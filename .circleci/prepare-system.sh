@@ -35,6 +35,14 @@ EOF
 
 case "$(uname)" in
   Linux)
+
+    cabal update
+    cabal install --reinstall alex happy haddock hscolour
+    # put them on the $PATH, don't fail if already installed
+    ln -s $HOME/.cabal/bin/alex /usr/local/bin/alex || true
+    ln -s $HOME/.cabal/bin/happy /usr/local/bin/happy || true
+    ln -s $HOME/.cabal/bin/HsColour /usr/local/bin/HsColour || true
+
     if [[ -n ${TARGET:-} ]]; then
       if [[ $TARGET = FreeBSD ]]; then
         # cross-compiling to FreeBSD
