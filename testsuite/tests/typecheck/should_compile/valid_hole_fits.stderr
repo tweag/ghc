@@ -64,7 +64,7 @@ valid_hole_fits.hs:24:9: warning: [-Wtyped-holes (in -Wdefault)]
         test2 :: Integer -> ValidHoleFits.Moo
           (bound at valid_hole_fits.hs:24:1)
         ValidHoleFits.Moo :: Integer -> ValidHoleFits.Moo
-          with ValidHoleFits.Moo @'Omega
+          with ValidHoleFits.Moo
           (imported qualified from ‘ValidHoleFits’ at valid_hole_fits.hs:6:1-30
            (and originally defined at ValidHoleFits.hs:4:12-22))
 
@@ -85,7 +85,7 @@ valid_hole_fits.hs:27:5: warning: [-Wtyped-holes (in -Wdefault)]
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Base’))
         Just :: forall a. a -> Maybe a
-          with Just @'Omega @Integer
+          with Just @Integer
           (imported from ‘Data.Maybe’ at valid_hole_fits.hs:5:1-17
            (and originally defined in ‘GHC.Maybe’))
 
@@ -166,7 +166,7 @@ valid_hole_fits.hs:34:11: warning: [-Wtyped-holes (in -Wdefault)]
           (imported from ‘Prelude’ at valid_hole_fits.hs:3:1-40
            (and originally defined in ‘GHC.Show’))
         Just :: forall a. a -> Maybe a
-          with Just @'Omega @Bool
+          with Just @Bool
           (imported from ‘Data.Maybe’ at valid_hole_fits.hs:5:1-17
            (and originally defined in ‘GHC.Maybe’))
 
@@ -209,7 +209,7 @@ valid_hole_fits.hs:38:10: warning: [-Wtyped-holes (in -Wdefault)]
       Valid hole fits include
         myCons :: a -> [a] -> [a] (bound at valid_hole_fits.hs:38:1)
         (:) :: forall a. a -> [a] -> [a]
-          with (:) @'Omega @'Omega @a
+          with (:) @a
           (bound at <wired into compiler>)
         (<$) :: forall (f :: * -> *) a b. Functor f => a -> f b -> f a
           with (<$) @[] @a @a

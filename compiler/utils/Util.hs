@@ -35,7 +35,7 @@ module Util (
         lengthExceeds, lengthIs, lengthIsNot,
         lengthAtLeast, lengthAtMost, lengthLessThan,
         listLengthCmp, atLength,
-        equalLength, neLength, compareLength, leLength, ltLength,
+        equalLength, compareLength, leLength, ltLength,
 
         isSingleton, only, singleton,
         notNull, snocView,
@@ -134,7 +134,7 @@ module Util (
 import GhcPrelude
 
 import Exception
-import Panic
+import PlainPanic
 
 import Data.Data
 import Data.IORef       ( IORef, newIORef, atomicModifyIORef' )
@@ -534,12 +534,6 @@ equalLength :: [a] -> [b] -> Bool
 equalLength []     []     = True
 equalLength (_:xs) (_:ys) = equalLength xs ys
 equalLength _      _      = False
-
-neLength :: [a] -> [b] -> Bool
--- ^ True if length xs /= length ys
-neLength []     []     = False
-neLength (_:xs) (_:ys) = neLength xs ys
-neLength _      _      = True
 
 compareLength :: [a] -> [b] -> Ordering
 compareLength []     []     = EQ

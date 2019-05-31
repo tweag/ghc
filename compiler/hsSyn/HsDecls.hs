@@ -37,11 +37,11 @@ module HsDecls (
   -- ** Instance declarations
   InstDecl(..), LInstDecl, FamilyInfo(..),
   TyFamInstDecl(..), LTyFamInstDecl, instDeclDataFamInsts,
+  TyFamDefltDecl, LTyFamDefltDecl,
   DataFamInstDecl(..), LDataFamInstDecl,
-  pprDataFamInstFlavour, pprHsFamInstLHS,
+  pprDataFamInstFlavour, pprTyFamInstDecl, pprHsFamInstLHS,
   FamInstEqn, LFamInstEqn, FamEqn(..),
-  TyFamInstEqn, LTyFamInstEqn, TyFamDefltEqn, LTyFamDefltEqn,
-  HsTyPats,
+  TyFamInstEqn, LTyFamInstEqn, HsTyPats,
   LClsInstDecl, ClsInstDecl(..),
 
   -- ** Standalone deriving declarations
@@ -533,7 +533,7 @@ data TyClDecl pass
                 tcdSigs    :: [LSig pass],              -- ^ Methods' signatures
                 tcdMeths   :: LHsBinds pass,            -- ^ Default methods
                 tcdATs     :: [LFamilyDecl pass],       -- ^ Associated types;
-                tcdATDefs  :: [LTyFamDefltEqn pass],    -- ^ Associated type defaults
+                tcdATDefs  :: [LTyFamDefltDecl pass],   -- ^ Associated type defaults
                 tcdDocs    :: [LDocDecl]                -- ^ Haddock docs
     }
         -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnClass',
@@ -679,11 +679,15 @@ countTyClDecls decls
 
 -- | Does this declaration have a complete, user-supplied kind signature?
 -- See Note [CUSKs: complete user-supplied kind signatures]
-hsDeclHasCusk :: TyClDecl GhcRn -> Bool
-hsDeclHasCusk (FamDecl { tcdFam = fam_decl })
-  = famDeclHasCusk False fam_decl
+hsDeclHasCusk
+  :: Bool  -- True <=> the -XCUSKs extension is enabled
+  -> TyClDecl GhcRn
+  -> Bool
+hsDeclHasCusk _cusks_enabled@False _ = False
+hsDeclHasCusk cusks_enabled (FamDecl { tcdFam = fam_decl })
+  = famDeclHasCusk cusks_enabled False fam_decl
     -- False: this is not: an associated type of a class with no cusk
-hsDeclHasCusk (SynDecl { tcdTyVars = tyvars, tcdRhs = rhs })
+hsDeclHasCusk _cusks_enabled@True (SynDecl { tcdTyVars = tyvars, tcdRhs = rhs })
   -- NB: Keep this synchronized with 'getInitialKind'
   = hsTvbAllKinded tyvars && rhs_annotated rhs
   where
@@ -691,9 +695,9 @@ hsDeclHasCusk (SynDecl { tcdTyVars = tyvars, tcdRhs = rhs })
       HsParTy _ lty  -> rhs_annotated lty
       HsKindSig {}   -> True
       _              -> False
-hsDeclHasCusk (DataDecl { tcdDExt = DataDeclRn { tcdDataCusk = cusk }}) = cusk
-hsDeclHasCusk (ClassDecl { tcdTyVars = tyvars }) = hsTvbAllKinded tyvars
-hsDeclHasCusk (XTyClDecl _) = panic "hsDeclHasCusk"
+hsDeclHasCusk _cusks_enabled@True (DataDecl { tcdDExt = DataDeclRn { tcdDataCusk = cusk }}) = cusk
+hsDeclHasCusk _cusks_enabled@True (ClassDecl { tcdTyVars = tyvars }) = hsTvbAllKinded tyvars
+hsDeclHasCusk _ (XTyClDecl _) = panic "hsDeclHasCusk"
 
 -- Pretty-printing TyClDecl
 -- ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -722,7 +726,7 @@ instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (TyClDecl p) where
       | otherwise       -- Laid out
       = vcat [ top_matter <+> text "where"
              , nest 2 $ pprDeclList (map (pprFamilyDecl NotTopLevel . unLoc) ats ++
-                                     map ppr_fam_deflt_eqn at_defs ++
+                                     map (pprTyFamDefltDecl . unLoc) at_defs ++
                                      pprLHsBindsForUser methods sigs) ]
       where
         top_matter = text "class"
@@ -786,6 +790,10 @@ kind signature (CUSK). This is because we can safely generalise a CUSKed
 declaration before checking all of the others, supporting polymorphic recursion.
 See https://gitlab.haskell.org/ghc/ghc/wikis/ghc-kinds/kind-inference#proposed-new-strategy
 and #9200 for lots of discussion of how we got here.
+
+The detection of CUSKs is enabled by the -XCUSKs extension, switched on by default.
+Under -XNoCUSKs, all declarations are treated as if they have no CUSK.
+See https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0036-kind-signatures.rst
 
 PRINCIPLE:
   a type declaration has a CUSK iff we could produce a separate kind signature
@@ -1080,11 +1088,13 @@ data FamilyInfo pass
 
 -- | Does this family declaration have a complete, user-supplied kind signature?
 -- See Note [CUSKs: complete user-supplied kind signatures]
-famDeclHasCusk :: Bool -- ^ True <=> this is an associated type family,
+famDeclHasCusk :: Bool -- ^ True <=> the -XCUSKs extension is enabled
+               -> Bool -- ^ True <=> this is an associated type family,
                        --            and the parent class has /no/ CUSK
                -> FamilyDecl pass
                -> Bool
-famDeclHasCusk assoc_with_no_cusk
+famDeclHasCusk _cusks_enabled@False _ _ = False
+famDeclHasCusk _cusks_enabled@True assoc_with_no_cusk
                (FamilyDecl { fdInfo      = fam_info
                            , fdTyVars    = tyvars
                            , fdResultSig = L _ resultSig })
@@ -1095,7 +1105,7 @@ famDeclHasCusk assoc_with_no_cusk
             -- Un-associated open type/data families have CUSKs
             -- Associated type families have CUSKs iff the parent class does
 
-famDeclHasCusk _ (XFamilyDecl {}) = panic "famDeclHasCusk"
+famDeclHasCusk _ _ (XFamilyDecl {}) = panic "famDeclHasCusk"
 
 -- | Does this family declaration have user-supplied return kind signature?
 hasReturnKindSignature :: FamilyResultSig a -> Bool
@@ -1506,28 +1516,23 @@ ppr_con_names = pprWithCommas (pprPrefixOcc . unLoc)
 Note [Type family instance declarations in HsSyn]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The data type FamEqn represents one equation of a type family instance.
-Aside from the pass, it is also parameterised over two fields:
-feqn_pats and feqn_rhs.
-
-feqn_pats is either LHsTypes (for ordinary data/type family instances) or
-LHsQTyVars (for associated type family default instances). In particular:
-
- * An ordinary type family instance declaration looks like this in source Haskell
-      type instance T [a] Int = a -> a
-   (or something similar for a closed family)
-   It is represented by a FamInstEqn, with a *type* (LHsType) in the feqn_pats
-   field.
-
- * On the other hand, the *default instance* of an associated type looks like
-   this in source Haskell
-      class C a where
-        type T a b
-        type T a b = a -> b   -- The default instance
-   It is represented by a TyFamDefltEqn, with *type variables* (LHsQTyVars) in
-   the feqn_pats field.
-
+Aside from the pass, it is also parameterised over another field, feqn_rhs.
 feqn_rhs is either an HsDataDefn (for data family instances) or an LHsType
 (for type family instances).
+
+Type family instances also include associated type family default equations.
+That is because a default for a type family looks like this:
+
+  class C a where
+    type family F a b :: Type
+    type F c d = (c,d)   -- Default instance
+
+The default declaration is really just a `type instance` declaration, but one
+with particularly simple patterns: they must all be distinct type variables.
+That's because we will instantiate it (in an instance declaration for `C`) if
+we don't give an explicit instance for `F`. Note that the names of the
+variables don't need to match those of the class: it really is like a
+free-standing `type instance` declaration.
 -}
 
 ----------------- Type synonym family instances -------------
@@ -1539,16 +1544,13 @@ type LTyFamInstEqn pass = Located (TyFamInstEqn pass)
 
 -- For details on above see note [Api annotations] in ApiAnnotation
 
--- | Located Type Family Default Equation
-type LTyFamDefltEqn pass = Located (TyFamDefltEqn pass)
-
 -- | Haskell Type Patterns
 type HsTyPats pass = [LHsTypeArg pass]
 
 {- Note [Family instance declaration binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-For ordinary data/type family instances, the feqn_pats field of FamEqn stores
-the LHS type (and kind) patterns. Any type (and kind) variables contained
+The feqn_pats field of FamEqn (family instance equation) stores the LHS type
+(and kind) patterns. Any type (and kind) variables contained
 in these type patterns are bound in the hsib_vars field of the HsImplicitBndrs
 in FamInstEqn depending on whether or not an explicit forall is present. In
 the case of an explicit forall, the hsib_vars only includes kind variables not
@@ -1576,19 +1578,19 @@ the hsib_vars. In the latter case, note that in particular
    so that we can compare the type pattern in the 'instance' decl and
    in the associated 'type' decl
 
-For associated type family default instances (TyFamDefltEqn), instead of using
-type patterns with binders in a surrounding HsImplicitBndrs, we use raw type
-variables (LHsQTyVars) in the feqn_pats field of FamEqn.
-
-c.f. Note [TyVar binders for associated declarations]
+c.f. Note [TyVar binders for associated decls]
 -}
 
 -- | Type Family Instance Equation
 type TyFamInstEqn pass = FamInstEqn pass (LHsType pass)
 
--- | Type Family Default Equation
-type TyFamDefltEqn pass = FamEqn pass (LHsQTyVars pass) (LHsType pass)
-  -- See Note [Type family instance declarations in HsSyn]
+-- | Type family default declarations.
+-- A convenient synonym for 'TyFamInstDecl'.
+-- See @Note [Type family instance declarations in HsSyn]@.
+type TyFamDefltDecl = TyFamInstDecl
+
+-- | Located type family default declarations.
+type LTyFamDefltDecl pass = Located (TyFamDefltDecl pass)
 
 -- | Located Type Family Instance Declaration
 type LTyFamInstDecl pass = Located (TyFamInstDecl pass)
@@ -1624,8 +1626,7 @@ newtype DataFamInstDecl pass
 type LFamInstEqn pass rhs = Located (FamInstEqn pass rhs)
 
 -- | Family Instance Equation
-type FamInstEqn pass rhs
-  = HsImplicitBndrs pass (FamEqn pass (HsTyPats pass) rhs)
+type FamInstEqn pass rhs = HsImplicitBndrs pass (FamEqn pass rhs)
             -- ^ Here, the @pats@ are type patterns (with kind and type bndrs).
             -- See Note [Family instance declaration binders]
 
@@ -1635,23 +1636,23 @@ type FamInstEqn pass rhs
 -- declaration, or type family default.
 -- See Note [Type family instance declarations in HsSyn]
 -- See Note [Family instance declaration binders]
-data FamEqn pass pats rhs
+data FamEqn pass rhs
   = FamEqn
-       { feqn_ext    :: XCFamEqn pass pats rhs
+       { feqn_ext    :: XCFamEqn pass rhs
        , feqn_tycon  :: Located (IdP pass)
        , feqn_bndrs  :: Maybe [LHsTyVarBndr pass] -- ^ Optional quantified type vars
-       , feqn_pats   :: pats
+       , feqn_pats   :: HsTyPats pass
        , feqn_fixity :: LexicalFixity -- ^ Fixity used in the declaration
        , feqn_rhs    :: rhs
        }
     -- ^
     --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnEqual'
-  | XFamEqn (XXFamEqn pass pats rhs)
+  | XFamEqn (XXFamEqn pass rhs)
 
     -- For details on above see note [Api annotations] in ApiAnnotation
 
-type instance XCFamEqn    (GhcPass _) p r = NoExt
-type instance XXFamEqn    (GhcPass _) p r = NoExt
+type instance XCFamEqn    (GhcPass _) r = NoExt
+type instance XXFamEqn    (GhcPass _) r = NoExt
 
 ----------------- Class instances -------------
 
@@ -1722,6 +1723,10 @@ ppr_instance_keyword :: TopLevelFlag -> SDoc
 ppr_instance_keyword TopLevel    = text "instance"
 ppr_instance_keyword NotTopLevel = empty
 
+pprTyFamDefltDecl :: (OutputableBndrId (GhcPass p))
+                  => TyFamDefltDecl (GhcPass p) -> SDoc
+pprTyFamDefltDecl = pprTyFamInstDecl NotTopLevel
+
 ppr_fam_inst_eqn :: (OutputableBndrId (GhcPass p))
                  => TyFamInstEqn (GhcPass p) -> SDoc
 ppr_fam_inst_eqn (HsIB { hsib_body = FamEqn { feqn_tycon  = L _ tycon
@@ -1732,16 +1737,6 @@ ppr_fam_inst_eqn (HsIB { hsib_body = FamEqn { feqn_tycon  = L _ tycon
     = pprHsFamInstLHS tycon bndrs pats fixity noLHsContext <+> equals <+> ppr rhs
 ppr_fam_inst_eqn (HsIB { hsib_body = XFamEqn x }) = ppr x
 ppr_fam_inst_eqn (XHsImplicitBndrs x) = ppr x
-
-ppr_fam_deflt_eqn :: (OutputableBndrId (GhcPass p))
-                  => LTyFamDefltEqn (GhcPass p) -> SDoc
-ppr_fam_deflt_eqn (L _ (FamEqn { feqn_tycon  = tycon
-                               , feqn_pats   = tvs
-                               , feqn_fixity = fixity
-                               , feqn_rhs    = rhs }))
-    = text "type" <+> pp_vanilla_decl_head tycon tvs fixity noLHsContext
-                  <+> equals <+> ppr rhs
-ppr_fam_deflt_eqn (L _ (XFamEqn x)) = ppr x
 
 instance (p ~ GhcPass pass, OutputableBndrId p)
        => Outputable (DataFamInstDecl p) where

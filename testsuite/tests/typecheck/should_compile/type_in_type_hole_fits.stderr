@@ -25,7 +25,7 @@ type_in_type_hole_fits.hs:79:11: warning: [-Wtyped-holes (in -Wdefault)]
         Sorted :: forall (cpu :: AsympPoly) (mem :: AsympPoly)
                          (stable :: Bool) a.
                   [a] -> Sorted cpu mem stable a
-          with Sorted @'Omega @(O ('NLogN 2 0)) @(O N) @'True @Integer
+          with Sorted @(O ('NLogN 2 0)) @(O N) @'True @Integer
           (defined at type_in_type_hole_fits.hs:54:18)
 
 type_in_type_hole_fits.hs:82:11: warning: [-Wtyped-holes (in -Wdefault)]
@@ -58,7 +58,7 @@ type_in_type_hole_fits.hs:82:11: warning: [-Wtyped-holes (in -Wdefault)]
         Sorted :: forall (cpu :: AsympPoly) (mem :: AsympPoly)
                          (stable :: Bool) a.
                   [a] -> Sorted cpu mem stable a
-          with Sorted @'Omega @(O ('NLogN 1 1)) @(O N) @'False @Integer
+          with Sorted @(O ('NLogN 1 1)) @(O N) @'False @Integer
           (defined at type_in_type_hole_fits.hs:54:18)
 
 type_in_type_hole_fits.hs:85:11: warning: [-Wtyped-holes (in -Wdefault)]
@@ -80,5 +80,5 @@ type_in_type_hole_fits.hs:85:11: warning: [-Wtyped-holes (in -Wdefault)]
         Sorted :: forall (cpu :: AsympPoly) (mem :: AsympPoly)
                          (stable :: Bool) a.
                   [a] -> Sorted cpu mem stable a
-          with Sorted @'Omega @(O ('NLogN 1 1)) @(O One) @'False @Integer
+          with Sorted @(O ('NLogN 1 1)) @(O One) @'False @Integer
           (defined at type_in_type_hole_fits.hs:54:18)
