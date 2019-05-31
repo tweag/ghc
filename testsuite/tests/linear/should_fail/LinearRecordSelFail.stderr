@@ -1,0 +1,24 @@
+
+LinearRecordSelFail.hs:10:5: error:
+    • Nontrivial multiplicity equalities are currently not supported
+    • In the expression: x1
+      In an equation for ‘f’: f = x1
+
+LinearRecordSelFail.hs:10:5: error:
+    • Couldn't match type ‘'Omega’ with ‘'One’
+      Expected type: T1 ->. Int
+        Actual type: T1 -> Int
+    • In the expression: x1
+      In an equation for ‘f’: f = x1
+
+LinearRecordSelFail.hs:13:5: error:
+    • Nontrivial multiplicity equalities are currently not supported
+    • In the expression: u
+      In an equation for ‘g’: g = u
+
+LinearRecordSelFail.hs:13:5: error:
+    • Couldn't match type ‘'Omega’ with ‘'One’
+      Expected type: T2 ->. Int
+        Actual type: T2 -> Int
+    • In the expression: u
+      In an equation for ‘g’: g = u

@@ -64,6 +64,7 @@ import Bag
 import FastString
 import FV
 import Module
+import TysPrim ( multiplicityTyVar )
 
 import Control.Monad
 
@@ -870,6 +871,13 @@ mkOneRecordSelector all_cons idDetails fl
     cons_w_field = conLikesWithFields all_cons [lbl]
     con1 = ASSERT( not (null cons_w_field) ) head cons_w_field
 
+    -- Multiplicity variables; see Note [Multiplicity-polymorphic selectors]
+    (mult_binders, mult) | single    = ([mkTyVarBinder Inferred multiplicityTyVar],
+                                        mkTyVarTy multiplicityTyVar)
+                         | otherwise = ([], Omega)
+       where single = length all_cons == 1 && conLikeArity con1 == 1 &&
+                       (case con1 of RealDataCon _ -> True; PatSynCon _ -> False)
+
     -- Selector type; Note [Polymorphic selectors]
     field_ty   = conLikeFieldType con1 lbl
     data_tvs   = tyCoVarsOfTypesWellScoped inst_tys
@@ -879,10 +887,8 @@ mkOneRecordSelector all_cons idDetails fl
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
            | otherwise  = mkSpecForAllTys data_tvs          $
                           mkPhiTy (conLikeStupidTheta con1) $   -- Urgh!
-                          mkVisFunTyOm data_ty              $
-                            -- Record selectors are always typed with Omega. We
-                            -- could improve on it in the case where all the
-                            -- fields in all the constructor have multiplicity Omega.
+                          mkForAllTys mult_binders          $
+                          mkVisFunTy mult data_ty           $
                           mkSpecForAllTys field_tvs         $
                           mkPhiTy field_theta               $
                           -- req_theta is empty for normal DataCon
@@ -945,6 +951,28 @@ mkOneRecordSelector all_cons idDetails fl
     msg_lit = HsStringPrim NoSourceText (bytesFS lbl)
 
 {-
+Note [Multiplicity-polymorphic selectors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The selection function of a record by default is unrestricted;
+for example, given
+
+    data T = MkT { f1, f2 :: Int}
+
+we have f1 (MkT x _) = x, which is not linear in its argument.
+However, if the record has a single constructor and one field
+
+    data T = MkT { f :: Int }
+
+we can make the selector linear. For backwards compatibility
+with code not using linear types, we use multiplicity polymorphism.
+This is analogous to multiplicity polymorphism in constructors.
+
+We do not generalize records in pattern synonyms; e.g.
+
+    pattern Single{x} = [x]
+
+is not linear.
+
 Note [Polymorphic selectors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We take care to build the type of a polymorphic selector in the right
