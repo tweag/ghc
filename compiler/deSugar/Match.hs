@@ -50,7 +50,7 @@ import Maybes
 import Util
 import Name
 import Outputable
-import BasicTypes ( isGenerated, il_value, fl_value )
+import BasicTypes ( isGenerated, il_value, fl_value, Boxity(..) )
 import FastString
 import Unique
 import UniqDFM
@@ -463,12 +463,17 @@ tidy1 _ _ (TuplePat tys pats boxity)
   = return (idDsWrapper, unLoc tuple_ConPat)
   where
     arity = length pats
-    tuple_ConPat = mkPrefixConPat (tupleDataCon boxity arity) pats tys
+    tuple_ConPat = mkPrefixConPat (tupleDataCon boxity arity) pats tys'
+    tys' = case boxity of
+             Unboxed -> map getRuntimeRep tys ++ tys
+             Boxed   -> tys
+           -- See Note [Unboxed tuple RuntimeRep vars] in TyCon
 
 tidy1 _ _ (SumPat tys pat alt arity)
   = return (idDsWrapper, unLoc sum_ConPat)
   where
-    sum_ConPat = mkPrefixConPat (sumDataCon alt arity) [pat] tys
+    sum_ConPat = mkPrefixConPat (sumDataCon alt arity) [pat] (map getRuntimeRep tys ++ tys)
+                 -- See Note [Unboxed tuple RuntimeRep vars] in TyCon
 
 -- LitPats: we *might* be able to replace these w/ a simpler form
 tidy1 _ o (LitPat _ lit)
