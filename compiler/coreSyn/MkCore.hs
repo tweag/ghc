@@ -123,7 +123,7 @@ mkCoreLets binds body = foldr mkCoreLet body binds
 -- 'mkCoreApps'.
 -- Respects the let/app invariant by building a case expression where necessary
 --   See CoreSyn Note [CoreSyn let/app invariant]
-mkCoreAppTyped :: SDoc -> (CoreExpr, Type) -> CoreExpr -> (CoreExpr, Type)
+mkCoreAppTyped :: HasCallStack => SDoc -> (CoreExpr, Type) -> CoreExpr -> (CoreExpr, Type)
 mkCoreAppTyped _ (fun, fun_ty) (Type ty)
   = (App fun (Type ty), piResultTy fun_ty ty)
 mkCoreAppTyped _ (fun, fun_ty) (Coercion co)
@@ -140,7 +140,7 @@ mkCoreAppTyped d (fun, fun_ty) arg
 -- to the other
 -- Respects the let/app invariant by building a case expression where necessary
 --   See CoreSyn Note [CoreSyn let/app invariant]
-mkCoreApp :: SDoc -> CoreExpr -> CoreExpr -> CoreExpr
+mkCoreApp :: HasCallStack => SDoc -> CoreExpr -> CoreExpr -> CoreExpr
 mkCoreApp s fun arg
   = fst $ mkCoreAppTyped s (fun, exprType fun) arg
 
@@ -403,7 +403,7 @@ mkBigCoreTupTy = mkChunkified mkBoxedTupleTy
 
 -- | The unit expression
 unitExpr :: CoreExpr
-unitExpr = Var unitDataConId
+unitExpr = Var unitDataConId `App` Type omegaDataConTy
 
 {-
 ************************************************************************

@@ -1299,11 +1299,14 @@ dataConStupidTheta dc = dcStupidTheta dc
 -- and without linear types,
 --    MkT :: forall n2. n2 -> T n2
 -- See test LinearGhci.
+--
+-- TODO check more changes with https://github.com/tweag/ghc/pull/295/files.
+-- Probably one of those is missing here
 dataConMulVars :: DataCon -> ([TyVar], [Scaled Type])
 dataConMulVars (MkData { dcUserTyVarBinders = user_tvbs,
                          dcOrigArgTys = arg_tys }) =
-   (vars, zipWithEqual "dataConMulVars" (\m b -> scaleScaled (mkTyVarTy m) b) vars arg_tys)
-   where vars = multiplicityTyVarList (length arg_tys) (map getOccName (binderVars user_tvbs))
+   (vars, zipWithEqual "dataConMulVars" (\m b -> scaleScaled (mkTyVarTy m) b) (init vars) arg_tys)
+   where vars = multiplicityTyVarList (length arg_tys + 1) (map getOccName (binderVars user_tvbs))
 
 dataConUserType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor

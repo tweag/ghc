@@ -678,10 +678,10 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                         -- Reconstruct with the WrapId so that unpacking happens
                  ensureAllFieldsUnrestricted expr =
                    case con of
-                     RealDataCon x -> expr <.> mkWpTyApps (omegaDataConTy <$ dataConOrigArgTys x)
+                     RealDataCon x -> expr <.> mkWpTyApps (omegaDataConTy <$ (fst $ dataConMulVars x))
                      PatSynCon _ -> expr
                        -- Currently:
-                       -- - Real data constructor have a single type argument which, when instantiated to Omega turn all field unrestricted
+                       -- - Real data constructors have as many type arguments as their fields
                        -- - Pattern synonyms always have all their fields unrestricted.
                  wrap = ensureAllFieldsUnrestricted $
                         mkWpEvVarApps theta_vars                                <.>
