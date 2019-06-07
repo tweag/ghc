@@ -1443,7 +1443,7 @@ quantifyTyVars gbl_tvs
                                   , text "dep_kvs2 ="    <+> ppr dep_kvs2
                                   , text "nondep_tvs ="  <+> ppr nondep_tvs
                                   , text "nondep_tvs2 =" <+> ppr nondep_tvs2 ])
-       ; WARN( not all_ok, bad_msg ) return ()
+       ; when( not all_ok) $ pprPanic "fail" bad_msg
 
              -- In the non-PolyKinds case, default the kind variables
              -- to *, and zonk the tyvars as usual.  Notice that this
