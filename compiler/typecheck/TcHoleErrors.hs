@@ -549,7 +549,7 @@ pprHoleFit (HFDC sWrp sWrpVars sTy sProv sMs) hf = hang display 2 provenance
           wrapDisp = ppWhen (has wrap && (sWrp || sWrpVars))
                       $ text "with" <+> if sWrp || not sTy
                                         then occDisp <+> tyApp
-                                        else tyAppVars
+                                        else text "foo"
           docs = case hfDoc hf of
                    Just d -> text "{-^" <>
                              (vcat . map text . lines . unpackHDS) d
