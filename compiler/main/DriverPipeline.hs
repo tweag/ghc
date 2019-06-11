@@ -29,6 +29,7 @@ module DriverPipeline (
    hscPostBackendPhase, getLocation, setModLocation, setDynFlags,
    runPhase, exeFileName,
    maybeCreateManifest,
+   doCpp,
    linkingNeeded, checkLinkInfo, writeInterfaceOnlyMode
   ) where
 
@@ -51,7 +52,7 @@ import ErrUtils
 import DynFlags
 import Panic
 import Util
-import StringBuffer     ( StringBuffer, hGetStringBuffer, hPutStringBuffer )
+import StringBuffer     ( hGetStringBuffer, hPutStringBuffer )
 import BasicTypes       ( SuccessFlag(..) )
 import Maybes           ( expectJust )
 import SrcLoc
@@ -59,10 +60,13 @@ import LlvmCodeGen      ( llvmFixupAsm )
 import MonadUtils
 import Platform
 import TcRnTypes
+import ToolSettings
 import Hooks
 import qualified GHC.LanguageExtensions as LangExt
 import FileCleanup
 import Ar
+import Bag              ( unitBag )
+import FastString       ( mkFastString )
 
 import Exception
 import System.Directory
@@ -87,11 +91,14 @@ import Data.Time        ( UTCTime )
 
 preprocess :: HscEnv
            -> FilePath -- ^ input filename
-           -> Maybe StringBuffer
-           -- ^ optional buffer to use instead of reading input file
+           -> Maybe InputFileBuffer
+           -- ^ optional buffer to use instead of reading the input file
            -> Maybe Phase -- ^ starting phase
-           -> IO (DynFlags, FilePath)
+           -> IO (Either ErrorMessages (DynFlags, FilePath))
 preprocess hsc_env input_fn mb_input_buf mb_phase =
+  handleSourceError (\err -> return (Left (srcErrorMessages err))) $
+  ghandle handler $
+  fmap Right $
   ASSERT2(isJust mb_phase || isHaskellSrcFilename input_fn, text input_fn)
   runPipeline anyHsc hsc_env (input_fn, mb_input_buf, fmap RealPhase mb_phase)
         Nothing
@@ -100,6 +107,11 @@ preprocess hsc_env input_fn mb_input_buf mb_phase =
         (Temporary TFL_GhcSession)
         Nothing{-no ModLocation-}
         []{-no foreign objects-}
+  where
+    srcspan = srcLocSpan $ mkSrcLoc (mkFastString input_fn) 1 1
+    handler (ProgramError msg) = return $ Left $ unitBag $
+        mkPlainErrMsg (hsc_dflags hsc_env) srcspan $ text msg
+    handler ex = throwGhcExceptionIO ex
 
 -- ---------------------------------------------------------------------------
 
@@ -373,7 +385,7 @@ link ghcLink dflags
   = lookupHook linkHook l dflags ghcLink dflags
   where
     l LinkInMemory _ _ _
-      = if sGhcWithInterpreter $ settings dflags
+      = if platformMisc_ghcWithInterpreter $ platformMisc dflags
         then -- Not Linking...(demand linker will do the job)
              return Succeeded
         else panicBadLink LinkInMemory
@@ -568,7 +580,7 @@ doLink dflags stop_phase o_files
 runPipeline
   :: Phase                      -- ^ When to stop
   -> HscEnv                     -- ^ Compilation environment
-  -> (FilePath, Maybe StringBuffer, Maybe PhasePlus)
+  -> (FilePath, Maybe InputFileBuffer, Maybe PhasePlus)
                                 -- ^ Pipeline input file name, optional
                                 -- buffer and maybe -x suffix
   -> Maybe FilePath             -- ^ original basename (if different from ^^^)
@@ -1031,8 +1043,11 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
         (hspp_buf,mod_name,imps,src_imps) <- liftIO $ do
           do
             buf <- hGetStringBuffer input_fn
-            (src_imps,imps,L _ mod_name) <- getImports dflags buf input_fn (basename <.> suff)
-            return (Just buf, mod_name, imps, src_imps)
+            eimps <- getImports dflags buf input_fn (basename <.> suff)
+            case eimps of
+              Left errs -> throwErrors errs
+              Right (src_imps,imps,L _ mod_name) -> return
+                  (Just buf, mod_name, imps, src_imps)
 
   -- Take -o into account if present
   -- Very like -ohi, but we must *only* do this if we aren't linking
@@ -1175,9 +1190,6 @@ runPhase (RealPhase Cmm) input_fn dflags
 -----------------------------------------------------------------------------
 -- Cc phase
 
--- we don't support preprocessing .c files (with -E) now.  Doing so introduces
--- way too many hacks, and I can't say I've ever used it anyway.
-
 runPhase (RealPhase cc_phase) input_fn dflags
    | any (cc_phase `eqPhase`) [Cc, Ccxx, HCc, Cobjc, Cobjcxx]
    = do
@@ -1199,6 +1211,16 @@ runPhase (RealPhase cc_phase) input_fn dflags
               (includePathsQuote cmdline_include_paths)
         let include_paths = include_paths_quote ++ include_paths_global
 
+        -- pass -D or -optP to preprocessor when compiling foreign C files
+        -- (#16737). Doing it in this way is simpler and also enable the C
+        -- compiler to performs preprocessing and parsing in a single pass,
+        -- but it may introduce inconsistency if a different pgm_P is specified.
+        let more_preprocessor_opts = concat
+              [ ["-Xpreprocessor", i]
+              | not hcc
+              , i <- getOpts dflags opt_P
+              ]
+
         let gcc_extra_viac_flags = extraGccViaCFlags dflags
         let pic_c_flags = picCCOpts dflags
 
@@ -1208,7 +1230,7 @@ runPhase (RealPhase cc_phase) input_fn dflags
         -- hc code doesn't not #include any header files anyway, so these
         -- options aren't necessary.
         pkg_extra_cc_opts <- liftIO $
-          if cc_phase `eqPhase` HCc
+          if hcc
              then return []
              else getPackageExtraCcOpts dflags pkgs
 
@@ -1290,6 +1312,7 @@ runPhase (RealPhase cc_phase) input_fn dflags
                        ++ [ "-include", ghcVersionH ]
                        ++ framework_paths
                        ++ include_paths
+                       ++ more_preprocessor_opts
                        ++ pkg_extra_cc_opts
                        ))
 
@@ -1605,7 +1628,7 @@ linkBinary = linkBinary' False
 linkBinary' :: Bool -> DynFlags -> [FilePath] -> [InstalledUnitId] -> IO ()
 linkBinary' staticLink dflags o_files dep_packages = do
     let platform = targetPlatform dflags
-        mySettings = settings dflags
+        toolSettings' = toolSettings dflags
         verbFlags = getVerbFlags dflags
         output_fn = exeFileName staticLink dflags
 
@@ -1761,7 +1784,7 @@ linkBinary' staticLink dflags o_files dep_packages = do
                       -- like
                       --     ld: warning: could not create compact unwind for .LFB3: non-standard register 5 being saved in prolog
                       -- on x86.
-                      ++ (if sLdSupportsCompactUnwind mySettings &&
+                      ++ (if toolSettings_ldSupportsCompactUnwind toolSettings' &&
                              not staticLink &&
                              (platformOS platform == OSDarwin) &&
                              case platformArch platform of
@@ -1785,7 +1808,7 @@ linkBinary' staticLink dflags o_files dep_packages = do
                           then ["-Wl,-read_only_relocs,suppress"]
                           else [])
 
-                      ++ (if sLdIsGnuLd mySettings &&
+                      ++ (if toolSettings_ldIsGnuLd toolSettings' &&
                              not (gopt Opt_WholeArchiveHsLibs dflags)
                           then ["-Wl,--gc-sections"]
                           else [])
@@ -1912,7 +1935,7 @@ linkStaticLib dflags o_files dep_packages = do
         <$> (Archive <$> mapM loadObj modules)
         <*> mapM loadAr archives
 
-  if sLdIsGnuLd (settings dflags)
+  if toolSettings_ldIsGnuLd (toolSettings dflags)
     then writeGNUAr output_fn $ afilter (not . isGNUSymdef) ar
     else writeBSDAr output_fn $ afilter (not . isBSDSymdef) ar
 
@@ -2085,15 +2108,15 @@ none of this can be used in that case.
 
 joinObjectFiles :: DynFlags -> [FilePath] -> FilePath -> IO ()
 joinObjectFiles dflags o_files output_fn = do
-  let mySettings = settings dflags
-      ldIsGnuLd = sLdIsGnuLd mySettings
+  let toolSettings' = toolSettings dflags
+      ldIsGnuLd = toolSettings_ldIsGnuLd toolSettings'
       osInfo = platformOS (targetPlatform dflags)
       ld_r args cc = SysTools.runLink dflags ([
                        SysTools.Option "-nostdlib",
                        SysTools.Option "-Wl,-r"
                      ]
                         -- See Note [No PIE while linking] in DynFlags
-                     ++ (if sGccSupportsNoPie mySettings
+                     ++ (if toolSettings_ccSupportsNoPie toolSettings'
                           then [SysTools.Option "-no-pie"]
                           else [])
 
@@ -2124,7 +2147,7 @@ joinObjectFiles dflags o_files output_fn = do
       -- suppress the generation of the .note.gnu.build-id section,
       -- which we don't need and sometimes causes ld to emit a
       -- warning:
-      ld_build_id | sLdSupportsBuildId mySettings = ["-Wl,--build-id=none"]
+      ld_build_id | toolSettings_ldSupportsBuildId toolSettings' = ["-Wl,--build-id=none"]
                   | otherwise                     = []
 
   ccInfo <- getCompilerInfo dflags
@@ -2135,7 +2158,7 @@ joinObjectFiles dflags o_files output_fn = do
           let o_files_abs = map (\x -> "\"" ++ (cwd </> x) ++ "\"") o_files
           writeFile script $ "INPUT(" ++ unwords o_files_abs ++ ")"
           ld_r [SysTools.FileOption "" script] ccInfo
-     else if sLdSupportsFilelist mySettings
+     else if toolSettings_ldSupportsFilelist toolSettings'
      then do
           filelist <- newTempName dflags TFL_CurrentModule "filelist"
           writeFile filelist $ unlines o_files

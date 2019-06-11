@@ -393,7 +393,7 @@ data DsLclEnv = DsLclEnv {
         -- These two fields are augmented as we walk inwards,
         -- through each patttern match in turn
         dsl_dicts   :: Bag EvVar,     -- Constraints from GADT pattern-matching
-        dsl_tm_cs   :: Bag SimpleEq,  -- Constraints form term-level pattern matching
+        dsl_tm_cs   :: Bag TmVarCt,      -- Constraints form term-level pattern matching
 
         dsl_pm_iter :: IORef Int  -- Number of iterations for pmcheck so far
                                   -- We fail if this gets too big
@@ -1025,7 +1025,7 @@ splice. In particular it is not set when the splice is renamed or typechecked.
 'RunSplice' is needed to provide a reference where 'addModFinalizer' can insert
 the finalizer (see Note [Delaying modFinalizers in untyped splices]), and
 'addModFinalizer' runs when doing Q things. Therefore, It doesn't make sense to
-set 'RunSplice' when renaming or typechecking the splice, where 'Splice', 
+set 'RunSplice' when renaming or typechecking the splice, where 'Splice',
 'Brack' or 'Comp' are used instead.
 
 -}
@@ -2095,6 +2095,16 @@ see dropDerivedWC.  For example
    [D] Int ~ Bool, and we don't want to report that because it's
    incomprehensible. That is why we don't rewrite wanteds with wanteds!
 
+ * We might float out some Wanteds from an implication, leaving behind
+   their insoluble Deriveds. For example:
+
+   forall a[2]. [W] alpha[1] ~ Int
+                [W] alpha[1] ~ Bool
+                [D] Int ~ Bool
+
+   The Derived is insoluble, but we very much want to drop it when floating
+   out.
+
 But (tiresomely) we do keep *some* Derived constraints:
 
  * Type holes are derived constraints, because they have no evidence
@@ -2103,8 +2113,7 @@ But (tiresomely) we do keep *some* Derived constraints:
  * Insoluble kind equalities (e.g. [D] * ~ (* -> *)), with
    KindEqOrigin, may arise from a type equality a ~ Int#, say.  See
    Note [Equalities with incompatible kinds] in TcCanonical.
-   These need to be kept because the kind equalities might have different
-   source locations and hence different error messages.
+   Keeping these around produces better error messages, in practice.
    E.g., test case dependent/should_fail/T11471
 
  * We keep most derived equalities arising from functional dependencies

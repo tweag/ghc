@@ -20,7 +20,7 @@ test('tempfiles', normal, compile_and_run, [''])
 test('fixed', normal, compile_and_run, [''])
 test('quotOverflow', normal, compile_and_run, [''])
 test('assert', exit_code(1), compile_and_run, ['-fno-ignore-asserts'])
-test('CPUTime001', normal, compile_and_run, [''])
+test('CPUTime001', fragile(16224), compile_and_run, [''])
 test('readLitChar',   normal, compile_and_run, [''])
 test('unicode001',
      when(platform('i386-unknown-openbsd'), expect_fail),
@@ -40,6 +40,7 @@ test('take001', extra_run_opts('1'), compile_and_run, [''])
 test('inits', normal, compile_and_run, [''])
 test('genericNegative001', extra_run_opts('-1'), compile_and_run, [''])
 test('ix001', normal, compile_and_run, [''])
+test('isValidNatural', reqlib('integer-gmp'), compile_and_run, [''])
 
 # need to add -K64m to the compiler opts, so that GHCi gets it too
 test('ioref001',
