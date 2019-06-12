@@ -1292,7 +1292,7 @@ dataConStupidTheta dc = dcStupidTheta dc
 --
 -- To avoid spurious renaming, do not use names that were written by user.
 -- For example, given
---    MkT :: forall n. n -> T n
+--    MkT :: forall n. n ->. T n
 -- we don't want to use 'n' for the multiplicity variable, because the user
 -- would see
 --    MkT :: forall {n :: Multiplicity} n2. n2 -->.(n) T n2
@@ -1302,8 +1302,10 @@ dataConStupidTheta dc = dcStupidTheta dc
 dataConMulVars :: DataCon -> ([TyVar], [Scaled Type])
 dataConMulVars (MkData { dcUserTyVarBinders = user_tvbs,
                          dcOrigArgTys = arg_tys }) =
-   (vars, zipWithEqual "dataConMulVars" (\m b -> scaleScaled (mkTyVarTy m) b) vars arg_tys)
+   (vars, zipWithEqual "dataConMulVars" (\m b -> combine (mkTyVarTy m) b) vars arg_tys)
    where vars = multiplicityTyVarList (length arg_tys) (map getOccName (binderVars user_tvbs))
+         combine var (Scaled One ty) = Scaled var ty
+         combine _   scaled_ty = scaled_ty
 
 dataConUserType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor
