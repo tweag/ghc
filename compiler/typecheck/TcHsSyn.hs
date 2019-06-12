@@ -36,7 +36,7 @@ module TcHsSyn (
         zonkTyVarBinders, zonkTyVarBindersX, zonkTyVarBinderX,
         zonkTyBndrs, zonkTyBndrsX, zonkRecTyVarBndrs,
         zonkTcTypeToType,  zonkTcTypeToTypeX,
-        zonkTcTypesToTypes, zonkTcTypesToTypesX,
+        zonkTcTypesToTypes, zonkTcTypesToTypesX, zonkScaledTcTypesToTypesX,
         zonkTyVarOcc,
         zonkCoToCo,
         zonkEvBinds, zonkTcEvBinds,
@@ -85,7 +85,6 @@ import Multiplicity
 import {-# SOURCE #-} TcSplice (runTopSplice)
 
 import Control.Monad
-import Data.Functor.Compose ( Compose(..) )
 import Data.List  ( partition )
 import Control.Arrow ( second )
 
@@ -698,7 +697,7 @@ zonkMatchGroup env zBody (MG { mg_alts = (dL->L l ms)
                              , mg_ext = MatchGroupTc arg_tys res_ty
                              , mg_origin = origin })
   = do  { ms' <- mapM (zonkMatch env zBody) ms
-        ; Compose arg_tys' <- zonkTcTypesToTypesX env (Compose arg_tys)
+        ; arg_tys' <- zonkScaledTcTypesToTypesX env arg_tys
         ; res_ty'  <- zonkTcTypeToTypeX env res_ty
         ; return (MG { mg_alts = cL l ms'
                      , mg_ext = MatchGroupTc arg_tys' res_ty'
@@ -1907,8 +1906,13 @@ zonkScaledTcTypeToTypeX :: ZonkEnv -> Scaled TcType -> TcM (Scaled TcType)
 zonkScaledTcTypeToTypeX env (Scaled r ty) = Scaled <$> zonkTcTypeToTypeX env r
                                                    <*> zonkTcTypeToTypeX env ty
 
-zonkTcTypesToTypesX :: Traversable t => ZonkEnv -> (t TcType) -> TcM (t Type)
+zonkTcTypesToTypesX :: ZonkEnv -> [TcType] -> TcM [Type]
 zonkTcTypesToTypesX env tys = mapM (zonkTcTypeToTypeX env) tys
+
+zonkScaledTcTypesToTypesX :: ZonkEnv -> [Scaled TcType] -> TcM [Scaled Type]
+zonkScaledTcTypesToTypesX env scaled_tys =
+   zipWith Scaled <$> zonkTcTypesToTypesX env (map scaledMult scaled_tys)
+                  <*> zonkTcTypesToTypesX env (map scaledThing scaled_tys)
 
 zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
 zonkCoToCo = mapCoercion zonk_tycomapper
