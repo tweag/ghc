@@ -1334,11 +1334,10 @@ dataConUserType dc@(MkData { dcUserTyVarBinders = user_tvbs,
                              dcOrigResTy = res_ty })
   = let (mult_vars, arg_tys') = dataConMulVars dc
         tvb = map (mkTyVarBinder Inferred) mult_vars
-        foo = mkForAllTys (tvb ++ user_tvbs) $
+    in mkForAllTys (tvb ++ user_tvbs) $
             mkInvisFunTysOm theta $
             mkVisFunTys arg_tys' $
             res_ty
-    in pprTrace "dataConUserType" (ppr dc <+> ppr foo) foo
 
 -- | Finds the instantiated types of the arguments required to construct a
 -- 'DataCon' representation

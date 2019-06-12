@@ -41,7 +41,6 @@ import DynFlags
 import qualified Data.Traversable as T
 
 import Bag
-import Data.Functor.Compose
 import Data.IORef
 import NameShape
 import IfaceEnv
@@ -556,7 +555,7 @@ rnIfaceConDecl d = do
     let rnIfConEqSpec (n,t) = (,) n <$> rnIfaceType t
     con_eq_spec <- mapM rnIfConEqSpec (ifConEqSpec d)
     con_ctxt <- mapM rnIfaceType (ifConCtxt d)
-    con_arg_tys <- mapM rnIfaceType (Compose $ ifConArgTys d)
+    con_arg_tys <- mapM rnIfaceScaledType (ifConArgTys d)
     con_fields <- mapM rnFieldLabel (ifConFields d)
     let rnIfaceBang (IfUnpackCo co) = IfUnpackCo <$> rnIfaceCo co
         rnIfaceBang bang = pure bang
@@ -566,7 +565,7 @@ rnIfaceConDecl d = do
              , ifConUserTvBinders = con_user_tvbs
              , ifConEqSpec = con_eq_spec
              , ifConCtxt = con_ctxt
-             , ifConArgTys = getCompose con_arg_tys
+             , ifConArgTys = con_arg_tys
              , ifConFields = con_fields
              , ifConStricts = con_stricts
              }
@@ -734,6 +733,9 @@ rnIfaceType (IfaceCoercionTy co)
     = IfaceCoercionTy <$> rnIfaceCo co
 rnIfaceType (IfaceCastTy ty co)
     = IfaceCastTy <$> rnIfaceType ty <*> rnIfaceCo co
+
+rnIfaceScaledType :: Rename (IfaceMult, IfaceType)
+rnIfaceScaledType (m, t) = (,) <$> rnIfaceType m <*> rnIfaceType t
 
 rnIfaceForAllBndr :: Rename IfaceForAllBndr
 rnIfaceForAllBndr (Bndr tv vis) = Bndr <$> rnIfaceBndr tv <*> pure vis

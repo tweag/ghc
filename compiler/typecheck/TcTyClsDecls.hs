@@ -1207,7 +1207,6 @@ kcConDecl (ConDeclGADT { con_names = names
         -- Why "_Tv"?  See Note [Kind-checking for GADTs]
     do { _ <- tcHsMbContext cxt
        ; mapM_ (tcHsOpenType . getBangType . hsThing) (hsConDeclArgTys args)
-       ; mapM_ (pprTraceM "tcMult" . ppr . hsMult) (hsConDeclArgTys args)
        ; mapM_ (tcMult . hsMult) (hsConDeclArgTys args)
        ; _ <- tcHsOpenType res_ty
        ; return () }
@@ -2464,7 +2463,6 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
            buildOneDataCon (dL->L _ name) = do
              { is_infix <- tcConIsInfixGADT name hs_args
              ; rep_nm   <- newTyConRepName name
-             ; pprTraceM "build" (ppr name)
 
              ; buildDataCon fam_envs name is_infix
                             rep_nm
@@ -2532,8 +2530,6 @@ tcConArg (HsScaled w bty)
              -- that in checkValidDataCon; this tcConArg stuff
              -- doesn't happen for GADT-style declarations
         ; traceTc "tcConArg 2" (ppr bty)
-        ; pprTraceM "conarg" empty
-        ; pprTraceM "conarg2" (ppr w <+> text " ---> " <+> ppr w' $$ ppr (getBangType bty) <+> text "--->" <+> ppr arg_ty )
         ; return (Scaled w' arg_ty, getBangStrictness bty) }
 
 {-
