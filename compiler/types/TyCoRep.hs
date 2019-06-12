@@ -3354,7 +3354,7 @@ subst_ty subst ty
     go (TyConApp tc tys) = let args = map go tys
                            in  args `seqList` TyConApp tc args
     go ty@(FunTy { ft_mult = mult, ft_arg = arg, ft_res = res })
-      = let !mult' = subst_ty subst mult
+      = let !mult' = go mult
             !arg' = go arg
             !res' = go res
         in ty { ft_mult = mult', ft_arg = arg', ft_res = res' }
