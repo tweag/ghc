@@ -74,7 +74,6 @@ import BasicTypes
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
-import Data.Functor.Compose ( Compose(..) )
 import Data.Foldable
 import Data.Function ( on )
 import Data.List
@@ -2364,7 +2363,7 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
              -- Zonk to Types
        ; (ze, qkvs)      <- zonkTyBndrs kvs
        ; (ze, user_qtvs) <- zonkTyBndrsX ze exp_tvs
-       ; Compose arg_tys <- zonkTcTypesToTypesX ze (Compose arg_tys)
+       ; arg_tys         <- zonkScaledTcTypesToTypesX ze arg_tys
        ; ctxt            <- zonkTcTypesToTypesX ze ctxt
 
        ; fam_envs <- tcGetFamInstEnvs
@@ -2453,7 +2452,7 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
              all_user_bndrs = tkv_bndrs ++ user_tv_bndrs
 
              ctxt'      = substTys arg_subst ctxt
-             arg_tys'   = zipWithEqual "v" Scaled (substTys arg_subst $ map scaledMult arg_tys) (substTys arg_subst $ map scaledThing arg_tys)
+             arg_tys'   = substScaledTys arg_subst arg_tys
              res_ty'    = substTy  arg_subst res_ty
 
 

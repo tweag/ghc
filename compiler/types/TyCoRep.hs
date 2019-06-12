@@ -128,11 +128,11 @@ module TyCoRep (
         substTyWith, substTyWithCoVars, substTysWith, substTysWithCoVars,
         substCoWith,
         substTy, substTyAddInScope,
-        substTyUnchecked, substTysUnchecked, substThetaUnchecked,
+        substTyUnchecked, substTysUnchecked, substScaledTysUnchecked, substThetaUnchecked,
         substTyWithUnchecked,
         substCoUnchecked, substCoWithUnchecked,
         substTyWithInScope,
-        substTys, substTheta,
+        substTys, substScaledTys, substTheta,
         lookupTyVar,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
         cloneTyVarBndr, cloneTyVarBndrs,
@@ -3313,6 +3313,13 @@ substTys subst tys
   | isEmptyTCvSubst subst = tys
   | otherwise = checkValidSubst subst (toList tys) [] $ fmap (subst_ty subst) tys
 
+substScaledTys :: (HasCallStack) =>
+  TCvSubst -> [Scaled Type] -> [Scaled Type]
+substScaledTys subst scaled_tys
+  | isEmptyTCvSubst subst = scaled_tys
+  | otherwise = zipWith Scaled (substTys subst $ map scaledMult   scaled_tys)
+                               (substTys subst $ map scaledThing  scaled_tys)
+
 -- | Substitute within several 'Type's disabling the sanity checks.
 -- The problems that the sanity checks in substTys catch are described in
 -- Note [The substitution invariant].
@@ -3322,6 +3329,11 @@ substTysUnchecked :: (Functor f) => TCvSubst -> f Type -> f Type
 substTysUnchecked subst tys
                  | isEmptyTCvSubst subst = tys
                  | otherwise             = fmap (subst_ty subst) tys
+
+substScaledTysUnchecked :: (Functor f) => TCvSubst -> f (Scaled Type) -> f (Scaled Type)
+substScaledTysUnchecked subst tys
+                 | isEmptyTCvSubst subst = tys
+                 | otherwise             = fmap (\(Scaled u v) -> Scaled (subst_ty subst u) (subst_ty subst v)) tys
 
 -- | Substitute within a 'ThetaType'
 -- The substitution has to satisfy the invariants described in

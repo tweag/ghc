@@ -200,7 +200,7 @@ tauifyMultipleMatches :: [LMatch id body]
                       -> [Scaled ExpType] -> TcM [Scaled ExpType]
 tauifyMultipleMatches group exp_tys
   | isSingletonMatchGroup group = return exp_tys
-  | otherwise                   = mapM (mapM tauifyExpType) exp_tys
+  | otherwise                   = mapM (\(Scaled u v) -> fmap (Scaled u) (tauifyExpType v)) exp_tys  -- TODO
   -- NB: In the empty-match case, this ensures we fill in the ExpType
 
 -- | Type-check a MatchGroup.
@@ -224,7 +224,7 @@ tcMatches ctxt pat_tys rhs_ty (MG { mg_alts = L l matches
        ; umatches <- mapM (tcCollectingUsage . tcMatch ctxt pat_tys rhs_ty) matches
        ; let (usages,matches') = unzip umatches
        ; tcEmitBindingUsage $ supUEs usages
-       ; pat_tys  <- mapM (mapM readExpType) pat_tys
+       ; pat_tys  <- mapM (\(Scaled u v) -> fmap (Scaled u) (readExpType v)) pat_tys  -- TODO
        ; rhs_ty   <- readExpType rhs_ty
        ; return (MG { mg_alts = L l matches'
                     , mg_ext = MatchGroupTc pat_tys rhs_ty

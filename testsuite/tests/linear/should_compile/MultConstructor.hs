@@ -3,15 +3,8 @@ module MultConstructor where
 
 import GHC.Types
 
-data T (p :: Multiplicity) a where
+data T p a where
   MkT :: a -->.(p) T p a
 
-{-
-data T :: Multiplicity -> (Multiplicity -> *) -> * where
-  MkT :: f p -->.(p) T p f
--}
-
-{-
-g :: T Omega b ->. (b,b)
+g :: forall (b :: Type). T 'Omega b ->. (b,b)
 g (MkT x) = (x,x)
--}

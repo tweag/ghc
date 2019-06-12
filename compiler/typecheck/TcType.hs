@@ -157,7 +157,7 @@ module TcType (
   Type.lookupTyVar, Type.extendTCvSubst, Type.substTyVarBndr,
   Type.extendTvSubst,
   isInScope, mkTCvSubst, mkTvSubst, zipTyEnv, zipCoEnv,
-  Type.substTy, substTys, substTyWith, substTyWithCoVars,
+  Type.substTy, substTys, substScaledTys, substTyWith, substTyWithCoVars,
   substTyAddInScope,
   substTyUnchecked, substTysUnchecked, substThetaUnchecked,
   substTyWithUnchecked,
