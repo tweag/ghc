@@ -44,7 +44,7 @@ import Outputable
 import FastString
 import State
 import UniqDFM
-import TyCoRep (TyCoBinder (..))
+import TyCoRep (TyCoBinder (..), ArgType (..))
 
 import Control.Monad
 import qualified Control.Monad.Fail as MonadFail
@@ -2255,8 +2255,8 @@ mkCallUDs' env f args
               _ -> pprPanic "ci_key" $ ppr a
           |  otherwise
           -> UnspecType
-        Anon InvisArg _ -> SpecDict a
-        Anon VisArg _ -> UnspecArg
+        Anon (ArgType InvisArg _) -> SpecDict a
+        Anon (ArgType VisArg _) -> UnspecArg
                 ) $ zip pis args
 
     dicts = getSpecDicts ci_key
