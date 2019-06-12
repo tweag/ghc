@@ -697,11 +697,7 @@ zonkMatchGroup env zBody (MG { mg_alts = (dL->L l ms)
                              , mg_ext = MatchGroupTc arg_tys res_ty
                              , mg_origin = origin })
   = do  { ms' <- mapM (zonkMatch env zBody) ms
-
-        ; a1 <- zonkTcTypesToTypesX env (map scaledThing arg_tys)
-        ; a2 <- zonkTcTypesToTypesX env (map scaledMult arg_tys)
-        ; let arg_tys' = zipWithEqual "u" Scaled a2 a1
-
+        ; arg_tys' <- zonkScaledTcTypesToTypesX env arg_tys
         ; res_ty'  <- zonkTcTypeToTypeX env res_ty
         ; return (MG { mg_alts = cL l ms'
                      , mg_ext = MatchGroupTc arg_tys' res_ty'
@@ -1910,14 +1906,13 @@ zonkScaledTcTypeToTypeX :: ZonkEnv -> Scaled TcType -> TcM (Scaled TcType)
 zonkScaledTcTypeToTypeX env (Scaled r ty) = Scaled <$> zonkTcTypeToTypeX env r
                                                    <*> zonkTcTypeToTypeX env ty
 
-zonkTcTypesToTypesX :: Traversable t => ZonkEnv -> (t TcType) -> TcM (t Type)
+zonkTcTypesToTypesX :: ZonkEnv -> [TcType] -> TcM [Type]
 zonkTcTypesToTypesX env tys = mapM (zonkTcTypeToTypeX env) tys
 
 zonkScaledTcTypesToTypesX :: ZonkEnv -> [Scaled TcType] -> TcM [Scaled Type]
-zonkScaledTcTypesToTypesX env tys = do
-       m <- zonkTcTypesToTypesX env (map scaledMult tys)
-       t <- zonkTcTypesToTypesX env (map scaledThing tys)
-       return $ zipWith Scaled m t
+zonkScaledTcTypesToTypesX env scaled_tys =
+   zipWith Scaled <$> zonkTcTypesToTypesX env (map scaledMult scaled_tys)
+                  <*> zonkTcTypesToTypesX env (map scaledThing scaled_tys)
 
 zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
 zonkCoToCo = mapCoercion zonk_tycomapper

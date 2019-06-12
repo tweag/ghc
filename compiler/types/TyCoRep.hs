@@ -3308,13 +3308,12 @@ substTyUnchecked subst ty
 -- | Substitute within several 'Type's
 -- The substitution has to satisfy the invariants described in
 -- Note [The substitution invariant].
-substTys :: (HasCallStack, Traversable t) => TCvSubst -> t Type -> t Type
+substTys :: HasCallStack => TCvSubst -> [Type] -> [Type]
 substTys subst tys
   | isEmptyTCvSubst subst = tys
   | otherwise = checkValidSubst subst (toList tys) [] $ fmap (subst_ty subst) tys
 
-substScaledTys :: (HasCallStack) =>
-  TCvSubst -> [Scaled Type] -> [Scaled Type]
+substScaledTys :: HasCallStack => TCvSubst -> [Scaled Type] -> [Scaled Type]
 substScaledTys subst scaled_tys
   | isEmptyTCvSubst subst = scaled_tys
   | otherwise = zipWith Scaled (substTys subst $ map scaledMult   scaled_tys)

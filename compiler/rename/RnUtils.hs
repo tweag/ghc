@@ -190,9 +190,10 @@ addFvRn :: FreeVars -> RnM (thing, FreeVars) -> RnM (thing, FreeVars)
 addFvRn fvs1 thing_inside = do { (res, fvs2) <- thing_inside
                                ; return (res, fvs1 `plusFV` fvs2) }
 
-mapFvRn :: (Traversable t ) => (a -> RnM (b, FreeVars)) -> t a -> RnM (t b, FreeVars)
+mapFvRn :: (a -> RnM (b, FreeVars)) -> [a] -> RnM ([b], FreeVars)
 mapFvRn f xs = do stuff <- mapM f xs
-                  return (fmap fst stuff, plusFVs . map snd $ toList stuff)
+                  case unzip stuff of
+                      (ys, fvs_s) -> return (ys, plusFVs fvs_s)
 
 mapMaybeFvRn :: (a -> RnM (b, FreeVars)) -> Maybe a -> RnM (Maybe b, FreeVars)
 mapMaybeFvRn _ Nothing = return (Nothing, emptyFVs)
