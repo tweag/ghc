@@ -2461,9 +2461,9 @@ deleteAlias id thing_inside = LintM $ \env errs ->
 varCallSiteUsage :: Id -> LintM UsageEnv
 varCallSiteUsage id =
   do m <- getUEAliases
-     case lookupNameEnv m (getName id) of
-         Nothing -> return (unitUE id One)
-         Just id_ue -> return id_ue
+     return $ case lookupNameEnv m (getName id) of
+         Nothing -> unitUE id One
+         Just id_ue -> id_ue
 
 lintTyCoVarInScope :: TyCoVar -> LintM ()
 lintTyCoVarInScope var
