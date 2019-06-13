@@ -680,7 +680,7 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                      RealDataCon x -> expr <.> mkWpTyApps (omegaDataConTy <$ dataConOrigArgTys x)
                      PatSynCon _ -> expr
                        -- Currently:
-                       -- - Real data constructor have a single type argument which, when instantiated to Omega turn all field unrestricted
+                       -- - Real data constructors have as many type arguments as their fields
                        -- - Pattern synonyms always have all their fields unrestricted.
                  wrap = ensureAllFieldsUnrestricted $
                         mkWpEvVarApps theta_vars                                <.>

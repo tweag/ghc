@@ -434,7 +434,7 @@ scaleVarBy id _ = id
 
 setVarMult :: Id -> Mult -> Id
 setVarMult id r | isId id = id { varMult = r }
-setVarMult id _ = id
+                | otherwise = pprPanic "setVarMult" (ppr id <+> ppr r)
 
 {- *********************************************************************
 *                                                                      *

@@ -863,15 +863,6 @@ When we make the wrapper for a data type with fields of different multiplicities
 we only want to make the ones which are linear multiplicity polymorphic. If we
 do not do this then the wrapper will not be well-typed.
 
-The way we ensure this is by scaling the multiplicity of the field by the multiplicity
-variable. This works because..
-
-1 * p = p
-ω * p = ω
-
-This is only temporary as this strategy is already incorrect with multiplicity
-polymorphic fields.
-
 Note [HsImplBangs for newtypes]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Most of the time, we use the dataConSrctoImplBang function to decide what
