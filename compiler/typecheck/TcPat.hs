@@ -54,7 +54,6 @@ import Outputable
 import qualified GHC.LanguageExtensions as LangExt
 import Control.Arrow  ( second )
 import ListSetOps ( getNth )
-import Data.Functor.Compose ( Compose(..) )
 
 {-
 ************************************************************************
@@ -776,7 +775,7 @@ tcDataConPat penv (dL->L con_span con_name) data_con pat_ty_scaled
               -- pat_ty' is type of the actual constructor application
               -- pat_ty' /= pat_ty iff coi /= IdCo
 
-              arg_tys' = getCompose $ substTys tenv (Compose arg_tys)
+              arg_tys' = substScaledTys tenv arg_tys
               pat_mult = scaledMult pat_ty_scaled
               arg_tys_scaled = map (scaleScaled pat_mult) arg_tys'
 
@@ -851,7 +850,7 @@ tcPatSynPat penv (dL->L con_span _) pat_syn pat_ty arg_pats thing_inside
         ; checkExistentials ex_tvs all_arg_tys penv
         ; (tenv, ex_tvs') <- tcInstSuperSkolTyVarsX subst ex_tvs
         ; let ty'         = substTy tenv ty
-              arg_tys'    = getCompose $ substTys tenv (Compose arg_tys)
+              arg_tys'    = substScaledTys tenv arg_tys
               pat_mult    = scaledMult pat_ty
               arg_tys_scaled = map (scaleScaled pat_mult) arg_tys'
               prov_theta' = substTheta tenv prov_theta

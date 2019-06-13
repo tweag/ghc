@@ -433,7 +433,7 @@ isRnKindLevel _                                 = False
 rnLHsType  :: HsDocContext -> LHsType GhcPs -> RnM (LHsType GhcRn, FreeVars)
 rnLHsType ctxt ty = rnLHsTyKi (mkTyKiEnv ctxt TypeLevel RnTypeBody) ty
 
-rnLHsTypes :: Traversable t => HsDocContext -> t (LHsType GhcPs) -> RnM (t (LHsType GhcRn), FreeVars)
+rnLHsTypes :: HsDocContext -> [LHsType GhcPs] -> RnM ([LHsType GhcRn], FreeVars)
 rnLHsTypes doc tys = mapFvRn (rnLHsType doc) tys
 
 rnScaledLHsType :: HsDocContext -> HsScaled GhcPs (LHsType GhcPs)

@@ -70,7 +70,6 @@ import Outputable
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad( unless )
-import Data.Functor.Compose
 
 {-
 ************************************************************************
@@ -153,7 +152,7 @@ deeplySkolemise ty
 
     go subst ty
       | Just (arg_tys, tvs, theta, ty') <- tcDeepSplitSigmaTy_maybe ty
-      = do { let arg_tys' = getCompose $ substTys subst (Compose arg_tys)
+      = do { let arg_tys' = substScaledTys subst arg_tys
            ; ids1           <- newSysLocalIds (fsLit "dk") arg_tys'
            ; (subst', tvs1) <- tcInstSkolTyVarsX subst tvs
            ; ev_vars1       <- newEvVars (substTheta subst' theta)
@@ -265,7 +264,7 @@ deeply_instantiate :: CtOrigin
 deeply_instantiate orig subst ty
   | Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
   = do { (subst', tvs') <- newMetaTyVarsX subst tvs
-       ; let arg_tys' = getCompose $ substTys subst' (Compose arg_tys)
+       ; let arg_tys' = substScaledTys subst' arg_tys
              theta'   = substTheta subst' theta
        ; ids1  <- newSysLocalIds (fsLit "di") arg_tys'
        ; wrap1 <- instCall orig (mkTyVarTys tvs') theta'

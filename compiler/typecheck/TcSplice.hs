@@ -1865,7 +1865,7 @@ reifyTyLit :: TyCoRep.TyLit -> TcM TH.TyLit
 reifyTyLit (NumTyLit n) = return (TH.NumTyLit n)
 reifyTyLit (StrTyLit s) = return (TH.StrTyLit (unpackFS s))
 
-reifyTypes :: (Traversable t) => t Type -> TcM (t TH.Type)
+reifyTypes :: [Type] -> TcM [TH.Type]
 reifyTypes = mapM reifyType
 
 reifyPatSynType

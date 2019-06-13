@@ -74,7 +74,6 @@ import BasicTypes
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
-import Data.Functor.Compose ( Compose(..) )
 import Data.Foldable
 import Data.Function ( on )
 import Data.List
@@ -1182,7 +1181,8 @@ kcConDecl (ConDeclH98 { con_name = name, con_ex_tvs = ex_tvs
     bindExplicitTKBndrs_Tv ex_tvs $
     do { _ <- tcHsMbContext ex_ctxt
        ; traceTc "kcConDecl {" (ppr name $$ ppr args)
-       ; mapM_ (tcHsOpenType . getBangType) (map hsThing (hsConDeclArgTys args))
+       ; mapM_ (tcHsOpenType . getBangType .  hsThing) (hsConDeclArgTys args)
+       ; mapM_ (tcMult . hsMult) (hsConDeclArgTys args)
        ; traceTc "kcConDecl }" (ppr name)
        }
               -- We don't need to check the telescope here, because that's
@@ -1207,6 +1207,7 @@ kcConDecl (ConDeclGADT { con_names = names
         -- Why "_Tv"?  See Note [Kind-checking for GADTs]
     do { _ <- tcHsMbContext cxt
        ; mapM_ (tcHsOpenType . getBangType . hsThing) (hsConDeclArgTys args)
+       ; mapM_ (tcMult . hsMult) (hsConDeclArgTys args)
        ; _ <- tcHsOpenType res_ty
        ; return () }
 kcConDecl (XConDecl _) = panic "kcConDecl"
@@ -2361,7 +2362,7 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
              -- Zonk to Types
        ; (ze, qkvs)      <- zonkTyBndrs kvs
        ; (ze, user_qtvs) <- zonkTyBndrsX ze exp_tvs
-       ; Compose arg_tys <- zonkTcTypesToTypesX ze (Compose arg_tys)
+       ; arg_tys         <- zonkScaledTcTypesToTypesX ze arg_tys
        ; ctxt            <- zonkTcTypesToTypesX ze ctxt
 
        ; fam_envs <- tcGetFamInstEnvs
@@ -2430,7 +2431,7 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
              -- Zonk to Types
        ; (ze, tkvs)     <- zonkTyBndrs tkvs
        ; (ze, user_tvs) <- zonkTyBndrsX ze user_tvs
-       ; Compose arg_tys <- zonkTcTypesToTypesX ze (Compose arg_tys)
+       ; arg_tys <- zonkScaledTcTypesToTypesX ze arg_tys
        ; ctxt    <- zonkTcTypesToTypesX ze ctxt
        ; res_ty  <- zonkTcTypeToTypeX   ze res_ty
 
@@ -2448,7 +2449,7 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_tmpl
              all_user_bndrs = tkv_bndrs ++ user_tv_bndrs
 
              ctxt'      = substTys arg_subst ctxt
-             arg_tys'   = getCompose $ substTys arg_subst (Compose arg_tys)
+             arg_tys'   = substScaledTys arg_subst arg_tys
              res_ty'    = substTy  arg_subst res_ty
 
 

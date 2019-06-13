@@ -128,11 +128,11 @@ module TyCoRep (
         substTyWith, substTyWithCoVars, substTysWith, substTysWithCoVars,
         substCoWith,
         substTy, substTyAddInScope,
-        substTyUnchecked, substTysUnchecked, substThetaUnchecked,
+        substTyUnchecked, substTysUnchecked, substScaledTysUnchecked, substThetaUnchecked,
         substTyWithUnchecked,
         substCoUnchecked, substCoWithUnchecked,
         substTyWithInScope,
-        substTys, substTheta,
+        substTys, substScaledTys, substTheta,
         lookupTyVar,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
         cloneTyVarBndr, cloneTyVarBndrs,
@@ -3308,20 +3308,31 @@ substTyUnchecked subst ty
 -- | Substitute within several 'Type's
 -- The substitution has to satisfy the invariants described in
 -- Note [The substitution invariant].
-substTys :: (HasCallStack, Traversable t) => TCvSubst -> t Type -> t Type
+substTys :: HasCallStack => TCvSubst -> [Type] -> [Type]
 substTys subst tys
   | isEmptyTCvSubst subst = tys
   | otherwise = checkValidSubst subst (toList tys) [] $ fmap (subst_ty subst) tys
+
+substScaledTys :: HasCallStack => TCvSubst -> [Scaled Type] -> [Scaled Type]
+substScaledTys subst scaled_tys
+  | isEmptyTCvSubst subst = scaled_tys
+  | otherwise = zipWith Scaled (substTys subst $ map scaledMult   scaled_tys)
+                               (substTys subst $ map scaledThing  scaled_tys)
 
 -- | Substitute within several 'Type's disabling the sanity checks.
 -- The problems that the sanity checks in substTys catch are described in
 -- Note [The substitution invariant].
 -- The goal of #11371 is to migrate all the calls of substTysUnchecked to
 -- substTys and remove this function. Please don't use in new code.
-substTysUnchecked :: (Functor f) => TCvSubst -> f Type -> f Type
+substTysUnchecked :: TCvSubst -> [Type] -> [Type]
 substTysUnchecked subst tys
                  | isEmptyTCvSubst subst = tys
                  | otherwise             = fmap (subst_ty subst) tys
+
+substScaledTysUnchecked :: TCvSubst -> [Scaled Type] -> [Scaled Type]
+substScaledTysUnchecked subst tys
+                 | isEmptyTCvSubst subst = tys
+                 | otherwise             = fmap (\(Scaled u v) -> Scaled (subst_ty subst u) (subst_ty subst v)) tys
 
 -- | Substitute within a 'ThetaType'
 -- The substitution has to satisfy the invariants described in
@@ -3354,7 +3365,7 @@ subst_ty subst ty
     go (TyConApp tc tys) = let args = map go tys
                            in  args `seqList` TyConApp tc args
     go ty@(FunTy { ft_mult = mult, ft_arg = arg, ft_res = res })
-      = let !mult' = subst_ty subst mult
+      = let !mult' = go mult
             !arg' = go arg
             !res' = go res
         in ty { ft_mult = mult', ft_arg = arg', ft_res = res' }
