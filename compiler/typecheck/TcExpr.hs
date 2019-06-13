@@ -1861,7 +1861,7 @@ tc_infer_id lbl id_name
                  theta' = substTheta subst theta
                  rho'   = substTy subst rho
            ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
-           ; addDataConStupidTheta con (drop (length (dataConOrigArgTys con)) tys')
+           ; addDataConStupidTheta con (drop (length (fst $ dataConMulVars con)) tys')
            -- The first K arguments of `tys'` are multiplicities.
            -- They are followed by the dictionaries which are the stupid
            -- theta. Thus, we ignore the first K arguments as we just want to

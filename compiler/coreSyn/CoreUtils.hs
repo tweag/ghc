@@ -109,7 +109,7 @@ import UniqSet
 ************************************************************************
 -}
 
-exprType :: CoreExpr -> Type
+exprType :: HasCallStack => CoreExpr -> Type
 -- ^ Recover the type of a well-typed Core expression. Fails when
 -- applied to the actual 'CoreSyn.Type' expression as it cannot
 -- really be said to have a type
@@ -130,7 +130,7 @@ exprType e@(App _ _)
 
 exprType other = pprTrace "exprType" (pprCoreExpr other) alphaTy
 
-coreAltType :: CoreAlt -> Type
+coreAltType :: HasCallStack => CoreAlt -> Type
 -- ^ Returns the type of the alternatives right hand side
 coreAltType alt@(_,bs,rhs)
   = case occCheckExpand bs rhs_ty of
@@ -140,7 +140,7 @@ coreAltType alt@(_,bs,rhs)
   where
     rhs_ty = exprType rhs
 
-coreAltsType :: [CoreAlt] -> Type
+coreAltsType :: HasCallStack => [CoreAlt] -> Type
 -- ^ Returns the type of the first alternative, which should be the same as for all alternatives
 coreAltsType (alt:_) = coreAltType alt
 coreAltsType []      = panic "corAltsType"
@@ -222,7 +222,7 @@ Note that there might be existentially quantified coercion variables, too.
 -}
 
 -- Not defined with applyTypeToArg because you can't print from CoreSyn.
-applyTypeToArgs :: CoreExpr -> Type -> [CoreExpr] -> Type
+applyTypeToArgs :: HasCallStack => CoreExpr -> Type -> [CoreExpr] -> Type
 -- ^ A more efficient version of 'applyTypeToArg' when we have several arguments.
 -- The first argument is just for debugging, and gives some context
 applyTypeToArgs e op_ty args
