@@ -206,7 +206,6 @@ import UniqSet
 
 -- libraries
 import qualified Data.Data as Data hiding ( TyCon )
-import Data.Foldable ( toList )
 import Data.List
 import Data.IORef ( IORef )   -- for CoercionHole
 
@@ -2152,7 +2151,7 @@ tyCoFVsVarBndr var fvs
 
 tyCoFVsOfTypes :: [Type] -> FV
 -- See Note [Free variables of types]
-tyCoFVsOfTypes tty = go (toList tty)
+tyCoFVsOfTypes tty = go tty
   where
     go (ty:tys) fv_cand in_scope acc = (tyCoFVsOfType ty `unionFV` go tys) fv_cand in_scope acc
     go []       fv_cand in_scope acc = emptyFV fv_cand in_scope acc
@@ -3263,19 +3262,15 @@ checkValidSubst subst@(TCvSubst in_scope tenv cenv) tys cos a
              text "tenvFVs" <+> ppr (tyCoVarsOfTypesSet tenv) $$
              text "cenv" <+> ppr cenv $$
              text "cenvFVs" <+> ppr (tyCoVarsOfCosSet cenv) $$
-             text "tys" <+> ppr (toList tys) $$
+             text "tys" <+> ppr tys $$
              text "cos" <+> ppr cos )
     ASSERT2( tysCosFVsInScope,
              text "in_scope" <+> ppr in_scope $$
              text "tenv" <+> ppr tenv $$
              text "cenv" <+> ppr cenv $$
-             text "tys" <+> ppr (toList tys) $$
+             text "tys" <+> ppr tys $$
              text "cos" <+> ppr cos $$
              text "needInScope" <+> ppr needInScope )
-    -- @toList@ (twice) above because @t a@ may not be @Outputable@. An
-    -- alternative would require @Outputable (t a)@, in the case of lists of
-    -- types with multiplicities, for instance, it may print a better error
-    -- message.
     a
   where
   substDomain = nonDetKeysUFM tenv ++ nonDetKeysUFM cenv
@@ -3311,13 +3306,13 @@ substTyUnchecked subst ty
 substTys :: HasCallStack => TCvSubst -> [Type] -> [Type]
 substTys subst tys
   | isEmptyTCvSubst subst = tys
-  | otherwise = checkValidSubst subst (toList tys) [] $ fmap (subst_ty subst) tys
+  | otherwise = checkValidSubst subst tys [] $ fmap (subst_ty subst) tys
 
 substScaledTys :: HasCallStack => TCvSubst -> [Scaled Type] -> [Scaled Type]
 substScaledTys subst scaled_tys
   | isEmptyTCvSubst subst = scaled_tys
-  | otherwise = zipWith Scaled (substTys subst $ map scaledMult   scaled_tys)
-                               (substTys subst $ map scaledThing  scaled_tys)
+  | otherwise = zipWith Scaled (substTys subst $ map scaledMult  scaled_tys)
+                               (substTys subst $ map scaledThing scaled_tys)
 
 -- | Substitute within several 'Type's disabling the sanity checks.
 -- The problems that the sanity checks in substTys catch are described in
