@@ -1181,8 +1181,7 @@ kcConDecl (ConDeclH98 { con_name = name, con_ex_tvs = ex_tvs
     bindExplicitTKBndrs_Tv ex_tvs $
     do { _ <- tcHsMbContext ex_ctxt
        ; traceTc "kcConDecl {" (ppr name $$ ppr args)
-       ; mapM_ (tcHsOpenType . getBangType .  hsThing) (hsConDeclArgTys args)
-       ; mapM_ (tcMult . hsMult) (hsConDeclArgTys args)
+       ; mapM_ tcConArg (hsConDeclArgTys args)
        ; traceTc "kcConDecl }" (ppr name)
        }
               -- We don't need to check the telescope here, because that's
@@ -1206,8 +1205,7 @@ kcConDecl (ConDeclGADT { con_names = names
     bindExplicitTKBndrs_Tv explicit_tkv_nms $
         -- Why "_Tv"?  See Note [Kind-checking for GADTs]
     do { _ <- tcHsMbContext cxt
-       ; mapM_ (tcHsOpenType . getBangType . hsThing) (hsConDeclArgTys args)
-       ; mapM_ (tcMult . hsMult) (hsConDeclArgTys args)
+       ; mapM_ tcConArg (hsConDeclArgTys args)
        ; _ <- tcHsOpenType res_ty
        ; return () }
 kcConDecl (XConDecl _) = panic "kcConDecl"
@@ -2525,8 +2523,7 @@ tcConArg (HsScaled w bty)
         ; arg_ty <- tcHsOpenType (getBangType bty)
         ; w' <- tcMult w
              -- Newtypes can't have unboxed types, but we check
-             -- that in checkValidDataCon; this tcConArg stuff
-             -- doesn't happen for GADT-style declarations
+             -- that in checkValidDataCon
         ; traceTc "tcConArg 2" (ppr bty)
         ; return (Scaled w' arg_ty, getBangStrictness bty) }
 
