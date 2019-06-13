@@ -3182,12 +3182,7 @@ checkValidDataCon dflags existential_ok tc con
                    user_tvbs_invariant
                      =    Set.fromList (filterEqSpec eq_spec univs ++ exs)
                        == Set.fromList user_tvs
-             ; WARN( not user_tvbs_invariant
-                       , vcat ([ ppr con
-                               , ppr univs
-                               , ppr exs
-                               , ppr eq_spec
-                               , ppr user_tvs ])) return () }
+             ; if user_tvbs_invariant then return () else pprPanic "user_tvbs" (ppr con <+> ppr univs <+> ppr exs <+> ppr eq_spec <+> ppr user_tvs) }
 
         ; traceTc "Done validity of data con" $
           vcat [ ppr con
