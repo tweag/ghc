@@ -703,7 +703,7 @@ tcDataFamInstDecl mb_clsinfo
               , text "eta_tcbs" <+> ppr eta_tcbs ]
 
        ; (rep_tc, axiom) <- fixM $ \ ~(rec_rep_tc, _) ->
-           do { data_cons <- tcExtendTyVarEnv (map unrestricted qtvs) $
+           do { data_cons <- tcExtendTyVarEnv qtvs $
                              -- For H98 decls, the tyvars scope
                              -- over the data constructors
                              tcConDecls rec_rep_tc ty_binders orig_res_ty hs_cons
