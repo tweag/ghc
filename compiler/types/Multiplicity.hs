@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, DeriveFunctor, DeriveFoldable #-}
+{-# LANGUAGE DeriveDataTypeable, DeriveFunctor #-}
 {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
 
 {-|
@@ -107,7 +107,7 @@ mkMultSup _     _     = Omega
 
 -- | A shorthand for data with an attached 'Mult' element (the multiplicity).
 data Scaled a = Scaled {scaledMult :: Mult, scaledThing :: a}
-  deriving (Functor,Foldable,Data)
+  deriving (Functor,Data)
 
 unrestricted, linear, tymult :: a -> Scaled a
 unrestricted = Scaled Omega
