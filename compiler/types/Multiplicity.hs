@@ -100,6 +100,28 @@ mkMultSup Omega Omega = Omega
 mkMultSup _     _     = Omega
 -- Note: If you are changing this logic, check 'supUE' in UsageEnv as well.
 
+--
+-- * Multiplicity ordering
+--
+
+data IsSubmult = Submult     -- Definitely a submult
+               | NotSubmult  -- Definitely not a submult
+               | Unknown     -- Could be a submult, need to ask the typechecker
+               deriving (Show, Eq)
+
+instance Outputable IsSubmult where
+  ppr = text . show
+
+-- | @submult w1 w2@ check whether a value of multiplicity @w1@ is allowed where a
+-- value of multiplicity @w2@ is expected. This is a partial order.
+
+submult :: Mult -> Mult -> IsSubmult
+submult _     Omega = Submult
+submult Omega One   = NotSubmult
+submult One   One   = Submult
+-- The 1 <= p rule
+submult One   _     = Submult
+submult _     _     = Unknown
 
 --
 -- * Utilities
@@ -132,26 +154,3 @@ scaledSet x b = fmap (\_->b) x
 scaleScaled :: Mult -> Scaled a -> Scaled a
 scaleScaled w x =
   x { scaledMult = w `mkMultMul` scaledMult x }
-
---
--- * Multiplicity ordering
---
-
-data IsSubmult = Submult     -- Definitely a submult
-               | NotSubmult  -- Definitely not a submult
-               | Unknown     -- Could be a submult, need to ask the typechecker
-               deriving (Show, Eq, Ord)
-
-instance Outputable IsSubmult where
-  ppr = text . show
-
--- | @submult w1 w2@ check whether a value of multiplicity @w1@ is allowed where a
--- value of multiplicity @w2@ is expected. This is a partial order.
-
-submult :: Mult -> Mult -> IsSubmult
-submult _     Omega = Submult
-submult Omega One   = NotSubmult
-submult One   One   = Submult
--- The 1 <= p rule
-submult One   _     = Submult
-submult _     _     = Unknown
