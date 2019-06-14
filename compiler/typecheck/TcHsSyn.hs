@@ -1903,7 +1903,7 @@ zonkTcTypesToTypes :: [TcType] -> TcM [Type]
 zonkTcTypesToTypes tys = initZonkEnv $ \ ze -> zonkTcTypesToTypesX ze tys
 
 zonkScaledTcTypeToTypeX :: ZonkEnv -> Scaled TcType -> TcM (Scaled TcType)
-zonkScaledTcTypeToTypeX env (Scaled r ty) = Scaled <$> zonkTcTypeToTypeX env r
+zonkScaledTcTypeToTypeX env (Scaled m ty) = Scaled <$> zonkTcTypeToTypeX env m
                                                    <*> zonkTcTypeToTypeX env ty
 
 zonkTcTypesToTypesX :: ZonkEnv -> [TcType] -> TcM [Type]
@@ -1911,8 +1911,7 @@ zonkTcTypesToTypesX env tys = mapM (zonkTcTypeToTypeX env) tys
 
 zonkScaledTcTypesToTypesX :: ZonkEnv -> [Scaled TcType] -> TcM [Scaled Type]
 zonkScaledTcTypesToTypesX env scaled_tys =
-   zipWith Scaled <$> zonkTcTypesToTypesX env (map scaledMult scaled_tys)
-                  <*> zonkTcTypesToTypesX env (map scaledThing scaled_tys)
+   mapM (zonkScaledTcTypeToTypeX env) scaled_tys
 
 zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
 zonkCoToCo = mapCoercion zonk_tycomapper
