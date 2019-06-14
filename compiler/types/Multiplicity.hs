@@ -7,9 +7,8 @@ Multiplicities annotate arrow types to indicate the linearity of the
 arrow (in the sense of linear types).
 
 Mult is a type synonym for Type, used only when its kind is Multiplicity.
-To simplify dealing with multiplicities, smart constructors such as
+To simplify dealing with multiplicities, functions such as
 mkMultMul perform simplifications such as Omega * x = Omega on the fly.
-Pattern synonyms such as MultMul can be used to analyze particular Mults.
 -}
 module Multiplicity
   ( Mult
@@ -17,7 +16,7 @@ module Multiplicity
   , pattern Omega
   , mkMultAdd
   , mkMultMul
-  , sup
+  , mkMultSup
   , Scaled(..)
   , unrestricted
   , linear
@@ -42,7 +41,7 @@ Note [Adding new multiplicities]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 To add a new multiplicity, you need to:
 * Add the new type with Multiplicity kind
-* Update cases in mkMultAdd, mkMultMul, sup, submult, tcSubMult
+* Update cases in mkMultAdd, mkMultMul, mkMultSup, submult, tcSubMult
 * Check supUE function that computes sup of a multiplicity
   and Zero
 -}
@@ -53,9 +52,10 @@ To add a new multiplicity, you need to:
 
 type Mult = Type
 
--- We may enforce more invariants in Mult. For instance, we can
--- enforce that it is in the form of a sum of products, and even that the
--- sumands and factors are ordered somehow, to have more equalities.
+-- In the future, we may enforce more invariants in Mult.
+-- For instance, we can enforce that it is in the form of a sum of
+-- products, and even that the sumands and factors are ordered
+-- somehow, to have more equalities.
 
 pattern One :: Mult
 pattern One <- (eqType oneDataConTy -> True)
@@ -65,6 +65,25 @@ pattern Omega :: Mult
 pattern Omega <- (eqType omegaDataConTy -> True)
   where Omega = omegaDataConTy
 
+{-
+The functions mkMultAdd, mkMultMul, mkMultSup perform operations
+on multiplicities. They can return overapproximations: their result
+is merely guaranteed to be a submultiplicity of the actual value.
+
+They should be used only when an upper bound is acceptable.
+In most cases, they are used in usage environments (UsageEnv);
+in usage environments, replacing a usage with a larger one can only
+cause more programs to fail to typecheck.
+
+In future work, instead of approximating we might add type families
+and allow users to write types involving operations on multiplicities.
+-}
+
+-- With only two multiplicities One and Omega, we can always replace
+-- p + q by Omega.
+mkMultAdd :: Mult -> Mult -> Mult
+mkMultAdd _ _ = Omega
+
 -- For now, approximate p * q by Omega unless p or q are known to be One.
 mkMultMul :: Mult -> Mult -> Mult
 mkMultMul One p = p
@@ -73,20 +92,13 @@ mkMultMul Omega _ = Omega
 mkMultMul _ Omega = Omega
 mkMultMul _ _ = Omega
 
--- For now, approximate p + q by Omega.
-mkMultAdd :: Mult -> Mult -> Mult
-mkMultAdd _ _     = Omega
-
--- | @sup w1 w2@ returns the smallest multiplicity larger than or equal to both @w1@
--- and @w2@.
-sup :: Mult -> Mult -> Mult
-sup One   One   = One
-sup Omega Omega = Omega
-sup _     _     = Omega
+-- | @mkMultSup w1 w2@ returns the smallest multiplicity larger than
+-- or equal to both @w1@ and @w2@.
+mkMultSup :: Mult -> Mult -> Mult
+mkMultSup One   One   = One
+mkMultSup Omega Omega = Omega
+mkMultSup _     _     = Omega
 -- Note: If you are changing this logic, check 'supUE' in UsageEnv as well.
---
--- I assume that `sup` is incomplete in presence of multiplicity
--- polymorphism. Maybe we need a syntactic join operation on multiplicities.
 
 
 --
