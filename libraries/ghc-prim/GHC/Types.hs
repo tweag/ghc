@@ -60,7 +60,7 @@ infixr 5 :
 infixr -1 -> -- trac #10145
 
 -- | The built-in function type.
-data (->) a b
+type (->) = FUN 'Omega
 
 {- *********************************************************************
 *                                                                      *
