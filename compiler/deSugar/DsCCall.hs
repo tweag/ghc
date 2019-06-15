@@ -246,6 +246,7 @@ boxResult result_ty
               wrap the_call =
                               mkApps (Var toIOCon)
                                      [ Type omegaDataConTy
+                                     , Type omegaDataConTy
                                      , Type io_res_ty,
                                        Lam state_id $
                                        mkWildCase (App the_call (Var state_id))
@@ -354,7 +355,7 @@ resultWrapper result_ty
        ; (maybe_ty, wrapper) <- resultWrapper unwrapped_res_ty
        ; let narrow_wrapper = maybeNarrow dflags tycon
              marshal_con e  = Var (dataConWrapId data_con)
-                              `mkTyApps` (omegaDataConTy : tycon_arg_tys)
+                              `mkTyApps` ((omegaDataConTy <$ (fst $ dataConMulVars data_con)) ++ tycon_arg_tys)
                               `App` wrapper (narrow_wrapper e)
        ; return (maybe_ty, marshal_con) }
 
