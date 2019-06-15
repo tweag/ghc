@@ -395,7 +395,7 @@ nlHsVar n = noLoc (HsVar noExt (noLoc n))
 
 -- NB: Only for LHsExpr **Id**
 nlHsDataCon :: DataCon -> LHsExpr GhcTc
-nlHsDataCon con = mkLHsWrap (mkWpTyApps (omegaDataConTy <$ dataConOrigArgTys con))
+nlHsDataCon con = mkLHsWrap (mkWpTyApps (omegaDataConTy <$ (fst $ dataConMulVars con)))
                     (noLoc (HsConLikeOut noExt (RealDataCon con)))
 
 nlHsLit :: HsLit (GhcPass p) -> LHsExpr (GhcPass p)
