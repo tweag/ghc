@@ -52,11 +52,6 @@ To add a new multiplicity, you need to:
 
 type Mult = Type
 
--- In the future, we may enforce more invariants in Mult.
--- For instance, we can enforce that it is in the form of a sum of
--- products, and even that the sumands and factors are ordered
--- somehow, to have more equalities.
-
 pattern One :: Mult
 pattern One <- (eqType oneDataConTy -> True)
   where One = oneDataConTy
@@ -77,6 +72,9 @@ cause more programs to fail to typecheck.
 
 In future work, instead of approximating we might add type families
 and allow users to write types involving operations on multiplicities.
+In this case, we could enforce more invariants in Mult, for example,
+enforce that that it is in the form of a sum of  products, and even
+that the sumands and factors are ordered somehow, to have more equalities.
 -}
 
 -- With only two multiplicities One and Omega, we can always replace
