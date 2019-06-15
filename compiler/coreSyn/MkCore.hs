@@ -403,7 +403,7 @@ mkBigCoreTupTy = mkChunkified mkBoxedTupleTy
 
 -- | The unit expression
 unitExpr :: CoreExpr
-unitExpr = Var unitDataConId
+unitExpr = Var unitDataConId `App` Type omegaDataConTy `App` Type omegaDataConTy
 
 {-
 ************************************************************************
