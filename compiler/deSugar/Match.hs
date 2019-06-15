@@ -241,7 +241,7 @@ matchEmpty :: MatchId -> Type -> DsM [MatchResult]
 matchEmpty var res_ty
   = return [MatchResult CanFail mk_seq]
   where
-    mk_seq fail = return $ mkWildCase (Var var) (Scaled (idMult var) (idType var)) res_ty
+    mk_seq fail = return $ mkWildCase (Var var) (idScaledType var) res_ty
                                       [(DEFAULT, [], fail)]
 
 matchVariables :: [MatchId] -> Type -> [EquationInfo] -> DsM MatchResult

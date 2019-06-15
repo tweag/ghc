@@ -375,8 +375,7 @@ zonkIdOccs env ids = map (zonkIdOcc env) ids
 -- to its final form.  The TyVarEnv give
 zonkIdBndr :: ZonkEnv -> TcId -> TcM Id
 zonkIdBndr env v
-  = do ty' <- zonkTcTypeToTypeX env (idType v)
-       w' <- zonkTcTypeToTypeX env (idMult v)
+  = do Scaled w' ty' <- zonkScaledTcTypeToTypeX env (idScaledType v)
        ensureNotLevPoly ty'
          (text "In the type of binder" <+> quotes (ppr v))
 

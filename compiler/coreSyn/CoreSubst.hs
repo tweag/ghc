@@ -475,7 +475,7 @@ substIdBndr _doc rec_subst subst@(Subst in_scope env tvs cvs) old_id
   where
     id1 = uniqAway in_scope old_id      -- id1 is cloned if necessary
     id2 | no_type_change = id1
-        | otherwise      =  updateIdTypeAndMult (substTy subst) id1
+        | otherwise      = updateIdTypeAndMult (substTy subst) id1
 
     old_ty = idType old_id
     old_w = idMult old_id
