@@ -485,7 +485,7 @@ tcExtendNameTyVarEnv binds thing_inside
   -- this should be used only for explicitly mentioned scoped variables.
   -- thus, no coercion variables
   = do { tc_extend_local_env NotTopLevel
-                    [(name, unrestricted $ ATyVar name wtv) | (name, wtv) <- binds] $
+                    [(name, ATyVar name wtv) | (name, wtv) <- binds] $
          tcExtendBinderStack tv_binds $
          thing_inside }
   where
@@ -502,9 +502,10 @@ tcExtendRecIds :: [(Name, Scaled TcId)] -> TcM a -> TcM a
 -- Does not extend the TcBinderStack
 tcExtendRecIds pairs thing_inside
   = tc_extend_local_env NotTopLevel
-          [ (name, (\let_id -> ATcId { tct_id   = let_id
-                         , tct_info = NonClosedLet emptyNameSet False }) <$> wlet_id)
-          | (name, wlet_id) <- pairs ] $
+          [ (name, ATcId { tct_id   = wlet_id
+                         , tct_mult = wlet_mult
+                         , tct_info = NonClosedLet emptyNameSet False })
+          | (name, Scaled wlet_mult wlet_id) <- pairs ] $
     thing_inside
 
 tcExtendSigIds :: TopLevelFlag -> [Scaled TcId] -> TcM a -> TcM a
@@ -512,10 +513,11 @@ tcExtendSigIds :: TopLevelFlag -> [Scaled TcId] -> TcM a -> TcM a
 -- Does not extend the TcBinderStack
 tcExtendSigIds top_lvl sig_ids thing_inside
   = tc_extend_local_env top_lvl
-          [ (idName (scaledThing wid), (\id -> ATcId { tct_id   = id
-                                                       , tct_info = info }) <$> wid)
-          | wid <- sig_ids
-          , let closed = isTypeClosedLetBndr (scaledThing wid)
+          [ (idName wid, ATcId { tct_id   = wid
+                               , tct_mult = wid_mult
+                               , tct_info = info })
+          | Scaled wid_mult wid <- sig_ids
+          , let closed = isTypeClosedLetBndr wid
                 info   = NonClosedLet emptyNameSet closed ]
      thing_inside
 
@@ -528,9 +530,10 @@ tcExtendLetEnv top_lvl sig_fn (IsGroupClosed fvs fv_type_closed)
                ids thing_inside
   = tcExtendBinderStack [TcIdBndr id top_lvl | Scaled _ id <- ids] $
     tc_extend_local_env top_lvl
-          [ (idName (scaledThing wid), (\id -> ATcId { tct_id   = id
-                                                       , tct_info = mk_tct_info id }) <$> wid)
-          | wid <- ids ]
+          [ (idName wid, ATcId { tct_id   = wid
+                               , tct_mult = wid_mult
+                               , tct_info = mk_tct_info wid })
+          | Scaled wid_mult wid <- ids ]
     thing_inside
   where
     mk_tct_info id
@@ -558,12 +561,13 @@ tcExtendIdEnv2 names_w_ids thing_inside
   = tcExtendBinderStack [ TcIdBndr mono_id NotTopLevel
                     | (_,Scaled _ mono_id) <- names_w_ids ] $
     do  { tc_extend_local_env NotTopLevel
-                              [ (name, Scaled w (ATcId { tct_id = id
-                                             , tct_info = NotLetBound }))
-                              | (name,Scaled w id) <- names_w_ids] $
+                              [ (name, ATcId { tct_id = id
+                                             , tct_mult = w
+                                             , tct_info = NotLetBound })
+                              | (name, Scaled w id) <- names_w_ids] $
           thing_inside }
 
-tc_extend_local_env :: TopLevelFlag -> [(Name, Scaled TcTyThing)]
+tc_extend_local_env :: TopLevelFlag -> [(Name, TcTyThing)]
                     -> TcM a -> TcM a
 tc_extend_local_env top_lvl extra_env thing_inside
 -- Precondition: the argument list extra_env has TcTyThings
@@ -580,11 +584,10 @@ tc_extend_local_env top_lvl extra_env thing_inside
 -- that are bound together with extra_env and should not be regarded
 -- as free in the types of extra_env.
   = do  { traceTc "tc_extend_local_env" (ppr extra_env)
-        ; let extra_env_unscaled = map (\(n, s) -> (n, scaledThing s)) extra_env
         ; env0 <- getLclEnv
-        ; env1 <- tcExtendLocalTypeEnv env0 extra_env_unscaled
+        ; env1 <- tcExtendLocalTypeEnv env0 extra_env
         ; stage <- getStage
-        ; let env2 = extend_local_env (top_lvl, thLevel stage) extra_env_unscaled env1
+        ; let env2 = extend_local_env (top_lvl, thLevel stage) extra_env env1
         ; (local_usage,result) <- setLclEnv env2 (tcCollectingUsage thing_inside)
         ; check_then_add_usage local_usage
         ; return result }
@@ -606,13 +609,13 @@ tc_extend_local_env top_lvl extra_env thing_inside
     -- Checks that the usage of the newly introduced binders is compatible with
     -- their multiplicity. If so, combines the usage of non-new binders to |uenv|
     check_then_add_usage u0
-      = do { uok <- foldM (\u (x,w_) -> check_binder (scaledMult w_) x u) u0 extra_env
+      = do { uok <- foldM (\u (x,w_) -> check_binder w_ x u) u0 extra_env
            ; env <- getLclEnv
            ; let usage = tcl_usage env
            ; updTcRef usage (addUE uok) }
 
-    check_binder :: Mult -> Name -> UsageEnv -> TcM UsageEnv
-    check_binder w x uenv = do
+    check_binder :: TcTyThing -> Name -> UsageEnv -> TcM UsageEnv
+    check_binder (ATcId {tct_mult = w}) x uenv = do
       let actual_w = usageToMult (lookupUE uenv x)
       traceTc "check_binder" (ppr w $$ ppr actual_w)
       case submult actual_w w of
@@ -624,6 +627,7 @@ tc_extend_local_env top_lvl extra_env thing_inside
                      text "with actual multiplicity" <+> quotes (ppr actual_w)
           -- In case of error, recover by pretending that the multiplicity usage was correct
       return $ deleteUE uenv x
+    check_binder m x uenv = return $ deleteUE uenv x
 
 
 

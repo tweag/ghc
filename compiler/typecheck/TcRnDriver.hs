@@ -137,6 +137,7 @@ import qualified GHC.LanguageExtensions as LangExt
 import Data.Data ( Data )
 import HsDumpAst
 import qualified Data.Set as S
+import Multiplicity
 
 import Control.DeepSeq
 import Control.Monad
@@ -1904,6 +1905,7 @@ runTcInteractive hsc_env thing_inside
       | AnId id <- thing
       , not (isTypeClosedLetBndr id)
       = Left (idName id, ATcId { tct_id = id
+                               , tct_mult = Omega
                                , tct_info = NotLetBound })
       | otherwise
       = Right thing
