@@ -57,7 +57,7 @@ infixr 5 :
 *                                                                      *
 ********************************************************************* -}
 
-infixr -1 -> -- trac #10145
+infixr -1 -> -- issue #10145
 
 -- | The built-in function type.
 type (->) = FUN 'Omega
