@@ -3327,7 +3327,7 @@ substTysUnchecked subst tys
 substScaledTysUnchecked :: TCvSubst -> [Scaled Type] -> [Scaled Type]
 substScaledTysUnchecked subst tys
                  | isEmptyTCvSubst subst = tys
-                 | otherwise             = fmap (\(Scaled u v) -> Scaled (subst_ty subst u) (subst_ty subst v)) tys
+                 | otherwise             = fmap (mapScaledType (subst_ty subst)) tys
 
 -- | Substitute within a 'ThetaType'
 -- The substitution has to satisfy the invariants described in

@@ -1355,7 +1355,7 @@ dataConInstArgTys dc@(MkData {dcUnivTyVars = univ_tvs,
  = ASSERT2( univ_tvs `equalLength` inst_tys
           , text "dataConInstArgTys" <+> ppr dc $$ ppr univ_tvs $$ ppr inst_tys)
    ASSERT2( null ex_tvs, ppr dc )
-   map (fmap (substTyWith univ_tvs inst_tys)) (dataConRepArgTys dc)
+   map (mapScaledType (substTyWith univ_tvs inst_tys)) (dataConRepArgTys dc)
 
 -- | Returns just the instantiated /value/ argument types of a 'DataCon',
 -- (excluding dictionary args)
@@ -1371,7 +1371,7 @@ dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
                                   dcExTyCoVars = ex_tvs}) inst_tys
   = ASSERT2( tyvars `equalLength` inst_tys
            , text "dataConInstOrigArgTys" <+> ppr dc $$ ppr tyvars $$ ppr inst_tys )
-    map (fmap $ substTy subst) arg_tys
+    map (mapScaledType (substTy subst)) arg_tys
   where
     tyvars = univ_tvs ++ ex_tvs
     subst  = zipTCvSubst tyvars inst_tys

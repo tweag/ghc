@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, DeriveFunctor #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
 
 {-|
@@ -26,7 +26,8 @@ module Multiplicity
   , scaledSet
   , scaleScaled
   , IsSubmult(..)
-  , submult) where
+  , submult
+  , mapScaledType) where
 
 import GhcPrelude
 
@@ -127,7 +128,7 @@ submult _     _     = Unknown
 
 -- | A shorthand for data with an attached 'Mult' element (the multiplicity).
 data Scaled a = Scaled {scaledMult :: Mult, scaledThing :: a}
-  deriving (Functor,Data)
+  deriving (Data)
 
 unrestricted, linear, tymult :: a -> Scaled a
 unrestricted = Scaled Omega
@@ -147,8 +148,11 @@ instance (Outputable a) => Outputable (Scaled a) where
      -- Do not print the multiplicity here because it tends to be too verbose
 
 scaledSet :: Scaled a -> b -> Scaled b
-scaledSet x b = fmap (\_->b) x
+scaledSet (Scaled m _) b = Scaled m b
 
 scaleScaled :: Mult -> Scaled a -> Scaled a
 scaleScaled w x =
   x { scaledMult = w `mkMultMul` scaledMult x }
+
+mapScaledType :: (Type -> Type) -> Scaled Type -> Scaled Type
+mapScaledType f (Scaled m t) = Scaled (f m) (f t)

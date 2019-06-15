@@ -414,7 +414,7 @@ mkWWargs subst fun_ty demands
   | (dmd:demands') <- demands
   , Just (arg_ty, fun_ty') <- splitFunTy_maybe fun_ty
   = do  { uniq <- getUniqueM
-        ; let arg_ty' = fmap (substTy subst) arg_ty
+        ; let arg_ty' = mapScaledType (substTy subst) arg_ty
               id = mk_wrap_arg uniq arg_ty' dmd
         ; (wrap_args, wrap_fn_args, work_fn_args, res_ty)
               <- mkWWargs subst fun_ty' demands'
