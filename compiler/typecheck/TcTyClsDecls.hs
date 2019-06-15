@@ -645,7 +645,7 @@ generaliseTcTyCon tc
 
        -- Step 7: Make the result TcTyCon
              tycon = mkTcTyCon tc_name final_tcbs tc_res_kind
-                            [(tyVarName v, v) | v <- final_spec_req_tvs]
+                            (mkTyVarNamePairs final_spec_req_tvs)
                             True {- it's generalised now -}
                             (tyConFlavour tc)
 

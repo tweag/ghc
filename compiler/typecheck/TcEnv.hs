@@ -478,7 +478,7 @@ tcExtendKindEnv extra_env thing_inside
 -- Scoped type and kind variables
 tcExtendTyVarEnv :: [TyVar] -> TcM r -> TcM r
 tcExtendTyVarEnv tvs thing_inside
-  = tcExtendNameTyVarEnv [(tyVarName tv, tv) | tv <- tvs] thing_inside
+  = tcExtendNameTyVarEnv (mkTyVarNamePairs tvs) thing_inside
 
 tcExtendNameTyVarEnv :: [(Name,TcTyVar)] -> TcM r -> TcM r
 tcExtendNameTyVarEnv binds thing_inside

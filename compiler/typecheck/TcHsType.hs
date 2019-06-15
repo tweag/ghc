@@ -1851,7 +1851,7 @@ kcLHsQTyVars_Cusk name flav
                               ++ mkNamedTyConBinders Specified specified
                               ++ map (mkRequiredTyConBinder mentioned_kv_set) tc_tvs
 
-             all_tv_prs = [(tyVarName var, var) | var <- (scoped_kvs ++ tc_tvs)]
+             all_tv_prs =  mkTyVarNamePairs (scoped_kvs ++ tc_tvs)
              tycon = mkTcTyCon name final_tc_binders res_kind all_tv_prs
                                True {- it is generalised -} flav
          -- If the ordering from
