@@ -677,7 +677,7 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                         -- Reconstruct with the WrapId so that unpacking happens
                  ensureAllFieldsUnrestricted expr =
                    case con of
-                     RealDataCon x -> expr <.> mkWpTyApps (omegaDataConTy <$ dataConOrigArgTys x)
+                     RealDataCon x -> expr <.> mkWpTyApps (omegaDataConTy <$ (fst $ dataConMulVars x))
                      PatSynCon _ -> expr
                        -- Currently:
                        -- - Real data constructors have as many type arguments as their fields
