@@ -791,7 +791,7 @@ lintCoreExpr (Lam var expr)
 lintCoreExpr e@(Case scrut var alt_ty alts) =
        -- Check the scrutinee
   do { let scrut_diverges = exprIsBottom scrut
-           scrut_mult = varMult' var
+           scrut_mult = varMult var
      ; (scrut_ty, scrut_ue) <- markAllJoinsBad $ lintCoreExpr scrut
      ; (alt_ty, _) <- lintInTy alt_ty
      ; (var_ty, _) <- lintInTy (idType var)
@@ -1075,7 +1075,7 @@ lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
 checkCaseLinearity :: UsageEnv -> Var -> Mult -> Var -> LintM UsageEnv
 checkCaseLinearity ue scrut var_w bndr = do
   ensureSubMult lhs' rhs err_msg
-  lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varMult' bndr)
+  lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varMult bndr)
   return $ deleteUE ue bndr
   where
     lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
@@ -1089,7 +1089,7 @@ checkCaseLinearity ue scrut var_w bndr = do
     lhs_formula = ppr bndr_usage <+> text "+"
                                  <+> parens (ppr scrut_usage <+> text "*" <+> ppr var_w)
     rhs_formula = ppr scrut_w <+> text "*" <+> ppr var_w
-    scrut_w = varMult' scrut
+    scrut_w = varMult scrut
     scrut_usage = lookupUE ue scrut
     bndr_usage = lookupUE ue bndr
 

@@ -42,8 +42,8 @@ module Var (
         OutVar, OutCoVar, OutId, OutTyVar,
 
         -- ** Taking 'Var's apart
-        varName, varUnique, varType, varMultDef,
-        varMult, varMultMaybe, varMult',
+        varName, varUnique, varType,
+        varMult, varMultMaybe, varMultDef,
 
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType,
@@ -408,13 +408,6 @@ updateVarTypeAndMultM f id = do { ty' <- f (varType id)
 varMultMaybe :: Id -> Maybe Mult
 varMultMaybe (Id { varMult = mult }) = Just mult
 varMultMaybe _ = Nothing
-
--- Assumes that `id` is a term variable (`Id`)
-varMult' :: Id -> Mult
-varMult' v =
-  case varMultMaybe v of
-    Just w -> w
-    Nothing -> pprPanic "varMult'" (text "Attempted to retrieve the multiplicity of a non-Id variable" <+> ppr v)
 
 varMultDef :: Id -> Mult
 varMultDef = fromMaybe Omega . varMultMaybe

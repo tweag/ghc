@@ -376,7 +376,7 @@ zonkIdOccs env ids = map (zonkIdOcc env) ids
 zonkIdBndr :: ZonkEnv -> TcId -> TcM Id
 zonkIdBndr env v
   = do ty' <- zonkTcTypeToTypeX env (idType v)
-       w' <- zonkTcTypeToTypeX env (varMult' v)
+       w' <- zonkTcTypeToTypeX env (idMult v)
        ensureNotLevPoly ty'
          (text "In the type of binder" <+> quotes (ppr v))
 

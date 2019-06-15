@@ -95,7 +95,7 @@ matchConFamily :: [Id]
                -> DsM MatchResult
 -- Each group of eqns is for a single constructor
 matchConFamily (var:vars) ty groups
-  = do let mult = idMult' var
+  = do let mult = idMult var
            -- Each variable in the argument list correspond to one column in the
            -- pattern matching equations. Its multiplicity is the context
            -- multiplicity of the pattern. We extract that multiplicity, so that
@@ -115,7 +115,7 @@ matchPatSyn :: [Id]
             -> DsM MatchResult
 matchPatSyn (var:vars) ty eqns
   = do
-       let mult = idMult' var
+       let mult = idMult var
        alt <- fmap toSynAlt $ matchOneConLike vars ty mult eqns
        return (mkCoSynCaseMatchResult var ty alt)
   where

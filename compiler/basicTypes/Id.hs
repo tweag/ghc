@@ -44,7 +44,7 @@ module Id (
         mkWorkerId,
 
         -- ** Taking an Id apart
-        idName, idType, idMult, idMult', idUnique, idInfo, idDetails,
+        idName, idType, idMult, idUnique, idInfo, idDetails,
         recordSelectorTyCon,
 
         -- ** Modifying an Id
@@ -194,9 +194,6 @@ idType    = Var.varType
 
 idMult :: Id -> Mult
 idMult = Var.varMult
-
-idMult' :: Id -> Mult
-idMult' = Var.varMult'
 
 scaleIdBy :: Id -> Mult -> Id
 scaleIdBy = Var.scaleVarBy

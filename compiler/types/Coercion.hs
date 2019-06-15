@@ -1532,8 +1532,8 @@ mkPiCo r v co | isTyVar v = mkHomoForAllCos [v] co
                   -- want it to be r. It is only called in 'mkPiCos', which is
                   -- only used in SimplUtils, where we are sure for
                   -- now (Aug 2018) v won't occur in co.
-                            mkFunCo r (multToCo (varMult' v)) (mkReflCo r (varType v)) co
-              | otherwise = mkFunCo r (multToCo (varMult' v)) (mkReflCo r (varType v)) co
+                            mkFunCo r (multToCo (varMult v)) (mkReflCo r (varType v)) co
+              | otherwise = mkFunCo r (multToCo (varMult v)) (mkReflCo r (varType v)) co
 
 -- mkCoCast (c :: s1 ~?r t1) (g :: (s1 ~?r t1) ~#R (s2 ~?r t2)) :: s2 ~?r t2
 -- The first coercion might be lifted or unlifted; thus the ~? above

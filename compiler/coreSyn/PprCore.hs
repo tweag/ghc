@@ -410,7 +410,7 @@ pprTypedLamBinder bind_site debug_on var
 
       | otherwise    -> parens (hang (pprIdBndr var)
                                    2 (vcat [ dcolon
-                                                -- <> brackets (ppr (idMult' var))
+                                                -- <> brackets (ppr (idMult var))
                                                 <+> pprType (idType var)
                                            , pp_unf]))
   where
