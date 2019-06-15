@@ -627,7 +627,7 @@ tc_extend_local_env top_lvl extra_env thing_inside
                      text "with actual multiplicity" <+> quotes (ppr actual_w)
           -- In case of error, recover by pretending that the multiplicity usage was correct
       return $ deleteUE uenv x
-    check_binder m x uenv = return $ deleteUE uenv x
+    check_binder _ x uenv = return $ deleteUE uenv x
 
 
 
