@@ -990,7 +990,7 @@ exactTyCoVarsOfType ty
     go (TyConApp _ tys)     = exactTyCoVarsOfTypes tys
     go (LitTy {})           = emptyVarSet
     go (AppTy fun arg)      = go fun `unionVarSet` go arg
-    go (FunTy _ w arg res)    = go w `unionVarSet` go arg `unionVarSet` go res
+    go (FunTy _ w arg res)  = go w `unionVarSet` go arg `unionVarSet` go res
     go (ForAllTy bndr ty)   = delBinderVar (go ty) bndr `unionVarSet` go (binderType bndr)
     go (CastTy ty co)       = go ty `unionVarSet` goCo co
     go (CoercionTy co)      = goCo co
@@ -1245,9 +1245,9 @@ isRuntimeUnkSkol x
   | RuntimeUnk <- tcTyVarDetails x = True
   | otherwise                      = False
 
-mkTyVarNamePairs :: [Scaled TyVar] -> [(Name, Scaled TyVar)]
+mkTyVarNamePairs :: [TyVar] -> [(Name, TyVar)]
 -- Just pair each TyVar with its own name
-mkTyVarNamePairs tvs = [(tyVarName (scaledThing tv), tv) | tv <- tvs]
+mkTyVarNamePairs tvs = [(tyVarName tv, tv) | tv <- tvs]
 
 
 findDupTyVarTvs :: [(Name,TcTyVar)] -> [(Name,Name)]

@@ -31,10 +31,9 @@ module TcEnv(
         tcExtendTyVarEnv, tcExtendNameTyVarEnv,
         tcExtendLetEnv, tcExtendSigIds, tcExtendRecIds,
         tcExtendIdEnv, tcExtendIdEnv1, tcExtendIdEnv2,
-        tcExtendLocalTypeEnv,
-        isTypeClosedLetBndr, tcEmitBindingUsage,
-        tcCollectingUsage, tcScalingUsage,
-        tcExtendBinderStack,
+        tcExtendBinderStack, tcExtendLocalTypeEnv,
+        isTypeClosedLetBndr,
+        tcEmitBindingUsage, tcCollectingUsage, tcScalingUsage,
 
         tcLookup, tcLookupLocated, tcLookupLocalIds,
         tcLookupId, tcLookupIdMaybe, tcLookupTyVar,
@@ -479,19 +478,19 @@ tcExtendKindEnv extra_env thing_inside
 -- Scoped type and kind variables
 tcExtendTyVarEnv :: [TyVar] -> TcM r -> TcM r
 tcExtendTyVarEnv tvs thing_inside
-  = tcExtendNameTyVarEnv (mkTyVarNamePairs (map unrestricted tvs)) thing_inside
+  = tcExtendNameTyVarEnv (mkTyVarNamePairs tvs) thing_inside
 
-tcExtendNameTyVarEnv :: [(Name,Scaled TcTyVar)] -> TcM r -> TcM r
+tcExtendNameTyVarEnv :: [(Name,TcTyVar)] -> TcM r -> TcM r
 tcExtendNameTyVarEnv binds thing_inside
   -- this should be used only for explicitly mentioned scoped variables.
   -- thus, no coercion variables
   = do { tc_extend_local_env NotTopLevel
-                    [(name, ATyVar name <$> wtv) | (name, wtv) <- binds] $
+                    [(name, unrestricted $ ATyVar name wtv) | (name, wtv) <- binds] $
          tcExtendBinderStack tv_binds $
          thing_inside }
   where
     tv_binds :: [TcBinder]
-    tv_binds = [TcTvBndr name tv | (name, Scaled _ tv) <- binds]
+    tv_binds = [TcTvBndr name tv | (name,tv) <- binds]
 
 isTypeClosedLetBndr :: Id -> Bool
 -- See Note [Bindings with closed types] in TcRnTypes

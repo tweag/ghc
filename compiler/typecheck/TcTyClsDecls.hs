@@ -645,7 +645,7 @@ generaliseTcTyCon tc
 
        -- Step 7: Make the result TcTyCon
              tycon = mkTcTyCon tc_name final_tcbs tc_res_kind
-                            [(tyVarName v, v) | v <- final_spec_req_tvs]
+                            (mkTyVarNamePairs final_spec_req_tvs)
                             True {- it's generalised now -}
                             (tyConFlavour tc)
 
@@ -1020,7 +1020,7 @@ getInitialKind cusk
                   return constraintKind
        ; let parent_tv_prs = tcTyConScopedTyVars tycon
             -- See Note [Don't process associated types in kcLHsQTyVars]
-       ; inner_tcs <- tcExtendNameTyVarEnv (map (\(x,y) -> (x, unrestricted y)) parent_tv_prs) $
+       ; inner_tcs <- tcExtendNameTyVarEnv parent_tv_prs $
                       getFamDeclInitialKinds cusk (Just tycon) ats
        ; return (tycon : inner_tcs) }
 

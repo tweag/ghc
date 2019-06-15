@@ -17,7 +17,6 @@ HsTypes: Abstract syntax: user-defined types
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -791,7 +790,7 @@ arrowToHsType (HsExplicitMult p) = p
 -- | This is used in the syntax. In constructor declaration. It must keep the
 -- arrow representation.
 data HsScaled pass a = HsScaled { hsMult :: HsArrow pass, hsThing :: a }
-  deriving (Functor, Foldable)
+  deriving (Functor)
 
 -- | When creating syntax we use the shorthands. It's better for printing, also,
 -- the shorthands work trivially at each pass.

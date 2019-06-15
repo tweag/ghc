@@ -1,5 +1,7 @@
 {-# LANGUAGE ViewPatterns #-}
-module UsageEnv where
+module UsageEnv (UsageEnv, addUsage, multUsage, usageToMult, emptyUE, zeroUE,
+                 lookupUE, scaleUE, deleteUE, addUE, Usage(..), unitUE,
+                 supUE, supUEs) where
 
 import Data.Foldable
 import GhcPrelude

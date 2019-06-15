@@ -711,7 +711,7 @@ tcPolyCheck prag_fn
        ; (ev_binds, (co_fn, matches'))
             <- checkConstraints skol_info skol_tvs ev_vars $
                tcExtendBinderStack [TcIdBndr mono_id NotTopLevel]  $
-               tcExtendNameTyVarEnv (map (fmap unrestricted) tv_prs) $
+               tcExtendNameTyVarEnv tv_prs $
                setSrcSpan loc           $
                tcMatchesFun (cL nm_loc mono_name) matches (mkCheckExpType tau)
 
@@ -1475,8 +1475,8 @@ tcExtendTyVarEnvForRhs (Just sig) thing_inside
 tcExtendTyVarEnvFromSig :: TcIdSigInst -> TcM a -> TcM a
 tcExtendTyVarEnvFromSig sig_inst thing_inside
   | TISI { sig_inst_skols = skol_prs, sig_inst_wcs = wcs } <- sig_inst
-  = tcExtendNameTyVarEnv (map (fmap unrestricted) wcs) $
-    tcExtendNameTyVarEnv (map (fmap unrestricted) skol_prs) $
+  = tcExtendNameTyVarEnv wcs $
+    tcExtendNameTyVarEnv skol_prs $
     thing_inside
 
 tcExtendIdBinderStackForRhs :: [MonoBindInfo] -> TcM a -> TcM a
