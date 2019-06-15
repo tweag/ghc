@@ -384,7 +384,7 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(dL->L _ name), psb_args = details
        ; (tclvl, wanted, (lpat', (ex_tvs', prov_dicts, args'))) <-
            ASSERT2( equalLength arg_names arg_tys, ppr name $$ ppr arg_names $$ ppr arg_tys )
            pushLevelAndCaptureConstraints               $
-           tcExtendTyVarEnv (map unrestricted univ_tvs) $
+           tcExtendTyVarEnv univ_tvs $
            tcPat PatSyn lpat (unrestricted (mkCheckExpType pat_ty)) $
            do { let in_scope    = mkInScopeSet (mkVarSet univ_tvs)
                     empty_subst = mkEmptyTCvSubst in_scope

@@ -162,7 +162,7 @@ generateRuleConstraints ty_bndrs tm_bndrs lhs rhs
               -- It may mention the skolem type variables bound by
               -- the RULE.  c.f. #10072
 
-       ; tcExtendTyVarEnv (map unrestricted tv_bndrs) $
+       ; tcExtendTyVarEnv tv_bndrs $
          tcExtendIdEnv    (map unrestricted id_bndrs) $
     do { -- See Note [Solve order for RULES]
          ((lhs', rule_ty), lhs_wanted) <- captureConstraints (tcInferRho lhs)

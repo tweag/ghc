@@ -477,9 +477,9 @@ tcExtendKindEnv extra_env thing_inside
 
 -----------------------
 -- Scoped type and kind variables
-tcExtendTyVarEnv :: [Scaled TyVar] -> TcM r -> TcM r
+tcExtendTyVarEnv :: [TyVar] -> TcM r -> TcM r
 tcExtendTyVarEnv tvs thing_inside
-  = tcExtendNameTyVarEnv (mkTyVarNamePairs tvs) thing_inside
+  = tcExtendNameTyVarEnv (mkTyVarNamePairs (map unrestricted tvs)) thing_inside
 
 tcExtendNameTyVarEnv :: [(Name,Scaled TcTyVar)] -> TcM r -> TcM r
 tcExtendNameTyVarEnv binds thing_inside
