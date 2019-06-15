@@ -363,7 +363,7 @@ mkDataConCase var ty alts@(alt1:_) = MatchResult fail_flag mk_case
     mk_case :: CoreExpr -> DsM CoreExpr
     mk_case fail = do
         alts <- mapM (mk_alt fail) sorted_alts
-        return $ mkWildCase (Var var) (Scaled (idMult' var) (idType var)) ty (mk_default fail ++ alts)
+        return $ mkWildCase (Var var) (idScaledType var) ty (mk_default fail ++ alts)
 
     mk_alt :: CoreExpr -> CaseAlt DataCon -> DsM CoreAlt
     mk_alt fail MkCaseAlt{ alt_pat = con,
@@ -375,7 +375,7 @@ mkDataConCase var ty alts@(alt1:_) = MatchResult fail_flag mk_case
                 Just (DCB boxer) ->
         do { us <- newUniqueSupply
            ; let (rep_ids, binds) = initUs_ us (boxer ty_args args)
-           ; let rep_ids' = map (\i -> scaleIdBy i (idMult' var)) rep_ids
+           ; let rep_ids' = map (\i -> scaleIdBy i (idMult var)) rep_ids
            ; return (DataAlt con, rep_ids', mkLets binds body) } } }
 
     mk_default :: CoreExpr -> [CoreAlt]

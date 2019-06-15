@@ -1950,7 +1950,7 @@ prepareAlts scrut case_bndr' alts
            --   Test simpl013 is an example
   = do { us <- getUniquesM
        ; let (idcs1, alts1)       = filterAlts tc tys imposs_cons alts
-             (yes2,  alts2)       = refineDefaultAlt us (idMult' case_bndr') tc tys idcs1 alts1
+             (yes2,  alts2)       = refineDefaultAlt us (idMult case_bndr') tc tys idcs1 alts1
                -- the multiplicity on case_bndr's is the multiplicity of the
                -- case expression The newly introduced patterns in
                -- refineDefaultAlt must be scaled by this multiplicity
@@ -2235,7 +2235,7 @@ mkCase2 dflags scrut bndr alts_ty alts
       = -- For non-nullary data cons we must invent some fake binders
         -- See Note [caseRules for dataToTag] in PrelRules
         do { us <- getUniquesM
-           ; let (ex_tvs, arg_ids) = dataConRepInstPat us (idMult' new_bndr) dc
+           ; let (ex_tvs, arg_ids) = dataConRepInstPat us (idMult new_bndr) dc
                                         (tyConAppArgs (idType new_bndr))
            ; return (ex_tvs ++ arg_ids) }
     mk_new_bndrs _ _ = return []

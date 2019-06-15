@@ -633,7 +633,7 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
     ds_field (dL->L _ rec_field)
       = do { rhs <- dsLExpr (hsRecFieldArg rec_field)
            ; let fld_id = unLoc (hsRecUpdFieldId rec_field)
-           ; lcl_id <- newSysLocalDs (idMult' fld_id) (idType fld_id)
+           ; lcl_id <- newSysLocalDs (idMult fld_id) (idType fld_id)
            ; return (idName fld_id, lcl_id, rhs) }
 
     add_field_binds [] expr = expr

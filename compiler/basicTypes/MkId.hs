@@ -972,7 +972,7 @@ wrapCo :: Coercion -> Type -> (Unboxer, Boxer) -> (Unboxer, Boxer)
 wrapCo co rep_ty (unbox_rep, box_rep)  -- co :: arg_ty ~ rep_ty
   = (unboxer, boxer)
   where
-    unboxer arg_id = do { rep_id <- newLocal (Scaled (idMult' arg_id) rep_ty)
+    unboxer arg_id = do { rep_id <- newLocal (Scaled (idMult arg_id) rep_ty)
                         ; (rep_ids, rep_fn) <- unbox_rep rep_id
                         ; let co_bind = NonRec rep_id (Var arg_id `Cast` co)
                         ; return (rep_ids, Let co_bind . rep_fn) }
@@ -1013,7 +1013,7 @@ dataConArgUnpack (Scaled arg_mult arg_ty)
     ( rep_tys `zip` dataConRepStrictness con
     ,( \ arg_id ->
        do { rep_ids <- mapM newLocal rep_tys
-          ; let r_mult = idMult' arg_id
+          ; let r_mult = idMult arg_id
           ; let unbox_fn body
                   = Case (Var arg_id) arg_id (exprType body)
                          [(DataAlt con, map (flip scaleIdBy r_mult) rep_ids, body)]

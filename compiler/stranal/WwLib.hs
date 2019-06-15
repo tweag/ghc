@@ -615,12 +615,12 @@ unbox_one :: DynFlags -> FamInstEnvs -> Var
 unbox_one dflags fam_envs arg cs
           (data_con, inst_tys, inst_con_arg_tys, co)
   = do { (uniq1:uniqs) <- getUniquesM
-        ; let   scale = scaleScaled (idMult' arg)
+        ; let   scale = scaleScaled (idMult arg)
                 scaled_inst_con_arg_tys = map (\(t,s) -> (scale t, s)) inst_con_arg_tys
                 -- See Note [Add demands for strict constructors]
                 cs'       = addDataConStrictness data_con cs
                 unpk_args = zipWith3 mk_ww_arg uniqs scaled_inst_con_arg_tys cs'
-                unbox_fn  = mkUnpackCase (Var arg) co (idMult' arg) uniq1
+                unbox_fn  = mkUnpackCase (Var arg) co (idMult arg) uniq1
                                          data_con unpk_args
                 arg_no_unf = zapStableUnfolding arg
                              -- See Note [Zap unfolding when beta-reducing]
