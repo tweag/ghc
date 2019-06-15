@@ -489,7 +489,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = hs_ty, cid_binds = binds
 
         -- Next, process any associated types.
         ; (datafam_stuff, tyfam_insts)
-             <- tcExtendNameTyVarEnv [(n, unrestricted t) | (n, t) <- tv_skol_prs] $
+             <- tcExtendNameTyVarEnv tv_skol_prs $
                 do  { let mini_env   = mkVarEnv (classTyVars clas `zip` substTys subst inst_tys)
                           mini_subst = mkTvSubst (mkInScopeSet (mkVarSet skol_tvs)) mini_env
                           mb_info    = InClsInst { ai_class = clas
@@ -1468,7 +1468,7 @@ tcMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                                 , ib_pragmas    = sigs
                                 , ib_extensions = exts
                                 , ib_derived    = is_derived })
-  = tcExtendNameTyVarEnv (lexical_tvs `zip` (map unrestricted tyvars)) $
+  = tcExtendNameTyVarEnv (lexical_tvs `zip` tyvars) $
        -- The lexical_tvs scope over the 'where' part
     do { traceTc "tcInstMeth" (ppr sigs $$ ppr binds)
        ; checkMinimalDefinition

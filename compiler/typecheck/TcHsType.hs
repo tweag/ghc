@@ -1743,8 +1743,7 @@ tcWildCardBinders :: [Name]
 tcWildCardBinders wc_names thing_inside
   = do { wcs <- mapM (const newWildTyVar) wc_names
        ; let wc_prs = wc_names `zip` wcs
-       ; let wc_prs_env = wc_names `zip` (unrestricted <$> wcs)
-       ; tcExtendNameTyVarEnv wc_prs_env $
+       ; tcExtendNameTyVarEnv wc_prs $
          thing_inside wc_prs }
 
 newWildTyVar :: TcM TcTyVar
@@ -2093,7 +2092,7 @@ bindImplicitTKBndrsX
 bindImplicitTKBndrsX new_tv tv_names thing_inside
   = do { tkvs <- mapM new_tv tv_names
        ; traceTc "bindImplicitTKBndrs" (ppr tv_names $$ ppr tkvs)
-       ; res <- tcExtendNameTyVarEnv (tv_names `zip` map unrestricted tkvs)
+       ; res <- tcExtendNameTyVarEnv (tv_names `zip` tkvs)
                 thing_inside
        ; return (tkvs, res) }
 
@@ -2159,7 +2158,7 @@ bindExplicitTKBndrsX tc_tv hs_tvs thing_inside
             --   e.g. forall k (a::k). blah
             -- NB: tv's Name may differ from hs_tv's
             -- See TcMType Note [Unification variables need fresh Names]
-            ; (tvs,res) <- tcExtendNameTyVarEnv [(hsTyVarName hs_tv, unrestricted tv)] $
+            ; (tvs,res) <- tcExtendNameTyVarEnv [(hsTyVarName hs_tv, tv)] $
                            go hs_tvs
             ; return (tv:tvs, res) }
 
@@ -2225,7 +2224,7 @@ bindTyClTyVars tycon_name thing_inside
              res_kind   = tyConResKind tycon
              binders    = tyConBinders tycon
        ; traceTc "bindTyClTyVars" (ppr tycon_name <+> ppr binders $$ ppr scoped_prs)
-       ; tcExtendNameTyVarEnv [(n, unrestricted t) | (n, t) <- scoped_prs] $
+       ; tcExtendNameTyVarEnv scoped_prs $
          thing_inside binders res_kind }
 
 -- getInitialKind has made a suitably-shaped kind for the type or class
@@ -2650,7 +2649,7 @@ tcHsPatSigType ctxt sig_ty
                  -- else casts get in the way of deep skolemisation
                  -- (#16033)
                tcWildCardBinders sig_wcs        $ \ wcs ->
-               tcExtendNameTyVarEnv (map (\(u,v) -> (u, unrestricted v)) sig_tkv_prs) $
+               tcExtendNameTyVarEnv sig_tkv_prs $
                do { sig_ty <- tcHsOpenType hs_ty
                   ; return (wcs, sig_ty) }
 
@@ -2683,19 +2682,17 @@ tcPatSig :: Bool                    -- True <=> pattern binding
          -> LHsSigWcType GhcRn
          -> Scaled ExpSigmaType
          -> TcM (TcType,            -- The type to use for "inside" the signature
-                 [(Name, Scaled TcTyVar)],-- The new bit of type environment, binding
+                 [(Name, TcTyVar)], -- The new bit of type environment, binding
                                     -- the scoped type variables
-                 [(Name, Scaled TcTyVar)],  -- The wildcards
+                 [(Name, TcTyVar)], -- The wildcards
                  HsWrapper)         -- Coercion due to unification with actual ty
                                     -- Of shape:  res_ty ~ sig_ty
 tcPatSig in_pat_bind sig res_ty
- = do  { (sig_wcs0, sig_tvs, sig_ty) <- tcHsPatSigType PatSigCtxt sig
+ = do  { (sig_wcs, sig_tvs, sig_ty) <- tcHsPatSigType PatSigCtxt sig
         -- sig_tvs are the type variables free in 'sig',
         -- and not already in scope. These are the ones
         -- that should be brought into scope
 
-        ; let sig_wcs = map (\(x,y)-> (x,scaledSet res_ty y)) sig_wcs0
-        ; let sig_tvs_scaled = map (\(x, y) -> (x, scaledSet res_ty y)) sig_tvs
         ; if null sig_tvs then do {
                 -- Just do the subsumption check and return
                   wrap <- addErrCtxtM (mk_msg sig_ty) $
@@ -2725,7 +2722,7 @@ tcPatSig in_pat_bind sig res_ty
                   tcSubTypeET PatSigOrigin PatSigCtxt (scaledThing res_ty) sig_ty
 
         -- Phew!
-        ; return (sig_ty, sig_tvs_scaled, sig_wcs, wrap)
+        ; return (sig_ty, sig_tvs, sig_wcs, wrap)
         } }
   where
     mk_msg sig_ty tidy_env

@@ -1020,7 +1020,7 @@ getInitialKind cusk
                   return constraintKind
        ; let parent_tv_prs = tcTyConScopedTyVars tycon
             -- See Note [Don't process associated types in kcLHsQTyVars]
-       ; inner_tcs <- tcExtendNameTyVarEnv (map (\(x,y) -> (x, unrestricted y)) parent_tv_prs) $
+       ; inner_tcs <- tcExtendNameTyVarEnv parent_tv_prs $
                       getFamDeclInitialKinds cusk (Just tycon) ats
        ; return (tycon : inner_tcs) }
 

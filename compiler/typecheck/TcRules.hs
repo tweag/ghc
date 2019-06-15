@@ -201,7 +201,7 @@ tcRuleTmBndrs (L _ (RuleBndrSig _ (L _ name) rn_ty) : rule_bndrs)
                     -- See Note [Pattern signature binders] in TcHsType
 
               -- The type variables scope over subsequent bindings; yuk
-        ; (tyvars, tmvars) <- tcExtendNameTyVarEnv (map (\(a, b) -> (a, unrestricted b)) tvs) $
+        ; (tyvars, tmvars) <- tcExtendNameTyVarEnv tvs $
                                    tcRuleTmBndrs rule_bndrs
         ; return (map snd tvs ++ tyvars, id : tmvars) }
 tcRuleTmBndrs (L _ (XRuleBndr _) : _) = panic "tcRuleTmBndrs"
