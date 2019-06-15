@@ -31,10 +31,9 @@ module TcEnv(
         tcExtendTyVarEnv, tcExtendNameTyVarEnv,
         tcExtendLetEnv, tcExtendSigIds, tcExtendRecIds,
         tcExtendIdEnv, tcExtendIdEnv1, tcExtendIdEnv2,
-        tcExtendLocalTypeEnv,
-        isTypeClosedLetBndr, tcEmitBindingUsage,
-        tcCollectingUsage, tcScalingUsage,
-        tcExtendBinderStack,
+        tcExtendBinderStack, tcExtendLocalTypeEnv,
+        isTypeClosedLetBndr,
+        tcEmitBindingUsage, tcCollectingUsage, tcScalingUsage,
 
         tcLookup, tcLookupLocated, tcLookupLocalIds,
         tcLookupId, tcLookupIdMaybe, tcLookupTyVar,
@@ -491,7 +490,7 @@ tcExtendNameTyVarEnv binds thing_inside
          thing_inside }
   where
     tv_binds :: [TcBinder]
-    tv_binds = [TcTvBndr name tv | (name, tv) <- binds]
+    tv_binds = [TcTvBndr name tv | (name,tv) <- binds]
 
 isTypeClosedLetBndr :: Id -> Bool
 -- See Note [Bindings with closed types] in TcRnTypes
