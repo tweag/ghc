@@ -458,11 +458,10 @@ noCSE id =  not (isAlwaysActive (idInlineActivation id)) &&
     -- Here @x@ doesn't appear in the body, but it is required by linearity!
     -- Also @y@ appears shared, while we expect it to be a linear variable.
     --
-    -- This is usually not a problem with let-binders because their multiplicity
-    -- is set to @Alias@ in prior phases. But we don't have such luxury for case
-    -- binders. Still, substitution of the case binder by the scrutinee happens
-    -- routinely in CSE to discover more CSE opportunities (see Note [CSE for
-    -- case expressions]).
+    -- This is usually not a problem with let-binders because they are aliases.
+    -- But we don't have such luxury for case binders. Still, substitution of
+    -- the case binder by the scrutinee happens routinely in CSE to discover
+    -- more CSE opportunities (see Note [CSE for case expressions]).
     --
     -- It's alright, though! Because there is never a need to share linear
     -- definitions.
