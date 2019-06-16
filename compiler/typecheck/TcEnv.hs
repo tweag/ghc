@@ -609,25 +609,25 @@ tc_extend_local_env top_lvl extra_env thing_inside
     -- Checks that the usage of the newly introduced binders is compatible with
     -- their multiplicity. If so, combines the usage of non-new binders to |uenv|
     check_then_add_usage u0
-      = do { uok <- foldM (\u (x,w_) -> check_binder w_ x u) u0 extra_env
+      = do { uok <- foldM check_binder u0 extra_env
            ; env <- getLclEnv
            ; let usage = tcl_usage env
            ; updTcRef usage (addUE uok) }
 
-    check_binder :: TcTyThing -> Name -> UsageEnv -> TcM UsageEnv
-    check_binder (ATcId {tct_mult = w}) x uenv = do
-      let actual_w = usageToMult (lookupUE uenv x)
+    check_binder :: UsageEnv -> (Name, TcTyThing) -> TcM UsageEnv
+    check_binder uenv (id_name, ATcId {tct_mult = w}) = do
+      let actual_w = usageToMult (lookupUE uenv id_name)
       traceTc "check_binder" (ppr w $$ ppr actual_w)
       case submult actual_w w of
         Submult -> return ()
-        Unknown -> tcSubMult (UsageEnvironmentOf x) actual_w w
+        Unknown -> tcSubMult (UsageEnvironmentOf id_name) actual_w w
         NotSubmult  ->
           addErrTc $ text "Couldn't match expected multiplicity" <+> quotes (ppr w) <+>
-                     text "of variable" <+> quotes (ppr x) <+>
+                     text "of variable" <+> quotes (ppr id_name) <+>
                      text "with actual multiplicity" <+> quotes (ppr actual_w)
           -- In case of error, recover by pretending that the multiplicity usage was correct
-      return $ deleteUE uenv x
-    check_binder _ x uenv = return $ deleteUE uenv x
+      return $ deleteUE uenv id_name
+    check_binder uenv (id_name, _) = return $ deleteUE uenv id_name
 
 
 
@@ -680,7 +680,7 @@ tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env }) tc_ty_things
 -- | @tcCollectingUsage thing_inside@ runs @thing_inside@ and returns the usage
 -- information which was collected as part of the execution of
 -- @thing_inside@. Careful: @tcCollectingUsage thing_inside@ itself does not
--- report any usage information, it's up to the programmer to incorporate the
+-- report any usage information, it's up to the caller to incorporate the
 -- returned usage information into the larger context appropriately.
 tcCollectingUsage :: TcM a -> TcM (UsageEnv,a)
 tcCollectingUsage thing_inside
