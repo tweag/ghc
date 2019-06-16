@@ -766,11 +766,6 @@ type instance XMissing         GhcTc = Type
 
 type instance XXTupArg         (GhcPass _) = NoExt
 
-instance Outputable (HsTupArg GhcTc) where
-  ppr (Present _ lhs) = text "Present" <+> ppr lhs
-  ppr (Missing ty)  = text "Missing" <+> ppr ty
-  ppr (XTupArg _)   = text "XTupArg"
-
 tupArgPresent :: LHsTupArg id -> Bool
 tupArgPresent (L _ (Present {})) = True
 tupArgPresent (L _ (Missing {})) = False
