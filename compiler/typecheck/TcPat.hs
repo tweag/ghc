@@ -1051,8 +1051,8 @@ tcConArgs con_like arg_tys (RecCon (HsRecFields rpats dd)) penv thing_inside
           -- will generate an error below).
 
 tcConArg :: Checker (LPat GhcRn, Scaled TcSigmaType) (LPat GhcTc)
-tcConArg (arg_pat, arg_ty) penv thing_inside
-  = tc_lpat arg_pat (mkCheckExpType <$> arg_ty) penv thing_inside
+tcConArg (arg_pat, Scaled arg_mult arg_ty) penv thing_inside
+  = tc_lpat arg_pat (Scaled arg_mult (mkCheckExpType arg_ty)) penv thing_inside
 
 addDataConStupidTheta :: DataCon -> [TcType] -> TcM ()
 -- Instantiate the "stupid theta" of the data con, and throw

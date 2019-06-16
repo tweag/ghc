@@ -1019,7 +1019,7 @@ dataConArgUnpack (Scaled arg_mult arg_ty)
                          [(DataAlt con, map (flip scaleIdBy r_mult) rep_ids, body)]
           ; return (rep_ids, unbox_fn) }
      , Boxer $ \ subst ->
-       do { rep_ids <- mapM (newLocal . fmap (TcType.substTyUnchecked subst)) rep_tys
+       do { rep_ids <- mapM (newLocal . mapScaledType (TcType.substTyUnchecked subst)) rep_tys
           ; return (rep_ids, Var (dataConWorkId con)
                              `mkTyApps` (substTysUnchecked subst tc_args)
                              `mkVarApps` rep_ids ) } ) )

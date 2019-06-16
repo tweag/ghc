@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, DeriveFunctor #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
 
 {-|
@@ -26,7 +26,8 @@ module Multiplicity
   , scaledSet
   , scaleScaled
   , IsSubmult(..)
-  , submult) where
+  , submult
+  , mapScaledType) where
 
 import GhcPrelude
 
@@ -52,11 +53,6 @@ To add a new multiplicity, you need to:
 
 type Mult = Type
 
--- In the future, we may enforce more invariants in Mult.
--- For instance, we can enforce that it is in the form of a sum of
--- products, and even that the sumands and factors are ordered
--- somehow, to have more equalities.
-
 pattern One :: Mult
 pattern One <- (eqType oneDataConTy -> True)
   where One = oneDataConTy
@@ -77,6 +73,9 @@ cause more programs to fail to typecheck.
 
 In future work, instead of approximating we might add type families
 and allow users to write types involving operations on multiplicities.
+In this case, we could enforce more invariants in Mult, for example,
+enforce that that it is in the form of a sum of  products, and even
+that the sumands and factors are ordered somehow, to have more equalities.
 -}
 
 -- With only two multiplicities One and Omega, we can always replace
@@ -129,7 +128,7 @@ submult _     _     = Unknown
 
 -- | A shorthand for data with an attached 'Mult' element (the multiplicity).
 data Scaled a = Scaled {scaledMult :: Mult, scaledThing :: a}
-  deriving (Functor,Data)
+  deriving (Data)
 
 unrestricted, linear, tymult :: a -> Scaled a
 unrestricted = Scaled Omega
@@ -149,8 +148,11 @@ instance (Outputable a) => Outputable (Scaled a) where
      -- Do not print the multiplicity here because it tends to be too verbose
 
 scaledSet :: Scaled a -> b -> Scaled b
-scaledSet x b = fmap (\_->b) x
+scaledSet (Scaled m _) b = Scaled m b
 
 scaleScaled :: Mult -> Scaled a -> Scaled a
 scaleScaled w x =
   x { scaledMult = w `mkMultMul` scaledMult x }
+
+mapScaledType :: (Type -> Type) -> Scaled Type -> Scaled Type
+mapScaledType f (Scaled m t) = Scaled (f m) (f t)

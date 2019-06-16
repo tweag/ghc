@@ -130,8 +130,8 @@ tcMatchesCase :: (Outputable (body GhcRn)) =>
                  -- Translated alternatives
                  -- wrapper goes from MatchGroup's ty to expected ty
 
-tcMatchesCase ctxt scrut_ty matches res_ty
-  = tcMatches ctxt [mkCheckExpType <$> scrut_ty] res_ty matches
+tcMatchesCase ctxt (Scaled scrut_mult scrut_ty) matches res_ty
+  = tcMatches ctxt [Scaled scrut_mult (mkCheckExpType scrut_ty)] res_ty matches
 
 tcMatchLambda :: SDoc -- see Note [Herald for matchExpectedFunTys] in TcUnify
               -> TcMatchCtxt HsExpr
