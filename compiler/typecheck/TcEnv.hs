@@ -485,7 +485,7 @@ tcExtendNameTyVarEnv binds thing_inside
   -- this should be used only for explicitly mentioned scoped variables.
   -- thus, no coercion variables
   = do { tc_extend_local_env NotTopLevel
-                    [(name, ATyVar name wtv) | (name, wtv) <- binds] $
+                    [(name, ATyVar name tv) | (name, tv) <- binds] $
          tcExtendBinderStack tv_binds $
          thing_inside }
   where
@@ -502,10 +502,10 @@ tcExtendRecIds :: [(Name, Scaled TcId)] -> TcM a -> TcM a
 -- Does not extend the TcBinderStack
 tcExtendRecIds pairs thing_inside
   = tc_extend_local_env NotTopLevel
-          [ (name, ATcId { tct_id   = wlet_id
-                         , tct_mult = wlet_mult
+          [ (name, ATcId { tct_id   = let_id
+                         , tct_mult = let_mult
                          , tct_info = NonClosedLet emptyNameSet False })
-          | (name, Scaled wlet_mult wlet_id) <- pairs ] $
+          | (name, Scaled let_mult let_id) <- pairs ] $
     thing_inside
 
 tcExtendSigIds :: TopLevelFlag -> [Scaled TcId] -> TcM a -> TcM a
@@ -513,11 +513,11 @@ tcExtendSigIds :: TopLevelFlag -> [Scaled TcId] -> TcM a -> TcM a
 -- Does not extend the TcBinderStack
 tcExtendSigIds top_lvl sig_ids thing_inside
   = tc_extend_local_env top_lvl
-          [ (idName wid, ATcId { tct_id   = wid
-                               , tct_mult = wid_mult
-                               , tct_info = info })
-          | Scaled wid_mult wid <- sig_ids
-          , let closed = isTypeClosedLetBndr wid
+          [ (idName id, ATcId { tct_id   = id
+                              , tct_mult = id_mult
+                              , tct_info = info })
+          | Scaled id_mult id <- sig_ids
+          , let closed = isTypeClosedLetBndr id
                 info   = NonClosedLet emptyNameSet closed ]
      thing_inside
 
@@ -530,10 +530,10 @@ tcExtendLetEnv top_lvl sig_fn (IsGroupClosed fvs fv_type_closed)
                ids thing_inside
   = tcExtendBinderStack [TcIdBndr id top_lvl | Scaled _ id <- ids] $
     tc_extend_local_env top_lvl
-          [ (idName wid, ATcId { tct_id   = wid
-                               , tct_mult = wid_mult
-                               , tct_info = mk_tct_info wid })
-          | Scaled wid_mult wid <- ids ]
+          [ (idName id, ATcId { tct_id   = id
+                              , tct_mult = id_mult
+                              , tct_info = mk_tct_info id })
+          | Scaled id_mult id <- ids ]
     thing_inside
   where
     mk_tct_info id
