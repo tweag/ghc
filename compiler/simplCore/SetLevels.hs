@@ -1672,8 +1672,6 @@ newLvlVar lvld_rhs join_arity_maybe is_mk_static
                             rhs_ty
       | otherwise
       = mkSysLocalOrCoVar (mkFastString "lvl") uniq Omega rhs_ty
-        -- The let-bind is made alias-like, because it allows float out to
-        -- preserve type even when floating out of a branch.
 
 cloneCaseBndrs :: LevelEnv -> Level -> [Var] -> LvlM (LevelEnv, [Var])
 cloneCaseBndrs env@(LE { le_subst = subst, le_lvl_env = lvl_env, le_env = id_env })
