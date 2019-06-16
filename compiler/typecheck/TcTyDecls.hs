@@ -10,6 +10,7 @@ files for imported data types.
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -150,11 +151,9 @@ synonymTyConsOfType ty
 -- a failure message reporting that a cycle was found.
 newtype SynCycleM a = SynCycleM {
     runSynCycleM :: SynCycleState -> Either (SrcSpan, SDoc) (a, SynCycleState) }
+    deriving (Functor)
 
 type SynCycleState = NameSet
-
-instance Functor SynCycleM where
-    fmap = liftM
 
 instance Applicative SynCycleM where
     pure x = SynCycleM $ \state -> Right (x, state)
@@ -678,9 +677,7 @@ newtype RoleM a = RM { unRM :: Maybe Name -- of the tycon
                             -> Int          -- size of VarPositions
                             -> RoleInferenceState
                             -> (a, RoleInferenceState) }
-
-instance Functor RoleM where
-    fmap = liftM
+    deriving (Functor)
 
 instance Applicative RoleM where
     pure x = RM $ \_ _ _ state -> (x, state)

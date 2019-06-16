@@ -4,7 +4,7 @@
 \section{Tidying up Core}
 -}
 
-{-# LANGUAGE CPP, ViewPatterns #-}
+{-# LANGUAGE CPP, DeriveFunctor, ViewPatterns #-}
 
 module TidyPgm (
        mkBootModDetailsTc, tidyProgram, globaliseAndTidyId
@@ -564,7 +564,9 @@ See Note [Data constructor workers] in CorePrep.
 -}
 
 getTyConImplicitBinds :: TyCon -> [CoreBind]
-getTyConImplicitBinds tc = map get_defn (mapMaybe dataConWrapId_maybe (tyConDataCons tc))
+getTyConImplicitBinds tc
+  | isNewTyCon tc = []  -- See Note [Compulsory newtype unfolding] in MkId
+  | otherwise     = map get_defn (mapMaybe dataConWrapId_maybe (tyConDataCons tc))
 
 getClassImplicitBinds :: Class -> [CoreBind]
 getClassImplicitBinds cls
@@ -749,9 +751,7 @@ newtype DFFV a
                               -- we don't want to record these as free vars
       -> (VarSet, [Var])      -- Input State: (set, list) of free vars so far
       -> ((VarSet,[Var]),a))  -- Output state
-
-instance Functor DFFV where
-    fmap = liftM
+    deriving (Functor)
 
 instance Applicative DFFV where
     pure a = DFFV $ \_ st -> (st, a)

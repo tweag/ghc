@@ -12,7 +12,8 @@ ToDo:
    (i1 + i2) only if it results in a valid Float.
 -}
 
-{-# LANGUAGE CPP, RankNTypes, PatternSynonyms, ViewPatterns, RecordWildCards #-}
+{-# LANGUAGE CPP, RankNTypes, PatternSynonyms, ViewPatterns, RecordWildCards,
+    DeriveFunctor #-}
 {-# OPTIONS_GHC -optc-DNON_POSIX_SOURCE #-}
 
 module PrelRules
@@ -41,7 +42,7 @@ import TyCon       ( tyConDataCons_maybe, isAlgTyCon, isEnumerationTyCon
                    , isNewTyCon, unwrapNewTyCon_maybe, tyConDataCons
                    , tyConFamilySize )
 import DataCon     ( dataConTagZ, dataConTyCon, dataConWorkId )
-import CoreUtils   ( cheapEqExpr, exprIsHNF, exprType )
+import CoreUtils   ( cheapEqExpr, cheapEqExpr', exprIsHNF, exprType, stripTicksTop, stripTicksTopT, mkTicks )
 import Multiplicity
 import CoreUnfold  ( exprIsConApp_maybe )
 import Type
@@ -476,8 +477,7 @@ shiftRule shift_op
              -> return e1
              -- See Note [Guarding against silly shifts]
              | shift_len < 0 || shift_len > wordSizeInBits dflags
-             -> return $ mkRuntimeErrorApp rUNTIME_ERROR_ID wordPrimTy
-                           ("Bad shift length " ++ show shift_len)
+             -> return $ Lit $ mkLitNumberWrap dflags LitNumInt 0 (exprType e1)
 
            -- Do the shift at type Integer, but shift length is Int
            Lit (LitNumber nt x t)
@@ -702,7 +702,27 @@ can't constant fold it, but if it gets to the assember we get
      Error: operand type mismatch for `shl'
 
 So the best thing to do is to rewrite the shift with a call to error,
-when the second arg is stupid.
+when the second arg is large. However, in general we cannot do this; consider
+this case
+
+    let x = I# (uncheckedIShiftL# n 80)
+    in ...
+
+Here x contains an invalid shift and consequently we would like to rewrite it
+as follows:
+
+    let x = I# (error "invalid shift)
+    in ...
+
+This was originally done in the fix to #16449 but this breaks the let/app
+invariant (see Note [CoreSyn let/app invariant] in CoreSyn) as noted in #16742.
+For the reasons discussed in Note [Checking versus non-checking primops] (in
+the PrimOp module) there is no safe way rewrite the argument of I# such that
+it bottoms.
+
+Consequently we instead take advantage of the fact that large shifts are
+undefined behavior (see associated documentation in primops.txt.pp) and
+transform the invalid shift into an "obviously incorrect" value.
 
 There are two cases:
 
@@ -740,9 +760,7 @@ mkBasicRule op_name n_args rm
 
 newtype RuleM r = RuleM
   { runRuleM :: DynFlags -> InScopeEnv -> [CoreExpr] -> Maybe r }
-
-instance Functor RuleM where
-    fmap = liftM
+  deriving (Functor)
 
 instance Applicative RuleM where
     pure x = RuleM $ \_ _ _ -> Just x
@@ -1369,20 +1387,27 @@ match_append_lit _ id_unf _
         [ Type ty1
         , lit1
         , c1
-        , Var unpk `App` Type ty2
-                   `App` lit2
-                   `App` c2
-                   `App` n
+        , e2
         ]
-  | unpk `hasKey` unpackCStringFoldrIdKey &&
-    c1 `cheapEqExpr` c2
+  -- N.B. Ensure that we strip off any ticks (e.g. source notes) from the
+  -- `lit` and `c` arguments, lest this may fail to fire when building with
+  -- -g3. See #16740.
+  | (strTicks, Var unpk `App` Type ty2
+                        `App` lit2
+                        `App` c2
+                        `App` n) <- stripTicksTop tickishFloatable e2
+  , unpk `hasKey` unpackCStringFoldrIdKey
+  , cheapEqExpr' tickishFloatable c1 c2
+  , (c1Ticks, c1') <- stripTicksTop tickishFloatable c1
+  , c2Ticks <- stripTicksTopT tickishFloatable c2
   , Just (LitString s1) <- exprIsLiteral_maybe id_unf lit1
   , Just (LitString s2) <- exprIsLiteral_maybe id_unf lit2
   = ASSERT( ty1 `eqType` ty2 )
-    Just (Var unpk `App` Type ty1
-                   `App` Lit (LitString (s1 `BS.append` s2))
-                   `App` c1
-                   `App` n)
+    Just $ mkTicks strTicks
+         $ Var unpk `App` Type ty1
+                    `App` Lit (LitString (s1 `BS.append` s2))
+                    `App` mkTicks (c1Ticks ++ c2Ticks) c1'
+                    `App` n
 
 match_append_lit _ _ _ _ = Nothing
 
