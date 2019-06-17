@@ -922,7 +922,7 @@ decomposeRuleLhs dflags orig_bndrs orig_lhs
     -- handle "unlifted lets" too, needed for "map/coerce"
    split_lets (Case r d _ [(DEFAULT, _, body)])
      | isCoVar d
-     = pprTrace "split_lets" (ppr (r, d)) ((d,r):bs, body')
+     = ((d,r):bs, body')
      where (bs, body') = split_lets body
 
    split_lets e = ([], e)

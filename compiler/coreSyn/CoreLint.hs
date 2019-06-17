@@ -453,7 +453,7 @@ lintCoreBindings dflags pass local_in_scope binds
     -- If you edit this function, you may need to update the GHC formalism
     -- See Note [GHC Formalism]
     lint_bind (Rec prs)         = mapM_ (lintSingleBinding TopLevel Recursive) prs
-    lint_bind (NonRec bndr rhs) = () <$ lintSingleBinding TopLevel NonRecursive (bndr,rhs)
+    lint_bind (NonRec bndr rhs) = void $ lintSingleBinding TopLevel NonRecursive (bndr,rhs)
 
 {-
 ************************************************************************
@@ -1248,7 +1248,9 @@ lintLinearBinder doc actual_usage described_usage
                 $$ ppr actual_usage
                 $$ text "Annotation:" <+> ppr described_usage)
 
-{- Note [Alt arg multiplicities]
+{-
+Note [Alt arg multiplicities]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 It is necessary to use `dataConRepArgTys` so you get the arg tys from
 the wrapper if there is one.
 

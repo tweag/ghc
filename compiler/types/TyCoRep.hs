@@ -2151,10 +2151,8 @@ tyCoFVsVarBndr var fvs
 
 tyCoFVsOfTypes :: [Type] -> FV
 -- See Note [Free variables of types]
-tyCoFVsOfTypes tty = go tty
-  where
-    go (ty:tys) fv_cand in_scope acc = (tyCoFVsOfType ty `unionFV` go tys) fv_cand in_scope acc
-    go []       fv_cand in_scope acc = emptyFV fv_cand in_scope acc
+tyCoFVsOfTypes (ty:tys) fv_cand in_scope acc = (tyCoFVsOfType ty `unionFV` tyCoFVsOfTypes tys) fv_cand in_scope acc
+tyCoFVsOfTypes []       fv_cand in_scope acc = emptyFV fv_cand in_scope acc
 
 -- | Get a deterministic set of the vars free in a coercion
 tyCoVarsOfCoDSet :: Coercion -> DTyCoVarSet
@@ -3306,7 +3304,7 @@ substTyUnchecked subst ty
 substTys :: HasCallStack => TCvSubst -> [Type] -> [Type]
 substTys subst tys
   | isEmptyTCvSubst subst = tys
-  | otherwise = checkValidSubst subst tys [] $ fmap (subst_ty subst) tys
+  | otherwise = checkValidSubst subst tys [] $ map (subst_ty subst) tys
 
 substScaledTys :: HasCallStack => TCvSubst -> [Scaled Type] -> [Scaled Type]
 substScaledTys subst scaled_tys
@@ -3322,12 +3320,12 @@ substScaledTys subst scaled_tys
 substTysUnchecked :: TCvSubst -> [Type] -> [Type]
 substTysUnchecked subst tys
                  | isEmptyTCvSubst subst = tys
-                 | otherwise             = fmap (subst_ty subst) tys
+                 | otherwise             = map (subst_ty subst) tys
 
 substScaledTysUnchecked :: TCvSubst -> [Scaled Type] -> [Scaled Type]
 substScaledTysUnchecked subst tys
                  | isEmptyTCvSubst subst = tys
-                 | otherwise             = fmap (mapScaledType (subst_ty subst)) tys
+                 | otherwise             = map (mapScaledType (subst_ty subst)) tys
 
 -- | Substitute within a 'ThetaType'
 -- The substitution has to satisfy the invariants described in
