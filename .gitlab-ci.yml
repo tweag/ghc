@@ -2,7 +2,7 @@ variables:
   GIT_SSL_NO_VERIFY: "1"
 
   # Commit of ghc/ci-images repository from which to pull Docker images
-  DOCKER_REV: ac65f31dcffb09cd7ca7aaa70f447fcbb19f427f
+  DOCKER_REV: 88e952f165f48cfb956ac9a2486a9263aa4f777c
 
   # Sequential version number capturing the versions of all tools fetched by
   # .gitlab/win32-init.sh.
@@ -80,6 +80,7 @@ ghc-linters:
     - git fetch "$CI_MERGE_REQUEST_PROJECT_URL" $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
     - base="$(git merge-base FETCH_HEAD $CI_COMMIT_SHA)"
     - "echo Linting submodule changes between $base..$CI_COMMIT_SHA"
+    - git submodule foreach git remote update
     - submodchecker .git $(git rev-list $base..$CI_COMMIT_SHA)
   dependencies: []
   tags:
@@ -109,6 +110,7 @@ lint-submods-branch:
   extends: .lint-submods
   script:
     - "echo Linting submodule changes between $CI_COMMIT_BEFORE_SHA..$CI_COMMIT_SHA"
+    - git submodule foreach git remote update
     - submodchecker .git $(git rev-list $CI_COMMIT_BEFORE_SHA..$CI_COMMIT_SHA)
   only:
     refs:
@@ -149,11 +151,10 @@ lint-release-changelogs:
 
 .validate-hadrian:
   <<: *only-default
-  allow_failure: true
   script:
     - cabal update
     - git clean -xdf && git submodule foreach git clean -xdf
-    - bash .circleci/prepare-system.sh
+    - .gitlab/prepare-system.sh
     - if [[ -d ./cabal-cache ]]; then cp -R ./.cabal-cache ~/.cabal-cache; fi
     - ./boot
     - ./configure $CONFIGURE_ARGS
@@ -204,7 +205,7 @@ hadrian-ghc-in-ghci:
     - cabal update
     - cd hadrian; cabal new-build --project-file=ci.project; cd ..
     - git clean -xdf && git submodule foreach git clean -xdf
-    - bash .circleci/prepare-system.sh
+    - .gitlab/prepare-system.sh
     - if [[ -d ./cabal-cache ]]; then cp -R ./.cabal-cache ~/.cabal-cache; fi
     - ./boot
     - ./configure $CONFIGURE_ARGS
@@ -352,7 +353,7 @@ validate-x86_64-darwin:
         echo "EXTRA_HADDOCK_OPTS += --hyperlinked-source --quickjump" >> mk/build.mk
       fi
 
-    - bash .circleci/prepare-system.sh
+    - .gitlab/prepare-system.sh
     # workaround for docker permissions
     - sudo chown ghc:ghc -R .
   after_script:
@@ -375,6 +376,8 @@ validate-x86_64-darwin:
   variables:
     TEST_ENV: "aarch64-linux-deb9"
     BIN_DIST_PREP_TAR_COMP: "bindistprep/ghc-aarch64-linux-deb9.tar.xz"
+    # Inexplicably makeindex fails
+    BUILD_SPHINX_PDF: "NO"
   cache:
     key: linux-aarch64-deb9
   tags:
@@ -441,7 +444,8 @@ nightly-i386-linux-deb9:
   cache:
     key: linux-x86_64-deb9
 
-validate-x86_64-linux-deb9:
+# Disabled to reduce CI load
+.validate-x86_64-linux-deb9:
   extends: .build-x86_64-linux-deb9
   artifacts:
     when: always
@@ -463,14 +467,29 @@ validate-x86_64-linux-deb9-debug:
   stage: build
   variables:
     BUILD_FLAVOUR: validate
+    TEST_TYPE: slowtest
     TEST_ENV: "x86_64-linux-deb9-debug"
+  artifacts:
+    when: always
+    expire_in: 2 week
 
-validate-x86_64-linux-deb9-llvm:
+# Disabled to alleviate CI load
+.validate-x86_64-linux-deb9-llvm:
   extends: .build-x86_64-linux-deb9
   stage: full-build
   variables:
     BUILD_FLAVOUR: perf-llvm
     TEST_ENV: "x86_64-linux-deb9-llvm"
+
+nightly-x86_64-linux-deb9-llvm:
+  extends: .build-x86_64-linux-deb9
+  stage: full-build
+  variables:
+    BUILD_FLAVOUR: perf-llvm
+    TEST_ENV: "x86_64-linux-deb9-llvm"
+  only:
+    variables:
+      - $NIGHTLY
 
 validate-x86_64-linux-deb9-integer-simple:
   extends: .build-x86_64-linux-deb9
@@ -776,7 +795,7 @@ doc-tarball:
     - x86_64-linux
   image: ghcci/x86_64-linux-deb9:0.2
   dependencies:
-    - validate-x86_64-linux-deb9
+    - validate-x86_64-linux-deb9-debug
     - validate-x86_64-windows
   variables:
     LINUX_BINDIST: "ghc-x86_64-deb9-linux.tar.xz"

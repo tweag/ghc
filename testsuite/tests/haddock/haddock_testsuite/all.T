@@ -1,20 +1,22 @@
+accept = 'ACCEPT=--accept' if config.accept else 'ACCEPT=""'
+
 test('haddockHtmlTest',
      [ignore_stdout, ignore_stderr, unless(in_tree_compiler(), skip), req_haddock],
      makefile_test,
-     ['htmlTest'])
+     ['htmlTest ' + accept])
 
 test('haddockLatexTest',
      [ignore_stdout, ignore_stderr, unless(in_tree_compiler(), skip), req_haddock],
      makefile_test,
-     ['latexTest'])
+     ['latexTest ' + accept])
 
 test('haddockHoogleTest',
      [ignore_stdout, ignore_stderr, unless(in_tree_compiler(), skip), req_haddock],
      makefile_test,
-     ['hoogleTest'])
+     ['hoogleTest ' + accept])
 
 test('haddockHypsrcTest',
      [ignore_stdout, ignore_stderr, unless(in_tree_compiler(), skip), req_haddock,
       expect_broken(0)],   # see https://github.com/haskell/haddock/issues/1048
      makefile_test,
-     ['hypsrcTest'])
+     ['hypsrcTest ' + accept])
