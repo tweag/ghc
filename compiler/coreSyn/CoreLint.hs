@@ -619,10 +619,7 @@ lintRhs bndr rhs
       = lintCoreExpr rhs
 
     lint_join_lams n tot enforce (Lam var expr)
-      = addLoc (LambdaBodyOf var) $
-        lintBinder LambdaBind var $ \ var' ->
-        do { body_ty <- lint_join_lams (n-1) tot enforce expr
-           ; return $ mkLamType var' body_ty }
+      = lintLambda var $ lint_join_lams (n-1) tot enforce expr
 
     lint_join_lams n tot True _other
       = failWithL $ mkBadJoinArityMsg bndr tot (tot-n) rhs
@@ -643,12 +640,7 @@ lintRhs _bndr rhs = fmap lf_check_static_ptrs getLintFlags >>= go
       = markAllJoinsBad $
         foldr
         -- imitate @lintCoreExpr (Lam ...)@
-        (\var loopBinders ->
-          addLoc (LambdaBodyOf var) $
-            lintBinder LambdaBind var $ \var' ->
-              do { body_ty <- loopBinders
-                 ; return $ mkLamType var' body_ty }
-        )
+        lintLambda
         -- imitate @lintCoreExpr (App ...)@
         (do fun_ty <- lintCoreExpr fun
             addLoc (AnExpr rhs') $ lintCoreArgs fun_ty [Type t, info, e]
@@ -778,11 +770,8 @@ lintCoreExpr e@(App _ _)
     (fun, args) = collectArgs e
 
 lintCoreExpr (Lam var expr)
-  = addLoc (LambdaBodyOf var) $
-    markAllJoinsBad $
-    lintBinder LambdaBind var $ \ var' ->
-    do { body_ty <- lintCoreExpr expr
-       ; return $ mkLamType var' body_ty }
+  = markAllJoinsBad $
+    lintLambda var $ lintCoreExpr expr
 
 lintCoreExpr e@(Case scrut var alt_ty alts) =
        -- Check the scrutinee
@@ -873,10 +862,7 @@ lintCoreFun (Lam var body) nargs
   -- Act like lintCoreExpr of Lam, but *don't* call markAllJoinsBad; see
   -- Note [Beta redexes]
   | nargs /= 0
-  = addLoc (LambdaBodyOf var) $
-    lintBinder LambdaBind var $ \ var' ->
-    do { body_ty <- lintCoreFun body (nargs - 1)
-       ; return $ mkLamType var' body_ty }
+  = lintLambda var $ lintCoreFun body (nargs - 1)
 
 lintCoreFun expr nargs
   = markAllJoinsBadIf (nargs /= 0) $
@@ -893,6 +879,14 @@ checkDeadIdOcc id
                 (text "Occurrence of a dead Id" <+> ppr id) }
   | otherwise
   = return ()
+
+------------------
+lintLambda :: Var -> LintM Type -> LintM Type
+lintLambda var lintBody =
+  addLoc (LambdaBodyOf var) $
+  lintBinder LambdaBind var $ \var' ->
+  do { body_ty <- lintBody
+     ; return (mkLamType var' body_ty) }
 
 ------------------
 checkJoinOcc :: Id -> JoinArity -> LintM ()
