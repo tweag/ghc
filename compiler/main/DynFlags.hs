@@ -320,8 +320,8 @@ import qualified EnumSet
 import GHC.Foreign (withCString, peekCString)
 import qualified GHC.LanguageExtensions as LangExt
 
-#if defined(GHCI)
-import Foreign (Ptr) -- needed for 2nd stage
+#if defined(HAVE_INTERPRETER)
+import Foreign (Ptr)
 #endif
 
 -- Note [Updating flag description in the User's Guide]
@@ -911,6 +911,7 @@ data WarningFlag =
    | Opt_WarnSpaceAfterBang
    | Opt_WarnMissingDerivingStrategies    -- Since 8.8
    | Opt_WarnPrepositiveQualifiedModule   -- Since TBD
+   | Opt_WarnUnusedPackages               -- Since 8.10
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -1420,7 +1421,7 @@ pgm_P                 :: DynFlags -> (String,[Option])
 pgm_P dflags = toolSettings_pgm_P $ toolSettings dflags
 pgm_F                 :: DynFlags -> String
 pgm_F dflags = toolSettings_pgm_F $ toolSettings dflags
-pgm_c                 :: DynFlags -> (String,[Option])
+pgm_c                 :: DynFlags -> String
 pgm_c dflags = toolSettings_pgm_c $ toolSettings dflags
 pgm_a                 :: DynFlags -> (String,[Option])
 pgm_a dflags = toolSettings_pgm_a $ toolSettings dflags
@@ -3048,7 +3049,7 @@ dynamic_flags_deps = [
       $ hasArg $ \f -> alterToolSettings $ \s -> s { toolSettings_pgm_F   = f }
   , make_ord_flag defFlag "pgmc"
       $ hasArg $ \f -> alterToolSettings $ \s -> s
-         { toolSettings_pgm_c   = (f,[])
+         { toolSettings_pgm_c   = f
          , -- Don't pass -no-pie with -pgmc
            -- (see #15319)
            toolSettings_ccSupportsNoPie = False
@@ -4110,7 +4111,8 @@ wWarningFlagsDeps = [
   flagSpec "missing-space-after-bang"    Opt_WarnSpaceAfterBang,
   flagSpec "partial-fields"              Opt_WarnPartialFields,
   flagSpec "prepositive-qualified-module"
-                                         Opt_WarnPrepositiveQualifiedModule
+                                         Opt_WarnPrepositiveQualifiedModule,
+  flagSpec "unused-packages"             Opt_WarnUnusedPackages
  ]
 
 -- | These @-\<blah\>@ flags can all be reversed with @-no-\<blah\>@
@@ -4340,7 +4342,7 @@ supportedExtensions :: [String]
 supportedExtensions = concatMap toFlagSpecNamePair xFlags
   where
     toFlagSpecNamePair flg
-#if !defined(GHCI)
+#if !defined(HAVE_INTERPRETER)
       -- IMPORTANT! Make sure that `ghc --supported-extensions` omits
       -- "TemplateHaskell"/"QuasiQuotes" when it's known not to work out of the
       -- box. See also GHC #11102 and #16331 for more details about

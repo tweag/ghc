@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP, MagicHash, RecordWildCards, BangPatterns #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving, PatternSynonyms #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# OPTIONS_GHC -fprof-auto-top #-}
 --
 --  (c) The University of Glasgow 2002-2006
@@ -1862,7 +1864,7 @@ data BcM_State
           -- See Note [generating code for top-level string literal bindings].
         }
 
-newtype BcM r = BcM (BcM_State -> IO (BcM_State, r))
+newtype BcM r = BcM (BcM_State -> IO (BcM_State, r)) deriving (Functor)
 
 ioToBc :: IO a -> BcM a
 ioToBc io = BcM $ \st -> do
@@ -1891,9 +1893,6 @@ thenBc_ (BcM expr) (BcM cont) = BcM $ \st0 -> do
 
 returnBc :: a -> BcM a
 returnBc result = BcM $ \st -> (return (st, result))
-
-instance Functor BcM where
-    fmap = liftM
 
 instance Applicative BcM where
     pure = returnBc

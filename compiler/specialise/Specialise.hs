@@ -6,6 +6,7 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE ViewPatterns #-}
 module Specialise ( specProgram, specUnfolding ) where
 
@@ -2533,16 +2534,13 @@ deleteCallsFor bs calls = delDVarEnvList calls bs
 ************************************************************************
 -}
 
-newtype SpecM a = SpecM (State SpecState a)
+newtype SpecM a = SpecM (State SpecState a) deriving (Functor)
 
 data SpecState = SpecState {
                      spec_uniq_supply :: UniqSupply,
                      spec_module :: Module,
                      spec_dflags :: DynFlags
                  }
-
-instance Functor SpecM where
-    fmap = liftM
 
 instance Applicative SpecM where
     pure x = SpecM $ return x
