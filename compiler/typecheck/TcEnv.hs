@@ -685,15 +685,11 @@ tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env }) tc_ty_things
 tcCollectingUsage :: TcM a -> TcM (UsageEnv,a)
 tcCollectingUsage thing_inside
   = do { env0 <- getLclEnv
-       ; (local_usage_ref,env1) <- push_fresh_usage env0
+       ; local_usage_ref <- newTcRef zeroUE
+       ; let env1 = env0 { tcl_usage = local_usage_ref }
        ; result <- setLclEnv env1 thing_inside
        ; local_usage <- readTcRef local_usage_ref
        ; return (local_usage,result) }
-  where
-    push_fresh_usage :: TcLclEnv -> TcM (TcRef UsageEnv,TcLclEnv)
-    push_fresh_usage env
-      = do { usage <- newTcRef zeroUE
-           ; return ( usage , env { tcl_usage = usage } ) }
 
 -- | @tcScalingUsage mult thing_inside@ runs @thing_inside@ and scales all the
 -- usage information by @mult@.

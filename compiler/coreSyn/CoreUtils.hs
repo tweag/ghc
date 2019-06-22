@@ -2303,7 +2303,7 @@ There are some particularly delicate points here:
 
 * With linear types, eta-reduction can break type-checking:
         f :: A ⊸ B
-        g:: A -> B
+        g :: A -> B
         g = \x. f x
 
   The above is correct, but eta-reducing g would yield g=f, the linter will

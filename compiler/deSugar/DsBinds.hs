@@ -270,7 +270,6 @@ dsAbsBinds dflags tyvars dicts exports
   = do { let core_bind = Rec [ makeCorePair dflags (add_inline lcl_id) False 0 rhs
                               | (lcl_id, rhs) <- bind_prs ]
                 -- Monomorphic recursion possible, hence Rec
-
              new_force_vars = get_new_force_vars force_vars
              locals       = map abe_mono exports
              all_locals   = locals ++ new_force_vars

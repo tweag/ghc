@@ -560,7 +560,6 @@ tc_pat _ (NPat _ (dL->L l over_lit) mb_neg eq) pat_ty thing_inside
         ; pat_ty <- readExpType (scaledThing pat_ty)
         ; return (NPat pat_ty (cL l lit') mb_neg' eq', res) }
 
-
 {-
 Note [NPlusK patterns]
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -623,7 +622,6 @@ tc_pat penv (NPlusKPat _ (dL->L nm_loc name) (dL->L loc lit) _ ge minus) pat_ty_
               pat' = NPlusKPat pat_ty (cL nm_loc bndr_id) (cL loc lit1') lit2'
                                ge' minus''
         ; return (pat', res) }
-
 
 -- HsSpliced is an annotation produced by 'RnSplice.rnSplicePat'.
 -- Here we get rid of it and add the finalizers to the global environment.

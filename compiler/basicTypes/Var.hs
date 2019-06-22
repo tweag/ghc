@@ -44,6 +44,7 @@ module Var (
         -- ** Taking 'Var's apart
         varName, varUnique, varType,
         varMult, varMultMaybe, varMultDef,
+        varScaledType,
 
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType,
@@ -411,6 +412,9 @@ varMultMaybe _ = Nothing
 
 varMultDef :: Id -> Mult
 varMultDef = fromMaybe Omega . varMultMaybe
+
+varScaledType :: Id -> Scaled Kind
+varScaledType var = Scaled (varMult var) (varType var)
 
 scaleVarBy :: Id -> Mult -> Id
 scaleVarBy id@(Id { varMult = w }) r =

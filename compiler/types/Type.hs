@@ -342,7 +342,6 @@ import Control.Monad    ( guard )
 -- if they are spotted, to the best of its abilities. If you don't want this
 -- to happen, use the equivalent functions from the "TcType" module.
 
-
 {-
 ************************************************************************
 *                                                                      *
@@ -1146,7 +1145,7 @@ mkTyConApp tycon tys
 -- look through synonyms.
 tyConAppTyConPicky_maybe :: Type -> Maybe TyCon
 tyConAppTyConPicky_maybe (TyConApp tc _) = Just tc
-tyConAppTyConPicky_maybe (FunTy _ _ _ _) = Just funTyCon
+tyConAppTyConPicky_maybe (FunTy {})      = Just funTyCon
 tyConAppTyConPicky_maybe _               = Nothing
 
 
@@ -1154,7 +1153,7 @@ tyConAppTyConPicky_maybe _               = Nothing
 tyConAppTyCon_maybe :: Type -> Maybe TyCon
 tyConAppTyCon_maybe ty | Just ty' <- coreView ty = tyConAppTyCon_maybe ty'
 tyConAppTyCon_maybe (TyConApp tc _) = Just tc
-tyConAppTyCon_maybe (FunTy _ _ _ _) = Just funTyCon
+tyConAppTyCon_maybe (FunTy {})      = Just funTyCon
 tyConAppTyCon_maybe _               = Nothing
 
 tyConAppTyCon :: Type -> TyCon
@@ -1394,12 +1393,13 @@ mkLamType v body_ty
    = ForAllTy (Bndr v Required) body_ty
 
    | isPredTy arg_ty  -- See Note [mkLamType: dictionary arguments]
-   = mkInvisFunTy (varMult v) arg_ty body_ty
+   = ASSERT(eqType arg_mult Omega)
+     mkInvisFunTy arg_mult arg_ty body_ty
 
    | otherwise
-   = mkVisFunTy (varMult v) arg_ty body_ty
+   = mkVisFunTy arg_mult arg_ty body_ty
    where
-     arg_ty = varType v
+     Scaled arg_mult arg_ty = varScaledType v
 
 mkLamTypes vs ty = foldr mkLamType ty vs
 
@@ -2646,7 +2646,6 @@ nonDetCmpTypeX env orig_t1 orig_t2 =
             get_rank (TyConApp {})   = 5
             get_rank (FunTy {})      = 6
             get_rank (ForAllTy {})   = 7
-
 
     gos :: RnEnv2 -> [Type] -> [Type] -> TypeOrdering
     gos _   []         []         = TEQ

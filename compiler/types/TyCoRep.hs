@@ -3309,8 +3309,8 @@ substTys subst tys
 substScaledTys :: HasCallStack => TCvSubst -> [Scaled Type] -> [Scaled Type]
 substScaledTys subst scaled_tys
   | isEmptyTCvSubst subst = scaled_tys
-  | otherwise = zipWith Scaled (substTys subst $ map scaledMult  scaled_tys)
-                               (substTys subst $ map scaledThing scaled_tys)
+  | otherwise = checkValidSubst subst (map scaledMult scaled_tys ++ map scaledThing scaled_tys) [] $
+                map (mapScaledType (subst_ty subst)) scaled_tys
 
 -- | Substitute within several 'Type's disabling the sanity checks.
 -- The problems that the sanity checks in substTys catch are described in
@@ -3849,7 +3849,7 @@ debug_ppr_ty prec ty@(FunTy { ft_af = af, ft_mult = mult, ft_arg = arg, ft_res =
                           Omega -> arrow
                           w -> mulArrow (ppr w)
             InvisArg -> case mult of
-                          Omega -> text "=>"
+                          Omega -> darrow
                           _ -> pprPanic "unexpected multiplicity" (ppr ty)
 
 debug_ppr_ty prec (TyConApp tc tys)
