@@ -521,10 +521,12 @@ Library
         TcRules
         TcSimplify
         TcHoleErrors
+        TcHoleFitTypes
         TcErrors
         TcTyClsDecls
         TcTyDecls
         TcTypeable
+        TcTypeableValidity
         TcType
         TcEvidence
         TcEvTerm
@@ -608,7 +610,6 @@ Library
             Reg
             RegClass
             PIC
-            Platform
             CPrim
             X86.Regs
             X86.RegInfo

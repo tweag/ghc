@@ -5,6 +5,12 @@
 
   * Add a `TestEquality` instance for the `Compose` newtype.
 
+  * `Data.Ord.Down` now has a field name, `getDown`
+
+  * Add `Bits`, `Bounded`, `Enum`, `FiniteBits`, `Floating`, `Fractional`,
+    `Integral`, `Ix`, `Real`, `RealFrac`, `RealFloat` and `Storable` instances
+    to `Data.Ord.Down`.
+
   * Fix the `integer-gmp` variant of `isValidNatural`: Previously it would fail
     to detect values `<= maxBound::Word` that were incorrectly encoded using
     the `NatJ#` constructor.

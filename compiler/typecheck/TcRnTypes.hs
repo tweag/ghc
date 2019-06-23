@@ -210,6 +210,8 @@ import Data.Maybe    ( mapMaybe )
 import GHCi.Message
 import GHCi.RemoteTypes
 
+import {-# SOURCE #-} TcHoleFitTypes ( HoleFitPlugin )
+
 import qualified Language.Haskell.TH as TH
 
 -- | A 'NameShape' is a substitution on 'Name's that can be used
@@ -687,6 +689,8 @@ data TcGblEnv
 
         tcg_tc_plugins :: [TcPluginSolver],
         -- ^ A list of user-defined plugins for the constraint solver.
+        tcg_hf_plugins :: [HoleFitPlugin],
+        -- ^ A list of user-defined plugins for hole fit suggestions.
 
         tcg_top_loc :: RealSrcSpan,
         -- ^ The RealSrcSpan this module came from
@@ -1548,6 +1552,10 @@ data TcIdSigInst
                -- No need to keep track of whether they are truly lexically
                --   scoped because the renamer has named them uniquely
                -- See Note [Binding scoped type variables] in TcSigs
+               --
+               -- NB: The order of sig_inst_skols is irrelevant
+               --     for a CompleteSig, but for a PartialSig see
+               --     Note [Quantified varaibles in partial type signatures]
 
          , sig_inst_theta  :: TcThetaType
                -- Instantiated theta.  In the case of a
@@ -1559,15 +1567,15 @@ data TcIdSigInst
 
          -- Relevant for partial signature only
          , sig_inst_wcs   :: [(Name, TcTyVar)]
-               -- Like sig_inst_skols, but for wildcards.  The named
-               -- wildcards scope over the binding, and hence their
-               -- Names may appear in type signatures in the binding
+               -- Like sig_inst_skols, but for /named/ wildcards (_a etc).
+               -- The named wildcards scope over the binding, and hence
+               -- their Names may appear in type signatures in the binding
 
          , sig_inst_wcx   :: Maybe TcType
                -- Extra-constraints wildcard to fill in, if any
                -- If this exists, it is surely of the form (meta_tv |> co)
                -- (where the co might be reflexive). This is filled in
-               -- only from the return value of TcHsType.tcWildCardOcc
+               -- only from the return value of TcHsType.tcAnonWildCardOcc
          }
 
 {- Note [sig_inst_tau may be polymorphic]
@@ -1577,6 +1585,26 @@ if the original function had a signature like
    forall a. Eq a => forall b. Ord b => ....
 But that's ok: tcMatchesFun (called by tcRhs) can deal with that
 It happens, too!  See Note [Polymorphic methods] in TcClassDcl.
+
+Note [Quantified varaibles in partial type signatures]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider
+   f :: forall a b. _ -> a -> _ -> b
+   f (x,y) p q = q
+
+Then we expect f's final type to be
+  f :: forall {x,y}. forall a b. (x,y) -> a -> b -> b
+
+Note that x,y are Inferred, and can't be use for visible type
+application (VTA).  But a,b are Specified, and remain Specified
+in the final type, so we can use VTA for them.  (Exception: if
+it turns out that a's kind mentions b we need to reorder them
+with scopedSort.)
+
+The sig_inst_skols of the TISI from a partial signature records
+that original order, and is used to get the variables of f's
+final type in the correct order.
+
 
 Note [Wildcards in partial signatures]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
