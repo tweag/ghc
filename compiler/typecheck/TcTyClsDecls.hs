@@ -41,7 +41,7 @@ import TcUnify ( unifyKind )
 import TcHsType
 import ClsInst( AssocInstInfo(..) )
 import TcMType
-import TysWiredIn ( unitTy, makeRecoveryTyCon )
+import TysWiredIn ( unitTy, makeRecoveryTyCon, multiplicityTy )
 import TcType
 import Multiplicity
 import RnEnv( lookupConstructorFields )
@@ -1197,17 +1197,18 @@ kcTyClDecl (XTyClDecl _)                            = panic "kcTyClDecl"
 -- here.)
 unifyNewtypeKind :: DynFlags
                  -> NewOrData
-                 -> [LHsType GhcRn]   -- user-written argument types, should be just 1
-                 -> [TcType]          -- type-checked argument types, should be just 1
+                 -> [HsScaled GhcRn (LHsType GhcRn)]   -- user-written argument types, should be just 1
+                 -> [Scaled TcType]   -- type-checked argument types, should be just 1
                  -> TcKind            -- expected kind of newtype
-                 -> TcM [TcType]      -- casted argument types (should be just 1)
+                 -> TcM [Scaled TcType]      -- casted argument types (should be just 1)
                                       --  result = orig_arg |> kind_co
                                       -- where kind_co :: orig_arg_ki ~N expected_ki
-unifyNewtypeKind dflags NewType [hs_ty] [tc_ty] ki
+unifyNewtypeKind dflags NewType [HsScaled hs_mult hs_ty] [Scaled tc_mult tc_ty] ki
   | xopt LangExt.UnliftedNewtypes dflags
   = do { traceTc "unifyNewtypeKind" (ppr hs_ty $$ ppr tc_ty $$ ppr ki)
        ; co <- unifyKind (Just (unLoc hs_ty)) (typeKind tc_ty) ki
-       ; return [tc_ty `mkCastTy` co] }
+       ; co_m <- unifyKind (Just (unLoc $ arrowToHsType hs_mult)) (typeKind tc_mult) multiplicityTy
+       ; return [Scaled (tc_mult `mkCastTy` co_m) (tc_ty `mkCastTy` co)] }
   -- See comments above: just do nothing here
 unifyNewtypeKind _ _ _ arg_tys _ = return arg_tys
 
@@ -1215,10 +1216,10 @@ unifyNewtypeKind _ _ _ arg_tys _ = return arg_tys
 -- This includes doing kind unification if the type is a newtype.
 -- See Note [Implementation of UnliftedNewtypes] for why we need
 -- the first two arguments.
-kcConArgTys :: NewOrData -> Kind -> [Scaled (LHsType GhcRn)] -> TcM ()
+kcConArgTys :: NewOrData -> Kind -> [HsScaled GhcRn (LHsType GhcRn)] -> TcM ()
 kcConArgTys new_or_data res_kind arg_tys = do
-  { arg_tc_tys <- mapM (tcHsOpenType . getBangType . scaledThing) arg_tys
-  ; mapM_ (tcMult . scaledMult) arg_tys
+  { arg_tc_tys <- mapM (\(HsScaled m t) -> Scaled <$> tcMult m <*> tcHsOpenType (getBangType t)) arg_tys
+  ; mapM_ (tcMult . hsMult) arg_tys
     -- See Note [Implementation of UnliftedNewtypes], STEP 2
   ; dflags <- getDynFlags
   ; discardResult $
