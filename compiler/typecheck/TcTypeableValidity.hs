@@ -37,7 +37,9 @@ typeIsTypeable ty
   | isLiftedTypeKind ty             = True
 typeIsTypeable (TyVarTy _)          = True
 typeIsTypeable (AppTy a b)          = typeIsTypeable a && typeIsTypeable b
-typeIsTypeable (FunTy _ a b)        = typeIsTypeable a && typeIsTypeable b
+typeIsTypeable (FunTy _ m a b)      = typeIsTypeable m &&
+                                      typeIsTypeable a &&
+                                      typeIsTypeable b
 typeIsTypeable (TyConApp tc args)   = tyConIsTypeable tc
                                    && all typeIsTypeable args
 typeIsTypeable (ForAllTy{})         = False
