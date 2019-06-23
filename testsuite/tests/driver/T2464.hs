@@ -1,9 +1,9 @@
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -DTEST #-}
-{-# OPTIONS_GHC -fffi #-} -- deprecation warning
 #ifdef TEST
-{-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE DeriveFunctor #-}
 #endif
+{-# LANGUAGE NullaryTypeClasses #-}  -- generate a deprecation warning
 
 module Test2464 where
-data T
+data T a deriving (Functor)

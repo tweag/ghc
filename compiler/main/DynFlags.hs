@@ -56,7 +56,7 @@ module DynFlags (
         PackageDBFlag(..), PkgConfRef(..),
         Option(..), showOpt,
         DynLibLoader(..),
-        fFlags, fLangFlags, xFlags,
+        fFlags, xFlags,
         wWarningFlags,
         dynFlagDependencies,
         tablesNextToCode,
@@ -3792,8 +3792,6 @@ dynamic_flags_deps = [
         (NoArg (mapM_ unSetFatalWarningFlag minusWcompatOpts))
     , make_ord_flag defFlag "Wwarn=compat"
         (NoArg (mapM_ unSetFatalWarningFlag minusWcompatOpts)) ]
- ++ map (mkFlag turnOn  "f"         setExtensionFlag  ) fLangFlagsDeps
- ++ map (mkFlag turnOff "fno-"      unSetExtensionFlag) fLangFlagsDeps
  ++ map (mkFlag turnOn  "X"         setExtensionFlag  ) xFlagsDeps
  ++ map (mkFlag turnOff "XNo"       unSetExtensionFlag) xFlagsDeps
  ++ map (mkFlag turnOn  "X"         setLanguage       ) languageFlagsDeps
@@ -4291,45 +4289,6 @@ fHoleFlags = [
   flagSpec "show-type-app-vars-of-hole-fits"  Opt_ShowTypeAppVarsOfHoleFits,
   flagSpec "show-docs-of-hole-fits"           Opt_ShowDocsOfHoleFits,
   flagSpec "unclutter-valid-hole-fits"        Opt_UnclutterValidHoleFits
-  ]
-
--- | These @-f\<blah\>@ flags can all be reversed with @-fno-\<blah\>@
-fLangFlags :: [FlagSpec LangExt.Extension]
-fLangFlags = map snd fLangFlagsDeps
-
-fLangFlagsDeps :: [(Deprecation, FlagSpec LangExt.Extension)]
-fLangFlagsDeps = [
--- See Note [Updating flag description in the User's Guide]
--- See Note [Supporting CLI completion]
-  depFlagSpecOp' "th"                           LangExt.TemplateHaskell
-    checkTemplateHaskellOk
-    (deprecatedForExtension "TemplateHaskell"),
-  depFlagSpec' "fi"                             LangExt.ForeignFunctionInterface
-    (deprecatedForExtension "ForeignFunctionInterface"),
-  depFlagSpec' "ffi"                            LangExt.ForeignFunctionInterface
-    (deprecatedForExtension "ForeignFunctionInterface"),
-  depFlagSpec' "arrows"                         LangExt.Arrows
-    (deprecatedForExtension "Arrows"),
-  depFlagSpec' "implicit-prelude"               LangExt.ImplicitPrelude
-    (deprecatedForExtension "ImplicitPrelude"),
-  depFlagSpec' "bang-patterns"                  LangExt.BangPatterns
-    (deprecatedForExtension "BangPatterns"),
-  depFlagSpec' "monomorphism-restriction"       LangExt.MonomorphismRestriction
-    (deprecatedForExtension "MonomorphismRestriction"),
-  depFlagSpec' "mono-pat-binds"                 LangExt.MonoPatBinds
-    (deprecatedForExtension "MonoPatBinds"),
-  depFlagSpec' "extended-default-rules"         LangExt.ExtendedDefaultRules
-    (deprecatedForExtension "ExtendedDefaultRules"),
-  depFlagSpec' "implicit-params"                LangExt.ImplicitParams
-    (deprecatedForExtension "ImplicitParams"),
-  depFlagSpec' "scoped-type-variables"          LangExt.ScopedTypeVariables
-    (deprecatedForExtension "ScopedTypeVariables"),
-  depFlagSpec' "allow-overlapping-instances"    LangExt.OverlappingInstances
-    (deprecatedForExtension "OverlappingInstances"),
-  depFlagSpec' "allow-undecidable-instances"    LangExt.UndecidableInstances
-    (deprecatedForExtension "UndecidableInstances"),
-  depFlagSpec' "allow-incoherent-instances"     LangExt.IncoherentInstances
-    (deprecatedForExtension "IncoherentInstances")
   ]
 
 supportedLanguages :: [String]
