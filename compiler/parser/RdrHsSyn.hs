@@ -2652,6 +2652,7 @@ checkPrecP (dL->L l (_,i)) (dL->L _ ol)
  | all specialOp ol = pure ()
  | otherwise = addFatalError l (text ("Precedence out of range: " ++ show i))
   where
+    -- If you change this, consider updating Note [Fixity of (->)] in GHC/Types.hs
     specialOp op = unLoc op `elem` [ eqTyCon_RDR
                                    , getRdrName unrestrictedFunTyCon ]
 
