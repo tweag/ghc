@@ -1,6 +1,7 @@
 {-# LANGUAGE MagicHash, NoImplicitPrelude, TypeFamilies, UnboxedTuples,
              MultiParamTypeClasses, RoleAnnotations, CPP, TypeOperators,
              PolyKinds, NegativeLiterals #-}
+-- NegativeLiterals: see Note [Fixity of (->)]
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  GHC.Types
@@ -57,7 +58,18 @@ infixr 5 :
 *                                                                      *
 ********************************************************************* -}
 
-infixr -1 -> -- issue #10145
+infixr -1 ->
+{-
+Note [Fixity of (->)]
+~~~~~~~~~~~~~~~~~~~~~
+This declaration is important for :info (->) command (issue #10145)
+1) The parser parses -> as if it had lower fixity than 0,
+   so we conventionally use -1 (issue #15235).
+2) Fixities outside the 0-9 range are exceptionally allowed
+   for (->) (see checkPrecP in RdrHsSyn)
+3) The negative fixity -1 must be parsed as a single token,
+   hence this module requires NegativeLiterals.
+-}
 
 -- | The built-in function type.
 type (->) = FUN 'Omega
