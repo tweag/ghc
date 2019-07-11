@@ -812,17 +812,17 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
     unify = mkWpCastN <$> uType TypeLevel eq_orig ty_actual ty_expected
 
 tcEqMult :: CtOrigin -> CtOrigin -> UserTypeCtxt -> Mult -> Mult -> TcM ()
-tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
+tcEqMult _ _ _ w_actual w_expected = do
   {
   -- Note that here we do not call to `submult`, so we check
   -- for strict equality.
-  ; wrap <- tc_sub_type_ds eq_orig inst_orig ctxt w_actual w_expected
+  ; coercion <- unifyType Nothing w_actual w_expected
 
   -- We do not support multiplicity coercions yet.
-  -- If the wrapper is nontrivial, we do not compile.
+  -- If the coercion is nontrivial, we do not compile.
   -- (This is important for the test LinearPolyType,
   -- and for failing linearity tests with -fdefer-type-errors.)
-  ; when (not (isIdHsWrapper wrap)) (addErrTc
+  ; when (not (isReflCo coercion)) (addErrTc
      (text "Nontrivial multiplicity equalities are currently not supported"))
 
   ; return () }
