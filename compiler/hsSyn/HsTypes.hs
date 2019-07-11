@@ -21,8 +21,10 @@ HsTypes: Abstract syntax: user-defined types
 
 module HsTypes (
         Mult, HsScaled(..),
+        hsMult, hsThing,
         HsArrow(..), arrowToHsType,
         hsLinear, hsUnrestricted, isUnrestricted,
+
         HsType(..), NewHsTypeX(..), LHsType, HsKind, LHsKind,
         HsTyVarBndr(..), LHsTyVarBndr, ForallVisFlag(..),
         LHsQTyVars(..),
@@ -788,7 +790,13 @@ arrowToHsType (HsExplicitMult p) = p
 
 -- | This is used in the syntax. In constructor declaration. It must keep the
 -- arrow representation.
-data HsScaled pass a = HsScaled { hsMult :: HsArrow pass, hsThing :: a }
+data HsScaled pass a = HsScaled (HsArrow pass) a
+
+hsMult :: HsScaled pass a -> HsArrow pass
+hsMult (HsScaled m _) = m
+
+hsThing :: HsScaled pass a -> a
+hsThing (HsScaled _ t) = t
 
 -- | When creating syntax we use the shorthands. It's better for printing, also,
 -- the shorthands work trivially at each pass.

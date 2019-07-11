@@ -18,6 +18,8 @@ module Multiplicity
   , mkMultMul
   , mkMultSup
   , Scaled(..)
+  , scaledMult
+  , scaledThing
   , unrestricted
   , linear
   , tymult
@@ -127,8 +129,14 @@ submult _     _     = Unknown
 --
 
 -- | A shorthand for data with an attached 'Mult' element (the multiplicity).
-data Scaled a = Scaled {scaledMult :: Mult, scaledThing :: a}
+data Scaled a = Scaled Mult a
   deriving (Data)
+
+scaledMult :: Scaled a -> Mult
+scaledMult (Scaled m _) = m
+
+scaledThing :: Scaled a -> a
+scaledThing (Scaled _ t) = t
 
 unrestricted, linear, tymult :: a -> Scaled a
 unrestricted = Scaled Omega
@@ -151,8 +159,7 @@ scaledSet :: Scaled a -> b -> Scaled b
 scaledSet (Scaled m _) b = Scaled m b
 
 scaleScaled :: Mult -> Scaled a -> Scaled a
-scaleScaled w x =
-  x { scaledMult = w `mkMultMul` scaledMult x }
+scaleScaled m' (Scaled m t) = Scaled (m' `mkMultMul` m) t
 
 mapScaledType :: (Type -> Type) -> Scaled Type -> Scaled Type
 mapScaledType f (Scaled m t) = Scaled (f m) (f t)
