@@ -759,7 +759,7 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
     go (FunTy { ft_af = VisArg, ft_mult = act_mult, ft_arg = act_arg, ft_res = act_res })
        (FunTy { ft_af = VisArg, ft_mult = exp_mult, ft_arg = exp_arg, ft_res = exp_res })
       = -- See Note [Co/contra-variance of subsumption checking]
-        do { tcEqMult eq_orig inst_orig ctxt act_mult exp_mult
+        do { tcEqMult eq_orig act_mult exp_mult
            ; res_wrap <- tc_sub_type_ds eq_orig inst_orig  ctxt       act_res exp_res
            ; arg_wrap <- tc_sub_tc_type eq_orig given_orig GenSigCtxt exp_arg act_arg
                          -- GenSigCtxt: See Note [Setting the argument context]
@@ -811,18 +811,18 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
      -- use versions without synonyms expanded
     unify = mkWpCastN <$> uType TypeLevel eq_orig ty_actual ty_expected
 
-tcEqMult :: CtOrigin -> CtOrigin -> UserTypeCtxt -> Mult -> Mult -> TcM ()
-tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
+tcEqMult :: CtOrigin -> Mult -> Mult -> TcM ()
+tcEqMult origin w_actual w_expected = do
   {
   -- Note that here we do not call to `submult`, so we check
   -- for strict equality.
-  ; wrap <- tc_sub_type_ds eq_orig inst_orig ctxt w_actual w_expected
+  ; coercion <- uType TypeLevel origin w_actual w_expected
 
   -- We do not support multiplicity coercions yet.
-  -- If the wrapper is nontrivial, we do not compile.
+  -- If the coercion is nontrivial, we do not compile.
   -- (This is important for the test LinearPolyType,
   -- and for failing linearity tests with -fdefer-type-errors.)
-  ; when (not (isIdHsWrapper wrap)) (addErrTc
+  ; when (not (isReflCo coercion)) (addErrTc
      (text "Nontrivial multiplicity equalities are currently not supported"))
 
   ; return () }
@@ -831,7 +831,7 @@ tcEqMult eq_orig inst_orig ctxt w_actual w_expected = do
 -- This should be replaced by a solver once we know how to infer
 -- multiplicities.
 tcSubMult :: CtOrigin -> Mult -> Mult -> TcM ()
-tcSubMult o a_w c_w = tcEqMult o o TypeAppCtxt a_w c_w
+tcSubMult origin w_actual w_expected = tcEqMult origin w_actual w_expected
 
 
 {- Note [Settting the argument context]
