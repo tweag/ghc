@@ -407,7 +407,7 @@ tcValBinds top_lvl binds sigs thing_inside
                 --
                 -- For the moment, let bindings and top-level bindings introduce
                 -- only unrestricted variables.
-        ; tcExtendSigIds top_lvl [unrestricted id | id <- poly_ids] $ do
+        ; tcExtendSigIds top_lvl poly_ids $ do
             { (binds', (extra_binds', thing)) <- tcBindGroups top_lvl sig_fn prag_fn binds $ do
                    { thing <- thing_inside
                      -- See Note [Pattern synonym builders don't yield dependencies]
@@ -505,7 +505,7 @@ tc_group top_lvl sig_fn prag_fn (Recursive, binds) closed thing_inside
     go (scc:sccs) = do  { (binds1, ids1) <- tc_scc scc
                          -- recursive bindings must be unrestricted
                          -- (the ids added to the environment here are the name of the recursive definitions).
-                        ; (binds2, thing) <- tcExtendLetEnv top_lvl sig_fn closed (map unrestricted ids1)
+                        ; (binds2, thing) <- tcExtendLetEnv top_lvl sig_fn closed ids1
                                                             (go sccs)
                         ; return (binds1 `unionBags` binds2, thing) }
     go []         = do  { thing <- thing_inside; return (emptyBag, thing) }
@@ -546,7 +546,7 @@ tc_single top_lvl sig_fn prag_fn lbind closed thing_inside
                                       [lbind]
          -- since we are defining a non-recursive binding, it is not necessary here
          -- to define an unrestricted binding. But we do so until toplevel linear bindings are supported.
-       ; thing <- tcExtendLetEnv top_lvl sig_fn closed (map unrestricted ids) thing_inside
+       ; thing <- tcExtendLetEnv top_lvl sig_fn closed ids thing_inside
        ; return (binds1, thing) }
 
 ------------------------
@@ -1309,7 +1309,7 @@ tcMonoBinds _ sig_fn no_gen binds
 
         ; traceTc "tcMonoBinds" $ vcat [ ppr n <+> ppr id <+> ppr (idType id)
                                        | (n,id) <- rhs_id_env]
-        ; binds' <- tcExtendRecIds (map (fmap unrestricted) rhs_id_env) $
+        ; binds' <- tcExtendRecIds rhs_id_env $
                     mapM (wrapLocM tcRhs) tc_binds
 
         ; return (listToBag binds', mono_infos) }

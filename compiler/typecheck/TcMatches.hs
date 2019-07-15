@@ -534,7 +534,7 @@ tcLcStmt m_tc ctxt (TransStmt { trS_form = form, trS_stmts = stmts
 
        -- Type check the thing in the environment with
        -- these new binders and return the result
-       ; thing <- tcExtendIdEnv (map unrestricted n_bndr_ids) (thing_inside elt_ty)
+       ; thing <- tcExtendIdEnv n_bndr_ids (thing_inside elt_ty)
 
        ; return (TransStmt { trS_stmts = stmts', trS_bndrs = bindersMap'
                            , trS_by = fmap fst by', trS_using = final_using
@@ -715,7 +715,7 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
 
        -- Type check the thing in the environment with
        -- these new binders and return the result
-       ; thing <- tcExtendIdEnv (map unrestricted n_bndr_ids) $
+       ; thing <- tcExtendIdEnv n_bndr_ids $
                   thing_inside (mkCheckExpType new_res_ty)
 
        ; return (TransStmt { trS_stmts = stmts', trS_bndrs = bindersMap'
@@ -882,7 +882,7 @@ tcDoStmt ctxt (RecStmt { recS_stmts = stmts, recS_later_ids = later_names
                 -- Omega because it's a recursive definition
               tup_ty  = mkBigCoreTupTy tup_elt_tys
 
-        ; tcExtendIdEnv (map unrestricted tup_ids) $ do
+        ; tcExtendIdEnv tup_ids $ do
         { ((stmts', (ret_op', tup_rets)), stmts_ty)
                 <- tcInferInst $ \ exp_ty ->
                    tcStmtsAndThen ctxt tcDoStmt stmts exp_ty $ \ inner_res_ty ->
@@ -1011,7 +1011,7 @@ tcApplicativeStmts ctxt pairs rhs_ty thing_inside
       -- Bring into scope all the things bound by the args,
       -- and typecheck the thing_inside
       -- See Note [ApplicativeDo and constraints]
-      ; res <- tcExtendIdEnv (map unrestricted $ concatMap get_arg_bndrs args') $
+      ; res <- tcExtendIdEnv (concatMap get_arg_bndrs args') $
                thing_inside body_ty
 
       ; return (zip ops' args', body_ty, res) }

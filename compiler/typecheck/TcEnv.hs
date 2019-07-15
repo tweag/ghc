@@ -496,44 +496,44 @@ isTypeClosedLetBndr :: Id -> Bool
 -- See Note [Bindings with closed types] in TcRnTypes
 isTypeClosedLetBndr = noFreeVarsOfType . idType
 
-tcExtendRecIds :: [(Name, Scaled TcId)] -> TcM a -> TcM a
+tcExtendRecIds :: [(Name, TcId)] -> TcM a -> TcM a
 -- Used for binding the recurive uses of Ids in a binding
 -- both top-level value bindings and and nested let/where-bindings
 -- Does not extend the TcBinderStack
 tcExtendRecIds pairs thing_inside
   = tc_extend_local_env NotTopLevel
           [ (name, ATcId { tct_id   = let_id
-                         , tct_mult = let_mult
+                         , tct_mult = Omega
                          , tct_info = NonClosedLet emptyNameSet False })
-          | (name, Scaled let_mult let_id) <- pairs ] $
+          | (name, let_id) <- pairs ] $
     thing_inside
 
-tcExtendSigIds :: TopLevelFlag -> [Scaled TcId] -> TcM a -> TcM a
+tcExtendSigIds :: TopLevelFlag -> [TcId] -> TcM a -> TcM a
 -- Used for binding the Ids that have a complete user type signature
 -- Does not extend the TcBinderStack
 tcExtendSigIds top_lvl sig_ids thing_inside
   = tc_extend_local_env top_lvl
           [ (idName id, ATcId { tct_id   = id
-                              , tct_mult = id_mult
+                              , tct_mult = Omega
                               , tct_info = info })
-          | Scaled id_mult id <- sig_ids
+          | id <- sig_ids
           , let closed = isTypeClosedLetBndr id
                 info   = NonClosedLet emptyNameSet closed ]
      thing_inside
 
 
 tcExtendLetEnv :: TopLevelFlag -> TcSigFun -> IsGroupClosed
-                  -> [Scaled TcId] -> TcM a -> TcM a
+                  -> [TcId] -> TcM a -> TcM a
 -- Used for both top-level value bindings and and nested let/where-bindings
 -- Adds to the TcBinderStack too
 tcExtendLetEnv top_lvl sig_fn (IsGroupClosed fvs fv_type_closed)
                ids thing_inside
-  = tcExtendBinderStack [TcIdBndr id top_lvl | Scaled _ id <- ids] $
+  = tcExtendBinderStack [TcIdBndr id top_lvl | id <- ids] $
     tc_extend_local_env top_lvl
           [ (idName id, ATcId { tct_id   = id
-                              , tct_mult = id_mult
+                              , tct_mult = Omega
                               , tct_info = mk_tct_info id })
-          | Scaled id_mult id <- ids ]
+          | id <- ids ]
     thing_inside
   where
     mk_tct_info id
@@ -545,11 +545,11 @@ tcExtendLetEnv top_lvl sig_fn (IsGroupClosed fvs fv_type_closed)
         type_closed = isTypeClosedLetBndr id &&
                       (fv_type_closed || hasCompleteSig sig_fn name)
 
-tcExtendIdEnv :: [Scaled TcId] -> TcM a -> TcM a
+tcExtendIdEnv :: [TcId] -> TcM a -> TcM a
 -- For lambda-bound and case-bound Ids
 -- Extends the TcBinderStack as well
 tcExtendIdEnv ids thing_inside
-  = tcExtendIdEnv2 [(idName (scaledThing id), id) | id <- ids] thing_inside
+  = tcExtendIdEnv2 [(idName id, unrestricted id) | id <- ids] thing_inside
 
 tcExtendIdEnv1 :: Name -> Scaled TcId -> TcM a -> TcM a
 -- Exactly like tcExtendIdEnv2, but for a single (name,id) pair
