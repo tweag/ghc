@@ -31,6 +31,7 @@ module TcEnv(
         tcExtendTyVarEnv, tcExtendNameTyVarEnv,
         tcExtendLetEnv, tcExtendSigIds, tcExtendRecIds,
         tcExtendIdEnv, tcExtendIdEnv1, tcExtendIdEnv2,
+        tcExtendIdEnv1Scaled,
         tcExtendBinderStack, tcExtendLocalTypeEnv,
         isTypeClosedLetBndr,
         tcEmitBindingUsage, tcCollectingUsage, tcScalingUsage,
@@ -548,17 +549,21 @@ tcExtendIdEnv :: [TcId] -> TcM a -> TcM a
 tcExtendIdEnv ids thing_inside
   = tcExtendIdEnv2 [(idName id, id) | id <- ids] thing_inside
 
-tcExtendIdEnv1 :: Name -> Scaled TcId -> TcM a -> TcM a
--- Like tcExtendIdEnv2, but for a single (name,id) pair
--- and checks scaling
-tcExtendIdEnv1 name (Scaled id_mult id) thing_inside
-  = do { (local_usage, result) <- tcCollectingUsage $ tcExtendIdEnv2 [(name,id)] thing_inside
+tcExtendIdEnv1 :: Name -> TcId -> TcM a -> TcM a
+-- Exactly like tcExtendIdEnv2, but for a single (name,id) pair
+tcExtendIdEnv1 name id thing_inside
+  = tcExtendIdEnv2 [(name,id)] thing_inside
+
+tcExtendIdEnv1Scaled :: Name -> Scaled TcId -> TcM a -> TcM a
+-- Like tcExtendIdEnv1, but also checks scaling
+tcExtendIdEnv1Scaled name (Scaled id_mult id) thing_inside
+  = do { (local_usage, result) <- tcCollectingUsage $ tcExtendIdEnv1 name id thing_inside
        ; check_then_add_usage local_usage
        ; return result }
     where
     check_then_add_usage :: UsageEnv -> TcM ()
-    -- Checks that the usage of the newly introduced binders is compatible with
-    -- their multiplicity. If so, combines the usage of non-new binders to |uenv|
+    -- Checks that the usage of the newly introduced binder is compatible with
+    -- its multiplicity, and combines the usage of non-new binders to |uenv|
     check_then_add_usage u0
       = do { uok <- check_binder u0
            ; env <- getLclEnv
