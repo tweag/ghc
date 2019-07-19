@@ -80,6 +80,7 @@ import HsSyn
 import IfaceEnv
 import TcRnMonad
 import TcMType
+import TcEvidence (HsWrapper, idHsWrapper)
 import Multiplicity
 import UsageEnv
 import TcType
@@ -554,35 +555,37 @@ tcExtendIdEnv1 :: Name -> TcId -> TcM a -> TcM a
 tcExtendIdEnv1 name id thing_inside
   = tcExtendIdEnv2 [(name,id)] thing_inside
 
-tcExtendIdEnv1Scaled :: Name -> Scaled TcId -> TcM a -> TcM a
+tcExtendIdEnv1Scaled :: Name -> Scaled TcId -> TcM a -> TcM (a, HsWrapper)
 -- Like tcExtendIdEnv1, but also checks scaling
 tcExtendIdEnv1Scaled name (Scaled id_mult id) thing_inside
   = do { (local_usage, result) <- tcCollectingUsage $ tcExtendIdEnv1 name id thing_inside
-       ; check_then_add_usage local_usage
-       ; return result }
+       ; wrapper <- check_then_add_usage local_usage
+       ; return (result, wrapper) }
     where
-    check_then_add_usage :: UsageEnv -> TcM ()
+    check_then_add_usage :: UsageEnv -> TcM HsWrapper
     -- Checks that the usage of the newly introduced binder is compatible with
     -- its multiplicity, and combines the usage of non-new binders to |uenv|
     check_then_add_usage u0
-      = do { uok <- check_binder u0
+      = do { (wrapper, uok) <- check_binder u0
            ; env <- getLclEnv
            ; let usage = tcl_usage env
-           ; updTcRef usage (addUE uok) }
+           ; updTcRef usage (addUE uok)
+           ; return wrapper }
 
-    check_binder :: UsageEnv -> TcM UsageEnv
+    check_binder :: UsageEnv -> TcM (HsWrapper, UsageEnv)
     check_binder uenv
       = do { let actual_w = usageToMult (lookupUE uenv name)
            ; traceTc "check_binder" (ppr id_mult $$ ppr actual_w)
-           ; case submult actual_w id_mult of
-               Submult -> return ()
+           ; wrapper <- case submult actual_w id_mult of
+               Submult -> return idHsWrapper
                Unknown -> tcSubMult (UsageEnvironmentOf name) actual_w id_mult
-               NotSubmult  ->
+               NotSubmult  -> do
                  addErrTc $ text "Couldn't match expected multiplicity" <+> quotes (ppr id_mult) <+>
                             text "of variable" <+> quotes (ppr name) <+>
                             text "with actual multiplicity" <+> quotes (ppr actual_w)
+                 return idHsWrapper
                  -- In case of error, recover by pretending that the multiplicity usage was correct
-           ; return $ deleteUE uenv name }
+           ; return (wrapper, deleteUE uenv name) }
 
 
 tcExtendIdEnv2 :: [(Name,TcId)] -> TcM a -> TcM a
