@@ -333,7 +333,7 @@ tc_pat  :: PatEnv
 
 tc_pat penv (VarPat x (dL->L l name)) pat_ty thing_inside
   = do  { (wrap, id) <- tcPatBndr penv name pat_ty
-        ; res <- tcExtendIdEnv1 name (pat_ty `scaledSet` id) thing_inside
+        ; res <- tcExtendIdEnv1Scaled name (pat_ty `scaledSet` id) thing_inside
         ; pat_ty <- readExpType (scaledThing pat_ty)
         ; return (mkHsWrapPat wrap (VarPat x (cL l id)) pat_ty, res) }
 
@@ -372,7 +372,7 @@ tc_pat _ (WildPat _) pat_ty thing_inside
 tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside
   = do  { checkOmegaPattern pat_ty
         ; (wrap, bndr_id) <- setSrcSpan nm_loc (tcPatBndr penv name pat_ty)
-        ; (pat', res) <- tcExtendIdEnv1 name (pat_ty `scaledSet` bndr_id) $
+        ; (pat', res) <- tcExtendIdEnv1 name bndr_id $
                          tc_lpat pat (pat_ty `scaledSet`(mkCheckExpType $ idType bndr_id))
                                  penv thing_inside
             -- NB: if we do inference on:
@@ -615,7 +615,7 @@ tc_pat penv (NPlusKPat _ (dL->L nm_loc name) (dL->L loc lit) _ ge minus) pat_ty_
           do { icls <- tcLookupClass integralClassName
              ; instStupidTheta orig [mkClassPred icls [pat_ty]] }
 
-        ; res <- tcExtendIdEnv1 name (pat_ty_scaled `scaledSet` bndr_id) thing_inside
+        ; res <- tcExtendIdEnv1 name bndr_id thing_inside
 
         ; let minus'' = minus' { syn_res_wrap =
                                     minus_wrap <.> syn_res_wrap minus' }
