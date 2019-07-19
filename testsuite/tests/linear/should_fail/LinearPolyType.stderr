@@ -1,7 +1,3 @@
 
-LinearPolyType.hs:14:8: error:
-    • Nontrivial multiplicity equalities are currently not supported
-    • In the ambiguity check for ‘dep’
-      To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
-      In the type signature:
-        dep :: SBool b -> Int -->.(If b One Omega) Int
+LinearPolyType.hs:15:1: error:
+    Multiplicity coercions are currently not supported
