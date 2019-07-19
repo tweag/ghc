@@ -1140,7 +1140,9 @@ dsHsWrapper (WpCast co)       = ASSERT(coercionRole co == Representational)
                                 return $ \e -> mkCastDs e co
 dsHsWrapper (WpEvApp tm)      = do { core_tm <- dsEvTerm tm
                                    ; return (\e -> App e core_tm) }
-
+dsHsWrapper (WpMultCoercion co) = do { when (not (isReflCo co)) $
+                                         errDs (text "Multiplicity coercions are currently not supported")
+                                     ; return $ \e -> e }
 --------------------------------------
 dsTcEvBinds_s :: [TcEvBinds] -> DsM [CoreBind]
 dsTcEvBinds_s []       = return []

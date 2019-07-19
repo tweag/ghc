@@ -215,6 +215,7 @@ data HsWrapper
 
   | WpLet TcEvBinds             -- Non-empty (or possibly non-empty) evidence bindings,
                                 -- so that the identity coercion is always exactly WpHole
+  | WpMultCoercion Coercion
 
 -- Cannot derive Data instance because SDoc is not Data (it stores a function).
 -- So we do it manually:
@@ -228,6 +229,7 @@ instance Data.Data HsWrapper where
   gfoldl k z (WpTyLam a1)       = z WpTyLam `k` a1
   gfoldl k z (WpTyApp a1)       = z WpTyApp `k` a1
   gfoldl k z (WpLet a1)         = z WpLet `k` a1
+  gfoldl k z (WpMultCoercion a1) = z WpMultCoercion `k` a1
 
   gunfold k z c = case Data.constrIndex c of
                     1 -> z WpHole
@@ -238,7 +240,8 @@ instance Data.Data HsWrapper where
                     6 -> k (z WpEvApp)
                     7 -> k (z WpTyLam)
                     8 -> k (z WpTyApp)
-                    _ -> k (z WpLet)
+                    9 -> k (z WpLet)
+                    _ -> k (z WpMultCoercion)
 
   toConstr WpHole          = wpHole_constr
   toConstr (WpCompose _ _) = wpCompose_constr
@@ -249,6 +252,7 @@ instance Data.Data HsWrapper where
   toConstr (WpTyLam _)     = wpTyLam_constr
   toConstr (WpTyApp _)     = wpTyApp_constr
   toConstr (WpLet _)       = wpLet_constr
+  toConstr (WpMultCoercion _) = wpMultCoercion_constr
 
   dataTypeOf _ = hsWrapper_dataType
 
@@ -257,10 +261,11 @@ hsWrapper_dataType
   = Data.mkDataType "HsWrapper"
       [ wpHole_constr, wpCompose_constr, wpFun_constr, wpCast_constr
       , wpEvLam_constr, wpEvApp_constr, wpTyLam_constr, wpTyApp_constr
-      , wpLet_constr]
+      , wpLet_constr, wpMultCoercion_constr ]
 
 wpHole_constr, wpCompose_constr, wpFun_constr, wpCast_constr, wpEvLam_constr,
-  wpEvApp_constr, wpTyLam_constr, wpTyApp_constr, wpLet_constr :: Data.Constr
+  wpEvApp_constr, wpTyLam_constr, wpTyApp_constr, wpLet_constr,
+  wpMultCoercion_constr :: Data.Constr
 wpHole_constr    = mkHsWrapperConstr "WpHole"
 wpCompose_constr = mkHsWrapperConstr "WpCompose"
 wpFun_constr     = mkHsWrapperConstr "WpFun"
@@ -270,6 +275,7 @@ wpEvApp_constr   = mkHsWrapperConstr "WpEvApp"
 wpTyLam_constr   = mkHsWrapperConstr "WpTyLam"
 wpTyApp_constr   = mkHsWrapperConstr "WpTyApp"
 wpLet_constr     = mkHsWrapperConstr "WpLet"
+wpMultCoercion_constr     = mkHsWrapperConstr "WpMultCoercion"
 
 mkHsWrapperConstr :: String -> Data.Constr
 mkHsWrapperConstr name = Data.mkConstr hsWrapper_dataType name [] Data.Prefix
@@ -359,6 +365,7 @@ isErasableHsWrapper = go
     go WpTyLam{}               = True
     go WpTyApp{}               = True
     go WpLet{}                 = False
+    go WpMultCoercion{}        = True
 
 collectHsWrapBinders :: HsWrapper -> ([Var], HsWrapper)
 -- Collect the outer lambda binders of a HsWrapper,
@@ -920,6 +927,8 @@ pprHsWrapper wrap pp_thing_inside
     help it (WpEvLam id)  = add_parens $ sep [ text "\\" <> pprLamBndr id <> dot, it False]
     help it (WpTyLam tv)  = add_parens $ sep [text "/\\" <> pprLamBndr tv <> dot, it False]
     help it (WpLet binds) = add_parens $ sep [text "let" <+> braces (ppr binds), it False]
+    help it (WpMultCoercion co)   = add_parens $ sep [it False, nest 2 (text "<multiplicity coercion>"
+                                              <+> pprParendCo co)]
 
 pprLamBndr :: Id -> SDoc
 pprLamBndr v = pprBndr LambdaBind v
