@@ -80,7 +80,7 @@ import HsSyn
 import IfaceEnv
 import TcRnMonad
 import TcMType
-import TcEvidence (HsWrapper, idHsWrapper)
+import TcEvidence (HsWrapper)
 import Multiplicity
 import UsageEnv
 import TcType
@@ -576,15 +576,7 @@ tcExtendIdEnv1Scaled name (Scaled id_mult id) thing_inside
     check_binder uenv
       = do { let actual_w = usageToMult (lookupUE uenv name)
            ; traceTc "check_binder" (ppr id_mult $$ ppr actual_w)
-           ; wrapper <- case submult actual_w id_mult of
-               Submult -> return idHsWrapper
-               Unknown -> tcSubMult (UsageEnvironmentOf name) actual_w id_mult
-               NotSubmult  -> do
-                 addErrTc $ text "Couldn't match expected multiplicity" <+> quotes (ppr id_mult) <+>
-                            text "of variable" <+> quotes (ppr name) <+>
-                            text "with actual multiplicity" <+> quotes (ppr actual_w)
-                 return idHsWrapper
-                 -- In case of error, recover by pretending that the multiplicity usage was correct
+           ; wrapper <- tcSubMult (UsageEnvironmentOf name) actual_w id_mult
            ; return (wrapper, deleteUE uenv name) }
 
 
