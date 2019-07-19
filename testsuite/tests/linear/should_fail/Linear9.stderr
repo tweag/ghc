@@ -7,12 +7,14 @@ Linear9.hs:9:17: error:
       In an equation for ‘incorrectFst’: incorrectFst (a, _) = a
 
 Linear9.hs:12:20: error:
-    • Couldn't match expected multiplicity ‘'One’ of variable ‘b’ with actual multiplicity ‘'Omega’
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from multiplicity of ‘b’
     • In the pattern: (a, b)
       In an equation for ‘incorrectFstVar’: incorrectFstVar (a, b) = a
 
 Linear9.hs:15:20: error:
-    • Couldn't match expected multiplicity ‘'One’ of variable ‘a’ with actual multiplicity ‘'Omega’
+    • Couldn't match type ‘'Omega’ with ‘'One’
+        arising from multiplicity of ‘a’
     • In the pattern: (a, b)
       In an equation for ‘incorrectFirstDup’:
           incorrectFirstDup (a, b) = ((a, a), b)

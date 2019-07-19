@@ -815,7 +815,10 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
 -- This should be replaced by a solver once we know how to infer
 -- multiplicities.
 tcSubMult :: CtOrigin -> Mult -> Mult -> TcM HsWrapper
-tcSubMult origin w_actual w_expected = tcEqMult origin w_actual w_expected
+tcSubMult origin w_actual w_expected =
+   case submult w_actual w_expected of
+     Submult -> return WpHole
+     Unknown -> tcEqMult origin w_actual w_expected
 
 tcEqMult :: CtOrigin -> Mult -> Mult -> TcM HsWrapper
 tcEqMult origin w_actual w_expected = do
