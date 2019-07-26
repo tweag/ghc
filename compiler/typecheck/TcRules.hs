@@ -163,7 +163,7 @@ generateRuleConstraints ty_bndrs tm_bndrs lhs rhs
               -- the RULE.  c.f. #10072
 
        ; tcExtendTyVarEnv tv_bndrs $
-         tcExtendIdEnv    (map unrestricted id_bndrs) $
+         tcExtendIdEnv    id_bndrs $
     do { -- See Note [Solve order for RULES]
          ((lhs', rule_ty), lhs_wanted) <- captureConstraints (tcInferRho lhs)
        ; (rhs',            rhs_wanted) <- captureConstraints $

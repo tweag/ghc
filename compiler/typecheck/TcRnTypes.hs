@@ -1085,7 +1085,6 @@ data TcTyThing
   | ATcId           -- Ids defined in this module; may not be fully zonked
       { tct_id   :: TcId
       , tct_info :: IdBindingInfo   -- See Note [Meaning of IdBindingInfo]
-      , tct_mult :: Mult
       }
 
   | ATyVar  Name TcTyVar   -- See Note [Type variables in the type environment]
