@@ -333,7 +333,8 @@ tc_pat  :: PatEnv
 
 tc_pat penv (VarPat x (dL->L l name)) pat_ty thing_inside
   = do  { (wrap, id) <- tcPatBndr penv name pat_ty
-        ; (res, mult_wrap) <- tcExtendIdEnv1Scaled name (pat_ty `scaledSet` id) thing_inside
+        ; (res, mult_wrap) <- tcCheckUsage name (scaledMult pat_ty) $
+                              tcExtendIdEnv1 name id thing_inside
         ; pat_ty <- readExpType (scaledThing pat_ty)
         ; return (mkHsWrapPat (wrap <.> mult_wrap) (VarPat x (cL l id)) pat_ty, res) }
 

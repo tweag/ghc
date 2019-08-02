@@ -31,10 +31,10 @@ module TcEnv(
         tcExtendTyVarEnv, tcExtendNameTyVarEnv,
         tcExtendLetEnv, tcExtendSigIds, tcExtendRecIds,
         tcExtendIdEnv, tcExtendIdEnv1, tcExtendIdEnv2,
-        tcExtendIdEnv1Scaled,
         tcExtendBinderStack, tcExtendLocalTypeEnv,
         isTypeClosedLetBndr,
         tcEmitBindingUsage, tcCollectingUsage, tcScalingUsage,
+        tcCheckUsage,
 
         tcLookup, tcLookupLocated, tcLookupLocalIds,
         tcLookupId, tcLookupIdMaybe, tcLookupTyVar,
@@ -555,23 +555,6 @@ tcExtendIdEnv1 :: Name -> TcId -> TcM a -> TcM a
 tcExtendIdEnv1 name id thing_inside
   = tcExtendIdEnv2 [(name,id)] thing_inside
 
-tcExtendIdEnv1Scaled :: Name -> Scaled TcId -> TcM a -> TcM (a, HsWrapper)
--- Like tcExtendIdEnv1, but also checks scaling
-tcExtendIdEnv1Scaled name (Scaled id_mult id) thing_inside
-  = do { (local_usage, result) <- tcCollectingUsage $ tcExtendIdEnv1 name id thing_inside
-       ; wrapper <- check_then_add_usage local_usage
-       ; return (result, wrapper) }
-    where
-    check_then_add_usage :: UsageEnv -> TcM HsWrapper
-    -- Checks that the usage of the newly introduced binder is compatible with
-    -- its multiplicity, and combines the usage of non-new binders to |uenv|
-    check_then_add_usage uenv
-      = do { let actual_w = usageToMult (lookupUE uenv name)
-           ; traceTc "check_then_add_usage" (ppr id_mult $$ ppr actual_w)
-           ; wrapper <- tcSubMult (UsageEnvironmentOf name) actual_w id_mult
-           ; tcEmitBindingUsage (deleteUE uenv name)
-           ; return wrapper }
-
 tcExtendIdEnv2 :: [(Name,TcId)] -> TcM a -> TcM a
 tcExtendIdEnv2 names_w_ids thing_inside
   = tcExtendBinderStack [ TcIdBndr mono_id NotTopLevel
@@ -686,6 +669,25 @@ tcScalingUsage mult thing_inside
        ; traceTc "tsScalingUsage" (ppr mult)
        ; tcEmitBindingUsage $ scaleUE mult usage
        ; return result }
+
+-- | @tcCheckUsage name mult thing_inside@ runs @thing_inside@,
+-- checks that the usage of @name@ is a submultiplicity of @mult@,
+-- and removes @name@ from the usage environment.
+tcCheckUsage :: Name -> Mult -> TcM a -> TcM (a, HsWrapper)
+tcCheckUsage name id_mult thing_inside
+  = do { (local_usage, result) <- tcCollectingUsage thing_inside
+       ; wrapper <- check_then_add_usage local_usage
+       ; return (result, wrapper) }
+    where
+    check_then_add_usage :: UsageEnv -> TcM HsWrapper
+    -- Checks that the usage of the newly introduced binder is compatible with
+    -- its multiplicity, and combines the usage of non-new binders to |uenv|
+    check_then_add_usage uenv
+      = do { let actual_w = usageToMult (lookupUE uenv name)
+           ; traceTc "check_then_add_usage" (ppr id_mult $$ ppr actual_w)
+           ; wrapper <- tcSubMult (UsageEnvironmentOf name) actual_w id_mult
+           ; tcEmitBindingUsage (deleteUE uenv name)
+           ; return wrapper }
 
 {- *********************************************************************
 *                                                                      *
