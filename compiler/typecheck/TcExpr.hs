@@ -379,7 +379,7 @@ tcExpr expr@(OpApp fix arg1 op arg2) res_ty
        ; (wrap_arg1, [arg2_sigma], op_res_ty) <-
            matchActualFunTys doc orig1 (Just (unLoc arg1)) 1 arg1_ty
 
-       ; wrapper <- tcSubMult AppOrigin Omega (scaledMult arg2_sigma)
+       ; mult_wrap <- tcSubMult AppOrigin Omega (scaledMult arg2_sigma)
          -- When ($) becomes multiplicity-polymorphic, then the above check will
          -- need to go. But in the meantime, it would produce ill-typed
          -- desugared code to accept linear functions to the left of a ($).
@@ -424,7 +424,7 @@ tcExpr expr@(OpApp fix arg1 op arg2) res_ty
              --
              -- We need to zonk here as well, see Dollar2 for an example
              wrap1 = mkWpFun idHsWrapper wrap_res arg2_sigma res_ty doc
-                     <.> wrap_arg1 <.> wrapper
+                     <.> wrap_arg1 <.> mult_wrap
              doc = text "When looking at the argument to ($)"
 
        ; return (OpApp fix (mkLHsWrap wrap1 arg1') op' arg2') }
