@@ -565,17 +565,12 @@ tcExtendIdEnv1Scaled name (Scaled id_mult id) thing_inside
     check_then_add_usage :: UsageEnv -> TcM HsWrapper
     -- Checks that the usage of the newly introduced binder is compatible with
     -- its multiplicity, and combines the usage of non-new binders to |uenv|
-    check_then_add_usage u0
-      = do { (wrapper, uok) <- check_binder u0
-           ; tcEmitBindingUsage uok
-           ; return wrapper }
-
-    check_binder :: UsageEnv -> TcM (HsWrapper, UsageEnv)
-    check_binder uenv
+    check_then_add_usage uenv
       = do { let actual_w = usageToMult (lookupUE uenv name)
-           ; traceTc "check_binder" (ppr id_mult $$ ppr actual_w)
+           ; traceTc "check_then_add_usage" (ppr id_mult $$ ppr actual_w)
            ; wrapper <- tcSubMult (UsageEnvironmentOf name) actual_w id_mult
-           ; return (wrapper, deleteUE uenv name) }
+           ; tcEmitBindingUsage (deleteUE uenv name)
+           ; return wrapper }
 
 tcExtendIdEnv2 :: [(Name,TcId)] -> TcM a -> TcM a
 tcExtendIdEnv2 names_w_ids thing_inside
