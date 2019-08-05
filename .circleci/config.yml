@@ -59,13 +59,13 @@ aliases:
   - &make
     run:
       name: Build
-      command: "make -j`mk/detect-cpu-count.sh` V=0"
+      command: "make -j2 V=0"
   - &build_hadrian
     run:
       name: Build GHC using Hadrian
       command: |
         cabal update
-        hadrian/build.sh -j`mk/detect-cpu-count.sh`
+        hadrian/build.sh -j2
   - &test
     run:
       name: Test
@@ -73,7 +73,7 @@ aliases:
         mkdir -p test-results
         METRICS_FILE=$(mktemp)
         echo "export METRICS_FILE=$METRICS_FILE" >> $BASH_ENV
-        make test THREADS=`mk/detect-cpu-count.sh` SKIP_PERF_TESTS=$SKIP_PERF_TESTS TEST_ENV=$TEST_ENV JUNIT_FILE=../../test-results/junit.xml METRICS_FILE=$METRICS_FILE
+        make test THREADS=2 SKIP_PERF_TESTS=$SKIP_PERF_TESTS TEST_ENV=$TEST_ENV JUNIT_FILE=../../test-results/junit.xml METRICS_FILE=$METRICS_FILE
   - &store_test_results
     store_test_results:
       path: test-results
@@ -86,7 +86,7 @@ aliases:
       name: Full Test
       command: |
         mkdir -p test-results
-        make slowtest SKIP_PERF_TESTS=YES THREADS=`mk/detect-cpu-count.sh` JUNIT_FILE=../../test-results/junit.xml
+        make slowtest SKIP_PERF_TESTS=YES THREADS=2 JUNIT_FILE=../../test-results/junit.xml
   - &bindist
     run:
       name: Create bindist
@@ -109,7 +109,6 @@ aliases:
 
 jobs:
   "validate-x86_64-linux":
-    resource_class: xlarge
     docker:
       - image: ghcci/x86_64-linux:0.0.7
     environment:
@@ -131,7 +130,6 @@ jobs:
       - *push_perf_note
 
   "validate-x86_64-freebsd":
-    resource_class: xlarge
     docker:
       - image: ghcci/x86_64-freebsd
     environment:
@@ -179,7 +177,6 @@ jobs:
       - *push_perf_note
 
   "validate-hadrian-x86_64-linux":
-    resource_class: xlarge
     docker:
       - image: ghcci/x86_64-linux:0.0.7
     environment:
@@ -194,7 +191,6 @@ jobs:
       - *build_hadrian
 
   "validate-x86_64-linux-unreg":
-    resource_class: xlarge
     docker:
       - image: ghcci/x86_64-linux:0.0.7
     environment:
@@ -213,7 +209,6 @@ jobs:
       - *push_perf_note
 
   "validate-x86_64-linux-llvm":
-    resource_class: xlarge
     docker:
       - image: ghcci/x86_64-linux:0.0.7
     environment:
@@ -241,7 +236,6 @@ jobs:
 
   # Nightly build with -DDEBUG using devel2 flavour
   "validate-x86_64-linux-debug":
-    resource_class: xlarge
     docker:
       - image: ghcci/x86_64-linux:0.0.7
     environment:
@@ -262,7 +256,6 @@ jobs:
       - *push_perf_note
 
   "validate-i386-linux":
-    resource_class: xlarge
     docker:
       - image: ghcci/i386-linux:0.0.6
     environment:
@@ -284,7 +277,6 @@ jobs:
       - *push_perf_note
 
   "validate-x86_64-fedora":
-    resource_class: xlarge
     docker:
       - image: ghcci/x86_64-linux-fedora:0.0.16
     environment:
@@ -306,7 +298,6 @@ jobs:
       - *push_perf_note
 
   "slow-validate-x86_64-linux":
-    resource_class: xlarge
     docker:
       - image: ghcci/x86_64-linux:0.0.7
     environment:
