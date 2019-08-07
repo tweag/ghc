@@ -59,13 +59,13 @@ aliases:
   - &make
     run:
       name: Build
-      command: "make -j2 V=0"
+      command: "make -j1 V=0"
   - &build_hadrian
     run:
       name: Build GHC using Hadrian
       command: |
         cabal update
-        hadrian/build.sh -j2
+        hadrian/build.sh -j1
   - &test
     run:
       name: Test
@@ -73,7 +73,7 @@ aliases:
         mkdir -p test-results
         METRICS_FILE=$(mktemp)
         echo "export METRICS_FILE=$METRICS_FILE" >> $BASH_ENV
-        make test THREADS=2 SKIP_PERF_TESTS=$SKIP_PERF_TESTS TEST_ENV=$TEST_ENV JUNIT_FILE=../../test-results/junit.xml METRICS_FILE=$METRICS_FILE
+        make test THREADS=1 SKIP_PERF_TESTS=$SKIP_PERF_TESTS TEST_ENV=$TEST_ENV JUNIT_FILE=../../test-results/junit.xml METRICS_FILE=$METRICS_FILE
   - &store_test_results
     store_test_results:
       path: test-results
@@ -86,7 +86,7 @@ aliases:
       name: Full Test
       command: |
         mkdir -p test-results
-        make slowtest SKIP_PERF_TESTS=YES THREADS=2 JUNIT_FILE=../../test-results/junit.xml
+        make slowtest SKIP_PERF_TESTS=YES THREADS=1 JUNIT_FILE=../../test-results/junit.xml
   - &bindist
     run:
       name: Create bindist
