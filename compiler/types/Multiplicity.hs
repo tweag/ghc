@@ -14,6 +14,7 @@ module Multiplicity
   ( Mult
   , pattern One
   , pattern Omega
+  , pattern MultMul
   , mkMultAdd
   , mkMultMul
   , mkMultSup
@@ -37,7 +38,9 @@ import Data.Data
 import Outputable
 import {-# SOURCE #-} TyCoRep (Type)
 import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy )
-import {-# SOURCE #-} Type( eqType )
+import {-# SOURCE #-} Type( eqType, splitTyConApp_maybe )
+import PrelNames (multMulTyConKey)
+import Unique (hasKey)
 
 {-
 Note [Adding new multiplicities]
@@ -62,6 +65,14 @@ pattern One <- (eqType oneDataConTy -> True)
 pattern Omega :: Mult
 pattern Omega <- (eqType omegaDataConTy -> True)
   where Omega = omegaDataConTy
+
+isMultMul :: Mult -> Maybe (Mult, Mult)
+isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
+             , tc `hasKey` multMulTyConKey = Just (x, y)
+             | otherwise = Nothing
+
+pattern MultMul :: Mult -> Mult -> Mult
+pattern MultMul p q <- (isMultMul -> Just (p,q))
 
 {-
 The functions mkMultAdd, mkMultMul, mkMultSup perform operations
