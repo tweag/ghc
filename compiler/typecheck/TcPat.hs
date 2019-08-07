@@ -209,9 +209,8 @@ tcPatBndr penv@(PE { pe_ctxt = LetPat { pc_lvl    = bind_lvl
                                           , ppr bndr_id ])
        ; return (mkWpCastN co, bndr_id) }
 
-tcPatBndr _ bndr_name pat_ty
-  = do { let pat_mult = scaledMult pat_ty
-       ; pat_ty <- expTypeToType (scaledThing pat_ty)
+tcPatBndr _ bndr_name (Scaled pat_mult pat_ty)
+  = do { pat_ty <- expTypeToType pat_ty
        ; traceTc "tcPatBndr(not let)" (ppr bndr_name $$ ppr pat_ty)
        ; return (idHsWrapper, mkLocalId bndr_name pat_mult pat_ty) }
                -- Whether or not there is a sig is irrelevant,
@@ -321,8 +320,8 @@ tc_lpats penv pats tys thing_inside
                 penv thing_inside
 
 --------------------
-checkOmegaPattern :: Scaled a -> TcM HsWrapper
-checkOmegaPattern pat_ty = tcSubMult NonLinearPatternOrigin Omega (scaledMult pat_ty)
+checkOmegaPattern :: Mult -> TcM HsWrapper
+checkOmegaPattern pat_mult = tcSubMult NonLinearPatternOrigin Omega pat_mult
 
 tc_pat  :: PatEnv
         -> Pat GhcRn
@@ -346,10 +345,10 @@ tc_pat penv (BangPat x pat) pat_ty thing_inside
   = do  { (pat', res) <- tc_lpat pat pat_ty penv thing_inside
         ; return (BangPat x pat', res) }
 
-tc_pat penv (LazyPat x pat) pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty
+tc_pat penv (LazyPat x pat) pat_scaled_ty@(Scaled pat_mult pat_ty) thing_inside
+  = do  { mult_wrap <- checkOmegaPattern pat_mult
         ; (pat', (res, pat_ct))
-                <- tc_lpat pat pat_ty (makeLazy penv) $
+                <- tc_lpat pat pat_scaled_ty (makeLazy penv) $
                    captureConstraints thing_inside
                 -- Ignore refined penv', revert to penv
 
@@ -358,23 +357,23 @@ tc_pat penv (LazyPat x pat) pat_ty thing_inside
         --   see Note [Hopping the LIE in lazy patterns]
 
         -- Check that the expected pattern type is itself lifted
-        ; pat_ty <- readExpType (scaledThing pat_ty)
+        ; pat_ty <- readExpType pat_ty
         ; _ <- unifyType Nothing (tcTypeKind pat_ty) liftedTypeKind
 
         ; return (mkHsWrapPat mult_wrap (LazyPat x pat') pat_ty, res) }
 
-tc_pat _ (WildPat _) pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty
+tc_pat _ (WildPat _) (Scaled pat_mult pat_ty) thing_inside
+  = do  { mult_wrap <- checkOmegaPattern pat_mult
         ; res <- thing_inside
-        ; pat_ty <- expTypeToType (scaledThing pat_ty)
+        ; pat_ty <- expTypeToType pat_ty
         ; return (mkHsWrapPat mult_wrap (WildPat pat_ty) pat_ty, res) }
 
 
-tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty
-        ; (wrap, bndr_id) <- setSrcSpan nm_loc (tcPatBndr penv name pat_ty)
+tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_scaled_ty@(Scaled pat_mult pat_ty) thing_inside
+  = do  { mult_wrap <- checkOmegaPattern pat_mult
+        ; (wrap, bndr_id) <- setSrcSpan nm_loc (tcPatBndr penv name pat_scaled_ty)
         ; (pat', res) <- tcExtendIdEnv1 name bndr_id $
-                         tc_lpat pat (pat_ty `scaledSet`(mkCheckExpType $ idType bndr_id))
+                         tc_lpat pat (Scaled pat_mult $ mkCheckExpType $ idType bndr_id)
                                  penv thing_inside
             -- NB: if we do inference on:
             --          \ (y@(x::forall a. a->a)) = e
@@ -383,11 +382,11 @@ tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside
             -- perhaps be fixed, but only with a bit more work.
             --
             -- If you fix it, don't forget the bindInstsOfPatIds!
-        ; pat_ty <- readExpType (scaledThing pat_ty)
+        ; pat_ty <- readExpType pat_ty
         ; return (mkHsWrapPat (wrap <.> mult_wrap) (AsPat x (cL nm_loc bndr_id) pat') pat_ty, res) }
 
-tc_pat penv (ViewPat _ expr pat) overall_pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern overall_pat_ty
+tc_pat penv (ViewPat _ expr pat) (Scaled overall_pat_mult overall_pat_ty) thing_inside
+  = do  { mult_wrap <- checkOmegaPattern overall_pat_mult
           -- It should be possible to have view patterns at linear (or otherwise
           -- non-Omega) multiplicity. But it is not clear at the moment what
           -- restriction need to be put in place, if any, for linear view
@@ -405,16 +404,15 @@ tc_pat penv (ViewPat _ expr pat) overall_pat_ty thing_inside
             -- expr_wrap1 :: expr'_inferred "->" (inf_arg_ty -> inf_res_ty)
 
          -- check that overall pattern is more polymorphic than arg type
-        ; expr_wrap2 <- tcSubTypePat penv (scaledThing overall_pat_ty) inf_arg_ty
+        ; expr_wrap2 <- tcSubTypePat penv overall_pat_ty inf_arg_ty
             -- expr_wrap2 :: overall_pat_ty "->" inf_arg_ty
 
          -- pattern must have inf_res_ty
-        ; (pat', res) <- tc_lpat pat (overall_pat_ty `scaledSet` mkCheckExpType inf_res_ty) penv thing_inside
+        ; (pat', res) <- tc_lpat pat (Scaled overall_pat_mult (mkCheckExpType inf_res_ty)) penv thing_inside
 
-        ; let Scaled w h_overall_pat_ty = overall_pat_ty
-        ; overall_pat_ty <- readExpType h_overall_pat_ty
+        ; overall_pat_ty <- readExpType overall_pat_ty
         ; let expr_wrap2' = mkWpFun expr_wrap2 idHsWrapper
-                                    (Scaled w overall_pat_ty) inf_res_ty doc
+                                    (Scaled overall_pat_mult overall_pat_ty) inf_res_ty doc
                -- expr_wrap2' :: (inf_arg_ty -> inf_res_ty) "->"
                --                (overall_pat_ty -> inf_res_ty)
               expr_wrap = expr_wrap2' <.> expr_wrap1 <.> mult_wrap
@@ -535,13 +533,13 @@ tc_pat penv (LitPat x simple_lit) pat_ty thing_inside
 -- where lit_ty is the type of the overloaded literal 5.
 --
 -- When there is no negation, neg_lit_ty and lit_ty are the same
-tc_pat _ (NPat _ (dL->L l over_lit) mb_neg eq) pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty
+tc_pat _ (NPat _ (dL->L l over_lit) mb_neg eq) (Scaled pat_mult pat_ty) thing_inside
+  = do  { mult_wrap <- checkOmegaPattern pat_mult
           -- It may be possible to refine linear pattern so that they work in
           -- linear environments. But it is not clear how useful this is.
         ; let orig = LiteralOrigin over_lit
         ; ((lit', mb_neg'), eq')
-            <- tcSyntaxOp orig eq [SynType (scaledThing pat_ty), SynAny]
+            <- tcSyntaxOp orig eq [SynType pat_ty, SynAny]
                           (mkCheckExpType boolTy) $
                \ [neg_lit_ty] _ ->
                let new_over_lit lit_ty = newOverloadedLit over_lit
@@ -558,7 +556,7 @@ tc_pat _ (NPat _ (dL->L l over_lit) mb_neg eq) pat_ty thing_inside
                      -- all multiplicities.
 
         ; res <- thing_inside
-        ; pat_ty <- readExpType (scaledThing pat_ty)
+        ; pat_ty <- readExpType pat_ty
         ; return (mkHsWrapPat mult_wrap (NPat pat_ty (cL l lit') mb_neg' eq') pat_ty, res) }
 
 {-
@@ -590,9 +588,9 @@ AST is used for the subtraction operation.
 -}
 
 -- See Note [NPlusK patterns]
-tc_pat penv (NPlusKPat _ (dL->L nm_loc name) (dL->L loc lit) _ ge minus) pat_ty_scaled thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty_scaled
-        ; pat_ty <- expTypeToType (scaledThing pat_ty_scaled)
+tc_pat penv (NPlusKPat _ (dL->L nm_loc name) (dL->L loc lit) _ ge minus) (Scaled pat_mult pat_ty) thing_inside
+  = do  { mult_wrap <- checkOmegaPattern pat_mult
+        ; pat_ty <- expTypeToType pat_ty
         ; let orig = LiteralOrigin lit
         ; (lit1', ge')
             <- tcSyntaxOp orig ge [synKnownType pat_ty, SynRho]
@@ -604,7 +602,7 @@ tc_pat penv (NPlusKPat _ (dL->L nm_loc name) (dL->L loc lit) _ ge minus) pat_ty_
                \ [lit2_ty, var_ty] _ ->
                do { lit2' <- newOverloadedLit lit (mkCheckExpType lit2_ty)
                   ; (wrap, bndr_id) <- setSrcSpan nm_loc $
-                                     tcPatBndr penv name (pat_ty_scaled `scaledSet` mkCheckExpType var_ty)
+                                     tcPatBndr penv name (Scaled pat_mult (mkCheckExpType var_ty))
                            -- co :: var_ty ~ idType bndr_id
 
                            -- minus_wrap is applicable to minus'
@@ -840,7 +838,7 @@ tcPatSynPat :: PatEnv -> Located Name -> PatSyn
             -> Scaled ExpSigmaType         -- Type of the pattern
             -> HsConPatDetails GhcRn -> TcM a
             -> TcM (Pat GhcTcId, a)
-tcPatSynPat penv (dL->L con_span _) pat_syn pat_ty arg_pats thing_inside
+tcPatSynPat penv (dL->L con_span _) pat_syn (Scaled pat_mult pat_ty) arg_pats thing_inside
   = do  { let (univ_tvs, req_theta, ex_tvs, prov_theta, arg_tys, ty) = patSynSig pat_syn
 
         ; (subst, univ_tvs') <- newMetaTyVars univ_tvs
@@ -850,14 +848,13 @@ tcPatSynPat penv (dL->L con_span _) pat_syn pat_ty arg_pats thing_inside
         ; (tenv, ex_tvs') <- tcInstSuperSkolTyVarsX subst ex_tvs
         ; let ty'         = substTy tenv ty
               arg_tys'    = substScaledTys tenv arg_tys
-              pat_mult    = scaledMult pat_ty
               arg_tys_scaled = map (scaleScaled pat_mult) arg_tys'
               prov_theta' = substTheta tenv prov_theta
               req_theta'  = substTheta tenv req_theta
 
-        ; mult_wrap <- checkOmegaPattern pat_ty
+        ; mult_wrap <- checkOmegaPattern pat_mult
 
-        ; wrap <- tcSubTypePat penv (scaledThing pat_ty) ty'
+        ; wrap <- tcSubTypePat penv pat_ty ty'
         ; traceTc "tcPatSynPat" (ppr pat_syn $$
                                  ppr pat_ty $$
                                  ppr ty' $$
@@ -888,7 +885,7 @@ tcPatSynPat penv (dL->L con_span _) pat_syn pat_ty arg_pats thing_inside
                                     pat_args  = arg_pats',
                                     pat_arg_tys = mkTyVarTys univ_tvs',
                                     pat_wrap  = req_wrap }
-        ; pat_ty <- readExpType (scaledThing pat_ty)
+        ; pat_ty <- readExpType pat_ty
         ; return (mkHsWrapPat (wrap <.> mult_wrap) res_pat pat_ty, res) }
 
 ----------------------------
