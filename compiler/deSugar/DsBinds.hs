@@ -1140,7 +1140,7 @@ dsHsWrapper (WpCast co)       = ASSERT(coercionRole co == Representational)
                                 return $ \e -> mkCastDs e co
 dsHsWrapper (WpEvApp tm)      = do { core_tm <- dsEvTerm tm
                                    ; return (\e -> App e core_tm) }
-dsHsWrapper (WpMultCoercion co) = do { when (not (isReflCo co)) $
+dsHsWrapper (WpMultCoercion co) = do { when (not (isReflexiveCo co)) $
                                          errDs (text "Multiplicity coercions are currently not supported")
                                      ; return $ \e -> e }
 --------------------------------------
