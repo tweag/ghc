@@ -88,7 +88,7 @@ type Type = TYPE 'LiftedRep
 
 data Multiplicity = Omega | One
 
-type family MultMul :: Multiplicity -> Multiplicity -> Multiplicity
+type family MultMul (a :: Multiplicity) (b :: Multiplicity) :: Multiplicity
 
 {- *********************************************************************
 *                                                                      *

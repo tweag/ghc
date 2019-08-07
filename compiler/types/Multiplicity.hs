@@ -106,9 +106,7 @@ mkMultMul p q = mkTyConApp multMulTyCon [p, q]
 -- | @mkMultSup w1 w2@ returns the smallest multiplicity larger than
 -- or equal to both @w1@ and @w2@.
 mkMultSup :: Mult -> Mult -> Mult
-mkMultSup One   One   = One
-mkMultSup Omega Omega = Omega
-mkMultSup _     _     = Omega
+mkMultSup = mkMultMul
 -- Note: If you are changing this logic, check 'supUE' in UsageEnv as well.
 
 --
