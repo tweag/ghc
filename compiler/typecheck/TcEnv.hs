@@ -81,7 +81,6 @@ import IfaceEnv
 import TcRnMonad
 import TcMType
 import TcEvidence (HsWrapper)
-import Multiplicity
 import UsageEnv
 import TcType
 import {-# SOURCE #-} TcUnify ( tcSubMult )
