@@ -2482,7 +2482,10 @@ ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()
 ensureSubMult actual_usage described_usage err_msg =
     case actual_usage `submult` described_usage of
       Submult -> return ()
-      Unknown -> when (not (actual_usage `eqType` described_usage)) (addErrL err_msg)
+      Unknown -> case actual_usage of
+                     MultMul m1 m2 -> ensureSubMult m1 described_usage err_msg >>
+                                      ensureSubMult m2 described_usage err_msg
+                     _ -> when (not (actual_usage `eqType` described_usage)) (addErrL err_msg)
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared
