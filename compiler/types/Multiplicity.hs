@@ -106,7 +106,6 @@ mkMultSup _     _     = Omega
 --
 
 data IsSubmult = Submult     -- Definitely a submult
-               | NotSubmult  -- Definitely not a submult
                | Unknown     -- Could be a submult, need to ask the typechecker
                deriving (Show, Eq)
 
@@ -118,7 +117,6 @@ instance Outputable IsSubmult where
 
 submult :: Mult -> Mult -> IsSubmult
 submult _     Omega = Submult
-submult Omega One   = NotSubmult
 submult One   One   = Submult
 -- The 1 <= p rule
 submult One   _     = Submult

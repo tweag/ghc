@@ -1,10 +1,5 @@
 
 LinearVar.hs:5:5: error:
-    • Nontrivial multiplicity equalities are currently not supported
-    • In the expression: undefined :: a -> b
-      In an equation for ‘f’: f = undefined :: a -> b
-
-LinearVar.hs:5:5: error:
     • Couldn't match type ‘m’ with ‘'Omega’
       ‘m’ is a rigid type variable bound by
         the type signature for:

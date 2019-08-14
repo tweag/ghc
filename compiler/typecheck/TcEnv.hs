@@ -34,6 +34,7 @@ module TcEnv(
         tcExtendBinderStack, tcExtendLocalTypeEnv,
         isTypeClosedLetBndr,
         tcEmitBindingUsage, tcCollectingUsage, tcScalingUsage,
+        tcCheckUsage,
 
         tcLookup, tcLookupLocated, tcLookupLocalIds,
         tcLookupId, tcLookupIdMaybe, tcLookupTyVar,
@@ -79,7 +80,7 @@ import HsSyn
 import IfaceEnv
 import TcRnMonad
 import TcMType
-import Multiplicity
+import TcEvidence (HsWrapper)
 import UsageEnv
 import TcType
 import {-# SOURCE #-} TcUnify ( tcSubMult )
@@ -548,37 +549,10 @@ tcExtendIdEnv :: [TcId] -> TcM a -> TcM a
 tcExtendIdEnv ids thing_inside
   = tcExtendIdEnv2 [(idName id, id) | id <- ids] thing_inside
 
-tcExtendIdEnv1 :: Name -> Scaled TcId -> TcM a -> TcM a
--- Like tcExtendIdEnv2, but for a single (name,id) pair
--- and checks scaling
-tcExtendIdEnv1 name (Scaled id_mult id) thing_inside
-  = do { (local_usage, result) <- tcCollectingUsage $ tcExtendIdEnv2 [(name,id)] thing_inside
-       ; check_then_add_usage local_usage
-       ; return result }
-    where
-    check_then_add_usage :: UsageEnv -> TcM ()
-    -- Checks that the usage of the newly introduced binders is compatible with
-    -- their multiplicity. If so, combines the usage of non-new binders to |uenv|
-    check_then_add_usage u0
-      = do { uok <- check_binder u0
-           ; env <- getLclEnv
-           ; let usage = tcl_usage env
-           ; updTcRef usage (addUE uok) }
-
-    check_binder :: UsageEnv -> TcM UsageEnv
-    check_binder uenv
-      = do { let actual_w = usageToMult (lookupUE uenv name)
-           ; traceTc "check_binder" (ppr id_mult $$ ppr actual_w)
-           ; case submult actual_w id_mult of
-               Submult -> return ()
-               Unknown -> tcSubMult (UsageEnvironmentOf name) actual_w id_mult
-               NotSubmult  ->
-                 addErrTc $ text "Couldn't match expected multiplicity" <+> quotes (ppr id_mult) <+>
-                            text "of variable" <+> quotes (ppr name) <+>
-                            text "with actual multiplicity" <+> quotes (ppr actual_w)
-                 -- In case of error, recover by pretending that the multiplicity usage was correct
-           ; return $ deleteUE uenv name }
-
+tcExtendIdEnv1 :: Name -> TcId -> TcM a -> TcM a
+-- Exactly like tcExtendIdEnv2, but for a single (name,id) pair
+tcExtendIdEnv1 name id thing_inside
+  = tcExtendIdEnv2 [(name,id)] thing_inside
 
 tcExtendIdEnv2 :: [(Name,TcId)] -> TcM a -> TcM a
 tcExtendIdEnv2 names_w_ids thing_inside
@@ -694,6 +668,25 @@ tcScalingUsage mult thing_inside
        ; traceTc "tsScalingUsage" (ppr mult)
        ; tcEmitBindingUsage $ scaleUE mult usage
        ; return result }
+
+-- | @tcCheckUsage name mult thing_inside@ runs @thing_inside@,
+-- checks that the usage of @name@ is a submultiplicity of @mult@,
+-- and removes @name@ from the usage environment.
+tcCheckUsage :: Name -> Mult -> TcM a -> TcM (a, HsWrapper)
+tcCheckUsage name id_mult thing_inside
+  = do { (local_usage, result) <- tcCollectingUsage thing_inside
+       ; wrapper <- check_then_add_usage local_usage
+       ; return (result, wrapper) }
+    where
+    check_then_add_usage :: UsageEnv -> TcM HsWrapper
+    -- Checks that the usage of the newly introduced binder is compatible with
+    -- its multiplicity, and combines the usage of non-new binders to |uenv|
+    check_then_add_usage uenv
+      = do { let actual_w = usageToMult (lookupUE uenv name)
+           ; traceTc "check_then_add_usage" (ppr id_mult $$ ppr actual_w)
+           ; wrapper <- tcSubMult (UsageEnvironmentOf name) actual_w id_mult
+           ; tcEmitBindingUsage (deleteUE uenv name)
+           ; return wrapper }
 
 {- *********************************************************************
 *                                                                      *

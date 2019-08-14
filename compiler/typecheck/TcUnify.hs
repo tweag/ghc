@@ -759,11 +759,11 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
     go (FunTy { ft_af = VisArg, ft_mult = act_mult, ft_arg = act_arg, ft_res = act_res })
        (FunTy { ft_af = VisArg, ft_mult = exp_mult, ft_arg = exp_arg, ft_res = exp_res })
       = -- See Note [Co/contra-variance of subsumption checking]
-        do { tcEqMult eq_orig act_mult exp_mult
+        do { mult_wrap <- tcEqMult eq_orig act_mult exp_mult
            ; res_wrap <- tc_sub_type_ds eq_orig inst_orig  ctxt       act_res exp_res
            ; arg_wrap <- tc_sub_tc_type eq_orig given_orig GenSigCtxt exp_arg act_arg
                          -- GenSigCtxt: See Note [Setting the argument context]
-           ; return (mkWpFun arg_wrap res_wrap (Scaled exp_mult exp_arg) exp_res doc) }
+           ; return ((mkWpFun arg_wrap res_wrap (Scaled exp_mult exp_arg) exp_res doc) <.> mult_wrap) }
                -- arg_wrap :: exp_arg ~> act_arg
                -- res_wrap :: act-res ~> exp_res
       where
@@ -811,27 +811,22 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
      -- use versions without synonyms expanded
     unify = mkWpCastN <$> uType TypeLevel eq_orig ty_actual ty_expected
 
-tcEqMult :: CtOrigin -> Mult -> Mult -> TcM ()
+-- As an approximation to p < q we assume p ~ q.
+-- This should be replaced by a solver once we know how to infer
+-- multiplicities.
+tcSubMult :: CtOrigin -> Mult -> Mult -> TcM HsWrapper
+tcSubMult origin w_actual w_expected =
+   case submult w_actual w_expected of
+     Submult -> return WpHole
+     Unknown -> tcEqMult origin w_actual w_expected
+
+tcEqMult :: CtOrigin -> Mult -> Mult -> TcM HsWrapper
 tcEqMult origin w_actual w_expected = do
   {
   -- Note that here we do not call to `submult`, so we check
   -- for strict equality.
   ; coercion <- uType TypeLevel origin w_actual w_expected
-
-  -- We do not support multiplicity coercions yet.
-  -- If the coercion is nontrivial, we do not compile.
-  -- (This is important for the test LinearPolyType,
-  -- and for failing linearity tests with -fdefer-type-errors.)
-  ; when (not (isReflCo coercion)) (addErrTc
-     (text "Nontrivial multiplicity equalities are currently not supported"))
-
-  ; return () }
-
--- As an approximation to p < q we assume p ~ q.
--- This should be replaced by a solver once we know how to infer
--- multiplicities.
-tcSubMult :: CtOrigin -> Mult -> Mult -> TcM ()
-tcSubMult origin w_actual w_expected = tcEqMult origin w_actual w_expected
+  ; return $ if isReflCo coercion then WpHole else WpMultCoercion coercion }
 
 
 {- Note [Settting the argument context]
