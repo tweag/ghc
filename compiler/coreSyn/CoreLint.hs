@@ -2480,9 +2480,23 @@ ensureEqTys ty1 ty2 msg = lintL (ty1 `eqType` ty2) msg
 
 ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()
 ensureSubMult actual_usage described_usage err_msg =
-    case actual_usage `submult` described_usage of
+    case actual_usage' `submult` described_usage' of
       Submult -> return ()
-      Unknown -> when (not (actual_usage `eqType` described_usage)) (addErrL err_msg)
+      Unknown -> case actual_usage' of
+                     MultMul m1 m2 -> ensureSubMult m1 described_usage' err_msg >>
+                                      ensureSubMult m2 described_usage' err_msg
+                     _ -> when (not (actual_usage' `eqType` described_usage')) (addErrL err_msg)
+
+   where actual_usage' = normalize actual_usage
+         described_usage' = normalize described_usage
+
+         -- TODO: try reduceTyFamApp_maybe
+         normalize :: Mult -> Mult
+         normalize (MultMul m1 m2) = case (normalize m1, normalize m2) of
+                                       (Omega, _) -> Omega
+                                       (_, Omega) -> Omega
+                                       (p, q) -> mkMultMul p q
+         normalize m = m
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared

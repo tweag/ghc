@@ -14,6 +14,7 @@ module Multiplicity
   ( Mult
   , pattern One
   , pattern Omega
+  , pattern MultMul
   , mkMultAdd
   , mkMultMul
   , mkMultSup
@@ -36,8 +37,10 @@ import GhcPrelude
 import Data.Data
 import Outputable
 import {-# SOURCE #-} TyCoRep (Type)
-import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy )
-import {-# SOURCE #-} Type( eqType )
+import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy, multMulTyCon )
+import {-# SOURCE #-} Type( eqType, splitTyConApp_maybe, mkTyConApp )
+import PrelNames (multMulTyConKey)
+import Unique (hasKey)
 
 {-
 Note [Adding new multiplicities]
@@ -63,6 +66,14 @@ pattern Omega :: Mult
 pattern Omega <- (eqType omegaDataConTy -> True)
   where Omega = omegaDataConTy
 
+isMultMul :: Mult -> Maybe (Mult, Mult)
+isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
+             , tc `hasKey` multMulTyConKey = Just (x, y)
+             | otherwise = Nothing
+
+pattern MultMul :: Mult -> Mult -> Mult
+pattern MultMul p q <- (isMultMul -> Just (p,q))
+
 {-
 The functions mkMultAdd, mkMultMul, mkMultSup perform operations
 on multiplicities. They can return overapproximations: their result
@@ -85,20 +96,17 @@ that the sumands and factors are ordered somehow, to have more equalities.
 mkMultAdd :: Mult -> Mult -> Mult
 mkMultAdd _ _ = Omega
 
--- For now, approximate p * q by Omega unless p or q are known to be One.
 mkMultMul :: Mult -> Mult -> Mult
 mkMultMul One p = p
 mkMultMul p One = p
 mkMultMul Omega _ = Omega
 mkMultMul _ Omega = Omega
-mkMultMul _ _ = Omega
+mkMultMul p q = mkTyConApp multMulTyCon [p, q]
 
 -- | @mkMultSup w1 w2@ returns the smallest multiplicity larger than
 -- or equal to both @w1@ and @w2@.
 mkMultSup :: Mult -> Mult -> Mult
-mkMultSup One   One   = One
-mkMultSup Omega Omega = Omega
-mkMultSup _     _     = Omega
+mkMultSup = mkMultMul
 -- Note: If you are changing this logic, check 'supUE' in UsageEnv as well.
 
 --

@@ -811,14 +811,19 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
      -- use versions without synonyms expanded
     unify = mkWpCastN <$> uType TypeLevel eq_orig ty_actual ty_expected
 
--- As an approximation to p < q we assume p ~ q.
--- This should be replaced by a solver once we know how to infer
--- multiplicities.
+-- Currently, we consider p*q and sup p q to be equal.
+-- Therefore, p*q <= r is equivalent to p <= r and q <= r.
+-- For other cases, we approximate p <= q by p ~ q.
+-- This is not complete, but it's sound.
 tcSubMult :: CtOrigin -> Mult -> Mult -> TcM HsWrapper
+tcSubMult origin (MultMul w1 w2) w_expected =
+  do { w1 <- tcSubMult origin w1 w_expected
+     ; w2 <- tcSubMult origin w2 w_expected
+     ; return (w1 <.> w2) }
 tcSubMult origin w_actual w_expected =
-   case submult w_actual w_expected of
-     Submult -> return WpHole
-     Unknown -> tcEqMult origin w_actual w_expected
+  case submult w_actual w_expected of
+    Submult -> return WpHole
+    Unknown -> tcEqMult origin w_actual w_expected
 
 tcEqMult :: CtOrigin -> Mult -> Mult -> TcM HsWrapper
 tcEqMult origin w_actual w_expected = do
@@ -827,7 +832,6 @@ tcEqMult origin w_actual w_expected = do
   -- for strict equality.
   ; coercion <- uType TypeLevel origin w_actual w_expected
   ; return $ if isReflCo coercion then WpHole else WpMultCoercion coercion }
-
 
 {- Note [Settting the argument context]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
