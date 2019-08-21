@@ -219,6 +219,7 @@ module DynFlags (
         -- * SSE and AVX
         isSseEnabled,
         isSse2Enabled,
+        isSse4_1Enabled,
         isSse4_2Enabled,
         isBmiEnabled,
         isBmi2Enabled,
@@ -320,7 +321,8 @@ import qualified EnumSet
 import GHC.Foreign (withCString, peekCString)
 import qualified GHC.LanguageExtensions as LangExt
 
-#if defined(HAVE_INTERPRETER)
+#if STAGE >= 2
+-- used by SHARED_GLOBAL_VAR
 import Foreign (Ptr)
 #endif
 
@@ -2765,7 +2767,7 @@ updOptLevel n dfs
 -- Parsing the dynamic flags.
 
 
--- | Parse dynamic flags from a list of command line arguments.  Returns the
+-- | Parse dynamic flags from a list of command line arguments.  Returns
 -- the parsed 'DynFlags', the left-over arguments, and a list of warnings.
 -- Throws a 'UsageError' if errors occurred during parsing (such as unknown
 -- flags or missing arguments).
@@ -5908,6 +5910,8 @@ isSse2Enabled dflags = case platformArch (targetPlatform dflags) of
     ArchX86    -> True
     _          -> False
 
+isSse4_1Enabled :: DynFlags -> Bool
+isSse4_1Enabled dflags = sseVersion dflags >= Just SSE4
 
 isSse4_2Enabled :: DynFlags -> Bool
 isSse4_2Enabled dflags = sseVersion dflags >= Just SSE42

@@ -1123,6 +1123,8 @@ genCCall :: ForeignTarget      -- function to call
          -> [CmmFormal]        -- where to put the result
          -> [CmmActual]        -- arguments (of mixed type)
          -> NatM InstrBlock
+genCCall (PrimTarget MO_ReadBarrier) _ _
+ = return $ unitOL LWSYNC
 genCCall (PrimTarget MO_WriteBarrier) _ _
  = return $ unitOL LWSYNC
 
@@ -1907,6 +1909,8 @@ genCCall' dflags gcp target dest_regs args
                           FF32 -> (1, 1, 4, fprs)
                           FF64 -> (2, 1, 8, fprs)
                           II64 -> panic "genCCall' passArguments II64"
+                          VecFormat {}
+                               -> panic "genCCall' passArguments vector format"
 
                       GCP32ELF ->
                           case cmmTypeFormat rep of
@@ -1917,6 +1921,8 @@ genCCall' dflags gcp target dest_regs args
                           FF32 -> (0, 1, 4, fprs)
                           FF64 -> (0, 1, 8, fprs)
                           II64 -> panic "genCCall' passArguments II64"
+                          VecFormat {}
+                               -> panic "genCCall' passArguments vector format"
                       GCP64ELF _ ->
                           case cmmTypeFormat rep of
                           II8  -> (1, 0, 8, gprs)
@@ -1928,6 +1934,8 @@ genCCall' dflags gcp target dest_regs args
                           -- the FPRs.
                           FF32 -> (1, 1, 8, fprs)
                           FF64 -> (1, 1, 8, fprs)
+                          VecFormat {}
+                               -> panic "genCCall' passArguments vector format"
 
         moveResult reduceToFF32 =
             case dest_regs of
@@ -2030,6 +2038,7 @@ genCCall' dflags gcp target dest_regs args
                     MO_AddIntC {}    -> unsupported
                     MO_SubIntC {}    -> unsupported
                     MO_U_Mul2 {}     -> unsupported
+                    MO_ReadBarrier   -> unsupported
                     MO_WriteBarrier  -> unsupported
                     MO_Touch         -> unsupported
                     MO_Prefetch_Data _ -> unsupported

@@ -225,19 +225,22 @@ class TestRun:
        self.n_expected_failures = 0
 
        self.missing_libs = [] # type: List[TestResult]
-       self.framework_failures = []
-       self.framework_warnings = []
+       self.framework_failures = [] # type: List[TestResult]
+       self.framework_warnings = [] # type: List[TestResult]
 
-       self.expected_passes = []
-       self.unexpected_passes = []
-       self.unexpected_failures = []
-       self.unexpected_stat_failures = []
+       self.expected_passes = [] # type: List[TestResult]
+       self.unexpected_passes = [] # type: List[TestResult]
+       self.unexpected_failures = [] # type: List[TestResult]
+       self.unexpected_stat_failures = [] # type: List[TestResult]
+
+       # Results from tests that have been marked as fragile
+       self.fragile_results = [] # type: List[TestResult]
 
        # List of all metrics measured in this test run.
        # [(change, PerfStat)] where change is one of the  MetricChange
        # constants: NewMetric, NoChange, Increase, Decrease.
        # NewMetric happens when the previous git commit has no metric recorded.
-       self.metrics = []
+       self.metrics = [] # type: List[Tuple[MetricChange, PerfStat]]
 
 global t
 t = TestRun()
@@ -252,6 +255,9 @@ class TestOptions:
    def __init__(self):
        # skip this test?
        self.skip = False
+
+       # the test is known to be fragile in these ways
+       self.fragile_ways = []
 
        # skip these ways
        self.omit_ways = []
