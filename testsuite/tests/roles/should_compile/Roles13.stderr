@@ -1,41 +1,7 @@
 
 ==================== Tidy Core ====================
 Result size of Tidy Core
-  = {terms: 107, types: 53, coercions: 11, joins: 0/0}
-
--- RHS size: {terms: 4, types: 4, coercions: 3, joins: 0/0}
-Roles13.$WMkWrap [InlPrag=INLINE[0]]
-  :: forall (n :: GHC.Types.Multiplicity) a. a -->.(n) Wrap a
-[GblId[DataConWrapper],
- Arity=1,
- Caf=NoCafRefs,
- Str=<L,U>,
- Unf=Unf{Src=Compulsory, TopLvl=True, Value=True, ConLike=True,
-         WorkFree=True, Expandable=True,
-         Guidance=ALWAYS_IF(arity=0,unsat_ok=True,boring_ok=True)
-         Tmpl= \ (@ (n :: GHC.Types.Multiplicity))
-                 (@ a)
-                 (dt [Occ=Once] :: a) ->
-                 dt `cast` (Sym (Roles13.N:Wrap[0] <a>_R) :: a ~R# Wrap a)}]
-Roles13.$WMkWrap
-  = \ (@ (n :: GHC.Types.Multiplicity)) (@ a) (dt [Occ=Once] :: a) ->
-      dt `cast` (Sym (Roles13.N:Wrap[0] <a>_R) :: a ~R# Wrap a)
-
--- RHS size: {terms: 3, types: 2, coercions: 2, joins: 0/0}
-Roles13.$WMkAge [InlPrag=INLINE[0]]
-  :: forall (n :: GHC.Types.Multiplicity). Int -->.(n) Age
-[GblId[DataConWrapper],
- Arity=1,
- Caf=NoCafRefs,
- Str=<L,U>,
- Unf=Unf{Src=Compulsory, TopLvl=True, Value=True, ConLike=True,
-         WorkFree=True, Expandable=True,
-         Guidance=ALWAYS_IF(arity=0,unsat_ok=True,boring_ok=True)
-         Tmpl= \ (@ (n :: GHC.Types.Multiplicity)) (dt [Occ=Once] :: Int) ->
-                 dt `cast` (Sym (Roles13.N:Age[0]) :: Int ~R# Age)}]
-Roles13.$WMkAge
-  = \ (@ (n :: GHC.Types.Multiplicity)) (dt [Occ=Once] :: Int) ->
-      dt `cast` (Sym (Roles13.N:Age[0]) :: Int ~R# Age)
+  = {terms: 98, types: 38, coercions: 6, joins: 0/0}
 
 -- RHS size: {terms: 2, types: 2, coercions: 0, joins: 0/0}
 convert1 :: Wrap Age -> Wrap Age

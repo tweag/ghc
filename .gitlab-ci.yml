@@ -2,7 +2,7 @@ variables:
   GIT_SSL_NO_VERIFY: "1"
 
   # Commit of ghc/ci-images repository from which to pull Docker images
-  DOCKER_REV: 88e952f165f48cfb956ac9a2486a9263aa4f777c
+  DOCKER_REV: e517150438cd9df9564fb91adc4b42e2667b2bc1
 
   # Sequential version number capturing the versions of all tools fetched by
   # .gitlab/win32-init.sh.
@@ -24,9 +24,10 @@ stages:
   - full-build # Build all the things
   - cleanup    # See Note [Cleanup after the shell executor]
   - packaging  # Source distribution, etc.
-  - hackage    # head.hackage testing
+  - testing    # head.hackage correctness and compiler performance testing
   - deploy     # push documentation
 
+# N.B.Don't run on wip/ branches, instead on run on merge requests.
 .only-default: &only-default
   only:
     - master
@@ -70,10 +71,31 @@ ghc-linters:
     refs:
       - merge_requests
 
+lint-linters:
+  <<: *only-default
+  stage: lint
+  image: "registry.gitlab.haskell.org/ghc/ci-images/linters:$DOCKER_REV"
+  script:
+    - mypy .gitlab/linters/*.py
+  dependencies: []
+  tags:
+    - lint
+
+lint-testsuite:
+  <<: *only-default
+  stage: lint
+  image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-deb9:$DOCKER_REV"
+  script:
+    - make -Ctestsuite list_broken TEST_HC=ghc
+  dependencies: []
+  tags:
+    - lint
+
 # We allow the submodule checker to fail when run on merge requests (to
 # accomodate, e.g., haddock changes not yet upstream) but not on `master` or
 # Marge jobs.
 .lint-submods:
+  <<: *only-default
   stage: lint
   image: "registry.gitlab.haskell.org/ghc/ci-images/linters:$DOCKER_REV"
   script:
@@ -118,6 +140,7 @@ lint-submods-branch:
       - /ghc-[0-9]+\.[0-9]+/
 
 .lint-changelogs:
+  <<: *only-default
   stage: lint
   image: "registry.gitlab.haskell.org/ghc/ci-images/linters:$DOCKER_REV"
   dependencies: []
@@ -523,11 +546,10 @@ release-x86_64-linux-deb9-dwarf:
   extends: .validate-linux
   stage: build
   image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-deb9:$DOCKER_REV"
-  allow_failure: true
   variables:
     CONFIGURE_ARGS: "--enable-dwarf-unwind"
     BUILD_FLAVOUR: dwarf
-    TEST_ENV: "x86_64-linux-deb9"
+    TEST_ENV: "x86_64-linux-deb9-dwarf"
   artifacts:
     when: always
     expire_in: 2 week
@@ -553,6 +575,39 @@ release-x86_64-linux-deb8:
   artifacts:
     when: always
     expire_in: 2 week
+
+#################################
+# x86_64-linux-alpine
+#################################
+
+.build-x86_64-linux-alpine:
+  extends: .validate-linux
+  stage: full-build
+  image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-alpine:$DOCKER_REV"
+  # There are currently a few failing tests
+  allow_failure: true
+  variables:
+    BUILD_SPHINX_PDF: "NO"
+    TEST_ENV: "x86_64-linux-alpine"
+    BIN_DIST_PREP_TAR_COMP: "bindistprep/ghc-x86_64-alpine-linux.tar.xz"
+    # Can't use ld.gold due to #13958.
+    CONFIGURE_ARGS: "--disable-ld-override"
+  cache:
+    key: linux-x86_64-alpine
+  artifacts:
+    when: always
+    expire_in: 2 week
+
+release-x86_64-linux-alpine:
+  extends: .build-x86_64-linux-alpine
+  only:
+    - tags
+
+nightly-x86_64-linux-alpine:
+  extends: .build-x86_64-linux-alpine
+  only:
+    variables:
+      - $NIGHTLY
 
 #################################
 # x86_64-linux-centos7
@@ -857,7 +912,7 @@ source-tarball:
 
 .hackage:
   <<: *only-default
-  stage: hackage
+  stage: testing
   image: ghcci/x86_64-linux-deb9:0.2
   tags:
     - x86_64-linux
@@ -882,6 +937,47 @@ nightly-hackage:
   only:
     variables:
       - $NIGHTLY
+
+############################################################
+# Nofib testing
+############################################################
+
+perf-nofib:
+  stage: testing
+  dependencies:
+    - release-x86_64-linux-deb9-dwarf
+  image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-deb9:$DOCKER_REV"
+  only:
+    refs:
+      - merge_requests
+      - master
+      - /ghc-[0-9]+\.[0-9]+/
+  tags:
+    - x86_64-linux
+  script:
+    - root=$(pwd)/ghc
+    - |
+      mkdir tmp
+      tar -xf ghc-*-x86_64-unknown-linux.tar.xz -C tmp
+      pushd tmp/ghc-*/
+      ./configure --prefix=$root
+      make install
+      popd
+      rm -Rf tmp
+    - export BOOT_HC=$(which ghc)
+    - cabal update; cabal install -w $BOOT_HC regex-compat
+    - export PATH=$root/bin:$PATH
+    - make -C nofib boot mode=fast -j$CPUS
+    - "make -C nofib EXTRA_RUNTEST_OPTS='-cachegrind +RTS -V0 -RTS' NoFibRuns=1 mode=fast -j$CPUS 2>&1 | tee nofib.log"
+  artifacts:
+    expire_in: 12 week
+    when: always
+    paths:
+      - nofib.log
+
+############################################################
+# Documentation deployment via GitLab Pages
+############################################################
 
 pages:
   stage: deploy

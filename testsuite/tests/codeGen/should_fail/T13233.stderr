@@ -1,13 +1,13 @@
 
 T13233.hs:15:11: error:
-    Cannot use primitive with levity-polymorphic arguments:
+    Cannot use function with levity-polymorphic arguments:
       GHC.Prim.(#,#) :: a ->. a ->. (# a, a #)
     Levity-polymorphic arguments:
       a :: TYPE rep
       a :: TYPE rep
 
 T13233.hs:23:16: error:
-    Cannot use primitive with levity-polymorphic arguments:
+    Cannot use function with levity-polymorphic arguments:
       GHC.Prim.(#,#) :: forall (rep1 :: RuntimeRep) (rep2 :: RuntimeRep)
                                (a :: TYPE rep1) (b :: TYPE rep2).
                         a ->. b ->. (# a, b #)
@@ -16,7 +16,7 @@ T13233.hs:23:16: error:
       b :: TYPE rep2
 
 T13233.hs:28:10: error:
-    Cannot use primitive with levity-polymorphic arguments:
+    Cannot use function with levity-polymorphic arguments:
       mkWeak# :: a
                  -> b
                  -> (State# RealWorld -> (# State# RealWorld, c #))
