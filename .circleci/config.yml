@@ -110,7 +110,7 @@ aliases:
 jobs:
   "validate-x86_64-linux":
     docker:
-      - image: ghcci/x86_64-linux:0.0.7
+      - image: "registry.gitlab.haskell.org/ghc/ci-images/x86_64-linux-deb9:e517150438cd9df9564fb91adc4b42e2667b2bc1"
     environment:
       GHC_COLLECTOR_FLAVOR: x86_64-linux
       BUILD_SPHINX_PDF: "NO"
