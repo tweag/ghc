@@ -23,7 +23,7 @@ module HsDecls (
 
   -- ** Class or type declarations
   TyClDecl(..), LTyClDecl, DataDeclRn(..),
-  TyClGroup(..), mkTyClGroup, emptyTyClGroup,
+  TyClGroup(..),
   tyClGroupTyClDecls, tyClGroupInstDecls, tyClGroupRoleDecls,
   isClassDecl, isDataDecl, isSynDecl, tcdName,
   isFamilyDecl, isTypeFamilyDecl, isDataFamilyDecl,
@@ -47,7 +47,8 @@ module HsDecls (
   -- ** Standalone deriving declarations
   DerivDecl(..), LDerivDecl,
   -- ** Deriving strategies
-  DerivStrategy(..), LDerivStrategy, derivStrategyName,
+  DerivStrategy(..), LDerivStrategy,
+  derivStrategyName, foldDerivStrategy, mapDerivStrategy,
   -- ** @RULE@ declarations
   LRuleDecls,RuleDecls(..),RuleDecl(..),LRuleDecl,HsRuleRn(..),
   RuleBndr(..),LRuleBndr,
@@ -916,9 +917,6 @@ type instance XCTyClGroup (GhcPass _) = NoExtField
 type instance XXTyClGroup (GhcPass _) = NoExtCon
 
 
-emptyTyClGroup :: TyClGroup (GhcPass p)
-emptyTyClGroup = TyClGroup noExtField [] [] []
-
 tyClGroupTyClDecls :: [TyClGroup pass] -> [LTyClDecl pass]
 tyClGroupTyClDecls = concatMap group_tyclds
 
@@ -927,15 +925,6 @@ tyClGroupInstDecls = concatMap group_instds
 
 tyClGroupRoleDecls :: [TyClGroup pass] -> [LRoleAnnotDecl pass]
 tyClGroupRoleDecls = concatMap group_roles
-
-mkTyClGroup :: [LTyClDecl (GhcPass p)] -> [LInstDecl (GhcPass p)]
-            -> TyClGroup (GhcPass p)
-mkTyClGroup decls instds = TyClGroup
-  { group_ext = noExtField
-  , group_tyclds = decls
-  , group_roles = []
-  , group_instds = instds
-  }
 
 
 
@@ -1956,6 +1945,21 @@ derivStrategyName = text . go
     go AnyclassStrategy = "anyclass"
     go NewtypeStrategy  = "newtype"
     go (ViaStrategy {}) = "via"
+
+-- | Eliminate a 'DerivStrategy'.
+foldDerivStrategy :: (p ~ GhcPass pass)
+                  => r -> (XViaStrategy p -> r) -> DerivStrategy p -> r
+foldDerivStrategy other _   StockStrategy    = other
+foldDerivStrategy other _   AnyclassStrategy = other
+foldDerivStrategy other _   NewtypeStrategy  = other
+foldDerivStrategy _     via (ViaStrategy t)  = via t
+
+-- | Map over the @via@ type if dealing with 'ViaStrategy'. Otherwise,
+-- return the 'DerivStrategy' unchanged.
+mapDerivStrategy :: (p ~ GhcPass pass)
+                 => (XViaStrategy p -> XViaStrategy p)
+                 -> DerivStrategy p -> DerivStrategy p
+mapDerivStrategy f ds = foldDerivStrategy ds (ViaStrategy . f) ds
 
 {-
 ************************************************************************

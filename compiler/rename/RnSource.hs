@@ -62,6 +62,7 @@ import ListSetOps       ( findDupsEq, removeDups, equivClasses )
 import Digraph          ( SCC, flattenSCC, flattenSCCs, Node(..)
                         , stronglyConnCompFromEdgedVerticesUniq )
 import UniqSet
+import OrdList
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
@@ -217,7 +218,7 @@ rnSrcDecls group@(HsGroup { hs_valds   = val_decls,
                               src_fvs5, src_fvs6, src_fvs7] ;
                 -- It is tiresome to gather the binders from type and class decls
 
-        src_dus = [other_def] `plusDU` bind_dus `plusDU` usesOnly other_fvs ;
+        src_dus = unitOL other_def `plusDU` bind_dus `plusDU` usesOnly other_fvs ;
                 -- Instance decls may have occurrences of things bound in bind_dus
                 -- so we must put other_fvs last
 
@@ -970,8 +971,7 @@ rnSrcDerivDecl (DerivDecl _ ty mds overlap)
   = do { standalone_deriv_ok <- xoptM LangExt.StandaloneDeriving
        ; unless standalone_deriv_ok (addErr standaloneDerivErr)
        ; (mds', ty', fvs)
-           <- rnLDerivStrategy DerivDeclCtx mds $ \strat_tvs ppr_via_ty ->
-              rnAndReportFloatingViaTvs strat_tvs loc ppr_via_ty "instance" $
+           <- rnLDerivStrategy DerivDeclCtx mds $
               rnHsSigWcType BindUnlessForall DerivDeclCtx ty
        ; warnNoDerivStrat mds' loc
        ; return (DerivDecl noExtField ty' mds' overlap, fvs) }
@@ -1310,8 +1310,8 @@ rnTyClDecls tycl_ds
                                         , group_roles  = []
                                         , group_instds = init_inst_ds }]
 
-             ((final_inst_ds, orphan_roles), groups)
-                = mapAccumL mk_group (rest_inst_ds, role_annot_env) tycl_sccs
+             (final_inst_ds, groups)
+                = mapAccumL (mk_group role_annot_env) rest_inst_ds tycl_sccs
 
 
              all_fvs = plusFV (foldr (plusFV . snd) emptyFVs tycls_w_fvs)
@@ -1319,24 +1319,23 @@ rnTyClDecls tycl_ds
 
              all_groups = first_group ++ groups
 
-       ; ASSERT2( null final_inst_ds,  ppr instds_w_fvs $$ ppr inst_ds_map
+       ; MASSERT2( null final_inst_ds,  ppr instds_w_fvs $$ ppr inst_ds_map
                                        $$ ppr (flattenSCCs tycl_sccs) $$ ppr final_inst_ds  )
-         mapM_ orphanRoleAnnotErr (nameEnvElts orphan_roles)
 
        ; traceRn "rnTycl dependency analysis made groups" (ppr all_groups)
        ; return (all_groups, all_fvs) }
   where
-    mk_group :: (InstDeclFreeVarsMap, RoleAnnotEnv)
+    mk_group :: RoleAnnotEnv
+             -> InstDeclFreeVarsMap
              -> SCC (LTyClDecl GhcRn)
-             -> ( (InstDeclFreeVarsMap, RoleAnnotEnv)
-                , TyClGroup GhcRn )
-    mk_group (inst_map, role_env) scc
-      = ((inst_map', role_env'), group)
+             -> (InstDeclFreeVarsMap, TyClGroup GhcRn)
+    mk_group role_env inst_map scc
+      = (inst_map', group)
       where
         tycl_ds              = flattenSCC scc
         bndrs                = map (tcdName . unLoc) tycl_ds
+        roles                = getRoleAnnots bndrs role_env
         (inst_ds, inst_map') = getInsts      bndrs inst_map
-        (roles,   role_env') = getRoleAnnots bndrs role_env
         group = TyClGroup { group_ext    = noExtField
                           , group_tyclds = tycl_ds
                           , group_roles  = roles
@@ -1422,15 +1421,6 @@ dupRoleAnnotErr list
 
       cmp_annot (dL->L loc1 _) (dL->L loc2 _) = loc1 `compare` loc2
 
-orphanRoleAnnotErr :: LRoleAnnotDecl GhcRn -> RnM ()
-orphanRoleAnnotErr (dL->L loc decl)
-  = addErrAt loc $
-    hang (text "Role annotation for a type previously declared:")
-       2 (ppr decl) $$
-    parens (text "The role annotation must be given where" <+>
-            quotes (ppr $ roleAnnotDeclName decl) <+>
-            text "is declared.")
-
 
 {- Note [Role annotations in the renamer]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1446,21 +1436,8 @@ to do the check *before* renaming to avoid calling all unbound names duplicates
 of one another.
 
 The renaming process, as usual, might identify and report errors for unbound
-names. We exclude the annotations for unbound names in the annotation
-environment to avoid spurious errors for orphaned annotations.
-
-We then (in rnTyClDecls) do a check for orphan role annotations (role
-annotations without an accompanying type decl). The check works by folding
-over components (of type [[Either (TyClDecl Name) (InstDecl Name)]]), selecting
-out the relevant role declarations for each group, as well as diminishing the
-annotation environment. After the fold is complete, anything left over in the
-name environment must be an orphan, and errors are generated.
-
-An earlier version of this algorithm short-cut the orphan check by renaming
-only with names declared in this module. But, this check is insufficient in
-the case of staged module compilation (Template Haskell, GHCi).
-See #8485. With the new lookup process (which includes types declared in other
-modules), we get better error messages, too.
+names. This is done by using lookupSigCtxtOccRn in rnRoleAnnots (using
+lookupGlobalOccRn led to #8485).
 -}
 
 
@@ -1747,20 +1724,12 @@ rnLHsDerivingClause doc
                               , deriv_clause_strategy = dcs
                               , deriv_clause_tys = (dL->L loc' dct) }))
   = do { (dcs', dct', fvs)
-           <- rnLDerivStrategy doc dcs $ \strat_tvs ppr_via_ty ->
-              mapFvRn (rn_deriv_ty strat_tvs ppr_via_ty) dct
+           <- rnLDerivStrategy doc dcs $ mapFvRn (rnHsSigType doc) dct
        ; warnNoDerivStrat dcs' loc
        ; pure ( cL loc (HsDerivingClause { deriv_clause_ext = noExtField
                                          , deriv_clause_strategy = dcs'
                                          , deriv_clause_tys = cL loc' dct' })
               , fvs ) }
-  where
-    rn_deriv_ty :: [Name] -> SDoc -> LHsSigType GhcPs
-                -> RnM (LHsSigType GhcRn, FreeVars)
-    rn_deriv_ty strat_tvs ppr_via_ty deriv_ty@(HsIB {hsib_body = dL->L loc _}) =
-      rnAndReportFloatingViaTvs strat_tvs loc ppr_via_ty "class" $
-      rnHsSigType doc deriv_ty
-    rn_deriv_ty _ _ (XHsImplicitBndrs nec) = noExtCon nec
 rnLHsDerivingClause _ (dL->L _ (XHsDerivingClause nec))
   = noExtCon nec
 rnLHsDerivingClause _ _ = panic "rnLHsDerivingClause: Impossible Match"
@@ -1769,20 +1738,19 @@ rnLHsDerivingClause _ _ = panic "rnLHsDerivingClause: Impossible Match"
 rnLDerivStrategy :: forall a.
                     HsDocContext
                  -> Maybe (LDerivStrategy GhcPs)
-                 -> ([Name]   -- The tyvars bound by the via type
-                      -> SDoc -- The pretty-printed via type (used for
-                              -- error message reporting)
-                      -> RnM (a, FreeVars))
+                 -> RnM (a, FreeVars)
                  -> RnM (Maybe (LDerivStrategy GhcRn), a, FreeVars)
 rnLDerivStrategy doc mds thing_inside
   = case mds of
       Nothing -> boring_case Nothing
-      Just ds -> do (ds', thing, fvs) <- rn_deriv_strat ds
-                    pure (Just ds', thing, fvs)
+      Just (dL->L loc ds) ->
+        setSrcSpan loc $ do
+          (ds', thing, fvs) <- rn_deriv_strat ds
+          pure (Just (cL loc ds'), thing, fvs)
   where
-    rn_deriv_strat :: LDerivStrategy GhcPs
-                   -> RnM (LDerivStrategy GhcRn, a, FreeVars)
-    rn_deriv_strat (dL->L loc ds) = do
+    rn_deriv_strat :: DerivStrategy GhcPs
+                   -> RnM (DerivStrategy GhcRn, a, FreeVars)
+    rn_deriv_strat ds = do
       let extNeeded :: LangExt.Extension
           extNeeded
             | ViaStrategy{} <- ds
@@ -1794,9 +1762,9 @@ rnLDerivStrategy doc mds thing_inside
         failWith $ illegalDerivStrategyErr ds
 
       case ds of
-        StockStrategy    -> boring_case (cL loc StockStrategy)
-        AnyclassStrategy -> boring_case (cL loc AnyclassStrategy)
-        NewtypeStrategy  -> boring_case (cL loc NewtypeStrategy)
+        StockStrategy    -> boring_case StockStrategy
+        AnyclassStrategy -> boring_case AnyclassStrategy
+        NewtypeStrategy  -> boring_case NewtypeStrategy
         ViaStrategy via_ty ->
           do (via_ty', fvs1) <- rnHsSigType doc via_ty
              let HsIB { hsib_ext  = via_imp_tvs
@@ -1804,65 +1772,13 @@ rnLDerivStrategy doc mds thing_inside
                  (via_exp_tv_bndrs, _, _) = splitLHsSigmaTy via_body
                  via_exp_tvs = hsLTyVarNames via_exp_tv_bndrs
                  via_tvs = via_imp_tvs ++ via_exp_tvs
-             (thing, fvs2) <- extendTyVarEnvFVRn via_tvs $
-                              thing_inside via_tvs (ppr via_ty')
-             pure (cL loc (ViaStrategy via_ty'), thing, fvs1 `plusFV` fvs2)
+             (thing, fvs2) <- extendTyVarEnvFVRn via_tvs thing_inside
+             pure (ViaStrategy via_ty', thing, fvs1 `plusFV` fvs2)
 
-    boring_case :: mds
-                -> RnM (mds, a, FreeVars)
-    boring_case mds = do
-      (thing, fvs) <- thing_inside [] empty
-      pure (mds, thing, fvs)
-
--- | Errors if a @via@ type binds any floating type variables.
--- See @Note [Floating `via` type variables]@
-rnAndReportFloatingViaTvs
-  :: forall a. Outputable a
-  => [Name]  -- ^ The bound type variables from a @via@ type.
-  -> SrcSpan -- ^ The source span (for error reporting only).
-  -> SDoc    -- ^ The pretty-printed @via@ type (for error reporting only).
-  -> String  -- ^ A description of what the @via@ type scopes over
-             --   (for error reporting only).
-  -> RnM (a, FreeVars) -- ^ The thing the @via@ type scopes over.
-  -> RnM (a, FreeVars)
-rnAndReportFloatingViaTvs tv_names loc ppr_via_ty via_scope_desc thing_inside
-  = do (thing, thing_fvs) <- thing_inside
-       setSrcSpan loc $ mapM_ (report_floating_via_tv thing thing_fvs) tv_names
-       pure (thing, thing_fvs)
-  where
-    report_floating_via_tv :: a -> FreeVars -> Name -> RnM ()
-    report_floating_via_tv thing used_names tv_name
-      = unless (tv_name `elemNameSet` used_names) $ addErr $ vcat
-          [ text "Type variable" <+> quotes (ppr tv_name) <+>
-            text "is bound in the" <+> quotes (text "via") <+>
-            text "type" <+> quotes ppr_via_ty
-          , text "but is not mentioned in the derived" <+>
-            text via_scope_desc <+> quotes (ppr thing) <>
-            text ", which is illegal" ]
-
-{-
-Note [Floating `via` type variables]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Imagine the following `deriving via` clause:
-
-    data Quux
-      deriving Eq via (Const a Quux)
-
-This should be rejected. Why? Because it would generate the following instance:
-
-    instance Eq Quux where
-      (==) = coerce @(Quux         -> Quux         -> Bool)
-                    @(Const a Quux -> Const a Quux -> Bool)
-                    (==) :: Const a Quux -> Const a Quux -> Bool
-
-This instance is ill-formed, as the `a` in `Const a Quux` is unbound. The
-problem is that `a` is never used anywhere in the derived class `Eq`. Since
-`a` is bound but has no use sites, we refer to it as "floating".
-
-We use the rnAndReportFloatingViaTvs function to check that any type renamed
-within the context of the `via` deriving strategy actually uses all bound
-`via` type variables, and if it doesn't, it throws an error.
--}
+    boring_case :: ds -> RnM (ds, a, FreeVars)
+    boring_case ds = do
+      (thing, fvs) <- thing_inside
+      pure (ds, thing, fvs)
 
 badGadtStupidTheta :: HsDocContext -> SDoc
 badGadtStupidTheta _

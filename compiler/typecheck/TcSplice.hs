@@ -946,6 +946,7 @@ instance TH.Quasi TcM where
   qLookupName       = lookupName
   qReify            = reify
   qReifyFixity nm   = lookupThName nm >>= reifyFixity
+  qReifyType        = reifyTypeOfThing
   qReifyInstances   = reifyInstances
   qReifyRoles       = reifyRoles
   qReifyAnnotations = reifyAnnotations
@@ -1211,6 +1212,7 @@ handleTHMessage msg = case msg of
   LookupName b str -> wrapTHResult $ TH.qLookupName b str
   Reify n -> wrapTHResult $ TH.qReify n
   ReifyFixity n -> wrapTHResult $ TH.qReifyFixity n
+  ReifyType n -> wrapTHResult $ TH.qReifyType n
   ReifyInstances n ts -> wrapTHResult $ TH.qReifyInstances n ts
   ReifyRoles n -> wrapTHResult $ TH.qReifyRoles n
   ReifyAnnotations lookup tyrep ->
@@ -2016,6 +2018,23 @@ reifyDecidedStrictness :: DataCon.HsImplBang -> TH.DecidedStrictness
 reifyDecidedStrictness HsLazy     = TH.DecidedLazy
 reifyDecidedStrictness HsStrict   = TH.DecidedStrict
 reifyDecidedStrictness HsUnpack{} = TH.DecidedUnpack
+
+reifyTypeOfThing :: TH.Name -> TcM TH.Type
+reifyTypeOfThing th_name = do
+  thing <- getThing th_name
+  case thing of
+    AGlobal (AnId id) -> reifyType (idType id)
+    AGlobal (ATyCon tc) -> reifyKind (tyConKind tc)
+    AGlobal (AConLike (RealDataCon dc)) ->
+      reifyType (idType (dataConWrapId dc))
+    AGlobal (AConLike (PatSynCon ps)) ->
+      reifyPatSynType (patSynSig ps)
+    ATcId{tct_id = id} -> zonkTcType (idType id) >>= reifyType
+    ATyVar _ tctv -> zonkTcTyVar tctv >>= reifyType
+    -- Impossible cases, supposedly:
+    AGlobal (ACoAxiom _) -> panic "reifyTypeOfThing: ACoAxiom"
+    ATcTyCon _ -> panic "reifyTypeOfThing: ATcTyCon"
+    APromotionErr _ -> panic "reifyTypeOfThing: APromotionErr"
 
 ------------------------------
 lookupThAnnLookup :: TH.AnnLookup -> TcM CoreAnnTarget
