@@ -14,7 +14,7 @@
 --
 -------------------------------------------------------------------------------
 
-{-# OPTIONS_GHC -fno-cse #-}
+{-# OPTIONS_GHC -fno-cse -O0 #-}
 -- -fno-cse is needed for GLOBAL_VAR's to behave properly
 
 module DynFlags (
