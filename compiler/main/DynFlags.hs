@@ -15,6 +15,7 @@
 -------------------------------------------------------------------------------
 
 {-# OPTIONS_GHC -fno-cse -O0 #-}
+-- TODO remove -O0 before merging
 -- -fno-cse is needed for GLOBAL_VAR's to behave properly
 
 module DynFlags (
