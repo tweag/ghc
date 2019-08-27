@@ -66,6 +66,7 @@ module DynFlags (
         shouldUseHexWordLiterals,
         positionIndependent,
         optimisationFlags,
+        setFlagsFromEnvFile,
 
         Way(..), mkBuildTag, wayRTSOnly, addWay', updateWays,
         wayGeneralFlags, wayUnsetGeneralFlags,
@@ -151,7 +152,7 @@ module DynFlags (
         settings,
         programName, projectVersion,
         ghcUsagePath, ghciUsagePath, topDir, tmpDir,
-        versionedAppDir,
+        versionedAppDir, versionedFilePath,
         extraGccViaCFlags, systemPackageConfig,
         pgm_L, pgm_P, pgm_F, pgm_c, pgm_a, pgm_l, pgm_dll, pgm_T,
         pgm_windres, pgm_libtool, pgm_ar, pgm_ranlib, pgm_lo, pgm_lc,
@@ -179,7 +180,6 @@ module DynFlags (
         updOptLevel,
         setTmpDir,
         setUnitId,
-        interpretPackageEnv,
         canonicalizeHomeModule,
         canonicalizeModuleIfHome,
 
@@ -220,7 +220,6 @@ module DynFlags (
         -- * SSE and AVX
         isSseEnabled,
         isSse2Enabled,
-        isSse4_1Enabled,
         isSse4_2Enabled,
         isBmiEnabled,
         isBmi2Enabled,
@@ -251,6 +250,7 @@ module DynFlags (
 import GhcPrelude
 
 import GHC.Platform
+import GHC.UniqueSubdir (uniqueSubdir)
 import PlatformConstants
 import Module
 import PackageConfig
@@ -296,7 +296,6 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Writer
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Except
-import Control.Exception (throwIO)
 
 import Data.Ord
 import Data.Bits
@@ -310,7 +309,7 @@ import qualified Data.Set as Set
 import Data.Word
 import System.FilePath
 import System.Directory
-import System.Environment (getEnv, lookupEnv)
+import System.Environment (lookupEnv)
 import System.IO
 import System.IO.Error
 import Text.ParserCombinators.ReadP hiding (char)
@@ -409,10 +408,13 @@ data DumpFlag
    = Opt_D_dump_cmm
    | Opt_D_dump_cmm_from_stg
    | Opt_D_dump_cmm_raw
-   | Opt_D_dump_cmm_verbose
+   | Opt_D_dump_cmm_verbose_by_proc
    -- All of the cmm subflags (there are a lot!) automatically
-   -- enabled if you run -ddump-cmm-verbose
+   -- enabled if you run -ddump-cmm-verbose-by-proc
    -- Each flag corresponds to exact stage of Cmm pipeline.
+   | Opt_D_dump_cmm_verbose
+   -- same as -ddump-cmm-verbose-by-proc but writes each stage
+   -- to a separate file (if used with -ddump-to-file)
    | Opt_D_dump_cmm_cfg
    | Opt_D_dump_cmm_cbe
    | Opt_D_dump_cmm_switch
@@ -1500,15 +1502,8 @@ versionedAppDir dflags = do
   appdir <- tryMaybeT $ getAppUserDataDirectory (programName dflags)
   return $ appdir </> versionedFilePath dflags
 
--- | A filepath like @x86_64-linux-7.6.3@ with the platform string to use when
--- constructing platform-version-dependent files that need to co-exist.
---
 versionedFilePath :: DynFlags -> FilePath
-versionedFilePath dflags =     TARGET_ARCH
-                        ++ '-':TARGET_OS
-                        ++ '-':projectVersion dflags
-  -- NB: This functionality is reimplemented in Cabal, so if you
-  -- change it, be sure to update Cabal.
+versionedFilePath dflags = uniqueSubdir $ targetPlatform dflags
 
 -- | The target code type of the compilation (if any).
 --
@@ -3027,7 +3022,7 @@ dynamic_flags_deps = [
   , make_ord_flag defGhcFlag "rdynamic" $ noArg $
 #if defined(linux_HOST_OS)
                               addOptl "-rdynamic"
-#elif defined (mingw32_HOST_OS)
+#elif defined(mingw32_HOST_OS)
                               addOptl "-Wl,--export-all-symbols"
 #else
     -- ignored for compat w/ gcc:
@@ -3311,6 +3306,8 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_cmm_raw)
   , make_ord_flag defGhcFlag "ddump-cmm-verbose"
         (setDumpFlag Opt_D_dump_cmm_verbose)
+  , make_ord_flag defGhcFlag "ddump-cmm-verbose-by-proc"
+        (setDumpFlag Opt_D_dump_cmm_verbose_by_proc)
   , make_ord_flag defGhcFlag "ddump-cmm-cfg"
         (setDumpFlag Opt_D_dump_cmm_cfg)
   , make_ord_flag defGhcFlag "ddump-cmm-cbe"
@@ -5274,170 +5271,6 @@ canonicalizeModuleIfHome dflags mod
                       then canonicalizeHomeModule dflags (moduleName mod)
                       else mod
 
-
--- -----------------------------------------------------------------------------
--- | Find the package environment (if one exists)
---
--- We interpret the package environment as a set of package flags; to be
--- specific, if we find a package environment file like
---
--- > clear-package-db
--- > global-package-db
--- > package-db blah/package.conf.d
--- > package-id id1
--- > package-id id2
---
--- we interpret this as
---
--- > [ -hide-all-packages
--- > , -clear-package-db
--- > , -global-package-db
--- > , -package-db blah/package.conf.d
--- > , -package-id id1
--- > , -package-id id2
--- > ]
---
--- There's also an older syntax alias for package-id, which is just an
--- unadorned package id
---
--- > id1
--- > id2
---
-interpretPackageEnv :: DynFlags -> IO DynFlags
-interpretPackageEnv dflags = do
-    mPkgEnv <- runMaybeT $ msum $ [
-                   getCmdLineArg >>= \env -> msum [
-                       probeNullEnv env
-                     , probeEnvFile env
-                     , probeEnvName env
-                     , cmdLineError env
-                     ]
-                 , getEnvVar >>= \env -> msum [
-                       probeNullEnv env
-                     , probeEnvFile env
-                     , probeEnvName env
-                     , envError     env
-                     ]
-                 , notIfHideAllPackages >> msum [
-                       findLocalEnvFile >>= probeEnvFile
-                     , probeEnvName defaultEnvName
-                     ]
-                 ]
-    case mPkgEnv of
-      Nothing ->
-        -- No environment found. Leave DynFlags unchanged.
-        return dflags
-      Just "-" -> do
-        -- Explicitly disabled environment file. Leave DynFlags unchanged.
-        return dflags
-      Just envfile -> do
-        content <- readFile envfile
-        putLogMsg dflags NoReason SevInfo noSrcSpan
-             (defaultUserStyle dflags)
-             (text ("Loaded package environment from " ++ envfile))
-        let setFlags :: DynP ()
-            setFlags = do
-              setGeneralFlag Opt_HideAllPackages
-              parseEnvFile envfile content
-
-            (_, dflags') = runCmdLine (runEwM setFlags) dflags
-
-        return dflags'
-  where
-    -- Loading environments (by name or by location)
-
-    namedEnvPath :: String -> MaybeT IO FilePath
-    namedEnvPath name = do
-     appdir <- versionedAppDir dflags
-     return $ appdir </> "environments" </> name
-
-    probeEnvName :: String -> MaybeT IO FilePath
-    probeEnvName name = probeEnvFile =<< namedEnvPath name
-
-    probeEnvFile :: FilePath -> MaybeT IO FilePath
-    probeEnvFile path = do
-      guard =<< liftMaybeT (doesFileExist path)
-      return path
-
-    probeNullEnv :: FilePath -> MaybeT IO FilePath
-    probeNullEnv "-" = return "-"
-    probeNullEnv _   = mzero
-
-    parseEnvFile :: FilePath -> String -> DynP ()
-    parseEnvFile envfile = mapM_ parseEntry . lines
-      where
-        parseEntry str = case words str of
-          ("package-db": _)     -> addPkgConfRef (PkgConfFile (envdir </> db))
-            -- relative package dbs are interpreted relative to the env file
-            where envdir = takeDirectory envfile
-                  db     = drop 11 str
-          ["clear-package-db"]  -> clearPkgConf
-          ["global-package-db"] -> addPkgConfRef GlobalPkgConf
-          ["user-package-db"]   -> addPkgConfRef UserPkgConf
-          ["package-id", pkgid] -> exposePackageId pkgid
-          (('-':'-':_):_)       -> return () -- comments
-          -- and the original syntax introduced in 7.10:
-          [pkgid]               -> exposePackageId pkgid
-          []                    -> return ()
-          _                     -> throwGhcException $ CmdLineError $
-                                        "Can't parse environment file entry: "
-                                     ++ envfile ++ ": " ++ str
-
-    -- Various ways to define which environment to use
-
-    getCmdLineArg :: MaybeT IO String
-    getCmdLineArg = MaybeT $ return $ packageEnv dflags
-
-    getEnvVar :: MaybeT IO String
-    getEnvVar = do
-      mvar <- liftMaybeT $ try $ getEnv "GHC_ENVIRONMENT"
-      case mvar of
-        Right var -> return var
-        Left err  -> if isDoesNotExistError err then mzero
-                                                else liftMaybeT $ throwIO err
-
-    notIfHideAllPackages :: MaybeT IO ()
-    notIfHideAllPackages =
-      guard (not (gopt Opt_HideAllPackages dflags))
-
-    defaultEnvName :: String
-    defaultEnvName = "default"
-
-    -- e.g. .ghc.environment.x86_64-linux-7.6.3
-    localEnvFileName :: FilePath
-    localEnvFileName = ".ghc.environment" <.> versionedFilePath dflags
-
-    -- Search for an env file, starting in the current dir and looking upwards.
-    -- Fail if we get to the users home dir or the filesystem root. That is,
-    -- we don't look for an env file in the user's home dir. The user-wide
-    -- env lives in ghc's versionedAppDir/environments/default
-    findLocalEnvFile :: MaybeT IO FilePath
-    findLocalEnvFile = do
-        curdir  <- liftMaybeT getCurrentDirectory
-        homedir <- tryMaybeT getHomeDirectory
-        let probe dir | isDrive dir || dir == homedir
-                      = mzero
-            probe dir = do
-              let file = dir </> localEnvFileName
-              exists <- liftMaybeT (doesFileExist file)
-              if exists
-                then return file
-                else probe (takeDirectory dir)
-        probe curdir
-
-    -- Error reporting
-
-    cmdLineError :: String -> MaybeT IO a
-    cmdLineError env = liftMaybeT . throwGhcExceptionIO . CmdLineError $
-      "Package environment " ++ show env ++ " not found"
-
-    envError :: String -> MaybeT IO a
-    envError env = liftMaybeT . throwGhcExceptionIO . CmdLineError $
-         "Package environment "
-      ++ show env
-      ++ " (specified in GHC_ENVIRONMENT) not found"
-
-
 -- If we're linking a binary, then only targets that produce object
 -- code are allowed (requests for other target types are ignored).
 setTarget :: HscTarget -> DynP ()
@@ -5486,6 +5319,35 @@ setMainIs arg
 addLdInputs :: Option -> DynFlags -> DynFlags
 addLdInputs p dflags = dflags{ldInputs = ldInputs dflags ++ [p]}
 
+-- -----------------------------------------------------------------------------
+-- Load dynflags from environment files.
+
+setFlagsFromEnvFile :: FilePath -> String -> DynP ()
+setFlagsFromEnvFile envfile content = do
+  setGeneralFlag Opt_HideAllPackages
+  parseEnvFile envfile content
+
+parseEnvFile :: FilePath -> String -> DynP ()
+parseEnvFile envfile = mapM_ parseEntry . lines
+  where
+    parseEntry str = case words str of
+      ("package-db": _)     -> addPkgConfRef (PkgConfFile (envdir </> db))
+        -- relative package dbs are interpreted relative to the env file
+        where envdir = takeDirectory envfile
+              db     = drop 11 str
+      ["clear-package-db"]  -> clearPkgConf
+      ["global-package-db"] -> addPkgConfRef GlobalPkgConf
+      ["user-package-db"]   -> addPkgConfRef UserPkgConf
+      ["package-id", pkgid] -> exposePackageId pkgid
+      (('-':'-':_):_)       -> return () -- comments
+      -- and the original syntax introduced in 7.10:
+      [pkgid]               -> exposePackageId pkgid
+      []                    -> return ()
+      _                     -> throwGhcException $ CmdLineError $
+                                    "Can't parse environment file entry: "
+                                 ++ envfile ++ ": " ++ str
+
+
 -----------------------------------------------------------------------------
 -- Paths & Libraries
 
@@ -5505,7 +5367,7 @@ addIncludePath p =
 addFrameworkPath p =
   upd (\s -> s{frameworkPaths = frameworkPaths s ++ splitPathList p})
 
-#if !defined(mingw32_TARGET_OS)
+#if !defined(mingw32_HOST_OS)
 split_marker :: Char
 split_marker = ':'   -- not configurable (ToDo)
 #endif
@@ -5517,7 +5379,7 @@ splitPathList s = filter notNull (splitUp s)
                 -- cause confusion when they are translated into -I options
                 -- for passing to gcc.
   where
-#if !defined(mingw32_TARGET_OS)
+#if !defined(mingw32_HOST_OS)
     splitUp xs = split split_marker xs
 #else
      -- Windows: 'hybrid' support for DOS-style paths in directory lists.
@@ -5702,7 +5564,7 @@ compilerInfo dflags
        ("GHC Dynamic",                 showBool dynamicGhc),
        -- Whether or not GHC was compiled using -prof
        ("GHC Profiled",                showBool rtsIsProfiled),
-       ("Debug on",                    show debugIsOn),
+       ("Debug on",                    showBool debugIsOn),
        ("LibDir",                      topDir dflags),
        -- The path of the global package database used by GHC
        ("Global Package DB",           systemPackageConfig dflags)
@@ -5911,8 +5773,6 @@ isSse2Enabled dflags = case platformArch (targetPlatform dflags) of
     ArchX86    -> True
     _          -> False
 
-isSse4_1Enabled :: DynFlags -> Bool
-isSse4_1Enabled dflags = sseVersion dflags >= Just SSE4
 
 isSse4_2Enabled :: DynFlags -> Bool
 isSse4_2Enabled dflags = sseVersion dflags >= Just SSE42

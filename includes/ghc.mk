@@ -149,14 +149,6 @@ $(includes_H_PLATFORM) : includes/Makefile | $$(dir $$@)/.
 	@echo "#define BUILD_VENDOR  \"$(HostVendor_CPP)\"" >> $@
 	@echo "#define HOST_VENDOR  \"$(TargetVendor_CPP)\"" >> $@
 	@echo >> $@
-	@echo "/* These TARGET macros are for backwards compatibility... DO NOT USE! */" >> $@
-	@echo "#define TargetPlatform_TYPE $(TargetPlatform_CPP)" >> $@
-	@echo "#define $(TargetPlatform_CPP)_TARGET  1" >> $@
-	@echo "#define $(TargetArch_CPP)_TARGET_ARCH  1" >> $@
-	@echo "#define TARGET_ARCH  \"$(TargetArch_CPP)\"" >> $@
-	@echo "#define $(TargetOS_CPP)_TARGET_OS  1" >> $@  
-	@echo "#define TARGET_OS  \"$(TargetOS_CPP)\"" >> $@
-	@echo "#define $(TargetVendor_CPP)_TARGET_VENDOR  1" >> $@
 ifeq "$(GhcUnregisterised)" "YES"
 	@echo "#define UnregisterisedCompiler 1" >> $@
 endif
@@ -209,6 +201,7 @@ $(includes_SETTINGS) : includes/Makefile | $$(dir $$@)/.
 	@echo ',("target has subsections via symbols", "$(HaskellHaveSubsectionsViaSymbols)")' >> $@
 	@echo ',("target has RTS linker", "$(HaskellHaveRTSLinker)")' >> $@
 	@echo ',("Unregisterised", "$(Unregisterised)")' >> $@
+	@echo ',("LLVM target", "$(LLVMTarget_CPP)")' >> $@
 	@echo ',("LLVM llc command", "$(SettingsLlcCommand)")' >> $@
 	@echo ',("LLVM opt command", "$(SettingsOptCommand)")' >> $@
 	@echo ',("LLVM clang command", "$(SettingsClangCommand)")' >> $@

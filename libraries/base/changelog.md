@@ -21,6 +21,13 @@
     The type argument `r` is marked as `Inferred` to prevent it from
     interfering with visible type application.
 
+  * Make `Fixed` and `HasResolution` poly-kinded.
+
+  * Add `HasResolution` instances for `Nat`s.
+
+  * Add `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`,
+    `Generic` and `Generic1` instances to `Kleisli`
+
 ## 4.13.0.0 *TBA*
   * Bundled with GHC *TBA*
 

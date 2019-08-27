@@ -4,6 +4,7 @@ import System.Directory (getCurrentDirectory)
 import Development.Shake
 import Hadrian.Expression
 import Hadrian.Utilities
+import Settings.Parser
 
 import qualified Base
 import qualified CommandLine
@@ -32,6 +33,7 @@ main = do
                   | CommandLine.lookupFreeze1 argsMap ]
 
     cwd <- getCurrentDirectory
+    shakeColor <- shouldUseColor
     let options :: ShakeOptions
         options = shakeOptions
             { shakeChange   = ChangeModtimeAndDigest
@@ -39,7 +41,18 @@ main = do
             , shakeProgress = progressSimple
             , shakeRebuild  = rebuild
             , shakeTimings  = True
+            , shakeColor    = shakeColor
             , shakeExtra    = extra
+
+            -- Setting shakeSymlink to False ensures files are copied out of
+            -- shake's cloud cache instead of hard linked. This is important as
+            -- the hard link mode makes all such files read only to avoid
+            -- accidentally modifying cache files via the hard link. It turns
+            -- out, many Hadrian rules attempt read access to such files and
+            -- hence would in the hard link mode. These rules could be
+            -- refactored to avoid write access, but setting shakeSymlink to
+            -- False is a much simpler solution.
+            , shakeSymlink  = False
 
             -- Enable linting file accesses in the build dir and ghc root dir
             -- (cwd) when using the `--lint-fsatrace` option.
@@ -69,7 +82,8 @@ main = do
             Rules.toolArgsTarget
 
     shakeArgsWith options CommandLine.optDescrs $ \_ targets -> do
+        let targets' = removeKVs targets
         Environment.setupEnvironment
-        return . Just $ if null targets
+        return . Just $ if null targets'
                         then rules
-                        else want targets >> withoutActions rules
+                        else want targets' >> withoutActions rules

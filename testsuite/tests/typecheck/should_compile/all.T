@@ -489,7 +489,7 @@ test('T11305', normal, compile, [''])
 test('T11254', normal, compile, [''])
 test('T11379', normal, compile, [''])
 test('T11462', [unless(have_dynamic(), expect_broken(10301))], multi_compile,
-     ['', [('T11462_Plugin.hs', '-package ghc'), ('T11462.hs', '')],
+     [None, [('T11462_Plugin.hs', '-package ghc'), ('T11462.hs', '')],
       '-dynamic'])
 test('T11480', normal, compile, [''])
 test('RebindHR', normal, compile, [''])
@@ -556,7 +556,7 @@ test('T12987', normal, compile, [''])
 test('T11736', normal, compile, [''])
 test('T13248', expect_broken(13248), compile, [''])
 test('T11525', [unless(have_dynamic(), expect_broken(10301))], multi_compile,
-     ['', [('T11525_Plugin.hs', '-package ghc'), ('T11525.hs', '')],
+     [None, [('T11525_Plugin.hs', '-package ghc'), ('T11525.hs', '')],
       '-dynamic'])
 test('T12923', normal, compile, [''])
 test('T12924', normal, compile, [''])
@@ -684,3 +684,4 @@ test('UnlifNewUnify', normal, compile, [''])
 test('UnliftedNewtypesLPFamily', normal, compile, [''])
 test('UnliftedNewtypesDifficultUnification', normal, compile, [''])
 test('T16832', normal, ghci_script, ['T16832.script'])
+test('T16946', normal, compile, [''])

@@ -8,6 +8,7 @@
 {-# LANGUAGE CPP, TupleSections, MultiWayIf, RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module TcHsType (
         -- Type signatures
@@ -275,7 +276,7 @@ tc_hs_sig_type skol_info hs_sig_type ctxt_kind
 
        ; return (insolubleWC wanted, mkInvForAllTys kvs ty1) }
 
-tc_hs_sig_type _ (XHsImplicitBndrs _) _ = panic "tc_hs_sig_type"
+tc_hs_sig_type _ (XHsImplicitBndrs nec) _ = noExtCon nec
 
 tcTopLHsType :: LHsSigType GhcRn -> ContextKind -> TcM Type
 -- tcTopLHsType is used for kind-checking top-level HsType where
@@ -300,10 +301,10 @@ tcTopLHsType hs_sig_type ctxt_kind
        ; traceTc "End tcTopLHsType }" (vcat [ppr hs_ty, ppr final_ty])
        ; return final_ty}
 
-tcTopLHsType (XHsImplicitBndrs _) _ = panic "tcTopLHsType"
+tcTopLHsType (XHsImplicitBndrs nec) _ = noExtCon nec
 
 -----------------
-tcHsDeriv :: LHsSigType GhcRn -> TcM ([TyVar], (Class, [Type], [Kind]))
+tcHsDeriv :: LHsSigType GhcRn -> TcM ([TyVar], Class, [Type], [Kind])
 -- Like tcHsSigType, but for the ...deriving( C t1 ty2 ) clause
 -- Returns the C, [ty1, ty2, and the kinds of C's remaining arguments
 -- E.g.    class C (a::*) (b::k->k)
@@ -317,52 +318,37 @@ tcHsDeriv hs_ty
        ; let (tvs, pred)    = splitForAllTys ty
              (kind_args, _) = splitFunTys (tcTypeKind pred)
        ; case getClassPredTys_maybe pred of
-           Just (cls, tys) -> return (tvs, (cls, tys, map scaledThing kind_args))
+           Just (cls, tys) -> return (tvs, cls, tys, map scaledThing kind_args)
            Nothing -> failWithTc (text "Illegal deriving item" <+> quotes (ppr hs_ty)) }
 
--- | Typecheck something within the context of a deriving strategy.
--- This is of particular importance when the deriving strategy is @via@.
--- For instance:
---
--- @
--- deriving via (S a) instance C (T a)
--- @
---
--- We need to typecheck @S a@, and moreover, we need to extend the tyvar
--- environment with @a@ before typechecking @C (T a)@, since @S a@ quantified
--- the type variable @a@.
-tcDerivStrategy
-  :: forall a.
-     Maybe (DerivStrategy GhcRn) -- ^ The deriving strategy
-  -> TcM ([TyVar], a) -- ^ The thing to typecheck within the context of the
-                      -- deriving strategy, which might quantify some type
-                      -- variables of its own.
-  -> TcM (Maybe (DerivStrategy GhcTc), [TyVar], a)
-     -- ^ The typechecked deriving strategy, all quantified tyvars, and
-     -- the payload of the typechecked thing.
-tcDerivStrategy mds thing_inside
-  = case mds of
+-- | Typecheck a deriving strategy. For most deriving strategies, this is a
+-- no-op, but for the @via@ strategy, this requires typechecking the @via@ type.
+tcDerivStrategy ::
+     Maybe (LDerivStrategy GhcRn)
+     -- ^ The deriving strategy
+  -> TcM (Maybe (LDerivStrategy GhcTc), [TyVar])
+     -- ^ The typechecked deriving strategy and the tyvars that it binds
+     -- (if using 'ViaStrategy').
+tcDerivStrategy mb_lds
+  = case mb_lds of
       Nothing -> boring_case Nothing
-      Just ds -> do (ds', tvs, thing) <- tc_deriv_strategy ds
-                    pure (Just ds', tvs, thing)
+      Just (dL->L loc ds) ->
+        setSrcSpan loc $ do
+          (ds', tvs) <- tc_deriv_strategy ds
+          pure (Just (cL loc ds'), tvs)
   where
     tc_deriv_strategy :: DerivStrategy GhcRn
-                      -> TcM (DerivStrategy GhcTc, [TyVar], a)
+                      -> TcM (DerivStrategy GhcTc, [TyVar])
     tc_deriv_strategy StockStrategy    = boring_case StockStrategy
     tc_deriv_strategy AnyclassStrategy = boring_case AnyclassStrategy
     tc_deriv_strategy NewtypeStrategy  = boring_case NewtypeStrategy
     tc_deriv_strategy (ViaStrategy ty) = do
-      ty' <- checkNoErrs $
-             tcTopLHsType ty AnyKind
+      ty' <- checkNoErrs $ tcTopLHsType ty AnyKind
       let (via_tvs, via_pred) = splitForAllTys ty'
-      tcExtendTyVarEnv via_tvs $ do
-        (thing_tvs, thing) <- thing_inside
-        pure (ViaStrategy via_pred, via_tvs ++ thing_tvs, thing)
+      pure (ViaStrategy via_pred, via_tvs)
 
-    boring_case :: mds -> TcM (mds, [TyVar], a)
-    boring_case mds = do
-      (thing_tvs, thing) <- thing_inside
-      pure (mds, thing_tvs, thing)
+    boring_case :: ds -> TcM (ds, [TyVar])
+    boring_case ds = pure (ds, [])
 
 tcHsClsInstType :: UserTypeCtxt    -- InstDeclCtxt or SpecInstCtxt
                 -> LHsSigType GhcRn
@@ -402,7 +388,7 @@ tcHsTypeApp wc_ty kind
        ; ty <- zonkPromoteType ty
        ; checkValidType TypeAppCtxt ty
        ; return ty }
-tcHsTypeApp (XHsWildCardBndrs _) _ = panic "tcHsTypeApp"
+tcHsTypeApp (XHsWildCardBndrs nec) _ = noExtCon nec
 
 {- Note [Wildcards in visible type application]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -855,13 +841,13 @@ tc_fun_type mode mult ty1 ty2 exp_kind = case mode_level mode of
        ; ty1' <- tc_lhs_type mode ty1 arg_k
        ; ty2' <- tc_lhs_type mode ty2 res_k
        ; mult' <- tc_mult mode mult
-       ; checkExpectedKind (HsFunTy noExt mult ty1 ty2) (mkVisFunTy mult' ty1' ty2')
+       ; checkExpectedKind (HsFunTy noExtField mult ty1 ty2) (mkVisFunTy mult' ty1' ty2')
                            liftedTypeKind exp_kind }
   KindLevel ->  -- no representation polymorphism in kinds. yet.
     do { ty1' <- tc_lhs_type mode ty1 liftedTypeKind
        ; ty2' <- tc_lhs_type mode ty2 liftedTypeKind
        ; mult' <- tc_mult mode mult
-       ; checkExpectedKind (HsFunTy noExt mult ty1 ty2) (mkVisFunTy mult' ty1' ty2')
+       ; checkExpectedKind (HsFunTy noExtField mult ty1 ty2) (mkVisFunTy mult' ty1' ty2')
                            liftedTypeKind exp_kind }
 
 ---------------------------
@@ -995,7 +981,7 @@ splitHsAppTys hs_ty
     go (L _  (HsAppKindTy l ty k)) as = go ty (HsTypeArg l k : as)
     go (L sp (HsParTy _ f))        as = go f (HsArgPar sp : as)
     go (L _  (HsOpTy _ l op@(L sp _) r)) as
-      = ( L sp (HsTyVar noExt NotPromoted op)
+      = ( L sp (HsTyVar noExtField NotPromoted op)
         , HsValArg l : HsValArg r : as )
     go f as = (f, as)
 
@@ -1885,7 +1871,7 @@ kcLHsQTyVars_Cusk name flav
     ctxt_kind | tcFlavourIsOpen flav = TheKind liftedTypeKind
               | otherwise            = AnyKind
 
-kcLHsQTyVars_Cusk _ _ (XLHsQTyVars _) _ = panic "kcLHsQTyVars"
+kcLHsQTyVars_Cusk _ _ (XLHsQTyVars nec) _ = noExtCon nec
 
 ------------------------------
 kcLHsQTyVars_NonCusk name flav
@@ -1933,7 +1919,7 @@ kcLHsQTyVars_NonCusk name flav
     ctxt_kind | tcFlavourIsOpen flav = TheKind liftedTypeKind
               | otherwise            = AnyKind
 
-kcLHsQTyVars_NonCusk _ _ (XLHsQTyVars _) _ = panic "kcLHsQTyVars"
+kcLHsQTyVars_NonCusk _ _ (XLHsQTyVars nec) _ = noExtCon nec
 
 
 {- Note [No polymorphic recursion]
@@ -2176,7 +2162,7 @@ tcHsTyVarBndr new_tv (UserTyVar _ (L _ tv_nm))
 tcHsTyVarBndr new_tv (KindedTyVar _ (L _ tv_nm) lhs_kind)
   = do { kind <- tcLHsKindSig (TyVarBndrKindCtxt tv_nm) lhs_kind
        ; new_tv tv_nm kind }
-tcHsTyVarBndr _ (XTyVarBndr _) = panic "tcHsTyVarBndr"
+tcHsTyVarBndr _ (XTyVarBndr nec) = noExtCon nec
 
 -----------------
 tcHsQTyVarBndr :: ContextKind
@@ -2206,10 +2192,10 @@ tcHsQTyVarBndr _ new_tv (KindedTyVar _ (L _ tv_nm) lhs_kind)
 
            _ -> new_tv tv_nm kind }
   where
-    hs_tv = HsTyVar noExt NotPromoted (noLoc tv_nm)
+    hs_tv = HsTyVar noExtField NotPromoted (noLoc tv_nm)
             -- Used for error messages only
 
-tcHsQTyVarBndr _ _ (XTyVarBndr _) = panic "tcHsTyVarBndr"
+tcHsQTyVarBndr _ _ (XTyVarBndr nec) = noExtCon nec
 
 
 --------------------------------------
@@ -2645,8 +2631,8 @@ tcHsPartialSigType ctxt sig_ty
        ; traceTc "tcHsPartialSigType" (ppr tv_prs)
        ; return (wcs, wcx, tv_prs, theta, tau) }
 
-tcHsPartialSigType _ (HsWC _ (XHsImplicitBndrs _)) = panic "tcHsPartialSigType"
-tcHsPartialSigType _ (XHsWildCardBndrs _) = panic "tcHsPartialSigType"
+tcHsPartialSigType _ (HsWC _ (XHsImplicitBndrs nec)) = noExtCon nec
+tcHsPartialSigType _ (XHsWildCardBndrs nec) = noExtCon nec
 
 tcPartialContext :: HsContext GhcRn -> TcM (TcThetaType, Maybe TcType)
 tcPartialContext hs_theta
@@ -2785,8 +2771,8 @@ tcHsPatSigType ctxt sig_ty
              -- NB: tv's Name may be fresh (in the case of newPatSigTyVar)
            ; return (name, tv) }
 
-tcHsPatSigType _ (HsWC _ (XHsImplicitBndrs _)) = panic "tcHsPatSigType"
-tcHsPatSigType _ (XHsWildCardBndrs _)          = panic "tcHsPatSigType"
+tcHsPatSigType _ (HsWC _ (XHsImplicitBndrs nec)) = noExtCon nec
+tcHsPatSigType _ (XHsWildCardBndrs nec)          = noExtCon nec
 
 tcPatSig :: Bool                    -- True <=> pattern binding
          -> LHsSigWcType GhcRn

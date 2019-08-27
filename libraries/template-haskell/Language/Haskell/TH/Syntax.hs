@@ -76,6 +76,7 @@ class (MonadIO m, Fail.MonadFail m) => Quasi m where
        -- True <=> type namespace, False <=> value namespace
   qReify          :: Name -> m Info
   qReifyFixity    :: Name -> m (Maybe Fixity)
+  qReifyType      :: Name -> m Type
   qReifyInstances :: Name -> [Type] -> m [Dec]
        -- Is (n tys) an instance?
        -- Returns list of matching instance Decs
@@ -132,6 +133,7 @@ instance Quasi IO where
   qLookupName _ _       = badIO "lookupName"
   qReify _              = badIO "reify"
   qReifyFixity _        = badIO "reifyFixity"
+  qReifyType _          = badIO "reifyFixity"
   qReifyInstances _ _   = badIO "reifyInstances"
   qReifyRoles _         = badIO "reifyRoles"
   qReifyAnnotations _   = badIO "reifyAnnotations"
@@ -429,6 +431,14 @@ example, if the function @foo@ has the fixity declaration @infixr 7 foo@, then
 reifyFixity :: Name -> Q (Maybe Fixity)
 reifyFixity nm = Q (qReifyFixity nm)
 
+{- | @reifyType nm@ attempts to find the type or kind of @nm@. For example,
+@reifyType 'not@   returns @Bool -> Bool@, and
+@reifyType ''Bool@ returns @Type@.
+This works even if there's no explicit signature and the type or kind is inferred.
+-}
+reifyType :: Name -> Q Type
+reifyType nm = Q (qReifyType nm)
+
 {- | @reifyInstances nm tys@ returns a list of visible instances of @nm tys@. That is,
 if @nm@ is the name of a type class, then all instances of this class at the types @tys@
 are returned. Alternatively, if @nm@ is the name of a data family or type family,
@@ -620,6 +630,7 @@ instance Quasi Q where
   qRecover            = recover
   qReify              = reify
   qReifyFixity        = reifyFixity
+  qReifyType          = reifyType
   qReifyInstances     = reifyInstances
   qReifyRoles         = reifyRoles
   qReifyAnnotations   = reifyAnnotations
@@ -1895,11 +1906,15 @@ data Exp
 
   | InfixE (Maybe Exp) Exp (Maybe Exp) -- ^ @{x + y} or {(x+)} or {(+ x)} or {(+)}@
 
-    -- It's a bit gruesome to use an Exp as the
-    -- operator, but how else can we distinguish
-    -- constructors from non-constructors?
-    -- Maybe there should be a var-or-con type?
-    -- Or maybe we should leave it to the String itself?
+    -- It's a bit gruesome to use an Exp as the operator when a Name
+    -- would suffice. Historically, Exp was used to make it easier to
+    -- distinguish between infix constructors and non-constructors.
+    -- This is a bit overkill, since one could just as well call
+    -- `startsConId` or `startsConSym` (from `GHC.Lexeme`) on a Name.
+    -- Unfortunately, changing this design now would involve lots of
+    -- code churn for consumers of the TH API, so we continue to use
+    -- an Exp as the operator and perform an extra check during conversion
+    -- to ensure that the Exp is a constructor or a variable (#16895).
 
   | UInfixE Exp Exp Exp                -- ^ @{x + y}@
                                        --

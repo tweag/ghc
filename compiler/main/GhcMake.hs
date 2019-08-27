@@ -2198,15 +2198,17 @@ enableCodeGenWhen condition should_modify staticLife dynLife target nodemap =
           -- to by the user. But we need them, so we patch their locations in
           -- the ModSummary with temporary files.
           --
-        hi_file <-
+        (hi_file, o_file) <-
+          -- If ``-fwrite-interface` is specified, then the .o and .hi files
+          -- are written into `-odir` and `-hidir` respectively.  #16670
           if gopt Opt_WriteInterface dflags
-            then return $ ml_hi_file ms_location
-            else new_temp_file (hiSuf dflags) (dynHiSuf dflags)
-        o_temp_file <- new_temp_file (objectSuf dflags) (dynObjectSuf dflags)
+            then return (ml_hi_file ms_location, ml_obj_file ms_location)
+            else (,) <$> (new_temp_file (hiSuf dflags) (dynHiSuf dflags))
+                     <*> (new_temp_file (objectSuf dflags) (dynObjectSuf dflags))
         return $
           ms
           { ms_location =
-              ms_location {ml_hi_file = hi_file, ml_obj_file = o_temp_file}
+              ms_location {ml_hi_file = hi_file, ml_obj_file = o_file}
           , ms_hspp_opts = updOptLevel 0 $ dflags {hscTarget = target}
           }
       | otherwise = return ms
@@ -2254,28 +2256,6 @@ msDeps :: ModSummary -> [(Located ModuleName, IsBoot)]
 msDeps s =
     concat [ [(m,IsBoot), (m,NotBoot)] | m <- ms_home_srcimps s ]
         ++ [ (m,NotBoot) | m <- ms_home_imps s ]
-
-home_imps :: [(Maybe FastString, Located ModuleName)] -> [Located ModuleName]
-home_imps imps = [ lmodname |  (mb_pkg, lmodname) <- imps,
-                                  isLocal mb_pkg ]
-  where isLocal Nothing = True
-        isLocal (Just pkg) | pkg == fsLit "this" = True -- "this" is special
-        isLocal _ = False
-
-ms_home_allimps :: ModSummary -> [ModuleName]
-ms_home_allimps ms = map unLoc (ms_home_srcimps ms ++ ms_home_imps ms)
-
--- | Like 'ms_home_imps', but for SOURCE imports.
-ms_home_srcimps :: ModSummary -> [Located ModuleName]
-ms_home_srcimps = home_imps . ms_srcimps
-
--- | All of the (possibly) home module imports from a
--- 'ModSummary'; that is to say, each of these module names
--- could be a home import if an appropriately named file
--- existed.  (This is in contrast to package qualified
--- imports, which are guaranteed not to be home imports.)
-ms_home_imps :: ModSummary -> [Located ModuleName]
-ms_home_imps = home_imps . ms_imps
 
 -----------------------------------------------------------------------------
 -- Summarising modules
