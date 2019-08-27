@@ -96,7 +96,7 @@ dsLit l = do
     HsString _ str   -> mkStringExprFS str
     HsInteger _ i _  -> mkIntegerExpr i
     HsInt _ i        -> return (mkIntExpr dflags (il_value i))
-    XLit x           -> pprPanic "dsLit" (ppr x)
+    XLit nec         -> noExtCon nec
     HsRat _ (FL _ _ val) ty -> do
       num   <- mkIntegerExpr (numerator val)
       denom <- mkIntegerExpr (denominator val)
@@ -117,7 +117,7 @@ dsOverLit (OverLit { ol_val = val, ol_ext = OverLitTc rebindable ty
   case shortCutLit dflags val ty of
     Just expr | not rebindable -> dsExpr expr        -- Note [Literal short cut]
     _                          -> dsExpr witness
-dsOverLit XOverLit{} = panic "dsOverLit"
+dsOverLit (XOverLit nec) = noExtCon nec
 {-
 Note [Literal short cut]
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -338,7 +338,7 @@ tidyLitPat (HsString src s)
                   (mkNilPat charTy) (unpackFS s)
         -- The stringTy is the type of the whole pattern, not
         -- the type to instantiate (:) or [] with!
-tidyLitPat lit = LitPat noExt lit
+tidyLitPat lit = LitPat noExtField lit
 
 ----------------
 tidyNPat :: HsOverLit GhcTc -> Maybe (SyntaxExpr GhcTc) -> SyntaxExpr GhcTc
@@ -374,7 +374,7 @@ tidyNPat (OverLit (OverLitTc False ty) val _) mb_neg _eq outer_ty
 
     mk_con_pat :: DataCon -> HsLit GhcTc -> Pat GhcTc
     mk_con_pat con lit
-      = unLoc (mkPrefixConPat con [noLoc $ LitPat noExt lit] [])
+      = unLoc (mkPrefixConPat con [noLoc $ LitPat noExtField lit] [])
 
     mb_int_lit :: Maybe Integer
     mb_int_lit = case (mb_neg, val) of
