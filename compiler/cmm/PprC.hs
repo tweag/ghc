@@ -713,6 +713,10 @@ pprMachOp_for_C mop = case mop of
                                 (panic $ "PprC.pprMachOp_for_C: MO_VU_Rem"
                                       ++ " should have been handled earlier!")
 
+        MO_VF_Broadcast {} -> pprTrace "offending mop:"
+                                 (text "MO_VF_Broadcast")
+                                 (panic $ "PprC.pprMachOp_for_C: MO_VF_Broadcast"
+                                      ++ " should have been handled earlier!")
         MO_VF_Insert {}   -> pprTrace "offending mop:"
                                 (text "MO_VF_Insert")
                                 (panic $ "PprC.pprMachOp_for_C: MO_VF_Insert"
@@ -812,6 +816,7 @@ pprCallishMachOp_for_C mop
         MO_F32_ExpM1    -> text "expm1f"
         MO_F32_Sqrt     -> text "sqrtf"
         MO_F32_Fabs     -> text "fabsf"
+        MO_ReadBarrier  -> text "load_load_barrier"
         MO_WriteBarrier -> text "write_barrier"
         MO_Memcpy _     -> text "memcpy"
         MO_Memset _     -> text "memset"

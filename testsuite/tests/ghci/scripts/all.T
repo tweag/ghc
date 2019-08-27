@@ -155,7 +155,8 @@ test('T6106', [extra_files(['../shell.hs']),
 test('T6105', normal, ghci_script, ['T6105.script'])
 test('T7117', normal, ghci_script, ['T7117.script'])
 test('ghci058', [extra_files(['../shell.hs']),
-                 cmd_prefix('ghciWayFlags=' + config.ghci_way_flags)],
+                 cmd_prefix('ghciWayFlags=' + config.ghci_way_flags),
+                 when(opsys('mingw32'), expect_broken(16858))],
      ghci_script, ['ghci058.script'])
 test('T7587', normal, ghci_script, ['T7587.script'])
 test('T7688', normal, ghci_script, ['T7688.script'])
@@ -299,3 +300,4 @@ test('T16527', normal, ghci_script, ['T16527.script'])
 test('T16563', extra_hc_opts("-clear-package-db -global-package-db"), ghci_script, ['T16563.script'])
 test('T16569', normal, ghci_script, ['T16569.script'])
 test('T16767', normal, ghci_script, ['T16767.script'])
+test('T16575', normal, ghci_script, ['T16575.script'])

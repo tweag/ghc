@@ -197,7 +197,7 @@ LDV_recordDead( const StgClosure *c, uint32_t size )
                 if (RtsFlags.ProfFlags.bioSelector == NULL) {
                     censuses[t].void_total   += size;
                     censuses[era].void_total -= size;
-                    ASSERT(censuses[t].void_total < censuses[t].not_used);
+                    ASSERT(censuses[t].void_total <= censuses[t].not_used);
                 } else {
                     id = closureIdentity(c);
                     ctr = lookupHashTable(censuses[t].hash, (StgWord)id);
@@ -836,10 +836,7 @@ dumpCensus( Census *census )
             traceHeapProfSampleString(0, (char *)ctr->identity,
                                       count * sizeof(W_));
             break;
-        }
-
 #if defined(PROFILING)
-        switch (RtsFlags.ProfFlags.doHeapProfile) {
         case HEAP_BY_CCS:
             fprint_ccs(hp_file, (CostCentreStack *)ctr->identity,
                        RtsFlags.ProfFlags.ccsLength);
@@ -876,10 +873,10 @@ dumpCensus( Census *census )
             printRetainerSetShort(hp_file, rs, RtsFlags.ProfFlags.ccsLength);
             break;
         }
+#endif
         default:
             barf("dumpCensus; doHeapProfile");
         }
-#endif
 
         fprintf(hp_file, "\t%" FMT_Word "\n", (W_)count * sizeof(W_));
     }
@@ -1009,19 +1006,6 @@ heapCensusChain( Census *census, bdescr *bd )
         }
 
         p = bd->start;
-
-        // When we shrink a large ARR_WORDS, we do not adjust the free pointer
-        // of the associated block descriptor, thus introducing slop at the end
-        // of the object.  This slop remains after GC, violating the assumption
-        // of the loop below that all slop has been eliminated (#11627).
-        // Consequently, we handle large ARR_WORDS objects as a special case.
-        if (bd->flags & BF_LARGE
-            && get_itbl((StgClosure *)p)->type == ARR_WORDS) {
-            size = arr_words_sizeW((StgArrBytes *)p);
-            prim = true;
-            heapProfObject(census, (StgClosure *)p, size, prim);
-            continue;
-        }
 
         while (p < bd->free) {
             info = get_itbl((const StgClosure *)p);
@@ -1172,6 +1156,8 @@ heapCensusChain( Census *census, bdescr *bd )
             heapProfObject(census,(StgClosure*)p,size,prim);
 
             p += size;
+            /* skip over slop */
+            while (p < bd->free && !*p) p++; // skip slop
         }
     }
 }
