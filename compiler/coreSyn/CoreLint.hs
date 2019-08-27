@@ -791,9 +791,12 @@ lintCoreExpr (Lam var expr)
 
 lintCoreExpr e@(Case scrut var alt_ty alts) =
        -- Check the scrutinee
-  do { let scrut_diverges = exprIsBottom scrut
-           scrut_mult = varMult var
-     ; (scrut_ty, scrut_ue) <- markAllJoinsBad $ lintCoreExpr scrut
+  do { (scrut_ty, scrut_ue) <- markAllJoinsBad $ lintCoreExpr scrut
+          -- See Note [Join points are less general than the paper]
+          -- in CoreSyn
+
+     ; let scrut_mult = varMult var
+
      ; (alt_ty, _) <- lintInTy alt_ty
      ; (var_ty, _) <- lintInTy (idType var)
 
@@ -816,7 +819,7 @@ lintCoreExpr e@(Case scrut var alt_ty alts) =
               , isAlgTyCon tycon
               , not (isAbstractTyCon tycon)
               , null (tyConDataCons tycon)
-              , not scrut_diverges
+              , not (exprIsBottom scrut)
               -> pprTrace "Lint warning: case binder's type has no constructors" (ppr var <+> ppr (idType var))
                         -- This can legitimately happen for type families
                       $ return ()
@@ -886,6 +889,7 @@ lintCoreFun (Lam var body) nargs
 
 lintCoreFun expr nargs
   = markAllJoinsBadIf (nargs /= 0) $
+      -- See Note [Join points are less general than the paper]
     lintCoreExpr expr
 
 ------------------
@@ -2383,9 +2387,6 @@ markAllJoinsBadIf False m = m
 
 addGoodJoins :: [Var] -> LintM a -> LintM a
 addGoodJoins vars thing_inside
-  | null join_ids
-  = thing_inside
-  | otherwise
   = LintM $ \ env errs -> unLintM thing_inside (add_joins env) errs
   where
     add_joins env = env { le_joins = le_joins env `extendVarSetList` join_ids }

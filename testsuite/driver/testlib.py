@@ -184,6 +184,16 @@ def req_interp( name, opts ):
     if not config.have_interp:
         opts.expect = 'fail'
 
+def req_th( name, opts ):
+    """
+    Mark a test as requiring TemplateHaskell. In addition to having interpreter
+    support, currently this means that we don't run the test in the profasm when
+    when GHC is dynamically-linked since we can't load profiled objects in this
+    case.
+    """
+    req_interp(name, opts)
+    return when(ghc_dynamic(), omit_ways(['profasm']))
+
 def req_smp( name, opts ):
     if not config.have_smp:
         opts.expect = 'fail'
@@ -420,13 +430,17 @@ def _collect_stats(name: TestName, opts, metrics, deviation, is_compiler_stats_t
     opts.is_stats_test = True
     if is_compiler_stats_test:
         opts.is_compiler_stats_test = True
+        tag = 'compile_time'
+    else:
+        tag = 'runtime'
 
     # Compiler performance numbers change when debugging is on, making the results
     # useless and confusing. Therefore, skip if debugging is on.
     if config.compiler_debugged and is_compiler_stats_test:
         opts.skip = True
 
-    for metric in metrics:
+    for metric_name in metrics:
+        metric = '{}/{}'.format(tag, metric_name)
         def baselineByWay(way, target_commit, metric=metric):
             return Perf.baseline_metric( \
                               target_commit, name, config.test_env, metric, way)
@@ -448,14 +462,6 @@ def unless(b: bool, f):
 
 def doing_ghci() -> bool:
     return 'ghci' in config.run_ways
-
-def requires_th(name, opts):
-    """
-    Mark a test as requiring TemplateHaskell. Currently this means
-    that we don't run the test in the profasm when when GHC is
-    dynamically-linked since we can't load profiled objects in this case.
-    """
-    return when(ghc_dynamic(), omit_ways(['profasm']))
 
 def ghc_dynamic() -> bool:
     return config.ghc_dynamic
@@ -1273,9 +1279,12 @@ def check_stats(name, way, stats_file, range_fields) -> Any:
             return failBecause(str(e))
 
         for (metric, baseline_and_dev) in range_fields.items():
-            field_match = re.search('\("' + metric + '", "([0-9]+)"\)', stats_file_contents)
+            # Remove any metric prefix e.g. "runtime/" and "compile_time/"
+            stat_file_metric = metric.split("/")[-1]
+
+            field_match = re.search('\\("' + stat_file_metric + '", "([0-9]+)"\\)', stats_file_contents)
             if field_match is None:
-                print('Failed to find metric: ', metric)
+                print('Failed to find metric: ', stat_file_metric)
                 metric_result = failBecause('no such stats metric')
             else:
                 val = field_match.group(1)
