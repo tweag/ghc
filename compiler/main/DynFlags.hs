@@ -220,7 +220,6 @@ module DynFlags (
         -- * SSE and AVX
         isSseEnabled,
         isSse2Enabled,
-        isSse4_1Enabled,
         isSse4_2Enabled,
         isBmiEnabled,
         isBmi2Enabled,
@@ -3021,7 +3020,7 @@ dynamic_flags_deps = [
   , make_ord_flag defGhcFlag "rdynamic" $ noArg $
 #if defined(linux_HOST_OS)
                               addOptl "-rdynamic"
-#elif defined (mingw32_HOST_OS)
+#elif defined(mingw32_HOST_OS)
                               addOptl "-Wl,--export-all-symbols"
 #else
     -- ignored for compat w/ gcc:
@@ -5905,8 +5904,6 @@ isSse2Enabled dflags = case platformArch (targetPlatform dflags) of
     ArchX86    -> True
     _          -> False
 
-isSse4_1Enabled :: DynFlags -> Bool
-isSse4_1Enabled dflags = sseVersion dflags >= Just SSE4
 
 isSse4_2Enabled :: DynFlags -> Bool
 isSse4_2Enabled dflags = sseVersion dflags >= Just SSE42

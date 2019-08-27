@@ -116,7 +116,7 @@ module GHC.Base
         module GHC.Magic,
         module GHC.Types,
         module GHC.Prim,        -- Re-export GHC.Prim and [boot] GHC.Err,
-                                -- to avoid lots of people having to
+        module GHC.Prim.Ext,    -- to avoid lots of people having to
         module GHC.Err,         -- import it explicitly
         module GHC.Maybe
   )
@@ -127,6 +127,7 @@ import GHC.Classes
 import GHC.CString
 import GHC.Magic
 import GHC.Prim
+import GHC.Prim.Ext
 import GHC.Err
 import GHC.Maybe
 import {-# SOURCE #-} GHC.IO (failIO,mplusIO)
@@ -812,7 +813,7 @@ instance Functor ((->) r) where
     fmap = (.)
 
 -- | @since 2.01
-instance Applicative ((->) a) where
+instance Applicative ((->) r) where
     pure = const
     (<*>) f g x = f x (g x)
     liftA2 q f g x = q (f x) (g x)

@@ -131,10 +131,10 @@ import Maybes
 import Util
 import ApiAnnotation
 import Data.List
-import DynFlags ( WarningFlag(..) )
+import DynFlags ( WarningFlag(..), DynFlags )
+import ErrUtils ( Messages )
 
 import Control.Monad
-import Control.Monad.Trans.Reader
 import Text.ParserCombinators.ReadP as ReadP
 import Data.Char
 import qualified Data.Monoid as Monoid
@@ -266,7 +266,7 @@ mkDataFamInst :: SrcSpan
 mkDataFamInst loc new_or_data cType (mcxt, bndrs, tycl_hdr)
               ksig data_cons maybe_deriv
   = do { (tc, tparams, fixity, ann) <- checkTyClHdr False tycl_hdr
-       ; mapM_ (\a -> a loc) ann -- Add any API Annotations to the top SrcSpan
+       ; addAnnsAt loc ann -- Add any API Annotations to the top SrcSpan
        ; defn <- mkDataDefn new_or_data cType mcxt ksig data_cons maybe_deriv
        ; return (cL loc (DataFamInstD noExtField (DataFamInstDecl (mkHsImplicitBndrs
                   (FamEqn { feqn_ext    = noExtField
@@ -1373,12 +1373,12 @@ pStrictMark ((dL->L l1 x1) : (dL->L l2 x2) : xs)
   | Just (strAnnId, str) <- tyElStrictness x1
   , TyElUnpackedness (unpkAnns, prag, unpk) <- x2
   = Just ( cL (combineSrcSpans l1 l2) (HsSrcBang prag unpk str)
-         , unpkAnns ++ [\s -> addAnnotation s strAnnId l1]
+         , unpkAnns ++ [AddAnn strAnnId l1]
          , xs )
 pStrictMark ((dL->L l x1) : xs)
   | Just (strAnnId, str) <- tyElStrictness x1
   = Just ( cL l (HsSrcBang NoSourceText NoSrcUnpack str)
-         , [\s -> addAnnotation s strAnnId l]
+         , [AddAnn strAnnId l]
          , xs )
 pStrictMark ((dL->L l x1) : xs)
   | TyElUnpackedness (anns, prag, unpk) <- x1
@@ -3003,32 +3003,94 @@ failOpStrictnessPosition (dL->L loc _) = addFatalError loc msg
 -----------------------------------------------------------------------------
 -- Misc utils
 
--- See Note [Parser-Validator] and Note [Parser-Validator ReaderT SDoc]
-newtype PV a = PV (ReaderT SDoc P a)
-  deriving (Functor, Applicative, Monad)
+data PV_Context =
+  PV_Context
+    { pv_options :: ParserFlags
+    , pv_hint :: SDoc  -- See Note [Parser-Validator Hint]
+    }
+
+data PV_Accum =
+  PV_Accum
+    { pv_messages :: DynFlags -> Messages
+    , pv_annotations :: [(ApiAnnKey,[SrcSpan])]
+    , pv_comment_q :: [Located AnnotationComment]
+    , pv_annotations_comments :: [(SrcSpan,[Located AnnotationComment])]
+    }
+
+data PV_Result a = PV_Ok PV_Accum a | PV_Failed PV_Accum
+
+-- See Note [Parser-Validator]
+newtype PV a = PV { unPV :: PV_Context -> PV_Accum -> PV_Result a }
+
+instance Functor PV where
+  fmap = liftM
+
+instance Applicative PV where
+  pure a = a `seq` PV (\_ acc -> PV_Ok acc a)
+  (<*>) = ap
+
+instance Monad PV where
+  m >>= f = PV $ \ctx acc ->
+    case unPV m ctx acc of
+      PV_Ok acc' a -> unPV (f a) ctx acc'
+      PV_Failed acc' -> PV_Failed acc'
 
 runPV :: PV a -> P a
-runPV (PV m) = runReaderT m empty
+runPV = runPV_msg empty
 
 runPV_msg :: SDoc -> PV a -> P a
-runPV_msg msg (PV m) = runReaderT m msg
+runPV_msg msg m =
+  P $ \s ->
+    let
+      pv_ctx = PV_Context
+        { pv_options = options s
+        , pv_hint = msg }
+      pv_acc = PV_Accum
+        { pv_messages = messages s
+        , pv_annotations = annotations s
+        , pv_comment_q = comment_q s
+        , pv_annotations_comments = annotations_comments s }
+      mkPState acc' =
+        s { messages = pv_messages acc'
+          , annotations = pv_annotations acc'
+          , comment_q = pv_comment_q acc'
+          , annotations_comments = pv_annotations_comments acc' }
+    in
+      case unPV m pv_ctx pv_acc of
+        PV_Ok acc' a -> POk (mkPState acc') a
+        PV_Failed acc' -> PFailed (mkPState acc')
 
 localPV_msg :: (SDoc -> SDoc) -> PV a -> PV a
-localPV_msg f (PV m) = PV (local f m)
+localPV_msg f m =
+  let modifyHint ctx = ctx{pv_hint = f (pv_hint ctx)} in
+  PV (\ctx acc -> unPV m (modifyHint ctx) acc)
 
 instance MonadP PV where
   addError srcspan msg =
-    PV $ ReaderT $ \ctxMsg -> addError srcspan (msg $$ ctxMsg)
-  addWarning option srcspan msg =
-    PV $ ReaderT $ \_ -> addWarning option srcspan msg
+    PV $ \ctx acc@PV_Accum{pv_messages=m} ->
+      let msg' = msg $$ pv_hint ctx in
+      PV_Ok acc{pv_messages=appendError srcspan msg' m} ()
+  addWarning option srcspan warning =
+    PV $ \PV_Context{pv_options=o} acc@PV_Accum{pv_messages=m} ->
+      PV_Ok acc{pv_messages=appendWarning o option srcspan warning m} ()
   addFatalError srcspan msg =
-    PV $ ReaderT $ \ctxMsg -> addFatalError srcspan (msg $$ ctxMsg)
+    addError srcspan msg >> PV (const PV_Failed)
   getBit ext =
-    PV $ ReaderT $ \_ -> getBit ext
-  addAnnsAt loc anns =
-    PV $ ReaderT $ \_ -> addAnnsAt loc anns
+    PV $ \ctx acc ->
+      let b = ext `xtest` pExtsBitmap (pv_options ctx) in
+      PV_Ok acc $! b
   addAnnotation l a v =
-    PV $ ReaderT $ \_ -> addAnnotation l a v
+    PV $ \_ acc ->
+      let
+        (comment_q', new_ann_comments) = allocateComments l (pv_comment_q acc)
+        annotations_comments' = new_ann_comments ++ pv_annotations_comments acc
+        annotations' = ((l,a), [v]) : pv_annotations acc
+        acc' = acc
+          { pv_annotations = annotations'
+          , pv_comment_q = comment_q'
+          , pv_annotations_comments = annotations_comments' }
+      in
+        PV_Ok acc' ()
 
 {- Note [Parser-Validator]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -3060,7 +3122,7 @@ not consume any input, but may fail or use other effects. Thus we have:
 
 -}
 
-{- Note [Parser-Validator ReaderT SDoc]
+{- Note [Parser-Validator Hint]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 A PV computation is parametrized by a hint for error messages, which can be set
 depending on validation context. We use this in checkPattern to fix #984.
@@ -3096,9 +3158,9 @@ We attempt to detect such cases and add a hint to the error messages:
     Possibly caused by a missing 'do'?
 
 The "Possibly caused by a missing 'do'?" suggestion is the hint that is passed
-via ReaderT SDoc in PV. When validating in a context other than 'bindpat' (a
-pattern to the left of <-), we set the hint to 'empty' and it has no effect on
-the error messages.
+as the 'pv_hint' field 'PV_Context'. When validating in a context other than
+'bindpat' (a pattern to the left of <-), we set the hint to 'empty' and it has
+no effect on the error messages.
 
 -}
 
