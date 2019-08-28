@@ -46,7 +46,7 @@ import GhcPrelude
 import IfaceType
 import BinFingerprint
 import CoreSyn( IsOrphan, isOrphan )
-import DynFlags( gopt, GeneralFlag (Opt_PrintAxiomIncomps) )
+import DynFlags( gopt, xopt, GeneralFlag (Opt_PrintAxiomIncomps) )
 import Demand
 import Class
 import FieldLabel
@@ -74,7 +74,6 @@ import Control.Monad
 import System.IO.Unsafe
 
 import qualified GHC.LanguageExtensions as LangExt
-import DynFlags
 
 infixl 3 &&&
 

@@ -699,7 +699,7 @@ protectNNLJoinPointBind x rhs@(fvs, _)
 protectNNLJoinPointId :: Id -> Id
 protectNNLJoinPointId x
   = ASSERT( isNNLJoinPoint x )
-    updateVarType (voidPrimTy `mkVisFunTy`) x
+    updateVarType (voidPrimTy `mkVisFunTyOm`) x
 
 {-
    Ticked Expressions
