@@ -197,6 +197,9 @@ import GhcPrelude
 
 import Kind
 import TyCoRep
+import TyCoSubst ( mkTvSubst, substTyWithCoVars )
+import TyCoFVs
+import TyCoPpr ( pprParendTheta )
 import Class
 import Var
 import ForeignCall

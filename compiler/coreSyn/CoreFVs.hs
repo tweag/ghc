@@ -73,6 +73,7 @@ import Var
 import Type
 import Multiplicity
 import TyCoRep
+import TyCoFVs
 import TyCon
 import CoAxiom
 import FamInstEnv
