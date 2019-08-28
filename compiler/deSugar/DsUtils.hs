@@ -904,7 +904,7 @@ mkBinaryTickBox :: Int -> Int -> CoreExpr -> DsM CoreExpr
 mkBinaryTickBox ixT ixF e = do
        uq <- newUnique
        this_mod <- getModule
-       let bndr1 = mkSysLocal (fsLit "t1") uq Omega boolTy
+       let bndr1 = mkSysLocal (fsLit "t1") uq One boolTy
        let
            falseBox = Tick (HpcTick this_mod ixF) (Var falseDataConId)
            trueBox  = Tick (HpcTick this_mod ixT) (Var trueDataConId)
