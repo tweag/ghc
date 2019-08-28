@@ -108,8 +108,7 @@ import RdrName
 import Var
 import TyCoRep
 import Multiplicity ( pattern One, pattern Omega )
-import TyCoFVs ( tyConAppNeedsKindSig )
-import Type   ( appTyArgFlags, splitAppTys, tyConArgFlags )
+import Type   ( appTyArgFlags, splitAppTys, tyConArgFlags, tyConAppNeedsKindSig )
 import TysWiredIn ( unitTy, omegaDataConTy )
 import TcType
 import DataCon
