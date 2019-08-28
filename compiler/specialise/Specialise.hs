@@ -2184,7 +2184,7 @@ callDetailsFVs calls =
 
 callInfoFVs :: CallInfoSet -> VarSet
 callInfoFVs (CIS _ call_info) =
-  foldrBag (\(CI { ci_fvs = fv }) vs -> unionVarSet fv vs) emptyVarSet call_info
+  foldr (\(CI { ci_fvs = fv }) vs -> unionVarSet fv vs) emptyVarSet call_info
 
 computeArity :: [SpecArg] -> Int
 computeArity = length . filter isValueArg . dropWhileEndLE isUnspecArg
@@ -2353,7 +2353,7 @@ plusUDs (MkUD {ud_binds = db1, ud_calls = calls1})
 
 -----------------------------
 _dictBindBndrs :: Bag DictBind -> [Id]
-_dictBindBndrs dbs = foldrBag ((++) . bindersOf . fst) [] dbs
+_dictBindBndrs dbs = foldr ((++) . bindersOf . fst) [] dbs
 
 -- | Construct a 'DictBind' from a 'CoreBind'
 mkDB :: CoreBind -> DictBind
@@ -2392,7 +2392,7 @@ recWithDumpedDicts :: [(Id,CoreExpr)] -> Bag DictBind ->DictBind
 recWithDumpedDicts pairs dbs
   = (Rec bindings, fvs)
   where
-    (bindings, fvs) = foldrBag add
+    (bindings, fvs) = foldr add
                                ([], emptyVarSet)
                                (dbs `snocBag` mkDB (Rec pairs))
     add (NonRec b r, fvs') (pairs, fvs) =
@@ -2416,13 +2416,13 @@ snocDictBind uds bind = uds { ud_binds = ud_binds uds `snocBag` bind }
 
 wrapDictBinds :: Bag DictBind -> [CoreBind] -> [CoreBind]
 wrapDictBinds dbs binds
-  = foldrBag add binds dbs
+  = foldr add binds dbs
   where
     add (bind,_) binds = bind : binds
 
 wrapDictBindsE :: Bag DictBind -> CoreExpr -> CoreExpr
 wrapDictBindsE dbs expr
-  = foldrBag add expr dbs
+  = foldr add expr dbs
   where
     add (bind,_) expr = Let bind expr
 
@@ -2481,7 +2481,7 @@ filterCalls :: CallInfoSet -> Bag DictBind -> [CallInfo]
 filterCalls (CIS fn call_bag) dbs
   = filter ok_call (bagToList call_bag)
   where
-    dump_set = foldlBag go (unitVarSet fn) dbs
+    dump_set = foldl' go (unitVarSet fn) dbs
       -- This dump-set could also be computed by splitDictBinds
       --   (_,_,dump_set) = splitDictBinds dbs {fn}
       -- But this variant is shorter
@@ -2501,8 +2501,8 @@ splitDictBinds :: Bag DictBind -> IdSet -> (Bag DictBind, Bag DictBind, IdSet)
 --   * free_dbs does not depend on bndrs
 --   * dump_set = bndrs `union` bndrs(dump_dbs)
 splitDictBinds dbs bndr_set
-   = foldlBag split_db (emptyBag, emptyBag, bndr_set) dbs
-                -- Important that it's foldl not foldr;
+   = foldl' split_db (emptyBag, emptyBag, bndr_set) dbs
+                -- Important that it's foldl' not foldr;
                 -- we're accumulating the set of dumped ids in dump_set
    where
     split_db (free_dbs, dump_dbs, dump_idset) db@(bind, fvs)

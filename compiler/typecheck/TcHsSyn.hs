@@ -1678,7 +1678,7 @@ zonkEvBinds env binds
          ; return (env1, binds') })
   where
     collect_ev_bndrs :: Bag EvBind -> [EvVar]
-    collect_ev_bndrs = foldrBag add []
+    collect_ev_bndrs = foldr add []
     add (EvBind { eb_lhs = var }) vars = var : vars
 
 zonkEvBind :: ZonkEnv -> EvBind -> TcM EvBind

@@ -64,7 +64,7 @@ isNvUnaryType ty
   = False
 
 -- INVARIANT: the result list is never empty.
-typePrimRepArgs :: Type -> [PrimRep]
+typePrimRepArgs :: HasDebugCallStack => Type -> [PrimRep]
 typePrimRepArgs ty
   | [] <- reps
   = [VoidRep]
@@ -472,7 +472,9 @@ typePrimRep ty = kindPrimRep (text "typePrimRep" <+>
                              (typeKind ty)
 
 -- | Like 'typePrimRep', but assumes that there is precisely one 'PrimRep' output;
--- an empty list of PrimReps becomes a VoidRep
+-- an empty list of PrimReps becomes a VoidRep.
+-- This assumption holds after unarise, see Note [Post-unarisation invariants].
+-- Before unarise it may or may not hold.
 -- See also Note [RuntimeRep and PrimRep] and Note [VoidRep]
 typePrimRep1 :: HasDebugCallStack => UnaryType -> PrimRep
 typePrimRep1 ty = case typePrimRep ty of
