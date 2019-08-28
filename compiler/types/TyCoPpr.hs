@@ -24,6 +24,7 @@ import {-# SOURCE #-} ToIface( toIfaceTypeX, toIfaceTyLit, toIfaceForAllBndr
 import {-# SOURCE #-} DataCon( dataConFullSig
                              , dataConUserTyVarBinders
                              , DataCon )
+import Multiplicity
 
 import TyCon
 import TyCoRep

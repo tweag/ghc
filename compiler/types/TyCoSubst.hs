@@ -66,6 +66,7 @@ import {-# SOURCE #-} Coercion ( mkCoVarCo, mkKindCo, mkNthCo, mkTransCo
 import TyCoRep
 import TyCoFVs
 import TyCoPpr
+import Multiplicity
 
 import Var
 import VarSet
