@@ -2,7 +2,7 @@ module TyCoRep where
 
 import GhcPrelude
 
-import Outputable ( Outputable, SDoc )
+import Outputable ( Outputable )
 import Data.Data  ( Data )
 import {-# SOURCE #-} Var( Var, ArgFlag, AnonArgFlag )
 
