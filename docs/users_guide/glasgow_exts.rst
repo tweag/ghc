@@ -5422,6 +5422,12 @@ as in the following example: ::
 
 Here we make use of the ``Monoid ((->) a)`` instance.
 
+When used in combination with :extension:`StandaloneDeriving` we swap the order
+for the instance we base our derivation on and the instance we define e.g.: ::
+
+  deriving via (a -> App m b) instance Monoid (Kleisli m a b)
+
+
 .. _pattern-synonyms:
 
 Pattern synonyms
@@ -8040,6 +8046,9 @@ type such as ``F Double`` will simplify to ``Char``. In ``G``, on the
 other hand, the two equations are compatible. Thus, GHC can ignore the
 first equation when looking at the second. So, ``G a`` will simplify to
 ``a``.
+
+Incompatibilities between closed type family equations can be displayed
+in :ghci-cmd:`:info` when :ghc-flag:`-fprint-axiom-incomps` is enabled.
 
 However see :ref:`ghci-decls` for the overlap rules in GHCi.
 

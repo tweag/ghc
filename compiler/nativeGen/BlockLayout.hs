@@ -4,9 +4,6 @@
 
 {-# LANGUAGE TypeFamilies, ScopedTypeVariables, CPP #-}
 
-{-# OPTIONS_GHC -fprof-auto #-}
---{-# OPTIONS_GHC -ddump-simpl -ddump-to-file -ddump-cmm #-}
-
 module BlockLayout
     ( sequenceTop )
 where
@@ -37,7 +34,6 @@ import Maybes
 --import Debug
 --import Debug.Trace
 import ListSetOps (removeDups)
-import PprCmm ()
 
 import OrdList
 import Data.List

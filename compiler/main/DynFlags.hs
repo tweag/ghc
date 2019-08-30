@@ -60,7 +60,6 @@ module DynFlags (
         fFlags, fLangFlags, xFlags,
         wWarningFlags,
         dynFlagDependencies,
-        tablesNextToCode,
         makeDynFlagsConsistent,
         shouldUseColor,
         shouldUseHexWordLiterals,
@@ -160,6 +159,7 @@ module DynFlags (
         opt_L, opt_P, opt_F, opt_c, opt_cxx, opt_a, opt_l, opt_i,
         opt_P_signature,
         opt_windres, opt_lo, opt_lc, opt_lcc,
+        tablesNextToCode,
 
         -- ** Manipulating DynFlags
         addPluginModuleName,
@@ -522,6 +522,7 @@ data GeneralFlag
    | Opt_PrintExplicitCoercions
    | Opt_PrintExplicitRuntimeReps
    | Opt_PrintEqualityRelations
+   | Opt_PrintAxiomIncomps
    | Opt_PrintUnicodeSyntax
    | Opt_PrintExpandedSynonyms
    | Opt_PrintPotentialInstances
@@ -1493,6 +1494,9 @@ opt_lc dflags= toolSettings_opt_lc $ toolSettings dflags
 opt_i                 :: DynFlags -> [String]
 opt_i dflags= toolSettings_opt_i $ toolSettings dflags
 
+tablesNextToCode :: DynFlags -> Bool
+tablesNextToCode = platformMisc_tablesNextToCode . platformMisc
+
 -- | The directory for this version of ghc in the user's app directory
 -- (typically something like @~/.ghc/x86_64-linux-7.6.3@)
 --
@@ -1663,15 +1667,6 @@ defaultObjectTarget :: DynFlags -> HscTarget
 defaultObjectTarget dflags = defaultHscTarget
   (targetPlatform dflags)
   (platformMisc dflags)
-
--- Determines whether we will be compiling
--- info tables that reside just before the entry code, or with an
--- indirection to the entry code.  See TABLES_NEXT_TO_CODE in
--- includes/rts/storage/InfoTables.h.
-tablesNextToCode :: DynFlags -> Bool
-tablesNextToCode dflags =
-    not (platformUnregisterised $ targetPlatform dflags) &&
-    platformMisc_tablesNextToCode (platformMisc dflags)
 
 data DynLibLoader
   = Deployable
@@ -4236,6 +4231,7 @@ fFlagsDeps = [
   flagSpec "print-explicit-coercions"         Opt_PrintExplicitCoercions,
   flagSpec "print-explicit-runtime-reps"      Opt_PrintExplicitRuntimeReps,
   flagSpec "print-equality-relations"         Opt_PrintEqualityRelations,
+  flagSpec "print-axiom-incomps"              Opt_PrintAxiomIncomps,
   flagSpec "print-unicode-syntax"             Opt_PrintUnicodeSyntax,
   flagSpec "print-expanded-synonyms"          Opt_PrintExpandedSynonyms,
   flagSpec "print-potential-instances"        Opt_PrintPotentialInstances,
@@ -5598,19 +5594,16 @@ mAX_PTR_TAG = tAG_MASK
 tARGET_MIN_INT, tARGET_MAX_INT, tARGET_MAX_WORD :: DynFlags -> Integer
 tARGET_MIN_INT dflags
     = case platformWordSize (targetPlatform dflags) of
-      4 -> toInteger (minBound :: Int32)
-      8 -> toInteger (minBound :: Int64)
-      w -> panic ("tARGET_MIN_INT: Unknown platformWordSize: " ++ show w)
+      PW4 -> toInteger (minBound :: Int32)
+      PW8 -> toInteger (minBound :: Int64)
 tARGET_MAX_INT dflags
     = case platformWordSize (targetPlatform dflags) of
-      4 -> toInteger (maxBound :: Int32)
-      8 -> toInteger (maxBound :: Int64)
-      w -> panic ("tARGET_MAX_INT: Unknown platformWordSize: " ++ show w)
+      PW4 -> toInteger (maxBound :: Int32)
+      PW8 -> toInteger (maxBound :: Int64)
 tARGET_MAX_WORD dflags
     = case platformWordSize (targetPlatform dflags) of
-      4 -> toInteger (maxBound :: Word32)
-      8 -> toInteger (maxBound :: Word64)
-      w -> panic ("tARGET_MAX_WORD: Unknown platformWordSize: " ++ show w)
+      PW4 -> toInteger (maxBound :: Word32)
+      PW8 -> toInteger (maxBound :: Word64)
 
 
 {- -----------------------------------------------------------------------------

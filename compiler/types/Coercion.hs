@@ -122,6 +122,10 @@ import GhcPrelude
 
 import IfaceType
 import TyCoRep
+import TyCoFVs
+import TyCoPpr
+import TyCoSubst
+import TyCoTidy
 import Type
 import TyCon
 import CoAxiom

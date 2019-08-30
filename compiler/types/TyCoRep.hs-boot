@@ -2,7 +2,7 @@ module TyCoRep where
 
 import GhcPrelude
 
-import Outputable ( Outputable, SDoc )
+import Outputable ( Outputable )
 import Data.Data  ( Data )
 import {-# SOURCE #-} Var( Var, ArgFlag, AnonArgFlag )
 
@@ -10,7 +10,6 @@ data Type
 data TyThing
 data Coercion
 data UnivCoProvenance
-data TCvSubst
 data TyLit
 data TyCoBinder
 data MCoercion
@@ -21,8 +20,6 @@ type ThetaType = [PredType]
 type CoercionN = Coercion
 type MCoercionN = MCoercion
 
-pprKind :: Kind -> SDoc
-pprType :: Type -> SDoc
 mkFunTyOm :: AnonArgFlag -> Type -> Type -> Type
 mkForAllTy :: Var -> ArgFlag -> Type -> Type
 

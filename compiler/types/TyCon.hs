@@ -132,7 +132,8 @@ module TyCon(
 
 import GhcPrelude
 
-import {-# SOURCE #-} TyCoRep    ( Kind, Type, PredType, pprType, mkForAllTy, mkFunTyOm )
+import {-# SOURCE #-} TyCoRep    ( Kind, Type, PredType, mkForAllTy, mkFunTyOm )
+import {-# SOURCE #-} TyCoPpr    ( pprType )
 import {-# SOURCE #-} TysWiredIn ( runtimeRepTyCon, constraintKind
                                  , multiplicityTyCon
                                  , vecCountTyCon, vecElemTyCon, liftedTypeKind )

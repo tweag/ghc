@@ -29,6 +29,7 @@ import Util
 import Bag
 import Control.Monad
 import MonadUtils    ( zipWith3M )
+import Data.Foldable ( foldrM )
 
 import Control.Arrow ( first )
 
@@ -1693,11 +1694,11 @@ unflattenWanteds tv_eqs funeqs
          --                 ==> (flatten) [W] F alpha ~ fmv, [W] alpha ~ [fmv]
          --                 ==> (unify)   [W] F [fmv] ~ fmv
          -- See Note [Unflatten using funeqs first]
-      ; funeqs <- foldrBagM unflatten_funeq emptyCts funeqs
+      ; funeqs <- foldrM unflatten_funeq emptyCts funeqs
       ; traceTcS "Unflattening 1" $ braces (pprCts funeqs)
 
           -- Step 2: unify the tv_eqs, if possible
-      ; tv_eqs  <- foldrBagM (unflatten_eq tclvl) emptyCts tv_eqs
+      ; tv_eqs  <- foldrM (unflatten_eq tclvl) emptyCts tv_eqs
       ; traceTcS "Unflattening 2" $ braces (pprCts tv_eqs)
 
           -- Step 3: fill any remaining fmvs with fresh unification variables
@@ -1705,7 +1706,7 @@ unflattenWanteds tv_eqs funeqs
       ; traceTcS "Unflattening 3" $ braces (pprCts funeqs)
 
           -- Step 4: remove any tv_eqs that look like ty ~ ty
-      ; tv_eqs <- foldrBagM finalise_eq emptyCts tv_eqs
+      ; tv_eqs <- foldrM finalise_eq emptyCts tv_eqs
 
       ; let all_flat = tv_eqs `andCts` funeqs
       ; traceTcS "Unflattening done" $ braces (pprCts all_flat)

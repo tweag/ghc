@@ -19,8 +19,7 @@
 -----------------------------------------------------------------------------
 
 module PprC (
-        writeCs,
-        pprStringInCStyle
+        writeC
   ) where
 
 #include "HsVersions.h"
@@ -32,7 +31,7 @@ import BlockId
 import CLabel
 import ForeignCall
 import Cmm hiding (pprBBlock)
-import PprCmm ()
+import PprCmm () -- For Outputable instances
 import Hoopl.Block
 import Hoopl.Collections
 import Hoopl.Graph
@@ -68,13 +67,8 @@ import Data.Array.ST
 -- --------------------------------------------------------------------------
 -- Top level
 
-pprCs :: [RawCmmGroup] -> SDoc
-pprCs cmms
- = pprCode CStyle (vcat $ map pprC cmms)
-
-writeCs :: DynFlags -> Handle -> [RawCmmGroup] -> IO ()
-writeCs dflags handle cmms
-  = printForC dflags handle (pprCs cmms)
+writeC :: DynFlags -> Handle -> RawCmmGroup -> IO ()
+writeC dflags handle cmm = printForC dflags handle (pprC cmm $$ blankLine)
 
 -- --------------------------------------------------------------------------
 -- Now do some real work

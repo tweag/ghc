@@ -1008,7 +1008,12 @@ def do_test(name: TestName,
 
     if way in opts.fragile_ways:
         if_verbose(1, '*** fragile test %s resulted in %s' % (full_name, passFail))
-        t.fragile_results.append(TestResult(directory, name, 'fragile %s' % passFail, way))
+        if passFail == 'pass':
+            t.fragile_passes.append(TestResult(directory, name, 'fragile', way))
+        else:
+            t.fragile_failures.append(TestResult(directory, name, 'fragile', way,
+                                                 stdout=result.stdout,
+                                                 stderr=result.stderr))
     elif passFail == 'pass':
         if _expect_pass(way):
             t.expected_passes.append(TestResult(directory, name, "", way))
@@ -1812,7 +1817,8 @@ def compare_outputs(way: WayName,
         expected_normalised_path = in_testdir(expected_normalised_file)
     else:
         expected_str = ''
-        expected_normalised_path = Path('/dev/null')
+        # See Note [Null device handling]
+        expected_normalised_path = Path(os.devnull)
 
     actual_raw = read_no_crs(actual_path)
     actual_str = normaliser(actual_raw)
@@ -1824,7 +1830,8 @@ def compare_outputs(way: WayName,
         if config.verbose >= 1 and _expect_pass(way):
             print('Actual ' + kind + ' output differs from expected:')
 
-        if expected_normalised_path != '/dev/null':
+        # See Note [Null device handling]
+        if expected_normalised_path != Path(os.devnull):
             write_file(expected_normalised_path, expected_str)
 
         actual_normalised_path = add_suffix(actual_path, 'normalised')
@@ -1832,7 +1839,7 @@ def compare_outputs(way: WayName,
 
         if config.verbose >= 1 and _expect_pass(way):
             # See Note [Output comparison].
-            r = runCmd('diff -uw "{0}" "{1}"'.format(expected_normalised_path,
+            r = runCmd('diff -uw "{0}" "{1}"'.format(null2unix_null(expected_normalised_path),
                                                         actual_normalised_path),
                         stdout=diff_file,
                         print_output=True)
@@ -1840,7 +1847,7 @@ def compare_outputs(way: WayName,
             # If for some reason there were no non-whitespace differences,
             # then do a full diff
             if r == 0:
-                r = runCmd('diff -u "{0}" "{1}"'.format(expected_normalised_path,
+                r = runCmd('diff -u "{0}" "{1}"'.format(null2unix_null(expected_normalised_path),
                                                            actual_normalised_path),
                            stdout=diff_file,
                            print_output=True)
@@ -1924,6 +1931,26 @@ def grep_output(normaliser: OutputNormalizer, pattern_file, actual_file, is_subs
 #    squash all whitespace, making the diff unreadable. Instead we rely
 #    on the `diff` program to ignore whitespace changes as much as
 #    possible (#10152).
+
+# Note [Null device handling]
+#
+# On windows the null device is 'nul' instead of '/dev/null'.
+# This can in principle be easily solved by using os.devnull.
+# Not doing so causes issues when python tries to read/write/open
+# the null device.
+#
+# However this still leads to a problem when executing shell
+# commands in the msys environment. Which again expect '/dev/null'.
+#
+# So what we do is use os.devnull and convert it to the string
+# '/dev/null' for shell commands which are bound to run in a
+# unix-like environment.
+
+def null2unix_null(f: Path) -> str:
+    if f == Path(os.devnull):
+        return ('/dev/null')
+    else:
+        return f.as_posix()
 
 def normalise_whitespace(s: str) -> str:
     # Merge contiguous whitespace characters into a single space.
@@ -2363,7 +2390,7 @@ def summary(t: TestRun, file: TextIO, short=False, color=False) -> None:
                + ' unexpected failures\n'
                + repr(len(t.unexpected_stat_failures)).rjust(8)
                + ' unexpected stat failures\n'
-               + repr(len(t.fragile_results)).rjust(8)
+               + repr(len(t.fragile_failures) + len(t.fragile_passes)).rjust(8)
                + ' fragile tests\n'
                + '\n')
 
@@ -2387,9 +2414,13 @@ def summary(t: TestRun, file: TextIO, short=False, color=False) -> None:
         file.write('Framework warnings:\n')
         printTestInfosSummary(file, t.framework_warnings)
 
-    if t.fragile_results:
-        file.write('Fragile tests:\n')
-        printTestInfosSummary(file, t.fragile_results)
+    if t.fragile_passes:
+        file.write('Fragile test passes:\n')
+        printTestInfosSummary(file, t.fragile_passes)
+
+    if t.fragile_failures:
+        file.write('Fragile test failures:\n')
+        printTestInfosSummary(file, t.fragile_failures)
 
     if stopping():
         file.write('WARNING: Testsuite run was terminated early\n')

@@ -49,6 +49,7 @@ module Var (
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType,
         scaleVarBy, setVarMult,
+        updateVarType,
         updateVarTypeAndMult, updateVarTypeAndMultM,
 
         -- ** Constructing, taking apart, modifying 'Id's
@@ -92,7 +93,8 @@ module Var (
 
 import GhcPrelude
 
-import {-# SOURCE #-}   TyCoRep( Type, Kind, pprKind )
+import {-# SOURCE #-}   TyCoRep( Type, Kind )
+import {-# SOURCE #-}   TyCoPpr( pprKind )
 import {-# SOURCE #-}   TcType( TcTyVarDetails, pprTcTyVarDetails, vanillaSkolemTv )
 import {-# SOURCE #-}   IdInfo( IdDetails, IdInfo, coVarDetails, isCoVarDetails,
                                 vanillaIdInfo, pprIdDetails )
@@ -390,6 +392,9 @@ setVarName var new_name
 
 setVarType :: Id -> Type -> Id
 setVarType id ty = id { varType = ty }
+
+updateVarType :: (Type -> Type) -> Id -> Id
+updateVarType f id = id { varType = f (varType id) }
 
 updateVarTypeAndMult :: (Type -> Type) -> Id -> Id
 updateVarTypeAndMult f id = let id' = id { varType = f (varType id) }
