@@ -1850,7 +1850,7 @@ tc_infer_id lbl id_name
            -- TODO replace empty with something better
            -- TODO add a Note on wrappers
            ; let (mult_vars, scaled_arg_tys) = dataConMulVars con
-           ; let wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr (mapScaledType (substTy subst) scaled_ty) empty) WpHole scaled_arg_tys
+           ; let wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr (mapScaledType (substTyUnchecked subst) scaled_ty) empty) WpHole scaled_arg_tys
            ; addDataConStupidTheta con (drop (length mult_vars) tys')
            -- The first K arguments of `tys'` are multiplicities.
            -- They are followed by the dictionaries which are the stupid
