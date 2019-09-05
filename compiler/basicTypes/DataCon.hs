@@ -1324,21 +1324,11 @@ dataConUserType :: DataCon -> Type
 -- mentions the family tycon, not the internal one.
 dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
                           dcOtherTheta = theta, dcOrigArgTys = arg_tys,
-                          dcOrigResTy = res_ty, dcRep = NoDataConRep })
+                          dcOrigResTy = res_ty })
   = mkForAllTys user_tvbs $
     mkInvisFunTysOm theta $
     mkVisFunTys arg_tys $
     res_ty
-dataConUserType dc@(MkData { dcUserTyVarBinders = user_tvbs,
-                             dcOtherTheta = theta,
-                             dcOrigResTy = res_ty })
-  = let (mult_vars, arg_tys') = dataConMulVars dc
-        tvb = map (mkTyVarBinder Inferred) mult_vars
-    in
-      mkForAllTys (tvb ++ user_tvbs) $
-      mkInvisFunTysOm theta $
-      mkVisFunTys arg_tys' $
-      res_ty
 
 -- | Finds the instantiated types of the arguments required to construct a
 -- 'DataCon' representation
