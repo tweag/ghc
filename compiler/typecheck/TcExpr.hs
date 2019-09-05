@@ -1840,7 +1840,6 @@ tc_infer_id lbl id_name
     return_id id = return (HsVar noExtField (noLoc id), idType id)
 
     return_data_con con
-      | {-pprTrace "return_data_con" (ppr con <+> ppr (length (dataConOrigArgTys con))) True, -}length (dataConOrigArgTys con) >= 2
        -- See Note [Instantiating stupid theta]
       = do { let (tvs, theta, rho) = tcSplitSigmaTy con_ty
            ; (subst, tvs') <- newMetaTyVars tvs
@@ -1848,13 +1847,8 @@ tc_infer_id lbl id_name
                  theta' = substTheta subst theta
                  rho'   = substTy subst rho
            ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
-           -- ; let wrap2 = WpFun WpHole WpHole (head (dataConOrigArgTys con)) empty
-           -- ; pprTraceM "orig_arg_tys" (ppr (dataConOrigArgTys con))
-           -- ; pprTraceM "tys'" (ppr tys')
-           -- ; pprTraceM "tvs" (ppr tvs)
-           -- ; pprTraceM "before subst" $ ppr [(w, x) | Scaled w x <- dataConOrigArgTys con]
-           -- ; pprTraceM "subst" $ ppr [(substTy subst w, substTy subst x) | Scaled w x <- dataConOrigArgTys con]
            -- TODO replace empty with something better
+           -- TODO add a Note on wrappers
            ; let (mult_vars, scaled_arg_tys) = dataConMulVars con
            ; let wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr (mapScaledType (substTy subst) scaled_ty) empty) WpHole scaled_arg_tys
            ; addDataConStupidTheta con (drop (length mult_vars) tys')
@@ -1866,30 +1860,8 @@ tc_infer_id lbl id_name
            ; return ( mkHsWrap (wrap2 <.> wrap) (HsConLikeOut noExtField (RealDataCon con))
                     , rho') }
 
-       -- For data constructors, must perform the stupid-theta check
-      | null stupid_theta
-      = return (HsConLikeOut noExtField (RealDataCon con), con_ty)
-
-      | otherwise
-       -- See Note [Instantiating stupid theta]
-      = do { let (tvs, theta, rho) = tcSplitSigmaTy con_ty
-           ; (subst, tvs') <- newMetaTyVars tvs
-           ; let tys'   = mkTyVarTys tvs'
-                 theta' = substTheta subst theta
-                 rho'   = substTy subst rho
-           ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
-           ; addDataConStupidTheta con (drop (length (fst $ dataConMulVars con)) tys')
-           -- The first K arguments of `tys'` are multiplicities.
-           -- They are followed by the dictionaries which are the stupid
-           -- theta. Thus, we ignore the first K arguments as we just want to
-           -- instantiate dictionary arguments in `addDataConStupidTheta`.
-           -- It might be better to use `dataConRepType` in `con_ty` below.
-           ; return ( mkHsWrap wrap (HsConLikeOut noExtField (RealDataCon con))
-                    , rho') }
-
       where
         con_ty         = dataConUserType con
-        stupid_theta   = dataConStupidTheta con
 
     check_naughty id
       | isNaughtyRecordSelector id = failWithTc (naughtyRecordSel lbl)
