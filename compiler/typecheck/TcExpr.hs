@@ -1840,11 +1840,6 @@ tc_infer_id lbl id_name
     return_id id = return (HsVar noExtField (noLoc id), idType id)
 
     return_data_con con
-       -- For data constructors, must perform the stupid-theta check
-      | null stupid_theta
-      = return (HsConLikeOut noExtField (RealDataCon con), con_ty)
-
-      | otherwise
        -- See Note [Instantiating stupid theta]
       = do { let (tvs, theta, rho) = tcSplitSigmaTy con_ty
            ; (subst, tvs') <- newMetaTyVars tvs
@@ -1863,7 +1858,6 @@ tc_infer_id lbl id_name
 
       where
         con_ty         = dataConUserType con
-        stupid_theta   = dataConStupidTheta con
 
     check_naughty id
       | isNaughtyRecordSelector id = failWithTc (naughtyRecordSel lbl)
