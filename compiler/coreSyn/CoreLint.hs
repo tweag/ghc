@@ -2482,7 +2482,7 @@ ensureEqTys :: OutType -> OutType -> MsgDoc -> LintM ()
 ensureEqTys ty1 ty2 msg = lintL (ty1 `eqType` ty2) msg
 
 ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()
-ensureSubMult actual_usage described_usage err_msg = return ()
+ensureSubMult _ _ _ = return ()
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared

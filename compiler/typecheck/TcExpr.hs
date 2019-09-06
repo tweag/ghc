@@ -1876,8 +1876,8 @@ tc_infer_id lbl id_name
            ; return ( mkHsWrap (wrap2 <.> wrap) (HsConLikeOut noExtField (RealDataCon con))
                     , mkVisFunTys scaled_arg_tys res') }
 
-      where
-        con_ty         = dataConUserType con
+      {-where
+        con_ty         = dataConUserType con-}
 
     check_naughty id
       | isNaughtyRecordSelector id = failWithTc (naughtyRecordSel lbl)

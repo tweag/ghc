@@ -87,8 +87,6 @@ import Binary
 import UniqSet
 import Unique( mkAlphaTyVarUnique )
 
-import TysPrim
-
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as BSB
 import qualified Data.ByteString.Lazy    as LBS
@@ -1301,9 +1299,7 @@ dataConStupidTheta dc = dcStupidTheta dc
 --    MkT :: forall n2. n2 -> T n2
 -- See test LinearGhci.
 dataConMulVars :: DataCon -> ([TyVar], [Scaled Type])
-dataConMulVars (MkData { dcUserTyVarBinders = user_tvbs,
-                         dcOrigArgTys = arg_tys }) =
-   ([], arg_tys)
+dataConMulVars (MkData { dcOrigArgTys = arg_tys }) = ([], arg_tys)
 
 dataConUserType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor
