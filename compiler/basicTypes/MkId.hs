@@ -770,7 +770,19 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
     (rep_tys, rep_strs) = unzip (concat rep_tys_w_strs)
 
     wrapper_reqd =
-      not (isClassTyCon tycon || isTcLevPoly tycon)
+        (not new_tycon
+                     -- (Most) newtypes have only a worker, with the exception
+                     -- of some newtypes written with GADT syntax. See below.
+         && (any isBanged (ev_ibangs ++ arg_ibangs)
+                     -- Some forcing/unboxing (includes eq_spec)
+             || (not $ null eq_spec))) -- GADT
+      || isFamInstTyCon tycon -- Cast result
+      || dataConUserTyVarsArePermuted data_con
+                     -- If the data type was written with GADT syntax and
+                     -- orders the type variables differently from what the
+                     -- worker expects, it needs a data con wrapper to reorder
+                     -- the type variables.
+                     -- See Note [Data con wrappers and GADT syntax].
 
     initial_wrap_app = Var (dataConWorkId data_con)
                        `mkTyApps`  res_ty_args
