@@ -1302,10 +1302,7 @@ dataConStupidTheta dc = dcStupidTheta dc
 dataConMulVars :: DataCon -> ([TyVar], [Scaled Type])
 dataConMulVars (MkData { dcUserTyVarBinders = user_tvbs,
                          dcOrigArgTys = arg_tys }) =
-   (vars, zipWithEqual "dataConMulVars" combine vars arg_tys)
-   where vars = multiplicityTyVarList (length arg_tys) (map getOccName (binderVars user_tvbs))
-         combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
-         combine _   scaled_ty = scaled_ty
+   ([], arg_tys)
 
 dataConUserType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor
