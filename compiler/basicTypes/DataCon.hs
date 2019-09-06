@@ -35,6 +35,7 @@ module DataCon (
         dataConUserTyVars, dataConUserTyVarBinders,
         dataConEqSpec, dataConTheta,
         dataConStupidTheta,
+        dataConOtherTheta,
         dataConMulVars,
         dataConInstArgTys, dataConOrigArgTys, dataConOrigResTy,
         dataConInstOrigArgTys, dataConRepArgTys,
@@ -1321,21 +1322,11 @@ dataConUserType :: DataCon -> Type
 -- mentions the family tycon, not the internal one.
 dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
                           dcOtherTheta = theta, dcOrigArgTys = arg_tys,
-                          dcOrigResTy = res_ty, dcRep = NoDataConRep })
+                          dcOrigResTy = res_ty })
   = mkForAllTys user_tvbs $
     mkInvisFunTysOm theta $
     mkVisFunTys arg_tys $
     res_ty
-dataConUserType dc@(MkData { dcUserTyVarBinders = user_tvbs,
-                             dcOtherTheta = theta,
-                             dcOrigResTy = res_ty })
-  = let (mult_vars, arg_tys') = dataConMulVars dc
-        tvb = map (mkTyVarBinder Inferred) mult_vars
-    in
-      mkForAllTys (tvb ++ user_tvbs) $
-      mkInvisFunTysOm theta $
-      mkVisFunTys arg_tys' $
-      res_ty
 
 -- | Finds the instantiated types of the arguments required to construct a
 -- 'DataCon' representation
@@ -1377,6 +1368,9 @@ dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
 -- and without substituting for any type variables
 dataConOrigArgTys :: DataCon -> [Scaled Type]
 dataConOrigArgTys dc = dcOrigArgTys dc
+
+dataConOtherTheta :: DataCon -> ThetaType
+dataConOtherTheta dc = dcOtherTheta dc
 
 -- | Returns the arg types of the worker, including *all* non-dependent
 -- evidence, after any flattening has been done and without substituting for

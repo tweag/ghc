@@ -1839,26 +1839,42 @@ tc_infer_id lbl id_name
   where
     return_id id = return (HsVar noExtField (noLoc id), idType id)
 
+    -- TODO restore non-stupid theta part
+    {-
+       -- For data constructors, must perform the stupid-theta check
+      | null stupid_theta
+      = return (HsConLikeOut noExtField (RealDataCon con), con_ty)
+    -}
+
     return_data_con con
        -- See Note [Instantiating stupid theta]
-      = do { let (tvs, theta, rho) = tcSplitSigmaTy con_ty
-           ; (subst, tvs') <- newMetaTyVars tvs
+      = do { let tvs = dataConUserTyVarBinders con
+                 theta = dataConOtherTheta con
+                 args = dataConOrigArgTys con
+                 res = dataConOrigResTy con
+           ; (subst, tvs') <- newMetaTyVars (map binderVar tvs)
            ; let tys'   = mkTyVarTys tvs'
                  theta' = substTheta subst theta
-                 rho'   = substTy subst rho
+                 args'  = map (mapScaledType (substTy subst)) args
+                 res'   = substTy subst res
            ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
            -- TODO replace empty with something better
            -- TODO add a Note on wrappers
-           ; let (mult_vars, scaled_arg_tys) = dataConMulVars con
-           ; let wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr (mapScaledType (substTyUnchecked subst) scaled_ty) empty) WpHole scaled_arg_tys
-           ; addDataConStupidTheta con (drop (length mult_vars) tys')
+           ; (_subst, mul_vars) <- newMetaTyVars (multiplicityTyVarList (length args') [])
+           ; let scaled_arg_tys = zipWithEqual "dataConMulVars" combine mul_vars args'
+                 combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
+                 combine _   scaled_ty = scaled_ty
+
+           ; let wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole scaled_arg_tys
+           ; addDataConStupidTheta con tys'
+           -- TODO no longer true
            -- The first K arguments of `tys'` are multiplicities.
            -- They are followed by the dictionaries which are the stupid
            -- theta. Thus, we ignore the first K arguments as we just want to
            -- instantiate dictionary arguments in `addDataConStupidTheta`.
            -- It might be better to use `dataConRepType` in `con_ty` below.
            ; return ( mkHsWrap (wrap2 <.> wrap) (HsConLikeOut noExtField (RealDataCon con))
-                    , rho') }
+                    , mkVisFunTys scaled_arg_tys res') }
 
       where
         con_ty         = dataConUserType con
