@@ -2529,11 +2529,13 @@ rebuildCase env scrut case_bndr alts cont
     -- they are aliases anyway.
     scale_float (MkCore.FloatCase scrut case_bndr con vars) =
       let
-        holeScaling = contHoleScaling cont
         scale_id id = scaleIdBy id holeScaling
       in
       MkCore.FloatCase scrut (scale_id case_bndr) con (map scale_id vars)
     scale_float f = f
+
+    holeScaling = contHoleScaling cont `mkMultMul` idMult case_bndr
+    -- See test linear/should_compile/TUnboxer for the neccessity of idMult case_bndr.
 
 
 --------------------------------------------------
