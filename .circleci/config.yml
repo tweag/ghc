@@ -59,7 +59,7 @@ aliases:
   - &make
     run:
       name: Build
-      command: "make -j2 V=0"
+      command: "make -j2"
   - &build_hadrian
     run:
       name: Build GHC using Hadrian
