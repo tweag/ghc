@@ -99,7 +99,7 @@ import Data.List
 import Data.Ord            ( comparing )
 import OrdList
 import qualified Data.Set as Set
-import UniqSet
+-- import UniqSet
 
 {-
 ************************************************************************
@@ -668,7 +668,9 @@ refineDefaultAlt :: [Unique]          -- ^ Uniques for constructing new binders
                  -> [AltCon]          -- ^ Constructors that cannot match the DEFAULT (if any)
                  -> [CoreAlt]
                  -> (Bool, [CoreAlt]) -- ^ 'True', if a default alt was replaced with a 'DataAlt'
-refineDefaultAlt us mult tycon tys imposs_deflt_cons all_alts
+-- refineDefaultAlt us mult tycon tys imposs_deflt_cons all_alts
+refineDefaultAlt _ _ _ _ _ all_alts
+  {-
   | (DEFAULT,_,rhs) : rest_alts <- all_alts
   , isAlgTyCon tycon            -- It's a data type, tuple, or unboxed tuples.
   , not (isNewTyCon tycon)      -- We can have a newtype, if we are just doing an eval:
@@ -700,6 +702,7 @@ refineDefaultAlt us mult tycon tys imposs_deflt_cons all_alts
         -- This can legitimately happen for abstract types and type families,
         -- so don't report that
   = (False, all_alts)
+  -}
 
   | otherwise      -- The common case
   = (False, all_alts)
