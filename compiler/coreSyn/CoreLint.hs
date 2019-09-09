@@ -1233,6 +1233,7 @@ lintCoreAlt scrut scrut_ty _scrut_mult alt_ty alt@(DataAlt con, args, rhs)
           ; multiplicities = replicate ex_tvs_n Omega ++
                              map scaledMult (dataConRepArgTys con) }
 
+    ; when (not $ null multiplicities) $ pprPanic "multiplicities" (ppr multiplicities <+> ppr (dataConRepType con))
         -- And now bring the new binders into scope
     ; lintBinders CasePatBind args $ \ args' -> do
       {
