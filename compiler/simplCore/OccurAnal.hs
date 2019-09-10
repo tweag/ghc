@@ -2019,7 +2019,7 @@ wrapAltRHS :: OccEnv
            -> CoreExpr                  -- alt RHS
            -> (UsageDetails, CoreExpr)
 wrapAltRHS env (Just (scrut_var, let_rhs)) alt_usg bndrs alt_rhs
-  | occ_binder_swap env
+  | False
   , scrut_var `usedIn` alt_usg -- bndrs are not be present in alt_usg so this
                                -- handles condition (a) in Note [Binder swap]
   , not captured               -- See condition (b) in Note [Binder swap]
