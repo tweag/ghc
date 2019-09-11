@@ -33,6 +33,7 @@ import BasicTypes
 import Module( Module )
 import Coercion
 import Type
+import Multiplicity
 
 import VarSet
 import VarEnv
@@ -1779,7 +1780,7 @@ occAnal env (Case scrut bndr ty alts)
     total_usage `seq` (total_usage, Case scrut' tagged_bndr ty alts') }}
   where
     alt_env = mkAltEnv env scrut bndr
-    occ_anal_alt = occAnalAlt alt_env
+    occ_anal_alt = occAnalAlt alt_env (eqType (idMult bndr) Omega)
 
     occ_anal_scrut (Var v) (alt1 : other_alts)
         | not (null other_alts) || not (isDefaultAlt alt1)
@@ -2001,14 +2002,15 @@ occAnalLamOrRhs env binders body
     (env_body, binders') = oneShotGroup env binders
 
 occAnalAlt :: (OccEnv, Maybe (Id, CoreExpr))
+           -> Bool  -- is this case-omega?
            -> CoreAlt
            -> (UsageDetails, Alt IdWithOccInfo)
-occAnalAlt (env, scrut_bind) (con, bndrs, rhs)
+occAnalAlt (env, scrut_bind) caseOmega (con, bndrs, rhs)
   = case occAnal env rhs of { (rhs_usage1, rhs1) ->
     let
       (alt_usg, tagged_bndrs) = tagLamBinders rhs_usage1 bndrs
                                 -- See Note [Binders in case alternatives]
-      (alt_usg', rhs2) = wrapAltRHS env scrut_bind alt_usg tagged_bndrs rhs1
+      (alt_usg', rhs2) = wrapAltRHS env scrut_bind alt_usg tagged_bndrs rhs1 caseOmega
     in
     (alt_usg', (con, tagged_bndrs, rhs2)) }
 
@@ -2017,12 +2019,14 @@ wrapAltRHS :: OccEnv
            -> UsageDetails              -- usage for entire alt (p -> rhs)
            -> [Var]                     -- alt binders
            -> CoreExpr                  -- alt RHS
+           -> Bool                      -- is this case omega?
            -> (UsageDetails, CoreExpr)
-wrapAltRHS env (Just (scrut_var, let_rhs)) alt_usg bndrs alt_rhs
-  | False
+wrapAltRHS env (Just (scrut_var, let_rhs)) alt_usg bndrs alt_rhs caseOmega
+  | occ_binder_swap env
   , scrut_var `usedIn` alt_usg -- bndrs are not be present in alt_usg so this
                                -- handles condition (a) in Note [Binder swap]
   , not captured               -- See condition (b) in Note [Binder swap]
+  , caseOmega
   = ( alt_usg' `andUDs` let_rhs_usg
     , Let (NonRec tagged_scrut_var let_rhs') alt_rhs )
   where
@@ -2037,7 +2041,7 @@ wrapAltRHS env (Just (scrut_var, let_rhs)) alt_usg bndrs alt_rhs
 
     (alt_usg', tagged_scrut_var) = tagLamBinder alt_usg scrut_var
 
-wrapAltRHS _ _ alt_usg _ alt_rhs
+wrapAltRHS _ _ alt_usg _ alt_rhs _
   = (alt_usg, alt_rhs)
 
 {-
