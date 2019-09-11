@@ -972,7 +972,8 @@ data ConCont = CC [CoreExpr] Coercion
 exprIsConApp_maybe :: InScopeEnv -> CoreExpr
                    -> Maybe (InScopeSet, [FloatBind], DataCon, [Type], [CoreExpr])
 exprIsConApp_maybe (in_scope, id_unf) expr
-  = go (Left in_scope) [] expr (CC [] (mkRepReflCo (exprType expr)))
+  = case go (Left in_scope) [] expr (CC [] (mkRepReflCo (exprType expr))) of
+       _ -> Nothing
   where
     go :: Either InScopeSet Subst
              -- Left in-scope  means "empty substitution"
