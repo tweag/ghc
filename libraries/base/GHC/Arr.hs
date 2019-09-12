@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -O0 #-}
 {-# LANGUAGE Unsafe #-}
 {-# LANGUAGE NoImplicitPrelude, MagicHash, UnboxedTuples, RoleAnnotations #-}
 {-# LANGUAGE BangPatterns #-}
