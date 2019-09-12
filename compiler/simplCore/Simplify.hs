@@ -2898,11 +2898,12 @@ addAltUnfoldings env scrut case_bndr con_app
              env1 = addBinderUnfolding env case_bndr con_app_unf
 
              -- See Note [Add unfolding for scrutinee]
-             env2 = case scrut of
+             env2 | Omega <- idMult case_bndr = case scrut of
                       Just (Var v)           -> addBinderUnfolding env1 v con_app_unf
                       Just (Cast (Var v) co) -> addBinderUnfolding env1 v $
                                                 mk_simple_unf (Cast con_app (mkSymCo co))
                       _                      -> env1
+                  | otherwise = env1
 
        ; traceSmpl "addAltUnf" (vcat [ppr case_bndr <+> ppr scrut, ppr con_app])
        ; return env2 }
