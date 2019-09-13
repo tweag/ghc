@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -O0 #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
