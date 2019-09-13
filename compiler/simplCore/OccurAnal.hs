@@ -2019,7 +2019,7 @@ wrapAltRHS :: OccEnv
            -> UsageDetails              -- usage for entire alt (p -> rhs)
            -> [Var]                     -- alt binders
            -> CoreExpr                  -- alt RHS
-           -> Bool                      -- is this case omega?
+           -> Bool                      -- is this case omega? See Note [Suppressing binder-swaps on linear case]
            -> (UsageDetails, CoreExpr)
 wrapAltRHS env (Just (scrut_var, let_rhs)) alt_usg bndrs alt_rhs caseOmega
   | occ_binder_swap env
@@ -2330,6 +2330,22 @@ binding x = cb.  See #5028.
 
 NB: the OccInfo on /occurrences/ really doesn't matter much; the simplifier
 doesn't use it. So this is only to satisfy the perhpas-over-picky Lint.
+
+Note [Suppressing binder-swaps on linear case]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider
+    case[1] x of cb { p -> ... }
+It is not correct to replace it by
+    case[1] x of cb { p -> let x = cb in ... }
+
+It can go wrong if `x` is unrestricted:
+    case[1] x of cb { p -> (x, cb) }
+The above is well-typed: the variables of `p` are ignored, but `cb` is used
+exactly once. Were we to binder swap, we would get the following:
+    case[1] x of cb { p -> let x = cb in (cb, cb) }
+This, on the other hand, uses `cb` twice, so is not accepted by the linter.
+
+Therefore, we limit binder swap to case[Omega]
 
 Historical note [no-case-of-case]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

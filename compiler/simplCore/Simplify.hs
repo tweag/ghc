@@ -2535,8 +2535,20 @@ rebuildCase env scrut case_bndr alts cont
     scale_float f = f
 
     holeScaling = contHoleScaling cont `mkMultMul` idMult case_bndr
-    -- See test linear/should_compile/TUnboxer for the neccessity of idMult case_bndr.
-
+     -- We are in the following situation
+     --   case[p] case[q] u of { D x -> C v } of { C x -> w }
+     -- And we are producing case[??] u of { D x -> w[x\v]}
+     --
+     -- What should the multiplicity ?? be? In order to preserve the usage of
+     -- variables in `u`, it needs to be `pq`.
+     --
+     -- As an illustration, consider the following
+     --   case[Omega] case[1] of { C x -> C x } of { C x -> (x, x) }
+     -- Where C :: A ->. T is linear
+     -- If we were to produce a case[1], like the inner case, we would get
+     --   case[1] of { C x -> (x, x) }
+     -- Which is ill-typed with respect to linearity. So it needs to be a
+     -- case[Omega].
 
 --------------------------------------------------
 --      2. Eliminate the case if scrutinee is evaluated
@@ -2977,6 +2989,9 @@ piece of information.
 
 So instead we add the unfolding x -> Just a, and x -> Nothing in the
 respective RHSs.
+
+Since this transformation is tantamount to a binder swap, the same caveat as in
+Note [Suppressing binder-swaps on linear case] in OccurAnal apply.
 
 
 ************************************************************************
