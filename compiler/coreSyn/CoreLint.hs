@@ -930,7 +930,17 @@ checkJoinOcc var n_args
   | otherwise
   = return ()
 
+-- Based on let/nonrec case and lintLambda
 lintLambda :: Var -> LintM (Type, UsageEnv) -> LintM (Type, UsageEnv)
+lintLambda var lintBody | isId var, Just tpl <- maybeUnfoldingTemplate (realIdUnfolding var) =
+  do { let_ue <- lintSingleBinding NotTopLevel NonRecursive (var, tpl)
+     ; addLoc (BodyOfLetRec [var]) $
+              (lintBinder LambdaBind var $ \var' ->
+                 do { (body_ty, ue) <- addGoodJoins [var] $ addAliasUE var let_ue lintBody
+                    ; return (mkLamType var' body_ty, ue)
+                    })
+     }
+
 lintLambda var lintBody =
     addLoc (LambdaBodyOf var) $
     lintBinder LambdaBind var $ \ var' ->
