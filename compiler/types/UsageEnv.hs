@@ -77,7 +77,7 @@ scaleUE w (UsageEnv e b) =
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1 False) (UsageEnv e2 False) =
   UsageEnv (plusNameEnv_CD mkMultSup e1 Omega e2 Omega) False
-supUE (UsageEnv e1 b1) (UsageEnv e2 b2) = UsageEnv (plusNameEnv_CD2 combineUsage e1 e2) False
+supUE (UsageEnv e1 b1) (UsageEnv e2 b2) = UsageEnv (plusNameEnv_CD2 combineUsage e1 e2) (b1 && b2)
    where combineUsage (Just x) (Just y) = mkMultSup x y
          combineUsage Nothing  (Just x) | b1        = x
                                         | otherwise = Omega
