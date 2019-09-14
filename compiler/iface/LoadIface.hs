@@ -7,7 +7,7 @@ Loading interface files
 -}
 
 {-# LANGUAGE CPP, BangPatterns, RecordWildCards, NondecreasingIndentation #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-orphans -O0 #-}
 module LoadIface (
         -- Importing one thing
         tcLookupImported_maybe, importDecl,
