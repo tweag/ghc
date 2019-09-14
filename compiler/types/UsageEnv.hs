@@ -1,5 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
-module UsageEnv (UsageEnv, addUsage, multUsage, emptyUE, zeroUE,
+module UsageEnv (UsageEnv, addUsage, multUsage, emptyUE, zeroUE, bottomUE,
                  lookupUE, scaleUE, deleteUE, addUE, Usage(..), unitUE,
                  supUE, supUEs) where
 
