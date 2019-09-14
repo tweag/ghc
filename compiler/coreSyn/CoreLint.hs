@@ -772,9 +772,9 @@ lintCoreExpr e@(Let (Rec pairs) body)
             mkInconsistentRecMsg bndrs
 
           -- See Note [Multiplicity of let binders] in Var
-        ; ues <- mapM (lintSingleBinding NotTopLevel Recursive) pairs
+        ; _ <- mapM (lintSingleBinding NotTopLevel Recursive) pairs
         ; (body_type, body_ue) <- addLoc (BodyOfLetRec bndrs) (lintCoreExpr body)
-        ; return (body_type, body_ue `addUE` scaleUE Omega (foldr1 addUE ues))
+        ; return (body_type, body_ue `addUE` bottomUE)
         }
   where
     bndrs = map fst pairs
