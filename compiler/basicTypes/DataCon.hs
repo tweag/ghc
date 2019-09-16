@@ -36,7 +36,6 @@ module DataCon (
         dataConEqSpec, dataConTheta,
         dataConStupidTheta,
         dataConOtherTheta,
-        dataConMulVars,
         dataConInstArgTys, dataConOrigArgTys, dataConOrigResTy,
         dataConInstOrigArgTys, dataConRepArgTys,
         dataConFieldLabels, dataConFieldType, dataConFieldType_maybe,
@@ -1286,6 +1285,7 @@ dataConOrigResTy dc = dcOrigResTy dc
 dataConStupidTheta :: DataCon -> ThetaType
 dataConStupidTheta dc = dcStupidTheta dc
 
+-- TODO remove
 -- Multiplicity variables of a DataCon, and arguments scaled by them.
 -- See Note [Wrapper multiplicities].
 --
@@ -1298,8 +1298,6 @@ dataConStupidTheta dc = dcStupidTheta dc
 -- and without linear types,
 --    MkT :: forall n2. n2 -> T n2
 -- See test LinearGhci.
-dataConMulVars :: DataCon -> ([TyVar], [Scaled Type])
-dataConMulVars (MkData { dcOrigArgTys = arg_tys }) = ([], arg_tys)
 
 dataConUserType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor

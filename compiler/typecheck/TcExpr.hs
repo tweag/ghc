@@ -1861,7 +1861,7 @@ tc_infer_id lbl id_name
            -- TODO replace empty with something better
            -- TODO add a Note on wrappers
            ; (_subst, mul_vars) <- newMetaTyVars (multiplicityTyVarList (length args') [])
-           ; let scaled_arg_tys = zipWithEqual "dataConMulVars" combine mul_vars args'
+           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars args'
                  combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
                  combine _   scaled_ty = scaled_ty
 

@@ -733,8 +733,7 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
   where
     (univ_tvs, ex_tvs, eq_spec, theta, orig_arg_tys, _orig_res_ty)
       = dataConFullSig data_con
-    (mult_vars, scaled_arg_tys)    = dataConMulVars data_con
-    wrap_tvs     = mult_vars ++ dataConUserTyVars data_con
+    wrap_tvs     = dataConUserTyVars data_con
     res_ty_args  = substTyVars (mkTvSubstPrs (map eqSpecPair eq_spec)) univ_tvs
 
     tycon        = dataConTyCon data_con       -- The representation TyCon (not family)
@@ -744,7 +743,7 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
     ev_ibangs    = map (const HsLazy) ev_tys
     orig_bangs   = dataConSrcBangs data_con
 
-    wrap_arg_tys = (map unrestricted theta) ++ scaled_arg_tys
+    wrap_arg_tys = (map unrestricted theta) ++ orig_arg_tys
     wrap_arity   = count isCoVar ex_tvs + length wrap_arg_tys
              -- The wrap_args are the arguments *other than* the eq_spec
              -- Because we are going to apply the eq_spec args manually in the
