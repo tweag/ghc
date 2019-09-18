@@ -90,7 +90,7 @@ satBind :: CoreBind -> IdSet -> SatM (CoreBind, IdSATInfo)
 satBind (NonRec binder expr) interesting_ids = do
     (expr', sat_info_expr, expr_app) <- satExpr expr interesting_ids
     return (NonRec binder expr', finalizeApp expr_app sat_info_expr)
-satBind (Rec [(binder, rhs)]) interesting_ids = do
+satBind (Rec [(binder, _, rhs)]) interesting_ids = do
     let interesting_ids' = interesting_ids `addOneToUniqSet` binder
         (rhs_binders, rhs_body) = collectBinders rhs
     (rhs_body', sat_info_rhs_body) <- satTopLevelExpr rhs_body interesting_ids'
@@ -409,7 +409,7 @@ saTransform binder arg_staticness rhs_binders rhs_body
     --           in sat_worker xs
     mk_new_rhs uniq shadow_lam_bndrs
         = mkLams rhs_binders $
-          Let (Rec [(rec_body_bndr, rec_body)])
+          Let (Rec [(rec_body_bndr, static_ue, rec_body)])
           local_body
         where
           local_body = mkVarApps (Var rec_body_bndr) non_static_args
@@ -429,6 +429,8 @@ saTransform binder arg_staticness rhs_binders rhs_body
                                    (idUnique binder)
                                    Omega
                                    (exprType shadow_rhs)
+
+          static_ue = mkUE [v | (v, Static) <- binders_w_staticness]
 
 isStaticValue :: Staticness App -> Bool
 isStaticValue (Static (VarApp _)) = True
