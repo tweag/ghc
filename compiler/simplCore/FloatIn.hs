@@ -51,7 +51,7 @@ floatInwards pgm@(ModGuts { mg_binds = binds })
     fi_top_bind dflags (NonRec binder rhs)
       = NonRec binder (fiExpr dflags [] (freeVars rhs))
     fi_top_bind dflags (Rec pairs)
-      = Rec [ (b, fiExpr dflags [] (freeVars rhs)) | (b, rhs) <- pairs ]
+      = Rec [ (b, ue, fiExpr dflags [] (freeVars rhs)) | (b, ue, rhs) <- pairs ]
 
 
 {-
@@ -764,7 +764,7 @@ wrapFloats (FB _ _ fl : bs) e = wrapFloats bs (wrapFloat fl e)
 
 floatIsDupable :: DynFlags -> FloatBind -> Bool
 floatIsDupable dflags (FloatCase scrut _ _ _) = exprIsDupable dflags scrut
-floatIsDupable dflags (FloatLet (Rec prs))    = all (exprIsDupable dflags . snd) prs
+floatIsDupable dflags (FloatLet (Rec prs))    = all (exprIsDupable dflags . thdOf3) prs
 floatIsDupable dflags (FloatLet (NonRec _ r)) = exprIsDupable dflags r
 
 floatIsCase :: FloatBind -> Bool

@@ -347,10 +347,12 @@ simple_opt_bind env (NonRec b r) top_level
     (b', r') = joinPointBinding_maybe b r `orElse` (b, r)
     (env', mb_pr) = simple_bind_pair env b' Nothing (env,r') top_level
 
-simple_opt_bind env (Rec prs) top_level
+simple_opt_bind env (Rec triples) top_level
   = (env'', res_bind)
   where
-    res_bind          = Just (Rec (reverse rev_prs'))
+    prs               = map (\(b,_,e) -> (b,e)) triples
+    ues               = map sndOf3 triples
+    res_bind          = Just (Rec (zipWith (\(b,e) ue -> (b,ue,e)) (reverse rev_prs') ues))
     prs'              = joinPointBindings_maybe prs `orElse` prs
     (env', bndrs')    = subst_opt_bndrs env (map fst prs')
     (env'', rev_prs') = foldl' do_pr (env', []) (prs' `zip` bndrs')

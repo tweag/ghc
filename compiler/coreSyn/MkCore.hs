@@ -568,7 +568,7 @@ wrapFloats floats expr = foldr wrapFloat expr floats
 
 bindBindings :: CoreBind -> [Var]
 bindBindings (NonRec b _) = [b]
-bindBindings (Rec bnds) = map fst bnds
+bindBindings (Rec bnds) = map fstOf3 bnds
 
 floatBindings :: FloatBind -> [Var]
 floatBindings (FloatLet bnd) = bindBindings bnd

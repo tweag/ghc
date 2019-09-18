@@ -455,7 +455,7 @@ lintCoreBindings dflags pass local_in_scope binds
 
     -- If you edit this function, you may need to update the GHC formalism
     -- See Note [GHC Formalism]
-    lint_bind (Rec prs)         = mapM_ (lintSingleBinding TopLevel Recursive) prs
+    lint_bind (Rec prs)         = mapM_ (lintSingleBinding TopLevel Recursive) (map (\(b,_,e) -> (b,e)) prs)
     lint_bind (NonRec bndr rhs) = void $ lintSingleBinding TopLevel NonRecursive (bndr,rhs)
 
 {-
@@ -772,12 +772,12 @@ lintCoreExpr e@(Let (Rec pairs) body)
             mkInconsistentRecMsg bndrs
 
           -- See Note [Multiplicity of let binders] in Var
-        ; ues <- mapM (lintSingleBinding NotTopLevel Recursive) pairs
+        ; ues <- mapM (lintSingleBinding NotTopLevel Recursive) (map (\(b,_,e) -> (b,e)) pairs)
         ; (body_type, body_ue) <- addLoc (BodyOfLetRec bndrs) (lintCoreExpr body)
         ; return (body_type, body_ue `addUE` scaleUE Omega (foldr1 addUE ues))
         }
   where
-    bndrs = map fst pairs
+    bndrs = map fstOf3 pairs
     (_, dups) = removeDups compare bndrs
 
 lintCoreExpr e@(App _ _)
@@ -2897,7 +2897,7 @@ withoutAnnots pass guts = do
   let nukeTicks = stripTicksE (not . tickishIsCode)
       nukeAnnotsBind :: CoreBind -> CoreBind
       nukeAnnotsBind bind = case bind of
-        Rec bs     -> Rec $ map (\(b,e) -> (b, nukeTicks e)) bs
+        Rec bs     -> Rec $ map (\(b,ue,e) -> (b, ue, nukeTicks e)) bs
         NonRec b e -> NonRec b $ nukeTicks e
       nukeAnnotsMod mg@ModGuts{mg_binds=binds}
         = mg{mg_binds = map nukeAnnotsBind binds}

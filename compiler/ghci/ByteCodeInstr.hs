@@ -30,6 +30,7 @@ import DataCon
 import VarSet
 import PrimOp
 import SMRep
+import Util (fstOf3)
 
 import Data.Word
 import GHC.Stack.CCS (CostCentre)
@@ -210,7 +211,7 @@ pprCoreExprShort (Case _expr var _ty _alts)
  = text "case of" <+> ppr var
 
 pprCoreExprShort (Let (NonRec x _) _) = text "let" <+> ppr x <+> ptext (sLit ("= ... in ..."))
-pprCoreExprShort (Let (Rec bs) _) = text "let {" <+> ppr (fst (head bs)) <+> ptext (sLit ("= ...; ... } in ..."))
+pprCoreExprShort (Let (Rec bs) _) = text "let {" <+> ppr (fstOf3 (head bs)) <+> ptext (sLit ("= ...; ... } in ..."))
 
 pprCoreExprShort (Tick t e) = ppr t <+> pprCoreExprShort e
 pprCoreExprShort (Cast e _) = pprCoreExprShort e <+> text "`cast` T"
