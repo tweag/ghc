@@ -24,7 +24,7 @@ import GhcPrelude
 import CoreSyn
 import CoreFVs
 import CoreUtils        ( exprIsTrivial, isDefaultAlt, isExpandableApp,
-                          stripTicksTopE, mkTicks )
+                          stripTicksTopE, mkTicks, flattenBinds )
 import CoreArity        ( joinRhsArity )
 import Id
 import IdInfo
@@ -34,6 +34,7 @@ import Module( Module )
 import Coercion
 import Type
 import Multiplicity
+import UsageEnv
 
 import VarSet
 import VarEnv
@@ -801,7 +802,7 @@ occAnalNonRecBind env lvl imp_rule_edges binder rhs body_usage
     rhs_usage' = adjustRhsUsage mb_join_arity NonRecursive bndrs' rhs_usage4
 
 -----------------
-occAnalRecBind :: OccEnv -> TopLevelFlag -> ImpRuleEdges -> [(Var,CoreExpr)]
+occAnalRecBind :: OccEnv -> TopLevelFlag -> ImpRuleEdges -> [(Var,UsageEnv,CoreExpr)]
                -> UsageDetails -> (UsageDetails, [CoreBind])
 occAnalRecBind env lvl imp_rule_edges pairs body_usage
   = foldr (occAnalRec env lvl) (body_usage, []) sccs
@@ -819,7 +820,7 @@ occAnalRecBind env lvl imp_rule_edges pairs body_usage
     nodes = {-# SCC "occAnalBind.assoc" #-}
             map (makeNode env imp_rule_edges bndr_set) pairs
 
-    bndr_set = mkVarSet (map fst pairs)
+    bndr_set = mkVarSet (map fstOf3 pairs)
 
 {-
 Note [Unfoldings and join points]
@@ -881,7 +882,7 @@ occAnalRec env lvl (CyclicSCC details_s) (body_uds, binds)
 
     ---------------------------
     -- Now reconstruct the cycle
-    pairs :: [(Id,CoreExpr)]
+    pairs :: [(Id,UsageEnv,CoreExpr)]
     pairs | isEmptyVarSet weak_fvs = reOrderNodes   0 bndr_set weak_fvs loop_breaker_nodes []
           | otherwise              = loopBreakNodes 0 bndr_set weak_fvs loop_breaker_nodes []
           -- If weak_fvs is empty, the loop_breaker_nodes will include
@@ -896,7 +897,7 @@ occAnalRec env lvl (CyclicSCC details_s) (body_uds, binds)
 --                 Loop breaking
 ------------------------------------------------------------------
 
-type Binding = (Id,CoreExpr)
+type Binding = (Id,UsageEnv,CoreExpr)
 
 loopBreakNodes :: Int
                -> VarSet        -- All binders
@@ -958,17 +959,18 @@ reOrderNodes depth bndr_set weak_fvs (node : nodes) binds
         -- and approximate, returning to d=0
 
 mk_loop_breaker :: LetrecNode -> Binding
-mk_loop_breaker (node_payload -> ND { nd_bndr = bndr, nd_rhs = rhs})
-  = (bndr `setIdOccInfo` strongLoopBreaker { occ_tail = tail_info }, rhs)
+mk_loop_breaker (node_payload -> ND { nd_bndr = bndr, nd_usage = ue, nd_rhs = rhs})
+  = (bndr `setIdOccInfo` strongLoopBreaker { occ_tail = tail_info }, ue, rhs)
   where
     tail_info = tailCallInfo (idOccInfo bndr)
 
 mk_non_loop_breaker :: VarSet -> LetrecNode -> Binding
 -- See Note [Weak loop breakers]
 mk_non_loop_breaker weak_fvs (node_payload -> ND { nd_bndr = bndr
+                                                 , nd_usage = ue
                                                  , nd_rhs = rhs})
-  | bndr `elemVarSet` weak_fvs = (setIdOccInfo bndr occ', rhs)
-  | otherwise                  = (bndr, rhs)
+  | bndr `elemVarSet` weak_fvs = (setIdOccInfo bndr occ', ue, rhs)
+  | otherwise                  = (bndr, ue, rhs)
   where
     occ' = weakLoopBreaker { occ_tail = tail_info }
     tail_info = tailCallInfo (idOccInfo bndr)
@@ -1142,6 +1144,7 @@ type LetrecNode = Node Unique Details  -- Node comes from Digraph
                                        -- The Unique key is gotten from the Id
 data Details
   = ND { nd_bndr :: Id          -- Binder
+       , nd_usage :: UsageEnv   -- Multiplicities of free variable in the RHS
        , nd_rhs  :: CoreExpr    -- RHS, already occ-analysed
        , nd_rhs_bndrs :: [CoreBndr] -- Outer lambdas of RHS
                                     -- INVARIANT: (nd_rhs_bndrs nd, _) ==
@@ -1191,15 +1194,16 @@ rank :: NodeScore -> Int
 rank (r, _, _) = r
 
 makeNode :: OccEnv -> ImpRuleEdges -> VarSet
-         -> (Var, CoreExpr) -> LetrecNode
+         -> (Var, UsageEnv, CoreExpr) -> LetrecNode
 -- See Note [Recursive bindings: the grand plan]
-makeNode env imp_rule_edges bndr_set (bndr, rhs)
+makeNode env imp_rule_edges bndr_set (bndr, ue, rhs)
   = DigraphNode details (varUnique bndr) (nonDetKeysUniqSet node_fvs)
     -- It's OK to use nonDetKeysUniqSet here as stronglyConnCompFromEdgedVerticesR
     -- is still deterministic with edges in nondeterministic order as
     -- explained in Note [Deterministic SCC] in Digraph.
   where
     details = ND { nd_bndr            = bndr
+                 , nd_usage           = ue
                  , nd_rhs             = rhs'
                  , nd_rhs_bndrs       = bndrs'
                  , nd_uds             = rhs_usage3
