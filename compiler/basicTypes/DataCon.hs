@@ -30,7 +30,7 @@ module DataCon (
         dataConRepType, dataConSig, dataConInstSig, dataConFullSig,
         dataConName, dataConIdentity, dataConTag, dataConTagZ,
         dataConTyCon, dataConOrigTyCon,
-        dataConUserType, dataConDisplayType,
+        dataConUserType, dataConDisplayType, dataConSourceType,
         dataConUnivTyVars, dataConExTyCoVars, dataConUnivAndExTyCoVars,
         dataConUserTyVars, dataConUserTyVarBinders,
         dataConEqSpec, dataConTheta,
@@ -85,6 +85,9 @@ import Module
 import Binary
 import UniqSet
 import Unique( mkAlphaTyVarUnique )
+
+import DynFlags
+import GHC.LanguageExtensions as LangExt
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as BSB
@@ -1285,6 +1288,37 @@ dataConOrigResTy dc = dcOrigResTy dc
 dataConStupidTheta :: DataCon -> ThetaType
 dataConStupidTheta dc = dcStupidTheta dc
 
+{-
+TODO: finish, fix point 2, create a general Note on
+datacons and linearity
+
+Due to linearity, a GADT constructor declaration "MkT :: a -> T a"
+can mean two different things depending on the -XLinearTypes flag.
+
+There are three different methods to retrieve a type of a datacon.
+
+1. dataConUserType:
+The type of the wrapper in Core.
+For example, dataConUserType for Maybe is a ->. Just a.
+
+2. dataConSourceType:
+The type we'd like to show in error messages.
+With -XLinearTypes, this involves linear arrows
+(as linear arrows in source correspond to linear arrows),
+
+Ideally, the type the user wrote in the source, reconstructed
+from the DataCon and the value of the -XLinearTypes flag.
+This is used when we'd like to show an error message containing
+the type of the constructor.
+
+3. dataConDisplayType:
+Used by -ddump-types and :info.
+Depends on -fprint-explicit-multiplicities.
+
+During typechecking, a linear field is generalized to a multiplicity
+polymorphic one. See Note [X].
+-}
+
 -- TODO remove
 -- Multiplicity variables of a DataCon, and arguments scaled by them.
 -- See Note [Wrapper multiplicities].
@@ -1329,8 +1363,22 @@ dataConDisplayType (MkData { dcUserTyVarBinders = user_tvbs,
   = mkForAllTys user_tvbs $
     mkInvisFunTysOm theta $
     -- TODO do that only with -XNoLinearTypes
+    -- return a Doc instead?
     mkVisFunTys (map (\(Scaled w t) -> case w of One -> Scaled Omega t; _ -> Scaled w t) arg_tys) $
     res_ty
+
+-- TODO describe why we have three functions
+dataConSourceType :: DynFlags -> DataCon -> Type
+dataConSourceType dflags (MkData { dcUserTyVarBinders = user_tvbs,
+                                   dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                                   dcOrigResTy = res_ty })
+  = let lin = xopt LangExt.LinearTypes dflags
+        arg_tys' | lin = arg_tys
+                 | otherwise = (map (\(Scaled w t) -> case w of One -> Scaled Omega t; _ -> Scaled w t) arg_tys)
+    in mkForAllTys user_tvbs $
+       mkInvisFunTysOm theta $
+       mkVisFunTys arg_tys' $
+       res_ty
 
 -- | Finds the instantiated types of the arguments required to construct a
 -- 'DataCon' representation

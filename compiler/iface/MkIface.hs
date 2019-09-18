@@ -1786,7 +1786,7 @@ idToIfaceDecl id
 dataConToIfaceDecl :: DataCon -> IfaceDecl
 dataConToIfaceDecl dataCon
   = IfaceId { ifName      = getName dataCon,
-              ifType      = toIfaceType (dataConUserType dataCon),
+              ifType      = toIfaceType (dataConDisplayType dataCon),
               ifIdDetails = IfVanillaId,
               ifIdInfo    = NoInfo }
 

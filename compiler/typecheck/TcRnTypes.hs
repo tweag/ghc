@@ -159,7 +159,7 @@ import TyCon    ( TyCon, TyConFlavour, tyConKind )
 import TyCoRep  ( coHoleCoVar )
 import Coercion ( Coercion, mkHoleCo )
 import ConLike  ( ConLike(..) )
-import DataCon  ( DataCon, dataConDisplayType, dataConOrigArgTys )
+import DataCon  ( DataCon, dataConSourceType, dataConOrigArgTys )
 import PatSyn   ( PatSyn, pprPatSynType )
 import Id       ( idType, idName )
 import FieldLabel ( FieldLabel )
@@ -3494,12 +3494,13 @@ pprSigSkolInfo ctxt ty
 
 pprPatSkolInfo :: ConLike -> SDoc
 pprPatSkolInfo (RealDataCon dc)
-  = sep [ text "a pattern with constructor:"
-        , nest 2 $ ppr dc <+> dcolon
-          <+> pprType (dataConDisplayType dc) <> comma ]
-          -- pprType prints forall's regardless of -fprint-explicit-foralls
-          -- which is what we want here, since we might be saying
-          -- type variable 't' is bound by ...
+  = sdocWithDynFlags (\dflags ->
+      sep [ text "a pattern with constructor:"
+          , nest 2 $ ppr dc <+> dcolon
+            <+> pprType (dataConSourceType dflags dc) <> comma ])
+            -- pprType prints forall's regardless of -fprint-explicit-foralls
+            -- which is what we want here, since we might be saying
+            -- type variable 't' is bound by ...
 
 pprPatSkolInfo (PatSynCon ps)
   = sep [ text "a pattern with pattern synonym:"
