@@ -57,6 +57,7 @@ import Var
 import CoreSyn
 import CoreUtils
 import Multiplicity ( pattern Omega )
+import UsageEnv
 import Type
 import Coercion
 import Id
@@ -90,7 +91,7 @@ satBind :: CoreBind -> IdSet -> SatM (CoreBind, IdSATInfo)
 satBind (NonRec binder expr) interesting_ids = do
     (expr', sat_info_expr, expr_app) <- satExpr expr interesting_ids
     return (NonRec binder expr', finalizeApp expr_app sat_info_expr)
-satBind (Rec [(binder, _, rhs)]) interesting_ids = do
+satBind (Rec [(binder, ue, rhs)]) interesting_ids = do
     let interesting_ids' = interesting_ids `addOneToUniqSet` binder
         (rhs_binders, rhs_body) = collectBinders rhs
     (rhs_body', sat_info_rhs_body) <- satTopLevelExpr rhs_body interesting_ids'
@@ -102,14 +103,14 @@ satBind (Rec [(binder, _, rhs)]) interesting_ids = do
                         then sat_info_rhs' `delFromUFM` binder -- For safety
                         else sat_info_rhs'
 
-    bind' <- saTransformMaybe binder (lookupUFM sat_info_rhs' binder)
+    bind' <- saTransformMaybe binder ue (lookupUFM sat_info_rhs' binder)
                               rhs_binders rhs_body'
     return (bind', sat_info_rhs'')
 satBind (Rec pairs) interesting_ids = do
-    let (binders, rhss) = unzip pairs
+    let (binders, ues, rhss) = unzip3 pairs
     rhss_SATed <- mapM (\e -> satTopLevelExpr e interesting_ids) rhss
     let (rhss', sat_info_rhss') = unzip rhss_SATed
-    return (Rec (zipEqual "satBind" binders rhss'), mergeIdSATInfos sat_info_rhss')
+    return (Rec (zipWith3Equal "satBind" (,,) binders ues rhss'), mergeIdSATInfos sat_info_rhss')
 
 data App = VarApp Id | TypeApp Type | CoApp Coercion
 data Staticness a = Static a | NotStatic
@@ -366,20 +367,20 @@ type argument. This is bad because it means the application sat_worker_s1aU x_a6
 is not well typed.
 -}
 
-saTransformMaybe :: Id -> Maybe SATInfo -> [Id] -> CoreExpr -> SatM CoreBind
-saTransformMaybe binder maybe_arg_staticness rhs_binders rhs_body
+saTransformMaybe :: Id -> UsageEnv -> Maybe SATInfo -> [Id] -> CoreExpr -> SatM CoreBind
+saTransformMaybe binder ue maybe_arg_staticness rhs_binders rhs_body
   | Just arg_staticness <- maybe_arg_staticness
   , should_transform arg_staticness
-  = saTransform binder arg_staticness rhs_binders rhs_body
+  = saTransform binder ue arg_staticness rhs_binders rhs_body
   | otherwise
-  = return (Rec [(binder, mkLams rhs_binders rhs_body)])
+  = return (Rec [(binder, ue, mkLams rhs_binders rhs_body)])
   where
     should_transform staticness = n_static_args > 1 -- THIS IS THE DECISION POINT
       where
         n_static_args = count isStaticValue staticness
 
-saTransform :: Id -> SATInfo -> [Id] -> CoreExpr -> SatM CoreBind
-saTransform binder arg_staticness rhs_binders rhs_body
+saTransform :: Id -> UsageEnv -> SATInfo -> [Id] -> CoreExpr -> SatM CoreBind
+saTransform binder ue arg_staticness rhs_binders rhs_body
   = do  { shadow_lam_bndrs <- mapM clone binders_w_staticness
         ; uniq             <- newUnique
         ; return (NonRec binder (mk_new_rhs uniq shadow_lam_bndrs)) }
@@ -409,7 +410,7 @@ saTransform binder arg_staticness rhs_binders rhs_body
     --           in sat_worker xs
     mk_new_rhs uniq shadow_lam_bndrs
         = mkLams rhs_binders $
-          Let (Rec [(rec_body_bndr, static_ue, rec_body)])
+          Let (Rec [(rec_body_bndr, ue `addUE` static_ue, rec_body)])
           local_body
         where
           local_body = mkVarApps (Var rec_body_bndr) non_static_args
@@ -430,7 +431,7 @@ saTransform binder arg_staticness rhs_binders rhs_body
                                    Omega
                                    (exprType shadow_rhs)
 
-          static_ue = mkUE [v | (v, Static) <- binders_w_staticness]
+          static_ue = mkUE [(Var.varName v, varMult v) | (v, Static (VarApp _)) <- binders_w_staticness]
 
 isStaticValue :: Staticness App -> Bool
 isStaticValue (Static (VarApp _)) = True

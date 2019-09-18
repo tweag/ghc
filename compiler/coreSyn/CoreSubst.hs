@@ -57,6 +57,7 @@ import Id
 import Name     ( Name )
 import Var
 import IdInfo
+import UsageEnv
 import UniqSupply
 import Maybes
 import Util
@@ -396,10 +397,13 @@ substBindSC subst bind    -- Short-cut if the substitution is empty
        NonRec bndr rhs -> (subst', NonRec bndr' rhs)
           where
             (subst', bndr') = substBndr subst bndr
-       Rec pairs -> (subst', Rec (bndrs' `zip` rhss'))
+       Rec pairs -> (subst', Rec (zip3 bndrs' ues' rhss'))
           where
-            (bndrs, rhss)    = unzip pairs
+            (bndrs, ues, rhss)    = unzip3 pairs
             (subst', bndrs') = substRecBndrs subst bndrs
+            ues' = map (substUsageEnv subst) ues
+              -- We're using the non-extended substitution as the binders in the
+              -- recursive group don't scope over the usage environment.
             rhss' | isEmptySubst subst'
                   = rhss
                   | otherwise
@@ -411,11 +415,17 @@ substBind subst (NonRec bndr rhs)
     (subst', bndr') = substBndr subst bndr
 
 substBind subst (Rec pairs)
-   = (subst', Rec (bndrs' `zip` rhss'))
+   = (subst', Rec (zip3 bndrs' ues' rhss'))
    where
-       (bndrs, rhss)    = unzip pairs
+       (bndrs, ues, rhss)    = unzip3 pairs
        (subst', bndrs') = substRecBndrs subst bndrs
+       ues' = map (substUsageEnv subst) ues
+         -- We're using the non-extended substitution as the binders in the
+         -- recursive group don't scope over the usage environment.
        rhss' = map (subst_expr (text "substBind") subst') rhss
+
+substUsageEnv :: Subst -> UsageEnv -> UsageEnv
+substUsageEnv = error "TODO: substUsageEnv"
 
 -- | De-shadowing the program is sometimes a useful pre-pass. It can be done simply
 -- by running over the bindings with an empty substitution, because substitution
