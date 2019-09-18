@@ -51,7 +51,8 @@ import CoreFVs
 import FastString
 import Type
 import Multiplicity ( pattern Omega )
-import Util( mapSnd )
+import UsageEnv
+import Util( fstOf3 )
 
 import Data.Bifunctor
 import Control.Monad
@@ -96,9 +97,9 @@ exitifyProgram binds = map goTopLvl binds
       | is_join_rec = mkLets (exitifyRec in_scope' pairs') body'
       | otherwise   = Let (Rec pairs') body'
       where
-        is_join_rec = any (isJoinId . fst) pairs
+        is_join_rec = any (isJoinId . fstOf3) pairs
         in_scope'   = in_scope `extendInScopeSetList` bindersOf (Rec pairs)
-        pairs'      = mapSnd (go in_scope') pairs
+        pairs'      = [(b,ue,go in_scope' e) | (b,ue,e) <- pairs]
         body'       = go in_scope' body
 
 
@@ -107,25 +108,29 @@ type ExitifyM =  State [(JoinId, CoreExpr)]
 
 -- | Given a recursive group of a joinrec, identifies “exit paths” and binds them as
 --   join-points outside the joinrec.
-exitifyRec :: InScopeSet -> [(Var,CoreExpr)] -> [CoreBind]
+exitifyRec :: InScopeSet -> [(Var,UsageEnv,CoreExpr)] -> [CoreBind]
 exitifyRec in_scope pairs
   = [ NonRec xid rhs | (xid,rhs) <- exits ] ++ [Rec pairs']
   where
     -- We need the set of free variables of many subexpressions here, so
     -- annotate the AST with them
     -- see Note [Calculating free variables]
-    ann_pairs = map (second freeVars) pairs
+    ann_pairs = map (\(b,ue,e) -> (b,ue,freeVars e)) pairs
 
     -- Which are the recursive calls?
-    recursive_calls = mkVarSet $ map fst pairs
+    recursive_calls = mkVarSet $ map fstOf3 pairs
 
     (pairs',exits) = (`runState` []) $ do
-        forM ann_pairs $ \(x,rhs) -> do
+        forM ann_pairs $ \(x,ue,rhs) -> do
             -- go past the lambdas of the join point
             let (args, body) = collectNAnnBndrs (idJoinArity x) rhs
             body' <- go args body
             let rhs' = mkLams args body'
-            return (x, rhs')
+            return (x, ue, rhs')
+              -- About the usage environment: we are only floating non-recursive
+              -- join-points. These are always transparent as far as usage
+              -- environments are concerned, therefore, the usage environment is
+              -- preserved.
 
     ---------------------
     -- 'go' is the main working function.
@@ -172,14 +177,14 @@ exitifyRec in_scope pairs
 
         -- rec join point, RHSs and body are in tail-call position
         | AnnRec pairs <- ann_bind
-        , isJoinId (fst (head pairs))
-        = do let js = map fst pairs
-             pairs' <- forM pairs $ \(j,rhs) -> do
+        , isJoinId (fstOf3 (head pairs))
+        = do let js = map fstOf3 pairs
+             pairs' <- forM pairs $ \(j,ue,rhs) -> do
                  let join_arity = idJoinArity j
                      (params, join_body) = collectNAnnBndrs join_arity rhs
                  join_body' <- go (captured ++ js ++ params) join_body
                  let rhs' = mkLams params join_body'
-                 return (j, rhs')
+                 return (j, ue, rhs')
              body' <- go (captured ++ js) body
              return $ Let (Rec pairs') body'
 

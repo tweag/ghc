@@ -449,7 +449,7 @@ stripTicksE p expr = go expr
         go other            = other
         go_bs (NonRec b e)  = NonRec b (go e)
         go_bs (Rec bs)      = Rec (map go_b bs)
-        go_b (b, e)         = (b, go e)
+        go_b (b, ue, e)     = (b, ue, go e)
         go_a (c,bs,e)       = (c,bs, go e)
 
 stripTicksT :: (Tickish Id -> Bool) -> Expr b -> [Tickish Id]
@@ -465,7 +465,7 @@ stripTicksT p expr = fromOL $ go expr
         go _                = nilOL
         go_bs (NonRec _ e)  = go e
         go_bs (Rec bs)      = concatOL (map go_b bs)
-        go_b (_, e)         = go e
+        go_b (_, _, e)      = go e
         go_a (_, _, e)      = go e
 
 {-
@@ -1266,7 +1266,7 @@ exprIsCheapX ok_app e
     go n (App f e)  | isRuntimeArg e  = go (n+1) f && ok e
                     | otherwise       = go n f
     go n (Let (NonRec _ r) e)         = go n e && ok r
-    go n (Let (Rec prs) e)            = go n e && all (ok . snd) prs
+    go n (Let (Rec prs) e)            = go n e && all (ok . thdOf3) prs
 
       -- Case: see Note [Case expressions are work-free]
       -- App, Let: see Note [Arguments and let-bindings exprIsCheapX]
@@ -2105,8 +2105,8 @@ eqExpr in_scope e1 e2
       = equalLength ps1 ps2
       && all2 (go env') rs1 rs2 && go env' e1 e2
       where
-        (bs1,rs1) = unzip ps1
-        (bs2,rs2) = unzip ps2
+        (bs1,_,rs1) = unzip3 ps1
+        (bs2,_,rs2) = unzip3 ps2
         env' = rnBndrs2 env bs1 bs2
 
     go env (Case e1 b1 t1 a1) (Case e2 b2 t2 a2)
@@ -2177,7 +2177,8 @@ diffExpr _  _ e1 e2
 -- leaves us just with mutually recursive and/or mismatching bindings,
 -- which we then speculatively match by ordering them. It's by no means
 -- perfect, but gets the job done well enough.
-diffBinds :: Bool -> RnEnv2 -> [(Var, CoreExpr)] -> [(Var, CoreExpr)]
+diffBinds :: Bool -> RnEnv2
+          -> [(Var, UsageEnv, CoreExpr)] -> [(Var, UsageEnv, CoreExpr)]
           -> ([SDoc], RnEnv2)
 diffBinds top env binds1 = go (length binds1) env binds1
  where go _    env []     []
@@ -2189,21 +2190,21 @@ diffBinds top env binds1 = go (length binds1) env binds1
           -- Iterated over all binds without finding a match? Then
           -- try speculatively matching binders by order.
           | fuel == 0
-          = if not $ env `inRnEnvL` fst (head binds1)
+          = if not $ env `inRnEnvL` fstOf3 (head binds1)
             then let env' = uncurry (rnBndrs2 env) $ unzip $
-                            zip (sort $ map fst binds1) (sort $ map fst binds2)
+                            zip (sort $ map fstOf3 binds1) (sort $ map fstOf3 binds2)
                  in go (length binds1) env' binds1 binds2
             -- If we have already tried that, give up
             else (warn env binds1 binds2, env)
-       go fuel env ((bndr1,expr1):binds1) binds2
-          | let matchExpr (bndr,expr) =
+       go fuel env ((bndr1,ue1,expr1):binds1) binds2
+          | let matchExpr (bndr,_,expr) =
                   (not top || null (diffIdInfo env bndr bndr1)) &&
                   null (diffExpr top (rnBndr2 env bndr1 bndr) expr1 expr)
-          , (binds2l, (bndr2,_):binds2r) <- break matchExpr binds2
+          , (binds2l, (bndr2,_,_):binds2r) <- break matchExpr binds2
           = go (length binds1) (rnBndr2 env bndr1 bndr2)
                 binds1 (binds2l ++ binds2r)
           | otherwise -- No match, so push back (FIXME O(n^2))
-          = go (fuel-1) env (binds1++[(bndr1,expr1)]) binds2
+          = go (fuel-1) env (binds1++[(bndr1,ue1,expr1)]) binds2
        go _ _ _ _ = panic "diffBinds: impossible" -- GHC isn't smart enough
 
        -- We have tried everything, but couldn't find a good match. So
@@ -2213,12 +2214,12 @@ diffBinds top env binds1 = go (length binds1) env binds1
          concatMap (uncurry (diffBind env)) (zip binds1' binds2') ++
          unmatched "unmatched left-hand:" (drop l binds1') ++
          unmatched "unmatched right-hand:" (drop l binds2')
-        where binds1' = sortBy (comparing fst) binds1
-              binds2' = sortBy (comparing fst) binds2
+        where binds1' = sortBy (comparing fstOf3) binds1
+              binds2' = sortBy (comparing fstOf3) binds2
               l = min (length binds1') (length binds2')
        unmatched _   [] = []
        unmatched txt bs = [text txt $$ ppr (Rec bs)]
-       diffBind env (bndr1,expr1) (bndr2,expr2)
+       diffBind env (bndr1,_,expr1) (bndr2,_,expr2)
          | ds@(_:_) <- diffExpr top env expr1 expr2
          = locBind "in binding" bndr1 bndr2 ds
          | otherwise
@@ -2669,7 +2670,7 @@ collectMakeStaticArgs _          = Nothing
 -- | Does this binding bind a join point (or a recursive group of join points)?
 isJoinBind :: CoreBind -> Bool
 isJoinBind (NonRec b _)       = isJoinId b
-isJoinBind (Rec ((b, _) : _)) = isJoinId b
+isJoinBind (Rec ((b, _, _) : _)) = isJoinId b
 isJoinBind _                  = False
 
 {-
@@ -2682,7 +2683,8 @@ isJoinBind _                  = False
 
 -- | Collapse all the bindings in the supplied groups into a single
 -- list of lhs\/rhs pairs suitable for binding in a 'Rec' binding group
-flattenBinds :: [Bind b] -> [(b, UsageEnv, Expr b)]
-flattenBinds (NonRec b r : binds) = (b,exprUE r, r) : flattenBinds binds
+-- flattenBinds :: [Bind b] -> [(b, UsageEnv, Expr b)] -- TODO: CLEAN UP
+flattenBinds :: [Bind CoreBndr] -> [(CoreBndr, UsageEnv, CoreExpr)]
+flattenBinds (NonRec b r : binds) = (b,exprUsageEnv r, r) : flattenBinds binds
 flattenBinds (Rec prs1   : binds) = prs1 ++ flattenBinds binds
 flattenBinds []                   = []
