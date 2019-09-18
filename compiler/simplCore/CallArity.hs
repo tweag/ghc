@@ -16,6 +16,7 @@ import DynFlags ( DynFlags )
 import BasicTypes
 import CoreSyn
 import Id
+import UsageEnv
 import CoreArity ( typeArity )
 import CoreUtils ( exprIsCheap, exprIsTrivial )
 import UnVarGraph
@@ -604,35 +605,35 @@ callArityBind boring_vars ae_body int b@(Rec binds)
     (final_ae, Rec binds')
   where
     -- See Note [Taking boring variables into account]
-    any_boring = any (`elemVarSet` boring_vars) [ i | (i, _) <- binds]
+    any_boring = any (`elemVarSet` boring_vars) [ i | (i, _, _) <- binds]
 
     int_body = int `addInterestingBinds` b
     (ae_rhs, binds') = fix initial_binds
     final_ae = bindersOf b `resDelList` ae_rhs
 
-    initial_binds = [(i,Nothing,e) | (i,e) <- binds]
+    initial_binds = [(i,Nothing,ue,e) | (i,ue,e) <- binds]
 
-    fix :: [(Id, Maybe (Bool, Arity, CallArityRes), CoreExpr)] -> (CallArityRes, [(Id, CoreExpr)])
+    fix :: [(Id, Maybe (Bool, Arity, CallArityRes), UsageEnv, CoreExpr)] -> (CallArityRes, [(Id, UsageEnv, CoreExpr)])
     fix ann_binds
         | -- pprTrace "callArityBind:fix" (vcat [ppr ann_binds, ppr any_change, ppr ae]) $
           any_change
         = fix ann_binds'
         | otherwise
-        = (ae, map (\(i, _, e) -> (i, e)) ann_binds')
+        = (ae, map (\(i, _, ue, e) -> (i, ue, e)) ann_binds')
       where
-        aes_old = [ (i,ae) | (i, Just (_,_,ae), _) <- ann_binds ]
+        aes_old = [ (i,ae) | (i, Just (_,_,ae), _, _) <- ann_binds ]
         ae = callArityRecEnv any_boring aes_old ae_body
 
-        rerun (i, mbLastRun, rhs)
+        rerun (i, mbLastRun, ue, rhs)
             | i `elemVarSet` int_body && not (i `elemUnVarSet` domRes ae)
             -- No call to this yet, so do nothing
-            = (False, (i, Nothing, rhs))
+            = (False, (i, Nothing, ue, rhs))
 
             | Just (old_called_once, old_arity, _) <- mbLastRun
             , called_once == old_called_once
             , new_arity == old_arity
             -- No change, no need to re-analyze
-            = (False, (i, mbLastRun, rhs))
+            = (False, (i, mbLastRun, ue, rhs))
 
             | otherwise
             -- We previously analyzed this with a different arity (or not at all)
@@ -652,7 +653,7 @@ callArityBind boring_vars ae_body int b@(Rec binds)
 
                   i' = i `setIdCallArity` trimmed_arity
 
-              in (True, (i', Just (called_once, new_arity, ae_rhs'), rhs'))
+              in (True, (i', Just (called_once, new_arity, ae_rhs'), ue, rhs'))
           where
             -- See Note [Taking boring variables into account]
             (new_arity, called_once) | i `elemVarSet` boring_vars = (0, False)

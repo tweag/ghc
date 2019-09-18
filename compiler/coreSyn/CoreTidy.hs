@@ -24,6 +24,7 @@ import IdInfo
 import Demand ( zapUsageEnvSig )
 import Type( tidyType, tidyVarBndr )
 import Coercion( tidyCo )
+import UsageEnv
 import Var
 import VarEnv
 import UniqFM
@@ -31,6 +32,7 @@ import Name hiding (tidyNameOcc)
 import SrcLoc
 import Maybes
 import Data.List
+import Util ( sndOf3, thdOf3 )
 
 {-
 ************************************************************************
@@ -50,10 +52,11 @@ tidyBind env (NonRec bndr rhs)
 
 tidyBind env (Rec prs)
   = let
-       (env', bndrs') = mapAccumL (tidyLetBndr env') env prs
+       (env', bndrs') = mapAccumL (tidyLetBndr env') env (map (\(b,_,e) -> (b,e)) prs)
+       ues = map sndOf3 prs
     in
-    map (tidyExpr env') (map snd prs)   =: \ rhss' ->
-    (env', Rec (zip bndrs' rhss'))
+    map (tidyExpr env') (map thdOf3 prs)   =: \ rhss' ->
+    (env', Rec (zip3 bndrs' ues rhss'))
 
 
 ------------  Expressions  --------------
