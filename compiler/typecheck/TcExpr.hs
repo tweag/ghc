@@ -532,9 +532,15 @@ tcExpr (ExplicitList _ witness exprs) res_ty
       Just fln -> do { ((exprs', elt_ty), fln')
                          <- tcSyntaxOp ListOrigin fln
                                        [synKnownType intTy, SynList] res_ty $
-                            \ [elt_ty] _ ->
+                            \ [elt_ty] [_int_mul, list_mul] ->
+                              -- We ignore _int_mul because the integer (first
+                              -- argument of fromListN) is statically known: it
+                              -- is desugared to a literal. Therefore there is
+                              -- no variable of which to scale the usage in that
+                              -- first argument, and `_int_mul` is completely
+                              -- free in this expression.
                             do { exprs' <-
-                                    mapM (tcScalingUsage Omega . tc_elt elt_ty) exprs
+                                    mapM (tcScalingUsage list_mul . tc_elt elt_ty) exprs
                                ; return (exprs', elt_ty) }
 
                      ; return $ ExplicitList elt_ty (Just fln') exprs' }
