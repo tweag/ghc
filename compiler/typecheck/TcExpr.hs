@@ -1858,26 +1858,16 @@ tc_infer_id lbl id_name
                  args'  = map (mapScaledType (substTy subst)) args
                  res'   = substTy subst res
            ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
-           -- TODO replace empty with something better
            -- TODO add a Note on wrappers
-           ; (_subst, mul_vars) <- newMetaTyVars (multiplicityTyVarList (length args') [])
+           ; (_subst, mul_vars) <- newMetaTyVars (multiplicityTyVarList (length args') (map getOccName (binderVars tvs)))
            ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars args'
                  combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
                  combine _   scaled_ty = scaled_ty
 
            ; let wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole scaled_arg_tys
            ; addDataConStupidTheta con tys'
-           -- TODO no longer true
-           -- The first K arguments of `tys'` are multiplicities.
-           -- They are followed by the dictionaries which are the stupid
-           -- theta. Thus, we ignore the first K arguments as we just want to
-           -- instantiate dictionary arguments in `addDataConStupidTheta`.
-           -- It might be better to use `dataConRepType` in `con_ty` below.
            ; return ( mkHsWrap (wrap2 <.> wrap) (HsConLikeOut noExtField (RealDataCon con))
                     , mkVisFunTys scaled_arg_tys res') }
-
-      {-where
-        con_ty         = dataConUserType con-}
 
     check_naughty id
       | isNaughtyRecordSelector id = failWithTc (naughtyRecordSel lbl)

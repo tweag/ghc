@@ -3518,7 +3518,7 @@ checkNewDataCon con
     (_univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty)
       = dataConFullSig con
     check_con what msg
-       = checkTc what (msg $$ ppr con <+> dcolon <+> ppr (dataConUserType con))
+       = checkTc what (msg $$ ppr con <+> dcolon <+> ppr (dataConDisplayType con))
 
     (arg_ty1 : _) = arg_tys
 
@@ -4167,6 +4167,8 @@ badDataConTyCon data_con res_ty_tmpl
     --    underneath the nested foralls and contexts.
     -- 3) Smash together the type variables and class predicates from 1) and
     --    2), and prepend them to the rho type from 2).
+
+    -- TODO  get rid of dataConUserType here
     (tvs, theta, rho) = tcSplitNestedSigmaTys (dataConUserType data_con)
     suggested_ty = mkSpecSigmaTy tvs theta rho
 
@@ -4179,7 +4181,7 @@ badExistential :: DataCon -> SDoc
 badExistential con
   = hang (text "Data constructor" <+> quotes (ppr con) <+>
                 text "has existential type variables, a context, or a specialised result type")
-       2 (vcat [ ppr con <+> dcolon <+> ppr (dataConUserType con)
+       2 (vcat [ ppr con <+> dcolon <+> ppr (dataConDisplayType con)
                , parens $ text "Enable ExistentialQuantification or GADTs to allow this" ])
 
 badStupidTheta :: Name -> SDoc

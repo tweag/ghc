@@ -30,7 +30,7 @@ module DataCon (
         dataConRepType, dataConSig, dataConInstSig, dataConFullSig,
         dataConName, dataConIdentity, dataConTag, dataConTagZ,
         dataConTyCon, dataConOrigTyCon,
-        dataConUserType,
+        dataConUserType, dataConDisplayType,
         dataConUnivTyVars, dataConExTyCoVars, dataConUnivAndExTyCoVars,
         dataConUserTyVars, dataConUserTyVarBinders,
         dataConEqSpec, dataConTheta,
@@ -1320,6 +1320,16 @@ dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
   = mkForAllTys user_tvbs $
     mkInvisFunTysOm theta $
     mkVisFunTys arg_tys $
+    res_ty
+
+dataConDisplayType :: DataCon -> Type
+dataConDisplayType (MkData { dcUserTyVarBinders = user_tvbs,
+                             dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                             dcOrigResTy = res_ty })
+  = mkForAllTys user_tvbs $
+    mkInvisFunTysOm theta $
+    -- TODO do that only with -XNoLinearTypes
+    mkVisFunTys (map (\(Scaled w t) -> case w of One -> Scaled Omega t; _ -> Scaled w t) arg_tys) $
     res_ty
 
 -- | Finds the instantiated types of the arguments required to construct a
