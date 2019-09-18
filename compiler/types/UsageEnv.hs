@@ -28,7 +28,6 @@ import Outputable
 -- the action of 'Mult' on itself, every absent name being considered to map to
 -- 'Zero'.
 
--- TODO describe Bottom
 data Usage = Zero | Bottom | MUsage Mult
 
 instance Outputable Usage where
@@ -50,10 +49,11 @@ multUsage Bottom _ = Bottom
 multUsage _ Bottom = Bottom
 multUsage (MUsage x) (MUsage y) = MUsage $ mkMultMul x y
 
-
+-- For now, we use extra multiplicity Bottom for empty case.
+-- TODO: change to keeping UsageEnv on Case.
 -- If the boolean flag is True, then the usage environment
 -- is the sum of NameEnv Mult and arbitrary multiplicities,
--- as in empty case (TODO explain).
+-- as in empty case.
 data UsageEnv = UsageEnv (NameEnv Mult) Bool
 
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
