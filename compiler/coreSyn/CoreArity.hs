@@ -808,7 +808,7 @@ arityType env (Let b e)
   = floatIn (cheap_bind b) (arityType env e)
   where
     cheap_bind (NonRec b e) = is_cheap (b,e)
-    cheap_bind (Rec prs)    = all is_cheap prs
+    cheap_bind (Rec prs)    = all (\(b,_,e) -> is_cheap (b,e)) prs
     is_cheap (b,e) = ae_cheap_fn env e (Just (idType b))
 
 arityType env (Tick t e)

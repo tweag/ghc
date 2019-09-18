@@ -24,11 +24,12 @@ import CoreUtils        ( mkAltExpr, eqExpr
                         , stripTicksE, stripTicksT, mkTicks )
 import CoreFVs          ( exprFreeVars )
 import Type             ( tyConAppArgs )
+import UsageEnv
 import CoreSyn
 import Outputable
 import BasicTypes
 import CoreMap
-import Util             ( filterOut )
+import Util             ( filterOut, fstOf3, sndOf3 )
 import Data.List        ( mapAccumL )
 import Multiplicity
 
@@ -335,9 +336,9 @@ cseBind toplevel env (NonRec b e)
     (env1, b1)       = addBinder env b
     (env2, (b2, e2)) = cse_bind toplevel env1 (b,e) b1
 
-cseBind toplevel env (Rec [(in_id, rhs)])
+cseBind toplevel env (Rec [(in_id, ue, rhs)])
   | noCSE in_id
-  = (env1, Rec [(out_id, rhs')])
+  = (env1, Rec [(out_id, ue, rhs')])
 
   -- See Note [CSE for recursive bindings]
   | Just previous <- lookupCSRecEnv env out_id rhs''
@@ -347,7 +348,7 @@ cseBind toplevel env (Rec [(in_id, rhs)])
     (extendCSSubst env1 in_id previous', NonRec out_id' previous')
 
   | otherwise
-  = (extendCSRecEnv env1 out_id rhs'' id_expr', Rec [(zapped_id, rhs')])
+  = (extendCSRecEnv env1 out_id rhs'' id_expr', Rec [(zapped_id, ue, rhs')])
 
   where
     (env1, [out_id]) = addRecBinders env [in_id]
@@ -357,11 +358,14 @@ cseBind toplevel env (Rec [(in_id, rhs)])
     id_expr'  = varToCoreExpr out_id
     zapped_id = zapIdUsageInfo out_id
 
-cseBind toplevel env (Rec pairs)
-  = (env2, Rec pairs')
+cseBind toplevel env (Rec triples)
+  = (env2, Rec triples')
   where
+    pairs = map (\(b,_,e) -> (b, e)) triples
+    ues = map sndOf3 triples
     (env1, bndrs1) = addRecBinders env (map fst pairs)
     (env2, pairs') = mapAccumL do_one env1 (zip pairs bndrs1)
+    triples' = zipWith (\(b,e) ue -> (b, ue, e)) pairs' ues
 
     do_one env (pr, b1) = cse_bind toplevel env pr b1
 
