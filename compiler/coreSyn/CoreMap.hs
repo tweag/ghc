@@ -209,8 +209,8 @@ instance Eq (DeBruijn CoreExpr) where
       && D env1' rs1 == D env2' rs2
       && D env1' e1  == D env2' e2
       where
-        (bs1,rs1) = unzip ps1
-        (bs2,rs2) = unzip ps2
+        (bs1,_,rs1) = unzip3 ps1
+        (bs2,_,rs2) = unzip3 ps2
         env1' = extendCMEs env1 bs1
         env2' = extendCMEs env2 bs2
 
@@ -300,7 +300,7 @@ lkE (D env expr) cm = go expr cm
                               >=> lkBndr env v
     go (Let (NonRec b r) e) = cm_letn >.> lkG (D env r)
                               >=> lkG (D (extendCME env b) e) >=> lkBndr env b
-    go (Let (Rec prs) e)    = let (bndrs,rhss) = unzip prs
+    go (Let (Rec prs) e)    = let (bndrs,_,rhss) = unzip3 prs
                                   env1 = extendCMEs env bndrs
                               in cm_letr
                                  >.> lkList (lkG . D env1) rhss
@@ -333,7 +333,7 @@ xtE (D env (Let (NonRec b r) e)) f m = m { cm_letn = cm_letn m
                                                  |>> xtG (D env r)
                                                  |>> xtBndr env b f }
 xtE (D env (Let (Rec prs) e))    f m = m { cm_letr =
-                                              let (bndrs,rhss) = unzip prs
+                                              let (bndrs,_,rhss) = unzip3 prs
                                                   env1 = extendCMEs env bndrs
                                               in cm_letr m
                                                  |>  xtList (xtG . D env1) rhss

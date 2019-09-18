@@ -1,4 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 module UsageEnv (UsageEnv, addUsage, multUsage, emptyUE, zeroUE,
                  lookupUE, scaleUE, deleteUE, addUE, Usage(..), unitUE,
                  supUE, supUEs) where
@@ -9,6 +10,7 @@ import Multiplicity
 import Name
 import NameEnv
 import Outputable
+import Data.Data
 
 --
 -- * Usage environments
@@ -55,6 +57,7 @@ multUsage (MUsage x) (MUsage y) = MUsage $ mkMultMul x y
 -- is the sum of NameEnv Mult and arbitrary multiplicities,
 -- as in empty case (TODO explain).
 data UsageEnv = UsageEnv (NameEnv Mult) Bool
+  deriving (Data)
 
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
 unitUE x w = UsageEnv (unitNameEnv (getName x) w) False

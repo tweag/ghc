@@ -55,7 +55,10 @@ module CoreUtils (
         collectMakeStaticArgs,
 
         -- * Join points
-        isJoinBind
+        isJoinBind,
+
+        -- * Floats
+        flattenBinds
     ) where
 
 #include "HsVersions.h"
@@ -80,6 +83,7 @@ import PrelNames( absentErrorIdKey )
 import Type
 import TyCoRep( TyCoBinder(..), TyBinder )
 import Multiplicity
+import UsageEnv
 import Coercion
 import TyCon
 import Unique
@@ -144,6 +148,9 @@ coreAltsType :: [CoreAlt] -> Type
 -- ^ Returns the type of the first alternative, which should be the same as for all alternatives
 coreAltsType (alt:_) = coreAltType alt
 coreAltsType []      = panic "corAltsType"
+
+exprUsageEnv :: CoreExpr -> UsageEnv
+exprUsageEnv = error "TODO: exprUsageEnv"
 
 -- | Is this expression levity polymorphic? This should be the
 -- same as saying (isKindLevPoly . typeKind . exprType) but
@@ -2664,3 +2671,18 @@ isJoinBind :: CoreBind -> Bool
 isJoinBind (NonRec b _)       = isJoinId b
 isJoinBind (Rec ((b, _) : _)) = isJoinId b
 isJoinBind _                  = False
+
+{-
+************************************************************************
+*                                                                      *
+\subsection{Join points}
+*                                                                      *
+************************************************************************
+-}
+
+-- | Collapse all the bindings in the supplied groups into a single
+-- list of lhs\/rhs pairs suitable for binding in a 'Rec' binding group
+flattenBinds :: [Bind b] -> [(b, UsageEnv, Expr b)]
+flattenBinds (NonRec b r : binds) = (b,exprUE r, r) : flattenBinds binds
+flattenBinds (Rec prs1   : binds) = prs1 ++ flattenBinds binds
+flattenBinds []                   = []

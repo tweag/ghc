@@ -21,6 +21,7 @@ import Var( varType, tyVarKind )
 import Type( seqType, isTyVar )
 import Coercion( seqCo )
 import Id( Id, idInfo )
+import UsageEnv
 
 -- | Evaluate all the fields of the 'IdInfo' that are generally demanded by the
 -- compiler
@@ -91,9 +92,9 @@ seqBind :: Bind CoreBndr -> ()
 seqBind (NonRec b e) = seqBndr b `seq` seqExpr e
 seqBind (Rec prs)    = seqPairs prs
 
-seqPairs :: [(CoreBndr, CoreExpr)] -> ()
+seqPairs :: [(CoreBndr, UsageEnv, CoreExpr)] -> ()
 seqPairs [] = ()
-seqPairs ((b,e):prs) = seqBndr b `seq` seqExpr e `seq` seqPairs prs
+seqPairs ((b,ue,e):prs) = seqBndr b `seq` error "TODO: seq UsageEnv" `seq` seqExpr e `seq` seqPairs prs
 
 seqAlts :: [CoreAlt] -> ()
 seqAlts [] = ()

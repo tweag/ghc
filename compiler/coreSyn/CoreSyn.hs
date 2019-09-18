@@ -41,7 +41,7 @@ module CoreSyn (
         bindersOf, bindersOfBinds, rhssOfBind, rhssOfAlts,
         collectBinders, collectTyBinders, collectTyAndValBinders,
         collectNBinders,
-        collectArgs, stripNArgs, collectArgsTicks, flattenBinds,
+        collectArgs, stripNArgs, collectArgsTicks,
 
         exprToType, exprToCoercion_maybe,
         applyTypeToArg,
@@ -104,6 +104,7 @@ import VarEnv( InScopeSet )
 import Var
 import Type
 import Coercion
+import UsageEnv
 import Name
 import NameSet
 import NameEnv( NameEnv, emptyNameEnv )
@@ -309,7 +310,7 @@ instance Ord AltCon where
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 data Bind b = NonRec b (Expr b)
-            | Rec [(b, (Expr b))]
+            | Rec [(b, UsageEnv, (Expr b))]
   deriving Data
 
 {-
@@ -1842,7 +1843,7 @@ deTagExpr (Cast e co)               = Cast (deTagExpr e) co
 
 deTagBind :: TaggedBind t -> CoreBind
 deTagBind (NonRec (TB b _) rhs) = NonRec b (deTagExpr rhs)
-deTagBind (Rec prs)             = Rec [(b, deTagExpr rhs) | (TB b _, rhs) <- prs]
+deTagBind (Rec prs)             = Rec [(b, ue, deTagExpr rhs) | (TB b _, ue, rhs) <- prs]
 
 deTagAlt :: TaggedAlt t -> CoreAlt
 deTagAlt (con, bndrs, rhs) = (con, [b | TB b _ <- bndrs], deTagExpr rhs)
@@ -1964,7 +1965,7 @@ mkLetNonRec b rhs body = Let (NonRec b rhs) body
 
 -- | @mkLetRec binds body@ wraps @body@ in a @let rec@ with the given set of
 -- @binds@ if binds is non-empty.
-mkLetRec :: [(b, Expr b)] -> Expr b -> Expr b
+mkLetRec :: [(b, UsageEnv, Expr b)] -> Expr b -> Expr b
 mkLetRec [] body = body
 mkLetRec bs body = Let (Rec bs) body
 
@@ -2027,7 +2028,7 @@ bindersOf  :: Bind b -> [b]
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 bindersOf (NonRec binder _) = [binder]
-bindersOf (Rec pairs)       = [binder | (binder, _) <- pairs]
+bindersOf (Rec pairs)       = [binder | (binder, _, _) <- pairs]
 
 -- | 'bindersOf' applied to a list of binding groups
 bindersOfBinds :: [Bind b] -> [b]
@@ -2035,17 +2036,10 @@ bindersOfBinds binds = foldr ((++) . bindersOf) [] binds
 
 rhssOfBind :: Bind b -> [Expr b]
 rhssOfBind (NonRec _ rhs) = [rhs]
-rhssOfBind (Rec pairs)    = [rhs | (_,rhs) <- pairs]
+rhssOfBind (Rec pairs)    = [rhs | (_,_,rhs) <- pairs]
 
 rhssOfAlts :: [Alt b] -> [Expr b]
 rhssOfAlts alts = [e | (_,_,e) <- alts]
-
--- | Collapse all the bindings in the supplied groups into a single
--- list of lhs\/rhs pairs suitable for binding in a 'Rec' binding group
-flattenBinds :: [Bind b] -> [(b, Expr b)]
-flattenBinds (NonRec b r : binds) = (b,r) : flattenBinds binds
-flattenBinds (Rec prs1   : binds) = prs1 ++ flattenBinds binds
-flattenBinds []                   = []
 
 -- | We often want to strip off leading lambdas before getting down to
 -- business. Variants are 'collectTyBinders', 'collectValBinders',
@@ -2206,7 +2200,7 @@ type AnnAlt bndr annot = (AltCon, [bndr], AnnExpr bndr annot)
 -- | A clone of the 'Bind' type but allowing annotation at every tree node
 data AnnBind bndr annot
   = AnnNonRec bndr (AnnExpr bndr annot)
-  | AnnRec    [(bndr, AnnExpr bndr annot)]
+  | AnnRec    [(bndr, UsageEnv, AnnExpr bndr annot)]
 
 -- | Takes a nested application expression and returns the function
 -- being applied and the arguments to which it is applied
@@ -2250,7 +2244,7 @@ deAnnAlt (con,args,rhs) = (con,args,deAnnotate rhs)
 
 deAnnBind  :: AnnBind b annot -> Bind b
 deAnnBind (AnnNonRec var rhs) = NonRec var (deAnnotate rhs)
-deAnnBind (AnnRec pairs) = Rec [(v,deAnnotate rhs) | (v,rhs) <- pairs]
+deAnnBind (AnnRec pairs) = Rec [(v,ue,deAnnotate rhs) | (v,ue,rhs) <- pairs]
 
 -- | As 'collectBinders' but for 'AnnExpr' rather than 'Expr'
 collectAnnBndrs :: AnnExpr bndr annot -> ([bndr], AnnExpr bndr annot)

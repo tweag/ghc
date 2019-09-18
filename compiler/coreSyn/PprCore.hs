@@ -24,6 +24,7 @@ import Name( pprInfixName, pprPrefixName )
 import Var
 import Id
 import IdInfo
+import UsageEnv
 import Demand
 import DataCon
 import TyCon
@@ -95,7 +96,7 @@ pprTopBinds ann binds = vcat (map (pprTopBind ann) binds)
 
 pprTopBind :: OutputableBndr a => Annotation a -> Bind a -> SDoc
 pprTopBind ann (NonRec binder expr)
- = ppr_binding ann (binder,expr) $$ blankLine
+ = ppr_binding ann (binder,emptyUE, expr) $$ blankLine
 
 pprTopBind _ (Rec [])
   = text "Rec { }"
@@ -108,13 +109,13 @@ pprTopBind ann (Rec (b:bs))
 
 ppr_bind :: OutputableBndr b => Annotation b -> Bind b -> SDoc
 
-ppr_bind ann (NonRec val_bdr expr) = ppr_binding ann (val_bdr, expr)
+ppr_bind ann (NonRec val_bdr expr) = ppr_binding ann (val_bdr, emptyUE, expr)
 ppr_bind ann (Rec binds)           = vcat (map pp binds)
                                     where
                                       pp bind = ppr_binding ann bind <> semi
 
-ppr_binding :: OutputableBndr b => Annotation b -> (b, Expr b) -> SDoc
-ppr_binding ann (val_bdr, expr)
+ppr_binding :: OutputableBndr b => Annotation b -> (b, UsageEnv, Expr b) -> SDoc
+ppr_binding ann (val_bdr, _, expr)
   = sdocWithDynFlags $ \dflags ->
       vcat [ ann expr
            , if gopt Opt_SuppressTypeSignatures dflags
@@ -285,7 +286,7 @@ ppr_expr add_par (Let bind expr)
      | isJust (bndrIsJoin_maybe b) = text "join"
      | otherwise                   = text "let"
     keyword (Rec pairs)
-     | ((b,_):_) <- pairs
+     | ((b,_,_):_) <- pairs
      , isJust (bndrIsJoin_maybe b) = text "joinrec"
      | otherwise                   = text "letrec"
 

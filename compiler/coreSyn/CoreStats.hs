@@ -20,6 +20,7 @@ import Coercion
 import Var
 import Type (Type, typeSize)
 import Id (isJoinId)
+import UsageEnv
 
 data CoreStats = CS { cs_tm :: !Int    -- Terms
                     , cs_ty :: !Int    -- Types
@@ -54,7 +55,7 @@ coreBindsStats = sumCS (bindStats TopLevel)
 
 bindStats :: TopLevelFlag -> CoreBind -> CoreStats
 bindStats top_lvl (NonRec v r) = bindingStats top_lvl v r
-bindStats top_lvl (Rec prs)    = sumCS (\(v,r) -> bindingStats top_lvl v r) prs
+bindStats top_lvl (Rec prs)    = sumCS (\(v,_,r) -> bindingStats top_lvl v r) prs
 
 bindingStats :: TopLevelFlag -> Var -> CoreExpr -> CoreStats
 bindingStats top_lvl v r = letBndrStats top_lvl v `plusCS` exprStats r
@@ -130,8 +131,8 @@ bindSize :: CoreBind -> Int
 bindSize (NonRec b e) = bndrSize b + exprSize e
 bindSize (Rec prs)    = sum (map pairSize prs)
 
-pairSize :: (Var, CoreExpr) -> Int
-pairSize (b,e) = bndrSize b + exprSize e
+pairSize :: (Var, UsageEnv, CoreExpr) -> Int
+pairSize (b,_,e) = bndrSize b + exprSize e
 
 altSize :: CoreAlt -> Int
 altSize (_,bs,e) = bndrsSize bs + exprSize e

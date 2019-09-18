@@ -72,6 +72,7 @@ import VarSet
 import Var
 import Type
 import Multiplicity
+import UsageEnv
 import TyCoRep
 import TyCoFVs
 import TyCon
@@ -166,8 +167,8 @@ exprsFreeVarsList = fvVarList . exprsFVs
 bindFreeVars :: CoreBind -> VarSet
 bindFreeVars (NonRec b r) = fvVarSet $ filterFV isLocalVar $ rhs_fvs (b,r)
 bindFreeVars (Rec prs)    = fvVarSet $ filterFV isLocalVar $
-                                addBndrs (map fst prs)
-                                     (mapUnionFV rhs_fvs prs)
+                                addBndrs (map fstOf3 prs)
+                                     (mapUnionFV rec_rhs_fvs prs)
 
 -- | Finds free variables in an expression selected by a predicate
 exprSomeFreeVars :: InterestingVarFun   -- ^ Says which 'Var's are interesting
@@ -277,8 +278,8 @@ expr_fvs (Let (NonRec bndr rhs) body) fv_cand in_scope acc
       fv_cand in_scope acc
 
 expr_fvs (Let (Rec pairs) body) fv_cand in_scope acc
-  = addBndrs (map fst pairs)
-             (mapUnionFV rhs_fvs pairs `unionFV` expr_fvs body)
+  = addBndrs (map fstOf3 pairs)
+             (mapUnionFV rec_rhs_fvs pairs `unionFV` expr_fvs body)
                fv_cand in_scope acc
 
 ---------
@@ -286,6 +287,10 @@ rhs_fvs :: (Id, CoreExpr) -> FV
 rhs_fvs (bndr, rhs) = expr_fvs rhs `unionFV`
                       bndrRuleAndUnfoldingFVs bndr
         -- Treat any RULES as extra RHSs of the binding
+
+rec_rhs_fvs :: (Id, UsageEnv, CoreExpr) -> FV
+
+rec_rhs_fvs (bndr, _, rhs) = rhs_fvs (bndr, rhs)
 
 ---------
 exprs_fvs :: [CoreExpr] -> FV
@@ -324,7 +329,7 @@ exprOrphNames e
     go (Tick _ e)           = go e
     go (Cast e co)          = go e `unionNameSet` orphNamesOfCo co
     go (Let (NonRec _ r) e) = go e `unionNameSet` go r
-    go (Let (Rec prs) e)    = exprsOrphNames (map snd prs) `unionNameSet` go e
+    go (Let (Rec prs) e)    = exprsOrphNames (map thdOf3 prs) `unionNameSet` go e
     go (Case e _ ty as)     = go e `unionNameSet` orphNamesOfType ty
                               `unionNameSet` unionNameSets (map go_alt as)
 
@@ -707,10 +712,10 @@ freeVarsBind (NonRec binder rhs) body_fvs
       body_fvs2 = binder `delBinderFV` body_fvs
 
 freeVarsBind (Rec binds) body_fvs
-  = ( AnnRec (binders `zip` rhss2)
+  = ( AnnRec (zip3 binders ues rhss2)
     , delBindersFV binders all_fvs )
   where
-    (binders, rhss) = unzip binds
+    (binders, ues, rhss) = unzip3 binds
     rhss2        = map freeVars rhss
     rhs_body_fvs = foldr (unionFVs . freeVarsOf) body_fvs rhss2
     binders_fvs  = fvDVarSet $ mapUnionFV bndrRuleAndUnfoldingFVs binders
