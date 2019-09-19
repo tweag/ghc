@@ -1312,7 +1312,7 @@ In principle, this type can be different from the user's source code
 when the value of -XLinearTypes has changed, but we don't
 expect this to cause much trouble.
 
-Due to internal plumbing, we can't just return a Doc.
+Due to internal plumbing in checkValidDataCon, we can't just return a Doc.
 The multiplicity of arrows returned by dataConDisplayType and
 dataConDisplayType is used only for pretty-printing.
 -}
