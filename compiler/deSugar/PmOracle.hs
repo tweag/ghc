@@ -70,6 +70,7 @@ import MonadUtils hiding (foldlM)
 import DsMonad hiding (foldlM)
 import FamInst
 import FamInstEnv
+import Multiplicity
 
 import Control.Monad (zipWithM, guard, mzero)
 import Control.Monad.Trans.Class (lift)
@@ -95,7 +96,7 @@ mkPmId :: Type -> DsM Id
 mkPmId ty = getUniqueM >>= \unique ->
   let occname = mkVarOccFS $ fsLit "$pm"
       name    = mkInternalName unique occname noSrcSpan
-  in  return (mkLocalId name ty)
+  in  return (mkLocalId name Omega ty)
 
 -----------------------------------------------
 -- * Caching possible matches of a COMPLETE set
@@ -164,7 +165,7 @@ getUnmatchedConstructor (PM _tc ms)
 -- * Instantiating constructors, types and evidence
 
 newEvVar :: Name -> Type -> EvVar
-newEvVar name ty = mkLocalId name ty
+newEvVar name ty = mkLocalId name Omega ty
 
 nameType :: String -> Type -> DsM EvVar
 nameType name ty = do
@@ -208,7 +209,7 @@ mkOneConFull arg_tys con = do
   let subst_univ = zipTvSubst univ_tvs arg_tys
   -- Instantiate fresh existentials as arguments to the contructor
   (subst, ex_tvs') <- cloneTyVarBndrs subst_univ ex_tvs <$> getUniqueSupplyM
-  let field_tys' = substTys subst field_tys
+  let field_tys' = substTys subst $ map scaledThing field_tys
   -- Instantiate fresh term variables (VAs) as arguments to the constructor
   vars <- mapM mkPmId field_tys'
   -- All constraints bound by the constructor (alpha-renamed), these are added
