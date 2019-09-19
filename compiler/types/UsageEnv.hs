@@ -27,7 +27,6 @@ import Outputable
 -- much harder to get right. The module structure is the point-wise extension of
 -- the action of 'Mult' on itself, every absent name being considered to map to
 -- 'Zero'.
-
 data Usage = Zero | Bottom | MUsage Mult
 
 instance Outputable Usage where

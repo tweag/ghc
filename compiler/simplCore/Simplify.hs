@@ -2539,7 +2539,7 @@ rebuildCase env scrut case_bndr alts cont
      --   case[p] case[q] u of { D x -> C v } of { C x -> w }
      -- And we are producing case[??] u of { D x -> w[x\v]}
      --
-     -- What should the multiplicity ?? be? In order to preserve the usage of
+     -- What should the multiplicity `??` be? In order to preserve the usage of
      -- variables in `u`, it needs to be `pq`.
      --
      -- As an illustration, consider the following
