@@ -1855,7 +1855,7 @@ tc_infer_id lbl id_name
            ; (subst, tvs') <- newMetaTyVars (map binderVar tvs)
            ; let tys'   = mkTyVarTys tvs'
                  theta' = substTheta subst theta
-                 args'  = map (mapScaledType (substTy subst)) args
+                 args'  = map (substScaledTy subst) args
                  res'   = substTy subst res
            ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
            -- See Note [Linear fields generalization]

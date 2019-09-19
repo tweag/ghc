@@ -207,10 +207,10 @@ module Type (
         isEmptyTCvSubst, unionTCvSubst,
 
         -- ** Performing substitution on types and kinds
-        substTy, substTys, substScaledTys, substTyWith, substTysWith, substTheta,
+        substTy, substTys, substScaledTy, substScaledTys, substTyWith, substTysWith, substTheta,
         substTyAddInScope,
-        substTyUnchecked, substTysUnchecked, substScaledTysUnchecked, substThetaUnchecked,
-        substTyWithUnchecked,
+        substTyUnchecked, substTysUnchecked, substScaledTyUnchecked, substScaledTysUnchecked,
+        substThetaUnchecked, substTyWithUnchecked,
         substCoUnchecked, substCoWithUnchecked,
         substTyVarBndr, substTyVarBndrs, substTyVar, substTyVars,
         substVarBndr, substVarBndrs,
