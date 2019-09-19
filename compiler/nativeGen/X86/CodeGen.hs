@@ -27,7 +27,6 @@ module X86.CodeGen (
 where
 
 #include "HsVersions.h"
-#include "nativeGen/NCG.h"
 #include "../includes/MachDeps.h"
 
 -- NCG stuff:
@@ -38,7 +37,7 @@ import X86.Cond
 import X86.Regs
 import X86.RegInfo
 
-import CodeGen.Platform
+import GHC.Platform.Regs
 import CPrim
 import Debug            ( DebugBlock(..), UnwindPoint(..), UnwindTable
                         , UnwindExpr(UwReg), toUnwindExpr )
