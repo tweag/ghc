@@ -44,8 +44,9 @@ addUsage (MUsage x) (MUsage y) = MUsage $ mkMultAdd x y
 multUsage :: Usage -> Usage -> Usage
 multUsage Zero _ = Zero
 multUsage _ Zero = Zero
-multUsage Bottom _ = Bottom
-multUsage _ Bottom = Bottom
+multUsage Bottom (MUsage x) = MUsage x
+multUsage (MUsage x) Bottom = MUsage x
+multUsage Bottom Bottom = Bottom
 multUsage (MUsage x) (MUsage y) = MUsage $ mkMultMul x y
 
 -- For now, we use extra multiplicity Bottom for empty case.
