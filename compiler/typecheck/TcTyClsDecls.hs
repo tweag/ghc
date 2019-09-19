@@ -3385,12 +3385,12 @@ checkValidDataCon dflags existential_ok tc con
 
 
         ; checkTc (isJust (tcMatchTy res_ty_tmpl orig_res_ty))
-                  (badDataConTyCon data_con_source_type con res_ty_tmpl)
+                  (badDataConTyCon data_con_display_type con res_ty_tmpl)
             -- Note that checkTc aborts if it finds an error. This is
-            -- critical to avoid panicking when we call dataConSourceType
+            -- critical to avoid panicking when we call dataConDisplayType
             -- on an un-rejiggable datacon!
 
-        ; traceTc "checkValidDataCon 2" (ppr data_con_source_type)
+        ; traceTc "checkValidDataCon 2" (ppr data_con_display_type)
 
           -- Check that the result type is a *monotype*
           --  e.g. reject this:   MkT :: T (forall a. a->a)
@@ -3398,7 +3398,7 @@ checkValidDataCon dflags existential_ok tc con
         ; checkValidMonoType orig_res_ty
 
           -- Check all argument types for validity
-        ; checkValidType ctxt data_con_source_type
+        ; checkValidType ctxt data_con_display_type
 
           -- If we are dealing with a newtype, we allow levity polymorphism
           -- regardless of whether or not UnliftedNewtypes is enabled. A
@@ -3440,6 +3440,7 @@ checkValidDataCon dflags existential_ok tc con
           vcat [ ppr con
                , text "Datacon user type:" <+> ppr (dataConUserType con)
                , text "Datacon rep type:" <+> ppr (dataConRepType con)
+               , text "Datacon display type:" <+> ppr data_con_display_type
                , text "Rep typcon binders:" <+> ppr (tyConBinders (dataConTyCon con))
                , case tyConFamInst_maybe (dataConTyCon con) of
                    Nothing -> text "not family"
@@ -3482,7 +3483,7 @@ checkValidDataCon dflags existential_ok tc con
       = hang herald 2 (text "on the" <+> speakNth n
                        <+> text "argument of" <+> quotes (ppr con))
 
-    data_con_source_type = dataConSourceType dflags con
+    data_con_display_type = dataConDisplayType dflags con
 
 -------------------------------
 checkNewDataCon :: DataCon -> TcM ()
@@ -3501,7 +3502,7 @@ checkNewDataCon con
         ; dflags <- getDynFlags
 
         ; let check_con what msg =
-               checkTc what (msg $$ ppr con <+> dcolon <+> ppr (dataConSourceType dflags con))
+               checkTc what (msg $$ ppr con <+> dcolon <+> ppr (dataConDisplayType dflags con))
 
         ; checkTc (ok_mult (scaledMult arg_ty1)) $
           text "A newtype constructor must be linear"
@@ -4130,7 +4131,7 @@ noClassTyVarErr clas fam_tc
                 quotes (ppr clas <+> hsep (map ppr (classTyVars clas)))]
 
 badDataConTyCon :: Type -> DataCon -> Type -> SDoc
-badDataConTyCon data_con_source_type data_con res_ty_tmpl
+badDataConTyCon data_con_display_type data_con res_ty_tmpl
   | ASSERT( all isTyVar tvs )
     tcIsForAllTy actual_res_ty
   = nested_foralls_contexts_suggestion
@@ -4173,7 +4174,7 @@ badDataConTyCon data_con_source_type data_con res_ty_tmpl
     -- 3) Smash together the type variables and class predicates from 1) and
     --    2), and prepend them to the rho type from 2).
 
-    (tvs, theta, rho) = tcSplitNestedSigmaTys data_con_source_type
+    (tvs, theta, rho) = tcSplitNestedSigmaTys data_con_display_type
     suggested_ty = mkSpecSigmaTy tvs theta rho
 
 badGadtDecl :: Name -> SDoc
@@ -4186,7 +4187,7 @@ badExistential con
   = sdocWithDynFlags (\dflags ->
       hang (text "Data constructor" <+> quotes (ppr con) <+>
                   text "has existential type variables, a context, or a specialised result type")
-         2 (vcat [ ppr con <+> dcolon <+> ppr (dataConSourceType dflags con)
+         2 (vcat [ ppr con <+> dcolon <+> ppr (dataConDisplayType dflags con)
                  , parens $ text "Enable ExistentialQuantification or GADTs to allow this" ]))
 
 badStupidTheta :: Name -> SDoc

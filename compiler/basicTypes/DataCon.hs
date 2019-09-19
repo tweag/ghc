@@ -30,7 +30,7 @@ module DataCon (
         dataConRepType, dataConSig, dataConInstSig, dataConFullSig,
         dataConName, dataConIdentity, dataConTag, dataConTagZ,
         dataConTyCon, dataConOrigTyCon,
-        dataConUserType, dataConDisplayType, dataConSourceType,
+        dataConUserType, dataConDisplayType,
         dataConUnivTyVars, dataConExTyCoVars, dataConUnivAndExTyCoVars,
         dataConUserTyVars, dataConUserTyVarBinders,
         dataConEqSpec, dataConTheta,
@@ -1291,18 +1291,20 @@ dataConStupidTheta dc = dcStupidTheta dc
 {-
 Note [Displaying linear fields]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Depending on the -XLinearTypes flag, a constructor with a linear
-field can be written either as "MkT :: a ->. T a" or "MkT :: a -> T a".
+A constructor with a linear field can be written either as
+MkT :: a ->. T a (with -XLinearTypes)
+or
+MkT :: a ->  T a (with -XNoLinearTypes)
 
-There are three different methods to retrieve a type of a datacon.
+There are two different methods to retrieve a type of a datacon.
 They differ in how linear fields are handled.
 
 1. dataConUserType:
 The type of the wrapper in Core.
 For example, dataConUserType for Maybe is a ->. Just a.
 
-2. dataConSourceType:
-The type we'd like to show in error messages.
+2. dataConDisplayType:
+The type we'd like to show in error messages, :info and -ddump-types.
 Ideally, it should reflect the type written by the user;
 the function returns a type with arrows that would be required
 to write this constructor under the current setting of -XLinearTypes.
@@ -1310,16 +1312,9 @@ In principle, this type can be different from the user's source code
 when the value of -XLinearTypes has changed, but we don't
 expect this to cause much trouble.
 
-3. dataConDisplayType:
-The type we'd like to show in output of :info and -ddump-types.
-In this case, we'd like to display either a linear arrow
-or an unrestricted arrow depending on the flag
--fprint-explicit-multiplicities. This flag also controls
-defaulting in defaultNonStandardVars in IfaceType.
-
-The multiplicity of arrows returned by dataConSourceType and
-dataConDisplayType is used only for pretty-printing.
 Due to internal plumbing, we can't just return a Doc.
+The multiplicity of arrows returned by dataConDisplayType and
+dataConDisplayType is used only for pretty-printing.
 -}
 
 dataConUserType :: DataCon -> Type
@@ -1345,8 +1340,8 @@ dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
     mkVisFunTys arg_tys $
     res_ty
 
-dataConSourceType :: DynFlags -> DataCon -> Type
-dataConSourceType dflags (MkData { dcUserTyVarBinders = user_tvbs,
+dataConDisplayType :: DynFlags -> DataCon -> Type
+dataConDisplayType dflags (MkData { dcUserTyVarBinders = user_tvbs,
                                    dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                                    dcOrigResTy = res_ty })
   = let lin = xopt LangExt.LinearTypes dflags
@@ -1356,11 +1351,6 @@ dataConSourceType dflags (MkData { dcUserTyVarBinders = user_tvbs,
        mkInvisFunTysOm theta $
        mkVisFunTys arg_tys' $
        res_ty
-
-dataConDisplayType :: DynFlags -> DataCon -> Type
-dataConDisplayType dflags ds
-  = dataConSourceType dflags ds
--- TODO: the -fprint-explicit-multiplicities flag
 
 -- | Finds the instantiated types of the arguments required to construct a
 -- 'DataCon' representation
