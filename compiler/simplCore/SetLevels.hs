@@ -478,6 +478,7 @@ lvlCase env scrut_fvs scrut' case_bndr ty alts
   , exprIsHNF (deTagExpr scrut')  -- See Note [Check the output scrutinee for exprIsHNF]
   , not (isTopLvl dest_lvl)       -- Can't have top-level cases
   , not (floatTopLvlOnly env)     -- Can float anywhere
+  , Omega <- idMult case_bndr     -- See Note [Floating linear case]
   =     -- Always float the case if possible
         -- Unlike lets we don't insist that it escapes a value lambda
     do { (env1, (case_bndr' : bs')) <- cloneCaseBndrs env dest_lvl (case_bndr : bs)
@@ -547,6 +548,17 @@ Things to note:
    If we floated the cases out we could eliminate one of them.
 
  * We only do this with a single-alternative case
+
+Note [Floating linear case]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Linear case can't be floated past case branches:
+    case u of { p1 -> case[1] v of { C x -> ...x...}; p2 -> ... }
+Is well typed, but
+    case[1] v of { C x -> case u of { p1 -> ...x...; p2 -> ... }}
+Will not be, because of how `x` is used in one alternative but not the other.
+
+It is not easy to float this linear cases precisely, so, instead, we elect, for
+the moment, to simply not float linear case.
 
 Note [Check the output scrutinee for exprIsHNF]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

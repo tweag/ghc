@@ -30,12 +30,12 @@ module DataCon (
         dataConRepType, dataConSig, dataConInstSig, dataConFullSig,
         dataConName, dataConIdentity, dataConTag, dataConTagZ,
         dataConTyCon, dataConOrigTyCon,
-        dataConUserType,
+        dataConWrapperType, dataConDisplayType,
         dataConUnivTyVars, dataConExTyCoVars, dataConUnivAndExTyCoVars,
         dataConUserTyVars, dataConUserTyVarBinders,
         dataConEqSpec, dataConTheta,
         dataConStupidTheta,
-        dataConMulVars,
+        dataConOtherTheta,
         dataConInstArgTys, dataConOrigArgTys, dataConOrigResTy,
         dataConInstOrigArgTys, dataConRepArgTys,
         dataConFieldLabels, dataConFieldType, dataConFieldType_maybe,
@@ -86,7 +86,8 @@ import Binary
 import UniqSet
 import Unique( mkAlphaTyVarUnique )
 
-import TysPrim
+import DynFlags
+import GHC.LanguageExtensions as LangExt
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as BSB
@@ -603,7 +604,7 @@ sometimes refer to this as "the dcUserTyVarBinders invariant".
 
 dcUserTyVarBinders, as the name suggests, is the one that users will see most of
 the time. It's used when computing the type signature of a data constructor (see
-dataConUserType), and as a result, it's what matters from a TypeApplications
+dataConWrapperType), and as a result, it's what matters from a TypeApplications
 perspective.
 -}
 
@@ -963,8 +964,8 @@ mkDataCon name declared_infix prom_info
     rep_ty =
       case rep of
         -- If the DataCon has no wrapper, then the worker's type *is* the
-        -- user-facing type, so we can simply use dataConUserType.
-        NoDataConRep -> dataConUserType con
+        -- user-facing type, so we can simply use dataConWrapperType.
+        NoDataConRep -> dataConWrapperType con
         -- If the DataCon has a wrapper, then the worker's type is never seen
         -- by the user. The visibilities we pick do not matter here.
         DCR{} -> mkInvForAllTys univ_tvs $ mkTyCoInvForAllTys ex_tvs $
@@ -1287,27 +1288,36 @@ dataConOrigResTy dc = dcOrigResTy dc
 dataConStupidTheta :: DataCon -> ThetaType
 dataConStupidTheta dc = dcStupidTheta dc
 
--- Multiplicity variables of a DataCon, and arguments scaled by them.
--- See Note [Wrapper multiplicities].
---
--- To avoid spurious renaming, do not use names that were written by user.
--- For example, given
---    MkT :: forall n. n ->. T n
--- we don't want to use 'n' for the multiplicity variable, because the user
--- would see
---    MkT :: forall {n :: Multiplicity} n2. n2 -->.(n) T n2
--- and without linear types,
---    MkT :: forall n2. n2 -> T n2
--- See test LinearGhci.
-dataConMulVars :: DataCon -> ([TyVar], [Scaled Type])
-dataConMulVars (MkData { dcUserTyVarBinders = user_tvbs,
-                         dcOrigArgTys = arg_tys }) =
-   (vars, zipWithEqual "dataConMulVars" combine vars arg_tys)
-   where vars = multiplicityTyVarList (length arg_tys) (map getOccName (binderVars user_tvbs))
-         combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
-         combine _   scaled_ty = scaled_ty
+{-
+Note [Displaying linear fields]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A constructor with a linear field can be written either as
+MkT :: a ->. T a (with -XLinearTypes)
+or
+MkT :: a ->  T a (with -XNoLinearTypes)
 
-dataConUserType :: DataCon -> Type
+There are two different methods to retrieve a type of a datacon.
+They differ in how linear fields are handled.
+
+1. dataConWrapperType:
+The type of the wrapper in Core.
+For example, dataConWrapperType for Maybe is a ->. Just a.
+
+2. dataConDisplayType:
+The type we'd like to show in error messages, :info and -ddump-types.
+Ideally, it should reflect the type written by the user;
+the function returns a type with arrows that would be required
+to write this constructor under the current setting of -XLinearTypes.
+In principle, this type can be different from the user's source code
+when the value of -XLinearTypes has changed, but we don't
+expect this to cause much trouble.
+
+Due to internal plumbing in checkValidDataCon, we can't just return a Doc.
+The multiplicity of arrows returned by dataConDisplayType and
+dataConDisplayType is used only for pretty-printing.
+-}
+
+dataConWrapperType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor
 -- in the nice-to-read form:
 --
@@ -1322,23 +1332,25 @@ dataConUserType :: DataCon -> Type
 --
 -- NB: If the constructor is part of a data instance, the result type
 -- mentions the family tycon, not the internal one.
-dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
-                          dcOtherTheta = theta, dcOrigArgTys = arg_tys,
-                          dcOrigResTy = res_ty, dcRep = NoDataConRep })
+dataConWrapperType (MkData { dcUserTyVarBinders = user_tvbs,
+                             dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                             dcOrigResTy = res_ty })
   = mkForAllTys user_tvbs $
     mkInvisFunTysOm theta $
     mkVisFunTys arg_tys $
     res_ty
-dataConUserType dc@(MkData { dcUserTyVarBinders = user_tvbs,
-                             dcOtherTheta = theta,
-                             dcOrigResTy = res_ty })
-  = let (mult_vars, arg_tys') = dataConMulVars dc
-        tvb = map (mkTyVarBinder Inferred) mult_vars
-    in
-      mkForAllTys (tvb ++ user_tvbs) $
-      mkInvisFunTysOm theta $
-      mkVisFunTys arg_tys' $
-      res_ty
+
+dataConDisplayType :: DynFlags -> DataCon -> Type
+dataConDisplayType dflags (MkData { dcUserTyVarBinders = user_tvbs,
+                                   dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                                   dcOrigResTy = res_ty })
+  = let lin = xopt LangExt.LinearTypes dflags
+        arg_tys' | lin = arg_tys
+                 | otherwise = (map (\(Scaled w t) -> case w of One -> Scaled Omega t; _ -> Scaled w t) arg_tys)
+    in mkForAllTys user_tvbs $
+       mkInvisFunTysOm theta $
+       mkVisFunTys arg_tys' $
+       res_ty
 
 -- | Finds the instantiated types of the arguments required to construct a
 -- 'DataCon' representation
@@ -1380,6 +1392,10 @@ dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
 -- and without substituting for any type variables
 dataConOrigArgTys :: DataCon -> [Scaled Type]
 dataConOrigArgTys dc = dcOrigArgTys dc
+
+-- | Returns constraints in the wrapper type, other than those in the dataConEqSpec
+dataConOtherTheta :: DataCon -> ThetaType
+dataConOtherTheta dc = dcOtherTheta dc
 
 -- | Returns the arg types of the worker, including *all* non-dependent
 -- evidence, after any flattening has been done and without substituting for

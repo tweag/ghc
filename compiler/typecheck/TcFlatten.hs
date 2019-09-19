@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP, DeriveFunctor, ViewPatterns, BangPatterns #-}
+{-# OPTIONS_GHC -O0 #-}
 
 module TcFlatten(
    FlattenMode(..),

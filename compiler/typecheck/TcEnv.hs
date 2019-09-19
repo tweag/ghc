@@ -80,7 +80,7 @@ import HsSyn
 import IfaceEnv
 import TcRnMonad
 import TcMType
-import TcEvidence (HsWrapper)
+import TcEvidence (HsWrapper, idHsWrapper)
 import UsageEnv
 import TcType
 import {-# SOURCE #-} TcUnify ( tcSubMult )
@@ -115,6 +115,7 @@ import ListSetOps
 import ErrUtils
 import Util
 import Maybes( MaybeErr(..), orElse )
+import Multiplicity
 import qualified GHC.LanguageExtensions as LangExt
 
 import Data.IORef
@@ -665,7 +666,7 @@ tcCollectingUsage thing_inside
 tcScalingUsage :: Mult -> TcM a -> TcM a
 tcScalingUsage mult thing_inside
   = do { (usage, result) <- tcCollectingUsage thing_inside
-       ; traceTc "tsScalingUsage" (ppr mult)
+       ; traceTc "tcScalingUsage" (ppr mult)
        ; tcEmitBindingUsage $ scaleUE mult usage
        ; return result }
 
@@ -682,9 +683,12 @@ tcCheckUsage name id_mult thing_inside
     -- Checks that the usage of the newly introduced binder is compatible with
     -- its multiplicity, and combines the usage of non-new binders to |uenv|
     check_then_add_usage uenv
-      = do { let actual_w = usageToMult (lookupUE uenv name)
-           ; traceTc "check_then_add_usage" (ppr id_mult $$ ppr actual_w)
-           ; wrapper <- tcSubMult (UsageEnvironmentOf name) actual_w id_mult
+      = do { let actual_u = lookupUE uenv name
+           ; traceTc "check_then_add_usage" (ppr id_mult $$ ppr actual_u)
+           ; wrapper <- case actual_u of
+               Bottom -> return idHsWrapper
+               Zero     -> tcSubMult (UsageEnvironmentOf name) Omega id_mult
+               MUsage m -> tcSubMult (UsageEnvironmentOf name) m id_mult
            ; tcEmitBindingUsage (deleteUE uenv name)
            ; return wrapper }
 

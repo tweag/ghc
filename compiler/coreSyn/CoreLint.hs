@@ -70,7 +70,7 @@ import UniqSupply
 import CoreArity ( typeArity )
 import Demand ( splitStrictSig, isBotRes )
 
-import HscTypes
+import HscTypes hiding (Usage)
 import DynFlags
 import Control.Monad
 import qualified Control.Monad.Fail as MonadFail
@@ -931,6 +931,15 @@ checkJoinOcc var n_args
   = return ()
 
 lintLambda :: Var -> LintM (Type, UsageEnv) -> LintM (Type, UsageEnv)
+lintLambda var lintBody | isId var, Just tpl <- maybeUnfoldingTemplate (realIdUnfolding var) =
+  do { let_ue <- lintSingleBinding NotTopLevel NonRecursive (var, tpl)
+     ; addLoc (LambdaBodyOf var) $
+              (lintBinder LambdaBind var $ \var' ->
+                 do { (body_ty, ue) <- addGoodJoins [var] $ addAliasUE var let_ue lintBody
+                    ; return (mkLamType var' body_ty, ue)
+                    })
+     }
+
 lintLambda var lintBody =
     addLoc (LambdaBodyOf var) $
     lintBinder LambdaBind var $ \ var' ->
@@ -943,7 +952,7 @@ lintLambda var lintBody =
 checkLinearity :: UsageEnv -> Var -> LintM UsageEnv
 checkLinearity body_ue lam_var =
   case varMultMaybe lam_var of
-    Just mult -> do ensureSubMult (usageToMult lhs) mult (err_msg mult)
+    Just mult -> do ensureSubUsage lhs mult (err_msg mult)
                     return $ deleteUE body_ue lam_var
     Nothing    -> return body_ue -- A type variable
   where
@@ -1081,12 +1090,11 @@ lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
 -- | Implements the case rules for linearity
 checkCaseLinearity :: UsageEnv -> Var -> Mult -> Var -> LintM UsageEnv
 checkCaseLinearity ue scrut var_w bndr = do
-  ensureSubMult lhs' rhs err_msg
+  ensureSubUsage lhs rhs err_msg
   lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varMult bndr)
   return $ deleteUE ue bndr
   where
     lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
-    lhs' = usageToMult lhs
     rhs = scrut_w `mkMultMul` var_w
     err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
                 $$ ppr lhs <+> text "⊈" <+> ppr rhs
@@ -2480,6 +2488,11 @@ ensureEqTys :: OutType -> OutType -> MsgDoc -> LintM ()
 -- annotations need only be consistent, not equal)
 -- Assumes ty1,ty2 are have already had the substitution applied
 ensureEqTys ty1 ty2 msg = lintL (ty1 `eqType` ty2) msg
+
+ensureSubUsage :: Usage -> Mult -> SDoc -> LintM ()
+ensureSubUsage Bottom     _              _ = return ()
+ensureSubUsage Zero       described_mult err_msg = ensureSubMult Omega described_mult err_msg
+ensureSubUsage (MUsage m) described_mult err_msg = ensureSubMult m described_mult err_msg
 
 ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()
 ensureSubMult actual_usage described_usage err_msg =

@@ -2529,12 +2529,26 @@ rebuildCase env scrut case_bndr alts cont
     -- they are aliases anyway.
     scale_float (MkCore.FloatCase scrut case_bndr con vars) =
       let
-        holeScaling = contHoleScaling cont
         scale_id id = scaleIdBy id holeScaling
       in
       MkCore.FloatCase scrut (scale_id case_bndr) con (map scale_id vars)
     scale_float f = f
 
+    holeScaling = contHoleScaling cont `mkMultMul` idMult case_bndr
+     -- We are in the following situation
+     --   case[p] case[q] u of { D x -> C v } of { C x -> w }
+     -- And we are producing case[??] u of { D x -> w[x\v]}
+     --
+     -- What should the multiplicity `??` be? In order to preserve the usage of
+     -- variables in `u`, it needs to be `pq`.
+     --
+     -- As an illustration, consider the following
+     --   case[Omega] case[1] of { C x -> C x } of { C x -> (x, x) }
+     -- Where C :: A ->. T is linear
+     -- If we were to produce a case[1], like the inner case, we would get
+     --   case[1] of { C x -> (x, x) }
+     -- Which is ill-typed with respect to linearity. So it needs to be a
+     -- case[Omega].
 
 --------------------------------------------------
 --      2. Eliminate the case if scrutinee is evaluated
@@ -2896,11 +2910,12 @@ addAltUnfoldings env scrut case_bndr con_app
              env1 = addBinderUnfolding env case_bndr con_app_unf
 
              -- See Note [Add unfolding for scrutinee]
-             env2 = case scrut of
+             env2 | Omega <- idMult case_bndr = case scrut of
                       Just (Var v)           -> addBinderUnfolding env1 v con_app_unf
                       Just (Cast (Var v) co) -> addBinderUnfolding env1 v $
                                                 mk_simple_unf (Cast con_app (mkSymCo co))
                       _                      -> env1
+                  | otherwise = env1
 
        ; traceSmpl "addAltUnf" (vcat [ppr case_bndr <+> ppr scrut, ppr con_app])
        ; return env2 }
@@ -2974,6 +2989,9 @@ piece of information.
 
 So instead we add the unfolding x -> Just a, and x -> Nothing in the
 respective RHSs.
+
+Since this transformation is tantamount to a binder swap, the same caveat as in
+Note [Suppressing binder-swaps on linear case] in OccurAnal apply.
 
 
 ************************************************************************

@@ -733,18 +733,17 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
   where
     (univ_tvs, ex_tvs, eq_spec, theta, orig_arg_tys, _orig_res_ty)
       = dataConFullSig data_con
-    (mult_vars, scaled_arg_tys)    = dataConMulVars data_con
-    wrap_tvs     = mult_vars ++ dataConUserTyVars data_con
+    wrap_tvs     = dataConUserTyVars data_con
     res_ty_args  = substTyVars (mkTvSubstPrs (map eqSpecPair eq_spec)) univ_tvs
 
     tycon        = dataConTyCon data_con       -- The representation TyCon (not family)
-    wrap_ty      = dataConUserType data_con
+    wrap_ty      = dataConWrapperType data_con
     ev_tys       = eqSpecPreds eq_spec ++ theta
     all_arg_tys  = (map unrestricted ev_tys) ++ orig_arg_tys
     ev_ibangs    = map (const HsLazy) ev_tys
     orig_bangs   = dataConSrcBangs data_con
 
-    wrap_arg_tys = (map unrestricted theta) ++ scaled_arg_tys
+    wrap_arg_tys = (map unrestricted theta) ++ orig_arg_tys
     wrap_arity   = count isCoVar ex_tvs + length wrap_arg_tys
              -- The wrap_args are the arguments *other than* the eq_spec
              -- Because we are going to apply the eq_spec args manually in the
@@ -770,7 +769,19 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
     (rep_tys, rep_strs) = unzip (concat rep_tys_w_strs)
 
     wrapper_reqd =
-      not (isClassTyCon tycon || isTcLevPoly tycon)
+        (not new_tycon
+                     -- (Most) newtypes have only a worker, with the exception
+                     -- of some newtypes written with GADT syntax. See below.
+         && (any isBanged (ev_ibangs ++ arg_ibangs)
+                     -- Some forcing/unboxing (includes eq_spec)
+             || (not $ null eq_spec))) -- GADT
+      || isFamInstTyCon tycon -- Cast result
+      || dataConUserTyVarsArePermuted data_con
+                     -- If the data type was written with GADT syntax and
+                     -- orders the type variables differently from what the
+                     -- worker expects, it needs a data con wrapper to reorder
+                     -- the type variables.
+                     -- See Note [Data con wrappers and GADT syntax].
 
     initial_wrap_app = Var (dataConWorkId data_con)
                        `mkTyApps`  res_ty_args
@@ -883,12 +894,6 @@ wrappers! After all, a newtype can also be written with GADT syntax:
 Again, this needs a wrapper data con to reorder the type variables. It does
 mean that this newtype constructor requires another level of indirection when
 being called, but the inliner should make swift work of that.
-
-Note [Wrapper multiplicities]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When we make the wrapper for a data type with fields of different multiplicities,
-we only want to make the ones which are linear multiplicity polymorphic. If we
-do not do this then the wrapper will not be well-typed.
 
 Note [HsImplBangs for newtypes]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

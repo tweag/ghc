@@ -21,101 +21,62 @@ Dependent packages: [base-4.13.0.0, ghc-prim-0.6.1,
 
 ==================== Typechecker ====================
 T8958.$tcMap
-  = GHC.Types.TyCon @ 'Omega @ 'Omega @ 'Omega @ 'Omega @ 'Omega
-    @ 'Omega
-      16542473435673943392##
-      5374201132143305512##
-      T8958.$trModule
-      (GHC.Types.TrNameS @ 'Omega "Map"#)
-      0
-      GHC.Types.krep$*->*->*
+  = GHC.Types.TyCon
+      16542473435673943392## 5374201132143305512## T8958.$trModule
+      (GHC.Types.TrNameS "Map"#) 0 GHC.Types.krep$*->*->*
 T8958.$tc'MkMap
-  = GHC.Types.TyCon @ 'Omega @ 'Omega @ 'Omega @ 'Omega @ 'Omega
-    @ 'Omega
-      2942839876828444488##
-      3989137838066763457##
-      T8958.$trModule
-      (GHC.Types.TrNameS @ 'Omega "'MkMap"#)
-      2
-      $krep
+  = GHC.Types.TyCon
+      2942839876828444488## 3989137838066763457## T8958.$trModule
+      (GHC.Types.TrNameS "'MkMap"#) 2 $krep
 T8958.$tcRepresentational
-  = GHC.Types.TyCon @ 'Omega @ 'Omega @ 'Omega @ 'Omega @ 'Omega
-    @ 'Omega
-      12809567151893673426##
-      12159693688248149156##
-      T8958.$trModule
-      (GHC.Types.TrNameS @ 'Omega "Representational"#)
-      0
-      $krep
+  = GHC.Types.TyCon
+      12809567151893673426## 12159693688248149156## T8958.$trModule
+      (GHC.Types.TrNameS "Representational"#) 0 $krep
 T8958.$tc'C:Representational
-  = GHC.Types.TyCon @ 'Omega @ 'Omega @ 'Omega @ 'Omega @ 'Omega
-    @ 'Omega
-      2358772282532242424##
-      5444038897914446879##
-      T8958.$trModule
-      (GHC.Types.TrNameS @ 'Omega "'C:Representational"#)
-      1
-      $krep
+  = GHC.Types.TyCon
+      2358772282532242424## 5444038897914446879## T8958.$trModule
+      (GHC.Types.TrNameS "'C:Representational"#) 1 $krep
 T8958.$tcNominal
-  = GHC.Types.TyCon @ 'Omega @ 'Omega @ 'Omega @ 'Omega @ 'Omega
-    @ 'Omega
-      12224997609886144634##
-      9866011944332051160##
-      T8958.$trModule
-      (GHC.Types.TrNameS @ 'Omega "Nominal"#)
-      0
-      $krep
+  = GHC.Types.TyCon
+      12224997609886144634## 9866011944332051160## T8958.$trModule
+      (GHC.Types.TrNameS "Nominal"#) 0 $krep
 T8958.$tc'C:Nominal
-  = GHC.Types.TyCon @ 'Omega @ 'Omega @ 'Omega @ 'Omega @ 'Omega
-    @ 'Omega
-      10562260635335201742##
-      1215478186250709459##
-      T8958.$trModule
-      (GHC.Types.TrNameS @ 'Omega "'C:Nominal"#)
-      1
-      $krep
-$krep [InlPrag=NOUSERINLINE[~]] = GHC.Types.KindRepVar @ 'Omega 0
-$krep [InlPrag=NOUSERINLINE[~]] = GHC.Types.KindRepVar @ 'Omega 1
+  = GHC.Types.TyCon
+      10562260635335201742## 1215478186250709459## T8958.$trModule
+      (GHC.Types.TrNameS "'C:Nominal"#) 1 $krep
+$krep [InlPrag=NOUSERINLINE[~]] = GHC.Types.KindRepVar 0
+$krep [InlPrag=NOUSERINLINE[~]] = GHC.Types.KindRepVar 1
+$krep [InlPrag=NOUSERINLINE[~]] = GHC.Types.KindRepFun $krep $krep
 $krep [InlPrag=NOUSERINLINE[~]]
-  = GHC.Types.KindRepFun @ 'Omega @ 'Omega $krep $krep
+  = GHC.Types.KindRepFun GHC.Types.krep$* $krep
 $krep [InlPrag=NOUSERINLINE[~]]
-  = GHC.Types.KindRepFun @ 'Omega @ 'Omega GHC.Types.krep$* $krep
-$krep [InlPrag=NOUSERINLINE[~]]
-  = GHC.Types.KindRepTyConApp @ 'Omega @ 'Omega
+  = GHC.Types.KindRepTyConApp
       GHC.Tuple.$tc(,)
-      ((:) @ 'Omega @ 'Omega @ GHC.Types.KindRep
-         $krep
-         ((:) @ 'Omega @ 'Omega @ GHC.Types.KindRep
-            $krep [] @ GHC.Types.KindRep))
+      ((:) @ GHC.Types.KindRep
+         $krep ((:) @ GHC.Types.KindRep $krep [] @ GHC.Types.KindRep))
 $krep [InlPrag=NOUSERINLINE[~]]
-  = GHC.Types.KindRepTyConApp @ 'Omega @ 'Omega
+  = GHC.Types.KindRepTyConApp
       T8958.$tcMap
-      ((:) @ 'Omega @ 'Omega @ GHC.Types.KindRep
-         $krep
-         ((:) @ 'Omega @ 'Omega @ GHC.Types.KindRep
-            $krep [] @ GHC.Types.KindRep))
+      ((:) @ GHC.Types.KindRep
+         $krep ((:) @ GHC.Types.KindRep $krep [] @ GHC.Types.KindRep))
 $krep [InlPrag=NOUSERINLINE[~]]
-  = GHC.Types.KindRepTyConApp @ 'Omega @ 'Omega
+  = GHC.Types.KindRepTyConApp
       GHC.Types.$tc[]
-      ((:) @ 'Omega @ 'Omega @ GHC.Types.KindRep
-         $krep [] @ GHC.Types.KindRep)
+      ((:) @ GHC.Types.KindRep $krep [] @ GHC.Types.KindRep)
 $krep [InlPrag=NOUSERINLINE[~]]
-  = GHC.Types.KindRepTyConApp @ 'Omega @ 'Omega
+  = GHC.Types.KindRepTyConApp
       GHC.Types.$tcConstraint [] @ GHC.Types.KindRep
 $krep [InlPrag=NOUSERINLINE[~]]
-  = GHC.Types.KindRepTyConApp @ 'Omega @ 'Omega
+  = GHC.Types.KindRepTyConApp
       T8958.$tcRepresentational
-      ((:) @ 'Omega @ 'Omega @ GHC.Types.KindRep
-         $krep [] @ GHC.Types.KindRep)
+      ((:) @ GHC.Types.KindRep $krep [] @ GHC.Types.KindRep)
 $krep [InlPrag=NOUSERINLINE[~]]
-  = GHC.Types.KindRepTyConApp @ 'Omega @ 'Omega
+  = GHC.Types.KindRepTyConApp
       T8958.$tcNominal
-      ((:) @ 'Omega @ 'Omega @ GHC.Types.KindRep
-         $krep [] @ GHC.Types.KindRep)
+      ((:) @ GHC.Types.KindRep $krep [] @ GHC.Types.KindRep)
 T8958.$trModule
-  = GHC.Types.Module @ 'Omega @ 'Omega
-      (GHC.Types.TrNameS @ 'Omega "main"#)
-      (GHC.Types.TrNameS @ 'Omega "T8958"#)
+  = GHC.Types.Module
+      (GHC.Types.TrNameS "main"#) (GHC.Types.TrNameS "T8958"#)
 AbsBinds [a] []
   {Exports: [T8958.$fRepresentationala <= $dRepresentational
                wrap: <>]

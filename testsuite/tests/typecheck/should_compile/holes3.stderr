@@ -91,7 +91,9 @@ holes3.hs:11:15: error:
         fromIntegral :: forall a b. (Integral a, Num b) => a -> b
         toInteger :: forall a. Integral a => a -> Integer
         toRational :: forall a. Real a => a -> Rational
+        (:) :: forall a. a ->. [a] ->. [a]
         Nothing :: forall a. Maybe a
+        Just :: forall a. a ->. Maybe a
         [] :: forall a. [a]
         asTypeOf :: forall a. a -> a -> a
         id :: forall a. a -> a
@@ -173,7 +175,8 @@ holes3.hs:11:15: error:
         snd :: forall a b. (a, b) -> b
         map :: forall a b. (a -> b) -> [a] -> [b]
         realToFrac :: forall a b. (Real a, Fractional b) => a -> b
-        Just :: forall a. a -> Maybe a
+        Left :: forall a b. a ->. Either a b
+        Right :: forall a b. b ->. Either a b
         maybe :: forall b a. b -> (a -> b) -> Maybe a -> b
         const :: forall a b. a -> b -> a
         scanl :: forall b a. (b -> a -> b) -> b -> [a] -> [b]
@@ -188,9 +191,6 @@ holes3.hs:11:15: error:
         round :: forall a b. (RealFrac a, Integral b) => a -> b
         truncate :: forall a b. (RealFrac a, Integral b) => a -> b
         ($) :: forall a b. (a -> b) -> a -> b
-        (:) :: forall a. a -> [a] -> [a]
-        Left :: forall a b. a -> Either a b
-        Right :: forall a b. b -> Either a b
         either :: forall a c b. (a -> c) -> (b -> c) -> Either a b -> c
         curry :: forall a b c. ((a, b) -> c) -> a -> b -> c
         uncurry :: forall a b c. (a -> b -> c) -> (a, b) -> c

@@ -1,5 +1,6 @@
 
 UnliftedNewtypesLevityBinder.hs:16:7: error:
-    Cannot use function with levity-polymorphic arguments:
-      UnliftedNewtypesLevityBinder.$WIdentC :: a -> Ident a
-    Levity-polymorphic arguments: a :: TYPE r
+    A levity-polymorphic type is not allowed here:
+      Type: a
+      Kind: TYPE r
+    When trying to create a variable of type: a

@@ -1,5 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
-module UsageEnv (UsageEnv, addUsage, multUsage, usageToMult, emptyUE, zeroUE,
+module UsageEnv (UsageEnv, addUsage, multUsage, emptyUE, zeroUE,
                  lookupUE, scaleUE, deleteUE, addUE, Usage(..), unitUE,
                  supUE, supUEs) where
 
@@ -27,17 +27,16 @@ import Outputable
 -- much harder to get right. The module structure is the point-wise extension of
 -- the action of 'Mult' on itself, every absent name being considered to map to
 -- 'Zero'.
-data Usage = Zero | MUsage Mult
+data Usage = Zero | Bottom | MUsage Mult
 
 instance Outputable Usage where
   ppr Zero = text "0"
+  ppr Bottom = text "Bottom"
   ppr (MUsage x) = ppr x
 
-usageToMult :: Usage -> Mult
-usageToMult Zero       = Omega
-usageToMult (MUsage m) = m
-
 addUsage :: Usage -> Usage -> Usage
+addUsage Bottom x = x
+addUsage x Bottom = x
 addUsage Zero x = x
 addUsage x Zero = x
 addUsage (MUsage x) (MUsage y) = MUsage $ mkMultAdd x y
@@ -45,52 +44,62 @@ addUsage (MUsage x) (MUsage y) = MUsage $ mkMultAdd x y
 multUsage :: Usage -> Usage -> Usage
 multUsage Zero _ = Zero
 multUsage _ Zero = Zero
+multUsage Bottom (MUsage x) = MUsage x
+multUsage (MUsage x) Bottom = MUsage x
+multUsage Bottom Bottom = Bottom
 multUsage (MUsage x) (MUsage y) = MUsage $ mkMultMul x y
 
-
-newtype UsageEnv = UsageEnv (NameEnv Mult)
+-- For now, we use extra multiplicity Bottom for empty case.
+-- TODO: change to keeping UsageEnv on Case, issue #25.
+-- If the boolean flag is True, then the usage environment
+-- is the sum of NameEnv Mult and arbitrary multiplicities,
+-- as in empty case.
+data UsageEnv = UsageEnv (NameEnv Mult) Bool
 
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
-unitUE x w = UsageEnv $ unitNameEnv (getName x) w
+unitUE x w = UsageEnv (unitNameEnv (getName x) w) False
 
-zeroUE, emptyUE :: UsageEnv
-zeroUE = UsageEnv emptyNameEnv
+zeroUE, emptyUE, bottomUE :: UsageEnv
+zeroUE = UsageEnv emptyNameEnv False
 
 emptyUE = zeroUE
 
+bottomUE = UsageEnv emptyNameEnv True
+
 addUE :: UsageEnv -> UsageEnv -> UsageEnv
-addUE (UsageEnv e1) (UsageEnv e2) = UsageEnv $
-  plusNameEnv_C mkMultAdd e1 e2
+addUE (UsageEnv e1 b1) (UsageEnv e2 b2) =
+  UsageEnv (plusNameEnv_C mkMultAdd e1 e2) (b1 || b2)
 
 scaleUE :: Mult -> UsageEnv -> UsageEnv
-scaleUE w (UsageEnv e) = UsageEnv $
-  mapNameEnv (mkMultMul w) e
+scaleUE w (UsageEnv e b) =
+  UsageEnv (mapNameEnv (mkMultMul w) e) b
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
-supUE (UsageEnv e1) (UsageEnv e2) = UsageEnv $
-  plusNameEnv_CD mkMultSup e1 Omega e2 Omega
+supUE (UsageEnv e1 False) (UsageEnv e2 False) =
+  UsageEnv (plusNameEnv_CD mkMultSup e1 Omega e2 Omega) False
+supUE (UsageEnv e1 b1) (UsageEnv e2 b2) = UsageEnv (plusNameEnv_CD2 combineUsage e1 e2) (b1 && b2)
+   where combineUsage (Just x) (Just y) = mkMultSup x y
+         combineUsage Nothing  (Just x) | b1        = x
+                                        | otherwise = Omega
+         combineUsage (Just x) Nothing  | b2        = x
+                                        | otherwise = Omega
+         combineUsage Nothing  Nothing  = pprPanic "supUE" (ppr e1 <+> ppr e2)
 -- Note: If you are changing this logic, check 'mkMultSup' in Multiplicity as well.
 
 supUEs :: [UsageEnv] -> UsageEnv
-supUEs [] = zeroUE -- This is incorrect, it should be the bottom usage env, but
-                   -- it isn't defined yet. Then we could use a foldr and
-                   -- wouldn't need to special-case the empty list as
-                   -- currently. As a consequence empty cases do not have the
-                   -- right typing rule. This should be easier to solve after
-                   -- inference is implemented.
-supUEs l = foldr1 supUE l
+supUEs = foldr supUE bottomUE
+
 
 deleteUE :: NamedThing n => UsageEnv -> n -> UsageEnv
-deleteUE (UsageEnv e) x = UsageEnv $ delFromNameEnv e (getName x)
-
+deleteUE (UsageEnv e b) x = UsageEnv (delFromNameEnv e (getName x)) b
 
 -- | |lookupUE x env| returns the multiplicity assigned to |x| in |env|, if |x| is not
--- bound in |env|, then returns |Zero|.
+-- bound in |env|, then returns |Zero| or |Bottom|.
 lookupUE :: NamedThing n => UsageEnv -> n -> Usage
-lookupUE (UsageEnv e) x =
+lookupUE (UsageEnv e has_bottom) x =
   case lookupNameEnv e (getName x) of
     Just w  -> MUsage w
-    Nothing -> Zero
+    Nothing -> if has_bottom then Bottom else Zero
 
 instance Outputable UsageEnv where
-  ppr (UsageEnv ne) = text "UsageEnv:" <+> ppr ne
+  ppr (UsageEnv ne b) = text "UsageEnv:" <+> ppr ne <+> ppr b

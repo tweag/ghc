@@ -109,7 +109,7 @@ import Var
 import TyCoRep
 import Multiplicity ( pattern One, pattern Omega )
 import Type   ( appTyArgFlags, splitAppTys, tyConArgFlags, tyConAppNeedsKindSig )
-import TysWiredIn ( unitTy, omegaDataConTy )
+import TysWiredIn ( unitTy )
 import TcType
 import DataCon
 import ConLike
@@ -384,8 +384,7 @@ nlHsVar n = noLoc (HsVar noExtField (noLoc n))
 
 -- NB: Only for LHsExpr **Id**
 nlHsDataCon :: DataCon -> LHsExpr GhcTc
-nlHsDataCon con = mkLHsWrap (mkWpTyApps (omegaDataConTy <$ (fst $ dataConMulVars con)))
-                    (noLoc (HsConLikeOut noExtField (RealDataCon con)))
+nlHsDataCon con = noLoc (HsConLikeOut noExtField (RealDataCon con))
 
 nlHsLit :: HsLit (GhcPass p) -> LHsExpr (GhcPass p)
 nlHsLit n = noLoc (HsLit noExtField n)

@@ -595,9 +595,9 @@ dsCmd ids local_vars stack_ty res_ty
         left_id  = HsConLikeOut noExtField (RealDataCon left_con)
         right_id = HsConLikeOut noExtField (RealDataCon right_con)
         left_expr  ty1 ty2 e = noLoc $ HsApp noExtField
-                           (noLoc $ mkHsWrap (mkWpTyApps [omegaDataConTy, ty1, ty2]) left_id ) e
+                           (noLoc $ mkHsWrap (mkWpTyApps [ty1, ty2]) left_id ) e
         right_expr ty1 ty2 e = noLoc $ HsApp noExtField
-                           (noLoc $ mkHsWrap (mkWpTyApps [omegaDataConTy, ty1, ty2]) right_id) e
+                           (noLoc $ mkHsWrap (mkWpTyApps [ty1, ty2]) right_id) e
 
         -- Prefix each tuple with a distinct series of Left's and Right's,
         -- in a balanced way, keeping track of the types.
