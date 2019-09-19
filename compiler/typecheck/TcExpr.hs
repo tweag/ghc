@@ -1839,7 +1839,7 @@ tc_infer_id lbl id_name
   where
     return_id id = return (HsVar noExtField (noLoc id), idType id)
 
-    -- TODO restore non-stupid theta part
+    -- TODO issue #411: restore this code and handle multiplicity
     {-
        -- For data constructors, must perform the stupid-theta check
       | null stupid_theta
@@ -1858,7 +1858,7 @@ tc_infer_id lbl id_name
                  args'  = map (mapScaledType (substTy subst)) args
                  res'   = substTy subst res
            ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
-           -- TODO add a Note on wrappers
+           -- See Note [Linear fields generalization]
            ; (_subst, mul_vars) <- newMetaTyVars (multiplicityTyVarList (length args') (map getOccName (binderVars tvs)))
            ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars args'
                  combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
@@ -1942,6 +1942,30 @@ in this case. Thus, users cannot use visible type application with
 a data constructor sporting a stupid theta. I won't feel so bad for
 the users that complain.
 
+Note [Linear fields generalization]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+With the introduction of -XLinearTypes, the fields in constructors
+become linear by default. However, we cannot just change
+the type of a constructor, as calls such as 'map Just' would
+no longer type-check.
+
+Therefore, we generalize linear constructors to multiplicity-polymorphic
+functions during typechecking. For example, 'Just' becomes
+'forall a. a -->.(n) Maybe a'.
+
+To avoid spurious renaming, the additional multiplicity variables
+should not use names that were written by user.
+For example, given
+   MkT :: forall n. n ->. T n
+we don't want to use 'n' for the multiplicity variable, because the user
+would see
+   MkT :: forall {n :: Multiplicity} n2. n2 -->.(n) T n2
+and without linear types,
+   MkT :: forall n2. n2 -> T n2
+See test LinearGhci.
+
+We do not generalize fields declared as multiplicity-polymorphic,
+as there is no backwards compatibility issue.
 -}
 
 tcTagToEnum :: SrcSpan -> Name -> [LHsExprArgIn] -> ExpRhoType

@@ -895,12 +895,6 @@ Again, this needs a wrapper data con to reorder the type variables. It does
 mean that this newtype constructor requires another level of indirection when
 being called, but the inliner should make swift work of that.
 
-Note [Wrapper multiplicities]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When we make the wrapper for a data type with fields of different multiplicities,
-we only want to make the ones which are linear multiplicity polymorphic. If we
-do not do this then the wrapper will not be well-typed.
-
 Note [HsImplBangs for newtypes]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Most of the time, we use the dataConSrctoImplBang function to decide what

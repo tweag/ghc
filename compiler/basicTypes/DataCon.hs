@@ -1289,13 +1289,13 @@ dataConStupidTheta :: DataCon -> ThetaType
 dataConStupidTheta dc = dcStupidTheta dc
 
 {-
-TODO: finish, fix point 2, create a general Note on
-datacons and linearity
-
-Due to linearity, a GADT constructor declaration "MkT :: a -> T a"
-can mean two different things depending on the -XLinearTypes flag.
+Note [Displaying linear fields]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Depending on the -XLinearTypes flag, a constructor with a linear
+field can be written either as "MkT :: a ->. T a" or "MkT :: a -> T a".
 
 There are three different methods to retrieve a type of a datacon.
+They differ in how linear fields are handled.
 
 1. dataConUserType:
 The type of the wrapper in Core.
@@ -1303,35 +1303,24 @@ For example, dataConUserType for Maybe is a ->. Just a.
 
 2. dataConSourceType:
 The type we'd like to show in error messages.
-With -XLinearTypes, this involves linear arrows
-(as linear arrows in source correspond to linear arrows),
-
-Ideally, the type the user wrote in the source, reconstructed
-from the DataCon and the value of the -XLinearTypes flag.
-This is used when we'd like to show an error message containing
-the type of the constructor.
+Ideally, it should reflect the type written by the user;
+the function returns a type with arrows that would be required
+to write this constructor under the current setting of -XLinearTypes.
+In principle, this type can be different from the user's source code
+when the value of -XLinearTypes has changed, but we don't
+expect this to cause much trouble.
 
 3. dataConDisplayType:
-Used by -ddump-types and :info.
-Depends on -fprint-explicit-multiplicities.
+The type we'd like to show in output of :info and -ddump-types.
+In this case, we'd like to display either a linear arrow
+or an unrestricted arrow depending on the flag
+-fprint-explicit-multiplicities. This flag also controls
+defaulting in defaultNonStandardVars in IfaceType.
 
-During typechecking, a linear field is generalized to a multiplicity
-polymorphic one. See Note [X].
+The multiplicity of arrows returned by dataConSourceType and
+dataConDisplayType is used only for pretty-printing.
+Due to internal plumbing, we can't just return a Doc.
 -}
-
--- TODO remove
--- Multiplicity variables of a DataCon, and arguments scaled by them.
--- See Note [Wrapper multiplicities].
---
--- To avoid spurious renaming, do not use names that were written by user.
--- For example, given
---    MkT :: forall n. n ->. T n
--- we don't want to use 'n' for the multiplicity variable, because the user
--- would see
---    MkT :: forall {n :: Multiplicity} n2. n2 -->.(n) T n2
--- and without linear types,
---    MkT :: forall n2. n2 -> T n2
--- See test LinearGhci.
 
 dataConUserType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor
@@ -1356,18 +1345,6 @@ dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
     mkVisFunTys arg_tys $
     res_ty
 
-dataConDisplayType :: DataCon -> Type
-dataConDisplayType (MkData { dcUserTyVarBinders = user_tvbs,
-                             dcOtherTheta = theta, dcOrigArgTys = arg_tys,
-                             dcOrigResTy = res_ty })
-  = mkForAllTys user_tvbs $
-    mkInvisFunTysOm theta $
-    -- TODO do that only with -XNoLinearTypes
-    -- return a Doc instead?
-    mkVisFunTys (map (\(Scaled w t) -> case w of One -> Scaled Omega t; _ -> Scaled w t) arg_tys) $
-    res_ty
-
--- TODO describe why we have three functions
 dataConSourceType :: DynFlags -> DataCon -> Type
 dataConSourceType dflags (MkData { dcUserTyVarBinders = user_tvbs,
                                    dcOtherTheta = theta, dcOrigArgTys = arg_tys,
@@ -1379,6 +1356,11 @@ dataConSourceType dflags (MkData { dcUserTyVarBinders = user_tvbs,
        mkInvisFunTysOm theta $
        mkVisFunTys arg_tys' $
        res_ty
+
+dataConDisplayType :: DynFlags -> DataCon -> Type
+dataConDisplayType dflags ds
+  = dataConSourceType dflags ds
+-- TODO: the -fprint-explicit-multiplicities flag
 
 -- | Finds the instantiated types of the arguments required to construct a
 -- 'DataCon' representation
@@ -1421,6 +1403,7 @@ dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
 dataConOrigArgTys :: DataCon -> [Scaled Type]
 dataConOrigArgTys dc = dcOrigArgTys dc
 
+-- | Returns constraints in the wrapper type, other than those in the dataConEqSpec
 dataConOtherTheta :: DataCon -> ThetaType
 dataConOtherTheta dc = dcOtherTheta dc
 

@@ -49,7 +49,7 @@ multUsage _ Bottom = Bottom
 multUsage (MUsage x) (MUsage y) = MUsage $ mkMultMul x y
 
 -- For now, we use extra multiplicity Bottom for empty case.
--- TODO: change to keeping UsageEnv on Case.
+-- TODO: change to keeping UsageEnv on Case, issue #25.
 -- If the boolean flag is True, then the usage environment
 -- is the sum of NameEnv Mult and arbitrary multiplicities,
 -- as in empty case.
@@ -87,8 +87,6 @@ supUE (UsageEnv e1 b1) (UsageEnv e2 b2) = UsageEnv (plusNameEnv_CD2 combineUsage
 
 supUEs :: [UsageEnv] -> UsageEnv
 supUEs = foldr supUE bottomUE
--- supUEs [] = bottomUE
--- supUEs l = foldr1 supUE l
 
 
 deleteUE :: NamedThing n => UsageEnv -> n -> UsageEnv

@@ -930,11 +930,10 @@ checkJoinOcc var n_args
   | otherwise
   = return ()
 
--- Based on let/nonrec case and lintLambda
 lintLambda :: Var -> LintM (Type, UsageEnv) -> LintM (Type, UsageEnv)
 lintLambda var lintBody | isId var, Just tpl <- maybeUnfoldingTemplate (realIdUnfolding var) =
   do { let_ue <- lintSingleBinding NotTopLevel NonRecursive (var, tpl)
-     ; addLoc (BodyOfLetRec [var]) $
+     ; addLoc (LambdaBodyOf var) $
               (lintBinder LambdaBind var $ \var' ->
                  do { (body_ty, ue) <- addGoodJoins [var] $ addAliasUE var let_ue lintBody
                     ; return (mkLamType var' body_ty, ue)
@@ -2514,7 +2513,6 @@ ensureSubMult actual_usage described_usage err_msg =
                                        (_, Omega) -> Omega
                                        (p, q) -> mkMultMul p q
          normalize m = m
-
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared

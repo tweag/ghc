@@ -2816,7 +2816,8 @@ ppr_datacons debug type_env
   = ppr_things "DATA CONSTRUCTORS" ppr_dc wanted_dcs
       -- The filter gets rid of class data constructors
   where
-    ppr_dc dc = ppr dc <+> dcolon <+> ppr (dataConDisplayType dc)
+    ppr_dc dc = sdocWithDynFlags (\dflags ->
+                ppr dc <+> dcolon <+> ppr (dataConDisplayType dflags dc))
     all_dcs    = typeEnvDataCons type_env
     wanted_dcs | debug     = all_dcs
                | otherwise = filterOut is_cls_dc all_dcs
