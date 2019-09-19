@@ -30,7 +30,7 @@ module DataCon (
         dataConRepType, dataConSig, dataConInstSig, dataConFullSig,
         dataConName, dataConIdentity, dataConTag, dataConTagZ,
         dataConTyCon, dataConOrigTyCon,
-        dataConUserType, dataConDisplayType,
+        dataConWrapperType, dataConDisplayType,
         dataConUnivTyVars, dataConExTyCoVars, dataConUnivAndExTyCoVars,
         dataConUserTyVars, dataConUserTyVarBinders,
         dataConEqSpec, dataConTheta,
@@ -604,7 +604,7 @@ sometimes refer to this as "the dcUserTyVarBinders invariant".
 
 dcUserTyVarBinders, as the name suggests, is the one that users will see most of
 the time. It's used when computing the type signature of a data constructor (see
-dataConUserType), and as a result, it's what matters from a TypeApplications
+dataConWrapperType), and as a result, it's what matters from a TypeApplications
 perspective.
 -}
 
@@ -964,8 +964,8 @@ mkDataCon name declared_infix prom_info
     rep_ty =
       case rep of
         -- If the DataCon has no wrapper, then the worker's type *is* the
-        -- user-facing type, so we can simply use dataConUserType.
-        NoDataConRep -> dataConUserType con
+        -- user-facing type, so we can simply use dataConWrapperType.
+        NoDataConRep -> dataConWrapperType con
         -- If the DataCon has a wrapper, then the worker's type is never seen
         -- by the user. The visibilities we pick do not matter here.
         DCR{} -> mkInvForAllTys univ_tvs $ mkTyCoInvForAllTys ex_tvs $
@@ -1299,9 +1299,9 @@ MkT :: a ->  T a (with -XNoLinearTypes)
 There are two different methods to retrieve a type of a datacon.
 They differ in how linear fields are handled.
 
-1. dataConUserType:
+1. dataConWrapperType:
 The type of the wrapper in Core.
-For example, dataConUserType for Maybe is a ->. Just a.
+For example, dataConWrapperType for Maybe is a ->. Just a.
 
 2. dataConDisplayType:
 The type we'd like to show in error messages, :info and -ddump-types.
@@ -1317,7 +1317,7 @@ The multiplicity of arrows returned by dataConDisplayType and
 dataConDisplayType is used only for pretty-printing.
 -}
 
-dataConUserType :: DataCon -> Type
+dataConWrapperType :: DataCon -> Type
 -- ^ The user-declared type of the data constructor
 -- in the nice-to-read form:
 --
@@ -1332,9 +1332,9 @@ dataConUserType :: DataCon -> Type
 --
 -- NB: If the constructor is part of a data instance, the result type
 -- mentions the family tycon, not the internal one.
-dataConUserType (MkData { dcUserTyVarBinders = user_tvbs,
-                          dcOtherTheta = theta, dcOrigArgTys = arg_tys,
-                          dcOrigResTy = res_ty })
+dataConWrapperType (MkData { dcUserTyVarBinders = user_tvbs,
+                             dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                             dcOrigResTy = res_ty })
   = mkForAllTys user_tvbs $
     mkInvisFunTysOm theta $
     mkVisFunTys arg_tys $

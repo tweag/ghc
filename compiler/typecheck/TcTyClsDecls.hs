@@ -3438,7 +3438,7 @@ checkValidDataCon dflags existential_ok tc con
 
         ; traceTc "Done validity of data con" $
           vcat [ ppr con
-               , text "Datacon user type:" <+> ppr (dataConUserType con)
+               , text "Datacon wrapper type:" <+> ppr (dataConWrapperType con)
                , text "Datacon rep type:" <+> ppr (dataConRepType con)
                , text "Datacon display type:" <+> ppr data_con_display_type
                , text "Rep typcon binders:" <+> ppr (tyConBinders (dataConTyCon con))

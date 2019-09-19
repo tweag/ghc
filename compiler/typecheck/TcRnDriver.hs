@@ -1269,7 +1269,7 @@ checkBootTyCon is_boot tc1 tc2
          check (map flSelector (dataConFieldLabels c1) == map flSelector (dataConFieldLabels c2))
                (text "The record label lists for" <+> pname1 <+>
                 text "differ") `andThenCheck`
-         check (eqType (dataConUserType c1) (dataConUserType c2))
+         check (eqType (dataConWrapperType c1) (dataConWrapperType c2))
                (text "The types for" <+> pname1 <+> text "differ")
       where
         name1 = dataConName c1
