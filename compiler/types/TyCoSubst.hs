@@ -32,9 +32,9 @@ module TyCoSubst
 
         substTyWith, substTyWithCoVars, substTysWith, substTysWithCoVars,
         substCoWith,
-        substTy, substTyAddInScope,
+        substTy, substTyAddInScope, substScaledTy,
         substTyUnchecked, substTysUnchecked, substScaledTysUnchecked, substThetaUnchecked,
-        substTyWithUnchecked,
+        substTyWithUnchecked, substScaledTyUnchecked,
         substCoUnchecked, substCoWithUnchecked,
         substTyWithInScope,
         substTys, substScaledTys, substTheta,
@@ -668,6 +668,12 @@ substTyUnchecked :: TCvSubst -> Type -> Type
 substTyUnchecked subst ty
                  | isEmptyTCvSubst subst = ty
                  | otherwise             = subst_ty subst ty
+
+substScaledTy :: HasCallStack => TCvSubst -> Scaled Type -> Scaled Type
+substScaledTy subst scaled_ty = mapScaledType (substTy subst) scaled_ty
+
+substScaledTyUnchecked :: HasCallStack => TCvSubst -> Scaled Type -> Scaled Type
+substScaledTyUnchecked subst scaled_ty = mapScaledType (substTyUnchecked subst) scaled_ty
 
 -- | Substitute within several 'Type's
 -- The substitution has to satisfy the invariants described in
