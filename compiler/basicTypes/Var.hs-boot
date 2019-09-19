@@ -13,7 +13,3 @@ import GhcPrelude ()
 data ArgFlag
 data AnonArgFlag
 data Var
-
-type Id = Var
-type TyVar = Id
-type TyCoVar = Id
