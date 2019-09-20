@@ -5,6 +5,7 @@
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ViewPatterns #-}
 module LiberateCase ( liberateCase ) where
 
 #include "HsVersions.h"
@@ -17,7 +18,8 @@ import CoreUnfold       ( couldBeSmallEnoughToInline )
 import TysWiredIn       ( unitDataConId )
 import Id
 import VarEnv
-import Util             ( notNull )
+import UsageEnv
+import Util             ( notNull, fstOf3 )
 
 {-
 The liberate-case transformation
@@ -130,11 +132,11 @@ libCaseBind env (NonRec binder rhs)
 libCaseBind env (Rec pairs)
   = (env_body, Rec pairs')
   where
-    binders = map fst pairs
+    binders = map fstOf3 pairs
 
     env_body = addBinders env binders
 
-    pairs' = [(binder, libCase env_rhs rhs) | (binder,rhs) <- pairs]
+    pairs' = [(binder, ue, libCase env_rhs rhs) | (binder,ue,rhs) <- pairs]
 
         -- We extend the rec-env by binding each Id to its rhs, first
         -- processing the rhs with an *un-extended* environment, so
@@ -142,8 +144,8 @@ libCaseBind env (Rec pairs)
     env_rhs | is_dupable_bind = addRecBinds env dup_pairs
             | otherwise       = env
 
-    dup_pairs = [ (localiseId binder, libCase env_body rhs)
-                | (binder, rhs) <- pairs ]
+    dup_pairs = [ (localiseId binder, ue, libCase env_body rhs)
+                | (binder, ue, rhs) <- pairs ]
         -- localiseID : see Note [Need to localiseId in libCaseBind]
 
     is_dupable_bind = small_enough && all ok_pair pairs
@@ -157,7 +159,7 @@ libCaseBind env (Rec pairs)
                       Just size -> couldBeSmallEnoughToInline (lc_dflags env) size $
                                    Let (Rec dup_pairs) (Var unitDataConId)
 
-    ok_pair (id,_)
+    ok_pair (id,_,_)
         =  idArity id > 0          -- Note [Only functions!]
         && not (isBottomingId id)  -- Note [Not bottoming ids]
 
@@ -341,14 +343,14 @@ addBinders env@(LibCaseEnv { lc_lvl = lvl, lc_lvl_env = lvl_env }) binders
   where
     lvl_env' = extendVarEnvList lvl_env (binders `zip` repeat lvl)
 
-addRecBinds :: LibCaseEnv -> [(Id,CoreExpr)] -> LibCaseEnv
+addRecBinds :: LibCaseEnv -> [(Id,UsageEnv,CoreExpr)] -> LibCaseEnv
 addRecBinds env@(LibCaseEnv {lc_lvl = lvl, lc_lvl_env = lvl_env,
                              lc_rec_env = rec_env}) pairs
   = env { lc_lvl = lvl', lc_lvl_env = lvl_env', lc_rec_env = rec_env' }
   where
     lvl'     = lvl + 1
-    lvl_env' = extendVarEnvList lvl_env [(binder,lvl) | (binder,_) <- pairs]
-    rec_env' = extendVarEnvList rec_env [(binder, Rec pairs) | (binder,_) <- pairs]
+    lvl_env' = extendVarEnvList lvl_env [(binder,lvl) | (binder,_,_) <- pairs]
+    rec_env' = extendVarEnvList rec_env [(binder, Rec pairs) | (binder,_,_) <- pairs]
 
 addScrutedVar :: LibCaseEnv
               -> Id             -- This Id is being scrutinised by a case expression

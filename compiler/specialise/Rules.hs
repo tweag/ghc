@@ -1201,7 +1201,7 @@ data RuleCheckEnv = RuleCheckEnv {
 ruleCheckBind :: RuleCheckEnv -> CoreBind -> Bag SDoc
    -- The Bag returned has one SDoc for each call site found
 ruleCheckBind env (NonRec _ r) = ruleCheck env r
-ruleCheckBind env (Rec prs)    = unionManyBags [ruleCheck env r | (_,r) <- prs]
+ruleCheckBind env (Rec prs)    = unionManyBags [ruleCheck env r | (_,_,r) <- prs]
 
 ruleCheck :: RuleCheckEnv -> CoreExpr -> Bag SDoc
 ruleCheck _   (Var _)       = emptyBag

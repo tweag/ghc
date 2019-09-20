@@ -513,7 +513,7 @@ data IfaceConAlt = IfaceDefault
 
 data IfaceBinding
   = IfaceNonRec IfaceLetBndr IfaceExpr
-  | IfaceRec    [(IfaceLetBndr, IfaceExpr)]
+  | IfaceRec    [(IfaceLetBndr, [(Name,IfaceType)], IfaceExpr)]
 
 -- IfaceLetBndr is like IfaceIdBndr, but has IdInfo too
 -- It's used for *non-top-level* let/rec binders
@@ -1283,11 +1283,13 @@ pprIfaceExpr add_par (IfaceLet (IfaceNonRec b rhs) body)
                   text "} in",
                   pprIfaceExpr noParens body])
 
-pprIfaceExpr add_par (IfaceLet (IfaceRec pairs) body)
+pprIfaceExpr add_par (IfaceLet (IfaceRec triples) body)
   = add_par (sep [text "letrec {",
                   nest 2 (sep (map ppr_bind pairs)),
                   text "} in",
                   pprIfaceExpr noParens body])
+  where
+    pairs = map (\(b,_,e) -> (b,e)) triples
 
 pprIfaceExpr add_par (IfaceTick tickish e)
   = add_par (pprIfaceTickish tickish <+> pprIfaceExpr noParens e)
@@ -1642,7 +1644,7 @@ freeNamesIfExpr (IfaceLet (IfaceNonRec bndr rhs) body)
 freeNamesIfExpr (IfaceLet (IfaceRec as) x)
   = fnList fn_pair as &&& freeNamesIfExpr x
   where
-    fn_pair (bndr, rhs) = freeNamesIfLetBndr bndr &&& freeNamesIfExpr rhs
+    fn_pair (bndr, _, rhs) = freeNamesIfLetBndr bndr &&& freeNamesIfExpr rhs
 
 freeNamesIfExpr _ = emptyNameSet
 

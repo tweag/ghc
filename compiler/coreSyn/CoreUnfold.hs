@@ -16,6 +16,7 @@ find, unsurprisingly, a Core expression.
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module CoreUnfold (
         Unfolding, UnfoldingGuidance,   -- Abstract types
@@ -634,7 +635,7 @@ sizeExpr dflags bOMB_OUT_SIZE top_args expr
         size_up body              `addSizeN`
         size_up_alloc binder
 
-    size_up (Let (Rec pairs) body)
+    size_up (Let (Rec (unzipRecBlock -> (pairs, _))) body)
       = foldr (addSizeNSD . size_up_rhs)
               (size_up body `addSizeN` sum (map (size_up_alloc . fst) pairs))
               pairs

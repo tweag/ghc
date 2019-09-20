@@ -275,9 +275,11 @@ coreTopBindToStg dflags this_mod env ccs (NonRec id rhs)
       --     assertion again!
     (env', ccs', bind)
 
-coreTopBindToStg dflags this_mod env ccs (Rec pairs)
+coreTopBindToStg dflags this_mod env ccs (Rec triples)
   = ASSERT( not (null pairs) )
     let
+        pairs = [ (b,e) | (b,_,e) <- triples ]
+
         binders = map fst pairs
 
         extra_env' = [ (b, LetBound TopLet $! manifestArity rhs)

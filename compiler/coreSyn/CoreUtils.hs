@@ -23,7 +23,7 @@ module CoreUtils (
         scaleAltsBy,
 
         -- * Properties of expressions
-        exprType, coreAltType, coreAltsType, isExprLevPoly,
+        exprType, exprUsageEnv, coreAltType, coreAltsType, isExprLevPoly,
         exprIsDupable, exprIsTrivial, getIdFromTrivialExpr, exprIsBottom,
         getIdFromTrivialExpr_maybe,
         exprIsCheap, exprIsExpandable, exprIsCheapX, CheapAppFun,

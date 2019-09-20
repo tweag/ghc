@@ -60,7 +60,7 @@
   identity.
 -}
 
-{-# LANGUAGE CPP, MultiWayIf, PatternSynonyms #-}
+{-# LANGUAGE CPP, MultiWayIf, PatternSynonyms, ViewPatterns #-}
 module SetLevels (
         setLevels,
 
@@ -295,9 +295,10 @@ lvlTopBind env (NonRec bndr rhs)
 
 lvlTopBind env (Rec pairs)
   = do { let (env', bndrs') = substAndLvlBndrs Recursive env tOP_LEVEL
-                                               (map fst pairs)
-       ; rhss' <- mapM (\(b,r) -> lvl_top env' Recursive b r) pairs
-       ; return (Rec (bndrs' `zip` rhss'), env') }
+                                               (map fstOf3 pairs)
+       ; let ues = map sndOf3 pairs
+       ; rhss' <- mapM (\(b,_,r) -> lvl_top env' Recursive b r) pairs
+       ; return (Rec (zip3 bndrs' ues rhss'), env') }
 
 lvl_top :: LevelEnv -> RecFlag -> Id -> CoreExpr -> LvlM LevelledExpr
 lvl_top env is_rec bndr rhs
@@ -1119,7 +1120,7 @@ lvlBind env (AnnNonRec bndr rhs)
     mb_join_arity = isJoinId_maybe bndr
     is_join       = isJust mb_join_arity
 
-lvlBind env (AnnRec pairs)
+lvlBind env (AnnRec (unzipRecBlock -> (pairs, ues)))
   |  floatTopLvlOnly env && not (isTopLvl dest_lvl)
          -- Only floating to the top level is allowed.
   || not (profitableFloat env dest_lvl)
@@ -1134,18 +1135,22 @@ lvlBind env (AnnRec pairs)
              (env', bndrs') = substAndLvlBndrs Recursive env bind_lvl bndrs
              lvl_rhs (b,r)  = lvlRhs env' Recursive is_bot (isJoinId_maybe b) r
        ; rhss' <- mapM lvl_rhs pairs
-       ; return (Rec (bndrs' `zip` rhss'), env') }
+       ; return (Rec (zip3 bndrs' ues rhss'), env') }
 
   -- Otherwise we are going to float
   | null abs_vars
   = do { (new_env, new_bndrs) <- cloneLetVars Recursive env dest_lvl bndrs
        ; new_rhss <- mapM (do_rhs new_env) pairs
-       ; return ( Rec ([TB b (FloatMe dest_lvl) | b <- new_bndrs] `zip` new_rhss)
+       ; return ( Rec
+                  (([TB b (FloatMe dest_lvl) | b <- new_bndrs]
+                   `zip` new_rhss)
+                   `zipRecBlock` ues)
                 , new_env) }
 
 -- ToDo: when enabling the floatLambda stuff,
 --       I think we want to stop doing this
   | [(bndr,rhs)] <- pairs
+  , [ue] <- ues
   , count isId abs_vars > 1
   = do  -- Special case for self recursion where there are
         -- several variables carried around: build a local loop:
@@ -1168,9 +1173,11 @@ lvlBind env (AnnRec pairs)
     new_rhs_body <- lvlRhs body_env2 Recursive is_bot (get_join bndr) rhs_body
     (poly_env, [poly_bndr]) <- newPolyBndrs dest_lvl env abs_vars [bndr]
     return (Rec [(TB poly_bndr (FloatMe dest_lvl)
+                 , ue
                  , mkLams abs_vars_w_lvls $
                    mkLams lam_bndrs2 $
                    Let (Rec [( TB new_bndr (StayPut rhs_lvl)
+                             , ue
                              , mkLams lam_bndrs2 new_rhs_body)])
                        (mkVarApps (Var new_bndr) lam_bndrs1))]
            , poly_env)
@@ -1178,7 +1185,10 @@ lvlBind env (AnnRec pairs)
   | otherwise  -- Non-null abs_vars
   = do { (new_env, new_bndrs) <- newPolyBndrs dest_lvl env abs_vars bndrs
        ; new_rhss <- mapM (do_rhs new_env) pairs
-       ; return ( Rec ([TB b (FloatMe dest_lvl) | b <- new_bndrs] `zip` new_rhss)
+       ; return ( Rec (zip3
+                        [TB b (FloatMe dest_lvl) | b <- new_bndrs]
+                        ues
+                        new_rhss)
                 , new_env) }
 
   where

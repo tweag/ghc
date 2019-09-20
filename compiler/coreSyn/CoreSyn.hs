@@ -55,6 +55,10 @@ module CoreSyn (
         tickishIsCode, tickishPlace,
         tickishContains,
 
+
+        -- * Operations on Binds
+        mapRec, mapRecM, mapRecBlock, unzipRecBlock, zipRecBlock,
+
         -- * Unfolding data types
         Unfolding(..),  UnfoldingGuidance(..), UnfoldingSource(..),
 
@@ -312,6 +316,40 @@ instance Ord AltCon where
 data Bind b = NonRec b (Expr b)
             | Rec [(b, UsageEnv, (Expr b))]
   deriving Data
+
+-- | In many places, we only need to maintain the usage environment of a
+-- recursive binding, since the usage environment is only of use to the
+-- linter. And really, most transformations preserve the usage environment.
+mapRec
+  :: ((b, e) -> (b, e))
+  -> (b, UsageEnv, e) -> (b, UsageEnv, e)
+mapRec f (b, ue, e) = (b', ue, e')
+  where
+    (b', e') = f (b, e)
+
+mapRecM
+  :: Monad m
+  => ((b, e) -> m (b, e))
+  -> (b, UsageEnv, e) -> m (b, UsageEnv, e)
+mapRecM f (b, ue, e) = do
+  (b', e') <- f (b, e)
+  return (b', ue, e')
+
+-- | Lifts 'mapRec' to a whole recursive block (rather than individual
+-- bindings).
+mapRecBlock
+  :: ((b, e) -> (b, e))
+  -> [(b, UsageEnv, e)] -> [(b, UsageEnv, e)]
+mapRecBlock f = map (mapRec f)
+
+unzipRecBlock :: [(b, UsageEnv, e)] -> ([(b, e)], [UsageEnv])
+unzipRecBlock binds =
+  ( map (\(b, _, e) -> (b,e)) binds
+  , map (\(b, ue, e) -> ue) binds
+  )
+
+zipRecBlock :: [(b, e)] -> [UsageEnv] -> [(b, UsageEnv, e)]
+zipRecBlock = zipWith (\(b,e) ue -> (b, ue, e))
 
 {-
 Note [Shadowing]

@@ -637,7 +637,7 @@ mapLetFloats (LetFloats fs ff) fun
    = LetFloats (mapOL app fs) ff
    where
     app (NonRec b e) = case fun (b,e) of (b',e') -> NonRec b' e'
-    app (Rec bs)     = Rec (map fun bs)
+    app (Rec bs)     = Rec (mapRecBlock fun bs)
 
 {-
 ************************************************************************

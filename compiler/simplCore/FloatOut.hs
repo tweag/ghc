@@ -29,6 +29,7 @@ import Util
 import Maybes
 import Outputable
 import Type
+import UsageEnv
 import qualified Data.IntMap as M
 
 import Data.List        ( partition )
@@ -227,7 +228,7 @@ floatBind (NonRec (TB var _) rhs)
 floatBind (Rec pairs)
   = case floatList do_pair pairs of { (fs, rhs_floats, new_pairs) ->
     let (new_ul_pairss, new_other_pairss) = unzip new_pairs
-        (new_join_pairs, new_l_pairs)     = partition (isJoinId . fst)
+        (new_join_pairs, new_l_pairs)     = partition (isJoinId . fstOf3)
                                                       (concat new_other_pairss)
         -- Can't put the join points and the values in the same rec group
         new_rec_binds | null new_join_pairs = [ Rec new_l_pairs    ]
@@ -238,27 +239,27 @@ floatBind (Rec pairs)
     in
     (fs, rhs_floats, new_non_rec_binds ++ new_rec_binds) }
   where
-    do_pair :: (LevelledBndr, LevelledExpr)
+    do_pair :: (LevelledBndr, UsageEnv, LevelledExpr)
             -> (FloatStats, FloatBinds,
                 ([(Id,CoreExpr)],  -- Non-recursive unlifted value bindings
-                 [(Id,CoreExpr)])) -- Join points and lifted value bindings
-    do_pair (TB name spec, rhs)
+                 [(Id,UsageEnv,CoreExpr)])) -- Join points and lifted value bindings
+    do_pair (TB name spec, ue, rhs)
       | isTopLvl dest_lvl  -- See Note [floatBind for top level]
       = case (floatRhs name rhs) of { (fs, rhs_floats, rhs') ->
         (fs, emptyFloats, ([], addTopFloatPairs (flattenTopFloats rhs_floats)
-                                                [(name, rhs')]))}
+                                                [(name, ue, rhs')]))}
       | otherwise         -- Note [Floating out of Rec rhss]
       = case (floatRhs name rhs) of { (fs, rhs_floats, rhs') ->
         case (partitionByLevel dest_lvl rhs_floats) of { (rhs_floats', heres) ->
         case (splitRecFloats heres) of { (ul_pairs, pairs, case_heres) ->
-        let pairs' = (name, installUnderLambdas case_heres rhs') : pairs in
+        let pairs' = (name, ue, installUnderLambdas case_heres rhs') : pairs in
         (fs, rhs_floats', (ul_pairs, pairs')) }}}
       where
         dest_lvl = floatSpecLevel spec
 
 splitRecFloats :: Bag FloatBind
                -> ([(Id,CoreExpr)], -- Non-recursive unlifted value bindings
-                   [(Id,CoreExpr)], -- Join points and lifted value bindings
+                   [(Id,UsageEnv,CoreExpr)], -- Join points and lifted value bindings
                    Bag FloatBind)   -- A tail of further bindings
 -- The "tail" begins with a case
 -- See Note [Floating out of Rec rhss]
@@ -269,7 +270,7 @@ splitRecFloats fs
                                                , not (isJoinId b)
                                                = go ((b,r):ul_prs) prs fs
                                                | otherwise
-                                               = go ul_prs ((b,r):prs) fs
+                                               = go ul_prs ((b,exprUsageEnv r, r):prs) fs
     go ul_prs prs (FloatLet (Rec prs')   : fs) = go ul_prs (prs' ++ prs) fs
     go ul_prs prs fs                           = (reverse ul_prs, prs,
                                                   listToBag fs)
@@ -458,7 +459,7 @@ floatExpr (Let bind body)
   where
     bind_spec = case bind of
                  NonRec (TB _ s) _     -> s
-                 Rec ((TB _ s, _) : _) -> s
+                 Rec ((TB _ s, _, _) : _) -> s
                  Rec []                -> panic "floatExpr:rec"
 
 floatExpr (Case scrut (TB case_bndr case_spec) ty alts)
@@ -627,11 +628,11 @@ flattenTopFloats (FB tops ceils defs)
     ASSERT2( isEmptyBag ceils, ppr ceils )
     tops
 
-addTopFloatPairs :: Bag CoreBind -> [(Id,CoreExpr)] -> [(Id,CoreExpr)]
+addTopFloatPairs :: Bag CoreBind -> [(Id,UsageEnv,CoreExpr)] -> [(Id,UsageEnv,CoreExpr)]
 addTopFloatPairs float_bag prs
   = foldr add prs float_bag
   where
-    add (NonRec b r) prs  = (b,r):prs
+    add (NonRec b r) prs  = (b,exprUsageEnv r,r):prs
     add (Rec prs1)   prs2 = prs1 ++ prs2
 
 flattenMajor :: MajorEnv -> Bag FloatBind
@@ -741,7 +742,7 @@ wrapTick t (FB tops ceils defns)
     wrap_defns = mapBag wrap_one
 
     wrap_bind (NonRec binder rhs) = NonRec binder (maybe_tick rhs)
-    wrap_bind (Rec pairs)         = Rec (mapSnd maybe_tick pairs)
+    wrap_bind (Rec pairs)         = Rec ([(b,ue,maybe_tick e) | (b,ue,e) <- pairs])
 
     wrap_one (FloatLet bind)      = FloatLet (wrap_bind bind)
     wrap_one (FloatCase e b c bs) = FloatCase (maybe_tick e) b c bs

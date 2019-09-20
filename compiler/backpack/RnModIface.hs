@@ -629,9 +629,10 @@ rnIfaceExpr (IfaceLet (IfaceNonRec bndr rhs) body)
     = IfaceLet <$> (IfaceNonRec <$> rnIfaceLetBndr bndr <*> rnIfaceExpr rhs)
                <*> rnIfaceExpr body
 rnIfaceExpr (IfaceLet (IfaceRec pairs) body)
-    = IfaceLet <$> (IfaceRec <$> mapM (\(bndr, rhs) ->
-                                        (,) <$> rnIfaceLetBndr bndr
-                                            <*> rnIfaceExpr rhs) pairs)
+    = IfaceLet <$> (IfaceRec <$> mapM (\(bndr, ue, rhs) ->
+                                        (,,) <$> rnIfaceLetBndr bndr
+                                             <*> rnIfaceUsageEnv ue
+                                             <*> rnIfaceExpr rhs) pairs)
                <*> rnIfaceExpr body
 rnIfaceExpr (IfaceCast expr co)
     = IfaceCast <$> rnIfaceExpr expr <*> rnIfaceCo co
@@ -648,6 +649,10 @@ rnIfaceBndr (IfaceTvBndr tv_bndr) = IfaceTvBndr <$> rnIfaceTvBndr tv_bndr
 
 rnIfaceTvBndr :: Rename IfaceTvBndr
 rnIfaceTvBndr (fs, kind) = (,) fs <$> rnIfaceType kind
+
+rnIfaceUsageEnv :: Rename [(Name,IfaceType)]
+rnIfaceUsageEnv ue =
+  mapM (\(n,p) -> (,) <$> pure n <*> rnIfaceType p) ue
 
 rnIfaceTyConBinder :: Rename IfaceTyConBinder
 rnIfaceTyConBinder (Bndr tv vis) = Bndr <$> rnIfaceBndr tv <*> pure vis

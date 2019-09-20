@@ -5,6 +5,7 @@
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module SimplUtils (
         -- Rebuilding
@@ -1801,14 +1802,14 @@ abstractFloats dflags top_lvl main_tvs floats body
                    closeOverKindsList $
                    exprSomeFreeVarsList isTyVar rhs'
 
-    abstract subst (Rec prs)
+    abstract subst (Rec (unzipRecBlock -> (prs, ues)))
        = do { (poly_ids, poly_apps) <- mapAndUnzipM (mk_poly1 tvs_here) ids
             ; let subst' = CoreSubst.extendSubstList subst (ids `zip` poly_apps)
                   poly_pairs = [ mk_poly2 poly_id tvs_here rhs'
                                | (poly_id, rhs) <- poly_ids `zip` rhss
                                , let rhs' = CoreSubst.substExpr (text "abstract_floats")
                                                                 subst' rhs ]
-            ; return (subst', Rec poly_pairs) }
+            ; return (subst', Rec (zipRecBlock poly_pairs ues)) }
        where
          (ids,rhss) = unzip prs
                 -- For a recursive group, it's a bit of a pain to work out the minimal

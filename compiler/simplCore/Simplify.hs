@@ -202,7 +202,7 @@ simplRecBind is used for
 -}
 
 simplRecBind :: SimplEnv -> TopLevelFlag -> MaybeJoinCont
-             -> [(InId, InExpr)]
+             -> [(InId, UsageEnv, InExpr)]
              -> SimplM (SimplFloats, SimplEnv)
 simplRecBind env0 top_lvl mb_cont pairs0
   = do  { (env_with_info, triples) <- mapAccumLM add_rules env0 pairs0

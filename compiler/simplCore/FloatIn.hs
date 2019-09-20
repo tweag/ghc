@@ -12,7 +12,7 @@ case, so that we don't allocate things, save them on the stack, and
 then discover that they aren't needed in the chosen branch.
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, ViewPatterns #-}
 {-# OPTIONS_GHC -fprof-auto #-}
 
 module FloatIn ( floatInwards ) where
@@ -37,6 +37,7 @@ import Outputable
 -- import Data.List        ( mapAccumL )
 import BasicTypes       ( RecFlag(..), isRec )
 import Multiplicity
+import UsageEnv
 
 {-
 Top-level interface function, @floatInwards@.  Note that we do not
@@ -527,10 +528,10 @@ fiBind dflags to_drop (AnnNonRec id ann_rhs@(rhs_fvs, rhs)) body_fvs
     rhs_fvs' = rhs_fvs `unionDVarSet` floatedBindsFVs rhs_binds `unionDVarSet` rule_fvs
                         -- Don't forget the rule_fvs; the binding mentions them!
 
-fiBind dflags to_drop (AnnRec bindings) body_fvs
+fiBind dflags to_drop (AnnRec (unzipRecBlock -> (bindings, ues))) body_fvs
   = ( extra_binds ++ shared_binds
     , FB (mkDVarSet ids) rhs_fvs'
-         (FloatLet (Rec (fi_bind rhss_binds bindings)))
+         (FloatLet (Rec (zipRecBlock (fi_bind rhss_binds bindings) ues)))
     , body_binds )
   where
     (ids, rhss) = unzip bindings

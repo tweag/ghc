@@ -91,7 +91,7 @@ wwBind dflags fam_envs (NonRec binder rhs) = do
       -- because the original binding was.
 
 wwBind dflags fam_envs (Rec pairs)
-  = return . Rec <$> concatMapM do_one pairs
+  = return . Rec <$> concatMapM (mapRecM do_one) pairs
   where
     do_one (binder, rhs) = do new_rhs <- wwExpr dflags fam_envs rhs
                               tryWW dflags fam_envs Recursive binder new_rhs

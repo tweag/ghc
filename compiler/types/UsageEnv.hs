@@ -56,11 +56,25 @@ multUsage (MUsage x) (MUsage y) = MUsage $ mkMultMul x y
 -- If the boolean flag is True, then the usage environment
 -- is the sum of NameEnv Mult and arbitrary multiplicities,
 -- as in empty case (TODO explain).
-data UsageEnv = UsageEnv (NameEnv Mult) Bool
+--
+-- We're storing names redundantly in the usage env so that we can serialise the
+-- name env in Iface. That's because NameEnvs only store uniques rather than the
+-- full name.
+data UsageEnv = UsageEnv (NameEnv (Name, Mult)) Bool
   deriving (Data)
 
+lift1 :: (Mult -> Mult) -> (Name, Mult) -> (Name, Mult)
+lift1 f (n,p) = (n, f p)
+
+lift2 :: (Mult -> Mult -> Mult) -> (Name, Mult) -> (Name, Mult) -> (Name, Mult)
+lift2 f (n,p) (_,q) = (n, f p q)
+  -- Because the name is assumed to be the same for a given unique, we can
+  -- safely drop either name: both names are `n`!
+
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
-unitUE x w = UsageEnv (unitNameEnv (getName x) w) False
+unitUE x w = UsageEnv (unitNameEnv name (name, w)) False
+  where
+    name = getName x
 
 zeroUE, emptyUE, bottomUE :: UsageEnv
 zeroUE = UsageEnv emptyNameEnv False
@@ -71,24 +85,33 @@ bottomUE = UsageEnv emptyNameEnv True
 
 addUE :: UsageEnv -> UsageEnv -> UsageEnv
 addUE (UsageEnv e1 b1) (UsageEnv e2 b2) =
-  UsageEnv (plusNameEnv_C mkMultAdd e1 e2) (b1 || b2)
+  UsageEnv (plusNameEnv_C (lift2 mkMultAdd) e1 e2) (b1 || b2)
 
 mkUE :: [(Name, Mult)] -> UsageEnv
-mkUE l = UsageEnv (mkNameEnv l) True
+mkUE l = UsageEnv (mkNameEnv l') False
+  where
+    l' = [ (n, (n, p)) | (n,p) <- l ]
+
+toListUE :: UsageEnv -> [(Name, Mult)]
+toListUE (UsageEnv ue _) = nameEnvElts ue
 
 scaleUE :: Mult -> UsageEnv -> UsageEnv
 scaleUE w (UsageEnv e b) =
-  UsageEnv (mapNameEnv (mkMultMul w) e) b
+  UsageEnv (mapNameEnv (lift1 (mkMultMul w)) e) b
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1 False) (UsageEnv e2 False) =
-  UsageEnv (plusNameEnv_CD mkMultSup e1 Omega e2 Omega) False
+  UsageEnv (plusNameEnv_CD2 combineUsage e1 e2) False
+   where combineUsage (Just (n,p)) (Just (_,q)) = (n, mkMultSup p q)
+         combineUsage Nothing (Just (n,p)) = (n, Omega)
+         combineUsage (Just (n,p)) Nothing = (n, Omega)
+         combineUsage Nothing Nothing = pprPanic "supUE" (ppr e1 <+> ppr e2)
 supUE (UsageEnv e1 b1) (UsageEnv e2 b2) = UsageEnv (plusNameEnv_CD2 combineUsage e1 e2) (b1 && b2)
-   where combineUsage (Just x) (Just y) = mkMultSup x y
+   where combineUsage (Just (n,p)) (Just (_,q)) = (n, mkMultSup p q)
          combineUsage Nothing  (Just x) | b1        = x
-                                        | otherwise = Omega
+                                        | otherwise = (fst x, Omega)
          combineUsage (Just x) Nothing  | b2        = x
-                                        | otherwise = Omega
+                                        | otherwise = (fst x, Omega)
          combineUsage Nothing  Nothing  = pprPanic "supUE" (ppr e1 <+> ppr e2)
 -- Note: If you are changing this logic, check 'mkMultSup' in Multiplicity as well.
 
@@ -106,7 +129,7 @@ deleteUE (UsageEnv e b) x = UsageEnv (delFromNameEnv e (getName x)) b
 lookupUE :: NamedThing n => UsageEnv -> n -> Usage
 lookupUE (UsageEnv e has_bottom) x =
   case lookupNameEnv e (getName x) of
-    Just w  -> MUsage w
+    Just (_,w)  -> MUsage w
     Nothing -> if has_bottom then Bottom else Zero
 
 instance Outputable UsageEnv where

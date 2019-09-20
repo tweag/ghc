@@ -61,6 +61,7 @@ import Name
 import BasicTypes
 import Type
 import Multiplicity
+import UsageEnv
 import PatSyn
 import Outputable
 import FastString
@@ -536,8 +537,11 @@ toIfaceTickish (Breakpoint {})         = Nothing
 
 ---------------------
 toIfaceBind :: Bind Id -> IfaceBinding
-toIfaceBind (NonRec b r) = IfaceNonRec (toIfaceLetBndr b) (toIfaceExpr r)
+toIfaceBind (NonRec b ue r) = IfaceNonRec (toIfaceLetBndr b) (toIfaceUE ue) (toIfaceExpr r)
 toIfaceBind (Rec prs)    = IfaceRec [(toIfaceLetBndr b, toIfaceExpr r) | (b,r) <- prs]
+
+toIfaceUE :: UsageEnv -> [(Name, IfaceType)]
+toIfaceUE ue = map (\(x,p) -> (n, toIfaceType p)) (toListUE ue)
 
 ---------------------
 toIfaceAlt :: (AltCon, [Var], CoreExpr)
