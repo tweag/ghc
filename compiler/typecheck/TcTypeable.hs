@@ -7,7 +7,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -O0 #-}
 
 module TcTypeable(mkTypeableBinds) where
 

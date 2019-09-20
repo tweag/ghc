@@ -3296,25 +3296,21 @@ mkDupableAlt dflags case_bndr jfloats (con, bndrs', rhs')
   | otherwise
   = do  { let rhs_ty'  = exprType rhs'
               scrut_ty = idType case_bndr
-              case_bndr_w_unf
-                = case con of
-                      DEFAULT    -> case_bndr
-                      DataAlt dc -> setIdUnfolding case_bndr unf
-                          where
-                                 -- See Note [Case binders and join points]
-                             unf = mkInlineUnfolding rhs
-                             rhs = mkConApp2 dc (tyConAppArgs scrut_ty) bndrs'
-
-                      LitAlt {} -> WARN( True, text "mkDupableAlt"
+              (final_bndrs', rhs'')
+                | isDeadBinder case_bndr = (filter abstract_over bndrs', rhs')
+                | otherwise = case con of
+                      DEFAULT    -> ([case_bndr], rhs')
+                      DataAlt dc -> (bndrs', mkLet (NonRec
+                                            case_bndr
+                                            (mkConApp2 dc (tyConAppArgs scrut_ty) bndrs')
+                                          ) rhs')
+                      LitAlt {}  -> WARN( True, text "mkDupableAlt"
                                                 <+> ppr case_bndr <+> ppr con )
-                                   case_bndr
+                                    ([case_bndr], rhs')
                            -- The case binder is alive but trivial, so why has
                            -- it not been substituted away?
 
-              final_bndrs'
-                | isDeadBinder case_bndr = filter abstract_over bndrs'
-                | otherwise              = bndrs' ++ [case_bndr_w_unf]
-
+                {- See Note [Case binders and join points] -}
               abstract_over bndr
                   | isTyVar bndr = True -- Abstract over all type variables just in case
                   | otherwise    = not (isDeadBinder bndr)
@@ -3329,7 +3325,7 @@ mkDupableAlt dflags case_bndr jfloats (con, bndrs', rhs')
               really_final_bndrs     = map one_shot final_bndrs'
               one_shot v | isId v    = setOneShotLambda v
                          | otherwise = v
-              join_rhs   = mkLams really_final_bndrs rhs'
+              join_rhs   = mkLams really_final_bndrs rhs''
 
         ; join_bndr <- newJoinId final_bndrs' rhs_ty'
 
