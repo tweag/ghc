@@ -49,7 +49,7 @@ module Var (
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType,
         scaleVarBy, setVarMult,
-        updateVarType,
+        updateVarTypeButNotMult,
         updateVarTypeAndMult, updateVarTypeAndMultM,
 
         -- ** Constructing, taking apart, modifying 'Id's
@@ -393,8 +393,8 @@ setVarName var new_name
 setVarType :: Id -> Type -> Id
 setVarType id ty = id { varType = ty }
 
-updateVarType :: (Type -> Type) -> Id -> Id
-updateVarType f id = id { varType = f (varType id) }
+updateVarTypeButNotMult :: (Type -> Type) -> Id -> Id
+updateVarTypeButNotMult f id = id { varType = f (varType id) }
 
 updateVarTypeAndMult :: (Type -> Type) -> Id -> Id
 updateVarTypeAndMult f id = let id' = id { varType = f (varType id) }
