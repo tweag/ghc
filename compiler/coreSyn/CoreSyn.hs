@@ -57,7 +57,7 @@ module CoreSyn (
 
 
         -- * Operations on Binds
-        mapRec, mapRecM, mapRecBlock, unzipRecBlock, zipRecBlock,
+        mapRec, mapRecBlock, unzipRecBlock, zipRecBlock,
 
         -- * Unfolding data types
         Unfolding(..),  UnfoldingGuidance(..), UnfoldingSource(..),
@@ -326,14 +326,6 @@ mapRec
 mapRec f (b, ue, e) = (b', ue, e')
   where
     (b', e') = f (b, e)
-
-mapRecM
-  :: Monad m
-  => ((b, e) -> m (b, e))
-  -> (b, UsageEnv, e) -> m (b, UsageEnv, e)
-mapRecM f (b, ue, e) = do
-  (b', e') <- f (b, e)
-  return (b', ue, e')
 
 -- | Lifts 'mapRec' to a whole recursive block (rather than individual
 -- bindings).
