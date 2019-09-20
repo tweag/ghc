@@ -194,28 +194,23 @@ Note [Data constructor workers and wrappers]
 
 * Neither_ the worker _nor_ the wrapper take the dcStupidTheta dicts as arguments
 
-* The wrapper (if it exists) takes dcOrigArgTys as its arguments, as well as
-  the additional multiplicity arguments.
+* The wrapper (if it exists) takes dcOrigArgTys as its arguments.
   The worker takes dataConRepArgTys as its arguments
   If the worker is absent, dataConRepArgTys is the same as dcOrigArgTys
 
-* The 'NoDataConRep' case is important because not every data constructor can
-  have a wrapper. Specifically levity-polymorphic data constructors (unboxed
-  tuples and unboxed sums) can't be eta-expanded, as this would not respect the
-  levity-polymorphism restriction. Type-class dictionaries don't have a
-  wrapper, they don't need one, and wrappers seem to cause problems with `(~#)`
-  constraints.
+* The 'NoDataConRep' case of DataConRep is important. Not only is it
+  efficient, but it also ensures that the wrapper is replaced by the
+  worker (because it *is* the worker) even when there are no
+  args. E.g. in
+               f (:) x
+  the (:) *is* the worker.  This is really important in rule matching,
+  (We could match on the wrappers, but that makes it less likely that
+  rules will match when we bring bits of unfoldings together.)
 
 Note [The need for a wrapper]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-All datatypes have a wrapper; see wrapper_reqd in
-wrapper_reqd in MkId.mkDataConRep.
-
-This is for uniformity. There are multiple reasons a
-wrapper might be useful:
-
-* For simple data type the only purpose of the wrapper is to make them
-  polymorphic in the multiplicity of their fields.
+Why might the wrapper have anything to do?  The full story is
+in wrapper_reqd in MkId.mkDataConRep.
 
 * Unboxing strict fields (with -funbox-strict-fields)
         data T = MkT !(Int,Int)

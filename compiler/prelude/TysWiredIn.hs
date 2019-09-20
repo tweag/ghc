@@ -590,8 +590,7 @@ pcDataConWithFixity' declared_infix dc_name wrk_key rri
                 (mkTyCoVarBinders Specified user_tyvars)
                 []      -- No equality spec
                 []      -- No theta
-                arg_tys
-                (mkTyConApp tycon (mkTyVarTys tyvars))
+                arg_tys (mkTyConApp tycon (mkTyVarTys tyvars))
                 rri
                 tycon
                 (lookupNameEnv_NF tag_map dc_name)
