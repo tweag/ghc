@@ -424,15 +424,6 @@ mkTrAppChecked :: forall k1 k2 (a :: k1 -> k2) (b :: k1).
                   TypeRep (a :: k1 -> k2)
                -> TypeRep (b :: k1)
                -> TypeRep (a b)
-mkTrAppChecked rep@(TrApp {trAppFun = p, trAppArg = x :: TypeRep x})
-               (y :: TypeRep y)
-  | TrTyCon {trTyCon=con} <- p
-  , con == funTyCon  -- cheap check first
-  , Just (IsTYPE (rx :: TypeRep rx)) <- isTYPE (typeRepKind x)
-  , Just (IsTYPE (ry :: TypeRep ry)) <- isTYPE (typeRepKind y)
-  , Just HRefl <- withTypeable x $ withTypeable rx $ withTypeable ry
-                  $ typeRep @((->) x :: TYPE ry -> Type) `eqTypeRep` rep
-  = mkTrFun trOmega x y
 mkTrAppChecked a b = mkTrApp a b
 
 -- | A type application.
