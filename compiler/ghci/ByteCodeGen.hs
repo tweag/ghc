@@ -28,7 +28,7 @@ import GHC.Platform
 import Name
 import MkId
 import Id
-import Var             ( updateVarType )
+import Var             ( updateVarTypeButNotMult )
 import ForeignCall
 import HscTypes
 import CoreUtils
@@ -699,7 +699,7 @@ protectNNLJoinPointBind x rhs@(fvs, _)
 protectNNLJoinPointId :: Id -> Id
 protectNNLJoinPointId x
   = ASSERT( isNNLJoinPoint x )
-    updateVarType (voidPrimTy `mkVisFunTyOm`) x
+    updateVarTypeButNotMult (voidPrimTy `mkVisFunTyOm`) x
 
 {-
    Ticked Expressions
