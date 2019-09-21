@@ -64,7 +64,7 @@ module Unique (
         -- *** From TyCon name uniques
         tyConRepNameUnique,
         -- *** From DataCon name uniques
-        dataConWorkerUnique, dataConTyRepNameUnique, dataConWrapperUnique
+        dataConWorkerUnique, dataConTyRepNameUnique
     ) where
 
 #include "HsVersions.h"
@@ -403,10 +403,9 @@ tyConRepNameUnique  u = incrUnique u
 mkPreludeDataConUnique i              = mkUnique '6' (4*i)    -- Must be alphabetic
 
 --------------------------------------------------
-dataConTyRepNameUnique, dataConWorkerUnique, dataConWrapperUnique :: Unique -> Unique
+dataConTyRepNameUnique, dataConWorkerUnique :: Unique -> Unique
 dataConWorkerUnique  u = incrUnique u
 dataConTyRepNameUnique u = stepUnique u 2
-dataConWrapperUnique u = stepUnique u 3
 
 --------------------------------------------------
 mkPrimOpIdUnique op         = mkUnique '9' (2*op)

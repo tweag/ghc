@@ -596,7 +596,7 @@ pcDataConWithFixity' declared_infix dc_name wrk_key rri
                 (lookupNameEnv_NF tag_map dc_name)
                 []      -- No stupid theta
                 (mkDataConWorkId wrk_name data_con)
-                NoDataConRep
+                NoDataConRep    -- Wired-in types are too simple to need wrappers
 
     no_bang = HsSrcBang NoSourceText NoSrcUnpack NoSrcStrict
 
@@ -954,7 +954,7 @@ unitDataCon :: DataCon
 unitDataCon   = head (tyConDataCons unitTyCon)
 
 unitDataConId :: Id
-unitDataConId = dataConWrapId unitDataCon
+unitDataConId = dataConWorkId unitDataCon
 
 pairTyCon :: TyCon
 pairTyCon = tupleTyCon Boxed 2
