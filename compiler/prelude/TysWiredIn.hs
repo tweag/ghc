@@ -139,7 +139,7 @@ module TysWiredIn (
 
 import GhcPrelude
 
-import {-# SOURCE #-} MkId( mkDataConWorkId, mkDataConRepSimple, mkDictSelId )
+import {-# SOURCE #-} MkId( mkDataConWorkId, mkDictSelId )
 
 -- friends:
 import PrelNames
@@ -590,33 +590,19 @@ pcDataConWithFixity' declared_infix dc_name wrk_key rri
                 (mkTyCoVarBinders Specified user_tyvars)
                 []      -- No equality spec
                 []      -- No theta
-                arg_tys
-                (mkTyConApp tycon (mkTyVarTys tyvars))
+                arg_tys (mkTyConApp tycon (mkTyVarTys tyvars))
                 rri
                 tycon
                 (lookupNameEnv_NF tag_map dc_name)
                 []      -- No stupid theta
                 (mkDataConWorkId wrk_name data_con)
-                (mkDataConRepSimple wrapper_name data_con)
-
-    wrapper_name = mkDataConWrapperName data_con (dataConWrapperUnique (nameUnique dc_name))
+                NoDataConRep    -- Wired-in types are too simple to need wrappers
 
     no_bang = HsSrcBang NoSourceText NoSrcUnpack NoSrcStrict
 
     wrk_name = mkDataConWorkerName data_con wrk_key
 
     prom_info = mkPrelTyConRepName dc_name
-
-mkDataConWrapperName :: DataCon -> Unique -> Name
-mkDataConWrapperName data_con wrap_key =
-    mkWiredInName modu wrk_occ wrap_key
-                  (AnId (dataConWrapId data_con)) UserSyntax
-  where
-    modu     = ASSERT( isExternalName dc_name )
-               nameModule dc_name
-    dc_name = dataConName data_con
-    dc_occ  = nameOccName dc_name
-    wrk_occ = mkDataConWrapperOcc dc_occ
 
 mkDataConWorkerName :: DataCon -> Unique -> Name
 mkDataConWorkerName data_con wrk_key =
@@ -968,7 +954,7 @@ unitDataCon :: DataCon
 unitDataCon   = head (tyConDataCons unitTyCon)
 
 unitDataConId :: Id
-unitDataConId = dataConWrapId unitDataCon
+unitDataConId = dataConWorkId unitDataCon
 
 pairTyCon :: TyCon
 pairTyCon = tupleTyCon Boxed 2

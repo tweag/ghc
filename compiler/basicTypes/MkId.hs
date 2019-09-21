@@ -20,7 +20,7 @@ module MkId (
         mkPrimOpId, mkFCallId,
 
         unwrapNewTypeBody, wrapFamInstBody,
-        DataConBoxer(..), mkDataConRep, mkDataConRepSimple, mkDataConWorkId,
+        DataConBoxer(..), mkDataConRep, mkDataConWorkId,
 
         -- And some particular Ids; see below for why they are wired in
         wiredInIds, ghcPrimIds,
@@ -77,7 +77,6 @@ import Var (VarBndr(Bndr))
 import qualified GHC.LanguageExtensions as LangExt
 
 import Data.Maybe       ( maybeToList )
-import Data.Functor.Identity
 
 {-
 ************************************************************************
@@ -628,55 +627,20 @@ and now case-of-known-constructor eliminates the redundant allocation.
 
 -}
 
-mkDataConRepSimple :: Name -> DataCon -> DataConRep
-mkDataConRepSimple n dc =
-  runIdentity $
-    mkDataConRepX
-      (\tys -> Identity $ zipWith mkTemplateLocalW [1..] tys)
-      (\idus ini -> return (mkVarApps ini (map fst idus))) -- They are all going to be unitUnboxer
-      emptyFamInstEnvs
-      n
-      (Right (map (const HsLazy) (dataConOrigArgTys dc)))
-      dc
-
-
-mkDataConRep :: DynFlags -> FamInstEnvs -> Name -> Maybe [HsImplBang] -> DataCon
-             -> UniqSM DataConRep
-mkDataConRep dflags fam_envs wrap_name mb_bangs data_con =
-  mkDataConRepX
-    (mapM newLocal)
-    mk_rep_app
-    fam_envs
-    wrap_name
-    (maybe (Left dflags) Right mb_bangs)
-    data_con
-  where
-    mk_rep_app :: [(Id,Unboxer)] -> CoreExpr -> UniqSM CoreExpr
-    mk_rep_app [] con_app
-      = return con_app
-    mk_rep_app ((wrap_arg, unboxer) : prs) con_app
-      = do { (rep_ids, unbox_fn) <- unboxer wrap_arg
-           ; expr <- mk_rep_app prs (mkVarApps con_app rep_ids)
-           ; return (unbox_fn expr) }
-
-
-
-mkDataConRepX :: Monad m =>
-                ([Scaled Type] -> m [Id])
-             -> ([(Id, Unboxer)] -> CoreExpr -> m CoreExpr)
+mkDataConRep :: DynFlags
              -> FamInstEnvs
              -> Name
-             -> (Either DynFlags [HsImplBang])
+             -> Maybe [HsImplBang]
                 -- See Note [Bangs on imported data constructors]
              -> DataCon
-             -> m DataConRep
-mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
- | not wrapper_reqd
- = return NoDataConRep
+             -> UniqSM DataConRep
+mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
+  | not wrapper_reqd
+  = return NoDataConRep
 
   | otherwise
-  = do { wrap_args <- mkArgs wrap_arg_tys
-       ; wrap_body <- mkBody (wrap_args `zip` dropList eq_spec unboxers)
+  = do { wrap_args <- mapM newLocal wrap_arg_tys
+       ; wrap_body <- mk_rep_app (wrap_args `zip` dropList eq_spec unboxers)
                                  initial_wrap_app
        ; let wrap_id = mkGlobalId (DataConWrapId data_con) wrap_name wrap_ty wrap_info
              wrap_info = noCafIdInfo
@@ -716,7 +680,6 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
              wrap_unf | isNewTyCon tycon = mkCompulsoryUnfolding wrap_rhs
                         -- See Note [Compulsory newtype unfolding]
                       | otherwise        = mkInlineUnfolding wrap_rhs
-
              wrap_rhs = mkLams wrap_tvs $
                         mkLams wrap_args $
                         wrapFamInstBody tycon res_ty_args $
@@ -758,9 +721,9 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
                                         -- detect this later (see test T2334A)
       | otherwise
       = case mb_bangs of
-          Left dflags -> zipWith (dataConSrcToImplBang dflags fam_envs)
+          Nothing    -> zipWith (dataConSrcToImplBang dflags fam_envs)
                                 orig_arg_tys orig_bangs
-          Right bangs -> bangs
+          Just bangs -> bangs
 
     (rep_tys_w_strs, wrappers)
       = unzip (zipWith dataConArgRep all_arg_tys (ev_ibangs ++ arg_ibangs))
@@ -807,6 +770,13 @@ mkDataConRepX mkArgs mkBody fam_envs wrap_name mb_bangs data_con
            ; return (rep_ids1 ++ rep_ids2, NonRec src_var arg : binds) }
     go _ (_:_) [] = pprPanic "mk_boxer" (ppr data_con)
 
+    mk_rep_app :: [(Id,Unboxer)] -> CoreExpr -> UniqSM CoreExpr
+    mk_rep_app [] con_app
+      = return con_app
+    mk_rep_app ((wrap_arg, unboxer) : prs) con_app
+      = do { (rep_ids, unbox_fn) <- unboxer wrap_arg
+           ; expr <- mk_rep_app prs (mkVarApps con_app rep_ids)
+           ; return (unbox_fn expr) }
 
 {- Note [Activation for data constructor wrappers]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
