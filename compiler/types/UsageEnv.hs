@@ -44,9 +44,10 @@ addUsage (MUsage x) (MUsage y) = MUsage $ mkMultAdd x y
 multUsage :: Usage -> Usage -> Usage
 multUsage Zero _ = Zero
 multUsage _ Zero = Zero
-multUsage Bottom (MUsage x) = MUsage x
-multUsage (MUsage x) Bottom = MUsage x
-multUsage Bottom Bottom = Bottom
+multUsage (MUsage One) x = x
+multUsage x (MUsage One) = x
+multUsage Bottom x = x
+multUsage x Bottom = x
 multUsage (MUsage x) (MUsage y) = MUsage $ mkMultMul x y
 
 -- For now, we use extra multiplicity Bottom for empty case.
@@ -71,6 +72,7 @@ addUE (UsageEnv e1 b1) (UsageEnv e2 b2) =
   UsageEnv (plusNameEnv_C mkMultAdd e1 e2) (b1 || b2)
 
 scaleUE :: Mult -> UsageEnv -> UsageEnv
+scaleUE One b = b
 scaleUE w (UsageEnv e b) =
   UsageEnv (mapNameEnv (mkMultMul w) e) b
 
