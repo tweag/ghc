@@ -73,8 +73,8 @@ addUE (UsageEnv e1 b1) (UsageEnv e2 b2) =
 
 scaleUE :: Mult -> UsageEnv -> UsageEnv
 scaleUE One b = b
-scaleUE w (UsageEnv e b) =
-  UsageEnv (mapNameEnv (mkMultMul w) e) b
+scaleUE w (UsageEnv e _) =
+  UsageEnv (mapNameEnv (mkMultMul w) e) False
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1 False) (UsageEnv e2 False) =
