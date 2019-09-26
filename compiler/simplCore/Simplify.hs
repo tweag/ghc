@@ -3215,7 +3215,6 @@ mkDupableCont env (StrictArg { sc_fun = info, sc_cci = cci, sc_cont = cont, sc_m
                             , sc_dup = OkToDup
                             , sc_mult = m } ) }
 
-
 mkDupableCont env (ApplyToTy { sc_cont = cont
                              , sc_arg_ty = arg_ty, sc_hole_ty = hole_ty })
   = do  { (floats, cont') <- mkDupableCont env cont

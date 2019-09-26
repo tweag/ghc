@@ -558,15 +558,14 @@ tcExtendIdEnv1 name id thing_inside
 tcExtendIdEnv2 :: [(Name,TcId)] -> TcM a -> TcM a
 tcExtendIdEnv2 names_w_ids thing_inside
   = tcExtendBinderStack [ TcIdBndr mono_id NotTopLevel
-                      | (_,mono_id) <- names_w_ids ] $
-    do  { tc_extend_local_env NotTopLevel
-                              [ (name, ATcId { tct_id = id
-                                             , tct_info = NotLetBound })
-                              | (name, id) <- names_w_ids] $
-          thing_inside }
+                        | (_,mono_id) <- names_w_ids ] $
+    tc_extend_local_env NotTopLevel
+            [ (name, ATcId { tct_id = id
+                           , tct_info    = NotLetBound })
+            | (name,id) <- names_w_ids]
+    thing_inside
 
-tc_extend_local_env :: TopLevelFlag -> [(Name, TcTyThing)]
-                    -> TcM a -> TcM a
+tc_extend_local_env :: TopLevelFlag -> [(Name, TcTyThing)] -> TcM a -> TcM a
 tc_extend_local_env top_lvl extra_env thing_inside
 -- Precondition: the argument list extra_env has TcTyThings
 --               that ATcId or ATyVar, but nothing else

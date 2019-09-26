@@ -846,7 +846,7 @@ lintCoreExpr (Type ty)
 
 lintCoreExpr (Coercion co)
   = do { (k1, k2, ty1, ty2, role) <- lintInCo co
-       ; return ((mkHeteroCoercionType role k1 k2 ty1 ty2), emptyUE) }
+       ; return ((mkHeteroCoercionType role k1 k2 ty1 ty2), zeroUE) }
 
 ----------------------
 lintVarOcc :: Var -> Int -- Number of arguments (type or value) being passed
@@ -1083,7 +1083,7 @@ lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
   = do { con_ty' <- lintTyApp con_ty (mkTyVarTy bndr)
        ; lintAltBinders rhs_ue scrut scrut_ty con_ty'  bndrs }
   | otherwise
-  = do { (con_ty', _) <- lintValApp (Var bndr) con_ty (idType bndr) emptyUE emptyUE
+  = do { (con_ty', _) <- lintValApp (Var bndr) con_ty (idType bndr) zeroUE zeroUE
        ; rhs_ue' <- checkCaseLinearity rhs_ue scrut var_w bndr
        ; lintAltBinders rhs_ue' scrut scrut_ty con_ty' bndrs }
 
@@ -1094,7 +1094,7 @@ checkCaseLinearity ue scrut var_w bndr = do
   lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varMult bndr)
   return $ deleteUE ue bndr
   where
-    lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
+    lhs = bndr_usage `addUsage` (var_w `scaleUsage` scrut_usage)
     rhs = scrut_w `mkMultMul` var_w
     err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
                 $$ ppr lhs <+> text "⊈" <+> ppr rhs
@@ -1636,7 +1636,7 @@ lintCoreRule _ _ (BuiltinRule {})
 lintCoreRule fun fun_ty rule@(Rule { ru_name = name, ru_bndrs = bndrs
                                    , ru_args = args, ru_rhs = rhs })
   = lintBinders LambdaBind bndrs $ \ _ ->
-    do { (lhs_ty, _) <- lintCoreArgs (fun_ty, emptyUE) args
+    do { (lhs_ty, _) <- lintCoreArgs (fun_ty, zeroUE) args
        ; (rhs_ty, _) <- case isJoinId_maybe fun of
                      Just join_arity
                        -> do { checkL (args `lengthIs` join_arity) $

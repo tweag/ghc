@@ -1177,10 +1177,9 @@ isRuntimeUnkSkol x
   | RuntimeUnk <- tcTyVarDetails x = True
   | otherwise                      = False
 
-mkTyVarNamePairs :: [TyVar] -> [(Name, TyVar)]
+mkTyVarNamePairs :: [TyVar] -> [(Name,TyVar)]
 -- Just pair each TyVar with its own name
 mkTyVarNamePairs tvs = [(tyVarName tv, tv) | tv <- tvs]
-
 
 findDupTyVarTvs :: [(Name,TcTyVar)] -> [(Name,Name)]
 -- If we have [...(x1,tv)...(x2,tv)...]

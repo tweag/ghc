@@ -1,5 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
-module UsageEnv (UsageEnv, addUsage, multUsage, emptyUE, zeroUE,
+module UsageEnv (UsageEnv, addUsage, scaleUsage, zeroUE,
                  lookupUE, scaleUE, deleteUE, addUE, Usage(..), unitUE,
                  supUE, supUEs) where
 
@@ -41,13 +41,11 @@ addUsage Zero x = x
 addUsage x Zero = x
 addUsage (MUsage x) (MUsage y) = MUsage $ mkMultAdd x y
 
-multUsage :: Usage -> Usage -> Usage
-multUsage Zero _ = Zero
-multUsage _ Zero = Zero
-multUsage Bottom (MUsage x) = MUsage x
-multUsage (MUsage x) Bottom = MUsage x
-multUsage Bottom Bottom = Bottom
-multUsage (MUsage x) (MUsage y) = MUsage $ mkMultMul x y
+scaleUsage :: Mult -> Usage -> Usage
+scaleUsage _   Zero       = Zero
+scaleUsage One Bottom     = Bottom
+scaleUsage x   Bottom     = MUsage x
+scaleUsage x   (MUsage y) = MUsage $ mkMultMul x y
 
 -- For now, we use extra multiplicity Bottom for empty case.
 -- TODO: change to keeping UsageEnv on Case, issue #25.
@@ -59,10 +57,8 @@ data UsageEnv = UsageEnv (NameEnv Mult) Bool
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
 unitUE x w = UsageEnv (unitNameEnv (getName x) w) False
 
-zeroUE, emptyUE, bottomUE :: UsageEnv
+zeroUE, bottomUE :: UsageEnv
 zeroUE = UsageEnv emptyNameEnv False
-
-emptyUE = zeroUE
 
 bottomUE = UsageEnv emptyNameEnv True
 
@@ -71,8 +67,9 @@ addUE (UsageEnv e1 b1) (UsageEnv e2 b2) =
   UsageEnv (plusNameEnv_C mkMultAdd e1 e2) (b1 || b2)
 
 scaleUE :: Mult -> UsageEnv -> UsageEnv
-scaleUE w (UsageEnv e b) =
-  UsageEnv (mapNameEnv (mkMultMul w) e) b
+scaleUE One ue = ue
+scaleUE w (UsageEnv e _) =
+  UsageEnv (mapNameEnv (mkMultMul w) e) False
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1 False) (UsageEnv e2 False) =
