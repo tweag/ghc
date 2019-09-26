@@ -1,5 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
-module UsageEnv (UsageEnv, addUsage, scaleUsage, emptyUE, zeroUE,
+module UsageEnv (UsageEnv, addUsage, scaleUsage, zeroUE,
                  lookupUE, scaleUE, deleteUE, addUE, Usage(..), unitUE,
                  supUE, supUEs) where
 
@@ -57,10 +57,8 @@ data UsageEnv = UsageEnv (NameEnv Mult) Bool
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
 unitUE x w = UsageEnv (unitNameEnv (getName x) w) False
 
-zeroUE, emptyUE, bottomUE :: UsageEnv
+zeroUE, bottomUE :: UsageEnv
 zeroUE = UsageEnv emptyNameEnv False
-
-emptyUE = zeroUE
 
 bottomUE = UsageEnv emptyNameEnv True
 
