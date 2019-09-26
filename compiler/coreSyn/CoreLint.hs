@@ -1094,7 +1094,7 @@ checkCaseLinearity ue scrut var_w bndr = do
   lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varMult bndr)
   return $ deleteUE ue bndr
   where
-    lhs = bndr_usage `addUsage` (scrut_usage `multUsage` (MUsage var_w))
+    lhs = bndr_usage `addUsage` (var_w `scaleUsage` scrut_usage)
     rhs = scrut_w `mkMultMul` var_w
     err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
                 $$ ppr lhs <+> text "⊈" <+> ppr rhs
