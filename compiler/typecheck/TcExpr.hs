@@ -1438,11 +1438,11 @@ and we had the visible type application
 -}
 
 ----------------
-tcArg :: LHsExpr GhcRn                    -- The function (for error messages)
-      -> LHsExpr GhcRn                    -- Actual arguments
-      -> Scaled TcRhoType                 -- expected (scaled) arg type
-      -> Int                              -- # of argument
-      -> TcM (LHsExpr GhcTcId)            -- Resulting argument
+tcArg :: LHsExpr GhcRn                   -- The function (for error messages)
+      -> LHsExpr GhcRn                   -- Actual arguments
+      -> Scaled TcRhoType                -- expected arg type
+      -> Int                             -- # of argument
+      -> TcM (LHsExpr GhcTcId)           -- Resulting argument
 tcArg fun arg (Scaled mult ty) arg_no = addErrCtxt (funAppCtxt fun arg arg_no) $
                           tcScalingUsage mult $ tcPolyExprNC arg ty
 

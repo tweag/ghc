@@ -4173,7 +4173,6 @@ badDataConTyCon data_con_display_type data_con res_ty_tmpl
     --    underneath the nested foralls and contexts.
     -- 3) Smash together the type variables and class predicates from 1) and
     --    2), and prepend them to the rho type from 2).
-
     (tvs, theta, rho) = tcSplitNestedSigmaTys data_con_display_type
     suggested_ty = mkSpecSigmaTy tvs theta rho
 

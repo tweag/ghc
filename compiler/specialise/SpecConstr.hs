@@ -1983,7 +1983,6 @@ callsToNewPats env fn spec_info@(SI { si_specs = done_specs }) bndr_occs calls
               good_pats :: [CallPat]
               good_pats = catMaybes mb_pats
 
-
               -- Remove patterns we have already done
               new_pats = filterOut is_done good_pats
               is_done p = any (samePat p . os_pat) done_specs
