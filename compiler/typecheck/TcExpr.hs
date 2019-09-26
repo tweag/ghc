@@ -1839,35 +1839,24 @@ tc_infer_id lbl id_name
   where
     return_id id = return (HsVar noExtField (noLoc id), idType id)
 
-    -- TODO issue #411: restore this code and handle multiplicity
-    {-
-       -- For data constructors, must perform the stupid-theta check
-      | null stupid_theta
-      = return (HsConLikeOut noExtField (RealDataCon con), con_ty)
-    -}
-
     return_data_con con
        -- See Note [Instantiating stupid theta]
       = do { let tvs = dataConUserTyVarBinders con
                  theta = dataConOtherTheta con
                  args = dataConOrigArgTys con
                  res = dataConOrigResTy con
-           ; (subst, tvs') <- newMetaTyVars (map binderVar tvs)
-           ; let tys'   = mkTyVarTys tvs'
-                 theta' = substTheta subst theta
-                 args'  = map (substScaledTy subst) args
-                 res'   = substTy subst res
-           ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
-           -- See Note [Linear fields generalization]
-           ; (_subst, mul_vars) <- newMetaTyVars (multiplicityTyVarList (length args') (map getOccName (binderVars tvs)))
-           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars args'
+           ; (_subst, mul_vars) <- newMetaTyVars $ multiplicityTyVarList (length args) $ map getOccName $ binderVars tvs
+           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars args
                  combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
                  combine _   scaled_ty = scaled_ty
-
-           ; let wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole scaled_arg_tys
-           ; addDataConStupidTheta con tys'
-           ; return ( mkHsWrap (wrap2 <.> wrap) (HsConLikeOut noExtField (RealDataCon con))
-                    , mkVisFunTys scaled_arg_tys res') }
+           ; let wrap1 = mkWpTyApps (map mkTyVarTy $ binderVars tvs)
+                 wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole (map unrestricted theta ++ scaled_arg_tys)
+                 wrap3 = mkWpTyLams $ binderVars tvs
+                 -- why does this work on stupid and non-stupid theta?
+           -- ; pprTraceM "lengths" (ppr (length theta) <+> ppr (length (dataConStupidTheta con)))
+           ; return ( mkHsWrap (wrap3 <.> wrap2 <.> wrap1) (HsConLikeOut noExtField (RealDataCon con))
+                    , mkForAllTys tvs $ mkInvisFunTysOm theta $ mkVisFunTys scaled_arg_tys res)
+           }
 
     check_naughty id
       | isNaughtyRecordSelector id = failWithTc (naughtyRecordSel lbl)
@@ -1930,7 +1919,7 @@ constructors of F [Int] but here we have to do it explicitly.
 
 It's all grotesquely complicated.
 
-Note [Instantiating stupid theta]
+Note [Instantiating stupid theta] TODO: update it
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Normally, when we infer the type of an Id, we don't instantiate,
 because we wish to allow for visible type application later on.
