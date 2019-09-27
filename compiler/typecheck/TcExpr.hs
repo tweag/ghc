@@ -1840,7 +1840,8 @@ tc_infer_id lbl id_name
     return_id id = return (HsVar noExtField (noLoc id), idType id)
 
     return_data_con con
-      | isUnboxedTupleCon con || isUnboxedSumCon con
+       -- See Note [Instantiating stupid theta]
+      | isUnboxedTupleCon con || isUnboxedSumCon con || not (null (dataConStupidTheta con))
       = do { let tvs = dataConUserTyVarBinders con
                  theta = dataConOtherTheta con
                  args = dataConOrigArgTys con
@@ -1863,7 +1864,6 @@ tc_infer_id lbl id_name
                     , mkVisFunTys scaled_arg_tys res') }
 
     return_data_con con
-       -- See Note [Instantiating stupid theta]
       = do { let tvs = dataConUserTyVarBinders con
                  theta = dataConOtherTheta con
                  args = dataConOrigArgTys con
@@ -1875,8 +1875,8 @@ tc_infer_id lbl id_name
            ; let wrap1 = mkWpTyApps (map mkTyVarTy $ binderVars tvs)
                  wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole (map unrestricted theta ++ scaled_arg_tys)
                  wrap3 = mkWpTyLams $ binderVars tvs
-                 -- why does this work on stupid and non-stupid theta?
            -- ; pprTraceM "lengths" (ppr (length theta) <+> ppr (length (dataConStupidTheta con)))
+           ; addDataConStupidTheta con $ map mkTyVarTy $ binderVars tvs
            ; return ( mkHsWrap (wrap3 <.> wrap2 <.> wrap1) (HsConLikeOut noExtField (RealDataCon con))
                     , mkForAllTys tvs $ mkInvisFunTysOm theta $ mkVisFunTys scaled_arg_tys res)
            }
