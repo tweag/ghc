@@ -156,6 +156,7 @@ import UniqSupply
 import FastString
 import Util
 import Multiplicity
+import UsageEnv
 
 -- infixl so you can say (id `set` a `set` b)
 infixl  1 `setIdUnfolding`,
@@ -234,7 +235,7 @@ localiseId id
   | ASSERT( isId id ) isLocalId id && isInternalName name
   = id
   | otherwise
-  = Var.mkLocalVar (idDetails id) (localiseName name) (Var.varMult id) (idType id) (idInfo id)
+  = Var.mkLocalVar (idDetails id) (localiseName name) (Var.varMult id) zeroUA (idType id) (idInfo id)
   where
     name = idName id
 
@@ -289,8 +290,8 @@ mkVanillaGlobalWithInfo = mkGlobalId VanillaId
 
 
 -- | For an explanation of global vs. local 'Id's, see "Var#globalvslocal"
-mkLocalId :: Name -> Mult -> Type -> Id
-mkLocalId name w ty = mkLocalIdWithInfo name w ty vanillaIdInfo
+mkLocalId :: Name -> Mult -> UsageAnnotation -> Type -> Id
+mkLocalId name w ue ty = mkLocalIdWithInfo name w ue ty vanillaIdInfo
  -- It's tempting to ASSERT( not (isCoVarType ty) ), but don't. Sometimes,
  -- the type is a panic. (Search invented_id)
 
@@ -298,26 +299,26 @@ mkLocalId name w ty = mkLocalIdWithInfo name w ty vanillaIdInfo
 mkLocalCoVar :: Name -> Type -> CoVar
 mkLocalCoVar name ty
   = ASSERT( isCoVarType ty )
-    Var.mkLocalVar CoVarId name Omega ty vanillaIdInfo
+    Var.mkLocalVar CoVarId name Omega zeroUA ty vanillaIdInfo
 
 -- | Like 'mkLocalId', but checks the type to see if it should make a covar
-mkLocalIdOrCoVar :: Name -> Mult -> Type -> Id
-mkLocalIdOrCoVar name w ty
+mkLocalIdOrCoVar :: Name -> Mult -> UsageAnnotation -> Type -> Id
+mkLocalIdOrCoVar name w ue ty
   | isCoVarType ty = ASSERT(eqType w Omega) mkLocalCoVar name   ty
-  | otherwise      = mkLocalId    name w ty
+  | otherwise      = mkLocalId    name w ue ty
 
 -- | Make a local id, with the IdDetails set to CoVarId if the type indicates
 -- so.
-mkLocalIdOrCoVarWithInfo :: Name -> Mult -> Type -> IdInfo -> Id
-mkLocalIdOrCoVarWithInfo name w ty info
-  = Var.mkLocalVar details name w ty info
+mkLocalIdOrCoVarWithInfo :: Name -> Mult -> UsageAnnotation -> Type -> IdInfo -> Id
+mkLocalIdOrCoVarWithInfo name w ue ty info
+  = Var.mkLocalVar details name w ue ty info
   where
     details | isCoVarType ty = CoVarId
             | otherwise      = VanillaId
 
     -- proper ids only; no covars!
-mkLocalIdWithInfo :: Name -> Mult -> Type -> IdInfo -> Id
-mkLocalIdWithInfo name w ty info = Var.mkLocalVar VanillaId name w ty info
+mkLocalIdWithInfo :: Name -> Mult -> UsageAnnotation -> Type -> IdInfo -> Id
+mkLocalIdWithInfo name w ue ty info = Var.mkLocalVar VanillaId name w ue ty info
         -- Note [Free type variables]
 
 -- | Create a local 'Id' that is marked as exported.
@@ -334,31 +335,31 @@ mkExportedVanillaId name ty = Var.mkExportedLocalVar VanillaId name ty vanillaId
 
 -- | Create a system local 'Id'. These are local 'Id's (see "Var#globalvslocal")
 -- that are created by the compiler out of thin air
-mkSysLocal :: FastString -> Unique -> Mult -> Type -> Id
-mkSysLocal fs uniq w ty = ASSERT( not (isCoVarType ty) )
-                        mkLocalId (mkSystemVarName uniq fs) w ty
+mkSysLocal :: FastString -> Unique -> Mult -> UsageAnnotation -> Type -> Id
+mkSysLocal fs uniq w ue ty = ASSERT( not (isCoVarType ty) )
+                        mkLocalId (mkSystemVarName uniq fs) w ue ty
 
 -- | Like 'mkSysLocal', but checks to see if we have a covar type
-mkSysLocalOrCoVar :: FastString -> Unique -> Mult -> Type -> Id
-mkSysLocalOrCoVar fs uniq w ty
-  = mkLocalIdOrCoVar (mkSystemVarName uniq fs) w ty
+mkSysLocalOrCoVar :: FastString -> Unique -> Mult -> UsageAnnotation -> Type -> Id
+mkSysLocalOrCoVar fs uniq w ue ty
+  = mkLocalIdOrCoVar (mkSystemVarName uniq fs) w ue ty
 
-mkSysLocalM :: MonadUnique m => FastString -> Mult -> Type -> m Id
-mkSysLocalM fs w ty = getUniqueM >>= (\uniq -> return (mkSysLocal fs uniq w ty))
+mkSysLocalM :: MonadUnique m => FastString -> Mult -> UsageAnnotation -> Type -> m Id
+mkSysLocalM fs w ue ty = getUniqueM >>= (\uniq -> return (mkSysLocal fs uniq w ue ty))
 
-mkSysLocalOrCoVarM :: MonadUnique m => FastString -> Mult -> Type -> m Id
-mkSysLocalOrCoVarM fs w ty
-  = getUniqueM >>= (\uniq -> return (mkSysLocalOrCoVar fs uniq w ty))
+mkSysLocalOrCoVarM :: MonadUnique m => FastString -> Mult -> UsageAnnotation -> Type -> m Id
+mkSysLocalOrCoVarM fs w ue ty
+  = getUniqueM >>= (\uniq -> return (mkSysLocalOrCoVar fs uniq w ue ty))
 
 -- | Create a user local 'Id'. These are local 'Id's (see "Var#globalvslocal") with a name and location that the user might recognize
-mkUserLocal :: OccName -> Unique -> Mult -> Type -> SrcSpan -> Id
-mkUserLocal occ uniq w ty loc = ASSERT( not (isCoVarType ty) )
-                                mkLocalId (mkInternalName uniq occ loc) w ty
+mkUserLocal :: OccName -> Unique -> Mult -> UsageAnnotation -> Type -> SrcSpan -> Id
+mkUserLocal occ uniq w ue ty loc = ASSERT( not (isCoVarType ty) )
+                                mkLocalId (mkInternalName uniq occ loc) w ue ty
 
 -- | Like 'mkUserLocal', but checks if we have a coercion type
-mkUserLocalOrCoVar :: OccName -> Unique -> Mult -> Type -> SrcSpan -> Id
-mkUserLocalOrCoVar occ uniq w ty loc
-  = mkLocalIdOrCoVar (mkInternalName uniq occ loc) w ty
+mkUserLocalOrCoVar :: OccName -> Unique -> Mult -> UsageAnnotation -> Type -> SrcSpan -> Id
+mkUserLocalOrCoVar occ uniq w ue ty loc
+  = mkLocalIdOrCoVar (mkInternalName uniq occ loc) w ue ty
 
 {-
 Make some local @Ids@ for a template @CoreExpr@.  These have bogus
@@ -367,16 +368,17 @@ instantiated before use.
 -}
 
 -- | Workers get local names. "CoreTidy" will externalise these if necessary
-mkWorkerId :: Unique -> Id -> Type -> Id
-mkWorkerId uniq unwrkr ty
-  = mkLocalIdOrCoVar (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Omega ty
+mkWorkerId :: Unique -> Id -> UsageAnnotation -> Type -> Id
+mkWorkerId uniq unwrkr ue ty
+  = mkLocalIdOrCoVar (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Omega ue ty
 
 -- | Create a /template local/: a family of system local 'Id's in bijection with @Int@s, typically used in unfoldings
 mkTemplateLocal :: Int -> Type -> Id
 mkTemplateLocal i ty = mkTemplateLocalW i (unrestricted ty)
 
 mkTemplateLocalW :: Int -> Scaled Type -> Id
-mkTemplateLocalW i (Scaled w ty) = mkSysLocalOrCoVar (fsLit "v") (mkBuiltinUnique i) w ty
+mkTemplateLocalW i (Scaled w ty) = mkSysLocalOrCoVar (fsLit "v") (mkBuiltinUnique i) w zeroUA ty
+  -- mkTemplateLocalW is only used for lambda binders, hence the empty usage
 
 -- | Create a template local for a series of types
 mkTemplateLocals :: [Type] -> [Id]

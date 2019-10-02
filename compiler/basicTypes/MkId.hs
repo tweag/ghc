@@ -45,6 +45,7 @@ import TysWiredIn
 import PrelRules
 import Type
 import Multiplicity
+import UsageEnv
 import FamInstEnv
 import Coercion
 import TcType
@@ -893,7 +894,7 @@ case of a newtype constructor, we simply hardcode its dcr_bangs field to
 -------------------------
 newLocal :: Scaled Type -> UniqSM Var
 newLocal (Scaled w ty) = do { uniq <- getUniqueM
-                            ; return (mkSysLocalOrCoVar (fsLit "dt") uniq w ty) }
+                            ; return (mkSysLocalOrCoVar (fsLit "dt") uniq w zeroUA ty) }
 
 -- | Unpack/Strictness decisions from source module.
 --
@@ -1705,7 +1706,7 @@ voidPrimId  = pcMiscPrelId voidPrimIdName voidPrimTy
                              `setNeverLevPoly`  voidPrimTy)
 
 voidArgId :: Id       -- Local lambda-bound :: Void#
-voidArgId = mkSysLocal (fsLit "void") voidArgIdKey Omega voidPrimTy
+voidArgId = mkSysLocal (fsLit "void") voidArgIdKey Omega zeroUA voidPrimTy
 
 coercionTokenId :: Id         -- :: () ~ ()
 coercionTokenId -- Used to replace Coercion terms when we go to STG

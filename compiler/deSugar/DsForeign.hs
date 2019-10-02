@@ -34,6 +34,7 @@ import Type
 import RepType
 import TyCon
 import Multiplicity
+import UsageEnv
 import Coercion
 import TcEnv
 import TcType
@@ -275,7 +276,7 @@ dsFCall fn_id co fcall mDeclHeader = do
         tvs           = map binderVar tv_bndrs
         the_ccall_app = mkFCall dflags ccall_uniq fcall' val_args ccall_result_ty
         work_rhs      = mkLams tvs (mkLams work_arg_ids the_ccall_app)
-        work_id       = mkSysLocal (fsLit "$wccall") work_uniq Omega worker_ty
+        work_id       = mkSysLocal (fsLit "$wccall") work_uniq Omega zeroUA worker_ty
 
         -- Build the wrapper
         work_app     = mkApps (mkVarApps (Var work_id) tvs) val_args
@@ -426,14 +427,14 @@ dsFExportDynamic id co0 cconv = do
             (moduleStableString mod ++ "$" ++ toCName dflags id)
         -- Construct the label based on the passed id, don't use names
         -- depending on Unique. See #13807 and Note [Unique Determinism].
-    cback <- newSysLocalDs arg_mult arg_ty
+    cback <- newSysLocalDs arg_mult zeroUA arg_ty
     newStablePtrId <- dsLookupGlobalId newStablePtrName
     stable_ptr_tycon <- dsLookupTyCon stablePtrTyConName
     let
         stable_ptr_ty = mkTyConApp stable_ptr_tycon [arg_ty]
         export_ty     = mkVisFunTyOm stable_ptr_ty arg_ty
     bindIOId <- dsLookupGlobalId bindIOName
-    stbl_value <- newSysLocalDs Omega stable_ptr_ty
+    stbl_value <- newSysLocalDs Omega zeroUA stable_ptr_ty
     (h_code, c_code, typestring, args_size) <- dsFExport id (mkRepReflCo export_ty) fe_nm cconv True
     let
          {-

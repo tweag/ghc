@@ -12,6 +12,8 @@ module Simplify ( simplTopBinds, simplExpr, simplRules ) where
 
 import GhcPrelude
 
+import Control.Monad.Trans.State
+
 import DynFlags
 import SimplMonad
 import Type hiding      ( substTy, substTyVar, extendTvSubst, extendCvSubst )
@@ -45,7 +47,8 @@ import Demand           ( mkClosedStrictSig, topDmd, botRes )
 import BasicTypes       ( TopLevelFlag(..), isNotTopLevel, isTopLevel,
                           RecFlag(..), Arity )
 import MonadUtils       ( mapAccumLM, liftIO )
-import Var              ( isTyCoVar )
+import Var              ( isTyCoVar, varUsages, setVarUsages )
+import VarEnv           ( extendInScopeSet )
 import Maybes           (  orElse )
 import Control.Monad
 import Outputable
@@ -55,6 +58,7 @@ import Util
 import ErrUtils
 import Module          ( moduleName, pprModuleName )
 import Multiplicity
+import UsageEnv
 import PrimOp          ( PrimOp (SeqOp) )
 import TyCoRep         ( TyCoBinder(..) )
 
@@ -355,8 +359,11 @@ simplJoinBind env cont old_bndr new_bndr rhs rhs_se
         ; let mult = contHoleScaling cont
               Just arity = isJoinIdDetails_maybe (idDetails new_bndr)
               new_type = scaleJoinPointType mult arity (varType new_bndr)
-              new_bndr' = setIdType new_bndr new_type
-        ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr' rhs' }
+              new_bndr1 = setIdType new_bndr new_type
+              cont_ue = contUsageEnv cont
+              bndr_ua = varUsages new_bndr1
+              new_bndr2 = setVarUsages new_bndr1 (cont_ue `addUA` (mult `scaleUA` bndr_ua))
+        ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr2 rhs' }
 
 {-
 Note [Scaling join point arguments]
@@ -616,7 +623,7 @@ makeTrivialWithInfo mode top_lvl occ_fs info expr
           else do
         { uniq <- getUniqueM
         ; let name = mkSystemVarName uniq occ_fs
-              var  = mkLocalIdOrCoVarWithInfo name Omega expr_ty info
+              var  = mkLocalIdOrCoVarWithInfo name Omega (exprUsageAnnotation expr1) expr_ty info
 
         -- Now something very like completeBind,
         -- but without the postInlineUnconditinoally part
@@ -1270,7 +1277,8 @@ rebuild env expr cont
         -> rebuildCall env (fun `addValArgTo` (m, expr)) cont
       StrictBind { sc_bndr = b, sc_bndrs = bs, sc_body = body
                  , sc_env = se, sc_cont = cont }
-        -> do { (floats1, env') <- simplNonRecX (se `setInScopeFromE` env) b expr
+        -> do { (floats1, env') <- let b' = b `setVarUsages` (exprUsageAnnotation expr) in
+                                   simplNonRecX (se `setInScopeFromE` env) b' expr
                                   -- expr satisfies let/app since it started life
                                   -- in a call to simplNonRecE
               ; (floats2, expr') <- simplLam env' bs body cont
@@ -2497,9 +2505,9 @@ rebuildCase env scrut case_bndr alts cont
       <- exprIsConApp_maybe (getUnfoldingInRuleMatch env) scrut
         -- Works when the scrutinee is a variable with a known unfolding
         -- as well as when it's an explicit constructor application
-  , let env0 = setInScopeSet env in_scope'
   = do  { tick (KnownBranch case_bndr)
-        ; let scaled_wfloats = map scale_float wfloats
+        ; let (scaled_wfloats, scaled_in_scope) = runState (traverse scale_float wfloats) in_scope'
+        ; let env0 = setInScopeSet env scaled_in_scope
         ; case findAlt (DataAlt con) alts of
             Nothing  -> missingAlt env0 case_bndr alts cont
             Just (DEFAULT, bs, rhs) -> let con_app = Var (dataConWorkId con)
@@ -2512,7 +2520,8 @@ rebuildCase env scrut case_bndr alts cont
   where
     simple_rhs env wfloats scrut' bs rhs =
       ASSERT( null bs )
-      do { (floats1, env') <- simplNonRecX env case_bndr scrut'
+      do { let case_bndr' = case_bndr `setVarUsages` exprUsageAnnotation scrut'
+         ; (floats1, env') <- simplNonRecX env case_bndr' scrut'
              -- scrut is a constructor application,
              -- hence satisfies let/app invariant
          ; (floats2, expr') <- simplExprF env' rhs cont
@@ -2529,10 +2538,14 @@ rebuildCase env scrut case_bndr alts cont
     -- they are aliases anyway.
     scale_float (MkCore.FloatCase scrut case_bndr con vars) =
       let
-        scale_id id = scaleIdBy id holeScaling
+        scale_id id =
+          do { let new_id = scaleIdBy id holeScaling
+             ; old_in_scope <- get
+             ; put $ extendInScopeSet old_in_scope new_id
+             ; return new_id }
       in
-      MkCore.FloatCase scrut (scale_id case_bndr) con (map scale_id vars)
-    scale_float f = f
+      MkCore.FloatCase scrut <$> (scale_id case_bndr) <*> pure con <*> (traverse scale_id vars)
+    scale_float f = return f
 
     holeScaling = contHoleScaling cont `mkMultMul` idMult case_bndr
      -- We are in the following situation
@@ -2788,7 +2801,7 @@ improveSeq :: (FamInstEnv, FamInstEnv) -> SimplEnv
 -- Note [Improving seq]
 improveSeq fam_envs env scrut case_bndr case_bndr1 [(DEFAULT,_,_)]
   | Just (co, ty2) <- topNormaliseType_maybe fam_envs (idType case_bndr1)
-  = do { case_bndr2 <- newId (fsLit "nt") Omega ty2
+  = do { case_bndr2 <- newId (fsLit "nt") Omega zeroUA ty2
         ; let rhs  = DoneEx (Var case_bndr2 `Cast` mkSymCo co) Nothing
               env2 = extendIdSubst env case_bndr rhs
         ; return (env2, scrut `Cast` co, case_bndr2) }
@@ -3049,7 +3062,7 @@ knownCon env scrut dc_floats dc dc_ty_args dc_args bndr bs rhs cont
 
     bind_args env' (b:bs') (arg : args)
       = ASSERT( isId b )
-        do { let b' = zap_occ b
+        do { let b' = (zap_occ b) `setVarUsages` (exprUsageAnnotation arg)
              -- Note that the binder might be "dead", because it doesn't
              -- occur in the RHS; and simplNonRecX may therefore discard
              -- it via postInlineUnconditionally.
@@ -3080,7 +3093,9 @@ knownCon env scrut dc_floats dc dc_ty_args dc_args bndr bs rhs cont
                                  ; let con_app = Var (dataConWorkId dc)
                                                  `mkTyApps` dc_ty_args
                                                  `mkApps`   dc_args
-                                 ; simplNonRecX env bndr con_app }
+                                       bndr' = bndr
+                                               `setVarUsages` (exprUsageAnnotation con_app)
+                                 ; simplNonRecX env bndr' con_app }
 
 -------------------
 missingAlt :: SimplEnv -> Id -> [InAlt] -> SimplCont
@@ -3184,11 +3199,12 @@ mkDupableCont env (StrictBind { sc_bndr = bndr, sc_bndrs = bndrs
 
        ; let join_body = wrapFloats floats1 join_inner
              res_ty    = contResultType cont
+             body_ua   = exprUsageAnnotation join_body
 
        ; (floats2, body2)
             <- if exprIsDupable (seDynFlags env) join_body
                then return (emptyFloats env, join_body)
-               else do { join_bndr <- newJoinId [bndr'] res_ty
+               else do { join_bndr <- newJoinId [bndr'] body_ua res_ty
                        ; let join_call = App (Var join_bndr) (Var bndr')
                              join_rhs  = Lam (setOneShotLambda bndr') join_body
                              join_bind = NonRec join_bndr join_rhs
@@ -3294,6 +3310,7 @@ mkDupableAlt dflags case_bndr jfloats (con, bndrs', rhs')
 
   | otherwise
   = do  { let rhs_ty'  = exprType rhs'
+              rhs_ua'  = exprUsageAnnotation rhs'
               scrut_ty = idType case_bndr
               case_bndr_w_unf
                 = case con of
@@ -3330,7 +3347,7 @@ mkDupableAlt dflags case_bndr jfloats (con, bndrs', rhs')
                          | otherwise = v
               join_rhs   = mkLams really_final_bndrs rhs'
 
-        ; join_bndr <- newJoinId final_bndrs' rhs_ty'
+        ; join_bndr <- newJoinId final_bndrs' rhs_ua' rhs_ty'
 
         ; let join_call = mkApps (Var join_bndr) final_args
               alt'      = (con, bndrs', join_call)

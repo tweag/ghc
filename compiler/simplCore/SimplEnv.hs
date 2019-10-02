@@ -51,6 +51,7 @@ import SimplMonad
 import CoreMonad                ( SimplMode(..) )
 import CoreSyn
 import CoreUtils
+import Name ( nameUnique )
 import Var
 import VarEnv
 import VarSet
@@ -62,6 +63,7 @@ import TysWiredIn
 import qualified Type
 import Type hiding              ( substTy, substTyVar, substTyVarBndr )
 import Multiplicity
+import UsageEnv
 import qualified Coercion
 import Coercion hiding          ( substCo, substCoVar, substCoVarBndr )
 import BasicTypes
@@ -491,9 +493,11 @@ emptyJoinFloats = nilOL
 
 unitLetFloat :: OutBind -> LetFloats
 -- This key function constructs a singleton float with the right form
-unitLetFloat bind = ASSERT(all (not . isJoinId) (bindersOf bind))
+unitLetFloat bind0 = ASSERT(all (not . isJoinId) (bindersOf bind))
                     LetFloats (unitOL bind) (flag bind)
   where
+    bind = fix_float bind0
+
     flag (Rec {})                = FltLifted
     flag (NonRec bndr rhs)
       | not (isStrictId bndr)    = FltLifted
@@ -514,9 +518,11 @@ mkFloatBind :: SimplEnv -> OutBind -> (SimplFloats, SimplEnv)
 -- extend the incoming SimplEnv's in-scope set with its binders
 -- These binders may already be in the in-scope set,
 -- but may have by now been augmented with more IdInfo
-mkFloatBind env bind
+mkFloatBind env bind0
   = (floats, env { seInScope = in_scope' })
   where
+    bind = fix_float bind0
+
     floats
       | isJoinBind bind
       = SimplFloats { sfLetFloats  = emptyLetFloats
@@ -534,7 +540,7 @@ extendFloats :: SimplFloats -> OutBind -> SimplFloats
 extendFloats (SimplFloats { sfLetFloats  = floats
                           , sfJoinFloats = jfloats
                           , sfInScope    = in_scope })
-             bind
+             bind0
   | isJoinBind bind
   = SimplFloats { sfInScope    = in_scope'
                 , sfLetFloats  = floats
@@ -544,9 +550,18 @@ extendFloats (SimplFloats { sfLetFloats  = floats
                 , sfLetFloats  = floats'
                 , sfJoinFloats = jfloats }
   where
+    bind = fix_float bind0
     in_scope' = in_scope `extendInScopeSetBind` bind
     floats'   = floats  `addLetFlts`  unitLetFloat bind
     jfloats'  = jfloats `addJoinFlts` unitJoinFloat bind
+
+-- In order to ensure that all toplevel values have varMult Omega, we force all
+-- the floats to have varMultOmega
+fix_float :: OutBind -> OutBind
+fix_float bind = case bind of
+    NonRec id rhs -> NonRec (fix_bnd id) rhs
+    Rec binds -> Rec $ map (\(id, rhs) -> (fix_bnd id, rhs)) binds
+  where fix_bnd id = setVarMult id Omega
 
 addLetFloats :: SimplFloats -> LetFloats -> SimplFloats
 -- Add the let-floats for env2 to env1;
@@ -828,7 +843,17 @@ substNonCoVarIdBndr new_res_ty
            | otherwise
            = id2
 
-    new_id = zapFragileIdInfo id3       -- Zaps rules, worker-info, unfolding
+    notUnrestricted n = case lookupInScope_Directly in_scope (nameUnique n) of
+      Just v | Just Omega <- varMultMaybe v -> False
+      _ -> True
+
+    id4 =
+      updateVarUsages
+        ( filterUA notUnrestricted -- See Note [Keeping track of omega-bound variables] in CoreUtils
+          . substUA (fmap simpl_sr_usage_env id_subst) )
+        id3
+
+    new_id = zapFragileIdInfo id4       -- Zaps rules, worker-info, unfolding
                                         -- and fragile OccInfo
 
         -- Extend the substitution if the unique has changed,
@@ -838,6 +863,16 @@ substNonCoVarIdBndr new_res_ty
               = extendVarEnv id_subst old_id (DoneId new_id)
               | otherwise
               = delVarEnv id_subst old_id
+
+simpl_sr_usage_env :: SimplSR -> UsageEnv
+simpl_sr_usage_env (DoneEx rhs _) = exprUsageEnv rhs
+simpl_sr_usage_env (DoneId id) = unitUE id One
+simpl_sr_usage_env (ContEx tv cv id e) =
+  substUE (fmap simpl_sr_usage_env id)
+    $ mapUE (Type.substTyUnchecked subst)
+    $ exprUsageEnv e
+  where
+    subst = TCvSubst emptyInScopeSet tv cv
 
 ------------------------------------
 seqTyVar :: TyVar -> ()
@@ -938,7 +973,8 @@ substIdType (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv
                 -- because we cache the free tyvars of the type
                 -- in a Note in the id's type itself
   where
-    no_free_vars = noFreeVarsOfType old_ty && noFreeVarsOfType old_w
+    no_free_vars = noFreeVarsOfType old_ty && noFreeVarsOfType old_w && nullUA old_ua
     subst = TCvSubst in_scope tv_env cv_env
     old_ty = idType id
     old_w  = varMult id
+    old_ua = varUsages id

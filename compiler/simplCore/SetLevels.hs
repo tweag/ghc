@@ -78,6 +78,7 @@ import GhcPrelude
 import CoreSyn
 import CoreMonad        ( FloatOutSwitches(..) )
 import CoreUtils        ( exprType, exprIsHNF
+                        , exprUsageAnnotation
                         , exprOkForSpeculation
                         , exprIsTopLevelBindable
                         , isExprLevPoly
@@ -1657,7 +1658,7 @@ newPolyBndrs dest_lvl
 
     mk_poly_bndr bndr uniq = transferPolyIdInfo bndr abs_vars $         -- Note [transferPolyIdInfo] in Id.hs
                              transfer_join_info bndr $
-                             mkSysLocalOrCoVar (mkFastString str) uniq (idMult bndr) poly_ty
+                             mkSysLocalOrCoVar (mkFastString str) uniq (idMult bndr) (varUsages bndr) poly_ty
                            where
                              str     = "poly_" ++ occNameString (getOccName bndr)
                              poly_ty = mkLamTypes abs_vars (CoreSubst.substTy subst (idType bndr))
@@ -1685,6 +1686,7 @@ newLvlVar lvld_rhs join_arity_maybe is_mk_static
     add_join_info var = var `asJoinId_maybe` join_arity_maybe
     de_tagged_rhs = deTagExpr lvld_rhs
     rhs_ty        = exprType de_tagged_rhs
+    rhs_ua        = exprUsageAnnotation de_tagged_rhs
 
     mk_id uniq rhs_ty
       -- See Note [Grand plan for static forms] in StaticPtrTable.
@@ -1692,7 +1694,7 @@ newLvlVar lvld_rhs join_arity_maybe is_mk_static
       = mkExportedVanillaId (mkSystemVarName uniq (mkFastString "static_ptr"))
                             rhs_ty
       | otherwise
-      = mkSysLocalOrCoVar (mkFastString "lvl") uniq Omega rhs_ty
+      = mkSysLocalOrCoVar (mkFastString "lvl") uniq Omega rhs_ua rhs_ty
 
 cloneCaseBndrs :: LevelEnv -> Level -> [Var] -> LvlM (LevelEnv, [Var])
 cloneCaseBndrs env@(LE { le_subst = subst, le_lvl_env = lvl_env, le_env = id_env })

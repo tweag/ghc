@@ -41,6 +41,7 @@ import Panic (throwGhcExceptionIO, GhcException (..))
 import BasicTypes          ( IntWithInf, treatZeroAsInf, mkIntWithInf )
 import Control.Monad       ( ap )
 import Multiplicity        ( pattern Omega )
+import UsageEnv
 
 {-
 ************************************************************************
@@ -179,14 +180,15 @@ getSimplRules = SM (\st_env us sc -> return (st_rules st_env, us, sc))
 getFamEnvs :: SimplM (FamInstEnv, FamInstEnv)
 getFamEnvs = SM (\st_env us sc -> return (st_fams st_env, us, sc))
 
-newId :: FastString -> Mult -> Type -> SimplM Id
-newId fs w ty = do uniq <- getUniqueM
-                   return (mkSysLocalOrCoVar fs uniq w ty)
+newId :: FastString -> Mult -> UsageAnnotation -> Type -> SimplM Id
+newId fs w ue ty = do uniq <- getUniqueM
+                      return (mkSysLocalOrCoVar fs uniq w ue ty)
 
-newJoinId :: [Var] -> Type -> SimplM Id
-newJoinId bndrs body_ty
+newJoinId :: [Var] -> UsageAnnotation -> Type -> SimplM Id
+newJoinId bndrs body_ua body_ty
   = do { uniq <- getUniqueM
        ; let name       = mkSystemVarName uniq (fsLit "$j")
+             rhs_ua     = deleteUAs body_ua bndrs
              join_id_ty = mkLamTypes bndrs body_ty  -- Note [Funky mkLamTypes]
              -- Note [idArity for join points] in SimplUtils
              arity      = length (filter isId bndrs)
@@ -195,7 +197,7 @@ newJoinId bndrs body_ty
              id_info    = vanillaIdInfo `setArityInfo` arity
 --                                        `setOccInfo` strongLoopBreaker
 
-       ; return (mkLocalVar details name Omega join_id_ty id_info) }
+       ; return (mkLocalVar details name Omega rhs_ua join_id_ty id_info) }
 
 {-
 ************************************************************************

@@ -40,6 +40,7 @@ import TcEnv( tcLookupId )
 import TcEvidence( HsWrapper, (<.>) )
 import Type( mkTyVarBinders )
 import Multiplicity
+import UsageEnv
 
 import DynFlags
 import Var      ( TyVar, tyVarKind )
@@ -224,7 +225,7 @@ tcUserTypeSig loc hs_sig_ty mb_name
   = do { sigma_ty <- tcHsSigWcType ctxt_F hs_sig_ty
        ; traceTc "tcuser" (ppr sigma_ty)
        ; return $
-         CompleteSig { sig_bndr  = mkLocalId name Omega sigma_ty
+         CompleteSig { sig_bndr  = mkLocalId name Omega zeroUA sigma_ty
                                    -- We use `Omega' as the multiplicity here,
                                    -- as if this identifier corresponds to
                                    -- anything, it is a top-level

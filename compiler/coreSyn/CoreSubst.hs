@@ -53,6 +53,7 @@ import Coercion hiding ( substCo, substCoVarBndr )
 import PrelNames
 import VarSet
 import VarEnv
+import UsageEnv
 import Id
 import Name     ( Name )
 import Var
@@ -481,11 +482,17 @@ substIdBndr _doc rec_subst subst@(Subst in_scope env tvs cvs) old_id
     no_type_change = (isEmptyVarEnv tvs && isEmptyVarEnv cvs) ||
                      (noFreeVarsOfType old_ty && noFreeVarsOfType old_w)
 
+    id3 = updateVarUsages (substUA (fmap exprUsageEnv env)) id2
+        -- In the definition of id3, we exploit the lazyness of UniqFM so that
+        -- `exprUsageEnv` is only computed when a substitution is indeed
+        -- performed. In particular, all the variables which don't occur in the
+        -- usage annotation won't see their usages computed.
+
         -- new_id has the right IdInfo
         -- The lazy-set is because we're in a loop here, with
         -- rec_subst, when dealing with a mutually-recursive group
-    new_id = maybeModifyIdInfo mb_new_info id2
-    mb_new_info = substIdInfo rec_subst id2 (idInfo id2)
+    new_id = maybeModifyIdInfo mb_new_info id3
+    mb_new_info = substIdInfo rec_subst id3 (idInfo id3)
         -- NB: unfolding info may be zapped
 
         -- Extend the substitution if the unique has changed

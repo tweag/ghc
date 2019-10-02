@@ -51,6 +51,7 @@ import CoreFVs
 import FastString
 import Type
 import Multiplicity ( pattern Omega )
+import UsageEnv
 import Util( mapSnd )
 
 import Data.Bifunctor
@@ -261,21 +262,22 @@ exitifyRec in_scope pairs
 --  * the free variables of the whole joinrec
 --  * any bound variables (captured)
 --  * any exit join points created so far.
-mkExitJoinId :: InScopeSet -> Type -> JoinArity -> ExitifyM JoinId
-mkExitJoinId in_scope ty join_arity = do
+mkExitJoinId :: InScopeSet -> UsageAnnotation -> Type -> JoinArity -> ExitifyM JoinId
+mkExitJoinId in_scope ua ty join_arity = do
     fs <- get
     let avoid = in_scope `extendInScopeSetList` (map fst fs)
                          `extendInScopeSet` exit_id_tmpl -- just cosmetics
     return (uniqAway avoid exit_id_tmpl)
   where
-    exit_id_tmpl = mkSysLocal (fsLit "exit") initExitJoinUnique Omega ty
+    exit_id_tmpl = mkSysLocal (fsLit "exit") initExitJoinUnique Omega ua ty
                     `asJoinId` join_arity
 
 addExit :: InScopeSet -> JoinArity -> CoreExpr -> ExitifyM JoinId
 addExit in_scope join_arity rhs = do
     -- Pick a suitable name
     let ty = exprType rhs
-    v <- mkExitJoinId in_scope ty join_arity
+    let ua = exprUsageAnnotation rhs
+    v <- mkExitJoinId in_scope ua ty join_arity
     fs <- get
     put ((v,rhs):fs)
     return v

@@ -31,6 +31,7 @@ import Var
 import Name
 import RdrName
 import Multiplicity
+import UsageEnv
 import TcEnv
 import TcMType
 import TcValidity( arityErr )
@@ -213,7 +214,7 @@ tcPatBndr _ bndr_name pat_ty
   = do { let pat_mult = scaledMult pat_ty
        ; pat_ty <- expTypeToType (scaledThing pat_ty)
        ; traceTc "tcPatBndr(not let)" (ppr bndr_name $$ ppr pat_ty)
-       ; return (idHsWrapper, mkLocalId bndr_name pat_mult pat_ty) }
+       ; return (idHsWrapper, mkLocalId bndr_name pat_mult zeroUA pat_ty) }
                -- Whether or not there is a sig is irrelevant,
                -- as this is local
 
@@ -230,9 +231,9 @@ newLetBndr :: LetBndrSpec -> Name -> Mult -> TcType -> TcM TcId
 --    and we use the original name directly
 newLetBndr LetLclBndr name w ty
   = do { mono_name <- cloneLocalName name
-       ; return (mkLocalId mono_name w ty) }
+       ; return (mkLocalId mono_name w zeroUA ty) }
 newLetBndr (LetGblBndr prags) name w ty
-  = addInlinePrags (mkLocalId name w ty) (lookupPragEnv prags name)
+  = addInlinePrags (mkLocalId name w zeroUA ty) (lookupPragEnv prags name)
 
 tcSubTypePat :: PatEnv -> ExpSigmaType -> TcSigmaType -> TcM HsWrapper
 -- tcSubTypeET with the UserTypeCtxt specialised to GenSigCtxt

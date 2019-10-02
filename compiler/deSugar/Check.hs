@@ -55,6 +55,7 @@ import Var           (EvVar)
 import TyCoRep
 import Type
 import Multiplicity
+import UsageEnv
 import UniqSupply
 import DsUtils       (isTrueLHsExpr)
 import qualified GHC.LanguageExtensions as LangExt
@@ -1699,7 +1700,7 @@ mkPmId :: Type -> DsM Id
 mkPmId ty = getUniqueM >>= \unique ->
   let occname = mkVarOccFS $ fsLit "$pm"
       name    = mkInternalName unique occname noSrcSpan
-  in  return (mkLocalId name Omega ty)
+  in  return (mkLocalId name Omega zeroUA ty)
 
 -- | Generate a fresh term variable of a given and return it in two forms:
 -- * A variable pattern
@@ -1865,7 +1866,7 @@ the scrutinee type, SBool z.
 -- * Types and constraints
 
 newEvVar :: Name -> Type -> EvVar
-newEvVar name ty = mkLocalId name Omega ty
+newEvVar name ty = mkLocalId name Omega zeroUA ty
 
 nameType :: String -> Type -> DsM EvVar
 nameType name ty = do

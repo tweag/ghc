@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | This module implements interface renaming, which is
 -- used to rewrite interface files on the fly when we
@@ -661,8 +662,11 @@ rnIfaceConAlt (IfaceDataAlt data_occ) = IfaceDataAlt <$> rnIfaceGlobal data_occ
 rnIfaceConAlt alt = pure alt
 
 rnIfaceLetBndr :: Rename IfaceLetBndr
-rnIfaceLetBndr (IfLetBndr fs ty info jpi)
-    = IfLetBndr fs <$> rnIfaceType ty <*> rnIfaceIdInfo info <*> pure jpi
+rnIfaceLetBndr (IfLetBndr fs uann ty info jpi)
+    = IfLetBndr fs <$> rnIfaceUAnn uann <*> rnIfaceType ty <*> rnIfaceIdInfo info <*> pure jpi
+
+rnIfaceUAnn :: Rename IfaceUsageAnn
+rnIfaceUAnn (anns, b) = (, b) <$> traverse (\(n,w) -> (n,) <$> rnIfaceType w) anns
 
 rnIfaceLamBndr :: Rename IfaceLamBndr
 rnIfaceLamBndr (bndr, oneshot) = (,) <$> rnIfaceBndr bndr <*> pure oneshot

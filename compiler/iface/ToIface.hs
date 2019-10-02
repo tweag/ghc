@@ -61,6 +61,7 @@ import Name
 import BasicTypes
 import Type
 import Multiplicity
+import UsageEnv
 import PatSyn
 import Outputable
 import FastString
@@ -394,11 +395,17 @@ toIfaceSrcBang (HsSrcBang _ unpk bang) = IfSrcBang unpk bang
 
 toIfaceLetBndr :: Id -> IfaceLetBndr
 toIfaceLetBndr id  = IfLetBndr (occNameFS (getOccName id))
+                               (toIfaceUAnn (varUsages id))
                                (toIfaceType (idType id))
                                (toIfaceIdInfo (idInfo id))
                                (toIfaceJoinInfo (isJoinId_maybe id))
   -- Put into the interface file any IdInfo that CoreTidy.tidyLetBndr
   -- has left on the Id.  See Note [IdInfo on nested let-bindings] in IfaceSyn
+
+toIfaceUAnn :: UsageAnnotation -> IfaceUsageAnn
+toIfaceUAnn anns = (map (\(n,w) -> (occNameFS (getOccName n), toIfaceType w)) nws, b)
+  where
+    (nws, b) = toListUA anns
 
 toIfaceIdDetails :: IdDetails -> IfaceIdDetails
 toIfaceIdDetails VanillaId                      = IfVanillaId

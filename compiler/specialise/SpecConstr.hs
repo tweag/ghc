@@ -36,6 +36,7 @@ import Rules
 import Type             hiding ( substTy )
 import TyCon            ( tyConName )
 import Multiplicity
+import UsageEnv
 import Id
 import PprCore          ( pprParendExpr )
 import MkCore           ( mkImpossibleExpr )
@@ -963,7 +964,8 @@ extendCaseBndrs env scrut case_bndr con alt_bndrs
    = (env2, alt_bndrs')
  where
    live_case_bndr = not (isDeadBinder case_bndr)
-   env1 | Var v <- stripTicksTopE (const True) scrut
+   env1 | Omega <- idMult case_bndr -- See Note [Suppressing binder-swaps on linear case] in OccurAnal
+        , Var v <- stripTicksTopE (const True) scrut
                          = extendValEnv env v cval
         | otherwise      = env  -- See Note [Add scrutinee to ValueEnv too]
    env2 | live_case_bndr = extendValEnv env1 case_bndr cval
@@ -1721,7 +1723,7 @@ spec_one env fn arg_bndrs body (call_pat@(qvars, pats), rule_number)
 
               spec_join_arity | isJoinId fn = Just (length spec_lam_args)
                               | otherwise   = Nothing
-              spec_id    = mkLocalIdOrCoVar spec_name Omega
+              spec_id    = mkLocalIdOrCoVar spec_name Omega (exprUsageAnnotation spec_rhs)
                                             (mkLamTypes spec_lam_args body_ty)
                              -- See Note [Transfer strictness]
                              `setIdStrictness` spec_str
@@ -2260,7 +2262,7 @@ argToPat _env _in_scope _val_env arg _arg_occ
 wildCardPat :: Type -> UniqSM (Bool, CoreArg)
 wildCardPat ty
   = do { uniq <- getUniqueM
-       ; let id = mkSysLocalOrCoVar (fsLit "sc") uniq Omega ty
+       ; let id = mkSysLocalOrCoVar (fsLit "sc") uniq Omega zeroUA ty
        ; return (False, varToCoreExpr id) }
 
 argsToPats :: ScEnv -> InScopeSet -> ValueEnv

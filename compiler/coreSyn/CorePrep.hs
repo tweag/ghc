@@ -32,6 +32,7 @@ import CoreSubst
 import MkCore hiding( FloatBind(..) )   -- We use our own FloatBind here
 import Type
 import Multiplicity
+import UsageEnv
 import Literal
 import Coercion
 import TcEnv
@@ -57,6 +58,7 @@ import Outputable
 import GHC.Platform
 import FastString
 import Name             ( NamedThing(..), nameSrcSpan )
+import NameEnv
 import SrcLoc           ( SrcSpan(..), realSrcLocSpan, mkRealSrcLoc )
 import Data.Bits
 import MonadUtils       ( mapAccumLM )
@@ -493,7 +495,7 @@ cpePair top_lvl is_rec dmd is_unlifted env bndr rhs
                then return (floats2, cpeEtaExpand arity rhs2)
                else WARN(True, text "CorePrep: silly extra arguments:" <+> ppr bndr)
                                -- Note [Silly extra arguments]
-                    (do { v <- newVar (idType bndr)
+                    (do { v <- newVar (idType bndr) (varUsages bndr)
                         ; let float = mkFloat topDmd False v rhs2
                         ; return ( addFloat floats2 float
                                  , cpeEtaExpand arity (Var v)) })
@@ -767,7 +769,7 @@ rhsToBody expr@(Lam {})
   | all isTyVar bndrs           -- Type lambdas are ok
   = return (emptyFloats, expr)
   | otherwise                   -- Some value lambdas
-  = do { fn <- newVar (exprType expr)
+  = do { fn <- newVar (exprType expr) (exprUsageAnnotation expr)
        ; let rhs   = cpeEtaExpand (exprArity expr) expr
              float = FloatLet (NonRec fn rhs)
        ; return (unitFloat float, Var fn) }
@@ -1035,7 +1037,7 @@ cpeArg env dmd arg arg_ty
                 --            put them inside a wrapBinds
 
        ; if okCpeArg arg2
-         then do { v <- newVar arg_ty
+         then do { v <- newVar arg_ty (cpExprUsageAnnotation env arg)
                  ; let arg3      = cpeEtaExpand (exprArity arg2) arg2
                        arg_float = mkFloat dmd is_unlifted v arg3
                  ; return (addFloat floats2 arg_float, varToCoreExpr v) }
@@ -1484,6 +1486,12 @@ data CorePrepEnv
         --      3. To let us inline trivial RHSs of non top-level let-bindings,
         --      see Note [lazyId magic], Note [Inlining in CorePrep]
         --      and Note [CorePrep inlines trivial CoreExpr not Id] (#12076)
+        , cpe_usage_subst         :: UsageSubst
+        -- ^ This substitution mimics cpe_env, but is applied on usage
+        -- annotations. Think about cloning: we are changing x to some fresh
+        -- variable x', but in `letrec y = … x … in`, y has x in its
+        -- annotation. Not x'. So we need to substitute in the usage annotation
+        -- of `y`.
         , cpe_mkIntegerId     :: Id
         , cpe_mkNaturalId     :: Id
         , cpe_integerSDataCon :: Maybe DataCon
@@ -1545,6 +1553,7 @@ mkInitialCorePrepEnv dflags hsc_env
          return $ CPE {
                       cpe_dynFlags = dflags,
                       cpe_env = emptyVarEnv,
+                      cpe_usage_subst = emptyNameEnv,
                       cpe_mkIntegerId = mkIntegerId,
                       cpe_mkNaturalId = mkNaturalId,
                       cpe_integerSDataCon = integerSDataCon,
@@ -1553,16 +1562,23 @@ mkInitialCorePrepEnv dflags hsc_env
 
 extendCorePrepEnv :: CorePrepEnv -> Id -> Id -> CorePrepEnv
 extendCorePrepEnv cpe id id'
-    = cpe { cpe_env = extendVarEnv (cpe_env cpe) id (Var id') }
+    = cpe { cpe_env = extendVarEnv (cpe_env cpe) id (Var id')
+          , cpe_usage_subst = extendNameEnv (cpe_usage_subst cpe) (getName id) (unitUE id' One)
+          }
 
 extendCorePrepEnvExpr :: CorePrepEnv -> Id -> CoreExpr -> CorePrepEnv
 extendCorePrepEnvExpr cpe id expr
-    = cpe { cpe_env = extendVarEnv (cpe_env cpe) id expr }
+    = cpe { cpe_env = extendVarEnv (cpe_env cpe) id expr
+          , cpe_usage_subst = extendNameEnv (cpe_usage_subst cpe) (getName id) (exprUsageEnv expr)
+          }
 
 extendCorePrepEnvList :: CorePrepEnv -> [(Id,Id)] -> CorePrepEnv
 extendCorePrepEnvList cpe prs
     = cpe { cpe_env = extendVarEnvList (cpe_env cpe)
-                        (map (\(id, id') -> (id, Var id')) prs) }
+                        (map (\(id, id') -> (id, Var id')) prs)
+          , cpe_usage_subst = extendNameEnvList (cpe_usage_subst cpe)
+                                (map (\(id, id') -> (getName id, (unitUE id' One))) prs)
+          }
 
 lookupCorePrepEnv :: CorePrepEnv -> Id -> CoreExpr
 lookupCorePrepEnv cpe id
@@ -1575,6 +1591,10 @@ getMkIntegerId = cpe_mkIntegerId
 
 getMkNaturalId :: CorePrepEnv -> Id
 getMkNaturalId = cpe_mkNaturalId
+
+cpExprUsageAnnotation :: CorePrepEnv -> CoreExpr -> UsageAnnotation
+cpExprUsageAnnotation env e = mkUA $
+  substUE (cpe_usage_subst env) (exprUsageEnv e)
 
 ------------------------------------------------------------------------------
 -- Cloning binders
@@ -1600,7 +1620,9 @@ cpCloneBndr env bndr
              bndr'' = bndr' `setIdUnfolding`      unfolding'
                             `setIdSpecialisation` emptyRuleInfo
 
-       ; return (extendCorePrepEnv env bndr bndr'', bndr'') }
+             bndr''' = updateVarUsages (substUA (cpe_usage_subst env)) bndr''
+
+       ; return (extendCorePrepEnv env bndr bndr''', bndr''') }
   where
     clone_it bndr
       | isLocalId bndr, not (isCoVar bndr)
@@ -1643,11 +1665,11 @@ fiddleCCall id
 -- Generating new binders
 -- ---------------------------------------------------------------------------
 
-newVar :: Type -> UniqSM Id
-newVar ty
+newVar :: Type -> UsageAnnotation -> UniqSM Id
+newVar ty usages
  = seqType ty `seq` do
      uniq <- getUniqueM
-     return (mkSysLocalOrCoVar (fsLit "sat") uniq Omega ty)
+     return (mkSysLocalOrCoVar (fsLit "sat") uniq Omega usages ty)
 
 
 ------------------------------------------------------------------------------

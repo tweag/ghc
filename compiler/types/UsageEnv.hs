@@ -1,13 +1,23 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
-module UsageEnv (UsageEnv, addUsage, scaleUsage, zeroUE,
-                 lookupUE, scaleUE, deleteUE, addUE, Usage(..), unitUE,
-                 supUE, supUEs) where
+module UsageEnv (UsageEnv, mapUE, addUsage, scaleUsage, zeroUE,
+                 lookupUE, scaleUE, deleteUE, deleteUEs, addUE, addUEs, Usage(..), unitUE,
+                 supUE, supUEs, substUE,
+                 UsageAnnotation, filterUA, mapUA, traverseUA, zeroUA, addUA, scaleUA, interpUA, mkUA,
+                 deleteUAs,
+                 toListUA, fromListUA, substUA, nullUA,
+                 compatibleUA,
+                 UsageSubst) where
 
 import Data.Foldable
+import Data.Maybe
 import GhcPrelude
+
+import {-# SOURCE #-} TyCoRep (Type)
 import Multiplicity
 import Name
 import NameEnv
+import UniqFM
 import Outputable
 
 --
@@ -52,10 +62,15 @@ scaleUsage x   (MUsage y) = MUsage $ mkMultMul x y
 -- If the boolean flag is True, then the usage environment
 -- is the sum of NameEnv Mult and arbitrary multiplicities,
 -- as in empty case.
-data UsageEnv = UsageEnv (NameEnv Mult) Bool
+data UsageEnv = UsageEnv (NameEnv (Name, Mult)) Bool
+
+mapUE :: (Type -> Type) -> UsageEnv -> UsageEnv
+mapUE f (UsageEnv env b) = UsageEnv (fmap (fmap f) env) b
 
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
-unitUE x w = UsageEnv (unitNameEnv (getName x) w) False
+unitUE x w = UsageEnv (unitNameEnv n (n, w)) False
+  where
+    n = getName x
 
 zeroUE, bottomUE :: UsageEnv
 zeroUE = UsageEnv emptyNameEnv False
@@ -64,22 +79,25 @@ bottomUE = UsageEnv emptyNameEnv True
 
 addUE :: UsageEnv -> UsageEnv -> UsageEnv
 addUE (UsageEnv e1 b1) (UsageEnv e2 b2) =
-  UsageEnv (plusNameEnv_C mkMultAdd e1 e2) (b1 || b2)
+    UsageEnv (plusNameEnv_C add e1 e2) (b1 || b2)
+  where
+    add (n,w) (_,w') = (n, mkMultAdd w w')
+
+addUEs :: [UsageEnv] -> UsageEnv
+addUEs = foldr addUE zeroUE
 
 scaleUE :: Mult -> UsageEnv -> UsageEnv
 scaleUE One ue = ue
 scaleUE w (UsageEnv e _) =
-  UsageEnv (mapNameEnv (mkMultMul w) e) False
+  UsageEnv (mapNameEnv (fmap (mkMultMul w)) e) False
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
-supUE (UsageEnv e1 False) (UsageEnv e2 False) =
-  UsageEnv (plusNameEnv_CD mkMultSup e1 Omega e2 Omega) False
 supUE (UsageEnv e1 b1) (UsageEnv e2 b2) = UsageEnv (plusNameEnv_CD2 combineUsage e1 e2) (b1 && b2)
-   where combineUsage (Just x) (Just y) = mkMultSup x y
-         combineUsage Nothing  (Just x) | b1        = x
-                                        | otherwise = Omega
-         combineUsage (Just x) Nothing  | b2        = x
-                                        | otherwise = Omega
+   where combineUsage (Just (n,x)) (Just (_,y)) = (n, mkMultSup x y)
+         combineUsage Nothing  (Just (n,x)) | b1        = (n, x)
+                                            | otherwise = (n, Omega)
+         combineUsage (Just (n, x)) Nothing  | b2        = (n, x)
+                                             | otherwise = (n, Omega)
          combineUsage Nothing  Nothing  = pprPanic "supUE" (ppr e1 <+> ppr e2)
 -- Note: If you are changing this logic, check 'mkMultSup' in Multiplicity as well.
 
@@ -90,13 +108,113 @@ supUEs = foldr supUE bottomUE
 deleteUE :: NamedThing n => UsageEnv -> n -> UsageEnv
 deleteUE (UsageEnv e b) x = UsageEnv (delFromNameEnv e (getName x)) b
 
+deleteUEs :: NamedThing n => UsageEnv -> [n] -> UsageEnv
+deleteUEs = foldl deleteUE
+
 -- | |lookupUE x env| returns the multiplicity assigned to |x| in |env|, if |x| is not
 -- bound in |env|, then returns |Zero| or |Bottom|.
 lookupUE :: NamedThing n => UsageEnv -> n -> Usage
 lookupUE (UsageEnv e has_bottom) x =
   case lookupNameEnv e (getName x) of
-    Just w  -> MUsage w
+    Just (_, w)  -> MUsage w
     Nothing -> if has_bottom then Bottom else Zero
 
 instance Outputable UsageEnv where
   ppr (UsageEnv ne b) = text "UsageEnv:" <+> ppr ne <+> ppr b
+
+--
+-- * Usage annotation
+--
+
+-- See Note [Multiplicity of let binders] in Var
+
+data UsageAnnotation = Ann [(Name, Mult)] Bool
+
+instance Outputable UsageAnnotation where
+  ppr (Ann anns b) = text "Usage anns:" <+> ppr anns <+> ppr b
+
+filterUA :: (Name -> Bool) -> UsageAnnotation -> UsageAnnotation
+filterUA p (Ann us b) =
+  Ann (filter (p . fst) us) b
+
+mapUA :: (Type -> Type) -> UsageAnnotation -> UsageAnnotation
+mapUA f (Ann us b) =
+  Ann
+    (map (fmap f) us)
+    b
+
+traverseUA :: Applicative f => (Type -> f Type) -> UsageAnnotation -> f UsageAnnotation
+traverseUA f (Ann us b) =
+  Ann
+    <$> (traverse (traverse f) us)
+    <*> pure b
+
+-- | If the usage annotation is trivial, then there is no need to substitute in
+-- it. It's a very quick test.
+nullUA :: UsageAnnotation -> Bool
+nullUA (Ann ua _) = null ua
+
+-- | @compatibleUA ann computed@ checks that all the multiplicities in
+-- @computed@ are submultiplicities of the corresponding multiplicity in @ann@.
+compatibleUA :: UsageAnnotation -> UsageAnnotation -> Bool
+compatibleUA (Ann anns_ann b_ann) (Ann anns_computed b_computed) =
+  all (\(n_computed, w_computed) -> compatible (lookup n_computed anns_ann) w_computed)
+      anns_computed
+  && (not b_ann) || b_computed
+  where
+    compatible Nothing _ = False
+    compatible (Just w_ann) w_computed = submult w_computed w_ann == Submult
+
+zeroUA :: UsageAnnotation
+zeroUA = Ann [] False
+
+addUA :: UsageEnv -> UsageAnnotation -> UsageAnnotation
+addUA ue ua = mkUA $ ue `addUE` (interpUA ua)
+
+scaleUA :: Mult -> UsageAnnotation -> UsageAnnotation
+scaleUA w ua = mkUA $ w `scaleUE` (interpUA ua)
+
+deleteUAs :: NamedThing n => UsageAnnotation -> [n] -> UsageAnnotation
+deleteUAs ua ns = mkUA $ (interpUA ua) `deleteUEs` ns
+
+interpUA :: UsageAnnotation -> UsageEnv
+interpUA (Ann us b) =
+  UsageEnv
+    (mkNameEnv (map (\(n,w) -> (n, (n,w))) us))
+    b
+
+-- TODO: make deterministic
+mkUA :: UsageEnv -> UsageAnnotation
+mkUA (UsageEnv vars b) =
+  Ann
+    (nameEnvElts vars)
+    b
+
+toListUA :: UsageAnnotation -> ([(Name, Mult)], Bool)
+toListUA (Ann anns b) = (anns, b)
+
+fromListUA :: ([(Name, Mult)], Bool) -> UsageAnnotation
+fromListUA (anns, b) = Ann anns b
+
+--
+-- * Substitutions
+--
+
+type UsageSubst = NameEnv UsageEnv
+
+subst_in_ue :: UsageSubst -> Name -> UsageEnv
+subst_in_ue subst n =
+  case lookupNameEnv subst n of
+    Just ue -> ue
+    Nothing -> unitUE n One
+
+substUE :: UsageSubst -> UsageEnv ->  UsageEnv
+substUE subst (UsageEnv ue b) = adjust_bottom $ foldl' subst_one zeroUE (NonDetUniqFM ue)
+  where
+    subst_one :: UsageEnv -> (Name, Mult) -> UsageEnv
+    subst_one ue' (n,w) = (w `scaleUE` subst_in_ue subst n) `addUE` ue'
+
+    adjust_bottom (UsageEnv ue' _) = UsageEnv ue' b
+
+substUA :: UsageSubst -> UsageAnnotation -> UsageAnnotation
+substUA subst ua = mkUA (substUE subst (interpUA ua))

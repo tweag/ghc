@@ -44,6 +44,7 @@ import Type
 import Coercion ( eqCoercion )
 import TyCon( isNewTyCon )
 import Multiplicity
+import UsageEnv
 import TysWiredIn
 import SrcLoc
 import Maybes
@@ -262,7 +263,7 @@ matchCoercion :: [MatchId] -> Type -> [EquationInfo] -> DsM MatchResult
 matchCoercion (var:vars) ty (eqns@(eqn1:_))
   = do  { let CoPat _ co pat _ = firstPat eqn1
         ; let pat_ty' = hsPatType pat
-        ; var' <- newUniqueId var (idMult var) pat_ty'
+        ; var' <- newUniqueId var (idMult var) zeroUA pat_ty'
         ; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getCoPat) eqns
         ; core_wrap <- dsHsWrapper co
@@ -279,7 +280,7 @@ matchView (var:vars) ty (eqns@(eqn1:_))
          let ViewPat _ viewExpr (dL->L _ pat) = firstPat eqn1
          -- do the rest of the compilation
         ; let pat_ty' = hsPatType pat
-        ; var' <- newUniqueId var (idMult var) pat_ty'
+        ; var' <- newUniqueId var (idMult var) zeroUA pat_ty'
         ; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getViewPat) eqns
          -- compile the view expressions
@@ -294,7 +295,7 @@ matchOverloadedList (var:vars) ty (eqns@(eqn1:_))
 -- Since overloaded list patterns are treated as view patterns,
 -- the code is roughly the same as for matchView
   = do { let ListPat (ListPatTc elt_ty (Just (_,e))) _ = firstPat eqn1
-       ; var' <- newUniqueId var (idMult var) (mkListTy elt_ty)  -- we construct the overall type by hand
+       ; var' <- newUniqueId var (idMult var) zeroUA (mkListTy elt_ty)  -- we construct the overall type by hand
        ; match_result <- match (var':vars) ty $
                             map (decomposeFirstPat getOLPat) eqns -- getOLPat builds the pattern inside as a non-overloaded version of the overloaded list pattern
        ; e' <- dsSyntaxExpr e [Var var]
@@ -735,7 +736,7 @@ matchWrapper ctxt mb_scr (MG { mg_alts = (dL->L _ matches)
         ; locn   <- getSrcSpanDs
 
         ; new_vars    <- case matches of
-                           []    -> mapM (\(Scaled w ty) -> newSysLocalDsNoLP w ty) arg_tys
+                           []    -> mapM (\(Scaled w ty) -> newSysLocalDsNoLP w zeroUA ty) arg_tys
                            (m:_) ->
                             selectMatchVars (zipWithEqual "matchWrapper"
                                               (\a b -> (scaledMult a, unLoc b))
