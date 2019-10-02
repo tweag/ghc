@@ -23,6 +23,7 @@ import Id
 import IdInfo
 import Demand ( zapUsageEnvSig )
 import Type( tidyType, tidyVarBndr )
+import UsageEnv
 import Coercion( tidyCo )
 import Var
 import VarEnv
@@ -149,8 +150,9 @@ tidyIdBndr env@(tidy_env, var_env) id
         --
         ty'      = tidyType env (idType id)
         mult'    = tidyType env (idMult id)
+        ue'      = mapUA (tidyType env) (varUsages id)
         name'    = mkInternalName (idUnique id) occ' noSrcSpan
-        id'      = mkLocalIdWithInfo name' mult' ty' new_info
+        id'      = mkLocalIdWithInfo name' mult' ue' ty' new_info
         var_env' = extendVarEnv var_env id id'
 
         -- Note [Tidy IdInfo]
@@ -175,9 +177,10 @@ tidyLetBndr rec_tidy_env env@(tidy_env, var_env) (id,rhs)
     let
         ty'      = tidyType env (idType id)
         mult'    = tidyType env (idMult id)
+        ue'      = mapUA (tidyType env) (varUsages id)
         name'    = mkInternalName (idUnique id) occ' noSrcSpan
         details  = idDetails id
-        id'      = mkLocalVar details name' mult' ty' new_info
+        id'      = mkLocalVar details name' mult' ue' ty' new_info
         var_env' = extendVarEnv var_env id id'
 
         -- Note [Tidy IdInfo]

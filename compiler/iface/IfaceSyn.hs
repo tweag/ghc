@@ -21,6 +21,7 @@ module IfaceSyn (
         IfaceAxBranch(..),
         IfaceTyConParent(..),
         IfaceCompleteMatch(..),
+        IfaceUsageAnn,
 
         -- * Binding names
         IfaceTopBndr,
@@ -518,11 +519,12 @@ data IfaceBinding
 -- IfaceLetBndr is like IfaceIdBndr, but has IdInfo too
 -- It's used for *non-top-level* let/rec binders
 -- See Note [IdInfo on nested let-bindings]
-data IfaceLetBndr = IfLetBndr IfLclName IfaceType IfaceIdInfo IfaceJoinInfo
+data IfaceLetBndr = IfLetBndr IfLclName IfaceUsageAnn IfaceType IfaceIdInfo IfaceJoinInfo
 
 data IfaceJoinInfo = IfaceNotJoinPoint
                    | IfaceJoinPoint JoinArity
 
+type IfaceUsageAnn = ([(IfLclName, IfaceType)], Bool)
 {-
 Note [Empty case alternatives]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1300,7 +1302,7 @@ ppr_con_bs :: IfaceConAlt -> [IfLclName] -> SDoc
 ppr_con_bs con bs = ppr con <+> hsep (map ppr bs)
 
 ppr_bind :: (IfaceLetBndr, IfaceExpr) -> SDoc
-ppr_bind (IfLetBndr b ty info ji, rhs)
+ppr_bind (IfLetBndr b _ ty info ji, rhs)
   = sep [hang (ppr b <+> dcolon <+> ppr ty) 2 (ppr ji <+> ppr info),
          equals <+> pprIfaceExpr noParens rhs]
 
@@ -1589,7 +1591,7 @@ freeNamesIfLetBndr :: IfaceLetBndr -> NameSet
 -- Remember IfaceLetBndr is used only for *nested* bindings
 -- The IdInfo can contain an unfolding (in the case of
 -- local INLINE pragmas), so look there too
-freeNamesIfLetBndr (IfLetBndr _name ty info _ji) = freeNamesIfType ty
+freeNamesIfLetBndr (IfLetBndr _name _ ty info _ji) = freeNamesIfType ty
                                                  &&& freeNamesIfIdInfo info
 
 freeNamesIfTvBndr :: IfaceTvBndr -> NameSet
@@ -2327,16 +2329,18 @@ instance Binary IfaceBinding where
             _ -> do { ac <- get bh; return (IfaceRec ac) }
 
 instance Binary IfaceLetBndr where
-    put_ bh (IfLetBndr a b c d) = do
+    put_ bh (IfLetBndr a b c d e) = do
             put_ bh a
             put_ bh b
             put_ bh c
             put_ bh d
+            put_ bh e
     get bh = do a <- get bh
                 b <- get bh
                 c <- get bh
                 d <- get bh
-                return (IfLetBndr a b c d)
+                e <- get bh
+                return (IfLetBndr a b c d e)
 
 instance Binary IfaceJoinInfo where
     put_ bh IfaceNotJoinPoint = putByte bh 0

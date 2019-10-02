@@ -24,16 +24,18 @@ import GhcPrelude
 import CoreSyn
 import CoreFVs
 import CoreUtils        ( exprIsTrivial, isDefaultAlt, isExpandableApp,
-                          stripTicksTopE, mkTicks )
+                          stripTicksTopE, mkTicks, exprUsageAnnotation )
 import CoreArity        ( joinRhsArity )
 import Id
 import IdInfo
-import Name( localiseName )
+import Name( getName, localiseName )
+import NameEnv
 import BasicTypes
 import Module( Module )
 import Coercion
 import Type
 import Multiplicity
+import UsageEnv
 
 import VarSet
 import VarEnv
@@ -771,7 +773,8 @@ occAnalNonRecBind env lvl imp_rule_edges binder rhs body_usage
   | otherwise                   -- It's mentioned in the body
   = (body_usage' `andUDs` rhs_usage', [NonRec tagged_binder rhs'])
   where
-    (body_usage', tagged_binder) = tagNonRecBinder lvl body_usage binder
+    binder' = updateVarUsages (substUA (occ_usage_subst env)) binder
+    (body_usage', tagged_binder) = tagNonRecBinder lvl body_usage binder'
     mb_join_arity = willBeJoinId_maybe tagged_binder
 
     (bndrs, body) = collectBinders rhs
@@ -1797,8 +1800,9 @@ occAnal env (Case scrut bndr ty alts)
     occ_anal_scrut scrut _alts
         = occAnal (vanillaCtxt env) scrut    -- No need for rhsCtxt
 
-occAnal env (Let bind body)
-  = case occAnal env body                of { (body_usage, body') ->
+occAnal env0 (Let bind body)
+  = let env = gatherAliases env0 bind in
+    case occAnal env body                of { (body_usage, body') ->
     case occAnalBind env NotTopLevel
                      noImpRuleEdges bind
                      body_usage          of { (final_usage, new_binds) ->
@@ -1818,6 +1822,21 @@ occAnalArgs env (arg:args) one_shots
     case occAnal arg_env arg             of { (uds1, arg') ->
     case occAnalArgs env args one_shots' of { (uds2, args') ->
     (uds1 `andUDs` uds2, arg':args') }}}
+
+gatherAliases :: OccEnv -> CoreBind -> OccEnv
+gatherAliases env bind =
+    env { occ_usage_subst =  old_aliases `plusNameEnv` aliases bind }
+  where
+    old_aliases = occ_usage_subst env
+
+    mkAlias :: Id -> UsageEnv
+    mkAlias b = substUE old_aliases (interpUA (varUsages b))
+
+    aliases :: CoreBind -> UsageSubst
+    aliases (NonRec b _) =
+      unitNameEnv (getName b) (mkAlias b)
+    aliases (Rec pairs) = mkNameEnv
+      [ (getName b, mkAlias b) | (b, _) <- pairs ]
 
 {-
 Applications are dealt with specially because we want
@@ -2062,6 +2081,8 @@ data OccEnv
            , occ_rule_act   :: Activation -> Bool   -- Which rules are active
              -- See Note [Finding rule RHS free vars]
 
+           , occ_usage_subst :: UsageSubst
+
            , occ_binder_swap :: !Bool -- enable the binder_swap
              -- See CorePrep Note [Dead code in CorePrep]
     }
@@ -2099,6 +2120,7 @@ initOccEnv
                  -- inlines and rules are active
            , occ_unf_act   = \_ -> True
            , occ_rule_act  = \_ -> True
+           , occ_usage_subst = emptyNameEnv
            , occ_binder_swap = True }
 
 vanillaCtxt :: OccEnv -> OccEnv
@@ -2440,6 +2462,7 @@ mkAltEnv env@(OccEnv { occ_gbl_scrut = pe }) scrut case_bndr
     -- Also we don't want any INLINE or NOINLINE pragmas!
     localise scrut_var = mkLocalIdOrCoVar (localiseName (idName scrut_var))
                                           (idMult scrut_var)
+                                          (exprUsageAnnotation scrut)
                                           (idType scrut_var)
 
 {-

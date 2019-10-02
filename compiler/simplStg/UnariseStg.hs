@@ -219,6 +219,7 @@ import UniqSupply
 import Util
 import VarEnv
 import Multiplicity ( pattern Omega )
+import UsageEnv (zeroUA)
 
 import Data.Bifunctor (second)
 import Data.Maybe (mapMaybe)
@@ -731,7 +732,7 @@ mkIds :: FastString -> [UnaryType] -> UniqSM [Id]
 mkIds fs tys = mapM (mkId fs) tys
 
 mkId :: FastString -> UnaryType -> UniqSM Id
-mkId s t = mkSysLocalOrCoVarM s Omega t
+mkId s t = mkSysLocalOrCoVarM s Omega zeroUA t
 
 isMultiValBndr :: Id -> Bool
 isMultiValBndr id

@@ -43,14 +43,15 @@ module Var (
 
         -- ** Taking 'Var's apart
         varName, varUnique, varType,
-        varMult, varMultMaybe, varMultDef,
+        varMult, varUsages, varMultMaybe, varMultDef,
         varScaledType,
 
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType,
-        scaleVarBy, setVarMult,
+        scaleVarBy, setVarMult, setVarUsages,
         updateVarTypeButNotMult,
         updateVarTypeAndMult, updateVarTypeAndMultM,
+        updateVarUsages,
 
         -- ** Constructing, taking apart, modifying 'Id's
         mkGlobalVar, mkLocalVar, mkExportedLocalVar, mkCoVar,
@@ -99,6 +100,7 @@ import {-# SOURCE #-}   TcType( TcTyVarDetails, pprTcTyVarDetails, vanillaSkolem
 import {-# SOURCE #-}   IdInfo( IdDetails, IdInfo, coVarDetails, isCoVarDetails,
                                 vanillaIdInfo, pprIdDetails )
 import Multiplicity
+import UsageEnv
 
 import Name hiding (varName)
 import Unique ( Uniquable, Unique, getKey, getUnique
@@ -252,6 +254,7 @@ data Var
         realUnique :: {-# UNPACK #-} !Int,
         varType    :: Type,
         varMult    :: Mult,             -- See Note [Multiplicity of let binders]
+        varUsages  :: UsageAnnotation,
         idScope    :: IdScope,
         id_details :: IdDetails,        -- Stable, doesn't change
         id_info    :: IdInfo }          -- Unstable, updated by simplifier
@@ -397,23 +400,39 @@ updateVarTypeButNotMult :: (Type -> Type) -> Id -> Id
 updateVarTypeButNotMult f id = id { varType = f (varType id) }
 
 updateVarTypeAndMult :: (Type -> Type) -> Id -> Id
-updateVarTypeAndMult f id = let id' = id { varType = f (varType id) }
-                            in case varMultMaybe id' of
-                                      Just w -> setVarMult id' (f w)
-                                      Nothing -> id'
+updateVarTypeAndMult f id =
+  let
+    id1 = id { varType = f (varType id) }
+    id2 = case varMultMaybe id1 of
+            Just w -> setVarMult id1 (f w)
+            Nothing -> id1
+    id3 = case varUsagesMaybe id2 of
+            Just ua -> setVarUsages id2 (mapUA f ua)
+            Nothing -> id2
+  in id3
 
 updateVarTypeAndMultM :: Monad m => (Type -> m Type) -> Id -> m Id
-updateVarTypeAndMultM f id = do { ty' <- f (varType id)
-                                ; let id' = setVarType id ty'
-                                ; case varMultMaybe id of
-                                    Just w -> do w' <- f w
-                                                 return $ setVarMult id' w'
-                                    Nothing -> return id'
-                                }
+updateVarTypeAndMultM f id = do
+  { ty' <- f (varType id)
+  ; let id1 = setVarType id ty'
+  ; id2 <- case varMultMaybe id of
+             Just w -> do w' <- f w
+                          return $ setVarMult id1 w'
+             Nothing -> return id1
+  ; id3 <- case varUsagesMaybe id2 of
+             Just ua -> do ua' <- traverseUA f ua
+                           return $ setVarUsages id2 ua'
+             Nothing -> return id2
+  ; return id3
+  }
 
 varMultMaybe :: Id -> Maybe Mult
 varMultMaybe (Id { varMult = mult }) = Just mult
 varMultMaybe _ = Nothing
+
+varUsagesMaybe :: Id -> Maybe UsageAnnotation
+varUsagesMaybe (Id { varUsages = ua }) = Just ua
+varUsagesMaybe _ = Nothing
 
 varMultDef :: Id -> Mult
 varMultDef = fromMaybe Omega . varMultMaybe
@@ -437,6 +456,13 @@ scaleVarBy id _ = id
 setVarMult :: Id -> Mult -> Id
 setVarMult id r | isId id = id { varMult = r }
                 | otherwise = pprPanic "setVarMult" (ppr id <+> ppr r)
+
+setVarUsages :: Id -> UsageAnnotation -> Id
+setVarUsages id ua | isId id = id { varUsages = ua }
+                   | otherwise = pprPanic "setVarUsages" (ppr id)
+
+updateVarUsages :: (UsageAnnotation -> UsageAnnotation) -> Id -> Id
+updateVarUsages f id = id { varUsages = f (varUsages id)}
 
 {- *********************************************************************
 *                                                                      *
@@ -709,29 +735,30 @@ idDetails other                         = pprPanic "idDetails" (ppr other)
 -- Ids, because Id.hs uses 'mkGlobalId' etc with different types
 mkGlobalVar :: IdDetails -> Name -> Type -> IdInfo -> Id
 mkGlobalVar details name ty info
-  = mk_id name Omega ty GlobalId details info
+  = mk_id name Omega zeroUA ty GlobalId details info
   -- There is no support for linear global variables yet. They would require
   -- being checked at link-time, which can be useful, but is not a priority.
 
-mkLocalVar :: IdDetails -> Name -> Mult -> Type -> IdInfo -> Id
-mkLocalVar details name w ty info
-  = mk_id name w ty (LocalId NotExported) details  info
+mkLocalVar :: IdDetails -> Name -> Mult -> UsageAnnotation -> Type -> IdInfo -> Id
+mkLocalVar details name w ue ty info
+  = mk_id name w ue ty (LocalId NotExported) details  info
 
 mkCoVar :: Name -> Type -> CoVar
 -- Coercion variables have no IdInfo
-mkCoVar name ty = mk_id name Omega ty (LocalId NotExported) coVarDetails vanillaIdInfo
+mkCoVar name ty = mk_id name Omega zeroUA ty (LocalId NotExported) coVarDetails vanillaIdInfo
 
 -- | Exported 'Var's will not be removed as dead code
 mkExportedLocalVar :: IdDetails -> Name -> Type -> IdInfo -> Id
 mkExportedLocalVar details name ty info
-  = mk_id name Omega ty (LocalId Exported) details info
+  = mk_id name Omega zeroUA ty (LocalId Exported) details info
   -- There is no support for exporting linear variables. See also [mkGlobalVar]
 
-mk_id :: Name -> Mult -> Type -> IdScope -> IdDetails -> IdInfo -> Id
-mk_id name w ty scope details info
+mk_id :: Name -> Mult -> UsageAnnotation -> Type -> IdScope -> IdDetails -> IdInfo -> Id
+mk_id name w ue ty scope details info
   = Id { varName    = name,
          realUnique = getKey (nameUnique name),
          varMult    = w,
+         varUsages  = ue,
          varType    = ty,
          idScope    = scope,
          id_details = details,

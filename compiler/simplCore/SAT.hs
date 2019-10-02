@@ -57,6 +57,7 @@ import Var
 import CoreSyn
 import CoreUtils
 import Multiplicity ( pattern Omega )
+import UsageEnv
 import Type
 import Coercion
 import Id
@@ -287,22 +288,22 @@ To do the transformation, the game plan is to:
    our SATed function and just makes a call to it:
    we call the thing making this call the local body
 
-Example: transform this
-
-    map :: forall a b. (a->b) -> [a] -> [b]
-    map = /\ab. \(f:a->b) (as:[a]) -> body[map]
-to
-    map :: forall a b. (a->b) -> [a] -> [b]
-    map = /\ab. \(f:a->b) (as:[a]) ->
-         letrec map' :: [a] -> [b]
-                    -- The "worker function
-                map' = \(as:[a]) ->
-                         let map :: forall a' b'. (a -> b) -> [a] -> [b]
-                                -- The "shadow function
-                             map = /\a'b'. \(f':(a->b) (as:[a]).
-                                   map' as
-                         in body[map]
-         in map' as
+> Example: transform this
+>
+>     map :: forall a b. (a->b) -> [a] -> [b]
+>     map = /\ab. \(f:a->b) (as:[a]) -> body[map]
+> to
+>     map :: forall a b. (a->b) -> [a] -> [b]
+>     map = /\ab. \(f:a->b) (as:[a]) ->
+>          letrec map' :: [a] -> [b]
+>                     -- The "worker function
+>                 map' = \(as:[a]) ->
+>                          let map :: forall a' b'. (a -> b) -> [a] -> [b]
+>                                 -- The "shadow function
+>                              map = /\a'b'. \(f':(a->b) (as:[a]).
+>                                    map' as
+>                          in body[map]
+>          in map' as
 
 Note [Shadow binding]
 ~~~~~~~~~~~~~~~~~~~~~
@@ -421,13 +422,14 @@ saTransform binder arg_staticness rhs_binders rhs_body
           shadow_rhs = mkLams shadow_lam_bndrs local_body
             -- nonrec_rhs = \alpha' beta' c n xs -> sat_worker xs
 
-          rec_body_bndr = mkSysLocal (fsLit "sat_worker") uniq Omega (exprType rec_body)
+          rec_body_bndr = mkSysLocal (fsLit "sat_worker") uniq Omega zeroUA (exprType rec_body)
             -- rec_body_bndr = sat_worker
 
             -- See Note [Shadow binding]; make a SysLocal
           shadow_bndr = mkSysLocal (occNameFS (getOccName binder))
                                    (idUnique binder)
                                    Omega
+                                   zeroUA
                                    (exprType shadow_rhs)
 
 isStaticValue :: Staticness App -> Bool

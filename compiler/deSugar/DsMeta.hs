@@ -48,6 +48,7 @@ import TcType
 import TyCon
 import TysWiredIn
 import Multiplicity ( pattern Omega )
+import UsageEnv
 import CoreSyn
 import MkCore
 import CoreUtils
@@ -1878,7 +1879,7 @@ mkGenSyms :: [Name] -> DsM [GenSymBind]
 --
 -- Nevertheless, it's monadic because we have to generate nameTy
 mkGenSyms ns = do { var_ty <- lookupType nameTyConName
-                  ; return [(nm, mkLocalId (localiseName nm) Omega var_ty) | nm <- ns] }
+                  ; return [(nm, mkLocalId (localiseName nm) Omega zeroUA var_ty) | nm <- ns] }
 
 
 addBinds :: [GenSymBind] -> DsM a -> DsM a

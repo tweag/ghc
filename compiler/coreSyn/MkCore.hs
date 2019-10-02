@@ -67,6 +67,7 @@ import PrelNames
 import HsUtils          ( mkChunkified, chunkify )
 import Type
 import Multiplicity
+import UsageEnv
 import Coercion         ( isCoVar )
 import TysPrim
 import DataCon          ( DataCon, dataConWorkId )
@@ -194,7 +195,7 @@ mkWildEvBinder pred = mkWildValBinder Omega pred
 -- easy to get into difficulties with shadowing.  That's why it is used so little.
 -- See Note [WildCard binders] in SimplEnv
 mkWildValBinder :: Mult -> Type -> Id
-mkWildValBinder w ty = mkLocalIdOrCoVar wildCardName w ty
+mkWildValBinder w ty = mkLocalIdOrCoVar wildCardName w zeroUA ty
 
 mkWildCase :: CoreExpr -> Scaled Type -> Type -> [CoreAlt] -> CoreExpr
 -- Make a case expression whose case binder is unused
@@ -517,7 +518,7 @@ mkTupleCase uniqs vars body scrut_var scrut
 
     one_tuple_case chunk_vars (us, vs, body)
       = let (uniq, us') = takeUniqFromSupply us
-            scrut_var = mkSysLocal (fsLit "ds") uniq Omega
+            scrut_var = mkSysLocal (fsLit "ds") uniq Omega zeroUA
               (mkBoxedTupleTy (map idType chunk_vars))
             body' = mkSmallTupleCase chunk_vars body scrut_var (Var scrut_var)
         in (us', scrut_var:vs, body')
@@ -624,7 +625,7 @@ mkBuildExpr elt_ty mk_build_inside = do
     [n_tyvar] <- newTyVars [alphaTyVar]
     let n_ty = mkTyVarTy n_tyvar
         c_ty = mkVisFunTysOm [elt_ty, n_ty] n_ty
-    [c, n] <- sequence [mkSysLocalM (fsLit "c") Omega c_ty, mkSysLocalM (fsLit "n") Omega n_ty]
+    [c, n] <- sequence [mkSysLocalM (fsLit "c") Omega zeroUA c_ty, mkSysLocalM (fsLit "n") Omega zeroUA n_ty]
 
     build_inside <- mk_build_inside (c, c_ty) (n, n_ty)
 

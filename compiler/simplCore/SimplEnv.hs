@@ -62,6 +62,7 @@ import TysWiredIn
 import qualified Type
 import Type hiding              ( substTy, substTyVar, substTyVarBndr )
 import Multiplicity
+import UsageEnv
 import qualified Coercion
 import Coercion hiding          ( substCo, substCoVar, substCoVarBndr )
 import BasicTypes
@@ -828,7 +829,9 @@ substNonCoVarIdBndr new_res_ty
            | otherwise
            = id2
 
-    new_id = zapFragileIdInfo id3       -- Zaps rules, worker-info, unfolding
+    id4    = id3
+
+    new_id = zapFragileIdInfo id4       -- Zaps rules, worker-info, unfolding
                                         -- and fragile OccInfo
 
         -- Extend the substitution if the unique has changed,
@@ -938,7 +941,8 @@ substIdType (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv
                 -- because we cache the free tyvars of the type
                 -- in a Note in the id's type itself
   where
-    no_free_vars = noFreeVarsOfType old_ty && noFreeVarsOfType old_w
+    no_free_vars = noFreeVarsOfType old_ty && noFreeVarsOfType old_w && nullUA old_ua
     subst = TCvSubst in_scope tv_env cv_env
     old_ty = idType id
     old_w  = varMult id
+    old_ua = varUsages id

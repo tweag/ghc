@@ -30,6 +30,7 @@ import VarEnv
 import Id
 import Type
 import Multiplicity
+import UsageEnv
 import TyCon    ( initRecTc, checkRecTc )
 import Coercion
 import BasicTypes
@@ -1193,5 +1194,5 @@ freshEtaId n subst ty
       where
         Scaled mult' ty' = Type.substScaledTyUnchecked subst ty
         eta_id' = uniqAway (getTCvInScope subst) $
-                  mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) mult' ty'
+                  mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) mult' zeroUA ty'
         subst'  = extendTCvInScope subst eta_id'

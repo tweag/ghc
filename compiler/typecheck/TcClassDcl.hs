@@ -32,6 +32,7 @@ import TcHsType
 import TcMType
 import Type     ( getClassPredTys_maybe, piResultTys )
 import Multiplicity
+import UsageEnv
 import TcType
 import TcRnMonad
 import DriverPhases (HscSource(..))
@@ -275,7 +276,7 @@ tcDefMeth clas tyvars this_dict binds_in hs_sig_fn prag_fn
 
              ctxt = FunSigCtxt sel_name warn_redundant
 
-       ; let local_dm_id = mkLocalId local_dm_name Omega local_dm_ty
+       ; let local_dm_id = mkLocalId local_dm_name Omega zeroUA local_dm_ty
              local_dm_sig = CompleteSig { sig_bndr = local_dm_id
                                         , sig_ctxt  = ctxt
                                         , sig_loc   = getLoc (hsSigType hs_ty) }

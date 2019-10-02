@@ -76,6 +76,7 @@ import ListSetOps
 import GHC.Fingerprint
 import qualified BooleanFormula as BF
 import Multiplicity
+import UsageEnv
 
 import Control.Monad
 import qualified Data.Map as Map
@@ -1322,7 +1323,7 @@ tcIfaceExpr (IfaceCase scrut case_bndr alts)  = do
     let
         scrut_ty   = exprType scrut'
         case_mult = Omega
-        case_bndr' = mkLocalIdOrCoVar case_bndr_name case_mult scrut_ty
+        case_bndr' = mkLocalIdOrCoVar case_bndr_name case_mult zeroUA scrut_ty
         tc_app     = splitTyConApp scrut_ty
                 -- NB: Won't always succeed (polymorphic case)
                 --     but won't be demanded in those cases
@@ -1334,12 +1335,13 @@ tcIfaceExpr (IfaceCase scrut case_bndr alts)  = do
      alts' <- mapM (tcIfaceAlt scrut' case_mult tc_app) alts
      return (Case scrut' case_bndr' (coreAltsType alts') alts')
 
-tcIfaceExpr (IfaceLet (IfaceNonRec (IfLetBndr fs ty info ji) rhs) body)
+tcIfaceExpr (IfaceLet (IfaceNonRec (IfLetBndr fs uanns ty info ji) rhs) body)
   = do  { name    <- newIfaceName (mkVarOccFS fs)
         ; ty'     <- tcIfaceType ty
         ; id_info <- tcIdInfo False {- Don't ignore prags; we are inside one! -}
                               NotTopLevel name ty' info
-        ; let id = mkLocalIdOrCoVarWithInfo name Omega ty' id_info
+        ; uanns'  <- tcIfaceUA uanns
+        ; let id = mkLocalIdOrCoVarWithInfo name Omega uanns' ty' id_info
                      `asJoinId_maybe` tcJoinInfo ji
         ; rhs' <- tcIfaceExpr rhs
         ; body' <- extendIfaceIdEnv [id] (tcIfaceExpr body)
@@ -1352,11 +1354,12 @@ tcIfaceExpr (IfaceLet (IfaceRec pairs) body)
        ; body' <- tcIfaceExpr body
        ; return (Let (Rec pairs') body') } }
  where
-   tc_rec_bndr (IfLetBndr fs ty _ ji)
+   tc_rec_bndr (IfLetBndr fs uanns ty _ ji)
      = do { name <- newIfaceName (mkVarOccFS fs)
+          ; uanns' <- tcIfaceUA uanns
           ; ty'  <- tcIfaceType ty
-          ; return (mkLocalIdOrCoVar name Omega ty' `asJoinId_maybe` tcJoinInfo ji) }
-   tc_pair (IfLetBndr _ _ info _, rhs) id
+          ; return (mkLocalIdOrCoVar name Omega uanns' ty' `asJoinId_maybe` tcJoinInfo ji) }
+   tc_pair (IfLetBndr _ _ _ info _, rhs) id
      = do { rhs' <- tcIfaceExpr rhs
           ; id_info <- tcIdInfo False {- Don't ignore prags; we are inside one! -}
                                 NotTopLevel (idName id) (idType id) info
@@ -1372,6 +1375,16 @@ tcIfaceExpr (IfaceTick tickish expr) = do
       _otherwise    -> do
         tickish' <- tcIfaceTickish tickish
         return (Tick tickish' expr')
+
+tcIfaceUA :: IfaceUsageAnn -> IfL UsageAnnotation
+tcIfaceUA (uanns, b) = do
+    uanns' <- mapM tcOne uanns
+    return $ fromListUA $ (uanns', b)
+  where
+    tcOne (fs, w) = do
+      name <- newIfaceName (mkVarOccFS fs)
+      w' <- tcIfaceType w
+      return (name, w')
 
 -------------------------
 tcIfaceTickish :: IfaceTickish -> IfM lcl (Tickish Id)
@@ -1735,7 +1748,7 @@ bindIfaceId (w, fs, ty) thing_inside
   = do  { name <- newIfaceName (mkVarOccFS fs)
         ; ty' <- tcIfaceType ty
         ; w' <- tcIfaceType w
-        ; let id = mkLocalIdOrCoVar name w' ty'
+        ; let id = mkLocalIdOrCoVar name w' zeroUA ty'
         ; extendIfaceIdEnv [id] (thing_inside id) }
 
 bindIfaceIds :: [IfaceIdBndr] -> ([Id] -> IfL a) -> IfL a

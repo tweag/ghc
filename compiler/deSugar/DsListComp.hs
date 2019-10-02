@@ -31,6 +31,7 @@ import CoreUtils
 import Id
 import Type
 import Multiplicity
+import UsageEnv
 import TysWiredIn
 import Match
 import PrelNames
@@ -378,8 +379,8 @@ dfBindComp c_id n_id (pat, core_list1) quals = do
     let b_ty   = idType n_id
 
     -- create some new local id's
-    b <- newSysLocalDs Omega b_ty
-    x <- newSysLocalDs Omega x_ty
+    b <- newSysLocalDs Omega zeroUA b_ty
+    x <- newSysLocalDs Omega zeroUA x_ty
 
     -- build rest of the comprehesion
     core_rest <- dfListComp c_id b quals
@@ -409,11 +410,11 @@ mkZipBind :: [Type] -> DsM (Id, CoreExpr)
 --                              (a2:as'2) -> (a1, a2) : zip as'1 as'2)]
 
 mkZipBind elt_tys = do
-    ass  <- mapM (newSysLocalDs Omega)  elt_list_tys
-    as'  <- mapM (newSysLocalDs Omega)  elt_tys
-    as's <- mapM (newSysLocalDs Omega)  elt_list_tys
+    ass  <- mapM (newSysLocalDs Omega zeroUA)  elt_list_tys
+    as'  <- mapM (newSysLocalDs Omega zeroUA)  elt_tys
+    as's <- mapM (newSysLocalDs Omega zeroUA)  elt_list_tys
 
-    zip_fn <- newSysLocalDs Omega zip_fn_ty
+    zip_fn <- newSysLocalDs Omega zeroUA zip_fn_ty
 
     let inner_rhs = mkConsExpr elt_tuple_ty
                         (mkBigCoreVarTup as')
@@ -448,13 +449,13 @@ mkUnzipBind :: TransForm -> [Type] -> DsM (Maybe (Id, CoreExpr))
 mkUnzipBind ThenForm _
  = return Nothing    -- No unzipping for ThenForm
 mkUnzipBind _ elt_tys
-  = do { ax  <- newSysLocalDs Omega elt_tuple_ty
-       ; axs <- newSysLocalDs Omega elt_list_tuple_ty
-       ; ys  <- newSysLocalDs Omega elt_tuple_list_ty
-       ; xs  <- mapM (newSysLocalDs Omega) elt_tys
-       ; xss <- mapM (newSysLocalDs Omega) elt_list_tys
+  = do { ax  <- newSysLocalDs Omega zeroUA elt_tuple_ty
+       ; axs <- newSysLocalDs Omega zeroUA elt_list_tuple_ty
+       ; ys  <- newSysLocalDs Omega zeroUA elt_tuple_list_ty
+       ; xs  <- mapM (newSysLocalDs Omega zeroUA) elt_tys
+       ; xss <- mapM (newSysLocalDs Omega zeroUA) elt_list_tys
 
-       ; unzip_fn <- newSysLocalDs Omega unzip_fn_ty
+       ; unzip_fn <- newSysLocalDs Omega zeroUA unzip_fn_ty
 
        ; [us1, us2] <- sequence [newUniqueSupply, newUniqueSupply]
 
@@ -558,8 +559,8 @@ dsMcStmt (TransStmt { trS_stmts = stmts, trS_bndrs = bndrs
        ; let tup_n_ty' = mkBigCoreVarTupTy to_bndrs
 
        ; body        <- dsMcStmts stmts_rest
-       ; n_tup_var'  <- newSysLocalDsNoLP Omega n_tup_ty'
-       ; tup_n_var'  <- newSysLocalDs Omega tup_n_ty'
+       ; n_tup_var'  <- newSysLocalDsNoLP Omega zeroUA n_tup_ty'
+       ; tup_n_var'  <- newSysLocalDs Omega zeroUA tup_n_ty'
        ; tup_n_expr' <- mkMcUnzipM form fmap_op n_tup_var' from_bndr_tys
        ; us          <- newUniqueSupply
        ; let rhs'  = mkApps usingExpr' usingArgs'
@@ -608,7 +609,7 @@ matchTuple :: [Id] -> CoreExpr -> DsM CoreExpr
 --  \x. case x of (a,b,c) -> body
 matchTuple ids body
   = do { us <- newUniqueSupply
-       ; tup_id <- newSysLocalDs Omega (mkBigCoreVarTupTy ids)
+       ; tup_id <- newSysLocalDs Omega zeroUA (mkBigCoreVarTupTy ids)
        ; return (Lam tup_id $ mkTupleCase us ids body tup_id (Var tup_id)) }
 
 -- general `rhs' >>= \pat -> stmts` desugaring where `rhs'` is already a
@@ -680,9 +681,9 @@ mkMcUnzipM ThenForm _ ys _
 
 mkMcUnzipM _ fmap_op ys elt_tys
   = do { fmap_op' <- dsExpr fmap_op
-       ; xs       <- mapM (newSysLocalDs Omega) elt_tys
+       ; xs       <- mapM (newSysLocalDs Omega zeroUA) elt_tys
        ; let tup_ty = mkBigCoreTupTy elt_tys
-       ; tup_xs   <- newSysLocalDs Omega tup_ty
+       ; tup_xs   <- newSysLocalDs Omega zeroUA tup_ty
 
        ; let mk_elt i = mkApps fmap_op'  -- fmap :: forall a b. (a -> b) -> n a -> n b
                            [ Type tup_ty, Type (getNth elt_tys i)

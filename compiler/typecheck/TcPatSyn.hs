@@ -19,6 +19,7 @@ import GhcPrelude
 import HsSyn
 import TcPat
 import Multiplicity
+import UsageEnv
 import Type( tidyTyCoVarBinders, tidyTypes, tidyType )
 import TcRnMonad
 import TcSigs( emptyPragEnv, completeSigFromId )
@@ -100,7 +101,7 @@ recoverPSB (PSB { psb_id = (dL->L _ name)
        where
          -- The matcher_id is used only by the desugarer, so actually
          -- and error-thunk would probably do just as well here.
-         matcher_id = mkLocalId matcher_name Omega $
+         matcher_id = mkLocalId matcher_name Omega zeroUA $
                       mkSpecForAllTys [alphaTyVar] alphaTy
 
 recoverPSB (XPatSynBind nec) = noExtCon nec

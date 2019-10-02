@@ -748,6 +748,11 @@ lintCoreExpr (Let (NonRec tv (Type ty)) body)
 lintCoreExpr (Let (NonRec bndr rhs) body)
   | isId bndr
   = do  { let_ue <- lintSingleBinding NotTopLevel NonRecursive (bndr,rhs)
+        ; aliases <- getUEAliases
+        ; let bndr_ua = substUA aliases (varUsages bndr)
+        ; addLoc (RhsOf bndr) $
+                 checkL (validateAnn bndr_ua let_ue)
+                        (invalidUsageAnnotation bndr_ua let_ue)
           -- See Note [Multiplicity of let binders] in Var
         ; addLoc (BodyOfLetRec [bndr]) $
                  (lintBinder LetBind bndr $ \_ ->
@@ -757,7 +762,12 @@ lintCoreExpr (Let (NonRec bndr rhs) body)
 
   | otherwise
   = failWithL (mkLetErr bndr rhs)       -- Not quite accurate
-
+  where
+    -- See Note [Checking annotations in linter]
+    validateAnn ue_ann rhs_ue = compatibleUA ue_ann (mkUA rhs_ue)
+    invalidUsageAnnotation ue_ann rhs_ue =
+      hang (text "Incorrect usage annotation")
+        2 (ppr ue_ann <> ppr (mkUA rhs_ue))
 lintCoreExpr e@(Let (Rec pairs) body)
   = lintLetBndrs NotTopLevel bndrs $
     addGoodJoins bndrs             $
@@ -771,14 +781,36 @@ lintCoreExpr e@(Let (Rec pairs) body)
         ; checkL (all isJoinId bndrs || all (not . isJoinId) bndrs) $
             mkInconsistentRecMsg bndrs
 
+        ; aliases <- getUEAliases
+        ; let ue_anns = map (substUE aliases . interpUA . varUsages) bndrs
+
           -- See Note [Multiplicity of let binders] in Var
-        ; ues <- mapM (lintSingleBinding NotTopLevel Recursive) pairs
-        ; (body_type, body_ue) <- addLoc (BodyOfLetRec bndrs) (lintCoreExpr body)
-        ; return (body_type, body_ue `addUE` scaleUE Omega (foldr1 addUE ues))
+        ; rhs_ues <- addAliasUEs (zip bndrs ue_anns) $
+                     mapM (lintSingleBinding NotTopLevel Recursive) pairs
+        ; checkL (validateAnns ue_anns rhs_ues) (invalidUsageAnnotations ue_anns rhs_ues)
+        ; let ues = zipWith supUE rhs_ues ue_anns
+        ; (body_type, body_ue) <- addLoc (BodyOfLetRec bndrs) $
+                                  addAliasUEs (zip bndrs ues) $
+                                  lintCoreExpr body
+        ; return (body_type, body_ue)
         }
   where
     bndrs = map fst pairs
     (_, dups) = removeDups compare bndrs
+    -- Note [Checking annotations in linter]
+    -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    -- We're not checking that annotations are correct in the lintSingleBinding
+    -- at the moment, which would make most sense, because lambda-binding with
+    -- unfolding also use lintSingleBinding to lint the unfolding. And lambda
+    -- binders don't have a usage annotation.
+    validateAnns ue_anns rhs_ues =
+      all
+        (\(ue_ann, rhs_ue) -> compatibleUA (mkUA ue_ann) (mkUA rhs_ue))
+        (zip ue_anns rhs_ues)
+    invalidUsageAnnotations ue_anns rhs_ues =
+      hang (text "Incorrect usage annotations")
+        2 (ppr (map mkUA ue_anns) <> ppr (map mkUA rhs_ues))
+
 
 lintCoreExpr e@(App _ _)
   = addLoc (AnExpr e) $
@@ -2463,12 +2495,14 @@ addAliasUE id ue thing_inside = LintM $ \ env errs ->
   in
     unLintM thing_inside (env { le_ue_aliases = new_ue_aliases }) errs
 
+addAliasUEs :: [(Id, UsageEnv)] -> LintM a -> LintM a
+addAliasUEs bnds thing_inside =
+  foldl (flip . uncurry $ addAliasUE) thing_inside bnds
+
 varCallSiteUsage :: Id -> LintM UsageEnv
 varCallSiteUsage id =
   do m <- getUEAliases
-     return $ case lookupNameEnv m (getName id) of
-         Nothing -> unitUE id One
-         Just id_ue -> id_ue
+     return $ varCallUsage m id
 
 lintTyCoVarInScope :: TyCoVar -> LintM ()
 lintTyCoVarInScope var

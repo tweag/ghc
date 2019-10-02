@@ -428,7 +428,7 @@ pprTypedLetBinder binder
     _
       | isTyVar binder                         -> pprKindedTyVarBndr binder
       | gopt Opt_SuppressTypeSignatures dflags -> pprIdBndr binder
-      | otherwise                              -> hang (pprIdBndr binder) 2 (dcolon <+> pprType (idType binder))
+      | otherwise                              -> hang (pprIdBndr binder <> ppr (varUsages binder)) 2 (dcolon <+> pprType (idType binder))
 
 pprKindedTyVarBndr :: TyVar -> SDoc
 -- Print a type variable binder with its kind (but not if *)

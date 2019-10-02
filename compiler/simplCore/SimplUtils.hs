@@ -20,6 +20,7 @@ module SimplUtils (
         SimplCont(..), DupFlag(..), StaticEnv,
         isSimplified, contIsStop,
         contIsDupable, contResultType, contHoleType, contHoleScaling,
+        contUsageEnv,
         contIsTrivial, contArgs,
         countArgs,
         mkBoringStop, mkRhsStop, mkLazyArgStop, contIsRhsOrArg,
@@ -51,6 +52,7 @@ import CoreUtils
 import CoreArity
 import CoreUnfold
 import Name
+import NameEnv
 import Id
 import IdInfo
 import Var
@@ -58,6 +60,7 @@ import Demand
 import SimplMonad
 import Type     hiding( substTy )
 import Multiplicity
+import UsageEnv
 import Coercion hiding( substCo )
 import DataCon          ( dataConWorkId, isNullaryRepDataCon )
 import VarSet
@@ -442,6 +445,33 @@ contHoleScaling (Select { sc_bndr = id, sc_cont = k }) =
 contHoleScaling (ApplyToTy { sc_cont = k }) = contHoleScaling k
 contHoleScaling (ApplyToVal { sc_cont = k }) = contHoleScaling k
 contHoleScaling (TickIt _ k) = contHoleScaling k
+
+-- TODO: compute UsageEnv and HoleScaling factor at the same time. They are
+-- used at the same place several times, I believe, and interact anyway (i.e. this would be
+-- more efficient).
+contUsageEnv :: SimplCont -> UsageEnv
+contUsageEnv (Stop _ _) = zeroUE
+contUsageEnv (CastIt _ cont) = contUsageEnv cont
+contUsageEnv (StrictBind { sc_bndr = x, sc_bndrs = ys, sc_body = b, sc_cont = cont }) =
+  contHoleScaling cont `scaleUE` (exprUsageEnv b `deleteUEs` ys `deleteUE` x)
+contUsageEnv (StrictArg { sc_fun = fun, sc_cont = cont }) =
+  (contHoleScaling cont `scaleUE` argInfoUsageEnv fun) `addUE` contUsageEnv cont
+contUsageEnv (Select { sc_bndr = b, sc_alts = alts, sc_cont = k }) =
+  contUsageEnv k `addUE` (altsUsageEnv emptyNameEnv b alts)
+contUsageEnv (ApplyToTy { sc_cont = cont }) = contUsageEnv cont
+contUsageEnv (ApplyToVal { sc_arg = arg, sc_mult = arg_w, sc_cont = cont}) =
+  ((contHoleScaling cont `mkMultMul` arg_w) `scaleUE` exprUsageEnv arg) `addUE` contUsageEnv cont
+contUsageEnv (TickIt _ cont) = contUsageEnv cont
+
+argInfoUsageEnv :: ArgInfo -> UsageEnv
+argInfoUsageEnv (ArgInfo { ai_fun = fun, ai_args = args }) =
+    funUsage `addUE` (addUEs (map argSpecUsageEnv args))
+  where
+    funUsage = varCallUsage emptyNameEnv fun
+
+    argSpecUsageEnv (ValArg w arg) = w `scaleUE` exprUsageEnv arg
+    argSpecUsageEnv _ = zeroUE
+
 -------------------
 countArgs :: SimplCont -> Int
 -- Count all arguments, including types, coercions, and other values
@@ -471,7 +501,6 @@ contArgs cont
     is_interesting arg se = interestingArg se arg
                    -- Do *not* use short-cutting substitution here
                    -- because we want to get as much IdInfo as possible
-
 
 -------------------
 mkArgInfo :: SimplEnv
@@ -1832,7 +1861,7 @@ abstractFloats dflags top_lvl main_tvs floats body
            ; let  poly_name = setNameUnique (idName var) uniq           -- Keep same name
                   poly_ty   = mkInvForAllTys tvs_here (idType var) -- But new type of course
                   poly_id   = transferPolyIdInfo var tvs_here $ -- Note [transferPolyIdInfo] in Id.hs
-                              mkLocalIdOrCoVar poly_name (idMult var) poly_ty
+                              mkLocalIdOrCoVar poly_name (idMult var) (varUsages var) poly_ty
            ; return (poly_id, mkTyApps (Var poly_id) (mkTyVarTys tvs_here)) }
                 -- In the olden days, it was crucial to copy the occInfo of the original var,
                 -- because we were looking at occurrence-analysed but as yet unsimplified code!
@@ -2184,7 +2213,7 @@ mkCase2 dflags scrut bndr alts_ty alts
       _               -> True
   , gopt Opt_CaseFolding dflags
   , Just (scrut', tx_con, mk_orig) <- caseRules dflags scrut
-  = do { bndr' <- newId (fsLit "lwild") Omega (exprType scrut')
+  = do { bndr' <- newId (fsLit "lwild") Omega zeroUA (exprType scrut')
 
        ; alts' <- mapMaybeM (tx_alt tx_con mk_orig bndr') alts
                   -- mapMaybeM: discard unreachable alternatives

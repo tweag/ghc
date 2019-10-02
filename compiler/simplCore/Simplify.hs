@@ -45,7 +45,7 @@ import Demand           ( mkClosedStrictSig, topDmd, botRes )
 import BasicTypes       ( TopLevelFlag(..), isNotTopLevel, isTopLevel,
                           RecFlag(..), Arity )
 import MonadUtils       ( mapAccumLM, liftIO )
-import Var              ( isTyCoVar )
+import Var              ( isTyCoVar, varUsages, setVarUsages )
 import Maybes           (  orElse )
 import Control.Monad
 import Outputable
@@ -55,6 +55,7 @@ import Util
 import ErrUtils
 import Module          ( moduleName, pprModuleName )
 import Multiplicity
+import UsageEnv
 import PrimOp          ( PrimOp (SeqOp) )
 import TyCoRep         ( TyCoBinder(..) )
 
@@ -355,8 +356,11 @@ simplJoinBind env cont old_bndr new_bndr rhs rhs_se
         ; let mult = contHoleScaling cont
               Just arity = isJoinIdDetails_maybe (idDetails new_bndr)
               new_type = scaleJoinPointType mult arity (varType new_bndr)
-              new_bndr' = setIdType new_bndr new_type
-        ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr' rhs' }
+              new_bndr1 = setIdType new_bndr new_type
+              cont_ue = contUsageEnv cont
+              bndr_ua = varUsages new_bndr1
+              new_bndr2 = setVarUsages new_bndr1 (cont_ue `addUA` (mult `scaleUA` bndr_ua))
+        ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr2 rhs' }
 
 {-
 Note [Scaling join point arguments]
@@ -616,7 +620,7 @@ makeTrivialWithInfo mode top_lvl occ_fs info expr
           else do
         { uniq <- getUniqueM
         ; let name = mkSystemVarName uniq occ_fs
-              var  = mkLocalIdOrCoVarWithInfo name Omega expr_ty info
+              var  = mkLocalIdOrCoVarWithInfo name Omega (exprUsageAnnotation expr1) expr_ty info
 
         -- Now something very like completeBind,
         -- but without the postInlineUnconditinoally part
@@ -2788,7 +2792,7 @@ improveSeq :: (FamInstEnv, FamInstEnv) -> SimplEnv
 -- Note [Improving seq]
 improveSeq fam_envs env scrut case_bndr case_bndr1 [(DEFAULT,_,_)]
   | Just (co, ty2) <- topNormaliseType_maybe fam_envs (idType case_bndr1)
-  = do { case_bndr2 <- newId (fsLit "nt") Omega ty2
+  = do { case_bndr2 <- newId (fsLit "nt") Omega zeroUA ty2
         ; let rhs  = DoneEx (Var case_bndr2 `Cast` mkSymCo co) Nothing
               env2 = extendIdSubst env case_bndr rhs
         ; return (env2, scrut `Cast` co, case_bndr2) }
@@ -3184,11 +3188,12 @@ mkDupableCont env (StrictBind { sc_bndr = bndr, sc_bndrs = bndrs
 
        ; let join_body = wrapFloats floats1 join_inner
              res_ty    = contResultType cont
+             body_ua   = exprUsageAnnotation join_body
 
        ; (floats2, body2)
             <- if exprIsDupable (seDynFlags env) join_body
                then return (emptyFloats env, join_body)
-               else do { join_bndr <- newJoinId [bndr'] res_ty
+               else do { join_bndr <- newJoinId [bndr'] body_ua res_ty
                        ; let join_call = App (Var join_bndr) (Var bndr')
                              join_rhs  = Lam (setOneShotLambda bndr') join_body
                              join_bind = NonRec join_bndr join_rhs
@@ -3294,6 +3299,7 @@ mkDupableAlt dflags case_bndr jfloats (con, bndrs', rhs')
 
   | otherwise
   = do  { let rhs_ty'  = exprType rhs'
+              rhs_ua'  = exprUsageAnnotation rhs'
               scrut_ty = idType case_bndr
               case_bndr_w_unf
                 = case con of
@@ -3330,7 +3336,7 @@ mkDupableAlt dflags case_bndr jfloats (con, bndrs', rhs')
                          | otherwise = v
               join_rhs   = mkLams really_final_bndrs rhs'
 
-        ; join_bndr <- newJoinId final_bndrs' rhs_ty'
+        ; join_bndr <- newJoinId final_bndrs' rhs_ua' rhs_ty'
 
         ; let join_call = mkApps (Var join_bndr) final_args
               alt'      = (con, bndrs', join_call)

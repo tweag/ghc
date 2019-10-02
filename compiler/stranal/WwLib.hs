@@ -31,6 +31,7 @@ import VarEnv           ( mkInScopeSet )
 import VarSet           ( VarSet )
 import Type
 import Multiplicity
+import UsageEnv
 import RepType          ( isVoidTy, typePrimRep )
 import Coercion
 import FamInstEnv
@@ -465,7 +466,7 @@ applyToVars vars fn = mkVarApps fn vars
 
 mk_wrap_arg :: Unique -> Scaled Type -> Demand -> Id
 mk_wrap_arg uniq (Scaled w ty) dmd
-  = mkSysLocalOrCoVar (fsLit "w") uniq w ty
+  = mkSysLocalOrCoVar (fsLit "w") uniq w zeroUA ty
        `setIdDemandInfo` dmd
 
 {- Note [Freshen WW arguments]
@@ -1211,4 +1212,4 @@ mk_ww_local :: Unique -> (Scaled Type, StrictnessMark) -> Id
 -- See Note [Record evaluated-ness in worker/wrapper]
 mk_ww_local uniq (Scaled w ty,str)
   = setCaseBndrEvald str $
-    mkSysLocalOrCoVar (fsLit "ww") uniq w ty
+    mkSysLocalOrCoVar (fsLit "ww") uniq w zeroUA ty

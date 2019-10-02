@@ -24,6 +24,7 @@ module CoreUtils (
 
         -- * Properties of expressions
         exprType, coreAltType, coreAltsType, isExprLevPoly,
+        exprUsageEnv, exprUsageAnnotation, altsUsageEnv, varCallUsage,
         exprIsDupable, exprIsTrivial, getIdFromTrivialExpr, exprIsBottom,
         getIdFromTrivialExpr_maybe,
         exprIsCheap, exprIsExpandable, exprIsCheapX, CheapAppFun,
@@ -80,6 +81,8 @@ import PrelNames( absentErrorIdKey )
 import Type
 import TyCoRep( TyCoBinder(..), TyBinder )
 import Multiplicity
+import UsageEnv
+import NameEnv
 import Coercion
 import TyCon
 import Unique
@@ -144,6 +147,61 @@ coreAltsType :: [CoreAlt] -> Type
 -- ^ Returns the type of the first alternative, which should be the same as for all alternatives
 coreAltsType (alt:_) = coreAltType alt
 coreAltsType []      = panic "corAltsType"
+
+exprUsageEnv :: CoreExpr -> UsageEnv
+exprUsageEnv = exprUsageEnv' emptyNameEnv
+
+exprUsageEnv' :: NameEnv UsageEnv -> CoreExpr -> UsageEnv
+exprUsageEnv' env (Var var) = varCallUsage env var
+exprUsageEnv' _env (Lit _) = zeroUE
+exprUsageEnv' _env (Coercion _) = zeroUE
+exprUsageEnv' env (Let bind body) =
+    exprUsageEnv' (bindUsageEnv env bind) body
+exprUsageEnv' env (Case scrut bnd _ alts) =
+    scrut_ue `addUE` altsUsageEnv env bnd alts
+  where
+    scrut_ue = varMult bnd `scaleUE` exprUsageEnv' env scrut
+exprUsageEnv' env (Cast e _) = exprUsageEnv' env e
+exprUsageEnv' env (Tick _ e) = exprUsageEnv' env e
+exprUsageEnv' env (Lam binder expr) = deleteUE (exprUsageEnv' env expr) binder
+exprUsageEnv' env (App fun arg) =
+    exprUsageEnv' env fun `addUE` (arg_mult `scaleUE` exprUsageEnv' env arg)
+  where
+    fun_ty = exprType fun
+    (Scaled arg_mult _, _) = splitFunTy fun_ty
+exprUsageEnv' _ _ = zeroUE
+
+bindUsageEnv :: NameEnv UsageEnv -> CoreBind -> NameEnv UsageEnv
+bindUsageEnv env (NonRec b e) = extendNameEnv env (getName b) (exprUsageEnv' env e)
+bindUsageEnv env (Rec binds) = add_ues (zip bndrs (zipWith supUE ue_anns rhs_ue))
+  where
+    add_ues ues = foldl (\e (b,ue) -> extendNameEnv e (getName b) ue) env ues
+    bndrs = map fst binds
+    rhss = map snd binds
+    ue_anns = interpUA <$> map varUsages bndrs
+    rhs_env = add_ues (zip bndrs ue_anns)
+    rhs_ue = map (exprUsageEnv' rhs_env) rhss
+
+altsUsageEnv :: NameEnv UsageEnv -> CoreBndr -> [CoreAlt] -> UsageEnv
+altsUsageEnv env b alts = supUEs $ map ((`deleteUE` b) . altUsageEnv) alts
+  where
+    altUsageEnv (DEFAULT, _, rhs) = exprUsageEnv' env rhs
+    altUsageEnv (LitAlt _, _, rhs) = exprUsageEnv' env rhs
+    altUsageEnv (DataAlt _, args, rhs) =
+      foldl deleteUE (exprUsageEnv' env rhs) args
+
+exprUsageAnnotation :: CoreExpr -> UsageAnnotation
+exprUsageAnnotation e = mkUA (exprUsageEnv e)
+
+varCallUsage :: NameEnv UsageEnv -> CoreBndr -> UsageEnv
+varCallUsage env var =
+  case lookupNameEnv env (getName var) of
+    Nothing
+      | Omega <- varMult var -> zeroUE
+      | isLocalVar var -> unitUE var One
+      | otherwise -> zeroUE
+    Just var_ue -> var_ue
+
 
 -- | Is this expression levity polymorphic? This should be the
 -- same as saying (isKindLevPoly . typeKind . exprType) but
@@ -2002,7 +2060,7 @@ dataConInstPat fss uniqs mult con inst_tys
     arg_ids = zipWith4 mk_id_var id_uniqs id_fss arg_tys arg_strs
     mk_id_var uniq fs (Scaled m ty) str
       = setCaseBndrEvald str $  -- See Note [Mark evaluated arguments]
-        mkLocalIdOrCoVar name (mult `mkMultMul` m) (Type.substTy full_subst ty)
+        mkLocalIdOrCoVar name (mult `mkMultMul` m) zeroUA (Type.substTy full_subst ty)
       where
         name = mkInternalName uniq (mkVarOccFS fs) noSrcSpan
 
