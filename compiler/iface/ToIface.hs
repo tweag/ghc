@@ -537,11 +537,11 @@ toIfaceTickish (Breakpoint {})         = Nothing
 
 ---------------------
 toIfaceBind :: Bind Id -> IfaceBinding
-toIfaceBind (NonRec b ue r) = IfaceNonRec (toIfaceLetBndr b) (toIfaceUE ue) (toIfaceExpr r)
-toIfaceBind (Rec prs)    = IfaceRec [(toIfaceLetBndr b, toIfaceExpr r) | (b,r) <- prs]
+toIfaceBind (NonRec b r) = IfaceNonRec (toIfaceLetBndr b)  (toIfaceExpr r)
+toIfaceBind (Rec prs)    = IfaceRec [(toIfaceLetBndr b, toIfaceUE ue, toIfaceExpr r) | (b,ue,r) <- prs]
 
 toIfaceUE :: UsageEnv -> [(Name, IfaceType)]
-toIfaceUE ue = map (\(x,p) -> (n, toIfaceType p)) (toListUE ue)
+toIfaceUE ue = map (\(n,p) -> (n, toIfaceType p)) (toListUE ue)
 
 ---------------------
 toIfaceAlt :: (AltCon, [Var], CoreExpr)

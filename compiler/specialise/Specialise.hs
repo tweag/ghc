@@ -29,7 +29,7 @@ import VarEnv
 import CoreSyn
 import Rules
 import CoreOpt          ( collectBindersPushingCo )
-import CoreUtils        ( exprIsTrivial, mkCast, exprType )
+import CoreUtils        ( exprIsTrivial, flattenBinds, mkCast, exprType, exprUsageEnv )
 import CoreFVs
 import CoreArity        ( etaExpandToJoinPointRule )
 import UniqSupply
@@ -38,6 +38,7 @@ import MkId             ( voidArgId, voidPrimId )
 import Maybes           ( mapMaybe, isJust )
 import MonadUtils       ( foldlM )
 import BasicTypes
+import UsageEnv
 import HscTypes
 import Bag
 import DynFlags
@@ -1256,7 +1257,8 @@ specBind rhs_env (NonRec fn rhs) body_uds
              final_binds
                | not (isEmptyBag dump_dbs)
                , not (null spec_defns)
-               = [recWithDumpedDicts pairs dump_dbs]
+               = let triples = zipRecBlock pairs (repeat (exprUsageEnv rhs)) in
+                 [recWithDumpedDicts triples dump_dbs]
                | otherwise
                = [mkDB $ NonRec b r | (b,r) <- pairs]
                  ++ bagToList dump_dbs
@@ -1273,7 +1275,7 @@ specBind rhs_env (NonRec fn rhs) body_uds
 
 specBind rhs_env (Rec pairs) body_uds
        -- Note [Specialising a recursive group]
-  = do { let (bndrs,rhss) = unzip pairs
+  = do { let (bndrs,ues,rhss) = unzip3 pairs
        ; (rhss', rhs_uds) <- mapAndCombineSM (specExpr rhs_env) rhss
        ; let scope_uds = body_uds `plusUDs` rhs_uds
                        -- Includes binds and calls arising from rhss
@@ -1285,11 +1287,11 @@ specBind rhs_env (Rec pairs) body_uds
                 then return (bndrs1, [], uds1)
                 else do {            -- Specialisation occurred; do it again
                           (bndrs2, spec_defns2, uds2)
-                              <- specDefns rhs_env uds1 (bndrs1 `zip` rhss)
+                              <- specDefns rhs_env uds1 (zip3 bndrs1 ues rhss)
                         ; return (bndrs2, spec_defns2 ++ spec_defns1, uds2) }
 
        ; let (final_uds, dumped_dbs, float_all) = dumpBindUDs bndrs uds3
-             final_bind = recWithDumpedDicts (spec_defns3 ++ zip bndrs3 rhss')
+             final_bind = recWithDumpedDicts (spec_defns3 ++ zip3 bndrs3 ues rhss')
                                              dumped_dbs
 
        ; if float_all then
@@ -1301,9 +1303,9 @@ specBind rhs_env (Rec pairs) body_uds
 ---------------------------
 specDefns :: SpecEnv
           -> UsageDetails               -- Info on how it is used in its scope
-          -> [(OutId,InExpr)]           -- The things being bound and their un-processed RHS
+          -> [(OutId,UsageEnv,InExpr)]  -- The things being bound and their un-processed RHS
           -> SpecM ([OutId],            -- Original Ids with RULES added
-                    [(OutId,OutExpr)],  -- Extra, specialised bindings
+                    [(OutId,UsageEnv,OutExpr)],  -- Extra, specialised bindings
                     UsageDetails)       -- Stuff to fling upwards from the specialised versions
 
 -- Specialise a list of bindings (the contents of a Rec), but flowing usages
@@ -1314,10 +1316,22 @@ specDefns :: SpecEnv
 
 specDefns _env uds []
   = return ([], [], uds)
-specDefns env uds ((bndr,rhs):pairs)
+specDefns env uds ((bndr,ue,rhs):pairs)
   = do { (bndrs1, spec_defns1, uds1) <- specDefns env uds pairs
        ; (bndr1, spec_defns2, uds2)  <- specDefn env uds1 bndr rhs
-       ; return (bndr1 : bndrs1, spec_defns1 ++ spec_defns2, uds2) }
+       ; return (bndr1 : bndrs1, spec_defns1 ++ (zipRecBlock spec_defns2 (repeat ue)), uds2) }
+
+{-
+Note [specDefns and usage annotation]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+All the specialisation of `f` share the same free variables up to type variables
+and dictionaries. Both type variables and dictionaries are unrestricted, and we
+don't have to keep track of unrestricted free variables.
+
+The pleasant consequence of this observation is that we can reuse the original
+usage annotation of `f` for all its specialisations.
+-}
 
 ---------------------------
 specDefn :: SpecEnv
@@ -2388,7 +2402,7 @@ pair_fvs (bndr, rhs) = exprSomeFreeVars interesting rhs
 
 -- | Flatten a set of "dumped" 'DictBind's, and some other binding
 -- pairs, into a single recursive binding.
-recWithDumpedDicts :: [(Id,CoreExpr)] -> Bag DictBind ->DictBind
+recWithDumpedDicts :: [(Id,UsageEnv,CoreExpr)] -> Bag DictBind ->DictBind
 recWithDumpedDicts pairs dbs
   = (Rec bindings, fvs)
   where
@@ -2396,7 +2410,7 @@ recWithDumpedDicts pairs dbs
                                ([], emptyVarSet)
                                (dbs `snocBag` mkDB (Rec pairs))
     add (NonRec b r, fvs') (pairs, fvs) =
-      ((b,r) : pairs, fvs `unionVarSet` fvs')
+      ((b,exprUsageEnv r, r) : pairs, fvs `unionVarSet` fvs')
     add (Rec prs1,   fvs') (pairs, fvs) =
       (prs1 ++ pairs, fvs `unionVarSet` fvs')
 

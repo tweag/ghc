@@ -8,6 +8,7 @@
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module DmdAnal ( dmdAnalProgram ) where
 
@@ -76,8 +77,8 @@ dmdAnalTopBind env (NonRec id rhs)
         -- See Note [Optimistic CPR in the "virgin" case]
         -- See Note [Initial CPR for strict binders]
 
-dmdAnalTopBind env (Rec pairs)
-  = (env', Rec pairs')
+dmdAnalTopBind env (Rec (unzipRecBlock -> (pairs, ue)))
+  = (env', Rec (zipRecBlock pairs' ue))
   where
     (env', _, pairs')  = dmdFix TopLevel env cleanEvalDmd pairs
                 -- We get two iterations automatically

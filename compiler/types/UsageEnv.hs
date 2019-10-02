@@ -1,6 +1,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 module UsageEnv (UsageEnv, addUsage, multUsage, emptyUE, zeroUE, mkUE,
+                 toListUE,
                  lookupUE, scaleUE, deleteUE, addUE, Usage(..), unitUE,
                  supUE, supUEs) where
 

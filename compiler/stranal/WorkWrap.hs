@@ -91,10 +91,16 @@ wwBind dflags fam_envs (NonRec binder rhs) = do
       -- because the original binding was.
 
 wwBind dflags fam_envs (Rec pairs)
-  = return . Rec <$> concatMapM (mapRecM do_one) pairs
+  = return . Rec <$> concatMapM do_one pairs
   where
-    do_one (binder, rhs) = do new_rhs <- wwExpr dflags fam_envs rhs
-                              tryWW dflags fam_envs Recursive binder new_rhs
+    do_one (binder, ue, rhs) = do new_rhs <- wwExpr dflags fam_envs rhs
+                                  bindings <- tryWW dflags fam_envs Recursive binder new_rhs
+                                  return $ zipRecBlock bindings (repeat ue)
+      -- The worker and wrapper both mean the same thing as the original
+      -- binding. Therefore, they have the same variable usage. Hence `repeat
+      -- ue`: we simply copy the usage annotation on each of the binders (either
+      -- the original function, or a pair of a worker and a wrapper: in either
+      -- case, `ue` is the correct annotation.
 
 {-
 @wwExpr@ basically just walks the tree, looking for appropriate

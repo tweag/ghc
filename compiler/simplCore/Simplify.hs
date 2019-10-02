@@ -55,6 +55,7 @@ import Util
 import ErrUtils
 import Module          ( moduleName, pprModuleName )
 import Multiplicity
+import UsageEnv
 import PrimOp          ( PrimOp (SeqOp) )
 import TyCoRep         ( TyCoBinder(..) )
 
