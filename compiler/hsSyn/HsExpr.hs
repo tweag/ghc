@@ -52,6 +52,8 @@ import Data.Data hiding (Fixity(..))
 import qualified Data.Data as Data (Fixity(..))
 import Data.Maybe (isNothing)
 
+import DataCon
+
 import GHCi.RemoteTypes ( ForeignRef )
 import qualified Language.Haskell.TH as TH (Q)
 
@@ -304,6 +306,10 @@ data HsExpr p
   | HsConLikeOut (XConLikeOut p)
                  ConLike     -- ^ After typechecker only; must be different
                              -- HsVar for pretty printing
+
+  | HsDataConEta () -- (XDataConEta p) -- TODO TTG
+                 DataCon
+                 [Mult] -- multiplicities
 
   | HsRecFld  (XRecFld p)
               (AmbiguousFieldOcc p) -- ^ Variable pointing to record selector
@@ -881,6 +887,7 @@ ppr_expr :: forall p. (OutputableBndrId (GhcPass p))
 ppr_expr (HsVar _ (L _ v))  = pprPrefixOcc v
 ppr_expr (HsUnboundVar _ uv)= pprPrefixOcc (unboundVarOcc uv)
 ppr_expr (HsConLikeOut _ c) = pprPrefixOcc c
+ppr_expr (HsDataConEta _ c _) = pprPrefixOcc c
 ppr_expr (HsIPVar _ v)      = ppr v
 ppr_expr (HsOverLabel _ _ l)= char '#' <> ppr l
 ppr_expr (HsLit _ lit)      = ppr lit
@@ -1065,6 +1072,7 @@ ppr_expr (XExpr x) = ppr x
 ppr_infix_expr :: (OutputableBndrId (GhcPass p)) => HsExpr (GhcPass p) -> Maybe SDoc
 ppr_infix_expr (HsVar _ (L _ v)) = Just (pprInfixOcc v)
 ppr_infix_expr (HsConLikeOut _ c)= Just (pprInfixOcc (conLikeName c))
+ppr_infix_expr (HsDataConEta _ c _)= Just (pprInfixOcc (dataConName c))
 ppr_infix_expr (HsRecFld _ f)    = Just (pprInfixOcc f)
 ppr_infix_expr (HsUnboundVar _ h@TrueExprHole{}) = Just (pprInfixOcc (unboundVarOcc h))
 ppr_infix_expr (HsWrap _ _ e)    = ppr_infix_expr e
@@ -1129,6 +1137,7 @@ hsExprNeedsParens p = go
     go (HsVar{})                      = False
     go (HsUnboundVar{})               = False
     go (HsConLikeOut{})               = False
+    go (HsDataConEta{})               = False
     go (HsIPVar{})                    = False
     go (HsOverLabel{})                = False
     go (HsLit _ l)                    = hsLitNeedsParens p l
@@ -1182,6 +1191,7 @@ isAtomicHsExpr :: HsExpr id -> Bool
 -- True of a single token
 isAtomicHsExpr (HsVar {})        = True
 isAtomicHsExpr (HsConLikeOut {}) = True
+isAtomicHsExpr (HsDataConEta {}) = True
 isAtomicHsExpr (HsLit {})        = True
 isAtomicHsExpr (HsOverLit {})    = True
 isAtomicHsExpr (HsIPVar {})      = True
@@ -1432,6 +1442,7 @@ ppr_cmd (HsCmdArrForm _ (L _ (HsConLikeOut _ c)) _ (Just _) [arg1, arg2])
 ppr_cmd (HsCmdArrForm _ (L _ (HsConLikeOut _ c)) Infix _    [arg1, arg2])
   = hang (pprCmdArg (unLoc arg1)) 4 (sep [ pprInfixOcc (conLikeName c)
                                          , pprCmdArg (unLoc arg2)])
+-- Something with arrows. To be checked
 ppr_cmd (HsCmdArrForm _ op _ _ args)
   = hang (text "(|" <+> ppr_lexpr op)
          4 (sep (map (pprCmdArg.unLoc) args) <+> text "|)")

@@ -1014,6 +1014,7 @@ viewLExprEq (e1,_) (e2,_) = lexp e1 e2
     exp (HsWrap _ h e) (HsWrap _ h' e') = wrap h h' && exp e e'
     exp (HsVar _ i) (HsVar _ i') =  i == i'
     exp (HsConLikeOut _ c) (HsConLikeOut _ c') = c == c'
+    exp (HsDataConEta _ c _) (HsDataConEta _ c' _) = c == c'
     -- the instance for IPName derives using the id, so this works if the
     -- above does
     exp (HsIPVar _ i) (HsIPVar _ i') = i == i'

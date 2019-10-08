@@ -994,6 +994,8 @@ isTrueLHsExpr (dL->L _ (HsVar _ (dL->L _ v)))
         -- trueDataConId doesn't have the same unique as trueDataCon
 isTrueLHsExpr (dL->L _ (HsConLikeOut _ con))
   | con `hasKey` getUnique trueDataCon = Just return
+isTrueLHsExpr (dL->L _ (HsDataConEta _ con _))
+  | con `hasKey` getUnique trueDataCon = Just return
 isTrueLHsExpr (dL->L _ (HsTick _ tickish e))
     | Just ticks <- isTrueLHsExpr e
     = Just (\x -> do wrapped <- ticks x

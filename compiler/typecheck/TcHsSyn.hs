@@ -755,6 +755,10 @@ zonkExpr env (HsVar x (dL->L l id))
 
 zonkExpr _ e@(HsConLikeOut {}) = return e
 
+zonkExpr env (HsDataConEta x dc mul_vars)
+  = do new_mul_vars <- zonkTcTypesToTypesX env mul_vars
+       return $ HsDataConEta x dc new_mul_vars
+
 zonkExpr _ (HsIPVar x id)
   = return (HsIPVar x id)
 

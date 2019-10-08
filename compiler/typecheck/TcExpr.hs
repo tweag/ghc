@@ -1841,7 +1841,7 @@ tc_infer_id lbl id_name
 
     return_data_con con
        -- See Note [Instantiating stupid theta]
-      | isUnboxedTupleCon con || isUnboxedSumCon con || not (null (dataConStupidTheta con))
+      | not (null (dataConStupidTheta con))
       = do { let tvs = dataConUserTyVarBinders con
                  theta = dataConOtherTheta con
                  args = dataConOrigArgTys con
@@ -1854,13 +1854,13 @@ tc_infer_id lbl id_name
            ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
            -- See Note [Linear fields generalization]
            ; (_subst, mul_vars) <- newMetaTyVars (multiplicityTyVarList (length args') (map getOccName (binderVars tvs)))
-           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars args'
-                 combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
+           ; let mul_vars' = mkTyVarTys mul_vars
+           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars' args'
+                 combine var (Scaled One ty) = Scaled var ty
                  combine _   scaled_ty = scaled_ty
 
-           ; let wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole scaled_arg_tys
            ; addDataConStupidTheta con tys'
-           ; return ( mkHsWrap (wrap2 <.> wrap) (HsConLikeOut noExtField (RealDataCon con))
+           ; return ( mkHsWrap wrap (HsDataConEta () con mul_vars')
                     , mkVisFunTys scaled_arg_tys res') }
 
     return_data_con con
@@ -1869,15 +1869,13 @@ tc_infer_id lbl id_name
                  args = dataConOrigArgTys con
                  res = dataConOrigResTy con
            ; (_subst, mul_vars) <- newMetaTyVars $ multiplicityTyVarList (length args) $ map getOccName $ binderVars tvs
-           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars args
-                 combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
+           ; let mul_vars' = mkTyVarTys mul_vars
+           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars' args
+                 combine var (Scaled One ty) = Scaled var ty
                  combine _   scaled_ty = scaled_ty
-           ; let wrap1 = mkWpTyApps (map mkTyVarTy $ binderVars tvs)
-                 wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole (map unrestricted theta ++ scaled_arg_tys)
-                 wrap3 = mkWpTyLams $ binderVars tvs
            -- ; pprTraceM "lengths" (ppr (length theta) <+> ppr (length (dataConStupidTheta con)))
            ; addDataConStupidTheta con $ map mkTyVarTy $ binderVars tvs
-           ; return ( mkHsWrap (wrap3 <.> wrap2 <.> wrap1) (HsConLikeOut noExtField (RealDataCon con))
+           ; return ( (HsDataConEta () con mul_vars')
                     , mkForAllTys tvs $ mkInvisFunTysOm theta $ mkVisFunTys scaled_arg_tys res)
            }
 

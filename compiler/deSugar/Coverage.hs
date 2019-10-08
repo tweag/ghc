@@ -497,6 +497,8 @@ addTickHsExpr e@(HsVar _ (dL->L _ id)) = do freeVar id; return e
 addTickHsExpr (HsUnboundVar {})    = panic "addTickHsExpr.HsUnboundVar"
 addTickHsExpr e@(HsConLikeOut _ con)
   | Just id <- conLikeWrapId_maybe con = do freeVar id; return e
+addTickHsExpr e@(HsDataConEta _ con _)
+  | Just id <- conLikeWrapId_maybe (RealDataCon con) = do freeVar id; return e
 addTickHsExpr e@(HsIPVar {})       = return e
 addTickHsExpr e@(HsOverLit {})     = return e
 addTickHsExpr e@(HsOverLabel{})    = return e

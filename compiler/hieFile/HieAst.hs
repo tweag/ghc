@@ -23,6 +23,7 @@ import BooleanFormula
 import Class                      ( FunDep )
 import CoreUtils                  ( exprType )
 import ConLike                    ( conLikeName )
+import DataCon (dataConName)
 import Desugar                    ( deSugarExpr )
 import FieldLabel
 import HsSyn
@@ -518,6 +519,7 @@ instance HasType (LHsExpr GhcTc) where
         HsVar{}        -> False
         HsUnboundVar{} -> False
         HsConLikeOut{} -> False
+        HsDataConEta{} -> False
         HsRecFld{}     -> False
         HsOverLabel{}  -> False
         HsIPVar{}      -> False
@@ -765,6 +767,9 @@ instance ( a ~ GhcPass p
         []
       HsConLikeOut _ con ->
         [ toHie $ C Use $ L mspan $ conLikeName con
+        ]
+      HsDataConEta _ con _ ->
+        [ toHie $ C Use $ L mspan $ dataConName con
         ]
       HsRecFld _ fld ->
         [ toHie $ RFC RecFieldOcc Nothing (L mspan fld)

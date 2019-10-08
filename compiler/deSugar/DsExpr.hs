@@ -64,6 +64,7 @@ import PatSyn
 
 import Control.Monad
 import TysPrim
+import TyCoRep
 
 {-
 ************************************************************************
@@ -257,6 +258,31 @@ dsLExprNoLP (dL->L loc e)
 dsExpr :: HsExpr GhcTc -> DsM CoreExpr
 dsExpr = ds_expr False
 
+superFunction :: [Type] -> [TyCoBinder] -> DsM [Var]
+superFunction (tctyvar:tctyvars) (Anon VisArg (Scaled m t):binders) = do vars <- superFunction tctyvars binders
+                                                                         ns <- newSysLocalDs tctyvar t
+                                                                         return $ ns : vars
+                          
+superFunction tctyvars (Anon InvisArg (Scaled m t):binders) = do vars <- superFunction tctyvars binders
+                                                                 MASSERT(eqType m Omega)
+                                                                 ns <- newSysLocalDs Omega t
+                                                                 return $ ns : vars
+
+superFunction tctyvars (Named v:binders) = do vars <- superFunction tctyvars binders
+                                              return $ binderVar v : vars
+superFunction [] [] = return []
+superFunction _ [] = error "nonempty"
+
+dsHsConLikeOut dc wrap mul_vars =
+    do { let con = varToCoreExpr $ dataConWrapId dc
+             wrapped_con = wrap con
+             wrapped_con_type = exprType wrapped_con
+             (binders, _inner_type) = splitPiTys wrapped_con_type
+       ; vars <- superFunction mul_vars binders
+       ; checkForcedEtaExpansion con wrapped_con_type
+       ; return $ mkLams vars $ mkVarApps wrapped_con vars }
+
+
 ds_expr :: Bool   -- are we directly inside an HsWrap?
                   -- See Wrinkle in Note [Detecting forced eta expansion]
         -> HsExpr GhcTc -> DsM CoreExpr
@@ -264,9 +290,14 @@ ds_expr _ (HsPar _ e)            = dsLExpr e
 ds_expr _ (ExprWithTySig _ e _)  = dsLExpr e
 ds_expr w (HsVar _ (dL->L _ var)) = dsHsVar w var
 ds_expr _ (HsUnboundVar {})      = panic "dsExpr: HsUnboundVar" -- Typechecker eliminates them
-ds_expr w (HsConLikeOut _ con)   = dsConLike w con
 ds_expr _ (HsIPVar {})           = panic "dsExpr: HsIPVar"
 ds_expr _ (HsOverLabel{})        = panic "dsExpr: HsOverLabel"
+ds_expr _ (HsDataConEta _ dc mul_vars) = dsHsConLikeOut dc id mul_vars
+ds_expr _ (HsWrap _ co_fn (HsDataConEta _ dc mul_vars))
+  = do { wrap <- dsHsWrapper co_fn
+       ; dsHsConLikeOut dc wrap mul_vars } -- TODO: add a call to checkForcedEtaExpansion and warnAboutIdenties?  See the clause for HsWrap
+ds_expr w (HsConLikeOut _ con)   = dsConLike w con -- TODO: get rid of RealDataCon case here. Combine dsConLike and dsConLikeOut.
+
 
 ds_expr _ (HsLit _ lit)
   = do { warnAboutOverflowedLit lit
@@ -283,7 +314,7 @@ ds_expr _ (HsWrap _ co_fn e)
        ; dflags <- getDynFlags
        ; let wrapped_e = wrap' e'
              wrapped_ty = exprType wrapped_e
-       ; checkForcedEtaExpansion e wrapped_ty -- See Note [Detecting forced eta expansion]
+       ; checkForcedEtaExpansion e' wrapped_ty -- See Note [Detecting forced eta expansion]
        ; warnAboutIdentities dflags e' wrapped_ty
        ; return wrapped_e }
 
@@ -1145,13 +1176,9 @@ we're not directly in an HsWrap, reject.
 -- | Takes an expression and its instantiated type. If the expression is an
 -- HsVar with a hasNoBinding primop and the type has levity-polymorphic arguments,
 -- issue an error. See Note [Detecting forced eta expansion]
-checkForcedEtaExpansion :: HsExpr GhcTc -> Type -> DsM ()
-checkForcedEtaExpansion expr ty
-  | Just var <- case expr of
-                  HsVar _ (dL->L _ var)           -> Just var
-                  HsConLikeOut _ (RealDataCon dc) -> Just (dataConWrapId dc)
-                  _                               -> Nothing
-  , let bad_tys = badUseOfLevPolyPrimop var ty
+checkForcedEtaExpansion :: CoreExpr -> Type -> DsM ()
+checkForcedEtaExpansion (Var var) ty
+  | let bad_tys = badUseOfLevPolyPrimop var ty
   , not (null bad_tys)
   = levPolyPrimopErr var ty bad_tys
 checkForcedEtaExpansion _ _ = return ()
