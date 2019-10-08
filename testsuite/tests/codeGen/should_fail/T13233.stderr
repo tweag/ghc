@@ -1,6 +1,14 @@
 
+T13233.hs:15:11: error:
+    Cannot use function with levity-polymorphic arguments:
+      GHC.Prim.(#,#) :: a ->. a ->. (# a, a #)
+    Levity-polymorphic arguments:
+      a :: TYPE rep
+      a :: TYPE rep
+
 T13233.hs:23:16: error:
-    A levity-polymorphic type is not allowed here:
-      Type: a
-      Kind: TYPE rep1
-    When trying to create a variable of type: a
+    Cannot use function with levity-polymorphic arguments:
+      GHC.Prim.(#,#) :: a ->. b ->. (# a, b #)
+    Levity-polymorphic arguments:
+      a :: TYPE rep1
+      b :: TYPE rep2
