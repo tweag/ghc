@@ -1840,43 +1840,36 @@ tc_infer_id lbl id_name
     return_id id = return (HsVar noExtField (noLoc id), idType id)
 
     return_data_con con
-       -- See Note [Instantiating stupid theta]
-      | not (null (dataConStupidTheta con))
       = do { let tvs = dataConUserTyVarBinders con
                  theta = dataConOtherTheta con
                  args = dataConOrigArgTys con
                  res = dataConOrigResTy con
-           ; (subst, tvs') <- newMetaTyVars (map binderVar tvs)
-           ; let tys'   = mkTyVarTys tvs'
-                 theta' = substTheta subst theta
-                 args'  = map (substScaledTy subst) args
-                 res'   = substTy subst res
-           ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
+
            -- See Note [Linear fields generalization]
-           ; (_subst, mul_vars) <- newMetaTyVars (multiplicityTyVarList (length args') (map getOccName (binderVars tvs)))
+           ; (_subst, mul_vars) <- newMetaTyVars $
+                                   multiplicityTyVarList (length args) $
+                                   map getOccName $ binderVars tvs
            ; let mul_vars' = mkTyVarTys mul_vars
-           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars' args'
-                 combine var (Scaled One ty) = Scaled var ty
-                 combine _   scaled_ty = scaled_ty
+                 etaExpandedCon = HsDataConEta noExtField con mul_vars'
+                 scaleArgs args' = zipWithEqual "return_data_con" combine mul_vars' args'
+                   where combine var (Scaled One ty) = Scaled var ty
+                         combine _   scaled_ty = scaled_ty
 
-           ; addDataConStupidTheta con tys'
-           ; return ( mkHsWrap wrap (HsDataConEta () con mul_vars')
-                    , mkVisFunTys scaled_arg_tys res') }
+           -- See Note [Instantiating stupid theta]
+           ; case null (dataConStupidTheta con) of
+               False -> do { (subst, tvs') <- newMetaTyVars $ binderVars tvs
+                           ; let tys'   = mkTyVarTys tvs'
+                                 theta' = substTheta subst theta
+                                 args'  = map (substScaledTy subst) args
+                                 res'   = substTy subst res
+                           ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
+                           ; addDataConStupidTheta con tys'
 
-    return_data_con con
-      = do { let tvs = dataConUserTyVarBinders con
-                 theta = dataConOtherTheta con
-                 args = dataConOrigArgTys con
-                 res = dataConOrigResTy con
-           ; (_subst, mul_vars) <- newMetaTyVars $ multiplicityTyVarList (length args) $ map getOccName $ binderVars tvs
-           ; let mul_vars' = mkTyVarTys mul_vars
-           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars' args
-                 combine var (Scaled One ty) = Scaled var ty
-                 combine _   scaled_ty = scaled_ty
-           -- ; pprTraceM "lengths" (ppr (length theta) <+> ppr (length (dataConStupidTheta con)))
-           ; addDataConStupidTheta con $ map mkTyVarTy $ binderVars tvs
-           ; return ( (HsDataConEta () con mul_vars')
-                    , mkForAllTys tvs $ mkInvisFunTysOm theta $ mkVisFunTys scaled_arg_tys res)
+                           ; return (mkHsWrap wrap etaExpandedCon,
+                                     mkVisFunTys (scaleArgs args') res')
+                           }
+               True -> return (etaExpandedCon,
+                               mkForAllTys tvs $ mkInvisFunTysOm theta $ mkVisFunTys (scaleArgs args) res)
            }
 
     check_naughty id
@@ -1940,7 +1933,7 @@ constructors of F [Int] but here we have to do it explicitly.
 
 It's all grotesquely complicated.
 
-Note [Instantiating stupid theta] TODO: update it
+Note [Instantiating stupid theta]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Normally, when we infer the type of an Id, we don't instantiate,
 because we wish to allow for visible type application later on.
@@ -1961,7 +1954,9 @@ no longer type-check.
 
 Therefore, we generalize linear constructors to multiplicity-polymorphic
 functions during typechecking. For example, 'Just' becomes
-'forall a. a -->.(n) Maybe a'.
+'forall a. a -->.(n) Maybe a'. The new type is returned during typechecking
+together with a new form HsDataConEta, which is desugared
+to an eta-expanded version of the constructor.
 
 To avoid spurious renaming, the additional multiplicity variables
 should not use names that were written by user.

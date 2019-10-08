@@ -307,9 +307,9 @@ data HsExpr p
                  ConLike     -- ^ After typechecker only; must be different
                              -- HsVar for pretty printing
 
-  | HsDataConEta () -- (XDataConEta p) -- TODO TTG
-                 DataCon
-                 [Mult] -- multiplicities
+  | HsDataConEta (XDataConEta p)
+                 DataCon     -- ^ After typechecker only;
+                 [Mult]      --   See Note [Linear fields generalization]
 
   | HsRecFld  (XRecFld p)
               (AmbiguousFieldOcc p) -- ^ Variable pointing to record selector
@@ -670,6 +670,7 @@ data RecordUpdTc = RecordUpdTc
 type instance XVar           (GhcPass _) = NoExtField
 type instance XUnboundVar    (GhcPass _) = NoExtField
 type instance XConLikeOut    (GhcPass _) = NoExtField
+type instance XDataConEta    (GhcPass _) = NoExtField
 type instance XRecFld        (GhcPass _) = NoExtField
 type instance XOverLabel     (GhcPass _) = NoExtField
 type instance XIPVar         (GhcPass _) = NoExtField
