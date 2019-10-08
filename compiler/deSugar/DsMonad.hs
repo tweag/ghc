@@ -576,7 +576,7 @@ discardWarningsDs thing_inside
 -- | Fail with an error message if the type is levity polymorphic.
 dsNoLevPoly :: Type -> SDoc -> DsM ()
 -- See Note [Levity polymorphism checking]
-dsNoLevPoly ty doc = checkForLevPolyX failWithDs doc ty
+dsNoLevPoly ty doc = checkForLevPolyX errDs doc ty
 
 -- | Check an expression for levity polymorphism, failing if it is
 -- levity polymorphic.
