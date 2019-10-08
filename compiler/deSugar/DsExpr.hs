@@ -259,7 +259,7 @@ dsExpr :: HsExpr GhcTc -> DsM CoreExpr
 dsExpr = ds_expr False
 
 superFunction :: [Type] -> [TyCoBinder] -> DsM [Var]
-superFunction (tctyvar:tctyvars) (Anon VisArg (Scaled m t):binders) = do vars <- superFunction tctyvars binders
+superFunction (tctyvar:tctyvars) (Anon VisArg (Scaled _ t):binders) = do vars <- superFunction tctyvars binders
                                                                          ns <- newSysLocalDs tctyvar t
                                                                          return $ ns : vars
                           
@@ -271,15 +271,22 @@ superFunction tctyvars (Anon InvisArg (Scaled m t):binders) = do vars <- superFu
 superFunction tctyvars (Named v:binders) = do vars <- superFunction tctyvars binders
                                               return $ binderVar v : vars
 superFunction [] [] = return []
-superFunction _ [] = error "nonempty"
+superFunction tctyvars bndrs = pprPanic "superFunction" (ppr tctyvars <+> ppr bndrs)
 
-dsHsConLikeOut dc wrap mul_vars =
-    do { let con = varToCoreExpr $ dataConWrapId dc
+
+dsHsConLikeOut :: DataCon
+               -> HsWrapper
+               -> [Type]
+               -> DsM CoreExpr
+dsHsConLikeOut dc co_fn mul_vars =
+    do { wrap <- dsHsWrapper co_fn
+       ; let con = varToCoreExpr $ dataConWrapId dc
              wrapped_con = wrap con
              wrapped_con_type = exprType wrapped_con
              (binders, _inner_type) = splitPiTys wrapped_con_type
        ; vars <- superFunction mul_vars binders
        ; checkForcedEtaExpansion con wrapped_con_type
+       -- TODO: add a call to checkForcedEtaExpansion and warnAboutIdenties?  See the clause for HsWrap
        ; return $ mkLams vars $ mkVarApps wrapped_con vars }
 
 
@@ -292,10 +299,8 @@ ds_expr w (HsVar _ (dL->L _ var)) = dsHsVar w var
 ds_expr _ (HsUnboundVar {})      = panic "dsExpr: HsUnboundVar" -- Typechecker eliminates them
 ds_expr _ (HsIPVar {})           = panic "dsExpr: HsIPVar"
 ds_expr _ (HsOverLabel{})        = panic "dsExpr: HsOverLabel"
-ds_expr _ (HsDataConEta _ dc mul_vars) = dsHsConLikeOut dc id mul_vars
-ds_expr _ (HsWrap _ co_fn (HsDataConEta _ dc mul_vars))
-  = do { wrap <- dsHsWrapper co_fn
-       ; dsHsConLikeOut dc wrap mul_vars } -- TODO: add a call to checkForcedEtaExpansion and warnAboutIdenties?  See the clause for HsWrap
+ds_expr _ (HsDataConEta _ dc mul_vars) = dsHsConLikeOut dc WpHole mul_vars
+ds_expr _ (HsWrap _ co_fn (HsDataConEta _ dc mul_vars)) = dsHsConLikeOut dc co_fn mul_vars
 ds_expr w (HsConLikeOut _ con)   = dsConLike w con -- TODO: get rid of RealDataCon case here. Combine dsConLike and dsConLikeOut.
 
 
