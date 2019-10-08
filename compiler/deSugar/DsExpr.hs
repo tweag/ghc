@@ -273,21 +273,33 @@ superFunction tctyvars (Named v:binders) = do vars <- superFunction tctyvars bin
 superFunction [] [] = return []
 superFunction tctyvars bndrs = pprPanic "superFunction" (ppr tctyvars <+> ppr bndrs)
 
+decomposeWrapper :: HsWrapper -> [HsWrapper]
+decomposeWrapper (WpCompose w1 w2) = decomposeWrapper w1 ++ decomposeWrapper w2
+decomposeWrapper WpHole = []
+decomposeWrapper x = [x]
+
+splitWrapper :: HsWrapper -> (HsWrapper, HsWrapper)
+splitWrapper w = let (u,v) = span isGoodWrapper $ reverse $ decomposeWrapper w
+                 in (foldr (<.>) WpHole $ reverse v, foldr (<.>) WpHole $ reverse u)
+   where isGoodWrapper (WpTyApp {}) = True
+         isGoodWrapper _ = False
 
 dsHsConLikeOut :: DataCon
                -> HsWrapper
                -> [Type]
                -> DsM CoreExpr
 dsHsConLikeOut dc co_fn mul_vars =
-    do { wrap <- dsHsWrapper co_fn
+    do { let (fn_l, fn_r) = splitWrapper co_fn
+       ; wrapl <- dsHsWrapper fn_l
+       ; wrapr <- dsHsWrapper fn_r
        ; let con = varToCoreExpr $ dataConWrapId dc
-             wrapped_con = wrap con
+             wrapped_con = wrapr con
              wrapped_con_type = exprType wrapped_con
              (binders, _inner_type) = splitPiTys wrapped_con_type
        ; vars <- superFunction mul_vars binders
        ; checkForcedEtaExpansion con wrapped_con_type
        -- TODO: add a call to checkForcedEtaExpansion and warnAboutIdenties?  See the clause for HsWrap
-       ; return $ mkLams vars $ mkVarApps wrapped_con vars }
+       ; return $ wrapl $ mkLams vars $ mkVarApps wrapped_con vars }
 
 
 ds_expr :: Bool   -- are we directly inside an HsWrap?
