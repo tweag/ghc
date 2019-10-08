@@ -102,8 +102,6 @@ def normal( name, opts ):
 def skip( name, opts ):
     opts.skip = True
 
-vta_broken = normal  # TODO
-
 def expect_fail( name, opts ):
     # The compiler, testdriver, OS or platform is missing a certain
     # feature, and we don't plan to or can't fix it now or in the
