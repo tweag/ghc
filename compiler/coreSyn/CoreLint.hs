@@ -1362,7 +1362,7 @@ lintIdBndr top_lvl bind_site id linterF
                (text "Non-CoVar has coercion type" <+> ppr id <+> dcolon <+> ppr ty)
 
        ; let id' = setIdType id ty
-       ; addInScopeVar id' $ deleteAlias id' $ linterF id' }
+       ; addInScopeVar id' $ linterF id' }
   where
     is_top_lvl = isTopLevel top_lvl
     is_let_bind = case bind_site of
@@ -2376,6 +2376,7 @@ addInScopeVar var m
   = LintM $ \ env errs ->
     unLintM m (env { le_subst = extendTCvInScope (le_subst env) var
                    , le_joins = delVarSet        (le_joins env) var
+                   , le_ue_aliases = delFromNameEnv (le_ue_aliases env) (getName var)
                }) errs
 
 extendSubstL :: TyVar -> Type -> LintM a -> LintM a
@@ -2461,14 +2462,6 @@ addAliasUE id ue thing_inside = LintM $ \ env errs ->
         extendNameEnv (le_ue_aliases env) (getName id) ue
   in
     unLintM thing_inside (env { le_ue_aliases = new_ue_aliases }) errs
-
-deleteAlias :: Id -> LintM a -> LintM a
-deleteAlias id thing_inside = LintM $ \env errs ->
-  let new_ue_aliases =
-        delFromNameEnv (le_ue_aliases env) (getName id)
-  in
-    unLintM thing_inside (env { le_ue_aliases = new_ue_aliases }) errs
-
 
 varCallSiteUsage :: Id -> LintM UsageEnv
 varCallSiteUsage id =
