@@ -1,4 +1,3 @@
-()
 o = O (_t1::a0)
 ()
 _t1 :: SafeList Bool NonEmpty

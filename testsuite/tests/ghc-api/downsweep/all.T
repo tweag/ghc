@@ -3,7 +3,6 @@ test('PartialDownsweep',
      , when(opsys('darwin'),
              use_specs({'stderr' : 'PartialDownsweep.darwin.stderr'})
            )
-     , skip  # TODO remove before merging, ci issue
      ],
      compile_and_run,
      ['-package ghc'])

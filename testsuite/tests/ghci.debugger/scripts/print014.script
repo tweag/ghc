@@ -4,5 +4,4 @@
 :l GADT
 
 let e = Exist (1 :: Int)
-seq e ()
 :p e

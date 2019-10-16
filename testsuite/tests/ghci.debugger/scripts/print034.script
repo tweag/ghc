@@ -5,7 +5,6 @@
 :a Test
 :m +Main
 let o = O (One False Main.Nil)
-seq o ()
 :p o
 seq _t1 ()
 :t _t1
