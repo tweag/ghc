@@ -35,10 +35,10 @@ instance Outputable Usage where
   ppr (MUsage x) = ppr x
 
 addUsage :: Usage -> Usage -> Usage
-addUsage Bottom x = x
-addUsage x Bottom = x
 addUsage Zero x = x
 addUsage x Zero = x
+addUsage Bottom x = x
+addUsage x Bottom = x
 addUsage (MUsage x) (MUsage y) = MUsage $ mkMultAdd x y
 
 scaleUsage :: Mult -> Usage -> Usage
