@@ -1841,7 +1841,7 @@ tc_infer_id lbl id_name
 
     return_data_con con
        -- See Note [Instantiating stupid theta]
-      | isUnboxedTupleCon con || isUnboxedSumCon con || not (null (dataConStupidTheta con))
+      | {-isUnboxedTupleCon con || isUnboxedSumCon con ||-} not (null (dataConStupidTheta con)) || isKindLevPoly (tyConResKind (dataConTyCon con))
       = do { let tvs = dataConUserTyVarBinders con
                  theta = dataConOtherTheta con
                  args = dataConOrigArgTys con
@@ -1849,7 +1849,7 @@ tc_infer_id lbl id_name
            ; (subst, tvs') <- newMetaTyVars (map binderVar tvs)
            ; let tys'   = mkTyVarTys tvs'
                  theta' = substTheta subst theta
-                 args'  = map (substScaledTy subst) args
+                 args'  = substScaledTys subst args
                  res'   = substTy subst res
            ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
            -- See Note [Linear fields generalization]
