@@ -495,7 +495,7 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
            { Boxed   -> newFlexiTyVarTys arity liftedTypeKind
            ; Unboxed -> replicateM arity newOpenFlexiTyVarTy }
        ; let missing_tys = [ty | (ty, L _ (Missing _)) <- zip arg_tys tup_args]
-             w_tyvars = multiplicityTyVarList (length missing_tys) []
+             w_tyvars = multiplicityTyVarList (length missing_tys)
              w_tvb = map (mkTyVarBinder Inferred) w_tyvars
              actual_res_ty
                  =  mkForAllTys w_tvb $
@@ -1844,9 +1844,8 @@ tc_infer_id lbl id_name
                  theta = dataConOtherTheta con
                  args = dataConOrigArgTys con
                  res = dataConOrigResTy con
-           ; (_subst, mul_vars) <- newMetaTyVars $
-                                   multiplicityTyVarList (length args) $
-                                   map getOccName $ binderVars tvs
+           -- See Note [Linear fields generalization]
+           ; (_subst, mul_vars) <- newMetaTyVars $ multiplicityTyVarList (length args)
            ; let scaleArgs args' = zipWithEqual "return_data_con" combine mul_vars args'
                  combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
                  combine _   scaled_ty       = scaled_ty
@@ -1962,17 +1961,6 @@ no longer type-check.
 Therefore, we generalize linear constructors to multiplicity-polymorphic
 functions during typechecking. For example, 'Just' becomes
 'forall a. a -->.(n) Maybe a'.
-
-To avoid spurious renaming, the additional multiplicity variables
-should not use names that were written by user.
-For example, given
-   MkT :: forall n. n ->. T n
-we don't want to use 'n' for the multiplicity variable, because the user
-would see
-   MkT :: forall {n :: Multiplicity} n2. n2 -->.(n) T n2
-and without linear types,
-   MkT :: forall n2. n2 -> T n2
-See test LinearGhci.
 
 We do not generalize fields declared as multiplicity-polymorphic,
 as there is no backwards compatibility issue.
