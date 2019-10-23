@@ -304,9 +304,6 @@ WpHole <.> c = c
 c <.> WpHole = c
 c1 <.> c2    = c1 `WpCompose` c2
 
-multRefl :: Mult -> TcCoercion
-multRefl w = mkReflCo Nominal w
-
 mkWpFun :: HsWrapper -> HsWrapper
         -> (Scaled TcType)    -- the "from" type of the first wrapper
         -> TcType    -- either type of the second wrapper (used only when the
@@ -314,9 +311,9 @@ mkWpFun :: HsWrapper -> HsWrapper
         -> SDoc      -- what caused you to want a WpFun? Something like "When converting ..."
         -> HsWrapper
 mkWpFun WpHole       WpHole       _  _  _ = WpHole
-mkWpFun WpHole       (WpCast co2) (Scaled w t1) _  _ = WpCast (mkTcFunCo Representational (multRefl w) (mkTcRepReflCo t1) co2)
-mkWpFun (WpCast co1) WpHole       (Scaled w _)  t2 _ = WpCast (mkTcFunCo Representational (multRefl w) (mkTcSymCo co1) (mkTcRepReflCo t2))
-mkWpFun (WpCast co1) (WpCast co2) (Scaled w _)  _  _ = WpCast (mkTcFunCo Representational (multRefl w) (mkTcSymCo co1) co2)
+mkWpFun WpHole       (WpCast co2) (Scaled w t1) _  _ = WpCast (mkTcFunCo Representational (multToCo w) (mkTcRepReflCo t1) co2)
+mkWpFun (WpCast co1) WpHole       (Scaled w _)  t2 _ = WpCast (mkTcFunCo Representational (multToCo w) (mkTcSymCo co1) (mkTcRepReflCo t2))
+mkWpFun (WpCast co1) (WpCast co2) (Scaled w _)  _  _ = WpCast (mkTcFunCo Representational (multToCo w) (mkTcSymCo co1) co2)
 mkWpFun co1          co2          t1 _  d = WpFun co1 co2 t1 d
 
 mkWpCastR :: TcCoercionR -> HsWrapper
