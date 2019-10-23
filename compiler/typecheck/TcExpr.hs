@@ -1939,7 +1939,7 @@ constructors of F [Int] but here we have to do it explicitly.
 
 It's all grotesquely complicated.
 
-Note [Instantiating stupid theta] TODO: update it
+Note [Instantiating stupid theta]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Normally, when we infer the type of an Id, we don't instantiate,
 because we wish to allow for visible type application later on.
@@ -1964,6 +1964,15 @@ functions during typechecking. For example, 'Just' becomes
 
 We do not generalize fields declared as multiplicity-polymorphic,
 as there is no backwards compatibility issue.
+
+If the constructor is levity-polymorphic (unboxed tuples, sums,
+certain newtypes with -XUnliftedNewtypes) then we have to instantiate
+the RuntimeRep argument, as otherwise the levity-polymorphism check
+will fail during desugaring.
+For simplicity, we just instantiate the entire type, as described
+in Note [Instantiating stupid theta]. This means that users cannot
+use visible type application with unboxed tuples, sums and
+levity-polymorphic newtypes, but this shouldn't be a big problem.
 -}
 
 tcTagToEnum :: SrcSpan -> Name -> [LHsExprArgIn] -> ExpRhoType
