@@ -642,6 +642,7 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
   = do { wrap_args <- mapM newLocal wrap_arg_tys
        ; wrap_body <- mk_rep_app (wrap_args `zip` dropList eq_spec unboxers)
                                  initial_wrap_app
+
        ; let wrap_id = mkGlobalId (DataConWrapId data_con) wrap_name wrap_ty wrap_info
              wrap_info = noCafIdInfo
                          `setArityInfo`         wrap_arity

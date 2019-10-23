@@ -652,7 +652,7 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
     mk_alt upd_fld_env con
       = do { let (univ_tvs, ex_tvs, eq_spec,
                   prov_theta, _req_theta, arg_tys, _) = conLikeFullSig con
-                 arg_tys' = scaleScaled Omega <$> arg_tys
+                 arg_tys' = map (scaleScaled Omega) arg_tys
                    -- Record updates consume the source record with multiplicity
                    -- Omega. Therefore all the fields need to be scaled thus.
                  user_tvs =
