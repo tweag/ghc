@@ -388,14 +388,11 @@ openBetaTy  = mkTyVarTy openBetaTyVar
 multiplicityTyVar :: TyVar
 multiplicityTyVar = mkTemplateTyVars (repeat multiplicityTy) !! 13  -- selects 'n'
 
--- Create 'count' multiplicity TyVars. Do not give them names that are already
--- present in the 'forbidden' list.
-multiplicityTyVarList :: Int -> [OccName] -> [TyVar]
-multiplicityTyVarList count forbidden = take count $
-                                        filter (not . (`elemOccSet` forbiddenSet) . getOccName) $
-                                        drop 13 $  -- selects 'n', 'o'...
-                                        mkTemplateTyVars (repeat multiplicityTy)
-   where forbiddenSet = mkOccSet forbidden
+-- Create 'count' multiplicity TyVars
+multiplicityTyVarList :: Int -> [TyVar]
+multiplicityTyVarList count = take count $
+                              drop 13 $  -- selects 'n', 'o'...
+                              mkTemplateTyVars (repeat multiplicityTy)
 {-
 ************************************************************************
 *                                                                      *

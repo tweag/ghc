@@ -495,7 +495,7 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
            { Boxed   -> newFlexiTyVarTys arity liftedTypeKind
            ; Unboxed -> replicateM arity newOpenFlexiTyVarTy }
        ; let missing_tys = [ty | (ty, L _ (Missing _)) <- zip arg_tys tup_args]
-             w_tyvars = multiplicityTyVarList (length missing_tys) []
+             w_tyvars = multiplicityTyVarList (length missing_tys)
              w_tvb = map (mkTyVarBinder Inferred) w_tyvars
              actual_res_ty
                  =  mkForAllTys w_tvb $
@@ -1845,35 +1845,44 @@ tc_infer_id lbl id_name
   where
     return_id id = return (HsVar noExtField (noLoc id), idType id)
 
-    -- TODO issue #411: restore this code and handle multiplicity
-    {-
-       -- For data constructors, must perform the stupid-theta check
-      | null stupid_theta
-      = return (HsConLikeOut noExtField (RealDataCon con), con_ty)
-    -}
-
     return_data_con con
-       -- See Note [Instantiating stupid theta]
       = do { let tvs = dataConUserTyVarBinders con
                  theta = dataConOtherTheta con
                  args = dataConOrigArgTys con
                  res = dataConOrigResTy con
-           ; (subst, tvs') <- newMetaTyVars (map binderVar tvs)
-           ; let tys'   = mkTyVarTys tvs'
-                 theta' = substTheta subst theta
-                 args'  = substScaledTys subst args
-                 res'   = substTy subst res
-           ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
            -- See Note [Linear fields generalization]
-           ; (_subst, mul_vars) <- newMetaTyVars (multiplicityTyVarList (length args') (map getOccName (binderVars tvs)))
-           ; let scaled_arg_tys = zipWithEqual "return_data_con" combine mul_vars args'
+           ; (_subst, mul_vars) <- newMetaTyVars $ multiplicityTyVarList (length args)
+           ; let scaleArgs args' = zipWithEqual "return_data_con" combine mul_vars args'
                  combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
-                 combine _   scaled_ty = scaled_ty
+                 combine _   scaled_ty       = scaled_ty
 
-           ; let wrap2 = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole scaled_arg_tys
-           ; addDataConStupidTheta con tys'
-           ; return ( mkHsWrap (wrap2 <.> wrap) (HsConLikeOut noExtField (RealDataCon con))
-                    , mkVisFunTys scaled_arg_tys res') }
+                 etaWrapper arg_tys = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole arg_tys
+
+           -- See Note [Instantiating stupid theta]
+           ; let shouldInstantiate = (not (null (dataConStupidTheta con)) ||
+                                      isKindLevPoly (tyConResKind (dataConTyCon con)))
+           ; case shouldInstantiate of
+               True -> do { (subst, tvs') <- newMetaTyVars (binderVars tvs)
+                           ; let tys'   = mkTyVarTys tvs'
+                                 theta' = substTheta subst theta
+                                 args'  = substScaledTys subst args
+                                 res'   = substTy subst res
+                           ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
+                           ; let scaled_arg_tys = scaleArgs args'
+                                 eta_wrap = etaWrapper scaled_arg_tys
+                           ; addDataConStupidTheta con tys'
+                           ; return ( mkHsWrap (eta_wrap <.> wrap)
+                                               (HsConLikeOut noExtField (RealDataCon con))
+                                    , mkVisFunTys scaled_arg_tys res')
+                           }
+               False -> let scaled_arg_tys = scaleArgs args
+                            wrap1 = mkWpTyApps (mkTyVarTys $ binderVars tvs)
+                            eta_wrap = etaWrapper (map unrestricted theta ++ scaled_arg_tys)
+                            wrap2 = mkWpTyLams $ binderVars tvs
+                        in return ( mkHsWrap (wrap2 <.> eta_wrap <.> wrap1)
+                                             (HsConLikeOut noExtField (RealDataCon con))
+                                  , mkForAllTys tvs $ mkInvisFunTysOm theta $ mkVisFunTys scaled_arg_tys res)
+           }
 
     check_naughty id
       | isNaughtyRecordSelector id = failWithTc (naughtyRecordSel lbl)
@@ -1959,19 +1968,17 @@ Therefore, we generalize linear constructors to multiplicity-polymorphic
 functions during typechecking. For example, 'Just' becomes
 'forall a. a -->.(n) Maybe a'.
 
-To avoid spurious renaming, the additional multiplicity variables
-should not use names that were written by user.
-For example, given
-   MkT :: forall n. n ->. T n
-we don't want to use 'n' for the multiplicity variable, because the user
-would see
-   MkT :: forall {n :: Multiplicity} n2. n2 -->.(n) T n2
-and without linear types,
-   MkT :: forall n2. n2 -> T n2
-See test LinearGhci.
-
 We do not generalize fields declared as multiplicity-polymorphic,
 as there is no backwards compatibility issue.
+
+If the constructor is levity-polymorphic (unboxed tuples, sums,
+certain newtypes with -XUnliftedNewtypes) then we have to instantiate
+the RuntimeRep argument, as otherwise the levity-polymorphism check
+will fail during desugaring.
+For simplicity, we just instantiate the entire type, as described
+in Note [Instantiating stupid theta]. This means that users cannot
+use visible type application with unboxed tuples, sums and
+levity-polymorphic newtypes, but this shouldn't be a big problem.
 -}
 
 tcTagToEnum :: SrcSpan -> Name -> [LHsExprArgIn] -> ExpRhoType
