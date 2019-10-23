@@ -303,7 +303,7 @@ mkLocalCoVar name ty
 -- | Like 'mkLocalId', but checks the type to see if it should make a covar
 mkLocalIdOrCoVar :: Name -> Mult -> Type -> Id
 mkLocalIdOrCoVar name w ty
-  | isCoVarType ty = mkLocalCoVar name   ty
+  | isCoVarType ty = ASSERT(eqType w Omega) mkLocalCoVar name   ty
   | otherwise      = mkLocalId    name w ty
 
 -- | Make a local id, with the IdDetails set to CoVarId if the type indicates

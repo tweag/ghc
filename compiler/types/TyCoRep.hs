@@ -936,7 +936,8 @@ mkTyCoVarTy v
 mkTyCoVarTys :: [TyCoVar] -> [Type]
 mkTyCoVarTys = map mkTyCoVarTy
 
-infixr 3 `mkFunTy`, `mkVisFunTy`, `mkInvisFunTy`, `mkVisFunTyOm`      -- Associates to the right
+infixr 3 `mkFunTy`, `mkVisFunTy`, `mkInvisFunTy`, `mkVisFunTyOm`,
+         `mkInvisFunTyOm`      -- Associates to the right
 
 mkFunTy :: AnonArgFlag -> Mult -> Type -> Type -> Type
 mkFunTy af mult arg res = FunTy { ft_af = af
