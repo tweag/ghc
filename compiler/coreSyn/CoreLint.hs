@@ -767,7 +767,7 @@ lintCoreExpr (Let (NonRec bndr rhs) body)
     validateAnn ue_ann rhs_ue = compatibleUA ue_ann (mkUA rhs_ue)
     invalidUsageAnnotation ue_ann rhs_ue =
       hang (text "Incorrect usage annotation")
-        2 (ppr ue_ann <> ppr (mkUA rhs_ue))
+        2 (ppr ue_ann <> ppr (mkUA rhs_ue) <> ppr rhs_ue)
 lintCoreExpr e@(Let (Rec pairs) body)
   = lintLetBndrs NotTopLevel bndrs $
     addGoodJoins bndrs             $

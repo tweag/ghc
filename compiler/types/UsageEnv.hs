@@ -89,13 +89,6 @@ scaleUE w (UsageEnv e _) =
   UsageEnv (mapNameEnv (fmap (mkMultMul w)) e) False
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
-supUE (UsageEnv e1 False) (UsageEnv e2 False) =
-    UsageEnv (plusNameEnv_CD2 sup e1 e2) False
-  where
-    sup (Just (n,x)) (Just (_,y)) = (n, mkMultSup x y)
-    sup Nothing (Just (n,_)) = (n, Omega)
-    sup (Just (n,_)) Nothing = (n, Omega)
-    sup Nothing Nothing = pprPanic "supUE" (ppr e1 <+> ppr e2)
 supUE (UsageEnv e1 b1) (UsageEnv e2 b2) = UsageEnv (plusNameEnv_CD2 combineUsage e1 e2) (b1 && b2)
    where combineUsage (Just (n,x)) (Just (_,y)) = (n, mkMultSup x y)
          combineUsage Nothing  (Just (n,x)) | b1        = (n, x)

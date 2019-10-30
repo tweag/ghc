@@ -164,6 +164,8 @@ exprUsageEnv' env (Case scrut bnd _ alts) =
 exprUsageEnv' env (Cast e _) = exprUsageEnv' env e
 exprUsageEnv' env (Tick _ e) = exprUsageEnv' env e
 exprUsageEnv' env (Lam binder expr) = deleteUE (exprUsageEnv' env expr) binder
+exprUsageEnv' env (App fun (Type _)) =
+    exprUsageEnv' env fun
 exprUsageEnv' env (App fun arg) =
     exprUsageEnv' env fun `addUE` (arg_mult `scaleUE` exprUsageEnv' env arg)
   where
@@ -198,8 +200,7 @@ varCallUsage env var =
   case lookupNameEnv env (getName var) of
     Nothing
       | Omega <- varMult var -> zeroUE
-      | isLocalVar var -> unitUE var One
-      | otherwise -> zeroUE
+      | otherwise -> unitUE var One
     Just var_ue -> var_ue
 
 
