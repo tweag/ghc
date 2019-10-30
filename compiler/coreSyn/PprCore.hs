@@ -166,7 +166,7 @@ ppr_expr :: OutputableBndr b => (SDoc -> SDoc) -> Expr b -> SDoc
 
 ppr_expr add_par (Var name)
  | isJoinId name               = add_par ((text "jump") <+> ppr name)
- | otherwise                   = ppr name
+ | otherwise                   = ppr name<> brackets (ppr (idMult name))
 ppr_expr add_par (Type ty)     = add_par (text "TYPE:" <+> ppr ty)       -- Weird
 ppr_expr add_par (Coercion co) = add_par (text "CO:" <+> ppr co)
 ppr_expr add_par (Lit lit)     = pprLiteral add_par lit
@@ -382,7 +382,7 @@ pprCoreBinder bind_site bndr
 pprUntypedBinder :: Var -> SDoc
 pprUntypedBinder binder
   | isTyVar binder = text "@" <+> ppr binder    -- NB: don't print kind
-  | otherwise      = pprIdBndr binder
+  | otherwise      = pprIdBndr binder <> brackets (ppr (idMult binder))
 
 pprTypedLamBinder :: BindingSite -> Bool -> Var -> SDoc
 -- For lambda and case binders, show the unfolding info (usually none)
@@ -410,7 +410,7 @@ pprTypedLamBinder bind_site debug_on var
 
       | otherwise    -> parens (hang (pprIdBndr var)
                                    2 (vcat [ dcolon
-                                                -- <> brackets (ppr (idMult var))
+                                                <> brackets (ppr (idMult var))
                                                 <+> pprType (idType var)
                                            , pp_unf]))
   where
@@ -428,7 +428,7 @@ pprTypedLetBinder binder
     _
       | isTyVar binder                         -> pprKindedTyVarBndr binder
       | gopt Opt_SuppressTypeSignatures dflags -> pprIdBndr binder
-      | otherwise                              -> hang (pprIdBndr binder <> ppr (varUsages binder)) 2 (dcolon <+> pprType (idType binder))
+      | otherwise                              -> hang (pprIdBndr binder <> brackets (ppr (idMult binder)) <> ppr (varUsages binder)) 2 (dcolon <+> pprType (idType binder))
 
 pprKindedTyVarBndr :: TyVar -> SDoc
 -- Print a type variable binder with its kind (but not if *)
