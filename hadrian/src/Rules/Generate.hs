@@ -209,8 +209,9 @@ emptyTarget = vanillaContext (error "Rules.Generate.emptyTarget: unknown stage")
 ghcWrapper :: Stage -> Expr String
 ghcWrapper Stage0 = error "Stage0 GHC does not require a wrapper script to run."
 ghcWrapper stage  = do
-    dbPath  <- expr $ packageDbPath stage
-    ghcPath <- expr $ programPath (vanillaContext (pred stage) ghc)
+    dbPath  <- expr $ (</>) <$> topDirectory <*> packageDbPath stage
+    ghcPath <- expr $ (</>) <$> topDirectory
+                            <*> programPath (vanillaContext (pred stage) ghc)
     return $ unwords $ map show $ [ ghcPath ]
                                ++ [ "-package-db " ++ dbPath | stage == Stage1 ]
                                ++ [ "$@" ]
@@ -298,10 +299,10 @@ generateSettings = do
         , ("target os", expr $ lookupValueOrError configFile "haskell-target-os")
         , ("target arch", expr $ lookupValueOrError configFile "haskell-target-arch")
         , ("target word size", expr $ lookupValueOrError configFile "target-word-size")
-        , ("target has GNU nonexec stack", expr $ lookupValueOrError configFile "haskell-have-gnu-nonexec-stack")
-        , ("target has .ident directive", expr $ lookupValueOrError configFile "haskell-have-ident-directive")
-        , ("target has subsections via symbols", expr $ lookupValueOrError configFile "haskell-have-subsections-via-symbols")
-        , ("target has RTS linker", expr $ lookupValueOrError configFile "haskell-have-rts-linker")
+        , ("target has GNU nonexec stack", expr $ lookupValueOrError configFile "target-has-gnu-nonexec-stack")
+        , ("target has .ident directive", expr $ lookupValueOrError configFile "target-has-ident-directive")
+        , ("target has subsections via symbols", expr $ lookupValueOrError configFile "target-has-subsections-via-symbols")
+        , ("target has RTS linker", expr $ lookupValueOrError configFile "target-has-rts-linker")
         , ("Unregisterised", expr $ yesNo <$> flag GhcUnregisterised)
         , ("LLVM target", getSetting LlvmTarget)
         , ("LLVM llc command", expr $ settingsFileSetting SettingsFileSetting_LlcCommand)
