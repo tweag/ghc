@@ -36,7 +36,7 @@ import Multiplicity
 import TyCon
 import DataCon
 import Module
-import HsSyn
+import GHC.Hs
 import DynFlags
 import Bag
 import Var ( VarBndr(..) )

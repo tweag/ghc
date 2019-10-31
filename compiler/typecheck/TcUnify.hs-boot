@@ -4,9 +4,9 @@ import GhcPrelude
 import TcType      ( TcTauType )
 import TcRnTypes   ( TcM, CtOrigin )
 import TcEvidence  ( TcCoercion, HsWrapper )
-import HsExpr      ( HsExpr )
-import HsTypes     ( HsType, Mult )
-import HsExtension ( GhcRn )
+import GHC.Hs.Expr      ( HsExpr )
+import GHC.Hs.Types     ( HsType, Mult )
+import GHC.Hs.Extension ( GhcRn )
 
 -- This boot file exists only to tie the knot between
 --              TcUnify and Inst
