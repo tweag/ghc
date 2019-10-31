@@ -15154,7 +15154,7 @@ used if you want your code to be portable).
 ``CONLIKE`` modifier
 ~~~~~~~~~~~~~~~~~~~~
 
-.. pragma:: CONLINE
+.. pragma:: CONLIKE
 
     :where: modifies :pragma:`INLINE` or :pragma:`NOINLINE` pragma
 
