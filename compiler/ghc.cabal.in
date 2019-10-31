@@ -303,7 +303,7 @@ Library
         GHC.StgToCmm
         GHC.StgToCmm.Bind
         GHC.StgToCmm.Closure
-        GHC.StgToCmm.Con
+        GHC.StgToCmm.DataCon
         GHC.StgToCmm.Env
         GHC.StgToCmm.Expr
         GHC.StgToCmm.Foreign
@@ -336,7 +336,7 @@ Library
         PprCore
         PmExpr
         PmPpr
-        TmOracle
+        PmOracle
         Check
         Coverage
         Desugar
@@ -574,7 +574,6 @@ Library
         IOEnv
         Json
         ListSetOps
-        ListT
         Maybes
         MonadUtils
         OrdList
