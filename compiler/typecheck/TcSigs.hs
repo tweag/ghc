@@ -43,7 +43,7 @@ import Multiplicity
 import UsageEnv
 
 import DynFlags
-import Var      ( TyVar, tyVarKind )
+import Var      ( TyVar, tyVarKind, MultiplicityAnnotation(..) )
 import Id       ( Id, idName, idType, idInlinePragma, setInlinePragma, mkLocalId )
 import PrelNames( mkUnboundName )
 import BasicTypes
@@ -225,7 +225,7 @@ tcUserTypeSig loc hs_sig_ty mb_name
   = do { sigma_ty <- tcHsSigWcType ctxt_F hs_sig_ty
        ; traceTc "tcuser" (ppr sigma_ty)
        ; return $
-         CompleteSig { sig_bndr  = mkLocalId name Omega zeroUA sigma_ty
+         CompleteSig { sig_bndr  = mkLocalId name (Mult Omega) sigma_ty
                                    -- We use `Omega' as the multiplicity here,
                                    -- as if this identifier corresponds to
                                    -- anything, it is a top-level

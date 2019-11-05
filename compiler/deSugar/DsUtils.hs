@@ -59,6 +59,7 @@ import CoreUtils
 import MkCore
 import MkId
 import Id
+import qualified Var as Var
 import Literal
 import TyCon
 import DataCon
@@ -138,7 +139,7 @@ selectMatchVar _w (VarPat _ var)  = return (localiseId (unLoc var))
                                   -- itself. It's easier to pull it from the
                                   -- variable, so we ignore the multiplicity.
 selectMatchVar _w (AsPat _ var _) = return (unLoc var)
-selectMatchVar w other_pat     = newSysLocalDsNoLP w zeroUA (hsPatType other_pat)
+selectMatchVar w other_pat     = newSysLocalDsNoLP (Var.Mult w) (hsPatType other_pat)
 
 {- Note [Localise pattern binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -684,7 +685,7 @@ mkSelectorBinds ticks pat val_expr
 
   | is_flat_prod_lpat pat'           -- Special case (B)
   = do { let pat_ty = hsLPatType pat'
-       ; val_var <- newSysLocalDsNoLP Omega zeroUA pat_ty
+       ; val_var <- newSysLocalDsNoLP (Var.Mult Omega) pat_ty
 
        ; let mk_bind tick bndr_var
                -- (mk_bind sv bv)  generates  bv = case sv of { pat -> bv }
@@ -702,7 +703,7 @@ mkSelectorBinds ticks pat val_expr
        ; return ( val_var, (val_var, val_expr) : binds) }
 
   | otherwise                          -- General case (C)
-  = do { tuple_var  <- newSysLocalDs Omega zeroUA tuple_ty
+  = do { tuple_var  <- newSysLocalDs (Var.Mult Omega) tuple_ty
        ; error_expr <- mkErrorAppDs pAT_ERROR_ID tuple_ty (ppr pat')
        ; tuple_expr <- matchSimply val_expr PatBindRhs pat
                                    local_tuple error_expr
@@ -859,8 +860,8 @@ mkFailurePair :: CoreExpr       -- Result type of the whole case expression
                       CoreExpr) -- Fail variable applied to realWorld#
 -- See Note [Failure thunks and CPR]
 mkFailurePair expr
-  = do { fail_fun_var <- newFailLocalDs Omega zeroUA (voidPrimTy `mkVisFunTyOm` ty)
-       ; fail_fun_arg <- newSysLocalDs Omega zeroUA voidPrimTy
+  = do { fail_fun_var <- newFailLocalDs (Var.Usages zeroUA) (voidPrimTy `mkVisFunTyOm` ty)
+       ; fail_fun_arg <- newSysLocalDs (Var.Mult Omega) voidPrimTy
        ; let real_arg = setOneShotLambda fail_fun_arg
        ; return (NonRec fail_fun_var (Lam real_arg expr),
                  App (Var fail_fun_var) (Var voidPrimId)) }
@@ -905,7 +906,7 @@ mkBinaryTickBox :: Int -> Int -> CoreExpr -> DsM CoreExpr
 mkBinaryTickBox ixT ixF e = do
        uq <- newUnique
        this_mod <- getModule
-       let bndr1 = mkSysLocal (fsLit "t1") uq One zeroUA boolTy
+       let bndr1 = mkSysLocal (fsLit "t1") uq (Var.Mult One) boolTy
        let
            falseBox = Tick (HpcTick this_mod ixF) (Var falseDataConId)
            trueBox  = Tick (HpcTick this_mod ixT) (Var trueDataConId)

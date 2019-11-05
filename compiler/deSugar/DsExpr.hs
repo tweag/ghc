@@ -56,6 +56,7 @@ import TysWiredIn
 import PrelNames
 import BasicTypes
 import Maybes
+import qualified Var as Var
 import VarEnv
 import SrcLoc
 import Util
@@ -374,7 +375,7 @@ ds_expr _ e@(SectionR _ op expr) = do
     let (x_ty:y_ty:_, _) = splitFunTys (exprType core_op)
         -- See comment with SectionL
     y_core <- dsLExpr expr
-    dsWhenNoErrs (mapM (\(Scaled w ty) -> newSysLocalDsNoLP w zeroUA ty) [x_ty, y_ty])
+    dsWhenNoErrs (mapM (\(Scaled w ty) -> newSysLocalDsNoLP (Var.Mult w) ty) [x_ty, y_ty])
                  (\[x_id, y_id] -> bindNonRec y_id y_core $
                                    Lam x_id (mkCoreAppsDs (text "sectionr" <+> ppr e)
                                                           core_op [Var x_id, Var y_id]))
@@ -384,7 +385,7 @@ ds_expr _ (ExplicitTuple _ tup_args boxity)
                     -- For every missing expression, we need
                     -- another lambda in the desugaring. This lambda is linear
                     -- since tuples are linear
-               = do { lam_var <- newSysLocalDsNoLP (mkTyVarTy mult) zeroUA ty
+               = do { lam_var <- newSysLocalDsNoLP (Var.Mult (mkTyVarTy mult)) ty
                     ; return (lam_var : lam_vars, Var lam_var : args, mult:usedmults, mults) }
              go (lam_vars, args, missing, mults) (dL->L _ (Present _ expr))
                     -- Expressions that are present don't generate
@@ -634,7 +635,7 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
     ds_field (dL->L _ rec_field)
       = do { rhs <- dsLExpr (hsRecFieldArg rec_field)
            ; let fld_id = unLoc (hsRecUpdFieldId rec_field)
-           ; lcl_id <- newSysLocalDs (idMult fld_id) zeroUA (idType fld_id)
+           ; lcl_id <- newSysLocalDs (Var.varMultAnn fld_id) (idType fld_id)
            ; return (idName fld_id, lcl_id, rhs) }
 
     add_field_binds [] expr = expr

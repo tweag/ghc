@@ -645,7 +645,7 @@ recoveryCode binder_names sig_fn
       , Just poly_id <- completeSigPolyId_maybe sig
       = poly_id
       | otherwise
-      = mkLocalId name Omega zeroUA forall_a_a
+      = mkLocalId name (Usages zeroUA) forall_a_a
 
 forall_a_a :: TcType
 -- At one point I had (forall r (a :: TYPE r). a), but of course
@@ -711,7 +711,7 @@ tcPolyCheck prag_fn
 
        ; mono_name <- newNameAt (nameOccName name) nm_loc
        ; ev_vars   <- newEvVars theta
-       ; let mono_id   = mkLocalId mono_name (varMult poly_id) (varUsages poly_id) tau
+       ; let mono_id   = mkLocalId mono_name (varMultAnn poly_id) tau
              skol_info = SigSkol ctxt (idType poly_id) tv_prs
              skol_tvs  = map snd tv_prs
 
@@ -936,7 +936,7 @@ mkInferredPolyId insoluble qtvs inferred_theta poly_name mb_sig_inst mono_ty
          -- do this check; otherwise (#14000) we may report an ambiguity
          -- error for a rather bogus type.
 
-       ; return (mkLocalIdOrCoVar poly_name Omega zeroUA inferred_poly_ty) }
+       ; return (mkLocalIdOrCoVar poly_name (Usages zeroUA) inferred_poly_ty) }
 
 
 chooseInferredQuantifiers :: TcThetaType   -- inferred

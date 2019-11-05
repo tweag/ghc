@@ -101,7 +101,7 @@ recoverPSB (PSB { psb_id = (dL->L _ name)
        where
          -- The matcher_id is used only by the desugarer, so actually
          -- and error-thunk would probably do just as well here.
-         matcher_id = mkLocalId matcher_name Omega zeroUA $
+         matcher_id = mkLocalId matcher_name (Mult Omega) $
                       mkSpecForAllTys [alphaTyVar] alphaTy
 
 recoverPSB (XPatSynBind nec) = noExtCon nec

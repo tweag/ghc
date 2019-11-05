@@ -61,6 +61,7 @@ import TyCoRep
 import TyCoSubst (substTyWithInScope)
 import Type
 import TcEvidence
+import qualified Var as Var
 import VarSet
 import MkId( seqId )
 import TysWiredIn
@@ -1902,7 +1903,7 @@ tcUnboundId rn_expr unbound res_ty
  = do { ty <- newOpenFlexiTyVarTy  -- Allow Int# etc (#12531)
       ; let occ = unboundVarOcc unbound
       ; name <- newSysName occ
-      ; let ev = mkLocalId name Omega zeroUA ty
+      ; let ev = mkLocalId name (Var.Mult Omega) ty
       ; can <- newHoleCt (ExprHole unbound) ev ty
       ; emitInsoluble can
       ; tcWrapResultO (UnboundOccurrenceOf occ) rn_expr (HsVar noExtField (noLoc ev))
@@ -2518,7 +2519,7 @@ tcRecordField con_like flds_w_tys (L loc (FieldOcc sel_name lbl)) rhs
         do { rhs' <- tcPolyExprNC rhs field_ty
            ; let field_id = mkUserLocal (nameOccName sel_name)
                                         (nameUnique sel_name)
-                                        Omega zeroUA field_ty loc
+                                        (Var.Usages zeroUA) field_ty loc
                 -- Yuk: the field_id has the *unique* of the selector Id
                 --          (so we can find it easily)
                 --      but is a LocalId with the appropriate type of the RHS

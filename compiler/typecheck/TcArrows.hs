@@ -31,6 +31,7 @@ import Id( mkLocalId )
 import Inst
 import Name
 import TysWiredIn
+import qualified Var as Var
 import VarSet
 import TysPrim
 import BasicTypes( Arity )
@@ -379,7 +380,7 @@ tcArrDoStmt env ctxt (RecStmt { recS_stmts = stmts, recS_later_ids = later_names
                             , recS_rec_ids = rec_names }) res_ty thing_inside
   = do  { let tup_names = rec_names ++ filterOut (`elem` rec_names) later_names
         ; tup_elt_tys <- newFlexiTyVarTys (length tup_names) liftedTypeKind
-        ; let tup_ids = zipWith (\n p -> mkLocalId n Omega zeroUA p) tup_names tup_elt_tys -- Omega because it's a recursive definition
+        ; let tup_ids = zipWith (\n p -> mkLocalId n (Var.Usages zeroUA) p) tup_names tup_elt_tys
         ; tcExtendIdEnv tup_ids $ do
         { (stmts', tup_rets)
                 <- tcStmtsAndThen ctxt (tcArrDoStmt env) stmts res_ty   $ \ _res_ty' ->

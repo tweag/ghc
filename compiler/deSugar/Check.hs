@@ -51,7 +51,7 @@ import TcSimplify    (tcCheckSatisfiability)
 import TcType        (isStringTy)
 import Bag
 import ErrUtils
-import Var           (EvVar)
+import Var           (EvVar, MultiplicityAnnotation(..))
 import TyCoRep
 import Type
 import Multiplicity
@@ -1700,7 +1700,7 @@ mkPmId :: Type -> DsM Id
 mkPmId ty = getUniqueM >>= \unique ->
   let occname = mkVarOccFS $ fsLit "$pm"
       name    = mkInternalName unique occname noSrcSpan
-  in  return (mkLocalId name Omega zeroUA ty)
+  in  return (mkLocalId name (Mult Omega) ty)
 
 -- | Generate a fresh term variable of a given and return it in two forms:
 -- * A variable pattern
@@ -1866,7 +1866,7 @@ the scrutinee type, SBool z.
 -- * Types and constraints
 
 newEvVar :: Name -> Type -> EvVar
-newEvVar name ty = mkLocalId name Omega zeroUA ty
+newEvVar name ty = mkLocalId name (Mult Omega) ty
 
 nameType :: String -> Type -> DsM EvVar
 nameType name ty = do

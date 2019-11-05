@@ -57,7 +57,7 @@ import Name
 import VarSet
 import Rules
 import VarEnv
-import Var( EvVar )
+import Var( EvVar, MultiplicityAnnotation(..) )
 import Outputable
 import Module
 import SrcLoc
@@ -281,7 +281,7 @@ dsAbsBinds dflags tyvars dicts exports
                             mkLet core_bind $
                             tup_expr
 
-       ; poly_tup_id <- newSysLocalDs Omega zeroUA (exprType poly_tup_rhs)
+       ; poly_tup_id <- newSysLocalDs (Usages zeroUA) (exprType poly_tup_rhs)
 
         -- Find corresponding global or make up a new one: sometimes
         -- we need to make new export to desugar strict binds, see
@@ -292,7 +292,7 @@ dsAbsBinds dflags tyvars dicts exports
                           , abe_poly = global
                           , abe_mono = local, abe_prags = spec_prags })
                           -- See Note [AbsBinds wrappers] in HsBinds
-                = do { tup_id  <- newSysLocalDs Omega zeroUA tup_ty
+                = do { tup_id  <- newSysLocalDs (Mult Omega) tup_ty
                      ; core_wrap <- dsHsWrapper wrap
                      ; let rhs = core_wrap $ mkLams tyvars $ mkLams dicts $
                                  mkTupleSelector all_locals local tup_id $
@@ -351,7 +351,7 @@ dsAbsBinds dflags tyvars dicts exports
             ([],[]) lcls
 
     mk_export local =
-      do global <- newSysLocalDs Omega zeroUA
+      do global <- newSysLocalDs (Usages zeroUA)
                      (exprType (mkLams tyvars (mkLams dicts (Var local))))
          return (ABE { abe_ext   = noExtField
                      , abe_poly  = global
@@ -697,7 +697,7 @@ dsSpec mb_poly_rhs (dL->L loc (SpecPrag poly_id spec_co spec_inl))
        { this_mod <- getModule
        ; let fn_unf    = realIdUnfolding poly_id
              spec_unf  = specUnfolding dflags spec_bndrs core_app arity_decrease fn_unf
-             spec_id   = mkLocalId spec_name Omega zeroUA spec_ty -- Specialised binding is toplevel, hence Omega.
+             spec_id   = mkLocalId spec_name (Usages zeroUA) spec_ty
                             `setInlinePragma` inl_prag
                             `setIdUnfolding`  spec_unf
              arity_decrease = count isValArg args - count isId spec_bndrs
@@ -871,7 +871,7 @@ decomposeRuleLhs dflags orig_bndrs orig_lhs
      = scopedSort unbound_tvs ++ unbound_dicts
      where
        unbound_tvs   = [ v | v <- unbound_vars, isTyVar v ]
-       unbound_dicts = [ mkLocalId (localiseName (idName d)) Omega zeroUA (idType d)
+       unbound_dicts = [ mkLocalId (localiseName (idName d)) (Mult Omega) (idType d)
                        | d <- unbound_vars, isDictId d ]
        unbound_vars  = [ v | v <- exprsFreeVarsList args
                            , not (v `elemVarSet` orig_bndr_set)
@@ -1128,7 +1128,7 @@ dsHsWrapper (WpCompose c1 c2) = do { w1 <- dsHsWrapper c1
  -- See comments on WpFun in TcEvidence for an explanation of what
  -- the specification of this clause is
 dsHsWrapper (WpFun c1 c2 (Scaled w t1) doc)
-                              = do { x <- newSysLocalDsNoLP w zeroUA t1
+                              = do { x <- newSysLocalDsNoLP (Mult w) t1
                                    ; w1 <- dsHsWrapper c1
                                    ; w2 <- dsHsWrapper c2
                                    ; let app f a = mkCoreAppDs (text "dsHsWrapper") f a
