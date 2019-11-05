@@ -581,7 +581,7 @@ splitFun dflags fam_envs fn_id fn_info wrap_dmds res_info rhs
               -- worker is join point iff wrapper is join point
               -- (see Note [Don't CPR join points])
 
-            work_id  = mkWorkerId work_uniq fn_id (exprType work_rhs)
+            work_id  = mkWorkerId work_uniq fn_id (varUsages fn_id) (exprType work_rhs)
                         `setIdOccInfo` occInfo fn_info
                                 -- Copy over occurrence info from parent
                                 -- Notably whether it's a loop breaker

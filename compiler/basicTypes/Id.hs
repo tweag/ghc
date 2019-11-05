@@ -368,9 +368,9 @@ instantiated before use.
 -}
 
 -- | Workers get local names. "CoreTidy" will externalise these if necessary
-mkWorkerId :: Unique -> Id -> Type -> Id
-mkWorkerId uniq unwrkr ty
-  = mkLocalIdOrCoVar (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Omega zeroUA ty
+mkWorkerId :: Unique -> Id -> UsageAnnotation -> Type -> Id
+mkWorkerId uniq unwrkr ue ty
+  = mkLocalIdOrCoVar (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Omega ue ty
 
 -- | Create a /template local/: a family of system local 'Id's in bijection with @Int@s, typically used in unfoldings
 mkTemplateLocal :: Int -> Type -> Id

@@ -787,7 +787,9 @@ lintCoreExpr e@(Let (Rec pairs) body)
           -- See Note [Multiplicity of let binders] in Var
         ; rhs_ues <- addAliasUEs (zip bndrs ue_anns) $
                      mapM (lintSingleBinding NotTopLevel Recursive) pairs
-        ; checkL (validateAnns ue_anns rhs_ues) (invalidUsageAnnotations ue_anns rhs_ues)
+        ; addLoc (RhsOf (head bndrs)) $
+            checkL (validateAnns ue_anns rhs_ues)
+                   (invalidUsageAnnotations ue_anns rhs_ues)
         ; let ues = zipWith supUE rhs_ues ue_anns
         ; (body_type, body_ue) <- addLoc (BodyOfLetRec bndrs) $
                                   addAliasUEs (zip bndrs ues) $
