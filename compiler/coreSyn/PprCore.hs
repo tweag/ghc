@@ -210,7 +210,7 @@ ppr_expr add_par expr@(App {})
                    _ -> parens (hang fun_doc 2 pp_args)
                    where
                      fun_doc | isJoinId f = text "jump" <+> ppr f
-                             | otherwise  = ppr f
+                             | otherwise  = ppr f <> parens (text "::" <> ppr (varType f))
 
         _ -> parens (hang (pprParendExpr fun) 2 pp_args)
     }
