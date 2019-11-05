@@ -436,7 +436,7 @@ updateVarTypeAndMultM f id = do
 
 varMultAnnMaybe :: Id -> Maybe MultiplicityAnnotation
 varMultAnnMaybe (Id { varMultAnn = mult_ann }) = Just mult_ann
-varMutAnnMaybe _ = Nothing
+varMultAnnMaybe _ = Nothing
 
 varMult :: HasCallStack => Id -> Mult
 varMult (Id { varMultAnn = Mult mult }) = mult
@@ -452,11 +452,6 @@ varMultMaybe :: HasCallStack => Id -> Maybe Mult
 varMultMaybe (Id { varMultAnn = Mult mult }) = Just mult
 varMultMaybe (Id { varMultAnn = _ }) = panic "This should be a plain multiplicity"
 varMultMaybe _ = Nothing
-
-varUsagesMaybe :: HasCallStack => Id -> Maybe UsageAnnotation
-varUsagesMaybe (Id { varMultAnn = Usages ua }) = Just ua
-varUsagesMaybe (Id { varMultAnn = _ }) = panic "This should be a usage annotation"
-varUsagesMaybe _ = Nothing
 
 varMultDef :: HasCallStack => Id -> Mult
 varMultDef = fromMaybe Omega . varMultMaybe
