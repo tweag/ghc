@@ -217,6 +217,7 @@ import TysPrim (intPrimTy,wordPrimTy,word64PrimTy)
 import TysWiredIn
 import UniqSupply
 import Util
+import qualified Var as Var
 import VarEnv
 import Multiplicity ( pattern Omega )
 import UsageEnv (zeroUA)
@@ -732,7 +733,7 @@ mkIds :: FastString -> [UnaryType] -> UniqSM [Id]
 mkIds fs tys = mapM (mkId fs) tys
 
 mkId :: FastString -> UnaryType -> UniqSM Id
-mkId s t = mkSysLocalOrCoVarM s Omega zeroUA t
+mkId s t = mkSysLocalOrCoVarM s (Var.Mult Omega) t
 
 isMultiValBndr :: Id -> Bool
 isMultiValBndr id

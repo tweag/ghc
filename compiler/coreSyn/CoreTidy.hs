@@ -149,10 +149,9 @@ tidyIdBndr env@(tidy_env, var_env) id
         -- though we could extract it from the Id
         --
         ty'      = tidyType env (idType id)
-        mult'    = tidyType env (idMult id)
-        ue'      = mapUA (tidyType env) (varUsages id)
+        mult_ann'= mapMultAnn (tidyType env) (varMultAnn id)
         name'    = mkInternalName (idUnique id) occ' noSrcSpan
-        id'      = mkLocalIdWithInfo name' mult' ue' ty' new_info
+        id'      = mkLocalIdWithInfo name' mult_ann' ty' new_info
         var_env' = extendVarEnv var_env id id'
 
         -- Note [Tidy IdInfo]
@@ -176,11 +175,10 @@ tidyLetBndr rec_tidy_env env@(tidy_env, var_env) (id,rhs)
   = case tidyOccName tidy_env (getOccName id) of { (tidy_env', occ') ->
     let
         ty'      = tidyType env (idType id)
-        mult'    = tidyType env (idMult id)
-        ue'      = mapUA (tidyType env) (varUsages id)
+        mult_ann'= mapMultAnn (tidyType env) (varMultAnn id)
         name'    = mkInternalName (idUnique id) occ' noSrcSpan
         details  = idDetails id
-        id'      = mkLocalVar details name' mult' ue' ty' new_info
+        id'      = mkLocalVar details name' (mult_ann') ty' new_info
         var_env' = extendVarEnv var_env id id'
 
         -- Note [Tidy IdInfo]

@@ -28,7 +28,7 @@ import GHC.Platform
 import Name
 import MkId
 import Id
-import Var             ( updateVarTypeButNotMult )
+import Var             ( MultiplicityAnnotation(..), updateVarTypeButNotMult )
 import ForeignCall
 import HscTypes
 import CoreUtils
@@ -167,7 +167,7 @@ coreExprToBCOs hsc_env this_mod expr
       -- create a totally bogus name for the top-level BCO; this
       -- should be harmless, since it's never used for anything
       let invented_name  = mkSystemVarName (mkPseudoUniqueE 0) (fsLit "ExprTopLevel")
-          invented_id    = Id.mkLocalId invented_name Omega zeroUA (panic "invented_id's type")
+          invented_id    = Id.mkLocalId invented_name (Mult Omega) (panic "invented_id's type")
 
       -- the uniques are needed to generate fresh variables when we introduce new
       -- let bindings for ticked expressions
@@ -2030,7 +2030,7 @@ getTopStrings = BcM $ \st -> return (st, topStrings st)
 newId :: Type -> BcM Id
 newId ty = do
     uniq <- newUnique
-    return $ mkSysLocal tickFS uniq Omega zeroUA ty
+    return $ mkSysLocal tickFS uniq (Mult Omega) ty
 
 tickFS :: FastString
 tickFS = fsLit "ticked"

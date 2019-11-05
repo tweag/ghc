@@ -24,7 +24,7 @@ import Coercion( Coercion )
 import CoreMonad
 import qualified CoreSubst
 import CoreUnfold
-import Var              ( isLocalVar, varUsages )
+import Var              ( MultiplicityAnnotation(..), isLocalVar, varMultAnn )
 import VarSet
 import VarEnv
 import CoreSyn
@@ -1163,11 +1163,10 @@ specCase env scrut' case_bndr [(con, args, rhs)]
     sc_args' = filter is_flt_sc_arg args'
 
     clone_me bndr = do { uniq <- getUniqueM
-                       ; return (mkUserLocalOrCoVar occ uniq wght ue ty loc) }
+                       ; return (mkUserLocalOrCoVar occ uniq mult_ann ty loc) }
        where
          name = idName bndr
-         wght = idMult bndr
-         ue   = varUsages bndr
+         mult_ann = varMultAnn bndr
          ty   = idType bndr
          occ  = nameOccName name
          loc  = getSrcSpan name
@@ -2640,7 +2639,7 @@ newDictBndr :: SpecEnv -> CoreBndr -> SpecM CoreBndr
 newDictBndr env b = do { uniq <- getUniqueM
                        ; let n   = idName b
                              ty' = substTy env (idType b)
-                       ; return (mkUserLocalOrCoVar (nameOccName n) uniq Omega zeroUA ty' (getSrcSpan n)) }
+                       ; return (mkUserLocalOrCoVar (nameOccName n) uniq (Usages zeroUA) ty' (getSrcSpan n)) }
 
 newSpecIdSM :: Id -> Type -> UsageAnnotation -> Maybe JoinArity -> SpecM Id
     -- Give the new Id a similar occurrence name to the old one
@@ -2648,7 +2647,7 @@ newSpecIdSM old_id new_ty new_usages join_arity_maybe
   = do  { uniq <- getUniqueM
         ; let name    = idName old_id
               new_occ = mkSpecOcc (nameOccName name)
-              new_id  = mkUserLocalOrCoVar new_occ uniq Omega new_usages new_ty (getSrcSpan name)
+              new_id  = mkUserLocalOrCoVar new_occ uniq (Usages new_usages) new_ty (getSrcSpan name)
                           `asJoinId_maybe` join_arity_maybe
         ; return new_id }
 

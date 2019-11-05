@@ -1665,7 +1665,7 @@ newVar :: Type -> UsageAnnotation -> UniqSM Id
 newVar ty usages
  = seqType ty `seq` do
      uniq <- getUniqueM
-     return (mkSysLocalOrCoVar (fsLit "sat") uniq Omega usages ty)
+     return (mkSysLocalOrCoVar (fsLit "sat") uniq (Usages usages) ty)
 
 
 ------------------------------------------------------------------------------

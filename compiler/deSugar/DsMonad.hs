@@ -84,7 +84,7 @@ import NameEnv
 import DynFlags
 import ErrUtils
 import FastString
-import Var (EvVar)
+import Var (EvVar, MultiplicityAnnotation(..))
 import UniqFM ( lookupWithDefaultUFM )
 import Literal ( mkLitString )
 import CostCentreState
@@ -347,7 +347,7 @@ still reporting nice error messages.
 -}
 
 -- Make a new Id with the same print name, but different type, and new unique
-newUniqueId :: Id -> Mult -> UsageAnnotation -> Type -> DsM Id
+newUniqueId :: Id -> MultiplicityAnnotation -> Type -> DsM Id
 newUniqueId id = mk_local (occNameFS (nameOccName (idName id)))
 
 duplicateLocalDs :: Id -> DsM Id
@@ -357,9 +357,9 @@ duplicateLocalDs old_local
 
 newPredVarDs :: PredType -> DsM Var
 newPredVarDs pred
- = newSysLocalDs Omega zeroUA pred
+ = newSysLocalDs (Mult Omega) pred
 
-newSysLocalDsNoLP, newSysLocalDs, newFailLocalDs :: Mult -> UsageAnnotation -> Type -> DsM Id
+newSysLocalDsNoLP, newSysLocalDs, newFailLocalDs :: MultiplicityAnnotation -> Type -> DsM Id
 newSysLocalDsNoLP  = mk_local (fsLit "ds")
 
 -- this variant should be used when the caller can be sure that the variable type
@@ -371,14 +371,14 @@ newFailLocalDs = mkSysLocalOrCoVarM (fsLit "fail")
   -- levity-polymorphism is impossible.
 
 newSysLocalsDsNoLP, newSysLocalsDs :: [Scaled Type] -> DsM [Id]
-newSysLocalsDsNoLP = mapM (\(Scaled w t) -> newSysLocalDsNoLP w zeroUA t)
-newSysLocalsDs = mapM (\(Scaled w t) -> newSysLocalDs w zeroUA t)
+newSysLocalsDsNoLP = mapM (\(Scaled w t) -> newSysLocalDsNoLP (Mult w) t)
+newSysLocalsDs = mapM (\(Scaled w t) -> newSysLocalDs (Mult w) t)
 
-mk_local :: FastString -> Mult -> UsageAnnotation -> Type -> DsM Id
-mk_local fs w ue ty = do { dsNoLevPoly ty (text "When trying to create a variable of type:" <+>
-                                        ppr ty)  -- could improve the msg with another
+mk_local :: FastString -> MultiplicityAnnotation -> Type -> DsM Id
+mk_local fs mult_ann ty = do { dsNoLevPoly ty (text "When trying to create a variable of type:" <+>
+                                               ppr ty)  -- could improve the msg with another
                                                  -- parameter indicating context
-                         ; mkSysLocalOrCoVarM fs w ue ty }
+                             ; mkSysLocalOrCoVarM fs mult_ann ty }
 
 {-
 We can also reach out and either set/grab location information from

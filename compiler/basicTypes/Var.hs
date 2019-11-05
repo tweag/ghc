@@ -43,7 +43,7 @@ module Var (
 
         -- ** Taking 'Var's apart
         varName, varUnique, varType,
-        varMult, varUsages, varMultMaybe, varMultDef,
+        varMultAnn, varMult, varUsages, varMultMaybe, varMultDef,
         varScaledType,
 
         -- ** Modifying 'Var's
@@ -57,13 +57,14 @@ module Var (
         mkGlobalVar, mkLocalVar, mkExportedLocalVar, mkCoVar,
         idInfo, idDetails,
         lazySetIdInfo, setIdDetails, globaliseId,
-        setIdExported, setIdNotExported,
+        setIdExported, setIdNotExported, MultiplicityAnnotation(..), mapMultAnn,
 
         -- ** Predicates
         isId, isTyVar, isTcTyVar,
         isLocalVar, isLocalId, isCoVar, isNonCoVarId, isTyCoVar,
         isGlobalId, isExportedId,
         mustHaveLocalBinding,
+        isOmegaMultAnn,
 
         -- * ArgFlags
         ArgFlag(..), isVisibleArgFlag, isInvisibleArgFlag, sameVis,
@@ -253,8 +254,7 @@ data Var
         varName    :: !Name,
         realUnique :: {-# UNPACK #-} !Int,
         varType    :: Type,
-        varMult    :: Mult,             -- See Note [Multiplicity of let binders]
-        varUsages  :: UsageAnnotation,
+        varMultAnn :: MultiplicityAnnotation, -- See Note [Multiplicity of let binders]
         idScope    :: IdScope,
         id_details :: IdDetails,        -- Stable, doesn't change
         id_info    :: IdInfo }          -- Unstable, updated by simplifier
@@ -267,6 +267,18 @@ data IdScope    -- See Note [GlobalId/LocalId]
 data ExportFlag   -- See Note [ExportFlag on binders]
   = NotExported   -- ^ Not exported: may be discarded as dead code.
   | Exported      -- ^ Exported: kept alive
+
+data MultiplicityAnnotation
+  = Mult Mult               -- ^ A lambda-bound or case-bound variable with a specified multiplicity
+  | Usages UsageAnnotation  -- ^ A let-bound variable, considered an alias for the multiplicities in the annotation
+
+mapMultAnn :: (Type -> Type) -> MultiplicityAnnotation -> MultiplicityAnnotation
+mapMultAnn f (Mult w) = Mult (f w)
+mapMultAnn f (Usages ua) = Usages (mapUA f ua)
+
+isOmegaMultAnn :: MultiplicityAnnotation -> Bool
+isOmegaMultAnn (Mult Omega) = True
+isOmegaMultAnn _ = False
 
 {- Note [ExportFlag on binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -403,66 +415,80 @@ updateVarTypeAndMult :: (Type -> Type) -> Id -> Id
 updateVarTypeAndMult f id =
   let
     id1 = id { varType = f (varType id) }
-    id2 = case varMultMaybe id1 of
-            Just w -> setVarMult id1 (f w)
+    id2 = case varMultAnnMaybe id1 of
+            Just (Mult w) -> setVarMult id1 (f w)
+            Just (Usages ua) -> setVarUsages id2 (mapUA f ua)
             Nothing -> id1
-    id3 = case varUsagesMaybe id2 of
-            Just ua -> setVarUsages id2 (mapUA f ua)
-            Nothing -> id2
-  in id3
+  in id2
 
 updateVarTypeAndMultM :: Monad m => (Type -> m Type) -> Id -> m Id
 updateVarTypeAndMultM f id = do
   { ty' <- f (varType id)
   ; let id1 = setVarType id ty'
-  ; id2 <- case varMultMaybe id of
-             Just w -> do w' <- f w
-                          return $ setVarMult id1 w'
+  ; id2 <- case varMultAnnMaybe id of
+             Just (Mult w) -> do w' <- f w
+                                 return $ setVarMult id1 w'
+             Just (Usages ua) -> do ua' <- traverseUA f ua
+                                    return $ setVarUsages id1 ua'
              Nothing -> return id1
-  ; id3 <- case varUsagesMaybe id2 of
-             Just ua -> do ua' <- traverseUA f ua
-                           return $ setVarUsages id2 ua'
-             Nothing -> return id2
-  ; return id3
+  ; return id2
   }
 
-varMultMaybe :: Id -> Maybe Mult
-varMultMaybe (Id { varMult = mult }) = Just mult
+varMultAnnMaybe :: Id -> Maybe MultiplicityAnnotation
+varMultAnnMaybe (Id { varMultAnn = mult_ann }) = Just mult_ann
+varMutAnnMaybe _ = Nothing
+
+varMult :: HasCallStack => Id -> Mult
+varMult (Id { varMultAnn = Mult mult }) = mult
+varMult (Id { varMultAnn = _ }) = panic "This should be a plain multiplicity"
+varMult _ = panic "This should be an Id"
+
+varUsages :: HasCallStack => Id -> UsageAnnotation
+varUsages (Id { varMultAnn = Usages ua }) = ua
+varUsages (Id { varMultAnn = _ }) = panic "This should be a usage annotation"
+varUsages _ = panic "This should be an Id"
+
+varMultMaybe :: HasCallStack => Id -> Maybe Mult
+varMultMaybe (Id { varMultAnn = Mult mult }) = Just mult
+varMultMaybe (Id { varMultAnn = _ }) = panic "This should be a plain multiplicity"
 varMultMaybe _ = Nothing
 
-varUsagesMaybe :: Id -> Maybe UsageAnnotation
-varUsagesMaybe (Id { varUsages = ua }) = Just ua
+varUsagesMaybe :: HasCallStack => Id -> Maybe UsageAnnotation
+varUsagesMaybe (Id { varMultAnn = Usages ua }) = Just ua
+varUsagesMaybe (Id { varMultAnn = _ }) = panic "This should be a usage annotation"
 varUsagesMaybe _ = Nothing
 
-varMultDef :: Id -> Mult
+varMultDef :: HasCallStack => Id -> Mult
 varMultDef = fromMaybe Omega . varMultMaybe
 
-varScaledType :: Id -> Scaled Kind
+varScaledType :: HasCallStack => Id -> Scaled Kind
 varScaledType var = Scaled (varMult var) (varType var)
 
 scaleVarBy :: Id -> Mult -> Id
-scaleVarBy id@(Id { varMult = w }) r =
-  id { varMult = r `mkMultMul` w }
-  -- Note that alias-like variables are preserved by scaling. Consider the
-  -- transformation `let x_π = let y_ue = u in v in e ==> let y_ue = u in let
-  -- x_π = v in e` if `y` were regular it would need to be scaled (by a factor
-  -- of π) for typing to be preserved; in contrast, since `ue` is the computed
-  -- usage environment of `u`, it is scaled implicitly by the fact that the
-  -- call-sites of `y` are in `v`, hence scaled by the typing rule of `let
-  -- x_π`. The difference, can be summed up to the fact that a regular let
-  -- introduces a multiplicity constraint, while an alias-like let doesn't.
+scaleVarBy id@(Id { varMultAnn = Mult w }) r =
+  id { varMultAnn = Mult (r `mkMultMul` w) }
+  -- Note that variables with usage annotations (i.e. let-bound variables)
+  -- variables are preserved by scaling. Consider the transformation `let x_π =
+  -- let y_ue = u in v in e ==> let y_ue = u in let x_π = v in e` if `y` were
+  -- regular it would need to be scaled (by a factor of π) for typing to be
+  -- preserved; in contrast, since `ue` is the computed usage environment of
+  -- `u`, it is scaled implicitly by the fact that the call-sites of `y` are in
+  -- `v`, hence scaled by the typing rule of `let x_π`. The difference, can be
+  -- summed up to the fact that a regular let introduces a multiplicity
+  -- constraint, while an alias-like let doesn't.
 scaleVarBy id _ = id
 
 setVarMult :: Id -> Mult -> Id
-setVarMult id r | isId id = id { varMult = r }
+setVarMult id r | isId id = id { varMultAnn = Mult r }
                 | otherwise = pprPanic "setVarMult" (ppr id <+> ppr r)
 
 setVarUsages :: Id -> UsageAnnotation -> Id
-setVarUsages id ua | isId id = id { varUsages = ua }
+setVarUsages id ua | isId id = id { varMultAnn = Usages ua }
                    | otherwise = pprPanic "setVarUsages" (ppr id)
 
 updateVarUsages :: (UsageAnnotation -> UsageAnnotation) -> Id -> Id
-updateVarUsages f id = id { varUsages = f (varUsages id)}
+updateVarUsages f id@(Id { varMultAnn = Usages ua }) = id { varMultAnn = Usages (f ua)}
+updateVarUsages _ id = id
 
 {- *********************************************************************
 *                                                                      *
@@ -735,30 +761,29 @@ idDetails other                         = pprPanic "idDetails" (ppr other)
 -- Ids, because Id.hs uses 'mkGlobalId' etc with different types
 mkGlobalVar :: IdDetails -> Name -> Type -> IdInfo -> Id
 mkGlobalVar details name ty info
-  = mk_id name Omega zeroUA ty GlobalId details info
+  = mk_id name (Usages zeroUA) ty GlobalId details info
   -- There is no support for linear global variables yet. They would require
   -- being checked at link-time, which can be useful, but is not a priority.
 
-mkLocalVar :: IdDetails -> Name -> Mult -> UsageAnnotation -> Type -> IdInfo -> Id
-mkLocalVar details name w ue ty info
-  = mk_id name w ue ty (LocalId NotExported) details  info
+mkLocalVar :: IdDetails -> Name -> MultiplicityAnnotation -> Type -> IdInfo -> Id
+mkLocalVar details name mult_ann ty info
+  = mk_id name mult_ann ty (LocalId NotExported) details  info
 
 mkCoVar :: Name -> Type -> CoVar
 -- Coercion variables have no IdInfo
-mkCoVar name ty = mk_id name Omega zeroUA ty (LocalId NotExported) coVarDetails vanillaIdInfo
+mkCoVar name ty = mk_id name (Mult Omega) ty (LocalId NotExported) coVarDetails vanillaIdInfo
 
 -- | Exported 'Var's will not be removed as dead code
 mkExportedLocalVar :: IdDetails -> Name -> Type -> IdInfo -> Id
 mkExportedLocalVar details name ty info
-  = mk_id name Omega zeroUA ty (LocalId Exported) details info
+  = mk_id name (Usages zeroUA) ty (LocalId Exported) details info
   -- There is no support for exporting linear variables. See also [mkGlobalVar]
 
-mk_id :: Name -> Mult -> UsageAnnotation -> Type -> IdScope -> IdDetails -> IdInfo -> Id
-mk_id name w ue ty scope details info
+mk_id :: Name -> MultiplicityAnnotation -> Type -> IdScope -> IdDetails -> IdInfo -> Id
+mk_id name mult ty scope details info
   = Id { varName    = name,
          realUnique = getKey (nameUnique name),
-         varMult    = w,
-         varUsages  = ue,
+         varMultAnn = mult,
          varType    = ty,
          idScope    = scope,
          id_details = details,

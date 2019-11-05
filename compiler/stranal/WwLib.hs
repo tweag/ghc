@@ -27,6 +27,7 @@ import MkId             ( voidArgId, voidPrimId )
 import TysWiredIn       ( tupleDataCon )
 import TysPrim          ( voidPrimTy )
 import Literal          ( absentLiteralOf, rubbishLit )
+import qualified Var as Var
 import VarEnv           ( mkInScopeSet )
 import VarSet           ( VarSet )
 import Type
@@ -466,7 +467,7 @@ applyToVars vars fn = mkVarApps fn vars
 
 mk_wrap_arg :: Unique -> Scaled Type -> Demand -> Id
 mk_wrap_arg uniq (Scaled w ty) dmd
-  = mkSysLocalOrCoVar (fsLit "w") uniq w zeroUA ty
+  = mkSysLocalOrCoVar (fsLit "w") uniq (Var.Mult w) ty
        `setIdDemandInfo` dmd
 
 {- Note [Freshen WW arguments]
@@ -1212,4 +1213,4 @@ mk_ww_local :: Unique -> (Scaled Type, StrictnessMark) -> Id
 -- See Note [Record evaluated-ness in worker/wrapper]
 mk_ww_local uniq (Scaled w ty,str)
   = setCaseBndrEvald str $
-    mkSysLocalOrCoVar (fsLit "ww") uniq w zeroUA ty
+    mkSysLocalOrCoVar (fsLit "ww") uniq (Var.Mult w) ty

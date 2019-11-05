@@ -1323,7 +1323,7 @@ tcIfaceExpr (IfaceCase scrut case_bndr alts)  = do
     let
         scrut_ty   = exprType scrut'
         case_mult = Omega
-        case_bndr' = mkLocalIdOrCoVar case_bndr_name case_mult zeroUA scrut_ty
+        case_bndr' = mkLocalIdOrCoVar case_bndr_name (Mult case_mult) scrut_ty
         tc_app     = splitTyConApp scrut_ty
                 -- NB: Won't always succeed (polymorphic case)
                 --     but won't be demanded in those cases
@@ -1341,7 +1341,7 @@ tcIfaceExpr (IfaceLet (IfaceNonRec (IfLetBndr fs uanns ty info ji) rhs) body)
         ; id_info <- tcIdInfo False {- Don't ignore prags; we are inside one! -}
                               NotTopLevel name ty' info
         ; uanns'  <- tcIfaceUA uanns
-        ; let id = mkLocalIdOrCoVarWithInfo name Omega uanns' ty' id_info
+        ; let id = mkLocalIdOrCoVarWithInfo name (Usages uanns') ty' id_info
                      `asJoinId_maybe` tcJoinInfo ji
         ; rhs' <- tcIfaceExpr rhs
         ; body' <- extendIfaceIdEnv [id] (tcIfaceExpr body)
@@ -1358,7 +1358,7 @@ tcIfaceExpr (IfaceLet (IfaceRec pairs) body)
      = do { name <- newIfaceName (mkVarOccFS fs)
           ; uanns' <- tcIfaceUA uanns
           ; ty'  <- tcIfaceType ty
-          ; return (mkLocalIdOrCoVar name Omega uanns' ty' `asJoinId_maybe` tcJoinInfo ji) }
+          ; return (mkLocalIdOrCoVar name (Usages uanns') ty' `asJoinId_maybe` tcJoinInfo ji) }
    tc_pair (IfLetBndr _ _ _ info _, rhs) id
      = do { rhs' <- tcIfaceExpr rhs
           ; id_info <- tcIdInfo False {- Don't ignore prags; we are inside one! -}
@@ -1748,7 +1748,7 @@ bindIfaceId (w, fs, ty) thing_inside
   = do  { name <- newIfaceName (mkVarOccFS fs)
         ; ty' <- tcIfaceType ty
         ; w' <- tcIfaceType w
-        ; let id = mkLocalIdOrCoVar name w' zeroUA ty'
+        ; let id = mkLocalIdOrCoVar name (Mult w') ty'
         ; extendIfaceIdEnv [id] (thing_inside id) }
 
 bindIfaceIds :: [IfaceIdBndr] -> ([Id] -> IfL a) -> IfL a

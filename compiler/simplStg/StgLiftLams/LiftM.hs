@@ -38,6 +38,7 @@ import StgSyn
 import Type
 import UniqSupply
 import Util
+import qualified Var as Var
 import VarEnv
 import VarSet
 import Multiplicity
@@ -298,7 +299,7 @@ withLiftedBndr abs_ids bndr inner = do
         -- not be caffy themselves and subsequently will miss a static link
         -- field in their closure. Chaos ensues.
         . flip setIdCafInfo caf_info
-        . mkSysLocalOrCoVar (mkFastString str) uniq Omega zeroUA
+        . mkSysLocalOrCoVar (mkFastString str) uniq (Var.Mult Omega)
             -- This is a toplevel binders, hence must be Omega
         $ ty
   LiftM $ RWS.local

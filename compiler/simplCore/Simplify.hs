@@ -45,7 +45,7 @@ import Demand           ( mkClosedStrictSig, topDmd, botRes )
 import BasicTypes       ( TopLevelFlag(..), isNotTopLevel, isTopLevel,
                           RecFlag(..), Arity )
 import MonadUtils       ( mapAccumLM, liftIO )
-import Var              ( isTyCoVar, varUsages, setVarUsages )
+import Var              ( MultiplicityAnnotation(..), isTyCoVar, varUsages, setVarUsages )
 import Maybes           (  orElse )
 import Control.Monad
 import Outputable
@@ -620,7 +620,7 @@ makeTrivialWithInfo mode top_lvl occ_fs info expr
           else do
         { uniq <- getUniqueM
         ; let name = mkSystemVarName uniq occ_fs
-              var  = mkLocalIdOrCoVarWithInfo name Omega (exprUsageAnnotation expr1) expr_ty info
+              var  = mkLocalIdOrCoVarWithInfo name (Usages (exprUsageAnnotation expr1)) expr_ty info
 
         -- Now something very like completeBind,
         -- but without the postInlineUnconditinoally part
@@ -2792,7 +2792,7 @@ improveSeq :: (FamInstEnv, FamInstEnv) -> SimplEnv
 -- Note [Improving seq]
 improveSeq fam_envs env scrut case_bndr case_bndr1 [(DEFAULT,_,_)]
   | Just (co, ty2) <- topNormaliseType_maybe fam_envs (idType case_bndr1)
-  = do { case_bndr2 <- newId (fsLit "nt") Omega zeroUA ty2
+  = do { case_bndr2 <- newId (fsLit "nt") (Mult Omega) ty2
         ; let rhs  = DoneEx (Var case_bndr2 `Cast` mkSymCo co) Nothing
               env2 = extendIdSubst env case_bndr rhs
         ; return (env2, scrut `Cast` co, case_bndr2) }

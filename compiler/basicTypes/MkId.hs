@@ -74,7 +74,7 @@ import DynFlags
 import Outputable
 import FastString
 import ListSetOps
-import Var (VarBndr(Bndr))
+import Var (VarBndr(Bndr), MultiplicityAnnotation(..))
 import qualified GHC.LanguageExtensions as LangExt
 
 import Data.Maybe       ( maybeToList )
@@ -894,7 +894,7 @@ case of a newtype constructor, we simply hardcode its dcr_bangs field to
 -------------------------
 newLocal :: Scaled Type -> UniqSM Var
 newLocal (Scaled w ty) = do { uniq <- getUniqueM
-                            ; return (mkSysLocalOrCoVar (fsLit "dt") uniq w zeroUA ty) }
+                            ; return (mkSysLocalOrCoVar (fsLit "dt") uniq (Mult w) ty) }
 
 -- | Unpack/Strictness decisions from source module.
 --
@@ -1706,7 +1706,7 @@ voidPrimId  = pcMiscPrelId voidPrimIdName voidPrimTy
                              `setNeverLevPoly`  voidPrimTy)
 
 voidArgId :: Id       -- Local lambda-bound :: Void#
-voidArgId = mkSysLocal (fsLit "void") voidArgIdKey Omega zeroUA voidPrimTy
+voidArgId = mkSysLocal (fsLit "void") voidArgIdKey (Mult Omega) voidPrimTy
 
 coercionTokenId :: Id         -- :: () ~ ()
 coercionTokenId -- Used to replace Coercion terms when we go to STG

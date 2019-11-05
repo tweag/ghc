@@ -1861,7 +1861,7 @@ abstractFloats dflags top_lvl main_tvs floats body
            ; let  poly_name = setNameUnique (idName var) uniq           -- Keep same name
                   poly_ty   = mkInvForAllTys tvs_here (idType var) -- But new type of course
                   poly_id   = transferPolyIdInfo var tvs_here $ -- Note [transferPolyIdInfo] in Id.hs
-                              mkLocalIdOrCoVar poly_name (idMult var) (varUsages var) poly_ty
+                              mkLocalIdOrCoVar poly_name (varMultAnn var) poly_ty
            ; return (poly_id, mkTyApps (Var poly_id) (mkTyVarTys tvs_here)) }
                 -- In the olden days, it was crucial to copy the occInfo of the original var,
                 -- because we were looking at occurrence-analysed but as yet unsimplified code!
@@ -2213,7 +2213,7 @@ mkCase2 dflags scrut bndr alts_ty alts
       _               -> True
   , gopt Opt_CaseFolding dflags
   , Just (scrut', tx_con, mk_orig) <- caseRules dflags scrut
-  = do { bndr' <- newId (fsLit "lwild") Omega zeroUA (exprType scrut')
+  = do { bndr' <- newId (fsLit "lwild") (Mult Omega) (exprType scrut')
 
        ; alts' <- mapMaybeM (tx_alt tx_con mk_orig bndr') alts
                   -- mapMaybeM: discard unreachable alternatives

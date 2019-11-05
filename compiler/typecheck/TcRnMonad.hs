@@ -163,6 +163,7 @@ import FamInstEnv
 import PrelNames
 
 import Id
+import qualified Var as Var
 import VarSet
 import VarEnv
 import ErrUtils
@@ -647,12 +648,12 @@ newSysName occ
 newSysLocalId :: FastString -> Mult -> TcType -> TcRnIf gbl lcl TcId
 newSysLocalId fs w ty
   = do  { u <- newUnique
-        ; return (mkSysLocalOrCoVar fs u w zeroUA ty) }
+        ; return (mkSysLocalOrCoVar fs u (Var.Mult w) ty) }
 
 newSysLocalIds :: FastString -> [Scaled TcType] -> TcRnIf gbl lcl [TcId]
 newSysLocalIds fs tys
   = do  { us <- newUniqueSupply
-        ; let mkId' n (Scaled w t) = mkSysLocalOrCoVar fs n w zeroUA t
+        ; let mkId' n (Scaled w t) = mkSysLocalOrCoVar fs n (Var.Mult w) t
         ; return (zipWith mkId' (uniqsFromSupply us) tys) }
 
 instance MonadUnique (IOEnv (Env gbl lcl)) where
