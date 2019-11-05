@@ -1244,17 +1244,19 @@ lintCoreAlt :: Var              -- Scrut Var
             -> LintM UsageEnv
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
-lintCoreAlt _ _ _ alt_ty (DEFAULT, args, rhs) =
+lintCoreAlt scrut _ _ alt_ty (DEFAULT, args, rhs) =
   do { lintL (null args) (mkDefaultArgsMsg args)
-     ; lintAltExpr rhs alt_ty }
+     ; rhs_ue <- lintAltExpr rhs alt_ty
+     ; return $ deleteUE rhs_ue scrut }
 
-lintCoreAlt _scrut scrut_ty _ alt_ty (LitAlt lit, args, rhs)
+lintCoreAlt scrut scrut_ty _ alt_ty (LitAlt lit, args, rhs)
   | litIsLifted lit
   = failWithL integerScrutinisedMsg
   | otherwise
   = do { lintL (null args) (mkDefaultArgsMsg args)
        ; ensureEqTys lit_ty scrut_ty (mkBadPatMsg lit_ty scrut_ty)
-       ; lintAltExpr rhs alt_ty }
+       ; rhs_ue <- lintAltExpr rhs alt_ty
+       ; return $ deleteUE rhs_ue scrut }
   where
     lit_ty = literalType lit
 
