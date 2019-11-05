@@ -200,6 +200,23 @@ varCallUsage env var =
   case lookupNameEnv env (getName var) of
     Nothing
       | Omega <- varMult var -> zeroUE
+        -- Why do we special case `Omega` like this? Two reasons. First if a
+        -- variable has been bound by a lambda with multiplicity Omega, then
+        -- checks will always succeed, so we don't need to track their
+        -- usage. Since the vast majority of lambda-binders, in Haskell code,
+        -- are Omega, this optimisation is probably a good idea. The second
+        -- reason is more fundamental: toplevel bindings *are not* in the usage
+        -- environment. But, since they will always have multiplicity Omega, (as
+        -- well as an empty usage annotation). Consider:
+        --
+        --     x = 0
+        --
+        --     g = x + 1
+        --
+        -- If `g` has [x ↦ 1] as its usage annotation, then, inlining `x` breaks
+        -- this annotation. Bad!  Therefore we need `g` to have an empty
+        -- annotation, and the linter to recognise that this is, indeed, the
+        -- right usage.
       | otherwise -> unitUE var One
     Just var_ue -> var_ue
 
