@@ -193,10 +193,10 @@ idUnique  = Var.varUnique
 idType   :: Id -> Kind
 idType    = Var.varType
 
-idMult :: Id -> Mult
+idMult :: HasCallStack => Id -> Mult
 idMult = Var.varMult
 
-idScaledType :: Id -> Scaled Type
+idScaledType :: HasCallStack => Id -> Scaled Type
 idScaledType id = Scaled (idMult id) (idType id)
 
 scaleIdBy :: Id -> Mult -> Id

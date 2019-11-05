@@ -199,15 +199,8 @@ varCallUsage :: NameEnv UsageEnv -> CoreBndr -> UsageEnv
 varCallUsage env var =
   case lookupNameEnv env (getName var) of
     Nothing
-      | Omega <- varMult var -> zeroUE
-        -- Why do we special case `Omega` like this? Two reasons. First if a
-        -- variable has been bound by a lambda with multiplicity Omega, then
-        -- checks will always succeed, so we don't need to track their
-        -- usage. Since the vast majority of lambda-binders, in Haskell code,
-        -- are Omega, this optimisation is probably a good idea. The second
-        -- reason is more fundamental: toplevel bindings *are not* in the usage
-        -- environment. But, since they will always have multiplicity Omega, (as
-        -- well as an empty usage annotation). Consider:
+      | Usages _ <- varMultAnn var -> zeroUE
+        -- Toplevel bindings *are not* in the usage environment. Consider:
         --
         --     x = 0
         --
@@ -216,7 +209,23 @@ varCallUsage env var =
         -- If `g` has [x ↦ 1] as its usage annotation, then, inlining `x` breaks
         -- this annotation. Bad!  Therefore we need `g` to have an empty
         -- annotation, and the linter to recognise that this is, indeed, the
-        -- right usage.
+        -- right usage. So we consider that `x` is an alias for an empty usage
+        -- environment. This is always safe: all the toplevel bindings are
+        -- always unrestricted.
+        --
+        -- All toplevel definition should have an empty usage annotation. But
+        -- I'm not sure enough that it holds, yet, to add this assertion.
+        --
+        -- I wanted to ignore bindings with multiplicity Omega as well: if a
+        -- variable is bound by a lambda with multiplicity Omega, then
+        -- multiplicity checks checks will always succeed, so we don't need to
+        -- track their usage. Since the vast majority of lambda-binders, in
+        -- Haskell code, are Omega, this optimisation is probably a good
+        -- idea. However, during case-of-case some binders can change from
+        -- multiplicity 1 to multiplicity Omega. And it makes the usage
+        -- annotation stale. It is surely possible to update usage annotations
+        -- with the knowledge that the variable can now safely ignored. I just
+        -- haven't found a satisfactory way yet.
       | otherwise -> unitUE var One
     Just var_ue -> var_ue
 

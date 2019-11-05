@@ -48,7 +48,7 @@ module Var (
 
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType,
-        scaleVarBy, setVarMult, setVarUsages,
+        scaleVarBy, setVarMult, setVarUsages, setVarMultAnn,
         updateVarTypeButNotMult,
         updateVarTypeAndMult, updateVarTypeAndMultM,
         updateVarUsages,
@@ -57,7 +57,8 @@ module Var (
         mkGlobalVar, mkLocalVar, mkExportedLocalVar, mkCoVar,
         idInfo, idDetails,
         lazySetIdInfo, setIdDetails, globaliseId,
-        setIdExported, setIdNotExported, MultiplicityAnnotation(..), mapMultAnn,
+        setIdExported, setIdNotExported,
+        MultiplicityAnnotation(..), mapMultAnn, traverseMultAnn,
 
         -- ** Predicates
         isId, isTyVar, isTcTyVar,
@@ -276,6 +277,10 @@ mapMultAnn :: (Type -> Type) -> MultiplicityAnnotation -> MultiplicityAnnotation
 mapMultAnn f (Mult w) = Mult (f w)
 mapMultAnn f (Usages ua) = Usages (mapUA f ua)
 
+traverseMultAnn :: (Applicative f) => (Type -> f Type) -> MultiplicityAnnotation -> f MultiplicityAnnotation
+traverseMultAnn f (Mult w) = Mult <$> f w
+traverseMultAnn f (Usages ua) = Usages <$> traverseUA f ua
+
 isOmegaMultAnn :: MultiplicityAnnotation -> Bool
 isOmegaMultAnn (Mult Omega) = True
 isOmegaMultAnn _ = False
@@ -440,17 +445,17 @@ varMultAnnMaybe _ = Nothing
 
 varMult :: HasCallStack => Id -> Mult
 varMult (Id { varMultAnn = Mult mult }) = mult
-varMult (Id { varMultAnn = _ }) = panic "This should be a plain multiplicity"
-varMult _ = panic "This should be an Id"
+varMult (Id { varMultAnn = _ }) = pprPanic "varMult "$ text "This should be a plain multiplicity"
+varMult _ = pprPanic "varMult" $ text "This should be an Id"
 
 varUsages :: HasCallStack => Id -> UsageAnnotation
 varUsages (Id { varMultAnn = Usages ua }) = ua
-varUsages (Id { varMultAnn = _ }) = panic "This should be a usage annotation"
-varUsages _ = panic "This should be an Id"
+varUsages (Id { varMultAnn = _ }) = pprPanic "varUsages" $ text "This should be a usage annotation"
+varUsages _ = pprPanic "varUsages" $ text "This should be an Id"
 
 varMultMaybe :: HasCallStack => Id -> Maybe Mult
 varMultMaybe (Id { varMultAnn = Mult mult }) = Just mult
-varMultMaybe (Id { varMultAnn = _ }) = panic "This should be a plain multiplicity"
+varMultMaybe (Id { varMultAnn = _ }) = pprPanic "varMultMaybe" $ text "This should be a plain multiplicity"
 varMultMaybe _ = Nothing
 
 varMultDef :: HasCallStack => Id -> Mult
@@ -472,6 +477,10 @@ scaleVarBy id@(Id { varMultAnn = Mult w }) r =
   -- summed up to the fact that a regular let introduces a multiplicity
   -- constraint, while an alias-like let doesn't.
 scaleVarBy id _ = id
+
+setVarMultAnn :: Id -> MultiplicityAnnotation -> Id
+setVarMultAnn id mult_ann | isId id = id { varMultAnn = mult_ann }
+                          | otherwise = pprPanic "setVarMultAnn" (ppr id)
 
 setVarMult :: Id -> Mult -> Id
 setVarMult id r | isId id = id { varMultAnn = Mult r }
