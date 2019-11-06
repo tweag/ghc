@@ -248,7 +248,9 @@ wrapBinds ((new,old):prs) e = wrapBind new old (wrapBinds prs e)
 wrapBind :: Var -> Var -> CoreExpr -> CoreExpr
 wrapBind new old body   -- NB: this function must deal with term
   | new==old    = body  -- variables, type variables or coercion variables
-  | otherwise   = Let (NonRec new (varToCoreExpr old)) body
+  | otherwise   =
+    let new' = Var.setVarUsages new (mkUA (unitUE old One)) in
+    Let (NonRec new' (varToCoreExpr old)) body
 
 seqVar :: Var -> CoreExpr -> CoreExpr
 seqVar var body = Case (Var var) var (exprType body)
@@ -669,8 +671,6 @@ work out well:
      ; y = case v of K x y -> y }
   which is better.
 -}
--- Remark: pattern selectors only occur in unrestricted patterns so we are free
--- to select Omega as the multiplicity of every let-expression introduced.
 mkSelectorBinds :: [[Tickish Id]] -- ^ ticks to add, possibly
                 -> LPat GhcTc     -- ^ The pattern
                 -> CoreExpr       -- ^ Expression to which the pattern is bound
@@ -681,11 +681,14 @@ mkSelectorBinds :: [[Tickish Id]] -- ^ ticks to add, possibly
 
 mkSelectorBinds ticks pat val_expr
   | (dL->L _ (VarPat _ (dL->L _ v))) <- pat'     -- Special case (A)
-  = return (v, [(v, val_expr)])
+  = do { let val_ua = exprUsageAnnotation val_expr
+             v' = Var.setVarUsages v val_ua
+       ; return (v', [(v', val_expr)]) }
 
   | is_flat_prod_lpat pat'           -- Special case (B)
   = do { let pat_ty = hsLPatType pat'
-       ; val_var <- newSysLocalDsNoLP (Var.Mult Omega) pat_ty
+             val_ua = exprUsageAnnotation val_expr
+       ; val_var <- newSysLocalDsNoLP (Var.Usages val_ua) pat_ty
 
        ; let mk_bind tick bndr_var
                -- (mk_bind sv bv)  generates  bv = case sv of { pat -> bv }
@@ -697,18 +700,21 @@ mkSelectorBinds ticks pat val_expr
                       -- "fail-expr" passed to matchSimply is not
                       -- used. But it /is/ used for its type, and for
                       -- that bndr_var is just the ticket.
-                    ; return (bndr_var, mkOptTickBox tick rhs_expr) }
+                    ; let bndr_var' = Var.setVarUsages bndr_var val_ua
+                    ; return (bndr_var', mkOptTickBox tick rhs_expr) }
 
        ; binds <- zipWithM mk_bind ticks' binders
        ; return ( val_var, (val_var, val_expr) : binds) }
 
   | otherwise                          -- General case (C)
-  = do { tuple_var  <- newSysLocalDs (Var.Mult Omega) tuple_ty
+  = do { let val_ua = exprUsageAnnotation val_expr
+       ; tuple_var  <- newSysLocalDs (Var.Usages val_ua) tuple_ty
        ; error_expr <- mkErrorAppDs pAT_ERROR_ID tuple_ty (ppr pat')
        ; tuple_expr <- matchSimply val_expr PatBindRhs pat
                                    local_tuple error_expr
        ; let mk_tup_bind tick binder
-               = (binder, mkOptTickBox tick $
+               = let binder' = Var.setVarUsages binder val_ua in
+                 (binder', mkOptTickBox tick $
                           mkTupleSelector1 local_binders binder
                                            tuple_var (Var tuple_var))
              tup_binds = zipWith mk_tup_bind ticks' binders

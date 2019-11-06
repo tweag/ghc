@@ -203,8 +203,7 @@ tcPatBndr penv@(PE { pe_ctxt = LetPat { pc_lvl    = bind_lvl
                                 -- the level, we'd be in checking mode
                                 do { bndr_ty <- inferResultToType infer_res
                                    ; return (mkTcNomReflCo bndr_ty, bndr_ty) }
-       ; let bndr_mult = scaledMult exp_pat_ty
-       ; bndr_id <- newLetBndr no_gen bndr_name bndr_mult bndr_ty
+       ; bndr_id <- newLetBndr no_gen bndr_name zeroUA bndr_ty
        ; traceTc "tcPatBndr(nosig)" (vcat [ ppr bind_lvl
                                           , ppr exp_pat_ty, ppr bndr_ty, ppr co
                                           , ppr bndr_id ])
@@ -218,7 +217,7 @@ tcPatBndr _ bndr_name pat_ty
                -- Whether or not there is a sig is irrelevant,
                -- as this is local
 
-newLetBndr :: LetBndrSpec -> Name -> Mult -> TcType -> TcM TcId
+newLetBndr :: LetBndrSpec -> Name -> UsageAnnotation -> TcType -> TcM TcId
 -- Make up a suitable Id for the pattern-binder.
 -- See Note [Typechecking pattern bindings], item (4) in TcBinds
 --
@@ -229,11 +228,11 @@ newLetBndr :: LetBndrSpec -> Name -> Mult -> TcType -> TcM TcId
 -- In the monomorphic case when we are not going to generalise
 --    (plan NoGen, no_gen = LetGblBndr) there is no AbsBinds,
 --    and we use the original name directly
-newLetBndr LetLclBndr name w ty
+newLetBndr LetLclBndr name ua ty
   = do { mono_name <- cloneLocalName name
-       ; return (mkLocalId mono_name (Mult w) ty) }
-newLetBndr (LetGblBndr prags) name w ty
-  = addInlinePrags (mkLocalId name (Mult w) ty) (lookupPragEnv prags name)
+       ; return (mkLocalId mono_name (Usages ua) ty) }
+newLetBndr (LetGblBndr prags) name ua ty
+  = addInlinePrags (mkLocalId name (Usages ua) ty) (lookupPragEnv prags name)
 
 tcSubTypePat :: PatEnv -> ExpSigmaType -> TcSigmaType -> TcM HsWrapper
 -- tcSubTypeET with the UserTypeCtxt specialised to GenSigCtxt

@@ -551,8 +551,6 @@ tc_single top_lvl sig_fn prag_fn lbind closed thing_inside
                                       NonRecursive NonRecursive
                                       closed
                                       [lbind]
-         -- since we are defining a non-recursive binding, it is not necessary here
-         -- to define an unrestricted binding. But we do so until toplevel linear bindings are supported.
        ; thing <- tcExtendLetEnv top_lvl sig_fn closed ids thing_inside
        ; return (binds1, thing) }
 
@@ -699,19 +697,20 @@ tcPolyCheck :: TcPragEnv
 --   it is a Funbind
 --   it has a complete type signature,
 tcPolyCheck prag_fn
-            (CompleteSig { sig_bndr  = poly_id
+            (CompleteSig { sig_bndr  = poly_id0
                          , sig_ctxt  = ctxt
                          , sig_loc   = sig_loc })
             (dL->L loc (FunBind { fun_id = (dL->L nm_loc name)
                                 , fun_matches = matches }))
   = setSrcSpan sig_loc $
-    do { traceTc "tcPolyCheck" (ppr poly_id $$ ppr sig_loc)
+    do { traceTc "tcPolyCheck" (ppr poly_id0 $$ ppr sig_loc)
+       ; let poly_id = setVarUsages poly_id0 zeroUA
        ; (tv_prs, theta, tau) <- tcInstType tcInstSkolTyVars poly_id
                 -- See Note [Instantiate sig with fresh variables]
 
        ; mono_name <- newNameAt (nameOccName name) nm_loc
        ; ev_vars   <- newEvVars theta
-       ; let mono_id   = mkLocalId mono_name (varMultAnn poly_id) tau
+       ; let mono_id   = mkLocalId mono_name (Usages zeroUA) tau
              skol_info = SigSkol ctxt (idType poly_id) tv_prs
              skol_tvs  = map snd tv_prs
 
@@ -1290,7 +1289,7 @@ tcMonoBinds is_rec sig_fn no_gen
                   -- type of the thing whose rhs we are type checking
                tcMatchesFun (cL nm_loc name) matches exp_ty
 
-        ; mono_id <- newLetBndr no_gen name Omega rhs_ty
+        ; mono_id <- newLetBndr no_gen name zeroUA rhs_ty
         ; return (unitBag $ cL b_loc $
                      FunBind { fun_id = cL nm_loc mono_id,
                                fun_matches = matches', fun_ext = fvs,
@@ -1363,7 +1362,7 @@ tcLhs sig_fn no_gen (FunBind { fun_id = (dL->L nm_loc name)
 
   | otherwise  -- No type signature
   = do { mono_ty <- newOpenFlexiTyVarTy
-       ; mono_id <- newLetBndr no_gen name Omega mono_ty
+       ; mono_id <- newLetBndr no_gen name zeroUA mono_ty
           -- This ^ generates a binder with Omega multiplicity because all
           -- let/where-binders are unrestricted. When we introduce linear let
           -- binders, we will need to retrieve the multiplicity information.
@@ -1434,9 +1433,9 @@ newSigLetBndr (LetGblBndr prags) name (TISI { sig_inst_sig = id_sig })
   | CompleteSig { sig_bndr = poly_id } <- id_sig
   = addInlinePrags poly_id (lookupPragEnv prags name)
 newSigLetBndr no_gen name (TISI { sig_inst_tau = tau })
-  = newLetBndr no_gen name Omega tau
-    -- Binders with a signature are currently always of multiplicity
-    -- Omega. Because they come either from toplevel, let, or where
+  = newLetBndr no_gen name zeroUA tau
+    -- Binders with a signature currently always have empty usage
+    -- annotation. Because they come either from toplevel, let, or where
     -- declarations. Which are all unrestricted currently.
 
 -------------------
