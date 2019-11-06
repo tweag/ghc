@@ -549,7 +549,7 @@ instance Outputable Unfolding where
                      , uf_tmpl=rhs, uf_is_top=top, uf_is_value=hnf
                      , uf_is_conlike=conlike, uf_is_work_free=wf
                      , uf_expandable=exp, uf_guidance=g })
-        = text "Unf" <> braces (pp_info $$ pp_rhs)
+        = text "Unf" <> braces (pp_info)
     where
       pp_info = fsep $ punctuate comma
                 [ text "Src="        <> ppr src
