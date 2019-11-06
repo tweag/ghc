@@ -45,12 +45,11 @@ import TysWiredIn
 import PrelRules
 import Type
 import Multiplicity
-import UsageEnv
 import FamInstEnv
 import Coercion
 import TcType
 import MkCore
-import CoreUtils        ( exprType, mkCast )
+import CoreUtils        ( exprType, exprUsageAnnotation, mkCast )
 import CoreUnfold
 import Literal
 import TyCon
@@ -74,7 +73,7 @@ import DynFlags
 import Outputable
 import FastString
 import ListSetOps
-import Var (VarBndr(Bndr), MultiplicityAnnotation(..))
+import Var (VarBndr(Bndr), MultiplicityAnnotation(..), setVarUsages)
 import qualified GHC.LanguageExtensions as LangExt
 
 import Data.Maybe       ( maybeToList )
@@ -769,7 +768,7 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
     go subst (Boxer boxer : boxers) (src_var : src_vars)
       = do { (rep_ids1, arg)  <- boxer subst
            ; (rep_ids2, binds) <- go subst boxers src_vars
-           ; return (rep_ids1 ++ rep_ids2, NonRec src_var arg : binds) }
+           ; return (rep_ids1 ++ rep_ids2, NonRec (src_var `setVarUsages` exprUsageAnnotation arg) arg : binds) }
     go _ (_:_) [] = pprPanic "mk_boxer" (ppr data_con)
 
     mk_rep_app :: [(Id,Unboxer)] -> CoreExpr -> UniqSM CoreExpr
