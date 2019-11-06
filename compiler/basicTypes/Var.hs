@@ -65,6 +65,7 @@ module Var (
         isLocalVar, isLocalId, isCoVar, isNonCoVarId, isTyCoVar,
         isGlobalId, isExportedId,
         mustHaveLocalBinding,
+        isVarUsageAnn, isVarMult,
         isOmegaMultAnn,
 
         -- * ArgFlags
@@ -272,6 +273,10 @@ data ExportFlag   -- See Note [ExportFlag on binders]
 data MultiplicityAnnotation
   = Mult Mult               -- ^ A lambda-bound or case-bound variable with a specified multiplicity
   | Usages UsageAnnotation  -- ^ A let-bound variable, considered an alias for the multiplicities in the annotation
+
+instance Outputable MultiplicityAnnotation where
+  ppr (Mult w) = ppr w
+  ppr (Usages ua) = ppr ua
 
 mapMultAnn :: (Type -> Type) -> MultiplicityAnnotation -> MultiplicityAnnotation
 mapMultAnn f (Mult w) = Mult (f w)
@@ -493,6 +498,14 @@ setVarUsages id ua | isId id = id { varMultAnn = Usages ua }
 updateVarUsages :: (UsageAnnotation -> UsageAnnotation) -> Id -> Id
 updateVarUsages f id@(Id { varMultAnn = Usages ua }) = id { varMultAnn = Usages (f ua)}
 updateVarUsages _ id = id
+
+isVarUsageAnn :: Id -> Bool
+isVarUsageAnn (Id { varMultAnn = Usages _}) = True
+isVarUsageAnn _ = False
+
+isVarMult :: Id -> Bool
+isVarMult (Id { varMultAnn = Mult _}) = True
+isVarMult _ = False
 
 {- *********************************************************************
 *                                                                      *

@@ -749,10 +749,11 @@ lintCoreExpr (Let (NonRec bndr rhs) body)
   | isId bndr
   = do  { let_ue <- lintSingleBinding NotTopLevel NonRecursive (bndr,rhs)
         ; aliases <- getUEAliases
-        ; let bndr_ua = substUA aliases (varUsages bndr)
-        ; addLoc (RhsOf bndr) $
-                 checkL (validateAnn bndr_ua let_ue)
-                        (invalidUsageAnnotation bndr_ua let_ue)
+        ; addLoc (RhsOf bndr) $ do
+                 { checkL (isVarUsageAnn bndr) wrongMultAnn
+                 ; let bndr_ua = substUA aliases (varUsages bndr)
+                 ; checkL (validateAnn bndr_ua let_ue)
+                          (invalidUsageAnnotation bndr_ua let_ue) }
           -- See Note [Multiplicity of let binders] in Var
         ; addLoc (BodyOfLetRec [bndr]) $
                  (lintBinder LetBind bndr $ \_ ->
@@ -763,6 +764,7 @@ lintCoreExpr (Let (NonRec bndr rhs) body)
   | otherwise
   = failWithL (mkLetErr bndr rhs)       -- Not quite accurate
   where
+    wrongMultAnn = text "Let binders should have a usage annotation"
     -- See Note [Checking annotations in linter]
     validateAnn ue_ann rhs_ue = compatibleUA ue_ann (mkUA rhs_ue)
     invalidUsageAnnotation ue_ann rhs_ue =
