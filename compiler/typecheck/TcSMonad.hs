@@ -3375,6 +3375,9 @@ newNoTcEvBinds = wrapTcS TcM.newNoTcEvBinds
 newEvVar :: TcPredType -> TcS EvVar
 newEvVar pred = wrapTcS (TcM.newEvVar pred)
 
+newEvBindVar :: TcPredType -> TcS EvVar
+newEvBindVar pred = wrapTcS (TcM.newEvBindVar pred)
+
 newGivenEvVar :: CtLoc -> (TcPredType, EvTerm) -> TcS CtEvidence
 -- Make a new variable of the given PredType,
 -- immediately bind it to the given term
@@ -3388,7 +3391,7 @@ newGivenEvVar loc (pred, rhs)
 -- given term
 newBoundEvVarId :: TcPredType -> EvTerm -> TcS EvVar
 newBoundEvVarId pred rhs
-  = do { new_ev <- newEvVar pred
+  = do { new_ev <- newEvBindVar pred
        ; setEvBind (mkGivenEvBind new_ev rhs)
        ; return new_ev }
 
@@ -3427,7 +3430,7 @@ newWantedEvVarNC = newWantedEvVarNC_SI WDeriv
 newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> TcPredType -> TcS CtEvidence
 -- Don't look up in the solved/inerts; we know it's not there
 newWantedEvVarNC_SI si loc pty
-  = do { new_ev <- newEvVar pty
+  = do { new_ev <- newEvBindVar pty
        ; traceTcS "Emitting new wanted" (ppr new_ev <+> dcolon <+> ppr pty $$
                                          pprCtLoc loc)
        ; return (CtWanted { ctev_pred = pty, ctev_dest = EvVarDest new_ev

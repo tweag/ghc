@@ -39,7 +39,7 @@ module TcMType (
 
   --------------------------------
   -- Creating new evidence variables
-  newEvVar, newEvVars, newDict,
+  newEvVar, newEvBindVar, newEvVars, newDict,
   newWanted, newWanteds, newHoleCt, cloneWanted, cloneWC,
   emitWanted, emitWantedEq, emitWantedEvVar, emitWantedEvVars,
   emitDerivedEqs,
@@ -172,12 +172,17 @@ newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
 newEvVar ty = do { name <- newSysName (predTypeOccName ty)
                  ; return (mkLocalIdOrCoVar name (Mult Omega) ty) }
 
+newEvBindVar :: TcPredType -> TcRnIf gbl lcl EvVar
+-- Creates new let binding variables for predicates
+newEvBindVar ty = do { name <- newSysName (predTypeOccName ty)
+                     ; return (mkLocalIdOrCoVar name (Usages zeroUA) ty) }
+
 newWanted :: CtOrigin -> Maybe TypeOrKind -> PredType -> TcM CtEvidence
 -- Deals with both equality and non-equality predicates
 newWanted orig t_or_k pty
   = do loc <- getCtLocM orig t_or_k
        d <- if isEqPrimPred pty then HoleDest  <$> newCoercionHole pty
-                                else EvVarDest <$> newEvVar pty
+                                else EvVarDest <$> newEvBindVar pty
        return $ CtWanted { ctev_dest = d
                          , ctev_pred = pty
                          , ctev_nosh = WDeriv
@@ -266,7 +271,7 @@ emitWantedEq origin t_or_k role ty1 ty2
 -- No equality predicates here.
 emitWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
 emitWantedEvVar origin ty
-  = do { new_cv <- newEvVar ty
+  = do { new_cv <- newEvBindVar ty
        ; loc <- getCtLocM origin Nothing
        ; let ctev = CtWanted { ctev_dest = EvVarDest new_cv
                              , ctev_pred = ty
@@ -281,7 +286,7 @@ emitWantedEvVars orig = mapM (emitWantedEvVar orig)
 newDict :: Class -> [TcType] -> TcM DictId
 newDict cls tys
   = do { name <- newSysName (mkDictOcc (getOccName cls))
-       ; return (mkLocalId name (Mult Omega) (mkClassPred cls tys)) }
+       ; return (mkLocalId name (Usages zeroUA) (mkClassPred cls tys)) }
 
 predTypeOccName :: PredType -> OccName
 predTypeOccName ty = case classifyPredType ty of

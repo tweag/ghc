@@ -264,7 +264,7 @@ matchCoercion :: [MatchId] -> Type -> [EquationInfo] -> DsM MatchResult
 matchCoercion (var:vars) ty (eqns@(eqn1:_))
   = do  { let CoPat _ co pat _ = firstPat eqn1
         ; let pat_ty' = hsPatType pat
-        ; var' <- newUniqueId var (Var.varMultAnn var) pat_ty'
+        ; var' <- newUniqueId var (Var.Usages (mkUA (unitUE var One))) pat_ty'
         ; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getCoPat) eqns
         ; core_wrap <- dsHsWrapper co

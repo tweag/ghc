@@ -791,7 +791,7 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
 
        ; tc_env          <- TcM.getEnv
        ; ev_binds_var    <- TcM.newTcEvBinds
-       ; psig_theta_vars <- mapM TcM.newEvVar psig_theta
+       ; psig_theta_vars <- mapM TcM.newEvBindVar psig_theta
        ; wanted_transformed_incl_derivs
             <- setTcLevel rhs_tclvl $
                runTcSWithEvBinds ev_binds_var $
