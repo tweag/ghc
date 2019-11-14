@@ -248,9 +248,11 @@ wrapBinds ((new,old):prs) e = wrapBind new old (wrapBinds prs e)
 wrapBind :: Var -> Var -> CoreExpr -> CoreExpr
 wrapBind new old body   -- NB: this function must deal with term
   | new==old    = body  -- variables, type variables or coercion variables
-  | otherwise   =
+  | isId new   =
     let new' = new `Var.setVarUsages` (mkUA (unitUE old One)) in
     Let (NonRec new' (varToCoreExpr old)) body
+  | otherwise = Let (NonRec new (varToCoreExpr old)) body
+
 
 seqVar :: Var -> CoreExpr -> CoreExpr
 seqVar var body = Case (Var var) var (exprType body)

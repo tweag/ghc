@@ -458,7 +458,7 @@ setVarMult :: Id -> Mult -> Id
 setVarMult id r | isId id = id { varMult = r }
                 | otherwise = pprPanic "setVarMult" (ppr id <+> ppr r)
 
-setVarUsages :: Id -> UsageAnnotation -> Id
+setVarUsages :: HasCallStack => Id -> UsageAnnotation -> Id
 setVarUsages id ua | isId id = id { varUsages = ua }
                    | otherwise = pprPanic "setVarUsages" (ppr id)
 
