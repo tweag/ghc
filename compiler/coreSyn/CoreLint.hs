@@ -1135,7 +1135,7 @@ lintTyKind tyvar arg_ty
 ************************************************************************
 -}
 
-lintCaseExpr :: CoreExpr -> Id -> Type -> [CoreAlt] -> LintM OutType
+lintCaseExpr :: CoreExpr -> Id -> Type -> [CoreAlt] -> LintM (OutType, UsageEnv)
 lintCaseExpr scrut var alt_ty alts =
   do { let e = Case scrut var alt_ty alts   -- Just for error messages
 
@@ -1143,6 +1143,7 @@ lintCaseExpr scrut var alt_ty alts =
      ; (scrut_ty, scrut_ue) <- markAllJoinsBad $ lintCoreExpr scrut
           -- See Note [Join points are less general than the paper]
           -- in CoreSyn
+     ; let scrut_mult = varMult var
 
      ; (alt_ty, _) <- addLoc (CaseTy scrut) $
                       lintInTy alt_ty
@@ -1185,7 +1186,7 @@ lintCaseExpr scrut var alt_ty alts =
 
      ; lintBinder CaseBind var $ \_ ->
        do { -- Check the alternatives
-          ; alt_ues <- mapM (lintCoreAlt scrut_ty alt_ty) alts
+          ; alt_ues <- mapM (lintCoreAlt var scrut_ty scrut_mult alt_ty) alts
           ; let case_ue = (scaleUE scrut_mult scrut_ue) `addUE` supUEs alt_ues
           ; checkCaseAlts e scrut_ty alts
           ; return (alt_ty, case_ue) } }
