@@ -121,6 +121,8 @@ module TyCon(
         primRepSizeB,
         primElemRepSizeB,
         primRepIsFloat,
+        primRepsCompatible,
+        primRepCompatible,
 
         -- * Recursion breaking
         RecTcChecker, initRecTc, defaultRecTcMaxBound,
@@ -397,7 +399,7 @@ invariant that if `famTcInj` is a Just then at least one element in the list
 must be True.
 
 See also:
- * [Injectivity annotation] in HsDecls
+ * [Injectivity annotation] in GHC.Hs.Decls
  * [Renaming injectivity annotation] in RnSource
  * [Verifying injectivity annotation] in FamInstEnv
  * [Type inference for type families with injectivity] in TcInteract
@@ -1423,7 +1425,7 @@ data PrimRep
   | FloatRep
   | DoubleRep
   | VecRep Int PrimElemRep  -- ^ A vector
-  deriving( Eq, Show )
+  deriving( Show )
 
 data PrimElemRep
   = Int8ElemRep
@@ -1452,6 +1454,23 @@ isGcPtrRep :: PrimRep -> Bool
 isGcPtrRep LiftedRep   = True
 isGcPtrRep UnliftedRep = True
 isGcPtrRep _           = False
+
+-- A PrimRep is compatible with another iff one can be coerced to the other.
+-- See Note [bad unsafe coercion] in CoreLint for when are two types coercible.
+primRepCompatible :: DynFlags -> PrimRep -> PrimRep -> Bool
+primRepCompatible dflags rep1 rep2 =
+    (isUnboxed rep1 == isUnboxed rep2) &&
+    (primRepSizeB dflags rep1 == primRepSizeB dflags rep2) &&
+    (primRepIsFloat rep1 == primRepIsFloat rep2)
+  where
+    isUnboxed = not . isGcPtrRep
+
+-- More general version of `primRepCompatible` for types represented by zero or
+-- more than one PrimReps.
+primRepsCompatible :: DynFlags -> [PrimRep] -> [PrimRep] -> Bool
+primRepsCompatible dflags reps1 reps2 =
+    length reps1 == length reps2 &&
+    and (zipWith (primRepCompatible dflags) reps1 reps2)
 
 -- | The size of a 'PrimRep' in bytes.
 --

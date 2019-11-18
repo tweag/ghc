@@ -40,16 +40,14 @@ test('T11303', normal, compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns +RTS -M1G -RTS'])
 test('T11276', collect_compiler_stats('bytes allocated',10), compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns +RTS -M1G -RTS'])
-
 test('T11303b', collect_compiler_stats('bytes allocated',10), compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns +RTS -M1G -RTS'])
-
 test('T11374', collect_compiler_stats('bytes allocated',10), compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns +RTS -M1G -RTS'])
-
+test('T11822', collect_compiler_stats('bytes allocated',10), compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('T11195', collect_compiler_stats('bytes allocated',10), compile,
      ['-package ghc -fwarn-incomplete-patterns -fwarn-overlapping-patterns +RTS -M2G -RTS'])
-
 test('T11984', normal, compile,
     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('T14086', normal, compile,
@@ -68,14 +66,20 @@ test('T15584', normal, compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('T15713', normal, compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
-test('T15753a', expect_broken(15753), compile,
+test('T15753a', normal, compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('T15753b', normal, compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T15753c', normal, compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T15753d', normal, compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('T15884', expect_broken(15884), compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('T16289', normal, compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T17096', collect_compiler_stats('bytes allocated',10), compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns +RTS -M2G -RTS'])
 test('T17112', normal, compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 
@@ -94,7 +98,13 @@ test('pmc006', [], compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('pmc007', [], compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('pmc008', [], compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('pmc009', [], compile,
+     ['-package ghc -fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('T11245', [], compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T11336b', [], compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('T12949', [],  compile, ['-fwarn-overlapping-patterns'])
 test('T12957', [], compile, ['-fwarn-overlapping-patterns'])
@@ -103,6 +113,10 @@ test('PmExprVars', [],  compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('CyclicSubst', [],  compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('CaseOfKnownCon', [], compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('TooManyDeltas', [], compile,
+     ['-fmax-pmcheck-models=0 -fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 
 # EmptyCase
 test('T10746', [], compile,

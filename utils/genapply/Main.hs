@@ -16,7 +16,7 @@ module Main(main) where
 #include "../../includes/ghcconfig.h"
 
 -- .. so that this header defines the right stuff.
-#include "../../includes/stg/HaskellMachRegs.h"
+#include "../../includes/stg/MachRegsForHost.h"
 
 #include "../../includes/rts/Constants.h"
 
@@ -1000,7 +1000,7 @@ applyTypes = [
 --
 --  NOTE: other places to change if you change stackApplyTypes:
 --       - includes/rts/storage/FunTypes.h
---       - compiler/codeGen/StgCmmLayout.hs: stdPattern
+--       - GHC.StgToCmm.Layout: stdPattern
 stackApplyTypes = [
         [],
         [N],

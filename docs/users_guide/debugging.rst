@@ -408,7 +408,7 @@ These flags dump various phases of GHC's C-\\- pipeline.
     :shortdesc: Write output from main C-\\- pipeline passes to files
     :type: dynamic
 
-    If used in conjunction with `-ddump-to-file`, writes dump
+    If used in conjunction with :ghc-flag:`-ddump-to-file`, writes dump
     output from main C-\\- pipeline stages to files (each stage per file).
 
 .. ghc-flag:: -ddump-cmm-from-stg
@@ -885,3 +885,15 @@ Checking for determinism
       generates in decreasing order
     * ``-dinitial-unique=1 -dunique-increment=PRIME`` - where PRIME big enough
       to overflow often - nonsequential order
+
+Other
+-----
+
+.. ghc-flag:: -dno-typeable-binds
+    :shortdesc: Don't generate bindings for Typeable methods
+    :type: dynamic
+
+    This avoid generating Typeable-related bindings for modules and types. This
+    is useful when debugging because it gives smaller modules and dumps, but the
+    compiler will panic if you try to use Typeable instances of things that you
+    built with this flag.

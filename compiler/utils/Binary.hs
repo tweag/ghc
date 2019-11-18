@@ -854,6 +854,8 @@ instance Binary RuntimeRep where
     put_ bh Word8Rep        = putByte bh 13
     put_ bh Int16Rep        = putByte bh 14
     put_ bh Word16Rep       = putByte bh 15
+#endif
+#if __GLASGOW_HASKELL__ >= 809
     put_ bh Int32Rep        = putByte bh 16
     put_ bh Word32Rep       = putByte bh 17
 #endif
@@ -878,6 +880,8 @@ instance Binary RuntimeRep where
           13 -> pure Word8Rep
           14 -> pure Int16Rep
           15 -> pure Word16Rep
+#endif
+#if __GLASGOW_HASKELL__ >= 809
           16 -> pure Int32Rep
           17 -> pure Word32Rep
 #endif
@@ -931,7 +935,6 @@ putTypeRep bh (Fun arg res) = do
     put_ bh (3 :: Word8)
     putTypeRep bh arg
     putTypeRep bh res
-putTypeRep _ _ = fail "Binary.putTypeRep: Impossible"
 
 getSomeTypeRep :: BinHandle -> IO SomeTypeRep
 getSomeTypeRep bh = do

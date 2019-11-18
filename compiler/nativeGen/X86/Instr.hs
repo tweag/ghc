@@ -15,7 +15,6 @@ module X86.Instr (Instr(..), Operand(..), PrefetchVariant(..), JumpDest(..),
 where
 
 #include "HsVersions.h"
-#include "nativeGen/NCG.h"
 
 import GhcPrelude
 
@@ -30,7 +29,7 @@ import TargetReg
 import BlockId
 import Hoopl.Collections
 import Hoopl.Label
-import CodeGen.Platform
+import GHC.Platform.Regs
 import Cmm
 import FastString
 import Outputable

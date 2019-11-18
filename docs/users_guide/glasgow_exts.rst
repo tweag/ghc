@@ -4039,7 +4039,7 @@ number of important ways:
 
          deriving instance _ => Eq (Foo a)
 
-   This is essentially the same as if you had written ``deriving Foo`` after
+   This is essentially the same as if you had written ``deriving Eq`` after
    the declaration for ``data Foo a``. Using this feature requires the use of
    :extension:`PartialTypeSignatures` (:ref:`partial-type-signatures`).
 
@@ -9203,8 +9203,8 @@ signature" for a type constructor? These are the forms:
      data T3 :: forall (k :: Type). k -> Type   -- still a CUSK
 
 -  For a newtype, the rules are the same as they are for a data type
-   unless `UnliftedNewtypes <#unboxed-newtypes>`__ is enabled.
-   With `UnliftedNewtypes <#unboxed-newtypes>`__, the type constructor
+   unless :extension:`UnliftedNewtypes` is enabled.
+   With :extension:`UnliftedNewtypes`, the type constructor
    only has a CUSK if a kind signature is present. As with a datatype
    with a top-level ``::``, all kind variables must introduced after
    the ``::`` must be explicitly quantified ::
@@ -11012,7 +11012,8 @@ of bindings that mention it.
 The rationale for this more conservative strategy is given in `the
 papers <https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/jfp-outsidein.pdf>`__
 "Let should not be generalised" and "Modular type inference with local
-assumptions", and a related `blog post <http://ghc.haskell.org/trac/ghc/blog/LetGeneralisationInGhc7>`__.
+assumptions", and a related `blog post
+<https://www.haskell.org/ghc/blog/20100930-LetGeneralisationInGhc7.html>`__.
 
 The extension :extension:`MonoLocalBinds` is implied by :extension:`TypeFamilies`
 and :extension:`GADTs`. You can switch it off again with
@@ -15154,7 +15155,7 @@ used if you want your code to be portable).
 ``CONLIKE`` modifier
 ~~~~~~~~~~~~~~~~~~~~
 
-.. pragma:: CONLINE
+.. pragma:: CONLIKE
 
     :where: modifies :pragma:`INLINE` or :pragma:`NOINLINE` pragma
 
@@ -15669,49 +15670,6 @@ the user must provide a type signature. ::
     -- No warning
     foo :: [a] -> Int
     foo T = 5
-
-.. _multiple-complete-pragmas:
-
-Disambiguating between multiple ``COMPLETE`` pragmas
-----------------------------------------------------
-
-What should happen if there are multiple ``COMPLETE`` sets that apply to a
-single set of patterns? Consider this example: ::
-
-  data T = MkT1 | MkT2 | MkT2Internal
-  {-# COMPLETE MkT1, MkT2 #-}
-  {-# COMPLETE MkT1, MkT2Internal #-}
-
-  f :: T -> Bool
-  f MkT1 = True
-  f MkT2 = False
-
-Which ``COMPLETE`` pragma should be used when checking the coverage of the
-patterns in ``f``? If we pick the ``COMPLETE`` set that covers ``MkT1`` and
-``MkT2``, then ``f`` is exhaustive, but if we pick the other ``COMPLETE`` set
-that covers ``MkT1`` and ``MkT2Internal``, then ``f`` is *not* exhaustive,
-since it fails to match ``MkT2Internal``. An intuitive way to solve this
-dilemma is to recognize that picking the former ``COMPLETE`` set produces the
-fewest number of uncovered pattern clauses, and thus is the better choice.
-
-GHC disambiguates between multiple ``COMPLETE`` sets based on this rationale.
-To make things more formal, when the pattern-match checker requests a set of
-constructors for some data type constructor ``T``, the checker returns:
-
-* The original set of data constructors for ``T``
-* Any ``COMPLETE`` sets of type ``T``
-
-GHC then checks for pattern coverage using each of these sets. If any of these
-sets passes the pattern coverage checker with no warnings, then we are done. If
-each set produces at least one warning, then GHC must pick one of the sets of
-warnings depending on how good the results are. The results are prioritized in
-this order:
-
-1. Fewest uncovered clauses
-2. Fewest redundant clauses
-3. Fewest inaccessible clauses
-4. Whether the match comes from the original set of data constructors or from a
-   ``COMPLETE`` pragma (prioritizing the former over the latter)
 
 .. _overlap-pragma:
 

@@ -148,7 +148,7 @@ import TcRnTypes        -- Re-export all
 import IOEnv            -- Re-export all
 import TcEvidence
 
-import HsSyn hiding (LIE)
+import GHC.Hs hiding (LIE)
 import HscTypes
 import Module
 import RdrName
@@ -333,8 +333,7 @@ initTcWithGbl :: HscEnv
               -> TcM r
               -> IO (Messages, Maybe r)
 initTcWithGbl hsc_env gbl_env loc do_this
- = do { tvs_var      <- newIORef emptyVarSet
-      ; lie_var      <- newIORef emptyWC
+ = do { lie_var      <- newIORef emptyWC
       ; errs_var     <- newIORef (emptyBag, emptyBag)
       ; usage_var    <- newIORef zeroUE
       ; let lcl_env = TcLclEnv {
@@ -348,7 +347,6 @@ initTcWithGbl hsc_env gbl_env loc do_this
                 tcl_env        = emptyNameEnv,
                 tcl_usage      = usage_var,
                 tcl_bndrs      = [],
-                tcl_tyvars     = tvs_var,
                 tcl_lie        = lie_var,
                 tcl_tclvl      = topTcLevel
                 }
@@ -1672,8 +1670,7 @@ setLclTypeEnv :: TcLclEnv -> TcM a -> TcM a
 setLclTypeEnv lcl_env thing_inside
   = updLclEnv upd thing_inside
   where
-    upd env = env { tcl_env = tcl_env lcl_env,
-                    tcl_tyvars = tcl_tyvars lcl_env }
+    upd env = env { tcl_env = tcl_env lcl_env }
 
 traceTcConstraints :: String -> TcM ()
 traceTcConstraints msg

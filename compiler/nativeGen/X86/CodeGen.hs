@@ -1,8 +1,11 @@
 {-# LANGUAGE CPP, GADTs, NondecreasingIndentation #-}
 
+#if __GLASGOW_HASKELL__ <= 808
+-- GHC 8.10 deprecates this flag, but GHC 8.8 needs it
 -- The default iteration limit is a bit too low for the definitions
 -- in this module.
 {-# OPTIONS_GHC -fmax-pmcheck-iterations=10000000 #-}
+#endif
 
 -----------------------------------------------------------------------------
 --
@@ -27,7 +30,6 @@ module X86.CodeGen (
 where
 
 #include "HsVersions.h"
-#include "nativeGen/NCG.h"
 #include "../includes/MachDeps.h"
 
 -- NCG stuff:
@@ -38,7 +40,7 @@ import X86.Cond
 import X86.Regs
 import X86.RegInfo
 
-import CodeGen.Platform
+import GHC.Platform.Regs
 import CPrim
 import Debug            ( DebugBlock(..), UnwindPoint(..), UnwindTable
                         , UnwindExpr(UwReg), toUnwindExpr )

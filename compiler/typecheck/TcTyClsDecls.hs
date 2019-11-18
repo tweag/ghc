@@ -26,7 +26,7 @@ module TcTyClsDecls (
 
 import GhcPrelude
 
-import HsSyn
+import GHC.Hs
 import HscTypes
 import BuildTyCl
 import TcRnMonad
@@ -152,7 +152,7 @@ tcTyAndClassDecls tyclds_s
 tcTyClGroup :: TyClGroup GhcRn
             -> TcM (TcGblEnv, [InstInfo GhcRn], [DerivInfo])
 -- Typecheck one strongly-connected component of type, class, and instance decls
--- See Note [TyClGroups and dependency analysis] in HsDecls
+-- See Note [TyClGroups and dependency analysis] in GHC.Hs.Decls
 tcTyClGroup (TyClGroup { group_tyclds = tyclds
                        , group_roles  = roles
                        , group_instds = instds })
@@ -605,7 +605,7 @@ generaliseTcTyCon tc
 
        -- Step 2b: quantify, mainly meaning skolemise the free variables
        -- Returned 'inferred' are scope-sorted and skolemised
-       ; inferred <- quantifyTyVars emptyVarSet dvs2
+       ; inferred <- quantifyTyVars dvs2
 
        -- Step 3a: rename all the Specified and Required tyvars back to
        -- TyVars with their oroginal user-specified name.  Example
@@ -1952,6 +1952,7 @@ tcFamDecl1 parent (FamilyDecl { fdInfo = fam_info
   { traceTc "open type family:" (ppr tc_name)
   ; checkFamFlag tc_name
   ; inj' <- tcInjectivity binders inj
+  ; checkResultSigFlag tc_name sig  -- check after injectivity for better errors
   ; let tycon = mkFamilyTyCon tc_name binders res_kind
                                (resultVariableName sig) OpenSynFamilyTyCon
                                parent inj'
@@ -1969,6 +1970,7 @@ tcFamDecl1 parent (FamilyDecl { fdInfo = fam_info
                   ; return (inj', binders, res_kind) }
 
        ; checkFamFlag tc_name -- make sure we have -XTypeFamilies
+       ; checkResultSigFlag tc_name sig
 
          -- If Nothing, this is an abstract family in a hs-boot file;
          -- but eqns might be empty in the Just case as well
@@ -2319,7 +2321,7 @@ tcTyFamInstEqnGuts fam_tc mb_clsinfo imp_vars exp_bndrs hs_pats hs_rhs_ty
        -- check there too!
        ; let scoped_tvs = imp_tvs ++ exp_tvs
        ; dvs  <- candidateQTyVarsOfTypes (lhs_ty : mkTyVarTys scoped_tvs)
-       ; qtvs <- quantifyTyVars emptyVarSet dvs
+       ; qtvs <- quantifyTyVars dvs
 
        ; (ze, qtvs) <- zonkTyBndrs qtvs
        ; lhs_ty     <- zonkTcTypeToTypeX ze lhs_ty
@@ -2443,30 +2445,6 @@ But it can deal with covars that are arguments to GADT data constructors.
 So we somehow want to allow covars only in precisely those spots, then use
 them as givens when checking the RHS. TODO (RAE): Implement plan.
 
-
-Note [Quantifying over family patterns]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We need to quantify over two different lots of kind variables:
-
-First, the ones that come from the kinds of the tyvar args of
-tcTyVarBndrsKindGen, as usual
-  data family Dist a
-
-  -- Proxy :: forall k. k -> *
-  data instance Dist (Proxy a) = DP
-  -- Generates  data DistProxy = DP
-  --            ax8 k (a::k) :: Dist * (Proxy k a) ~ DistProxy k a
-  -- The 'k' comes from the tcTyVarBndrsKindGen (a::k)
-
-Second, the ones that come from the kind argument of the type family
-which we pick up using the (tyCoVarsOfTypes typats) in the result of
-the thing_inside of tcHsTyvarBndrsGen.
-  -- Any :: forall k. k
-  data instance Dist Any = DA
-  -- Generates  data DistAny k = DA
-  --            ax7 k :: Dist k (Any k) ~ DistAny k
-  -- The 'k' comes from kindGeneralizeKinds (Any k)
-
 Note [Quantified kind variables of a family pattern]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Consider   type family KindFam (p :: k1) (q :: k1)
@@ -2585,11 +2563,11 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_kind res_tmpl new_or_data
          -- the kvs below are those kind variables entirely unmentioned by the user
          --   and discovered only by generalization
 
-       ; kvs <- kindGeneralize (mkSpecForAllTys (binderVars tmpl_bndrs) $
-                                mkSpecForAllTys exp_tvs $
-                                mkPhiTy ctxt $
-                                mkVisFunTys arg_tys $
-                                unitTy)
+       ; kvs <- kindGeneralizeAll (mkSpecForAllTys (binderVars tmpl_bndrs) $
+                                   mkSpecForAllTys exp_tvs $
+                                   mkPhiTy ctxt $
+                                   mkVisFunTys arg_tys $
+                                   unitTy)
                  -- That type is a lie, of course. (It shouldn't end in ()!)
                  -- And we could construct a proper result type from the info
                  -- at hand. But the result would mention only the tmpl_tvs,
@@ -2669,10 +2647,10 @@ tcConDecl rep_tycon tag_map tmpl_bndrs _res_kind res_tmpl new_or_data
        ; imp_tvs <- zonkAndScopedSort imp_tvs
        ; let user_tvs      = imp_tvs ++ exp_tvs
 
-       ; tkvs <- kindGeneralize (mkSpecForAllTys user_tvs $
-                                 mkPhiTy ctxt $
-                                 mkVisFunTys arg_tys $
-                                 res_ty)
+       ; tkvs <- kindGeneralizeAll (mkSpecForAllTys user_tvs $
+                                    mkPhiTy ctxt $
+                                    mkVisFunTys arg_tys $
+                                    res_ty)
 
              -- Zonk to Types
        ; (ze, tkvs)     <- zonkTyBndrs tkvs
@@ -3719,6 +3697,14 @@ checkFamFlag tc_name
   where
     err_msg = hang (text "Illegal family declaration for" <+> quotes (ppr tc_name))
                  2 (text "Enable TypeFamilies to allow indexed type families")
+
+checkResultSigFlag :: Name -> FamilyResultSig GhcRn -> TcM ()
+checkResultSigFlag tc_name (TyVarSig _ tvb)
+  = do { ty_fam_deps <- xoptM LangExt.TypeFamilyDependencies
+       ; checkTc ty_fam_deps $
+         hang (text "Illegal result type variable" <+> ppr tvb <+> text "for" <+> quotes (ppr tc_name))
+            2 (text "Enable TypeFamilyDependencies to allow result variable names") }
+checkResultSigFlag _ _ = return ()  -- other cases OK
 
 {- Note [Class method constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -44,7 +44,7 @@ import Control.Monad    ( mplus )
 import Control.Applicative ((<$))
 
 -- compiler/hsSyn
-import HsSyn
+import GHC.Hs
 
 -- compiler/main
 import HscTypes         ( IsBootInterface, WarningTxt(..) )
@@ -785,10 +785,10 @@ implicit_top :: { () }
 
 maybemodwarning :: { Maybe (Located WarningTxt) }
     : '{-# DEPRECATED' strings '#-}'
-                      {% ajs (Just (sLL $1 $> $ DeprecatedTxt (sL1 $1 (getDEPRECATED_PRAGs $1)) (snd $ unLoc $2)))
+                      {% ajs (sLL $1 $> $ DeprecatedTxt (sL1 $1 (getDEPRECATED_PRAGs $1)) (snd $ unLoc $2))
                              (mo $1:mc $3: (fst $ unLoc $2)) }
     | '{-# WARNING' strings '#-}'
-                         {% ajs (Just (sLL $1 $> $ WarningTxt (sL1 $1 (getWARNING_PRAGs $1)) (snd $ unLoc $2)))
+                         {% ajs (sLL $1 $> $ WarningTxt (sL1 $1 (getWARNING_PRAGs $1)) (snd $ unLoc $2))
                                 (mo $1:mc $3 : (fst $ unLoc $2)) }
     |  {- empty -}                  { Nothing }
 
@@ -1171,13 +1171,13 @@ inst_decl :: { LInstDecl GhcPs }
                        :(fst $ unLoc $4)++(fst $ unLoc $5)++(fst $ unLoc $6)) }
 
 overlap_pragma :: { Maybe (Located OverlapMode) }
-  : '{-# OVERLAPPABLE'    '#-}' {% ajs (Just (sLL $1 $> (Overlappable (getOVERLAPPABLE_PRAGs $1))))
+  : '{-# OVERLAPPABLE'    '#-}' {% ajs (sLL $1 $> (Overlappable (getOVERLAPPABLE_PRAGs $1)))
                                        [mo $1,mc $2] }
-  | '{-# OVERLAPPING'     '#-}' {% ajs (Just (sLL $1 $> (Overlapping (getOVERLAPPING_PRAGs $1))))
+  | '{-# OVERLAPPING'     '#-}' {% ajs (sLL $1 $> (Overlapping (getOVERLAPPING_PRAGs $1)))
                                        [mo $1,mc $2] }
-  | '{-# OVERLAPS'        '#-}' {% ajs (Just (sLL $1 $> (Overlaps (getOVERLAPS_PRAGs $1))))
+  | '{-# OVERLAPS'        '#-}' {% ajs (sLL $1 $> (Overlaps (getOVERLAPS_PRAGs $1)))
                                        [mo $1,mc $2] }
-  | '{-# INCOHERENT'      '#-}' {% ajs (Just (sLL $1 $> (Incoherent (getINCOHERENT_PRAGs $1))))
+  | '{-# INCOHERENT'      '#-}' {% ajs (sLL $1 $> (Incoherent (getINCOHERENT_PRAGs $1)))
                                        [mo $1,mc $2] }
   | {- empty -}                 { Nothing }
 
@@ -1194,11 +1194,11 @@ deriv_strategy_via :: { LDerivStrategy GhcPs }
                                             [mj AnnVia $1] }
 
 deriv_standalone_strategy :: { Maybe (LDerivStrategy GhcPs) }
-  : 'stock'                     {% ajs (Just (sL1 $1 StockStrategy))
+  : 'stock'                     {% ajs (sL1 $1 StockStrategy)
                                        [mj AnnStock $1] }
-  | 'anyclass'                  {% ajs (Just (sL1 $1 AnyclassStrategy))
+  | 'anyclass'                  {% ajs (sL1 $1 AnyclassStrategy)
                                        [mj AnnAnyclass $1] }
-  | 'newtype'                   {% ajs (Just (sL1 $1 NewtypeStrategy))
+  | 'newtype'                   {% ajs (sL1 $1 NewtypeStrategy)
                                        [mj AnnNewtype $1] }
   | deriv_strategy_via          { Just $1 }
   | {- empty -}                 { Nothing }
@@ -1323,36 +1323,20 @@ at_decl_inst :: { LInstDecl GhcPs }
                         (mj AnnType $1:$2++(fst $ unLoc $3)) }
 
         -- data/newtype instance declaration, with optional 'instance' keyword
-        -- (can't use opt_instance because you get reduce/reduce errors)
-        | data_or_newtype capi_ctype tycl_hdr_inst constrs maybe_derivings
-               {% amms (mkDataFamInst (comb4 $1 $3 $4 $5) (snd $ unLoc $1) $2 (snd $ unLoc $3)
-                                    Nothing (reverse (snd $ unLoc $4))
-                                            (fmap reverse $5))
-                       ((fst $ unLoc $1):(fst $ unLoc $3) ++ (fst $ unLoc $4)) }
-
-        | data_or_newtype 'instance' capi_ctype tycl_hdr_inst constrs maybe_derivings
+        | data_or_newtype opt_instance capi_ctype tycl_hdr_inst constrs maybe_derivings
                {% amms (mkDataFamInst (comb4 $1 $4 $5 $6) (snd $ unLoc $1) $3 (snd $ unLoc $4)
                                     Nothing (reverse (snd $ unLoc $5))
                                             (fmap reverse $6))
-                       ((fst $ unLoc $1):mj AnnInstance $2:(fst $ unLoc $4)++(fst $ unLoc $5)) }
+                       ((fst $ unLoc $1):$2++(fst $ unLoc $4)++(fst $ unLoc $5)) }
 
         -- GADT instance declaration, with optional 'instance' keyword
-        -- (can't use opt_instance because you get reduce/reduce errors)
-        | data_or_newtype capi_ctype tycl_hdr_inst opt_kind_sig
-                 gadt_constrlist
-                 maybe_derivings
-                {% amms (mkDataFamInst (comb4 $1 $3 $5 $6) (snd $ unLoc $1) $2
-                                (snd $ unLoc $3) (snd $ unLoc $4) (snd $ unLoc $5)
-                                (fmap reverse $6))
-                        ((fst $ unLoc $1):(fst $ unLoc $3)++(fst $ unLoc $4)++(fst $ unLoc $5)) }
-
-        | data_or_newtype 'instance' capi_ctype tycl_hdr_inst opt_kind_sig
+        | data_or_newtype opt_instance capi_ctype tycl_hdr_inst opt_kind_sig
                  gadt_constrlist
                  maybe_derivings
                 {% amms (mkDataFamInst (comb4 $1 $4 $6 $7) (snd $ unLoc $1) $3
                                 (snd $ unLoc $4) (snd $ unLoc $5) (snd $ unLoc $6)
                                 (fmap reverse $7))
-                        ((fst $ unLoc $1):mj AnnInstance $2:(fst $ unLoc $4)++(fst $ unLoc $5)++(fst $ unLoc $6)) }
+                        ((fst $ unLoc $1):$2++(fst $ unLoc $4)++(fst $ unLoc $5)++(fst $ unLoc $6)) }
 
 data_or_newtype :: { Located (AddAnn, NewOrData) }
         : 'data'        { sL1 $1 (mj AnnData    $1,DataType) }
@@ -1414,12 +1398,12 @@ tycl_hdr_inst :: { Located ([AddAnn],(Maybe (LHsContext GhcPs), Maybe [LHsTyVarB
 
 capi_ctype :: { Maybe (Located CType) }
 capi_ctype : '{-# CTYPE' STRING STRING '#-}'
-                       {% ajs (Just (sLL $1 $> (CType (getCTYPEs $1) (Just (Header (getSTRINGs $2) (getSTRING $2)))
-                                        (getSTRINGs $3,getSTRING $3))))
+                       {% ajs (sLL $1 $> (CType (getCTYPEs $1) (Just (Header (getSTRINGs $2) (getSTRING $2)))
+                                        (getSTRINGs $3,getSTRING $3)))
                               [mo $1,mj AnnHeader $2,mj AnnVal $3,mc $4] }
 
            | '{-# CTYPE'        STRING '#-}'
-                       {% ajs (Just (sLL $1 $> (CType (getCTYPEs $1) Nothing  (getSTRINGs $2, getSTRING $2))))
+                       {% ajs (sLL $1 $> (CType (getCTYPEs $1) Nothing (getSTRINGs $2, getSTRING $2)))
                               [mo $1,mj AnnVal $2,mc $3] }
 
            |           { Nothing }
@@ -3439,7 +3423,7 @@ qconop :: { Located RdrName }
 -- Type constructors
 
 
--- See Note [Unit tuples] in HsTypes for the distinction
+-- See Note [Unit tuples] in GHC.Hs.Types for the distinction
 -- between gtycon and ntgtycon
 gtycon :: { Located RdrName }  -- A "general" qualified tycon, including unit tuples
         : ntgtycon                     { $1 }
@@ -4072,14 +4056,15 @@ am a (b,s) = do
 -- as any annotations that may arise in the binds. This will include open
 -- and closing braces if they are used to delimit the let expressions.
 --
-ams :: MonadP m => Located a -> [AddAnn] -> m (Located a)
+ams :: (MonadP m, HasSrcSpan a) => a -> [AddAnn] -> m a
 ams a@(dL->L l _) bs = addAnnsAt l bs >> return a
 
 amsL :: SrcSpan -> [AddAnn] -> P ()
 amsL sp bs = addAnnsAt sp bs >> return ()
 
--- |Add all [AddAnn] to an AST element wrapped in a Just
-ajs a@(Just (dL->L l _)) bs = addAnnsAt l bs >> return a
+-- |Add all [AddAnn] to an AST element, and wrap it in a 'Just'
+ajs :: (MonadP m, HasSrcSpan a) => a -> [AddAnn] -> m (Maybe a)
+ajs a bs = Just <$> ams a bs
 
 -- |Add a list of AddAnns to the given AST element, where the AST element is the
 --  result of a monadic action

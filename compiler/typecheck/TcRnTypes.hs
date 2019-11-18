@@ -149,7 +149,7 @@ module TcRnTypes(
 
 import GhcPrelude
 
-import HsSyn
+import GHC.Hs
 import CoreSyn
 import HscTypes
 import TcEvidence
@@ -169,7 +169,7 @@ import TcType
 import Annotations
 import InstEnv
 import FamInstEnv
-import PmExpr
+import {-# SOURCE #-} PmTypes (Delta)
 import IOEnv
 import RdrName
 import Name
@@ -392,13 +392,9 @@ data DsLclEnv = DsLclEnv {
         dsl_loc     :: RealSrcSpan,      -- To put in pattern-matching error msgs
 
         -- See Note [Note [Type and Term Equality Propagation] in Check.hs
-        -- These two fields are augmented as we walk inwards,
-        -- through each patttern match in turn
-        dsl_dicts   :: Bag EvVar,     -- Constraints from GADT pattern-matching
-        dsl_tm_cs   :: Bag TmVarCt,      -- Constraints form term-level pattern matching
-
-        dsl_pm_iter :: IORef Int  -- Number of iterations for pmcheck so far
-                                  -- We fail if this gets too big
+        -- The oracle state Delta is augmented as we walk inwards,
+        -- through each pattern match in turn
+        dsl_delta   :: Delta
      }
 
 -- Inside [| |] brackets, the desugarer looks
@@ -838,12 +834,6 @@ data TcLclEnv           -- Changes as we move inside an expression
 
         tcl_bndrs :: TcBinderStack,   -- Used for reporting relevant bindings,
                                       -- and for tidying types
-
-        tcl_tyvars :: TcRef TcTyVarSet, -- The "global tyvars"
-                        -- Namely, the in-scope TyVars bound in tcl_env,
-                        -- plus the tyvars mentioned in the types of Ids bound
-                        -- in tcl_lenv.
-                        -- Why mutable? see notes with tcGetGlobalTyCoVars
 
         tcl_lie  :: TcRef WantedConstraints,    -- Place to accumulate type constraints
         tcl_errs :: TcRef Messages              -- Place to accumulate errors

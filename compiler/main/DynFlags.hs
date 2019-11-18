@@ -509,8 +509,9 @@ data GeneralFlag
    | Opt_DoCmmLinting
    | Opt_DoAsmLinting
    | Opt_DoAnnotationLinting
-   | Opt_NoLlvmMangler                 -- hidden flag
-   | Opt_FastLlvm                      -- hidden flag
+   | Opt_NoLlvmMangler                  -- hidden flag
+   | Opt_FastLlvm                       -- hidden flag
+   | Opt_NoTypeableBinds
 
    | Opt_WarnIsError                    -- -Werror; makes warnings fatal
    | Opt_ShowWarnGroups                 -- Show the group a warning belongs to
@@ -653,6 +654,7 @@ data GeneralFlag
    -- response file and as such breaking apart.
    | Opt_SingleLibFolder
    | Opt_KeepCAFs
+   | Opt_KeepGoing
 
    -- output style opts
    | Opt_ErrorSpans -- Include full span info in error messages,
@@ -919,6 +921,7 @@ data WarningFlag =
    | Opt_WarnUnusedPackages               -- Since 8.10
    | Opt_WarnInferredSafeImports          -- Since 8.10
    | Opt_WarnMissingSafeHaskellMode       -- Since 8.10
+   | Opt_WarnDerivingDefaults
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -974,7 +977,6 @@ data DynFlags = DynFlags {
   debugLevel            :: Int,         -- ^ How much debug information to produce
   simplPhases           :: Int,         -- ^ Number of simplifier phases
   maxSimplIterations    :: Int,         -- ^ Max simplifier iterations
-  maxPmCheckIterations  :: Int,         -- ^ Max no iterations for pm checking
   ruleCheck             :: Maybe String,
   inlineCheck           :: Maybe String, -- ^ A prefix to report inlining decisions about
   strictnessBefore      :: [Int],       -- ^ Additional demand analysis
@@ -998,6 +1000,10 @@ data DynFlags = DynFlags {
                                         --   error messages
   maxUncoveredPatterns  :: Int,         -- ^ Maximum number of unmatched patterns to show
                                         --   in non-exhaustiveness warnings
+  maxPmCheckModels      :: Int,         -- ^ Soft limit on the number of models
+                                        --   the pattern match checker checks
+                                        --   a pattern against. A safe guard
+                                        --   against exponential blow-up.
   simplTickFactor       :: Int,         -- ^ Multiplier for simplifier ticks
   specConstrThreshold   :: Maybe Int,   -- ^ Threshold for SpecConstr
   specConstrCount       :: Maybe Int,   -- ^ Max number of specialisations for any one function
@@ -1926,7 +1932,6 @@ defaultDynFlags mySettings (myLlvmTargets, myLlvmPasses) =
         debugLevel              = 0,
         simplPhases             = 2,
         maxSimplIterations      = 4,
-        maxPmCheckIterations    = 2000000,
         ruleCheck               = Nothing,
         inlineCheck             = Nothing,
         binBlobThreshold        = 500000, -- 500K is a good default (see #16190)
@@ -1935,6 +1940,7 @@ defaultDynFlags mySettings (myLlvmTargets, myLlvmPasses) =
         maxRefHoleFits     = Just 6,
         refLevelHoleFits   = Nothing,
         maxUncoveredPatterns    = 4,
+        maxPmCheckModels        = 100,
         simplTickFactor         = 100,
         specConstrThreshold     = Just 2000,
         specConstrCount         = Just 3,
@@ -3475,6 +3481,8 @@ dynamic_flags_deps = [
         (NoArg (setGeneralFlag Opt_NoLlvmMangler)) -- hidden flag
   , make_ord_flag defGhcFlag "fast-llvm"
         (NoArg (setGeneralFlag Opt_FastLlvm)) -- hidden flag
+  , make_ord_flag defGhcFlag "dno-typeable-binds"
+        (NoArg (setGeneralFlag Opt_NoTypeableBinds))
   , make_ord_flag defGhcFlag "ddump-debug"
         (setDumpFlag Opt_D_dump_debug)
   , make_ord_flag defGhcFlag "ddump-json"
@@ -3597,12 +3605,16 @@ dynamic_flags_deps = [
             "vectors registers are now passed in registers by default."
   , make_ord_flag defFlag "fmax-uncovered-patterns"
       (intSuffix (\n d -> d { maxUncoveredPatterns = n }))
+  , make_ord_flag defFlag "fmax-pmcheck-models"
+      (intSuffix (\n d -> d { maxPmCheckModels = n }))
   , make_ord_flag defFlag "fsimplifier-phases"
       (intSuffix (\n d -> d { simplPhases = n }))
   , make_ord_flag defFlag "fmax-simplifier-iterations"
       (intSuffix (\n d -> d { maxSimplIterations = n }))
-  , make_ord_flag defFlag "fmax-pmcheck-iterations"
-      (intSuffix (\n d -> d{ maxPmCheckIterations = n }))
+  , (Deprecated, defFlag "fmax-pmcheck-iterations"
+      (intSuffixM (\_ d ->
+       do { deprecate $ "use -fmax-pmcheck-models instead"
+          ; return d })))
   , make_ord_flag defFlag "fsimpl-tick-factor"
       (intSuffix (\n d -> d { simplTickFactor = n }))
   , make_ord_flag defFlag "fspec-constr-threshold"
@@ -4023,6 +4035,7 @@ wWarningFlagsDeps = [
                                          Opt_WarnDeferredOutOfScopeVariables,
   flagSpec "deprecations"                Opt_WarnWarningsDeprecations,
   flagSpec "deprecated-flags"            Opt_WarnDeprecatedFlags,
+  flagSpec "deriving-defaults"           Opt_WarnDerivingDefaults,
   flagSpec "deriving-typeable"           Opt_WarnDerivingTypeable,
   flagSpec "dodgy-exports"               Opt_WarnDodgyExports,
   flagSpec "dodgy-foreign-imports"       Opt_WarnDodgyForeignImports,
@@ -4204,6 +4217,7 @@ fFlagsDeps = [
   flagSpec "ignore-interface-pragmas"         Opt_IgnoreInterfacePragmas,
   flagGhciSpec "implicit-import-qualified"    Opt_ImplicitImportQualified,
   flagSpec "irrefutable-tuples"               Opt_IrrefutableTuples,
+  flagSpec "keep-going"                       Opt_KeepGoing,
   flagSpec "kill-absence"                     Opt_KillAbsence,
   flagSpec "kill-one-shot"                    Opt_KillOneShot,
   flagSpec "late-dmd-anal"                    Opt_LateDmdAnal,
@@ -4821,6 +4835,7 @@ standardWarnings -- see Note [Documenting warning flags]
         Opt_WarnPartialTypeSignatures,
         Opt_WarnUnrecognisedPragmas,
         Opt_WarnDuplicateExports,
+        Opt_WarnDerivingDefaults,
         Opt_WarnOverflowedLiterals,
         Opt_WarnEmptyEnumerations,
         Opt_WarnMissingFields,

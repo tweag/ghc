@@ -28,6 +28,14 @@
   * Add `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`,
     `Generic` and `Generic1` instances to `Kleisli`
 
+  * `openTempFile` is now fully atomic and thread-safe on Windows.
+
+  * Add `isResourceVanishedError`, `resourceVanishedErrorType`, and
+    `isResourceVanishedErrorType` to `System.IO.Error`.
+
+  * Add newtypes for `CSocklen` (`socklen_t`) and `CNfds` (`nfds_t`) to
+    `System.Posix.Types`.
+
 ## 4.13.0.0 *TBA*
   * Bundled with GHC *TBA*
 
