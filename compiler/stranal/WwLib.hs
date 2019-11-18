@@ -16,7 +16,7 @@ module WwLib ( mkWwBodies, mkWWstr, mkWorkerArgs
 import GhcPrelude
 
 import CoreSyn
-import CoreUtils        ( exprType, mkCast )
+import CoreUtils        ( exprType, mkCast, mkDefaultCase, mkSingleAltCase )
 import Id
 import IdInfo           ( JoinArity )
 import DataCon
@@ -1041,7 +1041,7 @@ mkWWcpr_help (data_con, inst_tys, arg_tys, co)
              con_app   = mkConApp2 data_con inst_tys [arg] `mkCast` mkSymCo co
 
        ; return ( True
-                , \ wkr_call -> Case wkr_call arg (exprType con_app) [(DEFAULT, [], con_app)]
+                , \ wkr_call -> mkDefaultCase wkr_call arg con_app
                 , \ body     -> mkUnpackCase body co One work_uniq data_con [arg] (varToCoreExpr arg)
                                 -- varToCoreExpr important here: arg can be a coercion
                                 -- Lacking this caused #10658
@@ -1063,9 +1063,11 @@ mkWWcpr_help (data_con, inst_tys, arg_tys, co)
              ubx_tup_ty  = exprType ubx_tup_app
              ubx_tup_app = mkCoreUbxTup (map (scaledThing . fst) arg_tys) (map varToCoreExpr args)
              con_app     = mkConApp2 data_con inst_tys args `mkCast` mkSymCo co
+             tup_con     = tupleDataCon Unboxed (length arg_tys)
 
        ; return (True
-                , \ wkr_call -> Case wkr_call wrap_wild (exprType con_app)  [(DataAlt (tupleDataCon Unboxed (length arg_tys)), args, con_app)]
+                , \ wkr_call -> mkSingleAltCase wkr_call wrap_wild
+                                                (DataAlt tup_con) args con_app
                 , \ body     -> mkUnpackCase body co One work_uniq data_con args ubx_tup_app
                 , ubx_tup_ty ) }
 
@@ -1077,8 +1079,8 @@ mkUnpackCase ::  CoreExpr -> Coercion -> Mult -> Unique -> DataCon -> [Id] -> Co
 mkUnpackCase (Tick tickish e) co mult uniq con args body   -- See Note [Profiling and unpacking]
   = Tick tickish (mkUnpackCase e co mult uniq con args body)
 mkUnpackCase scrut co mult uniq boxing_con unpk_args body
-  = Case casted_scrut bndr (exprType body)
-         [(DataAlt boxing_con, unpk_args, body)]
+  = mkSingleAltCase casted_scrut bndr
+                    (DataAlt boxing_con) unpk_args body
   where
     casted_scrut = scrut `mkCast` co
     bndr = mk_ww_local uniq (Scaled mult (exprType casted_scrut), MarkedStrict)
