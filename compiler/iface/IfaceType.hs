@@ -2011,7 +2011,7 @@ instance NFData IfaceType where
     IfaceTyVar f1 -> rnf f1
     IfaceLitTy f1 -> rnf f1
     IfaceAppTy f1 f2 -> rnf f1 `seq` rnf f2
-    IfaceFunTy f1 f2 f3 -> f1 `seq` rnf f2 `seq` rnf f3
+    IfaceFunTy f1 f2 f3 f4 -> f1 `seq` rnf f2 `seq` rnf f3 `seq` rnf f4
     IfaceForAllTy f1 f2 -> f1 `seq` rnf f2
     IfaceTyConApp f1 f2 -> rnf f1 `seq` rnf f2
     IfaceCastTy f1 f2 -> rnf f1 `seq` rnf f2
@@ -2027,7 +2027,7 @@ instance NFData IfaceCoercion where
   rnf = \case
     IfaceReflCo f1 -> rnf f1
     IfaceGReflCo f1 f2 f3 -> f1 `seq` rnf f2 `seq` rnf f3
-    IfaceFunCo f1 f2 f3 -> f1 `seq` rnf f2 `seq` rnf f3
+    IfaceFunCo f1 f2 f3 f4 -> f1 `seq` rnf f2 `seq` rnf f3 `seq` rnf f4
     IfaceTyConAppCo f1 f2 f3 -> f1 `seq` rnf f2 `seq` rnf f3
     IfaceAppCo f1 f2 -> rnf f1 `seq` rnf f2
     IfaceForAllCo f1 f2 f3 -> rnf f1 `seq` rnf f2 `seq` rnf f3
