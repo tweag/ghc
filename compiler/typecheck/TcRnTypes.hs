@@ -169,7 +169,7 @@ import TcType
 import Annotations
 import InstEnv
 import FamInstEnv
-import {-# SOURCE #-} PmTypes (Delta)
+import {-# SOURCE #-} GHC.HsToCore.PmCheck.Types (Delta)
 import IOEnv
 import RdrName
 import Name
