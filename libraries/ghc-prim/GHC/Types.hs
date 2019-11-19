@@ -83,7 +83,7 @@ type (->) = FUN 'Omega
 -- | The kind of constraints, like @Show a@
 data Constraint
 
--- | The kind of types with values. For example @Int :: Type@.
+-- | The kind of types with lifted values. For example @Int :: Type@.
 type Type = TYPE 'LiftedRep
 
 data Multiplicity = Omega | One

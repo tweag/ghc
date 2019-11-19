@@ -655,6 +655,7 @@ data GeneralFlag
    | Opt_SingleLibFolder
    | Opt_KeepCAFs
    | Opt_KeepGoing
+   | Opt_ByteCode
 
    -- output style opts
    | Opt_ErrorSpans -- Include full span info in error messages,
@@ -1894,6 +1895,10 @@ initDynFlags dflags = do
                           do str' <- peekCString enc cstr
                              return (str == str'))
                          `catchIOError` \_ -> return False
+ maybeGhcNoUnicodeEnv <- lookupEnv "GHC_NO_UNICODE"
+ let adjustNoUnicode (Just _) = False
+     adjustNoUnicode Nothing = True
+ let useUnicode' = (adjustNoUnicode maybeGhcNoUnicodeEnv) && canUseUnicode
  canUseColor <- stderrSupportsAnsiColors
  maybeGhcColorsEnv  <- lookupEnv "GHC_COLORS"
  maybeGhcColoursEnv <- lookupEnv "GHC_COLOURS"
@@ -1909,7 +1914,7 @@ initDynFlags dflags = do
         dirsToClean    = refDirsToClean,
         generatedDumps = refGeneratedDumps,
         nextWrapperNum = wrapperNum,
-        useUnicode    = canUseUnicode,
+        useUnicode    = useUnicode',
         useColor      = useColor',
         canUseColor   = canUseColor,
         colScheme     = colScheme',
@@ -3745,7 +3750,10 @@ dynamic_flags_deps = [
 
   , make_ord_flag defFlag "fno-code"         (NoArg ((upd $ \d ->
                   d { ghcLink=NoLink }) >> setTarget HscNothing))
-  , make_ord_flag defFlag "fbyte-code"       (NoArg (setTarget HscInterpreted))
+  , make_ord_flag defFlag "fbyte-code"
+      (noArgM $ \dflags -> do
+        setTarget HscInterpreted
+        pure $ gopt_set dflags Opt_ByteCode)
   , make_ord_flag defFlag "fobject-code"     $ NoArg $ do
       dflags <- liftEwM getCmdLineState
       setTarget $ defaultObjectTarget dflags
