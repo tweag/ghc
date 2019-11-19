@@ -462,6 +462,8 @@ tc_pat penv (ListPat (Just e) pats) pat_ty thing_inside
 tc_pat penv (TuplePat _ pats boxity) pat_ty thing_inside
   = do  { let arity = length pats
               tc = tupleTyCon boxity arity
+              -- NB: tupleTyCon does not flatten 1-tuples
+              -- See Note [Don't flatten tuples from HsSyn] in MkCore
         ; (coi, arg_tys) <- matchExpectedPatTy (matchExpectedTyConApp tc)
                                                penv (scaledThing pat_ty)
                      -- Unboxed tuples have RuntimeRep vars, which we discard:

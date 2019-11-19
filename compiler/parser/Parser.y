@@ -47,6 +47,7 @@ import Control.Applicative ((<$))
 import GHC.Hs
 
 -- compiler/main
+import DriverPhases     ( HscSource(..) )
 import HscTypes         ( IsBootInterface, WarningTxt(..) )
 import DynFlags
 import BkpSyn
@@ -258,6 +259,8 @@ A tuple section with NO free variables '(,,)' is indistinguishable
 from the Haskell98 data constructor for a tuple.  Shift resolves in
 favor of sysdcon, which is good because a tuple section will get rejected
 if -XTupleSections is not specified.
+
+See also Note [ExplicitTuple] in GHC.Hs.Expr.
 
 -------------------------------------------------------------------------------
 
@@ -722,17 +725,27 @@ unitdecls :: { OrdList (LHsUnitDecl PackageName) }
         | unitdecl              { unitOL $1 }
 
 unitdecl :: { LHsUnitDecl PackageName }
-        : maybedocheader 'module' modid maybemodwarning maybeexports 'where' body
+        : maybedocheader 'module' maybe_src  modid maybemodwarning maybeexports 'where' body
              -- XXX not accurate
-             { sL1 $2 $ DeclD ModuleD $3 (Just (sL1 $2 (HsModule (Just $3) $5 (fst $ snd $7) (snd $ snd $7) $4 $1))) }
+             { sL1 $2 $ DeclD
+                 (case snd $3 of
+                   Nothing -> HsSrcFile
+                   Just _ -> HsBootFile)
+                 $4
+                 (Just $ sL1 $2 (HsModule (Just $4) $6 (fst $ snd $8) (snd $ snd $8) $5 $1)) }
         | maybedocheader 'signature' modid maybemodwarning maybeexports 'where' body
-             { sL1 $2 $ DeclD SignatureD $3 (Just (sL1 $2 (HsModule (Just $3) $5 (fst $ snd $7) (snd $ snd $7) $4 $1))) }
+             { sL1 $2 $ DeclD
+                 HsigFile
+                 $3
+                 (Just $ sL1 $2 (HsModule (Just $3) $5 (fst $ snd $7) (snd $ snd $7) $4 $1)) }
         -- NB: MUST have maybedocheader here, otherwise shift-reduce conflict
         -- will prevent us from parsing both forms.
-        | maybedocheader 'module' modid
-             { sL1 $2 $ DeclD ModuleD $3 Nothing }
+        | maybedocheader 'module' maybe_src modid
+             { sL1 $2 $ DeclD (case snd $3 of
+                   Nothing -> HsSrcFile
+                   Just _ -> HsBootFile) $4 Nothing }
         | maybedocheader 'signature' modid
-             { sL1 $2 $ DeclD SignatureD $3 Nothing }
+             { sL1 $2 $ DeclD HsigFile $3 Nothing }
         | 'dependency' unitid mayberns
              { sL1 $1 $ IncludeD (IncludeDecl { idUnitId = $2
                                               , idModRenaming = $3
@@ -964,22 +977,24 @@ importdecl :: { LImportDecl GhcPs }
                   ; checkImportDecl $4 $7
                   ; ams (cL (comb4 $1 $6 (snd $8) $9) $
                       ImportDecl { ideclExt = noExtField
-                                  , ideclSourceSrc = snd $ fst $2
+                                  , ideclSourceSrc = fst $2
                                   , ideclName = $6, ideclPkgQual = snd $5
-                                  , ideclSource = snd $2, ideclSafe = snd $3
+                                  , ideclSource = isJust $ snd $2, ideclSafe = snd $3
                                   , ideclQualified = importDeclQualifiedStyle $4 $7
                                   , ideclImplicit = False
                                   , ideclAs = unLoc (snd $8)
                                   , ideclHiding = unLoc $9 })
-                         ((mj AnnImport $1 : fst (fst $2) ++ fst $3 ++ fmap (mj AnnQualified) (maybeToList $4)
+                         ((mj AnnImport $1 : fst $3 ++ fmap (mj AnnQualified) (maybeToList $4)
                                           ++ fst $5 ++ fmap (mj AnnQualified) (maybeToList $7) ++ fst $8))
                   }
                 }
 
-maybe_src :: { (([AddAnn],SourceText),IsBootInterface) }
-        : '{-# SOURCE' '#-}'        { (([mo $1,mc $2],getSOURCE_PRAGs $1)
-                                      ,True) }
-        | {- empty -}               { (([],NoSourceText),False) }
+maybe_src :: { (SourceText, Maybe SrcSpan) }
+        : '{-# SOURCE' '#-}'        {% do { let { openL = getLoc $1 }
+                                          ; addAnnsAt openL [mo $1,mc $2]
+                                          ; pure (getSOURCE_PRAGs $1, Just openL)
+                                          } }
+        | {- empty -}               { (NoSourceText, Nothing) }
 
 maybe_safe :: { ([AddAnn],Bool) }
         : 'safe'                                { ([mj AnnSafe $1],True) }
@@ -2944,6 +2959,9 @@ texp :: { ECP }
                              amms (mkHsViewPatPV (comb2 $1 $>) $1 $3) [mu AnnRarrow $2] }
 
 -- Always at least one comma or bar.
+-- Though this can parse just commas (without any expressions), it won't
+-- in practice, because (,,,) is parsed as a name. See Note [ExplicitTuple]
+-- in GHC.Hs.Expr.
 tup_exprs :: { forall b. DisambECP b => PV ([AddAnn],SumOrTuple b) }
            : texp commas_tup_tail
                            { runECP_PV $1 >>= \ $1 ->
@@ -2988,6 +3006,7 @@ tup_tail :: { forall b. DisambECP b => PV [Located (Maybe (Located b))] }
 
 -- The rules below are little bit contorted to keep lexps left-recursive while
 -- avoiding another shift/reduce-conflict.
+-- Never empty.
 list :: { forall b. DisambECP b => SrcSpan -> PV (Located b) }
         : texp    { \loc -> runECP_PV $1 >>= \ $1 ->
                             mkHsExplicitListPV loc [$1] }
@@ -3409,6 +3428,7 @@ con_list : con                  { sL1 $1 [$1] }
          | con ',' con_list     {% addAnnotation (gl $1) AnnComma (gl $2) >>
                                    return (sLL $1 $> ($1 : unLoc $3)) }
 
+-- See Note [ExplicitTuple] in GHC.Hs.Expr
 sysdcon_nolist :: { Located DataCon }  -- Wired in data constructors
         : '(' ')'               {% ams (sLL $1 $> unitDataCon) [mop $1,mcp $2] }
         | '(' commas ')'        {% ams (sLL $1 $> $ tupleDataCon Boxed (snd $2 + 1))
@@ -3417,6 +3437,7 @@ sysdcon_nolist :: { Located DataCon }  -- Wired in data constructors
         | '(#' commas '#)'      {% ams (sLL $1 $> $ tupleDataCon Unboxed (snd $2 + 1))
                                        (mo $1:mc $3:(mcommas (fst $2))) }
 
+-- See Note [Empty lists] in GHC.Hs.Expr
 sysdcon :: { Located DataCon }
         : sysdcon_nolist                 { $1 }
         | '[' ']'               {% ams (sLL $1 $> nilDataCon) [mos $1,mcs $2] }
