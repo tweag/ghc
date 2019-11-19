@@ -116,7 +116,7 @@ ifaceBndrName (IfaceTvBndr bndr) = ifaceTvBndrName bndr
 ifaceBndrName (IfaceIdBndr bndr) = ifaceIdBndrName bndr
 
 ifaceBndrType :: IfaceBndr -> IfaceType
-ifaceBndrType (IfaceIdBndr (_, t)) = t
+ifaceBndrType (IfaceIdBndr (_, _, t)) = t
 ifaceBndrType (IfaceTvBndr (_, t)) = t
 
 type IfaceLamBndr = (IfaceBndr, IfaceOneShot)
@@ -185,7 +185,7 @@ mkIfaceTyConKind :: [IfaceTyConBinder] -> IfaceKind -> IfaceKind
 mkIfaceTyConKind bndrs res_kind = foldr mk res_kind bndrs
   where
     mk :: IfaceTyConBinder -> IfaceKind -> IfaceKind
-    mk (Bndr tv (AnonTCB af))   k = IfaceFunTy af (ifaceBndrType tv) k
+    mk (Bndr tv (AnonTCB af))   k = IfaceFunTy af omega_ty (ifaceBndrType tv) k
     mk (Bndr tv (NamedTCB vis)) k = IfaceForAllTy (Bndr tv vis) k
 
 -- | Stores the arguments in a type application as a list.
@@ -712,7 +712,7 @@ pprIfacePrefixApp ctxt_prec pp_fun pp_tys
 
 isIfaceTauType :: IfaceType -> Bool
 isIfaceTauType (IfaceForAllTy _ _) = False
-isIfaceTauType (IfaceFunTy InvisArg _ _) = False
+isIfaceTauType (IfaceFunTy InvisArg _ _ _) = False
 isIfaceTauType _ = True
 
 -- ----------------------------- Printing binders ------------------------------------

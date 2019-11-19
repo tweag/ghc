@@ -2141,7 +2141,7 @@ kcCheckDeclHeader_sig kisig name flav ktvs kc_res_ki =
       -- Example:   (a~b) =>
       ZippedBinder (Anon InvisArg bndr_ki) Nothing -> do
         name <- newSysName (mkTyVarOccFS (fsLit "ev"))
-        let tv = mkTyVar name bndr_ki
+        let tv = mkTyVar name (scaledThing bndr_ki)
         return (mkAnonTyConBinder InvisArg tv, [])
 
       -- Non-dependent visible argument with a user-written binder.
@@ -2149,7 +2149,7 @@ kcCheckDeclHeader_sig kisig name flav ktvs kc_res_ki =
       ZippedBinder (Anon VisArg bndr_ki) (Just b) ->
         return $
           let v_name = getName b
-              tv = mkTyVar v_name bndr_ki
+              tv = mkTyVar v_name (scaledThing bndr_ki)
               tcb = mkAnonTyConBinder VisArg tv
           in (tcb, [(v_name, tv)])
 
