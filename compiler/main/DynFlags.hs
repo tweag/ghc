@@ -1513,7 +1513,7 @@ versionedAppDir dflags = do
   return $ appdir </> versionedFilePath dflags
 
 versionedFilePath :: DynFlags -> FilePath
-versionedFilePath dflags = uniqueSubdir $ targetPlatform dflags
+versionedFilePath dflags = uniqueSubdir $ platformMini $ targetPlatform dflags
 
 -- | The target code type of the compilation (if any).
 --
@@ -3109,9 +3109,9 @@ dynamic_flags_deps = [
   , make_ord_flag defGhcFlag "split-sections"
       (noArgM (\dflags -> do
         if platformHasSubsectionsViaSymbols (targetPlatform dflags)
-          then do addErr $
+          then do addWarn $
                     "-split-sections is not useful on this platform " ++
-                    "since it always uses subsections via symbols."
+                    "since it always uses subsections via symbols. Ignoring."
                   return dflags
           else return (gopt_set dflags Opt_SplitSections)))
 
@@ -4053,7 +4053,8 @@ wWarningFlagsDeps = [
     "it is subsumed by -Wredundant-constraints",
   flagSpec "redundant-constraints"       Opt_WarnRedundantConstraints,
   flagSpec "duplicate-exports"           Opt_WarnDuplicateExports,
-  flagSpec "hi-shadowing"                Opt_WarnHiShadows,
+  depFlagSpec "hi-shadowing"                Opt_WarnHiShadows
+    "it is not used, and was never implemented",
   flagSpec "inaccessible-code"           Opt_WarnInaccessibleCode,
   flagSpec "implicit-prelude"            Opt_WarnImplicitPrelude,
   depFlagSpec "implicit-kind-vars"       Opt_WarnImplicitKindVars
@@ -4360,26 +4361,25 @@ supportedLanguages = map (flagSpecName . snd) languageFlagsDeps
 supportedLanguageOverlays :: [String]
 supportedLanguageOverlays = map (flagSpecName . snd) safeHaskellFlagsDeps
 
-supportedExtensions :: [String]
-supportedExtensions = concatMap toFlagSpecNamePair xFlags
+supportedExtensions :: PlatformMini -> [String]
+supportedExtensions targetPlatformMini = concatMap toFlagSpecNamePair xFlags
   where
     toFlagSpecNamePair flg
-#if !defined(HAVE_INTERPRETER)
       -- IMPORTANT! Make sure that `ghc --supported-extensions` omits
       -- "TemplateHaskell"/"QuasiQuotes" when it's known not to work out of the
       -- box. See also GHC #11102 and #16331 for more details about
       -- the rationale
-      | flagSpecFlag flg == LangExt.TemplateHaskell  = [noName]
-      | flagSpecFlag flg == LangExt.QuasiQuotes      = [noName]
-#endif
+      | isAIX, flagSpecFlag flg == LangExt.TemplateHaskell  = [noName]
+      | isAIX, flagSpecFlag flg == LangExt.QuasiQuotes      = [noName]
       | otherwise = [name, noName]
       where
+        isAIX = platformMini_os targetPlatformMini == OSAIX
         noName = "No" ++ name
         name = flagSpecName flg
 
-supportedLanguagesAndExtensions :: [String]
-supportedLanguagesAndExtensions =
-    supportedLanguages ++ supportedLanguageOverlays ++ supportedExtensions
+supportedLanguagesAndExtensions :: PlatformMini -> [String]
+supportedLanguagesAndExtensions targetPlatformMini =
+    supportedLanguages ++ supportedLanguageOverlays ++ supportedExtensions targetPlatformMini
 
 -- | These -X<blah> flags cannot be reversed with -XNo<blah>
 languageFlagsDeps :: [(Deprecation, FlagSpec Language)]

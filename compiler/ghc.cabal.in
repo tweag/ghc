@@ -25,11 +25,6 @@ Flag ghci
     Default: False
     Manual: True
 
-Flag ext-interp
-    Description: Support external interpreter
-    Default: True
-    Manual: True
-
 Flag stage1
     Description: Is this stage 1?
     Default: False
@@ -98,12 +93,6 @@ Library
         CPP-Options: -DHAVE_INTERNAL_INTERPRETER
         Include-Dirs: ../rts/dist/build @FFIIncludeDir@
 
-    if flag(ext-interp)
-        CPP-Options: -DHAVE_EXTERNAL_INTERPRETER
-
-    if flag(ghci) || flag(ext-interp)
-        CPP-Options: -DHAVE_INTERPRETER
-
     -- sanity-check to ensure not more than one integer flag is set
     if flag(integer-gmp) && flag(integer-simple)
         build-depends: invalid-cabal-flag-settings<0
@@ -162,7 +151,7 @@ Library
             if flag(stage3)
                 Include-Dirs: stage2
 
-    Install-Includes: HsVersions.h, ghc_boot_platform.h
+    Install-Includes: HsVersions.h
 
     c-sources:
         parser/cutils.c
@@ -416,6 +405,7 @@ Library
         SysTools.Info
         SysTools.Process
         SysTools.Tasks
+        SysTools.Settings
         Elf
         TidyPgm
         Ctype
