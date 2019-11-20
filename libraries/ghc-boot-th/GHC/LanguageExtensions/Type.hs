@@ -143,4 +143,5 @@ data Extension
    | StarIsType
    | ImportQualifiedPost
    | CUSKs
+   | StandaloneKindSignatures
    deriving (Eq, Enum, Show, Generic, Bounded)

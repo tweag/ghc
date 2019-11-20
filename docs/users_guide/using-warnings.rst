@@ -318,17 +318,16 @@ of ``-W(no-)*``.
 
 .. ghc-flag:: -Wpartial-type-signatures
     :shortdesc: warn about holes in partial type signatures when
-        :ghc-flag:`-XPartialTypeSignatures` is enabled. Not applicable when
-        :ghc-flag:`-XPartialTypesignatures` is not enabled, in which case
-        errors are generated for such holes. See
-        :ref:`partial-type-signatures`.
+        :extension:`PartialTypeSignatures` is enabled. Not applicable when
+        :extension:`PartialTypeSignatures` is not enabled, in which case
+        errors are generated for such holes.
     :type: dynamic
     :reverse: -Wno-partial-type-signatures
     :category:
 
     Determines whether the compiler reports holes in partial type
     signatures as warnings. Has no effect unless
-    :ghc-flag:`-XPartialTypeSignatures` is enabled, which controls whether
+    :extension:`PartialTypeSignatures` is enabled, which controls whether
     errors should be generated for holes in types or not. See
     :ref:`partial-type-signatures`.
 
@@ -643,15 +642,15 @@ of ``-W(no-)*``.
 
 .. ghc-flag:: -Wderiving-defaults
     :shortdesc: warn about default deriving when using both
-        DeriveAnyClass and GeneralizedNewtypeDeriving
+        :extension:`DeriveAnyClass` and :extension:`GeneralizedNewtypeDeriving`
     :type: dynamic
     :reverse: -Wno-deriving-defaults
     :category:
 
     :since: 8.10
 
-    Causes a warning when both :ref:`DeriveAnyClass` and
-    :ref:`GeneralizedNewtypeDeriving` are enabled and no explicit
+    Causes a warning when both :extension:`DeriveAnyClass` and
+    :extension:`GeneralizedNewtypeDeriving` are enabled and no explicit
     deriving strategy is in use.  For example, this would result a
     warning: ::
 
@@ -744,19 +743,6 @@ of ``-W(no-)*``.
 
     This option is on by default.
 
-.. ghc-flag:: -Whi-shadowing
-    :shortdesc: warn when a ``.hi`` file in the current directory shadows a library
-    :type: dynamic
-    :reverse: -Wno-hi-shadowing
-    :category:
-
-    .. index::
-       single: shadowing; interface files
-
-    Causes the compiler to emit a warning when a module or interface
-    file in the current directory is shadowing one with the same module
-    name in a library or other directory.
-
 .. ghc-flag:: -Widentities
     :shortdesc: warn about uses of Prelude numeric conversions that are probably
         the identity (and hence could be omitted)
@@ -768,6 +754,24 @@ of ``-W(no-)*``.
     conversion converts a type ``T`` to the same type ``T``; such calls are
     probably no-ops and can be omitted. The functions checked for are:
     ``toInteger``, ``toRational``, ``fromIntegral``, and ``realToFrac``.
+
+.. ghc-flag:: -Wimplicit-kind-vars
+    :shortdesc: warn when kind variables are implicitly quantified over.
+    :type: dynamic
+    :reverse: -Wno-implicit-kind-vars
+    :category:
+
+    .. index::
+       single: implicit prelude, warning
+
+    Have the compiler warn if a kind variable is not explicitly quantified
+    over. For instance, the following would produce a warning: ::
+
+        f :: forall (a :: k). Proxy a
+
+    This can be fixed by explicitly quantifying over ``k``: ::
+
+        f :: forall k (a :: k). Proxy a
 
 .. ghc-flag:: -Wimplicit-prelude
     :shortdesc: warn when the Prelude is implicitly imported
@@ -781,11 +785,11 @@ of ``-W(no-)*``.
     Have the compiler warn if the Prelude is implicitly imported. This happens
     unless either the Prelude module is explicitly imported with an ``import
     ... Prelude ...`` line, or this implicit import is disabled (either by
-    :ghc-flag:`-XNoImplicitPrelude` or a ``LANGUAGE NoImplicitPrelude``
+    :extension:`NoImplicitPrelude` or a ``LANGUAGE NoImplicitPrelude``
     pragma).
 
     Note that no warning is given for syntax that implicitly refers to the
-    Prelude, even if :ghc-flag:`-XNoImplicitPrelude` would change whether it
+    Prelude, even if :extension:`NoImplicitPrelude` would change whether it
     refers to the Prelude. For example, no warning is given when ``368`` means
     ``Prelude.fromInteger (368::Prelude.Integer)`` (where ``Prelude`` refers
     to the actual Prelude module, regardless of the imports of the module
@@ -839,14 +843,20 @@ of ``-W(no-)*``.
 
     :default: 100
 
-    Pattern match checking can be exponential in some cases. This limit makes
-    sure we scale polynomially in the number of patterns, by forgetting refined
-    information gained from a partially successful match. For example, when
-    matching ``x`` against ``Just 4``, we split each incoming matching model
-    into two sub-models: One where ``x`` is not ``Nothing`` and one where ``x``
-    is ``Just y`` but ``y`` is not ``4``. When the number of incoming models
-    exceeds the limit, we continue checking the next clause with the original,
-    unrefined model.
+    The pattern match checker works by assigning symbolic values to each
+    pattern. We call each such assignment a 'model'. Now, each pattern match
+    clause leads to potentially multiple splits of that model, encoding
+    different ways for the pattern match to fail. For example, when matching
+    ``x`` against ``Just 4``, we split each incoming matching model into two
+    uncovered sub-models: One where ``x`` is ``Nothing`` and one where ``x`` is
+    ``Just y`` but ``y`` is not ``4``.
+
+    This can be exponential in the arity of the pattern and in the number of
+    guards in some cases. The :ghc-flag:`-fmax-pmcheck-models=⟨n⟩` limit makes sure
+    we scale polynomially in the number of patterns, by forgetting refined
+    information gained from a partially successful match. For the above example,
+    if we had a limit of 1, we would continue checking the next clause with the
+    original, unrefined model.
 
 .. ghc-flag:: -Wincomplete-record-updates
     :shortdesc: warn when a record update could fail
@@ -1197,11 +1207,11 @@ of ``-W(no-)*``.
 
 .. ghc-flag:: -Wstar-binder
      :shortdesc: warn about binding the ``(*)`` type operator despite
-         :ghc-flag:`-XStarIsType`
+         :extension:`StarIsType`
      :type: dynamic
      :reverse: -Wno-star-binder
 
-     Under :ghc-flag:`-XStarIsType`, a ``*`` in types is not an operator nor
+     Under :extension:`StarIsType`, a ``*`` in types is not an operator nor
      even a name, it is special syntax that stands for ``Data.Kind.Type``. This
      means that an expression like ``Either * Char`` is parsed as ``Either (*)
      Char`` and not ``(*) Either Char``.
@@ -1256,7 +1266,7 @@ of ``-W(no-)*``.
 .. ghc-flag:: -Wspace-after-bang
      :shortdesc: warn for missing space before the second argument
         of an infix definition of ``(!)`` when
-        :ghc-flag:`-XBangPatterns` are not enabled
+        :extension:`BangPatterns` are not enabled
      :type: dynamic
      :reverse: -Wno-missing-space-after-bang
 .. ghc-flag:: -Wtabs
@@ -1712,8 +1722,9 @@ of ``-W(no-)*``.
     :since: 8.8
 
     The option :ghc-flag:`-Wunused-packages` warns about packages, specified on
-    command line via :ghc-flag:`-package` or :ghc-flag:`-package-id`, but were not
-    loaded during compication. Usually it means that you have an unused dependency.
+    command line via :ghc-flag:`-package ⟨pkg⟩` or
+    :ghc-flag:`-package-id ⟨unit-id⟩`, but were not loaded during compication.
+    Usually it means that you have an unused dependency.
 
     You may want to enable this warning on a clean build or enable :ghc-flag:`-fforce-recomp`
     in order to get reliable results.

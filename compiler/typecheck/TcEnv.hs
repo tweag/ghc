@@ -25,6 +25,7 @@ module TcEnv(
         tcLookupLocatedGlobalId, tcLookupLocatedTyCon,
         tcLookupLocatedClass, tcLookupAxiom,
         lookupGlobal, ioLookupDataCon,
+        addTypecheckedBinds,
 
         -- Local environment
         tcExtendKindEnv, tcExtendKindEnvList,
@@ -38,6 +39,7 @@ module TcEnv(
 
         tcLookup, tcLookupLocated, tcLookupLocalIds,
         tcLookupId, tcLookupIdMaybe, tcLookupTyVar,
+        tcLookupTcTyCon,
         tcLookupLcl_maybe,
         getInLocalScope,
         wrongThingErr, pprBinders,
@@ -107,11 +109,13 @@ import Module
 import Outputable
 import Encoding
 import FastString
+import Bag
 import ListSetOps
 import ErrUtils
 import Maybes( MaybeErr(..), orElse )
 import Multiplicity
 import qualified GHC.LanguageExtensions as LangExt
+import Util ( HasDebugCallStack )
 
 import Data.IORef
 import Data.List
@@ -187,6 +191,15 @@ ioLookupDataCon_maybe hsc_env name = do
         _                          -> Failed $
           pprTcTyThingCategory (AGlobal thing) <+> quotes (ppr name) <+>
                 text "used as a data constructor"
+
+addTypecheckedBinds :: TcGblEnv -> [LHsBinds GhcTc] -> TcGblEnv
+addTypecheckedBinds tcg_env binds
+  | isHsBootOrSig (tcg_src tcg_env) = tcg_env
+    -- Do not add the code for record-selector bindings
+    -- when compiling hs-boot files
+  | otherwise = tcg_env { tcg_binds = foldr unionBags
+                                            (tcg_binds tcg_env)
+                                            binds }
 
 {-
 ************************************************************************
@@ -448,6 +461,13 @@ tcLookupLocalIds ns
         = case lookupNameEnv lenv name of
                 Just (ATcId { tct_id = id }) ->  id
                 _ -> pprPanic "tcLookupLocalIds" (ppr name)
+
+tcLookupTcTyCon :: HasDebugCallStack => Name -> TcM TcTyCon
+tcLookupTcTyCon name = do
+    thing <- tcLookup name
+    case thing of
+        ATcTyCon tc -> return tc
+        _           -> pprPanic "tcLookupTcTyCon" (ppr name)
 
 getInLocalScope :: TcM (Name -> Bool)
 getInLocalScope = do { lcl_env <- getLclTypeEnv

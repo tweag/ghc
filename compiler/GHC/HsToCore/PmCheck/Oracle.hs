@@ -7,10 +7,10 @@ Authors: George Karachalias <george.karachalias@cs.kuleuven.be>
 {-# LANGUAGE CPP, LambdaCase, TupleSections, PatternSynonyms, ViewPatterns, MultiWayIf #-}
 
 -- | The pattern match oracle. The main export of the module are the functions
--- 'addTmCt', 'refineToAltCon' and 'addRefutableAltCon' for adding
--- facts to the oracle, and 'provideEvidenceForEquation' to turn a 'Delta' into
--- a concrete evidence for an equation.
-module PmOracle (
+-- 'addTmCt', 'addVarCoreCt', 'addRefutableAltCon' and 'addTypeEvidence' for
+-- adding facts to the oracle, and 'provideEvidenceForEquation' to turn a
+-- 'Delta' into a concrete evidence for an equation.
+module GHC.HsToCore.PmCheck.Oracle (
 
         DsM, tracePm, mkPmId,
         Delta, initDelta, canDiverge, lookupRefuts, lookupSolution,
@@ -21,8 +21,6 @@ module PmOracle (
         addRefutableAltCon, -- Add a negative term equality
         addTmCt,            -- Add a positive term equality x ~ e
         addVarCoreCt,       -- Add a positive term equality x ~ core_expr
-        refineToAltCon,     -- Add a positive refinement x ~ K _ _
-        tmOracle,           -- Add multiple positive term equalities
         provideEvidenceForEquation,
     ) where
 
@@ -30,7 +28,7 @@ module PmOracle (
 
 import GhcPrelude
 
-import PmTypes
+import GHC.HsToCore.PmCheck.Types
 
 import DynFlags
 import Outputable
@@ -46,7 +44,8 @@ import Var           (EvVar)
 import Name
 import CoreSyn
 import CoreFVs ( exprFreeVars )
-import CoreOpt (exprIsConApp_maybe)
+import CoreMap
+import CoreOpt (simpleOptExpr, exprIsConApp_maybe)
 import CoreUtils (exprType)
 import MkCore (mkListExpr, mkCharExpr)
 import UniqSupply
@@ -81,6 +80,7 @@ import Data.Foldable (foldlM)
 import Data.List     (find)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Semigroup as Semigroup
+import Data.Tuple    (swap)
 
 -- Debugging Infrastructre
 
@@ -150,9 +150,9 @@ getUnmatchedConstructor (PM _tc ms)
 
 -- | Instantiate a 'ConLike' given its universal type arguments. Instantiates
 -- existential and term binders with fresh variables of appropriate type.
--- Also returns instantiated evidence variables from the match and the types of
--- strict constructor fields.
-mkOneConFull :: [Type] -> ConLike -> DsM ([Id], Bag TyCt, [Type], [TyVar])
+-- Returns instantiated term variables from the match, type evidence and the
+-- types of strict constructor fields.
+mkOneConFull :: [Type] -> ConLike -> DsM ([Id], Bag TyCt, [Type])
 --  * 'con' K is a ConLike
 --       - In the case of DataCons and most PatSynCons, these
 --         are associated with a particular TyCon T
@@ -161,9 +161,8 @@ mkOneConFull :: [Type] -> ConLike -> DsM ([Id], Bag TyCt, [Type], [TyVar])
 --  * 'arg_tys' tys are the types K's universally quantified type
 --     variables should be instantiated to.
 --       - For DataCons and most PatSyns these are the arguments of their TyCon
---       - For cases like in #11336, #17112, the univ_ts include those variables
---         from the view pattern, so tys will have to come from the type checker.
---         They can't easily be recovered from the result type.
+--       - For cases like the PatSyns in #11336, #17112, we can't easily guess
+--         these, so don't call this function.
 --
 -- After instantiating the universal tyvars of K to tys we get
 --          K @tys :: forall bs. Q => s1 .. sn -> T tys
@@ -174,15 +173,15 @@ mkOneConFull :: [Type] -> ConLike -> DsM ([Id], Bag TyCt, [Type], [TyVar])
 -- Results: [y1,..,yn]
 --          Q
 --          [s1]
---          [e1,..,en]
 mkOneConFull arg_tys con = do
   let (univ_tvs, ex_tvs, eq_spec, thetas, _req_theta , field_tys, _con_res_ty)
         = conLikeFullSig con
   -- pprTrace "mkOneConFull" (ppr con $$ ppr arg_tys $$ ppr univ_tvs $$ ppr _con_res_ty) (return ())
   -- Substitute universals for type arguments
   let subst_univ = zipTvSubst univ_tvs arg_tys
-  -- Instantiate fresh existentials as arguments to the contructor
-  (subst, ex_tvs') <- cloneTyVarBndrs subst_univ ex_tvs <$> getUniqueSupplyM
+  -- Instantiate fresh existentials as arguments to the contructor. This is
+  -- important for instantiating the Thetas and field types.
+  (subst, _) <- cloneTyVarBndrs subst_univ ex_tvs <$> getUniqueSupplyM
   let field_tys' = substTys subst $ map scaledThing field_tys
   -- Instantiate fresh term variables (VAs) as arguments to the constructor
   vars <- mapM mkPmId field_tys'
@@ -192,17 +191,7 @@ mkOneConFull arg_tys con = do
   -- Figure out the types of strict constructor fields
   let arg_is_banged = map isBanged $ conLikeImplBangs con
       strict_arg_tys = filterByList arg_is_banged field_tys'
-  return (vars, listToBag ty_cs, strict_arg_tys, ex_tvs')
-
-equateTyVars :: [TyVar] -> [TyVar] -> Bag TyCt
-equateTyVars ex_tvs1 ex_tvs2
-  = ASSERT(ex_tvs1 `equalLength` ex_tvs2)
-    listToBag $ catMaybes $ zipWith mb_to_evvar ex_tvs1 ex_tvs2
-  where
-    mb_to_evvar tv1 tv2
-      | tv1 == tv2 = Nothing
-      | otherwise  = Just (to_evvar tv1 tv2)
-    to_evvar tv1 tv2 = TyCt $ mkPrimEqPred (mkTyVarTy tv1) (mkTyVarTy tv2)
+  return (vars, listToBag ty_cs, strict_arg_tys)
 
 -------------------------
 -- * Pattern match oracle
@@ -690,11 +679,7 @@ warning messages (which can be alleviated by someone with enough dedication).
 -- Returns a new 'Delta' if the new constraints are compatible with existing
 -- ones.
 tmIsSatisfiable :: Bag TmCt -> SatisfiabilityCheck
-tmIsSatisfiable new_tm_cs = SC $ \delta -> tmOracle delta new_tm_cs
-
--- | External interface to the term oracle.
-tmOracle :: Foldable f => Delta -> f TmCt -> DsM (Maybe Delta)
-tmOracle delta = runMaybeT . foldlM go delta
+tmIsSatisfiable new_tm_cs = SC $ \delta -> runMaybeT $ foldlM go delta new_tm_cs
   where
     go delta ct = MaybeT (addTmCt delta ct)
 
@@ -706,7 +691,7 @@ emptyVarInfo x = VI (idType x) [] [] NoPM
 
 lookupVarInfo :: TmState -> Id -> VarInfo
 -- (lookupVarInfo tms x) tells what we know about 'x'
-lookupVarInfo (TmSt env) x = fromMaybe (emptyVarInfo x) (lookupSDIE env x)
+lookupVarInfo (TmSt env _) x = fromMaybe (emptyVarInfo x) (lookupSDIE env x)
 
 initPossibleMatches :: TyState -> VarInfo -> DsM VarInfo
 initPossibleMatches ty_st vi@VI{ vi_ty = ty, vi_cache = NoPM } = do
@@ -749,7 +734,7 @@ canDiverge MkDelta{ delta_tm_st = ts } x
 lookupRefuts :: Uniquable k => Delta -> k -> [PmAltCon]
 -- Unfortunately we need the extra bit of polymorphism and the unfortunate
 -- duplication of lookupVarInfo here.
-lookupRefuts MkDelta{ delta_tm_st = ts@(TmSt (SDIE env)) } k =
+lookupRefuts MkDelta{ delta_tm_st = ts@(TmSt (SDIE env) _) } k =
   case lookupUDFM env k of
     Nothing -> []
     Just (Indirect y) -> vi_neg (lookupVarInfo ts y)
@@ -774,12 +759,14 @@ lookupSolution delta x = case vi_pos (lookupVarInfo (delta_tm_st delta) x) of
 -- | A term constraint. Either equates two variables or a variable with a
 -- 'PmAltCon' application.
 data TmCt
-  = TmVarVar !Id !Id
-  | TmVarCon !Id !PmAltCon ![Id]
+  = TmVarVar     !Id !Id
+  | TmVarCon     !Id !PmAltCon ![Id]
+  | TmVarNonVoid !Id
 
 instance Outputable TmCt where
   ppr (TmVarVar x y)        = ppr x <+> char '~' <+> ppr y
   ppr (TmVarCon x con args) = ppr x <+> char '~' <+> hsep (ppr con : map ppr args)
+  ppr (TmVarNonVoid x)      = ppr x <+> text "/~ ⊥"
 
 -- | Add type equalities to 'Delta'.
 addTypeEvidence :: Delta -> Bag EvVar -> DsM (Maybe Delta)
@@ -792,12 +779,13 @@ addTmCt :: Delta -> TmCt -> DsM (Maybe Delta)
 addTmCt delta ct = runMaybeT $ case ct of
   TmVarVar x y        -> addVarVarCt delta (x, y)
   TmVarCon x con args -> addVarConCt delta x con args
+  TmVarNonVoid x      -> addVarNonVoidCt delta x
 
 -- | Record that a particular 'Id' can't take the shape of a 'PmAltCon' in the
 -- 'Delta' and return @Nothing@ if that leads to a contradiction.
 -- See Note [TmState invariants].
 addRefutableAltCon :: Delta -> Id -> PmAltCon -> DsM (Maybe Delta)
-addRefutableAltCon delta@MkDelta{ delta_tm_st = TmSt env } x nalt = runMaybeT $ do
+addRefutableAltCon delta@MkDelta{ delta_tm_st = TmSt env reps } x nalt = runMaybeT $ do
   vi@(VI _ pos neg pm) <- lift (initLookupVarInfo delta x)
   -- 1. Bail out quickly when nalt contradicts a solution
   let contradicts nalt (cl, _args) = eqPmAltCon cl nalt == Equal
@@ -816,7 +804,7 @@ addRefutableAltCon delta@MkDelta{ delta_tm_st = TmSt env } x nalt = runMaybeT $ 
     PmAltConLike cl
       -> MaybeT (ensureInhabited delta vi_ext{ vi_cache = markMatched cl pm })
     _ -> pure vi_ext
-  pure delta{ delta_tm_st = TmSt (setEntrySDIE env x vi') }
+  pure delta{ delta_tm_st = TmSt (setEntrySDIE env x vi') reps }
 
 hasRequiredTheta :: PmAltCon -> Bool
 hasRequiredTheta (PmAltConLike cl) = notNull req_theta
@@ -867,7 +855,7 @@ guessConLikeUnivTyArgsFromResTy env res_ty (RealDataCon _) = do
   let (_, tc_args', _) = tcLookupDataFamInst env tc tc_args
   Just tc_args'
 guessConLikeUnivTyArgsFromResTy _   res_ty (PatSynCon ps)  = do
-  -- We were successful if we managed to instantiate *every* univ_tv of con.
+  -- We are successful if we managed to instantiate *every* univ_tv of con.
   -- This is difficult and bound to fail in some cases, see
   -- Note [Pattern synonym result type] in PatSyn.hs. So we just try our best
   -- here and be sure to return an instantiation when we can substitute every
@@ -878,6 +866,17 @@ guessConLikeUnivTyArgsFromResTy _   res_ty (PatSynCon ps)  = do
   let (univ_tvs,_,_,_,_,con_res_ty) = patSynSig ps
   subst <- tcMatchTy con_res_ty res_ty
   traverse (lookupTyVar subst) univ_tvs
+
+-- | Kind of tries to add a non-void contraint to 'Delta', but doesn't really
+-- commit to upholding that constraint in the future. This will be rectified
+-- in a follow-up patch. The status quo should work good enough for now.
+addVarNonVoidCt :: Delta -> Id -> MaybeT DsM Delta
+addVarNonVoidCt delta@MkDelta{ delta_tm_st = TmSt env reps } x = do
+  vi  <- lift $ initLookupVarInfo delta x
+  vi' <- MaybeT $ ensureInhabited delta vi
+  -- vi' has probably constructed and then thinned out some PossibleMatches.
+  -- We want to cache that work
+  pure delta{ delta_tm_st = TmSt (setEntrySDIE env x vi') reps}
 
 ensureInhabited :: Delta -> VarInfo -> DsM (Maybe VarInfo)
    -- Returns (Just vi) guarantees that at least one member
@@ -918,7 +917,7 @@ ensureInhabited delta vi = fmap (set_cache vi) <$> test (vi_cache vi) -- This wo
       case guessConLikeUnivTyArgsFromResTy env (vi_ty vi) con of
         Nothing -> pure True -- be conservative about this
         Just arg_tys -> do
-          (_vars, ty_cs, strict_arg_tys, _ex_tyvars) <- mkOneConFull arg_tys con
+          (_vars, ty_cs, strict_arg_tys) <- mkOneConFull arg_tys con
           -- No need to run the term oracle compared to pmIsSatisfiable
           fmap isJust <$> runSatisfiabilityCheck delta $ mconcat
             -- Important to pass False to tyIsSatisfiable here, so that we won't
@@ -933,170 +932,11 @@ ensureInhabited delta vi = fmap (set_cache vi) <$> test (vi_cache vi) -- This wo
 -- This check is necessary after having matched on a GADT con to weed out
 -- impossible matches.
 ensureAllPossibleMatchesInhabited :: Delta -> DsM (Maybe Delta)
-ensureAllPossibleMatchesInhabited delta@MkDelta{ delta_tm_st = TmSt env }
+ensureAllPossibleMatchesInhabited delta@MkDelta{ delta_tm_st = TmSt env reps }
   = runMaybeT (set_tm_cs_env delta <$> traverseSDIE go env)
   where
-    set_tm_cs_env delta env = delta{ delta_tm_st = TmSt env }
+    set_tm_cs_env delta env = delta{ delta_tm_st = TmSt env reps }
     go vi = MaybeT (ensureInhabited delta vi)
-
--- | @refineToAltCon delta x con arg_tys ex_tyvars@ instantiates @con@ at
--- @arg_tys@ with fresh variables (equating existentials to @ex_tyvars@).
--- It adds a new term equality equating @x@ is to the resulting 'PmAltCon' app
--- and new type equalities arising from GADT matches.
--- If successful, returns the new @delta@ and the fresh term variables, or
--- @Nothing@ otherwise.
-refineToAltCon :: Delta -> Id -> PmAltCon -> [Type] -> [TyVar] -> DsM (Maybe (Delta, [Id]))
-refineToAltCon delta x l@PmAltLit{}           _arg_tys _ex_tvs1 = runMaybeT $ do
-  delta' <- addVarConCt delta x l []
-  pure (delta', [])
-refineToAltCon delta x alt@(PmAltConLike con) arg_tys  ex_tvs1  = do
-  -- The plan for ConLikes:
-  -- Suppose K :: forall a b y z. (y,b) -> z -> T a b
-  --   where the y,z are the existentials
-  -- @refineToAltCon delta x K [ex1, ex2]@ extends delta with the
-  --   positive information x :-> K y' z' p q, for some fresh y', z', p, q.
-  --   This is done by mkOneConFull.
-  --   We return the fresh [p,q] args, and bind the existentials [y',z'] to
-  --   [ex1, ex2].
-  -- Return Nothing if such a match is contradictory with delta.
-
-  (arg_vars, theta_ty_cs, strict_arg_tys, ex_tvs2) <- mkOneConFull arg_tys con
-
-  -- If we have identical constructors but different existential
-  -- tyvars, then generate extra equality constraints to ensure the
-  -- existential tyvars.
-  -- See Note [Coverage checking and existential tyvars].
-  let ex_ty_cs = equateTyVars ex_tvs1 ex_tvs2
-
-  let new_ty_cs = theta_ty_cs `unionBags` ex_ty_cs
-  let new_tm_cs = unitBag (TmVarCon x alt arg_vars)
-
-  -- Now check satifiability
-  mb_delta <- pmIsSatisfiable delta new_tm_cs new_ty_cs strict_arg_tys
-  tracePm "refineToAltCon" (vcat [ ppr x
-                                 , ppr new_tm_cs
-                                 , ppr new_ty_cs
-                                 , ppr strict_arg_tys
-                                 , ppr delta
-                                 , ppr mb_delta ])
-  case mb_delta of
-    Nothing     -> pure Nothing
-    Just delta' -> pure (Just (delta', arg_vars))
-
-{-
-Note [Coverage checking and existential tyvars]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-GHC's implementation of the pattern-match coverage algorithm (as described in
-the GADTs Meet Their Match paper) must take some care to emit enough type
-constraints when handling data constructors with exisentially quantified type
-variables. To better explain what the challenge is, consider a constructor K
-of the form:
-
-  K @e_1 ... @e_m ev_1 ... ev_v ty_1 ... ty_n :: T u_1 ... u_p
-
-Where:
-
-* e_1, ..., e_m are the existentially bound type variables.
-* ev_1, ..., ev_v are evidence variables, which may inhabit a dictionary type
-  (e.g., Eq) or an equality constraint (e.g., e_1 ~ Int).
-* ty_1, ..., ty_n are the types of K's fields.
-* T u_1 ... u_p is the return type, where T is the data type constructor, and
-  u_1, ..., u_p are the universally quantified type variables.
-
-In the ConVar case, the coverage algorithm will have in hand the constructor
-K as well as a list of type arguments [t_1, ..., t_n] to substitute T's
-universally quantified type variables u_1, ..., u_n for. It's crucial to take
-these in as arguments, as it is non-trivial to derive them just from the result
-type of a pattern synonym and the ambient type of the match (#11336, #17112).
-The type checker already did the hard work, so we should just make use of it.
-
-The presence of existentially quantified type variables adds a significant
-wrinkle. We always grab e_1, ..., e_m from the definition of K to begin with,
-but we don't want them to appear in the final PmCon, because then
-calling (mkOneConFull K) for other pattern variables might reuse the same
-existential tyvars, which is certainly wrong.
-
-Previously, GHC's solution to this wrinkle was to always create fresh names
-for the existential tyvars and put them into the PmCon. This works well for
-many cases, but it can break down if you nest GADT pattern matches in just
-the right way. For instance, consider the following program:
-
-    data App f a where
-      App :: f a -> App f (Maybe a)
-
-    data Ty a where
-      TBool :: Ty Bool
-      TInt  :: Ty Int
-
-    data T f a where
-      C :: T Ty (Maybe Bool)
-
-    foo :: T f a -> App f a -> ()
-    foo C (App TBool) = ()
-
-foo is a total program, but with the previous approach to handling existential
-tyvars, GHC would mark foo's patterns as non-exhaustive.
-
-When foo is desugared to Core, it looks roughly like so:
-
-    foo @f @a (C co1 _co2) (App @a1 _co3 (TBool |> co1)) = ()
-
-(Where `a1` is an existential tyvar.)
-
-That, in turn, is processed by the coverage checker to become:
-
-    foo @f @a (C co1 _co2) (App @a1 _co3 (pmvar123 :: f a1))
-      | TBool <- pmvar123 |> co1
-      = ()
-
-Note that the type of pmvar123 is `f a1`—this will be important later.
-
-Now, we proceed with coverage-checking as usual. When we come to the
-ConVar case for App, we create a fresh variable `a2` to represent its
-existential tyvar. At this point, we have the equality constraints
-`(a ~ Maybe a2, a ~ Maybe Bool, f ~ Ty)` in scope.
-
-However, when we check the guard, it will use the type of pmvar123, which is
-`f a1`. Thus, when considering if pmvar123 can match the constructor TInt,
-it will generate the constraint `a1 ~ Int`. This means our final set of
-equality constraints would be:
-
-    f  ~ Ty
-    a  ~ Maybe Bool
-    a  ~ Maybe a2
-    a1 ~ Int
-
-Which is satisfiable! Freshening the existential tyvar `a` to `a2` doomed us,
-because GHC is unable to relate `a2` to `a1`, which really should be the same
-tyvar.
-
-Luckily, we can avoid this pitfall. Recall that the ConVar case was where we
-generated a PmCon with too-fresh existentials. But after ConVar, we have the
-ConCon case, which considers whether each constructor of a particular data type
-can be matched on in a particular spot.
-
-In the case of App, when we get to the ConCon case, we will compare our
-original App PmCon (from the source program) to the App PmCon created from the
-ConVar case. In the former PmCon, we have `a1` in hand, which is exactly the
-existential tyvar we want! Thus, we can force `a1` to be the same as `a2` here
-by emitting an additional `a1 ~ a2` constraint. Now our final set of equality
-constraints will be:
-
-    f  ~ Ty
-    a  ~ Maybe Bool
-    a  ~ Maybe a2
-    a1 ~ Int
-    a1 ~ a2
-
-Which is unsatisfiable, as we desired, since we now have that
-Int ~ a1 ~ a2 ~ Bool.
-
-In general, App might have more than one constructor, in which case we
-couldn't reuse the existential tyvar for App for a different constructor. This
-means that we can only use this trick in ConCon when the constructors are the
-same. But this is fine, since this is the only scenario where this situation
-arises in the first place!
--}
 
 --------------------------------------
 -- * Term oracle unification procedure
@@ -1109,7 +949,7 @@ arises in the first place!
 --
 -- See Note [TmState invariants].
 addVarVarCt :: Delta -> (Id, Id) -> MaybeT DsM Delta
-addVarVarCt delta@MkDelta{ delta_tm_st = TmSt env } (x, y)
+addVarVarCt delta@MkDelta{ delta_tm_st = TmSt env _ } (x, y)
   -- It's important that we never @equate@ two variables of the same equivalence
   -- class, otherwise we might get cyclic substitutions.
   -- Cf. 'extendSubstAndSolve' and
@@ -1125,11 +965,11 @@ addVarVarCt delta@MkDelta{ delta_tm_st = TmSt env } (x, y)
 --
 -- See Note [TmState invariants].
 equate :: Delta -> Id -> Id -> MaybeT DsM Delta
-equate delta@MkDelta{ delta_tm_st = TmSt env } x y
+equate delta@MkDelta{ delta_tm_st = TmSt env reps } x y
   = ASSERT( not (sameRepresentativeSDIE env x y) )
     case (lookupSDIE env x, lookupSDIE env y) of
-      (Nothing, _) -> pure (delta{ delta_tm_st = TmSt (setIndirectSDIE env x y) })
-      (_, Nothing) -> pure (delta{ delta_tm_st = TmSt (setIndirectSDIE env y x) })
+      (Nothing, _) -> pure (delta{ delta_tm_st = TmSt (setIndirectSDIE env x y) reps })
+      (_, Nothing) -> pure (delta{ delta_tm_st = TmSt (setIndirectSDIE env y x) reps })
       -- Merge the info we have for x into the info for y
       (Just vi_x, Just vi_y) -> do
         -- This assert will probably trigger at some point...
@@ -1139,7 +979,7 @@ equate delta@MkDelta{ delta_tm_st = TmSt env } x y
         let env_ind = setIndirectSDIE env x y
         -- Then sum up the refinement counters
         let env_refs = setEntrySDIE env_ind y vi_y
-        let delta_refs = delta{ delta_tm_st = TmSt env_refs }
+        let delta_refs = delta{ delta_tm_st = TmSt env_refs reps }
         -- and then gradually merge every positive fact we have on x into y
         let add_fact delta (cl, args) = addVarConCt delta y cl args
         delta_pos <- foldlM add_fact delta_refs (vi_pos vi_x)
@@ -1156,7 +996,7 @@ equate delta@MkDelta{ delta_tm_st = TmSt env } x y
 --
 -- See Note [TmState invariants].
 addVarConCt :: Delta -> Id -> PmAltCon -> [Id] -> MaybeT DsM Delta
-addVarConCt delta@MkDelta{ delta_tm_st = TmSt env } x alt args = do
+addVarConCt delta@MkDelta{ delta_tm_st = TmSt env reps } x alt args = do
   VI ty pos neg cache <- lift (initLookupVarInfo delta x)
   -- First try to refute with a negative fact
   guard (all ((/= Equal) . eqPmAltCon alt) neg)
@@ -1174,7 +1014,7 @@ addVarConCt delta@MkDelta{ delta_tm_st = TmSt env } x alt args = do
       -- the new solution)
       let neg' = filter ((== PossiblyOverlap) . eqPmAltCon alt) neg
       let pos' = (alt,args):pos
-      pure delta{ delta_tm_st = TmSt (setEntrySDIE env x (VI ty pos' neg' cache))}
+      pure delta{ delta_tm_st = TmSt (setEntrySDIE env x (VI ty pos' neg' cache)) reps}
 
 ----------------------------------------
 -- * Enumerating inhabitation candidates
@@ -1204,7 +1044,7 @@ mkInhabitationCandidate :: Id -> DataCon -> DsM InhabitationCandidate
 mkInhabitationCandidate x dc = do
   let cl = RealDataCon dc
   let tc_args = tyConAppArgs (idType x)
-  (arg_vars, ty_cs, strict_arg_tys, _ex_tyvars) <- mkOneConFull tc_args cl
+  (arg_vars, ty_cs, strict_arg_tys) <- mkOneConFull tc_args cl
   pure InhabitationCandidate
         { ic_tm_cs = unitBag (TmVarCon x (PmAltConLike cl) arg_vars)
         , ic_ty_cs = ty_cs
@@ -1601,8 +1441,6 @@ provideEvidenceForEquation = go init_ts
       -> DsM [Delta]
     split_at_con rec_ts delta n x xs cl = do
       -- This will be really similar to the ConVar case
-      let (_,ex_tvs,_,_,_,_,_) = conLikeFullSig cl
-          -- we might need to freshen ex_tvs. Not sure
       -- We may need to reduce type famlies/synonyms in x's type first
       res <- pmTopNormaliseType (delta_ty_st delta) (idType x)
       let res_ty = normalisedSourceType res
@@ -1610,10 +1448,19 @@ provideEvidenceForEquation = go init_ts
       case guessConLikeUnivTyArgsFromResTy env res_ty cl of
         Nothing      -> pure [delta] -- We can't split this one, so assume it's inhabited
         Just arg_tys -> do
-          ev_pos <- refineToAltCon delta x (PmAltConLike cl) arg_tys ex_tvs >>= \case
-            Nothing                -> pure []
-            Just (delta', arg_vas) ->
-              go rec_ts (arg_vas ++ xs) n delta'
+          (arg_vars, new_ty_cs, strict_arg_tys) <- mkOneConFull arg_tys cl
+          let new_tm_cs = unitBag (TmVarCon x (PmAltConLike cl) arg_vars)
+          -- Now check satifiability
+          mb_delta <- pmIsSatisfiable delta new_tm_cs new_ty_cs strict_arg_tys
+          tracePm "split_at_con" (vcat [ ppr x
+                                       , ppr new_tm_cs
+                                       , ppr new_ty_cs
+                                       , ppr strict_arg_tys
+                                       , ppr delta
+                                       , ppr mb_delta ])
+          ev_pos <- case mb_delta of
+            Nothing     -> pure []
+            Just delta' -> go rec_ts (arg_vars ++ xs) n delta'
 
           -- Only n' more equations to go...
           let n' = n - length ev_pos
@@ -1638,6 +1485,20 @@ isVanillaDataType ty = fromMaybe False $ do
   (tc, _) <- splitTyConApp_maybe ty
   dcs <- tyConDataCons_maybe tc
   pure (all isVanillaDataCon dcs)
+
+-- | See if we already encountered a semantically equivalent expression and
+-- return its representative.
+representCoreExpr :: Delta -> CoreExpr -> DsM (Delta, Id)
+representCoreExpr delta@MkDelta{ delta_tm_st = ts@TmSt{ ts_reps = reps } } e = do
+  dflags <- getDynFlags
+  let e' = simpleOptExpr dflags e
+  case lookupCoreMap reps e' of
+    Just rep -> pure (delta, rep)
+    Nothing  -> do
+      rep <- mkPmId (exprType e')
+      let reps'  = extendCoreMap reps e' rep
+      let delta' = delta{ delta_tm_st = ts{ ts_reps = reps' } }
+      pure (delta', rep)
 
 -- Most of our actions thread around a delta from one computation to the next,
 -- thereby potentially failing. This is expressed in the following Monad:
@@ -1668,12 +1529,15 @@ addVarCoreCt delta x e = runMaybeT (execStateT (core_expr x e) delta)
             <- exprIsConApp_maybe in_scope_env e
       = do { arg_ids <- traverse bind_expr args
            ; data_con_app x dc arg_ids }
-      -- TODO: Think about how to recognize PatSyns
+      -- See Note [Detecting pattern synonym applications in expressions]
       | Var y <- e, not (isDataConWorkId x)
+      -- We don't consider (unsaturated!) DataCons as flexible variables
       = modifyT (\delta -> addVarVarCt delta (x, y))
       | otherwise
-      -- TODO: Use a CoreMap to identify the CoreExpr with a unique representant
-      = pure ()
+      -- Any other expression. Try to find other uses of a semantically
+      -- equivalent expression and represent them by the same variable!
+      = do { rep <- represent_expr e
+           ; modifyT (\delta -> addVarVarCt delta (x, rep)) }
       where
         expr_ty       = exprType e
         expr_in_scope = mkInScopeSet (exprFreeVars e)
@@ -1689,6 +1553,12 @@ addVarCoreCt delta x e = runMaybeT (execStateT (core_expr x e) delta)
           core_expr x e
           pure x
 
+        -- See if we already encountered a semantically equivalent expression
+        -- and return its representative
+        represent_expr :: CoreExpr -> StateT Delta (MaybeT DsM) Id
+        represent_expr e = StateT $ \delta ->
+          swap <$> lift (representCoreExpr delta e)
+
     data_con_app :: Id -> DataCon -> [Id] -> StateT Delta (MaybeT DsM) ()
     data_con_app x dc args = pm_alt_con_app x (PmAltConLike (RealDataCon dc)) args
 
@@ -1702,3 +1572,27 @@ addVarCoreCt delta x e = runMaybeT (execStateT (core_expr x e) delta)
 -- | Like 'modify', but with an effectful modifier action
 modifyT :: Monad m => (s -> m s) -> StateT s m ()
 modifyT f = StateT $ fmap ((,) ()) . f
+
+{- Note [Detecting pattern synonym applications in expressions]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+At the moment we fail to detect pattern synonyms in scrutinees and RHS of
+guards. This could be alleviated with considerable effort and complexity, but
+the returns are meager. Consider:
+
+    pattern P
+    pattern Q
+    case P 15 of
+      Q _  -> ...
+      P 15 ->
+
+Compared to the situation where P and Q are DataCons, the lack of generativity
+means we could never flag Q as redundant.
+(also see Note [Undecidable Equality for PmAltCons] in PmTypes.)
+On the other hand, if we fail to recognise the pattern synonym, we flag the
+pattern match as incomplete. That wouldn't happen if had knowledge about the
+scrutinee, in which case the oracle basically knows "If it's a P, then its field
+is 15".
+
+This is a pretty narrow use case and I don't think we should to try to fix it
+until a user complains energetically.
+-}

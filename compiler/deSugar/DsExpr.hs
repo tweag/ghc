@@ -25,7 +25,7 @@ import DsListComp
 import DsUtils
 import DsArrows
 import DsMonad
-import Check ( checkGuardMatches )
+import GHC.HsToCore.PmCheck ( checkGuardMatches )
 import Name
 import NameEnv
 import FamInstEnv( topNormaliseType )
@@ -399,6 +399,7 @@ ds_expr _ (ExplicitTuple _ tup_args boxity)
                       mkCoreLams usedmults $
                         mkCoreLams lam_vars $
                                             mkCoreTupBoxity boxity args) }
+                        -- See Note [Don't flatten tuples from HsSyn] in MkCore
 
 ds_expr _ (ExplicitSum types alt arity expr)
   = do { dsWhenNoErrs (dsLExprNoLP expr)

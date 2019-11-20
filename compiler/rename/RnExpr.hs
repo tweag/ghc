@@ -121,11 +121,14 @@ rnUnboundVar v
 rnExpr (HsVar _ (L l v))
   = do { opt_DuplicateRecordFields <- xoptM LangExt.DuplicateRecordFields
        ; mb_name <- lookupOccRn_overloaded opt_DuplicateRecordFields v
+       ; dflags <- getDynFlags
        ; case mb_name of {
            Nothing -> rnUnboundVar v ;
            Just (Left name)
               | name == nilDataConName -- Treat [] as an ExplicitList, so that
                                        -- OverloadedLists works correctly
+                                       -- Note [Empty lists] in GHC.Hs.Expr
+              , xopt LangExt.OverloadedLists dflags
               -> rnExpr (ExplicitList noExtField Nothing [])
 
               | otherwise
@@ -208,8 +211,6 @@ rnExpr (NegApp _ e _)
 
 ------------------------------------------
 -- Template Haskell extensions
--- Don't ifdef-HAVE_INTERPRETER them because we want to fail gracefully
--- (not with an rnExpr crash) in a stage-1 compiler.
 rnExpr e@(HsBracket _ br_body) = rnBracket e br_body
 
 rnExpr (HsSpliceE _ splice) = rnSpliceExpr splice

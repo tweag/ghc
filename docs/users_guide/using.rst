@@ -714,13 +714,13 @@ messages and in GHCi:
 
 .. ghc-flag:: -fprint-unicode-syntax
     :shortdesc: Use unicode syntax when printing expressions, types and kinds.
-        See also :ghc-flag:`-XUnicodeSyntax`
+        See also :extension:`UnicodeSyntax`
     :type: dynamic
     :reverse: -fno-print-unicode-syntax
     :category: verbosity
 
     When enabled GHC prints type signatures using the unicode symbols from the
-    :ghc-flag:`-XUnicodeSyntax` extension. For instance,
+    :extension:`UnicodeSyntax` extension. For instance,
 
     .. code-block:: none
 
@@ -732,7 +732,7 @@ messages and in GHCi:
 
 .. ghc-flag:: -fprint-explicit-foralls
     :shortdesc: Print explicit ``forall`` quantification in types.
-        See also :ghc-flag:`-XExplicitForAll`
+        See also :extension:`ExplicitForAll`
     :type: dynamic
     :reverse: -fno-print-explicit-foralls
     :category: verbosity
@@ -776,7 +776,7 @@ messages and in GHCi:
 
 .. ghc-flag:: -fprint-explicit-kinds
     :shortdesc: Print explicit kind foralls and kind arguments in types.
-        See also :ghc-flag:`-XKindSignatures`
+        See also :extension:`KindSignatures`
     :type: dynamic
     :reverse: -fno-print-explicit-kinds
     :category: verbosity
@@ -1153,3 +1153,14 @@ Some flags only make sense for a particular use case.
     included. This option can be used to specify the path to the
     ``ghcversions.h`` file to be included. This is primarily intended to be
     used by GHC's build system.
+
+Other environment variables
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. index::
+   single: environment variables
+
+GHC can also be configured using environment variables. Currently the only
+variable it supports is ``GHC_NO_UNICODE``, which, when set, disables Unicode
+output regardless of locale settings. ``GHC_NO_UNICODE`` can be set to anything
++(event an empty string) to trigger this behaviour.

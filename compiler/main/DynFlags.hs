@@ -84,7 +84,7 @@ module DynFlags (
         unsafeFlags, unsafeFlagsForInfer,
 
         -- ** LLVM Targets
-        LlvmTarget(..), LlvmTargets, LlvmPasses, LlvmConfig,
+        LlvmTarget(..), LlvmConfig(..),
 
         -- ** System tool settings and locations
         Settings(..),
@@ -655,6 +655,7 @@ data GeneralFlag
    | Opt_SingleLibFolder
    | Opt_KeepCAFs
    | Opt_KeepGoing
+   | Opt_ByteCode
 
    -- output style opts
    | Opt_ErrorSpans -- Include full span info in error messages,
@@ -970,8 +971,9 @@ data DynFlags = DynFlags {
   integerLibrary        :: IntegerLibrary,
     -- ^ IntegerGMP or IntegerSimple. Set at configure time, but may be overriden
     --   by GHC-API users. See Note [The integer library] in PrelNames
-  llvmTargets           :: LlvmTargets,
-  llvmPasses            :: LlvmPasses,
+  llvmConfig            :: LlvmConfig,
+    -- ^ N.B. It's important that this field is lazy since we load the LLVM
+    -- configuration lazily. See Note [LLVM Configuration] in SysTools.
   verbosity             :: Int,         -- ^ Verbosity level: see Note [Verbosity levels]
   optLevel              :: Int,         -- ^ Optimisation level
   debugLevel            :: Int,         -- ^ How much debug information to produce
@@ -1391,9 +1393,10 @@ data LlvmTarget = LlvmTarget
   , lAttributes :: [String]
   }
 
-type LlvmTargets = [(String, LlvmTarget)]
-type LlvmPasses = [(Int, String)]
-type LlvmConfig = (LlvmTargets, LlvmPasses)
+-- | See Note [LLVM Configuration] in SysTools.
+data LlvmConfig = LlvmConfig { llvmTargets :: [(String, LlvmTarget)]
+                             , llvmPasses  :: [(Int, String)]
+                             }
 
 -----------------------------------------------------------------------------
 -- Accessessors from 'DynFlags'
@@ -1512,7 +1515,7 @@ versionedAppDir dflags = do
   return $ appdir </> versionedFilePath dflags
 
 versionedFilePath :: DynFlags -> FilePath
-versionedFilePath dflags = uniqueSubdir $ targetPlatform dflags
+versionedFilePath dflags = uniqueSubdir $ platformMini $ targetPlatform dflags
 
 -- | The target code type of the compilation (if any).
 --
@@ -1894,6 +1897,10 @@ initDynFlags dflags = do
                           do str' <- peekCString enc cstr
                              return (str == str'))
                          `catchIOError` \_ -> return False
+ maybeGhcNoUnicodeEnv <- lookupEnv "GHC_NO_UNICODE"
+ let adjustNoUnicode (Just _) = False
+     adjustNoUnicode Nothing = True
+ let useUnicode' = (adjustNoUnicode maybeGhcNoUnicodeEnv) && canUseUnicode
  canUseColor <- stderrSupportsAnsiColors
  maybeGhcColorsEnv  <- lookupEnv "GHC_COLORS"
  maybeGhcColoursEnv <- lookupEnv "GHC_COLOURS"
@@ -1909,7 +1916,7 @@ initDynFlags dflags = do
         dirsToClean    = refDirsToClean,
         generatedDumps = refGeneratedDumps,
         nextWrapperNum = wrapperNum,
-        useUnicode    = canUseUnicode,
+        useUnicode    = useUnicode',
         useColor      = useColor',
         canUseColor   = canUseColor,
         colScheme     = colScheme',
@@ -1920,7 +1927,7 @@ initDynFlags dflags = do
 -- | The normal 'DynFlags'. Note that they are not suitable for use in this form
 -- and must be fully initialized by 'GHC.runGhc' first.
 defaultDynFlags :: Settings -> LlvmConfig -> DynFlags
-defaultDynFlags mySettings (myLlvmTargets, myLlvmPasses) =
+defaultDynFlags mySettings llvmConfig =
 -- See Note [Updating flag description in the User's Guide]
      DynFlags {
         ghcMode                 = CompManager,
@@ -2031,8 +2038,8 @@ defaultDynFlags mySettings (myLlvmTargets, myLlvmPasses) =
         platformConstants = sPlatformConstants mySettings,
         rawSettings = sRawSettings mySettings,
 
-        llvmTargets             = myLlvmTargets,
-        llvmPasses              = myLlvmPasses,
+        -- See Note [LLVM configuration].
+        llvmConfig              = llvmConfig,
 
         -- ghc -M values
         depMakefile       = "Makefile",
@@ -2290,6 +2297,9 @@ flattenExtensionFlags ml = foldr f defaultExtensionFlags
           f (Off f) flags = EnumSet.delete f flags
           defaultExtensionFlags = EnumSet.fromList (languageExtensions ml)
 
+-- | The language extensions implied by the various language variants.
+-- When updating this be sure to update the flag documentation in
+-- @docs/users-guide/glasgow_exts.rst@.
 languageExtensions :: Maybe Language -> [LangExt.Extension]
 
 languageExtensions Nothing
@@ -3104,9 +3114,9 @@ dynamic_flags_deps = [
   , make_ord_flag defGhcFlag "split-sections"
       (noArgM (\dflags -> do
         if platformHasSubsectionsViaSymbols (targetPlatform dflags)
-          then do addErr $
+          then do addWarn $
                     "-split-sections is not useful on this platform " ++
-                    "since it always uses subsections via symbols."
+                    "since it always uses subsections via symbols. Ignoring."
                   return dflags
           else return (gopt_set dflags Opt_SplitSections)))
 
@@ -3745,7 +3755,10 @@ dynamic_flags_deps = [
 
   , make_ord_flag defFlag "fno-code"         (NoArg ((upd $ \d ->
                   d { ghcLink=NoLink }) >> setTarget HscNothing))
-  , make_ord_flag defFlag "fbyte-code"       (NoArg (setTarget HscInterpreted))
+  , make_ord_flag defFlag "fbyte-code"
+      (noArgM $ \dflags -> do
+        setTarget HscInterpreted
+        pure $ gopt_set dflags Opt_ByteCode)
   , make_ord_flag defFlag "fobject-code"     $ NoArg $ do
       dflags <- liftEwM getCmdLineState
       setTarget $ defaultObjectTarget dflags
@@ -4045,7 +4058,8 @@ wWarningFlagsDeps = [
     "it is subsumed by -Wredundant-constraints",
   flagSpec "redundant-constraints"       Opt_WarnRedundantConstraints,
   flagSpec "duplicate-exports"           Opt_WarnDuplicateExports,
-  flagSpec "hi-shadowing"                Opt_WarnHiShadows,
+  depFlagSpec "hi-shadowing"                Opt_WarnHiShadows
+    "it is not used, and was never implemented",
   flagSpec "inaccessible-code"           Opt_WarnInaccessibleCode,
   flagSpec "implicit-prelude"            Opt_WarnImplicitPrelude,
   depFlagSpec "implicit-kind-vars"       Opt_WarnImplicitKindVars
@@ -4352,26 +4366,25 @@ supportedLanguages = map (flagSpecName . snd) languageFlagsDeps
 supportedLanguageOverlays :: [String]
 supportedLanguageOverlays = map (flagSpecName . snd) safeHaskellFlagsDeps
 
-supportedExtensions :: [String]
-supportedExtensions = concatMap toFlagSpecNamePair xFlags
+supportedExtensions :: PlatformMini -> [String]
+supportedExtensions targetPlatformMini = concatMap toFlagSpecNamePair xFlags
   where
     toFlagSpecNamePair flg
-#if !defined(HAVE_INTERPRETER)
       -- IMPORTANT! Make sure that `ghc --supported-extensions` omits
       -- "TemplateHaskell"/"QuasiQuotes" when it's known not to work out of the
       -- box. See also GHC #11102 and #16331 for more details about
       -- the rationale
-      | flagSpecFlag flg == LangExt.TemplateHaskell  = [noName]
-      | flagSpecFlag flg == LangExt.QuasiQuotes      = [noName]
-#endif
+      | isAIX, flagSpecFlag flg == LangExt.TemplateHaskell  = [noName]
+      | isAIX, flagSpecFlag flg == LangExt.QuasiQuotes      = [noName]
       | otherwise = [name, noName]
       where
+        isAIX = platformMini_os targetPlatformMini == OSAIX
         noName = "No" ++ name
         name = flagSpecName flg
 
-supportedLanguagesAndExtensions :: [String]
-supportedLanguagesAndExtensions =
-    supportedLanguages ++ supportedLanguageOverlays ++ supportedExtensions
+supportedLanguagesAndExtensions :: PlatformMini -> [String]
+supportedLanguagesAndExtensions targetPlatformMini =
+    supportedLanguages ++ supportedLanguageOverlays ++ supportedExtensions targetPlatformMini
 
 -- | These -X<blah> flags cannot be reversed with -XNo<blah>
 languageFlagsDeps :: [(Deprecation, FlagSpec Language)]
@@ -4528,6 +4541,7 @@ xFlagsDeps = [
   flagSpec' "TemplateHaskell"                 LangExt.TemplateHaskell
                                               checkTemplateHaskellOk,
   flagSpec "TemplateHaskellQuotes"            LangExt.TemplateHaskellQuotes,
+  flagSpec "StandaloneKindSignatures"         LangExt.StandaloneKindSignatures,
   flagSpec "TraditionalRecordSyntax"          LangExt.TraditionalRecordSyntax,
   flagSpec "TransformListComp"                LangExt.TransformListComp,
   flagSpec "TupleSections"                    LangExt.TupleSections,
@@ -4654,6 +4668,9 @@ impliedXFlags
     , (LangExt.TypeInType,       turnOn, LangExt.DataKinds)
     , (LangExt.TypeInType,       turnOn, LangExt.PolyKinds)
     , (LangExt.TypeInType,       turnOn, LangExt.KindSignatures)
+
+    -- Standalone kind signatures are a replacement for CUSKs.
+    , (LangExt.StandaloneKindSignatures, turnOff, LangExt.CUSKs)
 
     -- AutoDeriveTypeable is not very useful without DeriveDataTypeable
     , (LangExt.AutoDeriveTypeable, turnOn, LangExt.DeriveDataTypeable)
@@ -5721,11 +5738,10 @@ makeDynFlagsConsistent dflags
 -- initialized.
 defaultGlobalDynFlags :: DynFlags
 defaultGlobalDynFlags =
-    (defaultDynFlags settings (llvmTargets, llvmPasses)) { verbosity = 2 }
+    (defaultDynFlags settings llvmConfig) { verbosity = 2 }
   where
     settings = panic "v_unsafeGlobalDynFlags: settings not initialised"
-    llvmTargets = panic "v_unsafeGlobalDynFlags: llvmTargets not initialised"
-    llvmPasses = panic "v_unsafeGlobalDynFlags: llvmPasses not initialised"
+    llvmConfig = panic "v_unsafeGlobalDynFlags: llvmConfig not initialised"
 
 #if STAGE < 2
 GLOBAL_VAR(v_unsafeGlobalDynFlags, defaultGlobalDynFlags, DynFlags)
