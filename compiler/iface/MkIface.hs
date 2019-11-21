@@ -3,6 +3,7 @@
 (c) The GRASP/AQUA Project, Glasgow University, 1993-1998
 -}
 
+{-# OPTIONS_GHC -fno-worker-wrapper #-}
 {-# LANGUAGE CPP, NondecreasingIndentation #-}
 {-# LANGUAGE MultiWayIf #-}
 
