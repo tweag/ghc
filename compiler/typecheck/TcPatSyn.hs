@@ -16,7 +16,7 @@ module TcPatSyn ( tcPatSynDecl, tcPatSynBuilderBind
 
 import GhcPrelude
 
-import HsSyn
+import GHC.Hs
 import TcPat
 import Multiplicity
 import UsageEnv

@@ -315,11 +315,11 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
     AC_LINK_IFELSE(
         [AC_LANG_PROGRAM([], [__asm__ (".subsections_via_symbols");])],
         [AC_MSG_RESULT(yes)
-         HaskellHaveSubsectionsViaSymbols=True
+         TargetHasSubsectionsViaSymbols=YES
          AC_DEFINE([HAVE_SUBSECTIONS_VIA_SYMBOLS],[1],
                    [Define to 1 if Apple-style dead-stripping is supported.])
         ],
-        [HaskellHaveSubsectionsViaSymbols=False
+        [TargetHasSubsectionsViaSymbols=NO
          AC_MSG_RESULT(no)])
 
     dnl ** check for .ident assembler directive
@@ -329,9 +329,9 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
     AC_LINK_IFELSE(
         [AC_LANG_PROGRAM([__asm__ (".ident \"GHC x.y.z\"");], [])],
         [AC_MSG_RESULT(yes)
-         HaskellHaveIdentDirective=True],
+         TargetHasIdentDirective=YES],
         [AC_MSG_RESULT(no)
-         HaskellHaveIdentDirective=False])
+         TargetHasIdentDirective=NO])
 
     dnl *** check for GNU non-executable stack note support (ELF only)
     dnl     (.section .note.GNU-stack,"",@progbits)
@@ -361,9 +361,9 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
            __asm__ (".section .text");
          ], [0])],
         [AC_MSG_RESULT(yes)
-         HaskellHaveGnuNonexecStack=True],
+         TargetHasGnuNonexecStack=YES],
         [AC_MSG_RESULT(no)
-         HaskellHaveGnuNonexecStack=False])
+         TargetHasGnuNonexecStack=NO])
     CFLAGS="$CFLAGS2"
 
     checkArch "$BuildArch" "HaskellBuildArch"
@@ -372,17 +372,19 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
 
     checkArch "$HostArch" "HaskellHostArch"
     checkVendor "$HostVendor"
-    checkOS "$HostOS" ""
+    checkOS "$HostOS" "HaskellHostOs"
 
     checkArch "$TargetArch" "HaskellTargetArch"
     checkVendor "$TargetVendor"
     checkOS "$TargetOS" "HaskellTargetOs"
 
+    AC_SUBST(HaskellHostArch)
+    AC_SUBST(HaskellHostOs)
     AC_SUBST(HaskellTargetArch)
     AC_SUBST(HaskellTargetOs)
-    AC_SUBST(HaskellHaveSubsectionsViaSymbols)
-    AC_SUBST(HaskellHaveIdentDirective)
-    AC_SUBST(HaskellHaveGnuNonexecStack)
+    AC_SUBST(TargetHasSubsectionsViaSymbols)
+    AC_SUBST(TargetHasIdentDirective)
+    AC_SUBST(TargetHasGnuNonexecStack)
 ])
 
 
@@ -984,8 +986,11 @@ else
 fi;
 changequote([, ])dnl
 ])
-FP_COMPARE_VERSIONS([$fptools_cv_alex_version],[-lt],[3.1.7],
-  [AC_MSG_ERROR([Alex version 3.1.7 or later is required to compile GHC.])])[]
+if test ! -f compiler/parser/Lexer.hs
+then
+    FP_COMPARE_VERSIONS([$fptools_cv_alex_version],[-lt],[3.1.7],
+      [AC_MSG_ERROR([Alex version 3.1.7 or later is required to compile GHC.])])[]
+fi
 AlexVersion=$fptools_cv_alex_version;
 AC_SUBST(AlexVersion)
 ])
@@ -1972,7 +1977,7 @@ AC_DEFUN([GHC_LLVM_TARGET], [
     # for the LLVM Target. Otherwise these would be
     # turned into just `-linux` and fail to be found
     # in the `llvm-targets` file.
-    *-android*|*-gnueabi*)
+    *-android*|*-gnueabi*|*-musleabi*)
       GHC_CONVERT_VENDOR([$2],[llvm_target_vendor])
       llvm_target_os="$3"
       ;;

@@ -112,6 +112,7 @@
          ({ <no location info> }
           []))))]
      []
+     []
      [])
    ,(TyClGroup
      (NoExtField)
@@ -231,6 +232,7 @@
               {Name: DumpRenamedAst.Peano})))))
          (Nothing))))]
      []
+     []
      [])
    ,(TyClGroup
      (NoExtField)
@@ -276,6 +278,7 @@
                  ({ DumpRenamedAst.hs:15:30-33 }
                   {Name: GHC.Types.Type})))))))))
          (Nothing))))]
+     []
      []
      [({ DumpRenamedAst.hs:(18,1)-(19,45) }
        (DataFamInstD
@@ -514,6 +517,7 @@
          ({ <no location info> }
           []))))]
      []
+     []
      [])
    ,(TyClGroup
      (NoExtField)
@@ -636,6 +640,7 @@
              ({ DumpRenamedAst.hs:23:45-48 }
               {Name: GHC.Types.Type})))))
          (Nothing))))]
+     []
      []
      [])]
    []

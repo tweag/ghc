@@ -64,7 +64,7 @@ import MkId
 import TysWiredIn ( unitTy, mkListTy )
 import Plugins
 import DynFlags
-import HsSyn
+import GHC.Hs
 import IfaceSyn ( ShowSub(..), showToHeader )
 import IfaceType( ShowForAllFlag(..) )
 import PatSyn( pprPatSynType )
@@ -134,7 +134,7 @@ import Bag
 import Inst (tcGetInsts)
 import qualified GHC.LanguageExtensions as LangExt
 import Data.Data ( Data )
-import HsDumpAst
+import GHC.Hs.Dump
 import qualified Data.Set as S
 
 import Control.DeepSeq
@@ -271,8 +271,10 @@ tcRnModuleTcRnM hsc_env mod_sum
                       ; tcg_env <- tcRnExports explicit_mod_hdr export_ies
                                      tcg_env
                       ; traceRn "rn4b: after exports" empty
-                      ; -- Check main is exported(must be after tcRnExports)
-                        checkMainExported tcg_env
+                      ; -- When a module header is specified,
+                        -- check that the main module exports a main function.
+                        -- (must be after tcRnExports)
+                        when explicit_mod_hdr $ checkMainExported tcg_env
                       ; -- Compare hi-boot iface (if any) with the real thing
                         -- Must be done after processing the exports
                         tcg_env <- checkHiBootIface tcg_env boot_info
@@ -1801,11 +1803,10 @@ checkMainExported tcg_env
       Just main_name ->
          do { dflags <- getDynFlags
             ; let main_mod = mainModIs dflags
-            ; when (ghcLink dflags /= LinkInMemory) $      -- #11647
-                checkTc (main_name `elem`
+            ; checkTc (main_name `elem`
                            concatMap availNames (tcg_exports tcg_env)) $
-                   text "The" <+> ppMainFn (nameRdrName main_name) <+>
-                   text "is not exported by module" <+> quotes (ppr main_mod) }
+                text "The" <+> ppMainFn (nameRdrName main_name) <+>
+                text "is not exported by module" <+> quotes (ppr main_mod) }
 
 ppMainFn :: RdrName -> SDoc
 ppMainFn main_fn
@@ -1888,7 +1889,8 @@ runTcInteractive hsc_env thing_inside
                          , tcg_imports      = imports
                          }
 
-       ; lcl_env' <- tcExtendLocalTypeEnv lcl_env lcl_ids
+             lcl_env' = tcExtendLocalTypeEnv lcl_env lcl_ids
+
        ; setEnvs (gbl_env', lcl_env') thing_inside }
   where
     (home_insts, home_fam_insts) = hptInstances hsc_env (\_ -> True)
@@ -1930,9 +1932,8 @@ types have free RuntimeUnk skolem variables, standing for unknown
 types.  If we don't register these free TyVars as global TyVars then
 the typechecker will try to quantify over them and fall over in
 skolemiseQuantifiedTyVar. so we must add any free TyVars to the
-typechecker's global TyVar set.  That is most conveniently by using
-tcExtendLocalTypeEnv, which automatically extends the global TyVar
-set.
+typechecker's global TyVar set.  That is done by using
+tcExtendLocalTypeEnv.
 
 We do this by splitting out the Ids with open types, using 'is_closed'
 to do the partition.  The top-level things go in the global TypeEnv;
@@ -2432,6 +2433,8 @@ tcRnType hsc_env flexi normalise rdr_type
                   -- generalisation; e.g.   :kind (T _)
        ; failIfErrsM
 
+        -- We follow Note [Recipe for checking a signature] in TcHsType here
+
         -- Now kind-check the type
         -- It can have any rank or kind
         -- First bring into scope any wildcards
@@ -2445,8 +2448,7 @@ tcRnType hsc_env flexi normalise rdr_type
                           ; tcLHsTypeUnsaturated rn_type }
 
        -- Do kind generalisation; see Note [Kind-generalise in tcRnType]
-       ; kind <- zonkTcType kind
-       ; kvs <- kindGeneralize kind
+       ; kvs <- kindGeneralizeAll kind
        ; e <- mkEmptyZonkEnv flexi
 
        ; ty  <- zonkTcTypeToTypeX e ty

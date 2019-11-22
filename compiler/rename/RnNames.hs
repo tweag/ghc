@@ -32,7 +32,7 @@ module RnNames (
 import GhcPrelude
 
 import DynFlags
-import HsSyn
+import GHC.Hs
 import TcEnv
 import RnEnv
 import RnFixity
@@ -393,8 +393,8 @@ calculateAvails :: DynFlags
 calculateAvails dflags iface mod_safe' want_boot imported_by =
   let imp_mod    = mi_module iface
       imp_sem_mod= mi_semantic_module iface
-      orph_iface = mi_orphan iface
-      has_finsts = mi_finsts iface
+      orph_iface = mi_orphan (mi_final_exts iface)
+      has_finsts = mi_finsts (mi_final_exts iface)
       deps       = mi_deps iface
       trust      = getSafeMode $ mi_trust iface
       trust_pkg  = mi_trust_pkg iface
@@ -607,7 +607,7 @@ extendGlobalRdrEnvRn avails new_fixities
     getLocalDeclBindersd@ returns the names for an HsDecl
              It's used for source code.
 
-        *** See Note [The Naming story] in HsDecls ****
+        *** See Note [The Naming story] in GHC.Hs.Decls ****
 *                                                                      *
 ********************************************************************* -}
 

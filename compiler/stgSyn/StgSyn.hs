@@ -435,7 +435,7 @@ data StgPass
   | LiftLams
   | CodeGen
 
--- | Like 'HsExtension.NoExtField', but with an 'Outputable' instance that
+-- | Like 'GHC.Hs.Extension.NoExtField', but with an 'Outputable' instance that
 -- returns 'empty'.
 data NoExtFieldSilent = NoExtFieldSilent
   deriving (Data, Eq, Ord)
@@ -447,8 +447,8 @@ instance Outputable NoExtFieldSilent where
 -- not appear in pretty-printed output at all.
 noExtFieldSilent :: NoExtFieldSilent
 noExtFieldSilent = NoExtFieldSilent
--- TODO: Maybe move this to HsExtension? I'm not sure about the implications
--- on build time...
+-- TODO: Maybe move this to GHC.Hs.Extension? I'm not sure about the
+-- implications on build time...
 
 -- TODO: Do we really want to the extension point type families to have a closed
 -- domain?
@@ -676,7 +676,7 @@ data StgOp
   | StgFCallOp ForeignCall Type
         -- The Type, which is obtained from the foreign import declaration
         -- itself, is needed by the stg-to-cmm pass to determine the offset to
-        -- apply to unlifted boxed arguments in StgCmmForeign. See Note
+        -- apply to unlifted boxed arguments in GHC.StgToCmm.Foreign. See Note
         -- [Unlifted boxed arguments to foreign calls]
 
 {-

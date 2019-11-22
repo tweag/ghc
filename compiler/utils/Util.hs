@@ -10,9 +10,12 @@
 --
 module Util (
         -- * Flags dependent on the compiler build
-        ghciSupported, debugIsOn, ncgDebugIsOn,
+        ghciSupported, debugIsOn,
         ghciTablesNextToCode,
         isWindowsHost, isDarwinHost,
+
+        -- * Miscellaneous higher-order functions
+        applyWhen, nTimes,
 
         -- * General list processing
         zipEqual, zipWithEqual, zipWith3Equal, zipWith4Equal,
@@ -56,9 +59,6 @@ module Util (
         -- * List operations controlled by another list
         takeList, dropList, splitAtList, split,
         dropTail, capitalise,
-
-        -- * For loop
-        nTimes,
 
         -- * Sorting
         sortWith, minWith, nubSort, ordNub,
@@ -198,13 +198,6 @@ debugIsOn = True
 debugIsOn = False
 #endif
 
-ncgDebugIsOn :: Bool
-#if defined(NCG_DEBUG)
-ncgDebugIsOn = True
-#else
-ncgDebugIsOn = False
-#endif
-
 ghciTablesNextToCode :: Bool
 #if defined(GHCI_TABLES_NEXT_TO_CODE)
 ghciTablesNextToCode = True
@@ -229,12 +222,17 @@ isDarwinHost = False
 {-
 ************************************************************************
 *                                                                      *
-\subsection{A for loop}
+\subsection{Miscellaneous higher-order functions}
 *                                                                      *
 ************************************************************************
 -}
 
--- | Compose a function with itself n times.  (nth rather than twice)
+-- | Apply a function iff some condition is met.
+applyWhen :: Bool -> (a -> a) -> a -> a
+applyWhen True f x = f x
+applyWhen _    _ x = x
+
+-- | A for loop: Compose a function with itself n times.  (nth rather than twice)
 nTimes :: Int -> (a -> a) -> (a -> a)
 nTimes 0 _ = id
 nTimes 1 f = f

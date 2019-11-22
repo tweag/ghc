@@ -26,7 +26,7 @@ import GhcPrelude
 
 import RnBinds   ( rnLocalBindsAndThen, rnLocalValBindsLHS, rnLocalValBindsRHS,
                    rnMatchGroup, rnGRHS, makeMiniFixityEnv)
-import HsSyn
+import GHC.Hs
 import TcEnv            ( isBrackStage )
 import TcRnMonad
 import Module           ( getModule )
@@ -121,11 +121,14 @@ rnUnboundVar v
 rnExpr (HsVar _ (L l v))
   = do { opt_DuplicateRecordFields <- xoptM LangExt.DuplicateRecordFields
        ; mb_name <- lookupOccRn_overloaded opt_DuplicateRecordFields v
+       ; dflags <- getDynFlags
        ; case mb_name of {
            Nothing -> rnUnboundVar v ;
            Just (Left name)
               | name == nilDataConName -- Treat [] as an ExplicitList, so that
                                        -- OverloadedLists works correctly
+                                       -- Note [Empty lists] in GHC.Hs.Expr
+              , xopt LangExt.OverloadedLists dflags
               -> rnExpr (ExplicitList noExtField Nothing [])
 
               | otherwise
@@ -208,8 +211,6 @@ rnExpr (NegApp _ e _)
 
 ------------------------------------------
 -- Template Haskell extensions
--- Don't ifdef-HAVE_INTERPRETER them because we want to fail gracefully
--- (not with an rnExpr crash) in a stage-1 compiler.
 rnExpr e@(HsBracket _ br_body) = rnBracket e br_body
 
 rnExpr (HsSpliceE _ splice) = rnSpliceExpr splice
@@ -916,7 +917,7 @@ rnStmt ctxt _ (L loc (TransStmt { trS_stmts = stmts, trS_by = by, trS_form = for
        ; let all_fvs  = fvs1 `plusFV` fvs2 `plusFV` fvs3
                              `plusFV` fvs4 `plusFV` fvs5
              bndr_map = used_bndrs `zip` used_bndrs
-             -- See Note [TransStmt binder map] in HsExpr
+             -- See Note [TransStmt binder map] in GHC.Hs.Expr
 
        ; traceRn "rnStmt: implicitly rebound these used binders:" (ppr bndr_map)
        ; return (([(L loc (TransStmt { trS_ext = noExtField

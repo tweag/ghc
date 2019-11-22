@@ -33,13 +33,13 @@ import GhcPrelude
 
 import TcRnMonad
 import TcEnv
-import TcBinds( tcValBinds, addTypecheckedBinds )
+import TcBinds( tcValBinds )
 import TyCoRep( Type(..), Coercion(..), MCoercion(..), UnivCoProvenance(..) )
 import Multiplicity
 import TcType
 import TysWiredIn( unitTy )
 import MkCore( rEC_SEL_ERROR_ID )
-import HsSyn
+import GHC.Hs
 import Class
 import Type
 import HscTypes

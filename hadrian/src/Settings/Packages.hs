@@ -79,7 +79,6 @@ packageArgs = do
           , builder (Cabal Flags) ? mconcat
             [ ghcWithNativeCodeGen ? arg "ncg"
             , ghcWithInterpreter ? notStage0 ? arg "ghci"
-            , notStage0 ? not windowsHost ? notM cross ? arg "ext-interp"
             , cross ? arg "-terminfo"
             , notStage0 ? intLib == integerGmp ?
               arg "integer-gmp"
@@ -94,7 +93,6 @@ packageArgs = do
 
           , builder (Cabal Flags) ? mconcat
             [ ghcWithInterpreter ? notStage0 ? arg "ghci"
-            , notStage0 ? not windowsHost ? notM cross ? arg "ext-interp"
             , cross ? arg "-terminfo"
             -- the 'threaded' flag is True by default, but
             -- let's record explicitly that we link all ghc
@@ -128,8 +126,6 @@ packageArgs = do
         -- behind the @-fghci@ flag.
         , package ghci ? mconcat
           [ notStage0 ? builder (Cabal Flags) ? arg "ghci"
-          , notStage0 ? builder (Cabal Flags) ? not windowsHost ? notM cross
-                      ? arg "ext-interp"
           , cross ? stage0 ? builder (Cabal Flags) ? arg "ghci" ]
 
         -------------------------------- haddock -------------------------------
@@ -276,7 +272,7 @@ rtsPackageArgs = package rts ? do
             , inputs ["**/Compact.c"] ? arg "-Wno-inline"
 
             -- emits warnings about call-clobbered registers on x86_64
-            , inputs [ "**/RetainerProfile.c", "**/StgCRun.c"
+            , inputs [ "**/StgCRun.c"
                      , "**/win32/ConsoleHandler.c", "**/win32/ThrIOManager.c"] ? arg "-w"
             -- The above warning suppression flags are a temporary kludge.
             -- While working on this module you are encouraged to remove it and fix
