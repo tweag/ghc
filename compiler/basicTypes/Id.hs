@@ -303,7 +303,12 @@ mkLocalCoVar name ty
 -- | Like 'mkLocalId', but checks the type to see if it should make a covar
 mkLocalIdOrCoVar :: Name -> Mult -> Type -> Id
 mkLocalIdOrCoVar name w ty
-  | isCoVarType ty = ASSERT(eqType w Omega) mkLocalCoVar name   ty
+  -- We should ASSERT(eqType w Omega) in the isCoVarType case.
+  -- However, currently this assertion does not hold.
+  -- In tests with -fdefer-type-errors, such as T14584a,
+  -- we create a linear 'case' where the scrutinee is a coercion
+  -- (see castBottomExpr). This problem is covered by #17291.
+  | isCoVarType ty = mkLocalCoVar name   ty
   | otherwise      = mkLocalId    name w ty
 
 -- | Make a local id, with the IdDetails set to CoVarId if the type indicates
