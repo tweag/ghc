@@ -1387,8 +1387,8 @@ simplLam env (bndr:bndrs) body (ApplyToVal { sc_arg = arg, sc_env = arg_se
   = do  { tick (BetaReduction bndr)
         ; simplNonRecE env zapped_bndr (arg, arg_se) (bndrs, body) cont }
   where
-    zapped_bndr  -- See Note [Zap unfolding when beta-reducing]
-      | isId bndr = zapStableUnfolding bndr
+    zapped_bndr
+      | isId bndr, isStableUnfolding (realIdUnfolding bndr) = pprPanic "zapped_bndr" (ppr bndr)
       | otherwise = bndr
 
       -- Discard a non-counting tick on a lambda.  This may change the
@@ -1529,19 +1529,6 @@ simplify BIG True; maybe good things happen.  That is why
     - In rebuildCall we avoid simplifying arguments before we have to
       (see Note [Trying rewrite rules])
 
-
-Note [Zap unfolding when beta-reducing]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Lambda-bound variables can have stable unfoldings, such as
-   $j = \x. \b{Unf=Just x}. e
-See Note [Case binders and join points] below; the unfolding for lets
-us optimise e better.  However when we beta-reduce it we want to
-revert to using the actual value, otherwise we can end up in the
-stupid situation of
-          let x = blah in
-          let b{Unf=Just x} = y
-          in ...b...
-Here it'd be far better to drop the unfolding and use the actual RHS.
 
 ************************************************************************
 *                                                                      *
@@ -3256,6 +3243,8 @@ See #4957 a fuller example.
 
 Note [Case binders and join points]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TODO update
+
 Consider this
    case (case .. ) of c {
      I# c# -> ....c....
@@ -3283,9 +3272,6 @@ So instead we do both: we pass 'c' and 'c#' , and record in c's inlining
    $j = \c# -> \c[=I# c#] -> ...c....
 
 Absence analysis may later discard 'c'.
-
-NB: take great care when doing strictness analysis;
-    see Note [Lambda-bound unfoldings] in DmdAnal.
 
 Also note that we can still end up passing stuff that isn't used.  Before
 strictness analysis we have

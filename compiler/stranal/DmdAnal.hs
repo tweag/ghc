@@ -988,7 +988,6 @@ annotateLamIdBndr env arg_of_dfun dmd_ty id
     -- pprTrace "annLamBndr" (vcat [ppr id, ppr _dmd_ty]) $
     (final_ty, setIdDemandInfo id dmd)
   where
-      -- Watch out!  See note [Lambda-bound unfoldings]
     final_ty = case maybeUnfoldingTemplate (idUnfolding id) of
                  Nothing  -> main_ty
                  Just unf -> pprPanic "lambda-bound unfolding" (ppr id <+> ppr unf)
