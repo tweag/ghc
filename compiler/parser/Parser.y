@@ -543,7 +543,7 @@ are the most common patterns, rewritten as regular expressions for clarity:
  '|'            { L _ ITvbar }
  '<-'           { L _ (ITlarrow _) }
  '->'           { L _ (ITrarrow _) }
- '->.'          { L _ (ITlolly _) }
+ '#->'          { L _ (ITlolly _) }
  '-->.'         { L _ (ITlolly2) }
  '@'            { L _ ITat }
  '~'            { L _ ITtilde }
@@ -1987,7 +1987,7 @@ type :: { LHsType GhcPs }
                                        >> ams (sLL $1 $> $ HsFunTy noExtField HsUnrestrictedArrow $1 $3)
                                               [mu AnnRarrow $2] }
 
-        | btype '->.' ctype             {% hintLinear (getLoc $2) >>
+        | btype '#->' ctype             {% hintLinear (getLoc $2) >>
                                          ams (sLL $1 $> $ HsFunTy noExtField HsLinearArrow $1 $3)
                                              [mu AnnRarrow $2] }
         | btype '-->.' '(' mult ')' ctype  {% hintLinear (getLoc $2) >>
@@ -2010,10 +2010,10 @@ typedoc :: { LHsType GhcPs }
                                                  HsFunTy noExtField HsUnrestrictedArrow
                                                          (cL (comb2 $1 $2) (HsDocTy noExtField $1 $2)) $4)
                                                 [mu AnnRarrow $3] }
-        | btype '->.'     ctypedoc       {% hintLinear (getLoc $2) >>
+        | btype '#->'     ctypedoc       {% hintLinear (getLoc $2) >>
                                            ams (sLL $1 $> $ HsFunTy noExtField HsLinearArrow $1 $3)
                                                 [mu AnnRarrow $2] }
-        | btype docprev '->.' ctypedoc   {% hintLinear (getLoc $2) >>
+        | btype docprev '#->' ctypedoc   {% hintLinear (getLoc $2) >>
                                            ams (sLL $1 $> $
                                                  HsFunTy noExtField HsLinearArrow
                                                          (cL (comb2 $1 $2) (HsDocTy noExtField $1 $2)) $4)

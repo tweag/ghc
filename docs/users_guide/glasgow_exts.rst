@@ -13058,7 +13058,7 @@ Linear types
 
     :since: 8.10.1
 
-    Enable the linear arrow ``a ->. b`` and the multiplicity-polymorphic arrow
+    Enable the linear arrow ``a #-> b`` and the multiplicity-polymorphic arrow
     ``a -->.(m) b``.
 
 The linear types extension enables support for linear functions, as described
@@ -13067,7 +13067,7 @@ in the paper "`Linear Haskell: practical linearity in a higher-order polymorphic
 and GHC proposal "`Linear types <https://github.com/ghc-proposals/ghc-proposals/pull/111>`__".
 
 This extension adds a linear variant of the normal function arrow ``a -> b``
-written as ``a ->. b``. In brief, the right hand side of a linear function
+written as ``a #-> b``. In brief, the right hand side of a linear function
 must consume its argument exactly once. This can be achieved:
 
 - by returning the argument unmodified,
@@ -13076,9 +13076,9 @@ must consume its argument exactly once. This can be achieved:
   every field exactly once,
 - for functions, by calling and consuming the result of the call exactly once.
 
-If :extension:`UnicodeSyntax` is enabled, the ``->.`` arrow can be written as ``⊸``.
+If :extension:`UnicodeSyntax` is enabled, the ``#->`` arrow can be written as ``⊸``.
 
-To allow uniform handling of linear ``a ->. b`` and unrestricted ``a -> b``
+To allow uniform handling of linear ``a #-> b`` and unrestricted ``a -> b``
 functions, there is a new function type ``a -->.(m) b``. Here, ``m`` is a type
 of new kind ``Multiplicity``. We have:
 
@@ -13086,8 +13086,8 @@ of new kind ``Multiplicity``. We have:
 
     data Multiplicity = One | Omega  -- Defined in GHC.Types
 
-    type a ->. b = a -->.('One)   b
-    type a ->  b = a -->.('Omega) b
+    type a #-> b = a -->.('One)   b
+    type a  -> b = a -->.('Omega) b
 
 (See :ref:`promotion`).
 
@@ -13122,10 +13122,10 @@ the value ``MkT1 x`` can be constructed and deconstructed in a linear context:
 
 ::
 
-    construct :: a ->. MkT1 a
+    construct :: a #-> MkT1 a
     construct x = MkT1 x
 
-    deconstruct :: MkT1 a ->. a
+    deconstruct :: MkT1 a #-> a
     deconstruct (MkT1 x) = x  -- must consume `x` exactly once
 
 This behavior can be customized using the GADT syntax. Given
@@ -13133,7 +13133,7 @@ This behavior can be customized using the GADT syntax. Given
 ::
 
     data T2 a b c where
-        MkT2 :: a -> b ->. c ->. T2 a b  -- Note unrestricted arrow in the first argument
+        MkT2 :: a -> b #-> c #-> T2 a b  -- Note unrestricted arrow in the first argument
 
 the value ``MkT2 x y z`` can be constructed only if ``x`` is available
 in an unrestricted context. On the other hand, a linear function which
@@ -13142,10 +13142,10 @@ but there is no restriction on ``x``.
 
 For backwards compatibility, constructors using linear fields are generalized
 to multiplicity-polymorphic functions. For example, the type of ``MkT1`` is
-``a ->.(n) MkT1 a``. The additional multiplicity argument ``n`` is marked as
+``a -->.(n) MkT1 a``. The additional multiplicity argument ``n`` is marked as
 inferred (see :ref:`inferred-vs-specified`), so that there is no conflict with visible
 type application. If there are multiple linear fields, each one gets a corresponding
-multiplicity variable; for example, ``MkT2 :: a ->. b -->.(n) -->.(o) T2 a b c``.
+multiplicity variable; for example, ``MkT2 :: a #-> b -->.(n) -->.(o) T2 a b c``.
 
 If :extension:`LinearTypes` is disabled, all fields are considered to be linear
 fields, including GADT fields defined with the ``->`` arrow. This does not change

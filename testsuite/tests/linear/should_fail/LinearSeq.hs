@@ -2,5 +2,5 @@
 
 module LinearSeq where
 
-bad :: a ->. ()
+bad :: a #-> ()
 bad x = seq x ()

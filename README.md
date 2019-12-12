@@ -118,14 +118,14 @@ to use it.
 
 Use `-XLinearTypes` to activate the extension. This adds the following syntax:
 
-* `a ->. b` for linear functions
+* `a #-> b` for linear functions
 * `a ⊸ b` for linear functions, if `-XUnicodeSyntax` is on
 * `a -->.(p) b` for functions of multiplicity `p :: Multiplicity`. This type
   is defined in `GHC.Types`.
 
 The syntax is not final and subject to change. The last type is highly experimental and expected to break in many cases.
 
-GADT constructors can use the unrestricted `->` and linear `->.` arrows.
+GADT constructors can use the unrestricted `->` and linear `#->` arrows.
 
 When writing a function, you declare in the types which arguments are to be
 checked for linearity. If you do not treat these as such in your

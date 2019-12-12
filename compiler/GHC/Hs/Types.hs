@@ -782,7 +782,7 @@ data HsArrow pass
   = HsUnrestrictedArrow
     -- ^ a -> b
   | HsLinearArrow
-    -- ^ a ->. b
+    -- ^ a #-> b
   | HsExplicitMult (LHsType pass)
     -- ^ a -->.(m) b (very much including `a -->.(Omega) b`! This is how the
     -- programmer wrote it). It is stored as an `HsType` so as to preserve the

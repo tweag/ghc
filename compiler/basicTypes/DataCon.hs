@@ -1287,16 +1287,16 @@ dataConStupidTheta dc = dcStupidTheta dc
 Note [Displaying linear fields]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 A constructor with a linear field can be written either as
-MkT :: a ->. T a (with -XLinearTypes)
+MkT :: a #-> T a (with -XLinearTypes)
 or
-MkT :: a ->  T a (with -XNoLinearTypes)
+MkT :: a  -> T a (with -XNoLinearTypes)
 
 There are two different methods to retrieve a type of a datacon.
 They differ in how linear fields are handled.
 
 1. dataConWrapperType:
 The type of the wrapper in Core.
-For example, dataConWrapperType for Maybe is a ->. Just a.
+For example, dataConWrapperType for Maybe is a #-> Just a.
 
 2. dataConDisplayType:
 The type we'd like to show in error messages, :info and -ddump-types.

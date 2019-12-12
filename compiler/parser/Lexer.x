@@ -914,7 +914,7 @@ reservedSymsFM = listToUFM $
        ,("←",   ITlarrow UnicodeSyntax,     UnicodeSyntax, 0 )
 
        ,("-->.", ITlolly2, NormalSyntax, 0)
-       ,("->.", ITlolly NormalSyntax, NormalSyntax, 0)
+       ,("#->", ITlolly NormalSyntax, NormalSyntax, 0)
        ,("⊸",   ITlolly UnicodeSyntax, UnicodeSyntax, 0)
 
        ,("⤙",   ITlarrowtail UnicodeSyntax, UnicodeSyntax, xbit ArrowsBit)
