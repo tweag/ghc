@@ -363,7 +363,7 @@ Note [Scaling join point arguments]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Consider a join point which is linear in its variable, in some context E:
 
-E[join j :: a ->. a
+E[join j :: a #-> a
        j x = x
   in case v of
        A -> j 'x'
@@ -371,7 +371,7 @@ E[join j :: a ->. a
 
 The simplifier changes to:
 
-join j :: a ->. a
+join j :: a #-> a
      j x = E[x]
 in case v of
      A -> j 'x'
@@ -2552,7 +2552,7 @@ rebuildCase env scrut case_bndr alts cont
      --
      -- As an illustration, consider the following
      --   case[Omega] case[1] of { C x -> C x } of { C x -> (x, x) }
-     -- Where C :: A ->. T is linear
+     -- Where C :: A #-> T is linear
      -- If we were to produce a case[1], like the inner case, we would get
      --   case[1] of { C x -> (x, x) }
      -- Which is ill-typed with respect to linearity. So it needs to be a

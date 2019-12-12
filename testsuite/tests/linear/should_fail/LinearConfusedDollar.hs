@@ -5,8 +5,8 @@ module LinearConfusedDollar where
 -- hold anymore. But, as it stands, it produces untyped desugared code, hence
 -- must be rejected.
 
-f :: a ->. a
+f :: a #-> a
 f x = x
 
-g :: a ->. a
+g :: a #-> a
 g x = f $ x
