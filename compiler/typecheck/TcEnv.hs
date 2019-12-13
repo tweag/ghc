@@ -34,7 +34,6 @@ module TcEnv(
         tcExtendIdEnv, tcExtendIdEnv1, tcExtendIdEnv2,
         tcExtendBinderStack, tcExtendLocalTypeEnv,
         isTypeClosedLetBndr,
-        tcEmitBindingUsage, tcCollectingUsage, tcScalingUsage,
         tcCheckUsage,
 
         tcLookup, tcLookupLocated, tcLookupLocalIds,
@@ -619,29 +618,6 @@ tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, TcTyThing)] -> TcLclEnv
 tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env }) tc_ty_things
   = lcl_env { tcl_env = extendNameEnvList lcl_type_env tc_ty_things }
 
--- | @tcCollectingUsage thing_inside@ runs @thing_inside@ and returns the usage
--- information which was collected as part of the execution of
--- @thing_inside@. Careful: @tcCollectingUsage thing_inside@ itself does not
--- report any usage information, it's up to the caller to incorporate the
--- returned usage information into the larger context appropriately.
-tcCollectingUsage :: TcM a -> TcM (UsageEnv,a)
-tcCollectingUsage thing_inside
-  = do { env0 <- getLclEnv
-       ; local_usage_ref <- newTcRef zeroUE
-       ; let env1 = env0 { tcl_usage = local_usage_ref }
-       ; result <- setLclEnv env1 thing_inside
-       ; local_usage <- readTcRef local_usage_ref
-       ; return (local_usage,result) }
-
--- | @tcScalingUsage mult thing_inside@ runs @thing_inside@ and scales all the
--- usage information by @mult@.
-tcScalingUsage :: Mult -> TcM a -> TcM a
-tcScalingUsage mult thing_inside
-  = do { (usage, result) <- tcCollectingUsage thing_inside
-       ; traceTc "tcScalingUsage" (ppr mult)
-       ; tcEmitBindingUsage $ scaleUE mult usage
-       ; return result }
-
 -- | @tcCheckUsage name mult thing_inside@ runs @thing_inside@,
 -- checks that the usage of @name@ is a submultiplicity of @mult@,
 -- and removes @name@ from the usage environment.
@@ -675,12 +651,6 @@ tcExtendBinderStack bndrs thing_inside
   = do { traceTc "tcExtendBinderStack" (ppr bndrs)
        ; updLclEnv (\env -> env { tcl_bndrs = bndrs ++ tcl_bndrs env })
                    thing_inside }
-
-tcEmitBindingUsage :: UsageEnv -> TcM ()
-tcEmitBindingUsage ue
-  = do { lcl_env <- getLclEnv
-       ; let usage = tcl_usage lcl_env
-       ; updTcRef usage (addUE ue) }
 
 tcInitTidyEnv :: TcM TidyEnv
 -- We initialise the "tidy-env", used for tidying types before printing,
