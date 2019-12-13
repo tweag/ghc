@@ -2307,11 +2307,11 @@ to work with Linear Lint:
 * Lambda-bound variables with unfoldings
   (see Note [Case binders and join points] and ticket #17530)
 * Optimisations can create a letrec which uses a variable linearly, e.g.
-  letrec f True = f False
-         f False = x
-  in f True
+    letrec f True = f False
+           f False = x
+    in f True
   uses 'x' linearly, but this is not seen by the linter.
-  Plan: make let-bound variables remember the used environment.
+  Plan: make let-bound variables remember the usage environment.
   See test LinearLetRec and https://github.com/tweag/ghc/issues/405.
 
 We plan to fix both of the issues in the very near future.
