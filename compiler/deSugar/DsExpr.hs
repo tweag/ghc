@@ -373,7 +373,7 @@ ds_expr _ e@(SectionR _ op expr) = do
     let (x_ty:y_ty:_, _) = splitFunTys (exprType core_op)
         -- See comment with SectionL
     y_core <- dsLExpr expr
-    dsWhenNoErrs (mapM (\(Scaled w ty) -> newSysLocalDsNoLP w ty) [x_ty, y_ty])
+    dsWhenNoErrs (newSysLocalsDsNoLP [x_ty, y_ty])
                  (\[x_id, y_id] -> bindNonRec y_id y_core $
                                    Lam x_id (mkCoreAppsDs (text "sectionr" <+> ppr e)
                                                           core_op [Var x_id, Var y_id]))

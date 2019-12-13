@@ -741,7 +741,7 @@ matchWrapper ctxt mb_scr (MG { mg_alts = (dL->L _ matches)
         ; locn   <- getSrcSpanDs
 
         ; new_vars    <- case matches of
-                           []    -> mapM (\(Scaled w ty) -> newSysLocalDsNoLP w ty) arg_tys
+                           []    -> newSysLocalsDsNoLP arg_tys
                            (m:_) ->
                             selectMatchVars (zipWithEqual "matchWrapper"
                                               (\a b -> (scaledMult a, unLoc b))
