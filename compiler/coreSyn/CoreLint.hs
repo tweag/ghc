@@ -432,7 +432,7 @@ lintCoreBindings dflags pass local_in_scope binds
   where
     in_scope_set = mkInScopeSet (mkVarSet local_in_scope)
 
-    flags = defaultLintFlags
+    flags = (defaultLintFlags dflags)
                { lf_check_global_ids = check_globals
                , lf_check_inline_loop_breakers = check_lbs
                , lf_check_static_ptrs = check_static_ptrs }
@@ -507,7 +507,7 @@ lintUnfolding dflags locn vars expr
   | otherwise       = Just (pprMessageBag errs)
   where
     in_scope = mkInScopeSet vars
-    (_warns, errs) = initL dflags defaultLintFlags in_scope linter
+    (_warns, errs) = initL dflags (defaultLintFlags dflags) in_scope linter
     linter = addLoc (ImportedUnfolding locn) $
              lintCoreExpr expr
 
@@ -521,7 +521,7 @@ lintExpr dflags vars expr
   | otherwise       = Just (pprMessageBag errs)
   where
     in_scope = mkInScopeSet (mkVarSet vars)
-    (_warns, errs) = initL dflags defaultLintFlags in_scope linter
+    (_warns, errs) = initL dflags (defaultLintFlags dflags) in_scope linter
     linter = addLoc TopLevelBindings $
              lintCoreExpr expr
 
@@ -1421,7 +1421,7 @@ lintTypes dflags vars tys
   | otherwise       = Just (pprMessageBag errs)
   where
     in_scope = emptyInScopeSet
-    (_warns, errs) = initL dflags defaultLintFlags in_scope linter
+    (_warns, errs) = initL dflags (defaultLintFlags dflags) in_scope linter
     linter = lintBinders LambdaBind vars $ \_ ->
              mapM_ lintInTy tys
 
@@ -2203,6 +2203,7 @@ data LintFlags
        , lf_check_inline_loop_breakers :: Bool -- See Note [Checking for INLINE loop breakers]
        , lf_check_static_ptrs :: StaticPtrCheck -- ^ See Note [Checking StaticPtrs]
        , lf_report_unsat_syns :: Bool -- ^ See Note [Linting type synonym applications]
+       , lf_check_linearity :: Bool -- ^ See Note [Linting linearity]
     }
 
 -- See Note [Checking StaticPtrs]
@@ -2215,12 +2216,13 @@ data StaticPtrCheck
         -- ^ Reject any 'makeStatic' occurrence.
   deriving Eq
 
-defaultLintFlags :: LintFlags
-defaultLintFlags = LF { lf_check_global_ids = False
-                      , lf_check_inline_loop_breakers = True
-                      , lf_check_static_ptrs = AllowAnywhere
-                      , lf_report_unsat_syns = True
-                      }
+defaultLintFlags :: DynFlags -> LintFlags
+defaultLintFlags dflags = LF { lf_check_global_ids = False
+                             , lf_check_inline_loop_breakers = True
+                             , lf_check_static_ptrs = AllowAnywhere
+                             , lf_check_linearity = gopt Opt_DoLinearCoreLinting dflags
+                             , lf_report_unsat_syns = True
+                             }
 
 newtype LintM a =
    LintM { unLintM ::
@@ -2296,6 +2298,25 @@ we behave as follows (#15057, #T15664):
 * If lf_report_unsat_syns is on, expand the synonym application and
   lint the result.  Reason: want to check that synonyms are saturated
   when the type is expanded.
+
+Note [Linting linearity]
+~~~~~~~~~~~~~~~~~~~~~~~~
+There are two known optimisations that have not yet been updated
+to work with Linear Lint:
+
+* Lambda-bound variables with unfoldings
+  (see Note [Case binders and join points] and ticket #17530)
+* Optimisations can create a letrec which uses a variable linearly, e.g.
+    letrec f True = f False
+           f False = x
+    in f True
+  uses 'x' linearly, but this is not seen by the linter.
+  Plan: make let-bound variables remember the usage environment.
+  See test LinearLetRec and https://github.com/tweag/ghc/issues/405.
+
+We plan to fix both of the issues in the very near future.
+For now, linear Lint is disabled by default and
+has to be enabled manually with -dlinear-core-lint.
 -}
 
 instance Applicative LintM where
@@ -2533,8 +2554,9 @@ ensureSubUsage Zero       described_mult err_msg = ensureSubMult Omega described
 ensureSubUsage (MUsage m) described_mult err_msg = ensureSubMult m described_mult err_msg
 
 ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()
-ensureSubMult actual_usage described_usage err_msg =
-    case actual_usage' `submult` described_usage' of
+ensureSubMult actual_usage described_usage err_msg = do
+    flags <- getLintFlags
+    when (lf_check_linearity flags) $ case actual_usage' `submult` described_usage' of
       Submult -> return ()
       Unknown -> case actual_usage' of
                      MultMul m1 m2 -> ensureSubMult m1 described_usage' err_msg >>
@@ -2546,10 +2568,7 @@ ensureSubMult actual_usage described_usage err_msg =
 
          -- TODO: try reduceTyFamApp_maybe
          normalize :: Mult -> Mult
-         normalize (MultMul m1 m2) = case (normalize m1, normalize m2) of
-                                       (Omega, _) -> Omega
-                                       (_, Omega) -> Omega
-                                       (p, q) -> mkMultMul p q
+         normalize (MultMul m1 m2) = mkMultMul (normalize m1) (normalize m2)
          normalize m = m
 
 lintRole :: Outputable thing
