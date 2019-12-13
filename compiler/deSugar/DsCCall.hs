@@ -151,10 +151,7 @@ unboxArg arg
   = do dflags <- getDynFlags
        prim_arg <- newSysLocalDs Omega intPrimTy
        return (Var prim_arg,
-              \ body -> Case (mkWildCase arg (linear arg_ty) intPrimTy
-                                       [(DataAlt falseDataCon,[],mkIntLit dflags 0),
-                                        (DataAlt trueDataCon, [],mkIntLit dflags 1)])
-                                        -- In increasing tag order!
+              \ body -> Case (mkIfThenElse arg (mkIntLit dflags 1) (mkIntLit dflags 0))
                              prim_arg
                              (exprType body)
                              [(DEFAULT,[],body)])
