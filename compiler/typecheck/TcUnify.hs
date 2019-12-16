@@ -322,10 +322,12 @@ matchActualFunTysPart herald ct_orig mb_thing arity orig_ty
     ------------
     defer n fun_ty
       = do { arg_tys <- replicateM n newOpenFlexiTyVarTy
+           ; mults <- replicateM n (newFlexiTyVarTy multiplicityTy)
            ; res_ty  <- newOpenFlexiTyVarTy
-           ; let unif_fun_ty = mkVisFunTysOm arg_tys res_ty
+           ; let scaled_arg_tys = zipWith mkScaled mults arg_tys
+           ; let unif_fun_ty = mkVisFunTys scaled_arg_tys res_ty
            ; co <- unifyType mb_thing fun_ty unif_fun_ty
-           ; return (mkWpCastN co, map unrestricted arg_tys, res_ty) }
+           ; return (mkWpCastN co, scaled_arg_tys, res_ty) }
 
     ------------
     mk_ctxt :: [Scaled TcSigmaType] -> TcSigmaType -> TidyEnv -> TcM (TidyEnv, MsgDoc)
