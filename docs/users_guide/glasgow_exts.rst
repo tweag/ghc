@@ -13086,7 +13086,7 @@ of new kind ``Multiplicity``. We have:
 
     data Multiplicity = One | Many  -- Defined in GHC.Types
 
-    type a #-> b = a -->.('One)   b
+    type a #-> b = a -->.('One)  b
     type a  -> b = a -->.('Many) b
 
 (See :ref:`promotion`).

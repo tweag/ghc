@@ -125,10 +125,10 @@ instance Outputable IsSubmult where
 
 submult :: Mult -> Mult -> IsSubmult
 submult _     Many = Submult
-submult One   One   = Submult
+submult One   One  = Submult
 -- The 1 <= p rule
-submult One   _     = Submult
-submult _     _     = Unknown
+submult One   _    = Submult
+submult _     _    = Unknown
 
 --
 -- * Utilities

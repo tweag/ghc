@@ -241,7 +241,7 @@ D {{ tex \Delta }} :: 'LintM_JoinBindings_' ::= {{ com List of join bindings, \c
   | empty                    :: M :: Empty     {{ com Empty context }}
   | labels_of binding        :: M :: LabelsOf  {{ com \coderef{coreSyn/CoreSyn.hs}{bindersOf} }}
 
-O {{ tex \Many }} :: 'VarEnv_Role_' ::= {{ com Mapping from type variables to roles }}
+O {{ tex \Omega }} :: 'VarEnv_Role_' ::= {{ com Mapping from type variables to roles }}
   | </ ni : Ri // i />       ::   :: List      {{ com List of bindings }}
   | O1 , O2                  :: M :: Concat    {{ com Concatenate two lists }}
 
