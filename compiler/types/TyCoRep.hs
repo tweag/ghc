@@ -55,8 +55,8 @@ module TyCoRep (
         mkPiTy, mkPiTys,
         mkFunTyMany,
         mkScaledFunTy,
-        mkVisFunTyMany, mkVisFunTysOm,
-        mkInvisFunTyMany, mkInvisFunTysOm,
+        mkVisFunTyMany, mkVisFunTysMany,
+        mkInvisFunTyMany, mkInvisFunTysMany,
 
         kindRep_maybe, kindRep,
         isLiftedTypeKind, isUnliftedTypeKind,
@@ -966,11 +966,11 @@ mkInvisFunTyMany = mkInvisFunTy Many
 mkVisFunTys :: [Scaled Type] -> Type -> Type
 mkVisFunTys tys ty = foldr (mkScaledFunTy VisArg) ty tys
 
-mkVisFunTysOm :: [Type] -> Type -> Type
-mkVisFunTysOm tys ty = foldr mkVisFunTyMany ty tys
+mkVisFunTysMany :: [Type] -> Type -> Type
+mkVisFunTysMany tys ty = foldr mkVisFunTyMany ty tys
 
-mkInvisFunTysOm :: [Type] -> Type -> Type
-mkInvisFunTysOm tys ty = foldr mkInvisFunTyMany ty tys
+mkInvisFunTysMany :: [Type] -> Type -> Type
+mkInvisFunTysMany tys ty = foldr mkInvisFunTyMany ty tys
 
 -- | Like 'mkTyCoForAllTy', but does not check the occurrence of the binder
 -- See Note [Unused coercion variable in ForAllTy]

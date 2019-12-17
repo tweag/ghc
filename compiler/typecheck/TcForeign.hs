@@ -256,7 +256,7 @@ tcCheckFIType arg_tys res_ty (CImport (L lc cconv) safety mh l@(CLabel _) src)
   = do checkCg checkCOrAsmOrLlvmOrInterp
        -- NB check res_ty not sig_ty!
        --    In case sig_ty is (forall a. ForeignPtr a)
-       check (isFFILabelTy (mkVisFunTysOm arg_tys res_ty)) (illegalForeignTyErr Outputable.empty)
+       check (isFFILabelTy (mkVisFunTysMany arg_tys res_ty)) (illegalForeignTyErr Outputable.empty)
        cconv' <- checkCConv cconv
        return (CImport (L lc cconv') safety mh l src)
 
@@ -286,7 +286,7 @@ tcCheckFIType arg_tys res_ty idecl@(CImport (L lc cconv) (L ls safety) mh
           addErrTc (illegalForeignTyErr Outputable.empty (text "At least one argument expected"))
         (arg1_ty:arg_tys) -> do
           dflags <- getDynFlags
-          let curried_res_ty = mkVisFunTysOm arg_tys res_ty
+          let curried_res_ty = mkVisFunTysMany arg_tys res_ty
           check (isFFIDynTy curried_res_ty arg1_ty)
                 (illegalForeignTyErr argument)
           checkForeignArgs (isFFIArgumentTy dflags safety) arg_tys

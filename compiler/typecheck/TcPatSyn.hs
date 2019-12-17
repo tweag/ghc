@@ -700,7 +700,7 @@ tcPatSynMatcher (dL->L loc name) lpat
                | is_unlifted = ([nlHsVar voidPrimId], [voidPrimTy])
                | otherwise   = (args,                 arg_tys)
              cont_ty = mkInfSigmaTy ex_tvs prov_theta $
-                       mkVisFunTysOm cont_arg_tys res_ty
+                       mkVisFunTysMany cont_arg_tys res_ty
 
              fail_ty  = mkVisFunTyMany voidPrimTy res_ty
 
@@ -709,7 +709,7 @@ tcPatSynMatcher (dL->L loc name) lpat
        ; cont         <- newSysLocalId (fsLit "cont")  Many cont_ty
        ; fail         <- newSysLocalId (fsLit "fail")  Many fail_ty
 
-       ; let matcher_tau   = mkVisFunTysOm [pat_ty, cont_ty, fail_ty] res_ty
+       ; let matcher_tau   = mkVisFunTysMany [pat_ty, cont_ty, fail_ty] res_ty
              matcher_sigma = mkInfSigmaTy (rr_tv:res_tv:univ_tvs) req_theta matcher_tau
              matcher_id    = mkExportedVanillaId matcher_name matcher_sigma
                              -- See Note [Exported LocalIds] in Id
@@ -799,7 +799,7 @@ mkPatSynBuilderId dir (dL->L _ name)
                               mkForAllTys univ_bndrs $
                               mkForAllTys ex_bndrs $
                               mkPhiTy theta $
-                              mkVisFunTysOm arg_tys $
+                              mkVisFunTysMany arg_tys $
                               pat_ty
              builder_id     = mkExportedVanillaId builder_name builder_sigma
               -- See Note [Exported LocalIds] in Id

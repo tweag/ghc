@@ -468,7 +468,7 @@ builtInKindReps :: [(Kind, Name)]
 builtInKindReps =
     [ (star, starKindRepName)
     , (mkVisFunTyMany star star, starArrStarKindRepName)
-    , (mkVisFunTysOm [star, star] star, starArrStarArrStarKindRepName)
+    , (mkVisFunTysMany [star, star] star, starArrStarArrStarKindRepName)
     ]
   where
     star = liftedTypeKind

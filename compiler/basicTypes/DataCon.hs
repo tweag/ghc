@@ -1331,7 +1331,7 @@ dataConWrapperType (MkData { dcUserTyVarBinders = user_tvbs,
                              dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                              dcOrigResTy = res_ty })
   = mkForAllTys user_tvbs $
-    mkInvisFunTysOm theta $
+    mkInvisFunTysMany theta $
     mkVisFunTys arg_tys $
     res_ty
 
@@ -1343,7 +1343,7 @@ dataConDisplayType dflags (MkData { dcUserTyVarBinders = user_tvbs,
         arg_tys' | lin = arg_tys
                  | otherwise = (map (\(Scaled w t) -> case w of One -> Scaled Many t; _ -> Scaled w t) arg_tys)
     in mkForAllTys user_tvbs $
-       mkInvisFunTysOm theta $
+       mkInvisFunTysMany theta $
        mkVisFunTys arg_tys' $
        res_ty
 

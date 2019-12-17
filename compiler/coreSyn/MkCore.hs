@@ -645,7 +645,7 @@ mkBuildExpr :: (MonadFail.MonadFail m, MonadThings m, MonadUnique m)
 mkBuildExpr elt_ty mk_build_inside = do
     [n_tyvar] <- newTyVars [alphaTyVar]
     let n_ty = mkTyVarTy n_tyvar
-        c_ty = mkVisFunTysOm [elt_ty, n_ty] n_ty
+        c_ty = mkVisFunTysMany [elt_ty, n_ty] n_ty
     [c, n] <- sequence [mkSysLocalM (fsLit "c") Many c_ty, mkSysLocalM (fsLit "n") Many n_ty]
 
     build_inside <- mk_build_inside (c, c_ty) (n, n_ty)

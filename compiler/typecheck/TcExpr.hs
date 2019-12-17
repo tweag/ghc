@@ -1900,7 +1900,7 @@ tc_infer_id lbl id_name
                             wrap2 = mkWpTyLams $ binderVars tvs
                         in return ( mkHsWrap (wrap2 <.> eta_wrap <.> wrap1)
                                              (HsConLikeOut noExtField (RealDataCon con))
-                                  , mkForAllTys tvs $ mkInvisFunTysOm theta $ mkVisFunTys scaled_arg_tys res)
+                                  , mkForAllTys tvs $ mkInvisFunTysMany theta $ mkVisFunTys scaled_arg_tys res)
            }
 
     check_naughty id

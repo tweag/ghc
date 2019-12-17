@@ -30,7 +30,7 @@ module Type (
         mkVisFunTy, mkInvisFunTy,
         mkVisFunTys,
         mkVisFunTyMany, mkInvisFunTyMany,
-        mkVisFunTysOm, mkInvisFunTysOm,
+        mkVisFunTysMany, mkInvisFunTysMany,
         splitFunTy, splitFunTy_maybe,
         splitFunTys, funResultTy, funArgTy,
 

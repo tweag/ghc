@@ -996,7 +996,7 @@ tcApplicativeStmts ctxt pairs rhs_ty thing_inside
       ; ts <- replicateM (arity-1) $ newInferExpTypeInst
       ; exp_tys <- replicateM arity $ newFlexiTyVarTy liftedTypeKind
       ; pat_tys <- replicateM arity $ newFlexiTyVarTy liftedTypeKind
-      ; let fun_ty = mkVisFunTysOm pat_tys body_ty
+      ; let fun_ty = mkVisFunTysMany pat_tys body_ty
 
        -- NB. do the <$>,<*> operators first, we don't want type errors here
        --     i.e. goOps before goArgs
