@@ -135,22 +135,22 @@ implementation, the type checker will nag on you:
 λ> let frugal :: a ⊸ (a,a); frugal a = (a,a)
 
 <interactive>:2:33: error:
-    • Couldn't match expected multiplicity ‘1’ of variable ‘a’ with actual multiplicity ‘Omega’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘a’ with actual multiplicity ‘Many’
     • In an equation for ‘frugal’: frugal a = (a, a)
 
 
 λ> let wasteful :: a ⊸ b ⊸ a; wasteful a b = a
 
 <interactive>:3:39: error:
-    • Couldn't match expected multiplicity ‘1’ of variable ‘b’ with actual multiplicity ‘Omega’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘b’ with actual multiplicity ‘Many’
     • In an equation for ‘wasteful’: wasteful a b = a
 ```
 
 As you can see, the type checker gives some hints on _how_ you treated your
-variable wrongly, multiplicity `Omega` means it was used more than once, or a
+variable wrongly, multiplicity `Many` means it was used more than once, or a
 varying number in different code branches.
 
-This `expected ‘1’ but actually ‘Omega’`-error also occurs when the variables are
+This `expected ‘1’ but actually ‘Many’`-error also occurs when the variables are
 passed to unrestricted functions, this is not always very obvious so be
 mindful of that possibility:
 
@@ -158,7 +158,7 @@ mindful of that possibility:
 λ> let plus1 :: Int ⊸ Int; plus1 x = x + 1
 
 <interactive>:12:31: error:
-    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Omega’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Many’
     • In an equation for ‘plus1’: plus1 x = x + 1
 ```
 
@@ -196,14 +196,14 @@ The probably most noteworthy things are `case` and `let`:
 λ> let f :: a ⊸ a; f x = case x of x -> x
 
 <interactive>:27:19: error:
-    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Omega’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Many’
     • In an equation for ‘f’: f x = case x of { x -> x }
 
 
 λ> let f :: a ⊸ a; f x = let y = x in y
 
 <interactive>:28:19: error:
-    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Omega’
+    • Couldn't match expected multiplicity ‘1’ of variable ‘x’ with actual multiplicity ‘Many’
     • In an equation for ‘f’: f x = let y = x in y
 ```
 

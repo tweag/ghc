@@ -2069,9 +2069,9 @@ typeLitNatDataConKey      = mkPreludeDataConUnique 113
 
 -- Multiplicity
 
-oneDataConKey, omegaDataConKey :: Unique
+oneDataConKey, manyDataConKey :: Unique
 oneDataConKey = mkPreludeDataConUnique 115
-omegaDataConKey = mkPreludeDataConUnique 116
+manyDataConKey = mkPreludeDataConUnique 116
 
 
 

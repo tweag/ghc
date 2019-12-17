@@ -29,8 +29,8 @@ module Type (
 
         mkVisFunTy, mkInvisFunTy,
         mkVisFunTys,
-        mkVisFunTyOm, mkInvisFunTyOm,
-        mkVisFunTysOm, mkInvisFunTysOm,
+        mkVisFunTyMany, mkInvisFunTyMany,
+        mkVisFunTysMany, mkInvisFunTysMany,
         splitFunTy, splitFunTy_maybe,
         splitFunTys, funResultTy, funArgTy,
 
@@ -1363,7 +1363,7 @@ mkTyCoInvForAllTy :: TyCoVar -> Type -> Type
 mkTyCoInvForAllTy tv ty
   | isCoVar tv
   , not (tv `elemVarSet` tyCoVarsOfType ty)
-  = mkVisFunTyOm (varType tv) ty
+  = mkVisFunTyMany (varType tv) ty
   | otherwise
   = ForAllTy (Bndr tv Inferred) ty
 
@@ -1416,7 +1416,7 @@ mkLamType v body_ty
    = ForAllTy (Bndr v Required) body_ty
 
    | isPredTy arg_ty  -- See Note [mkLamType: dictionary arguments]
-   = ASSERT(eqType arg_mult Omega)
+   = ASSERT(eqType arg_mult Many)
      mkInvisFunTy arg_mult arg_ty body_ty
 
    | otherwise

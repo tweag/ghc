@@ -135,7 +135,7 @@ module TyCon(
 
 import GhcPrelude
 
-import {-# SOURCE #-} TyCoRep    ( Kind, Type, PredType, mkForAllTy, mkFunTyOm )
+import {-# SOURCE #-} TyCoRep    ( Kind, Type, PredType, mkForAllTy, mkFunTyMany )
 import {-# SOURCE #-} TyCoPpr    ( pprType )
 import {-# SOURCE #-} TysWiredIn ( runtimeRepTyCon, constraintKind
                                  , multiplicityTyCon
@@ -485,7 +485,7 @@ mkTyConKind :: [TyConBinder] -> Kind -> Kind
 mkTyConKind bndrs res_kind = foldr mk res_kind bndrs
   where
     mk :: TyConBinder -> Kind -> Kind
-    mk (Bndr tv (AnonTCB af))   k = mkFunTyOm af (varType tv) k
+    mk (Bndr tv (AnonTCB af))   k = mkFunTyMany af (varType tv) k
     mk (Bndr tv (NamedTCB vis)) k = mkForAllTy tv vis k
 
 tyConTyVarBinders :: [TyConBinder]   -- From the TyCon

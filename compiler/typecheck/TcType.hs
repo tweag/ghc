@@ -135,7 +135,7 @@ module TcType (
   mkForAllTy, mkForAllTys, mkTyCoInvForAllTys, mkSpecForAllTys, mkTyCoInvForAllTy,
   mkInvForAllTy, mkInvForAllTys,
   mkVisFunTy, mkVisFunTys, mkInvisFunTy,
-  mkVisFunTyOm, mkVisFunTysOm, mkInvisFunTysOm,
+  mkVisFunTyMany, mkVisFunTysMany, mkInvisFunTysMany,
   mkTyConApp, mkAppTy, mkAppTys,
   mkTyConTy, mkTyVarTy, mkTyVarTys,
   mkTyCoVarTy, mkTyCoVarTys,
@@ -1216,7 +1216,7 @@ mkSpecSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
 mkSpecSigmaTy tyvars preds ty = mkSigmaTy (mkTyCoVarBinders Specified tyvars) preds ty
 
 mkPhiTy :: [PredType] -> Type -> Type
-mkPhiTy = mkInvisFunTysOm
+mkPhiTy = mkInvisFunTysMany
 
 ---------------
 getDFunTyKey :: Type -> OccName -- Get some string from a type, to be used to

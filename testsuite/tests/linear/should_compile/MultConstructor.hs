@@ -8,6 +8,6 @@ data T p a where
 
 {-
 this currently fails
-g :: forall (b :: Type). T 'Omega b #-> (b,b)
+g :: forall (b :: Type). T 'Many b #-> (b,b)
 g (MkT x) = (x,x)
 -}

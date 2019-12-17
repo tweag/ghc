@@ -3,7 +3,7 @@ import CoreSyn
 import CoreUtils
 import Id
 import Type
-import Multiplicity ( pattern Omega )
+import Multiplicity ( pattern Many )
 import MkCore
 import CallArity (callArityRHS)
 import MkId
@@ -28,16 +28,16 @@ import FastString
 go, go2, x, d, n, y, z, scrutf, scruta :: Id
 [go, go2, x,d, n, y, z, scrutf, scruta, f] = mkTestIds
     (words "go go2 x d n y z scrutf scruta f")
-    [ mkVisFunTysOm [intTy, intTy] intTy
-    , mkVisFunTysOm [intTy, intTy] intTy
+    [ mkVisFunTysMany [intTy, intTy] intTy
+    , mkVisFunTysMany [intTy, intTy] intTy
     , intTy
-    , mkVisFunTysOm [intTy] intTy
-    , mkVisFunTysOm [intTy] intTy
+    , mkVisFunTysMany [intTy] intTy
+    , mkVisFunTysMany [intTy] intTy
     , intTy
     , intTy
-    , mkVisFunTysOm [boolTy] boolTy
+    , mkVisFunTysMany [boolTy] boolTy
     , boolTy
-    , mkVisFunTysOm [intTy, intTy] intTy -- protoypical external function
+    , mkVisFunTysMany [intTy, intTy] intTy -- protoypical external function
     ]
 
 exprs :: [(String, CoreExpr)]
@@ -189,7 +189,7 @@ mkLApps v = mkApps (Var v) . map mkLit
 mkACase = mkIfThenElse (mkVarApps (Var scrutf) [scruta])
 
 mkTestId :: Int -> String -> Type -> Id
-mkTestId i s ty = mkSysLocal (mkFastString s) (mkBuiltinUnique i) Omega ty
+mkTestId i s ty = mkSysLocal (mkFastString s) (mkBuiltinUnique i) Many ty
 
 mkTestIds :: [String] -> [Type] -> [Id]
 mkTestIds ns tys = zipWith3 mkTestId [0..] ns tys

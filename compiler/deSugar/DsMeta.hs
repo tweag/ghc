@@ -47,7 +47,7 @@ import NameEnv
 import TcType
 import TyCon
 import TysWiredIn
-import Multiplicity ( pattern Omega )
+import Multiplicity ( pattern Many )
 import CoreSyn
 import MkCore
 import CoreUtils
@@ -1164,7 +1164,7 @@ repTy (HsFunTy _ w f a) | isUnrestricted w = do
                                 a1   <- repLTy a
                                 tcon <- repArrowTyCon
                                 repTapps tcon [f1, a1]
-repTy ty@(HsFunTy _ _ _ _) = notHandled "Function with non-Omega multiplicity" (ppr ty)
+repTy ty@(HsFunTy _ _ _ _) = notHandled "Function with non-Many multiplicity" (ppr ty)
 repTy (HsListTy _ t)        = do
                                 t1   <- repLTy t
                                 tcon <- repListTyCon
@@ -1887,7 +1887,7 @@ mkGenSyms :: [Name] -> DsM [GenSymBind]
 --
 -- Nevertheless, it's monadic because we have to generate nameTy
 mkGenSyms ns = do { var_ty <- lookupType nameTyConName
-                  ; return [(nm, mkLocalId (localiseName nm) Omega var_ty) | nm <- ns] }
+                  ; return [(nm, mkLocalId (localiseName nm) Many var_ty) | nm <- ns] }
 
 
 addBinds :: [GenSymBind] -> DsM a -> DsM a

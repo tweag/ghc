@@ -405,7 +405,7 @@ mkDictSelId name clas
     val_index      = assoc "MkId.mkDictSelId" (sel_names `zip` [0..]) name
 
     sel_ty = mkForAllTys tyvars $
-             mkInvisFunTyOm (mkClassPred clas (mkTyVarTys (binderVars tyvars))) $
+             mkInvisFunTyMany (mkClassPred clas (mkTyVarTys (binderVars tyvars))) $
              scaledThing (getNth arg_tys val_index)
 
     base_info = noCafIdInfo
@@ -1214,7 +1214,7 @@ mkPrimOpId prim_op
   = id
   where
     (tyvars,arg_tys,res_ty, arity, strict_sig) = primOpSig prim_op
-    ty   = mkSpecForAllTys tyvars (mkVisFunTysOm arg_tys res_ty)
+    ty   = mkSpecForAllTys tyvars (mkVisFunTysMany arg_tys res_ty)
     name = mkWiredInName gHC_PRIM (primOpOcc prim_op)
                          (mkPrimOpIdUnique (primOpTag prim_op))
                          (AnId id) UserSyntax
@@ -1374,7 +1374,7 @@ unsafeCoerceId
 
     [_, _, a, b] = mkTyVarTys bndrs
 
-    ty  = mkSpecForAllTys bndrs (mkVisFunTyOm a b)
+    ty  = mkSpecForAllTys bndrs (mkVisFunTyMany a b)
 
     [x] = mkTemplateLocals [a]
     rhs = mkLams (bndrs ++ [x]) $
@@ -1408,7 +1408,7 @@ seqId = pcMiscPrelId seqName ty info
                   -- see Note [seqId magic]
 
     ty  = mkSpecForAllTys [alphaTyVar,betaTyVar]
-                          (mkVisFunTyOm alphaTy (mkVisFunTyOm betaTy betaTy))
+                          (mkVisFunTyMany alphaTy (mkVisFunTyMany betaTy betaTy))
 
     [x,y] = mkTemplateLocals [alphaTy, betaTy]
     rhs = mkLams [alphaTyVar,betaTyVar,x,y] (Case (Var x) x betaTy [(DEFAULT, [], Var y)])
@@ -1418,13 +1418,13 @@ lazyId :: Id    -- See Note [lazyId magic]
 lazyId = pcMiscPrelId lazyIdName ty info
   where
     info = noCafIdInfo `setNeverLevPoly` ty
-    ty  = mkSpecForAllTys [alphaTyVar] (mkVisFunTyOm alphaTy alphaTy)
+    ty  = mkSpecForAllTys [alphaTyVar] (mkVisFunTyMany alphaTy alphaTy)
 
 noinlineId :: Id -- See Note [noinlineId magic]
 noinlineId = pcMiscPrelId noinlineIdName ty info
   where
     info = noCafIdInfo `setNeverLevPoly` ty
-    ty  = mkSpecForAllTys [alphaTyVar] (mkVisFunTyOm alphaTy alphaTy)
+    ty  = mkSpecForAllTys [alphaTyVar] (mkVisFunTyMany alphaTy alphaTy)
 
 oneShotId :: Id -- See Note [The oneShot function]
 oneShotId = pcMiscPrelId oneShotName ty info
@@ -1433,8 +1433,8 @@ oneShotId = pcMiscPrelId oneShotName ty info
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
     ty  = mkSpecForAllTys [ runtimeRep1TyVar, runtimeRep2TyVar
                           , openAlphaTyVar, openBetaTyVar ]
-                          (mkVisFunTyOm fun_ty fun_ty)
-    fun_ty = mkVisFunTyOm openAlphaTy openBetaTy
+                          (mkVisFunTyMany fun_ty fun_ty)
+    fun_ty = mkVisFunTyMany openAlphaTy openBetaTy
     [body, x] = mkTemplateLocals [fun_ty, openAlphaTy]
     x' = setOneShotLambda x  -- Here is the magic bit!
     rhs = mkLams [ runtimeRep1TyVar, runtimeRep2TyVar
@@ -1463,8 +1463,8 @@ coerceId = pcMiscPrelId coerceName ty info
                             , Bndr av Specified
                             , Bndr bv Specified
                             ] $
-                mkInvisFunTyOm eqRTy $
-                mkVisFunTyOm a b
+                mkInvisFunTyMany eqRTy $
+                mkVisFunTyMany a b
 
     bndrs@[rv,av,bv] = mkTemplateKiTyVar runtimeRepTy
                         (\r -> [tYPE r, tYPE r])
@@ -1706,7 +1706,7 @@ voidPrimId  = pcMiscPrelId voidPrimIdName voidPrimTy
                              `setNeverLevPoly`  voidPrimTy)
 
 voidArgId :: Id       -- Local lambda-bound :: Void#
-voidArgId = mkSysLocal (fsLit "void") voidArgIdKey Omega voidPrimTy
+voidArgId = mkSysLocal (fsLit "void") voidArgIdKey Many voidPrimTy
 
 coercionTokenId :: Id         -- :: () ~ ()
 coercionTokenId -- Used to replace Coercion terms when we go to STG

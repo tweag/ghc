@@ -467,8 +467,8 @@ liftTc = KindRepM . lift
 builtInKindReps :: [(Kind, Name)]
 builtInKindReps =
     [ (star, starKindRepName)
-    , (mkVisFunTyOm star star, starArrStarKindRepName)
-    , (mkVisFunTysOm [star, star] star, starArrStarArrStarKindRepName)
+    , (mkVisFunTyMany star star, starArrStarKindRepName)
+    , (mkVisFunTysMany [star, star] star, starArrStarArrStarKindRepName)
     ]
   where
     star = liftedTypeKind
@@ -538,7 +538,7 @@ getKindRep stuff@(Stuff {..}) in_scope = go
       = do -- Place a NOINLINE pragma on KindReps since they tend to be quite
            -- large and bloat interface files.
            rep_bndr <- (`setInlinePragma` neverInlinePragma)
-                   <$> newSysLocalId (fsLit "$krep") Omega (mkTyConTy kindRepTyCon)
+                   <$> newSysLocalId (fsLit "$krep") Many (mkTyConTy kindRepTyCon)
 
            -- do we need to tie a knot here?
            flip runStateT env $ unKindRepM $ do

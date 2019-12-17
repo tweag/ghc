@@ -321,8 +321,8 @@ tc_lpats penv pats tys thing_inside
                 penv thing_inside
 
 --------------------
-checkOmegaPattern :: Scaled a -> TcM HsWrapper
-checkOmegaPattern pat_ty = tcSubMult NonLinearPatternOrigin Omega (scaledMult pat_ty)
+checkManyPattern :: Scaled a -> TcM HsWrapper
+checkManyPattern pat_ty = tcSubMult NonLinearPatternOrigin Many (scaledMult pat_ty)
 
 tc_pat  :: PatEnv
         -> Pat GhcRn
@@ -347,7 +347,7 @@ tc_pat penv (BangPat x pat) pat_ty thing_inside
         ; return (BangPat x pat', res) }
 
 tc_pat penv (LazyPat x pat) pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty
+  = do  { mult_wrap <- checkManyPattern pat_ty
         ; (pat', (res, pat_ct))
                 <- tc_lpat pat pat_ty (makeLazy penv) $
                    captureConstraints thing_inside
@@ -364,14 +364,14 @@ tc_pat penv (LazyPat x pat) pat_ty thing_inside
         ; return (mkHsWrapPat mult_wrap (LazyPat x pat') pat_ty, res) }
 
 tc_pat _ (WildPat _) pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty
+  = do  { mult_wrap <- checkManyPattern pat_ty
         ; res <- thing_inside
         ; pat_ty <- expTypeToType (scaledThing pat_ty)
         ; return (mkHsWrapPat mult_wrap (WildPat pat_ty) pat_ty, res) }
 
 
 tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty
+  = do  { mult_wrap <- checkManyPattern pat_ty
         ; (wrap, bndr_id) <- setSrcSpan nm_loc (tcPatBndr penv name pat_ty)
         ; (pat', res) <- tcExtendIdEnv1 name bndr_id $
                          tc_lpat pat (pat_ty `scaledSet`(mkCheckExpType $ idType bndr_id))
@@ -387,9 +387,9 @@ tc_pat penv (AsPat x (dL->L nm_loc name) pat) pat_ty thing_inside
         ; return (mkHsWrapPat (wrap <.> mult_wrap) (AsPat x (cL nm_loc bndr_id) pat') pat_ty, res) }
 
 tc_pat penv (ViewPat _ expr pat) overall_pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern overall_pat_ty
+  = do  { mult_wrap <- checkManyPattern overall_pat_ty
           -- It should be possible to have view patterns at linear (or otherwise
-          -- non-Omega) multiplicity. But it is not clear at the moment what
+          -- non-Many) multiplicity. But it is not clear at the moment what
           -- restriction need to be put in place, if any, for linear view
           -- patterns to desugar to type-correct Core.
 
@@ -538,7 +538,7 @@ tc_pat penv (LitPat x simple_lit) pat_ty thing_inside
 --
 -- When there is no negation, neg_lit_ty and lit_ty are the same
 tc_pat _ (NPat _ (dL->L l over_lit) mb_neg eq) pat_ty thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty
+  = do  { mult_wrap <- checkManyPattern pat_ty
           -- It may be possible to refine linear pattern so that they work in
           -- linear environments. But it is not clear how useful this is.
         ; let orig = LiteralOrigin over_lit
@@ -593,7 +593,7 @@ AST is used for the subtraction operation.
 
 -- See Note [NPlusK patterns]
 tc_pat penv (NPlusKPat _ (dL->L nm_loc name) (dL->L loc lit) _ ge minus) pat_ty_scaled thing_inside
-  = do  { mult_wrap <- checkOmegaPattern pat_ty_scaled
+  = do  { mult_wrap <- checkManyPattern pat_ty_scaled
         ; pat_ty <- expTypeToType (scaledThing pat_ty_scaled)
         ; let orig = LiteralOrigin lit
         ; (lit1', ge')
@@ -857,7 +857,7 @@ tcPatSynPat penv (dL->L con_span _) pat_syn pat_ty arg_pats thing_inside
               prov_theta' = substTheta tenv prov_theta
               req_theta'  = substTheta tenv req_theta
 
-        ; mult_wrap <- checkOmegaPattern pat_ty
+        ; mult_wrap <- checkManyPattern pat_ty
 
         ; wrap <- tcSubTypePat penv (scaledThing pat_ty) ty'
         ; traceTc "tcPatSynPat" (ppr pat_syn $$

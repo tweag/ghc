@@ -91,7 +91,7 @@ import Name( Name, NamedThing(getName) )
 import RdrName ( RdrName )
 import DataCon( HsSrcBang(..), HsImplBang(..),
                 SrcStrictness(..), SrcUnpackedness(..) )
-import TysWiredIn( unrestrictedFunTyConName, omegaDataConName, oneDataConName )
+import TysWiredIn( unrestrictedFunTyConName, manyDataConName, oneDataConName )
 import Type
 import GHC.Hs.Doc
 import BasicTypes
@@ -770,11 +770,11 @@ data HsTyLit
 oneDataConHsTy :: HsType GhcRn
 oneDataConHsTy = HsTyVar noExtField NotPromoted (noLoc oneDataConName)
 
-omegaDataConHsTy :: HsType GhcRn
-omegaDataConHsTy = HsTyVar noExtField NotPromoted (noLoc omegaDataConName)
+manyDataConHsTy :: HsType GhcRn
+manyDataConHsTy = HsTyVar noExtField NotPromoted (noLoc manyDataConName)
 
 isUnrestricted :: HsArrow GhcRn -> Bool
-isUnrestricted (arrowToHsType -> L _ (HsTyVar _ _ (L _ n))) = n == omegaDataConName
+isUnrestricted (arrowToHsType -> L _ (HsTyVar _ _ (L _ n))) = n == manyDataConName
 isUnrestricted _ = False
 
 -- | Denotes the type of arrows in the surface language
@@ -784,7 +784,7 @@ data HsArrow pass
   | HsLinearArrow
     -- ^ a #-> b
   | HsExplicitMult (LHsType pass)
-    -- ^ a -->.(m) b (very much including `a -->.(Omega) b`! This is how the
+    -- ^ a -->.(m) b (very much including `a -->.(Many) b`! This is how the
     -- programmer wrote it). It is stored as an `HsType` so as to preserve the
     -- syntax as written in the program.
 
@@ -792,7 +792,7 @@ data HsArrow pass
 -- erases the information of whether the programmer wrote an explicit
 -- multiplicity or a shorthand.
 arrowToHsType :: HsArrow GhcRn -> LHsType GhcRn
-arrowToHsType HsUnrestrictedArrow = noLoc omegaDataConHsTy
+arrowToHsType HsUnrestrictedArrow = noLoc manyDataConHsTy
 arrowToHsType HsLinearArrow = noLoc oneDataConHsTy
 arrowToHsType (HsExplicitMult p) = p
 

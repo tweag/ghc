@@ -8,12 +8,12 @@ arrow (in the sense of linear types).
 
 Mult is a type synonym for Type, used only when its kind is Multiplicity.
 To simplify dealing with multiplicities, functions such as
-mkMultMul perform simplifications such as Omega * x = Omega on the fly.
+mkMultMul perform simplifications such as Many * x = Many on the fly.
 -}
 module Multiplicity
   ( Mult
   , pattern One
-  , pattern Omega
+  , pattern Many
   , pattern MultMul
   , mkMultAdd
   , mkMultMul
@@ -37,7 +37,7 @@ import GhcPrelude
 import Data.Data
 import Outputable
 import {-# SOURCE #-} TyCoRep (Type)
-import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy, multMulTyCon )
+import {-# SOURCE #-} TysWiredIn ( oneDataConTy, manyDataConTy, multMulTyCon )
 import {-# SOURCE #-} Type( eqType, splitTyConApp_maybe, mkTyConApp )
 import PrelNames (multMulTyConKey)
 import Unique (hasKey)
@@ -62,9 +62,9 @@ pattern One :: Mult
 pattern One <- (eqType oneDataConTy -> True)
   where One = oneDataConTy
 
-pattern Omega :: Mult
-pattern Omega <- (eqType omegaDataConTy -> True)
-  where Omega = omegaDataConTy
+pattern Many :: Mult
+pattern Many <- (eqType manyDataConTy -> True)
+  where Many = manyDataConTy
 
 isMultMul :: Mult -> Maybe (Mult, Mult)
 isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
@@ -91,16 +91,16 @@ enforce that that it is in the form of a sum of products, and even
 that the sumands and factors are ordered somehow, to have more equalities.
 -}
 
--- With only two multiplicities One and Omega, we can always replace
--- p + q by Omega.
+-- With only two multiplicities One and Many, we can always replace
+-- p + q by Many.
 mkMultAdd :: Mult -> Mult -> Mult
-mkMultAdd _ _ = Omega
+mkMultAdd _ _ = Many
 
 mkMultMul :: Mult -> Mult -> Mult
 mkMultMul One p = p
 mkMultMul p One = p
-mkMultMul Omega _ = Omega
-mkMultMul _ Omega = Omega
+mkMultMul Many _ = Many
+mkMultMul _ Many = Many
 mkMultMul p q = mkTyConApp multMulTyCon [p, q]
 
 -- | @mkMultSup w1 w2@ returns the smallest multiplicity larger than
@@ -124,11 +124,11 @@ instance Outputable IsSubmult where
 -- value of multiplicity @w2@ is expected. This is a partial order.
 
 submult :: Mult -> Mult -> IsSubmult
-submult _     Omega = Submult
-submult One   One   = Submult
+submult _     Many = Submult
+submult One   One  = Submult
 -- The 1 <= p rule
-submult One   _     = Submult
-submult _     _     = Unknown
+submult One   _    = Submult
+submult _     _    = Unknown
 
 --
 -- * Utilities
@@ -145,11 +145,11 @@ scaledThing :: Scaled a -> a
 scaledThing (Scaled _ t) = t
 
 unrestricted, linear, tymult :: a -> Scaled a
-unrestricted = Scaled Omega
+unrestricted = Scaled Many
 linear = Scaled One
 
 -- Used for type arguments in core
-tymult = Scaled Omega
+tymult = Scaled Many
 
 irrelevantMult :: Scaled a -> a
 irrelevantMult = scaledThing

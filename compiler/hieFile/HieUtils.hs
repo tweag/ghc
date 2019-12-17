@@ -82,8 +82,8 @@ hieTypeToIface = foldType go
     go (HLitTy l) = IfaceLitTy l
     go (HForAllTy ((n,k),af) t) = let b = (occNameFS $ getOccName n, k)
                                   in IfaceForAllTy (Bndr (IfaceTvBndr b) af) t
-    go (HFunTy w a b)   = IfaceFunTy VisArg   w        a    b
-    go (HQualTy pred b) = IfaceFunTy InvisArg omega_ty pred b
+    go (HFunTy w a b)   = IfaceFunTy VisArg   w       a    b
+    go (HQualTy pred b) = IfaceFunTy InvisArg many_ty pred b
     go (HCastTy a) = a
     go HCoercionTy = IfaceTyVar "<coercion type>"
     go (HTyConApp a xs) = IfaceTyConApp a (hieToIfaceArgs xs)
@@ -164,7 +164,7 @@ getTypeIndex t
       bi <- getTypeIndex b
       wi <- getTypeIndex w
       return $ case af of
-                 InvisArg -> case w of Omega -> HQualTy ai bi; _ -> error "Unexpected non-linear predicate"
+                 InvisArg -> case w of Many -> HQualTy ai bi; _ -> error "Unexpected non-linear predicate"
                  VisArg   -> HFunTy wi ai bi
     go (LitTy a) = return $ HLitTy $ toIfaceTyLit a
     go (CastTy t _) = do

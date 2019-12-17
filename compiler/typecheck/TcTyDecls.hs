@@ -876,10 +876,10 @@ mkOneRecordSelector all_cons idDetails fl
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
            | otherwise  = mkSpecForAllTys data_tvs          $
                           mkPhiTy (conLikeStupidTheta con1) $   -- Urgh!
-                          mkVisFunTyOm data_ty              $
-                            -- Record selectors are always typed with Omega. We
+                          mkVisFunTyMany data_ty            $
+                            -- Record selectors are always typed with Many. We
                             -- could improve on it in the case where all the
-                            -- fields in all the constructor have multiplicity Omega.
+                            -- fields in all the constructor have multiplicity Many.
                           mkSpecForAllTys field_tvs         $
                           mkPhiTy field_theta               $
                           -- req_theta is empty for normal DataCon

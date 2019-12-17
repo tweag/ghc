@@ -309,7 +309,7 @@ tc_cmd env cmd@(HsCmdArrForm x expr f fixity cmd_args) (cmd_stk, res_ty)
     do  { (cmd_args', cmd_tys) <- mapAndUnzipM tc_cmd_arg cmd_args
                               -- We use alphaTyVar for 'w'
         ; let e_ty = mkInvForAllTy alphaTyVar $
-                     mkVisFunTysOm cmd_tys $
+                     mkVisFunTysMany cmd_tys $
                      mkCmdArrTy env (mkPairTy alphaTy cmd_stk) res_ty
         ; expr' <- tcPolyExpr expr e_ty
         ; return (HsCmdArrForm x expr' f fixity cmd_args') }
@@ -378,7 +378,7 @@ tcArrDoStmt env ctxt (RecStmt { recS_stmts = stmts, recS_later_ids = later_names
                             , recS_rec_ids = rec_names }) res_ty thing_inside
   = do  { let tup_names = rec_names ++ filterOut (`elem` rec_names) later_names
         ; tup_elt_tys <- newFlexiTyVarTys (length tup_names) liftedTypeKind
-        ; let tup_ids = zipWith (\n p -> mkLocalId n Omega p) tup_names tup_elt_tys -- Omega because it's a recursive definition
+        ; let tup_ids = zipWith (\n p -> mkLocalId n Many p) tup_names tup_elt_tys -- Many because it's a recursive definition
         ; tcExtendIdEnv tup_ids $ do
         { (stmts', tup_rets)
                 <- tcStmtsAndThen ctxt (tcArrDoStmt env) stmts res_ty   $ \ _res_ty' ->
@@ -427,7 +427,7 @@ mkPairTy :: Type -> Type -> Type
 mkPairTy t1 t2 = mkTyConApp pairTyCon [t1,t2]
 
 arrowTyConKind :: Kind          --  *->*->*
-arrowTyConKind = mkVisFunTysOm [liftedTypeKind, liftedTypeKind] liftedTypeKind
+arrowTyConKind = mkVisFunTysMany [liftedTypeKind, liftedTypeKind] liftedTypeKind
 
 {-
 ************************************************************************

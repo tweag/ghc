@@ -185,7 +185,7 @@ mkValApp fun arg (Scaled w arg_ty) res_ty
 ********************************************************************* -}
 
 mkWildEvBinder :: PredType -> EvVar
-mkWildEvBinder pred = mkWildValBinder Omega pred
+mkWildEvBinder pred = mkWildValBinder Many pred
 
 -- | Make a /wildcard binder/. This is typically used when you need a binder
 -- that you expect to use only at a *binding* site.  Do not use it at
@@ -539,7 +539,7 @@ mkTupleCase uniqs vars body scrut_var scrut
 
     one_tuple_case chunk_vars (us, vs, body)
       = let (uniq, us') = takeUniqFromSupply us
-            scrut_var = mkSysLocal (fsLit "ds") uniq Omega
+            scrut_var = mkSysLocal (fsLit "ds") uniq Many
               (mkBoxedTupleTy (map idType chunk_vars))
             body' = mkSmallTupleCase chunk_vars body scrut_var (Var scrut_var)
         in (us', scrut_var:vs, body')
@@ -645,8 +645,8 @@ mkBuildExpr :: (MonadFail.MonadFail m, MonadThings m, MonadUnique m)
 mkBuildExpr elt_ty mk_build_inside = do
     [n_tyvar] <- newTyVars [alphaTyVar]
     let n_ty = mkTyVarTy n_tyvar
-        c_ty = mkVisFunTysOm [elt_ty, n_ty] n_ty
-    [c, n] <- sequence [mkSysLocalM (fsLit "c") Omega c_ty, mkSysLocalM (fsLit "n") Omega n_ty]
+        c_ty = mkVisFunTysMany [elt_ty, n_ty] n_ty
+    [c, n] <- sequence [mkSysLocalM (fsLit "c") Many c_ty, mkSysLocalM (fsLit "n") Many n_ty]
 
     build_inside <- mk_build_inside (c, c_ty) (n, n_ty)
 
@@ -827,7 +827,7 @@ runtimeErrorTy :: Type
 -- forall (rr :: RuntimeRep) (a :: rr). Addr# -> a
 --   See Note [Error and friends have an "open-tyvar" forall]
 runtimeErrorTy = mkSpecForAllTys [runtimeRep1TyVar, openAlphaTyVar]
-                                 (mkVisFunTyOm addrPrimTy openAlphaTy)
+                                 (mkVisFunTyMany addrPrimTy openAlphaTy)
 
 {- Note [Error and friends have an "open-tyvar" forall]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -917,7 +917,7 @@ be relying on anything from it.
 aBSENT_ERROR_ID
  = mkVanillaGlobalWithInfo absentErrorName absent_ty arity_info
  where
-   absent_ty = mkSpecForAllTys [alphaTyVar] (mkVisFunTyOm addrPrimTy alphaTy)
+   absent_ty = mkSpecForAllTys [alphaTyVar] (mkVisFunTyMany addrPrimTy alphaTy)
    -- Not runtime-rep polymorphic. aBSENT_ERROR_ID is only used for
    -- lifted-type things; see Note [Absent errors] in WwLib
    arity_info = vanillaIdInfo `setArityInfo` 1

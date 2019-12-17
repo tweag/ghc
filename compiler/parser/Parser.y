@@ -88,7 +88,7 @@ import TysPrim          ( eqPrimTyCon )
 import TysWiredIn       ( unitTyCon, unitDataCon, tupleTyCon, tupleDataCon, nilDataCon,
                           unboxedUnitTyCon, unboxedUnitDataCon,
                           listTyCon_RDR, consDataCon_RDR, eqTyCon_RDR,
-                          omegaDataConTyCon)
+                          manyDataConTyCon)
 
 -- compiler/utils
 import Util             ( looksLikePackageName, fstOf3, sndOf3, thdOf3 )

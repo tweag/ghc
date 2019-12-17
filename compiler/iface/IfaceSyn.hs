@@ -970,7 +970,7 @@ pprIfaceDecl _ (IfacePatSyn { ifName = name,
                              , ppWhen insert_empty_ctxt $ parens empty <+> darrow
                              , ex_msg
                              , pprIfaceContextArr prov_ctxt
-                             , pprIfaceType $ foldr (IfaceFunTy VisArg omega_ty) pat_ty arg_tys ])
+                             , pprIfaceType $ foldr (IfaceFunTy VisArg many_ty) pat_ty arg_tys ])
       where
         univ_msg = pprUserIfaceForAll univ_bndrs
         ex_msg   = pprUserIfaceForAll ex_bndrs

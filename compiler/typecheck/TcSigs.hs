@@ -224,8 +224,8 @@ tcUserTypeSig loc hs_sig_ty mb_name
   = do { sigma_ty <- tcHsSigWcType ctxt_F hs_sig_ty
        ; traceTc "tcuser" (ppr sigma_ty)
        ; return $
-         CompleteSig { sig_bndr  = mkLocalId name Omega sigma_ty
-                                   -- We use `Omega' as the multiplicity here,
+         CompleteSig { sig_bndr  = mkLocalId name Many sigma_ty
+                                   -- We use `Many' as the multiplicity here,
                                    -- as if this identifier corresponds to
                                    -- anything, it is a top-level
                                    -- definition. Which are all unrestricted in

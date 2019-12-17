@@ -635,7 +635,7 @@ tcCheckUsage name id_mult thing_inside
            ; traceTc "check_then_add_usage" (ppr id_mult $$ ppr actual_u)
            ; wrapper <- case actual_u of
                Bottom -> return idHsWrapper
-               Zero     -> tcSubMult (UsageEnvironmentOf name) Omega id_mult
+               Zero     -> tcSubMult (UsageEnvironmentOf name) Many id_mult
                MUsage m -> tcSubMult (UsageEnvironmentOf name) m id_mult
            ; tcEmitBindingUsage (deleteUE uenv name)
            ; return wrapper }

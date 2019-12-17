@@ -58,7 +58,7 @@ module IfaceType (
 
         mkIfaceTySubst, substIfaceTyVar, substIfaceAppArgs, inDomIfaceTySubst,
 
-        omega_ty
+        many_ty
     ) where
 
 #include "HsVersions.h"
@@ -66,7 +66,7 @@ module IfaceType (
 import GhcPrelude
 
 import {-# SOURCE #-} TysWiredIn ( coercibleTyCon, heqTyCon
-                                 , liftedRepDataConTyCon, omegaDataConTyCon
+                                 , liftedRepDataConTyCon, manyDataConTyCon
                                  , oneDataConTyCon )
 import {-# SOURCE #-} TyCoRep    ( isRuntimeRepTy, isMultiplicityTy )
 
@@ -187,7 +187,7 @@ mkIfaceTyConKind :: [IfaceTyConBinder] -> IfaceKind -> IfaceKind
 mkIfaceTyConKind bndrs res_kind = foldr mk res_kind bndrs
   where
     mk :: IfaceTyConBinder -> IfaceKind -> IfaceKind
-    mk (Bndr tv (AnonTCB af))   k = IfaceFunTy af omega_ty (ifaceBndrType tv) k
+    mk (Bndr tv (AnonTCB af))   k = IfaceFunTy af many_ty (ifaceBndrType tv) k
     mk (Bndr tv (NamedTCB vis)) k = IfaceForAllTy (Bndr tv vis) k
 
 -- | Stores the arguments in a type application as a list.
@@ -834,7 +834,7 @@ pprPrecIfaceType prec ty =
 ppr_fun_arrow :: IfaceMult -> SDoc
 ppr_fun_arrow w
   | (IfaceTyConApp tc _) <- w
-  , tc `ifaceTyConHasKey` (getUnique omegaDataConTyCon) = arrow
+  , tc `ifaceTyConHasKey` (getUnique manyDataConTyCon) = arrow
   | (IfaceTyConApp tc _) <- w
   , tc `ifaceTyConHasKey` (getUnique oneDataConTyCon) = lollipop
   | otherwise = mulArrow (pprIfaceType w)
@@ -919,7 +919,7 @@ syntactic overhead.
 For this reason it was decided that we would hide RuntimeRep variables
 for now (see #11549). We do this by defaulting all type variables of
 kind RuntimeRep to LiftedRep.
-Likewise, we default all Multiplicity variables to Omega.
+Likewise, we default all Multiplicity variables to Many.
 
 This is done in a pass right before pretty-printing
 (defaultNonStandardVars, controlled by
@@ -942,7 +942,7 @@ binder; ohly if so, convert free RuntimeRep variables to LiftedRep.
 -}
 
 -- | Default 'RuntimeRep' variables to 'LiftedPtr', and 'Multiplicity'
---   variables to 'Omega'. For example:
+--   variables to 'Many'. For example:
 --
 -- @
 -- ($) :: forall (r :: GHC.Types.RuntimeRep) a (b :: TYPE r).
@@ -987,7 +987,7 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
       | in_kind && do_runtimereps && TyCoRep.isRuntimeRepTy (tyVarKind tv)
       = liftedRep_ty
       | in_kind && do_multiplicities && TyCoRep.isMultiplicityTy (tyVarKind tv)
-      = omega_ty
+      = many_ty
       | otherwise
       = ty
 
@@ -1023,7 +1023,7 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
     check_substitution :: IfaceType -> Maybe IfaceType
     check_substitution (IfaceTyConApp tc _)
         | do_runtimereps, tc `ifaceTyConHasKey` runtimeRepTyConKey = Just liftedRep_ty
-        | do_multiplicities, tc `ifaceTyConHasKey` multiplicityTyConKey = Just omega_ty
+        | do_multiplicities, tc `ifaceTyConHasKey` multiplicityTyConKey = Just many_ty
     check_substitution _ = Nothing
 
 liftedRep_ty :: IfaceType
@@ -1032,11 +1032,11 @@ liftedRep_ty =
                   IA_Nil
   where dc_name = getName liftedRepDataConTyCon
 
-omega_ty :: IfaceType
-omega_ty =
+many_ty :: IfaceType
+many_ty =
     IfaceTyConApp (IfaceTyCon dc_name (IfaceTyConInfo IsPromoted IfaceNormalTyCon))
                   IA_Nil
-  where dc_name = getName omegaDataConTyCon
+  where dc_name = getName manyDataConTyCon
 
 hideNonStandardTypes :: (IfaceType -> SDoc) -> IfaceType -> SDoc
 hideNonStandardTypes f ty
@@ -1352,7 +1352,7 @@ pprTyTcApp' ctxt_prec tc tys dflags style
 
   | tc `ifaceTyConHasKey` funTyConKey
   , IA_Arg (IfaceTyConApp rep IA_Nil) Required args <- tys
-  , rep `ifaceTyConHasKey` omegaDataConKey
+  , rep `ifaceTyConHasKey` manyDataConKey
   = pprIfacePrefixApp ctxt_prec (parens arrow) (map (ppr_ty appPrec) (appArgsIfaceTypes $ stripInvisArgs dflags args))
 
   | otherwise

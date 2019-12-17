@@ -627,7 +627,7 @@ recoveryCode binder_names sig_fn
       , Just poly_id <- completeSigPolyId_maybe sig
       = poly_id
       | otherwise
-      = mkLocalId name Omega forall_a_a
+      = mkLocalId name Many forall_a_a
 
 forall_a_a :: TcType
 -- At one point I had (forall r (a :: TYPE r). a), but of course
@@ -918,7 +918,7 @@ mkInferredPolyId insoluble qtvs inferred_theta poly_name mb_sig_inst mono_ty
          -- do this check; otherwise (#14000) we may report an ambiguity
          -- error for a rather bogus type.
 
-       ; return (mkLocalIdOrCoVar poly_name Omega inferred_poly_ty) }
+       ; return (mkLocalIdOrCoVar poly_name Many inferred_poly_ty) }
 
 
 chooseInferredQuantifiers :: TcThetaType   -- inferred
@@ -1272,7 +1272,7 @@ tcMonoBinds is_rec sig_fn no_gen
                   -- type of the thing whose rhs we are type checking
                tcMatchesFun (cL nm_loc name) matches exp_ty
 
-        ; mono_id <- newLetBndr no_gen name Omega rhs_ty
+        ; mono_id <- newLetBndr no_gen name Many rhs_ty
         ; return (unitBag $ cL b_loc $
                      FunBind { fun_id = cL nm_loc mono_id,
                                fun_matches = matches', fun_ext = fvs,
@@ -1345,8 +1345,8 @@ tcLhs sig_fn no_gen (FunBind { fun_id = (dL->L nm_loc name)
 
   | otherwise  -- No type signature
   = do { mono_ty <- newOpenFlexiTyVarTy
-       ; mono_id <- newLetBndr no_gen name Omega mono_ty
-          -- This ^ generates a binder with Omega multiplicity because all
+       ; mono_id <- newLetBndr no_gen name Many mono_ty
+          -- This ^ generates a binder with Many multiplicity because all
           -- let/where-binders are unrestricted. When we introduce linear let
           -- binders, we will need to retrieve the multiplicity information.
        ; let mono_info = MBI { mbi_poly_name = name
@@ -1416,9 +1416,9 @@ newSigLetBndr (LetGblBndr prags) name (TISI { sig_inst_sig = id_sig })
   | CompleteSig { sig_bndr = poly_id } <- id_sig
   = addInlinePrags poly_id (lookupPragEnv prags name)
 newSigLetBndr no_gen name (TISI { sig_inst_tau = tau })
-  = newLetBndr no_gen name Omega tau
+  = newLetBndr no_gen name Many tau
     -- Binders with a signature are currently always of multiplicity
-    -- Omega. Because they come either from toplevel, let, or where
+    -- Many. Because they come either from toplevel, let, or where
     -- declarations. Which are all unrestricted currently.
 
 -------------------
@@ -1444,7 +1444,7 @@ tcRhs (TcPatBind infos pat' grhss pat_ty)
     tcExtendIdBinderStackForRhs infos        $
     do  { traceTc "tcRhs: pat bind" (ppr pat' $$ ppr pat_ty)
         ; grhss' <- addErrCtxt (patMonoBindsCtxt pat' grhss) $
-                    tcScalingUsage Omega $
+                    tcScalingUsage Many $
                     -- Like in tcMatchesFun, this scaling happens because all
                     -- let bindings are unrestricted. A difference, here, is
                     -- that when this is not the case, any more, we will have to

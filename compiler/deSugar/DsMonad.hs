@@ -351,7 +351,7 @@ duplicateLocalDs old_local
 
 newPredVarDs :: PredType -> DsM Var
 newPredVarDs pred
- = newSysLocalDs Omega pred
+ = newSysLocalDs Many pred
 
 newSysLocalDsNoLP, newSysLocalDs, newFailLocalDs :: Mult -> Type -> DsM Id
 newSysLocalDsNoLP  = mk_local (fsLit "ds")

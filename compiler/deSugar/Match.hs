@@ -838,7 +838,7 @@ matchSinglePat (Var var) ctx pat ty match_result
   = matchSinglePatVar var ctx pat ty match_result
 
 matchSinglePat scrut hs_ctx pat ty match_result
-  = do { var           <- selectSimpleMatchVarL Omega pat
+  = do { var           <- selectSimpleMatchVarL Many pat
        ; match_result' <- matchSinglePatVar var hs_ctx pat ty match_result
        ; return (adjustMatchResult (bindNonRec var scrut) match_result') }
 

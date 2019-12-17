@@ -124,7 +124,7 @@ matchGuards (LetStmt _ binds : stmts) ctx rhs rhs_ty = do
 matchGuards (BindStmt _ pat bind_rhs _ _ : stmts) ctx rhs rhs_ty = do
     let upat = unLoc pat
         dicts = collectEvVarsPat upat
-    match_var <- selectMatchVar Omega upat
+    match_var <- selectMatchVar Many upat
 
     dflags <- getDynFlags
     match_result <-

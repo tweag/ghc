@@ -96,7 +96,7 @@ mkPmId :: Type -> DsM Id
 mkPmId ty = getUniqueM >>= \unique ->
   let occname = mkVarOccFS $ fsLit "$pm"
       name    = mkInternalName unique occname noSrcSpan
-  in  return (mkLocalId name Omega ty)
+  in  return (mkLocalId name Many ty)
 
 -----------------------------------------------
 -- * Caching possible matches of a COMPLETE set
@@ -529,7 +529,7 @@ nameTyCt (TyCt pred_ty) = do
   unique <- getUniqueM
   let occname = mkVarOccFS (fsLit ("pm_"++show unique))
       idname  = mkInternalName unique occname noSrcSpan
-  return (mkLocalId idname Omega pred_ty)
+  return (mkLocalId idname Many pred_ty)
 
 -- | Add some extra type constraints to the 'TyState'; return 'Nothing' if we
 -- find a contradiction (e.g. @Int ~ Bool@).

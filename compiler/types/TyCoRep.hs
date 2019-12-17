@@ -53,10 +53,10 @@ module TyCoRep (
         mkFunTy, mkVisFunTy, mkInvisFunTy, mkVisFunTys,
         mkForAllTy, mkForAllTys,
         mkPiTy, mkPiTys,
-        mkFunTyOm,
+        mkFunTyMany,
         mkScaledFunTy,
-        mkVisFunTyOm, mkVisFunTysOm,
-        mkInvisFunTyOm, mkInvisFunTysOm,
+        mkVisFunTyMany, mkVisFunTysMany,
+        mkInvisFunTyMany, mkInvisFunTysMany,
 
         kindRep_maybe, kindRep,
         isLiftedTypeKind, isUnliftedTypeKind,
@@ -936,8 +936,8 @@ mkTyCoVarTy v
 mkTyCoVarTys :: [TyCoVar] -> [Type]
 mkTyCoVarTys = map mkTyCoVarTy
 
-infixr 3 `mkFunTy`, `mkVisFunTy`, `mkInvisFunTy`, `mkVisFunTyOm`,
-         `mkInvisFunTyOm`      -- Associates to the right
+infixr 3 `mkFunTy`, `mkVisFunTy`, `mkInvisFunTy`, `mkVisFunTyMany`,
+         `mkInvisFunTyMany`      -- Associates to the right
 
 mkFunTy :: AnonArgFlag -> Mult -> Type -> Type -> Type
 mkFunTy af mult arg res = FunTy { ft_af = af
@@ -952,25 +952,25 @@ mkVisFunTy, mkInvisFunTy :: Mult -> Type -> Type -> Type
 mkVisFunTy   = mkFunTy VisArg
 mkInvisFunTy = mkFunTy InvisArg
 
-mkFunTyOm :: AnonArgFlag -> Type -> Type -> Type
-mkFunTyOm af = mkFunTy af Omega
+mkFunTyMany :: AnonArgFlag -> Type -> Type -> Type
+mkFunTyMany af = mkFunTy af Many
 
--- | Special, common, case: Arrow type with mult Omega
-mkVisFunTyOm :: Type -> Type -> Type
-mkVisFunTyOm = mkVisFunTy Omega
+-- | Special, common, case: Arrow type with mult Many
+mkVisFunTyMany :: Type -> Type -> Type
+mkVisFunTyMany = mkVisFunTy Many
 
-mkInvisFunTyOm :: Type -> Type -> Type
-mkInvisFunTyOm = mkInvisFunTy Omega
+mkInvisFunTyMany :: Type -> Type -> Type
+mkInvisFunTyMany = mkInvisFunTy Many
 
 -- | Make nested arrow types
 mkVisFunTys :: [Scaled Type] -> Type -> Type
 mkVisFunTys tys ty = foldr (mkScaledFunTy VisArg) ty tys
 
-mkVisFunTysOm :: [Type] -> Type -> Type
-mkVisFunTysOm tys ty = foldr mkVisFunTyOm ty tys
+mkVisFunTysMany :: [Type] -> Type -> Type
+mkVisFunTysMany tys ty = foldr mkVisFunTyMany ty tys
 
-mkInvisFunTysOm :: [Type] -> Type -> Type
-mkInvisFunTysOm tys ty = foldr mkInvisFunTyOm ty tys
+mkInvisFunTysMany :: [Type] -> Type -> Type
+mkInvisFunTysMany tys ty = foldr mkInvisFunTyMany ty tys
 
 -- | Like 'mkTyCoForAllTy', but does not check the occurrence of the binder
 -- See Note [Unused coercion variable in ForAllTy]
@@ -1084,7 +1084,7 @@ isLinearType :: Type -> Bool
 -- in its type. We use this function to check whether it is safe to eta
 -- reduce an Id.
 isLinearType ty = case ty of
-                      FunTy _ Omega _ res -> isLinearType res
+                      FunTy _ Many _ res -> isLinearType res
                       FunTy _ _ _ _ -> True
                       ForAllTy _ res -> isLinearType res
                       _ -> False
