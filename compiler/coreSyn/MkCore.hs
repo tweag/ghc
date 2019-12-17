@@ -827,7 +827,7 @@ runtimeErrorTy :: Type
 -- forall (rr :: RuntimeRep) (a :: rr). Addr# -> a
 --   See Note [Error and friends have an "open-tyvar" forall]
 runtimeErrorTy = mkSpecForAllTys [runtimeRep1TyVar, openAlphaTyVar]
-                                 (mkVisFunTyOm addrPrimTy openAlphaTy)
+                                 (mkVisFunTyMany addrPrimTy openAlphaTy)
 
 {- Note [Error and friends have an "open-tyvar" forall]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -917,7 +917,7 @@ be relying on anything from it.
 aBSENT_ERROR_ID
  = mkVanillaGlobalWithInfo absentErrorName absent_ty arity_info
  where
-   absent_ty = mkSpecForAllTys [alphaTyVar] (mkVisFunTyOm addrPrimTy alphaTy)
+   absent_ty = mkSpecForAllTys [alphaTyVar] (mkVisFunTyMany addrPrimTy alphaTy)
    -- Not runtime-rep polymorphic. aBSENT_ERROR_ID is only used for
    -- lifted-type things; see Note [Absent errors] in WwLib
    arity_info = vanillaIdInfo `setArityInfo` 1

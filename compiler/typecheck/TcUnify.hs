@@ -444,7 +444,7 @@ matchExpectedAppTy orig_ty
            ; return (co, (ty1, ty2)) }
 
     orig_kind = tcTypeKind orig_ty
-    kind1 = mkVisFunTyOm liftedTypeKind orig_kind
+    kind1 = mkVisFunTyMany liftedTypeKind orig_kind
     kind2 = liftedTypeKind    -- m :: * -> k
                               -- arg type :: *
 

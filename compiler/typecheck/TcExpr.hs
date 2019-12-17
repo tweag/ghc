@@ -1213,7 +1213,7 @@ tcApp m_herald fun@(L loc (HsVar _ (L _ fun_id))) args res_ty
   = do { rep <- newFlexiTyVarTy runtimeRepTy
        ; let [alpha, beta] = mkTemplateTyVars [liftedTypeKind, tYPE rep]
              seq_ty = mkSpecForAllTys [alpha,beta]
-                      (mkTyVarTy alpha `mkVisFunTyOm` mkTyVarTy beta `mkVisFunTyOm` mkTyVarTy beta)
+                      (mkTyVarTy alpha `mkVisFunTyMany` mkTyVarTy beta `mkVisFunTyMany` mkTyVarTy beta)
              seq_fun = L loc (HsVar noExtField (L loc seqId))
              -- seq_ty = forall (a:*) (b:TYPE r). a -> b -> b
              -- where 'r' is a meta type variable

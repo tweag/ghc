@@ -674,7 +674,7 @@ commutableOp :: PrimOp -> Bool
 
 dyadic_fun_ty, monadic_fun_ty, compare_fun_ty :: Type -> Type
 dyadic_fun_ty  ty = mkVisFunTysOm [ty, ty] ty
-monadic_fun_ty ty = mkVisFunTyOm  ty ty
+monadic_fun_ty ty = mkVisFunTyMany  ty ty
 compare_fun_ty ty = mkVisFunTysOm [ty, ty] intPrimTy
 
 -- Output stuff:

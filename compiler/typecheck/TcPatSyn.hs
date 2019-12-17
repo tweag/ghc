@@ -702,7 +702,7 @@ tcPatSynMatcher (dL->L loc name) lpat
              cont_ty = mkInfSigmaTy ex_tvs prov_theta $
                        mkVisFunTysOm cont_arg_tys res_ty
 
-             fail_ty  = mkVisFunTyOm voidPrimTy res_ty
+             fail_ty  = mkVisFunTyMany voidPrimTy res_ty
 
        ; matcher_name <- newImplicitBinder name mkMatcherOcc
        ; scrutinee    <- newSysLocalId (fsLit "scrut") Many pat_ty
@@ -906,7 +906,7 @@ tcPatSynBuilderOcc ps
 
 add_void :: Bool -> Type -> Type
 add_void need_dummy_arg ty
-  | need_dummy_arg = mkVisFunTyOm voidPrimTy ty
+  | need_dummy_arg = mkVisFunTyMany voidPrimTy ty
   | otherwise      = ty
 
 tcPatToExpr :: Name -> [Located Name] -> LPat GhcRn

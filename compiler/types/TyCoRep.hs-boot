@@ -20,7 +20,7 @@ type ThetaType = [PredType]
 type CoercionN = Coercion
 type MCoercionN = MCoercion
 
-mkFunTyOm :: AnonArgFlag -> Type -> Type -> Type
+mkFunTyMany :: AnonArgFlag -> Type -> Type -> Type
 mkForAllTy :: Var -> ArgFlag -> Type -> Type
 
 isRuntimeRepTy :: Type -> Bool

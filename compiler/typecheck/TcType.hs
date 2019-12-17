@@ -135,7 +135,7 @@ module TcType (
   mkForAllTy, mkForAllTys, mkTyCoInvForAllTys, mkSpecForAllTys, mkTyCoInvForAllTy,
   mkInvForAllTy, mkInvForAllTys,
   mkVisFunTy, mkVisFunTys, mkInvisFunTy,
-  mkVisFunTyOm, mkVisFunTysOm, mkInvisFunTysOm,
+  mkVisFunTyMany, mkVisFunTysOm, mkInvisFunTysOm,
   mkTyConApp, mkAppTy, mkAppTys,
   mkTyConTy, mkTyVarTy, mkTyVarTys,
   mkTyCoVarTy, mkTyCoVarTys,

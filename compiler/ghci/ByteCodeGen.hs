@@ -619,7 +619,7 @@ schemeE d s p exp@(AnnTick (Breakpoint _id _fvs) _rhs)
           -- Here (k n) :: a :: Type r, so we don't know if it's lifted
           -- or not; but that should be fine provided we add that void arg.
 
-          id <- newId (mkVisFunTyOm realWorldStatePrimTy ty)
+          id <- newId (mkVisFunTyMany realWorldStatePrimTy ty)
           st <- newId realWorldStatePrimTy
           let letExp = AnnLet (AnnNonRec id (fvs, AnnLam st (emptyDVarSet, exp)))
                               (emptyDVarSet, (AnnApp (emptyDVarSet, AnnVar id)
@@ -699,7 +699,7 @@ protectNNLJoinPointBind x rhs@(fvs, _)
 protectNNLJoinPointId :: Id -> Id
 protectNNLJoinPointId x
   = ASSERT( isNNLJoinPoint x )
-    updateVarTypeButNotMult (voidPrimTy `mkVisFunTyOm`) x
+    updateVarTypeButNotMult (voidPrimTy `mkVisFunTyMany`) x
 
 {-
    Ticked Expressions

@@ -282,7 +282,7 @@ inferConstraintsDataConArgs inst_ty inst_tys
                             , tvs', inst_tys') }
 
 typeToTypeKind :: Kind
-typeToTypeKind = liftedTypeKind `mkVisFunTyOm` liftedTypeKind
+typeToTypeKind = liftedTypeKind `mkVisFunTyMany` liftedTypeKind
 
 -- | Like 'inferConstraints', but used only in the case of @DeriveAnyClass@,
 -- which gathers its constraints based on the type signatures of the class's

@@ -854,7 +854,7 @@ mkFailurePair :: CoreExpr       -- Result type of the whole case expression
                       CoreExpr) -- Fail variable applied to realWorld#
 -- See Note [Failure thunks and CPR]
 mkFailurePair expr
-  = do { fail_fun_var <- newFailLocalDs Many (voidPrimTy `mkVisFunTyOm` ty)
+  = do { fail_fun_var <- newFailLocalDs Many (voidPrimTy `mkVisFunTyMany` ty)
        ; fail_fun_arg <- newSysLocalDs Many voidPrimTy
        ; let real_arg = setOneShotLambda fail_fun_arg
        ; return (NonRec fail_fun_var (Lam real_arg expr),

@@ -283,7 +283,7 @@ deBindComp pat core_list1 quals core_list2 = do
     let u2_ty = hsLPatType pat
 
     let res_ty = exprType core_list2
-        h_ty   = u1_ty `mkVisFunTyOm` res_ty
+        h_ty   = u1_ty `mkVisFunTyMany` res_ty
 
        -- no levity polymorphism here, as list comprehensions don't work
        -- with RebindableSyntax. NB: These are *not* monad comps.
@@ -474,7 +474,7 @@ mkUnzipBind _ elt_tys
     elt_list_tys       = map mkListTy elt_tys
     elt_list_tuple_ty  = mkBigCoreTupTy elt_list_tys
 
-    unzip_fn_ty        = elt_tuple_list_ty `mkVisFunTyOm` elt_list_tuple_ty
+    unzip_fn_ty        = elt_tuple_list_ty `mkVisFunTyMany` elt_list_tuple_ty
 
     mkConcatExpression (list_element_ty, head, tail) = mkConsExpr list_element_ty head tail
 

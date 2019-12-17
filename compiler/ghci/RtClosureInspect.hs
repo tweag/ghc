@@ -753,9 +753,9 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
          traceTR (text "Following a MutVar")
          contents_tv <- newVar liftedTypeKind
          MASSERT(isUnliftedType my_ty)
-         (mutvar_ty,_) <- instScheme $ quantifyType $ mkVisFunTyOm
+         (mutvar_ty,_) <- instScheme $ quantifyType $ mkVisFunTyMany
                             contents_ty (mkTyConApp tycon [world,contents_ty])
-         addConstraint (mkVisFunTyOm contents_tv my_ty) mutvar_ty
+         addConstraint (mkVisFunTyMany contents_tv my_ty) mutvar_ty
          x <- go (pred max_depth) contents_tv contents_ty contents
          return (RefWrap my_ty x)
 

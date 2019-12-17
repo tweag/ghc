@@ -1451,8 +1451,8 @@ gen_data dflags data_type_name constr_names loc rep_tc
 
 
 kind1, kind2 :: Kind
-kind1 = liftedTypeKind `mkVisFunTyOm` liftedTypeKind
-kind2 = liftedTypeKind `mkVisFunTyOm` kind1
+kind1 = liftedTypeKind `mkVisFunTyMany` liftedTypeKind
+kind2 = liftedTypeKind `mkVisFunTyMany` kind1
 
 gfoldl_RDR, gunfold_RDR, toConstr_RDR, dataTypeOf_RDR, mkConstr_RDR,
     mkDataType_RDR, conIndex_RDR, prefix_RDR, infix_RDR,
@@ -1932,7 +1932,7 @@ genAuxBindSpec dflags loc (DerivCon2Tag tycon)
 
     sig_ty = mkLHsSigWcType $ L loc $ XHsType $ NHsCoreTy $
              mkSpecSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
-             mkParentType tycon `mkVisFunTyOm` intPrimTy
+             mkParentType tycon `mkVisFunTyMany` intPrimTy
 
     lots_of_constructors = tyConFamilySize tycon > 8
                         -- was: mAX_FAMILY_SIZE_FOR_VEC_RETURNS
@@ -1956,7 +1956,7 @@ genAuxBindSpec dflags loc (DerivTag2Con tycon)
   where
     sig_ty = mkLHsSigWcType $ L loc $
              XHsType $ NHsCoreTy $ mkSpecForAllTys (tyConTyVars tycon) $
-             intTy `mkVisFunTyOm` mkParentType tycon
+             intTy `mkVisFunTyMany` mkParentType tycon
 
     rdr_name = tag2con_RDR dflags tycon
 
