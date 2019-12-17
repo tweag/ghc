@@ -37,7 +37,7 @@ import GhcPrelude
 import Data.Data
 import Outputable
 import {-# SOURCE #-} TyCoRep (Type)
-import {-# SOURCE #-} TysWiredIn ( oneDataConTy, omegaDataConTy, multMulTyCon )
+import {-# SOURCE #-} TysWiredIn ( oneDataConTy, manyDataConTy, multMulTyCon )
 import {-# SOURCE #-} Type( eqType, splitTyConApp_maybe, mkTyConApp )
 import PrelNames (multMulTyConKey)
 import Unique (hasKey)
@@ -63,8 +63,8 @@ pattern One <- (eqType oneDataConTy -> True)
   where One = oneDataConTy
 
 pattern Many :: Mult
-pattern Many <- (eqType omegaDataConTy -> True)
-  where Many = omegaDataConTy
+pattern Many <- (eqType manyDataConTy -> True)
+  where Many = manyDataConTy
 
 isMultMul :: Mult -> Maybe (Mult, Mult)
 isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty

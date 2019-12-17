@@ -30,7 +30,7 @@ import ClsInst    ( matchGlobalInst, ClsInstResult(..), InstanceWhat(..), AssocI
 import TyCoFVs
 import TyCoRep
 import TcType hiding ( sizeType, sizeTypes )
-import TysWiredIn ( heqTyConName, eqTyConName, coercibleTyConName, omegaDataConTy )
+import TysWiredIn ( heqTyConName, eqTyConName, coercibleTyConName, manyDataConTy )
 import PrelNames
 import Type
 import Unify      ( tcMatchTyX_BM, BindFlag(..) )
@@ -1646,7 +1646,7 @@ tcInstHeadTyAppAllTyVars :: Type -> Bool
 tcInstHeadTyAppAllTyVars ty
   | Just (tc, tys) <- tcSplitTyConApp_maybe (dropCasts ty)
   = let tys' = filterOutInvisibleTypes tc tys  -- avoid kinds
-        tys'' | tc == funTyCon, tys_h:tys_t <- tys', tys_h `eqType` omegaDataConTy = tys_t
+        tys'' | tc == funTyCon, tys_h:tys_t <- tys', tys_h `eqType` manyDataConTy = tys_t
               | otherwise = tys'
     in ok tys''
   | LitTy _ <- ty = True  -- accept type literals (#13833)

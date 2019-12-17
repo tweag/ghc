@@ -66,7 +66,7 @@ module IfaceType (
 import GhcPrelude
 
 import {-# SOURCE #-} TysWiredIn ( coercibleTyCon, heqTyCon
-                                 , liftedRepDataConTyCon, omegaDataConTyCon
+                                 , liftedRepDataConTyCon, manyDataConTyCon
                                  , oneDataConTyCon )
 import {-# SOURCE #-} TyCoRep    ( isRuntimeRepTy, isMultiplicityTy )
 
@@ -834,7 +834,7 @@ pprPrecIfaceType prec ty =
 ppr_fun_arrow :: IfaceMult -> SDoc
 ppr_fun_arrow w
   | (IfaceTyConApp tc _) <- w
-  , tc `ifaceTyConHasKey` (getUnique omegaDataConTyCon) = arrow
+  , tc `ifaceTyConHasKey` (getUnique manyDataConTyCon) = arrow
   | (IfaceTyConApp tc _) <- w
   , tc `ifaceTyConHasKey` (getUnique oneDataConTyCon) = lollipop
   | otherwise = mulArrow (pprIfaceType w)
@@ -1036,7 +1036,7 @@ omega_ty :: IfaceType
 omega_ty =
     IfaceTyConApp (IfaceTyCon dc_name (IfaceTyConInfo IsPromoted IfaceNormalTyCon))
                   IA_Nil
-  where dc_name = getName omegaDataConTyCon
+  where dc_name = getName manyDataConTyCon
 
 hideNonStandardTypes :: (IfaceType -> SDoc) -> IfaceType -> SDoc
 hideNonStandardTypes f ty
@@ -1352,7 +1352,7 @@ pprTyTcApp' ctxt_prec tc tys dflags style
 
   | tc `ifaceTyConHasKey` funTyConKey
   , IA_Arg (IfaceTyConApp rep IA_Nil) Required args <- tys
-  , rep `ifaceTyConHasKey` omegaDataConKey
+  , rep `ifaceTyConHasKey` manyDataConKey
   = pprIfacePrefixApp ctxt_prec (parens arrow) (map (ppr_ty appPrec) (appArgsIfaceTypes $ stripInvisArgs dflags args))
 
   | otherwise

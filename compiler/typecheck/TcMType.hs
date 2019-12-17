@@ -1677,7 +1677,7 @@ defaultTyVar default_kind tv
        ; return True }
   | isMultiplicityVar tv
   = do { traceTc "Defaulting a Multiplicty var to Many" (ppr tv)
-       ; writeMetaTyVar tv omegaDataConTy
+       ; writeMetaTyVar tv manyDataConTy
        ; return True }
 
   | default_kind            -- -XNoPolyKinds and this is a kind var

@@ -43,7 +43,7 @@ multiplicityTyCon :: TyCon
 multiplicityTy :: Type
 oneDataConTy :: Type
 oneDataConTyCon :: TyCon
-omegaDataConTy :: Type
-omegaDataConTyCon :: TyCon
+manyDataConTy :: Type
+manyDataConTyCon :: TyCon
 unrestrictedFunTyCon :: TyCon
 multMulTyCon :: TyCon

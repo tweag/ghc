@@ -125,9 +125,9 @@ module TysWiredIn (
         doubleElemRepDataConTy,
 
         -- * Multiplicity and friends
-        multiplicityTyConName, oneDataConName, omegaDataConName, multiplicityTy,
-        multiplicityTyCon, oneDataCon, omegaDataCon, oneDataConTy, omegaDataConTy,
-        oneDataConTyCon, omegaDataConTyCon,
+        multiplicityTyConName, oneDataConName, manyDataConName, multiplicityTy,
+        multiplicityTyCon, oneDataCon, manyDataCon, oneDataConTy, manyDataConTy,
+        oneDataConTyCon, manyDataConTyCon,
         multMulTyCon,
 
         unrestrictedFunTyCon, unrestrictedFunTyConName
@@ -448,9 +448,9 @@ multiplicityTyConName :: Name
 multiplicityTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Multiplicity")
                           multiplicityTyConKey multiplicityTyCon
 
-oneDataConName, omegaDataConName :: Name
+oneDataConName, manyDataConName :: Name
 oneDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "One") oneDataConKey oneDataCon
-omegaDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "Many") omegaDataConKey omegaDataCon
+manyDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "Many") manyDataConKey manyDataCon
  -- It feels wrong to have One and Many be BuiltInSyntax. But otherwise,
  -- `Many`, in particular, is considered out of scope unless an appropriate
  -- file is open. The problem with this is that `Many` appears implicitly in
@@ -1177,19 +1177,19 @@ multiplicityTy = mkTyConTy multiplicityTyCon
 
 multiplicityTyCon :: TyCon
 multiplicityTyCon = pcTyCon multiplicityTyConName Nothing []
-                          [oneDataCon, omegaDataCon]
+                          [oneDataCon, manyDataCon]
 
-oneDataCon, omegaDataCon :: DataCon
+oneDataCon, manyDataCon :: DataCon
 oneDataCon = pcDataCon oneDataConName [] [] multiplicityTyCon
-omegaDataCon = pcDataCon omegaDataConName [] [] multiplicityTyCon
+manyDataCon = pcDataCon manyDataConName [] [] multiplicityTyCon
 
-oneDataConTy, omegaDataConTy :: Type
+oneDataConTy, manyDataConTy :: Type
 oneDataConTy = mkTyConTy oneDataConTyCon
-omegaDataConTy = mkTyConTy omegaDataConTyCon
+manyDataConTy = mkTyConTy manyDataConTyCon
 
-oneDataConTyCon, omegaDataConTyCon :: TyCon
+oneDataConTyCon, manyDataConTyCon :: TyCon
 oneDataConTyCon = promoteDataCon oneDataCon
-omegaDataConTyCon = promoteDataCon omegaDataCon
+manyDataConTyCon = promoteDataCon manyDataCon
 
 multMulTyConName :: Name
 multMulTyConName =
@@ -1204,7 +1204,7 @@ multMulTyCon = mkFamilyTyCon multMulTyConName binders multiplicityTy Nothing
     binders = mkTemplateAnonTyConBinders [multiplicityTy, multiplicityTy]
 
 unrestrictedFunTy :: Type
-unrestrictedFunTy = functionWithMultiplicity omegaDataConTy
+unrestrictedFunTy = functionWithMultiplicity manyDataConTy
 
 unrestrictedFunTyCon :: TyCon
 unrestrictedFunTyCon = buildSynTyCon unrestrictedFunTyConName [] arrowKind [] unrestrictedFunTy

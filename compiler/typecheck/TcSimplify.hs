@@ -49,7 +49,7 @@ import TcRnMonad as TcM
 import TcSMonad  as TcS
 import TcType
 import Type
-import TysWiredIn    ( liftedRepTy, omegaDataConTy )
+import TysWiredIn    ( liftedRepTy, manyDataConTy )
 import Unify         ( tcMatchTyKi )
 import Util
 import Var
@@ -2121,7 +2121,7 @@ defaultTyVarTcS the_tv
                              -- never with a type; c.f. TcMType.defaultTyVar
                              -- See Note [Kind generalisation and SigTvs]
   = do { traceTcS "defaultTyVarTcS Multiplicity" (ppr the_tv)
-       ; unifyTyVar the_tv omegaDataConTy
+       ; unifyTyVar the_tv manyDataConTy
        ; return True }
   | otherwise
   = return False  -- the common case

@@ -78,7 +78,7 @@ import TyCon
 import CoAxiom
 import FamInstEnv
 import TysPrim( funTyConName )
-import TysWiredIn( unrestrictedFunTyConName, omegaDataConTy )
+import TysWiredIn( unrestrictedFunTyConName, manyDataConTy )
 import Maybes( orElse )
 import Util
 import BasicTypes( Activation )
@@ -358,7 +358,7 @@ orphNamesOfType (TyConApp tycon tys) = func
         where func = case tys of -- Detect FUN 'Many as an application of (->),
                                  -- so that :i (->) works as expected (see T8535)
                                  -- Issue #16475 describes a more robust solution
-                       arg:_ | tycon == funTyCon, arg `eqType` omegaDataConTy ->
+                       arg:_ | tycon == funTyCon, arg `eqType` manyDataConTy ->
                             unitNameSet unrestrictedFunTyConName
                        _ -> emptyNameSet
 orphNamesOfType (ForAllTy bndr res)  = orphNamesOfType (binderType bndr)
