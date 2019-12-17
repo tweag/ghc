@@ -2002,7 +2002,7 @@ occAnalLamOrRhs env binders body
     (env_body, binders') = oneShotGroup env binders
 
 occAnalAlt :: (OccEnv, Maybe (Id, CoreExpr))
-           -> Bool  -- is this case-omega? See Note [Suppressing binder-swaps on linear case]
+           -> Bool  -- is this case-many? See Note [Suppressing binder-swaps on linear case]
            -> CoreAlt
            -> (UsageDetails, Alt IdWithOccInfo)
 occAnalAlt (env, scrut_bind) caseMany (con, bndrs, rhs)
@@ -2019,7 +2019,7 @@ wrapAltRHS :: OccEnv
            -> UsageDetails              -- usage for entire alt (p -> rhs)
            -> [Var]                     -- alt binders
            -> CoreExpr                  -- alt RHS
-           -> Bool                      -- is this case omega? See Note [Suppressing binder-swaps on linear case]
+           -> Bool                      -- is this case-many? See Note [Suppressing binder-swaps on linear case]
            -> (UsageDetails, CoreExpr)
 wrapAltRHS env (Just (scrut_var, let_rhs)) alt_usg bndrs alt_rhs caseMany
   | occ_binder_swap env
