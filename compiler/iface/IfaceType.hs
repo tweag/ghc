@@ -58,7 +58,7 @@ module IfaceType (
 
         mkIfaceTySubst, substIfaceTyVar, substIfaceAppArgs, inDomIfaceTySubst,
 
-        omega_ty
+        many_ty
     ) where
 
 #include "HsVersions.h"
@@ -187,7 +187,7 @@ mkIfaceTyConKind :: [IfaceTyConBinder] -> IfaceKind -> IfaceKind
 mkIfaceTyConKind bndrs res_kind = foldr mk res_kind bndrs
   where
     mk :: IfaceTyConBinder -> IfaceKind -> IfaceKind
-    mk (Bndr tv (AnonTCB af))   k = IfaceFunTy af omega_ty (ifaceBndrType tv) k
+    mk (Bndr tv (AnonTCB af))   k = IfaceFunTy af many_ty (ifaceBndrType tv) k
     mk (Bndr tv (NamedTCB vis)) k = IfaceForAllTy (Bndr tv vis) k
 
 -- | Stores the arguments in a type application as a list.
@@ -987,7 +987,7 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
       | in_kind && do_runtimereps && TyCoRep.isRuntimeRepTy (tyVarKind tv)
       = liftedRep_ty
       | in_kind && do_multiplicities && TyCoRep.isMultiplicityTy (tyVarKind tv)
-      = omega_ty
+      = many_ty
       | otherwise
       = ty
 
@@ -1023,7 +1023,7 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
     check_substitution :: IfaceType -> Maybe IfaceType
     check_substitution (IfaceTyConApp tc _)
         | do_runtimereps, tc `ifaceTyConHasKey` runtimeRepTyConKey = Just liftedRep_ty
-        | do_multiplicities, tc `ifaceTyConHasKey` multiplicityTyConKey = Just omega_ty
+        | do_multiplicities, tc `ifaceTyConHasKey` multiplicityTyConKey = Just many_ty
     check_substitution _ = Nothing
 
 liftedRep_ty :: IfaceType
@@ -1032,8 +1032,8 @@ liftedRep_ty =
                   IA_Nil
   where dc_name = getName liftedRepDataConTyCon
 
-omega_ty :: IfaceType
-omega_ty =
+many_ty :: IfaceType
+many_ty =
     IfaceTyConApp (IfaceTyCon dc_name (IfaceTyConInfo IsPromoted IfaceNormalTyCon))
                   IA_Nil
   where dc_name = getName manyDataConTyCon
