@@ -73,13 +73,13 @@ scaleUE w (UsageEnv e _) =
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1 False) (UsageEnv e2 False) =
-  UsageEnv (plusNameEnv_CD mkMultSup e1 Omega e2 Omega) False
+  UsageEnv (plusNameEnv_CD mkMultSup e1 Many e2 Many) False
 supUE (UsageEnv e1 b1) (UsageEnv e2 b2) = UsageEnv (plusNameEnv_CD2 combineUsage e1 e2) (b1 && b2)
    where combineUsage (Just x) (Just y) = mkMultSup x y
          combineUsage Nothing  (Just x) | b1        = x
-                                        | otherwise = Omega
+                                        | otherwise = Many
          combineUsage (Just x) Nothing  | b2        = x
-                                        | otherwise = Omega
+                                        | otherwise = Many
          combineUsage Nothing  Nothing  = pprPanic "supUE" (ppr e1 <+> ppr e2)
 -- Note: If you are changing this logic, check 'mkMultSup' in Multiplicity as well.
 

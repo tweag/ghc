@@ -1633,7 +1633,7 @@ tcInstHeadTyNotSynonym ty
                 -- because that expands synonyms!
         TyConApp tc _ -> not (isTypeSynonymTyCon tc) || tc == unrestrictedFunTyCon
                 -- Allow (->), e.g. instance Category (->),
-                -- even though it's a type synonym for FUN 'Omega
+                -- even though it's a type synonym for FUN 'Many
         _ -> True
 
 tcInstHeadTyAppAllTyVars :: Type -> Bool
@@ -1642,7 +1642,7 @@ tcInstHeadTyAppAllTyVars :: Type -> Bool
 -- or a type-level literal.
 -- But we allow
 -- 1) kind instantiations
--- 2) the type (->) = FUN 'Omega, even though it's not in this form.
+-- 2) the type (->) = FUN 'Many, even though it's not in this form.
 tcInstHeadTyAppAllTyVars ty
   | Just (tc, tys) <- tcSplitTyConApp_maybe (dropCasts ty)
   = let tys' = filterOutInvisibleTypes tc tys  -- avoid kinds

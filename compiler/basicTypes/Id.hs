@@ -298,12 +298,12 @@ mkLocalId name w ty = mkLocalIdWithInfo name w ty vanillaIdInfo
 mkLocalCoVar :: Name -> Type -> CoVar
 mkLocalCoVar name ty
   = ASSERT( isCoVarType ty )
-    Var.mkLocalVar CoVarId name Omega ty vanillaIdInfo
+    Var.mkLocalVar CoVarId name Many ty vanillaIdInfo
 
 -- | Like 'mkLocalId', but checks the type to see if it should make a covar
 mkLocalIdOrCoVar :: Name -> Mult -> Type -> Id
 mkLocalIdOrCoVar name w ty
-  -- We should ASSERT(eqType w Omega) in the isCoVarType case.
+  -- We should ASSERT(eqType w Many) in the isCoVarType case.
   -- However, currently this assertion does not hold.
   -- In tests with -fdefer-type-errors, such as T14584a,
   -- we create a linear 'case' where the scrutinee is a coercion
@@ -374,7 +374,7 @@ instantiated before use.
 -- | Workers get local names. "CoreTidy" will externalise these if necessary
 mkWorkerId :: Unique -> Id -> Type -> Id
 mkWorkerId uniq unwrkr ty
-  = mkLocalIdOrCoVar (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Omega ty
+  = mkLocalIdOrCoVar (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Many ty
 
 -- | Create a /template local/: a family of system local 'Id's in bijection with @Int@s, typically used in unfoldings
 mkTemplateLocal :: Int -> Type -> Id

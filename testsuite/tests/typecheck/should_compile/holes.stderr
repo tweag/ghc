@@ -55,7 +55,7 @@ holes.hs:11:15: warning: [-Wtyped-holes (in -Wdefault)]
         EQ :: Ordering
         GT :: Ordering
         One :: GHC.Types.Multiplicity
-        Omega :: GHC.Types.Multiplicity
+        Many :: GHC.Types.Multiplicity
         () :: ()
         lines :: String -> [String]
         unlines :: [String] -> String

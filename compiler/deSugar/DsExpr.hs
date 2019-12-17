@@ -217,7 +217,7 @@ dsUnliftedBind (PatBind {pat_lhs = pat, pat_rhs = grhss
              eqn = EqnInfo { eqn_pats = [upat],
                              eqn_orig = FromSource,
                              eqn_rhs = cantFailMatchResult body }
-       ; var    <- selectMatchVar Omega upat
+       ; var    <- selectMatchVar Many upat
        ; result <- matchEquations PatBindRhs [var] [eqn] (exprType body)
        ; return (bindNonRec var rhs result) }
 
@@ -653,9 +653,9 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
     mk_alt upd_fld_env con
       = do { let (univ_tvs, ex_tvs, eq_spec,
                   prov_theta, _req_theta, arg_tys, _) = conLikeFullSig con
-                 arg_tys' = map (scaleScaled Omega) arg_tys
+                 arg_tys' = map (scaleScaled Many) arg_tys
                    -- Record updates consume the source record with multiplicity
-                   -- Omega. Therefore all the fields need to be scaled thus.
+                   -- Many. Therefore all the fields need to be scaled thus.
                  user_tvs =
                    case con of
                      RealDataCon data_con -> dataConUserTyVars data_con
@@ -968,7 +968,7 @@ dsDo stmts
                         , recS_ret_ty = body_ty} }) stmts
       = goL (new_bind_stmt : stmts)  -- rec_ids can be empty; eg  rec { print 'x' }
       where
-        new_bind_stmt = cL loc $ BindStmt (Omega, bind_ty) (mkBigLHsPatTupId later_pats)
+        new_bind_stmt = cL loc $ BindStmt (Many, bind_ty) (mkBigLHsPatTupId later_pats)
                                          mfix_app bind_op
                                          noSyntaxExpr  -- Tuple cannot fail
 

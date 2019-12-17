@@ -360,7 +360,7 @@ tcExpr expr@(OpApp fix arg1 op arg2) res_ty
        ; let arg2_exp_ty = res_ty
        ; arg1' <- tcArg op arg1 (unrestricted arg1_ty) 1
        ; arg2' <- addErrCtxt (funAppCtxt op arg2 2) $
-                  tcScalingUsage Omega $ tc_poly_expr_nc arg2 arg2_exp_ty
+                  tcScalingUsage Many $ tc_poly_expr_nc arg2 arg2_exp_ty
                   -- It is not necessary, but for the sake of least surprise,
                   -- seq is unrestricted in its second argument. It can (and,
                   -- probably, should) be refined later.
@@ -380,7 +380,7 @@ tcExpr expr@(OpApp fix arg1 op arg2) res_ty
        ; (wrap_arg1, [arg2_sigma], op_res_ty) <-
            matchActualFunTys doc orig1 (Just (unLoc arg1)) 1 arg1_ty
 
-       ; mult_wrap <- tcSubMult AppOrigin Omega (scaledMult arg2_sigma)
+       ; mult_wrap <- tcSubMult AppOrigin Many (scaledMult arg2_sigma)
          -- When ($) becomes multiplicity-polymorphic, then the above check will
          -- need to go. But in the meantime, it would produce ill-typed
          -- desugared code to accept linear functions to the left of a ($).
@@ -574,7 +574,7 @@ tcExpr (HsCase x scrut matches) res_ty
            --
            -- But now, in the GADT world, we need to typecheck the scrutinee
            -- first, to get type info that may be refined in the case alternatives
-          let mult = Omega
+          let mult = Many
             -- There is not yet syntax or inference mechanism for case
             -- expressions to be anything else than unrestricted.
         ; (scrut', scrut_ty) <- tcScalingUsage mult $ tcInferRho scrut
@@ -846,7 +846,7 @@ following.
 tcExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = rbnds }) res_ty
   = ASSERT( notNull rbnds )
     do  { -- STEP -2: typecheck the record_expr, the record to be updated
-          (record_expr', record_rho) <- tcScalingUsage Omega $ tcInferRho record_expr
+          (record_expr', record_rho) <- tcScalingUsage Many $ tcInferRho record_expr
             -- Record update drops some of the content of the record (namely the
             -- content of the field being updated). As a consequence, it
             -- requires an unrestricted record.
@@ -1921,7 +1921,7 @@ tcUnboundId rn_expr unbound res_ty
  = do { ty <- newOpenFlexiTyVarTy  -- Allow Int# etc (#12531)
       ; let occ = unboundVarOcc unbound
       ; name <- newSysName occ
-      ; let ev = mkLocalId name Omega ty
+      ; let ev = mkLocalId name Many ty
       ; can <- newHoleCt (ExprHole unbound) ev ty
       ; emitInsoluble can
       ; tcWrapResultO (UnboundOccurrenceOf occ) rn_expr
@@ -2537,7 +2537,7 @@ tcRecordField con_like flds_w_tys (L loc (FieldOcc sel_name lbl)) rhs
         do { rhs' <- tcPolyExprNC rhs field_ty
            ; let field_id = mkUserLocal (nameOccName sel_name)
                                         (nameUnique sel_name)
-                                        Omega field_ty loc
+                                        Many field_ty loc
                 -- Yuk: the field_id has the *unique* of the selector Id
                 --          (so we can find it easily)
                 --      but is a LocalId with the appropriate type of the RHS

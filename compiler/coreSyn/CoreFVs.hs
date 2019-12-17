@@ -355,7 +355,7 @@ orphNamesOfType (LitTy {})           = emptyNameSet
 orphNamesOfType (TyConApp tycon tys) = func
                                        `unionNameSet` orphNamesOfTyCon tycon
                                        `unionNameSet` orphNamesOfTypes tys
-        where func = case tys of -- Detect FUN 'Omega as an application of (->),
+        where func = case tys of -- Detect FUN 'Many as an application of (->),
                                  -- so that :i (->) works as expected (see T8535)
                                  -- Issue #16475 describes a more robust solution
                        arg:_ | tycon == funTyCon, arg `eqType` omegaDataConTy ->
@@ -369,7 +369,7 @@ orphNamesOfType (FunTy _ w arg res)  = func
                                        `unionNameSet` orphNamesOfType arg
                                        `unionNameSet` orphNamesOfType res
         where func = case w of  -- NB!  See #8535
-                       Omega -> unitNameSet unrestrictedFunTyConName
+                       Many -> unitNameSet unrestrictedFunTyConName
                        _ -> emptyNameSet
 orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSet` orphNamesOfType arg
 orphNamesOfType (CastTy ty co)       = orphNamesOfType ty `unionNameSet` orphNamesOfCo co

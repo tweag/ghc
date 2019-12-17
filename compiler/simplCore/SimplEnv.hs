@@ -277,7 +277,7 @@ mkSimplEnv mode
         -- The top level "enclosing CC" is "SUBSUMED".
 
 init_in_scope :: InScopeSet
-init_in_scope = mkInScopeSet (unitVarSet (mkWildValBinder Omega unitTy))
+init_in_scope = mkInScopeSet (unitVarSet (mkWildValBinder Many unitTy))
               -- See Note [WildCard binders]
 
 {-

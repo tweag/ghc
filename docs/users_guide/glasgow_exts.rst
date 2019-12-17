@@ -13084,10 +13084,10 @@ of new kind ``Multiplicity``. We have:
 
 ::
 
-    data Multiplicity = One | Omega  -- Defined in GHC.Types
+    data Multiplicity = One | Many  -- Defined in GHC.Types
 
     type a #-> b = a -->.('One)   b
-    type a  -> b = a -->.('Omega) b
+    type a  -> b = a -->.('Many) b
 
 (See :ref:`promotion`).
 
@@ -13100,7 +13100,7 @@ absence of a type signature, functions are presumed to be unrestricted.
 Printing multiplicity-polymorphic types
 ---------------------------------------
 If :extension:`LinearTypes` is disabled, multiplicity variables in types are defaulted
-to ``Omega`` when printing, in the same manner as described in :ref:`printing-levity-polymorphic-types`.
+to ``Many`` when printing, in the same manner as described in :ref:`printing-levity-polymorphic-types`.
 In other words, without :extension:`LinearTypes`, multiplicity-polymorphic functions
 ``a -->.(m) b`` are printed as normal Haskell2010 functions ``a -> b``. This allows
 existing libraries to be generalized to linear types in a backwards-compatible
@@ -13166,7 +13166,7 @@ adding the tag `LinearTypes`.
 - Multiplicity polymorphism is incomplete and experimental. In the future, we plan
   to add two type families for adding and multiplying multiplicities, and a
   submultiplicity constraint. Currently, the multiplicity solver handles only
-  basic cases, by approximating sums and products by ``Omega`` and
+  basic cases, by approximating sums and products by ``Many`` and
   submultiplicity by equality ``p ~ q``.
 - All ``case``, ``let`` and ``where`` statements consume the argument in an
   unrestricted context. Only a function declaration can perform pattern matching linearly.

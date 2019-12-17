@@ -450,10 +450,10 @@ multiplicityTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Multipli
 
 oneDataConName, omegaDataConName :: Name
 oneDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "One") oneDataConKey oneDataCon
-omegaDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "Omega") omegaDataConKey omegaDataCon
- -- It feels wrong to have One and Omega be BuiltInSyntax. But otherwise,
- -- `Omega`, in particular, is considered out of scope unless an appropriate
- -- file is open. The problem with this is that `Omega` appears implicitly in
+omegaDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "Many") omegaDataConKey omegaDataCon
+ -- It feels wrong to have One and Many be BuiltInSyntax. But otherwise,
+ -- `Many`, in particular, is considered out of scope unless an appropriate
+ -- file is open. The problem with this is that `Many` appears implicitly in
  -- types every time there is an `(->)`, hence out-of-scope errors get
  -- reported. Making them built-in make it so that they are always considered in
  -- scope.
@@ -1166,10 +1166,10 @@ mk_class tycon sc_pred sc_sel_id
 ********************************************************************* -}
 
 {- Multiplicity polymorphism is implemented very similarly to levity
- polymorphism. We write in the multiplicity kind and the One and Omega
+ polymorphism. We write in the multiplicity kind and the One and Many
  types which can appear in user programs. These are defined properly in GHC.Types.
 
-data Multiplicity = One | Omega
+data Multiplicity = One | Many
 -}
 
 multiplicityTy :: Type

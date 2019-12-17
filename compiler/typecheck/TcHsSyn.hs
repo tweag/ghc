@@ -1833,7 +1833,7 @@ commitFlexi flexi tv zonked_kind
         -> do { traceTc "Defaulting flexi tyvar to LiftedRep:" (pprTyVar tv)
               ; return liftedRepTy }
         | isMultiplicityTy zonked_kind
-        -> do { traceTc "Defaulting flexi tyvar to Omega:" (pprTyVar tv)
+        -> do { traceTc "Defaulting flexi tyvar to Many:" (pprTyVar tv)
               ; return omegaDataConTy }
         | otherwise
         -> do { traceTc "Defaulting flexi tyvar to Any:" (pprTyVar tv)

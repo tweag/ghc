@@ -56,7 +56,7 @@ import GhcPrelude
 import Var
 import CoreSyn
 import CoreUtils
-import Multiplicity ( pattern Omega )
+import Multiplicity ( pattern Many )
 import Type
 import Coercion
 import Id
@@ -421,13 +421,13 @@ saTransform binder arg_staticness rhs_binders rhs_body
           shadow_rhs = mkLams shadow_lam_bndrs local_body
             -- nonrec_rhs = \alpha' beta' c n xs -> sat_worker xs
 
-          rec_body_bndr = mkSysLocal (fsLit "sat_worker") uniq Omega (exprType rec_body)
+          rec_body_bndr = mkSysLocal (fsLit "sat_worker") uniq Many (exprType rec_body)
             -- rec_body_bndr = sat_worker
 
             -- See Note [Shadow binding]; make a SysLocal
           shadow_bndr = mkSysLocal (occNameFS (getOccName binder))
                                    (idUnique binder)
-                                   Omega
+                                   Many
                                    (exprType shadow_rhs)
 
 isStaticValue :: Staticness App -> Bool

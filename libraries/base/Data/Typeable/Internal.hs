@@ -85,7 +85,7 @@ module Data.Typeable.Internal (
 import GHC.Prim ( FUN )
 import GHC.Base
 import qualified GHC.Arr as A
-import GHC.Types ( TYPE, Multiplicity (Omega) )
+import GHC.Types ( TYPE, Multiplicity (Many) )
 import Data.Type.Equality
 import GHC.List ( splitAt, foldl', elem )
 import GHC.Word
@@ -338,8 +338,8 @@ pattern Fun :: forall k (fun :: k). ()
             => TypeRep arg
             -> TypeRep res
             -> TypeRep fun
-pattern Fun arg res <- TrFun {trFunArg = arg, trFunRes = res, trFunMul = (eqTypeRep trOmega -> Just HRefl)}
-  where Fun arg res = mkTrFun trOmega arg res
+pattern Fun arg res <- TrFun {trFunArg = arg, trFunRes = res, trFunMul = (eqTypeRep trMany -> Just HRefl)}
+  where Fun arg res = mkTrFun trMany arg res
 
 -- | Observe the 'Fingerprint' of a type representation
 --
@@ -386,8 +386,8 @@ trTYPE = typeRep
 trLiftedRep :: TypeRep 'LiftedRep
 trLiftedRep = typeRep
 
-trOmega :: TypeRep 'Omega
-trOmega = typeRep
+trMany :: TypeRep 'Many
+trMany = typeRep
 
 -- | Construct a representation for a type application that is
 -- NOT a saturated arrow type. This is not checked!
@@ -432,7 +432,7 @@ mkTrAppChecked rep@(TrApp {trAppFun = p, trAppArg = x :: TypeRep x})
   , Just (IsTYPE (ry :: TypeRep ry)) <- isTYPE (typeRepKind y)
   , Just HRefl <- withTypeable x $ withTypeable rx $ withTypeable ry
                   $ typeRep @((->) x :: TYPE ry -> Type) `eqTypeRep` rep
-  = mkTrFun trOmega x y
+  = mkTrFun trMany x y
 mkTrAppChecked a b = mkTrApp a b
 
 -- | A type application.
@@ -622,7 +622,7 @@ instantiateKindRep vars = go
     go (KindRepApp f a)
       = SomeTypeRep $ mkTrApp (unsafeCoerceRep $ go f) (unsafeCoerceRep $ go a)
     go (KindRepFun a b)
-      = SomeTypeRep $ mkTrFun trOmega (unsafeCoerceRep $ go a) (unsafeCoerceRep $ go b)
+      = SomeTypeRep $ mkTrFun trMany (unsafeCoerceRep $ go a) (unsafeCoerceRep $ go b)
     go (KindRepTYPE LiftedRep) = SomeTypeRep TrType
     go (KindRepTYPE r) = unkindedTypeRep $ tYPE `kApp` runtimeRepTypeRep r
     go (KindRepTypeLitS sort s)
@@ -823,7 +823,7 @@ splitApps = go []
     go xs (TrApp {trAppFun = f, trAppArg = x})
       = go (SomeTypeRep x : xs) f
     go [] (TrFun {trFunArg = a, trFunRes = b, trFunMul = mul})
-      | Just HRefl <- eqTypeRep trOmega mul = (funTyCon, [SomeTypeRep a, SomeTypeRep b])
+      | Just HRefl <- eqTypeRep trMany mul = (funTyCon, [SomeTypeRep a, SomeTypeRep b])
       | otherwise = errorWithoutStackTrace "Data.Typeable.Internal.splitApps: Only unrestricted functions are supported"
     go _  (TrFun {})
       = errorWithoutStackTrace "Data.Typeable.Internal.splitApps: Impossible 1"

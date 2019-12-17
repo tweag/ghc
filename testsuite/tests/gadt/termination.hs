@@ -150,7 +150,7 @@ test2 = Terminating (Apply (Lambda (Var Zero))(Var Zero))
         NormalVar
 
 -- omega = \x.x@x
-type Omega = Lambda (Apply (Var Z) (Var Z))
+type Many = Lambda (Apply (Var Z) (Var Z))
 omega = Lambda (Apply (Var Zero) (Var Zero))
 
 -- (\x . \y . y)@(\z.z@z)
@@ -163,14 +163,14 @@ test3 = Terminating (Apply (Lambda (Lambda (Var Zero))) omega)
 test4 :: NonTerminating
 test4 = NonTerminating (Apply omega omega) help3
 
-help1 :: Reducible (Apply Omega Omega)
+help1 :: Reducible (Apply Many Many)
 help1 = Reducible (ReduceSimple
                 (ReplaceApply (ReplaceVarEq Equal (LiftLambda
                         (LiftApply (LiftVarLess LessZero) (LiftVarLess LessZero))))
                 (ReplaceVarEq Equal (LiftLambda (LiftApply
                         (LiftVarLess LessZero) (LiftVarLess LessZero))))))
 
-help2 :: ReduceEventually (Apply Omega Omega) t -> Equal (Apply Omega Omega) t
+help2 :: ReduceEventually (Apply Many Many) t -> Equal (Apply Many Many) t
 help2 ReduceZero = Equal
 help2 (ReduceSucc (ReduceSimple (ReplaceApply
         (ReplaceVarEq _ (LiftLambda (LiftApply (LiftVarLess _) (LiftVarLess _))))
@@ -178,6 +178,6 @@ help2 (ReduceSucc (ReduceSimple (ReplaceApply
   = case help2 y of
       Equal -> Equal
 
-help3 :: Infinite (Apply Omega Omega)
+help3 :: Infinite (Apply Many Many)
 help3 x = case help2 x of
               Equal -> help1

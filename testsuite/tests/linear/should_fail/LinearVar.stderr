@@ -1,6 +1,6 @@
 
 LinearVar.hs:5:5: error:
-    • Couldn't match type ‘m’ with ‘'Omega’
+    • Couldn't match type ‘m’ with ‘'Many’
       ‘m’ is a rigid type variable bound by
         the type signature for:
           f :: forall a b. a -> b

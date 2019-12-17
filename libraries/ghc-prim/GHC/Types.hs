@@ -72,7 +72,7 @@ This declaration is important for :info (->) command (issue #10145)
 -}
 
 -- | The built-in function type.
-type (->) = FUN 'Omega
+type (->) = FUN 'Many
 
 {- *********************************************************************
 *                                                                      *
@@ -86,13 +86,13 @@ data Constraint
 -- | The kind of types with lifted values. For example @Int :: Type@.
 type Type = TYPE 'LiftedRep
 
-data Multiplicity = Omega | One
+data Multiplicity = Many | One
 
 type family MultMul (a :: Multiplicity) (b :: Multiplicity) :: Multiplicity where
   MultMul 'One x = x
   MultMul x 'One = x
-  MultMul 'Omega x = 'Omega
-  MultMul x 'Omega = 'Omega
+  MultMul 'Many x = 'Many
+  MultMul x 'Many = 'Many
 
 {- *********************************************************************
 *                                                                      *

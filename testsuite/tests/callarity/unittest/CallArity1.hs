@@ -3,7 +3,7 @@ import CoreSyn
 import CoreUtils
 import Id
 import Type
-import Multiplicity ( pattern Omega )
+import Multiplicity ( pattern Many )
 import MkCore
 import CallArity (callArityRHS)
 import MkId
@@ -189,7 +189,7 @@ mkLApps v = mkApps (Var v) . map mkLit
 mkACase = mkIfThenElse (mkVarApps (Var scrutf) [scruta])
 
 mkTestId :: Int -> String -> Type -> Id
-mkTestId i s ty = mkSysLocal (mkFastString s) (mkBuiltinUnique i) Omega ty
+mkTestId i s ty = mkSysLocal (mkFastString s) (mkBuiltinUnique i) Many ty
 
 mkTestIds :: [String] -> [Type] -> [Id]
 mkTestIds ns tys = zipWith3 mkTestId [0..] ns tys

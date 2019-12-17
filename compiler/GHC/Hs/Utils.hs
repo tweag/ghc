@@ -107,7 +107,7 @@ import TcEvidence
 import RdrName
 import Var
 import TyCoRep
-import Multiplicity ( pattern One, pattern Omega )
+import Multiplicity ( pattern One, pattern Many )
 import Type   ( appTyArgFlags, splitAppTys, tyConArgFlags, tyConAppNeedsKindSig )
 import TysWiredIn ( unitTy )
 import TcType
@@ -313,7 +313,7 @@ mkBodyStmt body
   = BodyStmt noExtField body noSyntaxExpr noSyntaxExpr
 mkBindStmt pat body
   = BindStmt noExtField pat body noSyntaxExpr noSyntaxExpr
-mkTcBindStmt pat body = BindStmt (Omega, unitTy) pat body noSyntaxExpr noSyntaxExpr
+mkTcBindStmt pat body = BindStmt (Many, unitTy) pat body noSyntaxExpr noSyntaxExpr
   -- don't use placeHolderTypeTc above, because that panics during zonking
 
 emptyRecStmt' :: forall idL idR body.
@@ -704,7 +704,7 @@ typeToLHsType ty
 -- code into Haskell'98 syntax.
 multToHsArrow :: Mult -> HsArrow GhcPs
 multToHsArrow One = HsLinearArrow
-multToHsArrow Omega = HsUnrestrictedArrow
+multToHsArrow Many = HsUnrestrictedArrow
 multToHsArrow ty = HsExplicitMult (typeToLHsType ty)
 
 {-

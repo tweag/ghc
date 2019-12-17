@@ -37,7 +37,7 @@ import PprCore
 import Literal
 import PrimOp
 import CoreFVs
-import Multiplicity ( pattern Omega )
+import Multiplicity ( pattern Many )
 import Type
 import RepType
 import Kind            ( isLiftedTypeKind )
@@ -166,7 +166,7 @@ coreExprToBCOs hsc_env this_mod expr
       -- create a totally bogus name for the top-level BCO; this
       -- should be harmless, since it's never used for anything
       let invented_name  = mkSystemVarName (mkPseudoUniqueE 0) (fsLit "ExprTopLevel")
-          invented_id    = Id.mkLocalId invented_name Omega (panic "invented_id's type")
+          invented_id    = Id.mkLocalId invented_name Many (panic "invented_id's type")
 
       -- the uniques are needed to generate fresh variables when we introduce new
       -- let bindings for ticked expressions
@@ -2030,7 +2030,7 @@ getTopStrings = BcM $ \st -> return (st, topStrings st)
 newId :: Type -> BcM Id
 newId ty = do
     uniq <- newUnique
-    return $ mkSysLocal tickFS uniq Omega ty
+    return $ mkSysLocal tickFS uniq Many ty
 
 tickFS :: FastString
 tickFS = fsLit "ticked"

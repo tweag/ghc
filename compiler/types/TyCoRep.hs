@@ -953,14 +953,14 @@ mkVisFunTy   = mkFunTy VisArg
 mkInvisFunTy = mkFunTy InvisArg
 
 mkFunTyOm :: AnonArgFlag -> Type -> Type -> Type
-mkFunTyOm af = mkFunTy af Omega
+mkFunTyOm af = mkFunTy af Many
 
--- | Special, common, case: Arrow type with mult Omega
+-- | Special, common, case: Arrow type with mult Many
 mkVisFunTyOm :: Type -> Type -> Type
-mkVisFunTyOm = mkVisFunTy Omega
+mkVisFunTyOm = mkVisFunTy Many
 
 mkInvisFunTyOm :: Type -> Type -> Type
-mkInvisFunTyOm = mkInvisFunTy Omega
+mkInvisFunTyOm = mkInvisFunTy Many
 
 -- | Make nested arrow types
 mkVisFunTys :: [Scaled Type] -> Type -> Type
@@ -1084,7 +1084,7 @@ isLinearType :: Type -> Bool
 -- in its type. We use this function to check whether it is safe to eta
 -- reduce an Id.
 isLinearType ty = case ty of
-                      FunTy _ Omega _ res -> isLinearType res
+                      FunTy _ Many _ res -> isLinearType res
                       FunTy _ _ _ _ -> True
                       ForAllTy _ res -> isLinearType res
                       _ -> False

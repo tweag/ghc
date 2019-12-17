@@ -919,7 +919,7 @@ syntactic overhead.
 For this reason it was decided that we would hide RuntimeRep variables
 for now (see #11549). We do this by defaulting all type variables of
 kind RuntimeRep to LiftedRep.
-Likewise, we default all Multiplicity variables to Omega.
+Likewise, we default all Multiplicity variables to Many.
 
 This is done in a pass right before pretty-printing
 (defaultNonStandardVars, controlled by
@@ -942,7 +942,7 @@ binder; ohly if so, convert free RuntimeRep variables to LiftedRep.
 -}
 
 -- | Default 'RuntimeRep' variables to 'LiftedPtr', and 'Multiplicity'
---   variables to 'Omega'. For example:
+--   variables to 'Many'. For example:
 --
 -- @
 -- ($) :: forall (r :: GHC.Types.RuntimeRep) a (b :: TYPE r).

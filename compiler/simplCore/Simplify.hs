@@ -377,7 +377,7 @@ in case v of
      A -> j 'x'
      B -> E[<blah>]
 
-If E uses its argument in a nonlinear way (e.g. a case['Omega]), then
+If E uses its argument in a nonlinear way (e.g. a case['Many]), then
 this is wrong: the join point has to change its type to a -> a.
 Otherwise, we'd get a linearity error.
 
@@ -616,7 +616,7 @@ makeTrivialWithInfo mode top_lvl occ_fs info expr
           else do
         { uniq <- getUniqueM
         ; let name = mkSystemVarName uniq occ_fs
-              var  = mkLocalIdOrCoVarWithInfo name Omega expr_ty info
+              var  = mkLocalIdOrCoVarWithInfo name Many expr_ty info
 
         -- Now something very like completeBind,
         -- but without the postInlineUnconditinoally part
@@ -2138,7 +2138,7 @@ trySeqRules in_env scrut rhs cont
                         , as_hole_ty = seq_id_ty }
                 , TyArg { as_arg_ty  = rhs_ty
                        , as_hole_ty  = piResultTy seq_id_ty scrut_ty }
-                , ValArg Omega no_cast_scrut]
+                , ValArg Many no_cast_scrut]
                 -- The multiplicity of the scrutiny above is ω because the type
                 -- of seq requires that its first argument is unrestricted. The
                 -- typing rule of case also guarantees it though. In a more
@@ -2146,7 +2146,7 @@ trySeqRules in_env scrut rhs cont
                 -- affine multiplicity, then we could use the multiplicity of
                 -- the case (held in the case binder) instead.
     rule_cont = ApplyToVal { sc_dup = NoDup, sc_arg = rhs
-                           , sc_env = in_env, sc_cont = cont, sc_mult = Omega}
+                           , sc_env = in_env, sc_cont = cont, sc_mult = Many}
                            -- The multiplicity in sc_mult above is the
                            -- multiplicity of the second argument of seq. Since
                            -- seq's type, as it stands, imposes that its second
@@ -2551,12 +2551,12 @@ rebuildCase env scrut case_bndr alts cont
      -- variables in `u`, it needs to be `pq`.
      --
      -- As an illustration, consider the following
-     --   case[Omega] case[1] of { C x -> C x } of { C x -> (x, x) }
+     --   case[Many] case[1] of { C x -> C x } of { C x -> (x, x) }
      -- Where C :: A #-> T is linear
      -- If we were to produce a case[1], like the inner case, we would get
      --   case[1] of { C x -> (x, x) }
      -- Which is ill-typed with respect to linearity. So it needs to be a
-     -- case[Omega].
+     -- case[Many].
 
 --------------------------------------------------
 --      2. Eliminate the case if scrutinee is evaluated
@@ -2727,22 +2727,22 @@ Note [Scaling in case-of-case]
 
 When two cases commute, if done naively, the multiplicities will be wrong:
 
-  case (case u of w[1] { (x[1], y[1]) } -> f x y) of w'[Omega]
-  { (z[Omega], t[Omega]) -> z
+  case (case u of w[1] { (x[1], y[1]) } -> f x y) of w'[Many]
+  { (z[Many], t[Many]) -> z
   }
 
 The multiplicities here, are correct, but if I perform a case of case:
 
   case u of w[1]
-  { (x[1], y[1]) -> case f x y of w'[Omega] of { (z[Omega], t[Omega]) -> z }
+  { (x[1], y[1]) -> case f x y of w'[Many] of { (z[Many], t[Many]) -> z }
   }
 
-This is wrong! Using `f x y` inside a `case … of w'[Omega]` means that `x` and
-`y` must have multiplicities `Omega` not `1`! The correct solution is to make
-all the `1`-s be `Omega`-s instead:
+This is wrong! Using `f x y` inside a `case … of w'[Many]` means that `x` and
+`y` must have multiplicities `Many` not `1`! The correct solution is to make
+all the `1`-s be `Many`-s instead:
 
-  case u of w[Omega]
-  { (x[Omega], y[Omega]) -> case f x y of w'[Omega] of { (z[Omega], t[Omega]) -> z }
+  case u of w[Many]
+  { (x[Many], y[Many]) -> case f x y of w'[Many] of { (z[Many], t[Many]) -> z }
   }
 
 In general, when commuting two cases, the rule has to be:
@@ -2796,7 +2796,7 @@ improveSeq :: (FamInstEnv, FamInstEnv) -> SimplEnv
 -- Note [Improving seq]
 improveSeq fam_envs env scrut case_bndr case_bndr1 [(DEFAULT,_,_)]
   | Just (co, ty2) <- topNormaliseType_maybe fam_envs (idType case_bndr1)
-  = do { case_bndr2 <- newId (fsLit "nt") Omega ty2
+  = do { case_bndr2 <- newId (fsLit "nt") Many ty2
         ; let rhs  = DoneEx (Var case_bndr2 `Cast` mkSymCo co) Nothing
               env2 = extendIdSubst env case_bndr rhs
         ; return (env2, scrut `Cast` co, case_bndr2) }
@@ -2918,7 +2918,7 @@ addAltUnfoldings env scrut case_bndr con_app
              env1 = addBinderUnfolding env case_bndr con_app_unf
 
              -- See Note [Add unfolding for scrutinee]
-             env2 | Omega <- idMult case_bndr = case scrut of
+             env2 | Many <- idMult case_bndr = case scrut of
                       Just (Var v)           -> addBinderUnfolding env1 v con_app_unf
                       Just (Cast (Var v) co) -> addBinderUnfolding env1 v $
                                                 mk_simple_unf (Cast con_app (mkSymCo co))

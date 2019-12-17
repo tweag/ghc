@@ -784,7 +784,7 @@ data HsArrow pass
   | HsLinearArrow
     -- ^ a #-> b
   | HsExplicitMult (LHsType pass)
-    -- ^ a -->.(m) b (very much including `a -->.(Omega) b`! This is how the
+    -- ^ a -->.(m) b (very much including `a -->.(Many) b`! This is how the
     -- programmer wrote it). It is stored as an `HsType` so as to preserve the
     -- syntax as written in the program.
 

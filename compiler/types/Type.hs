@@ -1416,7 +1416,7 @@ mkLamType v body_ty
    = ForAllTy (Bndr v Required) body_ty
 
    | isPredTy arg_ty  -- See Note [mkLamType: dictionary arguments]
-   = ASSERT(eqType arg_mult Omega)
+   = ASSERT(eqType arg_mult Many)
      mkInvisFunTy arg_mult arg_ty body_ty
 
    | otherwise

@@ -793,7 +793,7 @@ lintCoreExpr e@(Let (Rec pairs) body)
           -- See Note [Multiplicity of let binders] in Var
         ; ues <- mapM (lintSingleBinding NotTopLevel Recursive) pairs
         ; (body_type, body_ue) <- addLoc (BodyOfLetRec bndrs) (lintCoreExpr body)
-        ; return (body_type, body_ue `addUE` scaleUE Omega (foldr1 addUE ues))
+        ; return (body_type, body_ue `addUE` scaleUE Many (foldr1 addUE ues))
         }
   where
     bndrs = map fst pairs
@@ -1272,7 +1272,7 @@ lintCoreAlt scrut scrut_ty _scrut_mult alt_ty alt@(DataAlt con, args, rhs)
     ; let { con_payload_ty = piResultTys (dataConRepType con) tycon_arg_tys
           ; ex_tvs_n = length (dataConExTyCoVars con)
           -- See Note [Alt arg multiplicities]
-          ; multiplicities = replicate ex_tvs_n Omega ++
+          ; multiplicities = replicate ex_tvs_n Many ++
                              map scaledMult (dataConRepArgTys con) }
 
         -- And now bring the new binders into scope
@@ -2550,7 +2550,7 @@ ensureEqTys ty1 ty2 msg = lintL (ty1 `eqType` ty2) msg
 
 ensureSubUsage :: Usage -> Mult -> SDoc -> LintM ()
 ensureSubUsage Bottom     _              _ = return ()
-ensureSubUsage Zero       described_mult err_msg = ensureSubMult Omega described_mult err_msg
+ensureSubUsage Zero       described_mult err_msg = ensureSubMult Many described_mult err_msg
 ensureSubUsage (MUsage m) described_mult err_msg = ensureSubMult m described_mult err_msg
 
 ensureSubMult :: Mult -> Mult -> SDoc -> LintM ()

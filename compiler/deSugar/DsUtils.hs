@@ -491,7 +491,7 @@ mkCoreAppDs _ (Var f `App` Type ty1 `App` Type ty2 `App` arg1) arg2
     case_bndr = case arg1 of
                    Var v1 | isInternalName (idName v1)
                           -> v1        -- Note [Desugaring seq (2) and (3)]
-                   _      -> mkWildValBinder Omega ty1
+                   _      -> mkWildValBinder Many ty1
                              -- Remark: seq is always unrestricted in its first argument
 
 mkCoreAppDs s fun arg = mkCoreApp (text "mkCoreAppDs" $$ s) fun arg  -- The rest is done in MkCore
@@ -667,7 +667,7 @@ work out well:
   which is better.
 -}
 -- Remark: pattern selectors only occur in unrestricted patterns so we are free
--- to select Omega as the multiplicity of every let-expression introduced.
+-- to select Many as the multiplicity of every let-expression introduced.
 mkSelectorBinds :: [[Tickish Id]] -- ^ ticks to add, possibly
                 -> LPat GhcTc     -- ^ The pattern
                 -> CoreExpr       -- ^ Expression to which the pattern is bound
@@ -682,7 +682,7 @@ mkSelectorBinds ticks pat val_expr
 
   | is_flat_prod_lpat pat'           -- Special case (B)
   = do { let pat_ty = hsLPatType pat'
-       ; val_var <- newSysLocalDsNoLP Omega pat_ty
+       ; val_var <- newSysLocalDsNoLP Many pat_ty
 
        ; let mk_bind tick bndr_var
                -- (mk_bind sv bv)  generates  bv = case sv of { pat -> bv }
@@ -700,7 +700,7 @@ mkSelectorBinds ticks pat val_expr
        ; return ( val_var, (val_var, val_expr) : binds) }
 
   | otherwise                          -- General case (C)
-  = do { tuple_var  <- newSysLocalDs Omega tuple_ty
+  = do { tuple_var  <- newSysLocalDs Many tuple_ty
        ; error_expr <- mkErrorAppDs pAT_ERROR_ID tuple_ty (ppr pat')
        ; tuple_expr <- matchSimply val_expr PatBindRhs pat
                                    local_tuple error_expr
@@ -854,8 +854,8 @@ mkFailurePair :: CoreExpr       -- Result type of the whole case expression
                       CoreExpr) -- Fail variable applied to realWorld#
 -- See Note [Failure thunks and CPR]
 mkFailurePair expr
-  = do { fail_fun_var <- newFailLocalDs Omega (voidPrimTy `mkVisFunTyOm` ty)
-       ; fail_fun_arg <- newSysLocalDs Omega voidPrimTy
+  = do { fail_fun_var <- newFailLocalDs Many (voidPrimTy `mkVisFunTyOm` ty)
+       ; fail_fun_arg <- newSysLocalDs Many voidPrimTy
        ; let real_arg = setOneShotLambda fail_fun_arg
        ; return (NonRec fail_fun_var (Lam real_arg expr),
                  App (Var fail_fun_var) (Var voidPrimId)) }

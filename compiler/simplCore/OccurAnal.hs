@@ -1780,7 +1780,7 @@ occAnal env (Case scrut bndr ty alts)
     total_usage `seq` (total_usage, Case scrut' tagged_bndr ty alts') }}
   where
     alt_env = mkAltEnv env scrut bndr
-    occ_anal_alt = occAnalAlt alt_env (eqType (idMult bndr) Omega)
+    occ_anal_alt = occAnalAlt alt_env (eqType (idMult bndr) Many)
 
     occ_anal_scrut (Var v) (alt1 : other_alts)
         | not (null other_alts) || not (isDefaultAlt alt1)
@@ -2005,12 +2005,12 @@ occAnalAlt :: (OccEnv, Maybe (Id, CoreExpr))
            -> Bool  -- is this case-omega? See Note [Suppressing binder-swaps on linear case]
            -> CoreAlt
            -> (UsageDetails, Alt IdWithOccInfo)
-occAnalAlt (env, scrut_bind) caseOmega (con, bndrs, rhs)
+occAnalAlt (env, scrut_bind) caseMany (con, bndrs, rhs)
   = case occAnal env rhs of { (rhs_usage1, rhs1) ->
     let
       (alt_usg, tagged_bndrs) = tagLamBinders rhs_usage1 bndrs
                                 -- See Note [Binders in case alternatives]
-      (alt_usg', rhs2) = wrapAltRHS env scrut_bind alt_usg tagged_bndrs rhs1 caseOmega
+      (alt_usg', rhs2) = wrapAltRHS env scrut_bind alt_usg tagged_bndrs rhs1 caseMany
     in
     (alt_usg', (con, tagged_bndrs, rhs2)) }
 
@@ -2021,12 +2021,12 @@ wrapAltRHS :: OccEnv
            -> CoreExpr                  -- alt RHS
            -> Bool                      -- is this case omega? See Note [Suppressing binder-swaps on linear case]
            -> (UsageDetails, CoreExpr)
-wrapAltRHS env (Just (scrut_var, let_rhs)) alt_usg bndrs alt_rhs caseOmega
+wrapAltRHS env (Just (scrut_var, let_rhs)) alt_usg bndrs alt_rhs caseMany
   | occ_binder_swap env
   , scrut_var `usedIn` alt_usg -- bndrs are not be present in alt_usg so this
                                -- handles condition (a) in Note [Binder swap]
   , not captured               -- See condition (b) in Note [Binder swap]
-  , caseOmega
+  , caseMany
   = ( alt_usg' `andUDs` let_rhs_usg
     , Let (NonRec tagged_scrut_var let_rhs') alt_rhs )
   where
@@ -2345,7 +2345,7 @@ exactly once. Were we to binder swap, we would get the following:
     case[1] x of cb { p -> let x = cb in (cb, cb) }
 This, on the other hand, uses `cb` twice, so is not accepted by the linter.
 
-Therefore, we limit binder swap to case[Omega]
+Therefore, we limit binder swap to case[Many]
 
 Historical note [no-case-of-case]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

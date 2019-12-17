@@ -1341,7 +1341,7 @@ dataConDisplayType dflags (MkData { dcUserTyVarBinders = user_tvbs,
                                    dcOrigResTy = res_ty })
   = let lin = xopt LangExt.LinearTypes dflags
         arg_tys' | lin = arg_tys
-                 | otherwise = (map (\(Scaled w t) -> case w of One -> Scaled Omega t; _ -> Scaled w t) arg_tys)
+                 | otherwise = (map (\(Scaled w t) -> case w of One -> Scaled Many t; _ -> Scaled w t) arg_tys)
     in mkForAllTys user_tvbs $
        mkInvisFunTysOm theta $
        mkVisFunTys arg_tys' $

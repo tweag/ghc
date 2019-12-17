@@ -100,7 +100,7 @@ recoverPSB (PSB { psb_id = (dL->L _ name)
        where
          -- The matcher_id is used only by the desugarer, so actually
          -- and error-thunk would probably do just as well here.
-         matcher_id = mkLocalId matcher_name Omega $
+         matcher_id = mkLocalId matcher_name Many $
                       mkSpecForAllTys [alphaTyVar] alphaTy
 
 recoverPSB (XPatSynBind nec) = noExtCon nec
@@ -705,9 +705,9 @@ tcPatSynMatcher (dL->L loc name) lpat
              fail_ty  = mkVisFunTyOm voidPrimTy res_ty
 
        ; matcher_name <- newImplicitBinder name mkMatcherOcc
-       ; scrutinee    <- newSysLocalId (fsLit "scrut") Omega pat_ty
-       ; cont         <- newSysLocalId (fsLit "cont")  Omega cont_ty
-       ; fail         <- newSysLocalId (fsLit "fail")  Omega fail_ty
+       ; scrutinee    <- newSysLocalId (fsLit "scrut") Many pat_ty
+       ; cont         <- newSysLocalId (fsLit "cont")  Many cont_ty
+       ; fail         <- newSysLocalId (fsLit "fail")  Many fail_ty
 
        ; let matcher_tau   = mkVisFunTysOm [pat_ty, cont_ty, fail_ty] res_ty
              matcher_sigma = mkInfSigmaTy (rr_tv:res_tv:univ_tvs) req_theta matcher_tau

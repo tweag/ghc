@@ -306,7 +306,7 @@ After CoreTidy, top-level LocalIds are turned into GlobalIds
 Note [Multiplicity of let binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In Core, let-binders' multiplicity is always completely determined by syntax:
-a recursive let will always have multiplicity Omega (it's a prerequisite for
+a recursive let will always have multiplicity Many (it's a prerequisite for
 being recursive), and non-recursive let doesn't have a conventional multiplicity,
 instead they act, for the purpose of multiplicity, as an alias for their
 right-hand side.
@@ -416,7 +416,7 @@ varMultMaybe (Id { varMult = mult }) = Just mult
 varMultMaybe _ = Nothing
 
 varMultDef :: Id -> Mult
-varMultDef = fromMaybe Omega . varMultMaybe
+varMultDef = fromMaybe Many . varMultMaybe
 
 varScaledType :: Id -> Scaled Kind
 varScaledType var = Scaled (varMult var) (varType var)
@@ -709,7 +709,7 @@ idDetails other                         = pprPanic "idDetails" (ppr other)
 -- Ids, because Id.hs uses 'mkGlobalId' etc with different types
 mkGlobalVar :: IdDetails -> Name -> Type -> IdInfo -> Id
 mkGlobalVar details name ty info
-  = mk_id name Omega ty GlobalId details info
+  = mk_id name Many ty GlobalId details info
   -- There is no support for linear global variables yet. They would require
   -- being checked at link-time, which can be useful, but is not a priority.
 
@@ -719,12 +719,12 @@ mkLocalVar details name w ty info
 
 mkCoVar :: Name -> Type -> CoVar
 -- Coercion variables have no IdInfo
-mkCoVar name ty = mk_id name Omega ty (LocalId NotExported) coVarDetails vanillaIdInfo
+mkCoVar name ty = mk_id name Many ty (LocalId NotExported) coVarDetails vanillaIdInfo
 
 -- | Exported 'Var's will not be removed as dead code
 mkExportedLocalVar :: IdDetails -> Name -> Type -> IdInfo -> Id
 mkExportedLocalVar details name ty info
-  = mk_id name Omega ty (LocalId Exported) details info
+  = mk_id name Many ty (LocalId Exported) details info
   -- There is no support for exporting linear variables. See also [mkGlobalVar]
 
 mk_id :: Name -> Mult -> Type -> IdScope -> IdDetails -> IdInfo -> Id
