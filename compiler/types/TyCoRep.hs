@@ -223,7 +223,7 @@ data Type
         {-# UNPACK #-} !TyCoVarBinder
         Type            -- ^ A Π type.
 
-  | FunTy      -- ^ t1 -->.(m) t2   Very common, so an important special case
+  | FunTy      -- ^ FUN m t1 t2   Very common, so an important special case
                 -- See Note [Function types]
      { ft_af  :: AnonArgFlag    -- Is this (->) or (=>)?
      , ft_mult :: Mult          -- Multiplicity

@@ -618,9 +618,9 @@ tcExtendLocalTypeEnv :: TcLclEnv -> [(Name, TcTyThing)] -> TcLclEnv
 tcExtendLocalTypeEnv lcl_env@(TcLclEnv { tcl_env = lcl_type_env }) tc_ty_things
   = lcl_env { tcl_env = extendNameEnvList lcl_type_env tc_ty_things }
 
--- | @tcCheckUsage name mult thing_inside@ runs @thing_inside@,
--- checks that the usage of @name@ is a submultiplicity of @mult@,
--- and removes @name@ from the usage environment.
+-- | @tcCheckUsage name mult thing_inside@ runs @thing_inside@, checks that the
+-- usage of @name@ is a submultiplicity of @mult@, and removes @name@ from the
+-- usage environment. See also Note [tcSubMult's wrapper] in TcUnify.
 tcCheckUsage :: Name -> Mult -> TcM a -> TcM (a, HsWrapper)
 tcCheckUsage name id_mult thing_inside
   = do { (local_usage, result) <- tcCollectingUsage thing_inside

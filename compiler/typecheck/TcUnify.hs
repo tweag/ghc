@@ -812,10 +812,31 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
      -- use versions without synonyms expanded
     unify = mkWpCastN <$> uType TypeLevel eq_orig ty_actual ty_expected
 
--- Currently, we consider p*q and sup p q to be equal.
--- Therefore, p*q <= r is equivalent to p <= r and q <= r.
--- For other cases, we approximate p <= q by p ~ q.
--- This is not complete, but it's sound.
+-- Currently, we consider p*q and sup p q to be equal.  Therefore, p*q <= r is
+-- equivalent to p <= r and q <= r.  For other cases, we approximate p <= q by p
+-- ~ q.  This is not complete, but it's sound. See also Note [Overapproximating
+-- multiplicities] in Multiplicity.
+--
+-- Note [tcSubMult's wrapper]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- There is no notion of multiplicity coercion in Core, therefore the wrapper
+-- returned by tcSubMult (and derived function such as tcCheckUsage and
+-- checkManyPattern) is quite unlike any other wrapper: it checks whether the
+-- coercion produced by the constraint solver is trivial and disappears (it
+-- produces a type error is the constraint is not trivial). See [Checking
+-- multiplicity coercions] in TcEvidence.
+--
+-- This wrapper need to be placed in the term, otherwise checking of the
+-- eventual coercion won't be triggered during desuraging. But it can be put
+-- anywhere, since it doesn't affect the desugared code.
+--
+-- Why do we check this in the desugarer? It's a convenient place, since it's
+-- right after all the constraints are solved. We need the constraints to be
+-- solved to check whether they are trivial or not. Plus there are precedent for
+-- type errors during desuraging (such as the levity polymorphism
+-- restriction). An alternative would be to have a kind of constraints which can
+-- only produce trivial evidence, then this check would happen in the constraint
+-- solver.
 tcSubMult :: CtOrigin -> Mult -> Mult -> TcM HsWrapper
 tcSubMult origin (MultMul w1 w2) w_expected =
   do { w1 <- tcSubMult origin w1 w_expected

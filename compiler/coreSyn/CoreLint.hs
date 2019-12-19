@@ -1042,7 +1042,7 @@ lintCoreArg (fun_ty, fun_ue) arg
 
 -----------------
 lintAltBinders :: UsageEnv
-               -> Var         -- Scrutinee name
+               -> Var         -- Case binder
                -> OutType     -- Scrutinee type
                -> OutType     -- Constructor type
                -> [(Mult, OutVar)]    -- Binders
@@ -1058,6 +1058,8 @@ lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
        ; lintAltBinders rhs_ue scrut scrut_ty con_ty'  bndrs }
   | otherwise
   = do { (con_ty', _) <- lintValApp (Var bndr) con_ty (idType bndr) zeroUE zeroUE
+         -- We can pass zeroUE to lintValApp because we ignore its usage
+         -- calculation and compute it in the call for checkCaseLinearity below.
        ; rhs_ue' <- checkCaseLinearity rhs_ue scrut var_w bndr
        ; lintAltBinders rhs_ue' scrut scrut_ty con_ty' bndrs }
 
@@ -1238,7 +1240,7 @@ lintAltExpr expr ann_ty
        ; return ue }
          -- See CoreSyn Note [Case expression invariants] item (6)
 
-lintCoreAlt :: Var              -- Scrut Var
+lintCoreAlt :: Var              -- Case binder
             -> OutType          -- Type of scrutinee
             -> Mult             -- Multiplicity of scrutinee
             -> OutType          -- Type of the alternative
@@ -1303,9 +1305,8 @@ Note [Alt arg multiplicities]
 It is necessary to use `dataConRepArgTys` so you get the arg tys from
 the wrapper if there is one.
 
-For some reason, you also need to add the existential ty vars as they
-are passed are arguments but not returned by `dataConRepArgTys`. Without
-this the test `GADT1` fails.
+You also need to add the existential ty vars as they are passed are arguments
+but not returned by `dataConRepArgTys`. Without this the test `GADT1` fails.
 -}
 
 {-

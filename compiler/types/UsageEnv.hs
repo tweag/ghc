@@ -14,19 +14,11 @@ import Outputable
 -- * Usage environments
 --
 
--- | Like in the mathematical presentation, we have a context on which the
--- semi-ring of multiplicities acts (that is, 'UsageEnv' is a 'Mult'-module). Unlike the
--- mathematical presentation they are not type contexts, but only contain
--- multiplicities corresponding to the multiplicity required for a given variable in a
--- type-checked expression. The reason is twofold: it interacts less with the
--- rest of the type-checking infrastructure so it is easier to fit into the
--- existing implementation, and it is always an inferred datum (in the sense of
--- bidirectional type checking, i.e. it is an output of the type-checking
--- procedure) which makes it possible to use addition and scaling like in the
--- mathematical presentation, rather than subtraction and division which are
--- much harder to get right. The module structure is the point-wise extension of
--- the action of 'Mult' on itself, every absent name being considered to map to
--- 'Zero'.
+-- The typechecker and the linter output usage environments. See Note [Usages]
+-- in Multiplicity. Every absent name being considered to map to 'Zero' of
+-- 'Bottom' depending on a flag. See Note [Zero as a usage] in Multiplicity, see
+-- Note [Bottom as a usage] in Multiplicity.
+
 data Usage = Zero | Bottom | MUsage Mult
 
 instance Outputable Usage where

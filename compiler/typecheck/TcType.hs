@@ -419,8 +419,10 @@ mkCheckExpType = Check
 -- you'll get three types back: one for the first 'SynAny', the /element/
 -- type of the list, and one for the last 'SynAny'. You don't get anything
 -- for the 'SynType', because you've said positively that it should be an
--- Int, and so it shall be. You'll also get three multiplicities back: one
--- for each function arrow.
+-- Int, and so it shall be.
+--
+-- You'll also get three multiplicities back: one for each function arrow. See
+-- also Note [Linear types] in Multiplicity.
 --
 -- This is defined here to avoid defining it in TcExpr.hs-boot.
 data SyntaxOpType

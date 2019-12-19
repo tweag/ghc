@@ -699,7 +699,7 @@ filterAlts _tycon inst_tys imposs_cons alts
 -- | Refine the default alternative to a 'DataAlt', if there is a unique way to do so.
 -- See Note [Refine Default Alts]
 refineDefaultAlt :: [Unique]          -- ^ Uniques for constructing new binders
-                 -> Mult              -- ^ Multiplicity
+                 -> Mult              -- ^ Multiplicity annotation of the case expression
                  -> TyCon             -- ^ Type constructor of scrutinee's type
                  -> [Type]            -- ^ Type arguments of scrutinee's type
                  -> [AltCon]          -- ^ Constructors that cannot match the DEFAULT (if any)
