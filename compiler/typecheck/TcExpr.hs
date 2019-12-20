@@ -2014,14 +2014,14 @@ Which has type
 Which violates the levity-polymorphism restriction see Note [Levity polymorphism
 checking] in DsMonad.
 
-So we really must instanciate r1 and r2 rather than quantify over them.  For
+So we really must instantiate r1 and r2 rather than quantify over them.  For
 simplicity, we just instantiate the entire type, as described in Note
 [Instantiating stupid theta]. It breaks visible type application with unboxed
 tuples, sums and levity-polymorphic newtypes, but this doesn't appear to be used
 anywhere.
 
 A better plan: let's force all representation variable to be *inferred*, so that
-they are not subject to visible type applications. Then we can instanciate
+they are not subject to visible type applications. Then we can instantiate
 inferred argument eagerly.
 -}
 

@@ -1049,39 +1049,39 @@ lintAltBinders :: UsageEnv
                -> LintM UsageEnv
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
-lintAltBinders rhs_ue _scrut scrut_ty con_ty []
+lintAltBinders rhs_ue _case_bndr scrut_ty con_ty []
   = do { ensureEqTys con_ty scrut_ty (mkBadPatMsg con_ty scrut_ty)
        ; return rhs_ue }
-lintAltBinders rhs_ue scrut scrut_ty con_ty ((var_w, bndr):bndrs)
+lintAltBinders rhs_ue case_bndr scrut_ty con_ty ((var_w, bndr):bndrs)
   | isTyVar bndr
   = do { con_ty' <- lintTyApp con_ty (mkTyVarTy bndr)
-       ; lintAltBinders rhs_ue scrut scrut_ty con_ty'  bndrs }
+       ; lintAltBinders rhs_ue case_bndr scrut_ty con_ty'  bndrs }
   | otherwise
   = do { (con_ty', _) <- lintValApp (Var bndr) con_ty (idType bndr) zeroUE zeroUE
          -- We can pass zeroUE to lintValApp because we ignore its usage
          -- calculation and compute it in the call for checkCaseLinearity below.
-       ; rhs_ue' <- checkCaseLinearity rhs_ue scrut var_w bndr
-       ; lintAltBinders rhs_ue' scrut scrut_ty con_ty' bndrs }
+       ; rhs_ue' <- checkCaseLinearity rhs_ue case_bndr var_w bndr
+       ; lintAltBinders rhs_ue' case_bndr scrut_ty con_ty' bndrs }
 
 -- | Implements the case rules for linearity
 checkCaseLinearity :: UsageEnv -> Var -> Mult -> Var -> LintM UsageEnv
-checkCaseLinearity ue scrut var_w bndr = do
+checkCaseLinearity ue case_bndr var_w bndr = do
   ensureSubUsage lhs rhs err_msg
-  lintLinearBinder (ppr bndr) (scrut_w `mkMultMul` var_w) (varMult bndr)
+  lintLinearBinder (ppr bndr) (case_bndr_w `mkMultMul` var_w) (varMult bndr)
   return $ deleteUE ue bndr
   where
-    lhs = bndr_usage `addUsage` (var_w `scaleUsage` scrut_usage)
-    rhs = scrut_w `mkMultMul` var_w
+    lhs = bndr_usage `addUsage` (var_w `scaleUsage` case_bndr_usage)
+    rhs = case_bndr_w `mkMultMul` var_w
     err_msg  = (text "Linearity failure in variable:" <+> ppr bndr
                 $$ ppr lhs <+> text "⊈" <+> ppr rhs
                 $$ text "Computed by:"
                 <+> text "LHS:" <+> lhs_formula
                 <+> text "RHS:" <+> rhs_formula)
     lhs_formula = ppr bndr_usage <+> text "+"
-                                 <+> parens (ppr scrut_usage <+> text "*" <+> ppr var_w)
-    rhs_formula = ppr scrut_w <+> text "*" <+> ppr var_w
-    scrut_w = varMult scrut
-    scrut_usage = lookupUE ue scrut
+                                 <+> parens (ppr case_bndr_usage <+> text "*" <+> ppr var_w)
+    rhs_formula = ppr case_bndr_w <+> text "*" <+> ppr var_w
+    case_bndr_w = varMult case_bndr
+    case_bndr_usage = lookupUE ue case_bndr
     bndr_usage = lookupUE ue bndr
 
 
@@ -1252,7 +1252,7 @@ lintCoreAlt _ _ _ alt_ty (DEFAULT, args, rhs) =
   do { lintL (null args) (mkDefaultArgsMsg args)
      ; lintAltExpr rhs alt_ty }
 
-lintCoreAlt _scrut scrut_ty _ alt_ty (LitAlt lit, args, rhs)
+lintCoreAlt _case_bndr scrut_ty _ alt_ty (LitAlt lit, args, rhs)
   | litIsLifted lit
   = failWithL integerScrutinisedMsg
   | otherwise
@@ -1262,7 +1262,7 @@ lintCoreAlt _scrut scrut_ty _ alt_ty (LitAlt lit, args, rhs)
   where
     lit_ty = literalType lit
 
-lintCoreAlt scrut scrut_ty _scrut_mult alt_ty alt@(DataAlt con, args, rhs)
+lintCoreAlt case_bndr scrut_ty _scrut_mult alt_ty alt@(DataAlt con, args, rhs)
   | isNewTyCon (dataConTyCon con)
   = zeroUE <$ addErrL (mkNewTyDataConAltMsg scrut_ty alt)
   | Just (tycon, tycon_arg_tys) <- splitTyConApp_maybe scrut_ty
@@ -1282,8 +1282,8 @@ lintCoreAlt scrut scrut_ty _scrut_mult alt_ty alt@(DataAlt con, args, rhs)
       {
         rhs_ue <- lintAltExpr rhs alt_ty
        -- ; pprTrace "lintCoreAlt" (ppr multiplicities $$ ppr args' $$ ppr (dataConRepArgTys con) $$ ppr (dataConSig con)) ( return ())
-      ; rhs_ue' <- addLoc (CasePat alt) (lintAltBinders rhs_ue scrut scrut_ty con_payload_ty (zipEqual "lintCoreAlt" multiplicities  args'))
-      ; return $ deleteUE rhs_ue' scrut
+      ; rhs_ue' <- addLoc (CasePat alt) (lintAltBinders rhs_ue case_bndr scrut_ty con_payload_ty (zipEqual "lintCoreAlt" multiplicities  args'))
+      ; return $ deleteUE rhs_ue' case_bndr
       }
    }
 

@@ -60,11 +60,11 @@ For the busy developer, though, here is a high-level view of linear types is the
   and its smart constructors in this module)
 - Multiplicities can be reified in Haskell as types of kind
   `GHC.Types.Multiplicity`
-- Ground (that is, without variable) can be `One` or `Many` (`Many` is generally
-  rendered as ω in the scientific literature). Functions whose type is annotated
-  with `One` are linear functions, functions whose type is annotated with
-  `Omega` are regular functions, often called “unrestricted” to contrast them
-  with linear functions.
+- Ground multiplicity (that is, without a variable) can be `One` or `Many`
+  (`Many` is generally rendered as ω in the scientific literature).
+  Functions whose type is annotated with `One` are linear functions, functions whose
+  type is annotated with `Omega` are regular functions, often called “unrestricted”
+  to contrast them with linear functions.
 - A linear function is defined as a function such that *if* its result is
   consumed exactly once, *then* its argument is consumed exactly once. You can
   think of “consuming exactly once” as evaluating a value in normal form exactly
@@ -77,12 +77,12 @@ For the busy developer, though, here is a high-level view of linear types is the
 - Why “at least once”? Because if `case u of { C x y -> f (C x y) }` is linear
   (provided `f` is a linear function). So we might as well have done `case u of
   { !z -> f z }`. So, we can observe constructors as many times as we want, and
-  we are actually allowed to force the same thing several time because laziness
+  we are actually allowed to force the same thing several times because laziness
   means that we are really forcing a the value once, and observing its
   constructor several times. The type checker and the linter recognise some (but
   not all) of these multiple forces as indeed linear. Mostly just enough to
   support variable patterns.
-- Multiplicities form s semiring.
+- Multiplicities form a semiring.
 - Multiplicities can also be variables and we can universally quantify over
   these variables. This is referred to as “multiplicity
   polymorphism”. Furthermore, multiplicity can be formal semiring expressions
@@ -166,12 +166,12 @@ can be ascribed to a variable.
 So what is the usage of x in
 
     case … of
-      { p1 -> u   -- usages: u_ue
-      ; p2 -> v } -- usage: v_ue
+      { p1 -> u   -- usage env: u_ue
+      ; p2 -> v } -- usage env: v_ue
 
 It must be the least upper bound, or _join_, of u_ue(x) and v_ue(x).
 
-So, contrary to a pen-and-paper presentation where the correct usage of x can be
+So, contrary to a declarative presentation where the correct usage of x can be
 conjured out of thin air, we need to be able to compute the join of two
 multiplicities. Join is extended pointwise on usage environments.
 
@@ -278,10 +278,10 @@ Mult must contain Type because multiplicity variables are mere type variables
 (of kind Multiplicity) in Haskell. So the simplest implementation is to make
 Mult be Type.
 
-Multiplicity contructors are
-- One: Ghc.Types.One (= oneDataCon)
-- Many: Ghc.Types.Many (= manyDataCon)
-- Multiplication: Ghc.Types.MultMul (= multMulTyCon)
+Multiplicities can be formed with:
+- One: GHC.Types.One (= oneDataCon)
+- Many: GHC.Types.Many (= manyDataCon)
+- Multiplication: GHC.Types.MultMul (= multMulTyCon)
 
 So that Mult feels a bit more structured, we provide pattern synonyms and smart
 constructors for these.
