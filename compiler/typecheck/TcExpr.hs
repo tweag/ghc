@@ -381,6 +381,8 @@ tcExpr expr@(OpApp fix arg1 op arg2) res_ty
            matchActualFunTys doc orig1 (Just (unLoc arg1)) 1 arg1_ty
 
        ; mult_wrap <- tcSubMult AppOrigin Many (scaledMult arg2_sigma)
+         -- See Note [tcSubMult's wrapper] in TcUnify.
+         --
          -- When ($) becomes multiplicity-polymorphic, then the above check will
          -- need to go. But in the meantime, it would produce ill-typed
          -- desugared code to accept linear functions to the left of a ($).
@@ -498,6 +500,7 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
            ; Unboxed -> replicateM arity newOpenFlexiTyVarTy }
        ; let missing_tys = [ty | (ty, L _ (Missing _)) <- zip arg_tys tup_args]
              w_tyvars = multiplicityTyVarList (length missing_tys)
+               -- See Note [Linear fields generalization]
              w_tvb = map (mkTyVarBinder Inferred) w_tyvars
              actual_res_ty
                  =  mkForAllTys w_tvb $
@@ -917,9 +920,10 @@ tcExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = rbnds }) res_ty
               (con1_tvs, _, _, _prov_theta, req_theta, scaled_con1_arg_tys, _)
                  = conLikeFullSig con1
               con1_arg_tys = map scaledThing scaled_con1_arg_tys
-                -- Remark: we can safely drop the multiplicity of field because it's
-                -- always 1, this way we don't need to handle it in the rest of
-                -- the function
+                -- Remark: we can safely drop the fields' multiplicities because
+                -- they are currently always 1: there is no syntax for record
+                -- fields with other multiplicities yet. This way we don't need
+                -- to handle it in the rest of the function
               con1_flds   = map flLabel $ conLikeFieldLabels con1
               con1_tv_tys = mkTyVarTys con1_tvs
               con1_res_ty = case mtycon of
@@ -1487,7 +1491,10 @@ tcSyntaxOp :: CtOrigin
            -> SyntaxExpr GhcRn
            -> [SyntaxOpType]           -- ^ shape of syntax operator arguments
            -> ExpRhoType               -- ^ overall result type
-           -> ([TcSigmaType] -> [Mult] -> TcM a) -- ^ Type check any arguments
+           -> ([TcSigmaType] -> [Mult] -> TcM a) -- ^ Type check any arguments,
+                                                 -- takes a type per hole and a
+                                                 -- multiplicity per arrow in
+                                                 -- the shape.
            -> TcM (a, SyntaxExpr GhcTcId)
 -- ^ Typecheck a syntax operator
 -- The operator is a variable or a lambda at this stage (i.e. renamer
@@ -1869,11 +1876,15 @@ tc_infer_id lbl id_name
                  theta = dataConOtherTheta con
                  args = dataConOrigArgTys con
                  res = dataConOrigResTy con
+
            -- See Note [Linear fields generalization]
            ; (_subst, mul_vars) <- newMetaTyVars $ multiplicityTyVarList (length args)
            ; let scaleArgs args' = zipWithEqual "return_data_con" combine mul_vars args'
                  combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
                  combine _   scaled_ty       = scaled_ty
+                   -- The combine function implements the fact that, as
+                   -- described in Note [Linear fields generalization], if a
+                   -- field is not linear (last line) it isn't made polymorphic.
 
                  etaWrapper arg_tys = foldr (\scaled_ty wr -> WpFun WpHole wr scaled_ty empty) WpHole arg_tys
 
@@ -1978,26 +1989,40 @@ the users that complain.
 
 Note [Linear fields generalization]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-With the introduction of -XLinearTypes, the fields in constructors
-become linear by default. However, we cannot just change
-the type of a constructor, as calls such as 'map Just' would
-no longer type-check.
+As per Note [Polymorphisation of linear fields], linear field of data
+constructors get a polymorphic type when the data constructor is used as a term.
 
-Therefore, we generalize linear constructors to multiplicity-polymorphic
-functions during typechecking. For example, 'Just' becomes
-'forall a. a -->.(n) Maybe a'.
+    Just :: forall {p} a. a #p-> Maybe a
 
-We do not generalize fields declared as multiplicity-polymorphic,
-as there is no backwards compatibility issue.
+This rule is known only to the typechecker: Just keeps its linear type in Core.
 
-If the constructor is levity-polymorphic (unboxed tuples, sums,
-certain newtypes with -XUnliftedNewtypes) then we have to instantiate
-the RuntimeRep argument, as otherwise the levity-polymorphism check
-will fail during desugaring.
-For simplicity, we just instantiate the entire type, as described
-in Note [Instantiating stupid theta]. This means that users cannot
-use visible type application with unboxed tuples, sums and
-levity-polymorphic newtypes, but this shouldn't be a big problem.
+In order to desugar this generalised typing rule, we simply eta-expand:
+
+    \a (x # p :: a) -> Just @a x
+
+has the appropriate type. We insert these eta-expansion with WpFun wrappers.
+
+A small hitch: if the constructor is levity-polymorphic (unboxed tuples, sums,
+certain newtypes with -XUnliftedNewtypes) then this strategy produces
+
+    \r1 r2 a b (x # p :: a) (y # q :: b) -> (# a, b #)
+
+Which has type
+
+    forall r1 r2 a b. a #p-> b #q-> (# a, b #)
+
+Which violates the levity-polymorphism restriction see Note [Levity polymorphism
+checking] in DsMonad.
+
+So we really must instantiate r1 and r2 rather than quantify over them.  For
+simplicity, we just instantiate the entire type, as described in Note
+[Instantiating stupid theta]. It breaks visible type application with unboxed
+tuples, sums and levity-polymorphic newtypes, but this doesn't appear to be used
+anywhere.
+
+A better plan: let's force all representation variable to be *inferred*, so that
+they are not subject to visible type applications. Then we can instantiate
+inferred argument eagerly.
 -}
 
 tcTagToEnum :: SrcSpan -> Name -> [LHsExprArgIn] -> ExpRhoType
