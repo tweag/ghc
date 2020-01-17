@@ -40,7 +40,7 @@ module Id (
         mkSysLocal, mkSysLocalM, mkSysLocalOrCoVar, mkSysLocalOrCoVarM,
         mkUserLocal, mkUserLocalOrCoVar,
         mkTemplateLocals, mkTemplateLocalsNum, mkTemplateLocal,
-        mkTemplateLocalW,
+        mkScaledTemplateLocal,
         mkWorkerId,
 
         -- ** Taking an Id apart
@@ -378,10 +378,10 @@ mkWorkerId uniq unwrkr ty
 
 -- | Create a /template local/: a family of system local 'Id's in bijection with @Int@s, typically used in unfoldings
 mkTemplateLocal :: Int -> Type -> Id
-mkTemplateLocal i ty = mkTemplateLocalW i (unrestricted ty)
+mkTemplateLocal i ty = mkScaledTemplateLocal i (unrestricted ty)
 
-mkTemplateLocalW :: Int -> Scaled Type -> Id
-mkTemplateLocalW i (Scaled w ty) = mkSysLocalOrCoVar (fsLit "v") (mkBuiltinUnique i) w ty
+mkScaledTemplateLocal :: Int -> Scaled Type -> Id
+mkScaledTemplateLocal i (Scaled w ty) = mkSysLocalOrCoVar (fsLit "v") (mkBuiltinUnique i) w ty
 
 -- | Create a template local for a series of types
 mkTemplateLocals :: [Type] -> [Id]
