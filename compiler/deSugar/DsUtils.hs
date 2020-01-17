@@ -492,7 +492,7 @@ mkCoreAppDs _ (Var f `App` Type ty1 `App` Type ty2 `App` arg1) arg2
                    Var v1 | isInternalName (idName v1)
                           -> v1        -- Note [Desugaring seq (2) and (3)]
                    _      -> mkWildValBinder Many ty1
-                             -- Remark: seq is always unrestricted in its first argument
+                             -- Remark: seq is unrestricted in its first argument
 
 mkCoreAppDs s fun arg = mkCoreApp (text "mkCoreAppDs" $$ s) fun arg  -- The rest is done in MkCore
 
