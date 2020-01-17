@@ -1141,6 +1141,7 @@ repTy (HsTyVar _ _ (dL->L _ n))
   | isLiftedTypeKindTyConName n        = repTStar
   | n `hasKey` constraintKindTyConKey  = repTConstraint
   | n `hasKey` unrestrictedFunTyConKey = repArrowTyCon
+  | n `hasKey` funTyConKey             = repMulArrowTyCon
   | isTvOcc occ   = do tv1 <- lookupOcc n
                        repTvar tv1
   | isDataOcc occ = do tc1 <- lookupOcc n
@@ -1164,7 +1165,11 @@ repTy (HsFunTy _ w f a) | isUnrestricted w = do
                                 a1   <- repLTy a
                                 tcon <- repArrowTyCon
                                 repTapps tcon [f1, a1]
-repTy ty@(HsFunTy _ _ _ _) = notHandled "Function with non-Many multiplicity" (ppr ty)
+repTy (HsFunTy _ w f a) = do w1   <- repLTy (arrowToHsType w)
+                             f1   <- repLTy f
+                             a1   <- repLTy a
+                             tcon <- repMulArrowTyCon
+                             repTapps tcon [w1, f1, a1]
 repTy (HsListTy _ t)        = do
                                 t1   <- repLTy t
                                 tcon <- repListTyCon
@@ -2528,6 +2533,9 @@ repUnboxedSumTyCon arity = do dflags <- getDynFlags
 
 repArrowTyCon :: DsM (Core TH.TypeQ)
 repArrowTyCon = rep2 arrowTName []
+
+repMulArrowTyCon :: DsM (Core TH.TypeQ)
+repMulArrowTyCon = rep2 mulArrowTName []
 
 repListTyCon :: DsM (Core TH.TypeQ)
 repListTyCon = rep2 listTName []
