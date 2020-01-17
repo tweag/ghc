@@ -345,25 +345,6 @@ renameDeriv inst_infos bagBinds
               ; return (inst_info { iBinds = binds' }, fvs) }
 
 {-
-Note [Newtype deriving and unused constructors]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider this (see #1954):
-
-  module Bug(P) where
-  newtype P a = MkP (IO a) deriving Monad
-
-If you compile with -Wunused-binds you do not expect the warning
-"Defined but not used: data constructor MkP". Yet the newtype deriving
-code does not explicitly mention MkP, but it should behave as if you
-had written
-  instance Monad P where
-     return x = MkP (return x)
-     ...etc...
-
-So we want to signal a user of the data constructor 'MkP'.
-This is the reason behind the [Name] part of the return type
-of genInst.
-
 Note [Staging of tcDeriving]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Here's a tricky corner case for deriving (adapted from #2721):
@@ -1991,34 +1972,46 @@ genInst spec@(DS { ds_tvs = tvs, ds_tc = rep_tycon
     set_span_and_ctxt :: TcM a -> TcM a
     set_span_and_ctxt = setSrcSpan loc . addErrCtxt (instDeclCtxt3 clas tys)
 
+-- When processing a standalone deriving declaration, check that all of the
+-- constructors for the data type are in scope. For instance:
+--
+--   import M (T)
+--   deriving stock instance Eq T
+--
+-- This should be rejected, as the derived Eq instance would need to refer to
+-- the constructors for T, which are not in scope.
+--
+-- Note that the only strategies that require this check are `stock` and
+-- `newtype`. Neither `anyclass` nor `via` require it as the code that they
+-- generate does not require using data constructors.
 doDerivInstErrorChecks1 :: DerivSpecMechanism -> DerivM ()
 doDerivInstErrorChecks1 mechanism = do
-    DerivEnv { denv_tc      = tc
-             , denv_rep_tc  = rep_tc } <- ask
-    standalone <- isStandaloneDeriv
-    let anyclass_strategy = isDerivSpecAnyClass mechanism
-        via_strategy      = isDerivSpecVia mechanism
-        bale_out msg = do err <- derivingThingErrMechanism mechanism msg
-                          lift $ failWithTc err
+  standalone <- isStandaloneDeriv
+  when standalone $ case mechanism of
+    DerivSpecStock{}    -> check
+    DerivSpecNewtype{}  -> check
+    DerivSpecAnyClass{} -> pure ()
+    DerivSpecVia{}      -> pure ()
+  where
+    check :: DerivM ()
+    check = do
+      DerivEnv { denv_tc = tc, denv_rep_tc = rep_tc } <- ask
+      let bale_out msg = do err <- derivingThingErrMechanism mechanism msg
+                            lift $ failWithTc err
 
-    -- For standalone deriving, check that all the data constructors are in
-    -- scope...
-    rdr_env <- lift getGlobalRdrEnv
-    let data_con_names = map dataConName (tyConDataCons rep_tc)
-        hidden_data_cons = not (isWiredInName (tyConName rep_tc)) &&
-                           (isAbstractTyCon rep_tc ||
-                            any not_in_scope data_con_names)
-        not_in_scope dc  = isNothing (lookupGRE_Name rdr_env dc)
+      rdr_env <- lift getGlobalRdrEnv
+      let data_con_names = map dataConName (tyConDataCons rep_tc)
+          hidden_data_cons = not (isWiredInName (tyConName rep_tc)) &&
+                             (isAbstractTyCon rep_tc ||
+                              any not_in_scope data_con_names)
+          not_in_scope dc  = isNothing (lookupGRE_Name rdr_env dc)
 
-    lift $ addUsedDataCons rdr_env rep_tc
+      -- Make sure to also mark the data constructors as used so that GHC won't
+      -- mistakenly emit -Wunused-imports warnings about them.
+      lift $ addUsedDataCons rdr_env rep_tc
 
-    -- ...however, we don't perform this check if we're using DeriveAnyClass,
-    -- since it doesn't generate any code that requires use of a data
-    -- constructor. Nor do we perform this check with @deriving via@, as it
-    -- doesn't explicitly require the constructors to be in scope.
-    unless (anyclass_strategy || via_strategy
-            || not standalone || not hidden_data_cons) $
-           bale_out $ derivingHiddenErr tc
+      unless (not hidden_data_cons) $
+        bale_out $ derivingHiddenErr tc
 
 doDerivInstErrorChecks2 :: Class -> ClsInst -> ThetaType -> Maybe SrcSpan
                         -> DerivSpecMechanism -> TcM ()
@@ -2102,15 +2095,7 @@ genDerivStuff mechanism loc clas tycon inst_tys tyvars
   where
     gen_newtype_or_via ty = do
       (binds, faminsts) <- gen_Newtype_binds loc clas tyvars inst_tys ty
-      return (binds, faminsts, maybeToList unusedConName)
-
-    unusedConName :: Maybe Name
-    unusedConName
-      | isDerivSpecNewtype mechanism
-        -- See Note [Newtype deriving and unused constructors]
-      = Just $ getName $ head $ tyConDataCons tycon
-      | otherwise
-      = Nothing
+      return (binds, faminsts, [])
 
 {-
 Note [Bindings for Generalised Newtype Deriving]
