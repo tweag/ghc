@@ -498,7 +498,7 @@ mkCoreAppDs s fun arg = mkCoreApp (text "mkCoreAppDs" $$ s) fun arg  -- The rest
 
 -- NB: No argument can be levity polymorphic
 mkCoreAppsDs :: SDoc -> CoreExpr -> [CoreExpr] -> CoreExpr
-mkCoreAppsDs s fun args = foldl (mkCoreAppDs s) fun args
+mkCoreAppsDs s fun args = foldl' (mkCoreAppDs s) fun args
 
 mkCastDs :: CoreExpr -> Coercion -> CoreExpr
 -- We define a desugarer-specific version of CoreUtils.mkCast,
