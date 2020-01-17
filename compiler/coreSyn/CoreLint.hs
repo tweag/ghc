@@ -905,15 +905,6 @@ checkJoinOcc var n_args
   = return ()
 
 lintLambda :: Var -> LintM (Type, UsageEnv) -> LintM (Type, UsageEnv)
-lintLambda var lintBody | isId var, Just tpl <- maybeUnfoldingTemplate (realIdUnfolding var) =
-  do { let_ue <- lintSingleBinding NotTopLevel NonRecursive (var, tpl)
-     ; addLoc (LambdaBodyOf var) $
-              (lintBinder LambdaBind var $ \var' ->
-                 do { (body_ty, ue) <- addGoodJoins [var] $ addAliasUE var let_ue lintBody
-                    ; return (mkLamType var' body_ty, ue)
-                    })
-     }
-
 lintLambda var lintBody =
     addLoc (LambdaBodyOf var) $
     lintBinder LambdaBind var $ \ var' ->
