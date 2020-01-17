@@ -558,12 +558,11 @@ cmmNativeGen dflags this_mod modLoc ncgImpl us fileIds dbgMap cmm count
                                         (cmmTopCodeGen ncgImpl)
                                         fileIds dbgMap opt_cmm cmmCfg
 
-
         dumpIfSet_dyn dflags
                 Opt_D_dump_asm_native "Native code"
                 (vcat $ map (pprNatCmmDecl ncgImpl) native)
 
-        dumpIfSet_dyn dflags
+        when (not $ null nativeCfgWeights) $ dumpIfSet_dyn dflags
                 Opt_D_dump_cfg_weights "CFG Weights"
                 (pprEdgeWeights nativeCfgWeights)
 
@@ -679,19 +678,20 @@ cmmNativeGen dflags this_mod modLoc ncgImpl us fileIds dbgMap cmm count
             cfgRegAllocUpdates = (concatMap Linear.ra_fixupList raStats)
 
         let cfgWithFixupBlks =
-                addNodesBetween nativeCfgWeights cfgRegAllocUpdates
+                (\cfg -> addNodesBetween cfg cfgRegAllocUpdates) <$> livenessCfg
 
         -- Insert stack update blocks
         let postRegCFG =
-                foldl' (\m (from,to) -> addImmediateSuccessor from to m )
-                       cfgWithFixupBlks stack_updt_blks
+                pure (foldl' (\m (from,to) -> addImmediateSuccessor from to m ))
+                     <*> cfgWithFixupBlks
+                     <*> pure stack_updt_blks
 
         ---- generate jump tables
         let tabled      =
                 {-# SCC "generateJumpTables" #-}
                 generateJumpTables ncgImpl alloced
 
-        dumpIfSet_dyn dflags
+        when (not $ null nativeCfgWeights) $ dumpIfSet_dyn dflags
                 Opt_D_dump_cfg_weights "CFG Update information"
                 ( text "stack:" <+> ppr stack_updt_blks $$
                   text "linearAlloc:" <+> ppr cfgRegAllocUpdates )
@@ -701,12 +701,14 @@ cmmNativeGen dflags this_mod modLoc ncgImpl us fileIds dbgMap cmm count
                 {-# SCC "shortcutBranches" #-}
                 shortcutBranches dflags ncgImpl tabled postRegCFG
 
-        let optimizedCFG =
-                optimizeCFG (cfgWeightInfo dflags) cmm postShortCFG
+        let optimizedCFG :: Maybe CFG
+            optimizedCFG =
+                optimizeCFG (cfgWeightInfo dflags) cmm <$!> postShortCFG
 
-        dumpIfSet_dyn dflags
-                Opt_D_dump_cfg_weights "CFG Final Weights"
-                ( pprEdgeWeights optimizedCFG )
+        maybe (return ()) (\cfg->
+                dumpIfSet_dyn dflags Opt_D_dump_cfg_weights "CFG Final Weights"
+                ( pprEdgeWeights cfg ))
+                optimizedCFG
 
         --TODO: Partially check validity of the cfg.
         let getBlks (CmmProc _info _lbl _live (ListGraph blocks)) = blocks
@@ -716,7 +718,8 @@ cmmNativeGen dflags this_mod modLoc ncgImpl us fileIds dbgMap cmm count
                 (gopt Opt_DoAsmLinting dflags || debugIsOn )) $ do
                 let blocks = concatMap getBlks shorted
                 let labels = setFromList $ fmap blockId blocks :: LabelSet
-                return $! seq (sanityCheckCfg optimizedCFG labels $
+                let cfg = fromJust optimizedCFG
+                return $! seq (sanityCheckCfg cfg labels $
                                 text "cfg not in lockstep") ()
 
         ---- sequence blocks
@@ -734,7 +737,9 @@ cmmNativeGen dflags this_mod modLoc ncgImpl us fileIds dbgMap cmm count
                 {-# SCC "invertCondBranches" #-}
                 map invert sequenced
               where
-                invertConds = (invertCondBranches ncgImpl) optimizedCFG
+                invertConds :: LabelMap CmmStatics -> [NatBasicBlock instr]
+                            -> [NatBasicBlock instr]
+                invertConds = invertCondBranches ncgImpl optimizedCFG
                 invert top@CmmData {} = top
                 invert (CmmProc info lbl live (ListGraph blocks)) =
                     CmmProc info lbl live (ListGraph $ invertConds info blocks)
@@ -884,13 +889,13 @@ shortcutBranches
         :: forall statics instr jumpDest. (Outputable jumpDest) => DynFlags
         -> NcgImpl statics instr jumpDest
         -> [NatCmmDecl statics instr]
-        -> CFG
-        -> ([NatCmmDecl statics instr],CFG)
+        -> Maybe CFG
+        -> ([NatCmmDecl statics instr],Maybe CFG)
 
 shortcutBranches dflags ncgImpl tops weights
   | gopt Opt_AsmShortcutting dflags
   = ( map (apply_mapping ncgImpl mapping) tops'
-    , shortcutWeightMap weights mappingBid )
+    , shortcutWeightMap mappingBid <$!> weights )
   | otherwise
   = (tops, weights)
   where

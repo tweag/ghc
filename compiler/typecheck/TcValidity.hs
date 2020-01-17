@@ -53,7 +53,6 @@ import Name
 import VarEnv
 import VarSet
 import Var         ( VarBndr(..), mkTyVar )
-import Id          ( idType, idName )
 import FV
 import ErrUtils
 import DynFlags
@@ -1272,16 +1271,9 @@ checkSimplifiableClassConstraint env dflags ctxt cls tys
     simplifiable_constraint_warn what
      = vcat [ hang (text "The constraint" <+> quotes (ppr (tidyType env pred))
                     <+> text "matches")
-                 2 (ppr_what what)
+                 2 (ppr what)
             , hang (text "This makes type inference for inner bindings fragile;")
                  2 (text "either use MonoLocalBinds, or simplify it using the instance") ]
-
-    ppr_what BuiltinInstance = text "a built-in instance"
-    ppr_what LocalInstance   = text "a locally-quantified instance"
-    ppr_what (TopLevInstance { iw_dfun_id = dfun })
-      = hang (text "instance" <+> pprSigmaType (idType dfun))
-           2 (text "--" <+> pprDefinedAt (idName dfun))
-
 
 {- Note [Simplifiable given constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1476,7 +1468,8 @@ checkValidInstHead ctxt clas cls_args
   = do { dflags   <- getDynFlags
        ; is_boot  <- tcIsHsBootOrSig
        ; is_sig   <- tcIsHsig
-       ; check_valid_inst_head dflags is_boot is_sig ctxt clas cls_args
+       ; check_special_inst_head dflags is_boot is_sig ctxt clas cls_args
+       ; checkValidTypePats (classTyCon clas) cls_args
        }
 
 {-
@@ -1504,10 +1497,10 @@ in hsig files, where `is_sig` is True.
 
 -}
 
-check_valid_inst_head :: DynFlags -> Bool -> Bool
-                      -> UserTypeCtxt -> Class -> [Type] -> TcM ()
+check_special_inst_head :: DynFlags -> Bool -> Bool
+                        -> UserTypeCtxt -> Class -> [Type] -> TcM ()
 -- Wow!  There are a surprising number of ad-hoc special cases here.
-check_valid_inst_head dflags is_boot is_sig ctxt clas cls_args
+check_special_inst_head dflags is_boot is_sig ctxt clas cls_args
 
   -- If not in an hs-boot file, abstract classes cannot have instances
   | isAbstractClass clas
@@ -1557,7 +1550,7 @@ check_valid_inst_head dflags is_boot is_sig ctxt clas cls_args
   = failWithTc (instTypeErr clas cls_args msg)
 
   | otherwise
-  = checkValidTypePats (classTyCon clas) cls_args
+  = pure ()
   where
     clas_nm = getName clas
     ty_args = filterOutInvisibleTypes (classTyCon clas) cls_args
