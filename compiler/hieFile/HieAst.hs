@@ -1445,8 +1445,9 @@ instance ToHie (LConDecl GhcRn) where
       XConDecl _ -> []
     where condecl_scope :: HsConDeclDetails p -> Scope
           condecl_scope args = case args of
-            PrefixCon xs -> foldr combineScopes NoScope $ map (mkLScope . hsThing) xs
-            InfixCon a b -> combineScopes (mkLScope (hsThing a)) (mkLScope (hsThing b))
+            PrefixCon xs -> foldr combineScopes NoScope $ map (mkLScope . hsScaledThing) xs
+            InfixCon a b -> combineScopes (mkLScope (hsScaledThing a))
+                                          (mkLScope (hsScaledThing b))
             RecCon x -> mkLScope x
 
 instance ToHie (Located [LConDeclField GhcRn]) where

@@ -21,7 +21,7 @@ GHC.Hs.Types: Abstract syntax: user-defined types
 
 module GHC.Hs.Types (
         Mult, HsScaled(..),
-        hsMult, hsThing,
+        hsMult, hsScaledThing,
         HsArrow(..), arrowToHsType,
         hsLinear, hsUnrestricted, isUnrestricted,
 
@@ -803,8 +803,8 @@ data HsScaled pass a = HsScaled (HsArrow pass) a
 hsMult :: HsScaled pass a -> HsArrow pass
 hsMult (HsScaled m _) = m
 
-hsThing :: HsScaled pass a -> a
-hsThing (HsScaled _ t) = t
+hsScaledThing :: HsScaled pass a -> a
+hsScaledThing (HsScaled _ t) = t
 
 -- | When creating syntax we use the shorthands. It's better for printing, also,
 -- the shorthands work trivially at each pass.

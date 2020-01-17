@@ -2122,7 +2122,7 @@ rnConDecl decl@(ConDeclGADT { con_names   = names
           -- variable, and hence the order needed for visible type application
           -- See #14808.
               free_tkvs = extractHsTvBndrs explicit_tkvs $
-                          extractHsTysRdrTyVarsDups (theta ++ map hsThing arg_tys ++ [res_ty])
+                          extractHsTysRdrTyVarsDups (theta ++ map hsScaledThing arg_tys ++ [res_ty])
 
               ctxt    = ConDeclCtx new_names
               mb_ctxt = Just (inHsDocContext ctxt)
@@ -2142,7 +2142,7 @@ rnConDecl decl@(ConDeclGADT { con_names   = names
                       RecCon {}    -> (new_args, new_res_ty)
                       PrefixCon as -> let (arg_tys, final_res_ty) = splitHsFunType new_res_ty
                                           arg_tys' | linearTypes = arg_tys
-                                                   | otherwise   = map (hsLinear . hsThing) arg_tys
+                                                   | otherwise   = map (hsLinear . hsScaledThing) arg_tys
                                       in  ASSERT( null as )
                                       -- See Note [GADT abstract syntax] in GHC.Hs.Decls
                                          (PrefixCon arg_tys', final_res_ty)

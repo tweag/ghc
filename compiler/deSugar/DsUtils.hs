@@ -492,13 +492,13 @@ mkCoreAppDs _ (Var f `App` Type ty1 `App` Type ty2 `App` arg1) arg2
                    Var v1 | isInternalName (idName v1)
                           -> v1        -- Note [Desugaring seq (2) and (3)]
                    _      -> mkWildValBinder Many ty1
-                             -- Remark: seq is always unrestricted in its first argument
+                             -- Remark: seq is unrestricted in its first argument
 
 mkCoreAppDs s fun arg = mkCoreApp (text "mkCoreAppDs" $$ s) fun arg  -- The rest is done in MkCore
 
 -- NB: No argument can be levity polymorphic
 mkCoreAppsDs :: SDoc -> CoreExpr -> [CoreExpr] -> CoreExpr
-mkCoreAppsDs s fun args = foldl (mkCoreAppDs s) fun args
+mkCoreAppsDs s fun args = foldl' (mkCoreAppDs s) fun args
 
 mkCastDs :: CoreExpr -> Coercion -> CoreExpr
 -- We define a desugarer-specific version of CoreUtils.mkCast,

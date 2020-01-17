@@ -2857,7 +2857,7 @@ tcConIsInfixGADT con details
            RecCon {}    -> return False
            PrefixCon arg_tys           -- See Note [Infix GADT constructors]
                | isSymOcc (getOccName con)
-               , [_ty1,_ty2] <- map hsThing arg_tys
+               , [_ty1,_ty2] <- map hsScaledThing arg_tys
                   -> do { fix_env <- getFixityEnv
                         ; return (con `elemNameEnv` fix_env) }
                | otherwise -> return False

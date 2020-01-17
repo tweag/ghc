@@ -542,7 +542,7 @@ mkDataConWorkId wkr_name data_con
                   `setInlinePragInfo`     alwaysInlinePragma
                   `setUnfoldingInfo`      newtype_unf
                   `setLevityInfoWithType` wkr_ty
-    id_arg1      = mkTemplateLocalW 1 (head arg_tys)
+    id_arg1      = mkScaledTemplateLocal 1 (head arg_tys)
     res_ty_args  = mkTyCoVarTys univ_tvs
     newtype_unf  = ASSERT2( isVanillaDataCon data_con &&
                             isSingleton arg_tys
