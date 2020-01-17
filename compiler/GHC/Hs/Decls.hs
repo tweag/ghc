@@ -1503,9 +1503,11 @@ pprConDecl (ConDeclH98 { con_name = L _ con
   where
     -- In ppr_details: let's not print the multiplicities (they are always 1, by
     -- definition) as they do not appear in an actual declaration.
-    ppr_details (InfixCon t1 t2) = hsep [ppr (hsThing t1), pprInfixOcc con, ppr (hsThing t2)]
+    ppr_details (InfixCon t1 t2) = hsep [ppr (hsScaledThing t1),
+                                         pprInfixOcc con,
+                                         ppr (hsScaledThing t2)]
     ppr_details (PrefixCon tys)  = hsep (pprPrefixOcc con
-                                   : map (pprHsType . unLoc . hsThing) tys)
+                                   : map (pprHsType . unLoc . hsScaledThing) tys)
     ppr_details (RecCon fields)  = pprPrefixOcc con
                                  <+> pprConDeclFields (unLoc fields)
     cxt = fromMaybe noLHsContext mcxt
