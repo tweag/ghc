@@ -1564,11 +1564,11 @@ cvtTypeKind ty_str ty
            _ -> failWith (ptext (sLit ("Malformed " ++ ty_str)) <+> text (show ty))
     }
 
--- TODO use isExact_maybe on Names
 hsTypeToArrow :: LHsType GhcPs -> HsArrow GhcPs
 hsTypeToArrow w = case unLoc w of
-                     HsTyVar _ _ (L _ n) | n == nameRdrName oneDataConName -> HsLinearArrow
-                     HsTyVar _ _ (L _ n) | n == nameRdrName manyDataConName -> HsUnrestrictedArrow
+                     HsTyVar _ _ (L _ (isExact_maybe -> Just n))
+                        | n == oneDataConName -> HsLinearArrow
+                        | n == manyDataConName -> HsUnrestrictedArrow
                      _ -> HsExplicitMult w
 
 -- | Constructs an application of a type to arguments passed in a list.
