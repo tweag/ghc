@@ -681,7 +681,7 @@ mkSelectorBinds ticks pat val_expr
   = return (v, [(v, val_expr)])
 
   | is_flat_prod_lpat pat'           -- Special case (B)
-  = do { let pat_ty = hsLPatType pat'
+  = do { let pat_ty = hsPatType pat'
        ; val_var <- newSysLocalDsNoLP Many pat_ty
 
        ; let mk_bind tick bndr_var
@@ -767,7 +767,7 @@ mkLHsPatTup lpats  = cL (getLoc (head lpats)) $
 
 mkVanillaTuplePat :: [OutPat GhcTc] -> Boxity -> Pat GhcTc
 -- A vanilla tuple pattern simply gets its type from its sub-patterns
-mkVanillaTuplePat pats box = TuplePat (map hsLPatType pats) pats box
+mkVanillaTuplePat pats box = TuplePat (map hsPatType pats) pats box
 
 -- The Big equivalents for the source tuple expressions
 mkBigLHsVarTupId :: [Id] -> LHsExpr GhcTc
