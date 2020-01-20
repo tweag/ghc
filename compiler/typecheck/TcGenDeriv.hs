@@ -1451,7 +1451,7 @@ gen_data dflags data_type_name constr_names loc rep_tc
 
 
 kind1, kind2 :: Kind
-kind1 = liftedTypeKind `mkVisFunTyMany` liftedTypeKind
+kind1 = typeToTypeKind
 kind2 = liftedTypeKind `mkVisFunTyMany` kind1
 
 gfoldl_RDR, gunfold_RDR, toConstr_RDR, dataTypeOf_RDR, mkConstr_RDR,

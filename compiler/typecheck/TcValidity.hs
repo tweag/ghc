@@ -53,7 +53,6 @@ import Name
 import VarEnv
 import VarSet
 import Var         ( VarBndr(..), mkTyVar )
-import Id          ( idType, idName )
 import FV
 import ErrUtils
 import DynFlags
@@ -356,7 +355,9 @@ checkValidType ctxt ty
                     -- So we do this check here.
 
                  FunSigCtxt {}  -> rank1
-                 InfSigCtxt _   -> ArbitraryRank        -- Inferred type
+                 InfSigCtxt {}  -> rank1 -- Inferred types should obey the
+                                         -- same rules as declared ones
+
                  ConArgCtxt _   -> rank1 -- We are given the type of the entire
                                          -- constructor, hence rank 1
                  PatSynCtxt _   -> rank1
@@ -676,7 +677,7 @@ check_type ve (CastTy ty _) = check_type ve ty
 check_type ve@(ValidityEnv{ ve_tidy_env = env, ve_ctxt = ctxt
                           , ve_rank = rank, ve_expand = expand }) ty
   | not (null tvbs && null theta)
-  = do  { traceTc "check_type" (ppr ty $$ ppr (forAllAllowed rank))
+  = do  { traceTc "check_type" (ppr ty $$ ppr rank)
         ; checkTcM (forAllAllowed rank) (forAllTyErr env rank ty)
                 -- Reject e.g. (Maybe (?x::Int => Int)),
                 -- with a decent error message
@@ -1270,16 +1271,9 @@ checkSimplifiableClassConstraint env dflags ctxt cls tys
     simplifiable_constraint_warn what
      = vcat [ hang (text "The constraint" <+> quotes (ppr (tidyType env pred))
                     <+> text "matches")
-                 2 (ppr_what what)
+                 2 (ppr what)
             , hang (text "This makes type inference for inner bindings fragile;")
                  2 (text "either use MonoLocalBinds, or simplify it using the instance") ]
-
-    ppr_what BuiltinInstance = text "a built-in instance"
-    ppr_what LocalInstance   = text "a locally-quantified instance"
-    ppr_what (TopLevInstance { iw_dfun_id = dfun })
-      = hang (text "instance" <+> pprSigmaType (idType dfun))
-           2 (text "--" <+> pprDefinedAt (idName dfun))
-
 
 {- Note [Simplifiable given constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
