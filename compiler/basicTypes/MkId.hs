@@ -1017,7 +1017,7 @@ dataConArgUnpack (Scaled arg_mult arg_ty)
     ,( \ arg_id ->
        do { rep_ids <- mapM newLocal rep_tys
           ; let r_mult = idMult arg_id
-          ; let rep_ids' = map (flip scaleIdBy r_mult) rep_ids
+          ; let rep_ids' = map (scaleIdBy r_mult) rep_ids
           ; let unbox_fn body
                   = mkSingleAltCase (Var arg_id) arg_id
                              (DataAlt con) rep_ids' body

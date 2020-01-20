@@ -374,7 +374,7 @@ mkDataConCase var ty alts@(alt1:_) = MatchResult fail_flag mk_case
                 Just (DCB boxer) ->
         do { us <- newUniqueSupply
            ; let (rep_ids, binds) = initUs_ us (boxer ty_args args)
-           ; let rep_ids' = map (\i -> scaleIdBy i (idMult var)) rep_ids
+           ; let rep_ids' = map (scaleIdBy (idMult var)) rep_ids
            ; return (DataAlt con, rep_ids', mkLets binds body) } } }
 
     mk_default :: CoreExpr -> [CoreAlt]

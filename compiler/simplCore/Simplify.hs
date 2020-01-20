@@ -1068,7 +1068,7 @@ simplJoinRhs env bndr expr cont
   | Just arity <- isJoinId_maybe bndr
   =  do { let (join_bndrs, join_body) = collectNBinders arity expr
               mult = contHoleScaling cont
-        ; (env', join_bndrs') <- simplLamBndrs env (map (flip scaleIdBy mult) join_bndrs)
+        ; (env', join_bndrs') <- simplLamBndrs env (map (scaleIdBy mult) join_bndrs)
         ; join_body' <- simplExprC env' join_body cont
         ; return $ mkLams join_bndrs' join_body' }
 
@@ -2537,7 +2537,7 @@ rebuildCase env scrut case_bndr alts cont
     -- they are aliases anyway.
     scale_float (MkCore.FloatCase scrut case_bndr con vars) =
       let
-        scale_id id = scaleIdBy id holeScaling
+        scale_id id = scaleIdBy holeScaling id
       in
       MkCore.FloatCase scrut (scale_id case_bndr) con (map scale_id vars)
     scale_float f = f
@@ -2638,7 +2638,7 @@ reallyRebuildCase env scrut case_bndr alts cont
   | otherwise
   = do { (floats, cont') <- mkDupableCaseCont env alts cont
        ; case_expr <- simplAlts (env `setInScopeFromF` floats)
-                                scrut (scaleIdBy case_bndr holeScaling) (scaleAltsBy holeScaling alts) cont'
+                                scrut (scaleIdBy holeScaling case_bndr) (scaleAltsBy holeScaling alts) cont'
        ; return (floats, case_expr) }
   where
     holeScaling = contHoleScaling cont
@@ -3266,7 +3266,7 @@ mkDupableCont env (Select { sc_bndr = case_bndr, sc_alts = alts
         ; let alt_env = se `setInScopeFromF` floats
         ; let cont_scaling = contHoleScaling cont
           -- See Note [Scaling in case-of-case]
-        ; (alt_env', case_bndr') <- simplBinder alt_env (scaleIdBy case_bndr cont_scaling)
+        ; (alt_env', case_bndr') <- simplBinder alt_env (scaleIdBy cont_scaling case_bndr)
         ; alts' <- mapM (simplAlt alt_env' Nothing [] case_bndr' alt_cont) (scaleAltsBy cont_scaling alts)
         -- Safe to say that there are no handled-cons for the DEFAULT case
                 -- NB: simplBinder does not zap deadness occ-info, so

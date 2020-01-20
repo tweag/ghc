@@ -421,9 +421,9 @@ varMultDef = fromMaybe Many . varMultMaybe
 varScaledType :: Id -> Scaled Kind
 varScaledType var = Scaled (varMult var) (varType var)
 
-scaleVarBy :: Id -> Mult -> Id
-scaleVarBy id@(Id { varMult = w }) r =
-  id { varMult = r `mkMultMul` w }
+scaleVarBy :: Mult -> Id -> Id
+scaleVarBy m id@(Id { varMult = w }) =
+  id { varMult = m `mkMultMul` w }
   -- Note that alias-like variables are preserved by scaling. Consider the
   -- transformation `let x_π = let y_ue = u in v in e ==> let y_ue = u in let
   -- x_π = v in e` if `y` were regular it would need to be scaled (by a factor
@@ -432,7 +432,7 @@ scaleVarBy id@(Id { varMult = w }) r =
   -- call-sites of `y` are in `v`, hence scaled by the typing rule of `let
   -- x_π`. The difference, can be summed up to the fact that a regular let
   -- introduces a multiplicity constraint, while an alias-like let doesn't.
-scaleVarBy id _ = id
+scaleVarBy _ id = id
 
 setVarMult :: Id -> Mult -> Id
 setVarMult id r | isId id = id { varMult = r }

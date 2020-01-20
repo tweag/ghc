@@ -198,7 +198,7 @@ idMult = Var.varMult
 idScaledType :: Id -> Scaled Type
 idScaledType id = Scaled (idMult id) (idType id)
 
-scaleIdBy :: Id -> Mult -> Id
+scaleIdBy :: Mult -> Id -> Id
 scaleIdBy = Var.scaleVarBy
 
 setIdMult :: Id -> Mult -> Id
