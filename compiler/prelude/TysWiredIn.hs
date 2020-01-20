@@ -644,7 +644,7 @@ constraintKindTyCon = pcTyCon constraintKindTyConName Nothing [] []
 
 liftedTypeKind, typeToTypeKind, constraintKind :: Kind
 liftedTypeKind   = tYPE liftedRepTy
-typeToTypeKind   = liftedTypeKind `mkVisFunTy` liftedTypeKind
+typeToTypeKind   = liftedTypeKind `mkVisFunTyMany` liftedTypeKind
 constraintKind   = mkTyConApp constraintKindTyCon []
 
 {-
