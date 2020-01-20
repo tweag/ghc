@@ -16,11 +16,11 @@ tcMonoExpr, tcMonoExprNC ::
        -> ExpRhoType
        -> TcM (LHsExpr GhcTcId)
 
-tcInferSigma, tcInferSigmaNC ::
+tcInferSigma ::
           LHsExpr GhcRn
        -> TcM (LHsExpr GhcTcId, TcSigmaType)
 
-tcInferRho ::
+tcInferRho, tcInferRhoNC ::
           LHsExpr GhcRn
        -> TcM (LHsExpr GhcTcId, TcRhoType)
 
