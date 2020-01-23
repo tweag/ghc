@@ -93,7 +93,6 @@ import TyCon    ( TyCon, tyConKind )
 import PatSyn   ( PatSyn )
 import Id       ( idType, idName )
 import FieldLabel ( FieldLabel )
-import Multiplicity
 import UsageEnv
 import TcType
 import Constraint
