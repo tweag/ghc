@@ -149,7 +149,9 @@ import GhcPrelude
 
 import TcRnTypes        -- Re-export all
 import IOEnv            -- Re-export all
+import Constraint
 import TcEvidence
+import TcOrigin
 
 import GHC.Hs hiding (LIE)
 import HscTypes
@@ -180,7 +182,7 @@ import FastString
 import Panic
 import Util
 import Annotations
-import BasicTypes( TopLevelFlag )
+import BasicTypes( TopLevelFlag, TypeOrKind(..) )
 import Maybes
 import CostCentreState
 

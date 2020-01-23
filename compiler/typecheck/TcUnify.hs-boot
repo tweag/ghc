@@ -2,7 +2,8 @@ module TcUnify where
 
 import GhcPrelude
 import TcType      ( TcTauType )
-import TcRnTypes   ( TcM, CtOrigin )
+import TcRnTypes   ( TcM )
+import TcOrigin    ( CtOrigin )
 import TcEvidence  ( TcCoercion, HsWrapper )
 import GHC.Hs.Expr      ( HsExpr )
 import GHC.Hs.Types     ( HsType, Mult )

@@ -75,6 +75,7 @@ import FieldLabel
 import Class
 import Name
 import PrelNames
+import Predicate
 import Var
 import VarSet( emptyVarSet )
 import Outputable

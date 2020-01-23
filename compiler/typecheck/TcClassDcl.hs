@@ -30,7 +30,9 @@ import TcBinds
 import TcUnify
 import TcHsType
 import TcMType
-import Type     ( getClassPredTys_maybe, piResultTys )
+import Type     ( piResultTys )
+import Predicate
+import TcOrigin
 import Multiplicity
 import TcType
 import TcRnMonad

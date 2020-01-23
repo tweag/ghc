@@ -3,7 +3,8 @@ import Name
 import GHC.Hs    ( HsExpr, LHsExpr, SyntaxExpr )
 import TcType   ( TcRhoType, TcSigmaType, SyntaxOpType, ExpType, ExpRhoType )
 import Type ( Mult )
-import TcRnTypes( TcM, CtOrigin )
+import TcRnTypes( TcM )
+import TcOrigin ( CtOrigin )
 import GHC.Hs.Extension ( GhcRn, GhcTcId )
 
 tcPolyExpr ::
