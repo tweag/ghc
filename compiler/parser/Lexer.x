@@ -681,7 +681,6 @@ data Token
   | ITlarrow            IsUnicodeSyntax
   | ITrarrow            IsUnicodeSyntax
   | ITlolly             IsUnicodeSyntax
-  | ITlolly2
   | ITat
   | ITtilde
   | ITdarrow            IsUnicodeSyntax
@@ -913,7 +912,6 @@ reservedSymsFM = listToUFM $
        ,("→",   ITrarrow UnicodeSyntax,     UnicodeSyntax, 0 )
        ,("←",   ITlarrow UnicodeSyntax,     UnicodeSyntax, 0 )
 
-       ,("-->.", ITlolly2, NormalSyntax, 0)
        ,("#->", ITlolly NormalSyntax, NormalSyntax, 0)
        ,("⊸",   ITlolly UnicodeSyntax, UnicodeSyntax, 0)
 

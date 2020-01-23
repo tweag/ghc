@@ -5,9 +5,9 @@ LinearVar.hs:5:5: error:
         the type signature for:
           f :: forall a b. a -> b
         at LinearVar.hs:4:1-16
-      Expected type: a -->.(m) b
+      Expected type: a # m -> b
         Actual type: a -> b
     • In the expression: undefined :: a -> b
       In an equation for ‘f’: f = undefined :: a -> b
     • Relevant bindings include
-        f :: a -->.(m) b (bound at LinearVar.hs:5:1)
+        f :: a # m -> b (bound at LinearVar.hs:5:1)

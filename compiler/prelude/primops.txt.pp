@@ -195,7 +195,7 @@ section "The word size story."
 -- syntax for this sort of export) so we'll have to manually patch
 -- export lists in both GHC and Haddock.
 primtype FUN m a b
-  {The builtin function type, written in infix form as {\tt a -->.(m) b}.
+  {The builtin function type, written in infix form as {\tt a # m -> b}.
    Values of this type are functions taking inputs of type {\tt a} and
    producing outputs of type {\tt b}. The multiplicity of the input is
    {\tt m}.

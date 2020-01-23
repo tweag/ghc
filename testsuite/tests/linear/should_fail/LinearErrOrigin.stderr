@@ -11,6 +11,6 @@ LinearErrOrigin.hs:7:7: error:
         at LinearErrOrigin.hs:6:1-35
     • In an equation for ‘foo’: foo f x = f x
     • Relevant bindings include
-        f :: a -->.(p) b (bound at LinearErrOrigin.hs:7:5)
-        foo :: (a -->.(p) b) -> a -->.(q) b
+        f :: a # p -> b (bound at LinearErrOrigin.hs:7:5)
+        foo :: (a # p -> b) -> a # q -> b
           (bound at LinearErrOrigin.hs:7:1)

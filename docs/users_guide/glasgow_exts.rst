@@ -13059,7 +13059,7 @@ Linear types
     :since: 8.10.1
 
     Enable the linear arrow ``a #-> b`` and the multiplicity-polymorphic arrow
-    ``a -->.(m) b``.
+    ``a # m -> b``.
 
 The linear types extension enables support for linear functions, as described
 in the paper "`Linear Haskell: practical linearity in a higher-order polymorphic language
@@ -13079,19 +13079,19 @@ must consume its argument exactly once. This can be achieved:
 If :extension:`UnicodeSyntax` is enabled, the ``#->`` arrow can be written as ``⊸``.
 
 To allow uniform handling of linear ``a #-> b`` and unrestricted ``a -> b``
-functions, there is a new function type ``a -->.(m) b``. Here, ``m`` is a type
+functions, there is a new function type ``a # m -> b``. Here, ``m`` is a type
 of new kind ``Multiplicity``. We have:
 
 ::
 
     data Multiplicity = One | Many  -- Defined in GHC.Types
 
-    type a #-> b = a -->.('One)  b
-    type a  -> b = a -->.('Many) b
+    type a #-> b = a # 'One  -> b
+    type a  -> b = a # 'Many -> b
 
 (See :ref:`promotion`).
 
-The multiplicity-polymorphic arrow ``a -->.(m) b`` is available in a prefix
+The multiplicity-polymorphic arrow ``a # m -> b`` is available in a prefix
 version as ``GHC.Types.FUN m a b``, which can be applied partially.
 
 Linear and multiplicity-polymorphic functions must be declared as such; in the
@@ -13102,7 +13102,7 @@ Printing multiplicity-polymorphic types
 If :extension:`LinearTypes` is disabled, multiplicity variables in types are defaulted
 to ``Many`` when printing, in the same manner as described in :ref:`printing-levity-polymorphic-types`.
 In other words, without :extension:`LinearTypes`, multiplicity-polymorphic functions
-``a -->.(m) b`` are printed as normal Haskell2010 functions ``a -> b``. This allows
+``a # m -> b`` are printed as normal Haskell2010 functions ``a -> b``. This allows
 existing libraries to be generalized to linear types in a backwards-compatible
 manner; the general types are visible only if the user has enabled
 :extension:`LinearTypes`.
@@ -13142,10 +13142,10 @@ but there is no restriction on ``x``.
 
 For backwards compatibility, constructors using linear fields are generalized
 to multiplicity-polymorphic functions. For example, the type of ``MkT1`` is
-``a -->.(n) MkT1 a``. The additional multiplicity argument ``n`` is marked as
+``a # n -> MkT1 a``. The additional multiplicity argument ``n`` is marked as
 inferred (see :ref:`inferred-vs-specified`), so that there is no conflict with visible
 type application. If there are multiple linear fields, each one gets a corresponding
-multiplicity variable; for example, ``MkT2 :: a #-> b -->.(n) -->.(o) T2 a b c``.
+multiplicity variable; for example, ``MkT2 :: a #-> b # n -> c # o -> T2 a b c``.
 
 If :extension:`LinearTypes` is disabled, all fields are considered to be linear
 fields, including GADT fields defined with the ``->`` arrow. This does not change
