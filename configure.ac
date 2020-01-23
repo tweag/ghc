@@ -244,7 +244,7 @@ dnl --------------------------------------------------------------
 
 AC_MSG_CHECKING(whether target supports a registerised ABI)
 case "$TargetArch" in
-    i386|x86_64|powerpc|powerpc64|powerpc64le|arm|aarch64)
+    i386|x86_64|powerpc|powerpc64|powerpc64le|s390x|arm|aarch64)
         UnregisterisedDefault=NO
         AC_MSG_RESULT([yes])
         ;;
@@ -279,7 +279,7 @@ AC_MSG_CHECKING(whether target supports tables next to code)
 case "$Unregisterised" in
     NO)
         case "$TargetArch" in
-            ia64|powerpc64|powerpc64le)
+            ia64|powerpc64|powerpc64le|s390x)
                 TablesNextToCodeDefault=NO
                 AC_MSG_RESULT([no])
                 ;;
@@ -308,7 +308,7 @@ AC_SUBST(TablesNextToCode)
 dnl ** Does target have runtime linker support?
 dnl --------------------------------------------------------------
 case "$target" in
-    powerpc64-*|powerpc64le-*|powerpc-ibm-aix*)
+    powerpc64-*|powerpc64le-*|powerpc-ibm-aix*|s390x-ibm-linux)
         TargetHasRTSLinker=NO
         ;;
     *)
@@ -329,7 +329,7 @@ then
     if test "$HostArch" = "i386"
     then
         mingw_arch="i686"
-        tarball_dest_dir="mingw-w64/x86"
+        tarball_dest_dir="mingw-w64/i686"
         tarball_mingw_dir="mingw32"
     else
         mingw_arch="x86_64"
