@@ -63,7 +63,7 @@ For the busy developer, though, here is a high-level view of linear types is the
 - Ground multiplicity (that is, without a variable) can be `One` or `Many`
   (`Many` is generally rendered as ω in the scientific literature).
   Functions whose type is annotated with `One` are linear functions, functions whose
-  type is annotated with `Omega` are regular functions, often called “unrestricted”
+  type is annotated with `Many` are regular functions, often called “unrestricted”
   to contrast them with linear functions.
 - A linear function is defined as a function such that *if* its result is
   consumed exactly once, *then* its argument is consumed exactly once. You can

@@ -1,4 +1,4 @@
-broken_syntax = 94  # https://github.com/tweag/ghc/issues/94
+broken_multiplicity_syntax = 94  # https://github.com/tweag/ghc/issues/94
 
 test('TypeClass', normal, compile_fail, [''])
 test('Linear11', normal, compile_fail, [''])
@@ -19,9 +19,9 @@ test('LinearViewPattern', normal, compile_fail, [''])
 test('LinearConfusedDollar', normal, compile_fail, [''])
 test('LinearPatSyn', normal, compile_fail, [''])
 test('LinearGADTNewtype', normal, compile_fail, [''])
-test('LinearPartialSig', expect_broken(broken_syntax), compile_fail, [''])
+test('LinearPartialSig', expect_broken(broken_multiplicity_syntax), compile_fail, [''])
 test('LinearKind', normal, compile_fail, [''])
-test('LinearVar', expect_broken(broken_syntax), compile_fail, [''])
-test('LinearErrOrigin', expect_broken(broken_syntax), compile_fail, [''])
-test('LinearPolyType', expect_broken([436, broken_syntax]), compile_fail, [''])  # not supported yet (#354)
+test('LinearVar', expect_broken(broken_multiplicity_syntax), compile_fail, [''])
+test('LinearErrOrigin', expect_broken(broken_multiplicity_syntax), compile_fail, [''])
+test('LinearPolyType', expect_broken([436, broken_multiplicity_syntax]), compile_fail, [''])  # not supported yet (#354)
 test('LinearBottomMult', normal, compile_fail, [''])
