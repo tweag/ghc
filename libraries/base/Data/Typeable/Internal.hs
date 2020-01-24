@@ -211,7 +211,7 @@ data TypeRep a where
                , trAppKind :: !(TypeRep k2) }   -- See Note [Kind caching]
             -> TypeRep (a b)
 
-    -- | @TrFun fpr m a b@ represents a function type @a -->.(m) b@. We use this for
+    -- | @TrFun fpr m a b@ represents a function type @a # m -> b@. We use this for
     -- the sake of efficiency as functions are quite ubiquitous.
     TrFun   :: forall (m :: Multiplicity) (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                       (a :: TYPE r1) (b :: TYPE r2).
@@ -223,7 +223,7 @@ data TypeRep a where
                , trFunMul :: !(TypeRep m)
                , trFunArg :: !(TypeRep a)
                , trFunRes :: !(TypeRep b) }
-            -> TypeRep (a -->.(m) b)
+            -> TypeRep (FUN m a b)
 
 {- Note [TypeRep fingerprints]
    ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -720,7 +720,7 @@ vecElemTypeRep e =
 
 bareArrow :: forall (m :: Multiplicity) (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                     (a :: TYPE r1) (b :: TYPE r2). ()
-          => TypeRep (a -->.(m) b)
+          => TypeRep (FUN m a b)
           -> TypeRep (FUN m :: TYPE r1 -> TYPE r2 -> Type)
 bareArrow (TrFun _ m a b) =
     mkTrCon funTyCon [SomeTypeRep m, SomeTypeRep rep1, SomeTypeRep rep2]
@@ -1006,7 +1006,7 @@ typeLitTypeRep nm kind_tycon = mkTrCon (mkTypeLitTyCon nm kind_tycon) []
 -- | For compiler use.
 mkTrFun :: forall (m :: Multiplicity) (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                   (a :: TYPE r1) (b :: TYPE r2).
-           TypeRep m -> TypeRep a -> TypeRep b -> TypeRep ((a -->.(m) b) :: Type)
+           TypeRep m -> TypeRep a -> TypeRep b -> TypeRep ((FUN m a b) :: Type)
 mkTrFun mul arg res = TrFun
     { trFunFingerprint = fpr
     , trFunMul = mul

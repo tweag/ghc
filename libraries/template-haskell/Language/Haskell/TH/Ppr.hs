@@ -801,7 +801,7 @@ pprTyApp (MulArrowT, [TANormal (PromotedT c), TANormal arg1, TANormal arg2])
   | c == oneName  = sep [pprFunArgType arg1 <+> text "#->", ppr arg2]
   | c == manyName = sep [pprFunArgType arg1 <+> text "->", ppr arg2]
 pprTyApp (MulArrowT, [TANormal argm, TANormal arg1, TANormal arg2]) =
-                     sep [pprFunArgType arg1 <+> text "-->.(" <+> ppr argm <+> text ")", ppr arg2]
+                     sep [pprFunArgType arg1 <+> text "#" <+> ppr argm <+> text "->", ppr arg2]
 pprTyApp (ArrowT, [TANormal arg1, TANormal arg2]) = sep [pprFunArgType arg1 <+> text "->", ppr arg2]
 pprTyApp (EqualityT, [TANormal arg1, TANormal arg2]) =
     sep [pprFunArgType arg1 <+> text "~", ppr arg2]

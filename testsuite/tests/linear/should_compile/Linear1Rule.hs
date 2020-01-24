@@ -5,5 +5,5 @@ module Linear1Rule where
 f :: a #-> b
 f = f
 
-g :: a -->.(p) b
+g :: a # p -> b
 g x = f x

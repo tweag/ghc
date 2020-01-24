@@ -648,7 +648,7 @@ lbrace     = docToSDoc $ Pretty.lbrace
 rbrace     = docToSDoc $ Pretty.rbrace
 
 mulArrow :: SDoc -> SDoc
-mulArrow d = text "-->." <> parens d
+mulArrow d = text "#" <+> d <+> arrow
 
 
 forAllLit :: SDoc
