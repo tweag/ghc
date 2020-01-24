@@ -71,8 +71,9 @@ This declaration is important for :info (->) command (issue #10145)
    hence this module requires NegativeLiterals.
 -}
 
--- | The built-in function type.
+-- | The regular function type
 type (->) = FUN 'Many
+-- See Note [Linear Types] in Multiplicity
 
 {- *********************************************************************
 *                                                                      *

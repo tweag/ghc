@@ -820,14 +820,16 @@ tcExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = rbnds }) res_ty
     do  { -- STEP -2: typecheck the record_expr, the record to be updated
           (record_expr', record_rho) <- tcScalingUsage Many $ tcInferRho record_expr
             -- Record update drops some of the content of the record (namely the
-            -- content of the field being updated). As a consequence, it
-            -- requires an unrestricted record.
+            -- content of the field being updated). As a consequence, unless the
+            -- field being updated is unrestricted in the record, or we need an
+            -- unrestricted record. Currently, we simply always require an
+            -- unrestricted record.
             --
             -- Consider the following example:
             --
             -- data R a = R { self :: a }
             -- bad :: a ⊸ ()
-            -- bad x = let r = R x in r { self = () }
+            -- bad x = let r = R x in case r { self = () } of { R x' -> x' }
             --
             -- This should definitely *not* typecheck.
 
@@ -889,7 +891,7 @@ tcExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = rbnds }) res_ty
               (con1_tvs, _, _, _prov_theta, req_theta, scaled_con1_arg_tys, _)
                  = conLikeFullSig con1
               con1_arg_tys = map scaledThing scaled_con1_arg_tys
-                -- Remark: we can safely drop the fields' multiplicities because
+                -- We can safely drop the fields' multiplicities because
                 -- they are currently always 1: there is no syntax for record
                 -- fields with other multiplicities yet. This way we don't need
                 -- to handle it in the rest of the function

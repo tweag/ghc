@@ -58,6 +58,12 @@ For the busy developer, though, here is a high-level view of linear types is the
 
 - Function arrows are annotated with a multiplicity (as defined by type `Mult`
   and its smart constructors in this module)
+    - Because, as a type constructor, the type of function now has an extra
+      argument, the notation (->) is no longer suitable. We named the function
+      type constructor `FUN`.
+    - (->) retains its backward compatible meaning: `(->) a b = a -> b`. To
+      achieve this, `(->)` is defined as a type synonym to `FUN Many` (see
+      below).
 - Multiplicities can be reified in Haskell as types of kind
   `GHC.Types.Multiplicity`
 - Ground multiplicity (that is, without a variable) can be `One` or `Many`

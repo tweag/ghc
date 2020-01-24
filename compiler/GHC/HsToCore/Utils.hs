@@ -98,7 +98,8 @@ import qualified Data.List.NonEmpty as NEL
 We're about to match against some patterns.  We want to make some
 @Ids@ to use as match variables.  If a pattern has an @Id@ readily at
 hand, which should indeed be bound to the pattern as a whole, then use it;
-otherwise, make one up.
+otherwise, make one up. The multiplicity argument is chosen as the multiplicity
+of the variable if it is made up.
 -}
 
 selectSimpleMatchVarL :: Mult -> LPat GhcTc -> DsM Id
@@ -373,6 +374,9 @@ mkDataConCase var ty alts@(alt1 :| _) = MatchResult fail_flag mk_case
         do { us <- newUniqueSupply
            ; let (rep_ids, binds) = initUs_ us (boxer ty_args args)
            ; let rep_ids' = map (scaleIdBy (idMult var)) rep_ids
+               -- Upholds the invariant that the binders of a case expression
+               -- must be scaled by the case multiplicity. See Note [Case
+               -- expression invariants] in CoreSyn.
            ; return (DataAlt con, rep_ids', mkLets binds body) } } }
 
     mk_default :: CoreExpr -> [CoreAlt]
@@ -904,6 +908,8 @@ mkBinaryTickBox ixT ixF e = do
        uq <- newUnique
        this_mod <- getModule
        let bndr1 = mkSysLocal (fsLit "t1") uq One boolTy
+         -- It's always sufficient to pattern-match on a boolean with
+         -- multiplicity 'One'.
        let
            falseBox = Tick (HpcTick this_mod ixF) (Var falseDataConId)
            trueBox  = Tick (HpcTick this_mod ixT) (Var trueDataConId)

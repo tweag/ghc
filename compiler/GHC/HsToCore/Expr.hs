@@ -226,6 +226,8 @@ dsUnliftedBind (PatBind {pat_lhs = pat, pat_rhs = grhss
                              eqn_orig = FromSource,
                              eqn_rhs = cantFailMatchResult body }
        ; var    <- selectMatchVar Many upat
+                    -- `var` will end up in a let binder, so the multiplicity
+                    -- doesn't matter.
        ; result <- matchEquations PatBindRhs [var] [eqn] (exprType body)
        ; return (bindNonRec var rhs result) }
 
