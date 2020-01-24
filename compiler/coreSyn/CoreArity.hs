@@ -31,6 +31,7 @@ import Id
 import Type
 import Multiplicity
 import TyCon    ( initRecTc, checkRecTc )
+import Predicate ( isDictTy )
 import Coercion
 import BasicTypes
 import Unique
@@ -518,7 +519,7 @@ mk_cheap_fn dflags cheap_app
   = \e mb_ty -> exprIsCheapX cheap_app e
              || case mb_ty of
                   Nothing -> False
-                  Just ty -> isDictLikeTy ty
+                  Just ty -> isDictTy ty
 
 
 ----------------------
@@ -624,9 +625,6 @@ The (foo DInt) is floated out, and makes ineffective a RULE
 
 One could go further and make exprIsCheap reply True to any
 dictionary-typed expression, but that's more work.
-
-See Note [Dictionary-like types] in TcType.hs for why we use
-isDictLikeTy here rather than isDictTy
 
 Note [Eta expanding thunks]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

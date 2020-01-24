@@ -82,6 +82,7 @@ import TcEvidence (HsWrapper, idHsWrapper)
 import UsageEnv
 import TcType
 import {-# SOURCE #-} TcUnify ( tcSubMult )
+import TcOrigin ( CtOrigin(UsageEnvironmentOf) )
 import LoadIface
 import PrelNames
 import TysWiredIn

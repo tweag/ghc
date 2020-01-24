@@ -18,6 +18,7 @@ import Id
 import TcType hiding( substTy )
 import Type   hiding( substTy, extendTvSubstList )
 import Multiplicity ( pattern Many )
+import Predicate
 import Module( Module, HasModule(..) )
 import Coercion( Coercion )
 import CoreMonad

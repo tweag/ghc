@@ -74,6 +74,9 @@ import GhcPrelude
 
 import GHC.Hs
 import TcRnMonad
+import TcOrigin
+import Predicate
+import Constraint
 import TcEvidence
 import TcEnv
 import TcMType
@@ -1305,7 +1308,7 @@ The calls to mkAppTyM is the other place we are very careful.
 
 Note [mkAppTyM]
 ~~~~~~~~~~~~~~~
-mkAppTyM is trying to guaranteed the Purely Kinded Type Invariant
+mkAppTyM is trying to guarantee the Purely Kinded Type Invariant
 (PKTI) for its result type (fun arg).  There are two ways it can go wrong:
 
 * Nasty case 1: forall types (polykinds/T14174a)
@@ -1689,7 +1692,7 @@ is correct, choosing ImplicationStatus IC_BadTelescope if they aren't.
 Then, in TcErrors, we report if there is a bad telescope. This way,
 we can report a suggested ordering to the user if there is a problem.
 
-See also Note [Checking telescopes] in TcRnTypes
+See also Note [Checking telescopes] in Constraint
 
 Note [Keeping scoped variables in order: Implicit]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

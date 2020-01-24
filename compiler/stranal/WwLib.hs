@@ -31,6 +31,7 @@ import VarEnv           ( mkInScopeSet )
 import VarSet           ( VarSet )
 import Type
 import Multiplicity
+import Predicate        ( isClassPred )
 import RepType          ( isVoidTy, typePrimRep )
 import Coercion
 import FamInstEnv

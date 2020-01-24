@@ -47,6 +47,7 @@ import SrcLoc
 import THNames
 import TcUnify
 import TcEnv
+import TcOrigin
 import Coercion( etaExpandCoAxBranch )
 import FileCleanup ( newTempName, TempFileLifetime(..) )
 

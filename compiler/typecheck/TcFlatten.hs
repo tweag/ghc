@@ -12,6 +12,8 @@ module TcFlatten(
 import GhcPrelude
 
 import TcRnTypes
+import Constraint
+import Predicate
 import TcType
 import Type
 import TcEvidence
@@ -815,7 +817,7 @@ Because flattening zonks and the returned coercion ("co" above) is also
 zonked, it's possible that (co :: xi ~ ty) isn't quite true. So, instead,
 we can rely on this fact:
 
-  (F1) tcTypeKind(xi) succeeds and returns a fully zonked kind
+  (F0) co :: xi ~ zonk(ty)
 
 Note that the left-hand type of co is *always* precisely xi. The right-hand
 type may or may not be ty, however: if ty has unzonked filled-in metavariables,
@@ -1365,7 +1367,7 @@ flatten_exact_fam_app_fully tc tys
                            ; let xi  = fsk_xi `mkCastTy` kind_co
                                  co' = mkTcCoherenceLeftCo role fsk_xi kind_co fsk_co
                                        `mkTransCo`
-                                       maybeSubCo eq_rel (mkSymCo co)
+                                       maybeTcSubCo eq_rel (mkSymCo co)
                                        `mkTransCo` ret_co
                            ; return (xi, co')
                            }
@@ -1400,7 +1402,7 @@ flatten_exact_fam_app_fully tc tys
                                  --     the xis are flattened
                                  ; let fsk_ty = mkTyVarTy fsk
                                        xi = fsk_ty `mkCastTy` kind_co
-                                       co' = mkTcCoherenceLeftCo role fsk_ty kind_co (maybeSubCo eq_rel (mkSymCo co))
+                                       co' = mkTcCoherenceLeftCo role fsk_ty kind_co (maybeTcSubCo eq_rel (mkSymCo co))
                                              `mkTransCo` ret_co
                                  ; return (xi, co')
                                  }
@@ -1438,7 +1440,7 @@ flatten_exact_fam_app_fully tc tys
                               ]
                        ; (xi, final_co) <- bumpDepth $ flatten_one norm_ty
                        ; eq_rel <- getEqRel
-                       ; let co = maybeSubCo eq_rel norm_co
+                       ; let co = maybeTcSubCo eq_rel norm_co
                                    `mkTransCo` mkSymCo final_co
                        ; flavour <- getFlavour
                            -- NB: only extend cache with nominal equalities
@@ -1464,7 +1466,7 @@ flatten_exact_fam_app_fully tc tys
                Just (norm_co, norm_ty)
                  -> do { (xi, final_co) <- bumpDepth $ flatten_one norm_ty
                        ; eq_rel <- getEqRel
-                       ; let co  = mkSymCo (maybeSubCo eq_rel norm_co
+                       ; let co  = mkSymCo (maybeTcSubCo eq_rel norm_co
                                             `mkTransCo` mkSymCo final_co)
                        ; return $ Just (xi, co) }
                Nothing -> pure Nothing }
@@ -1536,7 +1538,7 @@ flattenTyVar tv
                    ; return (ty2, co2 `mkTransCo` co1) }
 
            FTRNotFollowed   -- Done, but make sure the kind is zonked
-                            -- Note [Flattening] invariant (F1)
+                            -- Note [Flattening] invariant (F0) and (F1)
              -> do { tv' <- liftTcS $ updateTyVarKindM zonkTcType tv
                    ; role <- getRole
                    ; let ty' = mkTyVarTy tv'
