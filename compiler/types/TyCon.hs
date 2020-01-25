@@ -993,7 +993,7 @@ data AlgTyConRhs
                         -- shorter than the declared arity of the 'TyCon'.
 
                         -- See Note [Newtype eta]
-        nt_co :: CoAxiom Unbranched
+        nt_co :: CoAxiom Unbranched,
                              -- The axiom coercion that creates the @newtype@
                              -- from the representation 'Type'.
 
@@ -1002,6 +1002,16 @@ data AlgTyConRhs
                              -- See Note [Newtype eta]
                              -- Watch out!  If any newtypes become transparent
                              -- again check #1072.
+        nt_lev_poly :: Bool
+                        -- 'True' if the newtype can be levity polymorphic when
+                        -- fully applied to its arguments, 'False' otherwise.
+                        -- This can only ever be 'True' with UnliftedNewtypes.
+                        --
+                        -- Invariant: nt_lev_poly nt = isTypeLevPoly (nt_rhs nt)
+                        --
+                        -- This is cached to make it cheaper to check if a
+                        -- variable binding is levity polymorphic, as used by
+                        -- isTcLevPoly.
     }
 
 mkSumTyConRhs :: [DataCon] -> AlgTyConRhs
@@ -2243,8 +2253,13 @@ setTcTyConKind tc              _    = pprPanic "setTcTyConKind" (ppr tc)
 -- Precondition: The fully-applied TyCon has kind (TYPE blah)
 isTcLevPoly :: TyCon -> Bool
 isTcLevPoly FunTyCon{}           = False
-isTcLevPoly (AlgTyCon { algTcParent = UnboxedAlgTyCon _ }) = True
-isTcLevPoly AlgTyCon{}           = False
+isTcLevPoly (AlgTyCon { algTcParent = parent, algTcRhs = rhs })
+  | UnboxedAlgTyCon _ <- parent
+  = True
+  | NewTyCon { nt_lev_poly = lev_poly } <- rhs
+  = lev_poly -- Newtypes can be levity polymorphic with UnliftedNewtypes (#17360)
+  | otherwise
+  = False
 isTcLevPoly SynonymTyCon{}       = True
 isTcLevPoly FamilyTyCon{}        = True
 isTcLevPoly PrimTyCon{}          = False
