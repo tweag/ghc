@@ -22,7 +22,6 @@ import Settings
 import Target
 import Utilities
 
-import Data.List (union)
 import qualified Data.Set    as Set
 import qualified Text.Parsec as Parsec
 
@@ -115,7 +114,7 @@ documentationRules = do
         when (SphinxPDFs `Set.member` doctargets)
           $ checkUserGuideFlags $ pdfRoot -/- "users_guide" -/- "ghc-flags.txt"
         when (SphinxHTML `Set.member` doctargets)
-          $ checkUserGuideFlags $ htmlRoot -/- "users_guide" -/- "ghc-flags.txt"
+          $ checkUserGuideFlags $ root -/- htmlRoot -/- "users_guide" -/- "ghc-flags.txt"
 
     where archiveTarget "libraries"   = Haddocks
           archiveTarget _             = SphinxHTML
@@ -133,7 +132,7 @@ checkSphinxWarnings out = do
 -- | Check that all GHC flags are documented in the users guide.
 checkUserGuideFlags :: FilePath -> Action ()
 checkUserGuideFlags documentedFlagList = do
-    scriptPath <- (</> "docs/user_guide/compare-flags.py") <$> topDirectory
+    scriptPath <- (</> "docs/users_guide/compare-flags.py") <$> topDirectory
     ghcPath <- (</>) <$> topDirectory <*> programPath (vanillaContext Stage1 ghc)
     runBuilder Python
       [ scriptPath
