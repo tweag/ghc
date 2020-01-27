@@ -152,8 +152,7 @@ test('T3177a', normal, compile_fail, ['-v0'])
 
 test('T3319', normal, compile, ['-ddump-splices -v0'])
 test('TH_foreignInterruptible',
-     # Fragile when unregisterised; see #16085
-     when(unregisterised(), skip),
+     when(unregisterised(), fragile(16085)),
      compile, ['-ddump-splices -v0'])
 test('TH_foreignCallingConventions', normal,
                                      compile,
@@ -487,3 +486,5 @@ test('T16976f', normal, compile_fail, [''])
 test('T16976z', normal, compile_fail, [''])
 test('T16980', normal, compile, [''])
 test('T16980a', normal, compile_fail, [''])
+test('T17296', normal, compile, ['-v0'])
+test('T17394', normal, compile, ['-v0 -ddump-splices -dsuppress-uniques'])

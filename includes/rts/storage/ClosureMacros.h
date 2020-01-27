@@ -107,6 +107,20 @@ INLINE_HEADER const StgConInfoTable *get_con_itbl(const StgClosure *c)
    return CON_INFO_PTR_TO_STRUCT((c)->header.info);
 }
 
+/* Used when we expect another thread to be mutating the info table pointer of
+ * a closure (e.g. when busy-waiting on a WHITEHOLE).
+ */
+INLINE_HEADER const StgInfoTable *get_volatile_itbl(StgClosure *c) {
+    // The volatile here is import to ensure that the compiler does not
+    // optimise away multiple loads, e.g. in a busy-wait loop. Note that
+    // we can't use VOLATILE_LOAD here as the casts result in strict aliasing
+    // rule violations and this header may be compiled outside of the RTS
+    // (where we use -fno-strict-aliasing).
+    StgInfoTable * *volatile p = (StgInfoTable * *volatile) &c->header.info;
+    return INFO_PTR_TO_STRUCT(*p);
+}
+
+
 INLINE_HEADER StgHalfWord GET_TAG(const StgClosure *con)
 {
     return get_itbl(con)->srt;
@@ -559,13 +573,20 @@ EXTERN_INLINE void overwritingClosure (StgClosure *p)
 // be less than or equal to closure_sizeW(p), and usually at least as
 // large as the respective thunk header.
 //
-// Note: As this calls LDV_recordDead() you have to call LDV_RECORD()
+// Note: As this calls LDV_recordDead() you have to call LDV_RECORD_CREATE()
 //       on the final state of the closure at the call-site
 EXTERN_INLINE void overwritingClosureOfs (StgClosure *p, uint32_t offset);
 EXTERN_INLINE void overwritingClosureOfs (StgClosure *p, uint32_t offset)
 {
-    // Set prim = true because only called on ARR_WORDS with the
-    // shrinkMutableByteArray# primop
+    // Set prim = true because overwritingClosureOfs is only
+    // ever called by
+    //   shrinkMutableByteArray# (ARR_WORDS)
+    //   shrinkSmallMutableArray# (SMALL_MUT_ARR_PTRS)
+    // This causes LDV_recordDead to be invoked. We want this
+    // to happen because the implementations of the above
+    // primops both call LDV_RECORD_CREATE after calling this,
+    // effectively replacing the LDV closure biography.
+    // See Note [LDV Profiling when Shrinking Arrays]
     overwritingClosure_(p, offset, closure_sizeW(p), true);
 }
 

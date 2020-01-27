@@ -367,6 +367,7 @@ RTS_FUN_DECL(stg_isByteArrayPinnedzh);
 RTS_FUN_DECL(stg_isMutableByteArrayPinnedzh);
 RTS_FUN_DECL(stg_shrinkMutableByteArrayzh);
 RTS_FUN_DECL(stg_resizzeMutableByteArrayzh);
+RTS_FUN_DECL(stg_shrinkSmallMutableArrayzh);
 RTS_FUN_DECL(stg_casIntArrayzh);
 RTS_FUN_DECL(stg_newArrayzh);
 RTS_FUN_DECL(stg_newArrayArrayzh);
@@ -542,5 +543,12 @@ void * pushCostCentre (void *ccs, void *cc);
 
 // Capability.c
 extern unsigned int n_capabilities;
+
+/* -----------------------------------------------------------------------------
+   Nonmoving GC write barrier
+   -------------------------------------------------------------------------- */
+
+#include <rts/NonMoving.h>
+
 
 #endif

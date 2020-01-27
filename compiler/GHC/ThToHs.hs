@@ -1438,13 +1438,7 @@ cvtTypeKind ty_str ty
            VarT nm -> do { nm' <- tNameL nm
                          ; mk_apps (HsTyVar noExtField NotPromoted nm') tys' }
            ConT nm -> do { nm' <- tconName nm
-                         ; -- ConT can contain both data constructor (i.e.,
-                           -- promoted) names and other (i.e, unpromoted)
-                           -- names, as opposed to PromotedT, which can only
-                           -- contain data constructor names. See #15572.
-                           let prom = if isRdrDataCon nm'
-                                      then IsPromoted
-                                      else NotPromoted
+                         ; let prom = name_promotedness nm'
                          ; mk_apps (HsTyVar noExtField prom (noLoc nm')) tys'}
 
            ForallT tvs cxt ty
@@ -1481,8 +1475,9 @@ cvtTypeKind ty_str ty
              -> do { s'  <- tconName s
                    ; t1' <- cvtType t1
                    ; t2' <- cvtType t2
+                   ; let prom = name_promotedness s'
                    ; mk_apps
-                      (HsTyVar noExtField NotPromoted (noLoc s'))
+                      (HsTyVar noExtField prom (noLoc s'))
                       ([HsValArg t1', HsValArg t2'] ++ tys')
                    }
 
@@ -1563,6 +1558,16 @@ hsTypeToArrow w = case unLoc w of
                         | n == oneDataConName -> HsLinearArrow
                         | n == manyDataConName -> HsUnrestrictedArrow
                      _ -> HsExplicitMult w
+
+-- ConT/InfixT can contain both data constructor (i.e., promoted) names and
+-- other (i.e, unpromoted) names, as opposed to PromotedT, which can only
+-- contain data constructor names. See #15572/#17394. We use this function to
+-- determine whether to mark a name as promoted/unpromoted when dealing with
+-- ConT/InfixT.
+name_promotedness :: RdrName -> Hs.PromotionFlag
+name_promotedness nm
+  | isRdrDataCon nm = IsPromoted
+  | otherwise       = NotPromoted
 
 -- | Constructs an application of a type to arguments passed in a list.
 mk_apps :: HsType GhcPs -> [LHsTypeArg GhcPs] -> CvtM (LHsType GhcPs)

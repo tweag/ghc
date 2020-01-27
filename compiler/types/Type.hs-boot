@@ -20,4 +20,7 @@ coreView :: Type -> Maybe Type
 tcView :: Type -> Maybe Type
 
 splitTyConApp_maybe :: HasDebugCallStack => Type -> Maybe (TyCon, [Type])
+
 mkTyConApp :: TyCon -> [Type] -> Type
+
+partitionInvisibleTypes :: TyCon -> [Type] -> ([Type], [Type])

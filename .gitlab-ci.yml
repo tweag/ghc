@@ -64,6 +64,7 @@ ghc-linters:
     - .gitlab/linters/check-makefiles.py $base $CI_COMMIT_SHA
     - .gitlab/linters/check-cpp.py $base $CI_COMMIT_SHA
     - .gitlab/linters/check-version-number.sh
+    - python3 utils/checkUniques/check-uniques.py .
   dependencies: []
   tags:
     - lint
@@ -198,8 +199,10 @@ lint-release-changelogs:
     - ./boot
     - ./configure $CONFIGURE_ARGS
     - hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --docs=no-sphinx binary-dist
-    - hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --docs=no-sphinx test --summary-junit=./junit.xml
     - mv _build/bindist/ghc*.tar.xz ghc.tar.xz
+    - export TOP=$(pwd)
+    - cd _build/bindist/ghc-*/ && ./configure --prefix=$TOP/_build/install && make install && cd ../../../
+    - hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --docs=no-sphinx test --summary-junit=./junit.xml --test-compiler=$TOP/_build/install/bin/ghc
   cache:
     key: hadrian
     paths:
@@ -365,8 +368,10 @@ validate-x86_64-darwin:
     - ./boot
     - ./configure $CONFIGURE_ARGS
     - hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --docs=no-sphinx binary-dist
-    - hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --docs=no-sphinx test --summary-junit=./junit.xml
     - mv _build/bindist/ghc*.tar.xz ghc.tar.xz
+    - export TOP=$(pwd)
+    - cd _build/bindist/ghc-*/ && ./configure --prefix=$TOP/_build/install && make install && cd ../../../
+    - hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --docs=no-sphinx test --summary-junit=./junit.xml --test-compiler=$TOP/_build/install/bin/ghc
   after_script:
     - cp -Rf $HOME/.cabal cabal-cache
   artifacts:
@@ -417,8 +422,6 @@ validate-x86_64-darwin:
   variables:
     TEST_ENV: "aarch64-linux-deb9"
     BIN_DIST_PREP_TAR_COMP: "bindistprep/ghc-aarch64-linux-deb9.tar.xz"
-    # Inexplicably makeindex fails
-    BUILD_SPHINX_PDF: "NO"
   cache:
     key: linux-aarch64-deb9
   tags:
@@ -432,6 +435,40 @@ validate-aarch64-linux-deb9:
 
 nightly-aarch64-linux-deb9:
   extends: .build-aarch64-linux-deb9
+  artifacts:
+    expire_in: 2 year
+  variables:
+    TEST_TYPE: slowtest
+  only:
+    variables:
+      - $NIGHTLY
+
+#################################
+# armv7-linux-deb9
+#################################
+
+.build-armv7-linux-deb9:
+  extends: .validate-linux
+  stage: full-build
+  image: "registry.gitlab.haskell.org/ghc/ci-images/armv7-linux-deb9:$DOCKER_REV"
+  allow_failure: true
+  variables:
+    TEST_ENV: "armv7-linux-deb9"
+    BIN_DIST_PREP_TAR_COMP: "bindistprep/ghc-armv7-linux-deb9.tar.xz"
+    CONFIGURE_ARGS: "--host=arm-linux-gnueabihf --build=arm-linux-gnueabihf --target=arm-linux-gnueabihf"
+  cache:
+    key: linux-armv7-deb9
+  tags:
+    - armv7-linux
+
+validate-armv7-linux-deb9:
+  extends: .build-armv7-linux-deb9
+  artifacts:
+    when: always
+    expire_in: 2 week
+
+nightly-armv7-linux-deb9:
+  extends: .build-armv7-linux-deb9
   artifacts:
     expire_in: 2 year
   variables:
@@ -722,7 +759,9 @@ validate-x86_64-linux-fedora27:
       bash -c './configure --enable-tarballs-autodownload GHC=`pwd`/toolchain/bin/ghc HAPPY=`pwd`/toolchain/bin/happy ALEX=`pwd`/toolchain/bin/alex'
     - bash -c "PATH=`pwd`/toolchain/bin:$PATH hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --flavour=Quick --docs=no-sphinx binary-dist"
     - mv _build/bindist/ghc*.tar.xz ghc.tar.xz
-    - bash -c "PATH=`pwd`/toolchain/bin:$PATH hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --flavour=quick test --summary-junit=./junit.xml --skip-perf"
+    - export TOP=$(pwd)
+    - bash -c "cd _build/bindist/ghc-*/ && PATH=`pwd`/toolchain/bin:$PATH ./configure --prefix=$TOP/_build/install && make install && cd ../../../"
+    - bash -c "PATH=`pwd`/toolchain/bin:$PATH hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --flavour=quick test --summary-junit=./junit.xml --skip-perf --test-compiler=$TOP/_build/install/bin/ghc"
     # skipping perf tests for now since we build a quick-flavoured GHC,
     # which might result in some broken perf tests?
   tags:

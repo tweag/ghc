@@ -1783,7 +1783,6 @@ tyCoBinderVar_maybe (Named tv) = Just $ binderVar tv
 tyCoBinderVar_maybe _          = Nothing
 
 tyCoBinderType :: TyCoBinder -> Type
--- Barely used
 tyCoBinderType (Named tvb) = binderType tvb
 tyCoBinderType (Anon _ ty)   = scaledThing ty
 
@@ -2873,9 +2872,11 @@ tyConAppNeedsKindSig spec_inj_pos tc n_args
     injective_vars_of_binder :: TyConBinder -> FV
     injective_vars_of_binder (Bndr tv vis) =
       case vis of
-        AnonTCB VisArg -> injectiveVarsOfType (varType tv)
+        AnonTCB VisArg -> injectiveVarsOfType False -- conservative choice
+                                              (varType tv)
         NamedTCB argf  | source_of_injectivity argf
-                       -> unitFV tv `unionFV` injectiveVarsOfType (varType tv)
+                       -> unitFV tv `unionFV`
+                          injectiveVarsOfType False (varType tv)
         _              -> emptyFV
 
     source_of_injectivity Required  = True

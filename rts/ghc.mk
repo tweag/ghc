@@ -337,9 +337,8 @@ WARNING_OPTS += -Wpointer-arith
 WARNING_OPTS += -Wmissing-noreturn
 WARNING_OPTS += -Wnested-externs
 WARNING_OPTS += -Wredundant-decls
-ifeq "$(GccLT46)" "NO"
-WARNING_OPTS += -Wundef
-endif
+# Some gccs annoyingly enable this archaic specimen by default
+WARNING_OPTS += -Wno-aggregate-return
 
 # These ones are hard to avoid:
 #WARNING_OPTS += -Wconversion
