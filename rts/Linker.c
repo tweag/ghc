@@ -501,9 +501,6 @@ initLinker_ (int retain_cafs)
         mmap_32bit_base = (void*)RtsFlags.MiscFlags.linkerMemBase;
     }
 
-    if (RTS_LINKER_USE_MMAP)
-        m32_allocator_init();
-
 #if defined(OBJFORMAT_PEi386)
     initLinker_PEi386();
 #endif
@@ -1023,15 +1020,14 @@ mmap_again:
        map_addr = mmap_32bit_base;
    }
 
+   const int prot = PROT_READ | PROT_WRITE | PROT_EXEC;
    IF_DEBUG(linker,
-            debugBelch("mmapForLinker: \tprotection %#0x\n",
-                       PROT_EXEC | PROT_READ | PROT_WRITE));
+            debugBelch("mmapForLinker: \tprotection %#0x\n", prot));
    IF_DEBUG(linker,
             debugBelch("mmapForLinker: \tflags      %#0x\n",
                        MAP_PRIVATE | tryMap32Bit | fixed | flags));
 
-   result = mmap(map_addr, size,
-                 PROT_EXEC|PROT_READ|PROT_WRITE,
+   result = mmap(map_addr, size, prot,
                  MAP_PRIVATE|tryMap32Bit|fixed|flags, fd, offset);
 
    if (result == MAP_FAILED) {
@@ -1234,6 +1230,7 @@ void freeObjectCode (ObjectCode *oc)
     ocDeinit_ELF(oc);
 #endif
 
+    m32_allocator_free(oc->m32);
     stgFree(oc->fileName);
     stgFree(oc->archiveMemberName);
 
@@ -1311,6 +1308,10 @@ mkOc( pathchar *path, char *image, int imageSize,
 
    /* chain it onto the list of objects */
    oc->next              = NULL;
+
+#if RTS_LINKER_USE_MMAP
+   oc->m32 = m32_allocator_new();
+#endif
 
    IF_DEBUG(linker, debugBelch("mkOc: done\n"));
    return oc;
@@ -1629,6 +1630,8 @@ int ocTryLoad (ObjectCode* oc) {
     barf("ocTryLoad: not implemented on this platform");
 #   endif
     if (!r) { return r; }
+
+    m32_allocator_flush(oc->m32);
 
     // run init/init_array/ctors/mod_init_func
 
