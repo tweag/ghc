@@ -165,7 +165,7 @@ mkFullIface :: HscEnv -> PartialModIface -> IO ModIface
 mkFullIface hsc_env partial_iface = do
     full_iface <-
       {-# SCC "addFingerprints" #-}
-      addFingerprints hsc_env partial_iface (mi_decls partial_iface)
+      addFingerprints hsc_env partial_iface
 
     -- Debug printing
     dumpIfSet_dyn (hsc_dflags hsc_env) Opt_D_dump_hi "FINAL INTERFACE" (pprModIface full_iface)
@@ -366,7 +366,7 @@ mkHashFun hsc_env eps name
       orig_mod = nameModule name
       lookup mod = do
         MASSERT2( isExternalName name, ppr name )
-        iface <- case lookupIfaceByModule dflags hpt pit mod of
+        iface <- case lookupIfaceByModule hpt pit mod of
                   Just iface -> return iface
                   Nothing -> do
                       -- This can occur when we're writing out ifaces for
@@ -410,13 +410,13 @@ thing that we are currently fingerprinting.
 -- See Note [Fingerprinting IfaceDecls]
 addFingerprints
         :: HscEnv
-        -> PartialModIface   -- The new interface (lacking decls)
-        -> [IfaceDecl]       -- The new decls
-        -> IO ModIface       -- Updated interface
-addFingerprints hsc_env iface0 new_decls
+        -> PartialModIface
+        -> IO ModIface
+addFingerprints hsc_env iface0
  = do
    eps <- hscEPS hsc_env
    let
+       decls = mi_decls iface0
        warn_fn = mkIfaceWarnCache (mi_warns iface0)
        fix_fn = mkIfaceFixCache (mi_fixities iface0)
 
@@ -434,7 +434,7 @@ addFingerprints hsc_env iface0 new_decls
        -- from its OccName. See Note [default method Name]
        top_lvl_name_env =
          mkOccEnv [ (nameOccName nm, nm)
-                  | IfaceId { ifName = nm } <- new_decls ]
+                  | IfaceId { ifName = nm } <- decls ]
 
        -- Dependency edges between declarations in the current module.
        -- This is computed by finding the free external names of each
@@ -442,7 +442,7 @@ addFingerprints hsc_env iface0 new_decls
        -- declaration implicitly depends on).
        edges :: [ Node Unique IfaceDeclABI ]
        edges = [ DigraphNode abi (getUnique (getOccName decl)) out
-               | decl <- new_decls
+               | decl <- decls
                , let abi = declABI decl
                , let out = localOccs $ freeNamesDeclABI abi
                ]
@@ -467,7 +467,7 @@ addFingerprints hsc_env iface0 new_decls
         -- e.g. a reference to a constructor must be turned into a reference
         -- to the TyCon for the purposes of calculating dependencies.
        parent_map :: OccEnv OccName
-       parent_map = foldl' extend emptyOccEnv new_decls
+       parent_map = foldl' extend emptyOccEnv decls
           where extend env d =
                   extendOccEnvList env [ (b,n) | b <- ifaceDeclImplicitBndrs d ]
                   where n = getOccName d
@@ -752,9 +752,8 @@ getOrphanHashes hsc_env mods = do
   let
     hpt        = hsc_HPT hsc_env
     pit        = eps_PIT eps
-    dflags     = hsc_dflags hsc_env
     get_orph_hash mod =
-          case lookupIfaceByModule dflags hpt pit mod of
+          case lookupIfaceByModule hpt pit mod of
             Just iface -> return (mi_orphan_hash (mi_final_exts iface))
             Nothing    -> do -- similar to 'mkHashFun'
                 iface <- initIfaceLoad hsc_env . withException

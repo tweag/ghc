@@ -231,17 +231,32 @@ import Control.DeepSeq
 
 -- | Status of a compilation to hard-code
 data HscStatus
-    = HscNotGeneratingCode  -- ^ Nothing to do.
-    | HscUpToDate           -- ^ Nothing to do because code already exists.
-    | HscUpdateBoot         -- ^ Update boot file result.
-    | HscUpdateSig          -- ^ Generate signature file (backpack)
-    | HscRecomp             -- ^ Recompile this module.
+    -- | Nothing to do.
+    = HscNotGeneratingCode ModIface
+    -- | Nothing to do because code already exists.
+    | HscUpToDate ModIface
+    -- | Update boot file result.
+    | HscUpdateBoot ModIface
+    -- | Generate signature file (backpack)
+    | HscUpdateSig ModIface
+    -- | Recompile this module.
+    | HscRecomp
         { hscs_guts       :: CgGuts
-                            -- ^ Information for the code generator.
+          -- ^ Information for the code generator.
         , hscs_summary    :: ModSummary
-                            -- ^ Module info
-        , hscs_iface_gen  :: IO (ModIface, Bool)
-                            -- ^ Action to generate iface after codegen.
+          -- ^ Module info
+        , hscs_partial_iface  :: !PartialModIface
+          -- ^ Partial interface
+        , hscs_old_iface_hash :: !(Maybe Fingerprint)
+          -- ^ Old interface hash for this compilation, if an old interface file
+          -- exists. Pass to `hscMaybeWriteIface` when writing the interface to
+          -- avoid updating the existing interface when the interface isn't
+          -- changed.
+        , hscs_iface_dflags :: !DynFlags
+          -- ^ Generate final iface using this DynFlags.
+          -- FIXME (osa): I don't understand why this is necessary, but I spent
+          -- almost two days trying to figure this out and I couldn't .. perhaps
+          -- someone who understands this code better will remove this later.
         }
 -- Should HscStatus contain the HomeModInfo?
 -- All places where we return a status we also return a HomeModInfo.
@@ -669,12 +684,11 @@ data HomeModInfo
 -- | Find the 'ModIface' for a 'Module', searching in both the loaded home
 -- and external package module information
 lookupIfaceByModule
-        :: DynFlags
-        -> HomePackageTable
+        :: HomePackageTable
         -> PackageIfaceTable
         -> Module
         -> Maybe ModIface
-lookupIfaceByModule _dflags hpt pit mod
+lookupIfaceByModule hpt pit mod
   = case lookupHptByModule hpt mod of
        Just hm -> Just (hm_iface hm)
        Nothing -> lookupModuleEnv pit mod
