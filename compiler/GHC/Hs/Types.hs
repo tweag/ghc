@@ -1220,7 +1220,7 @@ splitHsFunType (L _ (HsParTy _ ty))
 
 splitHsFunType (L _ (HsFunTy _ mult x y))
   | (args, res) <- splitHsFunType y
-  = (x:args, res)
+  = (HsScaled mult x:args, res)
 
 splitHsFunType other = ([], other)
 
