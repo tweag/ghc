@@ -91,8 +91,7 @@ import Name( Name, NamedThing(getName) )
 import RdrName ( RdrName )
 import DataCon( HsSrcBang(..), HsImplBang(..),
                 SrcStrictness(..), SrcUnpackedness(..) )
-import TysWiredIn( unrestrictedFunTyConName, manyDataConName, oneDataConName,
-                   mkTupleStr )
+import TysWiredIn( manyDataConName, oneDataConName, mkTupleStr )
 import Type
 import GHC.Hs.Doc
 import BasicTypes
@@ -1215,28 +1214,13 @@ mkHsAppKindTy ext ty k
 -- splitHsFunType decomposes a type (t1 -> t2 ... -> tn)
 -- Breaks up any parens in the result type:
 --      splitHsFunType (a -> (b -> c)) = ([a,b], c)
--- Also deals with (->) t1 t2; that is why it only works on LHsType Name
---   (see #9096)
 splitHsFunType :: LHsType GhcRn -> ([HsScaled GhcRn (LHsType GhcRn)], LHsType GhcRn)
 splitHsFunType (L _ (HsParTy _ ty))
   = splitHsFunType ty
 
 splitHsFunType (L _ (HsFunTy _ mult x y))
   | (args, res) <- splitHsFunType y
-  = (HsScaled mult x:args, res)
-{- This is not so correct, because it won't work with visible kind app, in case
-  someone wants to write '(->) @k1 @k2 t1 t2'. Fixing this would require changing
-  ConDeclGADT abstract syntax -}
-splitHsFunType orig_ty@(L _ (HsAppTy _ t1 t2))
-  = go t1 [t2]
-  where  -- Look for (->) t1 t2, possibly with parenthesisation
-    go (L _ (HsTyVar _ _ (L _ fn))) tys | fn == unrestrictedFunTyConName
-                                 , [t1,t2] <- tys
-                                 , (args, res) <- splitHsFunType t2
-                                 = (hsUnrestricted t1:args, res)
-    go (L _ (HsAppTy _ t1 t2)) tys = go t1 (t2:tys)
-    go (L _ (HsParTy _ ty))    tys = go ty tys
-    go _                       _   = ([], orig_ty)  -- Failure to match
+  = (x:args, res)
 
 splitHsFunType other = ([], other)
 
