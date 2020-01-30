@@ -67,7 +67,6 @@ import FastString
 import Util
 import InstEnv     ( instanceDFunId )
 import OptCoercion ( checkAxInstCo )
-import UniqSupply
 import CoreArity ( typeArity )
 import Demand ( splitStrictSig, isBotRes )
 
@@ -2941,8 +2940,9 @@ withoutAnnots pass guts = do
   dflags <- getDynFlags
   let removeFlag env = env{ hsc_dflags = dflags{ debugLevel = 0} }
       withoutFlag corem =
+          -- TODO: supply tag here as well ?
         liftIO =<< runCoreM <$> fmap removeFlag getHscEnv <*> getRuleBase <*>
-                                getUniqueSupplyM <*> getModule <*>
+                                getUniqMask <*> getModule <*>
                                 getVisibleOrphanMods <*>
                                 getPrintUnqualified <*> getSrcSpanM <*>
                                 pure corem

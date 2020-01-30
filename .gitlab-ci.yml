@@ -2,7 +2,7 @@ variables:
   GIT_SSL_NO_VERIFY: "1"
 
   # Commit of ghc/ci-images repository from which to pull Docker images
-  DOCKER_REV: 69abb3614435999fd0895bc8a231b7494063e20c
+  DOCKER_REV: 8beb70e553e521796f4250000107c008b477040f
 
   # Sequential version number capturing the versions of all tools fetched by
   # .gitlab/win32-init.sh.
@@ -118,7 +118,7 @@ typecheck-testsuite:
     - "echo Linting submodule changes between $base..$CI_COMMIT_SHA"
     - git submodule foreach git remote update
       # TODO: Fix submodule linter
-    - submodchecker .git $(git rev-list $base..$CI_COMMIT_SHA) || true
+    - submodchecker . $(git rev-list $base..$CI_COMMIT_SHA) || true
   dependencies: []
   tags:
     - lint
@@ -148,7 +148,7 @@ lint-submods-branch:
   script:
     - "echo Linting submodule changes between $CI_COMMIT_BEFORE_SHA..$CI_COMMIT_SHA"
     - git submodule foreach git remote update
-    - submodchecker .git $(git rev-list $CI_COMMIT_BEFORE_SHA..$CI_COMMIT_SHA)
+    - submodchecker . $(git rev-list $CI_COMMIT_BEFORE_SHA..$CI_COMMIT_SHA)
   only:
     refs:
       - master
@@ -770,9 +770,8 @@ validate-x86_64-linux-fedora27:
       bash -c './configure --enable-tarballs-autodownload GHC=`pwd`/toolchain/bin/ghc HAPPY=`pwd`/toolchain/bin/happy ALEX=`pwd`/toolchain/bin/alex'
     - bash -c "PATH=`pwd`/toolchain/bin:$PATH hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --flavour=Quick --docs=no-sphinx binary-dist"
     - mv _build/bindist/ghc*.tar.xz ghc.tar.xz
-    - export TOP=$(pwd)
-    - bash -c "cd _build/bindist/ghc-*/ && PATH=`pwd`/toolchain/bin:$PATH ./configure --prefix=$TOP/_build/install && make install && cd ../../../"
-    - bash -c "PATH=`pwd`/toolchain/bin:$PATH hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --flavour=quick test --summary-junit=./junit.xml --skip-perf --test-compiler=$TOP/_build/install/bin/ghc"
+    - bash -c "export TOP=$(pwd); cd _build/bindist/ghc-*/ && PATH=$TOP/toolchain/bin:$PATH ./configure --prefix=$TOP/_build/install && make install && cd ../../../"
+    - bash -c "export TOP=$(pwd); PATH=$TOP/toolchain/bin:$PATH hadrian/build.cabal.sh --flavour=$FLAVOUR -j`mk/detect-cpu-count.sh` --flavour=quick test --summary-junit=./junit.xml --skip-perf --test-compiler=$TOP/_build/install/bin/ghc"
     # skipping perf tests for now since we build a quick-flavoured GHC,
     # which might result in some broken perf tests?
   tags:
@@ -808,6 +807,7 @@ nightly-i386-windows-hadrian:
 .build-windows-make:
   extends: .build-windows
   stage: full-build
+  allow_failure: true
   variables:
     BUILD_FLAVOUR: "quick"
     GHC_VERSION: "8.6.5"
