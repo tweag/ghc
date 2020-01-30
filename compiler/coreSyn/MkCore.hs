@@ -194,6 +194,8 @@ mkWildEvBinder pred = mkWildValBinder Many pred
 -- See Note [WildCard binders] in SimplEnv
 mkWildValBinder :: Mult -> Type -> Id
 mkWildValBinder w ty = mkLocalIdOrCoVar wildCardName w ty
+  -- "OrCoVar" since a coercion can be a scrutinee with -fdefer-type-errors
+  -- (e.g. see test T15695). Ticket #17291 covers fixing this problem.
 
 mkWildCase :: CoreExpr -> Scaled Type -> Type -> [CoreAlt] -> CoreExpr
 -- Make a case expression whose case binder is unused

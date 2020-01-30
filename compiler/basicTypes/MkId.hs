@@ -893,6 +893,8 @@ case of a newtype constructor, we simply hardcode its dcr_bangs field to
 newLocal :: Scaled Type -> UniqSM Var
 newLocal (Scaled w ty) = do { uniq <- getUniqueM
                             ; return (mkSysLocalOrCoVar (fsLit "dt") uniq w ty) }
+                 -- We should not have "OrCoVar" here, this is a bug (#17545)
+
 
 -- | Unpack/Strictness decisions from source module.
 --
