@@ -118,11 +118,11 @@ module Coercion (
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} ToIface (toIfaceTyCon, tidyToIfaceTcArgs)
+import {-# SOURCE #-} GHC.CoreToIface (toIfaceTyCon, tidyToIfaceTcArgs)
 
 import GhcPrelude
 
-import IfaceType
+import GHC.Iface.Type
 import TyCoRep
 import TyCoFVs
 import TyCoPpr
@@ -234,7 +234,7 @@ ppr_co_ax_branch :: (TidyEnv -> Type -> SDoc)
 ppr_co_ax_branch ppr_rhs fam_tc branch
   = foldr1 (flip hangNotEmpty 2)
     [ pprUserForAll (mkTyCoVarBinders Inferred bndrs')
-         -- See Note [Printing foralls in type family instances] in IfaceType
+         -- See Note [Printing foralls in type family instances] in GHC.Iface.Type
     , pp_lhs <+> ppr_rhs tidy_env ee_rhs
     , text "-- Defined" <+> pp_loc ]
   where
