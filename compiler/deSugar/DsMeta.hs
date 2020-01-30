@@ -281,7 +281,7 @@ in repTyClD and repC.
 
 Note [Don't quantify implicit type variables in quotes]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If you're not careful, it's suprisingly easy to take this quoted declaration:
+If you're not careful, it's surprisingly easy to take this quoted declaration:
 
   [d| idProxy :: forall proxy (b :: k). proxy b -> proxy b
       idProxy x = x
@@ -1406,13 +1406,13 @@ repE (HsUnboundVar _ uv)   = do
                                sname <- repNameS occ
                                repUnboundVar sname
 
-repE e@(HsCoreAnn {})      = notHandled "Core annotations" (ppr e)
-repE e@(HsSCC {})          = notHandled "Cost centres" (ppr e)
-repE e@(HsTickPragma {})   = notHandled "Tick Pragma" (ppr e)
+repE e@(HsPragE _ HsPragCore {} _)   = notHandled "Core annotations" (ppr e)
+repE e@(HsPragE _ HsPragSCC  {} _)   = notHandled "Cost centres" (ppr e)
+repE e@(HsPragE _ HsPragTick {} _)   = notHandled "Tick Pragma" (ppr e)
 repE e                     = notHandled "Expression form" (ppr e)
 
 -----------------------------------------------------------------------------
--- Building representations of auxillary structures like Match, Clause, Stmt,
+-- Building representations of auxiliary structures like Match, Clause, Stmt,
 
 repMatchTup ::  LMatch GhcRn (LHsExpr GhcRn) -> DsM (Core TH.MatchQ)
 repMatchTup (dL->L _ (Match { m_pats = [p]
@@ -1489,7 +1489,7 @@ repUpdFields = repList fieldExpQTyConName rep_fld
 -- shadow each other. Consider:  [| do { x <- f 1; x <- f x; g x } |]
 -- First gensym new names for every variable in any of the patterns.
 -- both static (x'1 and x'2), and dynamic ((gensym "x") and (gensym "y"))
--- if variables didn't shaddow, the static gensym wouldn't be necessary
+-- if variables didn't shadow, the static gensym wouldn't be necessary
 -- and we could reuse the original names (x and x).
 --
 -- do { x'1 <- gensym "x"

@@ -509,8 +509,7 @@ exprCtOrigin (RecordCon {})      = Shouldn'tHappenOrigin "record construction"
 exprCtOrigin (RecordUpd {})      = Shouldn'tHappenOrigin "record update"
 exprCtOrigin (ExprWithTySig {})  = ExprSigOrigin
 exprCtOrigin (ArithSeq {})       = Shouldn'tHappenOrigin "arithmetic sequence"
-exprCtOrigin (HsSCC _ _ _ e)     = lexprCtOrigin e
-exprCtOrigin (HsCoreAnn _ _ _ e) = lexprCtOrigin e
+exprCtOrigin (HsPragE _ _ e)     = lexprCtOrigin e
 exprCtOrigin (HsBracket {})      = Shouldn'tHappenOrigin "TH bracket"
 exprCtOrigin (HsRnBracketOut {})= Shouldn'tHappenOrigin "HsRnBracketOut"
 exprCtOrigin (HsTcBracketOut {})= panic "exprCtOrigin HsTcBracketOut"
@@ -519,7 +518,6 @@ exprCtOrigin (HsProc {})         = Shouldn'tHappenOrigin "proc"
 exprCtOrigin (HsStatic {})       = Shouldn'tHappenOrigin "static expression"
 exprCtOrigin (HsTick _ _ e)           = lexprCtOrigin e
 exprCtOrigin (HsBinTick _ _ _ e)      = lexprCtOrigin e
-exprCtOrigin (HsTickPragma _ _ _ _ e) = lexprCtOrigin e
 exprCtOrigin (HsWrap {})        = panic "exprCtOrigin HsWrap"
 exprCtOrigin (XExpr nec)        = noExtCon nec
 

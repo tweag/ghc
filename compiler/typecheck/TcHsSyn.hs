@@ -266,7 +266,7 @@ There are three possibilities:
   So we default it to 'Any' of the right kind.
 
   All this works for both type and kind variables (indeed
-  the two are the same thign).
+  the two are the same thing).
 
 * SkolemiseFlexi: is a special case for the LHS of RULES.
   See Note [Zonking the LHS of a RULE]
@@ -933,18 +933,9 @@ zonkExpr env (ArithSeq expr wit info)
    where zonkWit env Nothing    = return (env, Nothing)
          zonkWit env (Just fln) = second Just <$> zonkSyntaxExpr env fln
 
-zonkExpr env (HsSCC x src lbl expr)
+zonkExpr env (HsPragE x prag expr)
   = do new_expr <- zonkLExpr env expr
-       return (HsSCC x src lbl new_expr)
-
-zonkExpr env (HsTickPragma x src info srcInfo expr)
-  = do new_expr <- zonkLExpr env expr
-       return (HsTickPragma x src info srcInfo new_expr)
-
--- hdaume: core annotations
-zonkExpr env (HsCoreAnn x src lbl expr)
-  = do new_expr <- zonkLExpr env expr
-       return (HsCoreAnn x src lbl new_expr)
+       return (HsPragE x prag new_expr)
 
 -- arrow notation extensions
 zonkExpr env (HsProc x pat body)
