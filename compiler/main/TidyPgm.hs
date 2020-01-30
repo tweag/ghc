@@ -174,7 +174,7 @@ mkBootModDetailsTc hsc_env
                 | id <- typeEnvIds type_env
                 , keep_it id ]
 
-    final_tcs  = filterOut (isWiredInName . getName) tcs
+    final_tcs  = filterOut isWiredIn tcs
                  -- See Note [Drop wired-in things]
     type_env1  = typeEnvFromEntities final_ids final_tcs fam_insts
     insts'     = mkFinalClsInsts type_env1 insts
@@ -385,10 +385,10 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
               ; final_ids  = [ if omit_prags then trimId id else id
                              | id <- bindersOfBinds tidy_binds
                              , isExternalName (idName id)
-                             , not (isWiredInName (getName id))
+                             , not (isWiredIn id)
                              ]   -- See Note [Drop wired-in things]
 
-              ; final_tcs      = filterOut (isWiredInName . getName) tcs
+              ; final_tcs      = filterOut isWiredIn tcs
                                  -- See Note [Drop wired-in things]
               ; type_env       = typeEnvFromEntities final_ids final_tcs fam_insts
               ; tidy_cls_insts = mkFinalClsInsts type_env cls_insts
@@ -417,11 +417,13 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
         ; unless (dopt Opt_D_dump_simpl dflags) $
             Err.dumpIfSet_dyn dflags Opt_D_dump_rules
               (showSDoc dflags (ppr CoreTidy <+> text "rules"))
+              Err.FormatText
               (pprRulesForUser dflags tidy_rules)
 
           -- Print one-line size info
         ; let cs = coreBindsStats tidy_binds
         ; Err.dumpIfSet_dyn dflags Opt_D_dump_core_stats "Core Stats"
+            Err.FormatText
             (text "Tidy size (terms,types,coercions)"
              <+> ppr (moduleName mod) <> colon
              <+> int (cs_tm cs)

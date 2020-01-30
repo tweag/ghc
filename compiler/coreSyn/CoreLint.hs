@@ -263,8 +263,10 @@ dumpPassResult :: DynFlags
                -> CoreProgram -> [CoreRule]
                -> IO ()
 dumpPassResult dflags unqual mb_flag hdr extra_info binds rules
-  = do { forM_ mb_flag $ \flag ->
-           Err.dumpSDoc dflags unqual flag (showSDoc dflags hdr) dump_doc
+  = do { forM_ mb_flag $ \flag -> do
+           let sty = mkDumpStyle dflags unqual
+           dumpAction dflags sty (dumpOptionsFromFlag flag)
+              (showSDoc dflags hdr) FormatCore dump_doc
 
          -- Report result size
          -- This has the side effect of forcing the intermediate to be evaluated
@@ -2493,7 +2495,7 @@ lookupIdInScope id_occ
                             2 (pprBndr LetBind id_occ)
     bad_global id_bnd = isGlobalId id_occ
                      && isLocalId id_bnd
-                     && not (isWiredInName (idName id_occ))
+                     && not (isWiredIn id_occ)
        -- 'bad_global' checks for the case where an /occurrence/ is
        -- a GlobalId, but there is an enclosing binding fora a LocalId.
        -- NB: the in-scope variables are mostly LocalIds, checked by lintIdBndr,

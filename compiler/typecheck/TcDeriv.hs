@@ -235,6 +235,7 @@ tcDeriving deriv_infos deriv_decls
 
         ; unless (isEmptyBag inst_info) $
              liftIO (dumpIfSet_dyn dflags Opt_D_dump_deriv "Derived instances"
+                        FormatHaskell
                         (ddump_deriving inst_info rn_binds famInsts))
 
         ; gbl_env <- tcExtendLocalInstEnv (map iSpec (bagToList inst_info))
@@ -1915,7 +1916,7 @@ doDerivInstErrorChecks1 mechanism =
 
         rdr_env <- lift getGlobalRdrEnv
         let data_con_names = map dataConName (tyConDataCons rep_tc)
-            hidden_data_cons = not (isWiredInName (tyConName rep_tc)) &&
+            hidden_data_cons = not (isWiredIn rep_tc) &&
                                (isAbstractTyCon rep_tc ||
                                 any not_in_scope data_con_names)
             not_in_scope dc  = isNothing (lookupGRE_Name rdr_env dc)

@@ -530,7 +530,7 @@ AC_ARG_WITH([gcc],
         AC_MSG_ERROR([--with-gcc=$withval is obsolete (use './configure CC=$withval' or 'CC=$withval ./configure' instead)]))
 
 AC_ARG_WITH([clang],
-        AS_HELP_STRING([--with-clang=ARG], [Use ARG as the path to gcc (obsolete, use CC=ARG instead) [default=autodetect]]),
+        AS_HELP_STRING([--with-clang=ARG], [Use ARG as the path to clang (obsolete, use CC=ARG instead) [default=autodetect]]),
         AC_MSG_ERROR([--with-clang=$withval is obsolete (use './configure CC=$withval' or 'CC=$withval ./configure' instead)]))
 
 dnl detect compiler (prefer gcc over clang) and set $CC (unless CC already set),
@@ -586,7 +586,7 @@ AC_SUBST([NmCmd])
 if test "$TargetOS_CPP" = "darwin"
 then
     AC_MSG_CHECKING(whether nm program is broken)
-    # Some versions of XCode ship a broken version of `nm`. Detect and work
+    # Some versions of Xcode ship a broken version of `nm`. Detect and work
     # around this issue. See : https://gitlab.haskell.org/ghc/ghc/issues/11744
     nmver=$(${NM} --version | grep version | sed 's/ //g')
     case "$nmver" in
@@ -705,7 +705,7 @@ AC_SYS_INTERPRETER()
 
 dnl ** look for GCC and find out which version
 dnl     Figure out which C compiler to use.  Gcc is preferred.
-dnl     If gcc, make sure it's at least 3.0
+dnl     If gcc, make sure it's at least 4.6
 dnl
 FP_GCC_VERSION
 
@@ -1404,7 +1404,7 @@ echo "\
       which is version   : $GhcVersion
 "
 
-if test "x$CC_LLVM_BACKEND" = "x1"; then
+if test "x$CcLlvmBackend" = "xYES"; then
     CompilerName="clang        "
 else
     CompilerName="gcc          "

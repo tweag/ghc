@@ -949,9 +949,14 @@ error = true;
                       if (rts_argv[arg][6] == '=') {
                           mask = (StgWord)strtol(rts_argv[arg]+7,
                                                  (char **) NULL, 10);
-                      } else {
+                      } else if (rts_argv[arg][6] == '\0'){
                           mask = (StgWord)~0;
+                      } else {
+                          errorBelch("%s: unknown flag", rts_argv[arg]);
+                          error = true;
+                          break;
                       }
+
                       if (!osNumaAvailable()) {
                           errorBelch("%s: OS reports NUMA is not available",
                                      rts_argv[arg]);
@@ -985,6 +990,7 @@ error = true;
                           RtsFlags.GcFlags.numa = true;
                           RtsFlags.DebugFlags.numa = true;
                           RtsFlags.GcFlags.numaMask = (1<<nNodes) - 1;
+                          n_numa_nodes = nNodes;
                       }
                   }
 #endif
@@ -1736,6 +1742,11 @@ static void normaliseRtsOpts (void)
 
     if (RtsFlags.GcFlags.useNonmoving && RtsFlags.GcFlags.generations == 1) {
         barf("The non-moving collector doesn't support -G1");
+    }
+
+    if (RtsFlags.ProfFlags.doHeapProfile != NO_HEAP_PROFILING &&
+            RtsFlags.GcFlags.useNonmoving) {
+        barf("The non-moving collector doesn't support profiling");
     }
 
     if (RtsFlags.GcFlags.compact && RtsFlags.GcFlags.useNonmoving) {
