@@ -54,6 +54,8 @@ data Setting = BuildArch
              | HostOsHaskell
              | IconvIncludeDir
              | IconvLibDir
+             | LibdwIncludeDir
+             | LibdwLibDir
              | LlvmTarget
              | ProjectGitCommitId
              | ProjectName
@@ -141,6 +143,8 @@ setting key = lookupValueOrError configFile $ case key of
     HostOsHaskell      -> "host-os-haskell"
     IconvIncludeDir    -> "iconv-include-dir"
     IconvLibDir        -> "iconv-lib-dir"
+    LibdwIncludeDir    -> "libdw-include-dir"
+    LibdwLibDir        -> "libdw-lib-dir"
     LlvmTarget         -> "llvm-target"
     ProjectGitCommitId -> "project-git-commit-id"
     ProjectName        -> "project-name"
@@ -238,7 +242,7 @@ ghcWithInterpreter = do
                           , "freebsd", "dragonfly", "netbsd", "openbsd"
                           , "darwin", "kfreebsdgnu" ]
     goodArch <- anyTargetArch [ "i386", "x86_64", "powerpc", "sparc"
-                              , "sparc64", "arm" ]
+                              , "sparc64", "arm", "s390x" ]
     return $ goodOs && goodArch
 
 -- | Check to use @libffi@ for adjustors.
