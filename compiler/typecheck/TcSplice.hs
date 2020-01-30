@@ -232,7 +232,7 @@ tcUntypedBracket rn_expr brack ps res_ty
 -- | A type variable with kind * -> * named "m"
 mkMetaTyVar :: TcM TyVar
 mkMetaTyVar =
-  newNamedFlexiTyVar (fsLit "m") (mkVisFunTy liftedTypeKind liftedTypeKind)
+  newNamedFlexiTyVar (fsLit "m") (mkVisFunTyMany liftedTypeKind liftedTypeKind)
 
 
 -- | For a type 'm', emit the constraint 'Quote m'.
