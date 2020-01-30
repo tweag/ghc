@@ -70,7 +70,6 @@ import BasicTypes
 
 -- compiler/types
 import Type             ( unrestrictedFunTyCon, Mult(..) )
-import Kind             ( Kind )
 import Class            ( FunDep )
 
 -- compiler/parser

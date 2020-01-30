@@ -68,7 +68,7 @@ import GhcPrelude
 import {-# SOURCE #-} TysWiredIn ( coercibleTyCon, heqTyCon
                                  , liftedRepDataConTyCon, manyDataConTyCon
                                  , oneDataConTyCon, tupleTyConName )
-import {-# SOURCE #-} TyCoRep    ( isRuntimeRepTy, isMultiplicityTy )
+import {-# SOURCE #-} Type       ( isRuntimeRepTy, isMultiplicityTy )
 
 import DynFlags
 import TyCon hiding ( pprPromotionQuote )
@@ -984,9 +984,9 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
 
     go in_kind _ ty@(IfaceFreeTyVar tv)
       -- See Note [Defaulting RuntimeRep variables], about free vars
-      | in_kind && do_runtimereps && TyCoRep.isRuntimeRepTy (tyVarKind tv)
+      | in_kind && do_runtimereps && Type.isRuntimeRepTy (tyVarKind tv)
       = liftedRep_ty
-      | in_kind && do_multiplicities && TyCoRep.isMultiplicityTy (tyVarKind tv)
+      | in_kind && do_multiplicities && Type.isMultiplicityTy (tyVarKind tv)
       = many_ty
       | otherwise
       = ty

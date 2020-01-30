@@ -55,6 +55,7 @@ import TcMType
 import Type
 import Multiplicity
 import TyCoRep
+import TyCoPpr     ( debugPprType )
 import TcType
 import HscTypes
 import Class( Class )

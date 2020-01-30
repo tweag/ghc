@@ -86,6 +86,7 @@ import TcIface
 import TcSimplify
 import TcHsSyn
 import TyCoRep
+import TyCoPpr
 import TcErrors ( reportAllUnsolved )
 import TcType
 import Multiplicity

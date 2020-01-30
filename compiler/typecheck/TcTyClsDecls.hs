@@ -51,6 +51,7 @@ import Coercion
 import TcOrigin
 import Type
 import TyCoRep   -- for checkValidRoles
+import TyCoPpr( pprTyVars, pprWithExplicitKindsWhen )
 import Class
 import CoAxiom
 import TyCon

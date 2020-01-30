@@ -48,7 +48,6 @@ import PprCore
 import ErrUtils
 import Coercion
 import SrcLoc
-import Kind
 import Type
 import Multiplicity
 import UsageEnv
@@ -56,6 +55,7 @@ import RepType
 import TyCoRep       -- checks validity of types/coercions
 import TyCoSubst
 import TyCoFVs
+import TyCoPpr ( pprTyVar )
 import TyCon
 import CoAxiom
 import BasicTypes

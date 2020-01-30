@@ -40,12 +40,12 @@ import CoreFVs
 import Multiplicity ( pattern Many )
 import Type
 import RepType
-import Kind            ( isLiftedTypeKind )
 import DataCon
 import TyCon
 import Util
 import VarSet
 import TysPrim
+import TyCoPpr         ( pprType )
 import ErrUtils
 import Unique
 import FastString

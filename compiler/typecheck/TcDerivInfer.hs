@@ -36,6 +36,7 @@ import Constraint
 import Predicate
 import TcType
 import TyCon
+import TyCoPpr (pprTyVars)
 import Type
 import Multiplicity
 import TcSimplify

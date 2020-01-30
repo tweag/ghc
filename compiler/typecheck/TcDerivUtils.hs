@@ -50,6 +50,7 @@ import TcType
 import THNames (liftClassKey)
 import TyCon
 import Multiplicity
+import TyCoPpr (pprSourceTyCon)
 import Type
 import Util
 import VarSet
