@@ -269,7 +269,7 @@ tc_hs_sig_type :: SkolemInfo -> LHsSigType GhcRn
 -- Kind-checks/desugars an 'LHsSigType',
 --   solve equalities,
 --   and then kind-generalizes.
--- This will never emit constraints, as it uses solveEqualities interally.
+-- This will never emit constraints, as it uses solveEqualities internally.
 -- No validity checking or zonking
 -- Returns also a Bool indicating whether the type induced an insoluble constraint;
 -- True <=> constraint is insoluble
@@ -641,7 +641,7 @@ tc_infer_hs_type mode (HsKindSig _ ty sig)
        ; ty' <- tc_lhs_type mode ty sig'
        ; return (ty', sig') }
 
--- HsSpliced is an annotation produced by 'RnSplice.rnSpliceType' to communicate
+-- HsSpliced is an annotation produced by 'GHC.Rename.Splice.rnSpliceType' to communicate
 -- the splice location to the typechecker. Here we skip over it in order to have
 -- the same kind inferred for a given expression whether it was produced from
 -- splices or not.
@@ -693,7 +693,7 @@ tc_hs_type _ ty@(HsRecTy {})      _
       -- signatures) should have been removed by now
     = failWithTc (text "Record syntax is illegal here:" <+> ppr ty)
 
--- HsSpliced is an annotation produced by 'RnSplice.rnSpliceType'.
+-- HsSpliced is an annotation produced by 'GHC.Rename.Splice.rnSpliceType'.
 -- Here we get rid of it and add the finalizers to the global environment
 -- while capturing the local environment.
 --
@@ -1185,7 +1185,7 @@ tcInferApps_nosat mode orig_hs_ty fun orig_hs_args
       (HsTypeArg _ ki_arg : _, Nothing) -> try_again_after_substing_or $
                                            ty_app_err ki_arg substed_fun_ki
 
-      ---------------- HsValArg: a nomal argument (fun ty)
+      ---------------- HsValArg: a normal argument (fun ty)
       (HsValArg arg : args, Just (ki_binder, inner_ki))
         -- next binder is invisible; need to instantiate it
         | isInvisibleBinder ki_binder   -- FunTy with InvisArg on LHS;
@@ -1785,7 +1785,7 @@ the surrounding context, we must obey the following dictum:
   Every metavariable in a type must either be
     (A) generalized, or
     (B) promoted, or        See Note [Promotion in signatures]
-    (C) zapped to Any       See Note [Naughty quantification candidates] in TcMType
+    (C) a cause to error    See Note [Naughty quantification candidates] in TcMType
 
 The kindGeneralize functions do not require pre-zonking; they zonk as they
 go.
@@ -1802,7 +1802,7 @@ Note [Promotion in signatures]
 If an unsolved metavariable in a signature is not generalized
 (because we're not generalizing the construct -- e.g., pattern
 sig -- or because the metavars are constrained -- see kindGeneralizeSome)
-we need to promote to maintain (MetaTvInv) of Note [TcLevel and untouchable type variables]
+we need to promote to maintain (WantedTvInv) of Note [TcLevel and untouchable type variables]
 in TcType. Note that promotion is identical in effect to generalizing
 and the reinstantiating with a fresh metavariable at the current level.
 So in some sense, we generalize *all* variables, but then re-instantiate
@@ -1819,7 +1819,7 @@ than the surrounding context.) This kappa cannot be solved for while checking
 the pattern signature (which is not kind-generalized). When we are checking
 the *body* of foo, though, we need to unify the type of x with the argument
 type of bar. At this point, the ambient TcLevel is 1, and spotting a
-matavariable with level 2 would violate the (MetaTvInv) invariant of
+matavariable with level 2 would violate the (WantedTvInv) invariant of
 Note [TcLevel and untouchable type variables]. So, instead of kind-generalizing,
 we promote the metavariable to level 1. This is all done in kindGeneralizeNone.
 
@@ -2461,7 +2461,7 @@ This should not kind-check.  Polymorphic recursion is known to
 be a tough nut.
 
 Previously, we laboriously (with help from the renamer)
-tried to give T the polymoprhic kind
+tried to give T the polymorphic kind
    T :: forall ka -> ka -> kappa -> Type
 where kappa is a unification variable, even in the inferInitialKinds
 phase (which is what kcInferDeclHeader is all about).  But
@@ -2522,7 +2522,7 @@ What should be the kind of `T` in the following example? (#15591)
   class C (a :: Type) where
     type T (x :: f a)
 
-As per Note [Ordering of implicit variables] in RnTypes, we want to quantify
+As per Note [Ordering of implicit variables] in GHC.Rename.Types, we want to quantify
 the kind variables in left-to-right order of first occurrence in order to
 support visible kind application. But we cannot perform this analysis on just
 T alone, since its variable `a` actually occurs /before/ `f` if you consider
@@ -2767,7 +2767,7 @@ zonkAndScopedSort spec_tkvs
           -- Use zonkAndSkolemise because a skol_tv might be a TyVarTv
 
        -- Do a stable topological sort, following
-       -- Note [Ordering of implicit variables] in RnTypes
+       -- Note [Ordering of implicit variables] in GHC.Rename.Types
        ; return (scopedSort spec_tkvs) }
 
 -- | Generalize some of the free variables in the given type.
@@ -3056,7 +3056,7 @@ checkClassKindSig kind = checkTc (tcIsConstraintKind kind) err_msg
       text "unobscured by type families"
 
 tcbVisibilities :: TyCon -> [Type] -> [TyConBndrVis]
--- Result is in 1-1 correpondence with orig_args
+-- Result is in 1-1 correspondence with orig_args
 tcbVisibilities tc orig_args
   = go (tyConKind tc) init_subst orig_args
   where
@@ -3207,7 +3207,7 @@ tcPartialContext hs_theta
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 See also Note [Recipe for checking a signature]
 
-When we have a parital signature like
+When we have a partial signature like
    f,g :: forall a. a -> _
 we do the following
 
@@ -3219,7 +3219,7 @@ we do the following
   call tchsPartialSig (defined near this Note).  It kind-checks the
   LHsSigWcType, creating fresh unification variables for each "_"
   wildcard.  It's important that the wildcards for f and g are distinct
-  becase they migh get instantiated completely differently.  E.g.
+  because they might get instantiated completely differently.  E.g.
      f,g :: forall a. a -> _
      f x = a
      g x = True
@@ -3262,7 +3262,7 @@ more.  So I use a HACK:
   TcBinds.chooseInferredQuantifiers. This is ill-kinded because
   ordinary tuples can't contain constraints, but it works fine. And for
   ordinary tuples we don't have the same limit as for constraint
-  tuples (which need selectors and an assocated class).
+  tuples (which need selectors and an associated class).
 
 * Because it is ill-kinded, it trips an assert in writeMetaTyVar,
   so now I disable the assertion if we are writing a type of

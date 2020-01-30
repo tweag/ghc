@@ -36,8 +36,8 @@ import TcSigs           ( tcUserTypeSig, tcInstSig )
 import TcSimplify       ( simplifyInfer, InferMode(..) )
 import FamInst          ( tcGetFamInstEnvs, tcLookupDataFamInst )
 import FamInstEnv       ( FamInstEnvs )
-import RnEnv            ( addUsedGRE )
-import RnUtils          ( addNameClashErrRn, unknownSubordinateErr )
+import GHC.Rename.Env   ( addUsedGRE )
+import GHC.Rename.Utils ( addNameClashErrRn, unknownSubordinateErr )
 import TcEnv
 import Multiplicity
 import UsageEnv
@@ -1009,10 +1009,10 @@ tcExpr (ArithSeq _ witness seq) res_ty
 ************************************************************************
 -}
 
--- HsSpliced is an annotation produced by 'RnSplice.rnSpliceExpr'.
+-- HsSpliced is an annotation produced by 'GHC.Rename.Splice.rnSpliceExpr'.
 -- Here we get rid of it and add the finalizers to the global environment.
 --
--- See Note [Delaying modFinalizers in untyped splices] in RnSplice.
+-- See Note [Delaying modFinalizers in untyped splices] in GHC.Rename.Splice.
 tcExpr (HsSpliceE _ (HsSpliced _ mod_finalizers (HsSplicedExpr expr)))
        res_ty
   = do addModFinalizersWithLclEnv mod_finalizers
@@ -2061,6 +2061,9 @@ too_many_args fun args
 -}
 
 checkThLocalId :: Id -> TcM ()
+-- The renamer has already done checkWellStaged,
+--   in RnSplice.checkThLocalName, so don't repeat that here.
+-- Here we just just add constraints fro cross-stage lifting
 checkThLocalId id
   = do  { mb_local_use <- getStageAndBindLevel (idName id)
         ; case mb_local_use of
@@ -2077,15 +2080,14 @@ checkCrossStageLifting :: TopLevelFlag -> Id -> ThStage -> TcM ()
 -- we must check whether there's a cross-stage lift to do
 -- Examples   \x -> [|| x ||]
 --            [|| map ||]
--- There is no error-checking to do, because the renamer did that
 --
--- This is similar to checkCrossStageLifting in RnSplice, but
+-- This is similar to checkCrossStageLifting in GHC.Rename.Splice, but
 -- this code is applied to *typed* brackets.
 
-checkCrossStageLifting top_lvl id (Brack _ (TcPending ps_var lie_var))
+checkCrossStageLifting top_lvl id (Brack _ (TcPending ps_var lie_var q))
   | isTopLevel top_lvl
   = when (isExternalName id_name) (keepAlive id_name)
-    -- See Note [Keeping things alive for Template Haskell] in RnSplice
+    -- See Note [Keeping things alive for Template Haskell] in GHC.Rename.Splice
 
   | otherwise
   =     -- Nested identifiers, such as 'x' in
@@ -2119,7 +2121,8 @@ checkCrossStageLifting top_lvl id (Brack _ (TcPending ps_var lie_var))
                    -- Update the pending splices
         ; ps <- readMutVar ps_var
         ; let pending_splice = PendingTcSplice id_name
-                                 (nlHsApp (noLoc lift) (nlHsVar id))
+                                 (nlHsApp (mkLHsWrap (applyQuoteWrapper q) (noLoc lift))
+                                          (nlHsVar id))
         ; writeMutVar ps_var (pending_splice : ps)
 
         ; return () }

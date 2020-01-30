@@ -280,7 +280,7 @@ So here's the plan:
    superclasses for canonical CDictCans in solveSimpleGivens or
    solveSimpleWanteds; Note [Danger of adding superclasses during solving]
 
-   However, /do/ continue to eagerly expand superlasses for new /given/
+   However, /do/ continue to eagerly expand superclasses for new /given/
    /non-canonical/ constraints (canClassNC does this).  As #12175
    showed, a type-family application can expand to a class constraint,
    and we want to see its superclasses for just the same reason as
@@ -544,6 +544,19 @@ mk_strict_superclasses rec_clss ev tvs theta cls tys
       = do { sc_ev <- newDerivedNC loc sc_pred
            ; mk_superclasses rec_clss sc_ev [] [] sc_pred }
 
+{- Note [Improvement from Ground Wanteds]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose class C b a => D a b
+and consider
+  [W] D Int Bool
+Is there any point in emitting [D] C Bool Int?  No!  The only point of
+emitting superclass constraints for W/D constraints is to get
+improvement, extra unifications that result from functional
+dependencies.  See Note [Why adding superclasses can help] above.
+
+But no variables means no improvement; case closed.
+-}
+
 mk_superclasses :: NameSet -> CtEvidence
                 -> [TyVar] -> ThetaType -> PredType -> TcS [Ct]
 -- Return this constraint, plus its superclasses, if any
@@ -606,7 +619,7 @@ we have
   f :: (forall a. a~b) => stuff
 
 Now, potentially, the superclass machinery kicks in, in
-makeSuperClasses, giving us a a second quantified constrait
+makeSuperClasses, giving us a a second quantified constraint
        (forall a. a ~# b)
 BUT this is an unboxed value!  And nothing has prepared us for
 dictionary "functions" that are unboxed.  Actually it does just
@@ -688,11 +701,11 @@ We implement two main extensions to the design in the paper:
     Notice the 'm' in the head of the quantified constraint, not
     a class.
 
- 2. We suport superclasses to quantified constraints.
+ 2. We support superclasses to quantified constraints.
     For example (contrived):
       f :: (Ord b, forall b. Ord b => Ord (m b)) => m a -> m a -> Bool
       f x y = x==y
-    Here we need (Eq (m a)); but the quantifed constraint deals only
+    Here we need (Eq (m a)); but the quantified constraint deals only
     with Ord.  But we can make it work by using its superclass.
 
 Here are the moving parts
@@ -2297,7 +2310,7 @@ rewriteEvidence ev@(CtWanted { ctev_dest = dest
                              , ctev_nosh = si
                              , ctev_loc = loc }) new_pred co
   = do { mb_new_ev <- newWanted_SI si loc new_pred
-               -- The "_SI" varant ensures that we make a new Wanted
+               -- The "_SI" variant ensures that we make a new Wanted
                -- with the same shadow-info as the existing one
                -- with the same shadow-info as the existing one (#16735)
        ; MASSERT( tcCoercionRole co == ctEvRole ev )
@@ -2349,7 +2362,7 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
 
   | CtWanted { ctev_dest = dest, ctev_nosh = si } <- old_ev
   = do { (new_ev, hole_co) <- newWantedEq_SI si loc' (ctEvRole old_ev) nlhs nrhs
-               -- The "_SI" varant ensures that we make a new Wanted
+               -- The "_SI" variant ensures that we make a new Wanted
                -- with the same shadow-info as the existing one (#16735)
        ; let co = maybeSym swapped $
                   mkSymCo lhs_co
@@ -2359,8 +2372,10 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
        ; traceTcS "rewriteEqEvidence" (vcat [ppr old_ev, ppr nlhs, ppr nrhs, ppr co])
        ; return new_ev }
 
+#if __GLASGOW_HASKELL__ <= 810
   | otherwise
   = panic "rewriteEvidence"
+#endif
   where
     new_pred = mkTcEqPredLikeEv old_ev nlhs nrhs
 

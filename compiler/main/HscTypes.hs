@@ -224,6 +224,8 @@ import System.FilePath
 import Control.Concurrent
 import System.Process   ( ProcessHandle )
 import Control.DeepSeq
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Class
 
 -- -----------------------------------------------------------------------------
 -- Compilation state
@@ -1059,7 +1061,7 @@ data ModIface_ (phase :: ModIfacePhase)
                 -- module is Safe (so doesn't require the package be trusted
                 -- itself) but imports some trustworthy modules from its own
                 -- package (which does require its own package be trusted).
-                -- See Note [RnNames . Trust Own Package]
+                -- See Note [Trust Own Package] in GHC.Rename.Names
         mi_complete_sigs :: [IfaceCompleteMatch],
 
         mi_doc_hdr :: Maybe HsDocString,
@@ -1433,7 +1435,8 @@ data ModGuts
         mg_safe_haskell :: SafeHaskellMode,     -- ^ Safe Haskell mode
         mg_trust_pkg    :: Bool,                -- ^ Do we need to trust our
                                                 -- own package for Safe Haskell?
-                                                -- See Note [RnNames . Trust Own Package]
+                                                -- See Note [Trust Own Package]
+                                                -- in GHC.Rename.Names
 
         mg_doc_hdr       :: !(Maybe HsDocString), -- ^ Module header.
         mg_decl_docs     :: !DeclDocMap,     -- ^ Docs on declarations.
@@ -2323,6 +2326,10 @@ class Monad m => MonadThings m where
         lookupTyCon :: Name -> m TyCon
         lookupTyCon = liftM tyThingTyCon . lookupThing
 
+-- Instance used in DsMeta
+instance MonadThings m => MonadThings (ReaderT s m) where
+  lookupThing = lift . lookupThing
+
 {-
 ************************************************************************
 *                                                                      *
@@ -2467,7 +2474,7 @@ data Dependencies
                         --      or that are in the dep_pkgs of those modules
                         -- The bool indicates if the package is required to be
                         -- trusted when the module is imported as a safe import
-                        -- (Safe Haskell). See Note [RnNames . Tracking Trust Transitively]
+                        -- (Safe Haskell). See Note [Tracking Trust Transitively] in GHC.Rename.Names
 
          , dep_orphs  :: [Module]
                         -- ^ Transitive closure of orphan modules (whether
@@ -3098,7 +3105,7 @@ instance Binary IfaceTrustInfo where
 -}
 
 data HsParsedModule = HsParsedModule {
-    hpm_module    :: Located (HsModule GhcPs),
+    hpm_module    :: Located HsModule,
     hpm_src_files :: [FilePath],
        -- ^ extra source files (e.g. from #includes).  The lexer collects
        -- these from '# <file> <line>' pragmas, which the C preprocessor

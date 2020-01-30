@@ -49,17 +49,17 @@ module TcRnDriver (
 import GhcPrelude
 
 import {-# SOURCE #-} TcSplice ( finishTH, runRemoteModFinalizers )
-import RnSplice ( rnTopSpliceDecls, traceSplice, SpliceInfo(..) )
-import GHC.Iface.Env( externaliseName )
+import GHC.Rename.Splice ( rnTopSpliceDecls, traceSplice, SpliceInfo(..) )
+import GHC.Iface.Env     ( externaliseName )
 import TcHsType
 import TcValidity( checkValidType )
 import TcMatches
 import Inst( deeplyInstantiate )
 import TcUnify( checkConstraints )
-import RnTypes
-import RnExpr
-import RnUtils ( HsDocContext(..) )
-import RnFixity ( lookupFixityRn )
+import GHC.Rename.Types
+import GHC.Rename.Expr
+import GHC.Rename.Utils  ( HsDocContext(..) )
+import GHC.Rename.Fixity ( lookupFixityRn )
 import MkId
 import TysWiredIn ( unitTy, mkListTy )
 import Plugins
@@ -102,9 +102,9 @@ import TcTyClsDecls
 import TcTypeable ( mkTypeableBinds )
 import TcBackpack
 import GHC.Iface.Load
-import RnNames
-import RnEnv
-import RnSource
+import GHC.Rename.Names
+import GHC.Rename.Env
+import GHC.Rename.Source
 import ErrUtils
 import Id
 import IdInfo( IdDetails(..) )
@@ -633,7 +633,7 @@ tcRnHsBootDecls hsc_src decls
               <- rnTopSrcDecls first_group
 
         -- The empty list is for extra dependencies coming from .hs-boot files
-        -- See Note [Extra dependencies from .hs-boot files] in RnSource
+        -- See Note [Extra dependencies from .hs-boot files] in GHC.Rename.Source
 
         ; (gbl_env, lie) <- setGblEnv tcg_env $ captureTopConstraints $ do {
               -- NB: setGblEnv **before** captureTopConstraints so that
@@ -735,7 +735,9 @@ checkHiBootIface tcg_env boot_info
              -- TODO: Maybe setGlobalTypeEnv should be strict.
           setGlobalTypeEnv tcg_env_w_binds type_env' }
 
+#if __GLASGOW_HASKELL__ <= 810
   | otherwise = panic "checkHiBootIface: unreachable code"
+#endif
 
 {- Note [DFun impedance matching]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1197,7 +1199,7 @@ checkBootTyCon is_boot tc1 tc2
     -- It would have been best if this was purely a question of defaults
     -- (i.e., a user could explicitly ask for one behavior or another) but
     -- the current role system isn't expressive enough to do this.
-    -- Having explict proj-roles would solve this problem.
+    -- Having explicit proj-roles would solve this problem.
 
     rolesSubtypeOf [] [] = True
     -- NB: this relation is the OPPOSITE of the subroling relation
@@ -2165,7 +2167,7 @@ two redundant type-error warnings, one from each plan.
 #14963 reveals another bug that when deferred type errors is enabled
 in GHCi, any reference of imported/loaded variables (directly or indirectly)
 in interactively issued naked expressions will cause ghc panic. See more
-detailed dicussion in #14963.
+detailed discussion in #14963.
 
 The interactively issued declarations, statements, as well as the modules
 loaded into GHCi, are not affected. That means, for declaration, you could
@@ -2782,7 +2784,7 @@ ppr_types debug type_env
                          _            -> False
              -- Data cons (workers and wrappers), pattern synonyms,
              -- etc are suppressed (unless -dppr-debug),
-             -- because they appear elsehwere
+             -- because they appear elsewhere
 
     ppr_sig id = hang (ppr id <+> dcolon) 2 (ppr (tidyTopType (idType id)))
 

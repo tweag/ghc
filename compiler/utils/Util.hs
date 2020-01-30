@@ -323,21 +323,21 @@ zipWith4Equal _ = zipWith4
 #else
 zipEqual _   []     []     = []
 zipEqual msg (a:as) (b:bs) = (a,b) : zipEqual msg as bs
-zipEqual msg _      _      = panic ("zipEqual: unequal lists:"++msg)
+zipEqual msg _      _      = panic ("zipEqual: unequal lists: "++msg)
 
 zipWithEqual msg z (a:as) (b:bs)=  z a b : zipWithEqual msg z as bs
 zipWithEqual _   _ [] []        =  []
-zipWithEqual msg _ _ _          =  panic ("zipWithEqual: unequal lists:"++msg)
+zipWithEqual msg _ _ _          =  panic ("zipWithEqual: unequal lists: "++msg)
 
 zipWith3Equal msg z (a:as) (b:bs) (c:cs)
                                 =  z a b c : zipWith3Equal msg z as bs cs
 zipWith3Equal _   _ [] []  []   =  []
-zipWith3Equal msg _ _  _   _    =  panic ("zipWith3Equal: unequal lists:"++msg)
+zipWith3Equal msg _ _  _   _    =  panic ("zipWith3Equal: unequal lists: "++msg)
 
 zipWith4Equal msg z (a:as) (b:bs) (c:cs) (d:ds)
                                 =  z a b c d : zipWith4Equal msg z as bs cs ds
 zipWith4Equal _   _ [] [] [] [] =  []
-zipWith4Equal msg _ _  _  _  _  =  panic ("zipWith4Equal: unequal lists:"++msg)
+zipWith4Equal msg _ _  _  _  _  =  panic ("zipWith4Equal: unequal lists: "++msg)
 #endif
 
 -- | 'zipLazy' is a kind of 'zip' that is lazy in the second list (observe the ~)
@@ -701,7 +701,7 @@ count p = go 0
                      | otherwise = go n xs
 
 countWhile :: (a -> Bool) -> [a] -> Int
--- Length of an /initial prefix/ of the list satsifying p
+-- Length of an /initial prefix/ of the list satisfying p
 countWhile p = go 0
   where go !n (x:xs) | p x = go (n+1) xs
         go !n _            = n
@@ -977,7 +977,7 @@ fuzzyLookup user_entered possibilites
                                             poss_str user_entered
                        , distance <= fuzzy_threshold ]
   where
-    -- Work out an approriate match threshold:
+    -- Work out an appropriate match threshold:
     -- We report a candidate if its edit distance is <= the threshold,
     -- The threshold is set to about a quarter of the # of characters the user entered
     --   Length    Threshold

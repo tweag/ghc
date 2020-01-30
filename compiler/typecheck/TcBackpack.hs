@@ -37,7 +37,7 @@ import TcSimplify
 import Constraint
 import TcOrigin
 import GHC.Iface.Load
-import RnNames
+import GHC.Rename.Names
 import ErrUtils
 import Id
 import Module
@@ -51,7 +51,7 @@ import Outputable
 import Type
 import Multiplicity
 import FastString
-import RnFixity ( lookupFixityRn )
+import GHC.Rename.Fixity ( lookupFixityRn )
 import Maybes
 import TcEnv
 import Var
@@ -688,7 +688,7 @@ mergeSignatures
         --     final test of the export list.)
         tcg_rdr_env = rdr_env `plusGlobalRdrEnv` tcg_rdr_env orig_tcg_env,
         -- Inherit imports from the local signature, so that module
-        -- rexports are picked up correctly
+        -- reexports are picked up correctly
         tcg_imports = tcg_imports orig_tcg_env,
         tcg_exports = exports,
         tcg_dus     = usesOnly (availsToNameSetWithSelectors exports),

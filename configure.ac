@@ -299,9 +299,9 @@ FP_DEFAULT_CHOICE_OVERRIDE_CHECK(
   [tables next to code],
   [tables apart from code],
   [TablesNextToCode],
-  [Build a tool chain with info tables layed out next to code (enabled by default when using the registerised ABI, on platforms that support it)])
+  [Build a tool chain with info tables laid out next to code (enabled by default when using the registerised ABI, on platforms that support it)])
 if test x"$TablesNextToCode" = xYES; then
-   AC_DEFINE([TABLES_NEXT_TO_CODE], [1], [Define to 1 if info tables are layed out next to code])
+   AC_DEFINE([TABLES_NEXT_TO_CODE], [1], [Define to 1 if info tables are laid out next to code])
 fi
 AC_SUBST(TablesNextToCode)
 
@@ -855,6 +855,9 @@ AC_PATH_PROG(XELATEX,xelatex)
 dnl ** check for makeinfo
 AC_PATH_PROG(MAKEINFO,makeinfo)
 
+dnl ** check for Python for testsuite driver
+FIND_PYTHON
+
 dnl ** check for ghc-pkg command
 FP_PROG_GHC_PKG
 
@@ -1338,7 +1341,6 @@ dnl doc/users_guide/ghc_config.py.in.
 LIBRARY_VERSION(base)
 LIBRARY_VERSION(Cabal, Cabal/Cabal)
 LIBRARY_VERSION(template-haskell)
-LIBRARY_VERSION(parallel)
 LIBRARY_VERSION(array)
 LIBRARY_VERSION(ghc-prim)
 LIBRARY_VERSION(ghc-compact)

@@ -565,7 +565,7 @@ data GeneralFlag
    | Opt_RegsGraph                      -- do graph coloring register allocation
    | Opt_RegsIterative                  -- do iterative coalescing graph coloring register allocation
    | Opt_PedanticBottoms                -- Be picky about how we treat bottom
-   | Opt_LlvmTBAA                       -- Use LLVM TBAA infastructure for improving AA (hidden flag)
+   | Opt_LlvmTBAA                       -- Use LLVM TBAA infrastructure for improving AA (hidden flag)
    | Opt_LlvmFillUndefWithGarbage       -- Testing for undef bugs (hidden flag)
    | Opt_IrrefutableTuples
    | Opt_CmmSink
@@ -974,7 +974,7 @@ data DynFlags = DynFlags {
   rawSettings       :: [(String, String)],
 
   integerLibrary        :: IntegerLibrary,
-    -- ^ IntegerGMP or IntegerSimple. Set at configure time, but may be overriden
+    -- ^ IntegerGMP or IntegerSimple. Set at configure time, but may be overridden
     --   by GHC-API users. See Note [The integer library] in PrelNames
   llvmConfig            :: LlvmConfig,
     -- ^ N.B. It's important that this field is lazy since we load the LLVM
@@ -1108,7 +1108,7 @@ data DynFlags = DynFlags {
     -- they don't have to be loaded each time they are needed.  See
     -- 'DynamicLoading.initializePlugins'.
   staticPlugins            :: [StaticPlugin],
-    -- ^ staic plugins which do not need dynamic loading. These plugins are
+    -- ^ static plugins which do not need dynamic loading. These plugins are
     -- intended to be added by GHC API users directly to this list.
     --
     -- To add dynamically loaded plugins through the GHC API see
@@ -1342,12 +1342,15 @@ parseCfgWeights s oldWeights =
             = [s1]
             | (s1,rest) <- break (== ',') s
             = [s1] ++ settings (drop 1 rest)
+#if __GLASGOW_HASKELL__ <= 810
             | otherwise = panic $ "Invalid cfg parameters." ++ exampleString
+#endif
         assignment as
             | (name, _:val) <- break (== '=') as
             = (name,read val)
             | otherwise
             = panic $ "Invalid cfg parameters." ++ exampleString
+
         exampleString = "Example parameters: uncondWeight=1000," ++
             "condBranchWeight=800,switchWeight=0,callWeight=300" ++
             ",likelyCondWeight=900,unlikelyCondWeight=300" ++
@@ -1954,7 +1957,7 @@ defaultDynFlags mySettings llvmConfig =
         maxRefHoleFits     = Just 6,
         refLevelHoleFits   = Nothing,
         maxUncoveredPatterns    = 4,
-        maxPmCheckModels        = 100,
+        maxPmCheckModels        = 30,
         simplTickFactor         = 100,
         specConstrThreshold     = Just 2000,
         specConstrCount         = Just 3,
@@ -3007,7 +3010,7 @@ dynamic_flags_deps = [
                  Nothing -> upd (\d -> d { parMakeCount = Nothing })))
                  -- When the number of parallel builds
                  -- is omitted, it is the same
-                 -- as specifing that the number of
+                 -- as specifying that the number of
                  -- parallel builds is equal to the
                  -- result of getNumProcessors
   , make_ord_flag defFlag "instantiated-with"   (sepArg setUnitIdInsts)
@@ -3023,8 +3026,6 @@ dynamic_flags_deps = [
     ------- ways ---------------------------------------------------------------
   , make_ord_flag defGhcFlag "prof"           (NoArg (addWay WayProf))
   , make_ord_flag defGhcFlag "eventlog"       (NoArg (addWay WayEventLog))
-  , make_dep_flag defGhcFlag "smp"
-      (NoArg $ addWay WayThreaded) "Use -threaded instead"
   , make_ord_flag defGhcFlag "debug"          (NoArg (addWay WayDebug))
   , make_ord_flag defGhcFlag "threaded"       (NoArg (addWay WayThreaded))
 
@@ -5186,7 +5187,7 @@ setDumpFlag' dump_flag
                                              Opt_D_no_debug_output]
 
 forceRecompile :: DynP ()
--- Whenver we -ddump, force recompilation (by switching off the
+-- Whenever we -ddump, force recompilation (by switching off the
 -- recompilation checker), else you don't see the dump! However,
 -- don't switch it off in --make mode, else *everything* gets
 -- recompiled which probably isn't what you want

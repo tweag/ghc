@@ -133,11 +133,11 @@ import CostCentre
 import ProfInit
 import TyCon
 import Name
-import Cmm
-import CmmParse         ( parseCmmFile )
-import CmmBuildInfoTables
-import CmmPipeline
-import CmmInfo
+import GHC.Cmm
+import GHC.Cmm.Parser         ( parseCmmFile )
+import GHC.Cmm.Info.Build
+import GHC.Cmm.Pipeline
+import GHC.Cmm.Info
 import CodeOutput
 import InstEnv
 import FamInstEnv
@@ -1017,9 +1017,10 @@ hscCheckSafeImports tcg_env = do
 --
 -- The code for this is quite tricky as the whole algorithm is done in a few
 -- distinct phases in different parts of the code base. See
--- RnNames.rnImportDecl for where package trust dependencies for a module are
--- collected and unioned.  Specifically see the Note [RnNames . Tracking Trust
--- Transitively] and the Note [RnNames . Trust Own Package].
+-- GHC.Rename.Names.rnImportDecl for where package trust dependencies for a
+-- module are collected and unioned.  Specifically see the Note [Tracking Trust
+-- Transitively] in GHC.Rename.Names and the Note [Trust Own Package] in
+-- GHC.Rename.Names.
 checkSafeImports :: TcGblEnv -> Hsc TcGblEnv
 checkSafeImports tcg_env
     = do

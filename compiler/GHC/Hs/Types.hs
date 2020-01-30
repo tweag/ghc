@@ -151,7 +151,7 @@ Then we use a LHsBndrSig on the binder, so that the
 renamer can decorate it with the variables bound
 by the pattern ('a' in the first example, 'k' in the second),
 assuming that neither of them is in scope already
-See also Note [Kind and type-variable binders] in RnTypes
+See also Note [Kind and type-variable binders] in GHC.Rename.Types
 
 Note [HsType binders]
 ~~~~~~~~~~~~~~~~~~~~~
@@ -272,7 +272,7 @@ By "stable", we mean that any two variables who do not depend on each other
 preserve their existing left-to-right ordering.
 
 Implicitly bound variables are collected by the extract- family of functions
-(extractHsTysRdrTyVars, extractHsTyVarBndrsKVs, etc.) in RnTypes.
+(extractHsTysRdrTyVars, extractHsTyVarBndrsKVs, etc.) in GHC.Rename.Types.
 These functions thus promise to keep left-to-right ordering.
 Look for pointers to this note to see the places where the action happens.
 
@@ -375,7 +375,7 @@ data HsImplicitBndrs pass thing   -- See Note [HsType binders]
                                          -- Implicitly-bound kind & type vars
                                          -- Order is important; see
                                          -- Note [Ordering of implicit variables]
-                                         -- in RnTypes
+                                         -- in GHC.Rename.Types
 
          , hsib_body :: thing            -- Main payload (type or list of types)
     }
@@ -610,7 +610,8 @@ data HsType pass
 
   | HsParTy             (XParTy pass)
                         (LHsType pass)   -- See Note [Parens in HsSyn] in GHC.Hs.Expr
-        -- Parenthesis preserved for the precedence re-arrangement in RnTypes
+        -- Parenthesis preserved for the precedence re-arrangement in
+        -- GHC.Rename.Types
         -- It's important that a * (b + c) doesn't get rearranged to (a*b) + c!
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'('@,
       --         'ApiAnnotation.AnnClose' @')'@
@@ -681,7 +682,7 @@ data HsType pass
 
   | HsExplicitListTy       -- A promoted explicit list
         (XExplicitListTy pass)
-        PromotionFlag      -- whether explcitly promoted, for pretty printer
+        PromotionFlag      -- whether explicitly promoted, for pretty printer
         [LHsType pass]
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @"'["@,
       --         'ApiAnnotation.AnnClose' @']'@
@@ -838,7 +839,7 @@ After renaming
 Qualified currently behaves exactly as Implicit,
 but it is deprecated to use it for implicit quantification.
 In this case, GHC 7.10 gives a warning; see
-Note [Context quantification] in RnTypes, and #4426.
+Note [Context quantification] in GHC.Rename.Types, and #4426.
 In GHC 8.0, Qualified will no longer bind variables
 and this will become an error.
 
@@ -951,7 +952,7 @@ type LConDeclField pass = Located (ConDeclField pass)
       -- For details on above see note [Api annotations] in ApiAnnotation
 
 -- | Constructor Declaration Field
-data ConDeclField pass  -- Record fields have Haddoc docs on them
+data ConDeclField pass  -- Record fields have Haddock docs on them
   = ConDeclField { cd_fld_ext  :: XConDeclField pass,
                    cd_fld_names :: [LFieldOcc pass],
                                    -- ^ See Note [ConDeclField passs]
@@ -1021,7 +1022,7 @@ gives
 hsWcScopedTvs :: LHsSigWcType GhcRn -> [Name]
 -- Get the lexically-scoped type variables of a HsSigType
 --  - the explicitly-given forall'd type variables
---  - the named wildcars; see Note [Scoping of named wildcards]
+--  - the named wildcards; see Note [Scoping of named wildcards]
 -- because they scope in the same way
 hsWcScopedTvs sig_ty
   | HsWC { hswc_ext = nwcs, hswc_body = sig_ty1 }  <- sig_ty
