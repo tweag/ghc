@@ -36,14 +36,12 @@ check title expected got
 
 -- See Note [Adding a language extension] in compiler/main/DynFlags.hs.
 expectedGhcOnlyExtensions :: [String]
-expectedGhcOnlyExtensions = ["RelaxedLayout",
-                             "AlternativeLayoutRule",
-                             "AlternativeLayoutRuleTransitional",
-                             "LinearTypes",
-                             "UnliftedNewtypes",
-                             "CUSKs",
-                             "StandaloneKindSignatures",
-                             "ImportQualifiedPost"]
+expectedGhcOnlyExtensions =
+    [ "RelaxedLayout"
+    , "AlternativeLayoutRule"
+    , "AlternativeLayoutRuleTransitional"
+    , "LinearTypes"
+    ]
 
 expectedCabalOnlyExtensions :: [String]
 expectedCabalOnlyExtensions = ["Generics",
