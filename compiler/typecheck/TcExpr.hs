@@ -2589,7 +2589,7 @@ addExprErrCtxt expr = addErrCtxt (exprCtxt expr)
 
 exprCtxt :: LHsExpr GhcRn -> SDoc
 exprCtxt expr
-  = hang (text "In the expression:") 2 (ppr expr)
+  = hang (text "In the expression:") 2 (ppr (stripParensHsExpr expr))
 
 fieldCtxt :: FieldLabelString -> SDoc
 fieldCtxt field_name
