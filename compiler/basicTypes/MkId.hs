@@ -68,7 +68,6 @@ import UniqSupply
 import PrelNames
 import BasicTypes       hiding ( SuccessFlag(..) )
 import Util
-import Pair
 import DynFlags
 import Outputable
 import FastString
@@ -965,7 +964,7 @@ dataConArgRep arg_ty (HsUnpack Nothing)
   = (rep_tys, wrappers)
 
 dataConArgRep (Scaled w _) (HsUnpack (Just co))
-  | let co_rep_ty = pSnd (coercionKind co)
+  | let co_rep_ty = coercionRKind co
   , (rep_tys, wrappers) <- dataConArgUnpack (Scaled w co_rep_ty)
   = (rep_tys, wrapCo co co_rep_ty wrappers)
 
