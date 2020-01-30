@@ -692,7 +692,7 @@ mkGadtDecl names ty
 
     -- See Note [GADT abstract syntax] in GHC.Hs.Decls
     split_tau (L _ (HsFunTy _ _w (L loc (HsRecTy _ rf)) res_ty))
-      = (RecCon (cL loc rf), res_ty)
+      = (RecCon (L loc rf), res_ty)
     split_tau tau
       = (PrefixCon [], tau)
 
