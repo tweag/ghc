@@ -51,7 +51,7 @@ import SrcLoc
 import Type
 import Multiplicity
 import UsageEnv
-import RepType
+import GHC.Types.RepType
 import TyCoRep       -- checks validity of types/coercions
 import TyCoSubst
 import TyCoFVs

@@ -205,7 +205,7 @@ import VarSet
 import Coercion
 import Type
 import Predicate
-import RepType
+import GHC.Types.RepType
 import TyCon
 
 -- others:

@@ -39,7 +39,7 @@ import PrimOp
 import CoreFVs
 import Multiplicity ( pattern Many )
 import Type
-import RepType
+import GHC.Types.RepType
 import DataCon
 import TyCon
 import Util

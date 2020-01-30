@@ -135,7 +135,7 @@ import Var( Id, CoVar, JoinId,
 import qualified Var
 
 import Type
-import RepType
+import GHC.Types.RepType
 import TysPrim
 import DataCon
 import Demand

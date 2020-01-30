@@ -153,7 +153,7 @@ import Var (VarBndr (Bndr))
 import Constants        ( mAX_TUPLE_SIZE, mAX_CTUPLE_SIZE, mAX_SUM_SIZE )
 import Module           ( Module )
 import Type
-import RepType
+import GHC.Types.RepType
 import DataCon
 import {-# SOURCE #-} ConLike
 import TyCon
@@ -194,7 +194,7 @@ kept in sync with each other. The rule is this: use the order as declared
 in GHC.Types. All places where such lists exist should contain a reference
 to this Note, so a search for this Note's name should find all the lists.
 
-See also Note [Getting from RuntimeRep to PrimRep] in RepType.
+See also Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType.
 
 ************************************************************************
 *                                                                      *
@@ -1276,7 +1276,7 @@ vecRepDataCon = pcSpecialDataCon vecRepDataConName [ mkTyConTy vecCountTyCon
                                  runtimeRepTyCon
                                  (RuntimeRep prim_rep_fun)
   where
-    -- See Note [Getting from RuntimeRep to PrimRep] in RepType
+    -- See Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType
     prim_rep_fun [count, elem]
       | VecCount n <- tyConRuntimeRepInfo (tyConAppTyCon count)
       , VecElem  e <- tyConRuntimeRepInfo (tyConAppTyCon elem)
@@ -1291,7 +1291,7 @@ tupleRepDataCon :: DataCon
 tupleRepDataCon = pcSpecialDataCon tupleRepDataConName [ mkListTy runtimeRepTy ]
                                    runtimeRepTyCon (RuntimeRep prim_rep_fun)
   where
-    -- See Note [Getting from RuntimeRep to PrimRep] in RepType
+    -- See Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType
     prim_rep_fun [rr_ty_list]
       = concatMap (runtimeRepPrimRep doc) rr_tys
       where
@@ -1307,7 +1307,7 @@ sumRepDataCon :: DataCon
 sumRepDataCon = pcSpecialDataCon sumRepDataConName [ mkListTy runtimeRepTy ]
                                  runtimeRepTyCon (RuntimeRep prim_rep_fun)
   where
-    -- See Note [Getting from RuntimeRep to PrimRep] in RepType
+    -- See Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType
     prim_rep_fun [rr_ty_list]
       = map slotPrimRep (ubxSumRepType prim_repss)
       where
@@ -1321,7 +1321,7 @@ sumRepDataConTyCon :: TyCon
 sumRepDataConTyCon = promoteDataCon sumRepDataCon
 
 -- See Note [Wiring in RuntimeRep]
--- See Note [Getting from RuntimeRep to PrimRep] in RepType
+-- See Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType
 runtimeRepSimpleDataCons :: [DataCon]
 liftedRepDataCon :: DataCon
 runtimeRepSimpleDataCons@(liftedRepDataCon : _)
