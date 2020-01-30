@@ -68,7 +68,7 @@ module TysWiredIn (
         justDataCon, justDataConName, promotedJustDataCon,
 
         -- * Tuples
-        mkTupleTy, mkTupleTy1, mkBoxedTupleTy,
+        mkTupleTy, mkTupleTy1, mkBoxedTupleTy, mkTupleStr,
         tupleTyCon, tupleDataCon, tupleTyConName,
         promotedTupleDataCon,
         unitTyCon, unitDataCon, unitDataConId, unitTy, unitTyConKey,
@@ -812,6 +812,10 @@ mkTupleOcc ns Unboxed ar = mkOccName ns (mkUnboxedTupleStr ar)
 
 mkCTupleOcc :: NameSpace -> Arity -> OccName
 mkCTupleOcc ns ar = mkOccName ns (mkConstraintTupleStr ar)
+
+mkTupleStr :: Boxity -> Arity -> String
+mkTupleStr Boxed   = mkBoxedTupleStr
+mkTupleStr Unboxed = mkUnboxedTupleStr
 
 mkBoxedTupleStr :: Arity -> String
 mkBoxedTupleStr 0  = "()"
