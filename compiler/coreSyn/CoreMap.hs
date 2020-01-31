@@ -40,8 +40,6 @@ module CoreMap(
 
 import GhcPrelude
 
-import Control.Arrow (first)
-
 import TrieMap
 import CoreSyn
 import Coercion
@@ -57,7 +55,7 @@ import qualified Data.IntMap as IntMap
 import VarEnv
 import NameEnv
 import Outputable
-import Control.Monad( (>=>), guard)
+import Control.Monad( (>=>) )
 
 {-
 This module implements TrieMaps over Core related data structures
@@ -764,10 +762,10 @@ instance Eq (DeBruijn a) => Eq (DeBruijn (Maybe a)) where
 -- we can disambiguate this by matching on the type (or kind, if this
 -- a binder in a type) of the binder.
 --
--- We also need to do the same for linearity! The easiest way to do this is
--- to store the linearity of a variable along with the payload and then
--- check that they also match up when retrieving the value.
-data BndrMap a = BndrMap (TypeMapG (a, Mult))
+-- We also need to do the same for multiplicity! Which, since multiplicities are
+-- encoded simply as a 'Type', amounts to have a Trie for a pair of types. Tries
+-- of pairs are composition.
+data BndrMap a = BndrMap (TypeMapG (TypeMapG a))
 
 instance TrieMap BndrMap where
    type Key BndrMap = Var
@@ -778,10 +776,10 @@ instance TrieMap BndrMap where
    mapTM    = mapBndrMap
 
 mapBndrMap :: (a -> b) -> BndrMap a -> BndrMap b
-mapBndrMap f (BndrMap tm) = BndrMap (mapTM (first f) tm)
+mapBndrMap f (BndrMap tm) = BndrMap (mapTM (mapTM f) tm)
 
 fdBndrMap :: (a -> b -> b) -> BndrMap a -> b -> b
-fdBndrMap f (BndrMap tm) = foldTM (f . fst) tm
+fdBndrMap f (BndrMap tm) = foldTM (foldTM f) tm
 
 
 -- Note [Binders]
@@ -791,16 +789,13 @@ fdBndrMap f (BndrMap tm) = foldTM (f . fst) tm
 
 lkBndr :: CmEnv -> Var -> BndrMap a -> Maybe a
 lkBndr env v (BndrMap tymap) = do
-  (a, w) <- lkG (D env (varType v)) tymap
-  guard (w `eqType` varMultDef v)
-  return a
+  multmap <- lkG (D env (varType v)) tymap
+  lkG (D env (varMult v)) multmap
 
 
 xtBndr :: forall a . CmEnv -> Var -> XT a -> BndrMap a -> BndrMap a
 xtBndr env v xt (BndrMap tymap)  =
-  let xt' :: Maybe (a, Mult) -> Maybe (a, Mult)
-      xt' mv = (\a -> (a, varMultDef v)) <$> xt (fst <$> mv)
-  in BndrMap (xtG (D env (varType v)) xt' tymap)
+  BndrMap (tymap |> xtG (D env (varType v)) |>> (xtG (D env (varMult v)) xt))
 
 
 --------- Variable occurrence -------------
