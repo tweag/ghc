@@ -75,7 +75,7 @@ module TcEnv(
 import GhcPrelude
 
 import GHC.Hs
-import IfaceEnv
+import GHC.Iface.Env
 import TcRnMonad
 import TcMType
 import TcEvidence (HsWrapper, idHsWrapper)
@@ -83,7 +83,7 @@ import UsageEnv
 import TcType
 import {-# SOURCE #-} TcUnify ( tcSubMult )
 import TcOrigin ( CtOrigin(UsageEnvironmentOf) )
-import LoadIface
+import GHC.Iface.Load
 import PrelNames
 import TysWiredIn
 import Id
@@ -215,7 +215,7 @@ span of the Name.
 
 
 tcLookupLocatedGlobal :: Located Name -> TcM TyThing
--- c.f. IfaceEnvEnv.tcIfaceGlobal
+-- c.f. GHC.IfaceToCore.tcIfaceGlobal
 tcLookupLocatedGlobal name
   = addLocM tcLookupGlobal name
 
@@ -515,7 +515,7 @@ isTypeClosedLetBndr = noFreeVarsOfType . idType
 
 tcExtendRecIds :: [(Name, TcId)] -> TcM a -> TcM a
 -- Used for binding the recurive uses of Ids in a binding
--- both top-level value bindings and and nested let/where-bindings
+-- both top-level value bindings and nested let/where-bindings
 -- Does not extend the TcBinderStack
 tcExtendRecIds pairs thing_inside
   = tc_extend_local_env NotTopLevel
@@ -539,7 +539,7 @@ tcExtendSigIds top_lvl sig_ids thing_inside
 
 tcExtendLetEnv :: TopLevelFlag -> TcSigFun -> IsGroupClosed
                   -> [TcId] -> TcM a -> TcM a
--- Used for both top-level value bindings and and nested let/where-bindings
+-- Used for both top-level value bindings and nested let/where-bindings
 -- Adds to the TcBinderStack too
 tcExtendLetEnv top_lvl sig_fn (IsGroupClosed fvs fv_type_closed)
                ids thing_inside
@@ -970,11 +970,11 @@ data InstBindings a
            --          Used only to improve error messages
       }
 
-instance (OutputableBndrId (GhcPass a))
+instance (OutputableBndrId a)
        => Outputable (InstInfo (GhcPass a)) where
     ppr = pprInstInfoDetails
 
-pprInstInfoDetails :: (OutputableBndrId (GhcPass a))
+pprInstInfoDetails :: (OutputableBndrId a)
                    => InstInfo (GhcPass a) -> SDoc
 pprInstInfoDetails info
    = hang (pprInstanceHdr (iSpec info) <+> text "where")

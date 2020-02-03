@@ -17,20 +17,17 @@ import LlvmCodeGen.Ppr
 import LlvmCodeGen.Regs
 import LlvmMangler
 
-import BlockId
 import GHC.StgToCmm.CgUtils ( fixStgRegisters )
 import Cmm
-import CmmUtils
-import Hoopl.Block
 import Hoopl.Collections
 import PprCmm
 
 import BufWrite
 import DynFlags
+import GHC.Platform ( platformArch, Arch(..) )
 import ErrUtils
 import FastString
 import Outputable
-import UniqSupply
 import SysTools ( figureLlvmVersion )
 import qualified Stream
 
@@ -41,10 +38,10 @@ import System.IO
 -- -----------------------------------------------------------------------------
 -- | Top-level of the LLVM Code generator
 --
-llvmCodeGen :: DynFlags -> Handle -> UniqSupply
+llvmCodeGen :: DynFlags -> Handle
                -> Stream.Stream IO RawCmmGroup a
                -> IO a
-llvmCodeGen dflags h us cmm_stream
+llvmCodeGen dflags h cmm_stream
   = withTiming dflags (text "LLVM CodeGen") (const ()) $ do
        bufh <- newBufHandle h
 
@@ -64,9 +61,14 @@ llvmCodeGen dflags h us cmm_stream
            "Currently only " <> text (llvmVersionStr supportedLlvmVersion) <> " is supported." <+>
            "System LLVM version: " <> text (llvmVersionStr ver) $$
            "We will try though..."
+         let isS390X = platformArch (targetPlatform dflags) == ArchS390X
+         let major_ver = head . llvmVersionList $ ver
+         when (isS390X && major_ver < 10 && doWarn) $ putMsg dflags $
+           "Warning: For s390x the GHC calling convention is only supported since LLVM version 10." <+>
+           "You are using LLVM version: " <> text (llvmVersionStr ver)
 
        -- run code generation
-       a <- runLlvm dflags (fromMaybe supportedLlvmVersion mb_ver) bufh us $
+       a <- runLlvm dflags (fromMaybe supportedLlvmVersion mb_ver) bufh $
          llvmCodeGen' (liftStream cmm_stream)
 
        bFlush bufh
@@ -144,46 +146,16 @@ cmmDataLlvmGens statics
 
        renderLlvm $ pprLlvmData (concat gss', concat tss)
 
--- | LLVM can't handle entry blocks which loop back to themselves (could be
--- seen as an LLVM bug) so we rearrange the code to keep the original entry
--- label which branches to a newly generated second label that branches back
--- to itself. See: #11649
-fixBottom :: RawCmmDecl -> LlvmM RawCmmDecl
-fixBottom cp@(CmmProc hdr entry_lbl live g) =
-    maybe (pure cp) fix_block $ mapLookup (g_entry g) blk_map
-  where
-    blk_map = toBlockMap g
-
-    fix_block :: CmmBlock -> LlvmM RawCmmDecl
-    fix_block blk
-        | (CmmEntry e_lbl tickscp, middle, CmmBranch b_lbl) <- blockSplit blk
-        , isEmptyBlock middle
-        , e_lbl == b_lbl = do
-            new_lbl <- mkBlockId <$> getUniqueM
-
-            let fst_blk =
-                    BlockCC (CmmEntry e_lbl tickscp) BNil (CmmBranch new_lbl)
-                snd_blk =
-                    BlockCC (CmmEntry new_lbl tickscp) BNil (CmmBranch new_lbl)
-
-            pure . CmmProc hdr entry_lbl live . ofBlockMap (g_entry g)
-                $ mapFromList [(e_lbl, fst_blk), (new_lbl, snd_blk)]
-
-    fix_block _ = pure cp
-
-fixBottom rcd = pure rcd
-
 -- | Complete LLVM code generation phase for a single top-level chunk of Cmm.
 cmmLlvmGen ::RawCmmDecl -> LlvmM ()
 cmmLlvmGen cmm@CmmProc{} = do
 
     -- rewrite assignments to global regs
     dflags <- getDynFlag id
-    fixed_cmm <- fixBottom $
-                    {-# SCC "llvm_fix_regs" #-}
-                    fixStgRegisters dflags cmm
+    let fixed_cmm = {-# SCC "llvm_fix_regs" #-} fixStgRegisters dflags cmm
 
-    dumpIfSetLlvm Opt_D_dump_opt_cmm "Optimised Cmm" (pprCmmGroup [fixed_cmm])
+    dumpIfSetLlvm Opt_D_dump_opt_cmm "Optimised Cmm"
+      FormatCMM (pprCmmGroup [fixed_cmm])
 
     -- generate llvm code from cmm
     llvmBC <- withClearVars $ genLlvmProc fixed_cmm

@@ -68,7 +68,7 @@ module TysWiredIn (
         justDataCon, justDataConName, promotedJustDataCon,
 
         -- * Tuples
-        mkTupleTy, mkTupleTy1, mkBoxedTupleTy,
+        mkTupleTy, mkTupleTy1, mkBoxedTupleTy, mkTupleStr,
         tupleTyCon, tupleDataCon, tupleTyConName,
         promotedTupleDataCon,
         unitTyCon, unitDataCon, unitDataConId, unitTy, unitTyConKey,
@@ -153,7 +153,7 @@ import Var (VarBndr (Bndr))
 import Constants        ( mAX_TUPLE_SIZE, mAX_CTUPLE_SIZE, mAX_SUM_SIZE )
 import Module           ( Module )
 import Type
-import RepType
+import GHC.Types.RepType
 import DataCon
 import {-# SOURCE #-} ConLike
 import TyCon
@@ -194,7 +194,7 @@ kept in sync with each other. The rule is this: use the order as declared
 in GHC.Types. All places where such lists exist should contain a reference
 to this Note, so a search for this Note's name should find all the lists.
 
-See also Note [Getting from RuntimeRep to PrimRep] in RepType.
+See also Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType.
 
 ************************************************************************
 *                                                                      *
@@ -218,7 +218,7 @@ names in PrelNames, so they use wTcQual, wDataQual, etc
 -- See also Note [Known-key names]
 wiredInTyCons :: [TyCon]
 
-wiredInTyCons = [ -- Units are not treated like other tuples, because then
+wiredInTyCons = [ -- Units are not treated like other tuples, because they
                   -- are defined in GHC.Base, and there's only a few of them. We
                   -- put them in wiredInTyCons so that they will pre-populate
                   -- the name cache, so the parser in isBuiltInOcc_maybe doesn't
@@ -271,6 +271,27 @@ eqTyConName   = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "~")   eqTyConK
 eqDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "Eq#") eqDataConKey eqDataCon
 eqSCSelIdName = mkWiredInIdName gHC_TYPES (fsLit "eq_sel") eqSCSelIdKey eqSCSelId
 
+{- Note [eqTyCon (~) is built-in syntax]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The (~) type operator used in equality constraints (a~b) is considered built-in
+syntax. This has a few consequences:
+
+* The user is not allowed to define their own type constructors with this name:
+
+    ghci> class a ~ b
+    <interactive>:1:1: error: Illegal binding of built-in syntax: ~
+
+* Writing (a ~ b) does not require enabling -XTypeOperators. It does, however,
+  require -XGADTs or -XTypeFamilies.
+
+* The (~) type operator is always in scope. It doesn't need to be be imported,
+  and it cannot be hidden.
+
+* We have a bunch of special cases in the compiler to arrange all of the above.
+
+There's no particular reason for (~) to be special, but fixing this would be a
+breaking change.
+-}
 eqTyCon_RDR :: RdrName
 eqTyCon_RDR = nameRdrName eqTyConName
 
@@ -693,7 +714,7 @@ Note [How tuples work]  See also Note [Known-key names] in PrelNames
   E.g. tupleTyCon has a Boxity argument
 
 * When looking up an OccName in the original-name cache
-  (IfaceEnv.lookupOrigNameCache), we spot the tuple OccName to make sure
+  (GHC.Iface.Env.lookupOrigNameCache), we spot the tuple OccName to make sure
   we get the right wired-in name.  This guy can't tell the difference
   between BoxedTuple and ConstraintTuple (same OccName!), so tuples
   are not serialised into interface files using OccNames at all.
@@ -730,9 +751,9 @@ created in Template Haskell or in, e.g., `deriving` code. There is
 nothing special about one-tuples in Core; in particular, they have no
 custom pretty-printing, just using `Unit`.
 
-NB (Feb 16): for /constraint/ one-tuples I have 'Unit%' but no class
-decl in GHC.Classes, so I think this part may not work properly. But
-it's unused I think.
+Note that there is *not* a unary constraint tuple, unlike for other forms of
+tuples. See [Ignore unary constraint tuples] in TcHsType for more
+details.
 
 See also Note [Flattening one-tuples] in MkCore and
 Note [Don't flatten tuples from HsSyn] in MkCore.
@@ -812,6 +833,10 @@ mkTupleOcc ns Unboxed ar = mkOccName ns (mkUnboxedTupleStr ar)
 
 mkCTupleOcc :: NameSpace -> Arity -> OccName
 mkCTupleOcc ns ar = mkOccName ns (mkConstraintTupleStr ar)
+
+mkTupleStr :: Boxity -> Arity -> String
+mkTupleStr Boxed   = mkBoxedTupleStr
+mkTupleStr Unboxed = mkUnboxedTupleStr
 
 mkBoxedTupleStr :: Arity -> String
 mkBoxedTupleStr 0  = "()"
@@ -1251,7 +1276,7 @@ vecRepDataCon = pcSpecialDataCon vecRepDataConName [ mkTyConTy vecCountTyCon
                                  runtimeRepTyCon
                                  (RuntimeRep prim_rep_fun)
   where
-    -- See Note [Getting from RuntimeRep to PrimRep] in RepType
+    -- See Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType
     prim_rep_fun [count, elem]
       | VecCount n <- tyConRuntimeRepInfo (tyConAppTyCon count)
       , VecElem  e <- tyConRuntimeRepInfo (tyConAppTyCon elem)
@@ -1266,7 +1291,7 @@ tupleRepDataCon :: DataCon
 tupleRepDataCon = pcSpecialDataCon tupleRepDataConName [ mkListTy runtimeRepTy ]
                                    runtimeRepTyCon (RuntimeRep prim_rep_fun)
   where
-    -- See Note [Getting from RuntimeRep to PrimRep] in RepType
+    -- See Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType
     prim_rep_fun [rr_ty_list]
       = concatMap (runtimeRepPrimRep doc) rr_tys
       where
@@ -1282,7 +1307,7 @@ sumRepDataCon :: DataCon
 sumRepDataCon = pcSpecialDataCon sumRepDataConName [ mkListTy runtimeRepTy ]
                                  runtimeRepTyCon (RuntimeRep prim_rep_fun)
   where
-    -- See Note [Getting from RuntimeRep to PrimRep] in RepType
+    -- See Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType
     prim_rep_fun [rr_ty_list]
       = map slotPrimRep (ubxSumRepType prim_repss)
       where
@@ -1296,7 +1321,7 @@ sumRepDataConTyCon :: TyCon
 sumRepDataConTyCon = promoteDataCon sumRepDataCon
 
 -- See Note [Wiring in RuntimeRep]
--- See Note [Getting from RuntimeRep to PrimRep] in RepType
+-- See Note [Getting from RuntimeRep to PrimRep] in GHC.Types.RepType
 runtimeRepSimpleDataCons :: [DataCon]
 liftedRepDataCon :: DataCon
 runtimeRepSimpleDataCons@(liftedRepDataCon : _)

@@ -16,7 +16,7 @@ module DsListComp ( dsListComp, dsMonadComp ) where
 
 import GhcPrelude
 
-import {-# SOURCE #-} DsExpr ( dsExpr, dsLExpr, dsLExprNoLP, dsLocalBinds, dsSyntaxExpr )
+import {-# SOURCE #-} DsExpr ( dsHandleMonadicFailure, dsExpr, dsLExpr, dsLExprNoLP, dsLocalBinds, dsSyntaxExpr )
 
 import GHC.Hs
 import TcHsSyn
@@ -280,7 +280,7 @@ deBindComp pat core_list1 quals core_list2 = do
     let u3_ty@u1_ty = exprType core_list1       -- two names, same thing
 
         -- u1_ty is a [alpha] type, and u2_ty = alpha
-    let u2_ty = hsPatType pat
+    let u2_ty = hsLPatType pat
 
     let res_ty = exprType core_list2
         h_ty   = u1_ty `mkVisFunTyMany` res_ty
@@ -374,14 +374,14 @@ dfBindComp :: Id -> Id             -- 'c' and 'n'
            -> DsM CoreExpr
 dfBindComp c_id n_id (pat, core_list1) quals = do
     -- find the required type
-    let x_ty   = hsPatType pat
+    let x_ty   = hsLPatType pat
     let b_ty   = idType n_id
 
     -- create some new local id's
     b <- newSysLocalDs Many b_ty
     x <- newSysLocalDs Many x_ty
 
-    -- build rest of the comprehesion
+    -- build rest of the comprehension
     core_rest <- dfListComp c_id b quals
 
     -- build the pattern match
@@ -485,8 +485,8 @@ dsMonadComp :: [ExprLStmt GhcTc] -> DsM CoreExpr
 dsMonadComp stmts = dsMcStmts stmts
 
 dsMcStmts :: [ExprLStmt GhcTc] -> DsM CoreExpr
-dsMcStmts []                          = panic "dsMcStmts"
-dsMcStmts ((dL->L loc stmt) : lstmts) = putSrcSpanDs loc (dsMcStmt stmt lstmts)
+dsMcStmts []                      = panic "dsMcStmts"
+dsMcStmts ((L loc stmt) : lstmts) = putSrcSpanDs loc (dsMcStmt stmt lstmts)
 
 ---------------
 dsMcStmt :: ExprStmt GhcTc -> [ExprLStmt GhcTc] -> DsM CoreExpr
@@ -625,25 +625,8 @@ dsMcBindStmt pat rhs' bind_op fail_op res1_ty stmts
         ; var      <- selectSimpleMatchVarL Many pat
         ; match <- matchSinglePatVar var (StmtCtxt DoExpr) pat
                                   res1_ty (cantFailMatchResult body)
-        ; match_code <- handle_failure pat match fail_op
+        ; match_code <- dsHandleMonadicFailure pat match fail_op
         ; dsSyntaxExpr bind_op [rhs', Lam var match_code] }
-
-  where
-    -- In a monad comprehension expression, pattern-match failure just calls
-    -- the monadic `fail` rather than throwing an exception
-    handle_failure pat match fail_op
-      | matchCanFail match
-        = do { dflags <- getDynFlags
-             ; fail_msg <- mkStringExpr (mk_fail_msg dflags pat)
-             ; fail_expr <- dsSyntaxExpr fail_op [fail_msg]
-             ; extractMatchResult match fail_expr }
-      | otherwise
-        = extractMatchResult match (error "It can't fail")
-
-    mk_fail_msg :: HasSrcSpan e => DynFlags -> e -> String
-    mk_fail_msg dflags pat
-        = "Pattern match failure in monad comprehension at " ++
-          showPpr dflags (getLoc pat)
 
 -- Desugar nested monad comprehensions, for example in `then..` constructs
 --    dsInnerMonadComp quals [a,b,c] ret_op

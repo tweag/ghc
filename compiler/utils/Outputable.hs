@@ -28,7 +28,7 @@ module Outputable (
         semi, comma, colon, dcolon, space, equals, dot, vbar,
         arrow, lollipop, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt,
         lparen, rparen, lbrack, rbrack, lbrace, rbrace, underscore, mulArrow,
-        blankLine, forAllLit, kindType, bullet,
+        blankLine, forAllLit, bullet,
         (<>), (<+>), hcat, hsep,
         ($$), ($+$), vcat,
         sep, cat,
@@ -39,7 +39,7 @@ module Outputable (
 
         coloured, keyword,
 
-        -- * Converting 'SDoc' into strings and outputing it
+        -- * Converting 'SDoc' into strings and outputting it
         printSDoc, printSDocLn, printForUser, printForUserPartWay,
         printForC, bufLeftRenderSDoc,
         pprCode, mkCodeStyle,
@@ -82,7 +82,7 @@ module Outputable (
         -- * Error handling and debugging utilities
         pprPanic, pprSorry, assertPprPanic, pprPgmError,
         pprTrace, pprTraceDebug, pprTraceWith, pprTraceIt, warnPprTrace,
-        pprSTrace, pprTraceException, pprTraceM,
+        pprSTrace, pprTraceException, pprTraceM, pprTraceWithFlags,
         trace, pgmError, panic, sorry, assertPanic,
         pprDebugAndThen, callStackDoc,
     ) where
@@ -91,7 +91,7 @@ import GhcPrelude
 
 import {-# SOURCE #-}   DynFlags( DynFlags, hasPprDebug, hasNoDebugOutput,
                                   targetPlatform, pprUserLength, pprCols,
-                                  useUnicode, useUnicodeSyntax, useStarIsType,
+                                  useUnicode, useUnicodeSyntax,
                                   shouldUseColor, unsafeGlobalDynFlags,
                                   shouldUseHexWordLiterals )
 import {-# SOURCE #-}   Module( UnitId, Module, ModuleName, moduleName )
@@ -124,6 +124,8 @@ import Text.Printf
 import Numeric (showFFloat)
 import Data.Graph (SCC(..))
 import Data.List (intersperse)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NEL
 
 import GHC.Fingerprint
 import GHC.Show         ( showMultiLineString )
@@ -654,12 +656,6 @@ mulArrow d = text "#" <+> d <+> arrow
 forAllLit :: SDoc
 forAllLit = unicodeSyntax (char '∀') (text "forall")
 
-kindType :: SDoc
-kindType = sdocWithDynFlags $ \dflags ->
-    if useStarIsType dflags
-    then unicodeSyntax (char '★') (char '*')
-    else text "Type"
-
 bullet :: SDoc
 bullet = unicode (char '•') (char '*')
 
@@ -829,6 +825,9 @@ instance Outputable () where
 
 instance (Outputable a) => Outputable [a] where
     ppr xs = brackets (fsep (punctuate comma (map ppr xs)))
+
+instance (Outputable a) => Outputable (NonEmpty a) where
+    ppr = ppr . NEL.toList
 
 instance (Outputable a) => Outputable (Set a) where
     ppr s = braces (fsep (punctuate comma (map ppr (Set.toList s))))
@@ -1197,12 +1196,15 @@ pprTraceDebug str doc x
    | debugIsOn && hasPprDebug unsafeGlobalDynFlags = pprTrace str doc x
    | otherwise                                     = x
 
+-- | If debug output is on, show some 'SDoc' on the screen
 pprTrace :: String -> SDoc -> a -> a
--- ^ If debug output is on, show some 'SDoc' on the screen
-pprTrace str doc x
-   | hasNoDebugOutput unsafeGlobalDynFlags = x
-   | otherwise                             =
-      pprDebugAndThen unsafeGlobalDynFlags trace (text str) doc x
+pprTrace str doc x = pprTraceWithFlags unsafeGlobalDynFlags str doc x
+
+-- | If debug output is on, show some 'SDoc' on the screen
+pprTraceWithFlags :: DynFlags -> String -> SDoc -> a -> a
+pprTraceWithFlags dflags str doc x
+  | hasNoDebugOutput dflags = x
+  | otherwise               = pprDebugAndThen dflags trace (text str) doc x
 
 pprTraceM :: Applicative f => String -> SDoc -> f ()
 pprTraceM str doc = pprTrace str doc (pure ())
@@ -1244,7 +1246,7 @@ warnPprTrace True   file  line  msg x
   where
     heading = hsep [text "WARNING: file", text file <> comma, text "line", int line]
 
--- | Panic with an assertation failure, recording the given file and
+-- | Panic with an assertion failure, recording the given file and
 -- line number. Should typically be accessed with the ASSERT family of macros
 assertPprPanic :: HasCallStack => String -> Int -> SDoc -> a
 assertPprPanic _file _line msg

@@ -38,7 +38,7 @@ import Name
 import PrelNames        ( gHC_PRIMOPWRAPPERS )
 import TyCon            ( TyCon, isPrimTyCon, PrimRep(..) )
 import Type
-import RepType          ( typePrimRep1, tyConPrimRep1 )
+import GHC.Types.RepType          ( typePrimRep1, tyConPrimRep1 )
 import BasicTypes       ( Arity, Fixity(..), FixityDirection(..), Boxity(..),
                           SourceText(..) )
 import SrcLoc           ( wiredInSrcSpan )
@@ -581,7 +581,7 @@ function definition. This caused quite some trouble as we would be forced to
 eta expand unsaturated primop applications very late in the Core pipeline. Not
 only would this produce unnecessary thunks, but it would also result in nasty
 inconsistencies in CAFfy-ness determinations (see #16846 and
-Note [CAFfyness inconsistencies due to late eta expansion] in TidyPgm).
+Note [CAFfyness inconsistencies due to late eta expansion] in GHC.Iface.Tidy).
 
 However, it was quite unnecessary for hasNoBinding to claim this; primops in
 fact *do* have curried definitions which are found in GHC.PrimopWrappers, which

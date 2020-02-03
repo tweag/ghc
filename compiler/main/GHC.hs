@@ -196,7 +196,7 @@ module GHC (
 
         -- ** Data constructors
         DataCon,
-        dataConSig, dataConType, dataConTyCon, dataConFieldLabels,
+        dataConType, dataConTyCon, dataConFieldLabels,
         dataConIsInfix, isVanillaDataCon, dataConWrapperType,
         dataConSrcBangs,
         StrictnessMark(..), isMarkedStrict,
@@ -257,9 +257,6 @@ module GHC (
         getLoc, unLoc,
         getRealSrcSpan, unRealSrcSpan,
 
-        -- ** HasSrcSpan
-        HasSrcSpan(..), SrcSpanLess, dL, cL,
-
         -- *** Combining and comparing Located values
         eqLocated, cmpLocated, combineLocs, addCLoc,
         leftmost_smallest, leftmost_largest, rightmost,
@@ -309,7 +306,7 @@ import GhcMake
 import DriverPipeline   ( compileOne' )
 import GhcMonad
 import TcRnMonad        ( finalSafeMode, fixSafeInstances, initIfaceTcRn )
-import LoadIface        ( loadSysInterface )
+import GHC.Iface.Load   ( loadSysInterface )
 import TcRnTypes
 import Predicate
 import Packages
@@ -321,6 +318,7 @@ import TcType
 import Id
 import TysPrim          ( alphaTyVars )
 import TyCon
+import TyCoPpr          ( pprForAll )
 import Class
 import DataCon
 import Name             hiding ( varName )
@@ -329,7 +327,7 @@ import InstEnv
 import FamInstEnv ( FamInst )
 import SrcLoc
 import CoreSyn
-import TidyPgm
+import GHC.Iface.Tidy
 import DriverPhases     ( Phase(..), isHaskellSrcFilename )
 import Finder
 import HscTypes
@@ -640,7 +638,7 @@ setProgramDynFlags_ invalidate_needed dflags = do
 -- that the next downsweep will think that all the files have changed
 -- and preprocess them again.  This won't necessarily cause everything
 -- to be recompiled, because by the time we check whether we need to
--- recopmile a module, we'll have re-summarised the module and have a
+-- recompile a module, we'll have re-summarised the module and have a
 -- correct ModSummary.
 --
 invalidateModSummaryCache :: GhcMonad m => m ()
@@ -1337,7 +1335,7 @@ pprParenSymName a = parenSymOcc (getOccName a) (ppr (getName a))
 -- ToDo: check for small transformations that happen to the syntax in
 -- the typechecker (eg. -e ==> negate e, perhaps for fromIntegral)
 
--- ToDo: maybe use TH syntax instead of IfaceSyn?  There's already a way
+-- ToDo: maybe use TH syntax instead of Iface syntax?  There's already a way
 -- to get from TyCons, Ids etc. to TH syntax (reify).
 
 -- :browse will use either lm_toplev or inspect lm_interface, depending
@@ -1391,7 +1389,7 @@ getRichTokenStream mod = do
 addSourceToTokens :: RealSrcLoc -> StringBuffer -> [Located Token]
                   -> [(Located Token, String)]
 addSourceToTokens _ _ [] = []
-addSourceToTokens loc buf (t@(dL->L span _) : ts)
+addSourceToTokens loc buf (t@(L span _) : ts)
     = case span of
       UnhelpfulSpan _ -> (t,"") : addSourceToTokens loc buf ts
       RealSrcSpan s   -> (t,str) : addSourceToTokens newLoc newBuf ts
@@ -1417,7 +1415,7 @@ showRichTokenStream ts = go startLoc ts ""
           getFile (RealSrcSpan s : _) = srcSpanFile s
           startLoc = mkRealSrcLoc sourceFile 1 1
           go _ [] = id
-          go loc ((dL->L span _, str):ts)
+          go loc ((L span _, str):ts)
               = case span of
                 UnhelpfulSpan _ -> go loc ts
                 RealSrcSpan s

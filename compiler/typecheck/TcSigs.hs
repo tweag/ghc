@@ -124,7 +124,7 @@ for two reasons:
   may actually give rise to
     f :: forall k. forall (f::k -> *) (a:k). f a -> f a
   So the sig_tvs will be [k,f,a], but only f,a are scoped.
-  NB: the scoped ones are not necessarily the *inital* ones!
+  NB: the scoped ones are not necessarily the *initial* ones!
 
 * Even aside from kind polymorphism, there may be more instantiated
   type variables than lexically-scoped ones.  For example:
@@ -772,7 +772,7 @@ tcSpecPrag poly_id prag@(SpecSig _ fun_name hs_tys inl)
   where
     name      = idName poly_id
     poly_ty   = idType poly_id
-    spec_ctxt prag = hang (text "In the SPECIALISE pragma") 2 (ppr prag)
+    spec_ctxt prag = hang (text "In the pragma:") 2 (ppr prag)
 
     tc_one hs_ty
       = do { spec_ty <- tcHsSigType   (FunSigCtxt name False) hs_ty

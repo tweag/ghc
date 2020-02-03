@@ -463,6 +463,7 @@ libraries/haskeline_CONFIGURE_OPTS += --flags=-terminfo
 endif
 
 PACKAGES_STAGE1 += stm
+PACKAGES_STAGE1 += exceptions
 PACKAGES_STAGE1 += haskeline
 PACKAGES_STAGE1 += ghci
 PACKAGES_STAGE1 += libiserv
@@ -1041,7 +1042,7 @@ $(eval $(call bindist-list,.,\
     $(wildcard compiler/stage2/doc) \
     $(wildcard libraries/*/dist-install/doc/) \
     $(wildcard libraries/*/*/dist-install/doc/) \
-    $(filter-out llvm-targets llvm-passes,$(INSTALL_LIBS)) \
+    $(filter-out llvm-targets llvm-passes $(includes_SETTINGS),$(INSTALL_LIBS)) \
     $(RTS_INSTALL_LIBS) \
     $(filter-out %/project.mk mk/config.mk %/mk/install.mk,$(MAKEFILE_LIST)) \
     mk/project.mk \

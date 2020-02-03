@@ -38,7 +38,6 @@ import Unique
 import DynFlags ( DynFlags, GeneralFlag(..), gopt )
 import Outputable
 import FastString
-import Pair
 import Util     ( debugIsOn )
 
 {-
@@ -99,7 +98,7 @@ exprArity e = go e
     go (Lam x e) | isId x          = go e + 1
                  | otherwise       = go e
     go (Tick t e) | not (tickishIsCode t) = go e
-    go (Cast e co)                 = trim_arity (go e) (pSnd (coercionKind co))
+    go (Cast e co)                 = trim_arity (go e) (coercionRKind co)
                                         -- Note [exprArity invariant]
     go (App e (Type _))            = go e
     go (App f a) | exprIsTrivial a = (go f - 1) `max` 0
@@ -176,13 +175,13 @@ exprArity has the following invariants:
       can get "n" manifest lambdas to the top.
 
 Why is this important?  Because
-  - In TidyPgm we use exprArity to fix the *final arity* of
+  - In GHC.Iface.Tidy we use exprArity to fix the *final arity* of
     each top-level Id, and in
   - In CorePrep we use etaExpand on each rhs, so that the visible lambdas
     actually match that arity, which in turn means
     that the StgRhs has the right number of lambdas
 
-An alternative would be to do the eta-expansion in TidyPgm, at least
+An alternative would be to do the eta-expansion in GHC.Iface.Tidy, at least
 for top-level bindings, in which case we would not need the trim_arity
 in exprArity.  That is a less local change, so I'm going to leave it for today!
 
@@ -745,7 +744,7 @@ arityType env (Cast e co)
       ABot n | co_arity < n -> ATop (replicate co_arity noOneShotInfo)
              | otherwise    -> ABot n
   where
-    co_arity = length (typeArity (pSnd (coercionKind co)))
+    co_arity = length (typeArity (coercionRKind co))
     -- See Note [exprArity invariant] (2); must be true of
     -- arityType too, since that is how we compute the arity
     -- of variables, and they in turn affect result of exprArity
@@ -882,7 +881,7 @@ inside the RHS of the join as well as into the body.  AND if j
 has an unfolding we have to push it into there too.  AND j might
 be recursive...
 
-So for now I'm abandonig the no-crap rule in this case. I think
+So for now I'm abandoning the no-crap rule in this case. I think
 that for the use in CorePrep it really doesn't matter; and if
 it does, then CoreToStg.myCollectArgs will fall over.
 
@@ -1039,7 +1038,7 @@ etaInfoAppTy :: Type -> [EtaInfo] -> Type
 -- then   etaInfoApp e eis :: etaInfoApp ty eis
 etaInfoAppTy ty []               = ty
 etaInfoAppTy ty (EtaVar v : eis) = etaInfoAppTy (applyTypeToArg ty (varToCoreExpr v)) eis
-etaInfoAppTy _  (EtaCo co : eis) = etaInfoAppTy (pSnd (coercionKind co)) eis
+etaInfoAppTy _  (EtaCo co : eis) = etaInfoAppTy (coercionRKind co) eis
 
 --------------
 mkEtaWW :: Arity -> CoreExpr -> InScopeSet -> Type
@@ -1192,4 +1191,6 @@ freshEtaId n subst ty
         Scaled mult' ty' = Type.substScaledTyUnchecked subst ty
         eta_id' = uniqAway (getTCvInScope subst) $
                   mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) mult' ty'
+                  -- "OrCoVar" since this can be used to eta-expand
+                  -- coercion abstractions
         subst'  = extendTCvInScope subst eta_id'

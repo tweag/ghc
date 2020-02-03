@@ -33,7 +33,7 @@ import HscTypes
 
 import DataCon
 import Type
-import RepType
+import GHC.Types.RepType
 import Multiplicity
 import qualified Unify as U
 import Var
@@ -48,7 +48,7 @@ import TyCon
 import Name
 import OccName
 import Module
-import IfaceEnv
+import GHC.Iface.Env
 import Util
 import VarSet
 import BasicTypes       ( Boxity(..) )

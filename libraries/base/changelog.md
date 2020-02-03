@@ -1,7 +1,10 @@
 # Changelog for [`base` package](http://hackage.haskell.org/package/base)
 
+## 4.15.0.0 *TBA*
+  * TODO
+
 ## 4.14.0.0 *TBA*
-  * Bundled with GHC *TBA*
+  * Bundled with GHC 8.10.1
 
   * Add a `TestEquality` instance for the `Compose` newtype.
 
@@ -41,8 +44,12 @@
 
   * Add `resizeSmallMutableArray#` to `GHC.Exts`.
 
-## 4.13.0.0 *TBA*
-  * Bundled with GHC *TBA*
+  * Add a `Data` instance to `WrappedArrow`, `WrappedMonad`, and `ZipList`.
+
+  * Add `IsList` instance for `ZipList`.
+
+## 4.13.0.0 *July 2019*
+  * Bundled with GHC 8.8.1
 
   * The final phase of the `MonadFail` proposal has been implemented:
 
@@ -288,7 +295,7 @@
     in constant space when applied to lists. (#10830)
 
   * `mkFunTy`, `mkAppTy`, and `mkTyConApp` from `Data.Typeable` no longer exist.
-    This functionality is superceded by the interfaces provided by
+    This functionality is superseded by the interfaces provided by
     `Type.Reflection`.
 
   * `mkTyCon3` is no longer exported by `Data.Typeable`. This function is

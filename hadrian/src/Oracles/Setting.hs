@@ -1,9 +1,19 @@
 module Oracles.Setting (
-    configFile, Setting (..), SettingList (..), setting, settingList, getSetting,
-    getSettingList,  anyTargetPlatform, anyTargetOs, anyTargetArch, anyHostOs,
-    ghcWithInterpreter, useLibFFIForAdjustors,
+    configFile,
+    -- * Settings
+    Setting (..), SettingList (..), setting, settingList, getSetting,
+    getSettingList,
+    SettingsFileSetting (..), settingsFileSetting,
+
+    -- * Helpers
     ghcCanonVersion, cmdLineLengthLimit, hostSupportsRPaths, topDirectory,
-    libsuf, ghcVersionStage, SettingsFileSetting (..), settingsFileSetting
+    libsuf, ghcVersionStage,
+
+    -- ** Target platform things
+    anyTargetPlatform, anyTargetOs, anyTargetArch, anyHostOs,
+    ArmVersion(..),
+    targetArmVersion,
+    ghcWithInterpreter, useLibFFIForAdjustors
     ) where
 
 import Hadrian.Expression
@@ -44,6 +54,8 @@ data Setting = BuildArch
              | HostOsHaskell
              | IconvIncludeDir
              | IconvLibDir
+             | LibdwIncludeDir
+             | LibdwLibDir
              | LlvmTarget
              | ProjectGitCommitId
              | ProjectName
@@ -60,6 +72,7 @@ data Setting = BuildArch
              | TargetVendor
              | TargetArchHaskell
              | TargetOsHaskell
+             | TargetArmVersion
 
 -- TODO: Reduce the variety of similar flags (e.g. CPP and non-CPP versions).
 -- | Each 'SettingList' comes from the file @hadrian/cfg/system.config@,
@@ -130,6 +143,8 @@ setting key = lookupValueOrError configFile $ case key of
     HostOsHaskell      -> "host-os-haskell"
     IconvIncludeDir    -> "iconv-include-dir"
     IconvLibDir        -> "iconv-lib-dir"
+    LibdwIncludeDir    -> "libdw-include-dir"
+    LibdwLibDir        -> "libdw-lib-dir"
     LlvmTarget         -> "llvm-target"
     ProjectGitCommitId -> "project-git-commit-id"
     ProjectName        -> "project-name"
@@ -140,6 +155,7 @@ setting key = lookupValueOrError configFile $ case key of
     ProjectPatchLevel2 -> "project-patch-level2"
     SystemGhc          -> "system-ghc"
     TargetArch         -> "target-arch"
+    TargetArmVersion   -> "target-arm-version"
     TargetOs           -> "target-os"
     TargetPlatform     -> "target-platform"
     TargetPlatformFull -> "target-platform-full"
@@ -226,12 +242,25 @@ ghcWithInterpreter = do
                           , "freebsd", "dragonfly", "netbsd", "openbsd"
                           , "darwin", "kfreebsdgnu" ]
     goodArch <- anyTargetArch [ "i386", "x86_64", "powerpc", "sparc"
-                              , "sparc64", "arm" ]
+                              , "sparc64", "arm", "aarch64", "s390x" ]
     return $ goodOs && goodArch
 
 -- | Check to use @libffi@ for adjustors.
 useLibFFIForAdjustors :: Action Bool
 useLibFFIForAdjustors = notM $ anyTargetArch ["i386", "x86_64"]
+
+-- | Variants of the ARM architecture.
+data ArmVersion = ARMv5 | ARMv6 | ARMv7
+                deriving (Eq, Ord, Show, Read)
+
+-- | Which variant of the ARM architecture is the target (or 'Nothing' if not
+-- ARM)?
+targetArmVersion :: Action (Maybe ArmVersion)
+targetArmVersion = do
+  isArm <- anyTargetArch [ "arm" ]
+  if isArm
+    then Just . read <$> setting TargetArmVersion
+    else return Nothing
 
 -- | Canonicalised GHC version number, used for integer version comparisons. We
 -- expand 'GhcMinorVersion' to two digits by adding a leading zero if necessary.

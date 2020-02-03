@@ -44,7 +44,7 @@ import GhcMonad
 import HeaderInfo
 import HscTypes
 import Module
-import TcIface          ( typecheckIface )
+import GHC.IfaceToCore  ( typecheckIface )
 import TcRnMonad        ( initIfaceCheck )
 import HscMain
 
@@ -730,7 +730,7 @@ findPartiallyCompletedCycles modsDone theGraph
 --
 -- | Unloading
 unload :: HscEnv -> [Linkable] -> IO ()
-unload hsc_env stable_linkables -- Unload everthing *except* 'stable_linkables'
+unload hsc_env stable_linkables -- Unload everything *except* 'stable_linkables'
   = case ghcLink (hsc_dflags hsc_env) of
         LinkInMemory -> Linker.unload hsc_env stable_linkables
         _other -> return ()
@@ -1781,7 +1781,7 @@ file, we re-generate the ModDetails for each of the modules that
 depends on the .hs-boot file, so that everyone points to the proper
 TyCons, Ids etc. defined by the real module, not the boot module.
 Fortunately re-generating a ModDetails from a ModIface is easy: the
-function TcIface.typecheckIface does exactly that.
+function GHC.IfaceToCore.typecheckIface does exactly that.
 
 Picking the modules to re-typecheck is slightly tricky.  Starting from
 the module graph consisting of the modules that have already been

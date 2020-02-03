@@ -72,7 +72,7 @@ import Data.Data hiding (TyCon,Fixity)
 type InPat p  = LPat p        -- No 'Out' constructors
 type OutPat p = LPat p        -- No 'In' constructors
 
-type LPat p = Pat p
+type LPat p = XRec p Pat
 
 -- | Pattern
 --
@@ -326,34 +326,8 @@ type instance XSigPat GhcRn = NoExtField
 type instance XSigPat GhcTc = Type
 
 type instance XCoPat  (GhcPass _) = NoExtField
-type instance XXPat   (GhcPass p) = Located (Pat (GhcPass p))
 
-
-{-
-************************************************************************
-*                                                                      *
-*              HasSrcSpan Instance
-*                                                                      *
-************************************************************************
--}
-
-type instance SrcSpanLess (LPat (GhcPass p)) = Pat (GhcPass p)
-instance HasSrcSpan (LPat (GhcPass p)) where
-  -- NB: The following chooses the behaviour of the outer location
-  --     wrapper replacing the inner ones.
-  composeSrcSpan (L sp p) =  if sp == noSrcSpan
-                             then p
-                             else XPat (L sp (stripSrcSpanPat p))
-
-  -- NB: The following only returns the top-level location, if any.
-  decomposeSrcSpan (XPat (L sp p)) = L sp (stripSrcSpanPat p)
-  decomposeSrcSpan p               = L noSrcSpan p
-
-stripSrcSpanPat :: LPat (GhcPass p) -> Pat (GhcPass p)
-stripSrcSpanPat (XPat (L _  p)) = stripSrcSpanPat p
-stripSrcSpanPat p               = p
-
-
+type instance XXPat   (GhcPass _) = NoExtCon
 
 -- ---------------------------------------------------------------------
 
@@ -504,7 +478,7 @@ hsRecUpdFieldOcc = fmap unambiguousFieldOcc . hsRecFieldLbl
 ************************************************************************
 -}
 
-instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (Pat p) where
+instance OutputableBndrId p => Outputable (Pat (GhcPass p)) where
     ppr = pprPat
 
 pprPatBndr :: OutputableBndr name => name -> SDoc
@@ -516,11 +490,11 @@ pprPatBndr var                  -- Print with type info if -dppr-debug is on
     else
         pprPrefixOcc var
 
-pprParendLPat :: (OutputableBndrId (GhcPass p))
+pprParendLPat :: (OutputableBndrId p)
               => PprPrec -> LPat (GhcPass p) -> SDoc
 pprParendLPat p = pprParendPat p . unLoc
 
-pprParendPat :: (OutputableBndrId (GhcPass p))
+pprParendPat :: (OutputableBndrId p)
              => PprPrec -> Pat (GhcPass p) -> SDoc
 pprParendPat p pat = sdocWithDynFlags $ \ dflags ->
                      if need_parens dflags pat
@@ -535,7 +509,7 @@ pprParendPat p pat = sdocWithDynFlags $ \ dflags ->
       -- But otherwise the CoPat is discarded, so it
       -- is the pattern inside that matters.  Sigh.
 
-pprPat :: (OutputableBndrId (GhcPass p)) => Pat (GhcPass p) -> SDoc
+pprPat :: (OutputableBndrId p) => Pat (GhcPass p) -> SDoc
 pprPat (VarPat _ lvar)          = pprPatBndr (unLoc lvar)
 pprPat (WildPat _)              = char '_'
 pprPat (LazyPat _ pat)          = char '~' <> pprParendLPat appPrec pat
@@ -555,8 +529,14 @@ pprPat (CoPat _ co pat _)       = pprHsWrapper co $ \parens
                                                  else pprPat pat
 pprPat (SigPat _ pat ty)        = ppr pat <+> dcolon <+> ppr ty
 pprPat (ListPat _ pats)         = brackets (interpp'SP pats)
-pprPat (TuplePat _ pats bx)     = tupleParens (boxityTupleSort bx)
-                                              (pprWithCommas ppr pats)
+pprPat (TuplePat _ pats bx)
+    -- Special-case unary boxed tuples so that they are pretty-printed as
+    -- `Unit x`, not `(x)`
+  | [pat] <- pats
+  , Boxed <- bx
+  = hcat [text (mkTupleStr Boxed 1), pprParendLPat appPrec pat]
+  | otherwise
+  = tupleParens (boxityTupleSort bx) (pprWithCommas ppr pats)
 pprPat (SumPat _ pat alt arity) = sumParens (pprAlternative ppr pat alt arity)
 pprPat (ConPatIn con details)   = pprUserCon (unLoc con) details
 pprPat (ConPatOut { pat_con = con
@@ -574,15 +554,15 @@ pprPat (ConPatOut { pat_con = con
                          , ppr binds])
           <+> pprConArgs details
     else pprUserCon (unLoc con) details
-pprPat (XPat x)               = ppr x
+pprPat (XPat n)                 = noExtCon n
 
 
-pprUserCon :: (OutputableBndr con, OutputableBndrId (GhcPass p))
+pprUserCon :: (OutputableBndr con, OutputableBndrId p)
            => con -> HsConPatDetails (GhcPass p) -> SDoc
 pprUserCon c (InfixCon p1 p2) = ppr p1 <+> pprInfixOcc c <+> ppr p2
 pprUserCon c details          = pprPrefixOcc c <+> pprConArgs details
 
-pprConArgs :: (OutputableBndrId (GhcPass p))
+pprConArgs :: (OutputableBndrId p)
            => HsConPatDetails (GhcPass p) -> SDoc
 pprConArgs (PrefixCon pats) = fsep (map (pprParendLPat appPrec) pats)
 pprConArgs (InfixCon p1 p2) = sep [ pprParendLPat appPrec p1
@@ -696,7 +676,7 @@ looksLazyPat (VarPat {})   = False
 looksLazyPat (WildPat {})  = False
 looksLazyPat _             = True
 
-isIrrefutableHsPat :: (OutputableBndrId (GhcPass p)) => LPat (GhcPass p) -> Bool
+isIrrefutableHsPat :: (OutputableBndrId p) => LPat (GhcPass p) -> Bool
 -- (isIrrefutableHsPat p) is true if matching against p cannot fail,
 -- in the sense of falling through to the next pattern.
 --      (NB: this is not quite the same as the (silly) defn
@@ -706,7 +686,7 @@ isIrrefutableHsPat :: (OutputableBndrId (GhcPass p)) => LPat (GhcPass p) -> Bool
 -- Specifically on a ConPatIn, which is what it sees for a
 -- (LPat Name) in the renamer, it doesn't know the size of the
 -- constructor family, so it returns False.  Result: only
--- tuple patterns are considered irrefuable at the renamer stage.
+-- tuple patterns are considered irrefutable at the renamer stage.
 --
 -- But if it returns True, the pattern is definitely irrefutable
 isIrrefutableHsPat
@@ -730,7 +710,7 @@ isIrrefutableHsPat
 
     go (ConPatIn {})       = False     -- Conservative
     go (ConPatOut
-        { pat_con  = (dL->L _ (RealDataCon con))
+        { pat_con  = L _ (RealDataCon con)
         , pat_args = details })
                            =
       isJust (tyConSingleDataCon_maybe (dataConTyCon con))
@@ -738,9 +718,8 @@ isIrrefutableHsPat
       -- the latter is false of existentials. See #4439
       && all goL (hsConPatArgs details)
     go (ConPatOut
-        { pat_con = (dL->L _ (PatSynCon _pat)) })
+        { pat_con = L _ (PatSynCon _pat) })
                            = False -- Conservative
-    go (ConPatOut{})       = panic "ConPatOut:Impossible Match" -- due to #15884
     go (LitPat {})         = False
     go (NPat {})           = False
     go (NPlusKPat {})      = False
@@ -810,8 +789,8 @@ conPatNeedsParens p = go
 -- | @'parenthesizePat' p pat@ checks if @'patNeedsParens' p pat@ is true, and
 -- if so, surrounds @pat@ with a 'ParPat'. Otherwise, it simply returns @pat@.
 parenthesizePat :: PprPrec -> LPat (GhcPass p) -> LPat (GhcPass p)
-parenthesizePat p lpat@(dL->L loc pat)
-  | patNeedsParens p pat = cL loc (ParPat noExtField lpat)
+parenthesizePat p lpat@(L loc pat)
+  | patNeedsParens p pat = L loc (ParPat noExtField lpat)
   | otherwise            = lpat
 
 {-

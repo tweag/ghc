@@ -32,7 +32,7 @@ import VarSet           ( VarSet )
 import Type
 import Multiplicity
 import Predicate        ( isClassPred )
-import RepType          ( isVoidTy, typePrimRep )
+import GHC.Types.RepType          ( isVoidTy, typePrimRep )
 import Coercion
 import FamInstEnv
 import BasicTypes       ( Boxity(..) )
@@ -210,7 +210,7 @@ Note [Always do CPR w/w]
 ~~~~~~~~~~~~~~~~~~~~~~~~
 At one time we refrained from doing CPR w/w for thunks, on the grounds that
 we might duplicate work.  But that is already handled by the demand analyser,
-which doesn't give the CPR proprety if w/w might waste work: see
+which doesn't give the CPR property if w/w might waste work: see
 Note [CPR for thunks] in DmdAnal.
 
 And if something *has* been given the CPR property and we don't w/w, it's

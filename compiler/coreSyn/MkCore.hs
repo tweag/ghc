@@ -194,6 +194,8 @@ mkWildEvBinder pred = mkWildValBinder Many pred
 -- See Note [WildCard binders] in SimplEnv
 mkWildValBinder :: Mult -> Type -> Id
 mkWildValBinder w ty = mkLocalIdOrCoVar wildCardName w ty
+  -- "OrCoVar" since a coercion can be a scrutinee with -fdefer-type-errors
+  -- (e.g. see test T15695). Ticket #17291 covers fixing this problem.
 
 mkWildCase :: CoreExpr -> Scaled Type -> Type -> [CoreAlt] -> CoreExpr
 -- Make a case expression whose case binder is unused
@@ -885,7 +887,7 @@ After doing case-of-known-constructor, and expanding $WMkT we get
 Yikes!  That bogusly appears to evaluate the absentError!
 
 This is extremely tiresome.  Another way to think of this is that, in
-Core, it is an invariant that a strict data contructor, like MkT, must
+Core, it is an invariant that a strict data constructor, like MkT, must
 be applied only to an argument in HNF. So (absentError "blah") had
 better be non-bottom.
 

@@ -13,7 +13,7 @@ module TcClassDcl ( tcClassSigs, tcClassDecl2,
                     findMethodBind, instantiateMethod,
                     tcClassMinimalDef,
                     HsSigFun, mkHsSigFun,
-                    tcMkDeclCtxt, tcAddDeclCtxt, badMethodErr,
+                    badMethodErr,
                     instDeclCtxt1, instDeclCtxt2, instDeclCtxt3,
                     tcATDefault
                   ) where
@@ -79,7 +79,7 @@ would implicitly declare
                              (forall b. Ord b => a -> b -> b)
 
 (We could use a record decl, but that means changing more of the existing apparatus.
-One step at at time!)
+One step at a time!)
 
 For classes with just one superclass+method, we use a newtype decl instead:
 
@@ -423,14 +423,6 @@ This makes the error messages right.
 *                                                                      *
 ************************************************************************
 -}
-
-tcMkDeclCtxt :: TyClDecl GhcRn -> SDoc
-tcMkDeclCtxt decl = hsep [text "In the", pprTyClDeclFlavour decl,
-                      text "declaration for", quotes (ppr (tcdName decl))]
-
-tcAddDeclCtxt :: TyClDecl GhcRn -> TcM a -> TcM a
-tcAddDeclCtxt decl thing_inside
-  = addErrCtxt (tcMkDeclCtxt decl) thing_inside
 
 badMethodErr :: Outputable a => a -> Name -> SDoc
 badMethodErr clas op

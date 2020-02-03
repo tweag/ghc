@@ -363,6 +363,10 @@ UseSystemLibFFI=@UseSystemLibFFI@
 FFILibDir=@FFILibDir@
 FFIIncludeDir=@FFIIncludeDir@
 
+UseLibdw=@UseLibdw@
+LibdwLibDir=@LibdwLibDir@
+LibdwIncludeDir=@LibdwIncludeDir@
+
 # GHC needs arch-specific tweak at least in
 #     rts/Libdw.c:set_initial_registers()
 GhcRtsWithLibdw=$(strip $(if $(filter $(TargetArch_CPP),i386 x86_64 s390x),@UseLibdw@,NO))
@@ -440,7 +444,8 @@ EXECUTABLE_FILE = chmod +x
 
 # $(GHC) points to installed version of the compiler.
 #
-# NOTE: Don't override $(GHC) in build.mk, use configure --with-ghc instead
+# NOTE: Don't override $(GHC) in build.mk, use
+# `./configure GHC=...` instead
 # (because the version numbers have to be calculated).
 
 GHC := @WithGhc@
@@ -520,8 +525,6 @@ SettingsOptCommand = @SettingsOptCommand@
 # NB. Don't override $(CC) using build.mk,  re-configure using
 # the flag CC=<blah> instead.  The reason is that the configure script
 # needs to know which gcc you're using in order to perform its tests.
-
-GccVersion            = @GccVersion@
 
 # TargetPlatformFull retains the string passed to configure so we have it in
 # the necessary format to pass to libffi's configure.

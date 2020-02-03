@@ -74,7 +74,7 @@ module HscMain
     , hscCompileCoreExpr'
       -- We want to make sure that we export enough to be able to redefine
       -- hscFileFrontEnd in client code
-    , hscParse', hscSimplify', hscDesugar', tcRnModule'
+    , hscParse', hscSimplify', hscDesugar', tcRnModule', doCodeGen
     , getHscEnv
     , hscSimpleIface'
     , oneShotMsg
@@ -113,26 +113,26 @@ import Parser
 import Lexer
 import SrcLoc
 import TcRnDriver
-import TcIface          ( typecheckIface )
+import GHC.IfaceToCore  ( typecheckIface )
 import TcRnMonad
 import TcHsSyn          ( ZonkFlexi (DefaultFlexi) )
 import NameCache        ( initNameCache )
-import LoadIface        ( ifaceStats, initExternalPackageState )
+import GHC.Iface.Load   ( ifaceStats, initExternalPackageState )
 import PrelInfo
-import MkIface
+import GHC.Iface.Utils
 import Desugar
 import SimplCore
-import TidyPgm
-import CorePrep
-import CoreToStg        ( coreToStg )
+import GHC.Iface.Tidy
+import GHC.CoreToStg.Prep
+import GHC.CoreToStg    ( coreToStg )
+import GHC.Stg.Syntax
+import GHC.Stg.FVs      ( annTopBindingsFreeVars )
+import GHC.Stg.Pipeline ( stg2stg )
 import qualified GHC.StgToCmm as StgToCmm ( codeGen )
-import StgSyn
-import StgFVs           ( annTopBindingsFreeVars )
 import CostCentre
 import ProfInit
 import TyCon
 import Name
-import SimplStg         ( stg2stg )
 import Cmm
 import CmmParse         ( parseCmmFile )
 import CmmBuildInfoTables
@@ -175,10 +175,10 @@ import qualified Data.Set as S
 import Data.Set (Set)
 import Control.DeepSeq (force)
 
-import HieAst           ( mkHieFile )
-import HieTypes         ( getAsts, hie_asts, hie_module )
-import HieBin           ( readHieFile, writeHieFile , hie_file_result)
-import HieDebug         ( diffFile, validateScopes )
+import GHC.Iface.Ext.Ast    ( mkHieFile )
+import GHC.Iface.Ext.Types  ( getAsts, hie_asts, hie_module )
+import GHC.Iface.Ext.Binary ( readHieFile, writeHieFile , hie_file_result)
+import GHC.Iface.Ext.Debug  ( diffFile, validateScopes )
 
 #include "HsVersions.h"
 
@@ -356,12 +356,12 @@ hscParse' mod_summary
         POk pst rdr_module -> do
             let (warns, errs) = getMessages pst dflags
             logWarnings warns
-            liftIO $ dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" $
-                                   ppr rdr_module
-            liftIO $ dumpIfSet_dyn dflags Opt_D_dump_parsed_ast "Parser AST" $
-                                   showAstData NoBlankSrcSpan rdr_module
-            liftIO $ dumpIfSet_dyn dflags Opt_D_source_stats "Source Statistics" $
-                                   ppSourceStats False rdr_module
+            liftIO $ dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser"
+                        FormatHaskell (ppr rdr_module)
+            liftIO $ dumpIfSet_dyn dflags Opt_D_dump_parsed_ast "Parser AST"
+                        FormatHaskell (showAstData NoBlankSrcSpan rdr_module)
+            liftIO $ dumpIfSet_dyn dflags Opt_D_source_stats "Source Statistics"
+                        FormatText (ppSourceStats False rdr_module)
             when (not $ isEmptyBag errs) $ throwErrors errs
 
             -- To get the list of extra source files, we take the list
@@ -412,8 +412,8 @@ extract_renamed_stuff mod_summary tc_result = do
     let rn_info = getRenamedStuff tc_result
 
     dflags <- getDynFlags
-    liftIO $ dumpIfSet_dyn dflags Opt_D_dump_rn_ast "Renamer" $
-                           showAstData NoBlankSrcSpan rn_info
+    liftIO $ dumpIfSet_dyn dflags Opt_D_dump_rn_ast "Renamer"
+                FormatHaskell (showAstData NoBlankSrcSpan rn_info)
 
     -- Create HIE files
     when (gopt Opt_WriteHie dflags) $ do
@@ -727,7 +727,7 @@ hscIncrementalCompile :: Bool
                       -> SourceModified
                       -> Maybe ModIface
                       -> (Int,Int)
-                      -> IO (HscStatus, ModDetails, Maybe ModIface)
+                      -> IO (HscStatus, DynFlags)
 hscIncrementalCompile always_do_basic_recompilation_check m_tc_result
     mHscMessage hsc_env' mod_summary source_modified mb_old_iface mod_index
   = do
@@ -768,13 +768,14 @@ hscIncrementalCompile always_do_basic_recompilation_check m_tc_result
                 -- in make mode, since this HMI will go into the HPT.
                 details <- genModDetails hsc_env' iface
                 return details
-            return (HscUpToDate, details, Just iface)
+            return (HscUpToDate iface details, dflags)
         -- We finished type checking.  (mb_old_hash is the hash of
         -- the interface that existed on disk; it's possible we had
         -- to retypecheck but the resulting interface is exactly
         -- the same.)
-        Right (FrontendTypecheck tc_result, mb_old_hash) ->
-            finish mod_summary tc_result mb_old_hash
+        Right (FrontendTypecheck tc_result, mb_old_hash) -> do
+            status <- finish mod_summary tc_result mb_old_hash
+            return (status, dflags)
 
 -- Runs the post-typechecking frontend (desugar and simplify). We want to
 -- generate most of the interface as late as possible. This gets us up-to-date
@@ -791,7 +792,7 @@ hscIncrementalCompile always_do_basic_recompilation_check m_tc_result
 finish :: ModSummary
        -> TcGblEnv
        -> Maybe Fingerprint
-       -> Hsc (HscStatus, ModDetails, Maybe ModIface)
+       -> Hsc HscStatus
 finish summary tc_result mb_old_hash = do
   hsc_env <- getHscEnv
   let dflags = hsc_dflags hsc_env
@@ -799,26 +800,25 @@ finish summary tc_result mb_old_hash = do
       hsc_src = ms_hsc_src summary
       should_desugar =
         ms_mod summary /= gHC_PRIM && hsc_src == HsSrcFile
-      mk_simple_iface :: Hsc (HscStatus, ModDetails, Maybe ModIface)
+      mk_simple_iface :: Hsc HscStatus
       mk_simple_iface = do
-        let hsc_status =
-              case (target, hsc_src) of
-                (HscNothing, _) -> HscNotGeneratingCode
-                (_, HsBootFile) -> HscUpdateBoot
-                (_, HsigFile) -> HscUpdateSig
-                _ -> panic "finish"
-        (iface, no_change, details) <- liftIO $
+        (iface, mb_old_iface_hash, details) <- liftIO $
           hscSimpleIface hsc_env tc_result mb_old_hash
 
-        liftIO $ hscMaybeWriteIface dflags iface no_change (ms_location summary)
-        return (hsc_status, details, Just iface)
+        liftIO $ hscMaybeWriteIface dflags iface mb_old_iface_hash (ms_location summary)
 
-  -- we usually desugar even when we are not generating code, otherwise
-  -- we would miss errors thrown by the desugaring (see #10600). The only
-  -- exceptions are when the Module is Ghc.Prim or when
-  -- it is not a HsSrcFile Module.
+        return $ case (target, hsc_src) of
+          (HscNothing, _) -> HscNotGeneratingCode iface details
+          (_, HsBootFile) -> HscUpdateBoot iface details
+          (_, HsigFile) -> HscUpdateSig iface details
+          _ -> panic "finish"
+
   if should_desugar
     then do
+      -- We usually desugar even when we are not generating code, otherwise we
+      -- would miss errors thrown by the desugaring (see #10600). The only
+      -- exceptions are when the Module is Ghc.Prim or when it is not a
+      -- HsSrcFile Module.
       desugared_guts0 <- hscDesugar' (ms_location summary) tc_result
       if target == HscNothing
         -- We are not generating code, so we can skip simplification
@@ -837,20 +837,12 @@ finish summary tc_result mb_old_hash = do
                 -- See Note [Avoiding space leaks in toIface*] for details.
                 force (mkPartialIface hsc_env details desugared_guts)
 
-          let iface_gen :: IO (ModIface, Bool)
-              iface_gen = do
-                  -- Build a fully instantiated ModIface.
-                  -- This has to happen *after* code gen so that the back-end
-                  -- info has been set.
-                  -- This captures hsc_env, but it seems we keep it alive in other
-                  -- ways as well so we don't bother extracting only the relevant parts.
-                  dumpIfaceStats hsc_env
-                  final_iface <- mkFullIface hsc_env partial_iface
-                  let no_change = mb_old_hash == Just (mi_iface_hash (mi_final_exts final_iface))
-                  return (final_iface, no_change)
-
-          return ( HscRecomp cg_guts summary iface_gen
-                 , details, Nothing )
+          return HscRecomp { hscs_guts = cg_guts,
+                             hscs_mod_location = ms_location summary,
+                             hscs_mod_details = details,
+                             hscs_partial_iface = partial_iface,
+                             hscs_old_iface_hash = mb_old_hash,
+                             hscs_iface_dflags = dflags }
     else mk_simple_iface
 
 
@@ -868,15 +860,17 @@ hscMaybeWriteIface, but only once per compilation (twice with dynamic-too).
   In this case we create the interface file inside RunPhase using the interface
   generator contained inside the HscRecomp status.
 -}
-hscMaybeWriteIface :: DynFlags -> ModIface -> Bool -> ModLocation -> IO ()
-hscMaybeWriteIface dflags iface no_change location =
+hscMaybeWriteIface :: DynFlags -> ModIface -> Maybe Fingerprint -> ModLocation -> IO ()
+hscMaybeWriteIface dflags iface old_iface location = do
     let force_write_interface = gopt Opt_WriteInterface dflags
         write_interface = case hscTarget dflags of
                             HscNothing      -> False
                             HscInterpreted  -> False
                             _               -> True
-    in when (write_interface || force_write_interface) $
-            hscWriteIface dflags iface no_change location
+        no_change = old_iface == Just (mi_iface_hash (mi_final_exts iface))
+
+    when (write_interface || force_write_interface) $
+          hscWriteIface dflags iface no_change location
 
 --------------------------------------------------------------
 -- NoRecomp handlers
@@ -1221,12 +1215,11 @@ hscCheckSafe' m l = do
 
     lookup' :: Module -> Hsc (Maybe ModIface)
     lookup' m = do
-        dflags <- getDynFlags
         hsc_env <- getHscEnv
         hsc_eps <- liftIO $ hscEPS hsc_env
         let pkgIfaceT = eps_PIT hsc_eps
             homePkgT  = hsc_HPT hsc_env
-            iface     = lookupIfaceByModule dflags homePkgT pkgIfaceT m
+            iface     = lookupIfaceByModule homePkgT pkgIfaceT m
         -- the 'lookupIfaceByModule' method will always fail when calling from GHCi
         -- as the compiler hasn't filled in the various module tables
         -- so we need to call 'getModuleInterface' to load from disk
@@ -1341,13 +1334,13 @@ hscSimplify' plugins ds_result = do
 hscSimpleIface :: HscEnv
                -> TcGblEnv
                -> Maybe Fingerprint
-               -> IO (ModIface, Bool, ModDetails)
+               -> IO (ModIface, Maybe Fingerprint, ModDetails)
 hscSimpleIface hsc_env tc_result mb_old_iface
     = runHsc hsc_env $ hscSimpleIface' tc_result mb_old_iface
 
 hscSimpleIface' :: TcGblEnv
                 -> Maybe Fingerprint
-                -> Hsc (ModIface, Bool, ModDetails)
+                -> Hsc (ModIface, Maybe Fingerprint, ModDetails)
 hscSimpleIface' tc_result mb_old_iface = do
     hsc_env   <- getHscEnv
     details   <- liftIO $ mkBootModDetailsTc hsc_env tc_result
@@ -1356,10 +1349,9 @@ hscSimpleIface' tc_result mb_old_iface = do
         <- {-# SCC "MkFinalIface" #-}
            liftIO $
                mkIfaceTc hsc_env safe_mode details tc_result
-    let no_change = mb_old_iface == Just (mi_iface_hash (mi_final_exts new_iface))
     -- And the answer is ...
     liftIO $ dumpIfaceStats hsc_env
-    return (new_iface, no_change, details)
+    return (new_iface, mb_old_iface, details)
 
 --------------------------------------------------------------
 -- BackEnd combinators
@@ -1411,10 +1403,10 @@ hscWriteIface dflags iface no_change mod_location = do
         in  addBootSuffix_maybe (mi_boot iface) with_hi
 
 -- | Compile to hard-code.
-hscGenHardCode :: HscEnv -> CgGuts -> ModSummary -> FilePath
+hscGenHardCode :: HscEnv -> CgGuts -> ModLocation -> FilePath
                -> IO (FilePath, Maybe FilePath, [(ForeignSrcLang, FilePath)])
                -- ^ @Just f@ <=> _stub.c is f
-hscGenHardCode hsc_env cgguts mod_summary output_filename = do
+hscGenHardCode hsc_env cgguts location output_filename = do
         let CgGuts{ -- This is the last use of the ModGuts in a compilation.
                     -- From now on, we just use the bits we need.
                     cg_module   = this_mod,
@@ -1425,7 +1417,6 @@ hscGenHardCode hsc_env cgguts mod_summary output_filename = do
                     cg_dep_pkgs = dependencies,
                     cg_hpc_info = hpc_info } = cgguts
             dflags = hsc_dflags hsc_env
-            location = ms_location mod_summary
             data_tycons = filter isDataTyCon tycons
             -- cg_tycons includes newtypes, for the benefit of External Core,
             -- but we don't generate any code for newtypes
@@ -1463,11 +1454,13 @@ hscGenHardCode hsc_env cgguts mod_summary output_filename = do
 
             ------------------  Code output -----------------------
             rawcmms0 <- {-# SCC "cmmToRawCmm" #-}
-                      cmmToRawCmm dflags cmms
+                      lookupHook cmmToRawCmmHook
+                        (\dflg _ -> cmmToRawCmm dflg) dflags dflags (Just this_mod) cmms
 
-            let dump a = do dumpIfSet_dyn dflags Opt_D_dump_cmm_raw "Raw Cmm"
-                              (ppr a)
-                            return a
+            let dump a = do
+                  unless (null a) $
+                    dumpIfSet_dyn dflags Opt_D_dump_cmm_raw "Raw Cmm" FormatCMM (ppr a)
+                  return a
                 rawcmms1 = Stream.mapM dump rawcmms0
 
             (output_filename, (_stub_h_exists, stub_c_exists), foreign_fps, ())
@@ -1479,9 +1472,9 @@ hscGenHardCode hsc_env cgguts mod_summary output_filename = do
 
 hscInteractive :: HscEnv
                -> CgGuts
-               -> ModSummary
+               -> ModLocation
                -> IO (Maybe FilePath, CompiledByteCode, [SptEntry])
-hscInteractive hsc_env cgguts mod_summary = do
+hscInteractive hsc_env cgguts location = do
     let dflags = hsc_dflags hsc_env
     let CgGuts{ -- This is the last use of the ModGuts in a compilation.
                 -- From now on, we just use the bits we need.
@@ -1492,7 +1485,6 @@ hscInteractive hsc_env cgguts mod_summary = do
                cg_modBreaks = mod_breaks,
                cg_spt_entries = spt_entries } = cgguts
 
-        location = ms_location mod_summary
         data_tycons = filter isDataTyCon tycons
         -- cg_tycons includes newtypes, for the benefit of External Core,
         -- but we don't generate any code for newtypes
@@ -1516,14 +1508,17 @@ hscCompileCmmFile hsc_env filename output_filename = runHsc hsc_env $ do
     let dflags = hsc_dflags hsc_env
     cmm <- ioMsgMaybe $ parseCmmFile dflags filename
     liftIO $ do
-        dumpIfSet_dyn dflags Opt_D_dump_cmm_verbose_by_proc "Parsed Cmm" (ppr cmm)
+        dumpIfSet_dyn dflags Opt_D_dump_cmm_verbose_by_proc "Parsed Cmm" FormatCMM (ppr cmm)
         let -- Make up a module name to give the NCG. We can't pass bottom here
             -- lest we reproduce #11784.
             mod_name = mkModuleName $ "Cmm$" ++ FilePath.takeFileName filename
             cmm_mod = mkModule (thisPackage dflags) mod_name
         (_, cmmgroup) <- cmmPipeline hsc_env (emptySRT cmm_mod) cmm
-        dumpIfSet_dyn dflags Opt_D_dump_cmm "Output Cmm" (ppr cmmgroup)
-        rawCmms <- cmmToRawCmm dflags (Stream.yield cmmgroup)
+        unless (null cmmgroup) $
+          dumpIfSet_dyn dflags Opt_D_dump_cmm "Output Cmm"
+            FormatCMM (ppr cmmgroup)
+        rawCmms <- lookupHook cmmToRawCmmHook
+                     (\dflgs _ -> cmmToRawCmm dflgs) dflags dflags Nothing (Stream.yield cmmgroup)
         _ <- codeOutput dflags cmm_mod output_filename no_loc NoStubs [] []
              rawCmms
         return ()
@@ -1551,7 +1546,7 @@ doCodeGen hsc_env this_mod data_tycons
 
     let cmm_stream :: Stream IO CmmGroup ()
         cmm_stream = {-# SCC "StgToCmm" #-}
-            StgToCmm.codeGen dflags this_mod data_tycons
+            lookupHook stgToCmmHook StgToCmm.codeGen dflags dflags this_mod data_tycons
                            cost_centre_info stg_binds_w_fvs hpc_info
 
         -- codegen consumes a stream of CmmGroup, and produces a new
@@ -1559,20 +1554,23 @@ doCodeGen hsc_env this_mod data_tycons
         -- CmmGroup on input may produce many CmmGroups on output due
         -- to proc-point splitting).
 
-    let dump1 a = do dumpIfSet_dyn dflags Opt_D_dump_cmm_from_stg
-                       "Cmm produced by codegen" (ppr a)
-                     return a
+    let dump1 a = do
+          unless (null a) $
+            dumpIfSet_dyn dflags Opt_D_dump_cmm_from_stg
+              "Cmm produced by codegen" FormatCMM (ppr a)
+          return a
 
         ppr_stream1 = Stream.mapM dump1 cmm_stream
 
-        pipeline_stream
-           = {-# SCC "cmmPipeline" #-}
-             let run_pipeline = cmmPipeline hsc_env
-             in void $ Stream.mapAccumL run_pipeline (emptySRT this_mod) ppr_stream1
+        pipeline_stream =
+          {-# SCC "cmmPipeline" #-}
+          let run_pipeline = cmmPipeline hsc_env
+          in void $ Stream.mapAccumL run_pipeline (emptySRT this_mod) ppr_stream1
 
-        dump2 a = do dumpIfSet_dyn dflags Opt_D_dump_cmm
-                        "Output Cmm" (ppr a)
-                     return a
+        dump2 a = do
+          unless (null a) $
+            dumpIfSet_dyn dflags Opt_D_dump_cmm "Output Cmm" FormatCMM (ppr a)
+          return a
 
         ppr_stream2 = Stream.mapM dump2 pipeline_stream
 
@@ -1747,7 +1745,7 @@ hscParsedDecls hsc_env decls = runInteractiveHsc hsc_env $ do
                        , isExternalName (idName id)
                        , not (isDFunId id || isImplicitId id) ]
             -- We only need to keep around the external bindings
-            -- (as decided by TidyPgm), since those are the only ones
+            -- (as decided by GHC.Iface.Tidy), since those are the only ones
             -- that might later be looked up by name.  But we can exclude
             --    - DFunIds, which are in 'cls_insts' (see Note [ic_tythings] in HscTypes
             --    - Implicit Ids, which are implicit in tcs
@@ -1863,9 +1861,10 @@ hscParseThingWithLocation source linenumber parser str
 
         POk pst thing -> do
             logWarningsReportErrors (getMessages pst dflags)
-            liftIO $ dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser" (ppr thing)
-            liftIO $ dumpIfSet_dyn dflags Opt_D_dump_parsed_ast "Parser AST" $
-                                   showAstData NoBlankSrcSpan thing
+            liftIO $ dumpIfSet_dyn dflags Opt_D_dump_parsed "Parser"
+                        FormatHaskell (ppr thing)
+            liftIO $ dumpIfSet_dyn dflags Opt_D_dump_parsed_ast "Parser AST"
+                        FormatHaskell (showAstData NoBlankSrcSpan thing)
             return thing
 
 

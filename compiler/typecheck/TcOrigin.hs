@@ -509,8 +509,7 @@ exprCtOrigin (RecordCon {})      = Shouldn'tHappenOrigin "record construction"
 exprCtOrigin (RecordUpd {})      = Shouldn'tHappenOrigin "record update"
 exprCtOrigin (ExprWithTySig {})  = ExprSigOrigin
 exprCtOrigin (ArithSeq {})       = Shouldn'tHappenOrigin "arithmetic sequence"
-exprCtOrigin (HsSCC _ _ _ e)     = lexprCtOrigin e
-exprCtOrigin (HsCoreAnn _ _ _ e) = lexprCtOrigin e
+exprCtOrigin (HsPragE _ _ e)     = lexprCtOrigin e
 exprCtOrigin (HsBracket {})      = Shouldn'tHappenOrigin "TH bracket"
 exprCtOrigin (HsRnBracketOut {})= Shouldn'tHappenOrigin "HsRnBracketOut"
 exprCtOrigin (HsTcBracketOut {})= panic "exprCtOrigin HsTcBracketOut"
@@ -519,7 +518,6 @@ exprCtOrigin (HsProc {})         = Shouldn'tHappenOrigin "proc"
 exprCtOrigin (HsStatic {})       = Shouldn'tHappenOrigin "static expression"
 exprCtOrigin (HsTick _ _ e)           = lexprCtOrigin e
 exprCtOrigin (HsBinTick _ _ _ e)      = lexprCtOrigin e
-exprCtOrigin (HsTickPragma _ _ _ _ e) = lexprCtOrigin e
 exprCtOrigin (HsWrap {})        = panic "exprCtOrigin HsWrap"
 exprCtOrigin (XExpr nec)        = noExtCon nec
 
@@ -552,7 +550,7 @@ pprCtOrigin (GivenOrigin sk) = ctoHerald <+> ppr sk
 
 pprCtOrigin (SpecPragOrigin ctxt)
   = case ctxt of
-       FunSigCtxt n _ -> text "a SPECIALISE pragma for" <+> quotes (ppr n)
+       FunSigCtxt n _ -> text "for" <+> quotes (ppr n)
        SpecInstCtxt   -> text "a SPECIALISE INSTANCE pragma"
        _              -> text "a SPECIALISE pragma"  -- Never happens I think
 
@@ -646,7 +644,7 @@ pprCtO IfOrigin              = text "an if expression"
 pprCtO (LiteralOrigin lit)   = hsep [text "the literal", quotes (ppr lit)]
 pprCtO (ArithSeqOrigin seq)  = hsep [text "the arithmetic sequence", quotes (ppr seq)]
 pprCtO SectionOrigin         = text "an operator section"
-pprCtO AssocFamPatOrigin     = text "the LHS of a famly instance"
+pprCtO AssocFamPatOrigin     = text "the LHS of a family instance"
 pprCtO TupleOrigin           = text "a tuple"
 pprCtO NegateOrigin          = text "a use of syntactic negation"
 pprCtO (ScOrigin n)          = text "the superclasses of an instance declaration"

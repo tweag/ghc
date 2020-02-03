@@ -48,14 +48,14 @@ import PprCore
 import ErrUtils
 import Coercion
 import SrcLoc
-import Kind
 import Type
 import Multiplicity
 import UsageEnv
-import RepType
+import GHC.Types.RepType
 import TyCoRep       -- checks validity of types/coercions
 import TyCoSubst
 import TyCoFVs
+import TyCoPpr ( pprTyVar )
 import TyCon
 import CoAxiom
 import BasicTypes
@@ -67,7 +67,6 @@ import FastString
 import Util
 import InstEnv     ( instanceDFunId )
 import OptCoercion ( checkAxInstCo )
-import UniqSupply
 import CoreArity ( typeArity )
 import Demand ( splitStrictSig, isBotRes )
 
@@ -171,7 +170,7 @@ That is, use a type let.   See Note [Type let] in CoreSyn.
 
 However, when linting <body> we need to remember that a=Int, else we might
 reject a correct program.  So we carry a type substitution (in this example
-[a -> Int]) and apply this substitution before comparing types.  The functin
+[a -> Int]) and apply this substitution before comparing types.  The function
         lintInTy :: Type -> LintM (Type, Kind)
 returns a substituted type.
 
@@ -264,8 +263,10 @@ dumpPassResult :: DynFlags
                -> CoreProgram -> [CoreRule]
                -> IO ()
 dumpPassResult dflags unqual mb_flag hdr extra_info binds rules
-  = do { forM_ mb_flag $ \flag ->
-           Err.dumpSDoc dflags unqual flag (showSDoc dflags hdr) dump_doc
+  = do { forM_ mb_flag $ \flag -> do
+           let sty = mkDumpStyle dflags unqual
+           dumpAction dflags sty (dumpOptionsFromFlag flag)
+              (showSDoc dflags hdr) FormatCore dump_doc
 
          -- Report result size
          -- This has the side effect of forcing the intermediate to be evaluated
@@ -492,7 +493,7 @@ We use this to check all top-level unfoldings that come in from interfaces
 
 We do not need to call lintUnfolding on unfoldings that are nested within
 top-level unfoldings; they are linted when we lint the top-level unfolding;
-hence the `TopLevelFlag` on `tcPragExpr` in TcIface.
+hence the `TopLevelFlag` on `tcPragExpr` in GHC.IfaceToCore.
 
 -}
 
@@ -674,8 +675,7 @@ lintRhs _bndr rhs = fmap lf_check_static_ptrs getLintFlags >>= go
         lintLambda
         -- imitate @lintCoreExpr (App ...)@
         (do fun_ty_ue <- lintCoreExpr fun
-            addLoc (AnExpr rhs') $ lintCoreArgs fun_ty_ue [Type t, info, e]
-
+            lintCoreArgs fun_ty_ue [Type t, info, e]
         )
         binders0
     go _ = markAllJoinsBad $ lintCoreExpr rhs
@@ -800,9 +800,8 @@ lintCoreExpr e@(Let (Rec pairs) body)
     (_, dups) = removeDups compare bndrs
 
 lintCoreExpr e@(App _ _)
-  = addLoc (AnExpr e) $
-    do { ty_ue <- lintCoreFun fun (length args)
-       ; lintCoreArgs ty_ue args  }
+  = do { ty_ue <- lintCoreFun fun (length args)
+       ; lintCoreArgs ty_ue args }
   where
     (fun, args) = collectArgs e
 
@@ -2387,27 +2386,30 @@ checkWarnL False msg = addWarnL msg
 
 failWithL :: MsgDoc -> LintM a
 failWithL msg = LintM $ \ env (warns,errs) ->
-                (Nothing, (warns, addMsg env errs msg))
+                (Nothing, (warns, addMsg True env errs msg))
 
 addErrL :: MsgDoc -> LintM ()
 addErrL msg = LintM $ \ env (warns,errs) ->
-              (Just (), (warns, addMsg env errs msg))
+              (Just (), (warns, addMsg True env errs msg))
 
 addWarnL :: MsgDoc -> LintM ()
 addWarnL msg = LintM $ \ env (warns,errs) ->
-              (Just (), (addMsg env warns msg, errs))
+              (Just (), (addMsg False env warns msg, errs))
 
-addMsg :: LintEnv ->  Bag MsgDoc -> MsgDoc -> Bag MsgDoc
-addMsg env msgs msg
+addMsg :: Bool -> LintEnv ->  Bag MsgDoc -> MsgDoc -> Bag MsgDoc
+addMsg is_error env msgs msg
   = ASSERT( notNull loc_msgs )
     msgs `snocBag` mk_msg msg
   where
    loc_msgs :: [(SrcLoc, SDoc)]  -- Innermost first
    loc_msgs = map dumpLoc (le_loc env)
 
-   cxt_doc = vcat $ reverse $ map snd loc_msgs
-   context = cxt_doc $$ whenPprDebug extra
-   extra   = text "Substitution:" <+> ppr (le_subst env)
+   cxt_doc = vcat [ vcat $ reverse $ map snd loc_msgs
+                  , text "Substitution:" <+> ppr (le_subst env) ]
+   context | is_error  = cxt_doc
+           | otherwise = whenPprDebug cxt_doc
+     -- Print voluminous info for Lint errors
+     -- but not for warnings
 
    msg_span = case [ span | (loc,_) <- loc_msgs
                           , let span = srcLocSpan loc
@@ -2493,7 +2495,7 @@ lookupIdInScope id_occ
                             2 (pprBndr LetBind id_occ)
     bad_global id_bnd = isGlobalId id_occ
                      && isLocalId id_bnd
-                     && not (isWiredInName (idName id_occ))
+                     && not (isWiredIn id_occ)
        -- 'bad_global' checks for the case where an /occurrence/ is
        -- a GlobalId, but there is an enclosing binding fora a LocalId.
        -- NB: the in-scope variables are mostly LocalIds, checked by lintIdBndr,
@@ -2940,8 +2942,9 @@ withoutAnnots pass guts = do
   dflags <- getDynFlags
   let removeFlag env = env{ hsc_dflags = dflags{ debugLevel = 0} }
       withoutFlag corem =
+          -- TODO: supply tag here as well ?
         liftIO =<< runCoreM <$> fmap removeFlag getHscEnv <*> getRuleBase <*>
-                                getUniqueSupplyM <*> getModule <*>
+                                getUniqMask <*> getModule <*>
                                 getVisibleOrphanMods <*>
                                 getPrintUnqualified <*> getSrcSpanM <*>
                                 pure corem

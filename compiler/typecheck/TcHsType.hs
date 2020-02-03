@@ -82,10 +82,11 @@ import TcEnv
 import TcMType
 import TcValidity
 import TcUnify
-import TcIface
+import GHC.IfaceToCore
 import TcSimplify
 import TcHsSyn
 import TyCoRep
+import TyCoPpr
 import TcErrors ( reportAllUnsolved )
 import TcType
 import Multiplicity
@@ -355,10 +356,10 @@ tcDerivStrategy ::
 tcDerivStrategy mb_lds
   = case mb_lds of
       Nothing -> boring_case Nothing
-      Just (dL->L loc ds) ->
+      Just (L loc ds) ->
         setSrcSpan loc $ do
           (ds', tvs) <- tc_deriv_strategy ds
-          pure (Just (cL loc ds'), tvs)
+          pure (Just (L loc ds'), tvs)
   where
     tc_deriv_strategy :: DerivStrategy GhcRn
                       -> TcM (DerivStrategy GhcTc, [TyVar])
@@ -961,30 +962,34 @@ finish_tuple :: HsType GhcRn
              -> [TcKind]    -- ^ of these kinds
              -> TcKind      -- ^ expected kind of the whole tuple
              -> TcM TcType
-finish_tuple rn_ty tup_sort tau_tys tau_kinds exp_kind
-  = do { traceTc "finish_tuple" (ppr res_kind $$ ppr tau_kinds $$ ppr exp_kind)
-       ; let arg_tys  = case tup_sort of
-                   -- See also Note [Unboxed tuple RuntimeRep vars] in TyCon
-                 UnboxedTuple    -> tau_reps ++ tau_tys
-                 BoxedTuple      -> tau_tys
-                 ConstraintTuple -> tau_tys
-       ; tycon <- case tup_sort of
-           ConstraintTuple
-             | arity > mAX_CTUPLE_SIZE
-                         -> failWith (bigConstraintTuple arity)
-             | otherwise -> tcLookupTyCon (cTupleTyConName arity)
-           BoxedTuple    -> do { let tc = tupleTyCon Boxed arity
-                               ; checkWiredInTyCon tc
-                               ; return tc }
-           UnboxedTuple  -> return (tupleTyCon Unboxed arity)
-       ; checkExpectedKind rn_ty (mkTyConApp tycon arg_tys) res_kind exp_kind }
+finish_tuple rn_ty tup_sort tau_tys tau_kinds exp_kind = do
+  traceTc "finish_tuple" (ppr tup_sort $$ ppr tau_kinds $$ ppr exp_kind)
+  case tup_sort of
+    ConstraintTuple
+      |  [tau_ty] <- tau_tys
+         -- Drop any uses of 1-tuple constraints here.
+         -- See Note [Ignore unary constraint tuples]
+      -> check_expected_kind tau_ty constraintKind
+      |  arity > mAX_CTUPLE_SIZE
+      -> failWith (bigConstraintTuple arity)
+      |  otherwise
+      -> do tycon <- tcLookupTyCon (cTupleTyConName arity)
+            check_expected_kind (mkTyConApp tycon tau_tys) constraintKind
+    BoxedTuple -> do
+      let tycon = tupleTyCon Boxed arity
+      checkWiredInTyCon tycon
+      check_expected_kind (mkTyConApp tycon tau_tys) liftedTypeKind
+    UnboxedTuple ->
+      let tycon    = tupleTyCon Unboxed arity
+          tau_reps = map kindRep tau_kinds
+          -- See also Note [Unboxed tuple RuntimeRep vars] in TyCon
+          arg_tys  = tau_reps ++ tau_tys
+          res_kind = unboxedTupleKind tau_reps in
+      check_expected_kind (mkTyConApp tycon arg_tys) res_kind
   where
     arity = length tau_tys
-    tau_reps = map kindRep tau_kinds
-    res_kind = case tup_sort of
-                 UnboxedTuple    -> unboxedTupleKind tau_reps
-                 BoxedTuple      -> liftedTypeKind
-                 ConstraintTuple -> constraintKind
+    check_expected_kind ty act_kind =
+      checkExpectedKind rn_ty ty act_kind exp_kind
 
 bigConstraintTuple :: Arity -> MsgDoc
 bigConstraintTuple arity
@@ -992,6 +997,46 @@ bigConstraintTuple arity
           <+> parens (text "max arity =" <+> int mAX_CTUPLE_SIZE))
        2 (text "Instead, use a nested tuple")
 
+{-
+Note [Ignore unary constraint tuples]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+GHC provides unary tuples and unboxed tuples (see Note [One-tuples] in
+TysWiredIn) but does *not* provide unary constraint tuples. Why? First,
+recall the definition of a unary tuple data type:
+
+  data Unit a = Unit a
+
+Note that `Unit a` is *not* the same thing as `a`, since Unit is boxed and
+lazy. Therefore, the presence of `Unit` matters semantically. On the other
+hand, suppose we had a unary constraint tuple:
+
+  class a => Unit% a
+
+This compiles down a newtype (i.e., a cast) in Core, so `Unit% a` is
+semantically equivalent to `a`. Therefore, a 1-tuple constraint would have
+no user-visible impact, nor would it allow you to express anything that
+you couldn't otherwise.
+
+We could simply add Unit% for consistency with tuples (Unit) and unboxed
+tuples (Unit#), but that would require even more magic to wire in another
+magical class, so we opt not to do so. We must be careful, however, since
+one can try to sneak in uses of unary constraint tuples through Template
+Haskell, such as in this program (from #17511):
+
+  f :: $(pure (ForallT [] [TupleT 1 `AppT` (ConT ''Show `AppT` ConT ''Int)]
+                       (ConT ''String)))
+  -- f :: Unit% (Show Int) => String
+  f = "abc"
+
+This use of `TupleT 1` will produce an HsBoxedOrConstraintTuple of arity 1,
+and since it is used in a Constraint position, GHC will attempt to treat
+it as thought it were a constraint tuple, which can potentially lead to
+trouble if one attempts to look up the name of a constraint tuple of arity
+1 (as it won't exist). To avoid this trouble, we simply take any unary
+constraint tuples discovered when typechecking and drop them—i.e., treat
+"Unit% a" as though the user had written "a". This is always safe to do
+since the two constraints should be semantically equivalent.
+-}
 
 {- *********************************************************************
 *                                                                      *
@@ -1337,7 +1382,7 @@ saturateFamApp :: TcType -> TcKind -> TcM (TcType, TcKind)
 -- Precondition for (saturateFamApp ty kind):
 --     tcTypeKind ty = kind
 --
--- If 'ty' is an unsaturated family application wtih trailing
+-- If 'ty' is an unsaturated family application with trailing
 -- invisible arguments, instanttiate them.
 -- See Note [saturateFamApp]
 
@@ -1573,7 +1618,7 @@ very convenient to typecheck instance types like any other HsSigType.
 Admittedly the '(Eq a => Eq [a]) => blah' case is erroneous, but it's
 better to reject in checkValidType.  If we say that the body kind
 should be '*' we risk getting TWO error messages, one saying that Eq
-[a] doens't have kind '*', and one saying that we need a Constraint to
+[a] doesn't have kind '*', and one saying that we need a Constraint to
 the left of the outer (=>).
 
 How do we figure out the right body kind?  Well, it's a bit of a
@@ -1955,7 +2000,8 @@ kcInferDeclHeader name flav
                       , hsq_explicit = hs_tvs }) kc_res_ki
   -- No standalane kind signature and no CUSK.
   -- See note [Required, Specified, and Inferred for types] in TcTyClsDecls
-  = do { (scoped_kvs, (tc_tvs, res_kind))
+  = addTyConFlavCtxt name flav $
+    do { (scoped_kvs, (tc_tvs, res_kind))
            -- Why bindImplicitTKBndrs_Q_Tv which uses newTyVarTyVar?
            -- See Note [Inferring kinds for type declarations] in TcTyClsDecls
            <- bindImplicitTKBndrs_Q_Tv kv_ns            $
@@ -3070,7 +3116,7 @@ for D, to fill out its kind.  Ideally we don't want this type variable
 to be 'a', because when pretty printing we'll get
             class C a b where
                data D b a0
-(NB: the tidying happens in the conversion to IfaceSyn, which happens
+(NB: the tidying happens in the conversion to Iface syntax, which happens
 as part of pretty-printing a TyThing.)
 
 That's why we look in the LocalRdrEnv to see what's in scope. This is

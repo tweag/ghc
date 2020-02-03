@@ -9,6 +9,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
                                       -- in module GHC.Hs.PlaceHolder
 {-# LANGUAGE ConstraintKinds #-}
@@ -22,7 +23,8 @@ import GhcPrelude
 
 import {-# SOURCE #-} GHC.Hs.Expr( HsExpr, pprExpr )
 import BasicTypes ( IntegralLit(..),FractionalLit(..),negateIntegralLit,
-                    negateFractionalLit,SourceText(..),pprWithSourceText )
+                    negateFractionalLit,SourceText(..),pprWithSourceText,
+                    PprPrec(..), topPrec )
 import Type
 import Outputable
 import FastString
@@ -227,7 +229,7 @@ instance Ord OverLitVal where
   compare (HsIsString _ _)    (HsFractional _)    = GT
 
 -- Instance specific to GhcPs, need the SourceText
-instance p ~ GhcPass pass => Outputable (HsLit p) where
+instance Outputable (HsLit (GhcPass p)) where
     ppr (HsChar st c)       = pprWithSourceText st (pprHsChar c)
     ppr (HsCharPrim st c)   = pp_st_suffix st primCharSuffix (pprPrimChar c)
     ppr (HsString st s)     = pprWithSourceText st (pprHsString s)
@@ -249,8 +251,8 @@ pp_st_suffix NoSourceText         _ doc = doc
 pp_st_suffix (SourceText st) suffix _   = text st <> suffix
 
 -- in debug mode, print the expression that it's resolved to, too
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (HsOverLit p) where
+instance OutputableBndrId p
+       => Outputable (HsOverLit (GhcPass p)) where
   ppr (OverLit {ol_val=val, ol_witness=witness})
         = ppr val <+> (whenPprDebug (parens (pprExpr witness)))
   ppr (XOverLit x) = ppr x

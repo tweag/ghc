@@ -28,7 +28,7 @@ import GHCi             ( wormhole )
 import SrcLoc           ( noSrcSpan )
 import Finder           ( findPluginModule, cannotFindModule )
 import TcRnMonad        ( initTcInteractive, initIfaceTcRn )
-import LoadIface        ( loadPluginInterface )
+import GHC.Iface.Load   ( loadPluginInterface )
 import RdrName          ( RdrName, ImportSpec(..), ImpDeclSpec(..)
                         , ImpItemSpec(..), mkGlobalRdrEnv, lookupGRE_RdrName
                         , gre_name, mkRdrQual )
@@ -39,7 +39,8 @@ import PrelNames        ( pluginTyConName, frontendPluginTyConName )
 
 import HscTypes
 import GHCi.RemoteTypes ( HValue )
-import Type             ( Type, eqType, mkTyConTy, pprTyThingCategory )
+import Type             ( Type, eqType, mkTyConTy )
+import TyCoPpr          ( pprTyThingCategory )
 import TyCon            ( TyCon )
 import Name             ( Name, nameModule_maybe )
 import Id               ( idType )

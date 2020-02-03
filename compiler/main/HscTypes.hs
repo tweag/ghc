@@ -195,7 +195,7 @@ import DriverPhases     ( Phase, HscSource(..), hscSourceString
                         , isHsBootOrSig, isHsigFile )
 import qualified DriverPhases as Phase
 import BasicTypes
-import IfaceSyn
+import GHC.Iface.Syntax
 import Maybes
 import Outputable
 import SrcLoc
@@ -231,17 +231,33 @@ import Control.DeepSeq
 
 -- | Status of a compilation to hard-code
 data HscStatus
-    = HscNotGeneratingCode  -- ^ Nothing to do.
-    | HscUpToDate           -- ^ Nothing to do because code already exists.
-    | HscUpdateBoot         -- ^ Update boot file result.
-    | HscUpdateSig          -- ^ Generate signature file (backpack)
-    | HscRecomp             -- ^ Recompile this module.
+    -- | Nothing to do.
+    = HscNotGeneratingCode ModIface ModDetails
+    -- | Nothing to do because code already exists.
+    | HscUpToDate ModIface ModDetails
+    -- | Update boot file result.
+    | HscUpdateBoot ModIface ModDetails
+    -- | Generate signature file (backpack)
+    | HscUpdateSig ModIface ModDetails
+    -- | Recompile this module.
+    | HscRecomp
         { hscs_guts       :: CgGuts
-                            -- ^ Information for the code generator.
-        , hscs_summary    :: ModSummary
-                            -- ^ Module info
-        , hscs_iface_gen  :: IO (ModIface, Bool)
-                            -- ^ Action to generate iface after codegen.
+          -- ^ Information for the code generator.
+        , hscs_mod_location :: !ModLocation
+          -- ^ Module info
+        , hscs_mod_details :: !ModDetails
+        , hscs_partial_iface  :: !PartialModIface
+          -- ^ Partial interface
+        , hscs_old_iface_hash :: !(Maybe Fingerprint)
+          -- ^ Old interface hash for this compilation, if an old interface file
+          -- exists. Pass to `hscMaybeWriteIface` when writing the interface to
+          -- avoid updating the existing interface when the interface isn't
+          -- changed.
+        , hscs_iface_dflags :: !DynFlags
+          -- ^ Generate final iface using this DynFlags.
+          -- FIXME (osa): I don't understand why this is necessary, but I spent
+          -- almost two days trying to figure this out and I couldn't .. perhaps
+          -- someone who understands this code better will remove this later.
         }
 -- Should HscStatus contain the HomeModInfo?
 -- All places where we return a status we also return a HomeModInfo.
@@ -370,7 +386,7 @@ handleFlagWarnings dflags warns = do
       -- It would be nicer if warns :: [Located MsgDoc], but that
       -- has circular import problems.
       bag = listToBag [ mkPlainWarnMsg dflags loc (text warn)
-                      | Warn _ (dL->L loc warn) <- warns' ]
+                      | Warn _ (L loc warn) <- warns' ]
 
   printOrThrowWarnings dflags bag
 
@@ -669,12 +685,11 @@ data HomeModInfo
 -- | Find the 'ModIface' for a 'Module', searching in both the loaded home
 -- and external package module information
 lookupIfaceByModule
-        :: DynFlags
-        -> HomePackageTable
+        :: HomePackageTable
         -> PackageIfaceTable
         -> Module
         -> Maybe ModIface
-lookupIfaceByModule _dflags hpt pit mod
+lookupIfaceByModule hpt pit mod
   = case lookupHptByModule hpt mod of
        Just hm -> Just (hm_iface hm)
        Nothing -> lookupModuleEnv pit mod
@@ -1592,7 +1607,7 @@ Where do interactively-bound Ids come from?
     TcRnDriver.externaliseAndTidyId, so they get Names like Ghic4.foo.
 
   - Ids bound by the debugger etc have Names constructed by
-    IfaceEnv.newInteractiveBinder; at the call sites it is followed by
+    GHC.Iface.Env.newInteractiveBinder; at the call sites it is followed by
     mkVanillaGlobal or mkVanillaGlobalWithInfo.  So again, they are
     all Global, External.
 
@@ -1636,7 +1651,7 @@ It's exactly the same for type-family instances.  See #7102
 data InteractiveContext
   = InteractiveContext {
          ic_dflags     :: DynFlags,
-             -- ^ The 'DynFlags' used to evaluate interative expressions
+             -- ^ The 'DynFlags' used to evaluate interactive expressions
              -- and statements.
 
          ic_mod_index :: Int,
@@ -2027,9 +2042,9 @@ Examples:
 -- scope, just for a start!
 
 -- N.B. the set of TyThings returned here *must* match the set of
--- names returned by LoadIface.ifaceDeclImplicitBndrs, in the sense that
+-- names returned by GHC.Iface.Load.ifaceDeclImplicitBndrs, in the sense that
 -- TyThing.getOccName should define a bijection between the two lists.
--- This invariant is used in LoadIface.loadDecl (see note [Tricky iface loop])
+-- This invariant is used in GHC.Iface.Load.loadDecl (see note [Tricky iface loop])
 -- The order of the list does not matter.
 implicitTyThings :: TyThing -> [TyThing]
 implicitTyThings (AnId _)       = []
@@ -2475,7 +2490,7 @@ data Dependencies
                         -- ^ All the plugins used while compiling this module.
          }
   deriving( Eq )
-        -- Equality used only for old/new comparison in MkIface.addFingerprints
+        -- Equality used only for old/new comparison in GHC.Iface.Utils.addFingerprints
         -- See 'TcRnTypes.ImportAvails' for details on dependencies.
 
 instance Binary Dependencies where

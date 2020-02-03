@@ -13,7 +13,7 @@ dnl
 # see what flags are available. (Better yet, read the documentation!)
 #
 
-AC_INIT([The Glorious Glasgow Haskell Compilation System], [8.9.0], [glasgow-haskell-bugs@haskell.org], [ghc-AC_PACKAGE_VERSION])
+AC_INIT([The Glorious Glasgow Haskell Compilation System], [8.11.0], [glasgow-haskell-bugs@haskell.org], [ghc-AC_PACKAGE_VERSION])
 
 # Set this to YES for a released version, otherwise NO
 : ${RELEASE=NO}
@@ -465,7 +465,7 @@ dnl ** Building a cross compiler?
 dnl --------------------------------------------------------------
 CrossCompiling=NO
 # If 'host' and 'target' differ, then this means we are building a cross-compiler.
-if test "$TargetPlatform" != "$HostPlatform" ; then
+if test "$target" != "$host" ; then
     CrossCompiling=YES
     cross_compiling=yes   # This tells configure that it can accept just 'target',
                           # otherwise you get
@@ -530,7 +530,7 @@ AC_ARG_WITH([gcc],
         AC_MSG_ERROR([--with-gcc=$withval is obsolete (use './configure CC=$withval' or 'CC=$withval ./configure' instead)]))
 
 AC_ARG_WITH([clang],
-        AS_HELP_STRING([--with-clang=ARG], [Use ARG as the path to gcc (obsolete, use CC=ARG instead) [default=autodetect]]),
+        AS_HELP_STRING([--with-clang=ARG], [Use ARG as the path to clang (obsolete, use CC=ARG instead) [default=autodetect]]),
         AC_MSG_ERROR([--with-clang=$withval is obsolete (use './configure CC=$withval' or 'CC=$withval ./configure' instead)]))
 
 dnl detect compiler (prefer gcc over clang) and set $CC (unless CC already set),
@@ -586,7 +586,7 @@ AC_SUBST([NmCmd])
 if test "$TargetOS_CPP" = "darwin"
 then
     AC_MSG_CHECKING(whether nm program is broken)
-    # Some versions of XCode ship a broken version of `nm`. Detect and work
+    # Some versions of Xcode ship a broken version of `nm`. Detect and work
     # around this issue. See : https://gitlab.haskell.org/ghc/ghc/issues/11744
     nmver=$(${NM} --version | grep version | sed 's/ //g')
     case "$nmver" in
@@ -656,7 +656,7 @@ AC_SUBST([LibtoolCmd])
 # tools we are looking for. In the past, GHC supported a number of
 # versions of LLVM simultaneously, but that stopped working around
 # 3.5/3.6 release of LLVM.
-LlvmVersion=7
+LlvmVersion=9
 AC_SUBST([LlvmVersion])
 sUPPORTED_LLVM_VERSION=$(echo \($LlvmVersion\) | sed 's/\./,/')
 AC_DEFINE_UNQUOTED([sUPPORTED_LLVM_VERSION], ${sUPPORTED_LLVM_VERSION}, [The supported LLVM version number])
@@ -705,7 +705,7 @@ AC_SYS_INTERPRETER()
 
 dnl ** look for GCC and find out which version
 dnl     Figure out which C compiler to use.  Gcc is preferred.
-dnl     If gcc, make sure it's at least 3.0
+dnl     If gcc, make sure it's at least 4.6
 dnl
 FP_GCC_VERSION
 
@@ -715,7 +715,9 @@ FP_GCC_SUPPORTS_NO_PIE
 dnl ** Used to determine how to compile ghc-prim's atomics.c, used by
 dnl    unregisterised, Sparc, and PPC backends.
 FP_GCC_SUPPORTS__ATOMICS
-AC_DEFINE([HAVE_C11_ATOMICS], [$CONF_GCC_SUPPORTS__ATOMICS], [Does GCC support __atomic primitives?])
+if test $CONF_GCC_SUPPORTS__ATOMICS = YES ; then
+  AC_DEFINE([HAVE_C11_ATOMICS], [1], [Does GCC support __atomic primitives?])
+fi
 
 FP_GCC_EXTRA_FLAGS
 
@@ -840,6 +842,12 @@ changequote([, ])dnl
 ])
 FP_COMPARE_VERSIONS([$fp_cv_sphinx_version],-lt,1.0.0,
     [AC_MSG_WARN([Sphinx version 1.0.0 or later is required to build documentation]); SPHINXBUILD=;])
+if test -n "$SPHINXBUILD"; then
+  if "$SPHINXBUILD" -b text utils/check-sphinx utils/check-sphinx/dist > /dev/null 2>&1; then true; else
+    AC_MSG_WARN([Sphinx for python3 is required to build documentation.])
+    SPHINXBUILD=;
+  fi
+fi
 
 dnl ** check for xelatex
 AC_PATH_PROG(XELATEX,xelatex)
@@ -986,7 +994,6 @@ AC_ARG_WITH([system-libffi],
 AS_IF([test "x$with_system_libffi" = "xyes"],
   [UseSystemLibFFI="YES"], [UseSystemLibFFI="NO"]
 )
-
 
 AC_SUBST(UseSystemLibFFI)
 
@@ -1222,15 +1229,46 @@ AC_DEFINE_UNQUOTED([RTS_LINKER_USE_MMAP], [$RtsLinkerUseMmap],
 
 dnl ** Have libdw?
 dnl --------------------------------------------------------------
+AC_ARG_WITH([libdw-libraries],
+  [AC_HELP_STRING([--with-libdw-libraries=ARG],
+    [Find libraries for libdw in ARG [default=system default]])
+  ],
+  [
+    LibdwLibDir="$withval"
+    LIBDW_LDFLAGS="-L$withval"
+  ])
+
+AC_SUBST(LibdwLibDir)
+
+AC_ARG_WITH([libdw-includes],
+  [AC_HELP_STRING([--with-libdw-includes=ARG],
+    [Find includes for libdw in ARG [default=system default]])
+  ],
+  [
+    LibdwIncludeDir="$withval"
+    LIBDW_CFLAGS="-I$withval"
+  ])
+
+AC_SUBST(LibdwIncludeDir)
+
 UseLibdw=NO
 USE_LIBDW=0
 AC_ARG_ENABLE(dwarf-unwind,
     [AC_HELP_STRING([--enable-dwarf-unwind],
         [Enable DWARF unwinding support in the runtime system via elfutils' libdw [default=no]])])
 if test "$enable_dwarf_unwind" = "yes" ; then
+  CFLAGS2="$CFLAGS"
+  CFLAGS="$LIBDW_CFLAGS $CFLAGS"
+  LDFLAGS2="$LDFLAGS"
+  LDFLAGS="$LIBDW_LDFLAGS $LDFLAGS"
+
   AC_CHECK_LIB(dw, dwfl_attach_state,
-      [UseLibdw=YES],
+      [AC_CHECK_HEADERS([elfutils/libdw.h], [break], [])
+       UseLibdw=YES],
       [AC_MSG_ERROR([Cannot find system libdw (required by --enable-dwarf-unwind)])])
+
+  CFLAGS="$CFLAGS2"
+  LDFLAGS="$LDFLAGS2"
 fi
 
 AC_SUBST(UseLibdw)
@@ -1366,7 +1404,7 @@ echo "\
       which is version   : $GhcVersion
 "
 
-if test "x$CC_LLVM_BACKEND" = "x1"; then
+if test "x$CcLlvmBackend" = "xYES"; then
     CompilerName="clang        "
 else
     CompilerName="gcc          "

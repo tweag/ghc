@@ -3,6 +3,7 @@ import platform
 import subprocess
 import shutil
 from pathlib import Path, PurePath
+from term_color import Color, colored
 
 import threading
 
@@ -37,17 +38,11 @@ def strip_quotes(s: str) -> str:
     # Don't wrap commands to subprocess.call/Popen in quotes.
     return s.strip('\'"')
 
-def str_fail(s: str) -> str:
-    return '\033[1m\033[31m' + s + '\033[0m'
-
-def str_pass(s: str) -> str:
-    return '\033[1m\033[32m' + s + '\033[0m'
-
 def str_warn(s: str) -> str:
-    return '\033[1m\033[33m' + s + '\033[0m'
+    return colored(Color.YELLOW, s)
 
 def str_info(s: str) -> str:
-    return '\033[1m\033[34m' + s + '\033[0m'
+    return colored(Color.BLUE, s)
 
 def getStdout(cmd_and_args: List[str]):
     # Can't use subprocess.check_output, since we also verify that
@@ -87,7 +82,7 @@ def testing_metrics():
 # are forced to just copy instead.
 #
 # We define the following function to make this magic more
-# explicit/discoverable. You are enouraged to use it instead of os.symlink.
+# explicit/discoverable. You are encouraged to use it instead of os.symlink.
 if platform.system() == 'Windows' and os.getenv('FORCE_SYMLINKS') == None:
     def link_or_copy_file(src: Path, dst: Path):
         shutil.copyfile(str(src), str(dst))

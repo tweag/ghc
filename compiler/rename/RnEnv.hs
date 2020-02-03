@@ -46,8 +46,8 @@ module RnEnv (
 
 import GhcPrelude
 
-import LoadIface        ( loadInterfaceForName, loadSrcInterface_maybe )
-import IfaceEnv
+import GHC.Iface.Load   ( loadInterfaceForName, loadSrcInterface_maybe )
+import GHC.Iface.Env
 import GHC.Hs
 import RdrName
 import HscTypes
@@ -1137,7 +1137,7 @@ constructor namespace before looking in the data constructor namespace to
 deal with `DataKinds`.
 
 There is however, as always, one exception to this scheme. If we find
-an ambiguous occurence of a record selector and DuplicateRecordFields
+an ambiguous occurrence of a record selector and DuplicateRecordFields
 is enabled then we defer the selection until the typechecker.
 
 -}
@@ -1475,9 +1475,16 @@ lookupBindGroupOcc ctxt what rdr_name
     lookup_top keep_me
       = do { env <- getGlobalRdrEnv
            ; let all_gres = lookupGlobalRdrEnv env (rdrNameOcc rdr_name)
-           ; let candidates_msg = candidates $ map gre_name
-                                             $ filter isLocalGRE
-                                             $ globalRdrEnvElts env
+                 names_in_scope = -- If rdr_name lacks a binding, only
+                                  -- recommend alternatives from related
+                                  -- namespaces. See #17593.
+                                  filter (\n -> nameSpacesRelated
+                                                  (rdrNameSpace rdr_name)
+                                                  (nameNameSpace n))
+                                $ map gre_name
+                                $ filter isLocalGRE
+                                $ globalRdrEnvElts env
+                 candidates_msg = candidates names_in_scope
            ; case filter (keep_me . gre_name) all_gres of
                [] | null all_gres -> bale_out_with candidates_msg
                   | otherwise     -> bale_out_with local_msg
@@ -1555,7 +1562,13 @@ dataTcOccs rdr_name
   = [rdr_name]
   where
     occ = rdrNameOcc rdr_name
-    rdr_name_tc = setRdrNameSpace rdr_name tcName
+    rdr_name_tc =
+      case rdr_name of
+        -- The (~) type operator is always in scope, so we need a special case
+        -- for it here, or else  :info (~)  fails in GHCi.
+        -- See Note [eqTyCon (~) is built-in syntax]
+        Unqual occ | occNameFS occ == fsLit "~" -> eqTyCon_RDR
+        _ -> setRdrNameSpace rdr_name tcName
 
 {-
 Note [dataTcOccs and Exact Names]

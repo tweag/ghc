@@ -248,8 +248,11 @@ test('T3474',
 test('T14425', normal, compile_and_run, [''])
 test('T10412', normal, compile_and_run, [''])
 test('T13896', normal, compile_and_run, [''])
-test('T13167', fragile_for(16536, ['threaded2']), compile_and_run, [''])
+test('T13167', fragile_for(16536, concurrent_ways), compile_and_run, [''])
 test('T15349', [exit_code(1), expect_broken_for(15349, ['ghci'])], compile_and_run, [''])
 test('T16111', exit_code(1), compile_and_run, [''])
 test('T16943a', normal, compile_and_run, [''])
 test('T16943b', normal, compile_and_run, [''])
+# This frequently times out with integer-simple
+test('T17499', [when(integer_simple(), skip), collect_stats('bytes allocated',5)],
+     compile_and_run, ['-O -w'])

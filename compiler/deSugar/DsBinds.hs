@@ -102,7 +102,7 @@ dsTopLHsBinds binds
     unlifted_binds = filterBag (isUnliftedHsBind . unLoc) binds
     bang_binds     = filterBag (isBangedHsBind   . unLoc) binds
 
-    top_level_err desc (dL->L loc bind)
+    top_level_err desc (L loc bind)
       = putSrcSpanDs loc $
         errDs (hang (text "Top-level" <+> text desc <+> text "aren't allowed:")
                   2 (ppr bind))
@@ -119,8 +119,8 @@ dsLHsBinds binds
 ------------------------
 dsLHsBind :: LHsBind GhcTc
           -> DsM ([Id], [(Id,CoreExpr)])
-dsLHsBind (dL->L loc bind) = do dflags <- getDynFlags
-                                putSrcSpanDs loc $ dsHsBind dflags bind
+dsLHsBind (L loc bind) = do dflags <- getDynFlags
+                            putSrcSpanDs loc $ dsHsBind dflags bind
 
 -- | Desugar a single binding (or group of recursive binds).
 dsHsBind :: DynFlags
@@ -144,7 +144,7 @@ dsHsBind dflags (VarBind { var_id = var
                           else []
         ; return (force_var, [core_bind]) }
 
-dsHsBind dflags b@(FunBind { fun_id = (dL->L _ fun)
+dsHsBind dflags b@(FunBind { fun_id = L _ fun
                            , fun_matches = matches
                            , fun_co_fn = co_fn
                            , fun_tick = tick })
@@ -368,7 +368,7 @@ dsAbsBinds dflags tyvars dicts exports
 --
 -- Other decisions about whether to inline are made in
 -- `calcUnfoldingGuidance` but the decision about whether to then expose
--- the unfolding in the interface file is made in `TidyPgm.addExternal`
+-- the unfolding in the interface file is made in `GHC.Iface.Tidy.addExternal`
 -- using this information.
 ------------------------
 makeCorePair :: DynFlags -> Id -> Bool -> Arity -> CoreExpr
@@ -658,7 +658,7 @@ dsSpec :: Maybe CoreExpr        -- Just rhs => RULE is for a local binding
                                 --            rhs is in the Id's unfolding
        -> Located TcSpecPrag
        -> DsM (Maybe (OrdList (Id,CoreExpr), CoreRule))
-dsSpec mb_poly_rhs (dL->L loc (SpecPrag poly_id spec_co spec_inl))
+dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
   | isJust (isClassOpId_maybe poly_id)
   = putSrcSpanDs loc $
     do { warnDs NoReason (text "Ignoring useless SPECIALISE pragma for class method selector"
@@ -1073,12 +1073,6 @@ simplOptExpr occurrence-analyses and simplifies the LHS:
          augment (\a. g a) (build h)
        otherwise we don't match when given an argument like
           augment (\a. h a a) (build h)
-
-Note [Matching seqId]
-~~~~~~~~~~~~~~~~~~~
-The desugarer turns (seq e r) into (case e of _ -> r), via a special-case hack
-and this code turns it back into an application of seq!
-See Note [Rules for seq] in MkId for the details.
 
 Note [Unused spec binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

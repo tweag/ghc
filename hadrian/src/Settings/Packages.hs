@@ -61,8 +61,8 @@ packageArgs = do
             [ arg "--disable-library-for-ghci"
             , anyTargetOs ["openbsd"] ? arg "--ld-options=-E"
             , flag GhcUnregisterised ? arg "--ghc-option=-DNO_REGS"
-            , notM ghcWithSMP ? arg "--ghc-option=-DNOSMP"
-            , notM ghcWithSMP ? arg "--ghc-option=-optc-DNOSMP"
+            , notM targetSupportsSMP ? arg "--ghc-option=-DNOSMP"
+            , notM targetSupportsSMP ? arg "--ghc-option=-optc-DNOSMP"
             , (any (wayUnit Threaded) rtsWays) ?
               notStage0 ? arg "--ghc-option=-optc-DTHREADED_RTS"
             , ghcWithInterpreter ?
@@ -199,15 +199,32 @@ rtsPackageArgs = package rts ? do
     libffiName     <- expr libffiLibraryName
     ffiIncludeDir  <- getSetting FfiIncludeDir
     ffiLibraryDir  <- getSetting FfiLibDir
-    let cArgs = mconcat
+    libdwIncludeDir   <- getSetting LibdwIncludeDir
+    libdwLibraryDir   <- getSetting LibdwLibDir
+
+    -- Arguments passed to GHC when compiling C and .cmm sources.
+    let ghcArgs = mconcat
           [ arg "-Irts"
-          , rtsWarnings
           , arg $ "-I" ++ path
-          , flag UseSystemFfi ? arg ("-I" ++ ffiIncludeDir)
+          , flag WithLibdw ? if not (null libdwIncludeDir) then arg ("-I" ++ libdwIncludeDir) else mempty
+          , flag WithLibdw ? if not (null libdwLibraryDir) then arg ("-L" ++ libdwLibraryDir) else mempty
           , arg $ "-DRtsWay=\"rts_" ++ show way ++ "\""
           -- Set the namespace for the rts fs functions
           , arg $ "-DFS_NAMESPACE=rts"
           , arg $ "-DCOMPILING_RTS"
+          , notM targetSupportsSMP           ? arg "-DNOSMP"
+          , way `elem` [debug, debugDynamic] ? arg "-DTICKY_TICKY"
+          , Profiling `wayUnit` way          ? arg "-DPROFILING"
+          , Threaded  `wayUnit` way          ? arg "-DTHREADED_RTS"
+          , notM targetSupportsSMP           ? pure [ "-DNOSMP"
+                                                    , "-optc-DNOSMP" ]
+          ]
+
+    let cArgs = mconcat
+          [ rtsWarnings
+          , flag UseSystemFfi ? arg ("-I" ++ ffiIncludeDir)
+          , flag WithLibdw ? arg ("-I" ++ libdwIncludeDir)
+          , arg "-fomit-frame-pointer"
           -- RTS *must* be compiled with optimisations. The INLINE_HEADER macro
           -- requires that functions are inlined to work as expected. Inlining
           -- only happens for optimised builds. Otherwise we can assume that
@@ -215,16 +232,17 @@ rtsPackageArgs = package rts ? do
           -- provide non-inlined alternatives and hence needs the function to
           -- be inlined. See https://github.com/snowleopard/hadrian/issues/90.
           , arg "-O2"
-          , arg "-fomit-frame-pointer"
           , arg "-g"
+
+          , arg "-Irts"
+          , arg $ "-I" ++ path
 
           , Debug     `wayUnit` way          ? pure [ "-DDEBUG"
                                                     , "-fno-omit-frame-pointer"
                                                     , "-g3"
                                                     , "-O0" ]
-          , way `elem` [debug, debugDynamic] ? arg "-DTICKY_TICKY"
-          , Profiling `wayUnit` way          ? arg "-DPROFILING"
-          , Threaded  `wayUnit` way          ? arg "-DTHREADED_RTS"
+
+          , useLibFFIForAdjustors            ? arg "-DUSE_LIBFFI_FOR_ADJUSTORS"
 
           , inputs ["**/RtsMessages.c", "**/Trace.c"] ?
             arg ("-DProjectVersion=" ++ show projectVersion)
@@ -301,14 +319,16 @@ rtsPackageArgs = package rts ? do
           ]
         , builder (Cc FindCDependencies) ? cArgs
         , builder (Ghc CompileCWithGhc) ? map ("-optc" ++) <$> cArgs
-        , builder Ghc ? arg "-Irts"
+        , builder Ghc ? ghcArgs
 
-          , builder HsCpp ? pure
+        , builder HsCpp ? pure
           [ "-DTOP="             ++ show top
           , "-DFFI_INCLUDE_DIR=" ++ show ffiIncludeDir
           , "-DFFI_LIB_DIR="     ++ show ffiLibraryDir
-          , "-DFFI_LIB="         ++ show libffiName ]
+          , "-DFFI_LIB="         ++ show libffiName
+          , "-DLIBDW_LIB_DIR="   ++ show libdwLibraryDir ]
 
+        , builder HsCpp ? flag WithLibdw ? arg "-DUSE_LIBDW"
         , builder HsCpp ? flag HaveLibMingwEx ? arg "-DHAVE_LIBMINGWEX" ]
 
 -- Compile various performance-critical pieces *without* -fPIC -dynamic

@@ -91,7 +91,7 @@ import Name( Name, NamedThing(getName) )
 import RdrName ( RdrName )
 import DataCon( HsSrcBang(..), HsImplBang(..),
                 SrcStrictness(..), SrcUnpackedness(..) )
-import TysWiredIn( unrestrictedFunTyConName, manyDataConName, oneDataConName )
+import TysWiredIn( manyDataConName, oneDataConName, mkTupleStr )
 import Type
 import GHC.Hs.Doc
 import BasicTypes
@@ -817,7 +817,7 @@ instance Outputable a => Outputable (HsScaled pass a) where
                           ppr t
 
 instance
-      (OutputableBndrId (GhcPass pass)) =>
+      (OutputableBndrId pass) =>
       Outputable (HsArrow (GhcPass pass)) where
   ppr HsUnrestrictedArrow = parens arrow
   ppr HsLinearArrow = parens lollipop
@@ -965,8 +965,8 @@ data ConDeclField pass  -- Record fields have Haddoc docs on them
 type instance XConDeclField  (GhcPass _) = NoExtField
 type instance XXConDeclField (GhcPass _) = NoExtCon
 
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (ConDeclField p) where
+instance OutputableBndrId p
+       => Outputable (ConDeclField (GhcPass p)) where
   ppr (ConDeclField _ fld_n fld_ty _) = ppr fld_n <+> dcolon <+> ppr fld_ty
   ppr (XConDeclField x) = ppr x
 
@@ -1127,14 +1127,14 @@ hsAllLTyVarNames (HsQTvs { hsq_ext = kvs
 hsAllLTyVarNames (XLHsQTyVars nec) = noExtCon nec
 
 hsLTyVarLocName :: LHsTyVarBndr (GhcPass p) -> Located (IdP (GhcPass p))
-hsLTyVarLocName = onHasSrcSpan hsTyVarName
+hsLTyVarLocName = mapLoc hsTyVarName
 
 hsLTyVarLocNames :: LHsQTyVars (GhcPass p) -> [Located (IdP (GhcPass p))]
 hsLTyVarLocNames qtvs = map hsLTyVarLocName (hsQTvExplicit qtvs)
 
 -- | Convert a LHsTyVarBndr to an equivalent LHsType.
 hsLTyVarBndrToType :: LHsTyVarBndr (GhcPass p) -> LHsType (GhcPass p)
-hsLTyVarBndrToType = onHasSrcSpan cvt
+hsLTyVarBndrToType = mapLoc cvt
   where cvt (UserTyVar _ n) = HsTyVar noExtField NotPromoted n
         cvt (KindedTyVar _ (L name_loc n) kind)
           = HsKindSig noExtField
@@ -1214,8 +1214,6 @@ mkHsAppKindTy ext ty k
 -- splitHsFunType decomposes a type (t1 -> t2 ... -> tn)
 -- Breaks up any parens in the result type:
 --      splitHsFunType (a -> (b -> c)) = ([a,b], c)
--- Also deals with (->) t1 t2; that is why it only works on LHsType Name
---   (see #9096)
 splitHsFunType :: LHsType GhcRn -> ([HsScaled GhcRn (LHsType GhcRn)], LHsType GhcRn)
 splitHsFunType (L _ (HsParTy _ ty))
   = splitHsFunType ty
@@ -1223,19 +1221,6 @@ splitHsFunType (L _ (HsParTy _ ty))
 splitHsFunType (L _ (HsFunTy _ mult x y))
   | (args, res) <- splitHsFunType y
   = (HsScaled mult x:args, res)
-{- This is not so correct, because it won't work with visible kind app, in case
-  someone wants to write '(->) @k1 @k2 t1 t2'. Fixing this would require changing
-  ConDeclGADT abstract syntax -}
-splitHsFunType orig_ty@(L _ (HsAppTy _ t1 t2))
-  = go t1 [t2]
-  where  -- Look for (->) t1 t2, possibly with parenthesisation
-    go (L _ (HsTyVar _ _ (L _ fn))) tys | fn == unrestrictedFunTyConName
-                                 , [t1,t2] <- tys
-                                 , (args, res) <- splitHsFunType t2
-                                 = (hsUnrestricted t1:args, res)
-    go (L _ (HsAppTy _ t1 t2)) tys = go t1 (t2:tys)
-    go (L _ (HsParTy _ ty))    tys = go ty tys
-    go _                       _   = ([], orig_ty)  -- Failure to match
 
 splitHsFunType other = ([], other)
 
@@ -1441,8 +1426,8 @@ data FieldOcc pass = FieldOcc { extFieldOcc     :: XCFieldOcc pass
 
   | XFieldOcc
       (XXFieldOcc pass)
-deriving instance (p ~ GhcPass pass, Eq (XCFieldOcc p)) => Eq  (FieldOcc p)
-deriving instance (p ~ GhcPass pass, Ord (XCFieldOcc p)) => Ord (FieldOcc p)
+deriving instance Eq  (XCFieldOcc (GhcPass p)) => Eq  (FieldOcc (GhcPass p))
+deriving instance Ord (XCFieldOcc (GhcPass p)) => Ord (FieldOcc (GhcPass p))
 
 type instance XCFieldOcc GhcPs = NoExtField
 type instance XCFieldOcc GhcRn = Name
@@ -1484,10 +1469,10 @@ type instance XAmbiguous GhcTc = Id
 
 type instance XXAmbiguousFieldOcc (GhcPass _) = NoExtCon
 
-instance p ~ GhcPass pass => Outputable (AmbiguousFieldOcc p) where
+instance Outputable (AmbiguousFieldOcc (GhcPass p)) where
   ppr = ppr . rdrNameAmbiguousFieldOcc
 
-instance p ~ GhcPass pass => OutputableBndr (AmbiguousFieldOcc p) where
+instance OutputableBndr (AmbiguousFieldOcc (GhcPass p)) where
   pprInfixOcc  = pprInfixOcc . rdrNameAmbiguousFieldOcc
   pprPrefixOcc = pprPrefixOcc . rdrNameAmbiguousFieldOcc
 
@@ -1523,30 +1508,30 @@ ambiguousFieldOcc (XFieldOcc nec) = noExtCon nec
 ************************************************************************
 -}
 
-instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (HsType p) where
+instance OutputableBndrId p => Outputable (HsType (GhcPass p)) where
     ppr ty = pprHsType ty
 
 instance Outputable HsTyLit where
     ppr = ppr_tylit
 
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (LHsQTyVars p) where
+instance OutputableBndrId p
+       => Outputable (LHsQTyVars (GhcPass p)) where
     ppr (HsQTvs { hsq_explicit = tvs }) = interppSP tvs
     ppr (XLHsQTyVars x) = ppr x
 
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (HsTyVarBndr p) where
+instance OutputableBndrId p
+       => Outputable (HsTyVarBndr (GhcPass p)) where
     ppr (UserTyVar _ n)     = ppr n
     ppr (KindedTyVar _ n k) = parens $ hsep [ppr n, dcolon, ppr k]
     ppr (XTyVarBndr nec)    = noExtCon nec
 
-instance (p ~ GhcPass pass,Outputable thing)
-       => Outputable (HsImplicitBndrs p thing) where
+instance Outputable thing
+       => Outputable (HsImplicitBndrs (GhcPass p) thing) where
     ppr (HsIB { hsib_body = ty }) = ppr ty
     ppr (XHsImplicitBndrs x) = ppr x
 
-instance (p ~ GhcPass pass,Outputable thing)
-       => Outputable (HsWildCardBndrs p thing) where
+instance Outputable thing
+       => Outputable (HsWildCardBndrs (GhcPass p) thing) where
     ppr (HsWC { hswc_body = ty }) = ppr ty
     ppr (XHsWildCardBndrs x) = ppr x
 
@@ -1555,7 +1540,7 @@ pprAnonWildCard = char '_'
 
 -- | Prints a forall; When passed an empty list, prints @forall .@/@forall ->@
 -- only when @-dppr-debug@ is enabled.
-pprHsForAll :: (OutputableBndrId (GhcPass p))
+pprHsForAll :: (OutputableBndrId p)
             => ForallVisFlag -> [LHsTyVarBndr (GhcPass p)]
             -> LHsContext (GhcPass p) -> SDoc
 pprHsForAll = pprHsForAllExtra Nothing
@@ -1567,7 +1552,7 @@ pprHsForAll = pprHsForAllExtra Nothing
 -- function for this is needed, as the extra-constraints wildcard is removed
 -- from the actual context and type, and stored in a separate field, thus just
 -- printing the type will not print the extra-constraints wildcard.
-pprHsForAllExtra :: (OutputableBndrId (GhcPass p))
+pprHsForAllExtra :: (OutputableBndrId p)
                  => Maybe SrcSpan -> ForallVisFlag
                  -> [LHsTyVarBndr (GhcPass p)]
                  -> LHsContext (GhcPass p) -> SDoc
@@ -1581,7 +1566,7 @@ pprHsForAllExtra extra fvf qtvs cxt
 
 -- | Version of 'pprHsForAll' or 'pprHsForAllExtra' that will always print
 -- @forall.@ when passed @Just []@. Prints nothing if passed 'Nothing'
-pprHsExplicitForAll :: (OutputableBndrId (GhcPass p))
+pprHsExplicitForAll :: (OutputableBndrId p)
                     => ForallVisFlag
                     -> Maybe [LHsTyVarBndr (GhcPass p)] -> SDoc
 pprHsExplicitForAll fvf (Just qtvs) = forAllLit <+> interppSP qtvs
@@ -1594,14 +1579,14 @@ ppr_forall_separator :: ForallVisFlag -> SDoc
 ppr_forall_separator ForallVis   = space <> arrow
 ppr_forall_separator ForallInvis = dot
 
-pprLHsContext :: (OutputableBndrId (GhcPass p))
+pprLHsContext :: (OutputableBndrId p)
               => LHsContext (GhcPass p) -> SDoc
 pprLHsContext lctxt
   | null (unLoc lctxt) = empty
   | otherwise          = pprLHsContextAlways lctxt
 
 -- For use in a HsQualTy, which always gets printed if it exists.
-pprLHsContextAlways :: (OutputableBndrId (GhcPass p))
+pprLHsContextAlways :: (OutputableBndrId p)
                     => LHsContext (GhcPass p) -> SDoc
 pprLHsContextAlways (L _ ctxt)
   = case ctxt of
@@ -1610,7 +1595,7 @@ pprLHsContextAlways (L _ ctxt)
       _        -> parens (interpp'SP ctxt) <+> darrow
 
 -- True <=> print an extra-constraints wildcard, e.g. @(Show a, _) =>@
-pprLHsContextExtra :: (OutputableBndrId (GhcPass p))
+pprLHsContextExtra :: (OutputableBndrId p)
                    => Bool -> LHsContext (GhcPass p) -> SDoc
 pprLHsContextExtra show_extra lctxt@(L _ ctxt)
   | not show_extra = pprLHsContext lctxt
@@ -1619,7 +1604,7 @@ pprLHsContextExtra show_extra lctxt@(L _ ctxt)
   where
     ctxt' = map ppr ctxt ++ [char '_']
 
-pprConDeclFields :: (OutputableBndrId (GhcPass p))
+pprConDeclFields :: (OutputableBndrId p)
                  => [LConDeclField (GhcPass p)] -> SDoc
 pprConDeclFields fields = braces (sep (punctuate comma (map ppr_fld fields)))
   where
@@ -1645,13 +1630,13 @@ seems like the Right Thing anyway.)
 
 -- Printing works more-or-less as for Types
 
-pprHsType :: (OutputableBndrId (GhcPass p)) => HsType (GhcPass p) -> SDoc
+pprHsType :: (OutputableBndrId p) => HsType (GhcPass p) -> SDoc
 pprHsType ty = ppr_mono_ty ty
 
-ppr_mono_lty :: (OutputableBndrId (GhcPass p)) => LHsType (GhcPass p) -> SDoc
+ppr_mono_lty :: (OutputableBndrId p) => LHsType (GhcPass p) -> SDoc
 ppr_mono_lty ty = ppr_mono_ty (unLoc ty)
 
-ppr_mono_ty :: (OutputableBndrId (GhcPass p)) => HsType (GhcPass p) -> SDoc
+ppr_mono_ty :: (OutputableBndrId p) => HsType (GhcPass p) -> SDoc
 ppr_mono_ty (HsForAllTy { hst_fvf = fvf, hst_bndrs = tvs, hst_body = ty })
   = sep [pprHsForAll fvf tvs noLHsContext, ppr_mono_lty ty]
 
@@ -1664,7 +1649,14 @@ ppr_mono_ty (HsTyVar _ prom (L _ name))
   | isPromoted prom = quote (pprPrefixOcc name)
   | otherwise       = pprPrefixOcc name
 ppr_mono_ty (HsFunTy _ mult ty1 ty2)   = ppr_fun_ty mult ty1 ty2
-ppr_mono_ty (HsTupleTy _ con tys) = tupleParens std_con (pprWithCommas ppr tys)
+ppr_mono_ty (HsTupleTy _ con tys)
+    -- Special-case unary boxed tuples so that they are pretty-printed as
+    -- `Unit x`, not `(x)`
+  | [ty] <- tys
+  , BoxedTuple <- std_con
+  = sep [text (mkTupleStr Boxed 1), ppr_mono_lty ty]
+  | otherwise
+  = tupleParens std_con (pprWithCommas ppr tys)
   where std_con = case con of
                     HsUnboxedTuple -> UnboxedTuple
                     _              -> BoxedTuple
@@ -1679,6 +1671,11 @@ ppr_mono_ty (HsExplicitListTy _ prom tys)
   | isPromoted prom = quote $ brackets (maybeAddSpace tys $ interpp'SP tys)
   | otherwise       = brackets (interpp'SP tys)
 ppr_mono_ty (HsExplicitTupleTy _ tys)
+    -- Special-case unary boxed tuples so that they are pretty-printed as
+    -- `'Unit x`, not `'(x)`
+  | [ty] <- tys
+  = quote $ sep [text (mkTupleStr Boxed 1), ppr_mono_lty ty]
+  | otherwise
   = quote $ parens (maybeAddSpace tys $ interpp'SP tys)
 ppr_mono_ty (HsTyLit _ t)       = ppr_tylit t
 ppr_mono_ty (HsWildCardTy {})   = char '_'
@@ -1708,7 +1705,7 @@ ppr_mono_ty (HsDocTy _ ty doc)
 ppr_mono_ty (XHsType t) = ppr t
 
 --------------------------
-ppr_fun_ty :: (OutputableBndrId (GhcPass p))
+ppr_fun_ty :: (OutputableBndrId p)
            => HsArrow (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p) -> SDoc
 ppr_fun_ty mult ty1 ty2
   = let p1 = ppr_mono_lty ty1
@@ -1747,7 +1744,7 @@ hsTypeNeedsParens p = go
     go (HsExplicitTupleTy{}) = False
     go (HsTyLit{})           = False
     go (HsWildCardTy{})      = False
-    go (HsStarTy{})          = False
+    go (HsStarTy{})          = p >= starPrec
     go (HsAppTy{})           = p >= appPrec
     go (HsAppKindTy{})       = p >= appPrec
     go (HsOpTy{})            = p >= opPrec
@@ -1757,7 +1754,7 @@ hsTypeNeedsParens p = go
 
 maybeAddSpace :: [LHsType pass] -> SDoc -> SDoc
 -- See Note [Printing promoted type constructors]
--- in IfaceType.  This code implements the same
+-- in GHC.Iface.Type.  This code implements the same
 -- logic for printing HsType
 maybeAddSpace tys doc
   | (ty : _) <- tys

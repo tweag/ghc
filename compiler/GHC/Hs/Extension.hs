@@ -7,6 +7,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -142,6 +143,12 @@ type GhcPs   = GhcPass 'Parsed      -- Old 'RdrName' type param
 type GhcRn   = GhcPass 'Renamed     -- Old 'Name' type param
 type GhcTc   = GhcPass 'Typechecked -- Old 'Id' type para,
 type GhcTcId = GhcTc                -- Old 'TcId' type param
+
+-- | GHC's L prefixed variants wrap their vanilla variant in this type family,
+-- to add 'SrcLoc' info via 'Located'. Other passes than 'GhcPass' not
+-- interested in location information can define this instance as @f p@.
+type family XRec p (f :: * -> *) = r | r -> p f
+type instance XRec (GhcPass p) f = Located (f (GhcPass p))
 
 -- | Maps the "normal" id type for a given pass
 type family IdP p
@@ -599,8 +606,6 @@ type family XRecordCon      x
 type family XRecordUpd      x
 type family XExprWithTySig  x
 type family XArithSeq       x
-type family XSCC            x
-type family XCoreAnn        x
 type family XBracket        x
 type family XRnBracketOut   x
 type family XTcBracketOut   x
@@ -609,9 +614,14 @@ type family XProc           x
 type family XStatic         x
 type family XTick           x
 type family XBinTick        x
-type family XTickPragma     x
+type family XPragE          x
 type family XWrap           x
 type family XXExpr          x
+
+type family XSCC            x
+type family XCoreAnn        x
+type family XTickPragma     x
+type family XXPragE         x
 
 type ForallXExpr (c :: * -> Constraint) (x :: *) =
        ( c (XVar            x)
@@ -1162,13 +1172,13 @@ type OutputableX p = -- See Note [OutputableX]
 -- ----------------------------------------------------------------------
 
 -- |Constraint type to bundle up the requirement for 'OutputableBndr' on both
--- the @id@ and the 'NameOrRdrName' type for it
-type OutputableBndrId id =
-  ( OutputableBndr (NameOrRdrName (IdP id))
-  , OutputableBndr (IdP id)
-  , OutputableBndr (NameOrRdrName (IdP (NoGhcTc id)))
-  , OutputableBndr (IdP (NoGhcTc id))
-  , NoGhcTc id ~ NoGhcTc (NoGhcTc id)
-  , OutputableX id
-  , OutputableX (NoGhcTc id)
+-- the @p@ and the 'NameOrRdrName' type for it
+type OutputableBndrId pass =
+  ( OutputableBndr (NameOrRdrName (IdP (GhcPass pass)))
+  , OutputableBndr (IdP (GhcPass pass))
+  , OutputableBndr (NameOrRdrName (IdP (NoGhcTc (GhcPass pass))))
+  , OutputableBndr (IdP (NoGhcTc (GhcPass pass)))
+  , NoGhcTc (GhcPass pass) ~ NoGhcTc (NoGhcTc (GhcPass pass))
+  , OutputableX (GhcPass pass)
+  , OutputableX (NoGhcTc (GhcPass pass))
   )

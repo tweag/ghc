@@ -20,7 +20,7 @@ import NameEnv
 import DataCon          ( DataCon, dataConRepArgTys, dataConIdentity )
 import TyCon            ( TyCon, tyConFamilySize, isDataTyCon, tyConDataCons )
 import Multiplicity     ( scaledThing )
-import RepType
+import GHC.Types.RepType
 import GHC.StgToCmm.Layout  ( mkVirtConstrSizes )
 import GHC.StgToCmm.Closure ( tagForCon, NonVoid (..) )
 import Util

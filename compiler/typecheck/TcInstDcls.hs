@@ -1919,6 +1919,7 @@ mkDefMethBind clas inst_tys sel_id dm_name
                              [mkSimpleMatch (mkPrefixFunRhs fn) [] rhs]
 
         ; liftIO (dumpIfSet_dyn dflags Opt_D_dump_deriv "Filling in method body"
+                   FormatHaskell
                    (vcat [ppr clas <+> ppr inst_tys,
                           nest 2 (ppr sel_id <+> equals <+> ppr rhs)]))
 
@@ -2134,7 +2135,7 @@ tcSpecInst dfun_id prag@(SpecInstSig _ _ hs_ty)
         ; co_fn <- tcSpecWrapper SpecInstCtxt (idType dfun_id) spec_dfun_ty
         ; return (SpecPrag dfun_id co_fn defaultInlinePragma) }
   where
-    spec_ctxt prag = hang (text "In the SPECIALISE pragma") 2 (ppr prag)
+    spec_ctxt prag = hang (text "In the pragma:") 2 (ppr prag)
 
 tcSpecInst _  _ = panic "tcSpecInst"
 

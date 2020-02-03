@@ -681,9 +681,21 @@ Join points must follow these invariants:
   2. For join arity n, the right-hand side must begin with at least n lambdas.
      No ticks, no casts, just lambdas!  C.f. CoreUtils.joinRhsArity.
 
-  2a. Moreover, this same constraint applies to any unfolding of the binder.
-     Reason: if we want to push a continuation into the RHS we must push it
-     into the unfolding as well.
+     2a. Moreover, this same constraint applies to any unfolding of
+         the binder.  Reason: if we want to push a continuation into
+         the RHS we must push it into the unfolding as well.
+
+     2b. The Arity (in the IdInfo) of a join point is the number of value
+         binders in the top n lambdas, where n is the join arity.
+
+         So arity <= join arity; the former counts only value binders
+         while the latter counts all binders.
+         e.g. Suppose $j has join arity 1
+               let j = \x y. e in case x of { A -> j 1; B -> j 2 }
+         Then its ordinary arity is also 1, not 2.
+
+         The arity of a join point isn't very important; but short of setting
+         it to zero, it is helpful to have an invariant.  E.g. #17294.
 
   3. If the binding is recursive, then all other bindings in the recursive group
      must also be join points.
@@ -1215,7 +1227,7 @@ notOrphan _ = False
 chooseOrphanAnchor :: NameSet -> IsOrphan
 -- Something (rule, instance) is relate to all the Names in this
 -- list. Choose one of them to be an "anchor" for the orphan.  We make
--- the choice deterministic to avoid gratuitious changes in the ABI
+-- the choice deterministic to avoid gratuitous changes in the ABI
 -- hash (#4012).  Specifically, use lexicographic comparison of
 -- OccName rather than comparing Uniques
 --
@@ -1266,7 +1278,7 @@ has two major consequences
    In contrast, orphans are all fingerprinted together in the
    mi_orph_hash field of the ModIface.
 
-   See MkIface.addFingerprints.
+   See GHC.Iface.Utils.addFingerprints.
 
 Orphan-hood is computed
   * For class instances:
@@ -1274,8 +1286,8 @@ Orphan-hood is computed
     (because it is needed during instance lookup)
 
   * For rules and family instances:
-       when we generate an IfaceRule (MkIface.coreRuleToIfaceRule)
-                     or IfaceFamInst (MkIface.instanceToIfaceInst)
+       when we generate an IfaceRule (GHC.Iface.Utils.coreRuleToIfaceRule)
+                     or IfaceFamInst (GHC.Iface.Utils.instanceToIfaceInst)
 -}
 
 {-
@@ -1339,7 +1351,7 @@ data CoreRule
         ru_auto :: Bool,   -- ^ @True@  <=> this rule is auto-generated
                            --               (notably by Specialise or SpecConstr)
                            --   @False@ <=> generated at the user's behest
-                           -- See Note [Trimming auto-rules] in TidyPgm
+                           -- See Note [Trimming auto-rules] in GHC.Iface.Tidy
                            -- for the sole purpose of this field.
 
         ru_origin :: !Module,   -- ^ 'Module' the rule was defined in, used
@@ -1435,7 +1447,7 @@ data Unfolding
 
   | BootUnfolding      -- ^ We have no information about the unfolding, because
                        -- this 'Id' came from an @hi-boot@ file.
-                       -- See Note [Inlining and hs-boot files] in ToIface
+                       -- See Note [Inlining and hs-boot files] in GHC.CoreToIface
                        -- for what this is used for.
 
   | OtherCon [AltCon]  -- ^ It ain't one of these constructors.
@@ -1547,7 +1559,7 @@ data UnfoldingGuidance
 
       ug_size :: Int,     -- The "size" of the unfolding.
 
-      ug_res :: Int       -- Scrutinee discount: the discount to substract if the thing is in
+      ug_res :: Int       -- Scrutinee discount: the discount to subtract if the thing is in
     }                     -- a context (case (thing args) of ...),
                           -- (where there are the right number of arguments.)
 

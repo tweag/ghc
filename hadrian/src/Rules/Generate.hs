@@ -215,7 +215,7 @@ ghcWrapper stage  = do
                                ++ [ "-package-db " ++ dbPath | stage == Stage1 ]
                                ++ [ "$@" ]
 
--- | Given a 'String' replace charaters '.' and '-' by underscores ('_') so that
+-- | Given a 'String' replace characters '.' and '-' by underscores ('_') so that
 -- the resulting 'String' is a valid C preprocessor identifier.
 cppify :: String -> String
 cppify = replaceEq '-' '_' . replaceEq '.' '_'
@@ -315,7 +315,7 @@ generateSettings = do
         , ("integer library", pkgName <$> getIntegerPackage)
         , ("Use interpreter", expr $ yesNo <$> ghcWithInterpreter)
         , ("Use native code generator", expr $ yesNo <$> ghcWithNativeCodeGen)
-        , ("Support SMP", expr $ yesNo <$> ghcWithSMP)
+        , ("Support SMP", expr $ yesNo <$> targetSupportsSMP)
         , ("RTS ways", unwords . map show <$> getRtsWays)
         , ("Tables next to code", expr $ yesNo <$> flag TablesNextToCode)
         , ("Leading underscore", expr $ yesNo <$> flag LeadingUnderscore)

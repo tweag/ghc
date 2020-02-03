@@ -35,7 +35,6 @@ module Id (
         -- ** Simple construction
         mkGlobalId, mkVanillaGlobal, mkVanillaGlobalWithInfo,
         mkLocalId, mkLocalCoVar, mkLocalIdOrCoVar,
-        mkLocalIdOrCoVarWithInfo,
         mkLocalIdWithInfo, mkExportedLocalId, mkExportedVanillaId,
         mkSysLocal, mkSysLocalM, mkSysLocalOrCoVar, mkSysLocalOrCoVarM,
         mkUserLocal, mkUserLocalOrCoVar,
@@ -136,7 +135,7 @@ import Var( Id, CoVar, JoinId,
 import qualified Var
 
 import Type
-import RepType
+import GHC.Types.RepType
 import TysPrim
 import DataCon
 import Demand
@@ -286,10 +285,9 @@ mkVanillaGlobalWithInfo = mkGlobalId VanillaId
 
 
 -- | For an explanation of global vs. local 'Id's, see "Var#globalvslocal"
-mkLocalId :: Name -> Mult -> Type -> Id
-mkLocalId name w ty = mkLocalIdWithInfo name w ty vanillaIdInfo
- -- It's tempting to ASSERT( not (isCoVarType ty) ), but don't. Sometimes,
- -- the type is a panic. (Search invented_id)
+mkLocalId :: HasDebugCallStack => Name -> Mult -> Type -> Id
+mkLocalId name w ty = ASSERT( not (isCoVarType ty) )
+                      mkLocalIdWithInfo name w ty vanillaIdInfo
 
 -- | Make a local CoVar
 mkLocalCoVar :: Name -> Type -> CoVar
@@ -308,18 +306,10 @@ mkLocalIdOrCoVar name w ty
   | isCoVarType ty = mkLocalCoVar name   ty
   | otherwise      = mkLocalId    name w ty
 
--- | Make a local id, with the IdDetails set to CoVarId if the type indicates
--- so.
-mkLocalIdOrCoVarWithInfo :: Name -> Mult -> Type -> IdInfo -> Id
-mkLocalIdOrCoVarWithInfo name w ty info
-  = Var.mkLocalVar details name w ty info
-  where
-    details | isCoVarType ty = CoVarId
-            | otherwise      = VanillaId
-
     -- proper ids only; no covars!
-mkLocalIdWithInfo :: Name -> Mult -> Type -> IdInfo -> Id
-mkLocalIdWithInfo name w ty info = Var.mkLocalVar VanillaId name w ty info
+mkLocalIdWithInfo :: HasDebugCallStack => Name -> Mult -> Type -> IdInfo -> Id
+mkLocalIdWithInfo name w ty info = ASSERT( not (isCoVarType ty) )
+                                   Var.mkLocalVar VanillaId name w ty info
         -- Note [Free type variables]
 
 -- | Create a local 'Id' that is marked as exported.
@@ -371,7 +361,7 @@ instantiated before use.
 -- | Workers get local names. "CoreTidy" will externalise these if necessary
 mkWorkerId :: Unique -> Id -> Type -> Id
 mkWorkerId uniq unwrkr ty
-  = mkLocalIdOrCoVar (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Many ty
+  = mkLocalId (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Many ty
 
 -- | Create a /template local/: a family of system local 'Id's in bijection with @Int@s, typically used in unfoldings
 mkTemplateLocal :: Int -> Type -> Id
@@ -379,6 +369,8 @@ mkTemplateLocal i ty = mkScaledTemplateLocal i (unrestricted ty)
 
 mkScaledTemplateLocal :: Int -> Scaled Type -> Id
 mkScaledTemplateLocal i (Scaled w ty) = mkSysLocalOrCoVar (fsLit "v") (mkBuiltinUnique i) w ty
+   -- "OrCoVar" since this is used in a superclass selector,
+   -- and "~" and "~~" have coercion "superclasses".
 
 -- | Create a template local for a series of types
 mkTemplateLocals :: [Type] -> [Id]
@@ -424,7 +416,7 @@ of reasons:
 
 In CoreTidy we must make all these LocalIds into GlobalIds, so that in
 importing modules (in --make mode) we treat them as properly global.
-That is what is happening in, say tidy_insts in TidyPgm.
+That is what is happening in, say tidy_insts in GHC.Iface.Tidy.
 
 ************************************************************************
 *                                                                      *
@@ -588,7 +580,7 @@ idIsFrom mod id = nameIsLocalOrFrom mod (idName id)
 
 {- Note [Levity-polymorphic Ids]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Some levity-polymorphic Ids must be applied and and inlined, not left
+Some levity-polymorphic Ids must be applied and inlined, not left
 un-saturated.  Example:
   unsafeCoerceId :: forall r1 r2 (a::TYPE r1) (b::TYPE r2). a -> b
 

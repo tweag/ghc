@@ -37,7 +37,7 @@ AC_CHECK_HEADERS([ctype.h errno.h fcntl.h inttypes.h limits.h signal.h sys/file.
 AC_SYS_LARGEFILE
 
 dnl ** check for wide-char classifications
-dnl FreeBSD has an emtpy wctype.h, so test one of the affected
+dnl FreeBSD has an empty wctype.h, so test one of the affected
 dnl functions if it's really there.
 AC_CHECK_HEADERS([wctype.h], [AC_CHECK_FUNCS(iswspace)])
 
@@ -72,6 +72,9 @@ fi
 # Linux open file descriptor locks
 AC_CHECK_DECL([F_OFD_SETLK], [
   AC_DEFINE([HAVE_OFD_LOCKING], [1], [Define if you have open file descriptor lock support.])
+], [], [
+  #include <unistd.h>
+  #include <fcntl.h>
 ])
 
 # flock
