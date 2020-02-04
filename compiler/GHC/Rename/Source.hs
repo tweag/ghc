@@ -10,6 +10,9 @@ Main pass of renamer
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module GHC.Rename.Source (
         rnSrcDecls, addTcgDUs, findSplice
     ) where
@@ -1834,7 +1837,7 @@ rnLDerivStrategy doc mds thing_inside
           do (via_ty', fvs1) <- rnHsSigType doc TypeLevel via_ty
              let HsIB { hsib_ext  = via_imp_tvs
                       , hsib_body = via_body } = via_ty'
-                 (via_exp_tv_bndrs, _, _) = splitLHsSigmaTy via_body
+                 (via_exp_tv_bndrs, _, _) = splitLHsSigmaTyInvis via_body
                  via_exp_tvs = hsLTyVarNames via_exp_tv_bndrs
                  via_tvs = via_imp_tvs ++ via_exp_tvs
              (thing, fvs2) <- extendTyVarEnvFVRn via_tvs thing_inside
