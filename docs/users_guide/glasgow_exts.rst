@@ -8311,7 +8311,7 @@ Note the following points:
    with a finite number of alternatives (unlike ``Type``).
 
 -  When :extension:`ExplicitForAll` is enabled, type and kind variables can be
-   explicily bound in associated data or type family instances in the same way
+   explicitly bound in associated data or type family instances in the same way
    (and with the same restrictions) as :ref:`data-instance-declarations` or
    :ref:`type-instance-declarations`. For example, adapting the above, the
    following is accepted: ::
@@ -10431,7 +10431,7 @@ Introducing quantified constraints offers two main benefits:
     class (forall m. Monad m => Monad (t m)) => Trans t where
       lift :: Monad m => m a -> (t m) a
 
-This idea is very old; see Seciton 7 of `Derivable type classes <https://www.microsoft.com/en-us/research/publication/derivable-type-classes/>`_.
+This idea is very old; see Section 7 of `Derivable type classes <https://www.microsoft.com/en-us/research/publication/derivable-type-classes/>`_.
 
 Syntax changes
 ----------------
@@ -10608,7 +10608,7 @@ if we called ``f Nothing``, then ``f`` is ``Maybe`` and the compiler must prove 
 call site) that ``forall a. Eq a => Eq (Maybe a)`` holds.  It can do this easily, by
 appealing to the existing instance declaration for ``Eq (Maybe a)``.
 
-In short, quantifed constraints do not introduce incoherence.
+In short, quantified constraints do not introduce incoherence.
 
 
 .. _extensions-to-type-signatures:
@@ -12131,7 +12131,7 @@ Here are some more details:
 
        f _x = _x + 1
 
-   does not elict any errors. Only a variable *that is not in scope*
+   does not elicit any errors. Only a variable *that is not in scope*
    (whether or not it starts with an underscore) is treated as an error
    (which it always was), albeit now with a more informative error
    message.

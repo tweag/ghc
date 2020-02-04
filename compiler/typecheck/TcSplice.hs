@@ -467,7 +467,7 @@ Note [Template Haskell levels]
                incremented by brackets [| |]
                incremented by name-quoting 'f
 
-When a variable is used, we compare
+* When a variable is used, checkWellStaged compares
         bind:  binding level, and
         use:   current level at usage site
 
@@ -493,7 +493,7 @@ When a variable is used, we compare
   For example:
            f = ...
            g1 = $(map ...)         is OK
-           g2 = $(f ...)           is not OK; because we havn't compiled f yet
+           g2 = $(f ...)           is not OK; because we haven't compiled f yet
 
 Note [Typechecking Overloaded Quotes]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -925,7 +925,7 @@ runMeta' show_code ppr_hs run_and_convert expr
                 -- including, say, a pattern-match exception in the code we are running
                 --
                 -- We also do the TH -> HS syntax conversion inside the same
-                -- exception-cacthing thing so that if there are any lurking
+                -- exception-catching thing so that if there are any lurking
                 -- exceptions in the data structure returned by hval, we'll
                 -- encounter them inside the try
                 --
@@ -1034,7 +1034,7 @@ like that.  Here's how it's processed:
 
  * 'qReport' forces the message to ensure any exception hidden in unevaluated
    thunk doesn't get into the bag of errors. Otherwise the following splice
-   will triger panic (#8987):
+   will trigger panic (#8987):
         $(fail undefined)
    See also Note [Concealed TH exceptions]
 

@@ -8,7 +8,7 @@ Utility functions on @Core@ syntax
 
 {-# LANGUAGE CPP #-}
 
--- | Commonly useful utilites for manipulating the Core language
+-- | Commonly useful utilities for manipulating the Core language
 module CoreUtils (
         -- * Constructing expressions
         mkCast,
@@ -556,7 +556,7 @@ can be eliminated by expanding the synonym.
 
 Note [Binding coercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~
-Consider binding a CoVar, c = e.  Then, we must atisfy
+Consider binding a CoVar, c = e.  Then, we must satisfy
 Note [CoreSyn type and coercion invariant] in CoreSyn,
 which allows only (Coercion co) on the RHS.
 
@@ -613,7 +613,7 @@ that cannot match.  For example:
 
 Suppose that for some silly reason, x isn't substituted in the case
 expression.  (Perhaps there's a NOINLINE on it, or profiling SCC stuff
-gets in the way; cf #3118.)  Then the full-lazines pass might produce
+gets in the way; cf #3118.)  Then the full-laziness pass might produce
 this
 
      x = Red
@@ -1639,7 +1639,7 @@ app_ok primop_ok fun args
 
 -----------------------------
 altsAreExhaustive :: [Alt b] -> Bool
--- True  <=> the case alternatives are definiely exhaustive
+-- True  <=> the case alternatives are definitely exhaustive
 -- False <=> they may or may not be
 altsAreExhaustive []
   = False    -- Should not happen
