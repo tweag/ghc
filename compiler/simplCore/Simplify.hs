@@ -47,7 +47,7 @@ import BasicTypes       ( TopLevelFlag(..), isNotTopLevel, isTopLevel,
                           RecFlag(..), Arity )
 import MonadUtils       ( mapAccumLM, liftIO )
 import Var              ( isTyCoVar )
-import Maybes           (  orElse )
+import Maybes           ( orElse, fromMaybe )
 import Control.Monad
 import Outputable
 import FastString
@@ -354,7 +354,8 @@ simplJoinBind env cont old_bndr new_bndr rhs rhs_se
   = do  { let rhs_env = rhs_se `setInScopeFromE` env
         ; rhs' <- simplJoinRhs rhs_env old_bndr rhs cont
         ; let mult = contHoleScaling cont
-              Just arity = isJoinIdDetails_maybe (idDetails new_bndr)
+              arity = fromMaybe (pprPanic "simplJoinBind" (ppr new_bndr)) $
+                       isJoinIdDetails_maybe (idDetails new_bndr)
               new_type = scaleJoinPointType mult arity (varType new_bndr)
               new_bndr' = setIdType new_bndr new_type
         ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr' rhs' }

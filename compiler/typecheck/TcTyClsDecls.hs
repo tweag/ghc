@@ -827,9 +827,9 @@ swizzleTcTyConBndrs tc_infos
     swizzle_var :: Var -> Var
     swizzle_var v
       | Just nm <- lookupVarEnv swizzle_env v
-      = updateVarType swizzle_ty (v `setVarName` nm)
+      = updateVarTypeAndMult swizzle_ty (v `setVarName` nm)
       | otherwise
-      = updateVarType swizzle_ty v
+      = updateVarTypeAndMult swizzle_ty v
 
     swizzle_ty ty = runIdentity (mapType swizzleMapper () ty)
 
