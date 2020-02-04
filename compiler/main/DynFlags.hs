@@ -1342,12 +1342,15 @@ parseCfgWeights s oldWeights =
             = [s1]
             | (s1,rest) <- break (== ',') s
             = [s1] ++ settings (drop 1 rest)
+#if __GLASGOW_HASKELL__ <= 810
             | otherwise = panic $ "Invalid cfg parameters." ++ exampleString
+#endif
         assignment as
             | (name, _:val) <- break (== '=') as
             = (name,read val)
             | otherwise
             = panic $ "Invalid cfg parameters." ++ exampleString
+
         exampleString = "Example parameters: uncondWeight=1000," ++
             "condBranchWeight=800,switchWeight=0,callWeight=300" ++
             ",likelyCondWeight=900,unlikelyCondWeight=300" ++
@@ -1954,7 +1957,7 @@ defaultDynFlags mySettings llvmConfig =
         maxRefHoleFits     = Just 6,
         refLevelHoleFits   = Nothing,
         maxUncoveredPatterns    = 4,
-        maxPmCheckModels        = 100,
+        maxPmCheckModels        = 30,
         simplTickFactor         = 100,
         specConstrThreshold     = Just 2000,
         specConstrCount         = Just 3,
@@ -3023,8 +3026,6 @@ dynamic_flags_deps = [
     ------- ways ---------------------------------------------------------------
   , make_ord_flag defGhcFlag "prof"           (NoArg (addWay WayProf))
   , make_ord_flag defGhcFlag "eventlog"       (NoArg (addWay WayEventLog))
-  , make_dep_flag defGhcFlag "smp"
-      (NoArg $ addWay WayThreaded) "Use -threaded instead"
   , make_ord_flag defGhcFlag "debug"          (NoArg (addWay WayDebug))
   , make_ord_flag defGhcFlag "threaded"       (NoArg (addWay WayThreaded))
 
