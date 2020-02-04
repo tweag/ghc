@@ -20,10 +20,10 @@ import Instruction
 import NCGMonad
 import CFG
 
-import BlockId
-import Cmm
-import Hoopl.Collections
-import Hoopl.Label
+import GHC.Cmm.BlockId
+import GHC.Cmm
+import GHC.Cmm.Dataflow.Collections
+import GHC.Cmm.Dataflow.Label
 
 import DynFlags (gopt, GeneralFlag(..), DynFlags, backendMaintainsCfg)
 import UniqFM
@@ -35,7 +35,7 @@ import Outputable
 import Maybes
 
 -- DEBUGGING ONLY
---import Debug
+--import GHC.Cmm.DebugBlock
 --import Debug.Trace
 import ListSetOps (removeDups)
 
@@ -342,7 +342,7 @@ takeL n (BlockChain blks) =
 -- We have the chains (A-B-C-D) and (E-F) and an Edge C->E.
 --
 -- While placing the latter after the former doesn't result in sequential
--- control flow it is still benefical. As block C and E might end
+-- control flow it is still beneficial. As block C and E might end
 -- up in the same cache line.
 --
 -- So we place these chains next to each other even if we can't fuse them.
@@ -718,8 +718,10 @@ sequenceChain  info weights'     blocks@((BasicBlock entry _):_) =
             = [masterChain]
             | (rest,entry) <- breakChainAt entry masterChain
             = [entry,rest]
+#if __GLASGOW_HASKELL__ <= 810
             | otherwise = pprPanic "Entry point eliminated" $
                             ppr masterChain
+#endif
 
         blockList
             = ASSERT(noDups [masterChain])
@@ -740,7 +742,7 @@ sequenceChain  info weights'     blocks@((BasicBlock entry _):_) =
             --pprTraceIt "placedBlocks" $
             -- ++ [] is stil kinda expensive
             if null unplaced then blockList else blockList ++ unplaced
-        getBlock bid = expectJust "Block placment" $ mapLookup bid blockMap
+        getBlock bid = expectJust "Block placement" $ mapLookup bid blockMap
     in
         --Assert we placed all blocks given as input
         ASSERT(all (\bid -> mapMember bid blockMap) placedBlocks)

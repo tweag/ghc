@@ -33,8 +33,7 @@ import DataCon
 import CostCentre
 import VarEnv
 import Module
-import Name             ( isExternalName, nameOccName, nameModule_maybe )
-import OccName          ( occNameFS )
+import Name             ( isExternalName, nameModule_maybe )
 import BasicTypes       ( Arity )
 import TysWiredIn       ( unboxedUnitDataCon, unitDataConId )
 import Literal
@@ -268,7 +267,6 @@ coreTopBindToStg dflags this_mod env ccs (NonRec id rhs)
 
         bind = StgTopLifted $ StgNonRec id stg_rhs
     in
-    assertConsistentCafInfo dflags id bind (ppr bind)
       -- NB: previously the assertion printed 'rhs' and 'bind'
       --     as well as 'id', but that led to a black hole
       --     where printing the assertion error tripped the
@@ -296,33 +294,7 @@ coreTopBindToStg dflags this_mod env ccs (Rec pairs)
 
         bind = StgTopLifted $ StgRec (zip binders stg_rhss)
     in
-    assertConsistentCafInfo dflags (head binders) bind (ppr binders)
     (env', ccs', bind)
-
--- | CAF consistency issues will generally result in segfaults and are quite
--- difficult to debug (see #16846). We enable checking of the
--- 'consistentCafInfo' invariant with @-dstg-lint@ to increase the chance that
--- we catch these issues.
-assertConsistentCafInfo :: DynFlags -> Id -> StgTopBinding -> SDoc -> a -> a
-assertConsistentCafInfo dflags id bind err_doc result
-  | gopt Opt_DoStgLinting dflags || debugIsOn
-  , not $ consistentCafInfo id bind = pprPanic "assertConsistentCafInfo" err_doc
-  | otherwise = result
-
--- Assertion helper: this checks that the CafInfo on the Id matches
--- what CoreToStg has figured out about the binding's SRT.  The
--- CafInfo will be exact in all cases except when CorePrep has
--- floated out a binding, in which case it will be approximate.
-consistentCafInfo :: Id -> StgTopBinding -> Bool
-consistentCafInfo id bind
-  = WARN( not (exact || is_sat_thing) , ppr id <+> ppr id_marked_caffy <+> ppr binding_is_caffy )
-    safe
-  where
-    safe  = id_marked_caffy || not binding_is_caffy
-    exact = id_marked_caffy == binding_is_caffy
-    id_marked_caffy  = mayHaveCafRefs (idCafInfo id)
-    binding_is_caffy = topStgBindHasCafRefs bind
-    is_sat_thing = occNameFS (nameOccName (idName id)) == fsLit "sat"
 
 coreToTopStgRhs
         :: DynFlags
@@ -723,7 +695,7 @@ mkTopStgRhs dflags this_mod ccs bndr rhs
     (_, all_cafs_ccs) = getAllCAFsCC this_mod
 
 -- Generate a non-top-level RHS. Cost-centre is always currentCCS,
--- see Note [Cost-centre initialzation plan].
+-- see Note [Cost-centre initialization plan].
 mkStgRhs :: Id -> StgExpr -> StgRhs
 mkStgRhs bndr rhs
   | StgLam bndrs body <- rhs
@@ -837,7 +809,7 @@ data LetInfo
 -- For a let(rec)-bound variable, x, we record LiveInfo, the set of
 -- variables that are live if x is live.  This LiveInfo comprises
 --         (a) dynamic live variables (ones with a non-top-level binding)
---         (b) static live variabes (CAFs or things that refer to CAFs)
+--         (b) static live variables (CAFs or things that refer to CAFs)
 --
 -- For "normal" variables (a) is just x alone.  If x is a let-no-escaped
 -- variable then x is represented by a code pointer and a stack pointer

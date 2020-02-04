@@ -16,6 +16,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 -- | Abstract Haskell syntax for expressions.
 module GHC.Hs.Expr where
 
@@ -180,7 +182,7 @@ This is Less Cool than what we normally do for rebindable syntax, which is to
 make fully-instantiated piece of evidence at every use site.  The Cmd way
 is Less Cool because
   * The renamer has to predict which methods are needed.
-    See the tedious RnExpr.methodNamesCmd.
+    See the tedious GHC.Rename.Expr.methodNamesCmd.
 
   * The desugarer has to know the polymorphic type of the instantiated
     method. This is checked by Inst.tcSyntaxName, but is less flexible
@@ -452,6 +454,8 @@ data HsExpr p
 
   | HsTcBracketOut
       (XTcBracketOut p)
+      (Maybe QuoteWrapper) -- The wrapper to apply type and dictionary argument
+                           -- to the quote.
       (HsBracket GhcRn)    -- Output of the type checker is the *original*
                            -- renamed expression, plus
       [PendingTcSplice]    -- _typechecked_ splices to be
@@ -1007,8 +1011,8 @@ ppr_expr (HsSpliceE _ s)         = pprSplice s
 ppr_expr (HsBracket _ b)         = pprHsBracket b
 ppr_expr (HsRnBracketOut _ e []) = ppr e
 ppr_expr (HsRnBracketOut _ e ps) = ppr e $$ text "pending(rn)" <+> ppr ps
-ppr_expr (HsTcBracketOut _ e []) = ppr e
-ppr_expr (HsTcBracketOut _ e ps) = ppr e $$ text "pending(tc)" <+> ppr ps
+ppr_expr (HsTcBracketOut _ _wrap e []) = ppr e
+ppr_expr (HsTcBracketOut _ _wrap e ps) = ppr e $$ text "pending(tc)" <+> ppr ps
 
 ppr_expr (HsProc _ pat (L _ (HsCmdTop _ cmd)))
   = hsep [text "proc", ppr pat, ptext (sLit "->"), ppr cmd]
@@ -1749,7 +1753,7 @@ type GhciStmt   id = Stmt  id (LHsExpr id)
 -- For details on above see note [Api annotations] in ApiAnnotation
 data StmtLR idL idR body -- body should always be (LHs**** idR)
   = LastStmt  -- Always the last Stmt in ListComp, MonadComp,
-              -- and (after the renamer, see RnExpr.checkLastStmt) DoExpr, MDoExpr
+              -- and (after the renamer, see GHC.Rename.Expr.checkLastStmt) DoExpr, MDoExpr
               -- Not used for GhciStmtCtxt, PatGuard, which scope over other stuff
           (XLastStmt idL idR body)
           body
@@ -1778,7 +1782,7 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
   -- appropriate applicative expression by the desugarer, but it is intended
   -- to be invisible in error messages.
   --
-  -- For full details, see Note [ApplicativeDo] in RnExpr
+  -- For full details, see Note [ApplicativeDo] in GHC.Rename.Expr
   --
   | ApplicativeStmt
              (XApplicativeStmt idL idR body) -- Post typecheck, Type of the body
@@ -2299,7 +2303,7 @@ data HsSplice id
 
    -- AZ:TODO: use XSplice instead of HsSpliced
    | HsSpliced  -- See Note [Delaying modFinalizers in untyped splices] in
-                -- RnSplice.
+                -- GHC.Rename.Splice.
                 -- This is the result of splicing a splice. It is produced by
                 -- the renamer and consumed by the typechecker. It lives only
                 -- between the two.
@@ -2335,7 +2339,7 @@ isTypedSplice _                  = False   -- Quasi-quotes are untyped splices
 -- | Finalizers produced by a splice with
 -- 'Language.Haskell.TH.Syntax.addModFinalizer'
 --
--- See Note [Delaying modFinalizers in untyped splices] in RnSplice. For how
+-- See Note [Delaying modFinalizers in untyped splices] in GHC.Rename.Splice. For how
 -- this is used.
 --
 newtype ThModFinalizers = ThModFinalizers [ForeignRef (TH.Q ())]
@@ -2423,11 +2427,11 @@ distinguished by their UntypedSpliceFlavour
    UntypedExpSplice is also used for
      * quasi-quotes, where the pending expression expands to
           $(quoter "...blah...")
-       (see RnSplice.makePending, HsQuasiQuote case)
+       (see GHC.Rename.Splice.makePending, HsQuasiQuote case)
 
      * cross-stage lifting, where the pending expression expands to
           $(lift x)
-       (see RnSplice.checkCrossStageLifting)
+       (see GHC.Rename.Splice.checkCrossStageLifting)
 
  * Pending pattern splices (UntypedPatSplice), e.g.,
        [| \$(f x) -> x |]

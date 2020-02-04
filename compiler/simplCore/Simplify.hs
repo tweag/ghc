@@ -6,6 +6,7 @@
 
 {-# LANGUAGE CPP #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 module Simplify ( simplTopBinds, simplExpr, simplRules ) where
 
 #include "HsVersions.h"
@@ -46,7 +47,7 @@ import BasicTypes       ( TopLevelFlag(..), isNotTopLevel, isTopLevel,
                           RecFlag(..), Arity )
 import MonadUtils       ( mapAccumLM, liftIO )
 import Var              ( isTyCoVar )
-import Maybes           (  orElse )
+import Maybes           ( orElse, fromMaybe )
 import Control.Monad
 import Outputable
 import FastString
@@ -353,7 +354,8 @@ simplJoinBind env cont old_bndr new_bndr rhs rhs_se
   = do  { let rhs_env = rhs_se `setInScopeFromE` env
         ; rhs' <- simplJoinRhs rhs_env old_bndr rhs cont
         ; let mult = contHoleScaling cont
-              Just arity = isJoinIdDetails_maybe (idDetails new_bndr)
+              arity = fromMaybe (pprPanic "simplJoinBind" (ppr new_bndr)) $
+                       isJoinIdDetails_maybe (idDetails new_bndr)
               new_type = scaleJoinPointType mult arity (varType new_bndr)
               new_bndr' = setIdType new_bndr new_type
         ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr' rhs' }
@@ -1755,8 +1757,8 @@ case-of-case we may then end up with this totally bogus result
              C -> e) of <outer-alts>
 
 This would be OK in the language of the paper, but not in GHC: j is no longer
-a join point.  We can only do the "push contination into the RHS of the
-join point j" if we also push the contination right down to the /jumps/ to
+a join point.  We can only do the "push continuation into the RHS of the
+join point j" if we also push the continuation right down to the /jumps/ to
 j, so that it can evaporate there.  If we are doing case-of-case, we'll get to
 
     join x = case <j-rhs> of <outer-alts> in
@@ -2321,7 +2323,7 @@ Note that SimplUtils.mkCase combines identical RHSs.  So
            True  -> r
            False -> r
 
-Now again the case may be elminated by the CaseElim transformation.
+Now again the case may be eliminated by the CaseElim transformation.
 This includes things like (==# a# b#)::Bool so that we simplify
       case ==# a# b# of { True -> x; False -> x }
 to just

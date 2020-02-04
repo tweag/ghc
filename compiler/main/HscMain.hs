@@ -73,12 +73,12 @@ module HscMain
     -- * Low-level exports for hooks
     , hscCompileCoreExpr'
       -- We want to make sure that we export enough to be able to redefine
-      -- hscFileFrontEnd in client code
+      -- hsc_typecheck in client code
     , hscParse', hscSimplify', hscDesugar', tcRnModule', doCodeGen
     , getHscEnv
     , hscSimpleIface'
     , oneShotMsg
-    , hscFileFrontEnd, genericHscFrontend, dumpIfaceStats
+    , dumpIfaceStats
     , ioMsgMaybe
     , showModuleIndex
     , hscAddSptEntries
@@ -133,11 +133,12 @@ import CostCentre
 import ProfInit
 import TyCon
 import Name
-import Cmm
-import CmmParse         ( parseCmmFile )
-import CmmBuildInfoTables
-import CmmPipeline
-import CmmInfo
+import NameSet
+import GHC.Cmm
+import GHC.Cmm.Parser         ( parseCmmFile )
+import GHC.Cmm.Info.Build
+import GHC.Cmm.Pipeline
+import GHC.Cmm.Info
 import CodeOutput
 import InstEnv
 import FamInstEnv
@@ -173,6 +174,7 @@ import System.IO (fixIO)
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Set (Set)
+import Data.Functor
 import Control.DeepSeq (force)
 
 import GHC.Iface.Ext.Ast    ( mkHieFile )
@@ -450,23 +452,17 @@ extract_renamed_stuff mod_summary tc_result = do
 -- | Rename and typecheck a module, additionally returning the renamed syntax
 hscTypecheckRename :: HscEnv -> ModSummary -> HsParsedModule
                    -> IO (TcGblEnv, RenamedStuff)
-hscTypecheckRename hsc_env mod_summary rdr_module = runHsc hsc_env $ do
-    tc_result <- hsc_typecheck True mod_summary (Just rdr_module)
-    rn_info <- extract_renamed_stuff mod_summary tc_result
-    return (tc_result, rn_info)
+hscTypecheckRename hsc_env mod_summary rdr_module = runHsc hsc_env $
+    hsc_typecheck True mod_summary (Just rdr_module)
 
--- | Rename and typecheck a module, but don't return the renamed syntax
-hscTypecheck :: Bool -- ^ Keep renamed source?
-             -> ModSummary -> Maybe HsParsedModule
-             -> Hsc TcGblEnv
-hscTypecheck keep_rn mod_summary mb_rdr_module = do
-    tc_result <- hsc_typecheck keep_rn mod_summary mb_rdr_module
-    _ <- extract_renamed_stuff mod_summary tc_result
-    return tc_result
 
+-- | A bunch of logic piled around around @tcRnModule'@, concerning a) backpack
+-- b) concerning dumping rename info and hie files. It would be nice to further
+-- separate this stuff out, probably in conjunction better separating renaming
+-- and type checking (#17781).
 hsc_typecheck :: Bool -- ^ Keep renamed source?
               -> ModSummary -> Maybe HsParsedModule
-              -> Hsc TcGblEnv
+              -> Hsc (TcGblEnv, RenamedStuff)
 hsc_typecheck keep_rn mod_summary mb_rdr_module = do
     hsc_env <- getHscEnv
     let hsc_src = ms_hsc_src mod_summary
@@ -479,7 +475,7 @@ hsc_typecheck keep_rn mod_summary mb_rdr_module = do
         real_loc = realSrcLocSpan $ mkRealSrcLoc (mkFastString src_filename) 1 1
         keep_rn' = gopt Opt_WriteHie dflags || keep_rn
     MASSERT( moduleUnitId outer_mod == thisPackage dflags )
-    if hsc_src == HsigFile && not (isHoleModule inner_mod)
+    tc_result <- if hsc_src == HsigFile && not (isHoleModule inner_mod)
         then ioMsgMaybe $ tcRnInstantiateSignature hsc_env outer_mod' real_loc
         else
          do hpm <- case mb_rdr_module of
@@ -491,6 +487,10 @@ hsc_typecheck keep_rn mod_summary mb_rdr_module = do
                         ioMsgMaybe $
                             tcRnMergeSignatures hsc_env hpm tc_result0 iface
                 else return tc_result0
+    -- TODO are we extracting anything when we merely instantiate a signature?
+    -- If not, try to move this into the "else" case above.
+    rn_info <- extract_renamed_stuff mod_summary tc_result
+    return (tc_result, rn_info)
 
 -- wrapper around tcRnModule to handle safe haskell extras
 tcRnModule' :: ModSummary -> Bool -> HsParsedModule
@@ -654,8 +654,8 @@ hscIncrementalFrontend
 
         compile mb_old_hash reason = do
             liftIO $ msg reason
-            result <- genericHscFrontend mod_summary
-            return $ Right (result, mb_old_hash)
+            (tc_result, _) <- hsc_typecheck False mod_summary Nothing
+            return $ Right (FrontendTypecheck tc_result, mb_old_hash)
 
         stable = case source_modified of
                      SourceUnmodifiedAndStable -> True
@@ -701,14 +701,6 @@ hscIncrementalFrontend
                     Nothing -> compile mb_old_hash recomp_reqd
                     Just tc_result ->
                         return $ Right (FrontendTypecheck tc_result, mb_old_hash)
-
-genericHscFrontend :: ModSummary -> Hsc FrontendResult
-genericHscFrontend mod_summary =
-  getHooked hscFrontendHook genericHscFrontend' >>= ($ mod_summary)
-
-genericHscFrontend' :: ModSummary -> Hsc FrontendResult
-genericHscFrontend' mod_summary
-    = FrontendTypecheck `fmap` hscFileFrontEnd mod_summary
 
 --------------------------------------------------------------
 -- Compilers
@@ -798,10 +790,45 @@ finish summary tc_result mb_old_hash = do
   let dflags = hsc_dflags hsc_env
       target = hscTarget dflags
       hsc_src = ms_hsc_src summary
-      should_desugar =
-        ms_mod summary /= gHC_PRIM && hsc_src == HsSrcFile
-      mk_simple_iface :: Hsc HscStatus
-      mk_simple_iface = do
+
+  -- Desugar, if appropriate
+  --
+  -- We usually desugar even when we are not generating code, otherwise we
+  -- would miss errors thrown by the desugaring (see #10600). The only
+  -- exceptions are when the Module is Ghc.Prim or when it is not a
+  -- HsSrcFile Module.
+  mb_desugar <-
+      if ms_mod summary /= gHC_PRIM && hsc_src == HsSrcFile
+      then Just <$> hscDesugar' (ms_location summary) tc_result
+      else pure Nothing
+
+  -- Simplify, if appropriate, and (whether we simplified or not) generate an
+  -- interface file.
+  case mb_desugar of
+      -- Just cause we desugared doesn't mean we are generating code, see above.
+      Just desugared_guts | target /= HscNothing -> do
+          plugins <- liftIO $ readIORef (tcg_th_coreplugins tc_result)
+          simplified_guts <- hscSimplify' plugins desugared_guts
+
+          (cg_guts, details) <- {-# SCC "CoreTidy" #-}
+              liftIO $ tidyProgram hsc_env simplified_guts
+
+          let !partial_iface =
+                {-# SCC "HscMain.mkPartialIface" #-}
+                -- This `force` saves 2M residency in test T10370
+                -- See Note [Avoiding space leaks in toIface*] for details.
+                force (mkPartialIface hsc_env details simplified_guts)
+
+          return HscRecomp { hscs_guts = cg_guts,
+                             hscs_mod_location = ms_location summary,
+                             hscs_mod_details = details,
+                             hscs_partial_iface = partial_iface,
+                             hscs_old_iface_hash = mb_old_hash,
+                             hscs_iface_dflags = dflags }
+
+      -- We are not generating code, so we can skip simplification
+      -- and generate a simple interface.
+      _ -> do
         (iface, mb_old_iface_hash, details) <- liftIO $
           hscSimpleIface hsc_env tc_result mb_old_hash
 
@@ -812,39 +839,6 @@ finish summary tc_result mb_old_hash = do
           (_, HsBootFile) -> HscUpdateBoot iface details
           (_, HsigFile) -> HscUpdateSig iface details
           _ -> panic "finish"
-
-  if should_desugar
-    then do
-      -- We usually desugar even when we are not generating code, otherwise we
-      -- would miss errors thrown by the desugaring (see #10600). The only
-      -- exceptions are when the Module is Ghc.Prim or when it is not a
-      -- HsSrcFile Module.
-      desugared_guts0 <- hscDesugar' (ms_location summary) tc_result
-      if target == HscNothing
-        -- We are not generating code, so we can skip simplification
-        -- and generate a simple interface.
-        then mk_simple_iface
-        else do
-          plugins <- liftIO $ readIORef (tcg_th_coreplugins tc_result)
-          desugared_guts <- hscSimplify' plugins desugared_guts0
-
-          (cg_guts, details) <- {-# SCC "CoreTidy" #-}
-              liftIO $ tidyProgram hsc_env desugared_guts
-
-          let !partial_iface =
-                {-# SCC "HscMain.mkPartialIface" #-}
-                -- This `force` saves 2M residency in test T10370
-                -- See Note [Avoiding space leaks in toIface*] for details.
-                force (mkPartialIface hsc_env details desugared_guts)
-
-          return HscRecomp { hscs_guts = cg_guts,
-                             hscs_mod_location = ms_location summary,
-                             hscs_mod_details = details,
-                             hscs_partial_iface = partial_iface,
-                             hscs_old_iface_hash = mb_old_hash,
-                             hscs_iface_dflags = dflags }
-    else mk_simple_iface
-
 
 {-
 Note [Writing interface files]
@@ -914,15 +908,6 @@ batchMsg hsc_env mod_index recomp mod_summary =
             msg ++ showModMsg dflags (hscTarget dflags)
                               (recompileRequired recomp) mod_summary)
                 ++ reason
-
---------------------------------------------------------------
--- FrontEnds
---------------------------------------------------------------
-
--- | Given a 'ModSummary', parses and typechecks it, returning the
--- 'TcGblEnv' resulting from type-checking.
-hscFileFrontEnd :: ModSummary -> Hsc TcGblEnv
-hscFileFrontEnd mod_summary = hscTypecheck False mod_summary Nothing
 
 --------------------------------------------------------------
 -- Safe Haskell
@@ -1017,9 +1002,10 @@ hscCheckSafeImports tcg_env = do
 --
 -- The code for this is quite tricky as the whole algorithm is done in a few
 -- distinct phases in different parts of the code base. See
--- RnNames.rnImportDecl for where package trust dependencies for a module are
--- collected and unioned.  Specifically see the Note [RnNames . Tracking Trust
--- Transitively] and the Note [RnNames . Trust Own Package].
+-- GHC.Rename.Names.rnImportDecl for where package trust dependencies for a
+-- module are collected and unioned.  Specifically see the Note [Tracking Trust
+-- Transitively] in GHC.Rename.Names and the Note [Trust Own Package] in
+-- GHC.Rename.Names.
 checkSafeImports :: TcGblEnv -> Hsc TcGblEnv
 checkSafeImports tcg_env
     = do
@@ -1404,7 +1390,7 @@ hscWriteIface dflags iface no_change mod_location = do
 
 -- | Compile to hard-code.
 hscGenHardCode :: HscEnv -> CgGuts -> ModLocation -> FilePath
-               -> IO (FilePath, Maybe FilePath, [(ForeignSrcLang, FilePath)])
+               -> IO (FilePath, Maybe FilePath, [(ForeignSrcLang, FilePath)], NameSet)
                -- ^ @Just f@ <=> _stub.c is f
 hscGenHardCode hsc_env cgguts location output_filename = do
         let CgGuts{ -- This is the last use of the ModGuts in a compilation.
@@ -1463,11 +1449,11 @@ hscGenHardCode hsc_env cgguts location output_filename = do
                   return a
                 rawcmms1 = Stream.mapM dump rawcmms0
 
-            (output_filename, (_stub_h_exists, stub_c_exists), foreign_fps, ())
+            (output_filename, (_stub_h_exists, stub_c_exists), foreign_fps, caf_infos)
                 <- {-# SCC "codeOutput" #-}
                   codeOutput dflags this_mod output_filename location
                   foreign_stubs foreign_files dependencies rawcmms1
-            return (output_filename, stub_c_exists, foreign_fps)
+            return (output_filename, stub_c_exists, foreign_fps, caf_infos)
 
 
 hscInteractive :: HscEnv
@@ -1513,7 +1499,16 @@ hscCompileCmmFile hsc_env filename output_filename = runHsc hsc_env $ do
             -- lest we reproduce #11784.
             mod_name = mkModuleName $ "Cmm$" ++ FilePath.takeFileName filename
             cmm_mod = mkModule (thisPackage dflags) mod_name
-        (_, cmmgroup) <- cmmPipeline hsc_env (emptySRT cmm_mod) cmm
+
+        -- Compile decls in Cmm files one decl at a time, to avoid re-ordering
+        -- them in SRT analysis.
+        --
+        -- Re-ordering here causes breakage when booting with C backend because
+        -- in C we must declare before use, but SRT algorithm is free to
+        -- re-order [A, B] (B refers to A) when A is not CAFFY and return [B, A]
+        cmmgroup <-
+          concatMapM (\cmm -> snd <$> cmmPipeline hsc_env (emptySRT cmm_mod) [cmm]) cmm
+
         unless (null cmmgroup) $
           dumpIfSet_dyn dflags Opt_D_dump_cmm "Output Cmm"
             FormatCMM (ppr cmmgroup)
@@ -1530,11 +1525,29 @@ hscCompileCmmFile hsc_env filename output_filename = runHsc hsc_env $ do
 
 -------------------- Stuff for new code gen ---------------------
 
+{-
+Note [Forcing of stg_binds]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The two last steps in the STG pipeline are:
+
+* Sorting the bindings in dependency order.
+* Annotating them with free variables.
+
+We want to make sure we do not keep references to unannotated STG bindings
+alive, nor references to bindings which have already been compiled to Cmm.
+
+We explicitly force the bindings to avoid this.
+
+This reduces residency towards the end of the CodeGen phase significantly
+(5-10%).
+-}
+
 doCodeGen   :: HscEnv -> Module -> [TyCon]
             -> CollectedCCs
             -> [StgTopBinding]
             -> HpcInfo
-            -> IO (Stream IO CmmGroup ())
+            -> IO (Stream IO CmmGroupSRTs NameSet)
          -- Note we produce a 'Stream' of CmmGroups, so that the
          -- backend can be run incrementally.  Otherwise it generates all
          -- the C-- up front, which has a significant space cost.
@@ -1545,7 +1558,8 @@ doCodeGen hsc_env this_mod data_tycons
     let stg_binds_w_fvs = annTopBindingsFreeVars stg_binds
 
     let cmm_stream :: Stream IO CmmGroup ()
-        cmm_stream = {-# SCC "StgToCmm" #-}
+        -- See Note [Forcing of stg_binds]
+        cmm_stream = stg_binds_w_fvs `seqList` {-# SCC "StgToCmm" #-}
             lookupHook stgToCmmHook StgToCmm.codeGen dflags dflags this_mod data_tycons
                            cost_centre_info stg_binds_w_fvs hpc_info
 
@@ -1564,18 +1578,15 @@ doCodeGen hsc_env this_mod data_tycons
 
         pipeline_stream =
           {-# SCC "cmmPipeline" #-}
-          let run_pipeline = cmmPipeline hsc_env
-          in void $ Stream.mapAccumL run_pipeline (emptySRT this_mod) ppr_stream1
+          Stream.mapAccumL (cmmPipeline hsc_env) (emptySRT this_mod) ppr_stream1
+            <&> (srtMapNonCAFs . moduleSRTMap)
 
         dump2 a = do
           unless (null a) $
             dumpIfSet_dyn dflags Opt_D_dump_cmm "Output Cmm" FormatCMM (ppr a)
           return a
 
-        ppr_stream2 = Stream.mapM dump2 pipeline_stream
-
-    return ppr_stream2
-
+    return (Stream.mapM dump2 pipeline_stream)
 
 
 myCoreToStg :: DynFlags -> Module -> CoreProgram

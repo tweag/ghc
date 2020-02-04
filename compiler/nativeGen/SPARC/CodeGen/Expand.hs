@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 -- | Expand out synthetic instructions into single machine instrs.
 module SPARC.CodeGen.Expand (
         expandTop
@@ -14,14 +16,14 @@ import SPARC.Regs
 import Instruction
 import Reg
 import Format
-import Cmm
+import GHC.Cmm
 
 
 import Outputable
 import OrdList
 
 -- | Expand out synthetic instructions in this top level thing
-expandTop :: NatCmmDecl CmmStatics Instr -> NatCmmDecl CmmStatics Instr
+expandTop :: NatCmmDecl RawCmmStatics Instr -> NatCmmDecl RawCmmStatics Instr
 expandTop top@(CmmData{})
         = top
 

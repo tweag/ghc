@@ -61,6 +61,8 @@
 -}
 
 {-# LANGUAGE CPP, MultiWayIf, PatternSynonyms #-}
+
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module SetLevels (
         setLevels,
 
@@ -579,7 +581,7 @@ After floating we may have:
       {- some expression involving x and z -}
 
 When analysing <body involving...> we want to use the /ambient/ level,
-and /not/ the desitnation level of the 'case a of (x,-) ->' binding.
+and /not/ the destination level of the 'case a of (x,-) ->' binding.
 
 #16978 was caused by us setting the context level to the destination
 level of `x` when analysing <body>. This led us to conclude that we
@@ -817,7 +819,7 @@ Here we may just as well produce
   f x = j x 0
 
 and now there is a chance that 'f' will be inlined at its call sites.
-It shouldn't make a lot of difference, but thes tests
+It shouldn't make a lot of difference, but these tests
   perf/should_run/MethSharing
   simplCore/should_compile/spec-inline
 and one nofib program, all improve if you do float to top, because
@@ -825,7 +827,7 @@ of the resulting inlining of f.  So ok, let's do it.
 
 Note [Free join points]
 ~~~~~~~~~~~~~~~~~~~~~~~
-We never float a MFE that has a free join-point variable.  You mght think
+We never float a MFE that has a free join-point variable.  You might think
 this can never occur.  After all, consider
      join j x = ...
      in ....(jump j x)....

@@ -11,6 +11,8 @@ Desugaring foreign declarations (see also DsCCall).
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module DsForeign ( dsForeigns ) where
 
 #include "HsVersions.h"
@@ -38,8 +40,8 @@ import Coercion
 import TcEnv
 import TcType
 
-import CmmExpr
-import CmmUtils
+import GHC.Cmm.Expr
+import GHC.Cmm.Utils
 import HscTypes
 import ForeignCall
 import TysWiredIn

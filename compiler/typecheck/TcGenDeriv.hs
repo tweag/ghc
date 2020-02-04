@@ -16,6 +16,8 @@ This is where we do all the grimy bindings' generation.
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module TcGenDeriv (
         BagDerivStuff, DerivStuff(..),
 
@@ -516,7 +518,7 @@ unliftedOrdOp ty op a b
    b_expr = nlHsVar b
 
 unliftedCompare :: RdrName -> RdrName
-                -> LHsExpr GhcPs -> LHsExpr GhcPs   -- What to cmpare
+                -> LHsExpr GhcPs -> LHsExpr GhcPs   -- What to compare
                 -> LHsExpr GhcPs -> LHsExpr GhcPs -> LHsExpr GhcPs
                                                     -- Three results
                 -> LHsExpr GhcPs

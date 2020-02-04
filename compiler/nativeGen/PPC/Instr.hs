@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 -----------------------------------------------------------------------------
 --
 -- Machine-dependent assembly language
@@ -33,14 +35,14 @@ import RegClass
 import Reg
 
 import GHC.Platform.Regs
-import BlockId
-import Hoopl.Collections
-import Hoopl.Label
+import GHC.Cmm.BlockId
+import GHC.Cmm.Dataflow.Collections
+import GHC.Cmm.Dataflow.Label
 import DynFlags
-import Cmm
-import CmmInfo
+import GHC.Cmm
+import GHC.Cmm.Info
 import FastString
-import CLabel
+import GHC.Cmm.CLabel
 import Outputable
 import GHC.Platform
 import UniqFM (listToUFM, lookupUFM)
@@ -188,7 +190,7 @@ data Instr
     -- some static data spat out during code
     -- generation.  Will be extracted before
     -- pretty-printing.
-    | LDATA   Section CmmStatics
+    | LDATA   Section RawCmmStatics
 
     -- start a new basic block.  Useful during
     -- codegen, removed later.  Preceding
@@ -680,7 +682,7 @@ ppc_takeRegRegMoveInstr _  = Nothing
 -- big, we have to work around this limitation.
 
 makeFarBranches
-        :: LabelMap CmmStatics
+        :: LabelMap RawCmmStatics
         -> [NatBasicBlock Instr]
         -> [NatBasicBlock Instr]
 makeFarBranches info_env blocks

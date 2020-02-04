@@ -7,6 +7,9 @@ The datatypes here are mainly used for error message generation.
 
 {-# LANGUAGE CPP #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+
 module TcOrigin (
   -- UserTypeCtxt
   UserTypeCtxt(..), pprUserTypeCtxt, isSigMaybe,
@@ -432,6 +435,7 @@ data CtOrigin
   | HoleOrigin
   | UnboundOccurrenceOf OccName
   | ListOrigin          -- An overloaded list
+  | BracketOrigin       -- An overloaded quotation bracket
   | StaticOrigin        -- A static form
   | FailablePattern (LPat GhcTcId) -- A failable pattern in do-notation for the
                                    -- MonadFail Proposal (MFP). Obsolete when
@@ -662,4 +666,5 @@ pprCtO ListOrigin            = text "an overloaded list"
 pprCtO StaticOrigin          = text "a static form"
 pprCtO NonLinearPatternOrigin = text "a non-linear pattern"
 pprCtO (UsageEnvironmentOf x) = hsep [text "multiplicity of", quotes (ppr x)]
+pprCtO BracketOrigin         = text "a quotation bracket"
 pprCtO _                     = panic "pprCtOrigin"

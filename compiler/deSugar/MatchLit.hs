@@ -9,6 +9,8 @@ Pattern-matching literal patterns
 {-# LANGUAGE CPP, ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module MatchLit ( dsLit, dsOverLit, hsLitKey
                 , tidyLitPat, tidyNPat
                 , matchLiterals, matchNPlusKPats, matchNPats
@@ -167,7 +169,7 @@ warnAboutOverflowedOverLit hsOverLit = do
   dflags <- getDynFlags
   warnAboutOverflowedLiterals dflags (getIntegralLit hsOverLit)
 
--- | Emit warnings on integral literals which overflow the boudns implied by
+-- | Emit warnings on integral literals which overflow the bounds implied by
 -- their type.
 warnAboutOverflowedLit :: HsLit GhcTc -> DsM ()
 warnAboutOverflowedLit hsLit = do

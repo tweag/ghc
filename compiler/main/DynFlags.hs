@@ -18,6 +18,7 @@
 {-# OPTIONS_GHC -fno-cse -O0 #-}
 -- TODO remove -O0 before merging
 -- -fno-cse is needed for GLOBAL_VAR's to behave properly
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 module DynFlags (
         -- * Dynamic flags and associated configuration types
@@ -55,7 +56,7 @@ module DynFlags (
         PackageFlag(..), PackageArg(..), ModRenaming(..),
         packageFlagsChanged,
         IgnorePackageFlag(..), TrustFlag(..),
-        PackageDBFlag(..), PkgConfRef(..),
+        PackageDBFlag(..), PkgDbRef(..),
         Option(..), showOpt,
         DynLibLoader(..),
         fFlags, fLangFlags, xFlags,
@@ -96,7 +97,7 @@ module DynFlags (
         sToolDir,
         sTopDir,
         sTmpDir,
-        sSystemPackageConfig,
+        sGlobalPackageDatabasePath,
         sLdSupportsCompactUnwind,
         sLdSupportsBuildId,
         sLdSupportsFilelist,
@@ -153,7 +154,7 @@ module DynFlags (
         programName, projectVersion,
         ghcUsagePath, ghciUsagePath, topDir, tmpDir,
         versionedAppDir, versionedFilePath,
-        extraGccViaCFlags, systemPackageConfig,
+        extraGccViaCFlags, globalPackageDatabasePath,
         pgm_L, pgm_P, pgm_F, pgm_c, pgm_a, pgm_l, pgm_dll, pgm_T,
         pgm_windres, pgm_libtool, pgm_ar, pgm_ranlib, pgm_lo, pgm_lc,
         pgm_lcc, pgm_i,
@@ -254,11 +255,10 @@ import GHC.Platform
 import GHC.UniqueSubdir (uniqueSubdir)
 import PlatformConstants
 import Module
-import PackageConfig
 import {-# SOURCE #-} Plugins
 import {-# SOURCE #-} Hooks
 import {-# SOURCE #-} PrelNames ( mAIN )
-import {-# SOURCE #-} Packages (PackageState, emptyPackageState)
+import {-# SOURCE #-} Packages (PackageState, emptyPackageState, PackageDatabase)
 import DriverPhases     ( Phase(..), phaseInputExt )
 import Config
 import CliOption
@@ -428,6 +428,7 @@ data DumpFlag
    | Opt_D_dump_cmm_split
    | Opt_D_dump_cmm_info
    | Opt_D_dump_cmm_cps
+   | Opt_D_dump_srts
    -- end cmm subflags
    | Opt_D_dump_cfg_weights -- ^ Dump the cfg used for block layout.
    | Opt_D_dump_asm
@@ -565,7 +566,7 @@ data GeneralFlag
    | Opt_RegsGraph                      -- do graph coloring register allocation
    | Opt_RegsIterative                  -- do iterative coalescing graph coloring register allocation
    | Opt_PedanticBottoms                -- Be picky about how we treat bottom
-   | Opt_LlvmTBAA                       -- Use LLVM TBAA infastructure for improving AA (hidden flag)
+   | Opt_LlvmTBAA                       -- Use LLVM TBAA infrastructure for improving AA (hidden flag)
    | Opt_LlvmFillUndefWithGarbage       -- Testing for undef bugs (hidden flag)
    | Opt_IrrefutableTuples
    | Opt_CmmSink
@@ -974,7 +975,7 @@ data DynFlags = DynFlags {
   rawSettings       :: [(String, String)],
 
   integerLibrary        :: IntegerLibrary,
-    -- ^ IntegerGMP or IntegerSimple. Set at configure time, but may be overriden
+    -- ^ IntegerGMP or IntegerSimple. Set at configure time, but may be overridden
     --   by GHC-API users. See Note [The integer library] in PrelNames
   llvmConfig            :: LlvmConfig,
     -- ^ N.B. It's important that this field is lazy since we load the LLVM
@@ -1108,7 +1109,7 @@ data DynFlags = DynFlags {
     -- they don't have to be loaded each time they are needed.  See
     -- 'DynamicLoading.initializePlugins'.
   staticPlugins            :: [StaticPlugin],
-    -- ^ staic plugins which do not need dynamic loading. These plugins are
+    -- ^ static plugins which do not need dynamic loading. These plugins are
     -- intended to be added by GHC API users directly to this list.
     --
     -- To add dynamically loaded plugins through the GHC API see
@@ -1147,11 +1148,23 @@ data DynFlags = DynFlags {
   packageEnv            :: Maybe FilePath,
         -- ^ Filepath to the package environment file (if overriding default)
 
-  -- Package state
-  -- NB. do not modify this field, it is calculated by
-  -- Packages.initPackages
-  pkgDatabase           :: Maybe [(FilePath, [PackageConfig])],
+  pkgDatabase           :: Maybe [PackageDatabase],
+        -- ^ Stack of package databases for the target platform.
+        --
+        -- A "package database" is a misleading name as it is really a Unit
+        -- database (cf Note [The identifier lexicon]).
+        --
+        -- This field is populated by `initPackages`.
+        --
+        -- 'Nothing' means the databases have never been read from disk. If
+        -- `initPackages` is called again, it doesn't reload the databases from
+        -- disk.
+
   pkgState              :: PackageState,
+        -- ^ Consolidated unit database built by 'initPackages' from the package
+        -- databases in 'pkgDatabase' and flags ('-ignore-package', etc.).
+        --
+        -- It also contains mapping from module names to actual Modules.
 
   -- Temporary files
   -- These have to be IORefs, because the defaultCleanupHandler needs to
@@ -1342,12 +1355,15 @@ parseCfgWeights s oldWeights =
             = [s1]
             | (s1,rest) <- break (== ',') s
             = [s1] ++ settings (drop 1 rest)
+#if __GLASGOW_HASKELL__ <= 810
             | otherwise = panic $ "Invalid cfg parameters." ++ exampleString
+#endif
         assignment as
             | (name, _:val) <- break (== '=') as
             = (name,read val)
             | otherwise
             = panic $ "Invalid cfg parameters." ++ exampleString
+
         exampleString = "Example parameters: uncondWeight=1000," ++
             "condBranchWeight=800,switchWeight=0,callWeight=300" ++
             ",likelyCondWeight=900,unlikelyCondWeight=300" ++
@@ -1438,8 +1454,8 @@ tmpDir                :: DynFlags -> String
 tmpDir dflags = fileSettings_tmpDir $ fileSettings dflags
 extraGccViaCFlags     :: DynFlags -> [String]
 extraGccViaCFlags dflags = toolSettings_extraGccViaCFlags $ toolSettings dflags
-systemPackageConfig   :: DynFlags -> FilePath
-systemPackageConfig dflags = fileSettings_systemPackageConfig $ fileSettings dflags
+globalPackageDatabasePath   :: DynFlags -> FilePath
+globalPackageDatabasePath dflags = fileSettings_globalPackageDatabase $ fileSettings dflags
 pgm_L                 :: DynFlags -> String
 pgm_L dflags = toolSettings_pgm_L $ toolSettings dflags
 pgm_P                 :: DynFlags -> (String,[Option])
@@ -1645,7 +1661,7 @@ data PackageFlag
   deriving (Eq) -- NB: equality instance is used by packageFlagsChanged
 
 data PackageDBFlag
-  = PackageDB PkgConfRef
+  = PackageDB PkgDbRef
   | NoUserPackageDB
   | NoGlobalPackageDB
   | ClearPackageDBs
@@ -1954,7 +1970,7 @@ defaultDynFlags mySettings llvmConfig =
         maxRefHoleFits     = Just 6,
         refLevelHoleFits   = Nothing,
         maxUncoveredPatterns    = 4,
-        maxPmCheckModels        = 100,
+        maxPmCheckModels        = 30,
         simplTickFactor         = 100,
         specConstrThreshold     = Just 2000,
         specConstrCount         = Just 3,
@@ -2031,7 +2047,6 @@ defaultDynFlags mySettings llvmConfig =
         trustFlags              = [],
         packageEnv              = Nothing,
         pkgDatabase             = Nothing,
-        -- This gets filled in with GHC.setSessionDynFlags
         pkgState                = emptyPackageState,
         ways                    = defaultWays mySettings,
         buildTag                = mkBuildTag (defaultWays mySettings),
@@ -3007,7 +3022,7 @@ dynamic_flags_deps = [
                  Nothing -> upd (\d -> d { parMakeCount = Nothing })))
                  -- When the number of parallel builds
                  -- is omitted, it is the same
-                 -- as specifing that the number of
+                 -- as specifying that the number of
                  -- parallel builds is equal to the
                  -- result of getNumProcessors
   , make_ord_flag defFlag "instantiated-with"   (sepArg setUnitIdInsts)
@@ -3023,8 +3038,6 @@ dynamic_flags_deps = [
     ------- ways ---------------------------------------------------------------
   , make_ord_flag defGhcFlag "prof"           (NoArg (addWay WayProf))
   , make_ord_flag defGhcFlag "eventlog"       (NoArg (addWay WayEventLog))
-  , make_dep_flag defGhcFlag "smp"
-      (NoArg $ addWay WayThreaded) "Use -threaded instead"
   , make_ord_flag defGhcFlag "debug"          (NoArg (addWay WayDebug))
   , make_ord_flag defGhcFlag "threaded"       (NoArg (addWay WayThreaded))
 
@@ -3348,6 +3361,8 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_cmm_info)
   , make_ord_flag defGhcFlag "ddump-cmm-cps"
         (setDumpFlag Opt_D_dump_cmm_cps)
+  , make_ord_flag defGhcFlag "ddump-srts"
+        (setDumpFlag Opt_D_dump_srts)
   , make_ord_flag defGhcFlag "ddump-cfg-weights"
         (setDumpFlag Opt_D_dump_cfg_weights)
   , make_ord_flag defGhcFlag "ddump-core-stats"
@@ -3858,19 +3873,19 @@ package_flags_deps :: [(Deprecation, Flag (CmdLineP DynFlags))]
 package_flags_deps = [
         ------- Packages ----------------------------------------------------
     make_ord_flag defFlag "package-db"
-      (HasArg (addPkgConfRef . PkgConfFile))
-  , make_ord_flag defFlag "clear-package-db"      (NoArg clearPkgConf)
-  , make_ord_flag defFlag "no-global-package-db"  (NoArg removeGlobalPkgConf)
-  , make_ord_flag defFlag "no-user-package-db"    (NoArg removeUserPkgConf)
+      (HasArg (addPkgDbRef . PkgDbPath))
+  , make_ord_flag defFlag "clear-package-db"      (NoArg clearPkgDb)
+  , make_ord_flag defFlag "no-global-package-db"  (NoArg removeGlobalPkgDb)
+  , make_ord_flag defFlag "no-user-package-db"    (NoArg removeUserPkgDb)
   , make_ord_flag defFlag "global-package-db"
-      (NoArg (addPkgConfRef GlobalPkgConf))
+      (NoArg (addPkgDbRef GlobalPkgDb))
   , make_ord_flag defFlag "user-package-db"
-      (NoArg (addPkgConfRef UserPkgConf))
+      (NoArg (addPkgDbRef UserPkgDb))
     -- backwards compat with GHC<=7.4 :
   , make_dep_flag defFlag "package-conf"
-      (HasArg $ addPkgConfRef . PkgConfFile) "Use -package-db instead"
+      (HasArg $ addPkgDbRef . PkgDbPath) "Use -package-db instead"
   , make_dep_flag defFlag "no-user-package-conf"
-      (NoArg removeUserPkgConf)              "Use -no-user-package-db instead"
+      (NoArg removeUserPkgDb)              "Use -no-user-package-db instead"
   , make_ord_flag defGhcFlag "package-name"       (HasArg $ \name -> do
                                       upd (setUnitId name))
                                       -- TODO: Since we JUST deprecated
@@ -4785,20 +4800,6 @@ optLevelFlags -- see Note [Documenting optimisation flags]
 --   Static Argument Transformation needs investigation. See #9374
     ]
 
-{- Note [Eta-reduction in -O0]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#11562 showed an example which tripped an ASSERT in CoreToStg; a
-function was marked as MayHaveCafRefs when in fact it obviously
-didn't.  Reason was:
- * Eta reduction wasn't happening in the simplifier, but it was
-   happening in CorePrep, on
-        $fBla = MkDict (/\a. K a)
- * Result: rhsIsStatic told GHC.Iface.Tidy that $fBla might have CAF refs
-   but the eta-reduced version (MkDict K) obviously doesn't
-Simple solution: just let the simplifier do eta-reduction even in -O0.
-After all, CorePrep does it unconditionally!  Not a big deal, but
-removes an assertion failure. -}
-
 
 -- -----------------------------------------------------------------------------
 -- Standard sets of warning options
@@ -5186,7 +5187,7 @@ setDumpFlag' dump_flag
                                              Opt_D_no_debug_output]
 
 forceRecompile :: DynP ()
--- Whenver we -ddump, force recompilation (by switching off the
+-- Whenever we -ddump, force recompilation (by switching off the
 -- recompilation checker), else you don't see the dump! However,
 -- don't switch it off in --make mode, else *everything* gets
 -- recompiled which probably isn't what you want
@@ -5205,26 +5206,26 @@ setVerbosity mb_n = upd (\dfs -> dfs{ verbosity = mb_n `orElse` 3 })
 setDebugLevel :: Maybe Int -> DynP ()
 setDebugLevel mb_n = upd (\dfs -> dfs{ debugLevel = mb_n `orElse` 2 })
 
-data PkgConfRef
-  = GlobalPkgConf
-  | UserPkgConf
-  | PkgConfFile FilePath
+data PkgDbRef
+  = GlobalPkgDb
+  | UserPkgDb
+  | PkgDbPath FilePath
   deriving Eq
 
-addPkgConfRef :: PkgConfRef -> DynP ()
-addPkgConfRef p = upd $ \s ->
+addPkgDbRef :: PkgDbRef -> DynP ()
+addPkgDbRef p = upd $ \s ->
   s { packageDBFlags = PackageDB p : packageDBFlags s }
 
-removeUserPkgConf :: DynP ()
-removeUserPkgConf = upd $ \s ->
+removeUserPkgDb :: DynP ()
+removeUserPkgDb = upd $ \s ->
   s { packageDBFlags = NoUserPackageDB : packageDBFlags s }
 
-removeGlobalPkgConf :: DynP ()
-removeGlobalPkgConf = upd $ \s ->
+removeGlobalPkgDb :: DynP ()
+removeGlobalPkgDb = upd $ \s ->
  s { packageDBFlags = NoGlobalPackageDB : packageDBFlags s }
 
-clearPkgConf :: DynP ()
-clearPkgConf = upd $ \s ->
+clearPkgDb :: DynP ()
+clearPkgDb = upd $ \s ->
   s { packageDBFlags = ClearPackageDBs : packageDBFlags s }
 
 parsePackageFlag :: String                 -- the flag
@@ -5371,13 +5372,13 @@ parseEnvFile :: FilePath -> String -> DynP ()
 parseEnvFile envfile = mapM_ parseEntry . lines
   where
     parseEntry str = case words str of
-      ("package-db": _)     -> addPkgConfRef (PkgConfFile (envdir </> db))
+      ("package-db": _)     -> addPkgDbRef (PkgDbPath (envdir </> db))
         -- relative package dbs are interpreted relative to the env file
         where envdir = takeDirectory envfile
               db     = drop 11 str
-      ["clear-package-db"]  -> clearPkgConf
-      ["global-package-db"] -> addPkgConfRef GlobalPkgConf
-      ["user-package-db"]   -> addPkgConfRef UserPkgConf
+      ["clear-package-db"]  -> clearPkgDb
+      ["global-package-db"] -> addPkgDbRef GlobalPkgDb
+      ["user-package-db"]   -> addPkgDbRef UserPkgDb
       ["package-id", pkgid] -> exposePackageId pkgid
       (('-':'-':_):_)       -> return () -- comments
       -- and the original syntax introduced in 7.10:
@@ -5607,7 +5608,7 @@ compilerInfo dflags
        ("Debug on",                    showBool debugIsOn),
        ("LibDir",                      topDir dflags),
        -- The path of the global package database used by GHC
-       ("Global Package DB",           systemPackageConfig dflags)
+       ("Global Package DB",           globalPackageDatabasePath dflags)
       ]
   where
     showBool True  = "YES"

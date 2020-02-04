@@ -2111,7 +2111,7 @@ libraries, in this order:
    systems may be overridden by setting the :envvar:`LD_LIBRARY_PATH`
    environment variable.
 
--  The linker standard library search can also be overriden on some systems using
+-  The linker standard library search can also be overridden on some systems using
    the :envvar:`LIBRARY_PATH` environment variable. Because of some
    implementation detail on Windows, setting ``LIBRARY_PATH`` will also extend
    the system loader path for any library it finds. So often setting
@@ -2483,6 +2483,39 @@ commonly used commands.
     restriction (b), showing all instances that are in scope and mention
     ⟨name⟩ in their head.
 
+.. ghci-cmd:: :instances; ⟨type⟩
+
+    Displays all the class instances available to the argument ⟨type⟩.
+    The command will match ⟨type⟩ with the first parameter of every
+    instance and then check that all constraints are satisfiable.
+
+    When combined with :extension:`PartialTypeSignatures`, a user can insert
+    wildcards into a query and learn the constraints required of each
+    wildcard for ⟨type⟩ match with an instance.
+
+    The output is a listing of all matching instances, simplified and
+    instantiated as much as possible.
+
+    For example:
+
+    .. code-block:: none
+
+         > :instances Maybe (Maybe Int)
+         instance Eq (Maybe (Maybe Int)) -- Defined in ‘GHC.Maybe’
+         instance Ord (Maybe (Maybe Int)) -- Defined in ‘GHC.Maybe’
+         instance Show (Maybe (Maybe Int)) -- Defined in ‘GHC.Show’
+         instance Read (Maybe (Maybe Int)) -- Defined in ‘GHC.Read’
+
+         > :set -XPartialTypeSignatures -fno-warn-partial-type-signatures
+
+         > :instances Maybe _
+         instance Eq _ => Eq (Maybe _) -- Defined in ‘GHC.Maybe’
+         instance Semigroup _ => Monoid (Maybe _) -- Defined in ‘GHC.Base’
+         instance Ord _ => Ord (Maybe _) -- Defined in ‘GHC.Maybe’
+         instance Semigroup _ => Semigroup (Maybe _) -- Defined in ‘GHC.Base’
+         instance Show _ => Show (Maybe _) -- Defined in ‘GHC.Show’
+         instance Read _ => Read (Maybe _) -- Defined in ‘GHC.Read’
+
 .. ghci-cmd:: :issafe; [⟨module⟩]
 
     Displays Safe Haskell information about the given module (or the
@@ -2570,39 +2603,6 @@ commonly used commands.
     IDEs for providing a goto-definition facility.
 
     The ``:loc-at`` command requires :ghci-cmd:`:set +c` to be set.
-
-.. ghci-cmd:: :instances; ⟨type⟩
-
-    Displays all the class instances available to the argument ⟨type⟩.
-    The command will match ⟨type⟩ with the first parameter of every
-    instance and then check that all constraints are satisfiable.
-
-    When combined with :extension:`PartialTypeSignatures`, a user can insert
-    wildcards into a query and learn the constraints required of each
-    wildcard for ⟨type⟩ match with an instance.
-
-    The output is a listing of all matching instances, simplified and
-    instantiated as much as possible.
-
-    For example:
-
-    .. code-block:: none
-
-         > :instances Maybe (Maybe Int)
-         instance Eq (Maybe (Maybe Int)) -- Defined in ‘GHC.Maybe’
-         instance Ord (Maybe (Maybe Int)) -- Defined in ‘GHC.Maybe’
-         instance Show (Maybe (Maybe Int)) -- Defined in ‘GHC.Show’
-         instance Read (Maybe (Maybe Int)) -- Defined in ‘GHC.Read’
-
-         > :set -XPartialTypeSignatures -fno-warn-partial-type-signatures
-
-         > :instances Maybe _
-         instance Eq _ => Eq (Maybe _) -- Defined in ‘GHC.Maybe’
-         instance Semigroup _ => Monoid (Maybe _) -- Defined in ‘GHC.Base’
-         instance Ord _ => Ord (Maybe _) -- Defined in ‘GHC.Maybe’
-         instance Semigroup _ => Semigroup (Maybe _) -- Defined in ‘GHC.Base’
-         instance Show _ => Show (Maybe _) -- Defined in ‘GHC.Show’
-         instance Read _ => Read (Maybe _) -- Defined in ‘GHC.Read’
 
 .. ghci-cmd:: :main; ⟨arg1⟩ ... ⟨argn⟩
 

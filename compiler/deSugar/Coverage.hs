@@ -8,6 +8,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveFunctor #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module Coverage (addTicksToBinds, hpcInitCode) where
 
 import GhcPrelude as Prelude
@@ -41,7 +43,7 @@ import TyCon
 import BasicTypes
 import MonadUtils
 import Maybes
-import CLabel
+import GHC.Cmm.CLabel
 import Util
 
 import Data.Time
@@ -1195,7 +1197,7 @@ mkTickish boxLabel countEntries topOnly pos fvs decl_path = do
   let ids = filter (not . isUnliftedType . idType) $ occEnvElts fvs
           -- unlifted types cause two problems here:
           --   * we can't bind them  at the GHCi prompt
-          --     (bindLocalsAtBreakpoint already fliters them out),
+          --     (bindLocalsAtBreakpoint already filters them out),
           --   * the simplifier might try to substitute a literal for
           --     the Id, and we can't handle that.
 

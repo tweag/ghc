@@ -15,6 +15,8 @@ lower levels it is preserved with @let@/@letrec@s).
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module DsBinds ( dsTopLHsBinds, dsLHsBinds, decomposeRuleLhs, dsSpec,
                  dsHsWrapper, dsTcEvBinds, dsTcEvBinds_s, dsEvBinds, dsMkUserRule
   ) where
@@ -793,7 +795,7 @@ From a user SPECIALISE pragma for f, we generate
 We need two pragma-like things:
 
 * spec_fn's inline pragma: inherited from f's inline pragma (ignoring
-                           activation on SPEC), unless overriden by SPEC INLINE
+                           activation on SPEC), unless overridden by SPEC INLINE
 
 * Activation of RULE: from SPECIALISE pragma (if activation given)
                       otherwise from f's inline pragma

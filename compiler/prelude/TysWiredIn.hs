@@ -7,6 +7,8 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 -- | This module is about types that can be defined in Haskell, but which
 --   must be wired into the compiler nonetheless.  C.f module TysPrim
 module TysWiredIn (
@@ -709,7 +711,7 @@ Note [How tuples work]  See also Note [Known-key names] in PrelNames
       pretty-print saturated constraint tuples with round parens;
       see BasicTypes.tupleParens.
 
-* In quite a lot of places things are restrcted just to
+* In quite a lot of places things are restricted just to
   BoxedTuple/UnboxedTuple, and then we used BasicTypes.Boxity to distinguish
   E.g. tupleTyCon has a Boxity argument
 
@@ -731,7 +733,7 @@ GHC supports both boxed and unboxed one-tuples:
    single value after CPR analysis
  - A boxed one-tuple is used by DsUtils.mkSelectorBinds, when
    there is just one binder
-Basically it keeps everythig uniform.
+Basically it keeps everything uniform.
 
 However the /naming/ of the type/data constructors for one-tuples is a
 bit odd:
@@ -1431,7 +1433,7 @@ boxing_constr_env
 
 {- Note [Boxing primitive types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-For a handful of primitive types (Int, Char, Word, Flaot, Double),
+For a handful of primitive types (Int, Char, Word, Float, Double),
 we can readily box and an unboxed version (Int#, Char# etc) using
 the corresponding data constructor.  This is useful in a couple
 of places, notably let-floating -}

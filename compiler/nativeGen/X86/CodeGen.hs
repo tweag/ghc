@@ -9,6 +9,8 @@
 {-# OPTIONS_GHC -fmax-pmcheck-iterations=10000000 #-}
 #endif
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 -----------------------------------------------------------------------------
 --
 -- Generating machine code (instruction selection)
@@ -44,7 +46,7 @@ import X86.RegInfo
 
 import GHC.Platform.Regs
 import CPrim
-import Debug            ( DebugBlock(..), UnwindPoint(..), UnwindTable
+import GHC.Cmm.DebugBlock            ( DebugBlock(..), UnwindPoint(..), UnwindTable
                         , UnwindExpr(UwReg), toUnwindExpr )
 import Instruction
 import PIC
@@ -59,16 +61,16 @@ import GHC.Platform
 
 -- Our intermediate code:
 import BasicTypes
-import BlockId
+import GHC.Cmm.BlockId
 import Module           ( primUnitId )
-import CmmUtils
-import CmmSwitch
-import Cmm
-import Hoopl.Block
-import Hoopl.Collections
-import Hoopl.Graph
-import Hoopl.Label
-import CLabel
+import GHC.Cmm.Utils
+import GHC.Cmm.Switch
+import GHC.Cmm
+import GHC.Cmm.Dataflow.Block
+import GHC.Cmm.Dataflow.Collections
+import GHC.Cmm.Dataflow.Graph
+import GHC.Cmm.Dataflow.Label
+import GHC.Cmm.CLabel
 import CoreSyn          ( Tickish(..) )
 import SrcLoc           ( srcSpanFile, srcSpanStartLine, srcSpanStartCol )
 
@@ -120,7 +122,7 @@ sse4_2Enabled = do
 
 cmmTopCodeGen
         :: RawCmmDecl
-        -> NatM [NatCmmDecl (Alignment, CmmStatics) Instr]
+        -> NatM [NatCmmDecl (Alignment, RawCmmStatics) Instr]
 
 cmmTopCodeGen (CmmProc info lab live graph) = do
   let blocks = toBlockListEntryFirst graph
@@ -192,7 +194,7 @@ verifyBasicBlock instrs
 basicBlockCodeGen
         :: CmmBlock
         -> NatM ( [NatBasicBlock Instr]
-                , [NatCmmDecl (Alignment, CmmStatics) Instr])
+                , [NatCmmDecl (Alignment, RawCmmStatics) Instr])
 
 basicBlockCodeGen block = do
   let (_, nodes, tail)  = blockSplit block
@@ -360,7 +362,7 @@ stmtToInstrs bid stmt = do
       CmmBranch id          -> return $ genBranch id
 
       --We try to arrange blocks such that the likely branch is the fallthrough
-      --in CmmContFlowOpt. So we can assume the condition is likely false here.
+      --in GHC.Cmm.ContFlowOpt. So we can assume the condition is likely false here.
       CmmCondBranch arg true false _ -> genCondBranch bid true false arg
       CmmSwitch arg ids -> do dflags <- getDynFlags
                               genSwitch dflags arg ids
@@ -1333,7 +1335,7 @@ x86_complex_amode :: CmmExpr -> CmmExpr -> Integer -> Integer -> NatM Amode
 x86_complex_amode base index shift offset
   = do (x_reg, x_code) <- getNonClobberedReg base
         -- x must be in a temp, because it has to stay live over y_code
-        -- we could compre x_reg and y_reg and do something better here...
+        -- we could compare x_reg and y_reg and do something better here...
        (y_reg, y_code) <- getSomeReg index
        let
            code = x_code `appOL` y_code
@@ -1480,7 +1482,7 @@ memConstant align lit = do
                                return (addr, addr_code)
                        else return (ripRel (ImmCLbl lbl), nilOL)
   let code =
-        LDATA rosection (align, Statics lbl [CmmStaticLit lit])
+        LDATA rosection (align, RawCmmStatics lbl [CmmStaticLit lit])
         `consOL` addr_code
   return (Amode addr code)
 
@@ -3303,7 +3305,7 @@ genSwitch dflags expr targets
     (offset, blockIds) = switchTargetsToTable targets
     ids = map (fmap DestBlockId) blockIds
 
-generateJumpTableForInstr :: DynFlags -> Instr -> Maybe (NatCmmDecl (Alignment, CmmStatics) Instr)
+generateJumpTableForInstr :: DynFlags -> Instr -> Maybe (NatCmmDecl (Alignment, RawCmmStatics) Instr)
 generateJumpTableForInstr dflags (JMP_TBL _ ids section lbl)
     = let getBlockId (DestBlockId id) = id
           getBlockId _ = panic "Non-Label target in Jump Table"
@@ -3312,7 +3314,7 @@ generateJumpTableForInstr dflags (JMP_TBL _ ids section lbl)
 generateJumpTableForInstr _ _ = Nothing
 
 createJumpTable :: DynFlags -> [Maybe BlockId] -> Section -> CLabel
-                -> GenCmmDecl (Alignment, CmmStatics) h g
+                -> GenCmmDecl (Alignment, RawCmmStatics) h g
 createJumpTable dflags ids section lbl
     = let jumpTable
             | positionIndependent dflags =
@@ -3324,7 +3326,7 @@ createJumpTable dflags ids section lbl
                           where blockLabel = blockLbl blockid
                   in map jumpTableEntryRel ids
             | otherwise = map (jumpTableEntry dflags) ids
-      in CmmData section (mkAlignment 1, Statics lbl jumpTable)
+      in CmmData section (mkAlignment 1, RawCmmStatics lbl jumpTable)
 
 extractUnwindPoints :: [Instr] -> [UnwindPoint]
 extractUnwindPoints instrs =

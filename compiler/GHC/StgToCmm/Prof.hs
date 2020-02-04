@@ -28,12 +28,12 @@ import GhcPrelude
 import GHC.StgToCmm.Closure
 import GHC.StgToCmm.Utils
 import GHC.StgToCmm.Monad
-import SMRep
+import GHC.Runtime.Layout
 
-import MkGraph
-import Cmm
-import CmmUtils
-import CLabel
+import GHC.Cmm.Graph
+import GHC.Cmm
+import GHC.Cmm.Utils
+import GHC.Cmm.CLabel
 
 import CostCentre
 import DynFlags
@@ -231,7 +231,7 @@ emitCostCentreDecl cc = do
               is_caf,   -- StgInt is_caf
               zero dflags      -- struct _CostCentre *link
             ]
-  ; emitDataLits (mkCCLabel cc) lits
+  ; emitRawDataLits (mkCCLabel cc) lits
   }
 
 emitCostCentreStackDecl :: CostCentreStack -> FCode ()
@@ -247,7 +247,7 @@ emitCostCentreStackDecl ccs
                 -- layouts of structs containing long-longs, simply
                 -- pad out the struct with zero words until we hit the
                 -- size of the overall struct (which we get via DerivedConstants.h)
-           emitDataLits (mkCCSLabel ccs) (mk_lits cc)
+           emitRawDataLits (mkCCSLabel ccs) (mk_lits cc)
     Nothing -> pprPanic "emitCostCentreStackDecl" (ppr ccs)
 
 zero :: DynFlags -> CmmLit

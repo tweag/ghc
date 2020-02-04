@@ -1,6 +1,8 @@
 {-# LANGUAGE CPP, MagicHash, NondecreasingIndentation,
     RecordWildCards, BangPatterns #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 -- -----------------------------------------------------------------------------
 --
 -- (c) The University of Glasgow, 2005-2007
@@ -385,8 +387,10 @@ handleRunStatus step expr bindings final_ids status history
     | EvalComplete alloc (EvalException e) <- status
     = return (ExecComplete (Left (fromSerializableException e)) alloc)
 
+#if __GLASGOW_HASKELL__ <= 810
     | otherwise
     = panic "not_tracing" -- actually exhaustive, but GHC can't tell
+#endif
 
 
 resumeExec :: GhcMonad m => (SrcSpan->Bool) -> SingleStep -> m ExecResult

@@ -3,6 +3,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 -----------------------------------------------------------------------------
 --
 -- The register liveness determinator
@@ -40,11 +42,11 @@ import GhcPrelude
 import Reg
 import Instruction
 
-import BlockId
+import GHC.Cmm.BlockId
 import CFG
-import Hoopl.Collections
-import Hoopl.Label
-import Cmm hiding (RegSet, emptyRegSet)
+import GHC.Cmm.Dataflow.Collections
+import GHC.Cmm.Dataflow.Label
+import GHC.Cmm hiding (RegSet, emptyRegSet)
 
 import Digraph
 import DynFlags
@@ -174,7 +176,7 @@ data Liveness
 -- | Stash regs live on entry to each basic block in the info part of the cmm code.
 data LiveInfo
         = LiveInfo
-                (LabelMap CmmStatics)     -- cmm info table static stuff
+                (LabelMap RawCmmStatics)  -- cmm info table static stuff
                 [BlockId]                 -- entry points (first one is the
                                           -- entry point for the proc).
                 (BlockMap RegSet)         -- argument locals live on entry to this block

@@ -13,6 +13,8 @@
 {-# LANGUAGE UnboxedTuples #-}
 #endif
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module AsmCodeGen (
                     -- * Module entry point
                     nativeCodeGen
@@ -67,18 +69,18 @@ import Reg
 import NCGMonad
 import CFG
 import Dwarf
-import Debug
+import GHC.Cmm.DebugBlock
 
-import BlockId
+import GHC.Cmm.BlockId
 import GHC.StgToCmm.CgUtils ( fixStgRegisters )
-import Cmm
-import CmmUtils
-import Hoopl.Collections
-import Hoopl.Label
-import Hoopl.Block
-import CmmOpt           ( cmmMachOpFold )
-import PprCmm
-import CLabel
+import GHC.Cmm
+import GHC.Cmm.Utils
+import GHC.Cmm.Dataflow.Collections
+import GHC.Cmm.Dataflow.Label
+import GHC.Cmm.Dataflow.Block
+import GHC.Cmm.Opt           ( cmmMachOpFold )
+import GHC.Cmm.Ppr
+import GHC.Cmm.CLabel
 
 import UniqFM
 import UniqSupply
@@ -180,12 +182,12 @@ nativeCodeGen dflags this_mod modLoc h us cmms
       ArchUnknown   -> panic "nativeCodeGen: No NCG for unknown arch"
       ArchJavaScript-> panic "nativeCodeGen: No NCG for JavaScript"
 
-x86NcgImpl :: DynFlags -> NcgImpl (Alignment, CmmStatics)
+x86NcgImpl :: DynFlags -> NcgImpl (Alignment, RawCmmStatics)
                                   X86.Instr.Instr X86.Instr.JumpDest
 x86NcgImpl dflags
  = (x86_64NcgImpl dflags)
 
-x86_64NcgImpl :: DynFlags -> NcgImpl (Alignment, CmmStatics)
+x86_64NcgImpl :: DynFlags -> NcgImpl (Alignment, RawCmmStatics)
                                   X86.Instr.Instr X86.Instr.JumpDest
 x86_64NcgImpl dflags
  = NcgImpl {
@@ -206,7 +208,7 @@ x86_64NcgImpl dflags
    }
     where platform = targetPlatform dflags
 
-ppcNcgImpl :: DynFlags -> NcgImpl CmmStatics PPC.Instr.Instr PPC.RegInfo.JumpDest
+ppcNcgImpl :: DynFlags -> NcgImpl RawCmmStatics PPC.Instr.Instr PPC.RegInfo.JumpDest
 ppcNcgImpl dflags
  = NcgImpl {
         cmmTopCodeGen             = PPC.CodeGen.cmmTopCodeGen
@@ -226,7 +228,7 @@ ppcNcgImpl dflags
    }
     where platform = targetPlatform dflags
 
-sparcNcgImpl :: DynFlags -> NcgImpl CmmStatics SPARC.Instr.Instr SPARC.ShortcutJump.JumpDest
+sparcNcgImpl :: DynFlags -> NcgImpl RawCmmStatics SPARC.Instr.Instr SPARC.ShortcutJump.JumpDest
 sparcNcgImpl dflags
  = NcgImpl {
         cmmTopCodeGen             = SPARC.CodeGen.cmmTopCodeGen
@@ -746,7 +748,7 @@ cmmNativeGen dflags this_mod modLoc ncgImpl us fileIds dbgMap cmm count
                 {-# SCC "invertCondBranches" #-}
                 map invert sequenced
               where
-                invertConds :: LabelMap CmmStatics -> [NatBasicBlock instr]
+                invertConds :: LabelMap RawCmmStatics -> [NatBasicBlock instr]
                             -> [NatBasicBlock instr]
                 invertConds = invertCondBranches ncgImpl optimizedCFG
                 invert top@CmmData {} = top
@@ -826,7 +828,7 @@ computeUnwinding _ ncgImpl (CmmProc _ _ _ (ListGraph blks)) =
     -- relevant register writes within a procedure.
     --
     -- However, the only unwinding information that we care about in GHC is for
-    -- Sp. The fact that CmmLayoutStack already ensures that we have unwind
+    -- Sp. The fact that GHC.Cmm.LayoutStack already ensures that we have unwind
     -- information at the beginning of every block means that there is no need
     -- to perform this sort of push-down.
     mapFromList [ (blk_lbl, extractUnwindPoints ncgImpl instrs)

@@ -999,7 +999,7 @@ else
 fi;
 changequote([, ])dnl
 ])
-if test ! -f compiler/parser/Parser.hs || test ! -f compiler/cmm/CmmParse.hs
+if test ! -f compiler/parser/Parser.hs || test ! -f compiler/GHC/Cmm/Parser.hs
 then
     FP_COMPARE_VERSIONS([$fptools_cv_happy_version],[-lt],[1.19.10],
       [AC_MSG_ERROR([Happy version 1.19.10 or later is required to compile GHC.])])[]
@@ -1994,7 +1994,7 @@ case "$1" in
 
 # GHC_LLVM_TARGET(target_cpu, target_vendor, target_os, llvm_target_var)
 # --------------------------------
-# converts the canonicalized target into someting llvm can understand
+# converts the canonicalized target into something llvm can understand
 AC_DEFUN([GHC_LLVM_TARGET], [
   case "$2-$3" in
     *-freebsd*-gnueabihf)
@@ -2065,11 +2065,14 @@ AC_DEFUN([GHC_CONVERT_OS],[
       linux-*|linux)
         $3="linux"
         ;;
+      netbsd*)
+        $3="netbsd"
+        ;;
       openbsd*)
         $3="openbsd"
         ;;
       # As far as I'm aware, none of these have relevant variants
-      freebsd|netbsd|dragonfly|hpux|linuxaout|kfreebsdgnu|freebsd2|mingw32|darwin|nextstep2|nextstep3|sunos4|ultrix|haiku)
+      freebsd|dragonfly|hpux|linuxaout|kfreebsdgnu|freebsd2|mingw32|darwin|nextstep2|nextstep3|sunos4|ultrix|haiku)
         $3="$1"
         ;;
       msys)
@@ -2238,7 +2241,7 @@ EOF
 
 # FIND_GHC_BOOTSTRAP_PROG()
 # --------------------------------
-# Parse the bootstrap GHC's compier settings file for the location of things
+# Parse the bootstrap GHC's compiler settings file for the location of things
 # like the `llc` and `opt` commands.
 #
 # $1 = the variable to set
@@ -2511,6 +2514,17 @@ AC_DEFUN([FIND_LD],[
     fi
 
     CHECK_LD_COPY_BUG([$1])
+])
+
+# FIND_PYTHON
+# -----------
+# Find the version of `python` to use (for the testsuite driver)
+#
+AC_DEFUN([FIND_PYTHON],[
+    dnl Prefer the mingw64 distribution on Windows due to #17483.
+    AC_PATH_PROG([PYTHON], [python3], [], [/mingw64/bin $PATH])
+    PythonCmd="$PYTHON"
+    AC_SUBST([PythonCmd])
 ])
 
 # LocalWords:  fi

@@ -9,6 +9,9 @@ The @Inst@ type: dictionaries or method instances
 {-# LANGUAGE CPP, MultiWayIf, TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module Inst (
        deeplySkolemise,
        topInstantiate, topInstantiateInferred, deeplyInstantiate,
@@ -263,7 +266,7 @@ deeply_instantiate :: CtOrigin
                    -> TCvSubst
                    -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 -- Internal function to deeply instantiate that builds on an existing subst.
--- It extends the input substitution and applies the final subtitution to
+-- It extends the input substitution and applies the final substitution to
 -- the types on return.  See #12549.
 
 deeply_instantiate orig subst ty
@@ -843,6 +846,6 @@ addClsInstsErr herald ispecs
     addErr (hang herald 2 (pprInstances sorted))
  where
    sorted = sortWith getSrcLoc ispecs
-   -- The sortWith just arranges that instances are dislayed in order
+   -- The sortWith just arranges that instances are displayed in order
    -- of source location, which reduced wobbling in error messages,
    -- and is better for users

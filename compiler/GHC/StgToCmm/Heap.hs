@@ -6,6 +6,8 @@
 --
 -----------------------------------------------------------------------------
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module GHC.StgToCmm.Heap (
         getVirtHp, setVirtHp, setRealHp,
         getHpRelOffset,
@@ -23,7 +25,7 @@ module GHC.StgToCmm.Heap (
 import GhcPrelude hiding ((<*>))
 
 import GHC.Stg.Syntax
-import CLabel
+import GHC.Cmm.CLabel
 import GHC.StgToCmm.Layout
 import GHC.StgToCmm.Utils
 import GHC.StgToCmm.Monad
@@ -32,13 +34,13 @@ import GHC.StgToCmm.Ticky
 import GHC.StgToCmm.Closure
 import GHC.StgToCmm.Env
 
-import MkGraph
+import GHC.Cmm.Graph
 
-import Hoopl.Label
-import SMRep
-import BlockId
-import Cmm
-import CmmUtils
+import GHC.Cmm.Dataflow.Label
+import GHC.Runtime.Layout
+import GHC.Cmm.BlockId
+import GHC.Cmm
+import GHC.Cmm.Utils
 import CostCentre
 import IdInfo( CafInfo(..), mayHaveCafRefs )
 import Id ( Id )
@@ -194,7 +196,9 @@ mkStaticClosureFields dflags info_tbl ccs caf_refs payload
         | otherwise = []
 
     static_link_field
-        | is_caf || staticClosureNeedsLink (mayHaveCafRefs caf_refs) info_tbl
+        | is_caf
+        = [mkIntCLit dflags 0]
+        | staticClosureNeedsLink (mayHaveCafRefs caf_refs) info_tbl
         = [static_link_value]
         | otherwise
         = []
@@ -337,7 +341,7 @@ entryHeapCheck cl_info nodeSet arity args code
                  Just (_, ArgGen _) -> False
                  _otherwise         -> True
 
--- | lower-level version for CmmParse
+-- | lower-level version for GHC.Cmm.Parser
 entryHeapCheck' :: Bool           -- is a known function pattern
                 -> CmmExpr        -- expression for the closure pointer
                 -> Int            -- Arity -- not same as len args b/c of voids

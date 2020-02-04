@@ -26,9 +26,8 @@ import GHC.StgToCmm.Closure
 import GHC.StgToCmm.Hpc
 import GHC.StgToCmm.Ticky
 
-import Cmm
-import CmmUtils
-import CLabel
+import GHC.Cmm
+import GHC.Cmm.CLabel
 
 import GHC.Stg.Syntax
 import DynFlags
@@ -49,7 +48,7 @@ import BasicTypes
 import VarSet ( isEmptyDVarSet )
 
 import OrdList
-import MkGraph
+import GHC.Cmm.Graph
 
 import Data.IORef
 import Control.Monad (when,void)
@@ -179,7 +178,7 @@ mkModuleInit cost_centre_info this_mod hpc_info
 cgEnumerationTyCon :: TyCon -> FCode ()
 cgEnumerationTyCon tycon
   = do dflags <- getDynFlags
-       emitRODataLits (mkLocalClosureTableLabel (tyConName tycon) NoCafRefs)
+       emitRawRODataLits (mkLocalClosureTableLabel (tyConName tycon) NoCafRefs)
              [ CmmLabelOff (mkLocalClosureLabel (dataConName con) NoCafRefs)
                            (tagForCon dflags con)
              | con <- tyConDataCons tycon]

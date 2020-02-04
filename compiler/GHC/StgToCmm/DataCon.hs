@@ -29,11 +29,11 @@ import GHC.StgToCmm.Layout
 import GHC.StgToCmm.Utils
 import GHC.StgToCmm.Closure
 
-import CmmExpr
-import CmmUtils
-import CLabel
-import MkGraph
-import SMRep
+import GHC.Cmm.Expr
+import GHC.Cmm.Utils
+import GHC.Cmm.CLabel
+import GHC.Cmm.Graph
+import GHC.Runtime.Layout
 import CostCentre
 import Module
 import DataCon
@@ -104,17 +104,8 @@ cgTopRhsCon dflags id con args =
                 -- NB2: all the amodes should be Lits!
                 --      TODO (osa): Why?
 
-        ; let closure_rep = mkStaticClosureFields
-                             dflags
-                             info_tbl
-                             dontCareCCS                -- Because it's static data
-                             caffy                      -- Has CAF refs
-                             payload
-
                 -- BUILD THE OBJECT
-        ; emitDataLits closure_label closure_rep
-
-        ; return () }
+        ; emitDataCon closure_label info_tbl dontCareCCS payload }
 
 
 ---------------------------------------------------------------

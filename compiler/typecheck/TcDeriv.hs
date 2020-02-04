@@ -10,6 +10,8 @@ Handles @deriving@ clauses on @data@ declarations.
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module TcDeriv ( tcDeriving, DerivInfo(..) ) where
 
 #include "HsVersions.h"
@@ -37,11 +39,11 @@ import TcHsType
 import TyCoRep
 import TyCoPpr    ( pprTyVars )
 
-import RnNames( extendGlobalRdrEnvRn )
-import RnBinds
-import RnEnv
-import RnUtils    ( bindLocalNamesFV )
-import RnSource   ( addTcgDUs )
+import GHC.Rename.Names  ( extendGlobalRdrEnvRn )
+import GHC.Rename.Binds
+import GHC.Rename.Env
+import GHC.Rename.Utils  ( bindLocalNamesFV )
+import GHC.Rename.Source ( addTcgDUs )
 import Avail
 
 import Unify( tcUnifyTy )
@@ -551,7 +553,7 @@ is ill-kinded nonsense (#16923).
 
 To address both of these problems, GHC now uses this algorithm instead:
 
-1. Typecheck the `via` type and bring its boudn type variables into scope.
+1. Typecheck the `via` type and bring its bound type variables into scope.
 2. Take the first class in the `deriving` clause.
 3. Typecheck the class.
 4. Move on to the next class and repeat the process until all classes have been
@@ -717,7 +719,7 @@ tcStandaloneDerivInstType
 tcStandaloneDerivInstType ctxt
     (HsWC { hswc_body = deriv_ty@(HsIB { hsib_ext = vars
                                        , hsib_body   = deriv_ty_body })})
-  | (tvs, theta, rho) <- splitLHsSigmaTy deriv_ty_body
+  | (tvs, theta, rho) <- splitLHsSigmaTyInvis deriv_ty_body
   , L _ [wc_pred] <- theta
   , L wc_span (HsWildCardTy _) <- ignoreParens wc_pred
   = do dfun_ty <- tcHsClsInstType ctxt $

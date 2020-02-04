@@ -63,8 +63,7 @@ module GHC.Hs.Types (
         hsLTyVarName, hsLTyVarNames, hsLTyVarLocName, hsExplicitLTyVarNames,
         splitLHsInstDeclTy, getLHsInstDeclHead, getLHsInstDeclClass_maybe,
         splitLHsPatSynTy,
-        splitLHsForAllTy, splitLHsForAllTyInvis,
-        splitLHsQualTy, splitLHsSigmaTy, splitLHsSigmaTyInvis,
+        splitLHsForAllTyInvis, splitLHsQualTy, splitLHsSigmaTyInvis,
         splitHsFunType, hsTyGetAppHead_maybe,
         mkHsOpTy, mkHsAppTy, mkHsAppTys, mkHsAppKindTy,
         ignoreParens, hsSigType, hsSigWcType,
@@ -99,7 +98,7 @@ import SrcLoc
 import Outputable
 import FastString
 import Maybes( isJust )
-import Util ( count, debugIsOn )
+import Util ( count )
 
 import Data.Data hiding ( Fixity, Prefix, Infix )
 
@@ -151,7 +150,7 @@ Then we use a LHsBndrSig on the binder, so that the
 renamer can decorate it with the variables bound
 by the pattern ('a' in the first example, 'k' in the second),
 assuming that neither of them is in scope already
-See also Note [Kind and type-variable binders] in RnTypes
+See also Note [Kind and type-variable binders] in GHC.Rename.Types
 
 Note [HsType binders]
 ~~~~~~~~~~~~~~~~~~~~~
@@ -272,7 +271,7 @@ By "stable", we mean that any two variables who do not depend on each other
 preserve their existing left-to-right ordering.
 
 Implicitly bound variables are collected by the extract- family of functions
-(extractHsTysRdrTyVars, extractHsTyVarBndrsKVs, etc.) in RnTypes.
+(extractHsTysRdrTyVars, extractHsTyVarBndrsKVs, etc.) in GHC.Rename.Types.
 These functions thus promise to keep left-to-right ordering.
 Look for pointers to this note to see the places where the action happens.
 
@@ -375,7 +374,7 @@ data HsImplicitBndrs pass thing   -- See Note [HsType binders]
                                          -- Implicitly-bound kind & type vars
                                          -- Order is important; see
                                          -- Note [Ordering of implicit variables]
-                                         -- in RnTypes
+                                         -- in GHC.Rename.Types
 
          , hsib_body :: thing            -- Main payload (type or list of types)
     }
@@ -610,7 +609,8 @@ data HsType pass
 
   | HsParTy             (XParTy pass)
                         (LHsType pass)   -- See Note [Parens in HsSyn] in GHC.Hs.Expr
-        -- Parenthesis preserved for the precedence re-arrangement in RnTypes
+        -- Parenthesis preserved for the precedence re-arrangement in
+        -- GHC.Rename.Types
         -- It's important that a * (b + c) doesn't get rearranged to (a*b) + c!
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'('@,
       --         'ApiAnnotation.AnnClose' @')'@
@@ -681,7 +681,7 @@ data HsType pass
 
   | HsExplicitListTy       -- A promoted explicit list
         (XExplicitListTy pass)
-        PromotionFlag      -- whether explcitly promoted, for pretty printer
+        PromotionFlag      -- whether explicitly promoted, for pretty printer
         [LHsType pass]
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @"'["@,
       --         'ApiAnnotation.AnnClose' @']'@
@@ -838,7 +838,7 @@ After renaming
 Qualified currently behaves exactly as Implicit,
 but it is deprecated to use it for implicit quantification.
 In this case, GHC 7.10 gives a warning; see
-Note [Context quantification] in RnTypes, and #4426.
+Note [Context quantification] in GHC.Rename.Types, and #4426.
 In GHC 8.0, Qualified will no longer bind variables
 and this will become an error.
 
@@ -951,7 +951,7 @@ type LConDeclField pass = Located (ConDeclField pass)
       -- For details on above see note [Api annotations] in ApiAnnotation
 
 -- | Constructor Declaration Field
-data ConDeclField pass  -- Record fields have Haddoc docs on them
+data ConDeclField pass  -- Record fields have Haddock docs on them
   = ConDeclField { cd_fld_ext  :: XConDeclField pass,
                    cd_fld_names :: [LFieldOcc pass],
                                    -- ^ See Note [ConDeclField passs]
@@ -1021,16 +1021,15 @@ gives
 hsWcScopedTvs :: LHsSigWcType GhcRn -> [Name]
 -- Get the lexically-scoped type variables of a HsSigType
 --  - the explicitly-given forall'd type variables
---  - the named wildcars; see Note [Scoping of named wildcards]
+--  - the named wildcards; see Note [Scoping of named wildcards]
 -- because they scope in the same way
 hsWcScopedTvs sig_ty
   | HsWC { hswc_ext = nwcs, hswc_body = sig_ty1 }  <- sig_ty
   , HsIB { hsib_ext = vars
          , hsib_body = sig_ty2 } <- sig_ty1
   = case sig_ty2 of
-      L _ (HsForAllTy { hst_fvf = vis_flag
+      L _ (HsForAllTy { hst_fvf = ForallInvis -- See Note [hsScopedTvs vis_flag]
                       , hst_bndrs = tvs }) ->
-        ASSERT( vis_flag == ForallInvis ) -- See Note [hsScopedTvs vis_flag]
         vars ++ nwcs ++ hsLTyVarNames tvs
       _                                    -> nwcs
 hsWcScopedTvs (HsWC _ (XHsImplicitBndrs nec)) = noExtCon nec
@@ -1041,10 +1040,9 @@ hsScopedTvs :: LHsSigType GhcRn -> [Name]
 hsScopedTvs sig_ty
   | HsIB { hsib_ext = vars
          , hsib_body = sig_ty2 } <- sig_ty
-  , L _ (HsForAllTy { hst_fvf = vis_flag
+  , L _ (HsForAllTy { hst_fvf = ForallInvis -- See Note [hsScopedTvs vis_flag]
                     , hst_bndrs = tvs }) <- sig_ty2
-  = ASSERT( vis_flag == ForallInvis ) -- See Note [hsScopedTvs vis_flag]
-    vars ++ hsLTyVarNames tvs
+  = vars ++ hsLTyVarNames tvs
   | otherwise
   = []
 
@@ -1090,17 +1088,23 @@ The conclusion of these discussions can be summarized as follows:
   >     vfn :: forall x y -> tau(x,y)
   >     vfn x y = \a b -> ...         -- bad!
 
-At the moment, GHC does not support visible 'forall' in terms, so we simply cement
-our assumptions with an assert:
-
-    hsScopedTvs (HsForAllTy { hst_fvf = vis_flag, ... }) =
-      ASSERT( vis_flag == ForallInvis )
-      ...
-
-In the future, this assert can be safely turned into a pattern match to support
-visible forall in terms:
+We cement this design by pattern-matching on ForallInvis in hsScopedTvs:
 
     hsScopedTvs (HsForAllTy { hst_fvf = ForallInvis, ... }) = ...
+
+At the moment, GHC does not support visible 'forall' in terms. Nevertheless,
+it is still possible to write erroneous programs that use visible 'forall's in
+terms, such as this example:
+
+    x :: forall a -> a -> a
+    x = x
+
+If we do not pattern-match on ForallInvis in hsScopedTvs, then `a` would
+erroneously be brought into scope over the body of `x` when renaming it.
+Although the typechecker would later reject this (see `TcValidity.vdqAllowed`),
+it is still possible for this to wreak havoc in the renamer before it gets to
+that point (see #17687 for an example of this).
+Bottom line: nip problems in the bud by matching on ForallInvis from the start.
 -}
 
 ---------------------
@@ -1296,21 +1300,9 @@ splitLHsPatSynTy ty = (univs, reqs, exis, provs, ty4)
     (provs, ty4) = splitLHsQualTy ty3
 
 -- | Decompose a sigma type (of the form @forall <tvs>. context => body@)
--- into its constituent parts.
---
--- Note that this function looks through parentheses, so it will work on types
--- such as @(forall a. <...>)@. The downside to this is that it is not
--- generally possible to take the returned types and reconstruct the original
--- type (parentheses and all) from them.
-splitLHsSigmaTy :: LHsType pass
-                -> ([LHsTyVarBndr pass], LHsContext pass, LHsType pass)
-splitLHsSigmaTy ty
-  | (tvs, ty1)  <- splitLHsForAllTy ty
-  , (ctxt, ty2) <- splitLHsQualTy ty1
-  = (tvs, ctxt, ty2)
-
--- | Like 'splitLHsSigmaTy', but only splits type variable binders that were
--- quantified invisibly (e.g., @forall a.@, with a dot).
+-- into its constituent parts. Note that only /invisible/ @forall@s
+-- (i.e., @forall a.@, with a dot) are split apart; /visible/ @forall@s
+-- (i.e., @forall a ->@, with an arrow) are left untouched.
 --
 -- This function is used to split apart certain types, such as instance
 -- declaration types, which disallow visible @forall@s. For instance, if GHC
@@ -1328,20 +1320,10 @@ splitLHsSigmaTyInvis ty
   , (ctxt, ty2) <- splitLHsQualTy ty1
   = (tvs, ctxt, ty2)
 
--- | Decompose a type of the form @forall <tvs>. body@) into its constituent
--- parts.
---
--- Note that this function looks through parentheses, so it will work on types
--- such as @(forall a. <...>)@. The downside to this is that it is not
--- generally possible to take the returned types and reconstruct the original
--- type (parentheses and all) from them.
-splitLHsForAllTy :: LHsType pass -> ([LHsTyVarBndr pass], LHsType pass)
-splitLHsForAllTy (L _ (HsParTy _ ty)) = splitLHsForAllTy ty
-splitLHsForAllTy (L _ (HsForAllTy { hst_bndrs = tvs, hst_body = body })) = (tvs, body)
-splitLHsForAllTy body              = ([], body)
-
--- | Like 'splitLHsForAllTy', but only splits type variable binders that
--- were quantified invisibly (e.g., @forall a.@, with a dot).
+-- | Decompose a type of the form @forall <tvs>. body@ into its constituent
+-- parts. Note that only /invisible/ @forall@s
+-- (i.e., @forall a.@, with a dot) are split apart; /visible/ @forall@s
+-- (i.e., @forall a ->@, with an arrow) are left untouched.
 --
 -- This function is used to split apart certain types, such as instance
 -- declaration types, which disallow visible @forall@s. For instance, if GHC

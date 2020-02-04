@@ -60,14 +60,14 @@ import Reg
 import NCGMonad
 
 
-import Hoopl.Collections
-import Cmm
-import CLabel           ( CLabel, ForeignLabelSource(..), pprCLabel,
+import GHC.Cmm.Dataflow.Collections
+import GHC.Cmm
+import GHC.Cmm.CLabel           ( CLabel, ForeignLabelSource(..), pprCLabel,
                           mkDynamicLinkerLabel, DynamicLinkerLabelInfo(..),
                           dynamicLinkerLabelInfo, mkPicBaseLabel,
                           labelDynamic, externallyVisibleCLabel )
 
-import CLabel           ( mkForeignLabel )
+import GHC.Cmm.CLabel           ( mkForeignLabel )
 
 
 import BasicTypes
@@ -730,8 +730,8 @@ pprImportedSymbol _ _ _
 
 initializePicBase_ppc
         :: Arch -> OS -> Reg
-        -> [NatCmmDecl CmmStatics PPC.Instr]
-        -> NatM [NatCmmDecl CmmStatics PPC.Instr]
+        -> [NatCmmDecl RawCmmStatics PPC.Instr]
+        -> NatM [NatCmmDecl RawCmmStatics PPC.Instr]
 
 initializePicBase_ppc ArchPPC os picReg
     (CmmProc info lab live (ListGraph blocks) : statics)
@@ -805,8 +805,8 @@ initializePicBase_ppc _ _ _ _
 
 initializePicBase_x86
         :: Arch -> OS -> Reg
-        -> [NatCmmDecl (Alignment, CmmStatics) X86.Instr]
-        -> NatM [NatCmmDecl (Alignment, CmmStatics) X86.Instr]
+        -> [NatCmmDecl (Alignment, RawCmmStatics) X86.Instr]
+        -> NatM [NatCmmDecl (Alignment, RawCmmStatics) X86.Instr]
 
 initializePicBase_x86 ArchX86 os picReg
         (CmmProc info lab live (ListGraph blocks) : statics)
