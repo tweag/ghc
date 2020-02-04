@@ -38,8 +38,8 @@ import Coercion
 import TcEnv
 import TcType
 
-import CmmExpr
-import CmmUtils
+import GHC.Cmm.Expr
+import GHC.Cmm.Utils
 import HscTypes
 import ForeignCall
 import TysWiredIn
