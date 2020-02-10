@@ -86,6 +86,7 @@ module Type (
 
         -- ** Analyzing types
         TyCoMapper(..), mapType, mapCoercion,
+        TyCoFolder(..), foldTyCo,
 
         -- (Newtypes)
         newTyConInstRhs,
@@ -157,7 +158,7 @@ module Type (
         typeSize, occCheckExpand,
 
         -- ** Closing over kinds
-        closeOverKindsDSet, closeOverKindsFV, closeOverKindsList,
+        closeOverKindsDSet, closeOverKindsList,
         closeOverKinds,
 
         -- * Well-scoped lists of variables
@@ -582,10 +583,9 @@ isLinearType ty = case ty of
                       ForAllTy _ res -> isLinearType res
                       _ -> False
 
-{-
-************************************************************************
+{- *********************************************************************
 *                                                                      *
-   Analyzing types
+               mapType
 *                                                                      *
 ************************************************************************
 
@@ -725,6 +725,7 @@ mapCoercion mapper@(TyCoMapper { tcm_covar = covar
     go_prov (PhantomProv co)    = PhantomProv <$> go co
     go_prov (ProofIrrelProv co) = ProofIrrelProv <$> go co
     go_prov p@(PluginProv _)    = return p
+
 
 {-
 ************************************************************************
