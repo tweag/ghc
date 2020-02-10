@@ -459,7 +459,6 @@
              (EmptyLocalBinds
               (NoExtField))))))])
        (FromSource))
-      (WpHole)
       [])))]
   (Nothing)
   (Nothing)))

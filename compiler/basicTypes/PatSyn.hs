@@ -39,7 +39,7 @@ import FieldLabel
 
 import qualified Data.Data as Data
 import Data.Function
-import Data.List
+import Data.List (find)
 
 {-
 ************************************************************************

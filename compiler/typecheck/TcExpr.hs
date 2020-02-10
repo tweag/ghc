@@ -85,7 +85,7 @@ import UniqSet ( nonDetEltsUniqSet )
 import qualified GHC.LanguageExtensions as LangExt
 
 import Data.Function
-import Data.List
+import Data.List (partition, sortBy, groupBy, intersect)
 import qualified Data.Set as Set
 
 {-
@@ -558,7 +558,7 @@ tcExpr (HsCase x scrut matches) res_ty
     match_ctxt = MC { mc_what = CaseAlt,
                       mc_body = tcBody }
 
-tcExpr (HsIf x Nothing pred b1 b2) res_ty    -- Ordinary 'if'
+tcExpr (HsIf x NoSyntaxExprRn pred b1 b2) res_ty    -- Ordinary 'if'
   = do { pred' <- tcMonoExpr pred (mkCheckExpType boolTy)
        ; res_ty <- tauifyExpType res_ty
            -- Just like Note [Case branches must never infer a non-tau type]
@@ -567,9 +567,9 @@ tcExpr (HsIf x Nothing pred b1 b2) res_ty    -- Ordinary 'if'
        ; (u1,b1') <- tcCollectingUsage $ tcMonoExpr b1 res_ty
        ; (u2,b2') <- tcCollectingUsage $ tcMonoExpr b2 res_ty
        ; tcEmitBindingUsage (supUE u1 u2)
-       ; return (HsIf x Nothing pred' b1' b2') }
+       ; return (HsIf x NoSyntaxExprTc pred' b1' b2') }
 
-tcExpr (HsIf x (Just fun) pred b1 b2) res_ty
+tcExpr (HsIf x fun@(SyntaxExprRn {}) pred b1 b2) res_ty
   = do { ((pred', b1', b2'), fun')
            <- tcSyntaxOp IfOrigin fun [SynAny, SynAny, SynAny] res_ty $
               \ [pred_ty, b1_ty, b2_ty] _ ->
@@ -577,7 +577,7 @@ tcExpr (HsIf x (Just fun) pred b1 b2) res_ty
                  ; b1'   <- tcPolyExpr b1   b1_ty
                  ; b2'   <- tcPolyExpr b2   b2_ty
                  ; return (pred', b1', b2') }
-       ; return (HsIf x (Just fun') pred' b1' b2') }
+       ; return (HsIf x fun' pred' b1' b2') }
 
 tcExpr (HsMultiIf _ alts) res_ty
   = do { res_ty <- if isSingleton alts
@@ -1442,14 +1442,14 @@ tcTupArgs args tys
 ---------------------------
 -- See TcType.SyntaxOpType also for commentary
 tcSyntaxOp :: CtOrigin
-           -> SyntaxExpr GhcRn
+           -> SyntaxExprRn
            -> [SyntaxOpType]           -- ^ shape of syntax operator arguments
            -> ExpRhoType               -- ^ overall result type
            -> ([TcSigmaType] -> [Mult] -> TcM a) -- ^ Type check any arguments,
                                                  -- takes a type per hole and a
                                                  -- multiplicity per arrow in
                                                  -- the shape.
-           -> TcM (a, SyntaxExpr GhcTcId)
+           -> TcM (a, SyntaxExprTc)
 -- ^ Typecheck a syntax operator
 -- The operator is a variable or a lambda at this stage (i.e. renamer
 -- output)
@@ -1459,21 +1459,22 @@ tcSyntaxOp orig expr arg_tys res_ty
 -- | Slightly more general version of 'tcSyntaxOp' that allows the caller
 -- to specify the shape of the result of the syntax operator
 tcSyntaxOpGen :: CtOrigin
-              -> SyntaxExpr GhcRn
+              -> SyntaxExprRn
               -> [SyntaxOpType]
               -> SyntaxOpType
               -> ([TcSigmaType] -> [Mult] -> TcM a)
-              -> TcM (a, SyntaxExpr GhcTcId)
-tcSyntaxOpGen orig op arg_tys res_ty thing_inside
-  = do { (expr, sigma) <- tcInferSigma $ noLoc $ syn_expr op
+              -> TcM (a, SyntaxExprTc)
+tcSyntaxOpGen orig (SyntaxExprRn op) arg_tys res_ty thing_inside
+  = do { (expr, sigma) <- tcInferSigma $ noLoc op
        ; traceTc "tcSyntaxOpGen" (ppr op $$ ppr expr $$ ppr sigma)
        ; (result, expr_wrap, arg_wraps, res_wrap)
            <- tcSynArgA orig sigma arg_tys res_ty $
               thing_inside
        ; traceTc "tcSyntaxOpGen" (ppr op $$ ppr expr $$ ppr sigma )
-       ; return (result, SyntaxExpr { syn_expr = mkHsWrap expr_wrap $ unLoc expr
-                                    , syn_arg_wraps = arg_wraps
-                                    , syn_res_wrap  = res_wrap }) }
+       ; return (result, SyntaxExprTc { syn_expr = mkHsWrap expr_wrap $ unLoc expr
+                                      , syn_arg_wraps = arg_wraps
+                                      , syn_res_wrap  = res_wrap }) }
+tcSyntaxOpGen _ NoSyntaxExprRn _ _ _ = panic "tcSyntaxOpGen"
 
 {-
 Note [tcSynArg]
