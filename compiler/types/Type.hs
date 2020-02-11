@@ -86,6 +86,7 @@ module Type (
 
         -- ** Analyzing types
         TyCoMapper(..), mapType, mapCoercion,
+        TyCoFolder(..), foldTyCo,
 
         -- (Newtypes)
         newTyConInstRhs,
@@ -150,13 +151,15 @@ module Type (
         tyCoVarsOfTypeDSet,
         coVarsOfType,
         coVarsOfTypes,
-        closeOverKindsDSet, closeOverKindsFV, closeOverKindsList,
-        closeOverKinds,
 
         noFreeVarsOfType,
         splitVisVarsOfType, splitVisVarsOfTypes,
         expandTypeSynonyms,
         typeSize, occCheckExpand,
+
+        -- ** Closing over kinds
+        closeOverKindsDSet, closeOverKindsList,
+        closeOverKinds,
 
         -- * Well-scoped lists of variables
         scopedSort, tyCoVarsOfTypeWellScoped,
@@ -580,10 +583,9 @@ isLinearType ty = case ty of
                       ForAllTy _ res -> isLinearType res
                       _ -> False
 
-{-
-************************************************************************
+{- *********************************************************************
 *                                                                      *
-   Analyzing types
+               mapType
 *                                                                      *
 ************************************************************************
 
@@ -723,6 +725,7 @@ mapCoercion mapper@(TyCoMapper { tcm_covar = covar
     go_prov (PhantomProv co)    = PhantomProv <$> go co
     go_prov (ProofIrrelProv co) = ProofIrrelProv <$> go co
     go_prov p@(PluginProv _)    = return p
+
 
 {-
 ************************************************************************
@@ -1886,32 +1889,6 @@ tyBinderType (Anon _ ty)   = scaledThing ty
 binderRelevantType_maybe :: TyCoBinder -> Maybe Type
 binderRelevantType_maybe (Named {}) = Nothing
 binderRelevantType_maybe (Anon _ ty)  = Just (scaledThing ty)
-
-------------- Closing over kinds -----------------
-
--- | Add the kind variables free in the kinds of the tyvars in the given set.
--- Returns a non-deterministic set.
-closeOverKinds :: TyVarSet -> TyVarSet
-closeOverKinds = fvVarSet . closeOverKindsFV . nonDetEltsUniqSet
-  -- It's OK to use nonDetEltsUniqSet here because we immediately forget
-  -- about the ordering by returning a set.
-
--- | Given a list of tyvars returns a deterministic FV computation that
--- returns the given tyvars with the kind variables free in the kinds of the
--- given tyvars.
-closeOverKindsFV :: [TyVar] -> FV
-closeOverKindsFV tvs =
-  mapUnionFV (tyCoFVsOfType . tyVarKind) tvs `unionFV` mkFVs tvs
-
--- | Add the kind variables free in the kinds of the tyvars in the given set.
--- Returns a deterministically ordered list.
-closeOverKindsList :: [TyVar] -> [TyVar]
-closeOverKindsList tvs = fvVarList $ closeOverKindsFV tvs
-
--- | Add the kind variables free in the kinds of the tyvars in the given set.
--- Returns a deterministic set.
-closeOverKindsDSet :: DTyVarSet -> DTyVarSet
-closeOverKindsDSet = fvDVarSet . closeOverKindsFV . dVarSetElems
 
 {-
 ************************************************************************

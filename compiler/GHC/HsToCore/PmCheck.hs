@@ -281,7 +281,7 @@ checkSingle dflags ctxt@(DsMatchContext kind locn) var p = do
 
 -- | Exhaustive for guard matches, is used for guards in pattern bindings and
 -- in @MultiIf@ expressions.
-checkGuardMatches :: HsMatchContext Name          -- Match context
+checkGuardMatches :: HsMatchContext GhcRn         -- Match context
                   -> GRHSs GhcTc (LHsExpr GhcTc)  -- Guarded RHSs
                   -> DsM ()
 checkGuardMatches hs_ctx guards@(GRHSs _ grhss _) = do
@@ -311,7 +311,6 @@ checkMatches dflags ctxt vars matches = do
     -- This must be an -XEmptyCase. See Note [Checking EmptyCase]
     [] | [var] <- vars -> addPmCtDeltas init_deltas (PmNotBotCt var)
     _                  -> pure init_deltas
-  tracePm "checkMatches: missing" (ppr missing)
   fam_insts <- dsGetFamInstEnvs
   grd_tree  <- mkGrdTreeMany [] <$> mapM (translateMatch fam_insts vars) matches
   res <- checkGrdTree grd_tree missing

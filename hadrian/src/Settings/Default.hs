@@ -76,6 +76,7 @@ stage0Packages = do
              , transformers
              , unlit                         ]
           ++ [ terminfo | not windowsHost, not cross ]
+          ++ [ timeout  | windowsHost                ]
           ++ [ touchy   | windowsHost                ]
 
 -- | Packages built in 'Stage1' by default. You can change this in "UserSettings".
@@ -215,6 +216,7 @@ defaultFlavour = Flavour
     , ghciWithDebugger   = False
     , ghcProfiled        = False
     , ghcDebugged        = False
+    , ghcThreaded        = True
     , ghcDocs            = cmdDocsArgs }
 
 -- | Default logic for determining whether to build
