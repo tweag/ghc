@@ -557,7 +557,7 @@ mk_strict_superclasses rec_clss (CtGiven { ctev_evar = evar, ctev_loc = loc })
         (sc_theta, sc_inner_pred) = splitFunTys sc_rho
 
         all_tvs       = tvs `chkAppend` sc_tvs
-        all_theta     = theta `chkAppend` sc_theta
+        all_theta     = theta `chkAppend` (map scaledThing sc_theta)
         swizzled_pred = mkInfSigmaTy all_tvs all_theta sc_inner_pred
 
         -- evar :: forall tvs. theta => cls tys
