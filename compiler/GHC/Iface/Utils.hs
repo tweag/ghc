@@ -68,7 +68,7 @@ import GHC.Iface.Load
 import GHC.CoreToIface
 import FlagChecker
 
-import DsUsage ( mkUsageInfo, mkUsedNames, mkDependencies )
+import GHC.HsToCore.Usage ( mkUsageInfo, mkUsedNames, mkDependencies )
 import Id
 import Annotations
 import CoreSyn
@@ -110,7 +110,7 @@ import Exception
 import UniqSet
 import Packages
 import Multiplicity
-import ExtractDocs
+import GHC.HsToCore.Docs
 
 import Control.Monad
 import Data.Function

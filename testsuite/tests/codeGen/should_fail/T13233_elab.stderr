@@ -1,0 +1,6 @@
+
+T13233_elab.hs:25:16: error:
+    A levity-polymorphic type is not allowed here:
+      Type: a
+      Kind: TYPE rep1
+    When trying to create a variable of type: a

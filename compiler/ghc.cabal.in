@@ -156,7 +156,7 @@ Library
     c-sources:
         cbits/cutils.c
         cbits/genSym.c
-        ghci/keepCAFsForGHCi.c
+        cbits/keepCAFsForGHCi.c
 
     hs-source-dirs:
         .
@@ -164,8 +164,6 @@ Library
         basicTypes
         cmm
         coreSyn
-        deSugar
-        ghci
         iface
         llvmGen
         main
@@ -203,6 +201,7 @@ Library
         DataCon
         PatSyn
         Demand
+        Cpr
         GHC.Cmm.DebugBlock
         Exception
         FieldLabel
@@ -304,7 +303,7 @@ Library
         GHC.StgToCmm.Ticky
         GHC.StgToCmm.Utils
         GHC.StgToCmm.ExtCode
-        GHC.Runtime.Layout
+        GHC.Runtime.Heap.Layout
         CoreArity
         CoreFVs
         CoreLint
@@ -324,22 +323,22 @@ Library
         GHC.HsToCore.PmCheck.Ppr
         GHC.HsToCore.PmCheck.Types
         GHC.HsToCore.PmCheck
-        Coverage
-        Desugar
-        DsArrows
-        DsBinds
-        DsCCall
-        DsExpr
-        DsForeign
-        DsGRHSs
-        DsListComp
-        DsMonad
-        DsUsage
-        DsUtils
-        ExtractDocs
-        Match
-        MatchCon
-        MatchLit
+        GHC.HsToCore.Coverage
+        GHC.HsToCore
+        GHC.HsToCore.Arrows
+        GHC.HsToCore.Binds
+        GHC.HsToCore.Foreign.Call
+        GHC.HsToCore.Expr
+        GHC.HsToCore.Foreign.Decl
+        GHC.HsToCore.GuardedRHSs
+        GHC.HsToCore.ListComp
+        GHC.HsToCore.Monad
+        GHC.HsToCore.Usage
+        GHC.HsToCore.Utils
+        GHC.HsToCore.Docs
+        GHC.HsToCore.Match
+        GHC.HsToCore.Match.Constructor
+        GHC.HsToCore.Match.Literal
         GHC.Hs
         GHC.Hs.Binds
         GHC.Hs.Decls
@@ -380,13 +379,13 @@ Library
         GhcMake
         GhcPlugins
         GhcPrelude
-        DynamicLoading
         HeaderInfo
         HscMain
         HscStats
         HscTypes
-        InteractiveEval
-        InteractiveEvalTypes
+        GHC.Runtime.Eval
+        GHC.Runtime.Eval.Types
+        GHC.Runtime.Loader
         UnitInfo
         Packages
         PlatformConstants
@@ -469,6 +468,7 @@ Library
         Specialise
         CallArity
         DmdAnal
+        CprAnal
         Exitify
         WorkWrap
         WwLib
@@ -525,7 +525,7 @@ Library
         TcSplice
         Class
         Coercion
-        DsMeta
+        GHC.HsToCore.Quote
         THNames
         FamInstEnv
         FunDeps
@@ -652,14 +652,14 @@ Library
             Dwarf.Types
             Dwarf.Constants
             GHC.ThToHs
-            ByteCodeTypes
-            ByteCodeAsm
-            ByteCodeGen
-            ByteCodeInstr
-            ByteCodeItbls
-            ByteCodeLink
-            Debugger
-            LinkerTypes
-            Linker
-            RtClosureInspect
-            GHCi
+            GHC.ByteCode.Types
+            GHC.ByteCode.Asm
+            GHC.ByteCode.Instr
+            GHC.ByteCode.InfoTable
+            GHC.ByteCode.Linker
+            GHC.CoreToByteCode
+            GHC.Runtime.Debugger
+            GHC.Runtime.Linker.Types
+            GHC.Runtime.Linker
+            GHC.Runtime.Heap.Inspect
+            GHC.Runtime.Interpreter

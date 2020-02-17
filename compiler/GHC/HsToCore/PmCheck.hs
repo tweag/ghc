@@ -47,17 +47,17 @@ import Var (EvVar)
 import Coercion
 import TcEvidence
 import TcType (evVarPred)
-import {-# SOURCE #-} DsExpr (dsExpr, dsLExpr, dsSyntaxExpr)
-import {-# SOURCE #-} DsBinds (dsHsWrapper)
-import DsUtils (selectMatchVar)
-import MatchLit (dsLit, dsOverLit)
-import DsMonad
+import {-# SOURCE #-} GHC.HsToCore.Expr (dsExpr, dsLExpr, dsSyntaxExpr)
+import {-# SOURCE #-} GHC.HsToCore.Binds (dsHsWrapper)
+import GHC.HsToCore.Utils (selectMatchVar)
+import GHC.HsToCore.Match.Literal (dsLit, dsOverLit)
+import GHC.HsToCore.Monad
 import Bag
 import OrdList
 import TyCoRep
 import Type
 import Multiplicity
-import DsUtils       (isTrueLHsExpr)
+import GHC.HsToCore.Utils       (isTrueLHsExpr)
 import Maybes
 import qualified GHC.LanguageExtensions as LangExt
 
@@ -483,7 +483,7 @@ translatePat fam_insts x pat = case pat of
     translateConPatOut fam_insts x con arg_tys ex_tvs dicts ps
 
   NPat ty (L _ olit) mb_neg _ -> do
-    -- See Note [Literal short cut] in MatchLit.hs
+    -- See Note [Literal short cut] in GHC.HsToCore.Match.Literal.hs
     -- We inline the Literal short cut for @ty@ here, because @ty@ is more
     -- precise than the field of OverLitTc, which is all that dsOverLit (which
     -- normally does the literal short cut) can look at. Also @ty@ matches the
@@ -983,8 +983,8 @@ checkGrdTree guards deltas = do
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 When checking a match it would be great to have all type and term information
 available so we can get more precise results. For this reason we have functions
-`addDictsDs' and `addTmVarCsDs' in DsMonad that store in the environment type and
-term constraints (respectively) as we go deeper.
+`addDictsDs' and `addTmVarCsDs' in GHC.HsToCore.Monad that store in the
+environment type and term constraints (respectively) as we go deeper.
 
 The type constraints we propagate inwards are collected by `collectEvVarsPats'
 in GHC.Hs.Pat. This handles bug #4139 ( see example
@@ -1160,7 +1160,7 @@ dsPmWarn dflags ctx@(DsMatchContext kind loc) vars result
   = when (flag_i || flag_u) $ do
       unc_examples <- getNFirstUncovered vars (maxPatterns + 1) uncovered
       let exists_r = flag_i && notNull redundant
-          exists_i = flag_i && notNull inaccessible && not is_rec_upd
+          exists_i = flag_i && notNull inaccessible
           exists_u = flag_u && notNull unc_examples
           approx   = precision == Approximate
 
@@ -1183,12 +1183,9 @@ dsPmWarn dflags ctx@(DsMatchContext kind loc) vars result
       , cr_approx  = precision } = result
     (redundant, inaccessible) = redundantAndInaccessibleRhss clauses
 
-    flag_i = wopt Opt_WarnOverlappingPatterns dflags
+    flag_i = overlapping dflags kind
     flag_u = exhaustive dflags kind
     flag_u_reason = maybe NoReason Reason (exhaustiveWarningFlag kind)
-
-    is_rec_upd = case kind of { RecUpd -> True; _ -> False }
-       -- See Note [Inaccessible warnings for record updates]
 
     maxPatterns = maxUncoveredPatterns dflags
 
@@ -1245,6 +1242,17 @@ it's impossible:
 
 We don't want to warn about the inaccessible branch because the programmer
 didn't put it there!  So we filter out the warning here.
+
+The same can happen for long distance term constraints instead of type
+constraints (#17783):
+
+  data T = A { x :: Int } | B { x :: Int }
+  f r@A{} = r { x = 3 }
+  f _     = B 0
+
+Here, the long distance info from the FunRhs match (@r ~ A x@) will make the
+clause matching on @B@ of the desugaring to @case@ redundant. It's generated
+code that we don't want to warn about.
 -}
 
 dots :: Int -> [a] -> SDoc
@@ -1260,6 +1268,12 @@ allPmCheckWarnings =
   , Opt_WarnIncompletePatternsRecUpd
   , Opt_WarnOverlappingPatterns
   ]
+
+-- | Check whether the redundancy checker should run (redundancy only)
+overlapping :: DynFlags -> HsMatchContext id -> Bool
+-- See Note [Inaccessible warnings for record updates]
+overlapping _      RecUpd = False
+overlapping dflags _      = wopt Opt_WarnOverlappingPatterns dflags
 
 -- | Check whether the exhaustiveness checker should run (exhaustiveness only)
 exhaustive :: DynFlags -> HsMatchContext id -> Bool

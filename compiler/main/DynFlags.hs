@@ -428,7 +428,6 @@ data DumpFlag
    | Opt_D_dump_cmm_split
    | Opt_D_dump_cmm_info
    | Opt_D_dump_cmm_cps
-   | Opt_D_dump_srts
    -- end cmm subflags
    | Opt_D_dump_cfg_weights -- ^ Dump the cfg used for block layout.
    | Opt_D_dump_asm
@@ -465,6 +464,8 @@ data DumpFlag
    | Opt_D_dump_exitify
    | Opt_D_dump_stranal
    | Opt_D_dump_str_signatures
+   | Opt_D_dump_cpranal
+   | Opt_D_dump_cpr_signatures
    | Opt_D_dump_tc
    | Opt_D_dump_tc_ast
    | Opt_D_dump_types
@@ -1108,7 +1109,7 @@ data DynFlags = DynFlags {
     -- loaded here is directed by pluginModNames. Arguments are loaded from
     -- pluginModNameOpts. The purpose of this field is to cache the plugins so
     -- they don't have to be loaded each time they are needed.  See
-    -- 'DynamicLoading.initializePlugins'.
+    -- 'GHC.Runtime.Loader.initializePlugins'.
   staticPlugins            :: [StaticPlugin],
     -- ^ static plugins which do not need dynamic loading. These plugins are
     -- intended to be added by GHC API users directly to this list.
@@ -1837,7 +1838,9 @@ wayOptl :: Platform -> Way -> [String]
 wayOptl _ (WayCustom {}) = []
 wayOptl platform WayThreaded =
         case platformOS platform of
-        OSFreeBSD  -> ["-pthread"]
+        -- N.B. FreeBSD cc throws a warning if we pass -pthread without
+        -- actually using any pthread symbols.
+        OSFreeBSD  -> ["-pthread", "-Wno-unused-command-line-argument"]
         OSOpenBSD  -> ["-pthread"]
         OSNetBSD   -> ["-pthread"]
         _          -> []
@@ -3360,8 +3363,6 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_cmm_info)
   , make_ord_flag defGhcFlag "ddump-cmm-cps"
         (setDumpFlag Opt_D_dump_cmm_cps)
-  , make_ord_flag defGhcFlag "ddump-srts"
-        (setDumpFlag Opt_D_dump_srts)
   , make_ord_flag defGhcFlag "ddump-cfg-weights"
         (setDumpFlag Opt_D_dump_cfg_weights)
   , make_ord_flag defGhcFlag "ddump-core-stats"
@@ -3432,6 +3433,10 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_stranal)
   , make_ord_flag defGhcFlag "ddump-str-signatures"
         (setDumpFlag Opt_D_dump_str_signatures)
+  , make_ord_flag defGhcFlag "ddump-cpranal"
+        (setDumpFlag Opt_D_dump_cpranal)
+  , make_ord_flag defGhcFlag "ddump-cpr-signatures"
+        (setDumpFlag Opt_D_dump_cpr_signatures)
   , make_ord_flag defGhcFlag "ddump-tc"
         (setDumpFlag Opt_D_dump_tc)
   , make_ord_flag defGhcFlag "ddump-tc-ast"

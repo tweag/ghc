@@ -72,6 +72,7 @@ import VarSet
 import TyCoRep
 import TyCoTidy ( tidyCo )
 import Demand ( isTopSig )
+import Cpr ( topCprSig )
 
 import Data.Maybe ( catMaybes )
 
@@ -445,7 +446,7 @@ toIfaceIdDetails other = pprTrace "toIfaceIdDetails" (ppr other)
 
 toIfaceIdInfo :: IdInfo -> IfaceIdInfo
 toIfaceIdInfo id_info
-  = case catMaybes [arity_hsinfo, caf_hsinfo, strict_hsinfo,
+  = case catMaybes [arity_hsinfo, caf_hsinfo, strict_hsinfo, cpr_hsinfo,
                     inline_hsinfo,  unfold_hsinfo, levity_hsinfo] of
        []    -> NoInfo
        infos -> HasInfo infos
@@ -469,6 +470,10 @@ toIfaceIdInfo id_info
     strict_hsinfo | not (isTopSig sig_info) = Just (HsStrictness sig_info)
                   | otherwise               = Nothing
 
+    ------------  CPR --------------
+    cpr_info = cprInfo id_info
+    cpr_hsinfo | cpr_info /= topCprSig = Just (HsCpr cpr_info)
+               | otherwise             = Nothing
     ------------  Unfolding  --------------
     unfold_hsinfo = toIfUnfolding loop_breaker (unfoldingInfo id_info)
     loop_breaker  = isStrongLoopBreaker (occInfo id_info)

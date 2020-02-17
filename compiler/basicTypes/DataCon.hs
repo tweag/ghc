@@ -1357,7 +1357,8 @@ dataConInstOrigArgTys
                         -- equality constraints or dicts
         -> [Scaled Type]
 -- For vanilla datacons, it's all quite straightforward
--- But for the call in MatchCon, we really do want just the value args
+-- But for the call in GHC.HsToCore.Match.Constructor, we really do want just
+-- the value args
 dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
                                   dcUnivTyVars = univ_tvs,
                                   dcExTyCoVars = ex_tvs}) inst_tys

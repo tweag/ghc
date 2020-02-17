@@ -58,7 +58,7 @@ import Control.Monad
 
 import GHCi.Message
 import GHCi.RemoteTypes
-import GHCi
+import GHC.Runtime.Interpreter
 import HscMain
         -- These imports are the reason that TcSplice
         -- is very high up the module hierarchy
@@ -100,8 +100,8 @@ import DataCon
 import TcEvidence
 import Id
 import IdInfo
-import DsExpr
-import DsMonad
+import GHC.HsToCore.Expr
+import GHC.HsToCore.Monad
 import GHC.Serialized
 import ErrUtils
 import Util
@@ -180,7 +180,7 @@ tcTypedBracket rn_expr brack@(TExpBr _ expr) res_ty
        ; m_var <- mkTyVarTy <$> mkMetaTyVar
        -- Make sure the type variable satisfies Quote
        ; ev_var <- emitQuoteWanted m_var
-       -- Bundle them together so they can be used in DsMeta for desugaring
+       -- Bundle them together so they can be used in GHC.HsToCore.Quote for desugaring
        -- brackets.
        ; let wrapper = QuoteWrapper ev_var m_var
        -- Typecheck expr to make sure it is valid,
@@ -381,7 +381,7 @@ The life cycle of a un-typed bracket:
 
 
 In both cases, desugaring happens like this:
-  * HsTcBracketOut is desugared by DsMeta.dsBracket.  It
+  * HsTcBracketOut is desugared by GHC.HsToCore.Quote.dsBracket.  It
 
       a) Extends the ds_meta environment with the PendingSplices
          attached to the bracket
@@ -396,10 +396,10 @@ In both cases, desugaring happens like this:
     ${n}(e).  The name is initialised to an (Unqual "splice") when the
     splice is created; the renamer gives it a unique.
 
-  * When DsMeta (used to desugar the body of the bracket) comes across
+  * When GHC.HsToCore.Quote (used to desugar the body of the bracket) comes across
     a splice, it looks up the splice's Name, n, in the ds_meta envt,
     to find an (HsExpr Id) that should be substituted for the splice;
-    it just desugars it to get a CoreExpr (DsMeta.repSplice).
+    it just desugars it to get a CoreExpr (GHC.HsToCore.Quote.repSplice).
 
 Example:
     Source:       f = [| Just $(g 3) |]
@@ -512,7 +512,7 @@ returned together in a `QuoteWrapper` and then passed along to two further place
 during compilation:
 
 1. Typechecking nested splices (immediately in tcPendingSplice)
-2. Desugaring quotations (see DsMeta)
+2. Desugaring quotations (see GHC.HsToCore.Quote)
 
 `tcPendingSplice` takes the `m` type variable as an argument and checks
 each nested splice against this variable `m`. During this

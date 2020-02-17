@@ -89,10 +89,10 @@ import GhcPrelude
 import Data.Data hiding (Fixity, TyCon)
 import Data.Maybe       ( fromJust )
 import Id
-import GHCi             ( addSptEntry )
+import GHC.Runtime.Interpreter ( addSptEntry )
 import GHCi.RemoteTypes ( ForeignHValue )
-import ByteCodeGen      ( byteCodeGen, coreExprToBCOs )
-import Linker
+import GHC.CoreToByteCode ( byteCodeGen, coreExprToBCOs )
+import GHC.Runtime.Linker
 import CoreTidy         ( tidyExpr )
 import Type             ( Type )
 import {- Kind parts of -} Type         ( Kind )
@@ -120,7 +120,7 @@ import NameCache        ( initNameCache )
 import GHC.Iface.Load   ( ifaceStats, initExternalPackageState )
 import PrelInfo
 import GHC.Iface.Utils
-import Desugar
+import GHC.HsToCore
 import SimplCore
 import GHC.Iface.Tidy
 import GHC.CoreToStg.Prep
@@ -147,7 +147,7 @@ import Hooks
 import TcEnv
 import PrelNames
 import Plugins
-import DynamicLoading   ( initializePlugins )
+import GHC.Runtime.Loader   ( initializePlugins )
 
 import DynFlags
 import ErrUtils
