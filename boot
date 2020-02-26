@@ -29,6 +29,7 @@ def die(mesg):
     sys.exit(1)
 
 def check_for_url_rewrites():
+    return
     if os.path.isdir('.git') and \
        subprocess.check_output('git config remote.origin.url'.split()).find(b'github.com') != -1 and \
        subprocess.call(['git', 'config', '--get-regexp', '^url.*github.com/.*/packages-.insteadOf']) != 0:
