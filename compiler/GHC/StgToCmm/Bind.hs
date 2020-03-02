@@ -29,7 +29,7 @@ import GHC.StgToCmm.Closure
 import GHC.StgToCmm.Foreign    (emitPrimCall)
 
 import GHC.Cmm.Graph
-import CoreSyn          ( AltCon(..), tickishIsCode )
+import GHC.Core          ( AltCon(..), tickishIsCode )
 import GHC.Cmm.BlockId
 import GHC.Runtime.Heap.Layout
 import GHC.Cmm
@@ -48,7 +48,7 @@ import VarSet
 import BasicTypes
 import Outputable
 import FastString
-import DynFlags
+import GHC.Driver.Session
 
 import Control.Monad
 

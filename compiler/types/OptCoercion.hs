@@ -8,7 +8,7 @@ module OptCoercion ( optCoercion, checkAxInstCo ) where
 
 import GhcPrelude
 
-import DynFlags
+import GHC.Driver.Session
 import TyCoRep
 import TyCoSubst
 import Coercion
@@ -555,7 +555,6 @@ opt_univ env sym prov role oty1 oty2
 
   where
     prov' = case prov of
-      UnsafeCoerceProv   -> prov
       PhantomProv kco    -> PhantomProv $ opt_co4_wrap env sym False Nominal kco
       ProofIrrelProv kco -> ProofIrrelProv $ opt_co4_wrap env sym False Nominal kco
       PluginProv _       -> prov
@@ -635,7 +634,6 @@ opt_trans_rule is in_co1@(UnivCo p1 r1 tyl1 _tyr1)
     mkUnivCo prov' r1 tyl1 tyr2
   where
     -- if the provenances are different, opt'ing will be very confusing
-    opt_trans_prov UnsafeCoerceProv      UnsafeCoerceProv      = Just UnsafeCoerceProv
     opt_trans_prov (PhantomProv kco1)    (PhantomProv kco2)
       = Just $ PhantomProv $ opt_trans is kco1 kco2
     opt_trans_prov (ProofIrrelProv kco1) (ProofIrrelProv kco2)
@@ -970,7 +968,7 @@ The problem described here was first found in dependent/should_compile/dynamic-p
 checkAxInstCo :: Coercion -> Maybe CoAxBranch
 -- defined here to avoid dependencies in Coercion
 -- If you edit this function, you may need to update the GHC formalism
--- See Note [GHC Formalism] in CoreLint
+-- See Note [GHC Formalism] in GHC.Core.Lint
 checkAxInstCo (AxiomInstCo ax ind cos)
   = let branch       = coAxiomNthBranch ax ind
         tvs          = coAxBranchTyVars branch

@@ -62,10 +62,9 @@ import GHC.Rename.Types
 import GHC.Rename.Expr
 import GHC.Rename.Utils  ( HsDocContext(..) )
 import GHC.Rename.Fixity ( lookupFixityRn )
-import MkId
 import TysWiredIn ( unitTy, mkListTy )
-import Plugins
-import DynFlags
+import GHC.Driver.Plugins
+import GHC.Driver.Session
 import GHC.Hs
 import GHC.Iface.Syntax ( ShowSub(..), showToHeader )
 import GHC.Iface.Type   ( ShowForAllFlag(..) )
@@ -81,8 +80,8 @@ import TcEvidence
 import Constraint
 import TcOrigin
 import qualified BooleanFormula as BF
-import PprTyThing( pprTyThingInContext )
-import CoreFVs( orphNamesOfFamInst )
+import GHC.Core.Ppr.TyThing ( pprTyThingInContext )
+import GHC.Core.FVs         ( orphNamesOfFamInst )
 import FamInst
 import InstEnv
 import FamInstEnv( FamInst, pprFamInst, famInstsRepTyCons
@@ -119,7 +118,7 @@ import NameSet
 import Avail
 import TyCon
 import SrcLoc
-import HscTypes
+import GHC.Driver.Types
 import ListSetOps
 import Outputable
 import ConLike
@@ -166,7 +165,7 @@ tcRnModule :: HscEnv
 
 tcRnModule hsc_env mod_sum save_rn_syntax
    parsedModule@HsParsedModule {hpm_module= L loc this_module}
- | RealSrcSpan real_loc <- loc
+ | RealSrcSpan real_loc _ <- loc
  = withTiming dflags
               (text "Renamer/typechecker"<+>brackets (ppr this_mod))
               (const ()) $
@@ -1322,9 +1321,9 @@ missingBootThing is_boot name what
     <+> text "file, but not"
     <+> text what <+> text "the module"
 
-badReexportedBootThing :: DynFlags -> Bool -> Name -> Name -> SDoc
-badReexportedBootThing dflags is_boot name name'
-  = withPprStyle (mkUserStyle dflags alwaysQualify AllTheWay) $ vcat
+badReexportedBootThing :: Bool -> Name -> Name -> SDoc
+badReexportedBootThing is_boot name name'
+  = withUserStyle alwaysQualify AllTheWay $ vcat
         [ text "The" <+> (if is_boot then text "hs-boot" else text "hsig")
            <+> text "file (re)exports" <+> quotes (ppr name)
         , text "but the implementing module exports a different identifier" <+> quotes (ppr name')
@@ -1984,7 +1983,7 @@ tcRnStmt hsc_env rdr_stmt
     traceTc "tcs 1" empty ;
     this_mod <- getModule ;
     global_ids <- mapM (externaliseAndTidyId this_mod) zonked_ids ;
-        -- Note [Interactively-bound Ids in GHCi] in HscTypes
+        -- Note [Interactively-bound Ids in GHCi] in GHC.Driver.Types
 
 {- ---------------------------------------------
    At one stage I removed any shadowed bindings from the type_env;
@@ -2055,7 +2054,7 @@ runPlans (p:ps) = tryTcDiscardingErrs (runPlans ps) p
 --
 -- By 'lift' and 'environment we mean that the code is changed to
 -- execute properly in an IO monad. See Note [Interactively-bound Ids
--- in GHCi] in HscTypes for more details. We do this lifting by trying
+-- in GHCi] in GHC.Driver.Types for more details. We do this lifting by trying
 -- different ways ('plans') of lifting the code into the IO monad and
 -- type checking each plan until one succeeds.
 tcUserStmt :: GhciLStmt GhcPs -> TcM (PlanResult, FixityEnv)
@@ -2270,51 +2269,57 @@ leaking memory as it is repeatedly queried.
 -- statement in the form 'IO [()]'.
 tcGhciStmts :: [GhciLStmt GhcRn] -> TcM PlanResult
 tcGhciStmts stmts
- = do { ioTyCon <- tcLookupTyCon ioTyConName ;
-        ret_id  <- tcLookupId returnIOName ;            -- return @ IO
-        let {
-            ret_ty      = mkListTy unitTy ;
-            io_ret_ty   = mkTyConApp ioTyCon [ret_ty] ;
+ = do { ioTyCon <- tcLookupTyCon ioTyConName
+      ; ret_id  <- tcLookupId returnIOName             -- return @ IO
+      ; let ret_ty      = mkListTy unitTy
+            io_ret_ty   = mkTyConApp ioTyCon [ret_ty]
             tc_io_stmts = tcStmtsAndThen GhciStmtCtxt tcDoStmt stmts
-                                         (mkCheckExpType io_ret_ty) ;
-            names = collectLStmtsBinders stmts ;
-         } ;
+                                         (mkCheckExpType io_ret_ty)
+            names = collectLStmtsBinders stmts
 
         -- OK, we're ready to typecheck the stmts
-        traceTc "TcRnDriver.tcGhciStmts: tc stmts" empty ;
-        ((tc_stmts, ids), lie) <- captureTopConstraints $
+      ; traceTc "TcRnDriver.tcGhciStmts: tc stmts" empty
+      ; ((tc_stmts, ids), lie) <- captureTopConstraints $
                                   tc_io_stmts $ \ _ ->
-                                  mapM tcLookupId names  ;
+                                  mapM tcLookupId names
                         -- Look up the names right in the middle,
                         -- where they will all be in scope
 
         -- Simplify the context
-        traceTc "TcRnDriver.tcGhciStmts: simplify ctxt" empty ;
-        const_binds <- checkNoErrs (simplifyInteractive lie) ;
+      ; traceTc "TcRnDriver.tcGhciStmts: simplify ctxt" empty
+      ; const_binds <- checkNoErrs (simplifyInteractive lie)
                 -- checkNoErrs ensures that the plan fails if context redn fails
 
-        traceTc "TcRnDriver.tcGhciStmts: done" empty ;
-        let {   -- mk_return builds the expression
-                --      returnIO @ [()] [coerce () x, ..,  coerce () z]
-                --
-                -- Despite the inconvenience of building the type applications etc,
-                -- this *has* to be done in type-annotated post-typecheck form
-                -- because we are going to return a list of *polymorphic* values
-                -- coerced to type (). If we built a *source* stmt
-                --      return [coerce x, ..., coerce z]
-                -- then the type checker would instantiate x..z, and we wouldn't
-                -- get their *polymorphic* values.  (And we'd get ambiguity errs
-                -- if they were overloaded, since they aren't applied to anything.)
-            ret_expr = nlHsApp (nlHsTyApp ret_id [ret_ty])
-                       (noLoc $ ExplicitList unitTy Nothing
-                                                            (map mk_item ids)) ;
-            mk_item id = let ty_args = [idType id, unitTy] in
-                         nlHsApp (nlHsTyApp unsafeCoerceId
-                                   (map getRuntimeRep ty_args ++ ty_args))
-                                 (nlHsVar id) ;
+
+      ; traceTc "TcRnDriver.tcGhciStmts: done" empty
+
+      -- rec_expr is the expression
+      --      returnIO @ [()] [unsafeCoerce# () x, ..,  unsafeCorece# () z]
+      --
+      -- Despite the inconvenience of building the type applications etc,
+      -- this *has* to be done in type-annotated post-typecheck form
+      -- because we are going to return a list of *polymorphic* values
+      -- coerced to type (). If we built a *source* stmt
+      --      return [coerce x, ..., coerce z]
+      -- then the type checker would instantiate x..z, and we wouldn't
+      -- get their *polymorphic* values.  (And we'd get ambiguity errs
+      -- if they were overloaded, since they aren't applied to anything.)
+
+      ; AnId unsafe_coerce_id <- tcLookupGlobal unsafeCoercePrimName
+           -- We use unsafeCoerce# here because of (U11) in
+           -- Note [Implementing unsafeCoerce] in base:Unsafe.Coerce
+
+      ; let ret_expr = nlHsApp (nlHsTyApp ret_id [ret_ty]) $
+                       noLoc $ ExplicitList unitTy Nothing $
+                       map mk_item ids
+
+            mk_item id = unsafe_coerce_id `nlHsTyApp` [ getRuntimeRep (idType id)
+                                                      , getRuntimeRep unitTy
+                                                      , idType id, unitTy]
+                                          `nlHsApp` nlHsVar id
             stmts = tc_stmts ++ [noLoc (mkLastStmt ret_expr)]
-        } ;
-        return (ids, mkHsDictLet (EvBinds const_binds) $
+
+      ; return (ids, mkHsDictLet (EvBinds const_binds) $
                      noLoc (HsDo io_ret_ty GhciStmtCtxt (noLoc stmts)))
     }
 

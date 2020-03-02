@@ -17,10 +17,10 @@ module GHC.CoreToStg ( coreToStg ) where
 
 import GhcPrelude
 
-import CoreSyn
-import CoreUtils        ( exprType, findDefault, isJoinBind
+import GHC.Core
+import GHC.Core.Utils   ( exprType, findDefault, isJoinBind
                         , exprIsTickedString_maybe )
-import CoreArity        ( manifestArity )
+import GHC.Core.Arity   ( manifestArity )
 import GHC.Stg.Syntax
 
 import Type
@@ -41,11 +41,12 @@ import Outputable
 import MonadUtils
 import FastString
 import Util
-import DynFlags
+import GHC.Driver.Session
 import ForeignCall
 import Demand           ( isUsedOnce )
 import PrimOp           ( PrimCall(..), primOpWrapperId )
 import SrcLoc           ( mkGeneralSrcSpan )
+import PrelNames        ( unsafeEqualityProofName )
 
 import Data.List.NonEmpty (nonEmpty, toList)
 import Data.Maybe    (fromMaybe)
@@ -197,6 +198,26 @@ import Control.Monad (ap)
 --                 do we set CCCS from it; so we just slam in
 --                 dontCareCostCentre.
 
+-- Note [Coercion tokens]
+-- ~~~~~~~~~~~~~~~~~~~~~~
+-- In coreToStgArgs, we drop type arguments completely, but we replace
+-- coercions with a special coercionToken# placeholder. Why? Consider:
+--
+--   f :: forall a. Int ~# Bool -> a
+--   f = /\a. \(co :: Int ~# Bool) -> error "impossible"
+--
+-- If we erased the coercion argument completely, we’d end up with just
+-- f = error "impossible", but then f `seq` () would be ⊥!
+--
+-- This is an artificial example, but back in the day we *did* treat
+-- coercion lambdas like type lambdas, and we had bug reports as a
+-- result. So now we treat coercion lambdas like value lambdas, but we
+-- treat coercions themselves as zero-width arguments — coercionToken#
+-- has representation VoidRep — which gets the best of both worlds.
+--
+-- (For the gory details, see also the (unpublished) paper, “Practical
+-- aspects of evidence-based compilation in System FC.”)
+
 -- --------------------------------------------------------------
 -- Setting variable info: top-level, binds, RHSs
 -- --------------------------------------------------------------
@@ -250,7 +271,7 @@ coreTopBindToStg
 coreTopBindToStg _ _ env ccs (NonRec id e)
   | Just str <- exprIsTickedString_maybe e
   -- top-level string literal
-  -- See Note [CoreSyn top-level string literals] in CoreSyn
+  -- See Note [Core top-level string literals] in GHC.Core
   = let
         env' = extendVarEnv env id how_bound
         how_bound = LetBound TopLet 0
@@ -356,8 +377,10 @@ coreToStgExpr (App (Lit LitRubbish) _some_unlifted_type)
   -- We lower 'LitRubbish' to @()@ here, which is much easier than doing it in
   -- a STG to Cmm pass.
   = coreToStgExpr (Var unitDataConId)
-coreToStgExpr (Var v)      = coreToStgApp v               [] []
-coreToStgExpr (Coercion _) = coreToStgApp coercionTokenId [] []
+coreToStgExpr (Var v) = coreToStgApp v [] []
+coreToStgExpr (Coercion _)
+  -- See Note [Coercion tokens]
+  = coreToStgApp coercionTokenId [] []
 
 coreToStgExpr expr@(App _ _)
   = coreToStgApp f args ticks
@@ -394,7 +417,7 @@ coreToStgExpr (Cast expr _)
 
 coreToStgExpr (Case scrut _ _ [])
   = coreToStgExpr scrut
-    -- See Note [Empty case alternatives] in CoreSyn If the case
+    -- See Note [Empty case alternatives] in GHC.Core If the case
     -- alternatives are empty, the scrutinee must diverge or raise an
     -- exception, so we can just dive into it.
     --
@@ -404,11 +427,23 @@ coreToStgExpr (Case scrut _ _ [])
     -- runtime system error function.
 
 
-coreToStgExpr (Case scrut bndr _ alts) = do
+coreToStgExpr e0@(Case scrut bndr _ alts) = do
     alts2 <- extendVarEnvCts [(bndr, LambdaBound)] (mapM vars_alt alts)
     scrut2 <- coreToStgExpr scrut
-    return (StgCase scrut2 bndr (mkStgAltType bndr alts) alts2)
+    let stg = StgCase scrut2 bndr (mkStgAltType bndr alts) alts2
+    -- See (U2) in Note [Implementing unsafeCoerce] in base:Unsafe.Coerce
+    case scrut2 of
+      StgApp id [] | idName id == unsafeEqualityProofName ->
+        case alts2 of
+          [(_, [_co], rhs)] ->
+            return rhs
+          _ ->
+            pprPanic "coreToStgExpr" $
+              text "Unexpected unsafe equality case expression:" $$ ppr e0 $$
+              text "STG:" $$ ppr stg
+      _ -> return stg
   where
+    vars_alt :: (AltCon, [Var], CoreExpr) -> CtsM (AltCon, [Var], StgExpr)
     vars_alt (con, binders, rhs)
       | DataAlt c <- con, c == unboxedUnitDataCon
       = -- This case is a bit smelly.
@@ -541,7 +576,7 @@ coreToStgArgs (Type _ : args) = do     -- Type argument
     (args', ts) <- coreToStgArgs args
     return (args', ts)
 
-coreToStgArgs (Coercion _ : args)  -- Coercion argument; replace with place holder
+coreToStgArgs (Coercion _ : args) -- Coercion argument; See Note [Coercion tokens]
   = do { (args', ts) <- coreToStgArgs args
        ; return (StgVarArg coercionTokenId : args', ts) }
 

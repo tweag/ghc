@@ -51,7 +51,7 @@ import GHC.Iface.Syntax
 import DataCon
 import Id
 import IdInfo
-import CoreSyn
+import GHC.Core
 import TyCon hiding ( pprPromotionQuote )
 import CoAxiom
 import TysPrim ( eqPrimTyCon, eqReprPrimTyCon )
@@ -304,7 +304,6 @@ toIfaceCoercionX fr co
                             fr' = fr `delVarSet` tv
 
     go_prov :: UnivCoProvenance -> IfaceUnivCoProv
-    go_prov UnsafeCoerceProv    = IfaceUnsafeCoerceProv
     go_prov (PhantomProv co)    = IfacePhantomProv (go co)
     go_prov (ProofIrrelProv co) = IfaceProofIrrelProv (go co)
     go_prov (PluginProv str)    = IfacePluginProv str
@@ -426,7 +425,7 @@ toIfaceLetBndr id  = IfLetBndr (occNameFS (getOccName id))
                                (toIfaceType (idType id))
                                (toIfaceIdInfo (idInfo id))
                                (toIfaceJoinInfo (isJoinId_maybe id))
-  -- Put into the interface file any IdInfo that CoreTidy.tidyLetBndr
+  -- Put into the interface file any IdInfo that GHC.Core.Op.Tidy.tidyLetBndr
   -- has left on the Id.  See Note [IdInfo on nested let-bindings] in GHC.Iface.Syntax
 
 toIfaceIdDetails :: IdDetails -> IfaceIdDetails
@@ -446,10 +445,8 @@ toIfaceIdDetails other = pprTrace "toIfaceIdDetails" (ppr other)
 
 toIfaceIdInfo :: IdInfo -> IfaceIdInfo
 toIfaceIdInfo id_info
-  = case catMaybes [arity_hsinfo, caf_hsinfo, strict_hsinfo, cpr_hsinfo,
-                    inline_hsinfo,  unfold_hsinfo, levity_hsinfo] of
-       []    -> NoInfo
-       infos -> HasInfo infos
+  = catMaybes [arity_hsinfo, caf_hsinfo, strict_hsinfo, cpr_hsinfo,
+               inline_hsinfo,  unfold_hsinfo, levity_hsinfo]
                -- NB: strictness and arity must appear in the list before unfolding
                -- See GHC.IfaceToCore.tcUnfolding
   where

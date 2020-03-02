@@ -38,8 +38,7 @@ import GHC.Hs.Binds
 
 -- others:
 import TcEvidence
-import CoreSyn
-import DynFlags ( gopt, GeneralFlag(Opt_PrintExplicitCoercions) )
+import GHC.Core
 import Name
 import NameSet
 import BasicTypes
@@ -56,6 +55,7 @@ import {-# SOURCE #-} TcRnTypes (TcLclEnv)
 -- libraries:
 import Data.Data hiding (Fixity(..))
 import qualified Data.Data as Data (Fixity(..))
+import qualified Data.Kind
 import Data.Maybe (isNothing)
 
 import GHCi.RemoteTypes ( ForeignRef )
@@ -131,7 +131,7 @@ type family SyntaxExpr p
 -- noSyntaxExpr would be ambiguous.
 type instance SyntaxExpr (GhcPass p) = SyntaxExprGhc p
 
-type family SyntaxExprGhc (p :: Pass) = (r :: *) | r -> p where
+type family SyntaxExprGhc (p :: Pass) = (r :: Data.Kind.Type) | r -> p where
   SyntaxExprGhc 'Parsed      = NoExtField
   SyntaxExprGhc 'Renamed     = SyntaxExprRn
   SyntaxExprGhc 'Typechecked = SyntaxExprTc
@@ -187,9 +187,9 @@ instance Outputable SyntaxExprTc where
   ppr (SyntaxExprTc { syn_expr      = expr
                     , syn_arg_wraps = arg_wraps
                     , syn_res_wrap  = res_wrap })
-    = sdocWithDynFlags $ \ dflags ->
+    = sdocOption sdocPrintExplicitCoercions $ \print_co ->
       getPprStyle $ \s ->
-      if debugStyle s || gopt Opt_PrintExplicitCoercions dflags
+      if debugStyle s || print_co
       then ppr expr <> braces (pprWithCommas ppr arg_wraps)
                     <> braces (ppr res_wrap)
       else ppr expr
@@ -666,8 +666,6 @@ type instance XTick          (GhcPass _) = NoExtField
 type instance XBinTick       (GhcPass _) = NoExtField
 
 type instance XPragE         (GhcPass _) = NoExtField
-
-type instance XWrap          (GhcPass _) = NoExtField
 
 type instance XXExpr         GhcPs       = NoExtCon
 type instance XXExpr         GhcRn       = NoExtCon
@@ -2385,15 +2383,17 @@ data HsSplice id
         (XSpliced id)
         ThModFinalizers     -- TH finalizers produced by the splice.
         (HsSplicedThing id) -- The result of splicing
-   | HsSplicedT
-      DelayedSplice
    | XSplice (XXSplice id)  -- Note [Trees that Grow] extension point
+
+newtype HsSplicedT = HsSplicedT DelayedSplice deriving (Data)
 
 type instance XTypedSplice   (GhcPass _) = NoExtField
 type instance XUntypedSplice (GhcPass _) = NoExtField
 type instance XQuasiQuote    (GhcPass _) = NoExtField
 type instance XSpliced       (GhcPass _) = NoExtField
-type instance XXSplice       (GhcPass _) = NoExtCon
+type instance XXSplice       GhcPs       = NoExtCon
+type instance XXSplice       GhcRn       = NoExtCon
+type instance XXSplice       GhcTc       = HsSplicedT
 
 -- | A splice can appear with various decorations wrapped around it. This data
 -- type captures explicitly how it was originally written, for use in the pretty
@@ -2555,7 +2555,7 @@ ppr_splice_decl :: (OutputableBndrId p)
 ppr_splice_decl (HsUntypedSplice _ _ n e) = ppr_splice empty n e empty
 ppr_splice_decl e = pprSplice e
 
-pprSplice :: (OutputableBndrId p) => HsSplice (GhcPass p) -> SDoc
+pprSplice :: forall p. (OutputableBndrId p) => HsSplice (GhcPass p) -> SDoc
 pprSplice (HsTypedSplice _ DollarSplice n e)
   = ppr_splice (text "$$") n e empty
 pprSplice (HsTypedSplice _ BareSplice _ _ )
@@ -2566,8 +2566,11 @@ pprSplice (HsUntypedSplice _ BareSplice n e)
   = ppr_splice empty  n e empty
 pprSplice (HsQuasiQuote _ n q _ s)      = ppr_quasi n q s
 pprSplice (HsSpliced _ _ thing)         = ppr thing
-pprSplice (HsSplicedT {})               = text "Unevaluated typed splice"
-pprSplice (XSplice x)                   = ppr x
+pprSplice (XSplice x)                   = case ghcPass @p of
+                                            GhcPs -> noExtCon x
+                                            GhcRn -> noExtCon x
+                                            GhcTc -> case x of
+                                                       HsSplicedT _ -> text "Unevaluated typed splice"
 
 ppr_quasi :: OutputableBndr p => p -> p -> FastString -> SDoc
 ppr_quasi n quoter quote = whenPprDebug (brackets (ppr n)) <>

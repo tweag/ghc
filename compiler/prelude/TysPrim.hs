@@ -380,6 +380,8 @@ runtimeRep1Ty = mkTyVarTy runtimeRep1TyVar
 runtimeRep2Ty = mkTyVarTy runtimeRep2TyVar
 
 openAlphaTyVar, openBetaTyVar :: TyVar
+-- alpha :: TYPE r1
+-- beta  :: TYPE r2
 [openAlphaTyVar,openBetaTyVar]
   = mkTemplateTyVars [tYPE runtimeRep1Ty, tYPE runtimeRep2Ty]
 
@@ -473,7 +475,7 @@ generator never has to manipulate a value of type 'a :: TYPE rr'.
 * error :: forall (rr:RuntimeRep) (a:TYPE rr). String -> a
   Code generator never has to manipulate the return value.
 
-* unsafeCoerce#, defined in MkId.unsafeCoerceId:
+* unsafeCoerce#, defined in Desugar.mkUnsafeCoercePair:
   Always inlined to be a no-op
      unsafeCoerce# :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                              (a :: TYPE r1) (b :: TYPE r2).
@@ -523,7 +525,7 @@ tYPETyCon = mkKindTyCon tYPETyConName
 -- ... and now their names
 
 -- If you edit these, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.hs
+-- See Note [GHC Formalism] in GHC.Core.Lint
 tYPETyConName             = mkPrimTyConName (fsLit "TYPE") tYPETyConKey tYPETyCon
 
 mkPrimTyConName :: FastString -> Unique -> TyCon -> Name

@@ -41,11 +41,11 @@ import Multiplicity
 import TcType
 import Predicate
 import TysWiredIn( unitTy )
-import MkCore( rEC_SEL_ERROR_ID )
+import GHC.Core.Make( rEC_SEL_ERROR_ID )
 import GHC.Hs
 import Class
 import Type
-import HscTypes
+import GHC.Driver.Types
 import TyCon
 import ConLike
 import DataCon
@@ -139,7 +139,6 @@ synonymTyConsOfType ty
      go_co (SubCo co)             = go_co co
      go_co (AxiomRuleCo _ cs)     = go_co_s cs
 
-     go_prov UnsafeCoerceProv     = emptyNameEnv
      go_prov (PhantomProv co)     = go_co co
      go_prov (ProofIrrelProv co)  = go_co co
      go_prov (PluginProv _)       = emptyNameEnv

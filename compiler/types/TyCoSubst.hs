@@ -136,7 +136,7 @@ the in-scope set in the substitution is a superset of both:
   (SIa) The free vars of the range of the substitution
   (SIb) The free vars of ty minus the domain of the substitution
 
-The same rules apply to other substitutions (notably CoreSubst.Subst)
+The same rules apply to other substitutions (notably GHC.Core.Subst.Subst)
 
 * Reason for (SIa). Consider
       substTy [a :-> Maybe b] (forall b. b->a)
@@ -838,7 +838,6 @@ subst_co subst co
                                 in cs1 `seqList` AxiomRuleCo c cs1
     go (HoleCo h)            = HoleCo $! go_hole h
 
-    go_prov UnsafeCoerceProv     = UnsafeCoerceProv
     go_prov (PhantomProv kco)    = PhantomProv (go kco)
     go_prov (ProofIrrelProv kco) = ProofIrrelProv (go kco)
     go_prov p@(PluginProv _)     = p
@@ -1048,4 +1047,3 @@ cloneTyVarBndrs subst (t:ts)  usupply = (subst'', tv:tvs)
     (uniq, usupply') = takeUniqFromSupply usupply
     (subst' , tv )   = cloneTyVarBndr subst t uniq
     (subst'', tvs)   = cloneTyVarBndrs subst' ts usupply'
-

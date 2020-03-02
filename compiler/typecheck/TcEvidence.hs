@@ -1,6 +1,7 @@
 -- (c) The University of Glasgow 2006
 
 {-# LANGUAGE CPP, DeriveDataTypeable #-}
+{-# LANGUAGE LambdaCase #-}
 
 module TcEvidence (
 
@@ -57,23 +58,22 @@ import GhcPrelude
 import Var
 import CoAxiom
 import Coercion
-import PprCore ()   -- Instance OutputableBndr TyVar
+import GHC.Core.Ppr ()   -- Instance OutputableBndr TyVar
 import TcType
 import Type
 import TyCon
 import DataCon( DataCon, dataConWrapId )
 import Class( Class )
 import PrelNames
-import DynFlags   ( gopt, GeneralFlag(Opt_PrintTypecheckerElaboration) )
 import VarEnv
 import VarSet
 import Predicate
 import Name
 import Pair
 
-import CoreSyn
+import GHC.Core
 import Class ( classSCSelId )
-import CoreFVs ( exprSomeFreeVars )
+import GHC.Core.FVs ( exprSomeFreeVars )
 
 import Util
 import Bag
@@ -380,7 +380,6 @@ isErasableHsWrapper = go
   where
     go WpHole                  = True
     go (WpCompose wrap1 wrap2) = go wrap1 && go wrap2
-    -- not so sure about WpFun. But it eta-expands, so...
     go WpFun{}                 = False
     go WpCast{}                = True
     go WpEvLam{}               = False -- case in point
@@ -931,10 +930,9 @@ pprHsWrapper :: HsWrapper -> (Bool -> SDoc) -> SDoc
 -- The pp_thing_inside function takes Bool to say whether
 --    it's in a position that needs parens for a non-atomic thing
 pprHsWrapper wrap pp_thing_inside
-  = sdocWithDynFlags $ \ dflags ->
-    if gopt Opt_PrintTypecheckerElaboration dflags
-    then help pp_thing_inside wrap False
-    else pp_thing_inside False
+  = sdocOption sdocPrintTypecheckerElaboration $ \case
+      True  -> help pp_thing_inside wrap False
+      False -> pp_thing_inside False
   where
     help :: (Bool -> SDoc) -> HsWrapper -> Bool -> SDoc
     -- True  <=> appears in function application position

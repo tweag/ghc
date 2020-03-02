@@ -37,29 +37,30 @@ import GHC.Runtime.Debugger
 
 -- The GHC interface
 import GHC.Runtime.Interpreter
+import GHC.Runtime.Interpreter.Types
 import GHCi.RemoteTypes
 import GHCi.BreakArray
-import DynFlags
+import GHC.Driver.Session as DynFlags
 import ErrUtils hiding (traceCmd)
-import Finder
-import GhcMonad ( modifySession )
+import GHC.Driver.Finder as Finder
+import GHC.Driver.Monad ( modifySession )
 import qualified GHC
 import GHC ( LoadHowMuch(..), Target(..),  TargetId(..), InteractiveImport(..),
              TyThing(..), Phase, BreakIndex, Resume, SingleStep, Ghc,
              GetDocsFailure(..),
              getModuleGraph, handleSourceError )
-import HscMain (hscParseDeclsWithLocation, hscParseStmtWithLocation)
+import GHC.Driver.Main (hscParseDeclsWithLocation, hscParseStmtWithLocation)
 import GHC.Hs.ImpExp
 import GHC.Hs
-import HscTypes ( tyThingParent_maybe, handleFlagWarnings, getSafeMode, hsc_IC,
+import GHC.Driver.Types ( tyThingParent_maybe, handleFlagWarnings, getSafeMode, hsc_IC,
                   setInteractivePrintName, hsc_dflags, msObjFilePath, runInteractiveHsc,
-                  hsc_dynLinker )
+                  hsc_dynLinker, hsc_interp )
 import Module
 import Name
-import Packages ( trusted, getPackageDetails, getInstalledPackageDetails,
-                  listVisibleModuleNames, pprFlag )
+import GHC.Driver.Packages ( trusted, getPackageDetails, getInstalledPackageDetails,
+                             listVisibleModuleNames, pprFlag )
 import GHC.Iface.Syntax ( showToHeader )
-import PprTyThing
+import GHC.Core.Ppr.TyThing
 import PrelNames
 import RdrName ( getGRE_NameQualifier_maybes, getRdrName )
 import SrcLoc
@@ -559,7 +560,7 @@ ghciLogAction old_log_action lastErrLocations
     old_log_action dflags flag severity srcSpan style msg
     case severity of
         SevError -> case srcSpan of
-            RealSrcSpan rsp -> modifyIORef lastErrLocations
+            RealSrcSpan rsp _ -> modifyIORef lastErrLocations
                 (++ [(srcLocFile (realSrcSpanStart rsp), srcLocLine (realSrcSpanStart rsp))])
             _ -> return ()
         _ -> return ()
@@ -1325,8 +1326,9 @@ printTypeOfNames names
  = mapM_ (printTypeOfName ) $ sortBy compareNames names
 
 compareNames :: Name -> Name -> Ordering
-n1 `compareNames` n2 = compareWith n1 `compare` compareWith n2
-    where compareWith n = (getOccString n, getSrcSpan n)
+n1 `compareNames` n2 =
+  (compare `on` getOccString) n1 n2 `thenCmp`
+  (SrcLoc.leftmost_smallest `on` getSrcSpan) n1 n2
 
 printTypeOfName :: GHC.GhcMonad m => Name -> m ()
 printTypeOfName n
@@ -1558,14 +1560,15 @@ changeDirectory dir = do
   GHC.workingDirectoryChanged
   dir' <- expandPath dir
   liftIO $ setCurrentDirectory dir'
-  dflags <- getDynFlags
   -- With -fexternal-interpreter, we have to change the directory of the subprocess too.
   -- (this gives consistent behaviour with and without -fexternal-interpreter)
-  when (gopt Opt_ExternalInterpreter dflags) $ do
-    hsc_env <- GHC.getSession
-    fhv <- compileGHCiExpr $
-      "System.Directory.setCurrentDirectory " ++ show dir'
-    liftIO $ evalIO hsc_env fhv
+  hsc_env <- GHC.getSession
+  case hsc_interp hsc_env of
+    Just (ExternalInterp {}) -> do
+      fhv <- compileGHCiExpr $
+        "System.Directory.setCurrentDirectory " ++ show dir'
+      liftIO $ evalIO hsc_env fhv
+    _ -> pure ()
 
 trySuccess :: GHC.GhcMonad m => m SuccessFlag -> m SuccessFlag
 trySuccess act =
@@ -2219,7 +2222,7 @@ parseSpanArg s = do
 -- while simply unpacking 'UnhelpfulSpan's
 showSrcSpan :: SrcSpan -> String
 showSrcSpan (UnhelpfulSpan s)  = unpackFS s
-showSrcSpan (RealSrcSpan spn)  = showRealSrcSpan spn
+showSrcSpan (RealSrcSpan spn _) = showRealSrcSpan spn
 
 -- | Variant of 'showSrcSpan' for 'RealSrcSpan's
 showRealSrcSpan :: RealSrcSpan -> String
@@ -2406,7 +2409,7 @@ browseModule bang modl exports_only = do
                 -- has a good source location, then they all should.
                 loc_sort ns
                       | n:_ <- ns, isGoodSrcSpan (nameSrcSpan n)
-                      = sortBy (compare `on` nameSrcSpan) ns
+                      = sortBy (SrcLoc.leftmost_smallest `on` nameSrcSpan) ns
                       | otherwise
                       = occ_sort ns
 
@@ -3464,7 +3467,7 @@ stepLocalCmd arg = withSandboxOnly ":steplocal" $ step arg
         Just loc -> do
            md <- fromMaybe (panic "stepLocalCmd") <$> getCurrentBreakModule
            current_toplevel_decl <- enclosingTickSpan md loc
-           doContinue (`isSubspanOf` RealSrcSpan current_toplevel_decl) GHC.SingleStep
+           doContinue (`isSubspanOf` RealSrcSpan current_toplevel_decl Nothing) GHC.SingleStep
 
 stepModuleCmd :: GhciMonad m => String -> m ()
 stepModuleCmd arg = withSandboxOnly ":stepmodule" $ step arg
@@ -3482,7 +3485,7 @@ stepModuleCmd arg = withSandboxOnly ":stepmodule" $ step arg
 -- | Returns the span of the largest tick containing the srcspan given
 enclosingTickSpan :: GhciMonad m => Module -> SrcSpan -> m RealSrcSpan
 enclosingTickSpan _ (UnhelpfulSpan _) = panic "enclosingTickSpan UnhelpfulSpan"
-enclosingTickSpan md (RealSrcSpan src) = do
+enclosingTickSpan md (RealSrcSpan src _) = do
   ticks <- getTickArray md
   let line = srcSpanStartLine src
   ASSERT(inRange (bounds ticks) line) do
@@ -3709,7 +3712,7 @@ findBreakAndSet md lookupTickTree = do
          (alreadySet, nm) <-
                recordBreak $ BreakLocation
                        { breakModule = md
-                       , breakLoc = RealSrcSpan pan
+                       , breakLoc = RealSrcSpan pan Nothing
                        , breakTick = tick
                        , onBreakCmd = ""
                        , breakEnabled = True
@@ -3754,7 +3757,7 @@ findBreakForBind name modbreaks _ = filter (not . enclosed) ticks
     ticks = [ (index, span)
             | (index, [n]) <- assocs (GHC.modBreaks_decls modbreaks),
               n == occNameString (nameOccName name),
-              RealSrcSpan span <- [GHC.modBreaks_locs modbreaks ! index] ]
+              RealSrcSpan span _ <- [GHC.modBreaks_locs modbreaks ! index] ]
     enclosed (_,sp0) = any subspan ticks
       where subspan (_,sp) = sp /= sp0 &&
                          realSrcSpanStart sp <= realSrcSpanStart sp0 &&
@@ -3771,7 +3774,7 @@ findBreakByCoord mb_file (line, col) arr
         ticks = arr ! line
 
         -- the ticks that span this coordinate
-        contains = [ tick | tick@(_,pan) <- ticks, RealSrcSpan pan `spans` (line,col),
+        contains = [ tick | tick@(_,pan) <- ticks, RealSrcSpan pan Nothing `spans` (line,col),
                             is_correct_file pan ]
 
         is_correct_file pan
@@ -3816,7 +3819,7 @@ listCmd "" = do
    case mb_span of
       Nothing ->
           printForUser $ text "Not stopped at a breakpoint; nothing to list"
-      Just (RealSrcSpan pan) ->
+      Just (RealSrcSpan pan _) ->
           listAround pan True
       Just pan@(UnhelpfulSpan _) ->
           do resumes <- GHC.getResumeContext
@@ -3847,7 +3850,7 @@ list2 [arg] = do
         wantNameFromInterpretedModule noCanDo arg $ \name -> do
         let loc = GHC.srcSpanStart (GHC.nameSrcSpan name)
         case loc of
-            RealSrcLoc l ->
+            RealSrcLoc l _ ->
                do tickArray <- ASSERT( isExternalName name )
                                getTickArray (GHC.nameModule name)
                   let mb_span = findBreakByCoord (Just (GHC.srcLocFile l))
@@ -3969,9 +3972,9 @@ discardTickArrays = modifyGHCiState (\st -> st {tickarrays = emptyModuleEnv})
 mkTickArray :: [(BreakIndex,SrcSpan)] -> TickArray
 mkTickArray ticks
   = accumArray (flip (:)) [] (1, max_line)
-        [ (line, (nm,pan)) | (nm,RealSrcSpan pan) <- ticks, line <- srcSpanLines pan ]
+        [ (line, (nm,pan)) | (nm,RealSrcSpan pan _) <- ticks, line <- srcSpanLines pan ]
     where
-        max_line = foldr max 0 [ GHC.srcSpanEndLine sp | (_, RealSrcSpan sp) <- ticks ]
+        max_line = foldr max 0 [ GHC.srcSpanEndLine sp | (_, RealSrcSpan sp _) <- ticks ]
         srcSpanLines pan = [ GHC.srcSpanStartLine pan ..  GHC.srcSpanEndLine pan ]
 
 -- don't reset the counter back to zero?

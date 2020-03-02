@@ -46,11 +46,11 @@ import TcEvidence
 import TcRnMonad
 import Type
 import Multiplicity
-import CoreSyn
-import CoreUtils
-import MkCore
+import GHC.Core
+import GHC.Core.Utils
+import GHC.Core.Make
 
-import DynFlags
+import GHC.Driver.Session
 import CostCentre
 import Id
 import MkId
@@ -71,6 +71,7 @@ import PatSyn
 
 import Control.Monad
 import TysPrim
+import Data.List.NonEmpty ( nonEmpty )
 
 {-
 ************************************************************************
@@ -218,8 +219,8 @@ dsUnliftedBind (PatBind {pat_lhs = pat, pat_rhs = grhss
                         , pat_ext = NPatBindTc _ ty }) body
   =     -- let C x# y# = rhs in body
         -- ==> case rhs of C x# y# -> body
-    do { rhs <- dsGuarded grhss ty
-       ; checkGuardMatches PatBindGuards grhss
+    do { rhs_deltas <- checkGuardMatches PatBindGuards grhss
+       ; rhs         <- dsGuarded grhss ty (nonEmpty rhs_deltas)
        ; let upat = unLoc pat
              eqn = EqnInfo { eqn_pats = [upat],
                              eqn_orig = FromSource,
@@ -253,7 +254,7 @@ dsLExpr (L loc e)
 -- polymorphic. This should be used when the resulting expression will
 -- be an argument to some other function.
 -- See Note [Levity polymorphism checking] in GHC.HsToCore.Monad
--- See Note [Levity polymorphism invariants] in CoreSyn
+-- See Note [Levity polymorphism invariants] in GHC.Core
 dsLExprNoLP :: LHsExpr GhcTc -> DsM CoreExpr
 dsLExprNoLP (L loc e)
   = putSrcSpanDs loc $
@@ -407,7 +408,7 @@ dsExpr (ExplicitTuple _ tup_args boxity)
                       mkCoreLams usedmults $
                         mkCoreLams lam_vars $
                                             mkCoreTupBoxity boxity args) }
-                        -- See Note [Don't flatten tuples from HsSyn] in MkCore
+                        -- See Note [Don't flatten tuples from HsSyn] in GHC.Core.Make
 
 dsExpr (ExplicitSum types alt arity expr)
   = do { dsWhenNoErrs (dsLExprNoLP expr)
@@ -452,9 +453,9 @@ dsExpr (HsMultiIf res_ty alts)
   = mkErrorExpr
 
   | otherwise
-  = do { match_result <- liftM (foldr1 combineMatchResults)
-                               (mapM (dsGRHS IfAlt res_ty) alts)
-       ; checkGuardMatches IfAlt (GRHSs noExtField alts (noLoc emptyLocalBinds))
+  = do { let grhss = GRHSs noExtField alts (noLoc emptyLocalBinds)
+       ; rhss_deltas  <- checkGuardMatches IfAlt grhss
+       ; match_result <- dsGRHSs IfAlt grhss res_ty (nonEmpty rhss_deltas)
        ; error_expr   <- mkErrorExpr
        ; extractMatchResult match_result error_expr }
   where
@@ -494,7 +495,8 @@ dsExpr (HsStatic _ expr@(L loc _)) = do
 
     dflags <- getDynFlags
     let (line, col) = case loc of
-           RealSrcSpan r -> ( srcLocLine $ realSrcSpanStart r
+           RealSrcSpan r _ ->
+                            ( srcLocLine $ realSrcSpanStart r
                             , srcLocCol  $ realSrcSpanStart r
                             )
            _             -> (0, 0)
@@ -1122,7 +1124,7 @@ badMonadBind rhs elt_ty
 Note [Detecting forced eta expansion]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We cannot have levity polymorphic function arguments. See
-Note [Levity polymorphism invariants] in CoreSyn. But we *can* have
+Note [Levity polymorphism invariants] in GHC.Core. But we *can* have
 functions that take levity polymorphic arguments, as long as these
 functions are eta-reduced. (See #12708 for an example.)
 
@@ -1201,12 +1203,11 @@ levPolyPrimopErr expr_doc ty bad_tys
   = errDs $ vcat
     [ hang (text "Cannot use function with levity-polymorphic arguments:")
          2 (expr_doc <+> dcolon <+> pprWithTYPE ty)
-    , sdocWithDynFlags $ \dflags ->
-      if not (gopt Opt_PrintTypecheckerElaboration dflags) then vcat
+    , ppUnlessOption sdocPrintTypecheckerElaboration $ vcat
         [ text "(Note that levity-polymorphic primops such as 'coerce' and unboxed tuples"
         , text "are eta-expanded internally because they must occur fully saturated."
         , text "Use -fprint-typechecker-elaboration to display the full expression.)"
-        ] else empty
+        ]
     , hang (text "Levity-polymorphic arguments:")
          2 $ vcat $ map
            (\t -> pprWithTYPE t <+> dcolon <+> pprWithTYPE (typeKind t))

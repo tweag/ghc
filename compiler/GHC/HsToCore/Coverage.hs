@@ -23,7 +23,7 @@ import Type
 import GHC.Hs
 import Module
 import Outputable
-import DynFlags
+import GHC.Driver.Session
 import ConLike
 import Control.Monad
 import SrcLoc
@@ -33,12 +33,12 @@ import Name
 import Bag
 import CostCentre
 import CostCentreState
-import CoreSyn
+import GHC.Core
 import Id
 import VarSet
 import Data.List
 import FastString
-import HscTypes
+import GHC.Driver.Types
 import TyCon
 import BasicTypes
 import MonadUtils
@@ -53,8 +53,8 @@ import Trace.Hpc.Mix
 import Trace.Hpc.Util
 
 import qualified Data.ByteString as BS
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 
 {-
 ************************************************************************
@@ -91,9 +91,11 @@ addTicksToBinds hsc_env mod mod_loc exports tyCons binds
                       , exports      = exports
                       , inlines      = emptyVarSet
                       , inScope      = emptyVarSet
-                      , blackList    = Map.fromList
-                                          [ (getSrcSpan (tyConName tyCon),())
-                                          | tyCon <- tyCons ]
+                      , blackList    = Set.fromList $
+                                       mapMaybe (\tyCon -> case getSrcSpan (tyConName tyCon) of
+                                                             RealSrcSpan l _ -> Just l
+                                                             UnhelpfulSpan _ -> Nothing)
+                                                tyCons
                       , density      = mkDensity tickish dflags
                       , this_mod     = mod
                       , tickishType  = tickish
@@ -1034,7 +1036,7 @@ data TickTransEnv = TTE { fileName     :: FastString
                         , inlines      :: VarSet
                         , declPath     :: [String]
                         , inScope      :: VarSet
-                        , blackList    :: Map SrcSpan ()
+                        , blackList    :: Set RealSrcSpan
                         , this_mod     :: Module
                         , tickishType  :: TickishType
                         }
@@ -1143,7 +1145,7 @@ getFileName :: TM FastString
 getFileName = fileName `liftM` getEnv
 
 isGoodSrcSpan' :: SrcSpan -> Bool
-isGoodSrcSpan' pos@(RealSrcSpan _) = srcSpanStart pos /= srcSpanEnd pos
+isGoodSrcSpan' pos@(RealSrcSpan _ _) = srcSpanStart pos /= srcSpanEnd pos
 isGoodSrcSpan' (UnhelpfulSpan _) = False
 
 isGoodTickSrcSpan :: SrcSpan -> TM Bool
@@ -1167,10 +1169,8 @@ bindLocals new_ids (TM m)
   where occs = [ nameOccName (idName id) | id <- new_ids ]
 
 isBlackListed :: SrcSpan -> TM Bool
-isBlackListed pos = TM $ \ env st ->
-              case Map.lookup pos (blackList env) of
-                Nothing -> (False,noFVs,st)
-                Just () -> (True,noFVs,st)
+isBlackListed (RealSrcSpan pos _) = TM $ \ env st -> (Set.member pos (blackList env), noFVs, st)
+isBlackListed (UnhelpfulSpan _) = return False
 
 -- the tick application inherits the source position of its
 -- expression argument to support nested box allocations
@@ -1241,7 +1241,7 @@ mkTickish boxLabel countEntries topOnly pos fvs decl_path = do
                            , mixEntries = me:mixEntries st }
       return $ Breakpoint c ids
 
-    SourceNotes | RealSrcSpan pos' <- pos ->
+    SourceNotes | RealSrcSpan pos' _ <- pos ->
       return $ SourceNote pos' cc_name
 
     _otherwise -> panic "mkTickish: bad source span!"
@@ -1278,7 +1278,7 @@ mkBinTickBoxHpc boxLabel pos e =
      )
 
 mkHpcPos :: SrcSpan -> HpcPos
-mkHpcPos pos@(RealSrcSpan s)
+mkHpcPos pos@(RealSrcSpan s _)
    | isGoodSrcSpan' pos = toHpcPos (srcSpanStartLine s,
                                     srcSpanStartCol s,
                                     srcSpanEndLine s,

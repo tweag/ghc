@@ -19,6 +19,7 @@ Datatype for: @BindGroup@, @Bind@, @Sig@, @Bind@.
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE LambdaCase #-}
 
 module GHC.Hs.Binds where
 
@@ -31,7 +32,7 @@ import {-# SOURCE #-} GHC.Hs.Pat  ( LPat )
 
 import GHC.Hs.Extension
 import GHC.Hs.Types
-import CoreSyn
+import GHC.Core
 import TcEvidence
 import Type
 import NameSet
@@ -42,11 +43,10 @@ import Var
 import Bag
 import FastString
 import BooleanFormula (LBooleanFormula)
-import DynFlags
 
 import Data.Data hiding ( Fixity )
 import Data.List hiding ( foldr )
-import Data.Ord
+import Data.Function
 
 {-
 ************************************************************************
@@ -667,7 +667,7 @@ pprLHsBindsForUser binds sigs
     decls = [(loc, ppr sig)  | L loc sig <- sigs] ++
             [(loc, ppr bind) | L loc bind <- bagToList binds]
 
-    sort_by_loc decls = sortBy (comparing fst) decls
+    sort_by_loc decls = sortBy (SrcLoc.leftmost_smallest `on` fst) decls
 
 pprDeclList :: [SDoc] -> SDoc   -- Braces with a space
 -- Print a bunch of declarations
@@ -739,20 +739,19 @@ ppr_monobind (PatSynBind _ psb) = ppr psb
 ppr_monobind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dictvars
                        , abs_exports = exports, abs_binds = val_binds
                        , abs_ev_binds = ev_binds })
-  = sdocWithDynFlags $ \ dflags ->
-    if gopt Opt_PrintTypecheckerElaboration dflags then
-      -- Show extra information (bug number: #10662)
-      hang (text "AbsBinds" <+> brackets (interpp'SP tyvars)
-                                    <+> brackets (interpp'SP dictvars))
-         2 $ braces $ vcat
-      [ text "Exports:" <+>
-          brackets (sep (punctuate comma (map ppr exports)))
-      , text "Exported types:" <+>
-          vcat [pprBndr LetBind (abe_poly ex) | ex <- exports]
-      , text "Binds:" <+> pprLHsBinds val_binds
-      , pprIfTc @idR (text "Evidence:" <+> ppr ev_binds) ]
-    else
-      pprLHsBinds val_binds
+  = sdocOption sdocPrintTypecheckerElaboration $ \case
+      False -> pprLHsBinds val_binds
+      True  -> -- Show extra information (bug number: #10662)
+               hang (text "AbsBinds" <+> brackets (interpp'SP tyvars)
+                                             <+> brackets (interpp'SP dictvars))
+                  2 $ braces $ vcat
+               [ text "Exports:" <+>
+                   brackets (sep (punctuate comma (map ppr exports)))
+               , text "Exported types:" <+>
+                   vcat [pprBndr LetBind (abe_poly ex) | ex <- exports]
+               , text "Binds:" <+> pprLHsBinds val_binds
+               , pprIfTc @idR (text "Evidence:" <+> ppr ev_binds)
+               ]
 ppr_monobind (XHsBindsLR x) = ppr x
 
 instance OutputableBndrId p => Outputable (ABExport (GhcPass p)) where

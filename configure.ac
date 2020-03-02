@@ -1285,6 +1285,28 @@ AC_DEFINE_UNQUOTED([USE_LIBDW], [$USE_LIBDW], [Set to 1 to use libdw])
 
 dnl ** Have libnuma?
 dnl --------------------------------------------------------------
+AC_ARG_WITH([libnuma-libraries],
+  [AC_HELP_STRING([--with-libnuma-libraries=ARG],
+    [Find libraries for libnuma in ARG [default=system default]])
+  ],
+  [
+    LibNumaLibDir="$withval"
+    LIBNUMA_LDFLAGS="-L$withval"
+  ])
+
+AC_SUBST(LibNumaLibDir)
+
+AC_ARG_WITH([libnuma-includes],
+  [AC_HELP_STRING([--with-libnuma-includes=ARG],
+    [Find includes for libnuma in ARG [default=system default]])
+  ],
+  [
+    LibNumaIncludeDir="$withval"
+    LIBNUMA_CFLAGS="-I$withval"
+  ])
+
+AC_SUBST(LibNumaIncludeDir)
+
 HaveLibNuma=0
 AC_ARG_ENABLE(numa,
     [AC_HELP_STRING([--enable-numa],
@@ -1292,6 +1314,11 @@ AC_ARG_ENABLE(numa,
          runtime system via numactl's libnuma [default=auto]])])
 
 if test "$enable_numa" != "no" ; then
+  CFLAGS2="$CFLAGS"
+  CFLAGS="$LIBNUMA_CFLAGS $CFLAGS"
+  LDFLAGS2="$LDFLAGS"
+  LDFLAGS="$LIBNUMA_LDFLAGS $LDFLAGS"
+
   AC_CHECK_HEADERS([numa.h numaif.h])
 
   if test "$ac_cv_header_numa_h$ac_cv_header_numaif_h" = "yesyes" ; then
@@ -1300,15 +1327,19 @@ if test "$enable_numa" != "no" ; then
   if test "$enable_numa:$HaveLibNuma" = "yes:0" ; then
       AC_MSG_ERROR([Cannot find system libnuma (required by --enable-numa)])]
   fi
+
+  CFLAGS="$CFLAGS2"
+  LDFLAGS="$LDFLAGS2"
 fi
 
 AC_DEFINE_UNQUOTED([HAVE_LIBNUMA], [$HaveLibNuma], [Define to 1 if you have libnuma])
 if test $HaveLibNuma = "1" ; then
+  AC_SUBST([UseLibNuma],[YES])
   AC_SUBST([CabalHaveLibNuma],[True])
 else
+  AC_SUBST([UseLibNuma],[NO])
   AC_SUBST([CabalHaveLibNuma],[False])
 fi
-
 
 dnl ** Documentation
 dnl --------------------------------------------------------------
@@ -1339,8 +1370,10 @@ dnl ** Determine library versions
 dnl The packages below should include all packages needed by
 dnl doc/users_guide/ghc_config.py.in.
 LIBRARY_VERSION(base)
-LIBRARY_VERSION(Cabal, Cabal/Cabal)
-LIBRARY_VERSION(template-haskell)
+LIBRARY_VERSION(Cabal, Cabal/Cabal/Cabal.cabal)
+dnl template-haskell.cabal is generated later
+dnl but the .in file already has the version
+LIBRARY_VERSION(template-haskell, template-haskell/template-haskell.cabal.in)
 LIBRARY_VERSION(array)
 LIBRARY_VERSION(ghc-prim)
 LIBRARY_VERSION(ghc-compact)
@@ -1416,6 +1449,7 @@ echo "\
    Using (for bootstrapping) : $CC_STAGE0
    Using $CompilerName       : $CC
       which is version       : $GccVersion
+      linker options         : $GccUseLdOpt
    Building a cross compiler : $CrossCompiling
    Unregisterised            : $Unregisterised
    TablesNextToCode          : $TablesNextToCode

@@ -21,8 +21,8 @@ import GHC.Runtime.Heap.Inspect
 
 import GHC.Runtime.Interpreter
 import GHCi.RemoteTypes
-import GhcMonad
-import HscTypes
+import GHC.Driver.Monad
+import GHC.Driver.Types
 import Id
 import GHC.Iface.Syntax ( showToHeader )
 import GHC.Iface.Env    ( newInteractiveBinder )
@@ -33,10 +33,10 @@ import UniqSet
 import Type
 import GHC
 import Outputable
-import PprTyThing
+import GHC.Core.Ppr.TyThing
 import ErrUtils
 import MonadUtils
-import DynFlags
+import GHC.Driver.Session
 import Exception
 
 import Control.Monad

@@ -32,22 +32,23 @@ where
 import GhcPrelude
 
 import GHC.Runtime.Interpreter
+import GHC.Runtime.Interpreter.Types
 import GHCi.RemoteTypes
 import GHC.Iface.Load
 import GHC.ByteCode.Linker
 import GHC.ByteCode.Asm
 import GHC.ByteCode.Types
 import TcRnMonad
-import Packages
-import DriverPhases
-import Finder
-import HscTypes
+import GHC.Driver.Packages as Packages
+import GHC.Driver.Phases
+import GHC.Driver.Finder
+import GHC.Driver.Types
 import Name
 import NameEnv
 import Module
 import ListSetOps
 import GHC.Runtime.Linker.Types (DynLinker(..), LinkerUnitId, PersistentLinkerState(..))
-import DynFlags
+import GHC.Driver.Session
 import BasicTypes
 import Outputable
 import Panic
@@ -193,12 +194,11 @@ linkDependencies :: HscEnv -> PersistentLinkerState
 linkDependencies hsc_env pls span needed_mods = do
 --   initDynLinker (hsc_dflags hsc_env) dl
    let hpt = hsc_HPT hsc_env
-       dflags = hsc_dflags hsc_env
    -- The interpreter and dynamic linker can only handle object code built
    -- the "normal" way, i.e. no non-std ways like profiling or ticky-ticky.
    -- So here we check the build tag: if we're building a non-standard way
    -- then we need to find & link object files built the "normal" way.
-   maybe_normal_osuf <- checkNonStdWay dflags span
+   maybe_normal_osuf <- checkNonStdWay hsc_env span
 
    -- Find what packages and linkables are required
    (lnks, pkgs) <- getLinkDeps hsc_env hpt pls
@@ -575,9 +575,9 @@ dieWith :: DynFlags -> SrcSpan -> MsgDoc -> IO a
 dieWith dflags span msg = throwGhcExceptionIO (ProgramError (showSDoc dflags (mkLocMessage SevFatal span msg)))
 
 
-checkNonStdWay :: DynFlags -> SrcSpan -> IO (Maybe FilePath)
-checkNonStdWay dflags srcspan
-  | gopt Opt_ExternalInterpreter dflags = return Nothing
+checkNonStdWay :: HscEnv -> SrcSpan -> IO (Maybe FilePath)
+checkNonStdWay hsc_env srcspan
+  | Just (ExternalInterp _) <- hsc_interp hsc_env = return Nothing
     -- with -fexternal-interpreter we load the .o files, whatever way
     -- they were built.  If they were built for a non-std way, then
     -- we will use the appropriate variant of the iserv binary to load them.
@@ -586,12 +586,12 @@ checkNonStdWay dflags srcspan
     -- Only if we are compiling with the same ways as GHC is built
     -- with, can we dynamically load those object files. (see #3604)
 
-  | objectSuf dflags == normalObjectSuffix && not (null haskellWays)
-  = failNonStd dflags srcspan
+  | objectSuf (hsc_dflags hsc_env) == normalObjectSuffix && not (null haskellWays)
+  = failNonStd (hsc_dflags hsc_env) srcspan
 
   | otherwise = return (Just (interpTag ++ "o"))
   where
-    haskellWays = filter (not . wayRTSOnly) (ways dflags)
+    haskellWays = filter (not . wayRTSOnly) (ways (hsc_dflags hsc_env))
     interpTag = case mkBuildTag interpWays of
                   "" -> ""
                   tag -> tag ++ "_"

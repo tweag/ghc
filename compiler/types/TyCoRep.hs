@@ -146,7 +146,7 @@ instance NamedThing TyThing where       -- Can't put this with the type
   getName (AConLike cl) = conLikeName cl
 
 pprShortTyThing :: TyThing -> SDoc
--- c.f. PprTyThing.pprTyThing, which prints all the details
+-- c.f. GHC.Core.Ppr.TyThing.pprTyThing, which prints all the details
 pprShortTyThing thing
   = pprTyThingCategory thing <+> quotes (ppr (getName thing))
 
@@ -177,7 +177,7 @@ type KindOrType = Type -- See Note [Arguments to type constructors]
 type Kind = Type
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.hs
+-- See Note [GHC Formalism] in GHC.Core.Lint
 data Type
   -- See Note [Non-trivial definitional equality]
   = TyVarTy Var -- ^ Vanilla type or kind variable (*never* a coercion variable)
@@ -993,7 +993,7 @@ mkTyConTy tycon = TyConApp tycon []
 -- of two types.
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.hs
+-- See Note [GHC Formalism] in GHC.Core.Lint
 data Coercion
   -- Each constructor has a "role signature", indicating the way roles are
   -- propagated through coercions.
@@ -1481,8 +1481,7 @@ in nominal ways. If not, having w be representational is OK.
 %************************************************************************
 
 A UnivCo is a coercion whose proof does not directly express its role
-and kind (indeed for some UnivCos, like UnsafeCoerceProv, there /is/
-no proof).
+and kind (indeed for some UnivCos, like PluginProv, there /is/ no proof).
 
 The different kinds of UnivCo are described by UnivCoProvenance.  Really
 each is entirely separate, but they all share the need to represent their
@@ -1499,9 +1498,7 @@ role and kind, which is done in the UnivCo constructor.
 -- that they don't tell you what types they coercion between. (That info
 -- is in the 'UnivCo' constructor of 'Coercion'.
 data UnivCoProvenance
-  = UnsafeCoerceProv   -- ^ From @unsafeCoerce#@. These are unsound.
-
-  | PhantomProv KindCoercion -- ^ See Note [Phantom coercions]. Only in Phantom
+  = PhantomProv KindCoercion -- ^ See Note [Phantom coercions]. Only in Phantom
                              -- roled coercions
 
   | ProofIrrelProv KindCoercion  -- ^ From the fact that any two coercions are
@@ -1514,7 +1511,6 @@ data UnivCoProvenance
   deriving Data.Data
 
 instance Outputable UnivCoProvenance where
-  ppr UnsafeCoerceProv   = text "(unsafeCoerce#)"
   ppr (PhantomProv _)    = text "(phantom)"
   ppr (ProofIrrelProv _) = text "(proof irrel.)"
   ppr (PluginProv str)   = parens (text "plugin" <+> brackets (text str))
@@ -1826,7 +1822,6 @@ foldTyCo (TyCoFolder { tcf_view       = view
 
     go_prov env (PhantomProv co)    = go_co env co
     go_prov env (ProofIrrelProv co) = go_co env co
-    go_prov _   UnsafeCoerceProv    = mempty
     go_prov _   (PluginProv _)      = mempty
 
 {- *********************************************************************
@@ -1881,7 +1876,6 @@ coercionSize (SubCo co)          = 1 + coercionSize co
 coercionSize (AxiomRuleCo _ cs)  = 1 + sum (map coercionSize cs)
 
 provSize :: UnivCoProvenance -> Int
-provSize UnsafeCoerceProv    = 1
 provSize (PhantomProv co)    = 1 + coercionSize co
 provSize (ProofIrrelProv co) = 1 + coercionSize co
 provSize (PluginProv _)      = 1

@@ -23,7 +23,7 @@ import GHC.ByteCode.Types
 import GHCi.RemoteTypes
 import GHC.Runtime.Interpreter
 
-import HscTypes
+import GHC.Driver.Types
 import Name
 import NameSet
 import Literal
@@ -31,7 +31,7 @@ import TyCon
 import FastString
 import GHC.StgToCmm.Layout     ( ArgRep(..) )
 import GHC.Runtime.Heap.Layout
-import DynFlags
+import GHC.Driver.Session
 import Outputable
 import GHC.Platform
 import Util
@@ -101,7 +101,7 @@ assembleBCOs hsc_env proto_bcos tycons top_strs modbreaks = do
   return CompiledByteCode
     { bc_bcos = bcos'
     , bc_itbls =  itblenv
-    , bc_ffis = concat (map protoBCOFFIs proto_bcos)
+    , bc_ffis = concatMap protoBCOFFIs proto_bcos
     , bc_strs = top_strs ++ ptrs
     , bc_breaks = modbreaks
     }

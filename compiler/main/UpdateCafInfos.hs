@@ -6,8 +6,8 @@ module UpdateCafInfos
 
 import GhcPrelude
 
-import CoreSyn
-import HscTypes
+import GHC.Core
+import GHC.Driver.Types
 import Id
 import IdInfo
 import InstEnv

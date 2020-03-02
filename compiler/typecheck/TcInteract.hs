@@ -45,7 +45,7 @@ import TcSMonad
 import Bag
 import MonadUtils ( concatMapM, foldlM )
 
-import CoreSyn
+import GHC.Core
 import Data.List( partition, deleteFirstsBy )
 import SrcLoc
 import VarEnv
@@ -54,7 +54,7 @@ import Control.Monad
 import Maybes( isJust )
 import Pair (Pair(..))
 import Unique( hasKey )
-import DynFlags
+import GHC.Driver.Session
 import Util
 import qualified GHC.LanguageExtensions as LangExt
 

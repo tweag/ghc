@@ -149,7 +149,7 @@ import Var
 import VarSet
 import Class
 import BasicTypes
-import DynFlags
+import GHC.Driver.Session
 import ForeignCall
 import Name
 import NameEnv
@@ -690,7 +690,7 @@ instance Binary TyConBndrVis where
 -- such as those for function and tuple types.
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.hs
+-- See Note [GHC Formalism] in GHC.Core.Lint
 data TyCon
   = -- | The function type constructor, @(->)@
     FunTyCon {
@@ -1062,7 +1062,7 @@ visibleDataCons (SumTyCon{ data_cons = cs })  = cs
 data AlgTyConFlav
   = -- | An ordinary type constructor has no parent.
     VanillaAlgTyCon
-       TyConRepName
+       TyConRepName   -- For Typeable
 
     -- | An unboxed type constructor. The TyConRepName is a Maybe since we
     -- currently don't allow unboxed sums to be Typeable since there are too
@@ -1301,9 +1301,10 @@ This eta-reduction is implemented in BuildTyCl.mkNewTyConRhs.
 *                                                                      *
 ********************************************************************* -}
 
-type TyConRepName = Name -- The Name of the top-level declaration
-                         --    $tcMaybe :: Data.Typeable.Internal.TyCon
-                         --    $tcMaybe = TyCon { tyConName = "Maybe", ... }
+type TyConRepName = Name
+   -- The Name of the top-level declaration for the Typeable world
+   --    $tcMaybe :: Data.Typeable.Internal.TyCon
+   --    $tcMaybe = TyCon { tyConName = "Maybe", ... }
 
 tyConRepName_maybe :: TyCon -> Maybe TyConRepName
 tyConRepName_maybe (FunTyCon   { tcRepName = rep_nm })
@@ -1469,7 +1470,7 @@ isGcPtrRep UnliftedRep = True
 isGcPtrRep _           = False
 
 -- A PrimRep is compatible with another iff one can be coerced to the other.
--- See Note [bad unsafe coercion] in CoreLint for when are two types coercible.
+-- See Note [bad unsafe coercion] in GHC.Core.Lint for when are two types coercible.
 primRepCompatible :: DynFlags -> PrimRep -> PrimRep -> Bool
 primRepCompatible dflags rep1 rep2 =
     (isUnboxed rep1 == isUnboxed rep2) &&

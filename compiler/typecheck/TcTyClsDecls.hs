@@ -29,7 +29,7 @@ module TcTyClsDecls (
 import GhcPrelude
 
 import GHC.Hs
-import HscTypes
+import GHC.Driver.Types
 import BuildTyCl
 import TcRnMonad
 import TcEnv
@@ -72,7 +72,7 @@ import Unify
 import Util
 import SrcLoc
 import ListSetOps
-import DynFlags
+import GHC.Driver.Session
 import Unique
 import ConLike( ConLike(..) )
 import BasicTypes
@@ -4345,7 +4345,7 @@ checkRoleAnnot tv (L _ (Just r1)) r2
 -- -dcore-lint is enabled. See Note [Role inference] in TcTyDecls
 checkValidRoles :: TyCon -> TcM ()
 -- If you edit this function, you may need to update the GHC formalism
--- See Note [GHC Formalism] in CoreLint
+-- See Note [GHC Formalism] in GHC.Core.Lint
 checkValidRoles tc
   | isAlgTyCon tc
     -- tyConDataCons returns an empty list for data families

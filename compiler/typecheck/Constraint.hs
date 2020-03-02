@@ -92,13 +92,13 @@ import TcType
 import TcEvidence
 import TcOrigin
 
-import CoreSyn
+import GHC.Core
 
 import TyCoPpr
 import OccName
 import FV
 import VarSet
-import DynFlags
+import GHC.Driver.Session
 import BasicTypes
 
 import Outputable

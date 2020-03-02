@@ -37,7 +37,7 @@ import GhcPrelude
 
 import GHC.Hs
 import RdrName
-import HscTypes
+import GHC.Driver.Types
 import TcEnv
 import TcRnMonad
 import Name
@@ -49,7 +49,7 @@ import Outputable
 import Util
 import BasicTypes       ( TopLevelFlag(..) )
 import ListSetOps       ( removeDups )
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import Control.Monad
 import Data.List
@@ -426,7 +426,7 @@ dupNamesErr get_loc names
   where
     locs      = map get_loc (NE.toList names)
     big_loc   = foldr1 combineSrcSpans locs
-    locations = text "Bound at:" <+> vcat (map ppr (sort locs))
+    locations = text "Bound at:" <+> vcat (map ppr (sortBy SrcLoc.leftmost_smallest locs))
 
 badQualBndrErr :: RdrName -> SDoc
 badQualBndrErr rdr_name

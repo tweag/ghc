@@ -45,9 +45,9 @@ import TcDeriv
 import TcEnv
 import TcHsType
 import TcUnify
-import CoreSyn    ( Expr(..), mkApps, mkVarApps, mkLams )
-import MkCore     ( nO_METHOD_BINDING_ERROR_ID )
-import CoreUnfold ( mkInlineUnfoldingWithArity, mkDFunUnfolding )
+import GHC.Core        ( Expr(..), mkApps, mkVarApps, mkLams )
+import GHC.Core.Make   ( nO_METHOD_BINDING_ERROR_ID )
+import GHC.Core.Unfold ( mkInlineUnfoldingWithArity, mkDFunUnfolding )
 import Type
 import TcEvidence
 import TyCon
@@ -60,7 +60,7 @@ import VarEnv
 import VarSet
 import Bag
 import BasicTypes
-import DynFlags
+import GHC.Driver.Session
 import ErrUtils
 import FastString
 import Id
@@ -164,7 +164,7 @@ Note [Instances and loop breakers]
   loop-breaker because df_i isn't), op1_i will ironically never be
   inlined.  But this is OK: the recursion breaking happens by way of
   a RULE (the magic ClassOp rule above), and RULES work inside InlineRule
-  unfoldings. See Note [RULEs enabled in SimplGently] in SimplUtils
+  unfoldings. See Note [RULEs enabled in InitialPhase] in SimplUtils
 
 Note [ClassOp/DFun selection]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -190,7 +190,7 @@ Instead we use a cunning trick.
  * We give 'df' a magical unfolding (DFunUnfolding [$cop1, $cop2, ..])
    that lists its methods.
 
- * We make CoreUnfold.exprIsConApp_maybe spot a DFunUnfolding and return
+ * We make GHC.Core.Unfold.exprIsConApp_maybe spot a DFunUnfolding and return
    a suitable constructor application -- inlining df "on the fly" as it
    were.
 

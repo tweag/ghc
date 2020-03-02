@@ -15,11 +15,11 @@ module FamInst (
 
 import GhcPrelude
 
-import HscTypes
+import GHC.Driver.Types
 import FamInstEnv
 import InstEnv( roughMatchTcs )
 import Coercion
-import CoreLint
+import GHC.Core.Lint
 import TcEvidence
 import GHC.Iface.Load
 import TcRnMonad
@@ -27,7 +27,7 @@ import SrcLoc
 import TyCon
 import TcType
 import CoAxiom
-import DynFlags
+import GHC.Driver.Session
 import Module
 import Outputable
 import Util
@@ -44,7 +44,9 @@ import VarSet
 import FV
 import Bag( Bag, unionBags, unitBag )
 import Control.Monad
+import Data.List ( sortBy )
 import Data.List.NonEmpty ( NonEmpty(..) )
+import Data.Function ( on )
 
 import qualified GHC.LanguageExtensions  as LangExt
 
@@ -239,7 +241,7 @@ two modules are consistent--because we checked that when we compiled M.
 
 For every other pair of family instance modules we import (directly or
 indirectly), we check that they are consistent now. (So that we can be
-certain that the modules in our `HscTypes.dep_finsts' are consistent.)
+certain that the modules in our `GHC.Driver.Types.dep_finsts' are consistent.)
 
 There is some fancy footwork regarding hs-boot module loops, see
 Note [Don't check hs-boot type family instances too early]
@@ -1032,7 +1034,7 @@ reportConflictInstErr _ []
   = return ()  -- No conflicts
 reportConflictInstErr fam_inst (match1 : _)
   | FamInstMatch { fim_instance = conf_inst } <- match1
-  , let sorted  = sortWith getSpan [fam_inst, conf_inst]
+  , let sorted  = sortBy (SrcLoc.leftmost_smallest `on` getSpan) [fam_inst, conf_inst]
         fi1     = head sorted
         span    = coAxBranchSpan (coAxiomSingleBranch (famInstAxiom fi1))
   = setSrcSpan span $ addErr $
@@ -1041,8 +1043,8 @@ reportConflictInstErr fam_inst (match1 : _)
                | fi <- sorted
                , let ax = famInstAxiom fi ])
  where
-   getSpan = getSrcLoc . famInstAxiom
-   -- The sortWith just arranges that instances are displayed in order
+   getSpan = getSrcSpan . famInstAxiom
+   -- The sortBy just arranges that instances are displayed in order
    -- of source location, which reduced wobbling in error messages,
    -- and is better for users
 

@@ -35,15 +35,15 @@ import GHC.HsToCore.GuardedRHSs
 import GHC.HsToCore.Utils
 import GHC.HsToCore.PmCheck ( needToRunPmCheck, addTyCsDs, checkGuardMatches )
 
-import GHC.Hs           -- lots of things
-import CoreSyn          -- lots of things
-import CoreOpt          ( simpleOptExpr )
-import OccurAnal        ( occurAnalyseExpr )
-import MkCore
-import CoreUtils
-import CoreArity ( etaExpand )
-import CoreUnfold
-import CoreFVs
+import GHC.Hs             -- lots of things
+import GHC.Core           -- lots of things
+import GHC.Core.SimpleOpt ( simpleOptExpr )
+import OccurAnal          ( occurAnalyseExpr )
+import GHC.Core.Make
+import GHC.Core.Utils
+import GHC.Core.Arity     ( etaExpand )
+import GHC.Core.Unfold
+import GHC.Core.FVs
 import Digraph
 import Predicate
 
@@ -59,7 +59,7 @@ import Id
 import MkId(proxyHashId)
 import Name
 import VarSet
-import Rules
+import GHC.Core.Rules
 import VarEnv
 import Var( EvVar )
 import Outputable
@@ -69,13 +69,14 @@ import Maybes
 import OrdList
 import Bag
 import BasicTypes
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import Util
 import UniqSet( nonDetEltsUniqSet )
 import MonadUtils
 import qualified GHC.LanguageExtensions as LangExt
 import Control.Monad
+import Data.List.NonEmpty ( nonEmpty )
 
 {-**********************************************************************
 *                                                                      *
@@ -176,8 +177,8 @@ dsHsBind dflags b@(FunBind { fun_id = L _ fun
 dsHsBind dflags (PatBind { pat_lhs = pat, pat_rhs = grhss
                          , pat_ext = NPatBindTc _ ty
                          , pat_ticks = (rhs_tick, var_ticks) })
-  = do  { body_expr <- dsGuarded grhss ty
-        ; checkGuardMatches PatBindGuards grhss
+  = do  { rhss_deltas <- checkGuardMatches PatBindGuards grhss
+        ; body_expr <- dsGuarded grhss ty (nonEmpty rhss_deltas)
         ; let body' = mkOptTickBox rhs_tick body_expr
               pat'  = decideBangHood dflags pat
         ; (force_var,sel_binds) <- mkSelectorBinds var_ticks pat body'
@@ -1163,7 +1164,7 @@ dsEvBinds bs
 
 mk_ev_binds :: Bag (Id,CoreExpr) -> [CoreBind]
 -- We do SCC analysis of the evidence bindings, /after/ desugaring
--- them. This is convenient: it means we can use the CoreSyn
+-- them. This is convenient: it means we can use the GHC.Core
 -- free-variable functions rather than having to do accurate free vars
 -- for EvTerm.
 mk_ev_binds ds_binds

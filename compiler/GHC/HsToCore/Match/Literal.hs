@@ -34,8 +34,8 @@ import GHC.HsToCore.Utils
 import GHC.Hs
 
 import Id
-import CoreSyn
-import MkCore
+import GHC.Core
+import GHC.Core.Make
 import TyCon
 import Multiplicity
 import DataCon
@@ -51,7 +51,7 @@ import SrcLoc
 import Data.Ratio
 import Outputable
 import BasicTypes
-import DynFlags
+import GHC.Driver.Session
 import Util
 import FastString
 import qualified GHC.LanguageExtensions as LangExt

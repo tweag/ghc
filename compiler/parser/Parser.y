@@ -48,10 +48,10 @@ import qualified Prelude
 import GHC.Hs
 
 -- compiler/main
-import DriverPhases     ( HscSource(..) )
-import HscTypes         ( IsBootInterface, WarningTxt(..) )
-import DynFlags
-import BkpSyn
+import GHC.Driver.Phases     ( HscSource(..) )
+import GHC.Driver.Types         ( IsBootInterface, WarningTxt(..) )
+import GHC.Driver.Session
+import GHC.Driver.Backpack.Syntax
 import UnitInfo
 
 -- compiler/utils
@@ -2581,11 +2581,11 @@ quasiquote :: { Located (HsSplice GhcPs) }
         : TH_QUASIQUOTE   { let { loc = getLoc $1
                                 ; ITquasiQuote (quoter, quote, quoteSpan) = unLoc $1
                                 ; quoterId = mkUnqual varName quoter }
-                            in sL1 $1 (mkHsQuasiQuote quoterId (RealSrcSpan quoteSpan) quote) }
+                            in sL1 $1 (mkHsQuasiQuote quoterId (mkSrcSpanPs quoteSpan) quote) }
         | TH_QQUASIQUOTE  { let { loc = getLoc $1
                                 ; ITqQuasiQuote (qual, quoter, quote, quoteSpan) = unLoc $1
                                 ; quoterId = mkQual varName (qual, quoter) }
-                            in sL (getLoc $1) (mkHsQuasiQuote quoterId (RealSrcSpan quoteSpan) quote) }
+                            in sL (getLoc $1) (mkHsQuasiQuote quoterId (mkSrcSpanPs quoteSpan) quote) }
 
 exp   :: { ECP }
         : infixexp '::' sigtype

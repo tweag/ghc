@@ -203,7 +203,7 @@ of the branches.
 -- | A 'CoAxiom' is a \"coercion constructor\", i.e. a named equality axiom.
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.hs
+-- See Note [GHC Formalism] in GHC.Core.Lint
 data CoAxiom br
   = CoAxiom                   -- Type equality axiom.
     { co_ax_unique   :: Unique        -- Unique identifier
@@ -366,7 +366,7 @@ giving rise to the FamInstBranch.
 
 Note [Implicit axioms]
 ~~~~~~~~~~~~~~~~~~~~~~
-See also Note [Implicit TyThings] in HscTypes
+See also Note [Implicit TyThings] in GHC.Driver.Types
 * A CoAxiom arising from data/type family instances is not "implicit".
   That is, it has its own IfaceAxiom declaration in an interface file
 

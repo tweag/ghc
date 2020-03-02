@@ -23,30 +23,30 @@ module SpecConstr(
 
 import GhcPrelude
 
-import CoreSyn
-import CoreSubst
-import CoreUtils
-import CoreUnfold       ( couldBeSmallEnoughToInline )
-import CoreFVs          ( exprsFreeVarsList )
+import GHC.Core
+import GHC.Core.Subst
+import GHC.Core.Utils
+import GHC.Core.Unfold  ( couldBeSmallEnoughToInline )
+import GHC.Core.FVs     ( exprsFreeVarsList )
 import CoreMonad
 import Literal          ( litIsLifted )
-import HscTypes         ( ModGuts(..) )
+import GHC.Driver.Types ( ModGuts(..) )
 import WwLib            ( isWorkerSmallEnough, mkWorkerArgs )
 import DataCon
 import Coercion         hiding( substCo )
-import Rules
+import GHC.Core.Rules
 import Type             hiding ( substTy )
 import TyCon            ( tyConName )
 import Multiplicity
 import Id
-import PprCore          ( pprParendExpr )
-import MkCore           ( mkImpossibleExpr )
+import GHC.Core.Ppr     ( pprParendExpr )
+import GHC.Core.Make    ( mkImpossibleExpr )
 import VarEnv
 import VarSet
 import Name
 import BasicTypes
-import DynFlags         ( DynFlags(..), GeneralFlag( Opt_SpecConstrKeen )
-                        , gopt, hasPprDebug )
+import GHC.Driver.Session ( DynFlags(..), GeneralFlag( Opt_SpecConstrKeen )
+                          , gopt, hasPprDebug )
 import Maybes           ( orElse, catMaybes, isJust, isNothing )
 import Demand
 import Cpr
@@ -2155,7 +2155,7 @@ argToPat env in_scope val_env (Tick _ arg) arg_occ
         -- Ignore Notes.  In particular, we want to ignore any InlineMe notes
         -- Perhaps we should not ignore profiling notes, but I'm going to
         -- ride roughshod over them all for now.
-        --- See Note [Notes in RULE matching] in Rules
+        --- See Note [Notes in RULE matching] in GHC.Core.Rules
 
 argToPat env in_scope val_env (Let _ arg) arg_occ
   = argToPat env in_scope val_env arg arg_occ
@@ -2242,7 +2242,7 @@ argToPat env in_scope val_env (Var v) arg_occ
 --      And by not wild-carding we tend to get forall'd
 --      variables that are in scope, which in turn can
 --      expose the weakness in let-matching
---      See Note [Matching lets] in Rules
+--      See Note [Matching lets] in GHC.Core.Rules
 
   -- Check for a variable bound inside the function.
   -- Don't make a wild-card, because we may usefully share

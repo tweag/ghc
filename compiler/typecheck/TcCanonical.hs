@@ -28,7 +28,7 @@ import TyCon
 import Multiplicity
 import TyCoRep   -- cleverly decomposes types, good for completeness checking
 import Coercion
-import CoreSyn
+import GHC.Core
 import Id( idType, mkTemplateLocals )
 import FamInstEnv ( FamInstEnvs )
 import FamInst ( tcTopNormaliseNewTypeTF_maybe )
@@ -37,7 +37,7 @@ import VarEnv( mkInScopeSet )
 import VarSet( delVarSetList )
 import OccName ( OccName )
 import Outputable
-import DynFlags( DynFlags )
+import GHC.Driver.Session( DynFlags )
 import NameSet
 import RdrName
 import GHC.Hs.Types( HsIPName(..) )

@@ -20,7 +20,7 @@ module GHC.StgToCmm.DataCon (
 import GhcPrelude
 
 import GHC.Stg.Syntax
-import CoreSyn  ( AltCon(..) )
+import GHC.Core  ( AltCon(..) )
 
 import GHC.StgToCmm.Monad
 import GHC.StgToCmm.Env
@@ -37,7 +37,7 @@ import GHC.Runtime.Heap.Layout
 import CostCentre
 import Module
 import DataCon
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import Id
 import GHC.Types.RepType (countConRepArgs)

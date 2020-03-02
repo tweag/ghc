@@ -169,7 +169,7 @@ noExtCon x = case x of {}
 -- | GHC's L prefixed variants wrap their vanilla variant in this type family,
 -- to add 'SrcLoc' info via 'Located'. Other passes than 'GhcPass' not
 -- interested in location information can define this instance as @f p@.
-type family XRec p (f :: * -> *) = r | r -> p f
+type family XRec p (f :: Type -> Type) = r | r -> p f
 type instance XRec (GhcPass p) f = Located (f (GhcPass p))
 
 {-
@@ -522,7 +522,6 @@ type family XStatic         x
 type family XTick           x
 type family XBinTick        x
 type family XPragE          x
-type family XWrap           x
 type family XXExpr          x
 
 type family XSCC            x

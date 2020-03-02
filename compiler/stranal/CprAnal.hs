@@ -14,11 +14,11 @@ module CprAnal ( cprAnalProgram ) where
 import GhcPrelude
 
 import WwLib            ( deepSplitProductType_maybe )
-import DynFlags
+import GHC.Driver.Session
 import Demand
 import Cpr
-import CoreSyn
-import CoreSeq
+import GHC.Core
+import GHC.Core.Seq
 import Outputable
 import VarEnv
 import BasicTypes
@@ -26,7 +26,7 @@ import Data.List
 import DataCon
 import Id
 import IdInfo
-import CoreUtils        ( exprIsHNF, dumpIdInfoOfProgram )
+import GHC.Core.Utils   ( exprIsHNF, dumpIdInfoOfProgram )
 import TyCon
 import Type
 import FamInstEnv

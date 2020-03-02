@@ -30,7 +30,7 @@ module GHC.HsToCore.Monad (
         DsMetaEnv, DsMetaVal(..), dsGetMetaEnv, dsLookupMetaEnv, dsExtendMetaEnv,
 
         -- Getting and setting pattern match oracle states
-        getPmDelta, updPmDelta,
+        getPmDeltas, updPmDeltas,
 
         -- Get COMPLETE sets of a TyCon
         dsGetCompleteMatches,
@@ -56,15 +56,15 @@ import GhcPrelude
 
 import TcRnMonad
 import FamInstEnv
-import CoreSyn
-import MkCore    ( unitExpr )
-import CoreUtils ( exprType, isExprLevPoly )
+import GHC.Core
+import GHC.Core.Make  ( unitExpr )
+import GHC.Core.Utils ( exprType, isExprLevPoly )
 import GHC.Hs
 import GHC.IfaceToCore
 import TcMType ( checkForLevPolyX, formatLevPolyErr )
 import PrelNames
 import RdrName
-import HscTypes
+import GHC.Driver.Types
 import Bag
 import BasicTypes ( Origin )
 import DataCon
@@ -80,7 +80,7 @@ import Multiplicity
 import UniqSupply
 import Name
 import NameEnv
-import DynFlags
+import GHC.Driver.Session
 import ErrUtils
 import FastString
 import UniqFM ( lookupWithDefaultUFM )
@@ -283,7 +283,7 @@ mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var cc_st_var
                            }
         lcl_env = DsLclEnv { dsl_meta    = emptyNameEnv
                            , dsl_loc     = real_span
-                           , dsl_delta   = initDelta
+                           , dsl_deltas  = initDeltas
                            }
     in (gbl_env, lcl_env)
 
@@ -382,23 +382,23 @@ the @SrcSpan@ being carried around.
 getGhcModeDs :: DsM GhcMode
 getGhcModeDs =  getDynFlags >>= return . ghcMode
 
--- | Get the current pattern match oracle state. See 'dsl_delta'.
-getPmDelta :: DsM Delta
-getPmDelta = do { env <- getLclEnv; return (dsl_delta env) }
+-- | Get the current pattern match oracle state. See 'dsl_deltas'.
+getPmDeltas :: DsM Deltas
+getPmDeltas = do { env <- getLclEnv; return (dsl_deltas env) }
 
 -- | Set the pattern match oracle state within the scope of the given action.
--- See 'dsl_delta'.
-updPmDelta :: Delta -> DsM a -> DsM a
-updPmDelta delta = updLclEnv (\env -> env { dsl_delta = delta })
+-- See 'dsl_deltas'.
+updPmDeltas :: Deltas -> DsM a -> DsM a
+updPmDeltas delta = updLclEnv (\env -> env { dsl_deltas = delta })
 
 getSrcSpanDs :: DsM SrcSpan
 getSrcSpanDs = do { env <- getLclEnv
-                  ; return (RealSrcSpan (dsl_loc env)) }
+                  ; return (RealSrcSpan (dsl_loc env) Nothing) }
 
 putSrcSpanDs :: SrcSpan -> DsM a -> DsM a
 putSrcSpanDs (UnhelpfulSpan {}) thing_inside
   = thing_inside
-putSrcSpanDs (RealSrcSpan real_span) thing_inside
+putSrcSpanDs (RealSrcSpan real_span _) thing_inside
   = updLclEnv (\ env -> env {dsl_loc = real_span}) thing_inside
 
 -- | Emit a warning for the current source location

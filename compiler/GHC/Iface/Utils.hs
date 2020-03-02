@@ -71,7 +71,7 @@ import FlagChecker
 import GHC.HsToCore.Usage ( mkUsageInfo, mkUsedNames, mkDependencies )
 import Id
 import Annotations
-import CoreSyn
+import GHC.Core
 import Class
 import TyCon
 import CoAxiom
@@ -83,9 +83,9 @@ import InstEnv
 import FamInstEnv
 import TcRnMonad
 import GHC.Hs
-import HscTypes
-import Finder
-import DynFlags
+import GHC.Driver.Types
+import GHC.Driver.Finder
+import GHC.Driver.Session
 import VarEnv
 import Var
 import Name
@@ -108,7 +108,7 @@ import Binary
 import Fingerprint
 import Exception
 import UniqSet
-import Packages
+import GHC.Driver.Packages
 import Multiplicity
 import GHC.HsToCore.Docs
 
@@ -121,7 +121,7 @@ import Data.Ord
 import Data.IORef
 import System.Directory
 import System.FilePath
-import Plugins ( PluginRecompile(..), PluginWithArgs(..), LoadedPlugin(..),
+import GHC.Driver.Plugins ( PluginRecompile(..), PluginWithArgs(..), LoadedPlugin(..),
                  pluginRecompile', plugins )
 
 --Qualified import so we can define a Semigroup instance
@@ -183,13 +183,9 @@ updateDeclCafInfos decls Nothing = decls
 updateDeclCafInfos decls (Just non_cafs) = map update_decl decls
   where
     update_decl decl
-      | IfaceId nm ty details id_info <- decl
+      | IfaceId nm ty details infos <- decl
       , elemNameSet nm non_cafs
-      = IfaceId nm ty details $
-        case id_info of
-          NoInfo -> HasInfo [HsNoCafRefs]
-          HasInfo infos -> HasInfo (HsNoCafRefs : infos)
-
+      = IfaceId nm ty details (HsNoCafRefs : infos)
       | otherwise
       = decl
 
@@ -1773,7 +1769,7 @@ dataConToIfaceDecl dflags dataCon
   = IfaceId { ifName      = getName dataCon,
               ifType      = toIfaceType (dataConDisplayType dflags dataCon),
               ifIdDetails = IfVanillaId,
-              ifIdInfo    = NoInfo }
+              ifIdInfo    = [] }
 
 --------------------------
 coAxiomToIfaceDecl :: CoAxiom br -> IfaceDecl

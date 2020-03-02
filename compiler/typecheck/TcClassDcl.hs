@@ -38,11 +38,11 @@ import TcOrigin
 import Multiplicity
 import TcType
 import TcRnMonad
-import DriverPhases (HscSource(..))
+import GHC.Driver.Phases (HscSource(..))
 import BuildTyCl( TcMethInfo )
 import Class
 import Coercion ( pprCoAxiom )
-import DynFlags
+import GHC.Driver.Session
 import FamInst
 import FamInstEnv
 import Id
@@ -116,11 +116,11 @@ tcClassSigs :: Name                -- Name of the class
 tcClassSigs clas sigs def_methods
   = do { traceTc "tcClassSigs 1" (ppr clas)
 
-       ; gen_dm_prs <- concat <$> mapM (addLocM tc_gen_sig) gen_sigs
+       ; gen_dm_prs <- concatMapM (addLocM tc_gen_sig) gen_sigs
        ; let gen_dm_env :: NameEnv (SrcSpan, Type)
              gen_dm_env = mkNameEnv gen_dm_prs
 
-       ; op_info <- concat <$> mapM (addLocM (tc_sig gen_dm_env)) vanilla_sigs
+       ; op_info <- concatMapM (addLocM (tc_sig gen_dm_env)) vanilla_sigs
 
        ; let op_names = mkNameSet [ n | (n,_,_) <- op_info ]
        ; sequence_ [ failWithTc (badMethodErr clas n)

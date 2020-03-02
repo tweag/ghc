@@ -20,14 +20,14 @@ import GhcPrelude
 
 import TcRnMonad        -- temp
 
-import CoreSyn
+import GHC.Core
 
 import GHC.HsToCore.Foreign.Call
 import GHC.HsToCore.Monad
 
 import GHC.Hs
 import DataCon
-import CoreUnfold
+import GHC.Core.Unfold
 import Id
 import Literal
 import Module
@@ -42,7 +42,7 @@ import TcType
 
 import GHC.Cmm.Expr
 import GHC.Cmm.Utils
-import HscTypes
+import GHC.Driver.Types
 import ForeignCall
 import TysWiredIn
 import TysPrim
@@ -51,11 +51,11 @@ import BasicTypes
 import SrcLoc
 import Outputable
 import FastString
-import DynFlags
+import GHC.Driver.Session
 import GHC.Platform
 import OrdList
 import Util
-import Hooks
+import GHC.Driver.Hooks
 import Encoding
 
 import Data.Maybe

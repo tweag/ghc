@@ -6,6 +6,7 @@ The datatypes here are mainly used for error message generation.
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
@@ -43,8 +44,6 @@ import Multiplicity ( scaledThing )
 import Module
 import Name
 import RdrName
-import qualified GHC.LanguageExtensions as LangExt
-import DynFlags
 
 import SrcLoc
 import FastString
@@ -440,10 +439,6 @@ data CtOrigin
   | ListOrigin          -- An overloaded list
   | BracketOrigin       -- An overloaded quotation bracket
   | StaticOrigin        -- A static form
-  | FailablePattern (LPat GhcTcId) -- A failable pattern in do-notation for the
-                                   -- MonadFail Proposal (MFP). Obsolete when
-                                   -- actual desugaring to MonadFail.fail is
-                                   -- live.
   | Shouldn'tHappenOrigin String
                             -- the user should never see this one,
                             -- unless ImpredicativeTypes is on, where all
@@ -607,19 +602,15 @@ pprCtOrigin (MCompPatOrigin pat)
     = ctoHerald <+> hsep [ text "the failable pattern"
            , quotes (ppr pat)
            , text "in a statement in a monad comprehension" ]
-pprCtOrigin (FailablePattern pat)
-    = ctoHerald <+> text "the failable pattern" <+> quotes (ppr pat)
-      $$
-      text "(this will become an error in a future GHC release)"
 
 pprCtOrigin (Shouldn'tHappenOrigin note)
-  = sdocWithDynFlags $ \dflags ->
-    if xopt LangExt.ImpredicativeTypes dflags
-    then text "a situation created by impredicative types"
-    else
-    vcat [ text "<< This should not appear in error messages. If you see this"
-         , text "in an error message, please report a bug mentioning" <+> quotes (text note) <+> text "at"
-         , text "https://gitlab.haskell.org/ghc/ghc/wikis/report-a-bug >>" ]
+  = sdocOption sdocImpredicativeTypes $ \case
+      True  -> text "a situation created by impredicative types"
+      False -> vcat [ text "<< This should not appear in error messages. If you see this"
+                    , text "in an error message, please report a bug mentioning"
+                        <+> quotes (text note) <+> text "at"
+                    , text "https://gitlab.haskell.org/ghc/ghc/wikis/report-a-bug >>"
+                    ]
 
 pprCtOrigin (ProvCtxtOrigin PSB{ psb_id = (L _ name) })
   = hang (ctoHerald <+> text "the \"provided\" constraints claimed by")

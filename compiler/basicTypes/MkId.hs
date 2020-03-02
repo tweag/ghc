@@ -22,11 +22,12 @@ module MkId (
         mkPrimOpId, mkFCallId,
 
         unwrapNewTypeBody, wrapFamInstBody,
-        DataConBoxer(..), mkDataConRep, mkDataConWorkId,
+        DataConBoxer(..), vanillaDataConBoxer,
+        mkDataConRep, mkDataConWorkId,
 
         -- And some particular Ids; see below for why they are wired in
         wiredInIds, ghcPrimIds,
-        unsafeCoerceName, unsafeCoerceId, realWorldPrimId,
+        realWorldPrimId,
         voidPrimId, voidArgId,
         nullAddrId, seqId, lazyId, lazyIdKey,
         coercionTokenId, magicDictId, coerceId,
@@ -41,18 +42,19 @@ module MkId (
 
 import GhcPrelude
 
-import Rules
+import GHC.Core.Rules
 import TysPrim
 import TysWiredIn
 import PrelRules
 import Type
 import Multiplicity
+import TyCoRep
 import FamInstEnv
 import Coercion
 import TcType
-import MkCore
-import CoreUtils        ( mkCast, mkDefaultCase )
-import CoreUnfold
+import GHC.Core.Make
+import GHC.Core.Utils  ( mkCast, mkDefaultCase )
+import GHC.Core.Unfold
 import Literal
 import TyCon
 import Class
@@ -65,13 +67,13 @@ import Id
 import IdInfo
 import Demand
 import Cpr
-import CoreSyn
+import GHC.Core
 import Unique
 import UniqSupply
 import PrelNames
 import BasicTypes       hiding ( SuccessFlag(..) )
 import Util
-import DynFlags
+import GHC.Driver.Session
 import Outputable
 import FastString
 import ListSetOps
@@ -99,7 +101,7 @@ There are several reasons why an Id might appear in the wiredInIds:
 
 * magicIds: see Note [magicIds]
 
-* errorIds, defined in coreSyn/MkCore.hs.
+* errorIds, defined in GHC.Core.Make.
   These error functions (e.g. rUNTIME_ERROR_ID) are wired in
   because the desugarer generates code that mentions them directly
 
@@ -143,7 +145,7 @@ wiredInIds :: [Id]
 wiredInIds
   =  magicIds
   ++ ghcPrimIds
-  ++ errorIds           -- Defined in MkCore
+  ++ errorIds           -- Defined in GHC.Core.Make
 
 magicIds :: [Id]    -- See Note [magicIds]
 magicIds = [lazyId, oneShotId, noinlineId]
@@ -152,7 +154,6 @@ ghcPrimIds :: [Id]  -- See Note [ghcPrimIds (aka pseudoops)]
 ghcPrimIds
   = [ realWorldPrimId
     , voidPrimId
-    , unsafeCoerceId
     , nullAddrId
     , seqId
     , magicDictId
@@ -352,7 +353,7 @@ With -XUnliftedNewtypes, this is allowed -- even though MkN is levity-
 polymorphic. It's OK because MkN evaporates in the compiled code, becoming
 just a cast. That is, it has a compulsory unfolding. As long as its
 argument is not levity-polymorphic (which it can't be, according to
-Note [Levity polymorphism invariants] in CoreSyn), and it's saturated,
+Note [Levity polymorphism invariants] in GHC.Core), and it's saturated,
 no levity-polymorphic code ends up in the code generator. The saturation
 condition is effectively checked by Note [Detecting forced eta expansion]
 in GHC.HsToCore.Expr.
@@ -602,6 +603,10 @@ newtype DataConBoxer = DCB ([Type] -> [Var] -> UniqSM ([Var], [CoreBind]))
                        -- Bind these src-level vars, returning the
                        -- rep-level vars to bind in the pattern
 
+vanillaDataConBoxer :: DataConBoxer
+-- No transformation on arguments needed
+vanillaDataConBoxer = DCB (\_tys args -> return (args, []))
+
 {-
 Note [Inline partially-applied constructor wrappers]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -667,7 +672,7 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
                -- the strictness signature (#14290).
 
              mk_dmd str | isBanged str = evalDmd
-                        | otherwise           = topDmd
+                        | otherwise    = topDmd
 
              wrap_prag = alwaysInlinePragma `setInlinePragmaActivation`
                          activeDuringFinal
@@ -1327,19 +1332,14 @@ no curried identifier for them.  That's what mkCompulsoryUnfolding
 does.  If we had a way to get a compulsory unfolding from an interface
 file, we could do that, but we don't right now.
 
-unsafeCoerce# isn't so much a PrimOp as a phantom identifier, that
-just gets expanded into a type coercion wherever it occurs.  Hence we
-add it as a built-in Id with an unfolding here.
-
 The type variables we use here are "open" type variables: this means
 they can unify with both unlifted and lifted types.  Hence we provide
 another gun with which to shoot yourself in the foot.
 -}
 
-unsafeCoerceName, nullAddrName, seqName,
+nullAddrName, seqName,
    realWorldName, voidPrimIdName, coercionTokenName,
    magicDictName, coerceName, proxyName :: Name
-unsafeCoerceName  = mkWiredInIdName gHC_PRIM  (fsLit "unsafeCoerce#")  unsafeCoerceIdKey  unsafeCoerceId
 nullAddrName      = mkWiredInIdName gHC_PRIM  (fsLit "nullAddr#")      nullAddrIdKey      nullAddrId
 seqName           = mkWiredInIdName gHC_PRIM  (fsLit "seq")            seqIdKey           seqId
 realWorldName     = mkWiredInIdName gHC_PRIM  (fsLit "realWorld#")     realWorldPrimIdKey realWorldPrimId
@@ -1371,28 +1371,6 @@ proxyHashId
     ty      = mkInvForAllTy kv $ mkSpecForAllTy tv $ mkProxyPrimTy kv_ty tv_ty
 
 ------------------------------------------------
-unsafeCoerceId :: Id
-unsafeCoerceId
-  = pcMiscPrelId unsafeCoerceName ty info
-  where
-    info = noCafIdInfo `setInlinePragInfo` alwaysInlinePragma
-                       `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
-
-    -- unsafeCoerce# :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
-    --                         (a :: TYPE r1) (b :: TYPE r2).
-    --                         a -> b
-    bndrs = mkTemplateKiTyVars [runtimeRepTy, runtimeRepTy]
-                               (\ks -> map tYPE ks)
-
-    [_, _, a, b] = mkTyVarTys bndrs
-
-    ty  = mkSpecForAllTys bndrs (mkVisFunTyMany a b)
-
-    [x] = mkTemplateLocals [a]
-    rhs = mkLams (bndrs ++ [x]) $
-          Cast (Var x) (mkUnsafeCo Representational a b)
-
-------------------------------------------------
 nullAddrId :: Id
 -- nullAddr# :: Addr#
 -- The reason it is here is because we don't provide
@@ -1414,7 +1392,7 @@ seqId = pcMiscPrelId seqName ty info
          = alwaysInlinePragma `setInlinePragmaActivation` ActiveAfter
                  NoSourceText 0
                   -- Make 'seq' not inline-always, so that simpleOptExpr
-                  -- (see CoreSubst.simple_app) won't inline 'seq' on the
+                  -- (see GHC.Core.Subst.simple_app) won't inline 'seq' on the
                   -- LHS of rules.  That way we can have rules for 'seq';
                   -- see Note [seqId magic]
 
@@ -1492,22 +1470,6 @@ coerceId = pcMiscPrelId coerceName ty info
           [(DataAlt coercibleDataCon, [eq], Cast (Var x) (mkCoVarCo eq))]
 
 {-
-Note [Unsafe coerce magic]
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-We define a *primitive*
-   GHC.Prim.unsafeCoerce#
-and then in the base library we define the ordinary function
-   Unsafe.Coerce.unsafeCoerce :: forall (a:*) (b:*). a -> b
-   unsafeCoerce x = unsafeCoerce# x
-
-Notice that unsafeCoerce has a civilized (albeit still dangerous)
-polymorphic type, whose type args have kind *.  So you can't use it on
-unboxed values (unsafeCoerce 3#).
-
-In contrast unsafeCoerce# is even more dangerous because you *can* use
-it on unboxed things, (unsafeCoerce# 3#) :: Int. Its type is
-   forall (r1 :: RuntimeRep) (r2 :: RuntimeRep) (a: TYPE r1) (b: TYPE r2). a -> b
-
 Note [seqId magic]
 ~~~~~~~~~~~~~~~~~~
 'GHC.Prim.seq' is special in several ways.
@@ -1654,7 +1616,7 @@ which is what we want.
 
 It is only effective if the one-shot info survives as long as possible; in
 particular it must make it into the interface in unfoldings. See Note [Preserve
-OneShotInfo] in CoreTidy.
+OneShotInfo] in GHC.Core.Op.Tidy.
 
 Also see https://gitlab.haskell.org/ghc/ghc/wikis/one-shot.
 
@@ -1736,7 +1698,7 @@ voidArgId :: Id       -- Local lambda-bound :: Void#
 voidArgId = mkSysLocal (fsLit "void") voidArgIdKey Many voidPrimTy
 
 coercionTokenId :: Id         -- :: () ~ ()
-coercionTokenId -- Used to replace Coercion terms when we go to STG
+coercionTokenId -- See Note [Coercion tokens] in CoreToStg.hs
   = pcMiscPrelId coercionTokenName
                  (mkTyConApp eqPrimTyCon [liftedTypeKind, liftedTypeKind, unitTy, unitTy])
                  noCafIdInfo

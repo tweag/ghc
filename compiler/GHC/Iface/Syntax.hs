@@ -13,7 +13,7 @@ module GHC.Iface.Syntax (
         IfaceConDecl(..), IfaceConDecls(..), IfaceEqSpec,
         IfaceExpr(..), IfaceAlt, IfaceLetBndr(..), IfaceJoinInfo(..),
         IfaceBinding(..), IfaceConAlt(..),
-        IfaceIdInfo(..), IfaceIdDetails(..), IfaceUnfolding(..),
+        IfaceIdInfo, IfaceIdDetails(..), IfaceUnfolding(..),
         IfaceInfoItem(..), IfaceRule(..), IfaceAnnotation(..), IfaceAnnTarget,
         IfaceClsInst(..), IfaceFamInst(..), IfaceTickish(..),
         IfaceClassBody(..),
@@ -46,8 +46,7 @@ import GhcPrelude
 
 import GHC.Iface.Type
 import BinFingerprint
-import CoreSyn( IsOrphan, isOrphan )
-import DynFlags( gopt, xopt, GeneralFlag (Opt_PrintAxiomIncomps) )
+import GHC.Core( IsOrphan, isOrphan )
 import Demand
 import Cpr
 import Class
@@ -77,8 +76,6 @@ import Util (seqList)
 import Control.Monad
 import System.IO.Unsafe
 import Control.DeepSeq
-
-import qualified GHC.LanguageExtensions as LangExt
 
 infixl 3 &&&
 
@@ -191,7 +188,7 @@ data IfaceTyConParent
   | IfDataInstance
        IfExtName     -- Axiom name
        IfaceTyCon    -- Family TyCon (pretty-printing only, not used in GHC.IfaceToCore)
-                     -- see Note [Pretty printing via Iface syntax] in PprTyThing
+                     -- see Note [Pretty printing via Iface syntax] in GHC.Core.Ppr.TyThing
        IfaceAppArgs  -- Arguments of the family TyCon
 
 data IfaceFamTyConFlav
@@ -200,7 +197,7 @@ data IfaceFamTyConFlav
   | IfaceClosedSynFamilyTyCon (Maybe (IfExtName, [IfaceAxBranch]))
     -- ^ Name of associated axiom and branches for pretty printing purposes,
     -- or 'Nothing' for an empty closed family without an axiom
-    -- See Note [Pretty printing via Iface syntax] in PprTyThing
+    -- See Note [Pretty printing via Iface syntax] in GHC.Core.Ppr.TyThing
   | IfaceAbstractClosedSynFamilyTyCon
   | IfaceBuiltInSynFamTyCon -- for pretty printing purposes only
 
@@ -340,9 +337,7 @@ instance Outputable IfaceCompleteMatch where
 --   * The version comparison sees that new (=NoInfo) differs from old (=HasInfo *)
 --      and so gives a new version.
 
-data IfaceIdInfo
-  = NoInfo                      -- When writing interface file without -O
-  | HasInfo [IfaceInfoItem]     -- Has info, and here it is
+type IfaceIdInfo = [IfaceInfoItem]
 
 data IfaceInfoItem
   = HsArity         Arity
@@ -362,7 +357,9 @@ data IfaceUnfolding
                                 -- Possibly could eliminate the Bool here, the information
                                 -- is also in the InlinePragma.
 
-  | IfCompulsory IfaceExpr      -- Only used for default methods, in fact
+  | IfCompulsory IfaceExpr      -- default methods and unsafeCoerce#
+                                -- for more about unsafeCoerce#, see
+                                -- Note [Wiring in unsafeCoerce#] in Desugar
 
   | IfInlineRule Arity          -- INLINE pragmas
                  Bool           -- OK to inline even if *un*-saturated
@@ -404,10 +401,10 @@ ifaceDeclImplicitBndrs :: IfaceDecl -> [OccName]
 --  *Excludes* the 'main' name, but *includes* the implicitly-bound names
 -- Deeply revolting, because it has to predict what gets bound,
 -- especially the question of whether there's a wrapper for a datacon
--- See Note [Implicit TyThings] in HscTypes
+-- See Note [Implicit TyThings] in GHC.Driver.Types
 
 -- N.B. the set of names returned here *must* match the set of
--- TyThings returned by HscTypes.implicitTyThings, in the sense that
+-- TyThings returned by GHC.Driver.Types.implicitTyThings, in the sense that
 -- TyThing.getOccName should define a bijection between the two lists.
 -- This invariant is used in GHC.Iface.Load.loadDecl (see note [Tricky iface loop])
 -- The order of the list does not matter.
@@ -534,7 +531,7 @@ Note [Empty case alternatives]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In Iface syntax an IfaceCase does not record the types of the alternatives,
 unlike Core syntax Case. But we need this type if the alternatives are empty.
-Hence IfaceECase. See Note [Empty case alternatives] in CoreSyn.
+Hence IfaceECase. See Note [Empty case alternatives] in GHC.Core.
 
 Note [Expose recursive functions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -550,7 +547,7 @@ that came up was a NOINLINE pragma on a let-binding inside an INLINE
 function.  The user (Duncan Coutts) really wanted the NOINLINE control
 to cross the separate compilation boundary.
 
-In general we retain all info that is left by CoreTidy.tidyLetBndr, since
+In general we retain all info that is left by GHC.Core.Op.Tidy.tidyLetBndr, since
 that is what is seen by importing module with --make
 
 Note [Displaying axiom incompatibilities]
@@ -610,14 +607,13 @@ pprAxBranch pp_tc idx (IfaceAxBranch { ifaxbTyVars = tvs
 
     -- See Note [Displaying axiom incompatibilities]
     maybe_index
-      = sdocWithDynFlags $ \dflags ->
-        ppWhen (gopt Opt_PrintAxiomIncomps dflags) $
+      = ppWhenOption sdocPrintAxiomIncomps $
           text "{-" <+> (text "#" <> ppr idx) <+> text "-}"
     maybe_incomps
-      = sdocWithDynFlags $ \dflags ->
-        ppWhen (gopt Opt_PrintAxiomIncomps dflags && notNull incomps) $
-          text "--" <+> text "incompatible with:"
-          <+> pprWithCommas (\incomp -> text "#" <> ppr incomp) incomps
+      = ppWhenOption sdocPrintAxiomIncomps $
+          ppWhen (notNull incomps) $
+            text "--" <+> text "incompatible with:"
+            <+> pprWithCommas (\incomp -> text "#" <> ppr incomp) incomps
 
 instance Outputable IfaceAnnotation where
   ppr (IfaceAnnotation target value) = ppr target <+> colon <+> ppr value
@@ -678,7 +674,7 @@ Note [Printing IfaceDecl binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The binders in an IfaceDecl are just OccNames, so we don't know what module they
 come from.  But when we pretty-print a TyThing by converting to an IfaceDecl
-(see PprTyThing), the TyThing may come from some other module so we really need
+(see GHC.Core.Ppr.TyThing), the TyThing may come from some other module so we really need
 the module qualifier.  We solve this by passing in a pretty-printer for the
 binders.
 
@@ -748,7 +744,7 @@ constraintIfaceKind =
 
 pprIfaceDecl :: ShowSub -> IfaceDecl -> SDoc
 -- NB: pprIfaceDecl is also used for pretty-printing TyThings in GHCi
---     See Note [Pretty-printing TyThings] in PprTyThing
+--     See Note [Pretty-printing TyThings] in GHC.Core.Ppr.TyThing
 pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
                              ifCtxt = context, ifResKind = kind,
                              ifRoles = roles, ifCons = condecls,
@@ -963,9 +959,9 @@ pprIfaceDecl _ (IfacePatSyn { ifName = name,
                               ifPatProvCtxt = prov_ctxt, ifPatReqCtxt = req_ctxt,
                               ifPatArgs = arg_tys,
                               ifPatTy = pat_ty} )
-  = sdocWithDynFlags mk_msg
+  = sdocWithContext mk_msg
   where
-    mk_msg dflags
+    mk_msg sdocCtx
       = hang (text "pattern" <+> pprPrefixOcc name)
            2 (dcolon <+> sep [univ_msg
                              , pprIfaceContextArr req_ctxt
@@ -978,7 +974,7 @@ pprIfaceDecl _ (IfacePatSyn { ifName = name,
         ex_msg   = pprUserIfaceForAll ex_bndrs
 
         insert_empty_ctxt = null req_ctxt
-            && not (null prov_ctxt && isEmpty dflags ex_msg)
+            && not (null prov_ctxt && isEmpty sdocCtx ex_msg)
 
 pprIfaceDecl ss (IfaceId { ifName = var, ifType = ty,
                               ifIdDetails = details, ifIdInfo = info })
@@ -1001,8 +997,8 @@ pprCType (Just cType) = text "C type:" <+> ppr cType
 pprRoles :: (Role -> Bool) -> SDoc -> [IfaceTyConBinder]
          -> [Role] -> SDoc
 pprRoles suppress_if tyCon bndrs roles
-  = sdocWithDynFlags $ \dflags ->
-      let froles = suppressIfaceInvisibles dflags bndrs roles
+  = sdocOption sdocPrintExplicitKinds $ \print_kinds ->
+      let froles = suppressIfaceInvisibles (PrintExplicitKinds print_kinds) bndrs roles
       in ppUnless (all suppress_if froles || null froles) $
          text "type role" <+> tyCon <+> hsep (map ppr froles)
 
@@ -1064,11 +1060,11 @@ pprIfaceDeclHead :: SuppressBndrSig
                  -> [IfaceTyConBinder]   -- of the tycon, for invisible-suppression
                  -> SDoc
 pprIfaceDeclHead suppress_sig context ss tc_occ bndrs
-  = sdocWithDynFlags $ \ dflags ->
+  = sdocOption sdocPrintExplicitKinds $ \print_kinds ->
     sep [ pprIfaceContextArr context
         , pprPrefixIfDeclBndr (ss_how_much ss) (occName tc_occ)
           <+> pprIfaceTyConBinders suppress_sig
-                (suppressIfaceInvisibles dflags bndrs bndrs) ]
+                (suppressIfaceInvisibles (PrintExplicitKinds print_kinds) bndrs bndrs) ]
 
 pprIfaceConDecl :: ShowSub -> Bool
                 -> IfaceTopBndr
@@ -1118,9 +1114,9 @@ pprIfaceConDecl ss gadt_style tycon tc_binders parent
 
     -- Constructors are linear by default, but we don't want to show
     -- linear arrows when -XLinearTypes is disabled
-    ppr_arr w = sdocWithDynFlags (\dflags -> if xopt LangExt.LinearTypes dflags
-                                             then ppr_fun_arrow w
-                                             else arrow)
+    ppr_arr w = sdocOption sdocLinearTypes (\linearTypes -> if linearTypes
+                                                            then ppr_fun_arrow w
+                                                            else arrow)
 
     ppr_bang IfNoBang = whenPprDebug $ char '_'
     ppr_bang IfStrict = char '!'
@@ -1393,11 +1389,6 @@ instance Outputable IfaceIdDetails where
                                 else Outputable.empty
   ppr IfDFunId          = text "DFunId"
 
-instance Outputable IfaceIdInfo where
-  ppr NoInfo       = Outputable.empty
-  ppr (HasInfo is) = text "{-" <+> pprWithCommas ppr is
-                     <+> text "-}"
-
 instance Outputable IfaceInfoItem where
   ppr (HsUnfold lb unf)     = text "Unfolding"
                               <> ppWhen lb (text "(loop-breaker)")
@@ -1627,7 +1618,6 @@ freeNamesIfCoercion (IfaceAxiomRuleCo _ax cos)
   = fnList freeNamesIfCoercion cos
 
 freeNamesIfProv :: IfaceUnivCoProv -> NameSet
-freeNamesIfProv IfaceUnsafeCoerceProv    = emptyNameSet
 freeNamesIfProv (IfacePhantomProv co)    = freeNamesIfCoercion co
 freeNamesIfProv (IfaceProofIrrelProv co) = freeNamesIfCoercion co
 freeNamesIfProv (IfacePluginProv _)      = emptyNameSet
@@ -1660,8 +1650,7 @@ freeNamesIfIdBndr :: IfaceIdBndr -> NameSet
 freeNamesIfIdBndr (_, _fs,k) = freeNamesIfKind k
 
 freeNamesIfIdInfo :: IfaceIdInfo -> NameSet
-freeNamesIfIdInfo NoInfo      = emptyNameSet
-freeNamesIfIdInfo (HasInfo i) = fnList freeNamesItem i
+freeNamesIfIdInfo = fnList freeNamesItem
 
 freeNamesItem :: IfaceInfoItem -> NameSet
 freeNamesItem (HsUnfold _ u) = freeNamesIfUnfold u
@@ -1751,7 +1740,7 @@ not happen.   Here's the one that bit me:
      data DynFlags = DF ... PackageState ...
 
    module Packages where
-     import DynFlags
+     import GHC.Driver.Session
      data PackageState = PS ...
      lookupModule (df :: DynFlags)
         = case df of
@@ -2163,16 +2152,6 @@ instance Binary IfaceIdDetails where
             1 -> do { a <- get bh; b <- get bh; return (IfRecSelId a b) }
             _ -> return IfDFunId
 
-instance Binary IfaceIdInfo where
-    put_ bh NoInfo      = putByte bh 0
-    put_ bh (HasInfo i) = putByte bh 1 >> lazyPut bh i -- NB lazyPut
-
-    get bh = do
-        h <- getByte bh
-        case h of
-            0 -> return NoInfo
-            _ -> liftM HasInfo $ lazyGet bh    -- NB lazyGet
-
 instance Binary IfaceInfoItem where
     put_ bh (HsArity aa)          = putByte bh 0 >> put_ bh aa
     put_ bh (HsStrictness ab)     = putByte bh 1 >> put_ bh ab
@@ -2513,11 +2492,6 @@ instance NFData IfaceIdDetails where
     IfRecSelId (Left tycon) b -> rnf tycon `seq` rnf b
     IfRecSelId (Right decl) b -> rnf decl `seq` rnf b
     IfDFunId -> ()
-
-instance NFData IfaceIdInfo where
-  rnf = \case
-    NoInfo -> ()
-    HasInfo f1 -> rnf f1
 
 instance NFData IfaceInfoItem where
   rnf = \case

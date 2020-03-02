@@ -58,6 +58,7 @@ module Type (
         piResultTy, piResultTys,
         applyTysX, dropForAlls,
         mkFamilyTyConApp,
+        buildSynTyCon,
 
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
@@ -252,8 +253,10 @@ import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( listTyCon, typeNatKind
                                  , typeSymbolKind, liftedTypeKind
+                                 , liftedTypeKindTyCon
                                  , constraintKind
                                  , unrestrictedFunTyCon )
+import Name( Name )
 import PrelNames
 import CoAxiom
 import {-# SOURCE #-} Coercion( mkNomReflCo, mkGReflCo, mkReflCo
@@ -478,7 +481,6 @@ expandTypeSynonyms ty
     go_co _ (HoleCo h)
       = pprPanic "expandTypeSynonyms hit a hole" (ppr h)
 
-    go_prov _     UnsafeCoerceProv    = UnsafeCoerceProv
     go_prov subst (PhantomProv co)    = PhantomProv (go_co subst co)
     go_prov subst (ProofIrrelProv co) = ProofIrrelProv (go_co subst co)
     go_prov _     p@(PluginProv _)    = p
@@ -721,7 +723,6 @@ mapCoercion mapper@(TyCoMapper { tcm_covar = covar
     go (KindCo co)         = mkKindCo <$> go co
     go (SubCo co)          = mkSubCo <$> go co
 
-    go_prov UnsafeCoerceProv    = return UnsafeCoerceProv
     go_prov (PhantomProv co)    = PhantomProv <$> go co
     go_prov (ProofIrrelProv co) = ProofIrrelProv <$> go co
     go_prov p@(PluginProv _)    = return p
@@ -1116,7 +1117,7 @@ piResultTy_maybe ty arg
 -- there are more type args than foralls in 'undefined's type.
 
 -- If you edit this function, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.hs
+-- See Note [GHC Formalism] in GHC.Core.Lint
 
 -- This is a heavily used function (e.g. from typeKind),
 -- so we pay attention to efficiency, especially in the special case
@@ -1205,6 +1206,30 @@ So again we must instantiate.
 
 The same thing happens in GHC.CoreToIface.toIfaceAppArgsX.
 
+--------------------------------------
+Note [mkTyConApp and Type]
+
+Whilst benchmarking it was observed in #17292 that GHC allocated a lot
+of `TyConApp` constructors. Upon further inspection a large number of these
+TyConApp constructors were all duplicates of `Type` applied to no arguments.
+
+```
+(From a sample of 100000 TyConApp closures)
+0x45f3523    - 28732 - `Type`
+0x420b840702 - 9629  - generic type constructors
+0x42055b7e46 - 9596
+0x420559b582 - 9511
+0x420bb15a1e - 9509
+0x420b86c6ba - 9501
+0x42055bac1e - 9496
+0x45e68fd    - 538 - `TYPE ...`
+```
+
+Therefore in `mkTyConApp` we have a special case for `Type` to ensure that
+only one `TyConApp 'Type []` closure is allocated during the course of
+compilation. In order to avoid a potentially expensive series of checks in
+`mkTyConApp` only this egregious case is special cased at the moment.
+
 
 ---------------------------------------------------------------------
                                 TyConApp
@@ -1216,12 +1241,22 @@ The same thing happens in GHC.CoreToIface.toIfaceAppArgsX.
 mkTyConApp :: TyCon -> [Type] -> Type
 mkTyConApp tycon tys
   | isFunTyCon tycon
-  , [w,_rep1,_rep2,ty1,ty2] <- tys
+  , [w, _rep1,_rep2,ty1,ty2] <- tys
+  -- The FunTyCon (->) is always a visible one
   = FunTy { ft_af = VisArg, ft_mult = w, ft_arg = ty1, ft_res = ty2 }
-    -- The FunTyCon (->) is always a visible one
 
+  -- Note [mkTyConApp and Type]
+  | tycon == liftedTypeKindTyCon
+  = ASSERT2( null tys, ppr tycon $$ ppr tys )
+    liftedTypeKindTyConApp
   | otherwise
   = TyConApp tycon tys
+
+-- This is a single, global definition of the type `Type`
+-- Defined here so it is only allocated once.
+-- See Note [mkTyConApp and Type]
+liftedTypeKindTyConApp :: Type
+liftedTypeKindTyConApp = TyConApp liftedTypeKindTyCon []
 
 -- splitTyConApp "looks through" synonyms, because they don't
 -- mean a distinct type, but all other type-constructor applications
@@ -1946,6 +1981,15 @@ isCoVarType ty
   | otherwise
   = False
 
+buildSynTyCon :: Name -> [KnotTied TyConBinder] -> Kind   -- ^ /result/ kind
+              -> [Role] -> KnotTied Type -> TyCon
+-- This function is here beucase here is where we have
+--   isFamFree and isTauTy
+buildSynTyCon name binders res_kind roles rhs
+  = mkSynonymTyCon name binders res_kind roles rhs is_tau is_fam_free
+  where
+    is_tau      = isTauTy rhs
+    is_fam_free = isFamFreeTy rhs
 
 {-
 ************************************************************************
@@ -2072,7 +2116,7 @@ isPrimitiveType ty = case splitTyConApp_maybe ty of
 -- in its return type, since given
 --   join j @a @b x y z = e1 in e2,
 -- the types of e1 and e2 must be the same, and a and b are not in scope for e2.
--- (See Note [The polymorphism rule of join points] in CoreSyn.) Returns False
+-- (See Note [The polymorphism rule of join points] in GHC.Core.) Returns False
 -- also if the type simply doesn't have enough arguments.
 --
 -- Note that we need to know how many arguments (type *and* value) the putative
@@ -2100,7 +2144,7 @@ isValidJoinPointType arity ty
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In principle, if a function would be a join point except that it fails
 the polymorphism rule (see Note [The polymorphism rule of join points] in
-CoreSyn), it can still be made a join point with some effort. This is because
+GHC.Core), it can still be made a join point with some effort. This is because
 all tail calls must return the same type (they return to the same context!), and
 thus if the return type depends on an argument, that argument must always be the
 same.
@@ -2631,7 +2675,7 @@ occCheckExpand :: [Var] -> Type -> Maybe Type
 -- free of the variable, then the same type is returned.
 occCheckExpand vs_to_avoid ty
   | null vs_to_avoid  -- Efficient shortcut
-  = Just ty           -- Can happen, eg. CoreUtils.mkSingleAltCase
+  = Just ty           -- Can happen, eg. GHC.Core.Utils.mkSingleAltCase
 
   | otherwise
   = go (mkVarSet vs_to_avoid, emptyVarEnv) ty
@@ -2746,7 +2790,6 @@ occCheckExpand vs_to_avoid ty
                                              ; return (mkAxiomRuleCo ax cs') }
 
     ------------------
-    go_prov _   UnsafeCoerceProv    = return UnsafeCoerceProv
     go_prov cxt (PhantomProv co)    = PhantomProv <$> go_co cxt co
     go_prov cxt (ProofIrrelProv co) = ProofIrrelProv <$> go_co cxt co
     go_prov _   p@(PluginProv _)    = return p
@@ -2801,7 +2844,6 @@ tyConsOfType ty
      go_mco MRefl    = emptyUniqSet
      go_mco (MCo co) = go_co co
 
-     go_prov UnsafeCoerceProv    = emptyUniqSet
      go_prov (PhantomProv co)    = go_co co
      go_prov (ProofIrrelProv co) = go_co co
      go_prov (PluginProv _)      = emptyUniqSet

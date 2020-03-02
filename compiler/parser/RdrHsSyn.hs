@@ -130,7 +130,7 @@ import Maybes
 import Util
 import ApiAnnotation
 import Data.List
-import DynFlags ( WarningFlag(..), DynFlags )
+import GHC.Driver.Session ( WarningFlag(..), DynFlags )
 import ErrUtils ( Messages )
 
 import Control.Monad
@@ -138,6 +138,7 @@ import Text.ParserCombinators.ReadP as ReadP
 import Data.Char
 import qualified Data.Monoid as Monoid
 import Data.Data       ( dataTypeOf, fromConstr, dataTypeConstrs )
+import Data.Kind       ( Type )
 
 #include "HsVersions.h"
 
@@ -1732,7 +1733,7 @@ instance DisambInfixOp RdrName where
 -- See Note [Ambiguous syntactic categories]
 class b ~ (Body b) GhcPs => DisambECP b where
   -- | See Note [Body in DisambECP]
-  type Body b :: * -> *
+  type Body b :: Type -> Type
   -- | Return a command without ambiguity, or fail in a non-command context.
   ecpFromCmd' :: LHsCmd GhcPs -> PV (Located b)
   -- | Return an expression without ambiguity, or fail in a non-expression context.
@@ -1842,7 +1843,7 @@ even when -XUndecidableSuperClasses are not required.
 {- Note [Body in DisambECP]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 There are helper functions (mkBodyStmt, mkBindStmt, unguardedRHS, etc) that
-require their argument to take a form of (body GhcPs) for some (body :: * ->
+require their argument to take a form of (body GhcPs) for some (body :: Type ->
 *). To satisfy this requirement, we say that (b ~ Body b GhcPs) in the
 superclass constraints of DisambECP.
 
@@ -2850,9 +2851,9 @@ data PV_Context =
 data PV_Accum =
   PV_Accum
     { pv_messages :: DynFlags -> Messages
-    , pv_annotations :: [(ApiAnnKey,[SrcSpan])]
-    , pv_comment_q :: [Located AnnotationComment]
-    , pv_annotations_comments :: [(SrcSpan,[Located AnnotationComment])]
+    , pv_annotations :: [(ApiAnnKey,[RealSrcSpan])]
+    , pv_comment_q :: [RealLocated AnnotationComment]
+    , pv_annotations_comments :: [(RealSrcSpan,[RealLocated AnnotationComment])]
     }
 
 data PV_Result a = PV_Ok PV_Accum a | PV_Failed PV_Accum
@@ -2917,7 +2918,7 @@ instance MonadP PV where
     PV $ \ctx acc ->
       let b = ext `xtest` pExtsBitmap (pv_options ctx) in
       PV_Ok acc $! b
-  addAnnotation l a v =
+  addAnnotation (RealSrcSpan l _) a (RealSrcSpan v _) =
     PV $ \_ acc ->
       let
         (comment_q', new_ann_comments) = allocateComments l (pv_comment_q acc)
@@ -2929,6 +2930,7 @@ instance MonadP PV where
           , pv_annotations_comments = annotations_comments' }
       in
         PV_Ok acc' ()
+  addAnnotation _ _ _ = return ()
 
 {- Note [Parser-Validator]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

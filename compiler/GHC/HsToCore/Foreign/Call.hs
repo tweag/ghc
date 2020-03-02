@@ -24,11 +24,11 @@ where
 
 import GhcPrelude
 
-import CoreSyn
+import GHC.Core
 
 import GHC.HsToCore.Monad
-import CoreUtils
-import MkCore
+import GHC.Core.Utils
+import GHC.Core.Make
 import MkId
 import ForeignCall
 import DataCon
@@ -46,7 +46,7 @@ import TysWiredIn
 import BasicTypes
 import Literal
 import PrelNames
-import DynFlags
+import GHC.Driver.Session
 import Outputable
 import Util
 

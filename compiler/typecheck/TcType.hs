@@ -210,8 +210,8 @@ import GHC.Types.RepType
 import TyCon
 
 -- others:
-import DynFlags
-import CoreFVs
+import GHC.Driver.Session
+import GHC.Core.FVs
 import Name -- hiding (varName)
             -- We use this to make dictionaries for type literals.
             -- Perhaps there's a better way to do this?

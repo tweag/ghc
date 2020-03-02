@@ -20,10 +20,11 @@ import GHC.ByteCode.Asm
 import GHC.ByteCode.Types
 
 import GHC.Runtime.Interpreter
+import GHC.Runtime.Interpreter.Types
 import GHCi.FFI
 import GHCi.RemoteTypes
 import BasicTypes
-import DynFlags
+import GHC.Driver.Session
 import Outputable
 import GHC.Platform
 import Name
@@ -31,13 +32,13 @@ import MkId
 import Id
 import Var             ( updateVarTypeButNotMult )
 import ForeignCall
-import HscTypes
-import CoreUtils
-import CoreSyn
-import PprCore
+import GHC.Driver.Types
+import GHC.Core.Utils
+import GHC.Core
+import GHC.Core.Ppr
 import Literal
 import PrimOp
-import CoreFVs
+import GHC.Core.FVs
 import Multiplicity ( pattern Many )
 import Type
 import GHC.Types.RepType
@@ -58,6 +59,7 @@ import GHC.Data.Bitmap
 import OrdList
 import Maybes
 import VarEnv
+import PrelNames ( unsafeEqualityProofName )
 
 import Data.List
 import Foreign
@@ -636,11 +638,12 @@ schemeE d s p exp@(AnnTick (Breakpoint _id _fvs) _rhs)
 -- ignore other kinds of tick
 schemeE d s p (AnnTick _ (_, rhs)) = schemeE d s p rhs
 
+-- no alts: scrut is guaranteed to diverge
 schemeE d s p (AnnCase (_,scrut) _ _ []) = schemeE d s p scrut
-        -- no alts: scrut is guaranteed to diverge
 
+-- handle pairs with one void argument (e.g. state token)
 schemeE d s p (AnnCase scrut bndr _ [(DataAlt dc, [bind1, bind2], rhs)])
-   | isUnboxedTupleCon dc -- handles pairs with one void argument (e.g. state token)
+   | isUnboxedTupleCon dc
         -- Convert
         --      case .... of x { (# V'd-thing, a #) -> ... }
         -- to
@@ -657,11 +660,13 @@ schemeE d s p (AnnCase scrut bndr _ [(DataAlt dc, [bind1, bind2], rhs)])
                    _ -> Nothing
    = res
 
+-- handle unit tuples
 schemeE d s p (AnnCase scrut bndr _ [(DataAlt dc, [bind1], rhs)])
    | isUnboxedTupleCon dc
-   , typePrimRep (idType bndr) `lengthAtMost` 1 -- handles unit tuples
+   , typePrimRep (idType bndr) `lengthAtMost` 1
    = doCase d s p scrut bind1 [(DEFAULT, [], rhs)] (Just bndr)
 
+-- handle nullary tuples
 schemeE d s p (AnnCase scrut bndr _ alt@[(DEFAULT, [], _)])
    | isUnboxedTupleType (idType bndr)
    , Just ty <- case typePrimRep (idType bndr) of
@@ -716,10 +721,10 @@ Note [Not-necessarily-lifted join points]
 A join point variable is essentially a goto-label: it is, for example,
 never used as an argument to another function, and it is called only
 in tail position. See Note [Join points] and Note [Invariants on join points],
-both in CoreSyn. Because join points do not compile to true, red-blooded
+both in GHC.Core. Because join points do not compile to true, red-blooded
 variables (with, e.g., registers allocated to them), they are allowed
 to be levity-polymorphic. (See invariant #6 in Note [Invariants on join points]
-in CoreSyn.)
+in GHC.Core.)
 
 However, in this byte-code generator, join points *are* treated just as
 ordinary variables. There is no check whether a binding is for a join point
@@ -729,7 +734,7 @@ opportunity here, but that is beyond the scope of my (Richard E's) Thursday.)
 We thus must have *some* strategy for dealing with levity-polymorphic and
 unlifted join points. Levity-polymorphic variables are generally not allowed
 (though levity-polymorphic join points *are*; see Note [Invariants on join points]
-in CoreSyn, point 6), and we don't wish to evaluate unlifted join points eagerly.
+in GHC.Core, point 6), and we don't wish to evaluate unlifted join points eagerly.
 The questionable join points are *not-necessarily-lifted join points*
 (NNLJPs). (Not having such a strategy led to #16509, which panicked in the
 isUnliftedType check in the AnnVar case of schemeE.) Here is the strategy:
@@ -985,12 +990,14 @@ doCase
 doCase d s p (_,scrut) bndr alts is_unboxed_tuple
   | typePrimRep (idType bndr) `lengthExceeds` 1
   = multiValException
+
   | otherwise
   = do
      dflags <- getDynFlags
+     hsc_env <- getHscEnv
      let
         profiling
-          | gopt Opt_ExternalInterpreter dflags = gopt Opt_SccProfilingOn dflags
+          | Just (ExternalInterp _) <- hsc_interp hsc_env = gopt Opt_SccProfilingOn dflags
           | otherwise = rtsIsProfiled
 
         -- Top of stack is the return itbl, as usual.
@@ -1113,7 +1120,7 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
           binds = Map.toList p
           -- NB: unboxed tuple cases bind the scrut binder to the same offset
           -- as one of the alt binders, so we have to remove any duplicates here:
-          rel_slots = nub $ map fromIntegral $ concat (map spread binds)
+          rel_slots = nub $ map fromIntegral $ concatMap spread binds
           spread (id, offset) | isFollowableArg (bcIdArgRep id) = [ rel_offset ]
                               | otherwise                      = []
                 where rel_offset = trunc16W $ bytesToWords dflags (d - offset)
@@ -1542,8 +1549,8 @@ pushAtom d p e
 pushAtom _ _ (AnnCoercion {})   -- Coercions are zero-width things,
    = return (nilOL, 0)          -- treated just like a variable V
 
--- See Note [Empty case alternatives] in coreSyn/CoreSyn.hs
--- and Note [Bottoming expressions] in coreSyn/CoreUtils.hs:
+-- See Note [Empty case alternatives] in GHC.Core
+-- and Note [Bottoming expressions] in GHC.Core.Utils:
 -- The scrutinee of an empty case evaluates to bottom
 pushAtom d p (AnnCase (_, a) _ _ []) -- trac #12128
    = pushAtom d p a
@@ -1885,6 +1892,7 @@ bcView :: AnnExpr' Var ann -> Maybe (AnnExpr' Var ann)
 --  b) type applications
 --  c) casts
 --  d) ticks (but not breakpoints)
+--  e) case unsafeEqualityProof of UnsafeRefl -> e  ==> e
 -- Type lambdas *can* occur in random expressions,
 -- whereas value lambdas cannot; that is why they are nuked here
 bcView (AnnCast (_,e) _)             = Just e
@@ -1892,7 +1900,18 @@ bcView (AnnLam v (_,e)) | isTyVar v  = Just e
 bcView (AnnApp (_,e) (_, AnnType _)) = Just e
 bcView (AnnTick Breakpoint{} _)      = Nothing
 bcView (AnnTick _other_tick (_,e))   = Just e
+bcView (AnnCase (_,e) _ _ alts)  -- Handle unsafe equality proof
+  | AnnVar id <- bcViewLoop e
+  , idName id == unsafeEqualityProofName
+  , [(_, _, (_, rhs))] <- alts
+  = Just rhs
 bcView _                             = Nothing
+
+bcViewLoop :: AnnExpr' Var ann -> AnnExpr' Var ann
+bcViewLoop e =
+    case bcView e of
+      Nothing -> e
+      Just e' -> bcViewLoop e'
 
 isVAtom :: AnnExpr' Var ann -> Bool
 isVAtom e | Just e' <- bcView e = isVAtom e'
@@ -1907,7 +1926,7 @@ atomPrimRep (AnnLit l)              = typePrimRep1 (literalType l)
 
 -- #12128:
 -- A case expression can be an atom because empty cases evaluate to bottom.
--- See Note [Empty case alternatives] in coreSyn/CoreSyn.hs
+-- See Note [Empty case alternatives] in GHC.Core
 atomPrimRep (AnnCase _ _ ty _)      =
   ASSERT(case typePrimRep ty of [LiftedRep] -> True; _ -> False) LiftedRep
 atomPrimRep (AnnCoercion {})        = VoidRep

@@ -10,12 +10,12 @@
 test('ghci001', combined_output, ghci_script, ['ghci001.script'])
 test('ghci002', combined_output, ghci_script, ['ghci002.script'])
 test('ghci003', combined_output, ghci_script, ['ghci003.script'])
-test('ghci004', [ combined_output, req_rts_linker,
-                  unless(opsys('mingw32'),extra_ways(['ghci-ext'])) ],
+test('ghci004', [ combined_output,
+                  unless(opsys('mingw32') or not (config.have_RTS_linker),extra_ways(['ghci-ext'])) ],
                 ghci_script, ['ghci004.script'])
 test('ghci005', combined_output, ghci_script, ['ghci005.script'])
-test('ghci006', [ combined_output, req_rts_linker,
-                  unless(opsys('mingw32'),extra_ways(['ghci-ext'])) ],
+test('ghci006', [ combined_output,
+                  unless(opsys('mingw32') or not config.have_RTS_linker,extra_ways(['ghci-ext'])) ],
                 ghci_script, ['ghci006.script'])
 test('ghci007', combined_output, ghci_script, ['ghci007.script'])
 test('ghci008', [ combined_output,
@@ -311,4 +311,4 @@ test('T17345', normal, ghci_script, ['T17345.script'])
 test('T17384', normal, ghci_script, ['T17384.script'])
 test('T17403', normal, ghci_script, ['T17403.script'])
 test('T17431', normal, ghci_script, ['T17431.script'])
-test('T17549', expect_broken(17549), ghci_script, ['T17549.script'])
+test('T17549', normal, ghci_script, ['T17549.script'])

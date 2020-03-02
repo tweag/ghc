@@ -31,12 +31,12 @@ import           Data.Time
 import           Prelude           hiding (mod,(<>))
 import           System.Directory
 
-import qualified CoreUtils
+import qualified GHC.Core.Utils
 import           GHC.HsToCore
-import           DynFlags (HasDynFlags(..))
+import           GHC.Driver.Session (HasDynFlags(..))
 import           FastString
 import           GHC
-import           GhcMonad
+import           GHC.Driver.Monad
 import           Name
 import           NameSet
 import           Outputable
@@ -140,7 +140,7 @@ findNameUses infos span0 string =
     locToSpans (modinfo,name',span') =
         stripSurrounding (span' : map toSrcSpan spans)
       where
-        toSrcSpan = RealSrcSpan . spaninfoSrcSpan
+        toSrcSpan s = RealSrcSpan (spaninfoSrcSpan s) Nothing
         spans = filter ((== Just name') . fmap getName . spaninfoVar)
                        (modinfoSpans modinfo)
 
@@ -150,7 +150,7 @@ stripSurrounding xs = filter (not . isRedundant) xs
   where
     isRedundant x = any (x `strictlyContains`) xs
 
-    (RealSrcSpan s1) `strictlyContains` (RealSrcSpan s2)
+    (RealSrcSpan s1 _) `strictlyContains` (RealSrcSpan s2 _)
          = s1 /= s2 && s1 `containsSpan` s2
     _                `strictlyContains` _ = False
 
@@ -334,7 +334,7 @@ processAllTypeCheckedModule tcm = do
     getTypeLHsExpr e = do
         hs_env  <- getSession
         (_,mbe) <- liftIO $ deSugarExpr hs_env e
-        return $ fmap (\expr -> (mid, getLoc e, CoreUtils.exprType expr)) mbe
+        return $ fmap (\expr -> (mid, getLoc e, GHC.Core.Utils.exprType expr)) mbe
       where
         mid :: Maybe Id
         mid | HsVar _ (L _ i) <- unwrapVar (unLoc e) = Just i
@@ -371,7 +371,7 @@ processAllTypeCheckedModule tcm = do
 
     -- | Pretty print the types into a 'SpanInfo'.
     toSpanInfo :: (Maybe Id,SrcSpan,Type) -> Maybe SpanInfo
-    toSpanInfo (n,RealSrcSpan spn,typ)
+    toSpanInfo (n,RealSrcSpan spn _,typ)
         = Just $ spanInfoFromRealSrcSpan spn (Just typ) n
     toSpanInfo _ = Nothing
 

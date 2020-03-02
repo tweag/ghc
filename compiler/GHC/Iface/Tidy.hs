@@ -17,19 +17,19 @@ module GHC.Iface.Tidy (
 import GhcPrelude
 
 import TcRnTypes
-import DynFlags
-import CoreSyn
-import CoreUnfold
-import CoreFVs
-import CoreTidy
+import GHC.Driver.Session
+import GHC.Core
+import GHC.Core.Unfold
+import GHC.Core.FVs
+import GHC.Core.Op.Tidy
 import CoreMonad
-import CoreStats        (coreBindsStats, CoreStats(..))
-import CoreSeq          (seqBinds)
-import CoreLint
-import Rules
+import GHC.Core.Stats   (coreBindsStats, CoreStats(..))
+import GHC.Core.Seq     (seqBinds)
+import GHC.Core.Lint
+import GHC.Core.Rules
 import PatSyn
 import ConLike
-import CoreArity        ( exprArity, exprBotStrictness_maybe )
+import GHC.Core.Arity   ( exprArity, exprBotStrictness_maybe )
 import StaticPtrTable
 import VarEnv
 import VarSet
@@ -53,7 +53,7 @@ import DataCon
 import TyCon
 import Class
 import Module
-import HscTypes
+import GHC.Driver.Types
 import Maybes
 import UniqSupply
 import Outputable
@@ -454,8 +454,15 @@ trimId :: Id -> Id
 trimId id
   | not (isImplicitId id)
   = id `setIdInfo` vanillaIdInfo
+       `setIdUnfolding` unfolding
   | otherwise
   = id
+  where
+    unfolding
+      | isCompulsoryUnfolding (idUnfolding id)
+      = idUnfolding id
+      | otherwise
+      = noUnfolding
 
 {- Note [Drop wired-in things]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -498,14 +505,14 @@ of exceptions, and finally I gave up the battle:
 
 Note [Injecting implicit bindings]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We inject the implicit bindings right at the end, in CoreTidy.
+We inject the implicit bindings right at the end, in GHC.Core.Op.Tidy.
 Some of these bindings, notably record selectors, are not
 constructed in an optimised form.  E.g. record selector for
         data T = MkT { x :: {-# UNPACK #-} !Int }
 Then the unfolding looks like
         x = \t. case t of MkT x1 -> let x = I# x1 in x
 This generates bad code unless it's first simplified a bit.  That is
-why CoreUnfold.mkImplicitUnfolding uses simpleOptExpr to do a bit of
+why GHC.Core.Unfold.mkImplicitUnfolding uses simpleOptExpr to do a bit of
 optimisation first.  (Only matters when the selector is used curried;
 eg map x ys.)  See #2070.
 
@@ -1148,12 +1155,12 @@ tidyTopIdInfo dflags rhs_tidy_env name orig_rhs tidy_rhs idinfo show_unfold
   | not is_external     -- For internal Ids (not externally visible)
   = vanillaIdInfo       -- we only need enough info for code generation
                         -- Arity and strictness info are enough;
-                        --      c.f. CoreTidy.tidyLetBndr
+                        --      c.f. GHC.Core.Op.Tidy.tidyLetBndr
         `setArityInfo`      arity
         `setStrictnessInfo` final_sig
         `setCprInfo`        final_cpr
         `setUnfoldingInfo`  minimal_unfold_info  -- See note [Preserve evaluatedness]
-                                                 -- in CoreTidy
+                                                 -- in GHC.Core.Op.Tidy
 
   | otherwise           -- Externally-visible Ids get the whole lot
   = vanillaIdInfo
@@ -1195,8 +1202,11 @@ tidyTopIdInfo dflags rhs_tidy_env name orig_rhs tidy_rhs idinfo show_unfold
 
     --------- Unfolding ------------
     unf_info = unfoldingInfo idinfo
-    unfold_info | show_unfold = tidyUnfolding rhs_tidy_env unf_info unf_from_rhs
-                | otherwise   = minimal_unfold_info
+    unfold_info
+      | isCompulsoryUnfolding unf_info || show_unfold
+      = tidyUnfolding rhs_tidy_env unf_info unf_from_rhs
+      | otherwise
+      = minimal_unfold_info
     minimal_unfold_info = zapUnfolding unf_info
     unf_from_rhs = mkTopUnfolding dflags is_bot tidy_rhs
     is_bot = isBottomingSig final_sig

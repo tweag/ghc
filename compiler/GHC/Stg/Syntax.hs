@@ -5,7 +5,7 @@ Shared term graph (STG) syntax for spineless-tagless code generation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This data type represents programs just before code generation (conversion to
-@Cmm@): basically, what we have is a stylised form of @CoreSyntax@, the style
+@Cmm@): basically, what we have is a stylised form of Core syntax, the style
 being one that happens to be ideally suited to spineless tagless code
 generation.
 -}
@@ -18,6 +18,7 @@ generation.
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE LambdaCase #-}
 
 module GHC.Stg.Syntax (
         StgArg(..),
@@ -62,22 +63,22 @@ module GHC.Stg.Syntax (
 
 import GhcPrelude
 
-import CoreSyn     ( AltCon, Tickish )
+import GHC.Core     ( AltCon, Tickish )
 import CostCentre  ( CostCentreStack )
 import Data.ByteString ( ByteString )
 import Data.Data   ( Data )
 import Data.List   ( intersperse )
 import DataCon
-import DynFlags
+import GHC.Driver.Session
 import ForeignCall ( ForeignCall )
 import Id
 import VarSet
 import Literal     ( Literal, literalType )
 import Module      ( Module )
 import Outputable
-import Packages    ( isDllName )
+import GHC.Driver.Packages    ( isDllName )
 import GHC.Platform
-import PprCore     ( {- instances -} )
+import GHC.Core.Ppr( {- instances -} )
 import PrimOp      ( PrimOp, PrimCall )
 import TyCon       ( PrimRep(..), TyCon )
 import Type        ( Type )
@@ -95,12 +96,12 @@ GenStgBinding
 
 As usual, expressions are interesting; other things are boring. Here are the
 boring things (except note the @GenStgRhs@), parameterised with respect to
-binder and occurrence information (just as in @CoreSyn@):
+binder and occurrence information (just as in @GHC.Core@):
 -}
 
 -- | A top-level binding.
 data GenStgTopBinding pass
--- See Note [CoreSyn top-level string literals]
+-- See Note [Core top-level string literals]
   = StgTopLifted (GenStgBinding pass)
   | StgTopStringLit Id ByteString
 
@@ -482,7 +483,7 @@ STG case alternatives
 *                                                                      *
 ************************************************************************
 
-Very like in @CoreSyntax@ (except no type-world stuff).
+Very like in Core syntax (except no type-world stuff).
 
 The type constructor is guaranteed not to be abstract; that is, we can see its
 representation. This is important because the code generator uses it to
@@ -536,7 +537,7 @@ type CgStgAlt        = GenStgAlt        'CodeGen
 
 {- Many passes apply a substitution, and it's very handy to have type
    synonyms to remind us whether or not the substitution has been applied.
-   See CoreSyn for precedence in Core land
+   See GHC.Core for precedence in Core land
 -}
 
 type InStgTopBinding  = StgTopBinding
@@ -756,10 +757,9 @@ pprStgExpr (StgLetNoEscape ext bind expr)
                 2 (ppr expr)]
 
 pprStgExpr (StgTick tickish expr)
-  = sdocWithDynFlags $ \dflags ->
-    if gopt Opt_SuppressTicks dflags
-    then pprStgExpr expr
-    else sep [ ppr tickish, pprStgExpr expr ]
+  = sdocOption sdocSuppressTicks $ \case
+      True  -> pprStgExpr expr
+      False -> sep [ ppr tickish, pprStgExpr expr ]
 
 
 -- Don't indent for a single case alternative.
@@ -804,8 +804,7 @@ pprStgRhs :: OutputablePass pass => GenStgRhs pass -> SDoc
 pprStgRhs (StgRhsClosure ext cc upd_flag args body)
   = sdocWithDynFlags $ \dflags ->
     hang (hsep [if gopt Opt_SccProfilingOn dflags then ppr cc else empty,
-                if not $ gopt Opt_SuppressStgExts dflags
-                  then ppr ext else empty,
+                ppUnlessOption sdocSuppressStgExts (ppr ext),
                 char '\\' <> ppr upd_flag, brackets (interppSP args)])
          4 (ppr body)
 

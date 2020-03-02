@@ -23,12 +23,12 @@ import Bag                        ( Bag, bagToList )
 import BasicTypes
 import BooleanFormula
 import Class                      ( FunDep )
-import CoreUtils                  ( exprType )
+import GHC.Core.Utils             ( exprType )
 import ConLike                    ( conLikeName )
 import GHC.HsToCore               ( deSugarExpr )
 import FieldLabel
 import GHC.Hs
-import HscTypes
+import GHC.Driver.Types
 import Module                     ( ModuleName, ml_hs_file )
 import MonadUtils                 ( concatMapM, liftIO )
 import Name                       ( Name, nameSrcSpan, setNameLoc )
@@ -297,7 +297,7 @@ enrichHie ts (hsGrp, imports, exports, _) = flip runReaderT initState $ do
       ]
 
 getRealSpan :: SrcSpan -> Maybe Span
-getRealSpan (RealSrcSpan sp) = Just sp
+getRealSpan (RealSrcSpan sp _) = Just sp
 getRealSpan _ = Nothing
 
 grhss_span :: GRHSs p body -> SrcSpan
@@ -307,7 +307,7 @@ grhss_span (XGRHSs _) = panic "XGRHS has no span"
 bindingsOnly :: [Context Name] -> [HieAST a]
 bindingsOnly [] = []
 bindingsOnly (C c n : xs) = case nameSrcSpan n of
-  RealSrcSpan span -> Node nodeinfo span [] : bindingsOnly xs
+  RealSrcSpan span _ -> Node nodeinfo span [] : bindingsOnly xs
     where nodeinfo = NodeInfo S.empty [] (M.singleton (Right n) info)
           info = mempty{identInfo = S.singleton c}
   _ -> bindingsOnly xs
@@ -531,7 +531,7 @@ instance ToHie (TScoped NoExtField) where
   toHie _ = pure []
 
 instance ToHie (IEContext (Located ModuleName)) where
-  toHie (IEC c (L (RealSrcSpan span) mname)) =
+  toHie (IEC c (L (RealSrcSpan span _) mname)) =
       pure $ [Node (NodeInfo S.empty [] idents) span []]
     where details = mempty{identInfo = S.singleton (IEThing c)}
           idents = M.singleton (Left mname) details
@@ -539,7 +539,7 @@ instance ToHie (IEContext (Located ModuleName)) where
 
 instance ToHie (Context (Located Var)) where
   toHie c = case c of
-      C context (L (RealSrcSpan span) name')
+      C context (L (RealSrcSpan span _) name')
         -> do
         m <- asks name_remapping
         let name = case lookupNameEnv m (varName name') of
@@ -557,7 +557,7 @@ instance ToHie (Context (Located Var)) where
 
 instance ToHie (Context (Located Name)) where
   toHie c = case c of
-      C context (L (RealSrcSpan span) name') -> do
+      C context (L (RealSrcSpan span _) name') -> do
         m <- asks name_remapping
         let name = case lookupNameEnv m name' of
               Just var -> varName var
@@ -777,6 +777,7 @@ instance ( a ~ GhcPass p
          , ToHie (TScoped (ProtectedSig a))
          , HasType (LPat a)
          , Data (HsSplice a)
+         , IsPass p
          ) => ToHie (PScoped (Located (Pat (GhcPass p)))) where
   toHie (PS rsp scope pscope lpat@(L ospan opat)) =
     concatM $ getTypeNode lpat : case opat of
@@ -1704,8 +1705,10 @@ instance ToHie (LBooleanFormula (Located Name)) where
 instance ToHie (Located HsIPName) where
   toHie (L span e) = makeNode e span
 
-instance ( ToHie (LHsExpr a)
+instance ( a ~ GhcPass p
+         , ToHie (LHsExpr a)
          , Data (HsSplice a)
+         , IsPass p
          ) => ToHie (Located (HsSplice a)) where
   toHie (L span sp) = concatM $ makeNode sp span : case sp of
       HsTypedSplice _ _ _ expr ->
@@ -1719,9 +1722,11 @@ instance ( ToHie (LHsExpr a)
         ]
       HsSpliced _ _ _ ->
         []
-      HsSplicedT _ ->
-        []
-      XSplice _ -> []
+      XSplice x -> case ghcPass @p of
+                     GhcPs -> noExtCon x
+                     GhcRn -> noExtCon x
+                     GhcTc -> case x of
+                                HsSplicedT _ -> []
 
 instance ToHie (LRoleAnnotDecl GhcRn) where
   toHie (L span annot) = concatM $ makeNode annot span : case annot of

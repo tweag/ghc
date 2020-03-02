@@ -29,9 +29,9 @@ import Id               ( Id, mkSysLocalOrCoVar )
 import IdInfo           ( IdDetails(..), vanillaIdInfo, setArityInfo )
 import Type             ( Type, mkLamTypes, Mult )
 import FamInstEnv       ( FamInstEnv )
-import CoreSyn          ( RuleEnv(..) )
+import GHC.Core         ( RuleEnv(..) )
 import UniqSupply
-import DynFlags
+import GHC.Driver.Session
 import CoreMonad
 import Outputable
 import FastString
@@ -191,7 +191,7 @@ newJoinId bndrs body_ty
        ; let name       = mkSystemVarName uniq (fsLit "$j")
              join_id_ty = mkLamTypes bndrs body_ty  -- Note [Funky mkLamTypes]
              arity      = count isId bndrs
-             -- arity: See Note [Invariants on join points] invariant 2b, in CoreSyn
+             -- arity: See Note [Invariants on join points] invariant 2b, in GHC.Core
              join_arity = length bndrs
              details    = JoinId join_arity
              id_info    = vanillaIdInfo `setArityInfo` arity

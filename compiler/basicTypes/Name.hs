@@ -90,7 +90,6 @@ import Unique
 import Util
 import Maybes
 import Binary
-import DynFlags
 import FastString
 import Outputable
 
@@ -273,7 +272,7 @@ nameIsLocalOrFrom :: Module -> Name -> Bool
 -- each give rise to a fresh module (Ghci1, Ghci2, etc), but they all come
 -- from the magic 'interactive' package; and all the details are kept in the
 -- TcLclEnv, TcGblEnv, NOT in the HPT or EPT.
--- See Note [The interactive package] in HscTypes
+-- See Note [The interactive package] in GHC.Driver.Types
 
 nameIsLocalOrFrom from name
   | Just mod <- nameModule_maybe name = from == mod || isInteractiveModule mod
@@ -561,10 +560,8 @@ pprExternal sty uniq mod occ is_wired is_builtin
                     _ -> braces (ppr (moduleName mod) <> dot <> ppr_occ_name occ)
             else pprModulePrefix sty mod occ <> ppr_occ_name occ
   where
-    pp_mod = sdocWithDynFlags $ \dflags ->
-             if gopt Opt_SuppressModulePrefixes dflags
-             then empty
-             else ppr mod <> dot
+    pp_mod = ppUnlessOption sdocSuppressModulePrefixes
+               (ppr mod <> dot)
 
 pprInternal :: PprStyle -> Unique -> OccName -> SDoc
 pprInternal sty uniq occ
@@ -590,11 +587,8 @@ pprSystem sty uniq occ
 
 pprModulePrefix :: PprStyle -> Module -> OccName -> SDoc
 -- Print the "M." part of a name, based on whether it's in scope or not
--- See Note [Printing original names] in HscTypes
-pprModulePrefix sty mod occ = sdocWithDynFlags $ \dflags ->
-  if gopt Opt_SuppressModulePrefixes dflags
-  then empty
-  else
+-- See Note [Printing original names] in GHC.Driver.Types
+pprModulePrefix sty mod occ = ppUnlessOption sdocSuppressModulePrefixes $
     case qualName sty mod occ of              -- See Outputable.QualifyName:
       NameQual modname -> ppr modname <> dot       -- Name is in scope
       NameNotInScope1  -> ppr mod <> dot           -- Not in scope
@@ -605,17 +599,15 @@ pprModulePrefix sty mod occ = sdocWithDynFlags $ \dflags ->
 pprUnique :: Unique -> SDoc
 -- Print a unique unless we are suppressing them
 pprUnique uniq
-  = sdocWithDynFlags $ \dflags ->
-    ppUnless (gopt Opt_SuppressUniques dflags) $
-    pprUniqueAlways uniq
+  = ppUnlessOption sdocSuppressUniques $
+      pprUniqueAlways uniq
 
 ppr_underscore_unique :: Unique -> SDoc
 -- Print an underscore separating the name from its unique
 -- But suppress it if we aren't printing the uniques anyway
 ppr_underscore_unique uniq
-  = sdocWithDynFlags $ \dflags ->
-    ppUnless (gopt Opt_SuppressUniques dflags) $
-    char '_' <> pprUniqueAlways uniq
+  = ppUnlessOption sdocSuppressUniques $
+      char '_' <> pprUniqueAlways uniq
 
 ppr_occ_name :: OccName -> SDoc
 ppr_occ_name occ = ftext (occNameFS occ)
@@ -640,7 +632,7 @@ pprNameDefnLoc name
          -- nameSrcLoc rather than nameSrcSpan
          -- It seems less cluttered to show a location
          -- rather than a span for the definition point
-       RealSrcLoc s -> text "at" <+> ppr s
+       RealSrcLoc s _ -> text "at" <+> ppr s
        UnhelpfulLoc s
          | isInternalName name || isSystemName name
          -> text "at" <+> ftext s

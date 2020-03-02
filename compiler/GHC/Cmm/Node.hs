@@ -31,12 +31,12 @@ import GhcPrelude hiding (succ)
 import GHC.Platform.Regs
 import GHC.Cmm.Expr
 import GHC.Cmm.Switch
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import ForeignCall
 import Outputable
 import GHC.Runtime.Heap.Layout
-import CoreSyn (Tickish)
+import GHC.Core (Tickish)
 import qualified Unique as U
 
 import GHC.Cmm.Dataflow.Block
