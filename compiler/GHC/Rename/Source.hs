@@ -43,7 +43,7 @@ import TcRnMonad
 
 import ForeignCall      ( CCallTarget(..) )
 import Module
-import HscTypes         ( Warnings(..), plusWarns )
+import GHC.Driver.Types         ( Warnings(..), plusWarns )
 import PrelNames        ( applicativeClassName, pureAName, thenAName
                         , monadClassName, returnMName, thenMName
                         , semigroupClassName, sappendName
@@ -58,9 +58,9 @@ import Bag
 import BasicTypes       ( pprRuleName, TypeOrKind(..) )
 import FastString
 import SrcLoc
-import DynFlags
+import GHC.Driver.Session
 import Util             ( debugIsOn, filterOut, lengthExceeds, partitionWith )
-import HscTypes         ( HscEnv, hsc_dflags )
+import GHC.Driver.Types         ( HscEnv, hsc_dflags )
 import ListSetOps       ( findDupsEq, removeDups, equivClasses )
 import Digraph          ( SCC, flattenSCC, flattenSCCs, Node(..)
                         , stronglyConnCompFromEdgedVerticesUniq )
@@ -1475,13 +1475,13 @@ dupRoleAnnotErr list
           quotes (ppr $ roleAnnotDeclName first_decl) <> colon)
        2 (vcat $ map pp_role_annot $ NE.toList sorted_list)
     where
-      sorted_list = NE.sortBy cmp_annot list
+      sorted_list = NE.sortBy cmp_loc list
       ((L loc first_decl) :| _) = sorted_list
 
       pp_role_annot (L loc decl) = hang (ppr decl)
                                       4 (text "-- written at" <+> ppr loc)
 
-      cmp_annot (L loc1 _) (L loc2 _) = loc1 `compare` loc2
+      cmp_loc = SrcLoc.leftmost_smallest `on` getLoc
 
 dupKindSig_Err :: NonEmpty (LStandaloneKindSig GhcPs) -> RnM ()
 dupKindSig_Err list
@@ -1496,7 +1496,7 @@ dupKindSig_Err list
       pp_kisig (L loc decl) =
         hang (ppr decl) 4 (text "-- written at" <+> ppr loc)
 
-      cmp_loc (L loc1 _) (L loc2 _) = loc1 `compare` loc2
+      cmp_loc = SrcLoc.leftmost_smallest `on` getLoc
 
 {- Note [Role annotations in the renamer]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

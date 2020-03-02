@@ -85,6 +85,10 @@ documentationRules = do
     -- Haddock's manual, and builds man pages
     "docs" ~> do
         root <- buildRoot
+
+        -- we need to ensure that `configure` has been run (#17840)
+        need [configFile]
+
         doctargets <- ghcDocs =<< flavour
         let html     = htmlRoot -/- "index.html" -- also implies "docs-haddock"
             archives = map pathArchive docPaths
@@ -131,7 +135,9 @@ checkSphinxWarnings out = do
 checkUserGuideFlags :: FilePath -> Action ()
 checkUserGuideFlags documentedFlagList = do
     scriptPath <- (</> "docs/users_guide/compare-flags.py") <$> topDirectory
-    ghcPath <- (</>) <$> topDirectory <*> programPath (vanillaContext Stage1 ghc)
+    ghc <- programPath (vanillaContext Stage1 ghc)
+    need [ghc]
+    ghcPath <- (</>) <$> topDirectory <*> pure ghc
     runBuilder Python
       [ scriptPath
       , "--doc-flags", documentedFlagList

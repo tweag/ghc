@@ -39,25 +39,25 @@ import GHC.Runtime.Debugger
 import GHC.Runtime.Interpreter
 import GHCi.RemoteTypes
 import GHCi.BreakArray
-import DynFlags
+import GHC.Driver.Session as DynFlags
 import ErrUtils hiding (traceCmd)
-import Finder
-import GhcMonad ( modifySession )
+import GHC.Driver.Finder as Finder
+import GHC.Driver.Monad ( modifySession )
 import qualified GHC
 import GHC ( LoadHowMuch(..), Target(..),  TargetId(..), InteractiveImport(..),
              TyThing(..), Phase, BreakIndex, Resume, SingleStep, Ghc,
              GetDocsFailure(..),
              getModuleGraph, handleSourceError )
-import HscMain (hscParseDeclsWithLocation, hscParseStmtWithLocation)
+import GHC.Driver.Main (hscParseDeclsWithLocation, hscParseStmtWithLocation)
 import GHC.Hs.ImpExp
 import GHC.Hs
-import HscTypes ( tyThingParent_maybe, handleFlagWarnings, getSafeMode, hsc_IC,
+import GHC.Driver.Types ( tyThingParent_maybe, handleFlagWarnings, getSafeMode, hsc_IC,
                   setInteractivePrintName, hsc_dflags, msObjFilePath, runInteractiveHsc,
                   hsc_dynLinker )
 import Module
 import Name
-import Packages ( trusted, getPackageDetails, getInstalledPackageDetails,
-                  listVisibleModuleNames, pprFlag )
+import GHC.Driver.Packages ( trusted, getPackageDetails, getInstalledPackageDetails,
+                             listVisibleModuleNames, pprFlag )
 import GHC.Iface.Syntax ( showToHeader )
 import PprTyThing
 import PrelNames
@@ -1325,8 +1325,9 @@ printTypeOfNames names
  = mapM_ (printTypeOfName ) $ sortBy compareNames names
 
 compareNames :: Name -> Name -> Ordering
-n1 `compareNames` n2 = compareWith n1 `compare` compareWith n2
-    where compareWith n = (getOccString n, getSrcSpan n)
+n1 `compareNames` n2 =
+  (compare `on` getOccString) n1 n2 `thenCmp`
+  (SrcLoc.leftmost_smallest `on` getSrcSpan) n1 n2
 
 printTypeOfName :: GHC.GhcMonad m => Name -> m ()
 printTypeOfName n
@@ -2406,7 +2407,7 @@ browseModule bang modl exports_only = do
                 -- has a good source location, then they all should.
                 loc_sort ns
                       | n:_ <- ns, isGoodSrcSpan (nameSrcSpan n)
-                      = sortBy (compare `on` nameSrcSpan) ns
+                      = sortBy (SrcLoc.leftmost_smallest `on` nameSrcSpan) ns
                       | otherwise
                       = occ_sort ns
 

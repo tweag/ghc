@@ -31,7 +31,7 @@ import Type             ( Type, mkLamTypes, Mult )
 import FamInstEnv       ( FamInstEnv )
 import CoreSyn          ( RuleEnv(..) )
 import UniqSupply
-import DynFlags
+import GHC.Driver.Session
 import CoreMonad
 import Outputable
 import FastString

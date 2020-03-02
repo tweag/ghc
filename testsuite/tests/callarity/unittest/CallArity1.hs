@@ -8,7 +8,7 @@ import MkCore
 import CallArity (callArityRHS)
 import MkId
 import SysTools
-import DynFlags
+import GHC.Driver.Session
 import ErrUtils
 import Outputable
 import TysWiredIn

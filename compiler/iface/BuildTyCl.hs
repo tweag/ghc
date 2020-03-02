@@ -39,7 +39,7 @@ import TcType
 import Multiplicity
 
 import SrcLoc( SrcSpan, noSrcSpan )
-import DynFlags
+import GHC.Driver.Session
 import TcRnMonad
 import UniqSupply
 import Util

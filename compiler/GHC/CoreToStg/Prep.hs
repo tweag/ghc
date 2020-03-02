@@ -21,7 +21,7 @@ import GhcPrelude
 
 import OccurAnal
 
-import HscTypes
+import GHC.Driver.Types
 import PrelNames
 import MkId             ( realWorldPrimId )
 import CoreUtils
@@ -51,7 +51,7 @@ import UniqSupply
 import Maybes
 import OrdList
 import ErrUtils
-import DynFlags
+import GHC.Driver.Session
 import Util
 import Outputable
 import FastString

@@ -50,7 +50,7 @@ import GHC.Iface.Load   ( loadInterfaceForName, loadSrcInterface_maybe )
 import GHC.Iface.Env
 import GHC.Hs
 import RdrName
-import HscTypes
+import GHC.Driver.Types
 import TcEnv
 import TcRnMonad
 import RdrHsSyn         ( filterCTuple, setRdrNameSpace )
@@ -71,7 +71,7 @@ import Outputable
 import UniqSet          ( uniqSetAny )
 import Util
 import Maybes
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import Control.Monad
 import ListSetOps       ( minusList )
@@ -80,8 +80,9 @@ import GHC.Rename.Unbound
 import GHC.Rename.Utils
 import qualified Data.Semigroup as Semi
 import Data.Either      ( partitionEithers )
-import Data.List        (find)
+import Data.List        ( find, sortBy )
 import Control.Arrow    ( first )
+import Data.Function
 
 {-
 *********************************************************
@@ -349,7 +350,7 @@ sameNameErr gres@(_ : _)
   = hang (text "Same exact name in multiple name-spaces:")
        2 (vcat (map pp_one sorted_names) $$ th_hint)
   where
-    sorted_names = sortWith nameSrcLoc (map gre_name gres)
+    sorted_names = sortBy (SrcLoc.leftmost_smallest `on` nameSrcSpan) (map gre_name gres)
     pp_one name
       = hang (pprNameSpace (occNameSpace (getOccName name))
               <+> quotes (ppr name) <> comma)

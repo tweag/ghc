@@ -42,7 +42,7 @@ import TcEvidence( HsWrapper, (<.>) )
 import Type( mkTyVarBinders )
 import Multiplicity
 
-import DynFlags
+import GHC.Driver.Session
 import Var      ( TyVar, tyVarKind )
 import Id       ( Id, idName, idType, idInlinePragma, setInlinePragma, mkLocalId )
 import PrelNames( mkUnboundName )

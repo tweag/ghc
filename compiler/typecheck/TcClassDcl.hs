@@ -38,11 +38,11 @@ import TcOrigin
 import Multiplicity
 import TcType
 import TcRnMonad
-import DriverPhases (HscSource(..))
+import GHC.Driver.Phases (HscSource(..))
 import BuildTyCl( TcMethInfo )
 import Class
 import Coercion ( pprCoAxiom )
-import DynFlags
+import GHC.Driver.Session
 import FamInst
 import FamInstEnv
 import Id

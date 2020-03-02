@@ -61,7 +61,7 @@ import Unique
 import BasicTypes
 import Outputable
 import Bag
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import ForeignCall
 import Util
@@ -71,7 +71,7 @@ import TcEvidence
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
 import Class
-import HscTypes ( MonadThings )
+import GHC.Driver.Types ( MonadThings )
 import DataCon
 import Var
 import GHC.HsToCore.Binds
@@ -82,6 +82,7 @@ import Data.Kind (Constraint)
 import Data.ByteString ( unpack )
 import Control.Monad
 import Data.List
+import Data.Function
 
 data MetaWrappers = MetaWrappers {
       -- Applies its argument to a type argument `m` and dictionary `Quote m`
@@ -2018,8 +2019,7 @@ repP other = notHandled "Exotic pattern" (ppr other)
 -- Declaration ordering helpers
 
 sort_by_loc :: [(SrcSpan, a)] -> [(SrcSpan, a)]
-sort_by_loc xs = sortBy comp xs
-    where comp x y = compare (fst x) (fst y)
+sort_by_loc = sortBy (SrcLoc.leftmost_smallest `on` fst)
 
 de_loc :: [(a, b)] -> [b]
 de_loc = map snd

@@ -65,7 +65,7 @@ import Var
 import VarSet
 import VarEnv
 import ErrUtils
-import DynFlags
+import GHC.Driver.Session
 import BasicTypes
 import Bag
 import Util

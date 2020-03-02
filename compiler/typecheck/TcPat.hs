@@ -49,7 +49,7 @@ import PatSyn
 import ConLike
 import PrelNames
 import BasicTypes hiding (SuccessFlag(..))
-import DynFlags
+import GHC.Driver.Session
 import SrcLoc
 import VarSet
 import Util

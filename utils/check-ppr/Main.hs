@@ -4,7 +4,7 @@ import Data.List
 import SrcLoc
 import GHC hiding (moduleName)
 import GHC.Hs.Dump
-import DynFlags
+import GHC.Driver.Session
 import Outputable hiding (space)
 import System.Environment( getArgs )
 import System.Exit
@@ -91,7 +91,7 @@ getPragmas anns = pragmaStr
     tokComment (L _ (AnnLineComment  s)) = s
     tokComment _ = ""
 
-    comments = map tokComment $ sortLocated $ apiAnnRogueComments anns
+    comments = map tokComment $ sortRealLocated $ apiAnnRogueComments anns
     pragmas = filter (\c -> isPrefixOf "{-#" c ) comments
     pragmaStr = intercalate "\n" pragmas
 

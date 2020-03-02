@@ -121,7 +121,7 @@ module Id (
 
 import GhcPrelude
 
-import DynFlags
+import GHC.Driver.Session
 import CoreSyn ( CoreRule, isStableUnfolding, evaldUnfolding,
                  isCompulsoryUnfolding, Unfolding( NoUnfolding ) )
 

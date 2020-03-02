@@ -128,7 +128,7 @@ import Bag
 import Pair
 import UniqSet
 import Multiplicity
-import DynFlags
+import GHC.Driver.Session
 import qualified GHC.LanguageExtensions as LangExt
 import BasicTypes ( TypeOrKind(..) )
 

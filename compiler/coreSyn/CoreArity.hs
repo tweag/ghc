@@ -37,7 +37,7 @@ import Predicate ( isDictTy )
 import Coercion
 import BasicTypes
 import Unique
-import DynFlags ( DynFlags, GeneralFlag(..), gopt )
+import GHC.Driver.Session ( DynFlags, GeneralFlag(..), gopt )
 import Outputable
 import FastString
 import Util     ( debugIsOn )

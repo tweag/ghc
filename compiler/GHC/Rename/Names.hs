@@ -34,7 +34,7 @@ module GHC.Rename.Names (
 
 import GhcPrelude
 
-import DynFlags
+import GHC.Driver.Session
 import TyCoPpr
 import GHC.Hs
 import TcEnv
@@ -50,7 +50,7 @@ import NameEnv
 import NameSet
 import Avail
 import FieldLabel
-import HscTypes
+import GHC.Driver.Types
 import RdrName
 import RdrHsSyn        ( setRdrNameSpace )
 import Outputable
@@ -71,6 +71,7 @@ import Data.Map         ( Map )
 import qualified Data.Map as Map
 import Data.Ord         ( comparing )
 import Data.List        ( partition, (\\), find, sortBy )
+import Data.Function    ( on )
 import qualified Data.Set as S
 import System.FilePath  ((</>))
 
@@ -86,7 +87,7 @@ import System.IO
 Note [Tracking Trust Transitively]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 When we import a package as well as checking that the direct imports are safe
-according to the rules outlined in the Note [HscMain . Safe Haskell Trust Check]
+according to the rules outlined in the Note [Safe Haskell Trust Check] in GHC.Driver.Main
 we must also check that these rules hold transitively for all dependent modules
 and packages. Doing this without caching any trust information would be very
 slow as we would need to touch all packages and interface files a module depends
@@ -111,7 +112,7 @@ the plusImportAvails function that is a union operation for the ImportAvails
 type. This gives us in an ImportAvails structure all packages required to be
 trusted for the module we are currently compiling. Checking that these packages
 are still trusted (and that direct imports are trusted) is done in
-HscMain.checkSafeImports.
+GHC.Driver.Main.checkSafeImports.
 
 See the note below, [Trust Own Package] for a corner case in this method and
 how its handled.
@@ -543,7 +544,7 @@ created by its bindings.
 
 Note [Top-level Names in Template Haskell decl quotes]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-See also: Note [Interactively-bound Ids in GHCi] in HscTypes
+See also: Note [Interactively-bound Ids in GHCi] in GHC.Driver.Types
           Note [Looking up Exact RdrNames] in GHC.Rename.Env
 
 Consider a Template Haskell declaration quotation like this:
@@ -1395,7 +1396,7 @@ findImportUsage imports used_gres
     unused_decl decl@(L loc (ImportDecl { ideclHiding = imps }))
       = (decl, used_gres, nameSetElemsStable unused_imps)
       where
-        used_gres = Map.lookup (srcSpanEnd loc) import_usage
+        used_gres = lookupSrcLoc (srcSpanEnd loc) import_usage
                                -- srcSpanEnd: see Note [The ImportMap]
                     `orElse` []
 
@@ -1459,7 +1460,7 @@ It's just a cheap hack; we could equally well use the Span too.
 The [GlobalRdrElt] are the things imported from that decl.
 -}
 
-type ImportMap = Map SrcLoc [GlobalRdrElt]  -- See [The ImportMap]
+type ImportMap = Map RealSrcLoc [GlobalRdrElt]  -- See [The ImportMap]
      -- If loc :-> gres, then
      --   'loc' = the end loc of the bestImport of each GRE in 'gres'
 
@@ -1470,12 +1471,13 @@ mkImportMap :: [GlobalRdrElt] -> ImportMap
 mkImportMap gres
   = foldr add_one Map.empty gres
   where
-    add_one gre@(GRE { gre_imp = imp_specs }) imp_map
-       = Map.insertWith add decl_loc [gre] imp_map
+    add_one gre@(GRE { gre_imp = imp_specs }) imp_map =
+      case srcSpanEnd (is_dloc (is_decl best_imp_spec)) of
+                              -- For srcSpanEnd see Note [The ImportMap]
+       RealSrcLoc decl_loc -> Map.insertWith add decl_loc [gre] imp_map
+       UnhelpfulLoc _ -> imp_map
        where
           best_imp_spec = bestImport imp_specs
-          decl_loc      = srcSpanEnd (is_dloc (is_decl best_imp_spec))
-                        -- For srcSpanEnd see Note [The ImportMap]
           add _ gres = gre : gres
 
 warnUnusedImport :: WarningFlag -> NameEnv (FieldLabelString, Name)
@@ -1780,7 +1782,9 @@ addDupDeclErr gres@(gre : _)
                    vcat (map (ppr . nameSrcLoc) sorted_names)]
   where
     name = gre_name gre
-    sorted_names = sortWith nameSrcLoc (map gre_name gres)
+    sorted_names =
+      sortBy (SrcLoc.leftmost_smallest `on` nameSrcSpan)
+             (map gre_name gres)
 
 
 
