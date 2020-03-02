@@ -892,7 +892,13 @@ lintCoreFun expr nargs
   = markAllJoinsBadIf (nargs /= 0) $
       -- See Note [Join points are less general than the paper]
     lintCoreExpr expr
-
+------------------
+lintLambda :: Var -> LintM Type -> LintM Type
+lintLambda var lintBody =
+    addLoc (LambdaBodyOf var) $
+    lintBinder LambdaBind var $ \ var' ->
+      do { body_ty <- lintBody
+         ; return (mkLamType var' body_ty) }
 ------------------
 checkDeadIdOcc :: Id -> LintM ()
 -- Occurrences of an Id should never be dead....

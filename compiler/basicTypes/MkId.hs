@@ -1698,7 +1698,7 @@ voidArgId :: Id       -- Local lambda-bound :: Void#
 voidArgId = mkSysLocal (fsLit "void") voidArgIdKey Many voidPrimTy
 
 coercionTokenId :: Id         -- :: () ~ ()
-coercionTokenId -- Used to replace Coercion terms when we go to STG
+coercionTokenId -- See Note [Coercion tokens] in CoreToStg.hs
   = pcMiscPrelId coercionTokenName
                  (mkTyConApp eqPrimTyCon [liftedTypeKind, liftedTypeKind, unitTy, unitTy])
                  noCafIdInfo
