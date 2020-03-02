@@ -183,13 +183,9 @@ updateDeclCafInfos decls Nothing = decls
 updateDeclCafInfos decls (Just non_cafs) = map update_decl decls
   where
     update_decl decl
-      | IfaceId nm ty details id_info <- decl
+      | IfaceId nm ty details infos <- decl
       , elemNameSet nm non_cafs
-      = IfaceId nm ty details $
-        case id_info of
-          NoInfo -> HasInfo [HsNoCafRefs]
-          HasInfo infos -> HasInfo (HsNoCafRefs : infos)
-
+      = IfaceId nm ty details (HsNoCafRefs : infos)
       | otherwise
       = decl
 
@@ -1773,7 +1769,7 @@ dataConToIfaceDecl dflags dataCon
   = IfaceId { ifName      = getName dataCon,
               ifType      = toIfaceType (dataConDisplayType dflags dataCon),
               ifIdDetails = IfVanillaId,
-              ifIdInfo    = NoInfo }
+              ifIdInfo    = [] }
 
 --------------------------
 coAxiomToIfaceDecl :: CoAxiom br -> IfaceDecl

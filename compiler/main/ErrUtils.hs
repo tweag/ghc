@@ -247,7 +247,7 @@ getSeverityColour _          = const mempty
 
 getCaretDiagnostic :: Severity -> SrcSpan -> IO MsgDoc
 getCaretDiagnostic _ (UnhelpfulSpan _) = pure empty
-getCaretDiagnostic severity (RealSrcSpan span) = do
+getCaretDiagnostic severity (RealSrcSpan span _) = do
   caretDiagnostic <$> getSrcLine (srcSpanFile span) row
 
   where
@@ -902,7 +902,7 @@ Producing an eventlog for GHC
 To actually produce the eventlog, you need an eventlog-capable GHC build:
 
   With Hadrian:
-  $ hadrian/build.sh -j "stage1.ghc-bin.ghc.link.opts += -eventlog"
+  $ hadrian/build -j "stage1.ghc-bin.ghc.link.opts += -eventlog"
 
   With Make:
   $ make -j GhcStage2HcOpts+=-eventlog
