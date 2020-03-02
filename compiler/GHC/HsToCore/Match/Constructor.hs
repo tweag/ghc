@@ -28,7 +28,7 @@ import TcType
 import Multiplicity
 import GHC.HsToCore.Monad
 import GHC.HsToCore.Utils
-import MkCore   ( mkCoreLets )
+import GHC.Core.Make ( mkCoreLets )
 import Util
 import Id
 import NameEnv

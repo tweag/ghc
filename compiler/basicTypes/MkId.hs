@@ -42,7 +42,7 @@ module MkId (
 
 import GhcPrelude
 
-import Rules
+import GHC.Core.Rules
 import TysPrim
 import TysWiredIn
 import PrelRules
@@ -52,9 +52,9 @@ import TyCoRep
 import FamInstEnv
 import Coercion
 import TcType
-import MkCore
-import CoreUtils        ( mkCast, mkDefaultCase )
-import CoreUnfold
+import GHC.Core.Make
+import GHC.Core.Utils  ( mkCast, mkDefaultCase )
+import GHC.Core.Unfold
 import Literal
 import TyCon
 import Class
@@ -67,7 +67,7 @@ import Id
 import IdInfo
 import Demand
 import Cpr
-import CoreSyn
+import GHC.Core
 import Unique
 import UniqSupply
 import PrelNames
@@ -101,7 +101,7 @@ There are several reasons why an Id might appear in the wiredInIds:
 
 * magicIds: see Note [magicIds]
 
-* errorIds, defined in coreSyn/MkCore.hs.
+* errorIds, defined in GHC.Core.Make.
   These error functions (e.g. rUNTIME_ERROR_ID) are wired in
   because the desugarer generates code that mentions them directly
 
@@ -145,7 +145,7 @@ wiredInIds :: [Id]
 wiredInIds
   =  magicIds
   ++ ghcPrimIds
-  ++ errorIds           -- Defined in MkCore
+  ++ errorIds           -- Defined in GHC.Core.Make
 
 magicIds :: [Id]    -- See Note [magicIds]
 magicIds = [lazyId, oneShotId, noinlineId]
@@ -353,7 +353,7 @@ With -XUnliftedNewtypes, this is allowed -- even though MkN is levity-
 polymorphic. It's OK because MkN evaporates in the compiled code, becoming
 just a cast. That is, it has a compulsory unfolding. As long as its
 argument is not levity-polymorphic (which it can't be, according to
-Note [Levity polymorphism invariants] in CoreSyn), and it's saturated,
+Note [Levity polymorphism invariants] in GHC.Core), and it's saturated,
 no levity-polymorphic code ends up in the code generator. The saturation
 condition is effectively checked by Note [Detecting forced eta expansion]
 in GHC.HsToCore.Expr.
@@ -1392,7 +1392,7 @@ seqId = pcMiscPrelId seqName ty info
          = alwaysInlinePragma `setInlinePragmaActivation` ActiveAfter
                  NoSourceText 0
                   -- Make 'seq' not inline-always, so that simpleOptExpr
-                  -- (see CoreSubst.simple_app) won't inline 'seq' on the
+                  -- (see GHC.Core.Subst.simple_app) won't inline 'seq' on the
                   -- LHS of rules.  That way we can have rules for 'seq';
                   -- see Note [seqId magic]
 
@@ -1616,7 +1616,7 @@ which is what we want.
 
 It is only effective if the one-shot info survives as long as possible; in
 particular it must make it into the interface in unfoldings. See Note [Preserve
-OneShotInfo] in CoreTidy.
+OneShotInfo] in GHC.Core.Op.Tidy.
 
 Also see https://gitlab.haskell.org/ghc/ghc/wikis/one-shot.
 

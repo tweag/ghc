@@ -53,9 +53,9 @@ import TcType
 import TyCon
 import TysWiredIn
 import Multiplicity ( pattern Many )
-import CoreSyn
-import MkCore
-import CoreUtils
+import GHC.Core
+import GHC.Core.Make
+import GHC.Core.Utils
 import SrcLoc
 import Unique
 import BasicTypes

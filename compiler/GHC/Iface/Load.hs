@@ -53,7 +53,7 @@ import PrelNames
 import PrelInfo
 import PrimOp   ( allThePrimOps, primOpFixity, primOpOcc )
 import MkId     ( seqId )
-import Rules
+import GHC.Core.Rules
 import TyCon
 import Annotations
 import InstEnv

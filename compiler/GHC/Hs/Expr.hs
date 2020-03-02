@@ -38,7 +38,7 @@ import GHC.Hs.Binds
 
 -- others:
 import TcEvidence
-import CoreSyn
+import GHC.Core
 import Name
 import NameSet
 import BasicTypes

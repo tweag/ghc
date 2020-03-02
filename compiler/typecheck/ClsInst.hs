@@ -33,7 +33,7 @@ import PrelNames
 import Id
 import Type
 import Multiplicity
-import MkCore ( mkStringExprFS, mkNaturalExpr )
+import GHC.Core.Make ( mkStringExprFS, mkNaturalExpr )
 
 import Name   ( Name, pprDefinedAt )
 import VarEnv ( VarEnv )

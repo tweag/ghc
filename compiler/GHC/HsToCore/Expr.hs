@@ -46,9 +46,9 @@ import TcEvidence
 import TcRnMonad
 import Type
 import Multiplicity
-import CoreSyn
-import CoreUtils
-import MkCore
+import GHC.Core
+import GHC.Core.Utils
+import GHC.Core.Make
 
 import GHC.Driver.Session
 import CostCentre
@@ -253,7 +253,7 @@ dsLExpr (L loc e)
 -- polymorphic. This should be used when the resulting expression will
 -- be an argument to some other function.
 -- See Note [Levity polymorphism checking] in GHC.HsToCore.Monad
--- See Note [Levity polymorphism invariants] in CoreSyn
+-- See Note [Levity polymorphism invariants] in GHC.Core
 dsLExprNoLP :: LHsExpr GhcTc -> DsM CoreExpr
 dsLExprNoLP (L loc e)
   = putSrcSpanDs loc $
@@ -407,7 +407,7 @@ dsExpr (ExplicitTuple _ tup_args boxity)
                       mkCoreLams usedmults $
                         mkCoreLams lam_vars $
                                             mkCoreTupBoxity boxity args) }
-                        -- See Note [Don't flatten tuples from HsSyn] in MkCore
+                        -- See Note [Don't flatten tuples from HsSyn] in GHC.Core.Make
 
 dsExpr (ExplicitSum types alt arity expr)
   = do { dsWhenNoErrs (dsLExprNoLP expr)
@@ -1122,7 +1122,7 @@ badMonadBind rhs elt_ty
 Note [Detecting forced eta expansion]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We cannot have levity polymorphic function arguments. See
-Note [Levity polymorphism invariants] in CoreSyn. But we *can* have
+Note [Levity polymorphism invariants] in GHC.Core. But we *can* have
 functions that take levity polymorphic arguments, as long as these
 functions are eta-reduced. (See #12708 for an example.)
 

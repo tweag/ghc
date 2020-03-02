@@ -41,7 +41,7 @@ import Multiplicity
 import TcType
 import Predicate
 import TysWiredIn( unitTy )
-import MkCore( rEC_SEL_ERROR_ID )
+import GHC.Core.Make( rEC_SEL_ERROR_ID )
 import GHC.Hs
 import Class
 import Type
