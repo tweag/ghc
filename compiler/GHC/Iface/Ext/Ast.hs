@@ -777,6 +777,7 @@ instance ( a ~ GhcPass p
          , ToHie (TScoped (ProtectedSig a))
          , HasType (LPat a)
          , Data (HsSplice a)
+         , IsPass p
          ) => ToHie (PScoped (Located (Pat (GhcPass p)))) where
   toHie (PS rsp scope pscope lpat@(L ospan opat)) =
     concatM $ getTypeNode lpat : case opat of
@@ -1704,8 +1705,10 @@ instance ToHie (LBooleanFormula (Located Name)) where
 instance ToHie (Located HsIPName) where
   toHie (L span e) = makeNode e span
 
-instance ( ToHie (LHsExpr a)
+instance ( a ~ GhcPass p
+         , ToHie (LHsExpr a)
          , Data (HsSplice a)
+         , IsPass p
          ) => ToHie (Located (HsSplice a)) where
   toHie (L span sp) = concatM $ makeNode sp span : case sp of
       HsTypedSplice _ _ _ expr ->
@@ -1719,9 +1722,11 @@ instance ( ToHie (LHsExpr a)
         ]
       HsSpliced _ _ _ ->
         []
-      HsSplicedT _ ->
-        []
-      XSplice _ -> []
+      XSplice x -> case ghcPass @p of
+                     GhcPs -> noExtCon x
+                     GhcRn -> noExtCon x
+                     GhcTc -> case x of
+                                HsSplicedT _ -> []
 
 instance ToHie (LRoleAnnotDecl GhcRn) where
   toHie (L span annot) = concatM $ makeNode annot span : case annot of
