@@ -85,7 +85,7 @@ import Binary
 import UniqSet
 import Unique( mkAlphaTyVarUnique )
 
-import DynFlags
+import GHC.Driver.Session
 import GHC.LanguageExtensions as LangExt
 
 import Data.ByteString (ByteString)

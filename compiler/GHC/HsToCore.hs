@@ -43,6 +43,7 @@ import GHC.HsToCore.Monad
 import GHC.HsToCore.Expr
 import GHC.HsToCore.Binds
 import GHC.HsToCore.Foreign.Decl
+import Multiplicity
 import PrelNames
 import TysPrim
 import Coercion

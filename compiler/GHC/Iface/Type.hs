@@ -84,7 +84,6 @@ import Util
 
 import Data.Maybe( isJust )
 import qualified Data.Semigroup as Semi
-import qualified GHC.LanguageExtensions as LangExt
 import Control.DeepSeq
 
 {-
@@ -1353,7 +1352,7 @@ pprTyTcApp' ctxt_prec tc tys printExplicitKinds style
   | tc `ifaceTyConHasKey` funTyConKey
   , IA_Arg (IfaceTyConApp rep IA_Nil) Required args <- tys
   , rep `ifaceTyConHasKey` manyDataConKey
-  = pprIfacePrefixApp ctxt_prec (parens arrow) (map (ppr_ty appPrec) (appArgsIfaceTypes $ stripInvisArgs dflags args))
+  = pprIfacePrefixApp ctxt_prec (parens arrow) (map (ppr_ty appPrec) (appArgsIfaceTypes $ stripInvisArgs printExplicitKinds args))
 
   | otherwise
   = getPprDebug $ \dbg ->

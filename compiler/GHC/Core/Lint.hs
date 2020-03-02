@@ -893,12 +893,13 @@ lintCoreFun expr nargs
       -- See Note [Join points are less general than the paper]
     lintCoreExpr expr
 ------------------
-lintLambda :: Var -> LintM Type -> LintM Type
+lintLambda :: Var -> LintM (Type, UsageEnv) -> LintM (Type, UsageEnv)
 lintLambda var lintBody =
     addLoc (LambdaBodyOf var) $
     lintBinder LambdaBind var $ \ var' ->
-      do { body_ty <- lintBody
-         ; return (mkLamType var' body_ty) }
+    do { (body_ty, ue) <- lintBody
+       ; ue' <- checkLinearity ue var'
+       ; return (mkLamType var' body_ty, ue') }
 ------------------
 checkDeadIdOcc :: Id -> LintM ()
 -- Occurrences of an Id should never be dead....
@@ -934,14 +935,6 @@ checkJoinOcc var n_args
 
   | otherwise
   = return ()
-
-lintLambda :: Var -> LintM (Type, UsageEnv) -> LintM (Type, UsageEnv)
-lintLambda var lintBody =
-    addLoc (LambdaBodyOf var) $
-    lintBinder LambdaBind var $ \ var' ->
-    do { (body_ty, ue) <- lintBody
-       ; ue' <- checkLinearity ue var'
-       ; return (mkLamType var' body_ty, ue') }
 
 -- Check that the usage of var is consistent with var itself, and pop the var
 -- from the usage environment (this is important because of shadowing).

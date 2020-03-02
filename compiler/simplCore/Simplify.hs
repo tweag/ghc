@@ -2556,11 +2556,11 @@ rebuildCase env scrut case_bndr alts cont
     -- This scales case floats by the multiplicity of the continuation hole (see
     -- Note [Scaling in case-of-case]).  Let floats are _not_ scaled, because
     -- they are aliases anyway.
-    scale_float (MkCore.FloatCase scrut case_bndr con vars) =
+    scale_float (GHC.Core.Make.FloatCase scrut case_bndr con vars) =
       let
         scale_id id = scaleIdBy holeScaling id
       in
-      MkCore.FloatCase scrut (scale_id case_bndr) con (map scale_id vars)
+      GHC.Core.Make.FloatCase scrut (scale_id case_bndr) con (map scale_id vars)
     scale_float f = f
 
     holeScaling = contHoleScaling cont `mkMultMul` idMult case_bndr

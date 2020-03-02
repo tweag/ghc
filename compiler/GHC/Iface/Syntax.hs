@@ -77,8 +77,6 @@ import Control.Monad
 import System.IO.Unsafe
 import Control.DeepSeq
 
-import qualified GHC.LanguageExtensions as LangExt
-
 infixl 3 &&&
 
 {-
