@@ -765,7 +765,7 @@ instance Eq (DeBruijn a) => Eq (DeBruijn (Maybe a)) where
 -- We also need to do the same for multiplicity! Which, since multiplicities are
 -- encoded simply as a 'Type', amounts to have a Trie for a pair of types. Tries
 -- of pairs are composition.
-data BndrMap a = BndrMap (TypeMapG (TypeMapG a))
+data BndrMap a = BndrMap (TypeMapG (MaybeMap TypeMapG a))
 
 instance TrieMap BndrMap where
    type Key BndrMap = Var
@@ -790,12 +790,12 @@ fdBndrMap f (BndrMap tm) = foldTM (foldTM f) tm
 lkBndr :: CmEnv -> Var -> BndrMap a -> Maybe a
 lkBndr env v (BndrMap tymap) = do
   multmap <- lkG (D env (varType v)) tymap
-  lkG (D env (varMult v)) multmap
+  lookupTM (D env <$> varMultMaybe v) multmap
 
 
 xtBndr :: forall a . CmEnv -> Var -> XT a -> BndrMap a -> BndrMap a
 xtBndr env v xt (BndrMap tymap)  =
-  BndrMap (tymap |> xtG (D env (varType v)) |>> (xtG (D env (varMult v)) xt))
+  BndrMap (tymap |> xtG (D env (varType v)) |>> (alterTM (D env <$> varMultMaybe v) xt))
 
 
 --------- Variable occurrence -------------
