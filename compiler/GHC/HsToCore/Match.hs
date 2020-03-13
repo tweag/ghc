@@ -860,6 +860,11 @@ matchSinglePat (Var var) ctx pat ty match_result
 
 matchSinglePat scrut hs_ctx pat ty match_result
   = do { var           <- selectSimpleMatchVarL Many pat
+                            -- matchSinglePat is only used in matchSimply, which
+                            -- is used in list comprehension, arrow notation,
+                            -- and to create field selectors. All of which only
+                            -- bind unrestricted variables, hence the 'Many'
+                            -- above.
        ; match_result' <- matchSinglePatVar var hs_ctx pat ty match_result
        ; return (adjustMatchResult (bindNonRec var scrut) match_result') }
 

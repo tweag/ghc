@@ -167,7 +167,10 @@ matchOneConLike vars ty mult (eqn1 :| eqns)   -- All eqns for a single construct
             -- The 'val_arg_tys' are taken from the data type definition, they
             -- do not take into account the context multiplicity, therefore we
             -- need to scale them back to get the correct context multiplicity
-            -- to desugar the sub-pattern in each field.
+            -- to desugar the sub-pattern in each field. We need to know these
+            -- multiplicity because of the invariant that, in Core, binders in a
+            -- constructor pattern must be scaled by the multiplicity of the
+            -- case. See Note [Case expression invariants].
         ; arg_vars <- selectConMatchVars scaled_arg_tys args1
                 -- Use the first equation as a source of
                 -- suggestions for the new variables

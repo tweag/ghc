@@ -450,6 +450,10 @@ unitExpr = Var unitDataConId
 -- just the identity.
 --
 -- If necessary, we pattern match on a \"big\" tuple.
+--
+-- A tuple selector is not linear in its argument. Consequently, the case
+-- expression built by `mkTupleSelector` must consume its scrutinee 'Many'
+-- times. And all the argument variables must have multiplicity 'Many'.
 mkTupleSelector, mkTupleSelector1
     :: [Id]         -- ^ The 'Id's to pattern match the tuple against
     -> Id           -- ^ The 'Id' to select
