@@ -860,12 +860,11 @@ matchSinglePat (Var var) ctx pat ty match_result
 
 matchSinglePat scrut hs_ctx pat ty match_result
   = do { var           <- selectSimpleMatchVarL Many pat
-                            -- Currently called only from places where an
-                            -- case-Many is expected. This is not a robust
-                            -- property, in fact it may not even be true today!
-                            -- But without a bug, it will be difficult to
-                            -- properly wire a multiplicity here, so this will
-                            -- do for now.
+                            -- matchSinglePat is only used in matchSimply, which
+                            -- is used in list comprehension, arrow notation,
+                            -- and to create field selectors. All of which only
+                            -- bind unrestricted variables, hence the 'Many'
+                            -- above.
        ; match_result' <- matchSinglePatVar var hs_ctx pat ty match_result
        ; return (adjustMatchResult (bindNonRec var scrut) match_result') }
 
