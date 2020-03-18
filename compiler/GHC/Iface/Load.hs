@@ -8,7 +8,7 @@ Loading interface files
 
 {-# LANGUAGE CPP, BangPatterns, RecordWildCards, NondecreasingIndentation #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -fno-warn-orphans -O0 #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module GHC.Iface.Load (
         -- Importing one thing
         tcLookupImported_maybe, importDecl,
