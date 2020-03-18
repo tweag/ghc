@@ -24,7 +24,7 @@
 -----------------------------------------------------------------------------
 
 module GHC.IO (
-        IO(..), unIO, failIO, liftIO, mplusIO,
+        IO(..), unIO, liftIO, mplusIO,
         unsafePerformIO, unsafeInterleaveIO,
         unsafeDupablePerformIO, unsafeDupableInterleaveIO,
         noDuplicate,
@@ -38,7 +38,8 @@ module GHC.IO (
         mask, mask_, uninterruptibleMask, uninterruptibleMask_,
         MaskingState(..), getMaskingState,
         unsafeUnmask, interruptible,
-        onException, bracket, finally, evaluate
+        onException, bracket, finally, evaluate,
+        mkUserError
     ) where
 
 import GHC.Base
@@ -46,6 +47,7 @@ import GHC.ST
 import GHC.Exception
 import GHC.Show
 import GHC.IO.Unsafe
+import Unsafe.Coerce ( unsafeCoerce )
 
 import {-# SOURCE #-} GHC.IO.Exception ( userError, IOError )
 
@@ -78,9 +80,6 @@ Libraries - parts of hslibs/lang.
 liftIO :: IO a -> State# RealWorld -> STret RealWorld a
 liftIO (IO m) = \s -> case m s of (# s', r #) -> STret s' r
 
-failIO :: String -> IO a
-failIO s = IO (raiseIO# (toException (userError s)))
-
 -- ---------------------------------------------------------------------------
 -- Coercions between IO and ST
 
@@ -101,7 +100,7 @@ ioToST (IO m) = (ST m)
 -- This relies on 'IO' and 'ST' having the same representation modulo the
 -- constraint on the state thread type parameter.
 unsafeIOToST        :: IO a -> ST s a
-unsafeIOToST (IO io) = ST $ \ s -> (unsafeCoerce# io) s
+unsafeIOToST (IO io) = ST $ \ s -> (unsafeCoerce io) s
 
 -- | Convert an 'ST' action to an 'IO' action.
 -- This relies on 'IO' and 'ST' having the same representation modulo the
@@ -110,7 +109,7 @@ unsafeIOToST (IO io) = ST $ \ s -> (unsafeCoerce# io) s
 -- For an example demonstrating why this is unsafe, see
 -- https://mail.haskell.org/pipermail/haskell-cafe/2009-April/060719.html
 unsafeSTToIO :: ST s a -> IO a
-unsafeSTToIO (ST m) = IO (unsafeCoerce# m)
+unsafeSTToIO (ST m) = IO (unsafeCoerce m)
 
 -- -----------------------------------------------------------------------------
 -- | File and directory names are values of type 'String', whose precise
@@ -173,7 +172,7 @@ catchException !io handler = catch io handler
 -- might catch either. If you are calling @catch@ with type
 -- @IO Int -> (ArithException -> IO Int) -> IO Int@ then the handler may
 -- get run with @DivideByZero@ as an argument, or an @ErrorCall \"urk\"@
--- exception may be propogated further up. If you call it again, you
+-- exception may be propagated further up. If you call it again, you
 -- might get a the opposite behaviour. This is ok, because 'catch' is an
 -- 'IO' computation.
 --
@@ -457,3 +456,7 @@ Since this strictness is a small optimization and may lead to surprising
 results, all of the @catch@ and @handle@ variants offered by "Control.Exception"
 use 'catch' rather than 'catchException'.
 -}
+
+-- For SOURCE import by GHC.Base to define failIO.
+mkUserError       :: [Char]  -> SomeException
+mkUserError str   = toException (userError str)

@@ -7,6 +7,8 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE LambdaCase #-}
 
 module ErrUtils (
         -- * Basic types
@@ -41,8 +43,10 @@ module ErrUtils (
 
         -- * Dump files
         dumpIfSet, dumpIfSet_dyn, dumpIfSet_dyn_printer,
-        mkDumpDoc, dumpSDoc, dumpSDocForUser,
-        dumpSDocWithStyle,
+        dumpOptionsFromFlag, DumpOptions (..),
+        DumpFormat (..), DumpAction, dumpAction, defaultDumpAction,
+        TraceAction, traceAction, defaultTraceAction,
+        touchDumpFile,
 
         -- * Issuing messages during compilation
         putMsg, printInfoForUser, printOutputForUser,
@@ -68,7 +72,7 @@ import Outputable
 import Panic
 import qualified PprColour as Col
 import SrcLoc
-import DynFlags
+import GHC.Driver.Session
 import FastString (unpackFS)
 import StringBuffer (atLine, hGetStringBuffer, len, lexemeToString)
 import Json
@@ -80,7 +84,7 @@ import Data.List
 import qualified Data.Set as Set
 import Data.IORef
 import Data.Maybe       ( fromMaybe )
-import Data.Ord
+import Data.Function
 import Data.Time
 import Debug.Trace
 import Control.Monad
@@ -206,12 +210,12 @@ mkLocMessageAnn
   -- are supposed to be in a standard format, and one without a location
   -- would look strange.  Better to say explicitly "<no location info>".
 mkLocMessageAnn ann severity locn msg
-    = sdocWithDynFlags $ \dflags ->
-      let locn' = if gopt Opt_ErrorSpans dflags
-                  then ppr locn
-                  else ppr (srcSpanStart locn)
+    = sdocOption sdocColScheme $ \col_scheme ->
+      let locn' = sdocOption sdocErrorSpans $ \case
+                     True  -> ppr locn
+                     False -> ppr (srcSpanStart locn)
 
-          sevColour = getSeverityColour severity (colScheme dflags)
+          sevColour = getSeverityColour severity col_scheme
 
           -- Add optional information
           optAnn = case ann of
@@ -223,8 +227,8 @@ mkLocMessageAnn ann severity locn msg
           header = locn' <> colon <+>
                    coloured sevColour sevText <> optAnn
 
-      in coloured (Col.sMessage (colScheme dflags))
-                  (hang (coloured (Col.sHeader (colScheme dflags)) header) 4
+      in coloured (Col.sMessage col_scheme)
+                  (hang (coloured (Col.sHeader col_scheme) header) 4
                         msg)
 
   where
@@ -243,7 +247,7 @@ getSeverityColour _          = const mempty
 
 getCaretDiagnostic :: Severity -> SrcSpan -> IO MsgDoc
 getCaretDiagnostic _ (UnhelpfulSpan _) = pure empty
-getCaretDiagnostic severity (RealSrcSpan span) = do
+getCaretDiagnostic severity (RealSrcSpan span _) = do
   caretDiagnostic <$> getSrcLine (srcSpanFile span) row
 
   where
@@ -276,9 +280,9 @@ getCaretDiagnostic severity (RealSrcSpan span) = do
 
     caretDiagnostic Nothing = empty
     caretDiagnostic (Just srcLineWithNewline) =
-      sdocWithDynFlags $ \ dflags ->
-      let sevColour = getSeverityColour severity (colScheme dflags)
-          marginColour = Col.sMargin (colScheme dflags)
+      sdocOption sdocColScheme$ \col_scheme ->
+      let sevColour = getSeverityColour severity col_scheme
+          marginColour = Col.sMargin col_scheme
       in
       coloured marginColour (text marginSpace) <>
       text ("\n") <>
@@ -374,7 +378,8 @@ warningsToMessages dflags =
 printBagOfErrors :: DynFlags -> Bag ErrMsg -> IO ()
 printBagOfErrors dflags bag_of_errors
   = sequence_ [ let style = mkErrStyle dflags unqual
-                in putLogMsg dflags reason sev s style (formatErrDoc dflags doc)
+                    ctx   = initSDocContext dflags style
+                in putLogMsg dflags reason sev s style (formatErrDoc ctx doc)
               | ErrMsg { errMsgSpan      = s,
                          errMsgDoc       = doc,
                          errMsgSeverity  = sev,
@@ -382,13 +387,13 @@ printBagOfErrors dflags bag_of_errors
                          errMsgContext   = unqual } <- sortMsgBag (Just dflags)
                                                                   bag_of_errors ]
 
-formatErrDoc :: DynFlags -> ErrDoc -> SDoc
-formatErrDoc dflags (ErrDoc important context supplementary)
+formatErrDoc :: SDocContext -> ErrDoc -> SDoc
+formatErrDoc ctx (ErrDoc important context supplementary)
   = case msgs of
         [msg] -> vcat msg
         _ -> vcat $ map starred msgs
     where
-    msgs = filter (not . null) $ map (filter (not . Outputable.isEmpty dflags))
+    msgs = filter (not . null) $ map (filter (not . Outputable.isEmpty ctx))
         [important, context, supplementary]
     starred = (bullet<+>) . vcat
 
@@ -400,17 +405,14 @@ pprLocErrMsg (ErrMsg { errMsgSpan      = s
                      , errMsgDoc       = doc
                      , errMsgSeverity  = sev
                      , errMsgContext   = unqual })
-  = sdocWithDynFlags $ \dflags ->
-    withPprStyle (mkErrStyle dflags unqual) $
-    mkLocMessage sev s (formatErrDoc dflags doc)
+  = sdocWithContext $ \ctx ->
+    withErrStyle unqual $ mkLocMessage sev s (formatErrDoc ctx doc)
 
 sortMsgBag :: Maybe DynFlags -> Bag ErrMsg -> [ErrMsg]
-sortMsgBag dflags = maybeLimit . sortBy (maybeFlip cmp) . bagToList
-  where maybeFlip :: (a -> a -> b) -> (a -> a -> b)
-        maybeFlip
-          | fromMaybe False (fmap reverseErrors dflags) = flip
-          | otherwise                                   = id
-        cmp = comparing errMsgSpan
+sortMsgBag dflags = maybeLimit . sortBy (cmp `on` errMsgSpan) . bagToList
+  where cmp
+          | fromMaybe False (fmap reverseErrors dflags) = SrcLoc.rightmost_smallest
+          | otherwise                                   = SrcLoc.leftmost_smallest
         maybeLimit = case join (fmap maxErrors dflags) of
           Nothing        -> id
           Just err_limit -> take err_limit
@@ -442,23 +444,23 @@ dumpIfSet dflags flag hdr doc
                             (defaultDumpStyle dflags)
                             (mkDumpDoc hdr doc)
 
--- | a wrapper around 'dumpSDoc'.
+-- | a wrapper around 'dumpAction'.
 -- First check whether the dump flag is set
 -- Do nothing if it is unset
-dumpIfSet_dyn :: DynFlags -> DumpFlag -> String -> SDoc -> IO ()
-dumpIfSet_dyn dflags flag hdr doc
-  = when (dopt flag dflags) $ dumpSDoc dflags alwaysQualify flag hdr doc
+dumpIfSet_dyn :: DynFlags -> DumpFlag -> String -> DumpFormat -> SDoc -> IO ()
+dumpIfSet_dyn = dumpIfSet_dyn_printer alwaysQualify
 
--- | a wrapper around 'dumpSDoc'.
+-- | a wrapper around 'dumpAction'.
 -- First check whether the dump flag is set
 -- Do nothing if it is unset
 --
--- Unlike 'dumpIfSet_dyn',
--- has a printer argument but no header argument
-dumpIfSet_dyn_printer :: PrintUnqualified
-                      -> DynFlags -> DumpFlag -> SDoc -> IO ()
-dumpIfSet_dyn_printer printer dflags flag doc
-  = when (dopt flag dflags) $ dumpSDoc dflags printer flag "" doc
+-- Unlike 'dumpIfSet_dyn', has a printer argument
+dumpIfSet_dyn_printer :: PrintUnqualified -> DynFlags -> DumpFlag -> String
+                         -> DumpFormat -> SDoc -> IO ()
+dumpIfSet_dyn_printer printer dflags flag hdr fmt doc
+  = when (dopt flag dflags) $ do
+      let sty = mkDumpStyle dflags printer
+      dumpAction dflags sty (dumpOptionsFromFlag flag) hdr fmt doc
 
 mkDumpDoc :: String -> SDoc -> SDoc
 mkDumpDoc hdr doc
@@ -469,11 +471,16 @@ mkDumpDoc hdr doc
      where
         line = text (replicate 20 '=')
 
+
+-- | Ensure that a dump file is created even if it stays empty
+touchDumpFile :: DynFlags -> DumpOptions -> IO ()
+touchDumpFile dflags dumpOpt = withDumpFileHandle dflags dumpOpt (const (return ()))
+
 -- | Run an action with the handle of a 'DumpFlag' if we are outputting to a
 -- file, otherwise 'Nothing'.
-withDumpFileHandle :: DynFlags -> DumpFlag -> (Maybe Handle -> IO ()) -> IO ()
-withDumpFileHandle dflags flag action = do
-    let mFile = chooseDumpFile dflags flag
+withDumpFileHandle :: DynFlags -> DumpOptions -> (Maybe Handle -> IO ()) -> IO ()
+withDumpFileHandle dflags dumpOpt action = do
+    let mFile = chooseDumpFile dflags dumpOpt
     case mFile of
       Just fileName -> do
         let gdref = generatedDumps dflags
@@ -494,31 +501,15 @@ withDumpFileHandle dflags flag action = do
       Nothing -> action Nothing
 
 
-dumpSDoc, dumpSDocForUser
-  :: DynFlags -> PrintUnqualified -> DumpFlag -> String -> SDoc -> IO ()
-
--- | A wrapper around 'dumpSDocWithStyle' which uses 'PprDump' style.
-dumpSDoc dflags print_unqual
-  = dumpSDocWithStyle dump_style dflags
-  where dump_style = mkDumpStyle dflags print_unqual
-
--- | A wrapper around 'dumpSDocWithStyle' which uses 'PprUser' style.
-dumpSDocForUser dflags print_unqual
-  = dumpSDocWithStyle user_style dflags
-  where user_style = mkUserStyle dflags print_unqual AllTheWay
-
 -- | Write out a dump.
 -- If --dump-to-file is set then this goes to a file.
 -- otherwise emit to stdout.
 --
 -- When @hdr@ is empty, we print in a more compact format (no separators and
 -- blank lines)
---
--- The 'DumpFlag' is used only to choose the filename to use if @--dump-to-file@
--- is used; it is not used to decide whether to dump the output
-dumpSDocWithStyle :: PprStyle -> DynFlags -> DumpFlag -> String -> SDoc -> IO ()
-dumpSDocWithStyle sty dflags flag hdr doc =
-    withDumpFileHandle dflags flag writeDump
+dumpSDocWithStyle :: PprStyle -> DynFlags -> DumpOptions -> String -> SDoc -> IO ()
+dumpSDocWithStyle sty dflags dumpOpt hdr doc =
+    withDumpFileHandle dflags dumpOpt writeDump
   where
     -- write dump to file
     writeDump (Just handle) = do
@@ -544,12 +535,12 @@ dumpSDocWithStyle sty dflags flag hdr doc =
 
 -- | Choose where to put a dump file based on DynFlags
 --
-chooseDumpFile :: DynFlags -> DumpFlag -> Maybe FilePath
-chooseDumpFile dflags flag
+chooseDumpFile :: DynFlags -> DumpOptions -> Maybe FilePath
+chooseDumpFile dflags dumpOpt
 
-        | gopt Opt_DumpToFile dflags || flag == Opt_D_th_dec_file
+        | gopt Opt_DumpToFile dflags || dumpForcedToFile dumpOpt
         , Just prefix <- getPrefix
-        = Just $ setDir (prefix ++ (beautifyDumpName flag))
+        = Just $ setDir (prefix ++ dumpSuffix dumpOpt)
 
         | otherwise
         = Nothing
@@ -559,7 +550,7 @@ chooseDumpFile dflags flag
                  --      by the --ddump-file-prefix flag.
                | Just prefix <- dumpPrefixForce dflags
                   = Just prefix
-                 -- dump file location chosen by DriverPipeline.runPipeline
+                 -- dump file location chosen by GHC.Driver.Pipeline.runPipeline
                | Just prefix <- dumpPrefix dflags
                   = Just prefix
                  -- we haven't got a place to put a dump file.
@@ -569,16 +560,39 @@ chooseDumpFile dflags flag
                          Just d  -> d </> f
                          Nothing ->       f
 
--- | Build a nice file name from name of a 'DumpFlag' constructor
-beautifyDumpName :: DumpFlag -> String
-beautifyDumpName Opt_D_th_dec_file = "th.hs"
-beautifyDumpName flag
- = let str = show flag
-       suff = case stripPrefix "Opt_D_" str of
-              Just x -> x
-              Nothing -> panic ("Bad flag name: " ++ str)
-       dash = map (\c -> if c == '_' then '-' else c) suff
-   in dash
+-- | Dump options
+--
+-- Dumps are printed on stdout by default except when the `dumpForcedToFile`
+-- field is set to True.
+--
+-- When `dumpForcedToFile` is True or when `-ddump-to-file` is set, dumps are
+-- written into a file whose suffix is given in the `dumpSuffix` field.
+--
+data DumpOptions = DumpOptions
+   { dumpForcedToFile :: Bool   -- ^ Must be dumped into a file, even if
+                                --   -ddump-to-file isn't set
+   , dumpSuffix       :: String -- ^ Filename suffix used when dumped into
+                                --   a file
+   }
+
+-- | Create dump options from a 'DumpFlag'
+dumpOptionsFromFlag :: DumpFlag -> DumpOptions
+dumpOptionsFromFlag Opt_D_th_dec_file =
+   DumpOptions                        -- -dth-dec-file dumps expansions of TH
+      { dumpForcedToFile = True       -- splices into MODULE.th.hs even when
+      , dumpSuffix       = "th.hs"    -- -ddump-to-file isn't set
+      }
+dumpOptionsFromFlag flag =
+   DumpOptions
+      { dumpForcedToFile = False
+      , dumpSuffix       = suffix -- build a suffix from the flag name
+      }                           -- e.g. -ddump-asm => ".dump-asm"
+   where
+      str  = show flag
+      suff = case stripPrefix "Opt_D_" str of
+             Just x  -> x
+             Nothing -> panic ("Bad flag name: " ++ str)
+      suffix = map (\c -> if c == '_' then '-' else c) suff
 
 
 -- -----------------------------------------------------------------------------
@@ -738,7 +752,7 @@ withTiming' dflags what force_result prtimings action
                            <+> text "megabytes")
 
                   whenPrintTimings $
-                      dumpIfSet_dyn dflags Opt_D_dump_timings ""
+                      dumpIfSet_dyn dflags Opt_D_dump_timings "" FormatText
                           $ text $ showSDocOneLine dflags
                           $ hsep [ what <> colon
                                  , text "alloc=" <> ppr alloc
@@ -879,7 +893,7 @@ the whole thing with 'withTiming'. Instead we wrap the processing of each
 individual stream element, all along the codegen pipeline, using the appropriate
 label for the pass to which this processing belongs. That generates a lot more
 data but allows us to get fine-grained timings about all the passes and we can
-easily compute totals withh tools like ghc-events-analyze (see below).
+easily compute totals with tools like ghc-events-analyze (see below).
 
 
 Producing an eventlog for GHC
@@ -888,7 +902,7 @@ Producing an eventlog for GHC
 To actually produce the eventlog, you need an eventlog-capable GHC build:
 
   With Hadrian:
-  $ hadrian/build.sh -j "stage1.ghc-bin.ghc.link.opts += -eventlog"
+  $ hadrian/build -j "stage1.ghc-bin.ghc.link.opts += -eventlog"
 
   With Make:
   $ make -j GhcStage2HcOpts+=-eventlog
@@ -919,3 +933,43 @@ of the execution through the various labels) and ghc.totals.txt (total time
 spent in each label).
 
 -}
+
+
+-- | Format of a dump
+--
+-- Dump formats are loosely defined: dumps may contain various additional
+-- headers and annotations and they may be partial. 'DumpFormat' is mainly a hint
+-- (e.g. for syntax highlighters).
+data DumpFormat
+   = FormatHaskell   -- ^ Haskell
+   | FormatCore      -- ^ Core
+   | FormatSTG       -- ^ STG
+   | FormatByteCode  -- ^ ByteCode
+   | FormatCMM       -- ^ Cmm
+   | FormatASM       -- ^ Assembly code
+   | FormatC         -- ^ C code/header
+   | FormatLLVM      -- ^ LLVM bytecode
+   | FormatText      -- ^ Unstructured dump
+   deriving (Show,Eq)
+
+type DumpAction = DynFlags -> PprStyle -> DumpOptions -> String
+                  -> DumpFormat -> SDoc -> IO ()
+
+type TraceAction = forall a. DynFlags -> String -> SDoc -> a -> a
+
+-- | Default action for 'dumpAction' hook
+defaultDumpAction :: DumpAction
+defaultDumpAction dflags sty dumpOpt title _fmt doc = do
+   dumpSDocWithStyle sty dflags dumpOpt title doc
+
+-- | Default action for 'traceAction' hook
+defaultTraceAction :: TraceAction
+defaultTraceAction dflags title doc = pprTraceWithFlags dflags title doc
+
+-- | Helper for `dump_action`
+dumpAction :: DumpAction
+dumpAction dflags = dump_action dflags dflags
+
+-- | Helper for `trace_action`
+traceAction :: TraceAction
+traceAction dflags = trace_action dflags dflags

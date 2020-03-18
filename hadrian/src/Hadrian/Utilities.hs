@@ -38,6 +38,7 @@ import Control.Applicative
 import Control.Monad.Extra
 import Data.Char
 import Data.Dynamic (Dynamic, fromDynamic, toDyn)
+import Data.Functor
 import Data.HashMap.Strict (HashMap)
 import Data.List (isPrefixOf)
 import Data.List.Extra
@@ -214,7 +215,7 @@ makeRelativeNoSysLink a b
 -- | Like Shake's '%>' but gives higher priority to longer patterns. Useful
 -- in situations when a family of build rules, e.g. @"**/*.a"@ and @"**/*_p.a"@
 -- can be matched by the same file, such as @library_p.a@. We break the tie
--- by preferring longer matches, which correpond to longer patterns.
+-- by preferring longer matches, which correspond to longer patterns.
 (%%>) :: FilePattern -> (FilePath -> Action ()) -> Rules ()
 p %%> a = priority (fromIntegral (length p) + 1) $ p %> a
 
@@ -282,17 +283,6 @@ buildRootRules :: Rules FilePath
 buildRootRules = do
     BuildRoot path <- userSettingRules (BuildRoot "")
     return path
-
--- | A version of 'fmap' with flipped arguments. Useful for manipulating values
--- in context, e.g. 'buildRoot', as in the example below.
---
--- @
--- buildRoot <&> (-/- "dir") == fmap (-/- "dir") buildRoot
--- @
-(<&>) :: Functor f => f a -> (a -> b) -> f b
-(<&>) = flip fmap
-
-infixl 1 <&>
 
 -- | Given a 'FilePath' to a source file, return 'True' if it is generated.
 -- The current implementation simply assumes that a file is generated if it
@@ -441,7 +431,7 @@ newtype BuildProgressColour = BuildProgressColour String
     deriving Typeable
 
 -- | By default, Hadrian tries to figure out if the current terminal
---   supports colors using this function. The default can be overriden
+--   supports colors using this function. The default can be overridden
 --   by suppling @--[no-]color@.
 shouldUseColor :: IO Bool
 shouldUseColor =

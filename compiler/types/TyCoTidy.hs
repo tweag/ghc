@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
 
 -- | Tidying types and coercions for printing in error messages.
 module TyCoTidy
@@ -26,7 +28,7 @@ import Var
 import VarEnv
 import Util (seqList)
 
-import Data.List
+import Data.List (mapAccumL)
 
 {-
 %************************************************************************
@@ -94,8 +96,8 @@ tidyTyCoVarBinders tidy_env tvbs
 tidyFreeTyCoVars :: TidyEnv -> [TyCoVar] -> TidyEnv
 -- ^ Add the free 'TyVar's to the env in tidy form,
 -- so that we can tidy the type they are free in
-tidyFreeTyCoVars (full_occ_env, var_env) tyvars
-  = fst (tidyOpenTyCoVars (full_occ_env, var_env) tyvars)
+tidyFreeTyCoVars tidy_env tyvars
+  = fst (tidyOpenTyCoVars tidy_env tyvars)
 
 ---------------
 tidyOpenTyCoVars :: TidyEnv -> [TyCoVar] -> (TidyEnv, [TyCoVar])
@@ -144,7 +146,7 @@ tidyType env (CoercionTy co)      = CoercionTy $! (tidyCo env co)
 
 
 -- The following two functions differ from mkForAllTys and splitForAllTys in that
--- they expect/preserve the ArgFlag argument. Thes belong to types/Type.hs, but
+-- they expect/preserve the ArgFlag argument. These belong to types/Type.hs, but
 -- how should they be named?
 mkForAllTys' :: [(TyCoVar, ArgFlag)] -> Type -> Type
 mkForAllTys' tvvs ty = foldr strictMkForAllTy ty tvvs
@@ -225,12 +227,9 @@ tidyCo env@(_, subst) co
     go (AxiomRuleCo ax cos)  = let cos1 = tidyCos env cos
                                in cos1 `seqList` AxiomRuleCo ax cos1
 
-    go_prov UnsafeCoerceProv    = UnsafeCoerceProv
     go_prov (PhantomProv co)    = PhantomProv (go co)
     go_prov (ProofIrrelProv co) = ProofIrrelProv (go co)
     go_prov p@(PluginProv _)    = p
 
 tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
 tidyCos env = map (tidyCo env)
-
-

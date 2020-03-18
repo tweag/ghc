@@ -14,7 +14,7 @@ ToDo:
 
 {-# LANGUAGE CPP, RankNTypes, PatternSynonyms, ViewPatterns, RecordWildCards,
     DeriveFunctor #-}
-{-# OPTIONS_GHC -optc-DNON_POSIX_SOURCE #-}
+{-# OPTIONS_GHC -optc-DNON_POSIX_SOURCE -Wno-incomplete-uni-patterns #-}
 
 module PrelRules
    ( primOpRules
@@ -29,21 +29,22 @@ import GhcPrelude
 
 import {-# SOURCE #-} MkId ( mkPrimOpId, magicDictId )
 
-import CoreSyn
-import MkCore
+import GHC.Core
+import GHC.Core.Make
 import Id
 import Literal
-import CoreOpt     ( exprIsLiteral_maybe )
-import PrimOp      ( PrimOp(..), tagToEnumKey )
+import GHC.Core.SimpleOpt ( exprIsLiteral_maybe )
+import PrimOp             ( PrimOp(..), tagToEnumKey )
 import TysWiredIn
 import TysPrim
 import TyCon       ( tyConDataCons_maybe, isAlgTyCon, isEnumerationTyCon
                    , isNewTyCon, unwrapNewTyCon_maybe, tyConDataCons
                    , tyConFamilySize )
-import DataCon     ( dataConTagZ, dataConTyCon, dataConWorkId )
-import CoreUtils   ( cheapEqExpr, cheapEqExpr', exprIsHNF, exprType, stripTicksTop, stripTicksTopT, mkTicks )
+import DataCon     ( dataConTagZ, dataConTyCon, dataConWrapId, dataConWorkId )
+import GHC.Core.Utils  ( cheapEqExpr, cheapEqExpr', exprIsHNF, exprType
+                       , stripTicksTop, stripTicksTopT, mkTicks )
+import GHC.Core.Unfold ( exprIsConApp_maybe )
 import Multiplicity
-import CoreUnfold  ( exprIsConApp_maybe )
 import Type
 import OccName     ( occNameFS )
 import PrelNames
@@ -52,7 +53,7 @@ import Name        ( Name, nameOccName )
 import Outputable
 import FastString
 import BasicTypes
-import DynFlags
+import GHC.Driver.Session
 import GHC.Platform
 import Util
 import Coercion     (mkUnbranchedAxInstCo,mkSymCo,Role(..))
@@ -192,29 +193,35 @@ primOpRules nm Int2WordOp     = mkPrimOpRule nm 1 [ liftLitDynFlags int2WordLit
 primOpRules nm Narrow8IntOp   = mkPrimOpRule nm 1 [ liftLit narrow8IntLit
                                                   , subsumedByPrimOp Narrow8IntOp
                                                   , Narrow8IntOp `subsumesPrimOp` Narrow16IntOp
-                                                  , Narrow8IntOp `subsumesPrimOp` Narrow32IntOp ]
+                                                  , Narrow8IntOp `subsumesPrimOp` Narrow32IntOp
+                                                  , narrowSubsumesAnd AndIOp Narrow8IntOp 8 ]
 primOpRules nm Narrow16IntOp  = mkPrimOpRule nm 1 [ liftLit narrow16IntLit
                                                   , subsumedByPrimOp Narrow8IntOp
                                                   , subsumedByPrimOp Narrow16IntOp
-                                                  , Narrow16IntOp `subsumesPrimOp` Narrow32IntOp ]
+                                                  , Narrow16IntOp `subsumesPrimOp` Narrow32IntOp
+                                                  , narrowSubsumesAnd AndIOp Narrow16IntOp 16 ]
 primOpRules nm Narrow32IntOp  = mkPrimOpRule nm 1 [ liftLit narrow32IntLit
                                                   , subsumedByPrimOp Narrow8IntOp
                                                   , subsumedByPrimOp Narrow16IntOp
                                                   , subsumedByPrimOp Narrow32IntOp
-                                                  , removeOp32 ]
+                                                  , removeOp32
+                                                  , narrowSubsumesAnd AndIOp Narrow32IntOp 32 ]
 primOpRules nm Narrow8WordOp  = mkPrimOpRule nm 1 [ liftLit narrow8WordLit
                                                   , subsumedByPrimOp Narrow8WordOp
                                                   , Narrow8WordOp `subsumesPrimOp` Narrow16WordOp
-                                                  , Narrow8WordOp `subsumesPrimOp` Narrow32WordOp ]
+                                                  , Narrow8WordOp `subsumesPrimOp` Narrow32WordOp
+                                                  , narrowSubsumesAnd AndOp Narrow8WordOp 8 ]
 primOpRules nm Narrow16WordOp = mkPrimOpRule nm 1 [ liftLit narrow16WordLit
                                                   , subsumedByPrimOp Narrow8WordOp
                                                   , subsumedByPrimOp Narrow16WordOp
-                                                  , Narrow16WordOp `subsumesPrimOp` Narrow32WordOp ]
+                                                  , Narrow16WordOp `subsumesPrimOp` Narrow32WordOp
+                                                  , narrowSubsumesAnd AndOp Narrow16WordOp 16 ]
 primOpRules nm Narrow32WordOp = mkPrimOpRule nm 1 [ liftLit narrow32WordLit
                                                   , subsumedByPrimOp Narrow8WordOp
                                                   , subsumedByPrimOp Narrow16WordOp
                                                   , subsumedByPrimOp Narrow32WordOp
-                                                  , removeOp32 ]
+                                                  , removeOp32
+                                                  , narrowSubsumesAnd AndOp Narrow32WordOp 32 ]
 primOpRules nm OrdOp          = mkPrimOpRule nm 1 [ liftLit char2IntLit
                                                   , inversePrimOp ChrOp ]
 primOpRules nm ChrOp          = mkPrimOpRule nm 1 [ do [Lit lit] <- getArgs
@@ -650,6 +657,26 @@ subsumedByPrimOp primop = do
   matchPrimOpId primop primop_id
   return e
 
+-- | narrow subsumes bitwise `and` with full mask (cf #16402):
+--
+--       narrowN (x .&. m)
+--       m .&. (2^N-1) = 2^N-1
+--       ==> narrowN x
+--
+-- e.g.  narrow16 (x .&. 0xFFFF)
+--       ==> narrow16 x
+--
+narrowSubsumesAnd :: PrimOp -> PrimOp -> Int -> RuleM CoreExpr
+narrowSubsumesAnd and_primop narrw n = do
+  [Var primop_id `App` x `App` y] <- getArgs
+  matchPrimOpId and_primop primop_id
+  let mask = bit n -1
+      g v (Lit (LitNumber _ m _)) = do
+         guard (m .&. mask == mask)
+         return (Var (mkPrimOpId narrw) `App` v)
+      g _ _ = mzero
+  g x y <|> g y x
+
 idempotent :: RuleM CoreExpr
 idempotent = do [e1, e2] <- getArgs
                 guard $ cheapEqExpr e1 e2
@@ -697,7 +724,7 @@ Shift.$wgo = \ (w_sCS :: GHC.Prim.Int#) (w1_sCT :: [GHC.Types.Bool]) ->
 Note the massive shift on line "!!!!".  It can't happen, because we've checked
 that w < 64, but the optimiser didn't spot that. We DO NOT want to constant-fold this!
 Moreover, if the programmer writes (n `uncheckedShiftL` 9223372036854775807), we
-can't constant fold it, but if it gets to the assember we get
+can't constant fold it, but if it gets to the assembler we get
      Error: operand type mismatch for `shl'
 
 So the best thing to do is to rewrite the shift with a call to error,
@@ -714,7 +741,7 @@ as follows:
     in ...
 
 This was originally done in the fix to #16449 but this breaks the let/app
-invariant (see Note [CoreSyn let/app invariant] in CoreSyn) as noted in #16742.
+invariant (see Note [Core let/app invariant] in GHC.Core) as noted in #16742.
 For the reasons discussed in Note [Checking versus non-checking primops] (in
 the PrimOp module) there is no safe way rewrite the argument of I# such that
 it bottoms.
@@ -734,8 +761,8 @@ There are two cases:
   from the 'integer' library.   These are handled by rule_shift_op,
   and match_Integer_shift_op.
 
-  Here we could in principle shift by any amount, but we arbitary
-  limit the shift to 4 bits; in particualr we do not want shift by a
+  Here we could in principle shift by any amount, but we arbitrary
+  limit the shift to 4 bits; in particular we do not want shift by a
   huge amount, which can happen in code like that above.
 
 The two cases are more different in their code paths that is comfortable,
@@ -752,23 +779,26 @@ but that is only a historical accident.
 mkBasicRule :: Name -> Int -> RuleM CoreExpr -> CoreRule
 -- Gives the Rule the same name as the primop itself
 mkBasicRule op_name n_args rm
-  = BuiltinRule { ru_name = occNameFS (nameOccName op_name),
-                  ru_fn = op_name,
+  = BuiltinRule { ru_name  = occNameFS (nameOccName op_name),
+                  ru_fn    = op_name,
                   ru_nargs = n_args,
-                  ru_try = \ dflags in_scope _ -> runRuleM rm dflags in_scope }
+                  ru_try   = runRuleM rm }
 
 newtype RuleM r = RuleM
-  { runRuleM :: DynFlags -> InScopeEnv -> [CoreExpr] -> Maybe r }
+  { runRuleM :: DynFlags -> InScopeEnv -> Id -> [CoreExpr] -> Maybe r }
   deriving (Functor)
 
 instance Applicative RuleM where
-    pure x = RuleM $ \_ _ _ -> Just x
+    pure x = RuleM $ \_ _ _ _ -> Just x
     (<*>) = ap
 
 instance Monad RuleM where
-  RuleM f >>= g = RuleM $ \dflags iu e -> case f dflags iu e of
-    Nothing -> Nothing
-    Just r -> runRuleM (g r) dflags iu e
+  RuleM f >>= g
+    = RuleM $ \dflags iu fn args ->
+              case f dflags iu fn args of
+                Nothing -> Nothing
+                Just r  -> runRuleM (g r) dflags iu fn args
+
 #if !MIN_VERSION_base(4,13,0)
   fail = MonadFail.fail
 #endif
@@ -777,14 +807,14 @@ instance MonadFail.MonadFail RuleM where
     fail _ = mzero
 
 instance Alternative RuleM where
-  empty = RuleM $ \_ _ _ -> Nothing
-  RuleM f1 <|> RuleM f2 = RuleM $ \dflags iu args ->
-    f1 dflags iu args <|> f2 dflags iu args
+  empty = RuleM $ \_ _ _ _ -> Nothing
+  RuleM f1 <|> RuleM f2 = RuleM $ \dflags iu fn args ->
+    f1 dflags iu fn args <|> f2 dflags iu fn args
 
 instance MonadPlus RuleM
 
 instance HasDynFlags RuleM where
-    getDynFlags = RuleM $ \dflags _ _ -> Just dflags
+    getDynFlags = RuleM $ \dflags _ _ _ -> Just dflags
 
 liftMaybe :: Maybe a -> RuleM a
 liftMaybe Nothing = mzero
@@ -810,15 +840,18 @@ removeOp32 = do
       mzero
 
 getArgs :: RuleM [CoreExpr]
-getArgs = RuleM $ \_ _ args -> Just args
+getArgs = RuleM $ \_ _ _ args -> Just args
 
 getInScopeEnv :: RuleM InScopeEnv
-getInScopeEnv = RuleM $ \_ iu _ -> Just iu
+getInScopeEnv = RuleM $ \_ iu _ _ -> Just iu
+
+getFunction :: RuleM Id
+getFunction = RuleM $ \_ _ fn _ -> Just fn
 
 -- return the n-th argument of this rule, if it is a literal
 -- argument indices start from 0
 getLiteral :: Int -> RuleM Literal
-getLiteral n = RuleM $ \_ _ exprs -> case drop n exprs of
+getLiteral n = RuleM $ \_ _ _ exprs -> case drop n exprs of
   (Lit l:_) -> Just l
   _ -> Nothing
 
@@ -856,7 +889,7 @@ leftIdentityDynFlags id_lit = do
   return e2
 
 -- | Left identity rule for PrimOps like 'IntAddC' and 'WordAddC', where, in
--- addition to the result, we have to indicate that no carry/overflow occured.
+-- addition to the result, we have to indicate that no carry/overflow occurred.
 leftIdentityCDynFlags :: (DynFlags -> Literal) -> RuleM CoreExpr
 leftIdentityCDynFlags id_lit = do
   dflags <- getDynFlags
@@ -873,7 +906,7 @@ rightIdentityDynFlags id_lit = do
   return e1
 
 -- | Right identity rule for PrimOps like 'IntSubC' and 'WordSubC', where, in
--- addition to the result, we have to indicate that no carry/overflow occured.
+-- addition to the result, we have to indicate that no carry/overflow occurred.
 rightIdentityCDynFlags :: (DynFlags -> Literal) -> RuleM CoreExpr
 rightIdentityCDynFlags id_lit = do
   dflags <- getDynFlags
@@ -887,7 +920,7 @@ identityDynFlags lit =
   leftIdentityDynFlags lit `mplus` rightIdentityDynFlags lit
 
 -- | Identity rule for PrimOps like 'IntAddC' and 'WordAddC', where, in addition
--- to the result, we have to indicate that no carry/overflow occured.
+-- to the result, we have to indicate that no carry/overflow occurred.
 identityCDynFlags :: (DynFlags -> Literal) -> RuleM CoreExpr
 identityCDynFlags lit =
   leftIdentityCDynFlags lit `mplus` rightIdentityCDynFlags lit
@@ -1072,12 +1105,12 @@ Only `SeqOp` shares that property.  (Other primops do not do anything
 as fancy as argument evaluation.)  The special handling for dataToTag#
 is:
 
-* CoreUtils.exprOkForSpeculation has a special case for DataToTagOp,
+* GHC.Core.Utils.exprOkForSpeculation has a special case for DataToTagOp,
   (actually in app_ok).  Most primops with lifted arguments do not
   evaluate those arguments, but DataToTagOp and SeqOp are two
   exceptions.  We say that they are /never/ ok-for-speculation,
   regardless of the evaluated-ness of their argument.
-  See CoreUtils Note [exprOkForSpeculation and SeqOp/DataToTagOp]
+  See GHC.Core.Utils Note [exprOkForSpeculation and SeqOp/DataToTagOp]
 
 * There is a special case for DataToTagOp in GHC.StgToCmm.Expr.cgExpr,
   that evaluates its argument and then extracts the tag from
@@ -1093,14 +1126,35 @@ is:
   by PrelRules.caseRules; see Note [caseRules for dataToTag]
 
 See #15696 for a long saga.
-
-
-************************************************************************
-*                                                                      *
-\subsection{Rules for seq# and spark#}
-*                                                                      *
-************************************************************************
 -}
+
+{- *********************************************************************
+*                                                                      *
+             unsafeEqualityProof
+*                                                                      *
+********************************************************************* -}
+
+-- unsafeEqualityProof k t t  ==>  UnsafeRefl (Refl t)
+-- That is, if the two types are equal, it's not unsafe!
+
+unsafeEqualityProofRule :: RuleM CoreExpr
+unsafeEqualityProofRule
+  = do { [Type rep, Type t1, Type t2] <- getArgs
+       ; guard (t1 `eqType` t2)
+       ; fn <- getFunction
+       ; let (_, ue) = splitForAllTys (idType fn)
+             tc      = tyConAppTyCon ue  -- tycon:    UnsafeEquality
+             (dc:_)  = tyConDataCons tc  -- data con: UnsafeRefl
+             -- UnsafeRefl :: forall (r :: RuntimeRep) (a :: TYPE r).
+             --               UnsafeEquality r a a
+       ; return (mkTyApps (Var (dataConWrapId dc)) [rep, t1]) }
+
+
+{- *********************************************************************
+*                                                                      *
+             Rules for seq# and spark#
+*                                                                      *
+********************************************************************* -}
 
 {- Note [seq# magic]
 ~~~~~~~~~~~~~~~~~~~~
@@ -1148,8 +1202,8 @@ Implementing seq#.  The compiler has magic for SeqOp in
 
 - GHC.StgToCmm.Expr.cgExpr, and cgCase: special case for seq#
 
-- CoreUtils.exprOkForSpeculation;
-  see Note [exprOkForSpeculation and SeqOp/DataToTagOp] in CoreUtils
+- GHC.Core.Utils.exprOkForSpeculation;
+  see Note [exprOkForSpeculation and SeqOp/DataToTagOp] in GHC.Core.Utils
 
 - Simplify.addEvals records evaluated-ness for the result; see
   Note [Adding evaluatedness info to pattern-bound variables]
@@ -1193,13 +1247,11 @@ Then a rewrite would give
         ....and lower down...
         eqString = ...
 
-and lo, eqString is not in scope.  This only really matters when we get to code
-generation.  With -O we do a GlomBinds step that does a new SCC analysis on the whole
-set of bindings, which sorts out the dependency.  Without -O we don't do any rule
-rewriting so again we are fine.
-
-(This whole thing doesn't show up for non-built-in rules because their dependencies
-are explicit.)
+and lo, eqString is not in scope.  This only really matters when we
+get to code generation.  But the occurrence analyser does a GlomBinds
+step when necessary, that does a new SCC analysis on the whole set of
+bindings (see occurAnalysePgm), which sorts out the dependency, so all
+is fine.
 -}
 
 builtinRules :: [CoreRule]
@@ -1214,6 +1266,9 @@ builtinRules
                    ru_nargs = 2, ru_try = \_ _ _ -> match_inline },
      BuiltinRule { ru_name = fsLit "MagicDict", ru_fn = idName magicDictId,
                    ru_nargs = 4, ru_try = \_ _ _ -> match_magicDict },
+
+     mkBasicRule unsafeEqualityProofName 3 unsafeEqualityProofRule,
+
      mkBasicRule divIntName 2 $ msum
         [ nonZeroLit 1 >> binaryLit (intOp2 div)
         , leftZero zeroi
@@ -1223,6 +1278,7 @@ builtinRules
           dflags <- getDynFlags
           return $ Var (mkPrimOpId ISraOp) `App` arg `App` mkIntVal dflags n
         ],
+
      mkBasicRule modIntName 2 $ msum
         [ nonZeroLit 1 >> binaryLit (intOp2 mod)
         , leftZero zeroi
@@ -1557,7 +1613,7 @@ match_bitInteger dflags id_unf fn [arg]
   | Just (LitNumber LitNumInt x _) <- exprIsLiteral_maybe id_unf arg
   , x >= 0
   , x <= (wordSizeInBits dflags - 1)
-    -- Make sure x is small enough to yield a decently small iteger
+    -- Make sure x is small enough to yield a decently small integer
     -- Attempting to construct the Integer for
     --    (bitInteger 9223372036854775807#)
     -- would be a bad idea (#14959)
@@ -2192,7 +2248,7 @@ Take care if we see something like
     -1# -> e2
     100 -> e3
 because there isn't a data constructor with tag -1 or 100. In this case the
-out-of-range alterantive is dead code -- we know the range of tags for x.
+out-of-range alternative is dead code -- we know the range of tags for x.
 
 Hence caseRules returns (AltCon -> Maybe AltCon), with Nothing indicating
 an alternative that is unreachable.

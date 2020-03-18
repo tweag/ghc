@@ -24,7 +24,7 @@
 
 module RdrName (
         -- * The main type
-        RdrName(..),    -- Constructors exported only to BinIface
+        RdrName(..),    -- Constructors exported only to GHC.Iface.Binary
 
         -- ** Construction
         mkRdrUnqual, mkRdrQual,
@@ -280,7 +280,7 @@ instance Outputable RdrName where
 
 instance OutputableBndr RdrName where
     pprBndr _ n
-        | isTvOcc (rdrNameOcc n) = char '@' <+> ppr n
+        | isTvOcc (rdrNameOcc n) = char '@' <> ppr n
         | otherwise              = ppr n
 
     pprInfixOcc  rdr = pprInfixVar  (isSymOcc (rdrNameOcc rdr)) (ppr rdr)
@@ -344,7 +344,7 @@ instance Ord RdrName where
 -- (@let@, @where@, lambda, @case@).
 -- It is keyed by OccName, because we never use it for qualified names
 -- We keep the current mapping, *and* the set of all Names in scope
--- Reason: see Note [Splicing Exact names] in RnEnv
+-- Reason: see Note [Splicing Exact names] in GHC.Rename.Env
 data LocalRdrEnv = LRE { lre_env      :: OccEnv Name
                        , lre_in_scope :: NameSet }
 
@@ -416,7 +416,7 @@ Note [Local bindings with Exact Names]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 With Template Haskell we can make local bindings that have Exact Names.
 Computing shadowing etc may use elemLocalRdrEnv (at least it certainly
-does so in RnTpes.bindHsQTyVars), so for an Exact Name we must consult
+does so in GHC.Rename.Types.bindHsQTyVars), so for an Exact Name we must consult
 the in-scope-name-set.
 
 
@@ -444,7 +444,7 @@ type GlobalRdrEnv = OccEnv [GlobalRdrElt]
 -- INVARIANT 2: Imported provenance => Name is an ExternalName
 --              However LocalDefs can have an InternalName.  This
 --              happens only when type-checking a [d| ... |] Template
---              Haskell quotation; see this note in RnNames
+--              Haskell quotation; see this note in GHC.Rename.Names
 --              Note [Top-level Names in Template Haskell decl quotes]
 --
 -- INVARIANT 3: If the GlobalRdrEnv maps [occ -> gre], then
@@ -452,7 +452,7 @@ type GlobalRdrEnv = OccEnv [GlobalRdrElt]
 --
 --              NB: greOccName gre is usually the same as
 --                  nameOccName (gre_name gre), but not always in the
---                  case of record seectors; see greOccName
+--                  case of record selectors; see greOccName
 
 -- | Global Reader Element
 --
@@ -509,7 +509,7 @@ gre_lcl is True, or gre_imp is non-empty.
 
 It is just possible to have *both* if there is a module loop: a Name
 is defined locally in A, and also brought into scope by importing a
-module that SOURCE-imported A.  Exapmle (#7672):
+module that SOURCE-imported A.  Example (#7672):
 
  A.hs-boot   module A where
                data T
@@ -928,7 +928,7 @@ pickGREsModExp :: ModuleName -> [GlobalRdrElt] -> [(GlobalRdrElt,GlobalRdrElt)]
 -- it is in scope qualified an unqualified respectively
 --
 -- Used only for the 'module M' item in export list;
---   see RnNames.exports_from_avail
+--   see GHC.Rename.Names.exports_from_avail
 pickGREsModExp mod gres = mapMaybe (pickBothGRE mod) gres
 
 pickBothGRE :: ModuleName -> GlobalRdrElt -> Maybe (GlobalRdrElt, GlobalRdrElt)
@@ -1033,13 +1033,13 @@ There are two reasons for shadowing:
     So when we add `x = True` we must not delete the `M.x` from the
     `GlobalRdrEnv`; rather we just want to make it "qualified only";
     hence the `mk_fake-imp_spec` in `shadowName`.  See also Note
-    [Interactively-bound Ids in GHCi] in HscTypes
+    [Interactively-bound Ids in GHCi] in GHC.Driver.Types
 
   - Data types also have External Names, like Ghci4.T; but we still want
     'T' to mean the newly-declared 'T', not an old one.
 
 * Nested Template Haskell declaration brackets
-  See Note [Top-level Names in Template Haskell decl quotes] in RnNames
+  See Note [Top-level Names in Template Haskell decl quotes] in GHC.Rename.Names
 
   Consider a TH decl quote:
       module M where
@@ -1128,7 +1128,7 @@ shadowName env name
 -- It's quite elaborate so that we can give accurate unused-name warnings.
 data ImportSpec = ImpSpec { is_decl :: ImpDeclSpec,
                             is_item :: ImpItemSpec }
-                deriving( Eq, Ord, Data )
+                deriving( Eq, Data )
 
 -- | Import Declaration Specification
 --
@@ -1145,7 +1145,7 @@ data ImpDeclSpec
         is_as       :: ModuleName, -- ^ Import alias, e.g. from @as M@ (or @Muggle@ if there is no @as@ clause)
         is_qual     :: Bool,       -- ^ Was this import qualified?
         is_dloc     :: SrcSpan     -- ^ The location of the entire import declaration
-    } deriving Data
+    } deriving (Eq, Data)
 
 -- | Import Item Specification
 --
@@ -1166,26 +1166,7 @@ data ImpItemSpec
         --
         -- Here the constructors of @T@ are not named explicitly;
         -- only @T@ is named explicitly.
-  deriving Data
-
-instance Eq ImpDeclSpec where
-  p1 == p2 = case p1 `compare` p2 of EQ -> True; _ -> False
-
-instance Ord ImpDeclSpec where
-   compare is1 is2 = (is_mod is1 `compare` is_mod is2) `thenCmp`
-                     (is_dloc is1 `compare` is_dloc is2)
-
-instance Eq ImpItemSpec where
-  p1 == p2 = case p1 `compare` p2 of EQ -> True; _ -> False
-
-instance Ord ImpItemSpec where
-   compare is1 is2 =
-    case (is1, is2) of
-      (ImpAll, ImpAll) -> EQ
-      (ImpAll, _)      -> GT
-      (_, ImpAll)      -> LT
-      (ImpSome _ l1, ImpSome _ l2) -> l1 `compare` l2
-
+  deriving (Eq, Data)
 
 bestImport :: [ImportSpec] -> ImportSpec
 -- See Note [Choosing the best import declaration]
@@ -1203,7 +1184,7 @@ bestImport iss
          (ImpSpec { is_item = item2, is_decl = d2 })
       = (is_qual d1 `compare` is_qual d2) `thenCmp`
         (best_item item1 item2)           `thenCmp`
-        (is_dloc d1 `compare` is_dloc d2)
+        SrcLoc.leftmost_smallest (is_dloc d1) (is_dloc d2)
 
     best_item :: ImpItemSpec -> ImpItemSpec -> Ordering
     best_item ImpAll ImpAll = EQ
@@ -1234,7 +1215,7 @@ and are warned about. More precisely:
 
 3. After processing all the RdrNames, bleat about any
    import-items that are unused.
-   This is done in RnNames.warnUnusedImportDecls.
+   This is done in GHC.Rename.Names.warnUnusedImportDecls.
 
 The function 'bestImport' returns the dominant import among the
 ImportSpecs it is given, implementing Step 2.  We say import-item A
@@ -1325,7 +1306,7 @@ instance Outputable ImportSpec where
             | otherwise                  = empty
 
 pprLoc :: SrcSpan -> SDoc
-pprLoc (RealSrcSpan s)    = text "at" <+> ppr s
+pprLoc (RealSrcSpan s _)  = text "at" <+> ppr s
 pprLoc (UnhelpfulSpan {}) = empty
 
 -- | Display info about the treatment of '*' under NoStarIsType.
@@ -1376,12 +1357,12 @@ pprLoc (UnhelpfulSpan {}) = empty
 --
 starInfo :: Bool -> RdrName -> SDoc
 starInfo star_is_type rdr_name =
-  -- One might ask: if can use sdocWithDynFlags here, why bother to take
-  -- star_is_type as input? Why not refactor?
+  -- One might ask: if can use `sdocOption sdocStarIsType` here, why bother to
+  -- take star_is_type as input? Why not refactor?
   --
-  -- The reason is that sdocWithDynFlags would provide DynFlags that are active
-  -- in the module that tries to load the problematic definition, not
-  -- in the module that is being loaded.
+  -- The reason is that `sdocOption sdocStarIsType` would indicate that
+  -- StarIsType is enabled in the module that tries to load the problematic
+  -- definition, not in the module that is being loaded.
   --
   -- So if we have 'data T :: *' in a module with NoStarIsType, then the hint
   -- must be displayed even if we load this definition from a module (or GHCi)

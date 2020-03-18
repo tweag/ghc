@@ -19,10 +19,11 @@ import collections
 import subprocess
 
 from testglobals import config, ghc_env, default_testopts, brokens, t, \
-                        TestRun, TestResult, TestOptions
+                        TestRun, TestResult, TestOptions, PerfMetric
 from testutil import strip_quotes, lndir, link_or_copy_file, passed, \
-                     failBecause, str_fail, str_pass, testing_metrics, \
+                     failBecause, testing_metrics, \
                      PassFail
+from term_color import Color, colored
 import testutil
 from cpu_features import have_cpu_feature
 import perf_notes as Perf
@@ -190,6 +191,10 @@ def req_shared_libs( name, opts ):
 
 def req_interp( name, opts ):
     if not config.have_interp:
+        opts.expect = 'fail'
+
+def req_rts_linker( name, opts ):
+    if not config.have_RTS_linker:
         opts.expect = 'fail'
 
 def req_th( name, opts ):
@@ -388,7 +393,7 @@ def extra_run_opts( val ):
     return lambda name, opts, v=val: _extra_run_opts(name, opts, v);
 
 def _extra_run_opts( name, opts, v ):
-    opts.extra_run_opts = v
+    opts.extra_run_opts += " " + v
 
 # -----
 
@@ -396,7 +401,7 @@ def extra_hc_opts( val ):
     return lambda name, opts, v=val: _extra_hc_opts(name, opts, v);
 
 def _extra_hc_opts( name, opts, v ):
-    opts.extra_hc_opts = v
+    opts.extra_hc_opts += " " + v
 
 # -----
 
@@ -496,7 +501,18 @@ def fast() -> bool:
 def platform( plat: str ) -> bool:
     return config.platform == plat
 
+KNOWN_OPERATING_SYSTEMS = set([
+    'mingw32',
+    'freebsd',
+    'openbsd',
+    'aix',
+    'linux',
+    'darwin',
+    'solaris2',
+])
+
 def opsys( os: str ) -> bool:
+    assert os in KNOWN_OPERATING_SYSTEMS
     return config.os == os
 
 def arch( arch: str ) -> bool:
@@ -549,6 +565,52 @@ def integer_simple( ) -> bool:
 
 def llvm_build ( ) -> bool:
     return config.ghc_built_by_llvm
+
+# ---
+
+# Note [Measuring residency]
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+# Residency (peak_megabytes_allocated and max_bytes_used) is sensitive
+# to when the major GC runs, which makes it inherently inaccurate.
+# Sometime an innocuous change somewhere can shift things around such
+# that the samples occur at a different time, and the residency
+# appears to change (up or down) when the underlying profile hasn't
+# really changed. To further minimize this effect we run with a single
+# generation (meaning we get a residency sample on every GC) with a small
+# allocation area (as suggested in #17387). That's what +RTS -h -i0 will do.
+# If you find that a test is flaky, sampling frequency can be adjusted by
+# shrinking the allocation area (+RTS -A64k, for example).
+#
+# However, please don't just ignore changes in residency.  If you see
+# a change in one of these figures, please check whether it is real or
+# not as follows:
+#
+#  * Run the test with old and new compilers, adding +RTS -h -i0.001
+#    (you don't need to compile anything for profiling or enable profiling
+#    libraries to get a heap profile).
+#  * view the heap profiles, read off the maximum residency.  If it has
+#    really changed, then you know there's an issue.
+
+RESIDENCY_OPTS = '+RTS -A256k -i0 -h -RTS'
+
+# See Note [Measuring residency].
+def collect_runtime_residency(tolerance_pct: float):
+    return [
+        collect_stats(['peak_megabytes_allocated', 'max_bytes_used'], tolerance_pct),
+        extra_run_opts(RESIDENCY_OPTS),
+        # The nonmoving collector does not support -G1
+        omit_ways([WayName(name) for name in ['nonmoving', 'nonmoving_thr', 'nonmoving_thr_ghc']])
+    ]
+
+# See Note [Measuring residency].
+def collect_compiler_residency(tolerance_pct: float):
+    return [
+        collect_compiler_stats(['peak_megabytes_allocated', 'max_bytes_used'], tolerance_pct),
+        extra_hc_opts(RESIDENCY_OPTS),
+        # The nonmoving collector does not support -G1
+        omit_ways([WayName('nonmoving_thr_ghc')])
+    ]
 
 # ---
 
@@ -806,6 +868,9 @@ def test(name: TestName,
 
     executeSetups([thisdir_settings, setup], name, myTestOpts)
 
+    if name in config.broken_tests:
+        myTestOpts.expect = 'fail'
+
     thisTest = lambda watcher: runTest(watcher, myTestOpts, name, func, args)
     if myTestOpts.alone:
         aloneTests.append(thisTest)
@@ -926,8 +991,8 @@ def test_common_work(watcher: testutil.Watcher,
             except KeyboardInterrupt:
                 stopNow()
             except Exception as e:
-                framework_fail(name, way, str(e))
                 traceback.print_exc()
+                framework_fail(name, way, traceback.format_exc())
 
         t.n_tests_skipped += len(set(all_ways) - set(do_ways))
 
@@ -1136,7 +1201,7 @@ def ghci_script( name, way, script):
     # script can invoke the correct compiler by using ':! $HC $HC_OPTS'
     cmd = ('HC={{compiler}} HC_OPTS="{flags}" {{compiler}} {way_flags} {flags}'
           ).format(flags=flags, way_flags=way_flags)
-      # NB: put way_flags before flags so that flags in all.T can overrie others
+      # NB: put way_flags before flags so that flags in all.T can override others
 
     getTestOpts().stdin = script
     return simple_run( name, way, cmd, getTestOpts().extra_run_opts )
@@ -1170,6 +1235,9 @@ def multimod_compile( name, way, top_mod, extra_hc_opts ):
 
 def multimod_compile_fail( name, way, top_mod, extra_hc_opts ):
     return do_compile( name, way, True, top_mod, [], extra_hc_opts )
+
+def multimod_compile_filter( name, way, top_mod, extra_hc_opts, filter_with, suppress_stdout=True ):
+    return do_compile( name, way, False, top_mod, [], extra_hc_opts, filter_with=filter_with, suppress_stdout=suppress_stdout )
 
 def multi_compile( name, way, top_mod, extra_mods, extra_hc_opts ):
     return do_compile( name, way, False, top_mod, extra_mods, extra_hc_opts)
@@ -1331,7 +1399,7 @@ def metric_dict(name, way, metric, value) -> PerfStat:
 # way: the way.
 # stats_file: the path of the stats_file containing the stats for the test.
 # range_fields: see TestOptions.stats_range_fields
-# Returns a pass/fail object. Passes if the stats are withing the expected value ranges.
+# Returns a pass/fail object. Passes if the stats are within the expected value ranges.
 # This prints the results for the user.
 def check_stats(name: TestName,
                 way: WayName,
@@ -1380,7 +1448,7 @@ def check_stats(name: TestName,
                         tolerance_dev,
                         config.allowed_perf_changes,
                         config.verbose >= 4)
-                t.metrics.append((change, perf_stat, baseline))
+                t.metrics.append(PerfMetric(change=change, stat=perf_stat, baseline=baseline))
 
             # If any metric fails then the test fails.
             # Note, the remaining metrics are still run so that
@@ -1410,12 +1478,14 @@ def simple_build(name: Union[TestName, str],
                  top_mod: Optional[Path],
                  link: bool,
                  addsuf: bool,
-                 backpack: bool = False) -> Any:
+                 backpack: bool = False,
+                 suppress_stdout: bool = False,
+                 filter_with: str = '') -> Any:
     opts = getTestOpts()
 
     # Redirect stdout and stderr to the same file
     stdout = in_testdir(name, 'comp.stderr')
-    stderr = subprocess.STDOUT
+    stderr = subprocess.STDOUT if not suppress_stdout else None
 
     if top_mod is not None:
         srcname = top_mod
@@ -1465,6 +1535,9 @@ def simple_build(name: Union[TestName, str],
     cmd = ('cd "{opts.testdir}" && {cmd_prefix} '
            '{{compiler}} {to_do} {srcname} {flags} {extra_hc_opts}'
           ).format(**locals())
+
+    if filter_with != '':
+        cmd = cmd + ' | ' + filter_with
 
     exit_code = runCmd(cmd, None, stdout, stderr, opts.compile_timeout_multiplier)
 
@@ -1519,19 +1592,20 @@ def simple_run(name: TestName, way: WayName, prog: str, extra_run_opts: str) -> 
 
     my_rts_flags = rts_flags(way)
 
-    # Collect stats if necessary:
+    # Collect runtime stats if necessary:
     # isStatsTest and not isCompilerStatsTest():
     #   assume we are running a ghc compiled program. Collect stats.
     # isStatsTest and way == 'ghci':
     #   assume we are running a program via ghci. Collect stats
-    stats_file = name + '.stats'
+    stats_file = None # type: Optional[str]
     if isStatsTest() and (not isCompilerStatsTest() or way == 'ghci'):
+        stats_file = name + '.stats'
         stats_args = ' +RTS -V0 -t' + stats_file + ' --machine-readable -RTS'
     else:
         stats_args = ''
 
     # Put extra_run_opts last: extra_run_opts('+RTS foo') should work.
-    cmd = prog + stats_args + ' ' + my_rts_flags + ' ' + extra_run_opts
+    cmd = ' '.join([prog, stats_args, my_rts_flags, extra_run_opts])
 
     if opts.cmd_wrapper is not None:
         cmd = opts.cmd_wrapper(cmd)
@@ -1567,7 +1641,11 @@ def simple_run(name: TestName, way: WayName, prog: str, extra_run_opts: str) -> 
     if check_prof and not check_prof_ok(name, way):
         return failBecause('bad profile')
 
-    return check_stats(name, way, in_testdir(stats_file), opts.stats_range_fields)
+    # Check runtime stats if desired.
+    if stats_file is not None:
+        return check_stats(name, way, in_testdir(stats_file), opts.stats_range_fields)
+    else:
+        return passed()
 
 def rts_flags(way: WayName) -> str:
     args = config.way_rts_flags.get(way, [])
@@ -1706,10 +1784,10 @@ def read_stdout( name: TestName ) -> str:
     return in_testdir(name, 'run.stdout').read_text(encoding='UTF-8')
 
 def dump_stdout( name: TestName ) -> None:
-    str = read_stdout(name).strip()
-    if str:
+    s = read_stdout(name).strip()
+    if s:
         print("Stdout (", name, "):")
-        print(str)
+        safe_print(s)
 
 def stderr_ok(name: TestName, way: WayName) -> bool:
    actual_stderr_file = add_suffix(name, 'run.stderr')
@@ -1724,10 +1802,10 @@ def read_stderr( name: TestName ) -> str:
     return in_testdir(name, 'run.stderr').read_text(encoding='UTF-8')
 
 def dump_stderr( name: TestName ) -> None:
-    str = read_stderr(name).strip()
-    if str:
+    s = read_stderr(name).strip()
+    if s:
         print("Stderr (", name, "):")
-        print(str)
+        safe_print(s)
 
 def read_no_crs(f: Path) -> str:
     s = ''
@@ -2145,14 +2223,18 @@ def normalise_asm( s: str ) -> str:
           out.append(ins[0])
     return '\n'.join(out)
 
+def safe_print(s: str) -> None:
+    s2 = s.encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
+    print(s2)
+
 def if_verbose( n: int, s: str ) -> None:
     if config.verbose >= n:
-        print(s)
+        safe_print(s)
 
 def dump_file(f: Path):
     try:
         with f.open() as file:
-            print(file.read())
+            safe_print(file.read())
     except Exception:
         print('')
 
@@ -2308,11 +2390,11 @@ if config.msys:
         testdir = getTestOpts().testdir # type: Path
         max_attempts = 5
         retries = max_attempts
-        def on_error(function, path, excinfo):
+        def on_error(function, path: str, excinfo):
             # At least one test (T11489) removes the write bit from a file it
             # produces. Windows refuses to delete read-only files with a
             # permission error. Try setting the write bit and try again.
-            path.chmod(stat.S_IWRITE)
+            Path(path).chmod(stat.S_IWRITE)
             function(path)
 
         # On Windows we have to retry the delete a couple of times.
@@ -2377,18 +2459,16 @@ def summary(t: TestRun, file: TextIO, short=False, color=False) -> None:
         # Only print the list of unexpected tests above.
         return
 
-    colorize = lambda s: s
-    if color:
-        if len(t.unexpected_failures) > 0 or \
-            len(t.unexpected_stat_failures) > 0 or \
-            len(t.unexpected_passes) > 0 or \
-            len(t.framework_failures) > 0:
-            colorize = str_fail
-        else:
-            colorize = str_pass
+    if len(t.unexpected_failures) > 0 or \
+        len(t.unexpected_stat_failures) > 0 or \
+        len(t.unexpected_passes) > 0 or \
+        len(t.framework_failures) > 0:
+        summary_color = Color.RED
+    else:
+        summary_color = Color.GREEN
 
     assert t.start_time is not None
-    file.write(colorize('SUMMARY') + ' for test run started at '
+    file.write(colored(summary_color, 'SUMMARY') + ' for test run started at '
                + t.start_time.strftime("%c %Z") + '\n'
                + str(datetime.datetime.now() - t.start_time).rjust(8)
                + ' spent to go through\n'

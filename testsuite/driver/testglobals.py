@@ -133,7 +133,7 @@ class TestConfig:
         # Do we have SMP support?
         self.have_smp = False
 
-        # Is gdb avaliable?
+        # Is gdb available?
         self.have_gdb = False
 
         # Is readelf available?
@@ -152,6 +152,10 @@ class TestConfig:
         # threads
         self.threads = 1
         self.use_threads = False
+
+        # tests which should be considered to be broken during this testsuite
+        # run.
+        self.broken_tests = set() # type: Set[TestName]
 
         # Should we skip performance tests
         self.skip_perf_tests = False
@@ -216,6 +220,12 @@ class TestResult:
         self.stdout = stdout
         self.stderr = stderr
 
+# A performance metric measured in this test run.
+PerfMetric = NamedTuple('PerfMetric',
+                        [('change', MetricChange),
+                         ('stat', PerfStat),
+                         ('baseline', Optional[Baseline]) ])
+
 class TestRun:
    def __init__(self) -> None:
        self.start_time = None # type: Optional[datetime]
@@ -243,7 +253,7 @@ class TestRun:
        # [(change, PerfStat)] where change is one of the  MetricChange
        # constants: NewMetric, NoChange, Increase, Decrease.
        # NewMetric happens when the previous git commit has no metric recorded.
-       self.metrics = [] # type: List[Tuple[MetricChange, PerfStat, Optional[Baseline]]]
+       self.metrics = [] # type: List[PerfMetric]
 
 global t
 t = TestRun()
@@ -393,6 +403,7 @@ class TestOptions:
 global default_testopts
 default_testopts = TestOptions()
 
-# (bug, directory, name) of tests marked broken
+# (bug, directory, name) of tests marked broken. Used by config.list_broken
+# feature.
 global brokens
 brokens = []  # type: List[Tuple[IssueNumber, str, str]]

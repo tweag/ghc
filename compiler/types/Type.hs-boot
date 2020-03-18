@@ -18,6 +18,9 @@ eqType :: Type -> Type -> Bool
 
 coreView :: Type -> Maybe Type
 tcView :: Type -> Maybe Type
+isRuntimeRepTy :: Type -> Bool
+isMultiplicityTy :: Type -> Bool
+isLiftedTypeKind :: Type -> Bool
 
 splitTyConApp_maybe :: HasDebugCallStack => Type -> Maybe (TyCon, [Type])
 

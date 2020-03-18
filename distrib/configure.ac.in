@@ -18,14 +18,18 @@ FP_GMP
 dnl Various things from the source distribution configure
 bootstrap_target=@TargetPlatform@
 
-HaveRTSLinker=@HaveRTSLinker@
-AC_SUBST(HaveRTSLinker)
+TargetHasRTSLinker=@TargetHasRTSLinker@
+AC_SUBST(TargetHasRTSLinker)
 
 FFIIncludeDir=@FFIIncludeDir@
 FFILibDir=@FFILibDir@
 AC_SUBST(FFILibDir)
 AC_SUBST(FFIIncludeDir)
 
+LibdwIncludeDir=@LibdwIncludeDir@
+LibdwLibDir=@LibdwLibDir@
+AC_SUBST(LibdwLibDir)
+AC_SUBST(LibdwIncludeDir)
 
 # We have to run these unconditionally as FPTOOLS_SET_PLATFORM_VARS wants the
 # values it computes.
@@ -42,10 +46,12 @@ FP_FIND_ROOT
 CrossCompiling=NO
 CrossCompilePrefix=""
 TargetPlatformFull="${target}"
+TablesNextToCode="@TablesNextToCode@"
 
 AC_SUBST(CrossCompiling)
 AC_SUBST(CrossCompilePrefix)
 AC_SUBST(TargetPlatformFull)
+AC_SUBST(TablesNextToCode)
 
 Unregisterised="@Unregisterised@"
 AC_SUBST(Unregisterised)
@@ -56,12 +62,6 @@ dnl ** figure out how to do a BSD-ish install **
 AC_PROG_INSTALL
 
 #
-dnl ** find `find`, used by get-win32-tarballs.sh (see #12502)
-#
-FP_PROG_FIND()
-export FIND
-
-#
 dnl ** how to do symlinks **
 #
 AC_PROG_LN_S()
@@ -70,6 +70,9 @@ AC_PROG_LN_S()
 dnl ** Find the path to sed **
 #
 AC_PATH_PROG(SedCmd,gsed sed,sed)
+
+dnl ** check for Python for testsuite driver
+FIND_PYTHON
 
 XCODE_VERSION()
 

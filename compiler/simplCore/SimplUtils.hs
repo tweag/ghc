@@ -42,14 +42,15 @@ import GhcPrelude
 
 import SimplEnv
 import CoreMonad        ( SimplMode(..), Tick(..) )
-import DynFlags
-import CoreSyn
-import qualified CoreSubst
-import PprCore
-import CoreFVs
-import CoreUtils
-import CoreArity
-import CoreUnfold
+import GHC.Driver.Session
+import GHC.Core
+import qualified GHC.Core.Subst
+import GHC.Core.Ppr
+import TyCoPpr          ( pprParendType )
+import GHC.Core.FVs
+import GHC.Core.Utils
+import GHC.Core.Arity
+import GHC.Core.Unfold
 import Name
 import Id
 import IdInfo
@@ -66,7 +67,6 @@ import Util
 import OrdList          ( isNilOL )
 import MonadUtils
 import Outputable
-import Pair
 import PrelRules
 import FastString       ( fsLit )
 
@@ -299,7 +299,7 @@ addTyArgTo ai arg_ty = ai { ai_args = arg_spec : ai_args ai
 
 addCastTo :: ArgInfo -> OutCoercion -> ArgInfo
 addCastTo ai co = ai { ai_args = CastBy co : ai_args ai
-                     , ai_type = pSnd (coercionKind co) }
+                     , ai_type = coercionRKind co }
 
 argInfoAppArgs :: [ArgSpec] -> [OutExpr]
 argInfoAppArgs []                              = []
@@ -356,7 +356,7 @@ mkFunRules rs = Just (n_required, rs)
 mkBoringStop :: OutType -> SimplCont
 mkBoringStop ty = Stop ty BoringCtxt
 
-mkRhsStop :: OutType -> SimplCont       -- See Note [RHS of lets] in CoreUnfold
+mkRhsStop :: OutType -> SimplCont       -- See Note [RHS of lets] in GHC.Core.Unfold
 mkRhsStop ty = Stop ty RhsCtxt
 
 mkLazyArgStop :: OutType -> CallCtxt -> SimplCont
@@ -409,7 +409,7 @@ contResultType (TickIt _ k)                 = contResultType k
 contHoleType :: SimplCont -> OutType
 contHoleType (Stop ty _)                      = ty
 contHoleType (TickIt _ k)                     = contHoleType k
-contHoleType (CastIt co _)                    = pFst (coercionKind co)
+contHoleType (CastIt co _)                    = coercionLKind co
 contHoleType (StrictBind { sc_bndr = b, sc_dup = dup, sc_env = se })
   = perhapsSubstTy dup se (idType b)
 contHoleType (StrictArg  { sc_fun = ai, sc_mult = _m })      = funArgTy (ai_type ai)
@@ -457,7 +457,7 @@ contArgs cont
   | lone cont = (True, [], cont)
   | otherwise = go [] cont
   where
-    lone (ApplyToTy  {}) = False  -- See Note [Lone variables] in CoreUnfold
+    lone (ApplyToTy  {}) = False  -- See Note [Lone variables] in GHC.Core.Unfold
     lone (ApplyToVal {}) = False
     lone (CastIt {})     = False
     lone _               = True
@@ -524,7 +524,7 @@ mkArgInfo env fun rules n_val_args call_cont
                         -- top-level bindings for (say) strings into
                         -- calls to error.  But now we are more careful about
                         -- inlining lone variables, so its ok (see SimplUtils.analyseCont)
-                   if isBotRes result_info then
+                   if isBotDiv result_info then
                         map isStrictDmd demands         -- Finite => result is bottom
                    else
                         map isStrictDmd demands ++ vanilla_stricts
@@ -574,7 +574,7 @@ Note [Do not expose strictness if sm_inline=False]
 
   {-# RULES "foo" forall as bs. stream (zip as bs) = ..blah... #-}
 
-If we expose zip's bottoming nature when simplifing the LHS of the
+If we expose zip's bottoming nature when simplifying the LHS of the
 RULE we get
   {-# RULES "foo" forall as bs.
                    stream (case zip of {}) = ..blah... #-}
@@ -582,7 +582,7 @@ discarding the arguments to zip.  Usually this is fine, but on the
 LHS of a rule it's not, because 'as' and 'bs' are now not bound on
 the LHS.
 
-This is a pretty pathalogical example, so I'm not losing sleep over
+This is a pretty pathological example, so I'm not losing sleep over
 it, but the simplest solution was to check sm_inline; if it is False,
 which it is on the LHS of a rule (see updModeForRules), then don't
 make use of the strictness info for the function.
@@ -657,7 +657,7 @@ interestingCallContext env cont
         -- Can happen if we have (f Int |> co) y
         -- If f has an INLINE prag we need to give it some
         -- motivation to inline. See Note [Cast then apply]
-        -- in CoreUnfold
+        -- in GHC.Core.Unfold
 
     interesting (StrictArg { sc_cci = cci }) = cci
     interesting (StrictBind {})              = BoringCtxt
@@ -1078,7 +1078,7 @@ For example, it's tempting to look at trivial binding like
 and inline it unconditionally.  But suppose x is used many times,
 but this is the unique occurrence of y.  Then inlining x would change
 y's occurrence info, which breaks the invariant.  It matters: y
-might have a BIG rhs, which will now be dup'd at every occurrenc of x.
+might have a BIG rhs, which will now be dup'd at every occurrence of x.
 
 
 Even RHSs labelled InlineMe aren't caught here, because there might be
@@ -1160,7 +1160,7 @@ preInlineUnconditionally
     -> InExpr -> StaticEnv  -- These two go together
     -> Maybe SimplEnv       -- Returned env has extended substitution
 -- Precondition: rhs satisfies the let/app invariant
--- See Note [CoreSyn let/app invariant] in CoreSyn
+-- See Note [Core let/app invariant] in GHC.Core
 -- Reason: we don't want to inline single uses, or discard dead bindings,
 --         for unlifted, side-effect-ful bindings
 preInlineUnconditionally env top_lvl bndr rhs rhs_env
@@ -1182,12 +1182,12 @@ preInlineUnconditionally env top_lvl bndr rhs rhs_env
     extend_subst_with inl_rhs = extendIdSubst env bndr (mkContEx rhs_env inl_rhs)
 
     one_occ IAmDead = True -- Happens in ((\x.1) v)
-    one_occ (OneOcc { occ_one_br = True      -- One textual occurrence
-                    , occ_in_lam = in_lam
-                    , occ_int_cxt = int_cxt })
-        | not in_lam = isNotTopLevel top_lvl || early_phase
-        | otherwise  = int_cxt && canInlineInLam rhs
-    one_occ _        = False
+    one_occ OneOcc{ occ_one_br = InOneBranch
+                  , occ_in_lam = NotInsideLam }   = isNotTopLevel top_lvl || early_phase
+    one_occ OneOcc{ occ_one_br = InOneBranch
+                  , occ_in_lam = IsInsideLam
+                  , occ_int_cxt = IsInteresting } = canInlineInLam rhs
+    one_occ _                                     = False
 
     pre_inline_unconditionally = gopt Opt_SimplPreInlining (seDynFlags env)
     mode   = getMode env
@@ -1261,7 +1261,7 @@ NOTE: This isn't our last opportunity to inline.  We're at the binding
 site right now, and we'll get another opportunity when we get to the
 occurrence(s)
 
-Note that we do this unconditional inlining only for trival RHSs.
+Note that we do this unconditional inlining only for trivial RHSs.
 Don't inline even WHNFs inside lambdas; doing so may simply increase
 allocation when the function is called. This isn't the last chance; see
 NOTE above.
@@ -1284,7 +1284,7 @@ postInlineUnconditionally
     -> OutExpr
     -> Bool
 -- Precondition: rhs satisfies the let/app invariant
--- See Note [CoreSyn let/app invariant] in CoreSyn
+-- See Note [Core let/app invariant] in GHC.Core
 -- Reason: we don't want to inline single uses, or discard dead bindings,
 --         for unlifted, side-effect-ful bindings
 postInlineUnconditionally env top_lvl bndr occ_info rhs
@@ -1321,7 +1321,7 @@ postInlineUnconditionally env top_lvl bndr occ_info rhs
                         -- PRINCIPLE: when we've already simplified an expression once,
                         -- make sure that we only inline it if it's reasonably small.
 
-           && (not in_lam ||
+           && (in_lam == NotInsideLam ||
                         -- Outside a lambda, we want to be reasonably aggressive
                         -- about inlining into multiple branches of case
                         -- e.g. let x = <non-value>
@@ -1330,7 +1330,7 @@ postInlineUnconditionally env top_lvl bndr occ_info rhs
                         -- the uses in C1, C2 are not 'interesting'
                         -- An example that gets worse if you add int_cxt here is 'clausify'
 
-                (isCheapUnfolding unfolding && int_cxt))
+                (isCheapUnfolding unfolding && int_cxt == IsInteresting))
                         -- isCheap => acceptable work duplication; in_lam may be true
                         -- int_cxt to prevent us inlining inside a lambda without some
                         -- good reason.  See the notes on int_cxt in preInlineUnconditionally
@@ -1347,7 +1347,7 @@ postInlineUnconditionally env top_lvl bndr occ_info rhs
 --      in \y. ....case f of {...} ....
 -- Here f is used just once, and duplicating the case work is fine (exprIsCheap).
 -- But
---  - We can't preInlineUnconditionally because that woud invalidate
+--  - We can't preInlineUnconditionally because that would invalidate
 --    the occ info for b.
 --  - We can't postInlineUnconditionally because the RHS is big, and
 --    that risks exponential behaviour
@@ -1542,7 +1542,7 @@ tryEtaExpandRhs mode bndr rhs
          -- Note [Do not eta-expand join points]
          -- But do return the correct arity and bottom-ness, because
          -- these are used to set the bndr's IdInfo (#15517)
-         -- Note [idArity for join points]
+         -- Note [Invariants on join points] invariant 2b, in GHC.Core
 
   | otherwise
   = do { (new_arity, is_bot, new_rhs) <- try_expand
@@ -1578,7 +1578,7 @@ Note [Eta-expanding at let bindings]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We now eta expand at let-bindings, which is where the payoff comes.
 The most significant thing is that we can do a simple arity analysis
-(in CoreArity.findRhsArity), which we can't do for free-floating lambdas
+(in GHC.Core.Arity.findRhsArity), which we can't do for free-floating lambdas
 
 One useful consequence of not eta-expanding lambdas is this example:
    genMap :: C a => ...
@@ -1600,7 +1600,7 @@ arguments!
 
 Note [Do not eta-expand join points]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Similarly to CPR (see Note [Don't CPR join points] in WorkWrap), a join point
+Similarly to CPR (see Note [Don't w/w join points for CPR] in WorkWrap), a join point
 stands well to gain from its outer binding's eta-expansion, and eta-expanding a
 join point is fraught with issues like how to deal with a cast:
 
@@ -1636,13 +1636,6 @@ CorePrep comes around, the code is very likely to look more like this:
              $j2 = if n > 0 then $j1
                             else (...) eta
 
-Note [idArity for join points]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Because of Note [Do not eta-expand join points] we have it that the idArity
-of a join point is always (less than or) equal to the join arity.
-Essentially, for join points we set `idArity $j = count isId join_lam_bndrs`.
-It really can be less if there are type-level binders in join_lam_bndrs.
-
 Note [Do not eta-expand PAPs]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We used to have old_arity = manifestArity rhs, which meant that we
@@ -1658,7 +1651,7 @@ where
 
 But there is really no point in doing this, and it generates masses of
 coercions and whatnot that eventually disappear again. For T9020, GHC
-allocated 6.6G beore, and 0.8G afterwards; and residency dropped from
+allocated 6.6G before, and 0.8G afterwards; and residency dropped from
 1.8G to 45M.
 
 But note that this won't eta-expand, say
@@ -1779,21 +1772,21 @@ abstractFloats dflags top_lvl main_tvs floats body
   = ASSERT( notNull body_floats )
     ASSERT( isNilOL (sfJoinFloats floats) )
     do  { (subst, float_binds) <- mapAccumLM abstract empty_subst body_floats
-        ; return (float_binds, CoreSubst.substExpr (text "abstract_floats1") subst body) }
+        ; return (float_binds, GHC.Core.Subst.substExpr (text "abstract_floats1") subst body) }
   where
     is_top_lvl  = isTopLevel top_lvl
     main_tv_set = mkVarSet main_tvs
     body_floats = letFloatBinds (sfLetFloats floats)
-    empty_subst = CoreSubst.mkEmptySubst (sfInScope floats)
+    empty_subst = GHC.Core.Subst.mkEmptySubst (sfInScope floats)
 
-    abstract :: CoreSubst.Subst -> OutBind -> SimplM (CoreSubst.Subst, OutBind)
+    abstract :: GHC.Core.Subst.Subst -> OutBind -> SimplM (GHC.Core.Subst.Subst, OutBind)
     abstract subst (NonRec id rhs)
       = do { (poly_id1, poly_app) <- mk_poly1 tvs_here id
            ; let (poly_id2, poly_rhs) = mk_poly2 poly_id1 tvs_here rhs'
-                 subst' = CoreSubst.extendIdSubst subst id poly_app
+                 subst' = GHC.Core.Subst.extendIdSubst subst id poly_app
            ; return (subst', NonRec poly_id2 poly_rhs) }
       where
-        rhs' = CoreSubst.substExpr (text "abstract_floats2") subst rhs
+        rhs' = GHC.Core.Subst.substExpr (text "abstract_floats2") subst rhs
 
         -- tvs_here: see Note [Which type variables to abstract over]
         tvs_here = scopedSort $
@@ -1803,10 +1796,10 @@ abstractFloats dflags top_lvl main_tvs floats body
 
     abstract subst (Rec prs)
        = do { (poly_ids, poly_apps) <- mapAndUnzipM (mk_poly1 tvs_here) ids
-            ; let subst' = CoreSubst.extendSubstList subst (ids `zip` poly_apps)
+            ; let subst' = GHC.Core.Subst.extendSubstList subst (ids `zip` poly_apps)
                   poly_pairs = [ mk_poly2 poly_id tvs_here rhs'
                                | (poly_id, rhs) <- poly_ids `zip` rhss
-                               , let rhs' = CoreSubst.substExpr (text "abstract_floats")
+                               , let rhs' = GHC.Core.Subst.substExpr (text "abstract_floats")
                                                                 subst' rhs ]
             ; return (subst', Rec poly_pairs) }
        where
@@ -1832,7 +1825,7 @@ abstractFloats dflags top_lvl main_tvs floats body
            ; let  poly_name = setNameUnique (idName var) uniq           -- Keep same name
                   poly_ty   = mkInvForAllTys tvs_here (idType var) -- But new type of course
                   poly_id   = transferPolyIdInfo var tvs_here $ -- Note [transferPolyIdInfo] in Id.hs
-                              mkLocalIdOrCoVar poly_name (idMult var) poly_ty
+                              mkLocalId poly_name (idMult var) poly_ty
            ; return (poly_id, mkTyApps (Var poly_id) (mkTyVarTys tvs_here)) }
                 -- In the olden days, it was crucial to copy the occInfo of the original var,
                 -- because we were looking at occurrence-analysed but as yet unsimplified code!
@@ -2242,7 +2235,7 @@ mkCase2 dflags scrut bndr alts_ty alts
 
     re_sort :: [CoreAlt] -> [CoreAlt]
     -- Sort the alternatives to re-establish
-    -- CoreSyn Note [Case expression invariants]
+    -- GHC.Core Note [Case expression invariants]
     re_sort alts = sortBy cmpAlt alts
 
     add_default :: [CoreAlt] -> [CoreAlt]
@@ -2269,7 +2262,7 @@ Since the case is exhaustive (all cases are) we can convert it to
 
 This may generate sligthtly better code (although it should not, since
 all cases are exhaustive) and/or optimise better.  I'm not certain that
-it's necessary, but currenty we do make this change.  We do it here,
+it's necessary, but currently we do make this change.  We do it here,
 NOT in the TagToEnum rules (see "Beware" in Note [caseRules for tagToEnum]
 in PrelRules)
 -}
@@ -2285,7 +2278,10 @@ mkCase3 _dflags scrut bndr alts_ty alts
 -- InIds, so it's crucial that isExitJoinId is only called on freshly
 -- occ-analysed code. It's not a generic function you can call anywhere.
 isExitJoinId :: Var -> Bool
-isExitJoinId id = isJoinId id && isOneOcc (idOccInfo id) && occ_in_lam (idOccInfo id)
+isExitJoinId id
+  = isJoinId id
+  && isOneOcc (idOccInfo id)
+  && occ_in_lam (idOccInfo id) == IsInsideLam
 
 {-
 Note [Dead binders]
@@ -2347,7 +2343,7 @@ x=c1=I# a1.  So we'll bind a2 to a1, and get
     0 -> ...
     DEFAULT -> case a1 of ...
 
-This is corect, but we can't do a case merge in this sweep
+This is correct, but we can't do a case merge in this sweep
 because c2 /= a1.  Reason: the binding c1=I# a1 went inwards
 without getting changed to c1=I# c2.
 

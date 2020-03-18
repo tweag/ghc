@@ -12,6 +12,8 @@ ToDo [Oct 2013]
 
 {-# LANGUAGE CPP #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module SpecConstr(
         specConstrProgram,
         SpecConstrAnnotation(..)
@@ -21,32 +23,33 @@ module SpecConstr(
 
 import GhcPrelude
 
-import CoreSyn
-import CoreSubst
-import CoreUtils
-import CoreUnfold       ( couldBeSmallEnoughToInline )
-import CoreFVs          ( exprsFreeVarsList )
+import GHC.Core
+import GHC.Core.Subst
+import GHC.Core.Utils
+import GHC.Core.Unfold  ( couldBeSmallEnoughToInline )
+import GHC.Core.FVs     ( exprsFreeVarsList )
 import CoreMonad
 import Literal          ( litIsLifted )
-import HscTypes         ( ModGuts(..) )
+import GHC.Driver.Types ( ModGuts(..) )
 import WwLib            ( isWorkerSmallEnough, mkWorkerArgs )
 import DataCon
 import Coercion         hiding( substCo )
-import Rules
+import GHC.Core.Rules
 import Type             hiding ( substTy )
 import TyCon            ( tyConName )
 import Multiplicity
 import Id
-import PprCore          ( pprParendExpr )
-import MkCore           ( mkImpossibleExpr )
+import GHC.Core.Ppr     ( pprParendExpr )
+import GHC.Core.Make    ( mkImpossibleExpr )
 import VarEnv
 import VarSet
 import Name
 import BasicTypes
-import DynFlags         ( DynFlags(..), GeneralFlag( Opt_SpecConstrKeen )
-                        , gopt, hasPprDebug )
+import GHC.Driver.Session ( DynFlags(..), GeneralFlag( Opt_SpecConstrKeen )
+                          , gopt, hasPprDebug )
 import Maybes           ( orElse, catMaybes, isJust, isNothing )
 import Demand
+import Cpr
 import GHC.Serialized   ( deserializeWithData )
 import Util
 import Pair
@@ -700,7 +703,7 @@ specConstrProgram guts
   = do
       dflags <- getDynFlags
       us     <- getUniqueSupplyM
-      annos  <- getFirstAnnotations deserializeWithData guts
+      (_, annos) <- getFirstAnnotations deserializeWithData guts
       this_mod <- getModule
       let binds' = reverse $ fst $ initUs us $ do
                     -- Note [Top-level recursive groups]
@@ -792,7 +795,7 @@ After optimisation, including SpecConstr, we get:
 
 Not good!  We build an (I# x) box every time around the loop.
 SpecConstr (as described in the paper) does not specialise f, despite
-the call (f ... (I# x)) because 'y' is not scrutinied in the body.
+the call (f ... (I# x)) because 'y' is not scrutinised in the body.
 But it is much better to specialise f for the case where the argument
 is of form (I# x); then we build the box only when returning y, which
 is on the cold path.
@@ -805,7 +808,7 @@ Here 'x' is not scrutinised in f's body; but if we did specialise 'f'
 then the call (g x) might allow 'g' to be specialised in turn.
 
 So sc_keen controls whether or not we take account of whether argument is
-scrutinised in the body.  True <=> ignore that, and speicalise whenever
+scrutinised in the body.  True <=> ignore that, and specialise whenever
 the function is applied to a data constructor.
 -}
 
@@ -1165,7 +1168,7 @@ instance Outputable ArgOcc where
 evalScrutOcc :: ArgOcc
 evalScrutOcc = ScrutOcc emptyUFM
 
--- Experimentally, this vesion of combineOcc makes ScrutOcc "win", so
+-- Experimentally, this version of combineOcc makes ScrutOcc "win", so
 -- that if the thing is scrutinised anywhere then we get to see that
 -- in the overall result, even if it's also used in a boxed way
 -- This might be too aggressive; see Note [Reboxing] Alternative 3
@@ -1721,10 +1724,11 @@ spec_one env fn arg_bndrs body (call_pat@(qvars, pats), rule_number)
 
               spec_join_arity | isJoinId fn = Just (length spec_lam_args)
                               | otherwise   = Nothing
-              spec_id    = mkLocalIdOrCoVar spec_name Many
-                                            (mkLamTypes spec_lam_args body_ty)
+              spec_id    = mkLocalId spec_name Many
+                                     (mkLamTypes spec_lam_args body_ty)
                              -- See Note [Transfer strictness]
                              `setIdStrictness` spec_str
+                             `setIdCprInfo` topCprSig
                              `setIdArity` count isId spec_lam_args
                              `asJoinId_maybe` spec_join_arity
               spec_str   = calcSpecStrictness fn spec_lam_args pats
@@ -1758,7 +1762,7 @@ calcSpecStrictness :: Id                     -- The original function
                    -> StrictSig              -- Strictness of specialised thing
 -- See Note [Transfer strictness]
 calcSpecStrictness fn qvars pats
-  = mkClosedStrictSig spec_dmds topRes
+  = mkClosedStrictSig spec_dmds topDiv
   where
     spec_dmds = [ lookupVarEnv dmd_env qv `orElse` topDmd | qv <- qvars, isId qv ]
     StrictSig (DmdType _ dmds _) = idStrictness fn
@@ -1935,7 +1939,7 @@ where, say,
    co :: Foo ~R (Int,Int)
 
 Here we definitely do want to specialise for that pair!  We do not
-match on the structre of the coercion; instead we just match on a
+match on the structure of the coercion; instead we just match on a
 coercion variable, so the RULE looks like
 
    forall (x::Int, y::Int, co :: (Int,Int) ~R Foo)
@@ -2151,7 +2155,7 @@ argToPat env in_scope val_env (Tick _ arg) arg_occ
         -- Ignore Notes.  In particular, we want to ignore any InlineMe notes
         -- Perhaps we should not ignore profiling notes, but I'm going to
         -- ride roughshod over them all for now.
-        --- See Note [Notes in RULE matching] in Rules
+        --- See Note [Notes in RULE matching] in GHC.Core.Rules
 
 argToPat env in_scope val_env (Let _ arg) arg_occ
   = argToPat env in_scope val_env arg arg_occ
@@ -2238,7 +2242,7 @@ argToPat env in_scope val_env (Var v) arg_occ
 --      And by not wild-carding we tend to get forall'd
 --      variables that are in scope, which in turn can
 --      expose the weakness in let-matching
---      See Note [Matching lets] in Rules
+--      See Note [Matching lets] in GHC.Core.Rules
 
   -- Check for a variable bound inside the function.
   -- Don't make a wild-card, because we may usefully share

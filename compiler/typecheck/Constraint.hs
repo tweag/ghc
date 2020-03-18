@@ -7,6 +7,8 @@ as used in the type-checker and constraint solver.
 
 {-# LANGUAGE CPP, GeneralizedNewtypeDeriving #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module Constraint (
         -- QCInst
         QCInst(..), isPendingScInst,
@@ -90,12 +92,13 @@ import TcType
 import TcEvidence
 import TcOrigin
 
-import CoreSyn
+import GHC.Core
 
+import TyCoPpr
 import OccName
 import FV
 import VarSet
-import DynFlags
+import GHC.Driver.Session
 import BasicTypes
 
 import Outputable
@@ -264,7 +267,7 @@ Example 1:  (c Int), where c :: * -> Constraint.  We can't do anything
 
 Example 2:  a ~ b, where a :: *, b :: k, where k is a kind variable
             We don't want to use this to substitute 'b' for 'a', in case
-            'k' is subsequently unifed with (say) *->*, because then
+            'k' is subsequently unified with (say) *->*, because then
             we'd have ill-kinded types floating about.  Rather we want
             to defer using the equality altogether until 'k' get resolved.
 
@@ -452,7 +455,7 @@ tyCoVarsOfCts :: Cts -> TcTyCoVarSet
 tyCoVarsOfCts = fvVarSet . tyCoFVsOfCts
 
 -- | Returns free variables of a bag of constraints as a deterministically
--- odered list. See Note [Deterministic FV] in FV.
+-- ordered list. See Note [Deterministic FV] in FV.
 tyCoVarsOfCtsList :: Cts -> [TcTyCoVar]
 tyCoVarsOfCtsList = fvVarList . tyCoFVsOfCts
 
@@ -761,7 +764,7 @@ isPendingScDict ct@(CDictCan { cc_pend_sc = True })
 isPendingScDict _ = Nothing
 
 isPendingScInst :: QCInst -> Maybe QCInst
--- Same as isPrendinScDict, but for QCInsts
+-- Same as isPendingScDict, but for QCInsts
 isPendingScInst qci@(QCI { qci_pend_sc = True })
                   = Just (qci { qci_pend_sc = False })
 isPendingScInst _ = Nothing
@@ -826,7 +829,7 @@ Note that
 
     It's a bit of a special case, but it's easy to do.  The runtime cost
     is low because the unsolved set is usually empty anyway (errors
-    aside), and the first non-imlicit-parameter will terminate the search.
+    aside), and the first non-implicit-parameter will terminate the search.
 
     The special case is worth it (#11480, comment:2) because it
     applies to CallStack constraints, which aren't type errors. If we have
@@ -1172,15 +1175,23 @@ like this one:
 
 The kind of 'a' mentions 'k' which is bound after 'a'.  Oops.
 
-Knowing this means that unification etc must have happened, so it's
-convenient to detect it in the constraint solver:
+One approach to doing this would be to bring each of a, k, and b into
+scope, one at a time, creating a separate implication constraint for
+each one, and bumping the TcLevel. This would work, because the kind
+of, say, a would be untouchable when k is in scope (and the constraint
+couldn't float out because k blocks it). However, it leads to terrible
+error messages, complaining about skolem escape. While it is indeed a
+problem of skolem escape, we can do better.
+
+Instead, our approach is to bring the block of variables into scope
+all at once, creating one implication constraint for the lot:
 
 * We make a single implication constraint when kind-checking
   the 'forall' in Foo's kind, something like
       forall a k (b::k). { wanted constraints }
 
 * Having solved {wanted}, before discarding the now-solved implication,
-  the costraint solver checks the dependency order of the skolem
+  the constraint solver checks the dependency order of the skolem
   variables (ic_skols).  This is done in setImplicationStatus.
 
 * This check is only necessary if the implication was born from a
@@ -1195,10 +1206,8 @@ convenient to detect it in the constraint solver:
 
 * Be careful /NOT/ to discard an implication with non-Nothing
   ic_telescope, even if ic_wanted is empty.  We must give the
-  constraint solver a chance to make that bad-telesope test!  Hence
+  constraint solver a chance to make that bad-telescope test!  Hence
   the extra guard in emitResidualTvConstraint; see #16247
-
-See also TcHsType Note [Keeping scoped variables in order: Explicit]
 
 Note [Needed evidence variables]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

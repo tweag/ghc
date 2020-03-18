@@ -6,6 +6,7 @@
 -}
 
 {-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 -- | This module defines TyCons that can't be expressed in Haskell.
 --   They are all, therefore, wired-in TyCons.  C.f module TysWiredIn
@@ -243,7 +244,7 @@ tVarPrimTyConName             = mkPrimTc (fsLit "TVar#") tVarPrimTyConKey tVarPr
 stablePtrPrimTyConName        = mkPrimTc (fsLit "StablePtr#") stablePtrPrimTyConKey stablePtrPrimTyCon
 stableNamePrimTyConName       = mkPrimTc (fsLit "StableName#") stableNamePrimTyConKey stableNamePrimTyCon
 compactPrimTyConName          = mkPrimTc (fsLit "Compact#") compactPrimTyConKey compactPrimTyCon
-bcoPrimTyConName              = mkPrimTc (fsLit "BCO#") bcoPrimTyConKey bcoPrimTyCon
+bcoPrimTyConName              = mkPrimTc (fsLit "BCO") bcoPrimTyConKey bcoPrimTyCon
 weakPrimTyConName             = mkPrimTc (fsLit "Weak#") weakPrimTyConKey weakPrimTyCon
 threadIdPrimTyConName         = mkPrimTc (fsLit "ThreadId#") threadIdPrimTyConKey threadIdPrimTyCon
 
@@ -379,6 +380,8 @@ runtimeRep1Ty = mkTyVarTy runtimeRep1TyVar
 runtimeRep2Ty = mkTyVarTy runtimeRep2TyVar
 
 openAlphaTyVar, openBetaTyVar :: TyVar
+-- alpha :: TYPE r1
+-- beta  :: TYPE r2
 [openAlphaTyVar,openBetaTyVar]
   = mkTemplateTyVars [tYPE runtimeRep1Ty, tYPE runtimeRep2Ty]
 
@@ -456,7 +459,7 @@ So for example:
 We abbreviate '*' specially:
     type * = TYPE 'LiftedRep
 
-The 'rr' parameter tells us how the value is represented at runime.
+The 'rr' parameter tells us how the value is represented at runtime.
 
 Generally speaking, you can't be polymorphic in 'rr'.  E.g
    f :: forall (rr:RuntimeRep) (a:TYPE rr). a -> [a]
@@ -472,7 +475,7 @@ generator never has to manipulate a value of type 'a :: TYPE rr'.
 * error :: forall (rr:RuntimeRep) (a:TYPE rr). String -> a
   Code generator never has to manipulate the return value.
 
-* unsafeCoerce#, defined in MkId.unsafeCoerceId:
+* unsafeCoerce#, defined in Desugar.mkUnsafeCoercePair:
   Always inlined to be a no-op
      unsafeCoerce# :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                              (a :: TYPE r1) (b :: TYPE r2).
@@ -522,7 +525,7 @@ tYPETyCon = mkKindTyCon tYPETyConName
 -- ... and now their names
 
 -- If you edit these, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.hs
+-- See Note [GHC Formalism] in GHC.Core.Lint
 tYPETyConName             = mkPrimTyConName (fsLit "TYPE") tYPETyConKey tYPETyCon
 
 mkPrimTyConName :: FastString -> Unique -> TyCon -> Name
@@ -1070,10 +1073,13 @@ compactPrimTy = mkTyConTy compactPrimTyCon
 ************************************************************************
 -}
 
+-- Unlike most other primitive types, BCO is lifted. This is because in
+-- general a BCO may be a thunk for the reasons given in Note [Updatable CAF
+-- BCOs] in GHCi.CreateBCO.
 bcoPrimTy    :: Type
 bcoPrimTy    = mkTyConTy bcoPrimTyCon
 bcoPrimTyCon :: TyCon
-bcoPrimTyCon = pcPrimTyCon0 bcoPrimTyConName UnliftedRep
+bcoPrimTyCon = pcPrimTyCon0 bcoPrimTyConName LiftedRep
 
 {-
 ************************************************************************

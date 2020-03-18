@@ -5,7 +5,7 @@ module Main where
 import GHC
 import MonadUtils  ( liftIO )
 import Data.Maybe
-import DynFlags    ( defaultFatalMessager, defaultFlushOut )
+import GHC.Driver.Session    ( defaultFatalMessager, defaultFlushOut )
 import Annotations ( AnnTarget(..), CoreAnnTarget )
 import GHC.Serialized  ( deserializeWithData )
 import Panic
@@ -14,7 +14,7 @@ import Config
 import Annrun01_Help
 
 import qualified Language.Haskell.TH as TH
-import Data.List
+import Data.List (sortBy)
 import Data.Function
 
 main :: IO ()

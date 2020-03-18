@@ -11,13 +11,13 @@ import GhcPrelude
 
 import VarSet
 import VarEnv
-import DynFlags ( DynFlags )
+import GHC.Driver.Session ( DynFlags )
 
 import BasicTypes
-import CoreSyn
+import GHC.Core
 import Id
-import CoreArity ( typeArity )
-import CoreUtils ( exprIsCheap, exprIsTrivial )
+import GHC.Core.Arity ( typeArity )
+import GHC.Core.Utils ( exprIsCheap, exprIsTrivial )
 import UnVarGraph
 import Demand
 import Util
@@ -162,7 +162,7 @@ The interesting cases of the analysis:
    Return: C(e₁) ∪ (fv e₁) × {x} ∪ {(x,x)}
  * Let v = rhs in body:
    In addition to the results from the subexpressions, add all co-calls from
-   everything that the body calls together with v to everthing that is called
+   everything that the body calls together with v to everything that is called
    by v.
    Return: C'(rhs) ∪ C(body) ∪ (fv rhs) × {v'| {v,v'} ∈ C(body)}
  * Letrec v₁ = rhs₁ ... vₙ = rhsₙ in body
@@ -318,7 +318,7 @@ Note [Taking boring variables into account]
 If we decide that the variable bound in `let x = e1 in e2` is not interesting,
 the analysis of `e2` will not report anything about `x`. To ensure that
 `callArityBind` does still do the right thing we have to take that into account
-everytime we would be lookup up `x` in the analysis result of `e2`.
+every time we would be lookup up `x` in the analysis result of `e2`.
   * Instead of calling lookupCallArityRes, we return (0, True), indicating
     that this variable might be called many times with no arguments.
   * Instead of checking `calledWith x`, we assume that everything can be called
@@ -384,7 +384,7 @@ the case for Core!
  1. We need to ensure the invariant
       callArity e <= typeArity (exprType e)
     for the same reasons that exprArity needs this invariant (see Note
-    [exprArity invariant] in CoreArity).
+    [exprArity invariant] in GHC.Core.Arity).
 
     If we are not doing that, a too-high arity annotation will be stored with
     the id, confusing the simplifier later on.
@@ -701,7 +701,7 @@ trimArity v a = minimum [a, max_arity_by_type, max_arity_by_strsig]
   where
     max_arity_by_type = length (typeArity (idType v))
     max_arity_by_strsig
-        | isBotRes result_info = length demands
+        | isBotDiv result_info = length demands
         | otherwise = a
 
     (demands, result_info) = splitStrictSig (idStrictness v)

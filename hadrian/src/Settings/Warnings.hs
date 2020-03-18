@@ -11,9 +11,7 @@ import Settings
 defaultGhcWarningsArgs :: Args
 defaultGhcWarningsArgs = mconcat
     [ notStage0 ? arg "-Wnoncanonical-monad-instances"
-    , (not <$> flag CcLlvmBackend) ? mconcat
-      [ not windowsHost ? arg "-optc-Werror=unused-but-set-variable"
-      , arg "-optc-Wno-error=inline" ]
+    , notM (flag CcLlvmBackend) ? arg "-optc-Wno-error=inline"
     , flag CcLlvmBackend ? arg "-optc-Wno-unknown-pragmas" ]
 
 -- | Package-specific warnings-related arguments, mostly suppressing various warnings.
@@ -33,7 +31,10 @@ ghcWarningsArgs = do
         , package bytestring   ? pure [ "-Wno-inline-rule-shadowing" ]
         , package compiler     ? pure [ "-Wcpp-undef" ]
         , package directory    ? pure [ "-Wno-unused-imports" ]
-        , package ghc          ? pure [ "-Wcpp-undef" ]
+        , package ghc          ? pure [ "-Wcpp-undef"
+                                      , "-Wincomplete-uni-patterns"
+                                      , "-Wincomplete-record-updates"
+                                      ]
         , package ghcPrim      ? pure [ "-Wno-trustworthy-safe" ]
         , package haddock      ? pure [ "-Wno-unused-imports"
                                       , "-Wno-deprecations" ]

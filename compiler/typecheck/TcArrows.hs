@@ -8,6 +8,8 @@ Typecheck arrow notation
 {-# LANGUAGE RankNTypes, TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module TcArrows ( tcProc ) where
 
 import GhcPrelude
@@ -16,7 +18,7 @@ import {-# SOURCE #-}   TcExpr( tcMonoExpr, tcInferRho, tcSyntaxOp, tcCheckId, t
 
 import GHC.Hs
 import TcMatches
-import TcHsSyn( hsPatType )
+import TcHsSyn( hsLPatType )
 import TcType
 import Multiplicity
 import TcMType
@@ -29,7 +31,6 @@ import TcOrigin
 import TcEvidence
 import Id( mkLocalId )
 import Inst
-import Name
 import TysWiredIn
 import VarSet
 import TysPrim
@@ -160,14 +161,14 @@ tc_cmd env in_cmd@(HsCmdCase x scrut matches) (stk, res_ty)
     mc_body body res_ty' = do { res_ty' <- expTypeToType res_ty'
                               ; tcCmd env body (stk, res_ty') }
 
-tc_cmd env (HsCmdIf x Nothing pred b1 b2) res_ty    -- Ordinary 'if'
+tc_cmd env (HsCmdIf x NoSyntaxExprRn pred b1 b2) res_ty    -- Ordinary 'if'
   = do  { pred' <- tcMonoExpr pred (mkCheckExpType boolTy)
         ; b1'   <- tcCmd env b1 res_ty
         ; b2'   <- tcCmd env b2 res_ty
-        ; return (HsCmdIf x Nothing pred' b1' b2')
+        ; return (HsCmdIf x NoSyntaxExprTc pred' b1' b2')
     }
 
-tc_cmd env (HsCmdIf x (Just fun) pred b1 b2) res_ty -- Rebindable syntax for if
+tc_cmd env (HsCmdIf x fun@(SyntaxExprRn {}) pred b1 b2) res_ty -- Rebindable syntax for if
   = do  { pred_ty <- newOpenFlexiTyVarTy
         -- For arrows, need ifThenElse :: forall r. T -> r -> r -> r
         -- because we're going to apply it to the environment, not
@@ -183,7 +184,7 @@ tc_cmd env (HsCmdIf x (Just fun) pred b1 b2) res_ty -- Rebindable syntax for if
 
         ; b1'   <- tcCmd env b1 res_ty
         ; b2'   <- tcCmd env b2 res_ty
-        ; return (HsCmdIf x (Just fun') pred' b1' b2')
+        ; return (HsCmdIf x fun' pred' b1' b2')
     }
 
 -------------------------------------------
@@ -259,14 +260,14 @@ tc_cmd env
         ; let match' = L mtch_loc (Match { m_ext = noExtField
                                          , m_ctxt = LambdaExpr, m_pats = pats'
                                          , m_grhss = grhss' })
-              arg_tys = map (unrestricted . hsPatType) pats'
+              arg_tys = map (unrestricted . hsLPatType) pats'
               cmd' = HsCmdLam x (MG { mg_alts = L l [match']
                                     , mg_ext = MatchGroupTc arg_tys res_ty
                                     , mg_origin = origin })
         ; return (mkHsCmdWrap (mkWpCastN co) cmd') }
   where
     n_pats     = length pats
-    match_ctxt = (LambdaExpr :: HsMatchContext Name)    -- Maybe KappaExpr?
+    match_ctxt = (LambdaExpr :: HsMatchContext GhcRn)    -- Maybe KappaExpr?
     pg_ctxt    = PatGuard match_ctxt
 
     tc_grhss (GRHSs x grhss (L l binds)) stk_ty res_ty

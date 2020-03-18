@@ -15,13 +15,14 @@ module WwLib ( mkWwBodies, mkWWstr, mkWorkerArgs
 
 import GhcPrelude
 
-import CoreSyn
-import CoreUtils        ( exprType, mkCast, mkDefaultCase, mkSingleAltCase )
+import GHC.Core
+import GHC.Core.Utils   ( exprType, mkCast, mkDefaultCase, mkSingleAltCase )
 import Id
 import IdInfo           ( JoinArity )
 import DataCon
 import Demand
-import MkCore           ( mkAbsentErrorApp, mkCoreUbxTup
+import Cpr
+import GHC.Core.Make    ( mkAbsentErrorApp, mkCoreUbxTup
                         , mkCoreApp, mkCoreLet )
 import MkId             ( voidArgId, voidPrimId )
 import TysWiredIn       ( tupleDataCon )
@@ -32,7 +33,7 @@ import VarSet           ( VarSet )
 import Type
 import Multiplicity
 import Predicate        ( isClassPred )
-import RepType          ( isVoidTy, typePrimRep )
+import GHC.Types.RepType          ( isVoidTy, typePrimRep )
 import Coercion
 import FamInstEnv
 import BasicTypes       ( Boxity(..) )
@@ -42,7 +43,7 @@ import Unique
 import Maybes
 import Util
 import Outputable
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import ListSetOps
 
@@ -127,7 +128,7 @@ mkWwBodies :: DynFlags
                              -- See Note [Freshen WW arguments]
            -> Id             -- The original function
            -> [Demand]       -- Strictness of original function
-           -> DmdResult      -- Info about function result
+           -> CprResult      -- Info about function result
            -> UniqSM (Maybe WwResult)
 
 -- wrap_fn_args E       = \x y -> E
@@ -141,7 +142,7 @@ mkWwBodies :: DynFlags
 --                        let x = (a,b) in
 --                        E
 
-mkWwBodies dflags fam_envs rhs_fvs fun_id demands res_info
+mkWwBodies dflags fam_envs rhs_fvs fun_id demands cpr_info
   = do  { let empty_subst = mkEmptyTCvSubst (mkInScopeSet rhs_fvs)
                 -- See Note [Freshen WW arguments]
 
@@ -152,7 +153,7 @@ mkWwBodies dflags fam_envs rhs_fvs fun_id demands res_info
 
         -- Do CPR w/w.  See Note [Always do CPR w/w]
         ; (useful2, wrap_fn_cpr, work_fn_cpr, cpr_res_ty)
-              <- mkWWcpr (gopt Opt_CprAnal dflags) fam_envs res_ty res_info
+              <- mkWWcpr (gopt Opt_CprAnal dflags) fam_envs res_ty cpr_info
 
         ; let (work_lam_args, work_call_args) = mkWorkerArgs dflags work_args cpr_res_ty
               worker_args_dmds = [idDemandInfo v | v <- work_call_args, isId v]
@@ -210,7 +211,7 @@ Note [Always do CPR w/w]
 ~~~~~~~~~~~~~~~~~~~~~~~~
 At one time we refrained from doing CPR w/w for thunks, on the grounds that
 we might duplicate work.  But that is already handled by the demand analyser,
-which doesn't give the CPR proprety if w/w might waste work: see
+which doesn't give the CPR property if w/w might waste work: see
 Note [CPR for thunks] in DmdAnal.
 
 And if something *has* been given the CPR property and we don't w/w, it's
@@ -580,7 +581,7 @@ mkWWstr_one dflags fam_envs has_inlineable_prag arg
   = return (False, [arg],  nop_fn, nop_fn)
 
   | isAbsDmd dmd
-  , Just work_fn <- mk_absent_let dflags arg
+  , Just work_fn <- mk_absent_let dflags fam_envs arg
      -- Absent case.  We can't always handle absence for arbitrary
      -- unlifted types, so we need to choose just the cases we can
      -- (that's what mk_absent_let does)
@@ -1006,18 +1007,18 @@ left-to-right traversal of the result structure.
 mkWWcpr :: Bool
         -> FamInstEnvs
         -> Type                              -- function body type
-        -> DmdResult                         -- CPR analysis results
+        -> CprResult                         -- CPR analysis results
         -> UniqSM (Bool,                     -- Is w/w'ing useful?
                    CoreExpr -> CoreExpr,     -- New wrapper
                    CoreExpr -> CoreExpr,     -- New worker
                    Type)                     -- Type of worker's body
 
-mkWWcpr opt_CprAnal fam_envs body_ty res
+mkWWcpr opt_CprAnal fam_envs body_ty cpr
     -- CPR explicitly turned off (or in -O0)
   | not opt_CprAnal = return (False, id, id, body_ty)
     -- CPR is turned on by default for -O and O2
   | otherwise
-  = case returnsCPR_maybe res of
+  = case asConCpr cpr of
        Nothing      -> return (False, id, id, body_ty)  -- No CPR info
        Just con_tag | Just stuff <- deepSplitCprType_maybe fam_envs con_tag body_ty
                     -> mkWWcpr_help stuff
@@ -1106,6 +1107,9 @@ after all, the analysis is not really wrong), so we simply do nothing here in
 mkWWcpr. But we still want to emit warning with -DDEBUG, to hopefully catch
 other cases where something went avoidably wrong.
 
+This warning also triggers for the stream fusion library within `text`.
+We can'easily W/W constructed results like `Stream` because we have no simple
+way to express existential types in the worker's type signature.
 
 Note [Profiling and unpacking]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1171,8 +1175,8 @@ So absentError is only used for lifted types.
 -- If @mk_absent_let _ id == Just wrap@, then @wrap e@ will wrap a let binding
 -- for @id@ with that RHS around @e@. Otherwise, there could no suitable RHS be
 -- found (currently only happens for bindings of 'VecRep' representation).
-mk_absent_let :: DynFlags -> Id -> Maybe (CoreExpr -> CoreExpr)
-mk_absent_let dflags arg
+mk_absent_let :: DynFlags -> FamInstEnvs -> Id -> Maybe (CoreExpr -> CoreExpr)
+mk_absent_let dflags fam_envs arg
   -- The lifted case: Bind 'absentError'
   -- See Note [Absent errors]
   | not (isUnliftedType arg_ty)
@@ -1183,20 +1187,22 @@ mk_absent_let dflags arg
   = Just (Let (NonRec arg unlifted_rhs))
   -- The monomorphic unlifted cases: Bind to some literal, if possible
   -- See Note [Absent errors]
-  | Just tc <- tyConAppTyCon_maybe arg_ty
+  | Just tc <- tyConAppTyCon_maybe nty
   , Just lit <- absentLiteralOf tc
-  = Just (Let (NonRec arg (Lit lit)))
-  | arg_ty `eqType` voidPrimTy
-  = Just (Let (NonRec arg (Var voidPrimId)))
+  = Just (Let (NonRec arg (Lit lit `mkCast` mkSymCo co)))
+  | nty `eqType` voidPrimTy
+  = Just (Let (NonRec arg (Var voidPrimId `mkCast` mkSymCo co)))
   | otherwise
   = WARN( True, text "No absent value for" <+> ppr arg_ty )
     Nothing -- Can happen for 'State#' and things of 'VecRep'
   where
-    lifted_arg   = arg `setIdStrictness` botSig
+    lifted_arg   = arg `setIdStrictness` botSig `setIdCprInfo` mkCprSig 0 botCpr
               -- Note in strictness signature that this is bottoming
               -- (for the sake of the "empty case scrutinee not known to
               -- diverge for sure lint" warning)
     arg_ty       = idType arg
+    (co, nty)    = topNormaliseType_maybe fam_envs arg_ty
+                   `orElse` (mkRepReflCo arg_ty, arg_ty)
     abs_rhs      = mkAbsentErrorApp arg_ty msg
     msg          = showSDoc (gopt_set dflags Opt_SuppressUniques)
                           (ppr arg <+> ppr (idType arg))

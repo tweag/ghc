@@ -21,7 +21,10 @@
 #include <ctype.h>
 #endif
 
+#include <errno.h>
+
 #include <string.h>
+#include <stdlib.h>
 
 #if defined(HAVE_UNISTD_H)
 #include <unistd.h>
@@ -98,6 +101,9 @@ static int  openStatsFile (
 static StgWord64 decodeSize (
     const char *flag, uint32_t offset, StgWord64 min, StgWord64 max);
 
+static double parseDouble (
+    const char *arg, bool *error);
+
 static void bad_option (const char *s);
 
 #if defined(DEBUG)
@@ -164,6 +170,7 @@ void initRtsFlagsDefaults(void)
     RtsFlags.GcFlags.compactThreshold   = 30.0;
     RtsFlags.GcFlags.sweep              = false;
     RtsFlags.GcFlags.idleGCDelayTime    = USToTime(300000); // 300ms
+    RtsFlags.GcFlags.interIdleGCWait    = 0;
 #if defined(THREADED_RTS)
     RtsFlags.GcFlags.doIdleGC           = true;
 #else
@@ -243,6 +250,7 @@ void initRtsFlagsDefaults(void)
     RtsFlags.MiscFlags.generate_stack_trace    = true;
     RtsFlags.MiscFlags.generate_dump_file      = false;
     RtsFlags.MiscFlags.machineReadable         = false;
+    RtsFlags.MiscFlags.disableDelayedOsMemoryReturn = false;
     RtsFlags.MiscFlags.internalCounters        = false;
     RtsFlags.MiscFlags.linkerAlwaysPic         = DEFAULT_LINKER_ALWAYS_PIC;
     RtsFlags.MiscFlags.linkerMemBase           = 0;
@@ -322,7 +330,7 @@ usage_text[] = {
 "  -S[<file>] Detailed GC statistics (if <file> omitted, uses stderr)",
 "",
 "",
-"  -Z         Don't squeeze out update frames on stack overflow",
+"  -Z         Don't squeeze out update frames on context switch",
 "  -B         Sound the bell at the start of each garbage collection",
 #if defined(PROFILING)
 "",
@@ -533,7 +541,7 @@ char** getUTF8Args(int* argc)
 
     // We create two argument arrays, one which is later permutated by the RTS
     // instead of the main argv.
-    // The other one is used to free the allocted memory later.
+    // The other one is used to free the allocated memory later.
     char** argv = (char**) stgMallocBytes(sizeof(char*) * (*argc + 1),
                                           "getUTF8Args 1");
     win32_full_utf8_argv = (char**) stgMallocBytes(sizeof(char*) * (*argc + 1),
@@ -914,6 +922,11 @@ error = true;
                       OPTION_UNSAFE;
                       RtsFlags.MiscFlags.machineReadable = true;
                   }
+                  else if (strequal("disable-delayed-os-memory-return",
+                               &rts_argv[arg][2])) {
+                      OPTION_UNSAFE;
+                      RtsFlags.MiscFlags.disableDelayedOsMemoryReturn = true;
+                  }
                   else if (strequal("internal-counters",
                                     &rts_argv[arg][2])) {
                       OPTION_SAFE;
@@ -924,6 +937,11 @@ error = true;
                       OPTION_SAFE;
                       printRtsInfo(rtsConfig);
                       stg_exit(0);
+                  }
+                  else if (strequal("nonmoving-gc",
+                               &rts_argv[arg][2])) {
+                      OPTION_SAFE;
+                      RtsFlags.GcFlags.useNonmoving = true;
                   }
 #if defined(THREADED_RTS)
                   else if (!strncmp("numa", &rts_argv[arg][2], 4)) {
@@ -938,9 +956,14 @@ error = true;
                       if (rts_argv[arg][6] == '=') {
                           mask = (StgWord)strtol(rts_argv[arg]+7,
                                                  (char **) NULL, 10);
-                      } else {
+                      } else if (rts_argv[arg][6] == '\0'){
                           mask = (StgWord)~0;
+                      } else {
+                          errorBelch("%s: unknown flag", rts_argv[arg]);
+                          error = true;
+                          break;
                       }
+
                       if (!osNumaAvailable()) {
                           errorBelch("%s: OS reports NUMA is not available",
                                      rts_argv[arg]);
@@ -974,6 +997,7 @@ error = true;
                           RtsFlags.GcFlags.numa = true;
                           RtsFlags.DebugFlags.numa = true;
                           RtsFlags.GcFlags.numaMask = (1<<nNodes) - 1;
+                          n_numa_nodes = nNodes;
                       }
                   }
 #endif
@@ -1162,19 +1186,33 @@ error = true;
                   break;
 
               case 'I': /* idle GC delay */
-                OPTION_UNSAFE;
-                if (rts_argv[arg][2] == '\0') {
-                  /* use default */
-                } else {
-                    Time t = fsecondsToTime(atof(rts_argv[arg]+2));
-                    if (t == 0) {
-                        RtsFlags.GcFlags.doIdleGC = false;
-                    } else {
-                        RtsFlags.GcFlags.doIdleGC = true;
-                        RtsFlags.GcFlags.idleGCDelayTime = t;
-                    }
-                }
-                break;
+                  OPTION_UNSAFE;
+                  switch (rts_argv[arg][2]) {
+                  /* minimum inter-idle GC wait time */
+                  case 'w':
+                      if (rts_argv[arg][3] == '\0') {
+                          /* use default */
+                      } else {
+                          RtsFlags.GcFlags.interIdleGCWait = fsecondsToTime(atof(rts_argv[arg]+3));
+                      }
+                      break;
+                  /* idle delay before GC */
+                  case '\0':
+                      /* use default */
+                      break;
+                  default:
+                      {
+                          Time t = fsecondsToTime(atof(rts_argv[arg]+2));
+                          if (t == 0) {
+                              RtsFlags.GcFlags.doIdleGC = false;
+                          } else {
+                              RtsFlags.GcFlags.doIdleGC = true;
+                              RtsFlags.GcFlags.idleGCDelayTime = t;
+                          }
+                      }
+                      break;
+                  }
+                  break;
 
               case 'T':
                   OPTION_SAFE;
@@ -1294,8 +1332,13 @@ error = true;
                 if (rts_argv[arg][2] == '\0') {
                   /* use default */
                 } else {
+                    double intervalSeconds = parseDouble(rts_argv[arg]+2, &error);
+
+                    if (error) {
+                        errorBelch("bad value for -i");
+                    }
                     RtsFlags.ProfFlags.heapProfileInterval =
-                        fsecondsToTime(atof(rts_argv[arg]+2));
+                        fsecondsToTime(intervalSeconds);
                 }
                 break;
 
@@ -1305,8 +1348,13 @@ error = true;
                 if (rts_argv[arg][2] == '\0')
                     RtsFlags.ConcFlags.ctxtSwitchTime = 0;
                 else {
+                    double intervalSeconds = parseDouble(rts_argv[arg]+2, &error);
+
+                    if (error) {
+                        errorBelch("bad value for -C");
+                    }
                     RtsFlags.ConcFlags.ctxtSwitchTime =
-                        fsecondsToTime(atof(rts_argv[arg]+2));
+                        fsecondsToTime(intervalSeconds);
                 }
                 break;
 
@@ -1316,8 +1364,13 @@ error = true;
                     // turns off ticks completely
                     RtsFlags.MiscFlags.tickInterval = 0;
                 } else {
+                    double intervalSeconds = parseDouble(rts_argv[arg]+2, &error);
+
+                    if (error) {
+                        errorBelch("bad value for -V");
+                    }
                     RtsFlags.MiscFlags.tickInterval =
-                        fsecondsToTime(atof(rts_argv[arg]+2));
+                        fsecondsToTime(intervalSeconds);
                 }
                 break;
 
@@ -1727,6 +1780,11 @@ static void normaliseRtsOpts (void)
         barf("The non-moving collector doesn't support -G1");
     }
 
+    if (RtsFlags.ProfFlags.doHeapProfile != NO_HEAP_PROFILING &&
+            RtsFlags.GcFlags.useNonmoving) {
+        barf("The non-moving collector doesn't support profiling");
+    }
+
     if (RtsFlags.GcFlags.compact && RtsFlags.GcFlags.useNonmoving) {
         errorBelch("The non-moving collector cannot be used in conjunction with\n"
                    "the compacting collector.");
@@ -1873,6 +1931,35 @@ decodeSize(const char *flag, uint32_t offset, StgWord64 min, StgWord64 max)
     }
 
     return val;
+}
+
+/* ----------------------------------------------------------------------------------
+ * parseDouble: parse a double from a string, setting a flag in case of an error
+-------------------------------------------------------------------------------- */
+
+static double
+parseDouble(const char *arg, bool *error)
+{
+    char *endptr;
+    double out;
+    errno = 0;
+
+    out = strtod(arg, &endptr);
+
+    if (errno != 0 || endptr == arg) {
+        *error = true;
+        return out;
+    }
+
+    while (isspace((unsigned char)*endptr)) {
+        ++endptr;
+    }
+
+    if (*endptr != 0) {
+        *error = true;
+    }
+
+    return out;
 }
 
 #if defined(DEBUG)

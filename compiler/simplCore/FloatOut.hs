@@ -12,14 +12,14 @@ module FloatOut ( floatOutwards ) where
 
 import GhcPrelude
 
-import CoreSyn
-import CoreUtils
-import MkCore
-import CoreArity        ( etaExpand )
+import GHC.Core
+import GHC.Core.Utils
+import GHC.Core.Make
+import GHC.Core.Arity   ( etaExpand )
 import CoreMonad        ( FloatOutSwitches(..) )
 
-import DynFlags
-import ErrUtils         ( dumpIfSet_dyn )
+import GHC.Driver.Session
+import ErrUtils         ( dumpIfSet_dyn, DumpFormat (..) )
 import Id               ( Id, idArity, idType, isBottomingId,
                           isJoinId, isJoinId_maybe )
 import SetLevels
@@ -111,7 +111,7 @@ Well, maybe.  We don't do this at the moment.
 Note [Join points]
 ~~~~~~~~~~~~~~~~~~
 Every occurrence of a join point must be a tail call (see Note [Invariants on
-join points] in CoreSyn), so we must be careful with how far we float them. The
+join points] in GHC.Core), so we must be careful with how far we float them. The
 mechanism for doing so is the *join ceiling*, detailed in Note [Join ceiling]
 in SetLevels. For us, the significance is that a binder might be marked to be
 dropped at the nearest boundary between tail calls and non-tail calls. For
@@ -174,11 +174,13 @@ floatOutwards float_sws dflags us pgm
             } ;
 
         dumpIfSet_dyn dflags Opt_D_verbose_core2core "Levels added:"
+                  FormatCore
                   (vcat (map ppr annotated_w_levels));
 
         let { (tlets, ntlets, lams) = get_stats (sum_stats fss) };
 
         dumpIfSet_dyn dflags Opt_D_dump_simpl_stats "FloatOut stats:"
+                FormatText
                 (hcat [ int tlets,  text " Lets floated to top level; ",
                         int ntlets, text " Lets floated elsewhere; from ",
                         int lams,   text " Lambda groups"]);
@@ -527,7 +529,7 @@ from the body of the let that depend on the staying-put bindings.
 
 We used instead to do the partitionByMajorLevel on the RHS of an '=',
 in floatRhs.  But that was quite tiresome.  We needed to test for
-values or trival rhss, because (in particular) we don't want to insert
+values or trivial rhss, because (in particular) we don't want to insert
 new bindings between the "=" and the "\".  E.g.
         f = \x -> let <bind> in <body>
 We do not want

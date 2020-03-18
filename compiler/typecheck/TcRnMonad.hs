@@ -8,11 +8,12 @@ Functions for working with the typechecker environment (setters, getters...).
 {-# LANGUAGE CPP, ExplicitForAll, FlexibleInstances, BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 {-# LANGUAGE ViewPatterns #-}
 
 
 module TcRnMonad(
-  -- * Initalisation
+  -- * Initialisation
   initTc, initTcWithGbl, initTcInteractive, initTcRnIf,
 
   -- * Simple accessors
@@ -42,8 +43,8 @@ module TcRnMonad(
   newTcRef, readTcRef, writeTcRef, updTcRef,
 
   -- * Debugging
-  traceTc, traceRn, traceOptTcRn, traceTcRn, traceTcRnForUser,
-  traceTcRnWithStyle,
+  traceTc, traceRn, traceOptTcRn, dumpOptTcRn,
+  dumpTcRn,
   getPrintUnqualified,
   printForUserTcRn,
   traceIf, traceHiDiffs, traceOptIf,
@@ -154,7 +155,7 @@ import TcEvidence
 import TcOrigin
 
 import GHC.Hs hiding (LIE)
-import HscTypes
+import GHC.Driver.Types
 import Module
 import RdrName
 import Name
@@ -177,7 +178,7 @@ import NameSet
 import Bag
 import Outputable
 import UniqSupply
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import Panic
 import Util
@@ -246,7 +247,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
 
                   -- We want to serialize the documentation in the .hi-files,
                   -- and need to extract it from the renamed syntax first.
-                  -- See 'ExtractDocs.extractDocs'.
+                  -- See 'GHC.HsToCore.Docs.extractDocs'.
                 | gopt Opt_Haddock dflags       = Just empty_val
 
                 | keep_rn_syntax                = Just empty_val
@@ -404,17 +405,14 @@ an actual crash (attempting to look up the Integer type).
 ************************************************************************
 -}
 
-initTcRnIf :: Char              -- Tag for unique supply
+initTcRnIf :: Char              -- ^ Mask for unique supply
            -> HscEnv
            -> gbl -> lcl
            -> TcRnIf gbl lcl a
            -> IO a
-initTcRnIf uniq_tag hsc_env gbl_env lcl_env thing_inside
-   = do { us     <- mkSplitUniqSupply uniq_tag ;
-        ; us_var <- newIORef us ;
-
-        ; let { env = Env { env_top = hsc_env,
-                            env_us  = us_var,
+initTcRnIf uniq_mask hsc_env gbl_env lcl_env thing_inside
+   = do { let { env = Env { env_top = hsc_env,
+                            env_um  = uniq_mask,
                             env_gbl = gbl_env,
                             env_lcl = lcl_env} }
 
@@ -602,27 +600,15 @@ escapeArrowScope
 
 newUnique :: TcRnIf gbl lcl Unique
 newUnique
- = do { env <- getEnv ;
-        let { u_var = env_us env } ;
-        us <- readMutVar u_var ;
-        case takeUniqFromSupply us of { (uniq, us') -> do {
-        writeMutVar u_var us' ;
-        return $! uniq }}}
-   -- NOTE 1: we strictly split the supply, to avoid the possibility of leaving
-   -- a chain of unevaluated supplies behind.
-   -- NOTE 2: we use the uniq in the supply from the MutVar directly, and
-   -- throw away one half of the new split supply.  This is safe because this
-   -- is the only place we use that unique.  Using the other half of the split
-   -- supply is safer, but slower.
+ = do { env <- getEnv
+      ; let mask = env_um env
+      ; liftIO $! uniqFromMask mask }
 
 newUniqueSupply :: TcRnIf gbl lcl UniqSupply
 newUniqueSupply
- = do { env <- getEnv ;
-        let { u_var = env_us env } ;
-        us <- readMutVar u_var ;
-        case splitUniqSupply us of { (us1,us2) -> do {
-        writeMutVar u_var us1 ;
-        return us2 }}}
+ = do { env <- getEnv
+      ; let mask = env_um env
+      ; liftIO $! mkSplitUniqSupply mask }
 
 cloneLocalName :: Name -> TcM Name
 -- Make a fresh Internal name with the same OccName and SrcSpan
@@ -645,12 +631,12 @@ newSysName occ
 newSysLocalId :: FastString -> Mult -> TcType -> TcRnIf gbl lcl TcId
 newSysLocalId fs w ty
   = do  { u <- newUnique
-        ; return (mkSysLocalOrCoVar fs u w ty) }
+        ; return (mkSysLocal fs u w ty) }
 
 newSysLocalIds :: FastString -> [Scaled TcType] -> TcRnIf gbl lcl [TcId]
 newSysLocalIds fs tys
   = do  { us <- newUniqueSupply
-        ; let mkId' n (Scaled w t) = mkSysLocalOrCoVar fs n w t
+        ; let mkId' n (Scaled w t) = mkSysLocal fs n w t
         ; return (zipWith mkId' (uniqsFromSupply us) tys) }
 
 instance MonadUnique (IOEnv (Env gbl lcl)) where
@@ -707,58 +693,48 @@ labelledTraceOptTcRn flag herald doc = do
 formatTraceMsg :: String -> SDoc -> SDoc
 formatTraceMsg herald doc = hang (text herald) 2 doc
 
--- | Output a doc if the given 'DumpFlag' is set.
---
--- By default this logs to stdout
--- However, if the `-ddump-to-file` flag is set,
--- then this will dump output to a file
---
--- Just a wrapper for 'dumpSDoc'
+-- | Trace if the given 'DumpFlag' is set.
 traceOptTcRn :: DumpFlag -> SDoc -> TcRn ()
-traceOptTcRn flag doc
-  = do { dflags <- getDynFlags
-       ; when (dopt flag dflags)
-              (traceTcRn flag doc)
-       }
+traceOptTcRn flag doc = do
+  dflags <- getDynFlags
+  when (dopt flag dflags) $
+    dumpTcRn False (dumpOptionsFromFlag flag) "" FormatText doc
 
+-- | Dump if the given 'DumpFlag' is set.
+dumpOptTcRn :: DumpFlag -> String -> DumpFormat -> SDoc -> TcRn ()
+dumpOptTcRn flag title fmt doc = do
+  dflags <- getDynFlags
+  when (dopt flag dflags) $
+    dumpTcRn False (dumpOptionsFromFlag flag) title fmt doc
+
+-- | Unconditionally dump some trace output
+--
 -- Certain tests (T3017, Roles3, T12763 etc.) expect part of the
 -- output generated by `-ddump-types` to be in 'PprUser' style. However,
 -- generally we want all other debugging output to use 'PprDump'
--- style. 'traceTcRn' and 'traceTcRnForUser' help us accomplish this.
-
--- | A wrapper around 'traceTcRnWithStyle' which uses 'PprDump' style.
-traceTcRn :: DumpFlag -> SDoc -> TcRn ()
-traceTcRn flag doc
-  = do { dflags  <- getDynFlags
-       ; printer <- getPrintUnqualified dflags
-       ; let dump_style = mkDumpStyle dflags printer
-       ; traceTcRnWithStyle dump_style dflags flag doc }
-
--- | A wrapper around 'traceTcRnWithStyle' which uses 'PprUser' style.
-traceTcRnForUser :: DumpFlag -> SDoc -> TcRn ()
--- Used by 'TcRnDriver.tcDump'.
-traceTcRnForUser flag doc
-  = do { dflags  <- getDynFlags
-       ; printer <- getPrintUnqualified dflags
-       ; let user_style = mkUserStyle dflags printer AllTheWay
-       ; traceTcRnWithStyle user_style dflags flag doc }
-
-traceTcRnWithStyle :: PprStyle -> DynFlags -> DumpFlag -> SDoc -> TcRn ()
--- ^ Unconditionally dump some trace output
+-- style. We 'PprUser' style if 'useUserStyle' is True.
 --
--- The DumpFlag is used only to set the output filename
--- for --dump-to-file, not to decide whether or not to output
--- That part is done by the caller
-traceTcRnWithStyle sty dflags flag doc
-  = do { real_doc <- prettyDoc dflags doc
-       ; liftIO $ dumpSDocWithStyle sty dflags flag "" real_doc }
-  where
-    -- Add current location if -dppr-debug
-    prettyDoc :: DynFlags -> SDoc -> TcRn SDoc
-    prettyDoc dflags doc = if hasPprDebug dflags
-       then do { loc  <- getSrcSpanM; return $ mkLocMessage SevOutput loc doc }
-       else return doc -- The full location is usually way too much
+dumpTcRn :: Bool -> DumpOptions -> String -> DumpFormat -> SDoc -> TcRn ()
+dumpTcRn useUserStyle dumpOpt title fmt doc = do
+  dflags <- getDynFlags
+  printer <- getPrintUnqualified dflags
+  real_doc <- wrapDocLoc doc
+  let sty = if useUserStyle
+              then mkUserStyle dflags printer AllTheWay
+              else mkDumpStyle dflags printer
+  liftIO $ dumpAction dflags sty dumpOpt title fmt real_doc
 
+-- | Add current location if -dppr-debug
+-- (otherwise the full location is usually way too much)
+wrapDocLoc :: SDoc -> TcRn SDoc
+wrapDocLoc doc = do
+  dflags <- getDynFlags
+  if hasPprDebug dflags
+    then do
+      loc <- getSrcSpanM
+      return (mkLocMessage SevOutput loc doc)
+    else
+      return doc
 
 getPrintUnqualified :: DynFlags -> TcRn PrintUnqualified
 getPrintUnqualified dflags
@@ -855,39 +831,36 @@ addDependentFiles fs = do
 
 getSrcSpanM :: TcRn SrcSpan
         -- Avoid clash with Name.getSrcLoc
-getSrcSpanM = do { env <- getLclEnv; return (RealSrcSpan (tcl_loc env)) }
+getSrcSpanM = do { env <- getLclEnv; return (RealSrcSpan (tcl_loc env) Nothing) }
 
 setSrcSpan :: SrcSpan -> TcRn a -> TcRn a
-setSrcSpan (RealSrcSpan real_loc) thing_inside
+setSrcSpan (RealSrcSpan real_loc _) thing_inside
     = updLclEnv (\env -> env { tcl_loc = real_loc }) thing_inside
 -- Don't overwrite useful info with useless:
 setSrcSpan (UnhelpfulSpan _) thing_inside = thing_inside
 
-addLocM :: HasSrcSpan a => (SrcSpanLess a -> TcM b) -> a -> TcM b
-addLocM fn (dL->L loc a) = setSrcSpan loc $ fn a
+addLocM :: (a -> TcM b) -> Located a -> TcM b
+addLocM fn (L loc a) = setSrcSpan loc $ fn a
 
-wrapLocM :: (HasSrcSpan a, HasSrcSpan b) =>
-            (SrcSpanLess a -> TcM (SrcSpanLess b)) -> a -> TcM b
+wrapLocM :: (a -> TcM b) -> Located a -> TcM (Located b)
 -- wrapLocM :: (a -> TcM b) -> Located a -> TcM (Located b)
-wrapLocM fn (dL->L loc a) = setSrcSpan loc $ do { b <- fn a
-                                                ; return (cL loc b) }
-wrapLocFstM :: (HasSrcSpan a, HasSrcSpan b) =>
-               (SrcSpanLess a -> TcM (SrcSpanLess b,c)) -> a -> TcM (b, c)
-wrapLocFstM fn (dL->L loc a) =
+wrapLocM fn (L loc a) = setSrcSpan loc $ do { b <- fn a
+                                                ; return (L loc b) }
+
+wrapLocFstM :: (a -> TcM (b,c)) -> Located a -> TcM (Located b, c)
+wrapLocFstM fn (L loc a) =
   setSrcSpan loc $ do
     (b,c) <- fn a
-    return (cL loc b, c)
+    return (L loc b, c)
 
-wrapLocSndM :: (HasSrcSpan a, HasSrcSpan c) =>
-               (SrcSpanLess a -> TcM (b, SrcSpanLess c)) -> a -> TcM (b, c)
-wrapLocSndM fn (dL->L loc a) =
+wrapLocSndM :: (a -> TcM (b, c)) -> Located a -> TcM (b, Located c)
+wrapLocSndM fn (L loc a) =
   setSrcSpan loc $ do
     (b,c) <- fn a
-    return (b, cL loc c)
+    return (b, L loc c)
 
-wrapLocM_ :: HasSrcSpan a =>
-             (SrcSpanLess a -> TcM ()) -> a -> TcM ()
-wrapLocM_ fn (dL->L loc a) = setSrcSpan loc (fn a)
+wrapLocM_ :: (a -> TcM ()) -> Located a -> TcM ()
+wrapLocM_ fn (L loc a) = setSrcSpan loc (fn a)
 
 -- Reporting errors
 
@@ -1272,7 +1245,7 @@ mapAndRecoverM f xs
 
 -- | Apply the function to all elements on the input list
 -- If all succeed, return the list of results
--- Othewise fail, propagating all errors
+-- Otherwise fail, propagating all errors
 mapAndReportM :: (a -> TcRn b) -> [a] -> TcRn [b]
 mapAndReportM f xs
   = do { mb_rs <- mapM (attemptM . f) xs
@@ -1321,7 +1294,7 @@ tryTcDiscardingErrs recover thing_inside
         ; case mb_res of
             Just res | not (errorsFound dflags msgs)
                      , not (insolubleWC lie)
-              -> -- 'main' succeeed with no errors
+              -> -- 'main' succeeded with no errors
                  do { addMessages msgs  -- msgs might still have warnings
                     ; emitConstraints lie
                     ; return res }
@@ -1733,7 +1706,7 @@ emitNamedWildCardHoleConstraints wcs
                   , cc_hole = TypeHole }
        where
          real_span = case nameSrcSpan name of
-                           RealSrcSpan span  -> span
+                           RealSrcSpan span _ -> span
                            UnhelpfulSpan str -> pprPanic "emitNamedWildCardHoleConstraints"
                                                       (ppr name <+> quotes (ftext str))
                -- Wildcards are defined locally, and so have RealSrcSpans
@@ -1771,8 +1744,8 @@ constraints might be "variable out of scope" Hole constraints, and that
 might have been the actual original cause of the exception!  For
 example (#12529):
    f = p @ Int
-Here 'p' is out of scope, so we get an insolube Hole constraint. But
-the visible type application fails in the monad (thows an exception).
+Here 'p' is out of scope, so we get an insoluble Hole constraint. But
+the visible type application fails in the monad (throws an exception).
 We must not discard the out-of-scope error.
 
 So we /retain the insoluble constraints/ if there is an exception.
@@ -1982,12 +1955,8 @@ forkM_maybe :: SDoc -> IfL a -> IfL (Maybe a)
 -- signatures, which is pretty benign
 
 forkM_maybe doc thing_inside
- -- NB: Don't share the mutable env_us with the interleaved thread since env_us
- --     does not get updated atomically (e.g. in newUnique and newUniqueSupply).
- = do { child_us <- newUniqueSupply
-      ; child_env_us <- newMutVar child_us
-        -- see Note [Masking exceptions in forkM_maybe]
-      ; unsafeInterleaveM $ uninterruptibleMaskM_ $ updEnv (\env -> env { env_us = child_env_us }) $
+ = do { -- see Note [Masking exceptions in forkM_maybe]
+      ; unsafeInterleaveM $ uninterruptibleMaskM_ $
         do { traceIf (text "Starting fork {" <+> doc)
            ; mb_res <- tryM $
                        updLclEnv (\env -> env { if_loc = if_loc env $$ doc }) $

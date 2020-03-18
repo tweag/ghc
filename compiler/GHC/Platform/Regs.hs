@@ -5,9 +5,9 @@ module GHC.Platform.Regs
 
 import GhcPrelude
 
-import CmmExpr
+import GHC.Cmm.Expr
 import GHC.Platform
-import Reg
+import GHC.Platform.Reg
 
 import qualified GHC.Platform.ARM        as ARM
 import qualified GHC.Platform.ARM64      as ARM64
@@ -42,7 +42,7 @@ callerSaves platform
 -- The order matters (for the llvm backend anyway)! We must make sure to
 -- maintain the order here with the order used in the LLVM calling conventions.
 -- Note that also, this isn't all registers, just the ones that are currently
--- possbily mapped to real registers.
+-- possibly mapped to real registers.
 activeStgRegs :: Platform -> [GlobalReg]
 activeStgRegs platform
  | platformUnregisterised platform = NoRegs.activeStgRegs

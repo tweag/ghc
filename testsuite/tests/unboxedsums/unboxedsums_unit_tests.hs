@@ -2,9 +2,9 @@ module Main where
 
 import BasicTypes
 import GHC
-import GhcMonad
+import GHC.Driver.Monad
 import Outputable
-import RepType
+import GHC.Types.RepType
 import TysPrim
 import TysWiredIn
 import UniqSet

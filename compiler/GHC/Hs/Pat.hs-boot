@@ -1,7 +1,8 @@
 {-# LANGUAGE CPP, KindSignatures #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
-                                      -- in module GHC.Hs.PlaceHolder
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-} -- Wrinkle in Note [Trees That Grow]
+                                      -- in module GHC.Hs.Extension
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -9,10 +10,11 @@
 module GHC.Hs.Pat where
 
 import Outputable
-import GHC.Hs.Extension ( OutputableBndrId, GhcPass )
+import GHC.Hs.Extension ( OutputableBndrId, GhcPass, XRec )
+import Data.Kind
 
 type role Pat nominal
-data Pat (i :: *)
-type LPat i = Pat i
+data Pat (i :: Type)
+type LPat i = XRec i Pat
 
-instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (Pat p)
+instance OutputableBndrId p => Outputable (Pat (GhcPass p))

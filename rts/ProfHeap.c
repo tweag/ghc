@@ -26,8 +26,15 @@
 #include <fs_rts.h>
 #include <string.h>
 
+#if defined(darwin_HOST_OS)
+#include <xlocale.h>
+#else
+#include <locale.h>
+#endif
+
 FILE *hp_file;
 static char *hp_filename; /* heap profile (hp2ps style) log file */
+static locale_t prof_locale = 0, saved_locale = 0;
 
 /* -----------------------------------------------------------------------------
  * era stores the current time period.  It is the same as the
@@ -344,6 +351,10 @@ printSample(bool beginSample, StgDouble sampleValue)
 
 void freeHeapProfiling (void)
 {
+    if (prof_locale) {
+        freelocale(prof_locale);
+        prof_locale = 0;
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -355,6 +366,15 @@ initHeapProfiling(void)
     if (! RtsFlags.ProfFlags.doHeapProfile) {
         return;
     }
+
+    if (! prof_locale) {
+        prof_locale = newlocale(LC_NUMERIC_MASK, "POSIX", 0);
+        if (! prof_locale) {
+            sysErrorBelch("Couldn't allocate heap profiler locale");
+            /* non-fatal: risk using an unknown locale, but won't crash */
+        }
+    }
+    saved_locale = uselocale(prof_locale);
 
     char *prog;
 
@@ -453,6 +473,8 @@ initHeapProfiling(void)
     }
 #endif
 
+    uselocale(saved_locale);
+
     traceHeapProfBegin(0);
 }
 
@@ -464,6 +486,8 @@ endHeapProfiling(void)
     if (! RtsFlags.ProfFlags.doHeapProfile) {
         return;
     }
+
+    saved_locale = uselocale(prof_locale);
 
 #if defined(PROFILING)
     if (doingRetainerProfiling()) {
@@ -505,6 +529,8 @@ endHeapProfiling(void)
     printSample(true, seconds);
     printSample(false, seconds);
     fclose(hp_file);
+
+    uselocale(saved_locale);
 }
 
 
@@ -759,6 +785,8 @@ dumpCensus( Census *census )
     counter *ctr;
     ssize_t count;
 
+    saved_locale = uselocale(prof_locale);
+
     printSample(true, census->time);
 
 
@@ -887,6 +915,8 @@ dumpCensus( Census *census )
 
     traceHeapProfSampleEnd(era);
     printSample(false, census->time);
+
+    uselocale(saved_locale);
 }
 
 
@@ -1010,6 +1040,22 @@ heapCensusChain( Census *census, bdescr *bd )
         }
 
         p = bd->start;
+
+        // When we shrink a large ARR_WORDS, we do not adjust the free pointer
+        // of the associated block descriptor, thus introducing slop at the end
+        // of the object.  This slop remains after GC, violating the assumption
+        // of the loop below that all slop has been eliminated (#11627).
+        // The slop isn't always zeroed (e.g. in non-profiling mode, cf
+        // OVERWRITING_CLOSURE_OFS).
+        // Consequently, we handle large ARR_WORDS objects as a special case.
+        if (bd->flags & BF_LARGE
+            && get_itbl((StgClosure *)p)->type == ARR_WORDS) {
+            size = arr_words_sizeW((StgArrBytes *)p);
+            prim = true;
+            heapProfObject(census, (StgClosure *)p, size, prim);
+            continue;
+        }
+
 
         while (p < bd->free) {
             info = get_itbl((const StgClosure *)p);
@@ -1166,6 +1212,8 @@ heapCensusChain( Census *census, bdescr *bd )
     }
 }
 
+// Time is process CPU time of beginning of current GC and is used as
+// the mutator CPU time reported as the census timestamp.
 void heapCensus (Time t)
 {
   uint32_t g, n;
@@ -1173,7 +1221,7 @@ void heapCensus (Time t)
   gen_workspace *ws;
 
   census = &censuses[era];
-  census->time  = mut_user_time_until(t);
+  census->time  = TimeToSecondsDbl(t);
   census->rtime = TimeToNS(stat_getElapsedTime());
 
 

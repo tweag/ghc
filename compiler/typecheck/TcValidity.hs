@@ -5,6 +5,9 @@
 
 {-# LANGUAGE CPP, TupleSections, ViewPatterns #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+
 module TcValidity (
   Rank, UserTypeCtxt(..), checkValidType, checkValidMonoType,
   checkValidTheta,
@@ -29,6 +32,7 @@ import TcSimplify ( simplifyAmbiguityCheck )
 import ClsInst    ( matchGlobalInst, ClsInstResult(..), InstanceWhat(..), AssocInstInfo(..) )
 import TyCoFVs
 import TyCoRep
+import TyCoPpr
 import TcType hiding ( sizeType, sizeTypes )
 import TysWiredIn ( heqTyConName, eqTyConName, coercibleTyConName, manyDataConTy )
 import PrelNames
@@ -42,22 +46,22 @@ import Predicate
 import TcOrigin
 
 -- others:
-import IfaceType( pprIfaceType, pprIfaceTypeApp )
-import ToIface  ( toIfaceTyCon, toIfaceTcArgs, toIfaceType )
+import GHC.Iface.Type   ( pprIfaceType, pprIfaceTypeApp )
+import GHC.CoreToIface  ( toIfaceTyCon, toIfaceTcArgs, toIfaceType )
 import GHC.Hs           -- HsType
 import TcRnMonad        -- TcType, amongst others
 import TcEnv       ( tcInitTidyEnv, tcInitOpenTidyEnv )
 import FunDeps
 import FamInstEnv  ( isDominatedBy, injectiveBranches,
                      InjectivityCheckResult(..) )
-import FamInst     ( makeInjectivityErrors )
+import FamInst
 import Name
 import VarEnv
 import VarSet
 import Var         ( VarBndr(..), mkTyVar )
 import FV
 import ErrUtils
-import DynFlags
+import GHC.Driver.Session
 import Util
 import ListSetOps
 import SrcLoc
@@ -129,7 +133,7 @@ unambiguous. See Note [Impedance matching] in TcBinds.
 
 This test is very conveniently implemented by calling
     tcSubType <type> <type>
-This neatly takes account of the functional dependecy stuff above,
+This neatly takes account of the functional dependency stuff above,
 and implicit parameter (see Note [Implicit parameters and ambiguity]).
 And this is what checkAmbiguity does.
 
@@ -169,7 +173,7 @@ In fact, because of the co/contra-variance implemented in tcSubType,
 this *does* catch function f above. too.
 
 Concerning (a) the ambiguity check is only used for *user* types, not
-for types coming from inteface files.  The latter can legitimately
+for types coming from interface files.  The latter can legitimately
 have ambiguous types. Example
 
    class S a where s :: a -> (Int,Int)
@@ -274,7 +278,7 @@ In a few places we do not want to check a user-specified type for ambiguity
 
   There is also an implementation reason (#11608).  In the RHS of
   a type synonym we don't (currently) instantiate 'a' and 'b' with
-  TcTyVars before calling checkValidType, so we get asertion failures
+  TcTyVars before calling checkValidType, so we get assertion failures
   from doing an ambiguity check on a type with TyVars in it.  Fixing this
   would not be hard, but let's wait till there's a reason.
 
@@ -971,7 +975,7 @@ expand S first, then T we get just
 which is fine.
 
 IMPORTANT: suppose T is a type synonym.  Then we must do validity
-checking on an appliation (T ty1 ty2)
+checking on an application (T ty1 ty2)
 
         *either* before expansion (i.e. check ty1, ty2)
         *or* after expansion (i.e. expand T ty1 ty2, and then check)
@@ -1115,15 +1119,14 @@ check_pred_help under_syn env dflags ctxt pred
         | isCTupleClass cls   -> check_tuple_pred under_syn env dflags ctxt pred tys
         | otherwise           -> check_class_pred env dflags ctxt pred cls tys
 
-      EqPred NomEq _ _  -> -- a ~# b
-                           check_eq_pred env dflags pred
-
-      EqPred ReprEq _ _ -> -- Ugh!  When inferring types we may get
-                           -- f :: (a ~R# b) => blha
-                           -- And we want to treat that like (Coercible a b)
-                           -- We should probably check argument shapes, but we
-                           -- didn't do so before, so I'm leaving it for now
-                           return ()
+      EqPred _ _ _      -> pprPanic "check_pred_help" (ppr pred)
+              -- EqPreds, such as (t1 ~ #t2) or (t1 ~R# t2), don't even have kind Constraint
+              -- and should never appear before the '=>' of a type.  Thus
+              --     f :: (a ~# b) => blah
+              -- is wrong.  For user written signatures, it'll be rejected by kind-checking
+              -- well before we get to validity checking.  For inferred types we are careful
+              -- to box such constraints in TcType.pickQuantifiablePreds, as described
+              -- in Note [Lift equality constraints when quantifying] in TcType
 
       ForAllPred _ theta head -> check_quant_pred env dflags ctxt pred theta head
       IrredPred {}            -> check_irred_pred under_syn env dflags ctxt pred
@@ -1138,13 +1141,18 @@ check_eq_pred env dflags pred
 
 check_quant_pred :: TidyEnv -> DynFlags -> UserTypeCtxt
                  -> PredType -> ThetaType -> PredType -> TcM ()
-check_quant_pred env dflags _ctxt pred theta head_pred
+check_quant_pred env dflags ctxt pred theta head_pred
   = addErrCtxt (text "In the quantified constraint" <+> quotes (ppr pred)) $
     do { -- Check the instance head
          case classifyPredType head_pred of
-            ClassPred cls tys -> checkValidInstHead SigmaCtxt cls tys
                                  -- SigmaCtxt tells checkValidInstHead that
                                  -- this is the head of a quantified constraint
+            ClassPred cls tys -> do { checkValidInstHead SigmaCtxt cls tys
+                                    ; check_pred_help False env dflags ctxt head_pred }
+                               -- need check_pred_help to do extra pred-only validity
+                               -- checks, such as for (~). Otherwise, we get #17563
+                               -- NB: checks for the context are covered by the check_type
+                               -- in check_pred_ty
             IrredPred {}      | hasTyVarHead head_pred
                               -> return ()
             _                 -> failWithTcM (badQuantHeadErr env pred)
@@ -1215,10 +1223,9 @@ solved to add+canonicalise another (Foo a) constraint.  -}
 check_class_pred :: TidyEnv -> DynFlags -> UserTypeCtxt
                  -> PredType -> Class -> [TcType] -> TcM ()
 check_class_pred env dflags ctxt pred cls tys
-  |  isEqPredClass cls    -- (~) and (~~) are classified as classes,
-                          -- but here we want to treat them as equalities
-  = -- pprTrace "check_class" (ppr cls) $
-    check_eq_pred env dflags pred
+  | isEqPredClass cls    -- (~) and (~~) are classified as classes,
+                         -- but here we want to treat them as equalities
+  = check_eq_pred env dflags pred
 
   | isIPClass cls
   = do { check_arity
@@ -1931,7 +1938,7 @@ checkInstTermination theta head_pred
                                -- See Note [Invisible arguments and termination]
 
          ForAllPred tvs _ head_pred'
-           -> check (foralld_tvs `extendVarSetList` binderVars tvs) head_pred'
+           -> check (foralld_tvs `extendVarSetList` tvs) head_pred'
               -- Termination of the quantified predicate itself is checked
               -- when the predicates are individually checked for validity
 
@@ -1974,7 +1981,7 @@ constraintKindsMsg = text "Use ConstraintKinds to permit this"
 Are these OK?
   type family F a
   instance F a    => C (Maybe [a]) where ...
-  intance C (F a) => C [[[a]]]     where ...
+  instance C (F a) => C [[[a]]]     where ...
 
 No: the type family in the instance head might blow up to an
 arbitrarily large type, depending on how 'a' is instantiated.
@@ -2038,8 +2045,8 @@ checkValidCoAxiom ax@(CoAxiom { co_ax_tc = fam_tc, co_ax_branches = branches })
            ; let conflicts =
                      fst $ foldl' (gather_conflicts inj prev_branches cur_branch)
                                  ([], 0) prev_branches
-           ; mapM_ (\(err, span) -> setSrcSpan span $ addErr err)
-                   (makeInjectivityErrors dflags ax cur_branch inj conflicts) }
+           ; reportConflictingInjectivityErrs fam_tc conflicts cur_branch
+           ; reportInjectivityErrors dflags ax cur_branch inj }
       | otherwise
       = return ()
 
@@ -2323,7 +2330,7 @@ checkConsistentFamInst (InClsInst { ai_class = clas
     tv_name = mkInternalName (mkAlphaTyVarUnique 1) (mkTyVarOcc "_") noSrcSpan
 
     -- For check_match, bind_me, see
-    -- Note [Matching in the consistent-instantation check]
+    -- Note [Matching in the consistent-instantiation check]
     check_match :: [(Type,Type,ArgFlag)] -> TcM ()
     check_match triples = go emptyTCvSubst emptyTCvSubst triples
 
@@ -2424,7 +2431,7 @@ in injective positions on the left-hand side (by way of
 position, as `T` is not an injective type constructor, so we do not count that.
 Similarly for the `a` in `ConstType a`.
 
-Note [Matching in the consistent-instantation check]
+Note [Matching in the consistent-instantiation check]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Matching the class-instance header to family-instance tyvars is
 tricker than it sounds.  Consider (#13972)
@@ -2580,7 +2587,7 @@ Notice that:
     positions where the class header has no influence over the
     parameter.  Hence the fancy footwork in pp_expected_ty
 
-  - Although the binders in the axiom are aready tidy, we must
+  - Although the binders in the axiom are already tidy, we must
     re-tidy them to get a fresh variable name when we shadow
 
   - The (ax_tvs \\ inst_tvs) is to avoid tidying one of the
@@ -2712,7 +2719,7 @@ datatype declarations.  This checks for
 
 See also
   * Note [Required, Specified, and Inferred for types] in TcTyClsDecls.
-  * Note [Keeping scoped variables in order: Explicit] discusses how
+  * Note [Checking telescopes] in Constraint discusses how
     this check works for `forall x y z.` written in a type.
 
 Note [Ambiguous kind vars]
@@ -2838,7 +2845,7 @@ fvType (CastTy ty _)         = fvType ty
 fvType (CoercionTy {})       = []
 
 fvTypes :: [Type] -> [TyVar]
-fvTypes tys                = concat (map fvType tys)
+fvTypes tys                = concatMap fvType tys
 
 sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors

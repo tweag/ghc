@@ -7,6 +7,7 @@ TcSplice: Template Haskell splices
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,7 +16,10 @@ TcSplice: Template Haskell splices
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 module TcSplice(
      tcSpliceExpr, tcTypedBracket, tcUntypedBracket,
@@ -35,7 +39,7 @@ import GhcPrelude
 
 import GHC.Hs
 import Annotations
-import Finder
+import GHC.Driver.Finder
 import Name
 import TcRnMonad
 import TcType
@@ -55,26 +59,27 @@ import Control.Monad
 
 import GHCi.Message
 import GHCi.RemoteTypes
-import GHCi
-import HscMain
+import GHC.Runtime.Interpreter
+import GHC.Runtime.Interpreter.Types
+import GHC.Driver.Main
         -- These imports are the reason that TcSplice
         -- is very high up the module hierarchy
-import RnSplice( traceSplice, SpliceInfo(..))
+import GHC.Rename.Splice( traceSplice, SpliceInfo(..))
 import RdrName
-import HscTypes
+import GHC.Driver.Types
 import GHC.ThToHs
-import RnExpr
-import RnEnv
-import RnUtils ( HsDocContext(..) )
-import RnFixity ( lookupFixityRn_help )
-import RnTypes
+import GHC.Rename.Expr
+import GHC.Rename.Env
+import GHC.Rename.Utils  ( HsDocContext(..) )
+import GHC.Rename.Fixity ( lookupFixityRn_help )
+import GHC.Rename.Types
 import TcHsSyn
 import TcSimplify
 import Type
 import NameSet
 import TcMType
 import TcHsType
-import TcIface
+import GHC.IfaceToCore
 import TyCoRep
 import FamInst
 import FamInstEnv
@@ -84,21 +89,21 @@ import NameEnv
 import PrelNames
 import TysWiredIn
 import OccName
-import Hooks
+import GHC.Driver.Hooks
 import Var
 import Module
-import LoadIface
+import GHC.Iface.Load
 import Class
 import TyCon
 import CoAxiom
 import PatSyn
 import ConLike
 import DataCon
-import TcEvidence( TcEvBinds(..) )
+import TcEvidence
 import Id
 import IdInfo
-import DsExpr
-import DsMonad
+import GHC.HsToCore.Expr
+import GHC.HsToCore.Monad
 import GHC.Serialized
 import ErrUtils
 import Util
@@ -109,19 +114,22 @@ import Data.Maybe
 import FastString
 import BasicTypes hiding( SuccessFlag(..) )
 import Maybes( MaybeErr(..) )
-import DynFlags
+import GHC.Driver.Session
 import Panic
 import Lexeme
 import qualified EnumSet
-import Plugins
+import GHC.Driver.Plugins
 import Bag
 
 import qualified Language.Haskell.TH as TH
 -- THSyntax gives access to internal functions and data types
 import qualified Language.Haskell.TH.Syntax as TH
 
+#if defined(HAVE_INTERNAL_INTERPRETER)
 -- Because GHC.Desugar might not be in the base library of the bootstrapping compiler
 import GHC.Desugar      ( AnnotationWrapper(..) )
+import Unsafe.Coerce    ( unsafeCoerce )
+#endif
 
 import Control.Exception
 import Data.Binary
@@ -133,7 +141,6 @@ import qualified Data.Map as Map
 import Data.Typeable ( typeOf, Typeable, TypeRep, typeRep )
 import Data.Data (Data)
 import Data.Proxy    ( Proxy (..) )
-import GHC.Exts         ( unsafeCoerce# )
 
 {-
 ************************************************************************
@@ -173,68 +180,132 @@ tcTypedBracket rn_expr brack@(TExpBr _ expr) res_ty
                                        -- should get thrown into the constraint set
                                        -- from outside the bracket
 
+       -- Make a new type variable for the type of the overall quote
+       ; m_var <- mkTyVarTy <$> mkMetaTyVar
+       -- Make sure the type variable satisfies Quote
+       ; ev_var <- emitQuoteWanted m_var
+       -- Bundle them together so they can be used in GHC.HsToCore.Quote for desugaring
+       -- brackets.
+       ; let wrapper = QuoteWrapper ev_var m_var
        -- Typecheck expr to make sure it is valid,
        -- Throw away the typechecked expression but return its type.
        -- We'll typecheck it again when we splice it in somewhere
-       ; (_tc_expr, expr_ty) <- setStage (Brack cur_stage (TcPending ps_ref lie_var)) $
+       ; (_tc_expr, expr_ty) <- setStage (Brack cur_stage (TcPending ps_ref lie_var wrapper)) $
                                 tcInferRhoNC expr
                                 -- NC for no context; tcBracket does that
        ; let rep = getRuntimeRep expr_ty
-
-       ; meta_ty <- tcTExpTy expr_ty
+       ; meta_ty <- tcTExpTy m_var expr_ty
        ; ps' <- readMutVar ps_ref
        ; texpco <- tcLookupId unsafeTExpCoerceName
        ; tcWrapResultO (Shouldn'tHappenOrigin "TExpBr")
                        rn_expr
-                       (unLoc (mkHsApp (nlHsTyApp texpco [rep, expr_ty])
-                                      (noLoc (HsTcBracketOut noExtField brack ps'))))
+                       (unLoc (mkHsApp (mkLHsWrap (applyQuoteWrapper wrapper)
+                                                  (nlHsTyApp texpco [rep, expr_ty]))
+                                      (noLoc (HsTcBracketOut noExtField (Just wrapper) brack ps'))))
                        meta_ty res_ty }
 tcTypedBracket _ other_brack _
   = pprPanic "tcTypedBracket" (ppr other_brack)
 
 -- tcUntypedBracket :: HsBracket Name -> [PendingRnSplice] -> ExpRhoType -> TcM (HsExpr TcId)
+-- See Note [Typechecking Overloaded Quotes]
 tcUntypedBracket rn_expr brack ps res_ty
   = do { traceTc "tc_bracket untyped" (ppr brack $$ ppr ps)
-       ; ps' <- mapM tcPendingSplice ps
-       ; meta_ty <- tcBrackTy brack
-       ; traceTc "tc_bracket done untyped" (ppr meta_ty)
-       ; tcWrapResultO (Shouldn'tHappenOrigin "untyped bracket")
-                       rn_expr (HsTcBracketOut noExtField brack ps') meta_ty res_ty }
+
+
+       -- Create the type m Exp for expression bracket, m Type for a type
+       -- bracket and so on. The brack_info is a Maybe because the
+       -- VarBracket ('a) isn't overloaded, but also shouldn't contain any
+       -- splices.
+       ; (brack_info, expected_type) <- brackTy brack
+
+       -- Match the expected type with the type of all the internal
+       -- splices. They might have further constrained types and if they do
+       -- we want to reflect that in the overall type of the bracket.
+       ; ps' <- case quoteWrapperTyVarTy <$> brack_info of
+                  Just m_var -> mapM (tcPendingSplice m_var) ps
+                  Nothing -> ASSERT(null ps) return []
+
+       ; traceTc "tc_bracket done untyped" (ppr expected_type)
+
+       -- Unify the overall type of the bracket with the expected result
+       -- type
+       ; tcWrapResultO BracketOrigin rn_expr
+            (HsTcBracketOut noExtField brack_info brack ps')
+            expected_type res_ty
+
+       }
+
+-- | A type variable with kind * -> * named "m"
+mkMetaTyVar :: TcM TyVar
+mkMetaTyVar =
+  newNamedFlexiTyVar (fsLit "m") (mkVisFunTyMany liftedTypeKind liftedTypeKind)
+
+
+-- | For a type 'm', emit the constraint 'Quote m'.
+emitQuoteWanted :: Type -> TcM EvVar
+emitQuoteWanted m_var =  do
+        quote_con <- tcLookupTyCon quoteClassName
+        emitWantedEvVar BracketOrigin $
+          mkTyConApp quote_con [m_var]
 
 ---------------
-tcBrackTy :: HsBracket GhcRn -> TcM TcType
-tcBrackTy (VarBr {})  = tcMetaTy nameTyConName
-                                           -- Result type is Var (not Q-monadic)
-tcBrackTy (ExpBr {})  = tcMetaTy expQTyConName  -- Result type is ExpQ (= Q Exp)
-tcBrackTy (TypBr {})  = tcMetaTy typeQTyConName -- Result type is Type (= Q Typ)
-tcBrackTy (DecBrG {}) = tcMetaTy decsQTyConName -- Result type is Q [Dec]
-tcBrackTy (PatBr {})  = tcMetaTy patQTyConName  -- Result type is PatQ (= Q Pat)
-tcBrackTy (DecBrL {}) = panic "tcBrackTy: Unexpected DecBrL"
-tcBrackTy (TExpBr {}) = panic "tcUntypedBracket: Unexpected TExpBr"
-tcBrackTy (XBracket nec) = noExtCon nec
+-- | Compute the expected type of a quotation, and also the QuoteWrapper in
+-- the case where it is an overloaded quotation. All quotation forms are
+-- overloaded aprt from Variable quotations ('foo)
+brackTy :: HsBracket GhcRn -> TcM (Maybe QuoteWrapper, Type)
+brackTy b =
+  let mkTy n = do
+        -- New polymorphic type variable for the bracket
+        m_var <- mkTyVarTy <$> mkMetaTyVar
+        -- Emit a Quote constraint for the bracket
+        ev_var <- emitQuoteWanted m_var
+        -- Construct the final expected type of the quote, for example
+        -- m Exp or m Type
+        final_ty <- mkAppTy m_var <$> tcMetaTy n
+        -- Return the evidence variable and metavariable to be used during
+        -- desugaring.
+        let wrapper = QuoteWrapper ev_var m_var
+        return (Just wrapper, final_ty)
+  in
+  case b of
+    (VarBr {}) -> (Nothing,) <$> tcMetaTy nameTyConName
+                                           -- Result type is Var (not Quote-monadic)
+    (ExpBr {})  -> mkTy expTyConName  -- Result type is m Exp
+    (TypBr {})  -> mkTy typeTyConName -- Result type is m Type
+    (DecBrG {}) -> mkTy decsTyConName -- Result type is m [Dec]
+    (PatBr {})  -> mkTy patTyConName  -- Result type is m Pat
+    (DecBrL {}) -> panic "tcBrackTy: Unexpected DecBrL"
+    (TExpBr {}) -> panic "tcUntypedBracket: Unexpected TExpBr"
+    (XBracket nec) -> noExtCon nec
 
 ---------------
-tcPendingSplice :: PendingRnSplice -> TcM PendingTcSplice
-tcPendingSplice (PendingRnSplice flavour splice_name expr)
-  = do { res_ty <- tcMetaTy meta_ty_name
-       ; expr' <- tcMonoExpr expr (mkCheckExpType res_ty)
+-- | Typechecking a pending splice from a untyped bracket
+tcPendingSplice :: TcType -- Metavariable for the expected overall type of the
+                          -- quotation.
+                -> PendingRnSplice
+                -> TcM PendingTcSplice
+tcPendingSplice m_var (PendingRnSplice flavour splice_name expr)
+  -- See Note [Typechecking Overloaded Quotes]
+  = do { meta_ty <- tcMetaTy meta_ty_name
+         -- Expected type of splice, e.g. m Exp
+       ; let expected_type = mkAppTy m_var meta_ty
+       ; expr' <- tcPolyExpr expr expected_type
        ; return (PendingTcSplice splice_name expr') }
   where
      meta_ty_name = case flavour of
-                       UntypedExpSplice  -> expQTyConName
-                       UntypedPatSplice  -> patQTyConName
-                       UntypedTypeSplice -> typeQTyConName
-                       UntypedDeclSplice -> decsQTyConName
+                       UntypedExpSplice  -> expTyConName
+                       UntypedPatSplice  -> patTyConName
+                       UntypedTypeSplice -> typeTyConName
+                       UntypedDeclSplice -> decsTyConName
 
 ---------------
--- Takes a tau and returns the type Q (TExp tau)
-tcTExpTy :: TcType -> TcM TcType
-tcTExpTy exp_ty
+-- Takes a m and tau and returns the type m (TExp tau)
+tcTExpTy :: TcType -> TcType -> TcM TcType
+tcTExpTy m_ty exp_ty
   = do { unless (isTauTy exp_ty) $ addErr (err_msg exp_ty)
-       ; q    <- tcLookupTyCon qTyConName
        ; texp <- tcLookupTyCon tExpTyConName
        ; let rep = getRuntimeRep exp_ty
-       ; return (mkTyConApp q [mkTyConApp texp [rep, exp_ty]]) }
+       ; return (mkAppTy m_ty (mkTyConApp texp [rep, exp_ty])) }
   where
     err_msg ty
       = vcat [ text "Illegal polytype:" <+> ppr ty
@@ -314,7 +385,7 @@ The life cycle of a un-typed bracket:
 
 
 In both cases, desugaring happens like this:
-  * HsTcBracketOut is desugared by DsMeta.dsBracket.  It
+  * HsTcBracketOut is desugared by GHC.HsToCore.Quote.dsBracket.  It
 
       a) Extends the ds_meta environment with the PendingSplices
          attached to the bracket
@@ -329,10 +400,10 @@ In both cases, desugaring happens like this:
     ${n}(e).  The name is initialised to an (Unqual "splice") when the
     splice is created; the renamer gives it a unique.
 
-  * When DsMeta (used to desugar the body of the bracket) comes across
+  * When GHC.HsToCore.Quote (used to desugar the body of the bracket) comes across
     a splice, it looks up the splice's Name, n, in the ds_meta envt,
     to find an (HsExpr Id) that should be substituted for the splice;
-    it just desugars it to get a CoreExpr (DsMeta.repSplice).
+    it just desugars it to get a CoreExpr (GHC.HsToCore.Quote.repSplice).
 
 Example:
     Source:       f = [| Just $(g 3) |]
@@ -402,7 +473,7 @@ Note [Template Haskell levels]
                incremented by brackets [| |]
                incremented by name-quoting 'f
 
-When a variable is used, we compare
+* When a variable is used, checkWellStaged compares
         bind:  binding level, and
         use:   current level at usage site
 
@@ -428,8 +499,79 @@ When a variable is used, we compare
   For example:
            f = ...
            g1 = $(map ...)         is OK
-           g2 = $(f ...)           is not OK; because we havn't compiled f yet
+           g2 = $(f ...)           is not OK; because we haven't compiled f yet
 
+Note [Typechecking Overloaded Quotes]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The main function for typechecking untyped quotations is `tcUntypedBracket`.
+
+Consider an expression quote, `[| e |]`, its type is `forall m . Quote m => m Exp`.
+When we typecheck it we therefore create a template of a metavariable `m` applied to `Exp` and
+emit a constraint `Quote m`. All this is done in the `brackTy` function.
+`brackTy` also selects the correct contents type for the quotation (Exp, Type, Decs etc).
+
+The meta variable and the constraint evidence variable are
+returned together in a `QuoteWrapper` and then passed along to two further places
+during compilation:
+
+1. Typechecking nested splices (immediately in tcPendingSplice)
+2. Desugaring quotations (see GHC.HsToCore.Quote)
+
+`tcPendingSplice` takes the `m` type variable as an argument and checks
+each nested splice against this variable `m`. During this
+process the variable `m` can either be fixed to a specific value or further constrained by the
+nested splices.
+
+Once we have checked all the nested splices, the quote type is checked against
+the expected return type.
+
+The process is very simple and like typechecking a list where the quotation is
+like the container and the splices are the elements of the list which must have
+a specific type.
+
+After the typechecking process is completed, the evidence variable for `Quote m`
+and the type `m` is stored in a `QuoteWrapper` which is passed through the pipeline
+and used when desugaring quotations.
+
+Typechecking typed quotations is a similar idea but the `QuoteWrapper` is stored
+in the `PendingStuff` as the nested splices are gathered up in a different way
+to untyped splices. Untyped splices are found in the renamer but typed splices are
+not typechecked and extracted until during typechecking.
+
+-}
+
+-- | We only want to produce warnings for TH-splices if the user requests so.
+-- See Note [Warnings for TH splices].
+getThSpliceOrigin :: TcM Origin
+getThSpliceOrigin = do
+  warn <- goptM Opt_EnableThSpliceWarnings
+  if warn then return FromSource else return Generated
+
+{- Note [Warnings for TH splices]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We only produce warnings for TH splices when the user requests so
+(-fenable-th-splice-warnings). There are multiple reasons:
+
+  * It's not clear that the user that compiles a splice is the author of the code
+    that produces the warning. Think of the situation where she just splices in
+    code from a third-party library that produces incomplete pattern matches.
+    In this scenario, the user isn't even able to fix that warning.
+  * Gathering information for producing the warnings (pattern-match check
+    warnings in particular) is costly. There's no point in doing so if the user
+    is not interested in those warnings.
+
+That's why we store Origin flags in the Haskell AST. The functions from ThToHs
+take such a flag and depending on whether TH splice warnings were enabled or
+not, we pass FromSource (if the user requests warnings) or Generated
+(otherwise). This is implemented in getThSpliceOrigin.
+
+For correct pattern-match warnings it's crucial that we annotate the Origin
+consistently (#17270). In the future we could offer the Origin as part of the
+TH AST. That would enable us to give quotes from the current module get
+FromSource origin, and/or third library authors to tag certain parts of
+generated code as FromSource to enable warnings. That effort is tracked in
+#14838.
 -}
 
 {-
@@ -461,7 +603,7 @@ tcSpliceExpr splice _
 
 'qAddModFinalizer' of the @Quasi TcM@ instance adds finalizers in the local
 environment (see Note [Delaying modFinalizers in untyped splices] in
-"RnSplice"). Thus after executing the splice, we move the finalizers to the
+GHC.Rename.Splice). Thus after executing the splice, we move the finalizers to the
 finalizer list in the global environment and set them to use the current local
 environment (with 'addModFinalizersWithLclEnv').
 
@@ -471,15 +613,17 @@ tcNestedSplice :: ThStage -> PendingStuff -> Name
                 -> LHsExpr GhcRn -> ExpRhoType -> TcM (HsExpr GhcTc)
     -- See Note [How brackets and nested splices are handled]
     -- A splice inside brackets
-tcNestedSplice pop_stage (TcPending ps_var lie_var) splice_name expr res_ty
+tcNestedSplice pop_stage (TcPending ps_var lie_var q@(QuoteWrapper _ m_var)) splice_name expr res_ty
   = do { res_ty <- expTypeToType res_ty
        ; let rep = getRuntimeRep res_ty
-       ; meta_exp_ty <- tcTExpTy res_ty
+       ; meta_exp_ty <- tcTExpTy m_var res_ty
        ; expr' <- setStage pop_stage $
                   setConstraintVar lie_var $
                   tcMonoExpr expr (mkCheckExpType meta_exp_ty)
        ; untypeq <- tcLookupId unTypeQName
-       ; let expr'' = mkHsApp (nlHsTyApp untypeq [rep, res_ty]) expr'
+       ; let expr'' = mkHsApp
+                        (mkLHsWrap (applyQuoteWrapper q)
+                          (nlHsTyApp untypeq [rep, res_ty])) expr'
        ; ps <- readMutVar ps_var
        ; writeMutVar ps_var (PendingTcSplice splice_name expr'' : ps)
 
@@ -494,13 +638,15 @@ tcTopSplice expr res_ty
   = do { -- Typecheck the expression,
          -- making sure it has type Q (T res_ty)
          res_ty <- expTypeToType res_ty
-       ; meta_exp_ty <- tcTExpTy res_ty
+       ; q_type <- tcMetaTy qTyConName
+       -- Top level splices must still be of type Q (TExp a)
+       ; meta_exp_ty <- tcTExpTy q_type res_ty
        ; q_expr <- tcTopSpliceExpr Typed $
                           tcMonoExpr expr (mkCheckExpType meta_exp_ty)
        ; lcl_env <- getLclEnv
        ; let delayed_splice
               = DelayedSplice lcl_env expr res_ty q_expr
-       ; return (HsSpliceE noExtField (HsSplicedT delayed_splice))
+       ; return (HsSpliceE noExtField (XSplice (HsSplicedT delayed_splice)))
 
        }
 
@@ -629,14 +775,14 @@ runAnnotation target expr = do
 
 convertAnnotationWrapper :: ForeignHValue -> TcM (Either MsgDoc Serialized)
 convertAnnotationWrapper fhv = do
-  dflags <- getDynFlags
-  if gopt Opt_ExternalInterpreter dflags
-    then do
-      Right <$> runTH THAnnWrapper fhv
-    else do
-      annotation_wrapper <- liftIO $ wormhole dflags fhv
+  interp <- tcGetInterp
+  case interp of
+    ExternalInterp _ -> Right <$> runTH THAnnWrapper fhv
+#if defined(HAVE_INTERNAL_INTERPRETER)
+    InternalInterp   -> do
+      annotation_wrapper <- liftIO $ wormhole InternalInterp fhv
       return $ Right $
-        case unsafeCoerce# annotation_wrapper of
+        case unsafeCoerce annotation_wrapper of
            AnnotationWrapper value | let serialized = toSerialized serializeWithData value ->
                -- Got the value and dictionaries: build the serialized value and
                -- call it a day. We ensure that we seq the entire serialized value
@@ -650,6 +796,7 @@ convertAnnotationWrapper fhv = do
 seqSerialized :: Serialized -> ()
 seqSerialized (Serialized the_type bytes) = the_type `seq` bytes `seqList` ()
 
+#endif
 
 {-
 ************************************************************************
@@ -664,13 +811,18 @@ runQuasi act = TH.runQ act
 
 runRemoteModFinalizers :: ThModFinalizers -> TcM ()
 runRemoteModFinalizers (ThModFinalizers finRefs) = do
-  dflags <- getDynFlags
   let withForeignRefs [] f = f []
       withForeignRefs (x : xs) f = withForeignRef x $ \r ->
         withForeignRefs xs $ \rs -> f (r : rs)
-  if gopt Opt_ExternalInterpreter dflags then do
-    hsc_env <- env_top <$> getEnv
-    withIServ hsc_env $ \i -> do
+  interp <- tcGetInterp
+  case interp of
+#if defined(HAVE_INTERNAL_INTERPRETER)
+    InternalInterp -> do
+      qs <- liftIO (withForeignRefs finRefs $ mapM localRef)
+      runQuasi $ sequence_ qs
+#endif
+
+    ExternalInterp iserv -> withIServ_ iserv $ \i -> do
       tcg <- getGblEnv
       th_state <- readTcRef (tcg_th_remote_state tcg)
       case th_state of
@@ -681,21 +833,19 @@ runRemoteModFinalizers (ThModFinalizers finRefs) = do
               writeIServ i (putMessage (RunModFinalizers st qrefs))
           () <- runRemoteTH i []
           readQResult i
-  else do
-    qs <- liftIO (withForeignRefs finRefs $ mapM localRef)
-    runQuasi $ sequence_ qs
 
 runQResult
   :: (a -> String)
-  -> (SrcSpan -> a -> b)
+  -> (Origin -> SrcSpan -> a -> b)
   -> (ForeignHValue -> TcM a)
   -> SrcSpan
   -> ForeignHValue {- TH.Q a -}
   -> TcM b
 runQResult show_th f runQ expr_span hval
   = do { th_result <- runQ hval
+       ; th_origin <- getThSpliceOrigin
        ; traceTc "Got TH result:" (text (show_th th_result))
-       ; return (f expr_span th_result) }
+       ; return (f th_origin expr_span th_result) }
 
 
 -----------------
@@ -773,7 +923,7 @@ runMeta' show_code ppr_hs run_and_convert expr
         ; src_span <- getSrcSpanM
         ; traceTc "About to run (desugared)" (ppr ds_expr)
         ; either_hval <- tryM $ liftIO $
-                         HscMain.hscCompileCoreExpr hsc_env src_span ds_expr
+                         GHC.Driver.Main.hscCompileCoreExpr hsc_env src_span ds_expr
         ; case either_hval of {
             Left exn   -> fail_with_exn "compile and link" exn ;
             Right hval -> do
@@ -784,7 +934,7 @@ runMeta' show_code ppr_hs run_and_convert expr
                 -- including, say, a pattern-match exception in the code we are running
                 --
                 -- We also do the TH -> HS syntax conversion inside the same
-                -- exception-cacthing thing so that if there are any lurking
+                -- exception-catching thing so that if there are any lurking
                 -- exceptions in the data structure returned by hval, we'll
                 -- encounter them inside the try
                 --
@@ -893,7 +1043,7 @@ like that.  Here's how it's processed:
 
  * 'qReport' forces the message to ensure any exception hidden in unevaluated
    thunk doesn't get into the bag of errors. Otherwise the following splice
-   will triger panic (#8987):
+   will trigger panic (#8987):
         $(fail undefined)
    See also Note [Concealed TH exceptions]
 
@@ -937,7 +1087,7 @@ instance TH.Quasi TcM where
                  ; r <- case l of
                         UnhelpfulSpan _ -> pprPanic "qLocation: Unhelpful location"
                                                     (ppr l)
-                        RealSrcSpan s -> return s
+                        RealSrcSpan s _ -> return s
                  ; return (TH.Loc { TH.loc_filename = unpackFS (srcSpanFile r)
                                   , TH.loc_module   = moduleNameString (moduleName m)
                                   , TH.loc_package  = unitIdString (moduleUnitId m)
@@ -973,7 +1123,8 @@ instance TH.Quasi TcM where
 
   qAddTopDecls thds = do
       l <- getSrcSpanM
-      let either_hval = convertToHsDecls l thds
+      th_origin <- getThSpliceOrigin
+      let either_hval = convertToHsDecls th_origin l thds
       ds <- case either_hval of
               Left exn -> failWithTc $
                 hang (text "Error in a declaration passed to addTopDecls:")
@@ -1016,7 +1167,7 @@ instance TH.Quasi TcM where
       addModFinalizerRef fref
 
   qAddCorePlugin plugin = do
-      hsc_env <- env_top <$> getEnv
+      hsc_env <- getTopEnv
       r <- liftIO $ findHomeModule hsc_env (mkModuleName plugin)
       let err = hang
             (text "addCorePlugin: invalid plugin module "
@@ -1055,7 +1206,7 @@ addModFinalizerRef finRef = do
       RunSplice th_modfinalizers_var -> updTcRef th_modfinalizers_var (finRef :)
       -- This case happens only if a splice is executed and the caller does
       -- not set the 'ThStage' to 'RunSplice' to collect finalizers.
-      -- See Note [Delaying modFinalizers in untyped splices] in RnSplice.
+      -- See Note [Delaying modFinalizers in untyped splices] in GHC.Rename.Splice.
       _ ->
         pprPanic "addModFinalizer was called when no finalizers were collected"
                  (ppr th_stage)
@@ -1063,10 +1214,16 @@ addModFinalizerRef finRef = do
 -- | Releases the external interpreter state.
 finishTH :: TcM ()
 finishTH = do
-  dflags <- getDynFlags
-  when (gopt Opt_ExternalInterpreter dflags) $ do
-    tcg <- getGblEnv
-    writeTcRef (tcg_th_remote_state tcg) Nothing
+  hsc_env <- getTopEnv
+  case hsc_interp hsc_env of
+    Nothing                 -> pure ()
+#if defined(HAVE_INTERNAL_INTERPRETER)
+    Just InternalInterp     -> pure ()
+#endif
+    Just (ExternalInterp _) -> do
+      tcg <- getGblEnv
+      writeTcRef (tcg_th_remote_state tcg) Nothing
+
 
 runTHExp :: ForeignHValue -> TcM TH.Exp
 runTHExp = runTH THExp
@@ -1082,19 +1239,21 @@ runTHDec = runTH THDec
 
 runTH :: Binary a => THResultType -> ForeignHValue -> TcM a
 runTH ty fhv = do
-  hsc_env <- env_top <$> getEnv
-  dflags <- getDynFlags
-  if not (gopt Opt_ExternalInterpreter dflags)
-    then do
+  interp <- tcGetInterp
+  case interp of
+#if defined(HAVE_INTERNAL_INTERPRETER)
+    InternalInterp -> do
        -- Run it in the local TcM
-      hv <- liftIO $ wormhole dflags fhv
-      r <- runQuasi (unsafeCoerce# hv :: TH.Q a)
+      hv <- liftIO $ wormhole InternalInterp fhv
+      r <- runQuasi (unsafeCoerce hv :: TH.Q a)
       return r
-    else
+#endif
+
+    ExternalInterp iserv ->
       -- Run it on the server.  For an overview of how TH works with
       -- Remote GHCi, see Note [Remote Template Haskell] in
       -- libraries/ghci/GHCi/TH.hs.
-      withIServ hsc_env $ \i -> do
+      withIServ_ iserv $ \i -> do
         rstate <- getTHState i
         loc <- TH.qLocation
         liftIO $
@@ -1109,7 +1268,7 @@ runTH ty fhv = do
 -- | communicate with a remotely-running TH computation until it finishes.
 -- See Note [Remote Template Haskell] in libraries/ghci/GHCi/TH.hs.
 runRemoteTH
-  :: IServ
+  :: IServInstance
   -> [Messages]   --  saved from nested calls to qRecover
   -> TcM ()
 runRemoteTH iserv recovers = do
@@ -1138,7 +1297,7 @@ runRemoteTH iserv recovers = do
       runRemoteTH iserv recovers
 
 -- | Read a value of type QResult from the iserv
-readQResult :: Binary a => IServ -> TcM a
+readQResult :: Binary a => IServInstance -> TcM a
 readQResult i = do
   qr <- liftIO $ readIServ i get
   case qr of
@@ -1187,14 +1346,14 @@ Back in GHC, when we receive:
 --
 -- The TH state is stored in tcg_th_remote_state in the TcGblEnv.
 --
-getTHState :: IServ -> TcM (ForeignRef (IORef QState))
+getTHState :: IServInstance -> TcM (ForeignRef (IORef QState))
 getTHState i = do
   tcg <- getGblEnv
   th_state <- readTcRef (tcg_th_remote_state tcg)
   case th_state of
     Just rhv -> return rhv
     Nothing -> do
-      hsc_env <- env_top <$> getEnv
+      hsc_env <- getTopEnv
       fhv <- liftIO $ mkFinalizedHValue hsc_env =<< iservCall i StartTH
       writeTcRef (tcg_th_remote_state tcg) (Just fhv)
       return fhv
@@ -1223,7 +1382,7 @@ handleTHMessage msg = case msg of
   AddDependentFile f -> wrapTHResult $ TH.qAddDependentFile f
   AddTempFile s -> wrapTHResult $ TH.qAddTempFile s
   AddModFinalizer r -> do
-    hsc_env <- env_top <$> getEnv
+    hsc_env <- getTopEnv
     wrapTHResult $ liftIO (mkFinalizedHValue hsc_env r) >>= addModFinalizerRef
   AddCorePlugin str -> wrapTHResult $ TH.qAddCorePlugin str
   AddTopDecls decs -> wrapTHResult $ TH.qAddTopDecls decs
@@ -1256,7 +1415,8 @@ reifyInstances th_nm th_tys
    = addErrCtxt (text "In the argument of reifyInstances:"
                  <+> ppr_th th_nm <+> sep (map ppr_th th_tys)) $
      do { loc <- getSrcSpanM
-        ; rdr_ty <- cvt loc (mkThAppTs (TH.ConT th_nm) th_tys)
+        ; th_origin <- getThSpliceOrigin
+        ; rdr_ty <- cvt th_origin loc (mkThAppTs (TH.ConT th_nm) th_tys)
           -- #9262 says to bring vars into scope, like in HsForAllTy case
           -- of rnHsTyKi
         ; let tv_rdrs = extractHsTyRdrTyVars rdr_ty
@@ -1298,10 +1458,10 @@ reifyInstances th_nm th_tys
     doc = ClassInstanceCtx
     bale_out msg = failWithTc msg
 
-    cvt :: SrcSpan -> TH.Type -> TcM (LHsType GhcPs)
-    cvt loc th_ty = case convertToHsType loc th_ty of
-                      Left msg -> failWithTc msg
-                      Right ty -> return ty
+    cvt :: Origin -> SrcSpan -> TH.Type -> TcM (LHsType GhcPs)
+    cvt origin loc th_ty = case convertToHsType origin loc th_ty of
+      Left msg -> failWithTc msg
+      Right ty -> return ty
 
 {-
 ************************************************************************
@@ -2222,3 +2382,10 @@ such fields defined in the module (see the test case
 overloadedrecflds/should_fail/T11103.hs).  The "proper" fix requires changes to
 the TH AST to make it able to represent duplicate record fields.
 -}
+
+tcGetInterp :: TcM Interp
+tcGetInterp = do
+   hsc_env <- getTopEnv
+   case hsc_interp hsc_env of
+      Nothing -> liftIO $ throwIO (InstallationError "Template haskell requires a target code interpreter")
+      Just i  -> pure i

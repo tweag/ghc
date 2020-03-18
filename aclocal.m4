@@ -647,6 +647,7 @@ AC_DEFUN([FP_SET_CFLAGS_C99],
 # $5 is the name of the CPP flags variable
 AC_DEFUN([FPTOOLS_SET_C_LD_FLAGS],
 [
+    AC_REQUIRE([FP_PROG_LD_IS_GNU])
     AC_MSG_CHECKING([Setting up $2, $3, $4 and $5])
     case $$1 in
     i386-*)
@@ -663,10 +664,20 @@ AC_DEFUN([FPTOOLS_SET_C_LD_FLAGS],
         $2="$$2 -march=i686"
         ;;
     x86_64-unknown-solaris2)
+        # Solaris is a multi-lib platform, providing both 32- and 64-bit
+        # user-land. It appears to default to 32-bit builds but we of course want to
+        # compile for 64-bits on x86-64.
+        #
+        # On OpenSolaris uses gnu ld whereas SmartOS appears to use the Solaris
+        # implementation, which rather uses the -64 flag.
         $2="$$2 -m64"
         $3="$$3 -m64"
-        $4="$$4 -m64"
         $5="$$5 -m64"
+        if test "$fp_cv_gnu_ld" = "yes"; then
+            $4="$$4 -m64"
+        else
+            $4="$$4 -64"
+        fi
         ;;
     alpha-*)
         # For now, to suppress the gcc warning "call-clobbered
@@ -999,7 +1010,7 @@ else
 fi;
 changequote([, ])dnl
 ])
-if test ! -f compiler/parser/Parser.hs || test ! -f compiler/cmm/CmmParse.hs
+if test ! -f compiler/parser/Parser.hs || test ! -f compiler/GHC/Cmm/Parser.hs
 then
     FP_COMPARE_VERSIONS([$fptools_cv_happy_version],[-lt],[1.19.10],
       [AC_MSG_ERROR([Happy version 1.19.10 or later is required to compile GHC.])])[]
@@ -1315,22 +1326,28 @@ AC_DEFUN([FP_PROG_AR_NEEDS_RANLIB],[
 # FP_GCC_VERSION
 # -----------
 # Extra testing of the result AC_PROG_CC, testing the gcc version no. Sets the
-# output variable GccVersion.
+# (unsubstituted) output variable GccVersion.
 AC_DEFUN([FP_GCC_VERSION], [
   AC_REQUIRE([AC_PROG_CC])
-  if test -z "$CC"
-  then
-    AC_MSG_ERROR([gcc is required])
+  if test -z "$CC"; then
+    AC_MSG_ERROR([C compiler is required])
   fi
-  AC_CACHE_CHECK([version of gcc], [fp_cv_gcc_version],
-  [
-      # Be sure only to look at the first occurrence of the "version " string;
-      # Some Apple compilers emit multiple messages containing this string.
-      fp_cv_gcc_version="`$CC -v 2>&1 | sed -n -e '1,/version /s/.*version [[^0-9]]*\([[0-9.]]*\).*/\1/p'`"
-      FP_COMPARE_VERSIONS([$fp_cv_gcc_version], [-lt], [4.6],
-                          [AC_MSG_ERROR([Need at least gcc version 4.6 (4.7+ recommended)])])
-  ])
-  AC_SUBST([GccVersion], [$fp_cv_gcc_version])
+
+  if $CC --version | grep --quiet gcc; then
+    AC_CACHE_CHECK([version of gcc], [fp_cv_gcc_version],
+    [
+        # Be sure only to look at the first occurrence of the "version " string;
+        # Some Apple compilers emit multiple messages containing this string.
+        AC_MSG_CHECKING([version of gcc])
+        fp_cv_gcc_version="`$CC -v 2>&1 | sed -n -e '1,/version /s/.*version [[^0-9]]*\([[0-9.]]*\).*/\1/p'`"
+        AC_MSG_RESULT([$fp_cv_gcc_version])
+        FP_COMPARE_VERSIONS([$fp_cv_gcc_version], [-lt], [4.6],
+                            [AC_MSG_ERROR([Need at least gcc version 4.6 (4.7+ recommended)])])
+    ])
+    AC_SUBST([GccVersion], [$fp_cv_gcc_version])
+  else
+    AC_MSG_NOTICE([\$CC is not gcc; assuming it's a reasonably new C compiler])
+  fi
 ])# FP_GCC_VERSION
 
 dnl Check to see if the C compiler is clang or llvm-gcc
@@ -1555,13 +1572,12 @@ AC_SUBST([GhcPkgCmd])
 AC_DEFUN([FP_GCC_EXTRA_FLAGS],
 [AC_REQUIRE([FP_GCC_VERSION])
 AC_CACHE_CHECK([for extra options to pass gcc when compiling via C], [fp_cv_gcc_extra_opts],
-[fp_cv_gcc_extra_opts=
- FP_COMPARE_VERSIONS([$fp_cv_gcc_version], [-ge], [3.4],
-  [fp_cv_gcc_extra_opts="$fp_cv_gcc_extra_opts -fwrapv"],
-  [])
- FP_COMPARE_VERSIONS([$fp_cv_gcc_version], [-ge], [4.0],
-  [fp_cv_gcc_extra_opts="$fp_cv_gcc_extra_opts -fno-builtin"],
-  [])
+[
+ if test "$Unregisterised" = "YES"; then
+   # These used to be conditioned on gcc version but we no longer support
+   # GCC versions which lack support for these flags
+   fp_cv_gcc_extra_opts="-fwrapv -fno-builtin"
+ fi
 ])
 AC_SUBST([GccExtraViaCOpts],$fp_cv_gcc_extra_opts)
 ])
@@ -1989,9 +2005,13 @@ case "$1" in
 
 # GHC_LLVM_TARGET(target_cpu, target_vendor, target_os, llvm_target_var)
 # --------------------------------
-# converts the canonicalized target into someting llvm can understand
+# converts the canonicalized target into something llvm can understand
 AC_DEFUN([GHC_LLVM_TARGET], [
   case "$2-$3" in
+    *-freebsd*-gnueabihf)
+      llvm_target_vendor="unknown"
+      llvm_target_os="freebsd-gnueabihf"
+      ;;
     hardfloat-*eabi)
       llvm_target_vendor="unknown"
       llvm_target_os="$3""hf"
@@ -2056,11 +2076,14 @@ AC_DEFUN([GHC_CONVERT_OS],[
       linux-*|linux)
         $3="linux"
         ;;
+      netbsd*)
+        $3="netbsd"
+        ;;
       openbsd*)
         $3="openbsd"
         ;;
       # As far as I'm aware, none of these have relevant variants
-      freebsd|netbsd|dragonfly|hpux|linuxaout|kfreebsdgnu|freebsd2|mingw32|darwin|nextstep2|nextstep3|sunos4|ultrix|haiku)
+      freebsd|dragonfly|hpux|linuxaout|kfreebsdgnu|freebsd2|mingw32|darwin|nextstep2|nextstep3|sunos4|ultrix|haiku)
         $3="$1"
         ;;
       msys)
@@ -2104,39 +2127,39 @@ fi
 AC_SUBST($1)
 ])
 
-# LIBRARY_VERSION(lib, [dir])
+# LIBRARY_VERSION(lib, [cabal_file])
 # --------------------------------
 # Gets the version number of a library.
 # If $1 is ghc-prim, then we define LIBRARY_ghc_prim_VERSION as 1.2.3
 # $2 points to the directory under libraries/
 AC_DEFUN([LIBRARY_VERSION],[
-dir=m4_default([$2],[$1])
-LIBRARY_[]translit([$1], [-], [_])[]_VERSION=`grep -i "^version:" libraries/${dir}/$1.cabal | sed "s/.* //"`
+cabal_file=m4_default([$2],[$1/$1.cabal])
+LIBRARY_[]translit([$1], [-], [_])[]_VERSION=`grep -i "^version:" libraries/${cabal_file} | sed "s/.* //"`
 AC_SUBST(LIBRARY_[]translit([$1], [-], [_])[]_VERSION)
 ])
 
 # XCODE_VERSION()
 # --------------------------------
-# Gets the version number of XCode, if on a Mac
+# Gets the version number of Xcode, if on a Mac
 AC_DEFUN([XCODE_VERSION],[
     if test "$TargetVendor_CPP" = "apple"
     then
-        AC_MSG_CHECKING(XCode version)
-        XCodeVersion=`xcodebuild -version | grep Xcode | sed "s/Xcode //"`
-        # Old XCode versions don't actually give the XCode version
-        if test "$XCodeVersion" = ""
+        AC_MSG_CHECKING(Xcode version)
+        XcodeVersion=`(xcode-select -p >& /dev/null && xcodebuild -version) | grep Xcode | sed "s/Xcode //"`
+        # Old Xcode versions don't actually give the Xcode version
+        if test "$XcodeVersion" = ""
         then
             AC_MSG_RESULT(not found (too old?))
-            XCodeVersion1=0
-            XCodeVersion2=0
+            XcodeVersion1=0
+            XcodeVersion2=0
         else
-            AC_MSG_RESULT($XCodeVersion)
-            XCodeVersion1=`echo "$XCodeVersion" | sed 's/\..*//'`
+            AC_MSG_RESULT($XcodeVersion)
+            XcodeVersion1=`echo "$XcodeVersion" | sed 's/\..*//'`
             changequote(, )dnl
-            XCodeVersion2=`echo "$XCodeVersion" | sed 's/[^.]*\.\([^.]*\).*/\1/'`
+            XcodeVersion2=`echo "$XcodeVersion" | sed 's/[^.]*\.\([^.]*\).*/\1/'`
             changequote([, ])dnl
-            AC_MSG_NOTICE(XCode version component 1: $XCodeVersion1)
-            AC_MSG_NOTICE(XCode version component 2: $XCodeVersion2)
+            AC_MSG_NOTICE(Xcode version component 1: $XcodeVersion1)
+            AC_MSG_NOTICE(Xcode version component 2: $XcodeVersion2)
         fi
     fi
 ])
@@ -2229,7 +2252,7 @@ EOF
 
 # FIND_GHC_BOOTSTRAP_PROG()
 # --------------------------------
-# Parse the bootstrap GHC's compier settings file for the location of things
+# Parse the bootstrap GHC's compiler settings file for the location of things
 # like the `llc` and `opt` commands.
 #
 # $1 = the variable to set
@@ -2502,6 +2525,17 @@ AC_DEFUN([FIND_LD],[
     fi
 
     CHECK_LD_COPY_BUG([$1])
+])
+
+# FIND_PYTHON
+# -----------
+# Find the version of `python` to use (for the testsuite driver)
+#
+AC_DEFUN([FIND_PYTHON],[
+    dnl Prefer the mingw64 distribution on Windows due to #17483.
+    AC_PATH_PROG([PYTHON], [python3], [], [/mingw64/bin $PATH])
+    PythonCmd="$PYTHON"
+    AC_SUBST([PythonCmd])
 ])
 
 # LocalWords:  fi

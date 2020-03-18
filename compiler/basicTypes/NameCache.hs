@@ -51,7 +51,7 @@ their cost we use two tricks,
      Namely these names are encoded as by their Uniques. We know how to get from
      a Unique back to the Name which it represents via the mapping defined in
      the SumTupleUniques module. See Note [Symbol table representation of names]
-     in BinIface and for details.
+     in GHC.Iface.Binary and for details.
 
   b. We don't include them in the Orig name cache but instead parse their
      OccNames (in isBuiltInOcc_maybe) to avoid bloating the name cache with
@@ -66,8 +66,8 @@ are two reasons why we might look up an Orig RdrName for built-in syntax,
     turned into an Orig RdrName.
 
   * Template Haskell turns a BuiltInSyntax Name into a TH.NameG
-    (DsMeta.globalVar), and parses a NameG into an Orig RdrName
-    (Convert.thRdrName).  So, e.g. $(do { reify '(,); ... }) will
+    (GHC.HsToCore.Quote.globalVar), and parses a NameG into an Orig RdrName
+    (GHC.ThToHs.thRdrName).  So, e.g. $(do { reify '(,); ... }) will
     go this route (#8954).
 
 -}

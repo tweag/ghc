@@ -10,9 +10,9 @@ module ProfInit (profilingInitCode) where
 
 import GhcPrelude
 
-import CLabel
+import GHC.Cmm.CLabel
 import CostCentre
-import DynFlags
+import GHC.Driver.Session
 import Outputable
 import Module
 

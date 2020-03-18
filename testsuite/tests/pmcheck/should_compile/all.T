@@ -100,7 +100,19 @@ test('T17219', expect_broken(17219), compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('T17234', normal, compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
-test('T17248', expect_broken(17248), compile,
+test('T17248', normal, compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T17357', expect_broken(17357), compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T17376', normal, compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T17465', normal, compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T17646', normal, compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T17703', normal, compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('T17783', normal, compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 
 # Other tests
@@ -137,6 +149,8 @@ test('CaseOfKnownCon', [], compile,
      ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 test('TooManyDeltas', [], compile,
      ['-fmax-pmcheck-models=0 -fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
+test('LongDistanceInfo', [], compile,
+     ['-fwarn-incomplete-patterns -fwarn-overlapping-patterns'])
 
 # Series (inspired) by Luke Maranget
 

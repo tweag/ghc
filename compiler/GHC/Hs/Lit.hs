@@ -9,8 +9,9 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
-                                      -- in module GHC.Hs.PlaceHolder
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-} -- Wrinkle in Note [Trees That Grow]
+                                      -- in module GHC.Hs.Extension
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -22,7 +23,8 @@ import GhcPrelude
 
 import {-# SOURCE #-} GHC.Hs.Expr( HsExpr, pprExpr )
 import BasicTypes ( IntegralLit(..),FractionalLit(..),negateIntegralLit,
-                    negateFractionalLit,SourceText(..),pprWithSourceText )
+                    negateFractionalLit,SourceText(..),pprWithSourceText,
+                    PprPrec(..), topPrec )
 import Type
 import Outputable
 import FastString
@@ -149,23 +151,22 @@ overLitType :: HsOverLit GhcTc -> Type
 overLitType (OverLit (OverLitTc _ ty) _ _) = ty
 overLitType (XOverLit nec) = noExtCon nec
 
--- | Convert a literal from one index type to another, updating the annotations
--- according to the relevant 'Convertable' instance
-convertLit :: (ConvertIdX a b) => HsLit a -> HsLit b
-convertLit (HsChar a x)       = (HsChar (convert a) x)
-convertLit (HsCharPrim a x)   = (HsCharPrim (convert a) x)
-convertLit (HsString a x)     = (HsString (convert a) x)
-convertLit (HsStringPrim a x) = (HsStringPrim (convert a) x)
-convertLit (HsInt a x)        = (HsInt (convert a) x)
-convertLit (HsIntPrim a x)    = (HsIntPrim (convert a) x)
-convertLit (HsWordPrim a x)   = (HsWordPrim (convert a) x)
-convertLit (HsInt64Prim a x)  = (HsInt64Prim (convert a) x)
-convertLit (HsWord64Prim a x) = (HsWord64Prim (convert a) x)
-convertLit (HsInteger a x b)  = (HsInteger (convert a) x b)
-convertLit (HsRat a x b)      = (HsRat (convert a) x b)
-convertLit (HsFloatPrim a x)  = (HsFloatPrim (convert a) x)
-convertLit (HsDoublePrim a x) = (HsDoublePrim (convert a) x)
-convertLit (XLit a)           = (XLit (convert a))
+-- | Convert a literal from one index type to another
+convertLit :: HsLit (GhcPass p1) -> HsLit (GhcPass p2)
+convertLit (HsChar a x)       = HsChar a x
+convertLit (HsCharPrim a x)   = HsCharPrim a x
+convertLit (HsString a x)     = HsString a x
+convertLit (HsStringPrim a x) = HsStringPrim a x
+convertLit (HsInt a x)        = HsInt a x
+convertLit (HsIntPrim a x)    = HsIntPrim a x
+convertLit (HsWordPrim a x)   = HsWordPrim a x
+convertLit (HsInt64Prim a x)  = HsInt64Prim a x
+convertLit (HsWord64Prim a x) = HsWord64Prim a x
+convertLit (HsInteger a x b)  = HsInteger a x b
+convertLit (HsRat a x b)      = HsRat a x b
+convertLit (HsFloatPrim a x)  = HsFloatPrim a x
+convertLit (HsDoublePrim a x) = HsDoublePrim a x
+convertLit (XLit a)           = XLit a
 
 {-
 Note [ol_rebindable]
@@ -198,7 +199,7 @@ found to have.
 -}
 
 -- Comparison operations are needed when grouping literals
--- for compiling pattern-matching (module MatchLit)
+-- for compiling pattern-matching (module GHC.HsToCore.Match.Literal)
 instance (Eq (XXOverLit p)) => Eq (HsOverLit p) where
   (OverLit _ val1 _) == (OverLit _ val2 _) = val1 == val2
   (XOverLit  val1)   == (XOverLit  val2)   = val1 == val2
@@ -227,7 +228,7 @@ instance Ord OverLitVal where
   compare (HsIsString _ _)    (HsFractional _)    = GT
 
 -- Instance specific to GhcPs, need the SourceText
-instance p ~ GhcPass pass => Outputable (HsLit p) where
+instance Outputable (HsLit (GhcPass p)) where
     ppr (HsChar st c)       = pprWithSourceText st (pprHsChar c)
     ppr (HsCharPrim st c)   = pp_st_suffix st primCharSuffix (pprPrimChar c)
     ppr (HsString st s)     = pprWithSourceText st (pprHsString s)
@@ -249,8 +250,8 @@ pp_st_suffix NoSourceText         _ doc = doc
 pp_st_suffix (SourceText st) suffix _   = text st <> suffix
 
 -- in debug mode, print the expression that it's resolved to, too
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (HsOverLit p) where
+instance OutputableBndrId p
+       => Outputable (HsOverLit (GhcPass p)) where
   ppr (OverLit {ol_val=val, ol_witness=witness})
         = ppr val <+> (whenPprDebug (parens (pprExpr witness)))
   ppr (XOverLit x) = ppr x

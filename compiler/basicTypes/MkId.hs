@@ -14,17 +14,20 @@ have a standard form, namely:
 
 {-# LANGUAGE CPP #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module MkId (
         mkDictFunId, mkDictFunTy, mkDictSelId, mkDictSelRhs,
 
         mkPrimOpId, mkFCallId,
 
         unwrapNewTypeBody, wrapFamInstBody,
-        DataConBoxer(..), mkDataConRep, mkDataConWorkId,
+        DataConBoxer(..), vanillaDataConBoxer,
+        mkDataConRep, mkDataConWorkId,
 
         -- And some particular Ids; see below for why they are wired in
         wiredInIds, ghcPrimIds,
-        unsafeCoerceName, unsafeCoerceId, realWorldPrimId,
+        realWorldPrimId,
         voidPrimId, voidArgId,
         nullAddrId, seqId, lazyId, lazyIdKey,
         coercionTokenId, magicDictId, coerceId,
@@ -39,18 +42,19 @@ module MkId (
 
 import GhcPrelude
 
-import Rules
+import GHC.Core.Rules
 import TysPrim
 import TysWiredIn
 import PrelRules
 import Type
 import Multiplicity
+import TyCoRep
 import FamInstEnv
 import Coercion
 import TcType
-import MkCore
-import CoreUtils        ( mkCast, mkDefaultCase )
-import CoreUnfold
+import GHC.Core.Make
+import GHC.Core.Utils  ( mkCast, mkDefaultCase )
+import GHC.Core.Unfold
 import Literal
 import TyCon
 import Class
@@ -62,14 +66,14 @@ import DataCon
 import Id
 import IdInfo
 import Demand
-import CoreSyn
+import Cpr
+import GHC.Core
 import Unique
 import UniqSupply
 import PrelNames
 import BasicTypes       hiding ( SuccessFlag(..) )
 import Util
-import Pair
-import DynFlags
+import GHC.Driver.Session
 import Outputable
 import FastString
 import ListSetOps
@@ -97,7 +101,7 @@ There are several reasons why an Id might appear in the wiredInIds:
 
 * magicIds: see Note [magicIds]
 
-* errorIds, defined in coreSyn/MkCore.hs.
+* errorIds, defined in GHC.Core.Make.
   These error functions (e.g. rUNTIME_ERROR_ID) are wired in
   because the desugarer generates code that mentions them directly
 
@@ -141,7 +145,7 @@ wiredInIds :: [Id]
 wiredInIds
   =  magicIds
   ++ ghcPrimIds
-  ++ errorIds           -- Defined in MkCore
+  ++ errorIds           -- Defined in GHC.Core.Make
 
 magicIds :: [Id]    -- See Note [magicIds]
 magicIds = [lazyId, oneShotId, noinlineId]
@@ -150,7 +154,6 @@ ghcPrimIds :: [Id]  -- See Note [ghcPrimIds (aka pseudoops)]
 ghcPrimIds
   = [ realWorldPrimId
     , voidPrimId
-    , unsafeCoerceId
     , nullAddrId
     , seqId
     , magicDictId
@@ -350,10 +353,10 @@ With -XUnliftedNewtypes, this is allowed -- even though MkN is levity-
 polymorphic. It's OK because MkN evaporates in the compiled code, becoming
 just a cast. That is, it has a compulsory unfolding. As long as its
 argument is not levity-polymorphic (which it can't be, according to
-Note [Levity polymorphism invariants] in CoreSyn), and it's saturated,
+Note [Levity polymorphism invariants] in GHC.Core), and it's saturated,
 no levity-polymorphic code ends up in the code generator. The saturation
 condition is effectively checked by Note [Detecting forced eta expansion]
-in DsExpr.
+in GHC.HsToCore.Expr.
 
 However, if we make a *wrapper* for a newtype, we get into trouble.
 The saturation condition is no longer checked (because hasNoBinding
@@ -364,8 +367,8 @@ The solution is simple, though: just make the newtype wrappers
 as ephemeral as the newtype workers. In other words, give the wrappers
 compulsory unfoldings and no bindings. The compulsory unfolding is given
 in wrap_unf in mkDataConRep, and the lack of a binding happens in
-TidyPgm.getTyConImplicitBinds, where we say that a newtype has no implicit
-bindings.
+GHC.Iface.Tidy.getTyConImplicitBinds, where we say that a newtype has no
+implicit bindings.
 
 ************************************************************************
 *                                                                      *
@@ -411,6 +414,7 @@ mkDictSelId name clas
     base_info = noCafIdInfo
                 `setArityInfo`          1
                 `setStrictnessInfo`     strict_sig
+                `setCprInfo`            topCprSig
                 `setLevityInfoWithType` sel_ty
 
     info | new_tycon
@@ -439,7 +443,7 @@ mkDictSelId name clas
         -- It's worth giving one, so that absence info etc is generated
         -- even if the selector isn't inlined
 
-    strict_sig = mkClosedStrictSig [arg_dmd] topRes
+    strict_sig = mkClosedStrictSig [arg_dmd] topDiv
     arg_dmd | new_tycon = evalDmd
             | otherwise = mkManyUsedDmd $
                           mkProdDmd [ if name == sel_name then evalDmd else absDmd
@@ -507,6 +511,7 @@ mkDataConWorkId wkr_name data_con
     alg_wkr_info = noCafIdInfo
                    `setArityInfo`          wkr_arity
                    `setStrictnessInfo`     wkr_sig
+                   `setCprInfo`            mkCprSig wkr_arity (dataConCPR data_con)
                    `setUnfoldingInfo`      evaldUnfolding  -- Record that it's evaluated,
                                                            -- even if arity = 0
                    `setLevityInfoWithType` wkr_ty
@@ -514,7 +519,7 @@ mkDataConWorkId wkr_name data_con
                      -- setNeverLevPoly
 
     wkr_arity = dataConRepArity data_con
-    wkr_sig   = mkClosedStrictSig (replicate wkr_arity topDmd) (dataConCPR data_con)
+    wkr_sig   = mkClosedStrictSig (replicate wkr_arity topDmd) topDiv
         --      Note [Data-con worker strictness]
         -- Notice that we do *not* say the worker Id is strict
         -- even if the data constructor is declared strict
@@ -552,19 +557,17 @@ mkDataConWorkId wkr_name data_con
                    mkLams univ_tvs $ Lam id_arg1 $
                    wrapNewTypeBody tycon res_ty_args (Var id_arg1)
 
-dataConCPR :: DataCon -> DmdResult
+dataConCPR :: DataCon -> CprResult
 dataConCPR con
   | isDataTyCon tycon     -- Real data types only; that is,
                           -- not unboxed tuples or newtypes
   , null (dataConExTyCoVars con)  -- No existentials
   , wkr_arity > 0
   , wkr_arity <= mAX_CPR_SIZE
-  = if is_prod then vanillaCprProdRes (dataConRepArity con)
-               else cprSumRes (dataConTag con)
+  = conCpr (dataConTag con)
   | otherwise
-  = topRes
+  = topCpr
   where
-    is_prod   = isProductTyCon tycon
     tycon     = dataConTyCon con
     wkr_arity = dataConRepArity con
 
@@ -599,6 +602,10 @@ data Boxer = UnitBox | Boxer (TCvSubst -> UniqSM ([Var], CoreExpr))
 newtype DataConBoxer = DCB ([Type] -> [Var] -> UniqSM ([Var], [CoreBind]))
                        -- Bind these src-level vars, returning the
                        -- rep-level vars to bind in the pattern
+
+vanillaDataConBoxer :: DataConBoxer
+-- No transformation on arguments needed
+vanillaDataConBoxer = DCB (\_tys args -> return (args, []))
 
 {-
 Note [Inline partially-applied constructor wrappers]
@@ -651,12 +658,13 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
                          `setInlinePragInfo`    wrap_prag
                          `setUnfoldingInfo`     wrap_unf
                          `setStrictnessInfo`    wrap_sig
-                             -- We need to get the CAF info right here because TidyPgm
+                         `setCprInfo`           mkCprSig wrap_arity (dataConCPR data_con)
+                             -- We need to get the CAF info right here because GHC.Iface.Tidy
                              -- does not tidy the IdInfo of implicit bindings (like the wrapper)
                              -- so it not make sure that the CAF info is sane
                          `setLevityInfoWithType` wrap_ty
 
-             wrap_sig = mkClosedStrictSig wrap_arg_dmds (dataConCPR data_con)
+             wrap_sig = mkClosedStrictSig wrap_arg_dmds topDiv
 
              wrap_arg_dmds =
                replicate (length theta) topDmd ++ map mk_dmd arg_ibangs
@@ -664,7 +672,7 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
                -- the strictness signature (#14290).
 
              mk_dmd str | isBanged str = evalDmd
-                        | otherwise           = topDmd
+                        | otherwise    = topDmd
 
              wrap_prag = alwaysInlinePragma `setInlinePragmaActivation`
                          activeDuringFinal
@@ -894,6 +902,8 @@ case of a newtype constructor, we simply hardcode its dcr_bangs field to
 newLocal :: Scaled Type -> UniqSM Var
 newLocal (Scaled w ty) = do { uniq <- getUniqueM
                             ; return (mkSysLocalOrCoVar (fsLit "dt") uniq w ty) }
+                 -- We should not have "OrCoVar" here, this is a bug (#17545)
+
 
 -- | Unpack/Strictness decisions from source module.
 --
@@ -965,7 +975,7 @@ dataConArgRep arg_ty (HsUnpack Nothing)
   = (rep_tys, wrappers)
 
 dataConArgRep (Scaled w _) (HsUnpack (Just co))
-  | let co_rep_ty = pSnd (coercionKind co)
+  | let co_rep_ty = coercionRKind co
   , (rep_tys, wrappers) <- dataConArgUnpack (Scaled w co_rep_ty)
   = (rep_tys, wrapCo co co_rep_ty wrappers)
 
@@ -1182,7 +1192,7 @@ wrapNewTypeBody tycon args result_expr
 -- When unwrapping, we do *not* apply any family coercion, because this will
 -- be done via a CoPat by the type checker.  We have to do it this way as
 -- computing the right type arguments for the coercion requires more than just
--- a spliting operation (cf, TcPat.tcConPat).
+-- a splitting operation (cf, TcPat.tcConPat).
 
 unwrapNewTypeBody :: TyCon -> [Type] -> CoreExpr -> CoreExpr
 unwrapNewTypeBody tycon args result_expr
@@ -1220,10 +1230,16 @@ mkPrimOpId prim_op
                          (AnId id) UserSyntax
     id   = mkGlobalId (PrimOpId prim_op) name ty info
 
+    -- PrimOps don't ever construct a product, but we want to preserve bottoms
+    cpr
+      | isBotDiv (snd (splitStrictSig strict_sig)) = botCpr
+      | otherwise                                  = topCpr
+
     info = noCafIdInfo
            `setRuleInfo`           mkRuleInfo (maybeToList $ primOpRules name prim_op)
            `setArityInfo`          arity
            `setStrictnessInfo`     strict_sig
+           `setCprInfo`            mkCprSig arity cpr
            `setInlinePragInfo`     neverInlinePragma
            `setLevityInfoWithType` res_ty
                -- We give PrimOps a NOINLINE pragma so that we don't
@@ -1256,11 +1272,12 @@ mkFCallId dflags uniq fcall ty
     info = noCafIdInfo
            `setArityInfo`          arity
            `setStrictnessInfo`     strict_sig
+           `setCprInfo`            topCprSig
            `setLevityInfoWithType` ty
 
     (bndrs, _) = tcSplitPiTys ty
     arity      = count isAnonTyCoBinder bndrs
-    strict_sig = mkClosedStrictSig (replicate arity topDmd) topRes
+    strict_sig = mkClosedStrictSig (replicate arity topDmd) topDiv
     -- the call does not claim to be strict in its arguments, since they
     -- may be lifted (foreign import prim) and the called code doesn't
     -- necessarily force them. See #11076.
@@ -1315,19 +1332,14 @@ no curried identifier for them.  That's what mkCompulsoryUnfolding
 does.  If we had a way to get a compulsory unfolding from an interface
 file, we could do that, but we don't right now.
 
-unsafeCoerce# isn't so much a PrimOp as a phantom identifier, that
-just gets expanded into a type coercion wherever it occurs.  Hence we
-add it as a built-in Id with an unfolding here.
-
 The type variables we use here are "open" type variables: this means
 they can unify with both unlifted and lifted types.  Hence we provide
 another gun with which to shoot yourself in the foot.
 -}
 
-unsafeCoerceName, nullAddrName, seqName,
+nullAddrName, seqName,
    realWorldName, voidPrimIdName, coercionTokenName,
    magicDictName, coerceName, proxyName :: Name
-unsafeCoerceName  = mkWiredInIdName gHC_PRIM  (fsLit "unsafeCoerce#")  unsafeCoerceIdKey  unsafeCoerceId
 nullAddrName      = mkWiredInIdName gHC_PRIM  (fsLit "nullAddr#")      nullAddrIdKey      nullAddrId
 seqName           = mkWiredInIdName gHC_PRIM  (fsLit "seq")            seqIdKey           seqId
 realWorldName     = mkWiredInIdName gHC_PRIM  (fsLit "realWorld#")     realWorldPrimIdKey realWorldPrimId
@@ -1359,28 +1371,6 @@ proxyHashId
     ty      = mkInvForAllTy kv $ mkSpecForAllTy tv $ mkProxyPrimTy kv_ty tv_ty
 
 ------------------------------------------------
-unsafeCoerceId :: Id
-unsafeCoerceId
-  = pcMiscPrelId unsafeCoerceName ty info
-  where
-    info = noCafIdInfo `setInlinePragInfo` alwaysInlinePragma
-                       `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
-
-    -- unsafeCoerce# :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
-    --                         (a :: TYPE r1) (b :: TYPE r2).
-    --                         a -> b
-    bndrs = mkTemplateKiTyVars [runtimeRepTy, runtimeRepTy]
-                               (\ks -> map tYPE ks)
-
-    [_, _, a, b] = mkTyVarTys bndrs
-
-    ty  = mkSpecForAllTys bndrs (mkVisFunTyMany a b)
-
-    [x] = mkTemplateLocals [a]
-    rhs = mkLams (bndrs ++ [x]) $
-          Cast (Var x) (mkUnsafeCo Representational a b)
-
-------------------------------------------------
 nullAddrId :: Id
 -- nullAddr# :: Addr#
 -- The reason it is here is because we don't provide
@@ -1397,21 +1387,24 @@ seqId = pcMiscPrelId seqName ty info
   where
     info = noCafIdInfo `setInlinePragInfo` inline_prag
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
-                       `setNeverLevPoly`   ty
 
     inline_prag
          = alwaysInlinePragma `setInlinePragmaActivation` ActiveAfter
                  NoSourceText 0
                   -- Make 'seq' not inline-always, so that simpleOptExpr
-                  -- (see CoreSubst.simple_app) won't inline 'seq' on the
+                  -- (see GHC.Core.Subst.simple_app) won't inline 'seq' on the
                   -- LHS of rules.  That way we can have rules for 'seq';
                   -- see Note [seqId magic]
 
-    ty  = mkSpecForAllTys [alphaTyVar,betaTyVar]
-                          (mkVisFunTyMany alphaTy (mkVisFunTyMany betaTy betaTy))
+    -- seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
+    ty  =
+      mkInvForAllTy runtimeRep2TyVar
+      $ mkSpecForAllTys [alphaTyVar, openBetaTyVar]
+      $ mkVisFunTyMany alphaTy (mkVisFunTyMany openBetaTy openBetaTy)
 
-    [x,y] = mkTemplateLocals [alphaTy, betaTy]
-    rhs = mkLams [alphaTyVar,betaTyVar,x,y] (Case (Var x) x betaTy [(DEFAULT, [], Var y)])
+    [x,y] = mkTemplateLocals [alphaTy, openBetaTy]
+    rhs = mkLams ([runtimeRep2TyVar, alphaTyVar, openBetaTyVar, x, y]) $
+          Case (Var x) x openBetaTy [(DEFAULT, [], Var y)]
 
 ------------------------------------------------
 lazyId :: Id    -- See Note [lazyId magic]
@@ -1477,39 +1470,24 @@ coerceId = pcMiscPrelId coerceName ty info
           [(DataAlt coercibleDataCon, [eq], Cast (Var x) (mkCoVarCo eq))]
 
 {-
-Note [Unsafe coerce magic]
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-We define a *primitive*
-   GHC.Prim.unsafeCoerce#
-and then in the base library we define the ordinary function
-   Unsafe.Coerce.unsafeCoerce :: forall (a:*) (b:*). a -> b
-   unsafeCoerce x = unsafeCoerce# x
-
-Notice that unsafeCoerce has a civilized (albeit still dangerous)
-polymorphic type, whose type args have kind *.  So you can't use it on
-unboxed values (unsafeCoerce 3#).
-
-In contrast unsafeCoerce# is even more dangerous because you *can* use
-it on unboxed things, (unsafeCoerce# 3#) :: Int. Its type is
-   forall (r1 :: RuntimeRep) (r2 :: RuntimeRep) (a: TYPE r1) (b: TYPE r2). a -> b
-
 Note [seqId magic]
 ~~~~~~~~~~~~~~~~~~
 'GHC.Prim.seq' is special in several ways.
 
-a) In source Haskell its second arg can have an unboxed type
-      x `seq` (v +# w)
-   But see Note [Typing rule for seq] in TcExpr, which
-   explains why we give seq itself an ordinary type
-         seq :: forall a b. a -> b -> b
-   and treat it as a language construct from a typing point of view.
+a) Its fixity is set in GHC.Iface.Load.ghcPrimIface
 
-b) Its fixity is set in LoadIface.ghcPrimIface
+b) It has quite a bit of desugaring magic.
+   See GHC.HsToCore.Utils.hs Note [Desugaring seq (1)] and (2) and (3)
 
-c) It has quite a bit of desugaring magic.
-   See DsUtils.hs Note [Desugaring seq (1)] and (2) and (3)
+c) There is some special rule handing: Note [User-defined RULES for seq]
 
-d) There is some special rule handing: Note [User-defined RULES for seq]
+Historical note:
+    In TcExpr we used to need a special typing rule for 'seq', to handle calls
+    whose second argument had an unboxed type, e.g.  x `seq` 3#
+
+    However, with levity polymorphism we can now give seq the type seq ::
+    forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b which handles this
+    case without special treatment in the typechecker.
 
 Note [User-defined RULES for seq]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1535,12 +1513,15 @@ If we wrote
   RULE "f/seq" forall n e.  seq (f n) e = seq n e
 with rule arity 2, then two bad things would happen:
 
-  - The magical desugaring done in Note [seqId magic] item (c)
+  - The magical desugaring done in Note [seqId magic] item (b)
     for saturated application of 'seq' would turn the LHS into
     a case expression!
 
   - The code in Simplify.rebuildCase would need to actually supply
     the value argument, which turns out to be awkward.
+
+See also: Note [User-defined RULES for seq] in Simplify.
+
 
 Note [lazyId magic]
 ~~~~~~~~~~~~~~~~~~~
@@ -1598,7 +1579,15 @@ running the simplifier.
 
 'noinline' needs to be wired-in because it gets inserted automatically
 when we serialize an expression to the interface format. See
-Note [Inlining and hs-boot files] in ToIface
+Note [Inlining and hs-boot files] in GHC.CoreToIface
+
+Note that noinline as currently implemented can hide some simplifications since
+it hides strictness from the demand analyser. Specifically, the demand analyser
+will treat 'noinline f x' as lazy in 'x', even if the demand signature of 'f'
+specifies that it is strict in its argument. We considered fixing this this by adding a
+special case to the demand analyser to address #16588. However, the special
+case seemed like a large and expensive hammer to address a rare case and
+consequently we rather opted to use a more minimal solution.
 
 Note [The oneShot function]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1627,7 +1616,7 @@ which is what we want.
 
 It is only effective if the one-shot info survives as long as possible; in
 particular it must make it into the interface in unfoldings. See Note [Preserve
-OneShotInfo] in CoreTidy.
+OneShotInfo] in GHC.Core.Op.Tidy.
 
 Also see https://gitlab.haskell.org/ghc/ghc/wikis/one-shot.
 
@@ -1709,7 +1698,7 @@ voidArgId :: Id       -- Local lambda-bound :: Void#
 voidArgId = mkSysLocal (fsLit "void") voidArgIdKey Many voidPrimTy
 
 coercionTokenId :: Id         -- :: () ~ ()
-coercionTokenId -- Used to replace Coercion terms when we go to STG
+coercionTokenId -- See Note [Coercion tokens] in CoreToStg.hs
   = pcMiscPrelId coercionTokenName
                  (mkTyConApp eqPrimTyCon [liftedTypeKind, liftedTypeKind, unitTy, unitTy])
                  noCafIdInfo

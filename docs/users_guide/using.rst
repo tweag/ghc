@@ -99,7 +99,7 @@ to the files ``Foo.hs`` and ``Bar.hs``.
 
     ``-fno-specialise -O1``
 
-        ``-fspecialise`` will be enabled as the ``-fno-specialise`` is overriden
+        ``-fspecialise`` will be enabled as the ``-fno-specialise`` is overridden
         by the ``-O1``.
 
     ``-O1 -fno-specialise``
@@ -770,9 +770,6 @@ messages and in GHCi:
              forall k (a :: k) (b :: k).
              (a Data.Type.Equality.:~: b) -> b Data.Type.Equality.:~: a
                    -- Defined in Data.Type.Equality
-
-    This flag also enables the printing of *inferred* type variables
-    inside braces. See :ref:`inferred-vs-specified`.
 
 .. ghc-flag:: -fprint-explicit-kinds
     :shortdesc: Print explicit kind foralls and kind arguments in types.

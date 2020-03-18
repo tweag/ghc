@@ -44,9 +44,7 @@ generally likely to indicate bugs in your program. These are:
     * :ghc-flag:`-Wtabs`
     * :ghc-flag:`-Wunrecognised-warning-flags`
     * :ghc-flag:`-Winaccessible-code`
-    * :ghc-flag:`-Wstar-is-type`
     * :ghc-flag:`-Wstar-binder`
-    * :ghc-flag:`-Wspace-after-bang`
 
 The following flags are simple ways to select standard "packages" of warnings:
 
@@ -125,6 +123,7 @@ The following flags are simple ways to select standard "packages" of warnings:
         * :ghc-flag:`-Wsemigroup`
         * :ghc-flag:`-Wnoncanonical-monoid-instances`
         * :ghc-flag:`-Wstar-is-type`
+        * :ghc-flag:`-Wcompat-unqualified-imports`
 
 .. ghc-flag:: -Wno-compat
     :shortdesc: Disables all warnings enabled by :ghc-flag:`-Wcompat`.
@@ -222,10 +221,30 @@ of ``-W(no-)*``.
     :reverse: -Wno-unrecognised-warning-flags
     :category:
 
+    :default: on
+
     Enables warnings when the compiler encounters a ``-W...`` flag that is not
     recognised.
 
-    This warning is on by default.
+.. ghc-flag:: -Wcompat-unqualified-imports
+    :shortdesc: Report unqualified imports of core libraries which are expected
+      to cause compatibility problems in future releases.
+    :type: dynamic
+    :reverse: -Wno-compat-unqualified-imports
+    :category:
+
+    Warns on qualified imports of core library modules which are subject to
+    change in future GHC releases. Currently the following modules are covered
+    by this warning:
+
+     - ``Data.List`` due to the future addition of ``Data.List.singleton`` and
+       specialisation of exports to the ``[]`` type. See the
+       :ref:`mailing list
+       <https://groups.google.com/forum/#!topic/haskell-core-libraries/q3zHLmzBa5E>`
+       for details.
+
+    This warning can be addressed by either adding an explicit import list or
+    using a ``qualified`` import.
 
 .. ghc-flag:: -Wtyped-holes
     :shortdesc: Report warnings when :ref:`typed hole <typed-holes>` errors are
@@ -235,11 +254,11 @@ of ``-W(no-)*``.
     :reverse: -Wno-typed-holes
     :category:
 
+    :default: on
+
     Determines whether the compiler reports typed holes warnings. Has no
     effect unless typed holes errors are deferred until runtime. See
     :ref:`typed-holes` and :ref:`defer-type-errors`
-
-    This warning is on by default.
 
 .. ghc-flag:: -Wdeferred-type-errors
     :shortdesc: Report warnings when :ref:`deferred type errors
@@ -858,7 +877,7 @@ of ``-W(no-)*``.
     :type: dynamic
     :category:
 
-    :default: 100
+    :default: 30
 
     The pattern match checker works by assigning symbolic values to each
     pattern. We call each such assignment a 'model'. Now, each pattern match
@@ -1280,12 +1299,6 @@ of ``-W(no-)*``.
     per-module basis with :ghc-flag:`-Wno-simplifiable-class-constraints
     <-Wsimplifiable-class-constraints>`.
 
-.. ghc-flag:: -Wspace-after-bang
-     :shortdesc: warn for missing space before the second argument
-        of an infix definition of ``(!)`` when
-        :extension:`BangPatterns` are not enabled
-     :type: dynamic
-     :reverse: -Wno-missing-space-after-bang
 .. ghc-flag:: -Wtabs
     :shortdesc: warn if there are tabs in the source file
     :type: dynamic
@@ -1740,7 +1753,7 @@ of ``-W(no-)*``.
 
     The option :ghc-flag:`-Wunused-packages` warns about packages, specified on
     command line via :ghc-flag:`-package ⟨pkg⟩` or
-    :ghc-flag:`-package-id ⟨unit-id⟩`, but were not loaded during compication.
+    :ghc-flag:`-package-id ⟨unit-id⟩`, but were not loaded during compilation.
     Usually it means that you have an unused dependency.
 
     You may want to enable this warning on a clean build or enable :ghc-flag:`-fforce-recomp`

@@ -54,8 +54,8 @@ module SAT ( doStaticArgs ) where
 import GhcPrelude
 
 import Var
-import CoreSyn
-import CoreUtils
+import GHC.Core
+import GHC.Core.Utils
 import Multiplicity ( pattern Many )
 import Type
 import Coercion
@@ -70,7 +70,7 @@ import Unique
 import UniqSet
 import Outputable
 
-import Data.List
+import Data.List (mapAccumL)
 import FastString
 
 #include "HsVersions.h"

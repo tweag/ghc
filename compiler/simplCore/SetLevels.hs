@@ -61,6 +61,8 @@
 -}
 
 {-# LANGUAGE CPP, MultiWayIf, PatternSynonyms #-}
+
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module SetLevels (
         setLevels,
 
@@ -75,18 +77,18 @@ module SetLevels (
 
 import GhcPrelude
 
-import CoreSyn
+import GHC.Core
 import CoreMonad        ( FloatOutSwitches(..) )
-import CoreUtils        ( exprType, exprIsHNF
+import GHC.Core.Utils   ( exprType, exprIsHNF
                         , exprOkForSpeculation
                         , exprIsTopLevelBindable
                         , isExprLevPoly
                         , collectMakeStaticArgs
                         )
-import CoreArity        ( exprBotStrictness_maybe )
-import CoreFVs          -- all of it
-import CoreSubst
-import MkCore           ( sortQuantVars )
+import GHC.Core.Arity   ( exprBotStrictness_maybe )
+import GHC.Core.FVs     -- all of it
+import GHC.Core.Subst
+import GHC.Core.Make    ( sortQuantVars )
 
 import Id
 import IdInfo
@@ -97,6 +99,7 @@ import UniqDSet         ( getUniqDSet )
 import VarEnv
 import Literal          ( litIsTrivial )
 import Demand           ( StrictSig, Demand, isStrictDmd, splitStrictSig, increaseStrictSigArity )
+import Cpr              ( mkCprSig, botCpr )
 import Name             ( getOccName, mkSystemVarName )
 import OccName          ( occNameString )
 import Type             ( Type, mkLamTypes, splitTyConApp_maybe, tyCoVarsOfType
@@ -349,7 +352,7 @@ don't want @lvlExpr@ to turn the scrutinee of the @case@ into an MFE
 If there were another lambda in @r@'s rhs, it would get level-2 as well.
 -}
 
-lvlExpr env (_, AnnType ty)     = return (Type (CoreSubst.substTy (le_subst env) ty))
+lvlExpr env (_, AnnType ty)     = return (Type (GHC.Core.Subst.substTy (le_subst env) ty))
 lvlExpr env (_, AnnCoercion co) = return (Coercion (substCo (le_subst env) co))
 lvlExpr env (_, AnnVar v)       = return (lookupVar env v)
 lvlExpr _   (_, AnnLit lit)     = return (Lit lit)
@@ -517,7 +520,7 @@ Consider this:
 Here we can float the (case y ...) out, because y is sure
 to be evaluated, to give
   f x vs = case x of { MkT y ->
-           caes y of I# w ->
+           case y of I# w ->
              let f vs = ...(e)...f..
              in f vs
 
@@ -532,7 +535,7 @@ Things to note:
      - exrpIsHNF catches the key case of an evaluated variable
 
      - exprOkForSpeculation is /false/ of an evaluated variable;
-       See Note [exprOkForSpeculation and evaluated variables] in CoreUtils
+       See Note [exprOkForSpeculation and evaluated variables] in GHC.Core.Utils
        So we'd actually miss the key case!
 
      - Nothing is gained from the extra generality of exprOkForSpeculation
@@ -549,6 +552,7 @@ Things to note:
 
  * We only do this with a single-alternative case
 
+
 Note [Floating linear case]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Linear case can't be floated past case branches:
@@ -559,6 +563,32 @@ Will not be, because of how `x` is used in one alternative but not the other.
 
 It is not easy to float this linear cases precisely, so, instead, we elect, for
 the moment, to simply not float linear case.
+
+
+Note [Setting levels when floating single-alternative cases]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Handling level-setting when floating a single-alternative case binding
+is a bit subtle, as evidenced by #16978.  In particular, we must keep
+in mind that we are merely moving the case and its binders, not the
+body. For example, suppose 'a' is known to be evaluated and we have
+
+  \z -> case a of
+          (x,_) -> <body involving x and z>
+
+After floating we may have:
+
+  case a of
+    (x,_) -> \z -> <body involving x and z>
+      {- some expression involving x and z -}
+
+When analysing <body involving...> we want to use the /ambient/ level,
+and /not/ the destination level of the 'case a of (x,-) ->' binding.
+
+#16978 was caused by us setting the context level to the destination
+level of `x` when analysing <body>. This led us to conclude that we
+needed to quantify over some of its free variables (e.g. z), resulting
+in shadowing and very confusing Core Lint failures.
+
 
 Note [Check the output scrutinee for exprIsHNF]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -597,7 +627,7 @@ lvlMFE ::  LevelEnv             -- Level of in-scope names/tyvars
 -- the expression, so that it can itself be floated.
 
 lvlMFE env _ (_, AnnType ty)
-  = return (Type (CoreSubst.substTy (le_subst env) ty))
+  = return (Type (GHC.Core.Subst.substTy (le_subst env) ty))
 
 -- No point in floating out an expression wrapped in a coercion or note
 -- If we do we'll transform  lvl = e |> co
@@ -623,7 +653,7 @@ lvlMFE env strict_ctxt ann_expr
                                -- See Note [Free join points]
   || isExprLevPoly expr
          -- We can't let-bind levity polymorphic expressions
-         -- See Note [Levity polymorphism invariants] in CoreSyn
+         -- See Note [Levity polymorphism invariants] in GHC.Core
   || notWorthFloating expr abs_vars
   || not float_me
   =     -- Don't float it out
@@ -775,7 +805,7 @@ Exammples:
 It's controlled by a flag (floatConsts), because doing this too
 early loses opportunities for RULES which (needless to say) are
 important in some nofib programs (gcd is an example).  [SPJ note:
-I think this is obselete; the flag seems always on.]
+I think this is obsolete; the flag seems always on.]
 
 Note [Floating join point bindings]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -790,7 +820,7 @@ Here we may just as well produce
   f x = j x 0
 
 and now there is a chance that 'f' will be inlined at its call sites.
-It shouldn't make a lot of difference, but thes tests
+It shouldn't make a lot of difference, but these tests
   perf/should_run/MethSharing
   simplCore/should_compile/spec-inline
 and one nofib program, all improve if you do float to top, because
@@ -798,7 +828,7 @@ of the resulting inlining of f.  So ok, let's do it.
 
 Note [Free join points]
 ~~~~~~~~~~~~~~~~~~~~~~~
-We never float a MFE that has a free join-point variable.  You mght think
+We never float a MFE that has a free join-point variable.  You might think
 this can never occur.  After all, consider
      join j x = ...
      in ....(jump j x)....
@@ -979,6 +1009,7 @@ annotateBotStr id n_extra mb_str
       Nothing           -> id
       Just (arity, sig) -> id `setIdArity`      (arity + n_extra)
                               `setIdStrictness` (increaseStrictSigArity n_extra sig)
+                              `setIdCprInfo`    mkCprSig (arity + n_extra) botCpr
 
 notWorthFloating :: CoreExpr -> [Var] -> Bool
 -- Returns True if the expression would be replaced by
@@ -1001,18 +1032,17 @@ notWorthFloating e abs_vars
     go (Tick t e) n  = not (tickishIsCode t) && go e n
     go (Cast e _)  n = go e n
     go (App e arg) n
-       | Type {}     <- arg = go e n
-       | Coercion {} <- arg = go e n
-       | n==0               = False
-       | is_triv arg        = go e (n-1)
-       | otherwise          = False
-    go _ _                  = False
+       -- See Note [Floating applications to coercions]
+       | Type {} <- arg = go e n
+       | n==0           = False
+       | is_triv arg    = go e (n-1)
+       | otherwise      = False
+    go _ _              = False
 
     is_triv (Lit {})              = True        -- Treat all literals as trivial
     is_triv (Var {})              = True        -- (ie not worth floating)
     is_triv (Cast e _)            = is_triv e
-    is_triv (App e (Type {}))     = is_triv e
-    is_triv (App e (Coercion {})) = is_triv e
+    is_triv (App e (Type {}))     = is_triv e   -- See Note [Floating applications to coercions]
     is_triv (Tick t e)            = not (tickishIsCode t) && is_triv e
     is_triv _                     = False
 
@@ -1026,6 +1056,14 @@ Hence the litIsTrivial.
 Ditto literal strings (LitString), which we'd like to float to top
 level, which is now possible.
 
+Note [Floating applications to coercions]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We don’t float out variables applied only to type arguments, since the
+extra binding would be pointless: type arguments are completely erased.
+But *coercion* arguments aren’t (see Note [Coercion tokens] in
+CoreToStg.hs and Note [Count coercion arguments in boring contexts] in
+CoreUnfold.hs), so we still want to float out variables applied only to
+coercion arguments.
 
 Note [Escaping a value lambda]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1318,7 +1356,7 @@ substAndLvlBndrs is_rec env lvl bndrs
     (subst_env, subst_bndrs) = substBndrsSL is_rec env bndrs
 
 substBndrsSL :: RecFlag -> LevelEnv -> [InVar] -> (LevelEnv, [OutVar])
--- So named only to avoid the name clash with CoreSubst.substBndrs
+-- So named only to avoid the name clash with GHC.Core.Subst.substBndrs
 substBndrsSL is_rec env@(LE { le_subst = subst, le_env = id_env }) bndrs
   = ( env { le_subst    = subst'
           , le_env      = foldl' add_id  id_env (bndrs `zip` bndrs') }
@@ -1657,10 +1695,10 @@ newPolyBndrs dest_lvl
 
     mk_poly_bndr bndr uniq = transferPolyIdInfo bndr abs_vars $         -- Note [transferPolyIdInfo] in Id.hs
                              transfer_join_info bndr $
-                             mkSysLocalOrCoVar (mkFastString str) uniq (idMult bndr) poly_ty
+                             mkSysLocal (mkFastString str) uniq (idMult bndr) poly_ty
                            where
                              str     = "poly_" ++ occNameString (getOccName bndr)
-                             poly_ty = mkLamTypes abs_vars (CoreSubst.substTy subst (idType bndr))
+                             poly_ty = mkLamTypes abs_vars (GHC.Core.Subst.substTy subst (idType bndr))
 
     -- If we are floating a join point to top level, it stops being
     -- a join point.  Otherwise it continues to be a join point,
@@ -1692,16 +1730,19 @@ newLvlVar lvld_rhs join_arity_maybe is_mk_static
       = mkExportedVanillaId (mkSystemVarName uniq (mkFastString "static_ptr"))
                             rhs_ty
       | otherwise
-      = mkSysLocalOrCoVar (mkFastString "lvl") uniq Many rhs_ty
+      = mkSysLocal (mkFastString "lvl") uniq Many rhs_ty
 
+-- | Clone the binders bound by a single-alternative case.
 cloneCaseBndrs :: LevelEnv -> Level -> [Var] -> LvlM (LevelEnv, [Var])
 cloneCaseBndrs env@(LE { le_subst = subst, le_lvl_env = lvl_env, le_env = id_env })
                new_lvl vs
   = do { us <- getUniqueSupplyM
        ; let (subst', vs') = cloneBndrs subst us vs
-             env' = env { le_ctxt_lvl  = new_lvl
-                        , le_join_ceil = new_lvl
-                        , le_lvl_env   = addLvls new_lvl lvl_env vs'
+             -- N.B. We are not moving the body of the case, merely its case
+             -- binders.  Consequently we should *not* set le_ctxt_lvl and
+             -- le_join_ceil.  See Note [Setting levels when floating
+             -- single-alternative cases].
+             env' = env { le_lvl_env   = addLvls new_lvl lvl_env vs'
                         , le_subst     = subst'
                         , le_env       = foldl' add_id id_env (vs `zip` vs') }
 

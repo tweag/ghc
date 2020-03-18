@@ -27,6 +27,7 @@ module PatSyn (
 import GhcPrelude
 
 import Type
+import TyCoPpr
 import Name
 import Outputable
 import Unique
@@ -38,7 +39,7 @@ import FieldLabel
 
 import qualified Data.Data as Data
 import Data.Function
-import Data.List
+import Data.List (find)
 
 {-
 ************************************************************************

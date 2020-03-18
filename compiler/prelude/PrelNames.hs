@@ -64,8 +64,8 @@ This is accomplished through a combination of mechanisms:
   2. The knownKeyNames (which consist of the basicKnownKeyNames from
      the module, and those names reachable via the wired-in stuff from
      TysWiredIn) are used to initialise the "OrigNameCache" in
-     IfaceEnv.  This initialization ensures that when the type checker
-     or renamer (both of which use IfaceEnv) look up an original name
+     GHC.Iface.Env.  This initialization ensures that when the type checker
+     or renamer (both of which use GHC.Iface.Env) look up an original name
      (i.e. a pair of a Module and an OccName) for a known-key name
      they get the correct Unique.
 
@@ -95,17 +95,17 @@ things,
      looked up in the orig-name cache)
 
   b) The known infinite families of names are specially serialised by
-     BinIface.putName, with that special treatment detected when we read back to
-     ensure that we get back to the correct uniques. See Note [Symbol table
-     representation of names] in BinIface and Note [How tuples work] in
-     TysWiredIn.
+     GHC.Iface.Binary.putName, with that special treatment detected when we read
+     back to ensure that we get back to the correct uniques. See Note [Symbol
+     table representation of names] in GHC.Iface.Binary and Note [How tuples
+     work] in TysWiredIn.
 
 Most of the infinite families cannot occur in source code, so mechanisms (a) and (b)
 suffice to ensure that they always have the right Unique. In particular,
 implicit param TyCon names, constraint tuples and Any TyCons cannot be mentioned
 by the user. For those things that *can* appear in source programs,
 
-  c) IfaceEnv.lookupOrigNameCache uses isBuiltInOcc_maybe to map built-in syntax
+  c) GHC.Iface.Env.lookupOrigNameCache uses isBuiltInOcc_maybe to map built-in syntax
      directly onto the corresponding name, rather than trying to find it in the
      original-name cache.
 
@@ -143,6 +143,7 @@ Note [Wired-in packages] in Module. This is done in Packages.findWiredInPackages
 -}
 
 {-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
 
 module PrelNames (
         Unique, Uniquable(..), hasKey,  -- Re-exported for convenience
@@ -462,6 +463,12 @@ basicKnownKeyNames
         , typeErrorVAppendDataConName
         , typeErrorShowTypeDataConName
 
+        -- Unsafe coercion proofs
+        , unsafeEqualityProofName
+        , unsafeEqualityTyConName
+        , unsafeReflDataConName
+        , unsafeCoercePrimName
+        , unsafeCoerceName
     ]
 
 genericTyConNames :: [Name]
@@ -501,7 +508,7 @@ gHC_PRIM, gHC_TYPES, gHC_GENERICS, gHC_MAGIC,
     gHC_CLASSES, gHC_PRIMOPWRAPPERS, gHC_BASE, gHC_ENUM,
     gHC_GHCI, gHC_GHCI_HELPERS, gHC_CSTRING,
     gHC_SHOW, gHC_READ, gHC_NUM, gHC_MAYBE, gHC_INTEGER_TYPE, gHC_NATURAL,
-    gHC_LIST, gHC_TUPLE, dATA_TUPLE, dATA_EITHER, dATA_STRING,
+    gHC_LIST, gHC_TUPLE, dATA_TUPLE, dATA_EITHER, dATA_LIST, dATA_STRING,
     dATA_FOLDABLE, dATA_TRAVERSABLE,
     gHC_CONC, gHC_IO, gHC_IO_Exception,
     gHC_ST, gHC_IX, gHC_STABLE, gHC_PTR, gHC_ERR, gHC_REAL,
@@ -510,7 +517,7 @@ gHC_PRIM, gHC_TYPES, gHC_GENERICS, gHC_MAGIC,
     rEAD_PREC, lEX, gHC_INT, gHC_WORD, mONAD, mONAD_FIX, mONAD_ZIP, mONAD_FAIL,
     aRROW, cONTROL_APPLICATIVE, gHC_DESUGAR, rANDOM, gHC_EXTS,
     cONTROL_EXCEPTION_BASE, gHC_TYPELITS, gHC_TYPENATS, dATA_TYPE_EQUALITY,
-    dATA_COERCE, dEBUG_TRACE :: Module
+    dATA_COERCE, dEBUG_TRACE, uNSAFE_COERCE :: Module
 
 gHC_PRIM        = mkPrimModule (fsLit "GHC.Prim")   -- Primitive types and values
 gHC_TYPES       = mkPrimModule (fsLit "GHC.Types")
@@ -533,6 +540,7 @@ gHC_LIST        = mkBaseModule (fsLit "GHC.List")
 gHC_TUPLE       = mkPrimModule (fsLit "GHC.Tuple")
 dATA_TUPLE      = mkBaseModule (fsLit "Data.Tuple")
 dATA_EITHER     = mkBaseModule (fsLit "Data.Either")
+dATA_LIST       = mkBaseModule (fsLit "Data.List")
 dATA_STRING     = mkBaseModule (fsLit "Data.String")
 dATA_FOLDABLE   = mkBaseModule (fsLit "Data.Foldable")
 dATA_TRAVERSABLE= mkBaseModule (fsLit "Data.Traversable")
@@ -572,6 +580,7 @@ gHC_TYPENATS    = mkBaseModule (fsLit "GHC.TypeNats")
 dATA_TYPE_EQUALITY = mkBaseModule (fsLit "Data.Type.Equality")
 dATA_COERCE     = mkBaseModule (fsLit "Data.Coerce")
 dEBUG_TRACE     = mkBaseModule (fsLit "Debug.Trace")
+uNSAFE_COERCE   = mkBaseModule (fsLit "Unsafe.Coerce")
 
 gHC_SRCLOC :: Module
 gHC_SRCLOC = mkBaseModule (fsLit "GHC.SrcLoc")
@@ -793,9 +802,6 @@ showString_RDR          = varQual_RDR gHC_SHOW (fsLit "showString")
 showSpace_RDR           = varQual_RDR gHC_SHOW (fsLit "showSpace")
 showCommaSpace_RDR      = varQual_RDR gHC_SHOW (fsLit "showCommaSpace")
 showParen_RDR           = varQual_RDR gHC_SHOW (fsLit "showParen")
-
-undefined_RDR :: RdrName
-undefined_RDR = varQual_RDR gHC_ERR (fsLit "undefined")
 
 error_RDR :: RdrName
 error_RDR = varQual_RDR gHC_ERR (fsLit "error")
@@ -1317,7 +1323,14 @@ typeErrorVAppendDataConName =
 typeErrorShowTypeDataConName =
   dcQual gHC_TYPELITS (fsLit "ShowType") typeErrorShowTypeDataConKey
 
-
+-- Unsafe coercion proofs
+unsafeEqualityProofName, unsafeEqualityTyConName, unsafeCoercePrimName,
+  unsafeCoerceName, unsafeReflDataConName :: Name
+unsafeEqualityProofName = varQual uNSAFE_COERCE (fsLit "unsafeEqualityProof") unsafeEqualityProofIdKey
+unsafeEqualityTyConName = tcQual uNSAFE_COERCE (fsLit "UnsafeEquality") unsafeEqualityTyConKey
+unsafeReflDataConName   = dcQual uNSAFE_COERCE (fsLit "UnsafeRefl")     unsafeReflDataConKey
+unsafeCoercePrimName    = varQual uNSAFE_COERCE (fsLit "unsafeCoerce#") unsafeCoercePrimIdKey
+unsafeCoerceName        = varQual uNSAFE_COERCE (fsLit "unsafeCoerce")  unsafeCoerceIdKey
 
 -- Dynamic
 toDynName :: Name
@@ -1489,7 +1502,7 @@ srcLocDataConName
 
 -- plugins
 pLUGINS :: Module
-pLUGINS = mkThisGhcModule (fsLit "Plugins")
+pLUGINS = mkThisGhcModule (fsLit "GHC.Driver.Plugins")
 pluginTyConName :: Name
 pluginTyConName = tcQual pLUGINS (fsLit "Plugin") pluginTyConKey
 frontendPluginTyConName :: Name
@@ -1576,17 +1589,8 @@ realFracClassKey        = mkPreludeClassUnique 16
 showClassKey            = mkPreludeClassUnique 17
 ixClassKey              = mkPreludeClassUnique 18
 
-typeableClassKey, typeable1ClassKey, typeable2ClassKey, typeable3ClassKey,
-    typeable4ClassKey, typeable5ClassKey, typeable6ClassKey, typeable7ClassKey
-    :: Unique
+typeableClassKey :: Unique
 typeableClassKey        = mkPreludeClassUnique 20
-typeable1ClassKey       = mkPreludeClassUnique 21
-typeable2ClassKey       = mkPreludeClassUnique 22
-typeable3ClassKey       = mkPreludeClassUnique 23
-typeable4ClassKey       = mkPreludeClassUnique 24
-typeable5ClassKey       = mkPreludeClassUnique 25
-typeable6ClassKey       = mkPreludeClassUnique 26
-typeable7ClassKey       = mkPreludeClassUnique 27
 
 monadFixClassKey :: Unique
 monadFixClassKey        = mkPreludeClassUnique 28
@@ -1752,10 +1756,6 @@ funPtrTyConKey                          = mkPreludeTyConUnique 78
 tVarPrimTyConKey                        = mkPreludeTyConUnique 79
 compactPrimTyConKey                     = mkPreludeTyConUnique 80
 
--- dotnet interop
-objectTyConKey :: Unique
-objectTyConKey                          = mkPreludeTyConUnique 83
-
 eitherTyConKey :: Unique
 eitherTyConKey                          = mkPreludeTyConUnique 84
 
@@ -1889,11 +1889,16 @@ someTypeRepDataConKey = mkPreludeTyConUnique 189
 typeSymbolAppendFamNameKey :: Unique
 typeSymbolAppendFamNameKey = mkPreludeTyConUnique 190
 
+-- Unsafe equality
+unsafeEqualityTyConKey :: Unique
+unsafeEqualityTyConKey = mkPreludeTyConUnique 191
+
+-- Linear types
 multiplicityTyConKey :: Unique
-multiplicityTyConKey = mkPreludeTyConUnique 191
+multiplicityTyConKey = mkPreludeTyConUnique 192
 
 unrestrictedFunTyConKey :: Unique
-unrestrictedFunTyConKey = mkPreludeTyConUnique 192
+unrestrictedFunTyConKey = mkPreludeTyConUnique 193
 
 multMulTyConKey :: Unique
 multMulTyConKey = mkPreludeTyConUnique 194
@@ -2067,13 +2072,15 @@ typeLitSymbolDataConKey, typeLitNatDataConKey :: Unique
 typeLitSymbolDataConKey   = mkPreludeDataConUnique 112
 typeLitNatDataConKey      = mkPreludeDataConUnique 113
 
+-- Unsafe equality
+unsafeReflDataConKey :: Unique
+unsafeReflDataConKey      = mkPreludeDataConUnique 114
+
 -- Multiplicity
 
 oneDataConKey, manyDataConKey :: Unique
 oneDataConKey = mkPreludeDataConUnique 115
 manyDataConKey = mkPreludeDataConUnique 116
-
-
 
 ---------------- Template Haskell -------------------
 --      THNames.hs: USES DataUniques 200-250
@@ -2108,6 +2115,7 @@ errorIdKey                    = mkPreludeMiscIdUnique  5
 foldrIdKey                    = mkPreludeMiscIdUnique  6
 recSelErrorIdKey              = mkPreludeMiscIdUnique  7
 seqIdKey                      = mkPreludeMiscIdUnique  8
+absentSumFieldErrorIdKey      = mkPreludeMiscIdUnique  9
 eqStringIdKey                 = mkPreludeMiscIdUnique 10
 noMethodBindingErrorIdKey     = mkPreludeMiscIdUnique 11
 nonExhaustiveGuardsErrorIdKey = mkPreludeMiscIdUnique 12
@@ -2123,13 +2131,11 @@ voidPrimIdKey                 = mkPreludeMiscIdUnique 21
 typeErrorIdKey                = mkPreludeMiscIdUnique 22
 divIntIdKey                   = mkPreludeMiscIdUnique 23
 modIntIdKey                   = mkPreludeMiscIdUnique 24
-absentSumFieldErrorIdKey      = mkPreludeMiscIdUnique 9
 
-unsafeCoerceIdKey, concatIdKey, filterIdKey, zipIdKey, bindIOIdKey,
-    returnIOIdKey, newStablePtrIdKey,
+concatIdKey, filterIdKey, zipIdKey,
+    bindIOIdKey, returnIOIdKey, newStablePtrIdKey,
     printIdKey, failIOIdKey, nullAddrIdKey, voidArgIdKey,
     fstIdKey, sndIdKey, otherwiseIdKey, assertIdKey :: Unique
-unsafeCoerceIdKey             = mkPreludeMiscIdUnique 30
 concatIdKey                   = mkPreludeMiscIdUnique 31
 filterIdKey                   = mkPreludeMiscIdUnique 32
 zipIdKey                      = mkPreludeMiscIdUnique 33
@@ -2238,18 +2244,6 @@ noinlineIdKey                 = mkPreludeMiscIdUnique 125
 rationalToFloatIdKey, rationalToDoubleIdKey :: Unique
 rationalToFloatIdKey   = mkPreludeMiscIdUnique 130
 rationalToDoubleIdKey  = mkPreludeMiscIdUnique 131
-
--- dotnet interop
-unmarshalObjectIdKey, marshalObjectIdKey, marshalStringIdKey,
-    unmarshalStringIdKey, checkDotnetResNameIdKey :: Unique
-unmarshalObjectIdKey          = mkPreludeMiscIdUnique 150
-marshalObjectIdKey            = mkPreludeMiscIdUnique 151
-marshalStringIdKey            = mkPreludeMiscIdUnique 152
-unmarshalStringIdKey          = mkPreludeMiscIdUnique 153
-checkDotnetResNameIdKey       = mkPreludeMiscIdUnique 154
-
-undefinedKey :: Unique
-undefinedKey                  = mkPreludeMiscIdUnique 155
 
 magicDictKey :: Unique
 magicDictKey                  = mkPreludeMiscIdUnique 156
@@ -2422,6 +2416,12 @@ timesNaturalIdKey       = mkPreludeMiscIdUnique 566
 mkNaturalIdKey          = mkPreludeMiscIdUnique 567
 naturalSDataConKey      = mkPreludeMiscIdUnique 568
 wordToNaturalIdKey      = mkPreludeMiscIdUnique 569
+
+-- Unsafe coercion proofs
+unsafeEqualityProofIdKey, unsafeCoercePrimIdKey, unsafeCoerceIdKey :: Unique
+unsafeEqualityProofIdKey = mkPreludeMiscIdUnique 570
+unsafeCoercePrimIdKey    = mkPreludeMiscIdUnique 571
+unsafeCoerceIdKey        = mkPreludeMiscIdUnique 572
 
 {-
 ************************************************************************

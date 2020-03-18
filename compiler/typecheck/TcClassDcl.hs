@@ -9,11 +9,13 @@ Typechecking class declarations
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module TcClassDcl ( tcClassSigs, tcClassDecl2,
                     findMethodBind, instantiateMethod,
                     tcClassMinimalDef,
                     HsSigFun, mkHsSigFun,
-                    tcMkDeclCtxt, tcAddDeclCtxt, badMethodErr,
+                    badMethodErr,
                     instDeclCtxt1, instDeclCtxt2, instDeclCtxt3,
                     tcATDefault
                   ) where
@@ -36,11 +38,11 @@ import TcOrigin
 import Multiplicity
 import TcType
 import TcRnMonad
-import DriverPhases (HscSource(..))
+import GHC.Driver.Phases (HscSource(..))
 import BuildTyCl( TcMethInfo )
 import Class
 import Coercion ( pprCoAxiom )
-import DynFlags
+import GHC.Driver.Session
 import FamInst
 import FamInstEnv
 import Id
@@ -79,7 +81,7 @@ would implicitly declare
                              (forall b. Ord b => a -> b -> b)
 
 (We could use a record decl, but that means changing more of the existing apparatus.
-One step at at time!)
+One step at a time!)
 
 For classes with just one superclass+method, we use a newtype decl instead:
 
@@ -114,11 +116,11 @@ tcClassSigs :: Name                -- Name of the class
 tcClassSigs clas sigs def_methods
   = do { traceTc "tcClassSigs 1" (ppr clas)
 
-       ; gen_dm_prs <- concat <$> mapM (addLocM tc_gen_sig) gen_sigs
+       ; gen_dm_prs <- concatMapM (addLocM tc_gen_sig) gen_sigs
        ; let gen_dm_env :: NameEnv (SrcSpan, Type)
              gen_dm_env = mkNameEnv gen_dm_prs
 
-       ; op_info <- concat <$> mapM (addLocM (tc_sig gen_dm_env)) vanilla_sigs
+       ; op_info <- concatMapM (addLocM (tc_sig gen_dm_env)) vanilla_sigs
 
        ; let op_names = mkNameSet [ n | (n,_,_) <- op_info ]
        ; sequence_ [ failWithTc (badMethodErr clas n)
@@ -227,7 +229,7 @@ tcDefMeth clas tyvars this_dict binds_in hs_sig_fn prag_fn
           (sel_id, Just (dm_name, dm_spec))
   | Just (L bind_loc dm_bind, bndr_loc, prags) <- findMethodBind sel_name binds_in prag_fn
   = do { -- First look up the default method; it should be there!
-         -- It can be the orinary default method
+         -- It can be the ordinary default method
          -- or the generic-default method.  E.g of the latter
          --      class C a where
          --        op :: a -> a -> Bool
@@ -423,14 +425,6 @@ This makes the error messages right.
 *                                                                      *
 ************************************************************************
 -}
-
-tcMkDeclCtxt :: TyClDecl GhcRn -> SDoc
-tcMkDeclCtxt decl = hsep [text "In the", pprTyClDeclFlavour decl,
-                      text "declaration for", quotes (ppr (tcdName decl))]
-
-tcAddDeclCtxt :: TyClDecl GhcRn -> TcM a -> TcM a
-tcAddDeclCtxt decl thing_inside
-  = addErrCtxt (tcMkDeclCtxt decl) thing_inside
 
 badMethodErr :: Outputable a => a -> Name -> SDoc
 badMethodErr clas op

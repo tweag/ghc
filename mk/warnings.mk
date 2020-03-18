@@ -15,7 +15,7 @@ SRC_HC_OPTS_STAGE2 += $(WERROR)
 # core libraries to build in this configuration (see #13636).
 GhcRtsHcOpts    += -Wcpp-undef
 GhcStage1HcOpts += -Wcpp-undef
-GhcStage2HcOpts += -Wcpp-undef
+GhcStage2HcOpts += -Wcpp-undef -Wincomplete-uni-patterns -Wincomplete-record-updates
 
 ifneq "$(CcLlvmBackend)" "YES"
 
@@ -69,7 +69,7 @@ ifeq "$(HostOS_CPP)" "mingw32"
 libraries/time_dist-install_EXTRA_HC_OPTS += -Wno-unused-imports -Wno-identities
 endif
 
-# On Windows, the pattern for CallConv is already exaustive. Ignore the warning
+# On Windows, the pattern for CallConv is already exhaustive. Ignore the warning
 ifeq "$(HostOS_CPP)" "mingw32"
 libraries/ghci_dist-install_EXTRA_HC_OPTS += -Wno-overlapping-patterns
 endif

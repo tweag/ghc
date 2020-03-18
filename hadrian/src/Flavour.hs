@@ -4,7 +4,7 @@ module Flavour
     -- * Flavour transformers
   , addArgs
   , splitSections, splitSectionsIf
-  , enableDebugInfo
+  , enableDebugInfo, enableTickyGhc
   ) where
 
 import Expression
@@ -39,6 +39,8 @@ data Flavour = Flavour {
     ghcProfiled :: Bool,
     -- | Build GHC with debugging assertions.
     ghcDebugged :: Bool,
+    -- | Build the GHC executable against the threaded runtime system.
+    ghcThreaded :: Bool,
     -- | Whether to build docs and which ones
     --   (haddocks, user manual, haddock manual)
     ghcDocs :: Action DocTargets }
@@ -79,6 +81,17 @@ enableDebugInfo = addArgs $ mconcat
     [ builder (Ghc CompileHs) ? notStage0 ? arg "-g3"
     , builder (Cc CompileC) ? notStage0 ? arg "-g3"
     ]
+
+-- | Enable the ticky-ticky profiler in stage2 GHC
+enableTickyGhc :: Flavour -> Flavour
+enableTickyGhc =
+    addArgs $ foldMap enableTickyFor [ghc, compiler, base]
+  where
+    enableTickyFor pkg = stage1 ? package pkg ? mconcat
+      [ builder (Ghc CompileHs) ? ticky
+      , builder (Ghc LinkHs) ? ticky
+      ]
+    ticky = arg "-ticky" <> arg "-ticky-allocd"
 
 -- | Transform the input 'Flavour' so as to build with
 --   @-split-sections@ whenever appropriate. You can

@@ -24,10 +24,10 @@ module DataCon (
         FieldLbl(..), FieldLabel, FieldLabelString,
 
         -- ** Type construction
-        mkDataCon, buildAlgTyCon, buildSynTyCon, fIRST_TAG,
+        mkDataCon, fIRST_TAG,
 
         -- ** Type deconstruction
-        dataConRepType, dataConSig, dataConInstSig, dataConFullSig,
+        dataConRepType, dataConInstSig, dataConFullSig,
         dataConName, dataConIdentity, dataConTag, dataConTagZ,
         dataConTyCon, dataConOrigTyCon,
         dataConWrapperType, dataConDisplayType,
@@ -66,7 +66,6 @@ import GhcPrelude
 
 import {-# SOURCE #-} MkId( DataConBoxer )
 import Type
-import ForeignCall ( CType )
 import Coercion
 import Unify
 import Multiplicity
@@ -77,7 +76,6 @@ import Name
 import PrelNames
 import Predicate
 import Var
-import VarSet( emptyVarSet )
 import Outputable
 import Util
 import BasicTypes
@@ -87,7 +85,7 @@ import Binary
 import UniqSet
 import Unique( mkAlphaTyVarUnique )
 
-import DynFlags
+import GHC.Driver.Session
 import GHC.LanguageExtensions as LangExt
 
 import Data.ByteString (ByteString)
@@ -371,7 +369,7 @@ data DataCon
         dcExTyCoVars     :: [TyCoVar],
 
         -- INVARIANT: the UnivTyVars and ExTyCoVars all have distinct OccNames
-        -- Reason: less confusing, and easier to generate IfaceSyn
+        -- Reason: less confusing, and easier to generate Iface syntax
 
         -- The type/coercion vars in the order the user wrote them [c,y,x,b]
         -- INVARIANT: the set of tyvars in dcUserTyVarBinders is exactly the set
@@ -468,7 +466,7 @@ data DataCon
         -- It's convenient to apply the rep-type of MkT to 't', to get
         --      forall x y. (t~(x,y), x~y, Ord x) => x -> y -> T t
         -- and use that to check the pattern.  Mind you, this is really only
-        -- used in CoreLint.
+        -- used in GHC.Core.Lint.
 
 
         dcInfix :: Bool,        -- True <=> declared infix
@@ -1212,22 +1210,6 @@ dataConBoxer :: DataCon -> Maybe DataConBoxer
 dataConBoxer (MkData { dcRep = DCR { dcr_boxer = boxer } }) = Just boxer
 dataConBoxer _ = Nothing
 
--- | The \"signature\" of the 'DataCon' returns, in order:
---
--- 1) The result of 'dataConUnivAndExTyCoVars',
---
--- 2) All the 'ThetaType's relating to the 'DataCon' (coercion, dictionary,
---    implicit parameter - whatever), including dependent GADT equalities.
---    Dependent GADT equalities are *also* listed in return value (1), so be
---    careful!
---
--- 3) The type arguments to the constructor with linearity annotations
---
--- 4) The /original/ result type of the 'DataCon'
-dataConSig :: DataCon -> ([TyCoVar], ThetaType, [Scaled Type], Type)
-dataConSig con@(MkData {dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
-  = (dataConUnivAndExTyCoVars con, dataConTheta con, arg_tys, res_ty)
-
 dataConInstSig
   :: DataCon
   -> [Type]    -- Instantiate the *universal* tyvars with these types
@@ -1373,7 +1355,8 @@ dataConInstOrigArgTys
                         -- equality constraints or dicts
         -> [Scaled Type]
 -- For vanilla datacons, it's all quite straightforward
--- But for the call in MatchCon, we really do want just the value args
+-- But for the call in GHC.HsToCore.Match.Constructor, we really do want just
+-- the value args
 dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
                                   dcUnivTyVars = univ_tvs,
                                   dcExTyCoVars = ex_tvs}) inst_tys
@@ -1447,6 +1430,10 @@ dataConCannotMatch :: [Type] -> DataCon -> Bool
 --                  scrutinee of type (T tys)
 --                  where T is the dcRepTyCon for the data con
 dataConCannotMatch tys con
+  -- See (U6) in Note [Implementing unsafeCoerce]
+  -- in base:Unsafe.Coerce
+  | dataConName con == unsafeReflDataConName
+                      = False
   | null inst_theta   = False   -- Common
   | all isTyVarTy tys = False   -- Also common
   | otherwise         = typesCantMatch (concatMap predEqs inst_theta)
@@ -1530,38 +1517,3 @@ splitDataProductType_maybe ty
   | otherwise
   = Nothing
 
-{-
-************************************************************************
-*                                                                      *
-              Building an algebraic data type
-*                                                                      *
-************************************************************************
-
-buildAlgTyCon is here because it is called from TysWiredIn, which can
-depend on this module, but not on BuildTyCl.
--}
-
-buildAlgTyCon :: Name
-              -> [TyVar]               -- ^ Kind variables and type variables
-              -> [Role]
-              -> Maybe CType
-              -> ThetaType             -- ^ Stupid theta
-              -> AlgTyConRhs
-              -> Bool                  -- ^ True <=> was declared in GADT syntax
-              -> AlgTyConFlav
-              -> TyCon
-
-buildAlgTyCon tc_name ktvs roles cType stupid_theta rhs
-              gadt_syn parent
-  = mkAlgTyCon tc_name binders liftedTypeKind roles cType stupid_theta
-               rhs parent gadt_syn
-  where
-    binders = mkTyConBindersPreferAnon ktvs emptyVarSet
-
-buildSynTyCon :: Name -> [KnotTied TyConBinder] -> Kind   -- ^ /result/ kind
-              -> [Role] -> KnotTied Type -> TyCon
-buildSynTyCon name binders res_kind roles rhs
-  = mkSynonymTyCon name binders res_kind roles rhs is_tau is_fam_free
-  where
-    is_tau      = isTauTy rhs
-    is_fam_free = isFamFreeTy rhs

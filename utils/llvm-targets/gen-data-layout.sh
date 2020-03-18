@@ -35,6 +35,7 @@ TARGETS=(
     #########################
 
     # Linux ARM
+    "arm-unknown-linux-gnueabi"
     "arm-unknown-linux-gnueabihf"
     "arm-unknown-linux-musleabihf"
     "armv6-unknown-linux-gnueabihf"
@@ -94,8 +95,8 @@ TARGETS=(
 
     # FreeBSD ARM
     "aarch64-unknown-freebsd"
-    "armv6-unknown-freebsd"
-    "armv7-unknown-freebsd"
+    "armv6-unknown-freebsd-gnueabihf"
+    "armv7-unknown-freebsd-gnueabihf"
 
     #########################
     # Other

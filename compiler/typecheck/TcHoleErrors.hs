@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 module TcHoleErrors ( findValidHoleFits, tcFilterHoleFits
                     , tcCheckHoleFit, tcSubsumes
                     , withoutUnification
@@ -36,7 +37,7 @@ import ConLike          ( ConLike(..) )
 import Util
 import TcEnv (tcLookup)
 import Outputable
-import DynFlags
+import GHC.Driver.Session
 import Maybes
 import FV ( fvVarList, fvVarSet, unionFV, mkFVs, FV )
 
@@ -50,11 +51,11 @@ import Data.Graph       ( graphFromEdges, topSort )
 import TcSimplify    ( simpl_top, runTcSDeriveds )
 import TcUnify       ( tcSubType_NC )
 
-import ExtractDocs ( extractDocs )
+import GHC.HsToCore.Docs ( extractDocs )
 import qualified Data.Map as Map
 import GHC.Hs.Doc      ( unpackHDS, DeclDocMap(..) )
-import HscTypes        ( ModIface_(..) )
-import LoadIface       ( loadInterfaceForNameMaybe )
+import GHC.Driver.Types        ( ModIface_(..) )
+import GHC.Iface.Load  ( loadInterfaceForNameMaybe )
 
 import PrelInfo (knownKeyNames)
 
@@ -980,7 +981,7 @@ tcCheckHoleFit (TyH {..}) hole_ty ty = discardErrs $
                ; traceTc "w_givens are: " $ ppr w_givens
                ; rem <- runTcSDeriveds $ simpl_top w_givens
                -- We don't want any insoluble or simple constraints left, but
-               -- solved implications are ok (and neccessary for e.g. undefined)
+               -- solved implications are ok (and necessary for e.g. undefined)
                ; traceTc "rems was:" $ ppr rem
                ; traceTc "}" empty
                ; return (isSolvedWC rem, wrp) } }

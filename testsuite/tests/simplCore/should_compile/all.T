@@ -34,7 +34,7 @@ test('T7162', normal, compile, [''])
 
 test('dfun-loop', normal, compile, [''])
 test('strict-float', normal, compile, [''])
-test('T3118', normal, compile, [''])
+test('T3118', normal, compile, ['-Wno-overlapping-patterns'])
 test('T4203', normal, compile, [''])
 
 # With -prof -fvia-C, this test makes gcc go out to lunch, and the
@@ -144,7 +144,7 @@ test('T7702',
       # a large effect on allocation which is hard to separate from the
       # allocation done by the plugin... but a regression allocates > 90mb
       collect_compiler_stats('peak_megabytes_allocated',70),
-      when(opsys('mingw'), expect_broken_for(16799, ['normal']))
+      when(opsys('mingw32'), fragile_for(16799, ['normal']))
      ],
      compile,
      ['-v0 -package-db T7702plugin/pkg.T7702/local.package.conf -fplugin T7702Plugin -package T7702plugin ' + config.plugin_way_flags])
@@ -159,11 +159,6 @@ test('T7702',
 #       (2) Build the program twice: once with -dynamic, and then
 #           with -prof using -osuf to set a different object file suffix.
 test('T7944', omit_ways(['profasm']), compile, ['-O2'])
-test('T7995',
-     # RULE doesn't seem to fire unless optimizations are turned on.
-     # This seems reasonable, so I've required it for the test. -- EZY 20130720
-     only_ways(['optasm']),
-     makefile_test, ['T7995'])
 
 test('T8196', normal, compile, [''])
 test('T8221b', normal, compile, [''])
@@ -248,7 +243,7 @@ test('T13410', normal, compile, ['-O2'])
 test('T13468',
      normal,
      makefile_test, ['T13468'])
-test('T13543', only_ways(['optasm']), compile, ['-ddump-str-signatures'])
+test('T13543', only_ways(['optasm']), compile, ['-ddump-str-signatures -ddump-cpr-signatures'])
 test('T11272',
      normal,
      makefile_test, ['T11272'])
@@ -305,10 +300,18 @@ test('T16288', normal, multimod_compile, ['T16288B', '-O -dcore-lint -v0'])
 test('T16348', normal, compile, ['-O'])
 test('T16918', normal, compile, ['-O'])
 test('T16918a', normal, compile, ['-O'])
-test('T16978', normal, compile, ['-O'])
+test('T16978a', normal, compile, ['-O'])
+test('T16978b', normal, compile, ['-O'])
 test('T16979a', normal, compile, ['-O'])
 test('T16979b', normal, compile, ['-O'])
 test('T17140',
      [extra_files(['T17140a.hs'])],
      makefile_test,
      ['T17140'])
+test('T17409',
+     normal,
+     makefile_test, ['T17409'])
+test('T17429', normal, compile, ['-dcore-lint -O2'])
+test('T17722', normal, multimod_compile, ['T17722B', '-dcore-lint -O2 -v0'])
+test('T17724', normal, compile, ['-dcore-lint -O2'])
+test('T17787',  [ grep_errmsg(r'foo') ], compile, ['-ddump-simpl -dsuppress-uniques'])

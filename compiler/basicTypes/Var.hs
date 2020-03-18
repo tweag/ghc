@@ -6,6 +6,8 @@
 -}
 
 {-# LANGUAGE CPP, FlexibleContexts, MultiWayIf, FlexibleInstances, DeriveDataTypeable #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
 -- |
 -- #name_types#
@@ -105,7 +107,6 @@ import Unique ( Uniquable, Unique, getKey, getUnique
               , mkUniqueGrimily, nonDetCmpUnique )
 import Util
 import Binary
-import DynFlags
 import Outputable
 
 import Data.Data
@@ -317,9 +318,9 @@ arbitrary value which will (and must!) be ignored.
 -}
 
 instance Outputable Var where
-  ppr var = sdocWithDynFlags $ \dflags ->
+  ppr var = sdocOption sdocSuppressVarKinds $ \supp_var_kinds ->
             getPprStyle $ \ppr_style ->
-            if |  debugStyle ppr_style && (not (gopt Opt_SuppressVarKinds dflags))
+            if |  debugStyle ppr_style && (not supp_var_kinds)
                  -> parens (ppr (varName var) <+> ppr (varMultMaybe var)
                                               <+> ppr_debug var ppr_style <+>
                           dcolon <+> pprKind (tyVarKind var))
@@ -424,14 +425,6 @@ varScaledType var = Scaled (varMult var) (varType var)
 scaleVarBy :: Mult -> Id -> Id
 scaleVarBy m id@(Id { varMult = w }) =
   id { varMult = m `mkMultMul` w }
-  -- Note that alias-like variables are preserved by scaling. Consider the
-  -- transformation `let x_π = let y_ue = u in v in e ==> let y_ue = u in let
-  -- x_π = v in e` if `y` were regular it would need to be scaled (by a factor
-  -- of π) for typing to be preserved; in contrast, since `ue` is the computed
-  -- usage environment of `u`, it is scaled implicitly by the fact that the
-  -- call-sites of `y` are in `v`, hence scaled by the typing rule of `let
-  -- x_π`. The difference, can be summed up to the fact that a regular let
-  -- introduces a multiplicity constraint, while an alias-like let doesn't.
 scaleVarBy _ id = id
 
 setVarMult :: Id -> Mult -> Id

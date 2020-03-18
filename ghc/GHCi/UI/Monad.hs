@@ -37,24 +37,24 @@ module GHCi.UI.Monad (
 
 import GHCi.UI.Info (ModInfo)
 import qualified GHC
-import GhcMonad         hiding (liftIO)
+import GHC.Driver.Monad hiding (liftIO)
 import Outputable       hiding (printForUser, printForUserPartWay)
 import qualified Outputable
 import OccName
-import DynFlags
+import GHC.Driver.Session
 import FastString
-import HscTypes
+import GHC.Driver.Types
 import SrcLoc
 import Module
 import RdrName (mkOrig)
 import PrelNames (gHC_GHCI_HELPERS)
-import GHCi
+import GHC.Runtime.Interpreter
 import GHCi.RemoteTypes
 import GHC.Hs (ImportDecl, GhcPs, GhciLStmt, LHsDecl)
 import GHC.Hs.Utils
 import Util
 
-import Exception
+import Exception hiding (uninterruptibleMask, mask, catch)
 import Numeric
 import Data.Array
 import Data.IORef
@@ -65,7 +65,7 @@ import Control.Monad
 import Prelude hiding ((<>))
 
 import System.Console.Haskeline (CompletionFunc, InputT)
-import qualified System.Console.Haskeline as Haskeline
+import Control.Monad.Catch
 import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
 import Data.Map.Strict (Map)
@@ -185,8 +185,8 @@ data CommandResult
      -- ^ Unterminated multiline command
    deriving Show
 
-cmdSuccess :: Haskeline.MonadException m => CommandResult -> m (Maybe Bool)
-cmdSuccess CommandComplete{ cmdResult = Left e } = liftIO $ throwIO e
+cmdSuccess :: MonadThrow m => CommandResult -> m (Maybe Bool)
+cmdSuccess CommandComplete{ cmdResult = Left e } = throwM e
 cmdSuccess CommandComplete{ cmdResult = Right r } = return r
 cmdSuccess CommandIncomplete = return $ Just True
 
@@ -320,19 +320,51 @@ instance ExceptionMonad GHCi where
                              in
                                 unGHCi (f g_restore) s
 
-instance Haskeline.MonadException Ghc where
-  controlIO f = Ghc $ \s -> Haskeline.controlIO $ \(Haskeline.RunIO run) -> let
-                    run' = Haskeline.RunIO (fmap (Ghc . const) . run . flip unGhc s)
-                    in fmap (flip unGhc s) $ f run'
+instance MonadThrow Ghc where
+  throwM = liftIO . throwM
 
-instance Haskeline.MonadException GHCi where
-  controlIO f = GHCi $ \s -> Haskeline.controlIO $ \(Haskeline.RunIO run) -> let
-                    run' = Haskeline.RunIO (fmap (GHCi . const) . run . flip unGHCi s)
-                    in fmap (flip unGHCi s) $ f run'
+instance MonadCatch Ghc where
+  catch = gcatch
+
+instance MonadMask Ghc where
+  mask f = Ghc $ \s ->
+    mask $ \io_restore ->
+      let g_restore (Ghc m) = Ghc $ \s -> io_restore (m s)
+      in unGhc (f g_restore) s
+  uninterruptibleMask f = Ghc $ \s ->
+    uninterruptibleMask $ \io_restore ->
+      let g_restore (Ghc m) = Ghc $ \s -> io_restore (m s)
+      in unGhc (f g_restore) s
+  generalBracket acquire release use = Ghc $ \s ->
+    generalBracket
+      (unGhc acquire s)
+      (\resource exitCase -> unGhc (release resource exitCase) s)
+      (\resource -> unGhc (use resource) s)
+
+instance MonadThrow GHCi where
+  throwM = liftIO . throwM
+
+instance MonadCatch GHCi where
+  catch = gcatch
+
+instance MonadMask GHCi where
+  mask f = GHCi $ \s ->
+    mask $ \io_restore ->
+      let g_restore (GHCi m) = GHCi $ \s -> io_restore (m s)
+      in unGHCi (f g_restore) s
+  uninterruptibleMask f = GHCi $ \s ->
+    uninterruptibleMask $ \io_restore ->
+      let g_restore (GHCi m) = GHCi $ \s -> io_restore (m s)
+      in unGHCi (f g_restore) s
+  generalBracket acquire release use = GHCi $ \s ->
+    generalBracket
+      (unGHCi acquire s)
+      (\resource exitCase -> unGHCi (release resource exitCase) s)
+      (\resource -> unGHCi (use resource) s)
 
 instance ExceptionMonad (InputT GHCi) where
-  gcatch = Haskeline.catch
-  gmask f = Haskeline.liftIOOp gmask (f . Haskeline.liftIOOp_)
+  gcatch = catch
+  gmask = mask
 
 isOptionSet :: GhciMonad m => GHCiOption -> m Bool
 isOptionSet opt

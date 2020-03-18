@@ -19,12 +19,12 @@ module GHC.StgToCmm.CgUtils (
 import GhcPrelude
 
 import GHC.Platform.Regs
-import Cmm
-import Hoopl.Block
-import Hoopl.Graph
-import CmmUtils
-import CLabel
-import DynFlags
+import GHC.Cmm
+import GHC.Cmm.Dataflow.Block
+import GHC.Cmm.Dataflow.Graph
+import GHC.Cmm.Utils
+import GHC.Cmm.CLabel
+import GHC.Driver.Session
 import Outputable
 
 -- -----------------------------------------------------------------------------

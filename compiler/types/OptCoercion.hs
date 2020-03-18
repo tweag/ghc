@@ -8,7 +8,7 @@ module OptCoercion ( optCoercion, checkAxInstCo ) where
 
 import GhcPrelude
 
-import DynFlags
+import GHC.Driver.Session
 import TyCoRep
 import TyCoSubst
 import Coercion
@@ -555,7 +555,6 @@ opt_univ env sym prov role oty1 oty2
 
   where
     prov' = case prov of
-      UnsafeCoerceProv   -> prov
       PhantomProv kco    -> PhantomProv $ opt_co4_wrap env sym False Nominal kco
       ProofIrrelProv kco -> ProofIrrelProv $ opt_co4_wrap env sym False Nominal kco
       PluginProv _       -> prov
@@ -635,7 +634,6 @@ opt_trans_rule is in_co1@(UnivCo p1 r1 tyl1 _tyr1)
     mkUnivCo prov' r1 tyl1 tyr2
   where
     -- if the provenances are different, opt'ing will be very confusing
-    opt_trans_prov UnsafeCoerceProv      UnsafeCoerceProv      = Just UnsafeCoerceProv
     opt_trans_prov (PhantomProv kco1)    (PhantomProv kco2)
       = Just $ PhantomProv $ opt_trans is kco1 kco2
     opt_trans_prov (ProofIrrelProv kco1) (ProofIrrelProv kco2)
@@ -796,8 +794,9 @@ opt_trans_rule is co1 co2
     role = coercionRole co1 -- should be the same as coercionRole co2!
 
 opt_trans_rule _ co1 co2        -- Identity rule
-  | (Pair ty1 _, r) <- coercionKindRole co1
-  , Pair _ ty2 <- coercionKind co2
+  | let ty1 = coercionLKind co1
+        r   = coercionRole co1
+        ty2 = coercionRKind co2
   , ty1 `eqType` ty2
   = fireTransRule "RedTypeDirRefl" co1 co2 $
     mkReflCo r ty2
@@ -825,11 +824,13 @@ opt_trans_rule_app is orig_co1 orig_co2 co1a co1bs co2a co2bs
   | otherwise
   = ASSERT( co1bs `equalLength` co2bs )
     fireTransRule ("EtaApps:" ++ show (length co1bs)) orig_co1 orig_co2 $
-    let Pair _ rt1a = coercionKind co1a
-        (Pair lt2a _, rt2a) = coercionKindRole co2a
+    let rt1a = coercionRKind co1a
 
-        Pair _ rt1bs = traverse coercionKind co1bs
-        Pair lt2bs _ = traverse coercionKind co2bs
+        lt2a = coercionLKind co2a
+        rt2a = coercionRole  co2a
+
+        rt1bs = map coercionRKind co1bs
+        lt2bs = map coercionLKind co2bs
         rt2bs = map coercionRole co2bs
 
         kcoa = mkKindCo $ buildCoercion lt2a rt1a
@@ -967,13 +968,13 @@ The problem described here was first found in dependent/should_compile/dynamic-p
 checkAxInstCo :: Coercion -> Maybe CoAxBranch
 -- defined here to avoid dependencies in Coercion
 -- If you edit this function, you may need to update the GHC formalism
--- See Note [GHC Formalism] in CoreLint
+-- See Note [GHC Formalism] in GHC.Core.Lint
 checkAxInstCo (AxiomInstCo ax ind cos)
   = let branch       = coAxiomNthBranch ax ind
         tvs          = coAxBranchTyVars branch
         cvs          = coAxBranchCoVars branch
         incomps      = coAxBranchIncomps branch
-        (tys, cotys) = splitAtList tvs (map (pFst . coercionKind) cos)
+        (tys, cotys) = splitAtList tvs (map coercionLKind cos)
         co_args      = map stripCoercionTy cotys
         subst        = zipTvSubst tvs tys `composeTCvSubst`
                        zipCvSubst cvs co_args
@@ -1046,8 +1047,8 @@ compatible_co :: Coercion -> Coercion -> Bool
 compatible_co co1 co2
   = x1 `eqType` x2
   where
-    Pair _ x1 = coercionKind co1
-    Pair x2 _ = coercionKind co2
+    x1 = coercionRKind co1
+    x2 = coercionLKind co2
 
 -------------
 {-
@@ -1164,7 +1165,7 @@ etaTyConAppCo_maybe tc co
   , tc1 == tc2
   , isInjectiveTyCon tc r  -- See Note [NthCo and newtypes] in TyCoRep
   , let n = length tys1
-  , tys2 `lengthIs` n      -- This can fail in an erroneous progam
+  , tys2 `lengthIs` n      -- This can fail in an erroneous program
                            -- E.g. T a ~# T a b
                            -- #14607
   = ASSERT( tc == tc1 )

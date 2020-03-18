@@ -14,8 +14,6 @@ Note [The Type-related module hierarchy]
   TyCoSubst imports TyCoRep, TyCoFVs, TyCoPpr
   TyCoTidy imports TyCoRep, TyCoFVs
   TysPrim  imports TyCoRep ( including mkTyConTy )
-  Kind     imports TysPrim ( mainly for primitive kinds )
-  Type     imports Kind
   Coercion imports Type
 -}
 
@@ -58,14 +56,6 @@ module TyCoRep (
         mkVisFunTyMany, mkVisFunTysMany,
         mkInvisFunTyMany, mkInvisFunTysMany,
 
-        kindRep_maybe, kindRep,
-        isLiftedTypeKind, isUnliftedTypeKind,
-        isLiftedRuntimeRep, isUnliftedRuntimeRep,
-        isRuntimeRepTy, isRuntimeRepVar,
-        sameVis, isLinearType,
-
-        isMultiplicityTy, isMultiplicityVar,
-
         -- * Functions over binders
         TyCoBinder(..), TyCoVarBinder, TyBinder,
         binderVar, binderVars, binderType, binderArgFlag,
@@ -77,6 +67,9 @@ module TyCoRep (
         -- * Functions over coercions
         pickLR,
 
+        -- ** Analyzing types
+        TyCoFolder(..), foldTyCo,
+
         -- * Sizes
         typeSize, coercionSize, provSize
     ) where
@@ -85,7 +78,6 @@ module TyCoRep (
 
 import GhcPrelude
 
-import {-# SOURCE #-} Type( coreView )
 import {-# SOURCE #-} TyCoPpr ( pprType, pprCo, pprTyLit )
 
    -- Transitively pulls in a LOT of stuff, better to break the loop
@@ -93,7 +85,7 @@ import {-# SOURCE #-} TyCoPpr ( pprType, pprCo, pprTyLit )
 import {-# SOURCE #-} ConLike ( ConLike(..), conLikeName )
 
 -- friends:
-import IfaceType
+import GHC.Iface.Type
 import Var
 import VarSet
 import Name hiding ( varName )
@@ -103,7 +95,6 @@ import CoAxiom
 
 -- others
 import BasicTypes ( LeftOrRight(..), pickLR )
-import PrelNames
 import Outputable
 import FastString
 import Util
@@ -155,7 +146,7 @@ instance NamedThing TyThing where       -- Can't put this with the type
   getName (AConLike cl) = conLikeName cl
 
 pprShortTyThing :: TyThing -> SDoc
--- c.f. PprTyThing.pprTyThing, which prints all the details
+-- c.f. GHC.Core.Ppr.TyThing.pprTyThing, which prints all the details
 pprShortTyThing thing
   = pprTyThingCategory thing <+> quotes (ppr (getName thing))
 
@@ -186,7 +177,7 @@ type KindOrType = Type -- See Note [Arguments to type constructors]
 type Kind = Type
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.hs
+-- See Note [GHC Formalism] in GHC.Core.Lint
 data Type
   -- See Note [Non-trivial definitional equality]
   = TyVarTy Var -- ^ Vanilla type or kind variable (*never* a coercion variable)
@@ -832,10 +823,8 @@ See also Note [Required, Specified, and Inferred for types] in TcTyClsDecls
  Specified: a list of Specified binders is written between `forall` and `.`:
                const :: forall a b. a -> b -> a
 
- Inferred:  with -fprint-explicit-foralls, Inferred binders are written
-            in braces:
+ Inferred: like Specified, but every binder is written in braces:
                f :: forall {k} (a:k). S k a -> Int
-            Otherwise, they are printed like Specified binders.
 
  Required: binders are put between `forall` and `->`:
               T :: forall k -> *
@@ -993,103 +982,6 @@ mkTyConTy :: TyCon -> Type
 mkTyConTy tycon = TyConApp tycon []
 
 {-
-Some basic functions, put here to break loops eg with the pretty printer
--}
-
--- | Extract the RuntimeRep classifier of a type from its kind. For example,
--- @kindRep * = LiftedRep@; Panics if this is not possible.
--- Treats * and Constraint as the same
-kindRep :: HasDebugCallStack => Kind -> Type
-kindRep k = case kindRep_maybe k of
-              Just r  -> r
-              Nothing -> pprPanic "kindRep" (ppr k)
-
--- | Given a kind (TYPE rr), extract its RuntimeRep classifier rr.
--- For example, @kindRep_maybe * = Just LiftedRep@
--- Returns 'Nothing' if the kind is not of form (TYPE rr)
--- Treats * and Constraint as the same
-kindRep_maybe :: HasDebugCallStack => Kind -> Maybe Type
-kindRep_maybe kind
-  | Just kind' <- coreView kind = kindRep_maybe kind'
-  | TyConApp tc [arg] <- kind
-  , tc `hasKey` tYPETyConKey    = Just arg
-  | otherwise                   = Nothing
-
--- | This version considers Constraint to be the same as *. Returns True
--- if the argument is equivalent to Type/Constraint and False otherwise.
--- See Note [Kind Constraint and kind Type]
-isLiftedTypeKind :: Kind -> Bool
-isLiftedTypeKind kind
-  = case kindRep_maybe kind of
-      Just rep -> isLiftedRuntimeRep rep
-      Nothing  -> False
-
--- | Returns True if the kind classifies unlifted types and False otherwise.
--- Note that this returns False for levity-polymorphic kinds, which may
--- be specialized to a kind that classifies unlifted types.
-isUnliftedTypeKind :: Kind -> Bool
-isUnliftedTypeKind kind
-  = case kindRep_maybe kind of
-      Just rep -> isUnliftedRuntimeRep rep
-      Nothing  -> False
-
-isLiftedRuntimeRep :: Type -> Bool
--- isLiftedRuntimeRep is true of LiftedRep :: RuntimeRep
--- False of type variables (a :: RuntimeRep)
---   and of other reps e.g. (IntRep :: RuntimeRep)
-isLiftedRuntimeRep rep
-  | Just rep' <- coreView rep          = isLiftedRuntimeRep rep'
-  | TyConApp rr_tc args <- rep
-  , rr_tc `hasKey` liftedRepDataConKey = ASSERT( null args ) True
-  | otherwise                          = False
-
-isUnliftedRuntimeRep :: Type -> Bool
--- True of definitely-unlifted RuntimeReps
--- False of           (LiftedRep :: RuntimeRep)
---   and of variables (a :: RuntimeRep)
-isUnliftedRuntimeRep rep
-  | Just rep' <- coreView rep = isUnliftedRuntimeRep rep'
-  | TyConApp rr_tc _ <- rep   -- NB: args might be non-empty
-                              --     e.g. TupleRep [r1, .., rn]
-  = isPromotedDataCon rr_tc && not (rr_tc `hasKey` liftedRepDataConKey)
-        -- Avoid searching all the unlifted RuntimeRep type cons
-        -- In the RuntimeRep data type, only LiftedRep is lifted
-        -- But be careful of type families (F tys) :: RuntimeRep
-  | otherwise {- Variables, applications -}
-  = False
-
--- | Is this the type 'RuntimeRep'?
-isRuntimeRepTy :: Type -> Bool
-isRuntimeRepTy ty | Just ty' <- coreView ty = isRuntimeRepTy ty'
-isRuntimeRepTy (TyConApp tc args)
-  | tc `hasKey` runtimeRepTyConKey = ASSERT( null args ) True
-isRuntimeRepTy _ = False
-
--- | Is a tyvar of type 'RuntimeRep'?
-isRuntimeRepVar :: TyVar -> Bool
-isRuntimeRepVar = isRuntimeRepTy . tyVarKind
-
--- | Is this the type 'Multiplicity'?
-isMultiplicityTy :: Type -> Bool
-isMultiplicityTy ty | Just ty' <- coreView ty = isMultiplicityTy ty'
-isMultiplicityTy (TyConApp tc []) = tc `hasKey` multiplicityTyConKey
-isMultiplicityTy _ = False
-
--- | Is a tyvar of type 'Multiplicity'?
-isMultiplicityVar :: TyVar -> Bool
-isMultiplicityVar = isMultiplicityTy . tyVarKind
-
-isLinearType :: Type -> Bool
--- ^ Returns @True@ of an 'Type' if the 'Type' has any linear function arrows
--- in its type. We use this function to check whether it is safe to eta
--- reduce an Id.
-isLinearType ty = case ty of
-                      FunTy _ Many _ res -> isLinearType res
-                      FunTy _ _ _ _ -> True
-                      ForAllTy _ res -> isLinearType res
-                      _ -> False
-
-{-
 %************************************************************************
 %*                                                                      *
             Coercions
@@ -1101,7 +993,7 @@ isLinearType ty = case ty of
 -- of two types.
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.hs
+-- See Note [GHC Formalism] in GHC.Core.Lint
 data Coercion
   -- Each constructor has a "role signature", indicating the way roles are
   -- propagated through coercions.
@@ -1240,7 +1132,7 @@ Invariant 1:
 Coercions have the following invariant
      Refl (similar for GRefl r ty MRefl) is always lifted as far as possible.
 
-You might think that a consequencs is:
+You might think that a consequences is:
      Every identity coercions has Refl at the root
 
 But that's not quite true because of coercion variables.  Consider
@@ -1589,8 +1481,7 @@ in nominal ways. If not, having w be representational is OK.
 %************************************************************************
 
 A UnivCo is a coercion whose proof does not directly express its role
-and kind (indeed for some UnivCos, like UnsafeCoerceProv, there /is/
-no proof).
+and kind (indeed for some UnivCos, like PluginProv, there /is/ no proof).
 
 The different kinds of UnivCo are described by UnivCoProvenance.  Really
 each is entirely separate, but they all share the need to represent their
@@ -1607,9 +1498,7 @@ role and kind, which is done in the UnivCo constructor.
 -- that they don't tell you what types they coercion between. (That info
 -- is in the 'UnivCo' constructor of 'Coercion'.
 data UnivCoProvenance
-  = UnsafeCoerceProv   -- ^ From @unsafeCoerce#@. These are unsound.
-
-  | PhantomProv KindCoercion -- ^ See Note [Phantom coercions]. Only in Phantom
+  = PhantomProv KindCoercion -- ^ See Note [Phantom coercions]. Only in Phantom
                              -- roled coercions
 
   | ProofIrrelProv KindCoercion  -- ^ From the fact that any two coercions are
@@ -1622,7 +1511,6 @@ data UnivCoProvenance
   deriving Data.Data
 
 instance Outputable UnivCoProvenance where
-  ppr UnsafeCoerceProv   = text "(unsafeCoerce#)"
   ppr (PhantomProv _)    = text "(phantom)"
   ppr (ProofIrrelProv _) = text "(proof irrel.)"
   ppr (PluginProv str)   = parens (text "plugin" <+> brackets (text str))
@@ -1704,7 +1592,7 @@ the evidence for unboxed equalities:
     holes are easier.
 
   - Moreover, nothing is lost from the lack of let-bindings. For
-    dicionaries want to achieve sharing to avoid recomoputing the
+    dictionaries want to achieve sharing to avoid recomoputing the
     dictionary.  But coercions are entirely erased, so there's little
     benefit to sharing. Indeed, even if we had a let-binding, we
     always inline types and coercions at every use site and drop the
@@ -1774,6 +1662,170 @@ Here,
 
 {- *********************************************************************
 *                                                                      *
+                foldType  and   foldCoercion
+*                                                                      *
+********************************************************************* -}
+
+{- Note [foldType]
+~~~~~~~~~~~~~~~~~~
+foldType is a bit more powerful than perhaps it looks:
+
+* You can fold with an accumulating parameter, via
+     TyCoFolder env (Endo a)
+  Recall newtype Endo a = Endo (a->a)
+
+* You can fold monadically with a monad M, via
+     TyCoFolder env (M a)
+  provided you have
+     instance ..  => Monoid (M a)
+
+Note [mapType vs foldType]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+We define foldType here, but mapType in module Type. Why?
+
+* foldType is used in TyCoFVs for finding free variables.
+  It's a very simple function that analyses a type,
+  but does not construct one.
+
+* mapType constructs new types, and so it needs to call
+  the "smart constructors", mkAppTy, mkCastTy, and so on.
+  These are sophisticated functions, and can't be defined
+  here in TyCoRep.
+
+Note [Specialising foldType]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We inline foldType at every call site (there are not many), so that it
+becomes specialised for the particular monoid *and* TyCoFolder at
+that site.  This is just for efficiency, but walking over types is
+done a *lot* in GHC, so worth optimising.
+
+We were worried that
+    TyCoFolder env (Endo a)
+might not eta-expand.  Recall newtype Endo a = Endo (a->a).
+
+In particular, given
+   fvs :: Type -> TyCoVarSet
+   fvs ty = appEndo (foldType tcf emptyVarSet ty) emptyVarSet
+
+   tcf :: TyCoFolder enf (Endo a)
+   tcf = TyCoFolder { tcf_tyvar = do_tv, ... }
+      where
+        do_tvs is tv = Endo do_it
+           where
+             do_it acc | tv `elemVarSet` is  = acc
+                       | tv `elemVarSet` acc = acc
+                       | otherwise = acc `extendVarSet` tv
+
+
+we want to end up with
+   fvs ty = go emptyVarSet ty emptyVarSet
+     where
+       go env (TyVarTy tv) acc = acc `extendVarSet` tv
+       ..etc..
+
+And indeed this happens.
+  - Selections from 'tcf' are done at compile time
+  - 'go' is nicely eta-expanded.
+
+We were also worried about
+   deep_fvs :: Type -> TyCoVarSet
+   deep_fvs ty = appEndo (foldType deep_tcf emptyVarSet ty) emptyVarSet
+
+   deep_tcf :: TyCoFolder enf (Endo a)
+   deep_tcf = TyCoFolder { tcf_tyvar = do_tv, ... }
+      where
+        do_tvs is tv = Endo do_it
+           where
+             do_it acc | tv `elemVarSet` is  = acc
+                       | tv `elemVarSet` acc = acc
+                       | otherwise = deep_fvs (varType tv)
+                                     `unionVarSet` acc
+                                     `extendVarSet` tv
+
+Here deep_fvs and deep_tcf are mutually recursive, unlike fvs and tcf.
+But, amazingly, we get good code here too. GHC is careful not to makr
+TyCoFolder data constructor for deep_tcf as a loop breaker, so the
+record selections still cancel.  And eta expansion still happens too.
+-}
+
+data TyCoFolder env a
+  = TyCoFolder
+      { tcf_view  :: Type -> Maybe Type   -- Optional "view" function
+                                          -- E.g. expand synonyms
+      , tcf_tyvar :: env -> TyVar -> a
+      , tcf_covar :: env -> CoVar -> a
+      , tcf_hole  :: env -> CoercionHole -> a
+          -- ^ What to do with coercion holes.
+          -- See Note [Coercion holes] in TyCoRep.
+
+      , tcf_tycobinder :: env -> TyCoVar -> ArgFlag -> env
+          -- ^ The returned env is used in the extended scope
+      }
+
+{-# INLINE foldTyCo  #-}  -- See Note [Specialising foldType]
+foldTyCo :: Monoid a => TyCoFolder env a -> env
+         -> (Type -> a, [Type] -> a, Coercion -> a, [Coercion] -> a)
+foldTyCo (TyCoFolder { tcf_view       = view
+                     , tcf_tyvar      = tyvar
+                     , tcf_tycobinder = tycobinder
+                     , tcf_covar      = covar
+                     , tcf_hole       = cohole }) env
+  = (go_ty env, go_tys env, go_co env, go_cos env)
+  where
+    go_ty env ty | Just ty' <- view ty = go_ty env ty'
+    go_ty env (TyVarTy tv)      = tyvar env tv
+    go_ty env (AppTy t1 t2)     = go_ty env t1 `mappend` go_ty env t2
+    go_ty _   (LitTy {})        = mempty
+    go_ty env (CastTy ty co)    = go_ty env ty `mappend` go_co env co
+    go_ty env (CoercionTy co)   = go_co env co
+    go_ty env (FunTy _ w arg res) = go_ty env w `mappend` go_ty env arg `mappend` go_ty env res
+    go_ty env (TyConApp _ tys)  = go_tys env tys
+    go_ty env (ForAllTy (Bndr tv vis) inner)
+      = let !env' = tycobinder env tv vis  -- Avoid building a thunk here
+        in go_ty env (varType tv) `mappend` go_ty env' inner
+
+    -- Explicit recursion becuase using foldr builds a local
+    -- loop (with env free) and I'm not confident it'll be
+    -- lambda lifted in the end
+    go_tys _   []     = mempty
+    go_tys env (t:ts) = go_ty env t `mappend` go_tys env ts
+
+    go_cos _   []     = mempty
+    go_cos env (c:cs) = go_co env c `mappend` go_cos env cs
+
+    go_co env (Refl ty)               = go_ty env ty
+    go_co env (GRefl _ ty MRefl)      = go_ty env ty
+    go_co env (GRefl _ ty (MCo co))   = go_ty env ty `mappend` go_co env co
+    go_co env (TyConAppCo _ _ args)   = go_cos env args
+    go_co env (AppCo c1 c2)           = go_co env c1 `mappend` go_co env c2
+    go_co env (FunCo _ cw c1 c2)      = go_co env cw `mappend`
+                                        go_co env c1 `mappend`
+                                        go_co env c2
+    go_co env (CoVarCo cv)            = covar env cv
+    go_co env (AxiomInstCo _ _ args)  = go_cos env args
+    go_co env (HoleCo hole)           = cohole env hole
+    go_co env (UnivCo p _ t1 t2)      = go_prov env p `mappend` go_ty env t1
+                                                      `mappend` go_ty env t2
+    go_co env (SymCo co)              = go_co env co
+    go_co env (TransCo c1 c2)         = go_co env c1 `mappend` go_co env c2
+    go_co env (AxiomRuleCo _ cos)     = go_cos env cos
+    go_co env (NthCo _ _ co)          = go_co env co
+    go_co env (LRCo _ co)             = go_co env co
+    go_co env (InstCo co arg)         = go_co env co `mappend` go_co env arg
+    go_co env (KindCo co)             = go_co env co
+    go_co env (SubCo co)              = go_co env co
+    go_co env (ForAllCo tv kind_co co)
+      = go_co env kind_co `mappend` go_ty env (varType tv)
+                          `mappend` go_co env' co
+      where
+        env' = tycobinder env tv Inferred
+
+    go_prov env (PhantomProv co)    = go_co env co
+    go_prov env (ProofIrrelProv co) = go_co env co
+    go_prov _   (PluginProv _)      = mempty
+
+{- *********************************************************************
+*                                                                      *
                    typeSize, coercionSize
 *                                                                      *
 ********************************************************************* -}
@@ -1824,7 +1876,6 @@ coercionSize (SubCo co)          = 1 + coercionSize co
 coercionSize (AxiomRuleCo _ cs)  = 1 + sum (map coercionSize cs)
 
 provSize :: UnivCoProvenance -> Int
-provSize UnsafeCoerceProv    = 1
 provSize (PhantomProv co)    = 1 + coercionSize co
 provSize (ProofIrrelProv co) = 1 + coercionSize co
 provSize (PluginProv _)      = 1

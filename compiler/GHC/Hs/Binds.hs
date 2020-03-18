@@ -11,11 +11,15 @@ Datatype for: @BindGroup@, @Bind@, @Sig@, @Bind@.
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
-                                      -- in module GHC.Hs.PlaceHolder
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-} -- Wrinkle in Note [Trees That Grow]
+                                      -- in module GHC.Hs.Extension
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE LambdaCase #-}
 
 module GHC.Hs.Binds where
 
@@ -28,7 +32,7 @@ import {-# SOURCE #-} GHC.Hs.Pat  ( LPat )
 
 import GHC.Hs.Extension
 import GHC.Hs.Types
-import CoreSyn
+import GHC.Core
 import TcEvidence
 import Type
 import NameSet
@@ -39,11 +43,10 @@ import Var
 import Bag
 import FastString
 import BooleanFormula (LBooleanFormula)
-import DynFlags
 
 import Data.Data hiding ( Fixity )
 import Data.List hiding ( foldr )
-import Data.Ord
+import Data.Function
 
 {-
 ************************************************************************
@@ -218,28 +221,28 @@ data HsBindLR idL idR
     -- For details on above see note [Api annotations] in ApiAnnotation
     FunBind {
 
-        fun_ext :: XFunBind idL idR, -- ^ After the renamer, this contains
-                                --  the locally-bound
-                                -- free variables of this defn.
-                                -- See Note [Bind free vars]
+        fun_ext :: XFunBind idL idR,
+
+          -- ^ After the renamer (but before the type-checker), this contains the
+          -- locally-bound free variables of this defn. See Note [Bind free vars]
+          --
+          -- After the type-checker, this contains a coercion from the type of
+          -- the MatchGroup to the type of the Id. Example:
+          --
+          -- @
+          --      f :: Int -> forall a. a -> a
+          --      f x y = y
+          -- @
+          --
+          -- Then the MatchGroup will have type (Int -> a' -> a')
+          -- (with a free type variable a').  The coercion will take
+          -- a CoreExpr of this type and convert it to a CoreExpr of
+          -- type         Int -> forall a'. a' -> a'
+          -- Notice that the coercion captures the free a'.
 
         fun_id :: Located (IdP idL), -- Note [fun_id in Match] in GHC.Hs.Expr
 
         fun_matches :: MatchGroup idR (LHsExpr idR),  -- ^ The payload
-
-        fun_co_fn :: HsWrapper, -- ^ Coercion from the type of the MatchGroup to the type of
-                                -- the Id.  Example:
-                                --
-                                -- @
-                                --      f :: Int -> forall a. a -> a
-                                --      f x y = y
-                                -- @
-                                --
-                                -- Then the MatchGroup will have type (Int -> a' -> a')
-                                -- (with a free type variable a').  The coercion will take
-                                -- a CoreExpr of this type and convert it to a CoreExpr of
-                                -- type         Int -> forall a'. a' -> a'
-                                -- Notice that the coercion captures the free a'.
 
         fun_tick :: [Tickish Id] -- ^ Ticks to put on the rhs, if any
     }
@@ -319,8 +322,8 @@ data NPatBindTc = NPatBindTc {
      } deriving Data
 
 type instance XFunBind    (GhcPass pL) GhcPs = NoExtField
-type instance XFunBind    (GhcPass pL) GhcRn = NameSet -- Free variables
-type instance XFunBind    (GhcPass pL) GhcTc = NameSet -- Free variables
+type instance XFunBind    (GhcPass pL) GhcRn = NameSet    -- Free variables
+type instance XFunBind    (GhcPass pL) GhcTc = HsWrapper  -- See comments on FunBind.fun_ext
 
 type instance XPatBind    GhcPs (GhcPass pR) = NoExtField
 type instance XPatBind    GhcRn (GhcPass pR) = NameSet -- Free variables
@@ -344,7 +347,7 @@ type instance XXHsBindsLR (GhcPass pL) (GhcPass pR) = NoExtCon
         --
         -- See Note [AbsBinds]
 
--- | Abtraction Bindings Export
+-- | Abstraction Bindings Export
 data ABExport p
   = ABE { abe_ext       :: XABE p
         , abe_poly      :: IdP p -- ^ Any INLINE pragma is attached to this Id
@@ -406,7 +409,7 @@ where 'BIND' binds the monomorphic Ids 'fm' and 'gm', means
 
         gp = ...same again, with gm instead of fm
 
-The 'fwrap' is an impedence-matcher that typically does nothing; see
+The 'fwrap' is an impedance-matcher that typically does nothing; see
 Note [ABExport wrapper].
 
 This is a pretty bad translation, because it duplicates all the bindings.
@@ -561,7 +564,7 @@ again we can desugar without a let:
   undef = /\ a. \ (d:HasCallStack) -> error a d "undef"
 
 The abs_sig field supports this direct desugaring, with no local
-let-bining.  When abs_sig = True
+let-binding.  When abs_sig = True
 
  * the abs_binds is single FunBind
 
@@ -571,7 +574,7 @@ let-bining.  When abs_sig = True
    and hence the abs_binds is non-recursive
    (it binds the mono_id but refers to the poly_id
 
-These properties are exploited in DsBinds.dsAbsBinds to
+These properties are exploited in GHC.HsToCore.Binds.dsAbsBinds to
 generate code without a let-binding.
 
 Note [ABExport wrapper]
@@ -617,17 +620,15 @@ Specifically,
     it's just an error thunk
 -}
 
-instance (idL ~ GhcPass pl, idR ~ GhcPass pr,
-          OutputableBndrId idL, OutputableBndrId idR)
-        => Outputable (HsLocalBindsLR idL idR) where
+instance (OutputableBndrId pl, OutputableBndrId pr)
+        => Outputable (HsLocalBindsLR (GhcPass pl) (GhcPass pr)) where
   ppr (HsValBinds _ bs)   = ppr bs
   ppr (HsIPBinds _ bs)    = ppr bs
   ppr (EmptyLocalBinds _) = empty
   ppr (XHsLocalBindsLR x) = ppr x
 
-instance (idL ~ GhcPass pl, idR ~ GhcPass pr,
-          OutputableBndrId idL, OutputableBndrId idR)
-        => Outputable (HsValBindsLR idL idR) where
+instance (OutputableBndrId pl, OutputableBndrId pr)
+        => Outputable (HsValBindsLR (GhcPass pl) (GhcPass pr)) where
   ppr (ValBinds _ binds sigs)
    = pprDeclList (pprLHsBindsForUser binds sigs)
 
@@ -642,15 +643,15 @@ instance (idL ~ GhcPass pl, idR ~ GhcPass pr,
      pp_rec Recursive    = text "rec"
      pp_rec NonRecursive = text "nonrec"
 
-pprLHsBinds :: (OutputableBndrId (GhcPass idL), OutputableBndrId (GhcPass idR))
+pprLHsBinds :: (OutputableBndrId idL, OutputableBndrId idR)
             => LHsBindsLR (GhcPass idL) (GhcPass idR) -> SDoc
 pprLHsBinds binds
   | isEmptyLHsBinds binds = empty
   | otherwise = pprDeclList (map ppr (bagToList binds))
 
-pprLHsBindsForUser :: (OutputableBndrId (GhcPass idL),
-                       OutputableBndrId (GhcPass idR),
-                       OutputableBndrId (GhcPass id2))
+pprLHsBindsForUser :: (OutputableBndrId idL,
+                       OutputableBndrId idR,
+                       OutputableBndrId id2)
      => LHsBindsLR (GhcPass idL) (GhcPass idR) -> [LSig (GhcPass id2)] -> [SDoc]
 --  pprLHsBindsForUser is different to pprLHsBinds because
 --  a) No braces: 'let' and 'where' include a list of HsBindGroups
@@ -666,7 +667,7 @@ pprLHsBindsForUser binds sigs
     decls = [(loc, ppr sig)  | L loc sig <- sigs] ++
             [(loc, ppr bind) | L loc bind <- bagToList binds]
 
-    sort_by_loc decls = sortBy (comparing fst) decls
+    sort_by_loc decls = sortBy (SrcLoc.leftmost_smallest `on` fst) decls
 
 pprDeclList :: [SDoc] -> SDoc   -- Braces with a space
 -- Print a bunch of declarations
@@ -682,19 +683,6 @@ pprDeclList ds = pprDeeperList vcat ds
 ------------
 emptyLocalBinds :: HsLocalBindsLR (GhcPass a) (GhcPass b)
 emptyLocalBinds = EmptyLocalBinds noExtField
-
--- AZ:These functions do not seem to be used at all?
-isEmptyLocalBindsTc :: HsLocalBindsLR (GhcPass a) GhcTc -> Bool
-isEmptyLocalBindsTc (HsValBinds _ ds)   = isEmptyValBinds ds
-isEmptyLocalBindsTc (HsIPBinds _ ds)    = isEmptyIPBindsTc ds
-isEmptyLocalBindsTc (EmptyLocalBinds _) = True
-isEmptyLocalBindsTc (XHsLocalBindsLR _) = True
-
-isEmptyLocalBindsPR :: HsLocalBindsLR (GhcPass a) (GhcPass b) -> Bool
-isEmptyLocalBindsPR (HsValBinds _ ds)   = isEmptyValBinds ds
-isEmptyLocalBindsPR (HsIPBinds _ ds)    = isEmptyIPBindsPR ds
-isEmptyLocalBindsPR (EmptyLocalBinds _) = True
-isEmptyLocalBindsPR (XHsLocalBindsLR _) = True
 
 eqEmptyLocalBinds :: HsLocalBindsLR a b -> Bool
 eqEmptyLocalBinds (EmptyLocalBinds _) = True
@@ -725,12 +713,12 @@ plusHsValBinds (XValBindsLR (NValBinds ds1 sigs1))
 plusHsValBinds _ _
   = panic "HsBinds.plusHsValBinds"
 
-instance (idL ~ GhcPass pl, idR ~ GhcPass pr,
-          OutputableBndrId idL, OutputableBndrId idR)
-         => Outputable (HsBindLR idL idR) where
+instance (OutputableBndrId pl, OutputableBndrId pr)
+         => Outputable (HsBindLR (GhcPass pl) (GhcPass pr)) where
     ppr mbind = ppr_monobind mbind
 
-ppr_monobind :: (OutputableBndrId (GhcPass idL), OutputableBndrId (GhcPass idR))
+ppr_monobind :: forall idL idR.
+                (OutputableBndrId idL, OutputableBndrId idR)
              => HsBindLR (GhcPass idL) (GhcPass idR) -> SDoc
 
 ppr_monobind (PatBind { pat_lhs = pat, pat_rhs = grhss })
@@ -738,44 +726,44 @@ ppr_monobind (PatBind { pat_lhs = pat, pat_rhs = grhss })
 ppr_monobind (VarBind { var_id = var, var_rhs = rhs })
   = sep [pprBndr CasePatBind var, nest 2 $ equals <+> pprExpr (unLoc rhs)]
 ppr_monobind (FunBind { fun_id = fun,
-                        fun_co_fn = wrap,
                         fun_matches = matches,
-                        fun_tick = ticks })
+                        fun_tick = ticks,
+                        fun_ext = wrap })
   = pprTicks empty (if null ticks then empty
                     else text "-- ticks = " <> ppr ticks)
     $$  whenPprDebug (pprBndr LetBind (unLoc fun))
     $$  pprFunBind  matches
-    $$  whenPprDebug (ppr wrap)
+    $$  whenPprDebug (pprIfTc @idR $ ppr wrap)
+
 ppr_monobind (PatSynBind _ psb) = ppr psb
 ppr_monobind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dictvars
                        , abs_exports = exports, abs_binds = val_binds
                        , abs_ev_binds = ev_binds })
-  = sdocWithDynFlags $ \ dflags ->
-    if gopt Opt_PrintTypecheckerElaboration dflags then
-      -- Show extra information (bug number: #10662)
-      hang (text "AbsBinds" <+> brackets (interpp'SP tyvars)
-                                    <+> brackets (interpp'SP dictvars))
-         2 $ braces $ vcat
-      [ text "Exports:" <+>
-          brackets (sep (punctuate comma (map ppr exports)))
-      , text "Exported types:" <+>
-          vcat [pprBndr LetBind (abe_poly ex) | ex <- exports]
-      , text "Binds:" <+> pprLHsBinds val_binds
-      , text "Evidence:" <+> ppr ev_binds ]
-    else
-      pprLHsBinds val_binds
+  = sdocOption sdocPrintTypecheckerElaboration $ \case
+      False -> pprLHsBinds val_binds
+      True  -> -- Show extra information (bug number: #10662)
+               hang (text "AbsBinds" <+> brackets (interpp'SP tyvars)
+                                             <+> brackets (interpp'SP dictvars))
+                  2 $ braces $ vcat
+               [ text "Exports:" <+>
+                   brackets (sep (punctuate comma (map ppr exports)))
+               , text "Exported types:" <+>
+                   vcat [pprBndr LetBind (abe_poly ex) | ex <- exports]
+               , text "Binds:" <+> pprLHsBinds val_binds
+               , pprIfTc @idR (text "Evidence:" <+> ppr ev_binds)
+               ]
 ppr_monobind (XHsBindsLR x) = ppr x
 
-instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (ABExport p) where
+instance OutputableBndrId p => Outputable (ABExport (GhcPass p)) where
   ppr (ABE { abe_wrap = wrap, abe_poly = gbl, abe_mono = lcl, abe_prags = prags })
     = vcat [ ppr gbl <+> text "<=" <+> ppr lcl
            , nest 2 (pprTcSpecPrags prags)
-           , nest 2 (text "wrap:" <+> ppr wrap)]
+           , pprIfTc @p $ nest 2 (text "wrap:" <+> ppr wrap) ]
   ppr (XABExport x) = ppr x
 
-instance (idR ~ GhcPass pr,OutputableBndrId idL, OutputableBndrId idR,
-         Outputable (XXPatSynBind idL idR))
-          => Outputable (PatSynBind idL idR) where
+instance (OutputableBndrId l, OutputableBndrId r,
+         Outputable (XXPatSynBind (GhcPass l) (GhcPass r)))
+          => Outputable (PatSynBind (GhcPass l) (GhcPass r)) where
   ppr (PSB{ psb_id = (L _ psyn), psb_args = details, psb_def = pat,
             psb_dir = dir })
       = ppr_lhs <+> ppr_rhs
@@ -866,13 +854,13 @@ data IPBind id
 type instance XCIPBind    (GhcPass p) = NoExtField
 type instance XXIPBind    (GhcPass p) = NoExtCon
 
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (HsIPBinds p) where
+instance OutputableBndrId p
+       => Outputable (HsIPBinds (GhcPass p)) where
   ppr (IPBinds ds bs) = pprDeeperList vcat (map ppr bs)
-                        $$ whenPprDebug (ppr ds)
+                        $$ whenPprDebug (pprIfTc @p $ ppr ds)
   ppr (XHsIPBinds x) = ppr x
 
-instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (IPBind p) where
+instance OutputableBndrId p => Outputable (IPBind (GhcPass p)) where
   ppr (IPBind _ lr rhs) = name <+> equals <+> pprExpr (unLoc rhs)
     where name = case lr of
                    Left (L _ ip) -> pprBndr LetBind ip
@@ -1153,9 +1141,11 @@ hsSigDoc (ClassOpSig _ is_deflt _ _)
  | is_deflt                     = text "default type signature"
  | otherwise                    = text "class method signature"
 hsSigDoc (IdSig {})             = text "id signature"
-hsSigDoc (SpecSig {})           = text "SPECIALISE pragma"
+hsSigDoc (SpecSig _ _ _ inl)
+                                = ppr inl <+> text "pragma"
 hsSigDoc (InlineSig _ _ prag)   = ppr (inlinePragmaSpec prag) <+> text "pragma"
-hsSigDoc (SpecInstSig {})       = text "SPECIALISE instance pragma"
+hsSigDoc (SpecInstSig _ src _)
+                                = pprWithSourceText src empty <+> text "instance pragma"
 hsSigDoc (FixSig {})            = text "fixity declaration"
 hsSigDoc (MinimalSig {})        = text "MINIMAL pragma"
 hsSigDoc (SCCFunSig {})         = text "SCC pragma"
@@ -1168,10 +1158,10 @@ signatures. Since some of the signatures contain a list of names, testing for
 equality is not enough -- we have to check if they overlap.
 -}
 
-instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (Sig p) where
+instance OutputableBndrId p => Outputable (Sig (GhcPass p)) where
     ppr sig = ppr_sig sig
 
-ppr_sig :: (OutputableBndrId (GhcPass p)) => Sig (GhcPass p) -> SDoc
+ppr_sig :: (OutputableBndrId p) => Sig (GhcPass p) -> SDoc
 ppr_sig (TypeSig _ vars ty)  = pprVarSig (map unLoc vars) (ppr ty)
 ppr_sig (ClassOpSig _ is_deflt vars ty)
   | is_deflt                 = text "default" <+> pprVarSig (map unLoc vars) (ppr ty)
@@ -1189,7 +1179,7 @@ ppr_sig (InlineSig _ var inl)
   = pragSrcBrackets (inl_src inl) "{-# INLINE"  (pprInline inl
                                    <+> pprPrefixOcc (unLoc var))
 ppr_sig (SpecInstSig _ src ty)
-  = pragSrcBrackets src "{-# SPECIALISE" (text "instance" <+> ppr ty)
+  = pragSrcBrackets src "{-# pragma" (text "instance" <+> ppr ty)
 ppr_sig (MinimalSig _ src bf)
   = pragSrcBrackets src "{-# MINIMAL" (pprMinimalSig bf)
 ppr_sig (PatSynSig _ names sig_ty)
@@ -1204,8 +1194,8 @@ ppr_sig (CompleteMatchSig _ src cs mty)
     opt_sig = maybe empty ((\t -> dcolon <+> ppr t) . unLoc) mty
 ppr_sig (XSig x) = ppr x
 
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (FixitySig p) where
+instance OutputableBndrId p
+       => Outputable (FixitySig (GhcPass p)) where
   ppr (FixitySig _ names fixity) = sep [ppr fixity, pprops]
     where
       pprops = hsep $ punctuate comma (map (pprInfixOcc . unLoc) names)

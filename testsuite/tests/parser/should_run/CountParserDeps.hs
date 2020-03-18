@@ -10,14 +10,13 @@ module Main(main) where
 -- provided with as small a number of modules as possible for when the
 -- need exists to produce ASTs and nothing more.
 
-import HscTypes
+import GHC.Driver.Types
 import Module
-import DynFlags
-import HscMain
+import GHC.Driver.Session
+import GHC.Driver.Main
 import GHC
 import Util
 import Data.Maybe
-import Data.List
 import Control.Monad
 import Control.Monad.IO.Class
 import System.Environment
@@ -31,7 +30,7 @@ main = do
   let num = sizeUniqSet modules
 --  print num
 --  print (map moduleNameString $ nonDetEltsUniqSet modules)
-  unless (num < 165) $ exitWith (ExitFailure num)
+  unless (num < 190) $ exitWith (ExitFailure num)
 
 parserDeps :: FilePath -> IO (UniqSet ModuleName)
 parserDeps libdir =

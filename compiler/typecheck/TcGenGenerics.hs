@@ -10,6 +10,8 @@ The deriving code for the Generic class
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module TcGenGenerics (canDoGenerics, canDoGenerics1,
                       GenericKind(..),
                       gen_Generic_binds, get_gen1_constrained_tys) where
@@ -28,7 +30,7 @@ import FamInstEnv       ( FamInst, FamFlavor(..), mkSingleCoAxiom )
 import FamInst
 import Module           ( moduleName, moduleNameFS
                         , moduleUnitId, unitIdFS, getModule )
-import IfaceEnv         ( newGlobalBinder )
+import GHC.Iface.Env    ( newGlobalBinder )
 import Name      hiding ( varName )
 import RdrName
 import BasicTypes
@@ -37,7 +39,7 @@ import TysWiredIn
 import PrelNames
 import TcEnv
 import TcRnMonad
-import HscTypes
+import GHC.Driver.Types
 import ErrUtils( Validity(..), andValid )
 import SrcLoc
 import Bag

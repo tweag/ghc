@@ -20,23 +20,23 @@ import GHC              ( -- DynFlags(..), HscTarget(..),
                           -- GhcMode(..), GhcLink(..),
                           Ghc, GhcMonad(..),
                           LoadHowMuch(..) )
-import CmdLineParser
+import GHC.Driver.CmdLine
 
 -- Implementations of the various modes (--show-iface, mkdependHS. etc.)
-import LoadIface        ( showIface )
-import HscMain          ( newHscEnv )
-import DriverPipeline   ( oneShot, compileFile )
-import DriverMkDepend   ( doMkDependHS )
-import DriverBkp   ( doBackpack )
+import GHC.Iface.Load       ( showIface )
+import GHC.Driver.Main      ( newHscEnv )
+import GHC.Driver.Pipeline  ( oneShot, compileFile )
+import GHC.Driver.MakeFile  ( doMkDependHS )
+import GHC.Driver.Backpack  ( doBackpack )
 #if defined(HAVE_INTERNAL_INTERPRETER)
 import GHCi.UI          ( interactiveUI, ghciWelcomeMsg, defaultGhciSettings )
 #endif
 
 -- Frontend plugins
-import DynamicLoading   ( loadFrontendPlugin )
-import Plugins
+import GHC.Runtime.Loader   ( loadFrontendPlugin )
+import GHC.Driver.Plugins
 #if defined(HAVE_INTERNAL_INTERPRETER)
-import DynamicLoading   ( initializePlugins )
+import GHC.Runtime.Loader   ( initializePlugins )
 #endif
 import Module           ( ModuleName )
 
@@ -47,11 +47,11 @@ import GHC.Platform
 import GHC.Platform.Host
 import Config
 import Constants
-import HscTypes
-import Packages         ( pprPackages, pprPackagesSimple )
-import DriverPhases
+import GHC.Driver.Types
+import GHC.Driver.Packages ( pprPackages, pprPackagesSimple )
+import GHC.Driver.Phases
 import BasicTypes       ( failed )
-import DynFlags hiding (WarnReason(..))
+import GHC.Driver.Session hiding (WarnReason(..))
 import ErrUtils
 import FastString
 import Outputable
@@ -64,9 +64,9 @@ import UniqSupply
 import MonadUtils       ( liftIO )
 
 -- Imports for --abi-hash
-import LoadIface           ( loadUserInterface )
+import GHC.Iface.Load           ( loadUserInterface )
 import Module              ( mkModuleName )
-import Finder              ( findImportedModule, cannotFindModule )
+import GHC.Driver.Finder   ( findImportedModule, cannotFindModule )
 import TcRnMonad           ( initIfaceCheck )
 import Binary              ( openBinMem, put_ )
 import BinFingerprint      ( fingerprintBinMem )
@@ -80,7 +80,7 @@ import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except (throwE, runExceptT)
 import Data.Char
-import Data.List
+import Data.List ( isPrefixOf, partition, intercalate )
 import Data.Maybe
 import Prelude
 
@@ -175,7 +175,7 @@ main' postLoadMode dflags0 args flagWarnings = do
                         }
 
       -- turn on -fimplicit-import-qualified for GHCi now, so that it
-      -- can be overriden from the command-line
+      -- can be overridden from the command-line
       -- XXX: this should really be in the interactive DynFlags, but
       -- we don't set that until later in interactiveUI
       -- We also set -fignore-optim-changes and -fignore-hpc-changes,
@@ -890,7 +890,7 @@ options may be necessary in order to find the .hi files.
 
 This is used by Cabal for generating the ComponentId for a
 package.  The ComponentId must change when the visible ABI of
-the package chagnes, so during registration Cabal calls ghc --abi-hash
+the package changes, so during registration Cabal calls ghc --abi-hash
 to get a hash of the package's ABI.
 -}
 
@@ -962,7 +962,7 @@ Unfortunately this seems to have broken somehow on OS X: as a result,
 defaultHooks (in hschooks.c) is not called, which does not initialize
 the GC stats. As a result, this breaks things like `:set +s` in GHCi
 (#8754). As a hacky workaround, we instead call 'defaultHooks'
-directly to initalize the flags in the RTS.
+directly to initialize the flags in the RTS.
 
 A byproduct of this, I believe, is that hooks are likely broken on OS
 X when dynamically linking. But this probably doesn't affect most

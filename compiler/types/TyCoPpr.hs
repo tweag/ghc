@@ -1,30 +1,42 @@
 -- | Pretty-printing types and coercions.
 module TyCoPpr
   (
-        -- * Pretty-printing
-        pprType, pprParendType, pprPrecType, pprPrecTypeX,
+        -- * Precedence
+        PprPrec(..), topPrec, sigPrec, opPrec, funPrec, appPrec, maybeParen,
+
+        -- * Pretty-printing types
+        pprType, pprParendType, pprTidiedType, pprPrecType, pprPrecTypeX,
         pprTypeApp, pprTCvBndr, pprTCvBndrs,
         pprSigmaType,
         pprTheta, pprParendTheta, pprForAll, pprUserForAll,
         pprTyVar, pprTyVars,
         pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprTyLit,
-        PprPrec(..), topPrec, sigPrec, opPrec, funPrec, appPrec, maybeParen,
         pprDataCons, pprWithExplicitKindsWhen,
+        pprWithTYPE, pprSourceTyCon,
 
+
+        -- * Pretty-printing coercions
         pprCo, pprParendCo,
 
         debugPprType,
+
+        -- * Pretty-printing 'TyThing's
+        pprTyThingCategory, pprShortTyThing,
   ) where
 
 import GhcPrelude
 
-import {-# SOURCE #-} ToIface( toIfaceTypeX, toIfaceTyLit, toIfaceForAllBndr
-                             , toIfaceTyCon, toIfaceTcArgs, toIfaceCoercionX )
+import {-# SOURCE #-} GHC.CoreToIface
+   ( toIfaceTypeX, toIfaceTyLit, toIfaceForAllBndr
+   , toIfaceTyCon, toIfaceTcArgs, toIfaceCoercionX )
+
 import {-# SOURCE #-} DataCon( dataConFullSig
                              , dataConUserTyVarBinders
                              , DataCon )
 import Multiplicity
+
+import {-# SOURCE #-} Type( isLiftedTypeKind )
 
 import TyCon
 import TyCoRep
@@ -33,12 +45,11 @@ import TyCoFVs
 import Class
 import Var
 
-import IfaceType
+import GHC.Iface.Type
 
 import VarSet
 import VarEnv
 
-import DynFlags   ( gopt_set, GeneralFlag(Opt_PrintExplicitKinds) )
 import Outputable
 import BasicTypes ( PprPrec(..), topPrec, sigPrec, opPrec
                   , funPrec, appPrec, maybeParen )
@@ -58,7 +69,7 @@ parens around the type, except for the atomic cases.  @pprParendType@
 works just by setting the initial context precedence very high.
 
 Note that any function which pretty-prints a @Type@ first converts the @Type@
-to an @IfaceType@. See Note [IfaceType and pretty-printing] in IfaceType.
+to an @IfaceType@. See Note [IfaceType and pretty-printing] in GHC.Iface.Type.
 
 See Note [Precedence in types] in BasicTypes.
 -}
@@ -66,12 +77,15 @@ See Note [Precedence in types] in BasicTypes.
 --------------------------------------------------------
 -- When pretty-printing types, we convert to IfaceType,
 --   and pretty-print that.
--- See Note [Pretty printing via IfaceSyn] in PprTyThing
+-- See Note [Pretty printing via Iface syntax] in GHC.Core.Ppr.TyThing
 --------------------------------------------------------
 
-pprType, pprParendType :: Type -> SDoc
+pprType, pprParendType, pprTidiedType :: Type -> SDoc
 pprType       = pprPrecType topPrec
 pprParendType = pprPrecType appPrec
+
+-- already pre-tidied
+pprTidiedType = pprIfaceType . toIfaceTypeX emptyVarSet
 
 pprPrecType :: PprPrec -> Type -> SDoc
 pprPrecType = pprPrecTypeX emptyTidyEnv
@@ -308,6 +322,25 @@ pprTypeApp tc tys
 -- See @Note [Kind arguments in error messages]@ in TcErrors.
 pprWithExplicitKindsWhen :: Bool -> SDoc -> SDoc
 pprWithExplicitKindsWhen b
-  = updSDocDynFlags $ \dflags ->
-      if b then gopt_set dflags Opt_PrintExplicitKinds
-           else dflags
+  = updSDocContext $ \ctx ->
+      if b then ctx { sdocPrintExplicitKinds = True }
+           else ctx
+
+-- | This variant preserves any use of TYPE in a type, effectively
+-- locally setting -fprint-explicit-runtime-reps.
+pprWithTYPE :: Type -> SDoc
+pprWithTYPE ty = updSDocContext (\ctx -> ctx { sdocPrintExplicitRuntimeReps = True }) $
+                 ppr ty
+
+-- | Pretty prints a 'TyCon', using the family instance in case of a
+-- representation tycon.  For example:
+--
+-- > data T [a] = ...
+--
+-- In that case we want to print @T [a]@, where @T@ is the family 'TyCon'
+pprSourceTyCon :: TyCon -> SDoc
+pprSourceTyCon tycon
+  | Just (fam_tc, tys) <- tyConFamInst_maybe tycon
+  = ppr $ fam_tc `TyConApp` tys        -- can't be FunTyCon
+  | otherwise
+  = ppr tycon

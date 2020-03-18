@@ -30,7 +30,7 @@ import Data.Function
 import Data.List
 import Data.Maybe
 import Data.Ord
-import DriverPhases
+import GHC.Driver.Phases
 import Panic
 import Prelude
 import System.Directory
@@ -103,7 +103,7 @@ listModuleTags m = do
                      , let exported = GHC.modInfoIsExportedName mInfo name
                      , let kind = tyThing2TagKind tyThing
                      , let loc = srcSpanStart (nameSrcSpan name)
-                     , RealSrcLoc realLoc <- [loc]
+                     , RealSrcLoc realLoc _ <- [loc]
                      ]
 
   where

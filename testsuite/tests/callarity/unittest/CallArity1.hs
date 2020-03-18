@@ -1,14 +1,14 @@
 {-# LANGUAGE TupleSections, PatternSynonyms #-}
-import CoreSyn
-import CoreUtils
+import GHC.Core
+import GHC.Core.Utils
 import Id
 import Type
 import Multiplicity ( pattern Many )
-import MkCore
+import GHC.Core.Make
 import CallArity (callArityRHS)
 import MkId
 import SysTools
-import DynFlags
+import GHC.Driver.Session
 import ErrUtils
 import Outputable
 import TysWiredIn
@@ -18,10 +18,10 @@ import Control.Monad
 import Control.Monad.IO.Class
 import System.Environment( getArgs )
 import VarSet
-import PprCore
+import GHC.Core.Ppr
 import Unique
 import UniqSet
-import CoreLint
+import GHC.Core.Lint
 import FastString
 
 -- Build IDs. use mkTemplateLocal, more predictable than proper uniques
@@ -122,7 +122,7 @@ exprs =
      mkRLet go  (mkLams [x] (mkACase (mkLams [y] $ mkLit 0) (Var go `mkVarApps` [x]))) $
      mkRLet go2 (mkLams [x] (mkACase (mkLams [y] $ mkLit 0) (Var go2 `mkVarApps` [x]))) $
          Var go `mkApps` [go2 `mkLApps` [0,1], mkLit 0]
-  , ("mutual recursion (thunks), called mutiple times (both arity 1 would be bad!)",) $
+  , ("mutual recursion (thunks), called multiple times (both arity 1 would be bad!)",) $
      Let (Rec [ (n, mkACase (mkLams [y] $ mkLit 0) (Var d))
               , (d, mkACase (mkLams [y] $ mkLit 0) (Var n))]) $
          Var n `mkApps` [Var d `mkApps` [Var d `mkApps` [mkLit 0]]]

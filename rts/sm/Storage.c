@@ -406,7 +406,7 @@ freeStorage (bool free_heap)
    but can assume only two bits are available in STATIC_LINK (due to 32-bit
    systems).
 
-   To accomodate this we move handling of static objects entirely to the
+   To accommodate this we move handling of static objects entirely to the
    oldest generation when the nonmoving collector is in use. To do this safely
    and efficiently we allocate the blackhole created by lockCAF() directly in
    the non-moving heap. This means that the moving collector can completely
@@ -477,7 +477,7 @@ lockCAF (StgRegTable *reg, StgIndStatic *caf)
     // Secondly I think static thunks can't have payload: anything that they
     // reference should be in SRTs
     ASSERT(orig_info_tbl->layout.payload.ptrs == 0);
-    // Becuase the payload is empty we just push the SRT
+    // Because the payload is empty we just push the SRT
     IF_NONMOVING_WRITE_BARRIER_ENABLED {
         StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(orig_info_tbl);
         if (thunk_info->i.srt) {
@@ -1595,11 +1595,12 @@ void flushExec (W_ len, AdjustorExecutable exec_addr)
 #endif
 }
 
-#if defined(linux_HOST_OS)
+#if defined(linux_HOST_OS) || defined(netbsd_HOST_OS)
 
 // On Linux we need to use libffi for allocating executable memory,
 // because it knows how to work around the restrictions put in place
-// by SELinux.
+// by SELinux. The same goes for NetBSD where it is prohibited to
+// mark a page mapping both writable and executable at the same time.
 
 AdjustorWritable allocateExec (W_ bytes, AdjustorExecutable *exec_ret)
 {

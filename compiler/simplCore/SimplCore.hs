@@ -12,19 +12,19 @@ module SimplCore ( core2core, simplifyExpr ) where
 
 import GhcPrelude
 
-import DynFlags
-import CoreSyn
-import HscTypes
+import GHC.Driver.Session
+import GHC.Core
+import GHC.Driver.Types
 import CSE              ( cseProgram )
-import Rules            ( mkRuleBase, unionRuleBase,
+import GHC.Core.Rules   ( mkRuleBase, unionRuleBase,
                           extendRuleBaseList, ruleCheckProgram, addRuleInfo,
                           getRules )
-import PprCore          ( pprCoreBindings, pprCoreExpr )
+import GHC.Core.Ppr     ( pprCoreBindings, pprCoreExpr )
 import OccurAnal        ( occurAnalysePgm, occurAnalyseExpr )
 import IdInfo
-import CoreStats        ( coreBindsSize, coreBindsStats, exprSize )
-import CoreUtils        ( mkTicks, stripTicksTop )
-import CoreLint         ( endPass, lintPassResult, dumpPassResult,
+import GHC.Core.Stats   ( coreBindsSize, coreBindsStats, exprSize )
+import GHC.Core.Utils   ( mkTicks, stripTicksTop )
+import GHC.Core.Lint    ( endPass, lintPassResult, dumpPassResult,
                           lintAnnots )
 import Simplify         ( simplTopBinds, simplExpr, simplRules )
 import SimplUtils       ( simplEnvForGHCi, activeRule, activeUnfolding )
@@ -36,7 +36,7 @@ import FloatIn          ( floatInwards )
 import FloatOut         ( floatOutwards )
 import FamInstEnv
 import Id
-import ErrUtils         ( withTiming, withTimingD )
+import ErrUtils         ( withTiming, withTimingD, DumpFormat (..) )
 import BasicTypes       ( CompilerPhase(..), isDefaultInlinePragma, defaultInlinePragma )
 import VarSet
 import VarEnv
@@ -45,14 +45,15 @@ import SAT              ( doStaticArgs )
 import Specialise       ( specProgram)
 import SpecConstr       ( specConstrProgram)
 import DmdAnal          ( dmdAnalProgram )
+import CprAnal          ( cprAnalProgram )
 import CallArity        ( callArityAnalProgram )
 import Exitify          ( exitifyProgram )
 import WorkWrap         ( wwTopBinds )
 import SrcLoc
 import Util
 import Module
-import Plugins          ( withPlugins, installCoreToDos )
-import DynamicLoading  -- ( initializePlugins )
+import GHC.Driver.Plugins ( withPlugins, installCoreToDos )
+import GHC.Runtime.Loader -- ( initializePlugins )
 
 import UniqSupply       ( UniqSupply, mkSplitUniqSupply, splitUniqSupply )
 import UniqFM
@@ -72,13 +73,13 @@ core2core hsc_env guts@(ModGuts { mg_module  = mod
                                 , mg_loc     = loc
                                 , mg_deps    = deps
                                 , mg_rdr_env = rdr_env })
-  = do { us <- mkSplitUniqSupply 's'
-       -- make sure all plugins are loaded
+  = do { -- make sure all plugins are loaded
 
        ; let builtin_passes = getCoreToDo dflags
              orph_mods = mkModuleSet (mod : dep_orphs deps)
+             uniq_mask = 's'
        ;
-       ; (guts2, stats) <- runCoreM hsc_env hpt_rule_base us mod
+       ; (guts2, stats) <- runCoreM hsc_env hpt_rule_base uniq_mask mod
                                     orph_mods print_unqual loc $
                            do { hsc_env' <- getHscEnv
                               ; dflags' <- liftIO $ initializePlugins hsc_env'
@@ -90,6 +91,7 @@ core2core hsc_env guts@(ModGuts { mg_module  = mod
 
        ; Err.dumpIfSet_dyn dflags Opt_D_dump_simpl_stats
              "Grand total simplifier statistics"
+             FormatText
              (pprSimplCount stats)
 
        ; return guts2 }
@@ -140,7 +142,7 @@ getCoreToDo dflags
     maybe_rule_check phase = runMaybe rule_check (CoreDoRuleCheck phase)
 
     maybe_strictness_before phase
-      = runWhen (phase `elem` strictnessBefore dflags) CoreDoStrictness
+      = runWhen (phase `elem` strictnessBefore dflags) CoreDoDemand
 
     base_mode = SimplMode { sm_phase      = panic "base_mode"
                           , sm_names      = []
@@ -167,21 +169,19 @@ getCoreToDo dflags
     simpl_gently = CoreDoSimplify max_iter
                        (base_mode { sm_phase = InitialPhase
                                   , sm_names = ["Gentle"]
-                                  , sm_rules = rules_on   -- Note [RULEs enabled in SimplGently]
+                                  , sm_rules = rules_on   -- Note [RULEs enabled in InitialPhase]
                                   , sm_inline = True
                                               -- See Note [Inline in InitialPhase]
                                   , sm_case_case = False })
                           -- Don't do case-of-case transformations.
                           -- This makes full laziness work better
 
-    strictness_pass = if ww_on
-                       then [CoreDoStrictness,CoreDoWorkerWrapper]
-                       else [CoreDoStrictness]
+    dmd_cpr_ww = if ww_on then [CoreDoDemand,CoreDoCpr,CoreDoWorkerWrapper]
+                          else [CoreDoDemand,CoreDoCpr]
 
 
-    -- New demand analyser
     demand_analyser = (CoreDoPasses (
-                           strictness_pass ++
+                           dmd_cpr_ww ++
                            [simpl_phase 0 ["post-worker-wrapper"] max_iter]
                            ))
 
@@ -331,7 +331,7 @@ getCoreToDo dflags
         simpl_phase 0 ["final"] max_iter,
 
         runWhen late_dmd_anal $ CoreDoPasses (
-            strictness_pass ++
+            dmd_cpr_ww ++
             [simpl_phase 0 ["post-late-ww"] max_iter]
           ),
 
@@ -340,7 +340,7 @@ getCoreToDo dflags
         -- has run at all. See Note [Final Demand Analyser run] in DmdAnal
         -- It is EXTREMELY IMPORTANT to run this pass, otherwise execution
         -- can become /exponentially/ more expensive. See #11731, #12996.
-        runWhen (strictness || late_dmd_anal) CoreDoStrictness,
+        runWhen (strictness || late_dmd_anal) CoreDoDemand,
 
         maybe_rule_check (Phase 0)
      ]
@@ -381,9 +381,10 @@ when I made this change:
    perf/compiler/T9872b.run           T9872b [stat too good] (normal)
    perf/compiler/T9872d.run           T9872d [stat too good] (normal)
 
-Note [RULEs enabled in SimplGently]
+Note [RULEs enabled in InitialPhase]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-RULES are enabled when doing "gentle" simplification.  Two reasons:
+RULES are enabled when doing "gentle" simplification in InitialPhase,
+or with -O0.  Two reasons:
 
   * We really want the class-op cancellation to happen:
         op (df d1 d2) --> $cop3 d1 d2
@@ -444,8 +445,11 @@ doCorePass CoreDoCallArity           = {-# SCC "CallArity" #-}
 doCorePass CoreDoExitify             = {-# SCC "Exitify" #-}
                                        doPass exitifyProgram
 
-doCorePass CoreDoStrictness          = {-# SCC "NewStranal" #-}
+doCorePass CoreDoDemand              = {-# SCC "DmdAnal" #-}
                                        doPassDFM dmdAnalProgram
+
+doCorePass CoreDoCpr                 = {-# SCC "CprAnal" #-}
+                                       doPassDFM cprAnalProgram
 
 doCorePass CoreDoWorkerWrapper       = {-# SCC "WorkWrap" #-}
                                        doPassDFU wwTopBinds
@@ -554,32 +558,37 @@ observe do_pass = doPassM $ \binds -> do
 ************************************************************************
 -}
 
-simplifyExpr :: DynFlags -- includes spec of what core-to-core passes to do
+simplifyExpr :: HscEnv -- includes spec of what core-to-core passes to do
              -> CoreExpr
              -> IO CoreExpr
 -- simplifyExpr is called by the driver to simplify an
 -- expression typed in at the interactive prompt
---
--- Also used by Template Haskell
-simplifyExpr dflags expr
+simplifyExpr hsc_env expr
   = withTiming dflags (text "Simplify [expr]") (const ()) $
-    do  {
-        ; us <-  mkSplitUniqSupply 's'
+    do  { eps <- hscEPS hsc_env ;
+        ; let rule_env  = mkRuleEnv (eps_rule_base eps) []
+              fi_env    = ( eps_fam_inst_env eps
+                          , extendFamInstEnvList emptyFamInstEnv $
+                            snd $ ic_instances $ hsc_IC hsc_env )
+              simpl_env = simplEnvForGHCi dflags
 
+        ; us <-  mkSplitUniqSupply 's'
         ; let sz = exprSize expr
 
-        ; (expr', counts) <- initSmpl dflags emptyRuleEnv
-                               emptyFamInstEnvs us sz
-                               (simplExprGently (simplEnvForGHCi dflags) expr)
+        ; (expr', counts) <- initSmpl dflags rule_env fi_env us sz $
+                             simplExprGently simpl_env expr
 
         ; Err.dumpIfSet dflags (dopt Opt_D_dump_simpl_stats dflags)
                   "Simplifier statistics" (pprSimplCount counts)
 
         ; Err.dumpIfSet_dyn dflags Opt_D_dump_simpl "Simplified expression"
+                        FormatCore
                         (pprCoreExpr expr')
 
         ; return expr'
         }
+  where
+    dflags = hsc_dflags hsc_env
 
 simplExprGently :: SimplEnv -> CoreExpr -> SimplM CoreExpr
 -- Simplifies an expression
@@ -590,7 +599,7 @@ simplExprGently :: SimplEnv -> CoreExpr -> SimplM CoreExpr
 --      (b) the LHS and RHS of a RULE
 --      (c) Template Haskell splices
 --
--- The name 'Gently' suggests that the SimplMode is SimplGently,
+-- The name 'Gently' suggests that the SimplMode is InitialPhase,
 -- and in fact that is so.... but the 'Gently' in simplExprGently doesn't
 -- enforce that; it just simplifies the expression twice
 
@@ -688,10 +697,11 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
                                      binds
                } ;
            Err.dumpIfSet_dyn dflags Opt_D_dump_occur_anal "Occurrence analysis"
+                     FormatCore
                      (pprCoreBindings tagged_binds);
 
                 -- Get any new rules, and extend the rule base
-                -- See Note [Overall plumbing for rules] in Rules.hs
+                -- See Note [Overall plumbing for rules] in GHC.Core.Rules
                 -- We need to do this regularly, because simplification can
                 -- poke on IdInfo thunks, which in turn brings in new rules
                 -- behind the scenes.  Otherwise there's a danger we'll simply
@@ -740,7 +750,9 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
                 -- Loop
            do_iteration us2 (iteration_no + 1) (counts1:counts_so_far) binds2 rules1
            } }
+#if __GLASGOW_HASKELL__ <= 810
       | otherwise = panic "do_iteration"
+#endif
       where
         (us1, us2) = splitUniqSupply us
 
@@ -878,7 +890,7 @@ Hence,there's a possibility of leaving unchanged something like this:
 By the time we've thrown away the types in STG land this
 could be eliminated.  But I don't think it's very common
 and it's dangerous to do this fiddling in STG land
-because we might elminate a binding that's mentioned in the
+because we might eliminate a binding that's mentioned in the
 unfolding for something.
 
 Note [Indirection zapping and ticks]
@@ -1015,6 +1027,7 @@ transferIdInfo exported_id local_id
   where
     local_info = idInfo local_id
     transfer exp_info = exp_info `setStrictnessInfo`    strictnessInfo local_info
+                                 `setCprInfo`           cprInfo local_info
                                  `setUnfoldingInfo`     unfoldingInfo local_info
                                  `setInlinePragInfo`    inlinePragInfo local_info
                                  `setRuleInfo`          addRuleInfo (ruleInfo exp_info) new_info

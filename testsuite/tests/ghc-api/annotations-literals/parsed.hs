@@ -5,10 +5,10 @@ module Main where
 
 import BasicTypes
 import Data.Data
-import Data.List
+import Data.List (intercalate)
 import System.IO
 import GHC
-import DynFlags
+import GHC.Driver.Session
 import MonadUtils
 import Outputable
 import Bag (filterBag,isEmptyBag)

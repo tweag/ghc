@@ -11,8 +11,8 @@ module FlagChecker (
 import GhcPrelude
 
 import Binary
-import DynFlags
-import HscTypes
+import GHC.Driver.Session
+import GHC.Driver.Types
 import Module
 import Name
 import Fingerprint
@@ -57,7 +57,11 @@ fingerprintDynFlags dflags@DynFlags{..} this_mod nameio =
         -- -fprof-auto etc.
         prof = if gopt Opt_SccProfilingOn dflags then fromEnum profAuto else 0
 
-        flags = (mainis, safeHs, lang, cpp, paths, prof)
+        -- Ticky
+        ticky =
+          map (`gopt` dflags) [Opt_Ticky, Opt_Ticky_Allocd, Opt_Ticky_LNE, Opt_Ticky_Dyn_Thunk]
+
+        flags = ((mainis, safeHs, lang, cpp), (paths, prof, ticky, debugLevel))
 
     in -- pprTrace "flags" (ppr flags) $
        computeFingerprint nameio flags

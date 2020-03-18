@@ -86,7 +86,7 @@ module TcRnTypes(
 import GhcPrelude
 
 import GHC.Hs
-import HscTypes
+import GHC.Driver.Types
 import TcEvidence
 import Type
 import TyCon    ( TyCon, tyConKind )
@@ -100,7 +100,7 @@ import TcOrigin
 import Annotations
 import InstEnv
 import FamInstEnv
-import {-# SOURCE #-} GHC.HsToCore.PmCheck.Types (Delta)
+import {-# SOURCE #-} GHC.HsToCore.PmCheck.Types (Deltas)
 import IOEnv
 import RdrName
 import Name
@@ -114,10 +114,9 @@ import SrcLoc
 import VarSet
 import ErrUtils
 import UniqFM
-import UniqSupply
 import BasicTypes
 import Bag
-import DynFlags
+import GHC.Driver.Session
 import Outputable
 import ListSetOps
 import Fingerprint
@@ -144,7 +143,7 @@ import qualified Language.Haskell.TH as TH
 
 -- | A 'NameShape' is a substitution on 'Name's that can be used
 -- to refine the identities of a hole while we are renaming interfaces
--- (see 'RnModIface').  Specifically, a 'NameShape' for
+-- (see 'GHC.Iface.Rename').  Specifically, a 'NameShape' for
 -- 'ns_module_name' @A@, defines a mapping from @{A.T}@
 -- (for some 'OccName' @T@) to some arbitrary other 'Name'.
 --
@@ -210,8 +209,7 @@ data Env gbl lcl
                              -- Includes all info about imported things
                              -- BangPattern is to fix leak, see #15111
 
-        env_us   :: {-# UNPACK #-} !(IORef UniqSupply),
-                             -- Unique supply for local variables
+        env_um   :: !Char,   -- Mask for Uniques
 
         env_gbl  :: gbl,     -- Info about things defined at the top level
                              -- of the module being compiled
@@ -245,7 +243,7 @@ data IfGblEnv
         -- was originally a hi-boot file.
         -- We need the module name so we can test when it's appropriate
         -- to look in this env.
-        -- See Note [Tying the knot] in TcIface
+        -- See Note [Tying the knot] in GHC.IfaceToCore
         if_rec_types :: Maybe (Module, IfG TypeEnv)
                 -- Allows a read effect, so it can be in a mutable
                 -- variable; c.f. handling the external package type env
@@ -278,8 +276,8 @@ data IfLclEnv
         -- This field is used to make sure "implicit" declarations
         -- (anything that cannot be exported in mi_exports) get
         -- wired up correctly in typecheckIfacesForMerging.  Most
-        -- of the time it's @Nothing@.  See Note [Resolving never-exported Names in TcIface]
-        -- in TcIface.
+        -- of the time it's @Nothing@.  See Note [Resolving never-exported Names]
+        -- in GHC.IfaceToCore.
         if_implicits_env :: Maybe TypeEnv,
 
         if_tv_env  :: FastStringEnv TyVar,     -- Nested tyvar bindings
@@ -320,9 +318,9 @@ data DsLclEnv = DsLclEnv {
         dsl_loc     :: RealSrcSpan,      -- To put in pattern-matching error msgs
 
         -- See Note [Note [Type and Term Equality Propagation] in Check.hs
-        -- The oracle state Delta is augmented as we walk inwards,
-        -- through each pattern match in turn
-        dsl_delta   :: Delta
+        -- The set of reaching values Deltas is augmented as we walk inwards,
+        -- refined through each pattern match in turn
+        dsl_deltas  :: Deltas
      }
 
 -- Inside [| |] brackets, the desugarer looks
@@ -346,13 +344,11 @@ data DsMetaVal
 ************************************************************************
 -}
 
--- | 'FrontendResult' describes the result of running the
--- frontend of a Haskell module.  Usually, you'll get
--- a 'FrontendTypecheck', since running the frontend involves
--- typechecking a program, but for an hs-boot merge you'll
--- just get a ModIface, since no actual typechecking occurred.
+-- | 'FrontendResult' describes the result of running the frontend of a Haskell
+-- module. Currently one always gets a 'FrontendTypecheck', since running the
+-- frontend involves typechecking a program. hs-sig merges are not handled here.
 --
--- This data type really should be in HscTypes, but it needs
+-- This data type really should be in GHC.Driver.Types, but it needs
 -- to have a TcGblEnv which is only defined here.
 data FrontendResult
         = FrontendTypecheck TcGblEnv
@@ -388,15 +384,15 @@ data FrontendResult
 --            then moduleUnitId this_mod == thisPackage dflags
 --
 --      - For any code involving Names, we want semantic modules.
---        See lookupIfaceTop in IfaceEnv, mkIface and addFingerprints
---        in MkIface, and tcLookupGlobal in TcEnv
+--        See lookupIfaceTop in GHC.Iface.Env, mkIface and addFingerprints
+--        in GHC.Iface.Utils, and tcLookupGlobal in TcEnv
 --
 --      - When reading interfaces, we want the identity module to
 --        identify the specific interface we want (such interfaces
 --        should never be loaded into the EPS).  However, if a
 --        hole module <A> is requested, we look for A.hi
---        in the home library we are compiling.  (See LoadIface.)
---        Similarly, in RnNames we check for self-imports using
+--        in the home library we are compiling.  (See GHC.Iface.Load.)
+--        Similarly, in GHC.Rename.Names we check for self-imports using
 --        identity modules, to allow signatures to import their implementor.
 --
 --      - For recompilation avoidance, you want the identity module,
@@ -422,7 +418,7 @@ data TcGblEnv
 
         tcg_fix_env   :: FixityEnv,     -- ^ Just for things in this module
         tcg_field_env :: RecFieldEnv,   -- ^ Just for things in this module
-                                        -- See Note [The interactive package] in HscTypes
+                                        -- See Note [The interactive package] in GHC.Driver.Types
 
         tcg_type_env :: TypeEnv,
           -- ^ Global type env for the module we are compiling now.  All
@@ -433,7 +429,7 @@ data TcGblEnv
           --  move to the global envt during zonking)
           --
           -- NB: for what "things in this module" means, see
-          -- Note [The interactive package] in HscTypes
+          -- Note [The interactive package] in GHC.Driver.Types
 
         tcg_type_env_var :: TcRef TypeEnv,
                 -- Used only to initialise the interface-file
@@ -480,7 +476,7 @@ data TcGblEnv
           --      (tcRnExports)
           --    - imp_mods is used to compute usage info (mkIfaceTc, deSugar)
           --    - imp_trust_own_pkg is used for Safe Haskell in interfaces
-          --      (mkIfaceTc, as well as in HscMain)
+          --      (mkIfaceTc, as well as in GHC.Driver.Main)
           --    - To create the Dependencies field in interface (mkDependencies)
 
           -- These three fields track unused bindings and imports
@@ -556,7 +552,7 @@ data TcGblEnv
 
         -- Things defined in this module, or (in GHCi)
         -- in the declarations for a single GHCi command.
-        -- For the latter, see Note [The interactive package] in HscTypes
+        -- For the latter, see Note [The interactive package] in GHC.Driver.Types
         tcg_tr_module :: Maybe Id,   -- Id for $trModule :: GHC.Types.Module
                                              -- for which every module has a top-level defn
                                              -- except in GHCi in which case we have Nothing
@@ -653,7 +649,7 @@ data SelfBootInfo
        { sb_mds :: ModDetails   -- There was a hi-boot file,
        , sb_tcs :: NameSet }    -- defining these TyCons,
 -- What is sb_tcs used for?  See Note [Extra dependencies from .hs-boot files]
--- in RnSource
+-- in GHC.Rename.Source
 
 
 {- Note [Tracking unused binding and imports]
@@ -667,9 +663,9 @@ We gather three sorts of usage information
           and *used*    Names (local or imported)
 
       Used (a) to report "defined but not used"
-               (see RnNames.reportUnusedNames)
+               (see GHC.Rename.Names.reportUnusedNames)
            (b) to generate version-tracking usage info in interface
-               files (see MkIface.mkUsedNames)
+               files (see GHC.Iface.Utils.mkUsedNames)
    This usage info is mainly gathered by the renamer's
    gathering of free-variables
 
@@ -700,7 +696,7 @@ We gather three sorts of usage information
 
       (c) Top-level variables appearing free in a TH bracket
           See Note [Keeping things alive for Template Haskell]
-          in RnSplice
+          in GHC.Rename.Splice
 
       (d) The data constructor of a newtype that is used
           to solve a Coercible instance (e.g. #10347). Example
@@ -722,8 +718,8 @@ We gather three sorts of usage information
         simplifier does not discard them as dead code, and so that they are
         exposed in the interface file (but not to export to the user).
 
-      * RnNames.reportUnusedNames.  Where newtype data constructors like (d)
-        are imported, we don't want to report them as unused.
+      * GHC.Rename.Names.reportUnusedNames.  Where newtype data constructors
+        like (d) are imported, we don't want to report them as unused.
 
 
 ************************************************************************
@@ -917,7 +913,12 @@ removeBindingShadowing bindings = reverse $ fst $ foldl
 
 data SpliceType = Typed | Untyped
 
-data ThStage    -- See Note [Template Haskell state diagram] in TcSplice
+data ThStage    -- See Note [Template Haskell state diagram]
+                -- and Note [Template Haskell levels] in TcSplice
+    -- Start at:   Comp
+    -- At bracket: wrap current stage in Brack
+    -- At splice:  currently Brack: return to previous stage
+    --             currently Comp/Splice: compile and run
   = Splice SpliceType -- Inside a top-level splice
                       -- This code will be run *at compile time*;
                       --   the result replaces the splice
@@ -931,7 +932,7 @@ data ThStage    -- See Note [Template Haskell state diagram] in TcSplice
       --
       -- 'addModFinalizer' inserts finalizers here, and from here they are taken
       -- to construct an @HsSpliced@ annotation for untyped splices. See Note
-      -- [Delaying modFinalizers in untyped splices] in "RnSplice".
+      -- [Delaying modFinalizers in untyped splices] in GHC.Rename.Splice.
       --
       -- For typed splices, the typechecker takes finalizers from here and
       -- inserts them in the list of finalizers in the global environment.
@@ -954,6 +955,13 @@ data PendingStuff
   | TcPending                     -- Typechecking the inside of a typed bracket
       (TcRef [PendingTcSplice])   --   Accumulate pending splices here
       (TcRef WantedConstraints)   --     and type constraints here
+      QuoteWrapper                -- A type variable and evidence variable
+                                  -- for the overall monad of
+                                  -- the bracket. Splices are checked
+                                  -- against this monad. The evidence
+                                  -- variable is used for desugaring
+                                  -- `lift`.
+
 
 topStage, topAnnStage, topSpliceStage :: ThStage
 topStage       = Comp
@@ -979,11 +987,10 @@ outerLevel = 1  -- Things defined outside brackets
 
 thLevel :: ThStage -> ThLevel
 thLevel (Splice _)    = 0
-thLevel (RunSplice _) =
-    -- See Note [RunSplice ThLevel].
-    panic "thLevel: called when running a splice"
 thLevel Comp          = 1
 thLevel (Brack s _)   = thLevel s + 1
+thLevel (RunSplice _) = panic "thLevel: called when running a splice"
+                        -- See Note [RunSplice ThLevel].
 
 {- Node [RunSplice ThLevel]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1179,7 +1186,7 @@ Here's the invariant:
    If an Id has ClosedTypeId=True (in its IdBindingInfo), then
    the Id's type is /definitely/ closed (has no free type variables).
    Specifically,
-       a) The Id's acutal type is closed (has no free tyvars)
+       a) The Id's actual type is closed (has no free tyvars)
        b) Either the Id has a (closed) user-supplied type signature
           or all its free variables are Global/ClosedLet
              or NonClosedLet with ClosedTypeId=True.
@@ -1323,7 +1330,7 @@ data ImportAvails
           --      = ModuleEnv [ImportedModsVal],
           -- ^ Domain is all directly-imported modules
           --
-          -- See the documentation on ImportedModsVal in HscTypes for the
+          -- See the documentation on ImportedModsVal in GHC.Driver.Types for the
           -- meaning of the fields.
           --
           -- We need a full ModuleEnv rather than a ModuleNameEnv here,
@@ -1355,13 +1362,13 @@ data ImportAvails
           -- where True for the bool indicates the package is required to be
           -- trusted is the more logical  design, doing so complicates a lot
           -- of code not concerned with Safe Haskell.
-          -- See Note [RnNames . Tracking Trust Transitively]
+          -- See Note [Tracking Trust Transitively] in GHC.Rename.Names
 
         imp_trust_own_pkg :: Bool,
           -- ^ Do we require that our own package is trusted?
           -- This is to handle efficiently the case where a Safe module imports
           -- a Trustworthy module that resides in the same package as it.
-          -- See Note [RnNames . Trust Own Package]
+          -- See Note [Trust Own Package] in GHC.Rename.Names
 
         imp_orphs :: [Module],
           -- ^ Orphan modules below us in the import tree (and maybe including
@@ -1439,7 +1446,7 @@ data WhereFrom
   = ImportByUser IsBootInterface        -- Ordinary user import (perhaps {-# SOURCE #-})
   | ImportBySystem                      -- Non user import.
   | ImportByPlugin                      -- Importing a plugin;
-                                        -- See Note [Care with plugin imports] in LoadIface
+                                        -- See Note [Care with plugin imports] in GHC.Iface.Load
 
 instance Outputable WhereFrom where
   ppr (ImportByUser is_boot) | is_boot     = text "{- SOURCE -}"
@@ -1518,7 +1525,7 @@ data TcIdSigInst
                --
                -- NB: The order of sig_inst_skols is irrelevant
                --     for a CompleteSig, but for a PartialSig see
-               --     Note [Quantified varaibles in partial type signatures]
+               --     Note [Quantified variables in partial type signatures]
 
          , sig_inst_theta  :: TcThetaType
                -- Instantiated theta.  In the case of a
@@ -1549,7 +1556,7 @@ if the original function had a signature like
 But that's ok: tcMatchesFun (called by tcRhs) can deal with that
 It happens, too!  See Note [Polymorphic methods] in TcClassDcl.
 
-Note [Quantified varaibles in partial type signatures]
+Note [Quantified variables in partial type signatures]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Consider
    f :: forall a b. _ -> a -> _ -> b

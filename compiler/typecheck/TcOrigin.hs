@@ -6,6 +6,10 @@ The datatypes here are mainly used for error message generation.
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
+
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
 
 module TcOrigin (
   -- UserTypeCtxt
@@ -40,8 +44,6 @@ import Multiplicity ( scaledThing )
 import Module
 import Name
 import RdrName
-import qualified GHC.LanguageExtensions as LangExt
-import DynFlags
 
 import SrcLoc
 import FastString
@@ -203,7 +205,7 @@ data SkolemInfo
   | FamInstSkol         -- Bound at a family instance decl
   | PatSkol             -- An existential type variable bound by a pattern for
       ConLike           -- a data constructor with an existential type.
-      (HsMatchContext Name)
+      (HsMatchContext GhcRn)
              -- e.g.   data T = forall a. Eq a => MkT a
              --        f (MkT x) = ...
              -- The pattern MkT x will allocate an existential type
@@ -235,6 +237,8 @@ data SkolemInfo
   | QuantCtxtSkol       -- Quantified context, e.g.
                         --   f :: forall c. (forall a. c a => c [a]) => blah
 
+  | RuntimeUnkSkol      -- Runtime skolem from the GHCi debugger      #14628
+
   | UnkSkol             -- Unhelpful info (until I improve it)
 
 instance Outputable SkolemInfo where
@@ -265,6 +269,7 @@ pprSkolInfo (DataConSkol name)= text "the data constructor" <+> quotes (ppr name
 pprSkolInfo ReifySkol         = text "the type being reified"
 
 pprSkolInfo (QuantCtxtSkol {}) = text "a quantified context"
+pprSkolInfo RuntimeUnkSkol     = text "Unknown type from GHCi runtime"
 
 -- UnkSkol
 -- For type variables the others are dealt with by pprSkolTvBinding.
@@ -432,11 +437,8 @@ data CtOrigin
   | HoleOrigin
   | UnboundOccurrenceOf OccName
   | ListOrigin          -- An overloaded list
+  | BracketOrigin       -- An overloaded quotation bracket
   | StaticOrigin        -- A static form
-  | FailablePattern (LPat GhcTcId) -- A failable pattern in do-notation for the
-                                   -- MonadFail Proposal (MFP). Obsolete when
-                                   -- actual desugaring to MonadFail.fail is
-                                   -- live.
   | Shouldn'tHappenOrigin String
                             -- the user should never see this one,
                             -- unless ImpredicativeTypes is on, where all
@@ -499,7 +501,7 @@ exprCtOrigin (SectionR _ _ _)     = SectionOrigin
 exprCtOrigin (ExplicitTuple {})   = Shouldn'tHappenOrigin "explicit tuple"
 exprCtOrigin ExplicitSum{}        = Shouldn'tHappenOrigin "explicit sum"
 exprCtOrigin (HsCase _ _ matches) = matchesCtOrigin matches
-exprCtOrigin (HsIf _ (Just syn) _ _ _) = exprCtOrigin (syn_expr syn)
+exprCtOrigin (HsIf _ (SyntaxExprRn syn) _ _ _) = exprCtOrigin syn
 exprCtOrigin (HsIf {})           = Shouldn'tHappenOrigin "if expression"
 exprCtOrigin (HsMultiIf _ rhs)   = lGRHSCtOrigin rhs
 exprCtOrigin (HsLet _ _ e)       = lexprCtOrigin e
@@ -509,8 +511,7 @@ exprCtOrigin (RecordCon {})      = Shouldn'tHappenOrigin "record construction"
 exprCtOrigin (RecordUpd {})      = Shouldn'tHappenOrigin "record update"
 exprCtOrigin (ExprWithTySig {})  = ExprSigOrigin
 exprCtOrigin (ArithSeq {})       = Shouldn'tHappenOrigin "arithmetic sequence"
-exprCtOrigin (HsSCC _ _ _ e)     = lexprCtOrigin e
-exprCtOrigin (HsCoreAnn _ _ _ e) = lexprCtOrigin e
+exprCtOrigin (HsPragE _ _ e)     = lexprCtOrigin e
 exprCtOrigin (HsBracket {})      = Shouldn'tHappenOrigin "TH bracket"
 exprCtOrigin (HsRnBracketOut {})= Shouldn'tHappenOrigin "HsRnBracketOut"
 exprCtOrigin (HsTcBracketOut {})= panic "exprCtOrigin HsTcBracketOut"
@@ -519,8 +520,6 @@ exprCtOrigin (HsProc {})         = Shouldn'tHappenOrigin "proc"
 exprCtOrigin (HsStatic {})       = Shouldn'tHappenOrigin "static expression"
 exprCtOrigin (HsTick _ _ e)           = lexprCtOrigin e
 exprCtOrigin (HsBinTick _ _ _ e)      = lexprCtOrigin e
-exprCtOrigin (HsTickPragma _ _ _ _ e) = lexprCtOrigin e
-exprCtOrigin (HsWrap {})        = panic "exprCtOrigin HsWrap"
 exprCtOrigin (XExpr nec)        = noExtCon nec
 
 -- | Extract a suitable CtOrigin from a MatchGroup
@@ -552,7 +551,7 @@ pprCtOrigin (GivenOrigin sk) = ctoHerald <+> ppr sk
 
 pprCtOrigin (SpecPragOrigin ctxt)
   = case ctxt of
-       FunSigCtxt n _ -> text "a SPECIALISE pragma for" <+> quotes (ppr n)
+       FunSigCtxt n _ -> text "for" <+> quotes (ppr n)
        SpecInstCtxt   -> text "a SPECIALISE INSTANCE pragma"
        _              -> text "a SPECIALISE pragma"  -- Never happens I think
 
@@ -603,19 +602,15 @@ pprCtOrigin (MCompPatOrigin pat)
     = ctoHerald <+> hsep [ text "the failable pattern"
            , quotes (ppr pat)
            , text "in a statement in a monad comprehension" ]
-pprCtOrigin (FailablePattern pat)
-    = ctoHerald <+> text "the failable pattern" <+> quotes (ppr pat)
-      $$
-      text "(this will become an error in a future GHC release)"
 
 pprCtOrigin (Shouldn'tHappenOrigin note)
-  = sdocWithDynFlags $ \dflags ->
-    if xopt LangExt.ImpredicativeTypes dflags
-    then text "a situation created by impredicative types"
-    else
-    vcat [ text "<< This should not appear in error messages. If you see this"
-         , text "in an error message, please report a bug mentioning" <+> quotes (text note) <+> text "at"
-         , text "https://gitlab.haskell.org/ghc/ghc/wikis/report-a-bug >>" ]
+  = sdocOption sdocImpredicativeTypes $ \case
+      True  -> text "a situation created by impredicative types"
+      False -> vcat [ text "<< This should not appear in error messages. If you see this"
+                    , text "in an error message, please report a bug mentioning"
+                        <+> quotes (text note) <+> text "at"
+                    , text "https://gitlab.haskell.org/ghc/ghc/wikis/report-a-bug >>"
+                    ]
 
 pprCtOrigin (ProvCtxtOrigin PSB{ psb_id = (L _ name) })
   = hang (ctoHerald <+> text "the \"provided\" constraints claimed by")
@@ -646,7 +641,7 @@ pprCtO IfOrigin              = text "an if expression"
 pprCtO (LiteralOrigin lit)   = hsep [text "the literal", quotes (ppr lit)]
 pprCtO (ArithSeqOrigin seq)  = hsep [text "the arithmetic sequence", quotes (ppr seq)]
 pprCtO SectionOrigin         = text "an operator section"
-pprCtO AssocFamPatOrigin     = text "the LHS of a famly instance"
+pprCtO AssocFamPatOrigin     = text "the LHS of a family instance"
 pprCtO TupleOrigin           = text "a tuple"
 pprCtO NegateOrigin          = text "a use of syntactic negation"
 pprCtO (ScOrigin n)          = text "the superclasses of an instance declaration"
@@ -664,4 +659,5 @@ pprCtO ListOrigin            = text "an overloaded list"
 pprCtO StaticOrigin          = text "a static form"
 pprCtO NonLinearPatternOrigin = text "a non-linear pattern"
 pprCtO (UsageEnvironmentOf x) = hsep [text "multiplicity of", quotes (ppr x)]
+pprCtO BracketOrigin         = text "a quotation bracket"
 pprCtO _                     = panic "pprCtOrigin"

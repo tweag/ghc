@@ -49,15 +49,15 @@ import GhcPrelude
 
 import SimplMonad
 import CoreMonad                ( SimplMode(..) )
-import CoreSyn
-import CoreUtils
+import GHC.Core
+import GHC.Core.Utils
 import Var
 import VarEnv
 import VarSet
 import OrdList
 import Id
-import MkCore                   ( mkWildValBinder )
-import DynFlags                 ( DynFlags )
+import GHC.Core.Make            ( mkWildValBinder )
+import GHC.Driver.Session       ( DynFlags )
 import TysWiredIn
 import qualified Type
 import Type hiding              ( substTy, substTyVar, substTyVarBndr )
@@ -70,7 +70,7 @@ import Outputable
 import Util
 import UniqFM                   ( pprUniqFM )
 
-import Data.List
+import Data.List (mapAccumL)
 
 {-
 ************************************************************************
@@ -150,7 +150,7 @@ pprSimplEnv env
              | otherwise = ppr v
 
 type SimplIdSubst = IdEnv SimplSR -- IdId |--> OutExpr
-        -- See Note [Extending the Subst] in CoreSubst
+        -- See Note [Extending the Subst] in GHC.Core.Subst
 
 -- | A substitution result.
 data SimplSR
@@ -291,7 +291,7 @@ way to do that is to start of with a representative
 Id in the in-scope set
 
 There can be *occurrences* of wild-id.  For example,
-MkCore.mkCoreApp transforms
+GHC.Core.Make.mkCoreApp transforms
    e (a /# b)   -->   case (a /# b) of wild { DEFAULT -> e wild }
 This is ok provided 'wild' isn't free in 'e', and that's the delicate
 thing. Generally, you want to run the simplifier to get rid of the
@@ -373,7 +373,7 @@ where the let shadows the lambda.  Really this means something like
 - Then that continuation gets pushed under the let
 
 - Finally we simplify 'arg'.  We want
-     - the static, lexical environment bindig x :-> x1
+     - the static, lexical environment binding x :-> x1
      - the in-scopeset from "here", under the 'let' which includes
        both x1 and x2
 
@@ -499,7 +499,7 @@ unitLetFloat bind = ASSERT(all (not . isJoinId) (bindersOf bind))
       | not (isStrictId bndr)    = FltLifted
       | exprIsTickedString rhs   = FltLifted
           -- String literals can be floated freely.
-          -- See Note [CoreSyn top-level string literals] in CoreSyn.
+          -- See Note [Core top-level string literals] in GHC.Core.
       | exprOkForSpeculation rhs = FltOkSpec  -- Unlifted, and lifted but ok-for-spec (eg HNF)
       | otherwise                = ASSERT2( not (isUnliftedType (idType bndr)), ppr bndr )
                                    FltCareful
@@ -808,7 +808,7 @@ substNonCoVarIdBndr
 -- Augment the substitution  if the unique changed
 -- Extend the in-scope set with the new Id
 --
--- Similar to CoreSubst.substIdBndr, except that
+-- Similar to GHC.Core.Subst.substIdBndr, except that
 --      the type of id_subst differs
 --      all fragile info is zapped
 substNonCoVarIdBndr new_res_ty

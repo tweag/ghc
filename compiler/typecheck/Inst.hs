@@ -9,6 +9,9 @@ The @Inst@ type: dictionaries or method instances
 {-# LANGUAGE CPP, MultiWayIf, TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module Inst (
        deeplySkolemise,
        topInstantiate, topInstantiateInferred, deeplyInstantiate,
@@ -49,17 +52,18 @@ import TcEnv
 import TcEvidence
 import InstEnv
 import TysWiredIn  ( heqDataCon, eqDataCon )
-import CoreSyn     ( isOrphan )
+import GHC.Core    ( isOrphan )
 import FunDeps
 import TcMType
 import Type
 import Multiplicity
 import TyCoRep
+import TyCoPpr     ( debugPprType )
 import TcType
-import HscTypes
+import GHC.Driver.Types
 import Class( Class )
 import MkId( mkDictFunId )
-import CoreSyn( Expr(..) )  -- For the Coercion constructor
+import GHC.Core( Expr(..) )  -- For the Coercion constructor
 import Id
 import Name
 import Var      ( EvVar, tyVarName, VarBndr(..) )
@@ -67,13 +71,15 @@ import DataCon
 import VarEnv
 import PrelNames
 import SrcLoc
-import DynFlags
+import GHC.Driver.Session
 import Util
 import Outputable
 import BasicTypes ( TypeOrKind(..) )
 import qualified GHC.LanguageExtensions as LangExt
 
+import Data.List ( sortBy )
 import Control.Monad( unless )
+import Data.Function ( on )
 
 {-
 ************************************************************************
@@ -262,7 +268,7 @@ deeply_instantiate :: CtOrigin
                    -> TCvSubst
                    -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 -- Internal function to deeply instantiate that builds on an existing subst.
--- It extends the input substitution and applies the final subtitution to
+-- It extends the input substitution and applies the final substitution to
 -- the types on return.  See #12549.
 
 deeply_instantiate orig subst ty
@@ -841,7 +847,7 @@ addClsInstsErr herald ispecs
   = setSrcSpan (getSrcSpan (head sorted)) $
     addErr (hang herald 2 (pprInstances sorted))
  where
-   sorted = sortWith getSrcLoc ispecs
-   -- The sortWith just arranges that instances are dislayed in order
+   sorted = sortBy (SrcLoc.leftmost_smallest `on` getSrcSpan) ispecs
+   -- The sortBy just arranges that instances are displayed in order
    -- of source location, which reduced wobbling in error messages,
    -- and is better for users

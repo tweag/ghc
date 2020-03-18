@@ -35,7 +35,6 @@ module Id (
         -- ** Simple construction
         mkGlobalId, mkVanillaGlobal, mkVanillaGlobalWithInfo,
         mkLocalId, mkLocalCoVar, mkLocalIdOrCoVar,
-        mkLocalIdOrCoVarWithInfo,
         mkLocalIdWithInfo, mkExportedLocalId, mkExportedVanillaId,
         mkSysLocal, mkSysLocalM, mkSysLocalOrCoVar, mkSysLocalOrCoVarM,
         mkUserLocal, mkUserLocalOrCoVar,
@@ -110,9 +109,11 @@ module Id (
 
         setIdDemandInfo,
         setIdStrictness,
+        setIdCprInfo,
 
         idDemandInfo,
         idStrictness,
+        idCprInfo,
 
     ) where
 
@@ -120,8 +121,8 @@ module Id (
 
 import GhcPrelude
 
-import DynFlags
-import CoreSyn ( CoreRule, isStableUnfolding, evaldUnfolding,
+import GHC.Driver.Session
+import GHC.Core ( CoreRule, isStableUnfolding, evaldUnfolding,
                  isCompulsoryUnfolding, Unfolding( NoUnfolding ) )
 
 import IdInfo
@@ -136,10 +137,11 @@ import Var( Id, CoVar, JoinId,
 import qualified Var
 
 import Type
-import RepType
+import GHC.Types.RepType
 import TysPrim
 import DataCon
 import Demand
+import Cpr
 import Name
 import Module
 import Class
@@ -168,6 +170,7 @@ infixl  1 `setIdUnfolding`,
 
           `setIdDemandInfo`,
           `setIdStrictness`,
+          `setIdCprInfo`,
 
           `asJoinId`,
           `asJoinId_maybe`
@@ -286,10 +289,9 @@ mkVanillaGlobalWithInfo = mkGlobalId VanillaId
 
 
 -- | For an explanation of global vs. local 'Id's, see "Var#globalvslocal"
-mkLocalId :: Name -> Mult -> Type -> Id
-mkLocalId name w ty = mkLocalIdWithInfo name w ty vanillaIdInfo
- -- It's tempting to ASSERT( not (isCoVarType ty) ), but don't. Sometimes,
- -- the type is a panic. (Search invented_id)
+mkLocalId :: HasDebugCallStack => Name -> Mult -> Type -> Id
+mkLocalId name w ty = ASSERT( not (isCoVarType ty) )
+                      mkLocalIdWithInfo name w ty vanillaIdInfo
 
 -- | Make a local CoVar
 mkLocalCoVar :: Name -> Type -> CoVar
@@ -308,18 +310,10 @@ mkLocalIdOrCoVar name w ty
   | isCoVarType ty = mkLocalCoVar name   ty
   | otherwise      = mkLocalId    name w ty
 
--- | Make a local id, with the IdDetails set to CoVarId if the type indicates
--- so.
-mkLocalIdOrCoVarWithInfo :: Name -> Mult -> Type -> IdInfo -> Id
-mkLocalIdOrCoVarWithInfo name w ty info
-  = Var.mkLocalVar details name w ty info
-  where
-    details | isCoVarType ty = CoVarId
-            | otherwise      = VanillaId
-
     -- proper ids only; no covars!
-mkLocalIdWithInfo :: Name -> Mult -> Type -> IdInfo -> Id
-mkLocalIdWithInfo name w ty info = Var.mkLocalVar VanillaId name w ty info
+mkLocalIdWithInfo :: HasDebugCallStack => Name -> Mult -> Type -> IdInfo -> Id
+mkLocalIdWithInfo name w ty info = ASSERT( not (isCoVarType ty) )
+                                   Var.mkLocalVar VanillaId name w ty info
         -- Note [Free type variables]
 
 -- | Create a local 'Id' that is marked as exported.
@@ -371,7 +365,7 @@ instantiated before use.
 -- | Workers get local names. "CoreTidy" will externalise these if necessary
 mkWorkerId :: Unique -> Id -> Type -> Id
 mkWorkerId uniq unwrkr ty
-  = mkLocalIdOrCoVar (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Many ty
+  = mkLocalId (mkDerivedInternalName mkWorkerOcc uniq (getName unwrkr)) Many ty
 
 -- | Create a /template local/: a family of system local 'Id's in bijection with @Int@s, typically used in unfoldings
 mkTemplateLocal :: Int -> Type -> Id
@@ -379,6 +373,8 @@ mkTemplateLocal i ty = mkScaledTemplateLocal i (unrestricted ty)
 
 mkScaledTemplateLocal :: Int -> Scaled Type -> Id
 mkScaledTemplateLocal i (Scaled w ty) = mkSysLocalOrCoVar (fsLit "v") (mkBuiltinUnique i) w ty
+   -- "OrCoVar" since this is used in a superclass selector,
+   -- and "~" and "~~" have coercion "superclasses".
 
 -- | Create a template local for a series of types
 mkTemplateLocals :: [Type] -> [Id]
@@ -407,7 +403,7 @@ It's very important that they are *LocalIds*, not GlobalIds, for lots
 of reasons:
 
  * We want to treat them as free variables for the purpose of
-   dependency analysis (e.g. CoreFVs.exprFreeVars).
+   dependency analysis (e.g. GHC.Core.FVs.exprFreeVars).
 
  * Look them up in the current substitution when we come across
    occurrences of them (in Subst.lookupIdSubst). Lacking this we
@@ -424,7 +420,7 @@ of reasons:
 
 In CoreTidy we must make all these LocalIds into GlobalIds, so that in
 importing modules (in --make mode) we treat them as properly global.
-That is what is happening in, say tidy_insts in TidyPgm.
+That is what is happening in, say tidy_insts in GHC.Iface.Tidy.
 
 ************************************************************************
 *                                                                      *
@@ -588,7 +584,7 @@ idIsFrom mod id = nameIsLocalOrFrom mod (idName id)
 
 {- Note [Levity-polymorphic Ids]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Some levity-polymorphic Ids must be applied and and inlined, not left
+Some levity-polymorphic Ids must be applied and inlined, not left
 un-saturated.  Example:
   unsafeCoerceId :: forall r1 r2 (a::TYPE r1) (b::TYPE r2). a -> b
 
@@ -598,7 +594,7 @@ lambdas if it is not applied to enough arguments; e.g. (#14561)
   bad :: forall (a :: TYPE r). a -> a
   bad = unsafeCoerce#
 
-The desugar has special magic to detect such cases: DsExpr.badUseOfLevPolyPrimop.
+The desugar has special magic to detect such cases: GHC.HsToCore.Expr.badUseOfLevPolyPrimop.
 And we want that magic to apply to levity-polymorphic compulsory-inline things.
 The easiest way to do this is for hasNoBinding to return True of all things
 that have compulsory unfolding.  Some Ids with a compulsory unfolding also
@@ -681,6 +677,12 @@ idStrictness id = strictnessInfo (idInfo id)
 
 setIdStrictness :: Id -> StrictSig -> Id
 setIdStrictness id sig = modifyIdInfo (`setStrictnessInfo` sig) id
+
+idCprInfo :: Id -> CprSig
+idCprInfo id = cprInfo (idInfo id)
+
+setIdCprInfo :: Id -> CprSig -> Id
+setIdCprInfo id sig = modifyIdInfo (\info -> setCprInfo info sig) id
 
 zapIdStrictness :: Id -> Id
 zapIdStrictness id = modifyIdInfo (`setStrictnessInfo` nopSig) id
@@ -805,7 +807,7 @@ idOneShotInfo :: Id -> OneShotInfo
 idOneShotInfo id = oneShotInfo (idInfo id)
 
 -- | Like 'idOneShotInfo', but taking the Horrible State Hack in to account
--- See Note [The state-transformer hack] in CoreArity
+-- See Note [The state-transformer hack] in GHC.Core.Arity
 idStateHackOneShotInfo :: Id -> OneShotInfo
 idStateHackOneShotInfo id
     | isStateHackType (idType id) = stateHackOneShot
@@ -815,7 +817,7 @@ idStateHackOneShotInfo id
 -- This one is the "business end", called externally.
 -- It works on type variables as well as Ids, returning True
 -- Its main purpose is to encapsulate the Horrible State Hack
--- See Note [The state-transformer hack] in CoreArity
+-- See Note [The state-transformer hack] in GHC.Core.Arity
 isOneShotBndr :: Var -> Bool
 isOneShotBndr var
   | isTyVar var                              = True
@@ -985,11 +987,13 @@ transferPolyIdInfo old_id abstract_wrt new_id
 
     old_strictness  = strictnessInfo old_info
     new_strictness  = increaseStrictSigArity arity_increase old_strictness
+    old_cpr         = cprInfo old_info
 
     transfer new_info = new_info `setArityInfo` new_arity
                                  `setInlinePragInfo` old_inline_prag
                                  `setOccInfo` new_occ_info
                                  `setStrictnessInfo` new_strictness
+                                 `setCprInfo` old_cpr
 
 isNeverLevPolyId :: Id -> Bool
 isNeverLevPolyId = isNeverLevPolyIdInfo . idInfo

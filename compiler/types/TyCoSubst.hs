@@ -6,6 +6,7 @@ Type and Coercion - friends' interface
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
 -- | Substitution into types and coercions.
 module TyCoSubst
@@ -25,7 +26,7 @@ module TyCoSubst
         extendTvSubst, extendTvSubstBinderAndInScope, extendTvSubstWithClone,
         extendTvSubstList, extendTvSubstAndInScope,
         extendTCvSubstList,
-        unionTCvSubst, zipTyEnv, zipCoEnv, mkTyCoInScopeSet,
+        unionTCvSubst, zipTyEnv, zipCoEnv,
         zipTvSubst, zipCvSubst,
         zipTCvSubst,
         mkTvSubstPrs,
@@ -61,7 +62,7 @@ import {-# SOURCE #-} Coercion ( mkCoVarCo, mkKindCo, mkNthCo, mkTransCo
                                , mkAxiomInstCo, mkAppCo, mkGReflCo
                                , mkInstCo, mkLRCo, mkTyConAppCo
                                , mkCoercionType
-                               , coercionKind, coVarKindsTypesRole )
+                               , coercionKind, coercionLKind, coVarKindsTypesRole )
 
 import TyCoRep
 import TyCoFVs
@@ -80,7 +81,7 @@ import UniqFM
 import UniqSet
 import Outputable
 
-import Data.List
+import Data.List (mapAccumL)
 
 {-
 %************************************************************************
@@ -135,7 +136,7 @@ the in-scope set in the substitution is a superset of both:
   (SIa) The free vars of the range of the substitution
   (SIb) The free vars of ty minus the domain of the substitution
 
-The same rules apply to other substitutions (notably CoreSubst.Subst)
+The same rules apply to other substitutions (notably GHC.Core.Subst.Subst)
 
 * Reason for (SIa). Consider
       substTy [a :-> Maybe b] (forall b. b->a)
@@ -283,8 +284,8 @@ getTCvSubstRangeFVs :: TCvSubst -> VarSet
 getTCvSubstRangeFVs (TCvSubst _ tenv cenv)
     = unionVarSet tenvFVs cenvFVs
   where
-    tenvFVs = tyCoVarsOfTypesSet tenv
-    cenvFVs = tyCoVarsOfCosSet cenv
+    tenvFVs = shallowTyCoVarsOfTyVarEnv tenv
+    cenvFVs = shallowTyCoVarsOfCoVarEnv cenv
 
 isInScope :: Var -> TCvSubst -> Bool
 isInScope v (TCvSubst in_scope _ _) = v `elemInScopeSet` in_scope
@@ -395,7 +396,7 @@ unionTCvSubst (TCvSubst in_scope1 tenv1 cenv1) (TCvSubst in_scope2 tenv2 cenv2)
 -- environment. No CoVars, please!
 zipTvSubst :: HasDebugCallStack => [TyVar] -> [Type] -> TCvSubst
 zipTvSubst tvs tys
-  = mkTvSubst (mkInScopeSet (tyCoVarsOfTypes tys)) tenv
+  = mkTvSubst (mkInScopeSet (shallowTyCoVarsOfTypes tys)) tenv
   where
     tenv = zipTyEnv tvs tys
 
@@ -403,13 +404,14 @@ zipTvSubst tvs tys
 -- environment.  No TyVars, please!
 zipCvSubst :: HasDebugCallStack => [CoVar] -> [Coercion] -> TCvSubst
 zipCvSubst cvs cos
-  = TCvSubst (mkInScopeSet (tyCoVarsOfCos cos)) emptyTvSubstEnv cenv
+  = TCvSubst (mkInScopeSet (shallowTyCoVarsOfCos cos)) emptyTvSubstEnv cenv
   where
     cenv = zipCoEnv cvs cos
 
 zipTCvSubst :: HasDebugCallStack => [TyCoVar] -> [Type] -> TCvSubst
 zipTCvSubst tcvs tys
-  = zip_tcvsubst tcvs tys (mkEmptyTCvSubst $ mkInScopeSet (tyCoVarsOfTypes tys))
+  = zip_tcvsubst tcvs tys $
+    mkEmptyTCvSubst $ mkInScopeSet $ shallowTyCoVarsOfTypes tys
   where zip_tcvsubst :: [TyCoVar] -> [Type] -> TCvSubst -> TCvSubst
         zip_tcvsubst (tv:tvs) (ty:tys) subst
           = zip_tcvsubst tvs tys (extendTCvSubst subst tv ty)
@@ -424,7 +426,7 @@ mkTvSubstPrs prs =
     ASSERT2( onlyTyVarsAndNoCoercionTy, text "prs" <+> ppr prs )
     mkTvSubst in_scope tenv
   where tenv = mkVarEnv prs
-        in_scope = mkInScopeSet $ tyCoVarsOfTypes $ map snd prs
+        in_scope = mkInScopeSet $ shallowTyCoVarsOfTypes $ map snd prs
         onlyTyVarsAndNoCoercionTy =
           and [ isTyVar tv && not (isCoercionTy ty)
               | (tv, ty) <- prs ]
@@ -528,7 +530,7 @@ hole will remain. Then, when we're checking x's definition, we skolemise
 x's type (in order to, e.g., bring the scoped type variable `a` into scope).
 This requires performing a substitution for the fresh skolem variables.
 
-This subsitution needs to affect the kind of the coercion hole, too --
+This substitution needs to affect the kind of the coercion hole, too --
 otherwise, the kind will have an out-of-scope variable in it. More problematically
 in practice (we won't actually notice the out-of-scope variable ever), skolems
 in the kind might have too high a level, triggering a failure to uphold the
@@ -618,8 +620,8 @@ isValidTCvSubst (TCvSubst in_scope tenv cenv) =
   (tenvFVs `varSetInScope` in_scope) &&
   (cenvFVs `varSetInScope` in_scope)
   where
-  tenvFVs = tyCoVarsOfTypesSet tenv
-  cenvFVs = tyCoVarsOfCosSet cenv
+  tenvFVs = shallowTyCoVarsOfTyVarEnv tenv
+  cenvFVs = shallowTyCoVarsOfCoVarEnv cenv
 
 -- | This checks if the substitution satisfies the invariant from
 -- Note [The substitution invariant].
@@ -628,9 +630,9 @@ checkValidSubst subst@(TCvSubst in_scope tenv cenv) tys cos a
   = ASSERT2( isValidTCvSubst subst,
              text "in_scope" <+> ppr in_scope $$
              text "tenv" <+> ppr tenv $$
-             text "tenvFVs" <+> ppr (tyCoVarsOfTypesSet tenv) $$
+             text "tenvFVs" <+> ppr (shallowTyCoVarsOfTyVarEnv tenv) $$
              text "cenv" <+> ppr cenv $$
-             text "cenvFVs" <+> ppr (tyCoVarsOfCosSet cenv) $$
+             text "cenvFVs" <+> ppr (shallowTyCoVarsOfCoVarEnv cenv) $$
              text "tys" <+> ppr tys $$
              text "cos" <+> ppr cos )
     ASSERT2( tysCosFVsInScope,
@@ -645,8 +647,9 @@ checkValidSubst subst@(TCvSubst in_scope tenv cenv) tys cos a
   substDomain = nonDetKeysUFM tenv ++ nonDetKeysUFM cenv
     -- It's OK to use nonDetKeysUFM here, because we only use this list to
     -- remove some elements from a set
-  needInScope = (tyCoVarsOfTypes tys `unionVarSet` tyCoVarsOfCos cos)
-                  `delListFromUniqSet_Directly` substDomain
+  needInScope = (shallowTyCoVarsOfTypes tys `unionVarSet`
+                 shallowTyCoVarsOfCos cos)
+                `delListFromUniqSet_Directly` substDomain
   tysCosFVsInScope = needInScope `varSetInScope` in_scope
 
 
@@ -835,7 +838,6 @@ subst_co subst co
                                 in cs1 `seqList` AxiomRuleCo c cs1
     go (HoleCo h)            = HoleCo $! go_hole h
 
-    go_prov UnsafeCoerceProv     = UnsafeCoerceProv
     go_prov (PhantomProv kco)    = PhantomProv (go kco)
     go_prov (ProofIrrelProv kco) = ProofIrrelProv (go kco)
     go_prov p@(PluginProv _)     = p
@@ -888,7 +890,7 @@ substForAllCoTyVarBndrUsing sym sco (TCvSubst in_scope tenv cenv) old_var old_ki
     new_kind_co | no_kind_change = old_kind_co
                 | otherwise      = sco old_kind_co
 
-    Pair new_ki1 _ = coercionKind new_kind_co
+    new_ki1 = coercionLKind new_kind_co
     -- We could do substitution to (tyVarKind old_var). We don't do so because
     -- we already substituted new_kind_co, which contains the kind information
     -- we want. We don't want to do substitution once more. Also, in most cases,
@@ -976,7 +978,7 @@ substTyVarBndrUsing subst_fn subst@(TCvSubst in_scope tenv cenv) old_var
     new_env | no_change = delVarEnv tenv old_var
             | otherwise = extendVarEnv tenv old_var (TyVarTy new_var)
 
-    _no_capture = not (new_var `elemVarSet` tyCoVarsOfTypesSet tenv)
+    _no_capture = not (new_var `elemVarSet` shallowTyCoVarsOfTyVarEnv tenv)
     -- Assertion check that we are not capturing something in the substitution
 
     old_ki = tyVarKind old_var
@@ -1045,4 +1047,3 @@ cloneTyVarBndrs subst (t:ts)  usupply = (subst'', tv:tvs)
     (uniq, usupply') = takeUniqFromSupply usupply
     (subst' , tv )   = cloneTyVarBndr subst t uniq
     (subst'', tvs)   = cloneTyVarBndrs subst' ts usupply'
-

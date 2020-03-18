@@ -59,6 +59,7 @@ test('cgrun054', normal, compile_and_run, [''])
 test('cgrun055', normal, compile_and_run, [''])
 test('cgrun056', normal, compile_and_run, [''])
 test('cgrun057', [ only_ways(prof_ways),
+                   fragile(17554),
                    extra_run_opts('+RTS -xc') ], compile_and_run, [''])
 test('cgrun058', normal, compile_and_run, [''])
 test('cgrun059', exit_code(1), compile_and_run, [''])
@@ -88,6 +89,7 @@ test('cgrun075', normal, compile_and_run, [''])
 test('cgrun076', normal, compile_and_run, [''])
 test('cgrun077', [when(have_cpu_feature('bmi2'), extra_hc_opts('-mbmi2'))], compile_and_run, [''])
 test('cgrun078', omit_ways(['ghci']), compile_and_run, [''])
+test('cgrun079', normal, compile_and_run, [''])
 
 test('T1852', normal, compile_and_run, [''])
 test('T1861', extra_run_opts('0'), compile_and_run, [''])
@@ -183,8 +185,7 @@ test('T13825-unit',
 test('T14619', normal, compile_and_run, [''])
 test('T14754', normal, compile_and_run, [''])
 test('T14346', only_ways(['threaded1','threaded2']), compile_and_run, ['-O -threaded'])
-test('T14251', [expect_broken_for(14251, ['optllvm'])],
-     compile_and_run, [''])
+test('T14251', normal, compile_and_run, [''])
 
 # These actually used to fail with all optimisation settings, but adding -O just
 # to make sure

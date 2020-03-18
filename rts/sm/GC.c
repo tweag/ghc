@@ -209,6 +209,14 @@ GarbageCollect (uint32_t collect_gen,
   gc_thread *saved_gct;
 #endif
   uint32_t g, n;
+  // The time we should report our heap census as occurring at, if necessary.
+  Time mut_time = 0;
+
+  if (do_heap_census) {
+      RTSStats stats;
+      getRTSStats(&stats);
+      mut_time = stats.mutator_cpu_ns;
+  }
 
   // necessary if we stole a callee-saves register for gct:
 #if defined(THREADED_RTS)
@@ -462,12 +470,12 @@ GarbageCollect (uint32_t collect_gen,
 #if defined(THREADED_RTS)
   if (n_gc_threads == 1) {
       for (n = 0; n < n_capabilities; n++) {
-          pruneSparkQueue(capabilities[n]);
+          pruneSparkQueue(false, capabilities[n]);
       }
   } else {
       for (n = 0; n < n_capabilities; n++) {
           if (n == cap->no || idle_cap[n]) {
-              pruneSparkQueue(capabilities[n]);
+              pruneSparkQueue(false, capabilities[n]);
          }
       }
   }
@@ -596,7 +604,7 @@ GarbageCollect (uint32_t collect_gen,
 
         /* free old memory and shift to-space into from-space for all
          * the collected generations (except the allocation area).  These
-         * freed blocks will probaby be quickly recycled.
+         * freed blocks will probably be quickly recycled.
          */
         if (gen->mark)
         {
@@ -646,7 +654,7 @@ GarbageCollect (uint32_t collect_gen,
             ASSERT(countBlocks(gen->blocks) == gen->n_blocks);
             ASSERT(countOccupied(gen->blocks) == gen->n_words);
         }
-        else // not copacted
+        else // not compacted
         {
             freeChain(gen->old_blocks);
         }
@@ -743,7 +751,7 @@ GarbageCollect (uint32_t collect_gen,
   // oldest_gen->scavenged_large_objects back to oldest_gen->large_objects.
   ASSERT(oldest_gen->scavenged_large_objects == NULL);
   if (RtsFlags.GcFlags.useNonmoving && major_gc) {
-      // All threads in non-moving heap should be found to be alive, becuase
+      // All threads in non-moving heap should be found to be alive, because
       // threads in the non-moving generation's list should live in the
       // non-moving heap, and we consider non-moving objects alive during
       // preparation.
@@ -846,7 +854,7 @@ GarbageCollect (uint32_t collect_gen,
   if (do_heap_census) {
       debugTrace(DEBUG_sched, "performing heap census");
       RELEASE_SM_LOCK;
-      heapCensus(gct->gc_start_cpu);
+      heapCensus(mut_time);
       ACQUIRE_SM_LOCK;
   }
 
@@ -874,7 +882,7 @@ GarbageCollect (uint32_t collect_gen,
       need_prealloc += arenaBlocks();
 #if defined(PROFILING)
       if (RtsFlags.ProfFlags.doHeapProfile == HEAP_BY_RETAINER) {
-          need_prealloc = retainerStackBlocks();
+          need_prealloc += retainerStackBlocks();
       }
 #endif
 
@@ -927,9 +935,11 @@ GarbageCollect (uint32_t collect_gen,
 #endif
 
   // ok, GC over: tell the stats department what happened.
+  stat_endGCWorker(cap, gct);
   stat_endGC(cap, gct, live_words, copied,
              live_blocks * BLOCK_SIZE_W - live_words /* slop */,
-             N, n_gc_threads, par_max_copied, par_balanced_copied,
+             N, n_gc_threads, gc_threads,
+             par_max_copied, par_balanced_copied,
              gc_spin_spin, gc_spin_yield, mut_spin_spin, mut_spin_yield,
              any_work, no_work, scav_find_work);
 
@@ -1209,6 +1219,7 @@ gcWorkerThread (Capability *cap)
 
     SET_GCT(gc_threads[cap->no]);
     gct->id = osThreadId();
+    stat_startGCWorker (cap, gct);
 
     // Wait until we're told to wake up
     RELEASE_SPIN_LOCK(&gct->mut_spin);
@@ -1239,7 +1250,7 @@ gcWorkerThread (Capability *cap)
     // non-deterministic whether a spark will be retained if it is
     // only reachable via weak pointers.  To fix this problem would
     // require another GC barrier, which is too high a price.
-    pruneSparkQueue(cap);
+    pruneSparkQueue(false, cap);
 #endif
 
     // Wait until we're told to continue
@@ -1247,6 +1258,7 @@ gcWorkerThread (Capability *cap)
     gct->wakeup = GC_THREAD_WAITING_TO_CONTINUE;
     debugTrace(DEBUG_gc, "GC thread %d waiting to continue...",
                gct->thread_index);
+    stat_endGCWorker (cap, gct);
     ACQUIRE_SPIN_LOCK(&gct->mut_spin);
     debugTrace(DEBUG_gc, "GC thread %d on my way...", gct->thread_index);
 

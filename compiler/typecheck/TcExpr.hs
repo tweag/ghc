@@ -10,6 +10,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+
 module TcExpr ( tcPolyExpr, tcMonoExpr, tcMonoExprNC,
                 tcInferSigma, tcInferSigmaNC, tcInferRho, tcInferRhoNC,
                 tcSyntaxOp, tcSyntaxOpGen, SyntaxOpType(..), synKnownType,
@@ -36,8 +38,8 @@ import TcSigs           ( tcUserTypeSig, tcInstSig )
 import TcSimplify       ( simplifyInfer, InferMode(..) )
 import FamInst          ( tcGetFamInstEnvs, tcLookupDataFamInst )
 import FamInstEnv       ( FamInstEnvs )
-import RnEnv            ( addUsedGRE )
-import RnUtils          ( addNameClashErrRn, unknownSubordinateErr )
+import GHC.Rename.Env   ( addUsedGRE )
+import GHC.Rename.Utils ( addNameClashErrRn, unknownSubordinateErr )
 import TcEnv
 import Multiplicity
 import UsageEnv
@@ -60,16 +62,16 @@ import NameSet
 import RdrName
 import TyCon
 import TyCoRep
+import TyCoPpr
 import TyCoSubst (substTyWithInScope)
 import Type
 import TcEvidence
 import VarSet
-import MkId( seqId )
 import TysWiredIn
-import TysPrim( intPrimTy, multiplicityTyVarList, mkTemplateTyVars, tYPE )
+import TysPrim( intPrimTy, multiplicityTyVarList )
 import PrimOp( tagToEnumKey )
 import PrelNames
-import DynFlags
+import GHC.Driver.Session
 import SrcLoc
 import Util
 import VarEnv  ( emptyTidyEnv, mkInScopeSet )
@@ -83,7 +85,7 @@ import UniqSet ( nonDetEltsUniqSet )
 import qualified GHC.LanguageExtensions as LangExt
 
 import Data.Function
-import Data.List
+import Data.List (partition, sortBy, groupBy, intersect)
 import qualified Data.Set as Set
 
 {-
@@ -183,17 +185,15 @@ tcExpr e@(HsLit x lit) res_ty
 tcExpr (HsPar x expr) res_ty = do { expr' <- tcMonoExprNC expr res_ty
                                   ; return (HsPar x expr') }
 
-tcExpr (HsSCC x src lbl expr) res_ty
+tcExpr (HsPragE x prag expr) res_ty
   = do { expr' <- tcMonoExpr expr res_ty
-       ; return (HsSCC x src lbl expr') }
-
-tcExpr (HsTickPragma x src info srcInfo expr) res_ty
-  = do { expr' <- tcMonoExpr expr res_ty
-       ; return (HsTickPragma x src info srcInfo expr') }
-
-tcExpr (HsCoreAnn x src lbl expr) res_ty
-  = do  { expr' <- tcMonoExpr expr res_ty
-        ; return (HsCoreAnn x src lbl expr') }
+       ; return (HsPragE x (tc_prag prag) expr') }
+  where
+    tc_prag :: HsPragE GhcRn -> HsPragE GhcTc
+    tc_prag (HsPragSCC x1 src ann) = HsPragSCC x1 src ann
+    tc_prag (HsPragCore x1 src lbl) = HsPragCore x1 src lbl
+    tc_prag (HsPragTick x1 src info srcInfo) = HsPragTick x1 src info srcInfo
+    tc_prag (XHsPragE x) = noExtCon x
 
 tcExpr (HsOverLit x lit) res_ty
   = do  { lit' <- newOverloadedLit lit res_ty
@@ -336,42 +336,9 @@ rule just for saturated applications of ($).
   * Decompose it; should be of form (arg2_ty -> res_ty),
        where arg2_ty might be a polytype
   * Use arg2_ty to typecheck arg2
-
-Note [Typing rule for seq]
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-We want to allow
-       x `seq` (# p,q #)
-which suggests this type for seq:
-   seq :: forall (a:*) (b:Open). a -> b -> b,
-with (b:Open) meaning that be can be instantiated with an unboxed
-tuple.  The trouble is that this might accept a partially-applied
-'seq', and I'm just not certain that would work.  I'm only sure it's
-only going to work when it's fully applied, so it turns into
-    case x of _ -> (# p,q #)
-
-So it seems more uniform to treat 'seq' as if it was a language
-construct.
-
-See also Note [seqId magic] in MkId
 -}
 
 tcExpr expr@(OpApp fix arg1 op arg2) res_ty
-  | (L loc (HsVar _ (L lv op_name))) <- op
-  , op_name `hasKey` seqIdKey           -- Note [Typing rule for seq]
-  = do { arg1_ty <- newFlexiTyVarTy liftedTypeKind
-       ; let arg2_exp_ty = res_ty
-       ; arg1' <- tcArg op arg1 (unrestricted arg1_ty) 1
-       ; arg2' <- addErrCtxt (funAppCtxt op arg2 2) $
-                  tcScalingUsage Many $ tc_poly_expr_nc arg2 arg2_exp_ty
-                  -- It is not necessary, but for the sake of least surprise,
-                  -- seq is unrestricted in its second argument. It can (and,
-                  -- probably, should) be refined later.
-       ; arg2_ty <- readExpType arg2_exp_ty
-       ; op_id <- tcLookupId op_name
-       ; let op' = L loc (mkHsWrap (mkWpTyApps [arg1_ty, arg2_ty])
-                                   (HsVar noExtField (L lv op_id)))
-       ; return $ OpApp fix arg1' op' arg2' }
-
   | (L loc (HsVar _ (L lv op_name))) <- op
   , op_name `hasKey` dollarIdKey        -- Note [Typing rule for ($)]
   = do { traceTc "Application rule" (ppr op)
@@ -482,7 +449,7 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
   = do { let arity  = length tup_args
              tup_tc = tupleTyCon boxity arity
                -- NB: tupleTyCon doesn't flatten 1-tuples
-               -- See Note [Don't flatten tuples from HsSyn] in MkCore
+               -- See Note [Don't flatten tuples from HsSyn] in GHC.Core.Make
        ; res_ty <- expTypeToType res_ty
        ; (coi, arg_tys) <- matchExpectedTyConApp tup_tc res_ty
                            -- Unboxed tuples have RuntimeRep vars, which we
@@ -509,7 +476,7 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
                     mkVisFunTys [ mkScaled (mkTyVarTy w_ty) ty |
                               (ty, w_ty) <- zip missing_tys w_tyvars]
                             (mkTupleTy1 boxity arg_tys)
-                   -- See Note [Don't flatten tuples from HsSyn] in MkCore
+                   -- See Note [Don't flatten tuples from HsSyn] in GHC.Core.Make
 
        ; wrap <- tcSubTypeHR (Shouldn'tHappenOrigin "ExpTuple")
                              (Just expr)
@@ -591,7 +558,7 @@ tcExpr (HsCase x scrut matches) res_ty
     match_ctxt = MC { mc_what = CaseAlt,
                       mc_body = tcBody }
 
-tcExpr (HsIf x Nothing pred b1 b2) res_ty    -- Ordinary 'if'
+tcExpr (HsIf x NoSyntaxExprRn pred b1 b2) res_ty    -- Ordinary 'if'
   = do { pred' <- tcMonoExpr pred (mkCheckExpType boolTy)
        ; res_ty <- tauifyExpType res_ty
            -- Just like Note [Case branches must never infer a non-tau type]
@@ -600,9 +567,9 @@ tcExpr (HsIf x Nothing pred b1 b2) res_ty    -- Ordinary 'if'
        ; (u1,b1') <- tcCollectingUsage $ tcMonoExpr b1 res_ty
        ; (u2,b2') <- tcCollectingUsage $ tcMonoExpr b2 res_ty
        ; tcEmitBindingUsage (supUE u1 u2)
-       ; return (HsIf x Nothing pred' b1' b2') }
+       ; return (HsIf x NoSyntaxExprTc pred' b1' b2') }
 
-tcExpr (HsIf x (Just fun) pred b1 b2) res_ty
+tcExpr (HsIf x fun@(SyntaxExprRn {}) pred b1 b2) res_ty
   = do { ((pred', b1', b2'), fun')
            <- tcSyntaxOp IfOrigin fun [SynAny, SynAny, SynAny] res_ty $
               \ [pred_ty, b1_ty, b2_ty] _ ->
@@ -610,7 +577,7 @@ tcExpr (HsIf x (Just fun) pred b1 b2) res_ty
                  ; b1'   <- tcPolyExpr b1   b1_ty
                  ; b2'   <- tcPolyExpr b2   b2_ty
                  ; return (pred', b1', b2') }
-       ; return (HsIf x (Just fun') pred' b1' b2') }
+       ; return (HsIf x fun' pred' b1' b2') }
 
 tcExpr (HsMultiIf _ alts) res_ty
   = do { res_ty <- if isSingleton alts
@@ -853,14 +820,16 @@ tcExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = rbnds }) res_ty
     do  { -- STEP -2: typecheck the record_expr, the record to be updated
           (record_expr', record_rho) <- tcScalingUsage Many $ tcInferRho record_expr
             -- Record update drops some of the content of the record (namely the
-            -- content of the field being updated). As a consequence, it
-            -- requires an unrestricted record.
+            -- content of the field being updated). As a consequence, unless the
+            -- field being updated is unrestricted in the record, or we need an
+            -- unrestricted record. Currently, we simply always require an
+            -- unrestricted record.
             --
             -- Consider the following example:
             --
             -- data R a = R { self :: a }
             -- bad :: a ⊸ ()
-            -- bad x = let r = R x in r { self = () }
+            -- bad x = let r = R x in case r { self = () } of { R x' -> x' }
             --
             -- This should definitely *not* typecheck.
 
@@ -922,7 +891,7 @@ tcExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = rbnds }) res_ty
               (con1_tvs, _, _, _prov_theta, req_theta, scaled_con1_arg_tys, _)
                  = conLikeFullSig con1
               con1_arg_tys = map scaledThing scaled_con1_arg_tys
-                -- Remark: we can safely drop the fields' multiplicities because
+                -- We can safely drop the fields' multiplicities because
                 -- they are currently always 1: there is no syntax for record
                 -- fields with other multiplicities yet. This way we don't need
                 -- to handle it in the rest of the function
@@ -1044,10 +1013,10 @@ tcExpr (ArithSeq _ witness seq) res_ty
 ************************************************************************
 -}
 
--- HsSpliced is an annotation produced by 'RnSplice.rnSpliceExpr'.
+-- HsSpliced is an annotation produced by 'GHC.Rename.Splice.rnSpliceExpr'.
 -- Here we get rid of it and add the finalizers to the global environment.
 --
--- See Note [Delaying modFinalizers in untyped splices] in RnSplice.
+-- See Note [Delaying modFinalizers in untyped splices] in GHC.Rename.Splice.
 tcExpr (HsSpliceE _ (HsSpliced _ mod_finalizers (HsSplicedExpr expr)))
        res_ty
   = do addModFinalizersWithLclEnv mod_finalizers
@@ -1155,10 +1124,6 @@ isHsValArg (HsValArg {})  = True
 isHsValArg (HsTypeArg {}) = False
 isHsValArg (HsArgPar {})  = False
 
-isHsTypeArg :: HsArg tm ty -> Bool
-isHsTypeArg (HsTypeArg {}) = True
-isHsTypeArg _              = False
-
 isArgPar :: HsArg tm ty -> Bool
 isArgPar (HsArgPar {})  = True
 isArgPar (HsValArg {})  = False
@@ -1204,26 +1169,11 @@ tcApp m_herald fun@(L loc (HsRecFld _ fld_lbl)) args res_ty
        ; (tc_fun, fun_ty) <- tcInferRecSelId (Unambiguous sel_name lbl)
        ; tcFunApp m_herald fun (L loc tc_fun) fun_ty args res_ty }
 
-tcApp m_herald fun@(L loc (HsVar _ (L _ fun_id))) args res_ty
+tcApp _m_herald (L loc (HsVar _ (L _ fun_id))) args res_ty
   -- Special typing rule for tagToEnum#
   | fun_id `hasKey` tagToEnumKey
   , n_val_args == 1
   = tcTagToEnum loc fun_id args res_ty
-
-  -- Special typing rule for 'seq'
-  -- In the saturated case, behave as if seq had type
-  --    forall a (b::TYPE r). a -> b -> b
-  -- for some type r.  See Note [Typing rule for seq]
-  | fun_id `hasKey` seqIdKey
-  , n_val_args == 2
-  = do { rep <- newFlexiTyVarTy runtimeRepTy
-       ; let [alpha, beta] = mkTemplateTyVars [liftedTypeKind, tYPE rep]
-             seq_ty = mkSpecForAllTys [alpha,beta]
-                      (mkTyVarTy alpha `mkVisFunTyMany` mkTyVarTy beta `mkVisFunTyMany` mkTyVarTy beta)
-             seq_fun = L loc (HsVar noExtField (L loc seqId))
-             -- seq_ty = forall (a:*) (b:TYPE r). a -> b -> b
-             -- where 'r' is a meta type variable
-        ; tcFunApp m_herald fun seq_fun seq_ty args res_ty }
   where
     n_val_args = count isHsValArg args
 
@@ -1308,14 +1258,6 @@ tcArgs :: LHsExpr GhcRn   -- ^ The function itself (for err msgs only)
        -> TcM (HsWrapper, [LHsExprArgOut], TcSigmaType)
           -- ^ (a wrapper for the function, the tc'd args, result type)
 tcArgs fun orig_fun_ty fun_orig orig_args herald
-  | fun_is_out_of_scope
-  , any isHsTypeArg orig_args
-  = failM  -- See Note [VTA for out-of-scope functions]
-    -- We have /already/ emitted a CHoleCan constraint (in tcInferFun),
-    -- which will later cough up a "Variable not in scope error", so
-    -- we can simply fail now, avoiding a confusing error cascade
-
-  | otherwise
   = go [] 1 orig_fun_ty orig_args
   where
     -- Don't count visible type arguments when determining how many arguments
@@ -1337,6 +1279,10 @@ tcArgs fun orig_fun_ty fun_orig orig_args herald
            }
 
     go acc_args n fun_ty (HsTypeArg l hs_ty_arg : args)
+      | fun_is_out_of_scope   -- See Note [VTA for out-of-scope functions]
+      = go acc_args (n+1) fun_ty args
+
+      | otherwise
       = do { (wrap1, upsilon_ty) <- topInstantiateInferred fun_orig fun_ty
                -- wrap1 :: fun_ty "->" upsilon_ty
            ; case tcSplitForAllTy_maybe upsilon_ty of
@@ -1427,17 +1373,23 @@ generate an immediate failure (in tc_app_err), saying that a function
 of type 'alpha' can't be applied to Bool.  That's insane!  And indeed
 users complain bitterly (#13834, #17150.)
 
-The right error is the CHoleCan, which reports 'wurble' as out of
-scope, and tries to give its type.
+The right error is the CHoleCan, which has /already/ been emitted by
+tcUnboundId.  It later reports 'wurble' as out of scope, and tries to
+give its type.
 
-Fortunately in tcArgs we still have acces to the function, so
-we can check if it is a HsUnboundVar.  If so, we simply fail
-immediately.  We've already inferred the type of the function,
-so we'll /already/ have emitted a CHoleCan constraint; failing
-preserves that constraint.
+Fortunately in tcArgs we still have access to the function, so we can
+check if it is a HsUnboundVar.  We use this info to simply skip over
+any visible type arguments.  We've already inferred the type of the
+function, so we'll /already/ have emitted a CHoleCan constraint;
+failing preserves that constraint.
 
-A mild shortcoming of this approach is that we thereby
-don't typecheck any of the arguments, but so be it.
+We do /not/ want to fail altogether in this case (via failM) becuase
+that may abandon an entire instance decl, which (in the presence of
+-fdefer-type-errors) leads to leading to #17792.
+
+Downside; the typechecked term has lost its visible type arguments; we
+don't even kind-check them.  But let's jump that bridge if we come to
+it.  Meanwhile, let's not crash!
 
 Note [Visible type application zonk]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1490,14 +1442,14 @@ tcTupArgs args tys
 ---------------------------
 -- See TcType.SyntaxOpType also for commentary
 tcSyntaxOp :: CtOrigin
-           -> SyntaxExpr GhcRn
+           -> SyntaxExprRn
            -> [SyntaxOpType]           -- ^ shape of syntax operator arguments
            -> ExpRhoType               -- ^ overall result type
            -> ([TcSigmaType] -> [Mult] -> TcM a) -- ^ Type check any arguments,
                                                  -- takes a type per hole and a
                                                  -- multiplicity per arrow in
                                                  -- the shape.
-           -> TcM (a, SyntaxExpr GhcTcId)
+           -> TcM (a, SyntaxExprTc)
 -- ^ Typecheck a syntax operator
 -- The operator is a variable or a lambda at this stage (i.e. renamer
 -- output)
@@ -1507,21 +1459,22 @@ tcSyntaxOp orig expr arg_tys res_ty
 -- | Slightly more general version of 'tcSyntaxOp' that allows the caller
 -- to specify the shape of the result of the syntax operator
 tcSyntaxOpGen :: CtOrigin
-              -> SyntaxExpr GhcRn
+              -> SyntaxExprRn
               -> [SyntaxOpType]
               -> SyntaxOpType
               -> ([TcSigmaType] -> [Mult] -> TcM a)
-              -> TcM (a, SyntaxExpr GhcTcId)
-tcSyntaxOpGen orig op arg_tys res_ty thing_inside
-  = do { (expr, sigma) <- tcInferSigma $ noLoc $ syn_expr op
+              -> TcM (a, SyntaxExprTc)
+tcSyntaxOpGen orig (SyntaxExprRn op) arg_tys res_ty thing_inside
+  = do { (expr, sigma) <- tcInferSigma $ noLoc op
        ; traceTc "tcSyntaxOpGen" (ppr op $$ ppr expr $$ ppr sigma)
        ; (result, expr_wrap, arg_wraps, res_wrap)
            <- tcSynArgA orig sigma arg_tys res_ty $
               thing_inside
        ; traceTc "tcSyntaxOpGen" (ppr op $$ ppr expr $$ ppr sigma )
-       ; return (result, SyntaxExpr { syn_expr = mkHsWrap expr_wrap $ unLoc expr
-                                    , syn_arg_wraps = arg_wraps
-                                    , syn_res_wrap  = res_wrap }) }
+       ; return (result, SyntaxExprTc { syn_expr = mkHsWrap expr_wrap $ unLoc expr
+                                      , syn_arg_wraps = arg_wraps
+                                      , syn_res_wrap  = res_wrap }) }
+tcSyntaxOpGen _ NoSyntaxExprRn _ _ _ = panic "tcSyntaxOpGen"
 
 {-
 Note [tcSynArg]
@@ -2111,6 +2064,9 @@ too_many_args fun args
 -}
 
 checkThLocalId :: Id -> TcM ()
+-- The renamer has already done checkWellStaged,
+--   in RnSplice.checkThLocalName, so don't repeat that here.
+-- Here we just just add constraints fro cross-stage lifting
 checkThLocalId id
   = do  { mb_local_use <- getStageAndBindLevel (idName id)
         ; case mb_local_use of
@@ -2127,15 +2083,14 @@ checkCrossStageLifting :: TopLevelFlag -> Id -> ThStage -> TcM ()
 -- we must check whether there's a cross-stage lift to do
 -- Examples   \x -> [|| x ||]
 --            [|| map ||]
--- There is no error-checking to do, because the renamer did that
 --
--- This is similar to checkCrossStageLifting in RnSplice, but
+-- This is similar to checkCrossStageLifting in GHC.Rename.Splice, but
 -- this code is applied to *typed* brackets.
 
-checkCrossStageLifting top_lvl id (Brack _ (TcPending ps_var lie_var))
+checkCrossStageLifting top_lvl id (Brack _ (TcPending ps_var lie_var q))
   | isTopLevel top_lvl
   = when (isExternalName id_name) (keepAlive id_name)
-    -- See Note [Keeping things alive for Template Haskell] in RnSplice
+    -- See Note [Keeping things alive for Template Haskell] in GHC.Rename.Splice
 
   | otherwise
   =     -- Nested identifiers, such as 'x' in
@@ -2169,7 +2124,8 @@ checkCrossStageLifting top_lvl id (Brack _ (TcPending ps_var lie_var))
                    -- Update the pending splices
         ; ps <- readMutVar ps_var
         ; let pending_splice = PendingTcSplice id_name
-                                 (nlHsApp (noLoc lift) (nlHsVar id))
+                                 (nlHsApp (mkLHsWrap (applyQuoteWrapper q) (noLoc lift))
+                                          (nlHsVar id))
         ; writeMutVar ps_var (pending_splice : ps)
 
         ; return () }
@@ -2637,7 +2593,7 @@ addExprErrCtxt expr = addErrCtxt (exprCtxt expr)
 
 exprCtxt :: LHsExpr GhcRn -> SDoc
 exprCtxt expr
-  = hang (text "In the expression:") 2 (ppr expr)
+  = hang (text "In the expression:") 2 (ppr (stripParensHsExpr expr))
 
 fieldCtxt :: FieldLabelString -> SDoc
 fieldCtxt field_name

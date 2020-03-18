@@ -1,17 +1,18 @@
 -- (c) The University of Glasgow 2006
 
 {-# LANGUAGE CPP, DeriveDataTypeable #-}
+{-# LANGUAGE LambdaCase #-}
 
 module TcEvidence (
 
-  -- HsWrapper
+  -- * HsWrapper
   HsWrapper(..),
   (<.>), mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams,
   mkWpLams, mkWpLet, mkWpCastN, mkWpCastR, collectHsWrapBinders,
   mkWpFun, idHsWrapper, isIdHsWrapper, isErasableHsWrapper,
   pprHsWrapper,
 
-  -- Evidence bindings
+  -- * Evidence bindings
   TcEvBinds(..), EvBindsVar(..),
   EvBindMap(..), emptyEvBindMap, extendEvBinds,
   lookupEvBind, evBindMapBinds, foldEvBindMap, filterEvBindMap,
@@ -19,7 +20,7 @@ module TcEvidence (
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, mkGivenEvBind, mkWantedEvBind,
   evBindVar, isCoEvBindsVar,
 
-  -- EvTerm (already a CoreExpr)
+  -- * EvTerm (already a CoreExpr)
   EvTerm(..), EvExpr,
   evId, evCoercion, evCast, evDFunApp,  evDataConApp, evSelector,
   mkEvCast, evVarsOfTerm, mkEvScSelectors, evTypeable, findNeededEvVars,
@@ -28,7 +29,7 @@ module TcEvidence (
   EvCallStack(..),
   EvTypeable(..),
 
-  -- TcCoercion
+  -- * TcCoercion
   TcCoercion, TcCoercionR, TcCoercionN, TcCoercionP, CoercionHole,
   TcMCoercion,
   Role(..), LeftOrRight(..), pickLR,
@@ -45,7 +46,10 @@ module TcEvidence (
   mkTcCoVarCo,
   isTcReflCo, isTcReflexiveCo, isTcGReflMCo, tcCoToMCo,
   tcCoercionRole,
-  unwrapIP, wrapIP
+  unwrapIP, wrapIP,
+
+  -- * QuoteWrapper
+  QuoteWrapper(..), applyQuoteWrapper, quoteWrapperTyVarTy
   ) where
 #include "HsVersions.h"
 
@@ -54,23 +58,22 @@ import GhcPrelude
 import Var
 import CoAxiom
 import Coercion
-import PprCore ()   -- Instance OutputableBndr TyVar
+import GHC.Core.Ppr ()   -- Instance OutputableBndr TyVar
 import TcType
 import Type
 import TyCon
 import DataCon( DataCon, dataConWrapId )
 import Class( Class )
 import PrelNames
-import DynFlags   ( gopt, GeneralFlag(Opt_PrintTypecheckerElaboration) )
 import VarEnv
 import VarSet
 import Predicate
 import Name
 import Pair
 
-import CoreSyn
+import GHC.Core
 import Class ( classSCSelId )
-import CoreFVs ( exprSomeFreeVars )
+import GHC.Core.FVs ( exprSomeFreeVars )
 
 import Util
 import Bag
@@ -210,7 +213,7 @@ data HsWrapper
        -- The TcType is the "from" type of the first wrapper
        -- The SDoc explains the circumstances under which we have created this
        -- WpFun, in case we run afoul of levity polymorphism restrictions in
-       -- the desugarer. See Note [Levity polymorphism checking] in DsMonad
+       -- the desugarer. See Note [Levity polymorphism checking] in GHC.HsToCore.Monad
 
   | WpCast TcCoercionR        -- A cast:  [] `cast` co
                               -- Guaranteed not the identity coercion
@@ -377,7 +380,6 @@ isErasableHsWrapper = go
   where
     go WpHole                  = True
     go (WpCompose wrap1 wrap2) = go wrap1 && go wrap2
-    -- not so sure about WpFun. But it eta-expands, so...
     go WpFun{}                 = False
     go WpCast{}                = True
     go WpEvLam{}               = False -- case in point
@@ -798,7 +800,7 @@ Important Details:
 
 - An EvCallStack term desugars to a CoreExpr of type `IP "some str" CallStack`.
   The desugarer will need to unwrap the IP newtype before pushing a new
-  call-site onto a given stack (See DsBinds.dsEvCallStack)
+  call-site onto a given stack (See GHC.HsToCore.Binds.dsEvCallStack)
 
 - When we emit a new wanted CallStack from rule (2) we set its origin to
   `IPOccOrigin ip_name` instead of the original `OccurrenceOf func`
@@ -928,10 +930,9 @@ pprHsWrapper :: HsWrapper -> (Bool -> SDoc) -> SDoc
 -- The pp_thing_inside function takes Bool to say whether
 --    it's in a position that needs parens for a non-atomic thing
 pprHsWrapper wrap pp_thing_inside
-  = sdocWithDynFlags $ \ dflags ->
-    if gopt Opt_PrintTypecheckerElaboration dflags
-    then help pp_thing_inside wrap False
-    else pp_thing_inside False
+  = sdocOption sdocPrintTypecheckerElaboration $ \case
+      True  -> help pp_thing_inside wrap False
+      False -> pp_thing_inside False
   where
     help :: (Bool -> SDoc) -> HsWrapper -> Bool -> SDoc
     -- True  <=> appears in function application position
@@ -943,7 +944,7 @@ pprHsWrapper wrap pp_thing_inside
     help it (WpCast co)   = add_parens $ sep [it False, nest 2 (text "|>"
                                               <+> pprParendCo co)]
     help it (WpEvApp id)  = no_parens  $ sep [it True, nest 2 (ppr id)]
-    help it (WpTyApp ty)  = no_parens  $ sep [it True, text "@" <+> pprParendType ty]
+    help it (WpTyApp ty)  = no_parens  $ sep [it True, text "@" <> pprParendType ty]
     help it (WpEvLam id)  = add_parens $ sep [ text "\\" <> pprLamBndr id <> dot, it False]
     help it (WpTyLam tv)  = add_parens $ sep [text "/\\" <> pprLamBndr tv <> dot, it False]
     help it (WpLet binds) = add_parens $ sep [text "let" <+> braces (ppr binds), it False]
@@ -1023,3 +1024,25 @@ unwrapIP ty =
 -- dictionary. See 'unwrapIP'.
 wrapIP :: Type -> CoercionR
 wrapIP ty = mkSymCo (unwrapIP ty)
+
+----------------------------------------------------------------------
+-- A datatype used to pass information when desugaring quotations
+----------------------------------------------------------------------
+
+-- We have to pass a `EvVar` and `Type` into `dsBracket` so that the
+-- correct evidence and types are applied to all the TH combinators.
+-- This data type bundles them up together with some convenience methods.
+--
+-- The EvVar is evidence for `Quote m`
+-- The Type is a metavariable for `m`
+--
+data QuoteWrapper = QuoteWrapper EvVar Type deriving Data.Data
+
+quoteWrapperTyVarTy :: QuoteWrapper -> Type
+quoteWrapperTyVarTy (QuoteWrapper _ t) = t
+
+-- | Convert the QuoteWrapper into a normal HsWrapper which can be used to
+-- apply its contents.
+applyQuoteWrapper :: QuoteWrapper -> HsWrapper
+applyQuoteWrapper (QuoteWrapper ev_var m_var)
+  = mkWpEvVarApps [ev_var] <.> mkWpTyApps [m_var]

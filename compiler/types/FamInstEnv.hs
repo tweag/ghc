@@ -5,6 +5,8 @@
 {-# LANGUAGE CPP, GADTs, ScopedTypeVariables, BangPatterns, TupleSections,
     DeriveFunctor #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module FamInstEnv (
         FamInst(..), FamFlavor(..), famInstAxiom, famInstTyCon, famInstRHS,
         famInstsRepTyCons, famInstRepTyCon_maybe, dataFamInstRepTyCon,
@@ -50,15 +52,13 @@ import CoAxiom
 import VarSet
 import VarEnv
 import Name
-import PrelNames ( eqPrimTyConKey )
 import UniqDFM
 import Outputable
 import Maybes
-import CoreMap
+import GHC.Core.Map
 import Unique
 import Util
 import Var
-import Pair
 import SrcLoc
 import FastString
 import Control.Monad
@@ -220,7 +220,7 @@ instance Outputable FamInst where
 pprFamInst :: FamInst -> SDoc
 -- Prints the FamInst as a family instance declaration
 -- NB: This function, FamInstEnv.pprFamInst, is used only for internal,
---     debug printing. See PprTyThing.pprFamInst for printing for the user
+--     debug printing. See GHC.Core.Ppr.TyThing.pprFamInst for printing for the user
 pprFamInst (FamInst { fi_flavor = flavor, fi_axiom = ax
                     , fi_tvs = tvs, fi_tys = tys, fi_rhs = rhs })
   = hang (ppr_tc_sort <+> text "instance"
@@ -247,7 +247,7 @@ pprFamInsts finsts = vcat (map pprFamInst finsts)
 Note [Lazy axiom match]
 ~~~~~~~~~~~~~~~~~~~~~~~
 It is Vitally Important that mkImportedFamInst is *lazy* in its axiom
-parameter. The axiom is loaded lazily, via a forkM, in TcIface. Sometime
+parameter. The axiom is loaded lazily, via a forkM, in GHC.IfaceToCore. Sometime
 later, mkImportedFamInst is called using that axiom. However, the axiom
 may itself depend on entities which are not yet loaded as of the time
 of the mkImportedFamInst. Thus, if mkImportedFamInst eagerly looks at the
@@ -687,7 +687,7 @@ mkSingleCoAxiom :: Role -> Name
                 -> [TyVar] -> [TyVar] -> [CoVar]
                 -> TyCon -> [Type] -> Type
                 -> CoAxiom Unbranched
--- Make a single-branch CoAxiom, incluidng making the branch itself
+-- Make a single-branch CoAxiom, including making the branch itself
 -- Used for both type family (Nominal) and data family (Representational)
 -- axioms, hence passing in the Role
 mkSingleCoAxiom role ax_name tvs eta_tvs cvs fam_tc lhs_tys rhs_ty
@@ -895,6 +895,13 @@ conditions hold:
    There are subtleties here. See Note [Coverage condition for injective type families]
    in FamInst.
 
+Check (1) must be done for all family instances (transitively) imported. Other
+checks (2-4) should be done just for locally written equations, as they are checks
+involving just a single equation, not about interactions. Doing the other checks for
+imported equations led to #17405, as the behavior of check (4) depends on
+-XUndecidableInstances (see Note [Coverage condition for injective type families] in
+FamInst), which may vary between modules.
+
 See also Note [Injective type families] in TyCon
 -}
 
@@ -1086,7 +1093,7 @@ reduceTyFamApp_maybe :: FamInstEnvs
 --    but *not* newtypes
 -- Works on type-synonym families always; data-families only if
 --     the role we seek is representational
--- It does *not* normlise the type arguments first, so this may not
+-- It does *not* normalise the type arguments first, so this may not
 --     go as far as you want. If you want normalised type arguments,
 --     use normaliseTcArgs first.
 --
@@ -1112,13 +1119,13 @@ reduceTyFamApp_maybe envs role tc tys
       -- NB: Allow multiple matches because of compatible overlap
 
   = let co = mkUnbranchedAxInstCo role ax inst_tys inst_cos
-        ty = pSnd (coercionKind co)
+        ty = coercionRKind co
     in Just (co, ty)
 
   | Just ax <- isClosedSynFamilyTyConWithAxiom_maybe tc
   , Just (ind, inst_tys, inst_cos) <- chooseBranch ax tys
   = let co = mkAxInstCo role ax ind inst_tys inst_cos
-        ty = pSnd (coercionKind co)
+        ty = coercionRKind co
     in Just (co, ty)
 
   | Just ax           <- isBuiltInSynFamTyCon_maybe tc
@@ -1246,7 +1253,7 @@ because type families are saturated.
 
 But if S has a type family on its RHS we expand /before/ normalising
 the args t1, t2.  If we normalise t1, t2 first, we'll re-normalise them
-after expansion, and that can lead to /exponential/ behavour; see #13035.
+after expansion, and that can lead to /exponential/ behaviour; see #13035.
 
 Notice, though, that expanding first can in principle duplicate t1,t2,
 which might contain redexes. I'm sure you could conjure up an exponential
@@ -1487,7 +1494,7 @@ normalise_tyvar tv
     do { lc <- getLC
        ; r  <- getRole
        ; return $ case liftCoSubstTyVar lc r tv of
-           Just co -> (co, pSnd $ coercionKind co)
+           Just co -> (co, coercionRKind co)
            Nothing -> (mkReflCo r ty, ty) }
   where ty = mkTyVarTy tv
 
@@ -1639,7 +1646,7 @@ There are wrinkles, of course:
    they did, then looking up `F b1` would yield the same flatten var for
    each.) So, even though `forall`-bound variables should really be in the
    in-scope set only when they are in scope, we retain these variables even
-   outside of their scope. This ensures that, if we enounter a fresh
+   outside of their scope. This ensures that, if we encounter a fresh
    `forall`-bound b, we will rename it to b2, not b1. Note that keeping a
    larger in-scope set than strictly necessary is always OK, as in-scope sets
    are only ever used to avoid collisions.
@@ -1767,9 +1774,8 @@ coreFlattenCo :: TvSubstEnv -> FlattenEnv
 coreFlattenCo subst env co
   = (env2, mkCoVarCo covar)
   where
-    fresh_name    = mkFlattenFreshCoName
     (env1, kind') = coreFlattenTy subst env (coercionType co)
-    covar         = uniqAway (fe_in_scope env1) (mkCoVar fresh_name kind')
+    covar         = mkFlattenFreshCoVar (fe_in_scope env1) kind'
     -- Add the covar to the FlattenEnv's in-scope set.
     -- See Note [Flattening], wrinkle 2A.
     env2          = updateInScopeSet env1 (flip extendInScopeSet covar)
@@ -1822,6 +1828,8 @@ mkFlattenFreshTyName :: Uniquable a => a -> Name
 mkFlattenFreshTyName unq
   = mkSysTvName (getUnique unq) (fsLit "flt")
 
-mkFlattenFreshCoName :: Name
-mkFlattenFreshCoName
-  = mkSystemVarName (deriveUnique eqPrimTyConKey 71) (fsLit "flc")
+mkFlattenFreshCoVar :: InScopeSet -> Kind -> CoVar
+mkFlattenFreshCoVar in_scope kind
+  = let uniq = unsafeGetFreshLocalUnique in_scope
+        name = mkSystemVarName uniq (fsLit "flc")
+    in mkCoVar name kind

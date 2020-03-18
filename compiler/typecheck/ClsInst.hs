@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module ClsInst (
      matchGlobalInst,
      ClsInstResult(..),
@@ -18,7 +20,7 @@ import TcTypeable
 import TcMType
 import TcEvidence
 import Predicate
-import RnEnv( addUsedGRE )
+import GHC.Rename.Env( addUsedGRE )
 import RdrName( lookupGRE_FieldLabel )
 import InstEnv
 import Inst( instDFunType )
@@ -31,14 +33,14 @@ import PrelNames
 import Id
 import Type
 import Multiplicity
-import MkCore ( mkStringExprFS, mkNaturalExpr )
+import GHC.Core.Make ( mkStringExprFS, mkNaturalExpr )
 
 import Name   ( Name, pprDefinedAt )
 import VarEnv ( VarEnv )
 import DataCon
 import TyCon
 import Class
-import DynFlags
+import GHC.Driver.Session
 import Outputable
 import Util( splitAtList, fstOf3 )
 import Data.Maybe
@@ -61,7 +63,7 @@ data AssocInstInfo
                                             -- Why scoped?  See bind_me in
                                             -- TcValidity.checkConsistentFamInst
               , ai_inst_env :: VarEnv Type  -- ^ Maps /class/ tyvars to their instance types
-                -- See Note [Matching in the consistent-instantation check]
+                -- See Note [Matching in the consistent-instantiation check]
     }
 
 isNotAssociated :: AssocInstInfo -> Bool

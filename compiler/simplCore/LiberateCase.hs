@@ -11,9 +11,9 @@ module LiberateCase ( liberateCase ) where
 
 import GhcPrelude
 
-import DynFlags
-import CoreSyn
-import CoreUnfold       ( couldBeSmallEnoughToInline )
+import GHC.Driver.Session
+import GHC.Core
+import GHC.Core.Unfold  ( couldBeSmallEnoughToInline )
 import TysWiredIn       ( unitDataConId )
 import Id
 import VarEnv
@@ -164,7 +164,7 @@ libCaseBind env (Rec pairs)
 {- Note [Not bottoming Ids]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Do not specialise error-functions (this is unusual, but I once saw it,
-(acually in Data.Typable.Internal)
+(actually in Data.Typable.Internal)
 
 Note [Only functions!]
 ~~~~~~~~~~~~~~~~~~~~~~

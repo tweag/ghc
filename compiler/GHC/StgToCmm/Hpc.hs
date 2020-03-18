@@ -12,14 +12,14 @@ import GhcPrelude
 
 import GHC.StgToCmm.Monad
 
-import MkGraph
-import CmmExpr
-import CLabel
+import GHC.Cmm.Graph
+import GHC.Cmm.Expr
+import GHC.Cmm.CLabel
 import Module
-import CmmUtils
+import GHC.Cmm.Utils
 import GHC.StgToCmm.Utils
-import HscTypes
-import DynFlags
+import GHC.Driver.Types
+import GHC.Driver.Session
 
 import Control.Monad
 
@@ -41,7 +41,7 @@ initHpc _ (NoHpcInfo {})
 initHpc this_mod (HpcInfo tickCount _hashNo)
   = do dflags <- getDynFlags
        when (gopt Opt_Hpc dflags) $
-           do emitDataLits (mkHpcTicksLabel this_mod)
+           emitRawDataLits (mkHpcTicksLabel this_mod)
                            [ (CmmInt 0 W64)
                            | _ <- take tickCount [0 :: Int ..]
                            ]

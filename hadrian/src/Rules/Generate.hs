@@ -15,7 +15,6 @@ import Oracles.Flag
 import Oracles.ModuleFiles
 import Oracles.Setting
 import Packages
-import Rules.Gmp
 import Rules.Libffi
 import Settings
 import Settings.Builders.DeriveConstants (deriveConstantsPairs)
@@ -53,11 +52,11 @@ compilerDependencies = do
     stage   <- getStage
     isGmp   <- (== integerGmp) <$> getIntegerPackage
     ghcPath <- expr $ buildPath (vanillaContext stage compiler)
-    gmpPath <- expr gmpBuildPath
+    gmpPath <- expr $ buildPath (vanillaContext stage integerGmp)
     rtsPath <- expr (rtsBuildPath stage)
     libDir <- expr $ stageLibPath stage
     mconcat [ return $ (libDir -/-) <$> derivedConstantsFiles
-            , notStage0 ? isGmp ? return [gmpPath -/- gmpLibraryH]
+            , notStage0 ? isGmp ? return [gmpPath -/- "include/ghc-gmp.h"]
             , notStage0 ? return ((rtsPath -/-) <$> libffiHeaderFiles)
             , return $ fmap (ghcPath -/-)
                   [ "primop-can-fail.hs-incl"
@@ -215,7 +214,7 @@ ghcWrapper stage  = do
                                ++ [ "-package-db " ++ dbPath | stage == Stage1 ]
                                ++ [ "$@" ]
 
--- | Given a 'String' replace charaters '.' and '-' by underscores ('_') so that
+-- | Given a 'String' replace characters '.' and '-' by underscores ('_') so that
 -- the resulting 'String' is a valid C preprocessor identifier.
 cppify :: String -> String
 cppify = replaceEq '-' '_' . replaceEq '.' '_'
@@ -315,12 +314,12 @@ generateSettings = do
         , ("integer library", pkgName <$> getIntegerPackage)
         , ("Use interpreter", expr $ yesNo <$> ghcWithInterpreter)
         , ("Use native code generator", expr $ yesNo <$> ghcWithNativeCodeGen)
-        , ("Support SMP", expr $ yesNo <$> ghcWithSMP)
+        , ("Support SMP", expr $ yesNo <$> targetSupportsSMP)
         , ("RTS ways", unwords . map show <$> getRtsWays)
         , ("Tables next to code", expr $ yesNo <$> flag TablesNextToCode)
         , ("Leading underscore", expr $ yesNo <$> flag LeadingUnderscore)
         , ("Use LibFFI", expr $ yesNo <$> useLibFFIForAdjustors)
-        , ("Use Threads", yesNo . any (wayUnit Threaded) <$> getRtsWays)
+        , ("Use Threads", expr $ yesNo . ghcThreaded <$> flavour)
         , ("Use Debugging", expr $ yesNo . ghcDebugged <$> flavour)
         , ("RTS expects libdw", yesNo <$> getFlag WithLibdw)
         ]

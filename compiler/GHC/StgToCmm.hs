@@ -26,19 +26,18 @@ import GHC.StgToCmm.Closure
 import GHC.StgToCmm.Hpc
 import GHC.StgToCmm.Ticky
 
-import Cmm
-import CmmUtils
-import CLabel
+import GHC.Cmm
+import GHC.Cmm.CLabel
 
-import StgSyn
-import DynFlags
+import GHC.Stg.Syntax
+import GHC.Driver.Session
 import ErrUtils
 
-import HscTypes
+import GHC.Driver.Types
 import CostCentre
 import Id
 import IdInfo
-import RepType
+import GHC.Types.RepType
 import DataCon
 import TyCon
 import Multiplicity
@@ -49,7 +48,7 @@ import BasicTypes
 import VarSet ( isEmptyDVarSet )
 
 import OrdList
-import MkGraph
+import GHC.Cmm.Graph
 
 import Data.IORef
 import Control.Monad (when,void)
@@ -148,7 +147,7 @@ cgTopRhs :: DynFlags -> RecFlag -> Id -> CgStgRhs -> (CgIdInfo, FCode ())
 cgTopRhs dflags _rec bndr (StgRhsCon _cc con args)
   = cgTopRhsCon dflags bndr con (assertNonVoidStgArgs args)
       -- con args are always non-void,
-      -- see Note [Post-unarisation invariants] in UnariseStg
+      -- see Note [Post-unarisation invariants] in GHC.Stg.Unarise
 
 cgTopRhs dflags rec bndr (StgRhsClosure fvs cc upd_flag args body)
   = ASSERT(isEmptyDVarSet fvs)    -- There should be no free variables
@@ -179,7 +178,7 @@ mkModuleInit cost_centre_info this_mod hpc_info
 cgEnumerationTyCon :: TyCon -> FCode ()
 cgEnumerationTyCon tycon
   = do dflags <- getDynFlags
-       emitRODataLits (mkLocalClosureTableLabel (tyConName tycon) NoCafRefs)
+       emitRawRODataLits (mkLocalClosureTableLabel (tyConName tycon) NoCafRefs)
              [ CmmLabelOff (mkLocalClosureLabel (dataConName con) NoCafRefs)
                            (tagForCon dflags con)
              | con <- tyConDataCons tycon]

@@ -23,6 +23,7 @@ module VarSet (
         sizeVarSet, seqVarSet,
         elemVarSetByKey, partitionVarSet,
         pluralVarSet, pprVarSet,
+        nonDetFoldVarSet,
 
         -- * Deterministic Var set types
         DVarSet, DIdSet, DTyVarSet, DTyCoVarSet,
@@ -151,6 +152,9 @@ allVarSet = uniqSetAll
 mapVarSet :: Uniquable b => (a -> b) -> UniqSet a -> UniqSet b
 mapVarSet = mapUniqSet
 
+nonDetFoldVarSet :: (Var -> a -> a) -> a -> VarSet -> a
+nonDetFoldVarSet = nonDetFoldUniqSet
+
 fixVarSet :: (VarSet -> VarSet)   -- Map the current set to a new set
           -> VarSet -> VarSet
 -- (fixVarSet f s) repeatedly applies f to the set s,
@@ -171,7 +175,7 @@ transCloVarSet :: (VarSet -> VarSet)
 -- The function fn could be (Var -> VarSet), but we use (VarSet -> VarSet)
 -- for efficiency, so that the test can be batched up.
 -- It's essential that fn will work fine if given new candidates
--- one at at time; ie  fn {v1,v2} = fn v1 `union` fn v2
+-- one at a time; ie  fn {v1,v2} = fn v1 `union` fn v2
 -- Use fixVarSet if the function needs to see the whole set all at once
 transCloVarSet fn seeds
   = go seeds seeds
@@ -319,7 +323,7 @@ seqDVarSet s = sizeDVarSet s `seq` ()
 extendDVarSetList :: DVarSet -> [Var] -> DVarSet
 extendDVarSetList = addListToUniqDSet
 
--- | Convert a DVarSet to a VarSet by forgeting the order of insertion
+-- | Convert a DVarSet to a VarSet by forgetting the order of insertion
 dVarSetToVarSet :: DVarSet -> VarSet
 dVarSetToVarSet = unsafeUFMToUniqSet . udfmToUfm . getUniqDSet
 
@@ -334,7 +338,7 @@ transCloDVarSet :: (DVarSet -> DVarSet)
 -- The function fn could be (Var -> DVarSet), but we use (DVarSet -> DVarSet)
 -- for efficiency, so that the test can be batched up.
 -- It's essential that fn will work fine if given new candidates
--- one at at time; ie  fn {v1,v2} = fn v1 `union` fn v2
+-- one at a time; ie  fn {v1,v2} = fn v1 `union` fn v2
 transCloDVarSet fn seeds
   = go seeds seeds
   where

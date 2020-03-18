@@ -4,10 +4,12 @@ For other documentation, refer to:
 <http://www.haskell.org/haskellwiki/Template_Haskell>
 
 -}
+{-# LANGUAGE Safe #-}
 module Language.Haskell.TH(
         -- * The monad and its operations
         Q,
         runQ,
+        Quote(..),
         -- ** Administration: errors, locations and IO
         reportError,              -- :: String -> Q ()
         reportWarning,            -- :: String -> Q ()
@@ -53,7 +55,6 @@ module Language.Haskell.TH(
         Name, NameSpace,        -- Abstract
         -- ** Constructing names
         mkName,         -- :: String -> Name
-        newName,        -- :: String -> Q Name
         -- ** Deconstructing names
         nameBase,       -- :: Name -> String
         nameModule,     -- :: Name -> Maybe String
@@ -84,7 +85,7 @@ module Language.Haskell.TH(
         Pat(..), FieldExp, FieldPat,
     -- ** Types
         Type(..), TyVarBndr(..), TyLit(..), Kind, Cxt, Pred, Syntax.Role(..),
-        FamilyResultSig(..), Syntax.InjectivityAnn(..), PatSynType,
+        FamilyResultSig(..), Syntax.InjectivityAnn(..), PatSynType, BangType, VarBangType,
 
     -- * Library functions
     module Language.Haskell.TH.Lib,

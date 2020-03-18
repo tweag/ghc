@@ -28,15 +28,15 @@ import GhcPrelude
 import GHC.StgToCmm.Closure
 import GHC.StgToCmm.Utils
 import GHC.StgToCmm.Monad
-import SMRep
+import GHC.Runtime.Heap.Layout
 
-import MkGraph
-import Cmm
-import CmmUtils
-import CLabel
+import GHC.Cmm.Graph
+import GHC.Cmm
+import GHC.Cmm.Utils
+import GHC.Cmm.CLabel
 
 import CostCentre
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import Module
 import Outputable
@@ -231,7 +231,7 @@ emitCostCentreDecl cc = do
               is_caf,   -- StgInt is_caf
               zero dflags      -- struct _CostCentre *link
             ]
-  ; emitDataLits (mkCCLabel cc) lits
+  ; emitRawDataLits (mkCCLabel cc) lits
   }
 
 emitCostCentreStackDecl :: CostCentreStack -> FCode ()
@@ -247,7 +247,7 @@ emitCostCentreStackDecl ccs
                 -- layouts of structs containing long-longs, simply
                 -- pad out the struct with zero words until we hit the
                 -- size of the overall struct (which we get via DerivedConstants.h)
-           emitDataLits (mkCCSLabel ccs) (mk_lits cc)
+           emitRawDataLits (mkCCSLabel ccs) (mk_lits cc)
     Nothing -> pprPanic "emitCostCentreStackDecl" (ppr ccs)
 
 zero :: DynFlags -> CmmLit
@@ -328,14 +328,14 @@ ldvEnterClosure :: ClosureInfo -> CmmReg -> FCode ()
 ldvEnterClosure closure_info node_reg = do
     dflags <- getDynFlags
     let tag = funTag dflags closure_info
-    -- don't forget to substract node's tag
+    -- don't forget to subtract node's tag
     ldvEnter (cmmOffsetB dflags (CmmReg node_reg) (-tag))
 
 ldvEnter :: CmmExpr -> FCode ()
 -- Argument is a closure pointer
 ldvEnter cl_ptr = do
     dflags <- getDynFlags
-    let -- don't forget to substract node's tag
+    let -- don't forget to subtract node's tag
         ldv_wd = ldvWord dflags cl_ptr
         new_ldv_wd = cmmOrWord dflags (cmmAndWord dflags (CmmLoad ldv_wd (bWord dflags))
                                                          (CmmLit (mkWordCLit dflags (iLDV_CREATE_MASK dflags))))

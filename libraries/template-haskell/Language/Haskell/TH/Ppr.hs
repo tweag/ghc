@@ -1,3 +1,4 @@
+{-# LANGUAGE Safe #-}
 -- | contains a prettyprinter for the
 -- Template Haskell datatypes
 
@@ -153,7 +154,11 @@ pprExp i (LamE ps e) = parensIf (i > noPrec) $ char '\\' <> hsep (map (pprPat ap
                                            <+> text "->" <+> ppr e
 pprExp i (LamCaseE ms) = parensIf (i > noPrec)
                        $ text "\\case" $$ nest nestDepth (ppr ms)
-pprExp _ (TupE es) = parens (commaSepWith (pprMaybeExp noPrec) es)
+pprExp i (TupE es)
+  | [Just e] <- es
+  = pprExp i (ConE (tupleDataName 1) `AppE` e)
+  | otherwise
+  = parens (commaSepWith (pprMaybeExp noPrec) es)
 pprExp _ (UnboxedTupE es) = hashParens (commaSepWith (pprMaybeExp noPrec) es)
 pprExp _ (UnboxedSumE e alt arity) = unboxedSumBars (ppr e) alt arity
 -- Nesting in Cond is to avoid potential problems in do statements
@@ -291,7 +296,11 @@ instance Ppr Pat where
 pprPat :: Precedence -> Pat -> Doc
 pprPat i (LitP l)     = pprLit i l
 pprPat _ (VarP v)     = pprName' Applied v
-pprPat _ (TupP ps)    = parens (commaSep ps)
+pprPat i (TupP ps)
+  | [_] <- ps
+  = pprPat i (ConP (tupleDataName 1) ps)
+  | otherwise
+  = parens (commaSep ps)
 pprPat _ (UnboxedTupP ps) = hashParens (commaSep ps)
 pprPat _ (UnboxedSumP p alt arity) = unboxedSumBars (ppr p) alt arity
 pprPat i (ConP s ps)  = parensIf (i >= appPrec) $ pprName' Applied s
@@ -742,6 +751,7 @@ pprParendType (VarT v)            = pprName' Applied v
 -- `Applied` is used here instead of `ppr` because of infix names (#13887)
 pprParendType (ConT c)            = pprName' Applied c
 pprParendType (TupleT 0)          = text "()"
+pprParendType (TupleT 1)          = pprParendType (ConT (tupleTypeName 1))
 pprParendType (TupleT n)          = parens (hcat (replicate (n-1) comma))
 pprParendType (UnboxedTupleT n)   = hashParens $ hcat $ replicate (n-1) comma
 pprParendType (UnboxedSumT arity) = hashParens $ hcat $ replicate (arity-1) bar
@@ -751,6 +761,7 @@ pprParendType ListT               = text "[]"
 pprParendType (LitT l)            = pprTyLit l
 pprParendType (PromotedT c)       = text "'" <> pprName' Applied c
 pprParendType (PromotedTupleT 0)  = text "'()"
+pprParendType (PromotedTupleT 1)  = pprParendType (PromotedT (tupleDataName 1))
 pprParendType (PromotedTupleT n)  = quoteParens (hcat (replicate (n-1) comma))
 pprParendType PromotedNilT        = text "'[]"
 pprParendType PromotedConsT       = text "'(:)"
@@ -779,15 +790,20 @@ instance Ppr Type where
     ppr (ForallT tvars ctxt ty) = sep [pprForall tvars ctxt, ppr ty]
     ppr (ForallVisT tvars ty)   = sep [pprForallVis tvars [], ppr ty]
     ppr ty = pprTyApp (split ty)
-       -- Works, in a degnerate way, for SigT, and puts parens round (ty :: kind)
+       -- Works, in a degenerate way, for SigT, and puts parens round (ty :: kind)
        -- See Note [Pretty-printing kind signatures]
 instance Ppr TypeArg where
-    ppr (TANormal ty) = ppr ty
-    ppr (TyArg ki) = char '@' <> ppr ki
+    ppr (TANormal ty) = parensIf (isStarT ty) (ppr ty)
+    ppr (TyArg ki) = char '@' <> parensIf (isStarT ki) (ppr ki)
 
 pprParendTypeArg :: TypeArg -> Doc
-pprParendTypeArg (TANormal ty) = pprParendType ty
-pprParendTypeArg (TyArg ki) = char '@' <> pprParendType ki
+pprParendTypeArg (TANormal ty) = parensIf (isStarT ty) (pprParendType ty)
+pprParendTypeArg (TyArg ki) = char '@' <> parensIf (isStarT ki) (pprParendType ki)
+
+isStarT :: Type -> Bool
+isStarT StarT = True
+isStarT _ = False
+
 {- Note [Pretty-printing kind signatures]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 GHC's parser only recognises a kind signature in a type when there are
@@ -806,11 +822,19 @@ pprTyApp (ArrowT, [TANormal arg1, TANormal arg2]) = sep [pprFunArgType arg1 <+> 
 pprTyApp (EqualityT, [TANormal arg1, TANormal arg2]) =
     sep [pprFunArgType arg1 <+> text "~", ppr arg2]
 pprTyApp (ListT, [TANormal arg]) = brackets (ppr arg)
+pprTyApp (TupleT 1, args) = pprTyApp (ConT (tupleTypeName 1), args)
+pprTyApp (PromotedTupleT 1, args) = pprTyApp (PromotedT (tupleDataName 1), args)
 pprTyApp (TupleT n, args)
- | length args == n = parens (commaSep args)
+ | length args == n, Just args' <- traverse fromTANormal args
+ = parens (commaSep args')
 pprTyApp (PromotedTupleT n, args)
- | length args == n = quoteParens (commaSep args)
+ | length args == n, Just args' <- traverse fromTANormal args
+ = quoteParens (commaSep args')
 pprTyApp (fun, args) = pprParendType fun <+> sep (map pprParendTypeArg args)
+
+fromTANormal :: TypeArg -> Maybe Type
+fromTANormal (TANormal arg) = Just arg
+fromTANormal (TyArg _) = Nothing
 
 pprFunArgType :: Type -> Doc    -- Should really use a precedence argument
 -- Everything except forall and (->) binds more tightly than (->)

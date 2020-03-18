@@ -11,6 +11,8 @@ Haskell. [WDP 94/11])
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module IdInfo (
         -- * The IdDetails type
         IdDetails(..), pprIdDetails, coVarDetails, isCoVarDetails,
@@ -40,6 +42,7 @@ module IdInfo (
 
         -- ** Demand and strictness Info
         strictnessInfo, setStrictnessInfo,
+        cprInfo, setCprInfo,
         demandInfo, setDemandInfo, pprStrictness,
 
         -- ** Unfolding Info
@@ -54,8 +57,7 @@ module IdInfo (
         isDeadOcc, isStrongLoopBreaker, isWeakLoopBreaker,
         occInfo, setOccInfo,
 
-        InsideLam, OneBranch,
-        insideLam, notInsideLam, oneBranch, notOneBranch,
+        InsideLam(..), OneBranch(..),
 
         TailCallInfo(..),
         tailCallInfo, isAlwaysTailCalled,
@@ -84,7 +86,7 @@ module IdInfo (
 
 import GhcPrelude
 
-import CoreSyn
+import GHC.Core
 
 import Class
 import {-# SOURCE #-} PrimOp (PrimOp)
@@ -99,6 +101,7 @@ import ForeignCall
 import Outputable
 import Module
 import Demand
+import Cpr
 import Util
 
 -- infixl so you can say (id `set` a `set` b)
@@ -110,6 +113,7 @@ infixl  1 `setRuleInfo`,
           `setOccInfo`,
           `setCafInfo`,
           `setStrictnessInfo`,
+          `setCprInfo`,
           `setDemandInfo`,
           `setNeverLevPoly`,
           `setLevityInfoWithType`
@@ -161,7 +165,7 @@ data IdDetails
                -- This only covers /un-lifted/ coercions, of type
                -- (t1 ~# t2) or (t1 ~R# t2), not their lifted variants
   | JoinId JoinArity           -- ^ An 'Id' for a join point taking n arguments
-       -- Note [Join points] in CoreSyn
+       -- Note [Join points] in GHC.Core
 
 -- | Recursive Selector Parent
 data RecSelParent = RecSelData TyCon | RecSelPatSyn PatSyn deriving Eq
@@ -238,7 +242,7 @@ pprIdDetails other     = brackets (pp other)
 data IdInfo
   = IdInfo {
         arityInfo       :: !ArityInfo,
-        -- ^ 'Id' arity, as computed by 'CoreArity'. Specifies how many
+        -- ^ 'Id' arity, as computed by 'GHC.Core.Arity'. Specifies how many
         -- arguments this 'Id' has to be applied to before it doesn any
         -- meaningful work.
         ruleInfo        :: RuleInfo,
@@ -251,12 +255,15 @@ data IdInfo
         oneShotInfo     :: OneShotInfo,
         -- ^ Info about a lambda-bound variable, if the 'Id' is one
         inlinePragInfo  :: InlinePragma,
-        -- ^ Any inline pragma atached to the 'Id'
+        -- ^ Any inline pragma attached to the 'Id'
         occInfo         :: OccInfo,
         -- ^ How the 'Id' occurs in the program
         strictnessInfo  :: StrictSig,
         -- ^ A strictness signature. Digests how a function uses its arguments
         -- if applied to at least 'arityInfo' arguments.
+        cprInfo         :: CprSig,
+        -- ^ Information on whether the function will ultimately return a
+        -- freshly allocated constructor.
         demandInfo      :: Demand,
         -- ^ ID demand information
         callArityInfo   :: !ArityInfo,
@@ -301,6 +308,9 @@ setDemandInfo info dd = dd `seq` info { demandInfo = dd }
 setStrictnessInfo :: IdInfo -> StrictSig -> IdInfo
 setStrictnessInfo info dd = dd `seq` info { strictnessInfo = dd }
 
+setCprInfo :: IdInfo -> CprSig -> IdInfo
+setCprInfo info cpr = cpr `seq` info { cprInfo = cpr }
+
 -- | Basic 'IdInfo' that carries no useful information whatsoever
 vanillaIdInfo :: IdInfo
 vanillaIdInfo
@@ -314,6 +324,7 @@ vanillaIdInfo
             occInfo             = noOccInfo,
             demandInfo          = topDmd,
             strictnessInfo      = nopSig,
+            cprInfo             = topCprSig,
             callArityInfo       = unknownArity,
             levityInfo          = NoLevityInfo
            }
@@ -403,14 +414,14 @@ But we don't do that for instance declarations and so we just treat
 them all uniformly.
 
 The EXCEPTION is PrimOpIds, which do have rules in their IdInfo. That is
-jsut for convenience really.
+just for convenience really.
 
 However, LocalIds may have non-empty RuleInfo.  We treat them
 differently because:
   a) they might be nested, in which case a global table won't work
   b) the RULE might mention free variables, which we use to keep things alive
 
-In TidyPgm, when the LocalId becomes a GlobalId, its RULES are stripped off
+In GHC.Iface.Tidy, when the LocalId becomes a GlobalId, its RULES are stripped off
 and put in the global list.
 -}
 
@@ -426,7 +437,7 @@ data RuleInfo
                         -- ru_fn though.
                         -- Note [Rule dependency info] in OccurAnal
 
--- | Assume that no specilizations exist: always safe
+-- | Assume that no specializations exist: always safe
 emptyRuleInfo :: RuleInfo
 emptyRuleInfo = RuleInfo [] emptyDVarSet
 
@@ -508,12 +519,12 @@ zapLamInfo info@(IdInfo {occInfo = occ, demandInfo = demand})
   where
         -- The "unsafe" occ info is the ones that say I'm not in a lambda
         -- because that might not be true for an unsaturated lambda
-    is_safe_occ occ | isAlwaysTailCalled occ     = False
-    is_safe_occ (OneOcc { occ_in_lam = in_lam }) = in_lam
-    is_safe_occ _other                           = True
+    is_safe_occ occ | isAlwaysTailCalled occ           = False
+    is_safe_occ (OneOcc { occ_in_lam = NotInsideLam }) = False
+    is_safe_occ _other                                 = True
 
     safe_occ = case occ of
-                 OneOcc{} -> occ { occ_in_lam = True
+                 OneOcc{} -> occ { occ_in_lam = IsInsideLam
                                  , occ_tail   = NoTailCallInfo }
                  IAmALoopBreaker{}
                           -> occ { occ_tail   = NoTailCallInfo }
@@ -606,7 +617,7 @@ Ids store whether or not they can be levity-polymorphic at any amount
 of saturation. This is helpful in optimizing the levity-polymorphism check
 done in the desugarer, where we can usually learn that something is not
 levity-polymorphic without actually figuring out its type. See
-isExprLevPoly in CoreUtils for where this info is used. Storing
+isExprLevPoly in GHC.Core.Utils for where this info is used. Storing
 this is required to prevent perf/compiler/T5631 from blowing up.
 
 -}

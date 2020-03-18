@@ -8,11 +8,11 @@ module Main where
 
 -- import Data.Generics
 import Data.Data hiding (Fixity)
-import Data.List
+import Data.List (intercalate)
 import System.IO
 import GHC
 import BasicTypes
-import DynFlags
+import GHC.Driver.Session
 import FastString
 import ForeignCall
 import MonadUtils
@@ -30,7 +30,7 @@ main = do
         testOneFile libdir fileName
 
 testOneFile libdir fileName = do
-       ((anns,cs),p) <- runGhc (Just libdir) $ do
+       p <- runGhc (Just libdir) $ do
                         dflags <- getSessionDynFlags
                         setSessionDynFlags dflags
                         let mn =mkModuleName fileName
@@ -40,7 +40,7 @@ testOneFile libdir fileName = do
                         load LoadAllTargets
                         modSum <- getModSummary mn
                         p <- parseModule modSum
-                        return (pm_annotations p,p)
+                        return p
 
        let tupArgs = gq (pm_parsed_source p)
 
@@ -67,7 +67,7 @@ testOneFile libdir fileName = do
      doRuleDecl (HsRule _ _ _ _ _ _ _) = []
 
      doHsExpr :: HsExpr GhcPs -> [(String,[String])]
-     doHsExpr (HsTickPragma _ src (_,_,_) ss _) = [("tp",[show ss])]
+     doHsExpr (HsPragE _ (HsPragTick _ src (_,_,_) ss) _) = [("tp",[show ss])]
      doHsExpr _ = []
 
      doInline (InlinePragma _ _ _ (ActiveBefore (SourceText ss) _) _)

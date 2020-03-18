@@ -39,10 +39,11 @@ import Foreign.Marshal.Array
 import Foreign.Ptr
 import Foreign.Storable
 import System.Posix.Internals
+#include <sys/types.h>
 #include <sys/sysctl.h>
 #elif defined(mingw32_HOST_OS)
 import Control.Exception
-import Data.List
+import Data.List (isPrefixOf)
 import Data.Word
 import Foreign.C
 import Foreign.Marshal.Array

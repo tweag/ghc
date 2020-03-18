@@ -39,12 +39,6 @@ clean_gmp:
 	$(call removeTrees,libraries/integer-gmp/gmp/gmpbuild)
 endif
 
-ifeq "$(Windows_Host)" "YES"
-# Apparently building on Windows fails when there is a system gmp
-# available, so we never try to use the system gmp on Windows
-libraries/integer-gmp_CONFIGURE_OPTS += --configure-option=--with-intree-gmp
-endif
-
 ifeq "$(GMP_PREFER_FRAMEWORK)" "YES"
 libraries/integer-gmp_CONFIGURE_OPTS += --with-gmp-framework-preferred
 endif
@@ -59,7 +53,7 @@ ifneq "$(CLEANING)" "YES"
 endif
 
 gmp_CC_OPTS += $(addprefix -I,$(GMP_INCLUDE_DIRS))
-gmp_CC_OPTS += $(addprefix -L,$(GMP_LIB_DIRS))
+gmp_LD_OPTS += $(addprefix -L,$(GMP_LIB_DIRS))
 
 # Compile GMP only if we don't have it already
 #
@@ -131,7 +125,7 @@ libraries/integer-gmp/gmp/libgmp.a libraries/integer-gmp/gmp/gmp.h:
 	#       run is the 'target' platform of the compiler we're building.
 	cd libraries/integer-gmp/gmp/gmpbuild; \
 	    CC=$(CCX) CXX=$(CCX) NM=$(NM) AR=$(AR_STAGE1) ./configure \
-	          --enable-shared=no \
+	          --enable-shared=no --with-pic=yes \
 	          --host=$(TARGETPLATFORM) --build=$(BUILDPLATFORM)
 	$(MAKE) -C libraries/integer-gmp/gmp/gmpbuild MAKEFLAGS=
 	$(CP) libraries/integer-gmp/gmp/gmpbuild/gmp.h libraries/integer-gmp/gmp/

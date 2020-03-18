@@ -30,7 +30,7 @@ import GhcPrelude
 import TysPrim
 import TysWiredIn
 
-import CmmType
+import GHC.Cmm.Type
 import Demand
 import Id               ( Id, mkVanillaGlobalWithInfo )
 import IdInfo           ( vanillaIdInfo, setCafInfo, CafInfo(NoCafRefs) )
@@ -38,7 +38,7 @@ import Name
 import PrelNames        ( gHC_PRIMOPWRAPPERS )
 import TyCon            ( TyCon, isPrimTyCon, PrimRep(..) )
 import Type
-import RepType          ( typePrimRep1, tyConPrimRep1 )
+import GHC.Types.RepType          ( typePrimRep1, tyConPrimRep1 )
 import BasicTypes       ( Arity, Fixity(..), FixityDirection(..), Boxity(..),
                           SourceText(..) )
 import SrcLoc           ( wiredInSrcSpan )
@@ -323,7 +323,7 @@ Note [Checking versus non-checking primops]
 
   It is important that a non-checking primop never be transformed in a way that
   would cause it to bottom. Doing so would violate Core's let/app invariant
-  (see Note [CoreSyn let/app invariant] in CoreSyn) which is critical to
+  (see Note [Core let/app invariant] in GHC.Core) which is critical to
   the simplifier's ability to float without fear of changing program meaning.
 
 
@@ -363,7 +363,7 @@ data dependencies of the state token to enforce write-effect ordering
 ----------  can_fail ----------------------------
 A primop "can_fail" if it can fail with an *unchecked* exception on
 some elements of its input domain. Main examples:
-   division (fails on zero demoninator)
+   division (fails on zero denominator)
    array indexing (fails if the index is out of bounds)
 
 An "unchecked exception" is one that is an outright error, (not
@@ -483,7 +483,7 @@ primOpCanFail :: PrimOp -> Bool
 
 primOpOkForSpeculation :: PrimOp -> Bool
   -- See Note [PrimOp can_fail and has_side_effects]
-  -- See comments with CoreUtils.exprOkForSpeculation
+  -- See comments with GHC.Core.Utils.exprOkForSpeculation
   -- primOpOkForSpeculation => primOpOkForSideEffects
 primOpOkForSpeculation op
   =  primOpOkForSideEffects op
@@ -535,7 +535,7 @@ primOpIsCheap op = primOpOkForSpeculation op
 primOpCodeSize
 ~~~~~~~~~~~~~~
 Gives an indication of the code size of a primop, for the purposes of
-calculating unfolding sizes; see CoreUnfold.sizeExpr.
+calculating unfolding sizes; see GHC.Core.Unfold.sizeExpr.
 -}
 
 primOpCodeSize :: PrimOp -> Int
@@ -543,7 +543,7 @@ primOpCodeSize :: PrimOp -> Int
 
 primOpCodeSizeDefault :: Int
 primOpCodeSizeDefault = 1
-  -- CoreUnfold.primOpSize already takes into account primOpOutOfLine
+  -- GHC.Core.Unfold.primOpSize already takes into account primOpOutOfLine
   -- and adds some further costs for the args in that case.
 
 primOpCodeSizeForeignCall :: Int
@@ -581,7 +581,7 @@ function definition. This caused quite some trouble as we would be forced to
 eta expand unsaturated primop applications very late in the Core pipeline. Not
 only would this produce unnecessary thunks, but it would also result in nasty
 inconsistencies in CAFfy-ness determinations (see #16846 and
-Note [CAFfyness inconsistencies due to late eta expansion] in TidyPgm).
+Note [CAFfyness inconsistencies due to late eta expansion] in GHC.Iface.Tidy).
 
 However, it was quite unnecessary for hasNoBinding to claim this; primops in
 fact *do* have curried definitions which are found in GHC.PrimopWrappers, which

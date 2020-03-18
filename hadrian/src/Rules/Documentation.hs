@@ -85,6 +85,10 @@ documentationRules = do
     -- Haddock's manual, and builds man pages
     "docs" ~> do
         root <- buildRoot
+
+        -- we need to ensure that `configure` has been run (#17840)
+        need [configFile]
+
         doctargets <- ghcDocs =<< flavour
         let html     = htmlRoot -/- "index.html" -- also implies "docs-haddock"
             archives = map pathArchive docPaths
@@ -97,7 +101,7 @@ documentationRules = do
                       -- include manpage unless --docs=no-sphinx[-man] is given.
                    ++ [ manPageBuildPath | SphinxMan `Set.member` doctargets ]
 
-                      -- include toplevel html target uness we neither want
+                      -- include toplevel html target unless we neither want
                       -- haddocks nor html pages produced by sphinx.
                    ++ [ html | Set.size (doctargets `Set.intersection`
                                          Set.fromList [Haddocks, SphinxHTML]
@@ -111,8 +115,6 @@ documentationRules = do
 
         need $ map (root -/-) targets
 
-        when (SphinxPDFs `Set.member` doctargets)
-          $ checkUserGuideFlags $ pdfRoot -/- "users_guide" -/- "ghc-flags.txt"
         when (SphinxHTML `Set.member` doctargets)
           $ checkUserGuideFlags $ root -/- htmlRoot -/- "users_guide" -/- "ghc-flags.txt"
 
@@ -133,7 +135,9 @@ checkSphinxWarnings out = do
 checkUserGuideFlags :: FilePath -> Action ()
 checkUserGuideFlags documentedFlagList = do
     scriptPath <- (</> "docs/users_guide/compare-flags.py") <$> topDirectory
-    ghcPath <- (</>) <$> topDirectory <*> programPath (vanillaContext Stage1 ghc)
+    ghc <- programPath (vanillaContext Stage1 ghc)
+    need [ghc]
+    ghcPath <- (</>) <$> topDirectory <*> pure ghc
     runBuilder Python
       [ scriptPath
       , "--doc-flags", documentedFlagList
@@ -172,7 +176,7 @@ buildSphinxHtml path = do
             rstFilesDir = pathPath path
         rstFiles <- getDirectoryFiles rstFilesDir ["**/*.rst"]
         need (map (rstFilesDir -/-) rstFiles)
-        build $ target docContext (Sphinx Html) [pathPath path] [dest]
+        build $ target docContext (Sphinx HtmlMode) [pathPath path] [dest]
         checkSphinxWarnings dest
 
 ------------------------------------ Haddock -----------------------------------
@@ -285,7 +289,7 @@ buildSphinxPdf path = do
             let rstFilesDir = pathPath path
             rstFiles <- getDirectoryFiles rstFilesDir ["**/*.rst"]
             need (map (rstFilesDir -/-) rstFiles)
-            build $ target docContext (Sphinx Latex) [pathPath path] [dir]
+            build $ target docContext (Sphinx LatexMode) [pathPath path] [dir]
             checkSphinxWarnings dir
             build $ target docContext Xelatex [path <.> "tex"] [dir]
             copyFileUntracked (dir -/- path <.> "pdf") file
@@ -302,7 +306,7 @@ buildSphinxInfoGuide = do
             let rstFilesDir = pathPath path
             rstFiles <- getDirectoryFiles rstFilesDir ["**/*.rst"]
             need (map (rstFilesDir -/-) rstFiles)
-            build $ target docContext (Sphinx Info) [pathPath path] [dir]
+            build $ target docContext (Sphinx InfoMode) [pathPath path] [dir]
             checkSphinxWarnings dir
             -- Sphinx outputs texinfo source and a makefile, the
             -- default target of which actually produces the target
@@ -334,7 +338,7 @@ buildManPage = do
     root -/- manPageBuildPath %> \file -> do
         need ["docs/users_guide/ghc.rst"]
         withTempDir $ \dir -> do
-            build $ target docContext (Sphinx Man) ["docs/users_guide"] [dir]
+            build $ target docContext (Sphinx ManMode) ["docs/users_guide"] [dir]
             checkSphinxWarnings dir
             copyFileUntracked (dir -/- "ghc.1") file
 

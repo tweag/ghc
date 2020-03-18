@@ -12,6 +12,9 @@ TcMatches: Typecheck some @Matches@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE RecordWildCards #-}
+
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
 
 module TcMatches ( tcMatchesFun, tcGRHS, tcGRHSsPat, tcMatchesCase, tcMatchLambda,
                    TcMatchCtxt(..), TcStmtChecker, TcExprStmtChecker, TcCmdStmtChecker,
@@ -47,7 +50,7 @@ import Util
 import SrcLoc
 
 -- Create chunkified tuple tybes for monad comprehensions
-import MkCore
+import GHC.Core.Make
 
 import Control.Monad
 import Control.Arrow ( second )
@@ -213,7 +216,7 @@ tcMatches :: (Outputable (body GhcRn)) => TcMatchCtxt body
           -> TcM (MatchGroup GhcTcId (Located (body GhcTcId)))
 
 data TcMatchCtxt body   -- c.f. TcStmtCtxt, also in this module
-  = MC { mc_what :: HsMatchContext Name,  -- What kind of thing this is
+  = MC { mc_what :: HsMatchContext GhcRn,  -- What kind of thing this is
          mc_body :: Located (body GhcRn)         -- Type checker for a body of
                                                 -- an alternative
                  -> ExpRhoType
@@ -300,7 +303,7 @@ tcGRHS _ _ (XGRHS nec) = noExtCon nec
 ************************************************************************
 -}
 
-tcDoStmts :: HsStmtContext Name
+tcDoStmts :: HsStmtContext GhcRn
           -> Located [LStmt GhcRn (LHsExpr GhcRn)]
           -> ExpRhoType
           -> TcM (HsExpr GhcTcId)          -- Returns a HsDo
@@ -347,13 +350,13 @@ type TcExprStmtChecker = TcStmtChecker HsExpr ExpRhoType
 type TcCmdStmtChecker  = TcStmtChecker HsCmd  TcRhoType
 
 type TcStmtChecker body rho_type
-  =  forall thing. HsStmtContext Name
+  =  forall thing. HsStmtContext GhcRn
                 -> Stmt GhcRn (Located (body GhcRn))
                 -> rho_type                 -- Result type for comprehension
                 -> (rho_type -> TcM thing)  -- Checker for what follows the stmt
                 -> TcM (Stmt GhcTcId (Located (body GhcTcId)), thing)
 
-tcStmts :: (Outputable (body GhcRn)) => HsStmtContext Name
+tcStmts :: (Outputable (body GhcRn)) => HsStmtContext GhcRn
         -> TcStmtChecker body rho_type   -- NB: higher-rank type
         -> [LStmt GhcRn (Located (body GhcRn))]
         -> rho_type
@@ -363,7 +366,7 @@ tcStmts ctxt stmt_chk stmts res_ty
                         const (return ())
        ; return stmts' }
 
-tcStmtsAndThen :: (Outputable (body GhcRn)) => HsStmtContext Name
+tcStmtsAndThen :: (Outputable (body GhcRn)) => HsStmtContext GhcRn
                -> TcStmtChecker body rho_type    -- NB: higher-rank type
                -> [LStmt GhcRn (Located (body GhcRn))]
                -> rho_type
@@ -386,7 +389,7 @@ tcStmtsAndThen ctxt stmt_chk (L loc (LetStmt x (L l binds)) : stmts)
 
 -- Don't set the error context for an ApplicativeStmt.  It ought to be
 -- possible to do this with a popErrCtxt in the tcStmt case for
--- ApplicativeStmt, but it did someting strange and broke a test (ado002).
+-- ApplicativeStmt, but it did something strange and broke a test (ado002).
 tcStmtsAndThen ctxt stmt_chk (L loc stmt : stmts) res_ty thing_inside
   | ApplicativeStmt{} <- stmt
   = do  { (stmt', (stmts', thing)) <-
@@ -525,7 +528,7 @@ tcLcStmt m_tc ctxt (TransStmt { trS_form = form, trS_stmts = stmts
              -- typically something like [(Int,Bool,Int)]
              -- We don't know what tuple_ty is yet, so we use a variable
        ; let mk_n_bndr :: Name -> TcId -> TcId
-             mk_n_bndr n_bndr_name bndr_id = mkLocalIdOrCoVar n_bndr_name Many (n_app (idType bndr_id))
+             mk_n_bndr n_bndr_name bndr_id = mkLocalId n_bndr_name Many (n_app (idType bndr_id))
 
              -- Ensure that every old binder of type `b` is linked up with its
              -- new binder which should have type `n b`
@@ -703,9 +706,9 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
        ; using' <- tcPolyExpr using using_poly_ty
        ; let final_using = fmap (mkHsWrap (WpTyApp tup_ty)) using'
 
-       --------------- Bulding the bindersMap ----------------
+       --------------- Building the bindersMap ----------------
        ; let mk_n_bndr :: Name -> TcId -> TcId
-             mk_n_bndr n_bndr_name bndr_id = mkLocalIdOrCoVar n_bndr_name Many (n_app (idType bndr_id))
+             mk_n_bndr n_bndr_name bndr_id = mkLocalId n_bndr_name Many (n_app (idType bndr_id))
 
              -- Ensure that every old binder of type `b` is linked up with its
              -- new binder which should have type `n b`
@@ -983,7 +986,7 @@ join :: tn -> res_ty
 -}
 
 tcApplicativeStmts
-  :: HsStmtContext Name
+  :: HsStmtContext GhcRn
   -> [(SyntaxExpr GhcRn, ApplicativeArg GhcRn)]
   -> ExpRhoType                         -- rhs_ty
   -> (TcRhoType -> TcM t)               -- thing_inside
@@ -1005,7 +1008,7 @@ tcApplicativeStmts ctxt pairs rhs_ty thing_inside
 
       -- Typecheck each ApplicativeArg separately
       -- See Note [ApplicativeDo and constraints]
-      ; args' <- mapM goArg (zip3 args pat_tys exp_tys)
+      ; args' <- mapM (goArg body_ty) (zip3 args pat_tys exp_tys)
 
       -- Bring into scope all the things bound by the args,
       -- and typecheck the thing_inside
@@ -1025,18 +1028,30 @@ tcApplicativeStmts ctxt pairs rhs_ty thing_inside
            ; ops' <- goOps t_i ops
            ; return (op' : ops') }
 
-    goArg :: (ApplicativeArg GhcRn, Type, Type)
+    goArg :: Type -> (ApplicativeArg GhcRn, Type, Type)
           -> TcM (ApplicativeArg GhcTcId)
 
-    goArg (ApplicativeArgOne x pat rhs isBody, pat_ty, exp_ty)
+    goArg body_ty (ApplicativeArgOne
+                    { app_arg_pattern = pat
+                    , arg_expr        = rhs
+                    , fail_operator   = fail_op
+                    , ..
+                    }, pat_ty, exp_ty)
       = setSrcSpan (combineSrcSpans (getLoc pat) (getLoc rhs)) $
         addErrCtxt (pprStmtInCtxt ctxt (mkBindStmt pat rhs))   $
         do { rhs' <- tcMonoExprNC rhs (mkCheckExpType exp_ty)
            ; (pat', _) <- tcPat (StmtCtxt ctxt) pat (unrestricted $ mkCheckExpType pat_ty) $
                           return ()
-           ; return (ApplicativeArgOne x pat' rhs' isBody) }
+           ; fail_op' <- tcMonadFailOp (DoPatOrigin pat) pat' fail_op body_ty
 
-    goArg (ApplicativeArgMany x stmts ret pat, pat_ty, exp_ty)
+           ; return (ApplicativeArgOne
+                      { app_arg_pattern = pat'
+                      , arg_expr        = rhs'
+                      , fail_operator   = fail_op'
+                      , .. }
+                    ) }
+
+    goArg _body_ty (ApplicativeArgMany x stmts ret pat, pat_ty, exp_ty)
       = do { (stmts', (ret',pat')) <-
                 tcStmtsAndThen ctxt tcDoStmt stmts (mkCheckExpType exp_ty) $
                 \res_ty  -> do
@@ -1047,13 +1062,12 @@ tcApplicativeStmts ctxt pairs rhs_ty thing_inside
                   }
            ; return (ApplicativeArgMany x stmts' ret' pat') }
 
-    goArg (XApplicativeArg nec, _, _) = noExtCon nec
+    goArg _body_ty (XApplicativeArg nec, _, _) = noExtCon nec
 
     get_arg_bndrs :: ApplicativeArg GhcTcId -> [Id]
-    get_arg_bndrs (ApplicativeArgOne _ pat _ _)  = collectPatBinders pat
-    get_arg_bndrs (ApplicativeArgMany _ _ _ pat) = collectPatBinders pat
+    get_arg_bndrs (ApplicativeArgOne { app_arg_pattern = pat }) = collectPatBinders pat
+    get_arg_bndrs (ApplicativeArgMany { bv_pattern =  pat }) = collectPatBinders pat
     get_arg_bndrs (XApplicativeArg nec)          = noExtCon nec
-
 
 {- Note [ApplicativeDo and constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

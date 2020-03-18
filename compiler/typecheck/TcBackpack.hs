@@ -20,9 +20,9 @@ module TcBackpack (
 import GhcPrelude
 
 import BasicTypes (defaultFixity, TypeOrKind(..))
-import Packages
+import GHC.Driver.Packages
 import TcRnExports
-import DynFlags
+import GHC.Driver.Session
 import GHC.Hs
 import RdrName
 import TcRnMonad
@@ -30,14 +30,14 @@ import TcTyDecls
 import InstEnv
 import FamInstEnv
 import Inst
-import TcIface
+import GHC.IfaceToCore
 import TcMType
 import TcType
 import TcSimplify
 import Constraint
 import TcOrigin
-import LoadIface
-import RnNames
+import GHC.Iface.Load
+import GHC.Rename.Names
 import ErrUtils
 import Id
 import Module
@@ -46,25 +46,25 @@ import NameEnv
 import NameSet
 import Avail
 import SrcLoc
-import HscTypes
+import GHC.Driver.Types
 import Outputable
 import Type
 import Multiplicity
 import FastString
-import RnFixity ( lookupFixityRn )
+import GHC.Rename.Fixity ( lookupFixityRn )
 import Maybes
 import TcEnv
 import Var
-import IfaceSyn
+import GHC.Iface.Syntax
 import PrelNames
 import qualified Data.Map as Map
 
-import Finder
+import GHC.Driver.Finder
 import UniqDSet
-import NameShape
+import GHC.Types.Name.Shape
 import TcErrors
 import TcUnify
-import RnModIface
+import GHC.Iface.Rename
 import Util
 
 import Control.Monad
@@ -169,9 +169,8 @@ checkHsigIface tcg_env gr sig_iface
                          -- info for the *specific* name we matched.
                          -> getLoc e
                        _ -> nameSrcSpan name
-            dflags <- getDynFlags
             addErrAt loc
-                (badReexportedBootThing dflags False name name')
+                (badReexportedBootThing False name name')
       -- This should actually never happen, but whatever...
       | otherwise =
         addErrAt (nameSrcSpan name)
@@ -271,7 +270,7 @@ findExtraSigImports' hsc_env HsigFile modname =
 
 findExtraSigImports' _ _ _ = return emptyUniqDSet
 
--- | 'findExtraSigImports', but in a convenient form for "GhcMake" and
+-- | 'findExtraSigImports', but in a convenient form for "GHC.Driver.Make" and
 -- "TcRnDriver".
 findExtraSigImports :: HscEnv -> HscSource -> ModuleName
                     -> IO [(Maybe FastString, Located ModuleName)]
@@ -281,7 +280,7 @@ findExtraSigImports hsc_env hsc_src modname = do
            | mod_name <- uniqDSetToList extra_requirements ]
 
 -- A version of 'implicitRequirements'' which is more friendly
--- for "GhcMake" and "TcRnDriver".
+-- for "GHC.Driver.Make" and "TcRnDriver".
 implicitRequirements :: HscEnv
                      -> [(Maybe FastString, Located ModuleName)]
                      -> IO [(Maybe FastString, Located ModuleName)]
@@ -463,7 +462,7 @@ inheritedSigPvpWarning =
 --    to 'Name's, so this case needs to be handled specially.
 --
 --    The details are in the documentation for 'typecheckIfacesForMerging'.
---    and the Note [Resolving never-exported Names in TcIface].
+--    and the Note [Resolving never-exported Names] in GHC.IfaceToCore.
 --
 --  * When we rename modules and signatures, we use the export lists to
 --    decide how the declarations should be renamed.  However, this
@@ -472,7 +471,7 @@ inheritedSigPvpWarning =
 --    *consistently*, so that 'typecheckIfacesForMerging' can wire them
 --    up as needed.
 --
---    The details are in Note [rnIfaceNeverExported] in 'RnModIface'.
+--    The details are in Note [rnIfaceNeverExported] in 'GHC.Iface.Rename'.
 --
 -- The root cause for all of these complications is the fact that these
 -- logically "implicit" entities are defined indirectly in an interface
@@ -688,7 +687,7 @@ mergeSignatures
         --     final test of the export list.)
         tcg_rdr_env = rdr_env `plusGlobalRdrEnv` tcg_rdr_env orig_tcg_env,
         -- Inherit imports from the local signature, so that module
-        -- rexports are picked up correctly
+        -- reexports are picked up correctly
         tcg_imports = tcg_imports orig_tcg_env,
         tcg_exports = exports,
         tcg_dus     = usesOnly (availsToNameSetWithSelectors exports),
@@ -860,7 +859,7 @@ mergeSignatures
     -- when we have a ClsInst, we can pull up the correct DFun to check if
     -- the types match.
     --
-    -- See also Note [rnIfaceNeverExported] in RnModIface
+    -- See also Note [rnIfaceNeverExported] in GHC.Iface.Rename
     dfun_insts <- forM (tcg_insts tcg_env) $ \inst -> do
         n <- newDFunName (is_cls inst) (is_tys inst) (nameSrcSpan (is_dfun_name inst))
         let dfun = setVarName (is_dfun inst) n

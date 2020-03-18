@@ -12,8 +12,8 @@ therefore, is almost nothing but re-exporting.
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
-                                      -- in module GHC.Hs.PlaceHolder
+{-# LANGUAGE UndecidableInstances #-} -- Wrinkle in Note [Trees That Grow]
+                                      -- in module GHC.Hs.Extension
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleInstances #-} -- For deriving instance Data
@@ -28,7 +28,6 @@ module GHC.Hs (
         module GHC.Hs.Types,
         module GHC.Hs.Utils,
         module GHC.Hs.Doc,
-        module GHC.Hs.PlaceHolder,
         module GHC.Hs.Extension,
         Fixity,
 
@@ -43,7 +42,6 @@ import GHC.Hs.Binds
 import GHC.Hs.Expr
 import GHC.Hs.ImpExp
 import GHC.Hs.Lit
-import GHC.Hs.PlaceHolder
 import GHC.Hs.Extension
 import GHC.Hs.Pat
 import GHC.Hs.Types
@@ -63,12 +61,12 @@ import Data.Data hiding ( Fixity )
 -- | Haskell Module
 --
 -- All we actually declare here is the top-level structure for a module.
-data HsModule pass
+data HsModule
   = HsModule {
       hsmodName :: Maybe (Located ModuleName),
         -- ^ @Nothing@: \"module X where\" is omitted (in which case the next
         --     field is Nothing too)
-      hsmodExports :: Maybe (Located [LIE pass]),
+      hsmodExports :: Maybe (Located [LIE GhcPs]),
         -- ^ Export list
         --
         --  - @Nothing@: export list omitted, so export everything
@@ -82,11 +80,11 @@ data HsModule pass
         --                                   ,'ApiAnnotation.AnnClose'
 
         -- For details on above see note [Api annotations] in ApiAnnotation
-      hsmodImports :: [LImportDecl pass],
+      hsmodImports :: [LImportDecl GhcPs],
         -- ^ We snaffle interesting stuff out of the imported interfaces early
         -- on, adding that info to TyDecls/etc; so this list is often empty,
         -- downstream.
-      hsmodDecls :: [LHsDecl pass],
+      hsmodDecls :: [LHsDecl GhcPs],
         -- ^ Type, class, value, and interface signature decls
       hsmodDeprecMessage :: Maybe (Located WarningTxt),
         -- ^ reason\/explanation for warning/deprecation of this module
@@ -113,12 +111,10 @@ data HsModule pass
      --    hsmodImports,hsmodDecls if this style is used.
 
      -- For details on above see note [Api annotations] in ApiAnnotation
--- deriving instance (DataIdLR name name) => Data (HsModule name)
-deriving instance Data (HsModule GhcPs)
-deriving instance Data (HsModule GhcRn)
-deriving instance Data (HsModule GhcTc)
 
-instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (HsModule p) where
+deriving instance Data HsModule
+
+instance Outputable HsModule where
 
     ppr (HsModule Nothing _ imports decls _ mbDoc)
       = pp_mb mbDoc $$ pp_nonnull imports

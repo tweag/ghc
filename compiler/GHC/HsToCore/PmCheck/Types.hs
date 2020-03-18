@@ -29,7 +29,8 @@ module GHC.HsToCore.PmCheck.Types (
         setIndirectSDIE, setEntrySDIE, traverseSDIE,
 
         -- * The pattern match oracle
-        VarInfo(..), TmState(..), TyState(..), Delta(..), initDelta
+        VarInfo(..), TmState(..), TyState(..), Delta(..),
+        Deltas(..), initDeltas, liftDeltasM
     ) where
 
 #include "HsVersions.h"
@@ -52,9 +53,9 @@ import Maybes
 import Type
 import TyCon
 import Literal
-import CoreSyn
-import CoreMap
-import CoreUtils (exprType)
+import GHC.Core
+import GHC.Core.Map
+import GHC.Core.Utils (exprType)
 import PrelNames
 import TysWiredIn
 import TysPrim
@@ -64,6 +65,7 @@ import Numeric (fromRat)
 import Data.Foldable (find)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Ratio
+import qualified Data.Semigroup as Semi
 
 -- | Literals (simple and overloaded ones) for pattern match checking.
 --
@@ -128,44 +130,6 @@ instance Eq PmLit where
 pmLitType :: PmLit -> Type
 pmLitType (PmLit ty _) = ty
 
--- | Type of a 'PmAltCon'
-pmAltConType :: PmAltCon -> [Type] -> Type
-pmAltConType (PmAltLit lit)     _arg_tys = ASSERT( null _arg_tys ) pmLitType lit
-pmAltConType (PmAltConLike con) arg_tys  = conLikeResTy con arg_tys
-
-instance Outputable PmLitValue where
-  ppr (PmLitInt i)        = ppr i
-  ppr (PmLitRat r)        = ppr (double (fromRat r)) -- good enough
-  ppr (PmLitChar c)       = pprHsChar c
-  ppr (PmLitString s)     = pprHsString s
-  ppr (PmLitOverInt n i)  = minuses n (ppr i)
-  ppr (PmLitOverRat n r)  = minuses n (ppr (double (fromRat r)))
-  ppr (PmLitOverString s) = pprHsString s
-
--- Take care of negated literals
-minuses :: Int -> SDoc -> SDoc
-minuses n sdoc = iterate (\sdoc -> parens (char '-' <> sdoc)) sdoc !! n
-
-instance Outputable PmLit where
-  ppr (PmLit ty v) = ppr v <> suffix
-    where
-      -- Some ad-hoc hackery for displaying proper lit suffixes based on type
-      tbl = [ (intPrimTy, primIntSuffix)
-            , (int64PrimTy, primInt64Suffix)
-            , (wordPrimTy, primWordSuffix)
-            , (word64PrimTy, primWord64Suffix)
-            , (charPrimTy, primCharSuffix)
-            , (floatPrimTy, primFloatSuffix)
-            , (doublePrimTy, primDoubleSuffix) ]
-      suffix = fromMaybe empty (snd <$> find (eqType ty . fst) tbl)
-
-instance Outputable PmAltCon where
-  ppr (PmAltConLike cl) = ppr cl
-  ppr (PmAltLit l)      = ppr l
-
-instance Outputable PmEquality where
-  ppr = text . show
-
 -- | Undecidable equality for values represented by 'ConLike's.
 -- See Note [Undecidable Equality for PmAltCons].
 -- 'PatSynCon's aren't enforced to be generative, so two syntactically different
@@ -184,7 +148,7 @@ eqConLike (PatSynCon psc1)  (PatSynCon psc2)
 eqConLike _                 _                 = PossiblyOverlap
 
 -- | Represents the head of a match against a 'ConLike' or literal.
--- Really similar to 'CoreSyn.AltCon'.
+-- Really similar to 'GHC.Core.AltCon'.
 data PmAltCon = PmAltConLike ConLike
               | PmAltLit     PmLit
 
@@ -221,6 +185,11 @@ eqPmAltCon _                  _                  = PossiblyOverlap
 -- | Syntactic equality.
 instance Eq PmAltCon where
   a == b = eqPmAltCon a b == Equal
+
+-- | Type of a 'PmAltCon'
+pmAltConType :: PmAltCon -> [Type] -> Type
+pmAltConType (PmAltLit lit)     _arg_tys = ASSERT( null _arg_tys ) pmLitType lit
+pmAltConType (PmAltConLike con) arg_tys  = conLikeResTy con arg_tys
 
 {- Note [Undecidable Equality for PmAltCons]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -364,20 +333,53 @@ coreExprAsPmLit e = case collectArgs e of
       | otherwise
       = False
 
+instance Outputable PmLitValue where
+  ppr (PmLitInt i)        = ppr i
+  ppr (PmLitRat r)        = ppr (double (fromRat r)) -- good enough
+  ppr (PmLitChar c)       = pprHsChar c
+  ppr (PmLitString s)     = pprHsString s
+  ppr (PmLitOverInt n i)  = minuses n (ppr i)
+  ppr (PmLitOverRat n r)  = minuses n (ppr (double (fromRat r)))
+  ppr (PmLitOverString s) = pprHsString s
+
+-- Take care of negated literals
+minuses :: Int -> SDoc -> SDoc
+minuses n sdoc = iterate (\sdoc -> parens (char '-' <> sdoc)) sdoc !! n
+
+instance Outputable PmLit where
+  ppr (PmLit ty v) = ppr v <> suffix
+    where
+      -- Some ad-hoc hackery for displaying proper lit suffixes based on type
+      tbl = [ (intPrimTy, primIntSuffix)
+            , (int64PrimTy, primInt64Suffix)
+            , (wordPrimTy, primWordSuffix)
+            , (word64PrimTy, primWord64Suffix)
+            , (charPrimTy, primCharSuffix)
+            , (floatPrimTy, primFloatSuffix)
+            , (doublePrimTy, primDoubleSuffix) ]
+      suffix = fromMaybe empty (snd <$> find (eqType ty . fst) tbl)
+
+instance Outputable PmAltCon where
+  ppr (PmAltConLike cl) = ppr cl
+  ppr (PmAltLit l)      = ppr l
+
+instance Outputable PmEquality where
+  ppr = text . show
+
 type ConLikeSet = UniqDSet ConLike
 
 -- | A data type caching the results of 'completeMatchConLikes' with support for
--- deletion of contructors that were already matched on.
+-- deletion of constructors that were already matched on.
 data PossibleMatches
-  = PM TyCon (NonEmpty.NonEmpty ConLikeSet)
-  -- ^ Each ConLikeSet is a (subset of) the constructors in a COMPLETE pragma
+  = PM (NonEmpty.NonEmpty ConLikeSet)
+  -- ^ Each ConLikeSet is a (subset of) the constructors in a COMPLETE set
   -- 'NonEmpty' because the empty case would mean that the type has no COMPLETE
-  -- set at all, for which we have 'NoPM'
+  -- set at all, for which we have 'NoPM'.
   | NoPM
   -- ^ No COMPLETE set for this type (yet). Think of overloaded literals.
 
 instance Outputable PossibleMatches where
-  ppr (PM _tc cs) = ppr (NonEmpty.toList cs)
+  ppr (PM cs) = ppr (NonEmpty.toList cs)
   ppr NoPM = text "<NoPM>"
 
 -- | Either @Indirect x@, meaning the value is represented by that of @x@, or
@@ -465,7 +467,7 @@ data VarInfo
   -- ^ The type of the variable. Important for rejecting possible GADT
   -- constructors or incompatible pattern synonyms (@Just42 :: Maybe Int@).
 
-  , vi_pos :: ![(PmAltCon, [Id])]
+  , vi_pos :: ![(PmAltCon, [TyVar], [Id])]
   -- ^ Positive info: 'PmAltCon' apps it is (i.e. @x ~ [Just y, PatSyn z]@), all
   -- at the same time (i.e. conjunctive).  We need a list because of nested
   -- pattern matches involving pattern synonym
@@ -520,8 +522,7 @@ instance Outputable TyState where
 initTyState :: TyState
 initTyState = TySt emptyBag
 
--- | Term and type constraints to accompany each value vector abstraction.
--- For efficiency, we store the term oracle state instead of the term
+-- | An inert set of canonical (i.e. mutually compatible) term and type
 -- constraints.
 data Delta = MkDelta { delta_ty_st :: TyState    -- Type oracle; things like a~Int
                      , delta_tm_st :: TmState }  -- Term oracle; things like x~Nothing
@@ -531,9 +532,24 @@ initDelta :: Delta
 initDelta = MkDelta initTyState initTmState
 
 instance Outputable Delta where
-  ppr delta = vcat [
+  ppr delta = hang (text "Delta") 2 $ vcat [
       -- intentionally formatted this way enable the dev to comment in only
       -- the info she needs
       ppr (delta_tm_st delta),
       ppr (delta_ty_st delta)
     ]
+
+-- | A disjunctive bag of 'Delta's, representing a refinement type.
+newtype Deltas = MkDeltas (Bag Delta)
+
+initDeltas :: Deltas
+initDeltas = MkDeltas (unitBag initDelta)
+
+instance Outputable Deltas where
+  ppr (MkDeltas deltas) = ppr deltas
+
+instance Semigroup Deltas where
+  MkDeltas l <> MkDeltas r = MkDeltas (l `unionBags` r)
+
+liftDeltasM :: Monad m => (Delta -> m (Maybe Delta)) -> Deltas -> m Deltas
+liftDeltasM f (MkDeltas ds) = MkDeltas . catBagMaybes <$> (traverse f ds)

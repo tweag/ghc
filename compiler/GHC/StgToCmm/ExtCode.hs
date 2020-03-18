@@ -42,12 +42,12 @@ import GhcPrelude
 import qualified GHC.StgToCmm.Monad as F
 import GHC.StgToCmm.Monad (FCode, newUnique)
 
-import Cmm
-import CLabel
-import MkGraph
+import GHC.Cmm
+import GHC.Cmm.CLabel
+import GHC.Cmm.Graph
 
-import BlockId
-import DynFlags
+import GHC.Cmm.BlockId
+import GHC.Driver.Session
 import FastString
 import Module
 import UniqFM
@@ -102,7 +102,7 @@ instance HasDynFlags CmmParse where
                                    return (d, dflags))
 
 
--- | Takes the variable decarations and imports from the monad
+-- | Takes the variable declarations and imports from the monad
 --      and makes an environment, which is looped back into the computation.
 --      In this way, we can have embedded declarations that scope over the whole
 --      procedure, and imports that scope over the entire module.

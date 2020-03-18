@@ -76,6 +76,7 @@ stage0Packages = do
              , transformers
              , unlit                         ]
           ++ [ terminfo | not windowsHost, not cross ]
+          ++ [ timeout  | windowsHost                ]
           ++ [ touchy   | windowsHost                ]
 
 -- | Packages built in 'Stage1' by default. You can change this in "UserSettings".
@@ -91,6 +92,7 @@ stage1Packages = do
              , containers
              , deepseq
              , directory
+             , exceptions
              , filepath
              , ghc
              , ghcCompact
@@ -110,8 +112,8 @@ stage1Packages = do
              ]
           ++ [ haddock  | not cross                  ]
           ++ [ hpcBin   | not cross                  ]
-          ++ [ iserv    | not windowsHost, not cross ]
-          ++ [ libiserv | not windowsHost, not cross ]
+          ++ [ iserv    | not cross ]
+          ++ [ libiserv | not cross ]
           ++ [ runGhc   | not cross                  ]
           ++ [ touchy   | windowsHost                ]
           ++ [ unix     | not windowsHost            ]
@@ -214,6 +216,7 @@ defaultFlavour = Flavour
     , ghciWithDebugger   = False
     , ghcProfiled        = False
     , ghcDebugged        = False
+    , ghcThreaded        = True
     , ghcDocs            = cmdDocsArgs }
 
 -- | Default logic for determining whether to build
@@ -248,14 +251,14 @@ defaultBuilderArgs = mconcat
     , validateBuilderArgs
     , xelatexBuilderArgs
     -- Generic builders from the Hadrian library:
-    , builder (Ar Pack     ) ? Hadrian.Builder.Ar.args Pack
-    , builder (Ar Unpack   ) ? Hadrian.Builder.Ar.args Unpack
-    , builder (Sphinx Html ) ? Hadrian.Builder.Sphinx.args Html
-    , builder (Sphinx Latex) ? Hadrian.Builder.Sphinx.args Latex
-    , builder (Sphinx Man  ) ? Hadrian.Builder.Sphinx.args Man
-    , builder (Sphinx Info ) ? Hadrian.Builder.Sphinx.args Info
-    , builder (Tar Create  ) ? Hadrian.Builder.Tar.args Create
-    , builder (Tar Extract ) ? Hadrian.Builder.Tar.args Extract ]
+    , builder (Ar Pack         ) ? Hadrian.Builder.Ar.args Pack
+    , builder (Ar Unpack       ) ? Hadrian.Builder.Ar.args Unpack
+    , builder (Sphinx HtmlMode ) ? Hadrian.Builder.Sphinx.args HtmlMode
+    , builder (Sphinx LatexMode) ? Hadrian.Builder.Sphinx.args LatexMode
+    , builder (Sphinx ManMode  ) ? Hadrian.Builder.Sphinx.args ManMode
+    , builder (Sphinx InfoMode ) ? Hadrian.Builder.Sphinx.args InfoMode
+    , builder (Tar Create      ) ? Hadrian.Builder.Tar.args Create
+    , builder (Tar Extract     ) ? Hadrian.Builder.Tar.args Extract ]
 
 -- | All 'Package'-dependent command line arguments.
 defaultPackageArgs :: Args

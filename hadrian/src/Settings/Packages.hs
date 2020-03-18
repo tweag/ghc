@@ -5,7 +5,6 @@ import Flavour
 import Oracles.Setting
 import Oracles.Flag
 import Packages
-import Rules.Gmp
 import Settings
 
 -- | Package-specific command-line arguments.
@@ -16,9 +15,7 @@ packageArgs = do
     path         <- getBuildPath
     intLib       <- getIntegerPackage
     compilerPath <- expr $ buildPath (vanillaContext stage compiler)
-    gmpBuildPath <- expr gmpBuildPath
-    let includeGmp = "-I" ++ gmpBuildPath -/- "include"
-        -- Do not bind the result to a Boolean: this forces the configure rule
+    let -- Do not bind the result to a Boolean: this forces the configure rule
         -- immediately and may lead to cyclic dependencies.
         -- See: https://gitlab.haskell.org/ghc/ghc/issues/16809.
         cross = flag CrossCompiling
@@ -48,21 +45,21 @@ packageArgs = do
           [ builder Alex ? arg "--latin1"
 
           , builder (Ghc CompileHs) ? mconcat
-            [ inputs ["**/GHC.hs", "**/GhcMake.hs"] ? arg "-fprof-auto"
+            [ inputs ["**/GHC.hs", "**/GHC/Driver/Make.hs"] ? arg "-fprof-auto"
             , input "**/Parser.hs" ?
               pure ["-fno-ignore-interface-pragmas", "-fcmm-sink"]
             -- These files take a very long time to compile with -O1,
             -- so we use -O0 for them just in Stage0 to speed up the
             -- build but not affect Stage1+ executables
-            , inputs ["**/HsInstances.hs", "**/DynFlags.hs"] ? stage0 ?
+            , inputs ["**/GHC/Hs/Instances.hs", "**/GHC/Driver/Session.hs"] ? stage0 ?
               pure ["-O0"] ]
 
           , builder (Cabal Setup) ? mconcat
             [ arg "--disable-library-for-ghci"
             , anyTargetOs ["openbsd"] ? arg "--ld-options=-E"
             , flag GhcUnregisterised ? arg "--ghc-option=-DNO_REGS"
-            , notM ghcWithSMP ? arg "--ghc-option=-DNOSMP"
-            , notM ghcWithSMP ? arg "--ghc-option=-optc-DNOSMP"
+            , notM targetSupportsSMP ? arg "--ghc-option=-DNOSMP"
+            , notM targetSupportsSMP ? arg "--ghc-option=-optc-DNOSMP"
             , (any (wayUnit Threaded) rtsWays) ?
               notStage0 ? arg "--ghc-option=-optc-DTHREADED_RTS"
             , ghcWithInterpreter ?
@@ -96,7 +93,9 @@ packageArgs = do
             -- the 'threaded' flag is True by default, but
             -- let's record explicitly that we link all ghc
             -- executables with the threaded runtime.
-            , arg "threaded" ] ]
+            , stage0 ? arg "-threaded"
+            , notStage0 ? ifM (ghcThreaded <$> expr flavour) (arg "threaded") (arg "-threaded") ]
+          ]
 
         -------------------------------- ghcPkg --------------------------------
         , package ghcPkg ?
@@ -132,6 +131,13 @@ packageArgs = do
           builder (Cabal Flags) ? arg "in-ghc-tree"
 
         ------------------------------- haskeline ------------------------------
+        -- Hadrian doesn't currently support packages containing both libraries
+        -- and executables. This flag disables the latter.
+        , package haskeline ?
+          builder (Cabal Flags) ? arg "-examples"
+        -- Don't depend upon terminfo when cross-compiling to avoid unnecessary
+        -- dependencies.
+        -- TODO: Perhaps the user should rather be responsible for this?
         , package haskeline ?
           builder (Cabal Flags) ? cross ? arg "-terminfo"
 
@@ -140,18 +146,7 @@ packageArgs = do
           builder (Cabal Flags) ? arg "in-ghc-tree"
 
         ------------------------------ integerGmp ------------------------------
-        , package integerGmp ? mconcat
-          [ builder Cc ? arg includeGmp
-
-          , builder (Cabal Setup) ? mconcat
-            [ flag GmpInTree ? arg "--configure-option=--with-intree-gmp"
-            -- Windows is always built with inplace GMP until we have dynamic
-            -- linking working.
-            , windowsHost  ? arg "--configure-option=--with-intree-gmp"
-            , flag GmpFrameworkPref ?
-              arg "--configure-option=--with-gmp-framework-preferred"
-            , arg ("--configure-option=CFLAGS=" ++ includeGmp)
-            , arg ("--gcc-options="             ++ includeGmp) ] ]
+        , gmpPackageArgs
 
         ---------------------------------- rts ---------------------------------
         , package rts ? rtsPackageArgs -- RTS deserves a separate function
@@ -173,6 +168,28 @@ packageArgs = do
         , package text ?
           builder (Cabal Flags) ? notStage0 ? intLib == integerSimple ?
           pure ["+integer-simple", "-bytestring-builder"] ]
+
+gmpPackageArgs :: Args
+gmpPackageArgs = do
+    package integerGmp ? do
+        -- These are only used for non-in-tree builds.
+        librariesGmp <- getSetting GmpLibDir
+        includesGmp  <- getSetting GmpIncludeDir
+
+        mconcat
+          [ builder (Cabal Setup) ? mconcat
+            [ flag GmpInTree ? arg "--configure-option=--with-intree-gmp"
+            , flag GmpFrameworkPref ?
+              arg "--configure-option=--with-gmp-framework-preferred"
+
+              -- Ensure that the integer-gmp package registration includes
+              -- knowledge of the system gmp's library and include directories.
+            , notM (flag GmpInTree) ? mconcat
+              [ if not (null librariesGmp) then arg ("--extra-lib-dirs=" ++ librariesGmp) else mempty
+              , if not (null includesGmp) then arg ("--extra-include-dirs=" ++ includesGmp) else mempty
+              ]
+            ]
+          ]
 
 -- | RTS-specific command line arguments.
 rtsPackageArgs :: Args
@@ -199,15 +216,36 @@ rtsPackageArgs = package rts ? do
     libffiName     <- expr libffiLibraryName
     ffiIncludeDir  <- getSetting FfiIncludeDir
     ffiLibraryDir  <- getSetting FfiLibDir
-    let cArgs = mconcat
+    libdwIncludeDir   <- getSetting LibdwIncludeDir
+    libdwLibraryDir   <- getSetting LibdwLibDir
+    libnumaIncludeDir <- getSetting LibnumaIncludeDir
+    libnumaLibraryDir <- getSetting LibnumaLibDir
+
+    -- Arguments passed to GHC when compiling C and .cmm sources.
+    let ghcArgs = mconcat
           [ arg "-Irts"
-          , rtsWarnings
           , arg $ "-I" ++ path
-          , flag UseSystemFfi ? arg ("-I" ++ ffiIncludeDir)
+          , flag WithLibdw ? if not (null libdwIncludeDir) then arg ("-I" ++ libdwIncludeDir) else mempty
+          , flag WithLibdw ? if not (null libdwLibraryDir) then arg ("-L" ++ libdwLibraryDir) else mempty
+          , flag WithLibnuma ? if not (null libnumaIncludeDir) then arg ("-I" ++ libnumaIncludeDir) else mempty
+          , flag WithLibnuma ? if not (null libnumaLibraryDir) then arg ("-L" ++ libnumaLibraryDir) else mempty
           , arg $ "-DRtsWay=\"rts_" ++ show way ++ "\""
           -- Set the namespace for the rts fs functions
           , arg $ "-DFS_NAMESPACE=rts"
           , arg $ "-DCOMPILING_RTS"
+          , notM targetSupportsSMP           ? arg "-DNOSMP"
+          , way `elem` [debug, debugDynamic] ? arg "-DTICKY_TICKY"
+          , Profiling `wayUnit` way          ? arg "-DPROFILING"
+          , Threaded  `wayUnit` way          ? arg "-DTHREADED_RTS"
+          , notM targetSupportsSMP           ? pure [ "-DNOSMP"
+                                                    , "-optc-DNOSMP" ]
+          ]
+
+    let cArgs = mconcat
+          [ rtsWarnings
+          , flag UseSystemFfi ? arg ("-I" ++ ffiIncludeDir)
+          , flag WithLibdw ? arg ("-I" ++ libdwIncludeDir)
+          , arg "-fomit-frame-pointer"
           -- RTS *must* be compiled with optimisations. The INLINE_HEADER macro
           -- requires that functions are inlined to work as expected. Inlining
           -- only happens for optimised builds. Otherwise we can assume that
@@ -215,16 +253,17 @@ rtsPackageArgs = package rts ? do
           -- provide non-inlined alternatives and hence needs the function to
           -- be inlined. See https://github.com/snowleopard/hadrian/issues/90.
           , arg "-O2"
-          , arg "-fomit-frame-pointer"
           , arg "-g"
+
+          , arg "-Irts"
+          , arg $ "-I" ++ path
 
           , Debug     `wayUnit` way          ? pure [ "-DDEBUG"
                                                     , "-fno-omit-frame-pointer"
                                                     , "-g3"
                                                     , "-O0" ]
-          , way `elem` [debug, debugDynamic] ? arg "-DTICKY_TICKY"
-          , Profiling `wayUnit` way          ? arg "-DPROFILING"
-          , Threaded  `wayUnit` way          ? arg "-DTHREADED_RTS"
+
+          , useLibFFIForAdjustors            ? arg "-DUSE_LIBFFI_FOR_ADJUSTORS"
 
           , inputs ["**/RtsMessages.c", "**/Trace.c"] ?
             arg ("-DProjectVersion=" ++ show projectVersion)
@@ -299,16 +338,21 @@ rtsPackageArgs = package rts ? do
           , any (wayUnit Dynamic) rtsWays ? arg "dynamic"
           , Debug `wayUnit` way           ? arg "find-ptr"
           ]
+        , builder (Cabal Setup) ?
+               if not (null libnumaLibraryDir) then arg ("--extra-lib-dirs="++libnumaLibraryDir) else mempty
+            <> if not (null libnumaIncludeDir) then arg ("--extra-include-dirs="++libnumaIncludeDir) else mempty
         , builder (Cc FindCDependencies) ? cArgs
         , builder (Ghc CompileCWithGhc) ? map ("-optc" ++) <$> cArgs
-        , builder Ghc ? arg "-Irts"
+        , builder Ghc ? ghcArgs
 
-          , builder HsCpp ? pure
+        , builder HsCpp ? pure
           [ "-DTOP="             ++ show top
           , "-DFFI_INCLUDE_DIR=" ++ show ffiIncludeDir
           , "-DFFI_LIB_DIR="     ++ show ffiLibraryDir
-          , "-DFFI_LIB="         ++ show libffiName ]
+          , "-DFFI_LIB="         ++ show libffiName
+          , "-DLIBDW_LIB_DIR="   ++ show libdwLibraryDir ]
 
+        , builder HsCpp ? flag WithLibdw ? arg "-DUSE_LIBDW"
         , builder HsCpp ? flag HaveLibMingwEx ? arg "-DHAVE_LIBMINGWEX" ]
 
 -- Compile various performance-critical pieces *without* -fPIC -dynamic

@@ -39,6 +39,7 @@ import qualified Data.Map    as Map
 import qualified Data.IntMap as IntMap
 import Outputable
 import Control.Monad( (>=>) )
+import Data.Kind( Type )
 
 {-
 This module implements TrieMaps, which are finite mappings
@@ -46,7 +47,7 @@ whose key is a structured value like a CoreExpr or Type.
 
 This file implements tries over general data structures.
 Implementation for tries over Core Expressions/Types are
-available in coreSyn/TrieMap.
+available in GHC.Core.Map.
 
 The regular pattern for handling TrieMaps on data structures was first
 described (to my knowledge) in Connelly and Morris's 1995 paper "A
@@ -65,7 +66,7 @@ type XT a = Maybe a -> Maybe a  -- How to alter a non-existent elt (Nothing)
                                 --               or an existing elt (Just)
 
 class TrieMap m where
-   type Key m :: *
+   type Key m :: Type
    emptyTM  :: m a
    lookupTM :: forall b. Key m -> m b -> Maybe b
    alterTM  :: forall b. Key m -> XT b -> m b -> m b
@@ -332,7 +333,7 @@ just use SingletonMap.
 nothing in the map, don't bother building out the (possibly infinite) recursive
 TrieMap structure!
 
-Compressed triemaps are heavily used by CoreMap. So we have to mark some things
+Compressed triemaps are heavily used by GHC.Core.Map. So we have to mark some things
 as INLINEABLE to permit specialization.
 -}
 

@@ -3,8 +3,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}  -- instance MonadThings is necessarily an
                                        -- orphan
-{-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
-                                      -- in module GHC.Hs.PlaceHolder
+{-# LANGUAGE UndecidableInstances #-} -- Wrinkle in Note [Trees That Grow]
+                                      -- in module GHC.Hs.Extension
 {-# LANGUAGE TypeFamilies #-}
 
 module TcEnv(
@@ -75,7 +75,7 @@ module TcEnv(
 import GhcPrelude
 
 import GHC.Hs
-import IfaceEnv
+import GHC.Iface.Env
 import TcRnMonad
 import TcMType
 import TcEvidence (HsWrapper, idHsWrapper)
@@ -83,7 +83,7 @@ import UsageEnv
 import TcType
 import {-# SOURCE #-} TcUnify ( tcSubMult )
 import TcOrigin ( CtOrigin(UsageEnvironmentOf) )
-import LoadIface
+import GHC.Iface.Load
 import PrelNames
 import TysWiredIn
 import Id
@@ -101,8 +101,8 @@ import Name
 import NameSet
 import NameEnv
 import VarEnv
-import HscTypes
-import DynFlags
+import GHC.Driver.Types
+import GHC.Driver.Session
 import SrcLoc
 import BasicTypes hiding( SuccessFlag(..) )
 import Module
@@ -118,7 +118,7 @@ import qualified GHC.LanguageExtensions as LangExt
 import Util ( HasDebugCallStack )
 
 import Data.IORef
-import Data.List
+import Data.List (intercalate)
 import Control.Monad
 
 {- *********************************************************************
@@ -215,7 +215,7 @@ span of the Name.
 
 
 tcLookupLocatedGlobal :: Located Name -> TcM TyThing
--- c.f. IfaceEnvEnv.tcIfaceGlobal
+-- c.f. GHC.IfaceToCore.tcIfaceGlobal
 tcLookupLocatedGlobal name
   = addLocM tcLookupGlobal name
 
@@ -514,8 +514,8 @@ isTypeClosedLetBndr :: Id -> Bool
 isTypeClosedLetBndr = noFreeVarsOfType . idType
 
 tcExtendRecIds :: [(Name, TcId)] -> TcM a -> TcM a
--- Used for binding the recurive uses of Ids in a binding
--- both top-level value bindings and and nested let/where-bindings
+-- Used for binding the recursive uses of Ids in a binding
+-- both top-level value bindings and nested let/where-bindings
 -- Does not extend the TcBinderStack
 tcExtendRecIds pairs thing_inside
   = tc_extend_local_env NotTopLevel
@@ -539,7 +539,7 @@ tcExtendSigIds top_lvl sig_ids thing_inside
 
 tcExtendLetEnv :: TopLevelFlag -> TcSigFun -> IsGroupClosed
                   -> [TcId] -> TcM a -> TcM a
--- Used for both top-level value bindings and and nested let/where-bindings
+-- Used for both top-level value bindings and nested let/where-bindings
 -- Adds to the TcBinderStack too
 tcExtendLetEnv top_lvl sig_fn (IsGroupClosed fvs fv_type_closed)
                ids thing_inside
@@ -847,7 +847,7 @@ topIdLvl :: Id -> ThLevel
 -- E.g. this is bad:
 --      x = [| foo |]
 --      $( f x )
--- By the time we are prcessing the $(f x), the binding for "x"
+-- By the time we are processing the $(f x), the binding for "x"
 -- will be in the global env, not the local one.
 topIdLvl id | isLocalId id = outerLevel
             | otherwise    = impLevel
@@ -858,7 +858,7 @@ tcMetaTy :: Name -> TcM Type
 -- E.g. given the name "Expr" return the type "Expr"
 tcMetaTy tc_name = do
     t <- tcLookupTyCon tc_name
-    return (mkTyConApp t [])
+    return (mkTyConTy t)
 
 isBrackStage :: ThStage -> Bool
 isBrackStage (Brack {}) = True
@@ -905,7 +905,7 @@ tcGetDefaultTys
 {-
 Note [Extended defaults]
 ~~~~~~~~~~~~~~~~~~~~~
-In interative mode (or with -XExtendedDefaultRules) we add () as the first type we
+In interactive mode (or with -XExtendedDefaultRules) we add () as the first type we
 try when defaulting.  This has very little real impact, except in the following case.
 Consider:
         Text.Printf.printf "hello"
@@ -970,11 +970,11 @@ data InstBindings a
            --          Used only to improve error messages
       }
 
-instance (OutputableBndrId (GhcPass a))
+instance (OutputableBndrId a)
        => Outputable (InstInfo (GhcPass a)) where
     ppr = pprInstInfoDetails
 
-pprInstInfoDetails :: (OutputableBndrId (GhcPass a))
+pprInstInfoDetails :: (OutputableBndrId a)
                    => InstInfo (GhcPass a) -> SDoc
 pprInstInfoDetails info
    = hang (pprInstanceHdr (iSpec info) <+> text "where")

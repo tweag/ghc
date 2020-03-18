@@ -68,6 +68,9 @@ module GHC.Exts
         -- @since 4.7.0.0
         Data.Coerce.coerce, Data.Coerce.Coercible,
 
+        -- * Very unsafe coercion
+        unsafeCoerce#,
+
         -- * Equality
         type (~~),
 
@@ -112,6 +115,9 @@ import Data.Data
 import Data.Ord
 import Data.Version ( Version(..), makeVersion )
 import qualified Debug.Trace
+import Unsafe.Coerce ( unsafeCoerce# ) -- just for re-export
+
+import Control.Applicative (ZipList(..))
 
 -- XXX This should really be in Data.Tuple, where the definitions are
 maxTupleSize :: Int
@@ -209,6 +215,12 @@ instance IsList [a] where
   fromList = id
   toList = id
 
+-- | @since 4.15.0.0
+instance IsList (ZipList a) where
+  type Item (ZipList a) = a
+  fromList = ZipList
+  toList = getZipList
+
 -- | @since 4.9.0.0
 instance IsList (NonEmpty a) where
   type Item (NonEmpty a) = a
@@ -261,7 +273,7 @@ atomicModifyMutVar# mv f s =
 -- 'SmallMutableArray#' is either the original 'SmallMutableArray#'
 -- resized in-place or, if not possible, a newly allocated
 -- 'SmallMutableArray#' with the original content copied over.
--- 
+--
 -- To avoid undefined behaviour, the original 'SmallMutableArray#' shall
 -- not be accessed anymore after a 'resizeSmallMutableArray#' has been
 -- performed. Moreover, no reference to the old one should be kept in order

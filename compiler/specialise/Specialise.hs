@@ -8,6 +8,8 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE ViewPatterns #-}
+
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module Specialise ( specProgram, specUnfolding ) where
 
 #include "HsVersions.h"
@@ -22,26 +24,26 @@ import Predicate
 import Module( Module, HasModule(..) )
 import Coercion( Coercion )
 import CoreMonad
-import qualified CoreSubst
-import CoreUnfold
+import qualified GHC.Core.Subst
+import GHC.Core.Unfold
 import Var              ( isLocalVar )
 import VarSet
 import VarEnv
-import CoreSyn
-import Rules
-import CoreOpt          ( collectBindersPushingCo )
-import CoreUtils        ( exprIsTrivial, mkCast, exprType )
-import CoreFVs
-import CoreArity        ( etaExpandToJoinPointRule )
+import GHC.Core
+import GHC.Core.Rules
+import GHC.Core.SimpleOpt ( collectBindersPushingCo )
+import GHC.Core.Utils     ( exprIsTrivial, mkCast, exprType )
+import GHC.Core.FVs
+import GHC.Core.Arity     ( etaExpandToJoinPointRule )
 import UniqSupply
 import Name
 import MkId             ( voidArgId, voidPrimId )
 import Maybes           ( mapMaybe, isJust )
 import MonadUtils       ( foldlM )
 import BasicTypes
-import HscTypes
+import GHC.Driver.Types
 import Bag
-import DynFlags
+import GHC.Driver.Session
 import Util
 import Outputable
 import FastString
@@ -201,7 +203,7 @@ the two instances of +.sel weren't originally at the same type.
 Further notes on (b)
 
 * There are quite a few variations here.  For example, the defn of
-  +.sel could be floated ouside the \y, to attempt to gain laziness.
+  +.sel could be floated outside the \y, to attempt to gain laziness.
   It certainly mustn't be floated outside the \d because the d has to
   be in scope too.
 
@@ -578,7 +580,7 @@ Hence, the invariant is this:
 ************************************************************************
 -}
 
--- | Specialise calls to type-class overloaded functions occuring in a program.
+-- | Specialise calls to type-class overloaded functions occurring in a program.
 specProgram :: ModGuts -> CoreM ModGuts
 specProgram guts@(ModGuts { mg_module = this_mod
                           , mg_rules = local_rules
@@ -607,7 +609,7 @@ specProgram guts@(ModGuts { mg_module = this_mod
         -- accidentally re-use a unique that's already in use
         -- Easiest thing is to do it all at once, as if all the top-level
         -- decls were mutually recursive
-    top_env = SE { se_subst = CoreSubst.mkEmptySubst $ mkInScopeSet $ mkVarSet $
+    top_env = SE { se_subst = GHC.Core.Subst.mkEmptySubst $ mkInScopeSet $ mkVarSet $
                               bindersOfBinds binds
                  , se_interesting = emptyVarSet }
 
@@ -1036,7 +1038,7 @@ Avoiding this recursive specialisation loop is the reason for the
 -}
 
 data SpecEnv
-  = SE { se_subst :: CoreSubst.Subst
+  = SE { se_subst :: GHC.Core.Subst.Subst
              -- We carry a substitution down:
              -- a) we must clone any binding that might float outwards,
              --    to avoid name clashes
@@ -1051,7 +1053,7 @@ data SpecEnv
      }
 
 specVar :: SpecEnv -> Id -> CoreExpr
-specVar env v = CoreSubst.lookupIdSubst (text "specVar") (se_subst env) v
+specVar env v = GHC.Core.Subst.lookupIdSubst (text "specVar") (se_subst env) v
 
 specExpr :: SpecEnv -> CoreExpr -> SpecM (CoreExpr, UsageDetails)
 
@@ -1144,7 +1146,7 @@ specCase env scrut' case_bndr [(con, args, rhs)]
              subst_prs  = (case_bndr, Var case_bndr_flt)
                         : [ (arg, Var sc_flt)
                           | (arg, Just sc_flt) <- args `zip` mb_sc_flts ]
-             env_rhs' = env_rhs { se_subst = CoreSubst.extendIdSubstList (se_subst env_rhs) subst_prs
+             env_rhs' = env_rhs { se_subst = GHC.Core.Subst.extendIdSubstList (se_subst env_rhs) subst_prs
                                 , se_interesting = se_interesting env_rhs `extendVarSetList`
                                                    (case_bndr_flt : sc_args_flt) }
 
@@ -1403,7 +1405,7 @@ specCalls mb_mod env existing_rules calls_for_me fn rhs
                                  -- See Note [Account for casts in binding]
     rhs_tyvars = filter isTyVar rhs_bndrs
 
-    in_scope = CoreSubst.substInScope (se_subst env)
+    in_scope = GHC.Core.Subst.substInScope (se_subst env)
 
     already_covered :: DynFlags -> [CoreRule] -> [CoreExpr] -> Bool
     already_covered dflags new_rules args      -- Note [Specialisations already covered]
@@ -1439,7 +1441,7 @@ specCalls mb_mod env existing_rules calls_for_me fn rhs
                  (lam_extra_args, app_args)     -- See Note [Specialisations Must Be Lifted]
                    | isUnliftedType body_ty     -- C.f. WwLib.mkWorkerArgs
                    , not (isJoinId fn)
-                   = ([voidArgId], unspec_bndrs ++ [voidPrimId])
+                   = ([voidArgId], voidPrimId : unspec_bndrs)
                    | otherwise = ([], unspec_bndrs)
                  join_arity_change = length app_args - length rule_args
                  spec_join_arity | Just orig_join_arity <- isJoinId_maybe fn
@@ -1692,9 +1694,9 @@ bindAuxiliaryDicts env@(SE { se_subst = subst, se_interesting = interesting })
   = (env', dx_binds, spec_dict_args)
   where
     (dx_binds, spec_dict_args) = go call_ds inst_dict_ids
-    env' = env { se_subst = subst `CoreSubst.extendSubstList`
+    env' = env { se_subst = subst `GHC.Core.Subst.extendSubstList`
                                      (orig_dict_ids `zip` spec_dict_args)
-                                  `CoreSubst.extendInScopeList` dx_ids
+                                  `GHC.Core.Subst.extendInScopeList` dx_ids
                , se_interesting = interesting `unionVarSet` interesting_dicts }
 
     dx_ids = [dx_id | (NonRec dx_id _, _) <- dx_binds]
@@ -2110,7 +2112,7 @@ Consider
 We gather the call info for (f @T $df), and we don't want to drop it
 when we come across the binding for $df.  So we add $df to the floats
 and continue.  But then we have to add $c== to the floats, and so on.
-These all float above the binding for 'f', and and now we can
+These all float above the binding for 'f', and now we can
 successfully specialise 'f'.
 
 So the DictBinds in (ud_binds :: Bag DictBind) may contain
@@ -2161,7 +2163,7 @@ pprCallInfo fn (CI { ci_key = key })
   = ppr fn <+> ppr key
 
 ppr_call_key_ty :: SpecArg -> Maybe SDoc
-ppr_call_key_ty (SpecType ty) = Just $ char '@' <+> pprParendType ty
+ppr_call_key_ty (SpecType ty) = Just $ char '@' <> pprParendType ty
 ppr_call_key_ty UnspecType    = Just $ char '_'
 ppr_call_key_ty (SpecDict _)  = Nothing
 ppr_call_key_ty UnspecArg     = Nothing
@@ -2381,7 +2383,7 @@ pair_fvs (bndr, rhs) = exprSomeFreeVars interesting rhs
     interesting :: InterestingVarFun
     interesting v = isLocalVar v || (isId v && isDFunId v)
         -- Very important: include DFunIds /even/ if it is imported
-        -- Reason: See Note [Avoiding loops], the second exmaple
+        -- Reason: See Note [Avoiding loops], the second example
         --         involving an imported dfun.  We must know whether
         --         a dictionary binding depends on an imported dfun,
         --         in case we try to specialise that imported dfun
@@ -2596,20 +2598,20 @@ mapAndCombineSM f (x:xs) = do (y, uds1) <- f x
 
 extendTvSubstList :: SpecEnv -> [(TyVar,Type)] -> SpecEnv
 extendTvSubstList env tv_binds
-  = env { se_subst = CoreSubst.extendTvSubstList (se_subst env) tv_binds }
+  = env { se_subst = GHC.Core.Subst.extendTvSubstList (se_subst env) tv_binds }
 
 substTy :: SpecEnv -> Type -> Type
-substTy env ty = CoreSubst.substTy (se_subst env) ty
+substTy env ty = GHC.Core.Subst.substTy (se_subst env) ty
 
 substCo :: SpecEnv -> Coercion -> Coercion
-substCo env co = CoreSubst.substCo (se_subst env) co
+substCo env co = GHC.Core.Subst.substCo (se_subst env) co
 
 substBndr :: SpecEnv -> CoreBndr -> (SpecEnv, CoreBndr)
-substBndr env bs = case CoreSubst.substBndr (se_subst env) bs of
+substBndr env bs = case GHC.Core.Subst.substBndr (se_subst env) bs of
                       (subst', bs') -> (env { se_subst = subst' }, bs')
 
 substBndrs :: SpecEnv -> [CoreBndr] -> (SpecEnv, [CoreBndr])
-substBndrs env bs = case CoreSubst.substBndrs (se_subst env) bs of
+substBndrs env bs = case GHC.Core.Subst.substBndrs (se_subst env) bs of
                       (subst', bs') -> (env { se_subst = subst' }, bs')
 
 cloneBindSM :: SpecEnv -> CoreBind -> SpecM (SpecEnv, SpecEnv, CoreBind)
@@ -2617,7 +2619,7 @@ cloneBindSM :: SpecEnv -> CoreBind -> SpecM (SpecEnv, SpecEnv, CoreBind)
 -- Return the substitution to use for RHSs, and the one to use for the body
 cloneBindSM env@(SE { se_subst = subst, se_interesting = interesting }) (NonRec bndr rhs)
   = do { us <- getUniqueSupplyM
-       ; let (subst', bndr') = CoreSubst.cloneIdBndr subst us bndr
+       ; let (subst', bndr') = GHC.Core.Subst.cloneIdBndr subst us bndr
              interesting' | interestingDict env rhs
                           = interesting `extendVarSet` bndr'
                           | otherwise = interesting
@@ -2626,7 +2628,7 @@ cloneBindSM env@(SE { se_subst = subst, se_interesting = interesting }) (NonRec 
 
 cloneBindSM env@(SE { se_subst = subst, se_interesting = interesting }) (Rec pairs)
   = do { us <- getUniqueSupplyM
-       ; let (subst', bndrs') = CoreSubst.cloneRecIdBndrs subst us (map fst pairs)
+       ; let (subst', bndrs') = GHC.Core.Subst.cloneRecIdBndrs subst us (map fst pairs)
              env' = env { se_subst = subst'
                         , se_interesting = interesting `extendVarSetList`
                                            [ v | (v,r) <- pairs, interestingDict env r ] }
@@ -2638,7 +2640,7 @@ newDictBndr :: SpecEnv -> CoreBndr -> SpecM CoreBndr
 newDictBndr env b = do { uniq <- getUniqueM
                        ; let n   = idName b
                              ty' = substTy env (idType b)
-                       ; return (mkUserLocalOrCoVar (nameOccName n) uniq Many ty' (getSrcSpan n)) }
+                       ; return (mkUserLocal (nameOccName n) uniq Many ty' (getSrcSpan n)) }
 
 newSpecIdSM :: Id -> Type -> Maybe JoinArity -> SpecM Id
     -- Give the new Id a similar occurrence name to the old one
@@ -2646,7 +2648,7 @@ newSpecIdSM old_id new_ty join_arity_maybe
   = do  { uniq <- getUniqueM
         ; let name    = idName old_id
               new_occ = mkSpecOcc (nameOccName name)
-              new_id  = mkUserLocalOrCoVar new_occ uniq Many new_ty (getSrcSpan name)
+              new_id  = mkUserLocal new_occ uniq Many new_ty (getSrcSpan name)
                           `asJoinId_maybe` join_arity_maybe
         ; return new_id }
 

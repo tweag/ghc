@@ -23,9 +23,9 @@ Some of the relevant source files:
 
   * some codeGen/ modules import this one
 
-  * this module imports cmm/CLabel.hs to manage labels
+  * this module imports GHC.Cmm.CLabel to manage labels
 
-  * cmm/CmmParse.y expands some macros using generators defined in
+  * GHC.Cmm.Parser expands some macros using generators defined in
     this module
 
   * includes/stg/Ticky.h declares all of the global counters
@@ -111,12 +111,12 @@ import GHC.StgToCmm.Closure
 import GHC.StgToCmm.Utils
 import GHC.StgToCmm.Monad
 
-import StgSyn
-import CmmExpr
-import MkGraph
-import CmmUtils
-import CLabel
-import SMRep
+import GHC.Stg.Syntax
+import GHC.Cmm.Expr
+import GHC.Cmm.Graph
+import GHC.Cmm.Utils
+import GHC.Cmm.CLabel
+import GHC.Runtime.Heap.Layout
 
 import Module
 import Name
@@ -126,7 +126,7 @@ import FastString
 import Outputable
 import Util
 
-import DynFlags
+import GHC.Driver.Session
 
 -- Turgid imports for showTypeCategory
 import PrelNames
@@ -240,7 +240,7 @@ emitTickyCounter cloType name args
 
         ; fun_descr_lit <- newStringCLit $ showSDocDebug dflags ppr_for_ticky_name
         ; arg_descr_lit <- newStringCLit $ map (showTypeCategory . idType . fromNonVoid) args
-        ; emitDataLits ctr_lbl
+        ; emitRawDataLits ctr_lbl
         -- Must match layout of includes/rts/Ticky.h's StgEntCounter
         --
         -- krc: note that all the fields are I32 now; some were I16
@@ -517,7 +517,7 @@ tickyAllocHeap genuine hp
 
 
 --------------------------------------------------------------------------------
--- these three are only called from CmmParse.y (ie ultimately from the RTS)
+-- these three are only called from GHC.Cmm.Parser (ie ultimately from the RTS)
 
 -- the units are bytes
 

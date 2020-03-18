@@ -9,6 +9,9 @@ Type subsumption and unification
 {-# LANGUAGE CPP, DeriveFunctor, MultiWayIf, TupleSections,
     ScopedTypeVariables #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module TcUnify (
   -- Full-blown subsumption
   tcWrapResult, tcWrapResultO, tcSkolemise, tcSkolemiseET,
@@ -42,6 +45,7 @@ import GhcPrelude
 
 import GHC.Hs
 import TyCoRep
+import TyCoPpr( debugPprType )
 import TcMType
 import TcRnMonad
 import TcType
@@ -61,7 +65,7 @@ import Var
 import VarSet
 import VarEnv
 import ErrUtils
-import DynFlags
+import GHC.Driver.Session
 import BasicTypes
 import Bag
 import Util
@@ -1004,7 +1008,7 @@ ir_inst = False: do not instantiate
     (let { f :: forall a. a -> a; f x = x } in f) @Int
 
    We'll call TcExpr.tcInferFun to infer the type of the (let .. in f)
-   And we don't want to instantite the type of 'f' when we reach it,
+   And we don't want to instantiate the type of 'f' when we reach it,
    else the outer visible type application won't work
 
 2. :type +v. When we say
@@ -1181,7 +1185,7 @@ tcSkolemise ctxt expected_ty thing_inside
                 text "given"       <+> ppr given,
                 text "inst type"   <+> ppr rho' ]
 
-        -- Generally we must check that the "forall_tvs" havn't been constrained
+        -- Generally we must check that the "forall_tvs" haven't been constrained
         -- The interesting bit here is that we must include the free variables
         -- of the expected_ty.  Here's an example:
         --       runST (newVar True)
@@ -1760,7 +1764,7 @@ uUnfilledVar2 origin t_or_k swapped tv1 ty2
       = do { traceTc "uUnfilledVar2 not ok" (ppr tv1 $$ ppr ty2)
                -- Occurs check or an untouchable: just defer
                -- NB: occurs check isn't necessarily fatal:
-               --     eg tv1 occured in type family parameter
+               --     eg tv1 occurred in type family parameter
             ; defer }
 
     ty1 = mkTyVarTy tv1
@@ -1810,6 +1814,10 @@ lhsPriority tv
 Given (a ~ b), should we orient the CTyEqCan as (a~b) or (b~a)?
 This is a surprisingly tricky question!
 
+The question is answered by swapOverTyVars, which is use
+  - in the eager unifier, in TcUnify.uUnfilledVar1
+  - in the constraint solver, in TcCanonical.canEqTyVarHomo
+
 First note: only swap if you have to!
    See Note [Avoid unnecessary swaps]
 
@@ -1819,25 +1827,31 @@ So we look for a positive reason to swap, using a three-step test:
   put 'a' on the left.  See Note [Deeper level on the left]
 
 * Priority.  If the levels are the same, look at what kind of
-  type variable it is, using 'lhsPriority'
+  type variable it is, using 'lhsPriority'.
 
-  - FlatMetaTv: Always put on the left.
-    See Note [Fmv Orientation Invariant]
-    NB: FlatMetaTvs always have the current level, never an
-        outer one.  So nothing can be deeper than a FlatMetaTv
-
-
-  - TyVarTv/TauTv: if we have  tyv_tv ~ tau_tv, put tau_tv
-                   on the left because there are fewer
-                   restrictions on updating TauTvs
-
-  - TyVarTv/TauTv:  put on the left either
-     a) Because it's touchable and can be unified, or
+  Generally speaking we always try to put a MetaTv on the left
+  in preference to SkolemTv or RuntimeUnkTv:
+     a) Because the MetaTv may be touchable and can be unified
      b) Even if it's not touchable, TcSimplify.floatEqualities
         looks for meta tyvars on the left
 
-  - FlatSkolTv: Put on the left in preference to a SkolemTv
-                See Note [Eliminate flat-skols]
+  Tie-breaking rules for MetaTvs:
+  - FlatMetaTv = 4: always put on the left.
+        See Note [Fmv Orientation Invariant]
+
+        NB: FlatMetaTvs always have the current level, never an
+        outer one.  So nothing can be deeper than a FlatMetaTv.
+
+  - TauTv = 3: if we have  tyv_tv ~ tau_tv,
+       put tau_tv on the left because there are fewer
+       restrictions on updating TauTvs.  Or to say it another
+       way, then we won't lose the TyVarTv flag
+
+  - TyVarTv = 2: remember, flat-skols are *only* updated by
+       the unflattener, never unified, so TyVarTvs come next
+
+  - FlatSkolTv = 1: put on the left in preference to a SkolemTv.
+       See Note [Eliminate flat-skols]
 
 * Names. If the level and priority comparisons are all
   equal, try to eliminate a TyVars with a System Name in
@@ -2197,7 +2211,7 @@ This is legal; e.g. dependent/should_compile/T11635.
 We don't want to reject it because of the forall in beta's kind,
 but (see Note [Occurrence checking: look inside kinds]) we do
 need to look in beta's kind.  So we carry a flag saying if a 'forall'
-is OK, and sitch the flag on when stepping inside a kind.
+is OK, and switch the flag on when stepping inside a kind.
 
 Why is it OK?  Why does it not count as impredicative polymorphism?
 The reason foralls are bad is because we reply on "seeing" foralls

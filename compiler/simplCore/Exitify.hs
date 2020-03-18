@@ -41,13 +41,13 @@ import GhcPrelude
 import Var
 import Id
 import IdInfo
-import CoreSyn
-import CoreUtils
+import GHC.Core
+import GHC.Core.Utils
 import State
 import Unique
 import VarSet
 import VarEnv
-import CoreFVs
+import GHC.Core.FVs
 import FastString
 import Type
 import Multiplicity ( pattern Many )
@@ -230,7 +230,7 @@ exitifyRec in_scope pairs
            ; return $ mkVarApps (Var v) abs_vars }
 
       where
-        -- Used to detect exit expressoins that are already proper exit jumps
+        -- Used to detect exit expressions that are already proper exit jumps
         isCapturedVarArg (Var v) = v `elem` captured
         isCapturedVarArg _ = False
 
@@ -434,7 +434,7 @@ To prevent this, we need to recognize exit join points, and then disable
 inlining.
 
 Exit join points, recognizeable using `isExitJoinId` are join points with an
-occurence in a recursive group, and can be recognized (after the occurence
+occurrence in a recursive group, and can be recognized (after the occurrence
 analyzer ran!) using `isExitJoinId`.
 This function detects joinpoints with `occ_in_lam (idOccinfo id) == True`,
 because the lambdas of a non-recursive join point are not considered for
@@ -496,7 +496,7 @@ free variables of the join point.
 
 We do not just `filter (`elemVarSet` fvs) captured`, as there might be
 shadowing, and `captured` may contain multiple variables with the same Unique. I
-these cases we want to abstract only over the last occurence, hence the `foldr`
+these cases we want to abstract only over the last occurrence, hence the `foldr`
 (with emphasis on the `r`). This is #15110.
 
 -}

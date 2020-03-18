@@ -11,8 +11,8 @@ GHC.Hs.Types: Abstract syntax: user-defined types
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
-                                      -- in module GHC.Hs.PlaceHolder
+{-# LANGUAGE UndecidableInstances #-} -- Wrinkle in Note [Trees That Grow]
+                                      -- in module GHC.Hs.Extension
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -63,8 +63,7 @@ module GHC.Hs.Types (
         hsLTyVarName, hsLTyVarNames, hsLTyVarLocName, hsExplicitLTyVarNames,
         splitLHsInstDeclTy, getLHsInstDeclHead, getLHsInstDeclClass_maybe,
         splitLHsPatSynTy,
-        splitLHsForAllTy, splitLHsForAllTyInvis,
-        splitLHsQualTy, splitLHsSigmaTy, splitLHsSigmaTyInvis,
+        splitLHsForAllTyInvis, splitLHsQualTy, splitLHsSigmaTyInvis,
         splitHsFunType, hsTyGetAppHead_maybe,
         mkHsOpTy, mkHsAppTy, mkHsAppTys, mkHsAppKindTy,
         ignoreParens, hsSigType, hsSigWcType,
@@ -91,7 +90,7 @@ import Name( Name, NamedThing(getName) )
 import RdrName ( RdrName )
 import DataCon( HsSrcBang(..), HsImplBang(..),
                 SrcStrictness(..), SrcUnpackedness(..) )
-import TysWiredIn( unrestrictedFunTyConName, manyDataConName, oneDataConName )
+import TysWiredIn( manyDataConName, oneDataConName, mkTupleStr )
 import Type
 import GHC.Hs.Doc
 import BasicTypes
@@ -99,7 +98,7 @@ import SrcLoc
 import Outputable
 import FastString
 import Maybes( isJust )
-import Util ( count, debugIsOn )
+import Util ( count )
 
 import Data.Data hiding ( Fixity, Prefix, Infix )
 
@@ -151,7 +150,7 @@ Then we use a LHsBndrSig on the binder, so that the
 renamer can decorate it with the variables bound
 by the pattern ('a' in the first example, 'k' in the second),
 assuming that neither of them is in scope already
-See also Note [Kind and type-variable binders] in RnTypes
+See also Note [Kind and type-variable binders] in GHC.Rename.Types
 
 Note [HsType binders]
 ~~~~~~~~~~~~~~~~~~~~~
@@ -272,7 +271,7 @@ By "stable", we mean that any two variables who do not depend on each other
 preserve their existing left-to-right ordering.
 
 Implicitly bound variables are collected by the extract- family of functions
-(extractHsTysRdrTyVars, extractHsTyVarBndrsKVs, etc.) in RnTypes.
+(extractHsTysRdrTyVars, extractHsTyVarBndrsKVs, etc.) in GHC.Rename.Types.
 These functions thus promise to keep left-to-right ordering.
 Look for pointers to this note to see the places where the action happens.
 
@@ -335,7 +334,6 @@ data LHsQTyVars pass   -- See Note [HsType binders]
 
            , hsq_explicit :: [LHsTyVarBndr pass]
                 -- Explicit variables, written by the user
-                -- See Note [HsForAllTy tyvar binders]
     }
   | XLHsQTyVars (XXLHsQTyVars pass)
 
@@ -375,7 +373,7 @@ data HsImplicitBndrs pass thing   -- See Note [HsType binders]
                                          -- Implicitly-bound kind & type vars
                                          -- Order is important; see
                                          -- Note [Ordering of implicit variables]
-                                         -- in RnTypes
+                                         -- in GHC.Rename.Types
 
          , hsib_body :: thing            -- Main payload (type or list of types)
     }
@@ -610,7 +608,8 @@ data HsType pass
 
   | HsParTy             (XParTy pass)
                         (LHsType pass)   -- See Note [Parens in HsSyn] in GHC.Hs.Expr
-        -- Parenthesis preserved for the precedence re-arrangement in RnTypes
+        -- Parenthesis preserved for the precedence re-arrangement in
+        -- GHC.Rename.Types
         -- It's important that a * (b + c) doesn't get rearranged to (a*b) + c!
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'('@,
       --         'ApiAnnotation.AnnClose' @')'@
@@ -681,7 +680,7 @@ data HsType pass
 
   | HsExplicitListTy       -- A promoted explicit list
         (XExplicitListTy pass)
-        PromotionFlag      -- whether explcitly promoted, for pretty printer
+        PromotionFlag      -- whether explicitly promoted, for pretty printer
         [LHsType pass]
       -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @"'["@,
       --         'ApiAnnotation.AnnClose' @']'@
@@ -817,7 +816,7 @@ instance Outputable a => Outputable (HsScaled pass a) where
                           ppr t
 
 instance
-      (OutputableBndrId (GhcPass pass)) =>
+      (OutputableBndrId pass) =>
       Outputable (HsArrow (GhcPass pass)) where
   ppr HsUnrestrictedArrow = parens arrow
   ppr HsLinearArrow = parens lollipop
@@ -825,29 +824,6 @@ instance
 
 
 {-
-Note [HsForAllTy tyvar binders]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-After parsing:
-  * Implicit => empty
-    Explicit => the variables the user wrote
-
-After renaming
-  * Implicit => the *type* variables free in the type
-    Explicit => the variables the user wrote (renamed)
-
-Qualified currently behaves exactly as Implicit,
-but it is deprecated to use it for implicit quantification.
-In this case, GHC 7.10 gives a warning; see
-Note [Context quantification] in RnTypes, and #4426.
-In GHC 8.0, Qualified will no longer bind variables
-and this will become an error.
-
-The kind variables bound in the hsq_implicit field come both
-  a) from the kind signatures on the kind vars (eg k1)
-  b) from the scope of the forall (eg k2)
-Example:   f :: forall (a::k1) b. T a (b::k2)
-
-
 Note [Unit tuples]
 ~~~~~~~~~~~~~~~~~~
 Consider the type
@@ -951,7 +927,7 @@ type LConDeclField pass = Located (ConDeclField pass)
       -- For details on above see note [Api annotations] in ApiAnnotation
 
 -- | Constructor Declaration Field
-data ConDeclField pass  -- Record fields have Haddoc docs on them
+data ConDeclField pass  -- Record fields have Haddock docs on them
   = ConDeclField { cd_fld_ext  :: XConDeclField pass,
                    cd_fld_names :: [LFieldOcc pass],
                                    -- ^ See Note [ConDeclField passs]
@@ -965,8 +941,8 @@ data ConDeclField pass  -- Record fields have Haddoc docs on them
 type instance XConDeclField  (GhcPass _) = NoExtField
 type instance XXConDeclField (GhcPass _) = NoExtCon
 
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (ConDeclField p) where
+instance OutputableBndrId p
+       => Outputable (ConDeclField (GhcPass p)) where
   ppr (ConDeclField _ fld_n fld_ty _) = ppr fld_n <+> dcolon <+> ppr fld_ty
   ppr (XConDeclField x) = ppr x
 
@@ -1021,16 +997,15 @@ gives
 hsWcScopedTvs :: LHsSigWcType GhcRn -> [Name]
 -- Get the lexically-scoped type variables of a HsSigType
 --  - the explicitly-given forall'd type variables
---  - the named wildcars; see Note [Scoping of named wildcards]
+--  - the named wildcards; see Note [Scoping of named wildcards]
 -- because they scope in the same way
 hsWcScopedTvs sig_ty
   | HsWC { hswc_ext = nwcs, hswc_body = sig_ty1 }  <- sig_ty
   , HsIB { hsib_ext = vars
          , hsib_body = sig_ty2 } <- sig_ty1
   = case sig_ty2 of
-      L _ (HsForAllTy { hst_fvf = vis_flag
+      L _ (HsForAllTy { hst_fvf = ForallInvis -- See Note [hsScopedTvs vis_flag]
                       , hst_bndrs = tvs }) ->
-        ASSERT( vis_flag == ForallInvis ) -- See Note [hsScopedTvs vis_flag]
         vars ++ nwcs ++ hsLTyVarNames tvs
       _                                    -> nwcs
 hsWcScopedTvs (HsWC _ (XHsImplicitBndrs nec)) = noExtCon nec
@@ -1041,10 +1016,9 @@ hsScopedTvs :: LHsSigType GhcRn -> [Name]
 hsScopedTvs sig_ty
   | HsIB { hsib_ext = vars
          , hsib_body = sig_ty2 } <- sig_ty
-  , L _ (HsForAllTy { hst_fvf = vis_flag
+  , L _ (HsForAllTy { hst_fvf = ForallInvis -- See Note [hsScopedTvs vis_flag]
                     , hst_bndrs = tvs }) <- sig_ty2
-  = ASSERT( vis_flag == ForallInvis ) -- See Note [hsScopedTvs vis_flag]
-    vars ++ hsLTyVarNames tvs
+  = vars ++ hsLTyVarNames tvs
   | otherwise
   = []
 
@@ -1090,17 +1064,23 @@ The conclusion of these discussions can be summarized as follows:
   >     vfn :: forall x y -> tau(x,y)
   >     vfn x y = \a b -> ...         -- bad!
 
-At the moment, GHC does not support visible 'forall' in terms, so we simply cement
-our assumptions with an assert:
-
-    hsScopedTvs (HsForAllTy { hst_fvf = vis_flag, ... }) =
-      ASSERT( vis_flag == ForallInvis )
-      ...
-
-In the future, this assert can be safely turned into a pattern match to support
-visible forall in terms:
+We cement this design by pattern-matching on ForallInvis in hsScopedTvs:
 
     hsScopedTvs (HsForAllTy { hst_fvf = ForallInvis, ... }) = ...
+
+At the moment, GHC does not support visible 'forall' in terms. Nevertheless,
+it is still possible to write erroneous programs that use visible 'forall's in
+terms, such as this example:
+
+    x :: forall a -> a -> a
+    x = x
+
+If we do not pattern-match on ForallInvis in hsScopedTvs, then `a` would
+erroneously be brought into scope over the body of `x` when renaming it.
+Although the typechecker would later reject this (see `TcValidity.vdqAllowed`),
+it is still possible for this to wreak havoc in the renamer before it gets to
+that point (see #17687 for an example of this).
+Bottom line: nip problems in the bud by matching on ForallInvis from the start.
 -}
 
 ---------------------
@@ -1127,14 +1107,14 @@ hsAllLTyVarNames (HsQTvs { hsq_ext = kvs
 hsAllLTyVarNames (XLHsQTyVars nec) = noExtCon nec
 
 hsLTyVarLocName :: LHsTyVarBndr (GhcPass p) -> Located (IdP (GhcPass p))
-hsLTyVarLocName = onHasSrcSpan hsTyVarName
+hsLTyVarLocName = mapLoc hsTyVarName
 
 hsLTyVarLocNames :: LHsQTyVars (GhcPass p) -> [Located (IdP (GhcPass p))]
 hsLTyVarLocNames qtvs = map hsLTyVarLocName (hsQTvExplicit qtvs)
 
 -- | Convert a LHsTyVarBndr to an equivalent LHsType.
 hsLTyVarBndrToType :: LHsTyVarBndr (GhcPass p) -> LHsType (GhcPass p)
-hsLTyVarBndrToType = onHasSrcSpan cvt
+hsLTyVarBndrToType = mapLoc cvt
   where cvt (UserTyVar _ n) = HsTyVar noExtField NotPromoted n
         cvt (KindedTyVar _ (L name_loc n) kind)
           = HsKindSig noExtField
@@ -1214,8 +1194,6 @@ mkHsAppKindTy ext ty k
 -- splitHsFunType decomposes a type (t1 -> t2 ... -> tn)
 -- Breaks up any parens in the result type:
 --      splitHsFunType (a -> (b -> c)) = ([a,b], c)
--- Also deals with (->) t1 t2; that is why it only works on LHsType Name
---   (see #9096)
 splitHsFunType :: LHsType GhcRn -> ([HsScaled GhcRn (LHsType GhcRn)], LHsType GhcRn)
 splitHsFunType (L _ (HsParTy _ ty))
   = splitHsFunType ty
@@ -1223,19 +1201,6 @@ splitHsFunType (L _ (HsParTy _ ty))
 splitHsFunType (L _ (HsFunTy _ mult x y))
   | (args, res) <- splitHsFunType y
   = (HsScaled mult x:args, res)
-{- This is not so correct, because it won't work with visible kind app, in case
-  someone wants to write '(->) @k1 @k2 t1 t2'. Fixing this would require changing
-  ConDeclGADT abstract syntax -}
-splitHsFunType orig_ty@(L _ (HsAppTy _ t1 t2))
-  = go t1 [t2]
-  where  -- Look for (->) t1 t2, possibly with parenthesisation
-    go (L _ (HsTyVar _ _ (L _ fn))) tys | fn == unrestrictedFunTyConName
-                                 , [t1,t2] <- tys
-                                 , (args, res) <- splitHsFunType t2
-                                 = (hsUnrestricted t1:args, res)
-    go (L _ (HsAppTy _ t1 t2)) tys = go t1 (t2:tys)
-    go (L _ (HsParTy _ ty))    tys = go ty tys
-    go _                       _   = ([], orig_ty)  -- Failure to match
 
 splitHsFunType other = ([], other)
 
@@ -1311,21 +1276,9 @@ splitLHsPatSynTy ty = (univs, reqs, exis, provs, ty4)
     (provs, ty4) = splitLHsQualTy ty3
 
 -- | Decompose a sigma type (of the form @forall <tvs>. context => body@)
--- into its constituent parts.
---
--- Note that this function looks through parentheses, so it will work on types
--- such as @(forall a. <...>)@. The downside to this is that it is not
--- generally possible to take the returned types and reconstruct the original
--- type (parentheses and all) from them.
-splitLHsSigmaTy :: LHsType pass
-                -> ([LHsTyVarBndr pass], LHsContext pass, LHsType pass)
-splitLHsSigmaTy ty
-  | (tvs, ty1)  <- splitLHsForAllTy ty
-  , (ctxt, ty2) <- splitLHsQualTy ty1
-  = (tvs, ctxt, ty2)
-
--- | Like 'splitLHsSigmaTy', but only splits type variable binders that were
--- quantified invisibly (e.g., @forall a.@, with a dot).
+-- into its constituent parts. Note that only /invisible/ @forall@s
+-- (i.e., @forall a.@, with a dot) are split apart; /visible/ @forall@s
+-- (i.e., @forall a ->@, with an arrow) are left untouched.
 --
 -- This function is used to split apart certain types, such as instance
 -- declaration types, which disallow visible @forall@s. For instance, if GHC
@@ -1343,20 +1296,10 @@ splitLHsSigmaTyInvis ty
   , (ctxt, ty2) <- splitLHsQualTy ty1
   = (tvs, ctxt, ty2)
 
--- | Decompose a type of the form @forall <tvs>. body@) into its constituent
--- parts.
---
--- Note that this function looks through parentheses, so it will work on types
--- such as @(forall a. <...>)@. The downside to this is that it is not
--- generally possible to take the returned types and reconstruct the original
--- type (parentheses and all) from them.
-splitLHsForAllTy :: LHsType pass -> ([LHsTyVarBndr pass], LHsType pass)
-splitLHsForAllTy (L _ (HsParTy _ ty)) = splitLHsForAllTy ty
-splitLHsForAllTy (L _ (HsForAllTy { hst_bndrs = tvs, hst_body = body })) = (tvs, body)
-splitLHsForAllTy body              = ([], body)
-
--- | Like 'splitLHsForAllTy', but only splits type variable binders that
--- were quantified invisibly (e.g., @forall a.@, with a dot).
+-- | Decompose a type of the form @forall <tvs>. body@ into its constituent
+-- parts. Note that only /invisible/ @forall@s
+-- (i.e., @forall a.@, with a dot) are split apart; /visible/ @forall@s
+-- (i.e., @forall a ->@, with an arrow) are left untouched.
 --
 -- This function is used to split apart certain types, such as instance
 -- declaration types, which disallow visible @forall@s. For instance, if GHC
@@ -1441,8 +1384,7 @@ data FieldOcc pass = FieldOcc { extFieldOcc     :: XCFieldOcc pass
 
   | XFieldOcc
       (XXFieldOcc pass)
-deriving instance (p ~ GhcPass pass, Eq (XCFieldOcc p)) => Eq  (FieldOcc p)
-deriving instance (p ~ GhcPass pass, Ord (XCFieldOcc p)) => Ord (FieldOcc p)
+deriving instance Eq  (XCFieldOcc (GhcPass p)) => Eq  (FieldOcc (GhcPass p))
 
 type instance XCFieldOcc GhcPs = NoExtField
 type instance XCFieldOcc GhcRn = Name
@@ -1484,10 +1426,10 @@ type instance XAmbiguous GhcTc = Id
 
 type instance XXAmbiguousFieldOcc (GhcPass _) = NoExtCon
 
-instance p ~ GhcPass pass => Outputable (AmbiguousFieldOcc p) where
+instance Outputable (AmbiguousFieldOcc (GhcPass p)) where
   ppr = ppr . rdrNameAmbiguousFieldOcc
 
-instance p ~ GhcPass pass => OutputableBndr (AmbiguousFieldOcc p) where
+instance OutputableBndr (AmbiguousFieldOcc (GhcPass p)) where
   pprInfixOcc  = pprInfixOcc . rdrNameAmbiguousFieldOcc
   pprPrefixOcc = pprPrefixOcc . rdrNameAmbiguousFieldOcc
 
@@ -1523,30 +1465,30 @@ ambiguousFieldOcc (XFieldOcc nec) = noExtCon nec
 ************************************************************************
 -}
 
-instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (HsType p) where
+instance OutputableBndrId p => Outputable (HsType (GhcPass p)) where
     ppr ty = pprHsType ty
 
 instance Outputable HsTyLit where
     ppr = ppr_tylit
 
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (LHsQTyVars p) where
+instance OutputableBndrId p
+       => Outputable (LHsQTyVars (GhcPass p)) where
     ppr (HsQTvs { hsq_explicit = tvs }) = interppSP tvs
     ppr (XLHsQTyVars x) = ppr x
 
-instance (p ~ GhcPass pass, OutputableBndrId p)
-       => Outputable (HsTyVarBndr p) where
+instance OutputableBndrId p
+       => Outputable (HsTyVarBndr (GhcPass p)) where
     ppr (UserTyVar _ n)     = ppr n
     ppr (KindedTyVar _ n k) = parens $ hsep [ppr n, dcolon, ppr k]
     ppr (XTyVarBndr nec)    = noExtCon nec
 
-instance (p ~ GhcPass pass,Outputable thing)
-       => Outputable (HsImplicitBndrs p thing) where
+instance Outputable thing
+       => Outputable (HsImplicitBndrs (GhcPass p) thing) where
     ppr (HsIB { hsib_body = ty }) = ppr ty
     ppr (XHsImplicitBndrs x) = ppr x
 
-instance (p ~ GhcPass pass,Outputable thing)
-       => Outputable (HsWildCardBndrs p thing) where
+instance Outputable thing
+       => Outputable (HsWildCardBndrs (GhcPass p) thing) where
     ppr (HsWC { hswc_body = ty }) = ppr ty
     ppr (XHsWildCardBndrs x) = ppr x
 
@@ -1555,7 +1497,7 @@ pprAnonWildCard = char '_'
 
 -- | Prints a forall; When passed an empty list, prints @forall .@/@forall ->@
 -- only when @-dppr-debug@ is enabled.
-pprHsForAll :: (OutputableBndrId (GhcPass p))
+pprHsForAll :: (OutputableBndrId p)
             => ForallVisFlag -> [LHsTyVarBndr (GhcPass p)]
             -> LHsContext (GhcPass p) -> SDoc
 pprHsForAll = pprHsForAllExtra Nothing
@@ -1567,7 +1509,7 @@ pprHsForAll = pprHsForAllExtra Nothing
 -- function for this is needed, as the extra-constraints wildcard is removed
 -- from the actual context and type, and stored in a separate field, thus just
 -- printing the type will not print the extra-constraints wildcard.
-pprHsForAllExtra :: (OutputableBndrId (GhcPass p))
+pprHsForAllExtra :: (OutputableBndrId p)
                  => Maybe SrcSpan -> ForallVisFlag
                  -> [LHsTyVarBndr (GhcPass p)]
                  -> LHsContext (GhcPass p) -> SDoc
@@ -1581,7 +1523,7 @@ pprHsForAllExtra extra fvf qtvs cxt
 
 -- | Version of 'pprHsForAll' or 'pprHsForAllExtra' that will always print
 -- @forall.@ when passed @Just []@. Prints nothing if passed 'Nothing'
-pprHsExplicitForAll :: (OutputableBndrId (GhcPass p))
+pprHsExplicitForAll :: (OutputableBndrId p)
                     => ForallVisFlag
                     -> Maybe [LHsTyVarBndr (GhcPass p)] -> SDoc
 pprHsExplicitForAll fvf (Just qtvs) = forAllLit <+> interppSP qtvs
@@ -1594,14 +1536,14 @@ ppr_forall_separator :: ForallVisFlag -> SDoc
 ppr_forall_separator ForallVis   = space <> arrow
 ppr_forall_separator ForallInvis = dot
 
-pprLHsContext :: (OutputableBndrId (GhcPass p))
+pprLHsContext :: (OutputableBndrId p)
               => LHsContext (GhcPass p) -> SDoc
 pprLHsContext lctxt
   | null (unLoc lctxt) = empty
   | otherwise          = pprLHsContextAlways lctxt
 
 -- For use in a HsQualTy, which always gets printed if it exists.
-pprLHsContextAlways :: (OutputableBndrId (GhcPass p))
+pprLHsContextAlways :: (OutputableBndrId p)
                     => LHsContext (GhcPass p) -> SDoc
 pprLHsContextAlways (L _ ctxt)
   = case ctxt of
@@ -1610,7 +1552,7 @@ pprLHsContextAlways (L _ ctxt)
       _        -> parens (interpp'SP ctxt) <+> darrow
 
 -- True <=> print an extra-constraints wildcard, e.g. @(Show a, _) =>@
-pprLHsContextExtra :: (OutputableBndrId (GhcPass p))
+pprLHsContextExtra :: (OutputableBndrId p)
                    => Bool -> LHsContext (GhcPass p) -> SDoc
 pprLHsContextExtra show_extra lctxt@(L _ ctxt)
   | not show_extra = pprLHsContext lctxt
@@ -1619,7 +1561,7 @@ pprLHsContextExtra show_extra lctxt@(L _ ctxt)
   where
     ctxt' = map ppr ctxt ++ [char '_']
 
-pprConDeclFields :: (OutputableBndrId (GhcPass p))
+pprConDeclFields :: (OutputableBndrId p)
                  => [LConDeclField (GhcPass p)] -> SDoc
 pprConDeclFields fields = braces (sep (punctuate comma (map ppr_fld fields)))
   where
@@ -1645,13 +1587,13 @@ seems like the Right Thing anyway.)
 
 -- Printing works more-or-less as for Types
 
-pprHsType :: (OutputableBndrId (GhcPass p)) => HsType (GhcPass p) -> SDoc
+pprHsType :: (OutputableBndrId p) => HsType (GhcPass p) -> SDoc
 pprHsType ty = ppr_mono_ty ty
 
-ppr_mono_lty :: (OutputableBndrId (GhcPass p)) => LHsType (GhcPass p) -> SDoc
+ppr_mono_lty :: (OutputableBndrId p) => LHsType (GhcPass p) -> SDoc
 ppr_mono_lty ty = ppr_mono_ty (unLoc ty)
 
-ppr_mono_ty :: (OutputableBndrId (GhcPass p)) => HsType (GhcPass p) -> SDoc
+ppr_mono_ty :: (OutputableBndrId p) => HsType (GhcPass p) -> SDoc
 ppr_mono_ty (HsForAllTy { hst_fvf = fvf, hst_bndrs = tvs, hst_body = ty })
   = sep [pprHsForAll fvf tvs noLHsContext, ppr_mono_lty ty]
 
@@ -1664,7 +1606,14 @@ ppr_mono_ty (HsTyVar _ prom (L _ name))
   | isPromoted prom = quote (pprPrefixOcc name)
   | otherwise       = pprPrefixOcc name
 ppr_mono_ty (HsFunTy _ mult ty1 ty2)   = ppr_fun_ty mult ty1 ty2
-ppr_mono_ty (HsTupleTy _ con tys) = tupleParens std_con (pprWithCommas ppr tys)
+ppr_mono_ty (HsTupleTy _ con tys)
+    -- Special-case unary boxed tuples so that they are pretty-printed as
+    -- `Unit x`, not `(x)`
+  | [ty] <- tys
+  , BoxedTuple <- std_con
+  = sep [text (mkTupleStr Boxed 1), ppr_mono_lty ty]
+  | otherwise
+  = tupleParens std_con (pprWithCommas ppr tys)
   where std_con = case con of
                     HsUnboxedTuple -> UnboxedTuple
                     _              -> BoxedTuple
@@ -1679,6 +1628,11 @@ ppr_mono_ty (HsExplicitListTy _ prom tys)
   | isPromoted prom = quote $ brackets (maybeAddSpace tys $ interpp'SP tys)
   | otherwise       = brackets (interpp'SP tys)
 ppr_mono_ty (HsExplicitTupleTy _ tys)
+    -- Special-case unary boxed tuples so that they are pretty-printed as
+    -- `'Unit x`, not `'(x)`
+  | [ty] <- tys
+  = quote $ sep [text (mkTupleStr Boxed 1), ppr_mono_lty ty]
+  | otherwise
   = quote $ parens (maybeAddSpace tys $ interpp'SP tys)
 ppr_mono_ty (HsTyLit _ t)       = ppr_tylit t
 ppr_mono_ty (HsWildCardTy {})   = char '_'
@@ -1708,7 +1662,7 @@ ppr_mono_ty (HsDocTy _ ty doc)
 ppr_mono_ty (XHsType t) = ppr t
 
 --------------------------
-ppr_fun_ty :: (OutputableBndrId (GhcPass p))
+ppr_fun_ty :: (OutputableBndrId p)
            => HsArrow (GhcPass p) -> LHsType (GhcPass p) -> LHsType (GhcPass p) -> SDoc
 ppr_fun_ty mult ty1 ty2
   = let p1 = ppr_mono_lty ty1
@@ -1747,7 +1701,7 @@ hsTypeNeedsParens p = go
     go (HsExplicitTupleTy{}) = False
     go (HsTyLit{})           = False
     go (HsWildCardTy{})      = False
-    go (HsStarTy{})          = False
+    go (HsStarTy{})          = p >= starPrec
     go (HsAppTy{})           = p >= appPrec
     go (HsAppKindTy{})       = p >= appPrec
     go (HsOpTy{})            = p >= opPrec
@@ -1757,7 +1711,7 @@ hsTypeNeedsParens p = go
 
 maybeAddSpace :: [LHsType pass] -> SDoc -> SDoc
 -- See Note [Printing promoted type constructors]
--- in IfaceType.  This code implements the same
+-- in GHC.Iface.Type.  This code implements the same
 -- logic for printing HsType
 maybeAddSpace tys doc
   | (ty : _) <- tys

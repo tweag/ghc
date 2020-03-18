@@ -28,7 +28,7 @@ import TyCon
 import Multiplicity
 import TyCoRep   -- cleverly decomposes types, good for completeness checking
 import Coercion
-import CoreSyn
+import GHC.Core
 import Id( idType, mkTemplateLocals )
 import FamInstEnv ( FamInstEnvs )
 import FamInst ( tcTopNormaliseNewTypeTF_maybe )
@@ -37,7 +37,7 @@ import VarEnv( mkInScopeSet )
 import VarSet( delVarSetList )
 import OccName ( OccName )
 import Outputable
-import DynFlags( DynFlags )
+import GHC.Driver.Session( DynFlags )
 import NameSet
 import RdrName
 import GHC.Hs.Types( HsIPName(..) )
@@ -97,8 +97,8 @@ canonicalize (CNonCanonical { cc_ev = ev })
                                   canEqNC    ev eq_rel ty1 ty2
       IrredPred {}          -> do traceTcS "canEvNC:irred" (ppr pred)
                                   canIrred ev
-      ForAllPred _ _ pred   -> do traceTcS "canEvNC:forall" (ppr pred)
-                                  canForAll ev (isClassPred pred)
+      ForAllPred tvs theta p -> do traceTcS "canEvNC:forall" (ppr pred)
+                                   canForAllNC ev tvs theta p
   where
     pred = ctEvPred ev
 
@@ -280,7 +280,7 @@ So here's the plan:
    superclasses for canonical CDictCans in solveSimpleGivens or
    solveSimpleWanteds; Note [Danger of adding superclasses during solving]
 
-   However, /do/ continue to eagerly expand superlasses for new /given/
+   However, /do/ continue to eagerly expand superclasses for new /given/
    /non-canonical/ constraints (canClassNC does this).  As #12175
    showed, a type-family application can expand to a class constraint,
    and we want to see its superclasses for just the same reason as
@@ -374,6 +374,10 @@ So we may need to do a little work on the givens to expose the
 class that has the superclasses.  That's why the superclass
 expansion for Givens happens in canClassNC.
 
+This same scenario happens with quantified constraints, whose superclasses
+are also eagerly expanded. Test case: typecheck/should_compile/T16502b
+These are handled in canForAllNC, analogously to canClassNC.
+
 Note [Why adding superclasses can help]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Examples of how adding superclasses can help:
@@ -439,6 +443,46 @@ happen.
 
 Mind you, now that Wanteds cannot rewrite Derived, I think this particular
 situation can't happen.
+
+Note [Nested quantified constraint superclasses]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider (typecheck/should_compile/T17202)
+
+  class C1 a
+  class (forall c. C1 c) => C2 a
+  class (forall b. (b ~ F a) => C2 a) => C3 a
+
+Elsewhere in the code, we get a [G] g1 :: C3 a. We expand its superclass
+to get [G] g2 :: (forall b. (b ~ F a) => C2 a). This constraint has a
+superclass, as well. But we now must be careful: we cannot just add
+(forall c. C1 c) as a Given, because we need to remember g2's context.
+That new constraint is Given only when forall b. (b ~ F a) is true.
+
+It's tempting to make the new Given be (forall b. (b ~ F a) => forall c. C1 c),
+but that's problematic, because it's nested, and ForAllPred is not capable
+of representing a nested quantified constraint. (We could change ForAllPred
+to allow this, but the solution in this Note is much more local and simpler.)
+
+So, we swizzle it around to get (forall b c. (b ~ F a) => C1 c).
+
+More generally, if we are expanding the superclasses of
+  g0 :: forall tvs. theta => cls tys
+and find a superclass constraint
+  forall sc_tvs. sc_theta => sc_inner_pred
+we must have a selector
+  sel_id :: forall cls_tvs. cls cls_tvs -> forall sc_tvs. sc_theta => sc_inner_pred
+and thus build
+  g_sc :: forall tvs sc_tvs. theta => sc_theta => sc_inner_pred
+  g_sc = /\ tvs. /\ sc_tvs. \ theta_ids. \ sc_theta_ids.
+         sel_id tys (g0 tvs theta_ids) sc_tvs sc_theta_ids
+
+Actually, we cheat a bit by eta-reducing: note that sc_theta_ids are both the
+last bound variables and the last arguments. This avoids the need to produce
+the sc_theta_ids at all. So our final construction is
+
+  g_sc = /\ tvs. /\ sc_tvs. \ theta_ids.
+         sel_id tys (g0 tvs theta_ids) sc_tvs
+
   -}
 
 makeSuperClasses :: [Ct] -> TcS [Ct]
@@ -484,31 +528,49 @@ mk_strict_superclasses :: NameSet -> CtEvidence
 -- Always return the immediate superclasses of (cls tys);
 -- and expand their superclasses, provided none of them are in rec_clss
 -- nor are repeated
-mk_strict_superclasses rec_clss ev tvs theta cls tys
-  | CtGiven { ctev_evar = evar, ctev_loc = loc } <- ev
-  = concatMapM (do_one_given evar (mk_given_loc loc)) $
+mk_strict_superclasses rec_clss (CtGiven { ctev_evar = evar, ctev_loc = loc })
+                       tvs theta cls tys
+  = concatMapM (do_one_given (mk_given_loc loc)) $
     classSCSelIds cls
   where
     dict_ids  = mkTemplateLocals theta
     size      = sizeTypes tys
 
-    do_one_given evar given_loc sel_id
+    do_one_given given_loc sel_id
       | isUnliftedType sc_pred
       , not (null tvs && null theta)
       = -- See Note [Equality superclasses in quantified constraints]
         return []
       | otherwise
       = do { given_ev <- newGivenEvVar given_loc $
-                         (given_ty, mk_sc_sel evar sel_id)
+                         mk_given_desc sel_id sc_pred
            ; mk_superclasses rec_clss given_ev tvs theta sc_pred }
       where
         sc_pred  = funResultTy (piResultTys (idType sel_id) tys)
-        given_ty = mkInfSigmaTy tvs theta sc_pred
 
-    mk_sc_sel evar sel_id
-      = EvExpr $ mkLams tvs $ mkLams dict_ids $
-        Var sel_id `mkTyApps` tys `App`
-        (evId evar `mkTyApps` mkTyVarTys tvs `mkVarApps` dict_ids)
+      -- See Note [Nested quantified constraint superclasses]
+    mk_given_desc :: Id -> PredType -> (PredType, EvTerm)
+    mk_given_desc sel_id sc_pred
+      = (swizzled_pred, swizzled_evterm)
+      where
+        (sc_tvs, sc_rho)          = splitForAllTys sc_pred
+        (sc_theta, sc_inner_pred) = splitFunTys sc_rho
+
+        all_tvs       = tvs `chkAppend` sc_tvs
+        all_theta     = theta `chkAppend` (map scaledThing sc_theta)
+        swizzled_pred = mkInfSigmaTy all_tvs all_theta sc_inner_pred
+
+        -- evar :: forall tvs. theta => cls tys
+        -- sel_id :: forall cls_tvs. cls cls_tvs
+        --                        -> forall sc_tvs. sc_theta => sc_inner_pred
+        -- swizzled_evterm :: forall tvs sc_tvs. theta => sc_theta => sc_inner_pred
+        swizzled_evterm = EvExpr $
+          mkLams all_tvs $
+          mkLams dict_ids $
+          Var sel_id
+            `mkTyApps` tys
+            `App` (evId evar `mkVarApps` (tvs ++ dict_ids))
+            `mkVarApps` sc_tvs
 
     mk_given_loc loc
        | isCTupleClass cls
@@ -543,6 +605,19 @@ mk_strict_superclasses rec_clss ev tvs theta cls tys
     do_one_derived sc_pred
       = do { sc_ev <- newDerivedNC loc sc_pred
            ; mk_superclasses rec_clss sc_ev [] [] sc_pred }
+
+{- Note [Improvement from Ground Wanteds]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose class C b a => D a b
+and consider
+  [W] D Int Bool
+Is there any point in emitting [D] C Bool Int?  No!  The only point of
+emitting superclass constraints for W/D constraints is to get
+improvement, extra unifications that result from functional
+dependencies.  See Note [Why adding superclasses can help] above.
+
+But no variables means no improvement; case closed.
+-}
 
 mk_superclasses :: NameSet -> CtEvidence
                 -> [TyVar] -> ThetaType -> PredType -> TcS [Ct]
@@ -606,11 +681,11 @@ we have
   f :: (forall a. a~b) => stuff
 
 Now, potentially, the superclass machinery kicks in, in
-makeSuperClasses, giving us a a second quantified constrait
+makeSuperClasses, giving us a a second quantified constraint
        (forall a. a ~# b)
 BUT this is an unboxed value!  And nothing has prepared us for
 dictionary "functions" that are unboxed.  Actually it does just
-about work, but the simplier ends up with stuff like
+about work, but the simplifier ends up with stuff like
    case (/\a. eq_sel d) of df -> ...(df @Int)...
 and fails to simplify that any further.  And it doesn't satisfy
 isPredTy any more.
@@ -688,11 +763,11 @@ We implement two main extensions to the design in the paper:
     Notice the 'm' in the head of the quantified constraint, not
     a class.
 
- 2. We suport superclasses to quantified constraints.
+ 2. We support superclasses to quantified constraints.
     For example (contrived):
       f :: (Ord b, forall b. Ord b => Ord (m b)) => m a -> m a -> Bool
       f x y = x==y
-    Here we need (Eq (m a)); but the quantifed constraint deals only
+    Here we need (Eq (m a)); but the quantified constraint deals only
     with Ord.  But we can make it work by using its superclass.
 
 Here are the moving parts
@@ -731,8 +806,22 @@ Note that a quantified constraint is never /inferred/
 quantified constraint in its type if it is given an explicit
 type signature.
 
-Note that we implement
 -}
+
+canForAllNC :: CtEvidence -> [TyVar] -> TcThetaType -> TcPredType
+            -> TcS (StopOrContinue Ct)
+canForAllNC ev tvs theta pred
+  | isGiven ev  -- See Note [Eagerly expand given superclasses]
+  , Just (cls, tys) <- cls_pred_tys_maybe
+  = do { sc_cts <- mkStrictSuperClasses ev tvs theta cls tys
+       ; emitWork sc_cts
+       ; canForAll ev False }
+
+  | otherwise
+  = canForAll ev (isJust cls_pred_tys_maybe)
+
+  where
+    cls_pred_tys_maybe = getClassPredTys_maybe pred
 
 canForAll :: CtEvidence -> Bool -> TcS (StopOrContinue Ct)
 -- We have a constraint (forall as. blah => C tys)
@@ -748,14 +837,14 @@ canForAll ev pend_sc
     do { -- Now decompose into its pieces and solve it
          -- (It takes a lot less code to flatten before decomposing.)
        ; case classifyPredType (ctEvPred new_ev) of
-           ForAllPred tv_bndrs theta pred
-              -> solveForAll new_ev tv_bndrs theta pred pend_sc
+           ForAllPred tvs theta pred
+              -> solveForAll new_ev tvs theta pred pend_sc
            _  -> pprPanic "canForAll" (ppr new_ev)
     } }
 
-solveForAll :: CtEvidence -> [TyVarBinder] -> TcThetaType -> PredType -> Bool
+solveForAll :: CtEvidence -> [TyVar] -> TcThetaType -> PredType -> Bool
             -> TcS (StopOrContinue Ct)
-solveForAll ev tv_bndrs theta pred pend_sc
+solveForAll ev tvs theta pred pend_sc
   | CtWanted { ctev_dest = dest } <- ev
   = -- See Note [Solving a Wanted forall-constraint]
     do { let skol_info = QuantCtxtSkol
@@ -782,10 +871,10 @@ solveForAll ev tv_bndrs theta pred pend_sc
        ; stopWith ev "Given forall-constraint" }
 
   | otherwise
-  = stopWith ev "Derived forall-constraint"
+  = do { traceTcS "discarding derived forall-constraint" (ppr ev)
+       ; stopWith ev "Derived forall-constraint" }
   where
     loc = ctEvLoc ev
-    tvs = binderVars tv_bndrs
     qci = QCI { qci_ev = ev, qci_tvs = tvs
               , qci_pred = pred, qci_pend_sc = pend_sc }
 
@@ -2065,36 +2154,8 @@ canEqReflexive ev eq_rel ty
                                mkTcReflCo (eqRelRole eq_rel) ty)
        ; stopWith ev "Solved by reflexivity" }
 
-{-
-Note [Canonical orientation for tyvar/tyvar equality constraints]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When we have a ~ b where both 'a' and 'b' are TcTyVars, which way
-round should be oriented in the CTyEqCan?  The rules, implemented by
-canEqTyVarTyVar, are these
-
- * If either is a flatten-meta-variables, it goes on the left.
-
- * Put a meta-tyvar on the left if possible
-       alpha[3] ~ r
-
- * If both are meta-tyvars, put the more touchable one (deepest level
-   number) on the left, so there is the best chance of unifying it
-        alpha[3] ~ beta[2]
-
- * If both are meta-tyvars and both at the same level, put a TyVarTv
-   on the right if possible
-        alpha[2] ~ beta[2](sig-tv)
-   That way, when we unify alpha := beta, we don't lose the TyVarTv flag.
-
- * Put a meta-tv with a System Name on the left if possible so it
-   gets eliminated (improves error messages)
-
- * If one is a flatten-skolem, put it on the left so that it is
-   substituted out  Note [Eliminate flat-skols] in TcUinfy
-        fsk ~ a
-
-Note [Equalities with incompatible kinds]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+{- Note [Equalities with incompatible kinds]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 What do we do when we have an equality
 
   (tv :: k1) ~ (rhs :: k2)
@@ -2297,7 +2358,7 @@ rewriteEvidence ev@(CtWanted { ctev_dest = dest
                              , ctev_nosh = si
                              , ctev_loc = loc }) new_pred co
   = do { mb_new_ev <- newWanted_SI si loc new_pred
-               -- The "_SI" varant ensures that we make a new Wanted
+               -- The "_SI" variant ensures that we make a new Wanted
                -- with the same shadow-info as the existing one
                -- with the same shadow-info as the existing one (#16735)
        ; MASSERT( tcCoercionRole co == ctEvRole ev )
@@ -2349,7 +2410,7 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
 
   | CtWanted { ctev_dest = dest, ctev_nosh = si } <- old_ev
   = do { (new_ev, hole_co) <- newWantedEq_SI si loc' (ctEvRole old_ev) nlhs nrhs
-               -- The "_SI" varant ensures that we make a new Wanted
+               -- The "_SI" variant ensures that we make a new Wanted
                -- with the same shadow-info as the existing one (#16735)
        ; let co = maybeSym swapped $
                   mkSymCo lhs_co
@@ -2359,8 +2420,10 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
        ; traceTcS "rewriteEqEvidence" (vcat [ppr old_ev, ppr nlhs, ppr nrhs, ppr co])
        ; return new_ev }
 
+#if __GLASGOW_HASKELL__ <= 810
   | otherwise
   = panic "rewriteEvidence"
+#endif
   where
     new_pred = mkTcEqPredLikeEv old_ev nlhs nrhs
 

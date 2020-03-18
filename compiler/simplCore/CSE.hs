@@ -6,28 +6,31 @@
 
 {-# LANGUAGE CPP #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+
 module CSE (cseProgram, cseOneExpr) where
 
 #include "HsVersions.h"
 
 import GhcPrelude
 
-import CoreSubst
+import GHC.Core.Subst
 import Var              ( Var, varMultMaybe )
 import VarEnv           ( elemInScopeSet, mkInScopeSet )
-import Id               ( Id, idType, isDeadBinder
+import Id               ( Id, idType, isDeadBinder, idHasRules
                         , idInlineActivation, setInlineActivation
                         , zapIdOccInfo, zapIdUsageInfo, idInlinePragma
                         , isJoinId, isJoinId_maybe )
-import CoreUtils        ( mkAltExpr, eqExpr
+import GHC.Core.Utils        ( mkAltExpr, eqExpr
                         , exprIsTickedString
                         , stripTicksE, stripTicksT, mkTicks )
-import CoreFVs          ( exprFreeVars )
+import GHC.Core.FVs          ( exprFreeVars )
 import Type             ( tyConAppArgs )
-import CoreSyn
+import GHC.Core
 import Outputable
 import BasicTypes
-import CoreMap
+import GHC.Core.Map
 import Util             ( filterOut )
 import Data.List        ( mapAccumL )
 import Multiplicity
@@ -257,7 +260,7 @@ We do not want to extend the substitution with (y -> x |> co); since y
 is of unlifted type, this would destroy the let/app invariant if (x |>
 co) was not ok-for-speculation.
 
-But surely (x |> co) is ok-for-speculation, becasue it's a trivial
+But surely (x |> co) is ok-for-speculation, because it's a trivial
 expression, and x's type is also unlifted, presumably.  Well, maybe
 not if you are using unsafe casts.  I actually found a case where we
 had
@@ -269,7 +272,7 @@ We must not be naive about join points in CSE:
    join j = e in
    if b then jump j else 1 + e
 The expression (1 + jump j) is not good (see Note [Invariants on join points] in
-CoreSyn). This seems to come up quite seldom, but it happens (first seen
+GHC.Core). This seems to come up quite seldom, but it happens (first seen
 compiling ppHtml in Haddock.Backends.Xhtml).
 
 We could try and be careful by tracking which join points are still valid at
@@ -393,9 +396,15 @@ cse_bind toplevel env (in_id, in_rhs) out_id
 
 delayInlining :: TopLevelFlag -> Id -> Id
 -- Add a NOINLINE[2] if the Id doesn't have an INLNE pragma already
+-- See Note [Delay inlining after CSE]
 delayInlining top_lvl bndr
   | isTopLevel top_lvl
   , isAlwaysActive (idInlineActivation bndr)
+  , idHasRules bndr  -- Only if the Id has some RULES,
+                     -- which might otherwise get lost
+       -- These rules are probably auto-generated specialisations,
+       -- since Ids with manual rules usually have manually-inserted
+       -- delayed inlining anyway
   = bndr `setInlineActivation` activeAfterInitial
   | otherwise
   = bndr
@@ -408,7 +417,7 @@ addBinding :: CSEnv                      -- Includes InId->OutId cloning
 -- unless we can instead just substitute [in-id -> rhs]
 --
 -- It's possible for the binder to be a type variable (see
--- Note [Type-let] in CoreSyn), in which case we can just substitute.
+-- Note [Type-let] in GHC.Core), in which case we can just substitute.
 addBinding env in_id out_id rhs'
   | not (isId in_id) = (extendCSSubst env in_id rhs',     out_id)
   | noCSE in_id      = (env,                              out_id)
@@ -487,7 +496,7 @@ We would normally turn this into:
 
 But this breaks an invariant of Core, namely that the RHS of a top-level binding
 of type Addr# must be a string literal, not another variable. See Note
-[CoreSyn top-level string literals] in CoreSyn.
+[Core top-level string literals] in GHC.Core.
 
 For this reason, we special case top-level bindings to literal strings and leave
 the original RHS unmodified. This produces:
@@ -521,13 +530,49 @@ a SPECIALISE pragma.  Then CSE kicks in and notices that the RHSs of
 Now there is terrible danger that, in an importing module, we'll inline
 'g' before we have a chance to run its specialisation!
 
-Solution: during CSE, when adding a top-level
-  g = f
-binding after a "hit" in the CSE cache, add a NOINLINE[2] activation
-to it, to ensure it's not inlined right away.
+Solution: during CSE, after a "hit" in the CSE cache
+  * when adding a binding
+        g = f
+  * for a top-level function g
+  * and g has specialisation RULES
+add a NOINLINE[2] activation to it, to ensure it's not inlined
+right away.
 
-Why top level only?  Because for nested bindings we are already past
-phase 2 and will never return there.
+Notes:
+* Why top level only?  Because for nested bindings we are already past
+  phase 2 and will never return there.
+
+* Why "only if g has RULES"?  Because there is no point in
+  doing this if there are no RULES; and other things being
+  equal it delays optimisation to delay inlining (#17409)
+
+
+---- Historical note ---
+
+This patch is simpler and more direct than an earlier
+version:
+
+  commit 2110738b280543698407924a16ac92b6d804dc36
+  Author: Simon Peyton Jones <simonpj@microsoft.com>
+  Date:   Mon Jul 30 13:43:56 2018 +0100
+
+  Don't inline functions with RULES too early
+
+We had to revert this patch because it made GHC itself slower.
+
+Why? It delayed inlining of /all/ functions with RULES, and that was
+very bad in TcFlatten.flatten_ty_con_app
+
+* It delayed inlining of liftM
+* That delayed the unravelling of the recursion in some dictionary
+  bindings.
+* That delayed some eta expansion, leaving
+     flatten_ty_con_app = \x y. let <stuff> in \z. blah
+* That allowed the float-out pass to put sguff between
+  the \y and \z.
+* And that permanently stopped eta expansion of the function,
+  even once <stuff> was simplified.
+
 -}
 
 tryForCSE :: CSEnv -> InExpr -> OutExpr
@@ -652,7 +697,7 @@ differ near the root, so it probably isn't expensive to compare the full
 alternative.  It seems like the same kind of thing that CSE is supposed
 to be doing, which is why I put it here.
 
-I acutally saw some examples in the wild, where some inlining made e1 too
+I actually saw some examples in the wild, where some inlining made e1 too
 big for cheapEqExpr to catch it.
 
 

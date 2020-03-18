@@ -30,7 +30,7 @@ import GhcPrelude
 
 import Bag
 import Class         ( Class, classKey, classTyCon )
-import DynFlags
+import GHC.Driver.Session
 import Id            ( idType, mkLocalId )
 import Inst
 import ListSetOps
@@ -182,7 +182,7 @@ type, with a cascade of follow-up errors.
 For example polykinds/T12593, T15577, and many others.
 
 Take care to ensure that you emit the insoluble constraints before
-failing, because they are what will ulimately lead to the error
+failing, because they are what will ultimately lead to the error
 messsage!
 -}
 
@@ -508,8 +508,8 @@ How is this implemented? It's complicated! So we'll step through it all:
  6) `TcRnMonad.recordUnsafeInfer` -- Save the unsafe result and reason in an
       IORef called `tcg_safeInfer`.
 
- 7) `HscMain.tcRnModule'` -- Reads `tcg_safeInfer` after type-checking, calling
-    `HscMain.markUnsafeInfer` (passing the reason along) when safe-inferrence
+ 7) `GHC.Driver.Main.tcRnModule'` -- Reads `tcg_safeInfer` after type-checking, calling
+    `GHC.Driver.Main.markUnsafeInfer` (passing the reason along) when safe-inferrence
     failed.
 
 Note [No defaulting in the ambiguity check]
@@ -694,7 +694,7 @@ It does *not* reduce type or data family applications or look through newtypes.
 Why is this useful? As one example, when coverage-checking an EmptyCase
 expression, it's possible that the type of the scrutinee will only reduce
 if some local equalities are solved for. See "Wrinkle: Local equalities"
-in Note [Type normalisation for EmptyCase] in Check.
+in Note [Type normalisation] in Check.
 
 To accomplish its stated goal, tcNormalise first feeds the local constraints
 into solveSimpleGivens, then stuffs the argument type in a CHoleCan, and feeds
@@ -1065,7 +1065,7 @@ decideMonoTyVars :: InferMode
 --   (a) Free in the environment
 --   (b) Mentioned in a constraint we can't generalise
 --   (c) Connected by an equality to (a) or (b)
--- Also return CoVars that appear free in the final quatified types
+-- Also return CoVars that appear free in the final quantified types
 --   we can't quantify over these, and we must make sure they are in scope
 decideMonoTyVars infer_mode name_taus psigs candidates
   = do { (no_quant, maybe_quant) <- pick infer_mode candidates
@@ -1800,7 +1800,7 @@ setImplicationStatus implic@(Implic { ic_status     = status
 
 checkBadTelescope :: Implication -> TcS Bool
 -- True <=> the skolems form a bad telescope
--- See Note [Keeping scoped variables in order: Explicit] in TcHsType
+-- See Note [Checking telescopes] in Constraint
 checkBadTelescope (Implic { ic_telescope  = m_telescope
                           , ic_skols      = skols })
   | isJust m_telescope
@@ -1908,7 +1908,7 @@ generate evidence bindings for Givens. E.g.
    f x y = ...
 We'll have
    [G] d1 :: (a~b)
-and we'll specuatively generate the evidence binding
+and we'll speculatively generate the evidence binding
    [G] d2 :: (a ~# b) = sc_sel d
 
 Now d2 is available for solving.  But it may not be needed!  Usually
@@ -1918,7 +1918,7 @@ code, but:
  * It won't always be dropped (#13032).  In the case of an
    unlifted-equality superclass like d2 above, we generate
        case heq_sc d1 of d2 -> ...
-   and we can't (in general) drop that case exrpession in case
+   and we can't (in general) drop that case expression in case
    d1 is bottom.  So it's technically unsound to have added it
    in the first place.
 
@@ -2058,7 +2058,7 @@ of progress.  #8474 is a classic example:
     via solveNestedImplications, because we'll just get the
     same [D] again
 
-  * If we *do* re-solve, we'll get an ininite loop. It is cut off by
+  * If we *do* re-solve, we'll get an infinite loop. It is cut off by
     the fixed bound of 10, but solving the next takes 10*10*...*10 (ie
     exponentially many) iterations!
 
@@ -2168,7 +2168,7 @@ to applyDefaultingRules) to extract constraints that that might be defaulted.
 
 There is one caveat:
 
-1.  When infering most-general types (in simplifyInfer), we do *not*
+1.  When inferring most-general types (in simplifyInfer), we do *not*
     float anything out if the implication binds equality constraints,
     because that defeats the OutsideIn story.  Consider
        data T a where
@@ -2551,6 +2551,11 @@ Here (1,2,3) are handled by the "seed_skols" calculation, and
 
 The possible dependence on givens, and evidence bindings, is more
 subtle than we'd realised at first.  See #14584.
+
+How can (4) arise? Suppose we have (k :: *), (a :: k), and ([G} k ~ *).
+Then form an equality like (a ~ Int) we might end up with
+    [W] co1 :: k ~ *
+    [W] co2 :: (a |> co1) ~ Int
 
 
 *********************************************************************************

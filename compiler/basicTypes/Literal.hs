@@ -6,6 +6,7 @@
 -}
 
 {-# LANGUAGE CPP, DeriveDataTypeable, ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 module Literal
         (
@@ -60,7 +61,7 @@ import FastString
 import BasicTypes
 import Binary
 import Constants
-import DynFlags
+import GHC.Driver.Session
 import GHC.Platform
 import UniqFM
 import Util
@@ -177,14 +178,14 @@ that e.g. literalType can return the right Type for them.
 
 They only get converted into real Core,
     mkInteger [c1, c2, .., cn]
-during the CorePrep phase, although TidyPgm looks ahead at what the
+during the CorePrep phase, although GHC.Iface.Tidy looks ahead at what the
 core will be, so that it can see whether it involves CAFs.
 
-When we initally build an Integer literal, notably when
+When we initially build an Integer literal, notably when
 deserialising it from an interface file (see the Binary instance
 below), we don't have convenient access to the mkInteger Id.  So we
 just use an error thunk, and fill in the real Id when we do tcIfaceLit
-in TcIface.
+in GHC.IfaceToCore.
 
 Note [Natural literals]
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -598,7 +599,7 @@ rubbishLit = LitRubbish
 -- structured, ensuring that the compiler can't inline in ways that will break
 -- user code. One approach to this is described in #8472.
 litIsTrivial :: Literal -> Bool
---      c.f. CoreUtils.exprIsTrivial
+--      c.f. GHC.Core.Utils.exprIsTrivial
 litIsTrivial (LitString _)      = False
 litIsTrivial (LitNumber nt _ _) = case nt of
   LitNumInteger -> False
@@ -611,7 +612,7 @@ litIsTrivial _                  = True
 
 -- | True if code space does not go bad if we duplicate this literal
 litIsDupable :: DynFlags -> Literal -> Bool
---      c.f. CoreUtils.exprIsDupable
+--      c.f. GHC.Core.Utils.exprIsDupable
 litIsDupable _      (LitString _)      = False
 litIsDupable dflags (LitNumber nt i _) = case nt of
   LitNumInteger -> inIntRange dflags i
@@ -831,7 +832,7 @@ Here are the moving parts:
 
 * We define LitRubbish as a constructor in Literal.Literal
 
-* It is given its polymoprhic type by Literal.literalType
+* It is given its polymorphic type by Literal.literalType
 
 * WwLib.mk_absent_let introduces a LitRubbish for absent
   arguments of boxed, unlifted type.
@@ -842,9 +843,9 @@ Here are the moving parts:
   which the garbage collector can follow if it encounters it.
 
   We considered maintaining LitRubbish in STG, and lowering
-  it in the code genreators, but it seems simpler to do it
+  it in the code generators, but it seems simpler to do it
   once and for all in CoreToSTG.
 
-  In ByteCodeAsm we just lower it as a 0 literal, because
+  In GHC.ByteCode.Asm we just lower it as a 0 literal, because
   it's all boxed and lifted to the host GC anyway.
 -}

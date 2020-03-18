@@ -10,6 +10,9 @@ TcInstDecls: Typechecking instance declarations
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module TcInstDcls ( tcInstDecls1, tcInstDeclsDeriv, tcInstDecls2 ) where
 
 #include "HsVersions.h"
@@ -42,9 +45,9 @@ import TcDeriv
 import TcEnv
 import TcHsType
 import TcUnify
-import CoreSyn    ( Expr(..), mkApps, mkVarApps, mkLams )
-import MkCore     ( nO_METHOD_BINDING_ERROR_ID )
-import CoreUnfold ( mkInlineUnfoldingWithArity, mkDFunUnfolding )
+import GHC.Core        ( Expr(..), mkApps, mkVarApps, mkLams )
+import GHC.Core.Make   ( nO_METHOD_BINDING_ERROR_ID )
+import GHC.Core.Unfold ( mkInlineUnfoldingWithArity, mkDFunUnfolding )
 import Type
 import TcEvidence
 import TyCon
@@ -57,7 +60,7 @@ import VarEnv
 import VarSet
 import Bag
 import BasicTypes
-import DynFlags
+import GHC.Driver.Session
 import ErrUtils
 import FastString
 import Id
@@ -161,7 +164,7 @@ Note [Instances and loop breakers]
   loop-breaker because df_i isn't), op1_i will ironically never be
   inlined.  But this is OK: the recursion breaking happens by way of
   a RULE (the magic ClassOp rule above), and RULES work inside InlineRule
-  unfoldings. See Note [RULEs enabled in SimplGently] in SimplUtils
+  unfoldings. See Note [RULEs enabled in InitialPhase] in SimplUtils
 
 Note [ClassOp/DFun selection]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -187,7 +190,7 @@ Instead we use a cunning trick.
  * We give 'df' a magical unfolding (DFunUnfolding [$cop1, $cop2, ..])
    that lists its methods.
 
- * We make CoreUnfold.exprIsConApp_maybe spot a DFunUnfolding and return
+ * We make GHC.Core.Unfold.exprIsConApp_maybe spot a DFunUnfolding and return
    a suitable constructor application -- inlining df "on the fly" as it
    were.
 
@@ -923,11 +926,11 @@ except that we'll eta-reduce the axiom to
   axiom AxDrep forall a b. D [(a,b]] = Drep a b
 There are several fiddly subtleties lurking here
 
-* The representation tycon Drep is parameerised over the free
+* The representation tycon Drep is parameterised over the free
   variables of the pattern, in no particular order. So there is no
   guarantee that 'p' and 'q' will come last in Drep's parameters, and
   in the right order.  So, if the /patterns/ of the family insatance
-  are eta-redcible, we re-order Drep's parameters to put the
+  are eta-reducible, we re-order Drep's parameters to put the
   eta-reduced type variables last.
 
 * Although we eta-reduce the axiom, we eta-/expand/ the representation
@@ -942,7 +945,7 @@ There are several fiddly subtleties lurking here
 
   So in type-checking the LHS (DP Int) we need to check that it is
   more polymorphic than the signature.  To do that we must skolemise
-  the siganture and istantiate the call of DP.  So we end up with
+  the signature and instantiate the call of DP.  So we end up with
      data instance DP [b] @(k1,k2) (z :: (k1,k2)) where
 
   Note that we must parameterise the representation tycon DPrep over
@@ -979,7 +982,7 @@ There are several fiddly subtleties lurking here
   tricky to sort out.  Consider
       data family D k :: k
   Then consider D (forall k2. k2 -> k2) Type Type
-  The visibilty flags on an application of D may affected by the arguments
+  The visibility flags on an application of D may affected by the arguments
   themselves.  Heavy sigh.  But not truly hard; that's what tcbVisibilities
   does.
 
@@ -1161,8 +1164,8 @@ addDFunPrags dfun_id sc_meth_ids
    con_app    = mkLams dfun_bndrs $
                 mkApps (Var (dataConWrapId dict_con)) dict_args
                  -- mkApps is OK because of the checkForLevPoly call in checkValidClass
-                 -- See Note [Levity polymorphism checking] in DsMonad
-   dict_args  = map Type (inst_tys) ++
+                 -- See Note [Levity polymorphism checking] in GHC.HsToCore.Monad
+   dict_args  = map Type inst_tys ++
                 [mkVarApps (Var id) dfun_bndrs | id <- sc_meth_ids]
 
    (dfun_tvs, dfun_theta, clas, inst_tys) = tcSplitDFunTy (idType dfun_id)
@@ -1172,7 +1175,7 @@ addDFunPrags dfun_id sc_meth_ids
    [dict_con]  = tyConDataCons clas_tc
    is_newtype  = isNewTyCon clas_tc
 
-wrapId :: HsWrapper -> IdP (GhcPass id) -> HsExpr (GhcPass id)
+wrapId :: HsWrapper -> Id -> HsExpr GhcTc
 wrapId wrapper id = mkHsWrap wrapper (HsVar noExtField (noLoc id))
 
 {- Note [Typechecking plan for instance declarations]
@@ -1444,7 +1447,7 @@ NB2: the silent-superclass solution introduced new problems
 NB3: the silent-superclass solution also generated tons of
      extra dictionaries.  For example, in monad-transformer
      code, when constructing a Monad dictionary you had to pass
-     an Applicative dictionary; and to construct that you neede
+     an Applicative dictionary; and to construct that you need
      a Functor dictionary. Yet these extra dictionaries were
      often never used.  Test T3064 compiled *far* faster after
      silent superclasses were eliminated.
@@ -1919,6 +1922,7 @@ mkDefMethBind clas inst_tys sel_id dm_name
                              [mkSimpleMatch (mkPrefixFunRhs fn) [] rhs]
 
         ; liftIO (dumpIfSet_dyn dflags Opt_D_dump_deriv "Filling in method body"
+                   FormatHaskell
                    (vcat [ppr clas <+> ppr inst_tys,
                           nest 2 (ppr sel_id <+> equals <+> ppr rhs)]))
 
@@ -2134,7 +2138,7 @@ tcSpecInst dfun_id prag@(SpecInstSig _ _ hs_ty)
         ; co_fn <- tcSpecWrapper SpecInstCtxt (idType dfun_id) spec_dfun_ty
         ; return (SpecPrag dfun_id co_fn defaultInlinePragma) }
   where
-    spec_ctxt prag = hang (text "In the SPECIALISE pragma") 2 (ppr prag)
+    spec_ctxt prag = hang (text "In the pragma:") 2 (ppr prag)
 
 tcSpecInst _  _ = panic "tcSpecInst"
 
