@@ -1507,7 +1507,7 @@ hsConDeclArgTys (RecCon flds)      = map (hsLinear . cd_fld_type . unLoc) (unLoc
   -- constructors. The design here is that the record projection themselves are
   -- typed to take an unrestricted argument (that is the record itself is
   -- unrestricted). By the transfer property, projections are then correct in
-  -- that all the non-projected fields have multiplicity ω, and can be dropped.
+  -- that all the non-projected fields have multiplicity Many, and can be dropped.
 
 hsConDeclTheta :: Maybe (LHsContext pass) -> [LHsType pass]
 hsConDeclTheta Nothing            = []

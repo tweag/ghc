@@ -2482,7 +2482,7 @@ tryEtaReduce bndrs body
        , bndr == tv  = Just (mkHomoForAllCos [tv] co, [])
     ok_arg bndr (Var v) co fun_ty
        | bndr == v
-       , let mult = idMult v
+       , let mult = idMult bndr
        , Just (Scaled fun_mult _, _) <- splitFunTy_maybe fun_ty
        , mult `eqType` fun_mult -- There is no change in multiplicity, otherwise we must abort
        = let reflCo = mkRepReflCo (idType bndr)
@@ -2491,7 +2491,7 @@ tryEtaReduce bndrs body
        | (ticks, Var v) <- stripTicksTop tickishFloatable e
        , Just (Scaled fun_mult _, _) <- splitFunTy_maybe fun_ty
        , bndr == v
-       , fun_mult `eqType` idMult v
+       , fun_mult `eqType` idMult bndr
        = Just (mkFunCo Representational (multToCo fun_mult) (mkSymCo co_arg) co, ticks)
        -- The simplifier combines multiple casts into one,
        -- so we can have a simple-minded pattern match here

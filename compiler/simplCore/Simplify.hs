@@ -2160,7 +2160,7 @@ trySeqRules in_env scrut rhs cont
                 , TyArg { as_arg_ty  = rhs_ty
                         , as_hole_ty = res2_ty }
                 , ValArg Many no_cast_scrut]
-                -- The multiplicity of the scrutiny above is ω because the type
+                -- The multiplicity of the scrutiny above is Many because the type
                 -- of seq requires that its first argument is unrestricted. The
                 -- typing rule of case also guarantees it though. In a more
                 -- general world, where the first argument of seq would have

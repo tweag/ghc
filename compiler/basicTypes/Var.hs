@@ -45,7 +45,7 @@ module Var (
 
         -- ** Taking 'Var's apart
         varName, varUnique, varType,
-        varMult, varMultMaybe, varMultDef,
+        varMult, varMultMaybe,
         varScaledType,
 
         -- ** Modifying 'Var's
@@ -415,9 +415,6 @@ updateVarTypeAndMultM f id = do { ty' <- f (varType id)
 varMultMaybe :: Id -> Maybe Mult
 varMultMaybe (Id { varMult = mult }) = Just mult
 varMultMaybe _ = Nothing
-
-varMultDef :: Id -> Mult
-varMultDef = fromMaybe Many . varMultMaybe
 
 varScaledType :: Id -> Scaled Kind
 varScaledType var = Scaled (varMult var) (varType var)

@@ -1318,7 +1318,7 @@ pushCoValArg co
     -- it could be an unsafe axiom, and losing this information could yield
     -- ill-typed terms. For instance (fun x ::(1) Int -> (fun _ -> () |> co) x)
     -- with co :: (Int -> ()) ~ (Int #-> ()), would reduce to (fun x ::(1) Int
-    -- -> (fun _ ::(ω) Int -> ()) x) which is ill-typed
+    -- -> (fun _ ::(Many) Int -> ()) x) which is ill-typed
 
               -- If   co  :: (tyL1 -> tyL2) ~ (tyR1 -> tyR2)
               -- then co1 :: tyL1 ~ tyR1
