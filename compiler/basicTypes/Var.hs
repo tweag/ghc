@@ -110,7 +110,6 @@ import Binary
 import Outputable
 
 import Data.Data
-import Data.Maybe
 
 {-
 ************************************************************************
