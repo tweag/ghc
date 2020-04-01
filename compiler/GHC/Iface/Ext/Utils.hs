@@ -164,7 +164,7 @@ getTypeIndex t
       bi <- getTypeIndex b
       wi <- getTypeIndex w
       return $ case af of
-                 InvisArg -> case w of Many -> HQualTy ai bi; _ -> error "Unexpected non-linear predicate"
+                 InvisArg -> case w of Many -> HQualTy ai bi; _ -> error "Unexpected non-unrestricted predicate"
                  VisArg   -> HFunTy wi ai bi
     go (LitTy a) = return $ HLitTy $ toIfaceTyLit a
     go (CastTy t _) = do
