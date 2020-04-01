@@ -962,12 +962,9 @@ simplExprF1 env (App fun arg) cont
                                 , sc_hole_ty = hole'
                                 , sc_cont    = cont } }
       _       ->
-        let fun_ty = exprType fun
-            (Scaled m _, _) = splitFunTy fun_ty
-        in
-                simplExprF env fun $
+        simplExprF env fun $
                  ApplyToVal { sc_arg = arg, sc_env = env
-                            , sc_dup = NoDup, sc_cont = cont, sc_mult = m }
+                            , sc_dup = NoDup, sc_cont = cont, sc_mult = One }
 
 simplExprF1 env expr@(Lam {}) cont
   = {-#SCC "simplExprF1-Lam" #-}
