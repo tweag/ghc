@@ -38,6 +38,7 @@ import CoAxiom
 import ConLike
 import DataCon
 import Type
+import Multiplicity
 import TcType
 import InstEnv
 import FamInstEnv

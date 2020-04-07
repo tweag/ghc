@@ -41,7 +41,6 @@ import Fingerprint
 import Exception
 import UniqSet
 import GHC.Driver.Packages
-import Multiplicity
 
 import Control.Monad
 import Data.Function
