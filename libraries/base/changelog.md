@@ -1,7 +1,10 @@
 # Changelog for [`base` package](http://hackage.haskell.org/package/base)
 
 ## 4.15.0.0 *TBA*
-  * TODO
+
+  * `openFile` now calls the `open` system call with an `interruptible` FFI
+    call, ensuring that the call can be interrupted with `SIGINT` on POSIX
+    systems.
 
 ## 4.14.0.0 *TBA*
   * Bundled with GHC 8.10.1
@@ -47,6 +50,9 @@
   * Add a `Data` instance to `WrappedArrow`, `WrappedMonad`, and `ZipList`.
 
   * Add `IsList` instance for `ZipList`.
+
+  * Add `hGetContents'`, `getContents'`, and `readFile'` in `System.IO`:
+    Strict IO variants of `hGetContents`, `getContents`, and `readFile`.
 
 ## 4.13.0.0 *July 2019*
   * Bundled with GHC 8.8.1

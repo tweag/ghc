@@ -39,7 +39,7 @@ import TcTyDecls
 import TcClassDcl
 import {-# SOURCE #-} TcInstDcls( tcInstDecls1 )
 import TcDeriv (DerivInfo(..))
-import TcUnify ( unifyKind )
+import TcUnify ( unifyKind, checkTvConstraints )
 import TcHsType
 import ClsInst( AssocInstInfo(..) )
 import TcMType
@@ -1537,20 +1537,20 @@ kcTyClDecl (DataDecl { tcdLName    = (L _ name)
   | HsDataDefn { dd_ctxt = ctxt
                , dd_cons = cons
                , dd_ND = new_or_data } <- defn
-  = bindTyClTyVars name $ \ _ _ ->
+  = bindTyClTyVars name $ \ _ _ _ ->
     do { _ <- tcHsContext ctxt
        ; kcConDecls new_or_data (tyConResKind tyCon) cons
        }
 
 kcTyClDecl (SynDecl { tcdLName = L _ name, tcdRhs = rhs }) _tycon
-  = bindTyClTyVars name $ \ _ res_kind ->
+  = bindTyClTyVars name $ \ _ _ res_kind ->
     discardResult $ tcCheckLHsType rhs res_kind
         -- NB: check against the result kind that we allocated
         -- in inferInitialKinds.
 
 kcTyClDecl (ClassDecl { tcdLName = L _ name
                       , tcdCtxt = ctxt, tcdSigs = sigs }) _tycon
-  = bindTyClTyVars name $ \ _ _ ->
+  = bindTyClTyVars name $ \ _ _ _ ->
     do  { _ <- tcHsContext ctxt
         ; mapM_ (wrapLocM_ kc_sig) sigs }
   where
@@ -2018,7 +2018,7 @@ tcClassDecl1 :: RolesInfo -> Name -> LHsContext GhcRn
 tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
   = fixM $ \ clas ->
     -- We need the knot because 'clas' is passed into tcClassATs
-    bindTyClTyVars class_name $ \ binders res_kind ->
+    bindTyClTyVars class_name $ \ _ binders res_kind ->
     do { checkClassKindSig res_kind
        ; traceTc "tcClassDecl 1" (ppr class_name $$ ppr binders)
        ; let tycon_name = class_name        -- We use the same name
@@ -2027,6 +2027,9 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
        ; (ctxt, fds, sig_stuff, at_stuff)
             <- pushTcLevelM_   $
                solveEqualities $
+               checkTvConstraints skol_info (binderVars binders) $
+               -- The checkTvConstraints is needed bring into scope the
+               -- skolems bound by the class decl header (#17841)
                do { ctxt <- tcHsContext hs_ctxt
                   ; fds  <- mapM (addLocM tc_fundep) fundeps
                   ; sig_stuff <- tcClassSigs class_name sigs meths
@@ -2059,6 +2062,7 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
                                 ppr fds)
        ; return clas }
   where
+    skol_info = TyConSkol ClassFlavour class_name
     tc_fundep (tvs1, tvs2) = do { tvs1' <- mapM (tcLookupTyVar . unLoc) tvs1 ;
                                 ; tvs2' <- mapM (tcLookupTyVar . unLoc) tvs2 ;
                                 ; return (tvs1', tvs2') }
@@ -2295,7 +2299,7 @@ tcFamDecl1 parent (FamilyDecl { fdInfo = fam_info
                               , fdResultSig = L _ sig
                               , fdInjectivityAnn = inj })
   | DataFamily <- fam_info
-  = bindTyClTyVars tc_name $ \ binders res_kind -> do
+  = bindTyClTyVars tc_name $ \ _ binders res_kind -> do
   { traceTc "data family:" (ppr tc_name)
   ; checkFamFlag tc_name
 
@@ -2321,7 +2325,7 @@ tcFamDecl1 parent (FamilyDecl { fdInfo = fam_info
   ; return tycon }
 
   | OpenTypeFamily <- fam_info
-  = bindTyClTyVars tc_name $ \ binders res_kind -> do
+  = bindTyClTyVars tc_name $ \ _ binders res_kind -> do
   { traceTc "open type family:" (ppr tc_name)
   ; checkFamFlag tc_name
   ; inj' <- tcInjectivity binders inj
@@ -2338,7 +2342,7 @@ tcFamDecl1 parent (FamilyDecl { fdInfo = fam_info
          -- the variables in the header scope only over the injectivity
          -- declaration but this is not involved here
        ; (inj', binders, res_kind)
-            <- bindTyClTyVars tc_name $ \ binders res_kind ->
+            <- bindTyClTyVars tc_name $ \ _ binders res_kind ->
                do { inj' <- tcInjectivity binders inj
                   ; return (inj', binders, res_kind) }
 
@@ -2436,7 +2440,7 @@ tcInjectivity tcbs (Just (L loc (InjectivityAnn _ lInjNames)))
 tcTySynRhs :: RolesInfo -> Name
            -> LHsType GhcRn -> TcM TyCon
 tcTySynRhs roles_info tc_name hs_ty
-  = bindTyClTyVars tc_name $ \ binders res_kind ->
+  = bindTyClTyVars tc_name $ \ _ binders res_kind ->
     do { env <- getLclEnv
        ; traceTc "tc-syn" (ppr tc_name $$ ppr (tcl_env env))
        ; rhs_ty <- pushTcLevelM_   $
@@ -2457,7 +2461,10 @@ tcDataDefn err_ctxt roles_info tc_name
                                                -- via inferInitialKinds
                        , dd_cons = cons
                        , dd_derivs = derivs })
-  = bindTyClTyVars tc_name $ \ tycon_binders res_kind ->
+  = bindTyClTyVars tc_name $ \ tctc tycon_binders res_kind ->
+       -- 'tctc' is a 'TcTyCon' and has the 'tcTyConScopedTyVars' that we need
+       -- unlike the finalized 'tycon' defined above which is an 'AlgTyCon'
+       --
        -- The TyCon tyvars must scope over
        --    - the stupid theta (dd_ctxt)
        --    - for H98 constructors only, the ConDecl
@@ -2500,9 +2507,6 @@ tcDataDefn err_ctxt roles_info tc_name
                                   stupid_theta tc_rhs
                                   (VanillaAlgTyCon tc_rep_nm)
                                   gadt_syntax) }
-       ; tctc <- tcLookupTcTyCon tc_name
-            -- 'tctc' is a 'TcTyCon' and has the 'tcTyConScopedTyVars' that we need
-            -- unlike the finalized 'tycon' defined above which is an 'AlgTyCon'
        ; let deriv_info = DerivInfo { di_rep_tc = tycon
                                     , di_scoped_tvs = tcTyConScopedTyVars tctc
                                     , di_clauses = unLoc derivs
