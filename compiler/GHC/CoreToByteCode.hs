@@ -25,6 +25,7 @@ import GHCi.FFI
 import GHCi.RemoteTypes
 import BasicTypes
 import GHC.Driver.Session
+import GHC.Driver.Ways
 import Outputable
 import GHC.Platform
 import Name
@@ -998,7 +999,7 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
      let
         profiling
           | Just (ExternalInterp _) <- hsc_interp hsc_env = gopt Opt_SccProfilingOn dflags
-          | otherwise = rtsIsProfiled
+          | otherwise = hostIsProfiled
 
         -- Top of stack is the return itbl, as usual.
         -- underneath it is the pointer to the alt_code BCO.
