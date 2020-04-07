@@ -336,6 +336,7 @@ import GHC.Driver.Finder
 import GHC.Driver.Types
 import GHC.Driver.CmdLine
 import GHC.Driver.Session hiding (WarnReason(..))
+import GHC.Driver.Ways
 import SysTools
 import SysTools.BaseDir
 import Annotations
@@ -365,6 +366,7 @@ import FileCleanup
 import Data.Foldable
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
+import qualified Data.Set as S
 import qualified Data.Sequence as Seq
 import Data.Maybe
 import Data.Time
@@ -542,10 +544,10 @@ checkBrokenTablesNextToCode dflags
 
 checkBrokenTablesNextToCode' :: MonadIO m => DynFlags -> m Bool
 checkBrokenTablesNextToCode' dflags
-  | not (isARM arch)              = return False
-  | WayDyn `notElem` ways dflags  = return False
-  | not (tablesNextToCode dflags) = return False
-  | otherwise                     = do
+  | not (isARM arch)                 = return False
+  | WayDyn `S.notMember` ways dflags = return False
+  | not (tablesNextToCode dflags)    = return False
+  | otherwise                        = do
     linkerInfo <- liftIO $ getLinkerInfo dflags
     case linkerInfo of
       GnuLD _  -> return True
@@ -605,22 +607,24 @@ setSessionDynFlags dflags = do
          let
            prog = pgm_i dflags ++ flavour
            flavour
-             | WayProf `elem` ways dflags = "-prof"
-             | WayDyn `elem` ways dflags  = "-dyn"
-             | otherwise                  = ""
+             | WayProf `S.member` ways dflags = "-prof"
+             | WayDyn `S.member` ways dflags  = "-dyn"
+             | otherwise                      = ""
            msg = text "Starting " <> text prog
          tr <- if verbosity dflags >= 3
                 then return (logInfo dflags (defaultDumpStyle dflags) msg)
                 else return (pure ())
          let
           conf = IServConfig
-            { iservConfProgram = prog
-            , iservConfOpts    = getOpts dflags opt_i
-            , iservConfHook    = createIservProcessHook (hooks dflags)
-            , iservConfTrace   = tr
+            { iservConfProgram  = prog
+            , iservConfOpts     = getOpts dflags opt_i
+            , iservConfProfiled = gopt Opt_SccProfilingOn dflags
+            , iservConfDynamic  = WayDyn `S.member` ways dflags
+            , iservConfHook     = createIservProcessHook (hooks dflags)
+            , iservConfTrace    = tr
             }
-         s <- liftIO $ newMVar (IServPending conf)
-         return (Just (ExternalInterp (IServ s)))
+         s <- liftIO $ newMVar IServPending
+         return (Just (ExternalInterp conf (IServ s)))
     else
 #if defined(HAVE_INTERNAL_INTERPRETER)
       return (Just InternalInterp)

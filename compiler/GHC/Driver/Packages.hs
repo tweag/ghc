@@ -60,7 +60,7 @@ module GHC.Driver.Packages (
         pprPackagesSimple,
         pprModuleMap,
         isIndefinite,
-        isDllName
+        isDynLinkName
     )
 where
 
@@ -71,6 +71,7 @@ import GhcPrelude
 import GHC.PackageDb
 import UnitInfo
 import GHC.Driver.Session
+import GHC.Driver.Ways
 import Name             ( Name, nameModule_maybe )
 import UniqFM
 import UniqDFM
@@ -1839,22 +1840,22 @@ packageHsLibs dflags p = map (mkDynName . addSuffix) (hsLibraries p)
   where
         ways0 = ways dflags
 
-        ways1 = filter (/= WayDyn) ways0
+        ways1 = Set.filter (/= WayDyn) ways0
         -- the name of a shared library is libHSfoo-ghc<version>.so
         -- we leave out the _dyn, because it is superfluous
 
         -- debug and profiled RTSs include support for -eventlog
-        ways2 | WayDebug `elem` ways1 || WayProf `elem` ways1
-              = filter (/= WayEventLog) ways1
+        ways2 | WayDebug `Set.member` ways1 || WayProf `Set.member` ways1
+              = Set.filter (/= WayEventLog) ways1
               | otherwise
               = ways1
 
-        tag     = waysTag (filter (not . wayRTSOnly) ways2)
+        tag     = waysTag (Set.filter (not . wayRTSOnly) ways2)
         rts_tag = waysTag ways2
 
         mkDynName x
-         | WayDyn `notElem` ways dflags = x
-         | "HS" `isPrefixOf` x          =
+         | WayDyn `Set.notMember` ways dflags = x
+         | "HS" `isPrefixOf` x                =
               x ++ '-':programName dflags ++ projectVersion dflags
            -- For non-Haskell libraries, we use the name "Cfoo". The .a
            -- file is libCfoo.a, and the .so is libfoo.so. That way the
@@ -2121,12 +2122,9 @@ displayInstalledUnitId :: DynFlags -> InstalledUnitId -> Maybe String
 displayInstalledUnitId dflags uid =
     fmap sourcePackageIdString (lookupInstalledPackage dflags uid)
 
--- | Will the 'Name' come from a dynamically linked library?
-isDllName :: DynFlags -> Module -> Name -> Bool
--- Despite the "dll", I think this function just means that
--- the symbol comes from another dynamically-linked package,
--- and applies on all platforms, not just Windows
-isDllName dflags this_mod name
+-- | Will the 'Name' come from a dynamically linked package?
+isDynLinkName :: DynFlags -> Module -> Name -> Bool
+isDynLinkName dflags this_mod name
   | not (gopt Opt_ExternalDynamicRefs dflags) = False
   | Just mod <- nameModule_maybe name
     -- Issue #8696 - when GHC is dynamically linked, it will attempt
@@ -2136,7 +2134,7 @@ isDllName dflags this_mod name
     -- intra-package linking, because we don't generate indirect
     -- (dynamic) symbols for intra-package calls. This means that if a
     -- module with an intra-package call is loaded without its
-    -- dependencies, then GHC fails to link. This is the cause of #
+    -- dependencies, then GHC fails to link.
     --
     -- In the mean time, always force dynamic indirections to be
     -- generated: when the module name isn't the module being
