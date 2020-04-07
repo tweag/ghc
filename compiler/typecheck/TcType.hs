@@ -68,7 +68,7 @@ module TcType (
   tcTyConAppTyCon, tcTyConAppTyCon_maybe, tcTyConAppArgs,
   tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, tcRepSplitAppTy_maybe,
   tcRepGetNumAppTys,
-  tcGetCastedTyVar_maybe, tcGetTyVar_maybe, tcGetTyVar, nextRole,
+  tcGetCastedTyVar_maybe, tcGetTyVar_maybe, tcGetTyVar,
   tcSplitSigmaTy, tcSplitNestedSigmaTys, tcDeepSplitSigmaTy_maybe,
 
   ---------------------------------
@@ -860,17 +860,24 @@ anyRewritableTyVar :: Bool    -- Ignore casts and coercions
 anyRewritableTyVar ignore_cos role pred ty
   = go role emptyVarSet ty
   where
+    -- NB: No need to expand synonyms, because we can find
+    -- all free variables of a synonym by looking at its
+    -- arguments
+
     go_tv rl bvs tv | tv `elemVarSet` bvs = False
                     | otherwise           = pred rl tv
 
-    go rl bvs (TyVarTy tv)      = go_tv rl bvs tv
-    go _ _     (LitTy {})       = False
-    go rl bvs (TyConApp tc tys) = go_tc rl bvs tc tys
-    go rl bvs (AppTy fun arg)   = go rl bvs fun || go NomEq bvs arg
-    go rl bvs (FunTy _ w arg res) = go rl bvs w || go rl bvs arg || go rl bvs res
-    go rl bvs (ForAllTy tv ty)  = go rl (bvs `extendVarSet` binderVar tv) ty
-    go rl bvs (CastTy ty co)    = go rl bvs ty || go_co rl bvs co
-    go rl bvs (CoercionTy co)   = go_co rl bvs co  -- ToDo: check
+    go rl bvs (TyVarTy tv)       = go_tv rl bvs tv
+    go _ _     (LitTy {})        = False
+    go rl bvs (TyConApp tc tys)  = go_tc rl bvs tc tys
+    go rl bvs (AppTy fun arg)    = go rl bvs fun || go NomEq bvs arg
+    go rl bvs (FunTy _ w arg res)  = go NomEq bvs arg_rep || go NomEq bvs res_rep ||
+                                     go rl bvs arg || go rl bvs res || go rl bvs w
+      where arg_rep = getRuntimeRep arg -- forgetting these causes #17024
+            res_rep = getRuntimeRep res
+    go rl bvs (ForAllTy tv ty)   = go rl (bvs `extendVarSet` binderVar tv) ty
+    go rl bvs (CastTy ty co)     = go rl bvs ty || go_co rl bvs co
+    go rl bvs (CoercionTy co)    = go_co rl bvs co  -- ToDo: check
 
     go_tc NomEq  bvs _  tys = any (go NomEq bvs) tys
     go_tc ReprEq bvs tc tys = any (go_arg bvs)

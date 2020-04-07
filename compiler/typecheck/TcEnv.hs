@@ -462,6 +462,9 @@ tcLookupLocalIds ns
                 Just (ATcId { tct_id = id }) ->  id
                 _ -> pprPanic "tcLookupLocalIds" (ppr name)
 
+-- inferInitialKind has made a suitably-shaped kind for the type or class
+-- Look it up in the local environment. This is used only for tycons
+-- that we're currently type-checking, so we're sure to find a TcTyCon.
 tcLookupTcTyCon :: HasDebugCallStack => Name -> TcM TcTyCon
 tcLookupTcTyCon name = do
     thing <- tcLookup name
@@ -980,7 +983,8 @@ pprInstInfoDetails info
    = hang (pprInstanceHdr (iSpec info) <+> text "where")
         2 (details (iBinds info))
   where
-    details (InstBindings { ib_binds = b }) = pprLHsBinds b
+    details (InstBindings { ib_pragmas = p, ib_binds = b }) =
+      pprDeclList (pprLHsBindsForUser b p)
 
 simpleInstInfoClsTy :: InstInfo a -> (Class, Type)
 simpleInstInfoClsTy info = case instanceHead (iSpec info) of

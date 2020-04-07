@@ -1605,7 +1605,7 @@ lintArrow :: SDoc -> LintedKind -> LintedKind -> LintedKind -> LintM LintedKind
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
 lintArrow what k1 k2 kw -- Eg lintArrow "type or kind `blah'" k1 k2
-                       -- or lintarrow "coercion `blah'" k1 k2
+                       -- or lintArrow "coercion `blah'" k1 k2
   = do { unless (classifiesTypeWithValues k1) (addErrL (msg (text "argument") k1))
        ; unless (classifiesTypeWithValues k2) (addErrL (msg (text "result")   k2))
        ; unless (isMultiplicityTy kw) (addErrL (msg (text "multiplicity") kw))
@@ -2899,9 +2899,8 @@ mkJoinBndrOccMismatchMsg bndr join_arity_bndr join_arity_occ
 mkBndrOccTypeMismatchMsg :: Var -> Var -> OutType -> OutType -> SDoc
 mkBndrOccTypeMismatchMsg bndr var bndr_ty var_ty
   = vcat [ text "Mismatch in type between binder and occurrence"
-         , text "Var:" <+> ppr bndr
-         , text "Binder type:" <+> ppr bndr_ty
-         , text "Occurrence type:" <+> ppr var_ty
+         , text "Binder:" <+> ppr bndr <+> dcolon <+> ppr bndr_ty
+         , text "Occurrence:" <+> ppr var <+> dcolon <+> ppr var_ty
          , text "  Before subst:" <+> ppr (idType var) ]
 
 mkBadJoinPointRuleMsg :: JoinId -> JoinArity -> CoreRule -> SDoc

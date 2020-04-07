@@ -940,10 +940,10 @@ we do want to turn that (free) r into LiftedRep, so it prints as
     (forall a. blah)
 
 Conclusion: keep track of whether we we are in the kind of a
-binder; ohly if so, convert free RuntimeRep variables to LiftedRep.
+binder; only if so, convert free RuntimeRep variables to LiftedRep.
 -}
 
--- | Default 'RuntimeRep' variables to 'LiftedPtr', and 'Multiplicity'
+-- | Default 'RuntimeRep' variables to 'LiftedRep', and 'Multiplicity'
 --   variables to 'Many'. For example:
 --
 -- @

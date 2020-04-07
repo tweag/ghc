@@ -1069,7 +1069,7 @@ We do kind inference as follows:
     - Have complete fresh Names; see TcMType
       Note [Unification variables need fresh Names]
 
-  Assign initial monomorophic kinds to S, T
+  Assign initial monomorphic kinds to S, T
           T :: kk1 -> * -> kk2 -> *
           S :: kk3 -> * -> kk4 -> *
 
@@ -1099,7 +1099,7 @@ We do kind inference as follows:
 * Step 4.  Extend the type environment with a TcTyCon for S and T, now
   with their utterly-final polymorphic kinds (needed for recursive
   occurrences of S, T).  Now typecheck the declarations, and build the
-  final AlgTyCOn for S and T resp.
+  final AlgTyCon for S and T resp.
 
 The first three steps are in kcTyClGroup; the fourth is in
 tcTyClDecls.
@@ -1504,7 +1504,7 @@ kcLTyClDecl :: LTyClDecl GhcRn -> TcM ()
   -- Called only for declarations without a signature (no CUSKs or SAKs here)
 kcLTyClDecl (L loc decl)
   = setSrcSpan loc $
-    do { tycon <- kcLookupTcTyCon tc_name
+    do { tycon <- tcLookupTcTyCon tc_name
        ; traceTc "kcTyClDecl {" (ppr tc_name)
        ; addVDQNote tycon $   -- See Note [Inferring visible dependent quantification]
          addErrCtxt (tcMkDeclCtxt decl) $
