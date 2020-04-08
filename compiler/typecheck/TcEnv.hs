@@ -79,7 +79,7 @@ import GHC.Iface.Env
 import TcRnMonad
 import TcMType
 import TcEvidence (HsWrapper, idHsWrapper)
-import UsageEnv
+import GHC.Core.UsageEnv
 import TcType
 import {-# SOURCE #-} TcUnify ( tcSubMult )
 import TcOrigin ( CtOrigin(UsageEnvironmentOf) )
@@ -89,14 +89,14 @@ import TysWiredIn
 import Id
 import Var
 import RdrName
-import InstEnv
-import DataCon ( DataCon )
-import PatSyn  ( PatSyn )
-import ConLike
-import TyCon
-import Type
-import CoAxiom
-import Class
+import GHC.Core.InstEnv
+import GHC.Core.DataCon ( DataCon )
+import GHC.Core.PatSyn  ( PatSyn )
+import GHC.Core.ConLike
+import GHC.Core.TyCon
+import GHC.Core.Type
+import GHC.Core.Coercion.Axiom
+import GHC.Core.Class
 import Name
 import NameSet
 import NameEnv
@@ -113,7 +113,7 @@ import Bag
 import ListSetOps
 import ErrUtils
 import Maybes( MaybeErr(..), orElse )
-import Multiplicity
+import GHC.Core.Multiplicity
 import qualified GHC.LanguageExtensions as LangExt
 import Util ( HasDebugCallStack )
 

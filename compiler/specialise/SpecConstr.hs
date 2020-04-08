@@ -32,12 +32,12 @@ import CoreMonad
 import Literal          ( litIsLifted )
 import GHC.Driver.Types ( ModGuts(..) )
 import WwLib            ( isWorkerSmallEnough, mkWorkerArgs )
-import DataCon
-import Coercion         hiding( substCo )
+import GHC.Core.DataCon
+import GHC.Core.Coercion hiding( substCo )
 import GHC.Core.Rules
-import Type             hiding ( substTy )
-import TyCon            ( tyConName )
-import Multiplicity
+import GHC.Core.Type     hiding ( substTy )
+import GHC.Core.TyCon   ( tyConName )
+import GHC.Core.Multiplicity
 import Id
 import GHC.Core.Ppr     ( pprParendExpr )
 import GHC.Core.Make    ( mkImpossibleExpr )
@@ -62,7 +62,7 @@ import Control.Monad    ( zipWithM )
 import Data.List
 import PrelNames        ( specTyConName )
 import Module
-import TyCon ( TyCon )
+import GHC.Core.TyCon ( TyCon )
 import GHC.Exts( SpecConstrAnnotation(..) )
 import Data.Ord( comparing )
 

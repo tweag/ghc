@@ -15,24 +15,25 @@ import GhcPrelude
 
 import GHC.Driver.Session
 import SimplMonad
-import Type hiding      ( substTy, substTyVar, extendTvSubst, extendCvSubst )
+import GHC.Core.Type hiding ( substTy, substTyVar, extendTvSubst, extendCvSubst )
 import SimplEnv
 import SimplUtils
 import OccurAnal        ( occurAnalyseExpr )
-import FamInstEnv       ( FamInstEnv )
+import GHC.Core.FamInstEnv ( FamInstEnv )
 import Literal          ( litIsLifted ) --, mkLitInt ) -- temporalily commented out. See #8326
 import Id
 import MkId             ( seqId )
-import GHC.Core.Make           ( FloatBind, mkImpossibleExpr, castBottomExpr )
+import GHC.Core.Make    ( FloatBind, mkImpossibleExpr, castBottomExpr )
 import qualified GHC.Core.Make
 import IdInfo
 import Name             ( mkSystemVarName, isExternalName, getOccFS )
-import Coercion hiding  ( substCo, substCoVar )
-import OptCoercion      ( optCoercion )
-import FamInstEnv       ( topNormaliseType_maybe )
-import DataCon          ( DataCon, dataConWorkId, dataConRepStrictness
-                        , dataConRepArgTys, isUnboxedTupleCon
-                        , StrictnessMark (..) )
+import GHC.Core.Coercion hiding ( substCo, substCoVar )
+import GHC.Core.Coercion.Opt    ( optCoercion )
+import GHC.Core.FamInstEnv      ( topNormaliseType_maybe )
+import GHC.Core.DataCon
+   ( DataCon, dataConWorkId, dataConRepStrictness
+   , dataConRepArgTys, isUnboxedTupleCon
+   , StrictnessMark (..) )
 import CoreMonad        ( Tick(..), SimplMode(..) )
 import GHC.Core
 import Demand           ( StrictSig(..), dmdTypeDepth, isStrictDmd
@@ -55,9 +56,9 @@ import FastString
 import Util
 import ErrUtils
 import Module          ( moduleName, pprModuleName )
-import Multiplicity
+import GHC.Core.Multiplicity
 import PrimOp          ( PrimOp (SeqOp) )
-import TyCoRep         ( TyCoBinder(..) )
+import GHC.Core.TyCo.Rep  ( TyCoBinder(..) )
 
 
 {-

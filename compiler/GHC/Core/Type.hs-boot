@@ -1,10 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Type where
+module GHC.Core.Type where
 
 import GhcPrelude
-import {-# SOURCE #-} TyCon
-import {-# SOURCE #-} TyCoRep( Type, Coercion )
+import {-# SOURCE #-} GHC.Core.TyCon
+import {-# SOURCE #-} GHC.Core.TyCo.Rep( Type, Coercion )
 import Util
 
 isPredTy     :: HasDebugCallStack => Type -> Bool

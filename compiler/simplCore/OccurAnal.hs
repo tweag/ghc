@@ -33,9 +33,9 @@ import IdInfo
 import Name( localiseName )
 import BasicTypes
 import Module( Module )
-import Coercion
-import Type
-import Multiplicity
+import GHC.Core.Coercion
+import GHC.Core.Type
+import GHC.Core.Multiplicity
 
 import VarSet
 import VarEnv

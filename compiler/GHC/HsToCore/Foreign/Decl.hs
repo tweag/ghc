@@ -26,17 +26,17 @@ import GHC.HsToCore.Foreign.Call
 import GHC.HsToCore.Monad
 
 import GHC.Hs
-import DataCon
+import GHC.Core.DataCon
 import GHC.Core.Unfold
 import Id
 import Literal
 import Module
 import Name
-import Type
+import GHC.Core.Type
 import GHC.Types.RepType
-import TyCon
-import Multiplicity
-import Coercion
+import GHC.Core.TyCon
+import GHC.Core.Coercion
+import GHC.Core.Multiplicity
 import TcEnv
 import TcType
 

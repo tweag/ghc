@@ -17,9 +17,9 @@ import GHC.Driver.Session
 import GHC.Driver.Types
 import Name             ( Name, getName )
 import NameEnv
-import DataCon          ( DataCon, dataConRepArgTys, dataConIdentity )
-import TyCon            ( TyCon, tyConFamilySize, isDataTyCon, tyConDataCons )
-import Multiplicity     ( scaledThing )
+import GHC.Core.DataCon     ( DataCon, dataConRepArgTys, dataConIdentity )
+import GHC.Core.TyCon       ( TyCon, tyConFamilySize, isDataTyCon, tyConDataCons )
+import GHC.Core.Multiplicity     ( scaledThing )
 import GHC.Types.RepType
 import GHC.StgToCmm.Layout  ( mkVirtConstrSizes )
 import GHC.StgToCmm.Closure ( tagForCon, NonVoid (..) )

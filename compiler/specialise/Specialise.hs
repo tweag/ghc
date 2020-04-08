@@ -18,11 +18,11 @@ import GhcPrelude
 
 import Id
 import TcType hiding( substTy )
-import Type   hiding( substTy, extendTvSubstList )
-import Multiplicity ( pattern Many )
-import Predicate
+import GHC.Core.Type  hiding( substTy, extendTvSubstList )
+import GHC.Core.Multiplicity ( pattern Many )
+import GHC.Core.Predicate
 import Module( Module, HasModule(..) )
-import Coercion( Coercion )
+import GHC.Core.Coercion( Coercion )
 import CoreMonad
 import qualified GHC.Core.Subst
 import GHC.Core.Unfold
@@ -49,7 +49,7 @@ import Outputable
 import FastString
 import State
 import UniqDFM
-import TyCoRep (TyCoBinder (..))
+import GHC.Core.TyCo.Rep (TyCoBinder (..))
 
 import Control.Monad
 import qualified Control.Monad.Fail as MonadFail

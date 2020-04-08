@@ -43,17 +43,17 @@ import TcExpr
 import TcEnv
 
 import FamInst
-import FamInstEnv
-import Coercion
-import Type
-import Multiplicity
+import GHC.Core.FamInstEnv
+import GHC.Core.Coercion
+import GHC.Core.Type
+import GHC.Core.Multiplicity
 import ForeignCall
 import ErrUtils
 import Id
 import Name
 import RdrName
-import DataCon
-import TyCon
+import GHC.Core.DataCon
+import GHC.Core.TyCon
 import TcType
 import PrelNames
 import GHC.Driver.Session
@@ -136,7 +136,7 @@ normaliseFfiType' env ty0 = go Representational initRecTc ty0
 
         | isNewTyCon tc         -- Expand newtypes
         , Just rec_nts' <- checkRecTc rec_nts tc
-                   -- See Note [Expanding newtypes] in TyCon.hs
+                   -- See Note [Expanding newtypes] in GHC.Core.TyCon
                    -- We can't just use isRecursiveTyCon; sometimes recursion is ok:
                    --     newtype T = T (Ptr T)
                    --   Here, we don't reject the type for being recursive.

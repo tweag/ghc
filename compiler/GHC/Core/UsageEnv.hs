@@ -5,7 +5,7 @@ module UsageEnv (UsageEnv, addUsage, scaleUsage, zeroUE,
 
 import Data.Foldable
 import GhcPrelude
-import Multiplicity
+import GHC.Core.Multiplicity
 import Name
 import NameEnv
 import Outputable

@@ -43,15 +43,15 @@ import GHC.HsToCore.Binds
 import GHC.HsToCore.GuardedRHSs
 import GHC.HsToCore.Utils
 import Id
-import ConLike
-import DataCon
-import PatSyn
+import GHC.Core.ConLike
+import GHC.Core.DataCon
+import GHC.Core.PatSyn
 import GHC.HsToCore.Match.Constructor
 import GHC.HsToCore.Match.Literal
-import Type
-import Coercion ( eqCoercion )
-import TyCon( isNewTyCon )
-import Multiplicity
+import GHC.Core.Type
+import GHC.Core.Coercion ( eqCoercion )
+import GHC.Core.TyCon    ( isNewTyCon )
+import GHC.Core.Multiplicity
 import TysWiredIn
 import SrcLoc
 import Maybes

@@ -33,15 +33,15 @@ import GHC.Iface.Env
 import BuildTyCl
 import TcRnMonad
 import TcType
-import Type
-import Coercion
-import CoAxiom
-import TyCoRep    -- needs to build types & coercions in a knot
-import TyCoSubst ( substTyCoVars )
+import GHC.Core.Type
+import GHC.Core.Coercion
+import GHC.Core.Coercion.Axiom
+import GHC.Core.TyCo.Rep    -- needs to build types & coercions in a knot
+import GHC.Core.TyCo.Subst ( substTyCoVars )
 import GHC.Driver.Types
 import Annotations
-import InstEnv
-import FamInstEnv
+import GHC.Core.InstEnv
+import GHC.Core.FamInstEnv
 import GHC.Core
 import GHC.Core.Utils
 import GHC.Core.Unfold
@@ -50,10 +50,10 @@ import GHC.Core.Make
 import Id
 import MkId
 import IdInfo
-import Class
-import TyCon
-import ConLike
-import DataCon
+import GHC.Core.Class
+import GHC.Core.TyCon
+import GHC.Core.ConLike
+import GHC.Core.DataCon
 import PrelNames
 import TysWiredIn
 import Literal
@@ -77,7 +77,7 @@ import BasicTypes hiding ( SuccessFlag(..) )
 import ListSetOps
 import GHC.Fingerprint
 import qualified BooleanFormula as BF
-import Multiplicity
+import GHC.Core.Multiplicity
 
 import Control.Monad
 import qualified Data.Map as Map
@@ -868,7 +868,7 @@ tc_ax_branch prev_branches
                             , ifaxbRoles = roles, ifaxbIncomps = incomps })
   = bindIfaceTyConBinders_AT
       (map (\b -> Bndr (IfaceTvBndr b) (NamedTCB Inferred)) tv_bndrs) $ \ tvs ->
-         -- The _AT variant is needed here; see Note [CoAxBranch type variables] in CoAxiom
+         -- The _AT variant is needed here; see Note [CoAxBranch type variables] in GHC.Core.Coercion.Axiom
     bindIfaceIds cv_bndrs $ \ cvs -> do
     { tc_lhs   <- tcIfaceAppArgs lhs
     ; tc_rhs   <- tcIfaceType rhs
@@ -1177,7 +1177,7 @@ tcIfaceTupleTy sort is_promoted args
                         kind_args = map typeKind args'
                   ; return (mkTyConApp tc (kind_args ++ args')) } }
 
--- See Note [Unboxed tuple RuntimeRep vars] in TyCon
+-- See Note [Unboxed tuple RuntimeRep vars] in GHC.Core.TyCon
 tcTupleTyCon :: Bool    -- True <=> typechecking a *type* (vs. an expr)
              -> TupleSort
              -> Arity   -- the number of args. *not* the tuple arity.

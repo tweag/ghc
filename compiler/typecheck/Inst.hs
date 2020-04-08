@@ -46,28 +46,28 @@ import GHC.Hs
 import TcHsSyn
 import TcRnMonad
 import Constraint
-import Predicate
+import GHC.Core.Predicate
 import TcOrigin
 import TcEnv
 import TcEvidence
-import InstEnv
+import GHC.Core.InstEnv
 import TysWiredIn  ( heqDataCon, eqDataCon )
 import GHC.Core    ( isOrphan )
 import FunDeps
 import TcMType
-import Type
-import Multiplicity
-import TyCoRep
-import TyCoPpr     ( debugPprType )
+import GHC.Core.Type
+import GHC.Core.Multiplicity
+import GHC.Core.TyCo.Rep
+import GHC.Core.TyCo.Ppr ( debugPprType )
 import TcType
 import GHC.Driver.Types
-import Class( Class )
+import GHC.Core.Class( Class )
 import MkId( mkDictFunId )
 import GHC.Core( Expr(..) )  -- For the Coercion constructor
 import Id
 import Name
 import Var      ( EvVar, tyVarName, VarBndr(..) )
-import DataCon
+import GHC.Core.DataCon
 import VarEnv
 import PrelNames
 import SrcLoc
@@ -386,7 +386,7 @@ instCallConstraints orig preds
 instDFunType :: DFunId -> [DFunInstType]
              -> TcM ( [TcType]      -- instantiated argument types
                     , TcThetaType ) -- instantiated constraint
--- See Note [DFunInstType: instantiating types] in InstEnv
+-- See Note [DFunInstType: instantiating types] in GHC.Core.InstEnv
 instDFunType dfun_id dfun_inst_tys
   = do { (subst, inst_tys) <- go empty_subst dfun_tvs dfun_inst_tys
        ; return (inst_tys, substTheta subst dfun_theta) }
@@ -455,14 +455,14 @@ tcInstInvisibleTyBinder subst (Named (Bndr tv _))
 tcInstInvisibleTyBinder subst (Anon af ty)
   | Just (mk, k1, k2) <- get_eq_tys_maybe (substTy subst (scaledThing ty))
     -- Equality is the *only* constraint currently handled in types.
-    -- See Note [Constraints in kinds] in TyCoRep
+    -- See Note [Constraints in kinds] in GHC.Core.TyCo.Rep
   = ASSERT( af == InvisArg )
     do { co <- unifyKind Nothing k1 k2
        ; arg' <- mk co
        ; return (subst, arg') }
 
   | otherwise  -- This should never happen
-               -- See TyCoRep Note [Constraints in kinds]
+               -- See GHC.Core.TyCo.Rep Note [Constraints in kinds]
   = pprPanic "tcInvisibleTyBinder" (ppr ty)
 
 -------------------------------
@@ -473,7 +473,7 @@ get_eq_tys_maybe :: Type
                           , Type  -- t1
                           , Type  -- t2
                           )
--- See Note [Constraints in kinds] in TyCoRep
+-- See Note [Constraints in kinds] in GHC.Core.TyCo.Rep
 get_eq_tys_maybe ty
   -- Lifted heterogeneous equality (~~)
   | Just (tc, [_, _, k1, k2]) <- splitTyConApp_maybe ty

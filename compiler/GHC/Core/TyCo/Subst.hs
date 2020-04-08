@@ -9,7 +9,7 @@ Type and Coercion - friends' interface
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
 -- | Substitution into types and coercions.
-module TyCoSubst
+module GHC.Core.TyCo.Subst
   (
         -- * Substitutions
         TCvSubst(..), TvSubstEnv, CvSubstEnv,
@@ -55,19 +55,21 @@ module TyCoSubst
 
 import GhcPrelude
 
-import {-# SOURCE #-} Type ( mkCastTy, mkAppTy, isCoercionTy )
-import {-# SOURCE #-} Coercion ( mkCoVarCo, mkKindCo, mkNthCo, mkTransCo
-                               , mkNomReflCo, mkSubCo, mkSymCo
-                               , mkFunCo, mkForAllCo, mkUnivCo
-                               , mkAxiomInstCo, mkAppCo, mkGReflCo
-                               , mkInstCo, mkLRCo, mkTyConAppCo
-                               , mkCoercionType
-                               , coercionKind, coercionLKind, coVarKindsTypesRole )
+import {-# SOURCE #-} GHC.Core.Type
+   ( mkCastTy, mkAppTy, isCoercionTy )
+import {-# SOURCE #-} GHC.Core.Coercion
+   ( mkCoVarCo, mkKindCo, mkNthCo, mkTransCo
+   , mkNomReflCo, mkSubCo, mkSymCo
+   , mkFunCo, mkForAllCo, mkUnivCo
+   , mkAxiomInstCo, mkAppCo, mkGReflCo
+   , mkInstCo, mkLRCo, mkTyConAppCo
+   , mkCoercionType
+   , coercionKind, coercionLKind, coVarKindsTypesRole )
 
-import TyCoRep
-import TyCoFVs
-import TyCoPpr
-import Multiplicity
+import GHC.Core.TyCo.Rep
+import GHC.Core.TyCo.FVs
+import GHC.Core.TyCo.Ppr
+import GHC.Core.Multiplicity
 
 import Var
 import VarSet

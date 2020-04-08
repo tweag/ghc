@@ -159,13 +159,13 @@ import GHC.Driver.Types
 import Module
 import RdrName
 import Name
-import UsageEnv
-import Multiplicity
-import Type
+import GHC.Core.UsageEnv
+import GHC.Core.Multiplicity
+import GHC.Core.Type
 
 import TcType
-import InstEnv
-import FamInstEnv
+import GHC.Core.InstEnv
+import GHC.Core.FamInstEnv
 import PrelNames
 
 import Id

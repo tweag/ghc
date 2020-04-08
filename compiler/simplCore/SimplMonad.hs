@@ -27,9 +27,9 @@ import Var              ( Var, isId, mkLocalVar )
 import Name             ( mkSystemVarName )
 import Id               ( Id, mkSysLocalOrCoVar )
 import IdInfo           ( IdDetails(..), vanillaIdInfo, setArityInfo )
-import Type             ( Type, mkLamTypes, Mult )
-import FamInstEnv       ( FamInstEnv )
-import GHC.Core         ( RuleEnv(..) )
+import GHC.Core.Type       ( Type, mkLamTypes, Mult )
+import GHC.Core.FamInstEnv ( FamInstEnv )
+import GHC.Core            ( RuleEnv(..) )
 import UniqSupply
 import GHC.Driver.Session
 import CoreMonad
@@ -41,7 +41,7 @@ import Util                ( count )
 import Panic               (throwGhcExceptionIO, GhcException (..))
 import BasicTypes          ( IntWithInf, treatZeroAsInf, mkIntWithInf )
 import Control.Monad       ( ap )
-import Multiplicity        ( pattern Many )
+import GHC.Core.Multiplicity        ( pattern Many )
 
 {-
 ************************************************************************

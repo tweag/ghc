@@ -31,11 +31,11 @@ import Demand
 import Var
 import VarEnv
 import Id
-import Type
-import Multiplicity
-import TyCon    ( initRecTc, checkRecTc )
-import Predicate ( isDictTy )
-import Coercion
+import GHC.Core.Type as Type
+import GHC.Core.TyCon     ( initRecTc, checkRecTc )
+import GHC.Core.Predicate ( isDictTy )
+import GHC.Core.Coercion as Coercion
+import GHC.Core.Multiplicity
 import BasicTypes
 import Unique
 import GHC.Driver.Session ( DynFlags, GeneralFlag(..), gopt )
@@ -131,7 +131,7 @@ typeArity ty
       | Just (tc,tys) <- splitTyConApp_maybe ty
       , Just (ty', _) <- instNewTyCon_maybe tc tys
       , Just rec_nts' <- checkRecTc rec_nts tc  -- See Note [Expanding newtypes]
-                                                -- in TyCon
+                                                -- in GHC.Core.TyCon
 --   , not (isClassTyCon tc)    -- Do not eta-expand through newtype classes
 --                              -- See Note [Newtype classes and eta expansion]
 --                              (no longer required)

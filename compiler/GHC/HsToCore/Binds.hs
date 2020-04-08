@@ -45,15 +45,15 @@ import GHC.Core.Arity     ( etaExpand )
 import GHC.Core.Unfold
 import GHC.Core.FVs
 import Digraph
-import Predicate
+import GHC.Core.Predicate
 
 import PrelNames
-import TyCon
+import GHC.Core.TyCon
 import TcEvidence
 import TcType
-import Type
-import Multiplicity
-import Coercion
+import GHC.Core.Type
+import GHC.Core.Coercion
+import GHC.Core.Multiplicity
 import TysWiredIn ( typeNatKind, typeSymbolKind )
 import Id
 import MkId(proxyHashId)

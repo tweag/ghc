@@ -34,17 +34,17 @@ import GHC.Driver.Session
 import GHC.Hs
 import TcHsSyn
 import Id
-import ConLike
+import GHC.Core.ConLike
 import Name
 import FamInst
 import TysWiredIn
 import SrcLoc
 import Util
 import Outputable
-import DataCon
-import TyCon
+import GHC.Core.DataCon
+import GHC.Core.TyCon
 import Var (EvVar)
-import Coercion
+import GHC.Core.Coercion
 import TcEvidence
 import TcType (evVarPred)
 import {-# SOURCE #-} GHC.HsToCore.Expr (dsExpr, dsLExpr, dsSyntaxExpr)
@@ -54,9 +54,9 @@ import GHC.HsToCore.Match.Literal (dsLit, dsOverLit)
 import GHC.HsToCore.Monad
 import Bag
 import OrdList
-import TyCoRep
-import Type
-import Multiplicity
+import GHC.Core.TyCo.Rep
+import GHC.Core.Type
+import GHC.Core.Multiplicity
 import GHC.HsToCore.Utils       (isTrueLHsExpr)
 import Maybes
 import qualified GHC.LanguageExtensions as LangExt
@@ -540,7 +540,7 @@ translatePat fam_insts x pat = case pat of
   SumPat _ty p alt arity -> do
     (y, grds) <- translateLPatV fam_insts p
     let sum_con = sumDataCon alt arity
-    -- See Note [Unboxed tuple RuntimeRep vars] in TyCon
+    -- See Note [Unboxed tuple RuntimeRep vars] in GHC.Core.TyCon
     pure $ vanillaConGrd x sum_con [y] : grds
 
   -- --------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-module TyCoRep where
+module GHC.Core.TyCo.Rep where
 
 import Outputable ( Outputable )
 import Data.Data  ( Data )
@@ -21,5 +21,5 @@ type MCoercionN = MCoercion
 mkFunTyMany :: AnonArgFlag -> Type -> Type -> Type
 mkForAllTy :: Var -> ArgFlag -> Type -> Type
 
-instance Data Type  -- To support Data instances in CoAxiom
+instance Data Type  -- To support Data instances in GHC.Core.Coercion.Axiom
 instance Outputable Type

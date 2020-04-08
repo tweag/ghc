@@ -37,8 +37,8 @@ import {-# SOURCE #-} GHC.HsToCore.Expr ( dsExpr, dsLExpr, dsLExprNoLP, dsLocalB
                                           dsSyntaxExpr )
 
 import TcType
-import Type ( splitPiTy )
-import Multiplicity
+import GHC.Core.Type( splitPiTy )
+import GHC.Core.Multiplicity
 import TcEvidence
 import GHC.Core
 import GHC.Core.FVs
@@ -47,7 +47,7 @@ import GHC.Core.Make
 import GHC.HsToCore.Binds (dsHsWrapper)
 
 import Id
-import ConLike
+import GHC.Core.ConLike
 import TysWiredIn
 import BasicTypes
 import PrelNames

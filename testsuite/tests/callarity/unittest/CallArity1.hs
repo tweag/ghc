@@ -2,8 +2,8 @@
 import GHC.Core
 import GHC.Core.Utils
 import Id
-import Type
-import Multiplicity ( pattern Many )
+import GHC.Core.Type
+import GHC.Core.Multiplicity ( pattern Many )
 import GHC.Core.Make
 import CallArity (callArityRHS)
 import MkId

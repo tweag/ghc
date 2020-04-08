@@ -75,17 +75,17 @@ import VarEnv
 import VarSet
 import Name
 import Literal
-import DataCon
+import GHC.Core.DataCon
 import PrimOp
 import Id
 import IdInfo
 import PrelNames( absentErrorIdKey )
-import Type
-import Predicate
-import TyCoRep( TyCoBinder(..), TyBinder )
-import Multiplicity
-import Coercion
-import TyCon
+import GHC.Core.Type as Type
+import GHC.Core.Predicate
+import GHC.Core.TyCo.Rep( TyCoBinder(..), TyBinder )
+import GHC.Core.Coercion
+import GHC.Core.TyCon
+import GHC.Core.Multiplicity
 import Unique
 import Outputable
 import TysPrim

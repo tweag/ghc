@@ -70,13 +70,13 @@ import Unique (Uniquable (..))
 import Name
 import VarSet
 import Var
-import Type
-import Multiplicity
-import TyCoRep
-import TyCoFVs
-import TyCon
-import CoAxiom
-import FamInstEnv
+import GHC.Core.Type
+import GHC.Core.TyCo.Rep
+import GHC.Core.TyCo.FVs
+import GHC.Core.TyCon
+import GHC.Core.Coercion.Axiom
+import GHC.Core.FamInstEnv
+import GHC.Core.Multiplicity
 import TysPrim( funTyConName )
 import TysWiredIn( unrestrictedFunTyConName, manyDataConTy )
 import Maybes( orElse )

@@ -22,8 +22,8 @@
 -- * 'Id.Id': see "Id#name_types"
 --
 -- * 'Var.Var' is a synonym for the 'Id.Id' type but it may additionally
---   potentially contain type variables, which have a 'TyCoRep.Kind'
---   rather than a 'TyCoRep.Type' and only contain some extra
+--   potentially contain type variables, which have a 'GHC.Core.TyCo.Rep.Kind'
+--   rather than a 'GHC.Core.TyCo.Rep.Type' and only contain some extra
 --   details during typechecking.
 --
 --   These 'Var.Var' names may either be global or local, see "Var#globalvslocal"
@@ -95,12 +95,12 @@ module Var (
 
 import GhcPrelude
 
-import {-# SOURCE #-}   TyCoRep( Type, Kind )
-import {-# SOURCE #-}   TyCoPpr( pprKind )
+import {-# SOURCE #-}   GHC.Core.TyCo.Rep( Type, Kind )
+import {-# SOURCE #-}   GHC.Core.TyCo.Ppr( pprKind )
 import {-# SOURCE #-}   TcType( TcTyVarDetails, pprTcTyVarDetails, vanillaSkolemTv )
 import {-# SOURCE #-}   IdInfo( IdDetails, IdInfo, coVarDetails, isCoVarDetails,
                                 vanillaIdInfo, pprIdDetails )
-import Multiplicity
+import GHC.Core.Multiplicity
 
 import Name hiding (varName)
 import Unique ( Uniquable, Unique, getKey, getUnique
@@ -438,7 +438,7 @@ setVarMult id r | isId id = id { varMult = r }
 -- Is something required to appear in source Haskell ('Required'),
 -- permitted by request ('Specified') (visible type application), or
 -- prohibited entirely from appearing in source Haskell ('Inferred')?
--- See Note [VarBndrs, TyCoVarBinders, TyConBinders, and visibility] in TyCoRep
+-- See Note [VarBndrs, TyCoVarBinders, TyConBinders, and visibility] in GHC.Core.TyCo.Rep
 data ArgFlag = Inferred | Specified | Required
   deriving (Eq, Ord, Data)
   -- (<) on ArgFlag means "is less visible than"
@@ -569,7 +569,7 @@ data VarBndr var argf = Bndr var argf
 --
 -- A 'TyCoVarBinder' is the binder of a ForAllTy
 -- It's convenient to define this synonym here rather its natural
--- home in TyCoRep, because it's used in DataCon.hs-boot
+-- home in GHC.Core.TyCo.Rep, because it's used in GHC.Core.DataCon.hs-boot
 --
 -- A 'TyVarBinder' is a binder with only TyVar
 type TyCoVarBinder = VarBndr TyCoVar ArgFlag

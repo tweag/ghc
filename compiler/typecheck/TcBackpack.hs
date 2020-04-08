@@ -27,8 +27,8 @@ import GHC.Hs
 import RdrName
 import TcRnMonad
 import TcTyDecls
-import InstEnv
-import FamInstEnv
+import GHC.Core.InstEnv
+import GHC.Core.FamInstEnv
 import Inst
 import GHC.IfaceToCore
 import TcMType
@@ -48,8 +48,8 @@ import Avail
 import SrcLoc
 import GHC.Driver.Types
 import Outputable
-import Type
-import Multiplicity
+import GHC.Core.Type
+import GHC.Core.Multiplicity
 import FastString
 import GHC.Rename.Fixity ( lookupFixityRn )
 import Maybes

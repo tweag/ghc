@@ -70,10 +70,10 @@ import BasicTypes
 import Binary
 import Maybes           ( orElse )
 
-import Type            ( Type )
-import TyCon           ( isNewTyCon, isClassTyCon )
-import DataCon         ( splitDataProductType_maybe )
-import Multiplicity    ( scaledThing )
+import GHC.Core.Type    ( Type )
+import GHC.Core.TyCon   ( isNewTyCon, isClassTyCon )
+import GHC.Core.DataCon ( splitDataProductType_maybe )
+import GHC.Core.Multiplicity    ( scaledThing )
 
 {-
 ************************************************************************

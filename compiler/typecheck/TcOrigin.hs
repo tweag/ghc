@@ -34,12 +34,12 @@ import TcType
 import GHC.Hs
 
 import Id
-import DataCon
-import ConLike
-import TyCon
-import InstEnv
-import PatSyn
-import Multiplicity ( scaledThing )
+import GHC.Core.DataCon
+import GHC.Core.ConLike
+import GHC.Core.TyCon
+import GHC.Core.InstEnv
+import GHC.Core.PatSyn
+import GHC.Core.Multiplicity ( scaledThing )
 
 import Module
 import Name

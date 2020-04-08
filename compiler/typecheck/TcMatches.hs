@@ -32,8 +32,8 @@ import GHC.Hs
 import TcRnMonad
 import TcEnv
 import TcPat
-import Multiplicity
-import UsageEnv
+import GHC.Core.Multiplicity
+import GHC.Core.UsageEnv
 import TcMType
 import TcType
 import TcBinds
@@ -42,7 +42,7 @@ import TcOrigin
 import Name
 import TysWiredIn
 import Id
-import TyCon
+import GHC.Core.TyCon
 import TysPrim
 import TcEvidence
 import Outputable

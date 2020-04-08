@@ -29,8 +29,8 @@ import GHC.HsToCore.Utils
 import GHC.Driver.Session
 import GHC.Core.Utils
 import Id
-import Type
-import Multiplicity
+import GHC.Core.Type
+import GHC.Core.Multiplicity
 import TysWiredIn
 import GHC.HsToCore.Match
 import PrelNames

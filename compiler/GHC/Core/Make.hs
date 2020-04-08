@@ -68,11 +68,11 @@ import TysWiredIn
 import PrelNames
 
 import GHC.Hs.Utils     ( mkChunkified, chunkify )
-import Type
-import Multiplicity
-import Coercion         ( isCoVar )
+import GHC.Core.Type
+import GHC.Core.Coercion ( isCoVar )
+import GHC.Core.DataCon  ( DataCon, dataConWorkId )
+import GHC.Core.Multiplicity
 import TysPrim
-import DataCon          ( DataCon, dataConWorkId )
 import IdInfo
 import Demand
 import Cpr

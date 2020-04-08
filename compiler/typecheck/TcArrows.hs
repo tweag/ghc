@@ -20,7 +20,7 @@ import GHC.Hs
 import TcMatches
 import TcHsSyn( hsLPatType )
 import TcType
-import Multiplicity
+import GHC.Core.Multiplicity
 import TcMType
 import TcBinds
 import TcPat

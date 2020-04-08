@@ -36,13 +36,13 @@ import GHC.Hs
 import Id
 import GHC.Core
 import GHC.Core.Make
-import TyCon
-import Multiplicity
-import DataCon
+import GHC.Core.TyCon
+import GHC.Core.DataCon
+import GHC.Core.Multiplicity
 import TcHsSyn ( shortCutLit )
 import TcType
 import Name
-import Type
+import GHC.Core.Type
 import PrelNames
 import TysWiredIn
 import TysPrim

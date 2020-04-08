@@ -32,15 +32,15 @@ import TcEnv
 import TcUnify
 import TcSimplify
 import TcEvidence
-import Multiplicity
+import GHC.Core.Multiplicity
 import TcHsType
 import TcPat
 import TcMType
-import FamInstEnv( normaliseType )
+import GHC.Core.FamInstEnv( normaliseType )
 import FamInst( tcGetFamInstEnvs )
-import TyCon
+import GHC.Core.TyCon
 import TcType
-import Type( mkStrLitTy, tidyOpenType, splitTyConApp_maybe, mkCastTy)
+import GHC.Core.Type (mkStrLitTy, tidyOpenType, splitTyConApp_maybe, mkCastTy)
 import TysPrim
 import TysWiredIn( mkBoxedTupleTy )
 import Id
@@ -64,7 +64,7 @@ import TcValidity (checkValidType)
 import UniqFM
 import UniqSet
 import qualified GHC.LanguageExtensions as LangExt
-import ConLike
+import GHC.Core.ConLike
 
 import Control.Monad
 import Data.Foldable (find)

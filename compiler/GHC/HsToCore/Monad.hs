@@ -55,7 +55,7 @@ module GHC.HsToCore.Monad (
 import GhcPrelude
 
 import TcRnMonad
-import FamInstEnv
+import GHC.Core.FamInstEnv
 import GHC.Core
 import GHC.Core.Make  ( unitExpr )
 import GHC.Core.Utils ( exprType, isExprLevPoly )
@@ -67,16 +67,16 @@ import RdrName
 import GHC.Driver.Types
 import Bag
 import BasicTypes ( Origin )
-import DataCon
-import ConLike
-import TyCon
+import GHC.Core.DataCon
+import GHC.Core.ConLike
+import GHC.Core.TyCon
 import GHC.HsToCore.PmCheck.Types
 import Id
 import Module
 import Outputable
 import SrcLoc
-import Type
-import Multiplicity
+import GHC.Core.Type
+import GHC.Core.Multiplicity
 import UniqSupply
 import Name
 import NameEnv

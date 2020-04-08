@@ -26,11 +26,11 @@ import GHC.Core.Utils (bindNonRec)
 import GHC.HsToCore.Monad
 import GHC.HsToCore.Utils
 import GHC.HsToCore.PmCheck.Types ( Deltas, initDeltas )
-import Type   ( Type )
+import GHC.Core.Type ( Type )
 import Util
 import SrcLoc
 import Outputable
-import Multiplicity
+import GHC.Core.Multiplicity
 import Control.Monad ( zipWithM )
 import Data.List.NonEmpty ( NonEmpty, toList )
 

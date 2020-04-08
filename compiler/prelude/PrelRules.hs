@@ -37,15 +37,16 @@ import GHC.Core.SimpleOpt ( exprIsLiteral_maybe )
 import PrimOp             ( PrimOp(..), tagToEnumKey )
 import TysWiredIn
 import TysPrim
-import TyCon       ( tyConDataCons_maybe, isAlgTyCon, isEnumerationTyCon
-                   , isNewTyCon, unwrapNewTyCon_maybe, tyConDataCons
-                   , tyConFamilySize )
-import DataCon     ( dataConTagZ, dataConTyCon, dataConWrapId, dataConWorkId )
+import GHC.Core.TyCon
+   ( tyConDataCons_maybe, isAlgTyCon, isEnumerationTyCon
+   , isNewTyCon, unwrapNewTyCon_maybe, tyConDataCons
+   , tyConFamilySize )
+import GHC.Core.DataCon ( dataConTagZ, dataConTyCon, dataConWrapId, dataConWorkId )
 import GHC.Core.Utils  ( cheapEqExpr, cheapEqExpr', exprIsHNF, exprType
                        , stripTicksTop, stripTicksTopT, mkTicks )
 import GHC.Core.Unfold ( exprIsConApp_maybe )
-import Multiplicity
-import Type
+import GHC.Core.Multiplicity
+import GHC.Core.Type
 import OccName     ( occNameFS )
 import PrelNames
 import Maybes      ( orElse )
@@ -56,7 +57,7 @@ import BasicTypes
 import GHC.Driver.Session
 import GHC.Platform
 import Util
-import Coercion     (mkUnbranchedAxInstCo,mkSymCo,Role(..))
+import GHC.Core.Coercion   (mkUnbranchedAxInstCo,mkSymCo,Role(..))
 
 import Control.Applicative ( Alternative(..) )
 

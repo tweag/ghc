@@ -22,10 +22,10 @@ import {-# SOURCE #-} GHC.HsToCore.Match ( match )
 
 import GHC.Hs
 import GHC.HsToCore.Binds
-import ConLike
+import GHC.Core.ConLike
 import BasicTypes ( Origin(..) )
 import TcType
-import Multiplicity
+import GHC.Core.Multiplicity
 import GHC.HsToCore.Monad
 import GHC.HsToCore.Utils
 import GHC.Core.Make ( mkCoreLets )

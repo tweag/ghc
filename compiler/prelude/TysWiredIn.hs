@@ -150,23 +150,23 @@ import TysPrim
 import {-# SOURCE #-} KnownUniques
 
 -- others:
-import CoAxiom
+import GHC.Core.Coercion.Axiom
 import Id
 import Var (VarBndr (Bndr))
 import Constants        ( mAX_TUPLE_SIZE, mAX_CTUPLE_SIZE, mAX_SUM_SIZE )
 import Module           ( Module )
-import Type
+import GHC.Core.Type
 import GHC.Types.RepType
-import DataCon
-import {-# SOURCE #-} ConLike
-import TyCon
-import Class            ( Class, mkClass )
+import GHC.Core.DataCon
+import {-# SOURCE #-} GHC.Core.ConLike
+import GHC.Core.TyCon
+import GHC.Core.Class   ( Class, mkClass )
 import RdrName
 import Name
 import NameEnv          ( NameEnv, mkNameEnv, lookupNameEnv, lookupNameEnv_NF )
 import NameSet          ( NameSet, mkNameSet, elemNameSet )
 import BasicTypes
-import Multiplicity
+import GHC.Core.Multiplicity
 import ForeignCall
 import SrcLoc           ( noSrcSpan )
 import Unique
@@ -965,7 +965,7 @@ mk_tuple Unboxed arity = (tycon, tuple_con)
     tycon = mkTupleTyCon tc_name tc_binders tc_res_kind tc_arity tuple_con
                          UnboxedTuple flavour
 
-    -- See Note [Unboxed tuple RuntimeRep vars] in TyCon
+    -- See Note [Unboxed tuple RuntimeRep vars] in GHC.Core.TyCon
     -- Kind:  forall (k1:RuntimeRep) (k2:RuntimeRep). TYPE k1 -> TYPE k2 -> #
     tc_binders = mkTemplateTyConBinders (replicate arity runtimeRepTy)
                                         (\ks -> map tYPE ks)

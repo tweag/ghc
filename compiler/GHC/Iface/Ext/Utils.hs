@@ -10,14 +10,14 @@ import GHC.Core.Map
 import GHC.Driver.Session         ( DynFlags )
 import FastString                 ( FastString, mkFastString )
 import GHC.Iface.Type
-import Multiplicity
+import GHC.Core.Multiplicity
 import Name hiding (varName)
 import Outputable                 ( renderWithStyle, ppr, defaultUserStyle, initSDocContext )
 import SrcLoc
 import GHC.CoreToIface
-import TyCon
-import TyCoRep
-import Type
+import GHC.Core.TyCon
+import GHC.Core.TyCo.Rep
+import GHC.Core.Type
 import Var
 import VarEnv
 

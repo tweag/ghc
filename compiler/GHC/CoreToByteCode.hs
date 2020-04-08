@@ -38,15 +38,15 @@ import GHC.Core.Ppr
 import Literal
 import PrimOp
 import GHC.Core.FVs
-import Multiplicity ( pattern Many )
-import Type
+import GHC.Core.Multiplicity ( pattern Many )
+import GHC.Core.Type
 import GHC.Types.RepType
-import DataCon
-import TyCon
+import GHC.Core.DataCon
+import GHC.Core.TyCon
 import Util
 import VarSet
 import TysPrim
-import TyCoPpr         ( pprType )
+import GHC.Core.TyCo.Ppr ( pprType )
 import ErrUtils
 import Unique
 import FastString

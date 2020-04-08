@@ -36,19 +36,19 @@ import GhcPrelude
 import TcRnMonad
 import TcEnv
 import TcBinds( tcValBinds )
-import TyCoRep( Type(..), Coercion(..), MCoercion(..), UnivCoProvenance(..) )
-import Multiplicity
+import GHC.Core.TyCo.Rep( Type(..), Coercion(..), MCoercion(..), UnivCoProvenance(..) )
+import GHC.Core.Multiplicity
 import TcType
-import Predicate
+import GHC.Core.Predicate
 import TysWiredIn( unitTy )
 import GHC.Core.Make( rEC_SEL_ERROR_ID )
 import GHC.Hs
-import Class
-import Type
+import GHC.Core.Class
+import GHC.Core.Type
 import GHC.Driver.Types
-import TyCon
-import ConLike
-import DataCon
+import GHC.Core.TyCon
+import GHC.Core.ConLike
+import GHC.Core.DataCon
 import Name
 import NameEnv
 import NameSet hiding (unitFV)
@@ -57,7 +57,7 @@ import Id
 import IdInfo
 import VarEnv
 import VarSet
-import Coercion ( ltRole )
+import GHC.Core.Coercion ( ltRole )
 import BasicTypes
 import SrcLoc
 import Unique ( mkBuiltinUnique )

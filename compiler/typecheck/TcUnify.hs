@@ -44,21 +44,21 @@ module TcUnify (
 import GhcPrelude
 
 import GHC.Hs
-import TyCoRep
-import TyCoPpr( debugPprType )
+import GHC.Core.TyCo.Rep
+import GHC.Core.TyCo.Ppr( debugPprType )
 import TcMType
 import TcRnMonad
 import TcType
-import Type
-import Multiplicity
-import Coercion
+import GHC.Core.Type
+import GHC.Core.Coercion
+import GHC.Core.Multiplicity
 import TcEvidence
 import Constraint
-import Predicate
+import GHC.Core.Predicate
 import TcOrigin
 import Name( isSystemName )
 import Inst
-import TyCon
+import GHC.Core.TyCon
 import TysWiredIn
 import TysPrim( tYPE )
 import Var

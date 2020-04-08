@@ -49,8 +49,8 @@ import VarSet
 import VarEnv
 import GHC.Core.FVs
 import FastString
-import Type
-import Multiplicity ( pattern Many )
+import GHC.Core.Type
+import GHC.Core.Multiplicity ( pattern Many )
 import Util( mapSnd )
 
 import Data.Bifunctor

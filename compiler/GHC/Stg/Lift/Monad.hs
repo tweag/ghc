@@ -34,12 +34,12 @@ import Outputable
 import OrdList
 import GHC.Stg.Subst
 import GHC.Stg.Syntax
-import Type
+import GHC.Core.Type
 import UniqSupply
 import Util
 import VarEnv
 import VarSet
-import Multiplicity
+import GHC.Core.Multiplicity
 
 import Control.Arrow ( second )
 import Control.Monad.Trans.Class
