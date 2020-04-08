@@ -831,7 +831,8 @@ swizzleTcTyConBndrs tc_infos
       | otherwise
       = updateVarTypeAndMult swizzle_ty v
 
-    swizzle_ty ty = runIdentity (mapType swizzleMapper () ty)
+    (map_type, _, _, _) = mapTyCo swizzleMapper
+    swizzle_ty ty = runIdentity (map_type ty)
 
 
 generaliseTcTyCon :: (TcTyCon, ScopedPairs, TcKind) -> TcM TcTyCon

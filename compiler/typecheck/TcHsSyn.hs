@@ -1869,9 +1869,6 @@ zonkTcTyConToTyCon tc
 zonkTcTypeToType :: TcType -> TcM Type
 zonkTcTypeToType ty = initZonkEnv $ \ ze -> zonkTcTypeToTypeX ze ty
 
-zonkTcTypeToTypeX :: ZonkEnv -> TcType -> TcM Type
-zonkTcTypeToTypeX = mapType zonk_tycomapper
-
 zonkTcTypesToTypes :: [TcType] -> TcM [Type]
 zonkTcTypesToTypes tys = initZonkEnv $ \ ze -> zonkTcTypesToTypesX ze tys
 
@@ -1879,15 +1876,15 @@ zonkScaledTcTypeToTypeX :: ZonkEnv -> Scaled TcType -> TcM (Scaled TcType)
 zonkScaledTcTypeToTypeX env (Scaled m ty) = Scaled <$> zonkTcTypeToTypeX env m
                                                    <*> zonkTcTypeToTypeX env ty
 
+zonkTcTypeToTypeX   :: ZonkEnv -> TcType   -> TcM Type
 zonkTcTypesToTypesX :: ZonkEnv -> [TcType] -> TcM [Type]
-zonkTcTypesToTypesX env tys = mapM (zonkTcTypeToTypeX env) tys
+zonkCoToCo          :: ZonkEnv -> Coercion -> TcM Coercion
+(zonkTcTypeToTypeX, zonkTcTypesToTypesX, zonkCoToCo, _)
+  = mapTyCoX zonk_tycomapper
 
 zonkScaledTcTypesToTypesX :: ZonkEnv -> [Scaled TcType] -> TcM [Scaled Type]
 zonkScaledTcTypesToTypesX env scaled_tys =
    mapM (zonkScaledTcTypeToTypeX env) scaled_tys
-
-zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
-zonkCoToCo = mapCoercion zonk_tycomapper
 
 zonkTcMethInfoToMethInfoX :: ZonkEnv -> TcMethInfo -> TcM MethInfo
 zonkTcMethInfoToMethInfoX ze (name, ty, gdm_spec)
