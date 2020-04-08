@@ -10,7 +10,7 @@ Mult is a type synonym for Type, used only when its kind is Multiplicity.
 To simplify dealing with multiplicities, functions such as
 mkMultMul perform simplifications such as Many * x = Many on the fly.
 -}
-module Multiplicity
+module GHC.Core.Multiplicity
   ( Mult
   , pattern One
   , pattern Many

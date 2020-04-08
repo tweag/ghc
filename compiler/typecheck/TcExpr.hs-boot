@@ -2,7 +2,7 @@ module TcExpr where
 import Name
 import GHC.Hs    ( HsExpr, LHsExpr, SyntaxExprRn, SyntaxExprTc )
 import TcType   ( TcRhoType, TcSigmaType, SyntaxOpType, ExpType, ExpRhoType )
-import Type ( Mult )
+import GHC.Core.Type ( Mult )
 import TcRnTypes( TcM )
 import TcOrigin ( CtOrigin )
 import GHC.Hs.Extension ( GhcRn, GhcTcId )
