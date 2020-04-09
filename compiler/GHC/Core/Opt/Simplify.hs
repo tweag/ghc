@@ -51,7 +51,7 @@ import GHC.Types.Basic  ( TopLevelFlag(..), isNotTopLevel, isTopLevel,
                           RecFlag(..), Arity )
 import MonadUtils       ( mapAccumLM, liftIO )
 import GHC.Types.Var    ( isTyCoVar )
-import Maybes           ( orElse, fromMaybe )
+import Maybes           ( orElse )
 import Control.Monad
 import Outputable
 import FastString
@@ -59,7 +59,6 @@ import Util
 import ErrUtils
 import GHC.Types.Module ( moduleName, pprModuleName )
 import GHC.Core.Multiplicity
-import GHC.Core.TyCo.Rep  ( TyCoBinder(..) )
 import GHC.Builtin.PrimOps ( PrimOp (SeqOp) )
 
 
@@ -357,44 +356,8 @@ simplJoinBind :: SimplEnv
 simplJoinBind env cont old_bndr new_bndr rhs rhs_se
   = do  { let rhs_env = rhs_se `setInScopeFromE` env
         ; rhs' <- simplJoinRhs rhs_env old_bndr rhs cont
-        ; let mult = contHoleScaling cont
-              arity = fromMaybe (pprPanic "simplJoinBind" (ppr new_bndr)) $
-                       isJoinIdDetails_maybe (idDetails new_bndr)
-              new_type = scaleJoinPointType mult arity (varType new_bndr)
-              new_bndr' = setIdType new_bndr new_type
-        ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr' rhs' }
+        ; completeBind env NotTopLevel (Just cont) old_bndr new_bndr rhs' }
 
-{-
-Note [Scaling join point arguments]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider a join point which is linear in its variable, in some context E:
-
-E[join j :: a #-> a
-       j x = x
-  in case v of
-       A -> j 'x'
-       B -> <blah>]
-
-The simplifier changes to:
-
-join j :: a #-> a
-     j x = E[x]
-in case v of
-     A -> j 'x'
-     B -> E[<blah>]
-
-If E uses its argument in a nonlinear way (e.g. a case['Many]), then
-this is wrong: the join point has to change its type to a -> a.
-Otherwise, we'd get a linearity error.
-
-See also Note [Return type for join points] and Note [Join points and case-of-case].
--}
-scaleJoinPointType :: Mult -> Int -> Type -> Type
-scaleJoinPointType mult arity ty | arity == 0 = ty
-                                 | otherwise  = case splitPiTy ty of
-  (binder, ty') -> mkPiTy (scaleBinder binder) (scaleJoinPointType mult (arity-1) ty')
-  where scaleBinder   (Anon af t) = Anon af (scaleScaled mult t)
-        scaleBinder b@(Named _)   = b
 --------------------------
 simplNonRecX :: SimplEnv
              -> InId            -- Old binder; not a JoinId
