@@ -1039,8 +1039,7 @@ simplJoinRhs :: SimplEnv -> InId -> InExpr -> SimplCont
 simplJoinRhs env bndr expr cont
   | Just arity <- isJoinId_maybe bndr
   =  do { let (join_bndrs, join_body) = collectNBinders arity expr
-              mult = contHoleScaling cont
-        ; (env', join_bndrs') <- simplLamBndrs env (map (scaleIdBy mult) join_bndrs)
+        ; (env', join_bndrs') <- simplLamBndrs env join_bndrs
         ; join_body' <- simplExprC env' join_body cont
         ; return $ mkLams join_bndrs' join_body' }
 
@@ -2494,7 +2493,7 @@ rebuildCase env scrut case_bndr alts cont
         -- as well as when it's an explicit constructor application
   , let env0 = setInScopeSet env in_scope'
   = do  { tick (KnownBranch case_bndr)
-        ; let scaled_wfloats = map scale_float wfloats
+        ; let scaled_wfloats = wfloats
         ; case findAlt (DataAlt con) alts of
             Nothing  -> missingAlt env0 case_bndr alts cont
             Just (DEFAULT, bs, rhs) -> let con_app = Var (dataConWorkId con)
@@ -2518,32 +2517,6 @@ rebuildCase env scrut case_bndr alts cont
                    ( emptyFloats env,
                      GHC.Core.Make.wrapFloats wfloats $
                      wrapFloats (floats1 `addFloats` floats2) expr' )}
-
-    -- This scales case floats by the multiplicity of the continuation hole (see
-    -- Note [Scaling in case-of-case]).  Let floats are _not_ scaled, because
-    -- they are aliases anyway.
-    scale_float (GHC.Core.Make.FloatCase scrut case_bndr con vars) =
-      let
-        scale_id id = scaleIdBy holeScaling id
-      in
-      GHC.Core.Make.FloatCase scrut (scale_id case_bndr) con (map scale_id vars)
-    scale_float f = f
-
-    holeScaling = contHoleScaling cont `mkMultMul` idMult case_bndr
-     -- We are in the following situation
-     --   case[p] case[q] u of { D x -> C v } of { C x -> w }
-     -- And we are producing case[??] u of { D x -> w[x\v]}
-     --
-     -- What should the multiplicity `??` be? In order to preserve the usage of
-     -- variables in `u`, it needs to be `pq`.
-     --
-     -- As an illustration, consider the following
-     --   case[Many] case[1] of { C x -> C x } of { C x -> (x, x) }
-     -- Where C :: A #-> T is linear
-     -- If we were to produce a case[1], like the inner case, we would get
-     --   case[1] of { C x -> (x, x) }
-     -- Which is ill-typed with respect to linearity. So it needs to be a
-     -- case[Many].
 
 --------------------------------------------------
 --      2. Eliminate the case if scrutinee is evaluated
@@ -2625,11 +2598,8 @@ reallyRebuildCase env scrut case_bndr alts cont
   | otherwise
   = do { (floats, cont') <- mkDupableCaseCont env alts cont
        ; case_expr <- simplAlts (env `setInScopeFromF` floats)
-                                scrut (scaleIdBy holeScaling case_bndr) (scaleAltsBy holeScaling alts) cont'
+                                scrut case_bndr alts cont'
        ; return (floats, case_expr) }
-  where
-    holeScaling = contHoleScaling cont
-    -- Note [Scaling in case-of-case]
 
 {-
 simplCaseBinder checks whether the scrutinee is a variable, v.  If so,
@@ -3251,10 +3221,9 @@ mkDupableCont env (Select { sc_bndr = case_bndr, sc_alts = alts
                 -- And this is important: see Note [Fusing case continuations]
 
         ; let alt_env = se `setInScopeFromF` floats
-        ; let cont_scaling = contHoleScaling cont
           -- See Note [Scaling in case-of-case]
-        ; (alt_env', case_bndr') <- simplBinder alt_env (scaleIdBy cont_scaling case_bndr)
-        ; alts' <- mapM (simplAlt alt_env' Nothing [] case_bndr' alt_cont) (scaleAltsBy cont_scaling alts)
+        ; (alt_env', case_bndr') <- simplBinder alt_env case_bndr
+        ; alts' <- mapM (simplAlt alt_env' Nothing [] case_bndr' alt_cont) alts
         -- Safe to say that there are no handled-cons for the DEFAULT case
                 -- NB: simplBinder does not zap deadness occ-info, so
                 -- a dead case_bndr' will still advertise its deadness
