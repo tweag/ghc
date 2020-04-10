@@ -15,8 +15,7 @@
 --
 -------------------------------------------------------------------------------
 
-{-# OPTIONS_GHC -fno-cse -O0 #-}
--- TODO remove -O0 before merging
+{-# OPTIONS_GHC -fno-cse #-}
 -- -fno-cse is needed for GLOBAL_VAR's to behave properly
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
