@@ -1313,7 +1313,7 @@ pushCoValArg co
 
   | isFunTy tyL
   , (co_mult, co1, co2) <- decomposeFunCo Representational co
-  , isReflCo co_mult
+  , isReflexiveCo co_mult
     -- We can't push the coercion in the case where co_mult isn't reflexivity:
     -- it could be an unsafe axiom, and losing this information could yield
     -- ill-typed terms. For instance (fun x ::(1) Int -> (fun _ -> () |> co) x)
@@ -1344,7 +1344,7 @@ pushCoercionIntoLambda in_scope x e co
     , Just (_s1,_s2) <- splitFunTy_maybe s1s2
     , Just (Scaled w1 t1,_t2) <- splitFunTy_maybe t1t2
     , (co_mult, co1, co2) <- decomposeFunCo Representational co
-    , isReflCo co_mult
+    , isReflexiveCo co_mult
       -- We can't push the coercion in the case where co_mult isn't
       -- reflexivity. See pushCoValArg for more details.
     = let
