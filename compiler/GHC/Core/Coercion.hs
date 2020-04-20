@@ -12,7 +12,8 @@
 module GHC.Core.Coercion (
         -- * Main data type
         Coercion, CoercionN, CoercionR, CoercionP, MCoercion(..), MCoercionR,
-        UnivCoProvenance, CoercionHole(..), coHoleCoVar, setCoHoleCoVar,
+        UnivCoProvenance, CoercionHole(..), BlockSubstFlag(..),
+        coHoleCoVar, setCoHoleCoVar,
         LeftOrRight(..),
         Var, CoVar, TyCoVar,
         Role(..), ltRole,
@@ -113,7 +114,9 @@ module GHC.Core.Coercion (
 
         multToCo,
 
-        simplifyArgsWorker
+        simplifyArgsWorker,
+
+        badCoercionHole, badCoercionHoleCo
        ) where
 
 #include "HsVersions.h"
@@ -151,6 +154,7 @@ import GHC.Core.Multiplicity
 import Control.Monad (foldM, zipWithM)
 import Data.Function ( on )
 import Data.Char( isDigit )
+import qualified Data.Monoid as Monoid
 
 {-
 %************************************************************************
@@ -2916,3 +2920,40 @@ simplifyArgsWorker orig_ki_binders orig_inner_ki orig_fvs
                     ppr (take 10 orig_roles), -- often infinite!
                     ppr orig_tys])
            -}
+
+{-
+%************************************************************************
+%*                                                                      *
+       Coercion holes
+%*                                                                      *
+%************************************************************************
+-}
+
+bad_co_hole_ty :: Type -> Monoid.Any
+bad_co_hole_co :: Coercion -> Monoid.Any
+(bad_co_hole_ty, _, bad_co_hole_co, _)
+  = foldTyCo folder ()
+  where
+    folder = TyCoFolder { tcf_view  = const Nothing
+                        , tcf_tyvar = const2 (Monoid.Any False)
+                        , tcf_covar = const2 (Monoid.Any False)
+                        , tcf_hole  = const hole
+                        , tcf_tycobinder = const2
+                        }
+
+    const2 :: a -> b -> c -> a
+    const2 x _ _ = x
+
+    hole :: CoercionHole -> Monoid.Any
+    hole (CoercionHole { ch_blocker = YesBlockSubst }) = Monoid.Any True
+    hole _                                             = Monoid.Any False
+
+-- | Is there a blocking coercion hole in this type? See
+-- TcCanonical Note [Equalities with incompatible kinds]
+badCoercionHole :: Type -> Bool
+badCoercionHole = Monoid.getAny . bad_co_hole_ty
+
+-- | Is there a blocking coercion hole in this coercion? See
+-- TcCanonical Note [Equalities with incompatible kinds]
+badCoercionHoleCo :: Coercion -> Bool
+badCoercionHoleCo = Monoid.getAny . bad_co_hole_co
