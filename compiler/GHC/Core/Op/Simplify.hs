@@ -13,6 +13,7 @@ module GHC.Core.Op.Simplify ( simplTopBinds, simplExpr, simplRules ) where
 
 import GhcPrelude
 
+import GHC.Platform
 import GHC.Driver.Session
 import GHC.Core.Op.Simplify.Monad
 import GHC.Core.Type hiding ( substTy, substTyVar, extendTvSubst, extendCvSubst )
@@ -3216,7 +3217,7 @@ mkDupableCont env (StrictBind { sc_bndr = bndr, sc_bndrs = bndrs
              res_ty    = contResultType cont
 
        ; (floats2, body2)
-            <- if exprIsDupable (seDynFlags env) join_body
+            <- if exprIsDupable (targetPlatform (seDynFlags env)) join_body
                then return (emptyFloats env, join_body)
                else do { join_bndr <- newJoinId [bndr'] res_ty
                        ; let join_call = App (Var join_bndr) (Var bndr')
@@ -3302,7 +3303,7 @@ mkDupableCont env (Select { sc_bndr = case_bndr, sc_alts = alts
         -- NB: we don't use alt_env further; it has the substEnv for
         --     the alternatives, and we don't want that
 
-        ; (join_floats, alts'') <- mapAccumLM (mkDupableAlt (seDynFlags env) case_bndr')
+        ; (join_floats, alts'') <- mapAccumLM (mkDupableAlt (targetPlatform (seDynFlags env)) case_bndr')
                                               emptyJoinFloats alts'
 
         ; let all_floats = floats `addJoinFloats` join_floats
@@ -3315,11 +3316,11 @@ mkDupableCont env (Select { sc_bndr = case_bndr, sc_alts = alts
                                       -- See Note [StaticEnv invariant] in GHC.Core.Op.Simplify.Utils
                           , sc_cont = mkBoringStop (contResultType cont) } ) }
 
-mkDupableAlt :: DynFlags -> OutId
+mkDupableAlt :: Platform -> OutId
              -> JoinFloats -> OutAlt
              -> SimplM (JoinFloats, OutAlt)
-mkDupableAlt dflags case_bndr jfloats (con, bndrs', rhs')
-  | exprIsDupable dflags rhs'  -- Note [Small alternative rhs]
+mkDupableAlt platform case_bndr jfloats (con, bndrs', rhs')
+  | exprIsDupable platform rhs'  -- Note [Small alternative rhs]
   = return (jfloats, (con, bndrs', rhs'))
 
   | otherwise

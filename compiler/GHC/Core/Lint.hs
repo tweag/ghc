@@ -1563,7 +1563,6 @@ lintType t@(ForAllTy (Bndr cv _vis) ty)
        ; checkValueKind k (text "the body of forall:" <+> ppr t)
        ; return liftedTypeKind
            -- We don't check variable escape here. Namely, k could refer to cv'
-           -- See Note [NthCo and newtypes] in GHC.Core.TyCo.Rep
     }}
 
 lintType ty@(LitTy l) = lintTyLit l >> return (typeKind ty)
@@ -1923,7 +1922,7 @@ lintCoercion (ForAllCo cv1 kind_co co)
        ; (k3, k4, t1, t2, r) <- lintCoercion co
        ; checkValueKind k3 (text "the body of a ForAllCo over covar:" <+> ppr co)
        ; checkValueKind k4 (text "the body of a ForAllCo over covar:" <+> ppr co)
-           -- See Note [Weird typing rule for ForAllTy] in GHC.Core.Type
+           -- See Note [Weird typing rule for ForAllTy] in GHC.Core.TyCo.Rep
        ; in_scope <- getInScope
        ; let tyl   = mkTyCoInvForAllTy cv1 t1
              r2    = coVarRole cv1
@@ -1942,7 +1941,7 @@ lintCoercion (ForAllCo cv1 kind_co co)
              tyr = mkTyCoInvForAllTy cv2 $
                    substTy subst t2
        ; return (liftedTypeKind, liftedTypeKind, tyl, tyr, r) } }
-                   -- See Note [Weird typing rule for ForAllTy] in GHC.Core.Type
+                   -- See Note [Weird typing rule for ForAllTy] in GHC.Core.TyCo.Rep
 
 lintCoercion co@(FunCo r w co1 co2)
   = do { (k1,k'1,s1,t1,r1) <- lintCoercion co1
@@ -2017,11 +2016,11 @@ lintCoercion co@(UnivCo prov r ty1 ty2)
 
      validateCoercion :: PrimRep -> PrimRep -> LintM ()
      validateCoercion rep1 rep2
-       = do { dflags <- getDynFlags
+       = do { platform <- targetPlatform <$> getDynFlags
             ; checkWarnL (isUnBoxed rep1 == isUnBoxed rep2)
                          (report "between unboxed and boxed value")
-            ; checkWarnL (TyCon.primRepSizeB dflags rep1
-                           == TyCon.primRepSizeB dflags rep2)
+            ; checkWarnL (TyCon.primRepSizeB platform rep1
+                           == TyCon.primRepSizeB platform rep2)
                          (report "between unboxed values of different size")
             ; let fl = liftM2 (==) (TyCon.primRepIsFloat rep1)
                                    (TyCon.primRepIsFloat rep2)
@@ -2123,7 +2122,7 @@ lintCoercion (InstCo co arg)
              , CoercionTy s2' <- s2
              -> do { return $
                        (liftedTypeKind, liftedTypeKind
-                          -- See Note [Weird typing rule for ForAllTy] in GHC.Core.Type
+                          -- See Note [Weird typing rule for ForAllTy] in GHC.Core.TyCo.Rep
                        , substTy (mkCvSubst in_scope $ unitVarEnv cv1 s1') t1
                        , substTy (mkCvSubst in_scope $ unitVarEnv cv2 s2') t2
                        , r) }

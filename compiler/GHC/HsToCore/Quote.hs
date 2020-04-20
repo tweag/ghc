@@ -28,6 +28,7 @@ module GHC.HsToCore.Quote( dsBracket ) where
 #include "HsVersions.h"
 
 import GhcPrelude
+import GHC.Platform
 
 import {-# SOURCE #-}   GHC.HsToCore.Expr ( dsExpr )
 
@@ -139,6 +140,9 @@ wrapName n = do
 -- The local state is always the same, calculated from the passed in
 -- wrapper
 type MetaM a = ReaderT MetaWrappers DsM a
+
+getPlatform :: MetaM Platform
+getPlatform = targetPlatform <$> getDynFlags
 
 -----------------------------------------------------------------------------
 dsBracket :: Maybe QuoteWrapper -- ^ This is Nothing only when we are dealing with a VarBr
@@ -2220,10 +2224,10 @@ repPunboxedTup (MkC ps) = rep2 unboxedTupPName [ps]
 repPunboxedSum :: Core (M TH.Pat) -> TH.SumAlt -> TH.SumArity -> MetaM (Core (M TH.Pat))
 -- Note: not Core TH.SumAlt or Core TH.SumArity; it's easier to be direct here
 repPunboxedSum (MkC p) alt arity
- = do { dflags <- getDynFlags
+ = do { platform <- getPlatform
       ; rep2 unboxedSumPName [ p
-                             , mkIntExprInt dflags alt
-                             , mkIntExprInt dflags arity ] }
+                             , mkIntExprInt platform alt
+                             , mkIntExprInt platform arity ] }
 
 repPcon   :: Core TH.Name -> Core [(M TH.Pat)] -> MetaM (Core (M TH.Pat))
 repPcon (MkC s) (MkC ps) = rep2 conPName [s, ps]
@@ -2290,10 +2294,10 @@ repUnboxedTup (MkC es) = rep2 unboxedTupEName [es]
 repUnboxedSum :: Core (M TH.Exp) -> TH.SumAlt -> TH.SumArity -> MetaM (Core (M TH.Exp))
 -- Note: not Core TH.SumAlt or Core TH.SumArity; it's easier to be direct here
 repUnboxedSum (MkC e) alt arity
- = do { dflags <- getDynFlags
+ = do { platform <- getPlatform
       ; rep2 unboxedSumEName [ e
-                             , mkIntExprInt dflags alt
-                             , mkIntExprInt dflags arity ] }
+                             , mkIntExprInt platform alt
+                             , mkIntExprInt platform arity ] }
 
 repCond :: Core (M TH.Exp) -> Core (M TH.Exp) -> Core (M TH.Exp) -> MetaM (Core (M TH.Exp))
 repCond (MkC x) (MkC y) (MkC z) = rep2 condEName [x,y,z]
@@ -2697,18 +2701,18 @@ repTInfix (MkC t1) (MkC name) (MkC t2) = rep2 infixTName [t1,name,t2]
 
 repTupleTyCon :: Int -> MetaM (Core (M TH.Type))
 -- Note: not Core Int; it's easier to be direct here
-repTupleTyCon i = do dflags <- getDynFlags
-                     rep2 tupleTName [mkIntExprInt dflags i]
+repTupleTyCon i = do platform <- getPlatform
+                     rep2 tupleTName [mkIntExprInt platform i]
 
 repUnboxedTupleTyCon :: Int -> MetaM (Core (M TH.Type))
 -- Note: not Core Int; it's easier to be direct here
-repUnboxedTupleTyCon i = do dflags <- getDynFlags
-                            rep2 unboxedTupleTName [mkIntExprInt dflags i]
+repUnboxedTupleTyCon i = do platform <- getPlatform
+                            rep2 unboxedTupleTName [mkIntExprInt platform i]
 
 repUnboxedSumTyCon :: TH.SumArity -> MetaM (Core (M TH.Type))
 -- Note: not Core TH.SumArity; it's easier to be direct here
-repUnboxedSumTyCon arity = do dflags <- getDynFlags
-                              rep2 unboxedSumTName [mkIntExprInt dflags arity]
+repUnboxedSumTyCon arity = do platform <- getPlatform
+                              rep2 unboxedSumTName [mkIntExprInt platform arity]
 
 repArrowTyCon :: MetaM (Core (M TH.Type))
 repArrowTyCon = rep2 arrowTName []
@@ -2723,8 +2727,8 @@ repPromotedDataCon :: Core TH.Name -> MetaM (Core (M TH.Type))
 repPromotedDataCon (MkC s) = rep2 promotedTName [s]
 
 repPromotedTupleTyCon :: Int -> MetaM (Core (M TH.Type))
-repPromotedTupleTyCon i = do dflags <- getDynFlags
-                             rep2 promotedTupleTName [mkIntExprInt dflags i]
+repPromotedTupleTyCon i = do platform <- getPlatform
+                             rep2 promotedTupleTName [mkIntExprInt platform i]
 
 repPromotedNilTyCon :: MetaM (Core (M TH.Type))
 repPromotedNilTyCon = rep2 promotedNilTName []
@@ -2757,11 +2761,11 @@ repTyVarSig (MkC bndr) = rep2 tyVarSigName [bndr]
 
 repLiteral :: HsLit GhcRn -> MetaM (Core TH.Lit)
 repLiteral (HsStringPrim _ bs)
-  = do dflags   <- getDynFlags
+  = do platform <- getPlatform
        word8_ty <- lookupType word8TyConName
        let w8s = unpack bs
            w8s_expr = map (\w8 -> mkCoreConApps word8DataCon
-                                  [mkWordLit dflags (toInteger w8)]) w8s
+                                  [mkWordLit platform (toInteger w8)]) w8s
        rep2_nw stringPrimLName [mkListExpr word8_ty w8s_expr]
 repLiteral lit
   = do lit' <- case lit of
@@ -2946,8 +2950,8 @@ coreNothingList elt_ty = return $ coreNothing' (mkListTy elt_ty)
 ------------ Literals & Variables -------------------
 
 coreIntLit :: Int -> MetaM (Core Int)
-coreIntLit i = do dflags <- getDynFlags
-                  return (MkC (mkIntExprInt dflags i))
+coreIntLit i = do platform <- getPlatform
+                  return (MkC (mkIntExprInt platform i))
 
 coreIntegerLit :: MonadThings m => Integer -> m (Core Integer)
 coreIntegerLit i = fmap MkC (mkIntegerExpr i)
