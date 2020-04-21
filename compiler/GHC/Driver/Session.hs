@@ -1254,7 +1254,6 @@ initDynFlags dflags = do
                          `catchIOError` \_ -> return False
  ghcNoUnicodeEnv <- lookupEnv "GHC_NO_UNICODE"
  let useUnicode' = isNothing ghcNoUnicodeEnv && canUseUnicode
- canUseColor <- stderrSupportsAnsiColors
  maybeGhcColorsEnv  <- lookupEnv "GHC_COLORS"
  maybeGhcColoursEnv <- lookupEnv "GHC_COLOURS"
  let adjustCols (Just env) = Col.parseScheme env
@@ -1271,7 +1270,7 @@ initDynFlags dflags = do
         nextWrapperNum = wrapperNum,
         useUnicode    = useUnicode',
         useColor      = useColor',
-        canUseColor   = canUseColor,
+        canUseColor   = stderrSupportsAnsiColors,
         colScheme     = colScheme',
         rtldInfo      = refRtldInfo,
         rtccInfo      = refRtccInfo
@@ -2743,6 +2742,8 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_tc)
   , make_ord_flag defGhcFlag "ddump-tc-ast"
         (setDumpFlag Opt_D_dump_tc_ast)
+  , make_ord_flag defGhcFlag "ddump-hie"
+        (setDumpFlag Opt_D_dump_hie)
   , make_ord_flag defGhcFlag "ddump-types"
         (setDumpFlag Opt_D_dump_types)
   , make_ord_flag defGhcFlag "ddump-rules"
