@@ -74,7 +74,6 @@ import GHC.Types.Demand ( splitStrictSig, isBotDiv )
 import GHC.Driver.Types hiding (Usage)
 import GHC.Driver.Session
 import Control.Monad
-import qualified Control.Monad.Fail as MonadFail
 import MonadUtils
 import Data.Foldable      ( toList )
 import Data.List.NonEmpty ( NonEmpty )
@@ -2377,16 +2376,13 @@ instance Applicative LintM where
       (<*>) = ap
 
 instance Monad LintM where
-#if !MIN_VERSION_base(4,13,0)
-  fail = MonadFail.fail
-#endif
   m >>= k  = LintM (\ env errs ->
                        let (res, errs') = unLintM m env errs in
                          case res of
                            Just r -> unLintM (k r) env errs'
                            Nothing -> (Nothing, errs'))
 
-instance MonadFail.MonadFail LintM where
+instance MonadFail LintM where
     fail err = failWithL (text err)
 
 instance HasDynFlags LintM where

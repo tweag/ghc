@@ -125,7 +125,6 @@ import PrelNames ( isUnboundName )
 import GHC.Types.CostCentre.State
 
 import Control.Monad (ap)
-import qualified Control.Monad.Fail as MonadFail
 import Data.Set      ( Set )
 import qualified Data.Set as S
 
@@ -1657,14 +1656,11 @@ instance Applicative TcPluginM where
   (<*>) = ap
 
 instance Monad TcPluginM where
-#if !MIN_VERSION_base(4,13,0)
-  fail = MonadFail.fail
-#endif
   TcPluginM m >>= k =
     TcPluginM (\ ev -> do a <- m ev
                           runTcPluginM (k a) ev)
 
-instance MonadFail.MonadFail TcPluginM where
+instance MonadFail TcPluginM where
   fail x   = TcPluginM (const $ fail x)
 
 runTcPluginM :: TcPluginM a -> EvBindsVar -> TcM a
