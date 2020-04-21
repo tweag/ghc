@@ -206,7 +206,6 @@ dsHsBind dflags (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
        ; dsAbsBinds dflags tyvars dicts exports ds_ev_binds ds_binds has_sig }
 
 dsHsBind _ (PatSynBind{}) = panic "dsHsBind: PatSynBind"
-dsHsBind _ (XHsBindsLR nec) = noExtCon nec
 
 
 -----------------------
@@ -266,7 +265,6 @@ dsAbsBinds dflags tyvars dicts exports
                    ; return (makeCorePair dflags global
                                           (isDefaultMethod prags)
                                           0 (core_wrap (Var local))) }
-             mk_bind (XABExport nec) = noExtCon nec
        ; main_binds <- mapM mk_bind exports
 
        ; return (force_vars, flattenBinds ds_ev_binds ++ bind_prs ++ main_binds) }
@@ -311,7 +309,6 @@ dsAbsBinds dflags tyvars dicts exports
                            -- the user written (local) function.  The global
                            -- Id is just the selector.  Hmm.
                      ; return ((global', rhs) : fromOL spec_binds) }
-             mk_bind (XABExport nec) = noExtCon nec
 
        ; export_binds_s <- mapM mk_bind (exports ++ extra_exports)
 

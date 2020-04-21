@@ -86,7 +86,6 @@ dsLocalBinds (L _   (EmptyLocalBinds _))  body = return body
 dsLocalBinds (L loc (HsValBinds _ binds)) body = putSrcSpanDs loc $
                                                  dsValBinds binds body
 dsLocalBinds (L _ (HsIPBinds _ binds))    body = dsIPBinds  binds body
-dsLocalBinds _                            _    = panic "dsLocalBinds"
 
 -------------------------
 -- caller sets location
@@ -107,8 +106,6 @@ dsIPBinds (IPBinds ev_binds ip_binds) body
     ds_ip_bind (L _ (IPBind _ ~(Right n) e)) body
       = do e' <- dsLExpr e
            return (Let (NonRec n e') body)
-    ds_ip_bind _ _ = panic "dsIPBinds"
-dsIPBinds (XHsIPBinds nec) _ = noExtCon nec
 
 -------------------------
 -- caller sets location
@@ -401,7 +398,6 @@ dsExpr (ExplicitTuple _ tup_args boxity)
                     -- lambdas, just arguments.
                = do { core_expr <- dsLExprNoLP expr
                     ; return (lam_vars, core_expr : args, missing, mults) }
-             go _ _ = panic "dsExpr"
 
        ; let multiplicityVars = mkTemplateTyVars (repeat multiplicityTy)
        ; dsWhenNoErrs (foldM go ([], [], [], multiplicityVars) (reverse tup_args))
@@ -798,7 +794,6 @@ ds_prag_expr (HsPragTick _ _ _ _) expr = do
   if gopt Opt_Hpc dflags
     then panic "dsExpr:HsPragTick"
     else dsLExpr expr
-ds_prag_expr (XHsPragE x) _ = noExtCon x
 
 ------------------------------
 dsSyntaxExpr :: SyntaxExpr GhcTc -> [CoreExpr] -> DsM CoreExpr
@@ -972,7 +967,6 @@ dsDo stmts
                  ((pat, fail_op), dsLExpr expr)
                do_arg (ApplicativeArgMany _ stmts ret pat) =
                  ((pat, noSyntaxExpr), dsDo (stmts ++ [noLoc $ mkLastStmt (noLoc ret)]))
-               do_arg (XApplicativeArg nec) = noExtCon nec
 
            ; rhss' <- sequence rhss
 
@@ -1030,7 +1024,6 @@ dsDo stmts
 
     go _ (ParStmt   {}) _ = panic "dsDo ParStmt"
     go _ (TransStmt {}) _ = panic "dsDo TransStmt"
-    go _ (XStmtLR nec)  _ = noExtCon nec
 
 dsHandleMonadicFailure :: LPat GhcTc -> MatchResult -> SyntaxExpr GhcTc -> DsM CoreExpr
     -- In a do expression, pattern-match failure just calls

@@ -418,7 +418,6 @@ dsRule (L loc (HsRule { rd_name = name
 
         ; return (Just rule)
         } } }
-dsRule (L _ (XRuleDecl nec)) = noExtCon nec
 
 warnRuleShadowing :: RuleName -> Activation -> Id -> [Id] -> DsM ()
 -- See Note [Rules and inlining/other rules]

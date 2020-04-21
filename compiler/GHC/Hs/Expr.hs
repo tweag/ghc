@@ -553,7 +553,7 @@ data HsExpr p
   -- Expressions annotated with pragmas, written as {-# ... #-}
   | HsPragE (XPragE p) (HsPragE p) (LHsExpr p)
 
-  | XExpr       (XXExpr p) -- Note [Trees that Grow] extension constructor
+  | XExpr       !(XXExpr p) -- Note [Trees that Grow] extension constructor
 
 
 -- | Extra data fields for a 'RecordCon', added by the type checker
@@ -706,7 +706,7 @@ data HsPragE p
         -- Source text for the four integers used in the span.
         -- See note [Pragma source text] in GHC.Types.Basic
 
-  | XHsPragE (XXPragE p)
+  | XHsPragE !(XXPragE p)
 
 type instance XSCC           (GhcPass _) = NoExtField
 type instance XCoreAnn       (GhcPass _) = NoExtField
@@ -728,7 +728,7 @@ type LHsTupArg id = Located (HsTupArg id)
 data HsTupArg id
   = Present (XPresent id) (LHsExpr id)     -- ^ The argument
   | Missing (XMissing id)    -- ^ The argument is missing, but this is its type
-  | XTupArg (XXTupArg id)    -- ^ Note [Trees that Grow] extension point
+  | XTupArg !(XXTupArg id)   -- ^ Note [Trees that Grow] extension point
 
 type instance XPresent         (GhcPass _) = NoExtField
 
@@ -989,7 +989,6 @@ ppr_expr (ExplicitTuple _ exprs boxity)
     ppr_tup_args []               = []
     ppr_tup_args (Present _ e : es) = (ppr_lexpr e <> punc es) : ppr_tup_args es
     ppr_tup_args (Missing _   : es) = punc es : ppr_tup_args es
-    ppr_tup_args (XTupArg x   : es) = (ppr x <> punc es) : ppr_tup_args es
 
     punc (Present {} : _) = comma <> space
     punc (Missing {} : _) = comma
@@ -1067,8 +1066,6 @@ ppr_expr (HsTcBracketOut _ _wrap e ps) = ppr e $$ text "pending(tc)" <+> pprIfTc
 
 ppr_expr (HsProc _ pat (L _ (HsCmdTop _ cmd)))
   = hsep [text "proc", ppr pat, ptext (sLit "->"), ppr cmd]
-ppr_expr (HsProc _ pat (L _ (XCmdTop x)))
-  = hsep [text "proc", ppr pat, ptext (sLit "->"), ppr x]
 
 ppr_expr (HsStatic _ e)
   = hsep [text "static", ppr e]
@@ -1087,8 +1084,10 @@ ppr_expr (HsBinTick _ tickIdTrue tickIdFalse exp)
 
 ppr_expr (HsRecFld _ f) = ppr f
 ppr_expr (XExpr x) = case ghcPass @p of
+#if __GLASGOW_HASKELL__ < 811
   GhcPs -> ppr x
   GhcRn -> ppr x
+#endif
   GhcTc -> case x of
     HsWrap co_fn e -> pprHsWrapper co_fn (\parens -> if parens then pprExpr e
                                                       else pprExpr e)
@@ -1252,7 +1251,6 @@ instance Outputable (HsPragE (GhcPass p)) where
     <+> char '-'
     <+> pprWithSourceText s3 (ppr v3) <+> char ':' <+> pprWithSourceText s4 (ppr v4)
     <+> text "#-}"
-  ppr (XHsPragE x) = noExtCon x
 
 {-
 ************************************************************************
@@ -1355,7 +1353,7 @@ data HsCmd id
 
     -- For details on above see note [Api annotations] in ApiAnnotation
 
-  | XCmd        (XXCmd id)     -- Note [Trees that Grow] extension point
+  | XCmd        !(XXCmd id)     -- Note [Trees that Grow] extension point
 
 type instance XCmdArrApp  GhcPs = NoExtField
 type instance XCmdArrApp  GhcRn = NoExtField
@@ -1399,7 +1397,7 @@ type LHsCmdTop p = Located (HsCmdTop p)
 data HsCmdTop p
   = HsCmdTop (XCmdTop p)
              (LHsCmd p)
-  | XCmdTop (XXCmdTop p)        -- Note [Trees that Grow] extension point
+  | XCmdTop !(XXCmdTop p)        -- Note [Trees that Grow] extension point
 
 data CmdTopTc
   = CmdTopTc Type    -- Nested tuple of inputs on the command's stack
@@ -1497,15 +1495,16 @@ ppr_cmd (HsCmdArrForm _ op _ _ args)
   = hang (text "(|" <+> ppr_lexpr op)
          4 (sep (map (pprCmdArg.unLoc) args) <+> text "|)")
 ppr_cmd (XCmd x) = case ghcPass @p of
+#if __GLASGOW_HASKELL__ < 811
   GhcPs -> ppr x
   GhcRn -> ppr x
+#endif
   GhcTc -> case x of
     HsWrap w cmd -> pprHsWrapper w (\_ -> parens (ppr_cmd cmd))
 
 pprCmdArg :: (OutputableBndrId p) => HsCmdTop (GhcPass p) -> SDoc
 pprCmdArg (HsCmdTop _ cmd)
   = ppr_lcmd cmd
-pprCmdArg (XCmdTop x) = ppr x
 
 instance (OutputableBndrId p) => Outputable (HsCmdTop (GhcPass p)) where
     ppr = pprCmdArg
@@ -1550,7 +1549,7 @@ data MatchGroup p body
      -- The type is the type of the entire group
      --      t1 -> ... -> tn -> tr
      -- where there are n patterns
-  | XMatchGroup (XXMatchGroup p body)
+  | XMatchGroup !(XXMatchGroup p body)
 
 data MatchGroupTc
   = MatchGroupTc
@@ -1578,7 +1577,7 @@ data Match p body
         m_pats :: [LPat p], -- The patterns
         m_grhss :: (GRHSs p body)
   }
-  | XMatch (XXMatch p body)
+  | XMatch !(XXMatch p body)
 
 type instance XCMatch (GhcPass _) b = NoExtField
 type instance XXMatch (GhcPass _) b = NoExtCon
@@ -1648,11 +1647,9 @@ matchGroupArity :: MatchGroup (GhcPass id) body -> Arity
 matchGroupArity (MG { mg_alts = alts })
   | L _ (alt1:_) <- alts = length (hsLMatchPats alt1)
   | otherwise        = panic "matchGroupArity"
-matchGroupArity (XMatchGroup nec) = noExtCon nec
 
 hsLMatchPats :: LMatch (GhcPass id) body -> [LPat (GhcPass id)]
 hsLMatchPats (L _ (Match { m_pats = pats })) = pats
-hsLMatchPats (L _ (XMatch nec)) = noExtCon nec
 
 -- | Guarded Right-Hand Sides
 --
@@ -1670,7 +1667,7 @@ data GRHSs p body
       grhssGRHSs :: [LGRHS p body],      -- ^ Guarded RHSs
       grhssLocalBinds :: LHsLocalBinds p -- ^ The where clause
     }
-  | XGRHSs (XXGRHSs p body)
+  | XGRHSs !(XXGRHSs p body)
 
 type instance XCGRHSs (GhcPass _) b = NoExtField
 type instance XXGRHSs (GhcPass _) b = NoExtCon
@@ -1682,7 +1679,7 @@ type LGRHS id body = Located (GRHS id body)
 data GRHS p body = GRHS (XCGRHS p body)
                         [GuardLStmt p] -- Guards
                         body           -- Right hand side
-                  | XGRHS (XXGRHS p body)
+                  | XGRHS !(XXGRHS p body)
 
 type instance XCGRHS (GhcPass _) b = NoExtField
 type instance XXGRHS (GhcPass _) b = NoExtCon
@@ -1694,7 +1691,6 @@ pprMatches :: (OutputableBndrId idR, Outputable body)
 pprMatches MG { mg_alts = matches }
     = vcat (map pprMatch (map unLoc (unLoc matches)))
       -- Don't print the type; it's only a place-holder before typechecking
-pprMatches (XMatchGroup x) = ppr x
 
 -- Exported to GHC.Hs.Binds, which can't see the defn of HsMatchContext
 pprFunBind :: (OutputableBndrId idR, Outputable body)
@@ -1744,7 +1740,6 @@ pprMatch (Match { m_pats = pats, m_ctxt = ctxt, m_grhss = grhss })
                    []    -> (empty, [])
                    [pat] -> (ppr pat, [])  -- No parens around the single pat in a case
                    _     -> pprPanic "pprMatch" (ppr ctxt $$ ppr pats)
-pprMatch (XMatch nec) = noExtCon nec
 
 pprGRHSs :: (OutputableBndrId idR, Outputable body)
          => HsMatchContext passL -> GRHSs (GhcPass idR) body -> SDoc
@@ -1754,7 +1749,6 @@ pprGRHSs ctxt (GRHSs _ grhss (L _ binds))
   -- EmptyLocalBinds means no "where" keyword
  $$ ppUnless (eqEmptyLocalBinds binds)
       (text "where" $$ nest 4 (pprBinds binds))
-pprGRHSs _ (XGRHSs x) = ppr x
 
 pprGRHS :: (OutputableBndrId idR, Outputable body)
         => HsMatchContext passL -> GRHS (GhcPass idR) body -> SDoc
@@ -1763,8 +1757,6 @@ pprGRHS ctxt (GRHS _ [] body)
 
 pprGRHS ctxt (GRHS _ guards body)
  = sep [vbar <+> interpp'SP guards, pp_rhs ctxt body]
-
-pprGRHS _ (XGRHS x) = ppr x
 
 pp_rhs :: Outputable body => HsMatchContext passL -> body -> SDoc
 pp_rhs ctxt rhs = matchSeparator ctxt <+> pprDeeper (ppr rhs)
@@ -1934,7 +1926,7 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
      , recS_ret_fn  :: SyntaxExpr idR -- The return function
      , recS_mfix_fn :: SyntaxExpr idR -- The mfix function
       }
-  | XStmtLR (XXStmtLR idL idR body)
+  | XStmtLR !(XXStmtLR idL idR body)
 
 -- Extra fields available post typechecking for RecStmt.
 data RecStmtTc =
@@ -1999,7 +1991,7 @@ data ParStmtBlock idL idR
         [ExprLStmt idL]
         [IdP idR]          -- The variables to be returned
         (SyntaxExpr idR)   -- The return operator
-  | XParStmtBlock (XXParStmtBlock idL idR)
+  | XParStmtBlock !(XXParStmtBlock idL idR)
 
 type instance XParStmtBlock  (GhcPass pL) (GhcPass pR) = NoExtField
 type instance XXParStmtBlock (GhcPass pL) (GhcPass pR) = NoExtCon
@@ -2029,7 +2021,7 @@ data ApplicativeArg idL
     , final_expr        :: (HsExpr idL)    -- return (v1,..,vn), or just (v1,..,vn)
     , bv_pattern        :: (LPat idL)      -- (v1,...,vn)
     }
-  | XApplicativeArg (XXApplicativeArg idL)
+  | XApplicativeArg !(XXApplicativeArg idL)
 
 type instance XApplicativeArgOne  (GhcPass _) = NoExtField
 type instance XApplicativeArgMany (GhcPass _) = NoExtField
@@ -2266,7 +2258,6 @@ pprStmt (ApplicativeStmt _ args mb_join)
              :: ExprStmt (GhcPass idL))]
    flattenArg (_, ApplicativeArgMany _ stmts _ _) =
      concatMap flattenStmt stmts
-   flattenArg (_, XApplicativeArg nec) = noExtCon nec
 
    pp_debug =
      let
@@ -2277,8 +2268,6 @@ pprStmt (ApplicativeStmt _ args mb_join)
 
    pp_arg :: (a, ApplicativeArg (GhcPass idL)) -> SDoc
    pp_arg (_, applicativeArg) = ppr applicativeArg
-
-pprStmt (XStmtLR x) = ppr x
 
 
 instance (OutputableBndrId idL)
@@ -2299,8 +2288,6 @@ pprArg (ApplicativeArgMany _ stmts return pat) =
      ppr (HsDo (panic "pprStmt") DoExpr (noLoc
                (stmts ++
                    [noLoc (LastStmt noExtField (noLoc return) Nothing noSyntaxExpr)])))
-
-pprArg (XApplicativeArg x) = ppr x
 
 pprTransformStmt :: (OutputableBndrId p)
                  => [IdP (GhcPass p)] -> LHsExpr (GhcPass p)
@@ -2394,7 +2381,7 @@ data HsSplice id
         (XSpliced id)
         ThModFinalizers     -- TH finalizers produced by the splice.
         (HsSplicedThing id) -- The result of splicing
-   | XSplice (XXSplice id)  -- Note [Trees that Grow] extension point
+   | XSplice !(XXSplice id) -- Note [Trees that Grow] extension point
 
 newtype HsSplicedT = HsSplicedT DelayedSplice deriving (Data)
 
@@ -2578,8 +2565,10 @@ pprSplice (HsUntypedSplice _ BareSplice n e)
 pprSplice (HsQuasiQuote _ n q _ s)      = ppr_quasi n q s
 pprSplice (HsSpliced _ _ thing)         = ppr thing
 pprSplice (XSplice x)                   = case ghcPass @p of
+#if __GLASGOW_HASKELL__ < 811
                                             GhcPs -> noExtCon x
                                             GhcRn -> noExtCon x
+#endif
                                             GhcTc -> case x of
                                                        HsSplicedT _ -> text "Unevaluated typed splice"
 
@@ -2603,7 +2592,7 @@ data HsBracket p
   | VarBr  (XVarBr p)   Bool (IdP p)  -- True: 'x, False: ''T
                                 -- (The Bool flag is used only in pprHsBracket)
   | TExpBr (XTExpBr p) (LHsExpr p)    -- [||  expr  ||]
-  | XBracket (XXBracket p)            -- Note [Trees that Grow] extension point
+  | XBracket !(XXBracket p)           -- Note [Trees that Grow] extension point
 
 type instance XExpBr      (GhcPass _) = NoExtField
 type instance XPatBr      (GhcPass _) = NoExtField
@@ -2634,7 +2623,6 @@ pprHsBracket (VarBr _ True n)
 pprHsBracket (VarBr _ False n)
   = text "''" <> pprPrefixOcc n
 pprHsBracket (TExpBr _ e)  = thTyBrackets (ppr e)
-pprHsBracket (XBracket e)  = ppr e
 
 thBrackets :: SDoc -> SDoc -> SDoc
 thBrackets pp_kind pp_body = char '[' <> pp_kind <> vbar <+>

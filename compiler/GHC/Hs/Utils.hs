@@ -114,6 +114,7 @@ import GHC.Tc.Types.Evidence
 import GHC.Types.Name.Reader
 import GHC.Types.Var
 import GHC.Core.TyCo.Rep
+import GHC.Core.TyCon
 import GHC.Core.Type ( appTyArgFlags, splitAppTys, tyConArgFlags, tyConAppNeedsKindSig )
 import GHC.Core.Multiplicity ( pattern One, pattern Many )
 import TysWiredIn ( unitTy )
@@ -688,7 +689,11 @@ typeToLHsType ty
       | otherwise = ty'
        where
         ty' :: LHsType GhcPs
-        ty' = go_app (nlHsTyVar (getRdrName tc)) args (tyConArgFlags tc args)
+        ty' = go_app (noLoc $ HsTyVar noExtField prom $ noLoc $ getRdrName tc)
+                     args (tyConArgFlags tc args)
+
+        prom :: PromotionFlag
+        prom = if isPromotedDataCon tc then IsPromoted else NotPromoted
     go ty@(AppTy {})        = go_app (go head) args (appTyArgFlags head args)
       where
         head :: Type
@@ -991,7 +996,6 @@ collectLocalBinders (HsValBinds _ binds) = collectHsIdBinders binds
                                          -- No pattern synonyms here
 collectLocalBinders (HsIPBinds {})      = []
 collectLocalBinders (EmptyLocalBinds _) = []
-collectLocalBinders (XHsLocalBindsLR _) = []
 
 collectHsIdBinders, collectHsValBinders
   :: HsValBindsLR (GhcPass idL) (GhcPass idR) -> [IdP (GhcPass idL)]
@@ -1079,8 +1083,6 @@ collectStmtBinders (ApplicativeStmt _ args _) = concatMap collectArgBinders args
  where
   collectArgBinders (_, ApplicativeArgOne { app_arg_pattern = pat }) = collectPatBinders pat
   collectArgBinders (_, ApplicativeArgMany { bv_pattern = pat }) = collectPatBinders pat
-  collectArgBinders _ = []
-collectStmtBinders (XStmtLR nec) = noExtCon nec
 
 
 ----------------- Patterns --------------------------
@@ -1156,7 +1158,6 @@ hsGroupBinders (HsGroup { hs_valds = val_decls, hs_tyclds = tycl_decls,
                           hs_fords = foreign_decls })
   =  collectHsValBinders val_decls
   ++ hsTyClForeignBinders tycl_decls foreign_decls
-hsGroupBinders (XHsGroup nec) = noExtCon nec
 
 hsTyClForeignBinders :: [TyClGroup GhcRn]
                      -> [LForeignDecl GhcRn]
@@ -1188,8 +1189,6 @@ hsLTyClDeclBinders :: Located (TyClDecl (GhcPass p))
 hsLTyClDeclBinders (L loc (FamDecl { tcdFam = FamilyDecl
                                             { fdLName = (L _ name) } }))
   = ([L loc name], [])
-hsLTyClDeclBinders (L _ (FamDecl { tcdFam = XFamilyDecl nec }))
-  = noExtCon nec
 hsLTyClDeclBinders (L loc (SynDecl
                                { tcdLName = (L _ name) }))
   = ([L loc name], [])
@@ -1207,7 +1206,6 @@ hsLTyClDeclBinders (L loc (ClassDecl
 hsLTyClDeclBinders (L loc (DataDecl    { tcdLName = (L _ name)
                                        , tcdDataDefn = defn }))
   = (\ (xs, ys) -> (L loc name : xs, ys)) $ hsDataDefnBinders defn
-hsLTyClDeclBinders (L _ (XTyClDecl nec)) = noExtCon nec
 
 
 -------------------
@@ -1248,10 +1246,6 @@ hsLInstDeclBinders (L _ (ClsInstD
 hsLInstDeclBinders (L _ (DataFamInstD { dfid_inst = fi }))
   = hsDataFamInstBinders fi
 hsLInstDeclBinders (L _ (TyFamInstD {})) = mempty
-hsLInstDeclBinders (L _ (ClsInstD _ (XClsInstDecl nec)))
-  = noExtCon nec
-hsLInstDeclBinders (L _ (XInstDecl nec))
-  = noExtCon nec
 
 -------------------
 -- | the 'SrcLoc' returned are for the whole declarations, not just the names
@@ -1261,11 +1255,6 @@ hsDataFamInstBinders (DataFamInstDecl { dfid_eqn = HsIB { hsib_body =
                        FamEqn { feqn_rhs = defn }}})
   = hsDataDefnBinders defn
   -- There can't be repeated symbols because only data instances have binders
-hsDataFamInstBinders (DataFamInstDecl
-                                    { dfid_eqn = HsIB { hsib_body = XFamEqn nec}})
-  = noExtCon nec
-hsDataFamInstBinders (DataFamInstDecl (XHsImplicitBndrs nec))
-  = noExtCon nec
 
 -------------------
 -- | the 'SrcLoc' returned are for the whole declarations, not just the names
@@ -1274,7 +1263,6 @@ hsDataDefnBinders :: HsDataDefn (GhcPass p)
 hsDataDefnBinders (HsDataDefn { dd_cons = cons })
   = hsConDeclsBinders cons
   -- See Note [Binders in family instances]
-hsDataDefnBinders (XHsDataDefn nec) = noExtCon nec
 
 -------------------
 type Seen p = [LFieldOcc (GhcPass p)] -> [LFieldOcc (GhcPass p)]
@@ -1309,8 +1297,6 @@ hsConDeclsBinders cons
              where
                 (remSeen', flds) = get_flds remSeen args
                 (ns, fs) = go remSeen' rs
-
-           XConDecl nec -> noExtCon nec
 
     get_flds :: Seen p -> HsConDeclDetails (GhcPass p)
              -> (Seen p, [LFieldOcc (GhcPass p)])
@@ -1379,7 +1365,6 @@ lStmtsImplicits = hs_lstmts
     hs_stmt (ApplicativeStmt _ args _) = concatMap do_arg args
       where do_arg (_, ApplicativeArgOne { app_arg_pattern = pat }) = lPatImplicits pat
             do_arg (_, ApplicativeArgMany { app_stmts = stmts }) = hs_lstmts stmts
-            do_arg (_, XApplicativeArg nec) = noExtCon nec
     hs_stmt (LetStmt _ binds)     = hs_local_binds (unLoc binds)
     hs_stmt (BodyStmt {})         = []
     hs_stmt (LastStmt {})         = []
@@ -1387,12 +1372,10 @@ lStmtsImplicits = hs_lstmts
                                                 , s <- ss]
     hs_stmt (TransStmt { trS_stmts = stmts }) = hs_lstmts stmts
     hs_stmt (RecStmt { recS_stmts = ss })     = hs_lstmts ss
-    hs_stmt (XStmtLR nec)         = noExtCon nec
 
     hs_local_binds (HsValBinds _ val_binds) = hsValBindsImplicits val_binds
     hs_local_binds (HsIPBinds {})           = []
     hs_local_binds (EmptyLocalBinds _)      = []
-    hs_local_binds (XHsLocalBindsLR _)      = []
 
 hsValBindsImplicits :: HsValBindsLR GhcRn (GhcPass idR) -> [(SrcSpan, [Name])]
 hsValBindsImplicits (XValBindsLR (NValBinds binds _))
