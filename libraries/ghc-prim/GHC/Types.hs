@@ -507,7 +507,7 @@ type KindBndr = Int
 -- | The representation produced by GHC for conjuring up the kind of a
 -- 'Data.Typeable.TypeRep'.
 
--- See Note [Representing TyCon kinds: KindRep] in TcTypeable.
+-- See Note [Representing TyCon kinds: KindRep] in GHC.Tc.Instance.Typeable.
 data KindRep = KindRepTyConApp TyCon [KindRep]
              | KindRepVar !KindBndr
              | KindRepApp KindRep KindRep

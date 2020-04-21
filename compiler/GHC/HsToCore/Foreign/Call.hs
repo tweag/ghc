@@ -35,7 +35,7 @@ import GHC.Types.ForeignCall
 import GHC.Core.DataCon
 import GHC.HsToCore.Utils
 
-import TcType
+import GHC.Tc.Utils.TcType
 import GHC.Core.Type
 import GHC.Core.Multiplicity
 import GHC.Types.Id   ( Id )
