@@ -91,30 +91,30 @@ import TcEvidence
 import GHC.Core.Type
 import GHC.Core.TyCon  ( TyCon, tyConKind )
 import GHC.Core.PatSyn ( PatSyn )
-import Id       ( idType, idName )
-import FieldLabel ( FieldLabel )
+import GHC.Types.Id         ( idType, idName )
+import GHC.Types.FieldLabel ( FieldLabel )
 import GHC.Core.UsageEnv
 import TcType
 import Constraint
 import TcOrigin
-import Annotations
+import GHC.Types.Annotations
 import GHC.Core.InstEnv
 import GHC.Core.FamInstEnv
 import {-# SOURCE #-} GHC.HsToCore.PmCheck.Types (Deltas)
 import IOEnv
-import RdrName
-import Name
-import NameEnv
-import NameSet
-import Avail
-import Var
-import VarEnv
-import Module
-import SrcLoc
-import VarSet
+import GHC.Types.Name.Reader
+import GHC.Types.Name
+import GHC.Types.Name.Env
+import GHC.Types.Name.Set
+import GHC.Types.Avail
+import GHC.Types.Var
+import GHC.Types.Var.Env
+import GHC.Types.Module
+import GHC.Types.SrcLoc
+import GHC.Types.Var.Set
 import ErrUtils
-import UniqFM
-import BasicTypes
+import GHC.Types.Unique.FM
+import GHC.Types.Basic
 import Bag
 import GHC.Driver.Session
 import Outputable
@@ -122,7 +122,7 @@ import ListSetOps
 import Fingerprint
 import Util
 import PrelNames ( isUnboundName )
-import CostCentreState
+import GHC.Types.CostCentre.State
 
 import Control.Monad (ap)
 import qualified Control.Monad.Fail as MonadFail

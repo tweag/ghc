@@ -232,7 +232,7 @@ module GHC.Core.Type (
 
 import GhcPrelude
 
-import BasicTypes
+import GHC.Types.Basic
 
 -- We import the representation and primitive functions from GHC.Core.TyCo.Rep.
 -- Many things are reexported, but not the representation!
@@ -244,10 +244,10 @@ import GHC.Core.TyCo.FVs
 import GHC.Core.Multiplicity
 
 -- friends:
-import Var
-import VarEnv
-import VarSet
-import UniqSet
+import GHC.Types.Var
+import GHC.Types.Var.Env
+import GHC.Types.Var.Set
+import GHC.Types.Unique.Set
 
 import GHC.Core.TyCon
 import TysPrim
@@ -256,7 +256,7 @@ import {-# SOURCE #-} TysWiredIn ( listTyCon, typeNatKind
                                  , liftedTypeKindTyCon
                                  , constraintKind
                                  , unrestrictedFunTyCon )
-import Name( Name )
+import GHC.Types.Name( Name )
 import PrelNames
 import GHC.Core.Coercion.Axiom
 import {-# SOURCE #-} GHC.Core.Coercion
@@ -276,7 +276,7 @@ import Outputable
 import FastString
 import Pair
 import ListSetOps
-import Unique ( nonDetCmpUnique )
+import GHC.Types.Unique ( nonDetCmpUnique )
 
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )

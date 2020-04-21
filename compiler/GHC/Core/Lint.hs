@@ -32,23 +32,23 @@ import GHC.Core.Utils
 import GHC.Core.Stats ( coreBindsStats )
 import GHC.Core.Op.Monad
 import Bag
-import Literal
+import GHC.Types.Literal
 import GHC.Core.DataCon
 import TysWiredIn
 import TysPrim
 import TcType ( isFloatingTy )
-import Var
-import VarEnv
-import VarSet
-import UniqSet( nonDetEltsUniqSet )
-import Name
-import Id
-import NameEnv
-import IdInfo
+import GHC.Types.Var as Var
+import GHC.Types.Var.Env
+import GHC.Types.Var.Set
+import GHC.Types.Unique.Set( nonDetEltsUniqSet )
+import GHC.Types.Name
+import GHC.Types.Name.Env
+import GHC.Types.Id
+import GHC.Types.Id.Info
 import GHC.Core.Ppr
 import ErrUtils
 import GHC.Core.Coercion
-import SrcLoc
+import GHC.Types.SrcLoc
 import GHC.Core.Type as Type
 import GHC.Core.Multiplicity
 import GHC.Core.UsageEnv
@@ -59,7 +59,7 @@ import GHC.Core.TyCo.FVs
 import GHC.Core.TyCo.Ppr ( pprTyVar )
 import GHC.Core.TyCon as TyCon
 import GHC.Core.Coercion.Axiom
-import BasicTypes
+import GHC.Types.Basic
 import ErrUtils as Err
 import ListSetOps
 import PrelNames
@@ -69,7 +69,7 @@ import Util
 import GHC.Core.InstEnv      ( instanceDFunId )
 import GHC.Core.Coercion.Opt ( checkAxInstCo )
 import GHC.Core.Arity        ( typeArity )
-import Demand ( splitStrictSig, isBotDiv )
+import GHC.Types.Demand ( splitStrictSig, isBotDiv )
 
 import GHC.Driver.Types hiding (Usage)
 import GHC.Driver.Session

@@ -28,12 +28,12 @@ where
 
 import GhcPrelude
 
-import {-# SOURCE #-} MkId ( mkPrimOpId, magicDictId )
+import {-# SOURCE #-} GHC.Types.Id.Make ( mkPrimOpId, magicDictId )
 
 import GHC.Core
 import GHC.Core.Make
-import Id
-import Literal
+import GHC.Types.Id
+import GHC.Types.Literal
 import GHC.Core.SimpleOpt ( exprIsLiteral_maybe )
 import PrimOp             ( PrimOp(..), tagToEnumKey )
 import TysWiredIn
@@ -48,13 +48,13 @@ import GHC.Core.Utils  ( cheapEqExpr, cheapEqExpr', exprIsHNF, exprType
 import GHC.Core.Unfold ( exprIsConApp_maybe )
 import GHC.Core.Multiplicity
 import GHC.Core.Type
-import OccName     ( occNameFS )
+import GHC.Types.Name.Occurrence ( occNameFS )
 import PrelNames
 import Maybes      ( orElse )
-import Name        ( Name, nameOccName )
+import GHC.Types.Name ( Name, nameOccName )
 import Outputable
 import FastString
-import BasicTypes
+import GHC.Types.Basic
 import GHC.Platform
 import Util
 import GHC.Core.Coercion   (mkUnbranchedAxInstCo,mkSymCo,Role(..))
@@ -2124,7 +2124,7 @@ tx_lit_con platform adjust (LitAlt l) = Just $ LitAlt (mapLitValue platform adju
 tx_lit_con _        _      alt        = pprPanic "caseRules" (ppr alt)
    -- NB: mapLitValue uses mkLitIntWrap etc, to ensure that the
    -- literal alternatives remain in Word/Int target ranges
-   -- (See Note [Word/Int underflow/overflow] in Literal and #13172).
+   -- (See Note [Word/Int underflow/overflow] in GHC.Types.Literal and #13172).
 
 adjustDyadicRight :: PrimOp -> Integer -> Maybe (Integer -> Integer)
 -- Given (x `op` lit) return a function 'f' s.t.  f (x `op` lit) = x

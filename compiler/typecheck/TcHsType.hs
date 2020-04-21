@@ -94,25 +94,25 @@ import GHC.Core.Multiplicity
 import Inst   ( tcInstInvisibleTyBinders, tcInstInvisibleTyBinder )
 import GHC.Core.Type
 import TysPrim
-import RdrName( lookupLocalRdrOcc )
-import Var
-import VarSet
+import GHC.Types.Name.Reader( lookupLocalRdrOcc )
+import GHC.Types.Var
+import GHC.Types.Var.Set
 import GHC.Core.TyCon
 import GHC.Core.ConLike
 import GHC.Core.DataCon
 import GHC.Core.Class
-import Name
--- import NameSet
-import VarEnv
+import GHC.Types.Name
+-- import GHC.Types.Name.Set
+import GHC.Types.Var.Env
 import TysWiredIn
-import BasicTypes
-import SrcLoc
+import GHC.Types.Basic
+import GHC.Types.SrcLoc
 import Constants ( mAX_CTUPLE_SIZE )
 import ErrUtils( MsgDoc )
-import Unique
-import UniqSet
+import GHC.Types.Unique
+import GHC.Types.Unique.Set
 import Util
-import UniqSupply
+import GHC.Types.Unique.Supply
 import Outputable
 import FastString
 import PrelNames hiding ( wildCardName )

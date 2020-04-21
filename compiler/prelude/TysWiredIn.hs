@@ -16,7 +16,7 @@ module TysWiredIn (
         mkWiredInTyConName, -- This is used in TcTypeNats to define the
                             -- built-in functions for evaluation.
 
-        mkWiredInIdName,    -- used in MkId
+        mkWiredInIdName,    -- used in GHC.Types.Id.Make
 
         -- * All wired in things
         wiredInTyCons, isBuiltInOcc_maybe,
@@ -142,7 +142,7 @@ module TysWiredIn (
 
 import GhcPrelude
 
-import {-# SOURCE #-} MkId( mkDataConWorkId, mkDictSelId )
+import {-# SOURCE #-} GHC.Types.Id.Make ( mkDataConWorkId, mkDictSelId )
 
 -- friends:
 import PrelNames
@@ -151,25 +151,25 @@ import {-# SOURCE #-} KnownUniques
 
 -- others:
 import GHC.Core.Coercion.Axiom
-import Id
-import Var (VarBndr (Bndr))
+import GHC.Types.Id
+import GHC.Types.Var (VarBndr (Bndr))
 import Constants        ( mAX_TUPLE_SIZE, mAX_CTUPLE_SIZE, mAX_SUM_SIZE )
-import Module           ( Module )
+import GHC.Types.Module ( Module )
 import GHC.Core.Type
 import GHC.Types.RepType
 import GHC.Core.DataCon
 import {-# SOURCE #-} GHC.Core.ConLike
 import GHC.Core.TyCon
-import GHC.Core.Class   ( Class, mkClass )
-import RdrName
-import Name
-import NameEnv          ( NameEnv, mkNameEnv, lookupNameEnv, lookupNameEnv_NF )
-import NameSet          ( NameSet, mkNameSet, elemNameSet )
-import BasicTypes
+import GHC.Core.Class     ( Class, mkClass )
 import GHC.Core.Multiplicity
-import ForeignCall
-import SrcLoc           ( noSrcSpan )
-import Unique
+import GHC.Types.Name.Reader
+import GHC.Types.Name as Name
+import GHC.Types.Name.Env ( NameEnv, mkNameEnv, lookupNameEnv, lookupNameEnv_NF )
+import GHC.Types.Name.Set ( NameSet, mkNameSet, elemNameSet )
+import GHC.Types.Basic
+import GHC.Types.ForeignCall
+import GHC.Types.SrcLoc   ( noSrcSpan )
+import GHC.Types.Unique
 import Data.Array
 import FastString
 import Outputable

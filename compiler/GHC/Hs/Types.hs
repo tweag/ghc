@@ -85,16 +85,16 @@ import {-# SOURCE #-} GHC.Hs.Expr ( HsSplice, pprSplice )
 
 import GHC.Hs.Extension
 
-import Id ( Id )
-import Name( Name, NamedThing(getName) )
-import RdrName ( RdrName )
+import GHC.Types.Id ( Id )
+import GHC.Types.Name( Name, NamedThing(getName) )
+import GHC.Types.Name.Reader ( RdrName )
 import GHC.Core.DataCon( HsSrcBang(..), HsImplBang(..),
                          SrcStrictness(..), SrcUnpackedness(..) )
 import TysWiredIn( manyDataConName, oneDataConName, mkTupleStr )
 import GHC.Core.Type
 import GHC.Hs.Doc
-import BasicTypes
-import SrcLoc
+import GHC.Types.Basic
+import GHC.Types.SrcLoc
 import Outputable
 import FastString
 import Maybes( isJust )
@@ -758,7 +758,7 @@ type instance XWildCardTy      (GhcPass _) = NoExtField
 type instance XXType         (GhcPass _) = NewHsTypeX
 
 
--- Note [Literal source text] in BasicTypes for SourceText fields in
+-- Note [Literal source text] in GHC.Types.Basic for SourceText fields in
 -- the following
 -- | Haskell Type Literal
 data HsTyLit

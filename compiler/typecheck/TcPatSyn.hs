@@ -28,19 +28,19 @@ import TcEnv
 import TcMType
 import TcHsSyn
 import TysPrim
-import Name
-import SrcLoc
+import GHC.Types.Name
+import GHC.Types.SrcLoc
 import GHC.Core.PatSyn
-import NameSet
+import GHC.Types.Name.Set
 import Panic
 import Outputable
 import FastString
-import Var
-import VarEnv( emptyTidyEnv, mkInScopeSet )
-import Id
-import IdInfo( RecSelParent(..), setLevityInfoWithType )
+import GHC.Types.Var
+import GHC.Types.Var.Env( emptyTidyEnv, mkInScopeSet )
+import GHC.Types.Id
+import GHC.Types.Id.Info( RecSelParent(..), setLevityInfoWithType )
 import TcBinds
-import BasicTypes
+import GHC.Types.Basic
 import TcSimplify
 import TcUnify
 import GHC.Core.Predicate
@@ -49,11 +49,11 @@ import TcType
 import TcEvidence
 import TcOrigin
 import BuildTyCl
-import VarSet
-import MkId
+import GHC.Types.Var.Set
+import GHC.Types.Id.Make
 import TcTyDecls
 import GHC.Core.ConLike
-import FieldLabel
+import GHC.Types.FieldLabel
 import Bag
 import Util
 import ErrUtils
@@ -715,7 +715,7 @@ tcPatSynMatcher (L loc name) lpat
        ; let matcher_tau   = mkVisFunTysMany [pat_ty, cont_ty, fail_ty] res_ty
              matcher_sigma = mkInfSigmaTy (rr_tv:res_tv:univ_tvs) req_theta matcher_tau
              matcher_id    = mkExportedVanillaId matcher_name matcher_sigma
-                             -- See Note [Exported LocalIds] in Id
+                             -- See Note [Exported LocalIds] in GHC.Types.Id
 
              inst_wrap = mkWpEvApps prov_dicts <.> mkWpTyApps ex_tys
              cont' = foldl' nlHsApp (mkLHsWrap inst_wrap (nlHsVar cont)) cont_args
@@ -804,7 +804,7 @@ mkPatSynBuilderId dir (L _ name)
                               mkVisFunTysMany arg_tys $
                               pat_ty
              builder_id     = mkExportedVanillaId builder_name builder_sigma
-              -- See Note [Exported LocalIds] in Id
+              -- See Note [Exported LocalIds] in GHC.Types.Id
 
              builder_id'    = modifyIdInfo (`setLevityInfoWithType` pat_ty) builder_id
 

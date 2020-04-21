@@ -38,7 +38,7 @@ import GHC.Core.Type
 import GHC.Types.RepType
 import GHC.Core.Multiplicity
 import qualified GHC.Core.Unify as U
-import Var
+import GHC.Types.Var
 import TcRnMonad
 import TcType
 import TcMType
@@ -47,13 +47,13 @@ import TcUnify
 import TcEnv
 
 import GHC.Core.TyCon
-import Name
-import OccName
-import Module
+import GHC.Types.Name
+import GHC.Types.Name.Occurrence as OccName
+import GHC.Types.Module
 import GHC.Iface.Env
 import Util
-import VarSet
-import BasicTypes       ( Boxity(..) )
+import GHC.Types.Var.Set
+import GHC.Types.Basic ( Boxity(..) )
 import TysPrim
 import PrelNames
 import TysWiredIn

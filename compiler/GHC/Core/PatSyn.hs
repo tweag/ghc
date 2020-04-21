@@ -28,14 +28,14 @@ import GhcPrelude
 
 import GHC.Core.Type
 import GHC.Core.TyCo.Ppr
-import Name
+import GHC.Types.Name
 import Outputable
-import Unique
+import GHC.Types.Unique
 import Util
 import GHC.Core.Multiplicity
-import BasicTypes
-import Var
-import FieldLabel
+import GHC.Types.Basic
+import GHC.Types.Var
+import GHC.Types.FieldLabel
 
 import qualified Data.Data as Data
 import Data.Function

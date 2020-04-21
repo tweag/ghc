@@ -6,8 +6,8 @@ module GHC.Core.UsageEnv (UsageEnv, addUsage, scaleUsage, zeroUE,
 import Data.Foldable
 import GhcPrelude
 import GHC.Core.Multiplicity
-import Name
-import NameEnv
+import GHC.Types.Name
+import GHC.Types.Name.Env
 import Outputable
 
 --

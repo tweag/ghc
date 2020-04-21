@@ -47,11 +47,11 @@ import GHC.Core.FamInstEnv
 import GHC.Core.Coercion
 import GHC.Core.Type
 import GHC.Core.Multiplicity
-import ForeignCall
+import GHC.Types.ForeignCall
 import ErrUtils
-import Id
-import Name
-import RdrName
+import GHC.Types.Id
+import GHC.Types.Name
+import GHC.Types.Name.Reader
 import GHC.Core.DataCon
 import GHC.Core.TyCon
 import TcType
@@ -59,7 +59,7 @@ import PrelNames
 import GHC.Driver.Session
 import Outputable
 import GHC.Platform
-import SrcLoc
+import GHC.Types.SrcLoc
 import Bag
 import GHC.Driver.Hooks
 import qualified GHC.LanguageExtensions as LangExt

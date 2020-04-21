@@ -30,11 +30,11 @@ import TcEvidence( mkTcCoVarCo )
 import GHC.Core.Type
 import GHC.Core.TyCon( isTypeFamilyTyCon )
 import GHC.Core.Multiplicity
-import Id
-import Var( EvVar )
-import VarSet
-import BasicTypes       ( RuleName )
-import SrcLoc
+import GHC.Types.Id
+import GHC.Types.Var( EvVar )
+import GHC.Types.Var.Set
+import GHC.Types.Basic ( RuleName )
+import GHC.Types.SrcLoc
 import Outputable
 import FastString
 import Bag

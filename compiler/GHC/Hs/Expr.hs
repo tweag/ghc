@@ -39,11 +39,11 @@ import GHC.Hs.Binds
 -- others:
 import TcEvidence
 import GHC.Core
-import Name
-import NameSet
-import BasicTypes
+import GHC.Types.Name
+import GHC.Types.Name.Set
+import GHC.Types.Basic
 import GHC.Core.ConLike
-import SrcLoc
+import GHC.Types.SrcLoc
 import Util
 import Outputable
 import FastString
@@ -676,7 +676,7 @@ type instance XXExpr         GhcTc       = HsWrap HsExpr
 -- | A pragma, written as {-# ... #-}, that may appear within an expression.
 data HsPragE p
   = HsPragSCC   (XSCC p)
-                SourceText            -- Note [Pragma source text] in BasicTypes
+                SourceText            -- Note [Pragma source text] in GHC.Types.Basic
                 StringLiteral         -- "set cost centre" SCC pragma
 
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'{-\# CORE'@,
@@ -684,7 +684,7 @@ data HsPragE p
 
   -- For details on above see note [Api annotations] in ApiAnnotation
   | HsPragCore  (XCoreAnn p)
-                SourceText            -- Note [Pragma source text] in BasicTypes
+                SourceText            -- Note [Pragma source text] in GHC.Types.Basic
                 StringLiteral         -- hdaume: core annotation
 
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
@@ -699,12 +699,12 @@ data HsPragE p
   -- For details on above see note [Api annotations] in ApiAnnotation
   | HsPragTick                        -- A pragma introduced tick
      (XTickPragma p)
-     SourceText                       -- Note [Pragma source text] in BasicTypes
+     SourceText                       -- Note [Pragma source text] in GHC.Types.Basic
      (StringLiteral,(Int,Int),(Int,Int))
                                       -- external span for this tick
      ((SourceText,SourceText),(SourceText,SourceText))
         -- Source text for the four integers used in the span.
-        -- See note [Pragma source text] in BasicTypes
+        -- See note [Pragma source text] in GHC.Types.Basic
 
   | XHsPragE (XXPragE p)
 

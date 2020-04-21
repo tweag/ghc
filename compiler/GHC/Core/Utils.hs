@@ -70,16 +70,16 @@ import GHC.Core
 import PrelNames ( makeStaticName )
 import GHC.Core.Ppr
 import GHC.Core.FVs( exprFreeVars )
-import Var
-import SrcLoc
-import VarEnv
-import VarSet
-import Name
-import Literal
+import GHC.Types.Var
+import GHC.Types.SrcLoc
+import GHC.Types.Var.Env
+import GHC.Types.Var.Set
+import GHC.Types.Name
+import GHC.Types.Literal
 import GHC.Core.DataCon
 import PrimOp
-import Id
-import IdInfo
+import GHC.Types.Id
+import GHC.Types.Id.Info
 import PrelNames( absentErrorIdKey )
 import GHC.Core.Type as Type
 import GHC.Core.Predicate
@@ -87,13 +87,13 @@ import GHC.Core.TyCo.Rep( TyCoBinder(..), TyBinder )
 import GHC.Core.Coercion
 import GHC.Core.TyCon
 import GHC.Core.Multiplicity
-import Unique
+import GHC.Types.Unique
 import Outputable
 import TysPrim
 import FastString
 import Maybes
 import ListSetOps       ( minusList )
-import BasicTypes       ( Arity, isConLike )
+import GHC.Types.Basic     ( Arity, isConLike )
 import Util
 import Pair
 import Data.ByteString     ( ByteString )
@@ -102,7 +102,7 @@ import Data.List
 import Data.Ord            ( comparing )
 import OrdList
 import qualified Data.Set as Set
-import UniqSet
+import GHC.Types.Unique.Set
 
 {-
 ************************************************************************
@@ -1349,7 +1349,7 @@ expansion.  Specifically:
 
 * True of constructor applications (K a b)
 
-* True of applications of a "CONLIKE" Id; see Note [CONLIKE pragma] in BasicTypes.
+* True of applications of a "CONLIKE" Id; see Note [CONLIKE pragma] in GHC.Types.Basic.
   (NB: exprIsCheap might not be true of this)
 
 * False of case-expressions.  If we have

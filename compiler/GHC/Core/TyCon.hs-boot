@@ -1,7 +1,7 @@
 module GHC.Core.TyCon where
 
 import GhcPrelude
-import Unique ( Uniquable )
+import GHC.Types.Unique ( Uniquable )
 
 data TyCon
 

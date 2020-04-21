@@ -33,7 +33,7 @@ import TcType
 
 import GHC.Hs
 
-import Id
+import GHC.Types.Id
 import GHC.Core.DataCon
 import GHC.Core.ConLike
 import GHC.Core.TyCon
@@ -41,14 +41,14 @@ import GHC.Core.InstEnv
 import GHC.Core.PatSyn
 import GHC.Core.Multiplicity ( scaledThing )
 
-import Module
-import Name
-import RdrName
+import GHC.Types.Module
+import GHC.Types.Name
+import GHC.Types.Name.Reader
 
-import SrcLoc
+import GHC.Types.SrcLoc
 import FastString
 import Outputable
-import BasicTypes
+import GHC.Types.Basic
 
 {- *********************************************************************
 *                                                                      *

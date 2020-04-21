@@ -40,7 +40,7 @@ import {-# SOURCE #-} GHC.Core.TyCo.Rep (Type)
 import {-# SOURCE #-} TysWiredIn ( oneDataConTy, manyDataConTy, multMulTyCon )
 import {-# SOURCE #-} GHC.Core.Type( eqType, splitTyConApp_maybe, mkTyConApp )
 import PrelNames (multMulTyConKey)
-import Unique (hasKey)
+import GHC.Types.Unique (hasKey)
 
 {-
 Note [Linear types]

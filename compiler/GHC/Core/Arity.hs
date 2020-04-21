@@ -27,17 +27,17 @@ import GHC.Core
 import GHC.Core.FVs
 import GHC.Core.Utils
 import GHC.Core.Subst
-import Demand
-import Var
-import VarEnv
-import Id
+import GHC.Types.Demand
+import GHC.Types.Var
+import GHC.Types.Var.Env
+import GHC.Types.Id
 import GHC.Core.Type as Type
 import GHC.Core.TyCon     ( initRecTc, checkRecTc )
 import GHC.Core.Predicate ( isDictTy )
 import GHC.Core.Coercion as Coercion
 import GHC.Core.Multiplicity
-import BasicTypes
-import Unique
+import GHC.Types.Basic
+import GHC.Types.Unique
 import GHC.Driver.Session ( DynFlags, GeneralFlag(..), gopt )
 import Outputable
 import FastString
