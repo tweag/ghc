@@ -231,7 +231,7 @@ module GHC.Driver.Session (
         IncludeSpecs(..), addGlobalInclude, addQuoteInclude, flattenIncludes,
 
         -- * SDoc
-        initSDocContext,
+        initSDocContext, initDefaultSDocContext,
 
         -- * Make use of the Cmm CFG
         CfgWeights(..)
@@ -1589,7 +1589,8 @@ defaultLogActionHPutStrDoc :: DynFlags -> Handle -> SDoc -> PprStyle -> IO ()
 defaultLogActionHPutStrDoc dflags h d sty
   -- Don't add a newline at the end, so that successive
   -- calls to this log-action can output all on the same line
-  = printSDoc Pretty.PageMode dflags h sty d
+  = printSDoc ctx Pretty.PageMode h d
+    where ctx = initSDocContext dflags sty
 
 newtype FlushOut = FlushOut (IO ())
 
@@ -5058,13 +5059,6 @@ setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
 -- check if SSE is enabled, we might have x86-64 imply the -msse2
 -- flag.
 
-data SseVersion = SSE1
-                | SSE2
-                | SSE3
-                | SSE4
-                | SSE42
-                deriving (Eq, Ord)
-
 isSseEnabled :: DynFlags -> Bool
 isSseEnabled dflags = case platformArch (targetPlatform dflags) of
     ArchX86_64 -> True
@@ -5109,10 +5103,6 @@ isAvx512pfEnabled dflags = avx512pf dflags
 
 -- -----------------------------------------------------------------------------
 -- BMI2
-
-data BmiVersion = BMI1
-                | BMI2
-                deriving (Eq, Ord)
 
 isBmiEnabled :: DynFlags -> Bool
 isBmiEnabled dflags = case platformArch (targetPlatform dflags) of
@@ -5189,7 +5179,7 @@ emptyFilesToClean :: FilesToClean
 emptyFilesToClean = FilesToClean Set.empty Set.empty
 
 
-
+-- | Initialize the pretty-printing options
 initSDocContext :: DynFlags -> PprStyle -> SDocContext
 initSDocContext dflags style = SDC
   { sdocStyle                       = style
@@ -5226,3 +5216,7 @@ initSDocContext dflags style = SDC
   , sdocLinearTypes                 = xopt LangExt.LinearTypes dflags
   , sdocDynFlags                    = dflags
   }
+
+-- | Initialize the pretty-printing options using the default user style
+initDefaultSDocContext :: DynFlags -> SDocContext
+initDefaultSDocContext dflags = initSDocContext dflags (defaultUserStyle dflags)
