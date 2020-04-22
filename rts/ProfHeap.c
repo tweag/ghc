@@ -280,6 +280,8 @@ LDV_recordDead( const StgClosure *c, uint32_t size )
     uint32_t t;
     counter *ctr;
 
+    ASSERT(!isInherentlyUsed(get_itbl(c)->type));
+
     if (era > 0 && closureSatisfiesConstraints(c)) {
         size -= sizeofW(StgProfHeader);
         ASSERT(LDVW(c) != 0);
@@ -550,8 +552,6 @@ initHeapProfiling(void)
 void
 endHeapProfiling(void)
 {
-    StgDouble seconds;
-
     if (! RtsFlags.ProfFlags.doHeapProfile) {
         return;
     }
@@ -594,7 +594,10 @@ endHeapProfiling(void)
 
     stgFree(censuses);
 
-    seconds = mut_user_time();
+    RTSStats stats;
+    getRTSStats(&stats);
+    Time mut_time = stats.mutator_cpu_ns;
+    StgDouble seconds = TimeToSecondsDbl(mut_time);
     printSample(true, seconds);
     printSample(false, seconds);
     fclose(hp_file);
@@ -1275,8 +1278,22 @@ heapCensusChain( Census *census, bdescr *bd )
             heapProfObject(census,(StgClosure*)p,size,prim);
 
             p += size;
-            /* skip over slop */
-            while (p < bd->free && !*p) p++; // skip slop
+
+            /* skip over slop, see Note [slop on the heap] */
+            while (p < bd->free && !*p) p++;
+            /* Note [skipping slop in the heap profiler]
+             * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+             *
+             * We make sure to zero slop that can remain after a major GC so
+             * here we can assume any slop words we see until the block's free
+             * pointer are zero. Since info pointers are always nonzero we can
+             * use this to scan for the next valid heap closure.
+             *
+             * Note that not all types of slop are relevant here, only the ones
+             * that can reman after major GC. So essentially just large objects
+             * and pinned objects. All other closures will have been packed nice
+             * and thight into fresh blocks.
+             */
         }
     }
 }

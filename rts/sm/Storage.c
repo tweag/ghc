@@ -907,6 +907,54 @@ accountAllocation(Capability *cap, W_ n)
 
 }
 
+/* Note [slop on the heap]
+ * ~~~~~~~~~~~~~~~~~~~~~~~
+ *
+ * We use the term "slop" to refer to allocated memory on the heap which isn't
+ * occupied by any closure. Usually closures are packet tightly into the heap
+ * blocks, storage for one immediately following another. However there are
+ * situations where slop is left behind:
+ *
+ * - Allocating large objects (BF_LARGE)
+ *
+ *   These are given an entire block, but if they don't fill the entire block
+ *   the rest is slop. See allocateMightFail in Storage.c.
+ *
+ * - Allocating pinned objects with alignment (BF_PINNED)
+ *
+ *   These are packet into blocks like normal closures, however they
+ *   can have alignment constraints and any memory that needed to be skipped for
+ *   alignment becomes slop. See allocatePinned in Storage.c.
+ *
+ * - Shrinking (Small)Mutable(Byte)Array#
+ *
+ *    The size of these closures can be decreased after allocation, leaving any,
+ *    now unused memory, behind as slop. See stg_resizzeMutableByteArrayzh,
+ *    stg_shrinkSmallMutableArrayzh, and stg_shrinkMutableByteArrayzh in
+ *    PrimOps.cmm.
+ *
+ *    This type of slop is extra tricky because it can also be pinned and
+ *    large.
+ *
+ * - Overwriting closures
+ *
+ *   During GC the RTS overwrites closures with forwarding pointers, this can
+ *   leave slop behind depending on the size of the closure being
+ *   overwritten. See Note [zeroing slop when overwriting closures].
+ *
+ * Under various ways we actually zero slop so we can linearly scan over blocks
+ * of closures. This trick is used by the sanity checking code and the heap
+ * profiler, see Note [skipping slop in the heap profiler].
+ *
+ * When profiling we zero:
+ *  - Pinned object alignment slop, see MEMSET_IF_PROFILING_W in allocatePinned.
+ *  - Shrunk array slop, see OVERWRITING_MUTABLE_CLOSURE.
+ *
+ * When performing LDV profiling or using a (single threaded) debug RTS we zero
+ * slop even when overwriting immutable closures, see Note [zeroing slop when
+ * overwriting closures].
+ */
+
 /* -----------------------------------------------------------------------------
    StgPtr allocate (Capability *cap, W_ n)
 
@@ -1059,6 +1107,26 @@ allocateMightFail (Capability *cap, W_ n)
     return p;
 }
 
+/**
+ * Calculate the number of words we need to add to 'p' so it satisfies the
+ * alignment constraint '(p + off) & (align-1) == 0'.
+ */
+#define ALIGN_WITH_OFF_W(p, align, off) \
+    (((-((uintptr_t)p) - off) & (align-1)) / sizeof(W_))
+
+/**
+ * When profiling we zero the space used for alignment. This allows us to
+ * traverse pinned blocks in the heap profiler.
+ *
+ * See Note [skipping slop in the heap profiler]
+ */
+#if defined(PROFILING)
+#define MEMSET_IF_PROFILING_W(p, val, len_w) memset(p, val, (len_w) * sizeof(W_))
+#else
+#define MEMSET_IF_PROFILING_W(p, val, len_w) \
+    do { (void)(p); (void)(val); (void)(len_w); } while(0)
+#endif
+
 /* ---------------------------------------------------------------------------
    Allocate a fixed/pinned object.
 
@@ -1084,29 +1152,49 @@ allocateMightFail (Capability *cap, W_ n)
    ------------------------------------------------------------------------- */
 
 StgPtr
-allocatePinned (Capability *cap, W_ n)
+allocatePinned (Capability *cap, W_ n /*words*/, W_ alignment /*bytes*/, W_ align_off /*bytes*/)
 {
     StgPtr p;
     bdescr *bd;
 
+    // Alignment and offset have to be a power of two
+    ASSERT(alignment && !(alignment & (alignment - 1)));
+    ASSERT(alignment >= sizeof(W_));
+
+    ASSERT(!(align_off & (align_off - 1)));
+
+    const StgWord alignment_w = alignment / sizeof(W_);
+
     // If the request is for a large object, then allocate()
     // will give us a pinned object anyway.
     if (n >= LARGE_OBJECT_THRESHOLD/sizeof(W_)) {
-        p = allocateMightFail(cap, n);
+        // For large objects we don't bother optimizing the number of words
+        // allocated for alignment reasons. Here we just allocate the maximum
+        // number of extra words we could possibly need to satisfy the alignment
+        // constraint.
+        p = allocateMightFail(cap, n + alignment_w - 1);
         if (p == NULL) {
             return NULL;
         } else {
             Bdescr(p)->flags |= BF_PINNED;
+            W_ off_w = ALIGN_WITH_OFF_W(p, alignment, align_off);
+            MEMSET_IF_PROFILING_W(p, 0, off_w);
+            p += off_w;
+            MEMSET_IF_PROFILING_W(p + n, 0, alignment_w - off_w - 1);
             return p;
         }
     }
 
-    accountAllocation(cap, n);
     bd = cap->pinned_object_block;
+
+    W_ off_w = 0;
+
+    if(bd)
+        off_w = ALIGN_WITH_OFF_W(bd->free, alignment, align_off);
 
     // If we don't have a block of pinned objects yet, or the current
     // one isn't large enough to hold the new object, get a new one.
-    if (bd == NULL || (bd->free + n) > (bd->start + BLOCK_SIZE_W)) {
+    if (bd == NULL || (bd->free + off_w + n) > (bd->start + BLOCK_SIZE_W)) {
 
         // stash the old block on cap->pinned_object_blocks.  On the
         // next GC cycle these objects will be moved to
@@ -1158,10 +1246,20 @@ allocatePinned (Capability *cap, W_ n)
         // the next GC the BF_EVACUATED flag will be cleared, and the
         // block will be promoted as usual (if anything in it is
         // live).
+
+        off_w = ALIGN_WITH_OFF_W(bd->free, alignment, align_off);
     }
 
     p = bd->free;
+
+    MEMSET_IF_PROFILING_W(p, 0, off_w);
+
+    n += off_w;
+    p += off_w;
     bd->free += n;
+
+    accountAllocation(cap, n);
+
     return p;
 }
 

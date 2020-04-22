@@ -474,31 +474,39 @@ INLINE_HEADER StgWord8 *mutArrPtrsCard (StgMutArrPtrs *a, W_ n)
    OVERWRITING_CLOSURE(p) on the old closure that is about to be
    overwritten.
 
-   Note [zeroing slop]
+   Note [zeroing slop when overwriting closures]
+   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   In some scenarios we write zero words into "slop"; memory that is
-   left unoccupied after we overwrite a closure in the heap with a
-   smaller closure.
+   When we overwrite a closure in the heap with a smaller one, in some scenarios
+   we need to write zero words into "slop"; the memory that is left
+   unoccupied. See Note [slop on the heap]
 
    Zeroing slop is required for:
 
-    - full-heap sanity checks (DEBUG, and +RTS -DS)
-    - LDV profiling (PROFILING, and +RTS -hb)
+    - full-heap sanity checks (DEBUG, and +RTS -DS),
 
-   Zeroing slop must be disabled for:
+    - LDV profiling (PROFILING, and +RTS -hb) and
 
-    - THREADED_RTS with +RTS -N2 and greater, because we cannot
-      overwrite slop when another thread might be reading it.
+   However we can get into trouble if we're zeroing slop for ordinarily
+   immutable closures when using multiple threads, since there is nothing
+   preventing another thread from still being in the process of reading the
+   memory we're about to zero.
 
-   Hence, slop is zeroed when either:
+   Thus, with the THREADED RTS and +RTS -N2 or greater we must not zero
+   immutable closure's slop.
 
-    - PROFILING && era <= 0 (LDV is on)
-    - !THREADED_RTS && DEBUG
+   Hence, an immutable closure's slop is zeroed when either:
 
-   And additionally:
+    - PROFILING && era > 0 (LDV is on) or
+    - !THREADED && DEBUG
 
-    - LDV profiling and +RTS -N2 are incompatible
-    - full-heap sanity checks are disabled for THREADED_RTS
+   Additionally:
+
+    - LDV profiling and +RTS -N2 are incompatible,
+
+    - full-heap sanity checks are disabled for the THREADED RTS, at least when
+      they don't run right after GC when there is no slop.
+      See Note [heap sanity checking with SMP].
 
    -------------------------------------------------------------------------- */
 
@@ -524,23 +532,24 @@ INLINE_HEADER StgWord8 *mutArrPtrsCard (StgMutArrPtrs *a, W_ n)
 
 #if defined(PROFILING)
 void LDV_recordDead (const StgClosure *c, uint32_t size);
+RTS_PRIVATE bool isInherentlyUsed ( StgHalfWord closure_type );
 #endif
 
 EXTERN_INLINE void overwritingClosure_ (StgClosure *p,
                                         uint32_t offset /* in words */,
                                         uint32_t size /* closure size, in words */,
-                                        bool prim /* Whether to call LDV_recordDead */
+                                        bool inherently_used USED_IF_PROFILING
                                         );
-EXTERN_INLINE void overwritingClosure_ (StgClosure *p, uint32_t offset, uint32_t size, bool prim USED_IF_PROFILING)
+EXTERN_INLINE void overwritingClosure_ (StgClosure *p, uint32_t offset, uint32_t size, bool inherently_used USED_IF_PROFILING)
 {
 #if ZERO_SLOP_FOR_LDV_PROF && !ZERO_SLOP_FOR_SANITY_CHECK
-    // see Note [zeroing slop], also #8402
+    // see Note [zeroing slop when overwriting closures], also #8402
     if (era <= 0) return;
 #endif
 
     // For LDV profiling, we need to record the closure as dead
 #if defined(PROFILING)
-    if (!prim) { LDV_recordDead(p, size); };
+    if (!inherently_used) { LDV_recordDead(p, size); };
 #endif
 
     for (uint32_t i = offset; i < size; i++) {
@@ -551,7 +560,11 @@ EXTERN_INLINE void overwritingClosure_ (StgClosure *p, uint32_t offset, uint32_t
 EXTERN_INLINE void overwritingClosure (StgClosure *p);
 EXTERN_INLINE void overwritingClosure (StgClosure *p)
 {
-    overwritingClosure_(p, sizeofW(StgThunkHeader), closure_sizeW(p), false);
+#if defined(PROFILING)
+    ASSERT(!isInherentlyUsed(get_itbl(p)->type));
+#endif
+    overwritingClosure_(p, sizeofW(StgThunkHeader), closure_sizeW(p),
+                        /*inherently_used=*/false);
 }
 
 // Version of 'overwritingClosure' which overwrites only a suffix of a
@@ -564,21 +577,24 @@ EXTERN_INLINE void overwritingClosure (StgClosure *p)
 EXTERN_INLINE void overwritingClosureOfs (StgClosure *p, uint32_t offset);
 EXTERN_INLINE void overwritingClosureOfs (StgClosure *p, uint32_t offset)
 {
-    // Set prim = true because overwritingClosureOfs is only
-    // ever called by
-    //   shrinkMutableByteArray# (ARR_WORDS)
-    //   shrinkSmallMutableArray# (SMALL_MUT_ARR_PTRS)
-    // This causes LDV_recordDead to be invoked. We want this
-    // to happen because the implementations of the above
-    // primops both call LDV_RECORD_CREATE after calling this,
-    // effectively replacing the LDV closure biography.
-    // See Note [LDV Profiling when Shrinking Arrays]
-    overwritingClosure_(p, offset, closure_sizeW(p), true);
+    // Since overwritingClosureOfs is only ever called by:
+    //
+    //   - shrinkMutableByteArray# (ARR_WORDS) and
+    //
+    //   - shrinkSmallMutableArray# (SMALL_MUT_ARR_PTRS)
+    //
+    // we can safely set inherently_used = true, which means LDV_recordDead
+    // won't be invoked below. Since these closures are inherenlty used we don't
+    // need to track their destruction.
+    overwritingClosure_(p, offset, closure_sizeW(p), /*inherently_used=*/true);
 }
 
 // Version of 'overwritingClosure' which takes closure size as argument.
 EXTERN_INLINE void overwritingClosureSize (StgClosure *p, uint32_t size /* in words */);
 EXTERN_INLINE void overwritingClosureSize (StgClosure *p, uint32_t size)
 {
-    overwritingClosure_(p, sizeofW(StgThunkHeader), size, false);
+#if defined(PROFILING)
+    ASSERT(!isInherentlyUsed(get_itbl(p)->type));
+#endif
+    overwritingClosure_(p, sizeofW(StgThunkHeader), size, /*inherently_used=*/false);
 }

@@ -89,21 +89,14 @@ stg_newPinnedByteArrayzh ( W_ n )
     /* When we actually allocate memory, we need to allow space for the
        header: */
     bytes = bytes + SIZEOF_StgArrBytes;
-    /* And we want to align to BA_ALIGN bytes, so we need to allow space
-       to shift up to BA_ALIGN - 1 bytes: */
-    bytes = bytes + BA_ALIGN - 1;
     /* Now we convert to a number of words: */
     words = ROUNDUP_BYTES_TO_WDS(bytes);
 
-    ("ptr" p) = ccall allocatePinned(MyCapability() "ptr", words);
+    ("ptr" p) = ccall allocatePinned(MyCapability() "ptr", words, BA_ALIGN, SIZEOF_StgArrBytes);
     if (p == NULL) {
         jump stg_raisezh(base_GHCziIOziException_heapOverflow_closure);
     }
     TICK_ALLOC_PRIM(SIZEOF_StgArrBytes,WDS(payload_words),0);
-
-    /* Now we need to move p forward so that the payload is aligned
-       to BA_ALIGN bytes: */
-    p = p + ((-p - SIZEOF_StgArrBytes) & BA_MASK);
 
     /* No write barrier needed since this is a new allocation. */
     SET_HDR(p, stg_ARR_WORDS_info, CCCS);
@@ -121,7 +114,7 @@ stg_newAlignedPinnedByteArrayzh ( W_ n, W_ alignment )
     /* we always supply at least word-aligned memory, so there's no
        need to allow extra space for alignment if the requirement is less
        than a word.  This also prevents mischief with alignment == 0. */
-    if (alignment <= SIZEOF_W) { alignment = 1; }
+    if (alignment <= SIZEOF_W) { alignment = SIZEOF_W; }
 
     bytes = n;
 
@@ -131,22 +124,14 @@ stg_newAlignedPinnedByteArrayzh ( W_ n, W_ alignment )
     /* When we actually allocate memory, we need to allow space for the
        header: */
     bytes = bytes + SIZEOF_StgArrBytes;
-    /* And we want to align to <alignment> bytes, so we need to allow space
-       to shift up to <alignment - 1> bytes: */
-    bytes = bytes + alignment - 1;
     /* Now we convert to a number of words: */
     words = ROUNDUP_BYTES_TO_WDS(bytes);
 
-    ("ptr" p) = ccall allocatePinned(MyCapability() "ptr", words);
+    ("ptr" p) = ccall allocatePinned(MyCapability() "ptr", words, alignment, SIZEOF_StgArrBytes);
     if (p == NULL) {
         jump stg_raisezh(base_GHCziIOziException_heapOverflow_closure);
     }
     TICK_ALLOC_PRIM(SIZEOF_StgArrBytes,WDS(payload_words),0);
-
-    /* Now we need to move p forward so that the payload is aligned
-       to <alignment> bytes. Note that we are assuming that
-       <alignment> is a power of 2, which is technically not guaranteed */
-    p = p + ((-p - SIZEOF_StgArrBytes) & (alignment - 1));
 
     /* No write barrier needed since this is a new allocation. */
     SET_HDR(p, stg_ARR_WORDS_info, CCCS);
@@ -173,6 +158,17 @@ stg_isMutableByteArrayPinnedzh ( gcptr mba )
     jump stg_isByteArrayPinnedzh(mba);
 }
 
+/* Note [LDV profiling and resizing arrays]
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ *
+ * As far as the LDV profiler is concerned arrays are "inherently used" which
+ * means we don't track their time of use and eventual destruction. We just
+ * assume they get used.
+ *
+ * Thus it is not necessary to call LDV_RECORD_CREATE when resizing them as we
+ * used to as the LDV profiler will essentially ignore arrays anyways.
+ */
+
 // shrink size of MutableByteArray in-place
 stg_shrinkMutableByteArrayzh ( gcptr mba, W_ new_size )
 // MutableByteArray# s -> Int# -> State# s -> State# s
@@ -182,9 +178,7 @@ stg_shrinkMutableByteArrayzh ( gcptr mba, W_ new_size )
    OVERWRITING_CLOSURE_OFS(mba, (BYTES_TO_WDS(SIZEOF_StgArrBytes) +
                                  ROUNDUP_BYTES_TO_WDS(new_size)));
    StgArrBytes_bytes(mba) = new_size;
-   // See the comments in overwritingClosureOfs for an explanation
-   // of the interaction with LDV profiling.
-   LDV_RECORD_CREATE(mba);
+   // No need to call LDV_RECORD_CREATE. See Note [LDV profiling and resizing arrays]
 
    return ();
 }
@@ -208,7 +202,7 @@ stg_resizzeMutableByteArrayzh ( gcptr mba, W_ new_size )
       OVERWRITING_CLOSURE_OFS(mba, (BYTES_TO_WDS(SIZEOF_StgArrBytes) +
                                     new_size_wds));
       StgArrBytes_bytes(mba) = new_size;
-      LDV_RECORD_CREATE(mba);
+      // No need to call LDV_RECORD_CREATE. See Note [LDV profiling and resizing arrays]
 
       return (mba);
    } else {
@@ -237,9 +231,7 @@ stg_shrinkSmallMutableArrayzh ( gcptr mba, W_ new_size )
    OVERWRITING_CLOSURE_OFS(mba, (BYTES_TO_WDS(SIZEOF_StgSmallMutArrPtrs) +
                                  new_size));
    StgSmallMutArrPtrs_ptrs(mba) = new_size;
-   // See the comments in overwritingClosureOfs for an explanation
-   // of the interaction with LDV profiling.
-   LDV_RECORD_CREATE(mba);
+   // No need to call LDV_RECORD_CREATE. See Note [LDV profiling and resizing arrays]
 
    return ();
 }
