@@ -398,6 +398,7 @@ dsExpr (ExplicitTuple _ tup_args boxity)
                     -- lambdas, just arguments.
                = do { core_expr <- dsLExprNoLP expr
                     ; return (lam_vars, core_expr : args, missing, mults) }
+             go (lam_vars, args, missing, mults) _ = pprPanic "dsExpr" (ppr lam_vars <+> ppr args <+> ppr missing <+> ppr mults)
 
        ; let multiplicityVars = mkTemplateTyVars (repeat multiplicityTy)
        ; dsWhenNoErrs (foldM go ([], [], [], multiplicityVars) (reverse tup_args))
