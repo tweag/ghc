@@ -52,10 +52,10 @@ import GHC.Tc.Types.Origin
 import GHC.Core.Multiplicity
 import GHC.Core.UsageEnv
 import GHC.Types.Name
-import TysWiredIn
+import GHC.Builtin.Types
 import GHC.Types.Id
 import GHC.Core.TyCon
-import TysPrim
+import GHC.Builtin.Types.Prim
 import GHC.Tc.Types.Evidence
 import Outputable
 import Util

@@ -42,7 +42,7 @@ import GHC.Tc.Utils.Unify ( checkTvConstraints )
 import GHC.Tc.Gen.HsType
 import GHC.Tc.Instance.Class( AssocInstInfo(..) )
 import GHC.Tc.Utils.TcMType
-import TysWiredIn ( unitTy, makeRecoveryTyCon )
+import GHC.Builtin.Types ( unitTy, makeRecoveryTyCon )
 import GHC.Tc.Utils.TcType
 import GHC.Core.Multiplicity
 import GHC.Rename.Env( lookupConstructorFields )

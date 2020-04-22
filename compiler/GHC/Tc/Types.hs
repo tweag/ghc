@@ -121,7 +121,7 @@ import Outputable
 import ListSetOps
 import Fingerprint
 import Util
-import PrelNames ( isUnboundName )
+import GHC.Builtin.Names ( isUnboundName )
 import GHC.Types.CostCentre.State
 
 import Control.Monad (ap)

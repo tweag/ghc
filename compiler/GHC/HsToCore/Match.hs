@@ -53,7 +53,7 @@ import GHC.Core.Type
 import GHC.Core.Coercion ( eqCoercion )
 import GHC.Core.TyCon    ( isNewTyCon )
 import GHC.Core.Multiplicity
-import TysWiredIn
+import GHC.Builtin.Types
 import GHC.Types.SrcLoc
 import Maybes
 import Util
@@ -345,7 +345,7 @@ We do *not* desugar simply to
    error "empty case"
 or some such, because 'x' might be bound to (error "hello"), in which
 case we want to see that "hello" exception, not (error "empty case").
-See also Note [Case elimination: lifted case] in GHC.Core.Op.Simplify.
+See also Note [Case elimination: lifted case] in GHC.Core.Opt.Simplify.
 
 
 ************************************************************************

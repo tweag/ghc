@@ -58,19 +58,19 @@ import GHC.Types.Module
 import GHC.Core.ConLike
 import GHC.Core.DataCon
 import GHC.Core.TyCo.Ppr( pprWithTYPE )
-import TysWiredIn
-import PrelNames
+import GHC.Builtin.Types
+import GHC.Builtin.Names
 import GHC.Types.Basic
 import Maybes
 import GHC.Types.Var.Env
 import GHC.Types.SrcLoc
+import GHC.Builtin.Types.Prim ( mkTemplateTyVars )
 import Util
 import Bag
 import Outputable
 import GHC.Core.PatSyn
 
 import Control.Monad
-import TysPrim
 import Data.List.NonEmpty ( nonEmpty )
 
 {-
