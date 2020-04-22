@@ -653,11 +653,7 @@ dsExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                  arg_tys' = map (scaleScaled Many) arg_tys
                    -- Record updates consume the source record with multiplicity
                    -- Many. Therefore all the fields need to be scaled thus.
-                 user_tvs =
-                   case con of
-                     RealDataCon data_con -> dataConUserTyVars data_con
-                     PatSynCon _          -> univ_tvs ++ ex_tvs
-                       -- The order here is because of the order in `GHC.Tc.TyCl.PatSyn`.
+                 user_tvs  = binderVars $ conLikeUserTyVarBinders con
                  in_subst  = zipTvSubst univ_tvs in_inst_tys
                  out_subst = zipTvSubst univ_tvs out_inst_tys
 
@@ -804,7 +800,7 @@ dsSyntaxExpr (SyntaxExprTc { syn_expr      = expr
   = do { fun            <- dsExpr expr
        ; core_arg_wraps <- mapM dsHsWrapper arg_wraps
        ; core_res_wrap  <- dsHsWrapper res_wrap
-       ; let wrapped_args = zipWith ($) core_arg_wraps arg_exprs
+       ; let wrapped_args = zipWithEqual "dsSyntaxExpr" ($) core_arg_wraps arg_exprs
        ; dsWhenNoErrs (zipWithM_ dsNoLevPolyExpr wrapped_args [ mk_doc n | n <- [1..] ])
                       (\_ -> core_res_wrap (mkApps fun wrapped_args)) }
   where
