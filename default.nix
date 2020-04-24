@@ -3,7 +3,7 @@
 # Usage examples:
 #
 #   nix-shell path/to/ghc.nix/ --pure --run './boot && ./configure && make -j4'
-#   nix-shell path/to/ghc.nix/        --run 'hadrian/build.sh -c -j4 --flavour=quickest'
+#   nix-shell path/to/ghc.nix/        --run 'hadrian/build -c -j4 --flavour=quickest'
 #   nix-shell path/to/ghc.nix/        --run 'THREADS=4 ./validate --slow'
 #
 let
@@ -12,14 +12,17 @@ let
 in
 { nixpkgsPin ? ./nix/pins/nixpkgs.src-json
 , nixpkgs   ? import (fetchNixpkgs nixpkgsPin) {}
-, bootghc   ? "ghc865"
+, bootghc   ? "ghc882"
 , version   ? "8.9"
 , hadrianCabal ? (builtins.getEnv "PWD") + "/hadrian/hadrian.cabal"
 , useClang  ? false  # use Clang for C compilation
 , withLlvm  ? false
 , withDocs  ? true
 , withGhcid ? false
-, withIde   ? false
+# GHCIDE support on hold as we must use GHC 8.8 minimum for GHC development, and GHCIDE is not yet available for GHC 8.8
+# See https://github.com/cachix/ghcide-nix/issues/3
+# See https://github.com/alpmestan/ghc.nix/issues/64
+# , withIde   ? false
 , withHadrianDeps ? false
 , withDwarf  ? nixpkgs.stdenv.isLinux  # enable libdw unwinding support
 , withNuma   ? nixpkgs.stdenv.isLinux
@@ -71,7 +74,7 @@ let
       ++ optional withNuma numactl
       ++ optional withDwarf elfutils
       ++ optional withGhcid ghcid
-      ++ optional withIde ghcide
+      # ++ optionals withIde [ghcide ccls bear]
       ++ optional withDtrace linuxPackages.systemtap
       ++ (if (! stdenv.isDarwin)
           then [ pxz ]
