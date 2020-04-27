@@ -47,7 +47,7 @@ import Outputable
 import Stream
 import GHC.Types.Basic
 import GHC.Types.Var.Set ( isEmptyDVarSet )
-import FileCleanup
+import GHC.SysTools.FileCleanup
 
 import OrdList
 import GHC.Cmm.Graph

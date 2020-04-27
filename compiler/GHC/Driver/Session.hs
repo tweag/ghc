@@ -231,7 +231,7 @@ module GHC.Driver.Session (
         IncludeSpecs(..), addGlobalInclude, addQuoteInclude, flattenIncludes,
 
         -- * SDoc
-        initSDocContext,
+        initSDocContext, initDefaultSDocContext,
 
         -- * Make use of the Cmm CFG
         CfgWeights(..)
@@ -243,11 +243,10 @@ import GhcPrelude
 
 import GHC.Platform
 import GHC.UniqueSubdir (uniqueSubdir)
-import PlatformConstants
 import GHC.Types.Module
 import {-# SOURCE #-} GHC.Driver.Plugins
 import {-# SOURCE #-} GHC.Driver.Hooks
-import {-# SOURCE #-} PrelNames ( mAIN )
+import {-# SOURCE #-} GHC.Builtin.Names ( mAIN )
 import {-# SOURCE #-} GHC.Driver.Packages (PackageState, emptyPackageState, PackageDatabase, mkComponentId)
 import GHC.Driver.Phases ( Phase(..), phaseInputExt )
 import GHC.Driver.Flags
@@ -256,8 +255,7 @@ import Config
 import CliOption
 import GHC.Driver.CmdLine hiding (WarnReason(..))
 import qualified GHC.Driver.CmdLine as Cmd
-import Constants
-import GhcNameVersion
+import GHC.Settings.Constants
 import Panic
 import qualified PprColour as Col
 import Util
@@ -268,17 +266,15 @@ import GHC.Types.SrcLoc
 import GHC.Types.Basic ( Alignment, alignmentOf, IntWithInf, treatZeroAsInf )
 import FastString
 import Fingerprint
-import FileSettings
 import Outputable
-import Settings
-import ToolSettings
+import GHC.Settings
 
 import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessageAnn
                                , getCaretDiagnostic, DumpAction, TraceAction
                                , defaultDumpAction, defaultTraceAction )
 import Json
-import SysTools.Terminal ( stderrSupportsAnsiColors )
-import SysTools.BaseDir ( expandToolDir, expandTopDir )
+import GHC.SysTools.Terminal ( stderrSupportsAnsiColors )
+import GHC.SysTools.BaseDir ( expandToolDir, expandTopDir )
 
 import System.IO.Unsafe ( unsafePerformIO )
 import Data.IORef
@@ -458,10 +454,10 @@ data DynFlags = DynFlags {
 
   integerLibrary        :: IntegerLibrary,
     -- ^ IntegerGMP or IntegerSimple. Set at configure time, but may be overridden
-    --   by GHC-API users. See Note [The integer library] in PrelNames
+    --   by GHC-API users. See Note [The integer library] in GHC.Builtin.Names
   llvmConfig            :: LlvmConfig,
     -- ^ N.B. It's important that this field is lazy since we load the LLVM
-    -- configuration lazily. See Note [LLVM Configuration] in SysTools.
+    -- configuration lazily. See Note [LLVM Configuration] in GHC.SysTools.
   verbosity             :: Int,         -- ^ Verbosity level: see Note [Verbosity levels]
   optLevel              :: Int,         -- ^ Optimisation level
   debugLevel            :: Int,         -- ^ How much debug information to produce
@@ -504,7 +500,7 @@ data DynFlags = DynFlags {
                                         --   by the assembler code generator (0 to disable)
   liberateCaseThreshold :: Maybe Int,   -- ^ Threshold for LiberateCase
   floatLamArgs          :: Maybe Int,   -- ^ Arg count for lambda floating
-                                        --   See GHC.Core.Op.Monad.FloatOutSwitches
+                                        --   See GHC.Core.Opt.Monad.FloatOutSwitches
 
   liftLamsRecArgs       :: Maybe Int,   -- ^ Maximum number of arguments after lambda lifting a
                                         --   recursive function.
@@ -889,7 +885,7 @@ data LlvmTarget = LlvmTarget
   , lAttributes :: [String]
   }
 
--- | See Note [LLVM Configuration] in SysTools.
+-- | See Note [LLVM Configuration] in GHC.SysTools.
 data LlvmConfig = LlvmConfig { llvmTargets :: [(String, LlvmTarget)]
                              , llvmPasses  :: [(Int, String)]
                              }
@@ -1593,7 +1589,8 @@ defaultLogActionHPutStrDoc :: DynFlags -> Handle -> SDoc -> PprStyle -> IO ()
 defaultLogActionHPutStrDoc dflags h d sty
   -- Don't add a newline at the end, so that successive
   -- calls to this log-action can output all on the same line
-  = printSDoc Pretty.PageMode dflags h sty d
+  = printSDoc ctx Pretty.PageMode h d
+    where ctx = initSDocContext dflags sty
 
 newtype FlushOut = FlushOut (IO ())
 
@@ -5062,13 +5059,6 @@ setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
 -- check if SSE is enabled, we might have x86-64 imply the -msse2
 -- flag.
 
-data SseVersion = SSE1
-                | SSE2
-                | SSE3
-                | SSE4
-                | SSE42
-                deriving (Eq, Ord)
-
 isSseEnabled :: DynFlags -> Bool
 isSseEnabled dflags = case platformArch (targetPlatform dflags) of
     ArchX86_64 -> True
@@ -5113,10 +5103,6 @@ isAvx512pfEnabled dflags = avx512pf dflags
 
 -- -----------------------------------------------------------------------------
 -- BMI2
-
-data BmiVersion = BMI1
-                | BMI2
-                deriving (Eq, Ord)
 
 isBmiEnabled :: DynFlags -> Bool
 isBmiEnabled dflags = case platformArch (targetPlatform dflags) of
@@ -5193,7 +5179,7 @@ emptyFilesToClean :: FilesToClean
 emptyFilesToClean = FilesToClean Set.empty Set.empty
 
 
-
+-- | Initialize the pretty-printing options
 initSDocContext :: DynFlags -> PprStyle -> SDocContext
 initSDocContext dflags style = SDC
   { sdocStyle                       = style
@@ -5230,3 +5216,7 @@ initSDocContext dflags style = SDC
   , sdocLinearTypes                 = xopt LangExt.LinearTypes dflags
   , sdocDynFlags                    = dflags
   }
+
+-- | Initialize the pretty-printing options using the default user style
+initDefaultSDocContext :: DynFlags -> SDocContext
+initDefaultSDocContext dflags = initSDocContext dflags (defaultUserStyle dflags)

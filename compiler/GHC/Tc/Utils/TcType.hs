@@ -198,6 +198,7 @@ import GHC.Core.TyCo.Subst ( mkTvSubst, substTyWithCoVars )
 import GHC.Core.TyCo.FVs
 import GHC.Core.TyCo.Ppr
 import GHC.Core.Class
+import GHC.Core.Multiplicity
 import GHC.Types.Var
 import GHC.Types.ForeignCall
 import GHC.Types.Var.Set
@@ -215,10 +216,9 @@ import GHC.Types.Name as Name
             -- Perhaps there's a better way to do this?
 import GHC.Types.Name.Set
 import GHC.Types.Var.Env
-import PrelNames
-import TysWiredIn( coercibleClass, eqClass, heqClass, unitTyCon, unitTyConKey
-                 , listTyCon, constraintKind )
-import GHC.Core.Multiplicity
+import GHC.Builtin.Names
+import GHC.Builtin.Types ( coercibleClass, eqClass, heqClass, unitTyCon, unitTyConKey
+                         , listTyCon, constraintKind )
 import GHC.Types.Basic
 import Util
 import Maybes
@@ -1122,7 +1122,7 @@ findDupTyVarTvs prs
 {-
 ************************************************************************
 *                                                                      *
-\subsection{Tau, sigma and rho}
+   Tau, sigma and rho
 *                                                                      *
 ************************************************************************
 -}
@@ -1183,7 +1183,7 @@ mkTcCastTy = mkCastTy   -- Do we need a tc version of mkCastTy?
 {-
 ************************************************************************
 *                                                                      *
-\subsection{Expanding and splitting}
+   Expanding and splitting
 *                                                                      *
 ************************************************************************
 
@@ -2127,7 +2127,7 @@ isAlmostFunctionFree (CoercionTy {})   = True
 {-
 ************************************************************************
 *                                                                      *
-\subsection{Misc}
+   Misc
 *                                                                      *
 ************************************************************************
 
@@ -2179,7 +2179,7 @@ end of the compiler.
 {-
 ************************************************************************
 *                                                                      *
-\subsection[TysWiredIn-ext-type]{External types}
+   External types
 *                                                                      *
 ************************************************************************
 

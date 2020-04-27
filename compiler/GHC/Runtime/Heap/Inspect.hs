@@ -54,9 +54,9 @@ import GHC.Iface.Env
 import Util
 import GHC.Types.Var.Set
 import GHC.Types.Basic ( Boxity(..) )
-import TysPrim
-import PrelNames
-import TysWiredIn
+import GHC.Builtin.Types.Prim
+import GHC.Builtin.Names
+import GHC.Builtin.Types
 import GHC.Driver.Session
 import Outputable as Ppr
 import GHC.Char
@@ -866,7 +866,7 @@ extractSubTerms recurse clos = liftM thdOf3 . go 0 0
           -- This is a bit involved since we allow packing multiple fields
           -- within a single word. See also
           -- GHC.StgToCmm.Layout.mkVirtHeapOffsetsWithPadding
-          platform <- targetPlatform <$> getDynFlags
+          platform <- getPlatform
           let word_size = platformWordSizeInBytes platform
               endian = platformByteOrder platform
               size_b = primRepSizeB platform rep

@@ -48,7 +48,7 @@ import Util
 import Outputable
 import FastString
 import GHC.Core.Type
-import TysWiredIn (mkTupleStr)
+import GHC.Builtin.Types (mkTupleStr)
 import GHC.Tc.Utils.TcType (TcType)
 import {-# SOURCE #-} GHC.Tc.Types (TcLclEnv)
 
@@ -76,7 +76,7 @@ type LHsExpr p = Located (HsExpr p)
   -- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnComma' when
   --   in a list
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
 -------------------------
 -- | Post-Type checking Expression
@@ -282,7 +282,7 @@ data HsExpr p
        -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLam',
        --       'ApiAnnotation.AnnRarrow',
 
-       -- For details on above see note [Api annotations] in ApiAnnotation
+       -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
   | HsLamCase (XLamCase p) (MatchGroup p (LHsExpr p)) -- ^ Lambda-case
        --
@@ -290,7 +290,7 @@ data HsExpr p
        --           'ApiAnnotation.AnnCase','ApiAnnotation.AnnOpen',
        --           'ApiAnnotation.AnnClose'
 
-       -- For details on above see note [Api annotations] in ApiAnnotation
+       -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
   | HsApp     (XApp p) (LHsExpr p) (LHsExpr p) -- ^ Application
 
@@ -317,7 +317,7 @@ data HsExpr p
   --
   --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnMinus'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | NegApp      (XNegApp p)
                 (LHsExpr p)
                 (SyntaxExpr p)
@@ -325,7 +325,7 @@ data HsExpr p
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'('@,
   --             'ApiAnnotation.AnnClose' @')'@
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsPar       (XPar p)
                 (LHsExpr p)  -- ^ Parenthesised expr; see Note [Parens in HsSyn]
 
@@ -341,7 +341,7 @@ data HsExpr p
   --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
   --         'ApiAnnotation.AnnClose'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   -- Note [ExplicitTuple]
   | ExplicitTuple
         (XExplicitTuple p)
@@ -365,7 +365,7 @@ data HsExpr p
   --       'ApiAnnotation.AnnOf','ApiAnnotation.AnnOpen' @'{'@,
   --       'ApiAnnotation.AnnClose' @'}'@
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsCase      (XCase p)
                 (LHsExpr p)
                 (MatchGroup p (LHsExpr p))
@@ -375,7 +375,7 @@ data HsExpr p
   --       'ApiAnnotation.AnnThen','ApiAnnotation.AnnSemi',
   --       'ApiAnnotation.AnnElse',
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsIf        (XIf p)        -- GhcPs: this is a Bool; False <=> do not use
                                --  rebindable syntax
                 (SyntaxExpr p) -- cond function
@@ -390,7 +390,7 @@ data HsExpr p
   -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnIf'
   --       'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose',
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsMultiIf   (XMultiIf p) [LGRHS p (LHsExpr p)]
 
   -- | let(rec)
@@ -399,7 +399,7 @@ data HsExpr p
   --       'ApiAnnotation.AnnOpen' @'{'@,
   --       'ApiAnnotation.AnnClose' @'}'@,'ApiAnnotation.AnnIn'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsLet       (XLet p)
                 (LHsLocalBinds p)
                 (LHsExpr  p)
@@ -409,7 +409,7 @@ data HsExpr p
   --             'ApiAnnotation.AnnVbar',
   --             'ApiAnnotation.AnnClose'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsDo        (XDo p)                  -- Type of the whole expression
                 (HsStmtContext GhcRn)    -- The parameterisation is unimportant
                                          -- because in this context we never use
@@ -421,7 +421,7 @@ data HsExpr p
   --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'['@,
   --              'ApiAnnotation.AnnClose' @']'@
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   -- See Note [Empty lists]
   | ExplicitList
                 (XExplicitList p)  -- Gives type of components of list
@@ -434,7 +434,7 @@ data HsExpr p
   --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'{'@,
   --         'ApiAnnotation.AnnDotdot','ApiAnnotation.AnnClose' @'}'@
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | RecordCon
       { rcon_ext      :: XRecordCon p
       , rcon_con_name :: Located (IdP p)    -- The constructor name;
@@ -446,7 +446,7 @@ data HsExpr p
   --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'{'@,
   --         'ApiAnnotation.AnnDotdot','ApiAnnotation.AnnClose' @'}'@
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | RecordUpd
       { rupd_ext  :: XRecordUpd p
       , rupd_expr :: LHsExpr p
@@ -459,7 +459,7 @@ data HsExpr p
   --
   --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDcolon'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | ExprWithTySig
                 (XExprWithTySig p)
 
@@ -472,14 +472,14 @@ data HsExpr p
   --              'ApiAnnotation.AnnComma','ApiAnnotation.AnnDotdot',
   --              'ApiAnnotation.AnnClose' @']'@
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | ArithSeq
                 (XArithSeq p)
                 (Maybe (SyntaxExpr p))
                                   -- For OverloadedLists, the fromList witness
                 (ArithSeqInfo p)
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
   -----------------------------------------------------------
   -- MetaHaskell Extensions
@@ -488,7 +488,7 @@ data HsExpr p
   --         'ApiAnnotation.AnnOpenE','ApiAnnotation.AnnOpenEQ',
   --         'ApiAnnotation.AnnClose','ApiAnnotation.AnnCloseQ'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsBracket    (XBracket p) (HsBracket p)
 
     -- See Note [Pending Splices]
@@ -510,7 +510,7 @@ data HsExpr p
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
   --         'ApiAnnotation.AnnClose'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsSpliceE  (XSpliceE p) (HsSplice p)
 
   -----------------------------------------------------------
@@ -521,7 +521,7 @@ data HsExpr p
   --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnProc',
   --          'ApiAnnotation.AnnRarrow'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsProc      (XProc p)
                 (LPat p)               -- arrow abstraction, proc
                 (LHsCmdTop p)          -- body of the abstraction
@@ -531,7 +531,7 @@ data HsExpr p
   -- static pointers extension
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnStatic',
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsStatic (XStatic p) -- Free variables of the body
              (LHsExpr p)        -- Body
 
@@ -682,7 +682,7 @@ data HsPragE p
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'{-\# CORE'@,
   --             'ApiAnnotation.AnnVal', 'ApiAnnotation.AnnClose' @'\#-}'@
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsPragCore  (XCoreAnn p)
                 SourceText            -- Note [Pragma source text] in GHC.Types.Basic
                 StringLiteral         -- hdaume: core annotation
@@ -696,7 +696,7 @@ data HsPragE p
   --       'ApiAnnotation.AnnVal',
   --       'ApiAnnotation.AnnClose' @'\#-}'@
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsPragTick                        -- A pragma introduced tick
      (XTickPragma p)
      SourceText                       -- Note [Pragma source text] in GHC.Types.Basic
@@ -722,7 +722,7 @@ type instance XXPragE        (GhcPass _) = NoExtCon
 type LHsTupArg id = Located (HsTupArg id)
 -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnComma'
 
--- For details on above see note [Api annotations] in ApiAnnotation
+-- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
 -- | Haskell Tuple Argument
 data HsTupArg id
@@ -842,7 +842,7 @@ A tuple data constructor like () or (,,,) is parsed as an `HsVar`, not an
 
 Sadly, the grammar for this is actually ambiguous, and it's only thanks to the
 preference of a shift in a shift/reduce conflict that the parser works as this
-Note details. Search for a reference to this Note in Parser.y for further
+Note details. Search for a reference to this Note in GHC.Parser for further
 explanation.
 
 Note [Empty lists]
@@ -854,7 +854,7 @@ various phases and why.
 Parsing
 -------
 An empty list is parsed by the sysdcon nonterminal. It thus comes to life via
-HsVar nilDataCon (defined in TysWiredIn). A freshly-parsed (HsExpr GhcPs) empty list
+HsVar nilDataCon (defined in GHC.Builtin.Types). A freshly-parsed (HsExpr GhcPs) empty list
 is never a ExplicitList.
 
 Renaming
@@ -1271,7 +1271,7 @@ data HsCmd id
   --          'ApiAnnotation.Annrarrowtail','ApiAnnotation.AnnLarrowtail',
   --          'ApiAnnotation.AnnRarrowtail'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   = HsCmdArrApp          -- Arrow tail, or arrow application (f -< arg)
         (XCmdArrApp id)  -- type of the arrow expressions f,
                          -- of the form a t t', where arg :: t
@@ -1284,7 +1284,7 @@ data HsCmd id
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpenB' @'(|'@,
   --         'ApiAnnotation.AnnCloseB' @'|)'@
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | HsCmdArrForm         -- Command formation,  (| e cmd1 .. cmdn |)
         (XCmdArrForm id)
         (LHsExpr id)     -- The operator.
@@ -1305,14 +1305,14 @@ data HsCmd id
        -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLam',
        --       'ApiAnnotation.AnnRarrow',
 
-       -- For details on above see note [Api annotations] in ApiAnnotation
+       -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
   | HsCmdPar    (XCmdPar id)
                 (LHsCmd id)                     -- parenthesised command
     -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'('@,
     --             'ApiAnnotation.AnnClose' @')'@
 
-    -- For details on above see note [Api annotations] in ApiAnnotation
+    -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
   | HsCmdCase   (XCmdCase id)
                 (LHsExpr id)
@@ -1321,7 +1321,7 @@ data HsCmd id
     --       'ApiAnnotation.AnnOf','ApiAnnotation.AnnOpen' @'{'@,
     --       'ApiAnnotation.AnnClose' @'}'@
 
-    -- For details on above see note [Api annotations] in ApiAnnotation
+    -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
   | HsCmdIf     (XCmdIf id)
                 (SyntaxExpr id)         -- cond function
@@ -1333,7 +1333,7 @@ data HsCmd id
     --       'ApiAnnotation.AnnThen','ApiAnnotation.AnnSemi',
     --       'ApiAnnotation.AnnElse',
 
-    -- For details on above see note [Api annotations] in ApiAnnotation
+    -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
   | HsCmdLet    (XCmdLet id)
                 (LHsLocalBinds id)      -- let(rec)
@@ -1342,7 +1342,7 @@ data HsCmd id
     --       'ApiAnnotation.AnnOpen' @'{'@,
     --       'ApiAnnotation.AnnClose' @'}'@,'ApiAnnotation.AnnIn'
 
-    -- For details on above see note [Api annotations] in ApiAnnotation
+    -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
   | HsCmdDo     (XCmdDo id)                     -- Type of the whole expression
                 (Located [CmdLStmt id])
@@ -1351,7 +1351,7 @@ data HsCmd id
     --             'ApiAnnotation.AnnVbar',
     --             'ApiAnnotation.AnnClose'
 
-    -- For details on above see note [Api annotations] in ApiAnnotation
+    -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
   | XCmd        !(XXCmd id)     -- Note [Trees that Grow] extension point
 
@@ -1568,7 +1568,7 @@ type LMatch id body = Located (Match id body)
 -- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnSemi' when in a
 --   list
 
--- For details on above see note [Api annotations] in ApiAnnotation
+-- For details on above see note [Api annotations] in GHC.Parser.Annotation
 data Match p body
   = Match {
         m_ext :: XCMatch p body,
@@ -1660,7 +1660,7 @@ hsLMatchPats (L _ (Match { m_pats = pats })) = pats
 --        'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose'
 --        'ApiAnnotation.AnnRarrow','ApiAnnotation.AnnSemi'
 
--- For details on above see note [Api annotations] in ApiAnnotation
+-- For details on above see note [Api annotations] in GHC.Parser.Annotation
 data GRHSs p body
   = GRHSs {
       grhssExt :: XCGRHSs p body,
@@ -1810,7 +1810,7 @@ type GhciStmt   id = Stmt  id (LHsExpr id)
 --         'ApiAnnotation.AnnBy','ApiAnnotation.AnnBy',
 --         'ApiAnnotation.AnnGroup','ApiAnnotation.AnnUsing'
 
--- For details on above see note [Api annotations] in ApiAnnotation
+-- For details on above see note [Api annotations] in GHC.Parser.Annotation
 data StmtLR idL idR body -- body should always be (LHs**** idR)
   = LastStmt  -- Always the last Stmt in ListComp, MonadComp,
               -- and (after the renamer, see GHC.Rename.Expr.checkLastStmt) DoExpr, MDoExpr
@@ -1828,18 +1828,15 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
             -- See Note [Monad Comprehensions]
             -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLarrow'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
-  | BindStmt (XBindStmt idL idR body) -- Post typechecking, multiplicity of the
-                                -- argument and result type of the function
-                                -- passed to bind; that is, (P, S) in
-                                -- (>>=) :: Q :_-> (R :P-> S) :_-> T
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
+  | BindStmt (XBindStmt idL idR body)
+             -- ^ Post renaming has optional fail and bind / (>>=) operator.
+             -- Post typechecking, also has multiplicity of the argument
+             -- and the result type of the function passed to bind;
+             -- that is, (P, S) in (>>=) :: Q -> (R # P -> S) -> T
+             -- See Note [The type of bind in Stmts]
              (LPat idL)
              body
-             (SyntaxExpr idR) -- The (>>=) operator; see Note [The type of bind in Stmts]
-             (SyntaxExpr idR) -- The fail operator
-             -- The fail operator is noSyntaxExpr
-             -- if the pattern match can't fail
-             -- See Note [NoSyntaxExpr] (2)
 
   -- | 'ApplicativeStmt' represents an applicative expression built with
   -- '<$>' and '<*>'.  It is generated by the renamer, and is desugared into the
@@ -1865,7 +1862,7 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLet'
   --          'ApiAnnotation.AnnOpen' @'{'@,'ApiAnnotation.AnnClose' @'}'@,
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | LetStmt  (XLetStmt idL idR body) (LHsLocalBindsLR idL idR)
 
   -- ParStmts only occur in a list/monad comprehension
@@ -1903,7 +1900,7 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
   -- Recursive statement (see Note [How RecStmt works] below)
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRec'
 
-  -- For details on above see note [Api annotations] in ApiAnnotation
+  -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | RecStmt
      { recS_ext :: XRecStmt idL idR body
      , recS_stmts :: [LStmtLR idL idR body]
@@ -1952,8 +1949,20 @@ data RecStmtTc =
 type instance XLastStmt        (GhcPass _) (GhcPass _) b = NoExtField
 
 type instance XBindStmt        (GhcPass _) GhcPs b = NoExtField
-type instance XBindStmt        (GhcPass _) GhcRn b = NoExtField
-type instance XBindStmt        (GhcPass _) GhcTc b = (Mult, Type)
+type instance XBindStmt        (GhcPass _) GhcRn b = XBindStmtRn
+type instance XBindStmt        (GhcPass _) GhcTc b = XBindStmtTc
+
+data XBindStmtRn = XBindStmtRn
+  { xbsrn_bindOp :: SyntaxExpr GhcRn
+  , xbsrn_failOp :: FailOperator GhcRn
+  }
+
+data XBindStmtTc = XBindStmtTc
+  { xbstc_bindOp :: SyntaxExpr GhcTc
+  , xbstc_boundResultType :: Type -- If (>>=) :: Q -> (R -> S) -> T, this is S
+  , xbstc_boundResultMult :: Mult -- If (>>=) :: Q -> (R -> S) -> T, this is S
+  , xbstc_failOp :: FailOperator GhcTc
+  }
 
 type instance XApplicativeStmt (GhcPass _) GhcPs b = NoExtField
 type instance XApplicativeStmt (GhcPass _) GhcRn b = NoExtField
@@ -1996,34 +2005,55 @@ data ParStmtBlock idL idR
 type instance XParStmtBlock  (GhcPass pL) (GhcPass pR) = NoExtField
 type instance XXParStmtBlock (GhcPass pL) (GhcPass pR) = NoExtCon
 
+-- | The fail operator
+--
+-- This is used for `.. <-` "bind statments" in do notation, including
+-- non-monadic "binds" in applicative.
+--
+-- The fail operator is 'Just expr' if it potentially fail monadically. if the
+-- pattern match cannot fail, or shouldn't fail monadically (regular incomplete
+-- pattern exception), it is 'Nothing'.
+--
+-- See Note [Monad fail : Rebindable syntax, overloaded strings] for the type of
+-- expression in the 'Just' case, and why it is so.
+--
+-- See Note [Failing pattern matches in Stmts] for which contexts for
+-- '@BindStmt@'s should use the monadic fail and which shouldn't.
+type FailOperator id = Maybe (SyntaxExpr id)
+
 -- | Applicative Argument
 data ApplicativeArg idL
   = ApplicativeArgOne      -- A single statement (BindStmt or BodyStmt)
-    { xarg_app_arg_one  :: (XApplicativeArgOne idL)
-    , app_arg_pattern   :: (LPat idL) -- WildPat if it was a BodyStmt (see below)
-    , arg_expr          :: (LHsExpr idL)
-    , is_body_stmt      :: Bool -- True <=> was a BodyStmt
-                              -- False <=> was a BindStmt
-                              -- See Note [Applicative BodyStmt]
-    , fail_operator     :: (SyntaxExpr idL) -- The fail operator
-                         -- The fail operator is needed if this is a BindStmt
-                         -- where the pattern can fail. E.g.:
-                         -- (Just a) <- stmt
-                         -- The fail operator will be invoked if the pattern
-                         -- match fails.
-                         -- The fail operator is noSyntaxExpr
-                         -- if the pattern match can't fail
-                         -- See Note [NoSyntaxExpr] (2)
+    { xarg_app_arg_one  :: XApplicativeArgOne idL
+      -- ^ The fail operator, after renaming
+      --
+      -- The fail operator is needed if this is a BindStmt
+      -- where the pattern can fail. E.g.:
+      -- (Just a) <- stmt
+      -- The fail operator will be invoked if the pattern
+      -- match fails.
+      -- It is also used for guards in MonadComprehensions.
+      -- The fail operator is Nothing
+      -- if the pattern match can't fail
+    , app_arg_pattern   :: LPat idL -- WildPat if it was a BodyStmt (see below)
+    , arg_expr          :: LHsExpr idL
+    , is_body_stmt      :: Bool
+      -- ^ True <=> was a BodyStmt,
+      -- False <=> was a BindStmt.
+      -- See Note [Applicative BodyStmt]
     }
   | ApplicativeArgMany     -- do { stmts; return vars }
-    { xarg_app_arg_many :: (XApplicativeArgMany idL)
+    { xarg_app_arg_many :: XApplicativeArgMany idL
     , app_stmts         :: [ExprLStmt idL] -- stmts
-    , final_expr        :: (HsExpr idL)    -- return (v1,..,vn), or just (v1,..,vn)
-    , bv_pattern        :: (LPat idL)      -- (v1,...,vn)
+    , final_expr        :: HsExpr idL    -- return (v1,..,vn), or just (v1,..,vn)
+    , bv_pattern        :: LPat idL      -- (v1,...,vn)
     }
   | XApplicativeArg !(XXApplicativeArg idL)
 
-type instance XApplicativeArgOne  (GhcPass _) = NoExtField
+type instance XApplicativeArgOne GhcPs = NoExtField
+type instance XApplicativeArgOne GhcRn = FailOperator GhcRn
+type instance XApplicativeArgOne GhcTc = FailOperator GhcTc
+
 type instance XApplicativeArgMany (GhcPass _) = NoExtField
 type instance XXApplicativeArg    (GhcPass _) = NoExtCon
 
@@ -2214,7 +2244,7 @@ pprStmt (LastStmt _ expr m_dollar_stripped _)
         Just False -> text "return"
         Nothing -> empty) <+>
       ppr expr
-pprStmt (BindStmt _ pat expr _ _) = hsep [ppr pat, larrow, ppr expr]
+pprStmt (BindStmt _ pat expr) = hsep [ppr pat, larrow, ppr expr]
 pprStmt (LetStmt _ (L _ binds))   = hsep [text "let", pprBinds binds]
 pprStmt (BodyStmt _ expr _ _)     = ppr expr
 pprStmt (ParStmt _ stmtss _ _)   = sep (punctuate (text " | ") (map ppr stmtss))
@@ -2249,13 +2279,12 @@ pprStmt (ApplicativeStmt _ args mb_join)
    flattenStmt stmt = [ppr stmt]
 
    flattenArg :: forall a . (a, ApplicativeArg (GhcPass idL)) -> [SDoc]
-   flattenArg (_, ApplicativeArgOne _ pat expr isBody _)
+   flattenArg (_, ApplicativeArgOne _ pat expr isBody)
      | isBody =  -- See Note [Applicative BodyStmt]
      [ppr (BodyStmt (panic "pprStmt") expr noSyntaxExpr noSyntaxExpr
              :: ExprStmt (GhcPass idL))]
      | otherwise =
-     [ppr (BindStmt (panic "pprStmt") pat expr noSyntaxExpr noSyntaxExpr
-             :: ExprStmt (GhcPass idL))]
+     [ppr (BindStmt (panic "pprStmt") pat expr :: ExprStmt (GhcPass idL))]
    flattenArg (_, ApplicativeArgMany _ stmts _ _) =
      concatMap flattenStmt stmts
 
@@ -2275,13 +2304,12 @@ instance (OutputableBndrId idL)
   ppr = pprArg
 
 pprArg :: forall idL . (OutputableBndrId idL) => ApplicativeArg (GhcPass idL) -> SDoc
-pprArg (ApplicativeArgOne _ pat expr isBody _)
+pprArg (ApplicativeArgOne _ pat expr isBody)
   | isBody =  -- See Note [Applicative BodyStmt]
     ppr (BodyStmt (panic "pprStmt") expr noSyntaxExpr noSyntaxExpr
             :: ExprStmt (GhcPass idL))
   | otherwise =
-    ppr (BindStmt (panic "pprStmt") pat expr noSyntaxExpr noSyntaxExpr
-            :: ExprStmt (GhcPass idL))
+    ppr (BindStmt (panic "pprStmt") pat expr :: ExprStmt (GhcPass idL))
 pprArg (ApplicativeArgMany _ stmts return pat) =
      ppr pat <+>
      text "<-" <+>

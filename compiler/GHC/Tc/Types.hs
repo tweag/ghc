@@ -70,6 +70,7 @@ module GHC.Tc.Types(
         TcId, TcIdSet,
         NameShape(..),
         removeBindingShadowing,
+        getPlatform,
 
         -- Constraint solver plugins
         TcPlugin(..), TcPluginResult(..), TcPluginSolver,
@@ -84,6 +85,7 @@ module GHC.Tc.Types(
 #include "HsVersions.h"
 
 import GhcPrelude
+import GHC.Platform
 
 import GHC.Hs
 import GHC.Driver.Types
@@ -121,7 +123,7 @@ import Outputable
 import ListSetOps
 import Fingerprint
 import Util
-import PrelNames ( isUnboundName )
+import GHC.Builtin.Names ( isUnboundName )
 import GHC.Types.CostCentre.State
 
 import Control.Monad (ap)
@@ -905,6 +907,11 @@ removeBindingShadowing bindings = reverse $ fst $ foldl
         then (bindingAcc, seenNames)              -- skip it
         else (binding:bindingAcc, extendOccSet seenNames (occName binding)))
     ([], emptyOccSet) bindings
+
+
+-- | Get target platform
+getPlatform :: TcM Platform
+getPlatform = targetPlatform <$> getDynFlags
 
 ---------------------------
 -- Template Haskell stages and levels

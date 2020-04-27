@@ -50,21 +50,21 @@ import Fingerprint
 import Encoding
 
 import GHC.Driver.Session
-import PrelInfo
+import GHC.Builtin.Utils
 import GHC.Tc.Instance.Family
 import GHC.Core.FamInstEnv
-import PrelNames
-import THNames
+import GHC.Builtin.Names
+import GHC.Builtin.Names.TH
 import GHC.Types.Id.Make ( coerceId )
-import PrimOp
+import GHC.Builtin.PrimOps
 import GHC.Types.SrcLoc
 import GHC.Core.TyCon
 import GHC.Tc.Utils.Env
 import GHC.Tc.Utils.TcType
 import GHC.Tc.Validity ( checkValidCoAxBranch )
 import GHC.Core.Coercion.Axiom ( coAxiomSingleBranch )
-import TysPrim
-import TysWiredIn
+import GHC.Builtin.Types.Prim
+import GHC.Builtin.Types
 import GHC.Core.Type
 import GHC.Core.Multiplicity
 import GHC.Core.Class
@@ -833,7 +833,7 @@ gen_Ix_binds loc tycon = do
       where
         stmts = zipWith3Equal "single_con_range" mk_qual as_needed bs_needed cs_needed
 
-        mk_qual a b c = noLoc $ mkBindStmt (nlVarPat c)
+        mk_qual a b c = noLoc $ mkPsBindStmt (nlVarPat c)
                                  (nlHsApp (nlHsVar range_RDR)
                                           (mkLHsVarTuple [a,b]))
 
@@ -1073,7 +1073,7 @@ gen_Read_binds get_fixity loc tycon
     data_con_str con = occNameString (getOccName con)
 
     read_arg a ty = ASSERT( not (isUnliftedType ty) )
-                    noLoc (mkBindStmt (nlVarPat a) (nlHsVarApps step_RDR [readPrec_RDR]))
+                    noLoc (mkPsBindStmt (nlVarPat a) (nlHsVarApps step_RDR [readPrec_RDR]))
 
     -- When reading field labels we might encounter
     --      a  = 3
@@ -1082,7 +1082,7 @@ gen_Read_binds get_fixity loc tycon
     -- Note the parens!
     read_field lbl a =
         [noLoc
-          (mkBindStmt
+          (mkPsBindStmt
             (nlVarPat a)
             (nlHsApp
               read_field
@@ -1343,8 +1343,9 @@ gen_data dflags data_type_name constr_names loc rep_tc
                      L loc (TypeSig noExtField [L loc data_type_name] sig_ty))
 
     sig_ty = mkLHsSigWcType (nlHsTyVar dataType_RDR)
+    ctx    = initDefaultSDocContext dflags
     rhs    = nlHsVar mkDataType_RDR
-             `nlHsApp` nlHsLit (mkHsString (showSDocOneLine dflags (ppr rep_tc)))
+             `nlHsApp` nlHsLit (mkHsString (showSDocOneLine ctx (ppr rep_tc)))
              `nlHsApp` nlList (map nlHsVar constr_names)
 
     genDataDataCon :: DataCon -> RdrName -> DerivStuff

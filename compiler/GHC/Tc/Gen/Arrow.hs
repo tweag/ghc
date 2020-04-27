@@ -31,9 +31,9 @@ import GHC.Tc.Types.Evidence
 import GHC.Core.Multiplicity
 import GHC.Types.Id( mkLocalId )
 import GHC.Tc.Utils.Instantiate
-import TysWiredIn
+import GHC.Builtin.Types
 import GHC.Types.Var.Set
-import TysPrim
+import GHC.Builtin.Types.Prim
 import GHC.Types.Basic( Arity )
 import GHC.Types.SrcLoc
 import Outputable
@@ -365,7 +365,7 @@ tcArrDoStmt env _ (BodyStmt _ rhs _ _) res_ty thing_inside
         ; thing          <- thing_inside res_ty
         ; return (BodyStmt elt_ty rhs' noSyntaxExpr noSyntaxExpr, thing) }
 
-tcArrDoStmt env ctxt (BindStmt _ pat rhs _ _) res_ty thing_inside
+tcArrDoStmt env ctxt (BindStmt _ pat rhs) res_ty thing_inside
   = do  { (rhs', pat_ty) <- tc_arr_rhs env rhs
         ; (pat', thing)  <- tcPat (StmtCtxt ctxt) pat (unrestricted $ mkCheckExpType pat_ty) $
                             thing_inside res_ty

@@ -9,7 +9,7 @@ which deal with the instantiated versions are located elsewhere:
 
    Parameterised by          Module
    ----------------          -------------
-   GhcPs/RdrName             parser/RdrHsSyn
+   GhcPs/RdrName             GHC.Parser.PostProcess
    GhcRn/Name                GHC.Rename.*
    GhcTc/Id                  GHC.Tc.Utils.Zonk
 
@@ -70,7 +70,8 @@ module GHC.Hs.Utils(
   nlHsAppTy, nlHsAppKindTy, nlHsTyVar, nlHsFunTy, nlHsParTy, nlHsTyConApp,
 
   -- * Stmts
-  mkTransformStmt, mkTransformByStmt, mkBodyStmt, mkBindStmt, mkTcBindStmt,
+  mkTransformStmt, mkTransformByStmt, mkBodyStmt,
+  mkPsBindStmt, mkRnBindStmt, mkTcBindStmt,
   mkLastStmt,
   emptyTransStmt, mkGroupUsingStmt, mkGroupByUsingStmt,
   emptyRecStmt, emptyRecStmtName, emptyRecStmtId, mkRecStmt,
@@ -117,7 +118,7 @@ import GHC.Core.TyCo.Rep
 import GHC.Core.TyCon
 import GHC.Core.Type ( appTyArgFlags, splitAppTys, tyConArgFlags, tyConAppNeedsKindSig )
 import GHC.Core.Multiplicity ( pattern One, pattern Many )
-import TysWiredIn ( unitTy )
+import GHC.Builtin.Types ( unitTy )
 import GHC.Tc.Utils.TcType
 import GHC.Core.DataCon
 import GHC.Core.ConLike
@@ -131,7 +132,7 @@ import FastString
 import Util
 import Bag
 import Outputable
-import Constants
+import GHC.Settings.Constants
 
 import Data.Either
 import Data.Function
@@ -261,10 +262,10 @@ mkLastStmt :: IsPass idR => Located (bodyR (GhcPass idR))
            -> StmtLR (GhcPass idL) (GhcPass idR) (Located (bodyR (GhcPass idR)))
 mkBodyStmt :: Located (bodyR GhcPs)
            -> StmtLR (GhcPass idL) GhcPs (Located (bodyR GhcPs))
-mkBindStmt :: IsPass idR => (XBindStmt (GhcPass idL) (GhcPass idR)
-                         (Located (bodyR (GhcPass idR))) ~ NoExtField)
-           => LPat (GhcPass idL) -> Located (bodyR (GhcPass idR))
-           -> StmtLR (GhcPass idL) (GhcPass idR) (Located (bodyR (GhcPass idR)))
+mkPsBindStmt :: LPat GhcPs -> Located (bodyR GhcPs)
+             -> StmtLR GhcPs GhcPs (Located (bodyR GhcPs))
+mkRnBindStmt :: LPat GhcRn -> Located (bodyR GhcRn)
+             -> StmtLR GhcRn GhcRn (Located (bodyR GhcRn))
 mkTcBindStmt :: LPat GhcTc -> Located (bodyR GhcTc)
              -> StmtLR GhcTc GhcTc (Located (bodyR GhcTc))
 
@@ -322,9 +323,12 @@ mkGroupByUsingStmt ss b u = emptyTransStmt { trS_form = GroupForm, trS_stmts = s
 mkLastStmt body = LastStmt noExtField body Nothing noSyntaxExpr
 mkBodyStmt body
   = BodyStmt noExtField body noSyntaxExpr noSyntaxExpr
-mkBindStmt pat body
-  = BindStmt noExtField pat body noSyntaxExpr noSyntaxExpr
-mkTcBindStmt pat body = BindStmt (Many, unitTy) pat body noSyntaxExpr noSyntaxExpr
+mkPsBindStmt pat body = BindStmt noExtField pat body
+mkRnBindStmt pat body = BindStmt (XBindStmtRn { xbsrn_bindOp = noSyntaxExpr, xbsrn_failOp = Nothing }) pat body
+mkTcBindStmt pat body = BindStmt (XBindStmtTc { xbstc_bindOp = noSyntaxExpr,
+                                                xbstc_boundResultType = unitTy,
+                                                xbstc_boundResultMult = Many,
+                                                xbstc_failOp = Nothing }) pat body
   -- don't use placeHolderTypeTc above, because that panics during zonking
 
 emptyRecStmt' :: forall idL idR body. IsPass idR
@@ -1071,7 +1075,7 @@ collectLStmtBinders = collectStmtBinders . unLoc
 collectStmtBinders :: StmtLR (GhcPass idL) (GhcPass idR) body
                    -> [IdP (GhcPass idL)]
   -- Id Binders for a Stmt... [but what about pattern-sig type vars]?
-collectStmtBinders (BindStmt _ pat _ _ _)  = collectPatBinders pat
+collectStmtBinders (BindStmt _ pat _)      = collectPatBinders pat
 collectStmtBinders (LetStmt _  binds)      = collectLocalBinders (unLoc binds)
 collectStmtBinders (BodyStmt {})           = []
 collectStmtBinders (LastStmt {})           = []
@@ -1361,7 +1365,7 @@ lStmtsImplicits = hs_lstmts
 
     hs_stmt :: StmtLR GhcRn (GhcPass idR) (Located (body (GhcPass idR)))
             -> [(SrcSpan, [Name])]
-    hs_stmt (BindStmt _ pat _ _ _) = lPatImplicits pat
+    hs_stmt (BindStmt _ pat _) = lPatImplicits pat
     hs_stmt (ApplicativeStmt _ args _) = concatMap do_arg args
       where do_arg (_, ApplicativeArgOne { app_arg_pattern = pat }) = lPatImplicits pat
             do_arg (_, ApplicativeArgMany { app_stmts = stmts }) = hs_lstmts stmts

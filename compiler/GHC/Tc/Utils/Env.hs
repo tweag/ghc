@@ -84,8 +84,8 @@ import GHC.Tc.Types.Evidence (HsWrapper, idHsWrapper)
 import {-# SOURCE #-} GHC.Tc.Utils.Unify ( tcSubMult )
 import GHC.Tc.Types.Origin ( CtOrigin(UsageEnvironmentOf) )
 import GHC.Iface.Load
-import PrelNames
-import TysWiredIn
+import GHC.Builtin.Names
+import GHC.Builtin.Types
 import GHC.Types.Id
 import GHC.Types.Var
 import GHC.Types.Name.Reader

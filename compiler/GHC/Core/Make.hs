@@ -65,15 +65,15 @@ import GHC.Types.Literal
 import GHC.Driver.Types
 import GHC.Platform
 
-import TysWiredIn
-import PrelNames
+import GHC.Builtin.Types
+import GHC.Builtin.Names
 
 import GHC.Hs.Utils      ( mkChunkified, chunkify )
 import GHC.Core.Type
 import GHC.Core.Coercion ( isCoVar )
 import GHC.Core.DataCon  ( DataCon, dataConWorkId )
 import GHC.Core.Multiplicity
-import TysPrim
+import GHC.Builtin.Types.Prim
 import GHC.Types.Id.Info
 import GHC.Types.Demand
 import GHC.Types.Cpr
@@ -193,7 +193,7 @@ mkWildEvBinder pred = mkWildValBinder Many pred
 -- that you expect to use only at a *binding* site.  Do not use it at
 -- occurrence sites because it has a single, fixed unique, and it's very
 -- easy to get into difficulties with shadowing.  That's why it is used so little.
--- See Note [WildCard binders] in GHC.Core.Op.Simplify.Env
+-- See Note [WildCard binders] in GHC.Core.Opt.Simplify.Env
 mkWildValBinder :: Mult -> Type -> Id
 mkWildValBinder w ty = mkLocalIdOrCoVar wildCardName w ty
   -- "OrCoVar" since a coercion can be a scrutinee with -fdefer-type-errors
@@ -344,7 +344,7 @@ We could do one of two things:
 * Flatten it out, so that
     mkCoreTup [e1] = e1
 
-* Build a one-tuple (see Note [One-tuples] in TysWiredIn)
+* Build a one-tuple (see Note [One-tuples] in GHC.Builtin.Types)
     mkCoreTup1 [e1] = Unit e1
   We use a suffix "1" to indicate this.
 
@@ -580,7 +580,7 @@ data FloatBind
   = FloatLet  CoreBind
   | FloatCase CoreExpr Id AltCon [Var]
       -- case e of y { C ys -> ... }
-      -- See Note [Floating single-alternative cases] in GHC.Core.Op.SetLevels
+      -- See Note [Floating single-alternative cases] in GHC.Core.Opt.SetLevels
 
 instance Outputable FloatBind where
   ppr (FloatLet b) = text "LET" <+> ppr b
@@ -884,7 +884,7 @@ the first.  But the stable-unfolding for f looks like
    \x. case x of MkT a b -> g ($WMkT b a)
 where $WMkT is the wrapper for MkT that evaluates its arguments.  We
 apply the same w/w split to this unfolding (see Note [Worker-wrapper
-for INLINEABLE functions] in GHC.Core.Op.WorkWrap) so the template ends up like
+for INLINEABLE functions] in GHC.Core.Opt.WorkWrap) so the template ends up like
    \b. let a = absentError "blah"
            x = MkT a b
         in case x of MkT a b -> g ($WMkT b a)
@@ -929,7 +929,7 @@ aBSENT_ERROR_ID
  where
    absent_ty = mkSpecForAllTys [alphaTyVar] (mkVisFunTyMany addrPrimTy alphaTy)
    -- Not runtime-rep polymorphic. aBSENT_ERROR_ID is only used for
-   -- lifted-type things; see Note [Absent errors] in GHC.Core.Op.WorkWrap.Lib
+   -- lifted-type things; see Note [Absent errors] in GHC.Core.Opt.WorkWrap.Utils
    arity_info = vanillaIdInfo `setArityInfo` 1
    -- NB: no bottoming strictness info, unlike other error-ids.
    -- See Note [aBSENT_ERROR_ID]

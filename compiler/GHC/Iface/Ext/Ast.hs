@@ -37,7 +37,7 @@ import GHC.Types.Name.Env         ( NameEnv, emptyNameEnv, extendNameEnv, lookup
 import GHC.Types.SrcLoc
 import GHC.Tc.Utils.Zonk          ( hsLitType, hsPatType )
 import GHC.Core.Type              ( mkVisFunTys, Type )
-import TysWiredIn                 ( mkListTy, mkSumTy )
+import GHC.Builtin.Types          ( mkListTy, mkSumTy )
 import GHC.Types.Var              ( Id, Var, setVarName, varName, varType )
 import GHC.Tc.Types
 import GHC.Iface.Make             ( mkIfaceExports )
@@ -1049,7 +1049,7 @@ instance ( a ~ GhcPass p
       LastStmt _ body _ _ ->
         [ toHie body
         ]
-      BindStmt _ pat body _ _ ->
+      BindStmt _ pat body ->
         [ toHie $ PS (getRealSpan $ getLoc body) scope NoScope pat
         , toHie body
         ]
@@ -1174,7 +1174,7 @@ instance ( a ~ GhcPass p
          , Data (StmtLR a a (Located (HsExpr a)))
          , Data (HsLocalBinds a)
          ) => ToHie (RScoped (ApplicativeArg (GhcPass p))) where
-  toHie (RS sc (ApplicativeArgOne _ pat expr _ _)) = concatM
+  toHie (RS sc (ApplicativeArgOne _ pat expr _)) = concatM
     [ toHie $ PS Nothing sc NoScope pat
     , toHie expr
     ]

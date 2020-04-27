@@ -37,9 +37,9 @@ import GhcPrelude
 import Data.Data
 import Outputable
 import {-# SOURCE #-} GHC.Core.TyCo.Rep (Type)
-import {-# SOURCE #-} TysWiredIn ( oneDataConTy, manyDataConTy, multMulTyCon )
+import {-# SOURCE #-} GHC.Builtin.Types ( oneDataConTy, manyDataConTy, multMulTyCon )
 import {-# SOURCE #-} GHC.Core.Type( eqType, splitTyConApp_maybe, mkTyConApp )
-import PrelNames (multMulTyConKey)
+import GHC.Builtin.Names (multMulTyConKey)
 import GHC.Types.Unique (hasKey)
 
 {-

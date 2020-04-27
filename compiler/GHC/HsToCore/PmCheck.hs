@@ -37,7 +37,7 @@ import GHC.Types.Id
 import GHC.Core.ConLike
 import GHC.Types.Name
 import GHC.Tc.Instance.Family
-import TysWiredIn
+import GHC.Builtin.Types
 import GHC.Types.SrcLoc
 import Util
 import Outputable
@@ -661,7 +661,7 @@ translateGuard :: FamInstEnvs -> GuardStmt GhcTc -> DsM GrdVec
 translateGuard fam_insts guard = case guard of
   BodyStmt _   e _ _ -> translateBoolGuard e
   LetStmt  _   binds -> translateLet (unLoc binds)
-  BindStmt _ p e _ _ -> translateBind fam_insts p e
+  BindStmt _ p e     -> translateBind fam_insts p e
   LastStmt        {} -> panic "translateGuard LastStmt"
   ParStmt         {} -> panic "translateGuard ParStmt"
   TransStmt       {} -> panic "translateGuard TransStmt"

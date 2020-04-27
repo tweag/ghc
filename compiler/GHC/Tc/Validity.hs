@@ -34,8 +34,8 @@ import GHC.Core.TyCo.FVs
 import GHC.Core.TyCo.Rep
 import GHC.Core.TyCo.Ppr
 import GHC.Tc.Utils.TcType hiding ( sizeType, sizeTypes )
-import TysWiredIn ( heqTyConName, eqTyConName, coercibleTyConName, manyDataConTy )
-import PrelNames
+import GHC.Builtin.Types ( heqTyConName, eqTyConName, coercibleTyConName, manyDataConTy )
+import GHC.Builtin.Names
 import GHC.Core.Type
 import GHC.Core.Unify ( tcMatchTyX_BM, BindFlag(..) )
 import GHC.Core.Coercion

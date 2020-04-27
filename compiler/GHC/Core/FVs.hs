@@ -77,8 +77,8 @@ import GHC.Core.TyCon
 import GHC.Core.Coercion.Axiom
 import GHC.Core.FamInstEnv
 import GHC.Core.Multiplicity
-import TysPrim( funTyConName )
-import TysWiredIn( unrestrictedFunTyConName, manyDataConTy )
+import GHC.Builtin.Types( unrestrictedFunTyConName, manyDataConTy )
+import GHC.Builtin.Types.Prim( funTyConName )
 import Maybes( orElse )
 import Util
 import GHC.Types.Basic( Activation )

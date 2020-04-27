@@ -144,8 +144,8 @@ import Outputable
 import GHC.Types.Unique
 import Pair
 import GHC.Types.SrcLoc
-import PrelNames
-import TysPrim
+import GHC.Builtin.Names
+import GHC.Builtin.Types.Prim
 import ListSetOps
 import Maybes
 import GHC.Types.Unique.FM
@@ -1515,7 +1515,7 @@ mkPiCo r v co | isTyVar v = mkHomoForAllCos [v] co
                   -- We didn't call mkForAllCo here because if v does not appear
                   -- in co, the argement coercion will be nominal. But here we
                   -- want it to be r. It is only called in 'mkPiCos', which is
-                  -- only used in GHC.Core.Op.Simplify.Utils, where we are sure for
+                  -- only used in GHC.Core.Opt.Simplify.Utils, where we are sure for
                   -- now (Aug 2018) v won't occur in co.
                             mkFunCo r (multToCo (varMult v)) (mkReflCo r (varType v)) co
               | otherwise = mkFunCo r (multToCo (varMult v)) (mkReflCo r (varType v)) co
