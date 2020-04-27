@@ -25,8 +25,6 @@ ifneq "$(ValidateSpeed)" "FAST"
 BUILD_EXTRA_PKGS   = YES
 endif
 
-WERROR             = -Werror
-
 # Reduce optimisation when building Cabal; this makes a significant difference
 # in overall build time. See #16817.
 libraries/Cabal_dist-install_HC_OPTS += -O0
