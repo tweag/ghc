@@ -408,7 +408,7 @@ tidyNPat over_lit mb_neg eq outer_ty
 matchLiterals :: NonEmpty Id
               -> Type -- ^ Type of the whole case expression
               -> NonEmpty (NonEmpty EquationInfo) -- ^ All PgLits
-              -> DsM MatchResult
+              -> DsM (MatchResult CoreExpr)
 
 matchLiterals (var :| vars) ty sub_groups
   = do  {       -- Deal with each group
@@ -425,7 +425,7 @@ matchLiterals (var :| vars) ty sub_groups
             return (mkCoPrimCaseMatchResult var ty $ NEL.toList alts)
         }
   where
-    match_group :: NonEmpty EquationInfo -> DsM (Literal, MatchResult)
+    match_group :: NonEmpty EquationInfo -> DsM (Literal, MatchResult CoreExpr)
     match_group eqns@(firstEqn :| _)
         = do { dflags <- getDynFlags
              ; let platform = targetPlatform dflags
@@ -433,7 +433,7 @@ matchLiterals (var :| vars) ty sub_groups
              ; match_result <- match vars ty (NEL.toList $ shiftEqns eqns)
              ; return (hsLitKey platform hs_lit, match_result) }
 
-    wrap_str_guard :: Id -> (Literal,MatchResult) -> DsM MatchResult
+    wrap_str_guard :: Id -> (Literal,MatchResult CoreExpr) -> DsM (MatchResult CoreExpr)
         -- Equality check for string literals
     wrap_str_guard eq_str (LitString s, mr)
         = do { -- We now have to convert back to FastString. Perhaps there
@@ -474,7 +474,7 @@ hsLitKey _        l                  = pprPanic "hsLitKey" (ppr l)
 ************************************************************************
 -}
 
-matchNPats :: NonEmpty Id -> Type -> NonEmpty EquationInfo -> DsM MatchResult
+matchNPats :: NonEmpty Id -> Type -> NonEmpty EquationInfo -> DsM (MatchResult CoreExpr)
 matchNPats (var :| vars) ty (eqn1 :| eqns)    -- All for the same literal
   = do  { let NPat _ (L _ lit) mb_neg eq_chk = firstPat eqn1
         ; lit_expr <- dsOverLit lit
@@ -503,7 +503,7 @@ We generate:
 \end{verbatim}
 -}
 
-matchNPlusKPats :: NonEmpty Id -> Type -> NonEmpty EquationInfo -> DsM MatchResult
+matchNPlusKPats :: NonEmpty Id -> Type -> NonEmpty EquationInfo -> DsM (MatchResult CoreExpr)
 -- All NPlusKPats, for the *same* literal k
 matchNPlusKPats (var :| vars) ty (eqn1 :| eqns)
   = do  { let NPlusKPat _ (L _ n1) (L _ lit1) lit2 ge minus
@@ -516,7 +516,7 @@ matchNPlusKPats (var :| vars) ty (eqn1 :| eqns)
         ; match_result <- match vars ty eqns'
         ; return  (mkGuardedMatchResult pred_expr               $
                    mkCoLetMatchResult (NonRec n1 minusk_expr)   $
-                   adjustMatchResult (foldr1 (.) wraps)         $
+                   fmap (foldr1 (.) wraps)                      $
                    match_result) }
   where
     shift n1 eqn@(EqnInfo { eqn_pats = NPlusKPat _ (L _ n) _ _ _ _ : pats })

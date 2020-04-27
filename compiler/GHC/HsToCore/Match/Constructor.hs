@@ -28,6 +28,7 @@ import GHC.Tc.Utils.TcType
 import GHC.Core.Multiplicity
 import GHC.HsToCore.Monad
 import GHC.HsToCore.Utils
+import GHC.Core ( CoreExpr )
 import GHC.Core.Make ( mkCoreLets )
 import Util
 import GHC.Types.Id
@@ -95,7 +96,7 @@ have-we-used-all-the-constructors? question; the local function
 matchConFamily :: NonEmpty Id
                -> Type
                -> NonEmpty (NonEmpty EquationInfo)
-               -> DsM MatchResult
+               -> DsM (MatchResult CoreExpr)
 -- Each group of eqns is for a single constructor
 matchConFamily (var :| vars) ty groups
   = do let mult = idMult var
@@ -114,7 +115,7 @@ matchConFamily (var :| vars) ty groups
 matchPatSyn :: NonEmpty Id
             -> Type
             -> NonEmpty EquationInfo
-            -> DsM MatchResult
+            -> DsM (MatchResult CoreExpr)
 matchPatSyn (var :| vars) ty eqns
   = do let mult = idMult var
        alt <- fmap toSynAlt $ matchOneConLike vars ty mult eqns
@@ -143,14 +144,15 @@ matchOneConLike vars ty mult (eqn1 :| eqns)   -- All eqns for a single construct
         -- and returns the types of the *value* args, which is what we want
 
               match_group :: [Id]
-                          -> [(ConArgPats, EquationInfo)] -> DsM MatchResult
+                          -> [(ConArgPats, EquationInfo)] -> DsM (MatchResult CoreExpr)
               -- All members of the group have compatible ConArgPats
               match_group arg_vars arg_eqn_prs
                 = ASSERT( notNull arg_eqn_prs )
                   do { (wraps, eqns') <- liftM unzip (mapM shift arg_eqn_prs)
                      ; let group_arg_vars = select_arg_vars arg_vars arg_eqn_prs
                      ; match_result <- match (group_arg_vars ++ vars) ty eqns'
-                     ; return (adjustMatchResult (foldr1 (.) wraps) match_result) }
+                     ; return $ foldr1 (.) wraps <$> match_result
+                     }
 
               shift (_, eqn@(EqnInfo { eqn_pats = ConPatOut{ pat_tvs = tvs, pat_dicts = ds,
                                                              pat_binds = bind, pat_args = args
