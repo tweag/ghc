@@ -116,7 +116,7 @@ core2core hsc_env guts@(ModGuts { mg_module  = mod
 
 getCoreToDo :: DynFlags -> [CoreToDo]
 getCoreToDo dflags
-  = flatten_todos core_todo
+  = flatten_todos core_todo'
   where
     opt_level     = optLevel           dflags
     phases        = simplPhases        dflags
@@ -199,6 +199,9 @@ getCoreToDo dflags
           }
         ]
 
+    core_todo' =
+      replicate 100 (CoreDoSimplify max_iter (base_mode { sm_phase = Phase 0
+                                                        , sm_names = ["Non-opt simplification"] }))
     core_todo =
      if opt_level == 0 then
        [ static_ptrs_float_outwards,
