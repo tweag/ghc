@@ -397,10 +397,9 @@ updateVarTypeButNotMult :: (Type -> Type) -> Id -> Id
 updateVarTypeButNotMult f id = id { varType = f (varType id) }
 
 updateVarTypeAndMult :: (Type -> Type) -> Id -> Id
-updateVarTypeAndMult f id = let id' = id { varType = f (varType id) }
-                            in case varMultMaybe id' of
-                                      Just w -> setVarMult id' (f w)
-                                      Nothing -> id'
+updateVarTypeAndMult f id@(Id { varType = t, varMult = m }) = id { varType = f t
+                                                                 , varMult = f m }
+updateVarTypeAndMult f id = id { varType = f (varType id) }
 
 updateVarTypeAndMultM :: Monad m => (Type -> m Type) -> Id -> m Id
 updateVarTypeAndMultM f id = do { ty' <- f (varType id)
