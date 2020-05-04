@@ -168,6 +168,7 @@ module GHC.Core.Type (
 
         -- * Type comparison
         eqType, eqTypeX, eqTypes, nonDetCmpType, nonDetCmpTypes, nonDetCmpTypeX,
+        fastEqType,
         nonDetCmpTypesX, nonDetCmpTc,
         eqVarBndrs,
 
@@ -2227,6 +2228,11 @@ to use repSplitAppTy_maybe to break up the TyConApp into its pieces and
 then continue. Easy to do, but also easy to forget to do.
 
 -}
+
+-- Fast-track One vs Many comparison
+fastEqType :: Type -> Type -> Bool
+fastEqType (TyConApp tc1 []) (TyConApp tc2 []) = isEqual (nonDetCmpTc tc1 tc2)
+fastEqType x y = eqType x y
 
 eqType :: Type -> Type -> Bool
 -- ^ Type equality on source types. Does not look through @newtypes@ or

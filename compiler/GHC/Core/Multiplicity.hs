@@ -38,7 +38,7 @@ import Data.Data
 import Outputable
 import {-# SOURCE #-} GHC.Core.TyCo.Rep (Type)
 import {-# SOURCE #-} GHC.Builtin.Types ( oneDataConTy, manyDataConTy, multMulTyCon )
-import {-# SOURCE #-} GHC.Core.Type( eqType, splitTyConApp_maybe, mkTyConApp )
+import {-# SOURCE #-} GHC.Core.Type( fastEqType, splitTyConApp_maybe, mkTyConApp )
 import GHC.Builtin.Names (multMulTyConKey)
 import GHC.Types.Unique (hasKey)
 
@@ -295,11 +295,11 @@ constructors for these.
 type Mult = Type
 
 pattern One :: Mult
-pattern One <- (eqType oneDataConTy -> True)
+pattern One <- (fastEqType oneDataConTy -> True)
   where One = oneDataConTy
 
 pattern Many :: Mult
-pattern Many <- (eqType manyDataConTy -> True)
+pattern Many <- (fastEqType manyDataConTy -> True)
   where Many = manyDataConTy
 
 isMultMul :: Mult -> Maybe (Mult, Mult)
@@ -335,10 +335,10 @@ mkMultAdd :: Mult -> Mult -> Mult
 mkMultAdd _ _ = Many
 
 mkMultMul :: Mult -> Mult -> Mult
-mkMultMul One p = p
-mkMultMul p One = p
 mkMultMul Many _ = Many
 mkMultMul _ Many = Many
+mkMultMul One p = p
+mkMultMul p One = p
 mkMultMul p q = mkTyConApp multMulTyCon [p, q]
 
 -- See Note [Joining usages]

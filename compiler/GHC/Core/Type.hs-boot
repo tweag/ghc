@@ -15,6 +15,7 @@ mkCastTy   :: Type -> Coercion -> Type
 piResultTy :: HasDebugCallStack => Type -> Type -> Type
 
 eqType :: Type -> Type -> Bool
+fastEqType :: Type -> Type -> Bool
 
 coreView :: Type -> Maybe Type
 tcView :: Type -> Maybe Type
