@@ -1075,10 +1075,10 @@ splitFunTy ty | Just ty' <- coreView ty = splitFunTy ty'
 splitFunTy (FunTy _ w arg res) = (Scaled w arg, res)
 splitFunTy other           = pprPanic "splitFunTy" (ppr other)
 
-splitFunTy_maybe :: Type -> Maybe (Scaled Type, Type)
+splitFunTy_maybe :: Type -> Maybe (Type, Type, Type)
 -- ^ Attempts to extract the argument and result types from a type
 splitFunTy_maybe ty | Just ty' <- coreView ty = splitFunTy_maybe ty'
-splitFunTy_maybe (FunTy _ w arg res) = Just (Scaled w arg, res)
+splitFunTy_maybe (FunTy _ w arg res) = Just (w, arg, res)
 splitFunTy_maybe _               = Nothing
 
 splitFunTys :: Type -> ([Scaled Type], Type)
@@ -2149,7 +2149,7 @@ isValidJoinPointType arity ty
       = isEmptyVarSet (tvs `intersectVarSet` tyCoVarsOfType ty)
       | Just (t, ty') <- splitForAllTy_maybe ty
       = valid_under (tvs `extendVarSet` t) (arity-1) ty'
-      | Just (_, res_ty) <- splitFunTy_maybe ty
+      | Just (_, _, res_ty) <- splitFunTy_maybe ty
       = valid_under tvs (arity-1) res_ty
       | otherwise
       = False

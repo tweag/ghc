@@ -1178,7 +1178,7 @@ lintTyApp fun_ty arg_ty
 -----------------
 lintValApp :: CoreExpr -> LintedType -> LintedType -> UsageEnv -> UsageEnv -> LintM (OutType, UsageEnv)
 lintValApp arg fun_ty arg_ty fun_ue arg_ue
-  | Just (Scaled w arg,res) <- splitFunTy_maybe fun_ty
+  | Just (w, arg, res) <- splitFunTy_maybe fun_ty
   = do { ensureEqTys arg arg_ty err1
        ; let app_ue =  addUE fun_ue (scaleUE w arg_ue)
        ; return (res, app_ue) }
