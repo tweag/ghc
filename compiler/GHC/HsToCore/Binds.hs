@@ -1271,7 +1271,7 @@ ds_ev_typeable ty (EvTypeableTyApp ev1 ev2)
        }
 
 ds_ev_typeable ty (EvTypeableTrFun evm ev1 ev2)
-  | Just (Scaled m t1,t2) <- splitFunTy_maybe ty
+  | Just (m,t1,t2) <- splitFunTy_maybe ty
   = do { e1 <- getRep ev1 t1
        ; e2 <- getRep ev2 t2
        ; em <- getRep evm m

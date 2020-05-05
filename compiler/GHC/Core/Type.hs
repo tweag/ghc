@@ -1099,10 +1099,10 @@ splitFunTy :: Type -> (Scaled Type, Type)
 splitFunTy = expectJust "splitFunTy" . splitFunTy_maybe
 
 {-# INLINE splitFunTy_maybe #-}
-splitFunTy_maybe :: Type -> Maybe (Scaled Type, Type)
+splitFunTy_maybe :: Type -> Maybe (Type, Type, Type)
 -- ^ Attempts to extract the argument and result types from a type
 splitFunTy_maybe ty
-  | FunTy _ w arg res <- coreFullView ty = Just (Scaled w arg, res)
+  | FunTy _ w arg res <- coreFullView ty = Just (w, arg, res)
   | otherwise                            = Nothing
 
 splitFunTys :: Type -> ([Scaled Type], Type)
@@ -2073,7 +2073,7 @@ isValidJoinPointType arity ty
       = tvs `disjointVarSet` tyCoVarsOfType ty
       | Just (t, ty') <- splitForAllTy_maybe ty
       = valid_under (tvs `extendVarSet` t) (arity-1) ty'
-      | Just (_, res_ty) <- splitFunTy_maybe ty
+      | Just (_, _, res_ty) <- splitFunTy_maybe ty
       = valid_under tvs (arity-1) res_ty
       | otherwise
       = False

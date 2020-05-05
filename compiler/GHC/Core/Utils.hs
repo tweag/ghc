@@ -290,7 +290,7 @@ applyTypeToArgs e op_ty args
     go op_ty []                   = op_ty
     go op_ty (Type ty : args)     = go_ty_args op_ty [ty] args
     go op_ty (Coercion co : args) = go_ty_args op_ty [mkCoercionTy co] args
-    go op_ty (_ : args)           | Just (_, res_ty) <- splitFunTy_maybe op_ty
+    go op_ty (_ : args)           | Just (_, _, res_ty) <- splitFunTy_maybe op_ty
                                   = go res_ty args
     go _ args = pprPanic "applyTypeToArgs" (panic_msg args)
 
@@ -2507,13 +2507,13 @@ tryEtaReduce bndrs body
     ok_arg bndr (Var v) co fun_ty
        | bndr == v
        , let mult = idMult bndr
-       , Just (Scaled fun_mult _, _) <- splitFunTy_maybe fun_ty
+       , Just (fun_mult, _, _) <- splitFunTy_maybe fun_ty
        , mult `eqType` fun_mult -- There is no change in multiplicity, otherwise we must abort
        = let reflCo = mkRepReflCo (idType bndr)
          in Just (mkFunCo Representational (multToCo mult) reflCo co, [])
     ok_arg bndr (Cast e co_arg) co fun_ty
        | (ticks, Var v) <- stripTicksTop tickishFloatable e
-       , Just (Scaled fun_mult _, _) <- splitFunTy_maybe fun_ty
+       , Just (fun_mult, _, _) <- splitFunTy_maybe fun_ty
        , bndr == v
        , fun_mult `eqType` idMult bndr
        = Just (mkFunCo Representational (multToCo fun_mult) (mkSymCo co_arg) co, ticks)
