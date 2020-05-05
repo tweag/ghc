@@ -1068,11 +1068,11 @@ In the compiler we maintain the invariant that all saturated applications of
 See #11714.
 -}
 
-splitFunTy :: Type -> (Scaled Type, Type)
+splitFunTy :: Type -> (Type, Type, Type)
 -- ^ Attempts to extract the argument and result types from a type, and
 -- panics if that is not possible. See also 'splitFunTy_maybe'
 splitFunTy ty | Just ty' <- coreView ty = splitFunTy ty'
-splitFunTy (FunTy _ w arg res) = (Scaled w arg, res)
+splitFunTy (FunTy _ w arg res) = (w, arg, res)
 splitFunTy other           = pprPanic "splitFunTy" (ppr other)
 
 splitFunTy_maybe :: Type -> Maybe (Type, Type, Type)

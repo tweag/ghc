@@ -1264,8 +1264,8 @@ ds_ev_typeable ty (EvTypeableTyApp ev1 ev2)
        ; mkTrApp <- dsLookupGlobalId mkTrAppName
                     -- mkTrApp :: forall k1 k2 (a :: k1 -> k2) (b :: k1).
                     --            TypeRep a -> TypeRep b -> TypeRep (a b)
-       ; let (Scaled _ k1, k2) = splitFunTy (typeKind t1)  -- drop the multiplicity,
-                                                           -- since it's a kind
+       ; let (_, k1, k2) = splitFunTy (typeKind t1)  -- drop the multiplicity,
+                                                     -- since it's a kind
        ; let expr =  mkApps (mkTyApps (Var mkTrApp) [ k1, k2, t1, t2 ])
                             [ e1, e2 ]
        -- ; pprRuntimeTrace "Trace mkTrApp" (ppr expr) expr

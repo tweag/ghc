@@ -929,7 +929,7 @@ simplExprF1 env (App fun arg) cont
                                 , sc_cont    = cont } }
       _       ->
         let fun_ty = exprType fun
-            (Scaled m _, _) = splitFunTy fun_ty
+            (m, _, _) = splitFunTy fun_ty
         in
                 simplExprF env fun $
                  ApplyToVal { sc_arg = arg, sc_env = env
