@@ -692,7 +692,7 @@ tc_sub_tc_type eq_orig inst_orig ctxt ty_actual ty_expected
   where
     possibly_poly ty
       | isForAllTy ty                        = True
-      | Just (_, res) <- splitFunTy_maybe ty = possibly_poly res
+      | Just (_, _, res) <- splitFunTy_maybe ty = possibly_poly res
       | otherwise                            = False
       -- NB *not* tcSplitFunTy, because here we want
       -- to decompose type-class arguments too

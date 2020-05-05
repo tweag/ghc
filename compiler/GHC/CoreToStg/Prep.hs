@@ -902,11 +902,11 @@ cpeApp top_env expr
                    (_   : ss_rest, True)  -> (topDmd, ss_rest)
                    (ss1 : ss_rest, False) -> (ss1,    ss_rest)
                    ([],            _)     -> (topDmd, [])
-            (arg_ty, res_ty) =
+            (_, arg_ty, res_ty) =
               case splitFunTy_maybe fun_ty of
                 Just as -> as
                 Nothing -> pprPanic "cpeBody" (ppr fun_ty $$ ppr expr)
-        (fs, arg') <- cpeArg top_env ss1 arg (scaledThing arg_ty)
+        (fs, arg') <- cpeArg top_env ss1 arg arg_ty
         rebuild_app as (App fun' arg') res_ty (fs `appendFloats` floats) ss_rest
       CpeCast co ->
         let ty2 = coercionRKind co
