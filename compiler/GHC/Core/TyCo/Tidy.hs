@@ -143,7 +143,7 @@ tidyType env (ty@(ForAllTy{}))     = mkForAllTys' (zip tvs' vis) $! tidyType env
     (env', tvs') = tidyVarBndrs env tvs
 tidyType env (CastTy ty co)       = (CastTy $! tidyType env ty) $! (tidyCo env co)
 tidyType env (CoercionTy co)      = CoercionTy $! (tidyCo env co)
-
+{-# SCC tidyType #-}
 
 -- The following two functions differ from mkForAllTys and splitForAllTys in that
 -- they expect/preserve the ArgFlag argument. These belong to types/Type.hs, but

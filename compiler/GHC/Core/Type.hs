@@ -2245,6 +2245,7 @@ eqType :: Type -> Type -> Bool
 eqType t1 t2 = isEqual $ nonDetCmpType t1 t2
   -- It's OK to use nonDetCmpType here and eqType is deterministic,
   -- nonDetCmpType does equality deterministically
+{-# SCC eqType #-}
 
 -- | Compare types with respect to a (presumably) non-empty 'RnEnv2'.
 eqTypeX :: RnEnv2 -> Type -> Type -> Bool

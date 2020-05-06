@@ -340,6 +340,7 @@ mkMultMul p One = p
 mkMultMul Many _ = Many
 mkMultMul _ Many = Many
 mkMultMul p q = mkTyConApp multMulTyCon [p, q]
+{-# SCC mkMultMul #-}
 
 -- See Note [Joining usages]
 -- | @mkMultSup w1 w2@ returns a multiplicity such that @mkMultSup w1
@@ -368,6 +369,7 @@ submult One   One  = Submult
 -- The 1 <= p rule
 submult One   _    = Submult
 submult _     _    = Unknown
+{-# SCC submult #-}
 
 --
 -- * Utilities
