@@ -1020,6 +1020,7 @@ simplExprF1 env (Let (NonRec bndr rhs) body) cont
 
   | otherwise
   = {-#SCC "simplNonRecE" #-} simplNonRecE env bndr (rhs, env) ([], body) cont
+{-# SCC simplExprF1 #-}
 
 {- Note [Avoiding space leaks in OutType]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2667,7 +2668,7 @@ reallyRebuildCase env scrut case_bndr alts cont
   where
     holeScaling = contHoleScaling cont
     -- Note [Scaling in case-of-case]
-
+{-# SCC reallyRebuildCase #-}
 {-
 simplCaseBinder checks whether the scrutinee is a variable, v.  If so,
 try to eliminate uses of v in the RHSs in favour of case_bndr; that

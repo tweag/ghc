@@ -942,7 +942,7 @@ scaleAltsBy w alts = map scaleAlt alts
 
     scaleBndr :: CoreBndr -> CoreBndr
     scaleBndr = scaleVarBy w
-
+{-# SCC scaleAltsBy #-}
 
 {- *********************************************************************
 *                                                                      *

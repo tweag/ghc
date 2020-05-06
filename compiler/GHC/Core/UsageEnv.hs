@@ -32,12 +32,14 @@ addUsage x Zero = x
 addUsage Bottom x = x
 addUsage x Bottom = x
 addUsage (MUsage x) (MUsage y) = MUsage $ mkMultAdd x y
+{-# SCC addUsage #-}
 
 scaleUsage :: Mult -> Usage -> Usage
 scaleUsage One Bottom     = Bottom
 scaleUsage _   Zero       = Zero
 scaleUsage x   Bottom     = MUsage x
 scaleUsage x   (MUsage y) = MUsage $ mkMultMul x y
+{-# SCC scaleUsage #-}
 
 -- For now, we use extra multiplicity Bottom for empty case.
 -- TODO: change to keeping UsageEnv on Case, issue #25.
@@ -57,11 +59,13 @@ bottomUE = UsageEnv emptyNameEnv True
 addUE :: UsageEnv -> UsageEnv -> UsageEnv
 addUE (UsageEnv e1 b1) (UsageEnv e2 b2) =
   UsageEnv (plusNameEnv_C mkMultAdd e1 e2) (b1 || b2)
+{-# SCC addUE #-}
 
 scaleUE :: Mult -> UsageEnv -> UsageEnv
 scaleUE One ue = ue
 scaleUE w (UsageEnv e _) =
   UsageEnv (mapNameEnv (mkMultMul w) e) False
+{-# SCC scaleUE #-}
 
 supUE :: UsageEnv -> UsageEnv -> UsageEnv
 supUE (UsageEnv e1 False) (UsageEnv e2 False) =
@@ -74,6 +78,7 @@ supUE (UsageEnv e1 b1) (UsageEnv e2 b2) = UsageEnv (plusNameEnv_CD2 combineUsage
                                         | otherwise = Many
          combineUsage Nothing  Nothing  = pprPanic "supUE" (ppr e1 <+> ppr e2)
 -- Note: If you are changing this logic, check 'mkMultSup' in Multiplicity as well.
+{-# SCC supUE #-}
 
 supUEs :: [UsageEnv] -> UsageEnv
 supUEs = foldr supUE bottomUE
@@ -89,6 +94,7 @@ lookupUE (UsageEnv e has_bottom) x =
   case lookupNameEnv e (getName x) of
     Just w  -> MUsage w
     Nothing -> if has_bottom then Bottom else Zero
+{-# SCC lookupUE #-}
 
 instance Outputable UsageEnv where
   ppr (UsageEnv ne b) = text "UsageEnv:" <+> ppr ne <+> ppr b
