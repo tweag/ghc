@@ -256,6 +256,7 @@ import {-# SOURCE #-} GHC.Builtin.Types
                                  , typeSymbolKind, liftedTypeKind
                                  , liftedTypeKindTyCon
                                  , constraintKind
+                                 , manyDataConTy, manyDataConTyCon
                                  , unrestrictedFunTyCon )
 import GHC.Types.Name( Name )
 import GHC.Builtin.Names
@@ -1271,6 +1272,11 @@ mkTyConApp tycon tys
   | tycon == liftedTypeKindTyCon
   = ASSERT2( null tys, ppr tycon $$ ppr tys )
     liftedTypeKindTyConApp
+  | tycon == manyDataConTyCon
+  -- There are a lot of occurrences of 'Many' so it's a small optimisation to
+  -- avoid reboxing every time `mkTyConApp` is called.
+  = ASSERT2( null tys, ppr tycon $$ ppr tys )
+    manyDataConTy
   | otherwise
   = TyConApp tycon tys
 
