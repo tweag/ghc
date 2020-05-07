@@ -2290,11 +2290,14 @@ See Note [Unique Determinism] for more details.
 -}
 
 nonDetCmpType :: Type -> Type -> Ordering
+nonDetCmpType (TyConApp tc1 []) (TyConApp tc2 []) | tc1 == tc2
+  = EQ
 nonDetCmpType t1 t2
   -- we know k1 and k2 have the same kind, because they both have kind *.
   = nonDetCmpTypeX rn_env t1 t2
   where
     rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes [t1, t2]))
+{-# INLINE nonDetCmpType #-}
 
 nonDetCmpTypes :: [Type] -> [Type] -> Ordering
 nonDetCmpTypes ts1 ts2 = nonDetCmpTypesX rn_env ts1 ts2
@@ -2363,8 +2366,8 @@ nonDetCmpTypeX env orig_t1 orig_t2 =
       | Just (s1, t1) <- repSplitAppTy_maybe ty1
       = go env s1 s2 `thenCmpTy` go env t1 t2
     go env (FunTy _ w1 s1 t1) (FunTy _ w2 s2 t2)
-      = go env w1 w2 `thenCmpTy`
-        go env s1 s2 `thenCmpTy` go env t1 t2
+      = go env s1 s2 `thenCmpTy` go env t1 t2 `thenCmpTy` go env w1 w2
+        -- Comparing multiplicities last because the test is usually true
     go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       = liftOrdering (tc1 `nonDetCmpTc` tc2) `thenCmpTy` gos env tys1 tys2
     go _   (LitTy l1)          (LitTy l2)          = liftOrdering (compare l1 l2)
