@@ -400,6 +400,31 @@ coreView ty@(TyConApp tc tys)
 
 coreView _ = Nothing
 
+{-# INLINE coreFullView #-}
+coreFullView :: Type -> Type
+-- ^ Iterates 'coreView' until there is no more to synonym to expand. It is
+-- written as a non-recursive function, so that it can get inlined like
+-- 'coreView' would. All the case of the caller function which are not
+-- 'TyConApp' will bypass core-view altogether thanks to case-of-case.
+--
+-- A common pattern is writing functions such as
+--
+--   f ty | Just ty' <- coreView ty = f ty'
+--   f <pattern matches>
+--
+-- If @f@ is recursive only because of the 'coreView' alternative, then we are
+-- missing inlining, hence optimisation opportunities. This was discovered due
+-- to 'splitFunTy_maybe' allocating a lot, despite its result always being
+-- immediately pattern-matched on.
+coreFullView ty@(TyConApp tc _)
+  | isTypeSynonymTyCon tc || isConstraintKindCon tc = go ty
+  where
+    go ty
+      | Just ty' <- coreView ty = go ty'
+      | otherwise = ty
+
+coreFullView ty = ty
+
 -----------------------------------------------
 expandTypeSynonyms :: Type -> Type
 -- ^ Expand out all type synonyms.  Actually, it'd suffice to expand out
@@ -1075,11 +1100,12 @@ splitFunTy ty | Just ty' <- coreView ty = splitFunTy ty'
 splitFunTy (FunTy _ w arg res) = (Scaled w arg, res)
 splitFunTy other           = pprPanic "splitFunTy" (ppr other)
 
+{-# INLINE splitFunTy_maybe #-}
 splitFunTy_maybe :: Type -> Maybe (Scaled Type, Type)
 -- ^ Attempts to extract the argument and result types from a type
-splitFunTy_maybe ty | Just ty' <- coreView ty = splitFunTy_maybe ty'
-splitFunTy_maybe (FunTy _ w arg res) = Just (Scaled w arg, res)
-splitFunTy_maybe _               = Nothing
+splitFunTy_maybe ty
+  | FunTy _ w arg res <- coreFullView ty = Just (Scaled w arg, res)
+  | otherwise                            = Nothing
 
 splitFunTys :: Type -> ([Scaled Type], Type)
 splitFunTys ty = split [] ty ty
