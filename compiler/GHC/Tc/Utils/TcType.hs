@@ -2460,7 +2460,7 @@ sizeType = go
                                    -- size ordering is sound, but why is this better?
                                    -- I came across this when investigating #14010.
     go (LitTy {})                = 1
-    go (FunTy _ w arg res)       = go w + go arg + go res + 1
+    go (FunTy _ _ arg res)       = go arg + go res + 1
     go (AppTy fun arg)           = go fun + go arg
     go (ForAllTy (Bndr tv vis) ty)
         | isVisibleArgFlag vis   = go (tyVarKind tv) + go ty + 1
