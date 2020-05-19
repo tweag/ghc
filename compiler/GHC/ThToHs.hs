@@ -934,8 +934,8 @@ cvtl e = wrapL (cvt e)
                             ; th_origin <- getOrigin
                             ; return $ HsCase noExtField e'
                                                  (mkMatchGroup th_origin ms') }
-    cvt (DoE ss)       = cvtHsDo DoExpr ss
-    cvt (MDoE ss)      = cvtHsDo MDoExpr ss
+    cvt (DoE ss)       = cvtHsDo (DoExpr Nothing) ss
+    cvt (MDoE ss)      = cvtHsDo (MDoExpr Nothing) ss
     cvt (CompE ss)     = cvtHsDo ListComp ss
     cvt (ArithSeqE dd) = do { dd' <- cvtDD dd
                             ; return $ ArithSeq noExtField Nothing dd' }
