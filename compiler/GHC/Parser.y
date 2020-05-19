@@ -2798,7 +2798,7 @@ aexp    :: { ECP }
         | 'mdo' stmtlist            {% runPV $2 >>= \ $2 ->
                                        fmap ecpFromExp $
                                        ams (L (comb2 $1 $2)
-                                              (mkHsDo MDoExpr (snd $ unLoc $2)))
+                                              (mkHsDo (MDoExpr Nothing) (snd $ unLoc $2)))
                                            (mj AnnMdo $1:(fst $ unLoc $2)) }
         | 'proc' aexp '->' exp
                        {% (checkPattern <=< runECP_P) $2 >>= \ p ->

@@ -426,9 +426,9 @@ dsExpr (HsLet _ binds body) = do
 -- because the interpretation of `stmts' depends on what sort of thing it is.
 --
 dsExpr (HsDo res_ty ListComp (L _ stmts)) = dsListComp stmts res_ty
-dsExpr (HsDo _ DoExpr        (L _ stmts)) = dsDo stmts
+dsExpr (HsDo _ DoExpr{}      (L _ stmts)) = dsDo stmts
 dsExpr (HsDo _ GhciStmtCtxt  (L _ stmts)) = dsDo stmts
-dsExpr (HsDo _ MDoExpr       (L _ stmts)) = dsDo stmts
+dsExpr (HsDo _ MDoExpr{}     (L _ stmts)) = dsDo stmts
 dsExpr (HsDo _ MonadComp     (L _ stmts)) = dsMonadComp stmts
 
 dsExpr (HsIf _ fun guard_expr then_expr else_expr)
@@ -941,7 +941,7 @@ dsDo stmts
       = do  { body     <- goL stmts
             ; rhs'     <- dsLExpr rhs
             ; var   <- selectSimpleMatchVarL pat
-            ; match <- matchSinglePatVar var (StmtCtxt DoExpr) pat
+            ; match <- matchSinglePatVar var (StmtCtxt (DoExpr Nothing)) pat
                          (xbstc_boundResultType xbs) (cantFailMatchResult body)
             ; match_code <- dsHandleMonadicFailure pat match (xbstc_failOp xbs)
             ; dsSyntaxExpr (xbstc_bindOp xbs) [rhs', Lam var match_code] }
@@ -958,11 +958,11 @@ dsDo stmts
 
            ; rhss' <- sequence rhss
 
-           ; body' <- dsLExpr $ noLoc $ HsDo body_ty DoExpr (noLoc stmts)
+           ; body' <- dsLExpr $ noLoc $ HsDo body_ty (DoExpr Nothing) (noLoc stmts)
 
            ; let match_args (pat, fail_op) (vs,body)
                    = do { var   <- selectSimpleMatchVarL pat
-                        ; match <- matchSinglePatVar var (StmtCtxt DoExpr) pat
+                        ; match <- matchSinglePatVar var (StmtCtxt (DoExpr Nothing)) pat
                                    body_ty (cantFailMatchResult body)
                         ; match_code <- dsHandleMonadicFailure pat match fail_op
                         ; return (var:vs, match_code)
@@ -1008,7 +1008,7 @@ dsDo stmts
                                , mg_origin = Generated })
         mfix_pat     = noLoc $ LazyPat noExtField $ mkBigLHsPatTupId rec_tup_pats
         body         = noLoc $ HsDo body_ty
-                                DoExpr (noLoc (rec_stmts ++ [ret_stmt]))
+                                (DoExpr Nothing) (noLoc (rec_stmts ++ [ret_stmt]))
         ret_app      = nlHsSyntaxApps return_op [mkBigLHsTupId rets]
         ret_stmt     = noLoc $ mkLastStmt ret_app
                      -- This LastStmt will be desugared with dsDo,

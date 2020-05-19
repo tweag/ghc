@@ -963,9 +963,11 @@ checkCmdBlockArguments :: LHsCmd GhcPs -> PV ()
 (checkExpBlockArguments, checkCmdBlockArguments) = (checkExpr, checkCmd)
   where
     checkExpr :: LHsExpr GhcPs -> PV ()
-    checkExpr expr = case unLoc expr of
-      HsDo _ DoExpr _ -> check "do block" expr
-      HsDo _ MDoExpr _ -> check "mdo block" expr
+    checkExpr expr = do
+     let qualified m t = maybe t (\_ -> "qualified " ++ t) m
+     case unLoc expr of
+      HsDo _ (DoExpr m) _ -> check (qualified m "do block") expr
+      HsDo _ (MDoExpr m) _ -> check (qualified m "mdo block") expr
       HsLam {} -> check "lambda expression" expr
       HsCase {} -> check "case expression" expr
       HsLamCase {} -> check "lambda-case expression" expr
@@ -1943,7 +1945,7 @@ instance DisambECP (HsExpr GhcPs) where
   mkHsIfPV l c semi1 a semi2 b = do
     checkDoAndIfThenElse c semi1 a semi2 b
     return $ L l (mkHsIf c a b)
-  mkHsDoPV l stmts = return $ L l (HsDo noExtField DoExpr stmts)
+  mkHsDoPV l stmts = return $ L l (HsDo noExtField (DoExpr Nothing) stmts)
   mkHsParPV l e = return $ L l (HsPar noExtField e)
   mkHsVarPV v@(getLoc -> l) = return $ L l (HsVar noExtField v)
   mkHsLitPV (L l a) = return $ L l (HsLit noExtField a)

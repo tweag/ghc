@@ -312,15 +312,15 @@ tcDoStmts ListComp (L l stmts) res_ty
                             (mkCheckExpType elt_ty)
         ; return $ mkHsWrapCo co (HsDo list_ty ListComp (L l stmts')) }
 
-tcDoStmts DoExpr (L l stmts) res_ty
-  = do  { stmts' <- tcStmts DoExpr tcDoStmt stmts res_ty
+tcDoStmts doExpr@(DoExpr _) (L l stmts) res_ty
+  = do  { stmts' <- tcStmts doExpr tcDoStmt stmts res_ty
         ; res_ty <- readExpType res_ty
-        ; return (HsDo res_ty DoExpr (L l stmts')) }
+        ; return (HsDo res_ty doExpr (L l stmts')) }
 
-tcDoStmts MDoExpr (L l stmts) res_ty
-  = do  { stmts' <- tcStmts MDoExpr tcDoStmt stmts res_ty
+tcDoStmts mDoExpr@(MDoExpr _) (L l stmts) res_ty
+  = do  { stmts' <- tcStmts mDoExpr tcDoStmt stmts res_ty
         ; res_ty <- readExpType res_ty
-        ; return (HsDo res_ty MDoExpr (L l stmts')) }
+        ; return (HsDo res_ty mDoExpr (L l stmts')) }
 
 tcDoStmts MonadComp (L l stmts) res_ty
   = do  { stmts' <- tcStmts MonadComp tcMcStmt stmts res_ty

@@ -44,6 +44,7 @@ import GHC.Types.Name.Set
 import GHC.Types.Basic
 import GHC.Core.ConLike
 import GHC.Types.SrcLoc
+import GHC.Unit.Module (ModuleName)
 import GHC.Utils.Misc
 import GHC.Utils.Outputable
 import GHC.Data.FastString
@@ -2332,7 +2333,7 @@ pprArg (ApplicativeArgOne _ pat expr isBody)
 pprArg (ApplicativeArgMany _ stmts return pat) =
      ppr pat <+>
      text "<-" <+>
-     ppr (HsDo (panic "pprStmt") DoExpr (noLoc
+     ppr (HsDo (panic "pprStmt") (DoExpr Nothing) (noLoc
                (stmts ++
                    [noLoc (LastStmt noExtField (noLoc return) Nothing noSyntaxExpr)])))
 
@@ -2356,10 +2357,14 @@ pprBy (Just e) = text "by" <+> ppr e
 
 pprDo :: (OutputableBndrId p, Outputable body)
       => HsStmtContext any -> [LStmt (GhcPass p) body] -> SDoc
-pprDo DoExpr        stmts = text "do"  <+> ppr_do_stmts stmts
+pprDo (DoExpr m)    stmts =
+  maybe id (\md p -> ppr md <> char '.' <> p) m $
+  text "do"  <+> ppr_do_stmts stmts
 pprDo GhciStmtCtxt  stmts = text "do"  <+> ppr_do_stmts stmts
 pprDo ArrowExpr     stmts = text "do"  <+> ppr_do_stmts stmts
-pprDo MDoExpr       stmts = text "mdo" <+> ppr_do_stmts stmts
+pprDo (MDoExpr m)   stmts =
+  maybe id (\md p -> ppr md <> char '.' <> p) m $
+  text "mdo"  <+> ppr_do_stmts stmts
 pprDo ListComp      stmts = brackets    $ pprComp stmts
 pprDo MonadComp     stmts = brackets    $ pprComp stmts
 pprDo _             _     = panic "pprDo" -- PatGuard, ParStmtCxt
@@ -2782,8 +2787,8 @@ data HsStmtContext p
   = ListComp
   | MonadComp
 
-  | DoExpr                           -- ^do { ... }
-  | MDoExpr                          -- ^mdo { ... }  ie recursive do-expression
+  | DoExpr (Maybe ModuleName)        -- ^[ModuleName.]do { ... }
+  | MDoExpr (Maybe ModuleName)       -- ^[ModuleName.]mdo { ... }  ie recursive do-expression
   | ArrowExpr                        -- ^do-notation in an arrow-command context
 
   | GhciStmtCtxt                     -- ^A command-line Stmt in GHCi pat <- rhs
@@ -2805,8 +2810,8 @@ isComprehensionContext _ = False
 -- 'MonadFail'?
 isMonadFailStmtContext :: HsStmtContext id -> Bool
 isMonadFailStmtContext MonadComp            = True
-isMonadFailStmtContext DoExpr               = True
-isMonadFailStmtContext MDoExpr              = True
+isMonadFailStmtContext DoExpr{}             = True
+isMonadFailStmtContext MDoExpr{}            = True
 isMonadFailStmtContext GhciStmtCtxt         = True
 isMonadFailStmtContext (ParStmtCtxt ctxt)   = isMonadFailStmtContext ctxt
 isMonadFailStmtContext (TransStmtCtxt ctxt) = isMonadFailStmtContext ctxt
@@ -2867,15 +2872,15 @@ pprAStmtContext ctxt = article <+> pprStmtContext ctxt
     pp_an = text "an"
     pp_a  = text "a"
     article = case ctxt of
-                  MDoExpr       -> pp_an
+                  MDoExpr Nothing -> pp_an
                   GhciStmtCtxt  -> pp_an
                   _             -> pp_a
 
 
 -----------------
 pprStmtContext GhciStmtCtxt    = text "interactive GHCi command"
-pprStmtContext DoExpr          = text "'do' block"
-pprStmtContext MDoExpr         = text "'mdo' block"
+pprStmtContext (DoExpr m)      = text (qualified m "'do' block")
+pprStmtContext (MDoExpr m)     = text (qualified m "'mdo' block")
 pprStmtContext ArrowExpr       = text "'do' block in an arrow command"
 pprStmtContext ListComp        = text "list comprehension"
 pprStmtContext MonadComp       = text "monad comprehension"
@@ -2892,6 +2897,9 @@ pprStmtContext (ParStmtCtxt c) =
 pprStmtContext (TransStmtCtxt c) =
   ifPprDebug (sep [text "transformed branch of", pprAStmtContext c])
              (pprStmtContext c)
+
+qualified :: Maybe ModuleName -> String -> String
+qualified m t = maybe t (\_ -> "qualified " ++ t) m
 
 instance OutputableBndrId p
       => Outputable (HsStmtContext (GhcPass p)) where
@@ -2915,9 +2923,9 @@ matchContextErrString (StmtCtxt (ParStmtCtxt c))   = matchContextErrString (Stmt
 matchContextErrString (StmtCtxt (TransStmtCtxt c)) = matchContextErrString (StmtCtxt c)
 matchContextErrString (StmtCtxt (PatGuard _))      = text "pattern guard"
 matchContextErrString (StmtCtxt GhciStmtCtxt)      = text "interactive GHCi command"
-matchContextErrString (StmtCtxt DoExpr)            = text "'do' block"
+matchContextErrString (StmtCtxt (DoExpr m))  = text (qualified m "'do' block")
 matchContextErrString (StmtCtxt ArrowExpr)         = text "'do' block"
-matchContextErrString (StmtCtxt MDoExpr)           = text "'mdo' block"
+matchContextErrString (StmtCtxt (MDoExpr m)) = text (qualified m "'mdo' block")
 matchContextErrString (StmtCtxt ListComp)          = text "list comprehension"
 matchContextErrString (StmtCtxt MonadComp)         = text "monad comprehension"
 
