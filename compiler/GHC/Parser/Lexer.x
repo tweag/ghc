@@ -184,6 +184,11 @@ $docsym    = [\| \^ \* \$]
 @qvarsym = @qual @varsym
 @qconsym = @qual @consym
 
+-- QualifiedDo needs to parse "M.do" not as a variable, so as to keep the
+-- layout rules.
+@qdo    = @qual "do"
+@qmdo   = @qual "mdo"
+
 @floating_point = @numspc @decimal \. @decimal @exponent? | @numspc @decimal @exponent
 @hex_floating_point = @numspc @hexadecimal \. @hexadecimal @bin_exponent? | @numspc @hexadecimal @bin_exponent
 
@@ -445,6 +450,8 @@ $tab          { warnTab }
 }
 
 <0,option_prags> {
+  @qdo     / { ifExtension QualifiedDoBit } { qdo_token ITqdo }
+  @qmdo    / { ifExtension QualifiedDoBit `alexAndPred` ifExtension RecursiveDoBit} { qdo_token ITqmdo }
   @qvarid                       { idtoken qvarid }
   @qconid                       { idtoken qconid }
   @varid                        { varid }
@@ -712,6 +719,10 @@ data Token
   | ITstock
   | ITanyclass
   | ITvia
+
+  -- QualifiedDo
+  | ITqdo FastString
+  | ITqmdo FastString
 
   -- Backpack tokens
   | ITunit
@@ -1005,6 +1016,13 @@ layout_token t span _buf _len = pushLexState layout >> return (L span t)
 
 idtoken :: (StringBuffer -> Int -> Token) -> Action
 idtoken f span buf len = return (L span $! (f buf len))
+
+qdo_token :: (FastString -> Token) -> Action
+qdo_token con span buf len = do
+    maybe_layout token
+    return (L span $! token)
+  where
+    !token = con $! fst $! splitQualName buf len False
 
 skip_one_varid :: (FastString -> Token) -> Action
 skip_one_varid f span buf len
@@ -1613,15 +1631,17 @@ maybe_layout t = do -- If the alternative layout rule is enabled then
                     -- context.
                     alr <- getBit AlternativeLayoutRuleBit
                     unless alr $ f t
-    where f ITdo    = pushLexState layout_do
-          f ITmdo   = pushLexState layout_do
-          f ITof    = pushLexState layout
-          f ITlcase = pushLexState layout
-          f ITlet   = pushLexState layout
-          f ITwhere = pushLexState layout
-          f ITrec   = pushLexState layout
-          f ITif    = pushLexState layout_if
-          f _       = return ()
+    where f ITdo        = pushLexState layout_do
+          f ITmdo       = pushLexState layout_do
+          f (ITqdo _)   = pushLexState layout_do
+          f (ITqmdo _)  = pushLexState layout_do
+          f ITof        = pushLexState layout
+          f ITlcase     = pushLexState layout
+          f ITlet       = pushLexState layout
+          f ITwhere     = pushLexState layout
+          f ITrec       = pushLexState layout
+          f ITif        = pushLexState layout_if
+          f _           = return ()
 
 -- Pushing a new implicit layout context.  If the indentation of the
 -- next token is not greater than the previous layout context, then
@@ -2438,6 +2458,7 @@ data ExtBits
   | HaddockBit-- Lex and parse Haddock comments
   | MagicHashBit -- "#" in both functions and operators
   | RecursiveDoBit -- mdo
+  | QualifiedDoBit -- .do and .mdo
   | UnicodeSyntaxBit -- the forall symbol, arrow symbols, etc
   | UnboxedTuplesBit -- (# and #)
   | UnboxedSumsBit -- (# and #)
@@ -2527,6 +2548,7 @@ mkParserFlags' warningFlags extensionFlags thisPackage
       .|. BangPatBit                  `xoptBit` LangExt.BangPatterns
       .|. MagicHashBit                `xoptBit` LangExt.MagicHash
       .|. RecursiveDoBit              `xoptBit` LangExt.RecursiveDo
+      .|. QualifiedDoBit              `xoptBit` LangExt.QualifiedDo
       .|. UnicodeSyntaxBit            `xoptBit` LangExt.UnicodeSyntax
       .|. UnboxedTuplesBit            `xoptBit` LangExt.UnboxedTuples
       .|. UnboxedSumsBit              `xoptBit` LangExt.UnboxedSums
@@ -2781,9 +2803,12 @@ srcParseErr options buf len
               $$ ppWhen (not th_enabled && token == "$") -- #7396
                         (text "Perhaps you intended to use TemplateHaskell")
               $$ ppWhen (token == "<-")
-                        (if mdoInLast100
-                           then text "Perhaps you intended to use RecursiveDo"
-                           else text "Perhaps this statement should be within a 'do' block?")
+                        (if qdoInLast100
+                         then text "Perhaps you intended to use 'QualifiedDo'?"
+                         else
+                          if mdoInLast100
+                          then text "Perhaps you intended to use 'RecursiveDo'?"
+                          else text "Perhaps this statement should be within a 'do' block?")
               $$ ppWhen (token == "=" && doInLast100) -- #15849
                         (text "Perhaps you need a 'let' in a 'do' block?"
                          $$ text "e.g. 'let x = 5' instead of 'x = 5'")
@@ -2792,6 +2817,7 @@ srcParseErr options buf len
   where token = lexemeToString (offsetBytes (-len) buf) len
         pattern = decodePrevNChars 8 buf
         last100 = decodePrevNChars 100 buf
+        qdoInLast100 = ".do" `isInfixOf` last100 || ".mdo" `isInfixOf` last100
         doInLast100 = "do" `isInfixOf` last100
         mdoInLast100 = "mdo" `isInfixOf` last100
         th_enabled = ThQuotesBit `xtest` pExtsBitmap options
@@ -2851,14 +2877,16 @@ lexTokenAlr = do mPending <- popPendingImplicitToken
                           return t
                  setAlrLastLoc (getLoc t)
                  case unLoc t of
-                     ITwhere -> setAlrExpectingOCurly (Just ALRLayoutWhere)
-                     ITlet   -> setAlrExpectingOCurly (Just ALRLayoutLet)
-                     ITof    -> setAlrExpectingOCurly (Just ALRLayoutOf)
-                     ITlcase -> setAlrExpectingOCurly (Just ALRLayoutOf)
-                     ITdo    -> setAlrExpectingOCurly (Just ALRLayoutDo)
-                     ITmdo   -> setAlrExpectingOCurly (Just ALRLayoutDo)
-                     ITrec   -> setAlrExpectingOCurly (Just ALRLayoutDo)
-                     _       -> return ()
+                     ITwhere  -> setAlrExpectingOCurly (Just ALRLayoutWhere)
+                     ITlet    -> setAlrExpectingOCurly (Just ALRLayoutLet)
+                     ITof     -> setAlrExpectingOCurly (Just ALRLayoutOf)
+                     ITlcase  -> setAlrExpectingOCurly (Just ALRLayoutOf)
+                     ITdo     -> setAlrExpectingOCurly (Just ALRLayoutDo)
+                     ITmdo    -> setAlrExpectingOCurly (Just ALRLayoutDo)
+                     ITqdo _  -> setAlrExpectingOCurly (Just ALRLayoutDo)
+                     ITqmdo _ -> setAlrExpectingOCurly (Just ALRLayoutDo)
+                     ITrec    -> setAlrExpectingOCurly (Just ALRLayoutDo)
+                     _        -> return ()
                  return t
 
 alternativeLayoutRuleToken :: PsLocated Token -> P (PsLocated Token)
