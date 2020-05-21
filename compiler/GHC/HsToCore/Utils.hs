@@ -74,7 +74,7 @@ import GHC.Types.Basic
 import GHC.Core.ConLike
 import GHC.Types.Unique.Set
 import GHC.Types.Unique.Supply
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Builtin.Names
 import GHC.Types.Name( isInternalName )
 import GHC.Utils.Outputable

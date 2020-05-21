@@ -49,7 +49,7 @@ import GHC.Core.Multiplicity
 import GHC.Builtin.Types
 import GHC.Builtin.Names
 import GHC.Types.Basic
-import GHC.Types.Module ( Module )
+import GHC.Unit.Module ( Module )
 import GHC.Utils.Error
 import GHC.Driver.Session
 import GHC.Utils.Outputable
