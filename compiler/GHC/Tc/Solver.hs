@@ -66,7 +66,6 @@ import Data.Foldable      ( toList )
 import Data.List          ( partition )
 import Data.List.NonEmpty ( NonEmpty(..) )
 import GHC.Data.Maybe     ( isJust )
-import GHC.Core.Multiplicity
 
 {-
 *********************************************************************************
