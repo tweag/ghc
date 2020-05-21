@@ -496,7 +496,7 @@ data DynFlags = DynFlags {
   specConstrThreshold   :: Maybe Int,   -- ^ Threshold for SpecConstr
   specConstrCount       :: Maybe Int,   -- ^ Max number of specialisations for any one function
   specConstrRecursive   :: Int,         -- ^ Max number of specialisations for recursive types
-                                        --   Not optional; otherwise ForceSpecConstr can diverge.
+                                        --   Not optional; otherwise SPEC can diverge.
   binBlobThreshold      :: Word,        -- ^ Binary literals (e.g. strings) whose size is above
                                         --   this threshold will be dumped in a binary file
                                         --   by the assembler code generator (0 to disable)
@@ -1593,7 +1593,7 @@ defaultLogActionHPutStrDoc dflags h d
   -- Don't add a newline at the end, so that successive
   -- calls to this log-action can output all on the same line
   = printSDoc ctx Pretty.PageMode h d
-    where ctx = initSDocContext dflags defaultDumpStyle
+    where ctx = initSDocContext dflags defaultUserStyle
 
 newtype FlushOut = FlushOut (IO ())
 
@@ -3193,13 +3193,6 @@ package_flags_deps = [
       (NoArg removeUserPkgDb)              "Use -no-user-package-db instead"
   , make_ord_flag defGhcFlag "package-name"       (HasArg $ \name -> do
                                       upd (setUnitId name))
-                                      -- TODO: Since we JUST deprecated
-                                      -- -this-package-key, let's keep this
-                                      -- undeprecated for another cycle.
-                                      -- Deprecate this eventually.
-                                      -- deprecate "Use -this-unit-id instead")
-  , make_dep_flag defGhcFlag "this-package-key"   (HasArg $ upd . setUnitId)
-                                                  "Use -this-unit-id instead"
   , make_ord_flag defGhcFlag "this-unit-id"       (hasArg setUnitId)
   , make_ord_flag defFlag "package"               (HasArg exposePackage)
   , make_ord_flag defFlag "plugin-package-id"     (HasArg exposePluginPackageId)
@@ -4891,7 +4884,8 @@ compilerInfo dflags
        -- built in it
        ("Requires unified installed package IDs", "YES"),
        -- Whether or not we support the @-this-package-key@ flag.  Prefer
-       -- "Uses unit IDs" over it.
+       -- "Uses unit IDs" over it. We still say yes even if @-this-package-key@
+       -- flag has been removed, otherwise it breaks Cabal...
        ("Uses package keys",           "YES"),
        -- Whether or not we support the @-this-unit-id@ flag
        ("Uses unit IDs",               "YES"),
