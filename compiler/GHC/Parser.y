@@ -92,7 +92,7 @@ import GHC.Builtin.Types ( unitTyCon, unitDataCon, tupleTyCon, tupleDataCon, nil
                            listTyCon_RDR, consDataCon_RDR, eqTyCon_RDR )
 }
 
-%expect 236 -- shift/reduce conflicts
+%expect 232 -- shift/reduce conflicts
 
 {- Last updated: 04 June 2018
 
@@ -178,7 +178,7 @@ Shift parses as (per longest-parse rule):
 
 -------------------------------------------------------------------------------
 
-state 146 contains 68 shift/reduce conflicts.
+state 146 contains 66 shift/reduce conflicts.
 
     *** exp10 -> fexp .
         fexp -> fexp . aexp
@@ -196,7 +196,7 @@ Shift parses as (per longest-parse rule):
 
 -------------------------------------------------------------------------------
 
-state 203 contains 27 shift/reduce conflicts.
+state 200 contains 27 shift/reduce conflicts.
 
         aexp2 -> TH_TY_QUOTE . tyvar
         aexp2 -> TH_TY_QUOTE . gtycon
@@ -215,7 +215,7 @@ Shift parses as (per longest-parse rule):
 
 -------------------------------------------------------------------------------
 
-state 296 contains 1 shift/reduce conflicts.
+state 294 contains 1 shift/reduce conflicts.
 
         rule -> STRING . rule_activation rule_forall infixexp '=' exp
 
@@ -233,7 +233,7 @@ a rule instructing how to rewrite the expression '[0] f'.
 
 -------------------------------------------------------------------------------
 
-state 307 contains 1 shift/reduce conflict.
+state 305 contains 1 shift/reduce conflict.
 
     *** type -> btype .
         type -> btype . '->' ctype
@@ -244,7 +244,7 @@ Same as state 61 but without contexts.
 
 -------------------------------------------------------------------------------
 
-state 351 contains 1 shift/reduce conflicts.
+state 349 contains 1 shift/reduce conflicts.
 
         tup_exprs -> commas . tup_tail
         sysdcon_nolist -> '(' commas . ')'
@@ -261,7 +261,7 @@ See also Note [ExplicitTuple] in GHC.Hs.Expr.
 
 -------------------------------------------------------------------------------
 
-state 409 contains 1 shift/reduce conflicts.
+state 407 contains 1 shift/reduce conflicts.
 
         tup_exprs -> commas . tup_tail
         sysdcon_nolist -> '(#' commas . '#)'
@@ -273,7 +273,7 @@ Same as State 354 for unboxed tuples.
 
 -------------------------------------------------------------------------------
 
-state 418 contains 68 shift/reduce conflicts.
+state 416 contains 66 shift/reduce conflicts.
 
     *** exp10 -> '-' fexp .
         fexp -> fexp . aexp
@@ -283,7 +283,7 @@ Same as 146 but with a unary minus.
 
 -------------------------------------------------------------------------------
 
-state 476 contains 1 shift/reduce conflict.
+state 472 contains 1 shift/reduce conflict.
 
         oqtycon -> '(' qtyconsym . ')'
     *** qtyconop -> qtyconsym .
@@ -297,7 +297,7 @@ parenthesized infix type expression of length 1.
 
 -------------------------------------------------------------------------------
 
-state 669 contains 1 shift/reduce conflicts.
+state 665 contains 1 shift/reduce conflicts.
 
     *** aexp2 -> ipvar .
         dbind -> ipvar . '=' exp
@@ -312,7 +312,7 @@ sensible meaning, namely the lhs of an implicit binding.
 
 -------------------------------------------------------------------------------
 
-state 754 contains 1 shift/reduce conflicts.
+state 750 contains 1 shift/reduce conflicts.
 
         rule -> STRING rule_activation . rule_forall infixexp '=' exp
 
@@ -329,7 +329,7 @@ doesn't include 'forall'.
 
 -------------------------------------------------------------------------------
 
-state 990 contains 1 shift/reduce conflicts.
+state 986 contains 1 shift/reduce conflicts.
 
         transformqual -> 'then' 'group' . 'using' exp
         transformqual -> 'then' 'group' . 'by' exp 'using' exp
@@ -339,7 +339,7 @@ state 990 contains 1 shift/reduce conflicts.
 
 -------------------------------------------------------------------------------
 
-state 1088 contains 1 shift/reduce conflicts.
+state 1084 contains 1 shift/reduce conflicts.
 
         rule_foralls -> 'forall' rule_vars '.' . 'forall' rule_vars '.'
     *** rule_foralls -> 'forall' rule_vars '.' .
@@ -362,7 +362,7 @@ Shift means the parser only allows the former. Also see conflict 753 above.
 
 -------------------------------------------------------------------------------
 
-state 1379 contains 1 shift/reduce conflict.
+state 1375 contains 1 shift/reduce conflict.
 
     *** atype -> tyvar .
         tv_bndr -> '(' tyvar . '::' kind ')'
@@ -460,7 +460,6 @@ are the most common patterns, rewritten as regular expressions for clarity:
  'data'         { L _ ITdata }
  'default'      { L _ ITdefault }
  'deriving'     { L _ ITderiving }
- 'do'           { L _ ITdo }
  'else'         { L _ ITelse }
  'hiding'       { L _ IThiding }
  'if'           { L _ ITif }
@@ -487,7 +486,6 @@ are the most common patterns, rewritten as regular expressions for clarity:
  'safe'         { L _ ITsafe }
  'interruptible' { L _ ITinterruptible }
  'unsafe'       { L _ ITunsafe }
- 'mdo'          { L _ ITmdo }
  'family'       { L _ ITfamily }
  'role'         { L _ ITrole }
  'stdcall'      { L _ ITstdcallconv }
@@ -582,8 +580,8 @@ are the most common patterns, rewritten as regular expressions for clarity:
 
 
  -- QualifiedDo
- QDO            { L _ (ITqdo  _) }
- QMDO           { L _ (ITqmdo _) }
+ DO             { L _ (ITdo  _) }
+ MDO            { L _ (ITmdo _) }
 
  IPDUPVARID     { L _ (ITdupipvarid   _) }              -- GHC extension
  LABELVARID     { L _ (ITlabelvarid   _) }
@@ -2797,32 +2795,20 @@ aexp    :: { ECP }
                                                    FromSource (snd $ unLoc $4)))
                                                (mj AnnCase $1:mj AnnOf $3
                                                   :(fst $ unLoc $4)) }
-        | 'do' stmtlist              { ECP $
-                                        $2 >>= \ $2 ->
-                                        amms (mkHsDoPV (comb2 $1 $2)
-                                                       Nothing
-                                                       (mapLoc snd $2))
-                                               (mj AnnDo $1:(fst $ unLoc $2)) }
-        | 'mdo' stmtlist            {% runPV $2 >>= \ $2 ->
-                                       fmap ecpFromExp $
-                                       ams (L (comb2 $1 $2)
-                                              (mkHsDo (MDoExpr Nothing) (snd $ unLoc $2)))
-                                           (mj AnnMdo $1:(fst $ unLoc $2)) }
         -- QualifiedDo.
-        | QDO  stmtlist              { ECP $
+        | DO  stmtlist               { ECP $
                                         $2 >>= \ $2 ->
                                         amms (mkHsDoPV (comb2 $1 $2)
-                                                       (Just $
-                                                        mkModuleNameFS $
-                                                        getQDO $1)
+                                                       (fmap mkModuleNameFS
+                                                        (getDO $1))
                                                        (mapLoc snd $2))
                                                (mj AnnDo $1:(fst $ unLoc $2)) }
-        | QMDO stmtlist            {% runPV $2 >>= \ $2 ->
+        | MDO stmtlist             {% runPV $2 >>= \ $2 ->
                                        fmap ecpFromExp $
                                        ams (L (comb2 $1 $2)
                                               (mkHsDo (MDoExpr $
-                                                        Just $ mkModuleNameFS $
-                                                        getQMDO $1)
+                                                        fmap mkModuleNameFS
+                                                        (getMDO $1))
                                                         (snd $ unLoc $2)))
                                            (mj AnnMdo $1:(fst $ unLoc $2)) }
         | 'proc' aexp '->' exp
@@ -3832,8 +3818,8 @@ getVARID        (L _ (ITvarid    x)) = x
 getCONID        (L _ (ITconid    x)) = x
 getVARSYM       (L _ (ITvarsym   x)) = x
 getCONSYM       (L _ (ITconsym   x)) = x
-getQDO          (L _ (ITqdo      x)) = x
-getQMDO         (L _ (ITqmdo     x)) = x
+getDO           (L _ (ITdo      x)) = x
+getMDO          (L _ (ITmdo     x)) = x
 getQVARID       (L _ (ITqvarid   x)) = x
 getQCONID       (L _ (ITqconid   x)) = x
 getQVARSYM      (L _ (ITqvarsym  x)) = x
