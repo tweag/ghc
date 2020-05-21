@@ -45,7 +45,7 @@ module GHC.Core.TyCo.Rep (
 
         -- * Functions over types
         mkTyConTy, mkTyVarTy, mkTyVarTys,
-        mkTyCoVarTy, mkTyCoVarTys,
+        mkTyCoVarTy, mkTyCoVarTys, mkTyConApp,
 
 
         mkFunTy, mkVisFunTy, mkInvisFunTy, mkVisFunTys,
@@ -80,12 +80,15 @@ import GhcPrelude
 
 import {-# SOURCE #-} GHC.Core.TyCo.Ppr ( pprType, pprCo, pprTyLit )
 
+import  {-# SOURCE #-} GHC.Builtin.Types ( liftedTypeKindTyCon, manyDataConTy )
+
    -- Transitively pulls in a LOT of stuff, better to break the loop
 
 import {-# SOURCE #-} GHC.Core.ConLike ( ConLike(..), conLikeName )
 
 -- friends:
 import GHC.Iface.Type
+import GHC.Types.Unique ( hasKey )
 import GHC.Types.Var
 import GHC.Types.Var.Set
 import GHC.Types.Name hiding ( varName )
@@ -94,6 +97,7 @@ import GHC.Core.TyCon
 import GHC.Core.Coercion.Axiom
 
 -- others
+import GHC.Builtin.Names ( liftedTypeKindTyConKey, manyDataConKey )
 import GHC.Types.Basic ( LeftOrRight(..), pickLR )
 import Outputable
 import FastString
@@ -102,6 +106,34 @@ import Util
 -- libraries
 import qualified Data.Data as Data hiding ( TyCon )
 import Data.IORef ( IORef )   -- for CoercionHole
+
+-- | A key function: builds a 'TyConApp' or 'FunTy' as appropriate to
+-- its arguments.  Applies its arguments to the constructor from left to right.
+mkTyConApp :: TyCon -> [Type] -> Type
+mkTyConApp tycon tys
+  | isFunTyCon tycon
+  , [w, _rep1,_rep2,ty1,ty2] <- tys
+  -- The FunTyCon (->) is always a visible one
+  = FunTy { ft_af = VisArg, ft_mult = w, ft_arg = ty1, ft_res = ty2 }
+
+  -- Note [mkTyConApp and Type]
+  | tycon `hasKey` liftedTypeKindTyConKey
+  = ASSERT2( null tys, ppr tycon $$ ppr tys )
+    liftedTypeKindTyConApp
+  | tycon `hasKey` manyDataConKey
+  -- There are a lot of occurrences of 'Many' so it's a small optimisation to
+  -- avoid reboxing every time `mkTyConApp` is called.
+  = ASSERT2( null tys, ppr tycon $$ ppr tys )
+    manyDataConTy
+  | otherwise
+  = TyConApp tycon tys
+
+-- This is a single, global definition of the type `Type`
+-- Defined here so it is only allocated once.
+-- See Note [mkTyConApp and Type]
+liftedTypeKindTyConApp :: Type
+liftedTypeKindTyConApp = TyConApp liftedTypeKindTyCon []
+
 
 {-
 %************************************************************************

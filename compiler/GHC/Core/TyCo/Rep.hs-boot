@@ -2,6 +2,7 @@ module GHC.Core.TyCo.Rep where
 
 import Outputable ( Outputable )
 import Data.Data  ( Data )
+import {-# SOURCE #-} GHC.Core.TyCon
 import {-# SOURCE #-} GHC.Types.Var( Var, ArgFlag, AnonArgFlag )
 
 data Type
@@ -18,6 +19,7 @@ type ThetaType = [PredType]
 type CoercionN = Coercion
 type MCoercionN = MCoercion
 
+mkTyConApp :: TyCon -> [Type] -> Type
 mkFunTyMany :: AnonArgFlag -> Type -> Type -> Type
 mkForAllTy :: Var -> ArgFlag -> Type -> Type
 

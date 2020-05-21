@@ -738,7 +738,7 @@ subst_ty subst ty
                 -- we might be replacing (a Int), represented with App
                 -- by [Int], represented with TyConApp
     go (TyConApp tc tys) = let args = map go tys
-                           in  args `seqList` TyConApp tc args
+                           in  args `seqList` mkTyConApp tc args
     go ty@(FunTy { ft_mult = mult, ft_arg = arg, ft_res = res })
       = let !mult' = go mult
             !arg' = go arg

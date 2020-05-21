@@ -24,6 +24,4 @@ isLiftedTypeKind :: Type -> Bool
 
 splitTyConApp_maybe :: HasDebugCallStack => Type -> Maybe (TyCon, [Type])
 
-mkTyConApp :: TyCon -> [Type] -> Type
-
 partitionInvisibleTypes :: TyCon -> [Type] -> ([Type], [Type])
