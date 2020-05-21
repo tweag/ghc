@@ -62,7 +62,7 @@ module GHC.Core.DataCon (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Types.Id.Make ( DataConBoxer )
 import GHC.Core.Type as Type
@@ -76,12 +76,12 @@ import GHC.Types.Name
 import GHC.Builtin.Names
 import GHC.Core.Predicate
 import GHC.Types.Var
-import Outputable
-import Util
+import GHC.Utils.Outputable
+import GHC.Utils.Misc
 import GHC.Types.Basic
-import FastString
+import GHC.Data.FastString
 import GHC.Types.Module
-import Binary
+import GHC.Utils.Binary
 import GHC.Types.Unique.Set
 import GHC.Types.Unique( mkAlphaTyVarUnique )
 

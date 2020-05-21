@@ -33,7 +33,7 @@ module GHC.Tc.Gen.Foreign
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs
 
@@ -48,7 +48,7 @@ import GHC.Core.Coercion
 import GHC.Core.Type
 import GHC.Core.Multiplicity
 import GHC.Types.ForeignCall
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Types.Id
 import GHC.Types.Name
 import GHC.Types.Name.Reader
@@ -57,10 +57,10 @@ import GHC.Core.TyCon
 import GHC.Tc.Utils.TcType
 import GHC.Builtin.Names
 import GHC.Driver.Session
-import Outputable
+import GHC.Utils.Outputable as Outputable
 import GHC.Platform
 import GHC.Types.SrcLoc
-import Bag
+import GHC.Data.Bag
 import GHC.Driver.Hooks
 import qualified GHC.LanguageExtensions as LangExt
 
