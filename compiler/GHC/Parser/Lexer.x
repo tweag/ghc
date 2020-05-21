@@ -450,8 +450,8 @@ $tab          { warnTab }
 }
 
 <0,option_prags> {
-  @qdo     / { ifExtension QualifiedDoBit } { qdo_token ITqdo }
-  @qmdo    / { ifExtension QualifiedDoBit `alexAndPred` ifExtension RecursiveDoBit} { qdo_token ITqmdo }
+  @qdo     / { ifExtension QualifiedDoBit } { qdo_token ITdo }
+  @qmdo    / { ifExtension QualifiedDoBit `alexAndPred` ifExtension RecursiveDoBit} { qdo_token ITmdo }
   @qvarid                       { idtoken qvarid }
   @qconid                       { idtoken qconid }
   @varid                        { varid }
@@ -676,7 +676,7 @@ data Token
   | ITdata
   | ITdefault
   | ITderiving
-  | ITdo
+  | ITdo (Maybe FastString)
   | ITelse
   | IThiding
   | ITforeign
@@ -708,7 +708,7 @@ data Token
   | ITcapiconv
   | ITprimcallconv
   | ITjavascriptcallconv
-  | ITmdo
+  | ITmdo (Maybe FastString)
   | ITfamily
   | ITrole
   | ITgroup
@@ -719,10 +719,6 @@ data Token
   | ITstock
   | ITanyclass
   | ITvia
-
-  -- QualifiedDo
-  | ITqdo FastString
-  | ITqmdo FastString
 
   -- Backpack tokens
   | ITunit
@@ -869,6 +865,7 @@ instance Outputable Token where
   ppr x = text (show x)
 
 
+
 -- the bitmap provided as the third component indicates whether the
 -- corresponding extension keyword is valid under the extension options
 -- provided to the compiler; if the extension corresponding to *any* of the
@@ -886,7 +883,7 @@ reservedWordsFM = listToUFM $
          ( "data",           ITdata,          0 ),
          ( "default",        ITdefault,       0 ),
          ( "deriving",       ITderiving,      0 ),
-         ( "do",             ITdo,            0 ),
+         ( "do",             ITdo Nothing,    0 ),
          ( "else",           ITelse,          0 ),
          ( "hiding",         IThiding,        0 ),
          ( "if",             ITif,            0 ),
@@ -906,7 +903,7 @@ reservedWordsFM = listToUFM $
          ( "where",          ITwhere,         0 ),
 
          ( "forall",         ITforall NormalSyntax, 0),
-         ( "mdo",            ITmdo,           xbit RecursiveDoBit),
+         ( "mdo",            ITmdo Nothing,   xbit RecursiveDoBit),
              -- See Note [Lexing type pseudo-keywords]
          ( "family",         ITfamily,        0 ),
          ( "role",           ITrole,          0 ),
@@ -1017,12 +1014,12 @@ layout_token t span _buf _len = pushLexState layout >> return (L span t)
 idtoken :: (StringBuffer -> Int -> Token) -> Action
 idtoken f span buf len = return (L span $! (f buf len))
 
-qdo_token :: (FastString -> Token) -> Action
+qdo_token :: (Maybe FastString -> Token) -> Action
 qdo_token con span buf len = do
     maybe_layout token
     return (L span $! token)
   where
-    !token = con $! fst $! splitQualName buf len False
+    !token = con $! Just $! fst $! splitQualName buf len False
 
 skip_one_varid :: (FastString -> Token) -> Action
 skip_one_varid f span buf len
@@ -1631,10 +1628,8 @@ maybe_layout t = do -- If the alternative layout rule is enabled then
                     -- context.
                     alr <- getBit AlternativeLayoutRuleBit
                     unless alr $ f t
-    where f ITdo        = pushLexState layout_do
-          f ITmdo       = pushLexState layout_do
-          f (ITqdo _)   = pushLexState layout_do
-          f (ITqmdo _)  = pushLexState layout_do
+    where f (ITdo _)    = pushLexState layout_do
+          f (ITmdo _)   = pushLexState layout_do
           f ITof        = pushLexState layout
           f ITlcase     = pushLexState layout
           f ITlet       = pushLexState layout
@@ -2881,10 +2876,8 @@ lexTokenAlr = do mPending <- popPendingImplicitToken
                      ITlet    -> setAlrExpectingOCurly (Just ALRLayoutLet)
                      ITof     -> setAlrExpectingOCurly (Just ALRLayoutOf)
                      ITlcase  -> setAlrExpectingOCurly (Just ALRLayoutOf)
-                     ITdo     -> setAlrExpectingOCurly (Just ALRLayoutDo)
-                     ITmdo    -> setAlrExpectingOCurly (Just ALRLayoutDo)
-                     ITqdo _  -> setAlrExpectingOCurly (Just ALRLayoutDo)
-                     ITqmdo _ -> setAlrExpectingOCurly (Just ALRLayoutDo)
+                     ITdo  _  -> setAlrExpectingOCurly (Just ALRLayoutDo)
+                     ITmdo _  -> setAlrExpectingOCurly (Just ALRLayoutDo)
                      ITrec    -> setAlrExpectingOCurly (Just ALRLayoutDo)
                      _        -> return ()
                  return t
