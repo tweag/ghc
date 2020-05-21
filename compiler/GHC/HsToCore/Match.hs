@@ -815,8 +815,7 @@ matchEquations ctxt vars eqns_info rhs_ty
         ; match_result <- match vars rhs_ty eqns_info
 
         ; fail_expr <- mkErrorAppDs pAT_ERROR_ID rhs_ty error_doc
-        ; let fail_expr' = mkWildCase fail_expr (unrestricted rhs_ty) rhs_ty []
-        ; extractMatchResult match_result fail_expr' }
+        ; extractMatchResult match_result fail_expr }
 
 {-
 ************************************************************************
