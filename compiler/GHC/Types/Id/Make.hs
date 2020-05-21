@@ -1250,8 +1250,8 @@ mkPrimOpId prim_op
 
     -- PrimOps don't ever construct a product, but we want to preserve bottoms
     cpr
-      | isBotDiv (snd (splitStrictSig strict_sig)) = botCpr
-      | otherwise                                  = topCpr
+      | isDeadEndDiv (snd (splitStrictSig strict_sig)) = botCpr
+      | otherwise                                      = topCpr
 
     info = noCafIdInfo
            `setRuleInfo`           mkRuleInfo (maybeToList $ primOpRules name prim_op)
@@ -1377,7 +1377,7 @@ proxyHashId :: Id
 proxyHashId
   = pcMiscPrelId proxyName ty
        (noCafIdInfo `setUnfoldingInfo` evaldUnfolding -- Note [evaldUnfoldings]
-                    `setNeverLevPoly`  ty )
+                    `setNeverLevPoly`  ty)
   where
     -- proxy# :: forall {k} (a:k). Proxy# k a
     --
@@ -1704,8 +1704,8 @@ inlined.
 realWorldPrimId :: Id   -- :: State# RealWorld
 realWorldPrimId = pcMiscPrelId realWorldName realWorldStatePrimTy
                      (noCafIdInfo `setUnfoldingInfo` evaldUnfolding    -- Note [evaldUnfoldings]
-                                  `setOneShotInfo` stateHackOneShot
-                                  `setNeverLevPoly` realWorldStatePrimTy)
+                                  `setOneShotInfo`   stateHackOneShot
+                                  `setNeverLevPoly`  realWorldStatePrimTy)
 
 voidPrimId :: Id     -- Global constant :: Void#
 voidPrimId  = pcMiscPrelId voidPrimIdName voidPrimTy

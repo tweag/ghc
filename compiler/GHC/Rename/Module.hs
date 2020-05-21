@@ -957,7 +957,7 @@ rnSrcDerivDecl (DerivDecl _ ty mds overlap)
        ; unless standalone_deriv_ok (addErr standaloneDerivErr)
        ; (mds', ty', fvs)
            <- rnLDerivStrategy DerivDeclCtx mds $
-              rnHsSigWcType BindUnlessForall DerivDeclCtx ty
+              rnHsSigWcType DerivDeclCtx ty
        ; warnNoDerivStrat mds' loc
        ; return (DerivDecl noExtField ty' mds' overlap, fvs) }
   where
@@ -1028,7 +1028,7 @@ bindRuleTmVars doc tyvs vars names thing_inside
 
     go ((L l (RuleBndrSig _ (L loc _) bsig)) : vars)
        (n : ns) thing_inside
-      = rnHsSigWcTypeScoped bind_free_tvs doc bsig $ \ bsig' ->
+      = rnHsPatSigType bind_free_tvs doc bsig $ \ bsig' ->
         go vars ns $ \ vars' ->
         thing_inside (L l (RuleBndrSig noExtField (L loc n) bsig') : vars')
 
@@ -1400,8 +1400,8 @@ depAnalTyClDecls rdr_env kisig_fv_env ds_w_fvs
 
 toParents :: GlobalRdrEnv -> NameSet -> NameSet
 toParents rdr_env ns
-  = nonDetFoldUniqSet add emptyNameSet ns
-  -- It's OK to use nonDetFoldUFM because we immediately forget the
+  = nonDetStrictFoldUniqSet add emptyNameSet ns
+  -- It's OK to use a non-deterministic fold because we immediately forget the
   -- ordering by creating a set
   where
     add n s = extendNameSet s (getParent rdr_env n)
