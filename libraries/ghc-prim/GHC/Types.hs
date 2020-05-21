@@ -1,6 +1,7 @@
 {-# LANGUAGE MagicHash, NoImplicitPrelude, TypeFamilies, UnboxedTuples,
              MultiParamTypeClasses, RoleAnnotations, CPP, TypeOperators,
-             PolyKinds, NegativeLiterals, DataKinds #-}
+             PolyKinds, NegativeLiterals, DataKinds, StandaloneKindSignatures,
+             RankNTypes #-} #-}
 -- NegativeLiterals: see Note [Fixity of (->)]
 -----------------------------------------------------------------------------
 -- |
@@ -255,6 +256,7 @@ inside GHC, to change the kind and type.
 -- about the difference between heterogeneous equality @~~@ and
 -- homogeneous equality @~@, this is printed as @~@ unless
 -- @-fprint-equality-relations@ is set.
+type  (~~) :: forall k1 k2. k1 -> k2 -> Constraint
 class a ~~ b
   -- See also Note [The equality types story] in GHC.Builtin.Types.Prim
 
@@ -311,7 +313,8 @@ class a ~ b
 --      by Joachim Breitner, Richard A. Eisenberg, Simon Peyton Jones and Stephanie Weirich.
 --
 --      @since 4.7.0.0
-class Coercible (a :: k) (b :: k)
+type  Coercible :: forall k. k -> k -> Constraint
+class Coercible a b
   -- See also Note [The equality types story] in GHC.Builtin.Types.Prim
 
 {- *********************************************************************
