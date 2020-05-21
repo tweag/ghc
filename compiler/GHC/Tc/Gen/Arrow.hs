@@ -152,7 +152,7 @@ tc_cmd env (HsCmdLet x (L l binds) (L body_loc body)) res_ty
 tc_cmd env in_cmd@(HsCmdCase x scrut matches) (stk, res_ty)
   = addErrCtxt (cmdCtxt in_cmd) $ do
       (scrut', scrut_ty) <- tcInferRho scrut
-      matches' <- tcCmdMatches env (unrestricted scrut_ty) matches (stk, res_ty)
+      matches' <- tcCmdMatches env scrut_ty matches (stk, res_ty)
       return (HsCmdCase x scrut' matches')
 
 tc_cmd env in_cmd@(HsCmdLamCase x matches) (stk, res_ty)
@@ -340,7 +340,7 @@ tcCmdMatches :: CmdEnv
              -> CmdType
              -> TcM (MatchGroup GhcTcId (LHsCmd GhcTcId))
 tcCmdMatches env scrut_ty matches (stk, res_ty)
-  = tcMatchesCase match_ctxt scrut_ty matches (mkCheckExpType res_ty)
+  = tcMatchesCase match_ctxt (unrestricted scrut_ty) matches (mkCheckExpType res_ty)
   where
     match_ctxt = MC { mc_what = CaseAlt,
                       mc_body = mc_body }

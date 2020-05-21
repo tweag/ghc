@@ -393,6 +393,7 @@ hsWrapDictBinders wrap = go wrap
    go (WpTyLam {})        = emptyBag
    go (WpTyApp {})        = emptyBag
    go (WpLet   {})        = emptyBag
+   go (WpMultCoercion {}) = emptyBag
 
 collectHsWrapBinders :: HsWrapper -> ([Var], HsWrapper)
 -- Collect the outer lambda binders of a HsWrapper,
