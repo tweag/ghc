@@ -31,7 +31,8 @@ module GHC.Rename.Env (
 
         -- Rebindable Syntax
         lookupSyntax, lookupSyntaxExpr, lookupSyntaxName, lookupSyntaxNames,
-        lookupIfThenElse,
+        lookupIfThenElse, lookupQualifiedDoExpr, lookupQualifiedDo,
+        lookupNameExprWithQualifier,
 
         -- Constructing usage information
         addUsedGRE, addUsedGREs, addUsedDataCons,
@@ -1686,6 +1687,30 @@ lookupSyntaxNames std_names
         else
           do { usr_names <- mapM (lookupOccRn . mkRdrUnqual . nameOccName) std_names
              ; return (map (HsVar noExtField . noLoc) usr_names, mkFVs usr_names) } }
+
+-- Lookup operations for a qualified do. If the context is not a qualified
+-- do, then use lookupSyntaxExpr.
+lookupQualifiedDoExpr :: HsStmtContext p -> Name -> RnM (HsExpr GhcRn, FreeVars)
+lookupQualifiedDoExpr ctxt std_name
+  = case maybeQualifiedDo ctxt of
+      Nothing -> lookupSyntaxExpr std_name
+      Just modName -> lookupNameExprWithQualifier std_name modName
+
+-- Like lookupQualifiedDoExpr but for producing SyntaxExpr
+lookupQualifiedDo
+  :: HsStmtContext p
+  -> Name
+  -> RnM (SyntaxExpr GhcRn, FreeVars)
+lookupQualifiedDo ctxt std_name
+  = case maybeQualifiedDo ctxt of
+      Nothing -> lookupSyntax std_name
+      Just modName ->
+        first mkSyntaxExpr <$> lookupNameExprWithQualifier std_name modName
+
+lookupNameExprWithQualifier :: Name -> ModuleName -> RnM (HsExpr GhcRn, FreeVars)
+lookupNameExprWithQualifier std_name modName
+  = do { qname <- lookupOccRn (mkRdrQual modName (nameOccName std_name))
+       ; return (nl_HsVar qname, emptyFVs) }
 
 -- Error messages
 
