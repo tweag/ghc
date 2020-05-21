@@ -10,6 +10,7 @@ This module exports some utility functions of no great interest.
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -18,10 +19,11 @@ module GHC.HsToCore.Utils (
         EquationInfo(..),
         firstPat, shiftEqns,
 
-        MatchResult(..), CanItFail(..), CaseAlt(..),
+        MatchResult (..), CaseAlt(..),
         cantFailMatchResult, alwaysFailMatchResult,
         extractMatchResult, combineMatchResults,
-        adjustMatchResult,  adjustMatchResultDs,
+        adjustMatchResultDs,
+        shareFailureHandler,
         mkCoLetMatchResult, mkViewMatchResult, mkGuardedMatchResult,
         matchCanFail, mkEvalMatchResult,
         mkCoPrimCaseMatchResult, mkCoAlgCaseMatchResult, mkCoSynCaseMatchResult,
@@ -86,6 +88,7 @@ import GHC.Tc.Types.Evidence
 
 import Control.Monad    ( zipWithM )
 import Data.List.NonEmpty (NonEmpty(..))
+import Data.Maybe (maybeToList)
 import qualified Data.List.NonEmpty as NEL
 
 {-
@@ -199,48 +202,42 @@ shiftEqns :: Functor f => f EquationInfo -> f EquationInfo
 -- Drop the first pattern in each equation
 shiftEqns = fmap $ \eqn -> eqn { eqn_pats = tail (eqn_pats eqn) }
 
--- Functions on MatchResults
+-- Functions on MatchResult CoreExprs
 
-matchCanFail :: MatchResult -> Bool
-matchCanFail (MatchResult CanFail _)  = True
-matchCanFail (MatchResult CantFail _) = False
+matchCanFail :: MatchResult a -> Bool
+matchCanFail (MR_Fallible {})  = True
+matchCanFail (MR_Infallible {}) = False
 
-alwaysFailMatchResult :: MatchResult
-alwaysFailMatchResult = MatchResult CanFail (\fail -> return fail)
+alwaysFailMatchResult :: MatchResult CoreExpr
+alwaysFailMatchResult = MR_Fallible $ \fail -> return fail
 
-cantFailMatchResult :: CoreExpr -> MatchResult
-cantFailMatchResult expr = MatchResult CantFail (\_ -> return expr)
+cantFailMatchResult :: CoreExpr -> MatchResult CoreExpr
+cantFailMatchResult expr = MR_Infallible $ return expr
 
-extractMatchResult :: MatchResult -> CoreExpr -> DsM CoreExpr
-extractMatchResult (MatchResult CantFail match_fn) _
-  = match_fn (error "It can't fail!")
+extractMatchResult :: MatchResult CoreExpr -> CoreExpr -> DsM CoreExpr
+extractMatchResult match_result failure_expr =
+  runMatchResult
+    failure_expr
+    (shareFailureHandler match_result)
 
-extractMatchResult (MatchResult CanFail match_fn) fail_expr = do
-    (fail_bind, if_it_fails) <- mkFailurePair fail_expr
-    body <- match_fn if_it_fails
-    return (mkCoreLet fail_bind body)
-
-
-combineMatchResults :: MatchResult -> MatchResult -> MatchResult
-combineMatchResults (MatchResult CanFail      body_fn1)
-                    (MatchResult can_it_fail2 body_fn2)
-  = MatchResult can_it_fail2 body_fn
-  where
-    body_fn fail = do body2 <- body_fn2 fail
-                      (fail_bind, duplicatable_expr) <- mkFailurePair body2
-                      body1 <- body_fn1 duplicatable_expr
-                      return (Let fail_bind body1)
-
-combineMatchResults match_result1@(MatchResult CantFail _) _
+combineMatchResults :: MatchResult CoreExpr -> MatchResult CoreExpr -> MatchResult CoreExpr
+combineMatchResults match_result1@(MR_Infallible _) _
   = match_result1
+combineMatchResults match_result1 match_result2 =
+  -- if the first pattern needs a failure handler (i.e. if it is is fallible),
+  -- make it let-bind it bind it with `shareFailureHandler`.
+  case shareFailureHandler match_result1 of
+    MR_Infallible _ -> match_result1
+    MR_Fallible body_fn1 -> MR_Fallible $ \fail_expr ->
+      -- Before actually failing, try the next match arm.
+      body_fn1 =<< runMatchResult fail_expr match_result2
 
-adjustMatchResult :: DsWrapper -> MatchResult -> MatchResult
-adjustMatchResult encl_fn (MatchResult can_it_fail body_fn)
-  = MatchResult can_it_fail (\fail -> encl_fn <$> body_fn fail)
-
-adjustMatchResultDs :: (CoreExpr -> DsM CoreExpr) -> MatchResult -> MatchResult
-adjustMatchResultDs encl_fn (MatchResult can_it_fail body_fn)
-  = MatchResult can_it_fail (\fail -> encl_fn =<< body_fn fail)
+adjustMatchResultDs :: (a -> DsM b) -> MatchResult a -> MatchResult b
+adjustMatchResultDs encl_fn = \case
+  MR_Infallible body_fn -> MR_Infallible $
+    encl_fn =<< body_fn
+  MR_Fallible body_fn -> MR_Fallible $ \fail ->
+    encl_fn =<< body_fn fail
 
 wrapBinds :: [(Var,Var)] -> CoreExpr -> CoreExpr
 wrapBinds [] e = e
@@ -254,51 +251,50 @@ wrapBind new old body   -- NB: this function must deal with term
 seqVar :: Var -> CoreExpr -> CoreExpr
 seqVar var body = mkDefaultCase (Var var) var body
 
-mkCoLetMatchResult :: CoreBind -> MatchResult -> MatchResult
-mkCoLetMatchResult bind = adjustMatchResult (mkCoreLet bind)
+mkCoLetMatchResult :: CoreBind -> MatchResult CoreExpr -> MatchResult CoreExpr
+mkCoLetMatchResult bind = fmap (mkCoreLet bind)
 
 -- (mkViewMatchResult var' viewExpr mr) makes the expression
 -- let var' = viewExpr in mr
-mkViewMatchResult :: Id -> CoreExpr -> MatchResult -> MatchResult
-mkViewMatchResult var' viewExpr =
-    adjustMatchResult (mkCoreLet (NonRec var' viewExpr))
+mkViewMatchResult :: Id -> CoreExpr -> MatchResult CoreExpr -> MatchResult CoreExpr
+mkViewMatchResult var' viewExpr = fmap $ mkCoreLet $ NonRec var' viewExpr
 
-mkEvalMatchResult :: Id -> Type -> MatchResult -> MatchResult
-mkEvalMatchResult var ty
-  = adjustMatchResult (\e -> Case (Var var) var ty [(DEFAULT, [], e)])
+mkEvalMatchResult :: Id -> Type -> MatchResult CoreExpr -> MatchResult CoreExpr
+mkEvalMatchResult var ty = fmap $ \e ->
+  Case (Var var) var ty [(DEFAULT, [], e)]
 
-mkGuardedMatchResult :: CoreExpr -> MatchResult -> MatchResult
-mkGuardedMatchResult pred_expr (MatchResult _ body_fn)
-  = MatchResult CanFail (\fail -> do body <- body_fn fail
-                                     return (mkIfThenElse pred_expr body fail))
+mkGuardedMatchResult :: CoreExpr -> MatchResult CoreExpr -> MatchResult CoreExpr
+mkGuardedMatchResult pred_expr mr = MR_Fallible $ \fail -> do
+  body <- runMatchResult fail mr
+  return (mkIfThenElse pred_expr body fail)
 
 mkCoPrimCaseMatchResult :: Id                  -- Scrutinee
                         -> Type                      -- Type of the case
-                        -> [(Literal, MatchResult)]  -- Alternatives
-                        -> MatchResult               -- Literals are all unlifted
+                        -> [(Literal, MatchResult CoreExpr)]  -- Alternatives
+                        -> MatchResult CoreExpr               -- Literals are all unlifted
 mkCoPrimCaseMatchResult var ty match_alts
-  = MatchResult CanFail mk_case
+  = MR_Fallible mk_case
   where
     mk_case fail = do
         alts <- mapM (mk_alt fail) sorted_alts
         return (Case (Var var) var ty ((DEFAULT, [], fail) : alts))
 
     sorted_alts = sortWith fst match_alts       -- Right order for a Case
-    mk_alt fail (lit, MatchResult _ body_fn)
+    mk_alt fail (lit, mr)
        = ASSERT( not (litIsLifted lit) )
-         do body <- body_fn fail
+         do body <- runMatchResult fail mr
             return (LitAlt lit, [], body)
 
 data CaseAlt a = MkCaseAlt{ alt_pat :: a,
                             alt_bndrs :: [Var],
                             alt_wrapper :: HsWrapper,
-                            alt_result :: MatchResult }
+                            alt_result :: MatchResult CoreExpr }
 
 mkCoAlgCaseMatchResult
   :: Id -- ^ Scrutinee
   -> Type -- ^ Type of exp
   -> NonEmpty (CaseAlt DataCon) -- ^ Alternatives (bndrs *include* tyvars, dicts)
-  -> MatchResult
+  -> MatchResult CoreExpr
 mkCoAlgCaseMatchResult var ty match_alts
   | isNewtype  -- Newtype case; use a let
   = ASSERT( null match_alts_tail && null (tail arg_ids1) )
@@ -321,15 +317,14 @@ mkCoAlgCaseMatchResult var ty match_alts
                                                 -- (not that splitTyConApp does, these days)
     newtype_rhs = unwrapNewTypeBody tc ty_args (Var var)
 
-mkCoSynCaseMatchResult :: Id -> Type -> CaseAlt PatSyn -> MatchResult
-mkCoSynCaseMatchResult var ty alt = MatchResult CanFail $ mkPatSynCase var ty alt
+mkCoSynCaseMatchResult :: Id -> Type -> CaseAlt PatSyn -> MatchResult CoreExpr
+mkCoSynCaseMatchResult var ty alt = MR_Fallible $ mkPatSynCase var ty alt
 
 mkPatSynCase :: Id -> Type -> CaseAlt PatSyn -> CoreExpr -> DsM CoreExpr
 mkPatSynCase var ty alt fail = do
     matcher <- dsLExpr $ mkLHsWrap wrapper $
                          nlHsTyApp matcher [getRuntimeRep ty, ty]
-    let MatchResult _ mkCont = match_result
-    cont <- mkCoreLams bndrs <$> mkCont fail
+    cont <- mkCoreLams bndrs <$> runMatchResult fail match_result
     return $ mkCoreAppsDs (text "patsyn" <+> ppr var) matcher [Var var, ensure_unstrict cont, Lam voidArgId fail]
   where
     MkCaseAlt{ alt_pat = psyn,
@@ -343,53 +338,51 @@ mkPatSynCase var ty alt fail = do
     ensure_unstrict cont | needs_void_lam = Lam voidArgId cont
                          | otherwise      = cont
 
-mkDataConCase :: Id -> Type -> NonEmpty (CaseAlt DataCon) -> MatchResult
-mkDataConCase var ty alts@(alt1 :| _) = MatchResult fail_flag mk_case
+mkDataConCase :: Id -> Type -> NonEmpty (CaseAlt DataCon) -> MatchResult CoreExpr
+mkDataConCase var ty alts@(alt1 :| _)
+    = liftA2 mk_case mk_default mk_alts
+    -- The liftA2 combines the failability of all the alternatives and the default
   where
     con1          = alt_pat alt1
     tycon         = dataConTyCon con1
     data_cons     = tyConDataCons tycon
-    match_results = fmap alt_result alts
 
-    sorted_alts :: NonEmpty (CaseAlt DataCon)
-    sorted_alts  = NEL.sortWith (dataConTag . alt_pat) alts
+    sorted_alts :: [ CaseAlt DataCon ]
+    sorted_alts  = sortWith (dataConTag . alt_pat) $ NEL.toList alts
 
     var_ty       = idType var
     (_, ty_args) = tcSplitTyConApp var_ty -- Don't look through newtypes
                                           -- (not that splitTyConApp does, these days)
 
-    mk_case :: CoreExpr -> DsM CoreExpr
-    mk_case fail = do
-        alts <- mapM (mk_alt fail) sorted_alts
-        return $ mkWildCase (Var var) (idScaledType var) ty (mk_default fail ++ NEL.toList alts)
+    mk_case :: Maybe CoreAlt -> [CoreAlt] -> CoreExpr
+    mk_case def alts = mkWildCase (Var var) (idScaledType var) ty $
+      maybeToList def ++ alts
 
-    mk_alt :: CoreExpr -> CaseAlt DataCon -> DsM CoreAlt
-    mk_alt fail MkCaseAlt{ alt_pat = con,
-                           alt_bndrs = args,
-                           alt_result = MatchResult _ body_fn }
-      = do { body <- body_fn fail
-           ; case dataConBoxer con of {
-                Nothing -> return (DataAlt con, args, body) ;
-                Just (DCB boxer) ->
-        do { us <- newUniqueSupply
-           ; let (rep_ids, binds) = initUs_ us (boxer ty_args args)
-           ; let rep_ids' = map (scaleIdBy (idMult var)) rep_ids
-               -- Upholds the invariant that the binders of a case expression
-               -- must be scaled by the case multiplicity. See Note [Case
-               -- expression invariants] in CoreSyn.
-           ; return (DataAlt con, rep_ids', mkLets binds body) } } }
+    mk_alts :: MatchResult [CoreAlt]
+    mk_alts = traverse mk_alt sorted_alts
 
-    mk_default :: CoreExpr -> [CoreAlt]
-    mk_default fail | exhaustive_case = []
-                    | otherwise       = [(DEFAULT, [], fail)]
+    mk_alt :: CaseAlt DataCon -> MatchResult CoreAlt
+    mk_alt MkCaseAlt { alt_pat = con
+                     , alt_bndrs = args
+                     , alt_result = match_result } =
+      flip adjustMatchResultDs match_result $ \body -> do
+        case dataConBoxer con of
+          Nothing -> return (DataAlt con, args, body)
+          Just (DCB boxer) -> do
+            us <- newUniqueSupply
+            let (rep_ids, binds) = initUs_ us (boxer ty_args args)
+            let rep_ids' = map (scaleIdBy (idMult var)) rep_ids
+              -- Upholds the invariant that the binders of a case expression
+              -- must be scaled by the case multiplicity. See Note [Case
+              -- expression invariants] in CoreSyn.
+            return (DataAlt con, rep_ids', mkLets binds body)
 
-    fail_flag :: CanItFail
-    fail_flag | exhaustive_case
-              = foldr orFail CantFail [can_it_fail | MatchResult can_it_fail _ <- NEL.toList match_results]
-              | otherwise
-              = CanFail
+    mk_default :: MatchResult (Maybe CoreAlt)
+    mk_default
+      | exhaustive_case = MR_Infallible $ return Nothing
+      | otherwise       = MR_Fallible $ \fail -> return $ Just (DEFAULT, [], fail)
 
-    mentioned_constructors = mkUniqSet $ map alt_pat $ NEL.toList alts
+    mentioned_constructors = mkUniqSet $ map alt_pat sorted_alts
     un_mentioned_constructors
         = mkUniqSet data_cons `minusUniqSet` mentioned_constructors
     exhaustive_case = isEmptyUniqSet un_mentioned_constructors
@@ -868,6 +861,18 @@ mkFailurePair expr
                  App (Var fail_fun_var) (Var voidPrimId)) }
   where
     ty = exprType expr
+
+-- Uses '@mkFailurePair@' to bind the failure case. Infallible matches have
+-- neither a failure arg or failure "hole", so nothing is let-bound, and no
+-- extraneous Core is produced.
+shareFailureHandler :: MatchResult CoreExpr -> MatchResult CoreExpr
+shareFailureHandler = \case
+  mr@(MR_Infallible _) -> mr
+  MR_Fallible match_fn -> MR_Fallible $ \fail_expr -> do
+    (fail_bind, shared_failure_handler) <- mkFailurePair fail_expr
+    body <- match_fn shared_failure_handler
+    -- Never unboxed, per the above, so always OK for `let` not `case`.
+    return $ Let fail_bind body
 
 {-
 Note [Failure thunks and CPR]

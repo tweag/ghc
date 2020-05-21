@@ -180,7 +180,7 @@ match :: [MatchId]        -- ^ Variables rep\'ing the exprs we\'re matching with
                           -- ^ type checked.
       -> Type             -- ^ Type of the case expression
       -> [EquationInfo]   -- ^ Info about patterns, etc. (type synonym below)
-      -> DsM MatchResult  -- ^ Desugared result!
+      -> DsM (MatchResult CoreExpr) -- ^ Desugared result!
 
 match [] ty eqns
   = ASSERT2( not (null eqns), ppr ty )
@@ -204,20 +204,21 @@ match (v:vs) ty eqns    -- Eqns *can* be empty
         ; whenDOptM Opt_D_dump_view_pattern_commoning (debug grouped)
 
         ; match_results <- match_groups grouped
-        ; return (adjustMatchResult (foldr (.) id aux_binds) $
-                  foldr1 combineMatchResults match_results) }
+        ; return $ foldr (.) id aux_binds <$>
+            foldr1 combineMatchResults match_results
+        }
   where
     vars = v :| vs
 
     dropGroup :: Functor f => f (PatGroup,EquationInfo) -> f EquationInfo
     dropGroup = fmap snd
 
-    match_groups :: [NonEmpty (PatGroup,EquationInfo)] -> DsM (NonEmpty MatchResult)
-    -- Result list of [MatchResult] is always non-empty
+    match_groups :: [NonEmpty (PatGroup,EquationInfo)] -> DsM (NonEmpty (MatchResult CoreExpr))
+    -- Result list of [MatchResult CoreExpr] is always non-empty
     match_groups [] = matchEmpty v ty
     match_groups (g:gs) = mapM match_group $ g :| gs
 
-    match_group :: NonEmpty (PatGroup,EquationInfo) -> DsM MatchResult
+    match_group :: NonEmpty (PatGroup,EquationInfo) -> DsM (MatchResult CoreExpr)
     match_group eqns@((group,_) :| _)
         = case group of
             PgCon {}  -> matchConFamily  vars ty (ne $ subGroupUniq [(c,e) | (PgCon c, e) <- eqns'])
@@ -251,26 +252,26 @@ match (v:vs) ty eqns    -- Eqns *can* be empty
           maybeWarn $ (map (\g -> text "Putting these view expressions into the same case:" <+> (ppr g))
                        (filter (not . null) gs))
 
-matchEmpty :: MatchId -> Type -> DsM (NonEmpty MatchResult)
+matchEmpty :: MatchId -> Type -> DsM (NonEmpty (MatchResult CoreExpr))
 -- See Note [Empty case expressions]
 matchEmpty var res_ty
-  = return [MatchResult CanFail mk_seq]
+  = return [MR_Fallible mk_seq]
   where
     mk_seq fail = return $ mkWildCase (Var var) (idScaledType var) res_ty
                                       [(DEFAULT, [], fail)]
 
-matchVariables :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM MatchResult
+matchVariables :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM (MatchResult CoreExpr)
 -- Real true variables, just like in matchVar, SLPJ p 94
 -- No binding to do: they'll all be wildcards by now (done in tidy)
 matchVariables (_ :| vars) ty eqns = match vars ty $ NEL.toList $ shiftEqns eqns
 
-matchBangs :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM MatchResult
+matchBangs :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM (MatchResult CoreExpr)
 matchBangs (var :| vars) ty eqns
   = do  { match_result <- match (var:vars) ty $ NEL.toList $
             decomposeFirstPat getBangPat <$> eqns
         ; return (mkEvalMatchResult var ty match_result) }
 
-matchCoercion :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM MatchResult
+matchCoercion :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM (MatchResult CoreExpr)
 -- Apply the coercion to the match variable and then match that
 matchCoercion (var :| vars) ty (eqns@(eqn1 :| _))
   = do  { let CoPat _ co pat _ = firstPat eqn1
@@ -282,7 +283,7 @@ matchCoercion (var :| vars) ty (eqns@(eqn1 :| _))
         ; let bind = NonRec var' (core_wrap (Var var))
         ; return (mkCoLetMatchResult bind match_result) }
 
-matchView :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM MatchResult
+matchView :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM (MatchResult CoreExpr)
 -- Apply the view function to the match variable and then match that
 matchView (var :| vars) ty (eqns@(eqn1 :| _))
   = do  { -- we could pass in the expr from the PgView,
@@ -300,7 +301,7 @@ matchView (var :| vars) ty (eqns@(eqn1 :| _))
                     (mkCoreAppDs (text "matchView") viewExpr' (Var var))
                     match_result) }
 
-matchOverloadedList :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM MatchResult
+matchOverloadedList :: NonEmpty MatchId -> Type -> NonEmpty EquationInfo -> DsM (MatchResult CoreExpr)
 matchOverloadedList (var :| vars) ty (eqns@(eqn1 :| _))
 -- Since overloaded list patterns are treated as view patterns,
 -- the code is roughly the same as for matchView
@@ -845,7 +846,7 @@ matchSimply scrut hs_ctx pat result_expr fail_expr = do
     extractMatchResult match_result' fail_expr
 
 matchSinglePat :: CoreExpr -> HsMatchContext GhcRn -> LPat GhcTc
-               -> Type -> MatchResult -> DsM MatchResult
+               -> Type -> MatchResult CoreExpr -> DsM (MatchResult CoreExpr)
 -- matchSinglePat ensures that the scrutinee is a variable
 -- and then calls matchSinglePatVar
 --
@@ -865,11 +866,12 @@ matchSinglePat scrut hs_ctx pat ty match_result
                             -- bind unrestricted variables, hence the 'Many'
                             -- above.
        ; match_result' <- matchSinglePatVar var hs_ctx pat ty match_result
-       ; return (adjustMatchResult (bindNonRec var scrut) match_result') }
+       ; return $ bindNonRec var scrut <$> match_result'
+       }
 
 matchSinglePatVar :: Id   -- See Note [Match Ids]
                   -> HsMatchContext GhcRn -> LPat GhcTc
-                  -> Type -> MatchResult -> DsM MatchResult
+                  -> Type -> MatchResult CoreExpr -> DsM (MatchResult CoreExpr)
 matchSinglePatVar var ctx pat ty match_result
   = ASSERT2( isInternalName (idName var), ppr var )
     do { dflags <- getDynFlags
