@@ -990,7 +990,6 @@ readIface :: Module -> FilePath
 readIface wanted_mod file_path
   = do  { res <- tryMostM $
                  readBinIface CheckHiWay QuietBinIFaceReading file_path
-        ; dflags <- getDynFlags
         ; case res of
             Right iface
                 -- NB: This check is NOT just a sanity check, it is
@@ -1001,7 +1000,7 @@ readIface wanted_mod file_path
                 | otherwise     -> return (Failed err)
                 where
                   actual_mod = mi_module iface
-                  err = hiModuleNameMismatchWarn dflags wanted_mod actual_mod
+                  err = hiModuleNameMismatchWarn wanted_mod actual_mod
 
             Left exn    -> return (Failed (text (showException exn)))
     }
@@ -1116,7 +1115,7 @@ showIface hsc_env filename = do
                                    neverQualifyModules
                                    neverQualifyPackages
    putLogMsg dflags NoReason SevDump noSrcSpan
-      (mkDumpStyle dflags print_unqual) (pprModIface iface)
+      $ withPprStyle (mkDumpStyle print_unqual) (pprModIface iface)
 
 -- Show a ModIface but don't display details; suitable for ModIfaces stored in
 -- the EPT.
@@ -1268,8 +1267,8 @@ badIfaceFile file err
   = vcat [text "Bad interface file:" <+> text file,
           nest 4 err]
 
-hiModuleNameMismatchWarn :: DynFlags -> Module -> Module -> MsgDoc
-hiModuleNameMismatchWarn dflags requested_mod read_mod
+hiModuleNameMismatchWarn :: Module -> Module -> MsgDoc
+hiModuleNameMismatchWarn requested_mod read_mod
  | moduleUnit requested_mod == moduleUnit read_mod =
     sep [text "Interface file contains module" <+> quotes (ppr read_mod) <> comma,
          text "but we were expecting module" <+> quotes (ppr requested_mod),
@@ -1280,7 +1279,7 @@ hiModuleNameMismatchWarn dflags requested_mod read_mod
  | otherwise =
   -- ToDo: This will fail to have enough qualification when the package IDs
   -- are the same
-  withPprStyle (mkUserStyle dflags alwaysQualify AllTheWay) $
+  withPprStyle (mkUserStyle alwaysQualify AllTheWay) $
     -- we want the Modules below to be qualified with package names,
     -- so reset the PrintUnqualified setting.
     hsep [ text "Something is amiss; requested module "
