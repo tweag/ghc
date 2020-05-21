@@ -797,7 +797,7 @@ idRuleMatchInfo :: Id -> RuleMatchInfo
 idRuleMatchInfo id = inlinePragmaRuleMatchInfo (idInlinePragma id)
 
 isConLikeId :: Id -> Bool
-isConLikeId id = isDataConWorkId id || isConLike (idRuleMatchInfo id)
+isConLikeId id = isConLike (idRuleMatchInfo id)
 
 {-
         ---------------------------------
