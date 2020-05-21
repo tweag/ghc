@@ -2781,11 +2781,10 @@ aexp    :: { ECP }
                                                (mj AnnLet $1:mj AnnIn $3
                                                  :(fst $ unLoc $2)) }
         | '\\' 'lcase' altslist
-            {% runPV $3 >>= \ $3 ->
-               fmap ecpFromExp $
-               ams (sLL $1 $> $ HsLamCase noExtField
+            {  ECP $ $3 >>= \ $3 ->
+               amms (mkHsLamCasePV (comb2 $1 $>)
                                    (mkMatchGroup FromSource (snd $ unLoc $3)))
-                   (mj AnnLam $1:mj AnnCase $2:(fst $ unLoc $3)) }
+                    (mj AnnLam $1:mj AnnCase $2:(fst $ unLoc $3)) }
         | 'if' exp optSemi 'then' exp optSemi 'else' exp
                          {% runECP_P $2 >>= \ $2 ->
                             return $ ECP $
@@ -2902,11 +2901,11 @@ aexp2   :: { ECP }
         | quasiquote          { ECP $ mkHsSplicePV $1 }
 
         -- arrow notation extension
-        | '(|' aexp2 cmdargs '|)'  {% runECP_P $2 >>= \ $2 ->
-                                      fmap ecpFromCmd $
-                                      ams (sLL $1 $> $ HsCmdArrForm noExtField $2 Prefix
-                                                           Nothing (reverse $3))
-                                          [mu AnnOpenB $1,mu AnnCloseB $4] }
+        | '(|' aexp cmdargs '|)'  {% runECP_P $2 >>= \ $2 ->
+                                     fmap ecpFromCmd $
+                                     ams (sLL $1 $> $ HsCmdArrForm noExtField $2 Prefix
+                                                          Nothing (reverse $3))
+                                         [mu AnnOpenB $1,mu AnnCloseB $4] }
 
 splice_exp :: { LHsExpr GhcPs }
         : splice_untyped { mapLoc (HsSpliceE noExtField) $1 }
@@ -2930,8 +2929,9 @@ cmdargs :: { [LHsCmdTop GhcPs] }
         | {- empty -}                   { [] }
 
 acmd    :: { LHsCmdTop GhcPs }
-        : aexp2                 {% runECP_P $1 >>= \ cmd ->
-                                    return (sL1 cmd $ HsCmdTop noExtField cmd) }
+        : aexp                  {% runECP_P $1 >>= \ cmd ->
+                                   runPV (checkCmdBlockArguments cmd) >>= \ _ ->
+                                   return (sL1 cmd $ HsCmdTop noExtField cmd) }
 
 cvtopbody :: { ([AddAnn],[LHsDecl GhcPs]) }
         :  '{'            cvtopdecls0 '}'      { ([mj AnnOpenC $1
