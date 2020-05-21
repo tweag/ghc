@@ -294,7 +294,9 @@ data HsExpr p
 
   | HsApp     (XApp p) (LHsExpr p) (LHsExpr p) -- ^ Application
 
-  | HsAppType (XAppTypeE p) (LHsExpr p) (LHsWcType (NoGhcTc p))  -- ^ Visible type application
+  | HsAppType (XAppTypeE p) -- After typechecking: the type argument
+              (LHsExpr p)
+              (LHsWcType (NoGhcTc p))  -- ^ Visible type application
        --
        -- Explicit type argument; e.g  f @Int x y
        -- NB: Has wildcards, but no implicit quantification
@@ -600,7 +602,9 @@ type instance XLam           (GhcPass _) = NoExtField
 type instance XLamCase       (GhcPass _) = NoExtField
 type instance XApp           (GhcPass _) = NoExtField
 
-type instance XAppTypeE      (GhcPass _) = NoExtField
+type instance XAppTypeE      GhcPs = NoExtField
+type instance XAppTypeE      GhcRn = NoExtField
+type instance XAppTypeE      GhcTc = Type
 
 type instance XOpApp         GhcPs = NoExtField
 type instance XOpApp         GhcRn = Fixity
@@ -1215,8 +1219,12 @@ parenthesizeHsExpr p le@(L loc e)
   | hsExprNeedsParens p e = L loc (HsPar noExtField le)
   | otherwise             = le
 
-stripParensHsExpr :: LHsExpr (GhcPass p) -> LHsExpr (GhcPass p)
-stripParensHsExpr (L _ (HsPar _ e)) = stripParensHsExpr e
+stripParensLHsExpr :: LHsExpr (GhcPass p) -> LHsExpr (GhcPass p)
+stripParensLHsExpr (L _ (HsPar _ e)) = stripParensLHsExpr e
+stripParensLHsExpr e = e
+
+stripParensHsExpr :: HsExpr (GhcPass p) -> HsExpr (GhcPass p)
+stripParensHsExpr (HsPar _ (L _ e)) = stripParensHsExpr e
 stripParensHsExpr e = e
 
 isAtomicHsExpr :: forall p. IsPass p => HsExpr (GhcPass p) -> Bool
@@ -2568,7 +2576,7 @@ instance (OutputableBndrId p) => Outputable (HsSplice (GhcPass p)) where
 
 pprPendingSplice :: (OutputableBndrId p)
                  => SplicePointName -> LHsExpr (GhcPass p) -> SDoc
-pprPendingSplice n e = angleBrackets (ppr n <> comma <+> ppr (stripParensHsExpr e))
+pprPendingSplice n e = angleBrackets (ppr n <> comma <+> ppr (stripParensLHsExpr e))
 
 pprSpliceDecl ::  (OutputableBndrId p)
           => HsSplice (GhcPass p) -> SpliceExplicitFlag -> SDoc

@@ -148,8 +148,7 @@ tcInferPatSynDecl (PSB { psb_id = lname@(L _ name), psb_args = details
        ; let (arg_names, rec_fields, is_infix) = collectPatSynArgInfo details
        ; (tclvl, wanted, ((lpat', args), pat_ty))
             <- pushLevelAndCaptureConstraints  $
-               tcInferNoInst                           $ \ exp_ty ->
-               tcPat PatSyn lpat (unrestricted exp_ty) $
+               tcInferPat PatSyn lpat          $
                mapM tcLookupId arg_names
 
        ; let (ex_tvs, prov_dicts) = tcCollectEx lpat'
@@ -387,9 +386,9 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(L _ name), psb_args = details
        ; req_dicts <- newEvVars req_theta
        ; (tclvl, wanted, (lpat', (ex_tvs', prov_dicts, args'))) <-
            ASSERT2( equalLength arg_names arg_tys, ppr name $$ ppr arg_names $$ ppr arg_tys )
-           pushLevelAndCaptureConstraints               $
-           tcExtendTyVarEnv univ_tvs $
-           tcPat PatSyn lpat (unrestricted (mkCheckExpType pat_ty)) $
+           pushLevelAndCaptureConstraints   $
+           tcExtendTyVarEnv univ_tvs        $
+           tcCheckPat PatSyn lpat (unrestricted pat_ty)   $
            do { let in_scope    = mkInScopeSet (mkVarSet univ_tvs)
                     empty_subst = mkEmptyTCvSubst in_scope
               ; (subst, ex_tvs') <- mapAccumLM newMetaTyVarX empty_subst ex_tvs
