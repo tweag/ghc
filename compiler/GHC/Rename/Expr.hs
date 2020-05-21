@@ -65,6 +65,7 @@ import Control.Monad
 import GHC.Builtin.Types ( nilDataConName )
 import qualified GHC.LanguageExtensions as LangExt
 
+import Control.Arrow (first)
 import Data.Ord
 import Data.Array
 import qualified Data.List.NonEmpty as NE
@@ -810,7 +811,7 @@ rnStmt ctxt rnBody (L loc (LastStmt _ body noret _)) thing_inside
 
 rnStmt ctxt rnBody (L loc (BodyStmt _ body _ _)) thing_inside
   = do  { (body', fv_expr) <- rnBody body
-        ; (then_op, fvs1)  <- lookupStmtName ctxt thenMName
+        ; (then_op, fvs1)  <- lookupQualifiedDoStmtName ctxt thenMName
 
         ; (guard_op, fvs2) <- if isComprehensionContext ctxt
                               then lookupStmtName ctxt guardMName
@@ -826,7 +827,7 @@ rnStmt ctxt rnBody (L loc (BodyStmt _ body _ _)) thing_inside
 rnStmt ctxt rnBody (L loc (BindStmt _ pat body)) thing_inside
   = do  { (body', fv_expr) <- rnBody body
                 -- The binders do not scope over the expression
-        ; (bind_op, fvs1) <- lookupStmtName ctxt bindMName
+        ; (bind_op, fvs1) <- lookupQualifiedDoStmtName ctxt bindMName
 
         ; (fail_op, fvs2) <- monadFailOp pat ctxt
 
@@ -955,6 +956,14 @@ rnParallelStmts ctxt return_op segs thing_inside
     cmpByOcc n1 n2 = nameOccName n1 `compare` nameOccName n2
     dupErr vs = addErr (text "Duplicate binding in parallel list comprehension for:"
                     <+> quotes (ppr (NE.head vs)))
+
+lookupQualifiedDoStmtName :: HsStmtContext GhcRn -> Name -> RnM (SyntaxExpr GhcRn, FreeVars)
+-- Like lookupStmtName, but respects QualifiedDo
+lookupQualifiedDoStmtName ctxt n
+  = case maybeQualifiedDo ctxt of
+      Nothing -> lookupStmtName ctxt n
+      Just modName ->
+        first mkSyntaxExpr <$> lookupNameExprWithQualifier n modName
 
 lookupStmtName :: HsStmtContext GhcRn -> Name -> RnM (SyntaxExpr GhcRn, FreeVars)
 -- Like lookupSyntax, but respects contexts
