@@ -42,10 +42,11 @@ module GHC.Tc.Utils.TcMType (
   --------------------------------
   -- Creating new evidence variables
   newEvVar, newEvVars, newDict,
-  newWanted, newWanteds, newHoleCt, cloneWanted, cloneWC,
+  newWanted, newWanteds, cloneWanted, cloneWC,
   emitWanted, emitWantedEq, emitWantedEvVar, emitWantedEvVars,
   emitDerivedEqs,
   newTcEvBinds, newNoTcEvBinds, addTcEvBind,
+  emitNewExprHole,
 
   newCoercionHole, fillCoercionHole, isFilledCoercionHole,
   unpackCoercionHole, unpackCoercionHole_maybe,
@@ -68,7 +69,7 @@ module GHC.Tc.Utils.TcMType (
   --------------------------------
   -- Zonking and tidying
   zonkTidyTcType, zonkTidyTcTypes, zonkTidyOrigin,
-  tidyEvVar, tidyCt, tidySkolemInfo,
+  tidyEvVar, tidyCt, tidyHole, tidySkolemInfo,
     zonkTcTyVar, zonkTcTyVars,
   zonkTcTyVarToTyVar, zonkTyVarTyVarPairs,
   zonkTyCoVarsAndFV, zonkTcTypeAndFV, zonkDTyCoVarSetAndFV,
@@ -195,17 +196,6 @@ newWanted orig t_or_k pty
 newWanteds :: CtOrigin -> ThetaType -> TcM [CtEvidence]
 newWanteds orig = mapM (newWanted orig Nothing)
 
--- | Create a new 'CHoleCan' 'Ct'.
-newHoleCt :: HoleSort -> Id -> Type -> TcM Ct
-newHoleCt hole ev ty = do
-  loc <- getCtLocM HoleOrigin Nothing
-  pure $ CHoleCan { cc_ev = CtWanted { ctev_pred = ty
-                                     , ctev_dest = EvVarDest ev
-                                     , ctev_nosh = WDeriv
-                                     , ctev_loc  = loc }
-                  , cc_occ = getOccName ev
-                  , cc_hole = hole }
-
 ----------------------------------------------
 -- Cloning constraints
 ----------------------------------------------
@@ -287,6 +277,18 @@ emitWantedEvVar origin ty
 
 emitWantedEvVars :: CtOrigin -> [TcPredType] -> TcM [EvVar]
 emitWantedEvVars orig = mapM (emitWantedEvVar orig)
+
+-- | Emit a new wanted expression hole
+emitNewExprHole :: OccName   -- of the hole
+                -> Id        -- of the evidence
+                -> Type -> TcM ()
+emitNewExprHole occ ev_id ty
+  = do { loc <- getCtLocM (ExprHoleOrigin occ) (Just TypeLevel)
+       ; let hole = Hole { hole_sort = ExprHole ev_id
+                         , hole_occ  = getOccName ev_id
+                         , hole_ty   = ty
+                         , hole_loc  = loc }
+       ; emitHole hole }
 
 newDict :: Class -> [TcType] -> TcM DictId
 newDict cls tys
@@ -2011,21 +2013,28 @@ zonkWC :: WantedConstraints -> TcM WantedConstraints
 zonkWC wc = zonkWCRec wc
 
 zonkWCRec :: WantedConstraints -> TcM WantedConstraints
-zonkWCRec (WC { wc_simple = simple, wc_impl = implic })
+zonkWCRec (WC { wc_simple = simple, wc_impl = implic, wc_holes = holes })
   = do { simple' <- zonkSimples simple
        ; implic' <- mapBagM zonkImplication implic
-       ; return (WC { wc_simple = simple', wc_impl = implic' }) }
+       ; holes'  <- mapBagM zonkHole holes
+       ; return (WC { wc_simple = simple', wc_impl = implic', wc_holes = holes' }) }
 
 zonkSimples :: Cts -> TcM Cts
 zonkSimples cts = do { cts' <- mapBagM zonkCt cts
                      ; traceTc "zonkSimples done:" (ppr cts')
                      ; return cts' }
 
+zonkHole :: Hole -> TcM Hole
+zonkHole hole@(Hole { hole_ty = ty })
+  = do { ty' <- zonkTcType ty
+       ; return (hole { hole_ty = ty' }) }
+  -- No need to zonk the Id in any ExprHole because we never look at it
+  -- until after the final zonk and desugaring
+
 {- Note [zonkCt behaviour]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 zonkCt tries to maintain the canonical form of a Ct.  For example,
   - a CDictCan should stay a CDictCan;
-  - a CHoleCan should stay a CHoleCan
   - a CIrredCan should stay a CIrredCan with its cc_status flag intact
 
 Why?, for example:
@@ -2034,8 +2043,6 @@ Why?, for example:
   constraints are zonked before being passed to the plugin. This means if we
   don't preserve a canonical form, @expandSuperClasses@ fails to expand
   superclasses. This is what happened in #11525.
-
-- For CHoleCan, once we forget that it's a hole, we can never recover that info.
 
 - For CIrredCan we want to see if a constraint is insoluble with insolubleWC
 
@@ -2055,10 +2062,6 @@ creates e.g. a CDictCan where the cc_tyars are /not/ function free.
 
 zonkCt :: Ct -> TcM Ct
 -- See Note [zonkCt behaviour]
-zonkCt ct@(CHoleCan { cc_ev = ev })
-  = do { ev' <- zonkCtEvidence ev
-       ; return $ ct { cc_ev = ev' } }
-
 zonkCt ct@(CDictCan { cc_ev = ev, cc_tyargs = args })
   = do { ev'   <- zonkCtEvidence ev
        ; args' <- mapM zonkTcType args
@@ -2269,17 +2272,15 @@ zonkTidyOrigin env orig = return (env, orig)
 tidyCt :: TidyEnv -> Ct -> Ct
 -- Used only in error reporting
 tidyCt env ct
-  = ct { cc_ev = tidy_ev env (ctEvidence ct) }
+  = ct { cc_ev = tidy_ev (ctEvidence ct) }
   where
-    tidy_ev :: TidyEnv -> CtEvidence -> CtEvidence
+    tidy_ev :: CtEvidence -> CtEvidence
      -- NB: we do not tidy the ctev_evar field because we don't
      --     show it in error messages
-    tidy_ev env ctev@(CtGiven { ctev_pred = pred })
-      = ctev { ctev_pred = tidyType env pred }
-    tidy_ev env ctev@(CtWanted { ctev_pred = pred })
-      = ctev { ctev_pred = tidyType env pred }
-    tidy_ev env ctev@(CtDerived { ctev_pred = pred })
-      = ctev { ctev_pred = tidyType env pred }
+    tidy_ev ctev = ctev { ctev_pred = tidyType env (ctev_pred ctev) }
+
+tidyHole :: TidyEnv -> Hole -> Hole
+tidyHole env h@(Hole { hole_ty = ty }) = h { hole_ty = tidyType env ty }
 
 ----------------
 tidyEvVar :: TidyEnv -> EvVar -> EvVar
