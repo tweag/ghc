@@ -34,6 +34,7 @@ module GHC.Builtin.Utils (
         primOpRules, builtinRules,
 
         ghcPrimExports,
+        ghcPrimDeclDocs,
         primOpId,
 
         -- * Random other things
@@ -71,11 +72,13 @@ import GHC.Core.TyCon
 import GHC.Types.Unique.FM
 import Util
 import GHC.Builtin.Types.Literals ( typeNatTyCons )
+import GHC.Hs.Doc
 
 import Control.Applicative ((<|>))
-import Data.List        ( intercalate )
+import Data.List        ( intercalate , find )
 import Data.Array
 import Data.Maybe
+import qualified Data.Map as Map
 
 {-
 ************************************************************************
@@ -255,6 +258,17 @@ ghcPrimExports
    map (avail . idName . primOpId) allThePrimOps ++
    [ AvailTC n [n] []
    | tc <- funTyCon : exposedPrimTyCons, let n = tyConName tc  ]
+
+ghcPrimDeclDocs :: DeclDocMap
+ghcPrimDeclDocs = DeclDocMap $ Map.fromList $ mapMaybe findName primOpDocs
+  where
+    names = map idName ghcPrimIds ++
+            map (idName . primOpId) allThePrimOps ++
+            map tyConName (funTyCon : exposedPrimTyCons)
+    findName (nameStr, doc)
+      | Just name <- find ((nameStr ==) . getOccString) names
+      = Just (name, mkHsDocString doc)
+      | otherwise = Nothing
 
 {-
 ************************************************************************

@@ -543,7 +543,7 @@ tc_pat penv (SumPat _ pat alt arity ) pat_ty thing_inside
 
 ------------------------
 -- Data constructors
-tc_pat penv (ConPatIn con arg_pats) pat_ty thing_inside
+tc_pat penv (ConPat NoExtField con arg_pats) pat_ty thing_inside
   = tcConPat penv con pat_ty arg_pats thing_inside
 
 ------------------------
@@ -905,12 +905,15 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty_scaled
                     -- (see Note [Arrows and patterns])
                     (arg_pats', res) <- tcConArgs (RealDataCon data_con) arg_tys_scaled
                                                   arg_pats penv thing_inside
-                  ; let res_pat = ConPatOut { pat_con = header,
-                                              pat_tvs = [], pat_dicts = [],
-                                              pat_binds = emptyTcEvBinds,
-                                              pat_args = arg_pats',
-                                              pat_arg_tys = ctxt_res_tys,
-                                              pat_wrap = idHsWrapper }
+                  ; let res_pat = ConPat { pat_con = header
+                                         , pat_args = arg_pats'
+                                         , pat_con_ext = ConPatTc
+                                           { cpt_tvs = [], cpt_dicts = []
+                                           , cpt_binds = emptyTcEvBinds
+                                           , cpt_arg_tys = ctxt_res_tys
+                                           , cpt_wrap = idHsWrapper
+                                           }
+                                         }
 
                   ; return (mkHsWrapPat wrap res_pat pat_ty, res) }
 
@@ -939,13 +942,17 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty_scaled
              <- checkConstraints skol_info ex_tvs' given $
                 tcConArgs (RealDataCon data_con) arg_tys_scaled arg_pats penv thing_inside
 
-        ; let res_pat = ConPatOut { pat_con   = header,
-                                    pat_tvs   = ex_tvs',
-                                    pat_dicts = given,
-                                    pat_binds = ev_binds,
-                                    pat_args  = arg_pats',
-                                    pat_arg_tys = ctxt_res_tys,
-                                    pat_wrap  = idHsWrapper }
+        ; let res_pat = ConPat
+                { pat_con   = header
+                , pat_args  = arg_pats'
+                , pat_con_ext = ConPatTc
+                  { cpt_tvs   = ex_tvs'
+                  , cpt_dicts = given
+                  , cpt_binds = ev_binds
+                  , cpt_arg_tys = ctxt_res_tys
+                  , cpt_wrap  = idHsWrapper
+                  }
+                }
         ; return (mkHsWrapPat wrap res_pat pat_ty, res)
         } }
 
@@ -995,13 +1002,16 @@ tcPatSynPat penv (L con_span _) pat_syn pat_ty arg_pats thing_inside
                 tcConArgs (PatSynCon pat_syn) arg_tys_scaled arg_pats penv thing_inside
 
         ; traceTc "checkConstraints }" (ppr ev_binds)
-        ; let res_pat = ConPatOut { pat_con   = L con_span $ PatSynCon pat_syn,
-                                    pat_tvs   = ex_tvs',
-                                    pat_dicts = prov_dicts',
-                                    pat_binds = ev_binds,
-                                    pat_args  = arg_pats',
-                                    pat_arg_tys = mkTyVarTys univ_tvs',
-                                    pat_wrap  = req_wrap }
+        ; let res_pat = ConPat { pat_con   = L con_span $ PatSynCon pat_syn
+                               , pat_args  = arg_pats'
+                               , pat_con_ext = ConPatTc
+                                 { cpt_tvs   = ex_tvs'
+                                 , cpt_dicts = prov_dicts'
+                                 , cpt_binds = ev_binds
+                                 , cpt_arg_tys = mkTyVarTys univ_tvs'
+                                 , cpt_wrap  = req_wrap
+                                 }
+                               }
         ; pat_ty <- readExpType (scaledThing pat_ty)
         ; return (mkHsWrapPat (wrap <.> mult_wrap) res_pat pat_ty, res) }
 

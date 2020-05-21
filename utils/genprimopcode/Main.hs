@@ -189,6 +189,9 @@ main = getArgs >>= \args ->
                       "--make-latex-doc"
                          -> putStr (gen_latex_doc p_o_specs)
 
+                      "--wired-in-docs"
+                         -> putStr (gen_wired_in_docs p_o_specs)
+
                       _ -> error "Should not happen, known_args out of sync?"
                    )
 
@@ -211,7 +214,8 @@ known_args
        "--primop-vector-tycons",
        "--make-haskell-wrappers",
        "--make-haskell-source",
-       "--make-latex-doc"
+       "--make-latex-doc",
+       "--wired-in-docs"
      ]
 
 ------------------------------------------------------------------
@@ -360,21 +364,23 @@ gen_hs_source (Info defaults entries) =
 
            prim_data t = [ "data " ++ pprTy t ]
 
-           unlatex s = case s of
-                '\\':'t':'e':'x':'t':'t':'t':'{':cs -> markup "@" "@" cs
-                '{':'\\':'t':'e':'x':'t':'t':'t':' ':cs -> markup "@" "@" cs
-                '{':'\\':'t':'t':cs -> markup "@" "@" cs
-                '{':'\\':'i':'t':cs -> markup "/" "/" cs
-                '{':'\\':'e':'m':cs -> markup "/" "/" cs
-                c : cs -> c : unlatex cs
-                "" -> ""
-           markup s t xs = s ++ mk (dropWhile isSpace xs)
-                where mk ""        = t
-                      mk ('\n':cs) = ' ' : mk cs
-                      mk ('}':cs)  = t ++ unlatex cs
-                      mk (c:cs)    = c : mk cs
            escape = concatMap (\c -> if c `elem` special then '\\':c:[] else c:[])
                 where special = "/'`\"@<"
+
+unlatex :: String -> String
+unlatex s = case s of
+  '\\':'t':'e':'x':'t':'t':'t':'{':cs -> markup "@" "@" cs
+  '{':'\\':'t':'e':'x':'t':'t':'t':' ':cs -> markup "@" "@" cs
+  '{':'\\':'t':'t':cs -> markup "@" "@" cs
+  '{':'\\':'i':'t':cs -> markup "/" "/" cs
+  '{':'\\':'e':'m':cs -> markup "/" "/" cs
+  c : cs -> c : unlatex cs
+  "" -> ""
+  where markup b e xs = b ++ mk (dropWhile isSpace xs)
+          where mk ""        = e
+                mk ('\n':cs) = ' ' : mk cs
+                mk ('}':cs)  = e ++ unlatex cs
+                mk (c:cs)    = c : mk cs
 
 -- | Extract a string representation of the name
 getName :: Entry -> Maybe String
@@ -382,6 +388,7 @@ getName PrimOpSpec{ name = n } = Just n
 getName PrimVecOpSpec{ name = n } = Just n
 getName PseudoOpSpec{ name = n } = Just n
 getName PrimTypeSpec{ ty = TyApp tc _ } = Just (show tc)
+getName PrimVecTypeSpec{ ty = TyApp tc _ } = Just (show tc)
 getName _ = Nothing
 
 {- Note [Placeholder declarations]
@@ -781,6 +788,30 @@ gen_switch_from_attribs attrib_name fn_name (Info defaults entries)
             Just xx
                -> unlines alternatives
                   ++ fn_name ++ " _ = " ++ getAltRhs xx ++ "\n"
+
+{-
+Note [GHC.Prim Docs]
+~~~~~~~~~~~~~~~~~~~~
+For haddocks of GHC.Prim we generate a dummy haskell file (gen_hs_source) that
+contains the type signatures and the commends (but no implementations)
+specifically for consumption by haddock.
+
+GHCi's :doc command reads directly from ModIface's though, and GHC.Prim has a
+wired-in iface that has nothing to do with the above haskell file. The code
+below converts primops.txt into an intermediate form that would later be turned
+into a proper DeclDocMap.
+
+We output the docs as a list of pairs (name, docs). We use stringy names here
+because mapping names to "Name"s is difficult for things like primtypes and
+pseudoops.
+-}
+gen_wired_in_docs :: Info -> String
+gen_wired_in_docs (Info _ entries)
+  = "primOpDocs =\n  [ " ++ intercalate "\n  , " (catMaybes $ map mkDoc $ concatMap desugarVectorSpec entries) ++ "\n  ]\n"
+    where
+      mkDoc po | Just poName <- getName po
+               , not $ null $ desc po = Just $ show (poName, unlatex $ desc po)
+               | otherwise = Nothing
 
 ------------------------------------------------------------------
 -- Create PrimOpInfo text from PrimOpSpecs -----------------------
