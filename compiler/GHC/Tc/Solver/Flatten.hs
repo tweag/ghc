@@ -1906,12 +1906,14 @@ Flatten using the fun-eqs first.
 split_pi_tys' :: Type -> ([TyCoBinder], Type, Bool)
 split_pi_tys' ty = split ty ty
   where
-  split orig_ty ty | Just ty' <- coreView ty = split orig_ty ty'
+     -- put common cases first
   split _       (ForAllTy b res) = let (bs, ty, _) = split res res
                                    in  (Named b : bs, ty, True)
   split _       (FunTy { ft_af = af, ft_mult = w, ft_arg = arg, ft_res = res })
                                  = let (bs, ty, named) = split res res
                                    in  (Anon af (mkScaled w arg) : bs, ty, named)
+
+  split orig_ty ty | Just ty' <- coreView ty = split orig_ty ty'
   split orig_ty _                = ([], orig_ty, False)
 {-# INLINE split_pi_tys' #-}
 
