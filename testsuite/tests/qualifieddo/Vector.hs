@@ -29,6 +29,9 @@ toList = \case
   VNil -> []
   VCons a v -> a : toList v
 
+fail :: String -> Vector n a
+fail = error
+
 class VRepeat n where
   vRepeat :: a -> Vector n a
 instance VRepeat Zero where
