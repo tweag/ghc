@@ -63,7 +63,7 @@ module GHC.Tc.Gen.HsType (
         tcMult,
 
         -- Pattern type signatures
-        tcHsPatSigType, tcPatSig,
+        tcHsPatSigType,
 
         -- Error messages
         funAppCtxt, addTyConFlavCtxt
@@ -71,14 +71,13 @@ module GHC.Tc.Gen.HsType (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs
 import GHC.Tc.Utils.Monad
 import GHC.Tc.Types.Origin
 import GHC.Core.Predicate
 import GHC.Tc.Types.Constraint
-import GHC.Tc.Types.Evidence
 import GHC.Tc.Utils.Env
 import GHC.Tc.Utils.TcMType
 import GHC.Tc.Validity
@@ -108,18 +107,18 @@ import GHC.Builtin.Types
 import GHC.Types.Basic
 import GHC.Types.SrcLoc
 import GHC.Settings.Constants ( mAX_CTUPLE_SIZE )
-import ErrUtils( MsgDoc )
+import GHC.Utils.Error( MsgDoc )
 import GHC.Types.Unique
 import GHC.Types.Unique.Set
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Unique.Supply
-import Outputable
-import FastString
+import GHC.Utils.Outputable
+import GHC.Data.FastString
 import GHC.Builtin.Names hiding ( wildCardName )
 import GHC.Driver.Session
 import qualified GHC.LanguageExtensions as LangExt
 
-import Maybes
+import GHC.Data.Maybe
 import Data.List ( find )
 import Control.Monad
 
@@ -424,7 +423,7 @@ tcHsTypeApp wc_ty kind
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 A HsWildCardBndrs's hswc_ext now only includes /named/ wildcards, so
 any unnamed wildcards stay unchanged in hswc_body.  When called in
-tcHsTypeApp, tcCheckLHsType will call emitAnonWildCardHoleConstraint
+tcHsTypeApp, tcCheckLHsType will call emitAnonTypeHole
 on these anonymous wildcards. However, this would trigger
 error/warning when an anonymous wildcard is passed in as a visible type
 argument, which we do not want because users should be able to write
@@ -907,7 +906,7 @@ tcAnonWildCardOcc wc exp_kind
        ; warning <- woptM Opt_WarnPartialTypeSignatures
 
        ; unless (part_tysig && not warning) $
-         emitAnonWildCardHoleConstraint wc_tv
+         emitAnonTypeHole wc_tv
          -- Why the 'unless' guard?
          -- See Note [Wildcards in visible kind application]
 
@@ -927,11 +926,11 @@ x = MkT
 So we should allow '@_' without emitting any hole constraints, and
 regardless of whether PartialTypeSignatures is enabled or not. But how would
 the typechecker know which '_' is being used in VKA and which is not when it
-calls emitNamedWildCardHoleConstraints in tcHsPartialSigType on all HsWildCardBndrs?
+calls emitNamedTypeHole in tcHsPartialSigType on all HsWildCardBndrs?
 The solution then is to neither rename nor include unnamed wildcards in HsWildCardBndrs,
 but instead give every anonymous wildcard a fresh wild tyvar in tcAnonWildCardOcc.
 And whenever we see a '@', we automatically turn on PartialTypeSignatures and
-turn off hole constraint warnings, and do not call emitAnonWildCardHoleConstraint
+turn off hole constraint warnings, and do not call emitAnonTypeHole
 under these conditions.
 See related Note [Wildcards in visible type application] here and
 Note [The wildcard story for types] in GHC.Hs.Types
@@ -3208,7 +3207,7 @@ tcHsPartialSigType ctxt sig_ty
        -- Spit out the wildcards (including the extra-constraints one)
        -- as "hole" constraints, so that they'll be reported if necessary
        -- See Note [Extra-constraint holes in partial type signatures]
-       ; emitNamedWildCardHoleConstraints wcs
+       ; mapM_ emitNamedTypeHole wcs
 
        -- Zonk, so that any nested foralls can "see" their occurrences
        -- See Note [Checking partial type signatures], in
@@ -3354,7 +3353,7 @@ Result works fine, but it may eventually bite us.
 ********************************************************************* -}
 
 tcHsPatSigType :: UserTypeCtxt
-               -> LHsSigWcType GhcRn          -- The type signature
+               -> HsPatSigType GhcRn          -- The type signature
                -> TcM ( [(Name, TcTyVar)]     -- Wildcards
                       , [(Name, TcTyVar)]     -- The new bit of type environment, binding
                                               -- the scoped type variables
@@ -3362,13 +3361,13 @@ tcHsPatSigType :: UserTypeCtxt
 -- Used for type-checking type signatures in
 -- (a) patterns           e.g  f (x::Int) = e
 -- (b) RULE forall bndrs  e.g. forall (x::Int). f x = x
+-- See Note [Pattern signature binders and scoping] in GHC.Hs.Types
 --
 -- This may emit constraints
 -- See Note [Recipe for checking a signature]
-tcHsPatSigType ctxt sig_ty
-  | HsWC { hswc_ext = sig_wcs,   hswc_body = ib_ty } <- sig_ty
-  , HsIB { hsib_ext = sig_ns
-         , hsib_body = hs_ty } <- ib_ty
+tcHsPatSigType ctxt
+  (HsPS { hsps_ext  = HsPSRn { hsps_nwcs = sig_wcs, hsps_imp_tvs = sig_ns }
+        , hsps_body = hs_ty })
   = addSigCtxt ctxt hs_ty $
     do { sig_tkv_prs <- mapM new_implicit_tv sig_ns
        ; (wcs, sig_ty)
@@ -3381,7 +3380,7 @@ tcHsPatSigType ctxt sig_ty
                do { sig_ty <- tcHsOpenType hs_ty
                   ; return (wcs, sig_ty) }
 
-        ; emitNamedWildCardHoleConstraints wcs
+        ; mapM_ emitNamedTypeHole wcs
 
           -- sig_ty might have tyvars that are at a higher TcLevel (if hs_ty
           -- contains a forall). Promote these.
@@ -3401,64 +3400,12 @@ tcHsPatSigType ctxt sig_ty
            ; tv   <- case ctxt of
                        RuleSigCtxt {} -> newSkolemTyVar name kind
                        _              -> newPatSigTyVar name kind
-                       -- See Note [Pattern signature binders]
+                       -- See Note [Typechecking pattern signature binders]
              -- NB: tv's Name may be fresh (in the case of newPatSigTyVar)
            ; return (name, tv) }
 
-tcPatSig :: Bool                    -- True <=> pattern binding
-         -> LHsSigWcType GhcRn
-         -> Scaled ExpSigmaType
-         -> TcM (TcType,            -- The type to use for "inside" the signature
-                 [(Name, TcTyVar)], -- The new bit of type environment, binding
-                                    -- the scoped type variables
-                 [(Name, TcTyVar)], -- The wildcards
-                 HsWrapper)         -- Coercion due to unification with actual ty
-                                    -- Of shape:  res_ty ~ sig_ty
-tcPatSig in_pat_bind sig res_ty
- = do  { (sig_wcs, sig_tvs, sig_ty) <- tcHsPatSigType PatSigCtxt sig
-        -- sig_tvs are the type variables free in 'sig',
-        -- and not already in scope. These are the ones
-        -- that should be brought into scope
-
-        ; if null sig_tvs then do {
-                -- Just do the subsumption check and return
-                  wrap <- addErrCtxtM (mk_msg sig_ty) $
-                          tcSubTypeET PatSigOrigin PatSigCtxt (scaledThing res_ty) sig_ty
-                ; return (sig_ty, [], sig_wcs, wrap)
-        } else do
-                -- Type signature binds at least one scoped type variable
-
-                -- A pattern binding cannot bind scoped type variables
-                -- It is more convenient to make the test here
-                -- than in the renamer
-        { when in_pat_bind (addErr (patBindSigErr sig_tvs))
-
-        -- Now do a subsumption check of the pattern signature against res_ty
-        ; wrap <- addErrCtxtM (mk_msg sig_ty) $
-                  tcSubTypeET PatSigOrigin PatSigCtxt (scaledThing res_ty) sig_ty
-
-        -- Phew!
-        ; return (sig_ty, sig_tvs, sig_wcs, wrap)
-        } }
-  where
-    mk_msg sig_ty tidy_env
-       = do { (tidy_env, sig_ty) <- zonkTidyTcType tidy_env sig_ty
-            ; res_ty <- readExpType (scaledThing res_ty)   -- should be filled in by now
-            ; (tidy_env, res_ty) <- zonkTidyTcType tidy_env res_ty
-            ; let msg = vcat [ hang (text "When checking that the pattern signature:")
-                                  4 (ppr sig_ty)
-                             , nest 2 (hang (text "fits the type of its context:")
-                                          2 (ppr res_ty)) ]
-            ; return (tidy_env, msg) }
-
-patBindSigErr :: [(Name,TcTyVar)] -> SDoc
-patBindSigErr sig_tvs
-  = hang (text "You cannot bind scoped type variable" <> plural sig_tvs
-          <+> pprQuotedList (map fst sig_tvs))
-       2 (text "in a pattern binding signature")
-
-{- Note [Pattern signature binders]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+{- Note [Typechecking pattern signature binders]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 See also Note [Type variables in the type environment] in GHC.Tc.Utils.
 Consider
 

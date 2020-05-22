@@ -6,15 +6,15 @@
 
 module GHC.Builtin.Names.TH where
 
-import GhcPrelude ()
+import GHC.Prelude ()
 
 import GHC.Builtin.Names( mk_known_key_name )
-import GHC.Types.Module( Module, mkModuleNameFS, mkModule, thUnitId )
+import GHC.Unit
 import GHC.Types.Name( Name )
 import GHC.Types.Name.Occurrence( tcName, clsName, dataName, varName )
 import GHC.Types.Name.Reader( RdrName, nameRdrName )
 import GHC.Types.Unique
-import FastString
+import GHC.Data.FastString
 
 -- To add a name, do three things
 --

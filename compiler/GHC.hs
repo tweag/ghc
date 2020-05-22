@@ -22,7 +22,6 @@ module GHC (
         -- * GHC Monad
         Ghc, GhcT, GhcMonad(..), HscEnv,
         runGhc, runGhcT, initGhcMonad,
-        gcatch, gbracket, gfinally,
         printException,
         handleSourceError,
         needsTemplateHaskellOrQQ,
@@ -159,11 +158,11 @@ module GHC (
 
         -- * Abstract syntax elements
 
-        -- ** Packages
-        UnitId,
+        -- ** Units
+        Unit,
 
         -- ** Modules
-        Module, mkModule, pprModule, moduleName, moduleUnitId,
+        Module, mkModule, pprModule, moduleName, moduleUnit,
         ModuleName, mkModuleName, moduleNameString,
 
         -- ** Names
@@ -179,7 +178,7 @@ module GHC (
         isRecordSelector,
         isPrimOpId, isFCallId, isClassOpId_maybe,
         isDataConWorkId, idDataCon,
-        isBottomingId, isDictonaryId,
+        isDeadEndId, isDictonaryId,
         recordSelectorTyCon,
 
         -- ** Type constructors
@@ -293,7 +292,7 @@ module GHC (
 
 #include "HsVersions.h"
 
-import GhcPrelude hiding (init)
+import GHC.Prelude hiding (init)
 
 import GHC.ByteCode.Types
 import GHC.Runtime.Eval
@@ -312,7 +311,7 @@ import GHC.Tc.Utils.Monad    ( finalSafeMode, fixSafeInstances, initIfaceTcRn )
 import GHC.Iface.Load        ( loadSysInterface )
 import GHC.Tc.Types
 import GHC.Core.Predicate
-import GHC.Driver.Packages
+import GHC.Unit.State
 import GHC.Types.Name.Set
 import GHC.Types.Name.Reader
 import GHC.Hs
@@ -341,17 +340,17 @@ import GHC.Driver.Ways
 import GHC.SysTools
 import GHC.SysTools.BaseDir
 import GHC.Types.Annotations
-import GHC.Types.Module
-import Panic
+import GHC.Unit.Module
+import GHC.Utils.Panic
 import GHC.Platform
-import Bag              ( listToBag )
-import ErrUtils
-import MonadUtils
-import Util
-import StringBuffer
-import Outputable
+import GHC.Data.Bag        ( listToBag )
+import GHC.Utils.Error
+import GHC.Utils.Monad
+import GHC.Utils.Misc
+import GHC.Data.StringBuffer
+import GHC.Utils.Outputable
 import GHC.Types.Basic
-import FastString
+import GHC.Data.FastString
 import qualified GHC.Parser as Parser
 import GHC.Parser.Lexer
 import GHC.Parser.Annotation
@@ -373,13 +372,14 @@ import Data.Typeable    ( Typeable )
 import Data.Word        ( Word8 )
 import Control.Monad
 import System.Exit      ( exitWith, ExitCode(..) )
-import Exception
+import GHC.Utils.Exception
 import Data.IORef
 import System.FilePath
 import Control.Concurrent
 import Control.Applicative ((<|>))
+import Control.Monad.Catch as MC
 
-import Maybes
+import GHC.Data.Maybe
 import System.IO.Error  ( isDoesNotExistError )
 import System.Environment ( getEnv )
 import System.Directory
@@ -400,7 +400,7 @@ defaultErrorHandler :: (ExceptionMonad m)
                     => FatalMessager -> FlushOut -> m a -> m a
 defaultErrorHandler fm (FlushOut flushOut) inner =
   -- top-level exception handler: any unrecognised exception is a compiler bug.
-  ghandle (\exception -> liftIO $ do
+  MC.handle (\exception -> liftIO $ do
            flushOut
            case fromException exception of
                 -- an IO exception probably isn't our fault, so don't panic
@@ -437,7 +437,7 @@ defaultErrorHandler fm (FlushOut flushOut) inner =
 {-# DEPRECATED defaultCleanupHandler "Cleanup is now done by runGhc/runGhcT" #-}
 defaultCleanupHandler :: (ExceptionMonad m) => DynFlags -> m a -> m a
 defaultCleanupHandler _ m = m
- where _warning_suppression = m `gonException` undefined
+ where _warning_suppression = m `MC.onException` undefined
 
 
 -- %************************************************************************
@@ -483,7 +483,7 @@ runGhcT mb_top_dir ghct = do
     withCleanupSession ghct
 
 withCleanupSession :: GhcMonad m => m a -> m a
-withCleanupSession ghc = ghc `gfinally` cleanup
+withCleanupSession ghc = ghc `MC.finally` cleanup
   where
    cleanup = do
       hsc_env <- getSession
@@ -594,11 +594,10 @@ checkBrokenTablesNextToCode' dflags
 -- flags.  If you are not doing linking or doing static linking, you
 -- can ignore the list of packages returned.
 --
-setSessionDynFlags :: GhcMonad m => DynFlags -> m [InstalledUnitId]
+setSessionDynFlags :: GhcMonad m => DynFlags -> m [UnitId]
 setSessionDynFlags dflags = do
   dflags' <- checkNewDynFlags dflags
-  dflags'' <- liftIO $ interpretPackageEnv dflags'
-  (dflags''', preload) <- liftIO $ initPackages dflags''
+  (dflags''', preload) <- liftIO $ initPackages dflags'
 
   -- Interpreter
   interp  <- if gopt Opt_ExternalInterpreter dflags
@@ -611,7 +610,7 @@ setSessionDynFlags dflags = do
              | otherwise                      = ""
            msg = text "Starting " <> text prog
          tr <- if verbosity dflags >= 3
-                then return (logInfo dflags (defaultDumpStyle dflags) msg)
+                then return (logInfo dflags $ withPprStyle defaultDumpStyle msg)
                 else return (pure ())
          let
           conf = IServConfig
@@ -643,7 +642,7 @@ setSessionDynFlags dflags = do
 -- | Sets the program 'DynFlags'.  Note: this invalidates the internal
 -- cached module graph, causing more work to be done the next time
 -- 'load' is called.
-setProgramDynFlags :: GhcMonad m => DynFlags -> m [InstalledUnitId]
+setProgramDynFlags :: GhcMonad m => DynFlags -> m [UnitId]
 setProgramDynFlags dflags = setProgramDynFlags_ True dflags
 
 -- | Set the action taken when the compiler produces a message.  This
@@ -655,7 +654,7 @@ setLogAction action = do
   void $ setProgramDynFlags_ False $
     dflags' { log_action = action }
 
-setProgramDynFlags_ :: GhcMonad m => Bool -> DynFlags -> m [InstalledUnitId]
+setProgramDynFlags_ :: GhcMonad m => Bool -> DynFlags -> m [UnitId]
 setProgramDynFlags_ invalidate_needed dflags = do
   dflags' <- checkNewDynFlags dflags
   dflags_prev <- getProgramDynFlags
@@ -715,7 +714,11 @@ getInteractiveDynFlags = withSession $ \h -> return (ic_dflags (hsc_IC h))
 parseDynamicFlags :: MonadIO m =>
                      DynFlags -> [Located String]
                   -> m (DynFlags, [Located String], [Warn])
-parseDynamicFlags = parseDynamicFlagsCmdLine
+parseDynamicFlags dflags cmdline = do
+  (dflags1, leftovers, warns) <- parseDynamicFlagsCmdLine dflags cmdline
+  dflags2 <- liftIO $ interpretPackageEnv dflags1
+  return (dflags2, leftovers, warns)
+
 
 -- | Checks the set of new DynFlags for possibly erroneous option
 -- combinations when invoking 'setSessionDynFlags' and friends, and if
@@ -1357,7 +1360,7 @@ packageDbModules only_exposed = do
      [ mkModule pid modname
      | p <- pkgs
      , not only_exposed || exposed p
-     , let pid = packageConfigId p
+     , let pid = mkUnit p
      , modname <- exposedModules p
                ++ map exportName (reexportedModules p) ]
                -}
@@ -1489,7 +1492,7 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
     this_pkg = thisPackage dflags
   --
   case maybe_pkg of
-    Just pkg | fsToUnitId pkg /= this_pkg && pkg /= fsLit "this" -> liftIO $ do
+    Just pkg | fsToUnit pkg /= this_pkg && pkg /= fsLit "this" -> liftIO $ do
       res <- findImportedModule hsc_env mod_name maybe_pkg
       case res of
         Found _ m -> return m
@@ -1501,7 +1504,7 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
         Nothing -> liftIO $ do
            res <- findImportedModule hsc_env mod_name maybe_pkg
            case res of
-             Found loc m | moduleUnitId m /= this_pkg -> return m
+             Found loc m | moduleUnit m /= this_pkg -> return m
                          | otherwise -> modNotLoadedError dflags m loc
              err -> throwOneError $ noModError dflags noSrcSpan mod_name err
 
@@ -1545,7 +1548,7 @@ isModuleTrusted m = withSession $ \hsc_env ->
     liftIO $ hscCheckSafe hsc_env m noSrcSpan
 
 -- | Return if a module is trusted and the pkgs it depends on to be trusted.
-moduleTrustReqs :: GhcMonad m => Module -> m (Bool, Set InstalledUnitId)
+moduleTrustReqs :: GhcMonad m => Module -> m (Bool, Set UnitId)
 moduleTrustReqs m = withSession $ \hsc_env ->
     liftIO $ hscGetSafe hsc_env m noSrcSpan
 
@@ -1698,7 +1701,7 @@ interpretPackageEnv dflags = do
 
     getEnvVar :: MaybeT IO String
     getEnvVar = do
-      mvar <- liftMaybeT $ try $ getEnv "GHC_ENVIRONMENT"
+      mvar <- liftMaybeT $ MC.try $ getEnv "GHC_ENVIRONMENT"
       case mvar of
         Right var -> return var
         Left err  -> if isDoesNotExistError err then mzero

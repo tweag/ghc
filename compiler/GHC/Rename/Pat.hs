@@ -44,7 +44,7 @@ module GHC.Rename.Pat (-- main entry points
 
 -- ENH: thin imports to only what is necessary for patterns
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Rename.Expr ( rnLExpr )
 import {-# SOURCE #-} GHC.Rename.Splice ( rnSplicePat )
@@ -67,9 +67,9 @@ import GHC.Types.Name
 import GHC.Types.Name.Set
 import GHC.Types.Name.Reader
 import GHC.Types.Basic
-import Util
-import ListSetOps          ( removeDups )
-import Outputable
+import GHC.Utils.Misc
+import GHC.Data.List.SetOps( removeDups )
+import GHC.Utils.Outputable
 import GHC.Types.SrcLoc
 import GHC.Types.Literal   ( inCharRange )
 import GHC.Builtin.Types   ( nilDataCon )
@@ -217,9 +217,6 @@ matchNameMaker ctxt = LamMk report_unused
                       -- is no RHS where the variables can be used!
                       ThPatQuote            -> False
                       _                     -> True
-
-rnHsSigCps :: LHsSigWcType GhcPs -> CpsRn (LHsSigWcType GhcRn)
-rnHsSigCps sig = CpsRn (rnHsSigWcTypeScoped AlwaysBind PatCtx sig)
 
 newPatLName :: NameMaker -> Located RdrName -> CpsRn (Located Name)
 newPatLName name_maker rdr_name@(L loc _)
@@ -410,9 +407,12 @@ rnPatAndThen mk (SigPat x pat sig)
   -- f ((Just (x :: a) :: Maybe a)
   -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~^       `a' is first bound here
   -- ~~~~~~~~~~~~~~~^                   the same `a' then used here
-  = do { sig' <- rnHsSigCps sig
+  = do { sig' <- rnHsPatSigTypeAndThen sig
        ; pat' <- rnLPatAndThen mk pat
        ; return (SigPat x pat' sig' ) }
+  where
+    rnHsPatSigTypeAndThen :: HsPatSigType GhcPs -> CpsRn (HsPatSigType GhcRn)
+    rnHsPatSigTypeAndThen sig = CpsRn (rnHsPatSigType AlwaysBind PatCtx sig)
 
 rnPatAndThen mk (LitPat x lit)
   | HsString src s <- lit
@@ -468,14 +468,14 @@ rnPatAndThen mk p@(ViewPat x expr pat)
        -- ; return (ViewPat expr' pat' ty) }
        ; return (ViewPat x expr' pat') }
 
-rnPatAndThen mk (ConPatIn con stuff)
+rnPatAndThen mk (ConPat NoExtField con args)
    -- rnConPatAndThen takes care of reconstructing the pattern
    -- The pattern for the empty list needs to be replaced by an empty explicit list pattern when overloaded lists is turned on.
   = case unLoc con == nameRdrName (dataConName nilDataCon) of
       True    -> do { ol_flag <- liftCps $ xoptM LangExt.OverloadedLists
                     ; if ol_flag then rnPatAndThen mk (ListPat noExtField [])
-                                 else rnConPatAndThen mk con stuff}
-      False   -> rnConPatAndThen mk con stuff
+                                 else rnConPatAndThen mk con args}
+      False   -> rnConPatAndThen mk con args
 
 rnPatAndThen mk (ListPat _ pats)
   = do { opt_OverloadedLists <- liftCps $ xoptM LangExt.OverloadedLists
@@ -505,9 +505,6 @@ rnPatAndThen mk (SplicePat _ splice)
            Left  not_yet_renamed -> rnPatAndThen mk not_yet_renamed
            Right already_renamed -> return already_renamed }
 
-rnPatAndThen _ pat = pprPanic "rnLPatAndThen" (ppr pat)
-
-
 --------------------
 rnConPatAndThen :: NameMaker
                 -> Located RdrName    -- the constructor
@@ -517,7 +514,12 @@ rnConPatAndThen :: NameMaker
 rnConPatAndThen mk con (PrefixCon pats)
   = do  { con' <- lookupConCps con
         ; pats' <- rnLPatsAndThen mk pats
-        ; return (ConPatIn con' (PrefixCon pats')) }
+        ; return $ ConPat
+            { pat_con_ext = noExtField
+            , pat_con = con'
+            , pat_args = PrefixCon pats'
+            }
+        }
 
 rnConPatAndThen mk con (InfixCon pat1 pat2)
   = do  { con' <- lookupConCps con
@@ -529,7 +531,12 @@ rnConPatAndThen mk con (InfixCon pat1 pat2)
 rnConPatAndThen mk con (RecCon rpats)
   = do  { con' <- lookupConCps con
         ; rpats' <- rnHsRecPatsAndThen mk con' rpats
-        ; return (ConPatIn con' (RecCon rpats')) }
+        ; return $ ConPat
+            { pat_con_ext = noExtField
+            , pat_con = con'
+            , pat_args = RecCon rpats'
+            }
+        }
 
 checkUnusedRecordWildcardCps :: SrcSpan -> Maybe [Name] -> CpsRn ()
 checkUnusedRecordWildcardCps loc dotdot_names =

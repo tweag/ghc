@@ -20,7 +20,7 @@ module GHC.Core.Opt.FloatIn ( floatInwards ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Platform
 
 import GHC.Core
@@ -33,9 +33,9 @@ import GHC.Types.Id         ( isOneShotBndr, idType, isJoinId, isJoinId_maybe )
 import GHC.Types.Var
 import GHC.Core.Type
 import GHC.Types.Var.Set
-import Util
+import GHC.Utils.Misc
 import GHC.Driver.Session
-import Outputable
+import GHC.Utils.Outputable
 -- import Data.List        ( mapAccumL )
 import GHC.Types.Basic      ( RecFlag(..), isRec )
 import GHC.Core.Multiplicity
@@ -408,12 +408,17 @@ floating in cases with a single alternative that may bind values.
 
 But there are wrinkles
 
-* Which unlifted cases do we float? See GHC.Builtin.PrimOps
-  Note [PrimOp can_fail and has_side_effects] which explains:
-   - We can float-in can_fail primops, but we can't float them out.
+* Which unlifted cases do we float?
+  See Note [PrimOp can_fail and has_side_effects] in GHC.Builtin.PrimOps which
+  explains:
+   - We can float in can_fail primops (which concerns imprecise exceptions),
+     but we can't float them out.
    - But we can float a has_side_effects primop, but NOT inside a lambda,
-     so for now we don't float them at all.
-  Hence exprOkForSideEffects
+     so for now we don't float them at all. Hence exprOkForSideEffects.
+   - Throwing precise exceptions is a special case of the previous point: We
+     may /never/ float in a call to (something that ultimately calls)
+     'raiseIO#'.
+     See Note [Precise exceptions and strictness analysis] in GHC.Types.Demand.
 
 * Because we can float can-fail primops (array indexing, division) inwards
   but not outwards, we must be careful not to transform

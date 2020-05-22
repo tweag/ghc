@@ -135,7 +135,6 @@ module GHC.Driver.Session (
         sGhcWithSMP,
         sGhcRTSWays,
         sTablesNextToCode,
-        sLeadingUnderscore,
         sLibFFI,
         sGhcThreaded,
         sGhcDebugged,
@@ -238,40 +237,43 @@ module GHC.Driver.Session (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Platform
 import GHC.UniqueSubdir (uniqueSubdir)
-import GHC.Types.Module
+import GHC.Unit.Types
+import GHC.Unit.Parser
+import GHC.Unit.Module
 import {-# SOURCE #-} GHC.Driver.Plugins
 import {-# SOURCE #-} GHC.Driver.Hooks
 import {-# SOURCE #-} GHC.Builtin.Names ( mAIN )
-import {-# SOURCE #-} GHC.Driver.Packages (PackageState, emptyPackageState, PackageDatabase, mkComponentId)
+import {-# SOURCE #-} GHC.Unit.State (PackageState, emptyPackageState, PackageDatabase, mkIndefUnitId, updateIndefUnitId)
 import GHC.Driver.Phases ( Phase(..), phaseInputExt )
 import GHC.Driver.Flags
 import GHC.Driver.Ways
 import Config
-import CliOption
+import GHC.Utils.CliOption
 import GHC.Driver.CmdLine hiding (WarnReason(..))
 import qualified GHC.Driver.CmdLine as Cmd
 import GHC.Settings.Constants
-import Panic
-import qualified PprColour as Col
-import Util
-import Maybes
-import MonadUtils
-import qualified Pretty
+import GHC.Utils.Panic
+import qualified GHC.Utils.Ppr.Colour as Col
+import GHC.Utils.Misc
+import GHC.Data.Maybe
+import GHC.Utils.Monad
+import qualified GHC.Utils.Ppr as Pretty
 import GHC.Types.SrcLoc
 import GHC.Types.Basic ( Alignment, alignmentOf, IntWithInf, treatZeroAsInf )
-import FastString
-import Fingerprint
-import Outputable
+import GHC.Data.FastString
+import GHC.Utils.Fingerprint
+import GHC.Utils.Outputable
 import GHC.Settings
 
-import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessageAnn
+import {-# SOURCE #-} GHC.Utils.Error
+                               ( Severity(..), MsgDoc, mkLocMessageAnn
                                , getCaretDiagnostic, DumpAction, TraceAction
                                , defaultDumpAction, defaultTraceAction )
-import Json
+import GHC.Utils.Json
 import GHC.SysTools.Terminal ( stderrSupportsAnsiColors )
 import GHC.SysTools.BaseDir ( expandToolDir, expandTopDir )
 
@@ -300,8 +302,8 @@ import System.IO.Error
 import Text.ParserCombinators.ReadP hiding (char)
 import Text.ParserCombinators.ReadP as R
 
-import EnumSet (EnumSet)
-import qualified EnumSet
+import GHC.Data.EnumSet (EnumSet)
+import qualified GHC.Data.EnumSet as EnumSet
 
 import GHC.Foreign (withCString, peekCString)
 import qualified GHC.LanguageExtensions as LangExt
@@ -493,7 +495,7 @@ data DynFlags = DynFlags {
   specConstrThreshold   :: Maybe Int,   -- ^ Threshold for SpecConstr
   specConstrCount       :: Maybe Int,   -- ^ Max number of specialisations for any one function
   specConstrRecursive   :: Int,         -- ^ Max number of specialisations for recursive types
-                                        --   Not optional; otherwise ForceSpecConstr can diverge.
+                                        --   Not optional; otherwise SPEC can diverge.
   binBlobThreshold      :: Word,        -- ^ Binary literals (e.g. strings) whose size is above
                                         --   this threshold will be dumped in a binary file
                                         --   by the assembler code generator (0 to disable)
@@ -519,9 +521,9 @@ data DynFlags = DynFlags {
   solverIterations      :: IntWithInf,   -- ^ Number of iterations in the constraints solver
                                          --   Typically only 1 is needed
 
-  thisInstalledUnitId   :: InstalledUnitId,
-  thisComponentId_      :: Maybe ComponentId,
-  thisUnitIdInsts_      :: Maybe [(ModuleName, Module)],
+  thisUnitId   :: UnitId,              -- ^ Target unit-id
+  thisComponentId_      :: Maybe IndefUnitId,            -- ^ Unit-id to instantiate
+  thisUnitIdInsts_      :: Maybe [(ModuleName, Module)], -- ^ How to instantiate the unit-id above
 
   -- ways
   ways                  :: Set Way,     -- ^ Way flags from the command line
@@ -625,11 +627,11 @@ data DynFlags = DynFlags {
   packageEnv            :: Maybe FilePath,
         -- ^ Filepath to the package environment file (if overriding default)
 
-  pkgDatabase           :: Maybe [PackageDatabase],
+  pkgDatabase           :: Maybe [PackageDatabase UnitId],
         -- ^ Stack of package databases for the target platform.
         --
         -- A "package database" is a misleading name as it is really a Unit
-        -- database (cf Note [The identifier lexicon]).
+        -- database (cf Note [About Units]).
         --
         -- This field is populated by `initPackages`.
         --
@@ -702,7 +704,7 @@ data DynFlags = DynFlags {
 
   ghciHistSize          :: Int,
 
-  -- | MsgDoc output action: use "ErrUtils" instead of this if you can
+  -- | MsgDoc output action: use "GHC.Utils.Error" instead of this if you can
   log_action            :: LogAction,
   dump_action           :: DumpAction,
   trace_action          :: TraceAction,
@@ -1087,8 +1089,9 @@ isNoLink _      = False
 -- is used.
 data PackageArg =
       PackageArg String    -- ^ @-package@, by 'PackageName'
-    | UnitIdArg UnitId     -- ^ @-package-id@, by 'UnitId'
+    | UnitIdArg Unit       -- ^ @-package-id@, by 'Unit'
   deriving (Eq, Show)
+
 instance Outputable PackageArg where
     ppr (PackageArg pn) = text "package" <+> text pn
     ppr (UnitIdArg uid) = text "unit" <+> ppr uid
@@ -1319,7 +1322,7 @@ defaultDynFlags mySettings llvmConfig =
         reductionDepth          = treatZeroAsInf mAX_REDUCTION_DEPTH,
         solverIterations        = treatZeroAsInf mAX_SOLVER_ITERATIONS,
 
-        thisInstalledUnitId     = toInstalledUnitId mainUnitId,
+        thisUnitId     = toUnitId mainUnitId,
         thisUnitIdInsts_        = Nothing,
         thisComponentId_        = Nothing,
 
@@ -1504,7 +1507,6 @@ type LogAction = DynFlags
               -> WarnReason
               -> Severity
               -> SrcSpan
-              -> PprStyle
               -> MsgDoc
               -> IO ()
 
@@ -1515,10 +1517,10 @@ defaultFatalMessager = hPutStrLn stderr
 -- See Note [JSON Error Messages]
 --
 jsonLogAction :: LogAction
-jsonLogAction dflags reason severity srcSpan _style msg
+jsonLogAction dflags reason severity srcSpan msg
   = do
-    defaultLogActionHPutStrDoc dflags stdout (doc $$ text "")
-                               (mkCodeStyle CStyle)
+    defaultLogActionHPutStrDoc dflags stdout
+      (withPprStyle (mkCodeStyle CStyle) (doc $$ text ""))
     where
       doc = renderJSON $
               JSObject [ ( "span", json srcSpan )
@@ -1529,13 +1531,13 @@ jsonLogAction dflags reason severity srcSpan _style msg
 
 
 defaultLogAction :: LogAction
-defaultLogAction dflags reason severity srcSpan style msg
+defaultLogAction dflags reason severity srcSpan msg
     = case severity of
-      SevOutput      -> printOut msg style
-      SevDump        -> printOut (msg $$ blankLine) style
-      SevInteractive -> putStrSDoc msg style
-      SevInfo        -> printErrs msg style
-      SevFatal       -> printErrs msg style
+      SevOutput      -> printOut msg
+      SevDump        -> printOut (msg $$ blankLine)
+      SevInteractive -> putStrSDoc msg
+      SevInfo        -> printErrs msg
+      SevFatal       -> printErrs msg
       SevWarning     -> printWarns
       SevError       -> printWarns
     where
@@ -1551,8 +1553,9 @@ defaultLogAction dflags reason severity srcSpan style msg
             if gopt Opt_DiagnosticsShowCaret dflags
             then getCaretDiagnostic severity srcSpan
             else pure empty
-        printErrs (message $+$ caretDiagnostic)
-            (setStyleColoured True style)
+        printErrs $ getPprStyle $ \style ->
+          withPprStyle (setStyleColoured True style)
+            (message $+$ caretDiagnostic)
         -- careful (#2302): printErrs prints in UTF-8,
         -- whereas converting to string first and using
         -- hPutStr would just emit the low 8 bits of
@@ -1580,16 +1583,16 @@ defaultLogAction dflags reason severity srcSpan style msg
           | otherwise = ""
 
 -- | Like 'defaultLogActionHPutStrDoc' but appends an extra newline.
-defaultLogActionHPrintDoc :: DynFlags -> Handle -> SDoc -> PprStyle -> IO ()
-defaultLogActionHPrintDoc dflags h d sty
- = defaultLogActionHPutStrDoc dflags h (d $$ text "") sty
+defaultLogActionHPrintDoc :: DynFlags -> Handle -> SDoc -> IO ()
+defaultLogActionHPrintDoc dflags h d
+ = defaultLogActionHPutStrDoc dflags h (d $$ text "")
 
-defaultLogActionHPutStrDoc :: DynFlags -> Handle -> SDoc -> PprStyle -> IO ()
-defaultLogActionHPutStrDoc dflags h d sty
+defaultLogActionHPutStrDoc :: DynFlags -> Handle -> SDoc -> IO ()
+defaultLogActionHPutStrDoc dflags h d
   -- Don't add a newline at the end, so that successive
   -- calls to this log-action can output all on the same line
   = printSDoc ctx Pretty.PageMode h d
-    where ctx = initSDocContext dflags sty
+    where ctx = initSDocContext dflags defaultUserStyle
 
 newtype FlushOut = FlushOut (IO ())
 
@@ -1951,16 +1954,16 @@ setOutputHi   f d = d { outputHi   = f}
 setJsonLogAction :: DynFlags -> DynFlags
 setJsonLogAction d = d { log_action = jsonLogAction }
 
-thisComponentId :: DynFlags -> ComponentId
+thisComponentId :: DynFlags -> IndefUnitId
 thisComponentId dflags =
   let pkgstate = pkgState dflags
   in case thisComponentId_ dflags of
-    Just (ComponentId raw _) -> mkComponentId pkgstate raw
+    Just uid -> updateIndefUnitId pkgstate uid
     Nothing  ->
       case thisUnitIdInsts_ dflags of
         Just _  ->
           throwGhcException $ CmdLineError ("Use of -instantiated-with requires -this-component-id")
-        Nothing -> mkComponentId pkgstate (unitIdFS (thisPackage dflags))
+        Nothing -> mkIndefUnitId pkgstate (unitFS (thisPackage dflags))
 
 thisUnitIdInsts :: DynFlags -> [(ModuleName, Module)]
 thisUnitIdInsts dflags =
@@ -1968,36 +1971,36 @@ thisUnitIdInsts dflags =
         Just insts -> insts
         Nothing    -> []
 
-thisPackage :: DynFlags -> UnitId
+thisPackage :: DynFlags -> Unit
 thisPackage dflags =
     case thisUnitIdInsts_ dflags of
         Nothing -> default_uid
         Just insts
           | all (\(x,y) -> mkHoleModule x == y) insts
-          -> newUnitId (thisComponentId dflags) insts
+          -> mkVirtUnit (thisComponentId dflags) insts
           | otherwise
           -> default_uid
   where
-    default_uid = DefiniteUnitId (DefUnitId (thisInstalledUnitId dflags))
+    default_uid = RealUnit (Definite (thisUnitId dflags))
 
-parseUnitIdInsts :: String -> [(ModuleName, Module)]
-parseUnitIdInsts str = case filter ((=="").snd) (readP_to_S parse str) of
+parseUnitInsts :: String -> Instantiations
+parseUnitInsts str = case filter ((=="").snd) (readP_to_S parse str) of
     [(r, "")] -> r
     _ -> throwGhcException $ CmdLineError ("Can't parse -instantiated-with: " ++ str)
   where parse = sepBy parseEntry (R.char ',')
         parseEntry = do
             n <- parseModuleName
             _ <- R.char '='
-            m <- parseModuleId
+            m <- parseHoleyModule
             return (n, m)
 
 setUnitIdInsts :: String -> DynFlags -> DynFlags
 setUnitIdInsts s d =
-    d { thisUnitIdInsts_ = Just (parseUnitIdInsts s) }
+    d { thisUnitIdInsts_ = Just (parseUnitInsts s) }
 
 setComponentId :: String -> DynFlags -> DynFlags
 setComponentId s d =
-    d { thisComponentId_ = Just (ComponentId (fsLit s) Nothing) }
+    d { thisComponentId_ = Just (Indefinite (UnitId (fsLit s)) Nothing) }
 
 addPluginModuleName :: String -> DynFlags -> DynFlags
 addPluginModuleName name d = d { pluginModNames = (mkModuleName name) : (pluginModNames d) }
@@ -2167,8 +2170,7 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
   return (dflags5, leftover, warns' ++ warns)
 
 -- | Write an error or warning to the 'LogOutput'.
-putLogMsg :: DynFlags -> WarnReason -> Severity -> SrcSpan -> PprStyle
-          -> MsgDoc -> IO ()
+putLogMsg :: DynFlags -> WarnReason -> Severity -> SrcSpan -> MsgDoc -> IO ()
 putLogMsg dflags = log_action dflags dflags
 
 updateWays :: DynFlags -> DynFlags
@@ -2658,6 +2660,8 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_cmm_info)
   , make_ord_flag defGhcFlag "ddump-cmm-cps"
         (setDumpFlag Opt_D_dump_cmm_cps)
+  , make_ord_flag defGhcFlag "ddump-cmm-opt"
+        (setDumpFlag Opt_D_dump_opt_cmm)
   , make_ord_flag defGhcFlag "ddump-cfg-weights"
         (setDumpFlag Opt_D_dump_cfg_weights)
   , make_ord_flag defGhcFlag "ddump-core-stats"
@@ -2766,7 +2770,7 @@ dynamic_flags_deps = [
 
   , make_ord_flag defGhcFlag "ddump-rn-stats"
         (setDumpFlag Opt_D_dump_rn_stats)
-  , make_ord_flag defGhcFlag "ddump-opt-cmm"
+  , make_ord_flag defGhcFlag "ddump-opt-cmm" --old alias for cmm-opt
         (setDumpFlag Opt_D_dump_opt_cmm)
   , make_ord_flag defGhcFlag "ddump-simpl-stats"
         (setDumpFlag Opt_D_dump_simpl_stats)
@@ -2818,8 +2822,6 @@ dynamic_flags_deps = [
         (NoArg (setGeneralFlag Opt_D_faststring_stats))
   , make_ord_flag defGhcFlag "dno-llvm-mangler"
         (NoArg (setGeneralFlag Opt_NoLlvmMangler)) -- hidden flag
-  , make_ord_flag defGhcFlag "fast-llvm"
-        (NoArg (setGeneralFlag Opt_FastLlvm)) -- hidden flag
   , make_ord_flag defGhcFlag "dno-typeable-binds"
         (NoArg (setGeneralFlag Opt_NoTypeableBinds))
   , make_ord_flag defGhcFlag "ddump-debug"
@@ -3190,13 +3192,6 @@ package_flags_deps = [
       (NoArg removeUserPkgDb)              "Use -no-user-package-db instead"
   , make_ord_flag defGhcFlag "package-name"       (HasArg $ \name -> do
                                       upd (setUnitId name))
-                                      -- TODO: Since we JUST deprecated
-                                      -- -this-package-key, let's keep this
-                                      -- undeprecated for another cycle.
-                                      -- Deprecate this eventually.
-                                      -- deprecate "Use -this-unit-id instead")
-  , make_dep_flag defGhcFlag "this-package-key"   (HasArg $ upd . setUnitId)
-                                                  "Use -this-unit-id instead"
   , make_ord_flag defGhcFlag "this-unit-id"       (hasArg setUnitId)
   , make_ord_flag defFlag "package"               (HasArg exposePackage)
   , make_ord_flag defFlag "plugin-package-id"     (HasArg exposePluginPackageId)
@@ -4557,13 +4552,13 @@ exposePackage, exposePackageId, hidePackage,
 exposePackage p = upd (exposePackage' p)
 exposePackageId p =
   upd (\s -> s{ packageFlags =
-    parsePackageFlag "-package-id" parseUnitIdArg p : packageFlags s })
+    parsePackageFlag "-package-id" parseUnitArg p : packageFlags s })
 exposePluginPackage p =
   upd (\s -> s{ pluginPackageFlags =
     parsePackageFlag "-plugin-package" parsePackageArg p : pluginPackageFlags s })
 exposePluginPackageId p =
   upd (\s -> s{ pluginPackageFlags =
-    parsePackageFlag "-plugin-package-id" parseUnitIdArg p : pluginPackageFlags s })
+    parsePackageFlag "-plugin-package-id" parseUnitArg p : pluginPackageFlags s })
 hidePackage p =
   upd (\s -> s{ packageFlags = HidePackage p : packageFlags s })
 ignorePackage p =
@@ -4583,12 +4578,12 @@ parsePackageArg :: ReadP PackageArg
 parsePackageArg =
     fmap PackageArg (munch1 (\c -> isAlphaNum c || c `elem` ":-_."))
 
-parseUnitIdArg :: ReadP PackageArg
-parseUnitIdArg =
-    fmap UnitIdArg parseUnitId
+parseUnitArg :: ReadP PackageArg
+parseUnitArg =
+    fmap UnitIdArg parseUnit
 
 setUnitId :: String -> DynFlags -> DynFlags
-setUnitId p d = d { thisInstalledUnitId = stringToInstalledUnitId p }
+setUnitId p d = d { thisUnitId = stringToUnitId p }
 
 -- | Given a 'ModuleName' of a signature in the home library, find
 -- out how it is instantiated.  E.g., the canonical form of
@@ -4601,7 +4596,7 @@ canonicalizeHomeModule dflags mod_name =
 
 canonicalizeModuleIfHome :: DynFlags -> Module -> Module
 canonicalizeModuleIfHome dflags mod
-    = if thisPackage dflags == moduleUnitId mod
+    = if thisPackage dflags == moduleUnit mod
                       then canonicalizeHomeModule dflags (moduleName mod)
                       else mod
 
@@ -4888,7 +4883,8 @@ compilerInfo dflags
        -- built in it
        ("Requires unified installed package IDs", "YES"),
        -- Whether or not we support the @-this-package-key@ flag.  Prefer
-       -- "Uses unit IDs" over it.
+       -- "Uses unit IDs" over it. We still say yes even if @-this-package-key@
+       -- flag has been removed, otherwise it breaks Cabal...
        ("Uses package keys",           "YES"),
        -- Whether or not we support the @-this-unit-id@ flag
        ("Uses unit IDs",               "YES"),
@@ -5218,4 +5214,4 @@ initSDocContext dflags style = SDC
 
 -- | Initialize the pretty-printing options using the default user style
 initDefaultSDocContext :: DynFlags -> SDocContext
-initDefaultSDocContext dflags = initSDocContext dflags (defaultUserStyle dflags)
+initDefaultSDocContext dflags = initSDocContext dflags defaultUserStyle

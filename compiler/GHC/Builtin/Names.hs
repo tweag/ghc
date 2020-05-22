@@ -111,6 +111,10 @@ by the user. For those things that *can* appear in source programs,
 
      See also Note [Built-in syntax and the OrigNameCache]
 
+Note that one-tuples are an exception to the rule, as they do get assigned
+known keys. See
+Note [One-tuples] (Wrinkle: Make boxed one-tuple names have known keys)
+in GHC.Builtin.Types.
 
 Note [The integer library]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -139,7 +143,8 @@ this constructor directly (see  CorePrep.lookupIntegerSDataConName)
 When GHC reads the package data base, it (internally only) pretends it has UnitId
 `integer-wired-in` instead of the actual UnitId (which includes the version
 number); just like for `base` and other packages, as described in
-Note [Wired-in packages] in GHC.Types.Module. This is done in Packages.findWiredInPackages.
+Note [Wired-in units] in GHC.Unit.Module. This is done in
+GHC.Unit.State.findWiredInPackages.
 -}
 
 {-# LANGUAGE CPP #-}
@@ -159,15 +164,16 @@ where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
-import GHC.Types.Module
+import GHC.Unit.Types
+import GHC.Unit.Module.Name
 import GHC.Types.Name.Occurrence
 import GHC.Types.Name.Reader
 import GHC.Types.Unique
 import GHC.Types.Name
 import GHC.Types.SrcLoc
-import FastString
+import GHC.Data.FastString
 
 {-
 ************************************************************************
@@ -505,7 +511,7 @@ genericTyConNames = [
 pRELUDE :: Module
 pRELUDE         = mkBaseModule_ pRELUDE_NAME
 
-gHC_PRIM, gHC_TYPES, gHC_GENERICS, gHC_MAGIC,
+gHC_PRIM, gHC_PRIM_PANIC, gHC_TYPES, gHC_GENERICS, gHC_MAGIC,
     gHC_CLASSES, gHC_PRIMOPWRAPPERS, gHC_BASE, gHC_ENUM,
     gHC_GHCI, gHC_GHCI_HELPERS, gHC_CSTRING,
     gHC_SHOW, gHC_READ, gHC_NUM, gHC_MAYBE, gHC_INTEGER_TYPE, gHC_NATURAL,
@@ -521,6 +527,7 @@ gHC_PRIM, gHC_TYPES, gHC_GENERICS, gHC_MAGIC,
     dATA_COERCE, dEBUG_TRACE, uNSAFE_COERCE :: Module
 
 gHC_PRIM        = mkPrimModule (fsLit "GHC.Prim")   -- Primitive types and values
+gHC_PRIM_PANIC  = mkPrimModule (fsLit "GHC.Prim.Panic")
 gHC_TYPES       = mkPrimModule (fsLit "GHC.Types")
 gHC_MAGIC       = mkPrimModule (fsLit "GHC.Magic")
 gHC_CSTRING     = mkPrimModule (fsLit "GHC.CString")

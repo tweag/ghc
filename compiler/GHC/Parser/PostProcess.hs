@@ -53,7 +53,7 @@ module GHC.Parser.PostProcess (
         -- Bunch of functions in the parser monad for
         -- checking and constructing values
         checkImportDecl,
-        checkExpBlockArguments,
+        checkExpBlockArguments, checkCmdBlockArguments,
         checkPrecP,           -- Int -> P Int
         checkContext,         -- HsType -> P HsContext
         checkPattern,         -- HsExp -> P HsPat
@@ -103,7 +103,7 @@ module GHC.Parser.PostProcess (
         PatBuilder
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Hs           -- Lots of it
 import GHC.Core.TyCon          ( TyCon, isTupleTyCon, tyConSingleDataCon_maybe )
 import GHC.Core.DataCon        ( DataCon, dataConTyCon )
@@ -123,16 +123,16 @@ import GHC.Types.ForeignCall
 import GHC.Builtin.Names ( allNameStrings )
 import GHC.Types.SrcLoc
 import GHC.Types.Unique ( hasKey )
-import OrdList          ( OrdList, fromOL )
-import Bag              ( emptyBag, consBag )
-import Outputable
-import FastString
-import Maybes
-import Util
+import GHC.Data.OrdList ( OrdList, fromOL )
+import GHC.Data.Bag     ( emptyBag, consBag )
+import GHC.Utils.Outputable as Outputable
+import GHC.Data.FastString
+import GHC.Data.Maybe
+import GHC.Utils.Misc
 import GHC.Parser.Annotation
 import Data.List
 import GHC.Driver.Session ( WarningFlag(..), DynFlags )
-import ErrUtils ( Messages )
+import GHC.Utils.Error ( Messages )
 
 import Control.Monad
 import Text.ParserCombinators.ReadP as ReadP
@@ -603,7 +603,7 @@ mkPatSynMatchGroup (L loc patsyn_name) (L _ decls) =
        ; return $ mkMatchGroup FromSource matches }
   where
     fromDecl (L loc decl@(ValD _ (PatBind _
-                         pat@(L _ (ConPatIn ln@(L _ name) details))
+                         pat@(L _ (ConPat NoExtField ln@(L _ name) details))
                                rhs _))) =
         do { unless (name == patsyn_name) $
                wrongNameBindingErr loc decl
@@ -873,7 +873,7 @@ mkRuleBndrs :: [LRuleTyTmVar] -> [LRuleBndr GhcPs]
 mkRuleBndrs = fmap (fmap cvt_one)
   where cvt_one (RuleTyTmVar v Nothing)    = RuleBndr    noExtField v
         cvt_one (RuleTyTmVar v (Just sig)) =
-          RuleBndrSig noExtField v (mkLHsSigWcType sig)
+          RuleBndrSig noExtField v (mkHsPatSigType sig)
 
 -- turns RuleTyTmVars into HsTyVarBndrs - this is more interesting
 mkRuleTyVarBndrs :: [LRuleTyTmVar] -> [LHsTyVarBndr GhcPs]
@@ -1076,7 +1076,11 @@ checkLPat e@(L l _) = checkPat l e []
 checkPat :: SrcSpan -> Located (PatBuilder GhcPs) -> [LPat GhcPs]
          -> PV (LPat GhcPs)
 checkPat loc (L l e@(PatBuilderVar (L _ c))) args
-  | isRdrDataCon c = return (L loc (ConPatIn (L l c) (PrefixCon args)))
+  | isRdrDataCon c = return . L loc $ ConPat
+      { pat_con_ext = noExtField
+      , pat_con = L l c
+      , pat_args = PrefixCon args
+      }
   | not (null args) && patIsRec c =
       localPV_msg (\_ -> text "Perhaps you intended to use RecursiveDo") $
       patFail l (ppr e)
@@ -1113,7 +1117,11 @@ checkAPat loc e0 = do
      | isRdrDataCon c -> do
          l <- checkLPat l
          r <- checkLPat r
-         return (ConPatIn (L cl c) (InfixCon l r))
+         return $ ConPat
+           { pat_con_ext = noExtField
+           , pat_con = L cl c
+           , pat_args = InfixCon l r
+           }
 
    PatBuilderPar e    -> checkLPat e >>= (return . (ParPat noExtField))
    _           -> patFail loc (ppr e0)
@@ -1751,6 +1759,8 @@ class b ~ (Body b) GhcPs => DisambECP b where
   mkHsOpAppPV :: SrcSpan -> Located b -> Located (InfixOp b) -> Located b -> PV (Located b)
   -- | Disambiguate "case ... of ..."
   mkHsCasePV :: SrcSpan -> LHsExpr GhcPs -> MatchGroup GhcPs (Located b) -> PV (Located b)
+  -- | Disambiguate @\\case ...@ (lambda case)
+  mkHsLamCasePV :: SrcSpan -> MatchGroup GhcPs (Located b) -> PV (Located b)
   -- | Function argument representation
   type FunArg b
   -- | Bring superclass constraints on FunArg into scope.
@@ -1865,6 +1875,7 @@ instance DisambECP (HsCmd GhcPs) where
     let cmdArg c = L (getLoc c) $ HsCmdTop noExtField c
     return $ L l $ HsCmdArrForm noExtField op Infix Nothing [cmdArg c1, cmdArg c2]
   mkHsCasePV l c mg = return $ L l (HsCmdCase noExtField c mg)
+  mkHsLamCasePV l mg = return $ L l (HsCmdLamCase noExtField mg)
   type FunArg (HsCmd GhcPs) = HsExpr GhcPs
   superFunArg m = m
   mkHsAppPV l c e = do
@@ -1921,6 +1932,7 @@ instance DisambECP (HsExpr GhcPs) where
   mkHsOpAppPV l e1 op e2 = do
     return $ L l $ OpApp noExtField e1 op e2
   mkHsCasePV l e mg = return $ L l (HsCase noExtField e mg)
+  mkHsLamCasePV l mg = return $ L l (HsLamCase noExtField mg)
   type FunArg (HsExpr GhcPs) = HsExpr GhcPs
   superFunArg m = m
   mkHsAppPV l e1 e2 = do
@@ -2005,6 +2017,7 @@ instance DisambECP (PatBuilder GhcPs) where
   superInfixOp m = m
   mkHsOpAppPV l p1 op p2 = return $ L l $ PatBuilderOpApp p1 op p2
   mkHsCasePV l _ _ = addFatalError l $ text "(case ... of ...)-syntax in pattern"
+  mkHsLamCasePV l _ = addFatalError l $ text "(\\case ...)-syntax in pattern"
   type FunArg (PatBuilder GhcPs) = PatBuilder GhcPs
   superFunArg m = m
   mkHsAppPV l p1 p2 = return $ L l (PatBuilderApp p1 p2)
@@ -2019,7 +2032,7 @@ instance DisambECP (PatBuilder GhcPs) where
   mkHsWildCardPV l = return $ L l (PatBuilderPat (WildPat noExtField))
   mkHsTySigPV l b sig = do
     p <- checkLPat b
-    return $ L l (PatBuilderPat (SigPat noExtField p (mkLHsSigWcType sig)))
+    return $ L l (PatBuilderPat (SigPat noExtField p (mkHsPatSigType sig)))
   mkHsExplicitListPV l xs = do
     ps <- traverse checkLPat xs
     return (L l (PatBuilderPat (ListPat noExtField ps)))
@@ -2064,7 +2077,11 @@ mkPatRec ::
 mkPatRec (unLoc -> PatBuilderVar c) (HsRecFields fs dd)
   | isRdrDataCon (unLoc c)
   = do fs <- mapM checkPatField fs
-       return (PatBuilderPat (ConPatIn c (RecCon (HsRecFields fs dd))))
+       return $ PatBuilderPat $ ConPat
+         { pat_con_ext = noExtField
+         , pat_con = c
+         , pat_args = RecCon (HsRecFields fs dd)
+         }
 mkPatRec p _ =
   addFatalError (getLoc p) $ text "Not a record constructor:" <+> ppr p
 

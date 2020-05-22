@@ -90,7 +90,7 @@ module GHC.Types.Name.Occurrence (
         OccSet, emptyOccSet, unitOccSet, mkOccSet, extendOccSet,
         extendOccSetList,
         unionOccSets, unionManyOccSets, minusOccSet, elemOccSet,
-        isEmptyOccSet, intersectOccSet, intersectsOccSet,
+        isEmptyOccSet, intersectOccSet,
         filterOccSet,
 
         -- * Tidying up
@@ -101,17 +101,17 @@ module GHC.Types.Name.Occurrence (
         FastStringEnv, emptyFsEnv, lookupFsEnv, extendFsEnv, mkFsEnv
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Unique
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.Set
-import FastString
-import FastStringEnv
-import Outputable
+import GHC.Data.FastString
+import GHC.Data.FastString.Env
+import GHC.Utils.Outputable
 import GHC.Utils.Lexeme
-import Binary
+import GHC.Utils.Binary
 import Control.DeepSeq
 import Data.Char
 import Data.Data
@@ -273,11 +273,8 @@ pprOccName (OccName sp occ)
   = getPprStyle $ \ sty ->
     if codeStyle sty
     then ztext (zEncodeFS occ)
-    else pp_occ <> pp_debug sty
+    else pp_occ <> whenPprDebug (braces (pprNameSpaceBrief sp))
   where
-    pp_debug sty | debugStyle sty = braces (pprNameSpaceBrief sp)
-                 | otherwise      = empty
-
     pp_occ = sdocOption sdocSuppressUniques $ \case
                True  -> text (strip_th_unique (unpackFS occ))
                False -> ftext occ
@@ -452,7 +449,6 @@ minusOccSet       :: OccSet -> OccSet -> OccSet
 elemOccSet        :: OccName -> OccSet -> Bool
 isEmptyOccSet     :: OccSet -> Bool
 intersectOccSet   :: OccSet -> OccSet -> OccSet
-intersectsOccSet  :: OccSet -> OccSet -> Bool
 filterOccSet      :: (OccName -> Bool) -> OccSet -> OccSet
 
 emptyOccSet       = emptyUniqSet
@@ -466,7 +462,6 @@ minusOccSet       = minusUniqSet
 elemOccSet        = elementOfUniqSet
 isEmptyOccSet     = isEmptyUniqSet
 intersectOccSet   = intersectUniqSets
-intersectsOccSet s1 s2 = not (isEmptyOccSet (s1 `intersectOccSet` s2))
 filterOccSet      = filterUniqSet
 
 {-

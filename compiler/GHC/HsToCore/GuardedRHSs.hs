@@ -13,7 +13,7 @@ module GHC.HsToCore.GuardedRHSs ( dsGuarded, dsGRHSs, isTrueLHsExpr ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.HsToCore.Expr  ( dsLExpr, dsLocalBinds )
 import {-# SOURCE #-} GHC.HsToCore.Match ( matchSinglePatVar )
@@ -27,9 +27,9 @@ import GHC.HsToCore.Monad
 import GHC.HsToCore.Utils
 import GHC.HsToCore.PmCheck.Types ( Deltas, initDeltas )
 import GHC.Core.Type ( Type )
-import Util
+import GHC.Utils.Misc
 import GHC.Types.SrcLoc
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Core.Multiplicity
 import Control.Monad ( zipWithM )
 import Data.List.NonEmpty ( NonEmpty, toList )
@@ -53,7 +53,7 @@ dsGuarded grhss rhs_ty mb_rhss_deltas = do
     error_expr <- mkErrorAppDs nON_EXHAUSTIVE_GUARDS_ERROR_ID rhs_ty empty
     extractMatchResult match_result error_expr
 
--- In contrast, @dsGRHSs@ produces a @MatchResult@.
+-- In contrast, @dsGRHSs@ produces a @MatchResult CoreExpr@.
 
 dsGRHSs :: HsMatchContext GhcRn
         -> GRHSs GhcTc (LHsExpr GhcTc) -- ^ Guarded RHSs
@@ -61,7 +61,7 @@ dsGRHSs :: HsMatchContext GhcRn
         -> Maybe (NonEmpty Deltas)     -- ^ Refined pattern match checking
                                        --   models, one for each GRHS. Defaults
                                        --   to 'initDeltas' if 'Nothing'.
-        -> DsM MatchResult
+        -> DsM (MatchResult CoreExpr)
 dsGRHSs hs_ctx (GRHSs _ grhss binds) rhs_ty mb_rhss_deltas
   = ASSERT( notNull grhss )
     do { match_results <- case toList <$> mb_rhss_deltas of
@@ -74,14 +74,14 @@ dsGRHSs hs_ctx (GRHSs _ grhss binds) rhs_ty mb_rhss_deltas
        ; return match_result2 }
 
 dsGRHS :: HsMatchContext GhcRn -> Type -> Deltas -> LGRHS GhcTc (LHsExpr GhcTc)
-       -> DsM MatchResult
+       -> DsM (MatchResult CoreExpr)
 dsGRHS hs_ctx rhs_ty rhs_deltas (L _ (GRHS _ guards rhs))
   = updPmDeltas rhs_deltas (matchGuards (map unLoc guards) (PatGuard hs_ctx) rhs rhs_ty)
 
 {-
 ************************************************************************
 *                                                                      *
-*  matchGuard : make a MatchResult from a guarded RHS                  *
+*  matchGuard : make a MatchResult CoreExpr CoreExpr from a guarded RHS                  *
 *                                                                      *
 ************************************************************************
 -}
@@ -90,7 +90,7 @@ matchGuards :: [GuardStmt GhcTc]     -- Guard
             -> HsStmtContext GhcRn   -- Context
             -> LHsExpr GhcTc         -- RHS
             -> Type                  -- Type of RHS of guard
-            -> DsM MatchResult
+            -> DsM (MatchResult CoreExpr)
 
 -- See comments with HsExpr.Stmt re what a BodyStmt means
 -- Here we must be in a guard context (not do-expression, nor list-comp)
@@ -134,7 +134,7 @@ matchGuards (BindStmt _ pat bind_rhs : stmts) ctx rhs rhs_ty = do
     core_rhs <- dsLExpr bind_rhs
     match_result' <- matchSinglePatVar match_var (StmtCtxt ctx) pat rhs_ty
                                        match_result
-    pure $ adjustMatchResult (bindNonRec match_var core_rhs) match_result'
+    pure $ bindNonRec match_var core_rhs <$> match_result'
 
 matchGuards (LastStmt  {} : _) _ _ _ = panic "matchGuards LastStmt"
 matchGuards (ParStmt   {} : _) _ _ _ = panic "matchGuards ParStmt"

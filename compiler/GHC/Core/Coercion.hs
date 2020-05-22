@@ -123,7 +123,7 @@ module GHC.Core.Coercion (
 
 import {-# SOURCE #-} GHC.CoreToIface (toIfaceTyCon, tidyToIfaceTcArgs)
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Iface.Type
 import GHC.Core.TyCo.Rep
@@ -138,16 +138,16 @@ import GHC.Types.Var
 import GHC.Types.Var.Env
 import GHC.Types.Var.Set
 import GHC.Types.Name hiding ( varName )
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Basic
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.Unique
-import Pair
+import GHC.Data.Pair
 import GHC.Types.SrcLoc
 import GHC.Builtin.Names
 import GHC.Builtin.Types.Prim
-import ListSetOps
-import Maybes
+import GHC.Data.List.SetOps
+import GHC.Data.Maybe
 import GHC.Types.Unique.FM
 import GHC.Core.Multiplicity
 
@@ -295,7 +295,9 @@ tidyCoAxBndrsForUser init_env tcvs
 Note [Function coercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 Remember that
-  (->) :: forall r1 r2. TYPE r1 -> TYPE r2 -> TYPE LiftedRep
+  (->) :: forall {r1} {r2}. TYPE r1 -> TYPE r2 -> TYPE LiftedRep
+whose `RuntimeRep' arguments are intentionally marked inferred to
+avoid type application.
 
 Hence
   FunCo r mult co1 co2 :: (s1->t1) ~r (s2->t2)

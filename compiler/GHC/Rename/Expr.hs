@@ -12,6 +12,7 @@ free variables.
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -25,14 +26,14 @@ module GHC.Rename.Expr (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Rename.Bind ( rnLocalBindsAndThen, rnLocalValBindsLHS, rnLocalValBindsRHS
                         , rnMatchGroup, rnGRHS, makeMiniFixityEnv)
 import GHC.Hs
 import GHC.Tc.Utils.Env ( isBrackStage )
 import GHC.Tc.Utils.Monad
-import GHC.Types.Module ( getModule )
+import GHC.Unit.Module ( getModule )
 import GHC.Rename.Env
 import GHC.Rename.Fixity
 import GHC.Rename.Utils ( HsDocContext(..), bindLocalNamesFV, checkDupNames
@@ -53,12 +54,12 @@ import GHC.Types.Name.Set
 import GHC.Types.Name.Reader
 import GHC.Types.Unique.Set
 import Data.List
-import Util
-import ListSetOps       ( removeDups )
-import ErrUtils
-import Outputable
+import GHC.Utils.Misc
+import GHC.Data.List.SetOps ( removeDups )
+import GHC.Utils.Error
+import GHC.Utils.Outputable as Outputable
 import GHC.Types.SrcLoc
-import FastString
+import GHC.Data.FastString
 import Control.Monad
 import GHC.Builtin.Types ( nilDataConName )
 import qualified GHC.LanguageExtensions as LangExt
@@ -315,7 +316,7 @@ rnExpr (RecordUpd { rupd_expr = expr, rupd_flds = rbinds })
                  , fvExpr `plusFV` fvRbinds) }
 
 rnExpr (ExprWithTySig _ expr pty)
-  = do  { (pty', fvTy)    <- rnHsSigWcType BindUnlessForall ExprWithTySigCtx pty
+  = do  { (pty', fvTy)    <- rnHsSigWcType ExprWithTySigCtx pty
         ; (expr', fvExpr) <- bindSigTyVarsFV (hsWcScopedTvs pty') $
                              rnLExpr expr
         ; return (ExprWithTySig noExtField expr' pty', fvExpr `plusFV` fvTy) }
@@ -352,7 +353,7 @@ rnExpr (ArithSeq x _ seq)
 
 For the static form we check that it is not used in splices.
 We also collect the free variables of the term which come from
-this module. See Note [Grand plan for static forms] in StaticPtrTable.
+this module. See Note [Grand plan for static forms] in GHC.Iface.Tidy.StaticPtrTable.
 -}
 
 rnExpr e@(HsStatic _ expr) = do
@@ -494,6 +495,10 @@ rnCmd (HsCmdCase x expr matches)
        ; (new_matches, ms_fvs) <- rnMatchGroup CaseAlt rnLCmd matches
        ; return (HsCmdCase x new_expr new_matches, e_fvs `plusFV` ms_fvs) }
 
+rnCmd (HsCmdLamCase x matches)
+  = do { (new_matches, ms_fvs) <- rnMatchGroup CaseAlt rnLCmd matches
+       ; return (HsCmdLamCase x new_matches, ms_fvs) }
+
 rnCmd (HsCmdIf x _ p b1 b2)
   = do { (p', fvP) <- rnLExpr p
        ; (b1', fvB1) <- rnLCmd b1
@@ -538,6 +543,8 @@ methodNamesCmd (HsCmdApp _ c _)          = methodNamesLCmd c
 methodNamesCmd (HsCmdLam _ match)        = methodNamesMatch match
 
 methodNamesCmd (HsCmdCase _ _ matches)
+  = methodNamesMatch matches `addOneFV` choiceAName
+methodNamesCmd (HsCmdLamCase _ matches)
   = methodNamesMatch matches `addOneFV` choiceAName
 
 --methodNamesCmd _ = emptyFVs
@@ -1328,7 +1335,7 @@ glomSegments ctxt ((defs,uses,fwds,stmt) : segs)
         = (reverse yeses, reverse noes)
         where
           (noes, yeses)           = span not_needed (reverse dus)
-          not_needed (defs,_,_,_) = not (intersectsNameSet defs uses)
+          not_needed (defs,_,_,_) = disjointNameSet defs uses
 
 ----------------------------------------------------
 segsToStmts :: Stmt GhcRn body
@@ -1823,13 +1830,12 @@ isStrictPattern lpat =
     ListPat{}       -> True
     TuplePat{}      -> True
     SumPat{}        -> True
-    ConPatIn{}      -> True
-    ConPatOut{}     -> True
+    ConPat{}        -> True
     LitPat{}        -> True
     NPat{}          -> True
     NPlusKPat{}     -> True
     SplicePat{}     -> True
-    CoPat{}         -> panic "isStrictPattern: CoPat"
+    XPat{}          -> panic "isStrictPattern: XPat"
 
 {-
 Note [ApplicativeDo and refutable patterns]
@@ -1883,7 +1889,7 @@ slurpIndependentStmts stmts = go [] [] emptyNameSet stmts
   -- then we have actually done some splitting. Otherwise it will go into
   -- an infinite loop (#14163).
   go lets indep bndrs ((L loc (BindStmt xbs pat body), fvs): rest)
-    | isEmptyNameSet (bndrs `intersectNameSet` fvs) && not (isStrictPattern pat)
+    | disjointNameSet bndrs fvs && not (isStrictPattern pat)
     = go lets ((L loc (BindStmt xbs pat body), fvs) : indep)
          bndrs' rest
     where bndrs' = bndrs `unionNameSet` mkNameSet (collectPatBinders pat)
@@ -1893,7 +1899,7 @@ slurpIndependentStmts stmts = go [] [] emptyNameSet stmts
   -- TODO: perhaps we shouldn't do this if there are any strict bindings,
   -- because we might be moving evaluation earlier.
   go lets indep bndrs ((L loc (LetStmt noExtField binds), fvs) : rest)
-    | isEmptyNameSet (bndrs `intersectNameSet` fvs)
+    | disjointNameSet bndrs fvs
     = go ((L loc (LetStmt noExtField binds), fvs) : lets) indep bndrs rest
   go _ []  _ _ = Nothing
   go _ [_] _ _ = Nothing

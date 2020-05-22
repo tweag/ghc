@@ -10,7 +10,7 @@ module GHC.Tc.Solver.Interact (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Types.Basic ( SwapFlag(..), isSwapped,
                          infinity, IntWithInf, intGtLimit )
 import GHC.Tc.Solver.Canonical
@@ -36,15 +36,15 @@ import GHC.Core.FamInstEnv
 import GHC.Core.Unify ( tcUnifyTyWithTFs, ruleMatchTyKiX )
 
 import GHC.Tc.Types.Evidence
-import Outputable
+import GHC.Utils.Outputable
 
 import GHC.Tc.Types
 import GHC.Tc.Types.Constraint
 import GHC.Core.Predicate
 import GHC.Tc.Types.Origin
 import GHC.Tc.Solver.Monad
-import Bag
-import MonadUtils ( concatMapM, foldlM )
+import GHC.Data.Bag
+import GHC.Utils.Monad ( concatMapM, foldlM )
 
 import GHC.Core
 import Data.List( partition, deleteFirstsBy )
@@ -52,11 +52,11 @@ import GHC.Types.SrcLoc
 import GHC.Types.Var.Env
 
 import Control.Monad
-import Maybes( isJust )
-import Pair (Pair(..))
+import GHC.Data.Maybe( isJust )
+import GHC.Data.Pair (Pair(..))
 import GHC.Types.Unique( hasKey )
 import GHC.Driver.Session
-import Util
+import GHC.Utils.Misc
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad.Trans.Class
@@ -195,7 +195,7 @@ solve_simple_wanteds :: WantedConstraints -> TcS (Int, WantedConstraints)
 -- Try solving these constraints
 -- Affects the unification state (of course) but not the inert set
 -- The result is not necessarily zonked
-solve_simple_wanteds (WC { wc_simple = simples1, wc_impl = implics1 })
+solve_simple_wanteds (WC { wc_simple = simples1, wc_impl = implics1, wc_holes = holes })
   = nestTcS $
     do { solveSimples simples1
        ; (implics2, tv_eqs, fun_eqs, others) <- getUnsolvedInerts
@@ -204,7 +204,8 @@ solve_simple_wanteds (WC { wc_simple = simples1, wc_impl = implics1 })
             -- See Note [Unflatten after solving the simple wanteds]
        ; return ( unif_count
                 , WC { wc_simple = others `andCts` unflattened_eqs
-                     , wc_impl   = implics1 `unionBags` implics2 }) }
+                     , wc_impl   = implics1 `unionBags` implics2
+                     , wc_holes  = holes }) }
 
 {- Note [The solveSimpleWanteds loop]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -264,7 +265,7 @@ runTcPluginsGiven
 -- 'solveSimpleWanteds' should feed the updated wanteds back into the
 -- main solver.
 runTcPluginsWanted :: WantedConstraints -> TcS (Bool, WantedConstraints)
-runTcPluginsWanted wc@(WC { wc_simple = simples1, wc_impl = implics1 })
+runTcPluginsWanted wc@(WC { wc_simple = simples1 })
   | isEmptyBag simples1
   = return (False, wc)
   | otherwise
@@ -285,11 +286,10 @@ runTcPluginsWanted wc@(WC { wc_simple = simples1, wc_impl = implics1 })
 
        ; mapM_ setEv solved_wanted
        ; return ( notNull (pluginNewCts p)
-                , WC { wc_simple = listToBag new_wanted       `andCts`
+                , wc { wc_simple = listToBag new_wanted       `andCts`
                                    listToBag unsolved_wanted  `andCts`
                                    listToBag unsolved_derived `andCts`
-                                   listToBag insols
-                     , wc_impl   = implics1 } ) } }
+                                   listToBag insols } ) } }
   where
     setEv :: (EvTerm,Ct) -> TcS ()
     setEv (ev,ct) = case ctEvidence ct of
@@ -494,7 +494,6 @@ interactWithInertsStage wi
              CIrredCan {} -> interactIrred   ics wi
              CDictCan  {} -> interactDict    ics wi
              _ -> pprPanic "interactWithInerts" (ppr wi) }
-                -- CHoleCan are put straight into inert_frozen, so never get here
                 -- CNonCanonical have been canonicalised
 
 data InteractResult

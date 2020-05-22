@@ -26,8 +26,8 @@ module GHC.Plugins
    , module GHC.Core.Rules
    , module GHC.Types.Annotations
    , module GHC.Driver.Session
-   , module GHC.Driver.Packages
-   , module GHC.Types.Module
+   , module GHC.Unit.State
+   , module GHC.Unit.Module
    , module GHC.Core.Type
    , module GHC.Core.TyCon
    , module GHC.Core.Coercion
@@ -41,13 +41,14 @@ module GHC.Plugins
    , module GHC.Types.Unique
    , module GHC.Types.Unique.Set
    , module GHC.Types.Unique.FM
-   , module FiniteMap
-   , module Util
+   , module GHC.Data.FiniteMap
+   , module GHC.Utils.Misc
    , module GHC.Serialized
    , module GHC.Types.SrcLoc
-   , module Outputable
+   , module GHC.Utils.Outputable
    , module GHC.Types.Unique.Supply
-   , module FastString
+   , module GHC.Data.FastString
+   , module GHC.Tc.Errors.Hole.FitTypes   -- for hole-fit plugins
    , -- * Getting 'Name's
      thNameToGhcName
    )
@@ -81,10 +82,10 @@ import GHC.Types.Annotations
 
 -- Pipeline-related stuff
 import GHC.Driver.Session
-import GHC.Driver.Packages
+import GHC.Unit.State
 
 -- Important GHC types
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Core.Type hiding {- conflict with GHC.Core.Subst -}
                 ( substTy, extendTvSubst, extendTvSubstList, isInScope )
 import GHC.Core.Coercion hiding {- conflict with GHC.Core.Subst -}
@@ -92,7 +93,7 @@ import GHC.Core.Coercion hiding {- conflict with GHC.Core.Subst -}
 import GHC.Core.TyCon
 import GHC.Builtin.Types
 import GHC.Driver.Types
-import GHC.Types.Basic hiding ( Version {- conflicts with Packages.Version -} )
+import GHC.Types.Basic
 
 -- Collections and maps
 import GHC.Types.Var.Set
@@ -103,23 +104,25 @@ import GHC.Types.Unique.Set
 import GHC.Types.Unique.FM
 -- Conflicts with UniqFM:
 --import LazyUniqFM
-import FiniteMap
+import GHC.Data.FiniteMap
 
 -- Common utilities
-import Util
+import GHC.Utils.Misc
 import GHC.Serialized
 import GHC.Types.SrcLoc
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.Unique.Supply
 import GHC.Types.Unique ( Unique, Uniquable(..) )
-import FastString
+import GHC.Data.FastString
 import Data.Maybe
 
 import GHC.Iface.Env    ( lookupOrigIO )
-import GhcPrelude
-import MonadUtils       ( mapMaybeM )
+import GHC.Prelude
+import GHC.Utils.Monad  ( mapMaybeM )
 import GHC.ThToHs       ( thRdrNameGuesses )
 import GHC.Tc.Utils.Env ( lookupGlobal )
+
+import GHC.Tc.Errors.Hole.FitTypes
 
 import qualified Language.Haskell.TH as TH
 

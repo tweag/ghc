@@ -62,17 +62,16 @@ module GHC.Settings
   , sGhcWithSMP
   , sGhcRTSWays
   , sTablesNextToCode
-  , sLeadingUnderscore
   , sLibFFI
   , sGhcThreaded
   , sGhcDebugged
   , sGhcRtsWithLibdw
   ) where
 
-import GhcPrelude
+import GHC.Prelude
 
-import CliOption
-import Fingerprint
+import GHC.Utils.CliOption
+import GHC.Utils.Fingerprint
 import GHC.Platform
 
 data Settings = Settings
@@ -277,8 +276,6 @@ sGhcRTSWays :: Settings -> String
 sGhcRTSWays = platformMisc_ghcRTSWays . sPlatformMisc
 sTablesNextToCode :: Settings -> Bool
 sTablesNextToCode = platformMisc_tablesNextToCode . sPlatformMisc
-sLeadingUnderscore :: Settings -> Bool
-sLeadingUnderscore = platformMisc_leadingUnderscore . sPlatformMisc
 sLibFFI :: Settings -> Bool
 sLibFFI = platformMisc_libFFI . sPlatformMisc
 sGhcThreaded :: Settings -> Bool

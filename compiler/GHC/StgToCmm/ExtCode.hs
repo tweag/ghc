@@ -37,7 +37,7 @@ module GHC.StgToCmm.ExtCode (
 
 where
 
-import GhcPrelude
+import GHC.Prelude
 
 import qualified GHC.StgToCmm.Monad as F
 import GHC.StgToCmm.Monad (FCode, newUnique)
@@ -48,8 +48,8 @@ import GHC.Cmm.Graph
 
 import GHC.Cmm.BlockId
 import GHC.Driver.Session
-import FastString
-import GHC.Types.Module
+import GHC.Data.FastString
+import GHC.Unit.Module
 import GHC.Types.Unique.FM
 import GHC.Types.Unique
 import GHC.Types.Unique.Supply
@@ -61,8 +61,8 @@ data Named
         = VarN CmmExpr          -- ^ Holds CmmLit(CmmLabel ..) which gives the label type,
                                 --      eg, RtsLabel, ForeignLabel, CmmLabel etc.
 
-        | FunN   UnitId      -- ^ A function name from this package
-        | LabelN BlockId                -- ^ A blockid of some code or data.
+        | FunN   Unit           -- ^ A function name from this package
+        | LabelN BlockId        -- ^ A blockid of some code or data.
 
 -- | An environment of named things.
 type Env        = UniqFM Named
@@ -165,7 +165,7 @@ newLabel name = do
 -- | Add add a local function to the environment.
 newFunctionName
         :: FastString   -- ^ name of the function
-        -> UnitId    -- ^ package of the current module
+        -> Unit         -- ^ package of the current module
         -> ExtCode
 
 newFunctionName name pkg = addDecl name (FunN pkg)

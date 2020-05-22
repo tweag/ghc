@@ -34,7 +34,7 @@ module GHC.Tc.Gen.Splice(
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs
 import GHC.Types.Annotations
@@ -44,7 +44,7 @@ import GHC.Tc.Utils.Monad
 import GHC.Tc.Utils.TcType
 import GHC.Core.Multiplicity
 
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Tc.Gen.Expr
 import GHC.Types.SrcLoc
 import GHC.Builtin.Names.TH
@@ -90,7 +90,7 @@ import GHC.Builtin.Types
 import GHC.Types.Name.Occurrence as OccName
 import GHC.Driver.Hooks
 import GHC.Types.Var
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Iface.Load
 import GHC.Core.Class
 import GHC.Core.TyCon
@@ -104,21 +104,21 @@ import GHC.Types.Id.Info
 import GHC.HsToCore.Expr
 import GHC.HsToCore.Monad
 import GHC.Serialized
-import ErrUtils
-import Util
+import GHC.Utils.Error
+import GHC.Utils.Misc
 import GHC.Types.Unique
 import GHC.Types.Var.Set
 import Data.List        ( find )
 import Data.Maybe
-import FastString
+import GHC.Data.FastString
 import GHC.Types.Basic as BasicTypes hiding( SuccessFlag(..) )
-import Maybes( MaybeErr(..) )
+import GHC.Data.Maybe( MaybeErr(..) )
 import GHC.Driver.Session
-import Panic
+import GHC.Utils.Panic as Panic
 import GHC.Utils.Lexeme
-import qualified EnumSet
+import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Driver.Plugins
-import Bag
+import GHC.Data.Bag
 
 import qualified Language.Haskell.TH as TH
 -- THSyntax gives access to internal functions and data types
@@ -287,7 +287,7 @@ tcPendingSplice m_var (PendingRnSplice flavour splice_name expr)
   = do { meta_ty <- tcMetaTy meta_ty_name
          -- Expected type of splice, e.g. m Exp
        ; let expected_type = mkAppTy m_var meta_ty
-       ; expr' <- tcPolyExpr expr expected_type
+       ; expr' <- tcCheckExpr expr expected_type
        ; return (PendingTcSplice splice_name expr') }
   where
      meta_ty_name = case flavour of
@@ -617,7 +617,7 @@ tcNestedSplice pop_stage (TcPending ps_var lie_var q@(QuoteWrapper _ m_var)) spl
        ; meta_exp_ty <- tcTExpTy m_var res_ty
        ; expr' <- setStage pop_stage $
                   setConstraintVar lie_var $
-                  tcMonoExpr expr (mkCheckExpType meta_exp_ty)
+                  tcLExpr expr (mkCheckExpType meta_exp_ty)
        ; untypeq <- tcLookupId unTypeQName
        ; let expr'' = mkHsApp
                         (mkLHsWrap (applyQuoteWrapper q)
@@ -626,7 +626,13 @@ tcNestedSplice pop_stage (TcPending ps_var lie_var q@(QuoteWrapper _ m_var)) spl
        ; writeMutVar ps_var (PendingTcSplice splice_name expr'' : ps)
 
        -- The returned expression is ignored; it's in the pending splices
-       ; return (panic "tcSpliceExpr") }
+       -- But we still return a plausible expression
+       --   (a) in case we print it in debug messages, and
+       --   (b) because we test whether it is tagToEnum in Tc.Gen.Expr.tcApp
+       ; return (HsSpliceE noExtField $
+                 HsSpliced noExtField (ThModFinalizers []) $
+                 HsSplicedExpr (unLoc expr'')) }
+
 
 tcNestedSplice _ _ splice_name _ _
   = pprPanic "tcNestedSplice: rename stage found" (ppr splice_name)
@@ -640,7 +646,7 @@ tcTopSplice expr res_ty
        -- Top level splices must still be of type Q (TExp a)
        ; meta_exp_ty <- tcTExpTy q_type res_ty
        ; q_expr <- tcTopSpliceExpr Typed $
-                          tcMonoExpr expr (mkCheckExpType meta_exp_ty)
+                          tcLExpr expr (mkCheckExpType meta_exp_ty)
        ; lcl_env <- getLclEnv
        ; let delayed_splice
               = DelayedSplice lcl_env expr res_ty q_expr
@@ -677,7 +683,7 @@ runTopSplice (DelayedSplice lcl_env orig_expr res_ty q_expr)
             captureConstraints $
               addErrCtxt (spliceResultDoc zonked_q_expr) $ do
                 { (exp3, _fvs) <- rnLExpr expr2
-                ; tcMonoExpr exp3 (mkCheckExpType zonked_ty)}
+                ; tcLExpr exp3 (mkCheckExpType zonked_ty)}
        ; ev <- simplifyTop wcs
        ; return $ unLoc (mkHsDictLet (EvBinds ev) res)
        }
@@ -710,7 +716,7 @@ tcTopSpliceExpr :: SpliceType -> TcM (LHsExpr GhcTc) -> TcM (LHsExpr GhcTc)
 -- Note that set the level to Splice, regardless of the original level,
 -- before typechecking the expression.  For example:
 --      f x = $( ...$(g 3) ... )
--- The recursive call to tcPolyExpr will simply expand the
+-- The recursive call to tcCheckExpr will simply expand the
 -- inner escape before dealing with the outer one
 
 tcTopSpliceExpr isTypedSplice tc_action
@@ -1088,7 +1094,7 @@ instance TH.Quasi TcM where
                         RealSrcSpan s _ -> return s
                  ; return (TH.Loc { TH.loc_filename = unpackFS (srcSpanFile r)
                                   , TH.loc_module   = moduleNameString (moduleName m)
-                                  , TH.loc_package  = unitIdString (moduleUnitId m)
+                                  , TH.loc_package  = unitString (moduleUnit m)
                                   , TH.loc_start = (srcSpanStartLine r, srcSpanStartCol r)
                                   , TH.loc_end = (srcSpanEndLine   r, srcSpanEndCol   r) }) }
 
@@ -2222,7 +2228,7 @@ reifyName thing
   where
     name    = getName thing
     mod     = ASSERT( isExternalName name ) nameModule name
-    pkg_str = unitIdString (moduleUnitId mod)
+    pkg_str = unitString (moduleUnit mod)
     mod_str = moduleNameString (moduleName mod)
     occ_str = occNameString occ
     occ     = nameOccName name
@@ -2240,7 +2246,7 @@ reifyFieldLabel fl
   where
     name    = flSelector fl
     mod     = ASSERT( isExternalName name ) nameModule name
-    pkg_str = unitIdString (moduleUnitId mod)
+    pkg_str = unitString (moduleUnit mod)
     mod_str = moduleNameString (moduleName mod)
     occ_str = unpackFS (flLabel fl)
 
@@ -2302,7 +2308,7 @@ lookupThAnnLookup :: TH.AnnLookup -> TcM CoreAnnTarget
 lookupThAnnLookup (TH.AnnLookupName th_nm) = fmap NamedTarget (lookupThName th_nm)
 lookupThAnnLookup (TH.AnnLookupModule (TH.Module pn mn))
   = return $ ModuleTarget $
-    mkModule (stringToUnitId $ TH.pkgString pn) (mkModuleName $ TH.modString mn)
+    mkModule (stringToUnit $ TH.pkgString pn) (mkModuleName $ TH.modString mn)
 
 reifyAnnotations :: Data a => TH.AnnLookup -> TcM [a]
 reifyAnnotations th_name
@@ -2316,13 +2322,13 @@ reifyAnnotations th_name
 
 ------------------------------
 modToTHMod :: Module -> TH.Module
-modToTHMod m = TH.Module (TH.PkgName $ unitIdString  $ moduleUnitId m)
+modToTHMod m = TH.Module (TH.PkgName $ unitString  $ moduleUnit m)
                          (TH.ModName $ moduleNameString $ moduleName m)
 
 reifyModule :: TH.Module -> TcM TH.ModuleInfo
 reifyModule (TH.Module (TH.PkgName pkgString) (TH.ModName mString)) = do
   this_mod <- getModule
-  let reifMod = mkModule (stringToUnitId pkgString) (mkModuleName mString)
+  let reifMod = mkModule (stringToUnit pkgString) (mkModuleName mString)
   if (reifMod == this_mod) then reifyThisModule else reifyFromIface reifMod
     where
       reifyThisModule = do
@@ -2332,10 +2338,10 @@ reifyModule (TH.Module (TH.PkgName pkgString) (TH.ModName mString)) = do
       reifyFromIface reifMod = do
         iface <- loadInterfaceForModule (text "reifying module from TH for" <+> ppr reifMod) reifMod
         let usages = [modToTHMod m | usage <- mi_usages iface,
-                                     Just m <- [usageToModule (moduleUnitId reifMod) usage] ]
+                                     Just m <- [usageToModule (moduleUnit reifMod) usage] ]
         return $ TH.ModuleInfo usages
 
-      usageToModule :: UnitId -> Usage -> Maybe Module
+      usageToModule :: Unit -> Usage -> Maybe Module
       usageToModule _ (UsageFile {}) = Nothing
       usageToModule this_pkg (UsageHomeModule { usg_mod_name = mn }) = Just $ mkModule this_pkg mn
       usageToModule _ (UsagePackageModule { usg_mod = m }) = Just m

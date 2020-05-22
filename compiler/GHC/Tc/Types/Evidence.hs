@@ -9,14 +9,18 @@ module GHC.Tc.Types.Evidence (
   HsWrapper(..),
   (<.>), mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams,
   mkWpLams, mkWpLet, mkWpCastN, mkWpCastR, collectHsWrapBinders,
-  mkWpFun, idHsWrapper, isIdHsWrapper, isErasableHsWrapper,
-  pprHsWrapper,
+  mkWpFun, idHsWrapper, isIdHsWrapper,
+  pprHsWrapper, hsWrapDictBinders,
 
   -- * Evidence bindings
   TcEvBinds(..), EvBindsVar(..),
   EvBindMap(..), emptyEvBindMap, extendEvBinds,
-  lookupEvBind, evBindMapBinds, foldEvBindMap, filterEvBindMap,
+  lookupEvBind, evBindMapBinds,
+  foldEvBindMap, nonDetStrictFoldEvBindMap,
+  filterEvBindMap,
   isEmptyEvBindMap,
+  evBindMapToVarSet,
+  varSetMinusEvBindMap,
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, mkGivenEvBind, mkWantedEvBind,
   evBindVar, isCoEvBindsVar,
 
@@ -42,9 +46,9 @@ module GHC.Tc.Types.Evidence (
   mkTcCoherenceLeftCo,
   mkTcCoherenceRightCo,
   mkTcKindCo,
-  tcCoercionKind, coVarsOfTcCo,
+  tcCoercionKind,
   mkTcCoVarCo,
-  isTcReflCo, isTcReflexiveCo, isTcGReflMCo, tcCoToMCo,
+  isTcReflCo, isTcReflexiveCo,
   tcCoercionRole,
   unwrapIP, wrapIP,
 
@@ -53,8 +57,10 @@ module GHC.Tc.Types.Evidence (
   ) where
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
+import GHC.Types.Unique.DFM
+import GHC.Types.Unique.FM
 import GHC.Types.Var
 import GHC.Core.Coercion.Axiom
 import GHC.Core.Coercion
@@ -69,16 +75,16 @@ import GHC.Types.Var.Env
 import GHC.Types.Var.Set
 import GHC.Core.Predicate
 import GHC.Types.Name
-import Pair
+import GHC.Data.Pair
 
 import GHC.Core
 import GHC.Core.Class ( classSCSelId )
 import GHC.Core.FVs   ( exprSomeFreeVars )
 
-import Util
-import Bag
+import GHC.Utils.Misc
+import GHC.Data.Bag
 import qualified Data.Data as Data
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.SrcLoc
 import Data.IORef( IORef )
 import GHC.Types.Unique.Set
@@ -136,9 +142,7 @@ mkTcCoVarCo            :: CoVar -> TcCoercion
 
 tcCoercionKind         :: TcCoercion -> Pair TcType
 tcCoercionRole         :: TcCoercion -> Role
-coVarsOfTcCo           :: TcCoercion -> TcTyCoVarSet
 isTcReflCo             :: TcCoercion -> Bool
-isTcGReflMCo           :: TcMCoercion -> Bool
 
 -- | This version does a slow check, calculating the related types and seeing
 -- if they are equal.
@@ -171,13 +175,8 @@ mkTcCoVarCo            = mkCoVarCo
 
 tcCoercionKind         = coercionKind
 tcCoercionRole         = coercionRole
-coVarsOfTcCo           = coVarsOfCo
 isTcReflCo             = isReflCo
-isTcGReflMCo           = isGReflMCo
 isTcReflexiveCo        = isReflexiveCo
-
-tcCoToMCo :: TcCoercion -> TcMCoercion
-tcCoToMCo = coToMCo
 
 -- | If the EqRel is ReprEq, makes a SubCo; otherwise, does nothing.
 -- Note that the input coercion should always be nominal.
@@ -374,20 +373,27 @@ isIdHsWrapper :: HsWrapper -> Bool
 isIdHsWrapper WpHole = True
 isIdHsWrapper _      = False
 
--- | Is the wrapper erasable, i.e., will not affect runtime semantics?
-isErasableHsWrapper :: HsWrapper -> Bool
-isErasableHsWrapper = go
-  where
-    go WpHole                  = True
-    go (WpCompose wrap1 wrap2) = go wrap1 && go wrap2
-    go WpFun{}                 = False
-    go WpCast{}                = True
-    go WpEvLam{}               = False -- case in point
-    go WpEvApp{}               = False
-    go WpTyLam{}               = True
-    go WpTyApp{}               = True
-    go WpLet{}                 = False
-    go WpMultCoercion{}        = True
+hsWrapDictBinders :: HsWrapper -> Bag DictId
+-- ^ Identifies the /lambda-bound/ dictionaries of an 'HsWrapper'. This is used
+-- (only) to allow the pattern-match overlap checker to know what Given
+-- dictionaries are in scope.
+--
+-- We specifically do not collect dictionaries bound in a 'WpLet'. These are
+-- either superclasses of lambda-bound ones, or (extremely numerous) results of
+-- binding Wanted dictionaries.  We definitely don't want all those cluttering
+-- up the Given dictionaries for pattern-match overlap checking!
+hsWrapDictBinders wrap = go wrap
+ where
+   go (WpEvLam dict_id)   = unitBag dict_id
+   go (w1 `WpCompose` w2) = go w1 `unionBags` go w2
+   go (WpFun _ w _ _)     = go w
+   go WpHole              = emptyBag
+   go (WpCast  {})        = emptyBag
+   go (WpEvApp {})        = emptyBag
+   go (WpTyLam {})        = emptyBag
+   go (WpTyApp {})        = emptyBag
+   go (WpLet   {})        = emptyBag
+   go (WpMultCoercion {}) = emptyBag
 
 collectHsWrapBinders :: HsWrapper -> ([Var], HsWrapper)
 -- Collect the outer lambda binders of a HsWrapper,
@@ -515,9 +521,21 @@ evBindMapBinds = foldEvBindMap consBag emptyBag
 foldEvBindMap :: (EvBind -> a -> a) -> a -> EvBindMap -> a
 foldEvBindMap k z bs = foldDVarEnv k z (ev_bind_varenv bs)
 
+-- See Note [Deterministic UniqFM] to learn about nondeterminism.
+-- If you use this please provide a justification why it doesn't introduce
+-- nondeterminism.
+nonDetStrictFoldEvBindMap :: (EvBind -> a -> a) -> a -> EvBindMap -> a
+nonDetStrictFoldEvBindMap k z bs = nonDetStrictFoldDVarEnv k z (ev_bind_varenv bs)
+
 filterEvBindMap :: (EvBind -> Bool) -> EvBindMap -> EvBindMap
 filterEvBindMap k (EvBindMap { ev_bind_varenv = env })
   = EvBindMap { ev_bind_varenv = filterDVarEnv k env }
+
+evBindMapToVarSet :: EvBindMap -> VarSet
+evBindMapToVarSet (EvBindMap dve) = unsafeUFMToUniqSet (mapUFM evBindVar (udfmToUfm dve))
+
+varSetMinusEvBindMap :: VarSet -> EvBindMap -> VarSet
+varSetMinusEvBindMap vs (EvBindMap dve) = vs `uniqSetMinusUDFM` dve
 
 instance Outputable EvBindMap where
   ppr (EvBindMap m) = ppr m
@@ -870,8 +888,8 @@ findNeededEvVars ev_binds seeds
   = transCloVarSet also_needs seeds
   where
    also_needs :: VarSet -> VarSet
-   also_needs needs = nonDetFoldUniqSet add emptyVarSet needs
-     -- It's OK to use nonDetFoldUFM here because we immediately
+   also_needs needs = nonDetStrictFoldUniqSet add emptyVarSet needs
+     -- It's OK to use a non-deterministic fold here because we immediately
      -- forget about the ordering by creating a set
 
    add :: Var -> VarSet -> VarSet

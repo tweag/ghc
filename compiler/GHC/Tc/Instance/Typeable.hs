@@ -12,7 +12,7 @@ module GHC.Tc.Instance.Typeable(mkTypeableBinds, tyConIsTypeable) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Platform
 
 import GHC.Types.Basic ( Boxity(..), neverInlinePragma, SourceText(..) )
@@ -35,16 +35,16 @@ import GHC.Core.Type
 import GHC.Core.TyCon
 import GHC.Core.DataCon
 import GHC.Core.Multiplicity
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Hs
 import GHC.Driver.Session
-import Bag
+import GHC.Data.Bag
 import GHC.Types.Var ( VarBndr(..) )
 import GHC.Core.Map
 import GHC.Settings.Constants
-import Fingerprint(Fingerprint(..), fingerprintString, fingerprintFingerprints)
-import Outputable
-import FastString ( FastString, mkFastString, fsLit )
+import GHC.Utils.Fingerprint(Fingerprint(..), fingerprintString, fingerprintFingerprints)
+import GHC.Utils.Outputable
+import GHC.Data.FastString ( FastString, mkFastString, fsLit )
 
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Class (lift)
@@ -57,7 +57,7 @@ The overall plan is this:
 
 1. Generate a binding for each module p:M
    (done in GHC.Tc.Instance.Typeable by mkModIdBindings)
-       M.$trModule :: GHC.Types.Module
+       M.$trModule :: GHC.Unit.Module
        M.$trModule = Module "p" "M"
    ("tr" is short for "type representation"; see GHC.Types)
 
@@ -206,7 +206,7 @@ mkModIdRHS mod
   = do { trModuleDataCon <- tcLookupDataCon trModuleDataConName
        ; trNameLit <- mkTrNameLit
        ; return $ nlHsDataCon trModuleDataCon
-                  `nlHsApp` trNameLit (unitIdFS (moduleUnitId mod))
+                  `nlHsApp` trNameLit (unitFS (moduleUnit mod))
                   `nlHsApp` trNameLit (moduleNameFS (moduleName mod))
        }
 
@@ -266,7 +266,7 @@ todoForTyCons mod mod_id tycons = do
                        }
   where
     mod_fpr = fingerprintString $ moduleNameString $ moduleName mod
-    pkg_fpr = fingerprintString $ unitIdString $ moduleUnitId mod
+    pkg_fpr = fingerprintString $ unitString $ moduleUnit mod
 
 todoForExportedKindReps :: [(Kind, Name)] -> TcM TypeRepTodo
 todoForExportedKindReps kinds = do

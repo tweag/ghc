@@ -25,7 +25,7 @@ where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-}   GHC.HsToCore.Expr  ( dsLExpr )
 import {-# SOURCE #-}   GHC.HsToCore.Match ( matchWrapper )
@@ -33,7 +33,7 @@ import {-# SOURCE #-}   GHC.HsToCore.Match ( matchWrapper )
 import GHC.HsToCore.Monad
 import GHC.HsToCore.GuardedRHSs
 import GHC.HsToCore.Utils
-import GHC.HsToCore.PmCheck ( needToRunPmCheck, addTyCsDs, checkGuardMatches )
+import GHC.HsToCore.PmCheck ( addTyCsDs, checkGuardMatches )
 
 import GHC.Hs             -- lots of things
 import GHC.Core           -- lots of things
@@ -44,7 +44,7 @@ import GHC.Core.Utils
 import GHC.Core.Arity     ( etaExpand )
 import GHC.Core.Unfold
 import GHC.Core.FVs
-import Digraph
+import GHC.Data.Graph.Directed
 import GHC.Core.Predicate
 
 import GHC.Builtin.Names
@@ -62,18 +62,18 @@ import GHC.Types.Var.Set
 import GHC.Core.Rules
 import GHC.Types.Var.Env
 import GHC.Types.Var( EvVar )
-import Outputable
-import GHC.Types.Module
+import GHC.Utils.Outputable
+import GHC.Unit.Module
 import GHC.Types.SrcLoc
-import Maybes
-import OrdList
-import Bag
+import GHC.Data.Maybe
+import GHC.Data.OrdList
+import GHC.Data.Bag
 import GHC.Types.Basic
 import GHC.Driver.Session
-import FastString
-import Util
+import GHC.Data.FastString
+import GHC.Utils.Misc
 import GHC.Types.Unique.Set( nonDetEltsUniqSet )
-import MonadUtils
+import GHC.Utils.Monad
 import qualified GHC.LanguageExtensions as LangExt
 import Control.Monad
 import Data.List.NonEmpty ( nonEmpty )
@@ -146,12 +146,20 @@ dsHsBind dflags (VarBind { var_id = var
                           else []
         ; return (force_var, [core_bind]) }
 
-dsHsBind dflags b@(FunBind { fun_id = L _ fun
+dsHsBind dflags b@(FunBind { fun_id = L loc fun
                            , fun_matches = matches
                            , fun_ext = co_fn
                            , fun_tick = tick })
- = do   { (args, body) <- matchWrapper
-                           (mkPrefixFunRhs (noLoc $ idName fun))
+ = do   { (args, body) <- addTyCsDs FromSource (hsWrapDictBinders co_fn) $
+                          -- FromSource might not be accurate (we don't have any
+                          -- origin annotations for things in this module), but at
+                          -- worst we do superfluous calls to the pattern match
+                          -- oracle.
+                          -- addTyCsDs: Add type evidence to the refinement type
+                          --            predicate of the coverage checker
+                          -- See Note [Type and Term Equality Propagation] in PmCheck
+                          matchWrapper
+                           (mkPrefixFunRhs (L loc (idName fun)))
                            Nothing matches
         ; core_wrap <- dsHsWrapper co_fn
         ; let body' = mkOptTickBox tick body
@@ -190,15 +198,7 @@ dsHsBind dflags (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
                           , abs_exports = exports
                           , abs_ev_binds = ev_binds
                           , abs_binds = binds, abs_sig = has_sig })
-  = do { ds_binds <- applyWhen (needToRunPmCheck dflags FromSource)
-                               -- FromSource might not be accurate, but at worst
-                               -- we do superfluous calls to the pattern match
-                               -- oracle.
-                               -- addTyCsDs: push type constraints deeper
-                               --            for inner pattern match check
-                               -- See Check, Note [Type and Term Equality Propagation]
-                               (addTyCsDs (listToBag dicts))
-                               (dsLHsBinds binds)
+  = do { ds_binds <- addTyCsDs FromSource (listToBag dicts) (dsLHsBinds binds)
 
        ; ds_ev_binds <- dsTcEvBinds_s ev_binds
 
@@ -206,7 +206,6 @@ dsHsBind dflags (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
        ; dsAbsBinds dflags tyvars dicts exports ds_ev_binds ds_binds has_sig }
 
 dsHsBind _ (PatSynBind{}) = panic "dsHsBind: PatSynBind"
-
 
 -----------------------
 dsAbsBinds :: DynFlags
@@ -695,20 +694,19 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
          dflags <- getDynFlags
        ; case decomposeRuleLhs dflags spec_bndrs ds_lhs of {
            Left msg -> do { warnDs NoReason msg; return Nothing } ;
-           Right (rule_bndrs, _fn, args) -> do
+           Right (rule_bndrs, _fn, rule_lhs_args) -> do
 
        { this_mod <- getModule
        ; let fn_unf    = realIdUnfolding poly_id
-             spec_unf  = specUnfolding dflags poly_id spec_bndrs core_app arity_decrease fn_unf
+             spec_unf  = specUnfolding dflags spec_bndrs core_app rule_lhs_args fn_unf
              spec_id   = mkLocalId spec_name Many spec_ty -- Specialised binding is toplevel, hence Many.
                             `setInlinePragma` inl_prag
                             `setIdUnfolding`  spec_unf
-             arity_decrease = count isValArg args - count isId spec_bndrs
 
        ; rule <- dsMkUserRule this_mod is_local_id
                         (mkFastString ("SPEC " ++ showPpr dflags poly_name))
                         rule_act poly_name
-                        rule_bndrs args
+                        rule_bndrs rule_lhs_args
                         (mkVarApps (Var spec_id) spec_bndrs)
 
        ; let spec_rhs = mkLams spec_bndrs (core_app poly_rhs)
@@ -1176,7 +1174,7 @@ mk_ev_binds ds_binds
                                           coVarsOfType (varType var) }
       -- It's OK to use nonDetEltsUniqSet here as stronglyConnCompFromEdgedVertices
       -- is still deterministic even if the edges are in nondeterministic order
-      -- as explained in Note [Deterministic SCC] in Digraph.
+      -- as explained in Note [Deterministic SCC] in GHC.Data.Graph.Directed.
 
     ds_scc (AcyclicSCC (v,r)) = NonRec v r
     ds_scc (CyclicSCC prs)    = Rec prs

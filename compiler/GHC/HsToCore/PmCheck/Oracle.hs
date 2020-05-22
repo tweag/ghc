@@ -25,15 +25,15 @@ module GHC.HsToCore.PmCheck.Oracle (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.HsToCore.PmCheck.Types
 
 import GHC.Driver.Session
-import Outputable
-import ErrUtils
-import Util
-import Bag
+import GHC.Utils.Outputable
+import GHC.Utils.Error
+import GHC.Utils.Misc
+import GHC.Data.Bag
 import GHC.Types.Unique.Set
 import GHC.Types.Unique.DSet
 import GHC.Types.Unique
@@ -49,9 +49,9 @@ import GHC.Core.SimpleOpt (simpleOptExpr, exprIsConApp_maybe)
 import GHC.Core.Utils     (exprType)
 import GHC.Core.Make      (mkListExpr, mkCharExpr)
 import GHC.Types.Unique.Supply
-import FastString
+import GHC.Data.FastString
 import GHC.Types.SrcLoc
-import Maybes
+import GHC.Data.Maybe
 import GHC.Core.ConLike
 import GHC.Core.DataCon
 import GHC.Core.PatSyn
@@ -64,7 +64,7 @@ import GHC.Tc.Solver   (tcNormalise, tcCheckSatisfiability)
 import GHC.Core.Unify    (tcMatchTy)
 import GHC.Tc.Types      (completeMatchConLikes)
 import GHC.Core.Coercion
-import MonadUtils hiding (foldlM)
+import GHC.Utils.Monad hiding (foldlM)
 import GHC.HsToCore.Monad hiding (foldlM)
 import GHC.Tc.Instance.Family
 import GHC.Core.FamInstEnv
@@ -439,7 +439,7 @@ then
       newtypes.
   (b) dcs is the list of newtype constructors "skipped", every time we normalise
       a newtype to its core representation, we keep track of the source data
-      constructor. For convenienve, we also track the type we unwrap and the
+      constructor. For convenience, we also track the type we unwrap and the
       type of its field. Example: @Down 42@ => @[(Down @Int, Down, Int)]
   (c) core_ty is the rewritten type. That is,
         pmTopNormaliseType env ty_cs ty = Just (src_ty, dcs, core_ty)

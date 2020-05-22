@@ -18,7 +18,7 @@ module GHC.HsToCore (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.HsToCore.Usage
 import GHC.Driver.Session
@@ -50,7 +50,7 @@ import GHC.Core.Coercion
 import GHC.Builtin.Types
 import GHC.Core.DataCon ( dataConWrapId )
 import GHC.Core.Make
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Name.Set
 import GHC.Types.Name.Env
 import GHC.Core.Rules
@@ -58,14 +58,14 @@ import GHC.Types.Basic
 import GHC.Core.Opt.Monad ( CoreToDo(..) )
 import GHC.Core.Lint     ( endPassIO )
 import GHC.Types.Var.Set
-import FastString
-import ErrUtils
-import Outputable
+import GHC.Data.FastString
+import GHC.Utils.Error
+import GHC.Utils.Outputable
 import GHC.Types.SrcLoc
 import GHC.HsToCore.Coverage
-import Util
-import MonadUtils
-import OrdList
+import GHC.Utils.Misc
+import GHC.Utils.Monad
+import GHC.Data.OrdList
 import GHC.HsToCore.Docs
 
 import Data.List
@@ -175,7 +175,7 @@ deSugar hsc_env
         ; let used_names = mkUsedNames tcg_env
               pluginModules =
                 map lpModule (cachedPlugins (hsc_dflags hsc_env))
-        ; deps <- mkDependencies (thisInstalledUnitId (hsc_dflags hsc_env))
+        ; deps <- mkDependencies (thisUnitId (hsc_dflags hsc_env))
                                  (map mi_module pluginModules) tcg_env
 
         ; used_th <- readIORef tc_splice_used

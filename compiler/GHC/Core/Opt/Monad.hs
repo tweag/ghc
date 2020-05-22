@@ -48,27 +48,27 @@ module GHC.Core.Opt.Monad (
     dumpIfSet_dyn
   ) where
 
-import GhcPrelude hiding ( read )
+import GHC.Prelude hiding ( read )
 
 import GHC.Core
 import GHC.Driver.Types
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Driver.Session
 import GHC.Types.Basic  ( CompilerPhase(..) )
 import GHC.Types.Annotations
 
-import IOEnv hiding     ( liftIO, failM, failWithM )
-import qualified IOEnv  ( liftIO )
+import GHC.Data.IOEnv hiding     ( liftIO, failM, failWithM )
+import qualified GHC.Data.IOEnv  as IOEnv
 import GHC.Types.Var
-import Outputable
-import FastString
-import ErrUtils( Severity(..), DumpFormat (..), dumpOptionsFromFlag )
+import GHC.Utils.Outputable as Outputable
+import GHC.Data.FastString
+import GHC.Utils.Error( Severity(..), DumpFormat (..), dumpOptionsFromFlag )
 import GHC.Types.Unique.Supply
-import MonadUtils
+import GHC.Utils.Monad
 import GHC.Types.Name.Env
 import GHC.Types.SrcLoc
 import Data.Bifunctor ( bimap )
-import ErrUtils (dumpAction)
+import GHC.Utils.Error (dumpAction)
 import Data.List (intersperse, groupBy, sortBy)
 import Data.Ord
 import Data.Dynamic
@@ -78,7 +78,7 @@ import qualified Data.Map.Strict as MapStrict
 import Data.Word
 import Control.Monad
 import Control.Applicative ( Alternative(..) )
-import Panic (throwGhcException, GhcException(..))
+import GHC.Utils.Panic (throwGhcException, GhcException(..))
 
 {-
 ************************************************************************
@@ -779,9 +779,9 @@ msg sev reason doc
                      SevDump    -> dump_sty
                      _          -> user_sty
              err_sty  = mkErrStyle dflags unqual
-             user_sty = mkUserStyle dflags unqual AllTheWay
-             dump_sty = mkDumpStyle dflags unqual
-       ; liftIO $ putLogMsg dflags reason sev loc sty doc }
+             user_sty = mkUserStyle unqual AllTheWay
+             dump_sty = mkDumpStyle unqual
+       ; liftIO $ putLogMsg dflags reason sev loc (withPprStyle sty doc) }
 
 -- | Output a String message to the screen
 putMsgS :: String -> CoreM ()
@@ -824,5 +824,5 @@ dumpIfSet_dyn flag str fmt doc
   = do { dflags <- getDynFlags
        ; unqual <- getPrintUnqualified
        ; when (dopt flag dflags) $ liftIO $ do
-         let sty = mkDumpStyle dflags unqual
+         let sty = mkDumpStyle unqual
          dumpAction dflags sty (dumpOptionsFromFlag flag) str fmt doc }

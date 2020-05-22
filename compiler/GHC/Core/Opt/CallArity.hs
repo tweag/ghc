@@ -7,7 +7,7 @@ module GHC.Core.Opt.CallArity
     , callArityRHS -- for testing
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Types.Var.Set
 import GHC.Types.Var.Env
@@ -18,9 +18,9 @@ import GHC.Core
 import GHC.Types.Id
 import GHC.Core.Arity ( typeArity )
 import GHC.Core.Utils ( exprIsCheap, exprIsTrivial )
-import UnVarGraph
+import GHC.Data.Graph.UnVar
 import GHC.Types.Demand
-import Util
+import GHC.Utils.Misc
 
 import Control.Arrow ( first, second )
 
@@ -701,7 +701,7 @@ trimArity v a = minimum [a, max_arity_by_type, max_arity_by_strsig]
   where
     max_arity_by_type = length (typeArity (idType v))
     max_arity_by_strsig
-        | isBotDiv result_info = length demands
+        | isDeadEndDiv result_info = length demands
         | otherwise = a
 
     (demands, result_info) = splitStrictSig (idStrictness v)

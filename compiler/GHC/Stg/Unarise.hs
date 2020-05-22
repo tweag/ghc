@@ -200,25 +200,25 @@ module GHC.Stg.Unarise (unarise) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Types.Basic
 import GHC.Core
 import GHC.Core.DataCon
-import FastString (FastString, mkFastString)
+import GHC.Data.FastString (FastString, mkFastString)
 import GHC.Types.Id
 import GHC.Types.Literal
 import GHC.Core.Make (aBSENT_SUM_FIELD_ERROR_ID)
 import GHC.Types.Id.Make (voidPrimId, voidArgId)
-import MonadUtils (mapAccumLM)
-import Outputable
+import GHC.Utils.Monad (mapAccumLM)
+import GHC.Utils.Outputable
 import GHC.Types.RepType
 import GHC.Stg.Syntax
 import GHC.Core.Type
 import GHC.Builtin.Types.Prim (intPrimTy,wordPrimTy,word64PrimTy)
 import GHC.Builtin.Types
 import GHC.Types.Unique.Supply
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Var.Env
 import GHC.Core.Multiplicity ( pattern Many )
 
@@ -578,17 +578,25 @@ mkUbxSum dc ty_args args0
         | Just stg_arg <- IM.lookup arg_idx arg_map
         = stg_arg : mkTupArgs (arg_idx + 1) slots_left arg_map
         | otherwise
-        = slotRubbishArg slot : mkTupArgs (arg_idx + 1) slots_left arg_map
-
-      slotRubbishArg :: SlotTy -> StgArg
-      slotRubbishArg PtrSlot    = StgVarArg aBSENT_SUM_FIELD_ERROR_ID
-                         -- See Note [aBSENT_SUM_FIELD_ERROR_ID] in GHC.Core.Make
-      slotRubbishArg WordSlot   = StgLitArg (LitNumber LitNumWord 0 wordPrimTy)
-      slotRubbishArg Word64Slot = StgLitArg (LitNumber LitNumWord64 0 word64PrimTy)
-      slotRubbishArg FloatSlot  = StgLitArg (LitFloat 0)
-      slotRubbishArg DoubleSlot = StgLitArg (LitDouble 0)
+        = ubxSumRubbishArg slot : mkTupArgs (arg_idx + 1) slots_left arg_map
     in
       tag_arg : mkTupArgs 0 sum_slots arg_idxs
+
+
+-- | Return a rubbish value for the given slot type.
+--
+-- We use the following rubbish values:
+--    * Literals: 0 or 0.0
+--    * Pointers: `ghc-prim:GHC.Prim.Panic.absentSumFieldError`
+--
+-- See Note [aBSENT_SUM_FIELD_ERROR_ID] in GHC.Core.Make
+--
+ubxSumRubbishArg :: SlotTy -> StgArg
+ubxSumRubbishArg PtrSlot    = StgVarArg aBSENT_SUM_FIELD_ERROR_ID
+ubxSumRubbishArg WordSlot   = StgLitArg (LitNumber LitNumWord 0 wordPrimTy)
+ubxSumRubbishArg Word64Slot = StgLitArg (LitNumber LitNumWord64 0 word64PrimTy)
+ubxSumRubbishArg FloatSlot  = StgLitArg (LitFloat 0)
+ubxSumRubbishArg DoubleSlot = StgLitArg (LitDouble 0)
 
 --------------------------------------------------------------------------------
 

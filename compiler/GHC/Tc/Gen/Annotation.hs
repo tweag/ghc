@@ -10,10 +10,10 @@
 -- | Typechecking annotations
 module GHC.Tc.Gen.Annotation ( tcAnnotations, annCtxt ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Tc.Gen.Splice ( runAnnotation )
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Driver.Session
 import Control.Monad ( when )
 
@@ -22,7 +22,7 @@ import GHC.Types.Name
 import GHC.Types.Annotations
 import GHC.Tc.Utils.Monad
 import GHC.Types.SrcLoc
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Driver.Types
 
 -- Some platforms don't support the interpreter, and compilation on those

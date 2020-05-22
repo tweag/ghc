@@ -23,7 +23,7 @@ Datatype for: @BindGroup@, @Bind@, @Sig@, @Bind@.
 
 module GHC.Hs.Binds where
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Hs.Expr ( pprExpr, LHsExpr,
                                     MatchGroup, pprFunBind,
@@ -37,12 +37,12 @@ import GHC.Tc.Types.Evidence
 import GHC.Core.Type
 import GHC.Types.Name.Set
 import GHC.Types.Basic
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.SrcLoc as SrcLoc
 import GHC.Types.Var
-import Bag
-import FastString
-import BooleanFormula (LBooleanFormula)
+import GHC.Data.Bag
+import GHC.Data.FastString
+import GHC.Data.BooleanFormula (LBooleanFormula)
 
 import Data.Data hiding ( Fixity )
 import Data.List hiding ( foldr )
@@ -630,11 +630,10 @@ instance (OutputableBndrId pl, OutputableBndrId pr)
    = pprDeclList (pprLHsBindsForUser binds sigs)
 
   ppr (XValBindsLR (NValBinds sccs sigs))
-    = getPprStyle $ \ sty ->
-      if debugStyle sty then    -- Print with sccs showing
-        vcat (map ppr sigs) $$ vcat (map ppr_scc sccs)
-     else
-        pprDeclList (pprLHsBindsForUser (unionManyBags (map snd sccs)) sigs)
+    = getPprDebug $ \case
+        -- Print with sccs showing
+        True  -> vcat (map ppr sigs) $$ vcat (map ppr_scc sccs)
+        False -> pprDeclList (pprLHsBindsForUser (unionManyBags (map snd sccs)) sigs)
    where
      ppr_scc (rec_flag, binds) = pp_rec rec_flag <+> pprLHsBinds binds
      pp_rec Recursive    = text "rec"
@@ -784,9 +783,11 @@ pprTicks :: SDoc -> SDoc -> SDoc
 -- Also print ticks in dumpStyle, so that -ddump-hpc actually does
 -- something useful.
 pprTicks pp_no_debug pp_when_debug
-  = getPprStyle (\ sty -> if debugStyle sty || dumpStyle sty
-                             then pp_when_debug
-                             else pp_no_debug)
+  = getPprStyle $ \sty ->
+    getPprDebug $ \debug ->
+      if debug || dumpStyle sty
+         then pp_when_debug
+         else pp_no_debug
 
 {-
 ************************************************************************

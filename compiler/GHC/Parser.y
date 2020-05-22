@@ -54,23 +54,23 @@ import GHC.Driver.Phases  ( HscSource(..) )
 import GHC.Driver.Types   ( IsBootInterface, WarningTxt(..) )
 import GHC.Driver.Session
 import GHC.Driver.Backpack.Syntax
-import UnitInfo
+import GHC.Unit.Info
 
 -- compiler/utils
-import OrdList
-import BooleanFormula   ( BooleanFormula(..), LBooleanFormula(..), mkTrue )
-import FastString
-import Maybes           ( isJust, orElse )
-import Outputable
-import Util             ( looksLikePackageName, fstOf3, sndOf3, thdOf3 )
-import GhcPrelude
+import GHC.Data.OrdList
+import GHC.Data.BooleanFormula ( BooleanFormula(..), LBooleanFormula(..), mkTrue )
+import GHC.Data.FastString
+import GHC.Data.Maybe          ( isJust, orElse )
+import GHC.Utils.Outputable
+import GHC.Utils.Misc          ( looksLikePackageName, fstOf3, sndOf3, thdOf3 )
+import GHC.Prelude
 
 -- compiler/basicTypes
 import GHC.Types.Name.Reader
 import GHC.Types.Name.Occurrence ( varName, dataName, tcClsName, tvName, startsWithUnderscore )
 import GHC.Core.DataCon          ( DataCon, dataConName )
 import GHC.Types.SrcLoc
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Basic
 import GHC.Types.ForeignCall
 
@@ -1211,8 +1211,8 @@ deriv_strategy_no_via :: { LDerivStrategy GhcPs }
                                        [mj AnnNewtype $1] }
 
 deriv_strategy_via :: { LDerivStrategy GhcPs }
-  : 'via' type              {% ams (sLL $1 $> (ViaStrategy (mkLHsSigType $2)))
-                                            [mj AnnVia $1] }
+  : 'via' ktype             {% ams (sLL $1 $> (ViaStrategy (mkLHsSigType $2)))
+                                       [mj AnnVia $1] }
 
 deriv_standalone_strategy :: { Maybe (LDerivStrategy GhcPs) }
   : 'stock'                     {% ajs (sL1 $1 StockStrategy)
@@ -2781,11 +2781,10 @@ aexp    :: { ECP }
                                                (mj AnnLet $1:mj AnnIn $3
                                                  :(fst $ unLoc $2)) }
         | '\\' 'lcase' altslist
-            {% runPV $3 >>= \ $3 ->
-               fmap ecpFromExp $
-               ams (sLL $1 $> $ HsLamCase noExtField
+            {  ECP $ $3 >>= \ $3 ->
+               amms (mkHsLamCasePV (comb2 $1 $>)
                                    (mkMatchGroup FromSource (snd $ unLoc $3)))
-                   (mj AnnLam $1:mj AnnCase $2:(fst $ unLoc $3)) }
+                    (mj AnnLam $1:mj AnnCase $2:(fst $ unLoc $3)) }
         | 'if' exp optSemi 'then' exp optSemi 'else' exp
                          {% runECP_P $2 >>= \ $2 ->
                             return $ ECP $
@@ -2902,11 +2901,11 @@ aexp2   :: { ECP }
         | quasiquote          { ECP $ mkHsSplicePV $1 }
 
         -- arrow notation extension
-        | '(|' aexp2 cmdargs '|)'  {% runECP_P $2 >>= \ $2 ->
-                                      fmap ecpFromCmd $
-                                      ams (sLL $1 $> $ HsCmdArrForm noExtField $2 Prefix
-                                                           Nothing (reverse $3))
-                                          [mu AnnOpenB $1,mu AnnCloseB $4] }
+        | '(|' aexp cmdargs '|)'  {% runECP_P $2 >>= \ $2 ->
+                                     fmap ecpFromCmd $
+                                     ams (sLL $1 $> $ HsCmdArrForm noExtField $2 Prefix
+                                                          Nothing (reverse $3))
+                                         [mu AnnOpenB $1,mu AnnCloseB $4] }
 
 splice_exp :: { LHsExpr GhcPs }
         : splice_untyped { mapLoc (HsSpliceE noExtField) $1 }
@@ -2930,8 +2929,9 @@ cmdargs :: { [LHsCmdTop GhcPs] }
         | {- empty -}                   { [] }
 
 acmd    :: { LHsCmdTop GhcPs }
-        : aexp2                 {% runECP_P $1 >>= \ cmd ->
-                                    return (sL1 cmd $ HsCmdTop noExtField cmd) }
+        : aexp                  {% runECP_P $1 >>= \ cmd ->
+                                   runPV (checkCmdBlockArguments cmd) >>= \ _ ->
+                                   return (sL1 cmd $ HsCmdTop noExtField cmd) }
 
 cvtopbody :: { ([AddAnn],[LHsDecl GhcPs]) }
         :  '{'            cvtopdecls0 '}'      { ([mj AnnOpenC $1

@@ -40,7 +40,7 @@ module GHC.Types.Id.Make (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Builtin.Types.Prim
 import GHC.Builtin.Types
@@ -72,11 +72,11 @@ import GHC.Types.Unique
 import GHC.Types.Unique.Supply
 import GHC.Builtin.Names
 import GHC.Types.Basic       hiding ( SuccessFlag(..) )
-import Util
+import GHC.Utils.Misc
 import GHC.Driver.Session
-import Outputable
-import FastString
-import ListSetOps
+import GHC.Utils.Outputable
+import GHC.Data.FastString
+import GHC.Data.List.SetOps
 import GHC.Types.Var (VarBndr(Bndr))
 import qualified GHC.LanguageExtensions as LangExt
 
@@ -511,19 +511,21 @@ mkDataConWorkId wkr_name data_con
     alg_wkr_info = noCafIdInfo
                    `setArityInfo`          wkr_arity
                    `setCprInfo`            mkCprSig wkr_arity (dataConCPR data_con)
+                   `setInlinePragInfo`     wkr_inline_prag
                    `setUnfoldingInfo`      evaldUnfolding  -- Record that it's evaluated,
                                                            -- even if arity = 0
                    `setLevityInfoWithType` wkr_ty
                      -- NB: unboxed tuples have workers, so we can't use
                      -- setNeverLevPoly
 
+    wkr_inline_prag = defaultInlinePragma { inl_rule = ConLike }
     wkr_arity = dataConRepArity data_con
     ----------- Workers for newtypes --------------
     univ_tvs = dataConUnivTyVars data_con
     arg_tys  = dataConRepArgTys  data_con  -- Should be same as dataConOrigArgTys
     nt_work_info = noCafIdInfo          -- The NoCaf-ness is set by noCafIdInfo
                   `setArityInfo` 1      -- Arity 1
-                  `setInlinePragInfo`     alwaysInlinePragma
+                  `setInlinePragInfo`     dataConWrapperInlinePragma
                   `setUnfoldingInfo`      newtype_unf
                   `setLevityInfoWithType` wkr_ty
     id_arg1      = mkScaledTemplateLocal 1 (head arg_tys)
@@ -653,8 +655,8 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
              mk_dmd str | isBanged str = evalDmd
                         | otherwise    = topDmd
 
-             wrap_prag = alwaysInlinePragma `setInlinePragmaActivation`
-                         activeDuringFinal
+             wrap_prag = dataConWrapperInlinePragma
+                         `setInlinePragmaActivation` activeDuringFinal
                          -- See Note [Activation for data constructor wrappers]
 
              -- The wrapper will usually be inlined (see wrap_unf), so its
@@ -766,6 +768,12 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
            ; expr <- mk_rep_app prs (mkVarApps con_app rep_ids)
            ; return (unbox_fn expr) }
 
+
+dataConWrapperInlinePragma :: InlinePragma
+-- See Note [DataCon wrappers are conlike]
+dataConWrapperInlinePragma = alwaysInlinePragma { inl_rule = ConLike
+                                                , inl_inline = Inline }
+
 {- Note [Activation for data constructor wrappers]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The Activation on a data constructor wrapper allows it to inline only in Phase
@@ -787,6 +795,37 @@ the order of type argument could make previously working RULEs fail.
 
 See also https://gitlab.haskell.org/ghc/ghc/issues/15840 .
 
+Note [DataCon wrappers are conlike]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+DataCon workers are clearly ConLike --- they are the “Con” in
+“ConLike”, after all --- but what about DataCon wrappers? Should they
+be marked ConLike, too?
+
+Yes, absolutely! As described in Note [CONLIKE pragma] in
+GHC.Types.Basic, isConLike influences GHC.Core.Utils.exprIsExpandable,
+which is used by both RULE matching and the case-of-known-constructor
+optimization. It’s crucial that both of those things can see
+applications of DataCon wrappers:
+
+  * User-defined RULEs match on wrappers, not workers, so we might
+    need to look through an unfolding built from a DataCon wrapper to
+    determine if a RULE matches.
+
+  * Likewise, if we have something like
+        let x = $WC a b in ... case x of { C y z -> e } ...
+    we still want to apply case-of-known-constructor.
+
+Therefore, it’s important that we consider DataCon wrappers conlike.
+This is especially true now that we don’t inline DataCon wrappers
+until the final simplifier phase; see Note [Activation for data
+constructor wrappers].
+
+For further reading, see:
+  * Note [Conlike is interesting] in GHC.Core.Op.Simplify.Utils
+  * Note [Lone variables] in GHC.Core.Unfold
+  * Note [exprIsConApp_maybe on data constructors with wrappers]
+    in GHC.Core.SimpleOpt
+  * #18012
 
 Note [Bangs on imported data constructors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1211,8 +1250,8 @@ mkPrimOpId prim_op
 
     -- PrimOps don't ever construct a product, but we want to preserve bottoms
     cpr
-      | isBotDiv (snd (splitStrictSig strict_sig)) = botCpr
-      | otherwise                                  = topCpr
+      | isDeadEndDiv (snd (splitStrictSig strict_sig)) = botCpr
+      | otherwise                                      = topCpr
 
     info = noCafIdInfo
            `setRuleInfo`           mkRuleInfo (maybeToList $ primOpRules name prim_op)
@@ -1338,7 +1377,7 @@ proxyHashId :: Id
 proxyHashId
   = pcMiscPrelId proxyName ty
        (noCafIdInfo `setUnfoldingInfo` evaldUnfolding -- Note [evaldUnfoldings]
-                    `setNeverLevPoly`  ty )
+                    `setNeverLevPoly`  ty)
   where
     -- proxy# :: forall {k} (a:k). Proxy# k a
     --
@@ -1665,8 +1704,8 @@ inlined.
 realWorldPrimId :: Id   -- :: State# RealWorld
 realWorldPrimId = pcMiscPrelId realWorldName realWorldStatePrimTy
                      (noCafIdInfo `setUnfoldingInfo` evaldUnfolding    -- Note [evaldUnfoldings]
-                                  `setOneShotInfo` stateHackOneShot
-                                  `setNeverLevPoly` realWorldStatePrimTy)
+                                  `setOneShotInfo`   stateHackOneShot
+                                  `setNeverLevPoly`  realWorldStatePrimTy)
 
 voidPrimId :: Id     -- Global constant :: Void#
 voidPrimId  = pcMiscPrelId voidPrimIdName voidPrimTy

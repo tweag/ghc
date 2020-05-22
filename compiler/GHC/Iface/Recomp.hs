@@ -12,7 +12,7 @@ where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Iface.Syntax
 import GHC.Iface.Recomp.Binary
@@ -28,19 +28,19 @@ import GHC.Driver.Finder
 import GHC.Driver.Session
 import GHC.Types.Name
 import GHC.Types.Name.Set
-import GHC.Types.Module
-import ErrUtils
-import Digraph
+import GHC.Unit.Module
+import GHC.Utils.Error
+import GHC.Data.Graph.Directed
 import GHC.Types.SrcLoc
-import Outputable
+import GHC.Utils.Outputable as Outputable
 import GHC.Types.Unique
-import Util             hiding ( eqListBy )
-import Maybes
-import Binary
-import Fingerprint
-import Exception
+import GHC.Utils.Misc hiding ( eqListBy )
+import GHC.Data.Maybe
+import GHC.Utils.Binary
+import GHC.Utils.Fingerprint
+import GHC.Utils.Exception
 import GHC.Types.Unique.Set
-import GHC.Driver.Packages
+import GHC.Unit.State
 
 import Control.Monad
 import Data.Function
@@ -209,10 +209,10 @@ checkVersions hsc_env mod_summary iface
   = do { traceHiDiffs (text "Considering whether compilation is required for" <+>
                         ppr (mi_module iface) <> colon)
 
-       -- readIface will have verified that the InstalledUnitId matches,
+       -- readIface will have verified that the UnitId matches,
        -- but we ALSO must make sure the instantiation matches up.  See
        -- test case bkpcabal04!
-       ; if moduleUnitId (mi_module iface) /= thisPackage (hsc_dflags hsc_env)
+       ; if moduleUnit (mi_module iface) /= thisPackage (hsc_dflags hsc_env)
             then return (RecompBecause "-this-unit-id changed", Nothing) else do {
        ; recomp <- checkFlagHash hsc_env iface
        ; if recompileRequired recomp then return (recomp, Nothing) else do {
@@ -332,7 +332,7 @@ checkHsig mod_summary iface = do
     dflags <- getDynFlags
     let outer_mod = ms_mod mod_summary
         inner_mod = canonicalizeHomeModule dflags (moduleName outer_mod)
-    MASSERT( moduleUnitId outer_mod == thisPackage dflags )
+    MASSERT( moduleUnit outer_mod == thisPackage dflags )
     case inner_mod == mi_semantic_module iface of
         True -> up_to_date (text "implementing module unchanged")
         False -> return (RecompBecause "implementing module changed")
@@ -405,7 +405,7 @@ checkMergedSignatures mod_summary iface = do
         new_merged = case Map.lookup (ms_mod_name mod_summary)
                                      (requirementContext (pkgState dflags)) of
                         Nothing -> []
-                        Just r -> sort $ map (indefModuleToModule dflags) r
+                        Just r -> sort $ map (instModuleToModule (pkgState dflags)) r
     if old_merged == new_merged
         then up_to_date (text "signatures to merge in unchanged" $$ ppr new_merged)
         else return (RecompBecause "signatures to merge in changed")
@@ -463,7 +463,7 @@ checkDependencies hsc_env summary iface
                  else
                          return UpToDate
           | otherwise
-           -> if toInstalledUnitId pkg `notElem` (map fst prev_dep_pkgs)
+           -> if toUnitId pkg `notElem` (map fst prev_dep_pkgs)
                  then do traceHiDiffs $
                            text "imported module " <> quotes (ppr mod) <>
                            text " is from package " <> quotes (ppr pkg) <>
@@ -471,7 +471,7 @@ checkDependencies hsc_env summary iface
                          return (RecompBecause reason)
                  else
                          return UpToDate
-           where pkg = moduleUnitId mod
+           where pkg = moduleUnit mod
         _otherwise  -> return (RecompBecause reason)
 
    old_deps = Set.fromList $ map fst $ filter (not . snd) prev_dep_mods
@@ -561,7 +561,7 @@ getFromModIface doc_msg mod getter
 -- | Given the usage information extracted from the old
 -- M.hi file for the module being compiled, figure out
 -- whether M needs to be recompiled.
-checkModUsage :: UnitId -> Usage -> IfG RecompileRequired
+checkModUsage :: Unit -> Usage -> IfG RecompileRequired
 checkModUsage _this_pkg UsagePackageModule{
                                 usg_mod = mod,
                                 usg_mod_hash = old_mod_hash }
@@ -615,14 +615,14 @@ checkModUsage this_pkg UsageHomeModule{
 checkModUsage _this_pkg UsageFile{ usg_file_path = file,
                                    usg_file_hash = old_hash } =
   liftIO $
-    handleIO handle $ do
+    handleIO handler $ do
       new_hash <- getFileHash file
       if (old_hash /= new_hash)
          then return recomp
          else return UpToDate
  where
-   recomp = RecompBecause (file ++ " changed")
-   handle =
+   recomp  = RecompBecause (file ++ " changed")
+   handler =
 #if defined(DEBUG)
        \e -> pprTrace "UsageFile" (text (show e)) $ return recomp
 #else
@@ -766,7 +766,7 @@ addFingerprints hsc_env iface0
                    -- used to construct the edges and
                    -- stronglyConnCompFromEdgedVertices is deterministic
                    -- even with non-deterministic order of edges as
-                   -- explained in Note [Deterministic SCC] in Digraph.
+                   -- explained in Note [Deterministic SCC] in GHC.Data.Graph.Directed.
           where getParent :: OccName -> OccName
                 getParent occ = lookupOccEnv parent_map occ `orElse` occ
 

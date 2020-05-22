@@ -19,7 +19,7 @@ module GHC.Tc.Deriv.Generics
    )
 where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs
 import GHC.Core.Type
@@ -31,8 +31,8 @@ import GHC.Core.TyCon
 import GHC.Core.FamInstEnv ( FamInst, FamFlavor(..), mkSingleCoAxiom )
 import GHC.Core.Multiplicity
 import GHC.Tc.Instance.Family
-import GHC.Types.Module ( moduleName, moduleNameFS
-                        , moduleUnitId, unitIdFS, getModule )
+import GHC.Unit.Module ( moduleName, moduleNameFS
+                        , moduleUnit, unitFS, getModule )
 import GHC.Iface.Env    ( newGlobalBinder )
 import GHC.Types.Name hiding ( varName )
 import GHC.Types.Name.Reader
@@ -43,14 +43,14 @@ import GHC.Builtin.Names
 import GHC.Tc.Utils.Env
 import GHC.Tc.Utils.Monad
 import GHC.Driver.Types
-import ErrUtils( Validity(..), andValid )
+import GHC.Utils.Error( Validity(..), andValid )
 import GHC.Types.SrcLoc
-import Bag
+import GHC.Data.Bag
 import GHC.Types.Var.Env
 import GHC.Types.Var.Set (elemVarSet)
-import Outputable
-import FastString
-import Util
+import GHC.Utils.Outputable
+import GHC.Data.FastString
+import GHC.Utils.Misc
 
 import Control.Monad (mplus)
 import Data.List (zip4, partition)
@@ -616,7 +616,7 @@ tc_mkRepTy gk_ tycon k =
         dtName  = mkStrLitTy . occNameFS . nameOccName $ tyConName_user
         mdName  = mkStrLitTy . moduleNameFS . moduleName
                 . nameModule . tyConName $ tycon
-        pkgName = mkStrLitTy . unitIdFS . moduleUnitId
+        pkgName = mkStrLitTy . unitFS . moduleUnit
                 . nameModule . tyConName $ tycon
         isNT    = mkTyConTy $ if isNewTyCon tycon
                               then promotedTrueDataCon

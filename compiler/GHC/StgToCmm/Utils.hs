@@ -38,7 +38,6 @@ module GHC.StgToCmm.Utils (
 
         addToMem, addToMemE, addToMemLblE, addToMemLbl,
         newStringCLit, newByteStringCLit,
-        blankWord,
 
         -- * Update remembered set operations
         whenUpdRemSetEnabled,
@@ -48,7 +47,7 @@ module GHC.StgToCmm.Utils (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Platform
 import GHC.StgToCmm.Monad
@@ -67,15 +66,15 @@ import GHC.Types.Id.Info
 import GHC.Core.Type
 import GHC.Core.TyCon
 import GHC.Runtime.Heap.Layout
-import GHC.Types.Module
+import GHC.Unit
 import GHC.Types.Literal
-import Digraph
-import Util
+import GHC.Data.Graph.Directed
+import GHC.Utils.Misc
 import GHC.Types.Unique
 import GHC.Types.Unique.Supply (MonadUnique(..))
 import GHC.Driver.Session
-import FastString
-import Outputable
+import GHC.Data.FastString
+import GHC.Utils.Outputable
 import GHC.Types.RepType
 import GHC.Types.CostCentre
 
@@ -181,10 +180,10 @@ tagToClosure platform tycon tag
 --
 -------------------------------------------------------------------------
 
-emitRtsCall :: UnitId -> FastString -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
+emitRtsCall :: Unit -> FastString -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
 emitRtsCall pkg fun args safe = emitRtsCallGen [] (mkCmmCodeLabel pkg fun) args safe
 
-emitRtsCallWithResult :: LocalReg -> ForeignHint -> UnitId -> FastString
+emitRtsCallWithResult :: LocalReg -> ForeignHint -> Unit -> FastString
         -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
 emitRtsCallWithResult res hint pkg fun args safe
    = emitRtsCallGen [(res,hint)] (mkCmmCodeLabel pkg fun) args safe

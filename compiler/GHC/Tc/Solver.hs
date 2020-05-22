@@ -26,22 +26,23 @@ module GHC.Tc.Solver(
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
-import Bag
+import GHC.Data.Bag
 import GHC.Core.Class ( Class, classKey, classTyCon )
 import GHC.Driver.Session
-import GHC.Types.Id   ( idType, mkLocalId )
+import GHC.Types.Id   ( idType )
 import GHC.Tc.Utils.Instantiate
-import ListSetOps
+import GHC.Data.List.SetOps
 import GHC.Types.Name
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Builtin.Utils
 import GHC.Builtin.Names
 import GHC.Tc.Errors
 import GHC.Tc.Types.Evidence
 import GHC.Tc.Solver.Interact
 import GHC.Tc.Solver.Canonical   ( makeSuperClasses, solveCallStack )
+import GHC.Tc.Solver.Flatten     ( flattenType )
 import GHC.Tc.Utils.TcMType   as TcM
 import GHC.Tc.Utils.Monad as TcM
 import GHC.Tc.Solver.Monad  as TcS
@@ -52,20 +53,19 @@ import GHC.Tc.Utils.TcType
 import GHC.Core.Type
 import GHC.Builtin.Types ( liftedRepTy, manyDataConTy )
 import GHC.Core.Unify    ( tcMatchTyKi )
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Var
 import GHC.Types.Var.Set
 import GHC.Types.Unique.Set
 import GHC.Types.Basic    ( IntWithInf, intGtLimit )
-import ErrUtils           ( emptyMessages )
+import GHC.Utils.Error    ( emptyMessages )
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
 import Data.Foldable      ( toList )
 import Data.List          ( partition )
 import Data.List.NonEmpty ( NonEmpty(..) )
-import Maybes             ( isJust )
-import GHC.Core.Multiplicity
+import GHC.Data.Maybe     ( isJust )
 
 {-
 *********************************************************************************
@@ -146,8 +146,7 @@ simplifyTop wanteds
            ; saved_msg <- TcM.readTcRef errs_var
            ; TcM.writeTcRef errs_var emptyMessages
 
-           ; warnAllUnsolved $ WC { wc_simple = unsafe_ol
-                                  , wc_impl = emptyBag }
+           ; warnAllUnsolved $ emptyWC { wc_simple = unsafe_ol }
 
            ; whyUnsafe <- fst <$> TcM.readTcRef errs_var
            ; TcM.writeTcRef errs_var saved_msg
@@ -639,27 +638,15 @@ tcNormalise :: Bag EvVar -> Type -> TcM Type
 tcNormalise given_ids ty
   = do { lcl_env <- TcM.getLclEnv
        ; let given_loc = mkGivenLoc topTcLevel UnkSkol lcl_env
-       ; wanted_ct <- mk_wanted_ct
+       ; norm_loc <- getCtLocM PatCheckOrigin Nothing
        ; (res, _ev_binds) <- runTcS $
              do { traceTcS "tcNormalise {" (ppr given_ids)
                 ; let given_cts = mkGivens given_loc (bagToList given_ids)
                 ; solveSimpleGivens given_cts
-                ; wcs <- solveSimpleWanteds (unitBag wanted_ct)
-                  -- It's an invariant that this wc_simple will always be
-                  -- a singleton Ct, since that's what we fed in as input.
-                ; let ty' = case bagToList (wc_simple wcs) of
-                              (ct:_) -> ctEvPred (ctEvidence ct)
-                              cts    -> pprPanic "tcNormalise" (ppr cts)
+                ; ty' <- flattenType norm_loc ty
                 ; traceTcS "tcNormalise }" (ppr ty')
                 ; pure ty' }
        ; return res }
-  where
-    mk_wanted_ct :: TcM Ct
-    mk_wanted_ct = do
-      let occ = mkVarOcc "$tcNorm"
-      name <- newSysName occ
-      let ev = mkLocalId name Many ty -- evidences are always unrestricted
-      newHoleCt ExprHole ev ty
 
 {- Note [Superclasses and satisfiability]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -697,11 +684,8 @@ if some local equalities are solved for. See "Wrinkle: Local equalities"
 in Note [Type normalisation] in Check.
 
 To accomplish its stated goal, tcNormalise first feeds the local constraints
-into solveSimpleGivens, then stuffs the argument type in a CHoleCan, and feeds
-that singleton Ct into solveSimpleWanteds, which reduces the type in the
-CHoleCan as much as possible with respect to the local given constraints. When
-solveSimpleWanteds is finished, we dig out the type from the CHoleCan and
-return that.
+into solveSimpleGivens, then uses flattenType to simplify the desired type
+with respect to the givens.
 
 ***********************************************************************************
 *                                                                                 *
@@ -890,8 +874,8 @@ mkResidualConstraints rhs_tclvl ev_binds_var
                                                , ic_no_eqs = False
                                                , ic_info   = skol_info }
 
-        ; return (WC { wc_simple = outer_simple
-                     , wc_impl   = implics })}
+        ; return (emptyWC { wc_simple = outer_simple
+                          , wc_impl   = implics })}
   where
     full_theta = map idType full_theta_vars
     skol_info  = InferSkol [ (name, mkSigmaTy [] full_theta ty)
@@ -1517,7 +1501,7 @@ solveWantedsAndDrop wanted
 solveWanteds :: WantedConstraints -> TcS WantedConstraints
 -- so that the inert set doesn't mindlessly propagate.
 -- NB: wc_simples may be wanted /or/ derived now
-solveWanteds wc@(WC { wc_simple = simples, wc_impl = implics })
+solveWanteds wc@(WC { wc_simple = simples, wc_impl = implics, wc_holes = holes })
   = do { cur_lvl <- TcS.getTcLevel
        ; traceTcS "solveWanteds {" $
          vcat [ text "Level =" <+> ppr cur_lvl
@@ -1531,8 +1515,11 @@ solveWanteds wc@(WC { wc_simple = simples, wc_impl = implics })
                                     implics `unionBags` wc_impl wc1
 
        ; dflags   <- getDynFlags
-       ; final_wc <- simpl_loop 0 (solverIterations dflags) floated_eqs
+       ; solved_wc <- simpl_loop 0 (solverIterations dflags) floated_eqs
                                 (wc1 { wc_impl = implics2 })
+
+       ; holes' <- simplifyHoles holes
+       ; let final_wc = solved_wc { wc_holes = holes' }
 
        ; ev_binds_var <- getTcEvBindsVar
        ; bb <- TcS.getTcEvBindsMap ev_binds_var
@@ -1780,12 +1767,13 @@ setImplicationStatus implic@(Implic { ic_status     = status
                  then Nothing
                  else Just final_implic }
  where
-   WC { wc_simple = simples, wc_impl = implics } = wc
+   WC { wc_simple = simples, wc_impl = implics, wc_holes = holes } = wc
 
    pruned_simples = dropDerivedSimples simples
    pruned_implics = filterBag keep_me implics
    pruned_wc = WC { wc_simple = pruned_simples
-                  , wc_impl   = pruned_implics }
+                  , wc_impl   = pruned_implics
+                  , wc_holes  = holes }   -- do not prune holes; these should be reported
 
    keep_me :: Implication -> Bool
    keep_me ic
@@ -1863,11 +1851,13 @@ neededEvVars implic@(Implic { ic_given = givens
       ; tcvs     <- TcS.getTcEvTyCoVars ev_binds_var
 
       ; let seeds1        = foldr add_implic_seeds old_needs implics
-            seeds2        = foldEvBindMap add_wanted seeds1 ev_binds
+            seeds2        = nonDetStrictFoldEvBindMap add_wanted seeds1 ev_binds
+                            -- It's OK to use a non-deterministic fold here
+                            -- because add_wanted is commutative
             seeds3        = seeds2 `unionVarSet` tcvs
             need_inner    = findNeededEvVars ev_binds seeds3
             live_ev_binds = filterEvBindMap (needed_ev_bind need_inner) ev_binds
-            need_outer    = foldEvBindMap del_ev_bndr need_inner live_ev_binds
+            need_outer    = varSetMinusEvBindMap need_inner live_ev_binds
                             `delVarSetList` givens
 
       ; TcS.setTcEvBindsMap ev_binds_var live_ev_binds
@@ -1891,14 +1881,19 @@ neededEvVars implic@(Implic { ic_given = givens
      | is_given  = ev_var `elemVarSet` needed
      | otherwise = True   -- Keep all wanted bindings
 
-   del_ev_bndr :: EvBind -> VarSet -> VarSet
-   del_ev_bndr (EvBind { eb_lhs = v }) needs = delVarSet needs v
-
    add_wanted :: EvBind -> VarSet -> VarSet
    add_wanted (EvBind { eb_is_given = is_given, eb_rhs = rhs }) needs
      | is_given  = needs  -- Add the rhs vars of the Wanted bindings only
      | otherwise = evVarsOfTerm rhs `unionVarSet` needs
 
+-------------------------------------------------
+simplifyHoles :: Bag Hole -> TcS (Bag Hole)
+simplifyHoles = mapBagM simpl_hole
+  where
+    simpl_hole :: Hole -> TcS Hole
+    simpl_hole h@(Hole { hole_ty = ty, hole_loc = loc })
+      = do { ty' <- flattenType loc ty
+           ; return (h { hole_ty = ty' }) }
 
 {- Note [Delete dead Given evidence bindings]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2151,7 +2146,6 @@ approximateWC float_past_equalities wc
 
     is_floatable skol_tvs ct
        | isGivenCt ct     = False
-       | isHoleCt ct      = False
        | insolubleEqCt ct = False
        | otherwise        = tyCoVarsOfCt ct `disjointVarSet` skol_tvs
 
@@ -2389,7 +2383,7 @@ floatEqualities skols given_ids ev_binds_var no_given_eqs
              seed_skols = mkVarSet skols     `unionVarSet`
                           mkVarSet given_ids `unionVarSet`
                           foldr add_non_flt_ct emptyVarSet no_float_cts `unionVarSet`
-                          foldEvBindMap add_one_bind emptyVarSet binds
+                          evBindMapToVarSet binds
              -- seed_skols: See Note [What prevents a constraint from floating] (1,2,3)
              -- Include the EvIds of any non-floating constraints
 
@@ -2414,16 +2408,13 @@ floatEqualities skols given_ids ev_binds_var no_given_eqs
        ; return ( flt_eqs, wanteds { wc_simple = remaining_simples } ) }
 
   where
-    add_one_bind :: EvBind -> VarSet -> VarSet
-    add_one_bind bind acc = extendVarSet acc (evBindVar bind)
-
     add_non_flt_ct :: Ct -> VarSet -> VarSet
     add_non_flt_ct ct acc | isDerivedCt ct = acc
                           | otherwise      = extendVarSet acc (ctEvId ct)
 
     is_floatable :: VarSet -> Ct -> Bool
     is_floatable skols ct
-      | isDerivedCt ct = not (tyCoVarsOfCt ct `intersectsVarSet` skols)
+      | isDerivedCt ct = tyCoVarsOfCt ct `disjointVarSet` skols
       | otherwise      = not (ctEvId ct `elemVarSet` skols)
 
     add_captured_ev_ids :: Cts -> VarSet -> VarSet

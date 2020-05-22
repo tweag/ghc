@@ -191,7 +191,7 @@ module GHC.Tc.Utils.TcType (
 #include "HsVersions.h"
 
 -- friends:
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core.TyCo.Rep
 import GHC.Core.TyCo.Subst ( mkTvSubst, substTyWithCoVars )
@@ -220,12 +220,12 @@ import GHC.Builtin.Names
 import GHC.Builtin.Types ( coercibleClass, eqClass, heqClass, unitTyCon, unitTyConKey
                          , listTyCon, constraintKind )
 import GHC.Types.Basic
-import Util
-import Maybes
-import ListSetOps ( getNth, findDupsEq )
-import Outputable
-import FastString
-import ErrUtils( Validity(..), MsgDoc, isValid )
+import GHC.Utils.Misc
+import GHC.Data.Maybe
+import GHC.Data.List.SetOps ( getNth, findDupsEq )
+import GHC.Utils.Outputable
+import GHC.Data.FastString
+import GHC.Utils.Error( Validity(..), MsgDoc, isValid )
 import qualified GHC.LanguageExtensions as LangExt
 
 import Data.List  ( mapAccumL )
@@ -371,13 +371,6 @@ data InferResult
 
        , ir_lvl  :: TcLevel -- See Note [TcLevel of ExpType] in GHC.Tc.Utils.TcMType
 
-       , ir_inst :: Bool
-         -- True <=> deeply instantiate before returning
-         --           i.e. return a RhoType
-         -- False <=> do not instantiate before returning
-         --           i.e. return a SigmaType
-         -- See Note [Deep instantiation of InferResult] in GHC.Tc.Utils.Unify
-
        , ir_ref  :: IORef (Maybe TcType) }
          -- The type that fills in this hole should be a Type,
          -- that is, its kind should be (TYPE rr) for some rr
@@ -390,9 +383,8 @@ instance Outputable ExpType where
   ppr (Infer ir) = ppr ir
 
 instance Outputable InferResult where
-  ppr (IR { ir_uniq = u, ir_lvl = lvl
-          , ir_inst = inst })
-    = text "Infer" <> braces (ppr u <> comma <> ppr lvl <+> ppr inst)
+  ppr (IR { ir_uniq = u, ir_lvl = lvl })
+    = text "Infer" <> braces (ppr u <> comma <> ppr lvl)
 
 -- | Make an 'ExpType' suitable for checking.
 mkCheckExpType :: TcType -> ExpType
@@ -707,7 +699,9 @@ tcTyVarLevel tv
 tcTypeLevel :: TcType -> TcLevel
 -- Max level of any free var of the type
 tcTypeLevel ty
-  = foldDVarSet add topTcLevel (tyCoVarsOfTypeDSet ty)
+  = nonDetStrictFoldDVarSet add topTcLevel (tyCoVarsOfTypeDSet ty)
+    -- It's safe to use a non-deterministic fold because `maxTcLevel` is
+    -- commutative.
   where
     add v lvl
       | isTcTyVar v = lvl `maxTcLevel` tcTyVarLevel v

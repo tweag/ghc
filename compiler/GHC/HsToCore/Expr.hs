@@ -22,7 +22,7 @@ where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.HsToCore.Match
 import GHC.HsToCore.Match.Literal
@@ -32,7 +32,7 @@ import GHC.HsToCore.ListComp
 import GHC.HsToCore.Utils
 import GHC.HsToCore.Arrows
 import GHC.HsToCore.Monad
-import GHC.HsToCore.PmCheck ( checkGuardMatches )
+import GHC.HsToCore.PmCheck ( addTyCsDs, checkGuardMatches )
 import GHC.Types.Name
 import GHC.Types.Name.Env
 import GHC.Core.FamInstEnv( topNormaliseType )
@@ -54,20 +54,20 @@ import GHC.Driver.Session
 import GHC.Types.CostCentre
 import GHC.Types.Id
 import GHC.Types.Id.Make
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Core.ConLike
 import GHC.Core.DataCon
 import GHC.Core.TyCo.Ppr( pprWithTYPE )
 import GHC.Builtin.Types
 import GHC.Builtin.Names
 import GHC.Types.Basic
-import Maybes
+import GHC.Data.Maybe
 import GHC.Types.Var.Env
 import GHC.Types.SrcLoc
 import GHC.Builtin.Types.Prim ( mkTemplateTyVars )
-import Util
-import Bag
-import Outputable
+import GHC.Utils.Misc
+import GHC.Data.Bag
+import GHC.Utils.Outputable as Outputable
 import GHC.Core.PatSyn
 
 import Control.Monad
@@ -284,7 +284,8 @@ dsExpr hswrap@(XExpr (HsWrap co_fn e))
                  HsConLikeOut _ (RealDataCon dc) -> return $ varToCoreExpr (dataConWrapId dc)
                  XExpr (HsWrap _ _) -> pprPanic "dsExpr: HsWrap inside HsWrap" (ppr hswrap)
                  HsPar _ _ -> pprPanic "dsExpr: HsPar inside HsWrap" (ppr hswrap)
-                 _ -> dsExpr e
+                 _ -> addTyCsDs FromSource (hsWrapDictBinders co_fn) $
+                      dsExpr e
                -- See Note [Detecting forced eta expansion]
        ; wrap' <- dsHsWrapper co_fn
        ; dflags <- getDynFlags
@@ -320,9 +321,9 @@ dsExpr e@(HsApp _ fun arg)
        ; dsWhenNoErrs (dsLExprNoLP arg)
                       (\arg' -> mkCoreAppDs (text "HsApp" <+> ppr e) fun' arg') }
 
-dsExpr (HsAppType _ e _)
-    -- ignore type arguments here; they're in the wrappers instead at this point
-  = dsLExpr e
+dsExpr (HsAppType ty e _)
+  = do { e' <- dsLExpr e
+       ; return (App e' (Type ty)) }
 
 {-
 Note [Desugaring vars]
@@ -480,7 +481,7 @@ dsExpr (ArithSeq expr witness seq)
 Static Pointers
 ~~~~~~~~~~~~~~~
 
-See Note [Grand plan for static forms] in StaticPtrTable for an overview.
+See Note [Grand plan for static forms] in GHC.Iface.Tidy.StaticPtrTable for an overview.
 
     g = ... static f ...
 ==>
@@ -710,13 +711,16 @@ dsExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
 
                  req_wrap = dict_req_wrap <.> mkWpTyApps in_inst_tys
 
-                 pat = noLoc $ ConPatOut { pat_con = noLoc con
-                                         , pat_tvs = ex_tvs
-                                         , pat_dicts = eqs_vars ++ theta_vars
-                                         , pat_binds = emptyTcEvBinds
-                                         , pat_args = PrefixCon $ map nlVarPat arg_ids
-                                         , pat_arg_tys = in_inst_tys
-                                         , pat_wrap = req_wrap }
+                 pat = noLoc $ ConPat { pat_con = noLoc con
+                                      , pat_args = PrefixCon $ map nlVarPat arg_ids
+                                      , pat_con_ext = ConPatTc
+                                        { cpt_tvs = ex_tvs
+                                        , cpt_dicts = eqs_vars ++ theta_vars
+                                        , cpt_binds = emptyTcEvBinds
+                                        , cpt_arg_tys = in_inst_tys
+                                        , cpt_wrap = req_wrap
+                                        }
+                                      }
            ; return (mkSimpleMatch RecUpd [pat] wrapped_rhs) }
 
 {- Note [Scrutinee in Record updates]
@@ -1028,26 +1032,26 @@ dsDo stmts
     go _ (ParStmt   {}) _ = panic "dsDo ParStmt"
     go _ (TransStmt {}) _ = panic "dsDo TransStmt"
 
-dsHandleMonadicFailure :: LPat GhcTc -> MatchResult -> FailOperator GhcTc -> DsM CoreExpr
+dsHandleMonadicFailure :: LPat GhcTc -> MatchResult CoreExpr -> FailOperator GhcTc -> DsM CoreExpr
     -- In a do expression, pattern-match failure just calls
     -- the monadic 'fail' rather than throwing an exception
-dsHandleMonadicFailure pat match m_fail_op
-  | matchCanFail match = do
-    fail_op <- case m_fail_op of
-      -- Note that (non-monadic) list comprehension, pattern guards, etc could
-      -- have fallible bindings without an explicit failure op, but this is
-      -- handled elsewhere. See Note [Failing pattern matches in Stmts] the
-      -- breakdown of regular and special binds.
-      Nothing -> pprPanic "missing fail op" $
-        text "Pattern match:" <+> ppr pat <+>
-        text "is failable, and fail_expr was left unset"
-      Just fail_op -> pure fail_op
-    dflags <- getDynFlags
-    fail_msg <- mkStringExpr (mk_fail_msg dflags pat)
-    fail_expr <- dsSyntaxExpr fail_op [fail_msg]
-    extractMatchResult match fail_expr
-  | otherwise =
-    extractMatchResult match (error "It can't fail")
+dsHandleMonadicFailure pat match m_fail_op =
+  case shareFailureHandler match of
+    MR_Infallible body -> body
+    MR_Fallible body -> do
+      fail_op <- case m_fail_op of
+        -- Note that (non-monadic) list comprehension, pattern guards, etc could
+        -- have fallible bindings without an explicit failure op, but this is
+        -- handled elsewhere. See Note [Failing pattern matches in Stmts] the
+        -- breakdown of regular and special binds.
+        Nothing -> pprPanic "missing fail op" $
+          text "Pattern match:" <+> ppr pat <+>
+          text "is failable, and fail_expr was left unset"
+        Just fail_op -> pure fail_op
+      dflags <- getDynFlags
+      fail_msg <- mkStringExpr (mk_fail_msg dflags pat)
+      fail_expr <- dsSyntaxExpr fail_op [fail_msg]
+      body fail_expr
 
 mk_fail_msg :: DynFlags -> Located e -> String
 mk_fail_msg dflags pat = "Pattern match failure in do expression at " ++

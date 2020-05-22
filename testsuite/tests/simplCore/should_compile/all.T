@@ -244,21 +244,11 @@ test('T13468',
      normal,
      makefile_test, ['T13468'])
 test('T13543', only_ways(['optasm']), compile, ['-ddump-str-signatures -ddump-cpr-signatures'])
-test('T11272',
-     normal,
-     makefile_test, ['T11272'])
-test('T12600',
-     normal,
-     makefile_test, ['T12600'])
-test('T13658',
-     [when((arch('powerpc64') or arch('powerpc64le')), expect_broken(11261))],
-     compile, ['-dcore-lint'])
-test('T14779a',
-     [when((arch('powerpc64') or arch('powerpc64le')), expect_broken(11261))],
-     compile, ['-dcore-lint'])
-test('T14779b',
-     [when((arch('powerpc64') or arch('powerpc64le')), expect_broken(11261))],
-     compile, ['-dcore-lint'])
+test('T11272', normal, makefile_test, ['T11272'])
+test('T12600', normal, makefile_test, ['T12600'])
+test('T13658', normal, compile, ['-dcore-lint'])
+test('T14779a', normal, compile, ['-dcore-lint'])
+test('T14779b', normal, compile, ['-dcore-lint'])
 test('T13708', normal, compile, [''])
 
 # thunk should inline here, so check whether or not it appears in the Core
@@ -327,3 +317,5 @@ test('T17966',
 # NB: T17810: -fspecialise-aggressively
 test('T17810', normal, multimod_compile, ['T17810', '-fspecialise-aggressively -dcore-lint -O -v0'])
 test('T18013', normal, multimod_compile, ['T18013', '-v0 -O'])
+test('T18098', normal, compile, ['-dcore-lint -O2'])
+test('T18120', normal, compile, ['-dcore-lint -O'])

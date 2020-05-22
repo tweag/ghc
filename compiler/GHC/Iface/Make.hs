@@ -21,7 +21,7 @@ where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Iface.Syntax
 import GHC.Iface.Recomp
@@ -53,13 +53,13 @@ import GHC.Types.Avail
 import GHC.Types.Name.Reader
 import GHC.Types.Name.Env
 import GHC.Types.Name.Set
-import GHC.Types.Module
-import ErrUtils
-import Outputable
-import GHC.Types.Basic  hiding ( SuccessFlag(..) )
-import Util             hiding ( eqListBy )
-import FastString
-import Maybes
+import GHC.Unit.Module
+import GHC.Utils.Error
+import GHC.Utils.Outputable
+import GHC.Types.Basic hiding ( SuccessFlag(..) )
+import GHC.Utils.Misc  hiding ( eqListBy )
+import GHC.Data.FastString
+import GHC.Data.Maybe
 import GHC.HsToCore.Docs
 
 import Data.Function
@@ -101,7 +101,7 @@ mkPartialIface hsc_env mod_details
 
 -- | Fully instantiate a interface
 -- Adds fingerprints and potentially code generator produced information.
-mkFullIface :: HscEnv -> PartialModIface -> Maybe NameSet -> IO ModIface
+mkFullIface :: HscEnv -> PartialModIface -> Maybe NonCaffySet -> IO ModIface
 mkFullIface hsc_env partial_iface mb_non_cafs = do
     let decls
           | gopt Opt_OmitInterfacePragmas (hsc_dflags hsc_env)
@@ -118,9 +118,9 @@ mkFullIface hsc_env partial_iface mb_non_cafs = do
 
     return full_iface
 
-updateDeclCafInfos :: [IfaceDecl] -> Maybe NameSet -> [IfaceDecl]
+updateDeclCafInfos :: [IfaceDecl] -> Maybe NonCaffySet -> [IfaceDecl]
 updateDeclCafInfos decls Nothing = decls
-updateDeclCafInfos decls (Just non_cafs) = map update_decl decls
+updateDeclCafInfos decls (Just (NonCaffySet non_cafs)) = map update_decl decls
   where
     update_decl decl
       | IfaceId nm ty details infos <- decl
@@ -154,7 +154,7 @@ mkIfaceTc hsc_env safe_mode mod_details
           let pluginModules =
                 map lpModule (cachedPlugins (hsc_dflags hsc_env))
           deps <- mkDependencies
-                    (thisInstalledUnitId (hsc_dflags hsc_env))
+                    (thisUnitId (hsc_dflags hsc_env))
                     (map mi_module pluginModules) tc_result
           let hpc_info = emptyHpcInfo other_hpc_info
           used_th <- readIORef tc_splice_used

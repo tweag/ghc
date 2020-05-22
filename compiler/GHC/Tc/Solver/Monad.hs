@@ -127,7 +127,7 @@ module GHC.Tc.Solver.Monad (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Driver.Types
 
@@ -148,23 +148,23 @@ import GHC.Core.Type
 import GHC.Core.Coercion
 import GHC.Core.Unify
 
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Tc.Types.Evidence
 import GHC.Core.Class
 import GHC.Core.TyCon
 import GHC.Tc.Errors   ( solverDepthErrorTcS )
 
 import GHC.Types.Name
-import GHC.Types.Module ( HasModule, getModule )
+import GHC.Unit.Module ( HasModule, getModule )
 import GHC.Types.Name.Reader ( GlobalRdrEnv, GlobalRdrElt )
 import qualified GHC.Rename.Env as TcM
 import GHC.Types.Var
 import GHC.Types.Var.Env
 import GHC.Types.Var.Set
-import Outputable
-import Bag
+import GHC.Utils.Outputable
+import GHC.Data.Bag as Bag
 import GHC.Types.Unique.Supply
-import Util
+import GHC.Utils.Misc
 import GHC.Tc.Types
 import GHC.Tc.Types.Origin
 import GHC.Tc.Types.Constraint
@@ -173,16 +173,16 @@ import GHC.Core.Predicate
 import GHC.Types.Unique
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.DFM
-import Maybes
+import GHC.Data.Maybe
 
 import GHC.Core.Map
 import Control.Monad
-import MonadUtils
+import GHC.Utils.Monad
 import Data.IORef
 import Data.List ( partition, mapAccumL )
 
 #if defined(DEBUG)
-import Digraph
+import GHC.Data.Graph.Directed
 import GHC.Types.Unique.Set
 #endif
 
@@ -198,7 +198,7 @@ import GHC.Types.Unique.Set
 
 Note [WorkList priorities]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-A WorkList contains canonical and non-canonical items (of all flavors).
+A WorkList contains canonical and non-canonical items (of all flavours).
 Notice that each Ct now has a simplification depth. We may
 consider using this depth for prioritization as well in the future.
 
@@ -1653,8 +1653,7 @@ add_item ics item@(CDictCan { cc_ev = ev, cc_class = cls, cc_tyargs = tys })
 
 add_item _ item
   = pprPanic "upd_inert set: can't happen! Inserting " $
-    ppr item   -- Can't be CNonCanonical, CHoleCan,
-               -- because they only land in inert_irreds
+    ppr item   -- Can't be CNonCanonical because they only land in inert_irreds
 
 bumpUnsolvedCount :: CtEvidence -> Int -> Int
 bumpUnsolvedCount ev n | isWanted ev = n+1
@@ -1895,10 +1894,6 @@ really want to rewrite the insoluble to [Int] ~ [[Int]].  Now it can
 be decomposed.  Otherwise we end up with a "Can't match [Int] ~
 [[Int]]" which is true, but a bit confusing because the outer type
 constructors match.
-
-Similarly, if we have a CHoleCan, we'd like to rewrite it with any
-Givens, to give as informative an error messasge as possible
-(#12468, #11325).
 
 Hence:
  * In the main simplifier loops in GHC.Tc.Solver (solveWanteds,
@@ -2352,8 +2347,6 @@ removeInertCt is ct =
     CQuantCan {}     -> panic "removeInertCt: CQuantCan"
     CIrredCan {}     -> panic "removeInertCt: CIrredEvCan"
     CNonCanonical {} -> panic "removeInertCt: CNonCanonical"
-    CHoleCan {}      -> panic "removeInertCt: CHoleCan"
-
 
 lookupFlatCache :: TyCon -> [Type] -> TcS (Maybe (TcCoercion, TcType, CtFlavour))
 lookupFlatCache fam_tc tys
@@ -2860,7 +2853,7 @@ checkForCyclicBinds ev_binds_map
             -- It's OK to use nonDetEltsUFM here as
             -- stronglyConnCompFromEdgedVertices is still deterministic even
             -- if the edges are in nondeterministic order as explained in
-            -- Note [Deterministic SCC] in Digraph.
+            -- Note [Deterministic SCC] in GHC.Data.Graph.Directed.
 #endif
 
 ----------------------------

@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP, NamedFieldPuns, NondecreasingIndentation, BangPatterns, MultiWayIf #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
@@ -36,10 +37,10 @@ module GHC.Driver.Pipeline (
 #include <ghcplatform.h>
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Driver.Pipeline.Monad
-import GHC.Driver.Packages
+import GHC.Unit.State
 import GHC.Driver.Ways
 import GHC.Parser.Header
 import GHC.Driver.Phases
@@ -48,18 +49,18 @@ import GHC.SysTools.ExtraObj
 import GHC.Driver.Main
 import GHC.Driver.Finder
 import GHC.Driver.Types hiding ( Hsc )
-import Outputable
-import GHC.Types.Module
-import ErrUtils
+import GHC.Utils.Outputable
+import GHC.Unit.Module
+import GHC.Utils.Error
 import GHC.Driver.Session
-import Panic
-import Util
-import StringBuffer     ( hGetStringBuffer, hPutStringBuffer )
-import GHC.Types.Basic  ( SuccessFlag(..) )
-import Maybes           ( expectJust )
+import GHC.Utils.Panic
+import GHC.Utils.Misc
+import GHC.Data.StringBuffer ( hGetStringBuffer, hPutStringBuffer )
+import GHC.Types.Basic       ( SuccessFlag(..) )
+import GHC.Data.Maybe        ( expectJust )
 import GHC.Types.SrcLoc
-import GHC.CmmToLlvm    ( llvmFixupAsm, llvmVersionList )
-import MonadUtils
+import GHC.CmmToLlvm         ( llvmFixupAsm, llvmVersionList )
+import GHC.Utils.Monad
 import GHC.Platform
 import GHC.Tc.Types
 import GHC.Driver.Hooks
@@ -67,16 +68,17 @@ import qualified GHC.LanguageExtensions as LangExt
 import GHC.SysTools.FileCleanup
 import GHC.SysTools.Ar
 import GHC.Settings
-import Bag              ( unitBag )
-import FastString       ( mkFastString )
-import GHC.Iface.Make   ( mkFullIface )
-import UpdateCafInfos   ( updateModDetailsCafInfos )
+import GHC.Data.Bag             ( unitBag )
+import GHC.Data.FastString      ( mkFastString )
+import GHC.Iface.Make           ( mkFullIface )
+import GHC.Iface.UpdateCafInfos ( updateModDetailsCafInfos )
 
-import Exception
+import GHC.Utils.Exception as Exception
 import System.Directory
 import System.FilePath
 import System.IO
 import Control.Monad
+import qualified Control.Monad.Catch as MC (handle)
 import Data.List        ( isInfixOf, intercalate )
 import Data.Maybe
 import Data.Version
@@ -101,7 +103,7 @@ preprocess :: HscEnv
            -> IO (Either ErrorMessages (DynFlags, FilePath))
 preprocess hsc_env input_fn mb_input_buf mb_phase =
   handleSourceError (\err -> return (Left (srcErrorMessages err))) $
-  ghandle handler $
+  MC.handle handler $
   fmap Right $ do
   MASSERT2(isJust mb_phase || isHaskellSrcFilename input_fn, text input_fn)
   (dflags, fp, mb_iface) <- runPipeline anyHsc hsc_env (input_fn, mb_input_buf, fmap RealPhase mb_phase)
@@ -490,7 +492,7 @@ link' dflags batch_attempt_linking hpt
         return Succeeded
 
 
-linkingNeeded :: DynFlags -> Bool -> [Linkable] -> [InstalledUnitId] -> IO Bool
+linkingNeeded :: DynFlags -> Bool -> [Linkable] -> [UnitId] -> IO Bool
 linkingNeeded dflags staticLink linkables pkg_deps = do
         -- if the modification time on the executable is later than the
         -- modification times on all of the objects and libraries, then omit
@@ -866,20 +868,6 @@ getOutputFilename stop_phase output basename dflags next_phase maybe_location
              | otherwise      = persistent
 
 
--- | The fast LLVM Pipeline skips the mangler and assembler,
--- emitting object code directly from llc.
---
--- slow: opt -> llc -> .s -> mangler -> as -> .o
--- fast: opt -> llc -> .o
---
--- hidden flag: -ffast-llvm
---
--- if keep-s-files is specified, we need to go through
--- the slow pipeline (Kavon Farvardin requested this).
-fastLlvmPipeline :: DynFlags -> Bool
-fastLlvmPipeline dflags
-  = not (gopt Opt_KeepSFiles dflags) && gopt Opt_FastLlvm dflags
-
 -- | LLVM Options. These are flags to be passed to opt and llc, to ensure
 -- consistency we list them in pairs, so that they form groups.
 llvmOptions :: DynFlags
@@ -890,7 +878,6 @@ llvmOptions dflags =
         ,"-relocation-model=" ++ rmodel) | not (null rmodel)]
     ++ [("-stack-alignment=" ++ (show align)
         ,"-stack-alignment=" ++ (show align)) | align > 0 ]
-    ++ [("", "-filetype=obj") | fastLlvmPipeline dflags ]
 
     -- Additional llc flags
     ++ [("", "-mcpu=" ++ mcpu)   | not (null mcpu)
@@ -1472,8 +1459,7 @@ runPhase (RealPhase LlvmOpt) input_fn dflags
 
 runPhase (RealPhase LlvmLlc) input_fn dflags
   = do
-    next_phase <- if | fastLlvmPipeline dflags -> maybeMergeForeign
-                     -- hidden debugging flag '-dno-llvm-mangler' to skip mangling
+    next_phase <- if -- hidden debugging flag '-dno-llvm-mangler' to skip mangling
                      | gopt Opt_NoLlvmMangler dflags -> return (As False)
                      | otherwise -> return LlvmMangle
 
@@ -1627,13 +1613,13 @@ getLocation src_flavour mod_name = do
 -----------------------------------------------------------------------------
 -- Look for the /* GHC_PACKAGES ... */ comment at the top of a .hc file
 
-getHCFilePackages :: FilePath -> IO [InstalledUnitId]
+getHCFilePackages :: FilePath -> IO [UnitId]
 getHCFilePackages filename =
   Exception.bracket (openFile filename ReadMode) hClose $ \h -> do
     l <- hGetLine h
     case l of
       '/':'*':' ':'G':'H':'C':'_':'P':'A':'C':'K':'A':'G':'E':'S':rest ->
-          return (map stringToInstalledUnitId (words rest))
+          return (map stringToUnitId (words rest))
       _other ->
           return []
 
@@ -1664,10 +1650,10 @@ it is supported by both gcc and clang. Anecdotally nvcc supports
 -Xlinker, but not -Wl.
 -}
 
-linkBinary :: DynFlags -> [FilePath] -> [InstalledUnitId] -> IO ()
+linkBinary :: DynFlags -> [FilePath] -> [UnitId] -> IO ()
 linkBinary = linkBinary' False
 
-linkBinary' :: Bool -> DynFlags -> [FilePath] -> [InstalledUnitId] -> IO ()
+linkBinary' :: Bool -> DynFlags -> [FilePath] -> [UnitId] -> IO ()
 linkBinary' staticLink dflags o_files dep_packages = do
     let platform = targetPlatform dflags
         toolSettings' = toolSettings dflags
@@ -1924,12 +1910,12 @@ maybeCreateManifest dflags exe_filename
  | otherwise = return []
 
 
-linkDynLibCheck :: DynFlags -> [String] -> [InstalledUnitId] -> IO ()
+linkDynLibCheck :: DynFlags -> [String] -> [UnitId] -> IO ()
 linkDynLibCheck dflags o_files dep_packages
  = do
     when (haveRtsOptsFlags dflags) $ do
       putLogMsg dflags NoReason SevInfo noSrcSpan
-          (defaultUserStyle dflags)
+          $ withPprStyle defaultUserStyle
           (text "Warning: -rtsopts and -with-rtsopts have no effect with -shared." $$
            text "    Call hs_init_ghc() from your main() function to set these options.")
 
@@ -1938,7 +1924,7 @@ linkDynLibCheck dflags o_files dep_packages
 -- | Linking a static lib will not really link anything. It will merely produce
 -- a static archive of all dependent static libraries. The resulting library
 -- will still need to be linked with any remaining link flags.
-linkStaticLib :: DynFlags -> [String] -> [InstalledUnitId] -> IO ()
+linkStaticLib :: DynFlags -> [String] -> [UnitId] -> IO ()
 linkStaticLib dflags o_files dep_packages = do
   let extra_ld_inputs = [ f | FileOption _ f <- ldInputs dflags ]
       modules = o_files ++ extra_ld_inputs
@@ -2082,8 +2068,8 @@ generatePackageVersionMacros pkgs = concat
   -- Do not add any C-style comments. See #3389.
   [ generateMacros "" pkgname version
   | pkg <- pkgs
-  , let version = packageVersion pkg
-        pkgname = map fixchar (packageNameString pkg)
+  , let version = unitPackageVersion pkg
+        pkgname = map fixchar (unitPackageNameString pkg)
   ]
 
 fixchar :: Char -> Char
@@ -2236,7 +2222,7 @@ getGhcVersionPathName dflags = do
   candidates <- case ghcVersionFile dflags of
     Just path -> return [path]
     Nothing -> (map (</> "ghcversion.h")) <$>
-               (getPackageIncludePath dflags [toInstalledUnitId rtsUnitId])
+               (getPackageIncludePath dflags [toUnitId rtsUnitId])
 
   found <- filterM doesFileExist candidates
   case found of

@@ -27,7 +27,7 @@ module GHC.HsToCore.Quote( dsBracket ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Platform
 
 import {-# SOURCE #-}   GHC.HsToCore.Expr ( dsExpr )
@@ -40,7 +40,7 @@ import qualified Language.Haskell.TH as TH
 import GHC.Hs
 import GHC.Builtin.Names
 
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Id
 import GHC.Types.Name hiding( varName, tcName )
 import GHC.Builtin.Names.TH
@@ -55,14 +55,14 @@ import GHC.Core.Utils
 import GHC.Types.SrcLoc as SrcLoc
 import GHC.Types.Unique
 import GHC.Types.Basic
-import Outputable
-import Bag
+import GHC.Utils.Outputable
+import GHC.Data.Bag
 import GHC.Driver.Session
-import FastString
+import GHC.Data.FastString
 import GHC.Types.ForeignCall
-import Util
-import Maybes
-import MonadUtils
+import GHC.Utils.Misc
+import GHC.Data.Maybe
+import GHC.Utils.Monad
 import GHC.Tc.Types.Evidence
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
@@ -823,7 +823,7 @@ repRuleD (L loc (HsRule { rd_name = n
 ruleBndrNames :: LRuleBndr GhcRn -> [Name]
 ruleBndrNames (L _ (RuleBndr _ n))      = [unLoc n]
 ruleBndrNames (L _ (RuleBndrSig _ n sig))
-  | HsWC { hswc_body = HsIB { hsib_ext = vars }} <- sig
+  | HsPS { hsps_ext = HsPSRn { hsps_imp_tvs = vars }} <- sig
   = unLoc n : vars
 
 repRuleBndr :: LRuleBndr GhcRn -> MetaM (Core (M TH.RuleBndr))
@@ -832,7 +832,7 @@ repRuleBndr (L _ (RuleBndr _ n))
        ; rep2 ruleVarName [n'] }
 repRuleBndr (L _ (RuleBndrSig _ n sig))
   = do { MkC n'  <- lookupLBinder n
-       ; MkC ty' <- repLTy (hsSigWcType sig)
+       ; MkC ty' <- repLTy (hsPatSigType sig)
        ; rep2 typedRuleVarName [n', ty'] }
 
 repAnnD :: LAnnDecl GhcRn -> MetaM (SrcSpan, Core (M TH.Dec))
@@ -1922,7 +1922,7 @@ repP (TuplePat _ ps boxed)
   | otherwise           = do { qs <- repLPs ps; repPunboxedTup qs }
 repP (SumPat _ p alt arity) = do { p1 <- repLP p
                                  ; repPunboxedSum p1 alt arity }
-repP (ConPatIn dc details)
+repP (ConPat NoExtField dc details)
  = do { con_str <- lookupLOcc dc
       ; case details of
          PrefixCon ps -> do { qs <- repLPs ps; repPcon con_str qs }
@@ -1943,7 +1943,7 @@ repP (NPat _ (L _ l) Nothing _) = do { a <- repOverloadedLiteral l
 repP (ViewPat _ e p) = do { e' <- repLE e; p' <- repLP p; repPview e' p' }
 repP p@(NPat _ _ (Just _) _) = notHandled "Negative overloaded patterns" (ppr p)
 repP (SigPat _ p t) = do { p' <- repLP p
-                         ; t' <- repLTy (hsSigWcType t)
+                         ; t' <- repLTy (hsPatSigType t)
                          ; repPsig p' t' }
 repP (SplicePat _ splice) = repSplice splice
 repP other = notHandled "Exotic pattern" (ppr other)
@@ -2040,7 +2040,7 @@ globalVar name
   where
       mod = ASSERT( isExternalName name) nameModule name
       name_mod = moduleNameString (moduleName mod)
-      name_pkg = unitIdString (moduleUnitId mod)
+      name_pkg = unitString (moduleUnit mod)
       name_occ = nameOccName name
       mk_varg | isDataOcc name_occ = mkNameG_dName
               | isVarOcc  name_occ = mkNameG_vName

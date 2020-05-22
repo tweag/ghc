@@ -36,7 +36,7 @@ where
 #include "HsVersions.h"
 
 -- NCG stuff:
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.CmmToAsm.X86.Instr
 import GHC.CmmToAsm.X86.Cond
@@ -67,7 +67,7 @@ import GHC.Platform
 -- Our intermediate code:
 import GHC.Types.Basic
 import GHC.Cmm.BlockId
-import GHC.Types.Module ( primUnitId )
+import GHC.Unit ( primUnitId )
 import GHC.Cmm.Utils
 import GHC.Cmm.Switch
 import GHC.Cmm
@@ -81,11 +81,11 @@ import GHC.Types.SrcLoc  ( srcSpanFile, srcSpanStartLine, srcSpanStartCol )
 
 -- The rest:
 import GHC.Types.ForeignCall ( CCallConv(..) )
-import OrdList
-import Outputable
-import FastString
+import GHC.Data.OrdList
+import GHC.Utils.Outputable
+import GHC.Data.FastString
 import GHC.Driver.Session
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Unique.Supply ( getUniqueM )
 
 import Control.Monad

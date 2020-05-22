@@ -82,30 +82,25 @@ module GHC.StgToCmm.Ticky (
   tickyHeapCheck,
   tickyStackCheck,
 
-  tickyUnknownCall, tickyDirectCall,
+  tickyDirectCall,
 
   tickyPushUpdateFrame,
   tickyUpdateFrameOmitted,
 
   tickyEnterDynCon,
-  tickyEnterStaticCon,
-  tickyEnterViaNode,
 
   tickyEnterFun,
-  tickyEnterThunk, tickyEnterStdThunk,        -- dynamic non-value
-                                              -- thunks only
+  tickyEnterThunk,
   tickyEnterLNE,
 
   tickyUpdateBhCaf,
-  tickyBlackHole,
   tickyUnboxedTupleReturn,
   tickyReturnOldCon, tickyReturnNewCon,
 
-  tickyKnownCallTooFewArgs, tickyKnownCallExact, tickyKnownCallExtraArgs,
-  tickySlowCall, tickySlowCallPat,
+  tickySlowCall
   ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Platform
 import GHC.StgToCmm.ArgRep    ( slowCallPattern , toArgRep , argRepString )
@@ -120,13 +115,13 @@ import GHC.Cmm.Utils
 import GHC.Cmm.CLabel
 import GHC.Runtime.Heap.Layout
 
-import GHC.Types.Module
+import GHC.Unit
 import GHC.Types.Name
 import GHC.Types.Id
 import GHC.Types.Basic
-import FastString
-import Outputable
-import Util
+import GHC.Data.FastString
+import GHC.Utils.Outputable
+import GHC.Utils.Misc
 
 import GHC.Driver.Session
 
@@ -276,10 +271,8 @@ tickyUpdateFrameOmitted = ifTicky $ bumpTickyCounter (fsLit "UPDF_OMITTED_ctr")
 -- bump of name-specific ticky counter into. On the other hand, we can
 -- still track allocation their allocation.
 
-tickyEnterDynCon, tickyEnterStaticCon, tickyEnterViaNode :: FCode ()
-tickyEnterDynCon      = ifTicky $ bumpTickyCounter (fsLit "ENT_DYN_CON_ctr")
-tickyEnterStaticCon   = ifTicky $ bumpTickyCounter (fsLit "ENT_STATIC_CON_ctr")
-tickyEnterViaNode     = ifTicky $ bumpTickyCounter (fsLit "ENT_VIA_NODE_ctr")
+tickyEnterDynCon :: FCode ()
+tickyEnterDynCon = ifTicky $ bumpTickyCounter (fsLit "ENT_DYN_CON_ctr")
 
 tickyEnterThunk :: ClosureInfo -> FCode ()
 tickyEnterThunk cl_info
@@ -291,23 +284,13 @@ tickyEnterThunk cl_info
       registerTickyCtrAtEntryDyn ticky_ctr_lbl
       bumpTickyEntryCount ticky_ctr_lbl }
   where
-    updatable = closureSingleEntry cl_info
+    updatable = not (closureUpdReqd cl_info)
     static    = isStaticClosure cl_info
 
     ctr | static    = if updatable then fsLit "ENT_STATIC_THK_SINGLE_ctr"
                                    else fsLit "ENT_STATIC_THK_MANY_ctr"
         | otherwise = if updatable then fsLit "ENT_DYN_THK_SINGLE_ctr"
                                    else fsLit "ENT_DYN_THK_MANY_ctr"
-
-tickyEnterStdThunk :: ClosureInfo -> FCode ()
-tickyEnterStdThunk = tickyEnterThunk
-
-tickyBlackHole :: Bool{-updatable-} -> FCode ()
-tickyBlackHole updatable
-  = ifTicky (bumpTickyCounter ctr)
-  where
-    ctr | updatable = (fsLit "UPD_BH_SINGLE_ENTRY_ctr")
-        | otherwise = (fsLit "UPD_BH_UPDATABLE_ctr")
 
 tickyUpdateBhCaf :: ClosureInfo -> FCode ()
 tickyUpdateBhCaf cl_info

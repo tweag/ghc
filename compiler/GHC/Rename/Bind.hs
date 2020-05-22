@@ -29,7 +29,7 @@ module GHC.Rename.Bind (
    HsSigCtxt(..)
    ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Rename.Expr( rnLExpr, rnStmts )
 
@@ -45,21 +45,21 @@ import GHC.Rename.Utils ( HsDocContext(..), mapFvRn, extendTyVarEnvFVRn
                         , checkUnusedRecordWildcard
                         , checkDupAndShadowedNames, bindLocalNamesFV )
 import GHC.Driver.Session
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Name
 import GHC.Types.Name.Env
 import GHC.Types.Name.Set
 import GHC.Types.Name.Reader ( RdrName, rdrNameOcc )
 import GHC.Types.SrcLoc as SrcLoc
-import ListSetOps       ( findDupsEq )
-import GHC.Types.Basic  ( RecFlag(..), TypeOrKind(..) )
-import Digraph          ( SCC(..) )
-import Bag
-import Util
-import Outputable
+import GHC.Data.List.SetOps    ( findDupsEq )
+import GHC.Types.Basic         ( RecFlag(..), TypeOrKind(..) )
+import GHC.Data.Graph.Directed ( SCC(..) )
+import GHC.Data.Bag
+import GHC.Utils.Misc
+import GHC.Utils.Outputable
 import GHC.Types.Unique.Set
-import Maybes           ( orElse )
-import OrdList
+import GHC.Data.Maybe          ( orElse )
+import GHC.Data.OrdList
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
@@ -869,8 +869,7 @@ rnMethodBinds is_cls_decl cls ktv_names binds sigs
        -- Rename the bindings RHSs.  Again there's an issue about whether the
        -- type variables from the class/instance head are in scope.
        -- Answer no in Haskell 2010, but yes if you have -XScopedTypeVariables
-       ; scoped_tvs  <- xoptM LangExt.ScopedTypeVariables
-       ; (binds'', bind_fvs) <- maybe_extend_tyvar_env scoped_tvs $
+       ; (binds'', bind_fvs) <- bindSigTyVarsFV ktv_names $
               do { binds_w_dus <- mapBagM (rnLBind (mkScopedTvFn other_sigs')) binds'
                  ; let bind_fvs = foldr (\(_,_,fv1) fv2 -> fv1 `plusFV` fv2)
                                            emptyFVs binds_w_dus
@@ -878,12 +877,6 @@ rnMethodBinds is_cls_decl cls ktv_names binds sigs
 
        ; return ( binds'', spec_inst_prags' ++ other_sigs'
                 , sig_fvs `plusFV` sip_fvs `plusFV` bind_fvs) }
-  where
-    -- For the method bindings in class and instance decls, we extend
-    -- the type variable environment iff -XScopedTypeVariables
-    maybe_extend_tyvar_env scoped_tvs thing_inside
-       | scoped_tvs = extendTyVarEnvFVRn ktv_names thing_inside
-       | otherwise  = thing_inside
 
 rnMethodBindLHS :: Bool -> Name
                 -> LHsBindLR GhcPs GhcPs
@@ -962,7 +955,7 @@ renameSig _ (IdSig _ x)
 renameSig ctxt sig@(TypeSig _ vs ty)
   = do  { new_vs <- mapM (lookupSigOccRn ctxt sig) vs
         ; let doc = TypeSigCtx (ppr_sig_bndrs vs)
-        ; (new_ty, fvs) <- rnHsSigWcType BindUnlessForall doc ty
+        ; (new_ty, fvs) <- rnHsSigWcType doc ty
         ; return (TypeSig noExtField new_vs new_ty, fvs) }
 
 renameSig ctxt sig@(ClassOpSig _ is_deflt vs ty)

@@ -8,7 +8,7 @@ module GHC.Cmm.Info.Build
   , SRTMap, srtMapNonCAFs
   ) where
 
-import GhcPrelude hiding (succ)
+import GHC.Prelude hiding (succ)
 
 import GHC.Types.Id
 import GHC.Types.Id.Info
@@ -18,15 +18,15 @@ import GHC.Cmm.Dataflow.Graph
 import GHC.Cmm.Dataflow.Label
 import GHC.Cmm.Dataflow.Collections
 import GHC.Cmm.Dataflow
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Platform
-import Digraph
+import GHC.Data.Graph.Directed
 import GHC.Cmm.CLabel
 import GHC.Cmm
 import GHC.Cmm.Utils
 import GHC.Driver.Session
-import Maybes
-import Outputable
+import GHC.Data.Maybe
+import GHC.Utils.Outputable
 import GHC.Runtime.Heap.Layout
 import GHC.Types.Unique.Supply
 import GHC.Types.CostCentre
@@ -459,7 +459,7 @@ type CAFSet = Set CAFLabel
 type CAFEnv = LabelMap CAFSet
 
 mkCAFLabel :: CLabel -> CAFLabel
-mkCAFLabel lbl = CAFLabel $! toClosureLbl lbl
+mkCAFLabel lbl = CAFLabel (toClosureLbl lbl)
 
 -- This is a label that we can put in an SRT.  It *must* be a closure label,
 -- pointing to either a FUN_STATIC, THUNK_STATIC, or CONSTR.
@@ -736,10 +736,11 @@ getStaticFuns decls =
 type SRTMap = Map CAFLabel (Maybe SRTEntry)
 
 
--- | Given SRTMap of a module returns the set of non-CAFFY names in the module.
--- Any Names not in the set are CAFFY.
-srtMapNonCAFs :: SRTMap -> NameSet
-srtMapNonCAFs srtMap = mkNameSet (mapMaybe get_name (Map.toList srtMap))
+-- | Given 'SRTMap' of a module, returns the set of non-CAFFY names in the
+-- module.  Any 'Name's not in the set are CAFFY.
+srtMapNonCAFs :: SRTMap -> NonCaffySet
+srtMapNonCAFs srtMap =
+    NonCaffySet $ mkNameSet (mapMaybe get_name (Map.toList srtMap))
   where
     get_name (CAFLabel l, Nothing) = hasHaskellName l
     get_name (_l, Just _srt_entry) = Nothing

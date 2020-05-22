@@ -50,7 +50,7 @@ module GHC.Tc.Plugin (
         getEvBindsTcPluginM
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import qualified GHC.Tc.Utils.Monad           as TcM
 import qualified GHC.Tc.Solver.Monad    as TcS
@@ -71,18 +71,18 @@ import GHC.Tc.Types.Evidence   ( TcCoercion, CoercionHole, EvTerm(..)
                                , EvExpr, EvBind, mkGivenEvBind )
 import GHC.Types.Var           ( EvVar )
 
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Name
 import GHC.Core.TyCon
 import GHC.Core.DataCon
 import GHC.Core.Class
 import GHC.Driver.Types
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Core.Type
 import GHC.Core.Coercion   ( BlockSubstFlag(..) )
 import GHC.Types.Id
 import GHC.Core.InstEnv
-import FastString
+import GHC.Data.FastString
 import GHC.Types.Unique
 
 

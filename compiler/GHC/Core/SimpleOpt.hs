@@ -20,7 +20,7 @@ module GHC.Core.SimpleOpt (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core.Arity( etaExpandToJoinPoint )
 
@@ -39,7 +39,7 @@ import GHC.Types.Var      ( isNonCoVarId )
 import GHC.Types.Var.Set
 import GHC.Types.Var.Env
 import GHC.Core.DataCon
-import GHC.Types.Demand( etaExpandStrictSig )
+import GHC.Types.Demand( etaConvertStrictSig )
 import GHC.Core.Coercion.Opt ( optCoercion )
 import GHC.Core.Type hiding ( substTy, extendTvSubst, extendCvSubst, extendTvSubstList
                             , isInScope, substTyVarBndr, cloneTyVarBndr )
@@ -49,14 +49,14 @@ import GHC.Core.Multiplicity
 import GHC.Builtin.Types
 import GHC.Builtin.Names
 import GHC.Types.Basic
-import GHC.Types.Module ( Module )
-import ErrUtils
+import GHC.Unit.Module ( Module )
+import GHC.Utils.Error
 import GHC.Driver.Session
-import Outputable
-import Pair
-import Util
-import Maybes       ( orElse )
-import FastString
+import GHC.Utils.Outputable
+import GHC.Data.Pair
+import GHC.Utils.Misc
+import GHC.Data.Maybe       ( orElse )
+import GHC.Data.FastString
 import Data.List
 import qualified Data.ByteString as BS
 
@@ -222,10 +222,13 @@ simple_opt_expr env expr
     go (Coercion co)    = Coercion (optCoercion (soe_dflags env) (getTCvSubst subst) co)
     go (Lit lit)        = Lit lit
     go (Tick tickish e) = mkTick (substTickish subst tickish) (go e)
-    go (Cast e co)      | isReflCo co' = go e
-                        | otherwise    = Cast (go e) co'
-                        where
-                          co' = optCoercion (soe_dflags env) (getTCvSubst subst) co
+    go (Cast e co)      = case go e of
+                            -- flatten nested casts before calling the coercion optimizer;
+                            -- see #18112 (note that mkCast handles dropping Refl coercions)
+                            Cast e' co' -> mkCast e' (opt_co (mkTransCo co' co))
+                            e'          -> mkCast e' (opt_co co)
+                          where
+                            opt_co = optCoercion (soe_dflags env) (getTCvSubst subst)
 
     go (Let bind body)  = case simple_opt_bind env bind NotTopLevel of
                              (env', Nothing)   -> simple_opt_expr env' body
@@ -765,7 +768,7 @@ joinPointBinding_maybe bndr rhs
   , let str_sig   = idStrictness bndr
         str_arity = count isId bndrs  -- Strictness demands are for Ids only
         join_bndr = bndr `asJoinId`        join_arity
-                         `setIdStrictness` etaExpandStrictSig str_arity str_sig
+                         `setIdStrictness` etaConvertStrictSig str_arity str_sig
   = Just (join_bndr, mkLams bndrs body)
 
   | otherwise
@@ -890,6 +893,10 @@ And now we have a known-constructor MkT that we can return.
 Notice that both (2) and (3) require exprIsConApp_maybe to gather and return
 a bunch of floats, both let and case bindings.
 
+Note that this strategy introduces some subtle scenarios where a data-con
+wrapper can be replaced by a data-con worker earlier than we’d like, see
+Note [exprIsConApp_maybe for data-con wrappers: tricky corner].
+
 Note [beta-reduction in exprIsConApp_maybe]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The unfolding a definition (_e.g._ a let-bound variable or a datacon wrapper) is
@@ -950,6 +957,60 @@ exprIsConApp_maybe does not return Just) then nothing happens, and nothing
 will happen the next time either.
 
 See test T16254, which checks the behavior of newtypes.
+
+Note [exprIsConApp_maybe for data-con wrappers: tricky corner]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Generally speaking
+
+  * exprIsConApp_maybe honours the inline phase; that is, it does not look
+    inside the unfolding for an Id unless its unfolding is active in this phase.
+    That phase-sensitivity is expressed in the InScopeEnv (specifically, the
+    IdUnfoldingFun component of the InScopeEnv) passed to exprIsConApp_maybe.
+
+  * Data-constructor wrappers are active only in phase 0 (the last phase);
+    see Note [Activation for data constructor wrappers] in GHC.Types.Id.Make.
+
+On the face of it that means that exprIsConApp_maybe won't look inside data
+constructor wrappers until phase 0. But that seems pretty Bad. So we cheat.
+For data con wrappers we unconditionally look inside its unfolding, regardless
+of phase, so that we get case-of-known-constructor to fire in every phase.
+
+Perhaps unsurprisingly, this cheating can backfire. An example:
+
+    data T = C !A B
+    foo p q = let x = C e1 e2 in seq x $ f x
+    {-# RULE "wurble" f (C a b) = b #-}
+
+In Core, the RHS of foo is
+
+    let x = $WC e1 e2 in case x of y { C _ _ -> f x }
+
+and after doing a binder swap and inlining x, we have:
+
+    case $WC e1 e2 of y { C _ _ -> f y }
+
+Case-of-known-constructor fires, but now we have to reconstruct a binding for
+`y` (which was dead before the binder swap) on the RHS of the case alternative.
+Naturally, we’ll use the worker:
+
+    case e1 of a { DEFAULT -> let y = C a e2 in f y }
+
+and after inlining `y`, we have:
+
+    case e1 of a { DEFAULT -> f (C a e2) }
+
+Now we might hope the "wurble" rule would fire, but alas, it will not: we have
+replaced $WC with C, but the (desugared) rule matches on $WC! We weren’t
+supposed to inline $WC yet for precisely that reason (see Note [Activation for
+data constructor wrappers]), but our cheating in exprIsConApp_maybe came back to
+bite us.
+
+This is rather unfortunate, especially since this can happen inside stable
+unfoldings as well as ordinary code (which really happened, see !3041). But
+there is no obvious solution except to delay case-of-known-constructor on
+data-con wrappers, and that cure would be worse than the disease.
+
+This Note exists solely to document the problem.
 -}
 
 data ConCont = CC [CoreExpr] Coercion
@@ -1034,7 +1095,8 @@ exprIsConApp_maybe (in_scope, id_unf) expr
 
         -- Look through data constructor wrappers: they inline late (See Note
         -- [Activation for data constructor wrappers]) but we want to do
-        -- case-of-known-constructor optimisation eagerly.
+        -- case-of-known-constructor optimisation eagerly (see Note
+        -- [exprIsConApp_maybe on data constructors with wrappers]).
         | isDataConWrapId fun
         , let rhs = uf_tmpl (realIdUnfolding fun)
         = go (Left in_scope) floats rhs cont

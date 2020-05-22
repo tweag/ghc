@@ -69,6 +69,16 @@ Language
   There is a chance we will tweak the lookup scheme in the future, to make this
   workaround unnecessary.
 
+* GHC now consistently does eager instantiation during type inference.
+  As a consequence, visible type application (VTA) now only works when
+  the head of the application is:
+  * A variable
+  * An expression with a type signature
+  For example `(let x = blah in id) @Bool True` no longer typechecks.
+  You should write `let x = blah in id @Bool True` instead.
+
+  This change prepares the way for Quick Look impredicativity.
+
 Compiler
 ~~~~~~~~
 
@@ -93,6 +103,21 @@ Template Haskell
 
  - The ``-XTemplateHaskellQuotes`` extension now allows nested splices as nested
    splices do not lead directly to compile-time evaluation. (!2288)
+
+Arrow notation
+~~~~~~~~~~~~~~
+
+ - When combined with :extension:`Arrows`, the :extension:`LambdaCase` extension
+   now additionally allows ``\case`` syntax to be used as a command in ``proc``
+   notation.
+
+ - When combined with :extension:`Arrows`, the effects of the
+   :extension:`BlockArguments` extension now also apply to applications of
+   arrow control operators in ``(|`` banana brackets ``|)``: ::
+
+     (| untilA (increment -< x + y) do
+          within 0.5 -< x
+          ... |)
 
 ``ghc-prim`` library
 ~~~~~~~~~~~~~~~~~~~~
@@ -122,6 +147,14 @@ Template Haskell
    If you wish to attain the previous behavior of ``hs_fixds``, use the new
    ``hsGroupTopLevelFixitySigs`` function, which collects all top-level fixity
    signatures, including those for class methods defined inside classes.
+
+- The ``Exception`` module was boiled down acknowledging the existence of 
+  the ``exceptions`` dependency. In particular, the ``ExceptionMonad``
+  class is not a proper class anymore, but a mere synonym for ``MonadThrow``,
+  ``MonadCatch``, ``MonadMask`` (all from ``exceptions``) and ``MonadIO``. 
+  All of ``g*``-functions from the module (``gtry``, ``gcatch``, etc.) are 
+  erased, and their ``exceptions``-alternatives are meant to be used in the
+  GHC code instead.
 
 ``base`` library
 ~~~~~~~~~~~~~~~~
@@ -172,4 +205,3 @@ for further change information.
     libraries/unix/unix.cabal:               Dependency of ``ghc`` library
     libraries/Win32/Win32.cabal:             Dependency of ``ghc`` library
     libraries/xhtml/xhtml.cabal:             Dependency of ``haddock`` executable
-

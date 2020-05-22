@@ -25,7 +25,7 @@ module GHC.Tc.TyCl (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs
 import GHC.Driver.Types
@@ -61,16 +61,16 @@ import GHC.Types.Id
 import GHC.Types.Var
 import GHC.Types.Var.Env
 import GHC.Types.Var.Set
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Name
 import GHC.Types.Name.Set
 import GHC.Types.Name.Env
-import Outputable
-import Maybes
+import GHC.Utils.Outputable
+import GHC.Data.Maybe
 import GHC.Core.Unify
-import Util
+import GHC.Utils.Misc
 import GHC.Types.SrcLoc
-import ListSetOps
+import GHC.Data.List.SetOps
 import GHC.Driver.Session
 import GHC.Types.Unique
 import GHC.Core.ConLike( ConLike(..) )
@@ -2179,9 +2179,9 @@ tcDefaultAssocDecl fam_tc
            , text "pats"    <+> ppr pats
            , text "rhs_ty"  <+> ppr rhs_ty
            ])
-       ; pat_tvs <- zipWithM (extract_tv ppr_eqn) pats pats_vis
-       ; check_all_distinct_tvs ppr_eqn $ zip pat_tvs pats_vis
-       ; let subst = zipTvSubst pat_tvs (mkTyVarTys fam_tvs)
+       ; cpt_tvs <- zipWithM (extract_tv ppr_eqn) pats pats_vis
+       ; check_all_distinct_tvs ppr_eqn $ zip cpt_tvs pats_vis
+       ; let subst = zipTvSubst cpt_tvs (mkTyVarTys fam_tvs)
        ; pure $ Just (substTyUnchecked subst rhs_ty, loc)
            -- We also perform other checks for well-formedness and validity
            -- later, in checkValidClass
@@ -2218,8 +2218,8 @@ tcDefaultAssocDecl fam_tc
                             -- visibilities (the latter are only used for error
                             -- message purposes)
       -> TcM ()
-    check_all_distinct_tvs ppr_eqn pat_tvs_vis =
-      let dups = findDupsEq ((==) `on` fst) pat_tvs_vis in
+    check_all_distinct_tvs ppr_eqn cpt_tvs_vis =
+      let dups = findDupsEq ((==) `on` fst) cpt_tvs_vis in
       traverse_
         (\d -> let (pat_tv, pat_vis) = NE.head d in failWithTc $
                pprWithExplicitKindsWhen (isInvisibleArgFlag pat_vis) $
@@ -4040,7 +4040,7 @@ checkValidDataCon dflags existential_ok tc con
       -- when we actually fill in the abstract type.  As such, don't
       -- warn in this case (it gives users the wrong idea about whether
       -- or not UNPACK on abstract types is supported; it is!)
-      , unitIdIsDefinite (thisPackage dflags)
+      , unitIsDefinite (thisPackage dflags)
       = addWarnTc NoReason (bad_bang n (text "Ignoring unusable UNPACK pragma"))
       where
         is_strict = case strict_mark of

@@ -34,6 +34,7 @@ module GHC.Builtin.Utils (
         primOpRules, builtinRules,
 
         ghcPrimExports,
+        ghcPrimDeclDocs,
         primOpId,
 
         -- * Random other things
@@ -46,7 +47,7 @@ module GHC.Builtin.Utils (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Builtin.Uniques
 import GHC.Types.Unique ( isValidKnownKeyUnique )
@@ -58,24 +59,27 @@ import GHC.Core.Opt.ConstantFold
 import GHC.Types.Avail
 import GHC.Builtin.PrimOps
 import GHC.Core.DataCon
+import GHC.Types.Basic
 import GHC.Types.Id
 import GHC.Types.Name
 import GHC.Types.Name.Env
 import GHC.Types.Id.Make
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Builtin.Types.Prim
 import GHC.Builtin.Types
 import GHC.Driver.Types
 import GHC.Core.Class
 import GHC.Core.TyCon
 import GHC.Types.Unique.FM
-import Util
+import GHC.Utils.Misc
 import GHC.Builtin.Types.Literals ( typeNatTyCons )
+import GHC.Hs.Doc
 
 import Control.Applicative ((<|>))
-import Data.List        ( intercalate )
+import Data.List        ( intercalate , find )
 import Data.Array
 import Data.Maybe
+import qualified Data.Map as Map
 
 {-
 ************************************************************************
@@ -121,14 +125,17 @@ knownKeyNames
   = all_names
   where
     all_names =
+      -- We exclude most tuples from this list—see
+      -- Note [Infinite families of known-key names] in GHC.Builtin.Names.
+      -- We make an exception for Unit (i.e., the boxed 1-tuple), since it does
+      -- not use special syntax like other tuples.
+      -- See Note [One-tuples] (Wrinkle: Make boxed one-tuple names have known keys)
+      -- in GHC.Builtin.Types.
+      tupleTyConName BoxedTuple 1 : tupleDataConName Boxed 1 :
       concat [ wired_tycon_kk_names funTyCon
              , concatMap wired_tycon_kk_names primTyCons
-
              , concatMap wired_tycon_kk_names wiredInTyCons
-               -- Does not include tuples
-
              , concatMap wired_tycon_kk_names typeNatTyCons
-
              , map idName wiredInIds
              , map (idName . primOpId) allThePrimOps
              , map (idName . primOpWrapperId) allThePrimOps
@@ -255,6 +262,17 @@ ghcPrimExports
    map (avail . idName . primOpId) allThePrimOps ++
    [ AvailTC n [n] []
    | tc <- funTyCon : exposedPrimTyCons, let n = tyConName tc  ]
+
+ghcPrimDeclDocs :: DeclDocMap
+ghcPrimDeclDocs = DeclDocMap $ Map.fromList $ mapMaybe findName primOpDocs
+  where
+    names = map idName ghcPrimIds ++
+            map (idName . primOpId) allThePrimOps ++
+            map tyConName (funTyCon : exposedPrimTyCons)
+    findName (nameStr, doc)
+      | Just name <- find ((nameStr ==) . getOccString) names
+      = Just (name, mkHsDocString doc)
+      | otherwise = Nothing
 
 {-
 ************************************************************************

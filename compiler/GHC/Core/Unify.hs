@@ -26,7 +26,7 @@ module GHC.Core.Unify (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Types.Var
 import GHC.Types.Var.Env
@@ -38,10 +38,10 @@ import GHC.Core.TyCon
 import GHC.Core.TyCo.Rep
 import GHC.Core.TyCo.FVs   ( tyCoVarsOfCoList, tyCoFVsOfTypes )
 import GHC.Core.TyCo.Subst ( mkTvSubst )
-import FV( FV, fvVarSet, fvVarList )
-import Util
-import Pair
-import Outputable
+import GHC.Utils.FV( FV, fvVarSet, fvVarList )
+import GHC.Utils.Misc
+import GHC.Data.Pair
+import GHC.Utils.Outputable
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.Set
 
@@ -658,9 +658,9 @@ niSubstTvSet :: TvSubstEnv -> TyCoVarSet -> TyCoVarSet
 -- remembering that the substitution isn't necessarily idempotent
 -- This is used in the occurs check, before extending the substitution
 niSubstTvSet tsubst tvs
-  = nonDetFoldUniqSet (unionVarSet . get) emptyVarSet tvs
-  -- It's OK to nonDetFoldUFM here because we immediately forget the
-  -- ordering by creating a set.
+  = nonDetStrictFoldUniqSet (unionVarSet . get) emptyVarSet tvs
+  -- It's OK to use a non-deterministic fold here because we immediately forget
+  -- the ordering by creating a set.
   where
     get tv
       | Just ty <- lookupVarEnv tsubst tv

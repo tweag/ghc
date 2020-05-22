@@ -25,13 +25,13 @@ module GHC.Hs.Extension where
 -- This module captures the type families to precisely identify the extension
 -- points for GHC.Hs syntax
 
-import GhcPrelude
+import GHC.Prelude
 
 import Data.Data hiding ( Fixity )
 import GHC.Types.Name
 import GHC.Types.Name.Reader
 import GHC.Types.Var
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.SrcLoc (Located)
 
 import Data.Kind
@@ -599,6 +599,7 @@ type family XCmdApp     x
 type family XCmdLam     x
 type family XCmdPar     x
 type family XCmdCase    x
+type family XCmdLamCase x
 type family XCmdIf      x
 type family XCmdLet     x
 type family XCmdDo      x
@@ -681,6 +682,11 @@ type family XXHsImplicitBndrs  x b
 
 type family XHsWC              x b
 type family XXHsWildCardBndrs  x b
+
+-- -------------------------------------
+
+type family XHsPS x
+type family XXHsPatSigType x
 
 -- -------------------------------------
 

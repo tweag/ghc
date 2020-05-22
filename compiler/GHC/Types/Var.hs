@@ -93,7 +93,7 @@ module GHC.Types.Var (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-}   GHC.Core.TyCo.Rep( Type, Kind )
 import {-# SOURCE #-}   GHC.Core.TyCo.Ppr( pprKind )
@@ -105,9 +105,9 @@ import GHC.Core.Multiplicity
 import GHC.Types.Name hiding (varName)
 import GHC.Types.Unique ( Uniquable, Unique, getKey, getUnique
                         , mkUniqueGrimily, nonDetCmpUnique )
-import Util
-import Binary
-import Outputable
+import GHC.Utils.Misc
+import GHC.Utils.Binary
+import GHC.Utils.Outputable
 
 import Data.Data
 
@@ -318,27 +318,30 @@ arbitrary value which will (and must!) be ignored.
 
 instance Outputable Var where
   ppr var = sdocOption sdocSuppressVarKinds $ \supp_var_kinds ->
-            getPprStyle $ \ppr_style ->
-            if |  debugStyle ppr_style && (not supp_var_kinds)
+            getPprDebug $ \debug ->
+            getPprStyle $ \sty ->
+            let
+              ppr_var = case var of
+                  (TyVar {})
+                     | debug
+                     -> brackets (text "tv")
+
+                  (TcTyVar {tc_tv_details = d})
+                     | dumpStyle sty || debug
+                     -> brackets (pprTcTyVarDetails d)
+
+                  (Id { idScope = s, id_details = d })
+                     | debug
+                     -> brackets (ppr_id_scope s <> pprIdDetails d)
+
+                  _  -> empty
+            in if
+               |  debug && (not supp_var_kinds)
                  -> parens (ppr (varName var) <+> ppr (varMultMaybe var)
-                                              <+> ppr_debug var ppr_style <+>
+                                              <+> ppr_var <+>
                           dcolon <+> pprKind (tyVarKind var))
-
-               |  codeStyle ppr_style
-                 -> ppr (varName var) <> ppr_debug var ppr_style
                |  otherwise
-                 -> ppr (varName var)  -- <> maybe empty (brackets . ppr) (varMultMaybe var)
-                                        -- Types don't have multiplicites
-                                      <> ppr_debug var ppr_style
-
-ppr_debug :: Var -> PprStyle -> SDoc
-ppr_debug (TyVar {}) sty
-  | debugStyle sty = brackets (text "tv")
-ppr_debug (TcTyVar {tc_tv_details = d}) sty
-  | dumpStyle sty || debugStyle sty = brackets (pprTcTyVarDetails d)
-ppr_debug (Id { idScope = s, id_details = d }) sty
-  | debugStyle sty = brackets (ppr_id_scope s <> pprIdDetails d)
-ppr_debug _ _ = empty
+                 -> ppr (varName var) <> ppr_var
 
 ppr_id_scope :: IdScope -> SDoc
 ppr_id_scope GlobalId              = text "gid"

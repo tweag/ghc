@@ -35,7 +35,7 @@ module GHC.Tc.Module (
         checkBootDecl, checkHiBootIface',
         findExtraSigImports,
         implicitRequirements,
-        checkUnitId,
+        checkUnit,
         mergeSignatures,
         tcRnMergeSignatures,
         instantiateSignature,
@@ -48,7 +48,7 @@ module GHC.Tc.Module (
         getRenamedStuff, RenamedStuff
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Tc.Gen.Splice ( finishTH, runRemoteModFinalizers )
 import GHC.Rename.Splice ( rnTopSpliceDecls, traceSplice, SpliceInfo(..) )
@@ -56,7 +56,6 @@ import GHC.Iface.Env     ( externaliseName )
 import GHC.Tc.Gen.HsType
 import GHC.Tc.Validity( checkValidType )
 import GHC.Tc.Gen.Match
-import GHC.Tc.Utils.Instantiate( deeplyInstantiate )
 import GHC.Tc.Utils.Unify( checkConstraints )
 import GHC.Rename.HsType
 import GHC.Rename.Expr
@@ -79,7 +78,7 @@ import GHC.Tc.Gen.Export
 import GHC.Tc.Types.Evidence
 import GHC.Tc.Types.Constraint
 import GHC.Tc.Types.Origin
-import qualified BooleanFormula as BF
+import qualified GHC.Data.BooleanFormula as BF
 import GHC.Core.Ppr.TyThing ( pprTyThingInContext )
 import GHC.Core.FVs         ( orphNamesOfFamInst )
 import GHC.Tc.Instance.Family
@@ -107,11 +106,11 @@ import GHC.Iface.Load
 import GHC.Rename.Names
 import GHC.Rename.Env
 import GHC.Rename.Module
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Types.Id as Id
 import GHC.Types.Id.Info( IdDetails(..) )
 import GHC.Types.Var.Env
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Unique.FM
 import GHC.Types.Name
 import GHC.Types.Name.Env
@@ -120,8 +119,8 @@ import GHC.Types.Avail
 import GHC.Core.TyCon
 import GHC.Types.SrcLoc
 import GHC.Driver.Types
-import ListSetOps
-import Outputable
+import GHC.Data.List.SetOps
+import GHC.Utils.Outputable as Outputable
 import GHC.Core.ConLike
 import GHC.Core.DataCon
 import GHC.Core.Type
@@ -131,10 +130,10 @@ import GHC.Core.Coercion.Axiom
 import GHC.Types.Annotations
 import Data.List ( find, sortBy, sort )
 import Data.Ord
-import FastString
-import Maybes
-import Util
-import Bag
+import GHC.Data.FastString
+import GHC.Data.Maybe
+import GHC.Utils.Misc
+import GHC.Data.Bag
 import GHC.Tc.Utils.Instantiate (tcGetInsts)
 import qualified GHC.LanguageExtensions as LangExt
 import Data.Data ( Data )
@@ -1785,8 +1784,8 @@ check_main dflags tcg_env explicit_mod_hdr export_ies
         ; (ev_binds, main_expr)
                <- checkConstraints skol_info [] [] $
                   addErrCtxt mainCtxt    $
-                  tcMonoExpr (L loc (HsVar noExtField (L loc main_name)))
-                             (mkCheckExpType io_ty)
+                  tcLExpr (L loc (HsVar noExtField (L loc main_name)))
+                          (mkCheckExpType io_ty)
 
                 -- See Note [Root-main Id]
                 -- Construct the binding
@@ -2491,15 +2490,11 @@ tcRnExpr hsc_env mode rdr_expr
         -- Now typecheck the expression, and generalise its type
         -- it might have a rank-2 type (e.g. :t runST)
     uniq <- newUnique ;
-    let { fresh_it  = itName uniq (getLoc rdr_expr)
-        ; orig = lexprCtOrigin rn_expr } ;
-    ((tclvl, res_ty), lie)
+    let { fresh_it  = itName uniq (getLoc rdr_expr) } ;
+    ((tclvl, (_tc_expr, res_ty)), lie)
           <- captureTopConstraints $
              pushTcLevelM          $
-             do { (_tc_expr, expr_ty) <- tcInferSigma rn_expr
-                ; if inst
-                  then snd <$> deeplyInstantiate orig expr_ty
-                  else return expr_ty } ;
+             tc_infer rn_expr ;
 
     -- Generalise
     (qtvs, dicts, _, residual, _)
@@ -2525,11 +2520,34 @@ tcRnExpr hsc_env mode rdr_expr
     return (snd (normaliseType fam_envs Nominal ty))
     }
   where
+    tc_infer expr | inst      = tcInferRho expr
+                  | otherwise = tcInferSigma expr
+                  -- tcInferSigma: see Note [Implementing :type]
+
     -- See Note [TcRnExprMode]
     (inst, infer_mode, perhaps_disable_default_warnings) = case mode of
       TM_Inst    -> (True,  NoRestrictions, id)
       TM_NoInst  -> (False, NoRestrictions, id)
       TM_Default -> (True,  EagerDefaulting, unsetWOptM Opt_WarnTypeDefaults)
+
+{- Note [Implementing :type]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider   :type const
+
+We want    forall a b. a -> b -> a
+and not    forall {a}{b}. a -> b -> a
+
+The latter is what we'd get if we eagerly instantiated and then
+re-generalised with Inferred binders.  It makes a difference, because
+it tells us we where we can use Visible Type Application (VTA).
+
+And also for   :type const @Int
+we want        forall b. Int -> b -> Int
+and not        forall {b}. Int -> b -> Int
+
+Solution: use tcInferSigma, which in turn uses tcInferApp, which
+has a special case for application chains.
+-}
 
 --------------------------
 tcRnImportDecls :: HscEnv
@@ -2571,7 +2589,7 @@ tcRnType hsc_env flexi normalise rdr_type
                         -- kindGeneralize, below
                        solveEqualities       $
                        tcNamedWildCardBinders wcs $ \ wcs' ->
-                       do { emitNamedWildCardHoleConstraints wcs'
+                       do { mapM_ emitNamedTypeHole wcs'
                           ; tcLHsTypeUnsaturated rn_type }
 
        -- Do kind generalisation; see Note [Kind-generalise in tcRnType]

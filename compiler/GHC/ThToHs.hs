@@ -11,6 +11,7 @@ This module converts Template Haskell syntax into Hs syntax
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
@@ -24,13 +25,13 @@ module GHC.ThToHs
    )
 where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs as Hs
 import GHC.Builtin.Names
 import GHC.Types.Name.Reader
 import qualified GHC.Types.Name as Name
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Parser.PostProcess
 import GHC.Types.Name.Occurrence as OccName
 import GHC.Types.SrcLoc
@@ -40,13 +41,13 @@ import GHC.Builtin.Types
 import GHC.Types.Basic as Hs
 import GHC.Types.ForeignCall
 import GHC.Types.Unique
-import ErrUtils
-import Bag
+import GHC.Utils.Error
+import GHC.Data.Bag
 import GHC.Utils.Lexeme
-import Util
-import FastString
-import Outputable
-import MonadUtils ( foldrM )
+import GHC.Utils.Misc
+import GHC.Data.FastString
+import GHC.Utils.Outputable as Outputable
+import GHC.Utils.Monad ( foldrM )
 
 import qualified Data.ByteString as BS
 import Control.Monad( unless, ap )
@@ -134,15 +135,15 @@ wrapMsg :: (Show a, TH.Ppr a) => String -> a -> CvtM b -> CvtM b
 -- E.g  wrapMsg "declaration" dec thing
 wrapMsg what item (CvtM m)
   = CvtM $ \origin loc -> case m origin loc of
-      Left err -> Left (err $$ getPprStyle msg)
+      Left err -> Left (err $$ msg)
       Right v  -> Right v
   where
         -- Show the item in pretty syntax normally,
         -- but with all its constructors if you say -dppr-debug
-    msg sty = hang (text "When splicing a TH" <+> text what <> colon)
-                 2 (if debugStyle sty
-                    then text (show item)
-                    else text (pprint item))
+    msg = hang (text "When splicing a TH" <+> text what <> colon)
+                 2 (getPprDebug $ \case
+                     True  -> text (show item)
+                     False -> text (pprint item))
 
 wrapL :: CvtM a -> CvtM (Located a)
 wrapL (CvtM m) = CvtM $ \origin loc -> case m origin loc of
@@ -830,7 +831,7 @@ cvtRuleBndr (RuleVar n)
 cvtRuleBndr (TypedRuleVar n ty)
   = do { n'  <- vNameL n
        ; ty' <- cvtType ty
-       ; return $ noLoc $ Hs.RuleBndrSig noExtField n' $ mkLHsSigWcType ty' }
+       ; return $ noLoc $ Hs.RuleBndrSig noExtField n' $ mkHsPatSigType ty' }
 
 ---------------------------------------------------
 --              Declarations
@@ -1269,12 +1270,22 @@ cvtp (UnboxedSumP p alt arity)
                             ; return $ SumPat noExtField p' alt arity }
 cvtp (ConP s ps)       = do { s' <- cNameL s; ps' <- cvtPats ps
                             ; let pps = map (parenthesizePat appPrec) ps'
-                            ; return $ ConPatIn s' (PrefixCon pps) }
+                            ; return $ ConPat
+                                { pat_con_ext = noExtField
+                                , pat_con = s'
+                                , pat_args = PrefixCon pps
+                                }
+                            }
 cvtp (InfixP p1 s p2)  = do { s' <- cNameL s; p1' <- cvtPat p1; p2' <- cvtPat p2
                             ; wrapParL (ParPat noExtField) $
-                              ConPatIn s' $
-                              InfixCon (parenthesizePat opPrec p1')
-                                       (parenthesizePat opPrec p2') }
+                              ConPat
+                                { pat_con_ext = NoExtField
+                                , pat_con = s'
+                                , pat_args = InfixCon
+                                    (parenthesizePat opPrec p1')
+                                    (parenthesizePat opPrec p2')
+                                }
+                            }
                             -- See Note [Operator association]
 cvtp (UInfixP p1 s p2) = do { p1' <- cvtPat p1; cvtOpAppP p1' s p2 } -- Note [Converting UInfix]
 cvtp (ParensP p)       = do { p' <- cvtPat p;
@@ -1287,13 +1298,17 @@ cvtp (TH.AsP s p)      = do { s' <- vNameL s; p' <- cvtPat p
                             ; return $ AsPat noExtField s' p' }
 cvtp TH.WildP          = return $ WildPat noExtField
 cvtp (RecP c fs)       = do { c' <- cNameL c; fs' <- mapM cvtPatFld fs
-                            ; return $ ConPatIn c'
-                                     $ Hs.RecCon (HsRecFields fs' Nothing) }
+                            ; return $ ConPat
+                                { pat_con_ext = noExtField
+                                , pat_con = c'
+                                , pat_args = Hs.RecCon $ HsRecFields fs' Nothing
+                                }
+                            }
 cvtp (ListP ps)        = do { ps' <- cvtPats ps
                             ; return
                                    $ ListPat noExtField ps'}
 cvtp (SigP p t)        = do { p' <- cvtPat p; t' <- cvtType t
-                            ; return $ SigPat noExtField p' (mkLHsSigWcType t') }
+                            ; return $ SigPat noExtField p' (mkHsPatSigType t') }
 cvtp (ViewP e p)       = do { e' <- cvtl e; p' <- cvtPat p
                             ; return $ ViewPat noExtField e' p'}
 
@@ -1318,7 +1333,12 @@ cvtOpAppP x op1 (UInfixP y op2 z)
 cvtOpAppP x op y
   = do { op' <- cNameL op
        ; y' <- cvtPat y
-       ; return (ConPatIn op' (InfixCon x y')) }
+       ; return $ ConPat
+          { pat_con_ext = noExtField
+          , pat_con = op'
+          , pat_args = InfixCon x y'
+          }
+       }
 
 -----------------------------------------------------------
 --      Types and type variables
@@ -1934,8 +1954,8 @@ mk_ghc_ns TH.VarName   = OccName.varName
 mk_mod :: TH.ModName -> ModuleName
 mk_mod mod = mkModuleName (TH.modString mod)
 
-mk_pkg :: TH.PkgName -> UnitId
-mk_pkg pkg = stringToUnitId (TH.pkgString pkg)
+mk_pkg :: TH.PkgName -> Unit
+mk_pkg pkg = stringToUnit (TH.pkgString pkg)
 
 mk_uniq :: Int -> Unique
 mk_uniq u = mkUniqueGrimily u

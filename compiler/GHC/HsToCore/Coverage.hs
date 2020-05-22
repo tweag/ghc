@@ -12,7 +12,7 @@
 
 module GHC.HsToCore.Coverage (addTicksToBinds, hpcInitCode) where
 
-import GhcPrelude as Prelude
+import GHC.Prelude as Prelude
 
 import qualified GHC.Runtime.Interpreter as GHCi
 import GHCi.RemoteTypes
@@ -21,30 +21,30 @@ import GHC.ByteCode.Types
 import GHC.Stack.CCS
 import GHC.Core.Type
 import GHC.Hs
-import GHC.Types.Module as Module
-import Outputable
+import GHC.Unit
+import GHC.Utils.Outputable as Outputable
 import GHC.Driver.Session
 import GHC.Core.ConLike
 import Control.Monad
 import GHC.Types.SrcLoc
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Types.Name.Set hiding (FreeVars)
 import GHC.Types.Name
-import Bag
+import GHC.Data.Bag
 import GHC.Types.CostCentre
 import GHC.Types.CostCentre.State
 import GHC.Core
 import GHC.Types.Id
 import GHC.Types.Var.Set
 import Data.List
-import FastString
+import GHC.Data.FastString
 import GHC.Driver.Types
 import GHC.Core.TyCon
 import GHC.Types.Basic
-import MonadUtils
-import Maybes
+import GHC.Utils.Monad
+import GHC.Data.Maybe
 import GHC.Cmm.CLabel
-import Util
+import GHC.Utils.Misc
 
 import Data.Time
 import System.Directory
@@ -181,8 +181,8 @@ writeMixEntries dflags mod count entries filename
             mod_name = moduleNameString (moduleName mod)
 
             hpc_mod_dir
-              | moduleUnitId mod == mainUnitId  = hpc_dir
-              | otherwise = hpc_dir ++ "/" ++ unitIdString (moduleUnitId mod)
+              | moduleUnit mod == mainUnitId  = hpc_dir
+              | otherwise = hpc_dir ++ "/" ++ unitString (moduleUnit mod)
 
             tabStop = 8 -- <tab> counts as a normal char in GHC's
                         -- location ranges.
@@ -862,6 +862,8 @@ addTickHsCmd (HsCmdCase x e mgs) =
         liftM2 (HsCmdCase x)
                 (addTickLHsExpr e)
                 (addTickCmdMatchGroup mgs)
+addTickHsCmd (HsCmdLamCase x mgs) =
+        liftM (HsCmdLamCase x) (addTickCmdMatchGroup mgs)
 addTickHsCmd (HsCmdIf x cnd e1 c2 c3) =
         liftM3 (HsCmdIf x cnd)
                 (addBinTickLHsExpr (BinBox CondBinBox) e1)
@@ -1335,11 +1337,11 @@ hpcInitCode this_mod (HpcInfo tickCount hashNo)
     tickboxes = ppr (mkHpcTicksLabel $ this_mod)
 
     module_name  = hcat (map (text.charToC) $ BS.unpack $
-                         bytesFS (moduleNameFS (Module.moduleName this_mod)))
+                         bytesFS (moduleNameFS (moduleName this_mod)))
     package_name = hcat (map (text.charToC) $ BS.unpack $
-                         bytesFS (unitIdFS  (moduleUnitId this_mod)))
+                         bytesFS (unitFS  (moduleUnit this_mod)))
     full_name_str
-       | moduleUnitId this_mod == mainUnitId
+       | moduleUnit this_mod == mainUnitId
        = module_name
        | otherwise
        = package_name <> char '/' <> module_name

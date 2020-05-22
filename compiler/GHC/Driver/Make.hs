@@ -33,41 +33,41 @@ module GHC.Driver.Make (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import qualified GHC.Runtime.Linker as Linker
 
 import GHC.Driver.Phases
 import GHC.Driver.Pipeline
 import GHC.Driver.Session
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Driver.Finder
 import GHC.Driver.Monad
 import GHC.Parser.Header
 import GHC.Driver.Types
-import GHC.Types.Module
-import GHC.IfaceToCore  ( typecheckIface )
-import GHC.Tc.Utils.Monad     ( initIfaceCheck )
+import GHC.Unit.Module
+import GHC.IfaceToCore     ( typecheckIface )
+import GHC.Tc.Utils.Monad  ( initIfaceCheck )
 import GHC.Driver.Main
 
-import Bag              ( unitBag, listToBag, unionManyBags, isEmptyBag )
+import GHC.Data.Bag        ( unitBag, listToBag, unionManyBags, isEmptyBag )
 import GHC.Types.Basic
-import Digraph
-import Exception        ( tryIO, gbracket, gfinally )
-import FastString
-import Maybes           ( expectJust )
+import GHC.Data.Graph.Directed
+import GHC.Utils.Exception ( tryIO )
+import GHC.Data.FastString
+import GHC.Data.Maybe      ( expectJust )
 import GHC.Types.Name
-import MonadUtils       ( allM )
-import Outputable
-import Panic
+import GHC.Utils.Monad     ( allM )
+import GHC.Utils.Outputable
+import GHC.Utils.Panic
 import GHC.Types.SrcLoc
-import StringBuffer
+import GHC.Data.StringBuffer
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.DSet
 import GHC.Tc.Utils.Backpack
-import GHC.Driver.Packages
+import GHC.Unit.State
 import GHC.Types.Unique.Set
-import Util
+import GHC.Utils.Misc
 import qualified GHC.LanguageExtensions as LangExt
 import GHC.Types.Name.Env
 import GHC.SysTools.FileCleanup
@@ -76,7 +76,7 @@ import Data.Either ( rights, partitionEithers )
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
-import qualified FiniteMap as Map ( insertListWith )
+import qualified GHC.Data.FiniteMap as Map ( insertListWith )
 
 import Control.Concurrent ( forkIOWithUnmask, killThread )
 import qualified GHC.Conc as CC
@@ -85,6 +85,7 @@ import Control.Concurrent.QSem
 import Control.Exception
 import Control.Monad
 import Control.Monad.Trans.Except ( ExceptT(..), runExceptT, throwE )
+import qualified Control.Monad.Catch as MC
 import Data.IORef
 import Data.List
 import qualified Data.List as List
@@ -309,9 +310,9 @@ warnUnusedPackages = do
         pit = eps_PIT eps
 
     let loadedPackages
-          = map (getPackageDetails dflags)
+          = map (unsafeGetUnitInfo dflags)
           . nub . sort
-          . map moduleUnitId
+          . map moduleUnit
           . moduleEnvKeys
           $ pit
 
@@ -343,21 +344,21 @@ warnUnusedPackages = do
 
         matchingStr :: String -> UnitInfo -> Bool
         matchingStr str p
-                =  str == sourcePackageIdString p
-                || str == packageNameString p
+                =  str == unitPackageIdString p
+                || str == unitPackageNameString p
 
         matching :: DynFlags -> PackageArg -> UnitInfo -> Bool
         matching _ (PackageArg str) p = matchingStr str p
-        matching dflags (UnitIdArg uid) p = uid == realUnitId dflags p
+        matching dflags (UnitIdArg uid) p = uid == realUnit dflags p
 
         -- For wired-in packages, we have to unwire their id,
         -- otherwise they won't match package flags
-        realUnitId :: DynFlags -> UnitInfo -> UnitId
-        realUnitId dflags
-          = unwireUnitId dflags
-          . DefiniteUnitId
-          . DefUnitId
-          . installedUnitInfoId
+        realUnit :: DynFlags -> UnitInfo -> Unit
+        realUnit dflags
+          = unwireUnit dflags
+          . RealUnit
+          . Definite
+          . unitId
 
 -- | Generalized version of 'load' which also supports a custom
 -- 'Messager' (for reporting progress) and 'ModuleGraph' (generally
@@ -907,7 +908,7 @@ checkStability hpt sccs all_home_mods =
 -- | Each module is given a unique 'LogQueue' to redirect compilation messages
 -- to. A 'Nothing' value contains the result of compilation, and denotes the
 -- end of the message queue.
-data LogQueue = LogQueue !(IORef [Maybe (WarnReason, Severity, SrcSpan, PprStyle, MsgDoc)])
+data LogQueue = LogQueue !(IORef [Maybe (WarnReason, Severity, SrcSpan, MsgDoc)])
                          !(MVar ())
 
 -- | The graph of modules to compile and their corresponding result 'MVar' and
@@ -935,7 +936,7 @@ type BuildModule = (Module, IsBoot)
 -- | 'Bool' indicating if a module is a boot module or not.  We need to treat
 -- boot modules specially when building compilation graphs, since they break
 -- cycles.  Regular source files and signature files are treated equivalently.
-data IsBoot = IsBoot | NotBoot
+data IsBoot = NotBoot | IsBoot
     deriving (Ord, Eq, Show, Read)
 
 -- | Tests if an 'HscSource' is a boot file, primarily for constructing
@@ -965,7 +966,7 @@ parUpsweep n_jobs mHscMessage old_hpt stable_mods cleanup sccs = do
     hsc_env <- getSession
     let dflags = hsc_dflags hsc_env
 
-    when (not (null (unitIdsToCheck dflags))) $
+    when (not (null (instantiatedUnitsToCheck dflags))) $
       throwGhcException (ProgramError "Backpack typechecking not supported with -j")
 
     -- The bits of shared state we'll be using:
@@ -994,10 +995,10 @@ parUpsweep n_jobs mHscMessage old_hpt stable_mods cleanup sccs = do
     -- Reset the number of capabilities once the upsweep ends.
     let resetNumCapabilities orig_n = liftIO $ setNumCapabilities orig_n
 
-    gbracket updNumCapabilities resetNumCapabilities $ \_ -> do
+    MC.bracket updNumCapabilities resetNumCapabilities $ \_ -> do
 
     -- Sync the global session with the latest HscEnv once the upsweep ends.
-    let finallySyncSession io = io `gfinally` do
+    let finallySyncSession io = io `MC.finally` do
             hsc_env <- liftIO $ readMVar hsc_env_var
             setSession hsc_env
 
@@ -1061,7 +1062,7 @@ parUpsweep n_jobs mHscMessage old_hpt stable_mods cleanup sccs = do
 
                 -- Unmask asynchronous exceptions and perform the thread-local
                 -- work to compile the module (see parUpsweep_one).
-                m_res <- try $ unmask $ prettyPrintGhcErrors lcl_dflags $
+                m_res <- MC.try $ unmask $ prettyPrintGhcErrors lcl_dflags $
                         parUpsweep_one mod home_mod_map comp_graph_loops
                                        lcl_dflags mHscMessage cleanup
                                        par_sem hsc_env_var old_hpt_var
@@ -1097,12 +1098,12 @@ parUpsweep n_jobs mHscMessage old_hpt stable_mods cleanup sccs = do
 
         -- Kill all the workers, masking interrupts (since killThread is
         -- interruptible). XXX: This is not ideal.
-        ; killWorkers = uninterruptibleMask_ . mapM_ killThread }
+        ; killWorkers = MC.uninterruptibleMask_ . mapM_ killThread }
 
 
     -- Spawn the workers, making sure to kill them later. Collect the results
     -- of each compile.
-    results <- liftIO $ bracket spawnWorkers killWorkers $ \_ ->
+    results <- liftIO $ MC.bracket spawnWorkers killWorkers $ \_ ->
         -- Loop over each module in the compilation graph in order, printing
         -- each message from its log_queue.
         forM comp_graph $ \(mod,mvar,log_queue) -> do
@@ -1126,7 +1127,7 @@ parUpsweep n_jobs mHscMessage old_hpt stable_mods cleanup sccs = do
             return (success_flag,ok_results)
 
   where
-    writeLogQueue :: LogQueue -> Maybe (WarnReason,Severity,SrcSpan,PprStyle,MsgDoc) -> IO ()
+    writeLogQueue :: LogQueue -> Maybe (WarnReason,Severity,SrcSpan,MsgDoc) -> IO ()
     writeLogQueue (LogQueue ref sem) msg = do
         atomicModifyIORef' ref $ \msgs -> (msg:msgs,())
         _ <- tryPutMVar sem ()
@@ -1135,8 +1136,8 @@ parUpsweep n_jobs mHscMessage old_hpt stable_mods cleanup sccs = do
     -- The log_action callback that is used to synchronize messages from a
     -- worker thread.
     parLogAction :: LogQueue -> LogAction
-    parLogAction log_queue _dflags !reason !severity !srcSpan !style !msg = do
-        writeLogQueue log_queue (Just (reason,severity,srcSpan,style,msg))
+    parLogAction log_queue _dflags !reason !severity !srcSpan !msg = do
+        writeLogQueue log_queue (Just (reason,severity,srcSpan,msg))
 
     -- Print each message from the log_queue using the log_action from the
     -- session's DynFlags.
@@ -1149,8 +1150,8 @@ parUpsweep n_jobs mHscMessage old_hpt stable_mods cleanup sccs = do
 
             print_loop [] = read_msgs
             print_loop (x:xs) = case x of
-                Just (reason,severity,srcSpan,style,msg) -> do
-                    putLogMsg dflags reason severity srcSpan style msg
+                Just (reason,severity,srcSpan,msg) -> do
+                    putLogMsg dflags reason severity srcSpan msg
                     print_loop xs
                 -- Exit the loop once we encounter the end marker.
                 Nothing -> return ()
@@ -1278,7 +1279,7 @@ parUpsweep_one mod home_mod_map comp_graph_loops lcl_dflags mHscMessage cleanup 
         let logger err = printBagOfErrors lcl_dflags (srcErrorMessages err)
 
         -- Limit the number of parallel compiles.
-        let withSem sem = bracket_ (waitQSem sem) (signalQSem sem)
+        let withSem sem = MC.bracket_ (waitQSem sem) (signalQSem sem)
         mb_mod_info <- withSem par_sem $
             handleSourceError (\err -> do logger err; return Nothing) $ do
                 -- Have the ModSummary and HscEnv point to our local log_action
@@ -1374,7 +1375,7 @@ upsweep
 upsweep mHscMessage old_hpt stable_mods cleanup sccs = do
    dflags <- getSessionDynFlags
    (res, done) <- upsweep' old_hpt emptyMG sccs 1 (length sccs)
-                           (unitIdsToCheck dflags) done_holes
+                           (instantiatedUnitsToCheck dflags) done_holes
    return (res, reverse $ mgModSummaries done)
  where
   done_holes = emptyUniqSet
@@ -1405,13 +1406,13 @@ upsweep mHscMessage old_hpt stable_mods cleanup sccs = do
     -> [SCC ModSummary]
     -> Int
     -> Int
-    -> [UnitId]
+    -> [Unit]
     -> UniqSet ModuleName
     -> m (SuccessFlag, ModuleGraph)
   upsweep' _old_hpt done
      [] _ _ uids_to_check _
    = do hsc_env <- getSession
-        liftIO . runHsc hsc_env $ mapM_ (ioMsgMaybe . tcRnCheckUnitId hsc_env) uids_to_check
+        liftIO . runHsc hsc_env $ mapM_ (ioMsgMaybe . tcRnCheckUnit hsc_env) uids_to_check
         return (Succeeded, done)
 
   upsweep' _old_hpt done
@@ -1436,13 +1437,13 @@ upsweep mHscMessage old_hpt stable_mods cleanup sccs = do
         -- our imports when you run --make.
         let (ready_uids, uids_to_check')
                 = partition (\uid -> isEmptyUniqDSet
-                    (unitIdFreeHoles uid `uniqDSetMinusUniqSet` done_holes))
+                    (unitFreeModuleHoles uid `uniqDSetMinusUniqSet` done_holes))
                      uids_to_check
             done_holes'
                 | ms_hsc_src mod == HsigFile
                 = addOneToUniqSet done_holes (ms_mod_name mod)
                 | otherwise = done_holes
-        liftIO . runHsc hsc_env $ mapM_ (ioMsgMaybe . tcRnCheckUnitId hsc_env) ready_uids
+        liftIO . runHsc hsc_env $ mapM_ (ioMsgMaybe . tcRnCheckUnit hsc_env) ready_uids
 
         -- Remove unwanted tmp files between compilations
         liftIO (cleanup hsc_env)
@@ -1505,7 +1506,7 @@ upsweep mHscMessage old_hpt stable_mods cleanup sccs = do
 
                         -- Add any necessary entries to the static pointer
                         -- table. See Note [Grand plan for static forms] in
-                        -- StaticPtrTable.
+                        -- GHC.Iface.Tidy.StaticPtrTable.
                 when (hscTarget (hsc_dflags hsc_env4) == HscInterpreted) $
                     liftIO $ hscAddSptEntries hsc_env4
                                  [ spt
@@ -1517,16 +1518,17 @@ upsweep mHscMessage old_hpt stable_mods cleanup sccs = do
 
                 upsweep' old_hpt1 done' mods (mod_index+1) nmods uids_to_check' done_holes'
 
-unitIdsToCheck :: DynFlags -> [UnitId]
-unitIdsToCheck dflags =
-  nubSort $ concatMap goUnitId (explicitPackages (pkgState dflags))
+-- | Return a list of instantiated units to type check from the PackageState.
+--
+-- Use explicit (instantiated) units as roots and also return their
+-- instantiations that are themselves instantiations and so on recursively.
+instantiatedUnitsToCheck :: DynFlags -> [Unit]
+instantiatedUnitsToCheck dflags =
+  nubSort $ concatMap goUnit (explicitPackages (pkgState dflags))
  where
-  goUnitId uid =
-    case splitUnitIdInsts uid of
-      (_, Just indef) ->
-        let insts = indefUnitIdInsts indef
-        in uid : concatMap (goUnitId . moduleUnitId . snd) insts
-      _ -> []
+  goUnit HoleUnit         = []
+  goUnit (RealUnit _)     = []
+  goUnit uid@(VirtUnit i) = uid : concatMap (goUnit . moduleUnit . snd) (instUnitInsts i)
 
 maybeGetIfaceDate :: DynFlags -> ModLocation -> IO (Maybe UTCTime)
 maybeGetIfaceDate dflags location
@@ -2652,8 +2654,8 @@ withDeferredDiagnostics f = do
     errors <- liftIO $ newIORef []
     fatals <- liftIO $ newIORef []
 
-    let deferDiagnostics _dflags !reason !severity !srcSpan !style !msg = do
-          let action = putLogMsg dflags reason severity srcSpan style msg
+    let deferDiagnostics _dflags !reason !severity !srcSpan !msg = do
+          let action = putLogMsg dflags reason severity srcSpan msg
           case severity of
             SevWarning -> atomicModifyIORef' warnings $ \i -> (action: i, ())
             SevError -> atomicModifyIORef' errors $ \i -> (action: i, ())
@@ -2670,7 +2672,7 @@ withDeferredDiagnostics f = do
         setLogAction action = modifySession $ \hsc_env ->
           hsc_env{ hsc_dflags = (hsc_dflags hsc_env){ log_action = action } }
 
-    gbracket
+    MC.bracket
       (setLogAction deferDiagnostics)
       (\_ -> setLogAction (log_action dflags) >> printDeferredDiagnostics)
       (\_ -> f)

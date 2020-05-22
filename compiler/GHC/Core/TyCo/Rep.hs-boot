@@ -1,6 +1,6 @@
 module GHC.Core.TyCo.Rep where
 
-import Outputable ( Outputable )
+import GHC.Utils.Outputable ( Outputable )
 import Data.Data  ( Data )
 import {-# SOURCE #-} GHC.Types.Var( Var, ArgFlag, AnonArgFlag )
 

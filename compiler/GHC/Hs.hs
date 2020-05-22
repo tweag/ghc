@@ -35,7 +35,7 @@ module GHC.Hs (
 ) where
 
 -- friends:
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs.Decls
 import GHC.Hs.Binds
@@ -51,9 +51,9 @@ import GHC.Hs.Doc
 import GHC.Hs.Instances () -- For Data instances
 
 -- others:
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.SrcLoc
-import GHC.Types.Module ( ModuleName )
+import GHC.Unit.Module ( ModuleName )
 
 -- libraries:
 import Data.Data hiding ( Fixity )

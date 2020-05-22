@@ -16,7 +16,7 @@ module GHC.HsToCore.Arrows ( dsProcExpr ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.HsToCore.Match
 import GHC.HsToCore.Utils
@@ -51,12 +51,12 @@ import GHC.Core.ConLike
 import GHC.Builtin.Types
 import GHC.Types.Basic
 import GHC.Builtin.Names
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.Var.Set
 import GHC.Types.SrcLoc
-import ListSetOps( assocMaybe )
+import GHC.Data.List.SetOps( assocMaybe )
 import Data.List
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Unique.DSet
 
 data DsCmdEnv = DsCmdEnv {
@@ -448,45 +448,12 @@ dsCmd ids local_vars stack_ty res_ty (HsCmdApp _ cmd arg) env_ids = do
             free_vars `unionDVarSet`
               (exprFreeIdsDSet core_arg `uniqDSetIntersectUniqSet` local_vars))
 
--- D; ys |-a cmd : stk t'
--- -----------------------------------------------
--- D; xs |-a \ p1 ... pk -> cmd : (t1,...(tk,stk)...) t'
---
---              ---> premap (\ ((xs), (p1, ... (pk,stk)...)) -> ((ys),stk)) cmd
-
 dsCmd ids local_vars stack_ty res_ty
         (HsCmdLam _ (MG { mg_alts
           = (L _ [L _ (Match { m_pats  = pats
                              , m_grhss = GRHSs _ [L _ (GRHS _ [] body)] _ })]) }))
-        env_ids = do
-    let pat_vars = mkVarSet (collectPatsBinders pats)
-    let
-        local_vars' = pat_vars `unionVarSet` local_vars
-        (pat_tys, stack_ty') = splitTypeAt (length pats) stack_ty
-    (core_body, free_vars, env_ids')
-       <- dsfixCmd ids local_vars' stack_ty' res_ty body
-    param_ids <- mapM (newSysLocalDsNoLP Many) pat_tys
-    stack_id' <- newSysLocalDs Many stack_ty'
-
-    -- the expression is built from the inside out, so the actions
-    -- are presented in reverse order
-
-    let
-        -- build a new environment, plus what's left of the stack
-        core_expr = buildEnvStack env_ids' stack_id'
-        in_ty = envStackType env_ids stack_ty
-        in_ty' = envStackType env_ids' stack_ty'
-
-    fail_expr <- mkFailExpr LambdaExpr in_ty'
-    -- match the patterns against the parameters
-    match_code <- matchSimplys (map Var param_ids) LambdaExpr pats core_expr
-                    fail_expr
-    -- match the parameters against the top of the old stack
-    (stack_id, param_code) <- matchVarStack param_ids stack_id' match_code
-    -- match the old environment and stack against the input
-    select_code <- matchEnvStack env_ids stack_id param_code
-    return (do_premap ids in_ty in_ty' res_ty select_code core_body,
-            free_vars `uniqDSetMinusUniqSet` pat_vars)
+        env_ids
+  = dsCmdLam ids local_vars stack_ty res_ty pats body env_ids
 
 dsCmd ids local_vars stack_ty res_ty (HsCmdPar _ cmd) env_ids
   = dsLCmd ids local_vars stack_ty res_ty cmd env_ids
@@ -627,6 +594,12 @@ dsCmd ids local_vars stack_ty res_ty
     return (do_premap ids in_ty sum_ty res_ty core_matches core_choices,
             exprFreeIdsDSet core_body `uniqDSetIntersectUniqSet` local_vars)
 
+dsCmd ids local_vars stack_ty res_ty
+      (HsCmdLamCase _ mg@MG { mg_ext = MatchGroupTc [Scaled arg_mult arg_ty] _ }) env_ids = do
+  arg_id <- newSysLocalDs arg_mult arg_ty
+  let case_cmd  = noLoc $ HsCmdCase noExtField (nlHsVar arg_id) mg
+  dsCmdLam ids local_vars stack_ty res_ty [nlVarPat arg_id] case_cmd env_ids
+
 -- D; ys |-a cmd : stk --> t
 -- ----------------------------------
 -- D; xs |-a let binds in cmd : stk --> t
@@ -694,7 +667,7 @@ dsCmd ids local_vars stack_ty res_ty (XCmd (HsWrap wrap cmd)) env_ids = do
     core_wrap <- dsHsWrapper wrap
     return (core_wrap core_cmd, env_ids')
 
-dsCmd _ _ _ _ _ c = pprPanic "dsCmd" (ppr c)
+dsCmd _ _ _ _ c _ = pprPanic "dsCmd" (ppr c)
 
 -- D; ys |-a c : stk --> t      (ys <= xs)
 -- ---------------------
@@ -753,6 +726,52 @@ trimInput build_arrow
   = fixDs (\ ~(_,_,env_ids) -> do
         (core_cmd, free_vars) <- build_arrow env_ids
         return (core_cmd, free_vars, dVarSetElems free_vars))
+
+-- Desugaring for both HsCmdLam and HsCmdLamCase.
+--
+-- D; ys |-a cmd : stk t'
+-- -----------------------------------------------
+-- D; xs |-a \ p1 ... pk -> cmd : (t1,...(tk,stk)...) t'
+--
+--              ---> premap (\ ((xs), (p1, ... (pk,stk)...)) -> ((ys),stk)) cmd
+dsCmdLam :: DsCmdEnv            -- arrow combinators
+         -> IdSet               -- set of local vars available to this command
+         -> Type                -- type of the stack (right-nested tuple)
+         -> Type                -- return type of the command
+         -> [LPat GhcTc]        -- argument patterns to desugar
+         -> LHsCmd GhcTc        -- body to desugar
+         -> [Id]                -- list of vars in the input to this command
+                                -- This is typically fed back,
+                                -- so don't pull on it too early
+         -> DsM (CoreExpr,      -- desugared expression
+                 DIdSet)        -- subset of local vars that occur free
+dsCmdLam ids local_vars stack_ty res_ty pats body env_ids = do
+    let pat_vars = mkVarSet (collectPatsBinders pats)
+    let local_vars' = pat_vars `unionVarSet` local_vars
+        (pat_tys, stack_ty') = splitTypeAt (length pats) stack_ty
+    (core_body, free_vars, env_ids')
+       <- dsfixCmd ids local_vars' stack_ty' res_ty body
+    param_ids <- mapM (newSysLocalDsNoLP Many) pat_tys
+    stack_id' <- newSysLocalDs Many stack_ty'
+
+    -- the expression is built from the inside out, so the actions
+    -- are presented in reverse order
+
+    let -- build a new environment, plus what's left of the stack
+        core_expr = buildEnvStack env_ids' stack_id'
+        in_ty = envStackType env_ids stack_ty
+        in_ty' = envStackType env_ids' stack_ty'
+
+    fail_expr <- mkFailExpr LambdaExpr in_ty'
+    -- match the patterns against the parameters
+    match_code <- matchSimplys (map Var param_ids) LambdaExpr pats core_expr
+                    fail_expr
+    -- match the parameters against the top of the old stack
+    (stack_id, param_code) <- matchVarStack param_ids stack_id' match_code
+    -- match the old environment and stack against the input
+    select_code <- matchEnvStack env_ids stack_id param_code
+    return (do_premap ids in_ty in_ty' res_ty select_code core_body,
+            free_vars `uniqDSetMinusUniqSet` pat_vars)
 
 {-
 Translation of command judgements of the form
@@ -1192,7 +1211,7 @@ Note [Dictionary binders in ConPatOut] See also same Note in GHC.Hs.Utils
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The following functions to collect value variables from patterns are
 copied from GHC.Hs.Utils, with one change: we also collect the dictionary
-bindings (pat_binds) from ConPatOut.  We need them for cases like
+bindings (cpt_binds) from ConPatOut.  We need them for cases like
 
 h :: Arrow a => Int -> a (Int,Int) Int
 h x = proc (y,z) -> case compare x y of
@@ -1232,8 +1251,8 @@ collectl (L _ pat) bndrs
     go (TuplePat _ pats _)        = foldr collectl bndrs pats
     go (SumPat _ pat _ _)         = collectl pat bndrs
 
-    go (ConPatIn _ ps)            = foldr collectl bndrs (hsConPatArgs ps)
-    go (ConPatOut {pat_args=ps, pat_binds=ds}) =
+    go (ConPat { pat_args = ps
+               , pat_con_ext = ConPatTc { cpt_binds = ds }}) =
                                     collectEvBinders ds
                                     ++ foldr collectl bndrs (hsConPatArgs ps)
     go (LitPat _ _)               = bndrs
@@ -1241,7 +1260,7 @@ collectl (L _ pat) bndrs
     go (NPlusKPat _ (L _ n) _ _ _ _) = n : bndrs
 
     go (SigPat _ pat _)           = collectl pat bndrs
-    go (CoPat _ _ pat _)          = collectl (noLoc pat) bndrs
+    go (XPat (CoPat _ pat _))     = collectl (noLoc pat) bndrs
     go (ViewPat _ _ pat)          = collectl pat bndrs
     go p@(SplicePat {})           = pprPanic "collectl/go" (ppr p)
 

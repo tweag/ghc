@@ -18,6 +18,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE LambdaCase #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
@@ -27,7 +28,7 @@ module GHC.Hs.Expr where
 #include "HsVersions.h"
 
 -- friends:
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs.Decls
 import GHC.Hs.Pat
@@ -44,9 +45,9 @@ import GHC.Types.Name.Set
 import GHC.Types.Basic
 import GHC.Core.ConLike
 import GHC.Types.SrcLoc
-import Util
-import Outputable
-import FastString
+import GHC.Utils.Misc
+import GHC.Utils.Outputable
+import GHC.Data.FastString
 import GHC.Core.Type
 import GHC.Builtin.Types (mkTupleStr)
 import GHC.Tc.Utils.TcType (TcType)
@@ -188,8 +189,8 @@ instance Outputable SyntaxExprTc where
                     , syn_arg_wraps = arg_wraps
                     , syn_res_wrap  = res_wrap })
     = sdocOption sdocPrintExplicitCoercions $ \print_co ->
-      getPprStyle $ \s ->
-      if debugStyle s || print_co
+      getPprDebug $ \debug ->
+      if debug || print_co
       then ppr expr <> braces (pprWithCommas ppr arg_wraps)
                     <> braces (ppr res_wrap)
       else ppr expr
@@ -294,7 +295,9 @@ data HsExpr p
 
   | HsApp     (XApp p) (LHsExpr p) (LHsExpr p) -- ^ Application
 
-  | HsAppType (XAppTypeE p) (LHsExpr p) (LHsWcType (NoGhcTc p))  -- ^ Visible type application
+  | HsAppType (XAppTypeE p) -- After typechecking: the type argument
+              (LHsExpr p)
+              (LHsWcType (NoGhcTc p))  -- ^ Visible type application
        --
        -- Explicit type argument; e.g  f @Int x y
        -- NB: Has wildcards, but no implicit quantification
@@ -600,7 +603,9 @@ type instance XLam           (GhcPass _) = NoExtField
 type instance XLamCase       (GhcPass _) = NoExtField
 type instance XApp           (GhcPass _) = NoExtField
 
-type instance XAppTypeE      (GhcPass _) = NoExtField
+type instance XAppTypeE      GhcPs = NoExtField
+type instance XAppTypeE      GhcRn = NoExtField
+type instance XAppTypeE      GhcTc = Type
 
 type instance XOpApp         GhcPs = NoExtField
 type instance XOpApp         GhcRn = Fixity
@@ -1138,9 +1143,9 @@ can see the structure of the parse tree.
 pprDebugParendExpr :: (OutputableBndrId p)
                    => PprPrec -> LHsExpr (GhcPass p) -> SDoc
 pprDebugParendExpr p expr
-  = getPprStyle (\sty ->
-    if debugStyle sty then pprParendLExpr p expr
-                      else pprLExpr      expr)
+  = getPprDebug $ \case
+      True  -> pprParendLExpr p expr
+      False -> pprLExpr         expr
 
 pprParendLExpr :: (OutputableBndrId p)
                => PprPrec -> LHsExpr (GhcPass p) -> SDoc
@@ -1215,8 +1220,12 @@ parenthesizeHsExpr p le@(L loc e)
   | hsExprNeedsParens p e = L loc (HsPar noExtField le)
   | otherwise             = le
 
-stripParensHsExpr :: LHsExpr (GhcPass p) -> LHsExpr (GhcPass p)
-stripParensHsExpr (L _ (HsPar _ e)) = stripParensHsExpr e
+stripParensLHsExpr :: LHsExpr (GhcPass p) -> LHsExpr (GhcPass p)
+stripParensLHsExpr (L _ (HsPar _ e)) = stripParensLHsExpr e
+stripParensLHsExpr e = e
+
+stripParensHsExpr :: HsExpr (GhcPass p) -> HsExpr (GhcPass p)
+stripParensHsExpr (HsPar _ (L _ e)) = stripParensHsExpr e
 stripParensHsExpr e = e
 
 isAtomicHsExpr :: forall p. IsPass p => HsExpr (GhcPass p) -> Bool
@@ -1323,6 +1332,14 @@ data HsCmd id
 
     -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 
+  | HsCmdLamCase (XCmdLamCase id)
+                 (MatchGroup id (LHsCmd id))    -- bodies are HsCmd's
+    -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLam',
+    --       'ApiAnnotation.AnnCase','ApiAnnotation.AnnOpen' @'{'@,
+    --       'ApiAnnotation.AnnClose' @'}'@
+
+    -- For details on above see note [Api annotations] in GHC.Parser.Annotation
+
   | HsCmdIf     (XCmdIf id)
                 (SyntaxExpr id)         -- cond function
                 (LHsExpr id)            -- predicate
@@ -1364,6 +1381,7 @@ type instance XCmdApp     (GhcPass _) = NoExtField
 type instance XCmdLam     (GhcPass _) = NoExtField
 type instance XCmdPar     (GhcPass _) = NoExtField
 type instance XCmdCase    (GhcPass _) = NoExtField
+type instance XCmdLamCase (GhcPass _) = NoExtField
 type instance XCmdIf      (GhcPass _) = NoExtField
 type instance XCmdLet     (GhcPass _) = NoExtField
 
@@ -1452,6 +1470,9 @@ ppr_cmd (HsCmdLam _ matches)
 ppr_cmd (HsCmdCase _ expr matches)
   = sep [ sep [text "case", nest 4 (ppr expr), ptext (sLit "of")],
           nest 2 (pprMatches matches) ]
+
+ppr_cmd (HsCmdLamCase _ matches)
+  = sep [ text "\\case", nest 2 (pprMatches matches) ]
 
 ppr_cmd (HsCmdIf _ _ e ct ce)
   = sep [hsep [text "if", nest 2 (ppr e), ptext (sLit "then")],
@@ -2568,7 +2589,7 @@ instance (OutputableBndrId p) => Outputable (HsSplice (GhcPass p)) where
 
 pprPendingSplice :: (OutputableBndrId p)
                  => SplicePointName -> LHsExpr (GhcPass p) -> SDoc
-pprPendingSplice n e = angleBrackets (ppr n <> comma <+> ppr (stripParensHsExpr e))
+pprPendingSplice n e = angleBrackets (ppr n <> comma <+> ppr (stripParensLHsExpr e))
 
 pprSpliceDecl ::  (OutputableBndrId p)
           => HsSplice (GhcPass p) -> SpliceExplicitFlag -> SDoc

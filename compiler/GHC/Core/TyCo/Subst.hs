@@ -53,7 +53,7 @@ module GHC.Core.TyCo.Subst
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Core.Type
    ( mkCastTy, mkAppTy, isCoercionTy )
@@ -75,13 +75,13 @@ import GHC.Types.Var
 import GHC.Types.Var.Set
 import GHC.Types.Var.Env
 
-import Pair
-import Util
+import GHC.Data.Pair
+import GHC.Utils.Misc
 import GHC.Types.Unique.Supply
 import GHC.Types.Unique
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.Set
-import Outputable
+import GHC.Utils.Outputable
 
 import Data.List (mapAccumL)
 
@@ -384,8 +384,8 @@ extendTCvSubstList subst tvs tys
 unionTCvSubst :: TCvSubst -> TCvSubst -> TCvSubst
 -- Works when the ranges are disjoint
 unionTCvSubst (TCvSubst in_scope1 tenv1 cenv1) (TCvSubst in_scope2 tenv2 cenv2)
-  = ASSERT( not (tenv1 `intersectsVarEnv` tenv2)
-         && not (cenv1 `intersectsVarEnv` cenv2) )
+  = ASSERT( tenv1 `disjointVarEnv` tenv2
+         && cenv1 `disjointVarEnv` cenv2 )
     TCvSubst (in_scope1 `unionInScope` in_scope2)
              (tenv1     `plusVarEnv`   tenv2)
              (cenv1     `plusVarEnv`   cenv2)

@@ -30,7 +30,7 @@ module GHC.CmmToAsm (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import qualified GHC.CmmToAsm.X86.CodeGen as X86.CodeGen
 import qualified GHC.CmmToAsm.X86.Regs    as X86.Regs
@@ -53,12 +53,12 @@ import qualified GHC.CmmToAsm.PPC.Ppr     as PPC.Ppr
 import GHC.CmmToAsm.Reg.Liveness
 import qualified GHC.CmmToAsm.Reg.Linear                as Linear
 
-import qualified GraphColor                             as Color
+import qualified GHC.Data.Graph.Color                   as Color
 import qualified GHC.CmmToAsm.Reg.Graph                 as Color
 import qualified GHC.CmmToAsm.Reg.Graph.Stats           as Color
 import qualified GHC.CmmToAsm.Reg.Graph.TrivColorable   as Color
 
-import AsmUtils
+import GHC.Utils.Asm
 import GHC.CmmToAsm.Reg.Target
 import GHC.Platform
 import GHC.CmmToAsm.BlockLayout as BlockLayout
@@ -86,21 +86,21 @@ import GHC.Cmm.CLabel
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.Supply
 import GHC.Driver.Session
-import Util
+import GHC.Utils.Misc
 
 import GHC.Types.Basic       ( Alignment )
-import qualified Pretty
-import BufWrite
-import Outputable
-import FastString
+import qualified GHC.Utils.Ppr as Pretty
+import GHC.Utils.BufHandle
+import GHC.Utils.Outputable as Outputable
+import GHC.Data.FastString
 import GHC.Types.Unique.Set
-import ErrUtils
-import GHC.Types.Module
-import Stream (Stream)
-import qualified Stream
+import GHC.Utils.Error
+import GHC.Unit
+import GHC.Data.Stream (Stream)
+import qualified GHC.Data.Stream as Stream
 
 -- DEBUGGING ONLY
---import OrdList
+--import GHC.Data.OrdList
 
 import Data.List
 import Data.Maybe
@@ -390,7 +390,7 @@ finishNativeGen dflags modLoc bufh@(BufHandle _ _ h) us ngs
                 $ makeImportsDoc dflags (concat (ngs_imports ngs))
         return us'
   where
-    dump_stats = dumpAction dflags (mkDumpStyle dflags alwaysQualify)
+    dump_stats = dumpAction dflags (mkDumpStyle alwaysQualify)
                    (dumpOptionsFromFlag Opt_D_dump_asm_stats) "NCG stats"
                    FormatText
 

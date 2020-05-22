@@ -13,7 +13,7 @@ module GHC.Stg.Pipeline ( stg2stg ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Stg.Syntax
 
@@ -23,12 +23,12 @@ import GHC.Stg.DepAnal  ( depSortStgPgm )
 import GHC.Stg.Unarise  ( unarise )
 import GHC.Stg.CSE      ( stgCse )
 import GHC.Stg.Lift     ( stgLiftLams )
-import GHC.Types.Module ( Module )
+import GHC.Unit.Module ( Module )
 
 import GHC.Driver.Session
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Types.Unique.Supply
-import Outputable
+import GHC.Utils.Outputable
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.State.Strict

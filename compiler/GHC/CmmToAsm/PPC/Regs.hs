@@ -31,6 +31,7 @@ module GHC.CmmToAsm.PPC.Regs (
         allMachRegNos,
         classOfRealReg,
         showReg,
+        toRegNo,
 
         -- machine specific
         allFPArgRegs,
@@ -49,7 +50,7 @@ where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Platform.Reg
 import GHC.Platform.Reg.Class
@@ -60,7 +61,7 @@ import GHC.Cmm.CLabel           ( CLabel )
 import GHC.Types.Unique
 
 import GHC.Platform.Regs
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Platform
 
 import Data.Word        ( Word8, Word16, Word32, Word64 )
@@ -250,7 +251,9 @@ showReg n
     | n >= 32 && n <= 63  = "%f" ++ show (n - 32)
     | otherwise           = "%unknown_powerpc_real_reg_" ++ show n
 
-
+toRegNo :: Reg -> RegNo
+toRegNo (RegReal (RealRegSingle n)) = n
+toRegNo _                           = panic "PPC.toRegNo: unsupported register"
 
 -- machine specific ------------------------------------------------------------
 

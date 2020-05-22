@@ -24,7 +24,7 @@ module GHC.IfaceToCore (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Builtin.Types.Literals(typeNatCoAxiomRules)
 import GHC.Iface.Syntax
@@ -63,20 +63,20 @@ import GHC.Types.Name
 import GHC.Types.Name.Env
 import GHC.Types.Name.Set
 import GHC.Core.Opt.OccurAnal ( occurAnalyseExpr )
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.Supply
-import Outputable
-import Maybes
+import GHC.Utils.Outputable
+import GHC.Data.Maybe
 import GHC.Types.SrcLoc
 import GHC.Driver.Session
-import Util
-import FastString
+import GHC.Utils.Misc
+import GHC.Data.FastString
 import GHC.Types.Basic hiding ( SuccessFlag(..) )
-import ListSetOps
+import GHC.Data.List.SetOps
 import GHC.Fingerprint
-import qualified BooleanFormula as BF
 import GHC.Core.Multiplicity
+import qualified GHC.Data.BooleanFormula as BF
 
 import Control.Monad
 import qualified Data.Map as Map
@@ -516,7 +516,7 @@ tcHiBootIface hsc_src mod
         -- to check consistency against, rather than just when we notice
         -- that an hi-boot is necessary due to a circular import.
         { read_result <- findAndReadIface
-                                need (fst (splitModuleInsts mod)) mod
+                                need (fst (getModuleInstantiation mod)) mod
                                 True    -- Hi-boot file
 
         ; case read_result of {

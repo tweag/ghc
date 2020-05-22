@@ -14,7 +14,7 @@
 
 module GHC.Runtime.Debugger (pprintClosureCommand, showTerm, pprTypeAndContents) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Runtime.Linker
 import GHC.Runtime.Heap.Inspect
@@ -32,14 +32,15 @@ import GHC.Types.Var.Set
 import GHC.Types.Unique.Set
 import GHC.Core.Type
 import GHC
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Core.Ppr.TyThing
-import ErrUtils
-import MonadUtils
+import GHC.Utils.Error
+import GHC.Utils.Monad
 import GHC.Driver.Session
-import Exception
+import GHC.Utils.Exception
 
 import Control.Monad
+import Control.Monad.Catch as MC
 import Data.List ( (\\) )
 import Data.Maybe
 import Data.IORef
@@ -177,7 +178,7 @@ showTerm term = do
                       -- XXX: this tries to disable logging of errors
                       -- does this still do what it is intended to do
                       -- with the changed error handling and logging?
-           let noop_log _ _ _ _ _ _ = return ()
+           let noop_log _ _ _ _ _ = return ()
                expr = "Prelude.return (Prelude.show " ++
                          showPpr dflags bname ++
                       ") :: Prelude.IO Prelude.String"
@@ -192,7 +193,7 @@ showTerm term = do
              return $ Just $ cparen (prec >= myprec && needsParens txt)
                                     (text txt)
             else return Nothing
-         `gfinally` do
+         `MC.finally` do
            setSession hsc_env
            GHC.setSessionDynFlags dflags
   cPprShowable prec NewtypeWrap{ty=new_ty,wrapped_term=t} =
@@ -228,7 +229,7 @@ pprTypeAndContents id = do
       let depthBound = 100
       -- If the value is an exception, make sure we catch it and
       -- show the exception, rather than propagating the exception out.
-      e_term <- gtry $ GHC.obtainTermFromId depthBound False id
+      e_term <- MC.try $ GHC.obtainTermFromId depthBound False id
       docs_term <- case e_term of
                       Right term -> showTerm term
                       Left  exn  -> return (text "*** Exception:" <+>

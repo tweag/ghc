@@ -72,7 +72,7 @@ module GHC.Tc.Utils.Env(
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs
 import GHC.Iface.Env
@@ -105,17 +105,17 @@ import GHC.Driver.Types
 import GHC.Driver.Session
 import GHC.Types.SrcLoc
 import GHC.Types.Basic hiding( SuccessFlag(..) )
-import GHC.Types.Module
-import Outputable
-import Encoding
-import FastString
-import Bag
-import ListSetOps
-import ErrUtils
-import Maybes( MaybeErr(..), orElse )
+import GHC.Unit.Module
+import GHC.Utils.Outputable
+import GHC.Utils.Encoding
+import GHC.Data.FastString
+import GHC.Data.Bag
+import GHC.Data.List.SetOps
+import GHC.Utils.Error
+import GHC.Data.Maybe( MaybeErr(..), orElse )
 import GHC.Core.Multiplicity
 import qualified GHC.LanguageExtensions as LangExt
-import Util ( HasDebugCallStack )
+import GHC.Utils.Misc ( HasDebugCallStack )
 
 import Data.IORef
 import Data.List (intercalate)
@@ -1050,7 +1050,7 @@ mkWrapperName what nameBase
          thisMod <- getModule
          let -- Note [Generating fresh names for ccall wrapper]
              wrapperRef = nextWrapperNum dflags
-             pkg = unitIdString  (moduleUnitId thisMod)
+             pkg = unitString  (moduleUnit thisMod)
              mod = moduleNameString (moduleName      thisMod)
          wrapperNum <- liftIO $ atomicModifyIORef' wrapperRef $ \mod_env ->
              let num = lookupWithDefaultModuleEnv mod_env 0 thisMod

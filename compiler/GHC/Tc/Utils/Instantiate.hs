@@ -34,13 +34,13 @@ module GHC.Tc.Utils.Instantiate (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
-import {-# SOURCE #-}   GHC.Tc.Gen.Expr( tcPolyExpr, tcSyntaxOp )
+import {-# SOURCE #-}   GHC.Tc.Gen.Expr( tcCheckExpr, tcSyntaxOp )
 import {-# SOURCE #-}   GHC.Tc.Utils.Unify( unifyType, unifyKind )
 
 import GHC.Types.Basic ( IntegralLit(..), SourceText(..) )
-import FastString
+import GHC.Data.FastString
 import GHC.Hs
 import GHC.Tc.Utils.Zonk
 import GHC.Tc.Utils.Monad
@@ -71,8 +71,8 @@ import GHC.Types.Var.Env
 import GHC.Builtin.Names
 import GHC.Types.SrcLoc as SrcLoc
 import GHC.Driver.Session
-import Util
-import Outputable
+import GHC.Utils.Misc
+import GHC.Utils.Outputable
 import GHC.Types.Basic ( TypeOrKind(..) )
 import qualified GHC.LanguageExtensions as LangExt
 
@@ -640,7 +640,7 @@ tcSyntaxName orig ty (std_nm, user_nm_expr) = do
         -- same type as the standard one.
         -- Tiresome jiggling because tcCheckSigma takes a located expression
      span <- getSrcSpanM
-     expr <- tcPolyExpr (L span user_nm_expr) sigma1
+     expr <- tcCheckExpr (L span user_nm_expr) sigma1
      return (std_nm, unLoc expr)
 
 syntaxNameCtxt :: HsExpr GhcRn -> CtOrigin -> Type -> TidyEnv

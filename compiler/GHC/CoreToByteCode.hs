@@ -13,7 +13,7 @@ module GHC.CoreToByteCode ( UnlinkedBCO, byteCodeGen, coreExprToBCOs ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.ByteCode.Instr
 import GHC.ByteCode.Asm
@@ -24,7 +24,7 @@ import GHCi.FFI
 import GHCi.RemoteTypes
 import GHC.Types.Basic
 import GHC.Driver.Session
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Platform
 import GHC.Types.Name
 import GHC.Types.Id.Make
@@ -43,20 +43,20 @@ import GHC.Core.Type
 import GHC.Types.RepType
 import GHC.Core.DataCon
 import GHC.Core.TyCon
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Var.Set
 import GHC.Builtin.Types.Prim
 import GHC.Core.TyCo.Ppr ( pprType )
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Types.Unique
-import FastString
-import Panic
+import GHC.Data.FastString
+import GHC.Utils.Panic
 import GHC.StgToCmm.Closure ( NonVoid(..), fromNonVoid, nonVoidIds )
 import GHC.StgToCmm.Layout
 import GHC.Runtime.Heap.Layout hiding (WordOff, ByteOff, wordsToBytes)
 import GHC.Data.Bitmap
-import OrdList
-import Maybes
+import GHC.Data.OrdList
+import GHC.Data.Maybe
 import GHC.Types.Var.Env
 import GHC.Builtin.Names ( unsafeEqualityProofName )
 
@@ -66,7 +66,7 @@ import Control.Monad
 import Data.Char
 
 import GHC.Types.Unique.Supply
-import GHC.Types.Module
+import GHC.Unit.Module
 
 import Control.Exception
 import Data.Array
@@ -75,7 +75,7 @@ import Data.Map (Map)
 import Data.IntMap (IntMap)
 import qualified Data.Map as Map
 import qualified Data.IntMap as IntMap
-import qualified FiniteMap as Map
+import qualified GHC.Data.FiniteMap as Map
 import Data.Ord
 import GHC.Stack.CCS
 import Data.Either ( partitionEithers )

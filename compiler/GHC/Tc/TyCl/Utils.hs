@@ -30,7 +30,7 @@ module GHC.Tc.TyCl.Utils(
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Tc.Utils.Monad
 import GHC.Tc.Utils.Env
@@ -60,13 +60,13 @@ import GHC.Core.Coercion ( ltRole )
 import GHC.Types.Basic
 import GHC.Types.SrcLoc
 import GHC.Types.Unique ( mkBuiltinUnique )
-import Outputable
-import Util
-import Maybes
-import Bag
-import FastString
-import FV
-import GHC.Types.Module
+import GHC.Utils.Outputable
+import GHC.Utils.Misc
+import GHC.Data.Maybe
+import GHC.Data.Bag
+import GHC.Data.FastString
+import GHC.Utils.FV as FV
+import GHC.Unit.Module
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
@@ -182,11 +182,11 @@ checkNameIsAcyclic n m = SynCycleM $ \s ->
                 Left err -> Left err
 
 -- | Checks if any of the passed in 'TyCon's have cycles.
--- Takes the 'UnitId' of the home package (as we can avoid
+-- Takes the 'Unit' of the home package (as we can avoid
 -- checking those TyCons: cycles never go through foreign packages) and
 -- the corresponding @LTyClDecl Name@ for each 'TyCon', so we
 -- can give better error messages.
-checkSynCycles :: UnitId -> [TyCon] -> [LTyClDecl GhcRn] -> TcM ()
+checkSynCycles :: Unit -> [TyCon] -> [LTyClDecl GhcRn] -> TcM ()
 checkSynCycles this_uid tcs tyclds = do
     case runSynCycleM (mapM_ (go emptyNameSet []) tcs) emptyNameSet of
         Left (loc, err) -> setSrcSpan loc $ failWithTc err
@@ -216,7 +216,7 @@ checkSynCycles this_uid tcs tyclds = do
         -- This won't hold once we get recursive packages with Backpack,
         -- but for now it's fine.
         | not (isHoleModule mod ||
-               moduleUnitId mod == this_uid ||
+               moduleUnit mod == this_uid ||
                isInteractiveModule mod)
             = return ()
         | Just ty <- synTyConRhs_maybe tc =
@@ -899,7 +899,7 @@ mkOneRecordSelector all_cons idDetails fl
     mk_match con = mkSimpleMatch (mkPrefixFunRhs sel_lname)
                                  [L loc (mk_sel_pat con)]
                                  (L loc (HsVar noExtField (L loc field_var)))
-    mk_sel_pat con = ConPatIn (L loc (getName con)) (RecCon rec_fields)
+    mk_sel_pat con = ConPat NoExtField (L loc (getName con)) (RecCon rec_fields)
     rec_fields = HsRecFields { rec_flds = [rec_field], rec_dotdot = Nothing }
     rec_field  = noLoc (HsRecField
                         { hsRecFieldLbl

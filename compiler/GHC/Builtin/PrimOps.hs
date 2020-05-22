@@ -16,7 +16,7 @@ module GHC.Builtin.PrimOps (
 
         primOpOutOfLine, primOpCodeSize,
         primOpOkForSpeculation, primOpOkForSideEffects,
-        primOpIsCheap, primOpFixity,
+        primOpIsCheap, primOpFixity, primOpDocs,
 
         getPrimOpResultInfo,  isComparisonPrimOp, PrimOpResultInfo(..),
 
@@ -25,7 +25,7 @@ module GHC.Builtin.PrimOps (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Builtin.Types.Prim
 import GHC.Builtin.Types
@@ -44,9 +44,9 @@ import GHC.Types.Basic   ( Arity, Fixity(..), FixityDirection(..), Boxity(..),
 import GHC.Types.SrcLoc  ( wiredInSrcSpan )
 import GHC.Types.ForeignCall ( CLabelString )
 import GHC.Types.Unique  ( Unique, mkPrimOpIdUnique, mkPrimOpWrapperUnique )
-import GHC.Types.Module  ( UnitId )
-import Outputable
-import FastString
+import GHC.Unit          ( Unit )
+import GHC.Utils.Outputable
+import GHC.Data.FastString
 
 {-
 ************************************************************************
@@ -160,6 +160,19 @@ primOpStrictness :: PrimOp -> Arity -> StrictSig
 
 primOpFixity :: PrimOp -> Maybe Fixity
 #include "primop-fixity.hs-incl"
+
+{-
+************************************************************************
+*                                                                      *
+\subsubsection{Docs}
+*                                                                      *
+************************************************************************
+
+See Note [GHC.Prim Docs]
+-}
+
+primOpDocs :: [(String, String)]
+#include "primop-docs.hs-incl"
 
 {-
 ************************************************************************
@@ -691,7 +704,7 @@ pprPrimOp other_op = pprOccName (primOpOcc other_op)
 ************************************************************************
 -}
 
-data PrimCall = PrimCall CLabelString UnitId
+data PrimCall = PrimCall CLabelString Unit
 
 instance Outputable PrimCall where
   ppr (PrimCall lbl pkgId)

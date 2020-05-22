@@ -24,7 +24,7 @@ module GHC.StgToCmm.Prim (
 
 #include "HsVersions.h"
 
-import GhcPrelude hiding ((<*>))
+import GHC.Prelude hiding ((<*>))
 
 import GHC.StgToCmm.Layout
 import GHC.StgToCmm.Foreign
@@ -42,16 +42,16 @@ import GHC.Cmm.BlockId
 import GHC.Cmm.Graph
 import GHC.Stg.Syntax
 import GHC.Cmm
-import GHC.Types.Module ( rtsUnitId )
+import GHC.Unit         ( rtsUnitId )
 import GHC.Core.Type    ( Type, tyConAppTyCon )
 import GHC.Core.TyCon
 import GHC.Cmm.CLabel
 import GHC.Cmm.Utils
 import GHC.Builtin.PrimOps
 import GHC.Runtime.Heap.Layout
-import FastString
-import Outputable
-import Util
+import GHC.Data.FastString
+import GHC.Utils.Outputable
+import GHC.Utils.Misc
 import Data.Maybe
 
 import Data.Bits ((.&.), bit)

@@ -32,10 +32,10 @@ module GHC.Core.Multiplicity
   , submult
   , mapScaledType) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import Data.Data
-import Outputable
+import GHC.Utils.Outputable
 import {-# SOURCE #-} GHC.Core.TyCo.Rep (Type)
 import {-# SOURCE #-} GHC.Builtin.Types ( oneDataConTy, manyDataConTy, multMulTyCon )
 import {-# SOURCE #-} GHC.Core.Type( eqType, splitTyConApp_maybe, mkTyConApp )

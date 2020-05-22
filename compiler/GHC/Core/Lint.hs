@@ -24,14 +24,14 @@ module GHC.Core.Lint (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core
 import GHC.Core.FVs
 import GHC.Core.Utils
 import GHC.Core.Stats ( coreBindsStats )
 import GHC.Core.Opt.Monad
-import Bag
+import GHC.Data.Bag
 import GHC.Types.Literal
 import GHC.Core.DataCon
 import GHC.Builtin.Types.Prim
@@ -46,7 +46,7 @@ import GHC.Types.Name.Env
 import GHC.Types.Id
 import GHC.Types.Id.Info
 import GHC.Core.Ppr
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Core.Coercion
 import GHC.Types.SrcLoc
 import GHC.Core.Type as Type
@@ -60,26 +60,26 @@ import GHC.Core.TyCo.Ppr ( pprTyVar )
 import GHC.Core.TyCon as TyCon
 import GHC.Core.Coercion.Axiom
 import GHC.Types.Basic
-import ErrUtils as Err
-import ListSetOps
+import GHC.Utils.Error as Err
+import GHC.Data.List.SetOps
 import GHC.Builtin.Names
-import Outputable
-import FastString
-import Util
+import GHC.Utils.Outputable as Outputable
+import GHC.Data.FastString
+import GHC.Utils.Misc
 import GHC.Core.InstEnv      ( instanceDFunId )
 import GHC.Core.Coercion.Opt ( checkAxInstCo )
 import GHC.Core.Arity        ( typeArity )
-import GHC.Types.Demand ( splitStrictSig, isBotDiv )
+import GHC.Types.Demand ( splitStrictSig, isDeadEndDiv )
 
 import GHC.Driver.Types hiding (Usage)
 import GHC.Driver.Session
 import Control.Monad
-import MonadUtils
+import GHC.Utils.Monad
 import Data.Foldable      ( toList )
 import Data.List.NonEmpty ( NonEmpty )
 import Data.List          ( partition )
 import Data.Maybe
-import Pair
+import GHC.Data.Pair
 import qualified GHC.LanguageExtensions as LangExt
 
 {-
@@ -304,7 +304,7 @@ dumpPassResult :: DynFlags
                -> IO ()
 dumpPassResult dflags unqual mb_flag hdr extra_info binds rules
   = do { forM_ mb_flag $ \flag -> do
-           let sty = mkDumpStyle dflags unqual
+           let sty = mkDumpStyle unqual
            dumpAction dflags sty (dumpOptionsFromFlag flag)
               (showSDoc dflags hdr) FormatCore dump_doc
 
@@ -377,7 +377,7 @@ displayLintResults :: DynFlags -> CoreToDo
 displayLintResults dflags pass warns errs binds
   | not (isEmptyBag errs)
   = do { putLogMsg dflags NoReason Err.SevDump noSrcSpan
-           (defaultDumpStyle dflags)
+           $ withPprStyle defaultDumpStyle
            (vcat [ lint_banner "errors" (ppr pass), Err.pprMessageBag errs
                  , text "*** Offending Program ***"
                  , pprCoreBindings binds
@@ -390,7 +390,7 @@ displayLintResults dflags pass warns errs binds
   -- If the Core linter encounters an error, output to stderr instead of
   -- stdout (#13342)
   = putLogMsg dflags NoReason Err.SevInfo noSrcSpan
-        (defaultDumpStyle dflags)
+      $ withPprStyle defaultDumpStyle
         (lint_banner "warnings" (ppr pass) $$ Err.pprMessageBag (mapBag ($$ blankLine) warns))
 
   | otherwise = return ()
@@ -421,7 +421,8 @@ lintInteractiveExpr what hsc_env expr
 
     display_lint_err err
       = do { putLogMsg dflags NoReason Err.SevDump
-               noSrcSpan (defaultDumpStyle dflags)
+               noSrcSpan
+               $ withPprStyle defaultDumpStyle
                (vcat [ lint_banner "errors" (text what)
                      , err
                      , text "*** Offending Program ***"
@@ -660,7 +661,7 @@ lintLetBind top_lvl rec_flag binder rhs rhs_ty
            ppr binder)
 
        ; case splitStrictSig (idStrictness binder) of
-           (demands, result_info) | isBotDiv result_info ->
+           (demands, result_info) | isDeadEndDiv result_info ->
              checkL (demands `lengthAtLeast` idArity binder)
                (text "idArity" <+> ppr (idArity binder) <+>
                text "exceeds arity imposed by the strictness signature" <+>
@@ -1017,7 +1018,7 @@ used to check two things:
 * exprIsHNF is false: it would *seem* to be terribly wrong if
   the scrutinee was already in head normal form.
 
-* exprIsBottom is true: we should be able to see why GHC believes the
+* exprIsDeadEnd is true: we should be able to see why GHC believes the
   scrutinee is diverging for sure.
 
 It was already known that the second test was not entirely reliable.
@@ -1245,7 +1246,7 @@ lintCaseExpr scrut var alt_ty alts =
               , isAlgTyCon tycon
               , not (isAbstractTyCon tycon)
               , null (tyConDataCons tycon)
-              , not (exprIsBottom scrut)
+              , not (exprIsDeadEnd scrut)
               -> pprTrace "Lint warning: case binder's type has no constructors" (ppr var <+> ppr (idType var))
                         -- This can legitimately happen for type families
                       $ return ()
@@ -2323,7 +2324,7 @@ top-level ones. See Note [Exported LocalIds] and #9857.
 
 Note [Checking StaticPtrs]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-See Note [Grand plan for static forms] in StaticPtrTable for an overview.
+See Note [Grand plan for static forms] in GHC.Iface.Tidy.StaticPtrTable for an overview.
 
 Every occurrence of the function 'makeStatic' should be moved to the
 top level by the FloatOut pass.  It's vital that we don't have nested
@@ -3017,7 +3018,7 @@ lintAnnots pname pass guts = do
     when (not (null diffs)) $ GHC.Core.Opt.Monad.putMsg $ vcat
       [ lint_banner "warning" pname
       , text "Core changes with annotations:"
-      , withPprStyle (defaultDumpStyle dflags) $ nest 2 $ vcat diffs
+      , withPprStyle defaultDumpStyle $ nest 2 $ vcat diffs
       ]
   -- Return actual new guts
   return nguts

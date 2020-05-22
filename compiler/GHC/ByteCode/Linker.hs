@@ -18,7 +18,7 @@ module GHC.ByteCode.Linker (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHCi.RemoteTypes
 import GHCi.ResolvedBCO
@@ -31,11 +31,11 @@ import GHC.Driver.Types
 import GHC.Types.Name
 import GHC.Types.Name.Env
 import GHC.Builtin.PrimOps
-import GHC.Types.Module
-import FastString
-import Panic
-import Outputable
-import Util
+import GHC.Unit
+import GHC.Data.FastString
+import GHC.Utils.Panic
+import GHC.Utils.Outputable
+import GHC.Utils.Misc
 
 -- Standard libraries
 import Data.Array.Unboxed
@@ -164,7 +164,7 @@ nameToCLabel n suffix = mkFastString label
   where
     encodeZ = zString . zEncodeFS
     (Module pkgKey modName) = ASSERT( isExternalName n ) nameModule n
-    packagePart = encodeZ (unitIdFS pkgKey)
+    packagePart = encodeZ (unitFS pkgKey)
     modulePart  = encodeZ (moduleNameFS modName)
     occPart     = encodeZ (occNameFS (nameOccName n))
 

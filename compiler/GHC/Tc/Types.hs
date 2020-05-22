@@ -84,7 +84,7 @@ module GHC.Tc.Types(
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Platform
 
 import GHC.Hs
@@ -103,7 +103,7 @@ import GHC.Types.Annotations
 import GHC.Core.InstEnv
 import GHC.Core.FamInstEnv
 import {-# SOURCE #-} GHC.HsToCore.PmCheck.Types (Deltas)
-import IOEnv
+import GHC.Data.IOEnv
 import GHC.Types.Name.Reader
 import GHC.Types.Name
 import GHC.Types.Name.Env
@@ -111,18 +111,18 @@ import GHC.Types.Name.Set
 import GHC.Types.Avail
 import GHC.Types.Var
 import GHC.Types.Var.Env
-import GHC.Types.Module
+import GHC.Unit
 import GHC.Types.SrcLoc
 import GHC.Types.Var.Set
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Types.Unique.FM
 import GHC.Types.Basic
-import Bag
+import GHC.Data.Bag
 import GHC.Driver.Session
-import Outputable
-import ListSetOps
-import Fingerprint
-import Util
+import GHC.Utils.Outputable
+import GHC.Data.List.SetOps
+import GHC.Utils.Fingerprint
+import GHC.Utils.Misc
 import GHC.Builtin.Names ( isUnboundName )
 import GHC.Types.CostCentre.State
 
@@ -382,7 +382,7 @@ data FrontendResult
 --
 --            if I have a Module, this_mod, in hand representing the module
 --            currently being compiled,
---            then moduleUnitId this_mod == thisPackage dflags
+--            then moduleUnit this_mod == thisPackage dflags
 --
 --      - For any code involving Names, we want semantic modules.
 --        See lookupIfaceTop in GHC.Iface.Env, mkIface and addFingerprints
@@ -554,7 +554,7 @@ data TcGblEnv
         -- Things defined in this module, or (in GHCi)
         -- in the declarations for a single GHCi command.
         -- For the latter, see Note [The interactive package] in GHC.Driver.Types
-        tcg_tr_module :: Maybe Id,   -- Id for $trModule :: GHC.Types.Module
+        tcg_tr_module :: Maybe Id,   -- Id for $trModule :: GHC.Unit.Module
                                              -- for which every module has a top-level defn
                                              -- except in GHCi in which case we have Nothing
         tcg_binds     :: LHsBinds GhcTc,     -- Value bindings in this module
@@ -1171,7 +1171,7 @@ For (static e) to be valid, we need for every 'x' free in 'e',
 that x's binding is floatable to the top level.  Specifically:
    * x's RhsNames must be empty
    * x's type has no free variables
-See Note [Grand plan for static forms] in StaticPtrTable.hs.
+See Note [Grand plan for static forms] in GHC.Iface.Tidy.StaticPtrTable.hs.
 This test is made in GHC.Tc.Gen.Expr.checkClosedInStaticForm.
 Actually knowing x's RhsNames (rather than just its emptiness
 or otherwise) is just so we can produce better error messages
@@ -1354,12 +1354,12 @@ data ImportAvails
           -- compiling M might not need to consult X.hi, but X
           -- is still listed in M's dependencies.
 
-        imp_dep_pkgs :: Set InstalledUnitId,
+        imp_dep_pkgs :: Set UnitId,
           -- ^ Packages needed by the module being compiled, whether directly,
           -- or via other modules in this package, or via modules imported
           -- from other packages.
 
-        imp_trust_pkgs :: Set InstalledUnitId,
+        imp_trust_pkgs :: Set UnitId,
           -- ^ This is strictly a subset of imp_dep_pkgs and records the
           -- packages the current module needs to trust for Safe Haskell
           -- compilation to succeed. A package is required to be trusted if

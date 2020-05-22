@@ -1,6 +1,6 @@
 module GHC.HsToCore.Match where
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Types.Var ( Id )
 import GHC.Tc.Utils.TcType  ( Type )
 import GHC.HsToCore.Monad ( DsM, EquationInfo, MatchResult )
@@ -11,7 +11,7 @@ import GHC.Hs.Extension ( GhcRn, GhcTc )
 match   :: [Id]
         -> Type
         -> [EquationInfo]
-        -> DsM MatchResult
+        -> DsM (MatchResult CoreExpr)
 
 matchWrapper
         :: HsMatchContext GhcRn
@@ -32,5 +32,5 @@ matchSinglePatVar
         -> HsMatchContext GhcRn
         -> LPat GhcTc
         -> Type
-        -> MatchResult
-        -> DsM MatchResult
+        -> MatchResult CoreExpr
+        -> DsM (MatchResult CoreExpr)

@@ -24,7 +24,7 @@ module GHC.Core.Utils (
 
         -- * Properties of expressions
         exprType, coreAltType, coreAltsType, isExprLevPoly,
-        exprIsDupable, exprIsTrivial, getIdFromTrivialExpr, exprIsBottom,
+        exprIsDupable, exprIsTrivial, getIdFromTrivialExpr, exprIsDeadEnd,
         getIdFromTrivialExpr_maybe,
         exprIsCheap, exprIsExpandable, exprIsCheapX, CheapAppFun,
         exprIsHNF, exprOkForSpeculation, exprOkForSideEffects, exprIsWorkFree,
@@ -63,7 +63,7 @@ module GHC.Core.Utils (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Platform
 
 import GHC.Core
@@ -88,19 +88,19 @@ import GHC.Core.Coercion
 import GHC.Core.TyCon
 import GHC.Core.Multiplicity
 import GHC.Types.Unique
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Builtin.Types.Prim
-import FastString
-import Maybes
-import ListSetOps       ( minusList )
-import GHC.Types.Basic     ( Arity, isConLike )
-import Util
-import Pair
+import GHC.Data.FastString
+import GHC.Data.Maybe
+import GHC.Data.List.SetOps( minusList )
+import GHC.Types.Basic     ( Arity )
+import GHC.Utils.Misc
+import GHC.Data.Pair
 import Data.ByteString     ( ByteString )
 import Data.Function       ( on )
 import Data.List
 import Data.Ord            ( comparing )
-import OrdList
+import GHC.Data.OrdList
 import qualified Data.Set as Set
 import GHC.Types.Unique.Set
 
@@ -1048,21 +1048,21 @@ getIdFromTrivialExpr_maybe e
     go _       = Nothing
 
 {-
-exprIsBottom is a very cheap and cheerful function; it may return
+exprIsDeadEnd is a very cheap and cheerful function; it may return
 False for bottoming expressions, but it never costs much to ask.  See
 also GHC.Core.Arity.exprBotStrictness_maybe, but that's a bit more
 expensive.
 -}
 
-exprIsBottom :: CoreExpr -> Bool
+exprIsDeadEnd :: CoreExpr -> Bool
 -- See Note [Bottoming expressions]
-exprIsBottom e
+exprIsDeadEnd e
   | isEmptyTy (exprType e)
   = True
   | otherwise
   = go 0 e
   where
-    go n (Var v) = isBottomingId v &&  n >= idArity v
+    go n (Var v)                 = isDeadEndId v &&  n >= idArity v
     go n (App e a) | isTypeArg a = go n e
                    | otherwise   = go (n+1) e
     go n (Tick _ e)              = go n e
@@ -1076,7 +1076,7 @@ exprIsBottom e
 {- Note [Bottoming expressions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 A bottoming expression is guaranteed to diverge, or raise an
-exception.  We can test for it in two different ways, and exprIsBottom
+exception.  We can test for it in two different ways, and exprIsDeadEnd
 checks for both of these situations:
 
 * Visibly-bottom computations.  For example
@@ -1370,7 +1370,6 @@ type CheapAppFun = Id -> Arity -> Bool
   -- but with minor variations:
   --    isWorkFreeApp
   --    isCheapApp
-  --    isExpandableApp
 
 isWorkFreeApp :: CheapAppFun
 isWorkFreeApp fn n_val_args
@@ -1386,7 +1385,7 @@ isWorkFreeApp fn n_val_args
 isCheapApp :: CheapAppFun
 isCheapApp fn n_val_args
   | isWorkFreeApp fn n_val_args = True
-  | isBottomingId fn            = True  -- See Note [isCheapApp: bottoming functions]
+  | isDeadEndId fn              = True  -- See Note [isCheapApp: bottoming functions]
   | otherwise
   = case idDetails fn of
       DataConWorkId {} -> True  -- Actually handled by isWorkFreeApp
@@ -1404,15 +1403,14 @@ isExpandableApp fn n_val_args
   | isWorkFreeApp fn n_val_args = True
   | otherwise
   = case idDetails fn of
-      DataConWorkId {} -> True  -- Actually handled by isWorkFreeApp
-      RecSelId {}      -> n_val_args == 1  -- See Note [Record selection]
-      ClassOpId {}     -> n_val_args == 1
-      PrimOpId {}      -> False
-      _ | isBottomingId fn               -> False
+      RecSelId {}  -> n_val_args == 1  -- See Note [Record selection]
+      ClassOpId {} -> n_val_args == 1
+      PrimOpId {}  -> False
+      _ | isDeadEndId fn     -> False
           -- See Note [isExpandableApp: bottoming functions]
-        | isConLike (idRuleMatchInfo fn) -> True
-        | all_args_are_preds             -> True
-        | otherwise                      -> False
+        | isConLikeId fn     -> True
+        | all_args_are_preds -> True
+        | otherwise          -> False
 
   where
      -- See if all the arguments are PredTys (implicit params or classes)
@@ -2118,7 +2116,7 @@ eqExpr in_scope e1 e2
         env' = rnBndrs2 env bs1 bs2
 
     go env (Case e1 b1 t1 a1) (Case e2 b2 t2 a2)
-      | null a1   -- See Note [Empty case alternatives] in TrieMap
+      | null a1   -- See Note [Empty case alternatives] in GHC.Data.TrieMap
       = null a2 && go env e1 e2 && eqTypeX env t1 t2
       | otherwise
       =  go env e1 e2 && all2 (go_alt (rnBndr2 env b1 b2)) a1 a2
@@ -2155,7 +2153,7 @@ diffExpr top env (Tick n1 e1)   (Tick n2 e2)
  -- generated names, which are allowed to differ.
 diffExpr _   _   (App (App (Var absent) _) _)
                  (App (App (Var absent2) _) _)
-  | isBottomingId absent && isBottomingId absent2 = []
+  | isDeadEndId absent && isDeadEndId absent2 = []
 diffExpr top env (App f1 a1)    (App f2 a2)
   = diffExpr top env f1 f2 ++ diffExpr top env a1 a2
 diffExpr top env (Lam b1 e1)  (Lam b2 e2)
@@ -2166,7 +2164,7 @@ diffExpr top env (Let bs1 e1) (Let bs2 e2)
     in ds ++ diffExpr top env' e1 e2
 diffExpr top env (Case e1 b1 t1 a1) (Case e2 b2 t2 a2)
   | equalLength a1 a2 && not (null a1) || eqTypeX env t1 t2
-    -- See Note [Empty case alternatives] in TrieMap
+    -- See Note [Empty case alternatives] in GHC.Data.TrieMap
   = diffExpr top env e1 e2 ++ concat (zipWith diffAlt a1 a2)
   where env' = rnBndr2 env b1 b2
         diffAlt (c1, bs1, e1) (c2, bs2, e2)

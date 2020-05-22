@@ -12,7 +12,7 @@ module GHC.Tc.Instance.Family (
         reportInjectivityErrors, reportConflictingInjectivityErrs
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Driver.Types
 import GHC.Core.FamInstEnv
@@ -27,21 +27,21 @@ import GHC.Core.TyCon
 import GHC.Tc.Utils.TcType
 import GHC.Core.Coercion.Axiom
 import GHC.Driver.Session
-import GHC.Types.Module
-import Outputable
-import Util
+import GHC.Unit.Module
+import GHC.Utils.Outputable
+import GHC.Utils.Misc
 import GHC.Types.Name.Reader
 import GHC.Core.DataCon ( dataConName )
-import Maybes
+import GHC.Data.Maybe
 import GHC.Core.TyCo.Rep
 import GHC.Core.TyCo.FVs
 import GHC.Core.TyCo.Ppr ( pprWithExplicitKindsWhen )
 import GHC.Tc.Utils.TcMType
 import GHC.Types.Name
-import Panic
+import GHC.Utils.Panic
 import GHC.Types.Var.Set
-import FV
-import Bag( Bag, unionBags, unitBag )
+import GHC.Utils.FV
+import GHC.Data.Bag( Bag, unionBags, unitBag )
 import Control.Monad
 import Data.List ( sortBy )
 import Data.List.NonEmpty ( NonEmpty(..) )
@@ -632,7 +632,7 @@ loadDependentFamInstModules fam_insts
 
             want_module mod  -- See Note [Home package family instances]
               | mod == this_mod = False
-              | home_fams_only  = moduleUnitId mod == moduleUnitId this_mod
+              | home_fams_only  = moduleUnit mod == moduleUnit this_mod
               | otherwise       = True
             home_fams_only = all (nameIsHomePackage this_mod . fi_fam) fam_insts
 

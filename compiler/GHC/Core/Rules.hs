@@ -28,10 +28,11 @@ module GHC.Core.Rules (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core         -- All of it
-import GHC.Types.Module   ( Module, ModuleSet, elemModuleSet )
+import GHC.Unit.Module   ( Module )
+import GHC.Unit.Module.Env
 import GHC.Core.Subst
 import GHC.Core.SimpleOpt ( exprIsLambda_maybe )
 import GHC.Core.FVs       ( exprFreeVars, exprsFreeVars, bindFreeVars
@@ -60,11 +61,11 @@ import GHC.Core.Unify as Unify ( ruleMatchTyKiX )
 import GHC.Types.Basic
 import GHC.Driver.Session      ( DynFlags, gopt, targetPlatform )
 import GHC.Driver.Flags
-import Outputable
-import FastString
-import Maybes
-import Bag
-import Util
+import GHC.Utils.Outputable
+import GHC.Data.FastString
+import GHC.Data.Maybe
+import GHC.Data.Bag
+import GHC.Utils.Misc
 import Data.List
 import Data.Ord
 import Control.Monad    ( guard )
@@ -259,14 +260,14 @@ functions (lambdas) except by name, so in this case it seems like
 a good idea to treat 'M.k' as a roughTopName of the call.
 -}
 
-pprRulesForUser :: DynFlags -> [CoreRule] -> SDoc
+pprRulesForUser :: [CoreRule] -> SDoc
 -- (a) tidy the rules
 -- (b) sort them into order based on the rule name
 -- (c) suppress uniques (unless -dppr-debug is on)
 -- This combination makes the output stable so we can use in testing
 -- It's here rather than in GHC.Core.Ppr because it calls tidyRules
-pprRulesForUser dflags rules
-  = withPprStyle (defaultUserStyle dflags) $
+pprRulesForUser rules
+  = withPprStyle defaultUserStyle $
     pprRules $
     sortBy (comparing ruleName) $
     tidyRules emptyTidyEnv rules

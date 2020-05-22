@@ -38,7 +38,7 @@ module GHC.Core.Opt.Simplify.Utils (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core.Opt.Simplify.Env
 import GHC.Core.Opt.Monad        ( SimplMode(..), Tick(..) )
@@ -58,18 +58,17 @@ import GHC.Types.Var
 import GHC.Types.Demand
 import GHC.Types.Var.Set
 import GHC.Types.Basic
-import GHC.Builtin.PrimOps
 import GHC.Core.Opt.Simplify.Monad
 import GHC.Core.Type     hiding( substTy )
 import GHC.Core.Coercion hiding( substCo )
 import GHC.Core.DataCon ( dataConWorkId, isNullaryRepDataCon )
 import GHC.Core.Multiplicity
-import Util
-import OrdList          ( isNilOL )
-import MonadUtils
-import Outputable
+import GHC.Utils.Misc
+import GHC.Data.OrdList ( isNilOL )
+import GHC.Utils.Monad
+import GHC.Utils.Outputable
 import GHC.Core.Opt.ConstantFold
-import FastString       ( fsLit )
+import GHC.Data.FastString ( fsLit )
 
 import Control.Monad    ( when )
 import Data.List        ( sortBy )
@@ -524,11 +523,9 @@ mkArgInfo env fun rules n_val_args call_cont
                         -- interesting context.  This avoids substituting
                         -- top-level bindings for (say) strings into
                         -- calls to error.  But now we are more careful about
-                        -- inlining lone variables, so it's ok
-                        -- (see GHC.Core.Opt.Simplify.Utils.analyseCont)
-                        -- See Note [Precise exceptions and strictness analysis] in Demand.hs
-                        -- for the special case on raiseIO#
-                   if isBotDiv result_info || isPrimOpId_maybe fun == Just RaiseIOOp then
+                        -- inlining lone variables, so its ok
+                        -- (see GHC.Core.Op.Simplify.Utils.analyseCont)
+                   if isDeadEndDiv result_info then
                         map isStrictDmd demands         -- Finite => result is bottom
                    else
                         map isStrictDmd demands ++ vanilla_stricts
@@ -1170,7 +1167,7 @@ preInlineUnconditionally
 preInlineUnconditionally env top_lvl bndr rhs rhs_env
   | not pre_inline_unconditionally           = Nothing
   | not active                               = Nothing
-  | isTopLevel top_lvl && isBottomingId bndr = Nothing -- Note [Top-level bottoming Ids]
+  | isTopLevel top_lvl && isDeadEndId bndr   = Nothing -- Note [Top-level bottoming Ids]
   | isCoVar bndr                             = Nothing -- Note [Do not inline CoVars unconditionally]
   | isExitJoinId bndr                        = Nothing -- Note [Do not inline exit join points]
                                                        -- in module Exitify
@@ -1542,7 +1539,7 @@ tryEtaExpandRhs :: SimplMode -> OutId -> OutExpr
 tryEtaExpandRhs mode bndr rhs
   | Just join_arity <- isJoinId_maybe bndr
   = do { let (join_bndrs, join_body) = collectNBinders join_arity rhs
-       ; return (count isId join_bndrs, exprIsBottom join_body, rhs) }
+       ; return (count isId join_bndrs, exprIsDeadEnd join_body, rhs) }
          -- Note [Do not eta-expand join points]
          -- But do return the correct arity and bottom-ness, because
          -- these are used to set the bndr's IdInfo (#15517)

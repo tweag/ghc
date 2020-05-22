@@ -16,7 +16,7 @@ where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core
 import GHC.Core.Utils   ( exprType, mkCast, mkDefaultCase, mkSingleAltCase )
@@ -43,12 +43,12 @@ import GHC.Types.Basic       ( Boxity(..) )
 import GHC.Core.TyCon
 import GHC.Types.Unique.Supply
 import GHC.Types.Unique
-import Maybes
-import Util
-import Outputable
+import GHC.Data.Maybe
+import GHC.Utils.Misc
+import GHC.Utils.Outputable
 import GHC.Driver.Session
-import FastString
-import ListSetOps
+import GHC.Data.FastString
+import GHC.Data.List.SetOps
 
 {-
 ************************************************************************
@@ -346,7 +346,7 @@ f x y = join j (z, w) = \(u, v) -> ...
         in jump j (x, y)
 
 Typically this happens with functions that are seen as computing functions,
-rather than being curried. (The real-life example was GraphOps.addConflicts.)
+rather than being curried. (The real-life example was GHC.Data.Graph.Ops.addConflicts.)
 
 When we create the wrapper, it *must* be in "eta-contracted" form so that the
 jump has the right number of arguments:
@@ -1250,7 +1250,10 @@ mk_absent_let dflags fam_envs arg
 
     abs_rhs      = mkAbsentErrorApp arg_ty msg
     msg          = showSDoc (gopt_set dflags Opt_SuppressUniques)
-                          (ppr arg <+> ppr (idType arg))
+                            (ppr arg <+> ppr (idType arg) <+> file_msg)
+    file_msg     = case outputFile dflags of
+                     Nothing -> empty
+                     Just f  -> text "in output file " <+> quotes (text f)
               -- We need to suppress uniques here because otherwise they'd
               -- end up in the generated code as strings. This is bad for
               -- determinism, because with different uniques the strings

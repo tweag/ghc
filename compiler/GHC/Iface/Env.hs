@@ -22,7 +22,7 @@ module GHC.Iface.Env (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Tc.Utils.Monad
 import GHC.Driver.Types
@@ -30,15 +30,15 @@ import GHC.Core.Type
 import GHC.Types.Var
 import GHC.Types.Name
 import GHC.Types.Avail
-import GHC.Types.Module
-import FastString
-import FastStringEnv
+import GHC.Unit.Module
+import GHC.Data.FastString
+import GHC.Data.FastString.Env
 import GHC.Iface.Type
 import GHC.Types.Name.Cache
 import GHC.Types.Unique.Supply
 import GHC.Types.SrcLoc
 
-import Outputable
+import GHC.Utils.Outputable
 import Data.List     ( partition )
 
 {-

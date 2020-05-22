@@ -4,15 +4,15 @@
 {-# LANGUAGE FlexibleInstances #-}
 module GHC.Iface.Ext.Utils where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core.Map
-import GHC.Driver.Session         ( DynFlags )
-import FastString                 ( FastString, mkFastString )
+import GHC.Driver.Session    ( DynFlags )
+import GHC.Data.FastString   ( FastString, mkFastString )
 import GHC.Iface.Type
 import GHC.Core.Multiplicity
 import GHC.Types.Name hiding (varName)
-import Outputable                 ( renderWithStyle, ppr, defaultUserStyle, initSDocContext )
+import GHC.Utils.Outputable  ( renderWithStyle, ppr, defaultUserStyle, initSDocContext )
 import GHC.Types.SrcLoc
 import GHC.CoreToIface
 import GHC.Core.TyCon
@@ -45,8 +45,7 @@ generateReferencesMap = foldr (\ast m -> M.unionWith (++) (go ast) m) M.empty
         this = fmap (pure . (nodeSpan ast,)) $ nodeIdentifiers $ nodeInfo ast
 
 renderHieType :: DynFlags -> HieTypeFix -> String
-renderHieType df ht = renderWithStyle (initSDocContext df sty) (ppr $ hieTypeToIface ht)
-  where sty = defaultUserStyle df
+renderHieType dflags ht = renderWithStyle (initSDocContext dflags defaultUserStyle) (ppr $ hieTypeToIface ht)
 
 resolveVisibility :: Type -> [Type] -> [(Bool,Type)]
 resolveVisibility kind ty_args

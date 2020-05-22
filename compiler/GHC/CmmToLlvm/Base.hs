@@ -32,7 +32,7 @@ module GHC.CmmToLlvm.Base (
         llvmFunSig, llvmFunArgs, llvmStdFunAttrs, llvmFunAlign, llvmInfAlign,
         llvmPtrBits, tysToParams, llvmFunSection, padLiveArgs, isFPR,
 
-        strCLabel_llvm, strDisplayName_llvm, strProcedureName_llvm,
+        strCLabel_llvm,
         getGlobalPtr, generateExternDecls,
 
         aliasify, llvmDefLabel
@@ -41,7 +41,7 @@ module GHC.CmmToLlvm.Base (
 #include "HsVersions.h"
 #include "ghcautoconf.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Llvm
 import GHC.CmmToLlvm.Regs
@@ -49,18 +49,18 @@ import GHC.CmmToLlvm.Regs
 import GHC.Cmm.CLabel
 import GHC.Platform.Regs ( activeStgRegs )
 import GHC.Driver.Session
-import FastString
+import GHC.Data.FastString
 import GHC.Cmm              hiding ( succ )
 import GHC.Cmm.Utils (regsOverlap)
-import Outputable as Outp
+import GHC.Utils.Outputable as Outp
 import GHC.Platform
 import GHC.Types.Unique.FM
 import GHC.Types.Unique
-import BufWrite   ( BufHandle )
+import GHC.Utils.BufHandle   ( BufHandle )
 import GHC.Types.Unique.Set
 import GHC.Types.Unique.Supply
-import ErrUtils
-import qualified Stream
+import GHC.Utils.Error
+import qualified GHC.Data.Stream as Stream
 
 import Data.Maybe (fromJust)
 import Control.Monad (ap)
@@ -512,32 +512,6 @@ strCLabel_llvm lbl = do
         str = Outp.renderWithStyle
                   (initSDocContext dflags (Outp.mkCodeStyle Outp.CStyle))
                   sdoc
-    return (fsLit str)
-
-strDisplayName_llvm :: CLabel -> LlvmM LMString
-strDisplayName_llvm lbl = do
-    dflags <- getDynFlags
-    let sdoc = pprCLabel dflags lbl
-        depth = Outp.PartWay 1
-        style = Outp.mkUserStyle dflags Outp.reallyAlwaysQualify depth
-        str = Outp.renderWithStyle (initSDocContext dflags style) sdoc
-    return (fsLit (dropInfoSuffix str))
-
-dropInfoSuffix :: String -> String
-dropInfoSuffix = go
-  where go "_info"        = []
-        go "_static_info" = []
-        go "_con_info"    = []
-        go (x:xs)         = x:go xs
-        go []             = []
-
-strProcedureName_llvm :: CLabel -> LlvmM LMString
-strProcedureName_llvm lbl = do
-    dflags <- getDynFlags
-    let sdoc = pprCLabel dflags lbl
-        depth = Outp.PartWay 1
-        style = Outp.mkUserStyle dflags Outp.neverQualify depth
-        str = Outp.renderWithStyle (initSDocContext dflags style) sdoc
     return (fsLit str)
 
 -- ----------------------------------------------------------------------------

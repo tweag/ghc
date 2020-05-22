@@ -230,7 +230,7 @@ module GHC.Core.Type (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Types.Basic
 
@@ -271,15 +271,15 @@ import {-# SOURCE #-} GHC.Core.Coercion
    , isReflexiveCo, seqCo )
 
 -- others
-import Util
-import FV
-import Outputable
-import FastString
-import Pair
-import ListSetOps
+import GHC.Utils.Misc
+import GHC.Utils.FV
+import GHC.Utils.Outputable
+import GHC.Data.FastString
+import GHC.Data.Pair
+import GHC.Data.List.SetOps
 import GHC.Types.Unique ( nonDetCmpUnique )
 
-import Maybes           ( orElse )
+import GHC.Data.Maybe   ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
 
@@ -1042,9 +1042,10 @@ Note [Representation of function types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Functions (e.g. Int -> Char) can be thought of as being applications
-of funTyCon (known in Haskell surface syntax as (->)),
+of funTyCon (known in Haskell surface syntax as (->)), (note that
+`RuntimeRep' quantifiers are left inferred)
 
-    (->) :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
+    (->) :: forall {r1 :: RuntimeRep} {r2 :: RuntimeRep}
                    (a :: TYPE r1) (b :: TYPE r2).
             a -> b -> Type
 
@@ -1889,17 +1890,19 @@ fun_kind_arg_flags = go emptyTCvSubst
                         -- something is ill-kinded. But this can happen
                         -- when printing errors. Assume everything is Required.
 
--- @isTauTy@ tests if a type has no foralls
+-- @isTauTy@ tests if a type has no foralls or (=>)
 isTauTy :: Type -> Bool
 isTauTy ty | Just ty' <- coreView ty = isTauTy ty'
-isTauTy (TyVarTy _)           = True
-isTauTy (LitTy {})            = True
-isTauTy (TyConApp tc tys)     = all isTauTy tys && isTauTyCon tc
-isTauTy (AppTy a b)           = isTauTy a && isTauTy b
-isTauTy (FunTy _ w a b)       = isTauTy w && isTauTy a && isTauTy b
-isTauTy (ForAllTy {})         = False
-isTauTy (CastTy ty _)         = isTauTy ty
-isTauTy (CoercionTy _)        = False  -- Not sure about this
+isTauTy (TyVarTy _)       = True
+isTauTy (LitTy {})        = True
+isTauTy (TyConApp tc tys) = all isTauTy tys && isTauTyCon tc
+isTauTy (AppTy a b)       = isTauTy a && isTauTy b
+isTauTy (FunTy af w a b)    = case af of
+                                InvisArg -> False                               -- e.g., Eq a => b
+                                VisArg   -> isTauTy w && isTauTy a && isTauTy b -- e.g., a -> b
+isTauTy (ForAllTy {})     = False
+isTauTy (CastTy ty _)     = isTauTy ty
+isTauTy (CoercionTy _)    = False  -- Not sure about this
 
 {-
 %************************************************************************
@@ -2145,7 +2148,7 @@ isValidJoinPointType arity ty
   where
     valid_under tvs arity ty
       | arity == 0
-      = isEmptyVarSet (tvs `intersectVarSet` tyCoVarsOfType ty)
+      = tvs `disjointVarSet` tyCoVarsOfType ty
       | Just (t, ty') <- splitForAllTy_maybe ty
       = valid_under (tvs `extendVarSet` t) (arity-1) ty'
       | Just (_, res_ty) <- splitFunTy_maybe ty

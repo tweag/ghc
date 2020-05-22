@@ -47,7 +47,7 @@ module GHC.Driver.Plugins (
     , mapPlugins, withPlugins, withPlugins_
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Core.Opt.Monad ( CoreToDo, CoreM )
 import qualified GHC.Tc.Types
@@ -58,10 +58,10 @@ import GHC.Driver.Session
 import GHC.Driver.Types
 import GHC.Driver.Monad
 import GHC.Driver.Phases
-import GHC.Types.Module ( ModuleName, Module(moduleName))
-import Fingerprint
+import GHC.Unit.Module
+import GHC.Utils.Fingerprint
 import Data.List (sort)
-import Outputable (Outputable(..), text, (<+>))
+import GHC.Utils.Outputable (Outputable(..), text, (<+>))
 
 --Qualified import so we can define a Semigroup instance
 -- but it doesn't clash with Outputable.<>

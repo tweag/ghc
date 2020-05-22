@@ -33,18 +33,18 @@ import GHC.Cmm.Pipeline
 import GHC.Cmm.Parser
 import GHC.Cmm.Info
 import GHC.Cmm
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Cmm.DebugBlock
 import GHC
 import GHC.Driver.Monad
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.Supply
 import GHC.Driver.Session
-import ErrUtils
-import Outputable
+import GHC.Utils.Error
+import GHC.Utils.Outputable
 import GHC.Types.Basic
 
-import Stream (collect, yield)
+import GHC.Data.Stream as Stream (collect, yield)
 
 import Data.Typeable
 import Data.Maybe
@@ -143,7 +143,7 @@ compileCmmForRegAllocStats dflags' cmmFile ncgImplF us = do
           dwarfFileIds = emptyUFM
           dbgMap = debugToMap []
           thisMod = mkModule
-                        (stringToUnitId . show . uniqFromSupply $ usc)
+                        (stringToUnit . show . uniqFromSupply $ usc)
                         (mkModuleName . show . uniqFromSupply $ usd)
           thisModLoc = ModLocation Nothing (cmmFile ++ ".hi") (cmmFile ++ ".o") (cmmFile ++ ".hie")
 

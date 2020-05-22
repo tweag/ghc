@@ -22,7 +22,7 @@ module GHC.Tc.Types.Origin (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Tc.Utils.TcType
 
@@ -36,13 +36,13 @@ import GHC.Core.InstEnv
 import GHC.Core.PatSyn
 import GHC.Core.Multiplicity ( scaledThing )
 
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Name
 import GHC.Types.Name.Reader
 
 import GHC.Types.SrcLoc
-import FastString
-import Outputable
+import GHC.Data.FastString
+import GHC.Utils.Outputable
 import GHC.Types.Basic
 
 {- *********************************************************************
@@ -429,7 +429,9 @@ data CtOrigin
         -- We only need a CtOrigin on the first, because the location
         -- is pinned on the entire error message
 
-  | HoleOrigin
+  | ExprHoleOrigin OccName   -- from an expression hole
+  | TypeHoleOrigin OccName   -- from a type hole (partial type signature)
+  | PatCheckOrigin      -- normalisation of a type during pattern-match checking
   | UnboundOccurrenceOf OccName
   | ListOrigin          -- An overloaded list
   | BracketOrigin       -- An overloaded quotation bracket
@@ -479,7 +481,7 @@ exprCtOrigin :: HsExpr GhcRn -> CtOrigin
 exprCtOrigin (HsVar _ (L _ name)) = OccurrenceOf name
 exprCtOrigin (HsUnboundVar _ uv)  = UnboundOccurrenceOf uv
 exprCtOrigin (HsConLikeOut {})    = panic "exprCtOrigin HsConLikeOut"
-exprCtOrigin (HsRecFld _ f)    = OccurrenceOfRecSel (rdrNameAmbiguousFieldOcc f)
+exprCtOrigin (HsRecFld _ f)       = OccurrenceOfRecSel (rdrNameAmbiguousFieldOcc f)
 exprCtOrigin (HsOverLabel _ _ l)  = OverLabelOrigin l
 exprCtOrigin (HsIPVar _ ip)       = IPOccOrigin ip
 exprCtOrigin (HsOverLit _ lit)    = LiteralOrigin lit
@@ -645,7 +647,9 @@ pprCtO MCompOrigin           = text "a statement in a monad comprehension"
 pprCtO ProcOrigin            = text "a proc expression"
 pprCtO (TypeEqOrigin t1 t2 _ _)= text "a type equality" <+> sep [ppr t1, char '~', ppr t2]
 pprCtO AnnOrigin             = text "an annotation"
-pprCtO HoleOrigin            = text "a use of" <+> quotes (text "_")
+pprCtO (ExprHoleOrigin occ)  = text "a use of" <+> quotes (ppr occ)
+pprCtO (TypeHoleOrigin occ)  = text "a use of wildcard" <+> quotes (ppr occ)
+pprCtO PatCheckOrigin        = text "a pattern-match completeness check"
 pprCtO ListOrigin            = text "an overloaded list"
 pprCtO StaticOrigin          = text "a static form"
 pprCtO NonLinearPatternOrigin = text "a non-linear pattern"

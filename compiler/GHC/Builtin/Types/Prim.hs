@@ -94,7 +94,7 @@ module GHC.Builtin.Types.Prim(
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Builtin.Types
   ( runtimeRepTy, unboxedTupleKind, liftedTypeKind
@@ -120,8 +120,8 @@ import GHC.Core.TyCon
 import GHC.Types.SrcLoc
 import GHC.Types.Unique
 import GHC.Builtin.Names
-import FastString
-import Outputable
+import GHC.Data.FastString
+import GHC.Utils.Outputable
 import GHC.Core.TyCo.Rep -- Doesn't need special access, but this is easier to avoid
                          -- import loops which show up if you import Type instead
 
@@ -411,9 +411,23 @@ funTyConName = mkPrimTyConName (fsLit "FUN") funTyConKey funTyCon
 -- | The @FUN@ type constructor.
 --
 -- @
--- FUN :: forall (m :: Multiplicity) {rep1 :: RuntimeRep} {rep2 :: RuntimeRep}.
+-- FUN :: forall {m :: Multiplicity} {rep1 :: RuntimeRep} {rep2 :: RuntimeRep}.
 --         TYPE rep1 -> TYPE rep2 -> *
 -- @
+--
+-- The runtime representations quantification is left inferred. This
+-- means they cannot be specified with @-XTypeApplications@.
+--
+-- This is a deliberate choice to allow future extensions to the
+-- function arrow. To allow visible application a type synonym can be
+-- defined:
+--
+-- @
+-- type Arr :: forall (rep1 :: RuntimeRep) (rep2 :: RuntimeRep).
+--             TYPE rep1 -> TYPE rep2 -> Type
+-- type Arr = FUN
+-- @
+--
 funTyCon :: TyCon
 funTyCon = mkFunTyCon funTyConName tc_bndrs tc_rep_nm
   where

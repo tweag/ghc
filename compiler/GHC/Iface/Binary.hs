@@ -33,29 +33,29 @@ module GHC.Iface.Binary (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Tc.Utils.Monad
 import GHC.Builtin.Utils   ( isKnownKeyName, lookupKnownKeyName )
 import GHC.Iface.Env
 import GHC.Driver.Types
-import GHC.Types.Module
+import GHC.Unit
 import GHC.Types.Name
 import GHC.Driver.Session
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.Supply
-import Panic
-import Binary
+import GHC.Utils.Panic
+import GHC.Utils.Binary as Binary
 import GHC.Types.SrcLoc
-import ErrUtils
-import FastMutInt
+import GHC.Utils.Error
+import GHC.Data.FastMutInt
 import GHC.Types.Unique
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.Name.Cache
 import GHC.Platform
-import FastString
+import GHC.Data.FastString
 import GHC.Settings.Constants
-import Util
+import GHC.Utils.Misc
 
 import Data.Array
 import Data.Array.ST
@@ -92,15 +92,16 @@ readBinIface_ :: DynFlags -> CheckHiWay -> TraceBinIFaceReading -> FilePath
               -> NameCacheUpdater
               -> IO ModIface
 readBinIface_ dflags checkHiWay traceBinIFaceReading hi_path ncu = do
-    let printer :: SDoc -> IO ()
+    let platform = targetPlatform dflags
+
+        printer :: SDoc -> IO ()
         printer = case traceBinIFaceReading of
                       TraceBinIFaceReading -> \sd ->
                           putLogMsg dflags
                                     NoReason
                                     SevOutput
                                     noSrcSpan
-                                    (defaultDumpStyle dflags)
-                                    sd
+                                    $ withPprStyle defaultDumpStyle sd
                       QuietBinIFaceReading -> \_ -> return ()
 
         wantedGot :: String -> a -> a -> (a -> SDoc) -> IO ()
@@ -122,9 +123,9 @@ readBinIface_ dflags checkHiWay traceBinIFaceReading hi_path ncu = do
     -- (This magic number does not change when we change
     --  GHC interface file format)
     magic <- get bh
-    wantedGot "Magic" (binaryInterfaceMagic dflags) magic ppr
+    wantedGot "Magic" (binaryInterfaceMagic platform) magic ppr
     errorOnMismatch "magic number mismatch: old/corrupt interface file?"
-        (binaryInterfaceMagic dflags) magic
+        (binaryInterfaceMagic platform) magic
 
     -- Note [dummy iface field]
     -- read a dummy 32/64 bit value.  This field used to hold the
@@ -133,7 +134,7 @@ readBinIface_ dflags checkHiWay traceBinIFaceReading hi_path ncu = do
     -- should be).  Also, the serialisation of value of type "Bin
     -- a" used to depend on the word size of the machine, now they
     -- are always 32 bits.
-    case platformWordSize (targetPlatform dflags) of
+    case platformWordSize platform of
       PW4 -> do _ <- Binary.get bh :: IO Word32; return ()
       PW8 -> do _ <- Binary.get bh :: IO Word64; return ()
 
@@ -194,12 +195,13 @@ getWithUserData ncu bh = do
 writeBinIface :: DynFlags -> FilePath -> ModIface -> IO ()
 writeBinIface dflags hi_path mod_iface = do
     bh <- openBinMem initBinMemSize
-    put_ bh (binaryInterfaceMagic dflags)
+    let platform = targetPlatform dflags
+    put_ bh (binaryInterfaceMagic platform)
 
    -- dummy 32/64-bit field before the version/way for
    -- compatibility with older interface file formats.
    -- See Note [dummy iface field] above.
-    case platformWordSize (targetPlatform dflags) of
+    case platformWordSize platform of
       PW4 -> Binary.put_ bh (0 :: Word32)
       PW8 -> Binary.put_ bh (0 :: Word64)
 
@@ -288,10 +290,10 @@ putWithUserData log_action bh payload = do
 initBinMemSize :: Int
 initBinMemSize = 1024 * 1024
 
-binaryInterfaceMagic :: DynFlags -> Word32
-binaryInterfaceMagic dflags
- | target32Bit (targetPlatform dflags) = 0x1face
- | otherwise                           = 0x1face64
+binaryInterfaceMagic :: Platform -> Word32
+binaryInterfaceMagic platform
+ | target32Bit platform = 0x1face
+ | otherwise            = 0x1face64
 
 
 -- -----------------------------------------------------------------------------
@@ -325,7 +327,7 @@ getSymbolTable bh ncu = do
     newSTArray_ :: forall s. (Int, Int) -> ST s (STArray s Int Name)
     newSTArray_ = newArray_
 
-type OnDiskName = (UnitId, ModuleName, OccName)
+type OnDiskName = (Unit, ModuleName, OccName)
 
 fromOnDiskName :: NameCache -> OnDiskName -> (NameCache, Name)
 fromOnDiskName nc (pid, mod_name, occ) =
@@ -342,7 +344,7 @@ fromOnDiskName nc (pid, mod_name, occ) =
 serialiseName :: BinHandle -> Name -> UniqFM (Int,Name) -> IO ()
 serialiseName bh name _ = do
     let mod = ASSERT2( isExternalName name, ppr name ) nameModule name
-    put_ bh (moduleUnitId mod, moduleName mod, nameOccName name)
+    put_ bh (moduleUnit mod, moduleName mod, nameOccName name)
 
 
 -- Note [Symbol table representation of names]

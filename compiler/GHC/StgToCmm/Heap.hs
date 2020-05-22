@@ -22,7 +22,7 @@ module GHC.StgToCmm.Heap (
         emitSetDynHdr
     ) where
 
-import GhcPrelude hiding ((<*>))
+import GHC.Prelude hiding ((<*>))
 
 import GHC.Stg.Syntax
 import GHC.Cmm.CLabel
@@ -44,11 +44,11 @@ import GHC.Cmm.Utils
 import GHC.Types.CostCentre
 import GHC.Types.Id.Info( CafInfo(..), mayHaveCafRefs )
 import GHC.Types.Id ( Id )
-import GHC.Types.Module
+import GHC.Unit
 import GHC.Driver.Session
 import GHC.Platform
-import FastString( mkFastString, fsLit )
-import Panic( sorry )
+import GHC.Data.FastString( mkFastString, fsLit )
+import GHC.Utils.Panic( sorry )
 
 import Control.Monad (when)
 import Data.Maybe (isJust)

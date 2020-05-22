@@ -11,7 +11,7 @@ module GHC.Core.Opt.Simplify ( simplTopBinds, simplExpr, simplRules ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Platform
 import GHC.Driver.Session
@@ -49,15 +49,15 @@ import GHC.Core.FVs     ( mkRuleInfo )
 import GHC.Core.Rules   ( lookupRule, getRules )
 import GHC.Types.Basic  ( TopLevelFlag(..), isNotTopLevel, isTopLevel,
                           RecFlag(..), Arity )
-import MonadUtils       ( mapAccumLM, liftIO )
+import GHC.Utils.Monad  ( mapAccumLM, liftIO )
 import GHC.Types.Var    ( isTyCoVar )
-import Maybes           ( orElse, fromMaybe )
+import GHC.Data.Maybe   ( orElse, fromMaybe )
 import Control.Monad
-import Outputable
-import FastString
-import Util
-import ErrUtils
-import GHC.Types.Module ( moduleName, pprModuleName )
+import GHC.Utils.Outputable
+import GHC.Data.FastString
+import GHC.Utils.Misc
+import GHC.Utils.Error
+import GHC.Unit.Module ( moduleName, pprModuleName )
 import GHC.Core.Multiplicity
 import GHC.Core.TyCo.Rep  ( TyCoBinder(..) )
 import GHC.Builtin.PrimOps ( PrimOp (SeqOp) )
@@ -1848,7 +1848,7 @@ completeCall env var cont
 
     log_inlining doc
       = liftIO $ dumpAction dflags
-           (mkUserStyle dflags alwaysQualify AllTheWay)
+           (mkUserStyle alwaysQualify AllTheWay)
            (dumpOptionsFromFlag Opt_D_dump_inlinings)
            "" FormatText doc
 
@@ -2136,7 +2136,7 @@ tryRules env rules fn args call_cont
 
     log_rule dflags flag hdr details
       = liftIO $ do
-         let sty = mkDumpStyle dflags alwaysQualify
+         let sty = mkDumpStyle alwaysQualify
          dumpAction dflags sty (dumpOptionsFromFlag flag) "" FormatText $
            sep [text hdr, nest 4 details]
 
@@ -3182,7 +3182,7 @@ altsWouldDup (alt:alts)
   | is_bot_alt alt = altsWouldDup alts
   | otherwise      = not (all is_bot_alt alts)
   where
-    is_bot_alt (_,_,rhs) = exprIsBottom rhs
+    is_bot_alt (_,_,rhs) = exprIsDeadEnd rhs
 
 -------------------------
 mkDupableCont :: SimplEnv -> SimplCont
@@ -3642,7 +3642,7 @@ mkLetUnfolding dflags top_lvl src id new_rhs
             --             we don't.)  The simple thing is always to have one.
   where
     is_top_lvl   = isTopLevel top_lvl
-    is_bottoming = isBottomingId id
+    is_bottoming = isDeadEndId id
 
 -------------------
 simplStableUnfolding :: SimplEnv -> TopLevelFlag

@@ -23,7 +23,7 @@ module GHC.StgToCmm.Prof (
         ldvEnter, ldvEnterClosure, ldvRecordCreate
   ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Platform
 import GHC.StgToCmm.Closure
@@ -38,9 +38,9 @@ import GHC.Cmm.CLabel
 
 import GHC.Types.CostCentre
 import GHC.Driver.Session
-import FastString
-import GHC.Types.Module as Module
-import Outputable
+import GHC.Data.FastString
+import GHC.Unit.Module as Module
+import GHC.Utils.Outputable
 
 import Control.Monad
 import Data.Char (ord)
@@ -220,8 +220,8 @@ emitCostCentreDecl cc = do
                | otherwise  = zero platform
                         -- NB. bytesFS: we want the UTF-8 bytes here (#5559)
   ; label <- newByteStringCLit (bytesFS $ costCentreUserNameFS cc)
-  ; modl  <- newByteStringCLit (bytesFS $ Module.moduleNameFS
-                                        $ Module.moduleName
+  ; modl  <- newByteStringCLit (bytesFS $ moduleNameFS
+                                        $ moduleName
                                         $ cc_mod cc)
   ; loc <- newByteStringCLit $ bytesFS $ mkFastString $
                    showPpr dflags (costCentreSrcSpan cc)

@@ -75,7 +75,7 @@ module GHC.Core.Opt.SetLevels (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core
 import GHC.Core.Opt.Monad ( FloatOutSwitches(..) )
@@ -94,11 +94,11 @@ import GHC.Types.Id
 import GHC.Types.Id.Info
 import GHC.Types.Var
 import GHC.Types.Var.Set
-import GHC.Types.Unique.Set   ( nonDetFoldUniqSet )
+import GHC.Types.Unique.Set   ( nonDetStrictFoldUniqSet )
 import GHC.Types.Unique.DSet  ( getUniqDSet )
 import GHC.Types.Var.Env
 import GHC.Types.Literal      ( litIsTrivial )
-import GHC.Types.Demand       ( StrictSig, Demand, isStrictDmd, splitStrictSig, increaseStrictSigArity )
+import GHC.Types.Demand       ( StrictSig, Demand, isStrictDmd, splitStrictSig, prependArgsStrictSig )
 import GHC.Types.Cpr          ( mkCprSig, botCpr )
 import GHC.Types.Name         ( getOccName, mkSystemVarName )
 import GHC.Types.Name.Occurrence ( occNameString )
@@ -109,13 +109,13 @@ import GHC.Types.Basic  ( Arity, RecFlag(..), isRec )
 import GHC.Core.DataCon ( dataConOrigResTy )
 import GHC.Builtin.Types
 import GHC.Types.Unique.Supply
-import Util
-import Outputable
-import FastString
+import GHC.Utils.Misc
+import GHC.Utils.Outputable
+import GHC.Data.FastString
 import GHC.Types.Unique.DFM
-import FV
+import GHC.Utils.FV
 import Data.Maybe
-import MonadUtils       ( mapAccumLM )
+import GHC.Utils.Monad  ( mapAccumLM )
 
 {-
 ************************************************************************
@@ -305,7 +305,7 @@ lvlTopBind env (Rec pairs)
 lvl_top :: LevelEnv -> RecFlag -> Id -> CoreExpr -> LvlM LevelledExpr
 lvl_top env is_rec bndr rhs
   = lvlRhs env is_rec
-           (isBottomingId bndr)
+           (isDeadEndId bndr)
            Nothing  -- Not a join point
            (freeVars rhs)
 
@@ -727,7 +727,7 @@ lvlMFE env strict_ctxt ann_expr
     join_arity_maybe = Nothing
 
     is_mk_static = isJust (collectMakeStaticArgs expr)
-        -- Yuk: See Note [Grand plan for static forms] in main/StaticPtrTable
+        -- Yuk: See Note [Grand plan for static forms] in GHC.Iface.Tidy.StaticPtrTable
 
         -- A decision to float entails let-binding this thing, and we only do
         -- that if we'll escape a value lambda, or will go to the top level.
@@ -968,7 +968,7 @@ Id, *immediately*, for three reasons:
     Lint complains unless the scrutinee of such a case is clearly bottom.
 
     This was reported in #11290.   But since the whole bottoming-float
-    thing is based on the cheap-and-cheerful exprIsBottom, I'm not sure
+    thing is based on the cheap-and-cheerful exprIsDeadEnd, I'm not sure
     that it'll nail all such cases.
 
 Note [Bottoming floats: eta expansion] c.f Note [Bottoming floats]
@@ -1008,7 +1008,7 @@ annotateBotStr id n_extra mb_str
   = case mb_str of
       Nothing           -> id
       Just (arity, sig) -> id `setIdArity`      (arity + n_extra)
-                              `setIdStrictness` (increaseStrictSigArity n_extra sig)
+                              `setIdStrictness` (prependArgsStrictSig n_extra sig)
                               `setIdCprInfo`    mkCprSig (arity + n_extra) botCpr
 
 notWorthFloating :: CoreExpr -> [Var] -> Bool
@@ -1494,8 +1494,8 @@ isFunction (_, AnnLam b e) | isId b    = True
 isFunction _                           = False
 
 countFreeIds :: DVarSet -> Int
-countFreeIds = nonDetFoldUDFM add 0 . getUniqDSet
-  -- It's OK to use nonDetFoldUDFM here because we're just counting things.
+countFreeIds = nonDetStrictFoldUDFM add 0 . getUniqDSet
+  -- It's OK to use nonDetStrictFoldUDFM here because we're just counting things.
   where
     add :: Var -> Int -> Int
     add v n | isId v    = n+1
@@ -1607,12 +1607,14 @@ placeJoinCeiling le@(LE { le_ctxt_lvl = lvl })
 
 maxFvLevel :: (Var -> Bool) -> LevelEnv -> DVarSet -> Level
 maxFvLevel max_me env var_set
-  = foldDVarSet (maxIn max_me env) tOP_LEVEL var_set
+  = nonDetStrictFoldDVarSet (maxIn max_me env) tOP_LEVEL var_set
+    -- It's OK to use a non-deterministic fold here because maxIn commutes.
 
 maxFvLevel' :: (Var -> Bool) -> LevelEnv -> TyCoVarSet -> Level
 -- Same but for TyCoVarSet
 maxFvLevel' max_me env var_set
-  = nonDetFoldUniqSet (maxIn max_me env) tOP_LEVEL var_set
+  = nonDetStrictFoldUniqSet (maxIn max_me env) tOP_LEVEL var_set
+    -- It's OK to use a non-deterministic fold here because maxIn commutes.
 
 maxIn :: (Var -> Bool) -> LevelEnv -> InVar -> Level -> Level
 maxIn max_me (LE { le_lvl_env = lvl_env, le_env = id_env }) in_var lvl
@@ -1725,7 +1727,7 @@ newLvlVar lvld_rhs join_arity_maybe is_mk_static
     rhs_ty        = exprType de_tagged_rhs
 
     mk_id uniq rhs_ty
-      -- See Note [Grand plan for static forms] in StaticPtrTable.
+      -- See Note [Grand plan for static forms] in GHC.Iface.Tidy.StaticPtrTable.
       | is_mk_static
       = mkExportedVanillaId (mkSystemVarName uniq (mkFastString "static_ptr"))
                             rhs_ty

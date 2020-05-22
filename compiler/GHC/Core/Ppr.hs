@@ -17,7 +17,7 @@ module GHC.Core.Ppr (
         pprRules, pprOptCo
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core
 import GHC.Core.Stats (exprStats)
@@ -33,10 +33,10 @@ import GHC.Core.TyCon
 import GHC.Core.TyCo.Ppr
 import GHC.Core.Coercion
 import GHC.Types.Basic
-import Maybes
-import Util
-import Outputable
-import FastString
+import GHC.Data.Maybe
+import GHC.Utils.Misc
+import GHC.Utils.Outputable
+import GHC.Data.FastString
 import GHC.Types.SrcLoc ( pprUserRealSpan )
 
 {-
@@ -375,8 +375,8 @@ pprCoreBinder LetBind binder
 
 -- Lambda bound type variables are preceded by "@"
 pprCoreBinder bind_site bndr
-  = getPprStyle $ \ sty ->
-    pprTypedLamBinder bind_site (debugStyle sty) bndr
+  = getPprDebug $ \debug ->
+    pprTypedLamBinder bind_site debug bndr
 
 pprUntypedBinder :: Var -> SDoc
 pprUntypedBinder binder
@@ -448,7 +448,7 @@ pprIdBndrInfo info
     lbv_info  = oneShotInfo info
 
     has_prag  = not (isDefaultInlinePragma prag_info)
-    has_occ   = not (isManyOccs occ_info)
+    has_occ   = not (isNoOccInfo occ_info)
     has_dmd   = not $ isTopDmd dmd_info
     has_lbv   = not (hasNoOneShotInfo lbv_info)
 

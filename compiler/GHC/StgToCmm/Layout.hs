@@ -32,7 +32,7 @@ module GHC.StgToCmm.Layout (
 
 #include "HsVersions.h"
 
-import GhcPrelude hiding ((<*>))
+import GHC.Prelude hiding ((<*>))
 
 import GHC.StgToCmm.Closure
 import GHC.StgToCmm.Env
@@ -54,12 +54,12 @@ import GHC.Core.TyCon    ( PrimRep(..), primRepSizeB )
 import GHC.Types.Basic   ( RepArity )
 import GHC.Driver.Session
 import GHC.Platform
-import GHC.Types.Module
+import GHC.Unit
 
-import Util
+import GHC.Utils.Misc
 import Data.List
-import Outputable
-import FastString
+import GHC.Utils.Outputable
+import GHC.Data.FastString
 import Control.Monad
 
 ------------------------------------------------------------------------

@@ -9,7 +9,7 @@ module GHC.Cmm.Pipeline (
   cmmPipeline
 ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Cmm
 import GHC.Cmm.Lint
@@ -24,10 +24,10 @@ import GHC.Cmm.Dataflow.Collections
 
 import GHC.Types.Unique.Supply
 import GHC.Driver.Session
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Driver.Types
 import Control.Monad
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Platform
 import Data.Either (partitionEithers)
 
@@ -368,6 +368,6 @@ dumpWith dflags flag txt fmt sdoc = do
     -- If `-ddump-cmm-verbose -ddump-to-file` is specified,
     -- dump each Cmm pipeline stage output to a separate file.  #16930
     when (dopt Opt_D_dump_cmm_verbose dflags)
-      $ dumpAction dflags (mkDumpStyle dflags alwaysQualify)
+      $ dumpAction dflags (mkDumpStyle alwaysQualify)
                    (dumpOptionsFromFlag flag) txt fmt sdoc
   dumpIfSet_dyn dflags Opt_D_dump_cmm_verbose_by_proc txt fmt sdoc

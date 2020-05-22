@@ -25,7 +25,7 @@ module GHC.Core.TyCo.Ppr
         pprTyThingCategory, pprShortTyThing,
   ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.CoreToIface
    ( toIfaceTypeX, toIfaceTyLit, toIfaceForAllBndr
@@ -51,7 +51,7 @@ import GHC.Iface.Type
 import GHC.Types.Var.Set
 import GHC.Types.Var.Env
 
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.Basic ( PprPrec(..), topPrec, sigPrec, opPrec
                        , funPrec, appPrec, maybeParen )
 
@@ -94,7 +94,8 @@ pprPrecType = pprPrecTypeX emptyTidyEnv
 pprPrecTypeX :: TidyEnv -> PprPrec -> Type -> SDoc
 pprPrecTypeX env prec ty
   = getPprStyle $ \sty ->
-    if debugStyle sty           -- Use debugPprType when in
+    getPprDebug $ \debug ->
+    if debug                    -- Use debugPprType when in
     then debug_ppr_ty prec ty   -- when in debug-style
     else pprPrecIfaceType prec (tidyToIfaceTypeStyX env ty sty)
     -- NB: debug-style is used for -dppr-debug

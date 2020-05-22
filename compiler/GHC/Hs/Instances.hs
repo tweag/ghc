@@ -16,7 +16,7 @@ module GHC.Hs.Instances where
 
 import Data.Data hiding ( Fixity )
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Hs.Extension
 import GHC.Hs.Binds
 import GHC.Hs.Decls
@@ -358,6 +358,9 @@ deriving instance Data (Pat GhcPs)
 deriving instance Data (Pat GhcRn)
 deriving instance Data (Pat GhcTc)
 
+deriving instance Data CoPat
+deriving instance Data ConPatTc
+
 deriving instance Data ListPatTc
 
 -- deriving instance (DataIdLR p p, Data body) => Data (HsRecFields p body)
@@ -382,6 +385,11 @@ deriving instance (Data thing) => Data (HsImplicitBndrs GhcTc thing)
 deriving instance (Data thing) => Data (HsWildCardBndrs GhcPs thing)
 deriving instance (Data thing) => Data (HsWildCardBndrs GhcRn thing)
 deriving instance (Data thing) => Data (HsWildCardBndrs GhcTc thing)
+
+-- deriving instance (DataIdLR p p) => Data (HsPatSigType p)
+deriving instance Data (HsPatSigType GhcPs)
+deriving instance Data (HsPatSigType GhcRn)
+deriving instance Data (HsPatSigType GhcTc)
 
 -- deriving instance (DataIdLR p p) => Data (HsTyVarBndr p)
 deriving instance Data (HsTyVarBndr GhcPs)

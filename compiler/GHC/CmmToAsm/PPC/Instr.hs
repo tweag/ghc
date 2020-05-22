@@ -24,7 +24,7 @@ module GHC.CmmToAsm.PPC.Instr (
 
 where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.CmmToAsm.PPC.Regs
 import GHC.CmmToAsm.PPC.Cond
@@ -41,9 +41,9 @@ import GHC.Cmm.Dataflow.Collections
 import GHC.Cmm.Dataflow.Label
 import GHC.Cmm
 import GHC.Cmm.Info
-import FastString
+import GHC.Data.FastString
 import GHC.Cmm.CLabel
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Platform
 import GHC.Types.Unique.FM (listToUFM, lookupUFM)
 import GHC.Types.Unique.Supply
@@ -186,6 +186,9 @@ data RI
 data Instr
     -- comment pseudo-op
     = COMMENT FastString
+
+    -- location pseudo-op (file, line, col, name)
+    | LOCATION Int Int Int String
 
     -- some static data spat out during code
     -- generation.  Will be extracted before
@@ -643,6 +646,7 @@ ppc_isMetaInstr
 ppc_isMetaInstr instr
  = case instr of
     COMMENT{}   -> True
+    LOCATION{}  -> True
     LDATA{}     -> True
     NEWBLOCK{}  -> True
     DELTA{}     -> True

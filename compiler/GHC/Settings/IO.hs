@@ -9,16 +9,16 @@ module GHC.Settings.IO
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Settings.Platform
 import GHC.Settings.Utils
 
 import Config
-import CliOption
-import Fingerprint
+import GHC.Utils.CliOption
+import GHC.Utils.Fingerprint
 import GHC.Platform
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Settings
 import GHC.SysTools.BaseDir
 
@@ -166,7 +166,6 @@ initSettings top_dir = do
   ghcWithNativeCodeGen <- getBooleanSetting "Use native code generator"
   ghcWithSMP <- getBooleanSetting "Support SMP"
   ghcRTSWays <- getSetting "RTS ways"
-  leadingUnderscore <- getBooleanSetting "Leading underscore"
   useLibFFI <- getBooleanSetting "Use LibFFI"
   ghcThreaded <- getBooleanSetting "Use Threads"
   ghcDebugged <- getBooleanSetting "Use Debugging"
@@ -237,7 +236,6 @@ initSettings top_dir = do
       , platformMisc_ghcWithSMP = ghcWithSMP
       , platformMisc_ghcRTSWays = ghcRTSWays
       , platformMisc_tablesNextToCode = tablesNextToCode
-      , platformMisc_leadingUnderscore = leadingUnderscore
       , platformMisc_libFFI = useLibFFI
       , platformMisc_ghcThreaded = ghcThreaded
       , platformMisc_ghcDebugged = ghcDebugged

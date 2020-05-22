@@ -19,7 +19,7 @@ module GHC.Rename.Module (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Rename.Expr( rnLExpr )
 import {-# SOURCE #-} GHC.Rename.Splice ( rnSpliceDecl, rnTopSpliceDecls )
@@ -42,7 +42,7 @@ import GHC.Tc.Gen.Annotation ( annCtxt )
 import GHC.Tc.Utils.Monad
 
 import GHC.Types.ForeignCall ( CCallTarget(..) )
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Driver.Types ( Warnings(..), plusWarns )
 import GHC.Builtin.Names( applicativeClassName, pureAName, thenAName
                         , monadClassName, returnMName, thenMName
@@ -53,19 +53,19 @@ import GHC.Types.Name
 import GHC.Types.Name.Set
 import GHC.Types.Name.Env
 import GHC.Types.Avail
-import Outputable
-import Bag
+import GHC.Utils.Outputable
+import GHC.Data.Bag
 import GHC.Types.Basic  ( pprRuleName, TypeOrKind(..) )
-import FastString
+import GHC.Data.FastString
 import GHC.Types.SrcLoc as SrcLoc
 import GHC.Driver.Session
-import Util             ( debugIsOn, filterOut, lengthExceeds, partitionWith )
+import GHC.Utils.Misc   ( debugIsOn, filterOut, lengthExceeds, partitionWith )
 import GHC.Driver.Types ( HscEnv, hsc_dflags )
-import ListSetOps       ( findDupsEq, removeDups, equivClasses )
-import Digraph          ( SCC, flattenSCC, flattenSCCs, Node(..)
-                        , stronglyConnCompFromEdgedVerticesUniq )
+import GHC.Data.List.SetOps ( findDupsEq, removeDups, equivClasses )
+import GHC.Data.Graph.Directed ( SCC, flattenSCC, flattenSCCs, Node(..)
+                               , stronglyConnCompFromEdgedVerticesUniq )
 import GHC.Types.Unique.Set
-import OrdList
+import GHC.Data.OrdList
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
@@ -73,7 +73,7 @@ import Control.Arrow ( first )
 import Data.List ( mapAccumL )
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty ( NonEmpty(..) )
-import Data.Maybe ( isNothing, fromMaybe, mapMaybe )
+import Data.Maybe ( isNothing, isJust, fromMaybe, mapMaybe )
 import qualified Data.Set as Set ( difference, fromList, toList, null )
 import Data.Function ( on )
 
@@ -396,21 +396,21 @@ rnHsForeignDecl (ForeignExport { fd_name = name, fd_sig_ty = ty, fd_fe = spec })
 --      package, so if they get inlined across a package boundary we'll still
 --      know where they're from.
 --
-patchForeignImport :: UnitId -> ForeignImport -> ForeignImport
-patchForeignImport unitId (CImport cconv safety fs spec src)
-        = CImport cconv safety fs (patchCImportSpec unitId spec) src
+patchForeignImport :: Unit -> ForeignImport -> ForeignImport
+patchForeignImport unit (CImport cconv safety fs spec src)
+        = CImport cconv safety fs (patchCImportSpec unit spec) src
 
-patchCImportSpec :: UnitId -> CImportSpec -> CImportSpec
-patchCImportSpec unitId spec
+patchCImportSpec :: Unit -> CImportSpec -> CImportSpec
+patchCImportSpec unit spec
  = case spec of
-        CFunction callTarget    -> CFunction $ patchCCallTarget unitId callTarget
+        CFunction callTarget    -> CFunction $ patchCCallTarget unit callTarget
         _                       -> spec
 
-patchCCallTarget :: UnitId -> CCallTarget -> CCallTarget
-patchCCallTarget unitId callTarget =
+patchCCallTarget :: Unit -> CCallTarget -> CCallTarget
+patchCCallTarget unit callTarget =
   case callTarget of
   StaticTarget src label Nothing isFun
-                              -> StaticTarget src label (Just unitId) isFun
+                              -> StaticTarget src label (Just unit) isFun
   _                           -> callTarget
 
 {-
@@ -681,10 +681,9 @@ rnFamInstEqn doc atfi rhs_kvars
              -- Use the "...Dups" form because it's needed
              -- below to report unused binder on the LHS
 
-         -- Implicitly bound variables, empty if we have an explicit 'forall' according
-         -- to the "forall-or-nothing" rule.
-       ; let imp_vars | isNothing mb_bndrs = nubL pat_kity_vars_with_dups
-                      | otherwise = []
+         -- Implicitly bound variables, empty if we have an explicit 'forall'.
+         -- See Note [forall-or-nothing rule] in GHC.Rename.HsType.
+       ; let imp_vars = nubL $ forAllOrNothing (isJust mb_bndrs) pat_kity_vars_with_dups
        ; imp_var_names <- mapM (newTyVarNameRn mb_cls) imp_vars
 
        ; let bndrs = fromMaybe [] mb_bndrs
@@ -958,7 +957,7 @@ rnSrcDerivDecl (DerivDecl _ ty mds overlap)
        ; unless standalone_deriv_ok (addErr standaloneDerivErr)
        ; (mds', ty', fvs)
            <- rnLDerivStrategy DerivDeclCtx mds $
-              rnHsSigWcType BindUnlessForall DerivDeclCtx ty
+              rnHsSigWcType DerivDeclCtx ty
        ; warnNoDerivStrat mds' loc
        ; return (DerivDecl noExtField ty' mds' overlap, fvs) }
   where
@@ -1029,7 +1028,7 @@ bindRuleTmVars doc tyvs vars names thing_inside
 
     go ((L l (RuleBndrSig _ (L loc _) bsig)) : vars)
        (n : ns) thing_inside
-      = rnHsSigWcTypeScoped bind_free_tvs doc bsig $ \ bsig' ->
+      = rnHsPatSigType bind_free_tvs doc bsig $ \ bsig' ->
         go vars ns $ \ vars' ->
         thing_inside (L l (RuleBndrSig noExtField (L loc n) bsig') : vars')
 
@@ -1397,12 +1396,12 @@ depAnalTyClDecls rdr_env kisig_fv_env ds_w_fvs
             -- It's OK to use nonDetEltsUFM here as
             -- stronglyConnCompFromEdgedVertices is still deterministic
             -- even if the edges are in nondeterministic order as explained
-            -- in Note [Deterministic SCC] in Digraph.
+            -- in Note [Deterministic SCC] in GHC.Data.Graph.Directed.
 
 toParents :: GlobalRdrEnv -> NameSet -> NameSet
 toParents rdr_env ns
-  = nonDetFoldUniqSet add emptyNameSet ns
-  -- It's OK to use nonDetFoldUFM because we immediately forget the
+  = nonDetStrictFoldUniqSet add emptyNameSet ns
+  -- It's OK to use a non-deterministic fold because we immediately forget the
   -- ordering by creating a set
   where
     add n s = extendNameSet s (getParent rdr_env n)
@@ -2098,7 +2097,7 @@ rnConDecl decl@(ConDeclGADT { con_names   = names
               mb_ctxt = Just (inHsDocContext ctxt)
 
         ; traceRn "rnConDecl" (ppr names $$ ppr free_tkvs $$ ppr explicit_forall )
-        ; rnImplicitBndrs (not explicit_forall) free_tkvs $ \ implicit_tkvs ->
+        ; rnImplicitBndrs (forAllOrNothing explicit_forall free_tkvs) $ \ implicit_tkvs ->
           bindLHsTyVarBndrs ctxt mb_ctxt Nothing explicit_tkvs $ \ explicit_tkvs ->
     do  { (new_cxt, fvs1)    <- rnMbContext ctxt mcxt
         ; (new_args, fvs2)   <- rnConDeclDetails (unLoc (head new_names)) ctxt args

@@ -202,7 +202,7 @@ necessary to the stack to accommodate it (e.g. 2).
 
 module GHC.Cmm.Parser ( parseCmmFile ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.StgToCmm.ExtCode
 import GHC.Cmm.CallConv
@@ -236,21 +236,21 @@ import GHC.Parser.Lexer
 
 import GHC.Types.CostCentre
 import GHC.Types.ForeignCall
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Platform
 import GHC.Types.Literal
 import GHC.Types.Unique
 import GHC.Types.Unique.FM
 import GHC.Types.SrcLoc
 import GHC.Driver.Session
-import ErrUtils
-import StringBuffer
-import FastString
-import Panic
+import GHC.Utils.Error
+import GHC.Data.StringBuffer
+import GHC.Data.FastString
+import GHC.Utils.Panic
 import GHC.Settings.Constants
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.Basic
-import Bag              ( emptyBag, unitBag )
+import GHC.Data.Bag     ( emptyBag, unitBag )
 import GHC.Types.Var
 
 import Control.Monad
@@ -585,7 +585,7 @@ importName
 
         -- A label imported with an explicit packageId.
         | STRING NAME
-        { ($2, mkCmmCodeLabel (fsToUnitId (mkFastString $1)) $2) }
+        { ($2, mkCmmCodeLabel (fsToUnit (mkFastString $1)) $2) }
 
 
 names   :: { [FastString] }
@@ -1163,7 +1163,7 @@ profilingInfo dflags desc_str ty_str
     then NoProfilingInfo
     else ProfilingInfo (BS8.pack desc_str) (BS8.pack ty_str)
 
-staticClosure :: UnitId -> FastString -> FastString -> [CmmLit] -> CmmParse ()
+staticClosure :: Unit -> FastString -> FastString -> [CmmLit] -> CmmParse ()
 staticClosure pkg cl_label info payload
   = do dflags <- getDynFlags
        let lits = mkStaticClosure dflags (mkCmmInfoLabel pkg info) dontCareCCS payload [] [] []

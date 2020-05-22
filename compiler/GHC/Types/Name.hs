@@ -79,19 +79,19 @@ module GHC.Types.Name (
         module GHC.Types.Name.Occurrence
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Core.TyCo.Rep( TyThing )
 
 import GHC.Types.Name.Occurrence
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.SrcLoc
 import GHC.Types.Unique
-import Util
-import Maybes
-import Binary
-import FastString
-import Outputable
+import GHC.Utils.Misc
+import GHC.Data.Maybe
+import GHC.Utils.Binary
+import GHC.Data.FastString
+import GHC.Utils.Outputable
 
 import Control.DeepSeq
 import Data.Data
@@ -282,12 +282,12 @@ nameIsHomePackage :: Module -> Name -> Bool
 -- True if the Name is defined in module of this package
 nameIsHomePackage this_mod
   = \nm -> case n_sort nm of
-              External nm_mod    -> moduleUnitId nm_mod == this_pkg
-              WiredIn nm_mod _ _ -> moduleUnitId nm_mod == this_pkg
+              External nm_mod    -> moduleUnit nm_mod == this_pkg
+              WiredIn nm_mod _ _ -> moduleUnit nm_mod == this_pkg
               Internal -> True
               System   -> False
   where
-    this_pkg = moduleUnitId this_mod
+    this_pkg = moduleUnit this_mod
 
 nameIsHomePackageImport :: Module -> Name -> Bool
 -- True if the Name is defined in module of this package
@@ -296,17 +296,17 @@ nameIsHomePackageImport this_mod
   = \nm -> case nameModule_maybe nm of
               Nothing -> False
               Just nm_mod -> nm_mod /= this_mod
-                          && moduleUnitId nm_mod == this_pkg
+                          && moduleUnit nm_mod == this_pkg
   where
-    this_pkg = moduleUnitId this_mod
+    this_pkg = moduleUnit this_mod
 
 -- | Returns True if the Name comes from some other package: neither this
 -- package nor the interactive package.
-nameIsFromExternalPackage :: UnitId -> Name -> Bool
-nameIsFromExternalPackage this_pkg name
+nameIsFromExternalPackage :: Unit -> Name -> Bool
+nameIsFromExternalPackage this_unit name
   | Just mod <- nameModule_maybe name
-  , moduleUnitId mod /= this_pkg    -- Not this package
-  , not (isInteractiveModule mod)       -- Not the 'interactive' package
+  , moduleUnit mod /= this_unit   -- Not the current unit
+  , not (isInteractiveModule mod) -- Not the 'interactive' package
   = True
   | otherwise
   = False
@@ -531,24 +531,25 @@ instance OutputableBndr Name where
 
 pprName :: Name -> SDoc
 pprName (Name {n_sort = sort, n_uniq = uniq, n_occ = occ})
-  = getPprStyle $ \ sty ->
+  = getPprStyle $ \sty ->
+    getPprDebug $ \debug ->
     case sort of
-      WiredIn mod _ builtin   -> pprExternal sty uniq mod occ True  builtin
-      External mod            -> pprExternal sty uniq mod occ False UserSyntax
-      System                  -> pprSystem sty uniq occ
-      Internal                -> pprInternal sty uniq occ
+      WiredIn mod _ builtin   -> pprExternal debug sty uniq mod occ True  builtin
+      External mod            -> pprExternal debug sty uniq mod occ False UserSyntax
+      System                  -> pprSystem   debug sty uniq occ
+      Internal                -> pprInternal debug sty uniq occ
 
 -- | Print the string of Name unqualifiedly directly.
 pprNameUnqualified :: Name -> SDoc
 pprNameUnqualified Name { n_occ = occ } = ppr_occ_name occ
 
-pprExternal :: PprStyle -> Unique -> Module -> OccName -> Bool -> BuiltInSyntax -> SDoc
-pprExternal sty uniq mod occ is_wired is_builtin
+pprExternal :: Bool -> PprStyle -> Unique -> Module -> OccName -> Bool -> BuiltInSyntax -> SDoc
+pprExternal debug sty uniq mod occ is_wired is_builtin
   | codeStyle sty = ppr mod <> char '_' <> ppr_z_occ_name occ
         -- In code style, always qualify
         -- ToDo: maybe we could print all wired-in things unqualified
         --       in code style, to reduce symbol table bloat?
-  | debugStyle sty = pp_mod <> ppr_occ_name occ
+  | debug         = pp_mod <> ppr_occ_name occ
                      <> braces (hsep [if is_wired then text "(w)" else empty,
                                       pprNameSpaceBrief (occNameSpace occ),
                                       pprUnique uniq])
@@ -563,10 +564,10 @@ pprExternal sty uniq mod occ is_wired is_builtin
     pp_mod = ppUnlessOption sdocSuppressModulePrefixes
                (ppr mod <> dot)
 
-pprInternal :: PprStyle -> Unique -> OccName -> SDoc
-pprInternal sty uniq occ
+pprInternal :: Bool -> PprStyle -> Unique -> OccName -> SDoc
+pprInternal debug sty uniq occ
   | codeStyle sty  = pprUniqueAlways uniq
-  | debugStyle sty = ppr_occ_name occ <> braces (hsep [pprNameSpaceBrief (occNameSpace occ),
+  | debug          = ppr_occ_name occ <> braces (hsep [pprNameSpaceBrief (occNameSpace occ),
                                                        pprUnique uniq])
   | dumpStyle sty  = ppr_occ_name occ <> ppr_underscore_unique uniq
                         -- For debug dumps, we're not necessarily dumping
@@ -574,10 +575,10 @@ pprInternal sty uniq occ
   | otherwise      = ppr_occ_name occ   -- User style
 
 -- Like Internal, except that we only omit the unique in Iface style
-pprSystem :: PprStyle -> Unique -> OccName -> SDoc
-pprSystem sty uniq occ
+pprSystem :: Bool -> PprStyle -> Unique -> OccName -> SDoc
+pprSystem debug sty uniq occ
   | codeStyle sty  = pprUniqueAlways uniq
-  | debugStyle sty = ppr_occ_name occ <> ppr_underscore_unique uniq
+  | debug          = ppr_occ_name occ <> ppr_underscore_unique uniq
                      <> braces (pprNameSpaceBrief (occNameSpace occ))
   | otherwise      = ppr_occ_name occ <> ppr_underscore_unique uniq
                                 -- If the tidy phase hasn't run, the OccName
@@ -592,7 +593,7 @@ pprModulePrefix sty mod occ = ppUnlessOption sdocSuppressModulePrefixes $
     case qualName sty mod occ of              -- See Outputable.QualifyName:
       NameQual modname -> ppr modname <> dot       -- Name is in scope
       NameNotInScope1  -> ppr mod <> dot           -- Not in scope
-      NameNotInScope2  -> ppr (moduleUnitId mod) <> colon     -- Module not in
+      NameNotInScope2  -> ppr (moduleUnit mod) <> colon     -- Module not in
                           <> ppr (moduleName mod) <> dot          -- scope either
       NameUnqual       -> empty                   -- In scope unqualified
 

@@ -85,8 +85,8 @@ module GHC.Tc.Utils.Monad(
   addLandmarkErrCtxtM, updCtxt, popErrCtxt, getCtLocM, setCtLocM,
 
   -- * Error message generation (type checker)
-  addErrTc, addErrsTc,
-  addErrTcM, mkErrTcM, mkErrTc,
+  addErrTc,
+  addErrTcM,
   failWithTc, failWithTcM,
   checkTc, checkTcM,
   failIfTc, failIfTcM,
@@ -101,14 +101,14 @@ module GHC.Tc.Utils.Monad(
   chooseUniqueOccTc,
   getConstraintVar, setConstraintVar,
   emitConstraints, emitStaticConstraints, emitSimple, emitSimples,
-  emitImplication, emitImplications, emitInsoluble,
+  emitImplication, emitImplications, emitInsoluble, emitHole,
   discardConstraints, captureConstraints, tryCaptureConstraints,
   pushLevelAndCaptureConstraints,
   pushTcLevelM_, pushTcLevelM, pushTcLevelsM,
   getTcLevel, setTcLevel, isTouchableTcM,
   getLclTypeEnv, setLclTypeEnv,
   traceTcConstraints,
-  emitNamedWildCardHoleConstraints, emitAnonWildCardHoleConstraint,
+  emitNamedTypeHole, emitAnonTypeHole,
 
   -- * Template Haskell context
   recordThUse, recordThSpliceUse,
@@ -141,22 +141,22 @@ module GHC.Tc.Utils.Monad(
 
   -- * Types etc.
   module GHC.Tc.Types,
-  module IOEnv
+  module GHC.Data.IOEnv
   ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Tc.Types     -- Re-export all
-import IOEnv            -- Re-export all
+import GHC.Data.IOEnv -- Re-export all
 import GHC.Tc.Types.Constraint
 import GHC.Tc.Types.Evidence
 import GHC.Tc.Types.Origin
 
 import GHC.Hs hiding (LIE)
 import GHC.Driver.Types
-import GHC.Types.Module
+import GHC.Unit
 import GHC.Types.Name.Reader
 import GHC.Types.Name
 import GHC.Core.UsageEnv
@@ -171,20 +171,20 @@ import GHC.Builtin.Names
 import GHC.Types.Id
 import GHC.Types.Var.Set
 import GHC.Types.Var.Env
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Types.SrcLoc
 import GHC.Types.Name.Env
 import GHC.Types.Name.Set
-import Bag
-import Outputable
+import GHC.Data.Bag
+import GHC.Utils.Outputable as Outputable
 import GHC.Types.Unique.Supply
 import GHC.Driver.Session
-import FastString
-import Panic
-import Util
+import GHC.Data.FastString
+import GHC.Utils.Panic
+import GHC.Utils.Misc
 import GHC.Types.Annotations
 import GHC.Types.Basic( TopLevelFlag, TypeOrKind(..) )
-import Maybes
+import GHC.Data.Maybe
 import GHC.Types.CostCentre.State
 
 import qualified GHC.LanguageExtensions as LangExt
@@ -269,7 +269,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod loc do_this
                 tcg_rdr_env        = emptyGlobalRdrEnv,
                 tcg_fix_env        = emptyNameEnv,
                 tcg_field_env      = emptyNameEnv,
-                tcg_default        = if moduleUnitId mod == primUnitId
+                tcg_default        = if moduleUnit mod == primUnitId
                                      then Just []  -- See Note [Default types]
                                      else Nothing,
                 tcg_type_env       = emptyNameEnv,
@@ -546,10 +546,7 @@ updateEps upd_fn = do
 -- order to avoid space leaks.
 updateEps_ :: (ExternalPackageState -> ExternalPackageState)
            -> TcRnIf gbl lcl ()
-updateEps_ upd_fn = do
-  traceIf (text "updating EPS_")
-  eps_var <- getEpsVar
-  atomicUpdMutVar' eps_var (\eps -> (upd_fn eps, ()))
+updateEps_ upd_fn = updateEps (\eps -> (upd_fn eps, ()))
 
 getHpt :: TcRnIf gbl lcl HomePackageTable
 getHpt = do { env <- getTopEnv; return (hsc_HPT env) }
@@ -720,8 +717,8 @@ dumpTcRn useUserStyle dumpOpt title fmt doc = do
   printer <- getPrintUnqualified dflags
   real_doc <- wrapDocLoc doc
   let sty = if useUserStyle
-              then mkUserStyle dflags printer AllTheWay
-              else mkDumpStyle dflags printer
+              then mkUserStyle printer AllTheWay
+              else mkDumpStyle printer
   liftIO $ dumpAction dflags sty dumpOpt title fmt real_doc
 
 -- | Add current location if -dppr-debug
@@ -843,9 +840,8 @@ addLocM :: (a -> TcM b) -> Located a -> TcM b
 addLocM fn (L loc a) = setSrcSpan loc $ fn a
 
 wrapLocM :: (a -> TcM b) -> Located a -> TcM (Located b)
--- wrapLocM :: (a -> TcM b) -> Located a -> TcM (Located b)
 wrapLocM fn (L loc a) = setSrcSpan loc $ do { b <- fn a
-                                                ; return (L loc b) }
+                                            ; return (L loc b) }
 
 wrapLocFstM :: (a -> TcM (b,c)) -> Located a -> TcM (Located b, c)
 wrapLocFstM fn (L loc a) =
@@ -1320,26 +1316,11 @@ addErrTc :: MsgDoc -> TcM ()
 addErrTc err_msg = do { env0 <- tcInitTidyEnv
                       ; addErrTcM (env0, err_msg) }
 
-addErrsTc :: [MsgDoc] -> TcM ()
-addErrsTc err_msgs = mapM_ addErrTc err_msgs
-
 addErrTcM :: (TidyEnv, MsgDoc) -> TcM ()
 addErrTcM (tidy_env, err_msg)
   = do { ctxt <- getErrCtxt ;
          loc  <- getSrcSpanM ;
          add_err_tcm tidy_env err_msg loc ctxt }
-
--- Return the error message, instead of reporting it straight away
-mkErrTcM :: (TidyEnv, MsgDoc) -> TcM ErrMsg
-mkErrTcM (tidy_env, err_msg)
-  = do { ctxt <- getErrCtxt ;
-         loc  <- getSrcSpanM ;
-         err_info <- mkErrInfo tidy_env ctxt ;
-         mkLongErrAt loc err_msg err_info }
-
-mkErrTc :: MsgDoc -> TcM ErrMsg
-mkErrTc msg = do { env0 <- tcInitTidyEnv
-                 ; mkErrTcM (env0, msg) }
 
 -- The failWith functions add an error message and cause failure
 
@@ -1608,12 +1589,11 @@ emitInsoluble ct
        ; lie_var <- getConstraintVar
        ; updTcRef lie_var (`addInsols` unitBag ct) }
 
-emitInsolubles :: Cts -> TcM ()
-emitInsolubles cts
-  | isEmptyBag cts = return ()
-  | otherwise      = do { traceTc "emitInsolubles" (ppr cts)
-                        ; lie_var <- getConstraintVar
-                        ; updTcRef lie_var (`addInsols` cts) }
+emitHole :: Hole -> TcM ()
+emitHole hole
+  = do { traceTc "emitHole" (ppr hole)
+       ; lie_var <- getConstraintVar
+       ; updTcRef lie_var (`addHole` hole) }
 
 -- | Throw out any constraints emitted by the thing_inside
 discardConstraints :: TcM a -> TcM a
@@ -1683,34 +1663,28 @@ traceTcConstraints msg
          hang (text (msg ++ ": LIE:")) 2 (ppr lie)
        }
 
-emitAnonWildCardHoleConstraint :: TcTyVar -> TcM ()
-emitAnonWildCardHoleConstraint tv
-  = do { ct_loc <- getCtLocM HoleOrigin Nothing
-       ; emitInsolubles $ unitBag $
-         CHoleCan { cc_ev = CtDerived { ctev_pred = mkTyVarTy tv
-                                      , ctev_loc  = ct_loc }
-                  , cc_occ = mkTyVarOcc "_"
-                  , cc_hole = TypeHole } }
-
-emitNamedWildCardHoleConstraints :: [(Name, TcTyVar)] -> TcM ()
-emitNamedWildCardHoleConstraints wcs
-  = do { ct_loc <- getCtLocM HoleOrigin Nothing
-       ; emitInsolubles $ listToBag $
-         map (do_one ct_loc) wcs }
+emitAnonTypeHole :: TcTyVar -> TcM ()
+emitAnonTypeHole tv
+  = do { ct_loc <- getCtLocM (TypeHoleOrigin occ) Nothing
+       ; let hole = Hole { hole_sort = TypeHole
+                         , hole_occ  = occ
+                         , hole_ty   = mkTyVarTy tv
+                         , hole_loc  = ct_loc }
+       ; emitHole hole }
   where
-    do_one :: CtLoc -> (Name, TcTyVar) -> Ct
-    do_one ct_loc (name, tv)
-       = CHoleCan { cc_ev = CtDerived { ctev_pred = mkTyVarTy tv
-                                      , ctev_loc  = ct_loc' }
-                  , cc_occ = occName name
-                  , cc_hole = TypeHole }
-       where
-         real_span = case nameSrcSpan name of
-                           RealSrcSpan span _ -> span
-                           UnhelpfulSpan str -> pprPanic "emitNamedWildCardHoleConstraints"
-                                                      (ppr name <+> quotes (ftext str))
-               -- Wildcards are defined locally, and so have RealSrcSpans
-         ct_loc' = setCtLocSpan ct_loc real_span
+    occ = mkTyVarOcc "_"
+
+emitNamedTypeHole :: (Name, TcTyVar) -> TcM ()
+emitNamedTypeHole (name, tv)
+  = do { ct_loc <- setSrcSpan (nameSrcSpan name) $
+                   getCtLocM (TypeHoleOrigin occ) Nothing
+       ; let hole = Hole { hole_sort = TypeHole
+                         , hole_occ  = occ
+                         , hole_ty   = mkTyVarTy tv
+                         , hole_loc  = ct_loc }
+       ; emitHole hole }
+  where
+    occ       = nameOccName name
 
 {- Note [Constraints and errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1880,7 +1854,7 @@ initIfaceTcRn thing_inside
         ; let !mod = tcg_semantic_mod tcg_env
               -- When we are instantiating a signature, we DEFINITELY
               -- do not want to knot tie.
-              is_instantiate = unitIdIsDefinite (thisPackage dflags) &&
+              is_instantiate = unitIsDefinite (thisPackage dflags) &&
                                not (null (thisUnitIdInsts dflags))
         ; let { if_env = IfGblEnv {
                             if_doc = text "initIfaceTcRn",
@@ -1941,7 +1915,7 @@ failIfM msg
         ; let full_msg = (if_loc env <> colon) $$ nest 2 msg
         ; dflags <- getDynFlags
         ; liftIO (putLogMsg dflags NoReason SevFatal
-                   noSrcSpan (defaultErrStyle dflags) full_msg)
+                   noSrcSpan $ withPprStyle (defaultErrStyle dflags) full_msg)
         ; failM }
 
 --------------------
@@ -1977,8 +1951,7 @@ forkM_maybe doc thing_inside
                                              NoReason
                                              SevFatal
                                              noSrcSpan
-                                             (defaultErrStyle dflags)
-                                             msg
+                                             $ withPprStyle (defaultErrStyle dflags) msg
 
                     ; traceIf (text "} ending fork (badly)" <+> doc)
                     ; return Nothing }

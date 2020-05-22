@@ -4,11 +4,11 @@ module GHC.Core.UsageEnv (UsageEnv, addUsage, scaleUsage, zeroUE,
                           supUE, supUEs) where
 
 import Data.Foldable
-import GhcPrelude
+import GHC.Prelude
 import GHC.Core.Multiplicity
 import GHC.Types.Name
 import GHC.Types.Name.Env
-import Outputable
+import GHC.Utils.Outputable
 
 --
 -- * Usage environments

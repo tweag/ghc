@@ -46,7 +46,7 @@ module GHC.Tc.Utils.Zonk (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs
 import GHC.Types.Id
@@ -74,11 +74,11 @@ import GHC.Types.Var
 import GHC.Types.Var.Env
 import GHC.Platform
 import GHC.Types.Basic
-import Maybes
+import GHC.Data.Maybe
 import GHC.Types.SrcLoc
-import Bag
-import Outputable
-import Util
+import GHC.Data.Bag
+import GHC.Utils.Outputable
+import GHC.Utils.Misc
 import GHC.Types.Unique.FM
 import GHC.Core.Multiplicity
 import GHC.Core
@@ -115,14 +115,16 @@ hsPatType (ListPat (ListPatTc _ (Just (ty,_))) _) = ty
 hsPatType (TuplePat tys _ bx)           = mkTupleTy1 bx tys
                   -- See Note [Don't flatten tuples from HsSyn] in GHC.Core.Make
 hsPatType (SumPat tys _ _ _ )           = mkSumTy tys
-hsPatType (ConPatOut { pat_con = lcon
-                     , pat_arg_tys = tys })
+hsPatType (ConPat { pat_con = lcon
+                  , pat_con_ext = ConPatTc
+                    { cpt_arg_tys = tys
+                    }
+                  })
                                         = conLikeResTy (unLoc lcon) tys
 hsPatType (SigPat ty _ _)               = ty
 hsPatType (NPat ty _ _ _)               = ty
 hsPatType (NPlusKPat ty _ _ _ _ _)      = ty
-hsPatType (CoPat _ _ _ ty)              = ty
-hsPatType ConPatIn{}                    = panic "hsPatType: ConPatIn"
+hsPatType (XPat (CoPat _ _ ty))         = ty
 hsPatType SplicePat{}                   = panic "hsPatType: SplicePat"
 
 hsLitType :: HsLit (GhcPass p) -> TcType
@@ -751,9 +753,10 @@ zonkExpr env (HsApp x e1 e2)
        new_e2 <- zonkLExpr env e2
        return (HsApp x new_e1 new_e2)
 
-zonkExpr env (HsAppType x e t)
+zonkExpr env (HsAppType ty e t)
   = do new_e <- zonkLExpr env e
-       return (HsAppType x new_e t)
+       new_ty <- zonkTcTypeToTypeX env ty
+       return (HsAppType new_ty new_e t)
        -- NB: the type is an HsType; can't zonk that!
 
 zonkExpr _ e@(HsRnBracketOut _ _ _)
@@ -988,6 +991,10 @@ zonkCmd env (HsCmdCase x expr ms)
   = do new_expr <- zonkLExpr env expr
        new_ms <- zonkMatchGroup env zonkLCmd ms
        return (HsCmdCase x new_expr new_ms)
+
+zonkCmd env (HsCmdLamCase x ms)
+  = do new_ms <- zonkMatchGroup env zonkLCmd ms
+       return (HsCmdLamCase x new_ms)
 
 zonkCmd env (HsCmdIf x eCond ePred cThen cElse)
   = do { (env1, new_eCond) <- zonkSyntaxExpr env eCond
@@ -1296,7 +1303,7 @@ mapIPNameTc f (Right x) = do r <- f x
 ************************************************************************
 -}
 
-zonkPat :: ZonkEnv -> OutPat GhcTcId -> TcM (ZonkEnv, OutPat GhcTc)
+zonkPat :: ZonkEnv -> LPat GhcTc -> TcM (ZonkEnv, LPat GhcTc)
 -- Extend the environment as we go, because it's possible for one
 -- pattern to bind something that is used in another (inside or
 -- to the right)
@@ -1358,13 +1365,16 @@ zonk_pat env (SumPat tys pat alt arity )
         ; (env', pat') <- zonkPat env pat
         ; return (env', SumPat tys' pat' alt arity) }
 
-zonk_pat env p@(ConPatOut { pat_arg_tys = tys
-                          , pat_tvs = tyvars
-                          , pat_dicts = evs
-                          , pat_binds = binds
-                          , pat_args = args
-                          , pat_wrap = wrapper
-                          , pat_con = L _ con })
+zonk_pat env p@(ConPat { pat_con = L _ con
+                       , pat_args = args
+                       , pat_con_ext = p'@(ConPatTc
+                         { cpt_tvs = tyvars
+                         , cpt_dicts = evs
+                         , cpt_binds = binds
+                         , cpt_wrap = wrapper
+                         , cpt_arg_tys = tys
+                         })
+                       })
   = ASSERT( all isImmutableTyVar tyvars )
     do  { new_tys <- mapM (zonkTcTypeToTypeX env) tys
 
@@ -1384,12 +1394,19 @@ zonk_pat env p@(ConPatOut { pat_arg_tys = tys
         ; (env2, new_binds) <- zonkTcEvBinds env1 binds
         ; (env3, new_wrapper) <- zonkCoFn env2 wrapper
         ; (env', new_args) <- zonkConStuff env3 args
-        ; return (env', p { pat_arg_tys = new_tys,
-                            pat_tvs = new_tyvars,
-                            pat_dicts = new_evs,
-                            pat_binds = new_binds,
-                            pat_args = new_args,
-                            pat_wrap = new_wrapper}) }
+        ; pure ( env'
+               , p
+                 { pat_args = new_args
+                 , pat_con_ext = p'
+                   { cpt_arg_tys = new_tys
+                   , cpt_tvs = new_tyvars
+                   , cpt_dicts = new_evs
+                   , cpt_binds = new_binds
+                   , cpt_wrap = new_wrapper
+                   }
+                 }
+               )
+        }
   where
     doc = text "In the type of an element of an unboxed tuple pattern:" $$ ppr p
 
@@ -1420,19 +1437,20 @@ zonk_pat env (NPlusKPat ty (L loc n) (L l lit1) lit2 e1 e2)
         ; return (extendIdZonkEnv env2 n',
                   NPlusKPat ty' (L loc n') (L l lit1') lit2' e1' e2') }
 
-zonk_pat env (CoPat x co_fn pat ty)
+zonk_pat env (XPat (CoPat co_fn pat ty))
   = do { (env', co_fn') <- zonkCoFn env co_fn
        ; (env'', pat') <- zonkPat env' (noLoc pat)
        ; ty' <- zonkTcTypeToTypeX env'' ty
-       ; return (env'', CoPat x co_fn' (unLoc pat') ty') }
+       ; return (env'', XPat $ CoPat co_fn' (unLoc pat') ty')
+       }
 
 zonk_pat _ pat = pprPanic "zonk_pat" (ppr pat)
 
 ---------------------------
 zonkConStuff :: ZonkEnv
-             -> HsConDetails (OutPat GhcTcId) (HsRecFields id (OutPat GhcTcId))
+             -> HsConDetails (LPat GhcTc) (HsRecFields id (LPat GhcTc))
              -> TcM (ZonkEnv,
-                    HsConDetails (OutPat GhcTc) (HsRecFields id (OutPat GhcTc)))
+                    HsConDetails (LPat GhcTc) (HsRecFields id (LPat GhcTc)))
 zonkConStuff env (PrefixCon pats)
   = do  { (env', pats') <- zonkPats env pats
         ; return (env', PrefixCon pats') }
@@ -1451,7 +1469,7 @@ zonkConStuff env (RecCon (HsRecFields rpats dd))
         -- Field selectors have declared types; hence no zonking
 
 ---------------------------
-zonkPats :: ZonkEnv -> [OutPat GhcTcId] -> TcM (ZonkEnv, [OutPat GhcTc])
+zonkPats :: ZonkEnv -> [LPat GhcTc] -> TcM (ZonkEnv, [LPat GhcTc])
 zonkPats env []         = return (env, [])
 zonkPats env (pat:pats) = do { (env1, pat') <- zonkPat env pat
                              ; (env', pats') <- zonkPats env1 pats

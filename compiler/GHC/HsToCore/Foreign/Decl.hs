@@ -16,7 +16,7 @@ Desugaring foreign declarations (see also GHC.HsToCore.Foreign.Call).
 module GHC.HsToCore.Foreign.Decl ( dsForeigns ) where
 
 #include "HsVersions.h"
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Tc.Utils.Monad        -- temp
 
@@ -30,7 +30,7 @@ import GHC.Core.DataCon
 import GHC.Core.Unfold
 import GHC.Types.Id
 import GHC.Types.Literal
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Name
 import GHC.Core.Type
 import GHC.Types.RepType
@@ -49,14 +49,14 @@ import GHC.Builtin.Types.Prim
 import GHC.Builtin.Names
 import GHC.Types.Basic
 import GHC.Types.SrcLoc
-import Outputable
-import FastString
+import GHC.Utils.Outputable
+import GHC.Data.FastString
 import GHC.Driver.Session
 import GHC.Platform
-import OrdList
-import Util
+import GHC.Data.OrdList
+import GHC.Utils.Misc
 import GHC.Driver.Hooks
-import Encoding
+import GHC.Utils.Encoding
 
 import Data.Maybe
 import Data.List

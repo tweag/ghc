@@ -69,7 +69,7 @@ module GHC.Parser.Lexer (
    commentToAnnotation
   ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 -- base
 import Control.Monad
@@ -79,8 +79,7 @@ import Data.List
 import Data.Maybe
 import Data.Word
 
-import EnumSet (EnumSet)
-import qualified EnumSet
+import GHC.Data.EnumSet as EnumSet
 
 -- ghc-boot
 import qualified GHC.LanguageExtensions as LangExt
@@ -93,20 +92,20 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 
 -- compiler/utils
-import Bag
-import Outputable
-import StringBuffer
-import FastString
+import GHC.Data.Bag
+import GHC.Utils.Outputable
+import GHC.Data.StringBuffer
+import GHC.Data.FastString
 import GHC.Types.Unique.FM
-import Util             ( readRational, readHexRational )
+import GHC.Utils.Misc ( readRational, readHexRational )
 
 -- compiler/main
-import ErrUtils
+import GHC.Utils.Error
 import GHC.Driver.Session as DynFlags
 
 -- compiler/basicTypes
 import GHC.Types.SrcLoc
-import GHC.Types.Module
+import GHC.Unit
 import GHC.Types.Basic ( InlineSpec(..), RuleMatchInfo(..),
                          IntegralLit(..), FractionalLit(..),
                          SourceText(..) )
@@ -2084,7 +2083,7 @@ warnopt f options = f `EnumSet.member` pWarningFlags options
 -- See 'mkParserFlags' or 'mkParserFlags'' for ways to construct this.
 data ParserFlags = ParserFlags {
     pWarningFlags   :: EnumSet WarningFlag
-  , pThisPackage    :: UnitId      -- ^ key of package currently being compiled
+  , pThisPackage    :: Unit        -- ^ key of package currently being compiled
   , pExtsBitmap     :: !ExtsBitmap -- ^ bitmap of permitted extensions
   }
 
@@ -2179,7 +2178,7 @@ failLocMsgP loc1 loc2 str =
 getPState :: P PState
 getPState = P $ \s -> POk s s
 
-withThisPackage :: (UnitId -> a) -> P a
+withThisPackage :: (Unit -> a) -> P a
 withThisPackage f = P $ \s@(PState{options = o}) -> POk s (f (pThisPackage o))
 
 getExts :: P ExtsBitmap
@@ -2498,7 +2497,7 @@ pragState dynflags buf loc = (mkPState dynflags buf loc) {
 mkParserFlags'
   :: EnumSet WarningFlag        -- ^ warnings flags enabled
   -> EnumSet LangExt.Extension  -- ^ permitted language extensions enabled
-  -> UnitId                     -- ^ key of package currently being compiled
+  -> Unit                       -- ^ key of package currently being compiled
   -> Bool                       -- ^ are safe imports on?
   -> Bool                       -- ^ keeping Haddock comment tokens
   -> Bool                       -- ^ keep regular comment tokens

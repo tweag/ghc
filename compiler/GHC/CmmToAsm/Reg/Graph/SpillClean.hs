@@ -29,7 +29,7 @@
 module GHC.CmmToAsm.Reg.Graph.SpillClean (
         cleanSpills
 ) where
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.CmmToAsm.Reg.Liveness
 import GHC.CmmToAsm.Instr
@@ -40,8 +40,8 @@ import GHC.Cmm
 import GHC.Types.Unique.Set
 import GHC.Types.Unique.FM
 import GHC.Types.Unique
-import State
-import Outputable
+import GHC.Utils.Monad.State
+import GHC.Utils.Outputable
 import GHC.Platform
 import GHC.Cmm.Dataflow.Collections
 
@@ -554,8 +554,9 @@ delAssoc :: (Uniquable a)
 delAssoc a m
         | Just aSet     <- lookupUFM  m a
         , m1            <- delFromUFM m a
-        = nonDetFoldUniqSet (\x m -> delAssoc1 x a m) m1 aSet
-          -- It's OK to use nonDetFoldUFM here because deletion is commutative
+        = nonDetStrictFoldUniqSet (\x m -> delAssoc1 x a m) m1 aSet
+          -- It's OK to use a non-deterministic fold here because deletion is
+          -- commutative
 
         | otherwise     = m
 

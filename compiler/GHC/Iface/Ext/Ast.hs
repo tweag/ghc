@@ -17,12 +17,12 @@ Main functions for .hie file generation
 
 module GHC.Iface.Ext.Ast ( mkHieFile, mkHieFileWithSource, getCompressedAsts) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Types.Avail            ( Avails )
-import Bag                        ( Bag, bagToList )
+import GHC.Data.Bag               ( Bag, bagToList )
 import GHC.Types.Basic
-import BooleanFormula
+import GHC.Data.BooleanFormula
 import GHC.Core.Class             ( FunDep )
 import GHC.Core.Utils             ( exprType )
 import GHC.Core.ConLike           ( conLikeName )
@@ -30,8 +30,8 @@ import GHC.HsToCore               ( deSugarExpr )
 import GHC.Types.FieldLabel
 import GHC.Hs
 import GHC.Driver.Types
-import GHC.Types.Module           ( ModuleName, ml_hs_file )
-import MonadUtils                 ( concatMapM, liftIO )
+import GHC.Unit.Module            ( ModuleName, ml_hs_file )
+import GHC.Utils.Monad            ( concatMapM, liftIO )
 import GHC.Types.Name             ( Name, nameSrcSpan, setNameLoc )
 import GHC.Types.Name.Env         ( NameEnv, emptyNameEnv, extendNameEnv, lookupNameEnv )
 import GHC.Types.SrcLoc
@@ -41,8 +41,8 @@ import GHC.Builtin.Types          ( mkListTy, mkSumTy )
 import GHC.Types.Var              ( Id, Var, setVarName, varName, varType )
 import GHC.Tc.Types
 import GHC.Iface.Make             ( mkIfaceExports )
-import Panic
-import Maybes
+import GHC.Utils.Panic
+import GHC.Data.Maybe
 
 import GHC.Iface.Ext.Types
 import GHC.Iface.Ext.Utils
@@ -413,35 +413,9 @@ bar (x :: forall a. a -> a) = ... -- a is not in scope here
 --   ^ a is in scope here (pattern body)
 
 bax (x :: a) = ... -- a is in scope here
-Because of HsWC and HsIB pass on their scope to their children
-we must wrap the LHsType in pattern signatures in a
-Shielded explicitly, so that the HsWC/HsIB scope is not passed
-on the the LHsType
+
+This case in handled in the instance for HsPatSigType
 -}
-
-data Shielded a = SH Scope a -- Ignores its TScope, uses its own scope instead
-
-type family ProtectedSig a where
-  ProtectedSig GhcRn = HsWildCardBndrs GhcRn (HsImplicitBndrs
-                                                GhcRn
-                                                (Shielded (LHsType GhcRn)))
-  ProtectedSig GhcTc = NoExtField
-
-class ProtectSig a where
-  protectSig :: Scope -> LHsSigWcType (NoGhcTc a) -> ProtectedSig a
-
-instance (HasLoc a) => HasLoc (Shielded a) where
-  loc (SH _ a) = loc a
-
-instance (ToHie (TScoped a)) => ToHie (TScoped (Shielded a)) where
-  toHie (TS _ (SH sc a)) = toHie (TS (ResolvedScopes [sc]) a)
-
-instance ProtectSig GhcTc where
-  protectSig _ _ = noExtField
-
-instance ProtectSig GhcRn where
-  protectSig sc (HsWC a (HsIB b sig)) =
-    HsWC a (HsIB b (SH sc sig))
 
 class HasLoc a where
   -- ^ defined so that HsImplicitBndrs and HsWildCardBndrs can
@@ -765,12 +739,11 @@ instance ( ToHie (HsMatchContext a)
   toHie _ = pure []
 
 instance ( a ~ GhcPass p
+         , IsPass p
          , ToHie (Context (Located (IdP a)))
          , ToHie (RContext (HsRecFields a (PScoped (LPat a))))
          , ToHie (LHsExpr a)
          , ToHie (TScoped (LHsSigWcType a))
-         , ProtectSig a
-         , ToHie (TScoped (ProtectedSig a))
          , HasType (LPat a)
          , Data (HsSplice a)
          , IsPass p
@@ -807,12 +780,11 @@ instance ( a ~ GhcPass p
       SumPat _ pat _ _ ->
         [ toHie $ PS rsp scope pscope pat
         ]
-      ConPatIn c dets ->
-        [ toHie $ C Use c
-        , toHie $ contextify dets
-        ]
-      ConPatOut {pat_con = con, pat_args = dets}->
-        [ toHie $ C Use $ fmap conLikeName con
+      ConPat {pat_con = con, pat_args = dets}->
+        [ case ghcPass @p of
+            GhcPs -> toHie $ C Use $ con
+            GhcRn -> toHie $ C Use $ con
+            GhcTc -> toHie $ C Use $ fmap conLikeName con
         , toHie $ contextify dets
         ]
       ViewPat _ expr pat ->
@@ -832,12 +804,22 @@ instance ( a ~ GhcPass p
       SigPat _ pat sig ->
         [ toHie $ PS rsp scope pscope pat
         , let cscope = mkLScope pat in
-            toHie $ TS (ResolvedScopes [cscope, scope, pscope])
-                       (protectSig @a cscope sig)
-              -- See Note [Scoping Rules for SigPat]
+            case ghcPass @p of
+              GhcPs -> pure []
+              GhcTc -> pure []
+              GhcRn ->
+                toHie $ TS (ResolvedScopes [cscope, scope, pscope])
+                        sig
         ]
-      CoPat _ _ _ _ ->
-        []
+      XPat e -> case ghcPass @p of
+#if __GLASGOW_HASKELL__ < 811
+        GhcPs -> noExtCon e
+        GhcRn -> noExtCon e
+#endif
+        GhcTc -> []
+          where
+            -- Make sure we get an error if this changes
+            _noWarn@(CoPat _ _ _) = e
     where
       contextify (PrefixCon args) = PrefixCon $ patScopes rsp scope pscope args
       contextify (InfixCon a b) = InfixCon a' b'
@@ -848,6 +830,13 @@ instance ( a ~ GhcPass p
           go (RS fscope (L spn (HsRecField lbl pat pun))) =
             L spn $ HsRecField lbl (PS rsp scope fscope pat) pun
           scoped_fds = listScopes pscope fds
+
+instance ToHie (TScoped (HsPatSigType GhcRn)) where
+  toHie (TS sc (HsPS (HsPSRn wcs tvs) body@(L span _))) = concatM $
+      [ pure $ bindingsOnly $ map (C $ TyVarBind (mkScope span) sc) (wcs++tvs)
+      , toHie body
+      ]
+  -- See Note [Scoping Rules for SigPat]
 
 instance ( ToHie body
          , ToHie (LGRHS a body)
@@ -1232,6 +1221,9 @@ instance ( a ~ GhcPass p
       HsCmdCase _ expr alts ->
         [ toHie expr
         , toHie alts
+        ]
+      HsCmdLamCase _ alts ->
+        [ toHie alts
         ]
       HsCmdIf _ _ a b c ->
         [ toHie a

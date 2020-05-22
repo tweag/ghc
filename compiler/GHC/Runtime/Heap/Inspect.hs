@@ -25,7 +25,7 @@ module GHC.Runtime.Heap.Inspect(
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 import GHC.Platform
 
 import GHC.Runtime.Interpreter as GHCi
@@ -49,16 +49,16 @@ import GHC.Tc.Utils.Env
 import GHC.Core.TyCon
 import GHC.Types.Name
 import GHC.Types.Name.Occurrence as OccName
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Iface.Env
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Var.Set
 import GHC.Types.Basic ( Boxity(..) )
 import GHC.Builtin.Types.Prim
 import GHC.Builtin.Names
 import GHC.Builtin.Types
 import GHC.Driver.Session
-import Outputable as Ppr
+import GHC.Utils.Outputable as Ppr
 import GHC.Char
 import GHC.Exts.Heap
 import GHC.Runtime.Heap.Layout ( roundUpTo )
@@ -140,7 +140,7 @@ isThunk _             = False
 constrClosToName :: HscEnv -> GenClosure a -> IO (Either String Name)
 constrClosToName hsc_env ConstrClosure{pkg=pkg,modl=mod,name=occ} = do
    let occName = mkOccName OccName.dataName occ
-       modName = mkModule (stringToUnitId pkg) (mkModuleName mod)
+       modName = mkModule (stringToUnit pkg) (mkModuleName mod)
    Right `fmap` lookupOrigIO hsc_env modName occName
 constrClosToName _hsc_env clos =
    return (Left ("conClosToName: Expected ConstrClosure, got " ++ show (fmap (const ()) clos)))

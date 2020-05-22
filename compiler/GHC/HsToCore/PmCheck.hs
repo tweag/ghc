@@ -14,7 +14,7 @@ Pattern Matching Coverage Checking.
 module GHC.HsToCore.PmCheck (
         -- Checking and printing
         checkSingle, checkMatches, checkGuardMatches,
-        needToRunPmCheck, isMatchContextPmChecked,
+        isMatchContextPmChecked,
 
         -- See Note [Type and Term Equality Propagation]
         addTyCsDs, addScrutTmCs
@@ -22,14 +22,14 @@ module GHC.HsToCore.PmCheck (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.HsToCore.PmCheck.Types
 import GHC.HsToCore.PmCheck.Oracle
 import GHC.HsToCore.PmCheck.Ppr
 import GHC.Types.Basic (Origin, isGenerated)
 import GHC.Core (CoreExpr, Expr(Var,App))
-import FastString (unpackFS, lengthFS)
+import GHC.Data.FastString (unpackFS, lengthFS)
 import GHC.Driver.Session
 import GHC.Hs
 import GHC.Tc.Utils.Zonk (shortCutLit)
@@ -39,28 +39,29 @@ import GHC.Types.Name
 import GHC.Tc.Instance.Family
 import GHC.Builtin.Types
 import GHC.Types.SrcLoc
-import Util
-import Outputable
+import GHC.Utils.Misc
+import GHC.Utils.Outputable
 import GHC.Core.DataCon
 import GHC.Core.TyCon
 import GHC.Types.Var (EvVar)
 import GHC.Core.Coercion
-import GHC.Tc.Types.Evidence ( HsWrapper(..), isIdHsWrapper )
+import GHC.Tc.Types.Evidence (HsWrapper(..), isIdHsWrapper)
 import GHC.Tc.Utils.TcType (evVarPred)
 import {-# SOURCE #-} GHC.HsToCore.Expr (dsExpr, dsLExpr, dsSyntaxExpr)
 import {-# SOURCE #-} GHC.HsToCore.Binds (dsHsWrapper)
 import GHC.HsToCore.Utils (selectMatchVar)
 import GHC.HsToCore.Match.Literal (dsLit, dsOverLit)
 import GHC.HsToCore.Monad
-import Bag
-import OrdList
+import GHC.Data.Bag
+import GHC.Data.IOEnv (unsafeInterleaveM)
+import GHC.Data.OrdList
 import GHC.Core.TyCo.Rep
 import GHC.Core.Type
 import GHC.Core.Multiplicity
 import GHC.HsToCore.Utils       (isTrueLHsExpr)
-import Maybes
+import GHC.Data.Maybe
 import qualified GHC.LanguageExtensions as LangExt
-import MonadUtils (concatMapM)
+import GHC.Utils.Monad (concatMapM)
 
 import Control.Monad (when, forM_, zipWithM)
 import Data.List (elemIndex)
@@ -444,7 +445,7 @@ translatePat fam_insts x pat = case pat of
   -- See Note [Translate CoPats]
   -- Generally the translation is
   -- pat |> co   ===>   let y = x |> co, pat <- y  where y is a match var of pat
-  CoPat _ wrapper p _ty
+  XPat (CoPat wrapper p _ty)
     | isIdHsWrapper wrapper                   -> translatePat fam_insts x p
     | WpCast co <-  wrapper, isReflexiveCo co -> translatePat fam_insts x p
     | otherwise -> do
@@ -499,11 +500,14 @@ translatePat fam_insts x pat = case pat of
     --
     -- See #14547, especially comment#9 and comment#10.
 
-  ConPatOut { pat_con     = L _ con
-            , pat_arg_tys = arg_tys
-            , pat_tvs     = ex_tvs
-            , pat_dicts   = dicts
-            , pat_args    = ps } -> do
+  ConPat { pat_con     = L _ con
+         , pat_args    = ps
+         , pat_con_ext = ConPatTc
+           { cpt_arg_tys = arg_tys
+           , cpt_tvs     = ex_tvs
+           , cpt_dicts   = dicts
+           }
+         } -> do
     translateConPatOut fam_insts x con arg_tys ex_tvs dicts ps
 
   NPat ty (L _ olit) mb_neg _ -> do
@@ -545,7 +549,6 @@ translatePat fam_insts x pat = case pat of
 
   -- --------------------------------------------------------------------------
   -- Not supposed to happen
-  ConPatIn  {} -> panic "Check.translatePat: ConPatIn"
   SplicePat {} -> panic "Check.translatePat: SplicePat"
 
 -- | 'translatePat', but also select and return a new match var.
@@ -1032,20 +1035,30 @@ Functions `addScrutTmCs' is responsible for generating
 these constraints.
 -}
 
+-- | Locally update 'dsl_deltas' with the given action, but defer evaluation
+-- with 'unsafeInterleaveM' in order not to do unnecessary work.
 locallyExtendPmDelta :: (Deltas -> DsM Deltas) -> DsM a -> DsM a
-locallyExtendPmDelta ext k = getPmDeltas >>= ext >>= \deltas -> do
-  inh <- isInhabited deltas
-  -- If adding a constraint would lead to a contradiction, don't add it.
-  -- See @Note [Recovering from unsatisfiable pattern-matching constraints]@
-  -- for why this is done.
-  if inh
-    then updPmDeltas deltas k
-    else k
+locallyExtendPmDelta ext k = do
+  deltas <- getPmDeltas
+  deltas' <- unsafeInterleaveM $ do
+    deltas' <- ext deltas
+    inh <- isInhabited deltas'
+    -- If adding a constraint would lead to a contradiction, don't add it.
+    -- See @Note [Recovering from unsatisfiable pattern-matching constraints]@
+    -- for why this is done.
+    if inh
+      then pure deltas'
+      else pure deltas
+  updPmDeltas deltas' k
 
--- | Add in-scope type constraints
-addTyCsDs :: Bag EvVar -> DsM a -> DsM a
-addTyCsDs ev_vars =
-  locallyExtendPmDelta (\deltas -> addPmCtsDeltas deltas (PmTyCt . evVarPred <$> ev_vars))
+-- | Add in-scope type constraints if the coverage checker might run and then
+-- run the given action.
+addTyCsDs :: Origin -> Bag EvVar -> DsM a -> DsM a
+addTyCsDs origin ev_vars m = do
+  dflags <- getDynFlags
+  applyWhen (needToRunPmCheck dflags origin)
+            (locallyExtendPmDelta (\deltas -> addPmCtsDeltas deltas (PmTyCt . evVarPred <$> ev_vars)))
+            m
 
 -- | Add equalities for the scrutinee to the local 'DsM' environment when
 -- checking a case expression:

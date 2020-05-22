@@ -14,7 +14,7 @@ module GHC.Iface.Tidy (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Tc.Types
 import GHC.Driver.Session
@@ -30,7 +30,7 @@ import GHC.Core.Rules
 import GHC.Core.PatSyn
 import GHC.Core.ConLike
 import GHC.Core.Arity   ( exprArity, exprBotStrictness_maybe )
-import StaticPtrTable
+import GHC.Iface.Tidy.StaticPtrTable
 import GHC.Types.Var.Env
 import GHC.Types.Var.Set
 import GHC.Types.Var
@@ -39,7 +39,7 @@ import GHC.Types.Id.Make ( mkDictSelRhs )
 import GHC.Types.Id.Info
 import GHC.Core.InstEnv
 import GHC.Core.Type     ( tidyTopType )
-import GHC.Types.Demand  ( appIsBottom, isTopSig, isBottomingSig )
+import GHC.Types.Demand  ( appIsDeadEnd, isTopSig, isDeadEndSig )
 import GHC.Types.Cpr     ( mkCprSig, botCpr )
 import GHC.Types.Basic
 import GHC.Types.Name hiding (varName)
@@ -52,13 +52,13 @@ import GHC.Tc.Utils.Monad
 import GHC.Core.DataCon
 import GHC.Core.TyCon
 import GHC.Core.Class
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Driver.Types
-import Maybes
+import GHC.Data.Maybe
 import GHC.Types.Unique.Supply
-import Outputable
-import Util( filterOut )
-import qualified ErrUtils as Err
+import GHC.Utils.Outputable
+import GHC.Utils.Misc( filterOut )
+import qualified GHC.Utils.Error as Err
 
 import Control.Monad
 import Data.Function
@@ -378,7 +378,7 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
         ; (tidy_env, tidy_binds)
                  <- tidyTopBinds hsc_env unfold_env tidy_occ_env trimmed_binds
 
-          -- See Note [Grand plan for static forms] in StaticPtrTable.
+          -- See Note [Grand plan for static forms] in GHC.Iface.Tidy.StaticPtrTable.
         ; (spt_entries, tidy_binds') <-
              sptCreateStaticBinds hsc_env mod tidy_binds
         ; let { spt_init_code = sptModuleInitCode mod spt_entries
@@ -437,7 +437,7 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
             Err.dumpIfSet_dyn dflags Opt_D_dump_rules
               (showSDoc dflags (ppr CoreTidy <+> text "rules"))
               Err.FormatText
-              (pprRulesForUser dflags tidy_rules)
+              (pprRulesForUser tidy_rules)
 
           -- Print one-line size info
         ; let cs = coreBindsStats tidy_binds
@@ -726,7 +726,7 @@ addExternal omit_prags expose_all id
     show_unfold    = show_unfolding unfolding
     never_active   = isNeverActive (inlinePragmaActivation (inlinePragInfo idinfo))
     loop_breaker   = isStrongLoopBreaker (occInfo idinfo)
-    bottoming_fn   = isBottomingSig (strictnessInfo idinfo)
+    bottoming_fn   = isDeadEndSig (strictnessInfo idinfo)
 
         -- Stuff to do with the Id's unfolding
         -- We leave the unfolding there even if there is a worker
@@ -1229,7 +1229,7 @@ tidyTopIdInfo dflags rhs_tidy_env name orig_rhs tidy_rhs idinfo show_unfold
 
     _bottom_hidden id_sig = case mb_bot_str of
                                   Nothing         -> False
-                                  Just (arity, _) -> not (appIsBottom id_sig arity)
+                                  Just (arity, _) -> not (appIsDeadEnd id_sig arity)
 
     --------- Unfolding ------------
     unf_info = unfoldingInfo idinfo

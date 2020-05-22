@@ -46,9 +46,6 @@ module GHC.Cmm.Utils(
         baseExpr, spExpr, hpExpr, spLimExpr, hpLimExpr,
         currentTSOExpr, currentNurseryExpr, cccsExpr,
 
-        -- Statics
-        blankWord,
-
         -- Tagging
         cmmTagMask, cmmPointerMask, cmmUntag, cmmIsTagged,
         cmmConstrTag1,
@@ -71,7 +68,7 @@ module GHC.Cmm.Utils(
         blockTicks
   ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core.TyCon     ( PrimRep(..), PrimElemRep(..) )
 import GHC.Types.RepType  ( UnaryType, SlotTy (..), typePrimRep1 )
@@ -81,7 +78,7 @@ import GHC.Runtime.Heap.Layout
 import GHC.Cmm
 import GHC.Cmm.BlockId
 import GHC.Cmm.CLabel
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Driver.Session
 import GHC.Types.Unique
 import GHC.Platform.Regs
@@ -379,9 +376,6 @@ cmmNegate platform = \case
    (CmmLit (CmmInt n rep))
      -> CmmLit (CmmInt (-n) rep)
    e -> CmmMachOp (MO_S_Neg (cmmExprWidth platform e)) [e]
-
-blankWord :: Platform -> CmmStatic
-blankWord platform = CmmUninitialised (platformWordSizeInBytes platform)
 
 cmmToWord :: Platform -> CmmExpr -> CmmExpr
 cmmToWord platform e

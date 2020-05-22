@@ -8,19 +8,19 @@
 -----------------------------------------------------------------------------
 module GHC.SysTools.Tasks where
 
-import Exception
-import ErrUtils
+import GHC.Utils.Exception as Exception
+import GHC.Utils.Error
 import GHC.Driver.Types
 import GHC.Driver.Session
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Platform
-import Util
+import GHC.Utils.Misc
 
 import Data.List
 
 import System.IO
 import System.Process
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.CmmToLlvm.Base (LlvmVersion, llvmVersionStr, supportedLlvmVersion, parseLlvmVersion)
 
@@ -186,7 +186,7 @@ runClang dflags args = traceToolCommand dflags "clang" $ do
       args1 = map Option (getOpts dflags opt_a)
       args2 = args0 ++ args1 ++ args
   mb_env <- getGccEnv args2
-  Exception.catch (do
+  catch (do
         runSomethingFiltered dflags id "Clang (Assembler)" clang args2 Nothing mb_env
     )
     (\(err :: SomeException) -> do
@@ -314,23 +314,10 @@ runAr dflags cwd args = traceToolCommand dflags "ar" $ do
   let ar = pgm_ar dflags
   runSomethingFiltered dflags id "Ar" ar args cwd Nothing
 
-askAr :: DynFlags -> Maybe FilePath -> [Option] -> IO String
-askAr dflags mb_cwd args = traceToolCommand dflags "ar" $ do
-  let ar = pgm_ar dflags
-  runSomethingWith dflags "Ar" ar args $ \real_args ->
-    readCreateProcessWithExitCode' (proc ar real_args){ cwd = mb_cwd }
-
 runRanlib :: DynFlags -> [Option] -> IO ()
 runRanlib dflags args = traceToolCommand dflags "ranlib" $ do
   let ranlib = pgm_ranlib dflags
   runSomethingFiltered dflags id "Ranlib" ranlib args Nothing Nothing
-
-runMkDLL :: DynFlags -> [Option] -> IO ()
-runMkDLL dflags args = traceToolCommand dflags "mkdll" $ do
-  let (p,args0) = pgm_dll dflags
-      args1 = args0 ++ args
-  mb_env <- getGccEnv (args0++args)
-  runSomethingFiltered dflags id "Make DLL" p args1 Nothing mb_env
 
 runWindres :: DynFlags -> [Option] -> IO ()
 runWindres dflags args = traceToolCommand dflags "windres" $ do

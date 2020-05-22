@@ -13,7 +13,7 @@ module GHC.Rename.HsType (
         rnHsType, rnLHsType, rnLHsTypes, rnContext,
         rnHsKind, rnLHsKind, rnLHsTypeArgs,
         rnHsSigType, rnHsWcType,
-        HsSigWcTypeScoping(..), rnHsSigWcType, rnHsSigWcTypeScoped,
+        HsSigWcTypeScoping(..), rnHsSigWcType, rnHsPatSigType,
         newTyVarNameRn,
         rnConDeclFields,
         rnLTyVar,
@@ -31,10 +31,10 @@ module GHC.Rename.HsType (
         extractHsTysRdrTyVarsDups,
         extractRdrKindSigVars, extractDataDefnKindVars,
         extractHsTvBndrs, extractHsTyArgRdrKiTyVarsDup,
-        nubL, elemRdr
+        forAllOrNothing, nubL, elemRdr
   ) where
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Rename.Splice( rnSpliceType )
 
@@ -56,14 +56,14 @@ import GHC.Types.SrcLoc
 import GHC.Types.Name.Set
 import GHC.Types.FieldLabel
 
-import Util
-import ListSetOps       ( deleteBys )
+import GHC.Utils.Misc
+import GHC.Data.List.SetOps ( deleteBys )
 import GHC.Types.Basic  ( compareFixity, funTyFixity, negateFixity
                         , Fixity(..), FixityDirection(..), LexicalFixity(..)
                         , TypeOrKind(..) )
-import Outputable
-import FastString
-import Maybes
+import GHC.Utils.Outputable
+import GHC.Data.FastString
+import GHC.Data.Maybe
 import qualified GHC.LanguageExtensions as LangExt
 
 import Data.List          ( nubBy, partition, (\\) )
@@ -73,71 +73,101 @@ import Control.Monad      ( unless, when )
 
 {-
 These type renamers are in a separate module, rather than in (say) GHC.Rename.Module,
-to break several loop.
+to break several loops.
 
 *********************************************************
 *                                                       *
-           HsSigWcType (i.e with wildcards)
+    HsSigWcType and HsPatSigType (i.e with wildcards)
 *                                                       *
 *********************************************************
 -}
 
-data HsSigWcTypeScoping = AlwaysBind
-                          -- ^ Always bind any free tyvars of the given type,
-                          --   regardless of whether we have a forall at the top
-                        | BindUnlessForall
-                          -- ^ Unless there's forall at the top, do the same
-                          --   thing as 'AlwaysBind'
-                        | NeverBind
-                          -- ^ Never bind any free tyvars
+data HsSigWcTypeScoping
+  = AlwaysBind
+    -- ^ Always bind any free tyvars of the given type, regardless of whether we
+    -- have a forall at the top.
+    --
+    -- For pattern type sigs, we /do/ want to bring those type
+    -- variables into scope, even if there's a forall at the top which usually
+    -- stops that happening, e.g:
+    --
+    -- > \ (x :: forall a. a -> b) -> e
+    --
+    -- Here we do bring 'b' into scope.
+    --
+    -- RULES can also use 'AlwaysBind', such as in the following example:
+    --
+    -- > {-# RULES \"f\" forall (x :: forall a. a -> b). f x = ... b ... #-}
+    --
+    -- This only applies to RULES that do not explicitly bind their type
+    -- variables. If a RULE explicitly quantifies its type variables, then
+    -- 'NeverBind' is used instead. See also
+    -- @Note [Pattern signature binders and scoping]@ in "GHC.Hs.Types".
+  | BindUnlessForall
+    -- ^ Unless there's forall at the top, do the same thing as 'AlwaysBind'.
+    -- This is only ever used in places where the \"@forall@-or-nothing\" rule
+    -- is in effect. See @Note [forall-or-nothing rule]@.
+  | NeverBind
+    -- ^ Never bind any free tyvars. This is used for RULES that have both
+    -- explicit type and term variable binders, e.g.:
+    --
+    -- > {-# RULES \"const\" forall a. forall (x :: a) y. const x y = x #-}
+    --
+    -- The presence of the type variable binder @forall a.@ implies that the
+    -- free variables in the types of the term variable binders @x@ and @y@
+    -- are /not/ bound. In the example above, there are no such free variables,
+    -- but if the user had written @(y :: b)@ instead of @y@ in the term
+    -- variable binders, then @b@ would be rejected for being out of scope.
+    -- See also @Note [Pattern signature binders and scoping]@ in
+    -- "GHC.Hs.Types".
 
-rnHsSigWcType :: HsSigWcTypeScoping -> HsDocContext -> LHsSigWcType GhcPs
+rnHsSigWcType :: HsDocContext -> LHsSigWcType GhcPs
               -> RnM (LHsSigWcType GhcRn, FreeVars)
-rnHsSigWcType scoping doc sig_ty
-  = rn_hs_sig_wc_type scoping doc sig_ty $ \sig_ty' ->
-    return (sig_ty', emptyFVs)
+rnHsSigWcType doc (HsWC { hswc_body = HsIB { hsib_body = hs_ty }})
+  = rn_hs_sig_wc_type BindUnlessForall doc hs_ty $ \nwcs imp_tvs body ->
+    let ib_ty = HsIB { hsib_ext = imp_tvs, hsib_body = body  }
+        wc_ty = HsWC { hswc_ext = nwcs,    hswc_body = ib_ty } in
+    pure (wc_ty, emptyFVs)
 
-rnHsSigWcTypeScoped :: HsSigWcTypeScoping
-                       -- AlwaysBind: for pattern type sigs and rules we /do/ want
-                       --             to bring those type variables into scope, even
-                       --             if there's a forall at the top which usually
-                       --             stops that happening
-                       -- e.g  \ (x :: forall a. a-> b) -> e
-                       -- Here we do bring 'b' into scope
-                    -> HsDocContext -> LHsSigWcType GhcPs
-                    -> (LHsSigWcType GhcRn -> RnM (a, FreeVars))
-                    -> RnM (a, FreeVars)
+rnHsPatSigType :: HsSigWcTypeScoping
+               -> HsDocContext -> HsPatSigType GhcPs
+               -> (HsPatSigType GhcRn -> RnM (a, FreeVars))
+               -> RnM (a, FreeVars)
 -- Used for
---   - Signatures on binders in a RULE
---   - Pattern type signatures
+--   - Pattern type signatures, which are only allowed with ScopedTypeVariables
+--   - Signatures on binders in a RULE, which are allowed even if
+--     ScopedTypeVariables isn't enabled
 -- Wildcards are allowed
--- type signatures on binders only allowed with ScopedTypeVariables
-rnHsSigWcTypeScoped scoping ctx sig_ty thing_inside
+--
+-- See Note [Pattern signature binders and scoping] in GHC.Hs.Types
+rnHsPatSigType scoping ctx sig_ty thing_inside
   = do { ty_sig_okay <- xoptM LangExt.ScopedTypeVariables
-       ; checkErr ty_sig_okay (unexpectedTypeSigErr sig_ty)
-       ; rn_hs_sig_wc_type scoping ctx sig_ty thing_inside
-       }
+       ; checkErr ty_sig_okay (unexpectedPatSigTypeErr sig_ty)
+       ; rn_hs_sig_wc_type scoping ctx (hsPatSigType sig_ty) $
+         \nwcs imp_tvs body ->
+    do { let sig_names = HsPSRn { hsps_nwcs = nwcs, hsps_imp_tvs = imp_tvs }
+             sig_ty'   = HsPS { hsps_ext = sig_names, hsps_body = body }
+       ; thing_inside sig_ty'
+       } }
 
-rn_hs_sig_wc_type :: HsSigWcTypeScoping -> HsDocContext -> LHsSigWcType GhcPs
-                  -> (LHsSigWcType GhcRn -> RnM (a, FreeVars))
+-- The workhorse for rnHsSigWcType and rnHsPatSigType.
+rn_hs_sig_wc_type :: HsSigWcTypeScoping -> HsDocContext -> LHsType GhcPs
+                  -> ([Name]    -- Wildcard names
+                      -> [Name] -- Implicitly bound type variable names
+                      -> LHsType GhcRn
+                      -> RnM (a, FreeVars))
                   -> RnM (a, FreeVars)
--- rn_hs_sig_wc_type is used for source-language type signatures
-rn_hs_sig_wc_type scoping ctxt
-                  (HsWC { hswc_body = HsIB { hsib_body = hs_ty }})
-                  thing_inside
+rn_hs_sig_wc_type scoping ctxt hs_ty thing_inside
   = do { free_vars <- extractFilteredRdrTyVarsDups hs_ty
        ; (nwc_rdrs', tv_rdrs) <- partition_nwcs free_vars
        ; let nwc_rdrs = nubL nwc_rdrs'
-             bind_free_tvs = case scoping of
-                               AlwaysBind       -> True
-                               BindUnlessForall -> not (isLHsForAllTy hs_ty)
-                               NeverBind        -> False
-       ; rnImplicitBndrs bind_free_tvs tv_rdrs $ \ vars ->
+             implicit_bndrs = case scoping of
+               AlwaysBind       -> tv_rdrs
+               BindUnlessForall -> forAllOrNothing (isLHsForAllTy hs_ty) tv_rdrs
+               NeverBind        -> []
+       ; rnImplicitBndrs implicit_bndrs $ \ vars ->
     do { (wcs, hs_ty', fvs1) <- rnWcBody ctxt nwc_rdrs hs_ty
-       ; let sig_ty' = HsWC { hswc_ext = wcs, hswc_body = ib_ty' }
-             ib_ty'  = HsIB { hsib_ext = vars
-                            , hsib_body = hs_ty' }
-       ; (res, fvs2) <- thing_inside sig_ty'
+       ; (res, fvs2) <- thing_inside wcs vars hs_ty'
        ; return (res, fvs1 `plusFV` fvs2) } }
 
 rnHsWcType :: HsDocContext -> LHsWcType GhcPs -> RnM (LHsWcType GhcRn, FreeVars)
@@ -302,36 +332,55 @@ rnHsSigType :: HsDocContext
 rnHsSigType ctx level (HsIB { hsib_body = hs_ty })
   = do { traceRn "rnHsSigType" (ppr hs_ty)
        ; vars <- extractFilteredRdrTyVarsDups hs_ty
-       ; rnImplicitBndrs (not (isLHsForAllTy hs_ty)) vars $ \ vars ->
+       ; rnImplicitBndrs (forAllOrNothing (isLHsForAllTy hs_ty) vars) $ \ vars ->
     do { (body', fvs) <- rnLHsTyKi (mkTyKiEnv ctx level RnTypeBody) hs_ty
 
        ; return ( HsIB { hsib_ext = vars
                        , hsib_body = body' }
                 , fvs ) } }
 
-rnImplicitBndrs :: Bool    -- True <=> bring into scope any free type variables
-                           -- E.g.  f :: forall a. a->b
-                           --  we do not want to bring 'b' into scope, hence False
-                           -- But   f :: a -> b
-                           --  we want to bring both 'a' and 'b' into scope
+-- Note [forall-or-nothing rule]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Free variables in signatures are usually bound in an implicit
+-- 'forall' at the beginning of user-written signatures. However, if the
+-- signature has an explicit forall at the beginning, this is disabled.
+--
+-- The idea is nested foralls express something which is only
+-- expressible explicitly, while a top level forall could (usually) be
+-- replaced with an implicit binding. Top-level foralls alone ("forall.") are
+-- therefore an indication that the user is trying to be fastidious, so
+-- we don't implicitly bind any variables.
+
+-- | See Note [forall-or-nothing rule]. This tiny little function is used
+-- (rather than its small body inlined) to indicate that we are implementing
+-- that rule.
+forAllOrNothing :: Bool
+                -- ^ True <=> explicit forall
+                -- E.g.  f :: forall a. a->b
+                --  we do not want to bring 'b' into scope, hence True
+                -- But   f :: a -> b
+                --  we want to bring both 'a' and 'b' into scope, hence False
                 -> FreeKiTyVarsWithDups
-                                   -- Free vars of hs_ty (excluding wildcards)
-                                   -- May have duplicates, which is
-                                   -- checked here
+                -- ^ Free vars of the type
+                -> FreeKiTyVarsWithDups
+forAllOrNothing True  _   = []
+forAllOrNothing False fvs = fvs
+
+
+rnImplicitBndrs :: FreeKiTyVarsWithDups
+                -- ^ Surface-syntax free vars that we will implicitly bind.
+                -- May have duplicates, which is checked here
                 -> ([Name] -> RnM (a, FreeVars))
                 -> RnM (a, FreeVars)
-rnImplicitBndrs bind_free_tvs
-                fvs_with_dups
+rnImplicitBndrs implicit_vs_with_dups
                 thing_inside
-  = do { let fvs = nubL fvs_with_dups
-             real_fvs | bind_free_tvs = fvs
-                      | otherwise     = []
+  = do { let implicit_vs = nubL implicit_vs_with_dups
 
        ; traceRn "rnImplicitBndrs" $
-         vcat [ ppr fvs_with_dups, ppr fvs, ppr real_fvs ]
+         vcat [ ppr implicit_vs_with_dups, ppr implicit_vs ]
 
        ; loc <- getSrcSpanM
-       ; vars <- mapM (newLocalBndrRn . L loc . unLoc) real_fvs
+       ; vars <- mapM (newLocalBndrRn . L loc . unLoc) implicit_vs
 
        ; bindLocalNamesFV vars $
          thing_inside vars }
@@ -1242,28 +1291,47 @@ mkOpFormRn arg1 op fix arg2                     -- Default case, no rearrangment
 mkConOpPatRn :: Located Name -> Fixity -> LPat GhcRn -> LPat GhcRn
              -> RnM (Pat GhcRn)
 
-mkConOpPatRn op2 fix2 p1@(L loc (ConPatIn op1 (InfixCon p11 p12))) p2
+mkConOpPatRn op2 fix2 p1@(L loc (ConPat NoExtField op1 (InfixCon p11 p12))) p2
   = do  { fix1 <- lookupFixityRn (unLoc op1)
         ; let (nofix_error, associate_right) = compareFixity fix1 fix2
 
         ; if nofix_error then do
                 { precParseErr (NormalOp (unLoc op1),fix1)
                                (NormalOp (unLoc op2),fix2)
-                ; return (ConPatIn op2 (InfixCon p1 p2)) }
+                ; return $ ConPat
+                    { pat_con_ext = noExtField
+                    , pat_con = op2
+                    , pat_args = InfixCon p1 p2
+                    }
+                }
 
           else if associate_right then do
                 { new_p <- mkConOpPatRn op2 fix2 p12 p2
-                ; return (ConPatIn op1 (InfixCon p11 (L loc new_p))) }
+                ; return $ ConPat
+                    { pat_con_ext = noExtField
+                    , pat_con = op1
+                    , pat_args = InfixCon p11 (L loc new_p)
+                    }
+                }
                 -- XXX loc right?
-          else return (ConPatIn op2 (InfixCon p1 p2)) }
+          else return $ ConPat
+                 { pat_con_ext = noExtField
+                 , pat_con = op2
+                 , pat_args = InfixCon p1 p2
+                 }
+        }
 
 mkConOpPatRn op _ p1 p2                         -- Default case, no rearrangment
   = ASSERT( not_op_pat (unLoc p2) )
-    return (ConPatIn op (InfixCon p1 p2))
+    return $ ConPat
+      { pat_con_ext = noExtField
+      , pat_con = op
+      , pat_args = InfixCon p1 p2
+      }
 
 not_op_pat :: Pat GhcRn -> Bool
-not_op_pat (ConPatIn _ (InfixCon _ _)) = False
-not_op_pat _                           = True
+not_op_pat (ConPat NoExtField _ (InfixCon _ _)) = False
+not_op_pat _                                    = True
 
 --------------------------------------
 checkPrecMatch :: Name -> MatchGroup GhcRn body -> RnM ()
@@ -1291,7 +1359,7 @@ checkPrecMatch op (MG { mg_alts = (L _ ms) })
         -- second eqn.
 
 checkPrec :: Name -> Pat GhcRn -> Bool -> IOEnv (Env TcGblEnv TcLclEnv) ()
-checkPrec op (ConPatIn op1 (InfixCon _ _)) right = do
+checkPrec op (ConPat NoExtField op1 (InfixCon _ _)) right = do
     op_fix@(Fixity _ op_prec  op_dir) <- lookupFixityRn op
     op1_fix@(Fixity _ op1_prec op1_dir) <- lookupFixityRn (unLoc op1)
     let
@@ -1378,8 +1446,8 @@ ppr_opfix (op, fixity) = pp_op <+> brackets (ppr fixity)
 *                                                      *
 ***************************************************** -}
 
-unexpectedTypeSigErr :: LHsSigWcType GhcPs -> SDoc
-unexpectedTypeSigErr ty
+unexpectedPatSigTypeErr :: HsPatSigType GhcPs -> SDoc
+unexpectedPatSigTypeErr ty
   = hang (text "Illegal type signature:" <+> quotes (ppr ty))
        2 (text "Type signatures are only allowed in patterns with ScopedTypeVariables")
 
@@ -1626,7 +1694,7 @@ extractHsTyRdrTyVarsDups ty
 --     Note [Ordering of implicit variables] and
 --     Note [Implicit quantification in type synonyms].
 extractHsTyRdrTyVarsKindVars :: LHsType GhcPs -> FreeKiTyVarsNoDups
-extractHsTyRdrTyVarsKindVars (unLoc -> ty) =
+extractHsTyRdrTyVarsKindVars (L _ ty) =
   case ty of
     HsParTy _ ty -> extractHsTyRdrTyVarsKindVars ty
     HsKindSig _ _ ki -> extractHsTyRdrTyVars ki
@@ -1654,12 +1722,12 @@ extractHsTyVarBndrsKVs tv_bndrs
 -- variable occurrences in left-to-right order.
 -- See Note [Ordering of implicit variables].
 extractRdrKindSigVars :: LFamilyResultSig GhcPs -> [Located RdrName]
-extractRdrKindSigVars (L _ resultSig)
-  | KindSig _ k                          <- resultSig = extractHsTyRdrTyVars k
-  | TyVarSig _ (L _ (KindedTyVar _ _ k)) <- resultSig = extractHsTyRdrTyVars k
-  | otherwise =  []
+extractRdrKindSigVars (L _ resultSig) = case resultSig of
+  KindSig _ k                          -> extractHsTyRdrTyVars k
+  TyVarSig _ (L _ (KindedTyVar _ _ k)) -> extractHsTyRdrTyVars k
+  _ -> []
 
--- Get type/kind variables mentioned in the kind signature, preserving
+-- | Get type/kind variables mentioned in the kind signature, preserving
 -- left-to-right order and without duplicates:
 --
 --  * data T a (b :: k1) :: k2 -> k1 -> k2 -> Type   -- result: [k2,k1]
@@ -1748,7 +1816,7 @@ extract_hs_tv_bndrs tv_bndrs acc_vars body_vars
     bndr_vars = extract_hs_tv_bndrs_kvs tv_bndrs
     tv_bndr_rdrs = map hsLTyVarLocName tv_bndrs
 
-extract_hs_tv_bndrs_kvs :: [LHsTyVarBndr GhcPs] -> [Located RdrName]
+extract_hs_tv_bndrs_kvs :: [LHsTyVarBndr GhcPs] -> FreeKiTyVarsWithDups
 -- Returns the free kind variables of any explicitly-kinded binders, returning
 -- variable occurrences in left-to-right order.
 -- See Note [Ordering of implicit variables].

@@ -20,7 +20,7 @@ module GHC.Tc.TyCl.PatSyn
    )
 where
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Hs
 import GHC.Tc.Gen.Pat
@@ -36,9 +36,9 @@ import GHC.Types.Name
 import GHC.Types.SrcLoc
 import GHC.Core.PatSyn
 import GHC.Types.Name.Set
-import Panic
-import Outputable
-import FastString
+import GHC.Utils.Panic
+import GHC.Utils.Outputable
+import GHC.Data.FastString
 import GHC.Types.Var
 import GHC.Types.Var.Env( emptyTidyEnv, mkInScopeSet )
 import GHC.Types.Id
@@ -58,9 +58,9 @@ import GHC.Types.Id.Make
 import GHC.Tc.TyCl.Utils
 import GHC.Core.ConLike
 import GHC.Types.FieldLabel
-import Bag
-import Util
-import ErrUtils
+import GHC.Data.Bag
+import GHC.Utils.Misc
+import GHC.Utils.Error
 import Data.Maybe( mapMaybe )
 import Control.Monad ( zipWithM )
 import Data.List( partition )
@@ -148,8 +148,7 @@ tcInferPatSynDecl (PSB { psb_id = lname@(L _ name), psb_args = details
        ; let (arg_names, rec_fields, is_infix) = collectPatSynArgInfo details
        ; (tclvl, wanted, ((lpat', args), pat_ty))
             <- pushLevelAndCaptureConstraints  $
-               tcInferNoInst                           $ \ exp_ty ->
-               tcPat PatSyn lpat (unrestricted exp_ty) $
+               tcInferPat PatSyn lpat          $
                mapM tcLookupId arg_names
 
        ; let (ex_tvs, prov_dicts) = tcCollectEx lpat'
@@ -387,9 +386,9 @@ tcCheckPatSynDecl psb@PSB{ psb_id = lname@(L _ name), psb_args = details
        ; req_dicts <- newEvVars req_theta
        ; (tclvl, wanted, (lpat', (ex_tvs', prov_dicts, args'))) <-
            ASSERT2( equalLength arg_names arg_tys, ppr name $$ ppr arg_names $$ ppr arg_tys )
-           pushLevelAndCaptureConstraints               $
-           tcExtendTyVarEnv univ_tvs $
-           tcPat PatSyn lpat (unrestricted (mkCheckExpType pat_ty)) $
+           pushLevelAndCaptureConstraints   $
+           tcExtendTyVarEnv univ_tvs        $
+           tcCheckPat PatSyn lpat (unrestricted pat_ty)   $
            do { let in_scope    = mkInScopeSet (mkVarSet univ_tvs)
                     empty_subst = mkEmptyTCvSubst in_scope
               ; (subst, ex_tvs') <- mapAccumLM newMetaTyVarX empty_subst ex_tvs
@@ -942,7 +941,7 @@ tcPatToExpr name args pat = go pat
     go (L loc p) = L loc <$> go1 p
 
     go1 :: Pat GhcRn -> Either MsgDoc (HsExpr GhcRn)
-    go1 (ConPatIn con info)
+    go1 (ConPat NoExtField con info)
       = case info of
           PrefixCon ps  -> mkPrefixConExpr con ps
           InfixCon l r  -> mkPrefixConExpr con [l,r]
@@ -975,8 +974,6 @@ tcPatToExpr name args pat = go pat
                                     = return $ unLoc $ foldl' nlHsApp (noLoc neg)
                                                        [noLoc (HsOverLit noExtField n)]
         | otherwise                 = return $ HsOverLit noExtField n
-    go1 (ConPatOut{})               = panic "ConPatOut in output of renamer"
-    go1 (CoPat{})                   = panic "CoPat in output of renamer"
     go1 (SplicePat _ (HsSpliced _ _ (HsSplicedPat pat)))
                                     = go1 pat
     go1 (SplicePat _ (HsSpliced{})) = panic "Invalid splice variety"
@@ -1126,10 +1123,11 @@ tcCollectEx pat = go pat
     go1 (TuplePat _ ps _)  = mergeMany . map go $ ps
     go1 (SumPat _ p _ _)   = go p
     go1 (ViewPat _ _ p)    = go p
-    go1 con@ConPatOut{}    = merge (pat_tvs con, pat_dicts con) $
+    go1 con@ConPat{ pat_con_ext = con' }
+                           = merge (cpt_tvs con', cpt_dicts con') $
                               goConDetails $ pat_args con
     go1 (SigPat _ p _)     = go p
-    go1 (CoPat _ _ p _)    = go1 p
+    go1 (XPat (CoPat _ p _)) = go1 p
     go1 (NPlusKPat _ n k _ geq subtract)
       = pprPanic "TODO: NPlusKPat" $ ppr n $$ ppr k $$ ppr geq $$ ppr subtract
     go1 _                   = empty

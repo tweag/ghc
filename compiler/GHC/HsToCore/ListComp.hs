@@ -14,7 +14,7 @@ module GHC.HsToCore.ListComp ( dsListComp, dsMonadComp ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.HsToCore.Expr ( dsHandleMonadicFailure, dsExpr, dsLExpr, dsLExprNoLP, dsLocalBinds, dsSyntaxExpr )
 
@@ -35,10 +35,10 @@ import GHC.Builtin.Types
 import GHC.HsToCore.Match
 import GHC.Builtin.Names
 import GHC.Types.SrcLoc
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Tc.Utils.TcType
-import ListSetOps( getNth )
-import Util
+import GHC.Data.List.SetOps( getNth )
+import GHC.Utils.Misc
 
 {-
 List comprehensions may be desugared in one of two ways: ``ordinary''
@@ -267,7 +267,7 @@ deListComp (RecStmt {} : _) _ = panic "deListComp RecStmt"
 deListComp (ApplicativeStmt {} : _) _ =
   panic "deListComp ApplicativeStmt"
 
-deBindComp :: OutPat GhcTc
+deBindComp :: LPat GhcTc
            -> CoreExpr
            -> [ExprStmt GhcTc]
            -> CoreExpr

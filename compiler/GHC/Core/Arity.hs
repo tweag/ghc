@@ -21,7 +21,7 @@ where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core
 import GHC.Core.FVs
@@ -39,9 +39,9 @@ import GHC.Core.Multiplicity
 import GHC.Types.Basic
 import GHC.Types.Unique
 import GHC.Driver.Session ( DynFlags, GeneralFlag(..), gopt )
-import Outputable
-import FastString
-import Util     ( debugIsOn )
+import GHC.Utils.Outputable
+import GHC.Data.FastString
+import GHC.Utils.Misc     ( debugIsOn )
 
 {-
 ************************************************************************
@@ -760,8 +760,8 @@ arityType _ (Var v)
   , not $ isTopSig strict_sig
   , (ds, res) <- splitStrictSig strict_sig
   , let arity = length ds
-  = if isBotDiv res then ABot arity
-                    else ATop (take arity one_shots)
+  = if isDeadEndDiv res then ABot arity
+                        else ATop (take arity one_shots)
   | otherwise
   = ATop (take (idArity v) one_shots)
   where
@@ -788,7 +788,7 @@ arityType env (App fun arg )
         -- The difference is observable using 'seq'
         --
 arityType env (Case scrut _ _ alts)
-  | exprIsBottom scrut || null alts
+  | exprIsDeadEnd scrut || null alts
   = ABot 0     -- Do not eta expand
                -- See Note [Dealing with bottom (1)]
   | otherwise

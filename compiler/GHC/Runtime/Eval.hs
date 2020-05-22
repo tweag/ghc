@@ -46,7 +46,7 @@ module GHC.Runtime.Eval (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Runtime.Eval.Types
 
@@ -82,19 +82,19 @@ import GHC.Driver.Session
 import GHC.LanguageExtensions
 import GHC.Types.Unique
 import GHC.Types.Unique.Supply
-import MonadUtils
-import GHC.Types.Module
+import GHC.Utils.Monad
+import GHC.Unit.Module
 import GHC.Builtin.Names ( toDynName, pretendNameIsInScope )
 import GHC.Builtin.Types ( isCTupleTyConName )
-import Panic
-import Maybes
-import ErrUtils
+import GHC.Utils.Panic
+import GHC.Data.Maybe
+import GHC.Utils.Error
 import GHC.Types.SrcLoc
 import GHC.Runtime.Heap.Inspect
-import Outputable
-import FastString
-import Bag
-import Util
+import GHC.Utils.Outputable
+import GHC.Data.FastString
+import GHC.Data.Bag
+import GHC.Utils.Misc
 import qualified GHC.Parser.Lexer as Lexer (P (..), ParseResult(..), unP, mkPStatePure)
 import GHC.Parser.Lexer (ParserFlags)
 import qualified GHC.Parser       as Parser (parseStmt, parseModule, parseDeclaration, parseImport)
@@ -106,10 +106,11 @@ import qualified Data.IntMap as IntMap
 import Data.List (find,intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import StringBuffer (stringToStringBuffer)
+import GHC.Data.StringBuffer (stringToStringBuffer)
 import Control.Monad
+import Control.Monad.Catch as MC
 import Data.Array
-import Exception
+import GHC.Utils.Exception
 import Unsafe.Coerce ( unsafeCoerce )
 
 import GHC.Tc.Module ( runTcInteractive, tcRnType, loadUnqualIfaces )
@@ -291,7 +292,7 @@ withVirtualCWD m = do
             setSession hsc_env{  hsc_IC = old_IC{ ic_cwd = Just virt_dir } }
             liftIO $ setCurrentDirectory orig_dir
 
-      gbracket set_cwd reset_cwd $ \_ -> m
+      MC.bracket set_cwd reset_cwd $ \_ -> m
 
 parseImportDecl :: GhcMonad m => String -> m (ImportDecl GhcPs)
 parseImportDecl expr = withSession $ \hsc_env -> liftIO $ hscImport hsc_env expr
@@ -814,7 +815,7 @@ getContext = withSession $ \HscEnv{ hsc_IC=ic } ->
 -- its full top-level scope available.
 moduleIsInterpreted :: GhcMonad m => Module -> m Bool
 moduleIsInterpreted modl = withSession $ \h ->
- if moduleUnitId modl /= thisPackage (hsc_dflags h)
+ if moduleUnit modl /= thisPackage (hsc_dflags h)
         then return False
         else case lookupHpt (hsc_HPT h) (moduleName modl) of
                 Just details       -> return (isJust (mi_globals (hm_iface details)))

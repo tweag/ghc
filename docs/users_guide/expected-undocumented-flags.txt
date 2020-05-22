@@ -78,7 +78,6 @@
 -fallow-overlapping-instances
 -fallow-undecidable-instances
 -farrows
--fast-llvm
 -fbang-patterns
 -fbuilding-cabal-package
 -fconstraint-solver-iterations
@@ -168,7 +167,6 @@
 -split-objs
 -syslib
 -this-component-id
--this-package-key
 -ticky-LNE
 -ticky-allocd
 -ticky-dyn-thunk

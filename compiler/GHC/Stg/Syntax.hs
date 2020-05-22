@@ -61,7 +61,7 @@ module GHC.Stg.Syntax (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Core     ( AltCon, Tickish )
 import GHC.Types.CostCentre ( CostCentreStack )
@@ -74,16 +74,16 @@ import GHC.Types.ForeignCall ( ForeignCall )
 import GHC.Types.Id
 import GHC.Types.Var.Set
 import GHC.Types.Literal     ( Literal, literalType )
-import GHC.Types.Module      ( Module )
-import Outputable
-import GHC.Driver.Packages ( isDynLinkName )
+import GHC.Unit.Module       ( Module )
+import GHC.Utils.Outputable
+import GHC.Unit.State        ( isDynLinkName )
 import GHC.Platform
 import GHC.Core.Ppr( {- instances -} )
 import GHC.Builtin.PrimOps ( PrimOp, PrimCall )
 import GHC.Core.TyCon    ( PrimRep(..), TyCon )
 import GHC.Core.Type     ( Type )
 import GHC.Types.RepType ( typePrimRep1 )
-import Util
+import GHC.Utils.Misc
 
 import Data.List.NonEmpty ( NonEmpty, toList )
 

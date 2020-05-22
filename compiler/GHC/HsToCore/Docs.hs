@@ -8,8 +8,8 @@
 
 module GHC.HsToCore.Docs (extractDocs) where
 
-import GhcPrelude
-import Bag
+import GHC.Prelude
+import GHC.Data.Bag
 import GHC.Hs.Binds
 import GHC.Hs.Doc
 import GHC.Hs.Decls
@@ -117,7 +117,9 @@ user-written. This lets us relate Names (from ClsInsts) to comments
 (associated with InstDecls and DerivDecls).
 -}
 
-getMainDeclBinder :: HsDecl (GhcPass p) -> [IdP (GhcPass p)]
+getMainDeclBinder :: (CollectPass (GhcPass p))
+                  => HsDecl (GhcPass p)
+                  -> [IdP (GhcPass p)]
 getMainDeclBinder (TyClD _ d) = [tcdName d]
 getMainDeclBinder (ValD _ d) =
   case collectHsBindBinders d of

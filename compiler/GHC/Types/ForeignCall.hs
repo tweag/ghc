@@ -18,12 +18,12 @@ module GHC.Types.ForeignCall (
         Header(..), CType(..),
     ) where
 
-import GhcPrelude
+import GHC.Prelude
 
-import FastString
-import Binary
-import Outputable
-import GHC.Types.Module
+import GHC.Data.FastString
+import GHC.Utils.Binary
+import GHC.Utils.Outputable
+import GHC.Unit.Module
 import GHC.Types.Basic ( SourceText, pprWithSourceText )
 
 import Data.Char
@@ -49,20 +49,27 @@ instance Outputable ForeignCall where
   ppr (CCall cc)  = ppr cc
 
 data Safety
-  = PlaySafe            -- Might invoke Haskell GC, or do a call back, or
-                        -- switch threads, etc.  So make sure things are
-                        -- tidy before the call. Additionally, in the threaded
-                        -- RTS we arrange for the external call to be executed
-                        -- by a separate OS thread, i.e., _concurrently_ to the
-                        -- execution of other Haskell threads.
+  = PlaySafe          -- ^ Might invoke Haskell GC, or do a call back, or
+                      --   switch threads, etc.  So make sure things are
+                      --   tidy before the call. Additionally, in the threaded
+                      --   RTS we arrange for the external call to be executed
+                      --   by a separate OS thread, i.e., _concurrently_ to the
+                      --   execution of other Haskell threads.
 
-  | PlayInterruptible   -- Like PlaySafe, but additionally
-                        -- the worker thread running this foreign call may
-                        -- be unceremoniously killed, so it must be scheduled
-                        -- on an unbound thread.
+  | PlayInterruptible -- ^ Like PlaySafe, but additionally
+                      --   the worker thread running this foreign call may
+                      --   be unceremoniously killed, so it must be scheduled
+                      --   on an unbound thread.
 
-  | PlayRisky           -- None of the above can happen; the call will return
-                        -- without interacting with the runtime system at all
+  | PlayRisky         -- ^ None of the above can happen; the call will return
+                      --   without interacting with the runtime system at all.
+                      --   Specifically:
+                      --
+                      --     * No GC
+                      --     * No call backs
+                      --     * No blocking
+                      --     * No precise exceptions
+                      --
   deriving ( Eq, Show, Data )
         -- Show used just for Show Lex.Token, I think
 
@@ -112,7 +119,7 @@ data CCallTarget
                                   -- See note [Pragma source text] in GHC.Types.Basic
         CLabelString                    -- C-land name of label.
 
-        (Maybe UnitId)              -- What package the function is in.
+        (Maybe Unit)                    -- What package the function is in.
                                         -- If Nothing, then it's taken to be in the current package.
                                         -- Note: This information is only used for PrimCalls on Windows.
                                         --       See CLabel.labelDynamic and CoreToStg.coreToStgApp

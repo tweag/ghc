@@ -32,7 +32,7 @@ module GHC.Rename.Names (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Driver.Session
 import GHC.Core.TyCo.Ppr
@@ -44,7 +44,7 @@ import GHC.Rename.Utils ( warnUnusedTopBinds, mkFieldEnv )
 import GHC.Iface.Load   ( loadSrcInterface )
 import GHC.Tc.Utils.Monad
 import GHC.Builtin.Names
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Name
 import GHC.Types.Name.Env
 import GHC.Types.Name.Set
@@ -53,13 +53,13 @@ import GHC.Types.FieldLabel
 import GHC.Driver.Types
 import GHC.Types.Name.Reader
 import GHC.Parser.PostProcess ( setRdrNameSpace )
-import Outputable
-import Maybes
+import GHC.Utils.Outputable as Outputable
+import GHC.Data.Maybe
 import GHC.Types.SrcLoc as SrcLoc
 import GHC.Types.Basic  ( TopLevelFlag(..), StringLiteral(..) )
-import Util
-import FastString
-import FastStringEnv
+import GHC.Utils.Misc
+import GHC.Data.FastString
+import GHC.Data.FastString.Env
 import GHC.Types.Id
 import GHC.Core.Type
 import GHC.Core.PatSyn
@@ -306,7 +306,7 @@ rnImportDecl this_mod
                            -- c.f. GHC.findModule, and #9997
              Nothing         -> True
              Just (StringLiteral _ pkg_fs) -> pkg_fs == fsLit "this" ||
-                            fsToUnitId pkg_fs == moduleUnitId this_mod))
+                            fsToUnit pkg_fs == moduleUnit this_mod))
          (addErr (text "A module cannot import itself:" <+> ppr imp_mod_name))
 
     -- Check for a missing import list (Opt_WarnMissingImportList also
@@ -440,8 +440,8 @@ calculateAvails dflags iface mod_safe' want_boot imported_by =
                             imp_sem_mod : dep_finsts deps
              | otherwise  = dep_finsts deps
 
-      pkg = moduleUnitId (mi_module iface)
-      ipkg = toInstalledUnitId pkg
+      pkg = moduleUnit (mi_module iface)
+      ipkg = toUnitId pkg
 
       -- Does this import mean we now require our own pkg
       -- to be trusted? See Note [Trust Own Package]
@@ -638,9 +638,12 @@ extendGlobalRdrEnvRn avails new_fixities
       | otherwise
       = return (extendGlobalRdrEnv env gre)
       where
-        name = gre_name gre
-        occ  = nameOccName name
-        dups = filter isLocalGRE (lookupGlobalRdrEnv env occ)
+        occ  = greOccName gre
+        dups = filter isDupGRE (lookupGlobalRdrEnv env occ)
+        -- Duplicate GREs are those defined locally with the same OccName,
+        -- except cases where *both* GREs are DuplicateRecordFields (#17965).
+        isDupGRE gre' = isLocalGRE gre'
+                && not (isOverloadedRecFldGRE gre && isOverloadedRecFldGRE gre')
 
 
 {- *********************************************************************
@@ -1495,9 +1498,16 @@ warnUnusedImport flag fld_env (L loc decl, used, unused)
   | null unused
   = return ()
 
+  -- Only one import is unused, with `SrcSpan` covering only the unused item instead of
+  -- the whole import statement
+  | Just (_, L _ imports) <- ideclHiding decl
+  , length unused == 1
+  , Just (L loc _) <- find (\(L _ ie) -> ((ieName ie) :: Name) `elem` unused) imports
+  = addWarnAt (Reason flag) loc msg2
+
   -- Some imports are unused
   | otherwise
-  = addWarnAt (Reason flag) loc  msg2
+  = addWarnAt (Reason flag) loc msg2
 
   where
     msg1 = vcat [ pp_herald <+> quotes pp_mod <+> is_redundant
@@ -1609,9 +1619,8 @@ printMinimalImports imports_w_usage
   = do { imports' <- getMinimalImports imports_w_usage
        ; this_mod <- getModule
        ; dflags   <- getDynFlags
-       ; liftIO $
-         do { h <- openFile (mkFilename dflags this_mod) WriteMode
-            ; printForUser dflags h neverQualify (vcat (map ppr imports')) }
+       ; liftIO $ withFile (mkFilename dflags this_mod) WriteMode $ \h ->
+          printForUser dflags h neverQualify (vcat (map ppr imports'))
               -- The neverQualify is important.  We are printing Names
               -- but they are in the context of an 'import' decl, and
               -- we never qualify things inside there
@@ -1767,14 +1776,13 @@ addDupDeclErr gres@(gre : _)
   = addErrAt (getSrcSpan (last sorted_names)) $
     -- Report the error at the later location
     vcat [text "Multiple declarations of" <+>
-             quotes (ppr (nameOccName name)),
+             quotes (ppr (greOccName gre)),
              -- NB. print the OccName, not the Name, because the
              -- latter might not be in scope in the RdrEnv and so will
              -- be printed qualified.
           text "Declared at:" <+>
                    vcat (map (ppr . nameSrcLoc) sorted_names)]
   where
-    name = gre_name gre
     sorted_names =
       sortBy (SrcLoc.leftmost_smallest `on` nameSrcSpan)
              (map gre_name gres)

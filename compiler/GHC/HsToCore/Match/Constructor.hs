@@ -16,7 +16,7 @@ module GHC.HsToCore.Match.Constructor ( matchConFamily, matchPatSyn ) where
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.HsToCore.Match ( match )
 
@@ -28,13 +28,14 @@ import GHC.Tc.Utils.TcType
 import GHC.Core.Multiplicity
 import GHC.HsToCore.Monad
 import GHC.HsToCore.Utils
+import GHC.Core ( CoreExpr )
 import GHC.Core.Make ( mkCoreLets )
-import Util
+import GHC.Utils.Misc
 import GHC.Types.Id
 import GHC.Types.Name.Env
 import GHC.Types.FieldLabel ( flSelector )
 import GHC.Types.SrcLoc
-import Outputable
+import GHC.Utils.Outputable
 import Control.Monad(liftM)
 import Data.List (groupBy)
 import Data.List.NonEmpty (NonEmpty(..))
@@ -95,7 +96,7 @@ have-we-used-all-the-constructors? question; the local function
 matchConFamily :: NonEmpty Id
                -> Type
                -> NonEmpty (NonEmpty EquationInfo)
-               -> DsM MatchResult
+               -> DsM (MatchResult CoreExpr)
 -- Each group of eqns is for a single constructor
 matchConFamily (var :| vars) ty groups
   = do let mult = idMult var
@@ -114,7 +115,7 @@ matchConFamily (var :| vars) ty groups
 matchPatSyn :: NonEmpty Id
             -> Type
             -> NonEmpty EquationInfo
-            -> DsM MatchResult
+            -> DsM (MatchResult CoreExpr)
 matchPatSyn (var :| vars) ty eqns
   = do let mult = idMult var
        alt <- fmap toSynAlt $ matchOneConLike vars ty mult eqns
@@ -143,18 +144,26 @@ matchOneConLike vars ty mult (eqn1 :| eqns)   -- All eqns for a single construct
         -- and returns the types of the *value* args, which is what we want
 
               match_group :: [Id]
-                          -> [(ConArgPats, EquationInfo)] -> DsM MatchResult
+                          -> [(ConArgPats, EquationInfo)] -> DsM (MatchResult CoreExpr)
               -- All members of the group have compatible ConArgPats
               match_group arg_vars arg_eqn_prs
                 = ASSERT( notNull arg_eqn_prs )
                   do { (wraps, eqns') <- liftM unzip (mapM shift arg_eqn_prs)
                      ; let group_arg_vars = select_arg_vars arg_vars arg_eqn_prs
                      ; match_result <- match (group_arg_vars ++ vars) ty eqns'
-                     ; return (adjustMatchResult (foldr1 (.) wraps) match_result) }
+                     ; return $ foldr1 (.) wraps <$> match_result
+                     }
 
-              shift (_, eqn@(EqnInfo { eqn_pats = ConPatOut{ pat_tvs = tvs, pat_dicts = ds,
-                                                             pat_binds = bind, pat_args = args
-                                                  } : pats }))
+              shift (_, eqn@(EqnInfo
+                             { eqn_pats = ConPat
+                               { pat_args = args
+                               , pat_con_ext = ConPatTc
+                                 { cpt_tvs = tvs
+                                 , cpt_dicts = ds
+                                 , cpt_binds = bind
+                                 }
+                               } : pats
+                             }))
                 = do ds_bind <- dsTcEvBinds bind
                      return ( wrapBinds (tvs `zip` tvs1)
                             . wrapBinds (ds  `zip` dicts1)
@@ -187,10 +196,15 @@ matchOneConLike vars ty mult (eqn1 :| eqns)   -- All eqns for a single construct
                               alt_wrapper = wrapper1,
                               alt_result = foldr1 combineMatchResults match_results } }
   where
-    ConPatOut { pat_con = L _ con1
-              , pat_arg_tys = arg_tys, pat_wrap = wrapper1,
-                pat_tvs = tvs1, pat_dicts = dicts1, pat_args = args1 }
-              = firstPat eqn1
+    ConPat { pat_con = L _ con1
+           , pat_args = args1
+           , pat_con_ext = ConPatTc
+             { cpt_arg_tys = arg_tys
+             , cpt_wrap = wrapper1
+             , cpt_tvs = tvs1
+             , cpt_dicts = dicts1
+             }
+           } = firstPat eqn1
     fields1 = map flSelector (conLikeFieldLabels con1)
 
     ex_tvs = conLikeExTyCoVars con1

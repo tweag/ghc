@@ -72,7 +72,7 @@ module GHC.Types.Id (
         isDataConWrapId, isDataConWrapId_maybe,
         isDataConId_maybe,
         idDataCon,
-        isConLikeId, isBottomingId, idIsFrom,
+        isConLikeId, isDeadEndId, idIsFrom,
         hasNoBinding,
 
         -- ** Join variables
@@ -120,7 +120,7 @@ module GHC.Types.Id (
 
 #include "HsVersions.h"
 
-import GhcPrelude
+import GHC.Prelude
 
 import GHC.Driver.Session
 import GHC.Core ( CoreRule, isStableUnfolding, evaldUnfolding,
@@ -144,17 +144,17 @@ import GHC.Core.DataCon
 import GHC.Types.Demand
 import GHC.Types.Cpr
 import GHC.Types.Name
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Core.Class
 import {-# SOURCE #-} GHC.Builtin.PrimOps (PrimOp)
 import GHC.Types.ForeignCall
-import Maybes
+import GHC.Data.Maybe
 import GHC.Types.SrcLoc
-import Outputable
+import GHC.Utils.Outputable
 import GHC.Types.Unique
 import GHC.Types.Unique.Supply
-import FastString
-import Util
+import GHC.Data.FastString
+import GHC.Utils.Misc
 import GHC.Core.Multiplicity
 
 -- infixl so you can say (id `set` a `set` b)
@@ -666,10 +666,11 @@ setIdCallArity id arity = modifyIdInfo (`setCallArityInfo` arity) id
 idFunRepArity :: Id -> RepArity
 idFunRepArity x = countFunRepArgs (idArity x) (idType x)
 
--- | Returns true if an application to n args would diverge
-isBottomingId :: Var -> Bool
-isBottomingId v
-  | isId v    = isBottomingSig (idStrictness v)
+-- | Returns true if an application to n args diverges or throws an exception
+-- See Note [Dead ends] in GHC.Types.Demand.
+isDeadEndId :: Var -> Bool
+isDeadEndId v
+  | isId v    = isDeadEndSig (idStrictness v)
   | otherwise = False
 
 -- | Accesses the 'Id''s 'strictnessInfo'.
@@ -797,7 +798,7 @@ idRuleMatchInfo :: Id -> RuleMatchInfo
 idRuleMatchInfo id = inlinePragmaRuleMatchInfo (idInlinePragma id)
 
 isConLikeId :: Id -> Bool
-isConLikeId id = isDataConWorkId id || isConLike (idRuleMatchInfo id)
+isConLikeId id = isConLike (idRuleMatchInfo id)
 
 {-
         ---------------------------------
@@ -987,7 +988,7 @@ transferPolyIdInfo old_id abstract_wrt new_id
     new_occ_info    = zapOccTailCallInfo old_occ_info
 
     old_strictness  = strictnessInfo old_info
-    new_strictness  = increaseStrictSigArity arity_increase old_strictness
+    new_strictness  = prependArgsStrictSig arity_increase old_strictness
     old_cpr         = cprInfo old_info
 
     transfer new_info = new_info `setArityInfo` new_arity

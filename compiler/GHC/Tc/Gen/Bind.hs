@@ -20,15 +20,15 @@ module GHC.Tc.Gen.Bind
    )
 where
 
-import GhcPrelude
+import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Tc.Gen.Match ( tcGRHSsPat, tcMatchesFun )
-import {-# SOURCE #-} GHC.Tc.Gen.Expr  ( tcMonoExpr )
+import {-# SOURCE #-} GHC.Tc.Gen.Expr  ( tcLExpr )
 import {-# SOURCE #-} GHC.Tc.TyCl.PatSyn ( tcPatSynDecl, tcPatSynBuilderBind )
 import GHC.Core (Tickish (..))
 import GHC.Types.CostCentre (mkUserCC, CCFlavour(DeclCC))
 import GHC.Driver.Session
-import FastString
+import GHC.Data.FastString
 import GHC.Hs
 import GHC.Tc.Gen.Sig
 import GHC.Tc.Utils.Monad
@@ -52,18 +52,18 @@ import GHC.Types.Id
 import GHC.Types.Var as Var
 import GHC.Types.Var.Set
 import GHC.Types.Var.Env( TidyEnv )
-import GHC.Types.Module
+import GHC.Unit.Module
 import GHC.Types.Name
 import GHC.Types.Name.Set
 import GHC.Types.Name.Env
 import GHC.Types.SrcLoc
-import Bag
-import ErrUtils
-import Digraph
-import Maybes
-import Util
+import GHC.Data.Bag
+import GHC.Utils.Error
+import GHC.Data.Graph.Directed
+import GHC.Data.Maybe
+import GHC.Utils.Misc
 import GHC.Types.Basic
-import Outputable
+import GHC.Utils.Outputable as Outputable
 import GHC.Builtin.Names( ipClassName )
 import GHC.Tc.Validity (checkValidType)
 import GHC.Types.Unique.FM
@@ -355,7 +355,7 @@ tcLocalBinds (HsIPBinds x (IPBinds _ ip_binds)) thing_inside
        = do { ty <- newOpenFlexiTyVarTy
             ; let p = mkStrLitTy $ hsIPNameFS ip
             ; ip_id <- newDict ipClass [ p, ty ]
-            ; expr' <- tcMonoExpr expr (mkCheckExpType ty)
+            ; expr' <- tcLExpr expr (mkCheckExpType ty)
             ; let d = toDict ipClass p ty `fmap` expr'
             ; return (ip_id, (IPBind noExtField (Right ip_id) d)) }
     tc_ip_bind _ (IPBind _ (Right {}) _) = panic "tc_ip_bind"
@@ -511,8 +511,8 @@ tc_group top_lvl sig_fn prag_fn (Recursive, binds) closed thing_inside
       tcPolyBinds sig_fn prag_fn Recursive rec_tc closed binds
 
 recursivePatSynErr ::
-     OutputableBndrId p =>
-     SrcSpan -- ^ The location of the first pattern synonym binding
+     (OutputableBndrId p, CollectPass (GhcPass p))
+  => SrcSpan -- ^ The location of the first pattern synonym binding
              --   (for error reporting)
   -> LHsBinds (GhcPass p)
   -> TcM a
@@ -559,7 +559,7 @@ mkEdges sig_fn binds
     ]
     -- It's OK to use nonDetEltsUFM here as stronglyConnCompFromEdgedVertices
     -- is still deterministic even if the edges are in nondeterministic order
-    -- as explained in Note [Deterministic SCC] in Digraph.
+    -- as explained in Note [Deterministic SCC] in GHC.Data.Graph.Directed.
   where
     bind_fvs (FunBind { fun_ext = fvs }) = fvs
     bind_fvs (PatBind { pat_ext = fvs }) = fvs
@@ -1270,9 +1270,7 @@ tcMonoBinds is_rec sig_fn no_gen
         --      We want to infer a higher-rank type for f
     setSrcSpan b_loc    $
     do  { ((co_fn, matches'), rhs_ty)
-            <- tcInferInst $ \ exp_ty ->
-                  -- tcInferInst: see GHC.Tc.Utils.Unify,
-                  -- Note [Deep instantiation of InferResult] in GHC.Tc.Utils.Unify
+            <- tcInfer $ \ exp_ty ->
                tcExtendBinderStack [TcIdBndr_ExpType name exp_ty NotTopLevel] $
                   -- We extend the error context even for a non-recursive
                   -- function so that in type error messages we show the
@@ -1372,7 +1370,7 @@ tcLhs sig_fn no_gen (PatBind { pat_lhs = pat, pat_rhs = grhss })
             -- See Note [Existentials in pattern bindings]
         ; ((pat', nosig_mbis), pat_ty)
             <- addErrCtxt (patMonoBindsCtxt pat grhss) $
-               tcInferNoInst $ \ exp_ty ->
+               tcInfer $ \ exp_ty ->
                tcLetPat inst_sig_fun no_gen pat (unrestricted exp_ty) $
                  -- The above inferred type get an unrestricted multiplicity. It may be
                  -- worth it to try and find a finer-grained multiplicity here
