@@ -54,7 +54,7 @@ import GHC.Types.Name.Set
 import GHC.Types.Name.Reader
 import GHC.Types.Unique.Set
 import Data.List
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import GHC.Utils.Misc
 import GHC.Data.List.SetOps ( removeDups )
 import GHC.Utils.Error
@@ -1168,7 +1168,7 @@ rn_rec_stmt rnBody _ (L loc (BindStmt _ pat' body), fv_pat)
   = do { (body', fv_expr) <- rnBody body
        ; (bind_op, fvs1) <- lookupSyntax bindMName
 
-       ; (fail_op, fvs2) <- getMonadFailOp
+       ; (fail_op, fvs2) <- getMonadFailOp (DoExpr Nothing)
 
        ; let bndrs = mkNameSet (collectPatBinders pat')
              fvs   = fv_expr `plusFV` fv_pat `plusFV` fvs1 `plusFV` fvs2
@@ -2156,7 +2156,7 @@ monadFailOp pat ctxt
   -- a different way. See Note [Failing pattern matches in Stmts].
   | not (isMonadFailStmtContext ctxt) = return (Nothing, emptyFVs)
 
-  | otherwise = getMonadFailOp
+  | otherwise = getMonadFailOp ctxt
 
 {-
 Note [Monad fail : Rebindable syntax, overloaded strings]
@@ -2182,17 +2182,19 @@ So, in this case, we synthesize the function
 (rather than plain 'fail') for the 'fail' operation. This is done in
 'getMonadFailOp'.
 -}
-getMonadFailOp :: RnM (FailOperator GhcRn, FreeVars) -- Syntax expr fail op
-getMonadFailOp
+getMonadFailOp :: HsStmtContext p -> RnM (FailOperator GhcRn, FreeVars) -- Syntax expr fail op
+getMonadFailOp ctxt
  = do { xOverloadedStrings <- fmap (xopt LangExt.OverloadedStrings) getDynFlags
       ; xRebindableSyntax <- fmap (xopt LangExt.RebindableSyntax) getDynFlags
       ; (fail, fvs) <- reallyGetMonadFailOp xRebindableSyntax xOverloadedStrings
       ; return (Just fail, fvs)
       }
   where
+    isQualifiedDo = isJust (maybeQualifiedDo ctxt)
+
     reallyGetMonadFailOp rebindableSyntax overloadedStrings
-      | rebindableSyntax && overloadedStrings = do
-        (failExpr, failFvs) <- lookupSyntaxExpr failMName
+      | (isQualifiedDo || rebindableSyntax) && overloadedStrings = do
+        (failExpr, failFvs) <- lookupQualifiedDoExpr ctxt failMName
         (fromStringExpr, fromStringFvs) <- lookupSyntaxExpr fromStringName
         let arg_lit = mkVarOcc "arg"
         arg_name <- newSysName arg_lit
@@ -2205,4 +2207,4 @@ getMonadFailOp
         let failAfterFromStringSynExpr :: SyntaxExpr GhcRn =
               mkSyntaxExpr failAfterFromStringExpr
         return (failAfterFromStringSynExpr, failFvs `plusFV` fromStringFvs)
-      | otherwise = lookupSyntax failMName
+      | otherwise = lookupQualifiedDo ctxt failMName
