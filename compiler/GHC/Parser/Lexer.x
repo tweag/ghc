@@ -1392,6 +1392,8 @@ splitQualName :: StringBuffer -> Int -> Bool -> (FastString,FastString)
 -- takes a StringBuffer and a length, and returns the module name
 -- and identifier parts of a qualified name.  Splits at the *last* dot,
 -- because of hierarchical module names.
+--
+-- If the name is not qualified, an empty module name is returned.
 splitQualName orig_buf len parens = split orig_buf orig_buf
   where
     split buf dot_buf
@@ -1411,7 +1413,7 @@ splitQualName orig_buf len parens = split orig_buf orig_buf
        (c,buf') = nextChar buf
 
     done dot_buf =
-        (lexemeToFastString orig_buf (qual_size - 1),
+        (lexemeToFastString orig_buf (max 0 (qual_size - 1)),
          if parens -- Prelude.(+)
             then lexemeToFastString (stepOn dot_buf) (len - qual_size - 2)
             else lexemeToFastString dot_buf (len - qual_size))
