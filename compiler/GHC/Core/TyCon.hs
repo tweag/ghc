@@ -1872,6 +1872,7 @@ isVanillaAlgTyCon (AlgTyCon { algTcParent = VanillaAlgTyCon _ }) = True
 isVanillaAlgTyCon _                                              = False
 
 -- | Returns @True@ for the 'TyCon' of the 'Constraint' kind.
+{-# INLINE isConstraintKindCon #-} -- See Note [Inlining coreView] in GHC.Core.Type
 isConstraintKindCon :: TyCon -> Bool
 -- NB: We intentionally match on AlgTyCon, because 'constraintKindTyCon' is
 -- always an AlgTyCon (see 'pcTyCon' in TysWiredIn) and the record selector
@@ -2032,6 +2033,7 @@ arguments are simply value arguments, and should not get in the way.
 
 
 -- | Is this a 'TyCon' representing a regular H98 type synonym (@type@)?
+{-# INLINE isTypeSynonymTyCon #-}  -- See Note [Inlining coreView] in GHC.Core.Type
 isTypeSynonymTyCon :: TyCon -> Bool
 isTypeSynonymTyCon (SynonymTyCon {}) = True
 isTypeSynonymTyCon _                 = False
