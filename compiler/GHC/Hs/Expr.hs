@@ -2798,6 +2798,12 @@ data HsStmtContext p
 deriving instance Data (HsStmtContext GhcPs)
 deriving instance Data (HsStmtContext GhcRn)
 
+maybeQualifiedDo :: HsStmtContext p -> Maybe ModuleName
+maybeQualifiedDo ctxt = case ctxt of
+  DoExpr m -> m
+  MDoExpr m -> m
+  _ -> Nothing
+
 isComprehensionContext :: HsStmtContext id -> Bool
 -- Uses comprehension syntax [ e | quals ]
 isComprehensionContext ListComp          = True
