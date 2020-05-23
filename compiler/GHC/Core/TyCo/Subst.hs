@@ -65,10 +65,10 @@ import {-# SOURCE #-} GHC.Core.Coercion
    , mkInstCo, mkLRCo, mkTyConAppCo
    , mkCoercionType
    , coercionKind, coercionLKind, coVarKindsTypesRole )
+import {-# SOURCE #-} GHC.Core.TyCo.Ppr ( pprTyVar )
 
 import GHC.Core.TyCo.Rep
 import GHC.Core.TyCo.FVs
-import GHC.Core.TyCo.Ppr
 
 import GHC.Types.Var
 import GHC.Types.Var.Set

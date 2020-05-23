@@ -36,7 +36,6 @@ import GHC.Types.Var.Set
 import GHC.Utils.Misc
 import GHC.Driver.Session
 import GHC.Utils.Outputable
--- import Data.List        ( mapAccumL )
 import GHC.Types.Basic      ( RecFlag(..), isRec )
 
 {-

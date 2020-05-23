@@ -37,7 +37,6 @@ import GHC.Core.Ppr
 import GHC.Types.Literal
 import GHC.Builtin.PrimOps
 import GHC.Core.FVs
-import GHC.Core.Multiplicity ( pattern Many )
 import GHC.Core.Type
 import GHC.Types.RepType
 import GHC.Core.DataCon

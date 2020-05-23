@@ -3,7 +3,7 @@
 --
 -- Type - public interface
 
-{-# LANGUAGE CPP, FlexibleContexts, PatternSynonyms #-}
+{-# LANGUAGE CPP, FlexibleContexts, PatternSynonyms, ViewPatterns #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
@@ -131,10 +131,13 @@ module GHC.Core.Type (
         dropRuntimeRepArgs,
         getRuntimeRep,
 
-        -- Multiplicity
+        -- * Multiplicity
 
         isMultiplicityTy, isMultiplicityVar,
-        isLinearType,
+        unrestricted, linear, tymult,
+        mkScaled, irrelevantMult, scaledSet,
+        pattern One, pattern Many,
+        isOneDataConTy, isManyDataConTy,
 
         -- * Main data types representing Kinds
         Kind,
@@ -242,7 +245,6 @@ import GHC.Core.TyCo.Rep
 import GHC.Core.TyCo.Subst
 import GHC.Core.TyCo.Tidy
 import GHC.Core.TyCo.FVs
-import GHC.Core.Multiplicity
 
 -- friends:
 import GHC.Types.Var
@@ -256,7 +258,8 @@ import {-# SOURCE #-} GHC.Builtin.Types
                                  ( listTyCon, typeNatKind
                                  , typeSymbolKind, liftedTypeKind
                                  , constraintKind
-                                 , unrestrictedFunTyCon )
+                                 , unrestrictedFunTyCon
+                                 , manyDataConTy, oneDataConTy )
 import GHC.Types.Name( Name )
 import GHC.Builtin.Names
 import GHC.Core.Coercion.Axiom
@@ -605,17 +608,6 @@ isMultiplicityTy ty
 -- | Is a tyvar of type 'Multiplicity'?
 isMultiplicityVar :: TyVar -> Bool
 isMultiplicityVar = isMultiplicityTy . tyVarKind
-
-isLinearType :: Type -> Bool
--- ^ @isLinear t@ returns @True@ of a if @t@ is a type of (curried) function
--- where at least one argument is linear (or otherwise non-unrestricted). We use
--- this function to check whether it is safe to eta reduce an Id in CorePrep. It
--- is always safe to return 'True', because 'True' deactivates the optimisation.
-isLinearType ty = case ty of
-                      FunTy _ Many _ res -> isLinearType res
-                      FunTy _ _ _ _ -> True
-                      ForAllTy _ res -> isLinearType res
-                      _ -> False
 
 {- *********************************************************************
 *                                                                      *
@@ -3217,3 +3209,55 @@ be reified as:
 So the kind of G isn't ambiguous anymore due to the explicit kind annotation
 on its argument. See #8953 and test th/T8953.
 -}
+
+{-
+************************************************************************
+*                                                                      *
+        Multiplicities
+*                                                                      *
+************************************************************************
+
+These functions would prefer to be in GHC.Core.Multiplicity, but
+they some are used elsewhere in this module, and wanted to bring
+their friends here with them.
+-}
+
+unrestricted, linear, tymult :: a -> Scaled a
+
+-- | Scale a payload by Many
+unrestricted = Scaled Many
+
+-- | Scale a payload by One
+linear = Scaled One
+
+-- | Scale a payload by Many; used for type arguments in core
+tymult = Scaled Many
+
+irrelevantMult :: Scaled a -> a
+irrelevantMult = scaledThing
+
+mkScaled :: Mult -> a -> Scaled a
+mkScaled = Scaled
+
+scaledSet :: Scaled a -> b -> Scaled b
+scaledSet (Scaled m _) b = Scaled m b
+
+pattern One :: Mult
+pattern One <- (isOneDataConTy -> True)
+  where One = oneDataConTy
+
+pattern Many :: Mult
+pattern Many <- (isManyDataConTy -> True)
+  where Many = manyDataConTy
+
+isManyDataConTy :: Type -> Bool
+isManyDataConTy ty
+  | Just tc <- tyConAppTyCon_maybe ty
+  = tc `hasKey` manyDataConKey
+isManyDataConTy _ = False
+
+isOneDataConTy :: Type -> Bool
+isOneDataConTy ty
+  | Just tc <- tyConAppTyCon_maybe ty
+  = tc `hasKey` oneDataConKey
+isOneDataConTy _ = False

@@ -66,7 +66,6 @@ import GHC.Core.TyCon
 import GHC.Core.DataCon
 import GHC.Core.PatSyn
 import GHC.Core.Type
-import GHC.Core.Multiplicity
 import GHC.Core.Coercion
 import GHC.Builtin.Types.Prim
 import GHC.Builtin.Types
