@@ -55,7 +55,6 @@ module GHC.Core.Type (
         splitPiTy_maybe, splitPiTy, splitPiTys,
         mkTyConBindersPreferAnon,
         mkPiTy, mkPiTys,
-        mkLamType, mkLamTypes,
         piResultTy, piResultTys,
         applyTysX, dropForAlls,
         mkFamilyTyConApp,
@@ -256,9 +255,7 @@ import GHC.Builtin.Types.Prim
 import {-# SOURCE #-} GHC.Builtin.Types
                                  ( listTyCon, typeNatKind
                                  , typeSymbolKind, liftedTypeKind
-                                 , liftedTypeKindTyCon
                                  , constraintKind
-                                 , manyDataConTy, manyDataConTyCon
                                  , unrestrictedFunTyCon )
 import GHC.Types.Name( Name )
 import GHC.Builtin.Names
@@ -1253,62 +1250,10 @@ So again we must instantiate.
 
 The same thing happens in GHC.CoreToIface.toIfaceAppArgsX.
 
---------------------------------------
-Note [mkTyConApp and Type]
-
-Whilst benchmarking it was observed in #17292 that GHC allocated a lot
-of `TyConApp` constructors. Upon further inspection a large number of these
-TyConApp constructors were all duplicates of `Type` applied to no arguments.
-
-```
-(From a sample of 100000 TyConApp closures)
-0x45f3523    - 28732 - `Type`
-0x420b840702 - 9629  - generic type constructors
-0x42055b7e46 - 9596
-0x420559b582 - 9511
-0x420bb15a1e - 9509
-0x420b86c6ba - 9501
-0x42055bac1e - 9496
-0x45e68fd    - 538 - `TYPE ...`
-```
-
-Therefore in `mkTyConApp` we have a special case for `Type` to ensure that
-only one `TyConApp 'Type []` closure is allocated during the course of
-compilation. In order to avoid a potentially expensive series of checks in
-`mkTyConApp` only this egregious case is special cased at the moment.
-
-
 ---------------------------------------------------------------------
                                 TyConApp
                                 ~~~~~~~~
 -}
-
--- | A key function: builds a 'TyConApp' or 'FunTy' as appropriate to
--- its arguments.  Applies its arguments to the constructor from left to right.
-mkTyConApp :: TyCon -> [Type] -> Type
-mkTyConApp tycon tys
-  | isFunTyCon tycon
-  , [w, _rep1,_rep2,ty1,ty2] <- tys
-  -- The FunTyCon (->) is always a visible one
-  = FunTy { ft_af = VisArg, ft_mult = w, ft_arg = ty1, ft_res = ty2 }
-
-  -- Note [mkTyConApp and Type]
-  | tycon == liftedTypeKindTyCon
-  = ASSERT2( null tys, ppr tycon $$ ppr tys )
-    liftedTypeKindTyConApp
-  | tycon == manyDataConTyCon
-  -- There are a lot of occurrences of 'Many' so it's a small optimisation to
-  -- avoid reboxing every time `mkTyConApp` is called.
-  = ASSERT2( null tys, ppr tycon $$ ppr tys )
-    manyDataConTy
-  | otherwise
-  = TyConApp tycon tys
-
--- This is a single, global definition of the type `Type`
--- Defined here so it is only allocated once.
--- See Note [mkTyConApp and Type]
-liftedTypeKindTyConApp :: Type
-liftedTypeKindTyConApp = TyConApp liftedTypeKindTyCon []
 
 -- splitTyConApp "looks through" synonyms, because they don't
 -- mean a distinct type, but all other type-constructor applications
@@ -1565,61 +1510,6 @@ mkVisForAllTys :: [TyVar] -> Type -> Type
 mkVisForAllTys tvs = ASSERT( all isTyVar tvs )
                      -- covar is always Inferred, so all inputs should be tyvar
                      mkForAllTys [ Bndr tv Required | tv <- tvs ]
-
-mkLamType  :: Var -> Type -> Type
--- ^ Makes a @(->)@ type or an implicit forall type, depending
--- on whether it is given a type variable or a term variable.
--- This is used, for example, when producing the type of a lambda.
--- Always uses Inferred binders.
-mkLamTypes :: [Var] -> Type -> Type
--- ^ 'mkLamType' for multiple type or value arguments
-
-mkLamType v body_ty
-   | isTyVar v
-   = ForAllTy (Bndr v Inferred) body_ty
-
-   | isCoVar v
-   , v `elemVarSet` tyCoVarsOfType body_ty
-   = ForAllTy (Bndr v Required) body_ty
-
-   | isPredTy arg_ty  -- See Note [mkLamType: dictionary arguments]
-   = ASSERT(eqType arg_mult Many)
-     mkInvisFunTy arg_mult arg_ty body_ty
-
-   | otherwise
-   = mkVisFunTy arg_mult arg_ty body_ty
-   where
-     Scaled arg_mult arg_ty = varScaledType v
-
-mkLamTypes vs ty = foldr mkLamType ty vs
-
-{- Note [mkLamType: dictionary arguments]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If we have (\ (d :: Ord a). blah), we want to give it type
-           (Ord a => blah_ty)
-with a fat arrow; that is, using mkInvisFunTy, not mkVisFunTy.
-
-Why? After all, we are in Core, where (=>) and (->) behave the same.
-Yes, but the /specialiser/ does treat dictionary arguments specially.
-Suppose we do w/w on 'foo' in module A, thus (#11272, #6056)
-   foo :: Ord a => Int -> blah
-   foo a d x = case x of I# x' -> $wfoo @a d x'
-
-   $wfoo :: Ord a => Int# -> blah
-
-Now in module B we see (foo @Int dOrdInt).  The specialiser will
-specialise this to $sfoo, where
-   $sfoo :: Int -> blah
-   $sfoo x = case x of I# x' -> $wfoo @Int dOrdInt x'
-
-Now we /must/ also specialise $wfoo!  But it wasn't user-written,
-and has a type built with mkLamTypes.
-
-Conclusion: the easiest thing is to make mkLamType build
-            (c => ty)
-when the argument is a predicate type.  See GHC.Core.TyCo.Rep
-Note [Types for coercions, predicates, and evidence]
--}
 
 -- | Given a list of type-level vars and the free vars of a result kind,
 -- makes TyCoBinders, preferring anonymous binders
@@ -2782,7 +2672,7 @@ occCheckExpand vs_to_avoid ty
                                 ; return (mkCoercionTy co') }
 
     ------------------
-    go_var cxt v = updateVarTypeAndMultM (go cxt) v
+    go_var cxt v = updateVarTypeM (go cxt) v
            -- Works for TyVar and CoVar
            -- See Note [Occurrence checking: look inside kinds]
 

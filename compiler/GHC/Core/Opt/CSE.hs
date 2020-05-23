@@ -16,7 +16,7 @@ module GHC.Core.Opt.CSE (cseProgram, cseOneExpr) where
 import GHC.Prelude
 
 import GHC.Core.Subst
-import GHC.Types.Var    ( Var, varMultMaybe )
+import GHC.Types.Var    ( Var, varMult )
 import GHC.Types.Var.Env ( mkInScopeSet )
 import GHC.Types.Id     ( Id, idType, idHasRules
                         , idInlineActivation, setInlineActivation
@@ -474,10 +474,10 @@ noCSE id =  not (isAlwaysActive (idInlineActivation id)) &&
     --
     -- It's alright, though! Because there is never a need to share linear
     -- definitions.
-    multiplicityOkForCSE v = case varMultMaybe v of
-                                Just Many -> True
-                                Just _ -> False
-                                Nothing -> True
+    multiplicityOkForCSE v = ASSERT2( isId v, ppr v )
+                             case varMult v of
+                                Many -> True
+                                _    -> False
 
 
 {- Note [Take care with literal strings]

@@ -1077,7 +1077,7 @@ simplJoinRhs env bndr expr cont
   | Just arity <- isJoinId_maybe bndr
   =  do { let (join_bndrs, join_body) = collectNBinders arity expr
               mult = contHoleScaling cont
-        ; (env', join_bndrs') <- simplLamBndrs env (map (scaleIdBy mult) join_bndrs)
+        ; (env', join_bndrs') <- simplLamBndrs env (map (scaleVarBy mult) join_bndrs)
         ; join_body' <- simplExprC env' join_body cont
         ; return $ mkLams join_bndrs' join_body' }
 

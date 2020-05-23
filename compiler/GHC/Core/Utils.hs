@@ -23,7 +23,8 @@ module GHC.Core.Utils (
         scaleAltsBy,
 
         -- * Properties of expressions
-        exprType, coreAltType, coreAltsType, isExprLevPoly,
+        exprType, coreAltType, coreAltsType, mkLamType, mkLamTypes,
+        isExprLevPoly,
         exprIsDupable, exprIsTrivial, getIdFromTrivialExpr, exprIsDeadEnd,
         getIdFromTrivialExpr_maybe,
         exprIsCheap, exprIsExpandable, exprIsCheapX, CheapAppFun,
@@ -147,6 +148,61 @@ coreAltsType :: [CoreAlt] -> Type
 -- ^ Returns the type of the first alternative, which should be the same as for all alternatives
 coreAltsType (alt:_) = coreAltType alt
 coreAltsType []      = panic "corAltsType"
+
+mkLamType  :: Var -> Type -> Type
+-- ^ Makes a @(->)@ type or an implicit forall type, depending
+-- on whether it is given a type variable or a term variable.
+-- This is used, for example, when producing the type of a lambda.
+-- Always uses Inferred binders.
+mkLamTypes :: [Var] -> Type -> Type
+-- ^ 'mkLamType' for multiple type or value arguments
+
+mkLamType v body_ty
+   | isTyVar v
+   = mkForAllTy v Inferred body_ty
+
+   | isCoVar v
+   , v `elemVarSet` tyCoVarsOfType body_ty
+   = mkForAllTy v Required body_ty
+
+   | isPredTy arg_ty  -- See Note [mkLamType: dictionary arguments]
+   = ASSERT(eqType arg_mult Many)
+     mkInvisFunTy arg_mult arg_ty body_ty
+
+   | otherwise
+   = mkVisFunTy arg_mult arg_ty body_ty
+   where
+     Scaled arg_mult arg_ty = idScaledType v
+
+mkLamTypes vs ty = foldr mkLamType ty vs
+
+{- Note [mkLamType: dictionary arguments]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If we have (\ (d :: Ord a). blah), we want to give it type
+           (Ord a => blah_ty)
+with a fat arrow; that is, using mkInvisFunTy, not mkVisFunTy.
+
+Why? After all, we are in Core, where (=>) and (->) behave the same.
+Yes, but the /specialiser/ does treat dictionary arguments specially.
+Suppose we do w/w on 'foo' in module A, thus (#11272, #6056)
+   foo :: Ord a => Int -> blah
+   foo a d x = case x of I# x' -> $wfoo @a d x'
+
+   $wfoo :: Ord a => Int# -> blah
+
+Now in module B we see (foo @Int dOrdInt).  The specialiser will
+specialise this to $sfoo, where
+   $sfoo :: Int -> blah
+   $sfoo x = case x of I# x' -> $wfoo @Int dOrdInt x'
+
+Now we /must/ also specialise $wfoo!  But it wasn't user-written,
+and has a type built with mkLamTypes.
+
+Conclusion: the easiest thing is to make mkLamType build
+            (c => ty)
+when the argument is a predicate type.  See GHC.Core.TyCo.Rep
+Note [Types for coercions, predicates, and evidence]
+-}
 
 -- | Is this expression levity polymorphic? This should be the
 -- same as saying (isKindLevPoly . typeKind . exprType) but
@@ -941,7 +997,7 @@ scaleAltsBy w alts = map scaleAlt alts
     scaleAlt (con, bndrs, rhs) = (con, map scaleBndr bndrs, rhs)
 
     scaleBndr :: CoreBndr -> CoreBndr
-    scaleBndr = scaleVarBy w
+    scaleBndr b = scaleVarBy w b
 
 
 {- *********************************************************************
