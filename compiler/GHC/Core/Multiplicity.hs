@@ -15,6 +15,7 @@ module GHC.Core.Multiplicity
   , pattern One
   , pattern Many
   , pattern MultMul
+  , isLinearType
   , mkMultAdd
   , mkMultMul
   , mkMultSup
@@ -35,9 +36,9 @@ module GHC.Core.Multiplicity
 import GhcPrelude
 
 import Outputable
-import GHC.Core.TyCo.Rep (mkTyConApp, Scaled(..), Mult, scaledMult, scaledThing, mapScaledType)
-import {-# SOURCE #-} GHC.Builtin.Types ( oneDataConTy, manyDataConTy, multMulTyCon )
-import {-# SOURCE #-} GHC.Core.Type( eqType, splitTyConApp_maybe )
+import GHC.Core.TyCo.Rep
+import {-# SOURCE #-} GHC.Builtin.Types ( multMulTyCon )
+import GHC.Core.Type
 import GHC.Builtin.Names (multMulTyConKey)
 import GHC.Types.Unique (hasKey)
 
@@ -270,18 +271,6 @@ To add a new multiplicity, you need to:
   and Zero
 -}
 
---
--- * Core properties of multiplicities
---
-
-pattern One :: Mult
-pattern One <- (eqType oneDataConTy -> True)
-  where One = oneDataConTy
-
-pattern Many :: Mult
-pattern Many <- (eqType manyDataConTy -> True)
-  where Many = manyDataConTy
-
 isMultMul :: Mult -> Maybe (Mult, Mult)
 isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
              , tc `hasKey` multMulTyConKey = Just (x, y)
@@ -289,6 +278,16 @@ isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
 
 pattern MultMul :: Mult -> Mult -> Mult
 pattern MultMul p q <- (isMultMul -> Just (p,q))
+
+isLinearType :: Type -> Bool
+-- ^ @isLinear t@ returns @True@ of a if @t@ is a type of (curried) function
+-- where at least one argument is linear (or otherwise non-unrestricted). We use
+-- this function to check whether it is safe to eta reduce an Id in CorePrep. It
+-- is always safe to return 'True', because 'True' deactivates the optimisation.
+isLinearType ty = case splitPiTy_maybe ty of
+  Just (Anon _ (Scaled w _), res) -> not (isManyDataConTy w) || isLinearType res
+  Just (_, res)                   -> isLinearType res
+  Nothing                         -> False
 
 {-
 Note [Overapproximating multiplicities]
@@ -321,6 +320,9 @@ mkMultMul Many _ = Many
 mkMultMul _ Many = Many
 mkMultMul p q = mkTyConApp multMulTyCon [p, q]
 
+scaleScaled :: Mult -> Scaled a -> Scaled a
+scaleScaled m' (Scaled m t) = Scaled (m' `mkMultMul` m) t
+
 -- See Note [Joining usages]
 -- | @mkMultSup w1 w2@ returns a multiplicity such that @mkMultSup w1
 -- w2 >= w1@ and @mkMultSup w1 w2 >= w2@. See Note [Overapproximating multiplicities].
@@ -348,26 +350,3 @@ submult One   One  = Submult
 -- The 1 <= p rule
 submult One   _    = Submult
 submult _     _    = Unknown
-
---
--- * Utilities
---
-
-unrestricted, linear, tymult :: a -> Scaled a
-unrestricted = Scaled Many
-linear = Scaled One
-
--- Used for type arguments in core
-tymult = Scaled Many
-
-irrelevantMult :: Scaled a -> a
-irrelevantMult = scaledThing
-
-mkScaled :: Mult -> a -> Scaled a
-mkScaled = Scaled
-
-scaledSet :: Scaled a -> b -> Scaled b
-scaledSet (Scaled m _) b = Scaled m b
-
-scaleScaled :: Mult -> Scaled a -> Scaled a
-scaleScaled m' (Scaled m t) = Scaled (m' `mkMultMul` m) t

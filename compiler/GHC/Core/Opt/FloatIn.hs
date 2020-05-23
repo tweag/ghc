@@ -36,9 +36,7 @@ import GHC.Types.Var.Set
 import Util
 import GHC.Driver.Session
 import Outputable
--- import Data.List        ( mapAccumL )
 import GHC.Types.Basic      ( RecFlag(..), isRec )
-import GHC.Core.Multiplicity
 
 {-
 Top-level interface function, @floatInwards@.  Note that we do not

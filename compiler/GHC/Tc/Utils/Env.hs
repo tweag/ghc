@@ -113,7 +113,6 @@ import Bag
 import ListSetOps
 import ErrUtils
 import Maybes( MaybeErr(..), orElse )
-import GHC.Core.Multiplicity
 import qualified GHC.LanguageExtensions as LangExt
 import Util ( HasDebugCallStack )
 

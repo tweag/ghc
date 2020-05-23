@@ -56,7 +56,6 @@ import Bag
 import OrdList
 import GHC.Core.TyCo.Rep
 import GHC.Core.Type
-import GHC.Core.Multiplicity
 import GHC.HsToCore.Utils       (isTrueLHsExpr)
 import Maybes
 import qualified GHC.LanguageExtensions as LangExt

@@ -149,7 +149,6 @@ import GHC.Builtin.Types.Prim
 import ListSetOps
 import Maybes
 import GHC.Types.Unique.FM
-import GHC.Core.Multiplicity
 
 import Control.Monad (foldM, zipWithM)
 import Data.Function ( on )

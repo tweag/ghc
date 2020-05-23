@@ -39,8 +39,6 @@ import Data.Foldable ( foldrM )
 
 import Control.Arrow ( first )
 
-import GHC.Core.Multiplicity
-
 {-
 Note [The flattening story]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

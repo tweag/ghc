@@ -76,7 +76,6 @@ import GHC.Types.Basic hiding ( SuccessFlag(..) )
 import ListSetOps
 import GHC.Fingerprint
 import qualified BooleanFormula as BF
-import GHC.Core.Multiplicity
 
 import Control.Monad
 import qualified Data.Map as Map

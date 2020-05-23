@@ -126,7 +126,6 @@ import FastString
 import Bag
 import Pair
 import GHC.Types.Unique.Set
-import GHC.Core.Multiplicity
 import GHC.Driver.Session
 import qualified GHC.LanguageExtensions as LangExt
 import GHC.Types.Basic ( TypeOrKind(..) )

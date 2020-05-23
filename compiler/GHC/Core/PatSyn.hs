@@ -32,7 +32,6 @@ import GHC.Types.Name
 import Outputable
 import GHC.Types.Unique
 import Util
-import GHC.Core.Multiplicity
 import GHC.Types.Basic
 import GHC.Types.Var
 import GHC.Types.FieldLabel

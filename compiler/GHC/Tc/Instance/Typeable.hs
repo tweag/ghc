@@ -34,7 +34,6 @@ import GHC.Types.Id
 import GHC.Core.Type
 import GHC.Core.TyCon
 import GHC.Core.DataCon
-import GHC.Core.Multiplicity
 import GHC.Types.Module
 import GHC.Hs
 import GHC.Driver.Session
