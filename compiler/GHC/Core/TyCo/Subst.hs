@@ -732,12 +732,12 @@ subst_ty subst ty
    = go ty
   where
     go (TyVarTy tv)      = substTyVar subst tv
-    go (AppTy fun arg)   = mkAppTy (go fun) $! (go arg)
+    go (AppTy fun arg)   = (mkAppTy $! (go fun)) $! (go arg)
                 -- The mkAppTy smart constructor is important
                 -- we might be replacing (a Int), represented with App
                 -- by [Int], represented with TyConApp
-    go (TyConApp tc tys) = let args = map go tys
-                           in  args `seqList` mkTyConApp tc args
+    go ty@(TyConApp tc []) = tc `seq` ty  -- avoid allocation in this common case
+    go (TyConApp tc tys) = (mkTyConApp $! tc) $! strictMap go tys
                                -- NB: mkTyConApp, not TyConApp.
                                -- mkTyConApp has optimizations.
                                -- See Note [mkTyConApp and Type] in GHC.Core.TyCo.Rep
