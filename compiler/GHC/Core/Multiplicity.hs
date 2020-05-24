@@ -15,7 +15,6 @@ module GHC.Core.Multiplicity
   , pattern One
   , pattern Many
   , isMultMul
-  , isLinearType
   , mkMultAdd
   , mkMultMul
   , mkMultSup
@@ -275,16 +274,6 @@ isMultMul :: Mult -> Maybe (Mult, Mult)
 isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
              , tc `hasKey` multMulTyConKey = Just (x, y)
              | otherwise = Nothing
-
-isLinearType :: Type -> Bool
--- ^ @isLinear t@ returns @True@ of a if @t@ is a type of (curried) function
--- where at least one argument is linear (or otherwise non-unrestricted). We use
--- this function to check whether it is safe to eta reduce an Id in CorePrep. It
--- is always safe to return 'True', because 'True' deactivates the optimisation.
-isLinearType ty = case splitPiTy_maybe ty of
-  Just (Anon _ (Scaled w _), res) -> not (isManyDataConTy w) || isLinearType res
-  Just (_, res)                   -> isLinearType res
-  Nothing                         -> False
 
 {-
 Note [Overapproximating multiplicities]
