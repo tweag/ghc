@@ -136,6 +136,7 @@ module GHC.Core.Type (
         mkScaled, irrelevantMult, scaledSet,
         pattern One, pattern Many,
         isOneDataConTy, isManyDataConTy,
+        isLinearType,
 
         -- * Main data types representing Kinds
         Kind,
@@ -3243,3 +3244,14 @@ isOneDataConTy ty
   | Just tc <- tyConAppTyCon_maybe ty
   = tc `hasKey` oneDataConKey
 isOneDataConTy _ = False
+
+isLinearType :: Type -> Bool
+-- ^ @isLinear t@ returns @True@ of a if @t@ is a type of (curried) function
+-- where at least one argument is linear (or otherwise non-unrestricted). We use
+-- this function to check whether it is safe to eta reduce an Id in CorePrep. It
+-- is always safe to return 'True', because 'True' deactivates the optimisation.
+isLinearType ty = case ty of
+                      FunTy _ Many _ res -> isLinearType res
+                      FunTy _ _ _ _ -> True
+                      ForAllTy _ res -> isLinearType res
+                      _ -> False
