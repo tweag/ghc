@@ -35,10 +35,10 @@ module GHC.Core.Multiplicity
 import GHC.Prelude
 
 import GHC.Utils.Outputable
-import GHC.Core.TyCo.Rep (mkTyConApp, Scaled(..), Mult, scaledMult, scaledThing, mapScaledType)
+import GHC.Core.TyCo.Rep (Type, mkTyConApp, Scaled(..), Mult, scaledMult, scaledThing, mapScaledType)
 import {-# SOURCE #-} GHC.Builtin.Types ( oneDataConTy, manyDataConTy, multMulTyCon )
-import {-# SOURCE #-} GHC.Core.Type( eqType, splitTyConApp_maybe )
-import GHC.Builtin.Names (multMulTyConKey)
+import {-# SOURCE #-} GHC.Core.Type( tyConAppTyCon_maybe, splitTyConApp_maybe )
+import GHC.Builtin.Names (oneDataConKey, manyDataConKey, multMulTyConKey)
 import GHC.Types.Unique (hasKey)
 
 {-
@@ -274,12 +274,26 @@ To add a new multiplicity, you need to:
 -- * Core properties of multiplicities
 --
 
+isOneDataConTy :: Type -> Bool
+isOneDataConTy ty
+  | Just tc <- tyConAppTyCon_maybe ty
+  = tc `hasKey` oneDataConKey
+  | otherwise
+  = False
+
+isManyDataConTy :: Type -> Bool
+isManyDataConTy ty
+  | Just tc <- tyConAppTyCon_maybe ty
+  = tc `hasKey` manyDataConKey
+  | otherwise
+  = False
+
 pattern One :: Mult
-pattern One <- (eqType oneDataConTy -> True)
+pattern One <- (isOneDataConTy -> True)
   where One = oneDataConTy
 
 pattern Many :: Mult
-pattern Many <- (eqType manyDataConTy -> True)
+pattern Many <- (isManyDataConTy -> True)
   where Many = manyDataConTy
 
 isMultMul :: Mult -> Maybe (Mult, Mult)
