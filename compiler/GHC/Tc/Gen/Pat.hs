@@ -388,7 +388,7 @@ tc_pat pat_ty penv ps_pat thing_inside = case ps_pat of
         ; return (mkHsWrapPat mult_wrap (LazyPat x pat') pat_ty, res) }
 
   WildPat _ -> do
-  = do  { mult_wrap <- checkManyPattern pat_ty
+        { mult_wrap <- checkManyPattern pat_ty
             -- See Note [tcSubMult's wrapper] in TcUnify.
         ; res <- thing_inside
         ; pat_ty <- expTypeToType (scaledThing pat_ty)
@@ -445,7 +445,7 @@ tc_pat pat_ty penv ps_pat thing_inside = case ps_pat of
             -- expr_wrap2 :: pat_ty "->" inf_arg_ty
 
          -- Pattern must have inf_res_ty
-        ; (pat', res) <- tc_lpat (overall_pat_ty `scaledSet` mkCheckExpType inf_res_ty) penv pat thing_inside
+        ; (pat', res) <- tc_lpat (pat_ty `scaledSet` mkCheckExpType inf_res_ty) penv pat thing_inside
 
         ; let Scaled w h_pat_ty = pat_ty
         ; pat_ty <- readExpType h_pat_ty
@@ -633,9 +633,9 @@ AST is used for the subtraction operation.
 -- See Note [NPlusK patterns]
   NPlusKPat _ (L nm_loc name)
                (L loc lit) _ ge minus -> do
-        { mult_wrap <- checkManyPattern pat_ty_scaled
+        { mult_wrap <- checkManyPattern pat_ty
             -- See Note [tcSubMult's wrapper] in TcUnify.
-        ; pat_ty <- expTypeToType (scaledThing pat_ty_scaled)
+        ; pat_ty <- expTypeToType (scaledThing pat_ty)
         ; let orig = LiteralOrigin lit
         ; (lit1', ge')
             <- tcSyntaxOp orig ge [synKnownType pat_ty, SynRho]
@@ -647,7 +647,7 @@ AST is used for the subtraction operation.
                \ [lit2_ty, var_ty] _ ->
                do { lit2' <- newOverloadedLit lit (mkCheckExpType lit2_ty)
                   ; (wrap, bndr_id) <- setSrcSpan nm_loc $
-                                     tcPatBndr penv name (pat_ty_scaled `scaledSet` mkCheckExpType var_ty)
+                                     tcPatBndr penv name (unrestricted $ mkCheckExpType var_ty)
                            -- co :: var_ty ~ idType bndr_id
 
                            -- minus_wrap is applicable to minus'
