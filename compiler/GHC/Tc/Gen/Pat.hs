@@ -354,7 +354,7 @@ tc_pat  :: Scaled ExpSigmaType
 tc_pat pat_ty penv ps_pat thing_inside = case ps_pat of
 
   VarPat x (L l name) -> do
-  = do  { (wrap, id) <- tcPatBndr penv name pat_ty
+        { (wrap, id) <- tcPatBndr penv name pat_ty
         ; (res, mult_wrap) <- tcCheckUsage name (scaledMult pat_ty) $
                               tcExtendIdEnv1 name id thing_inside
             -- See Note [tcSubMult's wrapper] in TcUnify.
