@@ -847,9 +847,9 @@ rnStmt _ _ (L loc (LetStmt _ (L l binds))) thing_inside
                  , fvs) }  }
 
 rnStmt ctxt rnBody (L loc (RecStmt { recS_stmts = rec_stmts })) thing_inside
-  = do  { (return_op, fvs1)  <- lookupStmtName ctxt returnMName
-        ; (mfix_op,   fvs2)  <- lookupStmtName ctxt mfixName
-        ; (bind_op,   fvs3)  <- lookupStmtName ctxt bindMName
+  = do  { (return_op, fvs1)  <- lookupQualifiedDoStmtName ctxt returnMName
+        ; (mfix_op,   fvs2)  <- lookupQualifiedDoStmtName ctxt mfixName
+        ; (bind_op,   fvs3)  <- lookupQualifiedDoStmtName ctxt bindMName
         ; let empty_rec_stmt = emptyRecStmtName { recS_ret_fn  = return_op
                                                 , recS_mfix_fn = mfix_op
                                                 , recS_bind_fn = bind_op }
@@ -863,7 +863,7 @@ rnStmt ctxt rnBody (L loc (RecStmt { recS_stmts = rec_stmts })) thing_inside
         -- for which it's the fwd refs within the bind itself
         -- (This set may not be empty, because we're in a recursive
         -- context.)
-        ; rnRecStmtsAndThen rnBody rec_stmts   $ \ segs -> do
+        ; rnRecStmtsAndThen ctxt rnBody rec_stmts   $ \ segs -> do
         { let bndrs = nameSetElemsStable $
                         foldr (unionNameSet . (\(ds,_,_,_) -> ds))
                               emptyNameSet
@@ -1041,7 +1041,8 @@ type Segment stmts = (Defs,
 
 -- wrapper that does both the left- and right-hand sides
 rnRecStmtsAndThen :: Outputable (body GhcPs) =>
-                     (Located (body GhcPs)
+                     HsStmtContext GhcRn
+                  -> (Located (body GhcPs)
                   -> RnM (Located (body GhcRn), FreeVars))
                   -> [LStmt GhcPs (Located (body GhcPs))]
                          -- assumes that the FreeVars returned includes
@@ -1049,7 +1050,7 @@ rnRecStmtsAndThen :: Outputable (body GhcPs) =>
                   -> ([Segment (LStmt GhcRn (Located (body GhcRn)))]
                       -> RnM (a, FreeVars))
                   -> RnM (a, FreeVars)
-rnRecStmtsAndThen rnBody s cont
+rnRecStmtsAndThen ctxt rnBody s cont
   = do  { -- (A) Make the mini fixity env for all of the stmts
           fix_env <- makeMiniFixityEnv (collectRecStmtsFixities s)
 
@@ -1065,7 +1066,7 @@ rnRecStmtsAndThen rnBody s cont
           addLocalFixities fix_env bound_names $ do
 
           -- (C) do the right-hand-sides and thing-inside
-        { segs <- rn_rec_stmts rnBody bound_names new_lhs_and_fv
+        { segs <- rn_rec_stmts ctxt rnBody bound_names new_lhs_and_fv
         ; (res, fvs) <- cont segs
         ; mapM_ (\(loc, ns) -> checkUnusedRecordWildcard loc fvs (Just ns))
                 rec_uses
@@ -1145,30 +1146,31 @@ rn_rec_stmts_lhs fix_env stmts
 -- right-hand-sides
 
 rn_rec_stmt :: (Outputable (body GhcPs)) =>
-               (Located (body GhcPs) -> RnM (Located (body GhcRn), FreeVars))
+               HsStmtContext GhcRn
+            -> (Located (body GhcPs) -> RnM (Located (body GhcRn), FreeVars))
             -> [Name]
             -> (LStmtLR GhcRn GhcPs (Located (body GhcPs)), FreeVars)
             -> RnM [Segment (LStmt GhcRn (Located (body GhcRn)))]
         -- Rename a Stmt that is inside a RecStmt (or mdo)
         -- Assumes all binders are already in scope
         -- Turns each stmt into a singleton Stmt
-rn_rec_stmt rnBody _ (L loc (LastStmt _ body noret _), _)
+rn_rec_stmt ctxt rnBody _ (L loc (LastStmt _ body noret _), _)
   = do  { (body', fv_expr) <- rnBody body
-        ; (ret_op, fvs1)   <- lookupSyntax returnMName
+        ; (ret_op, fvs1)   <- lookupQualifiedDo ctxt returnMName
         ; return [(emptyNameSet, fv_expr `plusFV` fvs1, emptyNameSet,
                    L loc (LastStmt noExtField body' noret ret_op))] }
 
-rn_rec_stmt rnBody _ (L loc (BodyStmt _ body _ _), _)
+rn_rec_stmt ctxt rnBody _ (L loc (BodyStmt _ body _ _), _)
   = do { (body', fvs) <- rnBody body
-       ; (then_op, fvs1) <- lookupSyntax thenMName
+       ; (then_op, fvs1) <- lookupQualifiedDo ctxt thenMName
        ; return [(emptyNameSet, fvs `plusFV` fvs1, emptyNameSet,
                  L loc (BodyStmt noExtField body' then_op noSyntaxExpr))] }
 
-rn_rec_stmt rnBody _ (L loc (BindStmt _ pat' body), fv_pat)
+rn_rec_stmt ctxt rnBody _ (L loc (BindStmt _ pat' body), fv_pat)
   = do { (body', fv_expr) <- rnBody body
-       ; (bind_op, fvs1) <- lookupSyntax bindMName
+       ; (bind_op, fvs1) <- lookupQualifiedDo ctxt bindMName
 
-       ; (fail_op, fvs2) <- getMonadFailOp (DoExpr Nothing)
+       ; (fail_op, fvs2) <- getMonadFailOp ctxt
 
        ; let bndrs = mkNameSet (collectPatBinders pat')
              fvs   = fv_expr `plusFV` fv_pat `plusFV` fvs1 `plusFV` fvs2
@@ -1176,10 +1178,10 @@ rn_rec_stmt rnBody _ (L loc (BindStmt _ pat' body), fv_pat)
        ; return [(bndrs, fvs, bndrs `intersectNameSet` fvs,
                   L loc (BindStmt xbsrn pat' body'))] }
 
-rn_rec_stmt _ _ (L _ (LetStmt _ (L _ binds@(HsIPBinds {}))), _)
+rn_rec_stmt _ _ _ (L _ (LetStmt _ (L _ binds@(HsIPBinds {}))), _)
   = failWith (badIpBinds (text "an mdo expression") binds)
 
-rn_rec_stmt _ all_bndrs (L loc (LetStmt _ (L l (HsValBinds x binds'))), _)
+rn_rec_stmt _ _ all_bndrs (L loc (LetStmt _ (L l (HsValBinds x binds'))), _)
   = do { (binds', du_binds) <- rnLocalValBindsRHS (mkNameSet all_bndrs) binds'
            -- fixities and unused are handled above in rnRecStmtsAndThen
        ; let fvs = allUses du_binds
@@ -1187,28 +1189,29 @@ rn_rec_stmt _ all_bndrs (L loc (LetStmt _ (L l (HsValBinds x binds'))), _)
                  L loc (LetStmt noExtField (L l (HsValBinds x binds'))))] }
 
 -- no RecStmt case because they get flattened above when doing the LHSes
-rn_rec_stmt _ _ stmt@(L _ (RecStmt {}), _)
+rn_rec_stmt _ _ _ stmt@(L _ (RecStmt {}), _)
   = pprPanic "rn_rec_stmt: RecStmt" (ppr stmt)
 
-rn_rec_stmt _ _ stmt@(L _ (ParStmt {}), _)       -- Syntactically illegal in mdo
+rn_rec_stmt _ _ _ stmt@(L _ (ParStmt {}), _)       -- Syntactically illegal in mdo
   = pprPanic "rn_rec_stmt: ParStmt" (ppr stmt)
 
-rn_rec_stmt _ _ stmt@(L _ (TransStmt {}), _)     -- Syntactically illegal in mdo
+rn_rec_stmt _ _ _ stmt@(L _ (TransStmt {}), _)     -- Syntactically illegal in mdo
   = pprPanic "rn_rec_stmt: TransStmt" (ppr stmt)
 
-rn_rec_stmt _ _ (L _ (LetStmt _ (L _ (EmptyLocalBinds _))), _)
+rn_rec_stmt _ _ _ (L _ (LetStmt _ (L _ (EmptyLocalBinds _))), _)
   = panic "rn_rec_stmt: LetStmt EmptyLocalBinds"
 
-rn_rec_stmt _ _ stmt@(L _ (ApplicativeStmt {}), _)
+rn_rec_stmt _ _ _ stmt@(L _ (ApplicativeStmt {}), _)
   = pprPanic "rn_rec_stmt: ApplicativeStmt" (ppr stmt)
 
 rn_rec_stmts :: Outputable (body GhcPs) =>
-                (Located (body GhcPs) -> RnM (Located (body GhcRn), FreeVars))
+                HsStmtContext GhcRn
+             -> (Located (body GhcPs) -> RnM (Located (body GhcRn), FreeVars))
              -> [Name]
              -> [(LStmtLR GhcRn GhcPs (Located (body GhcPs)), FreeVars)]
              -> RnM [Segment (LStmt GhcRn (Located (body GhcRn)))]
-rn_rec_stmts rnBody bndrs stmts
-  = do { segs_s <- mapM (rn_rec_stmt rnBody bndrs) stmts
+rn_rec_stmts ctxt rnBody bndrs stmts
+  = do { segs_s <- mapM (rn_rec_stmt ctxt rnBody bndrs) stmts
        ; return (concat segs_s) }
 
 ---------------------------------------------
