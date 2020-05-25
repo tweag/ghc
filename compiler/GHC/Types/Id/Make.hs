@@ -407,7 +407,7 @@ mkDictSelId name clas
     arg_tys        = dataConRepArgTys data_con  -- Includes the dictionary superclasses
     val_index      = assoc "MkId.mkDictSelId" (sel_names `zip` [0..]) name
 
-    sel_ty = mkForAllTys tyvars $
+    sel_ty = mkInvisForAllTys tyvars $
              mkInvisFunTyMany (mkClassPred clas (mkTyVarTys (binderVars tyvars))) $
              scaledThing (getNth arg_tys val_index)
 
@@ -1386,7 +1386,7 @@ proxyHashId
     [kv,tv] = mkTemplateKiTyVars [liftedTypeKind] id
     kv_ty   = mkTyVarTy kv
     tv_ty   = mkTyVarTy tv
-    ty      = mkInvForAllTy kv $ mkSpecForAllTy tv $ mkProxyPrimTy kv_ty tv_ty
+    ty      = mkInfForAllTy kv $ mkSpecForAllTy tv $ mkProxyPrimTy kv_ty tv_ty
 
 ------------------------------------------------
 nullAddrId :: Id
@@ -1416,7 +1416,7 @@ seqId = pcMiscPrelId seqName ty info
 
     -- seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
     ty  =
-      mkInvForAllTy runtimeRep2TyVar
+      mkInfForAllTy runtimeRep2TyVar
       $ mkSpecForAllTys [alphaTyVar, openBetaTyVar]
       $ mkVisFunTyMany alphaTy (mkVisFunTyMany openBetaTy openBetaTy)
 
@@ -1470,10 +1470,10 @@ coerceId = pcMiscPrelId coerceName ty info
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
     eqRTy     = mkTyConApp coercibleTyCon [ tYPE r , a, b ]
     eqRPrimTy = mkTyConApp eqReprPrimTyCon [ tYPE r, tYPE r, a, b ]
-    ty        = mkForAllTys [ Bndr rv Inferred
-                            , Bndr av Specified
-                            , Bndr bv Specified
-                            ] $
+    ty        = mkInvisForAllTys [ Bndr rv InferredSpec
+                                 , Bndr av SpecifiedSpec
+                                 , Bndr bv SpecifiedSpec
+                                 ] $
                 mkInvisFunTyMany eqRTy $
                 mkVisFunTyMany a b
 
