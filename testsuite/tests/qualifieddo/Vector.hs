@@ -6,12 +6,22 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Vector where
+module Vector
+  ( Vector(..)
+  , toList
+  , vAppend
+    -- exported for QualifiedDo
+  , fmap
+  , (<*>)
+  , pure
+  , fail
+  , mfix
+  ) where
 
 import Data.Function (fix)
 import Data.Maybe (fromMaybe)
 import Monad.Graded
-import Prelude hiding ((>>=), return)
+import Prelude hiding ((>>=), fail, pure, return, (<*>))
 
 
 data Nat = Zero | Succ Nat
@@ -76,3 +86,11 @@ mfix f = case fix (f . unsafeHead) of
     unsafeHead = \case
       VNil -> error "VNil"
       VCons a _ -> a
+
+pure :: a -> Vector (Succ Zero) a
+pure = return
+
+(<*>) :: Vector m (a -> b) -> Vector n a -> Vector (Times m n) b
+VNil <*> _ = VNil
+VCons _ v <*> VNil = v <*> VNil
+VCons f vf <*> v = vAppend (fmap f v) (vf <*> v)
