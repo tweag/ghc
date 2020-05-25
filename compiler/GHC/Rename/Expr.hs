@@ -1514,7 +1514,7 @@ ApplicativeDo touches a few phases in the compiler:
 -}
 
 -- | The 'Name's of @return@ and @pure@. These may not be 'returnName' and
--- 'pureName' due to @RebindableSyntax@.
+-- 'pureName' due to @QualifiedDo@ or @RebindableSyntax@.
 data MonadNames = MonadNames { return_name, pure_name :: Name }
 
 instance Outputable MonadNames where
@@ -1541,8 +1541,8 @@ rearrangeForApplicativeDo ctxt stmts0 = do
   let stmt_tree | optimal_ado = mkStmtTreeOptimal stmts
                 | otherwise = mkStmtTreeHeuristic stmts
   traceRn "rearrangeForADo" (ppr stmt_tree)
-  (return_name, _) <- lookupSyntaxName returnMName
-  (pure_name, _)   <- lookupSyntaxName pureAName
+  (return_name, _) <- lookupQualifiedDoName ctxt returnMName
+  (pure_name, _)   <- lookupQualifiedDoName ctxt pureAName
   let monad_names = MonadNames { return_name = return_name
                                , pure_name   = pure_name }
   stmtTreeToStmts monad_names ctxt stmt_tree [last] last_fvs
@@ -1739,7 +1739,7 @@ stmtTreeToStmts monad_names ctxt (StmtTreeApplicative trees) tail tail_fvs = do
         if | L _ ApplicativeStmt{} <- last stmts' ->
              return (unLoc tup, emptyNameSet)
            | otherwise -> do
-             (ret, _) <- lookupSyntaxExpr returnMName
+             (ret, _) <- lookupQualifiedDoExpr ctxt returnMName
              let expr = HsApp noExtField (noLoc ret) tup
              return (expr, emptyFVs)
      return ( ApplicativeArgMany
@@ -1938,11 +1938,11 @@ mkApplicativeStmt
   -> [ExprLStmt GhcRn]        -- ^ The body statements
   -> RnM ([ExprLStmt GhcRn], FreeVars)
 mkApplicativeStmt ctxt args need_join body_stmts
-  = do { (fmap_op, fvs1) <- lookupStmtName ctxt fmapName
-       ; (ap_op, fvs2) <- lookupStmtName ctxt apAName
+  = do { (fmap_op, fvs1) <- lookupQualifiedDoStmtName ctxt fmapName
+       ; (ap_op, fvs2) <- lookupQualifiedDoStmtName ctxt apAName
        ; (mb_join, fvs3) <-
            if need_join then
-             do { (join_op, fvs) <- lookupStmtName ctxt joinMName
+             do { (join_op, fvs) <- lookupQualifiedDoStmtName ctxt joinMName
                 ; return (Just join_op, fvs) }
            else
              return (Nothing, emptyNameSet)

@@ -32,7 +32,7 @@ module GHC.Rename.Env (
         -- Rebindable Syntax
         lookupSyntax, lookupSyntaxExpr, lookupSyntaxName, lookupSyntaxNames,
         lookupIfThenElse, lookupQualifiedDoExpr, lookupQualifiedDo,
-        lookupNameExprWithQualifier,
+        lookupQualifiedDoName, lookupNameExprWithQualifier,
 
         -- Constructing usage information
         addUsedGRE, addUsedGREs, addUsedDataCons,
@@ -1709,8 +1709,21 @@ lookupQualifiedDo ctxt std_name
 
 lookupNameExprWithQualifier :: Name -> ModuleName -> RnM (HsExpr GhcRn, FreeVars)
 lookupNameExprWithQualifier std_name modName
+  = first nl_HsVar <$> lookupNameWithQualifier std_name modName
+
+lookupNameWithQualifier :: Name -> ModuleName -> RnM (Name, FreeVars)
+lookupNameWithQualifier std_name modName
   = do { qname <- lookupOccRn (mkRdrQual modName (nameOccName std_name))
-       ; return (nl_HsVar qname, emptyFVs) }
+       ; return (qname, emptyFVs) }
+
+lookupQualifiedDoName
+  :: HsStmtContext p
+  -> Name
+  -> RnM (Name, FreeVars)
+lookupQualifiedDoName ctxt std_name
+  = case maybeQualifiedDo ctxt of
+      Nothing -> lookupSyntaxName std_name
+      Just modName -> lookupNameWithQualifier std_name modName
 
 -- Error messages
 
