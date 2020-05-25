@@ -2067,6 +2067,7 @@ data ApplicativeArg idL
     , app_stmts         :: [ExprLStmt idL] -- stmts
     , final_expr        :: HsExpr idL    -- return (v1,..,vn), or just (v1,..,vn)
     , bv_pattern        :: LPat idL      -- (v1,...,vn)
+    , stmt_context      :: HsStmtContext GhcRn -- context of the do expression
     }
   | XApplicativeArg !(XXApplicativeArg idL)
 
@@ -2305,7 +2306,7 @@ pprStmt (ApplicativeStmt _ args mb_join)
              :: ExprStmt (GhcPass idL))]
      | otherwise =
      [ppr (BindStmt (panic "pprStmt") pat expr :: ExprStmt (GhcPass idL))]
-   flattenArg (_, ApplicativeArgMany _ stmts _ _) =
+   flattenArg (_, ApplicativeArgMany _ stmts _ _ _) =
      concatMap flattenStmt stmts
 
    pp_debug =
@@ -2330,10 +2331,10 @@ pprArg (ApplicativeArgOne _ pat expr isBody)
             :: ExprStmt (GhcPass idL))
   | otherwise =
     ppr (BindStmt (panic "pprStmt") pat expr :: ExprStmt (GhcPass idL))
-pprArg (ApplicativeArgMany _ stmts return pat) =
+pprArg (ApplicativeArgMany _ stmts return pat ctxt) =
      ppr pat <+>
      text "<-" <+>
-     ppr (HsDo (panic "pprStmt") (DoExpr Nothing) (noLoc
+     ppr (HsDo (panic "pprStmt") ctxt (noLoc
                (stmts ++
                    [noLoc (LastStmt noExtField (noLoc return) Nothing noSyntaxExpr)])))
 

@@ -953,7 +953,7 @@ dsDo stmts
 
                do_arg (ApplicativeArgOne fail_op pat expr _) =
                  ((pat, fail_op), dsLExpr expr)
-               do_arg (ApplicativeArgMany _ stmts ret pat) =
+               do_arg (ApplicativeArgMany _ stmts ret pat _) =
                  ((pat, Nothing), dsDo (stmts ++ [noLoc $ mkLastStmt (noLoc ret)]))
 
            ; rhss' <- sequence rhss
