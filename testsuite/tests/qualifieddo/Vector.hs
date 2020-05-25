@@ -1,13 +1,18 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Vector where
 
+import Data.Function (fix)
+import Data.Maybe (fromMaybe)
 import Monad.Graded
 import Prelude hiding ((>>=), return)
+
 
 data Nat = Zero | Succ Nat
 
@@ -55,3 +60,19 @@ instance GradedMonad Vector where
     VNil -> VNil
     VCons a v -> vAppend (f a) (v >>= f)
   return a = VCons a VNil
+
+vHead :: Vector (Succ n) a -> a
+vHead (VCons a _) = a
+
+vTail :: Vector (Succ n) a -> Vector n a
+vTail (VCons _ v) = v
+
+mfix :: forall a n. Show a => (a -> Vector n a) -> Vector n a
+mfix f = case fix (f . unsafeHead) of
+    VNil -> VNil
+    VCons x _ -> VCons x (mfix (vTail . f))
+  where
+    unsafeHead :: Vector n a -> a
+    unsafeHead = \case
+      VNil -> error "VNil"
+      VCons a _ -> a

@@ -4,6 +4,7 @@
 module Monad.Graded where
 
 import Data.Kind (Constraint, Type)
+import Prelude (const)
 
 class GradedMonad (m :: k -> Type -> Type) where
   type Unit m :: k
@@ -11,3 +12,6 @@ class GradedMonad (m :: k -> Type -> Type) where
   type Inv  m (i :: k) (j :: k) :: Constraint
   (>>=) :: Inv m i j => m i a -> (a -> m j b) -> m (Plus m i j) b
   return :: a -> m (Unit m) a
+
+(>>) :: (GradedMonad m, Inv m i j) => m i a -> m j b -> m (Plus m i j) b
+m >> n = m >>= const n
