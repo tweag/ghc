@@ -6,6 +6,7 @@
 This module converts Template Haskell syntax into Hs syntax
 -}
 
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -1233,8 +1234,7 @@ cvtLit (CharPrimL c)   = do { force c; return $ HsCharPrim NoSourceText c }
 cvtLit (StringL s)     = do { let { s' = mkFastString s }
                             ; force s'
                             ; return $ HsString (quotedSourceText s) s' }
-cvtLit (StringPrimL s) = do { let { s' = BS.pack s }
-                            ; force s'
+cvtLit (StringPrimL s) = do { let { !s' = BS.pack s }
                             ; return $ HsStringPrim NoSourceText s' }
 cvtLit (BytesPrimL (Bytes fptr off sz)) = do
   let bs = unsafePerformIO $ withForeignPtr fptr $ \ptr ->
@@ -1499,7 +1499,7 @@ cvtTypeKind ty_str ty
            ForallVisT tvs ty
              | null tys'
              -> do { let tvs_spec = map (TH.SpecifiedSpec <$) tvs
-                   -- see Note [Specificity in HsForAllTy] in GHC.Hs.Types
+                   -- see Note [Specificity in HsForAllTy] in GHC.Hs.Type
                    ; tvs_spec' <- cvtTvs tvs_spec
                    ; ty'       <- cvtType ty
                    ; loc       <- getL

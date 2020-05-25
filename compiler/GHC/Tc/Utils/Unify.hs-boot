@@ -6,7 +6,7 @@ import GHC.Tc.Types          ( TcM )
 import GHC.Tc.Types.Evidence ( TcCoercion, HsWrapper )
 import GHC.Tc.Types.Origin ( CtOrigin )
 import GHC.Hs.Expr      ( HsExpr )
-import GHC.Hs.Types     ( HsType, Mult )
+import GHC.Hs.Type     ( HsType, Mult )
 import GHC.Hs.Extension ( GhcRn )
 
 -- This boot file exists only to tie the knot between

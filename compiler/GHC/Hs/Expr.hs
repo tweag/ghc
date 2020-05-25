@@ -34,7 +34,7 @@ import GHC.Hs.Decls
 import GHC.Hs.Pat
 import GHC.Hs.Lit
 import GHC.Hs.Extension
-import GHC.Hs.Types
+import GHC.Hs.Type
 import GHC.Hs.Binds
 
 -- others:
