@@ -1369,12 +1369,12 @@ dataConWrapperType (MkData { dcUserTyVarBinders = user_tvbs,
 
 dataConDisplayType :: DynFlags -> DataCon -> Type
 dataConDisplayType dflags (MkData { dcUserTyVarBinders = user_tvbs,
-                                   dcOtherTheta = theta, dcOrigArgTys = arg_tys,
-                                   dcOrigResTy = res_ty })
+                                    dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                                    dcOrigResTy = res_ty })
   = let lin = xopt LangExt.LinearTypes dflags
         arg_tys' | lin = arg_tys
                  | otherwise = (map (\(Scaled w t) -> case w of One -> Scaled Many t; _ -> Scaled w t) arg_tys)
-    in mkForAllTys user_tvbs $
+    in mkInvisForAllTys user_tvbs $
        mkInvisFunTysMany theta $
        mkVisFunTys arg_tys' $
        res_ty

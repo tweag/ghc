@@ -132,7 +132,7 @@ module GHC.Tc.Utils.TcType (
 
   mkForAllTy, mkForAllTys, mkInvisForAllTys, mkTyCoInvForAllTys,
   mkSpecForAllTys, mkTyCoInvForAllTy,
-  mkInvForAllTy, mkInvForAllTys,
+  mkInfForAllTy, mkInfForAllTys,
   mkVisFunTy, mkVisFunTys, mkInvisFunTy, mkInvisFunTyMany,
   mkVisFunTyMany, mkVisFunTysMany, mkInvisFunTysMany,
   mkTyConApp, mkAppTy, mkAppTys,
