@@ -1747,6 +1747,7 @@ stmtTreeToStmts monad_names ctxt (StmtTreeApplicative trees) tail tail_fvs = do
               , app_stmts         = stmts'
               , final_expr        = mb_ret
               , bv_pattern        = pat
+              , stmt_context      = ctxt
               }
             , fvs1 `plusFV` fvs2)
 

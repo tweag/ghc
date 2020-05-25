@@ -1167,7 +1167,7 @@ instance ( a ~ GhcPass p
     [ toHie $ PS Nothing sc NoScope pat
     , toHie expr
     ]
-  toHie (RS sc (ApplicativeArgMany _ stmts _ pat)) = concatM
+  toHie (RS sc (ApplicativeArgMany _ stmts _ pat _)) = concatM
     [ toHie $ listScopes NoScope stmts
     , toHie $ PS Nothing sc NoScope pat
     ]

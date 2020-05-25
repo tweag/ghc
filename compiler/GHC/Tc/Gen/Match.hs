@@ -1056,7 +1056,7 @@ tcApplicativeStmts ctxt pairs rhs_ty thing_inside
                       , .. }
                     ) }
 
-    goArg _body_ty (ApplicativeArgMany x stmts ret pat, pat_ty, exp_ty)
+    goArg _body_ty (ApplicativeArgMany x stmts ret pat ctxt, pat_ty, exp_ty)
       = do { (stmts', (ret',pat')) <-
                 tcStmtsAndThen ctxt tcDoStmt stmts (mkCheckExpType exp_ty) $
                 \res_ty  -> do
@@ -1065,7 +1065,7 @@ tcApplicativeStmts ctxt pairs rhs_ty thing_inside
                                  return ()
                   ; return (ret', pat')
                   }
-           ; return (ApplicativeArgMany x stmts' ret' pat') }
+           ; return (ApplicativeArgMany x stmts' ret' pat' ctxt) }
 
     get_arg_bndrs :: ApplicativeArg GhcTcId -> [Id]
     get_arg_bndrs (ApplicativeArgOne { app_arg_pattern = pat }) = collectPatBinders pat
