@@ -201,13 +201,13 @@ idScaledType :: Id -> Scaled Type
 idScaledType id = Scaled (idMult id) (idType id)
 
 scaleIdBy :: Mult -> Id -> Id
-scaleIdBy m id = setIdMult id (m `mkMultMul` idMult id)
+scaleIdBy = scaleVarBy
 
 -- | Like 'scaleIdBy', but skips non-Ids. Useful for scaling
 -- a mixed list of ids and tyvars.
 scaleVarBy :: Mult -> Var -> Var
 scaleVarBy m id
-  | isId id   = scaleIdBy m id
+  | isId id   = setIdMult id (m `mkMultMul` idMult id)
   | otherwise = id
 
 setIdName :: Id -> Name -> Id
