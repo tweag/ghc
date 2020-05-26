@@ -31,13 +31,14 @@ module GHC.Rename.HsType (
         extractHsTysRdrTyVarsDups,
         extractRdrKindSigVars, extractDataDefnKindVars,
         extractHsTvBndrs, extractHsTyArgRdrKiTyVarsDup,
-        forAllOrNothing, nubL, elemRdr
+        forAllOrNothing, nubL
   ) where
 
 import GHC.Prelude
 
 import {-# SOURCE #-} GHC.Rename.Splice( rnSpliceType )
 
+import GHC.Core.Type
 import GHC.Driver.Session
 import GHC.Hs
 import GHC.Rename.Doc    ( rnLHsDoc, rnMbLHsDoc )
@@ -66,7 +67,7 @@ import GHC.Data.FastString
 import GHC.Data.Maybe
 import qualified GHC.LanguageExtensions as LangExt
 
-import Data.List          ( nubBy, partition, (\\) )
+import Data.List          ( nubBy, partition, find )
 import Control.Monad      ( unless, when )
 
 #include "HsVersions.h"
@@ -102,7 +103,7 @@ data HsSigWcTypeScoping
     -- This only applies to RULES that do not explicitly bind their type
     -- variables. If a RULE explicitly quantifies its type variables, then
     -- 'NeverBind' is used instead. See also
-    -- @Note [Pattern signature binders and scoping]@ in "GHC.Hs.Types".
+    -- @Note [Pattern signature binders and scoping]@ in "GHC.Hs.Type".
   | BindUnlessForall
     -- ^ Unless there's forall at the top, do the same thing as 'AlwaysBind'.
     -- This is only ever used in places where the \"@forall@-or-nothing\" rule
@@ -119,18 +120,23 @@ data HsSigWcTypeScoping
     -- but if the user had written @(y :: b)@ instead of @y@ in the term
     -- variable binders, then @b@ would be rejected for being out of scope.
     -- See also @Note [Pattern signature binders and scoping]@ in
-    -- "GHC.Hs.Types".
+    -- "GHC.Hs.Type".
 
-rnHsSigWcType :: HsDocContext -> LHsSigWcType GhcPs
+rnHsSigWcType :: HsDocContext
+              -> Maybe SDoc
+              -- ^ The error msg if the signature is not allowed to contain
+              --   manually written inferred variables.
+              -> LHsSigWcType GhcPs
               -> RnM (LHsSigWcType GhcRn, FreeVars)
-rnHsSigWcType doc (HsWC { hswc_body = HsIB { hsib_body = hs_ty }})
-  = rn_hs_sig_wc_type BindUnlessForall doc hs_ty $ \nwcs imp_tvs body ->
+rnHsSigWcType doc inf_err (HsWC { hswc_body = HsIB { hsib_body = hs_ty }})
+  = rn_hs_sig_wc_type BindUnlessForall doc inf_err hs_ty $ \nwcs imp_tvs body ->
     let ib_ty = HsIB { hsib_ext = imp_tvs, hsib_body = body  }
         wc_ty = HsWC { hswc_ext = nwcs,    hswc_body = ib_ty } in
     pure (wc_ty, emptyFVs)
 
 rnHsPatSigType :: HsSigWcTypeScoping
-               -> HsDocContext -> HsPatSigType GhcPs
+               -> HsDocContext -> Maybe SDoc
+               -> HsPatSigType GhcPs
                -> (HsPatSigType GhcRn -> RnM (a, FreeVars))
                -> RnM (a, FreeVars)
 -- Used for
@@ -139,11 +145,11 @@ rnHsPatSigType :: HsSigWcTypeScoping
 --     ScopedTypeVariables isn't enabled
 -- Wildcards are allowed
 --
--- See Note [Pattern signature binders and scoping] in GHC.Hs.Types
-rnHsPatSigType scoping ctx sig_ty thing_inside
+-- See Note [Pattern signature binders and scoping] in GHC.Hs.Type
+rnHsPatSigType scoping ctx inf_err sig_ty thing_inside
   = do { ty_sig_okay <- xoptM LangExt.ScopedTypeVariables
        ; checkErr ty_sig_okay (unexpectedPatSigTypeErr sig_ty)
-       ; rn_hs_sig_wc_type scoping ctx (hsPatSigType sig_ty) $
+       ; rn_hs_sig_wc_type scoping ctx inf_err (hsPatSigType sig_ty) $
          \nwcs imp_tvs body ->
     do { let sig_names = HsPSRn { hsps_nwcs = nwcs, hsps_imp_tvs = imp_tvs }
              sig_ty'   = HsPS { hsps_ext = sig_names, hsps_body = body }
@@ -151,20 +157,22 @@ rnHsPatSigType scoping ctx sig_ty thing_inside
        } }
 
 -- The workhorse for rnHsSigWcType and rnHsPatSigType.
-rn_hs_sig_wc_type :: HsSigWcTypeScoping -> HsDocContext -> LHsType GhcPs
+rn_hs_sig_wc_type :: HsSigWcTypeScoping -> HsDocContext -> Maybe SDoc
+                  -> LHsType GhcPs
                   -> ([Name]    -- Wildcard names
                       -> [Name] -- Implicitly bound type variable names
                       -> LHsType GhcRn
                       -> RnM (a, FreeVars))
                   -> RnM (a, FreeVars)
-rn_hs_sig_wc_type scoping ctxt hs_ty thing_inside
-  = do { free_vars <- extractFilteredRdrTyVarsDups hs_ty
+rn_hs_sig_wc_type scoping ctxt inf_err hs_ty thing_inside
+  = do { check_inferred_vars ctxt inf_err hs_ty
+       ; free_vars <- filterInScopeM (extractHsTyRdrTyVarsDups hs_ty)
        ; (nwc_rdrs', tv_rdrs) <- partition_nwcs free_vars
        ; let nwc_rdrs = nubL nwc_rdrs'
-             implicit_bndrs = case scoping of
-               AlwaysBind       -> tv_rdrs
-               BindUnlessForall -> forAllOrNothing (isLHsForAllTy hs_ty) tv_rdrs
-               NeverBind        -> []
+       ; implicit_bndrs <- case scoping of
+           AlwaysBind       -> pure tv_rdrs
+           BindUnlessForall -> forAllOrNothing (isLHsForAllTy hs_ty) tv_rdrs
+           NeverBind        -> pure []
        ; rnImplicitBndrs implicit_bndrs $ \ vars ->
     do { (wcs, hs_ty', fvs1) <- rnWcBody ctxt nwc_rdrs hs_ty
        ; (res, fvs2) <- thing_inside wcs vars hs_ty'
@@ -172,7 +180,7 @@ rn_hs_sig_wc_type scoping ctxt hs_ty thing_inside
 
 rnHsWcType :: HsDocContext -> LHsWcType GhcPs -> RnM (LHsWcType GhcRn, FreeVars)
 rnHsWcType ctxt (HsWC { hswc_body = hs_ty })
-  = do { free_vars <- extractFilteredRdrTyVars hs_ty
+  = do { free_vars <- filterInScopeM (extractHsTyRdrTyVars hs_ty)
        ; (nwc_rdrs, _) <- partition_nwcs free_vars
        ; (wcs, hs_ty', fvs) <- rnWcBody ctxt nwc_rdrs hs_ty
        ; let sig_ty' = HsWC { hswc_ext = wcs, hswc_body = hs_ty' }
@@ -272,22 +280,6 @@ extraConstraintWildCardsAllowed env
       StandaloneKindSigCtx {} -> False  -- See Note [Wildcards in standalone kind signatures] in GHC/Hs/Decls
       _                   -> False
 
--- | Finds free type and kind variables in a type,
---     without duplicates, and
---     without variables that are already in scope in LocalRdrEnv
---   NB: this includes named wildcards, which look like perfectly
---       ordinary type variables at this point
-extractFilteredRdrTyVars :: LHsType GhcPs -> RnM FreeKiTyVarsNoDups
-extractFilteredRdrTyVars hs_ty = filterInScopeM (extractHsTyRdrTyVars hs_ty)
-
--- | Finds free type and kind variables in a type,
---     with duplicates, but
---     without variables that are already in scope in LocalRdrEnv
---   NB: this includes named wildcards, which look like perfectly
---       ordinary type variables at this point
-extractFilteredRdrTyVarsDups :: LHsType GhcPs -> RnM FreeKiTyVarsWithDups
-extractFilteredRdrTyVarsDups hs_ty = filterInScopeM (extractHsTyRdrTyVarsDups hs_ty)
-
 -- | When the NamedWildCards extension is enabled, partition_nwcs
 -- removes type variables that start with an underscore from the
 -- FreeKiTyVars in the argument and returns them in a separate list.
@@ -308,7 +300,7 @@ partition_nwcs free_vars
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Identifiers starting with an underscore are always parsed as type variables.
 It is only here in the renamer that we give the special treatment.
-See Note [The wildcard story for types] in GHC.Hs.Types.
+See Note [The wildcard story for types] in GHC.Hs.Type.
 
 It's easy!  When we collect the implicitly bound type variables, ready
 to bring them into scope, and NamedWildCards is on, we partition the
@@ -325,14 +317,21 @@ of the HsWildCardBndrs structure, and we are done.
 
 rnHsSigType :: HsDocContext
             -> TypeOrKind
+            -> Maybe SDoc
+            -- ^ The error msg if the signature is not allowed to contain
+            --   manually written inferred variables.
             -> LHsSigType GhcPs
             -> RnM (LHsSigType GhcRn, FreeVars)
 -- Used for source-language type signatures
 -- that cannot have wildcards
-rnHsSigType ctx level (HsIB { hsib_body = hs_ty })
+rnHsSigType ctx level inf_err (HsIB { hsib_body = hs_ty })
   = do { traceRn "rnHsSigType" (ppr hs_ty)
-       ; vars <- extractFilteredRdrTyVarsDups hs_ty
-       ; rnImplicitBndrs (forAllOrNothing (isLHsForAllTy hs_ty) vars) $ \ vars ->
+       ; rdr_env <- getLocalRdrEnv
+       ; check_inferred_vars ctx inf_err hs_ty
+       ; vars0 <- forAllOrNothing (isLHsForAllTy hs_ty)
+           $ filterInScope rdr_env
+           $ extractHsTyRdrTyVarsDups hs_ty
+       ; rnImplicitBndrs vars0 $ \ vars ->
     do { (body', fvs) <- rnLHsTyKi (mkTyKiEnv ctx level RnTypeBody) hs_ty
 
        ; return ( HsIB { hsib_ext = vars
@@ -351,7 +350,7 @@ rnHsSigType ctx level (HsIB { hsib_body = hs_ty })
 -- therefore an indication that the user is trying to be fastidious, so
 -- we don't implicitly bind any variables.
 
--- | See Note [forall-or-nothing rule]. This tiny little function is used
+-- | See @Note [forall-or-nothing rule]@. This tiny little function is used
 -- (rather than its small body inlined) to indicate that we are implementing
 -- that rule.
 forAllOrNothing :: Bool
@@ -362,10 +361,14 @@ forAllOrNothing :: Bool
                 --  we want to bring both 'a' and 'b' into scope, hence False
                 -> FreeKiTyVarsWithDups
                 -- ^ Free vars of the type
-                -> FreeKiTyVarsWithDups
-forAllOrNothing True  _   = []
-forAllOrNothing False fvs = fvs
-
+                -> RnM FreeKiTyVarsWithDups
+forAllOrNothing has_outer_forall fvs = case has_outer_forall of
+  True -> do
+    traceRn "forAllOrNothing" $ text "has explicit outer forall"
+    pure []
+  False -> do
+    traceRn "forAllOrNothing" $ text "no explicit forall. implicit binders:" <+> ppr fvs
+    pure fvs
 
 rnImplicitBndrs :: FreeKiTyVarsWithDups
                 -- ^ Surface-syntax free vars that we will implicitly bind.
@@ -384,6 +387,25 @@ rnImplicitBndrs implicit_vs_with_dups
 
        ; bindLocalNamesFV vars $
          thing_inside vars }
+
+check_inferred_vars :: HsDocContext
+                    -> Maybe SDoc
+                    -- ^ The error msg if the signature is not allowed to contain
+                    --   manually written inferred variables.
+                    -> LHsType GhcPs
+                    -> RnM ()
+check_inferred_vars _    Nothing    _  = return ()
+check_inferred_vars ctxt (Just msg) ty =
+  let bndrs = forallty_bndrs ty
+  in case find ((==) InferredSpec . hsTyVarBndrFlag) bndrs of
+    Nothing -> return ()
+    Just _  -> addErr $ withHsDocContext ctxt msg
+  where
+    forallty_bndrs :: LHsType GhcPs -> [HsTyVarBndr Specificity GhcPs]
+    forallty_bndrs (L _ ty) = case ty of
+      HsParTy _ ty'                  -> forallty_bndrs ty'
+      HsForAllTy { hst_bndrs = tvs } -> map unLoc tvs
+      _                              -> []
 
 {- ******************************************************
 *                                                       *
@@ -866,21 +888,20 @@ bindHsQTyVars doc mb_in_doc mb_assoc body_kv_occs hsq_bndrs thing_inside
 
        ; let -- See Note [bindHsQTyVars examples] for what
              -- all these various things are doing
-             bndrs, kv_occs, implicit_kvs :: [Located RdrName]
+             bndrs, implicit_kvs :: [Located RdrName]
              bndrs        = map hsLTyVarLocName hs_tv_bndrs
-             kv_occs      = nubL (bndr_kv_occs ++ body_kv_occs)
-                                 -- Make sure to list the binder kvs before the
-                                 -- body kvs, as mandated by
-                                 -- Note [Ordering of implicit variables]
-             implicit_kvs = filter_occs bndrs kv_occs
+             implicit_kvs = nubL $ filterFreeVarsToBind bndrs $
+               bndr_kv_occs ++ body_kv_occs
              del          = deleteBys eqLocated
-             all_bound_on_lhs = null ((body_kv_occs `del` bndrs) `del` bndr_kv_occs)
+             body_remaining = (body_kv_occs `del` bndrs) `del` bndr_kv_occs
+             all_bound_on_lhs = null body_remaining
 
        ; traceRn "checkMixedVars3" $
-           vcat [ text "kv_occs" <+> ppr kv_occs
-                , text "bndrs"   <+> ppr hs_tv_bndrs
+           vcat [ text "bndrs"   <+> ppr hs_tv_bndrs
                 , text "bndr_kv_occs"   <+> ppr bndr_kv_occs
-                , text "wubble" <+> ppr ((kv_occs \\ bndrs) \\ bndr_kv_occs)
+                , text "body_kv_occs"   <+> ppr body_kv_occs
+                , text "implicit_kvs"   <+> ppr implicit_kvs
+                , text "body_remaining" <+> ppr body_remaining
                 ]
 
        ; implicit_kv_nms <- mapM (newTyVarNameRn mb_assoc) implicit_kvs
@@ -891,17 +912,6 @@ bindHsQTyVars doc mb_in_doc mb_assoc body_kv_occs hsq_bndrs thing_inside
        ; thing_inside (HsQTvs { hsq_ext = implicit_kv_nms
                               , hsq_explicit  = rn_bndrs })
                       all_bound_on_lhs } }
-
-  where
-    filter_occs :: [Located RdrName]   -- Bound here
-                -> [Located RdrName]   -- Potential implicit binders
-                -> [Located RdrName]   -- Final implicit binders
-    -- Filter out any potential implicit binders that are either
-    -- already in scope, or are explicitly bound in the same HsQTyVars
-    filter_occs bndrs occs
-      = filterOut is_in_scope occs
-      where
-        is_in_scope locc = locc `elemRdr` bndrs
 
 {- Note [bindHsQTyVars examples]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -931,7 +941,7 @@ Then:
 * Order is not important in these lists.  All we are doing is
   bring Names into scope.
 
-Finally, you may wonder why filter_occs removes in-scope variables
+Finally, you may wonder why filterFreeVarsToBind removes in-scope variables
 from bndr/body_kv_occs.  How can anything be in scope?  Answer:
 HsQTyVars is /also/ used (slightly oddly) for Haskell-98 syntax
 ConDecls
@@ -1001,12 +1011,13 @@ So tvs is {k,a} and kvs is {k}.
 NB: we do this only at the binding site of 'tvs'.
 -}
 
-bindLHsTyVarBndrs :: HsDocContext
+bindLHsTyVarBndrs :: (OutputableBndrFlag flag)
+                  => HsDocContext
                   -> Maybe SDoc            -- Just d => check for unused tvs
                                            --   d is a phrase like "in the type ..."
                   -> Maybe a               -- Just _  => an associated type decl
-                  -> [LHsTyVarBndr GhcPs]  -- User-written tyvars
-                  -> ([LHsTyVarBndr GhcRn] -> RnM (b, FreeVars))
+                  -> [LHsTyVarBndr flag GhcPs]  -- User-written tyvars
+                  -> ([LHsTyVarBndr flag GhcRn] -> RnM (b, FreeVars))
                   -> RnM (b, FreeVars)
 bindLHsTyVarBndrs doc mb_in_doc mb_assoc tv_bndrs thing_inside
   = do { when (isNothing mb_assoc) (checkShadowedRdrNames tv_names_w_loc)
@@ -1028,24 +1039,24 @@ bindLHsTyVarBndrs doc mb_in_doc mb_assoc tv_bndrs thing_inside
 
 bindLHsTyVarBndr :: HsDocContext
                  -> Maybe a   -- associated class
-                 -> LHsTyVarBndr GhcPs
-                 -> (LHsTyVarBndr GhcRn -> RnM (b, FreeVars))
+                 -> LHsTyVarBndr flag GhcPs
+                 -> (LHsTyVarBndr flag GhcRn -> RnM (b, FreeVars))
                  -> RnM (b, FreeVars)
 bindLHsTyVarBndr _doc mb_assoc (L loc
-                                 (UserTyVar x
+                                 (UserTyVar x fl
                                     lrdr@(L lv _))) thing_inside
   = do { nm <- newTyVarNameRn mb_assoc lrdr
        ; bindLocalNamesFV [nm] $
-         thing_inside (L loc (UserTyVar x (L lv nm))) }
+         thing_inside (L loc (UserTyVar x fl (L lv nm))) }
 
-bindLHsTyVarBndr doc mb_assoc (L loc (KindedTyVar x lrdr@(L lv _) kind))
+bindLHsTyVarBndr doc mb_assoc (L loc (KindedTyVar x fl lrdr@(L lv _) kind))
                  thing_inside
   = do { sig_ok <- xoptM LangExt.KindSignatures
            ; unless sig_ok (badKindSigErr doc kind)
            ; (kind', fvs1) <- rnLHsKind doc kind
            ; tv_nm  <- newTyVarNameRn mb_assoc lrdr
            ; (b, fvs2) <- bindLocalNamesFV [tv_nm]
-               $ thing_inside (L loc (KindedTyVar x (L lv tv_nm) kind'))
+               $ thing_inside (L loc (KindedTyVar x fl (L lv tv_nm) kind'))
            ; return (b, fvs1 `plusFV` fvs2) }
 
 newTyVarNameRn :: Maybe a -> Located RdrName -> RnM Name
@@ -1469,7 +1480,7 @@ dataKindsErr env thing
 inTypeDoc :: HsType GhcPs -> SDoc
 inTypeDoc ty = text "In the type" <+> quotes (ppr ty)
 
-warnUnusedForAll :: SDoc -> LHsTyVarBndr GhcRn -> FreeVars -> TcM ()
+warnUnusedForAll :: (OutputableBndrFlag flag) => SDoc -> LHsTyVarBndr flag GhcRn -> FreeVars -> TcM ()
 warnUnusedForAll in_doc (L loc tv) used_names
   = whenWOptM Opt_WarnUnusedForalls $
     unless (hsTyVarName tv `elemNameSet` used_names) $
@@ -1643,9 +1654,15 @@ type FreeKiTyVarsWithDups = FreeKiTyVars
 -- | A 'FreeKiTyVars' list that contains no duplicate variables.
 type FreeKiTyVarsNoDups   = FreeKiTyVars
 
+-- | Filter out any type and kind variables that are already in scope in the
+-- the supplied LocalRdrEnv. Note that this includes named wildcards, which
+-- look like perfectly ordinary type variables at this point.
 filterInScope :: LocalRdrEnv -> FreeKiTyVars -> FreeKiTyVars
 filterInScope rdr_env = filterOut (inScope rdr_env . unLoc)
 
+-- | Filter out any type and kind variables that are already in scope in the
+-- the environment's LocalRdrEnv. Note that this includes named wildcards,
+-- which look like perfectly ordinary type variables at this point.
 filterInScopeM :: FreeKiTyVars -> RnM FreeKiTyVars
 filterInScopeM vars
   = do { rdr_env <- getLocalRdrEnv
@@ -1714,7 +1731,7 @@ extractHsTysRdrTyVarsDups tys
 --     However duplicates are removed
 --     E.g. given  [k1, a:k1, b:k2]
 --          the function returns [k1,k2], even though k1 is bound here
-extractHsTyVarBndrsKVs :: [LHsTyVarBndr GhcPs] -> FreeKiTyVarsNoDups
+extractHsTyVarBndrsKVs :: [LHsTyVarBndr flag GhcPs] -> FreeKiTyVarsNoDups
 extractHsTyVarBndrsKVs tv_bndrs
   = nubL (extract_hs_tv_bndrs_kvs tv_bndrs)
 
@@ -1723,8 +1740,8 @@ extractHsTyVarBndrsKVs tv_bndrs
 -- See Note [Ordering of implicit variables].
 extractRdrKindSigVars :: LFamilyResultSig GhcPs -> [Located RdrName]
 extractRdrKindSigVars (L _ resultSig) = case resultSig of
-  KindSig _ k                          -> extractHsTyRdrTyVars k
-  TyVarSig _ (L _ (KindedTyVar _ _ k)) -> extractHsTyRdrTyVars k
+  KindSig _ k                            -> extractHsTyRdrTyVars k
+  TyVarSig _ (L _ (KindedTyVar _ _ _ k)) -> extractHsTyRdrTyVars k
   _ -> []
 
 -- | Get type/kind variables mentioned in the kind signature, preserving
@@ -1793,13 +1810,13 @@ extract_hs_arrow :: HsArrow GhcPs -> FreeKiTyVarsWithDups ->
 extract_hs_arrow (HsExplicitMult p) acc = extract_lty p acc
 extract_hs_arrow _ acc = acc
 
-extractHsTvBndrs :: [LHsTyVarBndr GhcPs]
+extractHsTvBndrs :: [LHsTyVarBndr flag GhcPs]
                  -> FreeKiTyVarsWithDups           -- Free in body
                  -> FreeKiTyVarsWithDups       -- Free in result
 extractHsTvBndrs tv_bndrs body_fvs
   = extract_hs_tv_bndrs tv_bndrs [] body_fvs
 
-extract_hs_tv_bndrs :: [LHsTyVarBndr GhcPs]
+extract_hs_tv_bndrs :: [LHsTyVarBndr flag GhcPs]
                     -> FreeKiTyVarsWithDups  -- Accumulator
                     -> FreeKiTyVarsWithDups  -- Free in body
                     -> FreeKiTyVarsWithDups
@@ -1807,16 +1824,17 @@ extract_hs_tv_bndrs :: [LHsTyVarBndr GhcPs]
 --     'a' is bound by the forall
 --     'b' is a free type variable
 --     'e' is a free kind variable
-extract_hs_tv_bndrs tv_bndrs acc_vars body_vars
-  | null tv_bndrs = body_vars ++ acc_vars
-  | otherwise = filterOut (`elemRdr` tv_bndr_rdrs) (bndr_vars ++ body_vars) ++ acc_vars
+extract_hs_tv_bndrs tv_bndrs acc_vars body_vars = new_vars ++ acc_vars
+  where
+    new_vars
+      | null tv_bndrs = body_vars
+      | otherwise = filterFreeVarsToBind tv_bndr_rdrs $ bndr_vars ++ body_vars
     -- NB: delete all tv_bndr_rdrs from bndr_vars as well as body_vars.
     -- See Note [Kind variable scoping]
-  where
     bndr_vars = extract_hs_tv_bndrs_kvs tv_bndrs
     tv_bndr_rdrs = map hsLTyVarLocName tv_bndrs
 
-extract_hs_tv_bndrs_kvs :: [LHsTyVarBndr GhcPs] -> FreeKiTyVarsWithDups
+extract_hs_tv_bndrs_kvs :: [LHsTyVarBndr flag GhcPs] -> FreeKiTyVarsWithDups
 -- Returns the free kind variables of any explicitly-kinded binders, returning
 -- variable occurrences in left-to-right order.
 -- See Note [Ordering of implicit variables].
@@ -1826,7 +1844,7 @@ extract_hs_tv_bndrs_kvs :: [LHsTyVarBndr GhcPs] -> FreeKiTyVarsWithDups
 --          the function returns [k1,k2], even though k1 is bound here
 extract_hs_tv_bndrs_kvs tv_bndrs =
     foldr extract_lty []
-          [k | L _ (KindedTyVar _ _ k) <- tv_bndrs]
+          [k | L _ (KindedTyVar _ _ _ k) <- tv_bndrs]
 
 extract_tv :: Located RdrName
            -> [Located RdrName] -> [Located RdrName]
@@ -1843,5 +1861,16 @@ extract_tv tv acc =
 nubL :: Eq a => [Located a] -> [Located a]
 nubL = nubBy eqLocated
 
-elemRdr :: Located RdrName -> [Located RdrName] -> Bool
-elemRdr x = any (eqLocated x)
+-- | Filter out any potential implicit binders that are either
+-- already in scope, or are explicitly bound in the binder.
+filterFreeVarsToBind :: FreeKiTyVars
+                     -- ^ Explicitly bound here
+                     -> FreeKiTyVarsWithDups
+                     -- ^ Potential implicit binders
+                     -> FreeKiTyVarsWithDups
+                     -- ^ Final implicit binders
+filterFreeVarsToBind bndrs = filterOut is_in_scope
+    -- Make sure to list the binder kvs before the body kvs, as mandated by
+    -- Note [Ordering of implicit variables]
+  where
+    is_in_scope locc = any (eqLocated locc) bndrs

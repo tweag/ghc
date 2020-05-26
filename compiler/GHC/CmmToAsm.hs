@@ -62,7 +62,7 @@ import GHC.Utils.Asm
 import GHC.CmmToAsm.Reg.Target
 import GHC.Platform
 import GHC.CmmToAsm.BlockLayout as BlockLayout
-import Config
+import GHC.Settings.Config
 import GHC.CmmToAsm.Instr
 import GHC.CmmToAsm.PIC
 import GHC.Platform.Reg
@@ -728,7 +728,7 @@ cmmNativeGen dflags this_mod modLoc ncgImpl us fileIds dbgMap cmm count
 
         let optimizedCFG :: Maybe CFG
             optimizedCFG =
-                optimizeCFG (cfgWeightInfo dflags) cmm <$!> postShortCFG
+                optimizeCFG (gopt Opt_CmmStaticPred dflags) (cfgWeightInfo dflags) cmm <$!> postShortCFG
 
         maybeDumpCfg dflags optimizedCFG "CFG Weights - Final" proc_name
 

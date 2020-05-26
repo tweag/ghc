@@ -214,8 +214,11 @@ names in GHC.Builtin.Names, so they use wTcQual, wDataQual, etc
 -- that occurs in this list that name will be assigned the wired-in key we
 -- define here.
 --
--- Because of their infinite nature, this list excludes tuples, Any and implicit
--- parameter TyCons (see Note [Built-in syntax and the OrigNameCache]).
+-- Because of their infinite nature, this list excludes
+--   * tuples, including boxed, unboxed and constraint tuples
+---       (mkTupleTyCon, unitTyCon, pairTyCon)
+--   * unboxed sums (sumTyCon)
+-- See Note [Infinite families of known-key names] in GHC.Builtin.Names
 --
 -- See also Note [Known-key names]
 wiredInTyCons :: [TyCon]
@@ -236,6 +239,7 @@ wiredInTyCons = [ -- Units are not treated like other tuples, because they
                 , wordTyCon
                 , word8TyCon
                 , listTyCon
+                , orderingTyCon
                 , maybeTyCon
                 , heqTyCon
                 , eqTyCon
@@ -617,7 +621,7 @@ pcDataConWithFixity' declared_infix dc_name wrk_key rri
                 (map (const no_bang) arg_tys)
                 []      -- No labelled fields
                 tyvars ex_tyvars
-                (mkTyCoVarBinders Specified user_tyvars)
+                (mkTyVarBinders SpecifiedSpec user_tyvars)
                 []      -- No equality spec
                 []      -- No theta
                 arg_tys (mkTyConApp tycon (mkTyVarTys tyvars))

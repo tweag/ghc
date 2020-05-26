@@ -246,12 +246,12 @@ import GHC.Unit.Parser
 import GHC.Unit.Module
 import {-# SOURCE #-} GHC.Driver.Plugins
 import {-# SOURCE #-} GHC.Driver.Hooks
-import {-# SOURCE #-} GHC.Builtin.Names ( mAIN )
+import GHC.Builtin.Names ( mAIN )
 import {-# SOURCE #-} GHC.Unit.State (PackageState, emptyPackageState, PackageDatabase, mkIndefUnitId, updateIndefUnitId)
 import GHC.Driver.Phases ( Phase(..), phaseInputExt )
 import GHC.Driver.Flags
 import GHC.Driver.Ways
-import Config
+import GHC.Settings.Config
 import GHC.Utils.CliOption
 import GHC.Driver.CmdLine hiding (WarnReason(..))
 import qualified GHC.Driver.CmdLine as Cmd
@@ -3516,6 +3516,7 @@ fFlagsDeps = [
   flagSpec "case-folding"                     Opt_CaseFolding,
   flagSpec "cmm-elim-common-blocks"           Opt_CmmElimCommonBlocks,
   flagSpec "cmm-sink"                         Opt_CmmSink,
+  flagSpec "cmm-static-pred"                  Opt_CmmStaticPred,
   flagSpec "cse"                              Opt_CSE,
   flagSpec "stg-cse"                          Opt_StgCSE,
   flagSpec "stg-lift-lams"                    Opt_StgLiftLams,
@@ -4069,6 +4070,7 @@ optLevelFlags -- see Note [Documenting optimisation flags]
     , ([1,2],   Opt_CmmElimCommonBlocks)
     , ([2],     Opt_AsmShortcutting)
     , ([1,2],   Opt_CmmSink)
+    , ([1,2],   Opt_CmmStaticPred)
     , ([1,2],   Opt_CSE)
     , ([1,2],   Opt_StgCSE)
     , ([2],     Opt_StgLiftLams)

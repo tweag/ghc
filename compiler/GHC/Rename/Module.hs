@@ -59,7 +59,7 @@ import GHC.Types.Basic  ( pprRuleName, TypeOrKind(..) )
 import GHC.Data.FastString
 import GHC.Types.SrcLoc as SrcLoc
 import GHC.Driver.Session
-import GHC.Utils.Misc   ( debugIsOn, filterOut, lengthExceeds, partitionWith )
+import GHC.Utils.Misc   ( debugIsOn, lengthExceeds, partitionWith )
 import GHC.Driver.Types ( HscEnv, hsc_dflags )
 import GHC.Data.List.SetOps ( findDupsEq, removeDups, equivClasses )
 import GHC.Data.Graph.Directed ( SCC, flattenSCC, flattenSCCs, Node(..)
@@ -370,7 +370,7 @@ rnHsForeignDecl :: ForeignDecl GhcPs -> RnM (ForeignDecl GhcRn, FreeVars)
 rnHsForeignDecl (ForeignImport { fd_name = name, fd_sig_ty = ty, fd_fi = spec })
   = do { topEnv :: HscEnv <- getTopEnv
        ; name' <- lookupLocatedTopBndrRn name
-       ; (ty', fvs) <- rnHsSigType (ForeignDeclCtx name) TypeLevel ty
+       ; (ty', fvs) <- rnHsSigType (ForeignDeclCtx name) TypeLevel Nothing ty
 
         -- Mark any PackageTarget style imports as coming from the current package
        ; let unitId = thisPackage $ hsc_dflags topEnv
@@ -382,7 +382,7 @@ rnHsForeignDecl (ForeignImport { fd_name = name, fd_sig_ty = ty, fd_fi = spec })
 
 rnHsForeignDecl (ForeignExport { fd_name = name, fd_sig_ty = ty, fd_fe = spec })
   = do { name' <- lookupLocatedOccRn name
-       ; (ty', fvs) <- rnHsSigType (ForeignDeclCtx name) TypeLevel ty
+       ; (ty', fvs) <- rnHsSigType (ForeignDeclCtx name) TypeLevel Nothing ty
        ; return (ForeignExport { fd_e_ext = noExtField
                                , fd_name = name', fd_sig_ty = ty'
                                , fd_fe = spec }
@@ -602,7 +602,7 @@ rnClsInstDecl (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = mbinds
                            , cid_overlap_mode = oflag
                            , cid_datafam_insts = adts })
   = do { (inst_ty', inst_fvs)
-           <- rnHsSigType (GenericCtx $ text "an instance declaration") TypeLevel inst_ty
+           <- rnHsSigType (GenericCtx $ text "an instance declaration") TypeLevel inf_err inst_ty
        ; let (ktv_names, _, head_ty') = splitLHsInstDeclTy inst_ty'
        ; cls <-
            case hsTyGetAppHead_maybe head_ty' of
@@ -659,10 +659,14 @@ rnClsInstDecl (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = mbinds
              --     the instance context after renaming.  This is a bit
              --     strange, but should not matter (and it would be more work
              --     to remove the context).
+  where
+    inf_err = Just (text "Inferred type variables are not allowed")
 
 rnFamInstEqn :: HsDocContext
              -> AssocTyFamInfo
-             -> [Located RdrName]    -- Kind variables from the equation's RHS
+             -> [Located RdrName]
+             -- ^ Kind variables from the equation's RHS to be implicitly bound
+             -- if no explicit forall.
              -> FamInstEqn GhcPs rhs
              -> (HsDocContext -> rhs -> RnM (rhs', FreeVars))
              -> RnM (FamInstEqn GhcRn rhs', FreeVars)
@@ -681,20 +685,36 @@ rnFamInstEqn doc atfi rhs_kvars
              -- Use the "...Dups" form because it's needed
              -- below to report unused binder on the LHS
 
-         -- Implicitly bound variables, empty if we have an explicit 'forall'.
-         -- See Note [forall-or-nothing rule] in GHC.Rename.HsType.
-       ; let imp_vars = nubL $ forAllOrNothing (isJust mb_bndrs) pat_kity_vars_with_dups
-       ; imp_var_names <- mapM (newTyVarNameRn mb_cls) imp_vars
-
        ; let bndrs = fromMaybe [] mb_bndrs
-             bnd_vars = map hsLTyVarLocName bndrs
-             payload_kvars = filterOut (`elemRdr` (bnd_vars ++ imp_vars)) rhs_kvars
-             -- Make sure to filter out the kind variables that were explicitly
-             -- bound in the type patterns.
-       ; payload_kvar_names <- mapM (newTyVarNameRn mb_cls) payload_kvars
 
-         -- all names not bound in an explicit forall
-       ; let all_imp_var_names = imp_var_names ++ payload_kvar_names
+         -- all_imp_vars represent the implicitly bound type variables. This is
+         -- empty if we have an explicit `forall` (see
+         -- Note [forall-or-nothing rule] in GHC.Rename.HsType), which means
+         -- ignoring:
+         --
+         -- - pat_kity_vars_with_dups, the variables mentioned in the LHS of
+         --   the equation, and
+         -- - rhs_kvars, the kind variables mentioned in an outermost kind
+         --   signature on the RHS of the equation. (See
+         --   Note [Implicit quantification in type synonyms] in
+         --   GHC.Rename.HsType for why these are implicitly quantified in the
+         --   absence of an explicit forall).
+         --
+         -- For example:
+         --
+         -- @
+         -- type family F a b
+         -- type instance forall a b c. F [(a, b)] c = a -> b -> c
+         --   -- all_imp_vars = []
+         -- type instance F [(a, b)] c = a -> b -> c
+         --   -- all_imp_vars = [a, b, c]
+         -- @
+       ; all_imp_vars <- forAllOrNothing (isJust mb_bndrs) $
+           -- No need to filter out explicit binders (the 'mb_bndrs = Just
+           -- explicit_bndrs' case) because there must be none if we're going
+           -- to implicitly bind anything, per the previous comment.
+           nubL $ pat_kity_vars_with_dups ++ rhs_kvars
+       ; all_imp_var_names <- mapM (newTyVarNameRn mb_cls) all_imp_vars
 
              -- All the free vars of the family patterns
              -- with a sensible binding location
@@ -957,10 +977,11 @@ rnSrcDerivDecl (DerivDecl _ ty mds overlap)
        ; unless standalone_deriv_ok (addErr standaloneDerivErr)
        ; (mds', ty', fvs)
            <- rnLDerivStrategy DerivDeclCtx mds $
-              rnHsSigWcType DerivDeclCtx ty
+              rnHsSigWcType DerivDeclCtx inf_err ty
        ; warnNoDerivStrat mds' loc
        ; return (DerivDecl noExtField ty' mds' overlap, fvs) }
   where
+    inf_err = Just (text "Inferred type variables are not allowed")
     loc = getLoc $ hsib_body $ hswc_body ty
 
 standaloneDerivErr :: SDoc
@@ -1028,7 +1049,7 @@ bindRuleTmVars doc tyvs vars names thing_inside
 
     go ((L l (RuleBndrSig _ (L loc _) bsig)) : vars)
        (n : ns) thing_inside
-      = rnHsPatSigType bind_free_tvs doc bsig $ \ bsig' ->
+      = rnHsPatSigType bind_free_tvs doc Nothing bsig $ \ bsig' ->
         go vars ns $ \ vars' ->
         thing_inside (L l (RuleBndrSig noExtField (L loc n) bsig') : vars')
 
@@ -1038,8 +1059,8 @@ bindRuleTmVars doc tyvs vars names thing_inside
     bind_free_tvs = case tyvs of Nothing -> AlwaysBind
                                  Just _  -> NeverBind
 
-bindRuleTyVars :: HsDocContext -> SDoc -> Maybe [LHsTyVarBndr GhcPs]
-               -> (Maybe [LHsTyVarBndr GhcRn]  -> RnM (b, FreeVars))
+bindRuleTyVars :: HsDocContext -> SDoc -> Maybe [LHsTyVarBndr () GhcPs]
+               -> (Maybe [LHsTyVarBndr () GhcRn]  -> RnM (b, FreeVars))
                -> RnM (b, FreeVars)
 bindRuleTyVars doc in_doc (Just bndrs) thing_inside
   = bindLHsTyVarBndrs doc (Just in_doc) Nothing bndrs (thing_inside . Just)
@@ -1368,7 +1389,7 @@ rnStandaloneKindSignature tc_names (StandaloneKindSig _ v ki)
         ; unless standalone_ki_sig_ok $ addErr standaloneKiSigErr
         ; new_v <- lookupSigCtxtOccRn (TopSigCtxt tc_names) (text "standalone kind signature") v
         ; let doc = StandaloneKindSigCtx (ppr v)
-        ; (new_ki, fvs) <- rnHsSigType doc KindLevel ki
+        ; (new_ki, fvs) <- rnHsSigType doc KindLevel Nothing ki
         ; return (StandaloneKindSig noExtField new_v new_ki, fvs)
         }
   where
@@ -1767,12 +1788,14 @@ rnLHsDerivingClause doc
                               , deriv_clause_strategy = dcs
                               , deriv_clause_tys = L loc' dct }))
   = do { (dcs', dct', fvs)
-           <- rnLDerivStrategy doc dcs $ mapFvRn (rnHsSigType doc TypeLevel) dct
+           <- rnLDerivStrategy doc dcs $ mapFvRn (rnHsSigType doc TypeLevel inf_err) dct
        ; warnNoDerivStrat dcs' loc
        ; pure ( L loc (HsDerivingClause { deriv_clause_ext = noExtField
                                         , deriv_clause_strategy = dcs'
                                         , deriv_clause_tys = L loc' dct' })
               , fvs ) }
+  where
+    inf_err = Just (text "Inferred type variables are not allowed")
 
 rnLDerivStrategy :: forall a.
                     HsDocContext
@@ -1805,7 +1828,7 @@ rnLDerivStrategy doc mds thing_inside
         AnyclassStrategy -> boring_case AnyclassStrategy
         NewtypeStrategy  -> boring_case NewtypeStrategy
         ViaStrategy via_ty ->
-          do (via_ty', fvs1) <- rnHsSigType doc TypeLevel via_ty
+          do (via_ty', fvs1) <- rnHsSigType doc TypeLevel inf_err via_ty
              let HsIB { hsib_ext  = via_imp_tvs
                       , hsib_body = via_body } = via_ty'
                  (via_exp_tv_bndrs, _, _) = splitLHsSigmaTyInvis via_body
@@ -1813,6 +1836,8 @@ rnLDerivStrategy doc mds thing_inside
                  via_tvs = via_imp_tvs ++ via_exp_tvs
              (thing, fvs2) <- extendTyVarEnvFVRn via_tvs thing_inside
              pure (ViaStrategy via_ty', thing, fvs1 `plusFV` fvs2)
+
+    inf_err = Just (text "Inferred type variables are not allowed")
 
     boring_case :: ds -> RnM (ds, a, FreeVars)
     boring_case ds = do
@@ -2072,7 +2097,7 @@ rnConDecl decl@(ConDeclH98 { con_name = name, con_ex_tvs = ex_tvs
 
 rnConDecl decl@(ConDeclGADT { con_names   = names
                             , con_forall  = L _ explicit_forall
-                            , con_qvars   = qtvs
+                            , con_qvars   = explicit_tkvs
                             , con_mb_cxt  = mcxt
                             , con_args    = args
                             , con_res_ty  = res_ty
@@ -2081,8 +2106,7 @@ rnConDecl decl@(ConDeclGADT { con_names   = names
         ; new_names <- mapM lookupLocatedTopBndrRn names
         ; mb_doc'   <- rnMbLHsDoc mb_doc
 
-        ; let explicit_tkvs = hsQTvExplicit qtvs
-              theta         = hsConDeclTheta mcxt
+        ; let theta         = hsConDeclTheta mcxt
               arg_tys       = hsConDeclArgTys args
 
           -- We must ensure that we extract the free tkvs in left-to-right
@@ -2090,14 +2114,14 @@ rnConDecl decl@(ConDeclGADT { con_names   = names
           -- That order governs the order the implicitly-quantified type
           -- variable, and hence the order needed for visible type application
           -- See #14808.
-              free_tkvs = extractHsTvBndrs explicit_tkvs $
-                          extractHsTysRdrTyVarsDups (theta ++ map hsScaledThing arg_tys ++ [res_ty])
+        ; implicit_bndrs <- forAllOrNothing explicit_forall
+            $ extractHsTvBndrs explicit_tkvs
+            $ extractHsTysRdrTyVarsDups (theta ++ map hsScaledThing arg_tys ++ [res_ty])
 
-              ctxt    = ConDeclCtx new_names
+        ; let ctxt    = ConDeclCtx new_names
               mb_ctxt = Just (inHsDocContext ctxt)
 
-        ; traceRn "rnConDecl" (ppr names $$ ppr free_tkvs $$ ppr explicit_forall )
-        ; rnImplicitBndrs (forAllOrNothing explicit_forall free_tkvs) $ \ implicit_tkvs ->
+        ; rnImplicitBndrs implicit_bndrs $ \ implicit_tkvs ->
           bindLHsTyVarBndrs ctxt mb_ctxt Nothing explicit_tkvs $ \ explicit_tkvs ->
     do  { (new_cxt, fvs1)    <- rnMbContext ctxt mcxt
         ; (new_args, fvs2)   <- rnConDeclDetails (unLoc (head new_names)) ctxt args
@@ -2116,12 +2140,9 @@ rnConDecl decl@(ConDeclGADT { con_names   = names
                                       -- See Note [GADT abstract syntax] in GHC.Hs.Decls
                                          (PrefixCon arg_tys', final_res_ty)
 
-              new_qtvs =  HsQTvs { hsq_ext = implicit_tkvs
-                                 , hsq_explicit  = explicit_tkvs }
-
         ; traceRn "rnConDecl2" (ppr names $$ ppr implicit_tkvs $$ ppr explicit_tkvs)
-        ; return (decl { con_g_ext = noExtField, con_names = new_names
-                       , con_qvars = new_qtvs, con_mb_cxt = new_cxt
+        ; return (decl { con_g_ext = implicit_tkvs, con_names = new_names
+                       , con_qvars = explicit_tkvs, con_mb_cxt = new_cxt
                        , con_args = args', con_res_ty = res_ty'
                        , con_doc = mb_doc' },
                   all_fvs) } }

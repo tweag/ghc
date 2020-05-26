@@ -85,7 +85,7 @@ import GHC.Core.Utils   ( exprType, exprIsHNF
                         , isExprLevPoly
                         , collectMakeStaticArgs
                         )
-import GHC.Core.Arity   ( exprBotStrictness_maybe )
+import GHC.Core.Opt.Arity   ( exprBotStrictness_maybe )
 import GHC.Core.FVs     -- all of it
 import GHC.Core.Subst
 import GHC.Core.Make    ( sortQuantVars )
