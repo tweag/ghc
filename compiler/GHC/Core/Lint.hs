@@ -2641,18 +2641,19 @@ ensureSubMult actual_usage described_usage err_msg = do
     flags <- getLintFlags
     when (lf_check_linearity flags) $ case actual_usage' `submult` described_usage' of
       Submult -> return ()
-      Unknown -> case actual_usage' of
-                     MultMul m1 m2 -> ensureSubMult m1 described_usage' err_msg >>
+      Unknown -> case isMultMul actual_usage' of
+                     Just (m1, m2) -> ensureSubMult m1 described_usage' err_msg >>
                                       ensureSubMult m2 described_usage' err_msg
-                     _ -> when (not (actual_usage' `eqType` described_usage')) (addErrL err_msg)
+                     Nothing -> when (not (actual_usage' `eqType` described_usage')) (addErrL err_msg)
 
    where actual_usage' = normalize actual_usage
          described_usage' = normalize described_usage
 
          -- TODO: try reduceTyFamApp_maybe
          normalize :: Mult -> Mult
-         normalize (MultMul m1 m2) = mkMultMul (normalize m1) (normalize m2)
-         normalize m = m
+         normalize m = case isMultMul m of
+                         Just (m1, m2) -> mkMultMul (normalize m1) (normalize m2)
+                         Nothing -> m
 
 lintRole :: Outputable thing
           => thing     -- where the role appeared

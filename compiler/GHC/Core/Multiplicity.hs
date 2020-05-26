@@ -14,7 +14,7 @@ module GHC.Core.Multiplicity
   ( Mult
   , pattern One
   , pattern Many
-  , pattern MultMul
+  , isMultMul
   , mkMultAdd
   , mkMultMul
   , mkMultSup
@@ -300,9 +300,6 @@ isMultMul :: Mult -> Maybe (Mult, Mult)
 isMultMul ty | Just (tc, [x, y]) <- splitTyConApp_maybe ty
              , tc `hasKey` multMulTyConKey = Just (x, y)
              | otherwise = Nothing
-
-pattern MultMul :: Mult -> Mult -> Mult
-pattern MultMul p q <- (isMultMul -> Just (p,q))
 
 {-
 Note [Overapproximating multiplicities]
