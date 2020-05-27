@@ -741,11 +741,11 @@ subst_ty subst ty
                                -- NB: mkTyConApp, not TyConApp.
                                -- mkTyConApp has optimizations.
                                -- See Note [mkTyConApp and Type] in GHC.Core.TyCo.Rep
-    go ty@(FunTy { ft_mult = mult, ft_arg = arg, ft_res = res })
-      = let !mult' = go mult
+    go (FunTy { ft_af = af, ft_arg = arg, ft_res = res })
+      = let !af'  = go_af af
             !arg' = go arg
             !res' = go res
-        in ty { ft_mult = mult', ft_arg = arg', ft_res = res' }
+        in FunTy { ft_af = af', ft_arg = arg', ft_res = res' }
     go (ForAllTy (Bndr tv vis) ty)
                          = case substVarBndrUnchecked subst tv of
                              (subst', tv') ->
@@ -754,6 +754,10 @@ subst_ty subst ty
     go (LitTy n)         = LitTy $! n
     go (CastTy ty co)    = (mkCastTy $! (go ty)) $! (subst_co subst co)
     go (CoercionTy co)   = CoercionTy $! (subst_co subst co)
+
+    go_af VisArg         = VisArg
+    go_af InvisArg       = InvisArg
+    go_af (MultArg mult) = mkMultAnonArgFlag $! go mult
 
 substTyVar :: TCvSubst -> TyVar -> Type
 substTyVar (TCvSubst _ tenv _) tv

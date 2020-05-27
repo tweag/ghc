@@ -968,7 +968,7 @@ pprIfaceDecl _ (IfacePatSyn { ifName = name,
                              , ppWhen insert_empty_ctxt $ parens empty <+> darrow
                              , ex_msg
                              , pprIfaceContextArr prov_ctxt
-                             , pprIfaceType $ foldr (IfaceFunTy VisArg many_ty) pat_ty arg_tys ])
+                             , pprIfaceType $ foldr (IfaceFunTy IfaceVisArg) pat_ty arg_tys ])
       where
         univ_msg = pprUserIfaceForAll univ_bndrs
         ex_msg   = pprUserIfaceForAll ex_bndrs
@@ -1114,9 +1114,10 @@ pprIfaceConDecl ss gadt_style tycon tc_binders parent
 
     -- Constructors are linear by default, but we don't want to show
     -- linear arrows when -XLinearTypes is disabled
-    ppr_arr w = sdocOption sdocLinearTypes (\linearTypes -> if linearTypes
-                                                            then ppr_fun_arrow w
-                                                            else arrow)
+    ppr_arr w = sdocOption sdocLinearTypes $
+                \linearTypes -> if linearTypes
+                                then pprFunArrow (mkMultIfaceAnonArgFlag w)
+                                else arrow
 
     ppr_bang IfNoBang = whenPprDebug $ char '_'
     ppr_bang IfStrict = char '!'
@@ -1572,9 +1573,14 @@ freeNamesIfType (IfaceTyConApp tc ts) = freeNamesIfTc tc &&& freeNamesIfAppArgs 
 freeNamesIfType (IfaceTupleTy _ _ ts) = freeNamesIfAppArgs ts
 freeNamesIfType (IfaceLitTy _)        = emptyNameSet
 freeNamesIfType (IfaceForAllTy tv t)  = freeNamesIfVarBndr tv &&& freeNamesIfType t
-freeNamesIfType (IfaceFunTy _ w s t)  = freeNamesIfType s &&& freeNamesIfType t &&& freeNamesIfType w
+freeNamesIfType (IfaceFunTy af s t)   = freeNamesIfAnonArgFlag af &&& freeNamesIfType s &&& freeNamesIfType t
 freeNamesIfType (IfaceCastTy t c)     = freeNamesIfType t &&& freeNamesIfCoercion c
 freeNamesIfType (IfaceCoercionTy c)   = freeNamesIfCoercion c
+
+freeNamesIfAnonArgFlag :: IfaceAnonArgFlag -> NameSet
+freeNamesIfAnonArgFlag IfaceVisArg         = emptyNameSet
+freeNamesIfAnonArgFlag IfaceInvisArg       = emptyNameSet
+freeNamesIfAnonArgFlag (IfaceMultArg mult) = freeNamesIfType mult
 
 freeNamesIfMCoercion :: IfaceMCoercion -> NameSet
 freeNamesIfMCoercion IfaceMRefl    = emptyNameSet

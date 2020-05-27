@@ -445,7 +445,7 @@ tcExpr expr@(SectionL x arg1 op) res_ty
            <- matchActualFunTys (mk_op_msg op) fn_orig (Just (unLoc op))
                                 n_reqd_args op_ty
        ; wrap_res <- tcSubTypeHR SectionOrigin (Just expr)
-                                 (mkVisFunTys arg_tys op_res_ty) res_ty
+                                 (mkScaledFunTys arg_tys op_res_ty) res_ty
        ; arg1' <- tcArg op arg1 arg1_ty 1
        ; return ( mkHsWrap wrap_res $
                   SectionL x arg1' (mkLHsWrap wrap_fn op') ) }
@@ -484,8 +484,8 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
              w_tvb = map (mkTyVarBinder Inferred) w_tyvars
              actual_res_ty
                  =  mkForAllTys w_tvb $
-                    mkVisFunTys [ mkScaled (mkTyVarTy w_ty) ty |
-                              (ty, w_ty) <- zip missing_tys w_tyvars]
+                    mkScaledFunTys [ mkScaled (mkTyVarTy w_tv) ty
+                                   | (ty, w_tv) <- zip missing_tys w_tyvars]
                             (mkTupleTy1 boxity arg_tys)
                    -- See Note [Don't flatten tuples from HsSyn] in GHC.Core.Make
 
@@ -1866,7 +1866,7 @@ tc_infer_id lbl id_name
                            ; addDataConStupidTheta con tys'
                            ; return ( mkHsWrap (eta_wrap <.> wrap)
                                                (HsConLikeOut noExtField (RealDataCon con))
-                                    , mkVisFunTys scaled_arg_tys res')
+                                    , mkScaledFunTys scaled_arg_tys res')
                            }
                False -> let scaled_arg_tys = scaleArgs args
                             wrap1 = mkWpTyApps (mkTyVarTys $ binderVars tvs)
@@ -1874,7 +1874,7 @@ tc_infer_id lbl id_name
                             wrap2 = mkWpTyLams $ binderVars tvs
                         in return ( mkHsWrap (wrap2 <.> eta_wrap <.> wrap1)
                                              (HsConLikeOut noExtField (RealDataCon con))
-                                  , mkForAllTys tvs $ mkInvisFunTysMany theta $ mkVisFunTys scaled_arg_tys res)
+                                  , mkForAllTys tvs $ mkInvisFunTys theta $ mkScaledFunTys scaled_arg_tys res)
            }
 
     check_naughty id

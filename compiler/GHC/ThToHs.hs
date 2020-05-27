@@ -1455,7 +1455,7 @@ cvtTypeKind ty_str ty
                    ; cxt' <- cvtContext funPrec cxt
                    ; ty'  <- cvtType ty
                    ; loc <- getL
-                   ; let hs_ty  = mkHsForAllTy tvs loc ForallInvis tvs' rho_ty
+                   ; let hs_ty  = mkHsForAllTy tvs loc Invisible tvs' rho_ty
                          rho_ty = mkHsQualTy cxt loc cxt' ty'
 
                    ; return hs_ty }
@@ -1465,7 +1465,7 @@ cvtTypeKind ty_str ty
              -> do { tvs' <- cvtTvs tvs
                    ; ty'  <- cvtType ty
                    ; loc  <- getL
-                   ; pure $ mkHsForAllTy tvs loc ForallVis tvs' ty' }
+                   ; pure $ mkHsForAllTy tvs loc Visible tvs' ty' }
 
            SigT ty ki
              -> do { ty' <- cvtType ty
@@ -1712,7 +1712,7 @@ cvtPatSynSigTy (ForallT univs reqs (ForallT exis provs ty))
                                ; univs' <- hsQTvExplicit <$> cvtTvs univs
                                ; ty'    <- cvtType (ForallT exis provs ty)
                                ; let forTy = HsForAllTy
-                                              { hst_fvf = ForallInvis
+                                              { hst_visible = Invisible
                                               , hst_bndrs = univs'
                                               , hst_xforall = noExtField
                                               , hst_body = L l cxtTy }
@@ -1767,7 +1767,7 @@ mkHsForAllTy :: [TH.TyVarBndr]
              -> SrcSpan
              -- ^ The location of the returned 'LHsType' if it needs an
              --   explicit forall
-             -> ForallVisFlag
+             -> Visibility
              -- ^ Whether this is @forall@ is visible (e.g., @forall a ->@)
              --   or invisible (e.g., @forall a.@)
              -> LHsQTyVars GhcPs
@@ -1776,9 +1776,9 @@ mkHsForAllTy :: [TH.TyVarBndr]
              -- ^ The converted rho type
              -> LHsType GhcPs
              -- ^ The complete type, quantified with a forall if necessary
-mkHsForAllTy tvs loc fvf tvs' rho_ty
+mkHsForAllTy tvs loc vis tvs' rho_ty
   | null tvs  = rho_ty
-  | otherwise = L loc $ HsForAllTy { hst_fvf = fvf
+  | otherwise = L loc $ HsForAllTy { hst_visible = vis
                                    , hst_bndrs = hsQTvExplicit tvs'
                                    , hst_xforall = noExtField
                                    , hst_body = rho_ty }

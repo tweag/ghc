@@ -23,7 +23,6 @@ module GHC.Core.Multiplicity
   , scaledThing
   , unrestricted
   , linear
-  , tymult
   , irrelevantMult
   , mkScaled
   , scaledSet

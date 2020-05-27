@@ -1302,7 +1302,8 @@ collect_cand_qtvs orig_ty is_dep bound dvs ty
     -- Uses accumulating-parameter style
     go dv (AppTy t1 t2)    = foldlM go dv [t1, t2]
     go dv (TyConApp _ tys) = foldlM go dv tys
-    go dv (FunTy _ w arg res) = foldlM go dv [w, arg, res]
+    go dv (FunTy af arg res) = foldlM go dv $
+                               maybeToList (anonArgFlagMult_maybe af) ++ [arg, res]
     go dv (LitTy {})        = return dv
     go dv (CastTy ty co)    = do dv1 <- go dv ty
                                  collect_cand_qtvs_co orig_ty bound dv1 co
@@ -2314,12 +2315,16 @@ tidySigSkol env cx ty tv_prs
       where
         (env', tv') = tidy_tv_bndr env tv
 
-    tidy_ty env ty@(FunTy _ w arg res)
-      = ty { ft_mult = tidy_ty env w,
-             ft_arg = tidyType env arg,
-             ft_res = tidy_ty env res }
+    tidy_ty env (FunTy af arg res)
+      = FunTy { ft_af  = tidy_af env af,
+                ft_arg = tidyType env arg,
+                ft_res = tidy_ty env res }
 
     tidy_ty env ty = tidyType env ty
+
+    tidy_af _ VisArg           = VisArg
+    tidy_af _ InvisArg         = InvisArg
+    tidy_af env (MultArg mult) = mkMultAnonArgFlag (tidy_ty env mult)
 
     tidy_tv_bndr :: TidyEnv -> TyCoVar -> (TidyEnv, TyCoVar)
     tidy_tv_bndr env@(occ_env, subst) tv

@@ -2068,11 +2068,12 @@ expandSynonymsToMatch ty1 ty2 = (ty1_ret, ty2_ret)
           (t1_2', t2_2') = go t1_2 t2_2
        in (mkAppTy t1_1' t1_2', mkAppTy t2_1' t2_2')
 
-    go ty1@(FunTy _ w1 t1_1 t1_2) ty2@(FunTy _ w2 t2_1 t2_2) | w1 `eqType` w2 =
-      let (t1_1', t2_1') = go t1_1 t2_1
-          (t1_2', t2_2') = go t1_2 t2_2
-       in ( ty1 { ft_arg = t1_1', ft_res = t1_2' }
-          , ty2 { ft_arg = t2_1', ft_res = t2_2' })
+    go (FunTy af1 t1_1 t1_2) (FunTy af2 t2_1 t2_2)
+      | Just (af1', af2') <- go_af af1 af2
+      = let (t1_1', t2_1') = go t1_1 t2_1
+            (t1_2', t2_2') = go t1_2 t2_2
+        in ( mkFunTy af1' t1_1' t1_2'
+           , mkFunTy af2' t2_1' t2_2' )
 
     go (ForAllTy b1 t1) (ForAllTy b2 t2) =
       -- NOTE: We may have a bug here, but we just can't reproduce it easily.
@@ -2098,6 +2099,16 @@ expandSynonymsToMatch ty1 ty2 = (ty1_ret, ty2_ret)
           zipEqual "expandSynonymsToMatch.go"
             (if t1_exps > t2_exps then drop dif t1_exp_tys else t1_exp_tys)
             (if t2_exps > t1_exps then drop dif t2_exp_tys else t2_exp_tys)
+
+    go_af InvisArg InvisArg = Just (InvisArg, InvisArg)
+    go_af InvisArg _        = Nothing
+    go_af _        InvisArg = Nothing
+    go_af af1      af2      = let (mult1', mult2') = go mult1 mult2
+                              in Just ( mkMultAnonArgFlag mult1'
+                                      , mkMultAnonArgFlag mult2' )
+      where
+        mult1 = anonArgFlagMult af1
+        mult2 = anonArgFlagMult af2
 
     -- | Expand the top layer type synonyms repeatedly, collect expansions in a
     -- list. The list does not include the original type.

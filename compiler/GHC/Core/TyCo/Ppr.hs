@@ -37,7 +37,7 @@ import {-# SOURCE #-} GHC.Core.DataCon
    ( dataConFullSig , dataConUserTyVarBinders
    , DataCon )
 
-import GHC.Core.Type ( isLiftedTypeKind, pattern One, pattern Many )
+import GHC.Core.Type ( isLiftedTypeKind, isOneDataConTy )
 
 import GHC.Core.TyCon
 import GHC.Core.TyCo.Rep
@@ -212,18 +212,15 @@ debug_ppr_ty _ (LitTy l)
 debug_ppr_ty _ (TyVarTy tv)
   = ppr tv  -- With -dppr-debug we get (tv :: kind)
 
-debug_ppr_ty prec ty@(FunTy { ft_af = af, ft_mult = mult, ft_arg = arg, ft_res = res })
+debug_ppr_ty prec (FunTy { ft_af = af, ft_arg = arg, ft_res = res })
   = maybeParen prec funPrec $
     sep [debug_ppr_ty funPrec arg, arr <+> debug_ppr_ty prec res]
   where
     arr = case af of
-            VisArg   -> case mult of
-                          One -> lollipop
-                          Many -> arrow
-                          w -> mulArrow (ppr w)
-            InvisArg -> case mult of
-                          Many -> darrow
-                          _ -> pprPanic "unexpected multiplicity" (ppr ty)
+            VisArg    -> arrow
+            InvisArg  -> darrow
+            MultArg w | isOneDataConTy w -> lollipop
+                      | otherwise        -> mulArrow (ppr w)
 
 debug_ppr_ty prec (TyConApp tc tys)
   | null tys  = ppr tc

@@ -666,17 +666,18 @@ typeToLHsType ty
   = go ty
   where
     go :: Type -> LHsType GhcPs
-    go ty@(FunTy { ft_af = af, ft_mult = mult, ft_arg = arg, ft_res = res })
+    go ty@(FunTy { ft_af = af, ft_arg = arg, ft_res = res })
       = case af of
-          VisArg   -> nlHsFunTy (multToHsArrow mult) (go arg) (go res)
-          InvisArg | (theta, tau) <- tcSplitPhiTy ty
-                   -> noLoc (HsQualTy { hst_ctxt = noLoc (map go theta)
+          VisArg   -> nlHsFunTy HsUnrestrictedArrow (go arg) (go res)
+          InvisArg -> noLoc (HsQualTy { hst_ctxt = noLoc (map go theta)
                                       , hst_xqual = noExtField
                                       , hst_body = go tau })
+                   where (theta, tau) = tcSplitPhiTy ty
+          MultArg mult -> nlHsFunTy (multToHsArrow mult) (go arg) (go res)
 
     go ty@(ForAllTy (Bndr _ argf) _)
       | (tvs, tau) <- tcSplitForAllTysSameVis argf ty
-      = noLoc (HsForAllTy { hst_fvf = argToForallVisFlag argf
+      = noLoc (HsForAllTy { hst_visible = argFlagVisibility argf
                           , hst_bndrs = map go_tv tvs
                           , hst_xforall = noExtField
                           , hst_body = go tau })

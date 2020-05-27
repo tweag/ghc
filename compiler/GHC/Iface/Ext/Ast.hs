@@ -36,7 +36,7 @@ import GHC.Types.Name             ( Name, nameSrcSpan, setNameLoc )
 import GHC.Types.Name.Env         ( NameEnv, emptyNameEnv, extendNameEnv, lookupNameEnv )
 import GHC.Types.SrcLoc
 import GHC.Tc.Utils.Zonk          ( hsLitType, hsPatType )
-import GHC.Core.Type              ( mkVisFunTys, Type )
+import GHC.Core.Type              ( mkScaledFunTys, Type )
 import GHC.Builtin.Types          ( mkListTy, mkSumTy )
 import GHC.Types.Var              ( Id, Var, setVarName, varName, varType )
 import GHC.Tc.Types
@@ -642,7 +642,7 @@ instance HasType (LHsExpr GhcTc) where
       fallback = makeNode e' spn
 
       matchGroupType :: MatchGroupTc -> Type
-      matchGroupType (MatchGroupTc args res) = mkVisFunTys args res
+      matchGroupType (MatchGroupTc args res) = mkScaledFunTys args res
 
       -- | Skip desugaring of these expressions for performance reasons.
       --

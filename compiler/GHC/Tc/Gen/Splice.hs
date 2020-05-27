@@ -2099,14 +2099,13 @@ reifyType ty@(AppTy {})     = do
     filter_out_invisible_args ty_head ty_args =
       filterByList (map isVisibleArgFlag $ appTyArgFlags ty_head ty_args)
                    ty_args
-reifyType ty@(FunTy { ft_af = af, ft_mult = Many, ft_arg = t1, ft_res = t2 })
-  | InvisArg <- af = reify_for_all Inferred ty  -- Types like ((?x::Int) => Char -> Char)
-  | otherwise      = do { [r1,r2] <- reifyTypes [t1,t2]
-                        ; return (TH.ArrowT `TH.AppT` r1 `TH.AppT` r2) }
-reifyType ty@(FunTy { ft_af = af, ft_mult = tm, ft_arg = t1, ft_res = t2 })
-  | InvisArg <- af = noTH (sLit "linear invisible argument") (ppr ty)
-  | otherwise      = do { [rm,r1,r2] <- reifyTypes [tm,t1,t2]
-                        ; return (TH.MulArrowT `TH.AppT` rm `TH.AppT` r1 `TH.AppT` r2) }
+reifyType ty@(FunTy { ft_af = af, ft_arg = t1, ft_res = t2 })
+  = case af of
+      InvisArg -> reify_for_all Inferred ty  -- Types like ((?x::Int) => Char -> Char)
+      VisArg   -> do { [r1,r2] <- reifyTypes [t1,t2]
+                     ; return (TH.ArrowT `TH.AppT` r1 `TH.AppT` r2) }
+      MultArg tm -> do { [rm,r1,r2] <- reifyTypes [tm,t1,t2]
+                       ; return (TH.MulArrowT `TH.AppT` rm `TH.AppT` r1 `TH.AppT` r2) }
 reifyType (CastTy t _)      = reifyType t -- Casts are ignored in TH
 reifyType ty@(CoercionTy {})= noTH (sLit "coercions in types") (ppr ty)
 
@@ -2114,13 +2113,13 @@ reify_for_all :: TyCoRep.ArgFlag -> TyCoRep.Type -> TcM TH.Type
 -- Arg of reify_for_all is always ForAllTy or a predicate FunTy
 reify_for_all argf ty = do
   tvs' <- reifyTyVars tvs
-  case argToForallVisFlag argf of
-    ForallVis   -> do phi' <- reifyType phi
-                      pure $ TH.ForallVisT tvs' phi'
-    ForallInvis -> do let (cxt, tau) = tcSplitPhiTy phi
-                      cxt' <- reifyCxt cxt
-                      tau' <- reifyType tau
-                      pure $ TH.ForallT tvs' cxt' tau'
+  case argFlagVisibility argf of
+    Visible   -> do phi' <- reifyType phi
+                    pure $ TH.ForallVisT tvs' phi'
+    Invisible -> do let (cxt, tau) = tcSplitPhiTy phi
+                    cxt' <- reifyCxt cxt
+                    tau' <- reifyType tau
+                    pure $ TH.ForallT tvs' cxt' tau'
   where
     (tvs, phi) = tcSplitForAllTysSameVis argf ty
 
@@ -2141,7 +2140,7 @@ reifyPatSynType (univTyVars, req, exTyVars, prov, argTys, resTy)
        ; req'        <- reifyCxt req
        ; exTyVars'   <- reifyTyVars exTyVars
        ; prov'       <- reifyCxt prov
-       ; tau'        <- reifyType (mkVisFunTys argTys resTy)
+       ; tau'        <- reifyType (mkScaledFunTys argTys resTy)
        ; return $ TH.ForallT univTyVars' req'
                 $ TH.ForallT exTyVars' prov' tau' }
 

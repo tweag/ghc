@@ -3136,7 +3136,7 @@ tcConDecl rep_tycon tag_map tmpl_bndrs res_kind res_tmpl new_or_data
        ; kvs <- kindGeneralizeAll (mkSpecForAllTys (binderVars tmpl_bndrs) $
                                    mkSpecForAllTys exp_tvs $
                                    mkPhiTy ctxt $
-                                   mkVisFunTys arg_tys $
+                                   mkScaledFunTys arg_tys $
                                    unitTy)
                  -- That type is a lie, of course. (It shouldn't end in ()!)
                  -- And we could construct a proper result type from the info
@@ -3222,7 +3222,7 @@ tcConDecl rep_tycon tag_map tmpl_bndrs _res_kind res_tmpl new_or_data
 
        ; tkvs <- kindGeneralizeAll (mkSpecForAllTys user_tvs $
                                     mkPhiTy ctxt $
-                                    mkVisFunTys arg_tys $
+                                    mkScaledFunTys arg_tys $
                                     res_ty)
 
              -- Zonk to Types
@@ -4589,8 +4589,8 @@ checkValidRoles tc
       =  check_ty_roles env role    ty1
       >> check_ty_roles env Nominal ty2
 
-    check_ty_roles env role (FunTy _ w ty1 ty2)
-      =  check_ty_roles env role w
+    check_ty_roles env role (FunTy af ty1 ty2)
+      =  check_ty_roles env Nominal (anonArgFlagMult af)
       >> check_ty_roles env role ty1
       >> check_ty_roles env role ty2
 

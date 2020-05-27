@@ -55,7 +55,6 @@ import GHC.Core    ( isOrphan )
 import GHC.Tc.Instance.FunDeps
 import GHC.Tc.Utils.TcMType
 import GHC.Core.Type
-import GHC.Core.Multiplicity
 import GHC.Core.TyCo.Rep
 import GHC.Core.TyCo.Ppr ( debugPprType )
 import GHC.Tc.Utils.TcType
@@ -65,7 +64,7 @@ import GHC.Types.Id.Make( mkDictFunId )
 import GHC.Core( Expr(..) )  -- For the Coercion constructor
 import GHC.Types.Id
 import GHC.Types.Name
-import GHC.Types.Var ( EvVar, tyVarName, VarBndr(..) )
+import GHC.Types.Var ( EvVar, tyVarName, VarBndr(..), isInvisibleAnonArgFlag )
 import GHC.Core.DataCon
 import GHC.Types.Var.Env
 import GHC.Builtin.Names
@@ -174,7 +173,7 @@ deeplySkolemise ty
                       <.> mkWpEvVarApps ids1
                     , tv_prs1  ++ tvs_prs2
                     , ev_vars1 ++ ev_vars2
-                    , mkVisFunTys arg_tys' rho ) }
+                    , mkScaledFunTys arg_tys' rho ) }
 
       | otherwise
       = return (idHsWrapper, [], [], substTy subst ty)
@@ -288,7 +287,7 @@ deeply_instantiate orig subst ty
                     <.> wrap2
                     <.> wrap1
                     <.> mkWpEvVarApps ids1,
-                 mkVisFunTys arg_tys' rho2) }
+                 mkScaledFunTys arg_tys' rho2) }
 
   | otherwise
   = do { let ty' = substTy subst ty
@@ -452,10 +451,10 @@ tcInstInvisibleTyBinder subst (Named (Bndr tv _))
        ; return (subst', mkTyVarTy tv') }
 
 tcInstInvisibleTyBinder subst (Anon af ty)
-  | Just (mk, k1, k2) <- get_eq_tys_maybe (substTy subst (scaledThing ty))
+  | Just (mk, k1, k2) <- get_eq_tys_maybe (substTy subst ty)
     -- Equality is the *only* constraint currently handled in types.
     -- See Note [Constraints in kinds] in GHC.Core.TyCo.Rep
-  = ASSERT( af == InvisArg )
+  = ASSERT( isInvisibleAnonArgFlag af )
     do { co <- unifyKind Nothing k1 k2
        ; arg' <- mk co
        ; return (subst, arg') }

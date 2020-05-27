@@ -1885,9 +1885,9 @@ unpackedness :: { Located ([AddAnn], SourceText, SrcUnpackedness) }
         : '{-# UNPACK' '#-}'   { sLL $1 $> ([mo $1, mc $2], getUNPACK_PRAGs $1, SrcUnpack) }
         | '{-# NOUNPACK' '#-}' { sLL $1 $> ([mo $1, mc $2], getNOUNPACK_PRAGs $1, SrcNoUnpack) }
 
-forall_vis_flag :: { (AddAnn, ForallVisFlag) }
-        : '.'  { (mj AnnDot $1,    ForallInvis) }
-        | '->' { (mu AnnRarrow $1, ForallVis)   }
+forall_vis_flag :: { (AddAnn, Visibility) }
+        : '.'  { (mj AnnDot $1,    Invisible) }
+        | '->' { (mu AnnRarrow $1, Visible)   }
 
 -- A ktype/ktypedoc is a ctype/ctypedoc, possibly with a kind annotation
 ktype :: { LHsType GhcPs }
@@ -1903,10 +1903,10 @@ ktypedoc :: { LHsType GhcPs }
 -- A ctype is a for-all type
 ctype   :: { LHsType GhcPs }
         : 'forall' tv_bndrs forall_vis_flag ctype
-                                        {% let (fv_ann, fv_flag) = $3 in
+                                        {% let (fv_ann, vis_flag) = $3 in
                                            hintExplicitForall $1 *>
                                            ams (sLL $1 $> $
-                                                HsForAllTy { hst_fvf = fv_flag
+                                                HsForAllTy { hst_visible = vis_flag
                                                            , hst_bndrs = $2
                                                            , hst_xforall = noExtField
                                                            , hst_body = $4 })
@@ -1933,10 +1933,10 @@ ctype   :: { LHsType GhcPs }
 
 ctypedoc :: { LHsType GhcPs }
         : 'forall' tv_bndrs forall_vis_flag ctypedoc
-                                         {% let (fv_ann, fv_flag) = $3 in
+                                         {% let (fv_ann, vis_flag) = $3 in
                                             hintExplicitForall $1 *>
                                             ams (sLL $1 $> $
-                                                 HsForAllTy { hst_fvf = fv_flag
+                                                 HsForAllTy { hst_visible = vis_flag
                                                             , hst_bndrs = $2
                                                             , hst_xforall = noExtField
                                                             , hst_body = $4 })

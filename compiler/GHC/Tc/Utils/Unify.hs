@@ -162,13 +162,14 @@ matchExpectedFunTys herald arity orig_ty thing_inside
     go acc_arg_tys n ty
       | Just ty' <- tcView ty = go acc_arg_tys n ty'
 
-    go acc_arg_tys n (FunTy { ft_mult = mult, ft_af = af, ft_arg = arg_ty, ft_res = res_ty })
-      = ASSERT( af == VisArg )
+    go acc_arg_tys n (FunTy { ft_af = af, ft_arg = arg_ty, ft_res = res_ty })
+      = ASSERT( isVisibleAnonArgFlag af )
         do { (result, wrap_res) <- go ((Scaled mult $ mkCheckExpType arg_ty) : acc_arg_tys)
                                       (n-1) res_ty
            ; return ( result
                     , mkWpFun idHsWrapper wrap_res (Scaled mult arg_ty) res_ty doc ) }
       where
+        mult = anonArgFlagMult af
         doc = text "When inferring the argument type of a function with type" <+>
               quotes (ppr orig_ty)
 
@@ -291,12 +292,13 @@ matchActualFunTysPart herald ct_orig mb_thing arity orig_ty
     go n acc_args ty
       | Just ty' <- tcView ty = go n acc_args ty'
 
-    go n acc_args (FunTy { ft_af = af, ft_mult = w, ft_arg = arg_ty, ft_res = res_ty })
-      = ASSERT( af == VisArg )
+    go n acc_args (FunTy { ft_af = af, ft_arg = arg_ty, ft_res = res_ty })
+      = ASSERT( isVisibleAnonArgFlag af )
         do { (wrap_res, tys, ty_r) <- go (n-1) (Scaled w arg_ty : acc_args) res_ty
            ; return ( mkWpFun idHsWrapper wrap_res (Scaled w arg_ty) ty_r doc
                     , Scaled w arg_ty : tys, ty_r ) }
       where
+        w   = anonArgFlagMult af
         doc = text "When inferring the argument type of a function with type" <+>
               quotes (ppr orig_ty)
 
@@ -336,7 +338,7 @@ matchActualFunTysPart herald ct_orig mb_thing arity orig_ty
     ------------
     mk_ctxt :: [Scaled TcSigmaType] -> TcSigmaType -> TidyEnv -> TcM (TidyEnv, MsgDoc)
     mk_ctxt arg_tys res_ty env
-      = do { let ty = mkVisFunTys arg_tys res_ty
+      = do { let ty = mkScaledFunTys arg_tys res_ty
            ; (env1, zonked) <- zonkTidyTcType env ty
                    -- zonking might change # of args
            ; let (zonked_args, _) = tcSplitFunTys zonked
@@ -763,8 +765,10 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
     -- caused #12616 because (also bizarrely) 'deriving' code had
     -- -XImpredicativeTypes on.  I deleted the entire case.
 
-    go (FunTy { ft_af = VisArg, ft_mult = act_mult, ft_arg = act_arg, ft_res = act_res })
-       (FunTy { ft_af = VisArg, ft_mult = exp_mult, ft_arg = exp_arg, ft_res = exp_res })
+    go (FunTy { ft_af = act_af, ft_arg = act_arg, ft_res = act_res })
+       (FunTy { ft_af = exp_af, ft_arg = exp_arg, ft_res = exp_res })
+      | isVisibleAnonArgFlag act_af
+      , isVisibleAnonArgFlag exp_af
       = -- See Note [Co/contra-variance of subsumption checking]
         do { mult_wrap <- tcEqMult eq_orig act_mult exp_mult
            ; res_wrap <- tc_sub_type_ds eq_orig inst_orig  ctxt       act_res exp_res
@@ -774,6 +778,8 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
                -- arg_wrap :: exp_arg ~> act_arg
                -- res_wrap :: act-res ~> exp_res
       where
+        act_mult = anonArgFlagMult act_af
+        exp_mult = anonArgFlagMult exp_af
         given_orig = GivenOrigin (SigSkol GenSigCtxt exp_arg [])
         doc = text "When checking that" <+> quotes (ppr ty_actual) <+>
               text "is more polymorphic than" <+> quotes (ppr ty_expected)
@@ -1505,10 +1511,18 @@ uType t_or_k origin orig_ty1 orig_ty2
       | Just ty2' <- tcView ty2 = go ty1  ty2'
 
         -- Functions (or predicate functions) just check the two parts
-    go (FunTy _ w1 fun1 arg1) (FunTy _ w2 fun2 arg2)
+    go (FunTy af1 fun1 arg1) (FunTy af2 fun2 arg2)
+      | simpleEqualArgFlags af1 af2
       = do { co_l <- uType t_or_k origin fun1 fun2
            ; co_r <- uType t_or_k origin arg1 arg2
-           ; co_w <- uType t_or_k origin w1 w2
+           ; return $ mkFunCo Nominal (mkReflCo Nominal manyDataConTy) co_l co_r }
+
+    go (FunTy af1 fun1 arg1) (FunTy af2 fun2 arg2)
+      | isVisibleAnonArgFlag af1
+      , isVisibleAnonArgFlag af2
+      = do { co_l <- uType t_or_k origin fun1 fun2
+           ; co_r <- uType t_or_k origin arg1 arg2
+           ; co_w <- uType t_or_k origin (anonArgFlagMult af1) (anonArgFlagMult af2)
            ; return $ mkFunCo Nominal co_w co_l co_r }
 
         -- Always defer if a type synonym family (type function)
@@ -2151,9 +2165,10 @@ matchExpectedFunKind hs_ty n k = go n k
                 Indirect fun_kind -> go n fun_kind
                 Flexi ->             defer n k }
 
-    go n (FunTy _ w arg res)
+    go n (FunTy af arg res)
       = do { co <- go (n-1) res
            ; return (mkTcFunCo Nominal (mkTcNomReflCo w) (mkTcNomReflCo arg) co) }
+      where w = anonArgFlagMult af
 
     go n other
      = defer n other
@@ -2332,10 +2347,10 @@ preCheck dflags ty_fam_ok tv ty
       | bad_tc tc              = MTVU_Bad
       | otherwise              = mapM fast_check tys >> ok
     fast_check (LitTy {})      = ok
-    fast_check (FunTy{ft_af = af, ft_mult = w, ft_arg = a, ft_res = r})
+    fast_check (FunTy{ft_af = af, ft_arg = a, ft_res = r})
       | InvisArg <- af
       , not impredicative_ok   = MTVU_Bad
-      | otherwise              = fast_check w   >> fast_check a >> fast_check r
+      | otherwise              = fast_check (anonArgFlagMult af) >> fast_check a >> fast_check r
     fast_check (AppTy fun arg) = fast_check fun >> fast_check arg
     fast_check (CastTy ty co)  = fast_check ty  >> fast_check_co co
     fast_check (CoercionTy co) = fast_check_co co

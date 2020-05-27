@@ -1415,12 +1415,12 @@ normalise_type ty
                               ; return (mkReflCo r ty, ty) }
     go (AppTy ty1 ty2) = go_app_tys ty1 [ty2]
 
-    go ty@(FunTy { ft_mult = w, ft_arg = ty1, ft_res = ty2 })
+    go (FunTy { ft_af = af, ft_arg = ty1, ft_res = ty2 })
       = do { (co1, nty1) <- go ty1
            ; (co2, nty2) <- go ty2
-           ; (wco, wty) <- go w
            ; r <- getRole
-           ; return (mkFunCo r wco co1 co2, ty { ft_mult = wty, ft_arg = nty1, ft_res = nty2 }) }
+           ; (wco, af') <- go_af r af
+           ; return (mkFunCo r wco co1 co2, mkFunTy af' nty1 nty2) }
     go (ForAllTy (Bndr tcvar vis) ty)
       = do { (lc', tv', h, ki') <- normalise_var_bndr tcvar
            ; (co, nty)          <- withLC lc' $ normalise_type ty
@@ -1441,6 +1441,12 @@ normalise_type ty
                          (liftCoSubst Nominal lc (coercionType co))
                          co right_co
                     , mkCoercionTy right_co ) }
+
+    go_af :: Role -> AnonArgFlag -> NormM (Coercion, AnonArgFlag)
+    go_af r VisArg         = return (mkReflCo r Many, VisArg)
+    go_af r InvisArg       = return (mkReflCo r Many, InvisArg)
+    go_af _ (MultArg mult) = do { (co, mult') <- go mult
+                                ; return (co, mkMultAnonArgFlag mult') }
 
     go_app_tys :: Type   -- function
                -> [Type] -- args
@@ -1749,11 +1755,11 @@ coreFlattenTy subst = go
       = let (env', tys') = coreFlattenTys subst env tys in
         (env', mkTyConApp tc tys')
 
-    go env ty@(FunTy { ft_mult = mult, ft_arg = ty1, ft_res = ty2 })
+    go env (FunTy { ft_af = af, ft_arg = ty1, ft_res = ty2 })
       = let (env1, ty1') = go env  ty1
             (env2, ty2') = go env1 ty2
-            (env3, mult') = go env2 mult in
-        (env3, ty { ft_mult = mult', ft_arg = ty1', ft_res = ty2' })
+            (env3, af') = go_af env2 af in
+        (env3, mkFunTy af' ty1' ty2')
 
     go env (ForAllTy (Bndr tv vis) ty)
       = let (env1, subst', tv') = coreFlattenVarBndr subst env tv
@@ -1771,6 +1777,10 @@ coreFlattenTy subst = go
       = let (env', co') = coreFlattenCo subst env co in
         (env', CoercionTy co')
 
+    go_af env VisArg = (env, VisArg)
+    go_af env InvisArg = (env, InvisArg)
+    go_af env (MultArg mult) = let (env1, mult') = go env mult
+                               in (env1, mkMultAnonArgFlag mult')
 
 -- when flattening, we don't care about the contents of coercions.
 -- so, just return a fresh variable of the right (flattened) type

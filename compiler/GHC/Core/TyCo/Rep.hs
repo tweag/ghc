@@ -31,7 +31,7 @@ module GHC.Core.TyCo.Rep (
         KindOrType, Kind,
         KnotTied,
         PredType, ThetaType,      -- Synonyms
-        ArgFlag(..), AnonArgFlag(..), ForallVisFlag(..),
+        ArgFlag(..), AnonArgFlag(..),
 
         -- * Coercions
         Coercion(..),
@@ -45,13 +45,12 @@ module GHC.Core.TyCo.Rep (
         mkTyCoVarTy, mkTyCoVarTys,
 
 
-        mkFunTy, mkVisFunTy, mkInvisFunTy, mkVisFunTys,
+        mkFunTy, mkVisFunTy, mkScaledFunTys,
         mkForAllTy, mkForAllTys,
         mkPiTy, mkPiTys,
-        mkFunTyMany,
         mkScaledFunTy,
         mkVisFunTyMany, mkVisFunTysMany,
-        mkInvisFunTyMany, mkInvisFunTysMany,
+        mkInvisFunTy, mkInvisFunTys,
         mkTyConApp,
 
         -- * Functions over binders
@@ -72,7 +71,8 @@ module GHC.Core.TyCo.Rep (
         typeSize, coercionSize, provSize,
 
         -- * Multiplicities
-        Scaled(..), scaledMult, scaledThing, mapScaledType, Mult
+        Scaled(..), scaledMult, scaledThing, mapScaledType, Mult,
+        mkMultAnonArgFlag
     ) where
 
 #include "HsVersions.h"
@@ -223,7 +223,6 @@ data Type
   | FunTy      -- ^ FUN m t1 t2   Very common, so an important special case
                 -- See Note [Function types]
      { ft_af  :: AnonArgFlag    -- Is this (->) or (=>)?
-     , ft_mult :: Mult          -- Multiplicity
      , ft_arg :: Type           -- Argument type
      , ft_res :: Type }         -- Result type
 
@@ -260,10 +259,7 @@ instance Outputable TyLit where
 
 {- Note [Function types]
 ~~~~~~~~~~~~~~~~~~~~~~~~
-FFunTy is the constructor for a function type.  Lots of things to say
-about it!
-
-* FFunTy is the data constructor, meaning "full function type".
+FunTy is the constructor for a function type.
 
 * The function type constructor (->) has kind
      (->) :: forall r1 r2. TYPE r1 -> TYPE r2 -> Type LiftedRep
@@ -273,38 +269,15 @@ about it!
   from 't1' and 't2'.
 
 * The ft_af field says whether or not this is an invisible argument
-     VisArg:   t1 -> t2    Ordinary function type
-     InvisArg: t1 => t2    t1 is guaranteed to be a predicate type,
-                           i.e. t1 :: Constraint
+     VisArg:   t1 -> t2     Ordinary function type
+     InvisArg: t1 => t2     t1 is guaranteed to be a predicate type,
+                            i.e. t1 :: Constraint
+     MultArg: t1 # m -> t2  Linear function; m is *not* Many (that would be VisArg)
   See Note [Types for coercions, predicates, and evidence]
 
   This visibility info makes no difference in Core; it matters
   only when we regard the type as a Haskell source type.
-
-* FunTy is a (unidirectional) pattern synonym that allows
-  positional pattern matching (FunTy arg res), ignoring the
-  ArgFlag.
 -}
-
-{- -----------------------
-      Commented out until the pattern match
-      checker can handle it; see #16185
-
-      For now we use the CPP macro #define FunTy FFunTy _
-      (see HsVersions.h) to allow pattern matching on a
-      (positional) FunTy constructor.
-
-{-# COMPLETE FunTy, TyVarTy, AppTy, TyConApp
-           , ForAllTy, LitTy, CastTy, CoercionTy :: Type #-}
-
--- | 'FunTy' is a (uni-directional) pattern synonym for the common
--- case where we want to match on the argument/result type, but
--- ignoring the AnonArgFlag
-pattern FunTy :: Type -> Type -> Type
-pattern FunTy arg res <- FFunTy { ft_arg = arg, ft_res = res }
-
-       End of commented out block
----------------------------------- -}
 
 {- Note [Types for coercions, predicates, and evidence]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -403,15 +376,15 @@ How does this work?
 
 * The existence of promoted MkT with an equality-constraint
   argument is the (only) reason that the AnonTCB constructor
-  of TyConBndrVis carries an AnonArgFlag (VisArg/InvisArg).
+  of TyConBndrVis carries a Visibility.
   For example, when we promote the data constructor
      MkT :: forall a b. (a~b) => a -> b -> T a b
   we get a PromotedDataCon with tyConBinders
       Bndr (a :: Type)  (NamedTCB Inferred)
       Bndr (b :: Type)  (NamedTCB Inferred)
-      Bndr (_ :: a ~ b) (AnonTCB InvisArg)
-      Bndr (_ :: a)     (AnonTCB VisArg))
-      Bndr (_ :: b)     (AnonTCB VisArg))
+      Bndr (_ :: a ~ b) (AnonTCB Invisible)
+      Bndr (_ :: a)     (AnonTCB Visible))
+      Bndr (_ :: b)     (AnonTCB Visible))
 
 * One might reasonably wonder who *unpacks* these boxes once they are
   made. After all, there is no type-level `case` construct. The
@@ -688,8 +661,8 @@ type KnotTied ty = ty
 -- not. See Note [TyCoBinders]
 data TyCoBinder
   = Named TyCoVarBinder    -- A type-lambda binder
-  | Anon AnonArgFlag (Scaled Type)  -- A term-lambda binder. Type here can be CoercionTy.
-                                    -- Visibility is determined by the AnonArgFlag
+  | Anon AnonArgFlag Type  -- A term-lambda binder.
+                           -- Visibility is determined by the AnonArgFlag
   deriving Data.Data
 
 instance Outputable TyCoBinder where
@@ -710,9 +683,10 @@ delBinderVar vars (Bndr tv _) = vars `delVarSet` tv
 
 -- | Does this binder bind an invisible argument?
 isInvisibleBinder :: TyCoBinder -> Bool
-isInvisibleBinder (Named (Bndr _ vis)) = isInvisibleArgFlag vis
-isInvisibleBinder (Anon InvisArg _)    = True
-isInvisibleBinder (Anon VisArg   _)    = False
+isInvisibleBinder (Named (Bndr _ vis))  = isInvisibleArgFlag vis
+isInvisibleBinder (Anon InvisArg _)     = True
+isInvisibleBinder (Anon VisArg   _)     = False
+isInvisibleBinder (Anon (MultArg {}) _) = False
 
 -- | Does this binder bind a visible argument?
 isVisibleBinder :: TyCoBinder -> Bool
@@ -783,7 +757,7 @@ This table summarises the visibility rules:
 |
 | Bndr k cvis :: TyConBinder, in the TyConBinders of a TyCon
 |  cvis :: TyConBndrVis
-|  cvis = AnonTCB:             T :: kind -> kind        Required:            T *
+|  cvis = AnonTCB Visible:     T :: kind -> kind        Required:            T *
 |  cvis = NamedTCB Inferred:   T :: forall {k}. kind    Arg not allowed:     T
 |                              T :: forall {co}. kind   Arg not allowed:     T
 |  cvis = NamedTCB Specified:  T :: forall k. kind      Arg not allowed[1]:  T
@@ -980,41 +954,37 @@ mkTyCoVarTy v
 mkTyCoVarTys :: [TyCoVar] -> [Type]
 mkTyCoVarTys = map mkTyCoVarTy
 
-infixr 3 `mkFunTy`, `mkVisFunTy`, `mkInvisFunTy`, `mkVisFunTyMany`,
-         `mkInvisFunTyMany`      -- Associates to the right
+infixr 3 `mkVisFunTyMany`, `mkInvisFunTy`      -- Associates to the right
 
-mkFunTy :: AnonArgFlag -> Mult -> Type -> Type -> Type
-mkFunTy af mult arg res = FunTy { ft_af = af
-                                , ft_mult = mult
-                                , ft_arg = arg
-                                , ft_res = res }
+mkFunTy :: AnonArgFlag -> Type -> Type -> Type
+mkFunTy af arg res = FunTy { ft_af = af
+                           , ft_arg = arg
+                           , ft_res = res }
 
-mkScaledFunTy :: AnonArgFlag -> Scaled Type -> Type -> Type
-mkScaledFunTy af (Scaled mult arg) res = mkFunTy af mult arg res
+-- | Make a function with a scaled argument type; all linear
+-- functions are visible.
+mkScaledFunTy :: Scaled Type -> Type -> Type
+mkScaledFunTy (Scaled mult arg) res = mkFunTy (mkMultAnonArgFlag mult) arg res
 
-mkVisFunTy, mkInvisFunTy :: Mult -> Type -> Type -> Type
-mkVisFunTy   = mkFunTy VisArg
-mkInvisFunTy = mkFunTy InvisArg
+-- | Make nested arrow types
+mkScaledFunTys :: [Scaled Type] -> Type -> Type
+mkScaledFunTys tys ty = foldr mkScaledFunTy ty tys
 
-mkFunTyMany :: AnonArgFlag -> Type -> Type -> Type
-mkFunTyMany af = mkFunTy af manyDataConTy
+mkVisFunTy :: Mult -> Type -> Type -> Type
+mkVisFunTy mult = mkFunTy (mkMultAnonArgFlag mult)
 
 -- | Special, common, case: Arrow type with mult Many
 mkVisFunTyMany :: Type -> Type -> Type
-mkVisFunTyMany = mkVisFunTy manyDataConTy
+mkVisFunTyMany = mkFunTy VisArg
 
-mkInvisFunTyMany :: Type -> Type -> Type
-mkInvisFunTyMany = mkInvisFunTy manyDataConTy
-
--- | Make nested arrow types
-mkVisFunTys :: [Scaled Type] -> Type -> Type
-mkVisFunTys tys ty = foldr (mkScaledFunTy VisArg) ty tys
+mkInvisFunTy :: Type -> Type -> Type
+mkInvisFunTy = mkFunTy InvisArg
 
 mkVisFunTysMany :: [Type] -> Type -> Type
 mkVisFunTysMany tys ty = foldr mkVisFunTyMany ty tys
 
-mkInvisFunTysMany :: [Type] -> Type -> Type
-mkInvisFunTysMany tys ty = foldr mkInvisFunTyMany ty tys
+mkInvisFunTys :: [Type] -> Type -> Type
+mkInvisFunTys tys ty = foldr mkInvisFunTy ty tys
 
 -- | Like 'mkTyCoForAllTy', but does not check the occurrence of the binder
 -- See Note [Unused coercion variable in ForAllTy]
@@ -1026,7 +996,7 @@ mkForAllTys :: [TyCoVarBinder] -> Type -> Type
 mkForAllTys tyvars ty = foldr ForAllTy ty tyvars
 
 mkPiTy :: TyCoBinder -> Type -> Type
-mkPiTy (Anon af ty1) ty2        = mkScaledFunTy af ty1 ty2
+mkPiTy (Anon af ty1) ty2        = mkFunTy af ty1 ty2
 mkPiTy (Named (Bndr tv vis)) ty = mkForAllTy tv vis ty
 
 mkPiTys :: [TyCoBinder] -> Type -> Type
@@ -1043,7 +1013,7 @@ mkTyConApp tycon tys
   | isFunTyCon tycon
   , [w, _rep1,_rep2,ty1,ty2] <- tys
   -- The FunTyCon (->) is always a visible one
-  = FunTy { ft_af = VisArg, ft_mult = w, ft_arg = ty1, ft_res = ty2 }
+  = FunTy { ft_af = mkMultAnonArgFlag w, ft_arg = ty1, ft_res = ty2 }
 
   -- Note [mkTyConApp and Type]
   | tycon `hasKey` liftedTypeKindTyConKey
@@ -1155,7 +1125,7 @@ data Coercion
          -- Because the AnonArgFlag has no impact on Core; it is only
          -- there to guide implicit instantiation of Haskell source
          -- types, and that is irrelevant for coercions, which are
-         -- Core-only.
+         -- Core-only. Note that the first Coercion above is for the multiplicity.
 
   -- These are special
   | CoVarCo CoVar      -- :: _ -> (N or R)
@@ -1895,7 +1865,9 @@ foldTyCo (TyCoFolder { tcf_view       = view
     go_ty _   (LitTy {})        = mempty
     go_ty env (CastTy ty co)    = go_ty env ty `mappend` go_co env co
     go_ty env (CoercionTy co)   = go_co env co
-    go_ty env (FunTy _ w arg res) = go_ty env w `mappend` go_ty env arg `mappend` go_ty env res
+    go_ty env (FunTy af arg res)
+      | MultArg w <- af         = go_ty env w `mappend` go_ty env arg `mappend` go_ty env res
+      | otherwise               = go_ty env arg `mappend` go_ty env res
     go_ty env (TyConApp _ tys)  = go_tys env tys
     go_ty env (ForAllTy (Bndr tv vis) inner)
       = let !env' = tycobinder env tv vis  -- Avoid building a thunk here
@@ -1964,7 +1936,9 @@ typeSize :: Type -> Int
 typeSize (LitTy {})                 = 1
 typeSize (TyVarTy {})               = 1
 typeSize (AppTy t1 t2)              = typeSize t1 + typeSize t2
-typeSize (FunTy _ _ t1 t2)          = typeSize t1 + typeSize t2
+typeSize (FunTy af t1 t2)
+  | MultArg w <- af                 = typeSize w + typeSize t1 + typeSize t2
+  | otherwise                       = typeSize t1 + typeSize t2
 typeSize (ForAllTy (Bndr tv _) t)   = typeSize (varType tv) + typeSize t
 typeSize (TyConApp _ ts)            = 1 + sum (map typeSize ts)
 typeSize (CastTy ty co)             = typeSize ty + coercionSize co
@@ -2043,3 +2017,10 @@ So that Mult feels a bit more structured, we provide pattern synonyms and smart
 constructors for these.
 -}
 type Mult = Type
+
+-- | Make a visible 'AnonArgFlag' for a 'Mult'; uses 'VisArg' instead of
+-- 'MultArg Many'. Does *not* look through synonyms, in order to keep
+-- itself fast.
+mkMultAnonArgFlag :: Mult -> AnonArgFlag
+mkMultAnonArgFlag (TyConApp tc _) | tc `hasKey` manyDataConKey = VisArg
+mkMultAnonArgFlag mult                                         = MultArg mult

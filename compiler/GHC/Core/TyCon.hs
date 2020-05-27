@@ -18,7 +18,7 @@ module GHC.Core.TyCon(
         RuntimeRepInfo(..), TyConFlavour(..),
 
         -- * TyConBinder
-        TyConBinder, TyConBndrVis(..), TyConTyCoBinder,
+        TyConBinder, TyConBndrVis(..), Visibility(..), TyConTyCoBinder,
         mkNamedTyConBinder, mkNamedTyConBinders,
         mkRequiredTyConBinder,
         mkAnonTyConBinder, mkAnonTyConBinders,
@@ -138,7 +138,7 @@ import GhcPrelude
 import GHC.Platform
 
 import {-# SOURCE #-} GHC.Core.TyCo.Rep
-   ( Kind, Type, PredType, mkForAllTy, mkFunTyMany )
+   ( Kind, Type, PredType, mkForAllTy, mkFunTy )
 import {-# SOURCE #-} GHC.Core.TyCo.Ppr
    ( pprType )
 import {-# SOURCE #-} GHC.Builtin.Types
@@ -425,18 +425,18 @@ type TyConTyCoBinder = VarBndr TyCoVar TyConBndrVis
 
 data TyConBndrVis
   = NamedTCB ArgFlag
-  | AnonTCB  AnonArgFlag
+  | AnonTCB  Visibility
 
 instance Outputable TyConBndrVis where
   ppr (NamedTCB flag) = text "NamedTCB" <> ppr flag
-  ppr (AnonTCB af)    = text "AnonTCB"  <> ppr af
+  ppr (AnonTCB vis)   = text "AnonTCB"  <> ppr vis
 
-mkAnonTyConBinder :: AnonArgFlag -> TyVar -> TyConBinder
-mkAnonTyConBinder af tv = ASSERT( isTyVar tv)
-                          Bndr tv (AnonTCB af)
+mkAnonTyConBinder :: Visibility -> TyVar -> TyConBinder
+mkAnonTyConBinder vis tv = ASSERT( isTyVar tv )
+                           Bndr tv (AnonTCB vis)
 
-mkAnonTyConBinders :: AnonArgFlag -> [TyVar] -> [TyConBinder]
-mkAnonTyConBinders af tvs = map (mkAnonTyConBinder af) tvs
+mkAnonTyConBinders :: Visibility -> [TyVar] -> [TyConBinder]
+mkAnonTyConBinders vis tvs = map (mkAnonTyConBinder vis) tvs
 
 mkNamedTyConBinder :: ArgFlag -> TyVar -> TyConBinder
 -- The odd argument order supports currying
@@ -454,15 +454,15 @@ mkRequiredTyConBinder :: TyCoVarSet  -- these are used dependently
                       -> TyConBinder
 mkRequiredTyConBinder dep_set tv
   | tv `elemVarSet` dep_set = mkNamedTyConBinder Required tv
-  | otherwise               = mkAnonTyConBinder  VisArg   tv
+  | otherwise               = mkAnonTyConBinder  Visible  tv
 
 tyConBinderArgFlag :: TyConBinder -> ArgFlag
 tyConBinderArgFlag (Bndr _ vis) = tyConBndrVisArgFlag vis
 
 tyConBndrVisArgFlag :: TyConBndrVis -> ArgFlag
-tyConBndrVisArgFlag (NamedTCB vis)     = vis
-tyConBndrVisArgFlag (AnonTCB VisArg)   = Required
-tyConBndrVisArgFlag (AnonTCB InvisArg) = Inferred    -- See Note [AnonTCB InvisArg]
+tyConBndrVisArgFlag (NamedTCB vis)      = vis
+tyConBndrVisArgFlag (AnonTCB Visible)   = Required
+tyConBndrVisArgFlag (AnonTCB Invisible) = Inferred    -- See Note [AnonTCB Invisible]
 
 isNamedTyConBinder :: TyConBinder -> Bool
 -- Identifies kind variables
@@ -476,9 +476,9 @@ isVisibleTyConBinder :: VarBndr tv TyConBndrVis -> Bool
 isVisibleTyConBinder (Bndr _ tcb_vis) = isVisibleTcbVis tcb_vis
 
 isVisibleTcbVis :: TyConBndrVis -> Bool
-isVisibleTcbVis (NamedTCB vis)     = isVisibleArgFlag vis
-isVisibleTcbVis (AnonTCB VisArg)   = True
-isVisibleTcbVis (AnonTCB InvisArg) = False
+isVisibleTcbVis (NamedTCB vis)      = isVisibleArgFlag vis
+isVisibleTcbVis (AnonTCB Visible)   = True
+isVisibleTcbVis (AnonTCB Invisible) = False
 
 isInvisibleTyConBinder :: VarBndr tv TyConBndrVis -> Bool
 -- Works for IfaceTyConBinder too
@@ -490,7 +490,7 @@ mkTyConKind :: [TyConBinder] -> Kind -> Kind
 mkTyConKind bndrs res_kind = foldr mk res_kind bndrs
   where
     mk :: TyConBinder -> Kind -> Kind
-    mk (Bndr tv (AnonTCB af))   k = mkFunTyMany af (varType tv) k
+    mk (Bndr tv (AnonTCB vis))  k = mkFunTy (visibilityAnonArgFlag vis) (varType tv) k
     mk (Bndr tv (NamedTCB vis)) k = mkForAllTy tv vis k
 
 tyConTyVarBinders :: [TyConBinder]   -- From the TyCon
@@ -502,8 +502,8 @@ tyConTyVarBinders tc_bndrs
    mk_binder (Bndr tv tc_vis) = mkTyVarBinder vis tv
       where
         vis = case tc_vis of
-                AnonTCB VisArg    -> Specified
-                AnonTCB InvisArg  -> Inferred   -- See Note [AnonTCB InvisArg]
+                AnonTCB Visible   -> Specified
+                AnonTCB Invisible -> Inferred   -- See Note [AnonTCB Invisible]
                 NamedTCB Required -> Specified
                 NamedTCB vis      -> vis
 
@@ -513,9 +513,9 @@ tyConVisibleTyVars tc
   = [ tv | Bndr tv vis <- tyConBinders tc
          , isVisibleTcbVis vis ]
 
-{- Note [AnonTCB InvisArg]
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-It's pretty rare to have an (AnonTCB InvisArg) binder.  The
+{- Note [AnonTCB Invisible]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+It's pretty rare to have an (AnonTCB Invisible) binder.  The
 only way it can occur is through equality constraints in kinds. These
 can arise in one of two ways:
 
@@ -530,14 +530,14 @@ can arise in one of two ways:
 
     data T :: forall a. (IsTypeLit a ~ 'True) => a -> Type
 
-When mapping an (AnonTCB InvisArg) to an ArgFlag, in
+When mapping an (AnonTCB Invisible) to an ArgFlag, in
 tyConBndrVisArgFlag, we use "Inferred" to mean "the user cannot
 specify this arguments, even with visible type/kind application;
 instead the type checker must fill it in.
 
-We map (AnonTCB VisArg) to Required, of course: the user must
+We map (AnonTCB Visible) to Required, of course: the user must
 provide it. It would be utterly wrong to do this for constraint
-arguments, which is why AnonTCB must have the AnonArgFlag in
+arguments, which is why AnonTCB must have the Visibility flag in
 the first place.
 
 Note [Building TyVarBinders from TyConBinders]
@@ -613,8 +613,8 @@ They fit together like so:
     type App a (b :: k) = a b
 
   tyConBinders = [ Bndr (k::*)   (NamedTCB Inferred)
-                 , Bndr (a:k->*) AnonTCB
-                 , Bndr (b:k)    AnonTCB ]
+                 , Bndr (a:k->*) AnonTCB Visible
+                 , Bndr (b:k)    AnonTCB Visible ]
 
   Note that that are three binders here, including the
   kind variable k.
@@ -626,7 +626,7 @@ They fit together like so:
   that TyVar may scope over some other part of the TyCon's definition. Eg
       type T a = a -> a
   we have
-      tyConBinders = [ Bndr (a:*) AnonTCB ]
+      tyConBinders = [ Bndr (a:*) AnonTCB Visible ]
       synTcRhs     = a -> a
   So the 'a' scopes over the synTcRhs
 
@@ -653,19 +653,19 @@ They fit together like so:
 instance OutputableBndr tv => Outputable (VarBndr tv TyConBndrVis) where
   ppr (Bndr v bi) = ppr_bi bi <+> parens (pprBndr LetBind v)
     where
-      ppr_bi (AnonTCB VisArg)     = text "anon-vis"
-      ppr_bi (AnonTCB InvisArg)   = text "anon-invis"
+      ppr_bi (AnonTCB Visible)    = text "anon-vis"
+      ppr_bi (AnonTCB Invisible)  = text "anon-invis"
       ppr_bi (NamedTCB Required)  = text "req"
       ppr_bi (NamedTCB Specified) = text "spec"
       ppr_bi (NamedTCB Inferred)  = text "inf"
 
 instance Binary TyConBndrVis where
-  put_ bh (AnonTCB af)   = do { putByte bh 0; put_ bh af }
+  put_ bh (AnonTCB vis)  = do { putByte bh 0; put_ bh vis }
   put_ bh (NamedTCB vis) = do { putByte bh 1; put_ bh vis }
 
   get bh = do { h <- getByte bh
               ; case h of
-                  0 -> do { af  <- get bh; return (AnonTCB af) }
+                  0 -> do { vis <- get bh; return (AnonTCB vis) }
                   _ -> do { vis <- get bh; return (NamedTCB vis) } }
 
 

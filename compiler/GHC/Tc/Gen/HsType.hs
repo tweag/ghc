@@ -725,7 +725,7 @@ tc_hs_type mode (HsOpTy _ ty1 (L _ op) ty2) exp_kind
   = tc_fun_type mode HsUnrestrictedArrow ty1 ty2 exp_kind
 
 --------- Foralls
-tc_hs_type mode forall@(HsForAllTy { hst_fvf = fvf, hst_bndrs = hs_tvs
+tc_hs_type mode forall@(HsForAllTy { hst_visible = vis, hst_bndrs = hs_tvs
                                    , hst_body = ty }) exp_kind
   = do { (tclvl, wanted, (tvs', ty'))
             <- pushLevelAndCaptureConstraints $
@@ -733,9 +733,9 @@ tc_hs_type mode forall@(HsForAllTy { hst_fvf = fvf, hst_bndrs = hs_tvs
                tc_lhs_type mode ty exp_kind
     -- Do not kind-generalise here!  See Note [Kind generalisation]
     -- Why exp_kind?  See Note [Body kind of HsForAllTy]
-       ; let argf        = case fvf of
-                             ForallVis   -> Required
-                             ForallInvis -> Specified
+       ; let argf        = case vis of
+                             Visible   -> Required
+                             Invisible -> Specified
              bndrs       = mkTyVarBinders argf tvs'
              skol_info   = ForAllSkol (ppr forall)
              m_telescope = Just (sep (map ppr hs_tvs))
@@ -2006,7 +2006,7 @@ kcInferDeclHeader name flav
                -- recursive group.
                -- See Note [Inferring kinds for type declarations] in GHC.Tc.TyCl
 
-             tc_binders = mkAnonTyConBinders VisArg tc_tvs
+             tc_binders = mkAnonTyConBinders Visible tc_tvs
                -- Also, note that tc_binders has the tyvars from only the
                -- user-written tyvarbinders. See S1 in Note [How TcTyCons work]
                -- in GHC.Tc.TyCl
@@ -2182,16 +2182,16 @@ kcCheckDeclHeader_sig kisig name flav
       -- Example:   (a~b) =>
       ZippedBinder (Anon InvisArg bndr_ki) Nothing -> do
         name <- newSysName (mkTyVarOccFS (fsLit "ev"))
-        let tv = mkTyVar name (scaledThing bndr_ki)
-        return (mkAnonTyConBinder InvisArg tv, [])
+        let tv = mkTyVar name bndr_ki
+        return (mkAnonTyConBinder Invisible tv, [])
 
       -- Non-dependent visible argument with a user-written binder.
       -- Example:   Proxy a ->
       ZippedBinder (Anon VisArg bndr_ki) (Just b) ->
         return $
           let v_name = getName b
-              tv = mkTyVar v_name (scaledThing bndr_ki)
-              tcb = mkAnonTyConBinder VisArg tv
+              tv = mkTyVar v_name bndr_ki
+              tcb = mkAnonTyConBinder Visible tv
           in (tcb, [(v_name, tv)])
 
       -- Dependent visible argument with a user-written binder.
@@ -2269,6 +2269,7 @@ zipBinders = zip_binders []
                 Named (Bndr _ Required)  -> True
                 Anon InvisArg _ -> False
                 Anon VisArg   _ -> True
+                Anon (MultArg mult) _ -> pprPanic "zipBinders MultArg" (ppr mult)
           in
             zip_binders (zb:acc) ki' bs'
 
@@ -2968,10 +2969,10 @@ etaExpandAlgTyCon tc_bndrs kind
           Just (Anon af arg, kind')
             -> go loc occs' uniqs' subst' (tcb : acc) kind'
             where
-              arg'   = substTy subst (scaledThing arg)
+              arg'   = substTy subst arg
               tv     = mkTyVar (mkInternalName uniq occ loc) arg'
               subst' = extendTCvInScope subst tv
-              tcb    = Bndr tv (AnonTCB af)
+              tcb    = Bndr tv (AnonTCB (anonArgFlagVisibility af))
               (uniq:uniqs') = uniqs
               (occ:occs')   = occs
 
@@ -3101,7 +3102,9 @@ tcbVisibilities tc orig_args
     go fun_kind subst all_args@(arg : args)
       | Just (tcb, inner_kind) <- splitPiTy_maybe fun_kind
       = case tcb of
-          Anon af _           -> AnonTCB af   : go inner_kind subst  args
+          Anon af _           -> AnonTCB vis  : go inner_kind subst  args
+                 where
+                    vis    = anonArgFlagVisibility af
           Named (Bndr tv vis) -> NamedTCB vis : go inner_kind subst' args
                  where
                     subst' = extendTCvSubst subst tv arg

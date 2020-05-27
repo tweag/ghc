@@ -362,14 +362,15 @@ orphNamesOfType (TyConApp tycon tys) = func
                        _ -> emptyNameSet
 orphNamesOfType (ForAllTy bndr res)  = orphNamesOfType (binderType bndr)
                                        `unionNameSet` orphNamesOfType res
-orphNamesOfType (FunTy _ w arg res)  = func
-                                       `unionNameSet` unitNameSet funTyConName
+orphNamesOfType (FunTy af arg res)
+  | MultArg w <- af                  = unitNameSet funTyConName
                                        `unionNameSet` orphNamesOfType w
                                        `unionNameSet` orphNamesOfType arg
                                        `unionNameSet` orphNamesOfType res
-        where func = case w of  -- NB!  See #8535
-                       Many -> unitNameSet unrestrictedFunTyConName
-                       _ -> emptyNameSet
+  | otherwise                        = unitNameSet unrestrictedFunTyConName -- NB!  See #8535
+                                       `unionNameSet` unitNameSet funTyConName
+                                       `unionNameSet` orphNamesOfType arg
+                                       `unionNameSet` orphNamesOfType res
 orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSet` orphNamesOfType arg
 orphNamesOfType (CastTy ty co)       = orphNamesOfType ty `unionNameSet` orphNamesOfCo co
 orphNamesOfType (CoercionTy co)      = orphNamesOfCo co

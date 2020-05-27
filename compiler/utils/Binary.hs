@@ -1175,7 +1175,11 @@ instance Binary FastString where
     case getUserData bh of
         UserData { ud_get_fs = get_fs } -> get_fs bh
 
--- Here to avoid loop
+---------------------------------------------------------
+-- Binary instances for types declared further down the
+-- hierarchy
+---------------------------------------------------------
+
 instance Binary LeftOrRight where
    put_ bh CLeft  = putByte bh 0
    put_ bh CRight = putByte bh 1
@@ -1455,3 +1459,13 @@ instance Binary SourceText where
         s <- get bh
         return (SourceText s)
       _ -> panic $ "Binary SourceText:" ++ show h
+
+instance Binary Visibility where
+  put_ bh Visible   = putByte bh 0
+  put_ bh Invisible = putByte bh 1
+
+  get bh = do
+    n <- getByte bh
+    return $ case n of
+      0 -> Visible
+      _ -> Invisible

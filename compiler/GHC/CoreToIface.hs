@@ -172,8 +172,8 @@ toIfaceTypeX fr ty@(AppTy {})  =
 toIfaceTypeX _  (LitTy n)      = IfaceLitTy (toIfaceTyLit n)
 toIfaceTypeX fr (ForAllTy b t) = IfaceForAllTy (toIfaceForAllBndrX fr b)
                                                (toIfaceTypeX (fr `delVarSet` binderVar b) t)
-toIfaceTypeX fr (FunTy { ft_arg = t1, ft_mult = w, ft_res = t2, ft_af = af })
-  = IfaceFunTy af (toIfaceTypeX fr w) (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
+toIfaceTypeX fr (FunTy { ft_af = af, ft_arg = t1, ft_res = t2 })
+  = IfaceFunTy (toIfaceAnonArgFlagX fr af) (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
 toIfaceTypeX fr (CastTy ty co)  = IfaceCastTy (toIfaceTypeX fr ty) (toIfaceCoercionX fr co)
 toIfaceTypeX fr (CoercionTy co) = IfaceCoercionTy (toIfaceCoercionX fr co)
 
@@ -201,6 +201,11 @@ toIfaceTypeX fr (TyConApp tc tys)
   where
     arity = tyConArity tc
     n_tys = length tys
+
+toIfaceAnonArgFlagX :: VarSet -> AnonArgFlag -> IfaceAnonArgFlag
+toIfaceAnonArgFlagX _  VisArg         = IfaceVisArg
+toIfaceAnonArgFlagX _  InvisArg       = IfaceInvisArg
+toIfaceAnonArgFlagX fr (MultArg mult) = IfaceMultArg (toIfaceTypeX fr mult)
 
 toIfaceTyVar :: TyVar -> FastString
 toIfaceTyVar = occNameFS . getOccName
@@ -348,7 +353,8 @@ toIfaceAppArgsX fr kind ty_args
                  VisArg   -> Required
                  InvisArg -> Inferred
                    -- It's rare for a kind to have a constraint argument, but
-                   -- it can happen. See Note [AnonTCB InvisArg] in GHC.Core.TyCon.
+                   -- it can happen. See Note [AnonTCB Invisible] in GHC.Core.TyCon.
+                 MultArg _ -> pprPanic "toIfaceAppArgsX MultArg" (ppr af)
 
     go env ty ts@(t1:ts1)
       | not (isEmptyTCvSubst env)

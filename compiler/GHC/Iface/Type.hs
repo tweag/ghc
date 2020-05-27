@@ -23,10 +23,11 @@ module GHC.Iface.Type (
         IfaceTyLit(..), IfaceAppArgs(..),
         IfaceContext, IfaceBndr(..), IfaceOneShot(..), IfaceLamBndr,
         IfaceTvBndr, IfaceIdBndr, IfaceTyConBinder,
-        IfaceForAllBndr, ArgFlag(..), AnonArgFlag(..),
-        ForallVisFlag(..), ShowForAllFlag(..),
+        IfaceForAllBndr, ArgFlag(..), IfaceAnonArgFlag(..),
+        ShowForAllFlag(..),
         mkIfaceForAllTvBndr,
         mkIfaceTyConKind,
+        mkMultIfaceAnonArgFlag,
 
         ifForAllBndrVar, ifForAllBndrName, ifaceBndrName,
         ifTyConBinderVar, ifTyConBinderName,
@@ -50,7 +51,7 @@ module GHC.Iface.Type (
         pprIfaceCoercion, pprParendIfaceCoercion,
         splitIfaceSigmaTy, pprIfaceTypeApp, pprUserIfaceForAll,
         pprIfaceCoTcApp, pprTyTcApp, pprIfacePrefixApp,
-        ppr_fun_arrow,
+        pprFunArrow,
         isIfaceTauType,
 
         suppressIfaceInvisibles,
@@ -59,7 +60,7 @@ module GHC.Iface.Type (
 
         mkIfaceTySubst, substIfaceTyVar, substIfaceAppArgs, inDomIfaceTySubst,
 
-        many_ty
+        manyIfaceTy
     ) where
 
 #include "HsVersions.h"
@@ -69,7 +70,7 @@ import GhcPrelude
 import {-# SOURCE #-} GHC.Builtin.Types
                                  ( coercibleTyCon, heqTyCon
                                  , liftedRepDataConTyCon, tupleTyConName
-                                 , manyDataConTyCon, oneDataConTyCon )
+                                 , manyDataConTyCon )
 import {-# SOURCE #-} GHC.Core.Type ( isRuntimeRepTy, isMultiplicityTy )
 
 import GHC.Core.TyCon hiding ( pprPromotionQuote )
@@ -151,7 +152,7 @@ data IfaceType
                              -- See Note [Suppressing invisible arguments] for
                              -- an explanation of why the second field isn't
                              -- IfaceType, analogous to AppTy.
-  | IfaceFunTy     AnonArgFlag IfaceMult IfaceType IfaceType
+  | IfaceFunTy     IfaceAnonArgFlag IfaceType IfaceType
   | IfaceForAllTy  IfaceForAllBndr IfaceType
   | IfaceTyConApp  IfaceTyCon IfaceAppArgs  -- Not necessarily saturated
                                             -- Includes newtypes, synonyms, tuples
@@ -163,6 +164,32 @@ data IfaceType
        PromotionFlag                 -- A bit like IfaceTyCon
        IfaceAppArgs               -- arity = length args
           -- For promoted data cons, the kind args are omitted
+
+data IfaceAnonArgFlag
+  = IfaceVisArg
+  | IfaceInvisArg
+  | IfaceMultArg IfaceMult
+
+-- | Is this AnonArgFlag representing a visible argument?
+isVisibleIfaceAnonArgFlag :: IfaceAnonArgFlag -> Bool
+isVisibleIfaceAnonArgFlag IfaceInvisArg    = False
+isVisibleIfaceAnonArgFlag IfaceVisArg      = True
+isVisibleIfaceAnonArgFlag (IfaceMultArg _) = True
+
+-- | Make a visible IfaceAnonArgFlag from a multiplicity
+mkMultIfaceAnonArgFlag :: IfaceMult -> IfaceAnonArgFlag
+mkMultIfaceAnonArgFlag mult
+  | IfaceTyConApp tc _ <- mult
+  , tc `ifaceTyConHasKey` manyDataConKey
+  = IfaceVisArg
+  | otherwise
+  = IfaceMultArg mult
+
+-- | Convert a 'Visibility' to an 'IfaceAnonArgFlag'; this never
+-- produces a 'IfaceMultArg'. cf. 'visibilityAnonArgFlag'
+visibilityIfaceAnonArgFlag :: Visibility -> IfaceAnonArgFlag
+visibilityIfaceAnonArgFlag Visible   = IfaceVisArg
+visibilityIfaceAnonArgFlag Invisible = IfaceInvisArg
 
 type IfaceMult = IfaceType
 
@@ -187,7 +214,8 @@ mkIfaceTyConKind :: [IfaceTyConBinder] -> IfaceKind -> IfaceKind
 mkIfaceTyConKind bndrs res_kind = foldr mk res_kind bndrs
   where
     mk :: IfaceTyConBinder -> IfaceKind -> IfaceKind
-    mk (Bndr tv (AnonTCB af))   k = IfaceFunTy af many_ty (ifaceBndrType tv) k
+    mk (Bndr tv (AnonTCB vis))  k = IfaceFunTy (visibilityIfaceAnonArgFlag vis)
+                                               (ifaceBndrType tv) k
     mk (Bndr tv (NamedTCB vis)) k = IfaceForAllTy (Bndr tv vis) k
 
 -- | Stores the arguments in a type application as a list.
@@ -425,7 +453,7 @@ splitIfaceSigmaTy ty
         = case split_foralls ty of { (bndrs, rho) -> (bndr:bndrs, rho) }
     split_foralls rho = ([], rho)
 
-    split_rho (IfaceFunTy InvisArg _ ty1 ty2)
+    split_rho (IfaceFunTy IfaceInvisArg ty1 ty2)
         = case split_rho ty2 of { (ps, tau) -> (ty1:ps, tau) }
     split_rho tau = ([], tau)
 
@@ -468,13 +496,17 @@ ifTypeIsVarFree ty = go ty
     go (IfaceTyVar {})         = False
     go (IfaceFreeTyVar {})     = False
     go (IfaceAppTy fun args)   = go fun && go_args args
-    go (IfaceFunTy _ w arg res) = go w && go arg && go res
+    go (IfaceFunTy af arg res) = go_arg_flag af && go arg && go res
     go (IfaceForAllTy {})      = False
     go (IfaceTyConApp _ args)  = go_args args
     go (IfaceTupleTy _ _ args) = go_args args
     go (IfaceLitTy _)          = True
     go (IfaceCastTy {})        = False -- Safe
     go (IfaceCoercionTy {})    = False -- Safe
+
+    go_arg_flag IfaceVisArg         = True
+    go_arg_flag IfaceInvisArg       = True
+    go_arg_flag (IfaceMultArg mult) = go mult
 
     go_args IA_Nil = True
     go_args (IA_Arg arg _ args) = go arg && go_args args
@@ -503,13 +535,17 @@ substIfaceType env ty
     go (IfaceFreeTyVar tv)    = IfaceFreeTyVar tv
     go (IfaceTyVar tv)        = substIfaceTyVar env tv
     go (IfaceAppTy  t ts)     = IfaceAppTy  (go t) (substIfaceAppArgs env ts)
-    go (IfaceFunTy af w t1 t2)  = IfaceFunTy af (go w) (go t1) (go t2)
+    go (IfaceFunTy af t1 t2)  = IfaceFunTy (go_arg_flag af) (go t1) (go t2)
     go ty@(IfaceLitTy {})     = ty
     go (IfaceTyConApp tc tys) = IfaceTyConApp tc (substIfaceAppArgs env tys)
     go (IfaceTupleTy s i tys) = IfaceTupleTy s i (substIfaceAppArgs env tys)
     go (IfaceForAllTy {})     = pprPanic "substIfaceType" (ppr ty)
     go (IfaceCastTy ty co)    = IfaceCastTy (go ty) (go_co co)
     go (IfaceCoercionTy co)   = IfaceCoercionTy (go_co co)
+
+    go_arg_flag IfaceVisArg         = IfaceVisArg
+    go_arg_flag IfaceInvisArg       = IfaceInvisArg
+    go_arg_flag (IfaceMultArg mult) = IfaceMultArg (go mult)
 
     go_mco IfaceMRefl    = IfaceMRefl
     go_mco (IfaceMCo co) = IfaceMCo $ go_co co
@@ -715,7 +751,7 @@ pprIfacePrefixApp ctxt_prec pp_fun pp_tys
 
 isIfaceTauType :: IfaceType -> Bool
 isIfaceTauType (IfaceForAllTy _ _) = False
-isIfaceTauType (IfaceFunTy InvisArg _ _ _) = False
+isIfaceTauType (IfaceFunTy IfaceInvisArg _ _) = False
 isIfaceTauType _ = True
 
 -- ----------------------------- Printing binders ------------------------------------
@@ -781,9 +817,9 @@ pprIfaceTyConBinders suppress_sig = sep . map go
     go (Bndr (IfaceTvBndr bndr) vis) =
       -- See Note [Pretty-printing invisible arguments]
       case vis of
-        AnonTCB  VisArg    -> ppr_bndr (UseBndrParens True)
-        AnonTCB  InvisArg  -> char '@' <> braces (ppr_bndr (UseBndrParens False))
-          -- The above case is rare. (See Note [AnonTCB InvisArg] in GHC.Core.TyCon.)
+        AnonTCB  Visible    -> ppr_bndr (UseBndrParens True)
+        AnonTCB  Invisible  -> char '@' <> braces (ppr_bndr (UseBndrParens False))
+          -- The above case is rare. (See Note [AnonTCB Invisible] in GHC.Core.TyCon.)
           -- Should we print these differently?
         NamedTCB Required  -> ppr_bndr (UseBndrParens True)
         NamedTCB Specified -> char '@' <> ppr_bndr (UseBndrParens True)
@@ -833,21 +869,29 @@ pprPrecIfaceType :: PprPrec -> IfaceType -> SDoc
 pprPrecIfaceType prec ty =
   hideNonStandardTypes (ppr_ty prec) ty
 
-ppr_fun_arrow :: IfaceMult -> SDoc
-ppr_fun_arrow w
-  | (IfaceTyConApp tc _) <- w
-  , tc `ifaceTyConHasKey` (getUnique manyDataConTyCon) = arrow
-  | (IfaceTyConApp tc _) <- w
-  , tc `ifaceTyConHasKey` (getUnique oneDataConTyCon) = lollipop
-  | otherwise = mulArrow (pprIfaceType w)
+pprFunArrow :: IfaceAnonArgFlag -> SDoc
+pprFunArrow IfaceInvisArg = darrow
+pprFunArrow IfaceVisArg   = arrow
+pprFunArrow (IfaceMultArg w)
+  | IfaceTyConApp tc _ <- w
+  , tc `ifaceTyConHasKey` manyDataConKey
+  = panic "IfaceMultArg Many"
+              -- the case above violates an invariant on MultArg
+
+  | IfaceTyConApp tc _ <- w
+  , tc `ifaceTyConHasKey` oneDataConKey
+  = lollipop
+
+  | otherwise
+  = mulArrow (pprIfaceType w)
 
 ppr_sigma :: PprPrec -> IfaceType -> SDoc
 ppr_sigma ctxt_prec ty
   = maybeParen ctxt_prec funPrec (pprIfaceSigmaType ShowForAllMust ty)
 
 ppr_ty :: PprPrec -> IfaceType -> SDoc
-ppr_ty ctxt_prec ty@(IfaceForAllTy {})          = ppr_sigma ctxt_prec ty
-ppr_ty ctxt_prec ty@(IfaceFunTy InvisArg _ _ _) = ppr_sigma ctxt_prec ty
+ppr_ty ctxt_prec ty@(IfaceForAllTy {})             = ppr_sigma ctxt_prec ty
+ppr_ty ctxt_prec ty@(IfaceFunTy IfaceInvisArg _ _) = ppr_sigma ctxt_prec ty
 
 ppr_ty _         (IfaceFreeTyVar tyvar) = ppr tyvar  -- This is the main reason for IfaceFreeTyVar!
 ppr_ty _         (IfaceTyVar tyvar)     = ppr tyvar  -- See Note [TcTyVars in IfaceType]
@@ -855,15 +899,16 @@ ppr_ty ctxt_prec (IfaceTyConApp tc tys) = pprTyTcApp ctxt_prec tc tys
 ppr_ty ctxt_prec (IfaceTupleTy i p tys) = pprTuple ctxt_prec i p tys
 ppr_ty _         (IfaceLitTy n)         = pprIfaceTyLit n
         -- Function types
-ppr_ty ctxt_prec (IfaceFunTy _ w ty1 ty2)  -- Should be VisArg
+ppr_ty ctxt_prec (IfaceFunTy af ty1 ty2)  -- Should be VisArg
   = -- We don't want to lose synonyms, so we mustn't use splitFunTys here.
     maybeParen ctxt_prec funPrec $
-    sep [ppr_ty funPrec ty1, sep (ppr_fun_tail w ty2)]
+    sep [ppr_ty funPrec ty1, sep (ppr_fun_tail af ty2)]
   where
-    ppr_fun_tail wthis (IfaceFunTy VisArg wnext ty1 ty2)
-      = (ppr_fun_arrow wthis <+> ppr_ty funPrec ty1) : ppr_fun_tail wnext ty2
-    ppr_fun_tail wthis other_ty
-      = [ppr_fun_arrow wthis <+> pprIfaceType other_ty]
+    ppr_fun_tail afthis (IfaceFunTy afnext ty1 ty2)
+      | isVisibleIfaceAnonArgFlag afnext
+      = (pprFunArrow afthis <+> ppr_ty funPrec ty1) : ppr_fun_tail afnext ty2
+    ppr_fun_tail afthis other_ty
+      = [pprFunArrow afthis <+> pprIfaceType other_ty]
 
 ppr_ty ctxt_prec (IfaceAppTy t ts)
   = if_print_coercions
@@ -990,7 +1035,7 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
       | in_kind && do_runtimereps && GHC.Core.Type.isRuntimeRepTy (tyVarKind tv)
       = liftedRep_ty
       | in_kind && do_multiplicities && GHC.Core.Type.isMultiplicityTy (tyVarKind tv)
-      = many_ty
+      = manyIfaceTy
       | otherwise
       = ty
 
@@ -1000,8 +1045,8 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
     go ink subs (IfaceTupleTy sort is_prom tc_args)
       = IfaceTupleTy sort is_prom (go_args ink subs tc_args)
 
-    go ink subs (IfaceFunTy af w arg res)
-      = IfaceFunTy af (go ink subs w) (go ink subs arg) (go ink subs res)
+    go ink subs (IfaceFunTy af arg res)
+      = IfaceFunTy (go_arg_flag ink subs af) (go ink subs arg) (go ink subs res)
 
     go ink subs (IfaceAppTy t ts)
       = IfaceAppTy (go ink subs t) (go_args ink subs ts)
@@ -1011,6 +1056,10 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
 
     go _ _ ty@(IfaceLitTy {}) = ty
     go _ _ ty@(IfaceCoercionTy {}) = ty
+
+    go_arg_flag _   _    IfaceVisArg         = IfaceVisArg
+    go_arg_flag _   _    IfaceInvisArg       = IfaceInvisArg
+    go_arg_flag ink subs (IfaceMultArg mult) = IfaceMultArg (go ink subs mult)
 
     go_ifacebndr :: FastStringEnv IfaceType -> IfaceForAllBndr -> IfaceForAllBndr
     go_ifacebndr subs (Bndr (IfaceIdBndr (w, n, t)) argf)
@@ -1026,7 +1075,7 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
     check_substitution :: IfaceType -> Maybe IfaceType
     check_substitution (IfaceTyConApp tc _)
         | do_runtimereps, tc `ifaceTyConHasKey` runtimeRepTyConKey = Just liftedRep_ty
-        | do_multiplicities, tc `ifaceTyConHasKey` multiplicityTyConKey = Just many_ty
+        | do_multiplicities, tc `ifaceTyConHasKey` multiplicityTyConKey = Just manyIfaceTy
     check_substitution _ = Nothing
 
 liftedRep_ty :: IfaceType
@@ -1035,8 +1084,8 @@ liftedRep_ty =
                   IA_Nil
   where dc_name = getName liftedRepDataConTyCon
 
-many_ty :: IfaceType
-many_ty =
+manyIfaceTy :: IfaceType
+manyIfaceTy =
     IfaceTyConApp (IfaceTyCon dc_name (IfaceTyConInfo IsPromoted IfaceNormalTyCon))
                   IA_Nil
   where dc_name = getName manyDataConTyCon
@@ -1793,10 +1842,9 @@ instance Binary IfaceType where
             putByte bh 2
             put_ bh ae
             put_ bh af
-    put_ bh (IfaceFunTy af aw ag ah) = do
+    put_ bh (IfaceFunTy af ag ah) = do
             putByte bh 3
             put_ bh af
-            put_ bh aw
             put_ bh ag
             put_ bh ah
     put_ bh (IfaceTyConApp tc tys)
@@ -1822,10 +1870,9 @@ instance Binary IfaceType where
                       af <- get bh
                       return (IfaceAppTy ae af)
               3 -> do af <- get bh
-                      aw <- get bh
                       ag <- get bh
                       ah <- get bh
-                      return (IfaceFunTy af aw ag ah)
+                      return (IfaceFunTy af ag ah)
               5 -> do { tc <- get bh; tys <- get bh
                       ; return (IfaceTyConApp tc tys) }
               6 -> do { a <- get bh; b <- get bh
@@ -1837,6 +1884,20 @@ instance Binary IfaceType where
                       ; return (IfaceTupleTy s i tys) }
               _  -> do n <- get bh
                        return (IfaceLitTy n)
+
+instance Binary IfaceAnonArgFlag where
+  put_ bh IfaceVisArg = putByte bh 1
+  put_ bh IfaceInvisArg = putByte bh 2
+  put_ bh (IfaceMultArg mult) = do putByte bh 3
+                                   put_ bh mult
+
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      1 -> return IfaceVisArg
+      2 -> return IfaceInvisArg
+      _ -> do mult <- get bh
+              return (IfaceMultArg mult)
 
 instance Binary IfaceMCoercion where
   put_ bh IfaceMRefl = do
@@ -2028,12 +2089,18 @@ instance NFData IfaceType where
     IfaceTyVar f1 -> rnf f1
     IfaceLitTy f1 -> rnf f1
     IfaceAppTy f1 f2 -> rnf f1 `seq` rnf f2
-    IfaceFunTy f1 f2 f3 f4 -> f1 `seq` rnf f2 `seq` rnf f3 `seq` rnf f4
+    IfaceFunTy f1 f2 f3 -> rnf f1 `seq` rnf f2 `seq` rnf f3
     IfaceForAllTy f1 f2 -> f1 `seq` rnf f2
     IfaceTyConApp f1 f2 -> rnf f1 `seq` rnf f2
     IfaceCastTy f1 f2 -> rnf f1 `seq` rnf f2
     IfaceCoercionTy f1 -> rnf f1
     IfaceTupleTy f1 f2 f3 -> f1 `seq` f2 `seq` rnf f3
+
+instance NFData IfaceAnonArgFlag where
+  rnf = \case
+    IfaceVisArg -> ()
+    IfaceInvisArg -> ()
+    IfaceMultArg mult -> rnf mult
 
 instance NFData IfaceTyLit where
   rnf = \case

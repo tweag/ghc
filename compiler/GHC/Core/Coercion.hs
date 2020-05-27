@@ -1896,7 +1896,9 @@ ty_co_subst lc role ty
                              liftCoSubstTyVar lc r tv
     go r (AppTy ty1 ty2)   = mkAppCo (go r ty1) (go Nominal ty2)
     go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go (tyConRolesX r tc) tys)
-    go r (FunTy _ w ty1 ty2) = mkFunCo r (go Nominal w) (go r ty1) (go r ty2)
+    go r (FunTy af ty1 ty2)
+      | MultArg w <- af    = mkFunCo r (go Nominal w) (go r ty1) (go r ty2)
+      | otherwise          = mkFunCo r (mkNomReflCo Many) (go r ty1) (go r ty2)
     go r t@(ForAllTy (Bndr v _) ty)
        = let (lc', v', h) = liftCoSubstVarBndr lc v
              body_co = ty_co_subst lc' r ty in
@@ -2462,9 +2464,11 @@ buildCoercion orig_ty1 orig_ty2 = go orig_ty1 orig_ty2
                   ; _           -> False      } )
         mkNomReflCo ty1
 
-    go (FunTy { ft_mult = w1, ft_arg = arg1, ft_res = res1 })
-       (FunTy { ft_mult = w2, ft_arg = arg2, ft_res = res2 })
+    go (FunTy { ft_af = af1, ft_arg = arg1, ft_res = res1 })
+       (FunTy { ft_af = af2, ft_arg = arg2, ft_res = res2 })
       = mkFunCo Nominal (go w1 w2) (go arg1 arg2) (go res1 res2)
+      where w1 = anonArgFlagMult af1
+            w2 = anonArgFlagMult af2
 
     go (TyConApp tc1 args1) (TyConApp tc2 args2)
       = ASSERT( tc1 == tc2 )

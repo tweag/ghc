@@ -722,7 +722,7 @@ tcStandaloneDerivInstType ctxt
                   HsIB { hsib_ext = vars
                        , hsib_body
                            = L (getLoc deriv_ty_body) $
-                             HsForAllTy { hst_fvf = ForallInvis
+                             HsForAllTy { hst_visible = Invisible
                                         , hst_bndrs = tvs
                                         , hst_xforall = noExtField
                                         , hst_body  = rho }}

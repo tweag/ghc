@@ -711,7 +711,7 @@ check_type ve@(ValidityEnv{ ve_tidy_env = env, ve_ctxt = ctxt
     (theta, tau)  = tcSplitPhiTy phi
     (env', tvbs') = tidyTyCoVarBinders env tvbs
 
-check_type (ve@ValidityEnv{ve_rank = rank}) (FunTy _ _ arg_ty res_ty)
+check_type (ve@ValidityEnv{ve_rank = rank}) (FunTy _ arg_ty res_ty)
   = do  { check_type (ve{ve_rank = arg_rank}) arg_ty
         ; check_type (ve{ve_rank = res_rank}) res_ty }
   where
@@ -1670,7 +1670,10 @@ dropCasts :: Type -> Type
 -- To consider: drop only HoleCo casts
 dropCasts (CastTy ty _)       = dropCasts ty
 dropCasts (AppTy t1 t2)       = mkAppTy (dropCasts t1) (dropCasts t2)
-dropCasts ty@(FunTy _ w t1 t2)  = ty { ft_mult = dropCasts w, ft_arg = dropCasts t1, ft_res = dropCasts t2 }
+dropCasts (FunTy af t1 t2)    = mkFunTy (drop_casts_af af) (dropCasts t1) (dropCasts t2)
+  where drop_casts_af VisArg      = VisArg
+        drop_casts_af InvisArg    = InvisArg
+        drop_casts_af (MultArg m) = mkMultAnonArgFlag (dropCasts m)
 dropCasts (TyConApp tc tys)   = mkTyConApp tc (map dropCasts tys)
 dropCasts (ForAllTy b ty)     = ForAllTy (dropCastsB b) (dropCasts ty)
 dropCasts ty                  = ty  -- LitTy, TyVarTy, CoercionTy
@@ -2837,7 +2840,9 @@ fvType (TyVarTy tv)          = [tv]
 fvType (TyConApp _ tys)      = fvTypes tys
 fvType (LitTy {})            = []
 fvType (AppTy fun arg)       = fvType fun ++ fvType arg
-fvType (FunTy _ w arg res)   = fvType w ++ fvType arg ++ fvType res
+fvType (FunTy af arg res)
+  | MultArg mult <- af       = fvType mult ++ fvType arg ++ fvType res
+  | otherwise                = fvType arg ++ fvType res
 fvType (ForAllTy (Bndr tv _) ty)
   = fvType (tyVarKind tv) ++
     filter (/= tv) (fvType ty)
@@ -2854,7 +2859,9 @@ sizeType (TyVarTy {})      = 1
 sizeType (TyConApp tc tys) = 1 + sizeTyConAppArgs tc tys
 sizeType (LitTy {})        = 1
 sizeType (AppTy fun arg)   = sizeType fun + sizeType arg
-sizeType (FunTy _ w arg res) = sizeType w + sizeType arg + sizeType res + 1
+sizeType (FunTy af arg res)
+  | MultArg mult <- af     = sizeType mult + sizeType arg + sizeType res + 1
+  | otherwise              = sizeType arg + sizeType res + 1
 sizeType (ForAllTy _ ty)   = sizeType ty
 sizeType (CastTy ty _)     = sizeType ty
 sizeType (CoercionTy _)    = 0

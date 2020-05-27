@@ -133,10 +133,10 @@ tidyType env (TyVarTy tv)          = TyVarTy (tidyTyCoVarOcc env tv)
 tidyType env (TyConApp tycon tys)  = let args = tidyTypes env tys
                                      in args `seqList` TyConApp tycon args
 tidyType env (AppTy fun arg)       = (AppTy $! (tidyType env fun)) $! (tidyType env arg)
-tidyType env ty@(FunTy _ w arg res)  = let { !w'   = tidyType env w
-                                           ; !arg' = tidyType env arg
-                                           ; !res' = tidyType env res }
-                                       in ty { ft_mult = w', ft_arg = arg', ft_res = res' }
+tidyType env (FunTy af arg res)    = let !af'   = tidyAnonArgFlag env af
+                                         !arg' = tidyType env arg
+                                         !res' = tidyType env res
+                                     in mkFunTy af' arg' res'
 tidyType env (ty@(ForAllTy{}))     = mkForAllTys' (zip tvs' vis) $! tidyType env' body_ty
   where
     (tvs, vis, body_ty) = splitForAllTys' ty
@@ -144,6 +144,10 @@ tidyType env (ty@(ForAllTy{}))     = mkForAllTys' (zip tvs' vis) $! tidyType env
 tidyType env (CastTy ty co)       = (CastTy $! tidyType env ty) $! (tidyCo env co)
 tidyType env (CoercionTy co)      = CoercionTy $! (tidyCo env co)
 
+tidyAnonArgFlag :: TidyEnv -> AnonArgFlag -> AnonArgFlag
+tidyAnonArgFlag _   VisArg         = VisArg
+tidyAnonArgFlag _   InvisArg       = InvisArg
+tidyAnonArgFlag env (MultArg mult) = MultArg (tidyType env mult)
 
 -- The following two functions differ from mkForAllTys and splitForAllTys in that
 -- they expect/preserve the ArgFlag argument. These belong to types/Type.hs, but

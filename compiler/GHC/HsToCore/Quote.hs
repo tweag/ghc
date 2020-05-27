@@ -109,8 +109,8 @@ mkMetaWrappers q@(QuoteWrapper quote_var_raw m_var) = do
           -- the expected type
           tyvars = dataConUserTyVarBinders (classDataCon cls)
           expected_ty = mkForAllTys tyvars $
-                          mkInvisFunTyMany (mkClassPred cls (mkTyVarTys (binderVars tyvars)))
-                                           (mkClassPred monad_cls (mkTyVarTys (binderVars tyvars)))
+                          mkInvisFunTy (mkClassPred cls (mkTyVarTys (binderVars tyvars)))
+                                       (mkClassPred monad_cls (mkTyVarTys (binderVars tyvars)))
 
       MASSERT2( idType monad_sel `eqType` expected_ty, ppr monad_sel $$ ppr expected_ty)
 
@@ -1229,7 +1229,7 @@ repLTy ty = repTy (unLoc ty)
 -- Desugar a type headed by an invisible forall (e.g., @forall a. a@) or
 -- a context (e.g., @Show a => a@) into a ForallT from L.H.TH.Syntax.
 -- In other words, the argument to this function is always an
--- @HsForAllTy ForallInvis@ or @HsQualTy@.
+-- @HsForAllTy Invisible@ or @HsQualTy@.
 -- Types headed by visible foralls (which are desugared to ForallVisT) are
 -- handled separately in repTy.
 repForallT :: HsType GhcRn -> MetaM (Core (M TH.Type))
@@ -1242,10 +1242,10 @@ repForallT ty
       }
 
 repTy :: HsType GhcRn -> MetaM (Core (M TH.Type))
-repTy ty@(HsForAllTy { hst_fvf = fvf, hst_bndrs = tvs, hst_body = body }) =
-  case fvf of
-    ForallInvis -> repForallT ty
-    ForallVis   -> addHsTyVarBinds tvs $ \bndrs ->
+repTy ty@(HsForAllTy { hst_visible = vis, hst_bndrs = tvs, hst_body = body }) =
+  case vis of
+    Invisible -> repForallT ty
+    Visible   -> addHsTyVarBinds tvs $ \bndrs ->
                    do body1 <- repLTy body
                       repTForallVis bndrs body1
 repTy ty@(HsQualTy {}) = repForallT ty

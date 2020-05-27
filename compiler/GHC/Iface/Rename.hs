@@ -722,8 +722,8 @@ rnIfaceType (IfaceTyVar   n)   = pure (IfaceTyVar n)
 rnIfaceType (IfaceAppTy t1 t2)
     = IfaceAppTy <$> rnIfaceType t1 <*> rnIfaceAppArgs t2
 rnIfaceType (IfaceLitTy l)         = return (IfaceLitTy l)
-rnIfaceType (IfaceFunTy af w t1 t2)
-    = IfaceFunTy af <$> rnIfaceType w <*> rnIfaceType t1 <*> rnIfaceType t2
+rnIfaceType (IfaceFunTy af t1 t2)
+    = IfaceFunTy <$> rnIfaceAnonArgFlag af <*> rnIfaceType t1 <*> rnIfaceType t2
 rnIfaceType (IfaceTupleTy s i tks)
     = IfaceTupleTy s i <$> rnIfaceAppArgs tks
 rnIfaceType (IfaceTyConApp tc tks)
@@ -734,6 +734,11 @@ rnIfaceType (IfaceCoercionTy co)
     = IfaceCoercionTy <$> rnIfaceCo co
 rnIfaceType (IfaceCastTy ty co)
     = IfaceCastTy <$> rnIfaceType ty <*> rnIfaceCo co
+
+rnIfaceAnonArgFlag :: Rename IfaceAnonArgFlag
+rnIfaceAnonArgFlag IfaceVisArg         = pure IfaceVisArg
+rnIfaceAnonArgFlag IfaceInvisArg       = pure IfaceInvisArg
+rnIfaceAnonArgFlag (IfaceMultArg mult) = IfaceMultArg <$> rnIfaceType mult
 
 rnIfaceScaledType :: Rename (IfaceMult, IfaceType)
 rnIfaceScaledType (m, t) = (,) <$> rnIfaceType m <*> rnIfaceType t

@@ -67,7 +67,9 @@ module GHC.Types.Var (
 
         -- * ArgFlags
         ArgFlag(..), isVisibleArgFlag, isInvisibleArgFlag, sameVis,
-        AnonArgFlag(..), ForallVisFlag(..), argToForallVisFlag,
+        AnonArgFlag(..), argFlagVisibility, visibilityAnonArgFlag,
+        anonArgFlagVisibility, anonArgFlagMult, anonArgFlagMult_maybe,
+        simpleEqualArgFlags, isVisibleAnonArgFlag, isInvisibleAnonArgFlag,
 
         -- * TyVar's
         VarBndr(..), TyCoVarBinder, TyVarBinder,
@@ -103,10 +105,12 @@ import {-# SOURCE #-}   GHC.Builtin.Types ( manyDataConTy )
 import GHC.Types.Name hiding (varName)
 import GHC.Types.Unique ( Uniquable, Unique, getKey, getUnique
                         , mkUniqueGrimily, nonDetCmpUnique )
+import GHC.Types.Basic ( Visibility(..), isVisible, isInvisible )
 import Util
 import Binary
 import Outputable
 
+import Data.Function ( on )
 import Data.Data
 
 {-
@@ -444,21 +448,17 @@ data ArgFlag = Inferred | Specified | Required
 
 -- | Does this 'ArgFlag' classify an argument that is written in Haskell?
 isVisibleArgFlag :: ArgFlag -> Bool
-isVisibleArgFlag Required = True
-isVisibleArgFlag _        = False
+isVisibleArgFlag = isVisible . argFlagVisibility
 
 -- | Does this 'ArgFlag' classify an argument that is not written in Haskell?
 isInvisibleArgFlag :: ArgFlag -> Bool
-isInvisibleArgFlag = not . isVisibleArgFlag
+isInvisibleArgFlag = isInvisible . argFlagVisibility
 
 -- | Do these denote the same level of visibility? 'Required'
 -- arguments are visible, others are not. So this function
 -- equates 'Specified' and 'Inferred'. Used for printing.
 sameVis :: ArgFlag -> ArgFlag -> Bool
-sameVis Required Required = True
-sameVis Required _        = False
-sameVis _        Required = False
-sameVis _        _        = True
+sameVis = (==) `on` argFlagVisibility
 
 instance Outputable ArgFlag where
   ppr Required  = text "[req]"
@@ -482,68 +482,71 @@ instance Binary ArgFlag where
 -- Appears here partly so that it's together with its friend ArgFlag,
 -- but also because it is used in IfaceType, rather early in the
 -- compilation chain
--- See Note [AnonArgFlag vs. ForallVisFlag]
 data AnonArgFlag
   = VisArg    -- ^ Used for @(->)@: an ordinary non-dependent arrow.
               --   The argument is visible in source code.
   | InvisArg  -- ^ Used for @(=>)@: a non-dependent predicate arrow.
               --   The argument is invisible in source code.
-  deriving (Eq, Ord, Data)
+  | MultArg Mult  -- ^ Used for @(# ... ->)@: an arrow with linearity
+                  -- information. Always prefer 'VisArg' over @MultArg Many@.
+  deriving (Data)
 
 instance Outputable AnonArgFlag where
-  ppr VisArg   = text "[vis]"
-  ppr InvisArg = text "[invis]"
+  ppr VisArg         = text "[vis]"
+  ppr InvisArg       = text "[invis]"
+  ppr (MultArg mult) = brackets $ text "mult" <> colon <> ppr mult
 
-instance Binary AnonArgFlag where
-  put_ bh VisArg   = putByte bh 0
-  put_ bh InvisArg = putByte bh 1
+-- | Convert an 'ArgFlag' to its corresponding 'Visibility'.
+argFlagVisibility :: ArgFlag -> Visibility
+argFlagVisibility Required  = Visible
+argFlagVisibility Specified = Invisible
+argFlagVisibility Inferred  = Invisible
 
-  get bh = do
-    h <- getByte bh
-    case h of
-      0 -> return VisArg
-      _ -> return InvisArg
+-- | Convert a 'Visibility' to an 'AnonArgFlag'; this never
+-- produces a 'MultArg'.
+visibilityAnonArgFlag :: Visibility -> AnonArgFlag
+visibilityAnonArgFlag Visible   = VisArg
+visibilityAnonArgFlag Invisible = InvisArg
 
--- | Is a @forall@ invisible (e.g., @forall a b. {...}@, with a dot) or visible
--- (e.g., @forall a b -> {...}@, with an arrow)?
+-- | Convert a 'AnonArgFlag' to a 'Visibility'. Assumes
+-- that the 'AnonArgFlag' is *not* 'MultArg', upon which
+-- this function will panic.
+anonArgFlagVisibility :: HasDebugCallStack => AnonArgFlag -> Visibility
+anonArgFlagVisibility VisArg         = Visible
+anonArgFlagVisibility InvisArg       = Invisible
+anonArgFlagVisibility (MultArg mult) = pprPanic "anonArgFlagVisibility MultArg" (ppr mult)
 
--- See Note [AnonArgFlag vs. ForallVisFlag]
-data ForallVisFlag
-  = ForallVis   -- ^ A visible @forall@ (with an arrow)
-  | ForallInvis -- ^ An invisible @forall@ (with a dot)
-  deriving (Eq, Ord, Data)
+-- | Extract the multiplicity from an AnonArgFlag
+anonArgFlagMult :: AnonArgFlag -> Mult
+anonArgFlagMult VisArg      = manyDataConTy
+anonArgFlagMult InvisArg    = manyDataConTy
+anonArgFlagMult (MultArg m) = m
 
-instance Outputable ForallVisFlag where
-  ppr f = text $ case f of
-                   ForallVis   -> "ForallVis"
-                   ForallInvis -> "ForallInvis"
+-- | Check whether an AnonArgFlag is visible
+isVisibleAnonArgFlag :: AnonArgFlag -> Bool
+isVisibleAnonArgFlag VisArg      = True
+isVisibleAnonArgFlag InvisArg    = False
+isVisibleAnonArgFlag (MultArg _) = True
 
--- | Convert an 'ArgFlag' to its corresponding 'ForallVisFlag'.
-argToForallVisFlag :: ArgFlag -> ForallVisFlag
-argToForallVisFlag Required  = ForallVis
-argToForallVisFlag Specified = ForallInvis
-argToForallVisFlag Inferred  = ForallInvis
+-- | Check whether an AnonArgFlag is invisible
+isInvisibleAnonArgFlag :: AnonArgFlag -> Bool
+isInvisibleAnonArgFlag InvisArg = True
+isInvisibleAnonArgFlag _        = False
 
-{-
-Note [AnonArgFlag vs. ForallVisFlag]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The AnonArgFlag and ForallVisFlag data types are quite similar at a first
-glance:
+-- | Extract the multiplicity from an AnonArgFlag, but return Nothing
+-- if the multiplicity is Many
+{-# INLINE anonArgFlagMult_maybe #-}
+anonArgFlagMult_maybe :: AnonArgFlag -> Maybe Mult
+anonArgFlagMult_maybe VisArg         = Nothing
+anonArgFlagMult_maybe InvisArg       = Nothing
+anonArgFlagMult_maybe (MultArg mult) = Just mult
 
-  data AnonArgFlag   = VisArg    | InvisArg
-  data ForallVisFlag = ForallVis | ForallInvis
+-- | Are these two AnonArgFlags simple (that is: not linear) and equal?
+simpleEqualArgFlags :: AnonArgFlag -> AnonArgFlag -> Bool
+simpleEqualArgFlags VisArg   VisArg   = True
+simpleEqualArgFlags InvisArg InvisArg = True
+simpleEqualArgFlags _        _        = False
 
-Both data types keep track of visibility of some sort. AnonArgFlag tracks
-whether a FunTy has a visible argument (->) or an invisible predicate argument
-(=>). ForallVisFlag tracks whether a `forall` quantifier is visible
-(forall a -> {...}) or invisible (forall a. {...}).
-
-Given their similarities, it's tempting to want to combine these two data types
-into one, but they actually represent distinct concepts. AnonArgFlag reflects a
-property of *Core* types, whereas ForallVisFlag reflects a property of the GHC
-AST. In other words, AnonArgFlag is all about internals, whereas ForallVisFlag
-is all about surface syntax. Therefore, they are kept as separate data types.
--}
 
 {- *********************************************************************
 *                                                                      *

@@ -1160,12 +1160,15 @@ flatten_one (TyConApp tc tys)
 --                   _ -> fmode
   = flatten_ty_con_app tc tys
 
-flatten_one ty@(FunTy _ mult ty1 ty2)
+flatten_one (FunTy af ty1 ty2)
   = do { (xi1,co1) <- flatten_one ty1
        ; (xi2,co2) <- flatten_one ty2
-       ; (xi3,co3) <- flatten_one mult
        ; role <- getRole
-       ; return (ty { ft_mult = xi3, ft_arg = xi1, ft_res = xi2 }
+       ; (af',co3) <- case af of
+                        MultArg mult -> do (xi3, co3) <- flatten_one mult
+                                           return (mkMultAnonArgFlag xi3, co3)
+                        _            -> return (af, mkReflCo role Many)
+       ; return ( mkFunTy af' xi1 xi2
                 , mkFunCo role co3 co1 co2) }
 
 flatten_one ty@(ForAllTy {})
@@ -1907,9 +1910,9 @@ split_pi_tys' ty = split ty ty
      -- put common cases first
   split _       (ForAllTy b res) = let (bs, ty, _) = split res res
                                    in  (Named b : bs, ty, True)
-  split _       (FunTy { ft_af = af, ft_mult = w, ft_arg = arg, ft_res = res })
+  split _       (FunTy { ft_af = af, ft_arg = arg, ft_res = res })
                                  = let (bs, ty, named) = split res res
-                                   in  (Anon af (mkScaled w arg) : bs, ty, named)
+                                   in  (Anon af arg : bs, ty, named)
 
   split orig_ty ty | Just ty' <- coreView ty = split orig_ty ty'
   split orig_ty _                = ([], orig_ty, False)
@@ -1922,7 +1925,7 @@ ty_con_binders_ty_binders' = foldr go ([], False)
   where
     go (Bndr tv (NamedTCB vis)) (bndrs, _)
       = (Named (Bndr tv vis) : bndrs, True)
-    go (Bndr tv (AnonTCB af))   (bndrs, n)
-      = (Anon af (unrestricted (tyVarKind tv))   : bndrs, n)
+    go (Bndr tv (AnonTCB vis))   (bndrs, n)
+      = (Anon (visibilityAnonArgFlag vis) (tyVarKind tv) : bndrs, n)
     {-# INLINE go #-}
 {-# INLINE ty_con_binders_ty_binders' #-}

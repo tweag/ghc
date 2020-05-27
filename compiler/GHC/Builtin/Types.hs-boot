@@ -47,7 +47,6 @@ mkPromotedListTy :: Type -> [Type] -> Type
 multiplicityTyCon :: TyCon
 multiplicityTy :: Type
 oneDataConTy :: Type
-oneDataConTyCon :: TyCon
 manyDataConTy :: Type
 manyDataConTyCon :: TyCon
 unrestrictedFunTyCon :: TyCon

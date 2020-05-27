@@ -21,7 +21,7 @@ type ThetaType = [PredType]
 type CoercionN = Coercion
 type MCoercionN = MCoercion
 
-mkFunTyMany :: AnonArgFlag -> Type -> Type -> Type
+mkFunTy :: AnonArgFlag -> Type -> Type -> Type
 mkForAllTy :: Var -> ArgFlag -> Type -> Type
 
 instance Data Type  -- To support Data instances in GHC.Core.Coercion.Axiom

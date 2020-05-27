@@ -2464,11 +2464,20 @@ unifyWanted loc role orig_ty1 orig_ty2
     go ty1 ty2 | Just ty1' <- tcView ty1 = go ty1' ty2
     go ty1 ty2 | Just ty2' <- tcView ty2 = go ty1 ty2'
 
-    go (FunTy _ w1 s1 t1) (FunTy _ w2 s2 t2)
+    go (FunTy af1 s1 t1) (FunTy af2 s2 t2)
+      | simpleEqualArgFlags af1 af2
+      = do { co_s <- unifyWanted loc role s1 s2
+           ; co_t <- unifyWanted loc role t1 t2
+           ; return (mkFunCo role (mkNomReflCo Many) co_s co_t) }
+    go (FunTy af1 s1 t1) (FunTy af2 s2 t2)
+      | isVisibleAnonArgFlag af1
+      , isVisibleAnonArgFlag af2
       = do { co_s <- unifyWanted loc role s1 s2
            ; co_t <- unifyWanted loc role t1 t2
            ; co_w <- unifyWanted loc Nominal w1 w2
            ; return (mkFunCo role co_w co_s co_t) }
+        where w1 = anonArgFlagMult af1
+              w2 = anonArgFlagMult af2
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       | tc1 == tc2, tys1 `equalLength` tys2
       , isInjectiveTyCon tc1 role -- don't look under newtypes at Rep equality
@@ -2516,10 +2525,18 @@ unify_derived loc role    orig_ty1 orig_ty2
     go ty1 ty2 | Just ty1' <- tcView ty1 = go ty1' ty2
     go ty1 ty2 | Just ty2' <- tcView ty2 = go ty1 ty2'
 
-    go (FunTy _ w1 s1 t1) (FunTy _ w2 s2 t2)
+    go (FunTy af1 s1 t1) (FunTy af2 s2 t2)
+      | simpleEqualArgFlags af1 af2
+      = do { unify_derived loc role s1 s2
+           ; unify_derived loc role t1 t2 }
+    go (FunTy af1 s1 t1) (FunTy af2 s2 t2)
+      | isVisibleAnonArgFlag af1
+      , isVisibleAnonArgFlag af2
       = do { unify_derived loc role s1 s2
            ; unify_derived loc role t1 t2
            ; unify_derived loc role w1 w2 }
+      where w1 = anonArgFlagMult af1
+            w2 = anonArgFlagMult af2
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       | tc1 == tc2, tys1 `equalLength` tys2
       , isInjectiveTyCon tc1 role

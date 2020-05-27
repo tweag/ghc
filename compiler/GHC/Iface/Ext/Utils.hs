@@ -82,8 +82,8 @@ hieTypeToIface = foldType go
     go (HLitTy l) = IfaceLitTy l
     go (HForAllTy ((n,k),af) t) = let b = (occNameFS $ getOccName n, k)
                                   in IfaceForAllTy (Bndr (IfaceTvBndr b) af) t
-    go (HFunTy w a b)   = IfaceFunTy VisArg   w       a    b
-    go (HQualTy pred b) = IfaceFunTy InvisArg many_ty pred b
+    go (HFunTy w a b)   = IfaceFunTy (mkMultIfaceAnonArgFlag w) a    b
+    go (HQualTy pred b) = IfaceFunTy IfaceInvisArg              pred b
     go (HCastTy a) = a
     go HCoercionTy = IfaceTyVar "<coercion type>"
     go (HTyConApp a xs) = IfaceTyConApp a (hieToIfaceArgs xs)
@@ -159,13 +159,15 @@ getTypeIndex t
       k <- getTypeIndex (varType v)
       i <- getTypeIndex t
       return $ HForAllTy ((varName v,k),a) i
-    go (FunTy { ft_af = af, ft_mult = w, ft_arg = a, ft_res = b }) = do
+    go (FunTy { ft_af = af, ft_arg = a, ft_res = b }) = do
       ai <- getTypeIndex a
       bi <- getTypeIndex b
-      wi <- getTypeIndex w
-      return $ case af of
-                 InvisArg -> case w of Many -> HQualTy ai bi; _ -> error "Unexpected non-unrestricted predicate"
-                 VisArg   -> HFunTy wi ai bi
+      case af of
+        InvisArg -> return $ HQualTy ai bi
+        VisArg   -> do wi <- getTypeIndex Many
+                       return $ HFunTy wi ai bi
+        MultArg w -> do wi <- getTypeIndex w
+                        return $ HFunTy wi ai bi
     go (LitTy a) = return $ HLitTy $ toIfaceTyLit a
     go (CastTy t _) = do
       i <- getTypeIndex t

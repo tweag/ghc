@@ -1145,7 +1145,7 @@ tcIfaceType = go
     go (IfaceTyVar n)            = TyVarTy <$> tcIfaceTyVar n
     go (IfaceFreeTyVar n)        = pprPanic "tcIfaceType:IfaceFreeTyVar" (ppr n)
     go (IfaceLitTy l)            = LitTy <$> tcIfaceTyLit l
-    go (IfaceFunTy flag w t1 t2) = FunTy flag <$> tcIfaceType w <*> go t1 <*> go t2
+    go (IfaceFunTy flag t1 t2)   = FunTy <$> go_arg_flag flag <*> go t1 <*> go t2
     go (IfaceTupleTy s i tks)    = tcIfaceTupleTy s i tks
     go (IfaceAppTy t ts)
       = do { t'  <- go t
@@ -1160,6 +1160,10 @@ tcIfaceType = go
         ForAllTy (Bndr tv' vis) <$> go t
     go (IfaceCastTy ty co)   = CastTy <$> go ty <*> tcIfaceCo co
     go (IfaceCoercionTy co)  = CoercionTy <$> tcIfaceCo co
+
+    go_arg_flag IfaceInvisArg       = return InvisArg
+    go_arg_flag IfaceVisArg         = return VisArg
+    go_arg_flag (IfaceMultArg mult) = mkMultAnonArgFlag <$> go mult
 
 tcIfaceTupleTy :: TupleSort -> PromotionFlag -> IfaceAppArgs -> IfL Type
 tcIfaceTupleTy sort is_promoted args

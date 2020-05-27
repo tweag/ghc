@@ -52,6 +52,8 @@ module GHC.Types.Basic (
 
         Boxity(..), isBoxed,
 
+        Visibility(..), isVisible, isInvisible,
+
         PprPrec(..), topPrec, sigPrec, opPrec, funPrec, starPrec, appPrec,
         maybeParen,
 
@@ -550,6 +552,31 @@ isBoxed Unboxed = False
 instance Outputable Boxity where
   ppr Boxed   = text "Boxed"
   ppr Unboxed = text "Unboxed"
+
+{-
+************************************************************************
+*                                                                      *
+                Visibility flag
+*                                                                      *
+************************************************************************
+-}
+
+data Visibility
+  = Visible
+  | Invisible
+  deriving( Eq, Data )
+
+isVisible :: Visibility -> Bool
+isVisible Visible   = True
+isVisible Invisible = False
+
+isInvisible :: Visibility -> Bool
+isInvisible Visible   = False
+isInvisible Invisible = True
+
+instance Outputable Visibility where
+  ppr Visible   = text "Visible"
+  ppr Invisible = text "Invisible"
 
 {-
 ************************************************************************

@@ -19,7 +19,6 @@ import GhcPrelude
 import GHC.Types.Id
 import GHC.Tc.Utils.TcType hiding( substTy )
 import GHC.Core.Type  hiding( substTy, extendTvSubstList )
-import GHC.Core.Multiplicity
 import GHC.Core.Predicate
 import GHC.Types.Module( Module, HasModule(..) )
 import GHC.Core.Coercion( Coercion )
@@ -2483,12 +2482,14 @@ mkCallUDs' env f args
     -- we decide on a case by case basis if we want to specialise
     -- on this argument; if so, SpecDict, if not UnspecArg
     mk_spec_arg arg (Anon InvisArg pred)
-      | type_determines_value (scaledThing pred)
+      | type_determines_value pred
       , interestingDict env arg -- Note [Interesting dictionary arguments]
       = SpecDict arg
       | otherwise = UnspecArg
 
     mk_spec_arg _ (Anon VisArg _)
+      = UnspecArg
+    mk_spec_arg _ (Anon (MultArg _) _)
       = UnspecArg
 
     want_calls_for f = isLocalId f || isJust (maybeUnfoldingTemplate (realIdUnfolding f))

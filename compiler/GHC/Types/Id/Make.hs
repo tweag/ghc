@@ -408,7 +408,7 @@ mkDictSelId name clas
     val_index      = assoc "MkId.mkDictSelId" (sel_names `zip` [0..]) name
 
     sel_ty = mkForAllTys tyvars $
-             mkInvisFunTyMany (mkClassPred clas (mkTyVarTys (binderVars tyvars))) $
+             mkInvisFunTy (mkClassPred clas (mkTyVarTys (binderVars tyvars))) $
              scaledThing (getNth arg_tys val_index)
 
     base_info = noCafIdInfo
@@ -1474,7 +1474,7 @@ coerceId = pcMiscPrelId coerceName ty info
                             , Bndr av Specified
                             , Bndr bv Specified
                             ] $
-                mkInvisFunTyMany eqRTy $
+                mkInvisFunTy eqRTy $
                 mkVisFunTyMany a b
 
     bndrs@[rv,av,bv] = mkTemplateKiTyVar runtimeRepTy

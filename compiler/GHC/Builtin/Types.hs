@@ -553,7 +553,7 @@ consDataCon_RDR = nameRdrName consDataConName
 pcTyCon :: Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
 pcTyCon name cType tyvars cons
   = mkAlgTyCon name
-                (mkAnonTyConBinders VisArg tyvars)
+                (mkAnonTyConBinders Visible tyvars)
                 liftedTypeKind
                 (map (const Representational) tyvars)
                 cType

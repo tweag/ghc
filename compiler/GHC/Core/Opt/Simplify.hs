@@ -393,8 +393,10 @@ scaleJoinPointType :: Mult -> Int -> Type -> Type
 scaleJoinPointType mult arity ty | arity == 0 = ty
                                  | otherwise  = case splitPiTy ty of
   (binder, ty') -> mkPiTy (scaleBinder binder) (scaleJoinPointType mult (arity-1) ty')
-  where scaleBinder   (Anon af t) = Anon af (scaleScaled mult t)
-        scaleBinder b@(Named _)   = b
+  where scaleBinder   b@(Anon InvisArg _)    = b
+        scaleBinder   b@(Anon VisArg   _)    = b
+        scaleBinder     (Anon (MultArg m) t) = Anon (MultArg (mult `mkMultMul` m)) t
+        scaleBinder   b@(Named _)            = b
 --------------------------
 simplNonRecX :: SimplEnv
              -> InId            -- Old binder; not a JoinId

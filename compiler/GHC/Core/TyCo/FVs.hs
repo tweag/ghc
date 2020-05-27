@@ -570,7 +570,9 @@ tyCoFVsOfType (TyVarTy v)        f bound_vars (acc_list, acc_set)
 tyCoFVsOfType (TyConApp _ tys)   f bound_vars acc = tyCoFVsOfTypes tys f bound_vars acc
 tyCoFVsOfType (LitTy {})         f bound_vars acc = emptyFV f bound_vars acc
 tyCoFVsOfType (AppTy fun arg)    f bound_vars acc = (tyCoFVsOfType fun `unionFV` tyCoFVsOfType arg) f bound_vars acc
-tyCoFVsOfType (FunTy _ w arg res)  f bound_vars acc = (tyCoFVsOfType w `unionFV` tyCoFVsOfType arg `unionFV` tyCoFVsOfType res) f bound_vars acc
+tyCoFVsOfType (FunTy af arg res) f bound_vars acc
+  | MultArg w <- af                               = (tyCoFVsOfType w `unionFV` tyCoFVsOfType arg `unionFV` tyCoFVsOfType res) f bound_vars acc
+  | otherwise                                     = (tyCoFVsOfType arg `unionFV` tyCoFVsOfType res) f bound_vars acc
 tyCoFVsOfType (ForAllTy bndr ty) f bound_vars acc = tyCoFVsBndr bndr (tyCoFVsOfType ty)  f bound_vars acc
 tyCoFVsOfType (CastTy ty co)     f bound_vars acc = (tyCoFVsOfType ty `unionFV` tyCoFVsOfCo co) f bound_vars acc
 tyCoFVsOfType (CoercionTy co)    f bound_vars acc = tyCoFVsOfCo co f bound_vars acc
@@ -724,9 +726,13 @@ almost_devoid_co_var_of_type (LitTy {}) _ = True
 almost_devoid_co_var_of_type (AppTy fun arg) cv
   = almost_devoid_co_var_of_type fun cv
   && almost_devoid_co_var_of_type arg cv
-almost_devoid_co_var_of_type (FunTy _ w arg res) cv
+almost_devoid_co_var_of_type (FunTy af arg res) cv
+  | MultArg w <- af
   = almost_devoid_co_var_of_type w cv
   && almost_devoid_co_var_of_type arg cv
+  && almost_devoid_co_var_of_type res cv
+  | otherwise
+  = almost_devoid_co_var_of_type arg cv
   && almost_devoid_co_var_of_type res cv
 almost_devoid_co_var_of_type (ForAllTy (Bndr v _) ty) cv
   = almost_devoid_co_var_of_type (varType v) cv
@@ -785,7 +791,9 @@ injectiveVarsOfType look_under_tfs = go
                            = go ty'
     go (TyVarTy v)         = unitFV v `unionFV` go (tyVarKind v)
     go (AppTy f a)         = go f `unionFV` go a
-    go (FunTy _ w ty1 ty2) = go w `unionFV` go ty1 `unionFV` go ty2
+    go (FunTy af ty1 ty2)
+      | MultArg w <- af    = go w `unionFV` go ty1 `unionFV` go ty2
+      | otherwise          = go ty1 `unionFV` go ty2
     go (TyConApp tc tys)   =
       case tyConInjectivityInfo tc of
         Injective inj
@@ -839,7 +847,9 @@ invisibleVarsOfType = go
                           = go ty'
     go (TyVarTy v)        = go (tyVarKind v)
     go (AppTy f a)        = go f `unionFV` go a
-    go (FunTy _ w ty1 ty2) = go w `unionFV` go ty1 `unionFV` go ty2
+    go (FunTy af ty1 ty2)
+      | MultArg w <- af   = go w `unionFV` go ty1 `unionFV` go ty2
+      | otherwise         = go ty1 `unionFV` go ty2
     go (TyConApp tc tys)  = tyCoFVsOfTypes invisibles `unionFV`
                             invisibleVarsOfTypes visibles
       where (invisibles, visibles) = partitionInvisibleTypes tc tys
@@ -983,4 +993,3 @@ tyCoVarsOfTypeWellScoped = scopedSort . tyCoVarsOfTypeList
 -- | Get the free vars of types in scoped order
 tyCoVarsOfTypesWellScoped :: [Type] -> [TyVar]
 tyCoVarsOfTypesWellScoped = scopedSort . tyCoVarsOfTypesList
-

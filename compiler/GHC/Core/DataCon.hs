@@ -1012,7 +1012,7 @@ mkDataCon name declared_infix prom_info
         -- If the DataCon has a wrapper, then the worker's type is never seen
         -- by the user. The visibilities we pick do not matter here.
         DCR{} -> mkInvForAllTys univ_tvs $ mkTyCoInvForAllTys ex_tvs $
-                 mkVisFunTys rep_arg_tys $
+                 mkScaledFunTys rep_arg_tys $
                  mkTyConApp rep_tycon (mkTyVarTys univ_tvs)
 
       -- See Note [Promoted data constructors] in GHC.Core.TyCon
@@ -1023,9 +1023,9 @@ mkDataCon name declared_infix prom_info
       -- fresh_names: make sure that the "anonymous" tyvars don't
       -- clash in name or unique with the universal/existential ones.
       -- Tiresome!  And unnecessary because these tyvars are never looked at
-    prom_theta_bndrs = [ mkAnonTyConBinder InvisArg (mkTyVar n t)
+    prom_theta_bndrs = [ mkAnonTyConBinder Invisible (mkTyVar n t)
      {- Invisible -}   | (n,t) <- fresh_names `zip` theta ]
-    prom_arg_bndrs   = [ mkAnonTyConBinder VisArg (mkTyVar n t)
+    prom_arg_bndrs   = [ mkAnonTyConBinder Visible (mkTyVar n t)
      {- Visible -}     | (n,t) <- dropList theta fresh_names `zip` map scaledThing orig_arg_tys ]
     prom_bndrs       = prom_tv_bndrs ++ prom_theta_bndrs ++ prom_arg_bndrs
     prom_res_kind    = orig_res_ty
@@ -1363,8 +1363,8 @@ dataConWrapperType (MkData { dcUserTyVarBinders = user_tvbs,
                              dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                              dcOrigResTy = res_ty })
   = mkForAllTys user_tvbs $
-    mkInvisFunTysMany theta $
-    mkVisFunTys arg_tys $
+    mkInvisFunTys theta $
+    mkScaledFunTys arg_tys $
     res_ty
 
 dataConDisplayType :: DynFlags -> DataCon -> Type
@@ -1375,8 +1375,8 @@ dataConDisplayType dflags (MkData { dcUserTyVarBinders = user_tvbs,
         arg_tys' | lin = arg_tys
                  | otherwise = (map (\(Scaled w t) -> case w of One -> Scaled Many t; _ -> Scaled w t) arg_tys)
     in mkForAllTys user_tvbs $
-       mkInvisFunTysMany theta $
-       mkVisFunTys arg_tys' $
+       mkInvisFunTys theta $
+       mkScaledFunTys arg_tys' $
        res_ty
 
 -- | Finds the instantiated types of the arguments required to construct a
@@ -1565,4 +1565,3 @@ splitDataProductType_maybe ty
   = Just (tycon, ty_args, con, dataConInstArgTys con ty_args)
   | otherwise
   = Nothing
-

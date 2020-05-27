@@ -167,7 +167,7 @@ mkLamType v body_ty
 
    | isPredTy arg_ty  -- See Note [mkLamType: dictionary arguments]
    = ASSERT(eqType arg_mult Many)
-     mkInvisFunTy arg_mult arg_ty body_ty
+     mkInvisFunTy arg_ty body_ty
 
    | otherwise
    = mkVisFunTy arg_mult arg_ty body_ty
@@ -1480,9 +1480,10 @@ isExpandableApp fn n_val_args
 
        | Just (bndr, ty) <- splitPiTy_maybe ty
        = case bndr of
-           Named {}        -> all_pred_args n_val_args ty
-           Anon InvisArg _ -> all_pred_args (n_val_args-1) ty
-           Anon VisArg _   -> False
+           Named {}           -> all_pred_args n_val_args ty
+           Anon InvisArg _    -> all_pred_args (n_val_args-1) ty
+           Anon VisArg _      -> False
+           Anon (MultArg _) _ -> False
 
        | otherwise
        = False
@@ -1679,7 +1680,7 @@ app_ok primop_ok fun args
     primop_arg_ok :: TyBinder -> CoreExpr -> Bool
     primop_arg_ok (Named _) _ = True   -- A type argument
     primop_arg_ok (Anon _ ty) arg      -- A term argument
-       | isUnliftedType (scaledThing ty) = expr_ok primop_ok arg
+       | isUnliftedType ty = expr_ok primop_ok arg
        | otherwise         = True  -- See Note [Primops with lifted arguments]
 
 -----------------------------

@@ -776,11 +776,12 @@ hurts us here.
 -}
 
 -- Linted things: substitution applied, and type is linted
-type LintedType     = Type
-type LintedKind     = Kind
-type LintedCoercion = Coercion
-type LintedTyCoVar  = TyCoVar
-type LintedId       = Id
+type LintedType        = Type
+type LintedAnonArgFlag = AnonArgFlag
+type LintedKind        = Kind
+type LintedCoercion    = Coercion
+type LintedTyCoVar     = TyCoVar
+type LintedId          = Id
 
 lintCoreExpr :: CoreExpr -> LintM (LintedType, UsageEnv)
 -- The returned type has the substitution from the monad
@@ -1573,12 +1574,16 @@ lintType ty@(TyConApp tc tys)
 
 -- arrows can related *unlifted* kinds, so this has to be separate from
 -- a dependent forall.
-lintType ty@(FunTy af tw t1 t2)
+lintType ty@(FunTy af t1 t2)
   = do { t1' <- lintType t1
        ; t2' <- lintType t2
-       ; tw' <- lintType tw
-       ; lintArrow (text "type or kind" <+> quotes (ppr ty)) t1' t2' tw'
-       ; return (FunTy af tw' t1' t2') }
+       ; af' <- lint_af af
+       ; lintArrow (text "type or kind" <+> quotes (ppr ty)) af' t1' t2'
+       ; return (FunTy af' t1' t2') }
+  where
+    lint_af VisArg      = return VisArg
+    lint_af InvisArg    = return InvisArg
+    lint_af (MultArg w) = mkMultAnonArgFlag <$> lintType w
 
 lintType ty@(ForAllTy (Bndr tcv vis) body_ty)
   | not (isTyCoVar tcv)
@@ -1673,22 +1678,27 @@ checkValueType ty doc
     kind = typeKind ty
 
 -----------------
-lintArrow :: SDoc -> LintedType -> LintedType -> LintedType -> LintM ()
+lintArrow :: SDoc -> LintedAnonArgFlag -> LintedType -> LintedType -> LintM ()
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
-lintArrow what t1 t2 tw  -- Eg lintArrow "type or kind `blah'" k1 k2 kw
-                         -- or lintArrow "coercion `blah'" k1 k2 kw
+lintArrow what af t1 t2  -- Eg lintArrow "type or kind `blah'" af k1 k2
+                         -- or lintArrow "coercion `blah'" af k1 k2
   = do { unless (classifiesTypeWithValues k1) (addErrL (msg (text "argument") k1))
        ; unless (classifiesTypeWithValues k2) (addErrL (msg (text "result")   k2))
-       ; unless (isMultiplicityTy kw) (addErrL (msg (text "multiplicity") kw)) }
+       ; check_af af }
   where
     k1 = typeKind t1
     k2 = typeKind t2
-    kw = typeKind tw
     msg ar k
       = vcat [ hang (text "Ill-kinded" <+> ar)
                   2 (text "in" <+> what)
              , what <+> text "kind:" <+> ppr k ]
+
+    check_af VisArg   = return ()
+    check_af InvisArg = return ()
+    check_af (MultArg w)
+      = unless (isMultiplicityTy kw) (addErrL (msg (text "multiplicity") kw))
+      where kw = typeKind w
 
 -----------------
 lint_ty_app :: Type -> LintedKind -> [LintedType] -> LintM ()
@@ -1731,7 +1741,7 @@ lint_app doc kfn arg_tys
       | Just kfn' <- coreView kfn
       = go_app in_scope kfn' ta
 
-    go_app _ fun_kind@(FunTy _ _ kfa kfb) ta
+    go_app _ fun_kind@(FunTy _ kfa kfb) ta
       = do { let ka = typeKind ta
            ; unless (ka `eqType` kfa) $
              addErrL (fail_msg (text "Fun:" <+> (ppr fun_kind $$ ppr ta <+> dcolon <+> ppr ka)))
@@ -1994,8 +2004,10 @@ lintCoercion co@(FunCo r cow co1 co2)
        ; let Pair lt1 rt1 = coercionKind co1
              Pair lt2 rt2 = coercionKind co2
              Pair ltw rtw = coercionKind cow
-       ; lintArrow (text "coercion" <+> quotes (ppr co)) lt1 lt2 ltw
-       ; lintArrow (text "coercion" <+> quotes (ppr co)) rt1 rt2 rtw
+             laf = mkMultAnonArgFlag ltw
+             raf = mkMultAnonArgFlag rtw
+       ; lintArrow (text "coercion" <+> quotes (ppr co)) laf lt1 lt2
+       ; lintArrow (text "coercion" <+> quotes (ppr co)) raf rt1 rt2
        ; lintRole co1 r (coercionRole co1)
        ; lintRole co2 r (coercionRole co2)
        ; ensureEqTys (typeKind ltw) multiplicityTy (text "coercion" <> quotes (ppr co))
