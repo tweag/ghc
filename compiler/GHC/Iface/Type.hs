@@ -68,7 +68,7 @@ import GhcPrelude
 
 import {-# SOURCE #-} GHC.Builtin.Types
                                  ( coercibleTyCon, heqTyCon
-                                 , liftedRepDataConTyCon, tupleTyConName 
+                                 , liftedRepDataConTyCon, tupleTyConName
                                  , manyDataConTyCon, oneDataConTyCon )
 import {-# SOURCE #-} GHC.Core.Type ( isRuntimeRepTy, isMultiplicityTy )
 

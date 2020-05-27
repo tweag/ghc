@@ -1258,6 +1258,7 @@ tyConAppTyConPicky_maybe _               = Nothing
 
 
 -- | The same as @fst . splitTyConApp@
+{-# INLINE tyConAppTyCon_maybe #-}
 tyConAppTyCon_maybe :: Type -> Maybe TyCon
 tyConAppTyCon_maybe ty = case coreFullView ty of
   TyConApp tc _ -> Just tc
