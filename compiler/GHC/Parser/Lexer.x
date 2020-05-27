@@ -450,8 +450,8 @@ $tab          { warnTab }
 }
 
 <0,option_prags> {
-  @qdo     / { ifExtension QualifiedDoBit } { qdo_token ITdo }
-  @qmdo    / { ifExtension QualifiedDoBit `alexAndPred` ifExtension RecursiveDoBit} { qdo_token ITmdo }
+  @qdo                                      { qdo_token ITdo }
+  @qmdo    / { ifExtension RecursiveDoBit } { qdo_token ITmdo }
   @qvarid                       { idtoken qvarid }
   @qconid                       { idtoken qconid }
   @varid                        { varid }
@@ -2800,12 +2800,9 @@ srcParseErr options buf len
               $$ ppWhen (not th_enabled && token == "$") -- #7396
                         (text "Perhaps you intended to use TemplateHaskell")
               $$ ppWhen (token == "<-")
-                        (if qdoInLast100
-                         then text "Perhaps you intended to use 'QualifiedDo'?"
-                         else
-                          if mdoInLast100
-                          then text "Perhaps you intended to use 'RecursiveDo'?"
-                          else text "Perhaps this statement should be within a 'do' block?")
+                        (if mdoInLast100
+                           then text "Perhaps you intended to use 'RecursiveDo'?"
+                           else text "Perhaps this statement should be within a 'do' block?")
               $$ ppWhen (token == "=" && doInLast100) -- #15849
                         (text "Perhaps you need a 'let' in a 'do' block?"
                          $$ text "e.g. 'let x = 5' instead of 'x = 5'")
@@ -2814,7 +2811,6 @@ srcParseErr options buf len
   where token = lexemeToString (offsetBytes (-len) buf) len
         pattern = decodePrevNChars 8 buf
         last100 = decodePrevNChars 100 buf
-        qdoInLast100 = ".do" `isInfixOf` last100 || ".mdo" `isInfixOf` last100
         doInLast100 = "do" `isInfixOf` last100
         mdoInLast100 = "mdo" `isInfixOf` last100
         th_enabled = ThQuotesBit `xtest` pExtsBitmap options

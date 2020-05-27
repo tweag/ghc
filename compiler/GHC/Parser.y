@@ -2796,14 +2796,14 @@ aexp    :: { ECP }
                                                (mj AnnCase $1:mj AnnOf $3
                                                   :(fst $ unLoc $4)) }
         -- QualifiedDo.
-        | DO  stmtlist               { ECP $
+        | DO  stmtlist               {% (hintQualifiedDo $1 >>) $ return $ ECP $
                                         $2 >>= \ $2 ->
                                         amms (mkHsDoPV (comb2 $1 $2)
                                                        (fmap mkModuleNameFS
                                                         (getDO $1))
                                                        (mapLoc snd $2))
                                                (mj AnnDo $1:(fst $ unLoc $2)) }
-        | MDO stmtlist             {% runPV $2 >>= \ $2 ->
+        | MDO stmtlist             {% hintQualifiedDo $1 >> runPV $2 >>= \ $2 ->
                                        fmap ecpFromExp $
                                        ams (L (comb2 $1 $2)
                                               (mkHsDo (MDoExpr $
@@ -4005,6 +4005,23 @@ hintExplicitForall tok = do
       ]
   where
     forallSymDoc = text (forallSym (isUnicode tok))
+
+-- Hint about qualified-do
+hintQualifiedDo :: Located Token -> P ()
+hintQualifiedDo tok = do
+    qualifiedDo   <- getBit QualifiedDoBit
+    case maybeQDoDoc of
+      Just qdoDoc | not qualifiedDo ->
+        addError (getLoc tok) $ vcat
+          [ text "Illegal qualified" <+> quotes qdoDoc <+> text "block"
+          , text "Perhaps you intended to use QualifiedDo"
+          ]
+      _ -> return ()
+  where
+    maybeQDoDoc = case unLoc tok of
+      ITdo (Just m) -> Just $ ftext m <> text ".do"
+      ITmdo (Just m) -> Just $ ftext m <> text ".mdo"
+      t -> Nothing
 
 -- When two single quotes don't followed by tyvar or gtycon, we report the
 -- error as empty character literal, or TH quote that missing proper type
