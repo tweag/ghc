@@ -2310,8 +2310,8 @@ expandSynTyCon_maybe tc tys
         GT -> Just (tvs `zip` tys, rhs, drop arity tys)
         EQ -> Just (tvs `zip` tys, rhs, [])
         LT -> Nothing
-   | otherwise
-   = Nothing
+  | otherwise
+  = Nothing
 
 ----------------
 
