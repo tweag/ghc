@@ -16,7 +16,6 @@ test('haddockHoogleTest',
      ['hoogleTest ' + accept])
 
 test('haddockHypsrcTest',
-     [ignore_stdout, ignore_stderr, unless(in_tree_compiler(), skip), req_haddock,
-      expect_broken(0)],   # see https://github.com/haskell/haddock/issues/1048
+     [ignore_stdout, ignore_stderr, unless(in_tree_compiler(), skip), req_haddock],
      makefile_test,
      ['hypsrcTest ' + accept])
