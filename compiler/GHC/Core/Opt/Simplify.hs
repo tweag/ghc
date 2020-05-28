@@ -2561,7 +2561,7 @@ rebuildCase env scrut case_bndr alts cont
     -- they are aliases anyway.
     scale_float (GHC.Core.Make.FloatCase scrut case_bndr con vars) =
       let
-        scale_id id = scaleIdBy holeScaling id
+        scale_id id = scaleVarBy holeScaling id
       in
       GHC.Core.Make.FloatCase scrut (scale_id case_bndr) con (map scale_id vars)
     scale_float f = f
