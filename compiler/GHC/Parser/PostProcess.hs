@@ -1894,7 +1894,10 @@ instance DisambECP (HsCmd GhcPs) where
     checkDoAndIfThenElse c semi1 a semi2 b
     return $ L l (mkHsCmdIf c a b)
   mkHsDoPV l Nothing stmts = return $ L l (HsCmdDo noExtField stmts)
-  mkHsDoPV l _       _     = cmdFail l (text "Qualified 'do' in command!")
+  mkHsDoPV l (Just m)    _ =
+    cmdFail l $
+      text "Found a qualified" <+> ppr m <> text ".do block in a command, but"
+      $$ text "qualified 'do' is not supported in commands."
   mkHsParPV l c = return $ L l (HsCmdPar noExtField c)
   mkHsVarPV (L l v) = cmdFail l (ppr v)
   mkHsLitPV (L l a) = cmdFail l (ppr a)
