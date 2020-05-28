@@ -35,7 +35,7 @@ module GHC.Core.Multiplicity
 import GHC.Prelude
 
 import GHC.Utils.Outputable
-import GHC.Core.TyCo.Rep (Type, mkTyConApp, Scaled(..), Mult, scaledMult, scaledThing, mapScaledType)
+import GHC.Core.TyCo.Rep (mkTyConApp, Scaled(..), Mult, scaledMult, scaledThing, mapScaledType)
 import {-# SOURCE #-} GHC.Builtin.Types ( oneDataConTy, manyDataConTy, multMulTyCon )
 import {-# SOURCE #-} GHC.Core.Type( tyConAppTyCon_maybe, splitTyConApp_maybe )
 import GHC.Builtin.Names (oneDataConKey, manyDataConKey, multMulTyConKey)
@@ -274,14 +274,14 @@ To add a new multiplicity, you need to:
 -- * Core properties of multiplicities
 --
 
-isOneDataConTy :: Type -> Bool
+isOneDataConTy :: Mult -> Bool
 isOneDataConTy ty
   | Just tc <- tyConAppTyCon_maybe ty
   = tc `hasKey` oneDataConKey
   | otherwise
   = False
 
-isManyDataConTy :: Type -> Bool
+isManyDataConTy :: Mult -> Bool
 isManyDataConTy ty
   | Just tc <- tyConAppTyCon_maybe ty
   = tc `hasKey` manyDataConKey
