@@ -33,7 +33,6 @@ import GHC.Core.Lint    ( endPassIO )
 import GHC.Core
 import GHC.Core.Make hiding( FloatBind(..) )   -- We use our own FloatBind here
 import GHC.Core.Type
-import GHC.Core.Multiplicity
 import GHC.Types.Literal
 import GHC.Core.Coercion
 import GHC.Tc.Utils.Env
