@@ -539,6 +539,7 @@ kindRep k = case kindRep_maybe k of
 -- For example, @kindRep_maybe * = Just LiftedRep@
 -- Returns 'Nothing' if the kind is not of form (TYPE rr)
 -- Treats * and Constraint as the same
+{-# INLINE kindRep_maybe #-}
 kindRep_maybe :: HasDebugCallStack => Kind -> Maybe Type
 kindRep_maybe kind
   | TyConApp tc [arg] <- coreFullView kind
@@ -548,12 +549,14 @@ kindRep_maybe kind
 -- | This version considers Constraint to be the same as *. Returns True
 -- if the argument is equivalent to Type/Constraint and False otherwise.
 -- See Note [Kind Constraint and kind Type]
+{-# INLINE isLiftedTypeKind #-}
 isLiftedTypeKind :: Kind -> Bool
 isLiftedTypeKind kind
   = case kindRep_maybe kind of
       Just rep -> isLiftedRuntimeRep rep
       Nothing  -> False
 
+{-# INLINE isLiftedRuntimeRep #-}
 isLiftedRuntimeRep :: Type -> Bool
 -- isLiftedRuntimeRep is true of LiftedRep :: RuntimeRep
 -- False of type variables (a :: RuntimeRep)
@@ -566,12 +569,14 @@ isLiftedRuntimeRep rep
 -- | Returns True if the kind classifies unlifted types and False otherwise.
 -- Note that this returns False for levity-polymorphic kinds, which may
 -- be specialized to a kind that classifies unlifted types.
+{-# INLINE isUnliftedTypeKind #-}
 isUnliftedTypeKind :: Kind -> Bool
 isUnliftedTypeKind kind
   = case kindRep_maybe kind of
       Just rep -> isUnliftedRuntimeRep rep
       Nothing  -> False
 
+{-# INLINE isUnliftedRuntimeRep #-}
 isUnliftedRuntimeRep :: Type -> Bool
 -- True of definitely-unlifted RuntimeReps
 -- False of           (LiftedRep :: RuntimeRep)
@@ -587,6 +592,7 @@ isUnliftedRuntimeRep rep
   = False
 
 -- | Is this the type 'RuntimeRep'?
+{-# INLINE isRuntimeRepTy #-}
 isRuntimeRepTy :: Type -> Bool
 isRuntimeRepTy ty
   | TyConApp tc args <- coreFullView ty
@@ -595,16 +601,19 @@ isRuntimeRepTy ty
   | otherwise = False
 
 -- | Is a tyvar of type 'RuntimeRep'?
+{-# INLINE isRuntimeRepVar #-}
 isRuntimeRepVar :: TyVar -> Bool
 isRuntimeRepVar = isRuntimeRepTy . tyVarKind
 
 -- | Is this the type 'Multiplicity'?
+{-# INLINE isMultiplicityTy #-}
 isMultiplicityTy :: Type -> Bool
 isMultiplicityTy ty
   | TyConApp tc [] <- coreFullView ty = tc `hasKey` multiplicityTyConKey
   | otherwise                         = False
 
 -- | Is a tyvar of type 'Multiplicity'?
+{-# INLINE isMultiplicityVar #-}
 isMultiplicityVar :: TyVar -> Bool
 isMultiplicityVar = isMultiplicityTy . tyVarKind
 
@@ -790,15 +799,18 @@ getTyVar msg ty = case getTyVar_maybe ty of
                     Just tv -> tv
                     Nothing -> panic ("getTyVar: " ++ msg)
 
+{-# INLINE isTyVarTy #-}
 isTyVarTy :: Type -> Bool
 isTyVarTy ty = isJust (getTyVar_maybe ty)
 
 -- | Attempts to obtain the type variable underlying a 'Type'
+{-# INLINE getTyVar_maybe #-}
 getTyVar_maybe :: Type -> Maybe TyVar
 getTyVar_maybe = repGetTyVar_maybe . coreFullView
 
 -- | If the type is a tyvar, possibly under a cast, returns it, along
 -- with the coercion. Thus, the co is :: kind tv ~N kind ty
+{-# INLINE getCastedTyVar_maybe #-}
 getCastedTyVar_maybe :: Type -> Maybe (TyVar, CoercionN)
 getCastedTyVar_maybe ty = case coreFullView ty of
   CastTy (TyVarTy tv) co -> Just (tv, co)
@@ -807,6 +819,7 @@ getCastedTyVar_maybe ty = case coreFullView ty of
 
 -- | Attempts to obtain the type variable underlying a 'Type', without
 -- any expansion
+{-# INLINE repGetTyVar_maybe #-}
 repGetTyVar_maybe :: Type -> Maybe TyVar
 repGetTyVar_maybe (TyVarTy tv) = Just tv
 repGetTyVar_maybe _            = Nothing
@@ -878,6 +891,7 @@ mkAppTys (TyConApp tc tys1) tys2 = mkTyConApp tc (tys1 ++ tys2)
 mkAppTys ty1                tys2 = foldl' AppTy ty1 tys2
 
 -------------
+{-# INLINE splitAppTy_maybe #-}
 splitAppTy_maybe :: Type -> Maybe (Type, Type)
 -- ^ Attempt to take a type application apart, whether it is a
 -- function, type constructor, or plain type application. Note
@@ -885,6 +899,7 @@ splitAppTy_maybe :: Type -> Maybe (Type, Type)
 splitAppTy_maybe = repSplitAppTy_maybe . coreFullView
 
 -------------
+{-# INLINE repSplitAppTy_maybe #-}
 repSplitAppTy_maybe :: HasDebugCallStack => Type -> Maybe (Type,Type)
 -- ^ Does the AppTy split as in 'splitAppTy_maybe', but assumes that
 -- any Core view stuff is already done
@@ -907,6 +922,7 @@ repSplitAppTy_maybe _other = Nothing
 -- This one doesn't break apart (c => t).
 -- See Note [Decomposing fat arrow c=>t]
 -- Defined here to avoid module loops between Unify and TcType.
+{-# INLINE tcRepSplitAppTy_maybe #-}
 tcRepSplitAppTy_maybe :: Type -> Maybe (Type,Type)
 -- ^ Does the AppTy split as in 'tcSplitAppTy_maybe', but assumes that
 -- any coreView stuff is already done. Refuses to look through (c => t)
@@ -927,6 +943,7 @@ tcRepSplitAppTy_maybe (TyConApp tc tys)
 tcRepSplitAppTy_maybe _other = Nothing
 
 -------------
+{-# INLINE splitAppTy #-}
 splitAppTy :: Type -> (Type, Type)
 -- ^ Attempts to take a type application apart, as in 'splitAppTy_maybe',
 -- and panics if this is not possible
@@ -1010,6 +1027,7 @@ isLitTy ty
 
 -- | Is this type a custom user error?
 -- If so, give us the kind and the error message.
+{-# INLINE userTypeError_maybe #-}
 userTypeError_maybe :: Type -> Maybe Type
 userTypeError_maybe t
   = do { (tc, _kind : msg : _) <- splitTyConApp_maybe t
@@ -1083,6 +1101,7 @@ In the compiler we maintain the invariant that all saturated applications of
 See #11714.
 -}
 
+{-# INLINE splitFunTy #-}
 splitFunTy :: Type -> (Scaled Type, Type)
 -- ^ Attempts to extract the argument and result types from a type, and
 -- panics if that is not possible. See also 'splitFunTy_maybe'
@@ -1118,11 +1137,12 @@ funArgTy ty
 -- ^ Just like 'piResultTys' but for a single argument
 -- Try not to iterate 'piResultTy', because it's inefficient to substitute
 -- one variable at a time; instead use 'piResultTys"
-piResultTy :: HasDebugCallStack => Type -> Type ->  Type
+piResultTy :: HasDebugCallStack => Type -> Type -> Type
 piResultTy ty arg = case piResultTy_maybe ty arg of
                       Just res -> res
                       Nothing  -> pprPanic "piResultTy" (ppr ty $$ ppr arg)
 
+{-# INLINE piResultTy_maybe #-}
 piResultTy_maybe :: Type -> Type -> Maybe Type
 -- We don't need a 'tc' version, because
 -- this function behaves the same for Type and Constraint
@@ -1251,6 +1271,7 @@ The same thing happens in GHC.CoreToIface.toIfaceAppArgsX.
 
 -- | Retrieve the tycon heading this type, if there is one. Does /not/
 -- look through synonyms.
+{-# INLINE tyConAppTyConPicky_maybe #-}
 tyConAppTyConPicky_maybe :: Type -> Maybe TyCon
 tyConAppTyConPicky_maybe (TyConApp tc _) = Just tc
 tyConAppTyConPicky_maybe (FunTy {})      = Just funTyCon
@@ -1269,6 +1290,7 @@ tyConAppTyCon :: Type -> TyCon
 tyConAppTyCon ty = tyConAppTyCon_maybe ty `orElse` pprPanic "tyConAppTyCon" (ppr ty)
 
 -- | The same as @snd . splitTyConApp@
+{-# INLINE tyConAppArgs_maybe #-}
 tyConAppArgs_maybe :: Type -> Maybe [Type]
 tyConAppArgs_maybe ty = case coreFullView ty of
   TyConApp _ tys -> Just tys
@@ -1291,6 +1313,7 @@ tyConAppArgN n ty
 -- | Attempts to tease a type apart into a type constructor and the application
 -- of a number of arguments to that constructor. Panics if that is not possible.
 -- See also 'splitTyConApp_maybe'
+{-# INLINE splitTyConApp #-}
 splitTyConApp :: Type -> (TyCon, [Type])
 splitTyConApp ty = case splitTyConApp_maybe ty of
                    Just stuff -> stuff
@@ -1298,6 +1321,7 @@ splitTyConApp ty = case splitTyConApp_maybe ty of
 
 -- | Attempts to tease a type apart into a type constructor and the application
 -- of a number of arguments to that constructor
+{-# INLINE splitTyConApp_maybe #-}
 splitTyConApp_maybe :: HasDebugCallStack => Type -> Maybe (TyCon, [Type])
 splitTyConApp_maybe = repSplitTyConApp_maybe . coreFullView
 
@@ -1308,12 +1332,14 @@ splitTyConApp_maybe = repSplitTyConApp_maybe . coreFullView
 -- type before using this function.
 --
 -- If you only need the 'TyCon', consider using 'tcTyConAppTyCon_maybe'.
+{-# INLINE tcSplitTyConApp_maybe #-}
 tcSplitTyConApp_maybe :: HasCallStack => Type -> Maybe (TyCon, [Type])
 -- Defined here to avoid module loops between Unify and TcType.
 tcSplitTyConApp_maybe ty | Just ty' <- tcView ty = tcSplitTyConApp_maybe ty'
 tcSplitTyConApp_maybe ty                         = repSplitTyConApp_maybe ty
 
 -------------------
+{-# INLINE repSplitTyConApp_maybe #-}
 repSplitTyConApp_maybe :: HasDebugCallStack => Type -> Maybe (TyCon, [Type])
 -- ^ Like 'splitTyConApp_maybe', but doesn't look through synonyms. This
 -- assumes the synonyms have already been dealt with.
@@ -1334,6 +1360,7 @@ repSplitTyConApp_maybe _ = Nothing
 -------------------
 -- | Attempts to tease a list type apart and gives the type of the elements if
 -- successful (looks through type synonyms)
+{-# INLINE splitListTyConApp_maybe #-}
 splitListTyConApp_maybe :: Type -> Maybe Type
 splitListTyConApp_maybe ty = case splitTyConApp_maybe ty of
   Just (tc,[e]) | tc == listTyCon -> Just e
@@ -1356,6 +1383,7 @@ newTyConInstRhs tycon tys
 A casted type has its *kind* casted into something new.
 -}
 
+{-# INLINE splitCastTy_maybe #-}
 splitCastTy_maybe :: Type -> Maybe (Type, Coercion)
 splitCastTy_maybe ty
   | CastTy ty' co <- coreFullView ty = Just (ty', co)
@@ -1424,10 +1452,12 @@ should appear only in the right-hand side of an application.
 mkCoercionTy :: Coercion -> Type
 mkCoercionTy = CoercionTy
 
+{-# INLINE isCoercionTy #-}
 isCoercionTy :: Type -> Bool
 isCoercionTy (CoercionTy _) = True
 isCoercionTy _              = False
 
+{-# INLINE isCoercionTy_maybe #-}
 isCoercionTy_maybe :: Type -> Maybe Coercion
 isCoercionTy_maybe (CoercionTy co) = Just co
 isCoercionTy_maybe _               = Nothing
@@ -1560,12 +1590,14 @@ splitTyVarForAllTys ty = split ty ty []
     split orig_ty _                   tvs              = (reverse tvs, orig_ty)
 
 -- | Checks whether this is a proper forall (with a named binder)
+{-# INLINE isForAllTy #-}
 isForAllTy :: Type -> Bool
 isForAllTy ty
   | ForAllTy {} <- coreFullView ty = True
   | otherwise                      = False
 
 -- | Like `isForAllTy`, but returns True only if it is a tyvar binder
+{-# INLINE isForAllTy_ty #-}
 isForAllTy_ty :: Type -> Bool
 isForAllTy_ty ty
   | ForAllTy (Bndr tv _) _ <- coreFullView ty
@@ -1575,6 +1607,7 @@ isForAllTy_ty ty
   | otherwise = False
 
 -- | Like `isForAllTy`, but returns True only if it is a covar binder
+{-# INLINE isForAllTy_co #-}
 isForAllTy_co :: Type -> Bool
 isForAllTy_co ty
   | ForAllTy (Bndr tv _) _ <- coreFullView ty
@@ -1584,6 +1617,7 @@ isForAllTy_co ty
   | otherwise = False
 
 -- | Is this a function or forall?
+{-# INLINE isPiTy #-}
 isPiTy :: Type -> Bool
 isPiTy ty = case coreFullView ty of
   ForAllTy {} -> True
@@ -1591,12 +1625,14 @@ isPiTy ty = case coreFullView ty of
   _           -> False
 
 -- | Is this a function?
+{-# INLINE isFunTy #-}
 isFunTy :: Type -> Bool
 isFunTy ty
   | FunTy {} <- coreFullView ty = True
   | otherwise                   = False
 
 -- | Take a forall type apart, or panics if that is not possible.
+{-# INLINE splitForAllTy #-}
 splitForAllTy :: Type -> (TyCoVar, Type)
 splitForAllTy ty
   | Just answer <- splitForAllTy_maybe ty = answer
@@ -1612,12 +1648,14 @@ dropForAlls ty = go ty
 
 -- | Attempts to take a forall type apart, but only if it's a proper forall,
 -- with a named binder
+{-# INLINE splitForAllTy_maybe #-}
 splitForAllTy_maybe :: Type -> Maybe (TyCoVar, Type)
 splitForAllTy_maybe ty
   | ForAllTy (Bndr tv _) inner_ty <- coreFullView ty = Just (tv, inner_ty)
   | otherwise                                        = Nothing
 
 -- | Like splitForAllTy_maybe, but only returns Just if it is a tyvar binder.
+{-# INLINE splitForAllTy_ty_maybe #-}
 splitForAllTy_ty_maybe :: Type -> Maybe (TyCoVar, Type)
 splitForAllTy_ty_maybe ty
   | ForAllTy (Bndr tv _) inner_ty <- coreFullView ty
@@ -1627,6 +1665,7 @@ splitForAllTy_ty_maybe ty
   | otherwise = Nothing
 
 -- | Like splitForAllTy_maybe, but only returns Just if it is a covar binder.
+{-# INLINE splitForAllTy_co_maybe #-}
 splitForAllTy_co_maybe :: Type -> Maybe (TyCoVar, Type)
 splitForAllTy_co_maybe ty
   | ForAllTy (Bndr tv _) inner_ty <- coreFullView ty
@@ -1646,6 +1685,7 @@ splitPiTy_maybe ty = case coreFullView ty of
   _                -> Nothing
 
 -- | Takes a forall type apart, or panics
+{-# INLINE splitPiTy #-}
 splitPiTy :: Type -> (TyCoBinder, Type)
 splitPiTy ty
   | Just answer <- splitPiTy_maybe ty = answer
@@ -1830,10 +1870,12 @@ mkAnonBinder = Anon
 
 -- | Does this binder bind a variable that is /not/ erased? Returns
 -- 'True' for anonymous binders.
+{-# INLINE isAnonTyCoBinder #-}
 isAnonTyCoBinder :: TyCoBinder -> Bool
 isAnonTyCoBinder (Named {}) = False
 isAnonTyCoBinder (Anon {})  = True
 
+{-# INLINE tyCoBinderVar_maybe #-}
 tyCoBinderVar_maybe :: TyCoBinder -> Maybe TyCoVar
 tyCoBinderVar_maybe (Named tv) = Just $ binderVar tv
 tyCoBinderVar_maybe _          = Nothing
@@ -1849,6 +1891,7 @@ tyBinderType (Named (Bndr tv _))
 tyBinderType (Anon _ ty)   = scaledThing ty
 
 -- | Extract a relevant type, if there is one.
+{-# INLINE binderRelevantType_maybe #-}
 binderRelevantType_maybe :: TyCoBinder -> Maybe Type
 binderRelevantType_maybe (Named {}) = Nothing
 binderRelevantType_maybe (Anon _ ty)  = Just (scaledThing ty)
@@ -1901,6 +1944,7 @@ isFamFreeTy (CoercionTy _)    = False  -- Not sure about this
 -- At either role nominal or representational
 --    (t1 ~# t2) or (t1 ~R# t2)
 -- See Note [Types for coercions, predicates, and evidence] in GHC.Core.TyCo.Rep
+{-# INLINE isCoVarType #-}
 isCoVarType :: Type -> Bool
   -- ToDo: should we check saturation?
 isCoVarType ty
@@ -1931,6 +1975,7 @@ buildSynTyCon name binders res_kind roles rhs
 -- if it is surely unlifted, Nothing if we can't be sure (i.e., it is
 -- levity polymorphic), and panics if the kind does not have the shape
 -- TYPE r.
+{-# INLINE isLiftedType_maybe #-}
 isLiftedType_maybe :: HasDebugCallStack => Type -> Maybe Bool
 isLiftedType_maybe ty = case coreFullView (getRuntimeRep ty) of
   ty' | isLiftedRuntimeRep ty'  -> Just True
@@ -1941,6 +1986,7 @@ isLiftedType_maybe ty = case coreFullView (getRuntimeRep ty) of
 -- Panics on levity polymorphic types; See 'mightBeUnliftedType' for
 -- a more approximate predicate that behaves better in the presence of
 -- levity polymorphism.
+{-# INLINE isUnliftedType #-}
 isUnliftedType :: HasDebugCallStack => Type -> Bool
         -- isUnliftedType returns True for forall'd unlifted types:
         --      x :: forall a. Int#
@@ -1955,6 +2001,7 @@ isUnliftedType ty
 --
 -- * 'False' if the type is /guaranteed/ lifted or
 -- * 'True' if it is unlifted, OR we aren't sure (e.g. in a levity-polymorphic case)
+{-# INLINE mightBeUnliftedType #-}
 mightBeUnliftedType :: Type -> Bool
 mightBeUnliftedType ty
   = case isLiftedType_maybe ty of
@@ -2003,6 +2050,7 @@ isUnboxedSumType ty
 -- | See "Type#type_classification" for what an algebraic type is.
 -- Should only be applied to /types/, as opposed to e.g. partially
 -- saturated type constructors
+{-# INLINE isAlgType #-}
 isAlgType :: Type -> Bool
 isAlgType ty
   = case splitTyConApp_maybe ty of
@@ -2011,6 +2059,7 @@ isAlgType ty
       _other             -> False
 
 -- | Check whether a type is a data family type
+{-# INLINE isDataFamilyAppType #-}
 isDataFamilyAppType :: Type -> Bool
 isDataFamilyAppType ty = case tyConAppTyCon_maybe ty of
                            Just tc -> isDataFamilyTyCon tc
@@ -2022,6 +2071,7 @@ isDataFamilyAppType ty = case tyConAppTyCon_maybe ty of
 isStrictType :: HasDebugCallStack => Type -> Bool
 isStrictType = isUnliftedType
 
+{-# INLINE isPrimitiveType #-}
 isPrimitiveType :: Type -> Bool
 -- ^ Returns true of types that are opaque to Haskell.
 isPrimitiveType ty = case splitTyConApp_maybe ty of
@@ -2312,6 +2362,7 @@ nonDetCmpTypesX _   _         []        = GT
 -- 'Type' in Core.
 -- See Note [Kind Constraint and kind Type] in Kind.
 -- See Note [nonDetCmpType nondeterminism]
+{-# INLINE nonDetCmpTc #-}
 nonDetCmpTc :: TyCon -> TyCon -> Ordering
 nonDetCmpTc tc1 tc2
   = ASSERT( not (isConstraintKindCon tc1) && not (isConstraintKindCon tc2) )
@@ -2499,6 +2550,7 @@ isPredTy ty = tcIsConstraintKind (tcTypeKind ty)
 -- After that Constraint = Type
 -- See Note [coreView vs tcView]
 -- Defined here because it is used in isPredTy and tcRepSplitAppTy_maybe (sigh)
+{-# INLINE tcIsConstraintKind #-}
 tcIsConstraintKind :: Kind -> Bool
 tcIsConstraintKind ty
   | Just (tc, args) <- tcSplitTyConApp_maybe ty    -- Note: tcSplit here
@@ -2512,6 +2564,7 @@ tcIsConstraintKind ty
 --
 -- This considers 'Constraint' to be distinct from @*@. For a version that
 -- treats them as the same type, see 'isLiftedTypeKind'.
+{-# INLINE tcIsLiftedTypeKind #-}
 tcIsLiftedTypeKind :: Kind -> Bool
 tcIsLiftedTypeKind ty
   | Just (tc, [arg]) <- tcSplitTyConApp_maybe ty    -- Note: tcSplit here
@@ -2523,6 +2576,7 @@ tcIsLiftedTypeKind ty
 -- | Is this kind equivalent to @TYPE r@ (for some unknown r)?
 --
 -- This considers 'Constraint' to be distinct from @*@.
+{-# INLINE tcIsRuntimeTypeKind #-}
 tcIsRuntimeTypeKind :: Kind -> Bool
 tcIsRuntimeTypeKind ty
   | Just (tc, _) <- tcSplitTyConApp_maybe ty    -- Note: tcSplit here
@@ -2911,6 +2965,7 @@ isKindLevPoly k = ASSERT2( isLiftedTypeKind k || _is_type, ppr k )
 
 -- | Does this classify a type allowed to have values? Responds True to things
 -- like *, #, TYPE Lifted, TYPE v, Constraint.
+{-# INLINE classifiesTypeWithValues #-}
 classifiesTypeWithValues :: Kind -> Bool
 -- ^ True of any sub-kind of OpenTypeKind
 classifiesTypeWithValues k = isJust (kindRep_maybe k)
@@ -3234,12 +3289,14 @@ pattern Many :: Mult
 pattern Many <- (isManyDataConTy -> True)
   where Many = manyDataConTy
 
+{-# INLINE isManyDataConTy #-}
 isManyDataConTy :: Type -> Bool
 isManyDataConTy ty
   | Just tc <- tyConAppTyCon_maybe ty
   = tc `hasKey` manyDataConKey
 isManyDataConTy _ = False
 
+{-# INLINE isOneDataConTy #-}
 isOneDataConTy :: Type -> Bool
 isOneDataConTy ty
   | Just tc <- tyConAppTyCon_maybe ty
