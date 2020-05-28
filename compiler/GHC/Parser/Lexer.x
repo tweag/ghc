@@ -2801,7 +2801,7 @@ srcParseErr options buf len
                         (text "Perhaps you intended to use TemplateHaskell")
               $$ ppWhen (token == "<-")
                         (if mdoInLast100
-                           then text "Perhaps you intended to use 'RecursiveDo'?"
+                           then text "Perhaps you intended to use RecursiveDo"
                            else text "Perhaps this statement should be within a 'do' block?")
               $$ ppWhen (token == "=" && doInLast100) -- #15849
                         (text "Perhaps you need a 'let' in a 'do' block?"
