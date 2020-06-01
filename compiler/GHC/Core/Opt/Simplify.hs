@@ -965,6 +965,14 @@ simplExprF1 env (App fun arg) cont
                                 , sc_hole_ty = hole'
                                 , sc_cont    = cont } }
       _       ->
+          -- crucially, these are /lazy/ bindings. They will
+          -- be forced only if we need to run contHoleType.
+          -- When these are forced, we might get quadratic behavior;
+          -- this quadratic blowup could be avoided by drilling down
+          -- to the function and getting its multiplicities all at once
+          -- (instead of one-at-a-time). But in practice, we have not
+          -- observed the quadratic behavior, so this extra entanglement
+          -- seems not worthwhile.
         let fun_ty = exprType fun
             (Scaled m _, _) = splitFunTy fun_ty
         in
