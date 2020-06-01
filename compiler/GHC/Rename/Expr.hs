@@ -2185,6 +2185,18 @@ So, in this case, we synthesize the function
 
 (rather than plain 'fail') for the 'fail' operation. This is done in
 'getMonadFailOp'.
+
+Similarly with QualifiedDo and OverloadedStrings, we also want to desugar
+using fromString:
+
+  foo x = M.do { Just y <- x; return y }
+
+  ===>
+
+  foo x = x M.>>= \r -> case r of
+                        Just y  -> return y
+                        Nothing -> M.fail (fromString "Patterm match error")
+
 -}
 getMonadFailOp :: HsStmtContext p -> RnM (FailOperator GhcRn, FreeVars) -- Syntax expr fail op
 getMonadFailOp ctxt
