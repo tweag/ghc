@@ -79,6 +79,18 @@ Language
 
   This change prepares the way for Quick Look impredicativity.
 
+* A new language extension :extension:`QualifiedDo` is implemented, allowing
+  to qualify a do block to control which operations to use for desugaring do
+  syntax. ::
+
+    {-# LANGUAGE QualifiedDo #-}
+    import qualified SomeModule as M
+
+    f x = M.do           -- desugars to:
+      y <- M.return x    -- M.return x M.>>= \y ->
+      M.return y         -- M.return y M.>>
+      M.return y         -- M.return y
+
 Compiler
 ~~~~~~~~
 
