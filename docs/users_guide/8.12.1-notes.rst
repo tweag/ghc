@@ -91,6 +91,8 @@ Language
       M.return y         -- M.return y M.>>
       M.return y         -- M.return y
 
+  See :ref:`qualified-do-notation` for more details.
+
 Compiler
 ~~~~~~~~
 
