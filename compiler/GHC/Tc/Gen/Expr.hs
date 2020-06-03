@@ -1606,7 +1606,7 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
            ; return (result, mkWpCastN list_co) }
 
     go rho_ty (SynFun arg_shape res_shape)
-      = do { ( ( ( (result, arg_ty, res_ty, op_mult, _res_mult)
+      = do { ( ( ( (result, arg_ty, res_ty, op_mult)
                  , res_wrapper )                   -- :: res_ty_out "->" res_ty
                , arg_wrapper1, [], arg_wrapper2 )  -- :: arg_ty "->" arg_ty_out
              , match_wrapper )         -- :: (arg_ty -> res_ty) "->" rho_ty
@@ -1629,7 +1629,7 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
                        tcSynArgE orig res_tc_ty res_shape $
                        \ res_results res_res_mults ->
                        do { result <- thing_inside (arg_results ++ res_results) ([arg_mult] ++ arg_res_mults ++ res_res_mults)
-                          ; return (result, arg_tc_ty, res_tc_ty, arg_mult, arg_mult) }}
+                          ; return (result, arg_tc_ty, res_tc_ty, arg_mult) }}
 
            ; return ( result
                     , match_wrapper <.>
