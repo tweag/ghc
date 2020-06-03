@@ -675,6 +675,11 @@ tcExpr expr@(RecordCon { rcon_con_name = L loc con_name
                   res_wrap <- tcSubTypeHR (Shouldn'tHappenOrigin "RecordCon")
                                           (Just expr) actual_res_ty res_ty
                 ; rbinds' <- tcRecordBinds con_like (map scaledThing arg_tys) rbinds
+                   -- It is currently not possible for a record to have
+                   -- multiplicities. When they do, `tcRecordBinds` will take
+                   -- scaled types instead. Meanwhile, it's safe to take
+                   -- `scaledThing` above, as we know all the multiplicities are
+                   -- Many.
                 ; return $
                   mkHsWrap res_wrap $
                   RecordCon { rcon_ext = RecordConTc
