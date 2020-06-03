@@ -646,7 +646,7 @@ identifier :: { Located RdrName }
         | qconop                        { $1 }
     | '(' '->' ')'      {% ams (sLL $1 $> $ getRdrName unrestrictedFunTyCon)
                                [mop $1,mu AnnRarrow $2,mcp $3] }
-    | '->'              {% ams (sLL $1 $> $ getRdrName funTyCon)
+    | '->'              {% ams (sLL $1 $> $ getRdrName unrestrictedFunTyCon)
                                [mu AnnRarrow $1] }
 
 -----------------------------------------------------------------------------
