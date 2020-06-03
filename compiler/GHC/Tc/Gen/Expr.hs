@@ -575,7 +575,7 @@ tcExpr (HsIf x NoSyntaxExprRn pred b1 b2) res_ty    -- Ordinary 'if'
 tcExpr (HsIf x fun@(SyntaxExprRn {}) pred b1 b2) res_ty
   = do { ((pred', b1', b2'), fun')
            <- tcSyntaxOp IfOrigin fun [SynAny, SynAny, SynAny] res_ty $
-              \ [pred_ty, b1_ty, b2_ty] _ ->
+              \ [pred_ty, b1_ty, b2_ty] [] ->
               do { pred' <- tcCheckExpr pred pred_ty
                  ; b1'   <- tcCheckExpr b1   b1_ty
                  ; b2'   <- tcCheckExpr b2   b2_ty
@@ -1126,7 +1126,7 @@ arithSeqEltType Nothing res_ty
 arithSeqEltType (Just fl) res_ty
   = do { (elt_ty, fl')
            <- tcSyntaxOp ListOrigin fl [SynList] res_ty $
-              \ [elt_ty] _ -> return elt_ty
+              \ [elt_ty] [] -> return elt_ty
        ; return (idHsWrapper, elt_ty, Just fl') }
 
 {-
