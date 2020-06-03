@@ -16,7 +16,6 @@ Qualified do-notation
 
 ``QualifiedDo`` enables qualifying a ``do`` block with a module name, to control which operations to use for
 the monadic combinators that the ``do`` notation desugars to.
-
 When ``-XQualifiedDo`` is enabled, you can *qualify* the ``do`` notation by writing ``modid.do``, where
 ``modid`` is a module name in scope: ::
 
@@ -38,14 +37,23 @@ for each: ::
   import qualified Control.Monad.Linear as L
 
   f :: IO ()
-  f = do x <- MAC.runMAC (MAC.do d <- MAC.label x           -- Prelude.>>= of MAC.>>=
-                                 MAC.box (L.do r <- L.f d   -- MAC.>> of L.>>=
-                                               L.g r        -- L.>>
-                                               L.return r)
-                                 MAC.return d)
-         print x
+  f = do
+    x <- MAC.runMAC $       -- (Prelude.>>=)
+                            --   (MAC.runMAC $
+      MAC.do                --
+        d <- MAC.label "y"  --     MAC.label "y" MAC.>>= \d ->
+        MAC.box $           --     (MAC.>>)
+                            --       (MAC.box $
+          L.do              --
+            r <- L.f d      --         L.f d L.>>= \r ->
+            L.g r           --         L.g r L.>>
+            L.return r      --         L.return r
+                            --       )
+        MAC.return d        --       (MAC.return d)
+                            --   )
+    print x                 --   (\x -> print x)
 
-The semantics of ``do`` notation statements with ``-XQualfiedDo`` is as follows:
+The semantics of ``do`` notation statements with ``-XQualifiedDo`` is as follows:
 
 * The ``x <- u`` statement uses ``(M.>>=)`` ::
 
