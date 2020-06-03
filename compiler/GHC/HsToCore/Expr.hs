@@ -402,7 +402,7 @@ dsExpr e@(SectionL _ expr op) = do
       -- Binary operator section
       (x_ty:y_ty:_, _) -> do
         dsWhenNoErrs
-          (mapM newSysLocalDsNoLP [x_ty, y_ty])
+          (newSysLocalsDsNoLP [x_ty, y_ty])
           (\[x_id, y_id] ->
             bindNonRec x_id x_core
             $ Lam y_id (mkCoreAppsDs (text "sectionl" <+> ppr e)

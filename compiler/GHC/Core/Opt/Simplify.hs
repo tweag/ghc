@@ -1928,14 +1928,14 @@ rebuildCall env info (ApplyToTy { sc_arg_ty = arg_ty, sc_cont = cont })
 -- runRW# :: forall (r :: RuntimeRep) (o :: TYPE r). (State# RealWorld -> o) -> o
 -- K[ runRW# rr ty (\s. body) ]  -->  runRW rr' ty' (\s. K[ body ])
 rebuildCall env (ArgInfo { ai_fun = fun, ai_args = rev_args })
-            (ApplyToVal { sc_arg = arg, sc_env = arg_se, sc_cont = cont })
+            (ApplyToVal { sc_arg = arg, sc_env = arg_se, sc_cont = cont, sc_mult = m })
   | fun `hasKey` runRWKey
   , not (contIsStop cont)  -- Don't fiddle around if the continuation is boring
   , [ TyArg {}, TyArg {} ] <- rev_args
-  = do { s <- newId (fsLit "s") realWorldStatePrimTy
+  = do { s <- newId (fsLit "s") Many realWorldStatePrimTy
        ; let env'  = (arg_se `setInScopeFromE` env) `addNewInScopeIds` [s]
              cont' = ApplyToVal { sc_dup = Simplified, sc_arg = Var s
-                                , sc_env = env', sc_cont = cont }
+                                , sc_env = env', sc_cont = cont, sc_mult = m }
        ; body' <- simplExprC env' arg cont'
        ; let arg'  = Lam s body'
              ty'   = contResultType cont

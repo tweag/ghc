@@ -646,7 +646,7 @@ evVarsOfTermList (EvTypeable _ ev)  =
   case ev of
     EvTypeableTyCon _ e   -> concatMap evVarsOfTermList e
     EvTypeableTyApp e1 e2 -> concatMap evVarsOfTermList [e1,e2]
-    EvTypeableTrFun e1 e2 -> concatMap evVarsOfTermList [e1,e2]
+    EvTypeableTrFun e1 e2 e3 -> concatMap evVarsOfTermList [e1,e2,e3]
     EvTypeableTyLit e     -> evVarsOfTermList e
 evVarsOfTermList (EvFun{}) = []
 

@@ -914,7 +914,7 @@ lintCoreExpr e@(Let (Rec pairs) body)
           -- See Note [Multiplicity of let binders] in Var
         ; ((body_type, body_ue), ues) <-
             lintRecBindings NotTopLevel pairs $ \ bndrs' ->
-            lintLetBody bndrs' body }
+            lintLetBody bndrs' body
         ; return (body_type, body_ue  `addUE` scaleUE Many (foldr1 addUE ues)) }
   where
     bndrs = map fst pairs
@@ -925,19 +925,20 @@ lintCoreExpr e@(App _ _)
     -- N.B. we may have an over-saturated application of the form:
     --   runRW (\s -> \x -> ...) y
   , arg_ty1 : arg_ty2 : arg3 : rest <- args
-  = do { fun_ty1 <- lintCoreArg (idType fun) arg_ty1
-       ; fun_ty2 <- lintCoreArg fun_ty1      arg_ty2
+  = do { fun_pair1 <- lintCoreArg (idType fun, zeroUE) arg_ty1
+       ; (fun_ty2, ue2) <- lintCoreArg fun_pair1      arg_ty2
          -- See Note [Linting of runRW#]
-       ; let lintRunRWCont :: CoreArg -> LintM LintedType
+       ; let lintRunRWCont :: CoreArg -> LintM (LintedType, UsageEnv)
              lintRunRWCont (Cast expr co) = do
-                ty <- lintRunRWCont expr
-                lintCastExpr expr ty co
+                (ty, ue) <- lintRunRWCont expr
+                new_ty <- lintCastExpr expr ty co
+                return (new_ty, ue)
              lintRunRWCont expr@(Lam _ _) = do
                 lintJoinLams 1 (Just fun) expr
              lintRunRWCont other = markAllJoinsBad $ lintCoreExpr other
              -- TODO: Look through ticks?
-       ; arg3_ty <- lintRunRWCont arg3
-       ; app_ty <- lintValApp arg3 fun_ty2 arg3_ty
+       ; (arg3_ty, ue3) <- lintRunRWCont arg3
+       ; app_ty <- lintValApp arg3 fun_ty2 arg3_ty ue2 ue3
        ; lintCoreArgs app_ty rest }
 
   | Var fun <- fun

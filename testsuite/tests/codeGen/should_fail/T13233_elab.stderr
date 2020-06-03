@@ -4,3 +4,12 @@ T13233_elab.hs:25:16: error:
       Type: a
       Kind: TYPE rep1
     When trying to create a variable of type: a
+
+T13233_elab.hs:33:10: error:
+    Cannot use function with levity-polymorphic arguments:
+      mkWeak# @rep @a @b @c :: a
+                               -> b
+                               -> (State# RealWorld -> (# State# RealWorld, c #))
+                               -> State# RealWorld
+                               -> (# State# RealWorld, Weak# b #)
+    Levity-polymorphic arguments: a :: TYPE rep
