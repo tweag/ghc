@@ -1727,7 +1727,7 @@ ppr_mono_ty (HsTyVar _ prom (L _ name))
 ppr_mono_ty (HsFunTy _ mult ty1 ty2)   = ppr_fun_ty mult ty1 ty2
 ppr_mono_ty (HsTupleTy _ con tys)
     -- Special-case unary boxed tuples so that they are pretty-printed as
-    -- `Unit x`, not `(x)`
+    -- `Solo x`, not `(x)`
   | [ty] <- tys
   , BoxedTuple <- std_con
   = sep [text (mkTupleStr Boxed 1), ppr_mono_lty ty]
@@ -1748,7 +1748,7 @@ ppr_mono_ty (HsExplicitListTy _ prom tys)
   | otherwise       = brackets (interpp'SP tys)
 ppr_mono_ty (HsExplicitTupleTy _ tys)
     -- Special-case unary boxed tuples so that they are pretty-printed as
-    -- `'Unit x`, not `'(x)`
+    -- `'Solo x`, not `'(x)`
   | [ty] <- tys
   = quote $ sep [text (mkTupleStr Boxed 1), ppr_mono_lty ty]
   | otherwise

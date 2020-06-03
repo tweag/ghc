@@ -1136,6 +1136,13 @@ checkAPat loc e0 = do
                       | nPlusKPatterns && (plus == plus_RDR)
                       -> return (mkNPlusKPat (L nloc n) (L lloc lit))
 
+   -- Improve error messages for the @-operator when the user meant an @-pattern
+   PatBuilderOpApp _ op _ | opIsAt (unLoc op) -> do
+     addError (getLoc op) $
+       text "Found a binding for the" <+> quotes (ppr op) <+> text "operator in a pattern position." $$
+       perhaps_as_pat
+     return (WildPat noExtField)
+
    PatBuilderOpApp l (L cl c) r
      | isRdrDataCon c -> do
          l <- checkLPat l
@@ -1170,6 +1177,9 @@ patFail loc e = addFatalError loc $ text "Parse error in pattern:" <+> ppr e
 patIsRec :: RdrName -> Bool
 patIsRec e = e == mkUnqual varName (fsLit "rec")
 
+opIsAt :: RdrName -> Bool
+opIsAt e = e == mkUnqual varName (fsLit "@")
+
 ---------------------------------------------------------------------------
 -- Check Equation Syntax
 
@@ -1202,7 +1212,7 @@ checkFunBind :: SrcStrictness
              -> Located (GRHSs GhcPs (LHsExpr GhcPs))
              -> P ([AddAnn],HsBind GhcPs)
 checkFunBind strictness ann lhs_loc fun is_infix pats (L rhs_span grhss)
-  = do  ps <- mapM checkPattern pats
+  = do  ps <- runPV_msg param_hint (mapM checkLPat pats)
         let match_span = combineSrcSpans lhs_loc rhs_span
         -- Add back the annotations stripped from any HsPar values in the lhs
         -- mapM_ (\a -> a match_span) ann
@@ -1216,6 +1226,15 @@ checkFunBind strictness ann lhs_loc fun is_infix pats (L rhs_span grhss)
                                        , m_grhss = grhss })])
         -- The span of the match covers the entire equation.
         -- That isn't quite right, but it'll do for now.
+  where
+    param_hint
+      | Infix <- is_infix
+      = text "In a function binding for the" <+> quotes (ppr fun) <+> text "operator." $$
+        if opIsAt (unLoc fun) then perhaps_as_pat else empty
+      | otherwise = empty
+
+perhaps_as_pat :: SDoc
+perhaps_as_pat = text "Perhaps you meant an as-pattern, which must not be surrounded by whitespace"
 
 makeFunBind :: Located RdrName -> [LMatch GhcPs (LHsExpr GhcPs)]
             -> HsBind GhcPs
@@ -1791,6 +1810,8 @@ class b ~ (Body b) GhcPs => DisambECP b where
   superFunArg :: (DisambECP (FunArg b) => PV (Located b)) -> PV (Located b)
   -- | Disambiguate "f x" (function application)
   mkHsAppPV :: SrcSpan -> Located b -> Located (FunArg b) -> PV (Located b)
+  -- | Disambiguate "f @t" (visible type application)
+  mkHsAppTypePV :: SrcSpan -> Located b -> LHsType GhcPs -> PV (Located b)
   -- | Disambiguate "if ... then ... else ..."
   mkHsIfPV :: SrcSpan
          -> LHsExpr GhcPs
@@ -1905,6 +1926,7 @@ instance DisambECP (HsCmd GhcPs) where
     checkCmdBlockArguments c
     checkExpBlockArguments e
     return $ L l (HsCmdApp noExtField c e)
+  mkHsAppTypePV l c t = cmdFail l (ppr c <+> text "@" <> ppr t)
   mkHsIfPV l c semi1 a semi2 b = do
     checkDoAndIfThenElse c semi1 a semi2 b
     return $ L l (mkHsCmdIf c a b)
@@ -1962,6 +1984,9 @@ instance DisambECP (HsExpr GhcPs) where
     checkExpBlockArguments e1
     checkExpBlockArguments e2
     return $ L l (HsApp noExtField e1 e2)
+  mkHsAppTypePV l e t = do
+    checkExpBlockArguments e
+    return $ L l (HsAppType noExtField e (mkHsWildCardBndrs t))
   mkHsIfPV l c semi1 a semi2 b = do
     checkDoAndIfThenElse c semi1 a semi2 b
     return $ L l (mkHsIf c a b)
@@ -2044,6 +2069,8 @@ instance DisambECP (PatBuilder GhcPs) where
   type FunArg (PatBuilder GhcPs) = PatBuilder GhcPs
   superFunArg m = m
   mkHsAppPV l p1 p2 = return $ L l (PatBuilderApp p1 p2)
+  mkHsAppTypePV l _ _ = addFatalError l $
+    text "Type applications in patterns are not yet supported"
   mkHsIfPV l _ _ _ _ _ = addFatalError l $ text "(if ... then ... else ...)-syntax in pattern"
   mkHsDoPV l _ = addFatalError l $ text "do-notation in pattern"
   mkHsParPV l p = return $ L l (PatBuilderPar p)

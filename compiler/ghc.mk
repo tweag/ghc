@@ -102,8 +102,8 @@ $(eval $(call compilerConfig,1))
 $(eval $(call compilerConfig,2))
 
 # ----------------------------------------------------------------------------
-#		Generate supporting stuff for prelude/PrimOp.hs
-#		from prelude/primops.txt
+#		Generate supporting stuff for GHC/Builtin/PrimOps.hs
+#		from GHC/Builtin/primops.txt
 
 PRIMOP_BITS_NAMES = primop-data-decl.hs-incl        \
                     primop-tag.hs-incl              \
@@ -192,6 +192,12 @@ ifeq "$(GhcThreaded)" "YES"
 # We pass THREADED_RTS to the stage2 C files so that cbits/genSym.c will bring
 # the threaded version of atomic_inc() into scope.
 compiler_stage2_CONFIGURE_OPTS += --ghc-option=-optc-DTHREADED_RTS
+endif
+
+# If the bootstrapping GHC supplies the threaded RTS, then we can have a
+# threaded stage 1 too.
+ifeq "$(GhcThreadedRts)" "YES"
+compiler_stage1_CONFIGURE_OPTS += --ghc-option=-optc-DTHREADED_RTS
 endif
 
 ifeq "$(GhcWithNativeCodeGen)" "YES"
