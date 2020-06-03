@@ -106,6 +106,10 @@ The semantics of ``do`` notation statements with ``-XQualifiedDo`` is as follows
 If a name ``M.op`` is required by the desugaring process (and only if it's required!) but the name is
 not in scope, it is reported as an error.
 
+The types of the operations picked for desugaring must produce an
+expression which is accepted by the typechecker. But other than that,
+there are no specific requirements on the types.
+
 If no qualifier is specified with ``-XQualifiedDo`` enabled, it defaults to the operations defined in the Prelude, or, if
 ``-XRebindableSyntax`` is enabled, to whatever operations are in scope.
 
