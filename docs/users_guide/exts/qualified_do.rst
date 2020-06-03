@@ -29,8 +29,15 @@ When ``-XQualifiedDo`` is enabled, you can *qualify* the ``do`` notation by writ
 
 The additional module name (here ``M``) is called the qualifier of the do-expression.
 
-This allows you to mix and match different monads and specify which operations to use
-for each: ::
+The unqualified ``do`` syntax is convenient for writing monadic code, but
+it only works for data types that provide an instance of the ``Monad`` type class.
+There are other types which are "monad-like" but can't provide an instance of
+``Monad`` (e.g. indexed monads, graded monads or relative monads), yet they could
+still use the ``do`` syntax if it weren't hardwired to the methods of the ``Monad``
+type class. ``-XQualifiedDo`` comes to make the do syntax customizable in this
+respect.
+It allows you to mix and match ``do`` blocks of different types with suitable
+operations to use on each case: ::
 
   {-# LANGUAGE QualifiedDo #-}
   import qualified MAC as MAC
