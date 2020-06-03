@@ -1009,7 +1009,7 @@ defaultNonStandardVars do_runtimereps do_multiplicities ty = go False emptyFsEnv
       -- See Note [Defaulting RuntimeRep variables], about free vars
       | in_kind && do_runtimereps && GHC.Core.Type.isRuntimeRepTy (tyVarKind tv)
       = liftedRep_ty
-      | in_kind && do_multiplicities && GHC.Core.Type.isMultiplicityTy (tyVarKind tv)
+      | do_multiplicities && GHC.Core.Type.isMultiplicityTy (tyVarKind tv)
       = many_ty
       | otherwise
       = ty
