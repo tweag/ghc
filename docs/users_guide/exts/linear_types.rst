@@ -53,7 +53,7 @@ We say that a variable whose multiplicity constraint is ``Many`` is
 *unrestricted*.
 
 The multiplicity-polymorphic arrow ``a # m -> b`` is available in a prefix
-version as ``GHC.Types.FUN m a b``, which can be applied
+version as ``GHC.Exts.FUN m a b``, which can be applied
 partially. See, however :ref:`linear-types-limitations`.
 
 Linear and multiplicity-polymorphic arrows are *always declared*,
@@ -141,7 +141,7 @@ limitations. If you have read the full design in the proposal (see
 :ref:`linear-types-references` below), here is a run down of the
 missing pieces.
 
-- The syntax ``a # p -> b`` is not yet implemented. You can use ``FUN
+- The syntax ``a # p -> b`` is not yet implemented. You can use ``GHC.Exts.FUN
   p a b`` instead. However, be aware of the next point.
 - Multiplicity polymorphism is incomplete and experimental. You may
   have success using it, or you may not. Expect it to be really unreliable.
