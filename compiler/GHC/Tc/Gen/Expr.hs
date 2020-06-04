@@ -575,10 +575,10 @@ tcExpr (HsIf x NoSyntaxExprRn pred b1 b2) res_ty    -- Ordinary 'if'
 tcExpr (HsIf x fun@(SyntaxExprRn {}) pred b1 b2) res_ty
   = do { ((pred', b1', b2'), fun')
            <- tcSyntaxOp IfOrigin fun [SynAny, SynAny, SynAny] res_ty $
-              \ [pred_ty, b1_ty, b2_ty] _ ->
-              do { pred' <- tcCheckExpr pred pred_ty
-                 ; b1'   <- tcCheckExpr b1   b1_ty
-                 ; b2'   <- tcCheckExpr b2   b2_ty
+              \ [pred_ty, b1_ty, b2_ty] [pred_mult, b1_mult, b2_mult] ->
+              do { pred' <- tcScalingUsage pred_mult $ tcCheckExpr pred pred_ty
+                 ; b1'   <- tcScalingUsage b1_mult   $ tcCheckExpr b1   b1_ty
+                 ; b2'   <- tcScalingUsage b2_mult   $ tcCheckExpr b2   b2_ty
                  ; return (pred', b1', b2') }
        ; return (HsIf x fun' pred' b1' b2') }
 
@@ -675,6 +675,11 @@ tcExpr expr@(RecordCon { rcon_con_name = L loc con_name
                   res_wrap <- tcSubTypeHR (Shouldn'tHappenOrigin "RecordCon")
                                           (Just expr) actual_res_ty res_ty
                 ; rbinds' <- tcRecordBinds con_like (map scaledThing arg_tys) rbinds
+                   -- It is currently not possible for a record to have
+                   -- multiplicities. When they do, `tcRecordBinds` will take
+                   -- scaled types instead. Meanwhile, it's safe to take
+                   -- `scaledThing` above, as we know all the multiplicities are
+                   -- Many.
                 ; return $
                   mkHsWrap res_wrap $
                   RecordCon { rcon_ext = RecordConTc
@@ -1081,36 +1086,36 @@ tcArithSeq :: Maybe (SyntaxExpr GhcRn) -> ArithSeqInfo GhcRn -> ExpRhoType
            -> TcM (HsExpr GhcTc)
 
 tcArithSeq witness seq@(From expr) res_ty
-  = do { (wrap, elt_ty, wit') <- arithSeqEltType witness res_ty
-       ; expr' <- tcCheckExpr expr elt_ty
+  = do { (wrap, elt_mult, elt_ty, wit') <- arithSeqEltType witness res_ty
+       ; expr' <- tcScalingUsage elt_mult $ tcCheckExpr expr elt_ty
        ; enum_from <- newMethodFromName (ArithSeqOrigin seq)
                               enumFromName [elt_ty]
        ; return $ mkHsWrap wrap $
          ArithSeq enum_from wit' (From expr') }
 
 tcArithSeq witness seq@(FromThen expr1 expr2) res_ty
-  = do { (wrap, elt_ty, wit') <- arithSeqEltType witness res_ty
-       ; expr1' <- tcCheckExpr expr1 elt_ty
-       ; expr2' <- tcCheckExpr expr2 elt_ty
+  = do { (wrap, elt_mult, elt_ty, wit') <- arithSeqEltType witness res_ty
+       ; expr1' <- tcScalingUsage elt_mult $ tcCheckExpr expr1 elt_ty
+       ; expr2' <- tcScalingUsage elt_mult $ tcCheckExpr expr2 elt_ty
        ; enum_from_then <- newMethodFromName (ArithSeqOrigin seq)
                               enumFromThenName [elt_ty]
        ; return $ mkHsWrap wrap $
          ArithSeq enum_from_then wit' (FromThen expr1' expr2') }
 
 tcArithSeq witness seq@(FromTo expr1 expr2) res_ty
-  = do { (wrap, elt_ty, wit') <- arithSeqEltType witness res_ty
-       ; expr1' <- tcCheckExpr expr1 elt_ty
-       ; expr2' <- tcCheckExpr expr2 elt_ty
+  = do { (wrap, elt_mult, elt_ty, wit') <- arithSeqEltType witness res_ty
+       ; expr1' <- tcScalingUsage elt_mult $ tcCheckExpr expr1 elt_ty
+       ; expr2' <- tcScalingUsage elt_mult $ tcCheckExpr expr2 elt_ty
        ; enum_from_to <- newMethodFromName (ArithSeqOrigin seq)
                               enumFromToName [elt_ty]
        ; return $ mkHsWrap wrap $
          ArithSeq enum_from_to wit' (FromTo expr1' expr2') }
 
 tcArithSeq witness seq@(FromThenTo expr1 expr2 expr3) res_ty
-  = do { (wrap, elt_ty, wit') <- arithSeqEltType witness res_ty
-        ; expr1' <- tcCheckExpr expr1 elt_ty
-        ; expr2' <- tcCheckExpr expr2 elt_ty
-        ; expr3' <- tcCheckExpr expr3 elt_ty
+  = do { (wrap, elt_mult, elt_ty, wit') <- arithSeqEltType witness res_ty
+        ; expr1' <- tcScalingUsage elt_mult $ tcCheckExpr expr1 elt_ty
+        ; expr2' <- tcScalingUsage elt_mult $ tcCheckExpr expr2 elt_ty
+        ; expr3' <- tcScalingUsage elt_mult $ tcCheckExpr expr3 elt_ty
         ; eft <- newMethodFromName (ArithSeqOrigin seq)
                               enumFromThenToName [elt_ty]
         ; return $ mkHsWrap wrap $
@@ -1118,16 +1123,16 @@ tcArithSeq witness seq@(FromThenTo expr1 expr2 expr3) res_ty
 
 -----------------
 arithSeqEltType :: Maybe (SyntaxExpr GhcRn) -> ExpRhoType
-                -> TcM (HsWrapper, TcType, Maybe (SyntaxExpr GhcTc))
+                -> TcM (HsWrapper, Mult, TcType, Maybe (SyntaxExpr GhcTc))
 arithSeqEltType Nothing res_ty
   = do { res_ty <- expTypeToType res_ty
        ; (coi, elt_ty) <- matchExpectedListTy res_ty
-       ; return (mkWpCastN coi, elt_ty, Nothing) }
+       ; return (mkWpCastN coi, One, elt_ty, Nothing) }
 arithSeqEltType (Just fl) res_ty
-  = do { (elt_ty, fl')
+  = do { ((elt_mult, elt_ty), fl')
            <- tcSyntaxOp ListOrigin fl [SynList] res_ty $
-              \ [elt_ty] _ -> return elt_ty
-       ; return (idHsWrapper, elt_ty, Just fl') }
+              \ [elt_ty] [elt_mult] -> return (elt_mult, elt_ty)
+       ; return (idHsWrapper, elt_mult, elt_ty, Just fl') }
 
 {-
 ************************************************************************
@@ -1601,7 +1606,7 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
            ; return (result, mkWpCastN list_co) }
 
     go rho_ty (SynFun arg_shape res_shape)
-      = do { ( ( ( (result, arg_ty, res_ty, op_mult, _res_mult)
+      = do { ( ( ( (result, arg_ty, res_ty, op_mult)
                  , res_wrapper )                   -- :: res_ty_out "->" res_ty
                , arg_wrapper1, [], arg_wrapper2 )  -- :: arg_ty "->" arg_ty_out
              , match_wrapper )         -- :: (arg_ty -> res_ty) "->" rho_ty
@@ -1624,7 +1629,7 @@ tcSynArgE orig sigma_ty syn_ty thing_inside
                        tcSynArgE orig res_tc_ty res_shape $
                        \ res_results res_res_mults ->
                        do { result <- thing_inside (arg_results ++ res_results) ([arg_mult] ++ arg_res_mults ++ res_res_mults)
-                          ; return (result, arg_tc_ty, res_tc_ty, arg_mult, arg_mult) }}
+                          ; return (result, arg_tc_ty, res_tc_ty, arg_mult) }}
 
            ; return ( result
                     , match_wrapper <.>
