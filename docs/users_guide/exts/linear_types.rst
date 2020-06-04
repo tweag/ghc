@@ -26,15 +26,19 @@ means that in every branch of the definition of ``f``, its argument
 * Passing ``x`` to a *linear* function
 * Pattern-matching on ``x`` and using each argument exactly once in the
   same fashion.
+* calling it as a function and use the result exactly once in the same
+  fashion.
 
 With ``-XLinearTypes``, you can write ``f :: a #-> b`` to mean that
 ``f`` is a linear function from ``a`` to ``b``.  If
 :extension:`UnicodeSyntax` is enabled, the ``#->`` arrow can be
 written as ``⊸``.
 
-To allow uniform handling of linear ``a #-> b`` and unrestricted ``a -> b``
-functions, there is a new function type ``a # m -> b``. Here, ``m`` is a type
-of new kind ``Multiplicity``. We have:
+To allow uniform handling of linear ``a #-> b`` and unrestricted ``a
+-> b`` functions, there is a new function type ``a # m -> b``. This
+syntax is, however, not implemented yet, see
+:ref:`linear-types-limitations`. Here, ``m`` is a type of new kind
+``Multiplicity``. We have:
 
 ::
 
@@ -94,7 +98,7 @@ therefore constructors appear to have regular function types.
 Hence the linearity of type constructors is invisible when
 ``-XLinearTypes`` is off.
 
-This behavior can be customized using the GADT syntax. Given
+Whether a data constructor field is linear or not can be customized using the GADT syntax. Given
 
 ::
 
@@ -137,10 +141,12 @@ limitations. If you have read the full design in the proposal (see
 :ref:`linear-types-references` below), here is a run down of the
 missing pieces.
 
-- There is currently no support for multiplicity annotations such as
-  ``x :: a # p``, ``\(x :: a # p) -> ...``.
+- The syntax ``a # p -> b`` is not yet implemented. You can use ``FUN
+  p a b`` instead. However, be aware of the next point.
 - Multiplicity polymorphism is incomplete and experimental. You may
   have success using it, or you may not. Expect it to be really unreliable.
+- There is currently no support for multiplicity annotations such as
+  ``x :: a # p``, ``\(x :: a # p) -> ...``.
 - All ``case``, ``let`` and ``where`` statements consume their
   right-hand side, or scrutiny, ``Many`` times. That is, the following
   will not type check:
