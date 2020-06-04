@@ -26,7 +26,7 @@ means that in every branch of the definition of ``f``, its argument
 * Passing ``x`` to a *linear* function
 * Pattern-matching on ``x`` and using each argument exactly once in the
   same fashion.
-* calling it as a function and use the result exactly once in the same
+* Calling it as a function and using the result exactly once in the same
   fashion.
 
 With ``-XLinearTypes``, you can write ``f :: a #-> b`` to mean that
