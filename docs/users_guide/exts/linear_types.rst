@@ -12,7 +12,7 @@ Linear types
 **This extension is currently considered experimental, expect bugs and
 warts, everything down to the syntax is subject to change**.  See, in
 particular, :ref:`linear-types-limitations` below. We encourage you to
-experiment with this extension qand report issues in the GHC bug
+experiment with this extension and report issues in the GHC bug
 tracker `the GHC bug tracker
 <https://gitlab.haskell.org/ghc/ghc/issues>`__, adding the tag
 ``LinearTypes``.
@@ -20,11 +20,11 @@ tracker `the GHC bug tracker
 A function ``f`` is linear if: when its result is consumed *exactly
 once*, then its argument is consumed *exactly once*. Intuitively, it
 means that in every branch of the definition of ``f``, its argument
-``x``, must be used exactly once. Which can be done by
+``x`` must be used exactly once. Which can be done by
 
 * Returning ``x`` unmodified
 * Passing ``x`` to a *linear* function
-* Pattern-matching on ``x`` and use each argument exactly once in the
+* Pattern-matching on ``x`` and using each argument exactly once in the
   same fashion.
 
 With ``-XLinearTypes``, you can write ``f :: a #-> b`` to mean that
@@ -57,9 +57,6 @@ never inferred. That is, if you don't give an appropriate type
 signature to a function, it will be inferred as being a regular
 function of type ``a -> b``.
 
-Linear and multiplicity-polymorphic functions must be declared as such; in the
-absence of a type signature, functions are presumed to be unrestricted.
-
 Data types
 ----------
 By default, all fields in algebraic data types are linear (even if
@@ -79,15 +76,15 @@ the value ``MkT1 x`` can be constructed and deconstructed in a linear context:
     deconstruct :: MkT1 a #-> a
     deconstruct (MkT1 x) = x  -- must consume `x` exactly once
 
-When used as a value, ``MkT1`` is give a multiplicity-polymorphic
-type: ``MkT1 :: forall {m} a. a # m -> T1 a``. This makes is possible
+When used as a value, ``MkT1`` is given a multiplicity-polymorphic
+type: ``MkT1 :: forall {m} a. a # m -> T1 a``. This makes it possible
 to use ``MkT1`` in higher order functions. The additional multiplicity
 argument ``m`` is marked as inferred (see
 :ref:`inferred-vs-specified`), so that there is no conflict with
 visible type application. When displaying types, unless
-``-XLinearTypes`` is not, multiplicity polymorphic functions are
+``-XLinearTypes`` is enabled, multiplicity polymorphic functions are
 printed as regular functions (see :ref:`printing-linear-types`);
-therefore constructors appear to have a regular function types.
+therefore constructors appear to have regular function types.
 
 ::
 
@@ -143,7 +140,7 @@ missing pieces.
 - There is currently no support for multiplicity annotations such as
   ``x :: a # p``, ``\(x :: a # p) -> ...``.
 - Multiplicity polymorphism is incomplete and experimental. You may
-  have success using it, or you may not. Expect it to be really unreliable.x
+  have success using it, or you may not. Expect it to be really unreliable.
 - All ``case``, ``let`` and ``where`` statements consume their
   right-hand side, or scrutiny, ``Many`` times. That is, the following
   will not type check:
