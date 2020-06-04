@@ -575,10 +575,10 @@ tcExpr (HsIf x NoSyntaxExprRn pred b1 b2) res_ty    -- Ordinary 'if'
 tcExpr (HsIf x fun@(SyntaxExprRn {}) pred b1 b2) res_ty
   = do { ((pred', b1', b2'), fun')
            <- tcSyntaxOp IfOrigin fun [SynAny, SynAny, SynAny] res_ty $
-              \ [pred_ty, b1_ty, b2_ty] [] ->
-              do { pred' <- tcCheckExpr pred pred_ty
-                 ; b1'   <- tcCheckExpr b1   b1_ty
-                 ; b2'   <- tcCheckExpr b2   b2_ty
+              \ [pred_ty, b1_ty, b2_ty] [pred_mult, b1_mult, b2_mult] ->
+              do { pred' <- tcScalingUsage pred_mult $ tcCheckExpr pred pred_ty
+                 ; b1'   <- tcScalingUsage b1_mult   $ tcCheckExpr b1   b1_ty
+                 ; b2'   <- tcScalingUsage b2_mult   $ tcCheckExpr b2   b2_ty
                  ; return (pred', b1', b2') }
        ; return (HsIf x fun' pred' b1' b2') }
 
