@@ -1086,36 +1086,36 @@ tcArithSeq :: Maybe (SyntaxExpr GhcRn) -> ArithSeqInfo GhcRn -> ExpRhoType
            -> TcM (HsExpr GhcTc)
 
 tcArithSeq witness seq@(From expr) res_ty
-  = do { (wrap, elt_ty, wit') <- arithSeqEltType witness res_ty
-       ; expr' <- tcCheckExpr expr elt_ty
+  = do { (wrap, elt_mult, elt_ty, wit') <- arithSeqEltType witness res_ty
+       ; expr' <- tcScalingUsage elt_mult $ tcCheckExpr expr elt_ty
        ; enum_from <- newMethodFromName (ArithSeqOrigin seq)
                               enumFromName [elt_ty]
        ; return $ mkHsWrap wrap $
          ArithSeq enum_from wit' (From expr') }
 
 tcArithSeq witness seq@(FromThen expr1 expr2) res_ty
-  = do { (wrap, elt_ty, wit') <- arithSeqEltType witness res_ty
-       ; expr1' <- tcCheckExpr expr1 elt_ty
-       ; expr2' <- tcCheckExpr expr2 elt_ty
+  = do { (wrap, elt_mult, elt_ty, wit') <- arithSeqEltType witness res_ty
+       ; expr1' <- tcScalingUsage elt_mult $ tcCheckExpr expr1 elt_ty
+       ; expr2' <- tcScalingUsage elt_mult $ tcCheckExpr expr2 elt_ty
        ; enum_from_then <- newMethodFromName (ArithSeqOrigin seq)
                               enumFromThenName [elt_ty]
        ; return $ mkHsWrap wrap $
          ArithSeq enum_from_then wit' (FromThen expr1' expr2') }
 
 tcArithSeq witness seq@(FromTo expr1 expr2) res_ty
-  = do { (wrap, elt_ty, wit') <- arithSeqEltType witness res_ty
-       ; expr1' <- tcCheckExpr expr1 elt_ty
-       ; expr2' <- tcCheckExpr expr2 elt_ty
+  = do { (wrap, elt_mult, elt_ty, wit') <- arithSeqEltType witness res_ty
+       ; expr1' <- tcScalingUsage elt_mult $ tcCheckExpr expr1 elt_ty
+       ; expr2' <- tcScalingUsage elt_mult $ tcCheckExpr expr2 elt_ty
        ; enum_from_to <- newMethodFromName (ArithSeqOrigin seq)
                               enumFromToName [elt_ty]
        ; return $ mkHsWrap wrap $
          ArithSeq enum_from_to wit' (FromTo expr1' expr2') }
 
 tcArithSeq witness seq@(FromThenTo expr1 expr2 expr3) res_ty
-  = do { (wrap, elt_ty, wit') <- arithSeqEltType witness res_ty
-        ; expr1' <- tcCheckExpr expr1 elt_ty
-        ; expr2' <- tcCheckExpr expr2 elt_ty
-        ; expr3' <- tcCheckExpr expr3 elt_ty
+  = do { (wrap, elt_mult, elt_ty, wit') <- arithSeqEltType witness res_ty
+        ; expr1' <- tcScalingUsage elt_mult $ tcCheckExpr expr1 elt_ty
+        ; expr2' <- tcScalingUsage elt_mult $ tcCheckExpr expr2 elt_ty
+        ; expr3' <- tcScalingUsage elt_mult $ tcCheckExpr expr3 elt_ty
         ; eft <- newMethodFromName (ArithSeqOrigin seq)
                               enumFromThenToName [elt_ty]
         ; return $ mkHsWrap wrap $
@@ -1123,16 +1123,16 @@ tcArithSeq witness seq@(FromThenTo expr1 expr2 expr3) res_ty
 
 -----------------
 arithSeqEltType :: Maybe (SyntaxExpr GhcRn) -> ExpRhoType
-                -> TcM (HsWrapper, TcType, Maybe (SyntaxExpr GhcTc))
+                -> TcM (HsWrapper, Mult, TcType, Maybe (SyntaxExpr GhcTc))
 arithSeqEltType Nothing res_ty
   = do { res_ty <- expTypeToType res_ty
        ; (coi, elt_ty) <- matchExpectedListTy res_ty
-       ; return (mkWpCastN coi, elt_ty, Nothing) }
+       ; return (mkWpCastN coi, One, elt_ty, Nothing) }
 arithSeqEltType (Just fl) res_ty
-  = do { (elt_ty, fl')
+  = do { ((elt_mult, elt_ty), fl')
            <- tcSyntaxOp ListOrigin fl [SynList] res_ty $
-              \ [elt_ty] [] -> return elt_ty
-       ; return (idHsWrapper, elt_ty, Just fl') }
+              \ [elt_ty] [elt_mult] -> return (elt_mult, elt_ty)
+       ; return (idHsWrapper, elt_mult, elt_ty, Just fl') }
 
 {-
 ************************************************************************
