@@ -1560,7 +1560,7 @@ collectBindersPushingCo e
       , let Pair tyL tyR = coercionKind co
       , ASSERT( isFunTy tyL) isFunTy tyR
       , (co_mult, co_arg, co_res) <- decomposeFunCo Representational co
-      , isReflCo co_mult
+      , isReflCo co_mult -- See Note [collectBindersPushingCo]
       , isReflCo co_arg  -- See Note [collectBindersPushingCo]
       = go_c (b:bs) e co_res
 
@@ -1571,7 +1571,7 @@ collectBindersPushingCo e
 Note [collectBindersPushingCo]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We just look for coercions of form
-   <type> -> blah
+   <type> # w -> blah
 (and similarly for foralls) to keep this function simple.  We could do
 more elaborate stuff, but it'd involve substitution etc.
 
