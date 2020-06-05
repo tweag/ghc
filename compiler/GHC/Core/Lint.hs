@@ -1451,7 +1451,6 @@ lintCoreAlt case_bndr scrut_ty _scrut_mult alt_ty alt@(DataAlt con, args, rhs)
     ; lintBinders CasePatBind args $ \ args' -> do
       {
         rhs_ue <- lintAltExpr rhs alt_ty
-       -- ; pprTrace "lintCoreAlt" (ppr multiplicities $$ ppr args' $$ ppr (dataConRepArgTys con) $$ ppr (dataConSig con)) ( return ())
       ; rhs_ue' <- addLoc (CasePat alt) (lintAltBinders rhs_ue case_bndr scrut_ty con_payload_ty (zipEqual "lintCoreAlt" multiplicities  args'))
       ; return $ deleteUE rhs_ue' case_bndr
       }

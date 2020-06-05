@@ -216,6 +216,13 @@ plusUFM_CD f (UFM xm) dx (UFM ym) dy
       (M.map (\y -> dx `f` y))
       xm ym
 
+-- | `plusUFM_CD2 f m1 m2` merges the maps using `f` as the combining
+-- function. Unlike `plusUFM_CD`, a missing value is not defaulted: it is
+-- instead passed as `Nothing` to `f`. `f` can never have both its arguments
+-- be `Nothing`.
+--
+-- `plusUFM_CD2 f m1 m2` is the same as `plusUFM_CD f (mapUFM Just m1) Nothing
+-- (mapUFM Just m2) Nothing`.
 plusUFM_CD2
   :: (Maybe elta -> Maybe eltb -> eltc)
   -> UniqFM elta  -- map X

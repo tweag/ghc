@@ -370,6 +370,45 @@ in wrap_unf in mkDataConRep, and the lack of a binding happens in
 GHC.Iface.Tidy.getTyConImplicitBinds, where we say that a newtype has no
 implicit bindings.
 
+Note [Records and linear types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+All the fields, in a record constructor, are linear, because there is no syntax
+to specify the type of record field. There will be (see the proposal
+https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0111-linear-types.rst#records-and-projections
+), but it isn't implemented yet.
+
+Projections of records can't be linear:
+
+  data Foo = MkFoo { a :: A, b :: B }
+
+If we had
+
+  a :: Foo #-> A
+
+We could write
+
+  bad :: A #-> B #-> A
+  bad x y = a (MkFoo { a=x, b=y })
+
+There is an exception: if `b` (more generally all the fields besides `a`) is
+unrestricted, then is perfectly possible to have a linear projection. Such a
+linear projection has as simple definition.
+
+  data Bar = MkBar { c :: C, d # Many :: D }
+
+  c :: Bar #-> C
+  c MkBar{ c=x, d=_} = x
+
+The `# Many` syntax, for records, does not exist yet. But there is one important
+special case which already happens: when there is a single field (usually a
+newtype).
+
+  newtype Baz = MkBaz { unbaz :: E }
+
+unbaz could be linear. And, in fact, it is linear in the proposal design.
+
+However, this hasn't been implemented yet.
+
 ************************************************************************
 *                                                                      *
 \subsection{Dictionary selectors}
@@ -389,6 +428,18 @@ Then the top-level type for op is
         op :: forall a. Foo a =>
               forall b. Ord b =>
               a -> b -> b
+
+Note [Type classes and linear types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Constraints, in particular type classes, don't have attached linearity
+information. Implicitly, they are all unrestricted. See the linear types proposal,
+https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0111-linear-types.rst .
+
+When translating to core `C => ...` is always translated to an unrestricted
+arrow `C # Many -> ...`.
+
+Therefore there is no loss of generality if we make all selectors unrestricted.
 
 -}
 
@@ -410,6 +461,7 @@ mkDictSelId name clas
     sel_ty = mkInvisForAllTys tyvars $
              mkInvisFunTyMany (mkClassPred clas (mkTyVarTys (binderVars tyvars))) $
              scaledThing (getNth arg_tys val_index)
+               -- See Note [Type classes and linear types]
 
     base_info = noCafIdInfo
                 `setArityInfo`          1
