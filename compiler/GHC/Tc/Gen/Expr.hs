@@ -1923,9 +1923,9 @@ tc_infer_id lbl id_name
                  res = dataConOrigResTy con
 
            -- See Note [Linear fields generalization]
-           ; (_subst, mul_vars) <- newMetaTyVars $ multiplicityTyVarList (length args)
+           ; mul_vars <- newFlexiTyVarTys (length args) multiplicityTy
            ; let scaleArgs args' = zipWithEqual "return_data_con" combine mul_vars args'
-                 combine var (Scaled One ty) = Scaled (mkTyVarTy var) ty
+                 combine var (Scaled One ty) = Scaled var ty
                  combine _   scaled_ty       = scaled_ty
                    -- The combine function implements the fact that, as
                    -- described in Note [Linear fields generalization], if a
