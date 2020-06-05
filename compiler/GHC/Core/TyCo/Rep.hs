@@ -1107,8 +1107,8 @@ data Coercion
   | ForAllCo TyCoVar KindCoercion Coercion
          -- ForAllCo :: _ -> N -> e -> e
 
-  | FunCo Role Coercion Coercion Coercion         -- lift FunTy
-         -- FunCo :: "e" -> e -> e -> e
+  | FunCo Role CoercionN Coercion Coercion         -- lift FunTy
+         -- FunCo :: "e" -> N -> e -> e -> e
          -- Note: why doesn't FunCo have a AnonArgFlag, like FunTy?
          -- Because the AnonArgFlag has no impact on Core; it is only
          -- there to guide implicit instantiation of Haskell source

@@ -323,7 +323,7 @@ decomposeCo arity co rs
 decomposeFunCo :: HasDebugCallStack
                => Role      -- Role of the input coercion
                -> Coercion  -- Input coercion
-               -> (Coercion, Coercion, Coercion)
+               -> (CoercionN, Coercion, Coercion)
 -- Expects co :: (s1 -> t1) ~ (s2 -> t2)
 -- Returns (co1 :: s1~s2, co2 :: t1~t2)
 -- See Note [Function coercions] for the "3" and "4"
@@ -709,7 +709,7 @@ mkTyConAppCo r tc cos
 
 -- | Build a function 'Coercion' from two other 'Coercion's. That is,
 -- given @co1 :: a ~ b@ and @co2 :: x ~ y@ produce @co :: (a -> x) ~ (b -> y)@.
-mkFunCo :: Role -> Coercion -> Coercion -> Coercion -> Coercion
+mkFunCo :: Role -> CoercionN -> Coercion -> Coercion -> Coercion
 mkFunCo r w co1 co2
     -- See Note [Refl invariant]
   | Just (ty1, _) <- isReflCo_maybe co1
