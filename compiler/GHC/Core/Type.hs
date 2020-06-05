@@ -588,7 +588,9 @@ isLinearType ty = case ty of
                       FunTy _ Many _ res -> isLinearType res
                       FunTy _ _ _ _ -> True
                       ForAllTy _ res -> isLinearType res
-                      _ -> False
+                      _
+                        | Just ty' <- coreView ty -> isLinearType ty'
+                        | otherwise -> False
 
 {- *********************************************************************
 *                                                                      *
