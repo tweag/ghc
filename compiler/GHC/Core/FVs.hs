@@ -77,7 +77,7 @@ import GHC.Core.TyCon
 import GHC.Core.Coercion.Axiom
 import GHC.Core.FamInstEnv
 import GHC.Core.Multiplicity
-import GHC.Builtin.Types( unrestrictedFunTyConName, manyDataConTy )
+import GHC.Builtin.Types( unrestrictedFunTyConName )
 import GHC.Builtin.Types.Prim( funTyConName )
 import GHC.Data.Maybe( orElse )
 import GHC.Utils.Misc
@@ -355,22 +355,16 @@ orphNamesOfType (LitTy {})           = emptyNameSet
 orphNamesOfType (TyConApp tycon tys) = func
                                        `unionNameSet` orphNamesOfTyCon tycon
                                        `unionNameSet` orphNamesOfTypes tys
-        where func = case tys of -- Detect FUN 'Many as an application of (->),
-                                 -- so that :i (->) works as expected (see T8535)
-                                 -- Issue #16475 describes a more robust solution
-                       arg:_ | tycon == funTyCon, arg `eqType` manyDataConTy ->
-                            unitNameSet unrestrictedFunTyConName
+        where func = case tys of
+                       arg:_ | tycon == funTyCon -> orph_names_of_fun_ty_con arg
                        _ -> emptyNameSet
 orphNamesOfType (ForAllTy bndr res)  = orphNamesOfType (binderType bndr)
                                        `unionNameSet` orphNamesOfType res
-orphNamesOfType (FunTy _ w arg res)  = func
+orphNamesOfType (FunTy _ w arg res)  =  orph_names_of_fun_ty_con w
                                        `unionNameSet` unitNameSet funTyConName
                                        `unionNameSet` orphNamesOfType w
                                        `unionNameSet` orphNamesOfType arg
                                        `unionNameSet` orphNamesOfType res
-        where func = case w of  -- NB!  See #8535
-                       Many -> unitNameSet unrestrictedFunTyConName
-                       _ -> emptyNameSet
 orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSet` orphNamesOfType arg
 orphNamesOfType (CastTy ty co)       = orphNamesOfType ty `unionNameSet` orphNamesOfCo co
 orphNamesOfType (CoercionTy co)      = orphNamesOfCo co
@@ -441,6 +435,12 @@ orphNamesOfCoAxBranch (CoAxBranch { cab_lhs = lhs, cab_rhs = rhs })
 -- Used in the implementation of ":info" in GHCi.
 orphNamesOfFamInst :: FamInst -> NameSet
 orphNamesOfFamInst fam_inst = orphNamesOfAxiom (famInstAxiom fam_inst)
+
+-- Detect FUN 'Many as an application of (->), so that :i (->) works as expected
+-- (see #8535) Issue #16475 describes a more robust solution
+orph_names_of_fun_ty_con :: Mult -> NameSet
+orph_names_of_fun_ty_con Many = unitNameSet unrestrictedFunTyConName
+orph_names_of_fun_ty_con _ = emptyNameSet
 
 {-
 ************************************************************************
