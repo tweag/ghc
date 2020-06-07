@@ -1177,7 +1177,7 @@ flatten_one (TyConApp tc tys)
 --                   _ -> fmode
   = flatten_ty_con_app tc tys
 
-flatten_one ty@(FunTy _ mult ty1 ty2)
+flatten_one ty@(FunTy { ft_mult = mult, ft_arg = ty1, ft_res = ty2 })
   = do { (xi1,co1) <- flatten_one ty1
        ; (xi2,co2) <- flatten_one ty2
        ; (xi3,co3) <- flatten_one mult
