@@ -515,7 +515,7 @@ tcExpr expr@(ExplicitTuple x tup_args boxity) res_ty
 
        ; traceTc "ExplicitTuple" (ppr act_res_ty $$ ppr res_ty)
 
-       ; tcWrapResultMono expr expr' act_res_ty res_ty }
+       ; tcWrapResult expr expr' act_res_ty res_ty }
 
 tcExpr (ExplicitSum _ alt arity expr) res_ty
   = do { let sum_tc = sumTyCon arity
