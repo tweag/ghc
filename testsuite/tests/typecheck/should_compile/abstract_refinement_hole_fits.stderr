@@ -48,7 +48,7 @@ abstract_refinement_hole_fits.hs:4:5: warning: [-Wtyped-holes (in -Wdefault)]
           where return :: forall (m :: * -> *) a. Monad m => a -> m a
         pure (_ :: Integer)
           where pure :: forall (f :: * -> *) a. Applicative f => a -> f a
-        (>>=) (_ :: [Integer] -> a11) (_ :: a11 -> [Integer] -> Integer)
+        (>>=) (_ :: [Integer] -> a8) (_ :: a8 -> [Integer] -> Integer)
           where (>>=) :: forall (m :: * -> *) a b.
                          Monad m =>
                          m a -> (a -> m b) -> m b
@@ -114,18 +114,13 @@ abstract_refinement_hole_fits.hs:4:5: warning: [-Wtyped-holes (in -Wdefault)]
           where seq :: forall a b. a -> b -> b
         ($) (_ :: t0 -> [Integer] -> Integer) (_ :: t0)
           where ($) :: forall a b. (a -> b) -> a -> b
-        uncurry (_ :: a4 -> b3 -> [Integer] -> Integer) (_ :: (a4, b3))
-        return (_ :: [Integer] -> Integer) (_ :: t0)
-          where return :: forall (m :: * -> *) a. Monad m => a -> m a
-        pure (_ :: [Integer] -> Integer) (_ :: t0)
-          where pure :: forall (f :: * -> *) a. Applicative f => a -> f a
         uncurry (_ :: a3 -> b3 -> [Integer] -> Integer) (_ :: (a3, b3))
           where uncurry :: forall a b c. (a -> b -> c) -> (a, b) -> c
         ($!) (_ :: t0 -> [Integer] -> Integer) (_ :: t0)
           where ($!) :: forall a b. (a -> b) -> a -> b
-        return (_ :: [Integer] -> Integer) (_ :: t1)
+        return (_ :: [Integer] -> Integer) (_ :: t0)
           where return :: forall (m :: * -> *) a. Monad m => a -> m a
-        pure (_ :: [Integer] -> Integer) (_ :: t1)
+        pure (_ :: [Integer] -> Integer) (_ :: t0)
           where pure :: forall (f :: * -> *) a. Applicative f => a -> f a
 
 abstract_refinement_hole_fits.hs:7:5: warning: [-Wtyped-holes (in -Wdefault)]
@@ -169,8 +164,8 @@ abstract_refinement_hole_fits.hs:7:5: warning: [-Wtyped-holes (in -Wdefault)]
           where return :: forall (m :: * -> *) a. Monad m => a -> m a
         pure (_ :: [Integer] -> Integer)
           where pure :: forall (f :: * -> *) a. Applicative f => a -> f a
-        (>>=) (_ :: Integer -> a11)
-              (_ :: a11 -> Integer -> [Integer] -> Integer)
+        (>>=) (_ :: Integer -> a8)
+              (_ :: a8 -> Integer -> [Integer] -> Integer)
           where (>>=) :: forall (m :: * -> *) a b.
                          Monad m =>
                          m a -> (a -> m b) -> m b
@@ -239,12 +234,12 @@ abstract_refinement_hole_fits.hs:7:5: warning: [-Wtyped-holes (in -Wdefault)]
           where seq :: forall a b. a -> b -> b
         ($) (_ :: t0 -> Integer -> [Integer] -> Integer) (_ :: t0)
           where ($) :: forall a b. (a -> b) -> a -> b
-        uncurry (_ :: a4 -> b3 -> Integer -> [Integer] -> Integer)
-                (_ :: (a4, b3))
+        uncurry (_ :: a3 -> b3 -> Integer -> [Integer] -> Integer)
+                (_ :: (a3, b3))
           where uncurry :: forall a b c. (a -> b -> c) -> (a, b) -> c
         ($!) (_ :: t0 -> Integer -> [Integer] -> Integer) (_ :: t0)
           where ($!) :: forall a b. (a -> b) -> a -> b
-        return (_ :: Integer -> [Integer] -> Integer) (_ :: t1)
+        return (_ :: Integer -> [Integer] -> Integer) (_ :: t0)
           where return :: forall (m :: * -> *) a. Monad m => a -> m a
-        pure (_ :: Integer -> [Integer] -> Integer) (_ :: t1)
+        pure (_ :: Integer -> [Integer] -> Integer) (_ :: t0)
           where pure :: forall (f :: * -> *) a. Applicative f => a -> f a
