@@ -101,7 +101,8 @@ module GHC.Tc.Utils.Monad(
   chooseUniqueOccTc,
   getConstraintVar, setConstraintVar,
   emitConstraints, emitStaticConstraints, emitSimple, emitSimples,
-  emitImplication, emitImplications, emitInsoluble, emitHole,
+  emitImplication, emitImplications, emitInsoluble,
+  emitHole, emitHoles,
   discardConstraints, captureConstraints, tryCaptureConstraints,
   pushLevelAndCaptureConstraints,
   pushTcLevelM_, pushTcLevelM, pushTcLevelsM,
@@ -1153,7 +1154,7 @@ askNoErrs thing_inside
        ; addMessages msgs
 
        ; case mb_res of
-           Nothing  -> do { emitConstraints (insolublesOnly lie)
+           Nothing  -> do { emitConstraints (dropMisleading lie)
                           ; failM }
 
            Just res -> do { emitConstraints lie
@@ -1175,7 +1176,7 @@ tryCaptureConstraints thing_inside
 
        -- See Note [Constraints and errors]
        ; let lie_to_keep = case mb_res of
-                             Nothing -> insolublesOnly lie
+                             Nothing -> dropMisleading lie
                              Just {} -> lie
 
        ; return (mb_res, lie_to_keep) }
@@ -1627,7 +1628,13 @@ emitHole :: Hole -> TcM ()
 emitHole hole
   = do { traceTc "emitHole" (ppr hole)
        ; lie_var <- getConstraintVar
-       ; updTcRef lie_var (`addHole` hole) }
+       ; updTcRef lie_var (`addHoles` unitBag hole) }
+
+emitHoles :: Bag Hole -> TcM ()
+emitHoles holes
+  = do { traceTc "emitHoles" (ppr holes)
+       ; lie_var <- getConstraintVar
+       ; updTcRef lie_var (`addHoles` holes) }
 
 -- | Throw out any constraints emitted by the thing_inside
 discardConstraints :: TcM a -> TcM a
