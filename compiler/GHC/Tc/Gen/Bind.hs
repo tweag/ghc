@@ -726,7 +726,7 @@ tcPolyCheck prag_fn
        -- We re-use mono-name, but we could equally well use a fresh one
 
        ; let prag_sigs = lookupPragEnv prag_fn name
-             poly_id2  = mkLocalId mono_name (idType poly_id)
+             poly_id2  = mkLocalId mono_name (idMult poly_id) (idType poly_id)
        ; spec_prags <- tcSpecPrags    poly_id prag_sigs
        ; poly_id    <- addInlinePrags poly_id prag_sigs
 

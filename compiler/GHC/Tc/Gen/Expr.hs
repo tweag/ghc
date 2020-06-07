@@ -586,7 +586,7 @@ tcExpr (HsCase x scrut matches) res_ty
           --     case id        of {..}
           --     case (\v -> v) of {..}
           -- This design choice is discussed in #17790
-          (scrut', scrut_ty) <- tcScalingUsage mult $ tcInferRho scrut
+        ; (scrut', scrut_ty) <- tcScalingUsage mult $ tcInferRho scrut
 
         ; traceTc "HsCase" (ppr scrut_ty)
         ; matches' <- tcMatchesCase match_ctxt (Scaled mult scrut_ty) matches res_ty

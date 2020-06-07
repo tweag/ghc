@@ -689,7 +689,7 @@ concern things that the renamer can't handle.
 -}
 
 tcMult :: HsArrow GhcRn -> TcM Mult
-tcMult hc = tc_mult typeLevelMode hc
+tcMult hc = tc_mult (mkMode TypeLevel) hc
 
 -- | Info about the context in which we're checking a type. Currently,
 -- differentiates only between types and kinds, but this will likely
@@ -896,7 +896,7 @@ tc_hs_type _ ty@(HsSpliceTy {}) _exp_kind
 
 ---------- Functions and applications
 tc_hs_type mode ty@(HsFunTy _ mult ty1 ty2) exp_kind
-  | mode_level mode == KindLevel && not (isUnrestricted mult)
+  | mode_tyki mode == KindLevel && not (isUnrestricted mult)
     = failWithTc (text "Linear arrows disallowed in kinds:" <+> ppr ty)
   | otherwise
     = tc_fun_type mode mult ty1 ty2 exp_kind
