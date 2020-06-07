@@ -1008,16 +1008,16 @@ can_eq_nc' _flat _rdr_env _envs ev eq_rel ty1@(LitTy l1) _ (LitTy l2) _
 -- Decompose FunTy: (s -> t) and (c => t)
 -- NB: don't decompose (Int -> blah) ~ (Show a => blah)
 can_eq_nc' _flat _rdr_env _envs ev eq_rel
-           (FunTy { ft_af = af1, ft_arg = ty1a, ft_res = ty1b }) _
-           (FunTy { ft_af = af2, ft_arg = ty2a, ft_res = ty2b }) _
+           (FunTy { ft_mult = am1, ft_af = af1, ft_arg = ty1a, ft_res = ty1b }) _
+           (FunTy { ft_mult = am2, ft_af = af2, ft_arg = ty2a, ft_res = ty2b }) _
   | af1 == af2   -- Don't decompose (Int -> blah) ~ (Show a => blah)
   , Just ty1a_rep <- getRuntimeRep_maybe ty1a  -- getRutimeRep_maybe:
   , Just ty1b_rep <- getRuntimeRep_maybe ty1b  -- see Note [Decomposing FunTy]
   , Just ty2a_rep <- getRuntimeRep_maybe ty2a
   , Just ty2b_rep <- getRuntimeRep_maybe ty2b
   = canDecomposableTyConAppOK ev eq_rel funTyCon
-                              [ty1a_rep, ty1b_rep, ty1a, ty1b]
-                              [ty2a_rep, ty2b_rep, ty2a, ty2b]
+                              [am1, ty1a_rep, ty1b_rep, ty1a, ty1b]
+                              [am2, ty2a_rep, ty2b_rep, ty2a, ty2b]
 
 -- Decompose type constructor applications
 -- NB: e have expanded type synonyms already
