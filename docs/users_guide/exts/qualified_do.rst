@@ -40,22 +40,23 @@ It allows you to mix and match ``do`` blocks of different types with suitable
 operations to use on each case: ::
 
   {-# LANGUAGE QualifiedDo #-}
-  import qualified MAC as MAC
+  import MAC
   import qualified Control.Monad.Linear as L
 
+  -- runMAC, label, and box are from MAC.
   f :: IO ()
   f = do
-    x <- MAC.runMAC $       -- (Prelude.>>=)
-                            --   (MAC.runMAC $
+    x <- runMAC $           -- (Prelude.>>=)
+                            --   (runMAC $
       MAC.do                --
-        d <- MAC.label "y"  --     MAC.label "y" MAC.>>= \d ->
-        MAC.box $           --     (MAC.>>)
-                            --       (MAC.box $
+        d <- label "y"      --     label "y" MAC.>>= \d ->
+        box $               --
+                            --       (box $
           L.do              --
             r <- L.f d      --         L.f d L.>>= \r ->
             L.g r           --         L.g r L.>>
             L.return r      --         L.return r
-                            --       )
+                            --       ) MAC.>>
         MAC.return d        --       (MAC.return d)
                             --   )
     print x                 --   (\x -> print x)
@@ -92,12 +93,13 @@ The semantics of ``do`` notation statements with ``-XQualifiedDo`` is as follows
       M.join ((\x1 … xn -> M.do { stmts }) M.<$> u1 M.<*> … M.<*> un)
 
 
-  Note that ``M.join`` is only needed if the final expression is
-  not identifiably a ``return``.
+  Note that ``M.join`` is only needed if the final expression is not
+  identifiably a ``return``. With ``-XQualifiedDo`` enabled, ``-XApplicativeDo``
+  looks only for the qualified ``return``/``pure`` in a qualified do-block.
 
 *  With ``-XRecursiveDo``, ``rec`` blocks use ``M.mfix`` and ``M.return``: ::
 
-     M.do { rec { x1 <- u1; … ; xn <- un }; stmts }  =
+     M.mdo { rec { x1 <- u1; … ; xn <- un }; stmts }  =
        M.do
        { (x1, …, xn) <- M.mfix (\~(x1, …, xn) -> M.do { x1 <- u1; …; xn <- un; M.return (x1, …, xn)})
        ; stmts
