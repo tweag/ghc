@@ -1047,7 +1047,7 @@ interruptibleIdKey = mkPreludeMiscIdUnique 442
 funDepIdKey :: Unique
 funDepIdKey = mkPreludeMiscIdUnique 445
 
--- mulArrow. TODO move before merging
+-- mulArrow
 mulArrowTIdKey :: Unique
 mulArrowTIdKey = mkPreludeMiscIdUnique 446
 

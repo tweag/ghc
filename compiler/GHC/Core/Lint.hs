@@ -2751,7 +2751,6 @@ ensureSubMult actual_usage described_usage err_msg = do
    where actual_usage' = normalize actual_usage
          described_usage' = normalize described_usage
 
-         -- TODO: try reduceTyFamApp_maybe
          normalize :: Mult -> Mult
          normalize (MultMul m1 m2) = mkMultMul (normalize m1) (normalize m2)
          normalize m = m

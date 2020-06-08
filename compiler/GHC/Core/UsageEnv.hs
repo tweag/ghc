@@ -40,10 +40,6 @@ scaleUsage x   Bottom     = MUsage x
 scaleUsage x   (MUsage y) = MUsage $ mkMultMul x y
 
 -- For now, we use extra multiplicity Bottom for empty case.
--- TODO: change to keeping UsageEnv on Case, issue #25.
--- If the boolean flag is True, then the usage environment
--- is the sum of NameEnv Mult and arbitrary multiplicities,
--- as in empty case.
 data UsageEnv = UsageEnv (NameEnv Mult) Bool
 
 unitUE :: NamedThing n => n -> Mult -> UsageEnv
