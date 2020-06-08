@@ -30,7 +30,9 @@ module GHC.Core.DataCon (
         dataConRepType, dataConInstSig, dataConFullSig,
         dataConName, dataConIdentity, dataConTag, dataConTagZ,
         dataConTyCon, dataConOrigTyCon,
-        dataConWrapperType, dataConDisplayType,
+        dataConWrapperType,
+        dataConNonlinearType,
+        dataConDisplayType,
         dataConUnivTyVars, dataConExTyCoVars, dataConUnivAndExTyCoVars,
         dataConUserTyVars, dataConUserTyVarBinders,
         dataConEqSpec, dataConTheta,
@@ -1330,7 +1332,12 @@ They differ in how linear fields are handled.
 The type of the wrapper in Core.
 For example, dataConWrapperType for Maybe is a #-> Just a.
 
-2. dataConDisplayType:
+2. dataConNonlinearType:
+The type of the constructor, with linear arrows replaced by unrestricted ones.
+Used when we don't want to introduce linear types to user (in holes
+and in types in hie used by haddock).
+
+3. dataConDisplayType (depends on DynFlags):
 The type we'd like to show in error messages, :info and -ddump-types.
 Ideally, it should reflect the type written by the user;
 the function returns a type with arrows that would be required
@@ -1367,17 +1374,21 @@ dataConWrapperType (MkData { dcUserTyVarBinders = user_tvbs,
     mkVisFunTys arg_tys $
     res_ty
 
-dataConDisplayType :: DynFlags -> DataCon -> Type
-dataConDisplayType dflags (MkData { dcUserTyVarBinders = user_tvbs,
-                                    dcOtherTheta = theta, dcOrigArgTys = arg_tys,
-                                    dcOrigResTy = res_ty })
-  = let lin = xopt LangExt.LinearTypes dflags
-        arg_tys' | lin = arg_tys
-                 | otherwise = (map (\(Scaled w t) -> case w of One -> Scaled Many t; _ -> Scaled w t) arg_tys)
+dataConNonlinearType :: DataCon -> Type
+dataConNonlinearType (MkData { dcUserTyVarBinders = user_tvbs,
+                               dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                               dcOrigResTy = res_ty })
+  = let arg_tys' = map (\(Scaled w t) -> Scaled (case w of One -> Many; _ -> w) t) arg_tys
     in mkInvisForAllTys user_tvbs $
        mkInvisFunTysMany theta $
        mkVisFunTys arg_tys' $
        res_ty
+
+dataConDisplayType :: DynFlags -> DataCon -> Type
+dataConDisplayType dflags dc
+  = if xopt LangExt.LinearTypes dflags
+    then dataConWrapperType dc
+    else dataConNonlinearType dc
 
 -- | Finds the instantiated types of the arguments required to construct a
 -- 'DataCon' representation
