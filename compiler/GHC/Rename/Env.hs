@@ -1692,22 +1692,16 @@ lookupSyntaxNames std_names
              ; return (map (HsVar noExtField . noLoc) usr_names, mkFVs usr_names) } }
 
 {-
-************************************************************************
-*                                                                      *
-                        QualifiedDo
-        Dealing with QualifiedDo is driven by the Opt_QualifiedDo
-        dynamic flag.
-*                                                                      *
-************************************************************************
-
-QualidiedDo is implemented using the same placeholders for operation
-names in the AST that were devised for RebindableSyntax. Whenever the
-renamer checks which names to use for do syntax, it first checks if the
-do block is qualified (e.g. M.do { stmts }), in which case it searches
-for qualified names. If the qualified names are not in scope, an error
-is produced. If the do block is not qualified, the renamer does
-the usual search of the names which considers whether RebindableSyntax
-is enabled or not.
+Note [QualifiedDo]
+~~~~~~~~~~~~~~~~~~
+QualifiedDo is implemented using the same placeholders for operation names in
+the AST that were devised for RebindableSyntax. Whenever the renamer checks
+which names to use for do syntax, it first checks if the do block is qualified
+(e.g. M.do { stmts }), in which case it searches for qualified names. If the
+qualified names are not in scope, an error is produced. If the do block is not
+qualified, the renamer does the usual search of the names which considers
+whether RebindableSyntax is enabled or not. Dealing with QualifiedDo is driven
+by the Opt_QualifiedDo dynamic flag.
 
 -}
 

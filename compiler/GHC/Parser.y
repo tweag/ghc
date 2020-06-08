@@ -2806,16 +2806,14 @@ aexp    :: { ECP }
         | DO  stmtlist               {% (hintQualifiedDo $1 >>) $ return $ ECP $
                                         $2 >>= \ $2 ->
                                         amms (mkHsDoPV (comb2 $1 $2)
-                                                       (fmap mkModuleNameFS
-                                                        (getDO $1))
+                                                       (fmap mkModuleNameFS (getDO $1))
                                                        (mapLoc snd $2))
-                                               (mj AnnDo $1:(fst $ unLoc $2)) }
+                                             (mj AnnDo $1:(fst $ unLoc $2)) }
         | MDO stmtlist             {% hintQualifiedDo $1 >> runPV $2 >>= \ $2 ->
                                        fmap ecpFromExp $
                                        ams (L (comb2 $1 $2)
                                               (mkHsDo (MDoExpr $
-                                                        fmap mkModuleNameFS
-                                                        (getMDO $1))
+                                                        fmap mkModuleNameFS (getMDO $1))
                                                         (snd $ unLoc $2)))
                                            (mj AnnMdo $1:(fst $ unLoc $2)) }
         | 'proc' aexp '->' exp
