@@ -5,7 +5,8 @@
 \section{@Vars@: Variables}
 -}
 
-{-# LANGUAGE CPP, FlexibleContexts, MultiWayIf, FlexibleInstances, DeriveDataTypeable, PatternSynonyms #-}
+{-# LANGUAGE CPP, FlexibleContexts, MultiWayIf, FlexibleInstances, DeriveDataTypeable,
+             PatternSynonyms, BangPatterns #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns   #-}
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
@@ -770,7 +771,7 @@ mkExportedLocalVar details name ty info
   -- There is no support for exporting linear variables. See also [mkGlobalVar]
 
 mk_id :: Name -> Mult -> Type -> IdScope -> IdDetails -> IdInfo -> Id
-mk_id name w ty scope details info
+mk_id name !w ty scope details info
   = Id { varName    = name,
          realUnique = getKey (nameUnique name),
          varMult    = w,
@@ -810,15 +811,18 @@ updateIdTypeButNotMult f id = id { varType = f (varType id) }
 updateIdTypeAndMult :: (Type -> Type) -> Id -> Id
 updateIdTypeAndMult f id@(Id { varType = ty
                              , varMult = mult })
-  = id { varType = f ty
-       , varMult = f mult }
+  = id { varType = ty'
+       , varMult = mult' }
+  where
+    !ty'   = f ty
+    !mult' = f mult
 updateIdTypeAndMult _ other = pprPanic "updateIdTypeAndMult" (ppr other)
 
 updateIdTypeAndMultM :: Monad m => (Type -> m Type) -> Id -> m Id
 updateIdTypeAndMultM f id@(Id { varType = ty
                               , varMult = mult })
-  = do { ty' <- f ty
-       ; mult' <- f mult
+  = do { !ty' <- f ty
+       ; !mult' <- f mult
        ; return (id { varType = ty', varMult = mult' }) }
 updateIdTypeAndMultM _ other = pprPanic "updateIdTypeAndMultM" (ppr other)
 
