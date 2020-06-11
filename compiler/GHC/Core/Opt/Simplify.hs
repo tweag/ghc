@@ -961,7 +961,7 @@ simplExprF1 env (App fun arg) cont
                       -- But use substTy, not simplType, to avoid forcing
                       -- the hole type; it will likely not be needed.
                       -- See Note [The hole type in ApplyToTy]
-                    ; let hole' = substTy env (exprType fun)
+                    ; let hole' = substTy env fun_ty
 
                     ; simplExprF env fun $
                       ApplyToTy { sc_arg_ty  = arg'
