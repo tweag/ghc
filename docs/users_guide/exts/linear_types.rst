@@ -9,13 +9,13 @@ Linear types
     Enable the linear arrow ``a #-> b`` and the multiplicity-polymorphic arrow
     ``a # m -> b``.
 
-**This extension is currently considered experimental, expect bugs and
-warts, everything down to the syntax is subject to change**.  See, in
-particular, :ref:`linear-types-limitations` below. We encourage you to
-experiment with this extension and report issues in the GHC bug
-tracker `the GHC bug tracker
-<https://gitlab.haskell.org/ghc/ghc/issues>`__, adding the tag
-``LinearTypes``.
+**This extension is currently considered experimental, expect bugs,
+warts, and bad error messages; everything down to the syntax is
+subject to change**.  See, in particular,
+:ref:`linear-types-limitations` below. We encourage you to experiment
+with this extension and report issues in the GHC bug tracker `the GHC
+bug tracker <https://gitlab.haskell.org/ghc/ghc/issues>`__, adding the
+tag ``LinearTypes``.
 
 A function ``f`` is linear if: when its result is consumed *exactly
 once*, then its argument is consumed *exactly once*. Intuitively, it
@@ -178,6 +178,8 @@ missing pieces.
 - ``@``-patterns and view patterns are not linear.
 - The projection function for a record with a single linear field should be
   multiplicity-polymorphic; currently it's unrestricted.
+- Attempting to use of linear types in Template Haskell will probably
+  not work.
 
 .. _linear-types-references:
 
