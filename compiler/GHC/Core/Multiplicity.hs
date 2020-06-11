@@ -336,8 +336,8 @@ mkMultAdd _ _ = Many
 
 mkMultMul :: Mult -> Mult -> Mult
 mkMultMul One p = p
-mkMultMul p One = p
 mkMultMul Many _ = Many
+mkMultMul p One = p
 mkMultMul _ Many = Many
 mkMultMul p q = mkTyConApp multMulTyCon [p, q]
 
