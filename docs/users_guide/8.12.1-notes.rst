@@ -17,9 +17,8 @@ Highlights
 
   The GADT syntax can be used to define data types with linear and nonlinear fields.
 
-  Note that this extension is considered experimental and the details
-  are subject to change. Further refinement is planned for future versions
-  of GHC.
+This extension is considered experimental: it doesn't implement the full proposal yet and the details
+  are subject to change.
 
 * NCG
 
