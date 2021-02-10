@@ -1679,9 +1679,9 @@ emitSimples cts
 emitImplication :: Implication -> TcM ()
 emitImplication ct
   = do { lie_var <- getConstraintVar ;
-         updTcRef lie_var (`addImplics` unitBag ct) }
+         updTcRef lie_var (`addImplics` unitBag (unitWith ct)) }
 
-emitImplications :: Bag Implication -> TcM ()
+emitImplications :: Bag (With Implication) -> TcM ()
 emitImplications ct
   = unless (isEmptyBag ct) $
     do { lie_var <- getConstraintVar ;

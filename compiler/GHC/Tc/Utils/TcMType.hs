@@ -213,7 +213,7 @@ cloneWC :: WantedConstraints -> TcM WantedConstraints
 -- effect, /except/ from causing unifications
 cloneWC wc@(WC { wc_simple = simples, wc_impl = implics })
   = do { simples' <- mapBagM cloneWanted simples
-       ; implics' <- mapBagM cloneImplication implics
+       ; implics' <- mapBagM (mapWithM cloneImplication) implics
        ; return (wc { wc_simple = simples', wc_impl = implics' }) }
 
 cloneImplication :: Implication -> TcM Implication
@@ -2285,7 +2285,7 @@ zonkWC wc = zonkWCRec wc
 zonkWCRec :: WantedConstraints -> TcM WantedConstraints
 zonkWCRec (WC { wc_simple = simple, wc_impl = implic, wc_holes = holes })
   = do { simple' <- zonkSimples simple
-       ; implic' <- mapBagM zonkImplication implic
+       ; implic' <- mapBagM (mapWithM zonkImplication) implic
        ; holes'  <- mapBagM zonkHole holes
        ; return (WC { wc_simple = simple', wc_impl = implic', wc_holes = holes' }) }
 

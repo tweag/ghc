@@ -909,7 +909,7 @@ checkConstraints skol_info skol_tvs given thing_inside
          then do { (tclvl, wanted, result) <- pushLevelAndCaptureConstraints thing_inside
                  ; (implics, ev_binds) <- buildImplicationFor tclvl skol_info skol_tvs given wanted
                  ; traceTc "checkConstraints" (ppr tclvl $$ ppr skol_tvs)
-                 ; emitImplications implics
+                 ; emitImplications (mapBag unitWith implics)
                  ; return (ev_binds, result) }
 
          else -- Fast path.  We check every function argument with tcCheckPolyExpr,

@@ -50,6 +50,8 @@ module GHC.Tc.Types.Constraint (
         setCtLocOrigin, updateCtLocOrigin, setCtLocEnv, setCtLocSpan,
         pprCtLoc,
 
+        With(..), unitWith, mapWith, mapWithM, anyWith, allWith,
+
         -- CtEvidence
         CtEvidence(..), TcEvDest(..),
         mkKindLoc, toKindLoc, mkGivenLoc,
@@ -552,7 +554,7 @@ tyCoFVsOfWC :: WantedConstraints -> FV
 -- Only called on *zonked* things
 tyCoFVsOfWC (WC { wc_simple = simple, wc_impl = implic, wc_holes = holes })
   = tyCoFVsOfCts simple `unionFV`
-    tyCoFVsOfBag tyCoFVsOfImplic implic `unionFV`
+    tyCoFVsOfBag (tyCoFVsOfWith tyCoFVsOfImplic) implic `unionFV`
     tyCoFVsOfBag tyCoFVsOfHole holes
 
 -- | Returns free variables of Implication as a composable FV computation.
@@ -803,7 +805,7 @@ superClassesMightHelp :: WantedConstraints -> Bool
 -- expose more equalities or functional dependencies) might help to
 -- solve this constraint.  See Note [When superclasses help]
 superClassesMightHelp (WC { wc_simple = simples, wc_impl = implics })
-  = anyBag might_help_ct simples || anyBag might_help_implic implics
+  = anyBag might_help_ct simples || anyBag (anyWith might_help_implic) implics
   where
     might_help_implic ic
        | IC_Unsolved <- ic_status ic = superClassesMightHelp (ic_wanted ic)
@@ -914,9 +916,38 @@ v%************************************************************************
 
 data WantedConstraints
   = WC { wc_simple :: Cts              -- Unsolved constraints, all wanted
-       , wc_impl   :: Bag Implication
+       , wc_impl   :: Bag (With Implication)
        , wc_holes  :: Bag Hole
     }
+
+-- Linear contraints stuff --
+
+newtype With a = With (Bag a)
+  deriving (Outputable)
+
+unitWith :: a -> With a
+unitWith a = With $ unitBag a
+
+tyCoFVsOfWith :: (a -> FV) -> With a -> FV
+tyCoFVsOfWith tvs_of (With as) = tyCoFVsOfBag tvs_of as
+
+anyWith :: (a -> Bool) -> With a -> Bool
+anyWith f (With as) = anyBag f as
+
+allWith :: (a -> Bool) -> With a -> Bool
+allWith f (With as) = allBag f as
+
+mapWith :: (a -> b) -> With a -> With b
+mapWith f (With as) = With $ mapBag f as
+
+mapWithM :: Monad m => (a -> m b) -> With a -> m (With b)
+mapWithM f (With as) = With <$> mapBagM f as
+
+unionWiths :: With a -> With a -> With a
+unionWiths (With as) (With bs) = With $ unionBags as bs
+
+-- /Linear contraints stuff --
+
 
 emptyWC :: WantedConstraints
 emptyWC = WC { wc_simple = emptyBag
@@ -927,7 +958,7 @@ mkSimpleWC :: [CtEvidence] -> WantedConstraints
 mkSimpleWC cts
   = emptyWC { wc_simple = listToBag (map mkNonCanonical cts) }
 
-mkImplicWC :: Bag Implication -> WantedConstraints
+mkImplicWC :: Bag (With Implication) -> WantedConstraints
 mkImplicWC implic
   = emptyWC { wc_impl = implic }
 
@@ -940,7 +971,7 @@ isEmptyWC (WC { wc_simple = f, wc_impl = i, wc_holes = holes })
 -- are solved.
 isSolvedWC :: WantedConstraints -> Bool
 isSolvedWC WC {wc_simple = wc_simple, wc_impl = wc_impl, wc_holes = holes} =
-  isEmptyBag wc_simple && allBag (isSolvedStatus . ic_status) wc_impl && isEmptyBag holes
+  isEmptyBag wc_simple && allBag (allWith (isSolvedStatus . ic_status)) wc_impl && isEmptyBag holes
 
 andWC :: WantedConstraints -> WantedConstraints -> WantedConstraints
 andWC (WC { wc_simple = f1, wc_impl = i1, wc_holes = h1 })
@@ -957,7 +988,7 @@ addSimples wc cts
   = wc { wc_simple = wc_simple wc `unionBags` cts }
     -- Consider: Put the new constraints at the front, so they get solved first
 
-addImplics :: WantedConstraints -> Bag Implication -> WantedConstraints
+addImplics :: WantedConstraints -> Bag (With Implication) -> WantedConstraints
 addImplics wc implic = wc { wc_impl = wc_impl wc `unionBags` implic }
 
 addInsols :: WantedConstraints -> Bag Ct -> WantedConstraints
@@ -975,14 +1006,14 @@ dropMisleading :: WantedConstraints -> WantedConstraints
 --   and the implications differently.  Sigh.
 dropMisleading (WC { wc_simple = simples, wc_impl = implics, wc_holes = holes })
   = WC { wc_simple = filterBag insolubleCt simples
-       , wc_impl   = mapBag drop_implic implics
+       , wc_impl   = mapBag (mapWith drop_implic) implics
        , wc_holes  = filterBag isOutOfScopeHole holes }
   where
     drop_implic implic
       = implic { ic_wanted = drop_wanted (ic_wanted implic) }
     drop_wanted (WC { wc_simple = simples, wc_impl = implics, wc_holes = holes })
       = WC { wc_simple = filterBag keep_ct simples
-           , wc_impl   = mapBag drop_implic implics
+           , wc_impl   = mapBag (mapWith drop_implic) implics
            , wc_holes  = filterBag isOutOfScopeHole holes }
 
     keep_ct ct = case classifyPredType (ctPred ct) of
@@ -1004,7 +1035,7 @@ insolubleImplic ic = isInsolubleStatus (ic_status ic)
 insolubleWC :: WantedConstraints -> Bool
 insolubleWC (WC { wc_impl = implics, wc_simple = simples, wc_holes = holes })
   =  anyBag insolubleCt simples
-  || anyBag insolubleImplic implics
+  || anyBag (anyWith insolubleImplic) implics
   || anyBag isOutOfScopeHole holes  -- See Note [Insoluble holes]
 
 insolubleCt :: Ct -> Bool

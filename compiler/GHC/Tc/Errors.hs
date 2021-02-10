@@ -577,7 +577,7 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
             -- to report unsolved Derived goals as errors
             -- See Note [Do not report derived but soluble errors]
 
-     ; mapBagM_ (reportImplic ctxt2) implics }
+     ; mapBagM_ (mapWithM (reportImplic ctxt2)) implics }
             -- NB ctxt2: don't suppress inner insolubles if there's only a
             -- wanted insoluble here; but do suppress inner insolubles
             -- if there's a *given* insoluble here (= inaccessible code)

@@ -150,7 +150,7 @@ solve_simple_wanteds (WC { wc_simple = simples1, wc_impl = implics1, wc_holes = 
     do { solveSimples simples1
        ; (implics2, unsolved) <- getUnsolvedInerts
        ; return (WC { wc_simple = unsolved
-                    , wc_impl   = implics1 `unionBags` implics2
+                    , wc_impl   = implics1 `unionBags` (mapBag unitWith implics2)
                     , wc_holes  = holes }) }
 
 {- Note [The solveSimpleWanteds loop]
