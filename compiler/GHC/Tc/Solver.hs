@@ -53,6 +53,7 @@ import GHC.Core.Predicate
 import GHC.Tc.Types.Origin
 import GHC.Tc.Utils.TcType
 import GHC.Core.Type
+import GHC.Core.UsageEnv
 import GHC.Builtin.Types ( liftedRepTy, manyDataConTy )
 import GHC.Core.Unify    ( tcMatchTyKi )
 import GHC.Utils.Misc
@@ -114,7 +115,7 @@ captureTopConstraints thing_inside
                 -- We call simplifyTop so that it does defaulting
                 -- (esp of runtime-reps) before reporting errors
 
-simplifyTopImplic :: Bag Implication -> TcM ()
+simplifyTopImplic :: Bag (With Implication) -> TcM ()
 simplifyTopImplic implics
   = do { empty_binds <- simplifyTop (mkImplicWC implics)
 
@@ -401,7 +402,7 @@ reportUnsolvedEqualities skol_info skol_tvs tclvl wanted
   | otherwise
   = checkNoErrs $   -- Fail
     do { implic <- buildTvImplication skol_info skol_tvs tclvl wanted
-       ; reportAllUnsolved (mkImplicWC (unitBag implic)) }
+       ; reportAllUnsolved (mkImplicWC (unitBag (unitWith implic))) }
 
 
 -- | Simplify top-level constraints, but without reporting any unsolved
@@ -461,10 +462,13 @@ defaultCallStacks :: WantedConstraints -> TcS WantedConstraints
 -- See Note [Overview of implicit CallStacks] in GHC.Tc.Types.Evidence
 defaultCallStacks wanteds
   = do simples <- handle_simples (wc_simple wanteds)
-       mb_implics <- mapBagM handle_implic (wc_impl wanteds)
+       mb_implics <- mapBagM (mapWithM handle_implic) (wc_impl wanteds)
        return (wanteds { wc_simple = simples
-                       , wc_impl = catBagMaybes mb_implics })
-
+                       , wc_impl = catBagMaybes (mapBag necatWithMaybes mb_implics) })
+                   -- TODO: I don't think we can simply discard constraints in a
+                   -- `With`. So we may have to replace them with something more
+                   -- clever. But I can live with `HasCallStack` constraints
+                   -- not being handled by the prototype.
   where
 
   handle_simples simples
@@ -1009,7 +1013,7 @@ emitResidualConstraints rhs_tclvl ev_binds_var
         ; implics <- if isEmptyWC inner_wanted
                      then return emptyBag
                      else do implic1 <- newImplication
-                             return $ unitBag $
+                             return $ unitBag $ unitWith $
                                       implic1  { ic_tclvl     = rhs_tclvl
                                                , ic_skols     = qtvs
                                                , ic_given     = full_theta_vars
@@ -1792,8 +1796,8 @@ superclasses.  In that case we check whether the new Deriveds actually led to
 any new unifications, and iterate the implications only if so.
 -}
 
-solveNestedImplications :: Bag Implication
-                        -> TcS (Bag Implication)
+solveNestedImplications :: Bag (With Implication)
+                        -> TcS (Bag (With Implication))
 -- Precondition: the TcS inerts may contain unsolved simples which have
 -- to be converted to givens before we go inside a nested implication.
 solveNestedImplications implics
@@ -1801,7 +1805,7 @@ solveNestedImplications implics
   = return (emptyBag)
   | otherwise
   = do { traceTcS "solveNestedImplications starting {" empty
-       ; unsolved_implics <- mapBagM solveImplication implics
+       ; unsolved_implics <- mapBagM solveWith implics
 
        -- ... and we are back in the original TcS inerts
        -- Notice that the original includes the _insoluble_simples so it was safe to ignore
@@ -1810,6 +1814,16 @@ solveNestedImplications implics
                   vcat [ text "unsolved_implics =" <+> ppr unsolved_implics ]
 
        ; return (catBagMaybes unsolved_implics) }
+  where
+    solveWith :: With Implication -> TcS (Maybe (With Implication))
+    solveWith impls
+      = do { (ues, remaining) <- mapAndUnzipWithM (collectUsageTcS . solveImplication) impls
+           ; emitBindingUsageTcS (supUEs ues)
+           ; return $ necatWithMaybes remaining
+             -- TODO: I'm not sure that dropping solved constraint is the "right
+             -- thing to do" for With. I'm not sure what I'm supposed to do with
+             -- empty With either.
+           }
 
 solveImplication :: Implication    -- Wanted
                  -> TcS (Maybe Implication) -- Simplified implication (empty or singleton)

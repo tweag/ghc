@@ -50,7 +50,8 @@ module GHC.Tc.Types.Constraint (
         setCtLocOrigin, updateCtLocOrigin, setCtLocEnv, setCtLocSpan,
         pprCtLoc,
 
-        With(..), unitWith, mapWith, mapWithM, anyWith, allWith,
+        With(..), unitWith, mapWith, mapWithM, anyWith, allWith, catWithMaybes,
+        mapAndUnzipWithM, isEmptyWith, necatWithMaybes,
 
         -- CtEvidence
         CtEvidence(..), TcEvDest(..),
@@ -923,10 +924,13 @@ data WantedConstraints
 -- Linear contraints stuff --
 
 newtype With a = With (Bag a)
-  deriving (Outputable)
+  deriving (Outputable, Functor, Foldable)
 
 unitWith :: a -> With a
 unitWith a = With $ unitBag a
+
+isEmptyWith :: With a -> Bool
+isEmptyWith (With as) = isEmptyBag as
 
 tyCoFVsOfWith :: (a -> FV) -> With a -> FV
 tyCoFVsOfWith tvs_of (With as) = tyCoFVsOfBag tvs_of as
@@ -945,6 +949,20 @@ mapWithM f (With as) = With <$> mapBagM f as
 
 unionWiths :: With a -> With a -> With a
 unionWiths (With as) (With bs) = With $ unionBags as bs
+
+catWithMaybes :: With (Maybe a) -> With a
+catWithMaybes (With bs) = With $ catBagMaybes bs
+
+necatWithMaybes :: With (Maybe a) -> Maybe (With a)
+necatWithMaybes as =
+  let res0 = catWithMaybes as in
+    if isEmptyWith res0 then Nothing
+    else Just res0
+
+mapAndUnzipWithM :: Monad m => (a -> m (b,c)) -> With a -> m (With b, With c)
+mapAndUnzipWithM f (With as)
+  = do { (ls, rs) <- mapAndUnzipBagM f as
+       ; return (With ls, With rs) }
 
 -- /Linear contraints stuff --
 

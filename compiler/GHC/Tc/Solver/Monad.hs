@@ -33,7 +33,7 @@ module GHC.Tc.Solver.Monad (
     wrapErrTcS, wrapWarnTcS,
     resetUnificationFlag, setUnificationFlag,
 
-    emitBindingUsageTcS,
+    collectUsageTcS, emitBindingUsageTcS,
 
     -- Evidence creation and transformation
     MaybeNew(..), freshGoals, isFresh, getEvExpr,
@@ -2885,6 +2885,14 @@ getUsageTcS = TcS $ \env ->
   do { let ref = tcs_usage env
      ; TcM.readTcRef ref
      }
+
+collectUsageTcS :: TcS a -> TcS (UsageEnv, a)
+collectUsageTcS thing_inside = TcS $ \env ->
+  do { local_usage_ref <- TcM.newTcRef zeroUE
+     ; let env1 = env { tcs_usage = local_usage_ref }
+     ; result <- unTcS thing_inside env1
+     ; local_usage <- TcM.readTcRef local_usage_ref
+     ; return (local_usage,result) }
 
 unitUETcS :: NamedThing n => n -> Mult -> TcS ()
 unitUETcS n m = TcS $ \env ->
