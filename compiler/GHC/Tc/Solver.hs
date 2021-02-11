@@ -1962,7 +1962,7 @@ setImplicationStatus implic@(Implic { ic_status     = status
    WC { wc_simple = simples, wc_impl = implics, wc_holes = holes } = wc
 
    pruned_simples = dropDerivedSimples simples
-   pruned_implics = filterBag keep_me implics
+   pruned_implics = filterBag (not . isEmptyWith) $ mapBag (filterWith keep_me) implics
    pruned_wc = WC { wc_simple = pruned_simples
                   , wc_impl   = pruned_implics
                   , wc_holes  = holes }   -- do not prune holes; these should be reported
@@ -2042,7 +2042,7 @@ neededEvVars implic@(Implic { ic_given = givens
  = do { ev_binds <- TcS.getTcEvBindsMap ev_binds_var
       ; tcvs     <- TcS.getTcEvTyCoVars ev_binds_var
 
-      ; let seeds1        = foldr add_implic_seeds old_needs implics
+      ; let seeds1        = foldr (\as acc -> foldr add_implic_seeds acc as) old_needs implics
             seeds2        = nonDetStrictFoldEvBindMap add_wanted seeds1 ev_binds
                             -- It's OK to use a non-deterministic fold here
                             -- because add_wanted is commutative

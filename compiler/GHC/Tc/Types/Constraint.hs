@@ -51,7 +51,7 @@ module GHC.Tc.Types.Constraint (
         pprCtLoc,
 
         With(..), unitWith, mapWith, mapWithM, anyWith, allWith, catWithMaybes,
-        mapAndUnzipWithM, isEmptyWith, necatWithMaybes,
+        mapAndUnzipWithM, isEmptyWith, necatWithMaybes, filterWith,
 
         -- CtEvidence
         CtEvidence(..), TcEvDest(..),
@@ -946,6 +946,9 @@ mapWith f (With as) = With $ mapBag f as
 
 mapWithM :: Monad m => (a -> m b) -> With a -> m (With b)
 mapWithM f (With as) = With <$> mapBagM f as
+
+filterWith :: (a -> Bool) -> With a -> With a
+filterWith p (With as) = With $ filterBag p as
 
 unionWiths :: With a -> With a -> With a
 unionWiths (With as) (With bs) = With $ unionBags as bs
